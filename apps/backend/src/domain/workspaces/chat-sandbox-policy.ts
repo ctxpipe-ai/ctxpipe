@@ -1,3 +1,5 @@
+import type { PermissionHandler } from "@tanstack/ai-opencode"
+
 export const CHAT_PERMISSION_MODE = "acceptEdits" as const
 
 export const CHAT_SANDBOX_LIMITS = {
@@ -115,22 +117,23 @@ export function createWorkspaceChatPermissionHandler(input: {
     toolName: string,
     argsExcerpt: string,
   ) => Promise<"allow" | "deny" | "timeout" | "garbage">
-}): (request: {
-  toolName: string
-  argsExcerpt?: string
-}) => Promise<"allow" | "deny"> {
+}): PermissionHandler {
   return async (request) => {
+    const toolName = request.type || request.title
+    const argsExcerpt = request.title
     const classified = classifyChatToolRequest({
-      toolName: request.toolName,
-      argsExcerpt: request.argsExcerpt,
+      toolName,
+      argsExcerpt,
       writeStatus: input.writeStatus,
     })
-    if (classified.hardDeny) return "deny"
-    if (classified.acceptEditsWouldAllow) return "allow"
+    if (classified.hardDeny) return "reject"
+    if (classified.acceptEditsWouldAllow) return "once"
     const judge = input.judge
-      ? await input.judge(request.toolName, request.argsExcerpt ?? "")
+      ? await input.judge(toolName, argsExcerpt)
       : "deny"
-    return decideChatPermission({ ...classified, judge })
+    return decideChatPermission({ ...classified, judge }) === "allow"
+      ? "once"
+      : "reject"
   }
 }
 

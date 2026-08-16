@@ -10,6 +10,8 @@
     "dev": "portless ui.ctxpipe vite dev --host 0.0.0.0",
     "build": "vite build",
     "preview": "vite preview",
+    "typecheck": "tsc --noEmit --pretty false",
+    "typecheck:workspaces": "bash ../../scripts/typecheck-ui-workspaces.sh",
     "test": "vitest run --passWithNoTests",
     "test:watch": "vitest --passWithNoTests",
     "format": "biome format",

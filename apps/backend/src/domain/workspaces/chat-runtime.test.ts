@@ -45,11 +45,21 @@ describe("workspace chat runtime", () => {
     })
     expect(runtime.provider).toBe("docker")
     await expect(
-      runtime.onPermissionRequest({ toolName: "git_push" }),
-    ).resolves.toBe("deny")
+      runtime.onPermissionRequest({
+        id: "perm_1",
+        sessionID: "sess_1",
+        type: "git_push",
+        title: "git_push",
+      }),
+    ).resolves.toBe("reject")
     await expect(
-      runtime.onPermissionRequest({ toolName: "apply_patch" }),
-    ).resolves.toBe("allow")
+      runtime.onPermissionRequest({
+        id: "perm_2",
+        sessionID: "sess_1",
+        type: "apply_patch",
+        title: "apply_patch",
+      }),
+    ).resolves.toBe("once")
   })
 
   it("builds a thread-reuse sandbox spec and refuses Railway without a provider", () => {

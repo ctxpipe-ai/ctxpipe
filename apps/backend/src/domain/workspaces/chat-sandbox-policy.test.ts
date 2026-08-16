@@ -77,8 +77,22 @@ describe("createWorkspaceChatPermissionHandler", () => {
       writeStatus: "writable",
       judge,
     })
-    await expect(handler({ toolName: "git_push" })).resolves.toBe("deny")
-    await expect(handler({ toolName: "read_file" })).resolves.toBe("allow")
+    await expect(
+      handler({
+        id: "perm_1",
+        sessionID: "sess_1",
+        type: "git_push",
+        title: "git_push",
+      }),
+    ).resolves.toBe("reject")
+    await expect(
+      handler({
+        id: "perm_2",
+        sessionID: "sess_1",
+        type: "read_file",
+        title: "read_file",
+      }),
+    ).resolves.toBe("once")
   })
 })
 

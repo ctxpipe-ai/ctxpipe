@@ -20,15 +20,20 @@ const {
   requireCurrentUserIdMock: vi.fn(() => "user_test123"),
   requireCurrentOrgIdMock: vi.fn(() => "org_test"),
   requireCurrentOrgSlugMock: vi.fn(() => "test-org"),
-  listWorkspacesMock: vi.fn(async () => ({
-    lastUsedWorkspaceId: "ws_first",
-    items: [
-      {
-        id: "ws_first",
-        createdAt: new Date("2026-08-15T00:00:00.000Z"),
-      },
-    ],
-  })),
+  listWorkspacesMock: vi.fn(
+    async (): Promise<{
+      lastUsedWorkspaceId: string | null
+      items: Array<{ id: string; createdAt: Date }>
+    }> => ({
+      lastUsedWorkspaceId: "ws_first",
+      items: [
+        {
+          id: "ws_first",
+          createdAt: new Date("2026-08-15T00:00:00.000Z"),
+        },
+      ],
+    }),
+  ),
 }))
 
 vi.mock("../graphs/index.js", () => ({
@@ -56,6 +61,7 @@ vi.mock("../auth/context.js", () => ({
 
 vi.mock("../models/workspaces.js", () => ({
   listWorkspaces: listWorkspacesMock,
+  getPersistedFirstWorkspaceId: vi.fn(async () => "ws_first"),
 }))
 
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js"

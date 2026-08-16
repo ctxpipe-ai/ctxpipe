@@ -7,6 +7,17 @@ export type AguiChunk = {
   id?: string
 }
 
+function readAguiChunk(chunk: object): AguiChunk {
+  const record = chunk as Record<string, unknown>
+  return {
+    type: typeof record.type === "string" ? record.type : undefined,
+    delta: typeof record.delta === "string" ? record.delta : undefined,
+    messageId:
+      typeof record.messageId === "string" ? record.messageId : undefined,
+    id: typeof record.id === "string" ? record.id : undefined,
+  }
+}
+
 /** Map TanStack AG-UI text chunks onto the Vercel AI SDK UI-message stream. */
 export function aguiChunkToUiMessageChunks(
   chunk: AguiChunk,
@@ -34,12 +45,13 @@ export function aguiChunkToUiMessageChunks(
 }
 
 export async function* aguiIterableToUiMessageChunks(
-  stream: AsyncIterable<AguiChunk>,
+  stream: AsyncIterable<object>,
   textId: string,
 ): AsyncGenerator<UIMessageChunk> {
   let started = false
   let textOpen = false
-  for await (const chunk of stream) {
+  for await (const raw of stream) {
+    const chunk = readAguiChunk(raw)
     if (!started && chunk.type === "TEXT_MESSAGE_CONTENT") {
       started = true
       yield { type: "start", messageId: textId }

@@ -472,7 +472,10 @@ export const conversationRoutes = new OpenAPIHono<AppEnv>()
       lastBranch: conversation.lastBranch,
       lastBranchExistsOnRemote: lastBranchExistsOnRemote({
         lastBranch: conversation.lastBranch,
-        remoteBranches: remoteHasLastBranch ? [conversation.lastBranch] : [],
+        remoteBranches:
+          remoteHasLastBranch && conversation.lastBranch
+            ? [conversation.lastBranch]
+            : [],
       }),
       defaultBranch,
     })

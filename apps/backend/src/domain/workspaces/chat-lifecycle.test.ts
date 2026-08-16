@@ -115,6 +115,19 @@ describe("chat lifecycle", () => {
         defaultBranch: "develop",
       }),
     ).toBe("develop")
+    expect(
+      lastBranchExistsOnRemote({
+        lastBranch: null,
+        remoteBranches: ["main"],
+      }),
+    ).toBe(false)
+    expect(
+      restoreBranchAfterIdle({
+        lastBranch: null,
+        lastBranchExistsOnRemote: false,
+        defaultBranch: "main",
+      }),
+    ).toBe("main")
     expect(treeDirtyFromPorcelain(" M knowledge/a.md\n")).toBe(true)
     expect(treeDirtyFromPorcelain("")).toBe(false)
     expect(

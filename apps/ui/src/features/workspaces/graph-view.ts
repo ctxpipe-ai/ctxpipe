@@ -22,29 +22,32 @@ export function graphEdgesForNode(
   const names = new Map(
     graph.nodes.map((node) => [node.id, node.name ?? node.id]),
   )
-  return graph.edges.flatMap((edge) => {
+  const rows: Array<{
+    predicate: string
+    neighbourId: string
+    neighbourName: string
+    direction: "out" | "in"
+    confidence: number | null
+  }> = []
+  for (const edge of graph.edges) {
     if (edge.sourceId === nodeId) {
-      return [
-        {
-          predicate: edge.predicate,
-          neighbourId: edge.targetId,
-          neighbourName: names.get(edge.targetId) ?? edge.targetId,
-          direction: "out" as const,
-          confidence: edge.confidence,
-        },
-      ]
+      rows.push({
+        predicate: edge.predicate,
+        neighbourId: edge.targetId,
+        neighbourName: names.get(edge.targetId) ?? edge.targetId,
+        direction: "out",
+        confidence: edge.confidence,
+      })
     }
     if (edge.targetId === nodeId) {
-      return [
-        {
-          predicate: edge.predicate,
-          neighbourId: edge.sourceId,
-          neighbourName: names.get(edge.sourceId) ?? edge.sourceId,
-          direction: "in" as const,
-          confidence: edge.confidence,
-        },
-      ]
+      rows.push({
+        predicate: edge.predicate,
+        neighbourId: edge.sourceId,
+        neighbourName: names.get(edge.sourceId) ?? edge.sourceId,
+        direction: "in",
+        confidence: edge.confidence,
+      })
     }
-    return []
-  })
+  }
+  return rows
 }

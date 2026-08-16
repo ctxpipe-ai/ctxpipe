@@ -484,6 +484,18 @@ const deleteLinkedRoute = createRoute({
   },
 })
 
+function workspaceSlugParams(c: {
+  req: { param: () => Record<string, string> }
+}) {
+  return WorkspaceSlugParamsSchema.parse(c.req.param())
+}
+
+function linkedRepositoryParams(c: {
+  req: { param: () => Record<string, string> }
+}) {
+  return LinkedRepositoryParamsSchema.parse(c.req.param())
+}
+
 export const workspaceRoutes = new OpenAPIHono<AppEnv>()
   .openapi(listWorkspacesRoute, async (c) => {
     if (!c.get("user") || !c.get("session")) {
@@ -530,7 +542,7 @@ export const workspaceRoutes = new OpenAPIHono<AppEnv>()
     if (!c.get("user") || !c.get("session")) {
       return c.json({ error: "Unauthorized" }, 401)
     }
-    const { workspaceSlug } = c.req.valid("param")
+    const { workspaceSlug } = workspaceSlugParams(c)
     const workspace = await getWorkspaceBySlug(workspaceSlug)
     if (!workspace) return c.json({ error: "Not found" }, 404)
     const linked = await listLinkedRepositories(workspace.id)
@@ -549,7 +561,7 @@ export const workspaceRoutes = new OpenAPIHono<AppEnv>()
     if (!c.get("user") || !c.get("session")) {
       return c.json({ error: "Unauthorized" }, 401)
     }
-    const { workspaceSlug } = c.req.valid("param")
+    const { workspaceSlug } = workspaceSlugParams(c)
     const workspace = await getWorkspaceBySlug(workspaceSlug)
     if (!workspace) return c.json({ error: "Not found" }, 404)
     const items = await listWorkspaceKnowledgeFiles(workspace.id)
@@ -565,7 +577,7 @@ export const workspaceRoutes = new OpenAPIHono<AppEnv>()
     if (!c.get("user") || !c.get("session")) {
       return c.json({ error: "Unauthorized" }, 401)
     }
-    const { workspaceSlug } = c.req.valid("param")
+    const { workspaceSlug } = workspaceSlugParams(c)
     const workspace = await getWorkspaceBySlug(workspaceSlug)
     if (!workspace) return c.json({ error: "Not found" }, 404)
     const { units, lastUpdatedAt } = await listWorkspaceKnowledgeUnits(
@@ -577,7 +589,7 @@ export const workspaceRoutes = new OpenAPIHono<AppEnv>()
     if (!c.get("user") || !c.get("session")) {
       return c.json({ error: "Unauthorized" }, 401)
     }
-    const { workspaceSlug } = c.req.valid("param")
+    const { workspaceSlug } = workspaceSlugParams(c)
     const body = UpdateWorkspaceRequestSchema.parse(await c.req.json())
     const current = await getWorkspaceBySlug(workspaceSlug)
     if (!current) return c.json({ error: "Not found" }, 404)
@@ -613,7 +625,7 @@ export const workspaceRoutes = new OpenAPIHono<AppEnv>()
     if (!c.get("user") || !c.get("session")) {
       return c.json({ error: "Unauthorized" }, 401)
     }
-    const { workspaceSlug } = c.req.valid("param")
+    const { workspaceSlug } = workspaceSlugParams(c)
     const workspace = await getWorkspaceBySlug(workspaceSlug)
     if (!workspace) return c.json({ error: "Not found" }, 404)
     await touchLastUsedWorkspace(workspace.id)
@@ -623,7 +635,7 @@ export const workspaceRoutes = new OpenAPIHono<AppEnv>()
     if (!c.get("user") || !c.get("session")) {
       return c.json({ error: "Unauthorized" }, 401)
     }
-    const { workspaceSlug } = c.req.valid("param")
+    const { workspaceSlug } = workspaceSlugParams(c)
     const workspace = await getWorkspaceBySlug(workspaceSlug)
     if (!workspace) return c.json({ error: "Not found" }, 404)
     const items = await listLinkedRepositories(workspace.id)
@@ -641,7 +653,7 @@ export const workspaceRoutes = new OpenAPIHono<AppEnv>()
     if (!c.get("user") || !c.get("session")) {
       return c.json({ error: "Unauthorized" }, 401)
     }
-    const { workspaceSlug } = c.req.valid("param")
+    const { workspaceSlug } = workspaceSlugParams(c)
     const workspace = await getWorkspaceBySlug(workspaceSlug)
     if (!workspace) return c.json({ error: "Not found" }, 404)
     const body = CreateLinkedRepositoryRequestSchema.parse(await c.req.json())
@@ -682,7 +694,7 @@ export const workspaceRoutes = new OpenAPIHono<AppEnv>()
     if (!c.get("user") || !c.get("session")) {
       return c.json({ error: "Unauthorized" }, 401)
     }
-    const { workspaceSlug, linkedId } = c.req.valid("param")
+    const { workspaceSlug, linkedId } = linkedRepositoryParams(c)
     const workspace = await getWorkspaceBySlug(workspaceSlug)
     if (!workspace) return c.json({ error: "Not found" }, 404)
     const existing = await listLinkedRepositories(workspace.id)

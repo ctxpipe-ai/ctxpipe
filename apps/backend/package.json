@@ -9,6 +9,8 @@
     "start": "bun run dist/server.js",
     "test": "vitest run",
     "test:watch": "vitest",
+    "typecheck": "tsc --noEmit",
+    "typecheck:workspaces": "bash ../../scripts/typecheck-workspaces.sh",
     "lint": "biome lint .",
     "format": "biome format --write .",
     "db:generate": "drizzle-kit generate",

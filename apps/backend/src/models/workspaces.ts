@@ -547,6 +547,7 @@ export async function listOrgWorkspaces(
       | "desiredSha"
       | "githubConnectionId"
       | "createdAt"
+      | "lastJobAt"
     >
   >
 > {
@@ -558,6 +559,7 @@ export async function listOrgWorkspaces(
       desiredSha: workspaces.desiredSha,
       githubConnectionId: workspaces.githubConnectionId,
       createdAt: workspaces.createdAt,
+      lastJobAt: workspaces.lastJobAt,
     })
     .from(workspaces)
     .where(eq(workspaces.orgId, orgId))

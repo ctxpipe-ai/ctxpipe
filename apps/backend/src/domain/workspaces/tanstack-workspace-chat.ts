@@ -18,6 +18,7 @@ import {
   heartbeatWorkspaceSandbox,
   registerWorkspaceSandbox,
 } from "./sandbox-registry.js"
+import { loadTanstackChatModules } from "./tanstack-runtime.js"
 
 export type TanstackWorkspaceChatInput = {
   conversationId: string
@@ -31,52 +32,6 @@ export type TanstackWorkspaceChatInput = {
   cloneToken?: string | null
   onHeartbeat?: () => Promise<void> | void
   onFinish?: () => Promise<void> | void
-}
-
-type ChatFn = (input: {
-  adapter: unknown
-  threadId: string
-  messages: Array<{ role: "user"; content: string }>
-  middleware: unknown[]
-}) => AsyncIterable<{ type?: string; delta?: string }>
-
-type SandboxModules = {
-  chat: ChatFn
-  opencodeText: (
-    model: string,
-    opts: { permissionMode: "acceptEdits"; onPermissionRequest?: unknown },
-  ) => unknown
-  defineSandbox: (input: Record<string, unknown>) => unknown
-  defineWorkspace: (input: Record<string, unknown>) => unknown
-  gitSource: (input: {
-    url: string
-    ref: string
-    auth?: { token: string }
-  }) => unknown
-  withSandbox: (definition: unknown) => unknown
-  dockerSandbox?: (input: { image: string }) => unknown
-  localProcessSandbox?: () => unknown
-}
-
-async function loadTanstackModules(): Promise<SandboxModules> {
-  const [{ chat }, { opencodeText }, sandbox, docker, local] =
-    await Promise.all([
-      import("@tanstack/ai"),
-      import("@tanstack/ai-opencode"),
-      import("@tanstack/ai-sandbox"),
-      import("@tanstack/ai-sandbox-docker").catch(() => null),
-      import("@tanstack/ai-sandbox-local-process").catch(() => null),
-    ])
-  return {
-    chat: chat as ChatFn,
-    opencodeText: opencodeText as SandboxModules["opencodeText"],
-    defineSandbox: sandbox.defineSandbox,
-    defineWorkspace: sandbox.defineWorkspace,
-    gitSource: sandbox.gitSource,
-    withSandbox: sandbox.withSandbox,
-    dockerSandbox: docker?.dockerSandbox,
-    localProcessSandbox: local?.localProcessSandbox,
-  }
 }
 
 export async function runTanstackWorkspaceChat(
@@ -114,7 +69,7 @@ export async function runTanstackWorkspaceChat(
     )
   }
 
-  const modules = await loadTanstackModules()
+  const modules = await loadTanstackChatModules()
   const locked = process.env.SANDBOX_PROVIDER?.trim() || null
   let provider =
     spec.isolation === "docker"
