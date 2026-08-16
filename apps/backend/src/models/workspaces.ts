@@ -3,6 +3,7 @@ import { createError } from "evlog"
 import { requireCurrentOrgId, requireCurrentUserId } from "../auth/context.js"
 import { getOrgDb } from "../db/client.js"
 import { conversations } from "../db/schema/conversations.js"
+import { repositories } from "../db/schema/repositories.js"
 import {
   orgMemberPreferences,
   workspaceLinkedRepositories,
@@ -225,6 +226,29 @@ export async function createWorkspace(input: {
           .returning()
 
         if (!row) throw new Error("Failed to create workspace")
+
+        const siblings = await tx
+          .select({ id: workspaces.id })
+          .from(workspaces)
+          .where(eq(workspaces.orgId, orgId))
+        if (siblings.length === 1) {
+          const orgRepos = await tx
+            .select({ gitUrl: repositories.gitUrl })
+            .from(repositories)
+            .where(eq(repositories.orgId, orgId))
+          for (const repo of orgRepos) {
+            const gitUrl = normalizeWorkspaceRepositoryUrl(repo.gitUrl)
+            if (!gitUrl || gitUrl === workspaceRepositoryUrl) continue
+            await tx
+              .insert(workspaceLinkedRepositories)
+              .values({
+                id: generateObjectId("wlr"),
+                workspaceId: row.id,
+                gitUrl,
+              })
+              .onConflictDoNothing()
+          }
+        }
 
         await tx
           .insert(orgMemberPreferences)
