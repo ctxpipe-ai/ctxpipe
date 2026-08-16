@@ -15,6 +15,7 @@ import {
   compareCommitsTouchesPath,
   createPullRequestWithFiles,
   getPullRequestHeadBranch,
+  listFilesAtSha,
 } from "./installation-write-client.js"
 
 describe("createPullRequestWithFiles", () => {
@@ -225,5 +226,40 @@ describe("commitFiles", () => {
     )
     expect(updateRef).toHaveBeenCalledTimes(2)
     expect(result.commitSha).toBe("commit-2")
+  })
+})
+
+describe("listFilesAtSha", () => {
+  it("reads the tree at a SHA without initializing an empty repository", async () => {
+    const getTree = vi.fn(async () => ({
+      data: {
+        tree: [{ type: "blob", path: "AGENTS.md", sha: "blob-1" }],
+      },
+    }))
+    const createOrUpdateFileContents = vi.fn()
+    getInstallationOctokitForOrgMock.mockResolvedValue({
+      installation: { installationId: 1 },
+      octokit: {
+        rest: {
+          git: { getTree },
+          repos: { createOrUpdateFileContents },
+        },
+      },
+    })
+    await expect(
+      listFilesAtSha({
+        orgId: "org_test",
+        repositoryName: "acme/docs",
+        env: {} as Env,
+        sha: "desired-sha",
+      }),
+    ).resolves.toEqual([{ path: "AGENTS.md", sha: "blob-1" }])
+    expect(getTree).toHaveBeenCalledWith({
+      owner: "acme",
+      repo: "docs",
+      tree_sha: "desired-sha",
+      recursive: "true",
+    })
+    expect(createOrUpdateFileContents).not.toHaveBeenCalled()
   })
 })

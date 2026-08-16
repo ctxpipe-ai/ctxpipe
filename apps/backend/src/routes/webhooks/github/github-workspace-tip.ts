@@ -1,10 +1,15 @@
 import type { Env } from "../../../config/env.js"
-import { applyResolvedTipsForMatchingWorkspaces } from "../../../domain/workspaces/tip-resolve.js"
+import {
+  applyResolvedTipsForMatchingLinked,
+  applyResolvedTipsForMatchingWorkspaces,
+} from "../../../domain/workspaces/tip-resolve.js"
 import type { GithubRepoWriteView } from "../../../domain/workspaces/write-status.js"
 import { githubRepoFullNameFromWorkspaceUrl } from "../../../domain/workspaces/write-status.js"
 import { getInstallationOctokitForOrg } from "../../../models/github-installation.js"
 import {
+  listOrgLinkedRepositories,
   listOrgWorkspaces,
+  persistLinkedDesiredSha,
   persistResolvedDesiredSha,
 } from "../../../models/workspaces.js"
 
@@ -95,6 +100,7 @@ export async function resolveWorkspaceRepositoryTip(input: {
   orgId: string
   githubConnectionId?: string | null
   workspaceRepositoryUrl: string
+  branch?: string | null
   env: Env
 }): Promise<string | null> {
   const fullName = githubRepoFullNameFromWorkspaceUrl(
@@ -102,6 +108,16 @@ export async function resolveWorkspaceRepositoryTip(input: {
   )
   if (!fullName) return null
   try {
+    const requested = input.branch?.trim()
+    if (requested) {
+      return resolveGithubBranchTip({
+        orgId: input.orgId,
+        githubConnectionId: input.githubConnectionId,
+        repoFullName: fullName,
+        branch: requested,
+        env: input.env,
+      })
+    }
     const ctx = await getInstallationOctokitForOrg(
       input.orgId,
       input.env,
@@ -144,5 +160,23 @@ export async function persistWorkspaceTipsOnDefaultBranchPush(input: {
     workspaces,
     resolveTip: input.resolveTip,
     persist: persistResolvedDesiredSha,
+  })
+}
+
+export async function persistLinkedTipsOnRefPush(input: {
+  orgId: string
+  repoFullName: string
+  webhookRef: string
+  defaultBranch: string
+  resolveTip: (fullName: string, ref: string) => Promise<string | null>
+}): Promise<Array<{ linkedId: string; resolvedTip: string }>> {
+  const linked = await listOrgLinkedRepositories(input.orgId)
+  return applyResolvedTipsForMatchingLinked({
+    repoFullName: input.repoFullName,
+    webhookRef: input.webhookRef,
+    defaultBranch: input.defaultBranch,
+    linked,
+    resolveTip: input.resolveTip,
+    persist: persistLinkedDesiredSha,
   })
 }

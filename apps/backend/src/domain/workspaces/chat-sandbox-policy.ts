@@ -50,16 +50,7 @@ export function advisorWorkspaceId<T extends { createdAt: Date; id: string }>(
   ) {
     return persistedFirstWorkspaceId
   }
-  if (workspaces.length === 0) return null
-  return (
-    [...workspaces].sort((a, b) => {
-      const byTime = a.createdAt.getTime() - b.createdAt.getTime()
-      if (byTime !== 0) return byTime
-      if (a.id < b.id) return -1
-      if (a.id > b.id) return 1
-      return 0
-    })[0]?.id ?? null
-  )
+  return null
 }
 
 export function isMcpOriginConversation(

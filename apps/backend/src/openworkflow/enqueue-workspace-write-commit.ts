@@ -7,6 +7,8 @@ export async function enqueueWorkspaceWriteCommit(
     workspaceId: string
     kind: "migration_export" | "link_unlink" | "bootstrap"
     defaultBranch?: string
+    linkAction?: "link" | "unlink"
+    linkGitUrl?: string
   },
   log: { error: (err: Error) => void },
 ): Promise<void> {

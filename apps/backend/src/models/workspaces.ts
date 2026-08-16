@@ -1,4 +1,4 @@
-import { and, desc, eq, isNotNull, sql } from "drizzle-orm"
+import { and, desc, eq, exists, isNotNull, sql } from "drizzle-orm"
 import { createError } from "evlog"
 import { requireCurrentOrgId, requireCurrentUserId } from "../auth/context.js"
 import { getOrgDb } from "../db/client.js"
@@ -517,6 +517,7 @@ export async function persistResolvedDesiredSha(input: {
   resolvedTip: string
   expectedGeneration: number
   expectedUrl: string
+  expectedDesiredSha?: string | null
 }): Promise<boolean> {
   const sha = applyResolvedDesiredSha(input.resolvedTip)
   if (!sha) return false
@@ -531,6 +532,11 @@ export async function persistResolvedDesiredSha(input: {
         eq(workspaces.id, input.workspaceId),
         eq(workspaces.desiredGeneration, input.expectedGeneration),
         eq(workspaces.workspaceRepositoryUrl, input.expectedUrl),
+        input.expectedDesiredSha === undefined
+          ? undefined
+          : input.expectedDesiredSha
+            ? eq(workspaces.desiredSha, input.expectedDesiredSha)
+            : sql`${workspaces.desiredSha} is null`,
       ),
     )
     .returning({ id: workspaces.id })
@@ -977,16 +983,42 @@ export async function persistLinkedDesiredSha(input: {
 
 export async function persistLinkedIndexedSha(input: {
   linkedId: string
+  workspaceId: string
   indexedSha: string
   expectedDesiredSha: string
+  expectedGeneration: number
+  expectedWorkspaceUrl: string
+  expectedLinkedUrl: string
+  expectedLinkedRef: string | null
 }): Promise<boolean> {
-  const [updated] = await getOrgDb()
+  const db = getOrgDb()
+  const [updated] = await db
     .update(workspaceLinkedRepositories)
     .set({ indexedSha: input.indexedSha })
     .where(
       and(
         eq(workspaceLinkedRepositories.id, input.linkedId),
+        eq(workspaceLinkedRepositories.workspaceId, input.workspaceId),
         eq(workspaceLinkedRepositories.desiredSha, input.expectedDesiredSha),
+        eq(workspaceLinkedRepositories.gitUrl, input.expectedLinkedUrl),
+        input.expectedLinkedRef
+          ? eq(workspaceLinkedRepositories.desiredRef, input.expectedLinkedRef)
+          : sql`${workspaceLinkedRepositories.desiredRef} is null`,
+        exists(
+          db
+            .select({ id: workspaces.id })
+            .from(workspaces)
+            .where(
+              and(
+                eq(workspaces.id, input.workspaceId),
+                eq(workspaces.desiredGeneration, input.expectedGeneration),
+                eq(
+                  workspaces.workspaceRepositoryUrl,
+                  input.expectedWorkspaceUrl,
+                ),
+              ),
+            ),
+        ),
       ),
     )
     .returning({ id: workspaceLinkedRepositories.id })
@@ -1007,16 +1039,24 @@ export async function persistWriteStatus(
     .where(eq(workspaces.id, workspaceId))
 }
 
-export async function persistUnitEmbeddings(
-  embeddings: ReadonlyArray<{ servingId: string; embedding: number[] }>,
-): Promise<void> {
-  if (embeddings.length === 0) return
+export async function persistUnitEmbeddings(input: {
+  workspaceId: string
+  projectionSha: string
+  embeddings: ReadonlyArray<{ servingId: string; embedding: number[] }>
+}): Promise<void> {
+  if (input.embeddings.length === 0) return
   const db = getOrgDb()
-  for (const row of embeddings) {
+  for (const row of input.embeddings) {
     await db
       .update(workspaceKnowledgeUnits)
       .set({ embedding: row.embedding, updatedAt: new Date() })
-      .where(eq(workspaceKnowledgeUnits.servingId, row.servingId))
+      .where(
+        and(
+          eq(workspaceKnowledgeUnits.servingId, row.servingId),
+          eq(workspaceKnowledgeUnits.workspaceId, input.workspaceId),
+          eq(workspaceKnowledgeUnits.projectionSha, input.projectionSha),
+        ),
+      )
   }
 }
 
@@ -1053,6 +1093,7 @@ export async function findWorkspacesAndLinkedByGitUrl(gitUrl: string): Promise<{
     workspaceId: string
     gitUrl: string
     desiredSha: string | null
+    desiredRef: string | null
     desiredGeneration: number
     workspaceUrl: string
   }>
@@ -1075,6 +1116,7 @@ export async function findWorkspacesAndLinkedByGitUrl(gitUrl: string): Promise<{
       workspaceId: workspaceLinkedRepositories.workspaceId,
       gitUrl: workspaceLinkedRepositories.gitUrl,
       desiredSha: workspaceLinkedRepositories.desiredSha,
+      desiredRef: workspaceLinkedRepositories.desiredRef,
       desiredGeneration: workspaces.desiredGeneration,
       workspaceUrl: workspaces.workspaceRepositoryUrl,
     })
@@ -1113,8 +1155,13 @@ export async function publishWorkspaceIndexForGitUrl(input: {
       if (
         await persistLinkedIndexedSha({
           linkedId: target.linkedId,
+          workspaceId: target.workspaceId,
           indexedSha: input.indexedSha,
           expectedDesiredSha: target.expectedDesiredSha,
+          expectedGeneration: target.expectedGeneration,
+          expectedWorkspaceUrl: target.expectedUrl,
+          expectedLinkedUrl: target.expectedLinkedUrl ?? target.expectedUrl,
+          expectedLinkedRef: target.expectedLinkedRef ?? null,
         })
       ) {
         published += 1

@@ -3,6 +3,7 @@ import {
   displayNameFromAgentsMarkdown,
   hydrateIsNoop,
   hydrateKnowledgeTree,
+  hydrateReadsStoredDesiredSha,
   hydrateUnitsToProjectionClaims,
   servingIdForKnowledgePath,
   shouldReplaceKnowledgeProjection,
@@ -142,6 +143,14 @@ describe("hydrateUnitsToProjectionClaims", () => {
         aggregatedConfidence: 0.8,
       }),
     ])
+  })
+})
+
+describe("hydrateReadsStoredDesiredSha", () => {
+  it("reads the stored desired SHA, not a moving default branch", () => {
+    expect(hydrateReadsStoredDesiredSha("abc123")).toBe("abc123")
+    expect(hydrateReadsStoredDesiredSha("  ")).toBeNull()
+    expect(hydrateReadsStoredDesiredSha(null)).toBeNull()
   })
 })
 

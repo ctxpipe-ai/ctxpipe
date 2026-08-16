@@ -79,8 +79,9 @@ function parseShallowYaml(yaml: string): Record<string, unknown> {
       i += 1
       continue
     }
-    if (/^claims:\s*$/.test(line)) {
-      const claims: Record<string, unknown>[] = []
+    const listKey = line.match(/^(\w+):\s*$/)
+    if (listKey?.[1]) {
+      const items: unknown[] = []
       i += 1
       let current: Record<string, unknown> | null = null
       while (i < lines.length) {
@@ -88,11 +89,17 @@ function parseShallowYaml(yaml: string): Record<string, unknown> {
         if (item == null || (!item.startsWith(" ") && !item.startsWith("\t"))) {
           break
         }
-        const start = item.match(/^\s+-\s+(?:(\w+):\s*(.*))?$/)
-        if (start) {
-          current = {}
-          claims.push(current)
-          if (start[1]) current[start[1]] = coerceScalar(start[2] ?? "")
+        const objectStart = item.match(/^\s+-\s+(\w+):\s*(.*)$/)
+        if (objectStart?.[1]) {
+          current = { [objectStart[1]]: coerceScalar(objectStart[2] ?? "") }
+          items.push(current)
+          i += 1
+          continue
+        }
+        const scalarStart = item.match(/^\s+-\s+(.*)$/)
+        if (scalarStart) {
+          current = null
+          items.push(coerceScalar(scalarStart[1] ?? ""))
           i += 1
           continue
         }
@@ -102,7 +109,7 @@ function parseShallowYaml(yaml: string): Record<string, unknown> {
         }
         i += 1
       }
-      result.claims = claims
+      result[listKey[1]] = items
       continue
     }
     const pair = line.match(/^(\w+):\s*(.*)$/)

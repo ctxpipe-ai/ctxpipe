@@ -5,7 +5,8 @@ export const BOOTSTRAP_SKILL_PATH = KNOWLEDGE_SKILL_PATH
 export const FOLDER_MAP_START = "<!-- ctxpipe:folder-map -->"
 export const FOLDER_MAP_END = "<!-- /ctxpipe:folder-map -->"
 
-const FOLDER_STRUCTURE_HEADING = /^#{1,6}\s+folder structure\s*$/i
+const FOLDER_MAP_HEADING =
+  /^#{1,6}\s+.*\b(folders?|director(?:y|ies)|layout|structure)\b/i
 const DEFAULT_FOLDER_MAP = `${FOLDER_MAP_START}
 ## Folder Structure
 
@@ -111,16 +112,64 @@ export function bootstrapWorkspaceFiles(input: {
   return files.filter((file) => isBootstrapAllowedPath(file.path))
 }
 
+function formatFrontMatterScalar(value: unknown): string {
+  if (value == null) return "null"
+  if (typeof value === "boolean" || typeof value === "number") {
+    return String(value)
+  }
+  return String(value)
+}
+
+function serializeFrontMatterValue(key: string, value: unknown): string[] {
+  if (value == null) return []
+  if (Array.isArray(value)) {
+    if (value.length === 0) return [`${key}: []`]
+    const lines = [`${key}:`]
+    for (const item of value) {
+      if (item && typeof item === "object" && !Array.isArray(item)) {
+        const entries = Object.entries(item as Record<string, unknown>)
+        const first = entries[0]
+        if (!first) {
+          lines.push("  - {}")
+          continue
+        }
+        lines.push(`  - ${first[0]}: ${formatFrontMatterScalar(first[1])}`)
+        for (const [field, fieldValue] of entries.slice(1)) {
+          lines.push(`    ${field}: ${formatFrontMatterScalar(fieldValue)}`)
+        }
+        continue
+      }
+      lines.push(`  - ${formatFrontMatterScalar(item)}`)
+    }
+    return lines
+  }
+  if (typeof value === "object") {
+    const entries = Object.entries(value as Record<string, unknown>)
+    if (entries.length === 0) return [`${key}: {}`]
+    const lines = [`${key}:`]
+    for (const [field, fieldValue] of entries) {
+      lines.push(`  ${field}: ${formatFrontMatterScalar(fieldValue)}`)
+    }
+    return lines
+  }
+  return [`${key}: ${formatFrontMatterScalar(value)}`]
+}
+
 function serializeFrontMatter(attributes: Record<string, unknown>): string {
   const lines = ["---"]
   for (const [key, value] of Object.entries(attributes)) {
-    if (value == null || Array.isArray(value) || typeof value === "object") {
-      continue
-    }
-    lines.push(`${key}: ${value}`)
+    lines.push(...serializeFrontMatterValue(key, value))
   }
   lines.push("---")
   return lines.join("\n")
+}
+
+function bodyHasSemanticFolderMap(body: string): boolean {
+  return (
+    FOLDER_MAP_HEADING.test(body) &&
+    /knowledge\//i.test(body) &&
+    /repositories\//i.test(body)
+  )
 }
 
 function ensureFolderStructureSection(body: string): string {
@@ -129,7 +178,7 @@ function ensureFolderStructureSection(body: string): string {
   }
   const lines = body.split(/\r?\n/)
   const headingIdx = lines.findIndex((line) =>
-    FOLDER_STRUCTURE_HEADING.test(line.trim()),
+    FOLDER_MAP_HEADING.test(line.trim()),
   )
   if (headingIdx >= 0) {
     let end = lines.length
@@ -147,6 +196,9 @@ function ensureFolderStructureSection(body: string): string {
       ...lines.slice(end),
     ]
     return wrapped.join("\n")
+  }
+  if (headingIdx < 0 && bodyHasSemanticFolderMap(body)) {
+    return `${FOLDER_MAP_START}\n${body.trim()}\n${FOLDER_MAP_END}`
   }
   const trimmed = body.trim()
   return trimmed ? `${trimmed}\n\n${DEFAULT_FOLDER_MAP}` : DEFAULT_FOLDER_MAP

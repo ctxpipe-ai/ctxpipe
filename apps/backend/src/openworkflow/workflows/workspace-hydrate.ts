@@ -8,6 +8,7 @@ import {
   displayNameFromAgentsMarkdown,
   hydrateIsNoop,
   hydrateKnowledgeTree,
+  hydrateReadsStoredDesiredSha,
   hydrateUnitsToProjectionClaims,
 } from "../../domain/workspaces/hydrate.js"
 import {
@@ -23,10 +24,9 @@ import {
 } from "../../models/workspaces.js"
 import { projectClaimsFromState } from "../../retrieval/services/graphProjection.js"
 import { generateEmbeddings } from "../../retrieval/services/modelProvider.js"
-import { resolveGithubDefaultBranch } from "../../routes/webhooks/github/github-workspace-tip.js"
 import {
   getFileContent,
-  listFilesInTree,
+  listFilesAtSha,
 } from "../../services/github/installation-write-client.js"
 import { enqueueWorkspaceIndex } from "../enqueue-workspace-index.js"
 
@@ -71,6 +71,7 @@ export const workspaceHydrate = defineWorkflow(
       withOrgDbContext(input.orgId, async () => {
         const workspace = await getWorkspaceById(input.workspaceId)
         if (!workspace) throw new Error("Workspace not found")
+        void input.defaultBranch
         if (!workspace.desiredSha) {
           return { hydrated: false, reason: "desired_sha_missing" as const }
         }
@@ -101,24 +102,16 @@ export const workspaceHydrate = defineWorkflow(
         if (!repoName) {
           return { hydrated: false, reason: "not_github" as const }
         }
-        const defaultBranch =
-          input.defaultBranch ??
-          (await resolveGithubDefaultBranch({
-            orgId: input.orgId,
-            githubConnectionId: workspace.githubConnectionId,
-            repoFullName: repoName,
-            env,
-          }))
-        if (!defaultBranch) {
-          return { hydrated: false, reason: "default_branch_unknown" as const }
+        const treeSha = hydrateReadsStoredDesiredSha(workspace.desiredSha)
+        if (!treeSha) {
+          return { hydrated: false, reason: "desired_sha_missing" as const }
         }
-
-        const tree = await listFilesInTree({
+        const tree = await listFilesAtSha({
           orgId: input.orgId,
           repositoryName: repoName,
           env,
           githubConnectionId: workspace.githubConnectionId ?? undefined,
-          branch: defaultBranch,
+          sha: treeSha,
         })
         const files: Array<{ path: string; content: string }> = []
         for (const entry of tree) {
@@ -128,7 +121,7 @@ export const workspaceHydrate = defineWorkflow(
             repositoryName: repoName,
             env,
             githubConnectionId: workspace.githubConnectionId ?? undefined,
-            branch: defaultBranch,
+            branch: treeSha,
             path: entry.path,
           })
           if (content == null) continue
@@ -158,7 +151,11 @@ export const workspaceHydrate = defineWorkflow(
             units: parsed.units,
             embed: generateEmbeddings,
           })
-          await persistUnitEmbeddings(embeddings)
+          await persistUnitEmbeddings({
+            workspaceId: workspace.id,
+            projectionSha: workspace.desiredSha,
+            embeddings,
+          })
           const graphClaims = hydrateUnitsToProjectionClaims(parsed.units)
           if (graphClaims.length > 0) {
             try {

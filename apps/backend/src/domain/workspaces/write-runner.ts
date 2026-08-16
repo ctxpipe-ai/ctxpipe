@@ -80,6 +80,7 @@ export function persistJobCommitIfRemoteHasSha(input: {
 
 export function planWorkspaceWriteCommit(input: {
   files: ReadonlyArray<{ path: string; content: string }>
+  deletePaths?: ReadonlyArray<string>
   existing: ReadonlyMap<string, string>
   writeStatus: string
   jobGeneration: number
@@ -96,6 +97,7 @@ export function planWorkspaceWriteCommit(input: {
   | {
       action: "commit"
       files: Array<{ path: string; content: string }>
+      deletePaths: string[]
       message: string
     } {
   const gate = runnerMayPush(input)
@@ -103,10 +105,16 @@ export function planWorkspaceWriteCommit(input: {
   const files = input.files.filter(
     (file) => input.existing.get(file.path) !== file.content,
   )
-  if (files.length === 0) return { action: "skip", reason: "no_changes" }
+  const deletePaths = [...(input.deletePaths ?? [])].filter((path) =>
+    input.existing.has(path),
+  )
+  if (files.length === 0 && deletePaths.length === 0) {
+    return { action: "skip", reason: "no_changes" }
+  }
   return {
     action: "commit",
     files,
+    deletePaths,
     message: runnerCommitMessage({
       repoName: input.repoName,
       trigger: input.trigger,
@@ -120,6 +128,7 @@ export async function executeWorkspaceWriteCommit(input: {
   commit: (
     files: Array<{ path: string; content: string }>,
     message: string,
+    deletePaths: string[],
   ) => Promise<{ commitSha: string }>
 }): Promise<
   { committed: false; reason: string } | { committed: true; commitSha: string }
@@ -127,6 +136,10 @@ export async function executeWorkspaceWriteCommit(input: {
   if (input.plan.action === "skip") {
     return { committed: false, reason: input.plan.reason }
   }
-  const result = await input.commit(input.plan.files, input.plan.message)
+  const result = await input.commit(
+    input.plan.files,
+    input.plan.message,
+    input.plan.deletePaths,
+  )
   return { committed: true, commitSha: result.commitSha }
 }

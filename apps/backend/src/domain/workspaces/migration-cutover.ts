@@ -37,15 +37,16 @@ export function shouldExportClaim(input: {
 export function firstWorkspaceIdForCutover(input: {
   persistedFirstWorkspaceId: string | null
   currentWorkspaceIds: readonly string[]
-  computedFirstWorkspaceId: string | null
+  computedFirstWorkspaceId?: string | null
 }): string | null {
+  void input.computedFirstWorkspaceId
   if (
     input.persistedFirstWorkspaceId &&
     input.currentWorkspaceIds.includes(input.persistedFirstWorkspaceId)
   ) {
     return input.persistedFirstWorkspaceId
   }
-  return input.computedFirstWorkspaceId
+  return null
 }
 
 /** Fail-closed: unkeyed same-path files get a new name. Fast LLM may merge later. */

@@ -9,6 +9,7 @@ import {
 } from "../../models/repositories.js"
 import {
   getWorkspaceById,
+  listLinkedRepositories,
   persistIndexedSha,
   persistLinkedIndexedSha,
 } from "../../models/workspaces.js"
@@ -57,10 +58,21 @@ export const workspaceIndex = defineWorkflow(
           { name: "repository-index" },
         )
         if (input.role === "linked" && input.linkedId) {
+          const linked = (await listLinkedRepositories(workspace.id)).find(
+            (row) => row.id === input.linkedId,
+          )
+          if (!linked) {
+            return { published: false, reason: "missing_linked" as const }
+          }
           const published = await persistLinkedIndexedSha({
             linkedId: input.linkedId,
+            workspaceId: workspace.id,
             indexedSha: input.desiredSha,
             expectedDesiredSha: input.desiredSha,
+            expectedGeneration: workspace.desiredGeneration,
+            expectedWorkspaceUrl: workspace.workspaceRepositoryUrl,
+            expectedLinkedUrl: linked.gitUrl,
+            expectedLinkedRef: linked.desiredRef,
           })
           return { published, role: input.role }
         }

@@ -1,6 +1,7 @@
 import { createRoute, OpenAPIHono, z } from "@hono/zod-openapi"
 import type { AppEnv } from "../../app/env.js"
 import type { Env } from "../../config/env.js"
+import { normalizeWorkspaceRepositoryUrl } from "../../domain/workspaces/slug.js"
 import {
   githubConnectionIdForWriteProbe,
   probeWorkspaceWriteAccess,
@@ -8,11 +9,9 @@ import {
 import {
   createWorkspace,
   getWorkspaceBySlug,
-  linkRepository,
   listLinkedRepositories,
   listWorkspaces,
   touchLastUsedWorkspace,
-  unlinkRepository,
   updateWorkspace,
 } from "../../models/workspaces.js"
 import { enqueueWorkspaceWriteCommit } from "../../openworkflow/enqueue-workspace-write-commit.js"
@@ -104,6 +103,14 @@ const CreateLinkedRepositoryRequestSchema = z
     gitUrl: z.string().min(1),
   })
   .openapi("CreateWorkspaceLinkedRepositoryRequest")
+
+const LinkedWriteQueuedSchema = z
+  .object({
+    queued: z.literal(true),
+    action: z.enum(["link", "unlink"]),
+    gitUrl: z.string(),
+  })
+  .openapi("WorkspaceLinkedWriteQueued")
 
 async function liveWriteProbe(input: {
   orgId: string | null
@@ -324,9 +331,9 @@ const createLinkedRoute = createRoute({
     },
   },
   responses: {
-    201: {
-      content: { "application/json": { schema: LinkedRepositorySchema } },
-      description: "Linked remote",
+    202: {
+      content: { "application/json": { schema: LinkedWriteQueuedSchema } },
+      description: "Link write queued",
     },
     400: {
       content: { "application/json": { schema: ErrorResponseSchema } },
@@ -352,7 +359,14 @@ const deleteLinkedRoute = createRoute({
   path: "/{workspaceSlug}/linked-repositories/{linkedId}",
   request: { params: LinkedRepositoryParamsSchema },
   responses: {
-    204: { description: "Unlinked" },
+    202: {
+      content: { "application/json": { schema: LinkedWriteQueuedSchema } },
+      description: "Unlink write queued",
+    },
+    400: {
+      content: { "application/json": { schema: ErrorResponseSchema } },
+      description: "Invalid request",
+    },
     401: {
       content: { "application/json": { schema: ErrorResponseSchema } },
       description: "Unauthorized",
@@ -493,13 +507,37 @@ export const workspaceRoutes = new OpenAPIHono<AppEnv>()
     const workspace = await getWorkspaceBySlug(workspaceSlug)
     if (!workspace) return c.json({ error: "Not found" }, 404)
     const body = CreateLinkedRepositoryRequestSchema.parse(await c.req.json())
-    const created = await linkRepository({
-      workspaceId: workspace.id,
-      gitUrl: body.gitUrl,
-    })
+    const gitUrl = normalizeWorkspaceRepositoryUrl(body.gitUrl)
+    if (!gitUrl) return c.json({ error: "A git URL is required" }, 400)
+    if (gitUrl === workspace.workspaceRepositoryUrl) {
+      return c.json(
+        { error: "The workspace repository is already included for search" },
+        409,
+      )
+    }
+    const existing = await listLinkedRepositories(workspace.id)
+    if (existing.some((row) => row.gitUrl === gitUrl)) {
+      return c.json(
+        { error: "That git URL is already linked to this Workspace" },
+        409,
+      )
+    }
+    if (workspace.writeStatus === "read_only") {
+      return c.json({ error: "Workspace is read-only" }, 400)
+    }
+    void enqueueWorkspaceWriteCommit(
+      {
+        orgId: workspace.orgId,
+        workspaceId: workspace.id,
+        kind: "link_unlink",
+        linkAction: "link",
+        linkGitUrl: body.gitUrl,
+      },
+      c.get("log"),
+    )
     return c.json(
-      { ...created, createdAt: created.createdAt.toISOString() },
-      201,
+      { queued: true as const, action: "link" as const, gitUrl },
+      202,
     )
   })
   .openapi(deleteLinkedRoute, async (c) => {
@@ -509,10 +547,24 @@ export const workspaceRoutes = new OpenAPIHono<AppEnv>()
     const { workspaceSlug, linkedId } = c.req.valid("param")
     const workspace = await getWorkspaceBySlug(workspaceSlug)
     if (!workspace) return c.json({ error: "Not found" }, 404)
-    const deleted = await unlinkRepository({
-      workspaceId: workspace.id,
-      linkedId,
-    })
-    if (!deleted) return c.json({ error: "Not found" }, 404)
-    return c.body(null, 204)
+    const existing = await listLinkedRepositories(workspace.id)
+    const row = existing.find((item) => item.id === linkedId)
+    if (!row) return c.json({ error: "Not found" }, 404)
+    if (workspace.writeStatus === "read_only") {
+      return c.json({ error: "Workspace is read-only" }, 400)
+    }
+    void enqueueWorkspaceWriteCommit(
+      {
+        orgId: workspace.orgId,
+        workspaceId: workspace.id,
+        kind: "link_unlink",
+        linkAction: "unlink",
+        linkGitUrl: row.gitUrl,
+      },
+      c.get("log"),
+    )
+    return c.json(
+      { queued: true as const, action: "unlink" as const, gitUrl: row.gitUrl },
+      202,
+    )
   })

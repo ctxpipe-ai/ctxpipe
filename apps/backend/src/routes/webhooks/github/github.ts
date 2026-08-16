@@ -4,6 +4,7 @@ import { z } from "zod"
 import type { AppEnv } from "../../../app/env.js"
 import type { Env } from "../../../config/env.js"
 import { withOrgDbContext } from "../../../db/client.js"
+import { isDefaultBranchPush } from "../../../domain/workspaces/tip-resolve.js"
 import {
   getGithubConnectionRowByConnectionId,
   getWebhookSecretForGithubConnection,
@@ -19,6 +20,7 @@ import { maybeEnqueueConfluenceSyncOnConfigPush } from "./github-confluence-push
 import { maybeActivateLinearSyncOnConfigPush } from "./github-linear-push.js"
 import { maybeEnqueueNotionSyncOnConfigPush } from "./github-notion-push.js"
 import {
+  persistLinkedTipsOnRefPush,
   persistWorkspaceTipsOnDefaultBranchPush,
   resolveGithubBranchTip,
 } from "./github-workspace-tip.js"
@@ -172,21 +174,34 @@ async function processPushEvent(
     log: ctx.log,
   })
 
-  if (ref !== `refs/heads/${defaultBranch}`) {
-    return
-  }
-
+  const onDefaultBranch = isDefaultBranchPush(ref, defaultBranch)
   const installationRows = await listInstallationsByGithubInstallationId(
     installation.id,
   )
   for (const installationRow of installationRows) {
     try {
-      await withOrgDbContext(installationRow.orgId, () =>
-        persistWorkspaceTipsOnDefaultBranchPush({
+      await withOrgDbContext(installationRow.orgId, async () => {
+        if (onDefaultBranch) {
+          await persistWorkspaceTipsOnDefaultBranchPush({
+            orgId: installationRow.orgId,
+            repoFullName: repo.full_name,
+            defaultBranch,
+            payloadAfter: after,
+            resolveTip: (fullName, branch) =>
+              resolveGithubBranchTip({
+                orgId: installationRow.orgId,
+                githubConnectionId: installationRow.id,
+                repoFullName: fullName,
+                branch,
+                env: ctx.env,
+              }),
+          })
+        }
+        await persistLinkedTipsOnRefPush({
           orgId: installationRow.orgId,
           repoFullName: repo.full_name,
+          webhookRef: ref,
           defaultBranch,
-          payloadAfter: after,
           resolveTip: (fullName, branch) =>
             resolveGithubBranchTip({
               orgId: installationRow.orgId,
@@ -195,13 +210,15 @@ async function processPushEvent(
               branch,
               env: ctx.env,
             }),
-        }),
-      )
+        })
+      })
     } catch (err: unknown) {
       ctx.log.error(err instanceof Error ? err : new Error(String(err)))
     }
     void enqueueWorkspaceTipCheck(installationRow.orgId, ctx.log)
   }
+
+  if (!onDefaultBranch) return
 
   await enqueueIngestionForInstallationRepos(
     installation.id,

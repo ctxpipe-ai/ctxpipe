@@ -201,17 +201,12 @@ describe("workspaces API", () => {
     expect(touchLastUsedWorkspaceMock).toHaveBeenCalledWith("ws_abc")
   })
 
-  it("links a remote", async () => {
-    getWorkspaceBySlugMock.mockResolvedValue(workspaceRow)
-    linkRepositoryMock.mockResolvedValue({
-      id: "wlr_1",
-      workspaceId: "ws_abc",
-      gitUrl: "https://github.com/acme/app",
-      desiredRef: null,
-      desiredSha: null,
-      indexedSha: null,
-      createdAt: new Date("2026-08-15T10:00:00.000Z"),
+  it("queues a git-first link write", async () => {
+    getWorkspaceBySlugMock.mockResolvedValue({
+      ...workspaceRow,
+      writeStatus: "writable",
     })
+    listLinkedRepositoriesMock.mockResolvedValue([])
     const res = await app().request(
       "/workspaces/knowledge/linked-repositories",
       {
@@ -220,20 +215,51 @@ describe("workspaces API", () => {
         body: JSON.stringify({ gitUrl: "https://github.com/acme/app.git" }),
       },
     )
-    expect(res.status).toBe(201)
-    expect(linkRepositoryMock).toHaveBeenCalledWith({
-      workspaceId: "ws_abc",
-      gitUrl: "https://github.com/acme/app.git",
-    })
+    expect(res.status).toBe(202)
+    expect(linkRepositoryMock).not.toHaveBeenCalled()
+    expect(enqueueWorkspaceWriteCommit).toHaveBeenCalledWith(
+      {
+        orgId: "org_mock",
+        workspaceId: "ws_abc",
+        kind: "link_unlink",
+        linkAction: "link",
+        linkGitUrl: "https://github.com/acme/app.git",
+      },
+      expect.anything(),
+    )
   })
 
-  it("unlinks a remote", async () => {
-    getWorkspaceBySlugMock.mockResolvedValue(workspaceRow)
-    unlinkRepositoryMock.mockResolvedValue(true)
+  it("queues a git-first unlink write", async () => {
+    getWorkspaceBySlugMock.mockResolvedValue({
+      ...workspaceRow,
+      writeStatus: "writable",
+    })
+    listLinkedRepositoriesMock.mockResolvedValue([
+      {
+        id: "wlr_1",
+        workspaceId: "ws_abc",
+        gitUrl: "https://github.com/acme/app",
+        desiredRef: null,
+        desiredSha: null,
+        indexedSha: null,
+        createdAt: new Date("2026-08-15T10:00:00.000Z"),
+      },
+    ])
     const res = await app().request(
       "/workspaces/knowledge/linked-repositories/wlr_1",
       { method: "DELETE" },
     )
-    expect(res.status).toBe(204)
+    expect(res.status).toBe(202)
+    expect(unlinkRepositoryMock).not.toHaveBeenCalled()
+    expect(enqueueWorkspaceWriteCommit).toHaveBeenCalledWith(
+      {
+        orgId: "org_mock",
+        workspaceId: "ws_abc",
+        kind: "link_unlink",
+        linkAction: "unlink",
+        linkGitUrl: "https://github.com/acme/app",
+      },
+      expect.anything(),
+    )
   })
 })

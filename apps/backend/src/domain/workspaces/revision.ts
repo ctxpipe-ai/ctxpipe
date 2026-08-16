@@ -106,6 +106,8 @@ export type WorkspaceIndexTarget = {
   linkedId?: string
   expectedGeneration: number
   expectedUrl: string
+  expectedLinkedUrl?: string
+  expectedLinkedRef?: string | null
   expectedDesiredSha: string
 }
 
@@ -125,6 +127,7 @@ export function indexPublishTargets(input: {
     workspaceId: string
     gitUrl: string
     desiredSha: string | null
+    desiredRef?: string | null
     desiredGeneration: number
     workspaceUrl: string
   }>
@@ -153,11 +156,12 @@ export function indexPublishTargets(input: {
   }
   for (const row of input.linked) {
     const url = input.normalizeUrl(row.gitUrl)
+    const workspaceUrl = input.normalizeUrl(row.workspaceUrl)
     const decision = shouldPublishIndex({
       jobGeneration: row.desiredGeneration,
       desiredGeneration: row.desiredGeneration,
-      jobWorkspaceUrl: url,
-      desiredWorkspaceUrl: url,
+      jobWorkspaceUrl: workspaceUrl,
+      desiredWorkspaceUrl: workspaceUrl,
       jobDesiredSha: input.indexedSha,
       currentDesiredSha: row.desiredSha,
       remoteStillMember: url === gitUrl,
@@ -168,7 +172,9 @@ export function indexPublishTargets(input: {
       role: "linked",
       linkedId: row.id,
       expectedGeneration: row.desiredGeneration,
-      expectedUrl: row.gitUrl,
+      expectedUrl: row.workspaceUrl,
+      expectedLinkedUrl: row.gitUrl,
+      expectedLinkedRef: row.desiredRef ?? null,
       expectedDesiredSha: input.indexedSha,
     })
   }

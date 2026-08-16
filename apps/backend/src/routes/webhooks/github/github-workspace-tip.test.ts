@@ -51,6 +51,7 @@ describe("persistWorkspaceTipsOnDefaultBranchPush", () => {
       resolvedTip: "resolved-from-github",
       expectedGeneration: 2,
       expectedUrl: "https://github.com/acme/docs.git",
+      expectedDesiredSha: "old",
     })
     expect(
       persistResolvedDesiredShaMock.mock.calls[0]?.[0].resolvedTip,
@@ -111,6 +112,27 @@ describe("resolveWorkspaceRepositoryTip", () => {
       owner: "acme",
       repo: "docs",
       ref: "heads/develop",
+    })
+  })
+
+  it("resolves a caller-supplied branch instead of the default branch", async () => {
+    const get = vi.fn(async () => ({ data: { default_branch: "develop" } }))
+    const getRef = vi.fn(async () => ({ data: { object: { sha: "relsha" } } }))
+    getInstallationOctokitForOrgMock.mockResolvedValue({
+      octokit: { rest: { repos: { get }, git: { getRef } } },
+    })
+    await expect(
+      resolveWorkspaceRepositoryTip({
+        orgId: "org_1",
+        workspaceRepositoryUrl: "https://github.com/acme/docs.git",
+        branch: "release",
+        env: {} as never,
+      }),
+    ).resolves.toBe("relsha")
+    expect(getRef).toHaveBeenCalledWith({
+      owner: "acme",
+      repo: "docs",
+      ref: "heads/release",
     })
   })
 })

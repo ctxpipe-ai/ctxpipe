@@ -102,14 +102,14 @@ describe("firstWorkspaceIdForCutover", () => {
     ).toBe("ws_first")
   })
 
-  it("falls back to the computed first Workspace when none is persisted", () => {
+  it("does not recompute when no first Workspace is persisted", () => {
     expect(
       firstWorkspaceIdForCutover({
         persistedFirstWorkspaceId: null,
         currentWorkspaceIds: ["ws_newer"],
         computedFirstWorkspaceId: "ws_newer",
       }),
-    ).toBe("ws_newer")
+    ).toBeNull()
   })
 })
 

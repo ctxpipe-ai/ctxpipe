@@ -31,6 +31,15 @@ export function cronTipCheckNeedsHydrate(input: {
   return input.storedDesiredSha !== applyResolvedDesiredSha(input.resolvedTip)
 }
 
+export function linkedRefMatchesPush(input: {
+  webhookRef: string
+  desiredRef: string | null
+  defaultBranch: string
+}): boolean {
+  const branch = input.desiredRef?.trim() || input.defaultBranch
+  return input.webhookRef === `refs/heads/${branch}`
+}
+
 export async function applyResolvedTipsForMatchingWorkspaces(input: {
   repoFullName: string
   defaultBranch: string
@@ -38,6 +47,7 @@ export async function applyResolvedTipsForMatchingWorkspaces(input: {
     id: string
     workspaceRepositoryUrl: string
     desiredGeneration: number
+    desiredSha: string | null
   }>
   resolveTip: (fullName: string, ref: string) => Promise<string | null>
   persist: (row: {
@@ -45,6 +55,7 @@ export async function applyResolvedTipsForMatchingWorkspaces(input: {
     resolvedTip: string
     expectedGeneration: number
     expectedUrl: string
+    expectedDesiredSha: string | null
   }) => Promise<boolean>
 }): Promise<number> {
   let persisted = 0
@@ -64,10 +75,54 @@ export async function applyResolvedTipsForMatchingWorkspaces(input: {
       resolvedTip: desiredShaFromResolvedTip(tip),
       expectedGeneration: row.desiredGeneration,
       expectedUrl: row.workspaceRepositoryUrl,
+      expectedDesiredSha: row.desiredSha,
     })
     if (ok) persisted += 1
   }
   return persisted
+}
+
+export async function applyResolvedTipsForMatchingLinked(input: {
+  repoFullName: string
+  webhookRef: string
+  defaultBranch: string
+  linked: ReadonlyArray<{
+    id: string
+    gitUrl: string
+    desiredRef: string | null
+    desiredSha: string | null
+  }>
+  resolveTip: (fullName: string, ref: string) => Promise<string | null>
+  persist: (row: {
+    linkedId: string
+    resolvedTip: string
+    expectedDesiredSha: string | null
+  }) => Promise<boolean>
+}): Promise<Array<{ linkedId: string; resolvedTip: string }>> {
+  const updated: Array<{ linkedId: string; resolvedTip: string }> = []
+  for (const row of input.linked) {
+    if (!workspaceMatchesGithubRepo(row.gitUrl, input.repoFullName)) continue
+    if (
+      !linkedRefMatchesPush({
+        webhookRef: input.webhookRef,
+        desiredRef: row.desiredRef,
+        defaultBranch: input.defaultBranch,
+      })
+    ) {
+      continue
+    }
+    const branch = row.desiredRef?.trim() || input.defaultBranch
+    const tip = await input.resolveTip(input.repoFullName, branch)
+    if (!tip) continue
+    const resolvedTip = desiredShaFromResolvedTip(tip)
+    const ok = await input.persist({
+      linkedId: row.id,
+      resolvedTip,
+      expectedDesiredSha: row.desiredSha,
+    })
+    if (ok) updated.push({ linkedId: row.id, resolvedTip })
+  }
+  return updated
 }
 
 export async function runCronTipChecks(input: {
@@ -83,27 +138,39 @@ export async function runCronTipChecks(input: {
     resolvedTip: string
     expectedGeneration: number
     expectedUrl: string
+    expectedDesiredSha: string | null
   }) => Promise<boolean>
-}): Promise<string[]> {
-  const updated: string[] = []
+  reloadDesiredSha?: (workspaceId: string) => Promise<string | null>
+}): Promise<Array<{ workspaceId: string; resolvedTip: string }>> {
+  const updated: Array<{ workspaceId: string; resolvedTip: string }> = []
   for (const row of input.workspaces) {
-    const tip = await input.resolveTip(row.workspaceRepositoryUrl)
-    if (!tip) continue
-    if (
-      !cronTipCheckNeedsHydrate({
-        storedDesiredSha: row.desiredSha,
-        resolvedTip: tip,
+    let expectedDesiredSha = row.desiredSha
+    for (let attempt = 0; attempt < 2; attempt++) {
+      const tip = await input.resolveTip(row.workspaceRepositoryUrl)
+      if (!tip) break
+      if (
+        !cronTipCheckNeedsHydrate({
+          storedDesiredSha: expectedDesiredSha,
+          resolvedTip: tip,
+        })
+      ) {
+        break
+      }
+      const resolvedTip = desiredShaFromResolvedTip(tip)
+      const ok = await input.persist({
+        workspaceId: row.id,
+        resolvedTip,
+        expectedGeneration: row.desiredGeneration,
+        expectedUrl: row.workspaceRepositoryUrl,
+        expectedDesiredSha,
       })
-    ) {
-      continue
+      if (ok) {
+        updated.push({ workspaceId: row.id, resolvedTip })
+        break
+      }
+      if (!input.reloadDesiredSha || attempt === 1) break
+      expectedDesiredSha = await input.reloadDesiredSha(row.id)
     }
-    const ok = await input.persist({
-      workspaceId: row.id,
-      resolvedTip: desiredShaFromResolvedTip(tip),
-      expectedGeneration: row.desiredGeneration,
-      expectedUrl: row.workspaceRepositoryUrl,
-    })
-    if (ok) updated.push(row.id)
   }
   return updated
 }

@@ -6,10 +6,7 @@ import { claims } from "../db/schema/claims.js"
 import { objects } from "../db/schema/objects.js"
 import { repositories } from "../db/schema/repositories.js"
 import { orgWorkspaceCutover, workspaces } from "../db/schema/workspaces.js"
-import {
-  firstConnectorTarget,
-  firstWorkspaceIdForCutover,
-} from "../domain/workspaces/migration-cutover.js"
+import { firstWorkspaceIdForCutover } from "../domain/workspaces/migration-cutover.js"
 import type {
   ExportClaimRow,
   ExportObjectRow,
@@ -19,7 +16,6 @@ import {
   workspaceByRepositoryUrl,
 } from "../domain/workspaces/migration-export.js"
 import { normalizeWorkspaceRepositoryUrl } from "../domain/workspaces/slug.js"
-import { persistFirstWorkspaceId } from "./workspaces.js"
 
 export async function loadMigrationExportSource(): Promise<{
   firstWorkspaceId: string | null
@@ -103,11 +99,7 @@ export async function loadMigrationExportSource(): Promise<{
   const firstWorkspaceId = firstWorkspaceIdForCutover({
     persistedFirstWorkspaceId: cutover[0]?.firstWorkspaceId ?? null,
     currentWorkspaceIds: workspaceRows.map((row) => row.id),
-    computedFirstWorkspaceId: firstConnectorTarget(workspaceRows)?.id ?? null,
   })
-  if (firstWorkspaceId && !cutover[0]) {
-    await persistFirstWorkspaceId(firstWorkspaceId)
-  }
 
   return {
     firstWorkspaceId,

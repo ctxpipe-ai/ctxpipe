@@ -176,6 +176,28 @@ export async function listFilesInTree(input: BaseInput & { branch: string }) {
   })
 }
 
+/** Read-only tree at a commit/tree SHA. Never initializes an empty repository. */
+export async function listFilesAtSha(input: BaseInput & { sha: string }) {
+  return withTransientGitHubRetry(async () => {
+    const context = await getInstallationContext(input)
+    try {
+      const { data } = await context.octokit.rest.git.getTree({
+        owner: context.owner,
+        repo: context.repo,
+        tree_sha: input.sha,
+        recursive: "true",
+      })
+      return (data.tree ?? [])
+        .filter((entry) => entry.type === "blob" && Boolean(entry.path))
+        .map((entry) => ({ path: entry.path ?? "", sha: entry.sha ?? "" }))
+    } catch (error) {
+      const status = (error as { status?: number }).status
+      if (status === 404 || status === 409) return []
+      throw error
+    }
+  })
+}
+
 export async function getFileContent(
   input: BaseInput & { branch: string; path: string },
 ): Promise<string | undefined> {

@@ -94,6 +94,16 @@ describe("write runner", () => {
         "ctxpipe - Knowledge update of docs from migration",
       )
     }
+    const unlink = planWorkspaceWriteCommit({
+      ...gate,
+      files: [],
+      deletePaths: ["repositories/billing.md"],
+      existing: new Map([["repositories/billing.md", "---\ngit: x\n---\n"]]),
+    })
+    expect(unlink).toMatchObject({
+      action: "commit",
+      deletePaths: ["repositories/billing.md"],
+    })
   })
 
   it("executes a planned commit through the injected pusher", async () => {

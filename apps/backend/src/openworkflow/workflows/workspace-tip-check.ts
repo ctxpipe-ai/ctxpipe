@@ -2,23 +2,20 @@ import { defineWorkflow } from "openworkflow"
 import { z } from "zod"
 import { parseEnv } from "../../config/env.js"
 import { withOrgDbContext } from "../../db/client.js"
-import { firstConnectorTarget } from "../../domain/workspaces/migration-cutover.js"
 import {
   runCronLinkedTipChecks,
   runCronTipChecks,
 } from "../../domain/workspaces/tip-resolve.js"
 import {
-  getPersistedFirstWorkspaceId,
+  getWorkspaceById,
   listOrgLinkedRepositories,
   listOrgWorkspaces,
-  persistFirstWorkspaceId,
   persistLinkedDesiredSha,
   persistResolvedDesiredSha,
 } from "../../models/workspaces.js"
 import { resolveWorkspaceRepositoryTip } from "../../routes/webhooks/github/github-workspace-tip.js"
 import { enqueueWorkspaceHydrate } from "../enqueue-workspace-hydrate.js"
 import { enqueueWorkspaceIndex } from "../enqueue-workspace-index.js"
-import { enqueueWorkspaceWriteCommit } from "../enqueue-workspace-write-commit.js"
 
 const workspaceTipCheckInputSchema = z.object({
   orgId: z.string().min(1),
@@ -30,23 +27,6 @@ export const workspaceTipCheck = defineWorkflow(
     const env = parseEnv(process.env as Record<string, string | undefined>)
     return withOrgDbContext(input.orgId, async () => {
       const workspaces = await listOrgWorkspaces(input.orgId)
-      const persistedFirst = await getPersistedFirstWorkspaceId(input.orgId)
-      if (!persistedFirst && workspaces.length > 0) {
-        const first = firstConnectorTarget(workspaces)
-        if (first) {
-          await persistFirstWorkspaceId(first.id, input.orgId)
-          for (const workspace of workspaces) {
-            void enqueueWorkspaceWriteCommit(
-              {
-                orgId: input.orgId,
-                workspaceId: workspace.id,
-                kind: "migration_export",
-              },
-              { error: () => undefined },
-            )
-          }
-        }
-      }
       const updated = await runCronTipChecks({
         workspaces,
         resolveTip: (workspaceRepositoryUrl) => {
@@ -61,20 +41,38 @@ export const workspaceTipCheck = defineWorkflow(
           })
         },
         persist: persistResolvedDesiredSha,
+        reloadDesiredSha: async (workspaceId) =>
+          (await getWorkspaceById(workspaceId))?.desiredSha ?? null,
       })
-      for (const workspaceId of updated) {
+      for (const item of updated) {
+        const row = workspaces.find(
+          (workspace) => workspace.id === item.workspaceId,
+        )
         void enqueueWorkspaceHydrate(
-          { orgId: input.orgId, workspaceId },
+          { orgId: input.orgId, workspaceId: item.workspaceId },
           { error: () => undefined },
         )
+        if (row) {
+          void enqueueWorkspaceIndex(
+            {
+              orgId: input.orgId,
+              workspaceId: row.id,
+              gitUrl: row.workspaceRepositoryUrl,
+              desiredSha: item.resolvedTip,
+              role: "workspace",
+            },
+            { error: () => undefined },
+          )
+        }
       }
       const linked = await listOrgLinkedRepositories(input.orgId)
       const linkedUpdated = await runCronLinkedTipChecks({
         linked,
-        resolveTip: (gitUrl) =>
+        resolveTip: (gitUrl, desiredRef) =>
           resolveWorkspaceRepositoryTip({
             orgId: input.orgId,
             workspaceRepositoryUrl: gitUrl,
+            branch: desiredRef,
             env,
           }),
         persist: persistLinkedDesiredSha,

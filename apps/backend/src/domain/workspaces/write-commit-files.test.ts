@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest"
 import {
+  deletePathsForWorkspaceWriteKind,
   filesForWorkspaceWriteKind,
   shouldEnqueueBootstrapAfterExport,
 } from "./write-commit-files.js"
@@ -17,6 +18,51 @@ describe("filesForWorkspaceWriteKind", () => {
       ".agents/skills/ctxpipe-knowledge/SKILL.md",
     ])
     expect(files.some((file) => file.path.startsWith("knowledge/"))).toBe(false)
+  })
+
+  it("writes and deletes repositories/*.md for link_unlink", () => {
+    const files = filesForWorkspaceWriteKind({
+      kind: "link_unlink",
+      displayName: "Docs",
+      linkedUrls: ["https://github.com/acme/app"],
+      existing: new Map(),
+      linkChange: {
+        action: "link",
+        gitUrl: "https://github.com/acme/billing.git",
+      },
+    })
+    expect(files.map((file) => file.path)).toEqual([
+      "repositories/app.md",
+      "repositories/billing.md",
+    ])
+    expect(
+      filesForWorkspaceWriteKind({
+        kind: "link_unlink",
+        displayName: "Docs",
+        linkedUrls: [
+          "https://github.com/acme/app",
+          "https://github.com/acme/billing.git",
+        ],
+        existing: new Map(),
+        linkChange: {
+          action: "unlink",
+          gitUrl: "https://github.com/acme/billing.git",
+        },
+      }).map((file) => file.path),
+    ).toEqual(["repositories/app.md"])
+    expect(
+      deletePathsForWorkspaceWriteKind({
+        kind: "link_unlink",
+        linkedUrls: [
+          "https://github.com/acme/app",
+          "https://github.com/acme/billing.git",
+        ],
+        linkChange: {
+          action: "unlink",
+          gitUrl: "https://github.com/acme/billing.git",
+        },
+      }),
+    ).toEqual(["repositories/billing.md"])
   })
 
   it("uses the export plan for migration_export", () => {

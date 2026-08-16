@@ -96,6 +96,14 @@ export function hydrateKnowledgeTree(input: {
   return { units, skipped, linked }
 }
 
+/** Hydrate reads this SHA. Never the moving default-branch tip. */
+export function hydrateReadsStoredDesiredSha(
+  desiredSha: string | null,
+): string | null {
+  const sha = desiredSha?.trim() ?? ""
+  return sha || null
+}
+
 export function hydrateIsNoop(
   previousSha: string | null,
   sha: string,

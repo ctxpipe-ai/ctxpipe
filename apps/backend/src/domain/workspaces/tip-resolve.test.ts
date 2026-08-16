@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from "vitest"
 import {
+  applyResolvedTipsForMatchingLinked,
   applyResolvedTipsForMatchingWorkspaces,
   cronTipCheckNeedsHydrate,
   desiredShaFromResolvedTip,
@@ -49,11 +50,13 @@ describe("tip resolve", () => {
           id: "ws_1",
           workspaceRepositoryUrl: "https://github.com/acme/docs.git",
           desiredGeneration: 3,
+          desiredSha: "old",
         },
         {
           id: "ws_other",
           workspaceRepositoryUrl: "https://github.com/acme/other.git",
           desiredGeneration: 1,
+          desiredSha: null,
         },
       ],
       resolveTip: async () => "resolved-tip",
@@ -66,12 +69,13 @@ describe("tip resolve", () => {
       resolvedTip: "resolved-tip",
       expectedGeneration: 3,
       expectedUrl: "https://github.com/acme/docs.git",
+      expectedDesiredSha: "old",
     })
   })
 
   it("updates only workspaces whose resolved tip moved", async () => {
     const persist = vi.fn(async () => true)
-    const updatedIds = await runCronTipChecks({
+    const updated = await runCronTipChecks({
       workspaces: [
         {
           id: "ws_stale",
@@ -89,34 +93,118 @@ describe("tip resolve", () => {
       resolveTip: async (url) => (url.includes("docs") ? "new-tip" : "same"),
       persist,
     })
-    expect(updatedIds).toEqual(["ws_stale"])
+    expect(updated).toEqual([
+      { workspaceId: "ws_stale", resolvedTip: "new-tip" },
+    ])
     expect(persist).toHaveBeenCalledWith({
       workspaceId: "ws_stale",
       resolvedTip: "new-tip",
       expectedGeneration: 1,
       expectedUrl: "https://github.com/acme/docs.git",
+      expectedDesiredSha: "old",
     })
+  })
+
+  it("re-resolves after a CAS miss against the previous desired SHA", async () => {
+    const persist = vi
+      .fn()
+      .mockResolvedValueOnce(false)
+      .mockResolvedValueOnce(true)
+    const resolveTip = vi.fn(async () => "newer-tip")
+    const reloadDesiredSha = vi.fn(async () => "mid-tip")
+    const updated = await runCronTipChecks({
+      workspaces: [
+        {
+          id: "ws_race",
+          workspaceRepositoryUrl: "https://github.com/acme/docs.git",
+          desiredGeneration: 1,
+          desiredSha: "old",
+        },
+      ],
+      resolveTip,
+      persist,
+      reloadDesiredSha,
+    })
+    expect(resolveTip).toHaveBeenCalledTimes(2)
+    expect(reloadDesiredSha).toHaveBeenCalledWith("ws_race")
+    expect(persist).toHaveBeenNthCalledWith(2, {
+      workspaceId: "ws_race",
+      resolvedTip: "newer-tip",
+      expectedGeneration: 1,
+      expectedUrl: "https://github.com/acme/docs.git",
+      expectedDesiredSha: "mid-tip",
+    })
+    expect(updated).toEqual([
+      { workspaceId: "ws_race", resolvedTip: "newer-tip" },
+    ])
   })
 
   it("updates linked remotes without re-hydrating the workspace repository", async () => {
     const persist = vi.fn(async () => true)
+    const resolveTip = vi.fn(async (_url: string, ref: string | null) => {
+      expect(ref).toBe("release")
+      return "new-linked"
+    })
     const updated = await runCronLinkedTipChecks({
       linked: [
         {
           id: "wlr_1",
           workspaceId: "ws_1",
           gitUrl: "https://github.com/acme/app",
-          desiredRef: "main",
+          desiredRef: "release",
           desiredSha: "old",
         },
       ],
-      resolveTip: async () => "new-linked",
+      resolveTip,
       persist,
     })
+    expect(resolveTip).toHaveBeenCalledWith(
+      "https://github.com/acme/app",
+      "release",
+    )
     expect(updated).toEqual([{ linkedId: "wlr_1", resolvedTip: "new-linked" }])
     expect(persist).toHaveBeenCalledWith({
       linkedId: "wlr_1",
       resolvedTip: "new-linked",
+      expectedDesiredSha: "old",
+    })
+  })
+
+  it("matches a linked remote push to its desired ref, including non-default branches", async () => {
+    const persist = vi.fn(async () => true)
+    const persisted = await applyResolvedTipsForMatchingLinked({
+      repoFullName: "acme/app",
+      webhookRef: "refs/heads/release",
+      defaultBranch: "main",
+      linked: [
+        {
+          id: "wlr_release",
+          gitUrl: "https://github.com/acme/app.git",
+          desiredRef: "release",
+          desiredSha: "old",
+        },
+        {
+          id: "wlr_default",
+          gitUrl: "https://github.com/acme/app.git",
+          desiredRef: null,
+          desiredSha: "old",
+        },
+        {
+          id: "wlr_other",
+          gitUrl: "https://github.com/acme/other.git",
+          desiredRef: "release",
+          desiredSha: "old",
+        },
+      ],
+      resolveTip: async (_fullName, ref) => `tip-for-${ref}`,
+      persist,
+    })
+    expect(persisted).toEqual([
+      { linkedId: "wlr_release", resolvedTip: "tip-for-release" },
+    ])
+    expect(persist).toHaveBeenCalledWith({
+      linkedId: "wlr_release",
+      resolvedTip: "tip-for-release",
       expectedDesiredSha: "old",
     })
   })

@@ -9,6 +9,7 @@ import {
   planMigrationExport,
 } from "../../domain/workspaces/migration-export.js"
 import {
+  deletePathsForWorkspaceWriteKind,
   filesForWorkspaceWriteKind,
   shouldEnqueueBootstrapAfterExport,
 } from "../../domain/workspaces/write-commit-files.js"
@@ -44,6 +45,8 @@ const workspaceWriteCommitInputSchema = z.object({
   workspaceId: z.string().min(1),
   kind: z.enum(["migration_export", "link_unlink", "bootstrap"]),
   defaultBranch: z.string().min(1).optional(),
+  linkAction: z.enum(["link", "unlink"]).optional(),
+  linkGitUrl: z.string().min(1).optional(),
 })
 
 export const workspaceWriteCommit = defineWorkflow(
@@ -127,14 +130,39 @@ export const workspaceWriteCommit = defineWorkflow(
             const content = await getFileContent({ ...github, path })
             if (content != null) existing.set(path, content)
           }
+        } else if (input.kind === "link_unlink") {
+          const tree = await listFilesInTree(github)
+          for (const entry of tree) {
+            if (
+              !entry.path.startsWith("repositories/") ||
+              !entry.path.endsWith(".md")
+            ) {
+              continue
+            }
+            const content = await getFileContent({
+              ...github,
+              path: entry.path,
+            })
+            if (content != null) existing.set(entry.path, content)
+          }
         }
 
+        const linkChange =
+          input.kind === "link_unlink" && input.linkAction && input.linkGitUrl
+            ? { action: input.linkAction, gitUrl: input.linkGitUrl }
+            : undefined
         const files = filesForWorkspaceWriteKind({
           kind: input.kind,
           displayName: workspace.displayName,
           linkedUrls,
           existing,
           exportPlan,
+          linkChange,
+        })
+        const deletePaths = deletePathsForWorkspaceWriteKind({
+          kind: input.kind,
+          linkedUrls,
+          linkChange,
         })
         for (const file of files) {
           if (existing.has(file.path)) continue
@@ -160,6 +188,7 @@ export const workspaceWriteCommit = defineWorkflow(
               resolvedTip: noOp.exportSha,
               expectedGeneration: workspace.desiredGeneration,
               expectedUrl: workspace.workspaceRepositoryUrl,
+              expectedDesiredSha: workspace.desiredSha,
             })
             void enqueueWorkspaceHydrate(
               {
@@ -185,6 +214,7 @@ export const workspaceWriteCommit = defineWorkflow(
 
         const plan = planWorkspaceWriteCommit({
           files,
+          deletePaths,
           existing,
           writeStatus: workspace.writeStatus,
           jobGeneration: workspace.desiredGeneration,
@@ -200,11 +230,12 @@ export const workspaceWriteCommit = defineWorkflow(
         try {
           result = await executeWorkspaceWriteCommit({
             plan,
-            commit: async (commitFilesInput, message) =>
+            commit: async (commitFilesInput, message, commitDeletePaths) =>
               commitFiles({
                 ...github,
                 message,
                 files: commitFilesInput,
+                deletePaths: commitDeletePaths,
               }),
           })
         } catch (error) {
@@ -224,6 +255,7 @@ export const workspaceWriteCommit = defineWorkflow(
             resolvedTip: result.commitSha,
             expectedGeneration: workspace.desiredGeneration,
             expectedUrl: workspace.workspaceRepositoryUrl,
+            expectedDesiredSha: workspace.desiredSha,
           })
           void enqueueWorkspaceHydrate(
             {

@@ -15,7 +15,10 @@ import {
   ensureConversation,
   touchConversationLastMessage,
 } from "../models/conversations.js"
-import { listWorkspaces } from "../models/workspaces.js"
+import {
+  getPersistedFirstWorkspaceId,
+  listWorkspaces,
+} from "../models/workspaces.js"
 import { trackMcpToolInvocation } from "../observability/amplitude.js"
 import {
   getLangfuseHandler,
@@ -100,7 +103,8 @@ export function registerMcpTools(server: McpServer): void {
         toolName: "ctx_advisor",
       })
       const { items } = await listWorkspaces()
-      const workspaceId = advisorWorkspaceId(null, items)
+      const persistedFirst = await getPersistedFirstWorkspaceId()
+      const workspaceId = advisorWorkspaceId(persistedFirst, items)
       if (!workspaceId) {
         throw createError({
           message: "Create a Workspace before using ctx_advisor",

@@ -43,6 +43,30 @@ describe("bootstrapWorkspaceFiles", () => {
     expect(merged).toContain("Hello.")
   })
 
+  it("preserves structured AGENTS.md front matter", () => {
+    const merged = bootstrapAgentsMarkdown({
+      displayName: "Docs",
+      existing:
+        "---\nname: Keep Me\ntags:\n  - billing\n  - ledger\nclaims:\n  - to: svc\n    predicate: owns\n---\n\nHello.\n",
+    })
+    expect(merged).toContain("tags:")
+    expect(merged).toContain("- billing")
+    expect(merged).toContain("claims:")
+    expect(merged).toContain("to: svc")
+    expect(merged).toContain("predicate: owns")
+  })
+
+  it("wraps an existing semantic folder map instead of inserting a second one", () => {
+    const merged = bootstrapAgentsMarkdown({
+      displayName: "Docs",
+      existing:
+        "---\nname: Keep Me\n---\n\n## Directory layout\n\n- `knowledge/` units\n- `repositories/` remotes\n",
+    })
+    expect(merged).toContain("## Directory layout")
+    expect(merged).toContain("<!-- ctxpipe:folder-map -->")
+    expect(merged.match(/## Folder Structure/g) ?? []).toHaveLength(0)
+  })
+
   it("polishes an existing skill without dropping extra notes", () => {
     const polished = bootstrapKnowledgeSkillMarkdown(
       "---\nname: ctxpipe-knowledge\n---\n\nCustom note.\n",
