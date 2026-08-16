@@ -235,7 +235,7 @@ export const conversationRoutes = new OpenAPIHono<AppEnv>()
     })
 
     const { items: rows, pageInfo } = await listConversationsPaginated({
-      source: query.source === "all" ? undefined : query.source,
+      source: query.source === "all" ? undefined : (query.source ?? "ui"),
       workspaceId: query.workspaceId,
       first: query.first,
       after: query.after,

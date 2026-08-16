@@ -42,6 +42,13 @@ vi.mock("../../../openworkflow/enqueue-repository-ingestion.js", () => ({
   enqueueRepositoryIngestionWorkflow: enqueueIngestionMock,
 }))
 
+const persistWorkspaceTipsMock = vi.hoisted(() => vi.fn().mockResolvedValue(0))
+
+vi.mock("./github-workspace-tip.js", () => ({
+  persistWorkspaceTipsOnDefaultBranchPush: persistWorkspaceTipsMock,
+  resolveGithubBranchTip: vi.fn().mockResolvedValue(null),
+}))
+
 import {
   getGithubConnectionRowByConnectionId,
   getWebhookSecretForGithubConnection,
@@ -96,6 +103,8 @@ describe("POST /api/v1/webhook/github", () => {
     getRowByConMock.mockReset()
     registerInstallMock.mockReset()
     getWebhookSecretMock.mockReset()
+    persistWorkspaceTipsMock.mockReset()
+    persistWorkspaceTipsMock.mockResolvedValue(0)
   })
 
   function createTestApp() {
@@ -207,6 +216,13 @@ describe("POST /api/v1/webhook/github", () => {
         indexingReason: "push",
       },
       expect.any(Object),
+    )
+    expect(persistWorkspaceTipsMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        orgId: "org_1",
+        repoFullName: "acme/app",
+        defaultBranch: "main",
+      }),
     )
   })
 
@@ -554,7 +570,9 @@ describe("POST /api/v1/webhook/github/:connectionId", () => {
     const payload = {
       action: "added",
       installation: { id: 129_416_215 },
-      repositories_added: [{ id: 1, name: "ctxpipe", full_name: "org/ctxpipe" }],
+      repositories_added: [
+        { id: 1, name: "ctxpipe", full_name: "org/ctxpipe" },
+      ],
     }
     const body = JSON.stringify(payload)
     const w = new Webhooks({ secret: perConnectionSecret })

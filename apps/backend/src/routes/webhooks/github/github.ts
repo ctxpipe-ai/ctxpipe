@@ -17,6 +17,10 @@ import { syncGithubRepositories } from "../../../openworkflow/workflows/sync-git
 import { maybeEnqueueConfluenceSyncOnConfigPush } from "./github-confluence-push.js"
 import { maybeActivateLinearSyncOnConfigPush } from "./github-linear-push.js"
 import { maybeEnqueueNotionSyncOnConfigPush } from "./github-notion-push.js"
+import {
+  persistWorkspaceTipsOnDefaultBranchPush,
+  resolveGithubBranchTip,
+} from "./github-workspace-tip.js"
 
 const pushPayloadSchema = z.object({
   ref: z.string(),
@@ -169,6 +173,32 @@ async function processPushEvent(
 
   if (ref !== `refs/heads/${defaultBranch}`) {
     return
+  }
+
+  const installationRows = await listInstallationsByGithubInstallationId(
+    installation.id,
+  )
+  for (const installationRow of installationRows) {
+    try {
+      await withOrgDbContext(installationRow.orgId, () =>
+        persistWorkspaceTipsOnDefaultBranchPush({
+          orgId: installationRow.orgId,
+          repoFullName: repo.full_name,
+          defaultBranch,
+          payloadAfter: after,
+          resolveTip: (fullName, branch) =>
+            resolveGithubBranchTip({
+              orgId: installationRow.orgId,
+              githubConnectionId: installationRow.id,
+              repoFullName: fullName,
+              branch,
+              env: ctx.env,
+            }),
+        }),
+      )
+    } catch (err: unknown) {
+      ctx.log.error(err instanceof Error ? err : new Error(String(err)))
+    }
   }
 
   await enqueueIngestionForInstallationRepos(

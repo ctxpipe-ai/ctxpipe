@@ -10,8 +10,9 @@ const {
   requireCurrentUserIdMock,
   requireCurrentOrgIdMock,
   requireCurrentOrgSlugMock,
+  listWorkspacesMock,
 } = vi.hoisted(() => ({
-  generateObjectIdMock: vi.fn(() => "thr_test"),
+  generateObjectIdMock: vi.fn(() => "conv_test"),
   streamMock: vi.fn(),
   invokeMock: vi.fn(),
   ensureConversationMock: vi.fn(async () => ({})),
@@ -19,6 +20,15 @@ const {
   requireCurrentUserIdMock: vi.fn(() => "user_test123"),
   requireCurrentOrgIdMock: vi.fn(() => "org_test"),
   requireCurrentOrgSlugMock: vi.fn(() => "test-org"),
+  listWorkspacesMock: vi.fn(async () => ({
+    lastUsedWorkspaceId: "ws_first",
+    items: [
+      {
+        id: "ws_first",
+        createdAt: new Date("2026-08-15T00:00:00.000Z"),
+      },
+    ],
+  })),
 }))
 
 vi.mock("../graphs/index.js", () => ({
@@ -35,12 +45,17 @@ vi.mock("../lib/id.js", () => ({
 vi.mock("../models/conversations.js", () => ({
   ensureConversation: ensureConversationMock,
   touchConversationLastMessage: touchConversationLastMessageMock,
+  discardUnstartedConversation: vi.fn(async () => {}),
 }))
 
 vi.mock("../auth/context.js", () => ({
   requireCurrentUserId: requireCurrentUserIdMock,
   requireCurrentOrgId: requireCurrentOrgIdMock,
   requireCurrentOrgSlug: requireCurrentOrgSlugMock,
+}))
+
+vi.mock("../models/workspaces.js", () => ({
+  listWorkspaces: listWorkspacesMock,
 }))
 
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js"
@@ -85,7 +100,8 @@ describe("registerMcpTools", () => {
     ]
     expect(name).toBe("ctx_advisor")
     expect(config.title).toContain("ctx_advisor")
-    expect(config.description).toContain("ctx_advisor")
+    expect(config.description).toContain("DEPRECATED")
+    expect(config.description).toContain("first Workspace")
     expect(config.description).toContain("repository search")
     expect(config.description).toContain("grep")
     expect(config.inputSchema.shape.prompt._def.type).toBe("string")
@@ -121,14 +137,15 @@ describe("registerMcpTools", () => {
       }
     }
     expect(callConfig.configurable?.checkpoint_ns).toBe("ctx_advisor")
-    expect(callConfig.configurable?.thread_id).toBe("thr_test")
+    expect(callConfig.configurable?.thread_id).toBe("conv_test")
     expect(callConfig.configurable?.source).toBe("mcp")
-    expect(generateObjectIdMock).toHaveBeenCalledWith("thr")
+    expect(generateObjectIdMock).toHaveBeenCalledWith("conv")
     expect(ensureConversationMock).toHaveBeenCalledWith({
-      id: "thr_test",
+      id: "conv_test",
       source: "mcp",
+      workspaceId: "ws_first",
     })
-    expect(touchConversationLastMessageMock).toHaveBeenCalledWith("thr_test")
+    expect(touchConversationLastMessageMock).toHaveBeenCalledWith("conv_test")
   })
 
   it("passes checkpoint config to fallback invoke path", async () => {
@@ -174,16 +191,17 @@ describe("registerMcpTools", () => {
       }
     }
     expect(invokeConfig.configurable?.checkpoint_ns).toBe("ctx_advisor")
-    expect(invokeConfig.configurable?.thread_id).toBe("thr_test")
+    expect(invokeConfig.configurable?.thread_id).toBe("conv_test")
     expect(invokeConfig.configurable?.source).toBe("mcp")
     expect(ensureConversationMock).toHaveBeenCalledWith({
-      id: "thr_test",
+      id: "conv_test",
       source: "mcp",
+      workspaceId: "ws_first",
     })
-    expect(touchConversationLastMessageMock).toHaveBeenCalledWith("thr_test")
+    expect(touchConversationLastMessageMock).toHaveBeenCalledWith("conv_test")
   })
 
-  it("uses composite threadId when conversationId is provided", async () => {
+  it("starts a new MCP conversation even when conversationId is provided", async () => {
     generateObjectIdMock.mockClear()
     requireCurrentUserIdMock.mockClear()
     const callCountBefore = streamMock.mock.calls.length
@@ -201,8 +219,15 @@ describe("registerMcpTools", () => {
       string,
       unknown,
       (
-        input: { prompt: string; currentProjectName?: string; conversationId?: string },
-        extra: { _meta?: { progressToken?: string }; sendNotification: (n: unknown) => Promise<void> },
+        input: {
+          prompt: string
+          currentProjectName?: string
+          conversationId?: string
+        },
+        extra: {
+          _meta?: { progressToken?: string }
+          sendNotification: (n: unknown) => Promise<void>
+        },
       ) => Promise<{ content: Array<{ text: string }> }>,
     ]
 
@@ -216,19 +241,39 @@ describe("registerMcpTools", () => {
     )
 
     expect(requireCurrentUserIdMock).toHaveBeenCalledTimes(1)
-    expect(generateObjectIdMock).not.toHaveBeenCalled()
+    expect(generateObjectIdMock).toHaveBeenCalledWith("conv")
 
     const lastStreamCall = streamMock.mock.calls[callCountBefore]
     const callConfig = lastStreamCall?.[1] as {
       configurable?: { thread_id?: string }
     }
-    expect(callConfig.configurable?.thread_id).toBe(
-      "user_test123_my-backend_conv-xyz",
-    )
+    expect(callConfig.configurable?.thread_id).toBe("conv_test")
     expect(ensureConversationMock).toHaveBeenCalledWith({
-      id: "user_test123_my-backend_conv-xyz",
+      id: "conv_test",
       source: "mcp",
+      workspaceId: "ws_first",
     })
+  })
+
+  it("fails when the organisation has no Workspace", async () => {
+    listWorkspacesMock.mockResolvedValueOnce({
+      lastUsedWorkspaceId: null,
+      items: [],
+    })
+    const registerToolMock = vi.fn()
+    const server = { registerTool: registerToolMock } as unknown as McpServer
+    registerMcpTools(server)
+    const [, , handler] = registerToolMock.mock.calls[0] as [
+      string,
+      unknown,
+      (
+        input: { prompt: string },
+        extra: { sendNotification: (n: unknown) => Promise<void> },
+      ) => Promise<{ content: Array<{ text: string }> }>,
+    ]
+    await expect(
+      handler({ prompt: "Test" }, { sendNotification: vi.fn(async () => {}) }),
+    ).rejects.toThrow(/Create a Workspace/)
   })
 
   it("passes currentProjectName to graph state when provided", async () => {

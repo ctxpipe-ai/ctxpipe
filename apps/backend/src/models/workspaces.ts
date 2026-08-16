@@ -422,14 +422,33 @@ export async function updateWorkspace(
   }
 }
 
+export async function listOrgWorkspaces(
+  orgId: string,
+): Promise<
+  Array<
+    Pick<
+      WorkspaceRecord,
+      "id" | "workspaceRepositoryUrl" | "desiredGeneration" | "desiredSha"
+    >
+  >
+> {
+  return getOrgDb()
+    .select({
+      id: workspaces.id,
+      workspaceRepositoryUrl: workspaces.workspaceRepositoryUrl,
+      desiredGeneration: workspaces.desiredGeneration,
+      desiredSha: workspaces.desiredSha,
+    })
+    .from(workspaces)
+    .where(eq(workspaces.orgId, orgId))
+}
+
 export async function persistResolvedDesiredSha(input: {
   workspaceId: string
   resolvedTip: string
   expectedGeneration: number
   expectedUrl: string
 }): Promise<boolean> {
-  const existing = await getWorkspaceById(input.workspaceId)
-  if (!existing) return false
   const sha = applyResolvedDesiredSha(input.resolvedTip)
   if (!sha) return false
   const [updated] = await getOrgDb()
@@ -440,7 +459,7 @@ export async function persistResolvedDesiredSha(input: {
     })
     .where(
       and(
-        eq(workspaces.id, existing.id),
+        eq(workspaces.id, input.workspaceId),
         eq(workspaces.desiredGeneration, input.expectedGeneration),
         eq(workspaces.workspaceRepositoryUrl, input.expectedUrl),
       ),

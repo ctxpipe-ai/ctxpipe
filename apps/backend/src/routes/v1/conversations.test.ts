@@ -77,6 +77,38 @@ describe("conversations API", () => {
     loadConversationUiMessagesMock.mockResolvedValue([])
   })
 
+  it("lists UI conversations by default and all sources when asked", async () => {
+    listConversationsPaginatedMock.mockResolvedValue({
+      items: [conversationRow],
+      pageInfo: {
+        hasNextPage: false,
+        hasPreviousPage: false,
+        startCursor: null,
+        endCursor: null,
+      },
+    })
+    const listed = await app().request("/conversations")
+    expect(listed.status).toBe(200)
+    expect(listConversationsPaginatedMock).toHaveBeenCalledWith(
+      expect.objectContaining({ source: "ui" }),
+    )
+
+    listConversationsPaginatedMock.mockClear()
+    listConversationsPaginatedMock.mockResolvedValue({
+      items: [],
+      pageInfo: {
+        hasNextPage: false,
+        hasPreviousPage: false,
+        startCursor: null,
+        endCursor: null,
+      },
+    })
+    await app().request("/conversations?source=all")
+    expect(listConversationsPaginatedMock).toHaveBeenCalledWith(
+      expect.objectContaining({ source: undefined }),
+    )
+  })
+
   it("404s GET when the conversation is not in the requested Workspace", async () => {
     getConversationMock.mockResolvedValue(null)
     const res = await app().request(

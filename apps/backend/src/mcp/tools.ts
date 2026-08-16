@@ -1,12 +1,13 @@
 import { HumanMessage } from "@langchain/core/messages"
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js"
-import slugify from "@sindresorhus/slugify"
+import { createError } from "evlog"
 import { z } from "zod"
 import {
   requireCurrentOrgId,
   requireCurrentOrgSlug,
   requireCurrentUserId,
 } from "../auth/context.js"
+import { advisorWorkspaceId } from "../domain/workspaces/chat-sandbox-policy.js"
 import { conversationGraph } from "../graphs/index.js"
 import { generateObjectId } from "../lib/id.js"
 import {
@@ -14,6 +15,7 @@ import {
   ensureConversation,
   touchConversationLastMessage,
 } from "../models/conversations.js"
+import { listWorkspaces } from "../models/workspaces.js"
 import { trackMcpToolInvocation } from "../observability/amplitude.js"
 import {
   getLangfuseHandler,
@@ -29,8 +31,10 @@ export function registerMcpTools(server: McpServer): void {
     "ctx_advisor",
     {
       title:
-        "Primary org knowledge (ctx_advisor) — call before planning & standards",
+        "Deprecated Workspace chat shim (ctx_advisor) — first Workspace only",
       description: [
+        "DEPRECATED. ctx_advisor is a compatibility shim for Workspace chat on the organisation's first Workspace. There is no workspace.id argument and no org-wide advisor. Zero Workspaces → fail; create a Workspace first.",
+        "Each invocation starts a new hidden MCP conversation (no cross-call memory).",
         "MANDATORY default: Call ctx_advisor early and often whenever org standards, architecture, tooling choices, or plans are involved. When in doubt, call — more calls beats too few. This is the single entrypoint to your organization's knowledge graph (CoALA, memory engine, indexed org context).",
         "",
         "RISK — Skipping ctx_advisor risks rework, diverging from org patterns, violating ADRs, and introducing technology that isn't allowed.",
@@ -95,11 +99,22 @@ export function registerMcpTools(server: McpServer): void {
         orgSlug: requireCurrentOrgSlug(),
         toolName: "ctx_advisor",
       })
-      const threadId =
-        conversationId != null
-          ? `${userId}_${slugify(currentProjectName ?? "default")}_${conversationId}`
-          : generateObjectId("thr")
-      await ensureConversation({ id: threadId, source: "mcp" })
+      const { items } = await listWorkspaces()
+      const workspaceId = advisorWorkspaceId(null, items)
+      if (!workspaceId) {
+        throw createError({
+          message: "Create a Workspace before using ctx_advisor",
+          status: 400,
+          why: "Deprecated advisor targets the first Workspace; the org has none",
+        })
+      }
+      void conversationId
+      const threadId = generateObjectId("conv")
+      await ensureConversation({
+        id: threadId,
+        source: "mcp",
+        workspaceId,
+      })
       const invocationConfig = {
         configurable: {
           thread_id: threadId,
