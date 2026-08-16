@@ -936,6 +936,40 @@ export async function listWorkspaceKnowledgeFiles(
     .orderBy(workspaceKnowledgeUnits.path)
 }
 
+export async function listWorkspaceKnowledgeUnits(
+  workspaceId: string,
+): Promise<{
+  units: HydrateUnit[]
+  lastUpdatedAt: string | null
+}> {
+  const rows = await getOrgDb()
+    .select({
+      servingId: workspaceKnowledgeUnits.servingId,
+      path: workspaceKnowledgeUnits.path,
+      body: workspaceKnowledgeUnits.body,
+      links: workspaceKnowledgeUnits.links,
+      claims: workspaceKnowledgeUnits.claims,
+      updatedAt: workspaceKnowledgeUnits.updatedAt,
+    })
+    .from(workspaceKnowledgeUnits)
+    .where(eq(workspaceKnowledgeUnits.workspaceId, workspaceId))
+    .orderBy(workspaceKnowledgeUnits.path)
+  const lastUpdatedAt = rows.reduce<Date | null>((latest, row) => {
+    if (!latest || row.updatedAt > latest) return row.updatedAt
+    return latest
+  }, null)
+  return {
+    units: rows.map((row) => ({
+      servingId: row.servingId,
+      path: row.path,
+      body: row.body,
+      links: row.links,
+      claims: row.claims,
+    })),
+    lastUpdatedAt: lastUpdatedAt?.toISOString() ?? null,
+  }
+}
+
 export async function listKnowledgeUnitPaths(
   workspaceId: string,
 ): Promise<string[]> {

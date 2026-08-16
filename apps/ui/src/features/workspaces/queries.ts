@@ -4,6 +4,7 @@ import type {
   Workspace,
   WorkspaceDetail,
   WorkspaceFilesResponse,
+  WorkspaceGraphPayload,
   WorkspaceLinkedRepository,
   WorkspaceListResponse,
 } from "./types"
@@ -21,6 +22,8 @@ export const workspaceKeys = {
   ) => ["conversation", orgSlug, conversationId, workspaceId] as const,
   files: (orgSlug: string, slug: string) =>
     ["workspace-files", orgSlug, slug] as const,
+  graph: (orgSlug: string, slug: string) =>
+    ["workspace-graph", orgSlug, slug] as const,
 }
 
 export async function fetchWorkspaces(
@@ -60,6 +63,19 @@ export async function fetchWorkspaceFiles(
   })
   if (!res.ok) throw new Error("Failed to load Workspace files")
   return res.json() as Promise<WorkspaceFilesResponse>
+}
+
+export async function fetchWorkspaceGraph(
+  orgSlug: string,
+  workspaceSlug: string,
+): Promise<WorkspaceGraphPayload> {
+  const res = await client[":orgSlug"].api.v1.workspaces[
+    ":workspaceSlug"
+  ].graph.$get({
+    param: { orgSlug, workspaceSlug },
+  })
+  if (!res.ok) throw new Error("Failed to load Workspace graph")
+  return res.json() as Promise<WorkspaceGraphPayload>
 }
 
 export async function fetchWorkspace(

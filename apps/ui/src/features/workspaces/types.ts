@@ -52,3 +52,27 @@ export type WorkspaceFilesResponse = {
   items: WorkspaceFile[]
   tree: WorkspaceFileTreeNode[]
 }
+
+export type WorkspaceGraphPayload = {
+  metrics: {
+    totalNodes: number
+    totalEdges: number
+    lastUpdatedAt: string | null
+    nodesReturned: number
+    edgesReturned: number
+    truncated: boolean
+  }
+  nodes: Array<{
+    id: string
+    kind: string
+    name: string | null
+    summary: string | null
+  }>
+  edges: Array<{
+    sourceId: string
+    targetId: string
+    predicate: string
+    lastObservedAt: string | null
+    confidence: number | null
+  }>
+}

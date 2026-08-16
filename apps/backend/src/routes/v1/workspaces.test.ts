@@ -9,6 +9,7 @@ const updateWorkspaceMock = vi.hoisted(() => vi.fn())
 const touchLastUsedWorkspaceMock = vi.hoisted(() => vi.fn())
 const listLinkedRepositoriesMock = vi.hoisted(() => vi.fn())
 const listWorkspaceKnowledgeFilesMock = vi.hoisted(() => vi.fn())
+const listWorkspaceKnowledgeUnitsMock = vi.hoisted(() => vi.fn())
 const linkRepositoryMock = vi.hoisted(() => vi.fn())
 const unlinkRepositoryMock = vi.hoisted(() => vi.fn())
 
@@ -28,6 +29,7 @@ vi.mock("../../models/workspaces.js", () => ({
   touchLastUsedWorkspace: touchLastUsedWorkspaceMock,
   listLinkedRepositories: listLinkedRepositoriesMock,
   listWorkspaceKnowledgeFiles: listWorkspaceKnowledgeFilesMock,
+  listWorkspaceKnowledgeUnits: listWorkspaceKnowledgeUnitsMock,
   linkRepository: linkRepositoryMock,
   unlinkRepository: unlinkRepositoryMock,
   getPersistedFirstWorkspaceId: vi.fn().mockResolvedValue(null),
@@ -282,5 +284,30 @@ describe("workspaces API", () => {
       { path: "knowledge/billing/ledger.md", body: "Ledger" },
     ])
     expect(body.tree[0]?.name).toBe("knowledge")
+  })
+
+  it("lists this Workspace’s projection for the Graph pane", async () => {
+    getWorkspaceBySlugMock.mockResolvedValue(workspaceRow)
+    listWorkspaceKnowledgeUnitsMock.mockResolvedValue({
+      lastUpdatedAt: "2026-08-16T10:00:00.000Z",
+      units: [
+        {
+          path: "knowledge/billing/ledger.md",
+          servingId: "kn_ledger",
+          body: "Ledger",
+          links: [],
+          claims: [],
+        },
+      ],
+    })
+    const res = await app().request("/workspaces/knowledge/graph")
+    expect(res.status).toBe(200)
+    const body = await res.json()
+    expect(body.metrics.totalNodes).toBe(1)
+    expect(body.nodes[0]).toMatchObject({
+      id: "kn_ledger",
+      name: "ledger",
+      kind: "KnowledgeUnit",
+    })
   })
 })

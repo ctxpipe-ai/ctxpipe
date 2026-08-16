@@ -10,9 +10,14 @@ import { useQuery } from "@tanstack/react-query"
 import type { ReactNode } from "react"
 import { Button } from "@/components/ui/Button"
 import { filePaneId, type ParsedPane } from "./pane"
-import { fetchWorkspaceFiles, workspaceKeys } from "./queries"
+import {
+  fetchWorkspaceFiles,
+  fetchWorkspaceGraph,
+  workspaceKeys,
+} from "./queries"
 import type { WorkspaceDetail } from "./types"
 import { WorkspaceFileTree } from "./WorkspaceFileTree"
+import { WorkspaceGraphPane } from "./WorkspaceGraphPane"
 import { WorkspaceSettingsPane } from "./WorkspaceSettingsPane"
 
 export function WorkspacePane(props: {
@@ -41,6 +46,11 @@ export function WorkspacePane(props: {
     queryKey: workspaceKeys.files(props.orgSlug, props.workspace.slug),
     queryFn: () => fetchWorkspaceFiles(props.orgSlug, props.workspace.slug),
     enabled: props.pane.kind === "files" || props.pane.kind === "file",
+  })
+  const graphQuery = useQuery({
+    queryKey: workspaceKeys.graph(props.orgSlug, props.workspace.slug),
+    queryFn: () => fetchWorkspaceGraph(props.orgSlug, props.workspace.slug),
+    enabled: props.pane.kind === "graph",
   })
   const files = filesQuery.data?.items ?? []
   const preview = files.find((file) => file.path === activeFile)
@@ -215,12 +225,10 @@ export function WorkspacePane(props: {
           </>
         ) : null}
         {props.pane.kind === "graph" ? (
-          <div className="flex flex-1 items-center justify-center p-6">
-            <p className="max-w-sm text-center text-sm text-muted-foreground">
-              Graph shows this Workspace’s projection after hydrate. It is not
-              the old organisation-wide graph.
-            </p>
-          </div>
+          <WorkspaceGraphPane
+            graph={graphQuery.data}
+            pending={graphQuery.isPending}
+          />
         ) : null}
         {props.pane.kind === "settings" ? (
           <WorkspaceSettingsPane
