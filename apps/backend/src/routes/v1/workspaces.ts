@@ -42,6 +42,9 @@ const LinkedRepositorySchema = z
     id: z.string(),
     workspaceId: z.string(),
     gitUrl: z.string(),
+    desiredRef: z.string().nullable(),
+    desiredSha: z.string().nullable(),
+    indexedSha: z.string().nullable(),
     createdAt: z.string().datetime(),
   })
   .openapi("WorkspaceLinkedRepository")

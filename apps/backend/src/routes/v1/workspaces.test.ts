@@ -97,6 +97,9 @@ describe("workspaces API", () => {
         id: "wlr_1",
         workspaceId: "ws_abc",
         gitUrl: "https://github.com/acme/app",
+        desiredRef: null,
+        desiredSha: null,
+        indexedSha: null,
         createdAt: new Date("2026-08-15T10:00:00.000Z"),
       },
     ])
@@ -174,6 +177,9 @@ describe("workspaces API", () => {
       id: "wlr_1",
       workspaceId: "ws_abc",
       gitUrl: "https://github.com/acme/app",
+      desiredRef: null,
+      desiredSha: null,
+      indexedSha: null,
       createdAt: new Date("2026-08-15T10:00:00.000Z"),
     })
     const res = await app().request(

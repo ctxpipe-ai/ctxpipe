@@ -26,6 +26,9 @@ export type WorkspaceLinkedRepository = {
   id: string
   workspaceId: string
   gitUrl: string
+  desiredRef: string | null
+  desiredSha: string | null
+  indexedSha: string | null
   createdAt: string
 }
 

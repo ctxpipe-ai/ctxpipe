@@ -10,6 +10,10 @@ import {
 } from "../db/schema/workspaces.js"
 import { nextRelinkFields } from "../domain/workspaces/relink.js"
 import {
+  applyResolvedDesiredSha,
+  shouldActivateHydrateProjection,
+} from "../domain/workspaces/revision.js"
+import {
   displayNameFromGitUrl,
   isValidSlug,
   nextSlugCandidate,
@@ -392,6 +396,70 @@ export async function updateWorkspace(
     }
     throw error
   }
+}
+
+export async function persistResolvedDesiredSha(input: {
+  workspaceId: string
+  resolvedTip: string
+  expectedGeneration: number
+  expectedUrl: string
+}): Promise<boolean> {
+  const existing = await getWorkspaceById(input.workspaceId)
+  if (!existing) return false
+  const sha = applyResolvedDesiredSha(input.resolvedTip)
+  if (!sha) return false
+  const [updated] = await getOrgDb()
+    .update(workspaces)
+    .set({
+      desiredSha: sha,
+      updatedAt: new Date(),
+    })
+    .where(
+      and(
+        eq(workspaces.id, existing.id),
+        eq(workspaces.desiredGeneration, input.expectedGeneration),
+        eq(workspaces.workspaceRepositoryUrl, input.expectedUrl),
+      ),
+    )
+    .returning({ id: workspaces.id })
+  return updated != null
+}
+
+export async function activateHydrateProjection(input: {
+  workspaceId: string
+  jobGeneration: number
+  jobWorkspaceUrl: string
+  hydratedSha: string
+}): Promise<boolean> {
+  const existing = await getWorkspaceById(input.workspaceId)
+  if (!existing) return false
+  const decision = shouldActivateHydrateProjection({
+    jobGeneration: input.jobGeneration,
+    desiredGeneration: existing.desiredGeneration,
+    jobWorkspaceUrl: input.jobWorkspaceUrl,
+    desiredWorkspaceUrl: existing.workspaceRepositoryUrl,
+    hydratedSha: input.hydratedSha,
+    desiredSha: existing.desiredSha,
+  })
+  if (!decision.activate) return false
+  const [updated] = await getOrgDb()
+    .update(workspaces)
+    .set({
+      activeProjectionUrl: existing.workspaceRepositoryUrl,
+      activeProjectionSha: input.hydratedSha,
+      hydrateStatus: "ready",
+      updatedAt: new Date(),
+    })
+    .where(
+      and(
+        eq(workspaces.id, existing.id),
+        eq(workspaces.desiredGeneration, input.jobGeneration),
+        eq(workspaces.workspaceRepositoryUrl, input.jobWorkspaceUrl),
+        eq(workspaces.desiredSha, input.hydratedSha),
+      ),
+    )
+    .returning({ id: workspaces.id })
+  return updated != null
 }
 
 export async function touchLastUsedWorkspace(

@@ -62,6 +62,9 @@ export const workspaceLinkedRepositories = pgTable(
       .notNull()
       .references(() => workspaces.id, { onDelete: "cascade" }),
     gitUrl: text("git_url").notNull(),
+    desiredRef: text("desired_ref"),
+    desiredSha: text("desired_sha"),
+    indexedSha: text("indexed_sha"),
     createdAt: timestamp("created_at", { withTimezone: true, mode: "date" })
       .notNull()
       .defaultNow(),
