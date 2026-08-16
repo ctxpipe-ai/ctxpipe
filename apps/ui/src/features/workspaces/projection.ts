@@ -2,5 +2,22 @@ export function workspaceProjectionReady(input: {
   hydrateStatus: string
   activeProjectionSha: string | null
 }): boolean {
-  return input.hydrateStatus === "ready" && Boolean(input.activeProjectionSha)
+  void input.hydrateStatus
+  return Boolean(input.activeProjectionSha)
+}
+
+export function workspaceHydrateInFlight(input: {
+  hydrateStatus: string
+  desiredSha?: string | null
+  activeProjectionSha?: string | null
+}): boolean {
+  if (input.hydrateStatus !== "ready") return true
+  if (
+    input.desiredSha &&
+    input.activeProjectionSha &&
+    input.desiredSha !== input.activeProjectionSha
+  ) {
+    return true
+  }
+  return false
 }

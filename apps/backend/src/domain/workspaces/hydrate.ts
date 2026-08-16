@@ -134,12 +134,30 @@ export function shouldReplaceKnowledgeProjection(input: {
   return !hydrateIsNoop(input)
 }
 
-/** Copy root AGENTS.md front matter `name` onto the Workspace. Missing/malformed → null. */
+/** Serving stores go live at the first successful hydrate SHA and stay on that projection during relink. */
 export function workspaceProjectionReady(input: {
   hydrateStatus: string
   activeProjectionSha: string | null
 }): boolean {
-  return input.hydrateStatus === "ready" && Boolean(input.activeProjectionSha)
+  void input.hydrateStatus
+  return Boolean(input.activeProjectionSha)
+}
+
+/** Relink hydrates B in the background; keep polling until desired matches the active SHA. */
+export function workspaceHydrateInFlight(input: {
+  hydrateStatus: string
+  desiredSha?: string | null
+  activeProjectionSha?: string | null
+}): boolean {
+  if (input.hydrateStatus !== "ready") return true
+  if (
+    input.desiredSha &&
+    input.activeProjectionSha &&
+    input.desiredSha !== input.activeProjectionSha
+  ) {
+    return true
+  }
+  return false
 }
 
 export function hydrateUnitsToProjectionClaims(

@@ -116,7 +116,7 @@ describe("hydrateKnowledgeTree", () => {
 })
 
 describe("workspaceProjectionReady", () => {
-  it("is ready only after hydrate activates a SHA", () => {
+  it("serves the last activated SHA even while relink hydrate is pending", () => {
     expect(
       workspaceProjectionReady({
         hydrateStatus: "pending",
@@ -133,6 +133,12 @@ describe("workspaceProjectionReady", () => {
       workspaceProjectionReady({
         hydrateStatus: "ready",
         activeProjectionSha: "abc",
+      }),
+    ).toBe(true)
+    expect(
+      workspaceProjectionReady({
+        hydrateStatus: "pending",
+        activeProjectionSha: "aaa",
       }),
     ).toBe(true)
   })

@@ -3,7 +3,10 @@ import { useNavigate } from "@tanstack/react-router"
 import { useEffect, useState } from "react"
 import { AppShell } from "@/components/AppShell"
 import { type ParsedPane, parsePane, serializePane, visiblePane } from "./pane"
-import { workspaceProjectionReady } from "./projection"
+import {
+  workspaceHydrateInFlight,
+  workspaceProjectionReady,
+} from "./projection"
 import {
   fetchConversation,
   fetchWorkspace,
@@ -29,7 +32,10 @@ export function WorkspaceSurface(props: {
     refetchInterval: (query) => {
       const data = query.state.data
       if (!data) return false
-      return workspaceProjectionReady(data) ? false : 2000
+      if (!workspaceProjectionReady(data) || workspaceHydrateInFlight(data)) {
+        return 2000
+      }
+      return false
     },
   })
   const conversationQuery = useQuery({
