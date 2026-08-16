@@ -15,4 +15,17 @@ describe("nextRelinkFields", () => {
     expect(next).not.toHaveProperty("activeProjectionUrl")
     expect(next).not.toHaveProperty("activeProjectionSha")
   })
+
+  it("stores the classified write probe on relink", () => {
+    expect(
+      nextRelinkFields(3, {
+        writeStatus: "read_only",
+        readOnlyReason: "not GitHub",
+      }),
+    ).toMatchObject({
+      desiredGeneration: 4,
+      writeStatus: "read_only",
+      readOnlyReason: "not GitHub",
+    })
+  })
 })

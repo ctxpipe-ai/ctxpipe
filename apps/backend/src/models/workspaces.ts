@@ -17,6 +17,7 @@ import {
   normalizeWorkspaceRepositoryUrl,
   slugFromGitUrl,
 } from "../domain/workspaces/slug.js"
+import { writeStatusFromClassification } from "../domain/workspaces/write-status.js"
 import { generateObjectId } from "../lib/id.js"
 
 export type WorkspaceRecord = typeof workspaces.$inferSelect
@@ -211,8 +212,11 @@ export async function createWorkspace(input: {
             workspaceRepositoryUrl,
             githubConnectionId: input.githubConnectionId ?? null,
             desiredGeneration: 1,
-            writeStatus: "unknown",
             hydrateStatus: "pending",
+            ...writeStatusFromClassification({
+              workspaceRepositoryUrl,
+              githubConnectionId: input.githubConnectionId ?? null,
+            }),
           })
           .returning()
 
@@ -339,7 +343,20 @@ export async function updateWorkspace(
         })
       }
       patch.workspaceRepositoryUrl = nextUrl
-      Object.assign(patch, nextRelinkFields(existing.desiredGeneration))
+      const connectionId =
+        input.githubConnectionId !== undefined
+          ? input.githubConnectionId
+          : existing.githubConnectionId
+      Object.assign(
+        patch,
+        nextRelinkFields(
+          existing.desiredGeneration,
+          writeStatusFromClassification({
+            workspaceRepositoryUrl: nextUrl,
+            githubConnectionId: connectionId,
+          }),
+        ),
+      )
     }
   }
 
