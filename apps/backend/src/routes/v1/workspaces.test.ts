@@ -26,6 +26,8 @@ vi.mock("../../models/workspaces.js", () => ({
   unlinkRepository: unlinkRepositoryMock,
 }))
 
+import { WRITE_STATUS_REASONS } from "../../domain/workspaces/write-status.js"
+import { enqueueWorkspaceWriteCommit } from "../../openworkflow/enqueue-workspace-write-commit.js"
 import { workspaceRoutes } from "./workspaces.js"
 
 const workspaceRow = {
@@ -95,6 +97,11 @@ describe("workspaces API", () => {
     expect(res.status).toBe(201)
     expect(createWorkspaceMock).toHaveBeenCalledWith({
       gitUrl: "https://github.com/acme/knowledge.git",
+      write: {
+        writeStatus: "read_only",
+        readOnlyReason: WRITE_STATUS_REASONS.githubNotConnected,
+        defaultBranch: null,
+      },
     })
     const body = await res.json()
     expect(body.slug).toBe("knowledge")
@@ -145,7 +152,19 @@ describe("workspaces API", () => {
     expect(res.status).toBe(200)
     expect(updateWorkspaceMock).toHaveBeenCalledWith("knowledge", {
       workspaceRepositoryUrl: "https://github.com/acme/docs.git",
+      write: {
+        writeStatus: "read_only",
+        readOnlyReason: WRITE_STATUS_REASONS.githubNotConnected,
+        defaultBranch: null,
+      },
     })
+    expect(enqueueWorkspaceWriteCommit).toHaveBeenCalledWith(
+      expect.objectContaining({
+        workspaceId: "ws_abc",
+        kind: "bootstrap",
+      }),
+      expect.anything(),
+    )
     const body = await res.json()
     expect(body.slug).toBe("knowledge")
     expect(body.desiredGeneration).toBe(2)

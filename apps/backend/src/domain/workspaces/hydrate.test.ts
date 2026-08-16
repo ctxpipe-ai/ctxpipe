@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest"
 import {
+  displayNameFromAgentsMarkdown,
   hydrateIsNoop,
   hydrateKnowledgeTree,
   servingIdForKnowledgePath,
@@ -38,9 +39,29 @@ describe("hydrateKnowledgeTree", () => {
     expect(result.linked).toEqual([
       {
         path: "repositories/billing.md",
-        git: "https://github.com/acme/billing.git",
+        git: "https://github.com/acme/billing",
         branch: null,
       },
+    ])
+  })
+
+  it("keeps the first linked remote and skips duplicate git URLs", () => {
+    const result = hydrateKnowledgeTree({
+      workspaceId: "ws_1",
+      files: [
+        {
+          path: "repositories/billing.md",
+          content: "---\ngit: https://github.com/acme/billing.git\n---\n",
+        },
+        {
+          path: "repositories/billing-dup.md",
+          content: "---\ngit: https://github.com/acme/billing.git\n---\n",
+        },
+      ],
+    })
+    expect(result.linked).toHaveLength(1)
+    expect(result.skipped).toEqual([
+      { path: "repositories/billing-dup.md", reason: "malformed" },
     ])
   })
 
@@ -53,5 +74,14 @@ describe("hydrateKnowledgeTree", () => {
     expect(
       shouldReplaceKnowledgeProjection({ previousSha: "abc", sha: "def" }),
     ).toBe(true)
+  })
+})
+
+describe("displayNameFromAgentsMarkdown", () => {
+  it("reads a valid name and ignores malformed or empty files", () => {
+    expect(displayNameFromAgentsMarkdown("---\nname: Docs\n---\n")).toBe("Docs")
+    expect(displayNameFromAgentsMarkdown("---\nname:   \n---\n")).toBeNull()
+    expect(displayNameFromAgentsMarkdown("---\nnot closed\n")).toBeNull()
+    expect(displayNameFromAgentsMarkdown("# No front matter\n")).toBeNull()
   })
 })

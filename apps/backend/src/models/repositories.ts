@@ -1,16 +1,23 @@
 import { and, count, eq, isNull, lt, lte, notInArray, or } from "drizzle-orm"
 import { requireCurrentOrgId } from "../auth/context.js"
-import { type Db, getOrgDb, getSystemDb, withOrgDbContext } from "../db/client.js"
 import {
-  repositories,
-} from "../db/schema/repositories.js"
+  type Db,
+  getOrgDb,
+  getSystemDb,
+  withOrgDbContext,
+} from "../db/client.js"
+import { repositories } from "../db/schema/repositories.js"
 import { repositoryCheckouts } from "../db/schema/repository_checkouts.js"
-import { type IndexingStepKey, resolveIndexingStep } from "../domain/indexingSteps.js"
+import {
+  type IndexingStepKey,
+  resolveIndexingStep,
+} from "../domain/indexingSteps.js"
 import {
   applyRepositoryDeletionGraphCleanup,
   notifyCodesearchRepositoryDeleted,
   purgeRepositoryPostgres,
 } from "../domain/repositoryDeletion.js"
+import { normalizeWorkspaceRepositoryUrl } from "../domain/workspaces/slug.js"
 import { generateObjectId } from "../lib/id.js"
 import { log } from "../observability/logger.js"
 import { withGraphClient } from "../platform/graph/client.js"
@@ -200,6 +207,23 @@ export async function pruneGithubConnectionRepositoriesNotInGitUrls(
       },
     )
   }
+}
+
+export async function findRepositoriesByNormalizedGitUrls(
+  urls: readonly string[],
+): Promise<Array<{ id: string; gitUrl: string }>> {
+  if (urls.length === 0) return []
+  const wanted = new Set(
+    urls.map((url) => normalizeWorkspaceRepositoryUrl(url)).filter(Boolean),
+  )
+  if (wanted.size === 0) return []
+  const rows = await getOrgDb()
+    .select({ id: repositories.id, gitUrl: repositories.gitUrl })
+    .from(repositories)
+    .where(eq(repositories.orgId, requireCurrentOrgId()))
+  return rows.filter((row) =>
+    wanted.has(normalizeWorkspaceRepositoryUrl(row.gitUrl)),
+  )
 }
 
 /** Returns repositories for org via system DB (explicit orgId filter). */
@@ -621,13 +645,11 @@ export async function deleteRepository(params: {
   )
   if (pg.alreadyGone) return false
 
-  await withGraphClient(
-    { orgId: params.orgId, orgSlug: params.orgSlug },
-    () =>
-      applyRepositoryDeletionGraphCleanup({
-        repositoryId: params.repositoryId,
-        graphEffects: pg.graphEffects,
-      }),
+  await withGraphClient({ orgId: params.orgId, orgSlug: params.orgSlug }, () =>
+    applyRepositoryDeletionGraphCleanup({
+      repositoryId: params.repositoryId,
+      graphEffects: pg.graphEffects,
+    }),
   )
 
   if (pg.name != null && pg.zoektRepoId != null && pg.zoektRepoId > 0) {

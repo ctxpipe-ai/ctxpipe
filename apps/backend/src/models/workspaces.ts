@@ -15,6 +15,7 @@ import { nextRelinkFields } from "../domain/workspaces/relink.js"
 import {
   applyResolvedDesiredSha,
   shouldActivateHydrateProjection,
+  shouldPublishIndex,
 } from "../domain/workspaces/revision.js"
 import {
   displayNameFromGitUrl,
@@ -24,7 +25,10 @@ import {
   normalizeWorkspaceRepositoryUrl,
   slugFromGitUrl,
 } from "../domain/workspaces/slug.js"
-import { writeStatusFromClassification } from "../domain/workspaces/write-status.js"
+import {
+  type WorkspaceWriteProbe,
+  writeStatusFromClassification,
+} from "../domain/workspaces/write-status.js"
 import { generateObjectId } from "../lib/id.js"
 
 export type WorkspaceRecord = typeof workspaces.$inferSelect
@@ -156,6 +160,7 @@ export async function createWorkspace(input: {
   displayName?: string
   slug?: string
   githubConnectionId?: string
+  write?: WorkspaceWriteProbe
 }): Promise<WorkspaceRecord> {
   const orgId = requireCurrentOrgId()
   const userId = requireCurrentUserId()
@@ -220,10 +225,11 @@ export async function createWorkspace(input: {
             githubConnectionId: input.githubConnectionId ?? null,
             desiredGeneration: 1,
             hydrateStatus: "pending",
-            ...writeStatusFromClassification({
-              workspaceRepositoryUrl,
-              githubConnectionId: input.githubConnectionId ?? null,
-            }),
+            ...(input.write ??
+              writeStatusFromClassification({
+                workspaceRepositoryUrl,
+                githubConnectionId: input.githubConnectionId ?? null,
+              })),
           })
           .returning()
 
@@ -297,6 +303,7 @@ export async function updateWorkspace(
     workspaceRepositoryUrl?: string
     githubConnectionId?: string | null
     readOnlyReason?: string | null
+    write?: WorkspaceWriteProbe
   },
 ): Promise<WorkspaceRecord | null> {
   const orgId = requireCurrentOrgId()
@@ -381,10 +388,11 @@ export async function updateWorkspace(
         patch,
         nextRelinkFields(
           existing.desiredGeneration,
-          writeStatusFromClassification({
-            workspaceRepositoryUrl: nextUrl,
-            githubConnectionId: connectionId,
-          }),
+          input.write ??
+            writeStatusFromClassification({
+              workspaceRepositoryUrl: nextUrl,
+              githubConnectionId: connectionId,
+            }),
         ),
       )
     }
@@ -541,6 +549,43 @@ export async function activateHydrateProjection(input: {
   return updated != null
 }
 
+export async function persistIndexedSha(input: {
+  workspaceId: string
+  indexedSha: string
+  expectedGeneration: number
+  expectedUrl: string
+  expectedDesiredSha: string
+}): Promise<boolean> {
+  const existing = await getWorkspaceById(input.workspaceId)
+  if (!existing) return false
+  const decision = shouldPublishIndex({
+    jobGeneration: input.expectedGeneration,
+    desiredGeneration: existing.desiredGeneration,
+    jobWorkspaceUrl: input.expectedUrl,
+    desiredWorkspaceUrl: existing.workspaceRepositoryUrl,
+    jobDesiredSha: input.expectedDesiredSha,
+    currentDesiredSha: existing.desiredSha,
+    remoteStillMember: true,
+  })
+  if (!decision.publish) return false
+  const [updated] = await getOrgDb()
+    .update(workspaces)
+    .set({
+      indexedSha: input.indexedSha,
+      updatedAt: new Date(),
+    })
+    .where(
+      and(
+        eq(workspaces.id, input.workspaceId),
+        eq(workspaces.desiredGeneration, input.expectedGeneration),
+        eq(workspaces.workspaceRepositoryUrl, input.expectedUrl),
+        eq(workspaces.desiredSha, input.expectedDesiredSha),
+      ),
+    )
+    .returning({ id: workspaces.id })
+  return updated != null
+}
+
 export async function touchLastUsedWorkspace(
   workspaceId: string,
 ): Promise<void> {
@@ -669,4 +714,73 @@ export async function unlinkRepository(input: {
     )
     .returning({ id: workspaceLinkedRepositories.id })
   return deleted != null
+}
+
+export async function updateWorkspaceDisplayName(
+  workspaceId: string,
+  displayName: string,
+): Promise<boolean> {
+  const name = displayName.trim()
+  if (!name) return false
+  const [updated] = await getOrgDb()
+    .update(workspaces)
+    .set({ displayName: name, updatedAt: new Date() })
+    .where(eq(workspaces.id, workspaceId))
+    .returning({ id: workspaces.id })
+  return updated != null
+}
+
+/** Replace the linked set from a hydrated SHA. First path already won; extras omitted. */
+export async function syncLinkedRepositoriesFromHydrate(input: {
+  workspaceId: string
+  workspaceRepositoryUrl: string
+  remotes: ReadonlyArray<{ git: string; branch: string | null }>
+}): Promise<void> {
+  const db = getOrgDb()
+  const workspaceUrl = normalizeWorkspaceRepositoryUrl(
+    input.workspaceRepositoryUrl,
+  )
+  const desired = new Map<string, string | null>()
+  for (const remote of input.remotes) {
+    const gitUrl = normalizeWorkspaceRepositoryUrl(remote.git)
+    if (!gitUrl || gitUrl === workspaceUrl || desired.has(gitUrl)) continue
+    desired.set(gitUrl, remote.branch)
+  }
+
+  await db.transaction(async (tx) => {
+    const existing = await tx
+      .select()
+      .from(workspaceLinkedRepositories)
+      .where(eq(workspaceLinkedRepositories.workspaceId, input.workspaceId))
+    const existingByUrl = new Map(existing.map((row) => [row.gitUrl, row]))
+
+    for (const row of existing) {
+      if (!desired.has(row.gitUrl)) {
+        await tx
+          .delete(workspaceLinkedRepositories)
+          .where(eq(workspaceLinkedRepositories.id, row.id))
+      }
+    }
+
+    for (const [gitUrl, branch] of desired) {
+      const current = existingByUrl.get(gitUrl)
+      if (!current) {
+        await tx.insert(workspaceLinkedRepositories).values({
+          id: generateObjectId("wlr"),
+          workspaceId: input.workspaceId,
+          gitUrl,
+          desiredRef: branch,
+        })
+        continue
+      }
+      if (current.desiredRef === branch) continue
+      await tx
+        .update(workspaceLinkedRepositories)
+        .set({
+          desiredRef: branch,
+          desiredSha: null,
+        })
+        .where(eq(workspaceLinkedRepositories.id, current.id))
+    }
+  })
 }

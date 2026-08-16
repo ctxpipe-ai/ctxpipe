@@ -1,4 +1,11 @@
-import { nextImportedKnowledgePath } from "./migration-cutover.js"
+import { parseSimpleFrontMatter } from "./layout.js"
+import {
+  assignImportedRepository,
+  mergeImportedClaims,
+  nextImportedKnowledgePath,
+  shouldExportClaim,
+} from "./migration-cutover.js"
+import { normalizeSlug } from "./slug.js"
 
 export const MIGRATION_EXPORT_KIND = "migration_export"
 
@@ -52,6 +59,47 @@ export function importedObjectMarkdown(input: {
     source?: string | null
   }>
 }): string {
+  return importedFrontMatter({
+    importKey: input.importKey,
+    claims: input.claims,
+    body: `# ${input.title}\n\n${input.body.trim()}`,
+  })
+}
+
+function rewriteImportedMarkdown(input: {
+  existing: string
+  importKey: string
+  body: string
+  claims: ReadonlyArray<{
+    to: string
+    predicate: string
+    confidence?: number
+    validFrom?: string | null
+    validTo?: string | null
+    source?: string | null
+  }>
+}): string {
+  const parsed = parseSimpleFrontMatter(input.existing)
+  if (parsed.malformed) return input.existing
+  return importedFrontMatter({
+    importKey: input.importKey,
+    claims: input.claims,
+    body: input.body,
+  })
+}
+
+function importedFrontMatter(input: {
+  importKey: string
+  body: string
+  claims?: ReadonlyArray<{
+    to: string
+    predicate: string
+    confidence?: number
+    validFrom?: string | null
+    validTo?: string | null
+    source?: string | null
+  }>
+}): string {
   const lines = [`---`, `import_key: ${input.importKey}`]
   if (input.claims && input.claims.length > 0) {
     lines.push("claims:")
@@ -65,7 +113,7 @@ export function importedObjectMarkdown(input: {
       if (claim.source) lines.push(`    source: ${claim.source}`)
     }
   }
-  lines.push("---", "", `# ${input.title}`, "", input.body.trim(), "")
+  lines.push("---", "", input.body.trim(), "")
   return lines.join("\n")
 }
 
@@ -75,4 +123,317 @@ export function noOpExportUsesResolvedTip(
 ): { commit: false; exportSha: string } | { commit: true } {
   if (!filesWouldChange) return { commit: false, exportSha: resolvedTip }
   return { commit: true }
+}
+
+const DEDUP_REPO_PREFIX = /^(?:inu|svc|pat):([^:]+):/
+
+export function repositoryIdFromDedup(
+  deduplicationKey: string | null | undefined,
+): string | null {
+  const key = deduplicationKey?.trim()
+  if (!key) return null
+  const match = key.match(DEDUP_REPO_PREFIX)
+  const id = match?.[1]?.trim()
+  return id || null
+}
+
+export function objectTitleFromPayload(payload: unknown): string {
+  if (!payload || typeof payload !== "object") return "Imported"
+  const record = payload as Record<string, unknown>
+  for (const key of ["title", "name"] as const) {
+    const value = record[key]
+    if (typeof value === "string" && value.trim()) return value.trim()
+  }
+  return "Imported"
+}
+
+export function objectBodyFromPayload(payload: unknown): string {
+  if (!payload || typeof payload !== "object") return ""
+  const record = payload as Record<string, unknown>
+  const summary =
+    typeof record.summary === "string" ? record.summary.trim() : ""
+  return summary
+}
+
+export function isoDate(
+  value: Date | string | null | undefined,
+): string | null {
+  if (!value) return null
+  if (value instanceof Date) {
+    if (Number.isNaN(value.getTime())) return null
+    return value.toISOString().slice(0, 10)
+  }
+  const trimmed = value.trim()
+  return trimmed || null
+}
+
+export type ExportObjectRow = {
+  id: string
+  deduplicationKey: string | null
+  payload: unknown
+}
+
+export type ExportClaimRow = {
+  subjectId: string
+  objectId: string
+  predicate: string
+  aggregatedConfidence: number
+  validFrom: Date | string | null
+  validTo: Date | string | null
+  source?: string | null
+}
+
+export type ExistingKnowledgeFile = {
+  path: string
+  content: string
+}
+
+export function workspaceByRepositoryUrl(input: {
+  repositories: ReadonlyArray<{ id: string; gitUrl: string }>
+  workspaces: ReadonlyArray<{ id: string; workspaceRepositoryUrl: string }>
+  normalizeUrl: (url: string) => string
+}): Map<string, string> {
+  const workspaceByUrl = new Map<string, string>()
+  for (const workspace of input.workspaces) {
+    const url = input.normalizeUrl(workspace.workspaceRepositoryUrl)
+    if (url) workspaceByUrl.set(url, workspace.id)
+  }
+  const result = new Map<string, string>()
+  for (const repo of input.repositories) {
+    const url = input.normalizeUrl(repo.gitUrl)
+    const workspaceId = workspaceByUrl.get(url)
+    if (workspaceId) result.set(repo.id, workspaceId)
+  }
+  return result
+}
+
+function importKeyFromExisting(content: string): string | null {
+  const parsed = parseSimpleFrontMatter(content)
+  if (parsed.malformed) return null
+  const key = parsed.attributes.import_key
+  return typeof key === "string" && key.trim() ? key.trim() : null
+}
+
+function claimsFromExisting(content: string): Array<{
+  to: string
+  predicate: string
+  confidence?: number
+  validFrom?: string | null
+  validTo?: string | null
+  source?: string | null
+  body?: string
+}> {
+  const parsed = parseSimpleFrontMatter(content)
+  if (parsed.malformed || !Array.isArray(parsed.attributes.claims)) return []
+  const claims: Array<{
+    to: string
+    predicate: string
+    confidence?: number
+    validFrom?: string | null
+    validTo?: string | null
+    source?: string | null
+    body?: string
+  }> = []
+  for (const item of parsed.attributes.claims) {
+    if (!item || typeof item !== "object") continue
+    const row = item as Record<string, unknown>
+    const to = typeof row.to === "string" ? row.to.trim() : ""
+    const predicate =
+      typeof row.predicate === "string" ? row.predicate.trim() : ""
+    if (!to || !predicate) continue
+    claims.push({
+      to,
+      predicate,
+      confidence:
+        typeof row.confidence === "number" ? row.confidence : undefined,
+      validFrom:
+        typeof row.valid_from === "string" ? row.valid_from : undefined,
+      validTo: typeof row.valid_to === "string" ? row.valid_to : undefined,
+      source: typeof row.source === "string" ? row.source : undefined,
+    })
+  }
+  return claims
+}
+
+export function planMigrationExport(input: {
+  workspaceId: string
+  firstWorkspaceId: string | null
+  workspaceByRepositoryId: ReadonlyMap<string, string>
+  objects: readonly ExportObjectRow[]
+  claims: readonly ExportClaimRow[]
+  existingKnowledge: readonly ExistingKnowledgeFile[]
+  linkedUrls: Iterable<string>
+}): {
+  files: Array<{ path: string; content: string }>
+  wouldChange: boolean
+} {
+  const objectWorkspace = new Map<string, string>()
+  const assigned: ExportObjectRow[] = []
+  for (const object of input.objects) {
+    const assignment = assignImportedRepository({
+      repositoryId: repositoryIdFromDedup(object.deduplicationKey),
+      workspaceByRepositoryId: input.workspaceByRepositoryId,
+      firstWorkspaceId: input.firstWorkspaceId,
+    })
+    if ("skip" in assignment) continue
+    objectWorkspace.set(object.id, assignment.workspaceId)
+    if (assignment.workspaceId === input.workspaceId) assigned.push(object)
+  }
+
+  const existingByImportKey = new Map<string, ExistingKnowledgeFile>()
+  const taken = new Set<string>()
+  for (const file of input.existingKnowledge) {
+    taken.add(file.path)
+    const key = importKeyFromExisting(file.content)
+    if (key && !existingByImportKey.has(key)) existingByImportKey.set(key, file)
+  }
+
+  const pathByObjectId = new Map<string, string>()
+  const titleByObjectId = new Map<string, string>()
+  const bodyByObjectId = new Map<string, string>()
+  const claimsByObjectId = new Map<
+    string,
+    Array<{
+      to: string
+      predicate: string
+      confidence?: number
+      validFrom?: string | null
+      validTo?: string | null
+      source?: string | null
+      body?: string
+    }>
+  >()
+
+  for (const object of assigned) {
+    const importKey =
+      importKeyFromDedup(object.deduplicationKey) ?? `legacy:${object.id}`
+    const existing = existingByImportKey.get(importKey)
+    const path = existing
+      ? existing.path
+      : nextImportedKnowledgePath(
+          normalizeSlug(objectTitleFromPayload(object.payload)),
+          taken,
+        )
+    taken.add(path)
+    pathByObjectId.set(object.id, path)
+    titleByObjectId.set(object.id, objectTitleFromPayload(object.payload))
+    const importedBody = objectBodyFromPayload(object.payload)
+    if (existing) {
+      const parsed = parseSimpleFrontMatter(existing.content)
+      const existingBody = parsed.malformed ? existing.content : parsed.body
+      bodyByObjectId.set(
+        object.id,
+        appendImportedBody(existingBody, importedBody),
+      )
+      claimsByObjectId.set(object.id, claimsFromExisting(existing.content))
+    } else {
+      bodyByObjectId.set(object.id, importedBody)
+      claimsByObjectId.set(object.id, [])
+    }
+  }
+
+  for (const claim of input.claims) {
+    if (objectWorkspace.get(claim.subjectId) !== input.workspaceId) continue
+    if (
+      !shouldExportClaim({
+        fromWorkspaceId: input.workspaceId,
+        toWorkspaceId: objectWorkspace.get(claim.objectId) ?? null,
+      })
+    ) {
+      continue
+    }
+    const fromPath = pathByObjectId.get(claim.subjectId)
+    const toPath = pathByObjectId.get(claim.objectId)
+    if (!fromPath || !toPath) continue
+    const current = claimsByObjectId.get(claim.subjectId) ?? []
+    const incoming = {
+      to: relativeKnowledgeLink(fromPath, toPath),
+      predicate: claim.predicate,
+      confidence: claim.aggregatedConfidence,
+      validFrom: isoDate(claim.validFrom),
+      validTo: isoDate(claim.validTo),
+      source: claim.source ?? null,
+      body: bodyByObjectId.get(claim.subjectId),
+    }
+    claimsByObjectId.set(
+      claim.subjectId,
+      mergeImportedClaims(current, [incoming]).map((item) =>
+        item.to === incoming.to && item.predicate === incoming.predicate
+          ? { ...item, ...incoming, confidence: item.confidence }
+          : item,
+      ),
+    )
+  }
+
+  const files: Array<{ path: string; content: string }> = []
+  for (const object of assigned) {
+    const path = pathByObjectId.get(object.id)
+    if (!path) continue
+    const existing = existingByImportKey.get(
+      importKeyFromDedup(object.deduplicationKey) ?? `legacy:${object.id}`,
+    )
+    files.push({
+      path,
+      content: existing
+        ? rewriteImportedMarkdown({
+            existing: existing.content,
+            importKey:
+              importKeyFromDedup(object.deduplicationKey) ??
+              `legacy:${object.id}`,
+            body: bodyByObjectId.get(object.id) ?? "",
+            claims: claimsByObjectId.get(object.id) ?? [],
+          })
+        : importedObjectMarkdown({
+            title: titleByObjectId.get(object.id) ?? "Imported",
+            body: bodyByObjectId.get(object.id) ?? "",
+            importKey:
+              importKeyFromDedup(object.deduplicationKey) ??
+              `legacy:${object.id}`,
+            claims: claimsByObjectId.get(object.id),
+          }),
+    })
+  }
+  files.push(
+    ...migrationExportFiles({
+      imported: [],
+      takenPaths: taken,
+      linkedUrls: input.linkedUrls,
+    }),
+  )
+
+  const existingByPath = new Map(
+    input.existingKnowledge.map((file) => [file.path, file.content]),
+  )
+  return {
+    files,
+    wouldChange: files.some(
+      (file) => existingByPath.get(file.path) !== file.content,
+    ),
+  }
+}
+
+function appendImportedBody(existing: string, incoming: string): string {
+  const current = existing.trim()
+  const next = incoming.trim()
+  if (!next) return current
+  if (!current) return next
+  if (current.includes(next)) return current
+  return `${current}\n\n${next}`
+}
+
+function relativeKnowledgeLink(fromPath: string, toPath: string): string {
+  const fromParts = fromPath.split("/").slice(0, -1)
+  const toParts = toPath.split("/")
+  let i = 0
+  while (
+    i < fromParts.length &&
+    i < toParts.length - 1 &&
+    fromParts[i] === toParts[i]
+  ) {
+    i += 1
+  }
+  const up = fromParts.length - i
+  const down = toParts.slice(i).join("/")
+  if (up === 0) return down.startsWith(".") ? down : `./${down}`
+  return `${"../".repeat(up)}${down}`
 }

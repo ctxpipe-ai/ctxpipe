@@ -1,5 +1,7 @@
 import { createRoute, OpenAPIHono, z } from "@hono/zod-openapi"
 import type { AppEnv } from "../../app/env.js"
+import type { Env } from "../../config/env.js"
+import { probeWorkspaceWriteAccess } from "../../domain/workspaces/write-status.js"
 import {
   createWorkspace,
   getWorkspaceBySlug,
@@ -11,6 +13,7 @@ import {
   updateWorkspace,
 } from "../../models/workspaces.js"
 import { enqueueWorkspaceWriteCommit } from "../../openworkflow/enqueue-workspace-write-commit.js"
+import { getGithubRepoWriteView } from "../webhooks/github/github-workspace-tip.js"
 
 const ErrorResponseSchema = z
   .object({ error: z.string() })
@@ -98,6 +101,28 @@ const CreateLinkedRepositoryRequestSchema = z
     gitUrl: z.string().min(1),
   })
   .openapi("CreateWorkspaceLinkedRepositoryRequest")
+
+async function liveWriteProbe(input: {
+  orgId: string | null
+  env: Env | undefined
+  workspaceRepositoryUrl: string
+  githubConnectionId: string | null | undefined
+}) {
+  return probeWorkspaceWriteAccess({
+    workspaceRepositoryUrl: input.workspaceRepositoryUrl,
+    githubConnectionId: input.githubConnectionId,
+    getRepo:
+      input.orgId && input.env
+        ? (fullName) =>
+            getGithubRepoWriteView({
+              orgId: input.orgId as string,
+              githubConnectionId: input.githubConnectionId,
+              repoFullName: fullName,
+              env: input.env as Env,
+            })
+        : undefined,
+  })
+}
 
 function serializeWorkspace(row: {
   id: string
@@ -355,7 +380,13 @@ export const workspaceRoutes = new OpenAPIHono<AppEnv>()
       return c.json({ error: "Unauthorized" }, 401)
     }
     const body = CreateWorkspaceRequestSchema.parse(await c.req.json())
-    const created = await createWorkspace(body)
+    const write = await liveWriteProbe({
+      orgId: c.get("orgId"),
+      env: c.get("env"),
+      workspaceRepositoryUrl: body.gitUrl,
+      githubConnectionId: body.githubConnectionId ?? null,
+    })
+    const created = await createWorkspace({ ...body, write })
     if (created.writeStatus !== "read_only") {
       void enqueueWorkspaceWriteCommit(
         {
@@ -393,8 +424,29 @@ export const workspaceRoutes = new OpenAPIHono<AppEnv>()
     }
     const { workspaceSlug } = c.req.valid("param")
     const body = UpdateWorkspaceRequestSchema.parse(await c.req.json())
-    const updated = await updateWorkspace(workspaceSlug, body)
+    const write = body.workspaceRepositoryUrl
+      ? await liveWriteProbe({
+          orgId: c.get("orgId"),
+          env: c.get("env"),
+          workspaceRepositoryUrl: body.workspaceRepositoryUrl,
+          githubConnectionId: body.githubConnectionId,
+        })
+      : undefined
+    const updated = await updateWorkspace(workspaceSlug, {
+      ...body,
+      ...(write ? { write } : {}),
+    })
     if (!updated) return c.json({ error: "Not found" }, 404)
+    if (body.workspaceRepositoryUrl && updated.writeStatus !== "read_only") {
+      void enqueueWorkspaceWriteCommit(
+        {
+          orgId: updated.orgId,
+          workspaceId: updated.id,
+          kind: "bootstrap",
+        },
+        c.get("log"),
+      )
+    }
     return c.json(serializeWorkspace(updated), 200)
   })
   .openapi(touchWorkspaceRoute, async (c) => {

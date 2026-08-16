@@ -1,5 +1,6 @@
 import type { Env } from "../../../config/env.js"
 import { applyResolvedTipsForMatchingWorkspaces } from "../../../domain/workspaces/tip-resolve.js"
+import type { GithubRepoWriteView } from "../../../domain/workspaces/write-status.js"
 import { githubRepoFullNameFromWorkspaceUrl } from "../../../domain/workspaces/write-status.js"
 import { getInstallationOctokitForOrg } from "../../../models/github-installation.js"
 import {
@@ -53,6 +54,40 @@ export async function resolveGithubDefaultBranch(input: {
     return data.default_branch || null
   } catch {
     return null
+  }
+}
+
+export async function getGithubRepoWriteView(input: {
+  orgId: string
+  githubConnectionId?: string | null
+  repoFullName: string
+  env: Env
+}): Promise<GithubRepoWriteView> {
+  const ctx = await getInstallationOctokitForOrg(
+    input.orgId,
+    input.env,
+    input.githubConnectionId ?? undefined,
+  )
+  if (!ctx) {
+    const error = new Error("GitHub installation not found") as Error & {
+      status: number
+    }
+    error.status = 404
+    throw error
+  }
+  const [owner, repo] = input.repoFullName.split("/")
+  if (!owner || !repo) {
+    const error = new Error("Invalid repository name") as Error & {
+      status: number
+    }
+    error.status = 404
+    throw error
+  }
+  const { data } = await ctx.octokit.rest.repos.get({ owner, repo })
+  const permissions = data.permissions
+  return {
+    defaultBranch: data.default_branch || "",
+    canPush: Boolean(permissions?.push || permissions?.admin),
   }
 }
 

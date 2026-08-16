@@ -5,7 +5,12 @@ import {
   MIGRATION_EXPORT_KIND,
   migrationExportFiles,
   noOpExportUsesResolvedTip,
+  objectTitleFromPayload,
+  planMigrationExport,
+  repositoryIdFromDedup,
+  workspaceByRepositoryUrl,
 } from "./migration-export.js"
+import { normalizeWorkspaceRepositoryUrl } from "./slug.js"
 
 describe("migration export", () => {
   it("writes knowledge/imported and repositories/*.md", () => {
@@ -47,5 +52,98 @@ describe("migration export", () => {
       exportSha: "tip",
     })
     expect(noOpExportUsesResolvedTip(true, "tip")).toEqual({ commit: true })
+  })
+
+  it("extracts a repository id from ingest dedup keys", () => {
+    expect(repositoryIdFromDedup("inu:repo_abc:./:readme")).toBe("repo_abc")
+    expect(repositoryIdFromDedup("svc:repo_abc:./")).toBe("repo_abc")
+    expect(repositoryIdFromDedup("pat:repo_abc:./:CQRS")).toBe("repo_abc")
+    expect(repositoryIdFromDedup("obj_legacy")).toBeNull()
+    expect(objectTitleFromPayload({ name: "Billing API" })).toBe("Billing API")
+  })
+
+  it("maps a workspace-repository git URL to that Workspace", () => {
+    const map = workspaceByRepositoryUrl({
+      repositories: [
+        { id: "repo_app", gitUrl: "https://github.com/acme/app.git" },
+        { id: "repo_other", gitUrl: "https://github.com/acme/other.git" },
+      ],
+      workspaces: [
+        { id: "ws_app", workspaceRepositoryUrl: "https://github.com/acme/app" },
+      ],
+      normalizeUrl: normalizeWorkspaceRepositoryUrl,
+    })
+    expect(map.get("repo_app")).toBe("ws_app")
+    expect(map.get("repo_other")).toBeUndefined()
+  })
+
+  it("exports assigned objects and skips a cross-workspace claim", () => {
+    const planned = planMigrationExport({
+      workspaceId: "ws_app",
+      firstWorkspaceId: "ws_app",
+      workspaceByRepositoryId: new Map([
+        ["repo_app", "ws_app"],
+        ["repo_other", "ws_other"],
+      ]),
+      objects: [
+        {
+          id: "obj_1",
+          deduplicationKey: "svc:repo_app:./",
+          payload: { name: "Billing", summary: "Ledger lives here." },
+        },
+        {
+          id: "obj_2",
+          deduplicationKey: "svc:repo_other:./",
+          payload: { name: "Other" },
+        },
+      ],
+      claims: [
+        {
+          subjectId: "obj_1",
+          objectId: "obj_2",
+          predicate: "DEPENDS_ON",
+          aggregatedConfidence: 0.7,
+          validFrom: "2026-01-01",
+          validTo: null,
+        },
+      ],
+      existingKnowledge: [],
+      linkedUrls: ["https://github.com/acme/docs"],
+    })
+    expect(planned.wouldChange).toBe(true)
+    expect(planned.files.map((file) => file.path)).toEqual([
+      "knowledge/imported/billing.md",
+      "repositories/docs.md",
+    ])
+    expect(planned.files[0]?.content).toContain("import_key: svc:repo_app:./")
+    expect(planned.files[0]?.content).not.toContain("DEPENDS_ON")
+    expect(planned.files[0]?.content).not.toContain("obj_")
+  })
+
+  it("merges into an existing import_key file and no-ops when unchanged", () => {
+    const existing = importedObjectMarkdown({
+      title: "Billing",
+      body: "Ledger lives here.",
+      importKey: "svc:repo_app:./",
+    })
+    const planned = planMigrationExport({
+      workspaceId: "ws_app",
+      firstWorkspaceId: "ws_app",
+      workspaceByRepositoryId: new Map([["repo_app", "ws_app"]]),
+      objects: [
+        {
+          id: "obj_1",
+          deduplicationKey: "svc:repo_app:./",
+          payload: { name: "Billing", summary: "Ledger lives here." },
+        },
+      ],
+      claims: [],
+      existingKnowledge: [
+        { path: "knowledge/payments/billing.md", content: existing },
+      ],
+      linkedUrls: [],
+    })
+    expect(planned.files[0]?.path).toBe("knowledge/payments/billing.md")
+    expect(planned.wouldChange).toBe(false)
   })
 })

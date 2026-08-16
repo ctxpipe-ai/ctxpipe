@@ -4,20 +4,28 @@ import { withOrgIdContext } from "../../auth/withAuth.js"
 import { parseEnv } from "../../config/env.js"
 import { getSystemDb, withOrgDbContext } from "../../db/client.js"
 import {
+  displayNameFromAgentsMarkdown,
   hydrateIsNoop,
   hydrateKnowledgeTree,
 } from "../../domain/workspaces/hydrate.js"
+import { reconcileProjectionJobs } from "../../domain/workspaces/revision.js"
+import { normalizeWorkspaceRepositoryUrl } from "../../domain/workspaces/slug.js"
 import { githubRepoFullNameFromWorkspaceUrl } from "../../domain/workspaces/write-status.js"
+import { findRepositoriesByNormalizedGitUrls } from "../../models/repositories.js"
 import {
   activateHydrateProjection,
   getWorkspaceById,
+  listLinkedRepositories,
   replaceWorkspaceKnowledgeProjection,
+  syncLinkedRepositoriesFromHydrate,
+  updateWorkspaceDisplayName,
 } from "../../models/workspaces.js"
 import { resolveGithubDefaultBranch } from "../../routes/webhooks/github/github-workspace-tip.js"
 import {
   getFileContent,
   listFilesInTree,
 } from "../../services/github/installation-write-client.js"
+import { enqueueRepositoryIngestionWorkflow } from "../enqueue-repository-ingestion.js"
 
 const workspaceHydrateInputSchema = z.object({
   orgId: z.string().min(1),
@@ -90,6 +98,18 @@ export const workspaceHydrate = defineWorkflow(
           workspaceId: workspace.id,
           files,
         })
+        await syncLinkedRepositoriesFromHydrate({
+          workspaceId: workspace.id,
+          workspaceRepositoryUrl: workspace.workspaceRepositoryUrl,
+          remotes: parsed.linked,
+        })
+        const agents = files.find((file) => file.path === "AGENTS.md")
+        const displayName = agents
+          ? displayNameFromAgentsMarkdown(agents.content)
+          : null
+        if (displayName) {
+          await updateWorkspaceDisplayName(workspace.id, displayName)
+        }
         await replaceWorkspaceKnowledgeProjection({
           orgId: input.orgId,
           workspaceId: workspace.id,
@@ -102,6 +122,35 @@ export const workspaceHydrate = defineWorkflow(
           jobWorkspaceUrl: workspace.workspaceRepositoryUrl,
           hydratedSha: workspace.desiredSha,
         })
+        if (activated) {
+          const jobs = reconcileProjectionJobs({
+            desiredSha: workspace.desiredSha,
+            desiredUrl: workspace.workspaceRepositoryUrl,
+            activeProjectionUrl: workspace.workspaceRepositoryUrl,
+            activeProjectionSha: workspace.desiredSha,
+            indexedSha: workspace.indexedSha,
+          })
+          if (jobs.enqueueIndex) {
+            const linked = await listLinkedRepositories(workspace.id)
+            const urls = [
+              normalizeWorkspaceRepositoryUrl(workspace.workspaceRepositoryUrl),
+              ...linked.map((row) =>
+                normalizeWorkspaceRepositoryUrl(row.gitUrl),
+              ),
+            ]
+            const repos = await findRepositoriesByNormalizedGitUrls(urls)
+            for (const repo of repos) {
+              void enqueueRepositoryIngestionWorkflow(
+                {
+                  repositoryId: repo.id,
+                  orgId: input.orgId,
+                  indexingReason: "workspace-hydrate",
+                },
+                { error: () => undefined },
+              )
+            }
+          }
+        }
         return {
           hydrated: activated,
           units: parsed.units.length,

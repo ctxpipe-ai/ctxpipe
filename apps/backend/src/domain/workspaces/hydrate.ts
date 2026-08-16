@@ -6,6 +6,7 @@ import {
   parseLinkedRepositoryMarkdown,
   parseSimpleFrontMatter,
 } from "./layout.js"
+import { normalizeWorkspaceRepositoryUrl } from "./slug.js"
 
 export function servingIdForKnowledgePath(
   workspaceId: string,
@@ -54,6 +55,7 @@ export function hydrateKnowledgeTree(input: {
   const units: HydrateUnit[] = []
   const skipped: HydrateSkip[] = []
   const linked: Array<{ path: string; git: string; branch: string | null }> = []
+  const seenLinked = new Set<string>()
 
   for (const file of input.files) {
     const path = file.path.replace(/^\/+/, "")
@@ -63,7 +65,13 @@ export function hydrateKnowledgeTree(input: {
         skipped.push({ path, reason: "malformed" })
         continue
       }
-      linked.push({ path, git: parsed.git, branch: parsed.branch })
+      const git = normalizeWorkspaceRepositoryUrl(parsed.git)
+      if (!git || seenLinked.has(git)) {
+        skipped.push({ path, reason: "malformed" })
+        continue
+      }
+      seenLinked.add(git)
+      linked.push({ path, git, branch: parsed.branch })
       continue
     }
     if (isConnectorMirrorPath(path)) continue
@@ -100,6 +108,17 @@ export function shouldReplaceKnowledgeProjection(input: {
   sha: string
 }): boolean {
   return !hydrateIsNoop(input.previousSha, input.sha)
+}
+
+/** Copy root AGENTS.md front matter `name` onto the Workspace. Missing/malformed → null. */
+export function displayNameFromAgentsMarkdown(raw: string): string | null {
+  const parsed = parseSimpleFrontMatter(raw)
+  if (parsed.malformed) return null
+  const name =
+    typeof parsed.attributes.name === "string"
+      ? parsed.attributes.name.trim()
+      : ""
+  return name || null
 }
 
 function parseClaims(raw: unknown): HydrateClaim[] {
