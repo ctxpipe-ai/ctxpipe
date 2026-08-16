@@ -151,6 +151,7 @@ describe("workspaces API", () => {
       workspaceRepositoryUrl: "https://github.com/acme/docs",
       desiredGeneration: 2,
       hydrateStatus: "pending",
+      writeStatus: "writable",
     })
     const res = await app().request("/workspaces/knowledge", {
       method: "PATCH",
@@ -208,6 +209,21 @@ describe("workspaces API", () => {
     })
     expect(res.status).toBe(204)
     expect(touchLastUsedWorkspaceMock).toHaveBeenCalledWith("ws_abc")
+  })
+
+  it("does not queue a link while write status is unknown", async () => {
+    getWorkspaceBySlugMock.mockResolvedValue(workspaceRow)
+    listLinkedRepositoriesMock.mockResolvedValue([])
+    const res = await app().request(
+      "/workspaces/knowledge/linked-repositories",
+      {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ gitUrl: "https://github.com/acme/app.git" }),
+      },
+    )
+    expect(res.status).toBe(409)
+    expect(enqueueWorkspaceWriteCommit).not.toHaveBeenCalled()
   })
 
   it("queues a git-first link write", async () => {

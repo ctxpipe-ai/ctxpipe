@@ -10,6 +10,7 @@ import {
   shouldRetryWriteJobKind,
   WORKSPACE_WRITE_JOB_KINDS,
   WRITE_JOB_RETRY_CAP_PER_SHA,
+  writeJobQueueHttpDecision,
 } from "./write-jobs.js"
 
 describe("workspace write job kinds", () => {
@@ -77,6 +78,22 @@ describe("shouldEnqueueWorkspaceWriteJob", () => {
         desiredGeneration: 2,
       }),
     ).toEqual({ enqueue: true })
+  })
+})
+
+describe("writeJobQueueHttpDecision", () => {
+  it("accepts writable, 400s read-only, and 409s unknown", () => {
+    expect(writeJobQueueHttpDecision("writable")).toEqual({ enqueue: true })
+    expect(writeJobQueueHttpDecision("read_only")).toEqual({
+      enqueue: false,
+      status: 400,
+      error: "Workspace is read-only",
+    })
+    expect(writeJobQueueHttpDecision("unknown")).toEqual({
+      enqueue: false,
+      status: 409,
+      error: "Workspace write status is unknown; retry when it is writable",
+    })
   })
 })
 

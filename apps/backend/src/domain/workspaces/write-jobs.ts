@@ -34,6 +34,20 @@ export function isBootstrapAllowedPath(path: string): boolean {
   )
 }
 
+export function writeJobQueueHttpDecision(
+  writeStatus: string,
+): { enqueue: true } | { enqueue: false; status: 400 | 409; error: string } {
+  if (writeStatus === "writable") return { enqueue: true }
+  if (writeStatus === "read_only") {
+    return { enqueue: false, status: 400, error: "Workspace is read-only" }
+  }
+  return {
+    enqueue: false,
+    status: 409,
+    error: "Workspace write status is unknown; retry when it is writable",
+  }
+}
+
 export function shouldEnqueueWorkspaceWriteJob(input: {
   writeStatus: string
   jobGeneration: number

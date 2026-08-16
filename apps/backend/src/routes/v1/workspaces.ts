@@ -5,6 +5,7 @@ import { fileTreeFromPaths } from "../../domain/workspaces/file-tree.js"
 import { destroySandboxesForWorkspace } from "../../domain/workspaces/sandbox-registry.js"
 import { normalizeWorkspaceRepositoryUrl } from "../../domain/workspaces/slug.js"
 import { workspaceGraphFromUnits } from "../../domain/workspaces/workspace-graph.js"
+import { writeJobQueueHttpDecision } from "../../domain/workspaces/write-jobs.js"
 import {
   githubConnectionIdForWriteProbe,
   probeWorkspaceWriteAccess,
@@ -482,6 +483,10 @@ const deleteLinkedRoute = createRoute({
       content: { "application/json": { schema: ErrorResponseSchema } },
       description: "Not found",
     },
+    409: {
+      content: { "application/json": { schema: ErrorResponseSchema } },
+      description: "Write status unknown",
+    },
   },
 })
 
@@ -527,7 +532,7 @@ export const workspaceRoutes = new OpenAPIHono<AppEnv>()
       githubConnectionId: body.githubConnectionId ?? null,
     })
     const created = await createWorkspace({ ...body, write })
-    if (created.writeStatus !== "read_only") {
+    if (writeJobQueueHttpDecision(created.writeStatus).enqueue) {
       void enqueueWorkspaceWriteCommit(
         {
           orgId: created.orgId,
@@ -616,12 +621,28 @@ export const workspaceRoutes = new OpenAPIHono<AppEnv>()
     ) {
       void destroySandboxesForWorkspace(updated.id)
     }
-    if (body.workspaceRepositoryUrl && updated.writeStatus !== "read_only") {
+    if (
+      body.workspaceRepositoryUrl &&
+      writeJobQueueHttpDecision(updated.writeStatus).enqueue
+    ) {
       void enqueueWorkspaceWriteCommit(
         {
           orgId: updated.orgId,
           workspaceId: updated.id,
           kind: "bootstrap",
+        },
+        c.get("log"),
+      )
+    }
+    if (
+      body.displayName &&
+      writeJobQueueHttpDecision(updated.writeStatus).enqueue
+    ) {
+      void enqueueWorkspaceWriteCommit(
+        {
+          orgId: updated.orgId,
+          workspaceId: updated.id,
+          kind: "ops_folder_map",
         },
         c.get("log"),
       )
@@ -679,8 +700,9 @@ export const workspaceRoutes = new OpenAPIHono<AppEnv>()
         409,
       )
     }
-    if (workspace.writeStatus === "read_only") {
-      return c.json({ error: "Workspace is read-only" }, 400)
+    const writeGate = writeJobQueueHttpDecision(workspace.writeStatus)
+    if (!writeGate.enqueue) {
+      return c.json({ error: writeGate.error }, writeGate.status)
     }
     void enqueueWorkspaceWriteCommit(
       {
@@ -707,8 +729,9 @@ export const workspaceRoutes = new OpenAPIHono<AppEnv>()
     const existing = await listLinkedRepositories(workspace.id)
     const row = existing.find((item) => item.id === linkedId)
     if (!row) return c.json({ error: "Not found" }, 404)
-    if (workspace.writeStatus === "read_only") {
-      return c.json({ error: "Workspace is read-only" }, 400)
+    const writeGate = writeJobQueueHttpDecision(workspace.writeStatus)
+    if (!writeGate.enqueue) {
+      return c.json({ error: writeGate.error }, writeGate.status)
     }
     void enqueueWorkspaceWriteCommit(
       {
