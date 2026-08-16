@@ -2,6 +2,7 @@ import { sql } from "drizzle-orm"
 import {
   index,
   integer,
+  jsonb,
   pgTable,
   primaryKey,
   text,
@@ -75,6 +76,48 @@ export const workspaceLinkedRepositories = pgTable(
       t.gitUrl,
     ),
     index("workspace_linked_repositories_workspace_id_idx").on(t.workspaceId),
+  ],
+)
+
+export const workspaceKnowledgeUnits = pgTable(
+  "workspace_knowledge_units",
+  {
+    servingId: text("serving_id").primaryKey(),
+    orgId: text("org_id").notNull(),
+    workspaceId: text("workspace_id")
+      .notNull()
+      .references(() => workspaces.id, { onDelete: "cascade" }),
+    path: text("path").notNull(),
+    body: text("body").notNull(),
+    projectionSha: text("projection_sha").notNull(),
+    links: jsonb("links").$type<string[]>().notNull().default([]),
+    claims: jsonb("claims")
+      .$type<
+        Array<{
+          to: string
+          predicate: string | null
+          confidence: number | null
+          validFrom: string | null
+          validTo: string | null
+          source: string | null
+        }>
+      >()
+      .notNull()
+      .default([]),
+    createdAt: timestamp("created_at", { withTimezone: true, mode: "date" })
+      .notNull()
+      .defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true, mode: "date" })
+      .notNull()
+      .defaultNow(),
+  },
+  (t) => [
+    unique("workspace_knowledge_units_workspace_id_path_uidx").on(
+      t.workspaceId,
+      t.path,
+    ),
+    index("workspace_knowledge_units_workspace_id_idx").on(t.workspaceId),
+    index("workspace_knowledge_units_org_id_idx").on(t.orgId),
   ],
 )
 

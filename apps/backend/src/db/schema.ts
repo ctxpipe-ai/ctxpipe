@@ -30,6 +30,7 @@ import { repositories } from "./schema/repositories.js"
 import { repositoryCheckouts } from "./schema/repository_checkouts.js"
 import {
   orgMemberPreferences,
+  workspaceKnowledgeUnits,
   workspaceLinkedRepositories,
   workspaces,
 } from "./schema/workspaces.js"
@@ -64,6 +65,7 @@ const schema = {
   pendingAccounts,
   workspaces,
   workspaceLinkedRepositories,
+  workspaceKnowledgeUnits,
   orgMemberPreferences,
 } as const
 
