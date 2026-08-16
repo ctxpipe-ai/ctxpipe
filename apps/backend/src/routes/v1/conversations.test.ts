@@ -6,6 +6,7 @@ const getConversationMock = vi.hoisted(() => vi.fn())
 const listConversationsPaginatedMock = vi.hoisted(() => vi.fn())
 const ensureConversationMock = vi.hoisted(() => vi.fn())
 const touchConversationLastMessageMock = vi.hoisted(() => vi.fn())
+const persistConversationLastBranchMock = vi.hoisted(() => vi.fn())
 const discardUnstartedConversationMock = vi.hoisted(() => vi.fn())
 const updateConversationMock = vi.hoisted(() => vi.fn())
 const deleteConversationMock = vi.hoisted(() => vi.fn())
@@ -24,6 +25,7 @@ vi.mock("../../models/conversations.js", () => ({
   listConversationsPaginated: listConversationsPaginatedMock,
   ensureConversation: ensureConversationMock,
   touchConversationLastMessage: touchConversationLastMessageMock,
+  persistConversationLastBranch: persistConversationLastBranchMock,
   discardUnstartedConversation: discardUnstartedConversationMock,
   updateConversation: updateConversationMock,
   deleteConversation: deleteConversationMock,

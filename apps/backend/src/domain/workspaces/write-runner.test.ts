@@ -6,6 +6,8 @@ import {
   planWorkspaceWriteCommit,
   runnerCommitMessage,
   runnerMayPush,
+  shouldSpawnJobWorktree,
+  workspaceWriteSandboxId,
 } from "./write-runner.js"
 
 describe("write runner", () => {
@@ -118,5 +120,30 @@ describe("write runner", () => {
         commit: async () => ({ commitSha: "nope" }),
       }),
     ).resolves.toEqual({ committed: false, reason: "no_changes" })
+  })
+
+  it("keys the write sandbox by org, Workspace, URL, and SHA", () => {
+    expect(
+      workspaceWriteSandboxId({
+        orgId: "org_1",
+        workspaceId: "ws_1",
+        desiredUrl: "https://github.com/acme/docs",
+        desiredSha: "abc",
+      }),
+    ).toBe("org_1:ws_1:write:https://github.com/acme/docs@abc")
+    expect(
+      shouldSpawnJobWorktree({
+        writeStatus: "unknown",
+        runningJobCount: 0,
+        maxConcurrent: 4,
+      }),
+    ).toBe(false)
+    expect(
+      shouldSpawnJobWorktree({
+        writeStatus: "writable",
+        runningJobCount: 4,
+        maxConcurrent: 4,
+      }),
+    ).toBe(false)
   })
 })

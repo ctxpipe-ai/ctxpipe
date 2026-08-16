@@ -15,6 +15,7 @@ import {
   ensureConversation,
   getConversation,
   listConversationsPaginated,
+  persistConversationLastBranch,
   touchConversationLastMessage,
   updateConversation,
 } from "../../models/conversations.js"
@@ -351,6 +352,12 @@ export const conversationRoutes = new OpenAPIHono<AppEnv>()
       lastBranchExistsOnRemote: Boolean(conversation.lastBranch),
       defaultBranch: "HEAD",
     })
+    if (lastBranch.startsWith("ctxpipe/chat/")) {
+      await persistConversationLastBranch({
+        conversationId,
+        lastBranch,
+      })
+    }
 
     const transport = createDataStreamConversationTransport()
     const internalFilterEnhancer = {

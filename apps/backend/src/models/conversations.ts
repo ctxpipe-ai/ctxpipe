@@ -108,6 +108,27 @@ export async function ensureConversation(input: {
   return created
 }
 
+export async function persistConversationLastBranch(input: {
+  conversationId: string
+  lastBranch: string | null
+}): Promise<void> {
+  const orgId = requireCurrentOrgId()
+  const userId = requireCurrentUserId()
+  await getOrgDb()
+    .update(conversations)
+    .set({
+      lastBranch: input.lastBranch,
+      updatedAt: new Date(),
+    })
+    .where(
+      and(
+        eq(conversations.id, input.conversationId),
+        eq(conversations.orgId, orgId),
+        eq(conversations.userId, userId),
+      ),
+    )
+}
+
 export async function touchConversationLastMessage(
   conversationId: string,
 ): Promise<void> {

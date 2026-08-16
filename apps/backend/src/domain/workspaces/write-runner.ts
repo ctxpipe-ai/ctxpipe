@@ -1,3 +1,4 @@
+import { sandboxSnapshotKey } from "./revision.js"
 import {
   fallbackCommitSubject,
   shouldPushWorkspaceWriteJob,
@@ -7,6 +8,27 @@ export const JOB_WORKTREE_PREFIX = "job"
 
 export function jobWorktreeName(jobId: string): string {
   return `${JOB_WORKTREE_PREFIX}-${jobId}`
+}
+
+/** One write sandbox per Workspace, keyed by desired URL + SHA. */
+export function workspaceWriteSandboxId(input: {
+  orgId: string
+  workspaceId: string
+  desiredUrl: string
+  desiredSha: string | null
+}): string | null {
+  const snapshot = sandboxSnapshotKey(input.desiredUrl, input.desiredSha)
+  if (!snapshot) return null
+  return `${input.orgId}:${input.workspaceId}:write:${snapshot}`
+}
+
+export function shouldSpawnJobWorktree(input: {
+  writeStatus: string
+  runningJobCount: number
+  maxConcurrent: number
+}): boolean {
+  if (input.writeStatus !== "writable") return false
+  return input.runningJobCount < input.maxConcurrent
 }
 
 export function runnerCommitMessage(input: {
