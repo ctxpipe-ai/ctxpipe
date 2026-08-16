@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest"
 import {
   classifyWorkspaceWriteHost,
   githubRepoFullNameFromWorkspaceUrl,
+  probeWorkspaceWriteAccess,
   WRITE_STATUS_REASONS,
   writeStatusFromClassification,
   writeStatusFromGithubProbeError,
@@ -82,5 +83,57 @@ describe("writeStatusFromGithubProbeError", () => {
     expect(
       writeStatusFromGithubProbeError({ status: 403 }).readOnlyReason,
     ).toBe(WRITE_STATUS_REASONS.contentsWriteDenied)
+  })
+})
+
+describe("probeWorkspaceWriteAccess", () => {
+  it("skips GitHub when classification already decided", async () => {
+    const getRepo = async () => {
+      throw new Error("should not call GitHub")
+    }
+    await expect(
+      probeWorkspaceWriteAccess({
+        workspaceRepositoryUrl: "https://gitlab.com/acme/docs",
+        githubConnectionId: "con_gh",
+        getRepo,
+      }),
+    ).resolves.toMatchObject({
+      writeStatus: "read_only",
+      defaultBranch: null,
+    })
+  })
+
+  it("uses the repository default branch and push bit", async () => {
+    await expect(
+      probeWorkspaceWriteAccess({
+        workspaceRepositoryUrl: "https://github.com/acme/docs",
+        githubConnectionId: "con_gh",
+        getRepo: async (fullName) => {
+          expect(fullName).toBe("acme/docs")
+          return { defaultBranch: "develop", canPush: true }
+        },
+      }),
+    ).resolves.toEqual({
+      writeStatus: "writable",
+      readOnlyReason: null,
+      defaultBranch: "develop",
+    })
+  })
+
+  it("maps a 404 from getRepo to not-in-installation", async () => {
+    await expect(
+      probeWorkspaceWriteAccess({
+        workspaceRepositoryUrl: "https://github.com/acme/docs",
+        githubConnectionId: "con_gh",
+        getRepo: async () => {
+          const error = new Error("Not Found") as Error & { status: number }
+          error.status = 404
+          throw error
+        },
+      }),
+    ).resolves.toMatchObject({
+      writeStatus: "read_only",
+      readOnlyReason: WRITE_STATUS_REASONS.notInInstallation,
+    })
   })
 })

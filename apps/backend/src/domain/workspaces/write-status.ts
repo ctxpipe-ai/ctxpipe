@@ -102,3 +102,55 @@ export function writableWorkspaceWriteProbe(): WorkspaceWriteProbe {
     readOnlyReason: null,
   }
 }
+
+export type GithubRepoWriteView = {
+  defaultBranch: string
+  canPush: boolean
+}
+
+export type WorkspaceWriteProbeResult = WorkspaceWriteProbe & {
+  defaultBranch: string | null
+}
+
+/**
+ * Classify first; if the remote might be writable, optionally ask GitHub.
+ * Never assume the default branch is `main`.
+ */
+export async function probeWorkspaceWriteAccess(input: {
+  workspaceRepositoryUrl: string
+  githubConnectionId: string | null | undefined
+  getRepo?: (fullName: string) => Promise<GithubRepoWriteView>
+}): Promise<WorkspaceWriteProbeResult> {
+  const classified = writeStatusFromClassification(input)
+  if (classified.writeStatus !== WORKSPACE_WRITE_STATUSES.unknown) {
+    return { ...classified, defaultBranch: null }
+  }
+  const fullName = githubRepoFullNameFromWorkspaceUrl(
+    input.workspaceRepositoryUrl,
+  )
+  if (!fullName || !input.getRepo) {
+    return { ...classified, defaultBranch: null }
+  }
+  try {
+    const repo = await input.getRepo(fullName)
+    if (!repo.canPush) {
+      return {
+        writeStatus: WORKSPACE_WRITE_STATUSES.read_only,
+        readOnlyReason: WRITE_STATUS_REASONS.contentsWriteDenied,
+        defaultBranch: repo.defaultBranch,
+      }
+    }
+    return {
+      writeStatus: WORKSPACE_WRITE_STATUSES.writable,
+      readOnlyReason: null,
+      defaultBranch: repo.defaultBranch,
+    }
+  } catch (error) {
+    const mapped = writeStatusFromGithubProbeError(
+      error && typeof error === "object"
+        ? (error as { status?: number; message?: string })
+        : {},
+    )
+    return { ...mapped, defaultBranch: null }
+  }
+}
