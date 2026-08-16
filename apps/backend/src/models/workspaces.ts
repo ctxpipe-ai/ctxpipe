@@ -923,6 +923,19 @@ export async function syncLinkedRepositoriesFromHydrate(input: {
   })
 }
 
+export async function listWorkspaceKnowledgeFiles(
+  workspaceId: string,
+): Promise<Array<{ path: string; body: string }>> {
+  return getOrgDb()
+    .select({
+      path: workspaceKnowledgeUnits.path,
+      body: workspaceKnowledgeUnits.body,
+    })
+    .from(workspaceKnowledgeUnits)
+    .where(eq(workspaceKnowledgeUnits.workspaceId, workspaceId))
+    .orderBy(workspaceKnowledgeUnits.path)
+}
+
 export async function listKnowledgeUnitPaths(
   workspaceId: string,
 ): Promise<string[]> {

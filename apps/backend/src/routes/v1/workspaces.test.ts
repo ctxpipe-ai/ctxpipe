@@ -8,6 +8,7 @@ const getWorkspaceBySlugMock = vi.hoisted(() => vi.fn())
 const updateWorkspaceMock = vi.hoisted(() => vi.fn())
 const touchLastUsedWorkspaceMock = vi.hoisted(() => vi.fn())
 const listLinkedRepositoriesMock = vi.hoisted(() => vi.fn())
+const listWorkspaceKnowledgeFilesMock = vi.hoisted(() => vi.fn())
 const linkRepositoryMock = vi.hoisted(() => vi.fn())
 const unlinkRepositoryMock = vi.hoisted(() => vi.fn())
 
@@ -26,6 +27,7 @@ vi.mock("../../models/workspaces.js", () => ({
   updateWorkspace: updateWorkspaceMock,
   touchLastUsedWorkspace: touchLastUsedWorkspaceMock,
   listLinkedRepositories: listLinkedRepositoriesMock,
+  listWorkspaceKnowledgeFiles: listWorkspaceKnowledgeFilesMock,
   linkRepository: linkRepositoryMock,
   unlinkRepository: unlinkRepositoryMock,
   getPersistedFirstWorkspaceId: vi.fn().mockResolvedValue(null),
@@ -266,5 +268,19 @@ describe("workspaces API", () => {
       },
       expect.anything(),
     )
+  })
+
+  it("lists hydrated files for the Files pane", async () => {
+    getWorkspaceBySlugMock.mockResolvedValue(workspaceRow)
+    listWorkspaceKnowledgeFilesMock.mockResolvedValue([
+      { path: "knowledge/billing/ledger.md", body: "Ledger" },
+    ])
+    const res = await app().request("/workspaces/knowledge/files")
+    expect(res.status).toBe(200)
+    const body = await res.json()
+    expect(body.items).toEqual([
+      { path: "knowledge/billing/ledger.md", body: "Ledger" },
+    ])
+    expect(body.tree[0]?.name).toBe("knowledge")
   })
 })

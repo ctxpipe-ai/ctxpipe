@@ -36,3 +36,19 @@ export type WorkspaceListResponse = {
   lastUsedWorkspaceId: string | null
   items: Workspace[]
 }
+
+export type WorkspaceFile = {
+  path: string
+  body: string
+}
+
+export type WorkspaceFileTreeNode = {
+  name: string
+  path: string
+  children?: WorkspaceFileTreeNode[]
+}
+
+export type WorkspaceFilesResponse = {
+  items: WorkspaceFile[]
+  tree: WorkspaceFileTreeNode[]
+}

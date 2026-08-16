@@ -3,6 +3,7 @@ import { client } from "@/lib/api"
 import type {
   Workspace,
   WorkspaceDetail,
+  WorkspaceFilesResponse,
   WorkspaceLinkedRepository,
   WorkspaceListResponse,
 } from "./types"
@@ -18,6 +19,8 @@ export const workspaceKeys = {
     conversationId: string,
     workspaceId: string,
   ) => ["conversation", orgSlug, conversationId, workspaceId] as const,
+  files: (orgSlug: string, slug: string) =>
+    ["workspace-files", orgSlug, slug] as const,
 }
 
 export async function fetchWorkspaces(
@@ -44,6 +47,19 @@ export async function fetchConversation(
   if (res.status === 404) return null
   if (!res.ok) throw new Error("Failed to load conversation")
   return res.json() as Promise<ConversationDetail>
+}
+
+export async function fetchWorkspaceFiles(
+  orgSlug: string,
+  workspaceSlug: string,
+): Promise<WorkspaceFilesResponse> {
+  const res = await client[":orgSlug"].api.v1.workspaces[
+    ":workspaceSlug"
+  ].files.$get({
+    param: { orgSlug, workspaceSlug },
+  })
+  if (!res.ok) throw new Error("Failed to load Workspace files")
+  return res.json() as Promise<WorkspaceFilesResponse>
 }
 
 export async function fetchWorkspace(

@@ -1,6 +1,7 @@
 import { createRoute, OpenAPIHono, z } from "@hono/zod-openapi"
 import type { AppEnv } from "../../app/env.js"
 import type { Env } from "../../config/env.js"
+import { fileTreeFromPaths } from "../../domain/workspaces/file-tree.js"
 import { normalizeWorkspaceRepositoryUrl } from "../../domain/workspaces/slug.js"
 import {
   githubConnectionIdForWriteProbe,
@@ -11,6 +12,7 @@ import {
   getPersistedFirstWorkspaceId,
   getWorkspaceBySlug,
   listLinkedRepositories,
+  listWorkspaceKnowledgeFiles,
   listWorkspaces,
   touchLastUsedWorkspace,
   updateWorkspace,
@@ -295,6 +297,54 @@ const touchWorkspaceRoute = createRoute({
   },
 })
 
+const WorkspaceFileSchema = z
+  .object({
+    path: z.string(),
+    body: z.string(),
+  })
+  .openapi("WorkspaceFile")
+
+const WorkspaceFileTreeNodeSchema: z.ZodType<{
+  name: string
+  path: string
+  children?: Array<{ name: string; path: string; children?: unknown[] }>
+}> = z
+  .object({
+    name: z.string(),
+    path: z.string(),
+    children: z.array(z.lazy(() => WorkspaceFileTreeNodeSchema)).optional(),
+  })
+  .openapi("WorkspaceFileTreeNode")
+
+const WorkspaceFilesResponseSchema = z
+  .object({
+    items: z.array(WorkspaceFileSchema),
+    tree: z.array(WorkspaceFileTreeNodeSchema),
+  })
+  .openapi("WorkspaceFilesResponse")
+
+const listWorkspaceFilesRoute = createRoute({
+  method: "get",
+  path: "/{workspaceSlug}/files",
+  request: { params: WorkspaceSlugParamsSchema },
+  responses: {
+    200: {
+      content: {
+        "application/json": { schema: WorkspaceFilesResponseSchema },
+      },
+      description: "Hydrated files for the Files pane",
+    },
+    401: {
+      content: { "application/json": { schema: ErrorResponseSchema } },
+      description: "Unauthorized",
+    },
+    404: {
+      content: { "application/json": { schema: ErrorResponseSchema } },
+      description: "Not found",
+    },
+  },
+})
+
 const listLinkedRoute = createRoute({
   method: "get",
   path: "/{workspaceSlug}/linked-repositories",
@@ -437,6 +487,22 @@ export const workspaceRoutes = new OpenAPIHono<AppEnv>()
           ...row,
           createdAt: row.createdAt.toISOString(),
         })),
+      },
+      200,
+    )
+  })
+  .openapi(listWorkspaceFilesRoute, async (c) => {
+    if (!c.get("user") || !c.get("session")) {
+      return c.json({ error: "Unauthorized" }, 401)
+    }
+    const { workspaceSlug } = c.req.valid("param")
+    const workspace = await getWorkspaceBySlug(workspaceSlug)
+    if (!workspace) return c.json({ error: "Not found" }, 404)
+    const items = await listWorkspaceKnowledgeFiles(workspace.id)
+    return c.json(
+      {
+        items,
+        tree: fileTreeFromPaths(items.map((item) => item.path)),
       },
       200,
     )

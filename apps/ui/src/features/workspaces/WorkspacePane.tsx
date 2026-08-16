@@ -6,10 +6,13 @@ import {
   IconSettings,
   IconX,
 } from "@tabler/icons-react"
+import { useQuery } from "@tanstack/react-query"
 import type { ReactNode } from "react"
 import { Button } from "@/components/ui/Button"
 import { filePaneId, type ParsedPane } from "./pane"
+import { fetchWorkspaceFiles, workspaceKeys } from "./queries"
 import type { WorkspaceDetail } from "./types"
+import { WorkspaceFileTree } from "./WorkspaceFileTree"
 import { WorkspaceSettingsPane } from "./WorkspaceSettingsPane"
 
 export function WorkspacePane(props: {
@@ -34,6 +37,13 @@ export function WorkspacePane(props: {
 }) {
   const activeFile =
     props.pane.kind === "file" ? props.pane.path : props.selectedFilePath
+  const filesQuery = useQuery({
+    queryKey: workspaceKeys.files(props.orgSlug, props.workspace.slug),
+    queryFn: () => fetchWorkspaceFiles(props.orgSlug, props.workspace.slug),
+    enabled: props.pane.kind === "files" || props.pane.kind === "file",
+  })
+  const files = filesQuery.data?.items ?? []
+  const preview = files.find((file) => file.path === activeFile)
   const showTreeToggle =
     Boolean(activeFile) &&
     (props.pane.kind === "files" || props.pane.kind === "file")
@@ -163,25 +173,35 @@ export function WorkspacePane(props: {
         {props.pane.kind === "files" || props.pane.kind === "file" ? (
           <>
             {props.treeCollapsed ? null : (
-              <div className="w-44 shrink-0 overflow-auto border-r border-border p-3">
-                <p className="text-xs text-muted-foreground">
-                  Files appear after this Workspace is hydrated.
-                </p>
-                {activeFile ? (
-                  <button
-                    type="button"
-                    className="mt-3 block w-full truncate text-left font-mono text-xs text-foreground"
-                    onClick={() => props.onSelectFile(activeFile)}
-                    onDoubleClick={() => props.onOpenFileTab(activeFile)}
-                  >
-                    {activeFile}
-                  </button>
-                ) : null}
+              <div className="w-52 shrink-0 overflow-auto border-r border-border p-3">
+                {filesQuery.isPending ? (
+                  <p className="text-xs text-muted-foreground">
+                    Loading files…
+                  </p>
+                ) : files.length === 0 ? (
+                  <p className="text-xs text-muted-foreground">
+                    No knowledge files in this projection yet.
+                  </p>
+                ) : (
+                  <WorkspaceFileTree
+                    nodes={filesQuery.data?.tree ?? []}
+                    selectedPath={activeFile}
+                    onSelect={props.onSelectFile}
+                    onOpenTab={props.onOpenFileTab}
+                  />
+                )}
               </div>
             )}
             <div className="min-w-0 flex-1 overflow-auto p-4">
-              {activeFile ? (
-                <p className="font-mono text-sm">{activeFile}</p>
+              {preview ? (
+                <article>
+                  <p className="mb-3 font-mono text-xs text-muted-foreground">
+                    {preview.path}
+                  </p>
+                  <pre className="whitespace-pre-wrap font-mono text-sm leading-relaxed text-foreground">
+                    {preview.body}
+                  </pre>
+                </article>
               ) : (
                 <p className="text-sm text-muted-foreground">
                   Single-click a file to preview. Double-click opens a tab (
