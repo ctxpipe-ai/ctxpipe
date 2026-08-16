@@ -176,6 +176,7 @@ export function hydrateUnitsToProjectionClaims(
   lastObservedAt: string
   validFrom: string | null
   validTo: string | null
+  source: string | null
 }> {
   const byPath = new Map(units.map((unit) => [unit.path, unit]))
   const claims: Array<{
@@ -191,6 +192,7 @@ export function hydrateUnitsToProjectionClaims(
     lastObservedAt: string
     validFrom: string | null
     validTo: string | null
+    source: string | null
   }> = []
   for (const unit of units) {
     const dir = unit.path.split("/").slice(0, -1).join("/")
@@ -216,6 +218,7 @@ export function hydrateUnitsToProjectionClaims(
         lastObservedAt: validFrom ?? "1970-01-01T00:00:00.000Z",
         validFrom,
         validTo: claim.validTo,
+        source: claim.source,
       })
     }
     for (const [index, href] of unit.links.entries()) {
@@ -242,6 +245,7 @@ export function hydrateUnitsToProjectionClaims(
         lastObservedAt: "1970-01-01T00:00:00.000Z",
         validFrom: null,
         validTo: null,
+        source: "git",
       })
     }
   }

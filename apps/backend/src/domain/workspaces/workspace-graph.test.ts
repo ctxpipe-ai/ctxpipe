@@ -36,6 +36,7 @@ describe("workspace graph", () => {
         },
       ],
       lastUpdatedAt: "2026-08-16T10:00:00.000Z",
+      now: new Date("2026-01-01T00:00:00.000Z"),
     })
     expect(graph.metrics).toEqual({
       totalNodes: 2,
@@ -68,6 +69,44 @@ describe("workspace graph", () => {
         confidence: 0.8,
       },
     ])
+  })
+
+  it("omits claims whose query-time energy has decayed to zero", () => {
+    const api = servingIdForKnowledgePath("ws_1", "knowledge/payments/api.md")
+    const ledger = servingIdForKnowledgePath(
+      "ws_1",
+      "knowledge/billing/ledger.md",
+    )
+    const graph = workspaceGraphFromUnits({
+      units: [
+        {
+          path: "knowledge/payments/api.md",
+          servingId: api,
+          body: "Payments API talks to the ledger.",
+          links: ["../billing/ledger.md"],
+          claims: [
+            {
+              to: "../billing/ledger.md",
+              predicate: "DEPENDS_ON",
+              confidence: 0.8,
+              validFrom: "2026-01-01T00:00:00.000Z",
+              validTo: "2026-02-01T00:00:00.000Z",
+              source: "git",
+            },
+          ],
+        },
+        {
+          path: "knowledge/billing/ledger.md",
+          servingId: ledger,
+          body: "Ledger",
+          links: [],
+          claims: [],
+        },
+      ],
+      now: new Date("2026-08-16T10:00:00.000Z"),
+    })
+    expect(graph.edges).toEqual([])
+    expect(graph.metrics.totalEdges).toBe(0)
   })
 
   it("returns an empty projection when hydrate has no units", () => {

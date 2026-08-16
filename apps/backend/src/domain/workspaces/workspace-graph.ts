@@ -1,3 +1,7 @@
+import {
+  combineWorkspaceSignals,
+  decayWorkspaceSignal,
+} from "./claim-confidence.js"
 import { type HydrateUnit, hydrateUnitsToProjectionClaims } from "./hydrate.js"
 
 export type WorkspaceGraphPayload = {
@@ -41,6 +45,7 @@ function unitSummary(body: string): string | null {
 export function workspaceGraphFromUnits(input: {
   units: readonly HydrateUnit[]
   lastUpdatedAt?: string | null
+  now?: Date
 }): WorkspaceGraphPayload {
   const claims = hydrateUnitsToProjectionClaims(input.units)
   const nodes = input.units.map((unit) => ({
@@ -49,13 +54,43 @@ export function workspaceGraphFromUnits(input: {
     name: unitName(unit.path),
     summary: unitSummary(unit.body),
   }))
-  const edges = claims.map((claim) => ({
-    sourceId: claim.subjectId,
-    targetId: claim.objectId,
-    predicate: claim.predicate,
-    lastObservedAt: claim.lastObservedAt,
-    confidence: claim.aggregatedConfidence,
-  }))
+  const grouped = new Map<string, number[]>()
+  const meta = new Map<
+    string,
+    {
+      sourceId: string
+      targetId: string
+      predicate: string
+      lastObservedAt: string | null
+    }
+  >()
+  for (const claim of claims) {
+    const energy = decayWorkspaceSignal({
+      confidence: claim.aggregatedConfidence,
+      validFrom: claim.validFrom,
+      validTo: claim.validTo,
+      source: claim.source,
+      now: input.now,
+    })
+    const key = `${claim.subjectId}\0${claim.objectId}\0${claim.predicate}`
+    const current = grouped.get(key) ?? []
+    current.push(energy)
+    grouped.set(key, current)
+    if (!meta.has(key)) {
+      meta.set(key, {
+        sourceId: claim.subjectId,
+        targetId: claim.objectId,
+        predicate: claim.predicate,
+        lastObservedAt: claim.lastObservedAt,
+      })
+    }
+  }
+  const edges = [...grouped.entries()].flatMap(([key, energies]) => {
+    const confidence = combineWorkspaceSignals(energies)
+    const edge = meta.get(key)
+    if (!edge || confidence <= 0) return []
+    return [{ ...edge, confidence }]
+  })
   return {
     metrics: {
       totalNodes: nodes.length,
