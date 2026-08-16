@@ -259,17 +259,12 @@ export async function commitFiles(
     message: string
     files: CommitFile[]
     deletePaths?: string[]
+    /** When set, commit against this parent and refuse overlay-on-latest-head. */
+    expectedParentSha?: string
   },
 ) {
-  return withTransientGitHubRetry(async () => {
+  const commitOnce = async (head: { commitSha: string; treeSha: string }) => {
     const context = await getInstallationContext(input)
-    const head = await getOrInitializeBaseBranch({
-      octokit: context.octokit,
-      owner: context.owner,
-      repo: context.repo,
-      branch: input.branch,
-    })
-
     const fileEntries = await Promise.all(
       input.files.map(async (file) => {
         const blob = await context.octokit.rest.git.createBlob({
@@ -321,6 +316,30 @@ export async function commitFiles(
       branch: input.branch,
       installationId: context.installation.installationId ?? 0,
     }
+  }
+
+  if (input.expectedParentSha) {
+    const context = await getInstallationContext(input)
+    const { data: commit } = await context.octokit.rest.git.getCommit({
+      owner: context.owner,
+      repo: context.repo,
+      commit_sha: input.expectedParentSha,
+    })
+    return commitOnce({
+      commitSha: input.expectedParentSha,
+      treeSha: commit.tree.sha,
+    })
+  }
+
+  return withTransientGitHubRetry(async () => {
+    const context = await getInstallationContext(input)
+    const head = await getOrInitializeBaseBranch({
+      octokit: context.octokit,
+      owner: context.owner,
+      repo: context.repo,
+      branch: input.branch,
+    })
+    return commitOnce(head)
   })
 }
 

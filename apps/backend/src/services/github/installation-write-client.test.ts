@@ -227,6 +227,57 @@ describe("commitFiles", () => {
     expect(updateRef).toHaveBeenCalledTimes(2)
     expect(result.commitSha).toBe("commit-2")
   })
+
+  it("commits against the captured parent and does not overlay after a non-fast-forward", async () => {
+    const getRef = vi.fn()
+    const getCommit = vi.fn(async () => ({
+      data: { tree: { sha: "tree-captured" } },
+    }))
+    const createCommit = vi.fn(async () => ({ data: { sha: "commit-cas" } }))
+    const updateRef = vi.fn().mockRejectedValue(
+      Object.assign(new Error("Update is not a fast forward"), {
+        status: 422,
+      }),
+    )
+
+    getInstallationOctokitForOrgMock.mockResolvedValue({
+      installation: { installationId: 123 },
+      octokit: {
+        rest: {
+          git: {
+            getRef,
+            getCommit,
+            createBlob: vi.fn(async () => ({ data: { sha: "blob" } })),
+            createTree: vi.fn(async () => ({ data: { sha: "tree" } })),
+            createCommit,
+            updateRef,
+          },
+        },
+      },
+    })
+
+    await expect(
+      commitFiles({
+        orgId: "org_test",
+        repositoryName: "acme/docs",
+        env: {} as never,
+        branch: "main",
+        message: "Knowledge update",
+        files: [{ path: "knowledge/imported/a.md", content: "# A\n" }],
+        expectedParentSha: "captured-sha",
+      }),
+    ).rejects.toMatchObject({ status: 422 })
+
+    expect(getRef).not.toHaveBeenCalled()
+    expect(getCommit).toHaveBeenCalledWith(
+      expect.objectContaining({ commit_sha: "captured-sha" }),
+    )
+    expect(createCommit).toHaveBeenCalledTimes(1)
+    expect(createCommit).toHaveBeenCalledWith(
+      expect.objectContaining({ parents: ["captured-sha"] }),
+    )
+    expect(updateRef).toHaveBeenCalledTimes(1)
+  })
 })
 
 describe("listFilesAtSha", () => {

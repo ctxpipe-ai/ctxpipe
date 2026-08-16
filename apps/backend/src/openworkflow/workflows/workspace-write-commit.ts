@@ -22,14 +22,15 @@ import {
 } from "../../domain/workspaces/write-commit-files.js"
 import { applyJobWorktreeIfPresent } from "../../domain/workspaces/write-job-agent.js"
 import {
+  capturedWriteParentSha,
   commitSubjectFileNames,
   executeWorkspaceWriteCommit,
   isNonFastForwardGithubError,
   livePushRecheck,
   persistJobCommitIfRemoteHasSha,
-  planAfterMechanicalPushFailure,
   planJobWorktree,
   planWorkspaceWriteCommit,
+  shouldEnqueueSemanticMergeOnPushFailure,
   workspaceWriteSandboxId,
 } from "../../domain/workspaces/write-runner.js"
 import {
@@ -58,6 +59,7 @@ import {
 import {
   commitFiles,
   getFileContent,
+  listFilesAtSha,
   listFilesInTree,
 } from "../../services/github/installation-write-client.js"
 import { runWorkflowWithWorkerWake } from "../client.js"
@@ -160,6 +162,11 @@ export const workspaceWriteCommit = defineWorkflow(
           githubConnectionId: workspace.githubConnectionId ?? undefined,
           branch: defaultBranch,
         }
+        const parentSha = capturedWriteParentSha(workspace.desiredSha)
+        const githubAtParent = {
+          ...github,
+          branch: parentSha ?? defaultBranch,
+        }
         const linked = await listLinkedRepositories(workspace.id)
         const linkedUrls = linked.map((row) => row.gitUrl)
         const existing = new Map<string, string>()
@@ -170,7 +177,9 @@ export const workspaceWriteCommit = defineWorkflow(
           input.kind === "extract_ingest"
         ) {
           const source = await loadMigrationExportSource()
-          const tree = await listFilesInTree(github)
+          const tree = parentSha
+            ? await listFilesAtSha({ ...github, sha: parentSha })
+            : await listFilesInTree(github)
           const knowledgeFiles: Array<{ path: string; content: string }> = []
           for (const entry of tree) {
             if (!entry.path.endsWith(".md")) continue
@@ -182,7 +191,7 @@ export const workspaceWriteCommit = defineWorkflow(
               continue
             }
             const content = await getFileContent({
-              ...github,
+              ...githubAtParent,
               path: entry.path,
             })
             if (content == null) continue
@@ -203,7 +212,7 @@ export const workspaceWriteCommit = defineWorkflow(
             "AGENTS.md",
             ".agents/skills/ctxpipe-knowledge/SKILL.md",
           ]) {
-            const content = await getFileContent({ ...github, path })
+            const content = await getFileContent({ ...githubAtParent, path })
             if (content != null) existing.set(path, content)
           }
         } else if (
@@ -212,7 +221,9 @@ export const workspaceWriteCommit = defineWorkflow(
           input.kind === "rename_rewrite" ||
           input.kind === "ops_folder_map"
         ) {
-          const tree = await listFilesInTree(github)
+          const tree = parentSha
+            ? await listFilesAtSha({ ...github, sha: parentSha })
+            : await listFilesInTree(github)
           for (const entry of tree) {
             if (!entry.path.endsWith(".md")) continue
             if (input.kind === "ops_folder_map" && entry.path !== "AGENTS.md") {
@@ -225,13 +236,15 @@ export const workspaceWriteCommit = defineWorkflow(
               continue
             }
             const content = await getFileContent({
-              ...github,
+              ...githubAtParent,
               path: entry.path,
             })
             if (content != null) existing.set(entry.path, content)
           }
         } else if (input.kind === "link_unlink") {
-          const tree = await listFilesInTree(github)
+          const tree = parentSha
+            ? await listFilesAtSha({ ...github, sha: parentSha })
+            : await listFilesInTree(github)
           for (const entry of tree) {
             if (
               !entry.path.startsWith("repositories/") ||
@@ -240,7 +253,7 @@ export const workspaceWriteCommit = defineWorkflow(
               continue
             }
             const content = await getFileContent({
-              ...github,
+              ...githubAtParent,
               path: entry.path,
             })
             if (content != null) existing.set(entry.path, content)
@@ -287,7 +300,7 @@ export const workspaceWriteCommit = defineWorkflow(
             createTanstackJobSandbox({
               sandboxId: sandboxId ?? jobId,
               gitUrl: workspace.workspaceRepositoryUrl,
-              ref: workspace.desiredSha ?? defaultBranch,
+              ref: parentSha ?? defaultBranch,
               cloneToken:
                 (await getRepoReadCloneToken(input.orgId, env, {
                   githubConnectionId: workspace.githubConnectionId ?? undefined,
@@ -307,7 +320,10 @@ export const workspaceWriteCommit = defineWorkflow(
         log.set({ writeVia: prepared.via })
         for (const file of files) {
           if (existing.has(file.path)) continue
-          const content = await getFileContent({ ...github, path: file.path })
+          const content = await getFileContent({
+            ...githubAtParent,
+            path: file.path,
+          })
           if (content != null) existing.set(file.path, content)
         }
 
@@ -345,6 +361,7 @@ export const workspaceWriteCommit = defineWorkflow(
             workspaceId: workspace.id,
             kind: "bootstrap" as const,
             defaultBranch,
+            jobId: generateObjectId("wjob"),
           }).catch(() => undefined)
           return {
             committed: false,
@@ -405,6 +422,7 @@ export const workspaceWriteCommit = defineWorkflow(
                 message,
                 files: commitFilesInput,
                 deletePaths: commitDeletePaths,
+                expectedParentSha: parentSha ?? undefined,
               }),
           })
         } catch (error) {
@@ -416,17 +434,20 @@ export const workspaceWriteCommit = defineWorkflow(
           if (mapped.writeStatus === "read_only") {
             await persistWriteStatus(workspace.id, mapped)
           }
+          const nonFastForward = isNonFastForwardGithubError(probe)
           if (
-            planAfterMechanicalPushFailure({
+            shouldEnqueueSemanticMergeOnPushFailure({
               kind: input.kind,
-              nonFastForward: isNonFastForwardGithubError(probe),
-            }) === "enqueue_semantic_merge"
+              nonFastForward,
+              capturedParentSha: parentSha,
+            })
           ) {
             void runWorkflowWithWorkerWake(workspaceWriteCommit.spec, {
               orgId: input.orgId,
               workspaceId: workspace.id,
               kind: "semantic_merge" as const,
               defaultBranch,
+              jobId: generateObjectId("wjob"),
             }).catch(() => undefined)
           }
           throw error
@@ -462,6 +483,7 @@ export const workspaceWriteCommit = defineWorkflow(
             workspaceId: workspace.id,
             kind: "bootstrap" as const,
             defaultBranch,
+            jobId: generateObjectId("wjob"),
           }).catch(() => undefined)
         }
         return result

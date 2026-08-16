@@ -113,22 +113,16 @@ async function seedJobRepo(
     cloneToken?: string | null
   },
 ): Promise<void> {
-  try {
-    if (handle.git) {
-      await handle.git.clone({
-        url: input.gitUrl,
-        ref: input.ref,
-        auth: input.cloneToken ? { token: input.cloneToken } : undefined,
-        depth: 1,
-      })
-      await handle.process.exec(scrubOriginAfterCloneCommand(input.gitUrl))
-      return
-    }
-  } catch {
-    // Fall through to an empty repo so worktree add still has HEAD.
+  if (!handle.git) {
+    throw new Error("Job sandbox has no git clone API")
   }
-  await handle.process.exec("git init")
-  await handle.process.exec("git commit --allow-empty -m ctxpipe-job-sandbox")
+  await handle.git.clone({
+    url: input.gitUrl,
+    ref: input.ref,
+    auth: input.cloneToken ? { token: input.cloneToken } : undefined,
+    depth: 1,
+  })
+  await handle.process.exec(scrubOriginAfterCloneCommand(input.gitUrl))
 }
 
 export async function createTanstackJobSandbox(input: {

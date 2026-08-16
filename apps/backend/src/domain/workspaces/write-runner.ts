@@ -129,6 +129,22 @@ export function runnerMayPush(input: {
   return { push: true }
 }
 
+export function capturedWriteParentSha(
+  desiredSha: string | null,
+): string | null {
+  const sha = desiredSha?.trim() ?? ""
+  return sha.length > 0 ? sha : null
+}
+
+/** Workspace jobs commit against the captured parent, never a newly fetched tip. */
+export function casCommitParents(capturedSha: string): [string] {
+  return [capturedSha]
+}
+
+export function planAfterCasRejection(): "enqueue_semantic_merge" {
+  return "enqueue_semantic_merge"
+}
+
 export function persistJobCommitIfRemoteHasSha(input: {
   recordedCommit: string | null
   remoteSha: string
@@ -162,6 +178,27 @@ export function planAfterMechanicalPushFailure(input: {
     return "enqueue_semantic_merge"
   }
   return "fail_job"
+}
+
+/** CAS rejection on a captured parent, or mechanical-mirror non-FF, enqueues semantic merge. */
+export function shouldEnqueueSemanticMergeOnPushFailure(input: {
+  kind: WorkspaceWriteKind
+  nonFastForward: boolean
+  capturedParentSha: string | null
+}): boolean {
+  if (
+    input.capturedParentSha != null &&
+    input.nonFastForward &&
+    planAfterCasRejection() === "enqueue_semantic_merge"
+  ) {
+    return true
+  }
+  return (
+    planAfterMechanicalPushFailure({
+      kind: input.kind,
+      nonFastForward: input.nonFastForward,
+    }) === "enqueue_semantic_merge"
+  )
 }
 
 export function commitSubjectFileNames(

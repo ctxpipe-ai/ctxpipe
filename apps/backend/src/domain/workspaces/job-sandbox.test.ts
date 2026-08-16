@@ -126,4 +126,62 @@ describe("job sandbox", () => {
       }),
     )
   })
+
+  it("throws when clone fails instead of seeding an empty repo", async () => {
+    const exec = vi.fn(async () => ({ stdout: "", stderr: "", exitCode: 0 }))
+    const clone = vi.fn(async () => {
+      throw new Error("clone failed")
+    })
+    await expect(
+      createTanstackJobSandbox({
+        sandboxId: "job-1",
+        gitUrl: "https://github.com/acme/docs",
+        ref: "abc",
+        env: {},
+        loadModules: async () => ({
+          localProcessSandbox: () => ({
+            create: async () => ({
+              process: { exec },
+              fs: {
+                write: async () => undefined,
+                read: async () => "",
+                remove: async () => undefined,
+                mkdir: async () => undefined,
+              },
+              git: { clone },
+              destroy: async () => undefined,
+            }),
+          }),
+        }),
+      }),
+    ).rejects.toThrow("clone failed")
+    expect(exec).not.toHaveBeenCalledWith("git init")
+  })
+
+  it("throws when the sandbox has no git clone API", async () => {
+    const exec = vi.fn(async () => ({ stdout: "", stderr: "", exitCode: 0 }))
+    await expect(
+      createTanstackJobSandbox({
+        sandboxId: "job-1",
+        gitUrl: "https://github.com/acme/docs",
+        ref: "abc",
+        env: {},
+        loadModules: async () => ({
+          localProcessSandbox: () => ({
+            create: async () => ({
+              process: { exec },
+              fs: {
+                write: async () => undefined,
+                read: async () => "",
+                remove: async () => undefined,
+                mkdir: async () => undefined,
+              },
+              destroy: async () => undefined,
+            }),
+          }),
+        }),
+      }),
+    ).rejects.toThrow("Job sandbox has no git clone API")
+    expect(exec).not.toHaveBeenCalledWith("git init")
+  })
 })

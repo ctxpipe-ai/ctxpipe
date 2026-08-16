@@ -1,5 +1,7 @@
 import { describe, expect, it } from "vitest"
 import {
+  capturedWriteParentSha,
+  casCommitParents,
   executeWorkspaceWriteCommit,
   isNonFastForwardGithubError,
   jobCommitPath,
@@ -7,11 +9,13 @@ import {
   jobWorktreeName,
   livePushRecheck,
   persistJobCommitIfRemoteHasSha,
+  planAfterCasRejection,
   planAfterMechanicalPushFailure,
   planJobWorktree,
   planWorkspaceWriteCommit,
   runnerCommitMessage,
   runnerMayPush,
+  shouldEnqueueSemanticMergeOnPushFailure,
   shouldSpawnJobWorktree,
   workspaceWriteSandboxId,
 } from "./write-runner.js"
@@ -224,6 +228,38 @@ describe("write runner", () => {
         provider: "docker",
       }).spawn,
     ).toBe(false)
+  })
+
+  it("captures the write parent SHA and enqueues semantic merge after CAS rejection", () => {
+    expect(capturedWriteParentSha("abc")).toBe("abc")
+    expect(capturedWriteParentSha("  ")).toBeNull()
+    expect(capturedWriteParentSha(null)).toBeNull()
+    expect(casCommitParents("abc")).toEqual(["abc"])
+    expect(planAfterCasRejection()).toBe("enqueue_semantic_merge")
+  })
+
+  it("enqueues semantic merge after CAS rejection on a captured parent", () => {
+    expect(
+      shouldEnqueueSemanticMergeOnPushFailure({
+        kind: "extract_ingest",
+        nonFastForward: true,
+        capturedParentSha: "abc",
+      }),
+    ).toBe(true)
+    expect(
+      shouldEnqueueSemanticMergeOnPushFailure({
+        kind: "extract_ingest",
+        nonFastForward: true,
+        capturedParentSha: null,
+      }),
+    ).toBe(false)
+    expect(
+      shouldEnqueueSemanticMergeOnPushFailure({
+        kind: "connector_mirror",
+        nonFastForward: true,
+        capturedParentSha: null,
+      }),
+    ).toBe(true)
   })
 
   it("enqueues semantic merge only after a mechanical-mirror non-FF", () => {
