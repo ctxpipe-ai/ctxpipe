@@ -109,6 +109,7 @@ describe("conversations API", () => {
       workspaceRepositoryUrl: "https://github.com/acme/docs",
       githubConnectionId: "con_1",
       writeStatus: "writable",
+      desiredSha: "abc",
     })
   })
 

@@ -16,6 +16,7 @@ import {
   getLangfuseHandler,
   runWithLangfuseContext,
 } from "../../observability/langfuse.js"
+import { runTanstackWorkspaceChat } from "../workspaces/tanstack-workspace-chat.js"
 import type { StreamEnhancer } from "./renameStream.js"
 import { createTextStartRepairTransform } from "./uiMessageStreamTextStartRepair.js"
 import { createToolInvocationRepairTransform } from "./uiMessageStreamToolInvocationRepair.js"
@@ -28,6 +29,9 @@ export type StreamInput = {
   writeStatus?: string | null
   lastBranch?: string | null
   workspaceId?: string | null
+  orgId?: string | null
+  desiredUrl?: string | null
+  desiredSha?: string | null
   onFinish?: () => Promise<void> | void
   streamEnhancers?: StreamEnhancer[]
 }
@@ -42,6 +46,19 @@ export function createDataStreamConversationTransport(): ConversationTransportAd
 
 class DataStreamConversationTransport implements ConversationTransportAdapter {
   async toResponse(input: StreamInput): Promise<Response> {
+    if (input.workspaceId && input.orgId && input.desiredUrl) {
+      return runTanstackWorkspaceChat({
+        conversationId: input.conversationId,
+        prompt: input.prompt,
+        orgId: input.orgId,
+        workspaceId: input.workspaceId,
+        desiredUrl: input.desiredUrl,
+        desiredSha: input.desiredSha ?? null,
+        ref: input.lastBranch || input.desiredSha || "HEAD",
+        writeStatus: input.writeStatus ?? "read_only",
+        onFinish: input.onFinish,
+      })
+    }
     return runWithLangfuseContext(
       {
         sessionId: input.conversationId,

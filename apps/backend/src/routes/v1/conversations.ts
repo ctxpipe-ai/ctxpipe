@@ -440,6 +440,9 @@ export const conversationRoutes = new OpenAPIHono<AppEnv>()
         writeStatus: workspace?.writeStatus ?? "read_only",
         lastBranch,
         workspaceId: conversation.workspaceId,
+        orgId: workspace?.orgId ?? conversation.orgId,
+        desiredUrl: workspace?.workspaceRepositoryUrl ?? null,
+        desiredSha: workspace?.desiredSha ?? null,
         onFinish: () => touchConversationLastMessage(conversationId),
         streamEnhancers: [internalFilterEnhancer, renameEnhancer],
       })

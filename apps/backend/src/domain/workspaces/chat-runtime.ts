@@ -30,6 +30,42 @@ export function workspaceChatSandboxId(input: {
   return `${input.orgId}:${input.workspaceId}:${snapshot}:${input.image}`
 }
 
+export const CHAT_SANDBOX_KEEP_ALIVE = "30m" as const
+
+export function workspaceChatSandboxSpec(input: {
+  sandboxId: string
+  provider: ReturnType<typeof detectSandboxProviderFromEnv>
+  gitUrl: string
+  ref: string
+}):
+  | {
+      ok: true
+      id: string
+      isolation: "docker" | "local_process"
+      source: { type: "git"; url: string; ref: string }
+      lifecycle: {
+        reuse: "thread"
+        snapshot: "after-setup"
+        keepAlive: typeof CHAT_SANDBOX_KEEP_ALIVE
+      }
+    }
+  | { ok: false; reason: "no_isolated_provider" } {
+  if (input.provider === "railway") {
+    return { ok: false, reason: "no_isolated_provider" }
+  }
+  return {
+    ok: true,
+    id: input.sandboxId,
+    isolation: input.provider === "docker" ? "docker" : "local_process",
+    source: { type: "git", url: input.gitUrl, ref: input.ref },
+    lifecycle: {
+      reuse: "thread",
+      snapshot: "after-setup",
+      keepAlive: CHAT_SANDBOX_KEEP_ALIVE,
+    },
+  }
+}
+
 export function workspaceChatRuntimeConfig(input?: {
   hasSbx?: boolean
   hasDocker?: boolean

@@ -1,0 +1,93 @@
+import { beforeEach, describe, expect, it, vi } from "vitest"
+
+const chatMock = vi.hoisted(() =>
+  vi.fn(async function* () {
+    yield { type: "TEXT_MESSAGE_CONTENT", delta: "hello" }
+  }),
+)
+const opencodeTextMock = vi.hoisted(() => vi.fn(() => "adapter"))
+const defineSandboxMock = vi.hoisted(() => vi.fn((input) => input))
+const defineWorkspaceMock = vi.hoisted(() => vi.fn((input) => input))
+const gitSourceMock = vi.hoisted(() => vi.fn((input) => input))
+const withSandboxMock = vi.hoisted(() => vi.fn((def) => def))
+const dockerSandboxMock = vi.hoisted(() => vi.fn(() => "docker-provider"))
+
+vi.mock("@tanstack/ai", () => ({ chat: chatMock }))
+vi.mock("@tanstack/ai-opencode", () => ({ opencodeText: opencodeTextMock }))
+vi.mock("@tanstack/ai-sandbox", () => ({
+  defineSandbox: defineSandboxMock,
+  defineWorkspace: defineWorkspaceMock,
+  gitSource: gitSourceMock,
+  withSandbox: withSandboxMock,
+}))
+vi.mock("@tanstack/ai-sandbox-docker", () => ({
+  dockerSandbox: dockerSandboxMock,
+}))
+vi.mock("@tanstack/ai-sandbox-local-process", () => ({
+  localProcessSandbox: vi.fn(() => "local-provider"),
+}))
+
+import { runTanstackWorkspaceChat } from "./tanstack-workspace-chat.js"
+
+describe("runTanstackWorkspaceChat", () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+    process.env.SANDBOX_PROVIDER = "docker"
+  })
+
+  it("calls chat() with withSandbox and opencodeText", async () => {
+    const res = await runTanstackWorkspaceChat({
+      conversationId: "conv_1",
+      prompt: "hello",
+      orgId: "org_1",
+      workspaceId: "ws_1",
+      desiredUrl: "https://github.com/acme/docs",
+      desiredSha: "abc",
+      ref: "abc",
+      writeStatus: "writable",
+    })
+    expect(res.status).toBe(200)
+    expect(opencodeTextMock).toHaveBeenCalledWith(
+      expect.any(String),
+      expect.objectContaining({ permissionMode: "acceptEdits" }),
+    )
+    expect(withSandboxMock).toHaveBeenCalled()
+    expect(chatMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        threadId: "conv_1",
+        messages: [{ role: "user", content: "hello" }],
+      }),
+    )
+  })
+
+  it("refuses Railway when no isolated provider exists", async () => {
+    process.env.SANDBOX_PROVIDER = "railway"
+    const res = await runTanstackWorkspaceChat({
+      conversationId: "conv_1",
+      prompt: "hello",
+      orgId: "org_1",
+      workspaceId: "ws_1",
+      desiredUrl: "https://github.com/acme/docs",
+      desiredSha: "abc",
+      ref: "abc",
+      writeStatus: "writable",
+    })
+    expect(res.status).toBe(503)
+    expect(chatMock).not.toHaveBeenCalled()
+  })
+
+  it("refuses chat without a stored desired SHA", async () => {
+    const res = await runTanstackWorkspaceChat({
+      conversationId: "conv_1",
+      prompt: "hello",
+      orgId: "org_1",
+      workspaceId: "ws_1",
+      desiredUrl: "https://github.com/acme/docs",
+      desiredSha: null,
+      ref: "HEAD",
+      writeStatus: "writable",
+    })
+    expect(res.status).toBe(409)
+    expect(chatMock).not.toHaveBeenCalled()
+  })
+})

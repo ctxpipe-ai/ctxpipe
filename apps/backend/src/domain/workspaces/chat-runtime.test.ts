@@ -3,6 +3,7 @@ import {
   WORKSPACE_CHAT_RUNTIME,
   workspaceChatRuntimeConfig,
   workspaceChatSandboxId,
+  workspaceChatSandboxSpec,
 } from "./chat-runtime.js"
 
 describe("workspace chat runtime", () => {
@@ -48,5 +49,29 @@ describe("workspace chat runtime", () => {
     await expect(
       runtime.onPermissionRequest({ toolName: "apply_patch" }),
     ).resolves.toBe("allow")
+  })
+
+  it("builds a thread-reuse sandbox spec and refuses Railway without a provider", () => {
+    expect(
+      workspaceChatSandboxSpec({
+        sandboxId: "sbx_1",
+        provider: "docker",
+        gitUrl: "https://github.com/acme/docs",
+        ref: "abc",
+      }),
+    ).toMatchObject({
+      ok: true,
+      isolation: "docker",
+      source: { type: "git", url: "https://github.com/acme/docs", ref: "abc" },
+      lifecycle: { reuse: "thread", keepAlive: "30m" },
+    })
+    expect(
+      workspaceChatSandboxSpec({
+        sandboxId: "sbx_1",
+        provider: "railway",
+        gitUrl: "https://github.com/acme/docs",
+        ref: "abc",
+      }),
+    ).toEqual({ ok: false, reason: "no_isolated_provider" })
   })
 })
