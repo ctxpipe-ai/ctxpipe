@@ -1041,6 +1041,40 @@ export async function listWorkspaceKnowledgeUnits(
   }
 }
 
+export async function listWorkspaceKnowledgeUnitsForChat(
+  workspaceId: string,
+): Promise<
+  Array<{
+    servingId: string
+    path: string
+    body: string
+    projectionSha: string
+    embedding: number[] | null
+    claims: HydrateUnit["claims"]
+  }>
+> {
+  const rows = await getOrgDb()
+    .select({
+      servingId: workspaceKnowledgeUnits.servingId,
+      path: workspaceKnowledgeUnits.path,
+      body: workspaceKnowledgeUnits.body,
+      projectionSha: workspaceKnowledgeUnits.projectionSha,
+      embedding: workspaceKnowledgeUnits.embedding,
+      claims: workspaceKnowledgeUnits.claims,
+    })
+    .from(workspaceKnowledgeUnits)
+    .where(eq(workspaceKnowledgeUnits.workspaceId, workspaceId))
+    .orderBy(workspaceKnowledgeUnits.path)
+  return rows.map((row) => ({
+    servingId: row.servingId,
+    path: row.path,
+    body: row.body,
+    projectionSha: row.projectionSha,
+    embedding: row.embedding,
+    claims: row.claims,
+  }))
+}
+
 export async function listKnowledgeUnitPaths(
   workspaceId: string,
 ): Promise<string[]> {

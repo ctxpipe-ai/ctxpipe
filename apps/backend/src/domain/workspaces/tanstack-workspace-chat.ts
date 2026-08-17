@@ -1,4 +1,5 @@
 import { createUIMessageStreamResponse, type UIMessageChunk } from "ai"
+import { withOrgDbContext } from "../../db/client.js"
 import { nameConversationIfUnnamed } from "../../graphs/conversationGraph/nodes/conversationNaming.js"
 import { generateObjectId } from "../../lib/id.js"
 import {
@@ -6,8 +7,13 @@ import {
   type ConversationTurn,
   loadConversationTurns,
 } from "../../models/conversation-messages.js"
-import { listWorkspaceKnowledgeUnits } from "../../models/workspaces.js"
+import {
+  getWorkspaceById,
+  listWorkspaceKnowledgeUnitsForChat,
+} from "../../models/workspaces.js"
 import { getLogger } from "../../observability/logger.js"
+import { hybridSearch } from "../../retrieval/index.js"
+import { generateEmbedding } from "../../retrieval/services/modelProvider.js"
 import { aguiIterableToUiMessageChunks } from "./agui-to-ui-message.js"
 import {
   CHAT_HEARTBEAT_INTERVAL_MS,
@@ -26,7 +32,11 @@ import {
   registerWorkspaceSandbox,
 } from "./sandbox-registry.js"
 import { loadTanstackChatModules } from "./tanstack-runtime.js"
-import { workspaceChatRetrievalSnippets } from "./workspace-chat-retrieval.js"
+import {
+  formatWorkspaceChatHits,
+  workspaceChatHybridHits,
+} from "./workspace-chat-retrieval.js"
+import { workspaceChatTools } from "./workspace-chat-tools.js"
 
 export type TanstackWorkspaceChatInput = {
   conversationId: string
@@ -254,10 +264,10 @@ async function prepareTanstackWorkspaceChat(
   }
   const retrieval = input.retrieveContext
     ? await input.retrieveContext(input.prompt).catch(() => "")
-    : await defaultWorkspaceChatRetrieval(
-        input.prompt,
-        input.workspaceId,
-      ).catch(() => "")
+    : await defaultWorkspaceChatRetrieval(input.prompt, {
+        orgId: input.orgId,
+        workspaceId: input.workspaceId,
+      }).catch(() => "")
   const messages = [
     ...(retrieval ? [{ role: "user" as const, content: retrieval }] : []),
     ...history,
@@ -266,6 +276,22 @@ async function prepareTanstackWorkspaceChat(
 
   const model =
     process.env.MODEL_FAST_NAME?.trim() || "anthropic/claude-sonnet-4-5"
+  const tools = await workspaceChatTools({
+    orgId: input.orgId,
+    workspaceId: input.workspaceId,
+    writeStatus: input.writeStatus,
+    activeProjectionSha: await withOrgDbContext(input.orgId, async () => {
+      const workspace = await getWorkspaceById(input.workspaceId)
+      return workspace?.activeProjectionSha ?? null
+    }).catch(() => null),
+    loadUnits: () =>
+      withOrgDbContext(input.orgId, () =>
+        listWorkspaceKnowledgeUnitsForChat(input.workspaceId),
+      ),
+    embedQuery: generateEmbedding,
+    searchObjects: async (query, embedding) =>
+      hybridSearch(input.orgId, { embedding, query }, { limit: 20 }),
+  }).catch(() => [])
   const definition = modules.defineSandbox({
     id: spec.id,
     provider,
@@ -304,6 +330,7 @@ async function prepareTanstackWorkspaceChat(
     }),
     threadId: input.conversationId,
     messages,
+    tools,
     middleware: [modules.withSandbox(definition)],
   })
   registerWorkspaceSandbox({
@@ -322,8 +349,34 @@ async function prepareTanstackWorkspaceChat(
 
 async function defaultWorkspaceChatRetrieval(
   query: string,
-  workspaceId: string,
+  input: { orgId: string; workspaceId: string },
 ): Promise<string> {
-  const { units } = await listWorkspaceKnowledgeUnits(workspaceId)
-  return workspaceChatRetrievalSnippets({ query, units })
+  return withOrgDbContext(input.orgId, async () => {
+    const workspace = await getWorkspaceById(input.workspaceId)
+    if (!workspace?.activeProjectionSha) return ""
+    const units = await listWorkspaceKnowledgeUnitsForChat(input.workspaceId)
+    let embedding: number[] | null = null
+    let objectHits: Array<{ objectId: string }> = []
+    try {
+      embedding = await generateEmbedding(query)
+      objectHits = await hybridSearch(
+        input.orgId,
+        { embedding, query },
+        { limit: 20 },
+      )
+    } catch {
+      embedding = null
+      objectHits = []
+    }
+    return formatWorkspaceChatHits({
+      activeProjectionSha: workspace.activeProjectionSha,
+      hits: workspaceChatHybridHits({
+        query,
+        activeProjectionSha: workspace.activeProjectionSha,
+        units,
+        embedding,
+        objectHits,
+      }),
+    })
+  })
 }

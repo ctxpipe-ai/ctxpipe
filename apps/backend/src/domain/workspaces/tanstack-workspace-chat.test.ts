@@ -30,6 +30,14 @@ vi.mock("../../graphs/conversationGraph/nodes/conversationNaming.js", () => ({
   nameConversationIfUnnamed: vi.fn().mockResolvedValue(null),
 }))
 
+vi.mock("../../db/client.js", () => ({
+  withOrgDbContext: (_orgId: string, fn: () => unknown) => fn(),
+}))
+
+vi.mock("../../auth/withAuth.js", () => ({
+  withOrgIdContext: (_org: unknown, fn: () => unknown) => fn(),
+}))
+
 const loadTurnsMock = vi.hoisted(() =>
   vi.fn(
     async (): Promise<
@@ -44,9 +52,31 @@ vi.mock("../../models/conversation-messages.js", () => ({
   appendConversationTurn: appendTurnMock,
 }))
 
+const getWorkspaceById = vi.hoisted(() =>
+  vi.fn(
+    async (): Promise<{
+      id: string
+      orgId: string
+      workspaceRepositoryUrl: string
+      activeProjectionUrl: string | null
+      activeProjectionSha: string | null
+    }> => ({
+      id: "ws_1",
+      orgId: "org_1",
+      workspaceRepositoryUrl: "https://github.com/acme/docs",
+      activeProjectionUrl: "https://github.com/acme/docs",
+      activeProjectionSha: "abc",
+    }),
+  ),
+)
+
 vi.mock("../../models/workspaces.js", () => ({
   persistSandboxInstance: vi.fn(async () => {}),
   deleteSandboxInstance: vi.fn(async () => {}),
+  getWorkspaceById,
+  listLinkedRepositories: vi.fn(async () => [
+    { gitUrl: "https://github.com/acme/app" },
+  ]),
   listWorkspaceKnowledgeUnits: vi.fn(async () => ({
     units: [
       {
@@ -59,6 +89,33 @@ vi.mock("../../models/workspaces.js", () => ({
     ],
     lastUpdatedAt: null,
   })),
+  listWorkspaceKnowledgeUnitsForChat: vi.fn(async () => [
+    {
+      servingId: "kn_1",
+      path: "knowledge/billing/ledger.md",
+      body: "The billing ledger.",
+      projectionSha: "abc",
+      embedding: null,
+      claims: [],
+    },
+  ]),
+}))
+
+vi.mock("../../models/repositories.js", () => ({
+  findRepositoriesByNormalizedGitUrls: vi.fn(async () => [
+    {
+      id: "repo_aaaaaaaaaaaaaaaaaaaaaaaa",
+      gitUrl: "https://github.com/acme/app",
+    },
+  ]),
+}))
+
+vi.mock("../../retrieval/index.js", () => ({
+  hybridSearch: vi.fn(async () => [{ objectId: "kn_1" }]),
+}))
+
+vi.mock("../../retrieval/services/modelProvider.js", () => ({
+  generateEmbedding: vi.fn(async () => [1, 0, 0]),
 }))
 
 import { runTanstackWorkspaceChat } from "./tanstack-workspace-chat.js"
@@ -89,7 +146,24 @@ describe("runTanstackWorkspaceChat", () => {
     expect(chatMock).toHaveBeenCalledWith(
       expect.objectContaining({
         threadId: "conv_1",
-        messages: [{ role: "user", content: "hello" }],
+        messages: [
+          {
+            role: "user",
+            content: expect.stringContaining("knowledge/billing/ledger.md"),
+          },
+          { role: "user", content: "hello" },
+        ],
+        tools: expect.arrayContaining([
+          expect.objectContaining({
+            name: "hybrid_search",
+            inputSchema: expect.objectContaining({ type: "object" }),
+          }),
+          expect.objectContaining({ name: "search" }),
+          expect.objectContaining({ name: "list_repositories" }),
+          expect.objectContaining({ name: "graph_lookup" }),
+          expect.objectContaining({ name: "graph_neighbors" }),
+          expect.objectContaining({ name: "graph_find_symbol" }),
+        ]),
       }),
     )
     expect(appendTurnMock).not.toHaveBeenCalled()
@@ -129,6 +203,10 @@ describe("runTanstackWorkspaceChat", () => {
     expect(chatMock).toHaveBeenCalledWith(
       expect.objectContaining({
         messages: [
+          {
+            role: "user",
+            content: expect.stringContaining("knowledge/billing/ledger.md"),
+          },
           { role: "user", content: "earlier" },
           { role: "assistant", content: "reply" },
           { role: "user", content: "hello" },
@@ -172,7 +250,8 @@ describe("runTanstackWorkspaceChat", () => {
       desiredSha: "abc",
       ref: "abc",
       writeStatus: "writable",
-      retrieveContext: async () => "Workspace projection context:\n## knowledge/a.md\nHello",
+      retrieveContext: async () =>
+        "Workspace projection context:\n## knowledge/a.md\nHello",
     })
     expect(res.status).toBe(200)
     expect(chatMock).toHaveBeenCalledWith(
@@ -221,6 +300,33 @@ describe("runTanstackWorkspaceChat", () => {
     })
     expect(res.status).toBe(200)
     expect(localProcessSandbox).toHaveBeenCalled()
+  })
+
+  it("omits retrieval tools without an active projection SHA", async () => {
+    const empty = {
+      id: "ws_1",
+      orgId: "org_1",
+      workspaceRepositoryUrl: "https://github.com/acme/docs",
+      activeProjectionUrl: null,
+      activeProjectionSha: null,
+    }
+    getWorkspaceById.mockResolvedValueOnce(empty).mockResolvedValueOnce(empty)
+    const res = await runTanstackWorkspaceChat({
+      conversationId: "conv_1",
+      prompt: "hello",
+      orgId: "org_1",
+      workspaceId: "ws_1",
+      desiredUrl: "https://github.com/acme/docs",
+      desiredSha: "abc",
+      ref: "abc",
+      writeStatus: "writable",
+    })
+    expect(res.status).toBe(200)
+    expect(chatMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        tools: [],
+      }),
+    )
   })
 
   it("refuses chat without a stored desired SHA", async () => {
