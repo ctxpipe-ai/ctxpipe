@@ -101,18 +101,35 @@ describe("postgresSandboxInstanceStore", () => {
 })
 
 describe("postgresSandboxLockStore", () => {
-  it("takes a session advisory lock without opening a transaction", async () => {
+  it("takes the workspace lock then the instance lock without a transaction", async () => {
     const query = vi.fn().mockResolvedValue(undefined)
     withDbClientMock.mockImplementation(
       async (fn: (client: { query: typeof query }) => unknown) => fn({ query }),
     )
     const ran = vi.fn(async () => "ok")
-    const locks = postgresSandboxLockStore("org_1")
+    const locks = postgresSandboxLockStore({ workspaceId: "ws_1" })
     await expect(locks.withLock("sandbox:key", ran)).resolves.toBe("ok")
-    expect(query.mock.calls[0]?.[0]).toMatch(/pg_advisory_lock/)
+    const locked = query.mock.calls
+      .filter((call) => String(call[0]).includes("pg_advisory_lock("))
+      .map((call) => call[1]?.[0])
+    expect(locked).toEqual(["sandbox:job:ws_1", "sandbox:key"])
     expect(query.mock.calls[0]?.[0]).not.toMatch(/xact/)
     expect(query.mock.calls.at(-1)?.[0]).toMatch(/pg_advisory_unlock/)
     expect(ran).toHaveBeenCalled()
+  })
+
+  it("does not take a second connection for a nested workspace lock", async () => {
+    const query = vi.fn().mockResolvedValue(undefined)
+    withDbClientMock.mockImplementation(
+      async (fn: (client: { query: typeof query }) => unknown) => fn({ query }),
+    )
+    await withSandboxAdvisoryLock("sandbox:job:ws_1", async () =>
+      withSandboxAdvisoryLock("sandbox:job:ws_1", async () => "ok"),
+    )
+    const locked = query.mock.calls.filter((call) =>
+      String(call[0]).includes("pg_advisory_lock("),
+    )
+    expect(locked).toHaveLength(1)
   })
 
   it("unlocks when the critical section throws", async () => {

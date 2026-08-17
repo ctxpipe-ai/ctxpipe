@@ -1,3 +1,4 @@
+import { AsyncLocalStorage } from "node:async_hooks"
 import type { LockStore } from "@tanstack/ai/locks"
 import type {
   SandboxInstanceStore,
@@ -10,6 +11,12 @@ import {
   persistSandboxInstance,
 } from "../../models/workspaces.js"
 import { log } from "../../observability/logger.js"
+
+const heldSandboxLocks = new AsyncLocalStorage<Set<string>>()
+
+export function workspaceSandboxLockKey(workspaceId: string): string {
+  return `sandbox:job:${workspaceId}`
+}
 
 export function postgresSandboxInstanceStore(input: {
   orgId: string
@@ -55,36 +62,51 @@ export async function withSandboxAdvisoryLock<T>(
   key: string,
   fn: (signal: AbortSignal) => Promise<T>,
 ): Promise<T> {
+  const held = heldSandboxLocks.getStore()
+  if (held?.has(key)) {
+    return fn(new AbortController().signal)
+  }
+  const nextHeld = new Set(held)
+  nextHeld.add(key)
   const abort = new AbortController()
-  return withLockClient(async (client) => {
-    await client.query("select pg_advisory_lock(hashtextextended($1, 0))", [
-      key,
-    ])
-    try {
-      return await fn(abort.signal)
-    } finally {
-      abort.abort()
+  return heldSandboxLocks.run(nextHeld, () =>
+    withLockClient(async (client) => {
+      await client.query("select pg_advisory_lock(hashtextextended($1, 0))", [
+        key,
+      ])
       try {
-        await client.query(
-          "select pg_advisory_unlock(hashtextextended($1, 0))",
-          [key],
-        )
-      } catch (error) {
-        log.error({
-          step: "sandbox-advisory-unlock",
-          sandboxKey: key,
-          error: error instanceof Error ? error.message : String(error),
-        })
-        await client.query("select pg_advisory_unlock_all()").catch(() => {})
+        return await fn(abort.signal)
+      } finally {
+        abort.abort()
+        try {
+          await client.query(
+            "select pg_advisory_unlock(hashtextextended($1, 0))",
+            [key],
+          )
+        } catch (error) {
+          log.error({
+            step: "sandbox-advisory-unlock",
+            sandboxKey: key,
+            error: error instanceof Error ? error.message : String(error),
+          })
+          await client.query("select pg_advisory_unlock_all()").catch(() => {})
+        }
       }
-    }
-  })
+    }),
+  )
 }
 
-export function postgresSandboxLockStore(_orgId: string): LockStore {
+export function postgresSandboxLockStore(input: {
+  workspaceId: string
+}): LockStore {
+  const workspaceKey = workspaceSandboxLockKey(input.workspaceId)
   return {
     withLock(key, fn) {
-      return withSandboxAdvisoryLock(key, fn)
+      return withSandboxAdvisoryLock(workspaceKey, (signal) =>
+        key === workspaceKey
+          ? fn(signal)
+          : withSandboxAdvisoryLock(key, () => fn(signal)),
+      )
     },
   }
 }

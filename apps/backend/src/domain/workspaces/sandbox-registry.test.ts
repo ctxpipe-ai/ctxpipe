@@ -28,6 +28,8 @@ vi.mock("./sandbox-provider.js", () => ({
 
 vi.mock("./sandbox-instance-store.js", () => ({
   withSandboxAdvisoryLock,
+  workspaceSandboxLockKey: (workspaceId: string) =>
+    `sandbox:job:${workspaceId}`,
 }))
 
 const claimSandboxInstance = vi.hoisted(() =>

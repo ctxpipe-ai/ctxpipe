@@ -40,6 +40,8 @@ vi.mock("./sandbox-provider.js", async (importOriginal) => {
 
 vi.mock("./sandbox-instance-store.js", () => ({
   withSandboxAdvisoryLock,
+  workspaceSandboxLockKey: (workspaceId: string) =>
+    `sandbox:job:${workspaceId}`,
 }))
 
 describe("job sandbox", () => {

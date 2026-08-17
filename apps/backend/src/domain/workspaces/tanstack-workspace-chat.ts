@@ -357,7 +357,9 @@ async function prepareTanstackWorkspaceChat(
           orgId: input.orgId,
           workspaceId: input.workspaceId,
         }),
-        locks: postgresSandboxLockStore(input.orgId),
+        locks: postgresSandboxLockStore({
+          workspaceId: input.workspaceId,
+        }),
       }),
     ],
   })

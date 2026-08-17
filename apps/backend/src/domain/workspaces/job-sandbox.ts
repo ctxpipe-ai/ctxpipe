@@ -5,7 +5,10 @@ import {
 } from "../../models/workspaces.js"
 import { scrubOriginAfterCloneCommand } from "./clone-credentials.js"
 import type { JobSandboxHandle, JobWorktreeExec } from "./job-worktree.js"
-import { withSandboxAdvisoryLock } from "./sandbox-instance-store.js"
+import {
+  withSandboxAdvisoryLock,
+  workspaceSandboxLockKey,
+} from "./sandbox-instance-store.js"
 import {
   destroyDetachedProviderSandbox,
   detectSandboxProviderFromEnv,
@@ -93,7 +96,7 @@ export async function ensureJobSandbox(input: {
   const attached = getJobSandbox(input.workspaceId)
   if (attached) return attached
   return withSandboxAdvisoryLock(
-    `sandbox:job:${input.workspaceId}`,
+    workspaceSandboxLockKey(input.workspaceId),
     async () => {
       const attachedInside = getJobSandbox(input.workspaceId)
       if (attachedInside) return attachedInside

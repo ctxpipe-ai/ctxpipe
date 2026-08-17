@@ -13,7 +13,10 @@ import {
   shouldDestroyJobSandbox,
 } from "./chat-lifecycle.js"
 import type { JobSandboxHandle } from "./job-worktree.js"
-import { withSandboxAdvisoryLock } from "./sandbox-instance-store.js"
+import {
+  withSandboxAdvisoryLock,
+  workspaceSandboxLockKey,
+} from "./sandbox-instance-store.js"
 import { destroyDetachedProviderSandbox } from "./sandbox-provider.js"
 
 export type RegisteredSandbox = {
@@ -208,8 +211,9 @@ export async function destroySandboxesForWorkspace(
   if (kind === "chat") {
     return destroyListedSandboxesForWorkspace(workspaceId, kind)
   }
-  return withSandboxAdvisoryLock(`sandbox:job:${workspaceId}`, async () =>
-    destroyListedSandboxesForWorkspace(workspaceId, kind),
+  return withSandboxAdvisoryLock(
+    workspaceSandboxLockKey(workspaceId),
+    async () => destroyListedSandboxesForWorkspace(workspaceId, kind),
   )
 }
 
@@ -217,11 +221,14 @@ export async function withDestroyedWorkspaceSandboxes<T>(
   workspaceId: string,
   fn: (remaining: SandboxInstanceRecord[]) => Promise<T>,
 ): Promise<T> {
-  return withSandboxAdvisoryLock(`sandbox:job:${workspaceId}`, async () => {
-    await destroyListedSandboxesForWorkspace(workspaceId, "any")
-    const remaining = await listSandboxInstances({ workspaceId })
-    return fn(remaining)
-  })
+  return withSandboxAdvisoryLock(
+    workspaceSandboxLockKey(workspaceId),
+    async () => {
+      await destroyListedSandboxesForWorkspace(workspaceId, "any")
+      const remaining = await listSandboxInstances({ workspaceId })
+      return fn(remaining)
+    },
+  )
 }
 
 async function destroyListedSandboxesForWorkspace(
