@@ -8,7 +8,7 @@ vi.mock("../db/client.js", () => ({
   getSystemDb: getSystemDbMock,
 }))
 
-import { getDashboardActivity } from "./dashboard.js"
+import { classifyGitNativeBinding, getDashboardActivity } from "./dashboard.js"
 
 type QueryRow = Record<string, unknown>
 
@@ -97,5 +97,36 @@ describe("dashboard domain", () => {
         lastActiveAt: "2026-06-14T12:00:00.000Z",
       },
     ])
+  })
+
+  it("classifies Linear and Notion bindings from stored setup phase", () => {
+    expect(
+      classifyGitNativeBinding({
+        status: "installed",
+        enabled: true,
+        setupPhase: "live",
+      }),
+    ).toEqual({ ready: true, needsSetup: false, failed: false })
+    expect(
+      classifyGitNativeBinding({
+        status: "installed",
+        enabled: true,
+        setupPhase: "awaiting_merge",
+      }),
+    ).toEqual({ ready: false, needsSetup: true, failed: false })
+    expect(
+      classifyGitNativeBinding({
+        status: "installed",
+        enabled: true,
+        setupPhase: "sync_failed",
+      }),
+    ).toEqual({ ready: false, needsSetup: false, failed: true })
+    expect(
+      classifyGitNativeBinding({
+        status: "revoked",
+        enabled: true,
+        setupPhase: "live",
+      }),
+    ).toEqual({ ready: false, needsSetup: false, failed: true })
   })
 })

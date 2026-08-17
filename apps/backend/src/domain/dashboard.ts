@@ -10,6 +10,10 @@ import { dashboardMetricSnapshots } from "../db/schema/dashboard_metric_snapshot
 import { objects } from "../db/schema/objects.js"
 import { repositories } from "../db/schema/repositories.js"
 import {
+  parseLinearConnectionStored,
+  parseNotionConnectionConfig,
+} from "../lib/connection-config.js"
+import {
   forgeConnectionToShape,
   githubConnectionToShape,
 } from "../models/connection-rows.js"
@@ -91,6 +95,18 @@ export type DashboardSummary = {
         total: number
         installed: number
         running: number
+        failed: number
+      }
+      linear: {
+        total: number
+        ready: number
+        needsSetup: number
+        failed: number
+      }
+      notion: {
+        total: number
+        ready: number
+        needsSetup: number
         failed: number
       }
     }
@@ -304,23 +320,68 @@ async function repositoryHealth(orgId: string) {
   const rows = await db
     .select({
       indexReady: repositories.indexReady,
+      indexingStatus: repositories.indexingStatus,
       indexingReason: repositories.indexingReason,
     })
     .from(repositories)
     .where(eq(repositories.orgId, orgId))
   const indexed = rows.filter((r) => r.indexReady).length
-  const indexing = rows.filter((r) => !r.indexReady && r.indexingReason).length
+  const indexing = rows.filter((r) => {
+    if (r.indexingStatus === "queued" || r.indexingStatus === "running") {
+      return true
+    }
+    return !r.indexReady && Boolean(r.indexingReason)
+  }).length
   const notReady = rows.length - indexed
+  const failed = rows.filter((r) => r.indexingStatus === "failed").length
   return {
     status:
-      rows.length === 0 || notReady > 0
-        ? ("warning" as const)
-        : ("ok" as const),
+      failed > 0
+        ? ("error" as const)
+        : rows.length === 0 || notReady > 0
+          ? ("warning" as const)
+          : ("ok" as const),
     total: rows.length,
     indexed,
     indexing,
     notReady,
   }
+}
+
+const emptyGitNativeFamily = () => ({
+  total: 0,
+  ready: 0,
+  needsSetup: 0,
+  failed: 0,
+})
+
+/** Cheap Linear/Notion readiness from stored config — no token decrypt, no provider calls. */
+export function classifyGitNativeBinding(input: {
+  status: string
+  enabled: boolean
+  setupPhase: string
+}): { ready: boolean; needsSetup: boolean; failed: boolean } {
+  if (
+    input.status === "revoked" ||
+    input.setupPhase === "sync_failed" ||
+    input.setupPhase === "config_failed"
+  ) {
+    return { ready: false, needsSetup: false, failed: true }
+  }
+  if (input.setupPhase === "live" && input.enabled) {
+    return { ready: true, needsSetup: false, failed: false }
+  }
+  return { ready: false, needsSetup: true, failed: false }
+}
+
+function applyGitNativeFamily(
+  family: ReturnType<typeof emptyGitNativeFamily>,
+  health: ReturnType<typeof classifyGitNativeBinding>,
+) {
+  family.total += 1
+  if (health.ready) family.ready += 1
+  if (health.needsSetup) family.needsSetup += 1
+  if (health.failed) family.failed += 1
 }
 
 async function connectorHealth(orgId: string) {
@@ -332,6 +393,8 @@ async function connectorHealth(orgId: string) {
 
   const github = { total: 0, installed: 0, needsSetup: 0 }
   const forge = { total: 0, installed: 0, running: 0, failed: 0 }
+  const linear = emptyGitNativeFamily()
+  const notion = emptyGitNativeFamily()
   let parseFailures = 0
 
   for (const row of rows) {
@@ -347,6 +410,26 @@ async function connectorHealth(orgId: string) {
         if (shape.status === "installed") forge.installed += 1
         if (shape.provisionStatus === "running") forge.running += 1
         if (shape.provisionStatus === "failed") forge.failed += 1
+      } else if (row.type === "linear") {
+        try {
+          const config = parseLinearConnectionStored(
+            row.config as Record<string, unknown>,
+          )
+          applyGitNativeFamily(linear, classifyGitNativeBinding(config))
+        } catch {
+          linear.total += 1
+          linear.needsSetup += 1
+        }
+      } else if (row.type === "notion") {
+        try {
+          const config = parseNotionConnectionConfig(
+            row.config as Record<string, unknown>,
+          )
+          applyGitNativeFamily(notion, classifyGitNativeBinding(config))
+        } catch {
+          notion.total += 1
+          notion.needsSetup += 1
+        }
       }
     } catch {
       parseFailures += 1
@@ -354,12 +437,18 @@ async function connectorHealth(orgId: string) {
   }
 
   const status =
-    parseFailures > 0 || forge.failed > 0
+    parseFailures > 0 ||
+    forge.failed > 0 ||
+    linear.failed > 0 ||
+    notion.failed > 0
       ? "error"
-      : github.needsSetup > 0 || forge.running > 0
+      : github.needsSetup > 0 ||
+          forge.running > 0 ||
+          linear.needsSetup > 0 ||
+          notion.needsSetup > 0
         ? "warning"
         : "ok"
-  return { status: status as DashboardStatus, github, forge }
+  return { status: status as DashboardStatus, github, forge, linear, notion }
 }
 
 async function confluenceHealth(orgId: string) {
@@ -680,8 +769,7 @@ async function readLatestMetricSnapshot(
       status:
         totalNodes === null ? "unknown" : totalNodes === 0 ? "warning" : "ok",
       totalNodes,
-      totalEdges:
-        row.graphTotalEdges == null ? null : num(row.graphTotalEdges),
+      totalEdges: row.graphTotalEdges == null ? null : num(row.graphTotalEdges),
       entityTypes:
         row.graphEntityTypes == null ? null : num(row.graphEntityTypes),
       relationshipTypes:
@@ -770,8 +858,48 @@ function buildActions(input: DashboardSummary["health"], orgSlug: string) {
       detail: "Review the Forge connector status and retry provisioning.",
       href: `/${orgSlug}/connectors`,
     })
+  } else if (input.confluence.status === "warning") {
+    actions.push({
+      severity: "warning",
+      title: "Confluence setup is incomplete",
+      detail:
+        "Finish the sync target setup so selected Confluence spaces stay in context.",
+      href: `/${orgSlug}/connectors`,
+    })
   }
-  if (input.graph.status === "unknown") {
+  if (input.connectors.linear.failed > 0) {
+    actions.push({
+      severity: "error",
+      title: "Linear sync failed",
+      detail: "Open Connectors and retry the Linear workspace sync.",
+      href: `/${orgSlug}/connectors`,
+    })
+  } else if (input.connectors.linear.needsSetup > 0) {
+    actions.push({
+      severity: "warning",
+      title: "Linear setup is incomplete",
+      detail:
+        "Finish scope and the config pull request so issues stay in context.",
+      href: `/${orgSlug}/connectors`,
+    })
+  }
+  if (input.connectors.notion.failed > 0) {
+    actions.push({
+      severity: "error",
+      title: "Notion sync failed",
+      detail: "Open Connectors and retry the Notion workspace sync.",
+      href: `/${orgSlug}/connectors`,
+    })
+  } else if (input.connectors.notion.needsSetup > 0) {
+    actions.push({
+      severity: "warning",
+      title: "Notion setup is incomplete",
+      detail:
+        "Finish scope and the config pull request so pages stay in context.",
+      href: `/${orgSlug}/connectors`,
+    })
+  }
+  if (input.graph.status === "unknown" && input.graph.computedAt != null) {
     actions.push({
       severity: "error",
       title: "Knowledge graph is unavailable",

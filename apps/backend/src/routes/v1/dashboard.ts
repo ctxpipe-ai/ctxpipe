@@ -2,7 +2,10 @@ import { createRoute, OpenAPIHono, z } from "@hono/zod-openapi"
 import type { Context } from "hono"
 import type { AppEnv } from "../../app/env.js"
 import { getAuth } from "../../auth/config.js"
-import { type DashboardRange, getDashboardSummary } from "../../domain/dashboard.js"
+import {
+  type DashboardRange,
+  getDashboardSummary,
+} from "../../domain/dashboard.js"
 
 const ErrorResponseSchema = z
   .object({ error: z.string() })
@@ -92,6 +95,18 @@ const DashboardSummarySchema = z
           running: z.number().int(),
           failed: z.number().int(),
         }),
+        linear: z.object({
+          total: z.number().int(),
+          ready: z.number().int(),
+          needsSetup: z.number().int(),
+          failed: z.number().int(),
+        }),
+        notion: z.object({
+          total: z.number().int(),
+          ready: z.number().int(),
+          needsSetup: z.number().int(),
+          failed: z.number().int(),
+        }),
       }),
       confluence: z.object({
         status: DashboardStatusSchema,
@@ -171,8 +186,9 @@ async function getMemberRoleForRequest(
   }
 }
 
-export const dashboardRoutes = new OpenAPIHono<AppEnv>()
-  .openapi(dashboardSummaryRoute, async (c) => {
+export const dashboardRoutes = new OpenAPIHono<AppEnv>().openapi(
+  dashboardSummaryRoute,
+  async (c) => {
     const user = c.get("user")
     const session = c.get("session")
     if (!user || !session) return c.json({ error: "Unauthorized" }, 401)
@@ -192,4 +208,5 @@ export const dashboardRoutes = new OpenAPIHono<AppEnv>()
       includeMembers: memberRole === "admin" || memberRole === "owner",
     })
     return c.json(summary, 200)
-  })
+  },
+)

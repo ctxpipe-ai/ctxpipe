@@ -60,6 +60,8 @@ describe("dashboard routes", () => {
           status: "ok",
           github: { total: 1, installed: 1, needsSetup: 0 },
           forge: { total: 0, installed: 0, running: 0, failed: 0 },
+          linear: { total: 0, ready: 0, needsSetup: 0, failed: 0 },
+          notion: { total: 0, ready: 0, needsSetup: 0, failed: 0 },
         },
         confluence: {
           status: "ok",

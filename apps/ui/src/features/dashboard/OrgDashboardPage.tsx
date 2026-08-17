@@ -2,14 +2,16 @@ import {
   IconAlertTriangle,
   IconArrowRight,
   IconCheck,
+  IconChevronDown,
   IconRefresh,
 } from "@tabler/icons-react"
 import { useQuery } from "@tanstack/react-query"
 import { Navigate } from "@tanstack/react-router"
 import type { InferResponseType } from "hono/client"
-import { useEffect, useState } from "react"
+import { useEffect } from "react"
 import { AppShell } from "@/components/AppShell"
-import { InlineLoader } from "@/components/ui/InlineLoader"
+import { Button } from "@/components/ui/Button"
+import { InlineAlert } from "@/components/ui/InlineAlert"
 import { client } from "@/lib/api"
 import { useSession } from "@/lib/auth-client"
 import { useUserPreferences } from "@/lib/user-preferences"
@@ -19,202 +21,38 @@ type DashboardSummary = InferResponseType<
   200
 >
 type DashboardStatus = DashboardSummary["health"]["overall"]
-type ActivityMode = "organisation" | "you"
-type ActivityRange = "today" | "7d" | "30d"
 
-type DashboardMember = NonNullable<
-  DashboardSummary["activity"]["members"]
->[number]
-type SourceCoverageRow = {
+type ConnectorFamily = {
   label: string
-  coverage: number
-  detail: string
+  ready: number
+  total: number
+  failed: number
+  needsSetup: number
+}
+
+type ReadinessView = {
   status: DashboardStatus
-}
-
-function statusClass(status: DashboardStatus): string {
-  if (status === "ok") return "text-teal-300"
-  if (status === "warning") return "text-amber-300"
-  if (status === "error") return "text-red-300"
-  return "text-zinc-400"
-}
-
-function actionClass(severity: "error" | "warning" | "info"): string {
-  if (severity === "error") return "border-red-900/70 bg-red-950/20"
-  if (severity === "warning") return "border-amber-900/70 bg-amber-950/20"
-  return "border-zinc-800/95 bg-zinc-950"
-}
-
-function memberLabel(member: DashboardMember): string {
-  return member.name ?? member.email ?? "Unknown member"
-}
-
-function timeValue(iso: string | null): number {
-  if (!iso) return 0
-  const value = new Date(iso).getTime()
-  return Number.isFinite(value) ? value : 0
+  eyebrow: string
+  title: string
+  detail: string
 }
 
 function pluralise(count: number, singular: string, plural = `${singular}s`) {
   return `${count.toLocaleString()} ${count === 1 ? singular : plural}`
 }
 
-function formatScore(value: number | null): string {
-  return value == null ? "No score" : value.toFixed(2)
-}
-
 function formatOptionalNumber(value: number | null): string {
-  return value == null ? "Pending" : value.toLocaleString()
+  return value == null ? "Preparing" : value.toLocaleString()
 }
 
 function formatOptionalDecimal(value: number | null): string {
-  if (value == null) return "Pending"
+  if (value == null) return "Preparing"
   if (value >= 100) return Math.round(value).toLocaleString()
   return value.toFixed(1)
 }
 
-function scoreDelta(series: Array<{ value: number | null }>): {
-  label: string
-  className: string
-} {
-  const values = series
-    .map((point) => point.value)
-    .filter((value): value is number => value != null)
-  if (values.length < 2) {
-    return { label: "+0.00", className: "text-zinc-500" }
-  }
-  const delta = values[values.length - 1] - values[0]
-  const label =
-    Math.abs(delta) < 0.005
-      ? "+0.00"
-      : `${delta > 0 ? "+" : ""}${delta.toFixed(2)}`
-  const className =
-    delta < -0.005
-      ? "text-rose-300"
-      : delta > 0.005
-        ? "text-teal-300"
-        : "text-zinc-500"
-  return { label, className }
-}
-
-function percentDelta(
-  current: number,
-  previous: number,
-): {
-  label: string
-  className: string
-} {
-  if (previous <= 0) {
-    return current > 0
-      ? { label: "+100%", className: "text-teal-300" }
-      : { label: "+0%", className: "text-zinc-500" }
-  }
-  const delta = ((current - previous) / previous) * 100
-  const label =
-    Math.abs(delta) < 0.5
-      ? "+0%"
-      : `${delta > 0 ? "+" : ""}${Math.round(delta)}%`
-  const className =
-    delta < -0.5
-      ? "text-rose-300"
-      : delta > 0.5
-        ? "text-teal-300"
-        : "text-zinc-500"
-  return { label, className }
-}
-
-function pointDelta(series: Array<{ value: number | null }>): {
-  label: string
-  className: string
-} {
-  const values = series
-    .map((point) => point.value)
-    .filter((value): value is number => value != null)
-  if (values.length < 2) {
-    return { label: "+0%", className: "text-zinc-500" }
-  }
-  const delta = (values[values.length - 1] - values[0]) * 100
-  const label =
-    Math.abs(delta) < 0.5
-      ? "+0%"
-      : `${delta > 0 ? "+" : ""}${Math.round(delta)}%`
-  const className =
-    delta < -0.5
-      ? "text-rose-300"
-      : delta > 0.5
-        ? "text-teal-300"
-        : "text-zinc-500"
-  return { label, className }
-}
-
-function percent(value: number, total: number): string {
-  if (total <= 0) return "0%"
-  return `${Math.round((value / total) * 100)}%`
-}
-
-function coveragePercent(value: number, total: number): number {
-  if (total <= 0) return 0
-  return Math.max(0, Math.min(100, Math.round((value / total) * 100)))
-}
-
-function coverageBarClass(status: DashboardStatus): string {
-  if (status === "error") return "bg-rose-400"
-  if (status === "warning") return "bg-amber-400"
-  return "bg-teal-400"
-}
-
-function percentLabel(value: number, total: number): string {
-  if (total <= 0 || value <= 0) return "0%"
-  const pct = (value / total) * 100
-  if (pct < 1) return "<1%"
-  return `${Math.round(pct)}%`
-}
-
-function buildFreshnessInsight(input: {
-  total: number
-  freshWithin7d: number
-  stale: number
-  lowConfidenceClaims: number
-  notReadyRepositories: number
-  docsConnected: boolean
-}): string {
-  if (input.total === 0) {
-    return "No context claims have been extracted yet. Connect or re-index a repository to build grounding context."
-  }
-
-  const fresh = percentLabel(input.freshWithin7d, input.total)
-  const stale = percentLabel(input.stale, input.total)
-  const staleLead = `${stale} of active context claims are >30d old.`
-
-  if (input.stale === 0 && input.lowConfidenceClaims === 0) {
-    return `${fresh} of active context claims were observed in the last 7 days. Context is fresh and confidence looks healthy.`
-  }
-
-  if (input.stale > 0 && input.lowConfidenceClaims > 0) {
-    return `${staleLead} Stale context may weaken grounding; refresh older sources to improve confidence.`
-  }
-
-  if (input.stale > 0 && input.notReadyRepositories > 0) {
-    return `${staleLead} Re-index ${pluralise(input.notReadyRepositories, "not-ready repository", "not-ready repositories")} first.`
-  }
-
-  if (input.stale > 0 && input.docsConnected) {
-    return `${staleLead} Stale context may weaken grounding; check connected docs sync before relying on older answers.`
-  }
-
-  if (input.stale > 0) {
-    return `${staleLead} Stale context may weaken grounding; refresh the oldest indexed sources first.`
-  }
-
-  if (input.lowConfidenceClaims > 0) {
-    return `${fresh} of active context claims were observed in the last 7 days. Freshness looks healthy; confidence is the next signal to improve.`
-  }
-
-  return `${fresh} of active context claims were observed in the last 7 days.`
-}
-
 function timeAgo(iso: string | null): string {
-  if (!iso) return "Unknown"
+  if (!iso) return "Not measured yet"
   const deltaMs = Date.now() - new Date(iso).getTime()
   if (!Number.isFinite(deltaMs) || deltaMs < 0) return "Just now"
   const mins = Math.floor(deltaMs / 60_000)
@@ -222,200 +60,203 @@ function timeAgo(iso: string | null): string {
   if (mins < 60) return `${mins}m ago`
   const hours = Math.floor(mins / 60)
   if (hours < 24) return `${hours}h ago`
-  const days = Math.floor(hours / 24)
-  return `${days}d ago`
+  return `${Math.floor(hours / 24)}d ago`
 }
 
-function dailyUpdatedLabel(iso: string | null): string {
-  return iso ? "Updated daily" : "Preparing daily metrics"
+function percentage(value: number, total: number): number {
+  if (total <= 0) return 0
+  return Math.max(0, Math.min(100, Math.round((value / total) * 100)))
 }
 
-function Sparkline({ values }: { values: number[] }) {
-  const width = 180
-  const height = 42
-  const baselineY = height * 0.55
-  const movementHeight = height * 0.34
-  if (values.length === 0) {
-    return (
-      <svg
-        viewBox={`0 0 ${width} ${height}`}
-        className="mt-4 h-10 w-full overflow-visible"
-        aria-hidden="true"
-      >
-        <polyline
-          points={`0,${baselineY.toFixed(1)} ${width},${baselineY.toFixed(1)}`}
-          fill="none"
-          stroke="#2dd4bf"
-          strokeWidth="2"
-          strokeLinecap="round"
-          strokeLinejoin="round"
-        />
-      </svg>
-    )
+function connectorFamilies(
+  health: DashboardSummary["health"],
+): ConnectorFamily[] {
+  const connectors = health.connectors
+  return [
+    {
+      label: "GitHub",
+      ready: connectors.github.installed,
+      total: connectors.github.total,
+      failed: 0,
+      needsSetup: connectors.github.needsSetup,
+    },
+    {
+      label: "Confluence",
+      ready: connectors.forge.installed,
+      total: connectors.forge.total,
+      failed: connectors.forge.failed,
+      needsSetup: Math.max(
+        connectors.forge.running,
+        health.confluence.status === "warning" ? 1 : 0,
+      ),
+    },
+    {
+      label: "Linear",
+      ready: connectors.linear.ready,
+      total: connectors.linear.total,
+      failed: connectors.linear.failed,
+      needsSetup: connectors.linear.needsSetup,
+    },
+    {
+      label: "Notion",
+      ready: connectors.notion.ready,
+      total: connectors.notion.total,
+      failed: connectors.notion.failed,
+      needsSetup: connectors.notion.needsSetup,
+    },
+  ].filter((family) => family.total > 0)
+}
+
+function familyStatus(family: ConnectorFamily): DashboardStatus {
+  if (family.failed > 0) return "error"
+  if (family.needsSetup > 0 || family.ready < family.total) return "warning"
+  return "ok"
+}
+
+function familyDetail(family: ConnectorFamily): string {
+  if (family.failed > 0) {
+    return pluralise(family.failed, "sync failed", "syncs failed")
   }
-  const min = Math.min(...values)
-  const max = Math.max(...values)
-  const range = max - min
-  const points =
-    values.length > 1
-      ? values
-          .map((value, index) => {
-            const x = (index / (values.length - 1)) * width
-            const normalized = range > 0 ? (value - min) / range : 0.5
-            const y =
-              range > 0 ? baselineY - normalized * movementHeight : baselineY
-            return `${x.toFixed(1)},${y.toFixed(1)}`
-          })
-          .join(" ")
-      : (() => {
-          return `0,${baselineY.toFixed(1)} ${width},${baselineY.toFixed(1)}`
-        })()
+  if (family.needsSetup > 0) {
+    return pluralise(family.needsSetup, "needs setup", "need setup")
+  }
+  return `${family.ready}/${family.total} ready`
+}
 
+function statusLabel(status: DashboardStatus): string {
+  if (status === "ok") return "Ready"
+  if (status === "warning") return "Needs attention"
+  if (status === "error") return "Action required"
+  return "Preparing"
+}
+
+function statusTextClass(status: DashboardStatus): string {
+  if (status === "ok") return "text-teal-300"
+  if (status === "warning") return "text-amber-300"
+  if (status === "error") return "text-red-300"
+  return "text-zinc-400"
+}
+
+function statusDotClass(status: DashboardStatus): string {
+  if (status === "ok") return "ctx-indexed-dot"
+  if (status === "warning") return "ctx-indexing-dot"
+  if (status === "error") return "ctx-indexing-failed-dot"
+  return "size-2 rounded-full bg-zinc-600"
+}
+
+function readinessView(
+  summary: DashboardSummary,
+  families: ConnectorFamily[],
+): ReadinessView {
+  const repositoryTotal = summary.health.repositories.total
+  const connectorTotal = families.reduce((sum, family) => sum + family.total, 0)
+  const errorCount = summary.actions.filter(
+    (action) => action.severity === "error",
+  ).length
+  const warningCount = summary.actions.filter(
+    (action) => action.severity === "warning",
+  ).length
+  if (repositoryTotal === 0 && connectorTotal === 0) {
+    return {
+      status: "warning",
+      eyebrow: "Set up your context",
+      title: "Connect the work your team relies on",
+      detail:
+        "Add code, issues, and documentation so AI agents can work from the same organisational context as your team.",
+    }
+  }
+  if (errorCount > 0) {
+    return {
+      status: "error",
+      eyebrow: "Agent context is at risk",
+      title: `${pluralise(errorCount, "issue")} requires action`,
+      detail:
+        "One or more sources cannot keep context current. Resolve the failures below before relying on agent answers.",
+    }
+  }
+  if (warningCount > 0) {
+    return {
+      status: "warning",
+      eyebrow: "Agent context needs attention",
+      title: `${pluralise(warningCount, "task")} left to complete`,
+      detail:
+        "Your connected context is partly available, but setup or indexing work below is limiting coverage.",
+    }
+  }
+  if (repositoryTotal > 0 && summary.health.evidence.activeClaims === 0) {
+    return {
+      status: "unknown",
+      eyebrow: "Agent context is building",
+      title: "Sources are connected and indexing",
+      detail:
+        "Repositories are available, but ctxpipe is still extracting the context agents will use.",
+    }
+  }
+  if (!summary.health.evidence.computedAt) {
+    return {
+      status: "unknown",
+      eyebrow: "Agent context is building",
+      title: "Sources are connected",
+      detail:
+        "Agents can use the connected sources now. Daily freshness and quality signals are still being prepared.",
+    }
+  }
+  return {
+    status: "ok",
+    eyebrow: "Agent context is ready",
+    title: "Agent context is available",
+    detail:
+      "Sources are connected, repositories are indexed, and there are no open setup or reliability actions.",
+  }
+}
+
+function StatusIndicator({
+  status,
+  label = statusLabel(status),
+}: {
+  status: DashboardStatus
+  label?: string
+}) {
   return (
-    <svg
-      viewBox={`0 0 ${width} ${height}`}
-      className="mt-4 h-10 w-full overflow-visible"
-      aria-hidden="true"
+    <span
+      className={`flex shrink-0 items-center gap-2 font-mono text-xs ${statusTextClass(status)}`}
     >
-      <polyline
-        points={points}
-        fill="none"
-        stroke="#2dd4bf"
-        strokeWidth="2"
-        strokeLinecap="round"
-        strokeLinejoin="round"
-      />
-    </svg>
+      <span className={statusDotClass(status)} aria-hidden />
+      {label}
+    </span>
   )
 }
 
-function KpiCard({
+function SourceRow({
   label,
-  value,
-  detail,
-  detailClassName = "text-teal-300",
-  series,
-}: {
-  label: string
-  value: string
-  detail: string
-  detailClassName?: string
-  series?: number[]
-}) {
-  return (
-    <article className="border border-zinc-800/95 bg-zinc-950/85 p-4">
-      <div className="flex items-center justify-between gap-3">
-        <p className="font-mono text-[11px] uppercase tracking-[0.18em] text-zinc-500">
-          {label}
-        </p>
-        <span className={`font-mono text-[11px] ${detailClassName}`}>
-          {detail}
-        </span>
-      </div>
-      <p className="mt-3 text-2xl font-medium tracking-tight text-zinc-100">
-        {value}
-      </p>
-      {series ? <Sparkline values={series} /> : <div className="mt-4 h-10" />}
-    </article>
-  )
-}
-
-function GraphTopologyBand({
-  graph,
-}: {
-  graph: DashboardSummary["health"]["graph"]
-}) {
-  const items = [
-    ["Entities", formatOptionalNumber(graph.totalNodes), "text-zinc-100"],
-    ["Relationships", formatOptionalNumber(graph.totalEdges), "text-zinc-100"],
-    ["Entity types", formatOptionalNumber(graph.entityTypes), "text-teal-300"],
-    [
-      "Relationship types",
-      formatOptionalNumber(graph.relationshipTypes),
-      "text-teal-300",
-    ],
-    [
-      "Isolated nodes",
-      formatOptionalNumber(graph.isolatedNodes),
-      graph.isolatedNodes && graph.isolatedNodes > 0
-        ? "text-amber-300"
-        : "text-zinc-100",
-    ],
-    ["Avg degree", formatOptionalDecimal(graph.averageDegree), "text-zinc-100"],
-  ]
-
-  return (
-    <section className="mt-4 border border-zinc-800/95 bg-zinc-950/85 px-4 py-3">
-      <div className="flex items-center justify-between gap-4">
-        <h2 className="font-mono text-xs uppercase tracking-[0.24em] text-teal-400">
-          Graph topology
-        </h2>
-        <span className="font-mono text-[11px] uppercase tracking-[0.18em] text-zinc-600">
-          {dailyUpdatedLabel(graph.computedAt)}
-        </span>
-      </div>
-      <div className="mt-3 grid grid-cols-2 gap-4 md:grid-cols-3 xl:grid-cols-6">
-        {items.map(([label, value, className]) => (
-          <div key={label} className="min-w-0">
-            <p className={`text-lg font-medium tracking-tight ${className}`}>
-              {value}
-            </p>
-            <p className="mt-1 truncate font-mono text-[10px] uppercase tracking-[0.14em] text-zinc-600">
-              {label}
-            </p>
-          </div>
-        ))}
-      </div>
-    </section>
-  )
-}
-
-function StatusStrip({
-  label,
-  value,
   detail,
   status,
   href,
 }: {
   label: string
-  value: string
   detail: string
   status: DashboardStatus
-  href?: string
+  href: string
 }) {
-  const detailClass = href
-    ? "text-amber-300 hover:text-amber-100"
-    : statusClass(status)
-  const detailContent = (
-    <>
-      {detail}
-      {href ? <IconArrowRight className="size-3.5" aria-hidden /> : null}
-    </>
-  )
-
   return (
-    <div className="flex items-center justify-between gap-4 border border-zinc-800/95 bg-zinc-950/80 px-4 py-3">
-      <div className="min-w-0">
-        <span className="font-mono text-[11px] uppercase tracking-[0.18em] text-zinc-500">
+    <a
+      href={href}
+      className="group flex items-center gap-3 rounded-lg px-3 py-3 transition-colors hover:bg-white/[0.04]"
+    >
+      <span className={statusDotClass(status)} aria-hidden />
+      <span className="min-w-0 flex-1">
+        <span className="block text-sm font-medium text-foreground">
           {label}
         </span>
-        <span className="ml-3 text-sm font-medium text-zinc-100">{value}</span>
-      </div>
-      {href ? (
-        <a
-          href={href}
-          className={`flex shrink-0 items-center gap-1 text-sm ${detailClass}`}
-        >
-          {detailContent}
-        </a>
-      ) : (
-        <span
-          className={`flex shrink-0 items-center gap-1 text-sm ${detailClass}`}
-        >
-          {detailContent}
+        <span className="mt-0.5 block text-xs text-muted-foreground">
+          {detail}
         </span>
-      )}
-    </div>
+      </span>
+      <IconArrowRight
+        className="size-4 shrink-0 text-zinc-600 transition-colors group-hover:text-zinc-300"
+        aria-hidden
+      />
+    </a>
   )
 }
 
@@ -423,9 +264,6 @@ function StatusStrip({
 export function OrgDashboardPage({ orgSlug }: { orgSlug: string }) {
   const [preferences, updatePreferences] = useUserPreferences()
   const { data: session, isPending: sessionPending } = useSession()
-  const [activityMode, setActivityMode] = useState<ActivityMode>("organisation")
-  const [activityRange, setActivityRange] = useState<ActivityRange>("7d")
-
   const {
     data: summary,
     isFetching,
@@ -434,23 +272,21 @@ export function OrgDashboardPage({ orgSlug }: { orgSlug: string }) {
     refetch,
   } = useQuery({
     queryKey: ["dashboard-summary", orgSlug],
-    enabled: !!session,
+    enabled: Boolean(session),
     queryFn: async () => {
       const res = await client[":orgSlug"].api.v1.dashboard.summary.$get({
         param: { orgSlug },
         query: { range: "30d" },
       })
-      if (!res.ok) {
-        throw new Error(`Dashboard summary failed: ${res.status}`)
-      }
+      if (!res.ok) throw new Error(`Dashboard summary failed: ${res.status}`)
       return await res.json()
     },
   })
 
   useEffect(() => {
     if (preferences.selectedOrganizationSlug !== orgSlug) {
-      updatePreferences((prev) => ({
-        ...prev,
+      updatePreferences((previous) => ({
+        ...previous,
         selectedOrganizationSlug: orgSlug,
       }))
     }
@@ -459,697 +295,446 @@ export function OrgDashboardPage({ orgSlug }: { orgSlug: string }) {
   if (sessionPending) {
     return (
       <AppShell>
-        <main className="mx-auto box-border flex min-h-screen w-full max-w-2xl items-center justify-center p-8 text-zinc-100">
-          <InlineLoader label="Loading workspace" />
+        <main className="mx-auto flex min-h-screen w-full max-w-5xl items-center px-6 py-8">
+          <output
+            className="block w-full animate-pulse space-y-4"
+            aria-label="Loading dashboard"
+          >
+            <div className="h-7 w-44 rounded-lg bg-zinc-900" />
+            <div className="h-40 rounded-lg bg-zinc-900/70" />
+            <div className="grid gap-4 lg:grid-cols-3">
+              <div className="h-64 rounded-lg bg-zinc-900/70 lg:col-span-2" />
+              <div className="h-64 rounded-lg bg-zinc-900/70" />
+            </div>
+          </output>
         </main>
       </AppShell>
     )
   }
   if (!session) return <Navigate to="/.auth/sign-in" replace />
 
-  const buckets = summary?.activity.buckets ?? []
-  const visibleBuckets =
-    activityRange === "today"
-      ? buckets.slice(-1)
-      : activityRange === "7d"
-        ? buckets.slice(-7)
-        : buckets
-  const bucketMax = Math.max(
-    1,
-    ...visibleBuckets.map((bucket) => bucket[activityMode].total),
-  )
-  const activityTotal = visibleBuckets.reduce(
-    (sum, bucket) => sum + bucket[activityMode].total,
+  const families = summary ? connectorFamilies(summary.health) : []
+  const readiness = summary ? readinessView(summary, families) : null
+  const connectorTotal = families.reduce((sum, family) => sum + family.total, 0)
+  const connectorReady = families.reduce((sum, family) => sum + family.ready, 0)
+  const isEmpty =
+    summary != null &&
+    connectorTotal === 0 &&
+    summary.health.repositories.total === 0
+  const freshness = summary?.health.evidence.freshness
+  const freshnessTotal = freshness
+    ? freshness.lt24h + freshness.lt7d + freshness.lt30d + freshness.gt30d
+    : 0
+  const freshWithin7d = freshness ? freshness.lt24h + freshness.lt7d : 0
+  const freshPercent = percentage(freshWithin7d, freshnessTotal)
+  const activityBuckets = summary?.activity.buckets.slice(-7) ?? []
+  const activityTotal = activityBuckets.reduce(
+    (sum, bucket) => sum + bucket.organisation.total,
     0,
   )
-  const sourceTotals = {
-    mcp: visibleBuckets.reduce(
-      (sum, bucket) => sum + bucket[activityMode].mcp,
+  const activityBySource = {
+    mcp: activityBuckets.reduce(
+      (sum, bucket) => sum + bucket.organisation.mcp,
       0,
     ),
-    ui: visibleBuckets.reduce(
-      (sum, bucket) => sum + bucket[activityMode].ui,
+    chat: activityBuckets.reduce(
+      (sum, bucket) => sum + bucket.organisation.ui,
       0,
     ),
-    graph: visibleBuckets.reduce(
-      (sum, bucket) => sum + bucket[activityMode].graph,
-      0,
-    ),
-    repository: visibleBuckets.reduce(
-      (sum, bucket) => sum + bucket[activityMode].repository,
-      0,
-    ),
-    other: visibleBuckets.reduce(
-      (sum, bucket) => sum + bucket[activityMode].other,
+    repository: activityBuckets.reduce(
+      (sum, bucket) => sum + bucket.organisation.repository,
       0,
     ),
   }
-  const activityRangeLabel =
-    activityRange === "today"
-      ? "today"
-      : activityRange === "7d"
-        ? "7 days"
-        : "30 days"
-  const querySeries = visibleBuckets.map((bucket) => bucket[activityMode].total)
-  const graphUseSeries = visibleBuckets.map(
-    (bucket) => bucket[activityMode].graph,
-  )
-  const previousBuckets =
-    activityRange === "today"
-      ? buckets.slice(-2, -1)
-      : activityRange === "7d"
-        ? buckets.slice(-14, -7)
-        : []
-  const previousActivityTotal = previousBuckets.reduce(
-    (sum, bucket) => sum + bucket[activityMode].total,
-    0,
-  )
-  const previousGraphTotal = previousBuckets.reduce(
-    (sum, bucket) => sum + bucket[activityMode].graph,
-    0,
-  )
-  const queryDelta =
-    previousBuckets.length > 0
-      ? percentDelta(activityTotal, previousActivityTotal)
-      : { label: "+0%", className: "text-zinc-500" }
-  const graphUseDelta =
-    previousBuckets.length > 0
-      ? percentDelta(sourceTotals.graph, previousGraphTotal)
-      : { label: "+0%", className: "text-zinc-500" }
-  const members = summary?.activity.members ?? null
-  const rankedMembers = members
-    ? [...members].sort(
-        (a, b) =>
-          b.total - a.total ||
-          timeValue(b.lastActiveAt) - timeValue(a.lastActiveAt) ||
-          memberLabel(a).localeCompare(memberLabel(b)),
-      )
-    : null
-  const activeMemberCount =
-    members?.filter((member) => member.total > 0).length ?? 0
-  const memberCount = members?.length ?? 0
-  const connectorTotal = summary
-    ? summary.health.connectors.github.total +
-      summary.health.connectors.forge.total
-    : 0
-  const repositoryLabel =
-    summary && summary.health.repositories.total > 0
-      ? `${summary.health.repositories.indexed}/${summary.health.repositories.total}`
-      : "None"
-  const repositoryDetail =
-    summary && summary.health.repositories.total > 0
-      ? pluralise(
-          summary.health.repositories.notReady,
-          "not ready",
-          "not ready",
-        )
-      : "Connect a repository"
-  const connectorLabel =
-    connectorTotal > 0 ? connectorTotal.toLocaleString() : "None"
-  const connectorReady = summary
-    ? summary.health.connectors.github.installed +
-      summary.health.connectors.forge.installed
-    : 0
-  const connectorDetail =
-    connectorTotal > 0 ? "connectors ready" : "Connect a tool"
-  const freshnessObservedAt =
-    summary?.health.graph.lastObservedAt ??
-    summary?.health.evidence.lastObservedAt ??
-    null
-  const freshnessSeries = summary
-    ? summary.health.evidence.freshnessSeries
-        .map((point) => point.value)
-        .filter((value): value is number => value != null)
-    : []
-  const contextConfidenceSeries = summary
-    ? summary.health.evidence.confidenceSeries
-        .map((point) => point.value)
-        .filter((value): value is number => value != null)
-    : []
-  const contextConfidenceDelta = scoreDelta(
-    summary?.health.evidence.confidenceSeries ?? [],
-  )
-  const freshnessDelta = pointDelta(
-    summary?.health.evidence.freshnessSeries ?? [],
-  )
-  const freshnessTotal = summary
-    ? summary.health.evidence.freshness.lt24h +
-      summary.health.evidence.freshness.lt7d +
-      summary.health.evidence.freshness.lt30d +
-      summary.health.evidence.freshness.gt30d
-    : 0
-  const freshWithin7d = summary
-    ? summary.health.evidence.freshness.lt24h +
-      summary.health.evidence.freshness.lt7d
-    : 0
-  const freshnessBuckets = summary
-    ? [
-        {
-          label: "<24h",
-          value: summary.health.evidence.freshness.lt24h,
-          color: "#34d399",
-        },
-        {
-          label: "1-7d",
-          value: summary.health.evidence.freshness.lt7d,
-          color: "#2dd4bf",
-        },
-        {
-          label: "7-30d",
-          value: summary.health.evidence.freshness.lt30d,
-          color: "#fbbf24",
-        },
-        {
-          label: ">30d",
-          value: summary.health.evidence.freshness.gt30d,
-          color: "#fb7185",
-        },
-      ]
-    : []
-  const freshnessInsight = summary
-    ? buildFreshnessInsight({
-        total: freshnessTotal,
-        freshWithin7d,
-        stale: summary.health.evidence.freshness.gt30d,
-        lowConfidenceClaims: summary.health.evidence.lowConfidenceClaims,
-        notReadyRepositories: summary.health.repositories.notReady,
-        docsConnected: summary.health.confluence.spaces > 0,
-      })
-    : ""
-  const sourceCoverageRows: SourceCoverageRow[] = summary
-    ? [
-        ...(summary.health.repositories.total > 0
-          ? [
-              {
-                label: "Repositories",
-                coverage: coveragePercent(
-                  summary.health.repositories.indexed,
-                  summary.health.repositories.total,
-                ),
-                detail:
-                  summary.health.repositories.notReady > 0
-                    ? pluralise(
-                        summary.health.repositories.notReady,
-                        "not ready",
-                        "not ready",
-                      )
-                    : `${summary.health.repositories.indexed}/${summary.health.repositories.total} indexed`,
-                status: summary.health.repositories.status,
-              },
-            ]
-          : []),
-        ...(summary.health.confluence.syncTargets > 0 ||
-        summary.health.confluence.spaces > 0
-          ? [
-              {
-                label: "Confluence",
-                coverage:
-                  summary.health.confluence.syncTargets > 0
-                    ? coveragePercent(
-                        summary.health.confluence.enabledTargets,
-                        summary.health.confluence.syncTargets,
-                      )
-                    : 100,
-                detail: summary.health.confluence.lastSyncedAt
-                  ? `sync ${timeAgo(summary.health.confluence.lastSyncedAt)}`
-                  : `${summary.health.confluence.spaces.toLocaleString()} spaces`,
-                status: summary.health.confluence.status,
-              },
-            ]
-          : []),
-      ].sort(
-        (a, b) => a.coverage - b.coverage || a.label.localeCompare(b.label),
-      )
-    : []
 
   return (
     <AppShell>
-      <div className="flex min-h-full min-w-0 flex-1 flex-col text-foreground">
-        <div className="mx-auto box-border flex w-full max-w-6xl flex-1 flex-col p-8">
-          <header className="mb-8 flex items-start justify-between gap-4">
+      <main className="min-w-0 flex-1 text-foreground">
+        <div className="mx-auto box-border flex w-full max-w-5xl flex-col px-6 py-8">
+          <header className="mb-6 flex items-start justify-between gap-4">
             <div>
-              <span className="font-mono text-xs uppercase tracking-[0.24em] text-teal-400">
-                Dashboard
-              </span>
-              <h1 className="mt-3 text-3xl font-medium tracking-tight text-foreground">
-                Context overview
-              </h1>
-              <p className="mt-2 text-sm text-muted-foreground">
-                Health, freshness, and context activity for this organisation.
+              <span className="ctx-label text-teal-400">Dashboard</span>
+              <h1 className="mt-2 text-xl font-medium">Context readiness</h1>
+              <p className="mt-1 text-sm text-muted-foreground">
+                What your AI agents can rely on, and what needs attention.
               </p>
             </div>
-            <div className="flex shrink-0 items-center gap-3">
-              <span className="font-mono text-xs uppercase tracking-[0.24em] text-teal-400">
-                {orgSlug}
-              </span>
-              <button
-                type="button"
-                onClick={() => void refetch()}
-                disabled={isFetching}
-                className="inline-flex size-8 items-center justify-center border border-zinc-800 text-zinc-500 transition-colors hover:border-zinc-700 hover:text-zinc-200 disabled:cursor-not-allowed disabled:text-teal-400"
-                aria-label="Refresh dashboard"
-                title="Refresh dashboard"
-              >
-                {isFetching ? (
-                  <IconRefresh className="size-4 animate-spin" aria-hidden />
-                ) : (
-                  <IconRefresh className="size-4" aria-hidden />
-                )}
-              </button>
-            </div>
+            <Button
+              variant="ghost"
+              size="icon-sm"
+              onPress={() => void refetch()}
+              isDisabled={isFetching}
+              aria-label="Refresh dashboard"
+            >
+              <IconRefresh
+                className={`size-4 ${isFetching ? "animate-spin" : ""}`}
+                aria-hidden
+              />
+            </Button>
           </header>
 
           {error ? (
-            <section className="mb-6 border border-red-900/70 bg-red-950/20 p-4">
-              <div className="flex items-center gap-2 text-sm text-red-200">
-                <IconAlertTriangle className="size-4" aria-hidden />
-                Dashboard data is unavailable.
-              </div>
-              <p className="mt-2 text-sm text-red-100/70">
-                The readiness summary could not be loaded, so zero values are
-                not being inferred.
-              </p>
-            </section>
+            <InlineAlert variant="error" title="Dashboard data is unavailable">
+              Readiness could not be checked. Existing sources have not been
+              assumed healthy or unhealthy.
+            </InlineAlert>
           ) : null}
 
           {isPending ? (
-            <section className="flex min-h-[20rem] items-center justify-center p-6">
-              <InlineLoader
-                label="Loading context health"
-                sublabel="Preparing readiness and activity"
-              />
-            </section>
+            <output
+              className="block animate-pulse space-y-4"
+              aria-label="Loading dashboard"
+            >
+              <div className="h-40 rounded-lg bg-zinc-900/70" />
+              <div className="grid gap-4 lg:grid-cols-3">
+                <div className="h-64 rounded-lg bg-zinc-900/70 lg:col-span-2" />
+                <div className="h-64 rounded-lg bg-zinc-900/70" />
+              </div>
+            </output>
           ) : null}
 
-          {summary ? (
+          {summary && readiness ? (
             <>
-              <section className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-4">
-                <KpiCard
-                  label="Freshness"
-                  value={timeAgo(freshnessObservedAt)}
-                  detail={freshnessDelta.label}
-                  detailClassName={freshnessDelta.className}
-                  series={
-                    freshnessSeries.length > 0 ? freshnessSeries : undefined
-                  }
-                />
-                <KpiCard
-                  label="Queries"
-                  value={activityTotal.toLocaleString()}
-                  detail={queryDelta.label}
-                  detailClassName={queryDelta.className}
-                  series={querySeries}
-                />
-                <KpiCard
-                  label="Graph use"
-                  value={sourceTotals.graph.toLocaleString()}
-                  detail={graphUseDelta.label}
-                  detailClassName={graphUseDelta.className}
-                  series={graphUseSeries}
-                />
-                <KpiCard
-                  label="Context confidence"
-                  value={formatScore(summary.health.evidence.contextConfidence)}
-                  detail={contextConfidenceDelta.label}
-                  detailClassName={contextConfidenceDelta.className}
-                  series={
-                    contextConfidenceSeries.length > 0
-                      ? contextConfidenceSeries
-                      : undefined
-                  }
-                />
-              </section>
-
-              <GraphTopologyBand graph={summary.health.graph} />
-
-              <section className="mt-4 grid grid-cols-1 gap-4 md:grid-cols-2">
-                <StatusStrip
-                  label="Connectors"
-                  value={
-                    connectorTotal > 0
-                      ? `${connectorReady}/${connectorTotal}`
-                      : connectorLabel
-                  }
-                  detail={connectorDetail}
-                  status={summary.health.connectors.status}
-                  href={
-                    connectorTotal === 0 ? `/${orgSlug}/connectors` : undefined
-                  }
-                />
-                <StatusStrip
-                  label="Repositories"
-                  value={repositoryLabel}
-                  detail={repositoryDetail}
-                  status={summary.health.repositories.status}
-                  href={
-                    summary.health.repositories.total === 0
-                      ? `/${orgSlug}/repositories`
-                      : undefined
-                  }
-                />
-              </section>
-
-              <div className="mt-4 grid grid-cols-1 gap-4 xl:grid-cols-3">
-                <section className="border border-zinc-800/95 bg-zinc-950/85 p-4 xl:col-span-2">
-                  <div className="flex items-center justify-between gap-2">
-                    <h2 className="font-mono text-xs uppercase tracking-[0.24em] text-teal-400">
-                      Action queue
+              <section
+                className={[
+                  "rounded-lg border p-6",
+                  readiness.status === "error"
+                    ? "border-red-500/35 bg-red-950/20"
+                    : readiness.status === "warning"
+                      ? "border-amber-500/30 bg-amber-950/15"
+                      : readiness.status === "ok"
+                        ? "border-teal-500/30 bg-teal-950/15"
+                        : "border-border bg-card",
+                ].join(" ")}
+              >
+                <div className="flex items-start gap-4">
+                  <span
+                    className={[
+                      "ctx-node mt-0.5 flex size-9 shrink-0 items-center justify-center rounded-lg",
+                      statusTextClass(readiness.status),
+                    ].join(" ")}
+                  >
+                    {readiness.status === "ok" ? (
+                      <IconCheck className="size-5" aria-hidden />
+                    ) : (
+                      <IconAlertTriangle className="size-5" aria-hidden />
+                    )}
+                  </span>
+                  <div className="min-w-0 flex-1">
+                    <p
+                      className={`font-mono text-xs uppercase tracking-[0.18em] ${statusTextClass(readiness.status)}`}
+                    >
+                      {readiness.eyebrow}
+                    </p>
+                    <h2 className="mt-2 text-2xl font-medium tracking-tight">
+                      {readiness.title}
                     </h2>
-                    <span className="text-xs text-zinc-500">
-                      {isFetching ? "Refreshing" : "Current"}
-                    </span>
-                  </div>
-                  <div className="mt-4 space-y-2">
-                    {summary.actions.map((action) => (
+                    <p className="mt-2 max-w-2xl text-sm leading-6 text-muted-foreground">
+                      {readiness.detail}
+                    </p>
+                    {isEmpty ? (
                       <a
-                        key={`${action.title}:${action.href}`}
-                        href={action.href}
-                        className={`flex items-center justify-between gap-4 border px-3 py-3 transition-colors hover:border-zinc-700 ${actionClass(action.severity)}`}
+                        href={`/${orgSlug}/connectors`}
+                        className="mt-5 inline-flex h-9 items-center gap-2 rounded-lg bg-primary px-3.5 text-sm text-primary-foreground transition-colors hover:bg-primary/90"
                       >
-                        <span className="min-w-0">
-                          <span className="block text-sm font-medium text-zinc-100">
-                            {action.title}
-                          </span>
-                          <span className="mt-1 block text-sm text-zinc-400">
-                            {action.detail}
-                          </span>
-                        </span>
-                        <IconArrowRight className="size-4 shrink-0 text-zinc-500" />
+                        Connect sources
+                        <IconArrowRight className="size-4" aria-hidden />
                       </a>
-                    ))}
-                    {summary.actions.length === 0 ? (
-                      <div className="flex items-center gap-2 border border-zinc-900/95 bg-zinc-950 px-3 py-4 text-sm text-teal-300">
-                        <IconCheck className="size-4" aria-hidden />
-                        No readiness actions open.
-                      </div>
+                    ) : summary.actions.length > 0 ? (
+                      <a
+                        href="#action-queue"
+                        className="mt-5 inline-flex items-center gap-2 text-sm font-medium text-amber-200 hover:text-amber-100"
+                      >
+                        Review open actions
+                        <IconArrowRight className="size-4" aria-hidden />
+                      </a>
                     ) : null}
                   </div>
-                </section>
+                </div>
+              </section>
 
-                <section className="border border-zinc-800/95 bg-zinc-950/85 p-4">
-                  <div className="flex items-center justify-between gap-3">
-                    <h2 className="font-mono text-xs uppercase tracking-[0.24em] text-teal-400">
-                      Context activity
-                    </h2>
-                    <div className="flex border border-zinc-800 text-xs">
-                      {(["organisation", "you"] as const).map((mode) => (
-                        <button
-                          key={mode}
-                          type="button"
-                          onClick={() => setActivityMode(mode)}
-                          className={`px-2 py-1 capitalize ${
-                            activityMode === mode
-                              ? "bg-teal-400 text-zinc-950"
-                              : "text-zinc-400 hover:text-zinc-200"
-                          }`}
-                        >
-                          {mode}
-                        </button>
-                      ))}
-                    </div>
-                  </div>
-                  <p className="mt-3 text-2xl font-medium text-zinc-100">
-                    {activityTotal.toLocaleString()}
-                  </p>
-                  <p className="mt-1 text-sm text-zinc-500">
-                    activity events in {activityRangeLabel}
-                  </p>
-                  <div className="mt-3 flex border border-zinc-800 text-xs">
-                    {[
-                      ["today", "Today"],
-                      ["7d", "7 days"],
-                      ["30d", "30 days"],
-                    ].map(([range, label]) => (
-                      <button
-                        key={range}
-                        type="button"
-                        onClick={() => setActivityRange(range as ActivityRange)}
-                        className={`flex-1 px-2 py-1 ${
-                          activityRange === range
-                            ? "bg-teal-400 text-zinc-950"
-                            : "text-zinc-400 hover:text-zinc-200"
-                        }`}
-                      >
-                        {label}
-                      </button>
-                    ))}
-                  </div>
-                  <div className="mt-3 flex items-center justify-between text-[11px] text-zinc-600">
-                    <span>0</span>
-                    <span>Peak {bucketMax.toLocaleString()}/day</span>
-                  </div>
-                  <div className="mt-1 flex h-24 items-end gap-1 border border-zinc-900/95 bg-zinc-950/70 p-2">
-                    {activityTotal === 0 ? (
-                      <div className="flex h-full w-full items-center justify-center text-sm text-zinc-500">
-                        No activity captured yet
+              {!isEmpty ? (
+                <div className="mt-4 grid gap-4 lg:grid-cols-3">
+                  <section
+                    id="action-queue"
+                    className="rounded-lg border border-border bg-card p-4 lg:col-span-2"
+                  >
+                    <div className="flex items-center justify-between gap-3">
+                      <div>
+                        <h2 className="text-base font-medium">
+                          What needs attention
+                        </h2>
+                        <p className="mt-1 text-sm text-muted-foreground">
+                          Concrete work that improves agent grounding.
+                        </p>
                       </div>
-                    ) : (
-                      visibleBuckets.map((bucket) => {
-                        const bucketTotal = bucket[activityMode].total
-                        return (
-                          <div
-                            key={bucket.date}
-                            className="flex min-w-0 flex-1 items-end bg-zinc-900/70"
-                            title={`${bucket.date}: ${bucketTotal}`}
-                          >
-                            {bucketTotal > 0 ? (
-                              <div
-                                className="w-full bg-teal-400"
-                                style={{
-                                  height: `${Math.max(10, (bucketTotal / bucketMax) * 100)}%`,
-                                  minHeight: "0.5rem",
-                                }}
-                              />
-                            ) : null}
-                          </div>
-                        )
-                      })
-                    )}
-                  </div>
-                  <div className="mt-4 grid grid-cols-2 gap-2 text-xs sm:grid-cols-5">
-                    {[
-                      ["MCP", sourceTotals.mcp],
-                      ["Chat", sourceTotals.ui],
-                      ["Graph", sourceTotals.graph],
-                      ["Repos", sourceTotals.repository],
-                      ["Other", sourceTotals.other],
-                    ].map(([label, value]) => (
-                      <div
-                        key={label}
-                        className="border border-zinc-900/95 bg-zinc-950 p-2"
-                      >
-                        <span className="block text-zinc-500">{label}</span>
-                        <span className="mt-1 block text-zinc-100">
-                          {value}
-                        </span>
-                      </div>
-                    ))}
-                  </div>
-                </section>
-              </div>
-
-              <div className="mt-4 space-y-4">
-                <div className="grid grid-cols-1 gap-4 xl:grid-cols-2">
-                  <section className="border border-zinc-800/95 bg-zinc-950/85 p-4">
-                    <div className="flex items-center justify-between">
-                      <h2 className="font-mono text-xs uppercase tracking-[0.24em] text-teal-400">
-                        Source coverage
-                      </h2>
-                      <span className="font-mono text-[11px] uppercase tracking-[0.18em] text-zinc-600">
-                        Ingestion
+                      <span className="font-mono text-xs text-zinc-500">
+                        {summary.actions.length} open
                       </span>
                     </div>
-                    <p className="mt-2 text-sm text-zinc-500">
-                      Indexed source coverage across connected tools.
-                    </p>
-                    <div className="mt-4 max-h-80 space-y-4 overflow-y-auto pr-1">
-                      {sourceCoverageRows.map((source) => (
-                        <div key={source.label} className="text-sm">
-                          <div className="flex items-center justify-between gap-4">
-                            <span className="text-zinc-200">
-                              {source.label}
+                    <div className="mt-4 space-y-2">
+                      {summary.actions.map((action) => (
+                        <a
+                          key={`${action.title}:${action.href}`}
+                          href={action.href}
+                          className={[
+                            "group flex items-center gap-4 rounded-lg border px-4 py-3 transition-colors",
+                            action.severity === "error"
+                              ? "border-red-500/30 bg-red-950/20 hover:border-red-500/50"
+                              : "border-amber-500/25 bg-amber-950/15 hover:border-amber-500/45",
+                          ].join(" ")}
+                        >
+                          <span className="min-w-0 flex-1">
+                            <span className="block text-sm font-medium">
+                              {action.title}
                             </span>
-                            <span className="font-mono text-xs text-zinc-500">
-                              {source.coverage}%
+                            <span className="mt-1 block text-sm text-muted-foreground">
+                              {action.detail}
                             </span>
-                          </div>
-                          <div
-                            className="mt-2 h-1.5 overflow-hidden bg-zinc-900"
-                            aria-hidden="true"
-                          >
-                            <div
-                              className={`h-full ${coverageBarClass(source.status)}`}
-                              style={{ width: `${source.coverage}%` }}
-                            />
-                          </div>
-                          <p className="mt-1 font-mono text-[11px] text-zinc-600">
-                            {source.detail}
-                          </p>
-                        </div>
+                          </span>
+                          <IconArrowRight
+                            className="size-4 shrink-0 text-zinc-500 transition-colors group-hover:text-zinc-200"
+                            aria-hidden
+                          />
+                        </a>
                       ))}
-                      {sourceCoverageRows.length === 0 ? (
-                        <div className="border border-zinc-900/95 bg-zinc-950 px-3 py-4 text-sm text-zinc-500">
-                          Connect repositories or documentation sources to start
-                          measuring source coverage.
+                      {summary.actions.length === 0 ? (
+                        <div className="flex items-center gap-3 rounded-lg border border-teal-500/25 bg-teal-950/15 px-4 py-4">
+                          <IconCheck
+                            className="size-4 shrink-0 text-teal-300"
+                            aria-hidden
+                          />
+                          <div>
+                            <p className="text-sm font-medium text-teal-100">
+                              No action needed
+                            </p>
+                            <p className="mt-0.5 text-sm text-teal-100/70">
+                              Connected sources and repositories are ready.
+                            </p>
+                          </div>
                         </div>
                       ) : null}
                     </div>
                   </section>
 
-                  <section className="border border-zinc-800/95 bg-zinc-950/85 p-4">
-                    <div className="flex items-center justify-between">
-                      <h2 className="font-mono text-xs uppercase tracking-[0.24em] text-teal-400">
-                        Context freshness
-                      </h2>
-                      <span className="font-mono text-[11px] uppercase tracking-[0.18em] text-zinc-600">
-                        {dailyUpdatedLabel(summary.health.evidence.computedAt)}
-                      </span>
-                    </div>
-                    <div className="mt-4 flex items-end justify-between gap-4">
-                      <div>
-                        <p className="text-3xl font-medium tracking-tight text-zinc-100">
-                          {percent(freshWithin7d, freshnessTotal)}
-                        </p>
-                        <p className="mt-1 text-sm text-zinc-500">
-                          observed in the last 7 days
-                        </p>
-                      </div>
-                      <div className="text-right">
-                        <p className="text-sm text-rose-300">
-                          {summary.health.evidence.freshness.gt30d.toLocaleString()}{" "}
-                          stale
-                        </p>
-                        <p className="mt-1 text-xs text-zinc-600">
-                          over 30 days old
-                        </p>
-                      </div>
-                    </div>
-                    <div
-                      className="mt-5 flex h-3 overflow-hidden bg-zinc-900"
-                      aria-hidden="true"
-                    >
-                      {freshnessBuckets.map((bucket) =>
-                        bucket.value > 0 ? (
-                          <div
-                            key={bucket.label}
-                            style={{
-                              width: percent(bucket.value, freshnessTotal),
-                              backgroundColor: bucket.color,
-                            }}
-                          />
-                        ) : null,
-                      )}
-                    </div>
-                    <div className="mt-4 space-y-3">
-                      {freshnessBuckets.map((bucket) => (
-                        <div
-                          key={bucket.label}
-                          className="grid grid-cols-[4rem_minmax(0,1fr)_4rem_5rem] items-center gap-3 text-sm"
-                        >
-                          <span className="font-mono text-xs text-zinc-500">
-                            {bucket.label}
-                          </span>
-                          <span className="flex items-center gap-2 text-zinc-400">
-                            <span
-                              className="size-2"
-                              style={{ backgroundColor: bucket.color }}
-                              aria-hidden
-                            />
-                            {percentLabel(bucket.value, freshnessTotal)}
-                          </span>
-                          <span className="text-right text-zinc-300">
-                            {bucket.value.toLocaleString()}
-                          </span>
-                          <span className="text-right text-zinc-600">
-                            claims
-                          </span>
-                        </div>
-                      ))}
-                    </div>
-                    <p className="mt-4 text-sm leading-6 text-zinc-500">
-                      {freshnessInsight}
+                  <section className="rounded-lg border border-border bg-card p-4">
+                    <h2 className="text-base font-medium">Connected sources</h2>
+                    <p className="mt-1 text-sm text-muted-foreground">
+                      {connectorTotal > 0
+                        ? `${connectorReady}/${connectorTotal} connections ready`
+                        : "No tool connections"}
                     </p>
+                    <div className="mt-3 divide-y divide-white/[0.06]">
+                      {families.map((family) => (
+                        <SourceRow
+                          key={family.label}
+                          label={family.label}
+                          detail={familyDetail(family)}
+                          status={familyStatus(family)}
+                          href={`/${orgSlug}/connectors`}
+                        />
+                      ))}
+                      <SourceRow
+                        label="Repositories"
+                        detail={
+                          summary.health.repositories.total === 0
+                            ? "None connected"
+                            : summary.health.repositories.notReady > 0
+                              ? `${summary.health.repositories.indexed}/${summary.health.repositories.total} indexed · ${summary.health.repositories.notReady} need attention`
+                              : `${summary.health.repositories.indexed}/${summary.health.repositories.total} indexed`
+                        }
+                        status={summary.health.repositories.status}
+                        href={`/${orgSlug}/repositories`}
+                      />
+                    </div>
                   </section>
                 </div>
+              ) : null}
 
-                <section className="border border-zinc-800/95 bg-zinc-950/85 p-4">
-                  <h2 className="font-mono text-xs uppercase tracking-[0.24em] text-teal-400">
-                    Member activity
-                  </h2>
-                  {members ? (
-                    <p className="mt-2 text-sm text-zinc-500">
-                      {pluralise(activeMemberCount, "active member")} of{" "}
-                      {memberCount.toLocaleString()} · ranked by 30-day activity
-                    </p>
-                  ) : null}
-                  <div className="mt-4">
-                    {rankedMembers ? (
-                      <div className="overflow-x-auto border border-zinc-900/95">
-                        <div className="max-h-[31.5rem] min-w-[760px] overflow-y-auto">
-                          <div className="sticky top-0 grid grid-cols-[3rem_minmax(0,1fr)_5rem_5rem_5rem_5rem_6rem] gap-3 border-b border-zinc-900/95 bg-zinc-950 px-3 py-2 text-xs uppercase tracking-[0.12em] text-zinc-500">
-                            <span>Rank</span>
-                            <span>Member</span>
-                            <span className="text-right">Events</span>
-                            <span className="text-right">MCP</span>
-                            <span className="text-right">Chat</span>
-                            <span className="text-right">Graph</span>
-                            <span className="text-right">Last active</span>
+              {!isEmpty ? (
+                <div className="mt-4 grid gap-4 md:grid-cols-2">
+                  <section className="rounded-lg border border-border bg-card p-5">
+                    <div className="flex items-start justify-between gap-4">
+                      <div>
+                        <h2 className="text-base font-medium">
+                          Context freshness
+                        </h2>
+                        <p className="mt-1 text-sm text-muted-foreground">
+                          Last measured{" "}
+                          {timeAgo(summary.health.evidence.computedAt)}
+                        </p>
+                      </div>
+                      <StatusIndicator
+                        status={summary.health.evidence.status}
+                      />
+                    </div>
+                    {freshnessTotal > 0 ? (
+                      <>
+                        <div className="mt-6 flex items-end justify-between gap-4">
+                          <div>
+                            <p className="text-3xl font-medium tabular-nums">
+                              {freshPercent}%
+                            </p>
+                            <p className="mt-1 text-sm text-muted-foreground">
+                              checked in the last 7 days
+                            </p>
                           </div>
-                          {rankedMembers.map((member, index) => (
-                            <div
-                              key={member.userId}
-                              className="grid grid-cols-[3rem_minmax(0,1fr)_5rem_5rem_5rem_5rem_6rem] gap-3 border-b border-zinc-900/80 px-3 py-2 last:border-b-0"
+                          <div className="text-right">
+                            <p
+                              className={
+                                freshness?.gt30d
+                                  ? "text-sm text-amber-300"
+                                  : "text-sm text-teal-300"
+                              }
                             >
-                              <span className="text-sm text-zinc-500">
-                                {index + 1}
-                              </span>
-                              <span className="min-w-0">
-                                <span className="block truncate text-sm text-zinc-200">
-                                  {memberLabel(member)}
-                                </span>
-                                {member.name && member.email ? (
-                                  <span className="block truncate text-xs text-zinc-500">
-                                    {member.email}
-                                  </span>
-                                ) : null}
-                              </span>
-                              <span className="text-right text-sm text-zinc-100">
-                                {member.total.toLocaleString()}
-                              </span>
-                              <span className="text-right text-sm text-zinc-500">
-                                {member.mcp.toLocaleString()}
-                              </span>
-                              <span className="text-right text-sm text-zinc-500">
-                                {member.ui.toLocaleString()}
-                              </span>
-                              <span className="text-right text-sm text-zinc-500">
-                                {member.graph.toLocaleString()}
-                              </span>
-                              <span className="text-right text-sm text-zinc-500">
-                                {timeAgo(member.lastActiveAt)}
-                              </span>
-                            </div>
-                          ))}
+                              {freshness?.gt30d.toLocaleString()} stale
+                            </p>
+                            <p className="mt-1 text-xs text-zinc-600">
+                              over 30 days old
+                            </p>
+                          </div>
                         </div>
+                        <div
+                          role="progressbar"
+                          className="mt-5 h-2 overflow-hidden rounded-full bg-zinc-900"
+                          aria-label={`${freshPercent}% of context checked in the last 7 days`}
+                          aria-valuemin={0}
+                          aria-valuemax={100}
+                          aria-valuenow={freshPercent}
+                        >
+                          <div
+                            className="h-full rounded-full bg-teal-400"
+                            style={{ width: `${freshPercent}%` }}
+                          />
+                        </div>
+                      </>
+                    ) : (
+                      <div className="mt-6 rounded-lg bg-zinc-950/70 px-4 py-5">
+                        <p className="text-sm font-medium">
+                          Daily metrics are preparing
+                        </p>
+                        <p className="mt-1 text-sm text-muted-foreground">
+                          Freshness will appear after context has been extracted
+                          and the daily snapshot has run.
+                        </p>
                       </div>
-                    ) : null}
-                    {members === null ? (
-                      <div className="border border-zinc-900/95 bg-zinc-950 px-3 py-4 text-sm text-zinc-500">
-                        Member breakdown is available to organisation admins.
+                    )}
+                  </section>
+
+                  <section className="rounded-lg border border-border bg-card p-5">
+                    <div className="flex items-start justify-between gap-4">
+                      <div>
+                        <h2 className="text-base font-medium">
+                          Recent activity
+                        </h2>
+                        <p className="mt-1 text-sm text-muted-foreground">
+                          Context activity captured in the last 7 days.
+                        </p>
                       </div>
-                    ) : null}
-                    {members?.length === 0 ? (
-                      <div className="border border-zinc-900/95 bg-zinc-950 px-3 py-4 text-sm text-zinc-500">
-                        No member activity in this range.
+                      <span className="font-mono text-xs text-zinc-500">
+                        7 days
+                      </span>
+                    </div>
+                    <p className="mt-6 text-3xl font-medium tabular-nums">
+                      {activityTotal.toLocaleString()}
+                    </p>
+                    <p className="mt-1 text-sm text-muted-foreground">
+                      recorded events
+                    </p>
+                    <dl className="mt-5 grid grid-cols-3 gap-2">
+                      {[
+                        ["MCP", activityBySource.mcp],
+                        ["Chat", activityBySource.chat],
+                        ["Repository", activityBySource.repository],
+                      ].map(([label, value]) => (
+                        <div
+                          key={label}
+                          className="rounded-lg bg-zinc-950/70 px-3 py-3"
+                        >
+                          <dt className="text-xs text-zinc-500">{label}</dt>
+                          <dd className="mt-1 font-mono text-sm tabular-nums">
+                            {value}
+                          </dd>
+                        </div>
+                      ))}
+                    </dl>
+                  </section>
+                </div>
+              ) : null}
+
+              {!isEmpty ? (
+                <details className="group mt-4 rounded-lg border border-border bg-card">
+                  <summary className="flex cursor-pointer list-none items-center justify-between gap-4 px-5 py-4">
+                    <span>
+                      <span className="block text-sm font-medium">
+                        Technical details
+                      </span>
+                      <span className="mt-0.5 block text-xs text-muted-foreground">
+                        Graph and extraction diagnostics for deeper
+                        investigation.
+                      </span>
+                    </span>
+                    <IconChevronDown
+                      className="size-4 text-zinc-500 transition-transform group-open:rotate-180"
+                      aria-hidden
+                    />
+                  </summary>
+                  <div className="grid gap-4 border-t border-border px-5 py-4 sm:grid-cols-2 lg:grid-cols-4">
+                    {[
+                      [
+                        "Graph entities",
+                        formatOptionalNumber(summary.health.graph.totalNodes),
+                      ],
+                      [
+                        "Relationships",
+                        formatOptionalNumber(summary.health.graph.totalEdges),
+                      ],
+                      [
+                        "Isolated entities",
+                        formatOptionalNumber(
+                          summary.health.graph.isolatedNodes,
+                        ),
+                      ],
+                      [
+                        "Average degree",
+                        formatOptionalDecimal(
+                          summary.health.graph.averageDegree,
+                        ),
+                      ],
+                      [
+                        "Context facts",
+                        summary.health.evidence.activeClaims.toLocaleString(),
+                      ],
+                      [
+                        "Instruction units",
+                        summary.health.evidence.instructionUnits.toLocaleString(),
+                      ],
+                      [
+                        "Internal confidence",
+                        summary.health.evidence.contextConfidence == null
+                          ? "Preparing"
+                          : summary.health.evidence.contextConfidence.toFixed(
+                              2,
+                            ),
+                      ],
+                      ["Snapshot", timeAgo(summary.health.evidence.computedAt)],
+                    ].map(([label, value]) => (
+                      <div key={label}>
+                        <p className="font-mono text-xs text-zinc-500">
+                          {label}
+                        </p>
+                        <p className="mt-1 text-sm font-medium tabular-nums">
+                          {value}
+                        </p>
                       </div>
-                    ) : null}
+                    ))}
                   </div>
-                </section>
-              </div>
+                </details>
+              ) : null}
             </>
           ) : null}
         </div>
-      </div>
+      </main>
     </AppShell>
   )
 }
