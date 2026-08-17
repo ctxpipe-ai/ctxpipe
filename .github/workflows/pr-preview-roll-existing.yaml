@@ -140,11 +140,11 @@ jobs:
             done
           }
 
-          # Bind UI to all interfaces for later healthchecks if re-enabled.
+          # Bind UI + SSR API origin (backend public URL for this PR).
           railway_graphql \
             'mutation variableCollectionUpsert($input: VariableCollectionUpsertInput!) { variableCollectionUpsert(input: $input) }' \
-            "$(jq -nc --arg project "$RAILWAY_PROJECT_ID" --arg env "$ENV_ID" --arg service "$UI_SERVICE_ID" \
-              '{input:{projectId:$project,environmentId:$env,serviceId:$service,skipDeploys:true,variables:{HOST:"0.0.0.0",NITRO_HOST:"0.0.0.0"}}}')" >/dev/null
+            "$(jq -nc --arg project "$RAILWAY_PROJECT_ID" --arg env "$ENV_ID" --arg service "$UI_SERVICE_ID" --arg auth "https://backend-pr-${{ inputs.pr_number }}.up.railway.app" \
+              '{input:{projectId:$project,environmentId:$env,serviceId:$service,skipDeploys:true,variables:{HOST:"0.0.0.0",NITRO_HOST:"0.0.0.0",AUTH_BASE_URL:$auth}}}')" >/dev/null
 
           update_img "$BACKEND_SERVICE_ID" "$BACKEND_IMAGE"
           deploy "$BACKEND_SERVICE_ID"
