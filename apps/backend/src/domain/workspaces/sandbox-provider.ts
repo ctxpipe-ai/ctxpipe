@@ -44,11 +44,8 @@ export async function destroyDetachedProviderSandbox(input: {
   provider?: string | null
   providerSandboxId: string
 }): Promise<void> {
-  const [docker, local] = await Promise.all([
-    import("@tanstack/ai-sandbox-docker").catch(() => null),
-    import("@tanstack/ai-sandbox-local-process").catch(() => null),
-  ])
   if (input.provider === "docker" || input.provider === "sbx") {
+    const docker = await import("@tanstack/ai-sandbox-docker").catch(() => null)
     const factory = docker?.dockerSandbox?.({ image: "node:22" })
     if (!factory) {
       throw new Error(`Cannot destroy detached ${input.provider} sandbox`)
@@ -62,17 +59,29 @@ export async function destroyDetachedProviderSandbox(input: {
     }
     return
   }
-  const localFactory = local?.localProcessSandbox?.()
-  if (!localFactory) {
-    throw new Error("Cannot destroy detached local sandbox")
-  }
-  await localFactory.destroy({ id: input.providerSandboxId })
-  const remaining = await localFactory.resume?.({
-    id: input.providerSandboxId,
-  })
-  if (remaining) {
-    throw new Error(
-      `Provider sandbox ${input.providerSandboxId} still exists after destroy`,
+  if (
+    input.provider === "local-process" ||
+    input.provider === "local_process"
+  ) {
+    const local = await import("@tanstack/ai-sandbox-local-process").catch(
+      () => null,
     )
+    const localFactory = local?.localProcessSandbox?.()
+    if (!localFactory) {
+      throw new Error("Cannot destroy detached local sandbox")
+    }
+    await localFactory.destroy({ id: input.providerSandboxId })
+    const remaining = await localFactory.resume?.({
+      id: input.providerSandboxId,
+    })
+    if (remaining) {
+      throw new Error(
+        `Provider sandbox ${input.providerSandboxId} still exists after destroy`,
+      )
+    }
+    return
   }
+  throw new Error(
+    `Cannot destroy detached sandbox for provider ${input.provider ?? "unknown"}`,
+  )
 }

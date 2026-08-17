@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest"
 import {
+  destroyDetachedProviderSandbox,
   detectSandboxProvider,
   detectSandboxProviderFromEnv,
   sandboxMustFailClosed,
@@ -35,5 +36,28 @@ describe("detectSandboxProvider", () => {
         canEnforceLimits: false,
       }),
     ).toBe(false)
+  })
+})
+
+describe("destroyDetachedProviderSandbox", () => {
+  it("refuses railway, unsandboxed, and missing providers instead of routing to local-process", async () => {
+    await expect(
+      destroyDetachedProviderSandbox({
+        provider: "railway",
+        providerSandboxId: "sbx_1",
+      }),
+    ).rejects.toThrow(/provider railway/)
+    await expect(
+      destroyDetachedProviderSandbox({
+        provider: "unsandboxed",
+        providerSandboxId: "sbx_1",
+      }),
+    ).rejects.toThrow(/provider unsandboxed/)
+    await expect(
+      destroyDetachedProviderSandbox({
+        provider: null,
+        providerSandboxId: "sbx_1",
+      }),
+    ).rejects.toThrow(/provider unknown/)
   })
 })

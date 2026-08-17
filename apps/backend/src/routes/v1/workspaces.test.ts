@@ -14,8 +14,8 @@ const linkRepositoryMock = vi.hoisted(() => vi.fn())
 const unlinkRepositoryMock = vi.hoisted(() => vi.fn())
 const persistHydrateRetryMock = vi.hoisted(() => vi.fn())
 const deleteWorkspaceMock = vi.hoisted(() => vi.fn())
-const listSandboxInstancesMock = vi.hoisted(() => vi.fn())
 const destroySandboxesForWorkspaceMock = vi.hoisted(() => vi.fn())
+const withDestroyedWorkspaceSandboxesMock = vi.hoisted(() => vi.fn())
 const getMigrationExportShaMock = vi.hoisted(() =>
   vi.fn().mockResolvedValue(null),
 )
@@ -41,6 +41,7 @@ vi.mock("../../openworkflow/enqueue-workspace-tip-check.js", () => ({
 
 vi.mock("../../domain/workspaces/sandbox-registry.js", () => ({
   destroySandboxesForWorkspace: destroySandboxesForWorkspaceMock,
+  withDestroyedWorkspaceSandboxes: withDestroyedWorkspaceSandboxesMock,
 }))
 
 vi.mock("../../models/workspaces.js", () => ({
@@ -54,7 +55,6 @@ vi.mock("../../models/workspaces.js", () => ({
   listWorkspaceKnowledgeUnits: listWorkspaceKnowledgeUnitsMock,
   persistHydrateRetry: persistHydrateRetryMock,
   deleteWorkspace: deleteWorkspaceMock,
-  listSandboxInstances: listSandboxInstancesMock,
   getMigrationExportSha: getMigrationExportShaMock,
   listMigrationExportShas: listMigrationExportShasMock,
   linkRepository: linkRepositoryMock,
@@ -112,7 +112,12 @@ describe("workspaces API", () => {
     getMigrationExportShaMock.mockResolvedValue(null)
     listMigrationExportShasMock.mockResolvedValue(new Map())
     destroySandboxesForWorkspaceMock.mockResolvedValue(0)
-    listSandboxInstancesMock.mockResolvedValue([])
+    withDestroyedWorkspaceSandboxesMock.mockImplementation(
+      async (
+        _workspaceId: string,
+        fn: (remaining: unknown[]) => Promise<unknown>,
+      ) => fn([]),
+    )
   })
 
   it("lists workspaces and last-used id", async () => {
@@ -304,10 +309,10 @@ describe("workspaces API", () => {
       body: JSON.stringify({ confirmName: "knowledge" }),
     })
     expect(res.status).toBe(204)
-    expect(destroySandboxesForWorkspaceMock).toHaveBeenCalledWith("ws_abc")
-    expect(listSandboxInstancesMock).toHaveBeenCalledWith({
-      workspaceId: "ws_abc",
-    })
+    expect(withDestroyedWorkspaceSandboxesMock).toHaveBeenCalledWith(
+      "ws_abc",
+      expect.any(Function),
+    )
     expect(deleteWorkspaceMock).toHaveBeenCalledWith("knowledge", "knowledge")
   })
 
@@ -322,6 +327,7 @@ describe("workspaces API", () => {
     const body = await res.json()
     expect(body.error).toBe("Type the Workspace display name to confirm delete")
     expect(destroySandboxesForWorkspaceMock).not.toHaveBeenCalled()
+    expect(withDestroyedWorkspaceSandboxesMock).not.toHaveBeenCalled()
     expect(deleteWorkspaceMock).not.toHaveBeenCalled()
   })
 
@@ -338,24 +344,33 @@ describe("workspaces API", () => {
 
   it("keeps the workspace when sandbox destroy leaves a live provider id", async () => {
     getWorkspaceBySlugMock.mockResolvedValue(workspaceRow)
-    listSandboxInstancesMock.mockResolvedValue([
-      {
-        id: "job-1",
-        kind: "job",
-        workspaceId: "ws_abc",
-        provider: "docker",
-        providerSandboxId: "sbx_live",
-        state: "destroy_failed",
-        lastHeartbeatAt: new Date(),
-      },
-    ])
+    withDestroyedWorkspaceSandboxesMock.mockImplementation(
+      async (
+        _workspaceId: string,
+        fn: (remaining: unknown[]) => Promise<unknown>,
+      ) =>
+        fn([
+          {
+            id: "job-1",
+            kind: "job",
+            workspaceId: "ws_abc",
+            provider: "docker",
+            providerSandboxId: "sbx_live",
+            state: "destroy_failed",
+            lastHeartbeatAt: new Date(),
+          },
+        ]),
+    )
     const res = await app().request("/workspaces/knowledge", {
       method: "DELETE",
       headers: { "content-type": "application/json" },
       body: JSON.stringify({ confirmName: "knowledge" }),
     })
     expect(res.status).toBe(409)
-    expect(destroySandboxesForWorkspaceMock).toHaveBeenCalledWith("ws_abc")
+    expect(withDestroyedWorkspaceSandboxesMock).toHaveBeenCalledWith(
+      "ws_abc",
+      expect.any(Function),
+    )
     expect(deleteWorkspaceMock).not.toHaveBeenCalled()
   })
 

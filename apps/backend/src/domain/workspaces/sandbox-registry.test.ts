@@ -14,6 +14,7 @@ import {
   jobSandboxesDueForDestroy,
   registerWorkspaceSandbox,
   resetRegisteredSandboxes,
+  withDestroyedWorkspaceSandboxes,
 } from "./sandbox-registry.js"
 
 const destroyDetachedProviderSandbox = vi.hoisted(() => vi.fn(async () => {}))
@@ -294,6 +295,37 @@ describe("sandbox registry GC", () => {
       1,
     )
     expect(order).toEqual(["lock:sandbox:job:ws_lock", "list", "unlock"])
+  })
+
+  it("holds the job lock while the caller inspects remaining rows", async () => {
+    const order: string[] = []
+    withSandboxAdvisoryLock.mockImplementation(
+      async (key: string, fn: () => Promise<unknown>) => {
+        order.push(`lock:${key}`)
+        try {
+          return await fn()
+        } finally {
+          order.push("unlock")
+        }
+      },
+    )
+    listSandboxInstances.mockImplementation(async () => {
+      order.push("list")
+      return []
+    })
+    await expect(
+      withDestroyedWorkspaceSandboxes("ws_del", async (remaining) => {
+        order.push(`fn:${remaining.length}`)
+        return "ok"
+      }),
+    ).resolves.toBe("ok")
+    expect(order).toEqual([
+      "lock:sandbox:job:ws_del",
+      "list",
+      "list",
+      "fn:0",
+      "unlock",
+    ])
   })
 
   it("destroys a detached provider sandbox before deleting the resume row", async () => {

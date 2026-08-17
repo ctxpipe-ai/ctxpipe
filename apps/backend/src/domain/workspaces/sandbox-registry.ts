@@ -213,6 +213,17 @@ export async function destroySandboxesForWorkspace(
   )
 }
 
+export async function withDestroyedWorkspaceSandboxes<T>(
+  workspaceId: string,
+  fn: (remaining: SandboxInstanceRecord[]) => Promise<T>,
+): Promise<T> {
+  return withSandboxAdvisoryLock(`sandbox:job:${workspaceId}`, async () => {
+    await destroyListedSandboxesForWorkspace(workspaceId, "any")
+    const remaining = await listSandboxInstances({ workspaceId })
+    return fn(remaining)
+  })
+}
+
 async function destroyListedSandboxesForWorkspace(
   workspaceId: string,
   kind: "chat" | "job" | "any",

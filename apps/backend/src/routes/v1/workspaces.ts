@@ -3,7 +3,10 @@ import type { AppEnv } from "../../app/env.js"
 import type { Env } from "../../config/env.js"
 import { fileTreeFromPaths } from "../../domain/workspaces/file-tree.js"
 import { shouldHydrateBeforeMigrationExport } from "../../domain/workspaces/hydrate.js"
-import { destroySandboxesForWorkspace } from "../../domain/workspaces/sandbox-registry.js"
+import {
+  destroySandboxesForWorkspace,
+  withDestroyedWorkspaceSandboxes,
+} from "../../domain/workspaces/sandbox-registry.js"
 import { normalizeWorkspaceRepositoryUrl } from "../../domain/workspaces/slug.js"
 import { workspaceGraphFromUnits } from "../../domain/workspaces/workspace-graph.js"
 import { writeJobQueueHttpDecision } from "../../domain/workspaces/write-jobs.js"
@@ -19,7 +22,6 @@ import {
   getWorkspaceBySlug,
   listLinkedRepositories,
   listMigrationExportShas,
-  listSandboxInstances,
   listWorkspaceKnowledgeFiles,
   listWorkspaceKnowledgeUnits,
   listWorkspaces,
@@ -759,17 +761,18 @@ export const workspaceRoutes = new OpenAPIHono<AppEnv>()
           400,
         )
       }
-      await destroySandboxesForWorkspace(workspace.id)
-      const remaining = await listSandboxInstances({
-        workspaceId: workspace.id,
-      })
-      if (remaining.some((row) => row.providerSandboxId)) {
-        return c.json(
-          { error: "Workspace sandboxes could not be destroyed" },
-          409,
-        )
-      }
-      const deleted = await deleteWorkspace(workspaceSlug, body.confirmName)
+      const deleted = await withDestroyedWorkspaceSandboxes(
+        workspace.id,
+        async (remaining) => {
+          if (remaining.some((row) => row.providerSandboxId)) {
+            throw Object.assign(
+              new Error("Workspace sandboxes could not be destroyed"),
+              { status: 409 },
+            )
+          }
+          return deleteWorkspace(workspaceSlug, body.confirmName)
+        },
+      )
       if (!deleted) return c.json({ error: "Not found" }, 404)
       return c.body(null, 204)
     } catch (error) {
@@ -777,10 +780,10 @@ export const workspaceRoutes = new OpenAPIHono<AppEnv>()
         error && typeof error === "object" && "status" in error
           ? Number((error as { status: unknown }).status)
           : undefined
-      if (status === 400) {
+      if (status === 400 || status === 409) {
         const message =
           error instanceof Error ? error.message : "Invalid request"
-        return c.json({ error: message }, 400)
+        return c.json({ error: message }, status)
       }
       throw error
     }
