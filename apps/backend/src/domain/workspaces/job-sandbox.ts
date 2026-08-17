@@ -113,13 +113,14 @@ export async function ensureJobSandbox(input: {
   )
 }
 
+type SandboxFactory = {
+  create: (input: { id?: string }) => Promise<TanstackLikeHandle>
+  resume?: (input: { id: string }) => Promise<TanstackLikeHandle | null>
+}
+
 type SandboxModules = {
-  dockerSandbox?: (input: { image: string }) => {
-    create: (input: { id?: string }) => Promise<TanstackLikeHandle>
-  }
-  localProcessSandbox?: () => {
-    create: (input: { id?: string }) => Promise<TanstackLikeHandle>
-  }
+  dockerSandbox?: (input: { image: string }) => SandboxFactory
+  localProcessSandbox?: () => SandboxFactory
 }
 
 async function loadJobSandboxModules(): Promise<SandboxModules> {
@@ -189,11 +190,24 @@ export async function createTanstackJobSandbox(input: {
       ? modules.dockerSandbox?.({ image: "node:22" })
       : modules.localProcessSandbox?.()
   if (!factory) return null
-  const raw = await factory.create({ id: input.sandboxId })
+  const resumed = input.sandboxId
+    ? await factory.resume?.({ id: input.sandboxId })
+    : null
+  if (resumed) {
+    return {
+      handle: adaptTanstackHandle(resumed),
+      destroy: () => resumed.destroy(),
+      providerSandboxId: resumed.id ?? input.sandboxId,
+    }
+  }
+  const raw = await factory.create({})
   await seedJobRepo(raw, input)
+  if (!raw.id) {
+    throw new Error("Job sandbox create did not return a provider id")
+  }
   return {
     handle: adaptTanstackHandle(raw),
     destroy: () => raw.destroy(),
-    providerSandboxId: raw.id ?? input.sandboxId,
+    providerSandboxId: raw.id,
   }
 }

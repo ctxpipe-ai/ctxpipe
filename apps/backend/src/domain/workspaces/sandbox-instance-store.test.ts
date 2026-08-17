@@ -12,7 +12,7 @@ vi.mock("../../models/workspaces.js", () => ({
 }))
 
 vi.mock("../../db/client.js", () => ({
-  withDbClient: withDbClientMock,
+  withLockClient: withDbClientMock,
 }))
 
 import {

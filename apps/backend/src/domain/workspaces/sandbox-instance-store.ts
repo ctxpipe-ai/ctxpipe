@@ -3,7 +3,7 @@ import type {
   SandboxInstanceStore,
   SandboxInstanceRecord as TanstackSandboxInstanceRecord,
 } from "@tanstack/ai-sandbox"
-import { withDbClient } from "../../db/client.js"
+import { withLockClient } from "../../db/client.js"
 import {
   deleteSandboxInstance,
   getSandboxInstance,
@@ -56,7 +56,7 @@ export async function withSandboxAdvisoryLock<T>(
   fn: (signal: AbortSignal) => Promise<T>,
 ): Promise<T> {
   const abort = new AbortController()
-  return withDbClient(async (client) => {
+  return withLockClient(async (client) => {
     await client.query("select pg_advisory_lock(hashtextextended($1, 0))", [
       key,
     ])

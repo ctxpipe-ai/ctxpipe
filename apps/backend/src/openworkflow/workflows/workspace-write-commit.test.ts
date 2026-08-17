@@ -43,7 +43,7 @@ vi.mock("../../db/client.js", () => ({
   }),
   withOrgDbContext: (_orgId: string, fn: () => unknown) =>
     Promise.resolve(fn()),
-  withDbClient: async (
+  withLockClient: async (
     fn: (client: { query: () => Promise<void> }) => unknown,
   ) => fn({ query: async () => undefined }),
 }))

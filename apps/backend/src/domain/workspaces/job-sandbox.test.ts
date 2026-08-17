@@ -281,6 +281,7 @@ describe("job sandbox", () => {
     const clone = vi.fn(async () => undefined)
     const destroy = vi.fn(async () => undefined)
     const raw = {
+      id: "sbx_job_1",
       process: { exec },
       fs: {
         write: async () => undefined,
@@ -304,6 +305,7 @@ describe("job sandbox", () => {
       }),
     })
     expect(created?.handle.fs).toBe(raw.fs)
+    expect(created?.providerSandboxId).toBe("sbx_job_1")
     expect(created?.handle.exec).toEqual(expect.any(Function))
     expect(clone).toHaveBeenCalledWith({
       url: "https://github.com/acme/docs",
@@ -340,6 +342,7 @@ describe("job sandbox", () => {
       loadModules: async () => ({
         localProcessSandbox: () => ({
           create: async () => ({
+            id: "sbx_job_1",
             process: { exec },
             fs: {
               write: async () => undefined,
@@ -416,5 +419,40 @@ describe("job sandbox", () => {
       }),
     ).rejects.toThrow("Job sandbox has no git clone API")
     expect(exec).not.toHaveBeenCalledWith("git init")
+  })
+
+  it("resumes an existing provider sandbox instead of creating a second one", async () => {
+    const clone = vi.fn(async () => undefined)
+    const create = vi.fn()
+    const resume = vi.fn(async (input: { id: string }) => {
+      expect(input.id).toBe("sbx_live")
+      return {
+        id: "sbx_live",
+        process: {
+          exec: async () => ({ stdout: "", stderr: "", exitCode: 0 }),
+        },
+        fs: {
+          write: async () => undefined,
+          read: async () => "",
+          remove: async () => undefined,
+          mkdir: async () => undefined,
+        },
+        git: { clone },
+        destroy: async () => undefined,
+      }
+    })
+    const created = await createTanstackJobSandbox({
+      sandboxId: "sbx_live",
+      gitUrl: "https://github.com/acme/docs",
+      ref: "abc",
+      env: {},
+      loadModules: async () => ({
+        localProcessSandbox: () => ({ create, resume }),
+      }),
+    })
+    expect(created?.providerSandboxId).toBe("sbx_live")
+    expect(resume).toHaveBeenCalledWith({ id: "sbx_live" })
+    expect(create).not.toHaveBeenCalled()
+    expect(clone).not.toHaveBeenCalled()
   })
 })
