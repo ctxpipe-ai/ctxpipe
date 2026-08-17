@@ -135,6 +135,23 @@ export async function updateWorkspace(
   return res.json() as Promise<Workspace>
 }
 
+export async function deleteWorkspace(
+  orgSlug: string,
+  workspaceSlug: string,
+  confirmName: string,
+): Promise<void> {
+  const res = await client[":orgSlug"].api.v1.workspaces[
+    ":workspaceSlug"
+  ].$delete({
+    param: { orgSlug, workspaceSlug },
+    json: { confirmName },
+  })
+  if (!res.ok && res.status !== 204) {
+    const err = (await res.json().catch(() => ({}))) as { error?: string }
+    throw new Error(err.error ?? "Failed to delete Workspace")
+  }
+}
+
 export async function touchWorkspace(
   orgSlug: string,
   workspaceSlug: string,

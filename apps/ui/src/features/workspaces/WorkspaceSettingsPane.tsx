@@ -1,11 +1,16 @@
+import { IconAlertCircle } from "@tabler/icons-react"
 import { useMutation, useQueryClient } from "@tanstack/react-query"
 import { useNavigate } from "@tanstack/react-router"
 import { useState } from "react"
+import { Heading } from "react-aria-components"
 import { toast } from "sonner"
 import { Button } from "@/components/ui/Button"
+import { Dialog } from "@/components/ui/Dialog"
 import { InlineAlert } from "@/components/ui/InlineAlert"
+import { Modal } from "@/components/ui/Modal"
 import { TextField } from "@/components/ui/TextField"
 import {
+  deleteWorkspace,
   linkWorkspaceRepository,
   unlinkWorkspaceRepository,
   updateWorkspace,
@@ -13,6 +18,7 @@ import {
 } from "./queries"
 import type { WorkspaceDetail } from "./types"
 import { WorkspaceRepositoryPicker } from "./WorkspaceRepositoryPicker"
+import { workspaceDeleteNameMatches } from "./workspaceDeleteNameMatches"
 
 export function WorkspaceSettingsPane(props: {
   orgSlug: string
@@ -25,6 +31,8 @@ export function WorkspaceSettingsPane(props: {
   const [slug, setSlug] = useState(workspace.slug)
   const [linkUrl, setLinkUrl] = useState("")
   const [relinkError, setRelinkError] = useState<string | null>(null)
+  const [deleteOpen, setDeleteOpen] = useState(false)
+  const [confirmName, setConfirmName] = useState("")
 
   const invalidate = () => {
     void queryClient.invalidateQueries({
@@ -90,6 +98,28 @@ export function WorkspaceSettingsPane(props: {
       })
     },
     onError: (error: Error) => toast.error(error.message),
+  })
+
+  const deleteMutation = useMutation({
+    mutationFn: (name: string) =>
+      deleteWorkspace(orgSlug, workspace.slug, name),
+    onSuccess: () => {
+      void queryClient.invalidateQueries({
+        queryKey: workspaceKeys.list(orgSlug),
+      })
+      void queryClient.invalidateQueries({
+        queryKey: workspaceKeys.detail(orgSlug, workspace.slug),
+      })
+      toast.success("Workspace deleted")
+      setDeleteOpen(false)
+      void navigate({
+        to: "/$orgSlug/organization/$organizationView",
+        params: { orgSlug, organizationView: "settings" },
+      })
+    },
+    onError: (error: Error) => {
+      toast.error(error.message)
+    },
   })
 
   const projectionLag =
@@ -226,6 +256,86 @@ export function WorkspaceSettingsPane(props: {
           </Button>
         </form>
       </section>
+
+      <section className="mt-16 max-w-md">
+        <h3 className="text-sm font-medium">Delete Workspace</h3>
+        <p className="mt-1 text-sm text-muted-foreground">
+          This removes the Workspace, its conversations, and serving knowledge.
+          The git remote is not deleted.
+        </p>
+        <Button
+          variant="outline"
+          className="mt-4"
+          onPress={() => {
+            setConfirmName("")
+            setDeleteOpen(true)
+          }}
+        >
+          Delete Workspace
+        </Button>
+      </section>
+
+      <Modal
+        isOpen={deleteOpen}
+        onOpenChange={(open) => {
+          setDeleteOpen(open)
+          if (!open) setConfirmName("")
+        }}
+        isDismissable={!deleteMutation.isPending}
+      >
+        <Dialog role="alertdialog">
+          {({ close }) => (
+            <>
+              <Heading
+                slot="title"
+                className="my-0 text-xl font-semibold leading-6 text-zinc-100"
+              >
+                Delete Workspace?
+              </Heading>
+              <div className="absolute right-6 top-6 size-6 text-destructive">
+                <IconAlertCircle aria-hidden className="size-6 stroke-2" />
+              </div>
+              <p className="mt-3 text-zinc-400">
+                Type{" "}
+                <strong className="font-medium text-zinc-100">
+                  {workspace.displayName}
+                </strong>{" "}
+                to confirm. This removes the Workspace, its conversations, and
+                serving knowledge. The git remote is not deleted.
+              </p>
+              <TextField
+                className="mt-4"
+                label="Workspace name"
+                value={confirmName}
+                onChange={setConfirmName}
+                autoFocus
+              />
+              <div className="mt-6 flex justify-end gap-2">
+                <Button
+                  variant="quiet"
+                  isDisabled={deleteMutation.isPending}
+                  onPress={close}
+                >
+                  Cancel
+                </Button>
+                <Button
+                  variant="destructive"
+                  isDisabled={
+                    deleteMutation.isPending ||
+                    !workspaceDeleteNameMatches(
+                      confirmName,
+                      workspace.displayName,
+                    )
+                  }
+                  onPress={() => deleteMutation.mutate(confirmName.trim())}
+                >
+                  Delete Workspace
+                </Button>
+              </div>
+            </>
+          )}
+        </Dialog>
+      </Modal>
     </div>
   )
 }
