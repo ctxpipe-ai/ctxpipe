@@ -5,7 +5,7 @@ type V1Routes = ReturnType<typeof registerV1Routes>
 export type ApiClient = ReturnType<typeof hc<V1Routes>>
 
 function apiBaseUrl(): string {
-  if (typeof window !== "undefined") return window.location.origin
+  if (!import.meta.env.SSR) return window.location.origin
   const fromEnv = import.meta.env.VITE_PUBLIC_API_URL
   if (typeof fromEnv === "string" && fromEnv.length > 0) {
     return fromEnv.replace(/\/$/, "")
@@ -14,14 +14,15 @@ function apiBaseUrl(): string {
 }
 
 async function getRequestInit(): Promise<RequestInit> {
-  if (typeof window !== "undefined") {
-    return { credentials: "include" }
+  // `import.meta.env.SSR` lets Vite drop the .server import from the client bundle.
+  if (import.meta.env.SSR) {
+    const { getServerApiHeaders } = await import("./api-headers.server")
+    return {
+      credentials: "include",
+      headers: getServerApiHeaders(),
+    }
   }
-  const { getServerApiHeaders } = await import("./api-headers.server")
-  return {
-    credentials: "include",
-    headers: getServerApiHeaders(),
-  }
+  return { credentials: "include" }
 }
 
 /** Isomorphic Hono client — forwards Cookie on SSR, credentials on the browser. */

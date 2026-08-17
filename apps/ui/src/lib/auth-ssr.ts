@@ -1,5 +1,3 @@
-import { getApiClient } from "@/lib/api"
-
 export type SsrAuthUser = {
   id: string
   email?: string | null
@@ -19,7 +17,7 @@ export type SsrOrganization = {
 }
 
 function authBaseUrl(): string {
-  if (typeof window !== "undefined") return window.location.origin
+  if (!import.meta.env.SSR) return window.location.origin
   const fromEnv = import.meta.env.VITE_PUBLIC_API_URL
   if (typeof fromEnv === "string" && fromEnv.length > 0) {
     return fromEnv.replace(/\/$/, "")
@@ -28,20 +26,24 @@ function authBaseUrl(): string {
 }
 
 async function authFetchInit(): Promise<RequestInit> {
-  if (typeof window !== "undefined") {
-    return { credentials: "include" }
+  // `import.meta.env.SSR` lets Vite drop the .server import from the client bundle.
+  if (import.meta.env.SSR) {
+    const { getServerApiHeaders } = await import("./api-headers.server")
+    return {
+      credentials: "include",
+      headers: getServerApiHeaders(),
+    }
   }
-  const { getServerApiHeaders } = await import("./api-headers.server")
-  return {
-    credentials: "include",
-    headers: getServerApiHeaders(),
-  }
+  return { credentials: "include" }
 }
 
 /** Session for route loaders — works on SSR with forwarded cookies. */
 export async function fetchSsrSession(): Promise<SsrSession> {
   const init = await authFetchInit()
-  const res = await fetch(`${authBaseUrl()}/.auth/api/v1/auth/get-session`, init)
+  const res = await fetch(
+    `${authBaseUrl()}/.auth/api/v1/auth/get-session`,
+    init,
+  )
   if (!res.ok) return null
   const data = (await res.json()) as SsrSession | null
   if (!data?.session || !data.user) return null
@@ -59,6 +61,3 @@ export async function fetchSsrOrganizations(): Promise<SsrOrganization[]> {
   const data = (await res.json()) as SsrOrganization[] | null
   return Array.isArray(data) ? data : []
 }
-
-/** Absolute API origin helper shared with {@link getApiClient}. */
-export { getApiClient }

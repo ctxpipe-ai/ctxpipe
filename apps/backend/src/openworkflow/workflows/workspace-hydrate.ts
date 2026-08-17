@@ -179,7 +179,7 @@ export const workspaceHydrate = defineWorkflow(
                   workspaceId: workspace.id,
                   workspaceRepositoryUrl: workspace.workspaceRepositoryUrl,
                   desiredGeneration: workspace.desiredGeneration,
-                  desiredSha: workspace.desiredSha,
+                  desiredSha,
                   indexedSha: workspace.indexedSha,
                 })
                 return { hydrated: false, reason: "index_lag" as const }
@@ -188,7 +188,7 @@ export const workspaceHydrate = defineWorkflow(
               const repoName = githubRepoFullNameFromWorkspaceUrl(
                 workspace.workspaceRepositoryUrl,
               )
-              const treeSha = hydrateReadsStoredDesiredSha(workspace.desiredSha)
+              const treeSha = hydrateReadsStoredDesiredSha(desiredSha)
               if (!treeSha) {
                 throw new Error(
                   "Could not resolve the git tip for this workspace repository.",
@@ -255,18 +255,18 @@ export const workspaceHydrate = defineWorkflow(
               const log = getLogger()
               log.set({
                 workspaceId: workspace.id,
-                desiredSha: workspace.desiredSha,
+                desiredSha,
               })
 
               let activated = !pending.postgres
               let phases: HydratePhaseRecord =
                 workspace.hydratePhases?.url ===
                   workspace.workspaceRepositoryUrl &&
-                workspace.hydratePhases.sha === workspace.desiredSha
+                workspace.hydratePhases.sha === desiredSha
                   ? workspace.hydratePhases
                   : initialHydratePhases({
                       url: workspace.workspaceRepositoryUrl,
-                      sha: workspace.desiredSha,
+                      sha: desiredSha,
                     })
               if (pending.postgres) {
                 activated = await commitHydrateProjection({
@@ -274,7 +274,7 @@ export const workspaceHydrate = defineWorkflow(
                   workspaceId: workspace.id,
                   jobGeneration: workspace.desiredGeneration,
                   jobWorkspaceUrl: workspace.workspaceRepositoryUrl,
-                  hydratedSha: workspace.desiredSha,
+                  hydratedSha: desiredSha,
                   displayName,
                   remotes: parsed.linked,
                   units: applyEffectiveValidFromToUnits(
@@ -292,7 +292,7 @@ export const workspaceHydrate = defineWorkflow(
                 }
                 phases = initialHydratePhases({
                   url: workspace.workspaceRepositoryUrl,
-                  sha: workspace.desiredSha,
+                  sha: desiredSha,
                 })
               }
 
@@ -304,14 +304,14 @@ export const workspaceHydrate = defineWorkflow(
                   })
                   await persistUnitEmbeddings({
                     workspaceId: workspace.id,
-                    projectionSha: workspace.desiredSha,
+                    projectionSha: desiredSha,
                     embeddings,
                   })
                   phases = markHydratePhase(phases, "embeddings")
                   await persistHydratePhases({
                     workspaceId: workspace.id,
                     expectedUrl: workspace.workspaceRepositoryUrl,
-                    expectedSha: workspace.desiredSha,
+                    expectedSha: desiredSha,
                     phases,
                   })
                 } catch (error) {
@@ -333,14 +333,14 @@ export const workspaceHydrate = defineWorkflow(
                     graphClaims,
                     workspaceGraphProjectionScope({
                       workspaceId: workspace.id,
-                      projectionSha: workspace.desiredSha,
+                      projectionSha: desiredSha,
                     }),
                   )
                   phases = markHydratePhase(phases, "graph")
                   await persistHydratePhases({
                     workspaceId: workspace.id,
                     expectedUrl: workspace.workspaceRepositoryUrl,
-                    expectedSha: workspace.desiredSha,
+                    expectedSha: desiredSha,
                     phases,
                   })
                 } catch (error) {
@@ -358,7 +358,7 @@ export const workspaceHydrate = defineWorkflow(
                   workspaceId: workspace.id,
                   workspaceRepositoryUrl: workspace.workspaceRepositoryUrl,
                   desiredGeneration: workspace.desiredGeneration,
-                  desiredSha: workspace.desiredSha,
+                  desiredSha,
                   indexedSha: workspace.indexedSha,
                 })
               }
@@ -409,7 +409,7 @@ export const workspaceHydrate = defineWorkflow(
                     attemptsForSha[kind] = await countWriteJobAttempts({
                       workspaceId: workspace.id,
                       kind,
-                      desiredSha: workspace.desiredSha,
+                      desiredSha,
                     })
                   }
                   const retryable = kindsWithinRetryCap({
@@ -449,7 +449,7 @@ export const workspaceHydrate = defineWorkflow(
                   await persistHydratePhases({
                     workspaceId: workspace.id,
                     expectedUrl: workspace.workspaceRepositoryUrl,
-                    expectedSha: workspace.desiredSha,
+                    expectedSha: desiredSha,
                     phases,
                   })
                 } catch (error) {
