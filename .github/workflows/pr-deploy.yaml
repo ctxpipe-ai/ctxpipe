@@ -500,6 +500,19 @@ jobs:
                 "$(jq -nc --arg env "$ENV_ID" --arg service "$service_id" --arg img "$image" '{environmentId:$env, serviceId:$service, input:{source:{image:$img}, sleepApplication:true}}')"
             }
 
+            # Preview UI: Nitro SSR can pass local curls but Railway's / healthcheck
+            # stays "service unavailable" for 5m and blocks the image roll. Clear the
+            # path so deploy can succeed; backend still proxies to the UI privately.
+            update_ui_source_image() {
+              local service_id="$1"
+              local image="$2"
+              railway_graphql \
+                'mutation serviceInstanceUpdate($environmentId: String, $serviceId: String!, $input: ServiceInstanceUpdateInput!) { serviceInstanceUpdate(environmentId: $environmentId, serviceId: $serviceId, input: $input) }' \
+                "$(jq -nc --arg env "$ENV_ID" --arg service "$service_id" --arg img "$image" \
+                  '{environmentId:$env, serviceId:$service, input:{source:{image:$img}, sleepApplication:true, healthcheckPath:""}}')"
+              echo "Updated UI image and cleared healthcheckPath for $service_id"
+            }
+
             # Serverless only (no image change) — for infra images managed by Terraform (e.g. FalkorDB).
             enable_serverless() {
               local service_id="$1"
@@ -672,7 +685,7 @@ jobs:
 
             upsert_preview_service_variables "$UI_SERVICE_ID" >/dev/null
             upsert_preview_ui_bind_variables "$UI_SERVICE_ID" >/dev/null
-            update_source_image "$UI_SERVICE_ID" "$UI_IMAGE" >/dev/null
+            update_ui_source_image "$UI_SERVICE_ID" "$UI_IMAGE" >/dev/null
             deploy_service "$UI_SERVICE_ID" >/dev/null
             wait_for_image_deploy "ui" "$UI_SERVICE_ID" "$UI_IMAGE"
 
