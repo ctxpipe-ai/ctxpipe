@@ -56,7 +56,8 @@ describe("sandbox registry GC", () => {
     claimSandboxInstance.mockClear()
     listSandboxInstances.mockResolvedValue([])
     deleteSandboxInstance.mockClear()
-    persistSandboxInstance.mockClear()
+    persistSandboxInstance.mockReset()
+    persistSandboxInstance.mockResolvedValue(undefined)
     heartbeatSandboxInstance.mockClear()
     getSandboxInstance.mockReset()
     getSandboxInstance.mockResolvedValue(null)
@@ -142,6 +143,38 @@ describe("sandbox registry GC", () => {
         state: "destroy_failed",
       }),
     )
+  })
+
+  it("waits for destroy_failed to persist before returning", async () => {
+    await registerWorkspaceSandbox({
+      id: "chat-conv_await",
+      kind: "chat",
+      workspaceId: "ws_1",
+      conversationId: "conv_await",
+      handle,
+      destroy: async () => {
+        throw new Error("sandbox still running")
+      },
+    })
+    let resolvePersist: (() => void) | undefined
+    persistSandboxInstance.mockClear()
+    persistSandboxInstance.mockImplementation(
+      () =>
+        new Promise<void>((resolve) => {
+          resolvePersist = resolve
+        }),
+    )
+    let settled = false
+    const pending = destroyWorkspaceSandbox("chat-conv_await").then((value) => {
+      settled = true
+      return value
+    })
+    await vi.waitFor(() => {
+      expect(persistSandboxInstance).toHaveBeenCalled()
+    })
+    expect(settled).toBe(false)
+    resolvePersist?.()
+    await expect(pending).resolves.toBe(false)
   })
 
   it("attaches the handle to the live id claimed from Postgres", async () => {

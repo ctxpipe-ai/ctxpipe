@@ -1,6 +1,7 @@
 import { claimSandboxInstance } from "../../models/workspaces.js"
 import { scrubOriginAfterCloneCommand } from "./clone-credentials.js"
 import type { JobSandboxHandle, JobWorktreeExec } from "./job-worktree.js"
+import { withSandboxAdvisoryLock } from "./sandbox-instance-store.js"
 import {
   detectSandboxProviderFromEnv,
   type SandboxProvider,
@@ -9,6 +10,7 @@ import { getJobSandbox, registerWorkspaceSandbox } from "./sandbox-registry.js"
 import { workspaceWriteSandboxId } from "./write-runner.js"
 
 export type TanstackLikeHandle = {
+  id?: string
   process: {
     exec: JobWorktreeExec
   }
@@ -62,44 +64,53 @@ export async function ensureJobSandbox(input: {
   create: (sandboxId: string) => Promise<{
     handle: JobSandboxHandle
     destroy?: () => Promise<void>
+    providerSandboxId?: string
   } | null>
 }): Promise<JobSandboxHandle | null> {
   if (input.existing) return input.existing
   const attached = getJobSandbox(input.workspaceId)
   if (attached) return attached
-  const preferredId =
-    workspaceWriteSandboxId({
-      orgId: input.orgId,
-      workspaceId: input.workspaceId,
-      desiredUrl: input.desiredUrl,
-      desiredSha: input.desiredSha,
-    }) ?? `${input.orgId}:${input.workspaceId}:write`
-  const claimed = await claimSandboxInstance({
-    id: preferredId,
-    kind: "job",
-    orgId: input.orgId,
-    workspaceId: input.workspaceId,
-    desiredUrl: input.desiredUrl,
-    desiredSha: input.desiredSha,
-    state: "live",
-    lastHeartbeatAt: new Date(),
-  })
-  const attachedAfterClaim = getJobSandbox(input.workspaceId)
-  if (attachedAfterClaim) return attachedAfterClaim
-  const created = await input.create(claimed.record.id)
-  if (!created) return null
-  await registerWorkspaceSandbox({
-    id: claimed.record.id,
-    kind: "job",
-    orgId: input.orgId,
-    workspaceId: input.workspaceId,
-    desiredUrl: input.desiredUrl,
-    desiredSha: input.desiredSha,
-    providerSandboxId: claimed.record.id,
-    handle: created.handle,
-    destroy: created.destroy,
-  })
-  return created.handle
+  return withSandboxAdvisoryLock(
+    `sandbox:job:${input.workspaceId}`,
+    async () => {
+      const attachedInside = getJobSandbox(input.workspaceId)
+      if (attachedInside) return attachedInside
+      const preferredId =
+        workspaceWriteSandboxId({
+          orgId: input.orgId,
+          workspaceId: input.workspaceId,
+          desiredUrl: input.desiredUrl,
+          desiredSha: input.desiredSha,
+        }) ?? `${input.orgId}:${input.workspaceId}:write`
+      const claimed = await claimSandboxInstance({
+        id: preferredId,
+        kind: "job",
+        orgId: input.orgId,
+        workspaceId: input.workspaceId,
+        desiredUrl: input.desiredUrl,
+        desiredSha: input.desiredSha,
+        state: "live",
+        lastHeartbeatAt: new Date(),
+      })
+      const attachedAfterClaim = getJobSandbox(input.workspaceId)
+      if (attachedAfterClaim) return attachedAfterClaim
+      const resumeId = claimed.record.providerSandboxId ?? claimed.record.id
+      const created = await input.create(resumeId)
+      if (!created) return null
+      await registerWorkspaceSandbox({
+        id: claimed.record.id,
+        kind: "job",
+        orgId: input.orgId,
+        workspaceId: input.workspaceId,
+        desiredUrl: input.desiredUrl,
+        desiredSha: input.desiredSha,
+        providerSandboxId: created.providerSandboxId ?? resumeId,
+        handle: created.handle,
+        destroy: created.destroy,
+      })
+      return created.handle
+    },
+  )
 }
 
 type SandboxModules = {
@@ -163,6 +174,7 @@ export async function createTanstackJobSandbox(input: {
 }): Promise<{
   handle: JobSandboxHandle
   destroy: () => Promise<void>
+  providerSandboxId: string
 } | null> {
   const modules = await (input.loadModules ?? loadJobSandboxModules)()
   const provider = detectSandboxProviderFromEnv({ env: input.env })
@@ -182,5 +194,6 @@ export async function createTanstackJobSandbox(input: {
   return {
     handle: adaptTanstackHandle(raw),
     destroy: () => raw.destroy(),
+    providerSandboxId: raw.id ?? input.sandboxId,
   }
 }

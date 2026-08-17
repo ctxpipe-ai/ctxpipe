@@ -3,10 +3,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest"
 const getSandboxInstance = vi.hoisted(() => vi.fn())
 const persistSandboxInstance = vi.hoisted(() => vi.fn(async () => {}))
 const deleteSandboxInstance = vi.hoisted(() => vi.fn(async () => {}))
-const getOrgDbMock = vi.hoisted(() => vi.fn())
-const withOrgDbContextMock = vi.hoisted(() =>
-  vi.fn((_orgId: string, fn: () => unknown) => fn()),
-)
+const withDbClientMock = vi.hoisted(() => vi.fn())
 
 vi.mock("../../models/workspaces.js", () => ({
   getSandboxInstance,
@@ -15,13 +12,13 @@ vi.mock("../../models/workspaces.js", () => ({
 }))
 
 vi.mock("../../db/client.js", () => ({
-  getOrgDb: getOrgDbMock,
-  withOrgDbContext: withOrgDbContextMock,
+  withDbClient: withDbClientMock,
 }))
 
 import {
   postgresSandboxInstanceStore,
   postgresSandboxLockStore,
+  withSandboxAdvisoryLock,
 } from "./sandbox-instance-store.js"
 
 describe("postgresSandboxInstanceStore", () => {
@@ -104,23 +101,30 @@ describe("postgresSandboxInstanceStore", () => {
 })
 
 describe("postgresSandboxLockStore", () => {
-  it("takes an advisory lock before running the critical section", async () => {
-    const execute = vi.fn().mockResolvedValue(undefined)
-    const transaction = vi.fn(
-      async (fn: (tx: { execute: typeof execute }) => unknown) =>
-        fn({ execute }),
+  it("takes a session advisory lock without opening a transaction", async () => {
+    const query = vi.fn().mockResolvedValue(undefined)
+    withDbClientMock.mockImplementation(
+      async (fn: (client: { query: typeof query }) => unknown) => fn({ query }),
     )
-    getOrgDbMock.mockReturnValue({ transaction })
     const ran = vi.fn(async () => "ok")
     const locks = postgresSandboxLockStore("org_1")
     await expect(locks.withLock("sandbox:key", ran)).resolves.toBe("ok")
-    expect(withOrgDbContextMock).toHaveBeenCalledWith(
-      "org_1",
-      expect.any(Function),
-    )
-    expect(JSON.stringify(execute.mock.calls[0]?.[0])).toMatch(
-      /pg_advisory_xact_lock/,
-    )
+    expect(query.mock.calls[0]?.[0]).toMatch(/pg_advisory_lock/)
+    expect(query.mock.calls[0]?.[0]).not.toMatch(/xact/)
+    expect(query.mock.calls.at(-1)?.[0]).toMatch(/pg_advisory_unlock/)
     expect(ran).toHaveBeenCalled()
+  })
+
+  it("unlocks when the critical section throws", async () => {
+    const query = vi.fn().mockResolvedValue(undefined)
+    withDbClientMock.mockImplementation(
+      async (fn: (client: { query: typeof query }) => unknown) => fn({ query }),
+    )
+    await expect(
+      withSandboxAdvisoryLock("sandbox:key", async () => {
+        throw new Error("create failed")
+      }),
+    ).rejects.toThrow("create failed")
+    expect(query.mock.calls.at(-1)?.[0]).toMatch(/pg_advisory_unlock/)
   })
 })

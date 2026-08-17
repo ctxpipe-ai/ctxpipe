@@ -293,7 +293,13 @@ export async function destroyWorkspaceSandbox(id: string): Promise<boolean> {
     } catch (error) {
       logSandboxError("destroy-workspace-sandbox", id, error)
       const failed = destroyFailedRecord(handleRow, stored)
-      if (failed) persistSandboxQuietly(failed)
+      if (failed) {
+        try {
+          await persistSandboxInstance(failed)
+        } catch (persistError) {
+          logSandboxError("persist-sandbox-instance", failed.id, persistError)
+        }
+      }
       return false
     }
     sandboxes.delete(handleRow.id)

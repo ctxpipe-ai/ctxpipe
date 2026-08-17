@@ -3,13 +3,13 @@ import type {
   SandboxInstanceStore,
   SandboxInstanceRecord as TanstackSandboxInstanceRecord,
 } from "@tanstack/ai-sandbox"
-import { sql } from "drizzle-orm"
-import { getOrgDb, withOrgDbContext } from "../../db/client.js"
+import { withDbClient } from "../../db/client.js"
 import {
   deleteSandboxInstance,
   getSandboxInstance,
   persistSandboxInstance,
 } from "../../models/workspaces.js"
+import { log } from "../../observability/logger.js"
 
 export function postgresSandboxInstanceStore(input: {
   orgId: string
@@ -51,19 +51,40 @@ export function postgresSandboxInstanceStore(input: {
   }
 }
 
-export function postgresSandboxLockStore(orgId: string): LockStore {
-  return {
-    async withLock(key, fn) {
-      const abort = new AbortController()
-      return withOrgDbContext(orgId, async () => {
-        const db = getOrgDb()
-        return db.transaction(async (tx) => {
-          await tx.execute(
-            sql`select pg_advisory_xact_lock(hashtextextended(${key}, 0))`,
-          )
-          return fn(abort.signal)
+export async function withSandboxAdvisoryLock<T>(
+  key: string,
+  fn: (signal: AbortSignal) => Promise<T>,
+): Promise<T> {
+  const abort = new AbortController()
+  return withDbClient(async (client) => {
+    await client.query("select pg_advisory_lock(hashtextextended($1, 0))", [
+      key,
+    ])
+    try {
+      return await fn(abort.signal)
+    } finally {
+      abort.abort()
+      try {
+        await client.query(
+          "select pg_advisory_unlock(hashtextextended($1, 0))",
+          [key],
+        )
+      } catch (error) {
+        log.error({
+          step: "sandbox-advisory-unlock",
+          sandboxKey: key,
+          error: error instanceof Error ? error.message : String(error),
         })
-      })
+        await client.query("select pg_advisory_unlock_all()").catch(() => {})
+      }
+    }
+  })
+}
+
+export function postgresSandboxLockStore(_orgId: string): LockStore {
+  return {
+    withLock(key, fn) {
+      return withSandboxAdvisoryLock(key, fn)
     },
   }
 }

@@ -1,7 +1,7 @@
 import { AsyncLocalStorage } from "node:async_hooks"
 import { sql } from "drizzle-orm"
 import { drizzle } from "drizzle-orm/node-postgres"
-import { Pool } from "pg"
+import { Pool, type PoolClient } from "pg"
 import { log } from "../observability/logger.js"
 import { relations, schema } from "./schema.js"
 import {
@@ -116,6 +116,20 @@ export async function withOrgDbContext<T>(
       throw err
     }
   })
+}
+
+export async function withDbClient<T>(
+  fn: (client: PoolClient) => Promise<T>,
+): Promise<T> {
+  if (!appDb) {
+    throw new Error("Database not initialized. Call initDb() during startup.")
+  }
+  const client = await appDb.$client.connect()
+  try {
+    return await fn(client)
+  } finally {
+    client.release()
+  }
 }
 
 export async function closeDb(): Promise<void> {

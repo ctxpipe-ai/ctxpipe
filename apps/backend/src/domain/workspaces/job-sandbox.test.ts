@@ -1,4 +1,4 @@
-import { describe, expect, it, vi } from "vitest"
+import { beforeEach, describe, expect, it, vi } from "vitest"
 import {
   createTanstackJobSandbox,
   ensureJobSandbox,
@@ -14,9 +14,13 @@ const claimSandboxInstance = vi.hoisted(() =>
   })),
 )
 const deleteSandboxInstance = vi.hoisted(() => vi.fn(async () => {}))
+const persistSandboxInstance = vi.hoisted(() => vi.fn(async () => {}))
+const withSandboxAdvisoryLock = vi.hoisted(() =>
+  vi.fn(async (_key: string, fn: () => Promise<unknown>) => fn()),
+)
 
 vi.mock("../../models/workspaces.js", () => ({
-  persistSandboxInstance: vi.fn(async () => {}),
+  persistSandboxInstance,
   deleteSandboxInstance,
   claimSandboxInstance,
   listSandboxInstances: vi.fn(async () => []),
@@ -24,7 +28,24 @@ vi.mock("../../models/workspaces.js", () => ({
   getSandboxInstance: vi.fn(async () => null),
 }))
 
+vi.mock("./sandbox-instance-store.js", () => ({
+  withSandboxAdvisoryLock,
+}))
+
 describe("job sandbox", () => {
+  beforeEach(() => {
+    claimSandboxInstance.mockReset()
+    claimSandboxInstance.mockImplementation(async (input: { id: string }) => ({
+      record: input,
+      inserted: true,
+    }))
+    deleteSandboxInstance.mockClear()
+    persistSandboxInstance.mockClear()
+    withSandboxAdvisoryLock.mockReset()
+    withSandboxAdvisoryLock.mockImplementation(
+      async (_key: string, fn: () => Promise<unknown>) => fn(),
+    )
+  })
   it("uses Docker when present and fails closed when Docker is locked but missing", () => {
     expect(jobSandboxIsolation("docker")).toBe("docker")
     expect(jobSandboxIsolation("unsandboxed")).toBe("local_process")
@@ -125,6 +146,105 @@ describe("job sandbox", () => {
     ).toBeNull()
     expect(create).toHaveBeenCalledWith("job-claimed")
     expect(deleteSandboxInstance).not.toHaveBeenCalled()
+  })
+
+  it("holds the advisory lock across create and resumes the stored provider id", async () => {
+    const order: string[] = []
+    withSandboxAdvisoryLock.mockImplementation(
+      async (_key: string, fn: () => Promise<unknown>) => {
+        order.push("lock")
+        try {
+          return await fn()
+        } finally {
+          order.push("unlock")
+        }
+      },
+    )
+    claimSandboxInstance.mockResolvedValueOnce({
+      record: {
+        id: "job-claimed-resume",
+        kind: "job",
+        orgId: "org_1",
+        workspaceId: "ws_resume",
+        providerSandboxId: "sbx_real",
+        state: "live",
+        lastHeartbeatAt: new Date(),
+      },
+      inserted: false,
+    })
+    const handle = {
+      exec: async () => ({ stdout: "", stderr: "", exitCode: 0 }),
+      fs: {
+        write: async () => undefined,
+        read: async () => "",
+        remove: async () => undefined,
+        mkdir: async () => undefined,
+      },
+    }
+    const create = vi.fn(async (sandboxId: string) => {
+      order.push("create")
+      expect(sandboxId).toBe("sbx_real")
+      return {
+        handle,
+        destroy: async () => undefined,
+        providerSandboxId: "sbx_real",
+      }
+    })
+    expect(
+      await ensureJobSandbox({
+        orgId: "org_1",
+        workspaceId: "ws_resume",
+        desiredUrl: "https://github.com/acme/docs",
+        desiredSha: "abc",
+        create,
+      }),
+    ).toBe(handle)
+    expect(order).toEqual(["lock", "create", "unlock"])
+    expect(withSandboxAdvisoryLock).toHaveBeenCalledWith(
+      "sandbox:job:ws_resume",
+      expect.any(Function),
+    )
+  })
+
+  it("persists the provider id returned by create, not the logical claim id", async () => {
+    claimSandboxInstance.mockResolvedValueOnce({
+      record: {
+        id: "job-claimed-id",
+        kind: "job",
+        orgId: "org_1",
+        workspaceId: "ws_provider_id",
+        state: "live",
+        lastHeartbeatAt: new Date(),
+      },
+      inserted: true,
+    })
+    const handle = {
+      exec: async () => ({ stdout: "", stderr: "", exitCode: 0 }),
+      fs: {
+        write: async () => undefined,
+        read: async () => "",
+        remove: async () => undefined,
+        mkdir: async () => undefined,
+      },
+    }
+    await ensureJobSandbox({
+      orgId: "org_1",
+      workspaceId: "ws_provider_id",
+      desiredUrl: "https://github.com/acme/docs",
+      desiredSha: "abc",
+      create: async () => ({
+        handle,
+        destroy: async () => undefined,
+        providerSandboxId: "docker-xyz",
+      }),
+    })
+    expect(getJobSandbox("ws_provider_id")).toBe(handle)
+    expect(persistSandboxInstance).toHaveBeenCalledWith(
+      expect.objectContaining({
+        id: "job-claimed-id",
+        providerSandboxId: "docker-xyz",
+      }),
+    )
   })
 
   it("does not delete a claimed live id when create throws", async () => {
