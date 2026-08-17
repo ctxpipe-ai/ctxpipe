@@ -25,6 +25,7 @@ import {
   destroySandboxesForConversation,
   getChatSandbox,
   getRegisteredChatSandbox,
+  withDestroyedConversationSandboxes,
 } from "../../domain/workspaces/sandbox-registry.js"
 import { githubRepoFullNameFromWorkspaceUrl } from "../../domain/workspaces/write-status.js"
 import { PageInfoSchema } from "../../lib/pagination.js"
@@ -417,22 +418,34 @@ export const conversationRoutes = new OpenAPIHono<AppEnv>()
 
     const conversationId = c.req.param("conversationId")
     const existing = await getConversation(conversationId)
-    const deleted = await deleteConversation(conversationId)
-    if (!deleted) return c.json({ error: "Not found" }, 404)
-    if (
-      shouldDestroyChatSandbox({
-        conversationDeleted: true,
-        lastTurnAt: existing?.lastMessageAt ?? null,
-        now: new Date(),
-      })
-    ) {
+    if (!existing) return c.json({ error: "Not found" }, 404)
+    const shouldDestroy = shouldDestroyChatSandbox({
+      conversationDeleted: true,
+      lastTurnAt: existing.lastMessageAt ?? null,
+      now: new Date(),
+    })
+    if (shouldDestroy) {
       const log = getLogger()
       log.set({
         conversationId,
-        workspaceId: existing?.workspaceId ?? null,
+        workspaceId: existing.workspaceId ?? null,
         sandbox: "chat",
       })
       log.info("destroy chat sandbox after conversation delete")
+    }
+    const deleted =
+      shouldDestroy && existing.workspaceId
+        ? await withDestroyedConversationSandboxes(
+            {
+              conversationId,
+              orgId: existing.orgId,
+              workspaceId: existing.workspaceId,
+            },
+            () => deleteConversation(conversationId),
+          )
+        : await deleteConversation(conversationId)
+    if (!deleted) return c.json({ error: "Not found" }, 404)
+    if (shouldDestroy && !existing.workspaceId) {
       await destroySandboxesForConversation(conversationId)
     }
 

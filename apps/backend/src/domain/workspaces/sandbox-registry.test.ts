@@ -264,6 +264,10 @@ describe("sandbox registry GC", () => {
       1,
     )
     expect(deleteSandboxInstance).toHaveBeenCalledWith("chat-orphan", undefined)
+    expect(withSandboxAdvisoryLock).toHaveBeenCalledWith(
+      "sandbox:job:ws_orphan",
+      expect.any(Function),
+    )
     await expect(
       destroySandboxesForWorkspace("ws_orphan_job", "job"),
     ).resolves.toBe(1)

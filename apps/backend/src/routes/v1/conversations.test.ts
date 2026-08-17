@@ -58,6 +58,9 @@ vi.mock("../../models/conversations.js", () => ({
 
 vi.mock("../../domain/workspaces/sandbox-registry.js", () => ({
   destroySandboxesForConversation: vi.fn(),
+  withDestroyedConversationSandboxes: vi.fn(
+    async (_input: unknown, fn: () => Promise<unknown>) => fn(),
+  ),
   getChatSandbox: vi.fn(() => null),
   getRegisteredChatSandbox: getRegisteredChatSandboxMock,
 }))

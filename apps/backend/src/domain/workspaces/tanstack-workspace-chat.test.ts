@@ -341,6 +341,34 @@ describe("runTanstackWorkspaceChat", () => {
     )
   })
 
+  it("fails closed when the stored chat provider is unavailable", async () => {
+    listSandboxInstancesMock.mockResolvedValueOnce([
+      {
+        id: "tanstack-key",
+        kind: "chat",
+        workspaceId: "ws_1",
+        conversationId: "conv_1",
+        provider: "railway",
+        providerSandboxId: "sbx_rail",
+        state: "live",
+        lastHeartbeatAt: new Date(),
+      },
+    ])
+    const res = await runTanstackWorkspaceChat({
+      conversationId: "conv_1",
+      prompt: "hello",
+      orgId: "org_1",
+      workspaceId: "ws_1",
+      desiredUrl: "https://github.com/acme/docs",
+      desiredSha: "abc",
+      ref: "abc",
+      writeStatus: "writable",
+    })
+    expect(res.status).toBe(503)
+    expect(dockerSandboxMock).not.toHaveBeenCalled()
+    expect(chatMock).not.toHaveBeenCalled()
+  })
+
   it("grounds chat in Workspace projection snippets", async () => {
     const res = await runTanstackWorkspaceChat({
       conversationId: "conv_1",

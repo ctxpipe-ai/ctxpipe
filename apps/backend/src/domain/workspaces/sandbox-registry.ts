@@ -185,6 +185,49 @@ function persistHeartbeatQuietly(
 export async function destroySandboxesForConversation(
   conversationId: string,
 ): Promise<number> {
+  const workspaceId = await workspaceIdForConversationSandboxes(conversationId)
+  if (!workspaceId) {
+    return destroyListedSandboxesForConversation(conversationId)
+  }
+  return withSandboxAdvisoryLock(
+    workspaceSandboxLockKey(workspaceId),
+    async () => destroyListedSandboxesForConversation(conversationId),
+  )
+}
+
+export async function withDestroyedConversationSandboxes<T>(
+  input: { conversationId: string; orgId: string; workspaceId: string },
+  fn: () => Promise<T>,
+): Promise<T> {
+  return withSandboxAdvisoryLock(
+    workspaceSandboxLockKey(input.workspaceId),
+    async () => {
+      await destroyListedSandboxesForConversation(input.conversationId)
+      return withOrgDbContext(input.orgId, fn)
+    },
+  )
+}
+
+async function workspaceIdForConversationSandboxes(
+  conversationId: string,
+): Promise<string | undefined> {
+  const stored = await listSandboxInstances({
+    conversationId,
+    kind: "chat",
+  }).catch((error) => {
+    logSandboxError("list-sandbox-instances", conversationId, error)
+    return [] as SandboxInstanceRecord[]
+  })
+  return (
+    stored.find((row) => row.workspaceId)?.workspaceId ??
+    [...sandboxes.values()].find((row) => row.conversationId === conversationId)
+      ?.workspaceId
+  )
+}
+
+async function destroyListedSandboxesForConversation(
+  conversationId: string,
+): Promise<number> {
   const stored = await listSandboxInstances({
     conversationId,
     kind: "chat",
@@ -209,9 +252,6 @@ export async function destroySandboxesForWorkspace(
   workspaceId: string,
   kind: "chat" | "job" | "any" = "any",
 ): Promise<number> {
-  if (kind === "chat") {
-    return destroyListedSandboxesForWorkspace(workspaceId, kind)
-  }
   return withSandboxAdvisoryLock(
     workspaceSandboxLockKey(workspaceId),
     async () => destroyListedSandboxesForWorkspace(workspaceId, kind),

@@ -86,6 +86,23 @@ function aguiTextDelta(chunk: object): string {
   return ""
 }
 
+function providerFactoryForStoredChat(
+  modules: Awaited<ReturnType<typeof loadTanstackChatModules>>,
+  storedProvider: string,
+) {
+  if (storedProvider === "sbx") return modules.sbxSandbox?.()
+  if (storedProvider === "docker") {
+    return modules.dockerSandbox?.({ image: "node:22" })
+  }
+  if (
+    storedProvider === "local-process" ||
+    storedProvider === "local_process"
+  ) {
+    return modules.localProcessSandbox?.()
+  }
+  return undefined
+}
+
 export async function collectTanstackWorkspaceChatText(
   input: TanstackWorkspaceChatInput,
 ): Promise<
@@ -256,27 +273,32 @@ async function prepareTanstackWorkspaceChat(
       conversationId: input.conversationId,
       kind: "chat",
     }),
-  ).catch(() => [])
+  )
   const storedProvider =
     storedChat.find((row) => row.providerSandboxId)?.provider ??
-    storedChat[0]?.provider
+    storedChat[0]?.provider ??
+    null
   const locked = process.env.SANDBOX_PROVIDER?.trim() || null
-  let provider =
-    storedProvider === "sbx"
-      ? modules.sbxSandbox?.()
-      : storedProvider === "local-process" || storedProvider === "local_process"
-        ? modules.localProcessSandbox?.()
-        : spec.isolation === "docker"
-          ? modules.dockerSandbox?.({ image: "node:22" })
-          : modules.localProcessSandbox?.()
-  if (!provider && locked !== "docker" && locked !== "railway") {
+  let provider = storedProvider
+    ? providerFactoryForStoredChat(modules, storedProvider)
+    : spec.isolation === "docker"
+      ? modules.dockerSandbox?.({ image: "node:22" })
+      : modules.localProcessSandbox?.()
+  if (
+    !storedProvider &&
+    !provider &&
+    locked !== "docker" &&
+    locked !== "railway"
+  ) {
     provider = modules.localProcessSandbox?.()
   }
   if (!provider) {
     return {
       ok: false,
       status: 503,
-      error: "TanStack sandbox provider is not installed",
+      error: storedProvider
+        ? `TanStack sandbox provider ${storedProvider} is not available`
+        : "TanStack sandbox provider is not installed",
     }
   }
 
