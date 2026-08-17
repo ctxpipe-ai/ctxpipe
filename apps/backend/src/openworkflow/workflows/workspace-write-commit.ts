@@ -414,10 +414,11 @@ export const workspaceWriteCommit = defineWorkflow(
                 desiredUrl: jobWorkspaceUrl,
                 desiredSha: parentSha,
                 existing: existingSandbox,
-                create: async (sandboxId, persistProviderId) =>
+                create: async (sandboxId, hooks) =>
                   createTanstackJobSandbox({
                     sandboxId,
-                    persistProviderId,
+                    persistProviderId: hooks.persistLive,
+                    abandonCreated: hooks.abandon,
                     gitUrl: jobWorkspaceUrl,
                     ref:
                       input.kind === "semantic_merge"

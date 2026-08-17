@@ -1,5 +1,6 @@
 import {
   claimSandboxInstance,
+  deleteSandboxInstance,
   persistSandboxInstance,
 } from "../../models/workspaces.js"
 import { scrubOriginAfterCloneCommand } from "./clone-credentials.js"
@@ -58,6 +59,18 @@ export function adaptTanstackHandle(
   }
 }
 
+export type JobSandboxCreateHooks = {
+  persistLive: (input: {
+    providerSandboxId: string
+    provider: string
+  }) => Promise<void>
+  abandon: (input: {
+    providerSandboxId: string
+    provider: string
+    destroyed: boolean
+  }) => Promise<void>
+}
+
 export async function ensureJobSandbox(input: {
   orgId: string
   workspaceId: string
@@ -66,7 +79,7 @@ export async function ensureJobSandbox(input: {
   existing?: JobSandboxHandle | null
   create: (
     sandboxId: string,
-    persistProviderId: (providerSandboxId: string) => Promise<void>,
+    hooks: JobSandboxCreateHooks,
   ) => Promise<{
     handle: JobSandboxHandle
     destroy?: () => Promise<void>
@@ -102,17 +115,30 @@ export async function ensureJobSandbox(input: {
       const attachedAfterClaim = getJobSandbox(input.workspaceId)
       if (attachedAfterClaim) return attachedAfterClaim
       const resumeId = claimed.record.providerSandboxId ?? claimed.record.id
-      const created = await input.create(
-        resumeId,
-        async (providerSandboxId) => {
+      const created = await input.create(resumeId, {
+        persistLive: async ({ providerSandboxId, provider }) => {
           await persistSandboxInstance({
             ...claimed.record,
+            provider,
             providerSandboxId,
             state: "live",
             lastHeartbeatAt: new Date(),
           })
         },
-      )
+        abandon: async ({ providerSandboxId, provider, destroyed }) => {
+          if (destroyed) {
+            await deleteSandboxInstance(claimed.record.id, claimed.record.orgId)
+            return
+          }
+          await persistSandboxInstance({
+            ...claimed.record,
+            provider,
+            providerSandboxId,
+            state: "destroy_failed",
+            lastHeartbeatAt: new Date(),
+          })
+        },
+      })
       if (!created) return null
       try {
         await registerWorkspaceSandbox({
@@ -128,7 +154,24 @@ export async function ensureJobSandbox(input: {
           destroy: created.destroy,
         })
       } catch (error) {
-        await created.destroy?.().catch(() => undefined)
+        let destroyed = false
+        try {
+          await created.destroy?.()
+          destroyed = true
+        } catch {
+          destroyed = false
+        }
+        if (destroyed) {
+          await deleteSandboxInstance(claimed.record.id, claimed.record.orgId)
+        } else {
+          await persistSandboxInstance({
+            ...claimed.record,
+            provider: created.provider,
+            providerSandboxId: created.providerSandboxId ?? resumeId,
+            state: "destroy_failed",
+            lastHeartbeatAt: new Date(),
+          })
+        }
         throw error
       }
       return created.handle
@@ -195,7 +238,8 @@ export async function createTanstackJobSandbox(input: {
   fetchShas?: readonly string[]
   env?: Record<string, string | undefined>
   loadModules?: () => Promise<SandboxModules>
-  persistProviderId?: (providerSandboxId: string) => Promise<void>
+  persistProviderId?: JobSandboxCreateHooks["persistLive"]
+  abandonCreated?: JobSandboxCreateHooks["abandon"]
 }): Promise<{
   handle: JobSandboxHandle
   destroy: () => Promise<void>
@@ -233,10 +277,24 @@ export async function createTanstackJobSandbox(input: {
     throw new Error("Job sandbox create did not return a provider id")
   }
   try {
-    await input.persistProviderId?.(raw.id)
+    await input.persistProviderId?.({
+      providerSandboxId: raw.id,
+      provider: providerName,
+    })
     await seedJobRepo(raw, input)
   } catch (error) {
-    await raw.destroy().catch(() => undefined)
+    let destroyed = false
+    try {
+      await raw.destroy()
+      destroyed = true
+    } catch {
+      destroyed = false
+    }
+    await input.abandonCreated?.({
+      providerSandboxId: raw.id,
+      provider: providerName,
+      destroyed,
+    })
     throw error
   }
   return {

@@ -144,7 +144,13 @@ describe("job sandbox", () => {
         create,
       }),
     ).toBeNull()
-    expect(create).toHaveBeenCalledWith("job-claimed", expect.any(Function))
+    expect(create).toHaveBeenCalledWith(
+      "job-claimed",
+      expect.objectContaining({
+        persistLive: expect.any(Function),
+        abandon: expect.any(Function),
+      }),
+    )
     expect(deleteSandboxInstance).not.toHaveBeenCalled()
   })
 
@@ -283,10 +289,186 @@ describe("job sandbox", () => {
           handle,
           destroy,
           providerSandboxId: "docker-xyz",
+          provider: "docker",
         }),
       }),
     ).rejects.toThrow("db down")
     expect(destroy).toHaveBeenCalled()
+    expect(deleteSandboxInstance).toHaveBeenCalledWith(
+      "job-claimed-persist-fail",
+      "org_1",
+    )
+  })
+
+  it("stores provider metadata when persistLive runs during create", async () => {
+    claimSandboxInstance.mockResolvedValueOnce({
+      record: {
+        id: "job-claimed-live",
+        kind: "job",
+        orgId: "org_1",
+        workspaceId: "ws_persist_live",
+        state: "live",
+        lastHeartbeatAt: new Date(),
+      },
+      inserted: true,
+    })
+    const handle = {
+      exec: async () => ({ stdout: "", stderr: "", exitCode: 0 }),
+      fs: {
+        write: async () => undefined,
+        read: async () => "",
+        remove: async () => undefined,
+        mkdir: async () => undefined,
+      },
+    }
+    await ensureJobSandbox({
+      orgId: "org_1",
+      workspaceId: "ws_persist_live",
+      desiredUrl: "https://github.com/acme/docs",
+      desiredSha: "abc",
+      create: async (_sandboxId, hooks) => {
+        await hooks.persistLive({
+          providerSandboxId: "sbx_docker_1",
+          provider: "docker",
+        })
+        return {
+          handle,
+          destroy: async () => undefined,
+          providerSandboxId: "sbx_docker_1",
+          provider: "docker",
+        }
+      },
+    })
+    expect(persistSandboxInstance).toHaveBeenCalledWith(
+      expect.objectContaining({
+        id: "job-claimed-live",
+        provider: "docker",
+        providerSandboxId: "sbx_docker_1",
+        state: "live",
+      }),
+    )
+  })
+
+  it("deletes the claimed row when create abandons a destroyed sandbox", async () => {
+    claimSandboxInstance.mockResolvedValueOnce({
+      record: {
+        id: "job-claimed-abandon",
+        kind: "job",
+        orgId: "org_1",
+        workspaceId: "ws_abandon_destroyed",
+        state: "live",
+        lastHeartbeatAt: new Date(),
+      },
+      inserted: true,
+    })
+    await expect(
+      ensureJobSandbox({
+        orgId: "org_1",
+        workspaceId: "ws_abandon_destroyed",
+        desiredUrl: "https://github.com/acme/docs",
+        desiredSha: "abc",
+        create: async (_sandboxId, hooks) => {
+          await hooks.abandon({
+            providerSandboxId: "sbx_docker_1",
+            provider: "docker",
+            destroyed: true,
+          })
+          throw new Error("clone failed")
+        },
+      }),
+    ).rejects.toThrow("clone failed")
+    expect(deleteSandboxInstance).toHaveBeenCalledWith(
+      "job-claimed-abandon",
+      "org_1",
+    )
+  })
+
+  it("marks destroy_failed when create abandons a sandbox that is still running", async () => {
+    claimSandboxInstance.mockResolvedValueOnce({
+      record: {
+        id: "job-claimed-abandon-fail",
+        kind: "job",
+        orgId: "org_1",
+        workspaceId: "ws_abandon_running",
+        state: "live",
+        lastHeartbeatAt: new Date(),
+      },
+      inserted: true,
+    })
+    await expect(
+      ensureJobSandbox({
+        orgId: "org_1",
+        workspaceId: "ws_abandon_running",
+        desiredUrl: "https://github.com/acme/docs",
+        desiredSha: "abc",
+        create: async (_sandboxId, hooks) => {
+          await hooks.abandon({
+            providerSandboxId: "sbx_docker_1",
+            provider: "docker",
+            destroyed: false,
+          })
+          throw new Error("clone failed")
+        },
+      }),
+    ).rejects.toThrow("clone failed")
+    expect(deleteSandboxInstance).not.toHaveBeenCalled()
+    expect(persistSandboxInstance).toHaveBeenCalledWith(
+      expect.objectContaining({
+        id: "job-claimed-abandon-fail",
+        provider: "docker",
+        providerSandboxId: "sbx_docker_1",
+        state: "destroy_failed",
+      }),
+    )
+  })
+
+  it("marks destroy_failed with provider metadata when register cleanup cannot destroy", async () => {
+    claimSandboxInstance.mockResolvedValueOnce({
+      record: {
+        id: "job-claimed-destroy-fail",
+        kind: "job",
+        orgId: "org_1",
+        workspaceId: "ws_register_destroy_fail",
+        state: "live",
+        lastHeartbeatAt: new Date(),
+      },
+      inserted: true,
+    })
+    persistSandboxInstance.mockRejectedValueOnce(new Error("db down"))
+    const handle = {
+      exec: async () => ({ stdout: "", stderr: "", exitCode: 0 }),
+      fs: {
+        write: async () => undefined,
+        read: async () => "",
+        remove: async () => undefined,
+        mkdir: async () => undefined,
+      },
+    }
+    await expect(
+      ensureJobSandbox({
+        orgId: "org_1",
+        workspaceId: "ws_register_destroy_fail",
+        desiredUrl: "https://github.com/acme/docs",
+        desiredSha: "abc",
+        create: async () => ({
+          handle,
+          destroy: async () => {
+            throw new Error("still running")
+          },
+          providerSandboxId: "sbx_docker_1",
+          provider: "docker",
+        }),
+      }),
+    ).rejects.toThrow("db down")
+    expect(deleteSandboxInstance).not.toHaveBeenCalled()
+    expect(persistSandboxInstance).toHaveBeenLastCalledWith(
+      expect.objectContaining({
+        id: "job-claimed-destroy-fail",
+        provider: "docker",
+        providerSandboxId: "sbx_docker_1",
+        state: "destroy_failed",
+      }),
+    )
   })
 
   it("does not delete a claimed live id when create throws", async () => {
@@ -533,5 +715,128 @@ describe("job sandbox", () => {
       }),
     })
     expect(order).toEqual(["persist", "clone"])
+    expect(persistProviderId).toHaveBeenCalledWith({
+      providerSandboxId: "sbx_job_1",
+      provider: "local-process",
+    })
+  })
+
+  it("persists docker as the provider before cloning", async () => {
+    const persistProviderId = vi.fn(async () => undefined)
+    await createTanstackJobSandbox({
+      sandboxId: "job-1",
+      gitUrl: "https://github.com/acme/docs",
+      ref: "abc",
+      env: { SANDBOX_PROVIDER: "docker" },
+      persistProviderId,
+      loadModules: async () => ({
+        dockerSandbox: () => ({
+          create: async () => ({
+            id: "sbx_docker_1",
+            process: {
+              exec: async () => ({ stdout: "", stderr: "", exitCode: 0 }),
+            },
+            fs: {
+              write: async () => undefined,
+              read: async () => "",
+              remove: async () => undefined,
+              mkdir: async () => undefined,
+            },
+            git: { clone: async () => undefined },
+            destroy: async () => undefined,
+          }),
+        }),
+      }),
+    })
+    expect(persistProviderId).toHaveBeenCalledWith({
+      providerSandboxId: "sbx_docker_1",
+      provider: "docker",
+    })
+  })
+
+  it("abandons a created sandbox as destroyed when clone cleanup succeeds", async () => {
+    const abandonCreated = vi.fn(async () => undefined)
+    const destroy = vi.fn(async () => undefined)
+    await expect(
+      createTanstackJobSandbox({
+        sandboxId: "job-1",
+        gitUrl: "https://github.com/acme/docs",
+        ref: "abc",
+        env: { SANDBOX_PROVIDER: "docker" },
+        persistProviderId: async () => undefined,
+        abandonCreated,
+        loadModules: async () => ({
+          dockerSandbox: () => ({
+            create: async () => ({
+              id: "sbx_docker_1",
+              process: {
+                exec: async () => ({ stdout: "", stderr: "", exitCode: 0 }),
+              },
+              fs: {
+                write: async () => undefined,
+                read: async () => "",
+                remove: async () => undefined,
+                mkdir: async () => undefined,
+              },
+              git: {
+                clone: async () => {
+                  throw new Error("clone failed")
+                },
+              },
+              destroy,
+            }),
+          }),
+        }),
+      }),
+    ).rejects.toThrow("clone failed")
+    expect(destroy).toHaveBeenCalled()
+    expect(abandonCreated).toHaveBeenCalledWith({
+      providerSandboxId: "sbx_docker_1",
+      provider: "docker",
+      destroyed: true,
+    })
+  })
+
+  it("abandons a created sandbox as destroy_failed when clone cleanup cannot destroy", async () => {
+    const abandonCreated = vi.fn(async () => undefined)
+    await expect(
+      createTanstackJobSandbox({
+        sandboxId: "job-1",
+        gitUrl: "https://github.com/acme/docs",
+        ref: "abc",
+        env: { SANDBOX_PROVIDER: "docker" },
+        persistProviderId: async () => undefined,
+        abandonCreated,
+        loadModules: async () => ({
+          dockerSandbox: () => ({
+            create: async () => ({
+              id: "sbx_docker_1",
+              process: {
+                exec: async () => ({ stdout: "", stderr: "", exitCode: 0 }),
+              },
+              fs: {
+                write: async () => undefined,
+                read: async () => "",
+                remove: async () => undefined,
+                mkdir: async () => undefined,
+              },
+              git: {
+                clone: async () => {
+                  throw new Error("clone failed")
+                },
+              },
+              destroy: async () => {
+                throw new Error("still running")
+              },
+            }),
+          }),
+        }),
+      }),
+    ).rejects.toThrow("clone failed")
+    expect(abandonCreated).toHaveBeenCalledWith({
+      providerSandboxId: "sbx_docker_1",
+      provider: "docker",
+      destroyed: false,
+    })
   })
 })
