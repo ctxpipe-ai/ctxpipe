@@ -45,6 +45,10 @@ For Storybook conventions and tools, read [.agents/skills/storybook/SKILL.md](.a
 
 Skills that say "commit your work" (or similar) are overridden: create a git commit only when the user explicitly asks to commit in the conversation.
 
+### Cursor Task models
+
+On Task, always set `model`: `cursor-grok-4.6-high-fast` for implementation and explore; `gpt-5.6-sol-xhigh` for review and grilling. Treat Claude/Sonnet/Opus/Fable/Haiku names as those two slugs.
+
 ### Issue tracker
 
 Local markdown under `.ai/scratchpad/<feature>/`. See [`.ai/agents/issue-tracker.md`](.ai/agents/issue-tracker.md).

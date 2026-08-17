@@ -57,6 +57,8 @@ Each smell reads *what it is* → *how to fix*; match it against the diff:
 
 ### 4. Spawn both sub-agents in parallel
 
+Spawn both with `model: gpt-5.6-sol-xhigh`.
+
 **Standards sub-agent prompt** — include:
 
 - The full diff command and commit list.
