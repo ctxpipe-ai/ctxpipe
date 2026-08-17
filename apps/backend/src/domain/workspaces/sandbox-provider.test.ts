@@ -1,10 +1,18 @@
-import { describe, expect, it } from "vitest"
+import { beforeEach, describe, expect, it, vi } from "vitest"
 import {
   destroyDetachedProviderSandbox,
   detectSandboxProvider,
   detectSandboxProviderFromEnv,
   sandboxMustFailClosed,
 } from "./sandbox-provider.js"
+
+const dockerSandbox = vi.hoisted(() => vi.fn())
+const sbxSandbox = vi.hoisted(() => vi.fn())
+
+vi.mock("@tanstack/ai-sandbox-docker", () => ({
+  dockerSandbox,
+  sbxSandbox,
+}))
 
 describe("detectSandboxProvider", () => {
   it("locks a known provider and fail-closes on an unknown lock", () => {
@@ -40,6 +48,11 @@ describe("detectSandboxProvider", () => {
 })
 
 describe("destroyDetachedProviderSandbox", () => {
+  beforeEach(() => {
+    dockerSandbox.mockReset()
+    sbxSandbox.mockReset()
+  })
+
   it("refuses railway, unsandboxed, and missing providers instead of routing to local-process", async () => {
     await expect(
       destroyDetachedProviderSandbox({
@@ -59,5 +72,19 @@ describe("destroyDetachedProviderSandbox", () => {
         providerSandboxId: "sbx_1",
       }),
     ).rejects.toThrow(/provider unknown/)
+  })
+
+  it("destroys sbx through sbxSandbox instead of dockerSandbox", async () => {
+    const destroy = vi.fn(async () => undefined)
+    const resume = vi.fn(async () => null)
+    sbxSandbox.mockReturnValue({ destroy, resume })
+    await destroyDetachedProviderSandbox({
+      provider: "sbx",
+      providerSandboxId: "sbx_vm",
+    })
+    expect(sbxSandbox).toHaveBeenCalled()
+    expect(dockerSandbox).not.toHaveBeenCalled()
+    expect(destroy).toHaveBeenCalledWith({ id: "sbx_vm" })
+    expect(resume).toHaveBeenCalledWith({ id: "sbx_vm" })
   })
 })

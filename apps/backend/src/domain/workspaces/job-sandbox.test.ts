@@ -961,4 +961,41 @@ describe("job sandbox", () => {
     ).rejects.toThrow("still running")
     expect(localCreate).not.toHaveBeenCalled()
   })
+
+  it("resumes a stored sbx sandbox through sbxSandbox and keeps the sbx provider name", async () => {
+    const sbxResume = vi.fn(async (input: { id: string }) => {
+      expect(input.id).toBe("sbx_vm")
+      return {
+        id: "sbx_vm",
+        process: {
+          exec: async () => ({ stdout: "", stderr: "", exitCode: 0 }),
+        },
+        fs: {
+          write: async () => undefined,
+          read: async () => "",
+          remove: async () => undefined,
+          mkdir: async () => undefined,
+        },
+        git: { clone: async () => undefined },
+        destroy: async () => undefined,
+      }
+    })
+    const dockerCreate = vi.fn()
+    const created = await createTanstackJobSandbox({
+      sandboxId: "sbx_vm",
+      storedProvider: "sbx",
+      gitUrl: "https://github.com/acme/docs",
+      ref: "abc",
+      env: { SANDBOX_PROVIDER: "docker" },
+      loadModules: async () => ({
+        sbxSandbox: () => ({ create: vi.fn(), resume: sbxResume }),
+        dockerSandbox: () => ({ create: dockerCreate }),
+      }),
+    })
+    expect(created?.providerSandboxId).toBe("sbx_vm")
+    expect(created?.provider).toBe("sbx")
+    expect(sbxResume).toHaveBeenCalledWith({ id: "sbx_vm" })
+    expect(dockerCreate).not.toHaveBeenCalled()
+    expect(destroyDetachedProviderSandbox).not.toHaveBeenCalled()
+  })
 })

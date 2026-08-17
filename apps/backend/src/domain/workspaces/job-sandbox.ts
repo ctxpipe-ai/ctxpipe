@@ -194,23 +194,26 @@ type SandboxFactory = {
 
 type SandboxModules = {
   dockerSandbox?: (input: { image: string }) => SandboxFactory
+  sbxSandbox?: () => SandboxFactory
   localProcessSandbox?: () => SandboxFactory
 }
 
 function jobProviderName(
   isolation: "docker" | "local_process" | string,
-): "docker" | "local-process" {
-  return isolation === "docker" || isolation === "sbx"
-    ? "docker"
-    : "local-process"
+): "docker" | "sbx" | "local-process" {
+  if (isolation === "sbx") return "sbx"
+  return isolation === "docker" ? "docker" : "local-process"
 }
 
 function factoryForProvider(
   modules: SandboxModules,
   provider: string | null | undefined,
 ): SandboxFactory | undefined {
-  if (provider === "docker" || provider === "sbx") {
+  if (provider === "docker") {
     return modules.dockerSandbox?.({ image: "node:22" })
+  }
+  if (provider === "sbx") {
+    return modules.sbxSandbox?.()
   }
   if (provider === "local-process" || provider === "local_process") {
     return modules.localProcessSandbox?.()
@@ -225,6 +228,7 @@ async function loadJobSandboxModules(): Promise<SandboxModules> {
   ])
   return {
     dockerSandbox: docker?.dockerSandbox,
+    sbxSandbox: docker?.sbxSandbox,
     localProcessSandbox: local?.localProcessSandbox,
   }
 }
