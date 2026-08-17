@@ -7,7 +7,7 @@ import {
   getLinearBindingWithRepoByConnectionId,
   refreshLinearConnectionTokensWithLock,
 } from "../../models/linear-connector.js"
-import { getLogger } from "../../observability/logger.js"
+import { getLogger, createLogger, withLogger } from "../../observability/logger.js"
 import {
   linearTokenExpiresAt,
   refreshLinearOAuthToken,
@@ -39,7 +39,14 @@ export const linearSyncEntity = defineWorkflow(
     name: "linear-sync-entity",
     schema: LinearSyncEntityInputSchema,
   },
-  async ({ input, step }) => {
+  async ({ input, step }) =>
+    withLogger(
+      createLogger({
+        workflow: "linear-sync-entity",
+        orgId: input.orgId,
+        connectionId: input.connectionId,
+      }),
+      async () => {
     const env = parseEnv(process.env as Record<string, string | undefined>)
     const context = await step.run(
       { name: "load-linear-entity-context" },
@@ -169,5 +176,6 @@ export const linearSyncEntity = defineWorkflow(
     }
 
     return result
-  },
+      },
+    ),
 )

@@ -1,6 +1,7 @@
 import { OpenAPIHono } from "@hono/zod-openapi"
 import { beforeEach, describe, expect, it, vi } from "vitest"
 import type { AppEnv } from "../../app/env.js"
+import { contextStorage, withTestRequestLogger } from "../../test/hono-test-logger.js"
 
 const claimNotionConfigPrCreationMock = vi.hoisted(() => vi.fn())
 const claimNotionContentSyncRetryMock = vi.hoisted(() => vi.fn())
@@ -64,17 +65,12 @@ vi.mock("../../services/github/installation-write-client.js", () => ({
   getPullRequestHeadBranch: getPullRequestHeadBranchMock,
 }))
 
-vi.mock("../../observability/logger.js", () => ({
-  getLogger: () => ({
-    error: vi.fn(),
-    info: vi.fn(),
-  }),
-}))
-
 import { notionConnectorRoutes } from "./connectors-notion.js"
 
 function createApp(): OpenAPIHono<AppEnv> {
   const app = new OpenAPIHono<AppEnv>()
+  app.use(contextStorage())
+  app.use(withTestRequestLogger)
   app.use("*", async (c, next) => {
     c.set("user", { id: "user_1" } as AppEnv["Variables"]["user"])
     c.set("session", { id: "sess_1" } as AppEnv["Variables"]["session"])

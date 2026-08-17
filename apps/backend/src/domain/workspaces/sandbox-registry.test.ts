@@ -15,10 +15,6 @@ vi.mock("../../models/workspaces.js", () => ({
   deleteSandboxInstance: vi.fn(async () => {}),
 }))
 
-vi.mock("../../observability/logger.js", () => ({
-  log: { error: vi.fn() },
-}))
-
 describe("sandbox registry GC", () => {
   it("destroys idle chat after 30 minutes and jobs after 60", () => {
     const now = new Date("2026-08-16T12:00:00.000Z")

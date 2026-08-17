@@ -35,18 +35,6 @@ vi.mock("../../models/github-installation.js", () => ({
   getInstallationToken: vi.fn().mockResolvedValue("tok"),
 }))
 
-vi.mock("../../observability/logger.js", () => ({
-  createLogger: () => ({}),
-  withLogger: (_l: unknown, fn: () => unknown) => fn(),
-  getLogger: () => ({
-    set: vi.fn(),
-    info: vi.fn(),
-    error: vi.fn(),
-    warn: vi.fn(),
-  }),
-  flushWorkflowLog: vi.fn(),
-}))
-
 vi.mock("../withLoggedStepAttempt.js", () => ({
   withLoggedStepAttempt: (_n: string, _ctx: unknown, fn: () => unknown) => fn(),
 }))

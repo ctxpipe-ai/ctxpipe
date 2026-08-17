@@ -20,9 +20,6 @@ vi.mock("../../models/notion-connector.js", () => ({
   getNotionBindingWithRepoByConnectionId: mocks.getBinding,
   getNotionConnectionByConnectionId: mocks.getConnection,
 }))
-vi.mock("../../observability/logger.js", () => ({
-  getLogger: vi.fn(() => ({ error: vi.fn() })),
-}))
 vi.mock("../../services/notion/config-from-repo.js", () => ({
   loadNotionScopeFromRepo: mocks.loadConfig,
 }))
@@ -119,9 +116,10 @@ describe("notionSyncEntity", () => {
       {
         repositoryId: "repo_1",
         orgId: "org_1",
+        targetBranch: "main",
         indexingReason: "Applying Notion updates",
       },
-      expect.any(Object),
+      expect.objectContaining({ error: expect.any(Function) }),
     )
   })
 

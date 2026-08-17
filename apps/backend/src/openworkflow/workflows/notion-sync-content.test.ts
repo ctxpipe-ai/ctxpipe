@@ -20,9 +20,6 @@ vi.mock("../../models/notion-connector.js", () => ({
   getNotionBindingByConnectionId: mocks.getBinding,
   getNotionConnectionByConnectionId: mocks.getConnection,
 }))
-vi.mock("../../observability/logger.js", () => ({
-  getLogger: vi.fn(() => ({ error: vi.fn() })),
-}))
 vi.mock("../../services/notion/sync.js", () => ({
   syncNotionContent: mocks.syncContent,
 }))

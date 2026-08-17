@@ -33,18 +33,6 @@ vi.mock("../domain/repositories/service.js", () => ({
   getIndexableRepository: getIndexableRepositoryMock,
 }))
 
-vi.mock("../observability/logger.js", () => ({
-  createLogger: vi.fn(() => ({})),
-  flushWorkflowLog: vi.fn(),
-  getLogger: vi.fn(() => ({
-    set: vi.fn(),
-    info: vi.fn(),
-  })),
-  withLogger: vi.fn((_logger: object, operation: () => Promise<unknown>) =>
-    operation(),
-  ),
-}))
-
 import { registerIndexPhaseRoutes } from "./indexPhases.js"
 
 function createTestApp(workspaceId: string) {

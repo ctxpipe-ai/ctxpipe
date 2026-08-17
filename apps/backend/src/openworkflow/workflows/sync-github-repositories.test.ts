@@ -18,12 +18,6 @@ vi.mock("../enqueue-repository-ingestion.js", () => ({
   runRepositoryIngestionWorkflow: runRepositoryIngestionWorkflowMock,
 }))
 
-vi.mock("../../observability/logger.js", () => ({
-  createLogger: () => ({}),
-  getLogger: () => ({ error: vi.fn() }),
-  withLogger: (_logger: unknown, fn: () => unknown) => fn(),
-}))
-
 import { syncGithubRepositories } from "./sync-github-repositories.js"
 
 const installationRow = {

@@ -51,18 +51,6 @@ vi.mock("../../auth/withAuth.js", () => ({
   withOrgIdContext: (_org: unknown, fn: () => unknown) => fn(),
 }))
 
-vi.mock("../../observability/logger.js", () => ({
-  createLogger: () => ({}),
-  withLogger: (_l: unknown, fn: () => unknown) => fn(),
-  getLogger: () => ({
-    set: vi.fn(),
-    info: vi.fn(),
-    error: vi.fn(),
-    warn: vi.fn(),
-  }),
-  flushWorkflowLog: vi.fn(),
-}))
-
 vi.mock("../../graphs/codeIngestionGraph/withIngestAgentContext.js", () => ({
   withIngestAgentContext: withIngestAgentContextMock,
 }))

@@ -20,6 +20,7 @@ When working on `apps/backend`, follow these instructions in addition to the roo
 - **Code called only from workflows / graph nodes** (AsyncLocalStorage): also use `getLogger()` from the same module (workflow logger is stored in AsyncLocalStorage).
 - **No request/workflow logger** (domain helpers, DB hooks, early bootstrap): use **`log`** from [`src/observability/logger.ts`](src/observability/logger.ts) (re-exported evlog `log`: `log.info({ step, message, ... })` / `log.error` — emits immediately). For workflow-scoped wide events that buffer until flush, use **`createLogger`** + **`withLogger`** / **`emit()`** as today. Call **`initEvlog()`** once at script entry if the process does not go through `server.ts`.
 - **Exception**: evlog’s internal pipeline may still write to stderr on unrecoverable drain failures; do not add new direct `console` usage for application logging.
+- **Vitest**: `src/test/setup-evlog.ts` calls `initLogger({ enabled: false })` via `test.setupFiles`. Never `vi.mock` `observability/logger.js` (`getLogger` / `withLogger` / `createLogger` / `flushWorkflowLog` / `log`). `enabled: false` no-ops emit globally (no stdout, no drains). Do **not** use `silent` — that still sends events to drains. If a test throws `getLogger: no logger in context`, wrap the production path in `withLogger(createLogger({…}))` or run a pure helper inside `withLogger` in the test.
 
 ## Agent tools (ingestion + conversation)
 

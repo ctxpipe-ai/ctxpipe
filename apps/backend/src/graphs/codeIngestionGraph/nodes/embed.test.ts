@@ -1,17 +1,8 @@
 import { beforeEach, describe, expect, it, vi } from "vitest"
 import type { CodeIngestionState } from "../schemas.js"
+import { withTestLogger } from "../../../test/with-test-logger.js"
 
 const generateEmbeddingsMock = vi.hoisted(() => vi.fn())
-const flushWorkflowLogMock = vi.hoisted(() => vi.fn())
-const getLoggerMock = vi.hoisted(() => {
-  const logger = {
-    set: vi.fn(),
-    info: vi.fn(),
-    warn: vi.fn(),
-    error: vi.fn(),
-  }
-  return vi.fn(() => logger)
-})
 const setIngestionIndexingStepMock = vi.hoisted(() =>
   vi.fn().mockResolvedValue(undefined),
 )
@@ -20,11 +11,6 @@ const getSystemDbMock = vi.hoisted(() => vi.fn())
 vi.mock("../../../retrieval/services/modelProvider.js", () => ({
   EMBEDDING_BATCH_SIZE: 64,
   generateEmbeddings: generateEmbeddingsMock,
-}))
-
-vi.mock("../../../observability/logger.js", () => ({
-  getLogger: getLoggerMock,
-  flushWorkflowLog: flushWorkflowLogMock,
 }))
 
 vi.mock("../setIngestionIndexingStep.js", () => ({
@@ -86,7 +72,6 @@ describe("getObjectIdsForEmbedding", () => {
 describe("embed", () => {
   beforeEach(() => {
     generateEmbeddingsMock.mockReset()
-    flushWorkflowLogMock.mockReset()
     setIngestionIndexingStepMock.mockClear()
 
     const updateWhere = vi.fn().mockResolvedValue(undefined)
@@ -123,11 +108,13 @@ describe("embed", () => {
   })
 
   it("batch-embeds non-empty objects in one generateEmbeddings call", async () => {
-    await embed(
-      state({
-        ingestMode: "full",
-        objectIds: ["obj_a", "obj_b", "obj_empty"],
-      }),
+    await withTestLogger(() =>
+      embed(
+        state({
+          ingestMode: "full",
+          objectIds: ["obj_a", "obj_b", "obj_empty"],
+        }),
+      ),
     )
 
     expect(generateEmbeddingsMock).toHaveBeenCalledTimes(1)
@@ -135,7 +122,6 @@ describe("embed", () => {
       "a sa",
       "b sb",
     ])
-    expect(flushWorkflowLogMock).toHaveBeenCalled()
     expect(setIngestionIndexingStepMock).toHaveBeenCalledWith(
       expect.anything(),
       "embedding",

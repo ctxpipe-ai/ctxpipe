@@ -21,9 +21,6 @@ vi.mock("../../models/linear-connector.js", () => ({
   getLinearBindingWithRepoByConnectionId: mocks.getTarget,
   refreshLinearConnectionTokensWithLock: vi.fn(),
 }))
-vi.mock("../../observability/logger.js", () => ({
-  getLogger: vi.fn(() => ({ error: vi.fn() })),
-}))
 vi.mock("../../services/linear/config-from-repo.js", () => ({
   loadLinearScopeFromRepo: mocks.loadConfig,
 }))
@@ -127,9 +124,10 @@ describe("linearSyncEntity", () => {
       {
         repositoryId: "repo_1",
         orgId: "org_1",
+        targetBranch: "main",
         indexingReason: "Applying Linear updates",
       },
-      expect.any(Object),
+      expect.objectContaining({ error: expect.any(Function) }),
     )
   })
 

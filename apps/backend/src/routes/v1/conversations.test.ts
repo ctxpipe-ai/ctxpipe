@@ -42,13 +42,6 @@ vi.mock("../../models/github-installation.js", () => ({
   getRepoReadCloneToken: vi.fn().mockResolvedValue("tok"),
 }))
 
-vi.mock("../../observability/logger.js", () => ({
-  getLogger: () => ({
-    set: vi.fn(),
-    info: vi.fn(),
-  }),
-}))
-
 vi.mock("../../models/conversations.js", () => ({
   getConversation: getConversationMock,
   listConversationsPaginated: listConversationsPaginatedMock,
@@ -97,6 +90,7 @@ vi.mock("../../domain/conversations/renameStream.js", () => ({
   }),
 }))
 
+import { contextStorage, withTestRequestLogger } from "../../test/hono-test-logger.js"
 import { conversationRoutes } from "./conversations.js"
 
 const conversationRow = {
@@ -115,6 +109,8 @@ const conversationRow = {
 
 function app() {
   const hono = new OpenAPIHono<AppEnv>()
+  hono.use(contextStorage())
+  hono.use(withTestRequestLogger)
   hono.use("*", async (c, next) => {
     c.set("user", { id: "user_test" } as AppEnv["Variables"]["user"])
     c.set("session", { id: "sess_test" } as AppEnv["Variables"]["session"])

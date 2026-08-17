@@ -71,7 +71,10 @@ export function createApp() {
   app.use(contextStorage())
   app.use(evlog({ drain: createEvlogDrain() }))
   app.use("*", async (c, next) => {
-    await identifyBetterAuthUser(c.get("log"), c.req.raw.headers, c.req.path)
+    const requestLog = c.get("log")
+    if (requestLog) {
+      await identifyBetterAuthUser(requestLog, c.req.raw.headers, c.req.path)
+    }
     await next()
   })
   app.use("*", async (c, next) => {
@@ -93,7 +96,12 @@ export function createApp() {
       return new Response(null, { status: 499 })
     }
 
-    c.get("log").error(error)
+    const requestLog = c.get("log")
+    if (requestLog) {
+      requestLog.error(error)
+    } else {
+      log.error(error instanceof Error ? error : new Error(String(error)))
+    }
     const parsed = parseError(error)
 
     return c.json(

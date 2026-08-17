@@ -38,10 +38,6 @@ vi.mock("../openworkflow/enqueue-repository-deletion.js", () => ({
   enqueueRepositoryDeletionWorkflow: enqueueDeletionMock,
 }))
 
-vi.mock("../observability/logger.js", () => ({
-  log: { error: vi.fn(), info: vi.fn(), warn: vi.fn() },
-}))
-
 import { resolveIndexingStep } from "../domain/indexingSteps.js"
 import {
   deleteRepository,

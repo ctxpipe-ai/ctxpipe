@@ -7,7 +7,7 @@ import {
   getNotionBindingByConnectionId,
   getNotionConnectionByConnectionId,
 } from "../../models/notion-connector.js"
-import { getLogger } from "../../observability/logger.js"
+import { getLogger, createLogger, withLogger } from "../../observability/logger.js"
 import { syncNotionContent } from "../../services/notion/sync.js"
 import { runRepositoryIngestionWorkflow } from "../enqueue-repository-ingestion.js"
 import { parsedNotionRepoScopeSchema } from "../notion-scope-repo-schema.js"
@@ -21,7 +21,14 @@ const notionSyncContentInputSchema = z.object({
 
 export const notionSyncContent = defineWorkflow(
   { name: "notion-sync-content", schema: notionSyncContentInputSchema },
-  async ({ input, step }) => {
+  async ({ input, step }) =>
+    withLogger(
+      createLogger({
+        workflow: "notion-sync-content",
+        orgId: input.orgId,
+        connectionId: input.connectionId,
+      }),
+      async () => {
     const env = parseEnv(process.env as Record<string, string | undefined>)
     const markSyncFailed = () =>
       withOrgDbContext(input.orgId, () =>
@@ -117,5 +124,6 @@ export const notionSyncContent = defineWorkflow(
       await markSyncFailed()
       throw error
     }
-  },
+      },
+    ),
 )

@@ -22,9 +22,6 @@ vi.mock("../../models/linear-connector.js", () => ({
   getLinearBindingWithRepoByConnectionId: mocks.getTarget,
   refreshLinearConnectionTokensWithLock: vi.fn(),
 }))
-vi.mock("../../observability/logger.js", () => ({
-  getLogger: vi.fn(() => ({ error: vi.fn() })),
-}))
 vi.mock("../../services/linear/config-from-repo.js", () => ({
   loadLinearScopeFromRepo: mocks.loadConfig,
 }))

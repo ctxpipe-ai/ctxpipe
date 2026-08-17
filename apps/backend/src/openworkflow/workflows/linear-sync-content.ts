@@ -8,7 +8,7 @@ import {
   getLinearBindingWithRepoByConnectionId,
   refreshLinearConnectionTokensWithLock,
 } from "../../models/linear-connector.js"
-import { getLogger } from "../../observability/logger.js"
+import { getLogger, createLogger, withLogger } from "../../observability/logger.js"
 import {
   linearTokenExpiresAt,
   refreshLinearOAuthToken,
@@ -27,7 +27,14 @@ export const linearSyncContent = defineWorkflow(
     name: "linear-sync-content",
     schema: LinearSyncContentInputSchema,
   },
-  async ({ input, step }) => {
+  async ({ input, step }) =>
+    withLogger(
+      createLogger({
+        workflow: "linear-sync-content",
+        orgId: input.orgId,
+        connectionId: input.connectionId,
+      }),
+      async () => {
     const env = parseEnv(process.env as Record<string, string | undefined>)
     const markSyncFailed = () =>
       withOrgDbContext(input.orgId, () =>
@@ -143,5 +150,6 @@ export const linearSyncContent = defineWorkflow(
       await markSyncFailed()
       throw error
     }
-  },
+      },
+    ),
 )

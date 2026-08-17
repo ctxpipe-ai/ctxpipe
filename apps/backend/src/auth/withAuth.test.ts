@@ -46,14 +46,6 @@ vi.mock("../db/client.js", () => ({
   withOrgDbContext: withOrgDbContextMock,
 }))
 
-vi.mock("../observability/logger.js", () => ({
-  getLogger: () => ({
-    error: vi.fn(),
-    warn: vi.fn(),
-    info: vi.fn(),
-  }),
-}))
-
 import {
   mcpOAuthProtectedResourceMetadataUrl,
   requireAuth,
@@ -62,6 +54,7 @@ import {
   withCookieAuth,
   withNetworkOrgContext,
 } from "./withAuth.js"
+import { contextStorage, withTestRequestLogger } from "../test/hono-test-logger.js"
 
 function createMockDb(input: {
   orgRows?: Array<{ id: string }>
@@ -125,6 +118,8 @@ function createMockDb(input: {
 
 function createBaseApp(): Hono<AppEnv> {
   const app = new Hono<AppEnv>()
+  app.use(contextStorage())
+  app.use(withTestRequestLogger)
   app.use("*", async (c, next) => {
     c.set("env", {
       AUTH_BASE_URL: "https://backend.example.com",

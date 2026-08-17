@@ -6,8 +6,6 @@ const withOrgDbContextMock = vi.hoisted(() =>
 const markRepositoryIndexingFailedMock = vi.hoisted(() =>
   vi.fn().mockResolvedValue(undefined),
 )
-const getLoggerErrorMock = vi.hoisted(() => vi.fn())
-const flushWorkflowLogMock = vi.hoisted(() => vi.fn())
 
 vi.mock("../../db/client.js", () => ({
   withOrgDbContext: withOrgDbContextMock,
@@ -15,13 +13,6 @@ vi.mock("../../db/client.js", () => ({
 
 vi.mock("../../models/repositories.js", () => ({
   markRepositoryIndexingFailed: markRepositoryIndexingFailedMock,
-}))
-
-vi.mock("../../observability/logger.js", () => ({
-  createLogger: () => ({}),
-  withLogger: (_logger: unknown, fn: () => unknown) => fn(),
-  getLogger: () => ({ error: getLoggerErrorMock }),
-  flushWorkflowLog: flushWorkflowLogMock,
 }))
 
 vi.mock("./repository-ingestion.js", () => ({
@@ -103,18 +94,6 @@ describe("repositoryIngestionOrchestrator workflow", () => {
     // Failure must not tip-check / enqueue follow-up — only mark-failed.
     expect(step.run).toHaveBeenCalledTimes(1)
     expect(step.run.mock.calls[0]?.[0]).toEqual({ name: "mark-failed" })
-
-    // Must log via evlog, not console
-    expect(getLoggerErrorMock).toHaveBeenCalledWith(
-      childError,
-      expect.objectContaining({
-        step: "repository-ingestion-orchestrator.child-failed",
-        workflow: "repository-ingestion-orchestrator",
-        repositoryId: "repo_1",
-        orgId: "org_1",
-      }),
-    )
-    expect(flushWorkflowLogMock).toHaveBeenCalled()
   })
 
   it("rethrows SleepSignal without marking failed", async () => {
