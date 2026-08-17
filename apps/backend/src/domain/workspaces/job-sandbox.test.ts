@@ -132,6 +132,44 @@ describe("job sandbox", () => {
     )
   })
 
+  it("fetches extra merge SHAs before scrubbing origin", async () => {
+    const exec = vi.fn(async (command: string) => {
+      if (command.startsWith("git fetch ")) {
+        return { stdout: "", stderr: "", exitCode: 0 }
+      }
+      return { stdout: "", stderr: "", exitCode: 0 }
+    })
+    const clone = vi.fn(async () => undefined)
+    await createTanstackJobSandbox({
+      sandboxId: "job-1",
+      gitUrl: "https://github.com/acme/docs",
+      ref: "bbb2222",
+      fetchShas: ["aaa1111"],
+      cloneToken: "tok",
+      env: {},
+      loadModules: async () => ({
+        localProcessSandbox: () => ({
+          create: async () => ({
+            process: { exec },
+            fs: {
+              write: async () => undefined,
+              read: async () => "",
+              remove: async () => undefined,
+              mkdir: async () => undefined,
+            },
+            git: { clone },
+            destroy: async () => undefined,
+          }),
+        }),
+      }),
+    })
+    const commands = exec.mock.calls.map((call) => call[0])
+    expect(commands).toEqual([
+      "git fetch --depth=1 origin aaa1111",
+      "git remote set-url origin https://github.com/acme/docs",
+    ])
+  })
+
   it("throws when clone fails instead of seeding an empty repo", async () => {
     const exec = vi.fn(async () => ({ stdout: "", stderr: "", exitCode: 0 }))
     const clone = vi.fn(async () => {

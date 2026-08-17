@@ -111,6 +111,7 @@ async function seedJobRepo(
     gitUrl: string
     ref: string
     cloneToken?: string | null
+    fetchShas?: readonly string[]
   },
 ): Promise<void> {
   if (!handle.git) {
@@ -122,6 +123,15 @@ async function seedJobRepo(
     auth: input.cloneToken ? { token: input.cloneToken } : undefined,
     depth: 1,
   })
+  for (const sha of input.fetchShas ?? []) {
+    if (!/^[0-9a-f]{6,40}$/i.test(sha.trim())) continue
+    const fetched = await handle.process.exec(
+      `git fetch --depth=1 origin ${sha.trim()}`,
+    )
+    if (fetched.exitCode !== 0) {
+      throw new Error(fetched.stderr || `missing commit ${sha}`)
+    }
+  }
   await handle.process.exec(scrubOriginAfterCloneCommand(input.gitUrl))
 }
 
@@ -130,6 +140,7 @@ export async function createTanstackJobSandbox(input: {
   gitUrl: string
   ref: string
   cloneToken?: string | null
+  fetchShas?: readonly string[]
   env?: Record<string, string | undefined>
   loadModules?: () => Promise<SandboxModules>
 }): Promise<{

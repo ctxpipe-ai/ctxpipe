@@ -92,6 +92,7 @@ describe("write runner", () => {
       }),
     ).toBe("skip_push_and_hydrate")
     expect(jobWorktreeName("job_1")).toBe("job-job_1")
+    expect(jobWorktreeName("x; rm -rf /")).toBe("job-xrm-rf")
   })
 
   it("skips a no-op commit and plans a one-commit push on the default branch", () => {
@@ -139,6 +140,17 @@ describe("write runner", () => {
     expect(unlink).toMatchObject({
       action: "commit",
       deletePaths: ["repositories/billing.md"],
+    })
+    const deletionOnly = planWorkspaceWriteCommit({
+      ...gate,
+      kind: "semantic_merge",
+      files: [],
+      deletePaths: ["knowledge/gone.md"],
+      existing: new Map(),
+    })
+    expect(deletionOnly).toMatchObject({
+      action: "commit",
+      deletePaths: ["knowledge/gone.md"],
     })
   })
 
@@ -273,6 +285,13 @@ describe("write runner", () => {
         kind: "connector_mirror",
         nonFastForward: true,
         capturedParentSha: null,
+      }),
+    ).toBe(false)
+    expect(
+      shouldEnqueueSemanticMergeOnPushFailure({
+        kind: "connector_mirror",
+        nonFastForward: true,
+        capturedParentSha: "abc",
       }),
     ).toBe(true)
   })

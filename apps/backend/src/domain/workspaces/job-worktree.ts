@@ -118,9 +118,31 @@ async function execOrThrow(
   return result
 }
 
+export function jobWorktreeAddCommand(
+  worktree: string,
+  startRef = "HEAD",
+): string {
+  if (!/^[A-Za-z0-9._-]+$/.test(worktree)) {
+    throw new Error("invalid worktree name")
+  }
+  const ref =
+    startRef === "HEAD" || /^[0-9a-f]{6,40}$/i.test(startRef.trim())
+      ? startRef.trim()
+      : "HEAD"
+  return `git worktree add -- ${worktree} ${ref}`
+}
+
+export function jobWorktreeRemoveCommand(worktree: string): string {
+  if (!/^[A-Za-z0-9._-]+$/.test(worktree)) {
+    throw new Error("invalid worktree name")
+  }
+  return `git worktree remove --force -- ${worktree}`
+}
+
 export async function runJobWorktree(input: {
   worktree: string
   repoRoot?: string
+  startRef?: string
   files: ReadonlyArray<{ path: string; content: string }>
   deletePaths?: ReadonlyArray<string>
   exec: JobWorktreeExec
@@ -133,9 +155,13 @@ export async function runJobWorktree(input: {
   const repoRoot = input.repoRoot ?? "."
   let added = false
   try {
-    await execOrThrow(input.exec, `git worktree add ${input.worktree} HEAD`, {
-      cwd: repoRoot,
-    })
+    await execOrThrow(
+      input.exec,
+      jobWorktreeAddCommand(input.worktree, input.startRef ?? "HEAD"),
+      {
+        cwd: repoRoot,
+      },
+    )
     added = true
     for (const file of input.files) {
       const dest = joinWorktreePath(input.worktree, file.path)
@@ -163,11 +189,9 @@ export async function runJobWorktree(input: {
     return { files, deletePaths: changed.deletePaths }
   } finally {
     if (added) {
-      await execOrThrow(
-        input.exec,
-        `git worktree remove --force ${input.worktree}`,
-        { cwd: repoRoot },
-      )
+      await execOrThrow(input.exec, jobWorktreeRemoveCommand(input.worktree), {
+        cwd: repoRoot,
+      })
     }
   }
 }

@@ -15,13 +15,20 @@ import {
   planMigrationExport,
 } from "../../domain/workspaces/migration-export.js"
 import { detectSandboxProviderFromEnv } from "../../domain/workspaces/sandbox-provider.js"
-import { getJobSandbox } from "../../domain/workspaces/sandbox-registry.js"
+import {
+  destroySandboxesForWorkspace,
+  getJobSandbox,
+} from "../../domain/workspaces/sandbox-registry.js"
 import {
   deletePathsForWorkspaceWriteKind,
   filesForWorkspaceWriteKind,
   shouldEnqueueBootstrapAfterExport,
 } from "../../domain/workspaces/write-commit-files.js"
-import { applyJobWorktreeIfPresent } from "../../domain/workspaces/write-job-agent.js"
+import {
+  applyJobWorktreeIfPresent,
+  missingSemanticMergeShas,
+  semanticMergeTreeShas,
+} from "../../domain/workspaces/write-job-agent.js"
 import {
   WRITE_JOB_STATUSES,
   writeJobIntentPayload,
@@ -308,6 +315,19 @@ export const workspaceWriteCommit = defineWorkflow(
                   })
                   if (content != null) existing.set(entry.path, content)
                 }
+              } else if (input.kind === "semantic_merge") {
+                const tipSha = input.remoteTipSha ?? parentSha
+                const tree = tipSha
+                  ? await listFilesAtSha({ ...github, sha: tipSha })
+                  : await listFilesInTree(github)
+                for (const entry of tree) {
+                  const content = await getFileContent({
+                    ...github,
+                    branch: tipSha ?? defaultBranch,
+                    path: entry.path,
+                  })
+                  if (content != null) existing.set(entry.path, content)
+                }
               } else if (input.kind === "link_unlink") {
                 const tree = parentSha
                   ? await listFilesAtSha({ ...github, sha: parentSha })
@@ -359,23 +379,57 @@ export const workspaceWriteCommit = defineWorkflow(
                 linkChange,
                 mergeDeletePaths: input.mergeDeletePaths,
               })
+              const mergeTrees =
+                input.kind === "semantic_merge"
+                  ? semanticMergeTreeShas({
+                      conflictParentSha: input.conflictParentSha,
+                      remoteTipSha: input.remoteTipSha,
+                    })
+                  : null
               const sandboxId = workspaceWriteSandboxId({
                 orgId: input.orgId,
                 workspaceId: workspace.id,
                 desiredUrl: jobWorkspaceUrl,
                 desiredSha: parentSha,
               })
+              const mergeShas = mergeTrees
+                ? [mergeTrees.conflictParentSha, mergeTrees.remoteTipSha]
+                : []
+              let existingSandbox = getJobSandbox(workspace.id)
+              if (
+                existingSandbox &&
+                input.kind === "semantic_merge" &&
+                mergeShas.length > 0
+              ) {
+                const missing = await missingSemanticMergeShas({
+                  exec: existingSandbox.exec,
+                  shas: mergeShas,
+                })
+                if (missing.length > 0) {
+                  await destroySandboxesForWorkspace(workspace.id, "job")
+                  if (getJobSandbox(workspace.id)) {
+                    throw new Error(
+                      "cannot refresh job sandbox for semantic merge",
+                    )
+                  }
+                  existingSandbox = null
+                }
+              }
               const sandbox = await ensureJobSandbox({
                 orgId: input.orgId,
                 workspaceId: workspace.id,
                 desiredUrl: jobWorkspaceUrl,
                 desiredSha: parentSha,
-                existing: getJobSandbox(workspace.id),
+                existing: existingSandbox,
                 create: async () =>
                   createTanstackJobSandbox({
                     sandboxId: sandboxId ?? jobId,
                     gitUrl: jobWorkspaceUrl,
-                    ref: parentSha ?? defaultBranch,
+                    ref:
+                      input.kind === "semantic_merge"
+                        ? defaultBranch
+                        : (parentSha ?? defaultBranch),
+                    fetchShas: input.kind === "semantic_merge" ? mergeShas : [],
                     cloneToken:
                       (await getRepoReadCloneToken(input.orgId, env, {
                         githubConnectionId:
@@ -390,8 +444,12 @@ export const workspaceWriteCommit = defineWorkflow(
                 files: plannedFiles,
                 deletePaths: plannedDeletes,
                 sandbox,
-                conflictParentSha: input.conflictParentSha ?? parentSha,
-                remoteTipSha: input.remoteTipSha,
+                conflictParentSha: mergeTrees
+                  ? mergeTrees.conflictParentSha
+                  : (input.conflictParentSha ?? parentSha),
+                remoteTipSha: mergeTrees
+                  ? mergeTrees.remoteTipSha
+                  : input.remoteTipSha,
               })
               const files = prepared.files
               const deletePaths = prepared.deletePaths
@@ -480,6 +538,7 @@ export const workspaceWriteCommit = defineWorkflow(
                 repoName: repoShortName,
                 trigger: input.kind,
                 llmSubject,
+                kind: input.kind,
               })
               const live = await getWorkspaceById(input.workspaceId)
               if (!live) throw new Error("Workspace not found")
@@ -546,24 +605,33 @@ export const workspaceWriteCommit = defineWorkflow(
                     capturedParentSha: capturedParent,
                   })
                 ) {
-                  const { enqueueWorkspaceWriteCommit } = await import(
-                    "../enqueue-workspace-write-commit.js"
-                  )
-                  void enqueueWorkspaceWriteCommit(
-                    {
-                      orgId: input.orgId,
-                      workspaceId: workspace.id,
-                      kind: "semantic_merge",
-                      defaultBranch,
-                      jobGeneration,
-                      jobWorkspaceUrl,
-                      jobDesiredSha: null,
-                      conflictParentSha: capturedParent,
-                      mergeFiles: files,
-                      mergeDeletePaths: deletePaths,
-                    },
-                    { error: () => undefined },
-                  ).catch(() => undefined)
+                  const tip = await resolveWorkspaceRepositoryTip({
+                    orgId: input.orgId,
+                    githubConnectionId: workspace.githubConnectionId,
+                    workspaceRepositoryUrl: jobWorkspaceUrl,
+                    env,
+                  })
+                  if (capturedParent && tip && capturedParent !== tip) {
+                    const { enqueueWorkspaceWriteCommit } = await import(
+                      "../enqueue-workspace-write-commit.js"
+                    )
+                    void enqueueWorkspaceWriteCommit(
+                      {
+                        orgId: input.orgId,
+                        workspaceId: workspace.id,
+                        kind: "semantic_merge",
+                        defaultBranch,
+                        jobGeneration,
+                        jobWorkspaceUrl,
+                        jobDesiredSha: null,
+                        conflictParentSha: capturedParent,
+                        remoteTipSha: tip,
+                        mergeFiles: files,
+                        mergeDeletePaths: deletePaths,
+                      },
+                      { error: () => undefined },
+                    ).catch(() => undefined)
+                  }
                 }
                 throw error
               }

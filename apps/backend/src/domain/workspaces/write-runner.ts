@@ -28,7 +28,8 @@ export function jobCommitPath(input: {
 }
 
 export function jobWorktreeName(jobId: string): string {
-  return `${JOB_WORKTREE_PREFIX}-${jobId}`
+  const safe = jobId.replace(/[^A-Za-z0-9._-]/g, "").slice(0, 80)
+  return `${JOB_WORKTREE_PREFIX}-${safe || "unknown"}`
 }
 
 /** One write sandbox per Workspace, keyed by desired URL + SHA. */
@@ -199,12 +200,12 @@ export function shouldEnqueueSemanticMergeOnPushFailure(input: {
   capturedParentSha: string | null
 }): boolean {
   if (
-    input.capturedParentSha != null &&
-    input.nonFastForward &&
-    planAfterCasRejection() === "enqueue_semantic_merge"
+    !input.nonFastForward ||
+    !capturedWriteParentSha(input.capturedParentSha)
   ) {
-    return true
+    return false
   }
+  if (planAfterCasRejection() === "enqueue_semantic_merge") return true
   return (
     planAfterMechanicalPushFailure({
       kind: input.kind,
@@ -233,6 +234,7 @@ export function planWorkspaceWriteCommit(input: {
   repoName: string
   trigger?: string
   llmSubject?: string | null
+  kind?: WorkspaceWriteKind
 }):
   | { action: "skip"; reason: "no_changes" | "paused" | string }
   | {
@@ -247,7 +249,7 @@ export function planWorkspaceWriteCommit(input: {
     (file) => input.existing.get(file.path) !== file.content,
   )
   const deletePaths = [...(input.deletePaths ?? [])].filter((path) =>
-    input.existing.has(path),
+    input.kind === "semantic_merge" ? true : input.existing.has(path),
   )
   if (files.length === 0 && deletePaths.length === 0) {
     return { action: "skip", reason: "no_changes" }

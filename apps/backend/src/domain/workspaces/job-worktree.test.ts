@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from "vitest"
 import {
+  jobWorktreeAddCommand,
   joinWorktreePath,
   parseGitStatusPorcelain,
   realpathInsideRoot,
@@ -100,9 +101,18 @@ describe("job worktree runner", () => {
       },
       fs,
     })
-    expect(commands[0]).toBe("git worktree add job-job_1 HEAD")
+    expect(commands[0]).toBe("git worktree add -- job-job_1 HEAD")
+    expect(jobWorktreeAddCommand("job-job_1")).toBe(
+      "git worktree add -- job-job_1 HEAD",
+    )
+    expect(jobWorktreeAddCommand("job-job_1", "abc123def")).toBe(
+      "git worktree add -- job-job_1 abc123def",
+    )
+    expect(() => jobWorktreeAddCommand("; rm -rf /")).toThrow(
+      "invalid worktree name",
+    )
     expect(commands.some((cmd) => cmd === "git add -A")).toBe(true)
-    expect(commands.at(-1)).toBe("git worktree remove --force job-job_1")
+    expect(commands.at(-1)).toBe("git worktree remove --force -- job-job_1")
     expect(commands.some((cmd) => /\bgit commit\b/.test(cmd))).toBe(false)
     expect(commands.some((cmd) => /\bgit push\b/.test(cmd))).toBe(false)
     expect(files.get("job-job_1/knowledge/a.md")).toBe("hello")
@@ -175,5 +185,57 @@ describe("job worktree runner", () => {
     expect(result.via).toBe("worktree")
     expect(result.files).toEqual([{ path: "knowledge/a.md", content: "x" }])
     expect(exec).toHaveBeenCalled()
+  })
+
+  it("checks out the remote tip before a semantic-merge worktree agent", async () => {
+    const { fs, files } = memoryFs()
+    const commands: string[] = []
+    const exec = vi.fn(async (command: string) => {
+      commands.push(command)
+      if (command.startsWith("git cat-file -t ")) {
+        return { stdout: "commit\n", stderr: "", exitCode: 0 }
+      }
+      if (command.includes("status --porcelain")) {
+        return {
+          stdout: "A  knowledge/a.md\n",
+          stderr: "",
+          exitCode: 0,
+        }
+      }
+      return { stdout: "", stderr: "", exitCode: 0 }
+    })
+    const result = await applyJobWorktreeIfPresent({
+      worktree: { spawn: true, worktree: "job-job_1" },
+      kind: "semantic_merge",
+      files: [{ path: "knowledge/a.md", content: "merged" }],
+      deletePaths: ["knowledge/gone.md"],
+      conflictParentSha: "aaa1111",
+      remoteTipSha: "bbb2222",
+      sandbox: { exec, fs },
+      turn: async (prompt) => {
+        expect(prompt).toContain("failed job candidate")
+        expect(prompt).toContain("FILE knowledge/a.md")
+        expect(files.has("job-job_1/knowledge/a.md")).toBe(false)
+        return '{"files":[{"path":"knowledge/a.md","content":"merged"}],"deletePaths":[]}'
+      },
+    })
+    expect(result.via).toBe("worktree")
+    expect(commands).toContain("git cat-file -t aaa1111")
+    expect(commands).toContain("git cat-file -t bbb2222")
+    expect(commands).toContain("git worktree add -- job-job_1 bbb2222")
+  })
+
+  it("refuses a GitHub API fallback for semantic merge", async () => {
+    await expect(
+      applyJobWorktreeIfPresent({
+        worktree: { spawn: true, worktree: "job-job_1" },
+        kind: "semantic_merge",
+        files: [{ path: "knowledge/a.md", content: "merged" }],
+        deletePaths: [],
+        conflictParentSha: "aaa1111",
+        remoteTipSha: "bbb2222",
+        sandbox: null,
+      }),
+    ).rejects.toThrow("semantic merge requires both trees in the job worktree")
   })
 })
