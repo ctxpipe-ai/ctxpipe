@@ -60,6 +60,9 @@ jobs:
       - name: Backend tests
         env:
           AUTH_SECRET: ci-auth-secret-must-be-at-least-32-chars
+          # Unit tests that call parseEnv(process.env) need a syntactically valid URL;
+          # integration / MCP conformance suites are excluded from the default vitest run.
+          DATABASE_URL: postgresql://ctxpipe:ctxpipe@127.0.0.1:5432/ctxpipe
         run: pnpm --filter @ctxpipe/backend test
       - name: UI tests
         run: pnpm --filter @ctxpipe/ui test
@@ -69,7 +72,8 @@ jobs:
     runs-on: ubuntu-latest
     services:
       postgres:
-        image: postgres:16
+        # Matches local Compose (pgvector); plain postgres:16 lacks the vector extension.
+        image: pgvector/pgvector:pg17
         env:
           POSTGRES_USER: ctxpipe
           POSTGRES_PASSWORD: ctxpipe

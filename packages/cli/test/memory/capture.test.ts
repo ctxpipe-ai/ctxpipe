@@ -1,4 +1,10 @@
-import { mkdtempSync, readFileSync, existsSync, mkdirSync, writeFileSync } from "node:fs"
+import {
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  writeFileSync,
+} from "node:fs"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { describe, expect, it } from "vitest"
@@ -16,7 +22,7 @@ import {
 describe("memory/capture", () => {
   it("redacts common secrets", () => {
     const { text, redacted } = redactText(
-      'api_key=sk-ant-secret123 and Bearer abc.def.ghi',
+      "api_key=sk-ant-secret123 and Bearer abc.def.ghi",
     )
     expect(redacted).toBe(true)
     expect(text).not.toContain("sk-ant-secret123")
@@ -92,7 +98,9 @@ describe("memory/capture", () => {
   })
 
   it("classifies lesson-shaped prompts", () => {
-    const hits = classifyText("From now on always use Zod schemas collocated with routes")
+    const hits = classifyText(
+      "From now on always use Zod schemas collocated with routes",
+    )
     expect(hits.some((h) => h.kind === "lesson")).toBe(true)
   })
 
@@ -103,7 +111,8 @@ describe("memory/capture", () => {
       eventType: "beforeSubmitPrompt",
       cwd,
       payload: {
-        prompt: "We decided to use Markdown-only memory without a search daemon",
+        prompt:
+          "We decided to use Markdown-only memory without a search daemon",
         sessionId: "s1",
       },
     })
@@ -113,7 +122,8 @@ describe("memory/capture", () => {
     expect(existsSync(candidates)).toBe(true)
     const line = readFileSync(candidates, "utf8").trim().split("\n")[0]
     expect(line).toBeTruthy()
-    const parsed = JSON.parse(line!) as { kind: string; destination: string }
+    if (!line) throw new Error("expected candidate line")
+    const parsed = JSON.parse(line) as { kind: string; destination: string }
     expect(parsed.kind).toBe("decision")
     expect(parsed.destination).toContain("decisions")
   })
@@ -122,32 +132,35 @@ describe("memory/capture", () => {
     "summary lists pending candidates and marks only surfaced ones after ack",
     { timeout: 15_000 },
     () => {
-    const cwd = mkdtempSync(join(tmpdir(), "ctxpipe-capture-sum-"))
-    observeCapture({
-      host: "claude",
-      eventType: "UserPromptSubmit",
-      cwd,
-      payload: {
-        prompt: "Never commit secrets into .ai/memory",
-        sessionId: "s2",
-      },
-    })
-    const first = summarizeCapture({ cwd })
-    expect(first.candidates.length).toBeGreaterThan(0)
-    expect(first.candidates[0]?.candidateId).toBeTruthy()
-    expect(first.surfacedIds.length).toBe(first.candidates.length)
-    expect(first.priority).not.toBe("low")
-    // Before ack, candidates remain pending (delivery may have failed).
-    expect(summarizeCapture({ cwd }).candidates.length).toBeGreaterThan(0)
-    acknowledgeSurfaced(first.surfacedIds, { cwd })
-    // Surfaced-but-unresolved stay visible until promote/dismiss.
-    const second = summarizeCapture({ cwd })
-    expect(second.candidates.length).toBeGreaterThan(0)
-    expect(second.candidates[0]?.candidateId).toBe(first.candidates[0]?.candidateId)
-    expect(
-      existsSync(join(cwd, ".ai", "memory", "events", "lifecycle.json")),
-    ).toBe(true)
-  })
+      const cwd = mkdtempSync(join(tmpdir(), "ctxpipe-capture-sum-"))
+      observeCapture({
+        host: "claude",
+        eventType: "UserPromptSubmit",
+        cwd,
+        payload: {
+          prompt: "Never commit secrets into .ai/memory",
+          sessionId: "s2",
+        },
+      })
+      const first = summarizeCapture({ cwd })
+      expect(first.candidates.length).toBeGreaterThan(0)
+      expect(first.candidates[0]?.candidateId).toBeTruthy()
+      expect(first.surfacedIds.length).toBe(first.candidates.length)
+      expect(first.priority).not.toBe("low")
+      // Before ack, candidates remain pending (delivery may have failed).
+      expect(summarizeCapture({ cwd }).candidates.length).toBeGreaterThan(0)
+      acknowledgeSurfaced(first.surfacedIds, { cwd })
+      // Surfaced-but-unresolved stay visible until promote/dismiss.
+      const second = summarizeCapture({ cwd })
+      expect(second.candidates.length).toBeGreaterThan(0)
+      expect(second.candidates[0]?.candidateId).toBe(
+        first.candidates[0]?.candidateId,
+      )
+      expect(
+        existsSync(join(cwd, ".ai", "memory", "events", "lifecycle.json")),
+      ).toBe(true)
+    },
+  )
 
   it(
     "second summary still surfaces candidates beyond the first batch of 8",
@@ -174,9 +187,9 @@ describe("memory/capture", () => {
       // Prefer the two never-shown ids before re-listing the first batch.
       expect(second.candidates.length).toBeGreaterThan(0)
       expect(second.candidates.length).toBeLessThanOrEqual(8)
-      expect(
-        second.candidates.some((c) => !firstIds.has(c.candidateId)),
-      ).toBe(true)
+      expect(second.candidates.some((c) => !firstIds.has(c.candidateId))).toBe(
+        true,
+      )
       acknowledgeSurfaced(second.surfacedIds, { cwd })
       // Still unresolved → still visible (no false completeness after ack).
       const third = summarizeCapture({ cwd })
@@ -195,9 +208,18 @@ describe("memory/capture", () => {
         sessionId: "legacy-1",
       },
     })
-    const candidatesPath = join(cwd, ".ai", "memory", "events", "candidates.jsonl")
+    const candidatesPath = join(
+      cwd,
+      ".ai",
+      "memory",
+      "events",
+      "candidates.jsonl",
+    )
+    const firstLine = readFileSync(candidatesPath, "utf8").trim().split("\n")[0]
+    expect(firstLine).toBeTruthy()
+    if (!firstLine) throw new Error("expected candidate line")
     const candidateId = (
-      JSON.parse(readFileSync(candidatesPath, "utf8").trim().split("\n")[0]!) as {
+      JSON.parse(firstLine) as {
         candidateId: string
       }
     ).candidateId
@@ -222,12 +244,15 @@ describe("memory/capture", () => {
       eventType: "beforeSubmitPrompt",
       cwd,
       payload: {
-        prompt: "We decided that promote and dismiss are terminal lifecycle states",
+        prompt:
+          "We decided that promote and dismiss are terminal lifecycle states",
         sessionId: "resolve-1",
       },
     })
     const summary = summarizeCapture({ cwd })
-    const id = summary.surfacedIds[0]!
+    const id = summary.surfacedIds[0]
+    expect(id).toBeTruthy()
+    if (!id) throw new Error("expected surfaced id")
     acknowledgeSurfaced([id], { cwd })
     markPromoted([id], { cwd })
     expect(summarizeCapture({ cwd }).candidates).toEqual([])
@@ -242,7 +267,9 @@ describe("memory/capture", () => {
       },
     })
     const again = summarizeCapture({ cwd })
-    const dismissId = again.surfacedIds[0]!
+    const dismissId = again.surfacedIds[0]
+    expect(dismissId).toBeTruthy()
+    if (!dismissId) throw new Error("expected dismiss id")
     acknowledgeSurfaced([dismissId], { cwd })
     markDismissed([dismissId], { cwd })
     expect(summarizeCapture({ cwd }).candidates).toEqual([])
@@ -259,8 +286,7 @@ describe("memory/capture", () => {
         edits: [
           {
             old_string: "listen(3000)",
-            new_string:
-              "// billing service runs on port 4000\nlisten(4000)",
+            new_string: "// billing service runs on port 4000\nlisten(4000)",
           },
         ],
         cwd,
@@ -283,13 +309,15 @@ describe("memory/capture", () => {
       },
     })
     expect(result.wrote).toBe(true)
-    const line = readFileSync(
+    const firstLine = readFileSync(
       join(cwd, ".ai", "memory", "events", "candidates.jsonl"),
       "utf8",
     )
       .trim()
-      .split("\n")[0]!
-    const candidate = JSON.parse(line) as { excerpt: string }
+      .split("\n")[0]
+    expect(firstLine).toBeTruthy()
+    if (!firstLine) throw new Error("expected candidate line")
+    const candidate = JSON.parse(firstLine) as { excerpt: string }
     expect(candidate.excerpt).toContain(".ai/memory/decisions/")
   })
 

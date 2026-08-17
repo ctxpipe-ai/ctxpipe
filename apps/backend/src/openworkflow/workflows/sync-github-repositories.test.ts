@@ -5,6 +5,13 @@ const listAllReposForInstallationMock = vi.hoisted(() => vi.fn())
 const bulkCreateRepositoriesForOrgMock = vi.hoisted(() => vi.fn())
 const runRepositoryIngestionWorkflowMock = vi.hoisted(() => vi.fn())
 
+vi.mock("../../config/env.js", () => ({
+  parseEnv: () => ({
+    DATABASE_URL: "postgres://localhost:5432/ctxpipe",
+    AUTH_SECRET: "abcdefghijklmnopqrstuvwxyz123456",
+  }),
+}))
+
 vi.mock("../../models/github-installation.js", () => ({
   getGithubInstallationByConnectionId: getGithubInstallationByConnectionIdMock,
   listAllReposForInstallation: listAllReposForInstallationMock,

@@ -22,7 +22,12 @@ type CandidateRow = {
   excerpt?: string
 }
 
-function run(cwd: string, args: string[], home?: string, stdin?: string): string {
+function run(
+  cwd: string,
+  args: string[],
+  home?: string,
+  stdin?: string,
+): string {
   return execFileSync(process.execPath, [BIN, ...args], {
     cwd,
     encoding: "utf8",
@@ -99,7 +104,11 @@ describe("memory harness e2e (Layer A)", () => {
       const home = mkdtempSync(join(tmpdir(), "ctxpipe-mem-harness-home-"))
 
       // 1) Init harness
-      run(cwd, ["memory", "init", "--agents", "cursor", "--non-interactive"], home)
+      run(
+        cwd,
+        ["memory", "init", "--agents", "cursor", "--non-interactive"],
+        home,
+      )
       expect(existsSync(join(cwd, ".ai", "memory", "index.md"))).toBe(true)
       expect(existsSync(join(cwd, ".cursor", "hooks.json"))).toBe(true)
       expect(
@@ -115,7 +124,15 @@ describe("memory harness e2e (Layer A)", () => {
       }
       run(
         cwd,
-        ["memory", "capture", "observe", "--host", "cursor", "--event", "afterFileEdit"],
+        [
+          "memory",
+          "capture",
+          "observe",
+          "--host",
+          "cursor",
+          "--event",
+          "afterFileEdit",
+        ],
         home,
         JSON.stringify(cursorEdit),
       )
@@ -140,15 +157,23 @@ describe("memory harness e2e (Layer A)", () => {
       }
       const finalizeOut = run(
         cwd,
-        ["memory", "capture", "finalize", "--host", "claude", "--event", "Stop"],
+        [
+          "memory",
+          "capture",
+          "finalize",
+          "--host",
+          "claude",
+          "--event",
+          "Stop",
+        ],
         home,
         JSON.stringify(claudeStop),
       )
       expect(finalizeOut.trim().length).toBeGreaterThan(0)
-      const stopPayload = JSON.parse(finalizeOut.trim().split("\n").at(-1)!) as Record<
-        string,
-        unknown
-      >
+      const lastLine = finalizeOut.trim().split("\n").at(-1)
+      expect(lastLine).toBeTruthy()
+      if (!lastLine) throw new Error("expected finalize stdout line")
+      const stopPayload = JSON.parse(lastLine) as Record<string, unknown>
       expect(Object.keys(stopPayload).length).toBeGreaterThan(0)
 
       const afterFinalize = readCandidates(cwd)
@@ -184,7 +209,9 @@ describe("memory harness e2e (Layer A)", () => {
       expect(adrIndex).not.toMatch(/ADR-\d{3}-/)
 
       // 3) Promote one surfaced candidate via CLI; plant durable Markdown
-      const promotedId = lifecycleAfterStop.surfaced[0]!
+      const promotedId = lifecycleAfterStop.surfaced[0]
+      expect(promotedId).toBeTruthy()
+      if (!promotedId) throw new Error("expected surfaced candidate id")
       const lessonPath = join(cwd, ".ai", "memory", "lessons-learned.md")
       const planted =
         "Planted harness fact: billing service canonical port is 4000."
@@ -241,7 +268,11 @@ describe("memory harness e2e (Layer A)", () => {
         }),
         "utf8",
       )
-      run(cwd, ["memory", "init", "--agents", "cursor", "--non-interactive"], home)
+      run(
+        cwd,
+        ["memory", "init", "--agents", "cursor", "--non-interactive"],
+        home,
+      )
       expect(existsSync(join(cwd, ".cursor", "skills", "memory-sync"))).toBe(
         false,
       )

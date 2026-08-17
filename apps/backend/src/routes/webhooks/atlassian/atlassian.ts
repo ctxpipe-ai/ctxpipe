@@ -2,7 +2,6 @@ import type { OpenAPIHono } from "@hono/zod-openapi"
 import type { Context } from "hono"
 import { createRemoteJWKSet, type JWTPayload, jwtVerify } from "jose"
 import type { AppEnv } from "../../../app/env.js"
-import { parseEnv } from "../../../config/env.js"
 import { parseAtlassianApiBaseUrlFromFitPayload } from "../../../lib/atlassian-api-base-url.js"
 import {
   getForgeInstallationByForgeInstallationId,
@@ -283,7 +282,7 @@ export function registerAtlassianWebhookRoute(app: OpenAPIHono<AppEnv>) {
       const outcome = await handleForgeConfluenceContentEvent({
         orgId: installation.orgId,
         connectionId: installation.id,
-        env: parseEnv(process.env as Record<string, string | undefined>),
+        env: c.get("env"),
         spaceKey,
         pageId,
         eventType,
