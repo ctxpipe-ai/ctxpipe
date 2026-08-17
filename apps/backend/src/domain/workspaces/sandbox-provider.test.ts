@@ -8,10 +8,17 @@ import {
 
 const dockerSandbox = vi.hoisted(() => vi.fn())
 const sbxSandbox = vi.hoisted(() => vi.fn())
+const dockerPing = vi.hoisted(() => vi.fn(async () => undefined))
 
 vi.mock("@tanstack/ai-sandbox-docker", () => ({
   dockerSandbox,
   sbxSandbox,
+}))
+
+vi.mock("dockerode", () => ({
+  default: class Docker {
+    ping = dockerPing
+  },
 }))
 
 describe("detectSandboxProvider", () => {
@@ -51,6 +58,8 @@ describe("destroyDetachedProviderSandbox", () => {
   beforeEach(() => {
     dockerSandbox.mockReset()
     sbxSandbox.mockReset()
+    dockerPing.mockReset()
+    dockerPing.mockResolvedValue(undefined)
   })
 
   it("refuses railway, unsandboxed, and missing providers instead of routing to local-process", async () => {
@@ -86,5 +95,18 @@ describe("destroyDetachedProviderSandbox", () => {
     expect(dockerSandbox).not.toHaveBeenCalled()
     expect(destroy).toHaveBeenCalledWith({ id: "sbx_vm" })
     expect(resume).toHaveBeenCalledWith({ id: "sbx_vm" })
+  })
+
+  it("does not treat a Docker outage as a successful destroy", async () => {
+    dockerPing.mockRejectedValueOnce(new Error("ECONNREFUSED"))
+    const destroy = vi.fn(async () => undefined)
+    dockerSandbox.mockReturnValue({ destroy, resume: async () => null })
+    await expect(
+      destroyDetachedProviderSandbox({
+        provider: "docker",
+        providerSandboxId: "ctr_1",
+      }),
+    ).rejects.toThrow("ECONNREFUSED")
+    expect(destroy).not.toHaveBeenCalled()
   })
 })

@@ -46,6 +46,7 @@ export async function destroyDetachedProviderSandbox(input: {
 }): Promise<void> {
   if (input.provider === "docker") {
     const docker = await import("@tanstack/ai-sandbox-docker").catch(() => null)
+    await assertDockerDaemonReachable()
     await destroyWithProviderFactory({
       factory: docker?.dockerSandbox?.({ image: "node:22" }),
       provider: "docker",
@@ -79,6 +80,15 @@ export async function destroyDetachedProviderSandbox(input: {
   throw new Error(
     `Cannot destroy detached sandbox for provider ${input.provider ?? "unknown"}`,
   )
+}
+
+async function assertDockerDaemonReachable(): Promise<void> {
+  const Dockerode = await import("dockerode").catch(() => null)
+  const Docker = Dockerode?.default ?? Dockerode
+  if (typeof Docker !== "function") {
+    throw new Error("Cannot verify Docker daemon for detached destroy")
+  }
+  await new (Docker as new () => { ping: () => Promise<unknown> })().ping()
 }
 
 async function destroyWithProviderFactory(input: {

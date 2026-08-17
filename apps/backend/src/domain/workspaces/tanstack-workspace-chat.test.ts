@@ -11,6 +11,8 @@ const defineWorkspaceMock = vi.hoisted(() => vi.fn((input) => input))
 const gitSourceMock = vi.hoisted(() => vi.fn((input) => input))
 const withSandboxMock = vi.hoisted(() => vi.fn((def) => def))
 const dockerSandboxMock = vi.hoisted(() => vi.fn(() => "docker-provider"))
+const sbxSandboxMock = vi.hoisted(() => vi.fn(() => "sbx-provider"))
+const listSandboxInstancesMock = vi.hoisted(() => vi.fn(async () => []))
 
 vi.mock("@tanstack/ai", () => ({ chat: chatMock }))
 vi.mock("@tanstack/ai-opencode", () => ({ opencodeText: opencodeTextMock }))
@@ -22,6 +24,7 @@ vi.mock("@tanstack/ai-sandbox", () => ({
 }))
 vi.mock("@tanstack/ai-sandbox-docker", () => ({
   dockerSandbox: dockerSandboxMock,
+  sbxSandbox: sbxSandboxMock,
 }))
 vi.mock("@tanstack/ai-sandbox-local-process", () => ({
   localProcessSandbox: vi.fn(() => "local-provider"),
@@ -88,7 +91,7 @@ vi.mock("../../models/workspaces.js", () => ({
   persistSandboxInstance: vi.fn(async () => {}),
   deleteSandboxInstance: vi.fn(async () => {}),
   claimSandboxInstance,
-  listSandboxInstances: vi.fn(async () => []),
+  listSandboxInstances: listSandboxInstancesMock,
   heartbeatSandboxInstance: vi.fn(async () => {}),
   getSandboxInstance: vi.fn(async () => null),
   getWorkspaceById,
@@ -304,6 +307,37 @@ describe("runTanstackWorkspaceChat", () => {
           withLock: expect.any(Function),
         }),
       }),
+    )
+  })
+
+  it("resumes a stored sbx chat sandbox through sbxSandbox", async () => {
+    listSandboxInstancesMock.mockResolvedValueOnce([
+      {
+        id: "tanstack-key",
+        kind: "chat",
+        workspaceId: "ws_1",
+        conversationId: "conv_1",
+        provider: "sbx",
+        providerSandboxId: "sbx_vm",
+        state: "live",
+        lastHeartbeatAt: new Date(),
+      },
+    ])
+    const res = await runTanstackWorkspaceChat({
+      conversationId: "conv_1",
+      prompt: "hello",
+      orgId: "org_1",
+      workspaceId: "ws_1",
+      desiredUrl: "https://github.com/acme/docs",
+      desiredSha: "abc",
+      ref: "abc",
+      writeStatus: "writable",
+    })
+    expect(res.status).toBe(200)
+    expect(sbxSandboxMock).toHaveBeenCalled()
+    expect(dockerSandboxMock).not.toHaveBeenCalled()
+    expect(defineSandboxMock).toHaveBeenCalledWith(
+      expect.objectContaining({ provider: "sbx-provider" }),
     )
   })
 

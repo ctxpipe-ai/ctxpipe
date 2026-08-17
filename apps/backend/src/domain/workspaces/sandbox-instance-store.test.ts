@@ -3,16 +3,22 @@ import { beforeEach, describe, expect, it, vi } from "vitest"
 const getSandboxInstance = vi.hoisted(() => vi.fn())
 const persistSandboxInstance = vi.hoisted(() => vi.fn(async () => {}))
 const deleteSandboxInstance = vi.hoisted(() => vi.fn(async () => {}))
+const getWorkspaceById = vi.hoisted(() => vi.fn(async () => ({ id: "ws_1" })))
 const withDbClientMock = vi.hoisted(() => vi.fn())
+const withOrgDbContextMock = vi.hoisted(() =>
+  vi.fn(async (_orgId: string, fn: () => Promise<unknown>) => fn()),
+)
 
 vi.mock("../../models/workspaces.js", () => ({
   getSandboxInstance,
   persistSandboxInstance,
   deleteSandboxInstance,
+  getWorkspaceById,
 }))
 
 vi.mock("../../db/client.js", () => ({
   withLockClient: withDbClientMock,
+  withOrgDbContext: withOrgDbContextMock,
 }))
 
 import {
@@ -101,13 +107,21 @@ describe("postgresSandboxInstanceStore", () => {
 })
 
 describe("postgresSandboxLockStore", () => {
+  beforeEach(() => {
+    getWorkspaceById.mockReset()
+    getWorkspaceById.mockResolvedValue({ id: "ws_1" })
+  })
+
   it("takes the workspace lock then the instance lock without a transaction", async () => {
     const query = vi.fn().mockResolvedValue(undefined)
     withDbClientMock.mockImplementation(
       async (fn: (client: { query: typeof query }) => unknown) => fn({ query }),
     )
     const ran = vi.fn(async () => "ok")
-    const locks = postgresSandboxLockStore({ workspaceId: "ws_1" })
+    const locks = postgresSandboxLockStore({
+      orgId: "org_1",
+      workspaceId: "ws_1",
+    })
     await expect(locks.withLock("sandbox:key", ran)).resolves.toBe("ok")
     const locked = query.mock.calls
       .filter((call) => String(call[0]).includes("pg_advisory_lock("))
@@ -143,5 +157,22 @@ describe("postgresSandboxLockStore", () => {
       }),
     ).rejects.toThrow("create failed")
     expect(query.mock.calls.at(-1)?.[0]).toMatch(/pg_advisory_unlock/)
+  })
+
+  it("refuses chat create after the Workspace row is gone", async () => {
+    const query = vi.fn().mockResolvedValue(undefined)
+    withDbClientMock.mockImplementation(
+      async (fn: (client: { query: typeof query }) => unknown) => fn({ query }),
+    )
+    getWorkspaceById.mockResolvedValueOnce(null)
+    const ran = vi.fn(async () => "ok")
+    const locks = postgresSandboxLockStore({
+      orgId: "org_1",
+      workspaceId: "ws_1",
+    })
+    await expect(locks.withLock("sandbox:key", ran)).rejects.toThrow(
+      /Workspace ws_1 is gone/,
+    )
+    expect(ran).not.toHaveBeenCalled()
   })
 })

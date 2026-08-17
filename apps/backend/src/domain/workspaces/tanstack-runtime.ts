@@ -12,6 +12,7 @@ export type TanstackChatModules = {
   gitSource: typeof TanstackSandbox.gitSource
   withSandbox: typeof TanstackSandbox.withSandbox
   dockerSandbox?: typeof TanstackDocker.dockerSandbox
+  sbxSandbox?: typeof TanstackDocker.sbxSandbox
   localProcessSandbox?: typeof TanstackLocal.localProcessSandbox
 }
 
@@ -32,6 +33,7 @@ export async function loadTanstackChatModules(): Promise<TanstackChatModules> {
     gitSource: sandbox.gitSource,
     withSandbox: sandbox.withSandbox,
     dockerSandbox: docker?.dockerSandbox,
+    sbxSandbox: docker?.sbxSandbox,
     localProcessSandbox: local?.localProcessSandbox,
   }
 }

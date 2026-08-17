@@ -9,6 +9,7 @@ import {
 } from "../../models/conversation-messages.js"
 import {
   getWorkspaceById,
+  listSandboxInstances,
   listWorkspaceKnowledgeUnitsForChat,
 } from "../../models/workspaces.js"
 import { getLogger } from "../../observability/logger.js"
@@ -250,11 +251,24 @@ async function prepareTanstackWorkspaceChat(
   }
 
   const modules = await loadTanstackChatModules()
+  const storedChat = await withOrgDbContext(input.orgId, () =>
+    listSandboxInstances({
+      conversationId: input.conversationId,
+      kind: "chat",
+    }),
+  ).catch(() => [])
+  const storedProvider =
+    storedChat.find((row) => row.providerSandboxId)?.provider ??
+    storedChat[0]?.provider
   const locked = process.env.SANDBOX_PROVIDER?.trim() || null
   let provider =
-    spec.isolation === "docker"
-      ? modules.dockerSandbox?.({ image: "node:22" })
-      : modules.localProcessSandbox?.()
+    storedProvider === "sbx"
+      ? modules.sbxSandbox?.()
+      : storedProvider === "local-process" || storedProvider === "local_process"
+        ? modules.localProcessSandbox?.()
+        : spec.isolation === "docker"
+          ? modules.dockerSandbox?.({ image: "node:22" })
+          : modules.localProcessSandbox?.()
   if (!provider && locked !== "docker" && locked !== "railway") {
     provider = modules.localProcessSandbox?.()
   }
@@ -358,6 +372,7 @@ async function prepareTanstackWorkspaceChat(
           workspaceId: input.workspaceId,
         }),
         locks: postgresSandboxLockStore({
+          orgId: input.orgId,
           workspaceId: input.workspaceId,
         }),
       }),
