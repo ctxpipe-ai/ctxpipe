@@ -1,4 +1,5 @@
 import type { Meta, StoryObj } from "@storybook/react-vite"
+import { HttpResponse, http } from "msw"
 import {
   conversationDetailLoadingHandler,
   workspaceDetailErrorHandler,
@@ -10,6 +11,7 @@ import type { StoryRouteParams } from "../../../.storybook/decorators/with-story
 import { WorkspaceSurface } from "./WorkspaceSurface"
 import {
   docsWorkspace,
+  failedHydrateWorkspace,
   hydratingWorkspaceDetail,
   readOnlyWorkspace,
 } from "./workspace-fixtures"
@@ -94,6 +96,39 @@ export const Hydrating: Story = {
           workspaces: [hydratingWorkspaceDetail, docsWorkspace],
           detail: hydratingWorkspaceDetail,
         }),
+      },
+    },
+  },
+}
+
+export const PrepareFailed: Story = {
+  args: { workspaceSlug: "knowledge-failed" },
+  parameters: {
+    storyRoute: {
+      pattern: "orgWorkspace",
+      orgSlug,
+      workspaceSlug: "knowledge-failed",
+    } satisfies StoryRouteParams,
+    msw: {
+      handlers: {
+        page: [
+          http.post(
+            ({ request }) =>
+              /\/api\/v1\/workspaces\/[^/]+\/retry-prepare$/.test(
+                new URL(request.url).pathname,
+              ),
+            () =>
+              HttpResponse.json({
+                ...failedHydrateWorkspace,
+                hydrateStatus: "pending",
+                hydrateError: null,
+              }),
+          ),
+          ...workspaceShellHandlers({
+            workspaces: [failedHydrateWorkspace, docsWorkspace],
+            detail: { ...failedHydrateWorkspace, linkedRepositories: [] },
+          }),
+        ],
       },
     },
   },

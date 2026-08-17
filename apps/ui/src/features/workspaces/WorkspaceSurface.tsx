@@ -132,7 +132,7 @@ export function WorkspaceSurface(props: {
   if (hydrateView === "failed" || !workspaceProjectionReady(workspace)) {
     return (
       <AppShell>
-        <WorkspaceHydrateProgress workspace={workspace} />
+        <WorkspaceHydrateProgress orgSlug={orgSlug} workspace={workspace} />
       </AppShell>
     )
   }

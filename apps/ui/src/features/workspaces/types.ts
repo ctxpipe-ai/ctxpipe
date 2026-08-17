@@ -12,6 +12,7 @@ export type Workspace = {
   indexedSha: string | null
   writeStatus: string
   hydrateStatus: string
+  hydrateError: string | null
   readOnlyReason: string | null
   mostRecentConversationId: string | null
   createdAt: string

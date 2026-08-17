@@ -149,6 +149,22 @@ export async function touchWorkspace(
   }
 }
 
+export async function retryPrepareWorkspace(
+  orgSlug: string,
+  workspaceSlug: string,
+): Promise<Workspace> {
+  const res = await client[":orgSlug"].api.v1.workspaces[":workspaceSlug"][
+    "retry-prepare"
+  ].$post({
+    param: { orgSlug, workspaceSlug },
+  })
+  if (!res.ok) {
+    const err = (await res.json().catch(() => ({}))) as { error?: string }
+    throw new Error(err.error ?? "Failed to retry Workspace prepare")
+  }
+  return res.json() as Promise<Workspace>
+}
+
 export async function linkWorkspaceRepository(
   orgSlug: string,
   workspaceSlug: string,

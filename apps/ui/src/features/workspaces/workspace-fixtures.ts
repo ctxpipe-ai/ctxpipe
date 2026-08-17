@@ -23,6 +23,7 @@ export const docsWorkspace: Workspace = {
   indexedSha: "abc123def456",
   writeStatus: "writable",
   hydrateStatus: "ready",
+  hydrateError: null,
   readOnlyReason: null,
   mostRecentConversationId: "conv_1",
   createdAt: "2026-08-16T09:00:00.000Z",
@@ -44,8 +45,19 @@ export const hydratingWorkspace: Workspace = {
   slug: "knowledge",
   displayName: "Knowledge",
   hydrateStatus: "running",
+  hydrateError: null,
   activeProjectionSha: null,
   indexedSha: null,
+}
+
+export const failedHydrateWorkspace: Workspace = {
+  ...hydratingWorkspace,
+  id: "ws_hydrate_failed",
+  slug: "knowledge-failed",
+  displayName: "Knowledge",
+  hydrateStatus: "failed",
+  desiredSha: null,
+  hydrateError: "getLogger: no logger in context.",
 }
 
 export const docsWorkspaceDetail: WorkspaceDetail = {
