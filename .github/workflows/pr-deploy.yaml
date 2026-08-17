@@ -257,9 +257,10 @@ jobs:
           UI_IMAGE: ghcr.io/ctxpipe-ai/ui:${{ env.IMAGE_TAG }}
           CODESEARCH_IMAGE: ghcr.io/ctxpipe-ai/codesearch:${{ env.IMAGE_TAG }}
         # Railway API/CLI calls can be flaky; retry once before failing.
+        # Waits for backend/worker/ui/codesearch deploys to SUCCESS (up to ~7m each).
         uses: nick-fields/retry@v4
         with:
-          timeout_minutes: 10
+          timeout_minutes: 35
           max_attempts: 2
           command: |
             set -euo pipefail
@@ -313,6 +314,13 @@ jobs:
               if [[ "$http_code" != "200" ]]; then
                 echo "Railway GraphQL HTTP $http_code for query: ${query:0:120}…" >&2
                 echo "$body" >&2
+                return 22
+              fi
+              # Railway often returns HTTP 200 with GraphQL errors; treat those as failure
+              # so image updates / deploys cannot silently no-op.
+              if echo "$body" | jq -e '.errors | type == "array" and length > 0' >/dev/null 2>&1; then
+                echo "Railway GraphQL errors for query: ${query:0:120}…" >&2
+                echo "$body" | jq -c '.errors' >&2
                 return 22
               fi
               printf '%s' "$body"
@@ -550,25 +558,93 @@ jobs:
                 "$(jq -nc --arg env "$ENV_ID" --arg service "$service_id" '{environmentId:$env, serviceId:$service}')"
             }
 
+            # serviceInstanceDeployV2 is async — without waiting, preview can stay on a
+            # stale UI image while the workflow reports green.
+            wait_for_image_deploy() {
+              local label="$1"
+              local service_id="$2"
+              local expected_image="$3"
+              local timeout_s="${4:-420}"
+              local expected_tag="${expected_image##*:}"
+              local started_at deadline response status image node_json newest
+              started_at="$(date +%s)"
+              deadline=$((started_at + timeout_s))
+              echo "Waiting for $label ($service_id) to reach SUCCESS with image $expected_image (timeout ${timeout_s}s)"
+              while true; do
+                response="$(railway_graphql \
+                  'query deployments($input: DeploymentListInput!) { deployments(input: $input) { edges { node { id status createdAt meta } } } }' \
+                  "$(jq -nc --arg env "$ENV_ID" --arg service "$service_id" '{input:{environmentId:$env, serviceId:$service}}')")"
+                # Only accept a deployment whose meta mentions the expected image/tag.
+                # Never treat an older SUCCESS (different tag) as done.
+                node_json="$(echo "$response" | jq -c --arg img "$expected_image" --arg tag "$expected_tag" '
+                  [.data.deployments.edges[]?.node // empty
+                    | select(
+                        ((.meta | tostring) | contains($img))
+                        or ((.meta | tostring) | contains($tag))
+                      )
+                  ][0] // empty
+                ')"
+                if [[ -n "$node_json" && "$node_json" != "null" ]]; then
+                  status="$(echo "$node_json" | jq -r '.status // empty')"
+                  image="$(echo "$node_json" | jq -r '.meta.image // empty')"
+                  echo "$label matching deploy status=${status:-unknown} image=${image:-unknown}"
+                  if [[ "$status" == "SUCCESS" ]]; then
+                    # Best-effort confirm configured source image (schema may vary).
+                    if response="$(railway_graphql \
+                      'query serviceInstanceSource($environmentId: String!, $serviceId: String!) { serviceInstance(environmentId: $environmentId, serviceId: $serviceId) { source { image } } }' \
+                      "$(jq -nc --arg env "$ENV_ID" --arg service "$service_id" '{environmentId:$env, serviceId:$service}')" 2>/dev/null)"; then
+                      image="$(echo "$response" | jq -r '.data.serviceInstance.source.image // empty')"
+                      echo "$label serviceInstance.source.image=${image:-unknown}"
+                      if [[ -n "$image" && "$image" != *"$expected_tag"* ]]; then
+                        echo "ERROR: $label source image is '$image', expected to contain '$expected_tag'" >&2
+                        return 1
+                      fi
+                    else
+                      echo "Warning: could not query $label serviceInstance.source.image (continuing after SUCCESS)"
+                    fi
+                    return 0
+                  fi
+                  if [[ "$status" == "FAILED" || "$status" == "CRASHED" || "$status" == "REMOVED" ]]; then
+                    echo "ERROR: $label deployment ended with status=$status" >&2
+                    echo "$node_json" >&2
+                    return 1
+                  fi
+                else
+                  newest="$(echo "$response" | jq -r '.data.deployments.edges[0].node | "\(.status // "?") meta=\(.meta|tostring)"')"
+                  echo "$label no deploy yet for $expected_tag (newest: ${newest:-none})"
+                fi
+                if (( $(date +%s) >= deadline )); then
+                  echo "ERROR: timed out waiting for $label deployment with image $expected_image" >&2
+                  echo "$response" | jq -c '.data.deployments.edges[0:5]' >&2 || true
+                  return 1
+                fi
+                sleep 8
+              done
+            }
+
             upsert_database_url_without_deploy "$BACKEND_SERVICE_ID" >/dev/null
             upsert_preview_service_variables "$BACKEND_SERVICE_ID" >/dev/null
             upsert_preview_backend_wake_variables "$BACKEND_SERVICE_ID" >/dev/null
             update_source_image "$BACKEND_SERVICE_ID" "$BACKEND_IMAGE" >/dev/null
             deploy_service "$BACKEND_SERVICE_ID" >/dev/null
+            wait_for_image_deploy "backend" "$BACKEND_SERVICE_ID" "$BACKEND_IMAGE"
 
             upsert_database_url_without_deploy "$WORKER_SERVICE_ID" >/dev/null
             upsert_preview_service_variables "$WORKER_SERVICE_ID" >/dev/null
             upsert_preview_worker_idle_exit "$WORKER_SERVICE_ID" >/dev/null
             update_preview_worker_service_instance "$WORKER_SERVICE_ID" "$WORKER_IMAGE" >/dev/null
             deploy_service "$WORKER_SERVICE_ID" >/dev/null
+            wait_for_image_deploy "worker" "$WORKER_SERVICE_ID" "$WORKER_IMAGE"
 
             upsert_preview_service_variables "$UI_SERVICE_ID" >/dev/null
             update_source_image "$UI_SERVICE_ID" "$UI_IMAGE" >/dev/null
             deploy_service "$UI_SERVICE_ID" >/dev/null
+            wait_for_image_deploy "ui" "$UI_SERVICE_ID" "$UI_IMAGE"
 
             upsert_database_url_without_deploy "$CODESEARCH_SERVICE_ID" >/dev/null
             update_source_image "$CODESEARCH_SERVICE_ID" "$CODESEARCH_IMAGE" >/dev/null
             deploy_service "$CODESEARCH_SERVICE_ID" >/dev/null
+            wait_for_image_deploy "codesearch" "$CODESEARCH_SERVICE_ID" "$CODESEARCH_IMAGE"
 
             # Terraform service names: otelcollector, falkordb (resolved via GraphQL; no GitHub vars).
             load_service_ids_by_name
