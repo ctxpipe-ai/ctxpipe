@@ -129,6 +129,35 @@ describe("workspaces API", () => {
     })
     const body = await res.json()
     expect(body.slug).toBe("knowledge")
+    expect(enqueueWorkspaceHydrate).toHaveBeenCalledWith(
+      expect.objectContaining({
+        orgId: "org_mock",
+        workspaceId: "ws_abc",
+      }),
+      expect.anything(),
+    )
+    expect(enqueueWorkspaceWriteCommit).not.toHaveBeenCalled()
+  })
+
+  it("queues export and hydrate when create is writable", async () => {
+    createWorkspaceMock.mockResolvedValue({
+      ...workspaceRow,
+      writeStatus: "writable",
+    })
+    const res = await app().request("/workspaces", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        gitUrl: "https://github.com/acme/knowledge.git",
+      }),
+    })
+    expect(res.status).toBe(201)
+    expect(enqueueWorkspaceHydrate).toHaveBeenCalledWith(
+      expect.objectContaining({
+        workspaceId: "ws_abc",
+      }),
+      expect.anything(),
+    )
     expect(enqueueWorkspaceWriteCommit).toHaveBeenCalledWith(
       expect.objectContaining({
         workspaceId: "ws_abc",
@@ -138,7 +167,7 @@ describe("workspaces API", () => {
     )
   })
 
-  it("queues first-create links even while write status is unknown", async () => {
+  it("does not queue first-create links while write status is unknown", async () => {
     createWorkspaceMock.mockResolvedValue({
       ...workspaceRow,
       writeStatus: "unknown",
@@ -152,14 +181,8 @@ describe("workspaces API", () => {
       }),
     })
     expect(res.status).toBe(201)
-    expect(enqueueWorkspaceWriteCommit).toHaveBeenCalledWith(
-      expect.objectContaining({
-        kind: "link_unlink",
-        linkAction: "link",
-        linkGitUrl: "https://github.com/acme/app.git",
-      }),
-      expect.anything(),
-    )
+    expect(enqueueWorkspaceHydrate).toHaveBeenCalled()
+    expect(enqueueWorkspaceWriteCommit).not.toHaveBeenCalled()
   })
 
   it("returns workspace details with linked remotes", async () => {
@@ -331,6 +354,41 @@ describe("workspaces API", () => {
     const body = await res.json()
     expect(body.hydrateStatus).toBe("pending")
     expect(body.hydrateError).toBeNull()
+    expect(enqueueWorkspaceHydrate).toHaveBeenCalledWith(
+      expect.objectContaining({
+        orgId: "org_mock",
+        workspaceId: "ws_abc",
+      }),
+      expect.anything(),
+    )
+    expect(enqueueWorkspaceWriteCommit).not.toHaveBeenCalled()
+  })
+
+  it("retries hydrate and export when writable with no tip", async () => {
+    getWorkspaceBySlugMock.mockResolvedValue({
+      ...workspaceRow,
+      writeStatus: "writable",
+      hydrateStatus: "failed",
+      hydrateError: "paused write",
+      desiredSha: null,
+    })
+    persistHydrateRetryMock.mockResolvedValue({
+      ...workspaceRow,
+      writeStatus: "writable",
+      hydrateStatus: "pending",
+      hydrateError: null,
+      desiredSha: null,
+    })
+    const res = await app().request("/workspaces/knowledge/retry-prepare", {
+      method: "POST",
+    })
+    expect(res.status).toBe(200)
+    expect(enqueueWorkspaceHydrate).toHaveBeenCalledWith(
+      expect.objectContaining({
+        workspaceId: "ws_abc",
+      }),
+      expect.anything(),
+    )
     expect(enqueueWorkspaceWriteCommit).toHaveBeenCalledWith(
       expect.objectContaining({
         workspaceId: "ws_abc",

@@ -5,6 +5,7 @@ import { fileTreeFromPaths } from "../../domain/workspaces/file-tree.js"
 import { destroySandboxesForWorkspace } from "../../domain/workspaces/sandbox-registry.js"
 import { normalizeWorkspaceRepositoryUrl } from "../../domain/workspaces/slug.js"
 import { workspaceGraphFromUnits } from "../../domain/workspaces/workspace-graph.js"
+import { writeJobQueueHttpDecision } from "../../domain/workspaces/write-jobs.js"
 import {
   githubConnectionIdForWriteProbe,
   probeWorkspaceWriteAccess,
@@ -593,25 +594,31 @@ export const workspaceRoutes = new OpenAPIHono<AppEnv>()
       githubConnectionId: body.githubConnectionId ?? null,
     })
     const created = await createWorkspace({ ...body, write })
-    void enqueueWorkspaceWriteCommit(
-      {
-        orgId: created.orgId,
-        workspaceId: created.id,
-        kind: "migration_export",
-      },
+    void enqueueWorkspaceHydrate(
+      { orgId: created.orgId, workspaceId: created.id },
       c.get("log"),
     )
-    for (const gitUrl of created.autoLinkGitUrls) {
+    if (writeJobQueueHttpDecision(created.writeStatus).enqueue) {
       void enqueueWorkspaceWriteCommit(
         {
           orgId: created.orgId,
           workspaceId: created.id,
-          kind: "link_unlink",
-          linkAction: "link",
-          linkGitUrl: gitUrl,
+          kind: "migration_export",
         },
         c.get("log"),
       )
+      for (const gitUrl of created.autoLinkGitUrls) {
+        void enqueueWorkspaceWriteCommit(
+          {
+            orgId: created.orgId,
+            workspaceId: created.id,
+            kind: "link_unlink",
+            linkAction: "link",
+            linkGitUrl: gitUrl,
+          },
+          c.get("log"),
+        )
+      }
     }
     void enqueueWorkspaceTipCheck(created.orgId, c.get("log"))
     return c.json(serializeWorkspace(created), 201)
@@ -758,12 +765,14 @@ export const workspaceRoutes = new OpenAPIHono<AppEnv>()
     if (!workspace) return c.json({ error: "Not found" }, 404)
     const retried = await persistHydrateRetry(workspace.id)
     if (!retried) return c.json({ error: "Not found" }, 404)
-    if (retried.desiredSha) {
-      void enqueueWorkspaceHydrate(
-        { orgId: retried.orgId, workspaceId: retried.id },
-        c.get("log"),
-      )
-    } else {
+    void enqueueWorkspaceHydrate(
+      { orgId: retried.orgId, workspaceId: retried.id },
+      c.get("log"),
+    )
+    if (
+      writeJobQueueHttpDecision(retried.writeStatus).enqueue &&
+      !retried.desiredSha
+    ) {
       void enqueueWorkspaceWriteCommit(
         {
           orgId: retried.orgId,
