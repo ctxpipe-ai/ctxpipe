@@ -1,6 +1,6 @@
 import type { Meta, StoryObj } from "@storybook/react-vite"
 import { delay, HttpResponse, http } from "msw"
-import { userEvent, within } from "storybook/test"
+import { expect, userEvent, within } from "storybook/test"
 import {
   githubInstallationReposHandler,
   workspaceListHandler,
@@ -42,6 +42,12 @@ export const WithWorkspaces: Story = {
         page: [workspaceListHandler([docsWorkspace, readOnlyWorkspace])],
       },
     },
+  },
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement)
+    expect(
+      canvas.getAllByRole("button", { name: "Workspace settings" }),
+    ).toHaveLength(2)
   },
 }
 

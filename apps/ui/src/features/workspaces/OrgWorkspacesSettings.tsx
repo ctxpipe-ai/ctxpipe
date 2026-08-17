@@ -1,3 +1,4 @@
+import { IconSettings } from "@tabler/icons-react"
 import { useQuery } from "@tanstack/react-query"
 import { useNavigate } from "@tanstack/react-router"
 import { useState } from "react"
@@ -39,22 +40,42 @@ export function OrgWorkspacesSettings(props: { orgSlug: string }) {
         ) : (
           items.map((workspace) => (
             <li key={workspace.id}>
-              <button
-                type="button"
-                className="flex w-full items-center justify-between rounded-lg px-3 py-2 text-left hover:bg-zinc-900"
-                onClick={() => {
-                  void navigate({
-                    to: "/$orgSlug/ws/$workspaceSlug",
-                    params: { orgSlug, workspaceSlug: workspace.slug },
-                    search: { pane: "settings" },
-                  })
-                }}
-              >
-                <span className="text-sm">{workspace.displayName}</span>
-                <span className="font-mono text-xs text-muted-foreground">
-                  {workspace.slug}
-                </span>
-              </button>
+              <div className="flex w-full items-center gap-2 rounded-lg px-3 py-2 hover:bg-zinc-900">
+                <button
+                  type="button"
+                  className="flex min-w-0 flex-1 items-baseline gap-3 text-left"
+                  onClick={() => {
+                    void navigate({
+                      to: "/$orgSlug/ws/$workspaceSlug",
+                      params: { orgSlug, workspaceSlug: workspace.slug },
+                    })
+                  }}
+                >
+                  <span className="truncate text-sm">
+                    {workspace.displayName}
+                  </span>
+                  <span className="font-mono text-xs text-muted-foreground">
+                    {workspace.slug}
+                  </span>
+                </button>
+                <Button
+                  variant="quiet"
+                  size="icon-sm"
+                  aria-label="Workspace settings"
+                  onClick={(event) => event.stopPropagation()}
+                  onPress={() => {
+                    void navigate({
+                      to: "/$orgSlug/ws/$workspaceSlug",
+                      params: { orgSlug, workspaceSlug: workspace.slug },
+                      search: { pane: "settings" },
+                    })
+                  }}
+                >
+                  <span className="size-4 text-muted-foreground" aria-hidden>
+                    <IconSettings />
+                  </span>
+                </Button>
+              </div>
             </li>
           ))
         )}
