@@ -61,6 +61,7 @@ export const DeleteConfirmOpen: Story = {
     const dialog = await body.findByRole("alertdialog")
     const scoped = within(dialog)
     const confirm = scoped.getByRole("button", { name: "Delete Workspace" })
+    expect(scoped.getByPlaceholderText("Docs")).toBeInTheDocument()
     await userEvent.type(scoped.getByLabelText("Workspace name"), "Wrong")
     expect(confirm).toBeDisabled()
     await userEvent.clear(scoped.getByLabelText("Workspace name"))

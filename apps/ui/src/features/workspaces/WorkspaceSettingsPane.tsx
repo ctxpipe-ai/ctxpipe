@@ -306,6 +306,7 @@ export function WorkspaceSettingsPane(props: {
               <TextField
                 className="mt-4"
                 label="Workspace name"
+                placeholder={workspace.displayName}
                 value={confirmName}
                 onChange={setConfirmName}
                 autoFocus
