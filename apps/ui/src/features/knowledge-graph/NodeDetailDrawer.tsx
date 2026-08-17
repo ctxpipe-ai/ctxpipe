@@ -142,7 +142,7 @@ export function NodeDetailDrawer({
   onClose: () => void
   onFocus: () => void
   onNeighbourSelect: (id: string) => void
-  onAskAgent: (seed: string) => void
+  onAskAgent?: (seed: string) => void
 }) {
   const kind = node.kind || "Unknown"
   const predicates = Array.from(facts.predicateCounts.entries())
@@ -330,14 +330,16 @@ export function NodeDetailDrawer({
               </span>
             ) : null}
           </div>
-          <button
-            type="button"
-            onClick={() => onAskAgent(buildAskSeed())}
-            className="inline-flex shrink-0 items-center gap-1.5 border border-teal-500/55 bg-teal-500/10 px-2 py-0.5 text-[12px] text-teal-200 transition-colors hover:border-teal-500/70 hover:bg-teal-500/15"
-            title="Ask the graph chat about this node"
-          >
-            Ask ctx|
-          </button>
+          {onAskAgent ? (
+            <button
+              type="button"
+              onClick={() => onAskAgent(buildAskSeed())}
+              className="inline-flex shrink-0 items-center gap-1.5 border border-teal-500/55 bg-teal-500/10 px-2 py-0.5 text-[12px] text-teal-200 transition-colors hover:border-teal-500/70 hover:bg-teal-500/15"
+              title="Ask the graph chat about this node"
+            >
+              Ask ctx|
+            </button>
+          ) : null}
         </div>
 
         <DetailRow label="Id">

@@ -26,8 +26,12 @@ vi.mock("@tanstack/ai-sandbox-docker", () => ({
 vi.mock("@tanstack/ai-sandbox-local-process", () => ({
   localProcessSandbox: vi.fn(() => "local-provider"),
 }))
+const nameConversationIfUnnamedMock = vi.hoisted(() =>
+  vi.fn().mockResolvedValue(null),
+)
+
 vi.mock("../../graphs/conversationGraph/nodes/conversationNaming.js", () => ({
-  nameConversationIfUnnamed: vi.fn().mockResolvedValue(null),
+  nameConversationIfUnnamed: nameConversationIfUnnamedMock,
 }))
 
 vi.mock("../../db/client.js", () => ({
@@ -182,6 +186,24 @@ describe("runTanstackWorkspaceChat", () => {
         content: "hello",
       }),
     )
+  })
+
+  it("emits a conversation rename data part before finish", async () => {
+    nameConversationIfUnnamedMock.mockResolvedValueOnce("Billing ledger")
+    const res = await runTanstackWorkspaceChat({
+      conversationId: "conv_1",
+      prompt: "hello",
+      orgId: "org_1",
+      workspaceId: "ws_1",
+      desiredUrl: "https://github.com/acme/docs",
+      desiredSha: "abc",
+      ref: "abc",
+      writeStatus: "writable",
+    })
+    expect(res.status).toBe(200)
+    const body = await res.text()
+    expect(body).toContain("data-rename-conversation")
+    expect(body).toContain("Billing ledger")
   })
 
   it("loads prior turns into every TanStack chat call", async () => {

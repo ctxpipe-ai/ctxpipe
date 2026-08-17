@@ -267,6 +267,7 @@ export function KnowledgeGraphAskButton(props: {
 
 export function KnowledgeGraphAskPanel(props: {
   orgSlug: string
+  workspaceId?: string
   open: boolean
   onOpenChange: (open: boolean) => void
   selectedNode: KnowledgeGraphNode | null
@@ -302,9 +303,10 @@ export function KnowledgeGraphAskPanel(props: {
         orgSlug: props.orgSlug,
         conversationId,
         source: "knowledge-graph",
+        workspaceId: props.workspaceId ?? "",
         getMessageContext: () => contextRef.current,
       }),
-    [props.orgSlug, conversationId],
+    [props.orgSlug, props.workspaceId, conversationId],
   )
 
   const { messages, sendMessage, status, stop, error } = useChat({

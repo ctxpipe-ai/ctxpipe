@@ -64,6 +64,13 @@ export type TanstackWorkspaceChatInput = {
   retrieveContext?: (query: string) => Promise<string>
 }
 
+export function conversationRenameChunk(name: string): UIMessageChunk {
+  return {
+    type: "data-rename-conversation",
+    data: { name },
+  } as UIMessageChunk
+}
+
 function aguiTextDelta(chunk: object): string {
   const record = chunk as Record<string, unknown>
   if (
@@ -134,19 +141,30 @@ export async function runTanstackWorkspaceChat(
         lastHeartbeatAt = new Date()
         heartbeatWorkspaceSandbox(prepared.liveId, lastHeartbeatAt)
         void input.onHeartbeat?.()
+        let finished = false
+        const completeTurn = async () => {
+          await persistCompletedTurns(input, {
+            persistUser: prepared.persistUserAfterSuccess,
+            assistant,
+          })
+          const name = await nameConversationIfUnnamed({
+            conversationId: input.conversationId,
+            prompt: input.prompt,
+          }).catch(() => null)
+          if (name) {
+            controller.enqueue(conversationRenameChunk(name))
+          }
+          if (input.onFinish) await input.onFinish()
+        }
         for await (const chunk of uiChunks) {
           if (chunk.type === "text-delta") assistant += chunk.delta
+          if (chunk.type === "finish") {
+            finished = true
+            await completeTurn()
+          }
           controller.enqueue(chunk)
         }
-        await persistCompletedTurns(input, {
-          persistUser: prepared.persistUserAfterSuccess,
-          assistant,
-        })
-        await nameConversationIfUnnamed({
-          conversationId: input.conversationId,
-          prompt: input.prompt,
-        }).catch(() => null)
-        if (input.onFinish) await input.onFinish()
+        if (!finished) await completeTurn()
         controller.close()
       } catch (error) {
         getLogger().error(

@@ -74,23 +74,10 @@ vi.mock("../../domain/conversations/transport.js", () => ({
     createDataStreamConversationTransportMock,
 }))
 
-vi.mock("../../domain/conversations/internalNodeMessageFilter.js", () => ({
-  filterInternalNodeMessageChunks: (stream: unknown) => stream,
-}))
-
-vi.mock("../../domain/conversations/renameStream.js", () => ({
-  createRenameStreamEnhancer: () => ({
-    wrapGraphStream: (stream: unknown) => stream,
-    getFlushTransform: () =>
-      new TransformStream({
-        transform(chunk, controller) {
-          controller.enqueue(chunk)
-        },
-      }),
-  }),
-}))
-
-import { contextStorage, withTestRequestLogger } from "../../test/hono-test-logger.js"
+import {
+  contextStorage,
+  withTestRequestLogger,
+} from "../../test/hono-test-logger.js"
 import { conversationRoutes } from "./conversations.js"
 
 const conversationRow = {
@@ -146,7 +133,7 @@ describe("conversations API", () => {
     })
   })
 
-  it("lists UI conversations by default and all sources when asked", async () => {
+  it("lists UI conversations for a Workspace and ignores source=all", async () => {
     listConversationsPaginatedMock.mockResolvedValue({
       items: [conversationRow],
       pageInfo: {
@@ -156,10 +143,10 @@ describe("conversations API", () => {
         endCursor: null,
       },
     })
-    const listed = await app().request("/conversations")
+    const listed = await app().request("/conversations?workspaceId=ws_abc")
     expect(listed.status).toBe(200)
     expect(listConversationsPaginatedMock).toHaveBeenCalledWith(
-      expect.objectContaining({ source: "ui" }),
+      expect.objectContaining({ source: "ui", workspaceId: "ws_abc" }),
     )
 
     listConversationsPaginatedMock.mockClear()
@@ -172,10 +159,16 @@ describe("conversations API", () => {
         endCursor: null,
       },
     })
-    await app().request("/conversations?source=all")
+    await app().request("/conversations?source=mcp&workspaceId=ws_abc")
     expect(listConversationsPaginatedMock).toHaveBeenCalledWith(
-      expect.objectContaining({ source: undefined }),
+      expect.objectContaining({ source: "ui", workspaceId: "ws_abc" }),
     )
+  })
+
+  it("refuses to list conversations without a Workspace id", async () => {
+    const res = await app().request("/conversations")
+    expect(res.status).toBe(400)
+    expect(listConversationsPaginatedMock).not.toHaveBeenCalled()
   })
 
   it("404s GET when the conversation is not in the requested Workspace", async () => {
@@ -217,6 +210,21 @@ describe("conversations API", () => {
     expect(res.status).toBe(500)
     expect(touchConversationLastMessageMock).not.toHaveBeenCalled()
     expect(discardUnstartedConversationMock).toHaveBeenCalledWith("conv_1")
+  })
+
+  it("refuses product chat without a Workspace id", async () => {
+    toPromptFromIncomingMessageMock.mockReturnValue("hello")
+    const res = await app().request("/conversations/conv_1", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        message: { role: "user", content: "hello" },
+        source: "ui",
+      }),
+    })
+    expect(res.status).toBe(400)
+    expect(ensureConversationMock).not.toHaveBeenCalled()
+    expect(createDataStreamConversationTransportMock).not.toHaveBeenCalled()
   })
 
   it("does not mark the conversation started until the stream finishes", async () => {

@@ -81,16 +81,6 @@ export const withStoryRoute: Decorator = (Story, context) => {
     path: "/",
     component: orgIndexForStory,
   })
-  const orgChat = createRoute({
-    getParentRoute: () => orgRoute,
-    path: "chat",
-    component: () => <Outlet />,
-  })
-  const orgChatIndex = createRoute({
-    getParentRoute: () => orgChat,
-    path: "/",
-    component: storyRouteStub,
-  })
   const orgRepositories = createRoute({
     getParentRoute: () => orgRoute,
     path: "repositories",
@@ -152,7 +142,6 @@ export const withStoryRoute: Decorator = (Story, context) => {
       orgConnectors,
       orgWorkspacesNew,
       orgWs.addChildren([orgWsIndex, orgWsConversation]),
-      orgChat.addChildren([orgChatIndex]),
       orgRepositories.addChildren([orgRepositoriesIndex]),
     ]),
   ])

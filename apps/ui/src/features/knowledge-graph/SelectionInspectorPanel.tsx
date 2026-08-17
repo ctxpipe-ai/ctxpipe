@@ -45,7 +45,7 @@ export function SelectionInspectorPanel({
   selection,
 }: {
   kindColors: Map<string, string>
-  onAskSelection: () => void
+  onAskSelection?: () => void
   onClose: () => void
   onFitSelection: () => void
   onNodeSelect: (id: string) => void
@@ -119,15 +119,17 @@ export function SelectionInspectorPanel({
             <IconFocusCentered className="h-3.5 w-3.5" aria-hidden />
             Fit selection
           </button>
-          <button
-            type="button"
-            onClick={onAskSelection}
-            disabled={selection.nodeIds.length === 0}
-            className="inline-flex items-center justify-center gap-1.5 border border-teal-500/55 bg-teal-500/10 px-2 py-1.5 text-[12px] text-teal-200 transition-colors hover:border-teal-500/70 hover:bg-teal-500/15 disabled:cursor-not-allowed disabled:opacity-40"
-          >
-            <IconMessageCircle className="h-3.5 w-3.5" aria-hidden />
-            Ask ctx|
-          </button>
+          {onAskSelection ? (
+            <button
+              type="button"
+              onClick={onAskSelection}
+              disabled={selection.nodeIds.length === 0}
+              className="inline-flex items-center justify-center gap-1.5 border border-teal-500/55 bg-teal-500/10 px-2 py-1.5 text-[12px] text-teal-200 transition-colors hover:border-teal-500/70 hover:bg-teal-500/15 disabled:cursor-not-allowed disabled:opacity-40"
+            >
+              <IconMessageCircle className="h-3.5 w-3.5" aria-hidden />
+              Ask ctx|
+            </button>
+          ) : null}
         </div>
 
         {selection.kindCounts.length > 0 ? (

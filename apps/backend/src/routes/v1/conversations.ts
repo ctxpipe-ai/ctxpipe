@@ -1,8 +1,6 @@
 import { createRoute, OpenAPIHono, z } from "@hono/zod-openapi"
 import type { AppEnv } from "../../app/env.js"
 import { parseEnv } from "../../config/env.js"
-import { filterInternalNodeMessageChunks } from "../../domain/conversations/internalNodeMessageFilter.js"
-import { createRenameStreamEnhancer } from "../../domain/conversations/renameStream.js"
 import {
   createDataStreamConversationTransport,
   loadConversationUiMessages,
@@ -79,8 +77,7 @@ const ConversationListResponseSchema = z
 
 const ListConversationsQuerySchema = z
   .object({
-    source: z.string().optional(),
-    workspaceId: z.string().optional(),
+    workspaceId: z.string().min(1),
     first: z.coerce.number().int().min(1).max(100).optional().default(10),
     after: z.string().optional(),
   })
@@ -105,7 +102,7 @@ const CreateConversationMessageRequestSchema = z
   .object({
     message: IncomingMessageSchema,
     source: z.string().optional(),
-    workspaceId: z.string().optional(),
+    workspaceId: z.string().min(1),
   })
   .openapi("CreateConversationMessageRequest")
 
@@ -129,9 +126,17 @@ const listConversationsRoute = createRoute({
       },
       description: "Conversation list",
     },
+    400: {
+      content: { "application/json": { schema: ErrorResponseSchema } },
+      description: "Bad request",
+    },
     401: {
       content: { "application/json": { schema: ErrorResponseSchema } },
       description: "Unauthorized",
+    },
+    409: {
+      content: { "application/json": { schema: ErrorResponseSchema } },
+      description: "Workspace required",
     },
   },
 })
@@ -248,6 +253,10 @@ const postConversationMessageRoute = createRoute({
       content: { "application/json": { schema: ErrorResponseSchema } },
       description: "Unauthorized",
     },
+    409: {
+      content: { "application/json": { schema: ErrorResponseSchema } },
+      description: "Workspace required",
+    },
     500: {
       content: { "application/json": { schema: ErrorResponseSchema } },
       description: "Failed to start the conversation stream",
@@ -314,15 +323,16 @@ export const conversationRoutes = new OpenAPIHono<AppEnv>()
     if (!user || !session) return c.json({ error: "Unauthorized" }, 401)
 
     const query = ListConversationsQuerySchema.parse({
-      source: c.req.query("source"),
       workspaceId: c.req.query("workspaceId"),
       first: c.req.query("first"),
       after: c.req.query("after"),
     })
-
+    if (!query.workspaceId.trim()) {
+      return c.json({ error: "workspace_required" }, 409)
+    }
     const { items: rows, pageInfo } = await listConversationsPaginated({
-      source: query.source === "all" ? undefined : (query.source ?? "ui"),
-      workspaceId: query.workspaceId,
+      source: "ui",
+      workspaceId: query.workspaceId.trim(),
       first: query.first,
       after: query.after,
     })
@@ -441,6 +451,9 @@ export const conversationRoutes = new OpenAPIHono<AppEnv>()
     if (prompt.length === 0) {
       return c.json({ error: "Message text is required" }, 400)
     }
+    if (!body.workspaceId.trim()) {
+      return c.json({ error: "workspace_required" }, 409)
+    }
 
     const conversation = await ensureConversation({
       id: conversationId,
@@ -519,21 +532,6 @@ export const conversationRoutes = new OpenAPIHono<AppEnv>()
     }
 
     const transport = createDataStreamConversationTransport()
-    const internalFilterEnhancer = {
-      wrapGraphStream(stream: AsyncIterable<unknown>) {
-        return filterInternalNodeMessageChunks(stream)
-      },
-      getFlushTransform() {
-        return new TransformStream({
-          transform(chunk, controller) {
-            controller.enqueue(chunk)
-          },
-        })
-      },
-    }
-    const renameEnhancer = createRenameStreamEnhancer({
-      source: body.source ?? undefined,
-    })
 
     try {
       const response = await transport.toResponse({
@@ -558,7 +556,6 @@ export const conversationRoutes = new OpenAPIHono<AppEnv>()
             : null,
         onFinish: () => touchConversationLastMessage(conversationId),
         onError: () => discardUnstartedConversation(conversationId),
-        streamEnhancers: [internalFilterEnhancer, renameEnhancer],
       })
       return response
     } catch {

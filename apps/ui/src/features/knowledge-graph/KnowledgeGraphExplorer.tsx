@@ -4,10 +4,6 @@ import { getRepositoryIndexingStatus } from "@/features/repositories/types"
 import { client } from "@/lib/api"
 import type { ActivityBuckets } from "./ActivitySparkline"
 import {
-  KnowledgeGraphAskButton,
-  KnowledgeGraphAskPanel,
-} from "./KnowledgeGraphAskPanel"
-import {
   type GraphLinkRow,
   KnowledgeGraphCosmographCanvas,
   type KnowledgeGraphCosmographCanvasHandle,
@@ -40,7 +36,6 @@ import type {
 const KG_FIT_STRATEGY = "robust" as const
 
 const DEEP_LINK_PARAM = "node"
-const SELECTION_FOCUS_NODE_LIMIT = 500
 
 type TimedEdgeIndex = {
   index: number
@@ -96,9 +91,6 @@ export function KnowledgeGraphExplorer({ orgSlug }: { orgSlug: string }) {
   const [kgIntroOpen, setKgIntroOpen] = useState(() =>
     shouldShowKnowledgeGraphIntro(orgSlug),
   )
-  const [kgChatOpen, setKgChatOpen] = useState(false)
-  const [kgChatSeed, setKgChatSeed] = useState<string | null>(null)
-  const [kgFocusIds, setKgFocusIds] = useState<string[]>([])
   const [graphSelection, setGraphSelection] =
     useState<KnowledgeGraphSelectionEvent | null>(null)
   const cgRef = useRef<KnowledgeGraphCosmographCanvasHandle>(null)
@@ -318,18 +310,10 @@ export function KnowledgeGraphExplorer({ orgSlug }: { orgSlug: string }) {
       }
       return
     }
-
-    const visibleKgFocusIds = kgFocusIds.filter((id) => nodeById.has(id))
-    if (visibleKgFocusIds.length > 0) {
-      cgRef.current?.selectPointsWithAdjacentEdges(visibleKgFocusIds)
-    }
-  }, [data, selectedId, nodeById, kgFocusIds])
+  }, [data, selectedId, nodeById])
 
   const onPointClick = useCallback((id: string | null) => {
     if (id) {
-      setKgChatOpen(false)
-      setKgChatSeed(null)
-      setKgFocusIds([])
       setGraphSelection(null)
       cgRef.current?.clearSelectionFilters()
     }
@@ -340,7 +324,6 @@ export function KnowledgeGraphExplorer({ orgSlug }: { orgSlug: string }) {
     (options?: { resetCanvas?: boolean }) => {
       const shouldResetCanvas = options?.resetCanvas ?? true
       setSelectedId(null)
-      setKgFocusIds([])
       setGraphSelection(null)
       if (shouldResetCanvas) {
         cgRef.current?.clearSelectionFilters()
@@ -360,9 +343,6 @@ export function KnowledgeGraphExplorer({ orgSlug }: { orgSlug: string }) {
       setGraphSelection(selection)
       if (selection) {
         setSelectedId(null)
-        setKgChatOpen(false)
-        setKgChatSeed(null)
-        setKgFocusIds([])
       }
     },
     [],
@@ -472,24 +452,6 @@ export function KnowledgeGraphExplorer({ orgSlug }: { orgSlug: string }) {
     }
   }, [edgeTimeIndex])
 
-  const focusKnowledgeGraphNodes = useCallback(
-    ({ nodeIds, fitView }: { nodeIds: string[]; fitView: boolean }) => {
-      const visibleIds = [...new Set(nodeIds)].filter((id) => nodeById.has(id))
-      setKgFocusIds(visibleIds)
-      setSelectedId(null)
-      setGraphSelection(null)
-      if (visibleIds.length === 0) {
-        cgRef.current?.clearSelectionFilters()
-        return
-      }
-      cgRef.current?.selectPointsWithAdjacentEdges(visibleIds)
-      if (fitView) {
-        cgRef.current?.fitToIds(visibleIds, { strategy: KG_FIT_STRATEGY })
-      }
-    },
-    [nodeById],
-  )
-
   const selectionInspector = useMemo<SelectionInspectorModel | null>(() => {
     if (!graphSelection) return null
 
@@ -575,66 +537,6 @@ export function KnowledgeGraphExplorer({ orgSlug }: { orgSlug: string }) {
     }
   }, [edgeTimeIndex, graphLinks, graphSelection, nodeById])
 
-  const buildSelectionAskSeed = useCallback(
-    (selection: SelectionInspectorModel): string => {
-      const lines: string[] = []
-      lines.push(`I want to understand this ${selection.title}.`)
-      lines.push("")
-      lines.push(
-        `Selection source: ${
-          selection.source === "lasso"
-            ? "lasso spatial selection"
-            : "historigram time filter"
-        }.`,
-      )
-      if (selection.range) {
-        lines.push(
-          `Time range: ${formatIsoDateTime(
-            new Date(selection.range.from).toISOString(),
-          )} to ${formatIsoDateTime(new Date(selection.range.to).toISOString())}.`,
-        )
-      }
-      lines.push(
-        `Objects: ${selection.nodeIds.length.toLocaleString()} nodes, ${selection.edgeCount.toLocaleString()} edges.`,
-      )
-      if (selection.kindCounts.length > 0) {
-        lines.push(
-          `Top node kinds: ${selection.kindCounts
-            .slice(0, 6)
-            .map(([kind, count]) => `${kind} (${count})`)
-            .join(", ")}.`,
-        )
-      }
-      if (selection.predicateCounts.length > 0) {
-        lines.push(
-          `Top predicates: ${selection.predicateCounts
-            .slice(0, 6)
-            .map(([predicate, count]) => `${predicate} (${count})`)
-            .join(", ")}.`,
-        )
-      }
-      const examples = selection.nodes
-        .slice(0, 12)
-        .map((node) => `${node.name?.trim() || node.id} (${node.kind})`)
-      if (examples.length > 0) {
-        lines.push(`Representative nodes: ${examples.join(", ")}.`)
-      }
-      lines.push("")
-      lines.push(
-        "Please summarise what this selection represents, which nodes or relationships matter most, and what I should inspect next.",
-      )
-      return lines.join("\n")
-    },
-    [],
-  )
-
-  const selectionFocusIds = useCallback(
-    (selection: SelectionInspectorModel) => {
-      return selection.nodeIds.slice(0, SELECTION_FOCUS_NODE_LIMIT)
-    },
-    [],
-  )
-
   /* Backend stopped sending `metrics.lastUpdatedAt` because the Cypher `max()`
    * aggregation didn't scale. Compute it client-side from the max of edge
    * observation timestamps collected for the stock controls. */
@@ -694,16 +596,6 @@ export function KnowledgeGraphExplorer({ orgSlug }: { orgSlug: string }) {
             onPointClick={onPointClick}
             onBackgroundClick={onBackgroundClick}
             onSelectionChange={onGraphSelectionChange}
-            centerControls={
-              <KnowledgeGraphAskButton
-                active={kgChatOpen}
-                className="h-full border-zinc-800/95 bg-zinc-950/88 px-4 shadow-xl shadow-black/30 backdrop-blur hover:border-zinc-700 hover:bg-zinc-900/90"
-                onClick={() => {
-                  clearGraphSelection()
-                  setKgChatOpen((open) => !open)
-                }}
-              />
-            }
           />
         </div>
       ) : null}
@@ -761,30 +653,7 @@ export function KnowledgeGraphExplorer({ orgSlug }: { orgSlug: string }) {
         />
       ) : null}
 
-      {showGraph ? (
-        <KnowledgeGraphAskPanel
-          orgSlug={orgSlug}
-          open={kgChatOpen}
-          onOpenChange={setKgChatOpen}
-          selectedNode={selectedId ? (nodeById.get(selectedId) ?? null) : null}
-          nodes={sanitizedNodes}
-          highlightedNodeCount={kgFocusIds.length}
-          search=""
-          seed={kgChatSeed}
-          onSeedConsumed={() => setKgChatSeed(null)}
-          onFocus={focusKnowledgeGraphNodes}
-          onFitFocus={() => {
-            if (kgFocusIds.length === 0) return
-            cgRef.current?.fitToIds(kgFocusIds, { strategy: KG_FIT_STRATEGY })
-          }}
-          onClearFocus={() => {
-            setKgFocusIds([])
-            cgRef.current?.clearSelectionFilters()
-          }}
-        />
-      ) : null}
-
-      {selectionInspector && !displayedNode && !kgChatOpen ? (
+      {selectionInspector && !displayedNode ? (
         <SelectionInspectorPanel
           key={`${selectionInspector.source}:${selectionInspector.title}`}
           selection={selectionInspector}
@@ -802,20 +671,10 @@ export function KnowledgeGraphExplorer({ orgSlug }: { orgSlug: string }) {
             clearGraphSelection()
             setSelectedId(id)
           }}
-          onAskSelection={() => {
-            const focusIds = selectionFocusIds(selectionInspector)
-            setKgChatSeed(buildSelectionAskSeed(selectionInspector))
-            setKgChatOpen(true)
-            setKgFocusIds(focusIds)
-            setGraphSelection(null)
-            setSelectedId(null)
-            cgRef.current?.selectPointsWithAdjacentEdges(focusIds)
-            cgRef.current?.fitToIds(focusIds, { strategy: KG_FIT_STRATEGY })
-          }}
         />
       ) : null}
 
-      {displayedNode && displayedFacts && !kgChatOpen ? (
+      {displayedNode && displayedFacts ? (
         <NodeDetailDrawer
           node={displayedNode}
           facts={displayedFacts}
@@ -834,14 +693,6 @@ export function KnowledgeGraphExplorer({ orgSlug }: { orgSlug: string }) {
             cgRef.current?.focusNode(displayedNode.id)
           }}
           onNeighbourSelect={(id) => setSelectedId(id)}
-          onAskAgent={(seed) => {
-            setKgChatSeed(seed)
-            setKgChatOpen(true)
-            setKgFocusIds([displayedNode.id])
-            setSelectedId(null)
-            cgRef.current?.selectPointsWithAdjacentEdges([displayedNode.id])
-            cgRef.current?.fitToIds([displayedNode.id])
-          }}
         />
       ) : null}
     </div>
