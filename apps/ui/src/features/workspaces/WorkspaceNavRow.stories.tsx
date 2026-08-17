@@ -1,9 +1,14 @@
 import type { Meta, StoryObj } from "@storybook/react-vite"
 import { fn } from "storybook/test"
+import { conversationsListHandler } from "@/mocks/workspace-handlers"
 import { entryPageInnerDecorators } from "../../../.storybook/decorators/entry-page-decorators"
 import type { StoryRouteParams } from "../../../.storybook/decorators/with-story-route"
 import { WorkspaceNavRow } from "./WorkspaceNavRow"
-import { docsWorkspace, readOnlyWorkspace } from "./workspace-fixtures"
+import {
+  docsConversations,
+  docsWorkspace,
+  readOnlyWorkspace,
+} from "./workspace-fixtures"
 
 const meta = {
   title: "Components/Workspaces/NavRow",
@@ -58,5 +63,27 @@ export const SingleWorkspace: Story = {
     workspaceCount: 1,
     collapsible: false,
     current: true,
+  },
+}
+
+export const CollapsedNav: Story = {
+  args: {
+    navExpanded: false,
+    current: true,
+  },
+}
+
+export const OpenWithConversations: Story = {
+  args: {
+    open: true,
+    current: true,
+    currentConversationId: "conv_1",
+  },
+  parameters: {
+    msw: {
+      handlers: {
+        page: [conversationsListHandler(docsConversations)],
+      },
+    },
   },
 }

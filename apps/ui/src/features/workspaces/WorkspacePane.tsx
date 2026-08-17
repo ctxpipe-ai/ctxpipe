@@ -6,16 +6,13 @@ import {
   IconSettings,
   IconX,
 } from "@tabler/icons-react"
-import { useQuery } from "@tanstack/react-query"
+import { useSuspenseQuery } from "@tanstack/react-query"
 import type { ReactNode } from "react"
+import { Suspense } from "react"
 import { Button } from "@/components/ui/Button"
 import { filePaneId, type ParsedPane } from "./pane"
-import {
-  fetchWorkspaceFiles,
-  fetchWorkspaceGraph,
-  workspaceKeys,
-} from "./queries"
-import type { WorkspaceDetail } from "./types"
+import { workspaceFilesOptions, workspaceGraphOptions } from "./queries"
+import type { WorkspaceDetail, WorkspaceFilesResponse } from "./types"
 import { WorkspaceFileTree } from "./WorkspaceFileTree"
 import { WorkspaceGraphPane } from "./WorkspaceGraphPane"
 import { WorkspaceSettingsPane } from "./WorkspaceSettingsPane"
@@ -42,18 +39,6 @@ export function WorkspacePane(props: {
 }) {
   const activeFile =
     props.pane.kind === "file" ? props.pane.path : props.selectedFilePath
-  const filesQuery = useQuery({
-    queryKey: workspaceKeys.files(props.orgSlug, props.workspace.slug),
-    queryFn: () => fetchWorkspaceFiles(props.orgSlug, props.workspace.slug),
-    enabled: props.pane.kind === "files" || props.pane.kind === "file",
-  })
-  const graphQuery = useQuery({
-    queryKey: workspaceKeys.graph(props.orgSlug, props.workspace.slug),
-    queryFn: () => fetchWorkspaceGraph(props.orgSlug, props.workspace.slug),
-    enabled: props.pane.kind === "graph",
-  })
-  const files = filesQuery.data?.items ?? []
-  const preview = files.find((file) => file.path === activeFile)
   const showTreeToggle =
     Boolean(activeFile) &&
     (props.pane.kind === "files" || props.pane.kind === "file")
@@ -181,54 +166,38 @@ export function WorkspacePane(props: {
       </div>
       <div className="flex min-h-0 flex-1">
         {props.pane.kind === "files" || props.pane.kind === "file" ? (
-          <>
-            {props.treeCollapsed ? null : (
-              <div className="w-52 shrink-0 overflow-auto border-r border-border p-3">
-                {filesQuery.isPending ? (
-                  <p className="text-xs text-muted-foreground">
-                    Loading files…
-                  </p>
-                ) : files.length === 0 ? (
-                  <p className="text-xs text-muted-foreground">
-                    No knowledge files in this projection yet.
-                  </p>
-                ) : (
-                  <WorkspaceFileTree
-                    nodes={filesQuery.data?.tree ?? []}
-                    selectedPath={activeFile}
-                    onSelect={props.onSelectFile}
-                    onOpenTab={props.onOpenFileTab}
-                  />
-                )}
+          <Suspense
+            fallback={
+              <div className="flex flex-1 items-center p-4">
+                <p className="text-xs text-muted-foreground">Loading files…</p>
               </div>
-            )}
-            <div className="min-w-0 flex-1 overflow-auto p-4">
-              {preview ? (
-                <article>
-                  <p className="mb-3 font-mono text-xs text-muted-foreground">
-                    {preview.path}
-                  </p>
-                  <pre className="whitespace-pre-wrap font-mono text-sm leading-relaxed text-foreground">
-                    {preview.body}
-                  </pre>
-                </article>
-              ) : (
-                <p className="text-sm text-muted-foreground">
-                  Single-click a file to preview. Double-click opens a tab (
-                  <code className="font-mono text-xs">
-                    {filePaneId("path")}
-                  </code>
-                  ).
-                </p>
-              )}
-            </div>
-          </>
+            }
+          >
+            <WorkspaceFilesPaneBody
+              orgSlug={props.orgSlug}
+              workspaceSlug={props.workspace.slug}
+              activeFile={activeFile}
+              treeCollapsed={props.treeCollapsed}
+              onSelectFile={props.onSelectFile}
+              onOpenFileTab={props.onOpenFileTab}
+            />
+          </Suspense>
         ) : null}
         {props.pane.kind === "graph" ? (
-          <WorkspaceGraphPane
-            graph={graphQuery.data}
-            pending={graphQuery.isPending}
-          />
+          <Suspense
+            fallback={
+              <div className="flex flex-1 flex-col gap-2 p-4">
+                <div className="h-3 w-24 rounded-lg bg-zinc-800" />
+                <div className="h-8 rounded-lg bg-zinc-900" />
+                <div className="h-8 rounded-lg bg-zinc-900" />
+              </div>
+            }
+          >
+            <WorkspaceGraphPaneBody
+              orgSlug={props.orgSlug}
+              workspaceSlug={props.workspace.slug}
+            />
+          </Suspense>
         ) : null}
         {props.pane.kind === "settings" ? (
           <WorkspaceSettingsPane
@@ -246,6 +215,88 @@ export function WorkspacePane(props: {
       </div>
     </aside>
   )
+}
+
+function WorkspaceFilesPaneBody(props: {
+  orgSlug: string
+  workspaceSlug: string
+  activeFile: string | null
+  treeCollapsed: boolean
+  onSelectFile: (path: string) => void
+  onOpenFileTab: (path: string) => void
+}) {
+  const { data } = useSuspenseQuery(
+    workspaceFilesOptions(props.orgSlug, props.workspaceSlug),
+  )
+  return (
+    <WorkspaceFilesPaneContent
+      files={data}
+      activeFile={props.activeFile}
+      treeCollapsed={props.treeCollapsed}
+      onSelectFile={props.onSelectFile}
+      onOpenFileTab={props.onOpenFileTab}
+    />
+  )
+}
+
+function WorkspaceFilesPaneContent(props: {
+  files: WorkspaceFilesResponse
+  activeFile: string | null
+  treeCollapsed: boolean
+  onSelectFile: (path: string) => void
+  onOpenFileTab: (path: string) => void
+}) {
+  const preview = props.files.items.find(
+    (file) => file.path === props.activeFile,
+  )
+  return (
+    <>
+      {props.treeCollapsed ? null : (
+        <div className="w-52 shrink-0 overflow-auto border-r border-border p-3">
+          {props.files.items.length === 0 ? (
+            <p className="text-xs text-muted-foreground">
+              No knowledge files in this projection yet.
+            </p>
+          ) : (
+            <WorkspaceFileTree
+              nodes={props.files.tree}
+              selectedPath={props.activeFile}
+              onSelect={props.onSelectFile}
+              onOpenTab={props.onOpenFileTab}
+            />
+          )}
+        </div>
+      )}
+      <div className="min-w-0 flex-1 overflow-auto p-4">
+        {preview ? (
+          <article>
+            <p className="mb-3 font-mono text-xs text-muted-foreground">
+              {preview.path}
+            </p>
+            <pre className="whitespace-pre-wrap font-mono text-sm leading-relaxed text-foreground">
+              {preview.body}
+            </pre>
+          </article>
+        ) : (
+          <p className="text-sm text-muted-foreground">
+            Single-click a file to preview. Double-click opens a tab (
+            <code className="font-mono text-xs">{filePaneId("path")}</code>
+            ).
+          </p>
+        )}
+      </div>
+    </>
+  )
+}
+
+function WorkspaceGraphPaneBody(props: {
+  orgSlug: string
+  workspaceSlug: string
+}) {
+  const { data } = useSuspenseQuery(
+    workspaceGraphOptions(props.orgSlug, props.workspaceSlug),
+  )
+  return <WorkspaceGraphPane graph={data} pending={false} />
 }
 
 function PaneTabButton(props: {

@@ -14,6 +14,7 @@ import {
   failedHydrateWorkspace,
   hydratingWorkspaceDetail,
   readOnlyWorkspace,
+  waitingForTipWorkspaceDetail,
 } from "./workspace-fixtures"
 
 const orgSlug = "acme"
@@ -101,6 +102,25 @@ export const Hydrating: Story = {
   },
 }
 
+export const WaitingForTip: Story = {
+  args: { workspaceSlug: "waiting-tip" },
+  parameters: {
+    storyRoute: {
+      pattern: "orgWorkspace",
+      orgSlug,
+      workspaceSlug: "waiting-tip",
+    } satisfies StoryRouteParams,
+    msw: {
+      handlers: {
+        page: workspaceShellHandlers({
+          workspaces: [waitingForTipWorkspaceDetail, docsWorkspace],
+          detail: waitingForTipWorkspaceDetail,
+        }),
+      },
+    },
+  },
+}
+
 export const PrepareFailed: Story = {
   args: { workspaceSlug: "knowledge-failed" },
   parameters: {
@@ -164,6 +184,18 @@ export const ConversationLoading: Story = {
     msw: {
       handlers: {
         page: [conversationDetailLoadingHandler(), ...workspaceShellHandlers()],
+      },
+    },
+  },
+}
+
+export const ConversationMissing: Story = {
+  args: { conversationId: "conv_missing" },
+  parameters: {
+    storyRoute: workspaceRoute({ conversationId: "conv_missing" }),
+    msw: {
+      handlers: {
+        page: workspaceShellHandlers({ conversation: null }),
       },
     },
   },

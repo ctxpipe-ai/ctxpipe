@@ -75,6 +75,41 @@ export const docsWorkspaceDetail: WorkspaceDetail = {
   ],
 }
 
+export const readOnlyWorkspaceDetail: WorkspaceDetail = {
+  ...readOnlyWorkspace,
+  linkedRepositories: [],
+}
+
+export const projectionLagWorkspaceDetail: WorkspaceDetail = {
+  ...docsWorkspaceDetail,
+  workspaceRepositoryUrl: "https://github.com/acme/docs-v2",
+  activeProjectionUrl: "https://github.com/acme/docs",
+  hydrateStatus: "running",
+  desiredSha: "fff111aaa222",
+  activeProjectionSha: "abc123def456",
+}
+
+export const emptyLinkedWorkspaceDetail: WorkspaceDetail = {
+  ...docsWorkspace,
+  linkedRepositories: [],
+}
+
+export const waitingForTipWorkspace: Workspace = {
+  ...hydratingWorkspace,
+  id: "ws_waiting_tip",
+  slug: "waiting-tip",
+  displayName: "Waiting tip",
+  desiredSha: null,
+  hydrateStatus: "pending",
+  activeProjectionSha: null,
+  indexedSha: null,
+}
+
+export const waitingForTipWorkspaceDetail: WorkspaceDetail = {
+  ...waitingForTipWorkspace,
+  linkedRepositories: [],
+}
+
 export const hydratingWorkspaceDetail: WorkspaceDetail = {
   ...hydratingWorkspace,
   linkedRepositories: [],

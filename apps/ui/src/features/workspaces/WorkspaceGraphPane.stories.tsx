@@ -1,7 +1,29 @@
 import type { Meta, StoryObj } from "@storybook/react-vite"
+import { userEvent, within } from "storybook/test"
 import { entryPageInnerDecorators } from "../../../.storybook/decorators/entry-page-decorators"
 import type { StoryRouteParams } from "../../../.storybook/decorators/with-story-route"
 import { WorkspaceGraphPane } from "./WorkspaceGraphPane"
+import { docsWorkspaceGraph } from "./workspace-fixtures"
+
+const graphWithOrphan = {
+  ...docsWorkspaceGraph,
+  metrics: {
+    ...docsWorkspaceGraph.metrics,
+    totalNodes: 3,
+    totalEdges: 1,
+    nodesReturned: 3,
+    edgesReturned: 1,
+  },
+  nodes: [
+    ...docsWorkspaceGraph.nodes,
+    {
+      id: "knowledge/orphan.md",
+      kind: "file",
+      name: "orphan.md",
+      summary: "No claims yet",
+    },
+  ],
+}
 
 const meta = {
   title: "Components/Workspaces/GraphPane",
@@ -38,38 +60,28 @@ export const Loading: Story = {
 export const WithUnits: Story = {
   args: {
     pending: false,
-    graph: {
-      metrics: {
-        totalNodes: 2,
-        totalEdges: 1,
-        lastUpdatedAt: "2026-08-16T10:00:00.000Z",
-        nodesReturned: 2,
-        edgesReturned: 1,
-        truncated: false,
-      },
-      nodes: [
-        {
-          id: "knowledge/billing.md",
-          kind: "file",
-          name: "billing.md",
-          summary: "Invoicing rules",
-        },
-        {
-          id: "knowledge/auth.md",
-          kind: "file",
-          name: "auth.md",
-          summary: "Org auth",
-        },
-      ],
-      edges: [
-        {
-          sourceId: "knowledge/billing.md",
-          targetId: "knowledge/auth.md",
-          predicate: "depends_on",
-          lastObservedAt: "2026-08-16T10:00:00.000Z",
-          confidence: 0.8,
-        },
-      ],
-    },
+    graph: docsWorkspaceGraph,
+  },
+}
+
+export const UnitSelected: Story = {
+  args: {
+    pending: false,
+    graph: docsWorkspaceGraph,
+  },
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement)
+    await userEvent.click(canvas.getByRole("button", { name: "billing.md" }))
+  },
+}
+
+export const UnitNoClaims: Story = {
+  args: {
+    pending: false,
+    graph: graphWithOrphan,
+  },
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement)
+    await userEvent.click(canvas.getByRole("button", { name: "orphan.md" }))
   },
 }

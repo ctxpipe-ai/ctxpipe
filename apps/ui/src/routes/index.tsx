@@ -1,11 +1,12 @@
-import { useQuery } from "@tanstack/react-query"
+import { useSuspenseQuery } from "@tanstack/react-query"
 import { createFileRoute, Navigate } from "@tanstack/react-router"
+import { Suspense } from "react"
 import {
-  fetchWorkspaces,
   landingWorkspace,
-  workspaceKeys,
+  workspaceListOptions,
 } from "@/features/workspaces/queries"
 import { useListOrganizations, useSession } from "@/lib/auth-client"
+import { fetchSsrOrganizations, fetchSsrSession } from "@/lib/auth-ssr"
 import { useUserPreferences } from "@/lib/user-preferences"
 
 export const Route = createFileRoute("/")({
@@ -20,6 +21,16 @@ export const Route = createFileRoute("/")({
         ? search.pendingAccountClaim
         : undefined,
   }),
+  loader: async ({ context }) => {
+    const session = await fetchSsrSession()
+    if (!session?.user.onboardingCompletedAt) return
+    const organizations = await fetchSsrOrganizations()
+    await Promise.all(
+      organizations.map((org) =>
+        context.queryClient.ensureQueryData(workspaceListOptions(org.slug)),
+      ),
+    )
+  },
   component: IndexRoutePage,
 })
 
@@ -64,17 +75,17 @@ export function IndexRoutePage() {
     )
   }
 
-  return <WorkspaceLandingRedirect orgSlug={selected.slug} />
+  return (
+    <Suspense fallback={null}>
+      <WorkspaceLandingRedirect orgSlug={selected.slug} />
+    </Suspense>
+  )
 }
 
 function WorkspaceLandingRedirect(props: { orgSlug: string }) {
   const { orgSlug } = props
-  const query = useQuery({
-    queryKey: workspaceKeys.list(orgSlug),
-    queryFn: () => fetchWorkspaces(orgSlug),
-  })
-  if (query.isPending) return null
-  const workspace = query.data ? landingWorkspace(query.data) : null
+  const { data } = useSuspenseQuery(workspaceListOptions(orgSlug))
+  const workspace = landingWorkspace(data)
   if (!workspace) {
     return (
       <Navigate to="/$orgSlug/workspaces/new" params={{ orgSlug }} replace />

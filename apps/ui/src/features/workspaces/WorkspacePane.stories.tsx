@@ -117,6 +117,28 @@ export const FilePreview: Story = {
   },
 }
 
+export const TreeCollapsed: Story = {
+  args: {
+    pane: { kind: "file", path: "knowledge/billing.md" },
+    fileTabs: ["knowledge/billing.md"],
+    selectedFilePath: "knowledge/billing.md",
+    treeCollapsed: true,
+  },
+  parameters: {
+    storyRoute: {
+      pattern: "orgWorkspace",
+      orgSlug: "acme",
+      workspaceSlug: "docs",
+      pane: "file:knowledge%2Fbilling.md",
+    } satisfies StoryRouteParams,
+    msw: {
+      handlers: {
+        page: [workspaceFilesHandler(docsWorkspaceFiles)],
+      },
+    },
+  },
+}
+
 export const Graph: Story = {
   args: { pane: { kind: "graph" } },
   parameters: {

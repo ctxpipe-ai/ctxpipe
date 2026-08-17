@@ -1,5 +1,6 @@
+import { queryOptions } from "@tanstack/react-query"
 import type { ConversationDetail } from "@/features/chat/types"
-import { client } from "@/lib/api"
+import { getApiClient } from "@/lib/api"
 import type {
   Workspace,
   WorkspaceDetail,
@@ -29,6 +30,7 @@ export const workspaceKeys = {
 export async function fetchWorkspaces(
   orgSlug: string,
 ): Promise<WorkspaceListResponse> {
+  const client = await getApiClient()
   const res = await client[":orgSlug"].api.v1.workspaces.$get({
     param: { orgSlug },
   })
@@ -41,6 +43,7 @@ export async function fetchConversation(
   conversationId: string,
   workspaceId?: string,
 ): Promise<ConversationDetail | null> {
+  const client = await getApiClient()
   const res = await client[":orgSlug"].api.v1.conversations[
     ":conversationId"
   ].$get({
@@ -56,6 +59,7 @@ export async function fetchWorkspaceFiles(
   orgSlug: string,
   workspaceSlug: string,
 ): Promise<WorkspaceFilesResponse> {
+  const client = await getApiClient()
   const res = await client[":orgSlug"].api.v1.workspaces[
     ":workspaceSlug"
   ].files.$get({
@@ -69,6 +73,7 @@ export async function fetchWorkspaceGraph(
   orgSlug: string,
   workspaceSlug: string,
 ): Promise<WorkspaceGraphPayload> {
+  const client = await getApiClient()
   const res = await client[":orgSlug"].api.v1.workspaces[
     ":workspaceSlug"
   ].graph.$get({
@@ -82,6 +87,7 @@ export async function fetchWorkspace(
   orgSlug: string,
   workspaceSlug: string,
 ): Promise<WorkspaceDetail | null> {
+  const client = await getApiClient()
   const res = await client[":orgSlug"].api.v1.workspaces[":workspaceSlug"].$get(
     {
       param: { orgSlug, workspaceSlug },
@@ -90,6 +96,45 @@ export async function fetchWorkspace(
   if (res.status === 404) return null
   if (!res.ok) throw new Error("Failed to load Workspace")
   return res.json() as Promise<WorkspaceDetail>
+}
+
+export function workspaceListOptions(orgSlug: string) {
+  return queryOptions({
+    queryKey: workspaceKeys.list(orgSlug),
+    queryFn: () => fetchWorkspaces(orgSlug),
+  })
+}
+
+export function workspaceDetailOptions(orgSlug: string, workspaceSlug: string) {
+  return queryOptions({
+    queryKey: workspaceKeys.detail(orgSlug, workspaceSlug),
+    queryFn: () => fetchWorkspace(orgSlug, workspaceSlug),
+  })
+}
+
+export function workspaceConversationOptions(
+  orgSlug: string,
+  conversationId: string,
+  workspaceId: string,
+) {
+  return queryOptions({
+    queryKey: workspaceKeys.conversation(orgSlug, conversationId, workspaceId),
+    queryFn: () => fetchConversation(orgSlug, conversationId, workspaceId),
+  })
+}
+
+export function workspaceFilesOptions(orgSlug: string, workspaceSlug: string) {
+  return queryOptions({
+    queryKey: workspaceKeys.files(orgSlug, workspaceSlug),
+    queryFn: () => fetchWorkspaceFiles(orgSlug, workspaceSlug),
+  })
+}
+
+export function workspaceGraphOptions(orgSlug: string, workspaceSlug: string) {
+  return queryOptions({
+    queryKey: workspaceKeys.graph(orgSlug, workspaceSlug),
+    queryFn: () => fetchWorkspaceGraph(orgSlug, workspaceSlug),
+  })
 }
 
 export async function createWorkspace(
@@ -101,6 +146,7 @@ export async function createWorkspace(
     githubConnectionId?: string
   },
 ): Promise<Workspace> {
+  const client = await getApiClient()
   const res = await client[":orgSlug"].api.v1.workspaces.$post({
     param: { orgSlug },
     json: input,
@@ -122,6 +168,7 @@ export async function updateWorkspace(
     githubConnectionId?: string | null
   },
 ): Promise<Workspace> {
+  const client = await getApiClient()
   const res = await client[":orgSlug"].api.v1.workspaces[
     ":workspaceSlug"
   ].$patch({
@@ -156,6 +203,7 @@ export async function touchWorkspace(
   orgSlug: string,
   workspaceSlug: string,
 ): Promise<void> {
+  const client = await getApiClient()
   const res = await client[":orgSlug"].api.v1.workspaces[
     ":workspaceSlug"
   ].touch.$post({
@@ -170,6 +218,7 @@ export async function retryPrepareWorkspace(
   orgSlug: string,
   workspaceSlug: string,
 ): Promise<Workspace> {
+  const client = await getApiClient()
   const res = await client[":orgSlug"].api.v1.workspaces[":workspaceSlug"][
     "retry-prepare"
   ].$post({
@@ -187,6 +236,7 @@ export async function linkWorkspaceRepository(
   workspaceSlug: string,
   gitUrl: string,
 ): Promise<WorkspaceLinkedRepository> {
+  const client = await getApiClient()
   const res = await client[":orgSlug"].api.v1.workspaces[":workspaceSlug"][
     "linked-repositories"
   ].$post({
@@ -205,6 +255,7 @@ export async function unlinkWorkspaceRepository(
   workspaceSlug: string,
   linkedId: string,
 ): Promise<void> {
+  const client = await getApiClient()
   const res = await client[":orgSlug"].api.v1.workspaces[":workspaceSlug"][
     "linked-repositories"
   ][":linkedId"].$delete({

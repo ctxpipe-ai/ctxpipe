@@ -1,6 +1,6 @@
-import { useQuery, useQueryClient } from "@tanstack/react-query"
+import { useQueryClient, useSuspenseQuery } from "@tanstack/react-query"
 import { useNavigate } from "@tanstack/react-router"
-import { useEffect, useState } from "react"
+import { Component, type ReactNode, Suspense, useEffect, useState } from "react"
 import { AppShell } from "@/components/AppShell"
 import { type ParsedPane, parsePane, serializePane, visiblePane } from "./pane"
 import {
@@ -9,16 +9,64 @@ import {
   workspaceProjectionReady,
 } from "./projection"
 import {
-  fetchConversation,
-  fetchWorkspace,
   touchWorkspace,
+  workspaceConversationOptions,
+  workspaceDetailOptions,
   workspaceKeys,
 } from "./queries"
+import type { WorkspaceDetail } from "./types"
 import { WorkspaceChat } from "./WorkspaceChat"
 import { WorkspaceHydrateProgress } from "./WorkspaceHydrateProgress"
 import { WorkspacePane, WorkspacePaneTriggers } from "./WorkspacePane"
+import { WorkspaceRouteError } from "./WorkspaceRouteError"
 
 export function WorkspaceSurface(props: {
+  orgSlug: string
+  workspaceSlug: string
+  conversationId?: string
+  paneParam?: string
+}) {
+  return (
+    <WorkspaceQueryErrorBoundary>
+      <Suspense
+        fallback={
+          <AppShell>
+            <p className="p-8 text-sm text-muted-foreground">
+              Loading Workspace…
+            </p>
+          </AppShell>
+        }
+      >
+        <WorkspaceSurfaceReady {...props} />
+      </Suspense>
+    </WorkspaceQueryErrorBoundary>
+  )
+}
+
+class WorkspaceQueryErrorBoundary extends Component<
+  { children: ReactNode },
+  { error: unknown }
+> {
+  state: { error: unknown } = { error: null }
+
+  static getDerivedStateFromError(error: unknown) {
+    return { error }
+  }
+
+  render() {
+    if (this.state.error) {
+      return (
+        <WorkspaceRouteError
+          error={this.state.error}
+          reset={() => this.setState({ error: null })}
+        />
+      )
+    }
+    return this.props.children
+  }
+}
+
+function WorkspaceSurfaceReady(props: {
   orgSlug: string
   workspaceSlug: string
   conversationId?: string
@@ -27,32 +75,15 @@ export function WorkspaceSurface(props: {
   const { orgSlug, workspaceSlug, conversationId, paneParam } = props
   const navigate = useNavigate()
   const queryClient = useQueryClient()
-  const workspaceQuery = useQuery({
-    queryKey: workspaceKeys.detail(orgSlug, workspaceSlug),
-    queryFn: () => fetchWorkspace(orgSlug, workspaceSlug),
+  const { data: workspace } = useSuspenseQuery({
+    ...workspaceDetailOptions(orgSlug, workspaceSlug),
     refetchInterval: (query) => {
       const data = query.state.data
       if (!data) return false
       return workspaceHydrateInFlight(data) ? 2000 : false
     },
   })
-  const conversationQuery = useQuery({
-    queryKey:
-      conversationId && workspaceQuery.data?.id
-        ? workspaceKeys.conversation(
-            orgSlug,
-            conversationId,
-            workspaceQuery.data.id,
-          )
-        : ["conversation", orgSlug, conversationId],
-    enabled: Boolean(conversationId && workspaceQuery.data?.id),
-    queryFn: () => {
-      if (!conversationId) throw new Error("Missing conversation id")
-      const workspaceId = workspaceQuery.data?.id
-      if (!workspaceId) throw new Error("Missing Workspace id")
-      return fetchConversation(orgSlug, conversationId, workspaceId)
-    },
-  })
+
   const pane = parsePane(paneParam)
   const shownPane = visiblePane(pane)
   const [maximized, setMaximized] = useState(false)
@@ -88,14 +119,7 @@ export function WorkspaceSurface(props: {
     })
   }
 
-  if (workspaceQuery.isPending) {
-    return (
-      <AppShell>
-        <p className="p-8 text-sm text-muted-foreground">Loading Workspace…</p>
-      </AppShell>
-    )
-  }
-  if (workspaceQuery.data === null) {
+  if (workspace === null) {
     return (
       <AppShell>
         <main className="mx-auto max-w-lg px-6 py-16">
@@ -113,20 +137,6 @@ export function WorkspaceSurface(props: {
       </AppShell>
     )
   }
-  const workspace = workspaceQuery.data
-  if (!workspace) {
-    return (
-      <AppShell>
-        <p className="p-8 text-sm text-muted-foreground">
-          Could not load this Workspace.
-        </p>
-      </AppShell>
-    )
-  }
-
-  const conversationTitle = conversationId
-    ? (conversationQuery.data?.conversation.name ?? "New conversation")
-    : "New conversation"
 
   const hydrateView = workspaceHydrateView(workspace)
   if (hydrateView === "failed" || !workspaceProjectionReady(workspace)) {
@@ -136,6 +146,117 @@ export function WorkspaceSurface(props: {
       </AppShell>
     )
   }
+
+  if (conversationId) {
+    return (
+      <WorkspaceSurfaceShell
+        orgSlug={orgSlug}
+        workspace={workspace}
+        conversationId={conversationId}
+        shownPane={shownPane}
+        maximized={maximized}
+        paneWidth={paneWidth}
+        treeCollapsed={treeCollapsed}
+        selectedFilePath={selectedFilePath}
+        fileTabs={fileTabs}
+        setMaximized={setMaximized}
+        setPaneWidth={setPaneWidth}
+        setTreeCollapsed={setTreeCollapsed}
+        setSelectedFilePath={setSelectedFilePath}
+        setSessionFileTabs={setSessionFileTabs}
+        setPane={setPane}
+      />
+    )
+  }
+
+  return (
+    <WorkspaceSurfaceLayout
+      orgSlug={orgSlug}
+      workspace={workspace}
+      conversationTitle="New conversation"
+      shownPane={shownPane}
+      maximized={maximized}
+      paneWidth={paneWidth}
+      treeCollapsed={treeCollapsed}
+      selectedFilePath={selectedFilePath}
+      fileTabs={fileTabs}
+      setMaximized={setMaximized}
+      setPaneWidth={setPaneWidth}
+      setTreeCollapsed={setTreeCollapsed}
+      setSelectedFilePath={setSelectedFilePath}
+      setSessionFileTabs={setSessionFileTabs}
+      setPane={setPane}
+    />
+  )
+}
+
+function WorkspaceSurfaceShell(props: {
+  orgSlug: string
+  workspace: WorkspaceDetail
+  conversationId: string
+  shownPane: ParsedPane | null
+  maximized: boolean
+  paneWidth: number
+  treeCollapsed: boolean
+  selectedFilePath: string | null
+  fileTabs: string[]
+  setMaximized: React.Dispatch<React.SetStateAction<boolean>>
+  setPaneWidth: React.Dispatch<React.SetStateAction<number>>
+  setTreeCollapsed: React.Dispatch<React.SetStateAction<boolean>>
+  setSelectedFilePath: React.Dispatch<React.SetStateAction<string | null>>
+  setSessionFileTabs: React.Dispatch<React.SetStateAction<string[]>>
+  setPane: (next: ParsedPane | null) => void
+}) {
+  const { data } = useSuspenseQuery(
+    workspaceConversationOptions(
+      props.orgSlug,
+      props.conversationId,
+      props.workspace.id,
+    ),
+  )
+  const conversationTitle = data?.conversation.name ?? "New conversation"
+
+  return (
+    <WorkspaceSurfaceLayout {...props} conversationTitle={conversationTitle} />
+  )
+}
+
+function WorkspaceSurfaceLayout(props: {
+  orgSlug: string
+  workspace: WorkspaceDetail
+  conversationId?: string
+  conversationTitle: string
+  shownPane: ParsedPane | null
+  maximized: boolean
+  paneWidth: number
+  treeCollapsed: boolean
+  selectedFilePath: string | null
+  fileTabs: string[]
+  setMaximized: React.Dispatch<React.SetStateAction<boolean>>
+  setPaneWidth: React.Dispatch<React.SetStateAction<number>>
+  setTreeCollapsed: React.Dispatch<React.SetStateAction<boolean>>
+  setSelectedFilePath: React.Dispatch<React.SetStateAction<string | null>>
+  setSessionFileTabs: React.Dispatch<React.SetStateAction<string[]>>
+  setPane: (next: ParsedPane | null) => void
+}) {
+  const {
+    orgSlug,
+    workspace,
+    conversationId,
+    conversationTitle,
+    shownPane,
+    maximized,
+    paneWidth,
+    treeCollapsed,
+    selectedFilePath,
+    fileTabs,
+    setMaximized,
+    setPaneWidth,
+    setTreeCollapsed,
+    setSelectedFilePath,
+    setSessionFileTabs,
+    setPane,
+  } = props
 
   return (
     <AppShell>

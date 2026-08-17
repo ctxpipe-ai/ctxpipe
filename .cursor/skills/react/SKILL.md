@@ -34,11 +34,14 @@ If there is **no external system**—for example, you only need to update local 
 
 **Data fetching in this repo:** use **TanStack Query** (`useQuery`, `useMutation`, `useInfiniteQuery`, etc.) for all server/API data. **Do not** use `useEffect` to load, refetch, or keep server data in sync—Query handles caching, loading and error state, and invalidation.
 
+**SSR product screens (e.g. Workspace):** warm the cache in route loaders with `queryClient.ensureQueryData(…queryOptions)` and read with **`useSuspenseQuery`** (same `queryOptions` factories). Create the **`QueryClient` per request** in `getRouter()` — never a module-level singleton. Keep streaming, polling, infinite “load more”, and mutations client-only.
+
 ## Patterns (read the official page for full examples)
 
 | Situation | Prefer |
 |-----------|--------|
 | Server / API data (read, mutations, refetch) | **TanStack Query** only—never `useEffect` + manual fetch for data loading |
+| First paint must include product data (SSR) | Route `ensureQueryData` + `useSuspenseQuery`; no module-level `QueryClient` |
 | Value derivable from props/state | Compute during render; avoid redundant state ([Thinking in React](https://react.dev/learn/thinking-in-react)) |
 | Expensive pure calculation | `useMemo` with correct deps; measure before optimizing. **React Compiler** may reduce the need for manual `useMemo` ([docs](https://react.dev/learn/react-compiler)) |
 | Reset *all* inner state when a prop changes (e.g. `userId`) | `key={userId}` on a child so React remounts a fresh subtree |

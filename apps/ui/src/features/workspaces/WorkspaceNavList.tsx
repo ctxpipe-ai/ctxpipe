@@ -1,7 +1,7 @@
-import { useQuery } from "@tanstack/react-query"
-import { useState } from "react"
+import { useSuspenseQuery } from "@tanstack/react-query"
+import { Suspense, useState } from "react"
 import { isWorkspaceNavOpen } from "./nav"
-import { fetchWorkspaces, workspaceKeys } from "./queries"
+import { workspaceListOptions } from "./queries"
 import { WorkspaceNavRow } from "./WorkspaceNavRow"
 
 export function WorkspaceNavList(props: {
@@ -10,13 +10,33 @@ export function WorkspaceNavList(props: {
   currentWorkspaceSlug?: string
   currentConversationId?: string
 }) {
+  return (
+    <Suspense
+      fallback={
+        props.expanded ? (
+          <li className="px-3 py-2 text-xs text-muted-foreground">Loading…</li>
+        ) : (
+          <li>
+            <span className="sr-only">Loading Workspaces</span>
+          </li>
+        )
+      }
+    >
+      <WorkspaceNavListReady {...props} />
+    </Suspense>
+  )
+}
+
+function WorkspaceNavListReady(props: {
+  orgSlug: string
+  expanded: boolean
+  currentWorkspaceSlug?: string
+  currentConversationId?: string
+}) {
   const { orgSlug, expanded, currentWorkspaceSlug, currentConversationId } =
     props
-  const workspacesQuery = useQuery({
-    queryKey: workspaceKeys.list(orgSlug),
-    queryFn: () => fetchWorkspaces(orgSlug),
-  })
-  const workspaces = workspacesQuery.data?.items ?? []
+  const { data } = useSuspenseQuery(workspaceListOptions(orgSlug))
+  const workspaces = data.items
   const n = workspaces.length
   const [expandedIds, setExpandedIds] = useState<string[]>([])
   const [syncedSlug, setSyncedSlug] = useState<string | undefined>(undefined)
@@ -30,14 +50,6 @@ export function WorkspaceNavList(props: {
         ids.includes(currentWorkspace.id) ? ids : [...ids, currentWorkspace.id],
       )
     }
-  }
-
-  if (!expanded && workspacesQuery.isPending) {
-    return (
-      <li>
-        <span className="sr-only">Loading Workspaces</span>
-      </li>
-    )
   }
 
   return (

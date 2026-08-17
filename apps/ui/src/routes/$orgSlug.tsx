@@ -1,62 +1,57 @@
-import { createFileRoute, Link, Navigate, Outlet } from "@tanstack/react-router"
-import { getSession, useListOrganizations, useSession } from "@/lib/auth-client"
+import { createFileRoute, Link, Outlet, redirect } from "@tanstack/react-router"
+import { workspaceListOptions } from "@/features/workspaces/queries"
+import { fetchSsrOrganizations, fetchSsrSession } from "@/lib/auth-ssr"
 
 export const Route = createFileRoute("/$orgSlug")({
+  beforeLoad: async ({ params, context }) => {
+    const session = await fetchSsrSession()
+    if (!session) {
+      throw redirect({ to: "/.auth/sign-in" })
+    }
+
+    const user = session.user
+    if (!user.onboardingCompletedAt) {
+      throw redirect({
+        to: "/onboarding",
+        search: { orgSlug: undefined },
+      })
+    }
+
+    const organizations = await fetchSsrOrganizations()
+    if (organizations.length === 0) {
+      throw redirect({
+        to: "/onboarding",
+        search: { orgSlug: undefined },
+      })
+    }
+
+    const isMember = organizations.some((org) => org.slug === params.orgSlug)
+    if (!isMember) {
+      return {
+        session,
+        organizations,
+        orgAccessDenied: true as const,
+      }
+    }
+
+    await context.queryClient.ensureQueryData(
+      workspaceListOptions(params.orgSlug),
+    )
+
+    return {
+      session,
+      organizations,
+      orgAccessDenied: false as const,
+    }
+  },
   component: OrgScopedLayout,
 })
 
 function OrgScopedLayout() {
   const { orgSlug } = Route.useParams()
-  const { data: session, isPending: sessionPending } = useSession()
-  const { data: organizations, isPending: orgsPending } = useListOrganizations()
+  const { orgAccessDenied } = Route.useRouteContext()
 
-  if (sessionPending) {
-    return (
-      <main className="onboarding-fade-in min-h-screen bg-zinc-950 text-zinc-100">
-        <div className="flex min-h-screen items-center justify-center px-6 text-center">
-          <p className="text-sm text-zinc-400">Loading workspace…</p>
-        </div>
-      </main>
-    )
-  }
-
-  if (!session) {
-    return <Navigate to="/.auth/sign-in" replace />
-  }
-
-  const user = session.user as {
-    id: string
-    onboardingCompletedAt?: string | null
-  }
-  if (user.onboardingCompletedAt && typeof window !== "undefined") {
-    sessionStorage.removeItem("ctxpipe:onboarding-transition-pending-at")
-  }
-  if (!user.onboardingCompletedAt) {
-    if (typeof window !== "undefined") {
-      const pendingAt = Number(
-        sessionStorage.getItem("ctxpipe:onboarding-transition-pending-at") ??
-          "0",
-      )
-      if (pendingAt > 0 && Date.now() - pendingAt < 10000) {
-        void getSession({ fetchOptions: { throw: false } })
-        return <Outlet />
-      }
-      if (pendingAt > 0) {
-        sessionStorage.removeItem("ctxpipe:onboarding-transition-pending-at")
-      }
-    }
-    return <Navigate to="/onboarding" search={{ orgSlug: undefined }} replace />
-  }
-
-  if (orgsPending) return <Outlet />
-
-  const orgList = organizations ?? []
-  if (orgList.length === 0) {
-    return <Navigate to="/onboarding" search={{ orgSlug: undefined }} replace />
-  }
-
-  const isMember = orgList.some((org) => org.slug === orgSlug)
-  if (!isMember) {
+  if (orgAccessDenied) {
     return (
       <main className="min-h-screen bg-background text-foreground">
         <div className="mx-auto max-w-lg px-6 py-16">

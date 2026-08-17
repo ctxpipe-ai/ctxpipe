@@ -1,10 +1,20 @@
 import type { Meta, StoryObj } from "@storybook/react-vite"
 import { HttpResponse, http } from "msw"
-import { expect, userEvent, within } from "storybook/test"
+import { expect, userEvent, waitFor, within } from "storybook/test"
+import {
+  githubInstallationReposHandler,
+  workspaceListHandler,
+} from "@/mocks/workspace-handlers"
 import { entryPageInnerDecorators } from "../../../.storybook/decorators/entry-page-decorators"
 import type { StoryRouteParams } from "../../../.storybook/decorators/with-story-route"
 import { WorkspaceSettingsPane } from "./WorkspaceSettingsPane"
-import { docsWorkspaceDetail } from "./workspace-fixtures"
+import {
+  docsWorkspace,
+  docsWorkspaceDetail,
+  emptyLinkedWorkspaceDetail,
+  projectionLagWorkspaceDetail,
+  readOnlyWorkspaceDetail,
+} from "./workspace-fixtures"
 
 const meta = {
   title: "Components/Workspaces/SettingsPane",
@@ -23,6 +33,14 @@ const meta = {
       pattern: "orgIndex",
       orgSlug: "acme",
     } satisfies StoryRouteParams,
+    msw: {
+      handlers: {
+        page: [
+          workspaceListHandler([docsWorkspace]),
+          githubInstallationReposHandler(),
+        ],
+      },
+    },
   },
   args: {
     orgSlug: "acme",
@@ -36,11 +54,65 @@ type Story = StoryObj<typeof meta>
 
 export const Settings: Story = {}
 
+export const ReadOnly: Story = {
+  args: {
+    workspace: readOnlyWorkspaceDetail,
+  },
+}
+
+export const ProjectionLag: Story = {
+  args: {
+    workspace: projectionLagWorkspaceDetail,
+  },
+}
+
+export const EmptyLinkedRepos: Story = {
+  args: {
+    workspace: emptyLinkedWorkspaceDetail,
+  },
+}
+
+export const RelinkError: Story = {
+  parameters: {
+    msw: {
+      handlers: {
+        page: [
+          workspaceListHandler([docsWorkspace]),
+          githubInstallationReposHandler(),
+          http.patch(
+            ({ request }) =>
+              /\/api\/v1\/workspaces\/[^/]+$/.test(
+                new URL(request.url).pathname,
+              ),
+            () =>
+              HttpResponse.json(
+                { error: "That git URL is already used by another Workspace." },
+                { status: 409 },
+              ),
+          ),
+        ],
+      },
+    },
+  },
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement)
+    await userEvent.click(canvas.getByRole("button", { name: /paste url/i }))
+    await userEvent.type(
+      canvas.getByLabelText(/git url/i),
+      "https://github.com/acme/taken.git",
+    )
+    await userEvent.click(canvas.getByRole("button", { name: /^relink$/i }))
+    await waitFor(() => canvas.getByText(/could not save/i))
+  },
+}
+
 export const DeleteConfirmOpen: Story = {
   parameters: {
     msw: {
       handlers: {
         page: [
+          workspaceListHandler([docsWorkspace]),
+          githubInstallationReposHandler(),
           http.delete(
             ({ request }) =>
               /\/api\/v1\/workspaces\/[^/]+$/.test(
