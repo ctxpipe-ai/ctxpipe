@@ -18,6 +18,14 @@ export type StoryRouteParams =
   | { pattern: "orgIndex"; orgSlug: string }
   | { pattern: "orgConnectors"; orgSlug: string }
   | { pattern: "orgRepositories"; orgSlug: string }
+  | { pattern: "orgWorkspaceNew"; orgSlug: string }
+  | {
+      pattern: "orgWorkspace"
+      orgSlug: string
+      workspaceSlug: string
+      conversationId?: string
+      pane?: string
+    }
 
 /**
  * Puts the story component on a real route (sign-in, onboarding, org home index)
@@ -98,15 +106,32 @@ export const withStoryRoute: Decorator = (Story, context) => {
     path: "connectors",
     component: orgConnectorsForStory,
   })
-  const orgKnowledgeGraph = createRoute({
+  const orgWorkspaceNewForStory =
+    spec.pattern === "orgWorkspaceNew" ? Story : storyRouteStub
+  const orgWorkspaceForStory =
+    spec.pattern === "orgWorkspace" ? Story : storyRouteStub
+  const orgWorkspacesNew = createRoute({
     getParentRoute: () => orgRoute,
     path: "workspaces/new",
-    component: storyRouteStub,
+    component: orgWorkspaceNewForStory,
   })
   const orgWs = createRoute({
     getParentRoute: () => orgRoute,
     path: "ws/$workspaceSlug",
-    component: storyRouteStub,
+    validateSearch: (search: Record<string, unknown>) => ({
+      pane: typeof search.pane === "string" ? search.pane : undefined,
+    }),
+    component: () => <Outlet />,
+  })
+  const orgWsIndex = createRoute({
+    getParentRoute: () => orgWs,
+    path: "/",
+    component: orgWorkspaceForStory,
+  })
+  const orgWsConversation = createRoute({
+    getParentRoute: () => orgWs,
+    path: "$conversationId",
+    component: orgWorkspaceForStory,
   })
   /** So `Navigate` from org pages (session/onboarding gates) never hits a missing route before MSW resolves. */
   const authSignInStub = createRoute({
@@ -125,18 +150,28 @@ export const withStoryRoute: Decorator = (Story, context) => {
     orgRoute.addChildren([
       orgIndex,
       orgConnectors,
-      orgKnowledgeGraph,
-      orgWs,
+      orgWorkspacesNew,
+      orgWs.addChildren([orgWsIndex, orgWsConversation]),
       orgChat.addChildren([orgChatIndex]),
       orgRepositories.addChildren([orgRepositoriesIndex]),
     ]),
   ])
+  const workspaceSearch =
+    spec.pattern === "orgWorkspace" && spec.pane
+      ? `?pane=${encodeURIComponent(spec.pane)}`
+      : ""
   const initialPath =
     spec.pattern === "orgConnectors"
       ? `/${spec.orgSlug}/connectors`
       : spec.pattern === "orgRepositories"
         ? `/${spec.orgSlug}/repositories`
-        : `/${spec.orgSlug}`
+        : spec.pattern === "orgWorkspaceNew"
+          ? `/${spec.orgSlug}/workspaces/new`
+          : spec.pattern === "orgWorkspace"
+            ? spec.conversationId
+              ? `/${spec.orgSlug}/ws/${spec.workspaceSlug}/${spec.conversationId}${workspaceSearch}`
+              : `/${spec.orgSlug}/ws/${spec.workspaceSlug}${workspaceSearch}`
+            : `/${spec.orgSlug}`
   const router = createRouter({
     routeTree,
     history: createMemoryHistory({ initialEntries: [initialPath] }),

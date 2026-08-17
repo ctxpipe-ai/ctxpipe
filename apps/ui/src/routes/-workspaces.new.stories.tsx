@@ -1,0 +1,56 @@
+import type { Meta, StoryObj } from "@storybook/react-vite"
+import { userEvent, within } from "storybook/test"
+import {
+  githubInstallationReposHandler,
+  workspaceListHandler,
+} from "@/mocks/workspace-handlers"
+import { entryPageInnerDecorators } from "../../.storybook/decorators/entry-page-decorators"
+import type { StoryRouteParams } from "../../.storybook/decorators/with-story-route"
+import { NewWorkspacePageContent } from "./$orgSlug.workspaces.new"
+
+const orgSlug = "acme"
+
+const meta = {
+  title: "Pages/Workspaces/New",
+  decorators: entryPageInnerDecorators,
+  parameters: {
+    layout: "fullscreen",
+    storyRoute: {
+      pattern: "orgWorkspaceNew",
+      orgSlug,
+    } satisfies StoryRouteParams,
+    msw: {
+      handlers: {
+        page: [workspaceListHandler([]), githubInstallationReposHandler()],
+      },
+    },
+  },
+} satisfies Meta
+
+export default meta
+
+type Story = StoryObj<typeof meta>
+
+export const PasteUrl: Story = {
+  render: () => <NewWorkspacePageContent orgSlug={orgSlug} />,
+}
+
+export const SelectGitHub: Story = {
+  render: () => <NewWorkspacePageContent orgSlug={orgSlug} />,
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement)
+    await userEvent.click(
+      canvas.getByRole("button", { name: /select github/i }),
+    )
+  },
+}
+
+export const CreateOnGitHub: Story = {
+  render: () => <NewWorkspacePageContent orgSlug={orgSlug} />,
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement)
+    await userEvent.click(
+      canvas.getByRole("button", { name: /create on github/i }),
+    )
+  },
+}
