@@ -41,6 +41,27 @@ export const WaitingForTip: Story = {
   args: {
     workspace: { ...hydratingWorkspace, desiredSha: null },
   },
+  parameters: {
+    msw: {
+      handlers: {
+        page: [
+          http.post(
+            ({ request }) =>
+              /\/api\/v1\/workspaces\/[^/]+\/retry-prepare$/.test(
+                new URL(request.url).pathname,
+              ),
+            () =>
+              HttpResponse.json({
+                ...hydratingWorkspace,
+                desiredSha: "abc123def456",
+                hydrateStatus: "pending",
+                hydrateError: null,
+              }),
+          ),
+        ],
+      },
+    },
+  },
 }
 
 export const Failed: Story = {

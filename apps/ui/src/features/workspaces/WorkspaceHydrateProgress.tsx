@@ -91,6 +91,23 @@ export function WorkspaceHydrateProgress(props: {
             )}
           </span>
         </p>
+        {view === "waiting_for_tip" ? (
+          <div className="mt-5">
+            <p className="text-sm text-muted-foreground">
+              Hydrate does not wait on a bootstrap commit. Try again resolves
+              the git tip and hydrates.
+            </p>
+            <div className="mt-4">
+              <Button
+                variant="primary"
+                isPending={retryMutation.isPending}
+                onPress={() => retryMutation.mutate()}
+              >
+                Try again
+              </Button>
+            </div>
+          </div>
+        ) : null}
       </div>
     </main>
   )
