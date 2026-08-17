@@ -607,6 +607,19 @@ jobs:
                   if [[ "$status" == "FAILED" || "$status" == "CRASHED" || "$status" == "REMOVED" ]]; then
                     echo "ERROR: $label deployment ended with status=$status" >&2
                     echo "$node_json" >&2
+                    dep_id="$(echo "$node_json" | jq -r '.id // empty')"
+                    if [[ -n "$dep_id" ]]; then
+                      echo "=== $label deploymentLogs for $dep_id ===" >&2
+                      railway_graphql \
+                        'query($id: String!, $limit: Int) { deploymentLogs(deploymentId: $id, limit: $limit) { timestamp severity message } }' \
+                        "$(jq -nc --arg id "$dep_id" '{id:$id, limit:200}')" \
+                        | jq -r '(.data.deploymentLogs // [])[]? | "\(.timestamp) [\(.severity)] \(.message)"' >&2 || true
+                      echo "=== $label buildLogs for $dep_id ===" >&2
+                      railway_graphql \
+                        'query($id: String!, $limit: Int) { buildLogs(deploymentId: $id, limit: $limit) { timestamp severity message } }' \
+                        "$(jq -nc --arg id "$dep_id" '{id:$id, limit:100}')" \
+                        | jq -r '(.data.buildLogs // [])[]? | "\(.timestamp) [\(.severity)] \(.message)"' >&2 || true
+                    fi
                     return 1
                   fi
                 else
