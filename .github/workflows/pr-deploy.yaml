@@ -176,27 +176,6 @@ jobs:
         id: neon_expires
         run: echo "expires_at=$(date -u --date '+14 days' +'%Y-%m-%dT%H:%M:%SZ')" >> "$GITHUB_OUTPUT"
 
-      # Preview DBs are ephemeral. Recreate so squashed / rewritten migrations always
-      # apply on a clean schema (reusing a dirty branch fails with "already exists").
-      - name: Delete existing Neon preview branch
-        env:
-          NEON_API_KEY: ${{ secrets.NEON_API_KEY }}
-        run: |
-          set -euo pipefail
-          PROJECT_ID="${{ vars.NEON_PROJECT_ID }}"
-          BRANCH_NAME="preview/pr-${{ needs.resolve_pr.outputs.pr_number }}"
-          API="https://console.neon.tech/api/v2"
-          RESP=$(curl -fsS -H "Authorization: Bearer ${NEON_API_KEY}" \
-            "${API}/projects/${PROJECT_ID}/branches")
-          BID=$(echo "$RESP" | jq -r --arg n "$BRANCH_NAME" '.branches[]? | select(.name == $n) | .id' | head -1)
-          if [[ -z "$BID" ]]; then
-            echo "Neon branch not found (first deploy?): $BRANCH_NAME"
-            exit 0
-          fi
-          curl -fsS -X DELETE -H "Authorization: Bearer ${NEON_API_KEY}" \
-            "${API}/projects/${PROJECT_ID}/branches/${BID}"
-          echo "Deleted Neon branch $BRANCH_NAME for a fresh migrate"
-
       - name: Create Neon branch
         id: neon_branch
         uses: neondatabase/create-branch-action@v6
