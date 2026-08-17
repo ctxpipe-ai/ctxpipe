@@ -5,6 +5,7 @@ import { AppShell } from "@/components/AppShell"
 import { type ParsedPane, parsePane, serializePane, visiblePane } from "./pane"
 import {
   workspaceHydrateInFlight,
+  workspaceHydrateView,
   workspaceProjectionReady,
 } from "./projection"
 import {
@@ -32,10 +33,7 @@ export function WorkspaceSurface(props: {
     refetchInterval: (query) => {
       const data = query.state.data
       if (!data) return false
-      if (!workspaceProjectionReady(data) || workspaceHydrateInFlight(data)) {
-        return 2000
-      }
-      return false
+      return workspaceHydrateInFlight(data) ? 2000 : false
     },
   })
   const conversationQuery = useQuery({
@@ -130,7 +128,8 @@ export function WorkspaceSurface(props: {
     ? (conversationQuery.data?.conversation.name ?? "New conversation")
     : "New conversation"
 
-  if (!workspaceProjectionReady(workspace)) {
+  const hydrateView = workspaceHydrateView(workspace)
+  if (hydrateView === "failed" || !workspaceProjectionReady(workspace)) {
     return (
       <AppShell>
         <WorkspaceHydrateProgress workspace={workspace} />

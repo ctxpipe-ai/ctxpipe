@@ -143,21 +143,43 @@ export function workspaceProjectionReady(input: {
   return Boolean(input.activeProjectionSha)
 }
 
+export type WorkspaceHydrateView =
+  | "waiting_for_tip"
+  | "hydrating"
+  | "failed"
+  | "ready"
+
+export function workspaceHydrateView(input: {
+  hydrateStatus: string
+  desiredSha?: string | null
+  hydrateError?: string | null
+  activeProjectionSha?: string | null
+}): WorkspaceHydrateView {
+  void input.hydrateError
+  if (input.hydrateStatus === "failed") return "failed"
+  if (input.hydrateStatus === "ready") {
+    if (
+      input.desiredSha &&
+      input.activeProjectionSha &&
+      input.desiredSha !== input.activeProjectionSha
+    ) {
+      return "hydrating"
+    }
+    return "ready"
+  }
+  if (!input.desiredSha) return "waiting_for_tip"
+  return "hydrating"
+}
+
 /** Relink hydrates B in the background; keep polling until desired matches the active SHA. */
 export function workspaceHydrateInFlight(input: {
   hydrateStatus: string
   desiredSha?: string | null
+  hydrateError?: string | null
   activeProjectionSha?: string | null
 }): boolean {
-  if (input.hydrateStatus !== "ready") return true
-  if (
-    input.desiredSha &&
-    input.activeProjectionSha &&
-    input.desiredSha !== input.activeProjectionSha
-  ) {
-    return true
-  }
-  return false
+  const view = workspaceHydrateView(input)
+  return view === "waiting_for_tip" || view === "hydrating"
 }
 
 export function applyEffectiveValidFromToUnits(

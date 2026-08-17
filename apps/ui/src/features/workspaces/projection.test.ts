@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest"
 import {
   workspaceHydrateInFlight,
+  workspaceHydrateView,
   workspaceProjectionReady,
 } from "./projection"
 
@@ -27,15 +28,33 @@ describe("workspaceProjectionReady", () => {
   })
 })
 
-describe("workspaceHydrateInFlight", () => {
-  it("keeps polling while relink hydrates a new desired SHA", () => {
+describe("workspaceHydrateView", () => {
+  it("is waiting for a tip while pending with no desired SHA", () => {
+    expect(
+      workspaceHydrateView({
+        hydrateStatus: "pending",
+        desiredSha: null,
+        hydrateError: null,
+      }),
+    ).toBe("waiting_for_tip")
     expect(
       workspaceHydrateInFlight({
-        hydrateStatus: "ready",
-        desiredSha: "aaa",
-        activeProjectionSha: "aaa",
+        hydrateStatus: "pending",
+        desiredSha: null,
+        hydrateError: null,
       }),
-    ).toBe(false)
+    ).toBe(true)
+  })
+
+  it("is hydrating when a desired SHA is not the active projection", () => {
+    expect(
+      workspaceHydrateView({
+        hydrateStatus: "pending",
+        desiredSha: "abc123def456",
+        activeProjectionSha: null,
+        hydrateError: null,
+      }),
+    ).toBe("hydrating")
     expect(
       workspaceHydrateInFlight({
         hydrateStatus: "pending",
@@ -44,11 +63,47 @@ describe("workspaceHydrateInFlight", () => {
       }),
     ).toBe(true)
     expect(
-      workspaceHydrateInFlight({
+      workspaceHydrateView({
         hydrateStatus: "ready",
         desiredSha: "bbb",
         activeProjectionSha: "aaa",
+        hydrateError: null,
       }),
-    ).toBe(true)
+    ).toBe("hydrating")
+  })
+
+  it("is failed when hydrateStatus is failed", () => {
+    expect(
+      workspaceHydrateView({
+        hydrateStatus: "failed",
+        desiredSha: null,
+        hydrateError: "getLogger: no logger in context.",
+      }),
+    ).toBe("failed")
+    expect(
+      workspaceHydrateInFlight({
+        hydrateStatus: "failed",
+        desiredSha: null,
+        hydrateError: "getLogger: no logger in context.",
+      }),
+    ).toBe(false)
+  })
+
+  it("is ready when status is ready and SHAs match", () => {
+    expect(
+      workspaceHydrateView({
+        hydrateStatus: "ready",
+        desiredSha: "aaa",
+        activeProjectionSha: "aaa",
+        hydrateError: null,
+      }),
+    ).toBe("ready")
+    expect(
+      workspaceHydrateInFlight({
+        hydrateStatus: "ready",
+        desiredSha: "aaa",
+        activeProjectionSha: "aaa",
+      }),
+    ).toBe(false)
   })
 })
