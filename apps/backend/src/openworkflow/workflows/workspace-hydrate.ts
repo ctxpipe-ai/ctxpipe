@@ -41,6 +41,7 @@ import {
   listWorkspaceKnowledgeUnits,
   persistHydrateFailure,
   persistHydratePhases,
+  persistResolvedDesiredSha,
   persistUnitEmbeddings,
 } from "../../models/workspaces.js"
 import {
@@ -50,6 +51,7 @@ import {
 } from "../../observability/logger.js"
 import { projectClaimsFromState } from "../../retrieval/services/graphProjection.js"
 import { generateEmbeddings } from "../../retrieval/services/modelProvider.js"
+import { resolveWorkspaceRepositoryTip } from "../../routes/webhooks/github/github-workspace-tip.js"
 import { listMarkdownFilesAtGitSha } from "../../services/git/clone-tree.js"
 import {
   getCommitTimestamp,
@@ -112,18 +114,39 @@ export const workspaceHydrate = defineWorkflow(
         return withOrgIdContext({ id: org.id, slug: org.slug }, () =>
           withOrgDbContext(input.orgId, async () => {
             try {
-              const workspace = await getWorkspaceById(input.workspaceId)
+              let workspace = await getWorkspaceById(input.workspaceId)
               if (!workspace) throw new Error("Workspace not found")
               void input.defaultBranch
               if (!workspace.desiredSha) {
-                return {
-                  hydrated: false,
-                  reason: "desired_sha_missing" as const,
+                const tip = await resolveWorkspaceRepositoryTip({
+                  orgId: input.orgId,
+                  githubConnectionId: workspace.githubConnectionId,
+                  workspaceRepositoryUrl: workspace.workspaceRepositoryUrl,
+                  env,
+                })
+                if (!tip) {
+                  throw new Error(
+                    "Could not resolve the git tip for this workspace repository.",
+                  )
                 }
+                await persistResolvedDesiredSha({
+                  workspaceId: workspace.id,
+                  resolvedTip: tip,
+                  expectedGeneration: workspace.desiredGeneration,
+                  expectedUrl: workspace.workspaceRepositoryUrl,
+                  expectedDesiredSha: null,
+                })
+                workspace = { ...workspace, desiredSha: tip }
+              }
+              const desiredSha = workspace.desiredSha
+              if (!desiredSha) {
+                throw new Error(
+                  "Could not resolve the git tip for this workspace repository.",
+                )
               }
               const pending = pendingHydratePhases({
                 desiredUrl: workspace.workspaceRepositoryUrl,
-                desiredSha: workspace.desiredSha,
+                desiredSha,
                 activeProjectionUrl: workspace.activeProjectionUrl,
                 activeProjectionSha: workspace.activeProjectionSha,
                 indexedSha: workspace.indexedSha,
@@ -155,10 +178,9 @@ export const workspaceHydrate = defineWorkflow(
               )
               const treeSha = hydrateReadsStoredDesiredSha(workspace.desiredSha)
               if (!treeSha) {
-                return {
-                  hydrated: false,
-                  reason: "desired_sha_missing" as const,
-                }
+                throw new Error(
+                  "Could not resolve the git tip for this workspace repository.",
+                )
               }
               const files: Array<{ path: string; content: string }> = []
               if (

@@ -1,13 +1,15 @@
 import { beforeEach, describe, expect, it, vi } from "vitest"
 
-const enqueueWorkspaceIndexMock = vi.hoisted(() =>
-  vi.fn().mockResolvedValue(undefined),
-)
-const listLinkedRepositoriesMock = vi.hoisted(() =>
-  vi.fn().mockResolvedValue([]),
-)
-const getWorkspaceByIdMock = vi.hoisted(() =>
-  vi.fn().mockResolvedValue({
+const {
+  enqueueWorkspaceIndexMock,
+  listLinkedRepositoriesMock,
+  hydrateWorkspaceRow,
+  getWorkspaceByIdMock,
+  persistHydrateFailureMock,
+  persistResolvedDesiredShaMock,
+  resolveWorkspaceRepositoryTipMock,
+} = vi.hoisted(() => {
+  const hydrateWorkspaceRow = {
     id: "ws_1",
     orgId: "org_1",
     workspaceRepositoryUrl: "https://github.com/acme/docs",
@@ -24,11 +26,17 @@ const getWorkspaceByIdMock = vi.hoisted(() =>
       graph: true,
       remainders: true,
     },
-  }),
-)
-const persistHydrateFailureMock = vi.hoisted(() =>
-  vi.fn().mockResolvedValue(undefined),
-)
+  }
+  return {
+    enqueueWorkspaceIndexMock: vi.fn().mockResolvedValue(undefined),
+    listLinkedRepositoriesMock: vi.fn().mockResolvedValue([]),
+    hydrateWorkspaceRow,
+    getWorkspaceByIdMock: vi.fn().mockResolvedValue(hydrateWorkspaceRow),
+    persistHydrateFailureMock: vi.fn().mockResolvedValue(undefined),
+    persistResolvedDesiredShaMock: vi.fn().mockResolvedValue(true),
+    resolveWorkspaceRepositoryTipMock: vi.fn().mockResolvedValue("abc123def456"),
+  }
+})
 
 vi.mock("../../config/env.js", () => ({
   parseEnv: () => ({}),
@@ -59,6 +67,11 @@ vi.mock("../../models/workspaces.js", () => ({
   persistUnitEmbeddings: vi.fn(),
   countWriteJobAttempts: vi.fn(),
   persistHydrateFailure: persistHydrateFailureMock,
+  persistResolvedDesiredSha: persistResolvedDesiredShaMock,
+}))
+
+vi.mock("../../routes/webhooks/github/github-workspace-tip.js", () => ({
+  resolveWorkspaceRepositoryTip: resolveWorkspaceRepositoryTipMock,
 }))
 
 vi.mock("../../models/workspace-export.js", () => ({
@@ -101,36 +114,81 @@ vi.mock("openworkflow", () => ({
 
 import { workspaceHydrate } from "./workspace-hydrate.js"
 
+const hydrateFn = workspaceHydrate as unknown as {
+  fn: (args: {
+    input: { orgId: string; workspaceId: string }
+  }) => Promise<{ reason?: string }>
+}
+
 describe("workspaceHydrate workflow", () => {
   beforeEach(() => {
     vi.clearAllMocks()
     listLinkedRepositoriesMock.mockResolvedValue([])
+    getWorkspaceByIdMock.mockResolvedValue(hydrateWorkspaceRow)
+    persistResolvedDesiredShaMock.mockResolvedValue(true)
+    resolveWorkspaceRepositoryTipMock.mockResolvedValue("abc123def456")
   })
 
   it("does not throw getLogger when only index is lagging", async () => {
-    const wf = workspaceHydrate as unknown as {
-      fn: (args: {
-        input: { orgId: string; workspaceId: string }
-      }) => Promise<{ reason?: string }>
-    }
-
-    const result = await wf.fn({
+    const result = await hydrateFn.fn({
       input: { orgId: "org_1", workspaceId: "ws_1" },
     })
 
     expect(result.reason).toBe("index_lag")
+    expect(persistResolvedDesiredShaMock).not.toHaveBeenCalled()
+  })
+
+  it("resolves and persists the tip when desiredSha is missing", async () => {
+    getWorkspaceByIdMock.mockResolvedValue({
+      ...hydrateWorkspaceRow,
+      desiredSha: null,
+    })
+
+    const result = await hydrateFn.fn({
+      input: { orgId: "org_1", workspaceId: "ws_1" },
+    })
+
+    expect(result.reason).toBe("index_lag")
+    expect(result.reason).not.toBe("desired_sha_missing")
+    expect(resolveWorkspaceRepositoryTipMock).toHaveBeenCalledWith({
+      orgId: "org_1",
+      githubConnectionId: "con_1",
+      workspaceRepositoryUrl: "https://github.com/acme/docs",
+      env: {},
+    })
+    expect(persistResolvedDesiredShaMock).toHaveBeenCalledWith({
+      workspaceId: "ws_1",
+      resolvedTip: "abc123def456",
+      expectedGeneration: 1,
+      expectedUrl: "https://github.com/acme/docs",
+      expectedDesiredSha: null,
+    })
+  })
+
+  it("persists hydrate failure when the tip cannot be resolved", async () => {
+    getWorkspaceByIdMock.mockResolvedValue({
+      ...hydrateWorkspaceRow,
+      desiredSha: null,
+    })
+    resolveWorkspaceRepositoryTipMock.mockResolvedValue(null)
+
+    await expect(
+      hydrateFn.fn({ input: { orgId: "org_1", workspaceId: "ws_1" } }),
+    ).rejects.toThrow(
+      "Could not resolve the git tip for this workspace repository.",
+    )
+    expect(persistResolvedDesiredShaMock).not.toHaveBeenCalled()
+    expect(persistHydrateFailureMock).toHaveBeenCalledWith({
+      workspaceId: "ws_1",
+      message: "Could not resolve the git tip for this workspace repository.",
+    })
   })
 
   it("persists hydrate failure then rethrows when the workspace load dies", async () => {
     getWorkspaceByIdMock.mockRejectedValueOnce(new Error("db down"))
-    const wf = workspaceHydrate as unknown as {
-      fn: (args: {
-        input: { orgId: string; workspaceId: string }
-      }) => Promise<unknown>
-    }
 
     await expect(
-      wf.fn({ input: { orgId: "org_1", workspaceId: "ws_1" } }),
+      hydrateFn.fn({ input: { orgId: "org_1", workspaceId: "ws_1" } }),
     ).rejects.toThrow("db down")
     expect(persistHydrateFailureMock).toHaveBeenCalledWith({
       workspaceId: "ws_1",
