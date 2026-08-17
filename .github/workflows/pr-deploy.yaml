@@ -7,9 +7,17 @@ on:
       - reopened
       - synchronize
       - closed
+  # Cloud-agent git pushes often do not emit pull_request synchronize. Manual
+  # redeploy: Actions → PR Deploy → Run workflow → enter PR number.
+  workflow_dispatch:
+    inputs:
+      pr_number:
+        description: "PR number to deploy (e.g. 255)"
+        required: true
+        type: string
 
 concurrency:
-  group: ${{ github.workflow }}-${{ github.ref }}
+  group: ${{ github.workflow }}-${{ github.event_name == 'workflow_dispatch' && format('pr-{0}', inputs.pr_number) || github.ref }}
 
 permissions:
   contents: read
@@ -17,14 +25,40 @@ permissions:
   pull-requests: write
 
 jobs:
-  build_pr_images:
-    name: Build and Publish PR GHCR Images
+  resolve_pr:
+    name: Resolve PR number and head SHA
     if: |
+      github.event_name == 'workflow_dispatch' || (
       github.event_name == 'pull_request' && (
       github.event.action == 'synchronize'
       || github.event.action == 'opened'
       || github.event.action == 'reopened') &&
-      github.event.pull_request.head.repo.full_name == github.repository
+      github.event.pull_request.head.repo.full_name == github.repository)
+    runs-on: blacksmith-4vcpu-ubuntu-2404
+    outputs:
+      pr_number: ${{ steps.resolve.outputs.pr_number }}
+      head_sha: ${{ steps.resolve.outputs.head_sha }}
+    steps:
+      - name: Resolve
+        id: resolve
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          if [[ "${{ github.event_name }}" == "workflow_dispatch" ]]; then
+            PR_NUMBER="${{ inputs.pr_number }}"
+            HEAD_SHA="$(gh api "repos/${{ github.repository }}/pulls/${PR_NUMBER}" --jq .head.sha)"
+          else
+            PR_NUMBER="${{ github.event.number }}"
+            HEAD_SHA="${{ github.event.pull_request.head.sha }}"
+          fi
+          echo "pr_number=$PR_NUMBER" >> "$GITHUB_OUTPUT"
+          echo "head_sha=$HEAD_SHA" >> "$GITHUB_OUTPUT"
+          echo "Resolved PR #$PR_NUMBER @ $HEAD_SHA"
+
+  build_pr_images:
+    name: Build and Publish PR GHCR Images
+    needs: [resolve_pr]
     runs-on: blacksmith-4vcpu-ubuntu-2404
     timeout-minutes: 30
     strategy:
@@ -39,11 +73,12 @@ jobs:
             dockerfile: apps/ui/Dockerfile
           - image: codesearch
             dockerfile: apps/codesearch/Dockerfile
-          - image: otel-collector
-            dockerfile: apps/otel-collector/Dockerfile
+          # otel-collector is not built/deployed for PR envs (keeps previews asleep; no Better Stack quota burn).
     steps:
       - name: Checkout repository
         uses: useblacksmith/checkout@v1
+        with:
+          ref: ${{ needs.resolve_pr.outputs.head_sha }}
 
       - name: Setup Blacksmith Builder
         uses: useblacksmith/setup-docker-builder@v1
@@ -64,27 +99,25 @@ jobs:
           file: ${{ matrix.dockerfile }}
           push: true
           tags: |
-            ghcr.io/ctxpipe-ai/${{ matrix.image }}:pr-${{ github.event.number }}-${{ github.sha }}
+            ghcr.io/ctxpipe-ai/${{ matrix.image }}:pr-${{ needs.resolve_pr.outputs.pr_number }}-${{ needs.resolve_pr.outputs.head_sha }}
+            ghcr.io/ctxpipe-ai/${{ matrix.image }}:${{ needs.resolve_pr.outputs.head_sha }}
 
   deploy_pr_environment:
     name: Deploy PR environment (Railway + Neon)
-    needs: [build_pr_images]
-    if: |
-      github.event_name == 'pull_request' && (
-      github.event.action == 'synchronize'
-      || github.event.action == 'opened'
-      || github.event.action == 'reopened') &&
-      github.event.pull_request.head.repo.full_name == github.repository
+    needs: [resolve_pr, build_pr_images]
     runs-on: blacksmith-4vcpu-ubuntu-2404
     env:
       RAILWAY_API_TOKEN: ${{ secrets.RAILWAY_API_TOKEN }}
-      PR_ENV: pr-${{ github.event.number }}
-      IMAGE_TAG: pr-${{ github.event.number }}-${{ github.sha }}
+      PR_ENV: pr-${{ needs.resolve_pr.outputs.pr_number }}
+      IMAGE_TAG: pr-${{ needs.resolve_pr.outputs.pr_number }}-${{ needs.resolve_pr.outputs.head_sha }}
+      PR_NUMBER: ${{ needs.resolve_pr.outputs.pr_number }}
     outputs:
       env_id: ${{ steps.railway_env.outputs.env_id }}
     steps:
       - name: Checkout repository
         uses: useblacksmith/checkout@v1
+        with:
+          ref: ${{ needs.resolve_pr.outputs.head_sha }}
 
       - name: Mount pnpm store sticky disk
         uses: useblacksmith/stickydisk@v1
@@ -102,11 +135,18 @@ jobs:
         run: pnpm config set store-dir ~/.pnpm-store
 
       - name: Install Railway CLI
-        run: npm install -g @railway/cli@4.35.2
+        # @railway/cli postinstall fetches a GitHub release tarball; that often
+        # socket-hangs (ECONNRESET) on hosted runners.
+        uses: nick-fields/retry@v4
+        with:
+          timeout_minutes: 3
+          max_attempts: 3
+          retry_wait_seconds: 15
+          command: npm install -g @railway/cli@4.35.2
 
       - name: Ensure Railway PR environment exists
         # Railway API/CLI calls can be flaky; retry once before failing.
-        uses: nick-fields/retry@v3
+        uses: nick-fields/retry@v4
         with:
           timeout_minutes: 12
           max_attempts: 2
@@ -141,7 +181,7 @@ jobs:
         uses: neondatabase/create-branch-action@v6
         with:
           project_id: ${{ vars.NEON_PROJECT_ID }}
-          branch_name: preview/pr-${{ github.event.number }}
+          branch_name: preview/pr-${{ needs.resolve_pr.outputs.pr_number }}
           parent_branch: production
           api_key: ${{ secrets.NEON_API_KEY }}
           expires_at: ${{ steps.neon_expires.outputs.expires_at }}
@@ -160,13 +200,13 @@ jobs:
         env:
           RAILWAY_API_TOKEN: ${{ secrets.RAILWAY_API_TOKEN }}
         # Railway API/CLI calls can be flaky; retry once before failing.
-        uses: nick-fields/retry@v3
+        uses: nick-fields/retry@v4
         with:
           timeout_minutes: 5
           max_attempts: 2
           command: |
             set -euo pipefail
-            ENV_NAME="pr-${{ github.event.number }}"
+            ENV_NAME="pr-${{ needs.resolve_pr.outputs.pr_number }}"
             # Query for environment ID by name
             ENV_ID=$(curl -fsS -X POST \
               -H "Authorization: Bearer ${RAILWAY_API_TOKEN}" \
@@ -191,14 +231,12 @@ jobs:
           WORKER_SERVICE_ID: ${{ vars.RAILWAY_WORKER_SERVICE_ID }}
           UI_SERVICE_ID: ${{ vars.RAILWAY_UI_SERVICE_ID }}
           CODESEARCH_SERVICE_ID: ${{ vars.RAILWAY_CODESEARCH_SERVICE_ID }}
-          OTELCOLLECTOR_SERVICE_ID: ${{ vars.RAILWAY_OTELCOLLECTOR_SERVICE_ID }}
           BACKEND_IMAGE: ghcr.io/ctxpipe-ai/backend:${{ env.IMAGE_TAG }}
           WORKER_IMAGE: ghcr.io/ctxpipe-ai/worker:${{ env.IMAGE_TAG }}
           UI_IMAGE: ghcr.io/ctxpipe-ai/ui:${{ env.IMAGE_TAG }}
           CODESEARCH_IMAGE: ghcr.io/ctxpipe-ai/codesearch:${{ env.IMAGE_TAG }}
-          OTELCOLLECTOR_IMAGE: ghcr.io/ctxpipe-ai/otel-collector:${{ env.IMAGE_TAG }}
         # Railway API/CLI calls can be flaky; retry once before failing.
-        uses: nick-fields/retry@v3
+        uses: nick-fields/retry@v4
         with:
           timeout_minutes: 10
           max_attempts: 2
@@ -241,11 +279,50 @@ jobs:
             railway_graphql() {
               local query="$1"
               local variables="$2"
-              curl -fsS \
+              local raw http_code body
+              # Capture body + status so GraphQL validation/400s are visible in logs
+              # (curl -f alone only prints "returned error: 400").
+              raw="$(curl -sS -w '\n%{http_code}' \
                 -H "Authorization: Bearer $RAILWAY_API_TOKEN" \
                 -H "Content-Type: application/json" \
                 -d "$(jq -nc --arg q "$query" --argjson v "$variables" '{query:$q,variables:$v}')" \
-                https://backboard.railway.com/graphql/v2
+                https://backboard.railway.com/graphql/v2)" || return $?
+              http_code="$(printf '%s' "$raw" | tail -n1)"
+              body="$(printf '%s' "$raw" | sed '$d')"
+              if [[ "$http_code" != "200" ]]; then
+                echo "Railway GraphQL HTTP $http_code for query: ${query:0:120}…" >&2
+                echo "$body" >&2
+                return 22
+              fi
+              printf '%s' "$body"
+            }
+
+            # Cache of name -> id from a single project services query (Terraform names).
+            SERVICE_IDS_BY_NAME_JSON=""
+
+            load_service_ids_by_name() {
+              if [[ -n "$SERVICE_IDS_BY_NAME_JSON" ]]; then
+                return 0
+              fi
+              local response
+              response="$(railway_graphql \
+                'query ProjectServices($id: String!) { project(id: $id) { services { edges { node { id name } } } } }' \
+                "$(jq -nc --arg id "$RAILWAY_PROJECT_ID" '{id:$id}')")"
+              if echo "$response" | jq -e '.errors | length > 0' >/dev/null 2>&1; then
+                echo "Failed to list Railway project services: $(echo "$response" | jq -r '.errors[].message' | paste -sd '; ' -)" >&2
+                exit 1
+              fi
+              SERVICE_IDS_BY_NAME_JSON="$(echo "$response" | jq -c '
+                [.data.project.services.edges[]?.node // empty | select(.name and .id) | {key: .name, value: .id}]
+                | from_entries
+              ')"
+              echo "Loaded Railway service name map ($(echo "$SERVICE_IDS_BY_NAME_JSON" | jq 'keys | length') services)" >&2
+            }
+
+            resolve_service_id_by_name() {
+              local name="$1"
+              load_service_ids_by_name
+              echo "$SERVICE_IDS_BY_NAME_JSON" | jq -r --arg name "$name" '.[$name] // empty'
             }
 
             current_database_url() {
@@ -273,7 +350,17 @@ jobs:
               echo "Updated DATABASE_URL for service $service_id with skipDeploys=true"
             }
 
-            # Preview-only: turn off LangSmith; duplicated prod keeps OTLP / Amplitude vars.
+            # Preview-only: turn off LangSmith and delete OTEL exporters so apps do not
+            # emit 60s metrics/logs (which keep Railway Serverless awake and wake otelcollector).
+            delete_service_variable() {
+              local service_id="$1"
+              local name="$2"
+              railway_graphql \
+                'mutation variableDelete($input: VariableDeleteInput!) { variableDelete(input: $input) }' \
+                "$(jq -nc --arg project "$RAILWAY_PROJECT_ID" --arg env "$ENV_ID" --arg service "$service_id" --arg name "$name" \
+                  '{input:{projectId:$project, environmentId:$env, serviceId:$service, name:$name}}')" >/dev/null 2>&1 || true
+            }
+
             upsert_preview_service_variables() {
               local service_id="$1"
               railway_graphql \
@@ -290,7 +377,11 @@ jobs:
                       }
                     }
                   }')"
-              echo "Updated preview ENABLE_LANGSMITH for service $service_id"
+              # Delete (not empty-string upsert) so Railway truly unsets OTEL endpoints.
+              delete_service_variable "$service_id" "OTEL_EXPORTER_OTLP_TRACES_ENDPOINT"
+              delete_service_variable "$service_id" "OTEL_EXPORTER_OTLP_LOGS_ENDPOINT"
+              delete_service_variable "$service_id" "OTEL_EXPORTER_OTLP_METRICS_ENDPOINT"
+              echo "Updated preview ENABLE_LANGSMITH=false and deleted OTEL exporters for service $service_id"
             }
 
             # Backend: allow waking the worker after enqueue (Railway GraphQL deploy).
@@ -330,6 +421,8 @@ jobs:
 
             upsert_preview_worker_idle_exit() {
               local service_id="$1"
+              # Explicit OPENWORKFLOW_PR_IDLE_EXIT so supervisor idle-exits even if
+              # RAILWAY_ENVIRONMENT_NAME is missing. 180s idle; 1h stale window.
               railway_graphql \
                 'mutation variableCollectionUpsert($input: VariableCollectionUpsertInput!) { variableCollectionUpsert(input: $input) }' \
                 "$(jq -nc --arg project "$RAILWAY_PROJECT_ID" --arg env "$ENV_ID" --arg service "$service_id" \
@@ -339,10 +432,14 @@ jobs:
                       environmentId: $env,
                       serviceId: $service,
                       skipDeploys: true,
-                      variables: { OPENWORKFLOW_IDLE_EXIT_SECONDS: "660" }
+                      variables: {
+                        OPENWORKFLOW_PR_IDLE_EXIT: "true",
+                        OPENWORKFLOW_IDLE_EXIT_SECONDS: "180",
+                        OPENWORKFLOW_IDLE_STALE_AFTER_HOURS: "1"
+                      }
                     }
                   }')"
-              echo "Set OPENWORKFLOW_IDLE_EXIT_SECONDS for worker service $service_id"
+              echo "Set OPENWORKFLOW_PR_IDLE_EXIT + IDLE_EXIT=180 + STALE_AFTER_HOURS=1 for worker $service_id"
             }
 
             update_source_image() {
@@ -351,6 +448,78 @@ jobs:
               railway_graphql \
                 'mutation serviceInstanceUpdate($environmentId: String, $serviceId: String!, $input: ServiceInstanceUpdateInput!) { serviceInstanceUpdate(environmentId: $environmentId, serviceId: $serviceId, input: $input) }' \
                 "$(jq -nc --arg env "$ENV_ID" --arg service "$service_id" --arg img "$image" '{environmentId:$env, serviceId:$service, input:{source:{image:$img}, sleepApplication:true}}')"
+            }
+
+            # Serverless only (no image change) — for infra images managed by Terraform (e.g. FalkorDB).
+            enable_serverless() {
+              local service_id="$1"
+              railway_graphql \
+                'mutation serviceInstanceUpdate($environmentId: String, $serviceId: String!, $input: ServiceInstanceUpdateInput!) { serviceInstanceUpdate(environmentId: $environmentId, serviceId: $serviceId, input: $input) }' \
+                "$(jq -nc --arg env "$ENV_ID" --arg service "$service_id" '{environmentId:$env, serviceId:$service, input:{sleepApplication:true}}')"
+            }
+
+            # Scale a service to zero replicas in this environment (config only).
+            # Use multiRegionConfig only — top-level numReplicas is deprecated, and
+            # serviceInstance has no `regions` field (that query returned HTTP 400).
+            # Region matches Terraform default in infra/module/ctxpipe/railway.tf.
+            # Non-fatal: deploymentStop below is what actually stops running containers.
+            scale_service_to_zero() {
+              local service_id="$1"
+              if railway_graphql \
+                'mutation serviceInstanceUpdate($environmentId: String, $serviceId: String!, $input: ServiceInstanceUpdateInput!) { serviceInstanceUpdate(environmentId: $environmentId, serviceId: $serviceId, input: $input) }' \
+                "$(jq -nc --arg env "$ENV_ID" --arg service "$service_id" '{
+                  environmentId: $env,
+                  serviceId: $service,
+                  input: {
+                    sleepApplication: true,
+                    multiRegionConfig: {"asia-southeast1-eqsg3a": {"numReplicas": 0}}
+                  }
+                }')" >/dev/null; then
+                echo "Scaled service $service_id to 0 replicas (config)"
+              else
+                echo "Warning: failed to scale service $service_id to 0 replicas (continuing with deploymentStop)" >&2
+              fi
+            }
+
+            # Stop active deployments without creating a new one (no "Deploy" in UI).
+            stop_active_deployments() {
+              local service_id="$1"
+              local response dep_ids
+              response="$(railway_graphql \
+                'query deployments($input: DeploymentListInput!) { deployments(input: $input) { edges { node { id status } } } }' \
+                "$(jq -nc --arg env "$ENV_ID" --arg service "$service_id" '{input:{environmentId:$env, serviceId:$service}}')")"
+              dep_ids="$(echo "$response" | jq -r '
+                .data.deployments.edges[]?
+                | .node
+                | select(.status == "SUCCESS" or .status == "DEPLOYING" or .status == "INITIALIZING" or .status == "BUILDING" or .status == "WAITING")
+                | .id
+              ' 2>/dev/null || true)"
+              if [[ -z "$dep_ids" ]]; then
+                echo "No active deployments to stop for service $service_id"
+                return 0
+              fi
+              while IFS= read -r dep_id; do
+                [[ -z "$dep_id" ]] && continue
+                railway_graphql \
+                  'mutation deploymentStop($id: String!) { deploymentStop(id: $id) }' \
+                  "$(jq -nc --arg id "$dep_id" '{id:$id}')" >/dev/null || true
+                echo "Stopped deployment $dep_id for service $service_id"
+              done <<< "$dep_ids"
+            }
+
+            # Read back sleepApplication for deploy logs / debugging.
+            verify_sleep_application() {
+              local label="$1"
+              local service_id="$2"
+              local response sleep_val
+              response="$(railway_graphql \
+                'query serviceInstanceSleep($environmentId: String!, $serviceId: String!) { serviceInstance(environmentId: $environmentId, serviceId: $serviceId) { sleepApplication } }' \
+                "$(jq -nc --arg env "$ENV_ID" --arg service "$service_id" '{environmentId:$env, serviceId:$service}')")"
+              sleep_val="$(echo "$response" | jq -r '.data.serviceInstance.sleepApplication // empty')"
+              echo "$label ($service_id) sleepApplication=$( [[ -n "$sleep_val" ]] && echo "$sleep_val" || echo "unknown" ) raw=$(echo "$response" | jq -c '{data,errors}')"
+              if [[ "$sleep_val" != "true" ]]; then
+                echo "Warning: expected sleepApplication=true for $label but got '$sleep_val'"
+              fi
             }
 
             deploy_service() {
@@ -380,12 +549,30 @@ jobs:
             update_source_image "$CODESEARCH_SERVICE_ID" "$CODESEARCH_IMAGE" >/dev/null
             deploy_service "$CODESEARCH_SERVICE_ID" >/dev/null
 
-            if [[ -n "${OTELCOLLECTOR_SERVICE_ID:-}" ]]; then
-              update_source_image "$OTELCOLLECTOR_SERVICE_ID" "$OTELCOLLECTOR_IMAGE" >/dev/null
-              deploy_service "$OTELCOLLECTOR_SERVICE_ID" >/dev/null
-              echo "otel-collector updated and deployed"
+            # Terraform service names: otelcollector, falkordb (resolved via GraphQL; no GitHub vars).
+            load_service_ids_by_name
+            OTELCOLLECTOR_SERVICE_ID="$(echo "$SERVICE_IDS_BY_NAME_JSON" | jq -r '.otelcollector // empty')"
+            FALKORDB_SERVICE_ID="$(echo "$SERVICE_IDS_BY_NAME_JSON" | jq -r '.falkordb // empty')"
+
+            # Never deploy otelcollector in PR: scale to 0 and stop active deployments
+            # (no serviceInstanceDeployV2 — that was waking/starting containers).
+            if [[ -n "$OTELCOLLECTOR_SERVICE_ID" ]]; then
+              delete_service_variable "$OTELCOLLECTOR_SERVICE_ID" "BETTER_STACK_TOKEN"
+              scale_service_to_zero "$OTELCOLLECTOR_SERVICE_ID" >/dev/null
+              stop_active_deployments "$OTELCOLLECTOR_SERVICE_ID"
+              echo "otel-collector ($OTELCOLLECTOR_SERVICE_ID) scaled to 0 and active deployments stopped (not deployed)"
+              verify_sleep_application "otel-collector" "$OTELCOLLECTOR_SERVICE_ID"
             else
-              echo "Skipping otel-collector: set repository variable RAILWAY_OTELCOLLECTOR_SERVICE_ID (Terraform: module.ctxpipe.railway_service_ids.otelcollector)"
+              echo "Warning: no Railway service named otelcollector in project $RAILWAY_PROJECT_ID; skipping"
+            fi
+
+            if [[ -n "$FALKORDB_SERVICE_ID" ]]; then
+              enable_serverless "$FALKORDB_SERVICE_ID" >/dev/null
+              deploy_service "$FALKORDB_SERVICE_ID" >/dev/null
+              echo "falkordb ($FALKORDB_SERVICE_ID) serverless enabled and deployed"
+              verify_sleep_application "falkordb" "$FALKORDB_SERVICE_ID"
+            else
+              echo "Warning: no Railway service named falkordb in project $RAILWAY_PROJECT_ID; skipping"
             fi
 
             echo "All services updated and deployed with a single deploy per service"
@@ -398,7 +585,7 @@ jobs:
           ENV_ID: ${{ steps.railway_env.outputs.env_id }}
           BACKEND_SERVICE_ID: ${{ vars.RAILWAY_BACKEND_SERVICE_ID }}
         # Railway API/CLI calls can be flaky; retry once before failing.
-        uses: nick-fields/retry@v3
+        uses: nick-fields/retry@v4
         with:
           timeout_minutes: 5
           max_attempts: 2
@@ -443,6 +630,7 @@ jobs:
             fi
             echo "- Railway Dashboard: $DASHBOARD_URL"
             echo "- If you want to sign in with Github on this preview URL, you need to add $BACKEND_URL/.auth/api/v1/auth/callback/github to list of callback URLs [here](https://github.com/organizations/ctxpipe-ai/settings/apps/ctxpipe-agent). Unfortunately, GitHub doesn't allow wildcard callback URLs or an API to do this automatically, so you need to add the exact URL."
+            echo "- To test Linear OAuth, add $BACKEND_URL/api/v1/integrations/linear/callback to the Linear application's redirect URIs. Linear applications have one webhook URL, so a shared production application will not deliver incremental events to this preview; use a dedicated preview application if webhook testing is required."
           } > pr-deploy-comment.md
 
       - name: Find existing PR preview comment
@@ -450,7 +638,7 @@ jobs:
         id: find-preview-comment
         uses: peter-evans/find-comment@v3
         with:
-          issue-number: ${{ github.event.pull_request.number }}
+          issue-number: ${{ needs.resolve_pr.outputs.pr_number }}
           comment-author: "github-actions[bot]"
           body-includes: "## PR Preview Environment"
 
@@ -460,7 +648,7 @@ jobs:
         with:
           token: ${{ secrets.GITHUB_TOKEN }}
           comment-id: ${{ steps.find-preview-comment.outputs.comment-id }}
-          issue-number: ${{ github.event.pull_request.number }}
+          issue-number: ${{ needs.resolve_pr.outputs.pr_number }}
           body-path: pr-deploy-comment.md
           edit-mode: replace
 
@@ -492,11 +680,18 @@ jobs:
           echo "Deleted Neon branch $BRANCH_NAME"
 
       - name: Install Railway CLI
-        run: npm install -g @railway/cli@4.35.2
+        # @railway/cli postinstall fetches a GitHub release tarball; that often
+        # socket-hangs (ECONNRESET) on hosted runners.
+        uses: nick-fields/retry@v4
+        with:
+          timeout_minutes: 3
+          max_attempts: 3
+          retry_wait_seconds: 15
+          command: npm install -g @railway/cli@4.35.2
 
       - name: Delete Railway environment
         # Railway API/CLI calls can be flaky; retry once before failing.
-        uses: nick-fields/retry@v3
+        uses: nick-fields/retry@v4
         with:
           timeout_minutes: 5
           max_attempts: 2

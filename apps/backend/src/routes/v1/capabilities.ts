@@ -2,11 +2,12 @@ import { createRoute, OpenAPIHono, z } from "@hono/zod-openapi"
 import type { AppEnv } from "../../app/env.js"
 import { getForgeInstallationByConnectionId } from "../../models/atlassian-connector.js"
 import {
+  type ConnectionRow,
   githubConnectionToShape,
   githubRowHasAppCredentials,
-  type ConnectionRow,
 } from "../../models/connection-rows.js"
 import { getGithubConnectionRow } from "../../models/github-installation.js"
+import { getLinearConnectionByConnectionId } from "../../models/linear-connector.js"
 
 const CapabilitiesQuery = z.object({
   connectionId: z.string().min(1),
@@ -37,7 +38,7 @@ function githubCapabilitiesFromRow(
   const webhookUrl = `${publicApiOrigin}/api/v1/webhook/github/${connectionId}`
   const slug = shape.appSlug?.trim()
   const installSelectUrl = slug
-    ? `https://github.com/apps/${encodeURIComponent(slug)}/installations/select_target`
+    ? `https://github.com/apps/${encodeURIComponent(slug)}/installations/new`
     : null
   return {
     githubWebhookUrl: webhookUrl,
@@ -59,10 +60,7 @@ export const orgCapabilitiesRoutes = new OpenAPIHono<AppEnv>().openapi(
       return c.json({ error: "connectionId is required" }, 400)
     }
 
-    const forge = await getForgeInstallationByConnectionId(
-      orgId,
-      connectionId,
-    )
+    const forge = await getForgeInstallationByConnectionId(orgId, connectionId)
     if (forge) {
       const env = c.var.env
       const fromConfig = forge.confluenceForgeInstallUrl?.trim()
@@ -75,7 +73,29 @@ export const orgCapabilitiesRoutes = new OpenAPIHono<AppEnv>().openapi(
 
     const ghRow = await getGithubConnectionRow(orgId, connectionId)
     if (ghRow) {
-      return c.json(githubCapabilitiesFromRow(ghRow, connectionId, c.var.env), 200)
+      return c.json(
+        githubCapabilitiesFromRow(ghRow, connectionId, c.var.env),
+        200,
+      )
+    }
+
+    const linear = await getLinearConnectionByConnectionId(
+      orgId,
+      connectionId,
+      c.var.env,
+    )
+    if (linear) {
+      const publicApiOrigin = c.var.env.AUTH_BASE_URL.replace(/\/$/, "")
+      return c.json(
+        {
+          linearOauthConfigured: Boolean(
+            c.var.env.LINEAR_CLIENT_ID && c.var.env.LINEAR_CLIENT_SECRET,
+          ),
+          linearWorkspaceName: linear.workspaceName,
+          linearWebhookUrl: `${publicApiOrigin}/api/v1/webhook/linear`,
+        },
+        200,
+      )
     }
 
     return c.json({ error: "Connection not found" }, 404)

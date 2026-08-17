@@ -15,11 +15,28 @@ import {
   fetchGithubInstallationSummary,
   githubConnectorKeys,
 } from "@/features/connectors/queries/github-connector"
+import { useRepositoryIndexingSummary } from "@/features/repositories"
 import { client } from "@/lib/api"
-import { getSession, useListOrganizations, useSession } from "@/lib/auth-client"
+import {
+  authClient,
+  getSession,
+  useListOrganizations,
+  useSession,
+} from "@/lib/auth-client"
+import { useUserPreferences } from "@/lib/user-preferences"
 
 export const Route = createFileRoute("/onboarding")({
   ssr: false,
+  head: () => ({
+    links: [
+      {
+        rel: "preload",
+        href: "/images/ctxpipe-onboarding-diagram.svg",
+        as: "image",
+        type: "image/svg+xml",
+      },
+    ],
+  }),
   component: OnboardingPage,
   validateSearch: (search: Record<string, unknown>) => ({
     orgSlug: typeof search.orgSlug === "string" ? search.orgSlug : undefined,
@@ -39,6 +56,7 @@ export function OnboardingPageContent({
   const { data: session, isPending } = useSession()
   const router = useRouter()
   const { data: organizations, isPending: orgsPending } = useListOrganizations()
+  const [, setPreferences] = useUserPreferences()
   const [createdOrgSlug, setCreatedOrgSlug] = useState<string | null>(null)
   const orgSlug = urlOrgSlug ?? createdOrgSlug
 
@@ -47,6 +65,8 @@ export function OnboardingPageContent({
   const [sceneReady, setSceneReady] = useState(false)
   const [showWelcomeDotNav, setShowWelcomeDotNav] = useState(false)
   const [completing, setCompleting] = useState(false)
+  const [repositorySelectionSaved, setRepositorySelectionSaved] =
+    useState(false)
 
   useEffect(() => {
     if (sceneReady || sceneFailed) return
@@ -76,6 +96,35 @@ export function OnboardingPageContent({
     enabled: Boolean(orgSlug && session),
   })
   const hasGithubInstallation = Boolean(installation)
+  const repositoryIndexing = useRepositoryIndexingSummary(orgSlug, {
+    enabled: Boolean(orgSlug && session),
+    pollWhileEmpty: repositorySelectionSaved,
+  })
+  const { activeCount, failedCount, runningCount, totalCount } =
+    repositoryIndexing.summary
+  const repositoryStatus =
+    activeCount > 0
+      ? {
+          tone: "indexing" as const,
+          label: `${runningCount > 0 ? "Indexing" : "Preparing"} ${activeCount} ${
+            activeCount === 1 ? "repository" : "repositories"
+          }`,
+        }
+      : failedCount > 0
+        ? {
+            tone: "failed" as const,
+            label: `${failedCount} ${
+              failedCount === 1 ? "repository needs" : "repositories need"
+            } attention`,
+          }
+        : repositorySelectionSaved &&
+            totalCount === 0 &&
+            !repositoryIndexing.isError
+          ? {
+              tone: "indexing" as const,
+              label: "Starting repository indexing",
+            }
+          : null
 
   const onWelcomeDetailsVisible = useCallback(() => {
     setShowWelcomeDotNav(true)
@@ -131,6 +180,7 @@ export function OnboardingPageContent({
       : false
     if (
       fallbackOrgSlug &&
+      slides[currentSlide] !== "create-org" &&
       (!hasUrlOrgSlug || !urlOrgIsKnown) &&
       urlOrgSlug !== fallbackOrgSlug
     ) {
@@ -162,7 +212,16 @@ export function OnboardingPageContent({
 
   const completeOnboarding = async () => {
     if (!orgSlug || completing) return
+    const organization = organizations?.find(
+      (org: { slug: string }) => org.slug === orgSlug,
+    )
     try {
+      if (organization && typeof organization.id === "string") {
+        await authClient.organization.setActive({
+          organizationId: organization.id,
+          fetchOptions: { throw: true },
+        })
+      }
       await Promise.all([
         fetch("/api/v1/onboarding/user/complete", {
           method: "POST",
@@ -172,6 +231,10 @@ export function OnboardingPageContent({
           param: { orgSlug },
         }),
       ])
+      setPreferences((prev) => ({
+        ...prev,
+        selectedOrganizationSlug: orgSlug,
+      }))
       void getSession({ fetchOptions: { throw: false } })
     } catch {
       // best-effort
@@ -231,6 +294,29 @@ export function OnboardingPageContent({
       currentSlide={currentSlide}
       slideCount={slides.length}
       sceneFailed={sceneFailed}
+      statusIndicator={
+        repositoryStatus ? (
+          <output
+            aria-live="polite"
+            className={[
+              "inline-flex items-center gap-2 border bg-zinc-950/90 px-3 py-2 font-mono text-xs shadow-lg shadow-black/20 backdrop-blur",
+              repositoryStatus.tone === "failed"
+                ? "border-red-400/30 text-red-200"
+                : "border-teal-400/30 text-teal-100",
+            ].join(" ")}
+          >
+            <span
+              aria-hidden
+              className={
+                repositoryStatus.tone === "failed"
+                  ? "ctx-indexing-failed-dot"
+                  : "ctx-indexing-dot"
+              }
+            />
+            {repositoryStatus.label}
+          </output>
+        ) : null
+      }
       onSceneLoad={() => {
         setSceneReady(true)
         setSceneFailed(false)
@@ -257,6 +343,11 @@ export function OnboardingPageContent({
           <OnboardingCreateOrgSlide
             onOrgCreated={(slug) => {
               setCreatedOrgSlug(slug)
+              void router.navigate({
+                to: "/onboarding",
+                search: (prev) => ({ ...prev, orgSlug: slug }),
+                replace: true,
+              })
               goToSlide(githubSlideIndexAdmin)
             }}
           />
@@ -265,6 +356,7 @@ export function OnboardingPageContent({
         {currentSlideName === "github" ? (
           <OnboardingGithubSlide
             orgSlug={orgSlug}
+            onRepositoriesQueued={() => setRepositorySelectionSaved(true)}
             onContinue={() => goToSlide(currentSlide + 1)}
           />
         ) : null}

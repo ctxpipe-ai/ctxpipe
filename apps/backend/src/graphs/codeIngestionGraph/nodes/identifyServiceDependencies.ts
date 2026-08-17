@@ -2,7 +2,7 @@
  * identifyServiceDependencies extractor
  *
  * Detects cross-service dependencies within a monorepo. Uses an LLM agent with
- * list_files, search, and get_file tools to explore package manifests, workspace
+ * glob_files, search, and get_file tools to explore package manifests, workspace
  * configs, and source code. Produces DEPENDS_ON claims (Service → Service) only —
  * no new objects. Service nodes are created by extractKind.
  *
@@ -16,6 +16,8 @@
  */
 
 import { HumanMessage } from "@langchain/core/messages"
+import { mergeConfigs } from "@langchain/core/runnables"
+import { getConfig } from "@langchain/langgraph"
 import { tool } from "langchain"
 import { z } from "zod/v3"
 import { requireCurrentOrgId } from "../../../auth/context.js"
@@ -26,6 +28,7 @@ import {
   standardRepoExplorerTools,
 } from "../../../tools/repoExplorerTools.js"
 import { createAgent } from "../../createAgent.js"
+import { setIngestionIndexingStep } from "../setIngestionIndexingStep.js"
 import type { CodeIngestionState, ExtractedClaim } from "../schemas.js"
 import { resolveSubmissionRoot } from "./extractionSubmissionRoot.js"
 import {
@@ -100,6 +103,7 @@ Cover only the listed roots. Call submit_service_dependencies for each in-repo d
 export async function identifyServiceDependencies(
   state: CodeIngestionState,
 ): Promise<Partial<CodeIngestionState>> {
+  await setIngestionIndexingStep(state, "identify_service_dependencies")
   const { repositoryId, roots = ["./"], targetHash } = state
   requireCurrentOrgId()
 
@@ -116,7 +120,7 @@ export async function identifyServiceDependencies(
   const capturedDeps: { value: SubmittedDependency[] } = { value: [] }
   const tools = createIdentifyServiceDependenciesTools(capturedDeps)
   const agent = createAgent({
-    model: getModel("medium", { temperature: 0.1 }),
+    model: getModel("medium", { streaming: false, temperature: 0.1 }),
     tools,
     contextMiddleware: {
       clearToolUsesTriggerTokens: 140_000,
@@ -135,9 +139,9 @@ ${REPO_EXPLORER_TOOLS_HINT}${scopeHint}`,
 
   await agent.invoke(
     { messages: [new HumanMessage(userMessage)] },
-    {
+    mergeConfigs(getConfig(), {
       recursionLimit: 180,
-    },
+    }),
   )
 
   if (capturedDeps.value.length === 0) {

@@ -1,8 +1,9 @@
 "use client"
 
-import { useRouter } from "@tanstack/react-router"
+import { useMutation, useQueryClient } from "@tanstack/react-query"
 import { useId, useState } from "react"
 import { authClient } from "@/lib/auth-client"
+import { useUserPreferences } from "@/lib/user-preferences"
 
 const ORG_SLUG_MAX_LENGTH = 32
 
@@ -15,54 +16,67 @@ export function OnboardingCreateOrgSlide({
 }: OnboardingCreateOrgSlideProps) {
   const orgNameFieldId = useId()
   const orgSlugFieldId = useId()
-  const router = useRouter()
+  const queryClient = useQueryClient()
+  const [, setPreferences] = useUserPreferences()
   const [orgName, setOrgName] = useState("")
   const [orgSlug, setOrgSlug] = useState("")
-  const [orgError, setOrgError] = useState<string | null>(null)
+  const [validationError, setValidationError] = useState<string | null>(null)
+
+  const createOrg = useMutation({
+    mutationFn: async (input: { name: string; slug: string }) => {
+      const result = await authClient.organization.create(input)
+      if (result.error) {
+        throw new Error(result.error.message ?? "Failed to create organisation")
+      }
+      if (!result.data?.slug) {
+        throw new Error("Failed to create organisation")
+      }
+      return result.data
+    },
+    onSuccess: async (org) => {
+      await authClient.organization.setActive({
+        organizationId: org.id,
+        fetchOptions: { throw: true },
+      })
+      setPreferences((prev) => ({
+        ...prev,
+        selectedOrganizationSlug: org.slug,
+      }))
+      onOrgCreated(org.slug)
+      void queryClient.invalidateQueries({
+        queryKey: ["organizations"],
+        refetchType: "active",
+      })
+    },
+  })
 
   const slugTrimmedPreview = orgSlug.trim()
   const slugTooLong = slugTrimmedPreview.length > ORG_SLUG_MAX_LENGTH
+  const orgError =
+    validationError ??
+    (createOrg.error instanceof Error ? createOrg.error.message : null)
 
-  const handleCreateOrg = async () => {
+  const handleCreateOrg = () => {
     const trimmed = orgName.trim()
     if (!trimmed) {
-      setOrgError("Enter a name for your organisation.")
+      setValidationError("Enter a name for your organisation.")
       return
     }
     const slug = orgSlug.trim()
     if (!slug) {
-      setOrgError(
-        "Enter the organisation slug. It must be the same orgSlug you set in your AWS CDK stack.",
+      setValidationError(
+        "Enter the organisation slug. If you are self-hosting, it must match the slug configured for your deployment.",
       )
       return
     }
     if (slug.length > ORG_SLUG_MAX_LENGTH) {
-      setOrgError(
+      setValidationError(
         `Organisation slug must be at most ${ORG_SLUG_MAX_LENGTH} characters.`,
       )
       return
     }
-    setOrgError(null)
-    try {
-      const result = await authClient.organization.create({
-        name: trimmed,
-        slug,
-      })
-      if (result.error)
-        throw new Error(result.error.message ?? "Failed to create organisation")
-      if (result.data?.slug) {
-        void router.navigate({
-          to: "/onboarding",
-          search: (prev) => ({ ...prev, orgSlug: result.data.slug }),
-          replace: true,
-        })
-        onOrgCreated(result.data.slug)
-      }
-    } catch (err) {
-      setOrgError(
-        err instanceof Error ? err.message : "Failed to create organisation",
-      )
-    }
+    setValidationError(null)
+    createOrg.mutate({ name: trimmed, slug })
   }
 
   return (
@@ -86,12 +100,14 @@ export function OnboardingCreateOrgSlide({
             id={orgNameFieldId}
             type="text"
             value={orgName}
+            disabled={createOrg.isPending}
             onChange={(e) => {
               setOrgName(e.target.value)
-              setOrgError(null)
+              setValidationError(null)
+              createOrg.reset()
             }}
             onKeyDown={(e) => {
-              if (e.key === "Enter") void handleCreateOrg()
+              if (e.key === "Enter") handleCreateOrg()
             }}
             placeholder="Acme Engineering"
             className="mb-4 h-11 w-full rounded-none border border-border bg-zinc-950 px-3 text-sm text-zinc-100 outline-none focus:border-teal-400/60"
@@ -105,27 +121,26 @@ export function OnboardingCreateOrgSlide({
             Slug URL
           </label>
           <p className="mb-2 text-xs leading-relaxed text-zinc-400">
-            If you are self-hosting on AWS, use the same organisation slug as
-            the{" "}
+            If you are self-hosting, use the same organisation slug you
+            configured at deploy time (for example{" "}
             <code className="rounded-none bg-zinc-900 px-1 py-0.5 font-mono text-[11px] text-zinc-300">
               orgSlug
             </code>{" "}
-            you passed to{" "}
-            <code className="rounded-none bg-zinc-900 px-1 py-0.5 font-mono text-[11px] text-zinc-300">
-              @ctxpipe/aws-cdk
-            </code>
+            in your deployment config).
           </p>
           <input
             id={orgSlugFieldId}
             type="text"
             value={orgSlug}
+            disabled={createOrg.isPending}
             aria-invalid={slugTooLong}
             onChange={(e) => {
               setOrgSlug(e.target.value)
-              setOrgError(null)
+              setValidationError(null)
+              createOrg.reset()
             }}
             onKeyDown={(e) => {
-              if (e.key === "Enter") void handleCreateOrg()
+              if (e.key === "Enter") handleCreateOrg()
             }}
             placeholder="acme-engineering"
             className="mb-4 h-11 w-full rounded-none border border-border bg-zinc-950 px-3 text-sm text-zinc-100 outline-none focus:border-teal-400/60"
@@ -136,8 +151,9 @@ export function OnboardingCreateOrgSlide({
           <div className="flex justify-end">
             <button
               type="button"
+              disabled={createOrg.isPending}
               className="inline-flex h-10 items-center justify-center rounded-none border border-border bg-zinc-100 px-5 text-sm font-medium text-zinc-950 transition-colors hover:bg-zinc-200 disabled:opacity-50"
-              onClick={() => void handleCreateOrg()}
+              onClick={handleCreateOrg}
             >
               Create organisation
             </button>

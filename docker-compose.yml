@@ -86,6 +86,10 @@ services:
       AMPLITUDE_API_KEY: ${AMPLITUDE_API_KEY:-}
       AMPLITUDE_REGION: ${AMPLITUDE_REGION:-us}
       CONFLUENCE_FORGE_INSTALL_URL: ${CONFLUENCE_FORGE_INSTALL_URL:-}
+      LINEAR_CLIENT_ID: ${LINEAR_CLIENT_ID:-}
+      LINEAR_CLIENT_SECRET: ${LINEAR_CLIENT_SECRET:-}
+      LINEAR_REDIRECT_URI: ${LINEAR_REDIRECT_URI:-}
+      LINEAR_WEBHOOK_SECRET: ${LINEAR_WEBHOOK_SECRET:-}
     ports:
       - "${CTXPIPE_BACKEND_HOST_PORT:-3000}:3000"
     depends_on:
@@ -110,6 +114,14 @@ services:
       NODE_ENV: production
       DATABASE_URL: postgresql://${POSTGRES_USER:-ctxpipe}:${POSTGRES_PASSWORD:-ctxpipe}@postgres:5432/${POSTGRES_DB:-ctxpipe}
       GRAPH_DB_URI: redis://falkordb:6379
+      OTEL_EXPORTER_OTLP_TRACES_ENDPOINT: http://otel-collector:4318/v1/traces
+      OTEL_EXPORTER_OTLP_LOGS_ENDPOINT: http://otel-collector:4318/v1/logs
+      OTEL_EXPORTER_OTLP_METRICS_ENDPOINT: http://otel-collector:4318/v1/metrics
+      OTEL_SERVICE_NAME: openworkflow
+      LINEAR_CLIENT_ID: ${LINEAR_CLIENT_ID:-}
+      LINEAR_CLIENT_SECRET: ${LINEAR_CLIENT_SECRET:-}
+      LINEAR_REDIRECT_URI: ${LINEAR_REDIRECT_URI:-}
+      LINEAR_WEBHOOK_SECRET: ${LINEAR_WEBHOOK_SECRET:-}
     depends_on:
       migrate:
         condition: service_completed_successfully
@@ -149,6 +161,10 @@ services:
       ZOEKT_WEBSERVER_URL: http://127.0.0.1:6070
       GITHUB_TOKEN: ${GITHUB_TOKEN:-}
       PORT: "3001"
+      OTEL_EXPORTER_OTLP_TRACES_ENDPOINT: http://otel-collector:4318/v1/traces
+      OTEL_EXPORTER_OTLP_LOGS_ENDPOINT: http://otel-collector:4318/v1/logs
+      OTEL_EXPORTER_OTLP_METRICS_ENDPOINT: http://otel-collector:4318/v1/metrics
+      OTEL_SERVICE_NAME: codesearch
     ports:
       - "${CTXPIPE_CODESEARCH_HOST_PORT:-3001}:3001"
     volumes:
@@ -159,6 +175,8 @@ services:
         condition: service_completed_successfully
       postgres:
         condition: service_healthy
+      otel-collector:
+        condition: service_started
 
 volumes:
   zoekt_index_deploy:

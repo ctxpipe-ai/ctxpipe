@@ -16,7 +16,7 @@ const bootstrapSelfHosted = githubConnectorBootstrapHandler({
 const bootstrapHosted = githubConnectorBootstrapHandler({
   orgSlug,
   hostedDefaultAppInstallUrl:
-    "https://github.com/apps/ctxpipe-agent/installations/select_target",
+    "https://github.com/apps/ctxpipe-agent/installations/new",
 })
 
 const installationNull = http.get(
@@ -31,7 +31,7 @@ const hostedBootstrapJson = {
   githubAppConfiguredInEnv: true,
   rowsNeedingSecrets: 0,
   hostedDefaultAppInstallUrl:
-    "https://github.com/apps/ctxpipe-agent/installations/select_target",
+    "https://github.com/apps/ctxpipe-agent/installations/new",
 } as const
 
 const installationLoading = http.get(
@@ -47,6 +47,47 @@ const installationInstalled = http.get(
   ({ request }) =>
     new URL(request.url).pathname === `/${orgSlug}/api/v1/github/installation`,
   () => HttpResponse.json({ id: "story-install" }),
+)
+
+const setupEmpty = http.get(
+  ({ request }) =>
+    new URL(request.url).pathname ===
+    `/${orgSlug}/api/v1/github/installation/setup`,
+  () =>
+    HttpResponse.json({
+      ingestAllRepositories: false,
+      includeFutureRepos: false,
+      savedRepositories: [],
+    }),
+)
+
+const installationRepositories = http.get(
+  ({ request }) =>
+    new URL(request.url).pathname ===
+    `/${orgSlug}/api/v1/github/installation/repositories`,
+  () =>
+    HttpResponse.json({
+      repositories: [
+        {
+          id: 1,
+          full_name: "acme/web",
+          html_url: "https://github.com/acme/web",
+          clone_url: "https://github.com/acme/web.git",
+          name: "web",
+        },
+        {
+          id: 2,
+          full_name: "acme/api",
+          html_url: "https://github.com/acme/api",
+          clone_url: "https://github.com/acme/api.git",
+          name: "api",
+        },
+      ],
+      repositorySelection: "selected",
+      manageUrl:
+        "https://github.com/organizations/acme/settings/installations/123",
+      hasMore: false,
+    }),
 )
 
 const bootstrapLoading = http.get(
@@ -65,7 +106,7 @@ const meta = {
   component: OnboardingGithubSlide,
   decorators: [
     (Story) => (
-      <div className="max-w-xl rounded-none border border-border bg-zinc-950 p-8 text-left">
+      <div className="max-w-xl rounded-none border border-border bg-zinc-950 p-8 text-center">
         <Story />
       </div>
     ),
@@ -152,7 +193,7 @@ export const BootstrapLoading: Story = {
   },
 }
 
-export const Installed: Story = {
+export const InstalledRepositoryPicker: Story = {
   args: {
     orgSlug,
     onContinue: () => {},
@@ -160,7 +201,12 @@ export const Installed: Story = {
   parameters: {
     msw: {
       handlers: {
-        page: [bootstrapHosted, installationInstalled],
+        page: [
+          bootstrapHosted,
+          installationInstalled,
+          setupEmpty,
+          installationRepositories,
+        ],
       },
     },
   },

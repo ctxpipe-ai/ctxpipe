@@ -9,6 +9,7 @@ import {
 } from "@tabler/icons-react"
 import { useRouter } from "@tanstack/react-router"
 import { Button } from "react-aria-components"
+import { useRepositoryIndexingSummary } from "@/features/repositories"
 import { useUserPreferences } from "../../lib/user-preferences"
 import { SideNavItem } from "./SideNavItem"
 import { SideNavLogo } from "./SideNavLogo"
@@ -26,6 +27,27 @@ export function SideNav() {
   const orgSlug =
     (!firstSegment?.startsWith(".") ? firstSegment : null) ??
     selectedOrganizationSlug
+  const { summary } = useRepositoryIndexingSummary(orgSlug)
+  const repositoryStatus =
+    summary.activeCount > 0
+      ? {
+          tone: "indexing" as const,
+          label:
+            summary.singleActiveStepLabel ??
+            `${summary.activeCount} ${
+              summary.activeCount === 1 ? "repository is" : "repositories are"
+            } ${summary.runningCount > 0 ? "indexing" : "preparing"}`,
+        }
+      : summary.failedCount > 0
+        ? {
+            tone: "failed" as const,
+            label: `${summary.failedCount} ${
+              summary.failedCount === 1
+                ? "repository needs"
+                : "repositories need"
+            } attention`,
+          }
+        : undefined
 
   const handleToggle = () => {
     updatePreferences((prev) => ({
@@ -97,6 +119,7 @@ export function SideNav() {
             label="Repositories"
             icon={<IconGitBranch />}
             expanded={expanded}
+            status={repositoryStatus}
           />
         </li>
         <li>

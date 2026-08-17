@@ -1,4 +1,6 @@
 import { HumanMessage } from "@langchain/core/messages"
+import { mergeConfigs } from "@langchain/core/runnables"
+import { getConfig } from "@langchain/langgraph"
 import { tool } from "langchain"
 import { z } from "zod/v3"
 import { requireCurrentOrgId } from "../../../auth/context.js"
@@ -9,6 +11,7 @@ import {
   standardRepoExplorerTools,
 } from "../../../tools/repoExplorerTools.js"
 import { createAgent } from "../../createAgent.js"
+import { setIngestionIndexingStep } from "../setIngestionIndexingStep.js"
 import type {
   CodeIngestionState,
   ExtractedClaim,
@@ -113,7 +116,7 @@ Database types and detection hints:
 | CockroachDB    | cockroachdb://, pgx with cockroach |
 
 Search strategy:
-1. list_files at each root for prisma/, schema.prisma, package.json, requirements.txt, pyproject.toml, go.mod, pom.xml, Gemfile, composer.json, Cargo.toml, mix.exs, .env.example
+1. glob_files for DB-related files (e.g. pattern "**/schema.prisma", or single-folder: pattern "*", path "<root>")
 2. search for connection strings, ORM config, driver imports (postgresql, create_engine, SessionLocal, DATABASES, jdbc:, mongodb://, redis://)
 3. get_file on schema files, package manifests, env examples to confirm
 
@@ -122,6 +125,7 @@ Cover only the listed roots. Call submit_databases for each database supported b
 export async function identifyDatabases(
   state: CodeIngestionState,
 ): Promise<Partial<CodeIngestionState>> {
+  await setIngestionIndexingStep(state, "identify_databases")
   const { repositoryId, roots = ["./"], targetHash } = state
   requireCurrentOrgId()
 
@@ -141,7 +145,7 @@ export async function identifyDatabases(
   const capturedDbs: { value: SubmittedDatabase[] } = { value: [] }
   const tools = createIdentifyDatabasesTools(capturedDbs)
   const agent = createAgent({
-    model: getModel("medium", { temperature: 0.1 }),
+    model: getModel("medium", { streaming: false, temperature: 0.1 }),
     tools,
     contextMiddleware: {
       clearToolUsesTriggerTokens: 140_000,
@@ -160,9 +164,9 @@ ${REPO_EXPLORER_TOOLS_HINT}${scopeHint}`,
 
   await agent.invoke(
     { messages: [new HumanMessage(userMessage)] },
-    {
+    mergeConfigs(getConfig(), {
       recursionLimit: 180,
-    },
+    }),
   )
 
   if (capturedDbs.value.length === 0) {

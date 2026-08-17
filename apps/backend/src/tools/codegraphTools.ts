@@ -1,8 +1,9 @@
 import { tool } from "langchain"
 import { z } from "zod/v3"
+import { requireCurrentOrgId } from "../auth/context.js"
 import { repositoryIdSchema, toToon } from "../lib/agentToolRuntime.js"
 import { assertStructuralGraphAnchor } from "../lib/repoExplorerPlanner.js"
-import { getRepository } from "../models/repositories.js"
+import { getRepositoryForOrg } from "../models/repositories.js"
 import { codesearchGraphQuery } from "./codesearchGraph.js"
 
 const anchorSchema = z.object({
@@ -13,7 +14,10 @@ const anchorSchema = z.object({
 
 export const graphFindSymbolTool = tool(
   async ({ repositoryId, symbol, filePath, module, checkoutKey }) => {
-    const repository = await getRepository(repositoryId)
+    const repository = await getRepositoryForOrg(
+      requireCurrentOrgId(),
+      repositoryId,
+    )
     if (!repository) {
       throw new Error(`repository not found: ${repositoryId}`)
     }
@@ -37,7 +41,7 @@ export const graphFindSymbolTool = tool(
   },
   {
     name: "graph_find_symbol",
-    description: `Resolve symbols to definitions using the code graph (CGC/Kùzu), not full-text search. Structural only — not for org memory or semantic recall.
+    description: `Resolve symbols to definitions from the repository's SCIP index, not full-text search. SCIP uses compiler/indexer-produced symbol occurrences and reference semantics. Structural only — not for org memory or semantic recall.
 Requires checkoutKey (default branch uses checkoutKey "default"). Provide symbol and/or file/module anchors.`,
     schema: z.object({
       repositoryId: repositoryIdSchema,
@@ -51,7 +55,10 @@ Requires checkoutKey (default branch uses checkoutKey "default"). Provide symbol
 
 export const graphCallersTool = tool(
   async ({ repositoryId, symbol, filePath, module, checkoutKey, limit }) => {
-    const repository = await getRepository(repositoryId)
+    const repository = await getRepositoryForOrg(
+      requireCurrentOrgId(),
+      repositoryId,
+    )
     if (!repository) {
       throw new Error(`repository not found: ${repositoryId}`)
     }
@@ -76,7 +83,7 @@ export const graphCallersTool = tool(
   },
   {
     name: "graph_get_callers",
-    description: `List callers of a function/method via the AST code graph (CGC). Prefer when the question asks for callers and you have a symbol or file anchor and repositoryId — do not run Zoekt first. If anchors are missing, use search/sym to find them, then call this once. Requires symbol/file/module anchor.`,
+    description: `List callers of a function/method from SCIP references enclosed by callable definitions. Prefer when the question asks for callers and you have a symbol or file anchor and repositoryId — do not run Zoekt first. If anchors are missing, use search/sym to find them, then call this once. Requires symbol/file/module anchor.`,
     schema: anchorSchema.extend({
       repositoryId: repositoryIdSchema,
       checkoutKey: z.string().min(1).optional().default("default"),
@@ -87,7 +94,10 @@ export const graphCallersTool = tool(
 
 export const graphCalleesTool = tool(
   async ({ repositoryId, symbol, filePath, module, checkoutKey, limit }) => {
-    const repository = await getRepository(repositoryId)
+    const repository = await getRepositoryForOrg(
+      requireCurrentOrgId(),
+      repositoryId,
+    )
     if (!repository) {
       throw new Error(`repository not found: ${repositoryId}`)
     }
@@ -112,7 +122,7 @@ export const graphCalleesTool = tool(
   },
   {
     name: "graph_get_callees",
-    description: `List callees from a symbol via the AST code graph (CGC). Prefer when the question asks for callees and you have a symbol or file anchor and repositoryId. If anchors are missing, use search/sym first, then call this once.`,
+    description: `List callees from SCIP references enclosed by the anchored callable definition. Prefer when the question asks for callees and you have a symbol or file anchor and repositoryId. If anchors are missing, use search/sym first, then call this once.`,
     schema: anchorSchema.extend({
       repositoryId: repositoryIdSchema,
       checkoutKey: z.string().min(1).optional().default("default"),

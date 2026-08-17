@@ -8,7 +8,8 @@
     "build": "tsc",
     "start": "bun run dist/server.js",
     "test": "bash scripts/run-vitest-docker.sh",
-    "test:vitest": "vitest run --exclude '**/executeGraphPrimitive.integration.test.ts'",
+    "test:manual:kubernetes-memory": "bash scripts/manual-kubernetes-ingest-memory.sh",
+    "test:vitest": "vitest run --exclude src/domain/repositories/globFiles.test.ts && bun --bun vitest run src/domain/repositories/globFiles.test.ts",
     "lint": "biome lint .",
     "format": "biome format --write ."
   },
@@ -16,9 +17,11 @@
     "@hono/zod-openapi": "^1.2.2",
     "@scalar/hono-api-reference": "^0.9.44",
     "drizzle-orm": "beta",
+    "evlog": "^2.13.0",
     "hono": "^4.12.1",
     "jose": "^6.1.3",
     "pg": "^8.18.0",
+    "protobufjs": "^8.7.1",
     "zod": "^4.3.6"
   },
   "devDependencies": {

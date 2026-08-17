@@ -12,6 +12,8 @@
  */
 
 import { HumanMessage } from "@langchain/core/messages"
+import { mergeConfigs } from "@langchain/core/runnables"
+import { getConfig } from "@langchain/langgraph"
 import { tool } from "langchain"
 import { z } from "zod/v3"
 import { requireCurrentOrgId } from "../../../auth/context.js"
@@ -22,6 +24,7 @@ import {
   standardRepoExplorerTools,
 } from "../../../tools/repoExplorerTools.js"
 import { createAgent } from "../../createAgent.js"
+import { setIngestionIndexingStep } from "../setIngestionIndexingStep.js"
 import type {
   CodeIngestionState,
   ExtractedClaim,
@@ -100,7 +103,7 @@ Detection hints:
 | Config/env      | API_BASE_URL, STRIPE_KEY, SENDGRID_API_KEY, TWILIO_*, SUPABASE_URL, etc. |
 
 Search strategy:
-1. list_files at each root for package.json, requirements.txt, go.mod, etc.
+1. glob_files for manifests (e.g. pattern "**/package.json", or single-folder: pattern "*", path "<root>")
 2. search for HTTP client imports (axios, fetch, ky), SDK imports (@stripe, twilio, sendgrid), env vars (API_BASE_URL, *_API_KEY, *_URL)
 3. get_file on package manifests, env examples, client initialization code
 
@@ -112,6 +115,7 @@ Cover only the listed roots. Call submit_api_clients for each client supported b
 export async function identifyAPIClients(
   state: CodeIngestionState,
 ): Promise<Partial<CodeIngestionState>> {
+  await setIngestionIndexingStep(state, "identify_api_clients")
   const { repositoryId, roots = ["./"], targetHash } = state
   requireCurrentOrgId()
 
@@ -131,7 +135,7 @@ export async function identifyAPIClients(
   const capturedClients: { value: SubmittedApiClient[] } = { value: [] }
   const tools = createIdentifyAPIClientsTools(capturedClients)
   const agent = createAgent({
-    model: getModel("medium", { temperature: 0.1 }),
+    model: getModel("medium", { streaming: false, temperature: 0.1 }),
     tools,
     contextMiddleware: {
       clearToolUsesTriggerTokens: 140_000,
@@ -150,9 +154,9 @@ ${REPO_EXPLORER_TOOLS_HINT}${scopeHint}`,
 
   await agent.invoke(
     { messages: [new HumanMessage(userMessage)] },
-    {
+    mergeConfigs(getConfig(), {
       recursionLimit: 180,
-    },
+    }),
   )
 
   if (capturedClients.value.length === 0) {

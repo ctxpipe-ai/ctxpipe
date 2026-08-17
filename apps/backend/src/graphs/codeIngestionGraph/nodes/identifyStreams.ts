@@ -9,6 +9,8 @@
  */
 
 import { HumanMessage } from "@langchain/core/messages"
+import { mergeConfigs } from "@langchain/core/runnables"
+import { getConfig } from "@langchain/langgraph"
 import { tool } from "langchain"
 import { z } from "zod/v3"
 import { requireCurrentOrgId } from "../../../auth/context.js"
@@ -19,6 +21,7 @@ import {
   standardRepoExplorerTools,
 } from "../../../tools/repoExplorerTools.js"
 import { createAgent } from "../../createAgent.js"
+import { setIngestionIndexingStep } from "../setIngestionIndexingStep.js"
 import type { CodeIngestionState } from "../schemas.js"
 import {
   processStreamSubmissions,
@@ -89,7 +92,7 @@ Stream types and detection hints:
 | ActiveMQ         | stomp.js, activemq, @stomp/stompjs |
 
 Search strategy:
-1. list_files at each root for package.json, requirements.txt, pyproject.toml, go.mod, pom.xml, Cargo.toml
+1. glob_files for manifests (e.g. pattern "**/package.json", or single-folder: pattern "*", path "<root>")
 2. search for stream/messaging imports and usage: kafka, rabbitmq, sqs, sns, redis publish, nats, pulsar
 3. get_file on manifest files and source files to confirm producer vs consumer usage
 4. For producer: look for send, publish, produce, put
@@ -100,6 +103,7 @@ Cover only the listed roots. Call submit_streams for each messaging system suppo
 export async function identifyStreams(
   state: CodeIngestionState,
 ): Promise<Partial<CodeIngestionState>> {
+  await setIngestionIndexingStep(state, "identify_streams")
   const { repositoryId, roots = ["./"], targetHash } = state
   requireCurrentOrgId()
 
@@ -116,7 +120,7 @@ export async function identifyStreams(
   const capturedStreams: { value: SubmittedStream[] } = { value: [] }
   const tools = createIdentifyStreamsTools(capturedStreams)
   const agent = createAgent({
-    model: getModel("medium", { temperature: 0.1 }),
+    model: getModel("medium", { streaming: false, temperature: 0.1 }),
     tools,
     contextMiddleware: {
       clearToolUsesTriggerTokens: 140_000,
@@ -135,9 +139,9 @@ ${REPO_EXPLORER_TOOLS_HINT}${scopeHint}`,
 
   await agent.invoke(
     { messages: [new HumanMessage(userMessage)] },
-    {
+    mergeConfigs(getConfig(), {
       recursionLimit: 180,
-    },
+    }),
   )
 
   if (capturedStreams.value.length === 0) {

@@ -2,7 +2,7 @@
  * identifyPatterns extractor
  *
  * Detects architectural patterns (CQRS, Event Sourcing, Saga, Repository, Factory, etc.)
- * implemented by services in a repository. Uses an LLM agent with list_files, search,
+ * implemented by services in a repository. Uses an LLM agent with glob_files, search,
  * and get_file tools to explore code structure, docs, and naming conventions, then
  * produces Pattern objects and IMPLEMENTS_PATTERN claims (Service → Pattern).
  *
@@ -14,6 +14,8 @@
  */
 
 import { HumanMessage } from "@langchain/core/messages"
+import { mergeConfigs } from "@langchain/core/runnables"
+import { getConfig } from "@langchain/langgraph"
 import { tool } from "langchain"
 import { z } from "zod/v3"
 import { requireCurrentOrgId } from "../../../auth/context.js"
@@ -24,6 +26,7 @@ import {
   standardRepoExplorerTools,
 } from "../../../tools/repoExplorerTools.js"
 import { createAgent } from "../../createAgent.js"
+import { setIngestionIndexingStep } from "../setIngestionIndexingStep.js"
 import type {
   CodeIngestionState,
   ExtractedClaim,
@@ -141,7 +144,7 @@ Docs and naming:
 - Naming: *Command, *Query, *Event, *Saga, *Repository, *Factory, *Handler
 
 Search strategy:
-1. list_files at each root for docs/, adr/, src/, lib/
+1. glob_files at each root for docs/, adr/, src/, lib/ (single folder: pattern "*", path "<root>/docs" | "<root>/adr" | "<root>/src" | "<root>/lib")
 2. search for pattern-specific terms: CQRS, event sourcing, saga, repository pattern, factory, unit of work, domain event, outbox, BFF, hexagonal
 3. search for naming: *Command *Query, *Event, *Saga, *Repository, *Factory
 4. get_file on ADRs, README, key source files to confirm
@@ -151,6 +154,7 @@ For each pattern found with concrete evidence, call submit_patterns with pattern
 export async function identifyPatterns(
   state: CodeIngestionState,
 ): Promise<Partial<CodeIngestionState>> {
+  await setIngestionIndexingStep(state, "identify_patterns")
   const { repositoryId, roots = ["./"], targetHash } = state
   requireCurrentOrgId()
 
@@ -167,7 +171,7 @@ export async function identifyPatterns(
   const capturedPatterns: { value: SubmittedPattern[] } = { value: [] }
   const tools = createIdentifyPatternsTools(capturedPatterns)
   const agent = createAgent({
-    model: getModel("medium", { temperature: 0.1 }),
+    model: getModel("medium", { streaming: false, temperature: 0.1 }),
     tools,
     contextMiddleware: {
       clearToolUsesTriggerTokens: 160_000,
@@ -186,9 +190,9 @@ ${REPO_EXPLORER_TOOLS_HINT}${scopeHint}`,
 
   await agent.invoke(
     { messages: [new HumanMessage(userMessage)] },
-    {
+    mergeConfigs(getConfig(), {
       recursionLimit: 220,
-    },
+    }),
   )
 
   if (capturedPatterns.value.length === 0) {

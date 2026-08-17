@@ -32,7 +32,8 @@ import {
 } from "../../models/github-mcp-config-pr.js"
 import {
   countRepositoriesForGithubConnection,
-  listRepositories,
+  listRepositoriesForGithubConnection,
+  pruneGithubConnectionRepositoriesNotInGitUrls,
 } from "../../models/repositories.js"
 import { runWorkflowWithWorkerWake } from "../../openworkflow/client.js"
 import { syncGithubRepositories } from "../../openworkflow/workflows/sync-github-repositories.js"
@@ -122,7 +123,7 @@ function hostedDefaultGithubAppInstallUrl(env: {
     Boolean(env.GITHUB_APP_ID?.trim()) &&
     Boolean(env.GITHUB_PRIVATE_KEY?.trim())
   if (!hasApp) return null
-  return `https://github.com/apps/${slug}/installations/select_target`
+  return `https://github.com/apps/${slug}/installations/new`
 }
 
 async function githubInstallationResponsePayload(
@@ -179,6 +180,7 @@ const ListInstallationReposResponseSchema = z
   .object({
     repositories: z.array(GitHubRepoItemSchema),
     repositorySelection: z.string(),
+    manageUrl: z.string().url().nullable(),
     hasMore: z.boolean(),
     totalCount: z.number().optional(),
     warning: z.string().optional(),
@@ -186,7 +188,7 @@ const ListInstallationReposResponseSchema = z
   .openapi("ListInstallationReposResponse")
 
 const SelectedRepoSchema = z.object({
-  id: z.number(),
+  id: z.number().optional(),
   full_name: z.string(),
   name: z.string(),
   clone_url: z.string(),
@@ -808,7 +810,7 @@ export const githubInstallationRoutes = new OpenAPIHono<AppEnv>()
       return c.json({ error: "No GitHub installation found for this org" }, 404)
     }
     const installation = resolved.installation
-    const repos = await listRepositories()
+    const repos = await listRepositoriesForGithubConnection(installation.id)
     return c.json(
       {
         ingestAllRepositories: installation.ingestAllRepositories,
@@ -937,7 +939,7 @@ export const githubInstallationRoutes = new OpenAPIHono<AppEnv>()
     const webhookUrl = `${publicApiOrigin}/api/v1/webhook/github/${connectionId}`
     const slug = shape.appSlug?.trim()
     const githubAppInstallSelectUrl = slug
-      ? `https://github.com/apps/${encodeURIComponent(slug)}/installations/select_target`
+      ? `https://github.com/apps/${encodeURIComponent(slug)}/installations/new`
       : null
     let suggestedNextStep: "save_credentials" | "install_app" | "complete"
     if (installationComplete) {
@@ -1006,16 +1008,8 @@ export const githubInstallationRoutes = new OpenAPIHono<AppEnv>()
           )) ?? installation
       }
 
-      if (installation.installationId != null) {
-        void runWorkflowWithWorkerWake(syncGithubRepositories.spec, {
-          orgId,
-          githubConnectionId: installation.id,
-          userId: c.get("user")?.id,
-        })
-      }
       return c.json(await githubInstallationResponsePayload(installation), 200)
     } catch (e) {
-      // if it is error from evlog re-throw it
       if (e instanceof Error && e.name === "EvlogError") {
         throw e
       }
@@ -1056,6 +1050,7 @@ export const githubInstallationRoutes = new OpenAPIHono<AppEnv>()
         {
           repositories: [],
           repositorySelection: "unavailable",
+          manageUrl: null,
           hasMore: false,
           warning:
             "GitHub App installation is not linked yet. Finish install from GitHub, then register the installation.",
@@ -1077,7 +1072,8 @@ export const githubInstallationRoutes = new OpenAPIHono<AppEnv>()
         return c.json(
           {
             repositories: result.repositories,
-            repositorySelection: "selected",
+            repositorySelection: result.repositorySelection,
+            manageUrl: result.manageUrl,
             hasMore: result.hasMore,
             totalCount: result.totalCount,
           },
@@ -1102,6 +1098,7 @@ export const githubInstallationRoutes = new OpenAPIHono<AppEnv>()
           {
             repositories: [],
             repositorySelection: "unavailable",
+            manageUrl: null,
             hasMore: false,
             warning: GITHUB_INSTALLATION_UNAVAILABLE_MESSAGE,
           },
@@ -1141,6 +1138,12 @@ export const githubInstallationRoutes = new OpenAPIHono<AppEnv>()
           404,
         )
       }
+
+      const selectedRepos = body.selectedRepositories ?? []
+      if (!body.ingestAllRepositories && selectedRepos.length === 0) {
+        return c.json({ error: "Select at least one repository" }, 400)
+      }
+
       const installation = await updateInstallationOptions(
         orgId,
         resolved.installation.id,
@@ -1156,23 +1159,27 @@ export const githubInstallationRoutes = new OpenAPIHono<AppEnv>()
         )
       }
 
-      const selectedRepos = body.selectedRepositories ?? []
-      const workflowPayload =
-        !body.ingestAllRepositories && selectedRepos.length > 0
-          ? {
-              orgId,
-              githubConnectionId: installation.id,
-              userId: c.get("user")?.id,
-              reposToSync: selectedRepos.map((r) => ({
-                name: r.full_name,
-                gitUrl: r.clone_url,
-              })),
-            }
-          : {
-              orgId,
-              githubConnectionId: installation.id,
-              userId: c.get("user")?.id,
-            }
+      if (!body.ingestAllRepositories) {
+        const allowedGitUrls = new Set(selectedRepos.map((r) => r.clone_url))
+        await pruneGithubConnectionRepositoriesNotInGitUrls(
+          orgId,
+          installation.id,
+          allowedGitUrls,
+        )
+      }
+
+      const userId = c.get("user")?.id
+      const workflowPayload = body.ingestAllRepositories
+        ? { orgId, githubConnectionId: installation.id, userId }
+        : {
+            orgId,
+            githubConnectionId: installation.id,
+            userId,
+            reposToSync: selectedRepos.map((r) => ({
+              name: r.full_name,
+              gitUrl: r.clone_url,
+            })),
+          }
       if (installation.installationId != null) {
         void runWorkflowWithWorkerWake(
           syncGithubRepositories.spec,

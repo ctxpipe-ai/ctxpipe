@@ -13,6 +13,8 @@
     "authentication",
     "models",
     "graph-databases",
-    "confluence-atlassian"
+    "confluence-atlassian",
+    "linear",
+    "notion"
   ]
 }

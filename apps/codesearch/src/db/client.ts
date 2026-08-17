@@ -1,4 +1,5 @@
 import { drizzle } from "drizzle-orm/node-postgres"
+import { Pool } from "pg"
 import type { Env } from "../config/env.js"
 import * as schema from "./schema.js"
 
@@ -11,7 +12,12 @@ export function createDb(env: Env) {
   if (!connectionString) {
     throw new Error("DATABASE_URL is required for database operations")
   }
-  return drizzle(connectionString, { schema })
+  const client = new Pool({
+    connectionString,
+    idleTimeoutMillis: 300_000,
+    keepAlive: true,
+  })
+  return drizzle({ client, schema })
 }
 
 export type Db = ReturnType<typeof createDb>

@@ -83,6 +83,19 @@ function isRailwayPrPreview(): boolean {
   return Boolean(name?.startsWith("pr-"))
 }
 
+/**
+ * Idle-exit when PR deploy opts in. Prefer explicit flags over Railway env name:
+ * RAILWAY_ENVIRONMENT_NAME is not always present, which previously left the
+ * worker running forever and blocked Serverless sleep.
+ */
+function shouldIdleExitOnEmptyQueue(): boolean {
+  return (
+    process.env.OPENWORKFLOW_PR_IDLE_EXIT === "true" ||
+    process.env.OPENWORKFLOW_IDLE_EXIT_SECONDS != null ||
+    isRailwayPrPreview()
+  )
+}
+
 function runOpenworkflowWorkerDirect(backendRoot: string): ChildProcess {
   return spawn("bunx", ["@openworkflow/cli", "worker", "start"], {
     cwd: backendRoot,
@@ -99,7 +112,7 @@ async function main() {
     "..",
   )
 
-  if (!isRailwayPrPreview()) {
+  if (!shouldIdleExitOnEmptyQueue()) {
     const child = runOpenworkflowWorkerDirect(backendRoot)
     await new Promise<void>((resolvePromise, reject) => {
       child.on("error", reject)

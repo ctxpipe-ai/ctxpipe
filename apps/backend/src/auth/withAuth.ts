@@ -434,6 +434,21 @@ export const requireAuth: MiddlewareHandler<AppEnv> = async (c, next) => {
   return next()
 }
 
+export async function hasOrgAdminOrOwnerRole(input: {
+  headers: Headers
+  orgId: string
+}): Promise<boolean> {
+  try {
+    const result = await getAuth().api.getActiveMemberRole({
+      headers: input.headers,
+      query: { organizationId: input.orgId },
+    })
+    return result.role === "admin" || result.role === "owner"
+  } catch {
+    return false
+  }
+}
+
 /** Use after {@link requireAuth} and {@link withNetworkOrgContext}. Requires org admin or owner (Better Auth organization plugin). */
 export const requireOrgAdminOrOwner: MiddlewareHandler<AppEnv> = async (
   c,
@@ -444,17 +459,15 @@ export const requireOrgAdminOrOwner: MiddlewareHandler<AppEnv> = async (
   if (!user?.id || !orgId) {
     return c.json({ error: "Forbidden" }, 403)
   }
-  try {
-    const result = await getAuth().api.getActiveMemberRole({
+  if (
+    await hasOrgAdminOrOwnerRole({
       headers: c.req.raw.headers,
-      query: { organizationId: orgId },
+      orgId,
     })
-    const role = result.role
-    if (role === "admin" || role === "owner") return next()
-    return c.json({ error: "Forbidden" }, 403)
-  } catch {
-    return c.json({ error: "Forbidden" }, 403)
+  ) {
+    return next()
   }
+  return c.json({ error: "Forbidden" }, 403)
 }
 
 export const withNetworkOrgContext: MiddlewareHandler<AppEnv> = async (

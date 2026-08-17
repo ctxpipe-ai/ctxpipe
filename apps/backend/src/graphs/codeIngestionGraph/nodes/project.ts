@@ -1,6 +1,7 @@
 import { getLogger } from "../../../observability/logger.js"
 import { projectClaimsFromState } from "../../../retrieval/services/graphProjection.js"
 import type { CodeIngestionState } from "../schemas.js"
+import { setIngestionIndexingStep } from "../setIngestionIndexingStep.js"
 
 /**
  * Projects claims from state to FalkorDB. Uses requireCurrentOrgId/requireCurrentOrgSlug.
@@ -8,6 +9,7 @@ import type { CodeIngestionState } from "../schemas.js"
 export async function project(
   state: CodeIngestionState,
 ): Promise<Partial<CodeIngestionState>> {
+  await setIngestionIndexingStep(state, "projecting")
   const logger = getLogger()
   const claimsForProjection = state.claimsForProjection ?? []
   logger.set({

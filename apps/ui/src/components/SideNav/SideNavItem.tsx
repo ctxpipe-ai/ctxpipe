@@ -17,6 +17,10 @@ type SideNavItemProps = {
   icon: ReactNode
   expanded: boolean
   exact?: boolean
+  status?: {
+    label: string
+    tone: "indexing" | "failed"
+  }
 }
 
 export function SideNavItem({
@@ -26,6 +30,7 @@ export function SideNavItem({
   icon,
   expanded,
   exact = false,
+  status,
 }: SideNavItemProps) {
   const router = useRouter()
   const matchRoute = useMatchRoute()
@@ -57,7 +62,9 @@ export function SideNavItem({
     <Link
       href={href}
       aria-current={isActive ? "page" : undefined}
-      aria-label={expanded ? undefined : label}
+      aria-label={
+        expanded ? undefined : status ? `${label}, ${status.label}` : label
+      }
       className={[
         "group relative flex h-10 items-center text-sm font-medium transition-colors",
         "hover:bg-teal-900/30 hover:text-zinc-50",
@@ -79,6 +86,21 @@ export function SideNavItem({
       >
         {label}
       </span>
+      {status ? (
+        <span
+          className={[
+            "shrink-0",
+            expanded ? "ml-2" : "absolute left-10 top-2 ring-2 ring-zinc-950",
+            status.tone === "failed"
+              ? "ctx-indexing-failed-dot"
+              : "ctx-indexing-dot",
+          ].join(" ")}
+          aria-hidden
+        />
+      ) : null}
+      {expanded && status ? (
+        <span className="sr-only">, {status.label}</span>
+      ) : null}
     </Link>
   )
 }

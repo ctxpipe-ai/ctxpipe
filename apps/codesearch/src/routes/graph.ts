@@ -3,12 +3,12 @@ import { createRoute, z } from "@hono/zod-openapi"
 import { and, eq } from "drizzle-orm"
 import type { AppEnv } from "../app/env.js"
 import { repositoryCheckouts } from "../db/schema.js"
-import { executeCgcGraphQuery } from "../domain/graph/executeGraphPrimitive.js"
+import { executeScipGraphQuery } from "../domain/graph/executeGraphPrimitive.js"
 import {
   DEFAULT_CHECKOUT_KEY,
-  kuzuDbPath,
   repoCheckoutPath,
   resolveSafePath,
+  scipIndexPath,
 } from "../domain/repositories/paths.js"
 import { getAccessibleRepository } from "../domain/repositories/service.js"
 
@@ -61,7 +61,8 @@ export const graphRoute = createRoute({
           }),
         },
       },
-      description: "Canonical graph response (CodeGraphContext / Kùzu)",
+      description:
+        "Canonical graph response backed by the repository SCIP index",
     },
     400: { description: "Bad request" },
     401: { description: "Unauthorized" },
@@ -138,14 +139,14 @@ export function registerGraphRoutes(app: OpenAPIHono<AppEnv>) {
     }
 
     const checkoutPath = repoCheckoutPath(repo.orgId, repo.id, body.checkoutKey)
-    const graphDbPath = kuzuDbPath(repo.orgId, repo.id, body.checkoutKey)
+    const graphIndexPath = scipIndexPath(repo.orgId, repo.id, body.checkoutKey)
     const resolvedFilePath = body.filePath
       ? resolveSafePath(checkoutPath, body.filePath)
       : undefined
 
-    const result = await executeCgcGraphQuery({
+    const result = await executeScipGraphQuery({
       primitive: body.primitive,
-      kuzuDbPath: graphDbPath,
+      scipIndexPath: graphIndexPath,
       repoPath: checkoutPath,
       symbol: body.symbol,
       filePath: resolvedFilePath,
@@ -160,10 +161,6 @@ export function registerGraphRoutes(app: OpenAPIHono<AppEnv>) {
     if (!result.ok && result.error) {
       notes.push(result.error)
     }
-    if (result.stderr) {
-      notes.push(`stderr: ${result.stderr}`)
-    }
-
     return c.json({
       ok: true,
       primitive: body.primitive,

@@ -2,7 +2,7 @@
  * identifyLibraries extractor
  *
  * Detects architectural libraries (ORM, HTTP client, auth, validation, etc.) used by
- * services in a repository. Uses an LLM agent with list_files, search, and get_file
+ * services in a repository. Uses an LLM agent with glob_files, search, and get_file
  * tools to explore package manifests and source code, then produces Library objects
  * and USES_LIBRARY claims (Service → Library).
  *
@@ -11,6 +11,8 @@
  */
 
 import { HumanMessage } from "@langchain/core/messages"
+import { mergeConfigs } from "@langchain/core/runnables"
+import { getConfig } from "@langchain/langgraph"
 import { tool } from "langchain"
 import { z } from "zod/v3"
 import { requireCurrentOrgId } from "../../../auth/context.js"
@@ -21,6 +23,7 @@ import {
   standardRepoExplorerTools,
 } from "../../../tools/repoExplorerTools.js"
 import { createAgent } from "../../createAgent.js"
+import { setIngestionIndexingStep } from "../setIngestionIndexingStep.js"
 import type {
   CodeIngestionState,
   ExtractedClaim,
@@ -145,7 +148,7 @@ Library categories and detection hints:
 | RPC/API    | tRPC, gRPC | trpc, grpc |
 
 Search strategy:
-1. list_files at each root for package.json, requirements.txt, pyproject.toml, go.mod, Cargo.toml, pom.xml, Gemfile, composer.json, mix.exs
+1. glob_files for manifests (e.g. pattern "**/package.json", or single-folder: pattern "*", path "<root>")
 2. search for import patterns (from "prisma", import { drizzle }, require("express"), betterAuth, zod, ioredis)
 3. get_file on package.json, requirements.txt, etc. to confirm dependencies
 4. Focus on architectural deps — skip lodash, date-fns, uuid, etc. unless central to architecture
@@ -155,6 +158,7 @@ Cover only the listed roots. Call submit_libraries for each architectural librar
 export async function identifyLibraries(
   state: CodeIngestionState,
 ): Promise<Partial<CodeIngestionState>> {
+  await setIngestionIndexingStep(state, "identify_libraries")
   const { repositoryId, roots = ["./"], targetHash } = state
   requireCurrentOrgId()
 
@@ -171,7 +175,7 @@ export async function identifyLibraries(
   const capturedLibraries: { value: SubmittedLibrary[] } = { value: [] }
   const tools = createIdentifyLibrariesTools(capturedLibraries)
   const agent = createAgent({
-    model: getModel("medium", { temperature: 0.1 }),
+    model: getModel("medium", { streaming: false, temperature: 0.1 }),
     tools,
     contextMiddleware: {
       clearToolUsesTriggerTokens: 160_000,
@@ -190,9 +194,9 @@ ${REPO_EXPLORER_TOOLS_HINT}${scopeHint}`,
 
   await agent.invoke(
     { messages: [new HumanMessage(userMessage)] },
-    {
+    mergeConfigs(getConfig(), {
       recursionLimit: 220,
-    },
+    }),
   )
 
   if (capturedLibraries.value.length === 0) {

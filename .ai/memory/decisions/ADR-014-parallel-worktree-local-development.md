@@ -23,7 +23,7 @@ We ruled out **separate Docker Compose stacks per worktree** (extra Postgres/Fal
 
 4. **HTTP**: Prefer **[portless](https://portless.sh/)** (project `devDependency`; **`pnpm exec portless get`**) or explicit `PORT` + documented public URL; align **`AUTH_BASE_URL`**, **`AUTH_ALLOWED_ORIGINS`**, and UI auth client origins with the effective origin (canonical integrated dev: **`https://app.ctxpipe.localhost`** when the proxy uses **443**; otherwise use **`portless get`** — no hardcoded `:1355` in examples).
 
-5. **Cursor worktree setup**: **[`.agents/worktrees.json`](../../../.agents/worktrees.json)** is **Cursor-only** (`setup-worktree*` per [Cursor worktrees docs](https://cursor.com/docs/configuration/worktrees)); same path as **`.cursor/worktrees.json`** because **`.cursor` symlinks to `.agents`**. Ports, URLs, and MCP usage for local dev are documented in root [AGENTS.md](../../../AGENTS.md), [docker-compose.env.example](../../../docker-compose.env.example), and [apps/backend/.env.example](../../../apps/backend/.env.example).
+5. **Cursor worktree setup**: **[`.cursor/worktrees.json`](../../../.cursor/worktrees.json)** is **Cursor-only** (`setup-worktree*` per [Cursor worktrees docs](https://cursor.com/docs/configuration/worktrees)); same path as **`.agents/worktrees.json`** because **`.agents` symlinks to `.cursor`**. Ports, URLs, and MCP usage for local dev are documented in root [AGENTS.md](../../../AGENTS.md), [docker-compose.env.example](../../../docker-compose.env.example), and [apps/backend/.env.example](../../../apps/backend/.env.example).
 
 ## Consequences
 

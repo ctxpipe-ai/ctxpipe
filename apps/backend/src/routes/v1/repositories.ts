@@ -3,11 +3,14 @@ import type { AppEnv } from "../../app/env.js"
 import { recordAgentActivityEvent } from "../../models/agent-activity-events.js"
 import {
   createRepository,
-  deleteRepository,
+  deriveRepositoryIndexingStatus,
   getRepository,
   listRepositories,
+  type RepositoryWithSearch,
 } from "../../models/repositories.js"
+import { enqueueRepositoryDeletionWorkflow } from "../../openworkflow/enqueue-repository-deletion.js"
 import { enqueueRepositoryIngestionWorkflow } from "../../openworkflow/enqueue-repository-ingestion.js"
+import { formatUnknownError } from "../../db/transientDbRetry.js"
 
 const CreateRepositoryRequestSchema = z
   .object({
@@ -18,6 +21,13 @@ const CreateRepositoryRequestSchema = z
 const ErrorResponseSchema = z
   .object({ error: z.string() })
   .openapi("ErrorResponse")
+const RepositoryIndexingStatusSchema = z.enum([
+  "queued",
+  "running",
+  "ready",
+  "failed",
+  "unindexing",
+])
 
 const RepositorySchema = z
   .object({
@@ -27,8 +37,15 @@ const RepositorySchema = z
     name: z.string(),
     gitUrl: z.string(),
     indexReady: z.boolean(),
+    indexingStatus: RepositoryIndexingStatusSchema,
+    indexingError: z.string().nullable(),
+    indexingFailedAt: z.string().datetime().nullable(),
     indexingReason: z.string().nullable(),
+    indexingStep: z.number().int().nullable(),
+    indexingStepTotal: z.number().int().nullable(),
+    indexingStepKey: z.string().nullable(),
     lastIngestedHash: z.string().nullable(),
+    lastIngestedAt: z.string().datetime().nullable(),
     createdAt: z.string().datetime(),
     updatedAt: z.string().datetime(),
   })
@@ -168,6 +185,9 @@ export const createRepositoryRoute = createRoute({
 const DeleteRepositoryParamsSchema = z
   .object({ id: z.string() })
   .openapi("DeleteRepositoryParams")
+const ReindexRepositoryParamsSchema = z
+  .object({ id: z.string() })
+  .openapi("ReindexRepositoryParams")
 
 export const deleteRepositoryRoute = createRoute({
   method: "delete",
@@ -206,6 +226,64 @@ export const deleteRepositoryRoute = createRoute({
   },
 })
 
+export const reindexRepositoryRoute = createRoute({
+  method: "post",
+  path: "/{id}/reindex",
+  request: {
+    params: ReindexRepositoryParamsSchema,
+  },
+  responses: {
+    202: {
+      description: "Repository reindex accepted",
+    },
+    401: {
+      content: {
+        "application/json": {
+          schema: ErrorResponseSchema,
+        },
+      },
+      description: "Unauthorized",
+    },
+    404: {
+      content: {
+        "application/json": {
+          schema: ErrorResponseSchema,
+        },
+      },
+      description: "Not found",
+    },
+    500: {
+      content: {
+        "application/json": {
+          schema: ErrorResponseSchema,
+        },
+      },
+      description: "Internal server error",
+    },
+  },
+})
+
+function serializeRepository(repository: RepositoryWithSearch) {
+  const indexingStatus = deriveRepositoryIndexingStatus({
+    indexReady: repository.indexReady,
+    indexingStatus: repository.indexingStatus,
+  })
+
+  return {
+    ...repository,
+    indexingStatus,
+    indexingError: repository.indexingError ?? null,
+    indexingFailedAt: repository.indexingFailedAt?.toISOString() ?? null,
+    indexingReason: repository.indexingReason ?? null,
+    indexingStep: repository.indexingStep ?? null,
+    indexingStepTotal: repository.indexingStepTotal ?? null,
+    indexingStepKey: repository.indexingStepKey ?? null,
+    lastIngestedAt: repository.lastIngestedAt?.toISOString() ?? null,
+    createdAt: repository.createdAt.toISOString(),
+    updatedAt: repository.updatedAt.toISOString(),
+  }
+}
+
 export const repositoryRoutes = new OpenAPIHono<AppEnv>()
   .openapi(listRepositoriesRoute, async (c) => {
     const user = c.get("user")
@@ -214,12 +292,7 @@ export const repositoryRoutes = new OpenAPIHono<AppEnv>()
       return c.json({ error: "Unauthorized" }, 401)
     }
     const repos = await listRepositories()
-    const items = repos.map((r) => ({
-      ...r,
-      indexingReason: r.indexingReason ?? null,
-      createdAt: r.createdAt.toISOString(),
-      updatedAt: r.updatedAt.toISOString(),
-    }))
+    const items = repos.map((r) => serializeRepository(r))
     return c.json({ items }, 200)
   })
   .openapi(getRepositoryRoute, async (c) => {
@@ -233,15 +306,7 @@ export const repositoryRoutes = new OpenAPIHono<AppEnv>()
     if (!repository) {
       return c.json({ error: "Not found" }, 404)
     }
-    return c.json(
-      {
-        ...repository,
-        indexingReason: repository.indexingReason ?? null,
-        createdAt: repository.createdAt.toISOString(),
-        updatedAt: repository.updatedAt.toISOString(),
-      },
-      200,
-    )
+    return c.json(serializeRepository(repository), 200)
   })
   .openapi(createRepositoryRoute, async (c) => {
     const user = c.get("user")
@@ -283,17 +348,46 @@ export const repositoryRoutes = new OpenAPIHono<AppEnv>()
         },
       )
       return c.json(
-        {
-          ...repository,
-          indexingReason: repository.indexingReason ?? null,
-          createdAt: repository.createdAt.toISOString(),
-          updatedAt: repository.updatedAt.toISOString(),
-        },
+        serializeRepository(repository),
         201,
       )
     } catch (e) {
       c.get("log").error(e instanceof Error ? e : new Error(String(e)), {
         step: "repositories.create",
+      })
+      return c.json({ error: "Internal server error" }, 500)
+    }
+  })
+  .openapi(reindexRepositoryRoute, async (c) => {
+    const user = c.get("user")
+    const session = c.get("session")
+    if (!user || !session) {
+      return c.json({ error: "Unauthorized" }, 401)
+    }
+    const id = c.req.param("id")
+    try {
+      const repository = await getRepository(id)
+      if (!repository) {
+        return c.json({ error: "Not found" }, 404)
+      }
+      await enqueueRepositoryIngestionWorkflow(
+        {
+          repositoryId: repository.id,
+          orgId: repository.orgId,
+          indexingReason: "manual",
+        },
+        {
+          error: (err) =>
+            c
+              .get("log")
+              .error(err, { step: "repositories.reindex.enqueue", repositoryId: id }),
+        },
+      )
+      return c.body(null, 202)
+    } catch (e) {
+      c.get("log").error(e instanceof Error ? e : new Error(String(e)), {
+        step: "repositories.reindex",
+        repositoryId: id,
       })
       return c.json({ error: "Internal server error" }, 500)
     }
@@ -310,18 +404,33 @@ export const repositoryRoutes = new OpenAPIHono<AppEnv>()
       if (!repository) {
         return c.json({ error: "Not found" }, 404)
       }
-      void deleteRepository(id).catch((e) => {
-        c.get("log").error(e instanceof Error ? e : new Error(String(e)), {
-          step: "repositories.delete.background",
+      const result = await enqueueRepositoryDeletionWorkflow(
+        {
           repositoryId: id,
-        })
-      })
+          orgId: repository.orgId,
+          repoName: repository.name,
+          zoektRepoId: repository.zoektRepoId,
+        },
+        {
+          error: (err) =>
+            c.get("log").error(err, {
+              step: "repositories.delete.enqueue-deletion",
+              repositoryId: id,
+            }),
+        },
+      )
+      if (!result) {
+        return c.json({ error: "Not found" }, 404)
+      }
       return c.body(null, 202)
     } catch (e) {
-      c.get("log").error(e instanceof Error ? e : new Error(String(e)), {
-        step: "repositories.delete",
-        repositoryId: id,
-      })
+      c.get("log").error(
+        e instanceof Error ? e : new Error(formatUnknownError(e)),
+        {
+          step: "repositories.delete",
+          repositoryId: id,
+        },
+      )
       return c.json({ error: "Internal server error" }, 500)
     }
   })

@@ -326,7 +326,7 @@
   }
 }
 
-@keyframes ctx-deleting-pulse {
+@keyframes ctx-unindexing-pulse {
   0%,
   100% {
     opacity: 0.45;
@@ -338,7 +338,7 @@
   }
 }
 
-@keyframes ctx-deleting-glow {
+@keyframes ctx-unindexing-glow {
   0%,
   100% {
     color: rgba(248, 113, 113, 0.72);
@@ -446,6 +446,10 @@
     @apply inline-flex items-center gap-1.5 font-mono text-xs text-teal-200;
   }
 
+  .ctx-indexing-failed {
+    @apply inline-flex items-center gap-1.5 font-mono text-xs text-red-300;
+  }
+
   .ctx-indexing-dot {
     @apply h-1.5 w-1.5 rounded-full bg-teal-200/80;
     animation: ctx-indexing-pulse 1200ms ease-in-out infinite;
@@ -463,14 +467,18 @@
     @apply h-1.5 w-1.5 rounded-full bg-teal-200/80;
   }
 
-  .ctx-deleting {
-    @apply inline-flex items-center gap-1.5 font-mono text-xs text-red-300;
-    animation: ctx-deleting-glow 900ms ease-in-out infinite;
+  .ctx-indexing-failed-dot {
+    @apply h-1.5 w-1.5 rounded-full bg-red-300;
   }
 
-  .ctx-deleting-dot {
+  .ctx-unindexing {
+    @apply inline-flex items-center gap-1.5 font-mono text-xs text-red-300;
+    animation: ctx-unindexing-glow 900ms ease-in-out infinite;
+  }
+
+  .ctx-unindexing-dot {
     @apply h-1.5 w-1.5 rounded-full bg-red-300;
-    animation: ctx-deleting-pulse 900ms ease-in-out infinite;
+    animation: ctx-unindexing-pulse 900ms ease-in-out infinite;
   }
 
   .ctx-node {
@@ -551,11 +559,26 @@
   }
 }
 
+.ctx-status-pulse {
+  animation: ctx-status-pulse 1.2s ease-in-out infinite;
+}
+
+@keyframes ctx-status-pulse {
+  0%,
+  100% {
+    opacity: 0.4;
+  }
+  50% {
+    opacity: 1;
+  }
+}
+
 @media (prefers-reduced-motion: reduce) {
   .ctx-indexing,
   .ctx-indexing-dot,
-  .ctx-deleting,
-  .ctx-deleting-dot {
+  .ctx-unindexing,
+  .ctx-unindexing-dot,
+  .ctx-status-pulse {
     animation: none;
   }
 }
@@ -610,20 +633,44 @@
   border-radius: 0 !important;
 }
 
-/*
- * Indeterminate progress bar used by `InlineLoader`. Slides a 33%-wide fill
- * across a track so fetches with no ETA still read as active.
- */
-@keyframes inline-loader-slide {
-  0% {
-    transform: translateX(-100%);
-  }
+/* InlineLoader: linear ping-pong; extra scale stops squash at each wall. */
+@keyframes inline-loader-bounce {
+  0%,
   100% {
-    transform: translateX(300%);
+    transform: translateX(0) scaleX(0.38);
+  }
+  8% {
+    transform: translateX(0) scaleX(0.7);
+  }
+  16% {
+    transform: translateX(0) scaleX(1);
+  }
+  34% {
+    transform: translateX(200%) scaleX(1);
+  }
+  42% {
+    transform: translateX(230%) scaleX(0.7);
+  }
+  50% {
+    transform: translateX(262%) scaleX(0.38);
+  }
+  58% {
+    transform: translateX(230%) scaleX(0.7);
+  }
+  66% {
+    transform: translateX(200%) scaleX(1);
+  }
+  84% {
+    transform: translateX(0) scaleX(1);
+  }
+  92% {
+    transform: translateX(0) scaleX(0.7);
   }
 }
 .inline-loader-indeterminate {
-  animation: inline-loader-slide 1.4s linear infinite;
+  left: 0;
+  transform-origin: left center;
+  animation: inline-loader-bounce 1.1s linear infinite;
 }
 
 @media (prefers-reduced-motion: reduce) {

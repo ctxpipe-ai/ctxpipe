@@ -1,18 +1,10 @@
 "use client"
-import type { ComponentProps } from "react"
 import type { ButtonProps as RACButtonProps } from "react-aria-components"
 import { composeRenderProps, Button as RACButton } from "react-aria-components"
 import { tv } from "tailwind-variants"
 import { focusRing } from "@/lib/react-aria-utils"
 
-type AnchorLinkProps = Pick<
-  ComponentProps<"a">,
-  "href" | "target" | "rel" | "download"
->
-
-export interface ButtonProps
-  extends Omit<RACButtonProps, "size">,
-    AnchorLinkProps {
+export interface ButtonProps extends Omit<RACButtonProps, "size"> {
   /** @default 'primary' */
   variant?:
     | "primary"

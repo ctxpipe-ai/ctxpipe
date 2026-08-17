@@ -37,9 +37,12 @@ export { aggregateConfidence } from "./services/confidenceAggregation.js"
 export type { GraphNode } from "./services/graphLookup.js"
 export { graphLookup } from "./services/graphLookup.js"
 export {
+  deleteObjectsFromGraph,
   projectClaimsFromState,
   refreshClaimProjection,
+  refreshClaimProjections,
   retractClaimFromGraph,
+  retractClaimsFromGraph,
 } from "./services/graphProjection.js"
 export type {
   GraphTraversalOptions,
@@ -65,15 +68,14 @@ export {
   applyIngestionRetractionGraphEffects,
   retractIngestionForDiffPg,
 } from "./services/ingestionRetraction.js"
-export { generateEmbedding } from "./services/modelProvider.js"
+export {
+  generateEmbedding,
+  generateEmbeddings,
+} from "./services/modelProvider.js"
 export type { Reranker } from "./services/reranker.js"
 export {
   corroborationReranker,
   passThroughReranker,
 } from "./services/reranker.js"
-export {
-  upsertRetrievalEmbedding,
-  upsertRetrievalSearch,
-} from "./services/retrievalObjectWrite.js"
 export type { VectorSearchResult } from "./services/vectorSearch.js"
 export { vectorSearch } from "./services/vectorSearch.js"

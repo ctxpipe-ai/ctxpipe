@@ -4,12 +4,41 @@ import { drizzle } from "drizzle-orm/node-postgres"
 import { Pool } from "pg"
 import { log } from "../observability/logger.js"
 import { relations, schema } from "./schema.js"
+import {
+  formatUnknownError,
+  wrapPoolQueryWithTransientRetry,
+} from "./transientDbRetry.js"
+
+function isRailwayPrPreview(): boolean {
+  return Boolean(process.env.RAILWAY_ENVIRONMENT_NAME?.trim().startsWith("pr-"))
+}
 
 function createDrizzleDb(connectionString: string) {
+  // Railway Serverless sleeps after ~10m with no outbound. Long-lived idle
+  // Neon connections (and TCP keepalives) prevent that window in PR previews.
   const client = new Pool({
     connectionString,
-    idleTimeoutMillis: 300000,
+    allowExitOnIdle: isRailwayPrPreview(),
+    keepAlive: true,
+    idleTimeoutMillis: 30_000,
+    connectionTimeoutMillis: 30_000,
+    application_name: "ctxpipe-backend",
   })
+  // Idle clients can emit 'error' when Postgres closes them (e.g. 25P03
+  // idle_in_transaction). Without a listener, Node treats that as uncaught
+  // and can exit the OpenWorkflow worker process.
+  client.on("error", (err) => {
+    log.error({
+      step: "db.pool",
+      message: "Unexpected pg pool error",
+      error: err instanceof Error ? err.message : String(err),
+      code:
+        err && typeof err === "object" && "code" in err
+          ? String((err as { code: unknown }).code)
+          : undefined,
+    })
+  })
+  wrapPoolQueryWithTransientRetry(client)
   return drizzle({ client, schema, relations })
 }
 
@@ -48,15 +77,30 @@ export function getOrgDb(): Db {
   )
 }
 
+/** Returns the current org DB transaction when inside `withOrgDbContext`, else undefined. */
+export function tryGetOrgDb(): Db | undefined {
+  return orgDbStorage.getStore()
+}
+
+export type OrgDbContextOptions = {
+  idleInTransactionSessionTimeout?: string
+}
+
 export async function withOrgDbContext<T>(
   orgId: string,
   handler: (db: Db) => Promise<T>,
+  options?: OrgDbContextOptions,
 ): Promise<T> {
   const db = getSystemDb()
   return db.transaction(async (tx) => {
     await tx.execute(
       sql`select set_config('app.organization_id', ${orgId}, true)`,
     )
+    if (options?.idleInTransactionSessionTimeout) {
+      await tx.execute(
+        sql`select set_config('idle_in_transaction_session_timeout', ${options.idleInTransactionSessionTimeout}, true)`,
+      )
+    }
     try {
       // Explicit `async` wrapper: some runtimes (e.g. Bun inside OpenWorkflow steps)
       // drop AsyncLocalStorage across `() => handler(tx)` when `handler` is async.
@@ -66,7 +110,7 @@ export async function withOrgDbContext<T>(
         step: "withOrgDbContext.rollback",
         message: "withOrgDbContext: transaction rollback",
         orgId,
-        error: err instanceof Error ? err.message : String(err),
+        error: formatUnknownError(err),
         cause: err instanceof Error ? err.cause : undefined,
       })
       throw err

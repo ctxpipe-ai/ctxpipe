@@ -1,20 +1,27 @@
 "use client"
 
-import { useInfiniteQuery, useMutation } from "@tanstack/react-query"
-import { type FormEvent, useCallback, useMemo, useRef, useState } from "react"
-import type { Selection } from "react-aria-components"
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
+import { type FormEvent, useMemo, useState } from "react"
 import { toast } from "sonner"
 import { Button } from "@/components/ui/Button"
 import { Checkbox } from "@/components/ui/Checkbox"
-import {
-  GridList,
-  GridListItem,
-  GridListLoadMoreItem,
-} from "@/components/ui/GridList"
+import { InlineLoader } from "@/components/ui/InlineLoader"
 import { Radio, RadioGroup } from "@/components/ui/RadioGroup"
 import { SearchField } from "@/components/ui/SearchField"
 import { client } from "@/lib/api"
 import { useSession } from "@/lib/auth-client"
+import {
+  buildSelectedRepositories,
+  collectInstallationRepoPages,
+  countSelectionDelta,
+  describeSelectionDelta,
+  type GithubRepoItem,
+  githubCloneUrlKey,
+  matchSavedRepoIds,
+  selectedCloneUrlKeys,
+  unmatchedSavedRepos,
+} from "../githubRepoSelection"
+import { GithubRepoPickerList } from "./GithubRepoPickerList"
 
 export type GitHubRepositorySetupData = {
   ingestAllRepositories: boolean
@@ -22,112 +29,122 @@ export type GitHubRepositorySetupData = {
   savedRepositories: Array<{ name: string; gitUrl: string }>
 }
 
-type GitHubRepoItem = {
-  id: number
-  full_name: string
-  html_url: string
-  clone_url: string
-  name: string
-}
-
 export type GitHubRepositorySetupFormProps = {
   orgSlug: string
   setupData?: GitHubRepositorySetupData
   /** Affects the small section label above the title (default: repositories). */
   pageContext?: "repositories" | "connectors"
+  variant?: "page" | "onboarding"
   onSaveSuccess: () => void
   onCancel: () => void
+}
+
+async function fetchInstallationReposPage(
+  orgSlug: string,
+  page: number,
+): Promise<{
+  repositories: GithubRepoItem[]
+  hasMore: boolean
+  repositorySelection: string
+}> {
+  const res = await (
+    client[":orgSlug"].api.v1.github.installation.repositories.$get as (arg: {
+      param: { orgSlug: string }
+      query: { page: string; per_page: string }
+    }) => Promise<Response>
+  )({
+    param: { orgSlug },
+    query: { page: String(page), per_page: "100" },
+  })
+  if (!res.ok) throw new Error("Failed to fetch repositories")
+  return (await res.json()) as {
+    repositories: GithubRepoItem[]
+    hasMore: boolean
+    repositorySelection: string
+  }
 }
 
 export function GitHubRepositorySetupForm({
   orgSlug,
   setupData,
   pageContext = "repositories",
+  variant = "page",
   onSaveSuccess,
   onCancel,
 }: GitHubRepositorySetupFormProps) {
   const { data: session } = useSession()
+  const queryClient = useQueryClient()
 
   const contextLabel =
     pageContext === "connectors" ? "Connectors" : "Repositories"
 
+  const savedRepos = setupData?.savedRepositories ?? []
   const savedGitUrls = useMemo(
-    () => new Set(setupData?.savedRepositories.map((r) => r.gitUrl)),
-    [setupData],
+    () => new Set(savedRepos.map((repo) => repo.gitUrl)),
+    [savedRepos],
   )
 
   const [mode, setMode] = useState<"all" | "select">(() =>
-    setupData?.ingestAllRepositories === false ? "select" : "all",
+    setupData?.ingestAllRepositories === true ? "all" : "select",
   )
   const [includeFutureRepos, setIncludeFutureRepos] = useState(
     () => setupData?.includeFutureRepos ?? false,
   )
   const [searchQuery, setSearchQuery] = useState("")
-  const [selectedKeys, setSelectedKeys] = useState<Selection>(new Set())
-  const repoMapRef = useRef<Map<number, GitHubRepoItem>>(new Map())
-  const initialSelectionApplied = useRef(false)
+  const [selectedIds, setSelectedIds] = useState<Set<number>>(() => new Set())
+  const [selectionHydrated, setSelectionHydrated] = useState(false)
 
   const {
     data,
     isPending: reposPending,
-    hasNextPage,
-    fetchNextPage,
-    isFetchingNextPage,
-  } = useInfiniteQuery({
+    isError: reposFailed,
+  } = useQuery({
     queryKey: ["github-installation-repos", orgSlug],
-    queryFn: async ({ pageParam = 1 }) => {
-      const res = await (
-        client[":orgSlug"].api.v1.github.installation.repositories
-          .$get as (arg: {
-          param: { orgSlug: string }
-          query: { page: string; per_page: string }
-        }) => Promise<Response>
-      )({
-        param: { orgSlug },
-        query: { page: String(pageParam), per_page: "30" },
-      })
-      if (!res.ok) throw new Error("Failed to fetch repositories")
-      const json = (await res.json()) as {
-        repositories: GitHubRepoItem[]
-        repositorySelection: string
-        hasMore: boolean
-      }
-      for (const repo of json.repositories) {
-        repoMapRef.current.set(repo.id, repo)
-      }
-
-      if (!initialSelectionApplied.current && savedGitUrls.size > 0) {
-        initialSelectionApplied.current = true
-        const matched = new Set<number>()
-        for (const [id, repo] of repoMapRef.current) {
-          if (savedGitUrls.has(repo.clone_url)) matched.add(id)
-        }
-        if (matched.size > 0) setSelectedKeys(matched as Selection)
-      }
-
-      return json
-    },
-    getNextPageParam: (lastPage, allPages) =>
-      lastPage.hasMore ? allPages.length + 1 : undefined,
-    initialPageParam: 1,
+    queryFn: () =>
+      collectInstallationRepoPages((page) =>
+        fetchInstallationReposPage(orgSlug, page),
+      ),
     enabled: !!session,
   })
 
-  const allRepos = useMemo(
-    () => data?.pages.flatMap((p) => p.repositories) ?? [],
-    [data],
+  const allRepos = data?.repositories ?? []
+  const repositorySelection = data?.repositorySelection
+
+  if (!reposPending && !selectionHydrated && data) {
+    setSelectedIds(matchSavedRepoIds(savedGitUrls, allRepos))
+    setSelectionHydrated(true)
+  }
+
+  const unmatchedSaved = useMemo(
+    () => unmatchedSavedRepos(savedRepos, allRepos),
+    [savedRepos, allRepos],
   )
-  const repositorySelection = data?.pages[0]?.repositorySelection
 
   const filteredRepos = useMemo(() => {
     if (!searchQuery) return allRepos
     const q = searchQuery.toLowerCase()
-    return allRepos.filter((r) => r.full_name.toLowerCase().includes(q))
+    return allRepos.filter((repo) => repo.full_name.toLowerCase().includes(q))
   }, [allRepos, searchQuery])
 
-  const handleSelectionChange = useCallback((keys: Selection) => {
-    setSelectedKeys(keys)
-  }, [])
+  const handleToggle = (id: number, selected: boolean) => {
+    setSelectedIds((previous) => {
+      const next = new Set(previous)
+      if (selected) next.add(id)
+      else next.delete(id)
+      return next
+    })
+  }
+
+  const selectionDelta = useMemo(() => {
+    const selectedUrls = selectedCloneUrlKeys(allRepos, selectedIds)
+    for (const saved of unmatchedSaved) {
+      selectedUrls.add(githubCloneUrlKey(saved.gitUrl))
+    }
+    return countSelectionDelta({
+      savedGitUrls,
+      selectedCloneUrls: selectedUrls,
+    })
+  }, [allRepos, selectedIds, unmatchedSaved, savedGitUrls])
 
   const patchInstallation = client[":orgSlug"].api.v1.github.installation
     .$patch as (arg: {
@@ -151,31 +168,54 @@ export function GitHubRepositorySetupForm({
           }
           throw new Error(err.error ?? "Failed to save")
         }
-      } else {
-        const selectedSet =
-          selectedKeys === "all"
-            ? new Set(allRepos.map((r) => r.id))
-            : (selectedKeys as Set<number>)
-        const selectedRepositories = Array.from(selectedSet)
-          .map((id) => repoMapRef.current.get(Number(id)))
-          .filter((r): r is GitHubRepoItem => r != null)
-        const res = await patchInstallation({
-          param: { orgSlug },
-          json: {
-            ingestAllRepositories: false,
-            includeFutureRepos: false,
-            selectedRepositories,
-          },
-        })
-        if (!res.ok) {
-          const err = (await res.json().catch(() => ({}))) as {
-            error?: string
-          }
-          throw new Error(err.error ?? "Failed to save")
-        }
+        return {
+          ingestAllRepositories: true,
+          includeFutureRepos,
+          savedRepositories: setupData?.savedRepositories ?? [],
+        } satisfies GitHubRepositorySetupData
       }
+
+      const selectedRepositories = buildSelectedRepositories({
+        githubRepos: allRepos,
+        selectedIds,
+        unmatchedSaved,
+      })
+      const res = await patchInstallation({
+        param: { orgSlug },
+        json: {
+          ingestAllRepositories: false,
+          includeFutureRepos: false,
+          selectedRepositories,
+        },
+      })
+      if (!res.ok) {
+        const err = (await res.json().catch(() => ({}))) as {
+          error?: string
+        }
+        throw new Error(err.error ?? "Failed to save")
+      }
+      return {
+        ingestAllRepositories: false,
+        includeFutureRepos: false,
+        savedRepositories: selectedRepositories.map((repo) => ({
+          name: repo.full_name,
+          gitUrl: repo.clone_url,
+        })),
+      } satisfies GitHubRepositorySetupData
     },
-    onSuccess: () => {
+    onSuccess: async (nextSetupData) => {
+      queryClient.setQueryData(
+        ["github-installation-setup", orgSlug],
+        nextSetupData,
+      )
+      await Promise.all([
+        queryClient.invalidateQueries({
+          queryKey: ["repositories", orgSlug],
+        }),
+        queryClient.invalidateQueries({
+          queryKey: ["github-installation-repos-preview", orgSlug],
+        }),
+      ])
       toast.success("Repositories saved. Ingestion has started.")
       onSaveSuccess()
     },
@@ -187,11 +227,12 @@ export function GitHubRepositorySetupForm({
   const handleSubmit = (e: FormEvent) => {
     e.preventDefault()
     if (mode === "select") {
-      const count =
-        selectedKeys === "all"
-          ? allRepos.length
-          : (selectedKeys as Set<unknown>).size
-      if (count === 0) {
+      const selectedRepositories = buildSelectedRepositories({
+        githubRepos: allRepos,
+        selectedIds,
+        unmatchedSaved,
+      })
+      if (selectedRepositories.length === 0) {
         toast.error("Select at least one repository")
         return
       }
@@ -199,26 +240,39 @@ export function GitHubRepositorySetupForm({
     updateOptionsMutation.mutate()
   }
 
+  const selectBusy = reposPending || (!selectionHydrated && !reposFailed)
+
   return (
     <>
-      <header className="mb-8">
-        <span className="font-mono text-xs uppercase tracking-[0.24em] text-teal-400">
-          {contextLabel}
-        </span>
-      </header>
-      <section>
-        <h1 className="text-3xl font-medium tracking-tight text-foreground">
-          GitHub repository setup
+      {variant === "page" ? (
+        <header className="mb-8">
+          <span className="font-mono text-xs uppercase tracking-[0.24em] text-teal-400">
+            {contextLabel}
+          </span>
+        </header>
+      ) : null}
+      <section className={variant === "onboarding" ? "text-center" : undefined}>
+        <h1
+          className={
+            variant === "onboarding"
+              ? "onb-in-1 text-3xl font-semibold text-zinc-100 sm:text-4xl"
+              : "text-3xl font-medium tracking-tight text-foreground"
+          }
+        >
+          {variant === "onboarding"
+            ? "Choose repositories to index"
+            : "GitHub repository setup"}
         </h1>
-        <p className="mt-3 leading-relaxed text-muted-foreground">
-          Choose which repositories to ingest. You can select all or pick
-          specific ones.
+        <p className="mt-3 text-balance leading-relaxed text-muted-foreground">
+          {variant === "onboarding"
+            ? "GitHub controls which repositories ctx| can access. Now choose which of those repositories to index into your knowledge graph."
+            : "Choose which repositories to ingest. Already indexed repositories stay selected even if you search or have not scrolled the list."}
         </p>
       </section>
 
       <form
         onSubmit={handleSubmit}
-        className="mt-8 space-y-6 rounded-none border border-border bg-card/40 p-6 [&_label]:text-zinc-200!"
+        className="mt-8 space-y-6 rounded-none border border-border bg-card/40 p-6 text-left [&_label]:text-zinc-200!"
       >
         <RadioGroup
           label="Ingestion mode"
@@ -243,61 +297,45 @@ export function GitHubRepositorySetupForm({
             <SearchField
               value={searchQuery}
               onChange={setSearchQuery}
-              placeholder="Search loaded repositories…"
+              placeholder="Search repositories"
               aria-label="Search repositories"
               className="[&>div]:rounded-none"
             />
 
-            {reposPending ? (
-              <p className="text-sm text-zinc-300">Loading repositories…</p>
+            {selectBusy ? (
+              <InlineLoader label="Loading repositories" />
+            ) : reposFailed ? (
+              <p className="text-sm text-zinc-300">
+                Failed to load repositories.
+              </p>
             ) : allRepos.length === 0 ? (
               <p className="text-sm text-zinc-300">
                 No repositories found for this installation.
               </p>
             ) : (
-              <GridList
-                aria-label="Repositories"
-                selectionMode="multiple"
-                selectionBehavior="toggle"
-                selectedKeys={selectedKeys}
-                onSelectionChange={handleSelectionChange}
-                className="max-h-96 rounded-none border border-border bg-card/40"
-              >
-                {filteredRepos.map((repo) => (
-                  <GridListItem
-                    key={repo.id}
-                    id={repo.id}
-                    textValue={repo.full_name}
-                  >
-                    <span className="min-w-0 truncate">{repo.full_name}</span>
-                  </GridListItem>
-                ))}
-                {hasNextPage && !searchQuery && (
-                  <GridListLoadMoreItem
-                    onLoadMore={() => {
-                      void fetchNextPage()
-                    }}
-                    isLoading={isFetchingNextPage}
-                  >
-                    {isFetchingNextPage ? "Loading more…" : "Show more"}
-                  </GridListLoadMoreItem>
-                )}
-              </GridList>
+              <GithubRepoPickerList
+                repos={filteredRepos}
+                selectedIds={selectedIds}
+                onToggle={handleToggle}
+              />
             )}
 
-            {selectedKeys !== "all" &&
-            (selectedKeys as Set<unknown>).size > 0 ? (
+            {!selectBusy && !reposFailed && savedRepos.length > 0 ? (
               <p className="text-sm text-zinc-400">
-                {(selectedKeys as Set<unknown>).size}{" "}
-                {(selectedKeys as Set<unknown>).size === 1
-                  ? "repository"
-                  : "repositories"}{" "}
-                selected
+                {describeSelectionDelta(selectionDelta)}
+                {unmatchedSaved.length > 0
+                  ? ` · keeping ${unmatchedSaved.length} indexed ${
+                      unmatchedSaved.length === 1
+                        ? "repository"
+                        : "repositories"
+                    } not in this GitHub list`
+                  : null}
               </p>
-            ) : null}
-            {selectedKeys === "all" && allRepos.length > 0 ? (
+            ) : !selectBusy && !reposFailed && selectedIds.size > 0 ? (
               <p className="text-sm text-zinc-400">
-                All {allRepos.length} loaded repositories selected
+                {selectedIds.size}{" "}
+                {selectedIds.size === 1 ? "repository" : "repositories"}{" "}
+                selected
               </p>
             ) : null}
           </div>
@@ -307,12 +345,18 @@ export function GitHubRepositorySetupForm({
           <Button
             type="submit"
             variant="primary"
-            isDisabled={updateOptionsMutation.isPending}
+            isDisabled={
+              updateOptionsMutation.isPending ||
+              selectBusy ||
+              (mode === "select" && reposFailed)
+            }
             className="rounded-none"
           >
             {updateOptionsMutation.isPending
               ? "Saving…"
-              : "Save and start ingestion"}
+              : variant === "onboarding"
+                ? "Save and continue"
+                : "Save and start ingestion"}
           </Button>
           <Button
             type="button"
@@ -320,7 +364,7 @@ export function GitHubRepositorySetupForm({
             className="rounded-none"
             onPress={onCancel}
           >
-            Cancel
+            {variant === "onboarding" ? "Skip for now" : "Cancel"}
           </Button>
         </div>
       </form>

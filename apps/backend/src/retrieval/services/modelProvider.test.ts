@@ -11,8 +11,47 @@ const chatOpenAIConstructor = vi.hoisted(() => {
   return vi.fn(MockChatOpenAI)
 })
 
+const chatBedrockConverseConstructor = vi.hoisted(() => {
+  class MockChatBedrockConverse {
+    readonly fields: unknown
+    constructor(fields: unknown) {
+      this.fields = fields
+    }
+  }
+  return vi.fn(MockChatBedrockConverse)
+})
+
+const mockBedrockSend = vi.hoisted(() => vi.fn())
+const withLangfuseGenerationMock = vi.hoisted(() =>
+  vi.fn((_attrs: unknown, fn: () => unknown) => fn()),
+)
+
 vi.mock("@langchain/openai", () => ({
   ChatOpenAI: chatOpenAIConstructor,
+}))
+
+vi.mock("@langchain/aws", () => ({
+  ChatBedrockConverse: chatBedrockConverseConstructor,
+}))
+
+vi.mock("@aws-sdk/client-bedrock-runtime", () => {
+  class MockInvokeModelCommand {
+    input: unknown
+    constructor(input: unknown) {
+      this.input = input
+    }
+  }
+  class MockBedrockRuntimeClient {
+    send = mockBedrockSend
+  }
+  return {
+    BedrockRuntimeClient: MockBedrockRuntimeClient,
+    InvokeModelCommand: MockInvokeModelCommand,
+  }
+})
+
+vi.mock("../../observability/langfuse.js", () => ({
+  withLangfuseGeneration: withLangfuseGenerationMock,
 }))
 
 function fakeEmbeddingResponse(): Response {
@@ -23,11 +62,21 @@ function fakeEmbeddingResponse(): Response {
   })
 }
 
+function fakeCohereEmbedResponse(dimensions = 1536): Uint8Array {
+  const embedding = new Array(dimensions).fill(0.02)
+  return new TextEncoder().encode(
+    JSON.stringify({ embeddings: { float: [embedding] } }),
+  )
+}
+
 describe("modelProvider", () => {
   const savedEnv = { ...process.env }
 
   beforeEach(() => {
     chatOpenAIConstructor.mockClear()
+    chatBedrockConverseConstructor.mockClear()
+    mockBedrockSend.mockReset()
+    withLangfuseGenerationMock.mockClear()
     vi.stubGlobal("fetch", vi.fn().mockResolvedValue(fakeEmbeddingResponse()))
   })
 
@@ -40,9 +89,9 @@ describe("modelProvider", () => {
     process.env.MODEL_PROVIDER = "openrouter"
     process.env.MODEL_PROVIDER_API_KEY = "k"
     process.env.MODEL_PROVIDER_URL = "https://openrouter.ai/api/v1"
-    process.env.MODEL_FAST_NAME = "m-fast"
-    process.env.MODEL_MEDIUM_NAME = "m-med"
-    process.env.MODEL_HIGH_NAME = "m-high"
+    process.env.MODEL_FAST_NAME = "m-fast?reasoning.effort=low"
+    process.env.MODEL_MEDIUM_NAME = "m-med?reasoning.effort=medium"
+    process.env.MODEL_HIGH_NAME = "m-high?reasoning.effort=high"
     vi.resetModules()
     const { getModel } = await import("./modelProvider.js")
     getModel("medium")
@@ -50,11 +99,16 @@ describe("modelProvider", () => {
     expect(chatOpenAIConstructor).toHaveBeenCalled()
     const call = chatOpenAIConstructor.mock.calls[0]?.[0] as {
       model?: string
-      modelKwargs?: { plugins?: unknown[]; models?: string[] }
+      modelKwargs?: {
+        plugins?: unknown[]
+        models?: string[]
+        reasoning?: { effort?: string }
+      }
     }
     expect(call?.model).toBe("m-med")
     expect(call?.modelKwargs?.models).toEqual(["m-fast", "m-high"])
     expect(call?.modelKwargs?.plugins).toEqual([{ id: "context-compression" }])
+    expect(call?.modelKwargs?.reasoning).toEqual({ effort: "medium" })
   })
 
   it("getModel passes tier fallback order to OpenRouter (fast: med then high)", async () => {
@@ -95,6 +149,25 @@ describe("modelProvider", () => {
     expect(call?.modelKwargs?.models).toEqual(["m-high"])
   })
 
+  it("getModel lowers canonical params for openai-like", async () => {
+    process.env.MODEL_PROVIDER = "openai-like"
+    process.env.MODEL_PROVIDER_API_KEY = "k"
+    process.env.MODEL_PROVIDER_URL = "https://api.openai.com/v1"
+    process.env.MODEL_MEDIUM_NAME =
+      "openai/gpt-5.5?reasoning.effort=medium&text.verbosity=low"
+    vi.resetModules()
+    const { getModel } = await import("./modelProvider.js")
+    getModel("medium")
+
+    const call = chatOpenAIConstructor.mock.calls[0]?.[0] as {
+      model?: string
+      modelKwargs?: { reasoning_effort?: string; verbosity?: string }
+    }
+    expect(call?.model).toBe("openai/gpt-5.5")
+    expect(call?.modelKwargs?.reasoning_effort).toBe("medium")
+    expect(call?.modelKwargs?.verbosity).toBe("low")
+  })
+
   it("getModel omits OpenRouter extras when MODEL_PROVIDER=openai-like", async () => {
     process.env.MODEL_PROVIDER = "openai-like"
     process.env.MODEL_PROVIDER_API_KEY = "k"
@@ -131,19 +204,262 @@ describe("modelProvider", () => {
     expect(sent.has("Authorization")).toBe(false)
   })
 
-  it("generateEmbedding sends Bearer for MODEL_PROVIDER=bedrock with API key", async () => {
+  it("getModel constructs native Bedrock chat without MODEL_PROVIDER_URL", async () => {
     process.env.MODEL_PROVIDER = "bedrock"
-    process.env.MODEL_PROVIDER_API_KEY = "bedrock-token"
-    process.env.MODEL_PROVIDER_URL =
-      "https://bedrock-mantle.us-east-1.api.aws/v1"
+    delete process.env.MODEL_PROVIDER_API_KEY
+    delete process.env.MODEL_PROVIDER_URL
+    process.env.MODEL_BEDROCK_AWS_REGION = "us-east-1"
+    process.env.MODEL_MEDIUM_NAME = "openai.gpt-5.5?reasoning.effort=medium"
+    vi.resetModules()
+    const { getModel } = await import("./modelProvider.js")
+    getModel("medium")
+
+    expect(chatOpenAIConstructor).not.toHaveBeenCalled()
+    expect(chatBedrockConverseConstructor).toHaveBeenCalled()
+    const call = chatBedrockConverseConstructor.mock.calls[0]?.[0] as {
+      model?: string
+      region?: string
+      additionalModelRequestFields?: { reasoning_effort?: string }
+    }
+    expect(call?.model).toBe("openai.gpt-5.5")
+    expect(call?.region).toBe("us-east-1")
+    expect(call?.additionalModelRequestFields?.reasoning_effort).toBe("medium")
+  })
+
+  it("generateEmbedding uses native Bedrock InvokeModel for bedrock", async () => {
+    process.env.MODEL_PROVIDER = "bedrock"
+    delete process.env.MODEL_PROVIDER_API_KEY
+    process.env.MODEL_BEDROCK_AWS_REGION = "us-west-2"
+    process.env.MODEL_EMBEDDING_NAME = "cohere.embed-v4:0"
+    mockBedrockSend.mockResolvedValue({ body: fakeCohereEmbedResponse() })
+    vi.resetModules()
+    const { generateEmbedding } = await import("./modelProvider.js")
+    const embedding = await generateEmbedding("hello")
+
+    expect(mockBedrockSend).toHaveBeenCalled()
+    const command = mockBedrockSend.mock.calls[0]?.[0] as {
+      input?: { modelId?: string; body?: string }
+    }
+    expect(command.input?.modelId).toBe("cohere.embed-v4:0")
+    const body = JSON.parse(String(command.input?.body)) as {
+      texts?: string[]
+      output_dimension?: number
+    }
+    expect(body.texts).toEqual(["hello"])
+    expect(body.output_dimension).toBe(1536)
+    expect(embedding).toHaveLength(2000)
+  })
+
+  it("generateEmbedding keeps inference-profile model id and cohere settings", async () => {
+    process.env.MODEL_PROVIDER = "bedrock"
+    delete process.env.MODEL_PROVIDER_API_KEY
+    process.env.MODEL_BEDROCK_AWS_REGION = "us-west-2"
+    process.env.MODEL_EMBEDDING_NAME = "global.cohere.embed-v4:0"
+    mockBedrockSend.mockResolvedValue({ body: fakeCohereEmbedResponse() })
+    vi.resetModules()
+    const { generateEmbedding } = await import("./modelProvider.js")
+    await generateEmbedding("hello")
+
+    const command = mockBedrockSend.mock.calls[0]?.[0] as {
+      input?: { modelId?: string; body?: string }
+    }
+    expect(command.input?.modelId).toBe("global.cohere.embed-v4:0")
+    const body = JSON.parse(String(command.input?.body)) as {
+      output_dimension?: number
+    }
+    expect(body.output_dimension).toBe(1536)
+  })
+
+  it("getModel passes reasoning.effort from slash default specs on OpenRouter", async () => {
+    process.env.MODEL_PROVIDER = "openrouter"
+    process.env.MODEL_PROVIDER_API_KEY = "k"
+    process.env.MODEL_PROVIDER_URL = "https://openrouter.ai/api/v1"
+    delete process.env.MODEL_FAST_NAME
+    delete process.env.MODEL_MEDIUM_NAME
+    delete process.env.MODEL_HIGH_NAME
+    vi.resetModules()
+    const { getModel } = await import("./modelProvider.js")
+    getModel("fast")
+
+    const call = chatOpenAIConstructor.mock.calls[0]?.[0] as {
+      model?: string
+      modelKwargs?: { reasoning?: { effort?: string } }
+    }
+    expect(call?.model).toBe("openai/gpt-5.6-terra")
+    expect(call?.modelKwargs?.reasoning).toEqual({ effort: "low" })
+  })
+
+  it("getModel merges reasoning.effort=none when reasoning false on Bedrock", async () => {
+    process.env.MODEL_PROVIDER = "bedrock"
+    process.env.MODEL_BEDROCK_AWS_REGION = "us-east-1"
+    process.env.MODEL_MEDIUM_NAME = "openai.gpt-5.5?reasoning.effort=medium"
+    vi.resetModules()
+    const { getModel } = await import("./modelProvider.js")
+    getModel("medium", { reasoning: false })
+
+    const call = chatBedrockConverseConstructor.mock.calls[0]?.[0] as {
+      additionalModelRequestFields?: { reasoning_effort?: string }
+    }
+    expect(call?.additionalModelRequestFields?.reasoning_effort).toBe("none")
+  })
+
+  it("getModel merges reasoning.effort=none when reasoning false on OpenRouter", async () => {
+    process.env.MODEL_PROVIDER = "openrouter"
+    process.env.MODEL_PROVIDER_API_KEY = "k"
+    process.env.MODEL_PROVIDER_URL = "https://openrouter.ai/api/v1"
+    process.env.MODEL_MEDIUM_NAME = "openai/gpt-5.5?reasoning.effort=medium"
+    vi.resetModules()
+    const { getModel } = await import("./modelProvider.js")
+    getModel("medium", { reasoning: false })
+
+    const call = chatOpenAIConstructor.mock.calls[0]?.[0] as {
+      modelKwargs?: { reasoning?: { effort?: string } }
+    }
+    expect(call?.modelKwargs?.reasoning).toEqual({ effort: "none" })
+  })
+
+  it("getModel merges reasoning.effort=none when reasoning false on openai-like", async () => {
+    process.env.MODEL_PROVIDER = "openai-like"
+    process.env.MODEL_PROVIDER_API_KEY = "k"
+    process.env.MODEL_PROVIDER_URL = "https://api.openai.com/v1"
+    process.env.MODEL_MEDIUM_NAME = "openai/gpt-5.5?reasoning.effort=medium"
+    vi.resetModules()
+    const { getModel } = await import("./modelProvider.js")
+    getModel("medium", { reasoning: false })
+
+    const call = chatOpenAIConstructor.mock.calls[0]?.[0] as {
+      modelKwargs?: { reasoning_effort?: string }
+    }
+    expect(call?.modelKwargs?.reasoning_effort).toBe("none")
+  })
+
+  it("getModel defaults to streaming true on Bedrock", async () => {
+    process.env.MODEL_PROVIDER = "bedrock"
+    delete process.env.MODEL_PROVIDER_API_KEY
+    delete process.env.MODEL_PROVIDER_URL
+    process.env.MODEL_BEDROCK_AWS_REGION = "us-east-1"
+    process.env.MODEL_MEDIUM_NAME = "moonshotai.kimi-k2.5"
+    vi.resetModules()
+    const { getModel } = await import("./modelProvider.js")
+    getModel("medium")
+
+    const call = chatBedrockConverseConstructor.mock.calls[0]?.[0] as {
+      streaming?: boolean
+    }
+    expect(call?.streaming).toBe(true)
+  })
+
+  it("getModel with streaming false forces non-streaming on Bedrock", async () => {
+    process.env.MODEL_PROVIDER = "bedrock"
+    delete process.env.MODEL_PROVIDER_API_KEY
+    delete process.env.MODEL_PROVIDER_URL
+    process.env.MODEL_BEDROCK_AWS_REGION = "us-east-1"
+    process.env.MODEL_MEDIUM_NAME = "moonshotai.kimi-k2.5"
+    vi.resetModules()
+    const { getModel } = await import("./modelProvider.js")
+    getModel("medium", { streaming: false, temperature: 0.1 })
+
+    const call = chatBedrockConverseConstructor.mock.calls[0]?.[0] as {
+      streaming?: boolean
+      temperature?: number
+    }
+    expect(call?.streaming).toBe(false)
+    expect(call?.temperature).toBe(0.1)
+  })
+
+  it("getModel with streaming false forces non-streaming on openai-like", async () => {
+    process.env.MODEL_PROVIDER = "openai-like"
+    process.env.MODEL_PROVIDER_API_KEY = "k"
+    process.env.MODEL_PROVIDER_URL = "https://api.openai.com/v1"
+    process.env.MODEL_MEDIUM_NAME = "openai/gpt-5.5"
+    vi.resetModules()
+    const { getModel } = await import("./modelProvider.js")
+    getModel("medium", { streaming: false })
+
+    const call = chatOpenAIConstructor.mock.calls[0]?.[0] as {
+      streaming?: boolean
+    }
+    expect(call?.streaming).toBe(false)
+  })
+
+  it("getModel with streaming false forces non-streaming on OpenRouter", async () => {
+    process.env.MODEL_PROVIDER = "openrouter"
+    process.env.MODEL_PROVIDER_API_KEY = "k"
+    process.env.MODEL_PROVIDER_URL = "https://openrouter.ai/api/v1"
+    process.env.MODEL_MEDIUM_NAME = "openai/gpt-5.5"
+    vi.resetModules()
+    const { getModel } = await import("./modelProvider.js")
+    getModel("medium", { streaming: false })
+
+    const call = chatOpenAIConstructor.mock.calls[0]?.[0] as {
+      streaming?: boolean
+    }
+    expect(call?.streaming).toBe(false)
+  })
+
+  it("generateEmbedding strips query params from embedding model name", async () => {
+    process.env.MODEL_PROVIDER = "openai-like"
+    process.env.MODEL_PROVIDER_API_KEY = "k"
+    process.env.MODEL_PROVIDER_URL = "https://api.openai.com/v1"
+    process.env.MODEL_EMBEDDING_NAME =
+      "openai/text-embedding-3-large?dimensions=2000"
     vi.resetModules()
     const { generateEmbedding } = await import("./modelProvider.js")
     await generateEmbedding("hello")
 
     const fetchMock = globalThis.fetch as unknown as Mock
     const [, init] = fetchMock.mock.calls[0] as [string, RequestInit]
-    expect((init.headers as Headers).get("Authorization")).toBe(
-      "Bearer bedrock-token",
+    const body = JSON.parse(String(init.body)) as { model?: string }
+    expect(body.model).toBe("openai/text-embedding-3-large")
+  })
+
+  it("generateEmbeddings posts input as a string array in one request", async () => {
+    process.env.MODEL_PROVIDER = "openai-like"
+    process.env.MODEL_PROVIDER_API_KEY = "k"
+    process.env.MODEL_PROVIDER_URL = "https://api.openai.com/v1"
+    const embA = new Array(2000).fill(0.1)
+    const embB = new Array(2000).fill(0.2)
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue(
+        new Response(
+          JSON.stringify({
+            data: [
+              { embedding: embA, index: 0 },
+              { embedding: embB, index: 1 },
+            ],
+          }),
+          { status: 200, headers: { "Content-Type": "application/json" } },
+        ),
+      ),
+    )
+    vi.resetModules()
+    const { generateEmbeddings } = await import("./modelProvider.js")
+    const out = await generateEmbeddings(["a", "b"])
+
+    const fetchMock = globalThis.fetch as unknown as Mock
+    expect(fetchMock).toHaveBeenCalledTimes(1)
+    const [, init] = fetchMock.mock.calls[0] as [string, RequestInit]
+    const body = JSON.parse(String(init.body)) as { input?: unknown }
+    expect(body.input).toEqual(["a", "b"])
+    expect(out).toHaveLength(2)
+    expect(out[0]?.[0]).toBe(0.1)
+    expect(out[1]?.[0]).toBe(0.2)
+    expect(withLangfuseGenerationMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        name: "modelProvider.generateEmbeddings",
+        model: "openai/text-embedding-3-large",
+        input: {
+          textCount: 2,
+          totalCharacters: 2,
+        },
+        metadata: expect.objectContaining({
+          provider: "openai-like",
+          embeddingModel: "openai/text-embedding-3-large",
+          dimensions: 2000,
+        }),
+      }),
+      expect.any(Function),
     )
   })
 })

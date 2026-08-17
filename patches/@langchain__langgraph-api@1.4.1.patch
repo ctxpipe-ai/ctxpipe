@@ -1,0 +1,63 @@
+diff --git a/package.json b/package.json
+index 7c82f1a0b7bd2a1d333ef8de5b54ed8e6c63eb2f..f1cbba1d5219e351d9bf7b67f91764a4a987be91 100644
+--- a/package.json
++++ b/package.json
+@@ -42,6 +42,58 @@
+       "types": "./dist/experimental/embed.d.mts",
+       "default": "./dist/experimental/embed.mjs"
+     },
++    "./api/assistants": {
++      "types": "./dist/api/assistants.d.mts",
++      "default": "./dist/api/assistants.mjs"
++    },
++    "./api/meta": {
++      "types": "./dist/api/meta.d.mts",
++      "default": "./dist/api/meta.mjs"
++    },
++    "./api/runs": {
++      "types": "./dist/api/runs.d.mts",
++      "default": "./dist/api/runs.mjs"
++    },
++    "./api/store": {
++      "types": "./dist/api/store.d.mts",
++      "default": "./dist/api/store.mjs"
++    },
++    "./api/threads": {
++      "types": "./dist/api/threads.d.mts",
++      "default": "./dist/api/threads.mjs"
++    },
++    "./graph/load": {
++      "types": "./dist/graph/load.d.mts",
++      "default": "./dist/graph/load.mjs"
++    },
++    "./http/middleware": {
++      "types": "./dist/http/middleware.d.mts",
++      "default": "./dist/http/middleware.mjs"
++    },
++    "./queue": {
++      "types": "./dist/queue.d.mts",
++      "default": "./dist/queue.mjs"
++    },
++    "./storage/checkpoint": {
++      "types": "./dist/storage/checkpoint.d.mts",
++      "default": "./dist/storage/checkpoint.mjs"
++    },
++    "./storage/context": {
++      "types": "./dist/storage/context.d.mts",
++      "default": "./dist/storage/context.mjs"
++    },
++    "./storage/ops": {
++      "types": "./dist/storage/ops.d.mts",
++      "default": "./dist/storage/ops.mjs"
++    },
++    "./storage/persist": {
++      "types": "./dist/storage/persist.d.mts",
++      "default": "./dist/storage/persist.mjs"
++    },
++    "./storage/store": {
++      "types": "./dist/storage/store.d.mts",
++      "default": "./dist/storage/store.mjs"
++    },
+     "./package.json": "./package.json"
+   },
+   "repository": {

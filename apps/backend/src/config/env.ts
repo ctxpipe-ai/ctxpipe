@@ -26,6 +26,15 @@ const envSchema = z.object({
   MICROSOFT_CLIENT_SECRET: z.string().min(1).optional(),
   ATLASSIAN_CLIENT_ID: z.string().min(1).optional(),
   ATLASSIAN_CLIENT_SECRET: z.string().min(1).optional(),
+  LINEAR_CLIENT_ID: z.string().min(1).optional(),
+  LINEAR_CLIENT_SECRET: z.string().min(1).optional(),
+  LINEAR_REDIRECT_URI: z.string().url().optional(),
+  LINEAR_WEBHOOK_SECRET: z.string().min(1).optional(),
+  NOTION_CLIENT_ID: z.string().min(1).optional(),
+  NOTION_CLIENT_SECRET: z.string().min(1).optional(),
+  NOTION_REDIRECT_URI: z.string().url().optional(),
+  /** HMAC signing secret for the deployment's single Notion webhook subscription (Notion "verification token"). Set from the Notion developer UI after the first delivery. */
+  NOTION_WEBHOOK_SECRET: z.string().min(1).optional(),
   /** Optional fallback when a forge `connections.config` row has no `confluenceForgeInstallUrl` (capabilities / Install step). */
   CONFLUENCE_FORGE_INSTALL_URL: z.string().url().optional(),
 
@@ -56,8 +65,6 @@ const envSchema = z.object({
   MODEL_FAST_NAME: z.string().optional(),
   MODEL_MEDIUM_NAME: z.string().optional(),
   MODEL_HIGH_NAME: z.string().optional(),
-  MODEL_EMBEDDING_PROVIDER_URL: z.string().url().optional(),
-  MODEL_EMBEDDING_PROVIDER_API_KEY: z.string().optional(),
   MODEL_EMBEDDING_NAME: z.string().optional(),
   /** When unset, Bedrock IAM SigV4 resolves region from MODEL_PROVIDER_URL, AWS_REGION, or AWS_DEFAULT_REGION */
   MODEL_BEDROCK_AWS_REGION: z.string().optional(),

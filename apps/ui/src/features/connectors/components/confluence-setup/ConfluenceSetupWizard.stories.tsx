@@ -171,10 +171,18 @@ const searchPayload = {
     },
   ],
   repositorySelection: "selected",
+  manageUrl: "https://github.com/organizations/acme/settings/installations/123",
   hasMore: false,
 }
 
 const syncTargetHandlers = [
+  http.get(
+    ({ request }) =>
+      new URL(request.url).pathname.endsWith(
+        "/connectors/suggested-sync-target",
+      ),
+    () => HttpResponse.json({ target: null }),
+  ),
   http.get(
     ({ request }) =>
       new URL(request.url).pathname === `/${orgSlug}/api/v1/repositories`,
@@ -224,6 +232,9 @@ const s0: AtlassianConnectorStatus = {
   isGithubLinked: false,
   selectedSpaceCount: 0,
   syncTargetConfigured: false,
+  setupPhase: "draft",
+  pendingConfigPullUrl: null,
+  pendingConfigPrCreating: false,
   syncTarget: null,
   selectedSpaces: [],
 }
@@ -259,6 +270,9 @@ const sComplete: AtlassianConnectorStatus = {
   selectedSpaceCount: 1,
   selectedSpaces: [{ spaceKey: "DOC", spaceName: "Docs" }],
   syncTargetConfigured: true,
+  setupPhase: "live",
+  pendingConfigPullUrl: null,
+  pendingConfigPrCreating: false,
   syncTarget: {
     repositoryId: "r1",
     repositoryName: "acme/wiki",

@@ -23,28 +23,94 @@ export class SecretsConstruct extends Construct {
       },
     });
 
-    const databaseUrl = cdk.Fn.join("", [
-      "postgresql://ctxpipe:",
-      props.dataPlane.dbCredentialsSecret.secretValueFromJson("password").toString(),
-      "@",
-      props.dataPlane.dbCluster.clusterEndpoint.hostname,
-      ":",
-      cdk.Token.asString(props.dataPlane.dbCluster.clusterEndpoint.port),
-      "/",
-      props.databaseName,
-    ]);
-
     const databaseUrlSecret = new secretsmanager.Secret(this, "DatabaseUrlSecret", {
-      secretObjectValue: {
-        DATABASE_URL: cdk.SecretValue.unsafePlainText(databaseUrl),
-      },
+      description: "PostgreSQL connection URL for ctxpipe services (populated at deploy time)",
     });
 
-    const modelProviderSecret = new secretsmanager.Secret(this, "ModelProviderSecret", {
-      secretObjectValue: {
-        API_KEY: props.modelProviderApiKey,
+    const databaseUrlWriterFunction = new lambda.Function(this, "DatabaseUrlWriterFunction", {
+      runtime: lambda.Runtime.NODEJS_20_X,
+      handler: "index.handler",
+      timeout: cdk.Duration.seconds(30),
+      code: lambda.Code.fromInline(`
+          const {
+            SecretsManagerClient,
+            GetSecretValueCommand,
+            PutSecretValueCommand,
+          } = require("@aws-sdk/client-secrets-manager");
+
+          exports.handler = async (event) => {
+            if (event.RequestType === "Delete") {
+              return {
+                PhysicalResourceId: event.PhysicalResourceId || "database-url-writer",
+              };
+            }
+
+            const properties = event.ResourceProperties;
+            const client = new SecretsManagerClient({});
+
+            const credentialsResponse = await client.send(
+              new GetSecretValueCommand({
+                SecretId: properties.DbCredentialsSecretArn,
+              }),
+            );
+            const credentials = JSON.parse(credentialsResponse.SecretString || "{}");
+            const password = credentials.password;
+            if (!password) {
+              throw new Error("Database credentials secret missing password");
+            }
+
+            const databaseUrl =
+              "postgresql://ctxpipe:" +
+              password +
+              "@" +
+              properties.DbHost +
+              ":" +
+              properties.DbPort +
+              "/" +
+              properties.DatabaseName;
+
+            await client.send(
+              new PutSecretValueCommand({
+                SecretId: properties.DatabaseUrlSecretArn,
+                SecretString: JSON.stringify({ DATABASE_URL: databaseUrl }),
+              }),
+            );
+
+            return {
+              PhysicalResourceId: "database-url-writer",
+              Data: { Written: "true" },
+            };
+          };
+        `),
+    });
+
+    props.dataPlane.dbCredentialsSecret.grantRead(databaseUrlWriterFunction);
+    databaseUrlSecret.grantWrite(databaseUrlWriterFunction);
+
+    const databaseUrlWriterProvider = new cr.Provider(this, "DatabaseUrlWriterProvider", {
+      onEventHandler: databaseUrlWriterFunction,
+    });
+
+    const databaseUrlWriter = new cdk.CustomResource(this, "DatabaseUrlWriter", {
+      serviceToken: databaseUrlWriterProvider.serviceToken,
+      properties: {
+        DbCredentialsSecretArn: props.dataPlane.dbCredentialsSecret.secretArn,
+        DatabaseUrlSecretArn: databaseUrlSecret.secretArn,
+        DbHost: props.dataPlane.dbCluster.clusterEndpoint.hostname,
+        DbPort: cdk.Token.asString(props.dataPlane.dbCluster.clusterEndpoint.port),
+        DatabaseName: props.databaseName,
       },
     });
+    databaseUrlWriter.node.addDependency(props.dataPlane.dbCredentialsSecret);
+    databaseUrlWriter.node.addDependency(props.dataPlane.dbCluster);
+
+    const modelProviderSecret = props.modelProviderApiKey
+      ? new secretsmanager.Secret(this, "ModelProviderSecret", {
+          secretObjectValue: {
+            API_KEY: props.modelProviderApiKey,
+          },
+        })
+      : undefined;
 
     const sesIdentity = new ses.EmailIdentity(this, "SesIdentity", {
       // The hosted zone passed to CtxPipe is expected to be public.
@@ -158,6 +224,35 @@ export class SecretsConstruct extends Construct {
                   ATLASSIAN_CLIENT_SECRET: props.connectorSecrets.atlassianClientSecret,
                 }
               : {}),
+            ...(props.connectorSecrets.linearClientId
+              ? { LINEAR_CLIENT_ID: props.connectorSecrets.linearClientId }
+              : {}),
+            ...(props.connectorSecrets.linearClientSecret
+              ? {
+                  LINEAR_CLIENT_SECRET:
+                    props.connectorSecrets.linearClientSecret,
+                }
+              : {}),
+            ...(props.connectorSecrets.linearRedirectUri
+              ? {
+                  LINEAR_REDIRECT_URI: props.connectorSecrets.linearRedirectUri,
+                }
+              : {}),
+            ...(props.connectorSecrets.linearWebhookSecret
+              ? {
+                  LINEAR_WEBHOOK_SECRET:
+                    props.connectorSecrets.linearWebhookSecret,
+                }
+              : {}),
+            ...(props.connectorSecrets.notionClientId
+              ? { NOTION_CLIENT_ID: props.connectorSecrets.notionClientId }
+              : {}),
+            ...(props.connectorSecrets.notionClientSecret
+              ? { NOTION_CLIENT_SECRET: props.connectorSecrets.notionClientSecret }
+              : {}),
+            ...(props.connectorSecrets.notionWebhookSecret
+              ? { NOTION_WEBHOOK_SECRET: props.connectorSecrets.notionWebhookSecret }
+              : {}),
           },
         })
       : undefined;
@@ -206,11 +301,54 @@ export class SecretsConstruct extends Construct {
           "ATLASSIAN_CLIENT_SECRET",
         );
       }
+      if (props.connectorSecrets?.linearClientId) {
+        connectorEnv.LINEAR_CLIENT_ID = ecs.Secret.fromSecretsManager(
+          connectorSecret,
+          "LINEAR_CLIENT_ID",
+        );
+      }
+      if (props.connectorSecrets?.linearClientSecret) {
+        connectorEnv.LINEAR_CLIENT_SECRET = ecs.Secret.fromSecretsManager(
+          connectorSecret,
+          "LINEAR_CLIENT_SECRET",
+        );
+      }
+      if (props.connectorSecrets?.linearRedirectUri) {
+        connectorEnv.LINEAR_REDIRECT_URI = ecs.Secret.fromSecretsManager(
+          connectorSecret,
+          "LINEAR_REDIRECT_URI",
+        );
+      }
+      if (props.connectorSecrets?.linearWebhookSecret) {
+        connectorEnv.LINEAR_WEBHOOK_SECRET = ecs.Secret.fromSecretsManager(
+          connectorSecret,
+          "LINEAR_WEBHOOK_SECRET",
+        );
+      }
+      if (props.connectorSecrets?.notionClientId) {
+        connectorEnv.NOTION_CLIENT_ID = ecs.Secret.fromSecretsManager(
+          connectorSecret,
+          "NOTION_CLIENT_ID",
+        );
+      }
+      if (props.connectorSecrets?.notionClientSecret) {
+        connectorEnv.NOTION_CLIENT_SECRET = ecs.Secret.fromSecretsManager(
+          connectorSecret,
+          "NOTION_CLIENT_SECRET",
+        );
+      }
+      if (props.connectorSecrets?.notionWebhookSecret) {
+        connectorEnv.NOTION_WEBHOOK_SECRET = ecs.Secret.fromSecretsManager(
+          connectorSecret,
+          "NOTION_WEBHOOK_SECRET",
+        );
+      }
     }
 
     this.resources = {
       authSecret,
       databaseUrlSecret,
+      databaseUrlWriter,
       modelProviderSecret,
       smtpSecret,
       connectorSecret,

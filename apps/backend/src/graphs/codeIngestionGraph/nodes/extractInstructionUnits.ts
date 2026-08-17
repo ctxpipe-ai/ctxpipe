@@ -6,13 +6,16 @@
  */
 import { createHash } from "node:crypto"
 import { HumanMessage, SystemMessage } from "@langchain/core/messages"
+import { mergeConfigs } from "@langchain/core/runnables"
+import { getConfig } from "@langchain/langgraph"
 import slugify from "@sindresorhus/slugify"
 import { z } from "zod/v3"
 import { requireCurrentOrgId } from "../../../auth/context.js"
 import {
   fetchFiles,
-  listFilesRecursive,
+  globFiles,
 } from "../../../domain/codeIngestion/codesearchClient.js"
+import { isUnderDependencyVendorPath } from "../../../domain/codeIngestion/dependencyVendorPaths.js"
 import { getLogger } from "../../../observability/logger.js"
 import { getModel } from "../../../retrieval/services/modelProvider.js"
 import type {
@@ -21,6 +24,7 @@ import type {
   ExtractedObject,
 } from "../schemas.js"
 import { resolveSubmissionRoot } from "./extractionSubmissionRoot.js"
+import { setIngestionIndexingStep } from "../setIngestionIndexingStep.js"
 import {
   filterPathsByPartialScan,
   partialScanPathsForExtractors,
@@ -51,13 +55,16 @@ const ApplicabilityEnvelopeSchema = z.object({
   environment: ApplicabilityEnvironmentSchema,
 })
 
+/** Cap excerpt length so compound bullets are not re-emitted as multi-KB duplicates. */
+export const SOURCE_EXCERPT_MAX_LENGTH = 800
+
 /** LLM output per file (one invocation per file, batched units). */
-const LlmUnitsResponseSchema = z.object({
+export const LlmUnitsResponseSchema = z.object({
   units: z.array(
     z.object({
       name: z.string().min(1).max(200),
       summary: z.string().min(1).max(500),
-      source_excerpt: z.string().min(1),
+      source_excerpt: z.string().min(1).max(SOURCE_EXCERPT_MAX_LENGTH),
       modality: ModalitySchema,
       intent: z.string().min(1).max(400),
       applicability: ApplicabilityEnvelopeSchema,
@@ -92,6 +99,24 @@ function sha256Hex(s: string): string {
   return createHash("sha256").update(s, "utf8").digest("hex").slice(0, 32)
 }
 
+/**
+ * Keep first unit per identical `source_excerpt` (same hash as InstructionUnit
+ * content_hash / dedup key). Later duplicates from clause-splitting are dropped.
+ */
+export function dedupeUnitsBySourceExcerpt<
+  T extends { source_excerpt: string },
+>(units: T[]): T[] {
+  const seen = new Set<string>()
+  const out: T[] = []
+  for (const u of units) {
+    const key = sha256Hex(u.source_excerpt)
+    if (seen.has(key)) continue
+    seen.add(key)
+    out.push(u)
+  }
+  return out
+}
+
 /** Cursor / agent rules: `.md` and `.mdc` (e.g. project-memory.mdc). */
 function isAgentRulesPath(p: string): boolean {
   const underCursorRules =
@@ -102,7 +127,7 @@ function isAgentRulesPath(p: string): boolean {
   return p.endsWith(".md") || p.endsWith(".mdc")
 }
 
-/** Procedural skill docs (e.g. ConKeeper / Cursor skills folders). */
+/** Procedural skill docs (e.g. Cursor skills folders). */
 function isSkillsFolderSkillFile(p: string): boolean {
   if (!p.includes("/skills/")) return false
   const base = p.split("/").pop() ?? ""
@@ -391,7 +416,11 @@ async function extractUnitsFromFileContent(input: {
     return { units: [] }
   }
 
-  const model = getModel("medium", { temperature: 0.1 })
+  const model = getModel("medium", {
+    streaming: false,
+    temperature: 0.1,
+    reasoning: false,
+  })
   const structured = model.withStructuredOutput(LlmUnitsResponseSchema, {
     name: "instruction_units",
   })
@@ -403,24 +432,33 @@ async function extractUnitsFromFileContent(input: {
 
   const res = await structured.invoke(
     [
-      new SystemMessage(`You extract atomic procedural instruction-units from repository documentation and agent rule files.
+      new SystemMessage(`You extract procedural instruction-units from repository documentation and agent rule files.
 
 Rules:
-- Each unit is one clear imperative or normative rule (do not merge distinct tools, e.g. keep pnpm vs bun separate).
-- modality: required | recommended | forbidden | avoid | optional — normative strength only.
+- Cover the entire provided file content (do not stop early or return only a top-N subset).
+- Each unit is one list item or contiguous imperative/normative span — not one clause inside a compound bullet.
+- Do not split a shared supporting span into per-clause units. Anti-pattern: "must not: A; B; C" → one unit (not three), when they share one source_excerpt.
+- Still split when distinct tools or workflows need separate retrieval (e.g. keep pnpm vs bun separate).
+- modality: normative strength only (see schema).
 - intent: short purpose (what this accomplishes).
 - applicability.tags: freeform hints (stack, area, tool) — payload only, not graph edges.
-- applicability.scope (optional): repository | package | path | global — where the rule applies; omit if unclear.
-- applicability.environment (optional): ci | local | development | staging | production | test — runtime or pipeline context; omit if unclear.
+- applicability has two fields — do not mix them (allowed values are in the output schema):
+  - scope: structural boundary — which part of the codebase the rule applies to (whole repo, a package, a specific path, or org-wide). Not runtime or machine context.
+  - environment: runtime or pipeline context — where/when the rule applies (CI, a developer machine, staging, production, etc.).
+  - scope is never "local", "ci", "production", or other environment values — those belong in environment.
+  - When unclear, set scope or environment to null rather than guessing.
+  - Examples:
+    - "Run tests in CI before merge" → environment: ci; scope: null or repository.
+    - "Set git config on your machine for sign-offs" → environment: local; scope: null or repository (not scope: local).
+    - "Use pnpm only in apps/ui" → scope: path (or package); environment: null unless the doc names a runtime.
 - durable: false for ephemeral/temporary/migration-only notes; true for stable norms.
-- source_excerpt: copy the exact supporting lines from the file (verbatim).
+- source_excerpt: copy the exact supporting lines from the file (verbatim); keep short (the supporting span only, not surrounding sections).
 - name + summary: may lightly clarify grammar; do not remove tool-specific tokens.`),
       new HumanMessage(
         `File path: ${input.path}\nrepositoryId: ${input.repositoryId}\ntargetHash: ${input.targetHash}\n\n---\n${truncated}`,
       ),
     ],
-    {
-    },
+    mergeConfigs(getConfig()),
   )
 
   return res
@@ -432,6 +470,7 @@ Rules:
 export async function extractInstructionUnits(
   state: CodeIngestionState,
 ): Promise<Partial<CodeIngestionState>> {
+  await setIngestionIndexingStep(state, "extract_instruction_units")
   requireCurrentOrgId()
   const { repositoryId, orgId, roots = ["./"], targetHash } = state
 
@@ -441,8 +480,16 @@ export async function extractInstructionUnits(
 
   const scanPaths = partialScanPathsForExtractors(state)
 
-  const allPaths = await listFilesRecursive(repositoryId, orgId)
-  const instructionPaths = allPaths.filter(isInstructionCandidatePath)
+  // Discover broadly so docs that reference other md/mdc are not missed;
+  // tier sort still prioritizes AGENTS/CLAUDE/rules/skills/README.
+  const globbed = await globFiles(repositoryId, orgId, {
+    pattern: "**/*.{md,mdc}",
+    onlyFiles: true,
+  })
+  const instructionPaths = globbed.entries
+    .filter((e) => e.type === "file")
+    .map((e) => e.path)
+    .filter((p) => !isUnderDependencyVendorPath(p))
   const scopedPaths =
     state.ingestMode === "partial" && scanPaths.length > 0
       ? filterPathsByPartialScan(instructionPaths, scanPaths)
@@ -478,6 +525,9 @@ export async function extractInstructionUnits(
   let filesSkippedRoot = 0
   let filesSkippedLlmError = 0
   let filesProcessed = 0
+  let unitsReturned = 0
+  let unitsAfterExcerptDedupe = 0
+  let unitsPromoted = 0
 
   for (const path of candidates) {
     const content = contents[path]
@@ -506,8 +556,12 @@ export async function extractInstructionUnits(
     }
     filesProcessed++
 
+    unitsReturned += parsed.units.length
+    const units = dedupeUnitsBySourceExcerpt(parsed.units)
+    unitsAfterExcerptDedupe += units.length
+
     const tier = instructionSourceTier(path)
-    for (const u of parsed.units) {
+    for (const u of units) {
       if (!u.durable) continue
       if (looksEphemeral(u.source_excerpt) || looksEphemeral(u.summary))
         continue
@@ -551,6 +605,7 @@ export async function extractInstructionUnits(
           target_hash: targetHash,
         },
       })
+      unitsPromoted++
 
       extractedClaims.push({
         subjectRef: svcKey,
@@ -589,6 +644,9 @@ export async function extractInstructionUnits(
     filesSkippedEmpty,
     filesSkippedRoot,
     filesSkippedLlmError,
+    unitsReturned,
+    unitsAfterExcerptDedupe,
+    unitsPromoted,
     instructionUnitsExtracted,
     skillsDerived,
   })

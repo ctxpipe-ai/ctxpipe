@@ -19,9 +19,21 @@ When `roots` includes both `./` and package paths (e.g. `apps/web`), post-proces
 | identifyPatterns | Pattern | IMPLEMENTS_PATTERN | pat:${repositoryId}:${root}:${patternName} |
 | extractInstructionUnits | InstructionUnit, Skill | HAS_INSTRUCTION, MEMBER_OF_PRIMARY | inu:${repositoryId}:${root}:${hash}, skl:${repositoryId}:${hash} |
 
+## identifyRoots
+
+Root detection is deterministic-first:
+
+- Parse root workspace manifests via codesearch (`pnpm-workspace`, npm/yarn `workspaces`, `lerna.json`, `rush.json`, `deno.json`, Cargo workspace, `go.work`, `pyproject.toml` uv workspace, Maven/Gradle modules, `workspace.json`).
+- Resolve workspace globs against discovered package markers (`package.json`, `Cargo.toml`, `pyproject.toml`, `go.mod`, etc.).
+- Return confident roots without LLM when manifests resolve cleanly.
+- If deterministic detection is ambiguous, run a minimal fallback agent with only `glob_files`, `get_file`, and `submit_roots` (`recursionLimit: 100`).
+- On fallback-agent failure/missing submit: use deterministic `partialRoots` first, then `["./"]` only when no partial roots exist.
+
 ## extractInstructionUnits
 
 Extracts **InstructionUnit** objects from normative docs and agent rule files (`AGENTS.md`, `CLAUDE.md`, `.cursor/rules/**/*.md`, `CONTRIBUTING.md`, `README.md`), then derives **repo-local Skill** objects when ≥2 units share intent + compatible applicability envelope (payload). Uses structured LLM output per file (skipped when `MODEL_PROVIDER_API_KEY` is unset). Build manifests (e.g. `package.json` scripts) are **not** ingested as instruction units here—agents can read those files directly.
+
+- **Dependency/vendor paths:** Instruction candidates under known dependency directory segments are excluded (convention-aware: e.g. `vendor/` but not `internal/vendor/`, root-only `external/`); see [`dependencyVendorPaths.ts`](../../../domain/codeIngestion/dependencyVendorPaths.ts).
 
 - **Evidence (MVP):** The product does not persist evidence rows without a promoted `InstructionUnit`—ingestion either promotes to a unit or skips; there is no separate persisted “evidence-only” store for this slice.
 
@@ -53,7 +65,7 @@ The ontology allows **Repository** or **Service** as `HAS_INSTRUCTION` subjects;
 
 Lightweight checks—no benchmark harness. Sample a few repos/commits and inspect objects/claims plus logs (`extractInstructionUnits summary`).
 
-- **Precision** — Units match real imperative norms; `source_excerpt` is verbatim; distinct tools/workflows are not merged into one unit.
+- **Precision** — Units match real imperative norms; `source_excerpt` is verbatim and spans one list item / contiguous normative span (compound clauses in one bullet stay one unit); distinct tools/workflows are not merged into one unit.
 - **Modality** — `modality` matches normative strength in the doc (e.g. required vs optional); no systematic mis-labeling on a spot sample.
 - **Durability / false positives** — Ephemeral or migration-only lines are dropped (`durable: false`, `looksEphemeral`, or filtered); stable rules are kept.
 - **Skill coherence** — Where ≥2 units form a Skill, shared intent and applicability tags look right; `MEMBER_OF_PRIMARY` links are sensible.
@@ -61,7 +73,7 @@ Lightweight checks—no benchmark harness. Sample a few repos/commits and inspec
 
 ## identifyAPIClients
 
-Extracts CONSUMES_API claims (Service → API or Service → Operation) from repository code. Uses an LLM agent with `list_files`, `search`, `get_file`, and `submit_api_clients` tools to detect API clients:
+Extracts CONSUMES_API claims (Service → API or Service → Operation) from repository code. Uses an LLM agent with `glob_files`, `search`, `get_file`, and `submit_api_clients` tools to detect API clients:
 
 - **HTTP clients** – axios, fetch, ky, got, httpx, requests
 - **SDKs** – @stripe/stripe-js, twilio, sendgrid, @supabase/supabase-js (client)
@@ -75,7 +87,7 @@ Runs in parallel with identifyAPIs; internal refs match api: keys from identifyA
 
 ## identifyServiceDependencies
 
-Extracts DEPENDS_ON claims (Service → Service) for cross-service dependencies within a monorepo. Uses an LLM agent with `list_files`, `search`, `get_file`, and `submit_service_dependencies` tools. Produces no new objects — Service nodes come from extractKind.
+Extracts DEPENDS_ON claims (Service → Service) for cross-service dependencies within a monorepo. Uses an LLM agent with `glob_files`, `search`, `get_file`, and `submit_service_dependencies` tools. Produces no new objects — Service nodes come from extractKind.
 
 - **Internal package refs** – "@repo/api": "workspace:*", from "@repo/shared"
 - **HTTP calls to internal URLs** – localhost, internal hostnames, service discovery
@@ -85,7 +97,7 @@ Claim path: subjectRef = `svc:${repositoryId}:${consumerRoot}`, objectRef = `svc
 
 ## identifyLibraries
 
-Extracts Library objects and USES_LIBRARY claims (Service → Library) from repository code. Uses an LLM agent with `list_files`, `search`, `get_file`, and `submit_libraries` tools to detect architectural dependencies:
+Extracts Library objects and USES_LIBRARY claims (Service → Library) from repository code. Uses an LLM agent with `glob_files`, `search`, `get_file`, and `submit_libraries` tools to detect architectural dependencies:
 
 - **ORM** – Prisma, Drizzle, TypeORM, Sequelize, Mongoose, SQLAlchemy, GORM
 - **HTTP** – Express, Hono, Fastify, Next.js, FastAPI, Flask, Django
@@ -98,7 +110,7 @@ Claim path: subjectRef = `svc:${repositoryId}:${root}`, objectRef = lib key, pre
 
 ## identifyStreams
 
-Extracts Stream objects and PRODUCES_TO / CONSUMES_FROM claims (Service → Stream) from repository code. Uses an LLM agent with `list_files`, `search`, `get_file`, and `submit_streams` tools to detect message/event streams:
+Extracts Stream objects and PRODUCES_TO / CONSUMES_FROM claims (Service → Stream) from repository code. Uses an LLM agent with `glob_files`, `search`, `get_file`, and `submit_streams` tools to detect message/event streams:
 
 - **Kafka** – kafka-python, confluent-kafka, @nestjs/microservices, sarama, kafkajs
 - **RabbitMQ** – amqp, pika, amqplib
@@ -112,7 +124,7 @@ Claim path: subjectRef = `svc:${repositoryId}:${root}`, objectRef = stream key, 
 
 ## identifyInfrastructure
 
-Extracts Infrastructure objects and RUNS_ON claims (Service → Infrastructure) from repository code. Uses an LLM agent with `list_files`, `search`, `get_file`, and `submit_infrastructure` tools to detect deployment targets:
+Extracts Infrastructure objects and RUNS_ON claims (Service → Infrastructure) from repository code. Uses an LLM agent with `glob_files`, `search`, `get_file`, and `submit_infrastructure` tools to detect deployment targets:
 
 - **Docker** – Dockerfile, .dockerignore
 - **Docker Compose** – docker-compose*.yml
@@ -126,7 +138,7 @@ Claim path: subjectRef = `svc:${repositoryId}:${root}`, objectRef = inf key, pre
 
 ## identifyPatterns
 
-Extracts Pattern objects and IMPLEMENTS_PATTERN claims (Service → Pattern) from repository code. Uses an LLM agent with `list_files`, `search`, `get_file`, and `submit_patterns` tools to detect architectural patterns:
+Extracts Pattern objects and IMPLEMENTS_PATTERN claims (Service → Pattern) from repository code. Uses an LLM agent with `glob_files`, `search`, `get_file`, and `submit_patterns` tools to detect architectural patterns:
 
 - **Code structure** – separate read/write models (CQRS), event handlers (Event Sourcing), saga orchestrators, repository interfaces
 - **Docs** – ADR, README, architecture diagrams

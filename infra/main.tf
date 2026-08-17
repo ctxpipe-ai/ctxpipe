@@ -37,6 +37,13 @@ module "ctxpipe" {
   github_webhook_secret   = var.github_webhook_secret
   atlassian_client_id     = var.atlassian_client_id
   atlassian_client_secret = var.atlassian_client_secret
+  linear_client_id        = var.linear_client_id
+  linear_client_secret    = var.linear_client_secret
+  linear_redirect_uri     = var.linear_redirect_uri
+  linear_webhook_secret   = var.linear_webhook_secret
+  notion_client_id        = var.notion_client_id
+  notion_client_secret    = var.notion_client_secret
+  notion_webhook_secret   = var.notion_webhook_secret
   falkordb_password       = var.falkordb_password
   better_stack_token      = var.better_stack_token
   langfuse_auth_string    = var.langfuse_auth_string
@@ -68,4 +75,3 @@ module "ctxpipe" {
     }
   }
 }
-

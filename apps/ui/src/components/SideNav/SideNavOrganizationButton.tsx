@@ -1,9 +1,15 @@
-import { OrganizationSwitcher } from "@daveyplate/better-auth-ui"
 import { useRouter } from "@tanstack/react-router"
 import { useUserPreferences } from "@/lib/user-preferences"
+import { SideNavOrganizationSwitcher } from "./SideNavOrganizationSwitcher"
 
 type SideNavOrganizationButtonProps = {
   expanded: boolean
+}
+
+function orgSlugFromPathname(pathname: string): string | null {
+  const firstSegment = pathname.split("/").filter(Boolean)[0]
+  if (!firstSegment || firstSegment.startsWith(".")) return null
+  return firstSegment
 }
 
 export function SideNavOrganizationButton({
@@ -11,15 +17,15 @@ export function SideNavOrganizationButton({
 }: SideNavOrganizationButtonProps) {
   const router = useRouter()
   const [, setPreferences] = useUserPreferences()
+  const routeOrgSlug = orgSlugFromPathname(
+    router.state?.location.pathname ?? "",
+  )
 
   return (
-    <OrganizationSwitcher
-      hidePersonal
-      title={expanded ? "Organization switcher" : "Organization"}
-      side="right"
-      align="end"
+    <SideNavOrganizationSwitcher
+      expanded={expanded}
+      routeOrgSlug={routeOrgSlug}
       onSetActive={(org) => {
-        if (!org) return
         setPreferences((prev) => ({
           ...prev,
           selectedOrganizationSlug: org.slug,
@@ -29,17 +35,6 @@ export function SideNavOrganizationButton({
           params: { orgSlug: org.slug },
           replace: true,
         })
-      }}
-      size={expanded ? "default" : "icon"}
-      classNames={{
-        trigger: {
-          base: "flex w-full bg-transparent text-zinc-300 hover:bg-transparent hover:text-white hover:bg-teal-900/30 py-1.5 rounded-none",
-        },
-        content: {
-          base: "!rounded-none",
-          menuItem: "!rounded-none",
-          separator: "!rounded-none",
-        },
       }}
     />
   )

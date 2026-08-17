@@ -68,7 +68,7 @@ managed SaaS at [ctxpipe.ai](https://ctxpipe.ai/early-access).
 These workflows are available through the `ctxpipe` CLI:
 
 - MCP setup from the terminal. Install ctx\| MCP config for Cursor, Claude Code, Codex, OpenCode, and VS Code with `npx ctxpipe init`; the interactive wizard can also add local memory.
-- Local memory. Add a `ctxpipe-memory` MCP server backed by `.ai/memory` from the `npx ctxpipe init` wizard, or use `npx ctxpipe memory init` for memory-only setup; local save/search works without a ctx\| account, and sign-in enables hosted summaries.
+- Local memory. Seed Markdown `.ai/memory` (indexes + capture hooks) via `npx ctxpipe memory init` or `npx ctxpipe init --memory`. Hosts append candidates under gitignored `events/`; agents promote with capture skills.
 
 ## Coming soon
 

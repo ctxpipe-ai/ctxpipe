@@ -6,7 +6,11 @@ node_modules
 .env
 .pnpm-store
 AGENTS.md
+!AGENTS.md
 !apps/ui/AGENTS.md
+!apps/backend/AGENTS.md
+!apps/codesearch/AGENTS.md
+!apps/docs/AGENTS.md
 **/tsconfig.tsbuildinfo
 apps/codesearch/.env.local
 apps/codesearch/.data/
@@ -21,3 +25,7 @@ dist/
 examples/**/cdk.out
 examples/**/.cdk.staging
 packages/aws-cdk/src/pinned-service-image-tag.ts
+
+# ctxpipe local memory candidate inbox (ADR-024)
+.ai/memory/events/**
+!.ai/memory/events/.gitkeep

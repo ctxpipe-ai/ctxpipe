@@ -1,3 +1,5 @@
+import { log } from "../observability/logger.js"
+
 /** Thrown to trigger a retry inside {@link withTransientHttpRetry}. */
 export class TransientHttpError extends Error {
   override readonly name = "TransientHttpError"
@@ -15,6 +17,16 @@ export type WithTransientHttpRetryOptions = {
   /** Retries after the first attempt (default 2 → 3 attempts total). */
   retries?: number
   baseDelayMs?: number
+  /** Cap on exponential backoff delay (default unbounded aside from jitter). */
+  maxDelayMs?: number
+}
+
+function errnoCode(error: unknown): string | undefined {
+  if (!error || typeof error !== "object") return undefined
+  const code = (error as NodeJS.ErrnoException).code
+  if (typeof code === "string") return code
+  if ("cause" in error) return errnoCode((error as { cause: unknown }).cause)
+  return undefined
 }
 
 function isRetryableFetchFailure(error: unknown): boolean {
@@ -27,19 +39,35 @@ function isRetryableFetchFailure(error: unknown): boolean {
     const name = (error as { name?: string }).name
     if (name === "AbortError") return false
   }
-  const code = (error as NodeJS.ErrnoException)?.code
+  const code = errnoCode(error)
   return (
     code === "ECONNRESET" ||
     code === "ETIMEDOUT" ||
     code === "EPIPE" ||
-    code === "ENOTFOUND"
+    code === "ENOTFOUND" ||
+    code === "ECONNREFUSED"
   )
 }
 
+function isTransientGatewayResponse(value: unknown): value is Response {
+  return (
+    typeof Response !== "undefined" &&
+    value instanceof Response &&
+    (value.status === 502 || value.status === 503 || value.status === 504)
+  )
+}
+
+function errorMessage(error: unknown): string {
+  if (error instanceof Error) return error.message
+  return String(error)
+}
+
 /**
- * Retries `run` on transient HTTP upstream failures (502/503/504 surfaced as
- * {@link TransientHttpError}) and common `fetch` network errors, with exponential
- * backoff and small jitter.
+ * Retries `run` on transient HTTP upstream failures — {@link TransientHttpError},
+ * Response status 502/503/504 when `run` returns a {@link Response}, and common
+ * `fetch` network errors — with exponential backoff and small jitter. Logs info
+ * on each retry; does not log errors for intermediate failures (callers may log
+ * after the final throw).
  */
 export async function withTransientHttpRetry<T>(
   run: () => Promise<T>,
@@ -47,19 +75,36 @@ export async function withTransientHttpRetry<T>(
 ): Promise<T> {
   const retries = opts?.retries ?? 2
   const baseDelayMs = opts?.baseDelayMs ?? 200
+  const maxDelayMs = opts?.maxDelayMs
   const maxAttempts = retries + 1
   let last: unknown
 
   for (let attempt = 0; attempt < maxAttempts; attempt += 1) {
     try {
-      return await run()
+      const result = await run()
+      if (isTransientGatewayResponse(result)) {
+        await result.text().catch(() => "")
+        throw new TransientHttpError(
+          `transient HTTP ${result.status}`,
+          result.status,
+        )
+      }
+      return result
     } catch (e) {
       last = e
       if (isRetryableFetchFailure(e) && attempt < maxAttempts - 1) {
         const jitter = Math.floor(Math.random() * 80)
-        await new Promise((r) =>
-          setTimeout(r, baseDelayMs * 2 ** attempt + jitter),
-        )
+        const rawDelay = baseDelayMs * 2 ** attempt + jitter
+        const delayMs =
+          maxDelayMs == null ? rawDelay : Math.min(maxDelayMs, rawDelay)
+        log.info({
+          step: "http.transient_retry",
+          attempt: attempt + 1,
+          maxAttempts,
+          delayMs,
+          message: errorMessage(e),
+        })
+        await new Promise((r) => setTimeout(r, delayMs))
         continue
       }
       throw e

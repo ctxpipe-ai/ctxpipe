@@ -1,3 +1,4 @@
+import { IconExternalLink } from "@tabler/icons-react"
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import { useEffect, useState } from "react"
 import { toast } from "sonner"
@@ -12,6 +13,19 @@ import {
   patchAtlassianConnectorConfig,
   searchGithubInstallationRepos,
 } from "../../../queries/atlassian-connector"
+import {
+  connectorSyncTargetKeys,
+  fetchSuggestedConnectorSyncTarget,
+} from "../../../queries/connector-sync-target"
+import {
+  fetchGithubInstallationSummary,
+  githubConnectorKeys,
+} from "../../../queries/github-connector"
+import {
+  CONNECTOR_CONTEXT_REPOSITORY_NAME,
+  ConnectorContextRepositoryGuidance,
+  getConnectorContextRepositoryCreateUrl,
+} from "../../ConnectorContextRepositoryGuidance"
 
 type GitHubRepoItem = {
   id: number
@@ -54,6 +68,11 @@ export function SelectSyncTargetStep({
     },
   })
 
+  const { data: githubInstallation } = useQuery({
+    queryKey: githubConnectorKeys.installation(orgSlug),
+    queryFn: () => fetchGithubInstallationSummary(orgSlug),
+  })
+
   const { data: config } = useQuery({
     queryKey: atlassianConnectorKeys.config(orgSlug, atlassianConnectionId),
     queryFn: () =>
@@ -62,28 +81,61 @@ export function SelectSyncTargetStep({
     throwOnError: false,
   })
 
-  useEffect(() => {
-    if (targetInitialized || !config?.syncTarget) return
-    const st = config.syncTarget
-    const fromOrg = orgRepos?.find((r) => r.id === st.repositoryId)
-    setSelectedRepo({
-      id: 0,
-      full_name: st.repositoryName,
-      html_url:
-        fromOrg?.gitUrl?.replace(/\.git$/, "") ??
-        `https://github.com/${st.repositoryName}`,
-      clone_url:
-        fromOrg?.gitUrl ?? `https://github.com/${st.repositoryName}.git`,
-      name:
-        fromOrg?.name ??
-        st.repositoryName.split("/").pop() ??
-        st.repositoryName,
-      default_branch: st.branch,
-    })
-    setTargetInitialized(true)
-  }, [config?.syncTarget, targetInitialized, orgRepos])
+  const suggestedTargetQuery = useQuery({
+    queryKey: connectorSyncTargetKeys.suggestion(orgSlug),
+    queryFn: () => fetchSuggestedConnectorSyncTarget(orgSlug),
+  })
 
-  const { data: repoSearchResults, isFetching: isSearchingRepos } = useQuery({
+  useEffect(() => {
+    if (
+      targetInitialized ||
+      config === undefined ||
+      suggestedTargetQuery.isPending
+    )
+      return
+    if (config?.syncTarget) {
+      const st = config.syncTarget
+      const fromOrg = orgRepos?.find((r) => r.id === st.repositoryId)
+      setSelectedRepo({
+        id: 0,
+        full_name: st.repositoryName,
+        html_url:
+          fromOrg?.gitUrl?.replace(/\.git$/, "") ??
+          `https://github.com/${st.repositoryName}`,
+        clone_url:
+          fromOrg?.gitUrl ?? `https://github.com/${st.repositoryName}.git`,
+        name:
+          fromOrg?.name ??
+          st.repositoryName.split("/").pop() ??
+          st.repositoryName,
+        default_branch: st.branch,
+      })
+    } else if (suggestedTargetQuery.data) {
+      const suggested = suggestedTargetQuery.data
+      setSelectedRepo({
+        id: 0,
+        full_name: suggested.repositoryName,
+        html_url: suggested.gitUrl.replace(/\.git$/, ""),
+        clone_url: suggested.gitUrl,
+        name:
+          suggested.repositoryName.split("/").pop() ?? suggested.repositoryName,
+        default_branch: suggested.branch,
+      })
+    }
+    setTargetInitialized(true)
+  }, [
+    config,
+    orgRepos,
+    suggestedTargetQuery.data,
+    suggestedTargetQuery.isPending,
+    targetInitialized,
+  ])
+
+  const {
+    data: repoSearchResults,
+    isFetching: isSearchingRepos,
+    refetch: refetchRepositories,
+  } = useQuery({
     queryKey: atlassianConnectorKeys.githubRepos(
       orgSlug,
       debouncedRepoSearch,
@@ -92,6 +144,7 @@ export function SelectSyncTargetStep({
     queryFn: () =>
       searchGithubInstallationRepos(orgSlug, debouncedRepoSearch, undefined),
     enabled: true,
+    refetchOnWindowFocus: "always",
   })
 
   const saveTargetMutation = useMutation({
@@ -146,18 +199,24 @@ export function SelectSyncTargetStep({
       toast.error(error.message)
     },
   })
+  const createRepositoryUrl = getConnectorContextRepositoryCreateUrl(
+    githubInstallation?.accountSlug,
+  )
 
   return (
     <div className="space-y-4">
       <div>
-        <h3 className="text-base font-semibold text-zinc-100">
+        <h3 className="text-base font-semibold text-foreground">
           Select target repository for Confluence content
         </h3>
-        <p className="mt-2 text-sm text-zinc-400">
+        <p className="mt-2 text-sm text-muted-foreground">
           Choose the GitHub repository where Confluence content will be synced.
         </p>
       </div>
       <div className="space-y-4">
+        <ConnectorContextRepositoryGuidance
+          suggestedTarget={suggestedTargetQuery.data}
+        />
         <ComboBox
           label="Repository"
           placeholder="Type to search repositories..."
@@ -186,19 +245,59 @@ export function SelectSyncTargetStep({
           )}
         </ComboBox>
 
+        <p className="text-sm text-muted-foreground">
+          Need a repository?{" "}
+          <a
+            href={createRepositoryUrl}
+            target="_blank"
+            rel="noreferrer"
+            className="inline-flex items-center gap-1 text-teal-400 hover:text-teal-300"
+          >
+            Create {CONNECTOR_CONTEXT_REPOSITORY_NAME} on GitHub
+            <IconExternalLink className="size-3.5" aria-hidden />
+          </a>
+          .
+        </p>
+
+        {repoSearchResults?.repositorySelection === "selected" &&
+        repoSearchResults.manageUrl ? (
+          <p className="text-sm text-muted-foreground">
+            Once created,{" "}
+            <a
+              href={repoSearchResults.manageUrl}
+              target="_blank"
+              rel="noreferrer"
+              className="inline-flex items-center gap-1 text-teal-400 hover:text-teal-300"
+            >
+              manage ctx| repository access
+              <IconExternalLink className="size-3.5" aria-hidden />
+            </a>
+            , then return here.
+          </p>
+        ) : null}
+
+        <Button
+          variant="secondary"
+          className="rounded-none"
+          isDisabled={isSearchingRepos}
+          onPress={() => void refetchRepositories()}
+        >
+          Refresh repositories
+        </Button>
+
         {selectedRepo ? (
-          <div className="rounded-md bg-zinc-900/50 p-3">
-            <div className="text-xs font-medium tracking-wide text-zinc-500 uppercase">
+          <div className="rounded-none border border-border p-3">
+            <div className="text-xs font-medium tracking-wide text-muted-foreground uppercase">
               Default branch
             </div>
-            <div className="mt-1 text-sm text-zinc-300">
+            <div className="mt-1 text-sm text-foreground">
               {selectedRepo.default_branch}
             </div>
           </div>
         ) : null}
 
         {isSearchingRepos ? (
-          <div className="flex items-center gap-2 text-sm text-zinc-400">
+          <div className="flex items-center gap-2 text-sm text-muted-foreground">
             <Spinner className="size-4" />
             Searching repositories...
           </div>
@@ -207,7 +306,7 @@ export function SelectSyncTargetStep({
         {!isSearchingRepos &&
         debouncedRepoSearch.length > 0 &&
         repoSearchResults?.repositories.length === 0 ? (
-          <p className="text-sm text-zinc-500">
+          <p className="text-sm text-muted-foreground">
             No repositories found. Try a different search, or link more repos
             from the repositories page.
           </p>
@@ -215,6 +314,7 @@ export function SelectSyncTargetStep({
 
         <Button
           variant="primary"
+          className="rounded-none"
           isPending={saveTargetMutation.isPending}
           isDisabled={!selectedRepo}
           onPress={() => {

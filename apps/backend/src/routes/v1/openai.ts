@@ -1,18 +1,19 @@
 /**
  * Org-scoped generic OpenAI-compatible model proxy.
  *
- * Designed to back the local `ctxpipe-memory` MCP server (AgentMemory points
- * its `OPENAI_BASE_URL` at this route), but the surface is intentionally
- * generic — any signed-in CLI consumer can use it. Auth piggy-backs on
- * `withBearerAuth` upstream; no new ctxpipe token type is minted.
- *
- * Upstream provider is determined by the existing `MODEL_PROVIDER_*` env so
- * we don't widen the operator surface area.
+ * Generic surface for signed-in CLI / product consumers (`withBearerAuth`).
+ * Local Markdown memory (ADR-024) does not require this route; it remains for
+ * other model-proxy uses. Upstream provider comes from `MODEL_PROVIDER_*`.
  */
 
 import { createRoute, OpenAPIHono, z } from "@hono/zod-openapi"
 import type { AppEnv } from "../../app/env.js"
 import { getLogger } from "../../observability/logger.js"
+import { modelSpecBase } from "../../retrieval/services/parseModelSpec.js"
+import {
+  handleBedrockChatCompletion,
+  handleBedrockEmbedding,
+} from "./bedrockOpenAiProxy.js"
 
 const ErrorResponseSchema = z
   .object({ error: z.string(), allowedModels: z.array(z.string()).optional() })
@@ -108,7 +109,7 @@ const embeddingsRoute = createRoute({
   },
 })
 
-function allowedChatModels(env: AppEnv["Variables"]["env"]): string[] {
+function configuredChatModelSpecs(env: AppEnv["Variables"]["env"]): string[] {
   return [
     env.MODEL_FAST_NAME,
     env.MODEL_MEDIUM_NAME,
@@ -118,10 +119,31 @@ function allowedChatModels(env: AppEnv["Variables"]["env"]): string[] {
   )
 }
 
+function allowedChatModels(env: AppEnv["Variables"]["env"]): string[] {
+  return [...new Set(configuredChatModelSpecs(env).map(modelSpecBase))]
+}
+
 function allowedEmbeddingModels(env: AppEnv["Variables"]["env"]): string[] {
-  return [env.MODEL_EMBEDDING_NAME].filter(
-    (value): value is string => typeof value === "string" && value.length > 0,
-  )
+  const spec = env.MODEL_EMBEDDING_NAME
+  if (typeof spec !== "string" || spec.length === 0) return []
+  return [modelSpecBase(spec)]
+}
+
+function isModelAllowed(requested: string, configuredSpecs: string[]): boolean {
+  const requestedBase = modelSpecBase(requested)
+  return configuredSpecs.some((spec) => modelSpecBase(spec) === requestedBase)
+}
+
+function hasUpstreamAuth(env: AppEnv["Variables"]["env"]): boolean {
+  if (env.MODEL_PROVIDER_API_KEY?.trim()) return true
+  return env.MODEL_PROVIDER === "bedrock"
+}
+
+function upstreamAuthUnavailableMessage(env: AppEnv["Variables"]["env"]): string {
+  if (env.MODEL_PROVIDER === "bedrock") {
+    return "ctx| memory proxy is not configured on this server. Ask your operator to set MODEL_PROVIDER=bedrock and grant the runtime IAM permissions to invoke Bedrock models (for example an ECS task role with bedrock:InvokeModel)."
+  }
+  return "ctx| memory proxy is not configured on this server. Ask your operator to set MODEL_PROVIDER_API_KEY (or MODEL_PROVIDER=bedrock with IAM for Amazon Bedrock)."
 }
 
 function unavailableResponse(reason: string, message: string) {
@@ -137,11 +159,11 @@ export const openaiRoutes = new OpenAPIHono<AppEnv>()
     const auth = ensureAuth(c)
     if (auth !== null) return auth as never
     const env = c.var.env
-    if (!env.MODEL_PROVIDER_API_KEY) {
+    if (!hasUpstreamAuth(env)) {
       return c.json(
         unavailableResponse(
           "no-upstream-key",
-          "ctx| memory proxy is not configured on this server. Ask your operator to set MODEL_PROVIDER_API_KEY.",
+          upstreamAuthUnavailableMessage(env),
         ),
         503,
       )
@@ -149,8 +171,11 @@ export const openaiRoutes = new OpenAPIHono<AppEnv>()
     const body = (await c.req.json().catch(() => ({}))) as {
       model?: unknown
       stream?: unknown
+      messages?: unknown[]
+      temperature?: number
     }
     const allowed = allowedChatModels(env)
+    const configured = configuredChatModelSpecs(env)
     if (allowed.length === 0) {
       return c.json(
         unavailableResponse(
@@ -160,13 +185,22 @@ export const openaiRoutes = new OpenAPIHono<AppEnv>()
         503,
       )
     }
-    if (typeof body.model === "string" && !allowed.includes(body.model)) {
+    if (
+      typeof body.model === "string" &&
+      !isModelAllowed(body.model, configured)
+    ) {
       return c.json(
         {
           error: "model not allowed",
           allowedModels: allowed,
         },
         400,
+      )
+    }
+    if (env.MODEL_PROVIDER === "bedrock") {
+      return handleNativeBedrockResponse(
+        c,
+        handleBedrockChatCompletion(env, body),
       )
     }
     return forwardToUpstream(c, "/v1/chat/completions", body)
@@ -175,23 +209,30 @@ export const openaiRoutes = new OpenAPIHono<AppEnv>()
     const auth = ensureAuth(c)
     if (auth !== null) return auth as never
     const env = c.var.env
-    if (!env.MODEL_PROVIDER_API_KEY) {
+    if (!hasUpstreamAuth(env)) {
       return c.json(
         unavailableResponse(
           "no-upstream-key",
-          "ctx| memory proxy is not configured on this server. Ask your operator to set MODEL_PROVIDER_API_KEY.",
+          upstreamAuthUnavailableMessage(env),
         ),
         503,
       )
     }
     const body = (await c.req.json().catch(() => ({}))) as {
       model?: unknown
+      input?: unknown
     }
     const allowed = allowedEmbeddingModels(env)
+    const embeddingSpec =
+      typeof env.MODEL_EMBEDDING_NAME === "string" &&
+      env.MODEL_EMBEDDING_NAME.length > 0
+        ? env.MODEL_EMBEDDING_NAME
+        : undefined
     if (
       allowed.length > 0 &&
       typeof body.model === "string" &&
-      !allowed.includes(body.model)
+      embeddingSpec !== undefined &&
+      !isModelAllowed(body.model, [embeddingSpec])
     ) {
       return c.json(
         {
@@ -199,6 +240,12 @@ export const openaiRoutes = new OpenAPIHono<AppEnv>()
           allowedModels: allowed,
         },
         400,
+      )
+    }
+    if (env.MODEL_PROVIDER === "bedrock") {
+      return handleNativeBedrockResponse(
+        c,
+        handleBedrockEmbedding(env, body),
       )
     }
     return forwardToUpstream(c, "/v1/embeddings", body)
@@ -216,18 +263,78 @@ function ensureAuth(
   return null
 }
 
+async function handleNativeBedrockResponse(
+  c: Parameters<Parameters<OpenAPIHono<AppEnv>["openapi"]>[1]>[0],
+  responsePromise: Promise<Response>,
+) {
+  const started = Date.now()
+  try {
+    const response = await responsePromise
+    const latencyMs = Date.now() - started
+    getLogger().info("request completed", {
+      step: "openai-proxy",
+      provider: "bedrock-native",
+      status: response.status,
+      latencyMs,
+      orgId: c.get("orgId"),
+      userId: c.get("user")?.id,
+    })
+
+    const headers = new Headers()
+    const contentType = response.headers.get("content-type")
+    if (contentType) headers.set("content-type", contentType)
+
+    if (response.status >= 400) {
+      const errorBody = await response.json().catch(() => ({
+        error: "bedrock request failed",
+      }))
+      return c.json(errorBody, response.status as 400 | 401 | 404 | 429 | 503)
+    }
+
+    if (contentType?.includes("text/event-stream")) {
+      return c.body(response.body, 200, Object.fromEntries(headers))
+    }
+
+    const json = await response.json()
+    return c.json(json, 200)
+  } catch (err) {
+    getLogger().error(err instanceof Error ? err : new Error(String(err)), {
+      step: "openai-proxy",
+      provider: "bedrock-native",
+      orgId: c.get("orgId"),
+      userId: c.get("user")?.id,
+    })
+    return c.json({ error: "bedrock request failed" }, 502)
+  }
+}
+
+async function resolveUpstreamAuthorization(
+  env: AppEnv["Variables"]["env"],
+): Promise<string | null> {
+  const apiKey = env.MODEL_PROVIDER_API_KEY?.trim()
+  if (apiKey) return `Bearer ${apiKey}`
+  return null
+}
+
 async function forwardToUpstream(
   c: Parameters<Parameters<OpenAPIHono<AppEnv>["openapi"]>[1]>[0],
   path: string,
   body: unknown,
 ) {
   const env = c.var.env
+  const authorization = await resolveUpstreamAuthorization(env)
+  if (!authorization) {
+    return c.json(
+      unavailableResponse(
+        "no-upstream-key",
+        upstreamAuthUnavailableMessage(env),
+      ),
+      503,
+    )
+  }
   const upstreamOrigin = (
     env.MODEL_PROVIDER_URL ?? "https://api.openai.com"
   ).replace(/\/+$/, "")
-  // If the operator pointed MODEL_PROVIDER_URL at an origin that already
-  // includes /v1 we still want to forward to /v1/chat/completions exactly
-  // once. Strip a trailing /v1 then re-append `path`.
   const cleanOrigin = upstreamOrigin.replace(/\/v1$/, "")
   const target = `${cleanOrigin}${path}`
   const started = Date.now()
@@ -237,7 +344,7 @@ async function forwardToUpstream(
       method: "POST",
       headers: {
         "content-type": "application/json",
-        authorization: `Bearer ${env.MODEL_PROVIDER_API_KEY ?? ""}`,
+        authorization,
       },
       body: JSON.stringify(body),
     })

@@ -1,11 +1,13 @@
 /**
  * identifyInfrastructure – Extracts Infrastructure objects and RUNS_ON claims
  * (Service → Infrastructure) from repository code. Uses an LLM agent with
- * list_files, search, get_file, and submit_infrastructure tools to detect
+ * glob_files, search, get_file, and submit_infrastructure tools to detect
  * deployment targets (Docker, Kubernetes, Serverless, Terraform, etc.).
  */
 
 import { HumanMessage } from "@langchain/core/messages"
+import { mergeConfigs } from "@langchain/core/runnables"
+import { getConfig } from "@langchain/langgraph"
 import { tool } from "langchain"
 import { z } from "zod/v3"
 import { requireCurrentOrgId } from "../../../auth/context.js"
@@ -16,6 +18,7 @@ import {
   standardRepoExplorerTools,
 } from "../../../tools/repoExplorerTools.js"
 import { createAgent } from "../../createAgent.js"
+import { setIngestionIndexingStep } from "../setIngestionIndexingStep.js"
 import type { CodeIngestionState } from "../schemas.js"
 import {
   processCapturedInfrastructure,
@@ -86,7 +89,7 @@ Config files and detection hints:
 | Render              | render.yaml |
 
 Search strategy:
-1. list_files at each root for Dockerfile, docker-compose*.yml, k8s/, manifests/, Chart.yaml, serverless.yml, sam.yaml, *.tf, Pulumi.yaml, wrangler.toml, vercel.json, fly.toml
+1. glob_files for deploy manifests (e.g. pattern "**/Dockerfile", or single-folder: pattern "*", path "<root>")
 2. search for apiVersion: apps/v1, kind: Deployment, FROM in Dockerfile, serverless framework, terraform, pulumi
 3. get_file on Dockerfile, docker-compose.yml, k8s manifests, serverless.yml to confirm
 
@@ -95,6 +98,7 @@ Cover only the listed roots. Call submit_infrastructure for each deployment targ
 export async function identifyInfrastructure(
   state: CodeIngestionState,
 ): Promise<Partial<CodeIngestionState>> {
+  await setIngestionIndexingStep(state, "identify_infrastructure")
   const { repositoryId, roots = ["./"], targetHash } = state
   requireCurrentOrgId()
 
@@ -111,7 +115,7 @@ export async function identifyInfrastructure(
   const capturedInfra: { value: SubmittedInfrastructure[] } = { value: [] }
   const tools = createIdentifyInfrastructureTools(capturedInfra)
   const agent = createAgent({
-    model: getModel("medium", { temperature: 0.1 }),
+    model: getModel("medium", { streaming: false, temperature: 0.1 }),
     tools,
     contextMiddleware: {
       clearToolUsesTriggerTokens: 140_000,
@@ -130,9 +134,9 @@ ${REPO_EXPLORER_TOOLS_HINT}${scopeHint}`,
 
   await agent.invoke(
     { messages: [new HumanMessage(userMessage)] },
-    {
+    mergeConfigs(getConfig(), {
       recursionLimit: 180,
-    },
+    }),
   )
 
   if (capturedInfra.value.length === 0) {

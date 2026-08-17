@@ -18,7 +18,8 @@ import {
   fetchOrgAtlassianOauth,
 } from "../../queries/atlassian-connector"
 import type { AtlassianConnectorStatus } from "../../types"
-import { ConfluenceStepper } from "../ConfluenceStepper"
+import { ConfluenceMark } from "../ConfluenceMark"
+import { ConnectorSetupStepper } from "../ConnectorSetupStepper"
 import { InstallForgeStep } from "./steps/InstallForgeStep"
 import { LinkAtlassianStep } from "./steps/LinkAtlassianStep"
 import { LinkGitHubStep } from "./steps/LinkGitHubStep"
@@ -165,14 +166,22 @@ export function ConfluenceSetupWizard({
     >
       <div className="p-6">
         <div className="mb-5 flex items-start justify-between gap-3">
-          <div>
-            <h2 className="text-lg font-medium tracking-tight text-foreground">
-              Set up Atlassian connector
-            </h2>
-            <p className="mt-2 text-sm text-muted-foreground">
-              Complete each step to connect Confluence content to this
-              organisation.
-            </p>
+          <div className="flex min-w-0 gap-3">
+            <span className="ctx-node h-9 w-9">
+              <ConfluenceMark
+                className="size-5 text-foreground"
+                variant="outline"
+              />
+            </span>
+            <div>
+              <h2 className="text-lg font-medium tracking-tight text-foreground">
+                Set up Confluence connector
+              </h2>
+              <p className="mt-2 text-sm text-muted-foreground">
+                Complete each step to connect Confluence content to this
+                organisation.
+              </p>
+            </div>
           </div>
           <Button
             variant="secondary"
@@ -185,7 +194,7 @@ export function ConfluenceSetupWizard({
 
         {status && !statusPending && !orgOauthBlocking ? (
           <div className="mb-6">
-            <ConfluenceStepper
+            <ConnectorSetupStepper
               steps={wizardStepDefs}
               currentIndex={cardIndexForStepper}
               focusOverride={effectiveManual}
@@ -273,7 +282,14 @@ export function ConfluenceSetupWizard({
               </p>
             ) : null}
             {bodyId === "wait" ? <WaitForInstallStep /> : null}
-            {bodyId === "github" ? <LinkGitHubStep orgSlug={orgSlug} /> : null}
+            {bodyId === "github" ? (
+              <LinkGitHubStep
+                orgSlug={orgSlug}
+                onConnected={async () => {
+                  await refetchStatus()
+                }}
+              />
+            ) : null}
             {bodyId === "target" ? (
               <SelectSyncTargetStep
                 orgSlug={orgSlug}

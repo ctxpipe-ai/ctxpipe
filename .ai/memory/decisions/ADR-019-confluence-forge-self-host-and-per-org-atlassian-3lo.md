@@ -38,4 +38,4 @@ Self-hosted and single-tenant deployments need **end-to-end** Confluence + Forge
 
 ## Notes
 
-- Follow **memory-sync** when changing boundaries, public APIs, or auth behavior. Related: [ADR-018](ADR-018-unified-connections-table.md).
+- Capture durable boundary/API/auth changes via **capture-adr** / capture skills and update indexes. Related: [ADR-018](ADR-018-unified-connections-table.md).

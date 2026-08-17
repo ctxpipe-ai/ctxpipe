@@ -1,5 +1,8 @@
 import { describe, expect, it } from "vitest"
-import { getGithubConnectStartBranch } from "./githubConnectFlow"
+import {
+  getGithubConnectStartBranch,
+  resolveGithubSetupOrganization,
+} from "./githubConnectFlow"
 
 describe("getGithubConnectStartBranch", () => {
   it("returns noop when bootstrap is pending", () => {
@@ -33,7 +36,7 @@ describe("getGithubConnectStartBranch", () => {
         installationPending: true,
         installation: { id: "con_1" },
         hostedDefaultAppInstallUrl:
-          "https://github.com/apps/ctxpipe-agent/installations/select_target",
+          "https://github.com/apps/ctxpipe-agent/installations/new",
         intent: "connect",
       }),
     ).toBe("already_installed")
@@ -46,7 +49,7 @@ describe("getGithubConnectStartBranch", () => {
         installationPending: true,
         installation: undefined,
         hostedDefaultAppInstallUrl:
-          "https://github.com/apps/foo/installations/select_target",
+          "https://github.com/apps/foo/installations/new",
         intent: "connect",
       }),
     ).toBe("noop_installation_pending")
@@ -59,7 +62,7 @@ describe("getGithubConnectStartBranch", () => {
         installationPending: false,
         installation: null,
         hostedDefaultAppInstallUrl:
-          "https://github.com/apps/ctxpipe-agent/installations/select_target",
+          "https://github.com/apps/ctxpipe-agent/installations/new",
         intent: "connect",
       }),
     ).toBe("managed_install")
@@ -72,7 +75,7 @@ describe("getGithubConnectStartBranch", () => {
         installationPending: false,
         installation: null,
         hostedDefaultAppInstallUrl:
-          "https://github.com/apps/ctxpipe-agent/installations/select_target",
+          "https://github.com/apps/ctxpipe-agent/installations/new",
         intent: "manage_scope",
       }),
     ).toBe("managed_install")
@@ -85,7 +88,7 @@ describe("getGithubConnectStartBranch", () => {
         installationPending: false,
         installation: { id: "con_1" },
         hostedDefaultAppInstallUrl:
-          "https://github.com/apps/ctxpipe-agent/installations/select_target",
+          "https://github.com/apps/ctxpipe-agent/installations/new",
         intent: "manage_scope",
       }),
     ).toBe("already_installed")
@@ -101,5 +104,47 @@ describe("getGithubConnectStartBranch", () => {
         intent: "connect",
       }),
     ).toBe("self_hosted_wizard")
+  })
+})
+
+describe("resolveGithubSetupOrganization", () => {
+  it("uses the organization already linked to an installation update", () => {
+    expect(
+      resolveGithubSetupOrganization({
+        existingOrgSlug: "acme",
+        candidateOrgSlug: null,
+        organizationSlugs: [],
+      }),
+    ).toEqual({ kind: "existing", orgSlug: "acme" })
+  })
+
+  it("prefers the existing installation organization over a stale hint", () => {
+    expect(
+      resolveGithubSetupOrganization({
+        existingOrgSlug: "acme",
+        candidateOrgSlug: "other",
+        organizationSlugs: ["other"],
+      }),
+    ).toEqual({ kind: "existing", orgSlug: "acme" })
+  })
+
+  it("uses a valid selected organization for a new installation", () => {
+    expect(
+      resolveGithubSetupOrganization({
+        existingOrgSlug: null,
+        candidateOrgSlug: "acme",
+        organizationSlugs: ["acme"],
+      }),
+    ).toEqual({ kind: "selected", orgSlug: "acme" })
+  })
+
+  it("requires organization selection for an unlinked installation", () => {
+    expect(
+      resolveGithubSetupOrganization({
+        existingOrgSlug: null,
+        candidateOrgSlug: null,
+        organizationSlugs: ["acme"],
+      }),
+    ).toEqual({ kind: "missing" })
   })
 })

@@ -1,20 +1,21 @@
 import { describe, expect, it, vi } from "vitest"
 
 vi.mock("../models/repositories.js", () => ({
-  getRepository: vi.fn(),
-  listRepositories: vi.fn(),
+  getRepositoryForOrg: vi.fn(),
+  listRepositoriesForOrg: vi.fn(),
 }))
 
-import { getFileTool } from "../tools/getFile.js"
-import { listFilesTool } from "../tools/listFiles.js"
-import { listRepositoriesTool } from "../tools/listRepositories.js"
 import {
-  graphCallersTool,
   graphCalleesTool,
+  graphCallersTool,
   graphFindSymbolTool,
 } from "../tools/codegraphTools.js"
+import { getFileTool } from "../tools/getFile.js"
+import { globFilesTool } from "../tools/globFiles.js"
+import { listRepositoriesTool } from "../tools/listRepositories.js"
 import { standardRepoExplorerTools } from "../tools/repoExplorerTools.js"
 import { searchTool } from "../tools/search.js"
+import { structuralSearchTool } from "../tools/structuralSearch.js"
 import {
   findSymbolDefinitionsTool,
   findSymbolReferencesTool,
@@ -40,15 +41,15 @@ describe("interactionGraph helpers", () => {
 
   it("exports only tool entrypoints for agent wiring", () => {
     expect(searchTool.name).toBe("search")
-    expect(listFilesTool.name).toBe("list_files")
+    expect(globFilesTool.name).toBe("glob_files")
     expect(getFileTool.name).toBe("get_file")
     expect(listRepositoriesTool.name).toBe("list_repositories")
     expect(findSymbolDefinitionsTool.name).toBe("find_symbol_definitions")
     expect(findSymbolReferencesTool.name).toBe("find_symbol_references")
+    expect(structuralSearchTool.name).toBe("structural_search")
     expect(graphFindSymbolTool.name).toBe("graph_find_symbol")
     expect(graphCallersTool.name).toBe("graph_get_callers")
     expect(graphCalleesTool.name).toBe("graph_get_callees")
-    expect(standardRepoExplorerTools).toHaveLength(8)
+    expect(standardRepoExplorerTools).toHaveLength(9)
   })
-
 })

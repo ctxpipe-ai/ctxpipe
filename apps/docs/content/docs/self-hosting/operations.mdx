@@ -50,7 +50,7 @@ endpoint, logs go to stdout.
 | Component | Useful signals |
 |---|---|
 | `backend` | auth failures, REST errors, MCP requests, graph read failures, connector callbacks |
-| `worker` | ingestion jobs, Confluence sync, Forge provisioning, background workflow failures |
+| `worker` | ingestion jobs, Confluence and Linear sync, Forge provisioning, background workflow failures |
 | `codesearch` | clone failures, indexing failures, Zoekt errors |
 | `postgres` | connection limits, slow queries, disk pressure |
 | `graph database` | connection failures, memory pressure, query errors |
@@ -110,10 +110,24 @@ changes.
 - Confirm the worker can run Forge provisioning and Confluence sync jobs.
 - See [Confluence & Atlassian](/docs/self-hosting/confluence-atlassian).
 
+### Linear setup stalls or content becomes stale
+
+- Confirm Linear OAuth credentials are present on backend and worker.
+- Confirm the Linear webhook secret is present on backend and signed requests
+  reach `/api/v1/webhook/linear`.
+- Confirm the selected GitHub App installation still has write access and that
+  merge pushes reach `/api/v1/webhook/github/<connectionId>`.
+- Check worker logs for `linear-sync-config`, `linear-sync-content`, or
+  `linear-sync-incremental` failures.
+- Use the setup dialog's configuration or content retry action after fixing the
+  underlying credential, network, or permission failure.
+- See [Linear](/docs/self-hosting/linear).
+
 ## Related pages
 
 <Cards>
   <Card title="Production readiness" href="/docs/self-hosting/production-readiness" description="Preflight checks and network boundary." />
   <Card title="Upgrades" href="/docs/self-hosting/upgrades" description="Backup, migrate, validate, and roll back." />
   <Card title="Graph databases" href="/docs/self-hosting/graph-databases" description="Provider-specific graph behavior." />
+  <Card title="Linear" href="/docs/self-hosting/linear" description="OAuth, webhook, and connector recovery guidance." />
 </Cards>
