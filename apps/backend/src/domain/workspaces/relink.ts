@@ -9,6 +9,7 @@ export function nextRelinkFields(
     desiredGeneration: currentGeneration + 1,
     desiredSha: null,
     hydrateStatus: "pending",
+    hydrateError: null,
     writeStatus: write?.writeStatus ?? "unknown",
     readOnlyReason: write?.readOnlyReason ?? null,
   }

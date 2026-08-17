@@ -18,10 +18,12 @@ import {
   listWorkspaceKnowledgeFiles,
   listWorkspaceKnowledgeUnits,
   listWorkspaces,
+  persistHydrateRetry,
   touchLastUsedWorkspace,
   updateWorkspace,
 } from "../../models/workspaces.js"
 import { enqueueWorkspaceCutover } from "../../openworkflow/enqueue-workspace-cutover.js"
+import { enqueueWorkspaceHydrate } from "../../openworkflow/enqueue-workspace-hydrate.js"
 import { enqueueWorkspaceWriteCommit } from "../../openworkflow/enqueue-workspace-write-commit.js"
 import { getGithubRepoWriteView } from "../webhooks/github/github-workspace-tip.js"
 
@@ -44,6 +46,7 @@ const WorkspaceSchema = z
     indexedSha: z.string().nullable(),
     writeStatus: z.string(),
     hydrateStatus: z.string(),
+    hydrateError: z.string().nullable(),
     readOnlyReason: z.string().nullable(),
     mostRecentConversationId: z.string().nullable().optional(),
     createdAt: z.string().datetime(),
@@ -156,6 +159,7 @@ function serializeWorkspace(row: {
   indexedSha: string | null
   writeStatus: string
   hydrateStatus: string
+  hydrateError?: string | null
   readOnlyReason: string | null
   mostRecentConversationId?: string | null
   createdAt: Date
@@ -175,6 +179,7 @@ function serializeWorkspace(row: {
     indexedSha: row.indexedSha,
     writeStatus: row.writeStatus,
     hydrateStatus: row.hydrateStatus,
+    hydrateError: row.hydrateError ?? null,
     readOnlyReason: row.readOnlyReason,
     mostRecentConversationId: row.mostRecentConversationId ?? null,
     createdAt: row.createdAt.toISOString(),
@@ -290,6 +295,26 @@ const touchWorkspaceRoute = createRoute({
   request: { params: WorkspaceSlugParamsSchema },
   responses: {
     204: { description: "Recorded last-used Workspace" },
+    401: {
+      content: { "application/json": { schema: ErrorResponseSchema } },
+      description: "Unauthorized",
+    },
+    404: {
+      content: { "application/json": { schema: ErrorResponseSchema } },
+      description: "Not found",
+    },
+  },
+})
+
+const retryPrepareWorkspaceRoute = createRoute({
+  method: "post",
+  path: "/{workspaceSlug}/retry-prepare",
+  request: { params: WorkspaceSlugParamsSchema },
+  responses: {
+    200: {
+      content: { "application/json": { schema: WorkspaceSchema } },
+      description: "Retry Workspace prepare",
+    },
     401: {
       content: { "application/json": { schema: ErrorResponseSchema } },
       description: "Unauthorized",
@@ -668,6 +693,32 @@ export const workspaceRoutes = new OpenAPIHono<AppEnv>()
     if (!workspace) return c.json({ error: "Not found" }, 404)
     await touchLastUsedWorkspace(workspace.id)
     return c.body(null, 204)
+  })
+  .openapi(retryPrepareWorkspaceRoute, async (c) => {
+    if (!c.get("user") || !c.get("session")) {
+      return c.json({ error: "Unauthorized" }, 401)
+    }
+    const { workspaceSlug } = workspaceSlugParams(c)
+    const workspace = await getWorkspaceBySlug(workspaceSlug)
+    if (!workspace) return c.json({ error: "Not found" }, 404)
+    const retried = await persistHydrateRetry(workspace.id)
+    if (!retried) return c.json({ error: "Not found" }, 404)
+    if (retried.desiredSha) {
+      void enqueueWorkspaceHydrate(
+        { orgId: retried.orgId, workspaceId: retried.id },
+        c.get("log"),
+      )
+    } else {
+      void enqueueWorkspaceWriteCommit(
+        {
+          orgId: retried.orgId,
+          workspaceId: retried.id,
+          kind: "migration_export",
+        },
+        c.get("log"),
+      )
+    }
+    return c.json(serializeWorkspace(retried), 200)
   })
   .openapi(listLinkedRoute, async (c) => {
     if (!c.get("user") || !c.get("session")) {

@@ -34,6 +34,7 @@ export const workspaces = pgTable(
     indexedSha: text("indexed_sha"),
     writeStatus: text("write_status").notNull().default("unknown"),
     hydrateStatus: text("hydrate_status").notNull().default("pending"),
+    hydrateError: text("hydrate_error"),
     lastJobAt: timestamp("last_job_at", {
       withTimezone: true,
       mode: "date",

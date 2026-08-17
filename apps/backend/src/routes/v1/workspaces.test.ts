@@ -12,9 +12,14 @@ const listWorkspaceKnowledgeFilesMock = vi.hoisted(() => vi.fn())
 const listWorkspaceKnowledgeUnitsMock = vi.hoisted(() => vi.fn())
 const linkRepositoryMock = vi.hoisted(() => vi.fn())
 const unlinkRepositoryMock = vi.hoisted(() => vi.fn())
+const persistHydrateRetryMock = vi.hoisted(() => vi.fn())
 
 vi.mock("../../openworkflow/enqueue-workspace-write-commit.js", () => ({
   enqueueWorkspaceWriteCommit: vi.fn().mockResolvedValue(undefined),
+}))
+
+vi.mock("../../openworkflow/enqueue-workspace-hydrate.js", () => ({
+  enqueueWorkspaceHydrate: vi.fn().mockResolvedValue(undefined),
 }))
 
 vi.mock("../../openworkflow/enqueue-workspace-cutover.js", () => ({
@@ -30,12 +35,14 @@ vi.mock("../../models/workspaces.js", () => ({
   listLinkedRepositories: listLinkedRepositoriesMock,
   listWorkspaceKnowledgeFiles: listWorkspaceKnowledgeFilesMock,
   listWorkspaceKnowledgeUnits: listWorkspaceKnowledgeUnitsMock,
+  persistHydrateRetry: persistHydrateRetryMock,
   linkRepository: linkRepositoryMock,
   unlinkRepository: unlinkRepositoryMock,
   getPersistedFirstWorkspaceId: vi.fn().mockResolvedValue(null),
 }))
 
 import { WRITE_STATUS_REASONS } from "../../domain/workspaces/write-status.js"
+import { enqueueWorkspaceHydrate } from "../../openworkflow/enqueue-workspace-hydrate.js"
 import { enqueueWorkspaceWriteCommit } from "../../openworkflow/enqueue-workspace-write-commit.js"
 import { workspaceRoutes } from "./workspaces.js"
 
@@ -53,6 +60,7 @@ const workspaceRow = {
   indexedSha: null,
   writeStatus: "unknown",
   hydrateStatus: "pending",
+  hydrateError: null,
   readOnlyReason: null,
   mostRecentConversationId: null,
   autoLinkGitUrls: [],
@@ -168,6 +176,7 @@ describe("workspaces API", () => {
     expect(body.linkedRepositories[0].gitUrl).toBe(
       "https://github.com/acme/app",
     )
+    expect(body.hydrateError).toBeNull()
   })
 
   it("404s unknown slugs", async () => {
@@ -241,6 +250,74 @@ describe("workspaces API", () => {
     })
     expect(res.status).toBe(204)
     expect(touchLastUsedWorkspaceMock).toHaveBeenCalledWith("ws_abc")
+  })
+
+  it("serializes a failed hydrate on GET", async () => {
+    getWorkspaceBySlugMock.mockResolvedValue({
+      ...workspaceRow,
+      hydrateStatus: "failed",
+      hydrateError: "getLogger: no logger in context.",
+    })
+    listLinkedRepositoriesMock.mockResolvedValue([])
+    const res = await app().request("/workspaces/knowledge")
+    expect(res.status).toBe(200)
+    const body = await res.json()
+    expect(body.hydrateStatus).toBe("failed")
+    expect(body.hydrateError).toBe("getLogger: no logger in context.")
+  })
+
+  it("retries prepare from a failed hydrate with no tip", async () => {
+    getWorkspaceBySlugMock.mockResolvedValue({
+      ...workspaceRow,
+      hydrateStatus: "failed",
+      hydrateError: "getLogger: no logger in context.",
+      desiredSha: null,
+    })
+    persistHydrateRetryMock.mockResolvedValue({
+      ...workspaceRow,
+      hydrateStatus: "pending",
+      hydrateError: null,
+    })
+    const res = await app().request("/workspaces/knowledge/retry-prepare", {
+      method: "POST",
+    })
+    expect(res.status).toBe(200)
+    const body = await res.json()
+    expect(body.hydrateStatus).toBe("pending")
+    expect(body.hydrateError).toBeNull()
+    expect(enqueueWorkspaceWriteCommit).toHaveBeenCalledWith(
+      expect.objectContaining({
+        workspaceId: "ws_abc",
+        kind: "migration_export",
+      }),
+      expect.anything(),
+    )
+  })
+
+  it("retries hydrate when a tip already exists", async () => {
+    getWorkspaceBySlugMock.mockResolvedValue({
+      ...workspaceRow,
+      hydrateStatus: "failed",
+      hydrateError: "hydrate died",
+      desiredSha: "abc123def456",
+    })
+    persistHydrateRetryMock.mockResolvedValue({
+      ...workspaceRow,
+      desiredSha: "abc123def456",
+      hydrateStatus: "pending",
+      hydrateError: null,
+    })
+    const res = await app().request("/workspaces/knowledge/retry-prepare", {
+      method: "POST",
+    })
+    expect(res.status).toBe(200)
+    expect(enqueueWorkspaceHydrate).toHaveBeenCalledWith(
+      expect.objectContaining({
+        orgId: "org_mock",
+        workspaceId: "ws_abc",
+      }),
+      expect.anything(),
+    )
   })
 
   it("does not queue a link while write status is unknown", async () => {

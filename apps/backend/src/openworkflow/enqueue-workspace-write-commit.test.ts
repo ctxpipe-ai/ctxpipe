@@ -4,6 +4,7 @@ const runWorkflowWithWorkerWakeMock = vi.hoisted(() => vi.fn())
 const generateObjectIdMock = vi.hoisted(() => vi.fn(() => "wjob_stable"))
 
 const getWorkspaceByIdMock = vi.hoisted(() => vi.fn())
+const persistHydrateFailureMock = vi.hoisted(() => vi.fn())
 
 vi.mock("./client.js", () => ({
   runWorkflowWithWorkerWake: runWorkflowWithWorkerWakeMock,
@@ -19,6 +20,7 @@ vi.mock("../lib/id.js", () => ({
 
 vi.mock("../models/workspaces.js", () => ({
   getWorkspaceById: getWorkspaceByIdMock,
+  persistHydrateFailure: persistHydrateFailureMock,
 }))
 
 import { enqueueWorkspaceWriteCommit } from "./enqueue-workspace-write-commit.js"
@@ -35,6 +37,7 @@ describe("enqueueWorkspaceWriteCommit", () => {
     runWorkflowWithWorkerWakeMock.mockResolvedValue({
       workflowRun: { id: "run_write" },
     })
+    persistHydrateFailureMock.mockResolvedValue(undefined)
   })
 
   it("enqueues a migration export write with a stable job id", async () => {
@@ -86,5 +89,22 @@ describe("enqueueWorkspaceWriteCommit", () => {
         jobDesiredSha: "aaa",
       },
     )
+  })
+
+  it("persists hydrate failure when enqueue throws", async () => {
+    runWorkflowWithWorkerWakeMock.mockRejectedValue(new Error("queue down"))
+    const log = { error: vi.fn() }
+    await enqueueWorkspaceWriteCommit(
+      {
+        orgId: "org_1",
+        workspaceId: "ws_1",
+        kind: "migration_export",
+      },
+      log,
+    )
+    expect(persistHydrateFailureMock).toHaveBeenCalledWith({
+      workspaceId: "ws_1",
+      message: "queue down",
+    })
   })
 })

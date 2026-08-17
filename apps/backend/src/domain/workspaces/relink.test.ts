@@ -8,6 +8,7 @@ describe("nextRelinkFields", () => {
       desiredGeneration: 2,
       desiredSha: null,
       hydrateStatus: "pending",
+      hydrateError: null,
       writeStatus: "unknown",
       readOnlyReason: null,
     })

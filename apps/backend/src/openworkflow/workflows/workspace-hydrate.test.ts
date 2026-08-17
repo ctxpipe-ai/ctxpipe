@@ -3,7 +3,32 @@ import { beforeEach, describe, expect, it, vi } from "vitest"
 const enqueueWorkspaceIndexMock = vi.hoisted(() =>
   vi.fn().mockResolvedValue(undefined),
 )
-const listLinkedRepositoriesMock = vi.hoisted(() => vi.fn().mockResolvedValue([]))
+const listLinkedRepositoriesMock = vi.hoisted(() =>
+  vi.fn().mockResolvedValue([]),
+)
+const getWorkspaceByIdMock = vi.hoisted(() =>
+  vi.fn().mockResolvedValue({
+    id: "ws_1",
+    orgId: "org_1",
+    workspaceRepositoryUrl: "https://github.com/acme/docs",
+    githubConnectionId: "con_1",
+    desiredGeneration: 1,
+    desiredSha: "abc123def456",
+    activeProjectionUrl: "https://github.com/acme/docs",
+    activeProjectionSha: "abc123def456",
+    indexedSha: null,
+    hydratePhases: {
+      url: "https://github.com/acme/docs",
+      sha: "abc123def456",
+      embeddings: true,
+      graph: true,
+      remainders: true,
+    },
+  }),
+)
+const persistHydrateFailureMock = vi.hoisted(() =>
+  vi.fn().mockResolvedValue(undefined),
+)
 
 vi.mock("../../config/env.js", () => ({
   parseEnv: () => ({}),
@@ -26,30 +51,14 @@ vi.mock("../../auth/withAuth.js", () => ({
 }))
 
 vi.mock("../../models/workspaces.js", () => ({
-  getWorkspaceById: vi.fn().mockResolvedValue({
-    id: "ws_1",
-    orgId: "org_1",
-    workspaceRepositoryUrl: "https://github.com/acme/docs",
-    githubConnectionId: "con_1",
-    desiredGeneration: 1,
-    desiredSha: "abc123def456",
-    activeProjectionUrl: "https://github.com/acme/docs",
-    activeProjectionSha: "abc123def456",
-    indexedSha: null,
-    hydratePhases: {
-      url: "https://github.com/acme/docs",
-      sha: "abc123def456",
-      embeddings: true,
-      graph: true,
-      remainders: true,
-    },
-  }),
+  getWorkspaceById: getWorkspaceByIdMock,
   listLinkedRepositories: listLinkedRepositoriesMock,
   listWorkspaceKnowledgeUnits: vi.fn(),
   commitHydrateProjection: vi.fn(),
   persistHydratePhases: vi.fn(),
   persistUnitEmbeddings: vi.fn(),
   countWriteJobAttempts: vi.fn(),
+  persistHydrateFailure: persistHydrateFailureMock,
 }))
 
 vi.mock("../../models/workspace-export.js", () => ({
@@ -110,5 +119,22 @@ describe("workspaceHydrate workflow", () => {
     })
 
     expect(result.reason).toBe("index_lag")
+  })
+
+  it("persists hydrate failure then rethrows when the workspace load dies", async () => {
+    getWorkspaceByIdMock.mockRejectedValueOnce(new Error("db down"))
+    const wf = workspaceHydrate as unknown as {
+      fn: (args: {
+        input: { orgId: string; workspaceId: string }
+      }) => Promise<unknown>
+    }
+
+    await expect(
+      wf.fn({ input: { orgId: "org_1", workspaceId: "ws_1" } }),
+    ).rejects.toThrow("db down")
+    expect(persistHydrateFailureMock).toHaveBeenCalledWith({
+      workspaceId: "ws_1",
+      message: "db down",
+    })
   })
 })

@@ -1,5 +1,11 @@
 import { beforeEach, describe, expect, it, vi } from "vitest"
 
+const persistWriteJobStartMock = vi.hoisted(() =>
+  vi.fn().mockResolvedValue(undefined),
+)
+const persistHydrateFailureMock = vi.hoisted(() =>
+  vi.fn().mockResolvedValue(undefined),
+)
 const persistResolvedDesiredShaMock = vi.hoisted(() =>
   vi.fn().mockResolvedValue(true),
 )
@@ -64,12 +70,13 @@ vi.mock("../../models/workspaces.js", () => ({
     activeProjectionUrl: null,
     activeProjectionSha: null,
   }),
-  persistWriteJobStart: vi.fn().mockResolvedValue(undefined),
+  persistWriteJobStart: persistWriteJobStartMock,
   persistLastJobAt: vi.fn().mockResolvedValue(undefined),
   getWriteJobCommitSha: vi.fn().mockResolvedValue(null),
   persistResolvedDesiredSha: persistResolvedDesiredShaMock,
   persistWriteJobCommitSha: vi.fn().mockResolvedValue(undefined),
   persistWriteStatus: vi.fn().mockResolvedValue(undefined),
+  persistHydrateFailure: persistHydrateFailureMock,
   listLinkedRepositories: vi.fn().mockResolvedValue([]),
   listKnowledgeUnitPaths: vi.fn().mockResolvedValue([]),
 }))
@@ -162,5 +169,34 @@ describe("workspaceWriteCommit workflow", () => {
         resolvedTip: "abc123def456",
       }),
     )
+  })
+
+  it("persists hydrate failure then rethrows when the job dies after start", async () => {
+    persistWriteJobStartMock.mockRejectedValueOnce(
+      new Error("write job start failed"),
+    )
+    const wf = workspaceWriteCommit as unknown as {
+      fn: (args: {
+        input: {
+          orgId: string
+          workspaceId: string
+          kind: "migration_export"
+        }
+      }) => Promise<unknown>
+    }
+
+    await expect(
+      wf.fn({
+        input: {
+          orgId: "org_1",
+          workspaceId: "ws_1",
+          kind: "migration_export",
+        },
+      }),
+    ).rejects.toThrow("write job start failed")
+    expect(persistHydrateFailureMock).toHaveBeenCalledWith({
+      workspaceId: "ws_1",
+      message: "write job start failed",
+    })
   })
 })

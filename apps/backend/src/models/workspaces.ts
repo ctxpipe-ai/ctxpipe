@@ -676,6 +676,7 @@ export async function activateHydrateProjection(input: {
       activeProjectionUrl: existing.workspaceRepositoryUrl,
       activeProjectionSha: input.hydratedSha,
       hydrateStatus: "ready",
+      hydrateError: null,
       hydratePhases: initialHydratePhases({
         url: existing.workspaceRepositoryUrl,
         sha: input.hydratedSha,
@@ -1023,6 +1024,7 @@ export async function commitHydrateProjection(input: {
         activeProjectionUrl: existing.workspaceRepositoryUrl,
         activeProjectionSha: input.hydratedSha,
         hydrateStatus: "ready",
+        hydrateError: null,
         hydratePhases: initialHydratePhases({
           url: existing.workspaceRepositoryUrl,
           sha: input.hydratedSha,
@@ -1251,6 +1253,35 @@ export async function listCompletedMigrationExportWorkspaceIds(): Promise<
       ),
     )
   return [...new Set(rows.map((row) => row.workspaceId))]
+}
+
+export async function persistHydrateFailure(input: {
+  workspaceId: string
+  message: string
+}): Promise<void> {
+  await getOrgDb()
+    .update(workspaces)
+    .set({
+      hydrateStatus: "failed",
+      hydrateError: input.message,
+      updatedAt: new Date(),
+    })
+    .where(eq(workspaces.id, input.workspaceId))
+}
+
+export async function persistHydrateRetry(
+  workspaceId: string,
+): Promise<WorkspaceRecord | undefined> {
+  const [updated] = await getOrgDb()
+    .update(workspaces)
+    .set({
+      hydrateStatus: "pending",
+      hydrateError: null,
+      updatedAt: new Date(),
+    })
+    .where(eq(workspaces.id, workspaceId))
+    .returning()
+  return updated
 }
 
 export async function persistWriteStatus(

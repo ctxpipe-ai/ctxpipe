@@ -39,10 +39,15 @@ import {
   getWorkspaceById,
   listLinkedRepositories,
   listWorkspaceKnowledgeUnits,
+  persistHydrateFailure,
   persistHydratePhases,
   persistUnitEmbeddings,
 } from "../../models/workspaces.js"
-import { createLogger, getLogger, withLogger } from "../../observability/logger.js"
+import {
+  createLogger,
+  getLogger,
+  withLogger,
+} from "../../observability/logger.js"
 import { projectClaimsFromState } from "../../retrieval/services/graphProjection.js"
 import { generateEmbeddings } from "../../retrieval/services/modelProvider.js"
 import { listMarkdownFilesAtGitSha } from "../../services/git/clone-tree.js"
@@ -98,323 +103,349 @@ export const workspaceHydrate = defineWorkflow(
         workspaceId: input.workspaceId,
       }),
       async () => {
-    const env = parseEnv(process.env as Record<string, string | undefined>)
-    const org = await getSystemDb().query.organizations.findFirst({
-      where: { id: { eq: input.orgId } },
-    })
-    if (!org) throw new Error(`Organization not found: ${input.orgId}`)
-
-    return withOrgIdContext({ id: org.id, slug: org.slug }, () =>
-      withOrgDbContext(input.orgId, async () => {
-        const workspace = await getWorkspaceById(input.workspaceId)
-        if (!workspace) throw new Error("Workspace not found")
-        void input.defaultBranch
-        if (!workspace.desiredSha) {
-          return { hydrated: false, reason: "desired_sha_missing" as const }
-        }
-        const pending = pendingHydratePhases({
-          desiredUrl: workspace.workspaceRepositoryUrl,
-          desiredSha: workspace.desiredSha,
-          activeProjectionUrl: workspace.activeProjectionUrl,
-          activeProjectionSha: workspace.activeProjectionSha,
-          indexedSha: workspace.indexedSha,
-          phases: workspace.hydratePhases,
+        const env = parseEnv(process.env as Record<string, string | undefined>)
+        const org = await getSystemDb().query.organizations.findFirst({
+          where: { id: { eq: input.orgId } },
         })
-        if (!hydrateHasPendingWork(pending)) {
-          return { hydrated: false, reason: "noop" as const }
-        }
-        if (
-          pending.index &&
-          !pending.postgres &&
-          !pending.embeddings &&
-          !pending.graph &&
-          !pending.remainders
-        ) {
-          await enqueueLaggingIndex({
-            orgId: input.orgId,
-            workspaceId: workspace.id,
-            workspaceRepositoryUrl: workspace.workspaceRepositoryUrl,
-            desiredGeneration: workspace.desiredGeneration,
-            desiredSha: workspace.desiredSha,
-            indexedSha: workspace.indexedSha,
-          })
-          return { hydrated: false, reason: "index_lag" as const }
-        }
+        if (!org) throw new Error(`Organization not found: ${input.orgId}`)
 
-        const repoName = githubRepoFullNameFromWorkspaceUrl(
-          workspace.workspaceRepositoryUrl,
-        )
-        const treeSha = hydrateReadsStoredDesiredSha(workspace.desiredSha)
-        if (!treeSha) {
-          return { hydrated: false, reason: "desired_sha_missing" as const }
-        }
-        const files: Array<{ path: string; content: string }> = []
-        if (
-          hydrateReadPlan(workspace.workspaceRepositoryUrl).via === "github" &&
-          repoName
-        ) {
-          const tree = await listFilesAtSha({
-            orgId: input.orgId,
-            repositoryName: repoName,
-            env,
-            githubConnectionId: workspace.githubConnectionId ?? undefined,
-            sha: treeSha,
-          })
-          for (const entry of tree) {
-            if (!entry.path.endsWith(".md")) continue
-            const content = await getFileContent({
-              orgId: input.orgId,
-              repositoryName: repoName,
-              env,
-              githubConnectionId: workspace.githubConnectionId ?? undefined,
-              branch: treeSha,
-              path: entry.path,
-            })
-            if (content == null) continue
-            files.push({ path: entry.path, content })
-          }
-        } else {
-          files.push(
-            ...(await listMarkdownFilesAtGitSha({
-              url: workspace.workspaceRepositoryUrl,
-              sha: treeSha,
-            })),
-          )
-        }
-
-        const parsed = hydrateKnowledgeTree({
-          workspaceId: workspace.id,
-          files,
-        })
-        const previous = await listWorkspaceKnowledgeUnits(workspace.id)
-        const previousPaths = previous.units.map((unit) => unit.path)
-        const agents = files.find((file) => file.path === "AGENTS.md")
-        const displayName = agents
-          ? displayNameFromAgentsMarkdown(agents.content)
-          : null
-        const github = repoName
-          ? {
-              orgId: input.orgId,
-              repositoryName: repoName,
-              env,
-              githubConnectionId: workspace.githubConnectionId ?? undefined,
-            }
-          : null
-        const introducingCommitTimestamp = github
-          ? await getCommitTimestamp({ ...github, sha: treeSha })
-          : null
-        const log = getLogger()
-        log.set({
-          workspaceId: workspace.id,
-          desiredSha: workspace.desiredSha,
-        })
-
-        let activated = !pending.postgres
-        let phases: HydratePhaseRecord =
-          workspace.hydratePhases?.url === workspace.workspaceRepositoryUrl &&
-          workspace.hydratePhases.sha === workspace.desiredSha
-            ? workspace.hydratePhases
-            : initialHydratePhases({
-                url: workspace.workspaceRepositoryUrl,
-                sha: workspace.desiredSha,
-              })
-        if (pending.postgres) {
-          activated = await commitHydrateProjection({
-            orgId: input.orgId,
-            workspaceId: workspace.id,
-            jobGeneration: workspace.desiredGeneration,
-            jobWorkspaceUrl: workspace.workspaceRepositoryUrl,
-            hydratedSha: workspace.desiredSha,
-            displayName,
-            remotes: parsed.linked,
-            units: applyEffectiveValidFromToUnits(
-              parsed.units,
-              introducingCommitTimestamp,
-            ),
-          })
-          if (!activated) {
-            return {
-              hydrated: false,
-              reason: "cas_discarded" as const,
-              units: parsed.units.length,
-              skipped: parsed.skipped.length,
-            }
-          }
-          phases = initialHydratePhases({
-            url: workspace.workspaceRepositoryUrl,
-            sha: workspace.desiredSha,
-          })
-        }
-
-        if (activated && pending.embeddings) {
-          try {
-            const embeddings = await embedHydrateUnits({
-              units: parsed.units,
-              embed: generateEmbeddings,
-            })
-            await persistUnitEmbeddings({
-              workspaceId: workspace.id,
-              projectionSha: workspace.desiredSha,
-              embeddings,
-            })
-            phases = markHydratePhase(phases, "embeddings")
-            await persistHydratePhases({
-              workspaceId: workspace.id,
-              expectedUrl: workspace.workspaceRepositoryUrl,
-              expectedSha: workspace.desiredSha,
-              phases,
-            })
-          } catch (error) {
-            log.error(
-              error instanceof Error
-                ? error
-                : new Error("hydrate embeddings failed"),
-            )
-          }
-        }
-
-        if (activated && pending.graph) {
-          try {
-            const graphClaims = hydrateUnitsToProjectionClaims(
-              parsed.units,
-              introducingCommitTimestamp,
-            )
-            await projectClaimsFromState(
-              graphClaims,
-              workspaceGraphProjectionScope({
-                workspaceId: workspace.id,
-                projectionSha: workspace.desiredSha,
-              }),
-            )
-            phases = markHydratePhase(phases, "graph")
-            await persistHydratePhases({
-              workspaceId: workspace.id,
-              expectedUrl: workspace.workspaceRepositoryUrl,
-              expectedSha: workspace.desiredSha,
-              phases,
-            })
-          } catch (error) {
-            log.error(
-              error instanceof Error
-                ? error
-                : new Error("hydrate graph failed"),
-            )
-          }
-        }
-
-        if (pending.index) {
-          await enqueueLaggingIndex({
-            orgId: input.orgId,
-            workspaceId: workspace.id,
-            workspaceRepositoryUrl: workspace.workspaceRepositoryUrl,
-            desiredGeneration: workspace.desiredGeneration,
-            desiredSha: workspace.desiredSha,
-            indexedSha: workspace.indexedSha,
-          })
-        }
-
-        if (activated && pending.remainders) {
-          try {
-            const linked = await listLinkedRepositories(workspace.id)
-            const exportSource = await loadMigrationExportSource()
-            const exportPlan = planMigrationExport({
-              workspaceId: workspace.id,
-              firstWorkspaceId: exportSource.firstWorkspaceId,
-              workspaceByRepositoryId: exportSource.workspaceByRepositoryId,
-              objects: exportSource.objects,
-              claims: exportSource.claims,
-              existingKnowledge: files,
-              linkedUrls: linked.map((row) => row.gitUrl),
-            })
-            const extractRemainder = extractIngestRemainder({
-              proposed: exportPlan.files,
-              existing: new Map(files.map((file) => [file.path, file.content])),
-            })
-            const remaining = hydrateWriteJobsToEnqueue({
-              units: parsed.units,
-              agentsMd: agents?.content ?? null,
-              writeStatus: workspace.writeStatus,
-              jobGeneration: workspace.desiredGeneration,
-              desiredGeneration: workspace.desiredGeneration,
-              previousPaths,
-              extractRemainder,
-            })
-            const remainderAfter = hydrateWriteJobRemainders({
-              units: parsed.units,
-              agentsMd: agents?.content ?? null,
-              previousPaths,
-              extractRemainder,
-            })
-            const remainderBefore = hydrateWriteJobRemainders({
-              units: previous.units,
-              agentsMd: null,
-              previousPaths: [],
-              extractRemainder: 0,
-            })
-            const attemptsForSha: Record<string, number> = {}
-            for (const kind of remaining) {
-              attemptsForSha[kind] = await countWriteJobAttempts({
-                workspaceId: workspace.id,
-                kind,
+        return withOrgIdContext({ id: org.id, slug: org.slug }, () =>
+          withOrgDbContext(input.orgId, async () => {
+            try {
+              const workspace = await getWorkspaceById(input.workspaceId)
+              if (!workspace) throw new Error("Workspace not found")
+              void input.defaultBranch
+              if (!workspace.desiredSha) {
+                return {
+                  hydrated: false,
+                  reason: "desired_sha_missing" as const,
+                }
+              }
+              const pending = pendingHydratePhases({
+                desiredUrl: workspace.workspaceRepositoryUrl,
                 desiredSha: workspace.desiredSha,
+                activeProjectionUrl: workspace.activeProjectionUrl,
+                activeProjectionSha: workspace.activeProjectionSha,
+                indexedSha: workspace.indexedSha,
+                phases: workspace.hydratePhases,
               })
-            }
-            const retryable = kindsWithinRetryCap({
-              kinds: kindsToRetryAfterHydrate({
-                remaining,
-                remainderBefore,
-                remainderAfter,
-                attemptsForSha,
-              }),
-              attemptsForSha,
-            })
-            if (retryable.length > 0) {
-              const { enqueueWorkspaceWriteCommit } = await import(
-                "../enqueue-workspace-write-commit.js"
+              if (!hydrateHasPendingWork(pending)) {
+                return { hydrated: false, reason: "noop" as const }
+              }
+              if (
+                pending.index &&
+                !pending.postgres &&
+                !pending.embeddings &&
+                !pending.graph &&
+                !pending.remainders
+              ) {
+                await enqueueLaggingIndex({
+                  orgId: input.orgId,
+                  workspaceId: workspace.id,
+                  workspaceRepositoryUrl: workspace.workspaceRepositoryUrl,
+                  desiredGeneration: workspace.desiredGeneration,
+                  desiredSha: workspace.desiredSha,
+                  indexedSha: workspace.indexedSha,
+                })
+                return { hydrated: false, reason: "index_lag" as const }
+              }
+
+              const repoName = githubRepoFullNameFromWorkspaceUrl(
+                workspace.workspaceRepositoryUrl,
               )
-              let enqueueFailed = false
-              for (const kind of retryable) {
-                await enqueueWorkspaceWriteCommit(
-                  {
+              const treeSha = hydrateReadsStoredDesiredSha(workspace.desiredSha)
+              if (!treeSha) {
+                return {
+                  hydrated: false,
+                  reason: "desired_sha_missing" as const,
+                }
+              }
+              const files: Array<{ path: string; content: string }> = []
+              if (
+                hydrateReadPlan(workspace.workspaceRepositoryUrl).via ===
+                  "github" &&
+                repoName
+              ) {
+                const tree = await listFilesAtSha({
+                  orgId: input.orgId,
+                  repositoryName: repoName,
+                  env,
+                  githubConnectionId: workspace.githubConnectionId ?? undefined,
+                  sha: treeSha,
+                })
+                for (const entry of tree) {
+                  if (!entry.path.endsWith(".md")) continue
+                  const content = await getFileContent({
                     orgId: input.orgId,
-                    workspaceId: workspace.id,
-                    kind,
-                  },
-                  {
-                    error: (err) => {
-                      enqueueFailed = true
-                      log.error(err)
-                    },
-                  },
+                    repositoryName: repoName,
+                    env,
+                    githubConnectionId:
+                      workspace.githubConnectionId ?? undefined,
+                    branch: treeSha,
+                    path: entry.path,
+                  })
+                  if (content == null) continue
+                  files.push({ path: entry.path, content })
+                }
+              } else {
+                files.push(
+                  ...(await listMarkdownFilesAtGitSha({
+                    url: workspace.workspaceRepositoryUrl,
+                    sha: treeSha,
+                  })),
                 )
               }
-              if (enqueueFailed) {
-                throw new Error("hydrate remainder enqueue failed")
-              }
-            }
-            phases = markHydratePhase(phases, "remainders")
-            await persistHydratePhases({
-              workspaceId: workspace.id,
-              expectedUrl: workspace.workspaceRepositoryUrl,
-              expectedSha: workspace.desiredSha,
-              phases,
-            })
-          } catch (error) {
-            log.error(
-              error instanceof Error
-                ? error
-                : new Error("hydrate remainder enqueue failed"),
-            )
-          }
-        }
 
-        return {
-          hydrated: activated,
-          units: parsed.units.length,
-          skipped: parsed.skipped.length,
-        }
-      }),
-    )
+              const parsed = hydrateKnowledgeTree({
+                workspaceId: workspace.id,
+                files,
+              })
+              const previous = await listWorkspaceKnowledgeUnits(workspace.id)
+              const previousPaths = previous.units.map((unit) => unit.path)
+              const agents = files.find((file) => file.path === "AGENTS.md")
+              const displayName = agents
+                ? displayNameFromAgentsMarkdown(agents.content)
+                : null
+              const github = repoName
+                ? {
+                    orgId: input.orgId,
+                    repositoryName: repoName,
+                    env,
+                    githubConnectionId:
+                      workspace.githubConnectionId ?? undefined,
+                  }
+                : null
+              const introducingCommitTimestamp = github
+                ? await getCommitTimestamp({ ...github, sha: treeSha })
+                : null
+              const log = getLogger()
+              log.set({
+                workspaceId: workspace.id,
+                desiredSha: workspace.desiredSha,
+              })
+
+              let activated = !pending.postgres
+              let phases: HydratePhaseRecord =
+                workspace.hydratePhases?.url ===
+                  workspace.workspaceRepositoryUrl &&
+                workspace.hydratePhases.sha === workspace.desiredSha
+                  ? workspace.hydratePhases
+                  : initialHydratePhases({
+                      url: workspace.workspaceRepositoryUrl,
+                      sha: workspace.desiredSha,
+                    })
+              if (pending.postgres) {
+                activated = await commitHydrateProjection({
+                  orgId: input.orgId,
+                  workspaceId: workspace.id,
+                  jobGeneration: workspace.desiredGeneration,
+                  jobWorkspaceUrl: workspace.workspaceRepositoryUrl,
+                  hydratedSha: workspace.desiredSha,
+                  displayName,
+                  remotes: parsed.linked,
+                  units: applyEffectiveValidFromToUnits(
+                    parsed.units,
+                    introducingCommitTimestamp,
+                  ),
+                })
+                if (!activated) {
+                  return {
+                    hydrated: false,
+                    reason: "cas_discarded" as const,
+                    units: parsed.units.length,
+                    skipped: parsed.skipped.length,
+                  }
+                }
+                phases = initialHydratePhases({
+                  url: workspace.workspaceRepositoryUrl,
+                  sha: workspace.desiredSha,
+                })
+              }
+
+              if (activated && pending.embeddings) {
+                try {
+                  const embeddings = await embedHydrateUnits({
+                    units: parsed.units,
+                    embed: generateEmbeddings,
+                  })
+                  await persistUnitEmbeddings({
+                    workspaceId: workspace.id,
+                    projectionSha: workspace.desiredSha,
+                    embeddings,
+                  })
+                  phases = markHydratePhase(phases, "embeddings")
+                  await persistHydratePhases({
+                    workspaceId: workspace.id,
+                    expectedUrl: workspace.workspaceRepositoryUrl,
+                    expectedSha: workspace.desiredSha,
+                    phases,
+                  })
+                } catch (error) {
+                  log.error(
+                    error instanceof Error
+                      ? error
+                      : new Error("hydrate embeddings failed"),
+                  )
+                }
+              }
+
+              if (activated && pending.graph) {
+                try {
+                  const graphClaims = hydrateUnitsToProjectionClaims(
+                    parsed.units,
+                    introducingCommitTimestamp,
+                  )
+                  await projectClaimsFromState(
+                    graphClaims,
+                    workspaceGraphProjectionScope({
+                      workspaceId: workspace.id,
+                      projectionSha: workspace.desiredSha,
+                    }),
+                  )
+                  phases = markHydratePhase(phases, "graph")
+                  await persistHydratePhases({
+                    workspaceId: workspace.id,
+                    expectedUrl: workspace.workspaceRepositoryUrl,
+                    expectedSha: workspace.desiredSha,
+                    phases,
+                  })
+                } catch (error) {
+                  log.error(
+                    error instanceof Error
+                      ? error
+                      : new Error("hydrate graph failed"),
+                  )
+                }
+              }
+
+              if (pending.index) {
+                await enqueueLaggingIndex({
+                  orgId: input.orgId,
+                  workspaceId: workspace.id,
+                  workspaceRepositoryUrl: workspace.workspaceRepositoryUrl,
+                  desiredGeneration: workspace.desiredGeneration,
+                  desiredSha: workspace.desiredSha,
+                  indexedSha: workspace.indexedSha,
+                })
+              }
+
+              if (activated && pending.remainders) {
+                try {
+                  const linked = await listLinkedRepositories(workspace.id)
+                  const exportSource = await loadMigrationExportSource()
+                  const exportPlan = planMigrationExport({
+                    workspaceId: workspace.id,
+                    firstWorkspaceId: exportSource.firstWorkspaceId,
+                    workspaceByRepositoryId:
+                      exportSource.workspaceByRepositoryId,
+                    objects: exportSource.objects,
+                    claims: exportSource.claims,
+                    existingKnowledge: files,
+                    linkedUrls: linked.map((row) => row.gitUrl),
+                  })
+                  const extractRemainder = extractIngestRemainder({
+                    proposed: exportPlan.files,
+                    existing: new Map(
+                      files.map((file) => [file.path, file.content]),
+                    ),
+                  })
+                  const remaining = hydrateWriteJobsToEnqueue({
+                    units: parsed.units,
+                    agentsMd: agents?.content ?? null,
+                    writeStatus: workspace.writeStatus,
+                    jobGeneration: workspace.desiredGeneration,
+                    desiredGeneration: workspace.desiredGeneration,
+                    previousPaths,
+                    extractRemainder,
+                  })
+                  const remainderAfter = hydrateWriteJobRemainders({
+                    units: parsed.units,
+                    agentsMd: agents?.content ?? null,
+                    previousPaths,
+                    extractRemainder,
+                  })
+                  const remainderBefore = hydrateWriteJobRemainders({
+                    units: previous.units,
+                    agentsMd: null,
+                    previousPaths: [],
+                    extractRemainder: 0,
+                  })
+                  const attemptsForSha: Record<string, number> = {}
+                  for (const kind of remaining) {
+                    attemptsForSha[kind] = await countWriteJobAttempts({
+                      workspaceId: workspace.id,
+                      kind,
+                      desiredSha: workspace.desiredSha,
+                    })
+                  }
+                  const retryable = kindsWithinRetryCap({
+                    kinds: kindsToRetryAfterHydrate({
+                      remaining,
+                      remainderBefore,
+                      remainderAfter,
+                      attemptsForSha,
+                    }),
+                    attemptsForSha,
+                  })
+                  if (retryable.length > 0) {
+                    const { enqueueWorkspaceWriteCommit } = await import(
+                      "../enqueue-workspace-write-commit.js"
+                    )
+                    let enqueueFailed = false
+                    for (const kind of retryable) {
+                      await enqueueWorkspaceWriteCommit(
+                        {
+                          orgId: input.orgId,
+                          workspaceId: workspace.id,
+                          kind,
+                        },
+                        {
+                          error: (err) => {
+                            enqueueFailed = true
+                            log.error(err)
+                          },
+                        },
+                      )
+                    }
+                    if (enqueueFailed) {
+                      throw new Error("hydrate remainder enqueue failed")
+                    }
+                  }
+                  phases = markHydratePhase(phases, "remainders")
+                  await persistHydratePhases({
+                    workspaceId: workspace.id,
+                    expectedUrl: workspace.workspaceRepositoryUrl,
+                    expectedSha: workspace.desiredSha,
+                    phases,
+                  })
+                } catch (error) {
+                  log.error(
+                    error instanceof Error
+                      ? error
+                      : new Error("hydrate remainder enqueue failed"),
+                  )
+                }
+              }
+
+              return {
+                hydrated: activated,
+                units: parsed.units.length,
+                skipped: parsed.skipped.length,
+              }
+            } catch (error) {
+              try {
+                await persistHydrateFailure({
+                  workspaceId: input.workspaceId,
+                  message:
+                    error instanceof Error ? error.message : String(error),
+                })
+              } catch {
+                // Persist is best-effort; OpenWorkflow still records the failed run.
+              }
+              throw error
+            }
+          }),
+        )
       },
     ),
 )
