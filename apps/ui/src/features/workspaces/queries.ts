@@ -187,6 +187,7 @@ export async function deleteWorkspace(
   workspaceSlug: string,
   confirmName: string,
 ): Promise<void> {
+  const client = await getApiClient()
   const res = await client[":orgSlug"].api.v1.workspaces[
     ":workspaceSlug"
   ].$delete({
