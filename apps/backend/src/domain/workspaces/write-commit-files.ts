@@ -53,7 +53,7 @@ export function filesForWorkspaceWriteKind(input: {
   displayName: string
   linkedUrls: Iterable<string>
   existing: ReadonlyMap<string, string>
-  exportPlan?: ReturnType<typeof planMigrationExport>
+  exportPlan?: Awaited<ReturnType<typeof planMigrationExport>>
   linkChange?: WorkspaceLinkChange
   workspaceId?: string
   introducingCommitTimestamp?: string

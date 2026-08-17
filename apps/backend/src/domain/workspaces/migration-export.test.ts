@@ -111,8 +111,8 @@ describe("migration export", () => {
     expect(map.get("repo_other")).toBeUndefined()
   })
 
-  it("exports assigned objects and skips a cross-workspace claim", () => {
-    const planned = planMigrationExport({
+  it("exports assigned objects and skips a cross-workspace claim", async () => {
+    const planned = await planMigrationExport({
       workspaceId: "ws_app",
       firstWorkspaceId: "ws_app",
       workspaceByRepositoryId: new Map([
@@ -154,13 +154,13 @@ describe("migration export", () => {
     expect(planned.files[0]?.content).not.toContain("obj_")
   })
 
-  it("merges into an existing import_key file and no-ops when unchanged", () => {
+  it("merges into an existing import_key file and no-ops when unchanged", async () => {
     const existing = importedObjectMarkdown({
       title: "Billing",
       body: "Ledger lives here.",
       importKey: "svc:repo_app:./",
     })
-    const planned = planMigrationExport({
+    const planned = await planMigrationExport({
       workspaceId: "ws_app",
       firstWorkspaceId: "ws_app",
       workspaceByRepositoryId: new Map([["repo_app", "ws_app"]]),
@@ -181,8 +181,8 @@ describe("migration export", () => {
     expect(planned.wouldChange).toBe(false)
   })
 
-  it("appends into an unkeyed occupant instead of replacing it", () => {
-    const planned = planMigrationExport({
+  it("appends into an unkeyed occupant instead of replacing it", async () => {
+    const planned = await planMigrationExport({
       workspaceId: "ws_app",
       firstWorkspaceId: "ws_app",
       workspaceByRepositoryId: new Map([["repo_app", "ws_app"]]),
@@ -204,10 +204,75 @@ describe("migration export", () => {
         },
       ],
       linkedUrls: [],
+      classifyUnkeyed: async () => "merge",
     })
     expect(planned.files[0]?.path).toBe("knowledge/imported/billing.md")
     expect(planned.files[0]?.content).toContain("Ledger lives here.")
     expect(planned.files[0]?.content).toContain("Also the ledger.")
     expect(planned.files[0]?.content).toContain("import_key: svc:repo_app:./")
+  })
+
+  it("uses a new filename when the unkeyed classifier returns new_name", async () => {
+    const planned = await planMigrationExport({
+      workspaceId: "ws_app",
+      firstWorkspaceId: "ws_app",
+      workspaceByRepositoryId: new Map([["repo_app", "ws_app"]]),
+      objects: [
+        {
+          id: "obj_1",
+          deduplicationKey: "svc:repo_app:./",
+          payload: { name: "Billing", summary: "Invoices" },
+        },
+      ],
+      claims: [],
+      existingKnowledge: [
+        {
+          path: "knowledge/imported/billing.md",
+          content: "Ledger lives here.",
+        },
+      ],
+      linkedUrls: [],
+      classifyUnkeyed: async () => "new_name",
+    })
+    expect(planned.files[0]?.path).toBe("knowledge/imported/billing-2.md")
+    expect(planned.files[0]?.content).toContain("Invoices")
+    expect(
+      planned.files.some(
+        (file) => file.path === "knowledge/imported/billing.md",
+      ),
+    ).toBe(false)
+  })
+
+  it("claims an unkeyed occupant after the first merge", async () => {
+    const planned = await planMigrationExport({
+      workspaceId: "ws_app",
+      firstWorkspaceId: "ws_app",
+      workspaceByRepositoryId: new Map([["repo_app", "ws_app"]]),
+      objects: [
+        {
+          id: "obj_1",
+          deduplicationKey: "svc:repo_app:a",
+          payload: { name: "Billing", summary: "First" },
+        },
+        {
+          id: "obj_2",
+          deduplicationKey: "svc:repo_app:b",
+          payload: { name: "Billing", summary: "Second" },
+        },
+      ],
+      claims: [],
+      existingKnowledge: [
+        {
+          path: "knowledge/imported/billing.md",
+          content: "Ledger lives here.",
+        },
+      ],
+      linkedUrls: [],
+      classifyUnkeyed: async () => "merge",
+    })
+    expect(planned.files.map((file) => file.path).sort()).toEqual([
+      "knowledge/imported/billing-2.md",
+      "knowledge/imported/billing.md",
+    ])
   })
 })

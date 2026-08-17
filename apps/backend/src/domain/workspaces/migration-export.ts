@@ -6,6 +6,7 @@ import {
   mergeImportedClaims,
   nextImportedKnowledgePath,
   shouldExportClaim,
+  unkeyedCollisionExcerpt,
 } from "./migration-cutover.js"
 import { normalizeSlug } from "./slug.js"
 
@@ -279,7 +280,7 @@ function claimsFromExisting(content: string): Array<{
   return claims
 }
 
-export function planMigrationExport(input: {
+export async function planMigrationExport(input: {
   workspaceId: string
   firstWorkspaceId: string | null
   workspaceByRepositoryId: ReadonlyMap<string, string>
@@ -287,10 +288,11 @@ export function planMigrationExport(input: {
   claims: readonly ExportClaimRow[]
   existingKnowledge: readonly ExistingKnowledgeFile[]
   linkedUrls: Iterable<string>
-}): {
+  classifyUnkeyed?: (prompt: string) => Promise<string>
+}): Promise<{
   files: Array<{ path: string; content: string }>
   wouldChange: boolean
-} {
+}> {
   const objectWorkspace = new Map<string, string>()
   const assigned: ExportObjectRow[] = []
   for (const object of input.objects) {
@@ -309,6 +311,7 @@ export function planMigrationExport(input: {
     input.existingKnowledge.map((file) => [file.path, file]),
   )
   const taken = new Set<string>()
+  const claimedUnkeyed = new Set<string>()
   for (const file of input.existingKnowledge) {
     taken.add(file.path)
     const key = importKeyFromExisting(file.content)
@@ -337,11 +340,13 @@ export function planMigrationExport(input: {
     const existing = existingByImportKey.get(importKey)
     const allocated = existing
       ? { path: existing.path, mergeFrom: existing }
-      : allocateUnkeyedImportedPath({
+      : await allocateUnkeyedImportedPath({
           slug: normalizeSlug(objectTitleFromPayload(object.payload)),
           incomingBody: objectBodyFromPayload(object.payload),
           taken,
           existingByPath,
+          claimedUnkeyed,
+          classifyUnkeyed: input.classifyUnkeyed,
         })
     const path = allocated.path
     taken.add(path)
@@ -435,23 +440,32 @@ export function planMigrationExport(input: {
   }
 }
 
-function allocateUnkeyedImportedPath(input: {
+async function allocateUnkeyedImportedPath(input: {
   slug: string
   incomingBody: string
   taken: Set<string>
   existingByPath: ReadonlyMap<string, ExistingKnowledgeFile>
-}): { path: string; mergeFrom: ExistingKnowledgeFile | null } {
+  claimedUnkeyed: Set<string>
+  classifyUnkeyed?: (prompt: string) => Promise<string>
+}): Promise<{ path: string; mergeFrom: ExistingKnowledgeFile | null }> {
   const preferred = `knowledge/imported/${input.slug}.md`
   const occupant = input.existingByPath.get(preferred)
   if (
     occupant &&
     !importKeyFromExisting(occupant.content) &&
-    classifyUnkeyedKnowledgeCollision({
-      existingBody: occupant.content,
-      incomingBody: input.incomingBody,
-    }) === "merge"
+    !input.claimedUnkeyed.has(preferred)
   ) {
-    return { path: preferred, mergeFrom: occupant }
+    const decision = await classifyUnkeyedKnowledgeCollision({
+      existingPath: occupant.path,
+      incomingPath: preferred,
+      existingExcerpt: unkeyedCollisionExcerpt(occupant.content),
+      incomingExcerpt: unkeyedCollisionExcerpt(input.incomingBody),
+      classify: input.classifyUnkeyed,
+    })
+    if (decision === "merge") {
+      input.claimedUnkeyed.add(preferred)
+      return { path: preferred, mergeFrom: occupant }
+    }
   }
   return {
     path: nextImportedKnowledgePath(input.slug, input.taken),

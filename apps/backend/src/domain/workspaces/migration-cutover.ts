@@ -103,25 +103,89 @@ export function firstWorkspaceIdForCutover(input: {
   return null
 }
 
-/** Same fact → merge. Name collision only → a new filename. */
-export function classifyUnkeyedKnowledgeCollision(input?: {
-  existingBody?: string
-  incomingBody?: string
-}): "merge" | "new_name" {
-  const existing = (input?.existingBody ?? "").trim()
-  const incoming = (input?.incomingBody ?? "").trim()
-  if (!existing || !incoming) return "merge"
-  if (existing === incoming) return "merge"
-  if (existing.includes(incoming) || incoming.includes(existing)) return "merge"
-  const existingHeading = markdownHeading(existing)
-  const incomingHeading = markdownHeading(incoming)
-  if (existingHeading && existingHeading === incomingHeading) return "merge"
-  return "new_name"
+/** Same fact → merge. Name collision only → a new filename. Fast model, tiny excerpts. */
+const UNKEYED_COLLISION_TIMEOUT_MS = 8_000
+const UNKEYED_COLLISION_EXCERPT_CHARS = 400
+
+export function unkeyedCollisionExcerpt(text: string): string {
+  return text.trim().slice(0, UNKEYED_COLLISION_EXCERPT_CHARS)
 }
 
-function markdownHeading(body: string): string | null {
-  const match = body.match(/^#\s+(.+)$/m)
-  return match?.[1]?.trim().toLowerCase() ?? null
+export function unkeyedCollisionPrompt(input: {
+  existingPath: string
+  incomingPath: string
+  existingExcerpt: string
+  incomingExcerpt: string
+}): string {
+  return [
+    "Classify whether these two unkeyed knowledge files are the same fact or only a filename collision.",
+    "Reply with merge or new_name only.",
+    `Existing path: ${input.existingPath}`,
+    `Incoming path: ${input.incomingPath}`,
+    `Existing excerpt:\n${input.existingExcerpt}`,
+    `Incoming excerpt:\n${input.incomingExcerpt}`,
+  ].join("\n")
+}
+
+export function parseUnkeyedCollisionReply(
+  raw: string,
+): "merge" | "new_name" | "garbage" {
+  const text = raw.trim().toLowerCase()
+  if (text === "merge") return "merge"
+  if (text === "new_name" || text === "new name") return "new_name"
+  return "garbage"
+}
+
+async function invokeUnkeyedCollisionModel(prompt: string): Promise<string> {
+  const { getModel } = await import("../../retrieval/services/modelProvider.js")
+  const model = getModel("fast")
+  const result = await model.invoke(prompt)
+  const content = result.content
+  if (typeof content === "string") return content
+  if (Array.isArray(content)) {
+    return content
+      .map((part) =>
+        typeof part === "object" && part && "text" in part
+          ? String(part.text)
+          : "",
+      )
+      .join("")
+  }
+  return String(content ?? "")
+}
+
+async function withTimeout<T>(promise: Promise<T>, ms: number): Promise<T> {
+  let timer: ReturnType<typeof setTimeout> | undefined
+  try {
+    return await Promise.race([
+      promise,
+      new Promise<T>((_, reject) => {
+        timer = setTimeout(() => reject(new Error("timeout")), ms)
+      }),
+    ])
+  } finally {
+    if (timer) clearTimeout(timer)
+  }
+}
+
+export async function classifyUnkeyedKnowledgeCollision(input: {
+  existingPath: string
+  incomingPath: string
+  existingExcerpt: string
+  incomingExcerpt: string
+  classify?: (prompt: string) => Promise<string>
+  timeoutMs?: number
+}): Promise<"merge" | "new_name"> {
+  const classify = input.classify ?? invokeUnkeyedCollisionModel
+  try {
+    const raw = await withTimeout(
+      classify(unkeyedCollisionPrompt(input)),
+      input.timeoutMs ?? UNKEYED_COLLISION_TIMEOUT_MS,
+    )
+    return parseUnkeyedCollisionReply(raw) === "merge" ? "merge" : "new_name"
+  } catch {
+    return "new_name"
+  }
 }
 
 export function nextImportedKnowledgePath(

@@ -229,7 +229,9 @@ export const workspaceWriteCommit = defineWorkflow(
               const linkedUrls = linked.map((row) => row.gitUrl)
               const existing = new Map<string, string>()
 
-              let exportPlan: ReturnType<typeof planMigrationExport> | undefined
+              let exportPlan:
+                | Awaited<ReturnType<typeof planMigrationExport>>
+                | undefined
               if (
                 input.kind === "migration_export" ||
                 input.kind === "extract_ingest"
@@ -257,7 +259,7 @@ export const workspaceWriteCommit = defineWorkflow(
                   knowledgeFiles.push({ path: entry.path, content })
                   existing.set(entry.path, content)
                 }
-                exportPlan = planMigrationExport({
+                exportPlan = await planMigrationExport({
                   workspaceId: workspace.id,
                   firstWorkspaceId: source.firstWorkspaceId,
                   workspaceByRepositoryId: source.workspaceByRepositoryId,

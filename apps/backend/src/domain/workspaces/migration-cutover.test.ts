@@ -6,8 +6,10 @@ import {
   firstWorkspaceIdForCutover,
   mergeImportedClaims,
   nextImportedKnowledgePath,
+  parseUnkeyedCollisionReply,
   planVersionStartCutover,
   shouldExportClaim,
+  unkeyedCollisionExcerpt,
   workspacesNeedingMigrationExport,
   workspacesToCreateForConnectorTargets,
 } from "./migration-cutover.js"
@@ -199,17 +201,74 @@ describe("workspacesNeedingMigrationExport", () => {
 })
 
 describe("classifyUnkeyedKnowledgeCollision", () => {
-  it("merges the same fact and renames a heading collision", () => {
+  it("parses merge vs new_name and treats garbage as new_name", () => {
+    expect(parseUnkeyedCollisionReply("merge")).toBe("merge")
+    expect(parseUnkeyedCollisionReply("NEW_NAME")).toBe("new_name")
+    expect(parseUnkeyedCollisionReply("sure, merge them")).toBe("garbage")
+    expect(unkeyedCollisionExcerpt("x".repeat(500)).length).toBe(400)
+  })
+
+  it("always asks the classifier, including identical excerpts", async () => {
     expect(
-      classifyUnkeyedKnowledgeCollision({
-        existingBody: "# Billing\n\nLedger.",
-        incomingBody: "# Billing\n\nAlso the ledger.",
+      await classifyUnkeyedKnowledgeCollision({
+        existingPath: "knowledge/imported/billing.md",
+        incomingPath: "knowledge/imported/billing.md",
+        existingExcerpt: "Ledger",
+        incomingExcerpt: "Ledger",
+        classify: async () => "merge",
       }),
     ).toBe("merge")
     expect(
-      classifyUnkeyedKnowledgeCollision({
-        existingBody: "Billing",
-        incomingBody: "Also billing",
+      await classifyUnkeyedKnowledgeCollision({
+        existingPath: "knowledge/imported/billing.md",
+        incomingPath: "knowledge/imported/billing.md",
+        existingExcerpt: "Ledger",
+        incomingExcerpt: "Ledger",
+        classify: async () => {
+          throw new Error("should fail closed")
+        },
+      }),
+    ).toBe("new_name")
+  })
+
+  it("uses the fast-model reply and fails closed to new_name", async () => {
+    expect(
+      await classifyUnkeyedKnowledgeCollision({
+        existingPath: "knowledge/imported/billing.md",
+        incomingPath: "knowledge/imported/billing.md",
+        existingExcerpt: "Ledger",
+        incomingExcerpt: "Invoices",
+        classify: async () => "merge",
+      }),
+    ).toBe("merge")
+    expect(
+      await classifyUnkeyedKnowledgeCollision({
+        existingPath: "knowledge/imported/billing.md",
+        incomingPath: "knowledge/imported/billing.md",
+        existingExcerpt: "Ledger",
+        incomingExcerpt: "Invoices",
+        classify: async () => "wat",
+      }),
+    ).toBe("new_name")
+    expect(
+      await classifyUnkeyedKnowledgeCollision({
+        existingPath: "knowledge/imported/billing.md",
+        incomingPath: "knowledge/imported/billing.md",
+        existingExcerpt: "Ledger",
+        incomingExcerpt: "Invoices",
+        classify: async () => {
+          throw new Error("timeout")
+        },
+      }),
+    ).toBe("new_name")
+    expect(
+      await classifyUnkeyedKnowledgeCollision({
+        existingPath: "knowledge/imported/billing.md",
+        incomingPath: "knowledge/imported/billing.md",
+        existingExcerpt: "Ledger",
+        incomingExcerpt: "Invoices",
+        timeoutMs: 20,
+        classify: () => new Promise(() => undefined),
       }),
     ).toBe("new_name")
   })

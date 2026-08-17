@@ -367,7 +367,7 @@ export const workspaceHydrate = defineWorkflow(
                 try {
                   const linked = await listLinkedRepositories(workspace.id)
                   const exportSource = await loadMigrationExportSource()
-                  const exportPlan = planMigrationExport({
+                  const exportPlan = await planMigrationExport({
                     workspaceId: workspace.id,
                     firstWorkspaceId: exportSource.firstWorkspaceId,
                     workspaceByRepositoryId:
