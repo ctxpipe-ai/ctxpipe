@@ -24,7 +24,7 @@ import { Step, Steps } from "../components/docs-steps"
 function ZoomableImage(props: ComponentProps<"img">) {
   return (
     <ImageZoom {...(props as ImageZoomProps)}>
-      <img {...props} />
+      <img alt="" {...props} />
     </ImageZoom>
   )
 }

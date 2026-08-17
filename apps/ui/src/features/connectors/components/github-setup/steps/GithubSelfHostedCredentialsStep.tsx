@@ -368,6 +368,7 @@ export function GithubSelfHostedCredentialsStep({
             </code>{" "}
             file here.
           </p>
+          {/* biome-ignore lint/a11y/noStaticElementInteractions: PEM file drop target around the textarea */}
           <div
             className={cn(
               "rounded-md transition-shadow",
