@@ -14,6 +14,7 @@ import {
   hydrateReadPlan,
   hydrateReadsStoredDesiredSha,
   hydrateUnitsToProjectionClaims,
+  shouldHydrateBeforeMigrationExport,
 } from "../../domain/workspaces/hydrate.js"
 import {
   type HydratePhaseRecord,
@@ -36,6 +37,7 @@ import { loadMigrationExportSource } from "../../models/workspace-export.js"
 import {
   commitHydrateProjection,
   countWriteJobAttempts,
+  getMigrationExportSha,
   getWorkspaceById,
   listLinkedRepositories,
   listWorkspaceKnowledgeUnits,
@@ -117,6 +119,16 @@ export const workspaceHydrate = defineWorkflow(
               let workspace = await getWorkspaceById(input.workspaceId)
               if (!workspace) throw new Error("Workspace not found")
               void input.defaultBranch
+              if (
+                shouldHydrateBeforeMigrationExport(
+                  await getMigrationExportSha(workspace.id),
+                )
+              ) {
+                return {
+                  hydrated: false,
+                  reason: "migration_export_missing" as const,
+                }
+              }
               if (!workspace.desiredSha) {
                 const tip = await resolveWorkspaceRepositoryTip({
                   orgId: input.orgId,

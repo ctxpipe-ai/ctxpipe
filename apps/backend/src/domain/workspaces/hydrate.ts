@@ -138,9 +138,17 @@ export function shouldReplaceKnowledgeProjection(input: {
 export function workspaceProjectionReady(input: {
   hydrateStatus: string
   activeProjectionSha: string | null
+  migrationExportSha?: string | null
 }): boolean {
   void input.hydrateStatus
+  if (!input.migrationExportSha) return false
   return Boolean(input.activeProjectionSha)
+}
+
+export function shouldHydrateBeforeMigrationExport(
+  migrationExportSha: string | null | undefined,
+): boolean {
+  return !migrationExportSha
 }
 
 export type WorkspaceHydrateView =

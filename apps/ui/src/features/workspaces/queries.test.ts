@@ -23,6 +23,7 @@ function ws(id: string, slug: string): Workspace {
     hydrateError: null,
     readOnlyReason: null,
     mostRecentConversationId: null,
+    migrationExportSha: null,
     createdAt: "2026-08-15T00:00:00.000Z",
     updatedAt: "2026-08-15T00:00:00.000Z",
   }

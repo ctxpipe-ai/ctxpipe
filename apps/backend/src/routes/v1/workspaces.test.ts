@@ -14,6 +14,12 @@ const linkRepositoryMock = vi.hoisted(() => vi.fn())
 const unlinkRepositoryMock = vi.hoisted(() => vi.fn())
 const persistHydrateRetryMock = vi.hoisted(() => vi.fn())
 const deleteWorkspaceMock = vi.hoisted(() => vi.fn())
+const getMigrationExportShaMock = vi.hoisted(() =>
+  vi.fn().mockResolvedValue(null),
+)
+const listMigrationExportShasMock = vi.hoisted(() =>
+  vi.fn().mockResolvedValue(new Map()),
+)
 
 vi.mock("../../openworkflow/enqueue-workspace-write-commit.js", () => ({
   enqueueWorkspaceWriteCommit: vi.fn().mockResolvedValue(undefined),
@@ -42,6 +48,8 @@ vi.mock("../../models/workspaces.js", () => ({
   listWorkspaceKnowledgeUnits: listWorkspaceKnowledgeUnitsMock,
   persistHydrateRetry: persistHydrateRetryMock,
   deleteWorkspace: deleteWorkspaceMock,
+  getMigrationExportSha: getMigrationExportShaMock,
+  listMigrationExportShas: listMigrationExportShasMock,
   linkRepository: linkRepositoryMock,
   unlinkRepository: unlinkRepositoryMock,
   getPersistedFirstWorkspaceId: vi.fn().mockResolvedValue(null),
@@ -94,6 +102,8 @@ function app() {
 describe("workspaces API", () => {
   beforeEach(() => {
     vi.clearAllMocks()
+    getMigrationExportShaMock.mockResolvedValue(null)
+    listMigrationExportShasMock.mockResolvedValue(new Map())
   })
 
   it("lists workspaces and last-used id", async () => {
@@ -101,12 +111,16 @@ describe("workspaces API", () => {
       lastUsedWorkspaceId: "ws_abc",
       items: [workspaceRow],
     })
+    listMigrationExportShasMock.mockResolvedValue(
+      new Map([["ws_abc", "exportsha"]]),
+    )
     const res = await app().request("/workspaces")
     expect(res.status).toBe(200)
     const body = await res.json()
     expect(body.lastUsedWorkspaceId).toBe("ws_abc")
     expect(body.items[0].slug).toBe("knowledge")
     expect(body.items[0].id).toBe("ws_abc")
+    expect(body.items[0].migrationExportSha).toBe("exportsha")
   })
 
   it("creates a workspace from a git URL", async () => {
@@ -206,6 +220,7 @@ describe("workspaces API", () => {
       "https://github.com/acme/app",
     )
     expect(body.hydrateError).toBeNull()
+    expect(body.migrationExportSha).toBeNull()
   })
 
   it("404s unknown slugs", async () => {
@@ -411,6 +426,7 @@ describe("workspaces API", () => {
       hydrateStatus: "pending",
       hydrateError: null,
     })
+    getMigrationExportShaMock.mockResolvedValue("exportsha")
     const res = await app().request("/workspaces/knowledge/retry-prepare", {
       method: "POST",
     })
@@ -422,6 +438,65 @@ describe("workspaces API", () => {
       }),
       expect.anything(),
     )
+    expect(enqueueWorkspaceWriteCommit).not.toHaveBeenCalled()
+  })
+
+  it("retries hydrate and export when a tip exists but export SHA does not", async () => {
+    getWorkspaceBySlugMock.mockResolvedValue({
+      ...workspaceRow,
+      writeStatus: "writable",
+      hydrateStatus: "failed",
+      hydrateError: "hydrate died",
+      desiredSha: "abc123def456",
+    })
+    persistHydrateRetryMock.mockResolvedValue({
+      ...workspaceRow,
+      writeStatus: "writable",
+      desiredSha: "abc123def456",
+      hydrateStatus: "pending",
+      hydrateError: null,
+    })
+    const res = await app().request("/workspaces/knowledge/retry-prepare", {
+      method: "POST",
+    })
+    expect(res.status).toBe(200)
+    expect(enqueueWorkspaceHydrate).toHaveBeenCalled()
+    expect(enqueueWorkspaceWriteCommit).toHaveBeenCalledWith(
+      expect.objectContaining({
+        workspaceId: "ws_abc",
+        kind: "migration_export",
+      }),
+      expect.anything(),
+    )
+  })
+
+  it("retries hydrate without re-export when export is recorded but no desired SHA exists", async () => {
+    getWorkspaceBySlugMock.mockResolvedValue({
+      ...workspaceRow,
+      writeStatus: "writable",
+      hydrateStatus: "failed",
+      hydrateError: "hydrate died",
+      desiredSha: null,
+    })
+    persistHydrateRetryMock.mockResolvedValue({
+      ...workspaceRow,
+      writeStatus: "writable",
+      hydrateStatus: "pending",
+      hydrateError: null,
+      desiredSha: null,
+    })
+    getMigrationExportShaMock.mockResolvedValue("exportsha")
+    const res = await app().request("/workspaces/knowledge/retry-prepare", {
+      method: "POST",
+    })
+    expect(res.status).toBe(200)
+    expect(enqueueWorkspaceHydrate).toHaveBeenCalledWith(
+      expect.objectContaining({
+        workspaceId: "ws_abc",
+      }),
+      expect.anything(),
+    )
+    expect(enqueueWorkspaceWriteCommit).not.toHaveBeenCalled()
   })
 
   it("queues a link while write status is unknown", async () => {

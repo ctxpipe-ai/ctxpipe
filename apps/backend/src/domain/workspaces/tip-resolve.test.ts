@@ -7,6 +7,7 @@ import {
   isDefaultBranchPush,
   runCronLinkedTipChecks,
   runCronTipChecks,
+  shouldEnqueueCronHydrate,
   workspaceMatchesGithubRepo,
 } from "./tip-resolve.js"
 
@@ -38,6 +39,30 @@ describe("tip resolve", () => {
         resolvedTip: "new",
       }),
     ).toBe(true)
+  })
+
+  it("does not enqueue cron hydrate before a migration-export SHA exists", () => {
+    expect(
+      shouldEnqueueCronHydrate({
+        migrationExportSha: null,
+        desiredSha: "abc",
+        activeProjectionSha: null,
+      }),
+    ).toBe(false)
+    expect(
+      shouldEnqueueCronHydrate({
+        migrationExportSha: "export",
+        desiredSha: "abc",
+        activeProjectionSha: null,
+      }),
+    ).toBe(true)
+    expect(
+      shouldEnqueueCronHydrate({
+        migrationExportSha: "export",
+        desiredSha: "abc",
+        activeProjectionSha: "abc",
+      }),
+    ).toBe(false)
   })
 
   it("persists the resolved tip and never the webhook after", async () => {

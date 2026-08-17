@@ -4,8 +4,7 @@ import { Component, type ReactNode, Suspense, useEffect, useState } from "react"
 import { AppShell } from "@/components/AppShell"
 import { type ParsedPane, parsePane, serializePane, visiblePane } from "./pane"
 import {
-  workspaceHydrateInFlight,
-  workspaceHydrateView,
+  workspacePrepareNeedsPoll,
   workspaceProjectionReady,
 } from "./projection"
 import {
@@ -80,7 +79,7 @@ function WorkspaceSurfaceReady(props: {
     refetchInterval: (query) => {
       const data = query.state.data
       if (!data) return false
-      return workspaceHydrateInFlight(data) ? 2000 : false
+      return workspacePrepareNeedsPoll(data) ? 2000 : false
     },
   })
 
@@ -138,8 +137,7 @@ function WorkspaceSurfaceReady(props: {
     )
   }
 
-  const hydrateView = workspaceHydrateView(workspace)
-  if (hydrateView === "failed" || !workspaceProjectionReady(workspace)) {
+  if (!workspaceProjectionReady(workspace)) {
     return (
       <AppShell>
         <WorkspaceHydrateProgress orgSlug={orgSlug} workspace={workspace} />

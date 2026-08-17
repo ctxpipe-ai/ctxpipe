@@ -8,6 +8,7 @@ const {
   persistHydrateFailureMock,
   persistResolvedDesiredShaMock,
   resolveWorkspaceRepositoryTipMock,
+  getMigrationExportShaMock,
 } = vi.hoisted(() => {
   const hydrateWorkspaceRow = {
     id: "ws_1",
@@ -34,7 +35,10 @@ const {
     getWorkspaceByIdMock: vi.fn().mockResolvedValue(hydrateWorkspaceRow),
     persistHydrateFailureMock: vi.fn().mockResolvedValue(undefined),
     persistResolvedDesiredShaMock: vi.fn().mockResolvedValue(true),
-    resolveWorkspaceRepositoryTipMock: vi.fn().mockResolvedValue("abc123def456"),
+    resolveWorkspaceRepositoryTipMock: vi
+      .fn()
+      .mockResolvedValue("abc123def456"),
+    getMigrationExportShaMock: vi.fn().mockResolvedValue("exportsha"),
   }
 })
 
@@ -60,6 +64,7 @@ vi.mock("../../auth/withAuth.js", () => ({
 
 vi.mock("../../models/workspaces.js", () => ({
   getWorkspaceById: getWorkspaceByIdMock,
+  getMigrationExportSha: getMigrationExportShaMock,
   listLinkedRepositories: listLinkedRepositoriesMock,
   listWorkspaceKnowledgeUnits: vi.fn(),
   commitHydrateProjection: vi.fn(),
@@ -127,6 +132,7 @@ describe("workspaceHydrate workflow", () => {
     getWorkspaceByIdMock.mockResolvedValue(hydrateWorkspaceRow)
     persistResolvedDesiredShaMock.mockResolvedValue(true)
     resolveWorkspaceRepositoryTipMock.mockResolvedValue("abc123def456")
+    getMigrationExportShaMock.mockResolvedValue("exportsha")
   })
 
   it("does not throw getLogger when only index is lagging", async () => {
@@ -193,6 +199,24 @@ describe("workspaceHydrate workflow", () => {
     expect(persistHydrateFailureMock).toHaveBeenCalledWith({
       workspaceId: "ws_1",
       message: "db down",
+    })
+  })
+
+  it("does not activate a projection before the migration-export SHA exists", async () => {
+    getMigrationExportShaMock.mockResolvedValue(null)
+    const wf = workspaceHydrate as unknown as {
+      fn: (args: {
+        input: { orgId: string; workspaceId: string }
+      }) => Promise<{ reason?: string; hydrated?: boolean }>
+    }
+
+    const result = await wf.fn({
+      input: { orgId: "org_1", workspaceId: "ws_1" },
+    })
+
+    expect(result).toEqual({
+      hydrated: false,
+      reason: "migration_export_missing",
     })
   })
 })

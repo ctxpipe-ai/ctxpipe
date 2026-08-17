@@ -31,6 +31,15 @@ export function cronTipCheckNeedsHydrate(input: {
   return input.storedDesiredSha !== applyResolvedDesiredSha(input.resolvedTip)
 }
 
+export function shouldEnqueueCronHydrate(input: {
+  migrationExportSha: string | null | undefined
+  desiredSha?: string | null
+  activeProjectionSha?: string | null
+}): boolean {
+  if (!input.migrationExportSha || !input.desiredSha) return false
+  return input.desiredSha !== input.activeProjectionSha
+}
+
 export function linkedRefMatchesPush(input: {
   webhookRef: string
   desiredRef: string | null

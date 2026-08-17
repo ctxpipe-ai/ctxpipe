@@ -11,6 +11,7 @@ import {
 import {
   runCronLinkedTipChecks,
   runCronTipChecks,
+  shouldEnqueueCronHydrate,
 } from "../../domain/workspaces/tip-resolve.js"
 import { resumePausedWriteJobs } from "../../domain/workspaces/write-job-resume.js"
 import { probeWorkspaceWriteAccess } from "../../domain/workspaces/write-status.js"
@@ -18,6 +19,7 @@ import { listOrgConversationsForSandboxGc } from "../../models/conversations.js"
 import {
   claimPausedWriteJob,
   getWorkspaceById,
+  listMigrationExportShas,
   listOrgLinkedRepositories,
   listOrgWorkspaces,
   listPausedWriteJobs,
@@ -89,13 +91,30 @@ export const workspaceTipCheck = defineWorkflow(
         reloadDesiredSha: async (workspaceId) =>
           (await getWorkspaceById(workspaceId))?.desiredSha ?? null,
       })
+      const desiredById = new Map(
+        workspaces.map((row) => [row.id, row.desiredSha]),
+      )
+      for (const item of updated) {
+        desiredById.set(item.workspaceId, item.resolvedTip)
+      }
+      const exportShas = await listMigrationExportShas()
+      for (const workspace of workspaces) {
+        if (
+          shouldEnqueueCronHydrate({
+            migrationExportSha: exportShas.get(workspace.id) ?? null,
+            desiredSha: desiredById.get(workspace.id) ?? null,
+            activeProjectionSha: workspace.activeProjectionSha,
+          })
+        ) {
+          void enqueueWorkspaceHydrate(
+            { orgId: input.orgId, workspaceId: workspace.id },
+            { error: () => undefined },
+          )
+        }
+      }
       for (const item of updated) {
         const row = workspaces.find(
           (workspace) => workspace.id === item.workspaceId,
-        )
-        void enqueueWorkspaceHydrate(
-          { orgId: input.orgId, workspaceId: item.workspaceId },
-          { error: () => undefined },
         )
         if (row) {
           void enqueueWorkspaceIndex(

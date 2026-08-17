@@ -2,6 +2,7 @@ import { createRoute, OpenAPIHono, z } from "@hono/zod-openapi"
 import type { AppEnv } from "../../app/env.js"
 import type { Env } from "../../config/env.js"
 import { fileTreeFromPaths } from "../../domain/workspaces/file-tree.js"
+import { shouldHydrateBeforeMigrationExport } from "../../domain/workspaces/hydrate.js"
 import { destroySandboxesForWorkspace } from "../../domain/workspaces/sandbox-registry.js"
 import { normalizeWorkspaceRepositoryUrl } from "../../domain/workspaces/slug.js"
 import { workspaceGraphFromUnits } from "../../domain/workspaces/workspace-graph.js"
@@ -13,9 +14,11 @@ import {
 import {
   createWorkspace,
   deleteWorkspace,
+  getMigrationExportSha,
   getPersistedFirstWorkspaceId,
   getWorkspaceBySlug,
   listLinkedRepositories,
+  listMigrationExportShas,
   listWorkspaceKnowledgeFiles,
   listWorkspaceKnowledgeUnits,
   listWorkspaces,
@@ -49,6 +52,7 @@ const WorkspaceSchema = z
     writeStatus: z.string(),
     hydrateStatus: z.string(),
     hydrateError: z.string().nullable(),
+    migrationExportSha: z.string().nullable(),
     readOnlyReason: z.string().nullable(),
     mostRecentConversationId: z.string().nullable().optional(),
     createdAt: z.string().datetime(),
@@ -153,26 +157,29 @@ async function liveWriteProbe(input: {
   })
 }
 
-function serializeWorkspace(row: {
-  id: string
-  orgId: string
-  slug: string
-  displayName: string
-  workspaceRepositoryUrl: string
-  githubConnectionId: string | null
-  desiredGeneration: number
-  desiredSha: string | null
-  activeProjectionUrl: string | null
-  activeProjectionSha: string | null
-  indexedSha: string | null
-  writeStatus: string
-  hydrateStatus: string
-  hydrateError?: string | null
-  readOnlyReason: string | null
-  mostRecentConversationId?: string | null
-  createdAt: Date
-  updatedAt: Date
-}) {
+function serializeWorkspace(
+  row: {
+    id: string
+    orgId: string
+    slug: string
+    displayName: string
+    workspaceRepositoryUrl: string
+    githubConnectionId: string | null
+    desiredGeneration: number
+    desiredSha: string | null
+    activeProjectionUrl: string | null
+    activeProjectionSha: string | null
+    indexedSha: string | null
+    writeStatus: string
+    hydrateStatus: string
+    hydrateError?: string | null
+    readOnlyReason: string | null
+    mostRecentConversationId?: string | null
+    createdAt: Date
+    updatedAt: Date
+  },
+  migrationExportSha: string | null = null,
+) {
   return {
     id: row.id,
     orgId: row.orgId,
@@ -188,6 +195,7 @@ function serializeWorkspace(row: {
     writeStatus: row.writeStatus,
     hydrateStatus: row.hydrateStatus,
     hydrateError: row.hydrateError ?? null,
+    migrationExportSha,
     readOnlyReason: row.readOnlyReason,
     mostRecentConversationId: row.mostRecentConversationId ?? null,
     createdAt: row.createdAt.toISOString(),
@@ -574,10 +582,13 @@ export const workspaceRoutes = new OpenAPIHono<AppEnv>()
       void enqueueWorkspaceCutover(orgId, c.get("log"))
     }
     if (orgId) void enqueueWorkspaceTipCheck(orgId, c.get("log"))
+    const exportShas = await listMigrationExportShas()
     return c.json(
       {
         lastUsedWorkspaceId,
-        items: items.map(serializeWorkspace),
+        items: items.map((row) =>
+          serializeWorkspace(row, exportShas.get(row.id) ?? null),
+        ),
       },
       200,
     )
@@ -621,7 +632,7 @@ export const workspaceRoutes = new OpenAPIHono<AppEnv>()
       }
     }
     void enqueueWorkspaceTipCheck(created.orgId, c.get("log"))
-    return c.json(serializeWorkspace(created), 201)
+    return c.json(serializeWorkspace(created, null), 201)
   })
   .openapi(getWorkspaceRoute, async (c) => {
     if (!c.get("user") || !c.get("session")) {
@@ -633,7 +644,10 @@ export const workspaceRoutes = new OpenAPIHono<AppEnv>()
     const linked = await listLinkedRepositories(workspace.id)
     return c.json(
       {
-        ...serializeWorkspace(workspace),
+        ...serializeWorkspace(
+          workspace,
+          await getMigrationExportSha(workspace.id),
+        ),
         linkedRepositories: linked.map((row) => ({
           ...row,
           createdAt: row.createdAt.toISOString(),
@@ -720,7 +734,10 @@ export const workspaceRoutes = new OpenAPIHono<AppEnv>()
         c.get("log"),
       )
     }
-    return c.json(serializeWorkspace(updated), 200)
+    return c.json(
+      serializeWorkspace(updated, await getMigrationExportSha(updated.id)),
+      200,
+    )
   })
   .openapi(deleteWorkspaceRoute, async (c) => {
     if (!c.get("user") || !c.get("session")) {
@@ -765,13 +782,14 @@ export const workspaceRoutes = new OpenAPIHono<AppEnv>()
     if (!workspace) return c.json({ error: "Not found" }, 404)
     const retried = await persistHydrateRetry(workspace.id)
     if (!retried) return c.json({ error: "Not found" }, 404)
+    const exportSha = await getMigrationExportSha(retried.id)
     void enqueueWorkspaceHydrate(
       { orgId: retried.orgId, workspaceId: retried.id },
       c.get("log"),
     )
     if (
-      writeJobQueueHttpDecision(retried.writeStatus).enqueue &&
-      !retried.desiredSha
+      shouldHydrateBeforeMigrationExport(exportSha) &&
+      writeJobQueueHttpDecision(retried.writeStatus).enqueue
     ) {
       void enqueueWorkspaceWriteCommit(
         {
@@ -782,7 +800,7 @@ export const workspaceRoutes = new OpenAPIHono<AppEnv>()
         c.get("log"),
       )
     }
-    return c.json(serializeWorkspace(retried), 200)
+    return c.json(serializeWorkspace(retried, exportSha), 200)
   })
   .openapi(listLinkedRoute, async (c) => {
     if (!c.get("user") || !c.get("session")) {

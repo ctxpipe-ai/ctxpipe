@@ -26,6 +26,7 @@ export const docsWorkspace: Workspace = {
   hydrateError: null,
   readOnlyReason: null,
   mostRecentConversationId: "conv_1",
+  migrationExportSha: "abc123def456",
   createdAt: "2026-08-16T09:00:00.000Z",
   updatedAt: "2026-08-16T10:00:00.000Z",
 }
@@ -47,6 +48,7 @@ export const hydratingWorkspace: Workspace = {
   hydrateStatus: "running",
   hydrateError: null,
   activeProjectionSha: null,
+  migrationExportSha: null,
   indexedSha: null,
 }
 

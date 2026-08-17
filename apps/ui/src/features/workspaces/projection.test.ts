@@ -2,11 +2,12 @@ import { describe, expect, it } from "vitest"
 import {
   workspaceHydrateInFlight,
   workspaceHydrateView,
+  workspacePrepareNeedsPoll,
   workspaceProjectionReady,
 } from "./projection"
 
 describe("workspaceProjectionReady", () => {
-  it("serves chat once a projection SHA exists, including during relink", () => {
+  it("serves chat once a projection SHA exists after migration export", () => {
     expect(
       workspaceProjectionReady({
         hydrateStatus: "pending",
@@ -18,11 +19,12 @@ describe("workspaceProjectionReady", () => {
         hydrateStatus: "ready",
         activeProjectionSha: "abc",
       }),
-    ).toBe(true)
+    ).toBe(false)
     expect(
       workspaceProjectionReady({
         hydrateStatus: "pending",
         activeProjectionSha: "aaa",
+        migrationExportSha: "export",
       }),
     ).toBe(true)
   })
@@ -103,6 +105,42 @@ describe("workspaceHydrateView", () => {
         hydrateStatus: "ready",
         desiredSha: "aaa",
         activeProjectionSha: "aaa",
+      }),
+    ).toBe(false)
+  })
+})
+
+describe("workspacePrepareNeedsPoll", () => {
+  it("keeps polling until export-backed chat is ready, except a failed prepare", () => {
+    expect(
+      workspacePrepareNeedsPoll({
+        hydrateStatus: "ready",
+        desiredSha: "aaa",
+        activeProjectionSha: "aaa",
+      }),
+    ).toBe(true)
+    expect(
+      workspacePrepareNeedsPoll({
+        hydrateStatus: "failed",
+        desiredSha: "aaa",
+        activeProjectionSha: null,
+        migrationExportSha: null,
+      }),
+    ).toBe(false)
+    expect(
+      workspacePrepareNeedsPoll({
+        hydrateStatus: "ready",
+        desiredSha: "aaa",
+        activeProjectionSha: "aaa",
+        migrationExportSha: "export",
+      }),
+    ).toBe(false)
+    expect(
+      workspacePrepareNeedsPoll({
+        hydrateStatus: "failed",
+        desiredSha: "bbb",
+        activeProjectionSha: "aaa",
+        migrationExportSha: "export",
       }),
     ).toBe(false)
   })

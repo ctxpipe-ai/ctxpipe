@@ -8,6 +8,7 @@ import {
   hydrateReadsStoredDesiredSha,
   hydrateUnitsToProjectionClaims,
   servingIdForKnowledgePath,
+  shouldHydrateBeforeMigrationExport,
   shouldReplaceKnowledgeProjection,
   workspaceHydrateInFlight,
   workspaceHydrateView,
@@ -136,6 +137,14 @@ describe("workspaceProjectionReady", () => {
       workspaceProjectionReady({
         hydrateStatus: "ready",
         activeProjectionSha: "abc",
+        migrationExportSha: "abc",
+      }),
+    ).toBe(true)
+    expect(
+      workspaceProjectionReady({
+        hydrateStatus: "pending",
+        activeProjectionSha: "aaa",
+        migrationExportSha: "aaa",
       }),
     ).toBe(true)
     expect(
@@ -143,7 +152,19 @@ describe("workspaceProjectionReady", () => {
         hydrateStatus: "pending",
         activeProjectionSha: "aaa",
       }),
+    ).toBe(false)
+    expect(
+      workspaceProjectionReady({
+        hydrateStatus: "ready",
+        activeProjectionSha: "aaa",
+        migrationExportSha: "export",
+      }),
     ).toBe(true)
+  })
+
+  it("does not hydrate a random tip before the migration-export SHA exists", () => {
+    expect(shouldHydrateBeforeMigrationExport(null)).toBe(true)
+    expect(shouldHydrateBeforeMigrationExport("export")).toBe(false)
   })
 })
 

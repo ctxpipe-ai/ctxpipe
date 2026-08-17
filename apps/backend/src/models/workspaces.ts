@@ -1,4 +1,13 @@
-import { and, desc, eq, exists, isNotNull, notInArray, sql } from "drizzle-orm"
+import {
+  and,
+  asc,
+  desc,
+  eq,
+  exists,
+  isNotNull,
+  notInArray,
+  sql,
+} from "drizzle-orm"
 import { createError } from "evlog"
 import { requireCurrentOrgId, requireCurrentUserId } from "../auth/context.js"
 import { getOrgDb } from "../db/client.js"
@@ -596,6 +605,7 @@ export async function listOrgWorkspaces(
       | "workspaceRepositoryUrl"
       | "desiredGeneration"
       | "desiredSha"
+      | "activeProjectionSha"
       | "githubConnectionId"
       | "createdAt"
       | "lastJobAt"
@@ -608,6 +618,7 @@ export async function listOrgWorkspaces(
       workspaceRepositoryUrl: workspaces.workspaceRepositoryUrl,
       desiredGeneration: workspaces.desiredGeneration,
       desiredSha: workspaces.desiredSha,
+      activeProjectionSha: workspaces.activeProjectionSha,
       githubConnectionId: workspaces.githubConnectionId,
       createdAt: workspaces.createdAt,
       lastJobAt: workspaces.lastJobAt,
@@ -1421,6 +1432,47 @@ export async function listCompletedMigrationExportWorkspaceIds(): Promise<
       ),
     )
   return [...new Set(rows.map((row) => row.workspaceId))]
+}
+
+export async function listMigrationExportShas(): Promise<Map<string, string>> {
+  const rows = await getOrgDb()
+    .select({
+      workspaceId: workspaceWriteJobs.workspaceId,
+      commitSha: workspaceWriteJobs.commitSha,
+    })
+    .from(workspaceWriteJobs)
+    .where(
+      and(
+        eq(workspaceWriteJobs.kind, "migration_export"),
+        isNotNull(workspaceWriteJobs.commitSha),
+      ),
+    )
+    .orderBy(asc(workspaceWriteJobs.createdAt))
+  const shas = new Map<string, string>()
+  for (const row of rows) {
+    if (row.commitSha && !shas.has(row.workspaceId)) {
+      shas.set(row.workspaceId, row.commitSha)
+    }
+  }
+  return shas
+}
+
+export async function getMigrationExportSha(
+  workspaceId: string,
+): Promise<string | null> {
+  const [row] = await getOrgDb()
+    .select({ commitSha: workspaceWriteJobs.commitSha })
+    .from(workspaceWriteJobs)
+    .where(
+      and(
+        eq(workspaceWriteJobs.workspaceId, workspaceId),
+        eq(workspaceWriteJobs.kind, "migration_export"),
+        isNotNull(workspaceWriteJobs.commitSha),
+      ),
+    )
+    .orderBy(asc(workspaceWriteJobs.createdAt))
+    .limit(1)
+  return row?.commitSha ?? null
 }
 
 export async function persistHydrateFailure(input: {

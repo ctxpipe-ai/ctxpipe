@@ -7,8 +7,10 @@ export type WorkspaceHydrateView =
 export function workspaceProjectionReady(input: {
   hydrateStatus: string
   activeProjectionSha: string | null
+  migrationExportSha?: string | null
 }): boolean {
   void input.hydrateStatus
+  if (!input.migrationExportSha) return false
   return Boolean(input.activeProjectionSha)
 }
 
@@ -42,4 +44,23 @@ export function workspaceHydrateInFlight(input: {
 }): boolean {
   const view = workspaceHydrateView(input)
   return view === "waiting_for_tip" || view === "hydrating"
+}
+
+export function workspacePrepareNeedsPoll(input: {
+  hydrateStatus: string
+  desiredSha?: string | null
+  hydrateError?: string | null
+  activeProjectionSha?: string | null
+  migrationExportSha?: string | null
+}): boolean {
+  if (
+    workspaceProjectionReady({
+      hydrateStatus: input.hydrateStatus,
+      activeProjectionSha: input.activeProjectionSha ?? null,
+      migrationExportSha: input.migrationExportSha,
+    })
+  ) {
+    return workspaceHydrateInFlight(input)
+  }
+  return workspaceHydrateView(input) !== "failed"
 }
