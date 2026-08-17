@@ -4,6 +4,9 @@ const getSandboxInstance = vi.hoisted(() => vi.fn())
 const persistSandboxInstance = vi.hoisted(() => vi.fn(async () => {}))
 const deleteSandboxInstance = vi.hoisted(() => vi.fn(async () => {}))
 const getWorkspaceById = vi.hoisted(() => vi.fn(async () => ({ id: "ws_1" })))
+const getConversation = vi.hoisted(() =>
+  vi.fn(async () => ({ id: "conv_1", workspaceId: "ws_1" })),
+)
 const withDbClientMock = vi.hoisted(() => vi.fn())
 const withOrgDbContextMock = vi.hoisted(() =>
   vi.fn(async (_orgId: string, fn: () => Promise<unknown>) => fn()),
@@ -14,6 +17,10 @@ vi.mock("../../models/workspaces.js", () => ({
   persistSandboxInstance,
   deleteSandboxInstance,
   getWorkspaceById,
+}))
+
+vi.mock("../../models/conversations.js", () => ({
+  getConversation,
 }))
 
 vi.mock("../../db/client.js", () => ({
@@ -110,6 +117,8 @@ describe("postgresSandboxLockStore", () => {
   beforeEach(() => {
     getWorkspaceById.mockReset()
     getWorkspaceById.mockResolvedValue({ id: "ws_1" })
+    getConversation.mockReset()
+    getConversation.mockResolvedValue({ id: "conv_1", workspaceId: "ws_1" })
   })
 
   it("takes the workspace lock then the instance lock without a transaction", async () => {
@@ -173,6 +182,27 @@ describe("postgresSandboxLockStore", () => {
     await expect(locks.withLock("sandbox:key", ran)).rejects.toThrow(
       /Workspace ws_1 is gone/,
     )
+    expect(ran).not.toHaveBeenCalled()
+  })
+
+  it("refuses chat create after the conversation row is gone", async () => {
+    const query = vi.fn().mockResolvedValue(undefined)
+    withDbClientMock.mockImplementation(
+      async (fn: (client: { query: typeof query }) => unknown) => fn({ query }),
+    )
+    getConversation.mockResolvedValueOnce(null)
+    const ran = vi.fn(async () => "ok")
+    const locks = postgresSandboxLockStore({
+      orgId: "org_1",
+      workspaceId: "ws_1",
+      conversationId: "conv_1",
+    })
+    await expect(locks.withLock("sandbox:key", ran)).rejects.toThrow(
+      /Conversation conv_1 is gone/,
+    )
+    expect(getConversation).toHaveBeenCalledWith("conv_1", {
+      workspaceId: "ws_1",
+    })
     expect(ran).not.toHaveBeenCalled()
   })
 })

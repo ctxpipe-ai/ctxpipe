@@ -5,6 +5,7 @@ import type {
   SandboxInstanceRecord as TanstackSandboxInstanceRecord,
 } from "@tanstack/ai-sandbox"
 import { withLockClient, withOrgDbContext } from "../../db/client.js"
+import { getConversation } from "../../models/conversations.js"
 import {
   deleteSandboxInstance,
   getSandboxInstance,
@@ -100,19 +101,29 @@ export async function withSandboxAdvisoryLock<T>(
 export function postgresSandboxLockStore(input: {
   orgId: string
   workspaceId: string
+  conversationId?: string
 }): LockStore {
   const workspaceKey = workspaceSandboxLockKey(input.workspaceId)
   return {
     withLock(key, fn) {
       return withSandboxAdvisoryLock(workspaceKey, async (signal) => {
-        const workspace = await withOrgDbContext(input.orgId, () =>
-          getWorkspaceById(input.workspaceId),
-        )
-        if (!workspace) {
-          throw new Error(
-            `Workspace ${input.workspaceId} is gone; refusing sandbox create`,
-          )
-        }
+        await withOrgDbContext(input.orgId, async () => {
+          const workspace = await getWorkspaceById(input.workspaceId)
+          if (!workspace) {
+            throw new Error(
+              `Workspace ${input.workspaceId} is gone; refusing sandbox create`,
+            )
+          }
+          if (!input.conversationId) return
+          const conversation = await getConversation(input.conversationId, {
+            workspaceId: input.workspaceId,
+          })
+          if (!conversation) {
+            throw new Error(
+              `Conversation ${input.conversationId} is gone; refusing sandbox create`,
+            )
+          }
+        })
         return key === workspaceKey
           ? fn(signal)
           : withSandboxAdvisoryLock(key, () => fn(signal))
