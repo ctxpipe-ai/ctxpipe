@@ -114,7 +114,7 @@ describe("workspaces API", () => {
     destroySandboxesForWorkspaceMock.mockResolvedValue(0)
     withDestroyedWorkspaceSandboxesMock.mockImplementation(
       async (
-        _workspaceId: string,
+        _input: { workspaceId: string; orgId: string },
         fn: (remaining: unknown[]) => Promise<unknown>,
       ) => fn([]),
     )
@@ -310,7 +310,7 @@ describe("workspaces API", () => {
     })
     expect(res.status).toBe(204)
     expect(withDestroyedWorkspaceSandboxesMock).toHaveBeenCalledWith(
-      "ws_abc",
+      { workspaceId: "ws_abc", orgId: "org_mock" },
       expect.any(Function),
     )
     expect(deleteWorkspaceMock).toHaveBeenCalledWith("knowledge", "knowledge")
@@ -346,7 +346,7 @@ describe("workspaces API", () => {
     getWorkspaceBySlugMock.mockResolvedValue(workspaceRow)
     withDestroyedWorkspaceSandboxesMock.mockImplementation(
       async (
-        _workspaceId: string,
+        _input: { workspaceId: string; orgId: string },
         fn: (remaining: unknown[]) => Promise<unknown>,
       ) =>
         fn([
@@ -368,7 +368,7 @@ describe("workspaces API", () => {
     })
     expect(res.status).toBe(409)
     expect(withDestroyedWorkspaceSandboxesMock).toHaveBeenCalledWith(
-      "ws_abc",
+      { workspaceId: "ws_abc", orgId: "org_mock" },
       expect.any(Function),
     )
     expect(deleteWorkspaceMock).not.toHaveBeenCalled()

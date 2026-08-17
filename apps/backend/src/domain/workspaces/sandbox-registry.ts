@@ -1,3 +1,4 @@
+import { withOrgDbContext } from "../../db/client.js"
 import {
   claimSandboxInstance,
   deleteSandboxInstance,
@@ -218,15 +219,19 @@ export async function destroySandboxesForWorkspace(
 }
 
 export async function withDestroyedWorkspaceSandboxes<T>(
-  workspaceId: string,
+  input: { workspaceId: string; orgId: string },
   fn: (remaining: SandboxInstanceRecord[]) => Promise<T>,
 ): Promise<T> {
   return withSandboxAdvisoryLock(
-    workspaceSandboxLockKey(workspaceId),
+    workspaceSandboxLockKey(input.workspaceId),
     async () => {
-      await destroyListedSandboxesForWorkspace(workspaceId, "any")
-      const remaining = await listSandboxInstances({ workspaceId })
-      return fn(remaining)
+      await destroyListedSandboxesForWorkspace(input.workspaceId, "any")
+      return withOrgDbContext(input.orgId, async () => {
+        const remaining = await listSandboxInstances({
+          workspaceId: input.workspaceId,
+        })
+        return fn(remaining)
+      })
     },
   )
 }

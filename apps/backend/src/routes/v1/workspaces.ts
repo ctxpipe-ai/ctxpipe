@@ -762,7 +762,7 @@ export const workspaceRoutes = new OpenAPIHono<AppEnv>()
         )
       }
       const deleted = await withDestroyedWorkspaceSandboxes(
-        workspace.id,
+        { workspaceId: workspace.id, orgId: workspace.orgId },
         async (remaining) => {
           if (remaining.some((row) => row.providerSandboxId)) {
             throw Object.assign(

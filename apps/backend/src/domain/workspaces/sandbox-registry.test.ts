@@ -32,6 +32,14 @@ vi.mock("./sandbox-instance-store.js", () => ({
     `sandbox:job:${workspaceId}`,
 }))
 
+const withOrgDbContext = vi.hoisted(() =>
+  vi.fn(async (_orgId: string, fn: () => Promise<unknown>) => fn()),
+)
+
+vi.mock("../../db/client.js", () => ({
+  withOrgDbContext,
+}))
+
 const claimSandboxInstance = vi.hoisted(() =>
   vi.fn(async (input: { id: string }) => ({
     record: input,
@@ -78,6 +86,10 @@ describe("sandbox registry GC", () => {
     getSandboxInstance.mockReset()
     getSandboxInstance.mockResolvedValue(null)
     destroyDetachedProviderSandbox.mockClear()
+    withOrgDbContext.mockReset()
+    withOrgDbContext.mockImplementation(
+      async (_orgId: string, fn: () => Promise<unknown>) => fn(),
+    )
     withSandboxAdvisoryLock.mockReset()
     withSandboxAdvisoryLock.mockImplementation(
       async (_key: string, fn: () => Promise<unknown>) => fn(),
@@ -315,17 +327,32 @@ describe("sandbox registry GC", () => {
       order.push("list")
       return []
     })
+    withOrgDbContext.mockImplementation(
+      async (_orgId: string, fn: () => Promise<unknown>) => {
+        order.push("org-tx")
+        try {
+          return await fn()
+        } finally {
+          order.push("org-commit")
+        }
+      },
+    )
     await expect(
-      withDestroyedWorkspaceSandboxes("ws_del", async (remaining) => {
-        order.push(`fn:${remaining.length}`)
-        return "ok"
-      }),
+      withDestroyedWorkspaceSandboxes(
+        { workspaceId: "ws_del", orgId: "org_1" },
+        async (remaining) => {
+          order.push(`fn:${remaining.length}`)
+          return "ok"
+        },
+      ),
     ).resolves.toBe("ok")
     expect(order).toEqual([
       "lock:sandbox:job:ws_del",
       "list",
+      "org-tx",
       "list",
       "fn:0",
+      "org-commit",
       "unlock",
     ])
   })
