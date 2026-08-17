@@ -314,6 +314,10 @@ export function listRegisteredSandboxes(): RegisteredSandbox[] {
   return [...sandboxes.values()]
 }
 
+export function resetRegisteredSandboxes(): void {
+  sandboxes.clear()
+}
+
 export function getJobSandbox(workspaceId: string): JobSandboxHandle | null {
   const row = [...sandboxes.values()].find(
     (item) =>

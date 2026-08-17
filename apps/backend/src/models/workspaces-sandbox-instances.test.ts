@@ -81,9 +81,13 @@ describe("claimSandboxInstance", () => {
     expect(db.insert).toHaveBeenCalled()
     expect(claimed.inserted).toBe(true)
     expect(claimed.record.id).toBe("job-new")
-    expect(JSON.stringify(db.orderBy.mock.calls[0])).toMatch(
-      /provider_sandbox_id/,
-    )
+    expect(
+      db.orderBy.mock.calls[0]?.some((arg) =>
+        JSON.stringify(arg, (key, value) =>
+          key === "table" ? undefined : value,
+        )?.includes("provider_sandbox_id"),
+      ),
+    ).toBe(true)
   })
 
   it("returns the existing live row instead of inserting a second job sandbox", async () => {

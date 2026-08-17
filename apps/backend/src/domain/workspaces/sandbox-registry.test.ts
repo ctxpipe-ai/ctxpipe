@@ -13,6 +13,7 @@ import {
   heartbeatChatSandboxes,
   jobSandboxesDueForDestroy,
   registerWorkspaceSandbox,
+  resetRegisteredSandboxes,
 } from "./sandbox-registry.js"
 
 const claimSandboxInstance = vi.hoisted(() =>
@@ -59,6 +60,7 @@ describe("sandbox registry GC", () => {
     heartbeatSandboxInstance.mockClear()
     getSandboxInstance.mockReset()
     getSandboxInstance.mockResolvedValue(null)
+    resetRegisteredSandboxes()
   })
 
   it("destroys idle chat after 30 minutes and jobs after 60", () => {
