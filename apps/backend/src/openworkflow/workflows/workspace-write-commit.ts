@@ -417,6 +417,7 @@ export const workspaceWriteCommit = defineWorkflow(
                 create: async (sandboxId, hooks) =>
                   createTanstackJobSandbox({
                     sandboxId,
+                    storedProvider: hooks.storedProvider,
                     persistProviderId: hooks.persistLive,
                     abandonCreated: hooks.abandon,
                     gitUrl: jobWorkspaceUrl,

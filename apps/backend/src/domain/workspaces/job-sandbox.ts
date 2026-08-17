@@ -7,6 +7,7 @@ import { scrubOriginAfterCloneCommand } from "./clone-credentials.js"
 import type { JobSandboxHandle, JobWorktreeExec } from "./job-worktree.js"
 import { withSandboxAdvisoryLock } from "./sandbox-instance-store.js"
 import {
+  destroyDetachedProviderSandbox,
   detectSandboxProviderFromEnv,
   type SandboxProvider,
 } from "./sandbox-provider.js"
@@ -69,6 +70,7 @@ export type JobSandboxCreateHooks = {
     provider: string
     destroyed: boolean
   }) => Promise<void>
+  storedProvider?: string | null
 }
 
 export async function ensureJobSandbox(input: {
@@ -116,6 +118,9 @@ export async function ensureJobSandbox(input: {
       if (attachedAfterClaim) return attachedAfterClaim
       const resumeId = claimed.record.providerSandboxId ?? claimed.record.id
       const created = await input.create(resumeId, {
+        storedProvider: claimed.record.providerSandboxId
+          ? claimed.record.provider
+          : undefined,
         persistLive: async ({ providerSandboxId, provider }) => {
           await persistSandboxInstance({
             ...claimed.record,
@@ -189,6 +194,27 @@ type SandboxModules = {
   localProcessSandbox?: () => SandboxFactory
 }
 
+function jobProviderName(
+  isolation: "docker" | "local_process" | string,
+): "docker" | "local-process" {
+  return isolation === "docker" || isolation === "sbx"
+    ? "docker"
+    : "local-process"
+}
+
+function factoryForProvider(
+  modules: SandboxModules,
+  provider: string | null | undefined,
+): SandboxFactory | undefined {
+  if (provider === "docker" || provider === "sbx") {
+    return modules.dockerSandbox?.({ image: "node:22" })
+  }
+  if (provider === "local-process" || provider === "local_process") {
+    return modules.localProcessSandbox?.()
+  }
+  return undefined
+}
+
 async function loadJobSandboxModules(): Promise<SandboxModules> {
   const [docker, local] = await Promise.all([
     import("@tanstack/ai-sandbox-docker").catch(() => null),
@@ -240,6 +266,7 @@ export async function createTanstackJobSandbox(input: {
   loadModules?: () => Promise<SandboxModules>
   persistProviderId?: JobSandboxCreateHooks["persistLive"]
   abandonCreated?: JobSandboxCreateHooks["abandon"]
+  storedProvider?: string | null
 }): Promise<{
   handle: JobSandboxHandle
   destroy: () => Promise<void>
@@ -247,6 +274,21 @@ export async function createTanstackJobSandbox(input: {
   provider: string
 } | null> {
   const modules = await (input.loadModules ?? loadJobSandboxModules)()
+  const storedProvider = input.storedProvider ?? undefined
+  if (input.sandboxId && storedProvider) {
+    const storedFactory = factoryForProvider(modules, storedProvider)
+    const resumed = storedFactory
+      ? await storedFactory.resume?.({ id: input.sandboxId })
+      : null
+    if (resumed) {
+      return {
+        handle: adaptTanstackHandle(resumed),
+        destroy: () => resumed.destroy(),
+        providerSandboxId: resumed.id ?? input.sandboxId,
+        provider: jobProviderName(storedProvider),
+      }
+    }
+  }
   const provider = detectSandboxProviderFromEnv({ env: input.env })
   const isolation = resolveJobSandboxIsolation({
     provider,
@@ -254,21 +296,25 @@ export async function createTanstackJobSandbox(input: {
     hasLocal: Boolean(modules.localProcessSandbox),
   })
   if (!isolation) return null
-  const factory =
-    isolation === "docker"
-      ? modules.dockerSandbox?.({ image: "node:22" })
-      : modules.localProcessSandbox?.()
+  const factory = factoryForProvider(modules, jobProviderName(isolation))
   if (!factory) return null
-  const providerName = isolation === "docker" ? "docker" : "local-process"
-  const resumed = input.sandboxId
-    ? await factory.resume?.({ id: input.sandboxId })
-    : null
-  if (resumed) {
-    return {
-      handle: adaptTanstackHandle(resumed),
-      destroy: () => resumed.destroy(),
-      providerSandboxId: resumed.id ?? input.sandboxId,
-      provider: providerName,
+  const providerName = jobProviderName(isolation)
+  if (input.sandboxId && storedProvider) {
+    await destroyDetachedProviderSandbox({
+      provider: storedProvider,
+      providerSandboxId: input.sandboxId,
+    })
+  } else {
+    const resumed = input.sandboxId
+      ? await factory.resume?.({ id: input.sandboxId })
+      : null
+    if (resumed) {
+      return {
+        handle: adaptTanstackHandle(resumed),
+        destroy: () => resumed.destroy(),
+        providerSandboxId: resumed.id ?? input.sandboxId,
+        provider: providerName,
+      }
     }
   }
   const raw = await factory.create({})

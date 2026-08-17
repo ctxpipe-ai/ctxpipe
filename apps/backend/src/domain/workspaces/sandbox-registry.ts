@@ -13,6 +13,7 @@ import {
   shouldDestroyJobSandbox,
 } from "./chat-lifecycle.js"
 import type { JobSandboxHandle } from "./job-worktree.js"
+import { withSandboxAdvisoryLock } from "./sandbox-instance-store.js"
 import { destroyDetachedProviderSandbox } from "./sandbox-provider.js"
 
 export type RegisteredSandbox = {
@@ -203,6 +204,18 @@ export async function destroySandboxesForConversation(
 export async function destroySandboxesForWorkspace(
   workspaceId: string,
   kind: "chat" | "job" | "any" = "any",
+): Promise<number> {
+  if (kind === "chat") {
+    return destroyListedSandboxesForWorkspace(workspaceId, kind)
+  }
+  return withSandboxAdvisoryLock(`sandbox:job:${workspaceId}`, async () =>
+    destroyListedSandboxesForWorkspace(workspaceId, kind),
+  )
+}
+
+async function destroyListedSandboxesForWorkspace(
+  workspaceId: string,
+  kind: "chat" | "job" | "any",
 ): Promise<number> {
   const stored = await listSandboxInstances({
     workspaceId,

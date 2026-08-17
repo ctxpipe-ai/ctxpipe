@@ -17,9 +17,16 @@ import {
 } from "./sandbox-registry.js"
 
 const destroyDetachedProviderSandbox = vi.hoisted(() => vi.fn(async () => {}))
+const withSandboxAdvisoryLock = vi.hoisted(() =>
+  vi.fn(async (_key: string, fn: () => Promise<unknown>) => fn()),
+)
 
 vi.mock("./sandbox-provider.js", () => ({
   destroyDetachedProviderSandbox,
+}))
+
+vi.mock("./sandbox-instance-store.js", () => ({
+  withSandboxAdvisoryLock,
 }))
 
 const claimSandboxInstance = vi.hoisted(() =>
@@ -68,6 +75,10 @@ describe("sandbox registry GC", () => {
     getSandboxInstance.mockReset()
     getSandboxInstance.mockResolvedValue(null)
     destroyDetachedProviderSandbox.mockClear()
+    withSandboxAdvisoryLock.mockReset()
+    withSandboxAdvisoryLock.mockImplementation(
+      async (_key: string, fn: () => Promise<unknown>) => fn(),
+    )
     resetRegisteredSandboxes()
   })
 
@@ -242,6 +253,47 @@ describe("sandbox registry GC", () => {
       destroySandboxesForWorkspace("ws_orphan_job", "job"),
     ).resolves.toBe(1)
     expect(deleteSandboxInstance).toHaveBeenCalledWith("job-orphan", undefined)
+    expect(withSandboxAdvisoryLock).toHaveBeenCalledWith(
+      "sandbox:job:ws_orphan_job",
+      expect.any(Function),
+    )
+  })
+
+  it("re-lists job sandboxes after taking the workspace advisory lock", async () => {
+    const order: string[] = []
+    withSandboxAdvisoryLock.mockImplementation(
+      async (key: string, fn: () => Promise<unknown>) => {
+        order.push(`lock:${key}`)
+        try {
+          return await fn()
+        } finally {
+          order.push("unlock")
+        }
+      },
+    )
+    listSandboxInstances.mockImplementation(async () => {
+      order.push("list")
+      return [
+        {
+          id: "job-locked",
+          kind: "job" as const,
+          workspaceId: "ws_lock",
+          state: "live" as const,
+          lastHeartbeatAt: new Date(),
+        },
+      ]
+    })
+    getSandboxInstance.mockResolvedValue({
+      id: "job-locked",
+      kind: "job",
+      workspaceId: "ws_lock",
+      state: "live",
+      lastHeartbeatAt: new Date(),
+    })
+    await expect(destroySandboxesForWorkspace("ws_lock", "job")).resolves.toBe(
+      1,
+    )
+    expect(order).toEqual(["lock:sandbox:job:ws_lock", "list", "unlock"])
   })
 
   it("destroys a detached provider sandbox before deleting the resume row", async () => {

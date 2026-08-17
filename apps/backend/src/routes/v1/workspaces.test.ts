@@ -14,6 +14,8 @@ const linkRepositoryMock = vi.hoisted(() => vi.fn())
 const unlinkRepositoryMock = vi.hoisted(() => vi.fn())
 const persistHydrateRetryMock = vi.hoisted(() => vi.fn())
 const deleteWorkspaceMock = vi.hoisted(() => vi.fn())
+const listSandboxInstancesMock = vi.hoisted(() => vi.fn())
+const destroySandboxesForWorkspaceMock = vi.hoisted(() => vi.fn())
 const getMigrationExportShaMock = vi.hoisted(() =>
   vi.fn().mockResolvedValue(null),
 )
@@ -37,6 +39,10 @@ vi.mock("../../openworkflow/enqueue-workspace-tip-check.js", () => ({
   enqueueWorkspaceTipCheck: vi.fn().mockResolvedValue(undefined),
 }))
 
+vi.mock("../../domain/workspaces/sandbox-registry.js", () => ({
+  destroySandboxesForWorkspace: destroySandboxesForWorkspaceMock,
+}))
+
 vi.mock("../../models/workspaces.js", () => ({
   listWorkspaces: listWorkspacesMock,
   createWorkspace: createWorkspaceMock,
@@ -48,6 +54,7 @@ vi.mock("../../models/workspaces.js", () => ({
   listWorkspaceKnowledgeUnits: listWorkspaceKnowledgeUnitsMock,
   persistHydrateRetry: persistHydrateRetryMock,
   deleteWorkspace: deleteWorkspaceMock,
+  listSandboxInstances: listSandboxInstancesMock,
   getMigrationExportSha: getMigrationExportShaMock,
   listMigrationExportShas: listMigrationExportShasMock,
   linkRepository: linkRepositoryMock,
@@ -104,6 +111,8 @@ describe("workspaces API", () => {
     vi.clearAllMocks()
     getMigrationExportShaMock.mockResolvedValue(null)
     listMigrationExportShasMock.mockResolvedValue(new Map())
+    destroySandboxesForWorkspaceMock.mockResolvedValue(0)
+    listSandboxInstancesMock.mockResolvedValue([])
   })
 
   it("lists workspaces and last-used id", async () => {
@@ -287,6 +296,7 @@ describe("workspaces API", () => {
   })
 
   it("deletes a workspace when confirmName matches the display name", async () => {
+    getWorkspaceBySlugMock.mockResolvedValue(workspaceRow)
     deleteWorkspaceMock.mockResolvedValue({ id: "ws_abc" })
     const res = await app().request("/workspaces/knowledge", {
       method: "DELETE",
@@ -294,18 +304,15 @@ describe("workspaces API", () => {
       body: JSON.stringify({ confirmName: "knowledge" }),
     })
     expect(res.status).toBe(204)
+    expect(destroySandboxesForWorkspaceMock).toHaveBeenCalledWith("ws_abc")
+    expect(listSandboxInstancesMock).toHaveBeenCalledWith({
+      workspaceId: "ws_abc",
+    })
     expect(deleteWorkspaceMock).toHaveBeenCalledWith("knowledge", "knowledge")
   })
 
   it("400s when confirmName does not match", async () => {
-    deleteWorkspaceMock.mockRejectedValue(
-      Object.assign(
-        new Error("Type the Workspace display name to confirm delete"),
-        {
-          status: 400,
-        },
-      ),
-    )
+    getWorkspaceBySlugMock.mockResolvedValue(workspaceRow)
     const res = await app().request("/workspaces/knowledge", {
       method: "DELETE",
       headers: { "content-type": "application/json" },
@@ -314,16 +321,42 @@ describe("workspaces API", () => {
     expect(res.status).toBe(400)
     const body = await res.json()
     expect(body.error).toBe("Type the Workspace display name to confirm delete")
+    expect(destroySandboxesForWorkspaceMock).not.toHaveBeenCalled()
+    expect(deleteWorkspaceMock).not.toHaveBeenCalled()
   })
 
   it("404s delete for an unknown slug", async () => {
-    deleteWorkspaceMock.mockResolvedValue(false)
+    getWorkspaceBySlugMock.mockResolvedValue(null)
     const res = await app().request("/workspaces/missing", {
       method: "DELETE",
       headers: { "content-type": "application/json" },
       body: JSON.stringify({ confirmName: "Docs" }),
     })
     expect(res.status).toBe(404)
+    expect(deleteWorkspaceMock).not.toHaveBeenCalled()
+  })
+
+  it("keeps the workspace when sandbox destroy leaves a live provider id", async () => {
+    getWorkspaceBySlugMock.mockResolvedValue(workspaceRow)
+    listSandboxInstancesMock.mockResolvedValue([
+      {
+        id: "job-1",
+        kind: "job",
+        workspaceId: "ws_abc",
+        provider: "docker",
+        providerSandboxId: "sbx_live",
+        state: "destroy_failed",
+        lastHeartbeatAt: new Date(),
+      },
+    ])
+    const res = await app().request("/workspaces/knowledge", {
+      method: "DELETE",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ confirmName: "knowledge" }),
+    })
+    expect(res.status).toBe(409)
+    expect(destroySandboxesForWorkspaceMock).toHaveBeenCalledWith("ws_abc")
+    expect(deleteWorkspaceMock).not.toHaveBeenCalled()
   })
 
   it("records last-used on touch", async () => {

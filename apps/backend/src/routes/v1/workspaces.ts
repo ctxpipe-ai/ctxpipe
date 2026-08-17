@@ -19,6 +19,7 @@ import {
   getWorkspaceBySlug,
   listLinkedRepositories,
   listMigrationExportShas,
+  listSandboxInstances,
   listWorkspaceKnowledgeFiles,
   listWorkspaceKnowledgeUnits,
   listWorkspaces,
@@ -329,6 +330,10 @@ const deleteWorkspaceRoute = createRoute({
     404: {
       content: { "application/json": { schema: ErrorResponseSchema } },
       description: "Not found",
+    },
+    409: {
+      content: { "application/json": { schema: ErrorResponseSchema } },
+      description: "Workspace sandboxes could not be destroyed",
     },
   },
 })
@@ -746,9 +751,26 @@ export const workspaceRoutes = new OpenAPIHono<AppEnv>()
     const { workspaceSlug } = workspaceSlugParams(c)
     const body = DeleteWorkspaceRequestSchema.parse(await c.req.json())
     try {
+      const workspace = await getWorkspaceBySlug(workspaceSlug)
+      if (!workspace) return c.json({ error: "Not found" }, 404)
+      if (body.confirmName !== workspace.displayName) {
+        return c.json(
+          { error: "Type the Workspace display name to confirm delete" },
+          400,
+        )
+      }
+      await destroySandboxesForWorkspace(workspace.id)
+      const remaining = await listSandboxInstances({
+        workspaceId: workspace.id,
+      })
+      if (remaining.some((row) => row.providerSandboxId)) {
+        return c.json(
+          { error: "Workspace sandboxes could not be destroyed" },
+          409,
+        )
+      }
       const deleted = await deleteWorkspace(workspaceSlug, body.confirmName)
       if (!deleted) return c.json({ error: "Not found" }, 404)
-      void destroySandboxesForWorkspace(deleted.id)
       return c.body(null, 204)
     } catch (error) {
       const status =
