@@ -42,7 +42,7 @@ import {
   persistHydratePhases,
   persistUnitEmbeddings,
 } from "../../models/workspaces.js"
-import { getLogger } from "../../observability/logger.js"
+import { createLogger, getLogger, withLogger } from "../../observability/logger.js"
 import { projectClaimsFromState } from "../../retrieval/services/graphProjection.js"
 import { generateEmbeddings } from "../../retrieval/services/modelProvider.js"
 import { listMarkdownFilesAtGitSha } from "../../services/git/clone-tree.js"
@@ -90,7 +90,14 @@ async function enqueueLaggingIndex(input: {
 
 export const workspaceHydrate = defineWorkflow(
   { name: "workspace-hydrate", schema: workspaceHydrateInputSchema },
-  async ({ input }) => {
+  async ({ input }) =>
+    withLogger(
+      createLogger({
+        workflow: "workspace-hydrate",
+        orgId: input.orgId,
+        workspaceId: input.workspaceId,
+      }),
+      async () => {
     const env = parseEnv(process.env as Record<string, string | undefined>)
     const org = await getSystemDb().query.organizations.findFirst({
       where: { id: { eq: input.orgId } },
@@ -408,5 +415,6 @@ export const workspaceHydrate = defineWorkflow(
         }
       }),
     )
-  },
+      },
+    ),
 )

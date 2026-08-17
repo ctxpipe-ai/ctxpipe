@@ -53,7 +53,7 @@ import {
   persistWriteJobStart,
   persistWriteStatus,
 } from "../../models/workspaces.js"
-import { getLogger } from "../../observability/logger.js"
+import { createLogger, getLogger, withLogger } from "../../observability/logger.js"
 import {
   resolveGithubDefaultBranch,
   resolveWorkspaceRepositoryTip,
@@ -100,7 +100,14 @@ const workspaceWriteCommitInputSchema = z.object({
 
 export const workspaceWriteCommit = defineWorkflow(
   { name: "workspace-write-commit", schema: workspaceWriteCommitInputSchema },
-  async ({ input }) => {
+  async ({ input }) =>
+    withLogger(
+      createLogger({
+        workflow: "workspace-write-commit",
+        orgId: input.orgId,
+        workspaceId: input.workspaceId,
+      }),
+      async () => {
     const env = parseEnv(process.env as Record<string, string | undefined>)
     const org = await getSystemDb().query.organizations.findFirst({
       where: { id: { eq: input.orgId } },
@@ -547,5 +554,6 @@ export const workspaceWriteCommit = defineWorkflow(
         return result
       }),
     )
-  },
+      },
+    ),
 )
