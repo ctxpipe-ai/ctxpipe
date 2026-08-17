@@ -40,7 +40,7 @@ export function hydrateWriteJobsToEnqueue(input: {
   extractRemainder?: number
 }): WorkspaceWriteJobKind[] {
   const gate = shouldEnqueueWorkspaceWriteJob(input)
-  if (!gate.enqueue) return []
+  if (!gate.enqueue && gate.reason === "stale_generation") return []
   const kinds: WorkspaceWriteJobKind[] = []
   if (claimsUpgradeRemainder(input.units) > 0) kinds.push("claims_upgrade")
   if (validFromPersistRemainder(input.units) > 0) {

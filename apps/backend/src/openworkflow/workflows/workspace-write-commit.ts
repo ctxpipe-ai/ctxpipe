@@ -23,6 +23,10 @@ import {
 } from "../../domain/workspaces/write-commit-files.js"
 import { applyJobWorktreeIfPresent } from "../../domain/workspaces/write-job-agent.js"
 import {
+  WRITE_JOB_STATUSES,
+  writeJobIntentPayload,
+} from "../../domain/workspaces/write-job-intent.js"
+import {
   capturedWriteParentSha,
   commitSubjectFileNames,
   executeWorkspaceWriteCommit,
@@ -52,6 +56,7 @@ import {
   persistResolvedDesiredSha,
   persistWriteJobCommitSha,
   persistWriteJobStart,
+  persistWriteJobStatus,
   persistWriteStatus,
 } from "../../models/workspaces.js"
 import {
@@ -70,7 +75,6 @@ import {
   listFilesAtSha,
   listFilesInTree,
 } from "../../services/github/installation-write-client.js"
-import { runWorkflowWithWorkerWake } from "../client.js"
 import { enqueueWorkspaceHydrate } from "../enqueue-workspace-hydrate.js"
 
 const workspaceWriteCommitInputSchema = z.object({
@@ -121,10 +125,10 @@ export const workspaceWriteCommit = defineWorkflow(
 
         return withOrgIdContext({ id: org.id, slug: org.slug }, () =>
           withOrgDbContext(input.orgId, async () => {
+            const jobId = input.jobId ?? generateObjectId("wjob")
             try {
               const workspace = await getWorkspaceById(input.workspaceId)
               if (!workspace) throw new Error("Workspace not found")
-              const jobId = input.jobId ?? generateObjectId("wjob")
               const jobGeneration =
                 input.jobGeneration ?? workspace.desiredGeneration
               const jobWorkspaceUrl =
@@ -139,6 +143,17 @@ export const workspaceWriteCommit = defineWorkflow(
                 kind: input.kind,
                 generation: jobGeneration,
                 desiredSha: jobDesiredSha,
+                payload: writeJobIntentPayload({
+                  kind: input.kind,
+                  defaultBranch: input.defaultBranch,
+                  linkAction: input.linkAction,
+                  linkGitUrl: input.linkGitUrl,
+                  jobWorkspaceUrl,
+                  conflictParentSha: input.conflictParentSha,
+                  remoteTipSha: input.remoteTipSha,
+                  mergeFiles: input.mergeFiles,
+                  mergeDeletePaths: input.mergeDeletePaths,
+                }),
               })
               await persistLastJobAt(workspace.id)
               const recordedCommit = await getWriteJobCommitSha(jobId)
@@ -149,6 +164,7 @@ export const workspaceWriteCommit = defineWorkflow(
                   remoteSha: jobDesiredSha,
                 }) === "skip_push_and_hydrate"
               ) {
+                await persistWriteJobStatus(jobId, WRITE_JOB_STATUSES.completed)
                 return {
                   committed: false,
                   reason: "already_pushed" as const,
@@ -173,6 +189,7 @@ export const workspaceWriteCommit = defineWorkflow(
               const repoName =
                 githubRepoFullNameFromWorkspaceUrl(jobWorkspaceUrl)
               if (!repoName) {
+                await persistWriteJobStatus(jobId, WRITE_JOB_STATUSES.paused)
                 return { committed: false, reason: "not_github" as const }
               }
               const defaultBranch =
@@ -419,16 +436,23 @@ export const workspaceWriteCommit = defineWorkflow(
                     )
                   }
                 }
-                void runWorkflowWithWorkerWake(workspaceWriteCommit.spec, {
-                  orgId: input.orgId,
-                  workspaceId: workspace.id,
-                  kind: "bootstrap" as const,
-                  defaultBranch,
-                  jobId: generateObjectId("wjob"),
-                  jobGeneration,
-                  jobWorkspaceUrl,
-                  jobDesiredSha,
-                }).catch(() => undefined)
+                void (async () => {
+                  const { enqueueWorkspaceWriteCommit } = await import(
+                    "../enqueue-workspace-write-commit.js"
+                  )
+                  await enqueueWorkspaceWriteCommit(
+                    {
+                      orgId: input.orgId,
+                      workspaceId: workspace.id,
+                      kind: "bootstrap",
+                      defaultBranch,
+                      jobGeneration,
+                      jobWorkspaceUrl,
+                      jobDesiredSha,
+                    },
+                    { error: () => undefined },
+                  )
+                })().catch(() => undefined)
                 return {
                   committed: false,
                   reason: "no_changes" as const,
@@ -476,6 +500,12 @@ export const workspaceWriteCommit = defineWorkflow(
                 targetBranch: defaultBranch,
               })
               if (!recheck.push) {
+                await persistWriteJobStatus(
+                  jobId,
+                  recheck.reason === "paused"
+                    ? WRITE_JOB_STATUSES.paused
+                    : WRITE_JOB_STATUSES.failed,
+                )
                 return { committed: false, reason: recheck.reason }
               }
               let result: Awaited<
@@ -505,6 +535,8 @@ export const workspaceWriteCommit = defineWorkflow(
                 const mapped = writeStatusFromGithubProbeError(probe)
                 if (mapped.writeStatus === "read_only") {
                   await persistWriteStatus(workspace.id, mapped)
+                  await persistWriteJobStatus(jobId, WRITE_JOB_STATUSES.paused)
+                  return { committed: false, reason: "paused" as const }
                 }
                 const nonFastForward = isNonFastForwardGithubError(probe)
                 if (
@@ -514,29 +546,24 @@ export const workspaceWriteCommit = defineWorkflow(
                     capturedParentSha: capturedParent,
                   })
                 ) {
-                  void (async () => {
-                    const tip = await resolveWorkspaceRepositoryTip({
-                      orgId: input.orgId,
-                      githubConnectionId: workspace.githubConnectionId,
-                      workspaceRepositoryUrl: jobWorkspaceUrl,
-                      env,
-                    }).catch(() => null)
-                    if (!tip) return
-                    await runWorkflowWithWorkerWake(workspaceWriteCommit.spec, {
+                  const { enqueueWorkspaceWriteCommit } = await import(
+                    "../enqueue-workspace-write-commit.js"
+                  )
+                  void enqueueWorkspaceWriteCommit(
+                    {
                       orgId: input.orgId,
                       workspaceId: workspace.id,
-                      kind: "semantic_merge" as const,
+                      kind: "semantic_merge",
                       defaultBranch,
-                      jobId: generateObjectId("wjob"),
                       jobGeneration,
                       jobWorkspaceUrl,
-                      jobDesiredSha: tip,
+                      jobDesiredSha: null,
                       conflictParentSha: capturedParent,
-                      remoteTipSha: tip,
                       mergeFiles: files,
                       mergeDeletePaths: deletePaths,
-                    })
-                  })().catch(() => undefined)
+                    },
+                    { error: () => undefined },
+                  ).catch(() => undefined)
                 }
                 throw error
               }
@@ -570,19 +597,31 @@ export const workspaceWriteCommit = defineWorkflow(
                     result.reason === "no_changes",
                 })
               ) {
-                void runWorkflowWithWorkerWake(workspaceWriteCommit.spec, {
-                  orgId: input.orgId,
-                  workspaceId: workspace.id,
-                  kind: "bootstrap" as const,
-                  defaultBranch,
-                  jobId: generateObjectId("wjob"),
-                  jobGeneration,
-                  jobWorkspaceUrl,
-                  jobDesiredSha,
-                }).catch(() => undefined)
+                void (async () => {
+                  const { enqueueWorkspaceWriteCommit } = await import(
+                    "../enqueue-workspace-write-commit.js"
+                  )
+                  await enqueueWorkspaceWriteCommit(
+                    {
+                      orgId: input.orgId,
+                      workspaceId: workspace.id,
+                      kind: "bootstrap",
+                      defaultBranch,
+                      jobGeneration,
+                      jobWorkspaceUrl,
+                      jobDesiredSha,
+                    },
+                    { error: () => undefined },
+                  )
+                })().catch(() => undefined)
               }
               return result
             } catch (error) {
+              try {
+                await persistWriteJobStatus(jobId, WRITE_JOB_STATUSES.failed)
+              } catch {
+                // Job row may not exist yet if persistWriteJobStart failed.
+              }
               try {
                 await persistHydrateFailure({
                   workspaceId: input.workspaceId,

@@ -75,6 +75,7 @@ vi.mock("../../models/workspaces.js", () => ({
   getWriteJobCommitSha: vi.fn().mockResolvedValue(null),
   persistResolvedDesiredSha: persistResolvedDesiredShaMock,
   persistWriteJobCommitSha: vi.fn().mockResolvedValue(undefined),
+  persistWriteJobStatus: vi.fn().mockResolvedValue(undefined),
   persistWriteStatus: vi.fn().mockResolvedValue(undefined),
   persistHydrateFailure: persistHydrateFailureMock,
   listLinkedRepositories: vi.fn().mockResolvedValue([]),
@@ -104,6 +105,10 @@ vi.mock("../../services/github/installation-write-client.js", () => ({
 
 vi.mock("../enqueue-workspace-hydrate.js", () => ({
   enqueueWorkspaceHydrate: enqueueWorkspaceHydrateMock,
+}))
+
+vi.mock("../enqueue-workspace-write-commit.js", () => ({
+  enqueueWorkspaceWriteCommit: vi.fn().mockResolvedValue(undefined),
 }))
 
 vi.mock("../client.js", () => ({

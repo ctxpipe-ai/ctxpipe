@@ -27,6 +27,10 @@ vi.mock("../../openworkflow/enqueue-workspace-cutover.js", () => ({
   enqueueWorkspaceCutover: vi.fn().mockResolvedValue(undefined),
 }))
 
+vi.mock("../../openworkflow/enqueue-workspace-tip-check.js", () => ({
+  enqueueWorkspaceTipCheck: vi.fn().mockResolvedValue(undefined),
+}))
+
 vi.mock("../../models/workspaces.js", () => ({
   listWorkspaces: listWorkspacesMock,
   createWorkspace: createWorkspaceMock,
@@ -362,7 +366,7 @@ describe("workspaces API", () => {
     )
   })
 
-  it("does not queue a link while write status is unknown", async () => {
+  it("queues a link while write status is unknown", async () => {
     getWorkspaceBySlugMock.mockResolvedValue(workspaceRow)
     listLinkedRepositoriesMock.mockResolvedValue([])
     const res = await app().request(
@@ -373,8 +377,17 @@ describe("workspaces API", () => {
         body: JSON.stringify({ gitUrl: "https://github.com/acme/app.git" }),
       },
     )
-    expect(res.status).toBe(409)
-    expect(enqueueWorkspaceWriteCommit).not.toHaveBeenCalled()
+    expect(res.status).toBe(202)
+    expect(enqueueWorkspaceWriteCommit).toHaveBeenCalledWith(
+      {
+        orgId: "org_mock",
+        workspaceId: "ws_abc",
+        kind: "link_unlink",
+        linkAction: "link",
+        linkGitUrl: "https://github.com/acme/app.git",
+      },
+      expect.anything(),
+    )
   })
 
   it("queues a git-first link write", async () => {

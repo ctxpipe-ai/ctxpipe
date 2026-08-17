@@ -12,18 +12,27 @@ import {
   runCronLinkedTipChecks,
   runCronTipChecks,
 } from "../../domain/workspaces/tip-resolve.js"
+import { resumePausedWriteJobs } from "../../domain/workspaces/write-job-resume.js"
+import { probeWorkspaceWriteAccess } from "../../domain/workspaces/write-status.js"
 import { listOrgConversationsForSandboxGc } from "../../models/conversations.js"
 import {
+  claimPausedWriteJob,
   getWorkspaceById,
   listOrgLinkedRepositories,
   listOrgWorkspaces,
+  listPausedWriteJobs,
   persistLinkedDesiredSha,
   persistResolvedDesiredSha,
+  persistWriteStatus,
 } from "../../models/workspaces.js"
-import { resolveWorkspaceRepositoryTip } from "../../routes/webhooks/github/github-workspace-tip.js"
+import {
+  getGithubRepoWriteView,
+  resolveWorkspaceRepositoryTip,
+} from "../../routes/webhooks/github/github-workspace-tip.js"
 import { enqueueWorkspaceCutover } from "../enqueue-workspace-cutover.js"
 import { enqueueWorkspaceHydrate } from "../enqueue-workspace-hydrate.js"
 import { enqueueWorkspaceIndex } from "../enqueue-workspace-index.js"
+import { enqueueWorkspaceWriteCommit } from "../enqueue-workspace-write-commit.js"
 
 const workspaceTipCheckInputSchema = z.object({
   orgId: z.string().min(1),
@@ -36,6 +45,33 @@ export const workspaceTipCheck = defineWorkflow(
     return withOrgDbContext(input.orgId, async () => {
       void enqueueWorkspaceCutover(input.orgId, { error: () => undefined })
       const workspaces = await listOrgWorkspaces(input.orgId)
+      const quietLog = { error: () => undefined }
+      for (const workspace of workspaces) {
+        const probe = await probeWorkspaceWriteAccess({
+          workspaceRepositoryUrl: workspace.workspaceRepositoryUrl,
+          githubConnectionId: workspace.githubConnectionId,
+          getRepo: (fullName) =>
+            getGithubRepoWriteView({
+              orgId: input.orgId,
+              githubConnectionId: workspace.githubConnectionId,
+              repoFullName: fullName,
+              env,
+            }),
+        })
+        await persistWriteStatus(workspace.id, probe)
+        if (probe.writeStatus !== "writable") continue
+        await resumePausedWriteJobs({
+          orgId: input.orgId,
+          workspaceId: workspace.id,
+          writeStatus: probe.writeStatus,
+          desiredGeneration: workspace.desiredGeneration,
+          desiredWorkspaceUrl: workspace.workspaceRepositoryUrl,
+          jobs: await listPausedWriteJobs(workspace.id),
+          claim: claimPausedWriteJob,
+          enqueue: enqueueWorkspaceWriteCommit,
+          log: quietLog,
+        })
+      }
       const updated = await runCronTipChecks({
         workspaces,
         resolveTip: (workspaceRepositoryUrl) => {

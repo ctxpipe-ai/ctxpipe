@@ -5,6 +5,9 @@ const generateObjectIdMock = vi.hoisted(() => vi.fn(() => "wjob_stable"))
 
 const getWorkspaceByIdMock = vi.hoisted(() => vi.fn())
 const persistHydrateFailureMock = vi.hoisted(() => vi.fn())
+const persistWriteJobIntentMock = vi.hoisted(() => vi.fn())
+const persistWriteJobStatusMock = vi.hoisted(() => vi.fn())
+const persistWriteStatusMock = vi.hoisted(() => vi.fn())
 
 vi.mock("./client.js", () => ({
   runWorkflowWithWorkerWake: runWorkflowWithWorkerWakeMock,
@@ -21,6 +24,17 @@ vi.mock("../lib/id.js", () => ({
 vi.mock("../models/workspaces.js", () => ({
   getWorkspaceById: getWorkspaceByIdMock,
   persistHydrateFailure: persistHydrateFailureMock,
+  persistWriteJobIntent: persistWriteJobIntentMock,
+  persistWriteJobStatus: persistWriteJobStatusMock,
+  persistWriteStatus: persistWriteStatusMock,
+}))
+
+vi.mock("../routes/webhooks/github/github-workspace-tip.js", () => ({
+  getGithubRepoWriteView: vi
+    .fn()
+    .mockRejectedValue(
+      Object.assign(new Error("not in installation"), { status: 404 }),
+    ),
 }))
 
 import { enqueueWorkspaceWriteCommit } from "./enqueue-workspace-write-commit.js"
@@ -30,14 +44,19 @@ describe("enqueueWorkspaceWriteCommit", () => {
     vi.clearAllMocks()
     generateObjectIdMock.mockReturnValue("wjob_stable")
     getWorkspaceByIdMock.mockResolvedValue({
+      id: "ws_1",
       desiredGeneration: 3,
       workspaceRepositoryUrl: "https://github.com/acme/docs",
       desiredSha: "aaa",
+      writeStatus: "writable",
     })
     runWorkflowWithWorkerWakeMock.mockResolvedValue({
       workflowRun: { id: "run_write" },
     })
     persistHydrateFailureMock.mockResolvedValue(undefined)
+    persistWriteJobIntentMock.mockResolvedValue(undefined)
+    persistWriteJobStatusMock.mockResolvedValue(undefined)
+    persistWriteStatusMock.mockResolvedValue(undefined)
   })
 
   it("enqueues a migration export write with a stable job id", async () => {
@@ -91,7 +110,7 @@ describe("enqueueWorkspaceWriteCommit", () => {
     )
   })
 
-  it("persists hydrate failure when enqueue throws", async () => {
+  it("parks the job as paused when the workflow queue fails", async () => {
     runWorkflowWithWorkerWakeMock.mockRejectedValue(new Error("queue down"))
     const log = { error: vi.fn() }
     await enqueueWorkspaceWriteCommit(
@@ -102,9 +121,60 @@ describe("enqueueWorkspaceWriteCommit", () => {
       },
       log,
     )
-    expect(persistHydrateFailureMock).toHaveBeenCalledWith({
-      workspaceId: "ws_1",
-      message: "queue down",
+    expect(persistHydrateFailureMock).not.toHaveBeenCalled()
+    expect(persistWriteJobStatusMock).toHaveBeenCalledWith(
+      "wjob_stable",
+      "paused",
+    )
+  })
+
+  it("persists a paused link payload and does not start the workflow", async () => {
+    getWorkspaceByIdMock.mockResolvedValue({
+      id: "ws_1",
+      desiredGeneration: 1,
+      workspaceRepositoryUrl: "https://github.com/acme/docs",
+      desiredSha: null,
+      writeStatus: "unknown",
     })
+    const log = { error: vi.fn() }
+    await enqueueWorkspaceWriteCommit(
+      {
+        orgId: "org_1",
+        workspaceId: "ws_1",
+        kind: "link_unlink",
+        linkAction: "link",
+        linkGitUrl: "https://github.com/acme/app.git",
+      },
+      log,
+    )
+    expect(persistWriteJobIntentMock).toHaveBeenCalledWith({
+      id: "wjob_stable",
+      workspaceId: "ws_1",
+      kind: "link_unlink",
+      generation: 1,
+      desiredSha: null,
+      status: "paused",
+      payload: {
+        linkAction: "link",
+        linkGitUrl: "https://github.com/acme/app.git",
+        jobWorkspaceUrl: "https://github.com/acme/docs",
+      },
+    })
+    expect(runWorkflowWithWorkerWakeMock).not.toHaveBeenCalled()
+  })
+
+  it("starts the workflow when the workspace snapshot cannot be loaded", async () => {
+    getWorkspaceByIdMock.mockRejectedValue(new Error("db down"))
+    const log = { error: vi.fn() }
+    await enqueueWorkspaceWriteCommit(
+      {
+        orgId: "org_1",
+        workspaceId: "ws_1",
+        kind: "migration_export",
+      },
+      log,
+    )
+    expect(persistWriteJobIntentMock).not.toHaveBeenCalled()
+    expect(runWorkflowWithWorkerWakeMock).toHaveBeenCalled()
   })
 })

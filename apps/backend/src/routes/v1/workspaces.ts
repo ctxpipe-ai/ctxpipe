@@ -5,7 +5,6 @@ import { fileTreeFromPaths } from "../../domain/workspaces/file-tree.js"
 import { destroySandboxesForWorkspace } from "../../domain/workspaces/sandbox-registry.js"
 import { normalizeWorkspaceRepositoryUrl } from "../../domain/workspaces/slug.js"
 import { workspaceGraphFromUnits } from "../../domain/workspaces/workspace-graph.js"
-import { writeJobQueueHttpDecision } from "../../domain/workspaces/write-jobs.js"
 import {
   githubConnectionIdForWriteProbe,
   probeWorkspaceWriteAccess,
@@ -25,6 +24,7 @@ import {
 } from "../../models/workspaces.js"
 import { enqueueWorkspaceCutover } from "../../openworkflow/enqueue-workspace-cutover.js"
 import { enqueueWorkspaceHydrate } from "../../openworkflow/enqueue-workspace-hydrate.js"
+import { enqueueWorkspaceTipCheck } from "../../openworkflow/enqueue-workspace-tip-check.js"
 import { enqueueWorkspaceWriteCommit } from "../../openworkflow/enqueue-workspace-write-commit.js"
 import { getGithubRepoWriteView } from "../webhooks/github/github-workspace-tip.js"
 
@@ -572,6 +572,7 @@ export const workspaceRoutes = new OpenAPIHono<AppEnv>()
     if (orgId && !(await getPersistedFirstWorkspaceId(orgId))) {
       void enqueueWorkspaceCutover(orgId, c.get("log"))
     }
+    if (orgId) void enqueueWorkspaceTipCheck(orgId, c.get("log"))
     return c.json(
       {
         lastUsedWorkspaceId,
@@ -612,6 +613,7 @@ export const workspaceRoutes = new OpenAPIHono<AppEnv>()
         c.get("log"),
       )
     }
+    void enqueueWorkspaceTipCheck(created.orgId, c.get("log"))
     return c.json(serializeWorkspace(created), 201)
   })
   .openapi(getWorkspaceRoute, async (c) => {
@@ -691,10 +693,7 @@ export const workspaceRoutes = new OpenAPIHono<AppEnv>()
     ) {
       void destroySandboxesForWorkspace(updated.id)
     }
-    if (
-      body.workspaceRepositoryUrl &&
-      writeJobQueueHttpDecision(updated.writeStatus).enqueue
-    ) {
+    if (body.workspaceRepositoryUrl) {
       void enqueueWorkspaceWriteCommit(
         {
           orgId: updated.orgId,
@@ -704,10 +703,7 @@ export const workspaceRoutes = new OpenAPIHono<AppEnv>()
         c.get("log"),
       )
     }
-    if (
-      body.displayName &&
-      writeJobQueueHttpDecision(updated.writeStatus).enqueue
-    ) {
+    if (body.displayName) {
       void enqueueWorkspaceWriteCommit(
         {
           orgId: updated.orgId,
@@ -820,10 +816,6 @@ export const workspaceRoutes = new OpenAPIHono<AppEnv>()
         409,
       )
     }
-    const writeGate = writeJobQueueHttpDecision(workspace.writeStatus)
-    if (!writeGate.enqueue) {
-      return c.json({ error: writeGate.error }, writeGate.status)
-    }
     void enqueueWorkspaceWriteCommit(
       {
         orgId: workspace.orgId,
@@ -849,10 +841,6 @@ export const workspaceRoutes = new OpenAPIHono<AppEnv>()
     const existing = await listLinkedRepositories(workspace.id)
     const row = existing.find((item) => item.id === linkedId)
     if (!row) return c.json({ error: "Not found" }, 404)
-    const writeGate = writeJobQueueHttpDecision(workspace.writeStatus)
-    if (!writeGate.enqueue) {
-      return c.json({ error: writeGate.error }, writeGate.status)
-    }
     void enqueueWorkspaceWriteCommit(
       {
         orgId: workspace.orgId,

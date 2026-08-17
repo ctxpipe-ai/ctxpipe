@@ -170,6 +170,17 @@ export const workspaceWriteJobs = pgTable(
     desiredSha: text("desired_sha"),
     commitSha: text("commit_sha"),
     generation: integer("generation").notNull(),
+    status: text("status").notNull().default("queued"),
+    payload: jsonb("payload").$type<{
+      linkAction?: "link" | "unlink"
+      linkGitUrl?: string
+      defaultBranch?: string
+      jobWorkspaceUrl?: string
+      conflictParentSha?: string | null
+      remoteTipSha?: string | null
+      mergeFiles?: Array<{ path: string; content: string }>
+      mergeDeletePaths?: string[]
+    } | null>(),
     createdAt: timestamp("created_at", { withTimezone: true, mode: "date" })
       .notNull()
       .defaultNow(),
@@ -177,7 +188,13 @@ export const workspaceWriteJobs = pgTable(
       .notNull()
       .defaultNow(),
   },
-  (t) => [index("workspace_write_jobs_workspace_id_idx").on(t.workspaceId)],
+  (t) => [
+    index("workspace_write_jobs_workspace_id_idx").on(t.workspaceId),
+    index("workspace_write_jobs_workspace_id_status_idx").on(
+      t.workspaceId,
+      t.status,
+    ),
+  ],
 )
 
 export const workspaceSandboxInstances = pgTable(

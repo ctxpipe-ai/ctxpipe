@@ -1,4 +1,4 @@
-import { and, desc, eq, exists, isNotNull, sql } from "drizzle-orm"
+import { and, desc, eq, exists, isNotNull, notInArray, sql } from "drizzle-orm"
 import { createError } from "evlog"
 import { requireCurrentOrgId, requireCurrentUserId } from "../auth/context.js"
 import { getOrgDb } from "../db/client.js"
@@ -34,6 +34,11 @@ import {
   normalizeWorkspaceRepositoryUrl,
   slugFromGitUrl,
 } from "../domain/workspaces/slug.js"
+import type { WorkspaceWriteKind } from "../domain/workspaces/write-commit-files.js"
+import {
+  type WorkspaceWriteJobPayload,
+  WRITE_JOB_STATUSES,
+} from "../domain/workspaces/write-job-intent.js"
 import {
   type WorkspaceWriteProbe,
   writeStatusFromClassification,
@@ -1240,13 +1245,16 @@ export async function getWriteJobCommitSha(
   return row?.commitSha ?? null
 }
 
-export async function persistWriteJobStart(input: {
+export async function persistWriteJobIntent(input: {
   id: string
   workspaceId: string
   kind: string
   generation: number
   desiredSha?: string | null
+  status: string
+  payload: WorkspaceWriteJobPayload
 }): Promise<void> {
+  const now = new Date()
   await getOrgDb()
     .insert(workspaceWriteJobs)
     .values({
@@ -1255,8 +1263,113 @@ export async function persistWriteJobStart(input: {
       kind: input.kind,
       generation: input.generation,
       desiredSha: input.desiredSha ?? null,
+      status: input.status,
+      payload: input.payload,
+      createdAt: now,
+      updatedAt: now,
     })
-    .onConflictDoNothing()
+    .onConflictDoUpdate({
+      target: workspaceWriteJobs.id,
+      set: {
+        kind: input.kind,
+        generation: input.generation,
+        desiredSha: input.desiredSha ?? null,
+        status: input.status,
+        payload: input.payload,
+        updatedAt: now,
+      },
+      setWhere: sql`${workspaceWriteJobs.commitSha} is null`,
+    })
+}
+
+export async function persistWriteJobStart(input: {
+  id: string
+  workspaceId: string
+  kind: string
+  generation: number
+  desiredSha?: string | null
+  payload?: WorkspaceWriteJobPayload
+}): Promise<void> {
+  const now = new Date()
+  await getOrgDb()
+    .insert(workspaceWriteJobs)
+    .values({
+      id: input.id,
+      workspaceId: input.workspaceId,
+      kind: input.kind,
+      generation: input.generation,
+      desiredSha: input.desiredSha ?? null,
+      status: WRITE_JOB_STATUSES.running,
+      payload: input.payload ?? null,
+      createdAt: now,
+      updatedAt: now,
+    })
+    .onConflictDoUpdate({
+      target: workspaceWriteJobs.id,
+      set: {
+        status: WRITE_JOB_STATUSES.running,
+        ...(input.payload ? { payload: input.payload } : {}),
+        desiredSha: input.desiredSha ?? null,
+        updatedAt: now,
+      },
+      setWhere: sql`${workspaceWriteJobs.commitSha} is null`,
+    })
+}
+
+export async function persistWriteJobStatus(
+  jobId: string,
+  status: string,
+): Promise<void> {
+  await getOrgDb()
+    .update(workspaceWriteJobs)
+    .set({ status, updatedAt: new Date() })
+    .where(eq(workspaceWriteJobs.id, jobId))
+}
+
+export async function listPausedWriteJobs(workspaceId: string): Promise<
+  Array<{
+    id: string
+    kind: WorkspaceWriteKind
+    generation: number
+    desiredSha: string | null
+    status: string
+    payload: WorkspaceWriteJobPayload | null
+  }>
+> {
+  const rows = await getOrgDb()
+    .select({
+      id: workspaceWriteJobs.id,
+      kind: workspaceWriteJobs.kind,
+      generation: workspaceWriteJobs.generation,
+      desiredSha: workspaceWriteJobs.desiredSha,
+      status: workspaceWriteJobs.status,
+      payload: workspaceWriteJobs.payload,
+    })
+    .from(workspaceWriteJobs)
+    .where(
+      and(
+        eq(workspaceWriteJobs.workspaceId, workspaceId),
+        eq(workspaceWriteJobs.status, WRITE_JOB_STATUSES.paused),
+      ),
+    )
+  return rows.map((row) => ({
+    ...row,
+    kind: row.kind as WorkspaceWriteKind,
+  }))
+}
+
+export async function claimPausedWriteJob(jobId: string): Promise<boolean> {
+  const [row] = await getOrgDb()
+    .update(workspaceWriteJobs)
+    .set({ status: WRITE_JOB_STATUSES.queued, updatedAt: new Date() })
+    .where(
+      and(
+        eq(workspaceWriteJobs.id, jobId),
+        eq(workspaceWriteJobs.status, WRITE_JOB_STATUSES.paused),
+      ),
+    )
+    .returning({ id: workspaceWriteJobs.id })
+  return row != null
 }
 
 export async function countWriteJobAttempts(input: {
@@ -1272,6 +1385,10 @@ export async function countWriteJobAttempts(input: {
         eq(workspaceWriteJobs.workspaceId, input.workspaceId),
         eq(workspaceWriteJobs.kind, input.kind),
         eq(workspaceWriteJobs.desiredSha, input.desiredSha),
+        notInArray(workspaceWriteJobs.status, [
+          WRITE_JOB_STATUSES.paused,
+          WRITE_JOB_STATUSES.queued,
+        ]),
       ),
     )
   return rows.length
@@ -1283,7 +1400,11 @@ export async function persistWriteJobCommitSha(
 ): Promise<void> {
   await getOrgDb()
     .update(workspaceWriteJobs)
-    .set({ commitSha, updatedAt: new Date() })
+    .set({
+      commitSha,
+      status: WRITE_JOB_STATUSES.completed,
+      updatedAt: new Date(),
+    })
     .where(eq(workspaceWriteJobs.id, jobId))
 }
 

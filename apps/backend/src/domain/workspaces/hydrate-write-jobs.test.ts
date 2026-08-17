@@ -68,7 +68,7 @@ describe("hydrate write remainders", () => {
     expect(opsFolderMapRemainder("<!-- ctxpipe:folder-map -->")).toBe(0)
   })
 
-  it("enqueues remaining kinds only when the write gate is open", () => {
+  it("enqueues remaining kinds when writable or paused, not after relink", () => {
     expect(
       hydrateWriteJobsToEnqueue({
         units: [unit({})],
@@ -109,6 +109,15 @@ describe("hydrate write remainders", () => {
         writeStatus: "unknown",
         jobGeneration: 1,
         desiredGeneration: 1,
+      }),
+    ).toEqual(["claims_upgrade", "ops_folder_map"])
+    expect(
+      hydrateWriteJobsToEnqueue({
+        units: [unit({})],
+        agentsMd: null,
+        writeStatus: "writable",
+        jobGeneration: 1,
+        desiredGeneration: 2,
       }),
     ).toEqual([])
   })
