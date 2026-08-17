@@ -16,6 +16,12 @@ import {
   resetRegisteredSandboxes,
 } from "./sandbox-registry.js"
 
+const destroyDetachedProviderSandbox = vi.hoisted(() => vi.fn(async () => {}))
+
+vi.mock("./sandbox-provider.js", () => ({
+  destroyDetachedProviderSandbox,
+}))
+
 const claimSandboxInstance = vi.hoisted(() =>
   vi.fn(async (input: { id: string }) => ({
     record: input,
@@ -61,6 +67,7 @@ describe("sandbox registry GC", () => {
     heartbeatSandboxInstance.mockClear()
     getSandboxInstance.mockReset()
     getSandboxInstance.mockResolvedValue(null)
+    destroyDetachedProviderSandbox.mockClear()
     resetRegisteredSandboxes()
   })
 
@@ -235,6 +242,33 @@ describe("sandbox registry GC", () => {
       destroySandboxesForWorkspace("ws_orphan_job", "job"),
     ).resolves.toBe(1)
     expect(deleteSandboxInstance).toHaveBeenCalledWith("job-orphan", undefined)
+  })
+
+  it("destroys a detached provider sandbox before deleting the resume row", async () => {
+    const stored = {
+      id: "tanstack-orphan",
+      kind: "chat" as const,
+      orgId: "org_1",
+      workspaceId: "ws_orphan",
+      conversationId: "conv_provider_orphan",
+      provider: "docker",
+      providerSandboxId: "sbx_live",
+      state: "live" as const,
+      lastHeartbeatAt: new Date(),
+    }
+    listSandboxInstances.mockResolvedValue([stored])
+    getSandboxInstance.mockResolvedValue(stored)
+    await expect(
+      destroySandboxesForConversation("conv_provider_orphan"),
+    ).resolves.toBe(1)
+    expect(destroyDetachedProviderSandbox).toHaveBeenCalledWith({
+      provider: "docker",
+      providerSandboxId: "sbx_live",
+    })
+    expect(deleteSandboxInstance).toHaveBeenCalledWith(
+      "tanstack-orphan",
+      "org_1",
+    )
   })
 
   it("heartbeats the TanStack store row for a conversation, not a synthetic live id", async () => {

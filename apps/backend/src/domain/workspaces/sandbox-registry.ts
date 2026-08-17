@@ -13,6 +13,7 @@ import {
   shouldDestroyJobSandbox,
 } from "./chat-lifecycle.js"
 import type { JobSandboxHandle } from "./job-worktree.js"
+import { destroyDetachedProviderSandbox } from "./sandbox-provider.js"
 
 export type RegisteredSandbox = {
   id: string
@@ -294,6 +295,24 @@ export async function destroyWorkspaceSandbox(id: string): Promise<boolean> {
     if (existing && existing.id !== handleRow.id) sandboxes.delete(existing.id)
   } else if (existing) {
     sandboxes.delete(id)
+  } else if (stored?.providerSandboxId) {
+    try {
+      await destroyDetachedProviderSandbox({
+        provider: stored.provider,
+        providerSandboxId: stored.providerSandboxId,
+      })
+    } catch (error) {
+      logSandboxError("destroy-detached-provider-sandbox", id, error)
+      const failed = destroyFailedRecord(undefined, stored)
+      if (failed) {
+        try {
+          await persistSandboxInstance(failed)
+        } catch (persistError) {
+          logSandboxError("persist-sandbox-instance", failed.id, persistError)
+        }
+      }
+      return false
+    }
   }
   try {
     await deleteSandboxInstance(id, existing?.orgId ?? stored?.orgId)

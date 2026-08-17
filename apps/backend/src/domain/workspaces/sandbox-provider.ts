@@ -39,3 +39,26 @@ export function sandboxMustFailClosed(input: {
   if (input.provider === "unsandboxed") return false
   return !input.canEnforceLimits
 }
+
+export async function destroyDetachedProviderSandbox(input: {
+  provider?: string | null
+  providerSandboxId: string
+}): Promise<void> {
+  const [docker, local] = await Promise.all([
+    import("@tanstack/ai-sandbox-docker").catch(() => null),
+    import("@tanstack/ai-sandbox-local-process").catch(() => null),
+  ])
+  if (input.provider === "docker" || input.provider === "sbx") {
+    const factory = docker?.dockerSandbox?.({ image: "node:22" })
+    if (!factory) {
+      throw new Error(`Cannot destroy detached ${input.provider} sandbox`)
+    }
+    await factory.destroy({ id: input.providerSandboxId })
+    return
+  }
+  const localFactory = local?.localProcessSandbox?.()
+  if (!localFactory) {
+    throw new Error("Cannot destroy detached local sandbox")
+  }
+  await localFactory.destroy({ id: input.providerSandboxId })
+}

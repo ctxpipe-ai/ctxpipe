@@ -250,6 +250,45 @@ describe("job sandbox", () => {
     )
   })
 
+  it("destroys the created sandbox if persisting the live row fails", async () => {
+    claimSandboxInstance.mockResolvedValueOnce({
+      record: {
+        id: "job-claimed-persist-fail",
+        kind: "job",
+        orgId: "org_1",
+        workspaceId: "ws_persist_fail",
+        state: "live",
+        lastHeartbeatAt: new Date(),
+      },
+      inserted: true,
+    })
+    persistSandboxInstance.mockRejectedValueOnce(new Error("db down"))
+    const destroy = vi.fn(async () => undefined)
+    const handle = {
+      exec: async () => ({ stdout: "", stderr: "", exitCode: 0 }),
+      fs: {
+        write: async () => undefined,
+        read: async () => "",
+        remove: async () => undefined,
+        mkdir: async () => undefined,
+      },
+    }
+    await expect(
+      ensureJobSandbox({
+        orgId: "org_1",
+        workspaceId: "ws_persist_fail",
+        desiredUrl: "https://github.com/acme/docs",
+        desiredSha: "abc",
+        create: async () => ({
+          handle,
+          destroy,
+          providerSandboxId: "docker-xyz",
+        }),
+      }),
+    ).rejects.toThrow("db down")
+    expect(destroy).toHaveBeenCalled()
+  })
+
   it("does not delete a claimed live id when create throws", async () => {
     claimSandboxInstance.mockResolvedValueOnce({
       record: {
@@ -368,6 +407,7 @@ describe("job sandbox", () => {
     const clone = vi.fn(async () => {
       throw new Error("clone failed")
     })
+    const destroy = vi.fn(async () => undefined)
     await expect(
       createTanstackJobSandbox({
         sandboxId: "job-1",
@@ -385,13 +425,14 @@ describe("job sandbox", () => {
                 mkdir: async () => undefined,
               },
               git: { clone },
-              destroy: async () => undefined,
+              destroy,
             }),
           }),
         }),
       }),
     ).rejects.toThrow("clone failed")
     expect(exec).not.toHaveBeenCalledWith("git init")
+    expect(destroy).toHaveBeenCalled()
   })
 
   it("throws when the sandbox has no git clone API", async () => {

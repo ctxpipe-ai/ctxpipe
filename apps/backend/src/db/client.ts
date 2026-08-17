@@ -18,6 +18,7 @@ function createDrizzleDb(connectionString: string) {
   // Neon connections (and TCP keepalives) prevent that window in PR previews.
   const client = new Pool({
     connectionString,
+    max: 50,
     allowExitOnIdle: isRailwayPrPreview(),
     keepAlive: true,
     idleTimeoutMillis: 30_000,

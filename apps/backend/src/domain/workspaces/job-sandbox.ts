@@ -65,6 +65,7 @@ export async function ensureJobSandbox(input: {
     handle: JobSandboxHandle
     destroy?: () => Promise<void>
     providerSandboxId?: string
+    provider?: string
   } | null>
 }): Promise<JobSandboxHandle | null> {
   if (input.existing) return input.existing
@@ -97,17 +98,23 @@ export async function ensureJobSandbox(input: {
       const resumeId = claimed.record.providerSandboxId ?? claimed.record.id
       const created = await input.create(resumeId)
       if (!created) return null
-      await registerWorkspaceSandbox({
-        id: claimed.record.id,
-        kind: "job",
-        orgId: input.orgId,
-        workspaceId: input.workspaceId,
-        desiredUrl: input.desiredUrl,
-        desiredSha: input.desiredSha,
-        providerSandboxId: created.providerSandboxId ?? resumeId,
-        handle: created.handle,
-        destroy: created.destroy,
-      })
+      try {
+        await registerWorkspaceSandbox({
+          id: claimed.record.id,
+          kind: "job",
+          orgId: input.orgId,
+          workspaceId: input.workspaceId,
+          desiredUrl: input.desiredUrl,
+          desiredSha: input.desiredSha,
+          provider: created.provider,
+          providerSandboxId: created.providerSandboxId ?? resumeId,
+          handle: created.handle,
+          destroy: created.destroy,
+        })
+      } catch (error) {
+        await created.destroy?.().catch(() => undefined)
+        throw error
+      }
       return created.handle
     },
   )
@@ -176,6 +183,7 @@ export async function createTanstackJobSandbox(input: {
   handle: JobSandboxHandle
   destroy: () => Promise<void>
   providerSandboxId: string
+  provider: string
 } | null> {
   const modules = await (input.loadModules ?? loadJobSandboxModules)()
   const provider = detectSandboxProviderFromEnv({ env: input.env })
@@ -190,6 +198,7 @@ export async function createTanstackJobSandbox(input: {
       ? modules.dockerSandbox?.({ image: "node:22" })
       : modules.localProcessSandbox?.()
   if (!factory) return null
+  const providerName = isolation === "docker" ? "docker" : "local-process"
   const resumed = input.sandboxId
     ? await factory.resume?.({ id: input.sandboxId })
     : null
@@ -198,16 +207,24 @@ export async function createTanstackJobSandbox(input: {
       handle: adaptTanstackHandle(resumed),
       destroy: () => resumed.destroy(),
       providerSandboxId: resumed.id ?? input.sandboxId,
+      provider: providerName,
     }
   }
   const raw = await factory.create({})
-  await seedJobRepo(raw, input)
+  try {
+    await seedJobRepo(raw, input)
+  } catch (error) {
+    await raw.destroy().catch(() => undefined)
+    throw error
+  }
   if (!raw.id) {
+    await raw.destroy().catch(() => undefined)
     throw new Error("Job sandbox create did not return a provider id")
   }
   return {
     handle: adaptTanstackHandle(raw),
     destroy: () => raw.destroy(),
     providerSandboxId: raw.id,
+    provider: providerName,
   }
 }
