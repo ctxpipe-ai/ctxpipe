@@ -76,7 +76,7 @@ describe("retryPrepareWorkspace", () => {
   it("returns pending after a successful retry", async () => {
     server.use(
       http.post(
-        "http://localhost/:orgSlug/api/v1/workspaces/:workspaceSlug/retry-prepare",
+        "http://localhost:3000/:orgSlug/api/v1/workspaces/:workspaceSlug/retry-prepare",
         () =>
           HttpResponse.json({
             ...failedHydrateWorkspace,

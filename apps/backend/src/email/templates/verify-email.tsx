@@ -10,7 +10,7 @@ import {
   Section,
   Text,
 } from "@react-email/components"
-import * as React from "react"
+import type * as React from "react"
 
 interface VerifyEmailProps {
   url: string
@@ -44,7 +44,10 @@ export function VerifyEmail({ url, userEmail }: VerifyEmailProps) {
             If the button doesn&apos;t work, copy and paste this link into your
             browser: {url}
           </Text>
-          <Text style={brandFooter}>ctx| - the self-learning context layer for engineering AI agents & humans</Text>
+          <Text style={brandFooter}>
+            ctx| - the self-learning context layer for engineering AI agents &
+            humans
+          </Text>
         </Container>
       </Body>
     </Html>

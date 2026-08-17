@@ -67,7 +67,7 @@ describe("identifyPatterns post-processing", () => {
       { patternName: "cqrs", path: "./" },
       { patternName: "Saga", path: "./" },
     ]
-    const { objects, claims } = postProcessPatterns(captured, state)
+    const { objects } = postProcessPatterns(captured, state)
 
     expect(objects).toHaveLength(2) // CQRS (deduped), Saga
     const names = objects.map((o) => o.name).sort()
