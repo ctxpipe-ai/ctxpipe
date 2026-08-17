@@ -120,20 +120,8 @@ export async function registerWorkspaceSandbox(
   }
   if (next.id !== canonical.id) sandboxes.delete(next.id)
   sandboxes.set(canonical.id, canonical)
-  persistSandboxQuietly(toInstanceRecord(canonical, "live"))
+  await persistSandboxInstance(toInstanceRecord(canonical, "live"))
   return canonical
-}
-
-function persistSandboxQuietly(
-  input: Parameters<typeof persistSandboxInstance>[0],
-): void {
-  try {
-    void persistSandboxInstance(input).catch((error) => {
-      logSandboxError("persist-sandbox-instance", input.id, error)
-    })
-  } catch (error) {
-    logSandboxError("persist-sandbox-instance", input.id, error)
-  }
 }
 
 function logSandboxError(

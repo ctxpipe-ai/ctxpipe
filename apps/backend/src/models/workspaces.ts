@@ -1743,17 +1743,6 @@ export type ClaimedSandboxInstance = {
   inserted: boolean
 }
 
-function sandboxCreateLockKey(input: {
-  kind: "chat" | "job"
-  workspaceId: string
-  conversationId?: string | null
-}): string {
-  if (input.kind === "chat") {
-    return `sandbox:chat:${input.conversationId ?? input.workspaceId}`
-  }
-  return `sandbox:job:${input.workspaceId}`
-}
-
 function toSandboxInstanceRecord(
   row: typeof workspaceSandboxInstances.$inferSelect,
 ): SandboxInstanceRecord | null {
@@ -1836,9 +1825,6 @@ export async function claimSandboxInstance(
   return withSandboxInstanceDb(input.orgId, async () => {
     const db = getOrgDb()
     return db.transaction(async (tx) => {
-      await tx.execute(
-        sql`select pg_advisory_xact_lock(hashtextextended(${sandboxCreateLockKey(input)}, 0))`,
-      )
       const identityFilter =
         input.kind === "chat" && input.conversationId
           ? eq(workspaceSandboxInstances.conversationId, input.conversationId)

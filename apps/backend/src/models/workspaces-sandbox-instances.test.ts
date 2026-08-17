@@ -58,7 +58,7 @@ describe("claimSandboxInstance", () => {
     withOrgDbContextMock.mockClear()
   })
 
-  it("locks the job identity then inserts when no live row exists", async () => {
+  it("inserts when no live row exists without taking an advisory lock", async () => {
     const db = mockClaimDb([])
     const claimed = await claimSandboxInstance({
       id: "job-new",
@@ -74,10 +74,7 @@ describe("claimSandboxInstance", () => {
       "org_1",
       expect.any(Function),
     )
-    expect(db.execute).toHaveBeenCalled()
-    const lockSql = db.execute.mock.calls[0]?.[0]
-    expect(JSON.stringify(lockSql)).toMatch(/pg_advisory_xact_lock/)
-    expect(JSON.stringify(lockSql)).toMatch(/sandbox:job:ws_1/)
+    expect(db.execute).not.toHaveBeenCalled()
     expect(db.insert).toHaveBeenCalled()
     expect(claimed.inserted).toBe(true)
     expect(claimed.record.id).toBe("job-new")

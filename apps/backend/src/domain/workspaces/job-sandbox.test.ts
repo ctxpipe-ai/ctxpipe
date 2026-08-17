@@ -181,6 +181,9 @@ describe("job sandbox", () => {
         mkdir: async () => undefined,
       },
     }
+    persistSandboxInstance.mockImplementation(async () => {
+      order.push("persist")
+    })
     const create = vi.fn(async (sandboxId: string) => {
       order.push("create")
       expect(sandboxId).toBe("sbx_real")
@@ -199,7 +202,7 @@ describe("job sandbox", () => {
         create,
       }),
     ).toBe(handle)
-    expect(order).toEqual(["lock", "create", "unlock"])
+    expect(order).toEqual(["lock", "create", "persist", "unlock"])
     expect(withSandboxAdvisoryLock).toHaveBeenCalledWith(
       "sandbox:job:ws_resume",
       expect.any(Function),
