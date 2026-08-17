@@ -533,7 +533,7 @@ Highest-priority confirmed rules for agents. Migrated from former `patterns.md` 
 - **Source:** ui-design-skills research / product-ui skill
 
 ### Cursor Task models
-- **Rule:** always pass an explicit Task `model` (see root [AGENTS.md](../../AGENTS.md) **Cursor Task models**). Implementation and explore: `cursor-grok-4.6-high-fast`. Review and grilling: `gpt-5.6-sol-xhigh`. Map leftover Claude names: Sonnet/Fable/Haiku → Grok; Opus (including xhigh/fast) → Sol (`gpt-5.6-sol-xhigh` / `gpt-5.6-sol-high` / `gpt-5.6-sol-high-fast`). This is a parent-agent nudge; disabling Claude in Cursor Settings → Models is the hard block.
+- **Rule:** always pass an explicit Task `model` (see root [AGENTS.md](../../AGENTS.md) **Cursor Task models**). Implementation and explore: `cursor-grok-4.6-high-fast`. Review and grilling: `gpt-5.6-sol-high`. Map leftover Claude names: Sonnet/Fable/Haiku → Grok; Opus (including xhigh/fast) → `gpt-5.6-sol-high`. This is a parent-agent nudge; disabling Claude in Cursor Settings → Models is the hard block.
 - **Category:** convention
 - **Date:** 2026-08-17
 - **Source:** user preference (Grok for implementations, Sol for reviews)
