@@ -98,6 +98,8 @@ jobs:
           context: .
           file: ${{ matrix.dockerfile }}
           push: true
+          build-args: |
+            ${{ matrix.image == 'ui' && format('VITE_PUBLIC_API_URL=https://backend-pr-{0}.up.railway.app', needs.resolve_pr.outputs.pr_number) || '' }}
           tags: |
             ghcr.io/ctxpipe-ai/${{ matrix.image }}:pr-${{ needs.resolve_pr.outputs.pr_number }}-${{ needs.resolve_pr.outputs.head_sha }}
             ghcr.io/ctxpipe-ai/${{ matrix.image }}:${{ needs.resolve_pr.outputs.head_sha }}
@@ -395,9 +397,10 @@ jobs:
             # UI Nitro must bind 0.0.0.0 or Railway healthcheck on / never reaches the process.
             upsert_preview_ui_bind_variables() {
               local service_id="$1"
+              local auth_base="https://backend-pr-${PR_NUMBER}.up.railway.app"
               railway_graphql \
                 'mutation variableCollectionUpsert($input: VariableCollectionUpsertInput!) { variableCollectionUpsert(input: $input) }' \
-                "$(jq -nc --arg project "$RAILWAY_PROJECT_ID" --arg env "$ENV_ID" --arg service "$service_id" \
+                "$(jq -nc --arg project "$RAILWAY_PROJECT_ID" --arg env "$ENV_ID" --arg service "$service_id" --arg auth "$auth_base" \
                   '{
                     input: {
                       projectId: $project,
@@ -406,11 +409,12 @@ jobs:
                       skipDeploys: true,
                       variables: {
                         HOST: "0.0.0.0",
-                        NITRO_HOST: "0.0.0.0"
+                        NITRO_HOST: "0.0.0.0",
+                        AUTH_BASE_URL: $auth
                       }
                     }
                   }')"
-              echo "Set HOST=0.0.0.0 and NITRO_HOST=0.0.0.0 for UI $service_id"
+              echo "Set HOST/NITRO_HOST=0.0.0.0 and AUTH_BASE_URL=$auth_base for UI $service_id"
             }
 
             # Backend: allow waking the worker after enqueue (Railway GraphQL deploy).

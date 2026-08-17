@@ -1,16 +1,13 @@
 import { hc } from "hono/client"
 import type { registerV1Routes } from "../../../backend/src/routes/v1"
+import { ssrApiBaseUrl } from "./ssr-api-base"
 
 type V1Routes = ReturnType<typeof registerV1Routes>
 export type ApiClient = ReturnType<typeof hc<V1Routes>>
 
 function apiBaseUrl(): string {
   if (!import.meta.env.SSR) return window.location.origin
-  const fromEnv = import.meta.env.VITE_PUBLIC_API_URL
-  if (typeof fromEnv === "string" && fromEnv.length > 0) {
-    return fromEnv.replace(/\/$/, "")
-  }
-  return "http://localhost:3000"
+  return ssrApiBaseUrl()
 }
 
 async function getRequestInit(): Promise<RequestInit> {

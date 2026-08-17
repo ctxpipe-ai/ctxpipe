@@ -183,6 +183,11 @@ resource "railway_variable_collection" "ui_env" {
     {
       name  = "NITRO_HOST"
       value = "0.0.0.0"
+    },
+    {
+      # UI SSR must reach the backend (not localhost baked into VITE_PUBLIC_API_URL).
+      name  = "AUTH_BASE_URL"
+      value = "http://$${{backend.RAILWAY_PRIVATE_DOMAIN}}:$${{backend.PORT}}"
     }
   ], local.amplitude_shared_env)
 }

@@ -1,3 +1,5 @@
+import { ssrApiBaseUrl } from "./ssr-api-base"
+
 export type SsrAuthUser = {
   id: string
   email?: string | null
@@ -18,11 +20,7 @@ export type SsrOrganization = {
 
 function authBaseUrl(): string {
   if (!import.meta.env.SSR) return window.location.origin
-  const fromEnv = import.meta.env.VITE_PUBLIC_API_URL
-  if (typeof fromEnv === "string" && fromEnv.length > 0) {
-    return fromEnv.replace(/\/$/, "")
-  }
-  return "http://localhost:3000"
+  return ssrApiBaseUrl()
 }
 
 async function authFetchInit(): Promise<RequestInit> {
@@ -40,24 +38,32 @@ async function authFetchInit(): Promise<RequestInit> {
 /** Session for route loaders — works on SSR with forwarded cookies. */
 export async function fetchSsrSession(): Promise<SsrSession> {
   const init = await authFetchInit()
-  const res = await fetch(
-    `${authBaseUrl()}/.auth/api/v1/auth/get-session`,
-    init,
-  )
-  if (!res.ok) return null
-  const data = (await res.json()) as SsrSession | null
-  if (!data?.session || !data.user) return null
-  return data
+  try {
+    const res = await fetch(
+      `${authBaseUrl()}/.auth/api/v1/auth/get-session`,
+      init,
+    )
+    if (!res.ok) return null
+    const data = (await res.json()) as SsrSession | null
+    if (!data?.session || !data.user) return null
+    return data
+  } catch {
+    return null
+  }
 }
 
 /** Org membership list for route loaders. */
 export async function fetchSsrOrganizations(): Promise<SsrOrganization[]> {
   const init = await authFetchInit()
-  const res = await fetch(
-    `${authBaseUrl()}/.auth/api/v1/auth/organization/list`,
-    init,
-  )
-  if (!res.ok) return []
-  const data = (await res.json()) as SsrOrganization[] | null
-  return Array.isArray(data) ? data : []
+  try {
+    const res = await fetch(
+      `${authBaseUrl()}/.auth/api/v1/auth/organization/list`,
+      init,
+    )
+    if (!res.ok) return []
+    const data = (await res.json()) as SsrOrganization[] | null
+    return Array.isArray(data) ? data : []
+  } catch {
+    return []
+  }
 }
