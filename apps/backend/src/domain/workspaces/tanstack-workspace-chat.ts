@@ -21,15 +21,18 @@ import {
 } from "./chat-lifecycle.js"
 import {
   workspaceChatGitSource,
-  workspaceChatLiveSandboxId,
   workspaceChatRuntimeConfig,
   workspaceChatSandboxId,
   workspaceChatSandboxSpec,
 } from "./chat-runtime.js"
 import { adaptTanstackHandle, type TanstackLikeHandle } from "./job-sandbox.js"
 import {
-  heartbeatWorkspaceSandbox,
-  registerWorkspaceSandbox,
+  postgresSandboxInstanceStore,
+  postgresSandboxLockStore,
+} from "./sandbox-instance-store.js"
+import {
+  attachChatSandboxHandle,
+  heartbeatChatSandboxes,
 } from "./sandbox-registry.js"
 import { loadTanstackChatModules } from "./tanstack-runtime.js"
 import {
@@ -134,12 +137,12 @@ export async function runTanstackWorkspaceChat(
           return
         }
         lastHeartbeatAt = now
-        heartbeatWorkspaceSandbox(prepared.liveId, now)
+        heartbeatChatSandboxes(input.conversationId, now)
         void input.onHeartbeat?.()
       }, CHAT_HEARTBEAT_INTERVAL_MS)
       try {
         lastHeartbeatAt = new Date()
-        heartbeatWorkspaceSandbox(prepared.liveId, lastHeartbeatAt)
+        heartbeatChatSandboxes(input.conversationId, lastHeartbeatAt)
         void input.onHeartbeat?.()
         let finished = false
         const completeTurn = async () => {
@@ -210,7 +213,6 @@ async function prepareTanstackWorkspaceChat(
   | {
       ok: true
       stream: AsyncIterable<object>
-      liveId: string
       persistUserAfterSuccess: boolean
     }
   | { ok: false; status: number; error: string }
@@ -232,10 +234,6 @@ async function prepareTanstackWorkspaceChat(
       error: "Workspace chat needs a stored desired SHA",
     }
   }
-  const liveId = workspaceChatLiveSandboxId({
-    snapshotId,
-    conversationId: input.conversationId,
-  })
   const spec = workspaceChatSandboxSpec({
     sandboxId: snapshotId,
     provider: runtime.provider,
@@ -325,8 +323,7 @@ async function prepareTanstackWorkspaceChat(
     lifecycle: spec.lifecycle,
     hooks: {
       onReady: (handle: TanstackLikeHandle) => {
-        registerWorkspaceSandbox({
-          id: liveId,
+        void attachChatSandboxHandle({
           kind: "chat",
           workspaceId: input.workspaceId,
           conversationId: input.conversationId,
@@ -337,6 +334,11 @@ async function prepareTanstackWorkspaceChat(
           defaultBranch: input.defaultBranch,
           handle: adaptTanstackHandle(handle),
           destroy: () => handle.destroy(),
+        }).catch((error) => {
+          getLogger().error(
+            error instanceof Error ? error : new Error(String(error)),
+            { step: "attach-chat-sandbox-handle" },
+          )
         })
       },
     },
@@ -349,20 +351,21 @@ async function prepareTanstackWorkspaceChat(
     threadId: input.conversationId,
     messages,
     tools,
-    middleware: [modules.withSandbox(definition)],
+    middleware: [
+      modules.withSandbox(definition, {
+        instances: postgresSandboxInstanceStore({
+          orgId: input.orgId,
+          workspaceId: input.workspaceId,
+        }),
+        locks: postgresSandboxLockStore(input.orgId),
+      }),
+    ],
   })
-  registerWorkspaceSandbox({
-    id: liveId,
-    kind: "chat",
-    workspaceId: input.workspaceId,
-    conversationId: input.conversationId,
-    orgId: input.orgId,
-    desiredUrl: input.desiredUrl,
-    desiredGeneration: input.desiredGeneration,
-    desiredSha: input.desiredSha,
-    defaultBranch: input.defaultBranch,
-  })
-  return { ok: true, stream, liveId, persistUserAfterSuccess }
+  return {
+    ok: true,
+    stream,
+    persistUserAfterSuccess,
+  }
 }
 
 async function defaultWorkspaceChatRetrieval(

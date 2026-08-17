@@ -7,9 +7,21 @@ import {
 } from "./job-sandbox.js"
 import { getJobSandbox } from "./sandbox-registry.js"
 
+const claimSandboxInstance = vi.hoisted(() =>
+  vi.fn(async (input: { id: string }) => ({
+    record: input,
+    inserted: true,
+  })),
+)
+const deleteSandboxInstance = vi.hoisted(() => vi.fn(async () => {}))
+
 vi.mock("../../models/workspaces.js", () => ({
   persistSandboxInstance: vi.fn(async () => {}),
-  deleteSandboxInstance: vi.fn(async () => {}),
+  deleteSandboxInstance,
+  claimSandboxInstance,
+  listSandboxInstances: vi.fn(async () => []),
+  heartbeatSandboxInstance: vi.fn(async () => {}),
+  getSandboxInstance: vi.fn(async () => null),
 }))
 
 describe("job sandbox", () => {
@@ -84,6 +96,61 @@ describe("job sandbox", () => {
       }),
     ).toBe(existing)
     expect(getJobSandbox("ws_created")).toBe(existing)
+  })
+
+  it("creates against the claimed live id and keeps the row when create fails", async () => {
+    claimSandboxInstance.mockResolvedValueOnce({
+      record: {
+        id: "job-claimed",
+        kind: "job",
+        orgId: "org_1",
+        workspaceId: "ws_claim_create",
+        state: "live",
+        lastHeartbeatAt: new Date(),
+      },
+      inserted: true,
+    })
+    const create = vi.fn(async (sandboxId: string) => {
+      expect(sandboxId).toBe("job-claimed")
+      return null
+    })
+    expect(
+      await ensureJobSandbox({
+        orgId: "org_1",
+        workspaceId: "ws_claim_create",
+        desiredUrl: "https://github.com/acme/docs",
+        desiredSha: "abc",
+        create,
+      }),
+    ).toBeNull()
+    expect(create).toHaveBeenCalledWith("job-claimed")
+    expect(deleteSandboxInstance).not.toHaveBeenCalled()
+  })
+
+  it("does not delete a claimed live id when create throws", async () => {
+    claimSandboxInstance.mockResolvedValueOnce({
+      record: {
+        id: "job-claimed-throw",
+        kind: "job",
+        orgId: "org_1",
+        workspaceId: "ws_claim_throw",
+        state: "live",
+        lastHeartbeatAt: new Date(),
+      },
+      inserted: true,
+    })
+    await expect(
+      ensureJobSandbox({
+        orgId: "org_1",
+        workspaceId: "ws_claim_throw",
+        desiredUrl: "https://github.com/acme/docs",
+        desiredSha: "abc",
+        create: async () => {
+          throw new Error("clone failed")
+        },
+      }),
+    ).rejects.toThrow("clone failed")
+    expect(deleteSandboxInstance).not.toHaveBeenCalled()
   })
 
   it("creates a local-process job sandbox and clones without leaking a token into exec env", async () => {

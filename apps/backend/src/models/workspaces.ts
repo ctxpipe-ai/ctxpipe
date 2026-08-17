@@ -10,7 +10,7 @@ import {
 } from "drizzle-orm"
 import { createError } from "evlog"
 import { requireCurrentOrgId, requireCurrentUserId } from "../auth/context.js"
-import { getOrgDb } from "../db/client.js"
+import { getOrgDb, withOrgDbContext } from "../db/client.js"
 import { conversations } from "../db/schema/conversations.js"
 import { repositories } from "../db/schema/repositories.js"
 import {
@@ -1730,48 +1730,190 @@ export type SandboxInstanceRecord = {
   desiredUrl?: string | null
   desiredGeneration?: number | null
   desiredSha?: string | null
+  provider?: string | null
+  providerSandboxId?: string | null
+  latestSnapshotId?: string | null
+  latestRunId?: string | null
   state: "live" | "destroy_failed"
   lastHeartbeatAt: Date
+}
+
+export type ClaimedSandboxInstance = {
+  record: SandboxInstanceRecord
+  inserted: boolean
+}
+
+function sandboxCreateLockKey(input: {
+  kind: "chat" | "job"
+  workspaceId: string
+  conversationId?: string | null
+}): string {
+  if (input.kind === "chat") {
+    return `sandbox:chat:${input.conversationId ?? input.workspaceId}`
+  }
+  return `sandbox:job:${input.workspaceId}`
+}
+
+function toSandboxInstanceRecord(
+  row: typeof workspaceSandboxInstances.$inferSelect,
+): SandboxInstanceRecord | null {
+  if (row.kind !== "chat" && row.kind !== "job") return null
+  if (row.state !== "live" && row.state !== "destroy_failed") return null
+  return {
+    id: row.id,
+    kind: row.kind,
+    orgId: row.orgId,
+    workspaceId: row.workspaceId,
+    conversationId: row.conversationId,
+    desiredUrl: row.desiredUrl,
+    desiredGeneration: row.desiredGeneration,
+    desiredSha: row.desiredSha,
+    provider: row.provider,
+    providerSandboxId: row.providerSandboxId,
+    latestSnapshotId: row.latestSnapshotId,
+    latestRunId: row.latestRunId,
+    state: row.state,
+    lastHeartbeatAt: row.lastHeartbeatAt,
+  }
+}
+
+async function withSandboxInstanceDb<T>(
+  orgId: string | null | undefined,
+  fn: () => Promise<T>,
+): Promise<T> {
+  if (orgId) return withOrgDbContext(orgId, fn)
+  return fn()
 }
 
 export async function persistSandboxInstance(
   input: SandboxInstanceRecord,
 ): Promise<void> {
   const now = new Date()
-  await getOrgDb()
-    .insert(workspaceSandboxInstances)
-    .values({
-      id: input.id,
-      kind: input.kind,
-      orgId: input.orgId ?? null,
-      workspaceId: input.workspaceId,
-      conversationId: input.conversationId ?? null,
-      desiredUrl: input.desiredUrl ?? null,
-      desiredGeneration: input.desiredGeneration ?? null,
-      desiredSha: input.desiredSha ?? null,
-      state: input.state,
-      lastHeartbeatAt: input.lastHeartbeatAt,
-      createdAt: now,
-      updatedAt: now,
-    })
-    .onConflictDoUpdate({
-      target: workspaceSandboxInstances.id,
-      set: {
+  await withSandboxInstanceDb(input.orgId, async () => {
+    await getOrgDb()
+      .insert(workspaceSandboxInstances)
+      .values({
+        id: input.id,
         kind: input.kind,
+        orgId: input.orgId ?? null,
+        workspaceId: input.workspaceId,
         conversationId: input.conversationId ?? null,
         desiredUrl: input.desiredUrl ?? null,
         desiredGeneration: input.desiredGeneration ?? null,
         desiredSha: input.desiredSha ?? null,
+        provider: input.provider ?? null,
+        providerSandboxId: input.providerSandboxId ?? null,
+        latestSnapshotId: input.latestSnapshotId ?? null,
+        latestRunId: input.latestRunId ?? null,
         state: input.state,
         lastHeartbeatAt: input.lastHeartbeatAt,
+        createdAt: now,
         updatedAt: now,
-      },
+      })
+      .onConflictDoUpdate({
+        target: workspaceSandboxInstances.id,
+        set: {
+          kind: input.kind,
+          conversationId: input.conversationId ?? null,
+          desiredUrl: input.desiredUrl ?? null,
+          desiredGeneration: input.desiredGeneration ?? null,
+          desiredSha: input.desiredSha ?? null,
+          provider: input.provider ?? null,
+          providerSandboxId: input.providerSandboxId ?? null,
+          latestSnapshotId: input.latestSnapshotId ?? null,
+          latestRunId: input.latestRunId ?? null,
+          state: input.state,
+          lastHeartbeatAt: input.lastHeartbeatAt,
+          updatedAt: now,
+        },
+      })
+  })
+}
+
+export async function claimSandboxInstance(
+  input: SandboxInstanceRecord,
+): Promise<ClaimedSandboxInstance> {
+  return withSandboxInstanceDb(input.orgId, async () => {
+    const db = getOrgDb()
+    return db.transaction(async (tx) => {
+      await tx.execute(
+        sql`select pg_advisory_xact_lock(hashtextextended(${sandboxCreateLockKey(input)}, 0))`,
+      )
+      const identityFilter =
+        input.kind === "chat" && input.conversationId
+          ? eq(workspaceSandboxInstances.conversationId, input.conversationId)
+          : eq(workspaceSandboxInstances.workspaceId, input.workspaceId)
+      const [existing] = await tx
+        .select()
+        .from(workspaceSandboxInstances)
+        .where(
+          and(
+            eq(workspaceSandboxInstances.kind, input.kind),
+            eq(workspaceSandboxInstances.state, "live"),
+            identityFilter,
+          ),
+        )
+        .orderBy(
+          sql`(${workspaceSandboxInstances.providerSandboxId} is not null) desc`,
+          asc(workspaceSandboxInstances.createdAt),
+          asc(workspaceSandboxInstances.id),
+        )
+        .limit(1)
+      const live = existing ? toSandboxInstanceRecord(existing) : null
+      if (live) return { record: live, inserted: false }
+
+      const now = new Date()
+      await tx
+        .insert(workspaceSandboxInstances)
+        .values({
+          id: input.id,
+          kind: input.kind,
+          orgId: input.orgId ?? null,
+          workspaceId: input.workspaceId,
+          conversationId: input.conversationId ?? null,
+          desiredUrl: input.desiredUrl ?? null,
+          desiredGeneration: input.desiredGeneration ?? null,
+          desiredSha: input.desiredSha ?? null,
+          state: "live",
+          lastHeartbeatAt: input.lastHeartbeatAt,
+          createdAt: now,
+          updatedAt: now,
+        })
+        .onConflictDoUpdate({
+          target: workspaceSandboxInstances.id,
+          set: {
+            kind: input.kind,
+            conversationId: input.conversationId ?? null,
+            desiredUrl: input.desiredUrl ?? null,
+            desiredGeneration: input.desiredGeneration ?? null,
+            desiredSha: input.desiredSha ?? null,
+            state: "live",
+            lastHeartbeatAt: input.lastHeartbeatAt,
+            updatedAt: now,
+          },
+        })
+      return { record: { ...input, state: "live" }, inserted: true }
     })
+  })
+}
+
+export async function heartbeatSandboxInstance(
+  id: string,
+  at: Date,
+  orgId?: string | null,
+): Promise<void> {
+  await withSandboxInstanceDb(orgId, async () => {
+    await getOrgDb()
+      .update(workspaceSandboxInstances)
+      .set({ lastHeartbeatAt: at, updatedAt: new Date() })
+      .where(eq(workspaceSandboxInstances.id, id))
+  })
 }
 
 export async function listSandboxInstances(input: {
   workspaceId?: string
   conversationId?: string
+  kind?: "chat" | "job"
   state?: "live" | "destroy_failed"
 }): Promise<SandboxInstanceRecord[]> {
   const db = getOrgDb()
@@ -1782,6 +1924,7 @@ export async function listSandboxInstances(input: {
     input.conversationId
       ? eq(workspaceSandboxInstances.conversationId, input.conversationId)
       : undefined,
+    input.kind ? eq(workspaceSandboxInstances.kind, input.kind) : undefined,
     input.state ? eq(workspaceSandboxInstances.state, input.state) : undefined,
   ].filter((value): value is NonNullable<typeof value> => value != null)
   const rows = await db
@@ -1789,27 +1932,32 @@ export async function listSandboxInstances(input: {
     .from(workspaceSandboxInstances)
     .where(filters.length > 0 ? and(...filters) : undefined)
   return rows.flatMap((row) => {
-    if (row.kind !== "chat" && row.kind !== "job") return []
-    if (row.state !== "live" && row.state !== "destroy_failed") return []
-    return [
-      {
-        id: row.id,
-        kind: row.kind,
-        orgId: row.orgId,
-        workspaceId: row.workspaceId,
-        conversationId: row.conversationId,
-        desiredUrl: row.desiredUrl,
-        desiredGeneration: row.desiredGeneration,
-        desiredSha: row.desiredSha,
-        state: row.state,
-        lastHeartbeatAt: row.lastHeartbeatAt,
-      },
-    ]
+    const record = toSandboxInstanceRecord(row)
+    return record ? [record] : []
   })
 }
 
-export async function deleteSandboxInstance(id: string): Promise<void> {
-  await getOrgDb()
-    .delete(workspaceSandboxInstances)
-    .where(eq(workspaceSandboxInstances.id, id))
+export async function getSandboxInstance(
+  id: string,
+  orgId?: string | null,
+): Promise<SandboxInstanceRecord | null> {
+  return withSandboxInstanceDb(orgId, async () => {
+    const [row] = await getOrgDb()
+      .select()
+      .from(workspaceSandboxInstances)
+      .where(eq(workspaceSandboxInstances.id, id))
+      .limit(1)
+    return row ? toSandboxInstanceRecord(row) : null
+  })
+}
+
+export async function deleteSandboxInstance(
+  id: string,
+  orgId?: string | null,
+): Promise<void> {
+  await withSandboxInstanceDb(orgId, async () => {
+    await getOrgDb()
+      .delete(workspaceSandboxInstances)
+      .where(eq(workspaceSandboxInstances.id, id))
+  })
 }

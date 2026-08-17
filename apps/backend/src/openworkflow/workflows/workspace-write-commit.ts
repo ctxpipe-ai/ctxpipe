@@ -44,7 +44,6 @@ import {
   planWorkspaceWriteCommit,
   semanticMergeCommitParent,
   shouldEnqueueSemanticMergeOnPushFailure,
-  workspaceWriteSandboxId,
 } from "../../domain/workspaces/write-runner.js"
 import {
   githubRepoFullNameFromWorkspaceUrl,
@@ -386,12 +385,6 @@ export const workspaceWriteCommit = defineWorkflow(
                       remoteTipSha: input.remoteTipSha,
                     })
                   : null
-              const sandboxId = workspaceWriteSandboxId({
-                orgId: input.orgId,
-                workspaceId: workspace.id,
-                desiredUrl: jobWorkspaceUrl,
-                desiredSha: parentSha,
-              })
               const mergeShas = mergeTrees
                 ? [mergeTrees.conflictParentSha, mergeTrees.remoteTipSha]
                 : []
@@ -421,9 +414,9 @@ export const workspaceWriteCommit = defineWorkflow(
                 desiredUrl: jobWorkspaceUrl,
                 desiredSha: parentSha,
                 existing: existingSandbox,
-                create: async () =>
+                create: async (sandboxId) =>
                   createTanstackJobSandbox({
-                    sandboxId: sandboxId ?? jobId,
+                    sandboxId,
                     gitUrl: jobWorkspaceUrl,
                     ref:
                       input.kind === "semantic_merge"

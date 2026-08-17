@@ -74,9 +74,20 @@ const getWorkspaceById = vi.hoisted(() =>
   ),
 )
 
+const claimSandboxInstance = vi.hoisted(() =>
+  vi.fn(async (input: { id: string }) => ({
+    record: input,
+    inserted: true,
+  })),
+)
+
 vi.mock("../../models/workspaces.js", () => ({
   persistSandboxInstance: vi.fn(async () => {}),
   deleteSandboxInstance: vi.fn(async () => {}),
+  claimSandboxInstance,
+  listSandboxInstances: vi.fn(async () => []),
+  heartbeatSandboxInstance: vi.fn(async () => {}),
+  getSandboxInstance: vi.fn(async () => null),
   getWorkspaceById,
   listLinkedRepositories: vi.fn(async () => [
     { gitUrl: "https://github.com/acme/app" },
@@ -128,6 +139,10 @@ describe("runTanstackWorkspaceChat", () => {
   beforeEach(() => {
     vi.clearAllMocks()
     process.env.SANDBOX_PROVIDER = "docker"
+    claimSandboxInstance.mockImplementation(async (input: { id: string }) => ({
+      record: input,
+      inserted: true,
+    }))
   })
 
   it("calls chat() with withSandbox and opencodeText", async () => {
@@ -258,6 +273,33 @@ describe("runTanstackWorkspaceChat", () => {
     expect(defineSandboxMock).toHaveBeenCalledWith(
       expect.objectContaining({
         id: "org_1:ws_1:https://github.com/acme/docs@abc:chat:1",
+      }),
+    )
+  })
+
+  it("passes a Postgres instance store and lock to withSandbox", async () => {
+    const res = await runTanstackWorkspaceChat({
+      conversationId: "conv_1",
+      prompt: "hello",
+      orgId: "org_1",
+      workspaceId: "ws_1",
+      desiredUrl: "https://github.com/acme/docs",
+      desiredSha: "abc",
+      ref: "abc",
+      writeStatus: "writable",
+    })
+    expect(res.status).toBe(200)
+    expect(withSandboxMock).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.objectContaining({
+        instances: expect.objectContaining({
+          get: expect.any(Function),
+          upsert: expect.any(Function),
+          delete: expect.any(Function),
+        }),
+        locks: expect.objectContaining({
+          withLock: expect.any(Function),
+        }),
       }),
     )
   })

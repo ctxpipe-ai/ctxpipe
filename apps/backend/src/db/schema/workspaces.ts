@@ -210,6 +210,10 @@ export const workspaceSandboxInstances = pgTable(
     desiredUrl: text("desired_url"),
     desiredGeneration: integer("desired_generation"),
     desiredSha: text("desired_sha"),
+    provider: text("provider"),
+    providerSandboxId: text("provider_sandbox_id"),
+    latestSnapshotId: text("latest_snapshot_id"),
+    latestRunId: text("latest_run_id"),
     state: text("state").notNull().default("live"),
     lastHeartbeatAt: timestamp("last_heartbeat_at", {
       withTimezone: true,

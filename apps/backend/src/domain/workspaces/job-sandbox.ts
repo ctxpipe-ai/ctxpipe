@@ -1,3 +1,4 @@
+import { claimSandboxInstance } from "../../models/workspaces.js"
 import { scrubOriginAfterCloneCommand } from "./clone-credentials.js"
 import type { JobSandboxHandle, JobWorktreeExec } from "./job-worktree.js"
 import {
@@ -58,7 +59,7 @@ export async function ensureJobSandbox(input: {
   desiredUrl: string
   desiredSha: string | null
   existing?: JobSandboxHandle | null
-  create: () => Promise<{
+  create: (sandboxId: string) => Promise<{
     handle: JobSandboxHandle
     destroy?: () => Promise<void>
   } | null>
@@ -66,19 +67,35 @@ export async function ensureJobSandbox(input: {
   if (input.existing) return input.existing
   const attached = getJobSandbox(input.workspaceId)
   if (attached) return attached
-  const created = await input.create()
-  if (!created) return null
-  const id =
+  const preferredId =
     workspaceWriteSandboxId({
       orgId: input.orgId,
       workspaceId: input.workspaceId,
       desiredUrl: input.desiredUrl,
       desiredSha: input.desiredSha,
     }) ?? `${input.orgId}:${input.workspaceId}:write`
-  registerWorkspaceSandbox({
-    id,
+  const claimed = await claimSandboxInstance({
+    id: preferredId,
     kind: "job",
+    orgId: input.orgId,
     workspaceId: input.workspaceId,
+    desiredUrl: input.desiredUrl,
+    desiredSha: input.desiredSha,
+    state: "live",
+    lastHeartbeatAt: new Date(),
+  })
+  const attachedAfterClaim = getJobSandbox(input.workspaceId)
+  if (attachedAfterClaim) return attachedAfterClaim
+  const created = await input.create(claimed.record.id)
+  if (!created) return null
+  await registerWorkspaceSandbox({
+    id: claimed.record.id,
+    kind: "job",
+    orgId: input.orgId,
+    workspaceId: input.workspaceId,
+    desiredUrl: input.desiredUrl,
+    desiredSha: input.desiredSha,
+    providerSandboxId: claimed.record.id,
     handle: created.handle,
     destroy: created.destroy,
   })

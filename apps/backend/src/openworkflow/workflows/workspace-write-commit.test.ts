@@ -80,6 +80,15 @@ vi.mock("../../models/workspaces.js", () => ({
   persistHydrateFailure: persistHydrateFailureMock,
   listLinkedRepositories: vi.fn().mockResolvedValue([]),
   listKnowledgeUnitPaths: vi.fn().mockResolvedValue([]),
+  claimSandboxInstance: vi.fn(async (input: { id: string }) => ({
+    record: input,
+    inserted: true,
+  })),
+  persistSandboxInstance: vi.fn(async () => {}),
+  deleteSandboxInstance: vi.fn(async () => {}),
+  listSandboxInstances: vi.fn(async () => []),
+  heartbeatSandboxInstance: vi.fn(async () => {}),
+  getSandboxInstance: vi.fn(async () => null),
 }))
 
 vi.mock("../../models/workspace-export.js", () => ({
