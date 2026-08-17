@@ -413,6 +413,27 @@ jobs:
               echo "Updated preview ENABLE_LANGSMITH=false and deleted OTEL exporters for service $service_id"
             }
 
+            # UI Nitro must bind 0.0.0.0 or Railway healthcheck on / never reaches the process.
+            upsert_preview_ui_bind_variables() {
+              local service_id="$1"
+              railway_graphql \
+                'mutation variableCollectionUpsert($input: VariableCollectionUpsertInput!) { variableCollectionUpsert(input: $input) }' \
+                "$(jq -nc --arg project "$RAILWAY_PROJECT_ID" --arg env "$ENV_ID" --arg service "$service_id" \
+                  '{
+                    input: {
+                      projectId: $project,
+                      environmentId: $env,
+                      serviceId: $service,
+                      skipDeploys: true,
+                      variables: {
+                        HOST: "0.0.0.0",
+                        NITRO_HOST: "0.0.0.0"
+                      }
+                    }
+                  }')"
+              echo "Set HOST=0.0.0.0 and NITRO_HOST=0.0.0.0 for UI $service_id"
+            }
+
             # Backend: allow waking the worker after enqueue (Railway GraphQL deploy).
             upsert_preview_backend_wake_variables() {
               local service_id="$1"
@@ -650,6 +671,7 @@ jobs:
             wait_for_image_deploy "worker" "$WORKER_SERVICE_ID" "$WORKER_IMAGE"
 
             upsert_preview_service_variables "$UI_SERVICE_ID" >/dev/null
+            upsert_preview_ui_bind_variables "$UI_SERVICE_ID" >/dev/null
             update_source_image "$UI_SERVICE_ID" "$UI_IMAGE" >/dev/null
             deploy_service "$UI_SERVICE_ID" >/dev/null
             wait_for_image_deploy "ui" "$UI_SERVICE_ID" "$UI_IMAGE"

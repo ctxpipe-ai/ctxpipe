@@ -27,6 +27,9 @@ FROM oven/bun:1.2-alpine
 WORKDIR /app
 ENV CI=true
 ENV NODE_ENV=production
+# Nitro defaults to localhost; Railway healthchecks hit the container IP, so bind all interfaces.
+ENV HOST=0.0.0.0
+ENV NITRO_HOST=0.0.0.0
 COPY --from=builder /app/apps/ui/.output ./.output
 EXPOSE 3002
 CMD ["bun", "run", ".output/server/index.mjs"]

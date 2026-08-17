@@ -174,6 +174,15 @@ resource "railway_variable_collection" "ui_env" {
     {
       name  = "PORT"
       value = "3002"
+    },
+    {
+      # Nitro/Vinxi default bind is localhost; Railway healthchecks need 0.0.0.0.
+      name  = "HOST"
+      value = "0.0.0.0"
+    },
+    {
+      name  = "NITRO_HOST"
+      value = "0.0.0.0"
     }
   ], local.amplitude_shared_env)
 }
