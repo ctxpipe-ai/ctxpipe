@@ -6,6 +6,7 @@ import {
   exists,
   isNotNull,
   notInArray,
+  or,
   sql,
 } from "drizzle-orm"
 import { createError } from "evlog"
@@ -1835,7 +1836,10 @@ export async function claimSandboxInstance(
         .where(
           and(
             eq(workspaceSandboxInstances.kind, input.kind),
-            eq(workspaceSandboxInstances.state, "live"),
+            or(
+              eq(workspaceSandboxInstances.state, "live"),
+              eq(workspaceSandboxInstances.state, "destroy_failed"),
+            ),
             identityFilter,
           ),
         )
@@ -1845,10 +1849,30 @@ export async function claimSandboxInstance(
           asc(workspaceSandboxInstances.id),
         )
         .limit(1)
-      const live = existing ? toSandboxInstanceRecord(existing) : null
-      if (live) return { record: live, inserted: false }
-
       const now = new Date()
+      const live = existing ? toSandboxInstanceRecord(existing) : null
+      if (live && existing) {
+        if (existing.state === "destroy_failed") {
+          await tx
+            .update(workspaceSandboxInstances)
+            .set({
+              state: "live",
+              lastHeartbeatAt: input.lastHeartbeatAt,
+              updatedAt: now,
+            })
+            .where(eq(workspaceSandboxInstances.id, existing.id))
+          return {
+            record: {
+              ...live,
+              state: "live",
+              lastHeartbeatAt: input.lastHeartbeatAt,
+            },
+            inserted: false,
+          }
+        }
+        return { record: live, inserted: false }
+      }
+
       await tx
         .insert(workspaceSandboxInstances)
         .values({
@@ -1878,7 +1902,16 @@ export async function claimSandboxInstance(
             updatedAt: now,
           },
         })
-      return { record: { ...input, state: "live" }, inserted: true }
+      const [row] = await tx
+        .select()
+        .from(workspaceSandboxInstances)
+        .where(eq(workspaceSandboxInstances.id, input.id))
+        .limit(1)
+      const record = row ? toSandboxInstanceRecord(row) : null
+      return {
+        record: record ?? { ...input, state: "live" },
+        inserted: true,
+      }
     })
   })
 }

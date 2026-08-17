@@ -144,7 +144,7 @@ describe("job sandbox", () => {
         create,
       }),
     ).toBeNull()
-    expect(create).toHaveBeenCalledWith("job-claimed")
+    expect(create).toHaveBeenCalledWith("job-claimed", expect.any(Function))
     expect(deleteSandboxInstance).not.toHaveBeenCalled()
   })
 
@@ -417,6 +417,7 @@ describe("job sandbox", () => {
         loadModules: async () => ({
           localProcessSandbox: () => ({
             create: async () => ({
+              id: "sbx_job_1",
               process: { exec },
               fs: {
                 write: async () => undefined,
@@ -446,6 +447,7 @@ describe("job sandbox", () => {
         loadModules: async () => ({
           localProcessSandbox: () => ({
             create: async () => ({
+              id: "sbx_job_1",
               process: { exec },
               fs: {
                 write: async () => undefined,
@@ -495,5 +497,41 @@ describe("job sandbox", () => {
     expect(resume).toHaveBeenCalledWith({ id: "sbx_live" })
     expect(create).not.toHaveBeenCalled()
     expect(clone).not.toHaveBeenCalled()
+  })
+
+  it("persists the provider id before cloning the workspace repository", async () => {
+    const order: string[] = []
+    const persistProviderId = vi.fn(async () => {
+      order.push("persist")
+    })
+    const clone = vi.fn(async () => {
+      order.push("clone")
+    })
+    await createTanstackJobSandbox({
+      sandboxId: "job-1",
+      gitUrl: "https://github.com/acme/docs",
+      ref: "abc",
+      env: {},
+      persistProviderId,
+      loadModules: async () => ({
+        localProcessSandbox: () => ({
+          create: async () => ({
+            id: "sbx_job_1",
+            process: {
+              exec: async () => ({ stdout: "", stderr: "", exitCode: 0 }),
+            },
+            fs: {
+              write: async () => undefined,
+              read: async () => "",
+              remove: async () => undefined,
+              mkdir: async () => undefined,
+            },
+            git: { clone },
+            destroy: async () => undefined,
+          }),
+        }),
+      }),
+    })
+    expect(order).toEqual(["persist", "clone"])
   })
 })

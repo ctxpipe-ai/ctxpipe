@@ -54,6 +54,12 @@ export async function destroyDetachedProviderSandbox(input: {
       throw new Error(`Cannot destroy detached ${input.provider} sandbox`)
     }
     await factory.destroy({ id: input.providerSandboxId })
+    const remaining = await factory.resume?.({ id: input.providerSandboxId })
+    if (remaining) {
+      throw new Error(
+        `Provider sandbox ${input.providerSandboxId} still exists after destroy`,
+      )
+    }
     return
   }
   const localFactory = local?.localProcessSandbox?.()
@@ -61,4 +67,12 @@ export async function destroyDetachedProviderSandbox(input: {
     throw new Error("Cannot destroy detached local sandbox")
   }
   await localFactory.destroy({ id: input.providerSandboxId })
+  const remaining = await localFactory.resume?.({
+    id: input.providerSandboxId,
+  })
+  if (remaining) {
+    throw new Error(
+      `Provider sandbox ${input.providerSandboxId} still exists after destroy`,
+    )
+  }
 }

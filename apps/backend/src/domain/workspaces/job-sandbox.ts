@@ -1,4 +1,7 @@
-import { claimSandboxInstance } from "../../models/workspaces.js"
+import {
+  claimSandboxInstance,
+  persistSandboxInstance,
+} from "../../models/workspaces.js"
 import { scrubOriginAfterCloneCommand } from "./clone-credentials.js"
 import type { JobSandboxHandle, JobWorktreeExec } from "./job-worktree.js"
 import { withSandboxAdvisoryLock } from "./sandbox-instance-store.js"
@@ -61,7 +64,10 @@ export async function ensureJobSandbox(input: {
   desiredUrl: string
   desiredSha: string | null
   existing?: JobSandboxHandle | null
-  create: (sandboxId: string) => Promise<{
+  create: (
+    sandboxId: string,
+    persistProviderId: (providerSandboxId: string) => Promise<void>,
+  ) => Promise<{
     handle: JobSandboxHandle
     destroy?: () => Promise<void>
     providerSandboxId?: string
@@ -96,7 +102,17 @@ export async function ensureJobSandbox(input: {
       const attachedAfterClaim = getJobSandbox(input.workspaceId)
       if (attachedAfterClaim) return attachedAfterClaim
       const resumeId = claimed.record.providerSandboxId ?? claimed.record.id
-      const created = await input.create(resumeId)
+      const created = await input.create(
+        resumeId,
+        async (providerSandboxId) => {
+          await persistSandboxInstance({
+            ...claimed.record,
+            providerSandboxId,
+            state: "live",
+            lastHeartbeatAt: new Date(),
+          })
+        },
+      )
       if (!created) return null
       try {
         await registerWorkspaceSandbox({
@@ -179,6 +195,7 @@ export async function createTanstackJobSandbox(input: {
   fetchShas?: readonly string[]
   env?: Record<string, string | undefined>
   loadModules?: () => Promise<SandboxModules>
+  persistProviderId?: (providerSandboxId: string) => Promise<void>
 }): Promise<{
   handle: JobSandboxHandle
   destroy: () => Promise<void>
@@ -211,15 +228,16 @@ export async function createTanstackJobSandbox(input: {
     }
   }
   const raw = await factory.create({})
+  if (!raw.id) {
+    await raw.destroy().catch(() => undefined)
+    throw new Error("Job sandbox create did not return a provider id")
+  }
   try {
+    await input.persistProviderId?.(raw.id)
     await seedJobRepo(raw, input)
   } catch (error) {
     await raw.destroy().catch(() => undefined)
     throw error
-  }
-  if (!raw.id) {
-    await raw.destroy().catch(() => undefined)
-    throw new Error("Job sandbox create did not return a provider id")
   }
   return {
     handle: adaptTanstackHandle(raw),

@@ -39,17 +39,20 @@ function mockClaimDb(existing: ReturnType<typeof liveRow>[]) {
   const execute = vi.fn().mockResolvedValue(undefined)
   const limit = vi.fn().mockResolvedValue(existing)
   const orderBy = vi.fn().mockReturnValue({ limit })
-  const where = vi.fn().mockReturnValue({ orderBy })
+  const where = vi.fn().mockReturnValue({ orderBy, limit })
   const from = vi.fn().mockReturnValue({ where })
   const select = vi.fn().mockReturnValue({ from })
   const onConflictDoUpdate = vi.fn().mockResolvedValue(undefined)
   const values = vi.fn().mockReturnValue({ onConflictDoUpdate })
   const insert = vi.fn().mockReturnValue({ values })
+  const updateWhere = vi.fn().mockResolvedValue(undefined)
+  const set = vi.fn().mockReturnValue({ where: updateWhere })
+  const update = vi.fn().mockReturnValue({ set })
   const transaction = vi.fn(async (fn: (tx: unknown) => unknown) =>
-    fn({ execute, select, insert }),
+    fn({ execute, select, insert, update }),
   )
-  getOrgDbMock.mockReturnValue({ transaction, execute, select, insert })
-  return { execute, insert, values, transaction, orderBy }
+  getOrgDbMock.mockReturnValue({ transaction, execute, select, insert, update })
+  return { execute, insert, values, transaction, orderBy, update }
 }
 
 describe("claimSandboxInstance", () => {
@@ -106,6 +109,33 @@ describe("claimSandboxInstance", () => {
         workspaceId: "ws_1",
         state: "live",
       }),
+    })
+  })
+
+  it("reactivates a destroy_failed row and keeps its provider sandbox id", async () => {
+    const db = mockClaimDb([
+      liveRow({
+        id: "job-failed",
+        state: "destroy_failed",
+        providerSandboxId: "sbx_old",
+        provider: "docker",
+      }),
+    ])
+    const claimed = await claimSandboxInstance({
+      id: "job-new",
+      kind: "job",
+      orgId: "org_1",
+      workspaceId: "ws_1",
+      state: "live",
+      lastHeartbeatAt: new Date(),
+    })
+    expect(db.insert).not.toHaveBeenCalled()
+    expect(db.update).toHaveBeenCalled()
+    expect(claimed.inserted).toBe(false)
+    expect(claimed.record).toMatchObject({
+      id: "job-failed",
+      state: "live",
+      providerSandboxId: "sbx_old",
     })
   })
 })
