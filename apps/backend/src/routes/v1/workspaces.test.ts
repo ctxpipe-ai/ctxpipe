@@ -13,6 +13,7 @@ const listWorkspaceKnowledgeUnitsMock = vi.hoisted(() => vi.fn())
 const linkRepositoryMock = vi.hoisted(() => vi.fn())
 const unlinkRepositoryMock = vi.hoisted(() => vi.fn())
 const persistHydrateRetryMock = vi.hoisted(() => vi.fn())
+const deleteWorkspaceMock = vi.hoisted(() => vi.fn())
 
 vi.mock("../../openworkflow/enqueue-workspace-write-commit.js", () => ({
   enqueueWorkspaceWriteCommit: vi.fn().mockResolvedValue(undefined),
@@ -36,6 +37,7 @@ vi.mock("../../models/workspaces.js", () => ({
   listWorkspaceKnowledgeFiles: listWorkspaceKnowledgeFilesMock,
   listWorkspaceKnowledgeUnits: listWorkspaceKnowledgeUnitsMock,
   persistHydrateRetry: persistHydrateRetryMock,
+  deleteWorkspace: deleteWorkspaceMock,
   linkRepository: linkRepositoryMock,
   unlinkRepository: unlinkRepositoryMock,
   getPersistedFirstWorkspaceId: vi.fn().mockResolvedValue(null),
@@ -240,6 +242,46 @@ describe("workspaces API", () => {
     })
     const body = await res.json()
     expect(body.slug).toBe("docs")
+  })
+
+  it("deletes a workspace when confirmName matches the display name", async () => {
+    deleteWorkspaceMock.mockResolvedValue({ id: "ws_abc" })
+    const res = await app().request("/workspaces/knowledge", {
+      method: "DELETE",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ confirmName: "knowledge" }),
+    })
+    expect(res.status).toBe(204)
+    expect(deleteWorkspaceMock).toHaveBeenCalledWith("knowledge", "knowledge")
+  })
+
+  it("400s when confirmName does not match", async () => {
+    deleteWorkspaceMock.mockRejectedValue(
+      Object.assign(
+        new Error("Type the Workspace display name to confirm delete"),
+        {
+          status: 400,
+        },
+      ),
+    )
+    const res = await app().request("/workspaces/knowledge", {
+      method: "DELETE",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ confirmName: "wrong" }),
+    })
+    expect(res.status).toBe(400)
+    const body = await res.json()
+    expect(body.error).toBe("Type the Workspace display name to confirm delete")
+  })
+
+  it("404s delete for an unknown slug", async () => {
+    deleteWorkspaceMock.mockResolvedValue(false)
+    const res = await app().request("/workspaces/missing", {
+      method: "DELETE",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ confirmName: "Docs" }),
+    })
+    expect(res.status).toBe(404)
   })
 
   it("records last-used on touch", async () => {

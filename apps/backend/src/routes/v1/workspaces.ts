@@ -12,6 +12,7 @@ import {
 } from "../../domain/workspaces/write-status.js"
 import {
   createWorkspace,
+  deleteWorkspace,
   getPersistedFirstWorkspaceId,
   getWorkspaceBySlug,
   listLinkedRepositories,
@@ -95,6 +96,12 @@ const UpdateWorkspaceRequestSchema = z
     readOnlyReason: z.string().min(1).nullable().optional(),
   })
   .openapi("UpdateWorkspaceRequest")
+
+const DeleteWorkspaceRequestSchema = z
+  .object({
+    confirmName: z.string().min(1),
+  })
+  .openapi("DeleteWorkspaceRequest")
 
 const WorkspaceSlugParamsSchema = z
   .object({
@@ -285,6 +292,34 @@ const patchWorkspaceRoute = createRoute({
     409: {
       content: { "application/json": { schema: ErrorResponseSchema } },
       description: "Slug or workspace repository URL conflict",
+    },
+  },
+})
+
+const deleteWorkspaceRoute = createRoute({
+  method: "delete",
+  path: "/{workspaceSlug}",
+  request: {
+    params: WorkspaceSlugParamsSchema,
+    body: {
+      content: {
+        "application/json": { schema: DeleteWorkspaceRequestSchema },
+      },
+    },
+  },
+  responses: {
+    204: { description: "Deleted Workspace" },
+    400: {
+      content: { "application/json": { schema: ErrorResponseSchema } },
+      description: "confirmName does not match the display name",
+    },
+    401: {
+      content: { "application/json": { schema: ErrorResponseSchema } },
+      description: "Unauthorized",
+    },
+    404: {
+      content: { "application/json": { schema: ErrorResponseSchema } },
+      description: "Not found",
     },
   },
 })
@@ -683,6 +718,30 @@ export const workspaceRoutes = new OpenAPIHono<AppEnv>()
       )
     }
     return c.json(serializeWorkspace(updated), 200)
+  })
+  .openapi(deleteWorkspaceRoute, async (c) => {
+    if (!c.get("user") || !c.get("session")) {
+      return c.json({ error: "Unauthorized" }, 401)
+    }
+    const { workspaceSlug } = workspaceSlugParams(c)
+    const body = DeleteWorkspaceRequestSchema.parse(await c.req.json())
+    try {
+      const deleted = await deleteWorkspace(workspaceSlug, body.confirmName)
+      if (!deleted) return c.json({ error: "Not found" }, 404)
+      void destroySandboxesForWorkspace(deleted.id)
+      return c.body(null, 204)
+    } catch (error) {
+      const status =
+        error && typeof error === "object" && "status" in error
+          ? Number((error as { status: unknown }).status)
+          : undefined
+      if (status === 400) {
+        const message =
+          error instanceof Error ? error.message : "Invalid request"
+        return c.json({ error: message }, 400)
+      }
+      throw error
+    }
   })
   .openapi(touchWorkspaceRoute, async (c) => {
     if (!c.get("user") || !c.get("session")) {

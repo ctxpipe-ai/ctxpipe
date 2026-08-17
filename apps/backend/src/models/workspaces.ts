@@ -534,6 +534,53 @@ export async function updateWorkspace(
   }
 }
 
+export async function deleteWorkspace(
+  slug: string,
+  confirmName: string,
+): Promise<{ id: string } | false> {
+  const orgId = requireCurrentOrgId()
+  const db = getOrgDb()
+  const normalised = slug.trim().toLowerCase()
+  if (!isValidSlug(normalised)) return false
+
+  return db.transaction(async (tx) => {
+    const [row] = await tx
+      .select()
+      .from(workspaces)
+      .where(and(eq(workspaces.orgId, orgId), eq(workspaces.slug, normalised)))
+      .limit(1)
+    if (!row) return false
+    if (confirmName !== row.displayName) {
+      throw createError({
+        message: "Type the Workspace display name to confirm delete",
+        status: 400,
+        why: "confirmName must match the Workspace display name",
+      })
+    }
+
+    await tx
+      .delete(conversations)
+      .where(
+        and(
+          eq(conversations.orgId, orgId),
+          eq(conversations.workspaceId, row.id),
+        ),
+      )
+    await tx
+      .delete(orgWorkspaceCutover)
+      .where(
+        and(
+          eq(orgWorkspaceCutover.orgId, orgId),
+          eq(orgWorkspaceCutover.firstWorkspaceId, row.id),
+        ),
+      )
+    await tx
+      .delete(workspaces)
+      .where(and(eq(workspaces.orgId, orgId), eq(workspaces.id, row.id)))
+    return { id: row.id }
+  })
+}
+
 export async function listOrgWorkspaces(
   orgId: string,
 ): Promise<
