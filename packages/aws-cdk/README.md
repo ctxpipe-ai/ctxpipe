@@ -207,6 +207,23 @@ Runtime defaults injected by the construct include:
 
 This keeps the package and service images aligned by default with no extra config in `CtxPipeProps`.
 
+## Upgrading an existing stack
+
+Bump the construct, then redeploy. Do not retag ECS services to `:latest` by hand — the package pin is what keeps images, Fargate sizes, and migrations on the same release.
+
+```bash
+pnpm update @ctxpipe/aws-cdk
+cdk synth
+cdk deploy
+```
+
+That deploy:
+
+- updates codesearch (and other) task CPU/memory from this package version’s size profiles
+- rolls backend, worker, UI, codesearch, and migrate to the SHA stamped into this package
+- runs Postgres migrations (including new enum values) before ECS services update
+
+
 ## Environment checklist
 
 
