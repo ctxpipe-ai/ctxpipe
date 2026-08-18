@@ -58,4 +58,18 @@ describe("repositoryCardPresentation", () => {
       },
     })
   })
+
+  it("does not offer retry while indexing is ready", () => {
+    expect(
+      repositoryCardPresentation({
+        indexingStatus: "ready",
+        indexingError: null,
+        lastIngestedHash: "abc1234",
+        lastIngestedAt: "2026-01-01T00:00:00.000Z",
+      }),
+    ).toMatchObject({
+      displayStatus: "ready",
+      showRetryIndexing: false,
+    })
+  })
 })

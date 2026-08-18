@@ -36,7 +36,7 @@ echo "oom-simulation: exit=${status} OOMKilled=${oom_killed}"
 echo "${logs}"
 
 if [[ "${oom_killed}" == "true" || "${status}" -eq 137 ]]; then
-  echo "oom-simulation: PASS (task cgroup OOM → product status failed)"
+  echo "oom-simulation: PASS (task cgroup OOM observed; does not assert repository status)"
   exit 0
 fi
 

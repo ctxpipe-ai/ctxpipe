@@ -322,4 +322,36 @@ describe("repository-ingestion index workflow boundary", () => {
     expect(markRepositoryIndexingReady).not.toHaveBeenCalled()
     expect(enqueueFollowUpIfTipAheadMock).toHaveBeenCalled()
   })
+
+  it("does not mark complete with issues when the index child dies", async () => {
+    const step = {
+      run: async (
+        _opts: { name: string; retryPolicy?: { maximumAttempts?: number } },
+        fn: () => unknown,
+      ) => fn(),
+      runWorkflow: async () => {
+        throw new Error("Codebase didn't fit available memory")
+      },
+    }
+
+    const wf = repositoryIngestion as unknown as {
+      run: (args: {
+        input: { repositoryId: string; orgId: string }
+        step: typeof step
+        run?: { id: string }
+      }) => Promise<unknown>
+    }
+
+    await expect(
+      wf.run({
+        input: { repositoryId: "repo_1", orgId: "org_1" },
+        step,
+        run: { id: "wr_3" },
+      }),
+    ).rejects.toThrow("Codebase didn't fit available memory")
+
+    expect(markRepositoryIndexingReadyWithIssues).not.toHaveBeenCalled()
+    expect(markRepositoryIndexingReady).not.toHaveBeenCalled()
+    expect(enqueueFollowUpIfTipAheadMock).not.toHaveBeenCalled()
+  })
 })
