@@ -103,9 +103,12 @@ export function WorkspaceConversationList(props: {
                       className={[
                         "text-xs font-normal tracking-tight transition-opacity duration-200 ease-out motion-reduce:transition-none",
                         active ? "text-zinc-100" : "text-zinc-300",
-                        navExpanded ? "opacity-0" : "opacity-100",
+                        // Overlay drawer (`max-md`) always shows names, never initials.
+                        navExpanded
+                          ? "opacity-0"
+                          : "opacity-100 max-md:opacity-0",
                       ].join(" ")}
-                      aria-hidden={navExpanded}
+                      aria-hidden
                     >
                       {short}
                     </span>

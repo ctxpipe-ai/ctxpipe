@@ -69,15 +69,17 @@ Error: [`InlineAlert`](../../../apps/ui/src/components/ui/InlineAlert.tsx) + a n
 
 ## 7. Build
 
-- Primitives from `src/components/ui/*`. Do not invent a new Button or checkbox.
+- Primitives from `src/components/ui/*` (React Aria). Do not invent a new Button or checkbox.
+- **React Aria first:** tabs, dialogs, menus, lists, links, and similar controls start from [React Aria Components](https://react-spectrum.adobe.com/react-aria/components.html). Use the house wrapper in `src/components/ui/*` when the visual matches; otherwise compose RAC primitives (`Tabs` / `TabList` / `Tab`, `Button`, `Link`, …) and style them. Hand-rolled `<button>` tablists are not a substitute for `Tabs`.
 - New chrome: `rounded-lg` / `--radius`. Do not add `rounded-none`.
 - Icons: `@tabler/icons-react` at ~16–20px, `text-muted-foreground`, `aria-hidden`. Lucide only if Tabler has no equivalent. Enclose in `.ctx-node` if the hit area must be large.
 - Destructive on the page: `outline` or `quiet`. Filled red only on [`AlertDialog`](../../../apps/ui/src/components/ui/AlertDialog.tsx).
 - Copy: UK English, plain, specific. Semantic `h1` at `text-lg` / `text-xl` on product screens.
+- **Responsive — CSS-first:** Express breakpoints with Tailwind (`sm:`, `md:`, `lg:`, `max-md:`, …) — visibility, padding, borders, column layout, overlay vs rail. Reach for JS (`matchMedia`, `useMediaQuery`, resize Effects) **only when CSS cannot do the job** (interactive state like an open drawer; a one-shot `matchMedia` inside a click handler is fine). Do not drive layout chrome from reactive media-query state when a responsive class would suffice.
 
 Then follow the [react](../react/SKILL.md) skill for data flow.
 
-**Done when:** the markup matches the named pattern, uses existing primitives, and the title/radius/icon rules above hold.
+**Done when:** the markup matches the named pattern, uses existing primitives, the title/radius/icon rules above hold, and responsive behaviour is CSS-first.
 
 ## 8. Scan
 

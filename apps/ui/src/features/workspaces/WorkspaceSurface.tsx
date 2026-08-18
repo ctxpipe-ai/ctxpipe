@@ -2,6 +2,7 @@ import { useQueryClient, useSuspenseQuery } from "@tanstack/react-query"
 import { useNavigate } from "@tanstack/react-router"
 import { Component, type ReactNode, Suspense, useEffect, useState } from "react"
 import { AppShell } from "@/components/AppShell"
+import { cn } from "@/lib/utils"
 import { type ParsedPane, parsePane, serializePane, visiblePane } from "./pane"
 import {
   workspacePrepareNeedsPoll,
@@ -237,6 +238,31 @@ function WorkspaceSurfaceLayout(props: {
   setSessionFileTabs: React.Dispatch<React.SetStateAction<string[]>>
   setPane: (next: ParsedPane | null) => void
 }) {
+  return (
+    <AppShell>
+      <WorkspaceSurfaceColumns {...props} />
+    </AppShell>
+  )
+}
+
+function WorkspaceSurfaceColumns(props: {
+  orgSlug: string
+  workspace: WorkspaceDetail
+  conversationId?: string
+  conversationTitle: string
+  shownPane: ParsedPane | null
+  maximized: boolean
+  paneWidth: number
+  treeCollapsed: boolean
+  selectedFilePath: string | null
+  fileTabs: string[]
+  setMaximized: React.Dispatch<React.SetStateAction<boolean>>
+  setPaneWidth: React.Dispatch<React.SetStateAction<number>>
+  setTreeCollapsed: React.Dispatch<React.SetStateAction<boolean>>
+  setSelectedFilePath: React.Dispatch<React.SetStateAction<string | null>>
+  setSessionFileTabs: React.Dispatch<React.SetStateAction<string[]>>
+  setPane: (next: ParsedPane | null) => void
+}) {
   const {
     orgSlug,
     workspace,
@@ -256,61 +282,81 @@ function WorkspaceSurfaceLayout(props: {
     setPane,
   } = props
 
+  const paneOpen = Boolean(shownPane)
+
   return (
-    <AppShell>
-      <div className="flex min-h-screen min-w-0">
-        {maximized ? null : (
-          <WorkspaceChat
-            orgSlug={orgSlug}
-            workspace={workspace}
-            conversationId={conversationId}
-            headerExtra={
-              shownPane ? null : (
-                <WorkspacePaneTriggers onOpen={(next) => setPane(next)} />
-              )
-            }
-          />
+    <div className="flex min-h-screen min-w-0" data-workspace-surface="">
+      {/*
+        Column visibility is CSS:
+        - maximised → hide chat
+        - pane open below lg → hide chat (single column)
+        - otherwise show chat
+      */}
+      <div
+        className={cn(
+          "flex min-h-0 min-w-0 flex-1",
+          maximized ? "hidden" : paneOpen ? "max-lg:hidden" : null,
         )}
-        {shownPane ? (
-          <WorkspacePane
-            orgSlug={orgSlug}
-            workspace={workspace}
-            pane={shownPane}
-            fileTabs={fileTabs}
-            selectedFilePath={selectedFilePath}
-            treeCollapsed={treeCollapsed}
-            maximized={maximized}
-            width={paneWidth}
-            conversationTitle={conversationTitle}
-            onPane={(next) => setPane(next)}
-            onClose={() => {
-              setMaximized(false)
-              setPane(null)
-            }}
-            onToggleMaximize={() => setMaximized((value) => !value)}
-            onRestoreConversation={() => setMaximized(false)}
-            onResize={setPaneWidth}
-            onSelectFile={(path) => {
-              setSelectedFilePath(path)
-              setPane({ kind: "files" })
-            }}
-            onOpenFileTab={(path) => {
-              setSessionFileTabs((tabs) =>
-                tabs.includes(path) ? tabs : [...tabs, path],
-              )
-              setSelectedFilePath(path)
-              setPane({ kind: "file", path })
-            }}
-            onCloseFileTab={(path) => {
-              setSessionFileTabs((tabs) => tabs.filter((item) => item !== path))
-              if (shownPane.kind === "file" && shownPane.path === path) {
-                setPane({ kind: "files" })
-              }
-            }}
-            onToggleTree={() => setTreeCollapsed((value) => !value)}
-          />
-        ) : null}
+      >
+        <WorkspaceChat
+          orgSlug={orgSlug}
+          workspace={workspace}
+          conversationId={conversationId}
+          headerExtra={
+            shownPane ? null : (
+              <WorkspacePaneTriggers onOpen={(next) => setPane(next)} />
+            )
+          }
+        />
       </div>
-    </AppShell>
+      {shownPane ? (
+        <WorkspacePane
+          orgSlug={orgSlug}
+          workspace={workspace}
+          pane={shownPane}
+          fileTabs={fileTabs}
+          selectedFilePath={selectedFilePath}
+          treeCollapsed={treeCollapsed}
+          maximized={maximized}
+          width={paneWidth}
+          conversationTitle={conversationTitle}
+          onPane={(next) => setPane(next)}
+          onClose={() => {
+            setMaximized(false)
+            setPane(null)
+          }}
+          onToggleMaximize={() => setMaximized((value) => !value)}
+          onRestoreConversation={() => {
+            setMaximized(false)
+            // Below lg the tools pane owns the viewport — restore means close it.
+            if (
+              typeof window !== "undefined" &&
+              window.matchMedia("(max-width: 1023px)").matches
+            ) {
+              setPane(null)
+            }
+          }}
+          onResize={setPaneWidth}
+          onSelectFile={(path) => {
+            setSelectedFilePath(path)
+            setPane({ kind: "files" })
+          }}
+          onOpenFileTab={(path) => {
+            setSessionFileTabs((tabs) =>
+              tabs.includes(path) ? tabs : [...tabs, path],
+            )
+            setSelectedFilePath(path)
+            setPane({ kind: "file", path })
+          }}
+          onCloseFileTab={(path) => {
+            setSessionFileTabs((tabs) => tabs.filter((item) => item !== path))
+            if (shownPane.kind === "file" && shownPane.path === path) {
+              setPane({ kind: "files" })
+            }
+          }}
+          onToggleTree={() => setTreeCollapsed((value) => !value)}
+        />
+      ) : null}
+    </div>
   )
 }

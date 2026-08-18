@@ -556,3 +556,15 @@ Highest-priority confirmed rules for agents. Migrated from former `patterns.md` 
 - **Date:** 2026-08-18
 - **Source:** SideNav polish session (generalized)
 
+### Responsive UI — CSS-first
+- **Rule:** Prefer Tailwind responsive classes for layout and chrome. Use JS (`matchMedia`, `useMediaQuery`, resize listeners) for responsive design **only when CSS cannot express it** (e.g. open/closed overlay state). Do not drive show/hide, padding, borders, or column layout from reactive media-query state when `md:` / `lg:` / `max-md:` would suffice. Documented in [apps/ui/AGENTS.md](../../apps/ui/AGENTS.md) and product-ui Build.
+- **Category:** convention
+- **Date:** 2026-08-18
+- **Source:** workspace responsive layout feedback
+
+### React Aria first for interactive chrome
+- **Rule:** New or restyled interactive controls in `apps/ui` start from React Aria Components (`src/components/ui/*` when the primitive exists, otherwise `react-aria-components`). Tab strips use RAC `Tabs` / `TabList` / `Tab` / `TabPanel` (keyboard + ARIA), not a row of raw `<button>`s. Documented in [apps/ui/AGENTS.md](../../apps/ui/AGENTS.md) and product-ui Build.
+- **Category:** convention
+- **Date:** 2026-08-18
+- **Source:** workspace pane tabs accessibility
+

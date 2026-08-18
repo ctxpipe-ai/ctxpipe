@@ -18,7 +18,10 @@ export const sideNavRevealClassName =
 export function sideNavLabelClassName(expanded: boolean): string {
   return [
     sideNavRevealClassName,
-    expanded ? "flex-1 opacity-100" : "w-0 flex-none opacity-0",
+    // Overlay drawer (< md) always shows labels even if the rail preference is collapsed.
+    expanded
+      ? "flex-1 opacity-100"
+      : "w-0 flex-none opacity-0 max-md:w-auto max-md:flex-1 max-md:opacity-100",
   ].join(" ")
 }
 

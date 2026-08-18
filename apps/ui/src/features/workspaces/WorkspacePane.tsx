@@ -7,8 +7,16 @@ import {
   IconX,
 } from "@tabler/icons-react"
 import { useSuspenseQuery } from "@tanstack/react-query"
-import type { ReactNode } from "react"
+import type { CSSProperties, ReactNode } from "react"
 import { Suspense } from "react"
+import {
+  Tab,
+  TabList,
+  TabPanel,
+  Tabs,
+  type Key,
+} from "react-aria-components"
+import { OverlayNavMenuButton } from "@/components/OverlayNavButton"
 import { Button } from "@/components/ui/Button"
 import {
   Tooltip,
@@ -18,9 +26,18 @@ import {
 } from "@/components/ui/Tooltip"
 import { focusVisibleClassName } from "@/lib/focus-styles"
 import { cn } from "@/lib/utils"
-import { filePaneId, type ParsedPane } from "./pane"
+import { filePaneId, parsePane, serializePane, type ParsedPane } from "./pane"
 import { workspaceFilesOptions, workspaceGraphOptions } from "./queries"
 import type { WorkspaceDetail, WorkspaceFilesResponse } from "./types"
+import {
+  workspaceChromeCardPaneClassName,
+  workspaceChromeIconTabClassName,
+  workspaceChromeOuterClassName,
+  workspaceChromeOuterFlushClassName,
+  workspaceChromeTabClassName,
+  workspaceChromeTabIdleClassName,
+  workspaceChromeTabStripClassName,
+} from "./workspaceChrome"
 import { WorkspaceFileTree } from "./WorkspaceFileTree"
 import { WorkspaceGraphPane } from "./WorkspaceGraphPane"
 import { WorkspaceSettingsPane } from "./WorkspaceSettingsPane"
@@ -50,20 +67,44 @@ export function WorkspacePane(props: {
   const showTreeToggle =
     Boolean(activeFile) &&
     (props.pane.kind === "files" || props.pane.kind === "file")
+  const filesTabActive = props.pane.kind === "files"
+  const selectedKey = serializePane(props.pane)
+
+  const onSelectTab = (key: Key | null) => {
+    if (key == null) return
+    const next = parsePane(String(key))
+    if (next) props.onPane(next)
+  }
 
   return (
     <aside
-      className={[
-        "relative flex min-h-0 flex-col border-border bg-zinc-950",
-        props.maximized ? "min-w-0 flex-1" : "shrink-0 border-l",
-      ].join(" ")}
-      style={props.maximized ? undefined : { width: props.width }}
+      className={cn(
+        workspaceChromeOuterClassName,
+        workspaceChromeOuterFlushClassName,
+        "relative pl-0 pr-3",
+        props.maximized
+          ? "min-w-0 flex-1"
+          : "w-[var(--workspace-pane-width)] max-lg:min-w-0 max-lg:w-auto max-lg:flex-1 shrink-0",
+      )}
+      style={
+        props.maximized
+          ? undefined
+          : ({
+              "--workspace-pane-width": `${props.width}px`,
+            } as CSSProperties)
+      }
+      data-workspace-surface=""
     >
       {props.maximized ? null : (
         <button
           type="button"
           aria-label="Resize pane"
-          className="absolute inset-y-0 left-0 z-10 w-1 cursor-col-resize hover:bg-teal-400/40"
+          className={[
+            "absolute inset-y-[16px] left-0 z-10 hidden w-3 -translate-x-1/2 cursor-col-resize border-0 bg-transparent p-0 lg:block",
+            "after:pointer-events-none after:absolute after:inset-y-0 after:left-1/2 after:w-px after:-translate-x-1/2",
+            "after:rounded-full after:bg-transparent after:transition-colors",
+            "hover:after:bg-white/40 focus-visible:after:bg-white/40",
+          ].join(" ")}
           onPointerDown={(event) => {
             event.preventDefault()
             const startX = event.clientX
@@ -85,142 +126,195 @@ export function WorkspacePane(props: {
           }}
         />
       )}
-      <div className="flex items-center gap-1 border-b border-border px-2 py-1">
-        {props.maximized ? (
-          <button
-            type="button"
-            onClick={props.onRestoreConversation}
-            className="mr-1 truncate rounded-lg px-2 py-1 text-left text-sm font-medium hover:bg-zinc-900"
+
+      <Tabs
+        selectedKey={selectedKey}
+        onSelectionChange={onSelectTab}
+        className="flex min-h-0 flex-1 flex-col"
+        aria-label="Workspace tools"
+      >
+        <TooltipProvider delay={200}>
+          <div
+            className={cn(
+              workspaceChromeTabStripClassName,
+              "max-md:pl-1 max-md:pr-2",
+            )}
           >
-            {props.conversationTitle}
-          </button>
-        ) : null}
-        <PaneTabButton
-          label="Files"
-          active={props.pane.kind === "files"}
-          onClick={() => props.onPane({ kind: "files" })}
-        />
-        <PaneTabButton
-          label="Graph"
-          active={props.pane.kind === "graph"}
-          onClick={() => props.onPane({ kind: "graph" })}
-        />
-        <PaneTabButton
-          label="Settings"
-          active={props.pane.kind === "settings"}
-          onClick={() => props.onPane({ kind: "settings" })}
-        />
-        {props.fileTabs.map((path) => {
-          const title = path.split("/").pop() ?? path
-          const active = props.pane.kind === "file" && props.pane.path === path
-          return (
-            <span
-              key={path}
-              className={[
-                "inline-flex items-center gap-1 rounded-lg px-2 py-1 text-xs",
-                active
-                  ? "bg-zinc-800 text-foreground"
-                  : "text-muted-foreground hover:text-foreground",
-              ].join(" ")}
+            <div className="mb-px flex shrink-0 self-end pb-0.5 md:hidden">
+              <OverlayNavMenuButton />
+            </div>
+            <Button
+              variant="ghost"
+              onPress={props.onRestoreConversation}
+              className={cn(
+                workspaceChromeTabIdleClassName,
+                "max-w-[min(100%,24rem)]",
+                props.maximized ? "flex" : "hidden max-lg:flex",
+              )}
             >
-              <button
-                type="button"
-                onClick={() => props.onPane({ kind: "file", path })}
-                className="font-mono"
+              <span className="truncate">{props.conversationTitle}</span>
+            </Button>
+            <TabList className="flex min-w-0 flex-1 items-end gap-0.5 overflow-x-auto overflow-y-hidden [scrollbar-width:none]">
+              <PaneIconTab
+                id="files"
+                label="Files"
+                icon={<IconFolder stroke={1.6} aria-hidden />}
+              />
+              <PaneIconTab
+                id="graph"
+                label="Graph"
+                icon={<IconAffiliate stroke={1.6} aria-hidden />}
+              />
+              <PaneIconTab
+                id="settings"
+                label="Settings"
+                icon={<IconSettings stroke={1.6} aria-hidden />}
+              />
+              {props.fileTabs.map((path) => {
+                const title = path.split("/").pop() ?? path
+                const id = filePaneId(path)
+                return (
+                  <Tab
+                    key={id}
+                    id={id}
+                    aria-label={title}
+                    className={({ isSelected }) =>
+                      cn(
+                        "max-w-[12rem] gap-1",
+                        isSelected
+                          ? workspaceChromeTabClassName
+                          : workspaceChromeTabIdleClassName,
+                        focusVisibleClassName,
+                      )
+                    }
+                    onKeyDown={(event) => {
+                      if (
+                        event.key !== "Delete" &&
+                        event.key !== "Backspace"
+                      ) {
+                        return
+                      }
+                      event.preventDefault()
+                      props.onCloseFileTab(path)
+                    }}
+                  >
+                    <span className="truncate font-mono">{title}</span>
+                    <span
+                      aria-hidden
+                      className="rounded p-0.5 hover:bg-zinc-700"
+                      onPointerDown={(event) => {
+                        event.preventDefault()
+                        event.stopPropagation()
+                      }}
+                      onClick={(event) => {
+                        event.stopPropagation()
+                        props.onCloseFileTab(path)
+                      }}
+                    >
+                      <IconX className="size-3" aria-hidden />
+                    </span>
+                  </Tab>
+                )
+              })}
+            </TabList>
+            <div className="mb-px flex shrink-0 items-center gap-0.5 self-end pb-0.5">
+              {showTreeToggle ? (
+                <Button
+                  variant="quiet"
+                  onPress={props.onToggleTree}
+                  className="h-7 px-2 text-xs"
+                >
+                  {props.treeCollapsed ? "Show tree" : "Hide tree"}
+                </Button>
+              ) : null}
+              <Button
+                variant="quiet"
+                size="icon-sm"
+                aria-label={
+                  props.maximized ? "Show conversation" : "Maximise pane"
+                }
+                onPress={props.onToggleMaximize}
+                className="hidden lg:inline-flex"
               >
-                {title}
-              </button>
-              <button
-                type="button"
-                aria-label={`Close ${title}`}
-                onClick={() => props.onCloseFileTab(path)}
-                className="rounded p-0.5 hover:bg-zinc-700"
+                {props.maximized ? (
+                  <IconArrowsMinimize className="size-4" aria-hidden />
+                ) : (
+                  <IconArrowsMaximize className="size-4" aria-hidden />
+                )}
+              </Button>
+              <Button
+                variant="quiet"
+                size="icon-sm"
+                aria-label="Close pane"
+                onPress={props.onClose}
               >
-                <IconX className="size-3" aria-hidden />
-              </button>
-            </span>
-          )
-        })}
-        <div className="flex-1" />
-        {showTreeToggle ? (
-          <Button
-            variant="quiet"
-            onPress={props.onToggleTree}
-            className="h-7 px-2 text-xs"
-          >
-            {props.treeCollapsed ? "Show tree" : "Hide tree"}
-          </Button>
-        ) : null}
-        <Button
-          variant="quiet"
-          size="icon-sm"
-          aria-label={props.maximized ? "Show conversation" : "Maximise pane"}
-          onPress={props.onToggleMaximize}
-        >
-          {props.maximized ? (
-            <IconArrowsMinimize className="size-4" aria-hidden />
-          ) : (
-            <IconArrowsMaximize className="size-4" aria-hidden />
-          )}
-        </Button>
-        <Button
-          variant="quiet"
-          size="icon-sm"
-          aria-label="Close pane"
-          onPress={props.onClose}
-        >
-          <IconX className="size-4" aria-hidden />
-        </Button>
-      </div>
-      <div className="flex min-h-0 flex-1">
-        {props.pane.kind === "files" || props.pane.kind === "file" ? (
-          <Suspense
-            fallback={
-              <div className="flex flex-1 items-center p-4">
-                <p className="text-xs text-muted-foreground">Loading files…</p>
-              </div>
-            }
-          >
-            <WorkspaceFilesPaneBody
-              orgSlug={props.orgSlug}
-              workspaceSlug={props.workspace.slug}
-              activeFile={activeFile}
-              treeCollapsed={props.treeCollapsed}
-              onSelectFile={props.onSelectFile}
-              onOpenFileTab={props.onOpenFileTab}
-            />
-          </Suspense>
-        ) : null}
-        {props.pane.kind === "graph" ? (
-          <Suspense
-            fallback={
-              <div className="flex flex-1 flex-col gap-2 p-4">
-                <div className="h-3 w-24 rounded-lg bg-zinc-800" />
-                <div className="h-8 rounded-lg bg-zinc-900" />
-                <div className="h-8 rounded-lg bg-zinc-900" />
-              </div>
-            }
-          >
-            <WorkspaceGraphPaneBody
-              orgSlug={props.orgSlug}
-              workspaceSlug={props.workspace.slug}
-            />
-          </Suspense>
-        ) : null}
-        {props.pane.kind === "settings" ? (
-          <WorkspaceSettingsPane
-            orgSlug={props.orgSlug}
-            workspace={props.workspace}
-          />
-        ) : null}
-        {props.pane.kind === "unknown" ? (
-          <div className="flex flex-1 items-center justify-center p-6">
-            <p className="text-sm text-muted-foreground">
-              This pane id is kept in the URL and ignored.
-            </p>
+                <IconX className="size-4" aria-hidden />
+              </Button>
+            </div>
           </div>
-        ) : null}
-      </div>
+        </TooltipProvider>
+
+        <TabPanel
+          id={selectedKey}
+          className={cn(
+            workspaceChromeCardPaneClassName,
+            filesTabActive && "rounded-tl-none",
+            "flex min-h-0 p-0 outline-0",
+          )}
+        >
+          <div className="flex min-h-0 flex-1">
+            {props.pane.kind === "files" || props.pane.kind === "file" ? (
+              <Suspense
+                fallback={
+                  <div className="flex flex-1 items-center p-4">
+                    <p className="text-xs text-muted-foreground">
+                      Loading files…
+                    </p>
+                  </div>
+                }
+              >
+                <WorkspaceFilesPaneBody
+                  orgSlug={props.orgSlug}
+                  workspaceSlug={props.workspace.slug}
+                  activeFile={activeFile}
+                  treeCollapsed={props.treeCollapsed}
+                  onSelectFile={props.onSelectFile}
+                  onOpenFileTab={props.onOpenFileTab}
+                />
+              </Suspense>
+            ) : null}
+            {props.pane.kind === "graph" ? (
+              <Suspense
+                fallback={
+                  <div className="flex flex-1 flex-col gap-2 p-4">
+                    <div className="h-3 w-24 rounded-lg bg-zinc-800" />
+                    <div className="h-8 rounded-lg bg-zinc-900" />
+                    <div className="h-8 rounded-lg bg-zinc-900" />
+                  </div>
+                }
+              >
+                <WorkspaceGraphPaneBody
+                  orgSlug={props.orgSlug}
+                  workspaceSlug={props.workspace.slug}
+                />
+              </Suspense>
+            ) : null}
+            {props.pane.kind === "settings" ? (
+              <WorkspaceSettingsPane
+                orgSlug={props.orgSlug}
+                workspace={props.workspace}
+              />
+            ) : null}
+            {props.pane.kind === "unknown" ? (
+              <div className="flex flex-1 items-center justify-center p-6">
+                <p className="text-sm text-muted-foreground">
+                  This pane id is kept in the URL and ignored.
+                </p>
+              </div>
+            ) : null}
+          </div>
+        </TabPanel>
+      </Tabs>
     </aside>
   )
 }
@@ -260,7 +354,7 @@ function WorkspaceFilesPaneContent(props: {
   return (
     <>
       {props.treeCollapsed ? null : (
-        <div className="w-52 shrink-0 overflow-auto border-r border-border p-3">
+        <div className="w-52 shrink-0 overflow-auto border-r border-white/[0.06] p-3">
           {props.files.items.length === 0 ? (
             <p className="text-xs text-muted-foreground">
               No knowledge files in this projection yet.
@@ -307,24 +401,27 @@ function WorkspaceGraphPaneBody(props: {
   return <WorkspaceGraphPane graph={data} pending={false} />
 }
 
-function PaneTabButton(props: {
+function PaneIconTab(props: {
+  id: string
   label: string
-  active: boolean
-  onClick: () => void
+  icon: ReactNode
 }) {
   return (
-    <button
-      type="button"
-      onClick={props.onClick}
-      className={[
-        "rounded-lg px-2 py-1 text-xs",
-        props.active
-          ? "bg-zinc-800 text-foreground"
-          : "text-muted-foreground hover:text-foreground",
-      ].join(" ")}
+    <Tab
+      id={props.id}
+      aria-label={props.label}
+      title={props.label}
+      className={({ isSelected }) =>
+        cn(
+          workspaceChromeIconTabClassName(isSelected),
+          focusVisibleClassName,
+        )
+      }
     >
-      {props.label}
-    </button>
+      <span className="inline-flex size-4 items-center justify-center [&_svg]:size-4 [&_svg]:stroke-[1.6]">
+        {props.icon}
+      </span>
+    </Tab>
   )
 }
 
@@ -333,7 +430,7 @@ export function WorkspacePaneTriggers(props: {
 }) {
   return (
     <TooltipProvider delay={200}>
-      <div className="mb-0.5 flex items-center gap-0">
+      <div className={workspaceChromeTabStripClassName}>
         <HeaderIcon
           label="Files"
           icon={<IconFolder stroke={1.6} aria-hidden />}
@@ -354,7 +451,7 @@ export function WorkspacePaneTriggers(props: {
   )
 }
 
-/** Compact hit target: larger glyph, less padding than a full `size-9` tab. */
+/** Same idle tab hit as the tools pane (Files / Graph / Settings). */
 function HeaderIcon(props: {
   label: string
   icon: ReactNode
@@ -365,11 +462,7 @@ function HeaderIcon(props: {
       <TooltipTrigger
         aria-label={props.label}
         onClick={props.onClick}
-        className={cn(
-          "inline-flex size-8 shrink-0 cursor-pointer items-center justify-center rounded-lg border-0 bg-transparent text-zinc-400",
-          "transition-colors hover:bg-teal-900/30 hover:text-zinc-50",
-          focusVisibleClassName,
-        )}
+        className={cn(workspaceChromeTabIdleClassName, focusVisibleClassName)}
       >
         <span className="inline-flex size-4 items-center justify-center [&_svg]:size-4 [&_svg]:stroke-[1.6]">
           {props.icon}

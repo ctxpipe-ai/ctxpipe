@@ -36,6 +36,8 @@ If there is **no external system**—for example, you only need to update local 
 
 **SSR product screens (e.g. Workspace):** warm the cache in route loaders with `queryClient.ensureQueryData(…queryOptions)` and read with **`useSuspenseQuery`** (same `queryOptions` factories). Create the **`QueryClient` per request** in `getRouter()` — never a module-level singleton. Keep streaming, polling, infinite “load more”, and mutations client-only.
 
+**Responsive layout:** CSS-first (Tailwind breakpoint classes). Do not use `useEffect` + `matchMedia` / `useMediaQuery` to toggle layout chrome when responsive classes can do it. JS only when CSS cannot express the behaviour — see [apps/ui/AGENTS.md](../../../apps/ui/AGENTS.md) and [product-ui](../product-ui/SKILL.md) Build.
+
 ## Patterns (read the official page for full examples)
 
 | Situation | Prefer |
