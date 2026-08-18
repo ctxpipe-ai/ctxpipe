@@ -29,9 +29,10 @@ export function getChatAvailability(
   if (!repositories) return "ready"
   if (repositories.length === 0) return "no-repositories"
   if (
-    repositories.some(
-      (repository) => getRepositoryIndexingStatus(repository) === "ready",
-    )
+    repositories.some((repository) => {
+      const status = getRepositoryIndexingStatus(repository)
+      return status === "ready" || status === "complete_with_issues"
+    })
   ) {
     return "ready"
   }

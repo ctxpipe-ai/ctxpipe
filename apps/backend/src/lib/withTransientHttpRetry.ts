@@ -1,4 +1,5 @@
 import { log } from "../observability/logger.js"
+import { memoryFitLogFields } from "./memoryFitError.js"
 
 /** Thrown to trigger a retry inside {@link withTransientHttpRetry}. */
 export class TransientHttpError extends Error {
@@ -103,6 +104,7 @@ export async function withTransientHttpRetry<T>(
           maxAttempts,
           delayMs,
           message: errorMessage(e),
+          ...memoryFitLogFields(e),
         })
         await new Promise((r) => setTimeout(r, delayMs))
         continue

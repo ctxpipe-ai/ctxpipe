@@ -139,3 +139,20 @@ export const Failed: Story = {
     />
   ),
 }
+
+export const CompleteWithIssues: Story = {
+  render: () => (
+    <RepositoryCard
+      repo={{
+        ...baseRepo,
+        indexReady: true,
+        indexingStatus: "complete_with_issues",
+        indexingError: "Codebase didn't fit available memory",
+        lastIngestedAt: new Date(Date.now() - 60 * 60 * 1000).toISOString(),
+        lastIngestedHash: "abc1234",
+      }}
+      onDelete={noop}
+      onRetry={noop}
+    />
+  ),
+}

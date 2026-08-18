@@ -6,6 +6,7 @@ import { withIndexerGoLimits } from "./indexerChildEnv.js"
 import { withIndexerProcessSlot } from "./indexerProcessSemaphore.js"
 import { INDEX_CHILD_LOG_TAIL_BYTES, readStreamTail } from "./streamTail.js"
 import { tryEmitIndexEvent } from "../../observability/indexingLog.js"
+import { errorFromIndexerExit } from "./memoryFitError.js"
 
 /**
  * Direct upstream SCIP indexer CLIs. These commands run from the checkout root.
@@ -147,15 +148,18 @@ async function runIndexerProcess(input: {
       ])
 
       if (exitCode !== 0) {
-        throw new Error(
-          [
-            `SCIP indexer "${input.indexerId}" failed with exit code ${exitCode} (${input.argv.join(" ")})`,
-            stderr.trim() ? `stderr: ${stderr.trim()}` : "",
-            stdout.trim() ? `stdout: ${stdout.trim()}` : "",
-          ]
-            .filter(Boolean)
-            .join("\n"),
-        )
+        if (exitCode === 137) {
+          tryEmitIndexEvent("codesearch.index.memory_exceeded", {
+            indexerId: input.indexerId,
+            exitCode,
+          })
+        }
+        throw errorFromIndexerExit({
+          exitCode,
+          stderr,
+          stdout,
+          headline: `SCIP indexer "${input.indexerId}" failed with exit code ${exitCode} (${input.argv.join(" ")})`,
+        })
       }
     } finally {
       clearInterval(heartbeatTimer)

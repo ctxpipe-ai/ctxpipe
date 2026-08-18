@@ -123,10 +123,11 @@ describe("repositoryIndex workflow", () => {
     expect(result).toMatchObject({
       targetHash: "abc",
       ingestMode: "full",
+      searchIndexOk: true,
     })
   })
 
-  it("fails fast on Zoekt without starting SCIP", async () => {
+  it("continues SCIP when Zoekt fails and returns searchIndexOk false", async () => {
     zoektMock.mockRejectedValueOnce(new Error("zoekt OOM"))
     const step = {
       run: async (_opts: { name: string }, fn: () => unknown) => fn(),
@@ -142,18 +143,21 @@ describe("repositoryIndex workflow", () => {
       }) => Promise<unknown>
     }
 
-    await expect(
-      wf.fn({
-        input: {
-          repositoryId: "repo_1",
-          orgId: "org_1",
-          targetHash: "abc",
-        },
-        step,
-      }),
-    ).rejects.toThrow("zoekt OOM")
+    const result = await wf.fn({
+      input: {
+        repositoryId: "repo_1",
+        orgId: "org_1",
+        targetHash: "abc",
+      },
+      step,
+    })
 
-    expect(scipMock).not.toHaveBeenCalled()
-    expect(mergeMock).not.toHaveBeenCalled()
+    expect(scipMock).toHaveBeenCalledTimes(2)
+    expect(mergeMock).toHaveBeenCalledOnce()
+    expect(result).toMatchObject({
+      targetHash: "abc",
+      searchIndexOk: false,
+      searchIndexError: "zoekt OOM",
+    })
   })
 })

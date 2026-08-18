@@ -59,4 +59,25 @@ describe("repositoryMatchesStatusFilter", () => {
       ),
     ).toBe(false)
   })
+
+  it("treats complete with issues as both indexed and needing attention", () => {
+    expect(
+      repositoryMatchesStatusFilter(
+        {
+          indexingStatus: "complete_with_issues",
+          lastIngestedHash: "abc",
+        },
+        "indexed",
+      ),
+    ).toBe(true)
+    expect(
+      repositoryMatchesStatusFilter(
+        {
+          indexingStatus: "complete_with_issues",
+          lastIngestedHash: "abc",
+        },
+        "failed",
+      ),
+    ).toBe(true)
+  })
 })

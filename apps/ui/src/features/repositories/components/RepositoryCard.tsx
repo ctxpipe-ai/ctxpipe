@@ -42,6 +42,7 @@ export function RepositoryCard({
   const displayStatus = getRepositoryStatusDisplay(repo)
   const isReady = status === "ready"
   const isFailed = status === "failed"
+  const isCompleteWithIssues = status === "complete_with_issues"
   const isUnindexing = status === "unindexing"
 
   const stepLabel =
@@ -59,6 +60,10 @@ export function RepositoryCard({
         : null)
   const failedDetail =
     displayStatus === "failed" ? repo.indexingError?.trim() || null : null
+  const issuesDetail =
+    displayStatus === "complete_with_issues"
+      ? repo.indexingError?.trim() || null
+      : null
   const outOfDateDetail =
     displayStatus === "out-of-date" && repo.lastIngestedHash
       ? {
@@ -99,7 +104,10 @@ export function RepositoryCard({
           status={displayStatus}
           indexingDetail={indexingDetail}
           failedDetail={failedDetail}
-          indexedAt={isReady ? repo.lastIngestedAt : null}
+          issuesDetail={issuesDetail}
+          indexedAt={
+            isReady || isCompleteWithIssues ? repo.lastIngestedAt : null
+          }
           outOfDateDetail={outOfDateDetail}
           interactive={interactive}
         />
@@ -136,7 +144,7 @@ export function RepositoryCard({
                   <MenuSeparator />
                 </>
               ) : null}
-              {isFailed ? (
+              {isFailed || isCompleteWithIssues ? (
                 <>
                   <MenuItem
                     id="retry"

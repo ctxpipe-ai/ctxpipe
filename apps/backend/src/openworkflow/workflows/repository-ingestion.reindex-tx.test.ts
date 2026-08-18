@@ -124,6 +124,7 @@ vi.mock("../../domain/codeIngestion/queue.js", () => ({
 vi.mock("../../models/repositories.js", () => ({
   markRepositoryIndexingRunning: vi.fn().mockResolvedValue(undefined),
   markRepositoryIndexingReady: vi.fn().mockResolvedValue(undefined),
+  markRepositoryIndexingReadyWithIssues: vi.fn().mockResolvedValue(undefined),
   setRepositoryIndexingStep: vi.fn().mockResolvedValue(undefined),
 }))
 
@@ -170,6 +171,10 @@ vi.mock("openworkflow", () => ({
 }))
 
 import { repositoryIngestion } from "./repository-ingestion.js"
+import {
+  markRepositoryIndexingReady,
+  markRepositoryIndexingReadyWithIssues,
+} from "../../models/repositories.js"
 
 describe("repository-ingestion index workflow boundary", () => {
   beforeEach(() => {
@@ -274,5 +279,47 @@ describe("repository-ingestion index workflow boundary", () => {
       expect.objectContaining({ name: "repository-ingestion.root" }),
       expect.any(Function),
     )
+    expect(markRepositoryIndexingReady).toHaveBeenCalledWith({
+      repositoryId: "repo_1",
+      targetHash: "abc",
+    })
+    expect(markRepositoryIndexingReadyWithIssues).not.toHaveBeenCalled()
+  })
+
+  it("marks complete with issues when search index failed but SCIP ran", async () => {
+    const step = {
+      run: async (
+        _opts: { name: string; retryPolicy?: { maximumAttempts?: number } },
+        fn: () => unknown,
+      ) => fn(),
+      runWorkflow: async () => ({
+        ...repositoryIndexResult,
+        searchIndexOk: false,
+        searchIndexError: "Codebase didn't fit available memory",
+      }),
+    }
+
+    const wf = repositoryIngestion as unknown as {
+      run: (args: {
+        input: { repositoryId: string; orgId: string }
+        step: typeof step
+        run?: { id: string }
+      }) => Promise<unknown>
+    }
+
+    await wf.run({
+      input: { repositoryId: "repo_1", orgId: "org_1" },
+      step,
+      run: { id: "wr_2" },
+    })
+
+    expect(runWithLangfuseContextMock).toHaveBeenCalled()
+    expect(markRepositoryIndexingReadyWithIssues).toHaveBeenCalledWith({
+      repositoryId: "repo_1",
+      targetHash: "abc",
+      error: "Codebase didn't fit available memory",
+    })
+    expect(markRepositoryIndexingReady).not.toHaveBeenCalled()
+    expect(enqueueFollowUpIfTipAheadMock).toHaveBeenCalled()
   })
 })

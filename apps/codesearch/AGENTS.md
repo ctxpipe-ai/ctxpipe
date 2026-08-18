@@ -31,7 +31,7 @@ These instructions supplement the repository-root `AGENTS.md`.
 - Look for `codesearch.index.phase.*` / `codesearch.index.queue.*` in codesearch logs and `repository-index.*` / `repository-ingestion.step.*` on the worker.
 - OpenWorkflow step failures are logged to evlog as `repository-ingestion.step.<name>.attempt_failed` (and orchestrator `…child-failed`) — do not rely on the OpenWorkflow dashboard.
 - Langfuse / LLM work starts at durable extract steps (`identify-roots`, `extract-kind:*`, `identify:*`) after retract (UI badge **`analyzing`** and later).
-- **Fail-fast Zoekt:** the OW path does not start SCIP if Zoekt fails (unlike legacy `/index` `settleIndexPhases`).
+- **Zoekt optional:** the OW path continues SCIP after Zoekt failure (`searchIndexOk: false` → `complete_with_issues`). Lexical search may be empty; graph, checkout, and ast-grep still work. Clone or SCIP failure remains fail-closed.
 
 ## Testing
 

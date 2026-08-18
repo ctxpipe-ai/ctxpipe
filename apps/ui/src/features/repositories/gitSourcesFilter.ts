@@ -34,7 +34,8 @@ function statusDisplayMatchesFilter(
   display: RepositoryStatusDisplay,
   filter: GitSourceStatusFilter,
 ): boolean {
-  if (filter === "indexed") return display === "ready"
+  if (filter === "indexed")
+    return display === "ready" || display === "complete_with_issues"
   if (filter === "indexing") {
     return (
       display === "queued" ||
@@ -44,6 +45,10 @@ function statusDisplayMatchesFilter(
     )
   }
   if (filter === "failed")
-    return display === "failed" || display === "out-of-date"
+    return (
+      display === "failed" ||
+      display === "out-of-date" ||
+      display === "complete_with_issues"
+    )
   return false
 }

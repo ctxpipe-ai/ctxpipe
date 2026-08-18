@@ -22,6 +22,7 @@ export const repositoryIndexingStatusValues = [
   "ready",
   "failed",
   "unindexing",
+  "complete_with_issues",
 ] as const
 export const repositoryIndexingStatusEnum = pgEnum(
   "repository_indexing_status",

@@ -1,0 +1,1 @@
+ALTER TYPE "repository_indexing_status" ADD VALUE 'complete_with_issues';

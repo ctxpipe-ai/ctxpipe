@@ -31,6 +31,20 @@ describe("getChatAvailability", () => {
     ).toBe("indexing")
   })
 
+  it("enables chat when a repository completed with issues", () => {
+    expect(
+      getChatAvailability(
+        [
+          {
+            indexingStatus: "complete_with_issues",
+            indexReady: true,
+          },
+        ],
+        false,
+      ),
+    ).toBe("ready")
+  })
+
   it("directs users to repository status when no index can be queried", () => {
     expect(
       getChatAvailability(

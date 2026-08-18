@@ -51,6 +51,8 @@ import {
   listRepositoriesForGithubConnection,
   listRepositoriesForOrg,
   pruneGithubConnectionRepositoriesNotInGitUrls,
+  markRepositoryIndexingFailed,
+  markRepositoryIndexingReadyWithIssues,
   setRepositoryIndexingStep,
   tryClaimRepositoryIndexingEnqueue,
 } from "./repositories.js"
@@ -363,6 +365,60 @@ describe("deleteRepository", () => {
 
     expect(withGraphClientMock).not.toHaveBeenCalled()
     expect(notifyCodesearchRepositoryDeletedMock).not.toHaveBeenCalled()
+  })
+})
+
+describe("markRepositoryIndexingReadyWithIssues", () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+  })
+
+  it("keeps indexReady and stores the Zoekt issue", async () => {
+    const where = vi.fn().mockResolvedValue(undefined)
+    const set = vi.fn().mockReturnValue({ where })
+    const update = vi.fn().mockReturnValue({ set })
+    getOrgDbMock.mockReturnValue({ update })
+
+    await markRepositoryIndexingReadyWithIssues({
+      repositoryId,
+      targetHash: "abc123",
+      error: new Error("Command failed with exit code 137"),
+    })
+
+    expect(set).toHaveBeenCalledWith(
+      expect.objectContaining({
+        indexingStatus: "complete_with_issues",
+        indexReady: true,
+        indexingError: "Codebase didn't fit available memory",
+        lastIngestedHash: "abc123",
+      }),
+    )
+  })
+})
+
+describe("markRepositoryIndexingFailed", () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+  })
+
+  it("stores the memory-fit message instead of fetch failed", async () => {
+    const where = vi.fn().mockResolvedValue(undefined)
+    const set = vi.fn().mockReturnValue({ where })
+    const update = vi.fn().mockReturnValue({ set })
+    getOrgDbMock.mockReturnValue({ update })
+
+    await markRepositoryIndexingFailed({
+      repositoryId,
+      error: new TypeError("fetch failed"),
+    })
+
+    expect(set).toHaveBeenCalledWith(
+      expect.objectContaining({
+        indexingStatus: "failed",
+        indexingError: "Codebase didn't fit available memory",
+        indexReady: false,
+      }),
+    )
   })
 })
 

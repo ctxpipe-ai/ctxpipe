@@ -8,6 +8,10 @@ import {
   codesearchIndexScipLang,
   codesearchIndexZoekt,
 } from "../../domain/codeIngestion/codesearchIndexPhases.js"
+import {
+  isMemoryFitFailure,
+  userFacingIndexingError,
+} from "../../lib/memoryFitError.js"
 import { getInstallationToken } from "../../models/github-installation.js"
 import {
   createLogger,
@@ -46,12 +50,12 @@ function logMilestone(step: string, fields: Record<string, unknown>): void {
 }
 
 /**
- * Durable codesearch index pipeline: clone/checkout → zoekt (fail-fast) →
+ * Durable codesearch index pipeline: clone/checkout → zoekt (non-fatal) →
  * detect langs → parallel scip:lang → merge.
  *
- * Intentionally fail-fast on Zoekt (unlike legacy POST /index settleIndexPhases
- * which still attempted SCIP after Zoekt failure) so passed OW steps are not
- * re-run and SCIP never starts without a successful Zoekt build.
+ * Zoekt failure is recorded as `searchIndexOk: false` so SCIP and extract can
+ * still complete (lexical search degrades; graph/ast-grep remain usable).
+ * Clone or SCIP failure still fails the workflow.
  */
 export const repositoryIndex = defineWorkflow(
   { name: "repository-index", schema: repositoryIndexInputSchema },
@@ -110,14 +114,30 @@ export const repositoryIndex = defineWorkflow(
           ingestMode: checkout.ingestMode,
         })
 
-        // Fail-fast: do not start SCIP if Zoekt fails.
-        await step.run({ name: "zoekt", retryPolicy: indexRetryPolicy }, () =>
-          wls("zoekt", () => codesearchIndexZoekt(auth)),
-        )
-
-        logMilestone("repository-index.zoekt.done", {
-          repositoryId: input.repositoryId,
-        })
+        let searchIndexOk = true
+        let searchIndexError: string | undefined
+        try {
+          await step.run(
+            { name: "zoekt", retryPolicy: indexRetryPolicy },
+            () => wls("zoekt", () => codesearchIndexZoekt(auth)),
+          )
+          logMilestone("repository-index.zoekt.done", {
+            repositoryId: input.repositoryId,
+          })
+        } catch (error) {
+          searchIndexOk = false
+          searchIndexError = userFacingIndexingError(error)
+          logMilestone("repository-index.zoekt.failed", {
+            repositoryId: input.repositoryId,
+            error: searchIndexError,
+          })
+          if (isMemoryFitFailure(error)) {
+            logMilestone("repository-index.memory_exceeded", {
+              repositoryId: input.repositoryId,
+              error: searchIndexError,
+            })
+          }
+        }
 
         const languages = await step.run(
           { name: "detect-languages", retryPolicy: indexRetryPolicy },
@@ -176,6 +196,8 @@ export const repositoryIndex = defineWorkflow(
           changedPaths: checkout.changedPaths,
           deletedPaths: checkout.deletedPaths,
           renames: checkout.renames,
+          searchIndexOk,
+          searchIndexError,
         }
       },
     ),

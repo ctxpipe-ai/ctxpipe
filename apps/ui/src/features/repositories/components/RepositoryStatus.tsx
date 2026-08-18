@@ -54,6 +54,11 @@ const STATUS_META: Record<
     className: "ctx-unindexing",
     dotClassName: "ctx-unindexing-dot",
   },
+  complete_with_issues: {
+    label: "complete with issues",
+    className: "ctx-indexing-issues",
+    dotClassName: "ctx-indexing-issues-dot",
+  },
 }
 
 export function RepositoryStatus(props: {
@@ -62,6 +67,8 @@ export function RepositoryStatus(props: {
   indexingDetail?: string | null
   /** Error details shown in a tooltip when status is `failed`. */
   failedDetail?: string | null
+  /** Issue details shown when status is `complete_with_issues`. */
+  issuesDetail?: string | null
   /** Last successful ingest time, shown on `ready` as `indexed · 1 hour ago`. */
   indexedAt?: string | null
   /** Prior-success + error details for `out-of-date` tooltip. */
@@ -80,7 +87,8 @@ export function RepositoryStatus(props: {
     props.status === "running" ||
     props.status === "refreshing"
   const relativeIndexed =
-    props.status === "ready" && props.indexedAt
+    (props.status === "ready" || props.status === "complete_with_issues") &&
+    props.indexedAt
       ? formatDate(props.indexedAt)
       : null
   const label =
@@ -127,12 +135,18 @@ function resolveTooltipContent(props: {
   status: RepositoryStatusState
   indexedAt?: string | null
   failedDetail?: string | null
+  issuesDetail?: string | null
   outOfDateDetail?: {
     lastIngestedHash: string
     lastIngestedAt?: string | null
     indexingError?: string | null
   } | null
 }): ReactNode {
+  if (props.status === "complete_with_issues") {
+    const issuesDetail = props.issuesDetail?.trim()
+    return issuesDetail ? <p>{issuesDetail}</p> : null
+  }
+
   if (props.status === "ready" && props.indexedAt) {
     return (
       <p>
