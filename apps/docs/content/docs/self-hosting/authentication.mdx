@@ -133,7 +133,8 @@ can request access tokens on behalf of users. The authorization server supports:
 This is the mechanism used when an MCP client authenticates with ctx|. Configure
 the MCP client with the `/mcp?orgSlug=...` URL and let the client complete the
 OAuth flow. ctx| does not currently expose a dashboard API-key flow for MCP
-configuration.
+configuration. If a client cannot complete discovery or OAuth, see
+[MCP](/docs/self-hosting/mcp).
 
 ## Trusted origins
 

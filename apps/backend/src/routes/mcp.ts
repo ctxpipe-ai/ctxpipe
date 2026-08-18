@@ -1,5 +1,3 @@
-import { StreamableHTTPTransport } from "@hono/mcp"
-import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js"
 import type { Hono } from "hono"
 import type { AppEnv } from "../app/env.js"
 import {
@@ -8,12 +6,16 @@ import {
   withCookieAuth,
   withNetworkOrgContext,
 } from "../auth/withAuth.js"
-import { getMcpServerImplementation } from "../mcp/mcp-server-info.js"
 import { registerMcpTools } from "../mcp/tools.js"
+import {
+  handleMcpTransportRequest,
+  rejectInvalidMcpOrigin,
+} from "../mcp/transport.js"
 
 export function registerMcpRoutes(app: Hono<AppEnv>) {
   app.all(
     "/mcp",
+    (c, next) => rejectInvalidMcpOrigin(c) ?? next(),
     (c, next) => {
       if (c.req.query("orgSlug")) return next()
       return c.json(
@@ -33,15 +35,6 @@ export function registerMcpRoutes(app: Hono<AppEnv>) {
     withBearerAuth,
     requireAuth,
     withNetworkOrgContext,
-    async (c) => {
-      const server = new McpServer(
-        getMcpServerImplementation(c.get("env").AUTH_BASE_URL),
-      )
-      registerMcpTools(server)
-      const transport = new StreamableHTTPTransport()
-      await server.connect(transport)
-      const res = await transport.handleRequest(c)
-      return res ?? new Response(null, { status: 204 })
-    },
+    (c) => handleMcpTransportRequest(c, registerMcpTools),
   )
 }
