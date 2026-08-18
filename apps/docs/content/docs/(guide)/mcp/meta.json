@@ -1,4 +1,4 @@
 {
   "title": "ctx| MCP",
-  "pages": ["mcp-docs", "local-memory"]
+  "pages": ["mcp-docs", "troubleshooting", "local-memory"]
 }

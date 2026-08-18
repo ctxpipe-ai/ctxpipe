@@ -1,0 +1,150 @@
+---
+title: MCP troubleshooting
+description: Diagnose ctx| Streamable HTTP routing and OAuth discovery with ctxpipe doctor mcp, then hand off to MCPJam for authenticated tool checks.
+---
+
+Use a staged workflow when MCP install, OAuth, or `ctx_advisor` looks broken.
+Start with the ctx| CLI doctor. Only move to an authenticated client after the
+endpoint is ready for OAuth.
+
+<Callout type="warn" title="Ready for OAuth is not authenticated proof">
+  `npx ctxpipe doctor mcp` checks HTTP routing, TLS or reachability, the
+  unauthenticated Bearer challenge, and OAuth discovery. A `ready-for-oauth`
+  result does **not** prove that browser OAuth, authenticated `tools/list`, or
+  `ctx_advisor` work. The command does not accept bearer tokens and does not
+  test STDIO servers.
+</Callout>
+
+## Recommended workflow
+
+1. Run the doctor locally before opening a pull request.
+2. Run it against the public PR preview URL.
+3. After merge, run it against a dedicated production test organisation.
+4. Use version-pinned MCPJam for interactive dynamic client registration (DCR)
+   OAuth, authenticated `tools/list`, and a test `ctx_advisor` call.
+
+```bash
+npx ctxpipe doctor mcp --url "https://<host>/mcp?orgSlug=<slug>"
+npx ctxpipe doctor mcp --url "https://<host>/mcp?orgSlug=<slug>" --json
+```
+
+`--json` is machine-readable. Failures set a non-zero exit code. Warnings such
+as loopback HTTP keep a zero exit code and report `warning`.
+
+## What the doctor checks
+
+The target must be an HTTP(S) ctx| URL of the form `/mcp?orgSlug=...`. Plain
+HTTP is accepted only for loopback hosts (`localhost`, `127.0.0.1`, `::1`, or
+`*.localhost`). Remote endpoints must use HTTPS.
+
+| Check | Passes when |
+| --- | --- |
+| Target | Path is `/mcp` and `orgSlug` is present |
+| Backend status | `GET /.status` returns JSON with `status: "ok"` |
+| OAuth challenge | Unauthenticated Streamable HTTP `initialize` returns `401` with a Bearer `WWW-Authenticate` challenge that includes `resource_metadata` |
+| Protected resource | RFC 9728 metadata matches the `/mcp` audience and names an authorisation server |
+| Authorisation server | RFC 8414 metadata exposes authorisation, token, and registration endpoints |
+
+Overall status is `ready-for-oauth`, `warning`, or `failed`.
+
+## Local development and Portless
+
+Host development serves the app at `https://app.ctxpipe.localhost`. Browsers
+trust the Portless CA after `pnpm trust`, but a separate Node.js CLI often does
+not. Point Node at the local CA instead of disabling TLS verification:
+
+```bash
+NODE_EXTRA_CA_CERTS="$HOME/.portless/ca.pem" \
+  npx ctxpipe doctor mcp \
+  --url "https://app.ctxpipe.localhost/mcp?orgSlug=<slug>"
+```
+
+If that file is missing, inspect the Portless output for the CA path. Loopback
+HTTP (`http://localhost:3000/mcp?orgSlug=<slug>`) is valid for cloud-agent or
+headless runs; the doctor reports a transport warning rather than treating it as
+production-ready.
+
+## PR preview and production
+
+Use the same organisation-scoped URL shape against a public preview host, then
+against a dedicated production test organisation. Do not run authenticated
+diagnostics against a customer organisation, and do not paste live tool results
+or reusable credentials into a third-party hosted inspector.
+
+```bash
+npx ctxpipe doctor mcp \
+  --url "https://<preview-host>/mcp?orgSlug=<test-org>" \
+  --json
+
+npx ctxpipe doctor mcp \
+  --url "https://app.ctxpipe.ai/mcp?orgSlug=<test-org>" \
+  --json
+```
+
+## Authenticated checks with MCPJam
+
+MCPJam is an external diagnostic client. It is not bundled into `ctxpipe` or the
+self-hosted backend. Pin the versions below; do not use `@latest`.
+
+```bash
+npx @mcpjam/cli@3.24.0 oauth login \
+  --url "https://<host>/mcp?orgSlug=<slug>" \
+  --protocol-version 2025-11-25 \
+  --registration dcr \
+  --credentials-out .mcpjam/credentials.json \
+  --debug-out .mcpjam/oauth-debug.json
+
+npx @mcpjam/cli@3.24.0 tools list \
+  --url "https://<host>/mcp?orgSlug=<slug>" \
+  --credentials-file .mcpjam/credentials.json
+
+npx @mcpjam/cli@3.24.0 tools call \
+  --url "https://<host>/mcp?orgSlug=<slug>" \
+  --credentials-file .mcpjam/credentials.json \
+  --tool-name ctx_advisor \
+  --tool-args '{"prompt":"Health check: confirm org MCP access."}'
+```
+
+Use the local MCPJam Inspector for `*.localhost`. The hosted MCPJam application
+cannot reach a local endpoint or refresh tokens against a local authorisation
+server.
+
+```bash
+npx @mcpjam/inspector@2.40.0 \
+  --url "https://app.ctxpipe.localhost/mcp?orgSlug=<slug>" \
+  --name "ctxpipe local" \
+  --oauth \
+  --tab servers
+```
+
+## Artefacts and credentials
+
+Keep OAuth credentials and debug traces out of Git. Write them under
+`.mcpjam/` (gitignored in this repository) and review files before sharing.
+The credentials file can include an access token, refresh token, client id, and
+client secret even when stdout is redacted.
+
+The ctx| doctor never accepts or prints bearer tokens. Do not pass
+`access_token` on the MCP URL.
+
+## Common failures
+
+- **Missing `orgSlug`** — the doctor fails the target check. Use
+  `/mcp?orgSlug=<slug>`, not `/mcp`.
+- **Remote HTTP** — remote endpoints must use HTTPS. Loopback HTTP is a warning,
+  not a pass.
+- **Status unreachable or timed out** — the backend is down, DNS/TLS is wrong,
+  or the local CA is untrusted. Fix reachability before chasing OAuth.
+- **HTTP 401 without `resource_metadata`** — the Bearer challenge is incomplete.
+  MCP clients cannot start discovery.
+- **Protected-resource audience mismatch** — RFC 9728 `resource` must canonicalise
+  to `/mcp` without the query string.
+- **Authorisation-server metadata missing registration** — dynamic client
+  registration cannot proceed.
+- **CLI setup sign-in worked, but the MCP client still asks for authorisation** —
+  expected. Setup auth and MCP OAuth are separate flows.
+
+## Related
+
+- [Remote MCP](/docs/mcp/mcp-docs) — install paths and client config
+- [Operations](/docs/self-hosting/operations) — self-hosted health checks and recovery

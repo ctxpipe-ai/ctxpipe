@@ -1,6 +1,6 @@
 import { AsyncLocalStorage } from "node:async_hooks"
 import { createHash } from "node:crypto"
-import { desc, eq } from "drizzle-orm"
+import { and, desc, eq } from "drizzle-orm"
 import type { MiddlewareHandler } from "hono"
 import {
   createLocalJWKSet,
@@ -12,6 +12,7 @@ import type { AppEnv } from "../app/env.js"
 import { getSystemDb, withOrgDbContext } from "../db/client.js"
 import {
   oauthAccessTokens,
+  members,
   organizations,
   sessions,
   users,
@@ -477,10 +478,20 @@ export const withNetworkOrgContext: MiddlewareHandler<AppEnv> = async (
   const orgSlug = c.req.param("orgSlug") ?? c.req.query("orgSlug")
   if (!orgSlug) return c.json({ error: "Not found" }, 404)
 
+  const userId = c.get("user")?.id
+  if (!userId) return c.json({ error: "Not found" }, 404)
+
   const systemDb = getSystemDb()
   const orgRows = await systemDb
-    .select()
+    .select({ id: organizations.id })
     .from(organizations)
+    .innerJoin(
+      members,
+      and(
+        eq(members.organizationId, organizations.id),
+        eq(members.userId, userId),
+      ),
+    )
     .where(eq(organizations.slug, orgSlug))
     .limit(1)
 

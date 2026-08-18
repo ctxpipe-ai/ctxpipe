@@ -1,8 +1,5 @@
 import { stdin as input, stdout as output } from "node:process"
 import { intro, log, note, outro, tasks } from "@clack/prompts"
-import { CLIENTS, CLIENT_COMMANDS, CLIENT_LABELS } from "./constants.js"
-import { packageVersion } from "./version.js"
-import type { Client } from "./constants.js"
 import {
   fetchSession,
   loginWithDeviceFlow,
@@ -12,23 +9,33 @@ import {
   sessionUser,
   userLabel,
 } from "./auth.js"
-import { applyOperation, applyOperations } from "./fs-operations.js"
+import type { Client } from "./constants.js"
+import { CLIENT_COMMANDS, CLIENT_LABELS, CLIENTS } from "./constants.js"
 import type { ApplyOperationResult } from "./fs-operations.js"
+import { applyOperation, applyOperations } from "./fs-operations.js"
+import { diagnoseMcpEndpoint, formatMcpDoctorResult } from "./mcp/doctor.js"
 import {
   buildCtxpipeConfigOperation,
   buildMcpOperations,
   buildMemoryArtifactOperations,
   createOperationContext,
+  type Operation,
   validateClients,
   validateScope,
-  type Operation,
 } from "./mcp/mcp-operations.js"
+import { normalizeBaseUrl } from "./mcp/paths.js"
 import { buildMemoryHookOperations } from "./memory/hooks.js"
 import { buildMemoryUpgradeOperations } from "./memory/upgrade.js"
-import { normalizeBaseUrl } from "./mcp/paths.js"
 import { promptConfirm, promptInitWizard, promptMcpWizard } from "./prompts.js"
 import { commandExists } from "./system.js"
-import { describeAppliedItem, describeOperation, brandName, printDoctorTable, writeResult } from "./ui.js"
+import {
+  brandName,
+  describeAppliedItem,
+  describeOperation,
+  printDoctorTable,
+  writeResult,
+} from "./ui.js"
+import { packageVersion } from "./version.js"
 
 export function isInteractive(opts: {
   nonInteractive?: boolean
@@ -88,8 +95,12 @@ export async function runInit(opts: InitRunOpts): Promise<void> {
     Object.assign(answers, await promptInitWizard(answers))
   } else {
     if (!answers.org) throw new Error("Missing --org for non-interactive init")
-    if (!answers.scope) throw new Error("Missing --scope for non-interactive init")
-    if (answers.agents.length === 0 && (answers.mcp || answers.memory === true)) {
+    if (!answers.scope)
+      throw new Error("Missing --scope for non-interactive init")
+    if (
+      answers.agents.length === 0 &&
+      (answers.mcp || answers.memory === true)
+    ) {
       throw new Error("Missing --agents for non-interactive init")
     }
   }
@@ -123,7 +134,9 @@ export async function runInit(opts: InitRunOpts): Promise<void> {
   const upgradeOps = memoryEnabled
     ? buildMemoryUpgradeOperations({ context })
     : []
-  const memoryOps = memoryEnabled ? buildMemoryArtifactOperations({ context }) : []
+  const memoryOps = memoryEnabled
+    ? buildMemoryArtifactOperations({ context })
+    : []
   const hookOps = memoryEnabled
     ? buildMemoryHookOperations({ clients: agents, scope, context })
     : []
@@ -154,13 +167,17 @@ export async function runInit(opts: InitRunOpts): Promise<void> {
 export async function runAuthLogin(opts: { baseUrl: string }): Promise<void> {
   const baseUrl = resolveCtxpipeBaseUrl(process.cwd(), opts.baseUrl)
   const auth = await loginWithDeviceFlow({ baseUrl })
-  const session = await fetchSession({ baseUrl, accessToken: auth.accessToken }).catch(
-    () => null,
-  )
+  const session = await fetchSession({
+    baseUrl,
+    accessToken: auth.accessToken,
+  }).catch(() => null)
   log.success(`Signed in as ${userLabel(session) ?? "ctx|"}.`)
 }
 
-export async function runAuthWhoami(opts: { baseUrl: string; json: boolean }): Promise<void> {
+export async function runAuthWhoami(opts: {
+  baseUrl: string
+  json: boolean
+}): Promise<void> {
   const baseUrl = resolveCtxpipeBaseUrl(process.cwd(), opts.baseUrl)
   const auth = await readStoredAuth(baseUrl)
   if (!auth) {
@@ -185,7 +202,10 @@ export async function runAuthWhoami(opts: { baseUrl: string; json: boolean }): P
   log.success(`Signed in as ${userLabel(session) ?? "ctx|"}.`)
 }
 
-export async function runAuthLogout(opts: { baseUrl: string; json: boolean }): Promise<void> {
+export async function runAuthLogout(opts: {
+  baseUrl: string
+  json: boolean
+}): Promise<void> {
   const baseUrl = resolveCtxpipeBaseUrl(process.cwd(), opts.baseUrl)
   await removeStoredAuth(baseUrl)
   const result = { status: "ok", baseUrl: normalizeBaseUrl(baseUrl) }
@@ -209,8 +229,10 @@ export async function runMcpAdd(opts: McpAddRunOpts): Promise<void> {
   if (interactive) {
     Object.assign(values, await promptMcpWizard(values))
   } else {
-    if (!values.org) throw new Error("Missing --org for non-interactive mcp add")
-    if (!values.scope) throw new Error("Missing --scope for non-interactive mcp add")
+    if (!values.org)
+      throw new Error("Missing --org for non-interactive mcp add")
+    if (!values.scope)
+      throw new Error("Missing --scope for non-interactive mcp add")
     if (values.clients.length === 0) {
       throw new Error("Missing --client for non-interactive mcp add")
     }
@@ -267,6 +289,23 @@ export function runDoctor(opts: { json: boolean }): void {
   printDoctorTable(data)
 }
 
+export async function runMcpDoctor(opts: {
+  url: string
+  timeoutMs: number
+  json: boolean
+}): Promise<void> {
+  const result = await diagnoseMcpEndpoint({
+    url: opts.url,
+    timeoutMs: opts.timeoutMs,
+  })
+  if (opts.json) {
+    console.log(JSON.stringify(result, null, 2))
+  } else {
+    console.log(formatMcpDoctorResult(result))
+  }
+  if (result.status === "failed") process.exitCode = 1
+}
+
 export type ConfirmAndApplyOpts = {
   operations: Operation[]
   json: boolean
@@ -298,7 +337,9 @@ export async function confirmAndApply({
   const summary = operations.map(describeOperation)
   if (json) {
     if (!dryRun && !nonInteractive) {
-      throw new Error("Refusing to apply changes without --non-interactive in JSON mode")
+      throw new Error(
+        "Refusing to apply changes without --non-interactive in JSON mode",
+      )
     }
     const result = dryRun
       ? { status: "dry-run", operations: summary }
@@ -351,7 +392,9 @@ export async function confirmAndApply({
     note(applied.map(describeAppliedItem).join("\n"), "Manual follow-up")
   }
   log.success(successMessage)
-  log.info("Your agents may ask you to approve ctx| the first time they use MCP.")
+  log.info(
+    "Your agents may ask you to approve ctx| the first time they use MCP.",
+  )
   outro(outroMessage)
 }
 

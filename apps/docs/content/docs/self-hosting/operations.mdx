@@ -13,7 +13,7 @@ keep a running instance healthy and to diagnose component-level failures.
 | Backend status | `GET /.status` | JSON response with `status: "ok"` and `timestamp` |
 | Postgres in Compose | Docker health check uses `pg_isready` | Service is healthy before migrations and app services start |
 | UI through backend | Open `AUTH_BASE_URL` | App loads from the backend origin |
-| MCP route | Connect an OAuth-capable MCP client to `/mcp?orgSlug=...` | OAuth auth succeeds |
+| MCP route | `npx ctxpipe doctor mcp --url "$AUTH_BASE_URL/mcp?orgSlug=..."` then an OAuth-capable MCP client | Doctor reports `ready-for-oauth`; client OAuth then succeeds |
 | Codesearch | Add or reindex a repository | Repository reaches indexed state; backend can call `CODESEARCH_URL` |
 | Graph database | Open graph page or use graph-backed chat/MCP | Graph responses succeed; backend does not return graph connectivity errors |
 
@@ -89,6 +89,19 @@ changes.
 - Confirm `CODESEARCH_URL` points at the codesearch service from the backend.
 - Reindex after fixing credentials or network access.
 
+### MCP discovery or OAuth fails
+
+- Confirm `GET /.status` returns `{ "status": "ok" }`.
+- Run `npx ctxpipe doctor mcp --url "$AUTH_BASE_URL/mcp?orgSlug=<slug>"`.
+- A `ready-for-oauth` result means routing, the Bearer challenge, and OAuth
+  discovery are coherent. It does not prove authenticated `tools/list` or
+  `ctx_advisor`.
+- Confirm `AUTH_BASE_URL` matches the public origin clients use, including TLS.
+- Confirm the MCP URL includes `orgSlug`.
+- For authenticated OAuth, `tools/list`, and `ctx_advisor`, use a version-pinned
+  MCPJam client against a test organisation. See
+  [MCP troubleshooting](/docs/mcp/troubleshooting).
+
 ### Chat or MCP returns weak context
 
 - Confirm repositories are indexed.
@@ -130,4 +143,5 @@ changes.
   <Card title="Upgrades" href="/docs/self-hosting/upgrades" description="Backup, migrate, validate, and roll back." />
   <Card title="Graph databases" href="/docs/self-hosting/graph-databases" description="Provider-specific graph behavior." />
   <Card title="Linear" href="/docs/self-hosting/linear" description="OAuth, webhook, and connector recovery guidance." />
+  <Card title="MCP troubleshooting" href="/docs/mcp/troubleshooting" description="Doctor mcp, OAuth discovery, and MCPJam hand-off." />
 </Cards>

@@ -75,8 +75,7 @@ describe("MCP conformance (Vitest-integrated)", () => {
       process.env.MODEL_PROVIDER_API_KEY ?? "test-model-key"
     process.env.MODEL_PROVIDER_URL =
       process.env.MODEL_PROVIDER_URL ?? "https://openrouter.ai/api/v1"
-    process.env.MODEL_PROVIDER =
-      process.env.MODEL_PROVIDER ?? "openrouter"
+    process.env.MODEL_PROVIDER = process.env.MODEL_PROVIDER ?? "openrouter"
 
     const tsxBin = resolveTsxBin(repoRoot)
 
@@ -131,7 +130,7 @@ describe("MCP conformance (Vitest-integrated)", () => {
         "conformance",
         "server",
         "--url",
-        `${baseUrl}/acme/mcp`,
+        `${baseUrl}/mcp?orgSlug=acme`,
         "--scenario",
         "tools-list",
       ],
@@ -150,7 +149,42 @@ describe("MCP conformance (Vitest-integrated)", () => {
     ).toMatchObject({
       stdout: expect.stringContaining("tools-list"),
     })
-    expect([0, 1]).toContain(result.status ?? -1)
+    expect(result.status).toBe(0)
+  }, 180_000)
+
+  it("passes MCPJam protocol conformance against the production transport", () => {
+    const result = spawnSync(
+      "pnpm",
+      [
+        "dlx",
+        "@mcpjam/cli@3.24.0",
+        "protocol",
+        "conformance",
+        "--url",
+        `${baseUrl}/mcp?orgSlug=acme`,
+        "--protocol-version",
+        "2025-11-25",
+        "--reporter",
+        "json-summary",
+      ],
+      {
+        encoding: "utf8",
+        env: process.env,
+        timeout: 120_000,
+      },
+    )
+
+    expect(
+      {
+        status: result.status,
+        stdout: result.stdout,
+        stderr: result.stderr,
+      },
+      `MCPJam conformance failed.\nstdout:\n${result.stdout}\nstderr:\n${result.stderr}`,
+    ).toMatchObject({
+      status: 0,
+      stdout: expect.stringContaining('"passed":true'),
+    })
   }, 180_000)
 }, 180_000)
 
