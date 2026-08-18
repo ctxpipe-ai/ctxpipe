@@ -74,6 +74,26 @@ describe("workspaceHydrateView", () => {
     ).toBe("hydrating")
   })
 
+  it("is failed when pending still carries a hydrateError", () => {
+    expect(
+      workspaceHydrateView({
+        hydrateStatus: "pending",
+        desiredSha: "87797371c413",
+        activeProjectionSha: null,
+        hydrateError: "Waiting for the first knowledge export to land in git.",
+      }),
+    ).toBe("failed")
+    expect(
+      workspacePrepareNeedsPoll({
+        hydrateStatus: "pending",
+        desiredSha: "87797371c413",
+        activeProjectionSha: null,
+        hydrateError: "Waiting for the first knowledge export to land in git.",
+        migrationExportSha: null,
+      }),
+    ).toBe(false)
+  })
+
   it("is failed when hydrateStatus is failed", () => {
     expect(
       workspaceHydrateView({

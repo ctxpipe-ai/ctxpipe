@@ -28,6 +28,35 @@ describe("WorkspaceHydrateProgress failed view", () => {
   })
 })
 
+describe("WorkspaceHydrateProgress pending plus hydrateError", () => {
+  it("shows the failed panel for a production pending row", () => {
+    const queryClient = new QueryClient({
+      defaultOptions: { queries: { retry: false } },
+    })
+    const markup = renderToStaticMarkup(
+      <QueryClientProvider client={queryClient}>
+        <WorkspaceHydrateProgress
+          orgSlug="acme"
+          workspace={{
+            ...hydratingWorkspace,
+            hydrateStatus: "pending",
+            desiredSha: "87797371c413",
+            hydrateError:
+              "Waiting for the first knowledge export to land in git.",
+          }}
+        />
+      </QueryClientProvider>,
+    )
+    expect(markup).toContain("Prepare failed")
+    expect(markup).toContain(
+      "Waiting for the first knowledge export to land in git.",
+    )
+    expect(markup).toContain("Try again")
+    expect(markup).not.toContain("animate-ping")
+    expect(markup).not.toContain("Hydrate pending")
+  })
+})
+
 describe("WorkspaceHydrateProgress waiting_for_tip view", () => {
   it("keeps the spinner and offers Try again without waiting on a write", () => {
     const queryClient = new QueryClient({

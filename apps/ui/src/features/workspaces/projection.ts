@@ -20,8 +20,8 @@ export function workspaceHydrateView(input: {
   hydrateError?: string | null
   activeProjectionSha?: string | null
 }): WorkspaceHydrateView {
-  void input.hydrateError
   if (input.hydrateStatus === "failed") return "failed"
+  if (input.hydrateStatus !== "ready" && input.hydrateError) return "failed"
   if (input.hydrateStatus === "ready") {
     if (
       input.desiredSha &&
