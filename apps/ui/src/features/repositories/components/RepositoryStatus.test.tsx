@@ -34,4 +34,16 @@ describe("RepositoryStatus", () => {
       ),
     ).toContain("indexed ·")
   })
+
+  it("labels complete_with_issues and keeps the stored error for the tooltip", () => {
+    const html = renderToStaticMarkup(
+      <RepositoryStatus
+        status="complete_with_issues"
+        issuesDetail="Codebase didn't fit available memory"
+        indexedAt={new Date(Date.now() - 60 * 60 * 1000).toISOString()}
+      />,
+    )
+    expect(html).toContain("complete with issues")
+    expect(html).toContain("ctx-indexing-issues")
+  })
 })

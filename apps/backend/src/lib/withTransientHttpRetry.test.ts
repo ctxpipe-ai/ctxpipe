@@ -160,8 +160,8 @@ describe("withTransientHttpRetry", () => {
   })
 
   it("does not retry non-gateway Response statuses", async () => {
-    const result = await withTransientHttpRetry(async () =>
-      new Response("nope", { status: 404 }),
+    const result = await withTransientHttpRetry(
+      async () => new Response("nope", { status: 404 }),
     )
     expect(result.status).toBe(404)
     expect(log.info).not.toHaveBeenCalled()

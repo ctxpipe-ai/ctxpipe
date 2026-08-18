@@ -4,14 +4,25 @@ import {
 } from "../src/domain/indexing/memoryFitError.ts"
 
 /**
- * Drive a child process that allocates until the cgroup kills it, then
- * classify the exit the same way zoekt-index / SCIP spawn does.
+ * Drive a child that grows RSS until the cgroup kills it, then classify the
+ * exit the same way zoekt-index / SCIP spawn does.
+ *
+ * Prefer a native allocator (`dd` into tmpfs) so the kernel SIGKILLs (137)
+ * instead of Bun raising a JS-heap RangeError first.
  */
 const child = Bun.spawn(
   [
-    "bun",
-    "-e",
-    "const chunks = []; while (true) chunks.push(new Uint8Array(8 * 1024 * 1024))",
+    "sh",
+    "-c",
+    [
+      "if [ -d /dev/shm ]; then",
+      "  i=0; while true; do",
+      "    dd if=/dev/zero of=/dev/shm/ctxpipe-oom-hog.$i bs=1M count=8 status=none || exit $?",
+      "    i=$((i + 1))",
+      "  done",
+      "fi",
+      "exec bun -e 'const chunks = []; while (true) chunks.push(Buffer.allocUnsafe(8 * 1024 * 1024))'",
+    ].join("\n"),
   ],
   { stdout: "pipe", stderr: "pipe" },
 )

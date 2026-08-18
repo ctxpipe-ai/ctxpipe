@@ -1,12 +1,12 @@
 import { randomUUID } from "node:crypto"
 import { copyFile, mkdir, rename, rm, stat } from "node:fs/promises"
 import { basename, dirname, join, resolve } from "node:path"
+import { tryEmitIndexEvent } from "../../observability/indexingLog.js"
 import type { ScipIndexerId } from "./detectLanguages.js"
 import { withIndexerGoLimits } from "./indexerChildEnv.js"
 import { withIndexerProcessSlot } from "./indexerProcessSemaphore.js"
-import { INDEX_CHILD_LOG_TAIL_BYTES, readStreamTail } from "./streamTail.js"
-import { tryEmitIndexEvent } from "../../observability/indexingLog.js"
 import { errorFromIndexerExit } from "./memoryFitError.js"
+import { INDEX_CHILD_LOG_TAIL_BYTES, readStreamTail } from "./streamTail.js"
 
 /**
  * Direct upstream SCIP indexer CLIs. These commands run from the checkout root.

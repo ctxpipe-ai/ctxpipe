@@ -57,6 +57,15 @@ describe("getRepositoryStatusDisplay", () => {
       }),
     ).toBe("queued")
   })
+
+  it("keeps complete_with_issues even when a hash was ingested", () => {
+    expect(
+      getRepositoryStatusDisplay({
+        indexingStatus: "complete_with_issues",
+        lastIngestedHash: "abc123def456",
+      }),
+    ).toBe("complete_with_issues")
+  })
 })
 
 describe("formatShortCommitHash", () => {

@@ -36,9 +36,9 @@ describe("isMemoryFitFailure", () => {
 
   it("does not treat unrelated errors as memory-fit", () => {
     expect(isMemoryFitFailure(new Error("Repository not found"))).toBe(false)
-    expect(isMemoryFitFailure(new Error("Command failed with exit code 1"))).toBe(
-      false,
-    )
+    expect(
+      isMemoryFitFailure(new Error("Command failed with exit code 1")),
+    ).toBe(false)
   })
 })
 
@@ -65,11 +65,11 @@ describe("memoryFitLogFields", () => {
   it("extracts errno and cause message from a nested fetch failure", () => {
     const cause = new Error("read ECONNRESET") as NodeJS.ErrnoException
     cause.code = "ECONNRESET"
-    expect(memoryFitLogFields(new TypeError("fetch failed", { cause }))).toEqual(
-      {
-        errno: "ECONNRESET",
-        cause: "read ECONNRESET",
-      },
-    )
+    expect(
+      memoryFitLogFields(new TypeError("fetch failed", { cause })),
+    ).toEqual({
+      errno: "ECONNRESET",
+      cause: "read ECONNRESET",
+    })
   })
 })

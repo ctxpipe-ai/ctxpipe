@@ -23,10 +23,10 @@ import { refreshPinnedRepo } from "../zoekt/pinManager.js"
 import { detectLanguages, type ScipIndexerId } from "./detectLanguages.js"
 import { withIndexerGoLimits } from "./indexerChildEnv.js"
 import { withIndexerProcessSlot } from "./indexerProcessSemaphore.js"
+import { errorFromIndexerExit } from "./memoryFitError.js"
 import { runScipIndexer } from "./scipIndexers.js"
 import { selectTouchedScipIndexers } from "./scipTouchedLanguages.js"
 import { INDEX_CHILD_LOG_TAIL_BYTES, readStreamTail } from "./streamTail.js"
-import { errorFromIndexerExit } from "./memoryFitError.js"
 
 export type IndexPhaseRepoContext = {
   db: Db

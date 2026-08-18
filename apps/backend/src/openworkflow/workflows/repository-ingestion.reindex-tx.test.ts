@@ -170,11 +170,11 @@ vi.mock("openworkflow", () => ({
   }),
 }))
 
-import { repositoryIngestion } from "./repository-ingestion.js"
 import {
   markRepositoryIndexingReady,
   markRepositoryIndexingReadyWithIssues,
 } from "../../models/repositories.js"
+import { repositoryIngestion } from "./repository-ingestion.js"
 
 describe("repository-ingestion index workflow boundary", () => {
   beforeEach(() => {

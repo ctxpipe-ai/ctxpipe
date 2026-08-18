@@ -2,14 +2,15 @@ import type { OpenAPIHono } from "@hono/zod-openapi"
 import { createRoute, z } from "@hono/zod-openapi"
 import type { AppEnv } from "../app/env.js"
 import { withRepositoryIndexOperation } from "../domain/indexing/indexConcurrency.js"
+import { userFacingIndexingError } from "../domain/indexing/memoryFitError.js"
 import {
+  type IndexPhaseRepoContext,
   phaseCloneCheckout,
   phaseDetectLanguages,
   phaseMarkCheckoutIndexed,
   phaseMergeScip,
   phaseScipLanguage,
   phaseZoekt,
-  type IndexPhaseRepoContext,
 } from "../domain/indexing/phases.js"
 import {
   DEFAULT_CHECKOUT_KEY,
@@ -21,7 +22,6 @@ import {
   getIndexableRepository,
 } from "../domain/repositories/service.js"
 import { zoektRepositoryName } from "../domain/zoekt/shardPrefix.js"
-import { userFacingIndexingError } from "../domain/indexing/memoryFitError.js"
 import {
   createLogger,
   flushWorkflowLog,

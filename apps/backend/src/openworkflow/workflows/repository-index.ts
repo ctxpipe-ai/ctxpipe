@@ -117,9 +117,8 @@ export const repositoryIndex = defineWorkflow(
         let searchIndexOk = true
         let searchIndexError: string | undefined
         try {
-          await step.run(
-            { name: "zoekt", retryPolicy: indexRetryPolicy },
-            () => wls("zoekt", () => codesearchIndexZoekt(auth)),
+          await step.run({ name: "zoekt", retryPolicy: indexRetryPolicy }, () =>
+            wls("zoekt", () => codesearchIndexZoekt(auth)),
           )
           logMilestone("repository-index.zoekt.done", {
             repositoryId: input.repositoryId,

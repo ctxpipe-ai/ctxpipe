@@ -61,10 +61,7 @@ vi.mock("openworkflow", () => ({
         targetHash: string
       }
       step: {
-        run: (
-          opts: { name: string },
-          fn: () => unknown,
-        ) => Promise<unknown>
+        run: (opts: { name: string }, fn: () => unknown) => Promise<unknown>
       }
     }) => Promise<unknown>,
   ) => ({
