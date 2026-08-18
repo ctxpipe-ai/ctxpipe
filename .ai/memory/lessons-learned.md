@@ -538,3 +538,21 @@ Highest-priority confirmed rules for agents. Migrated from former `patterns.md` 
 - **Date:** 2026-08-17
 - **Source:** user preference (Grok for implementations, Sol for reviews)
 
+### Scope shared UI class helpers
+- **Rule:** when iterating on one region of a surface (footer vs list, one panel vs another), do **not** put hover/focus/outline experiments on shared class helpers that restyle siblings. Keep shared layout tokens shared; keep region-only treatments on region helpers.
+- **Category:** convention
+- **Date:** 2026-08-18
+- **Source:** SideNav polish session (generalized)
+
+### CSS outlines — never `outline-none` if you need a ring
+- **Rule:** `outline-none` sets `outline-style: none`, so later `outline-*` **color** utilities (hover wash, focus) paint nothing. Prefer `outline-solid outline-0` (or a persistent transparent width) and grow/recolor on `hover` / `focus-visible`. Toggling outline on only on hover flashes a bright default ring — keep width always on, change color only.
+- **Category:** convention
+- **Date:** 2026-08-18
+- **Source:** SideNav polish session (generalized)
+
+### Product focus-visible + hover rings
+- **Rule:** keyboard focus ring is `outline-2` / `outline-offset-1` / `outline-teal-400/60`, with `focus-visible:relative focus-visible:z-10` so it stacks over neighbors. Soft hover washes (fill and/or a wider transparent outline) stay separate and must survive focus styling. Tokens: [`apps/ui/src/lib/focus-styles.ts`](../../apps/ui/src/lib/focus-styles.ts) (`focusVisibleClassName`, `focusVisibleRingClassName`, RAC `focusRing`). Edge controls: trade padding for equal margin so the ring stays inside the viewport; avoid parent `overflow-hidden` that clips rings (clip labels locally). Nested focusables need the same radius as the painted hit target. Resize/splitter: no focus box outline — same line as hover; arrow keys nudge.
+- **Category:** pattern
+- **Date:** 2026-08-18
+- **Source:** SideNav polish session (generalized)
+

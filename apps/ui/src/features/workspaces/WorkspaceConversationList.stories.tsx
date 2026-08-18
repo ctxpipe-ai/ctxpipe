@@ -1,5 +1,4 @@
 import type { Meta, StoryObj } from "@storybook/react-vite"
-import { fn } from "storybook/test"
 import {
   conversationsListHandler,
   conversationsListLoadingHandler,
@@ -30,8 +29,8 @@ const meta = {
   args: {
     orgSlug: "acme",
     workspace: docsWorkspace,
+    navExpanded: true,
     currentConversationId: "conv_1",
-    onSelect: fn(),
   },
 } satisfies Meta<typeof WorkspaceConversationList>
 
@@ -84,4 +83,24 @@ export const LoadMore: Story = {
       },
     },
   },
+}
+
+export const Collapsed: Story = {
+  args: {
+    navExpanded: false,
+  },
+  parameters: {
+    msw: {
+      handlers: {
+        page: [conversationsListHandler(docsConversations)],
+      },
+    },
+  },
+  decorators: [
+    (Story) => (
+      <div className="w-16 bg-zinc-950 py-2">
+        <Story />
+      </div>
+    ),
+  ],
 }

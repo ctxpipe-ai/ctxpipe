@@ -71,6 +71,18 @@ Width: `max-w-*` / `max-w-prose` (~45–75ch) for forms and help. Full-bleed is 
 
 Dark UI lifts with **surface lightness** (`bg-card` vs `bg-background`, `bg-zinc-900` vs `bg-zinc-950`), not photo-real chrome. Use existing ring/border recipes (`ring-zinc-800`, `border-border`). Do not add `shadow-lg` black slabs or skeuomorphic inset buttons.
 
+### Focus / keyboard
+
+Operate UI is keyboard-heavy. Apply on **new or touched** interactive chrome:
+
+- **Focus ring:** `outline-2` + `outline-offset-1` + `outline-teal-400/60` (readable, not full-bright). Raise `z-index` on `focus-visible` so the ring paints over neighbors.
+- **Do not** use `outline-none` when you still need outline-based hover/focus — prefer `outline-0` + solid style, then grow width on focus.
+- **Hover vs focus:** a soft hover wash (fill and/or a wider transparent outline) is separate from the focus ring; changing focus must not remove the hover treatment.
+- **Clipping:** avoid parent `overflow-hidden` that cuts rings; give edge controls margin by reducing padding the same amount; match `rounded-lg` on the actual focusable control.
+- **Special affordances:** resize / splitter controls show the same line as hover on focus (no box outline) and move with arrow keys.
+
+Shared tokens: [`focus-styles.ts`](src/lib/focus-styles.ts) (`focusVisibleClassName`, `focusVisibleRingClassName`, RAC `focusRing`). Re-exported from [`react-aria-utils.ts`](src/lib/react-aria-utils.ts) for primitives.
+
 ### Icons
 
 `@tabler/icons-react` first. Lucide only when Tabler has no equivalent. Do not add a third set.

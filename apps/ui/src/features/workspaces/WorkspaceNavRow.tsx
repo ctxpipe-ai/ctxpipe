@@ -6,7 +6,15 @@ import {
 } from "@tabler/icons-react"
 import { useNavigate, useRouter } from "@tanstack/react-router"
 import { useState } from "react"
-import { Button } from "@/components/ui/Button"
+import { Link } from "react-aria-components"
+import {
+  sideNavActiveBarClassName,
+  sideNavIconGutterClassName,
+  sideNavLabelClassName,
+  sideNavRowClassName,
+} from "@/components/SideNav/sideNavStyles"
+import { SideNavTooltip } from "@/components/SideNav/SideNavTooltip"
+import { focusVisibleClassName } from "@/lib/focus-styles"
 import { workspaceTitleAction } from "./nav"
 import type { Workspace } from "./types"
 import { WorkspaceConversationList } from "./WorkspaceConversationList"
@@ -38,6 +46,11 @@ export function WorkspaceNavRow(props: {
     onExpand,
   } = props
   const [hovered, setHovered] = useState(false)
+
+  const composeHref = router.buildLocation({
+    to: "/$orgSlug/ws/$workspaceSlug",
+    params: { orgSlug, workspaceSlug: workspace.slug },
+  }).href
 
   const compose = () => {
     void navigate({
@@ -79,74 +92,100 @@ export function WorkspaceNavRow(props: {
   }
 
   const showCaret = collapsible && hovered && navExpanded
+  const workspaceActive = current && !currentConversationId
+  const showConversations = open
 
-  return (
-    <li>
-      <div
+  const row = (
+    <div
+      data-active={workspaceActive ? "true" : undefined}
+      className={sideNavRowClassName({ active: workspaceActive })}
+    >
+      <span aria-hidden="true" className={sideNavActiveBarClassName} />
+      <button
+        type="button"
         className={[
-          "group relative flex h-10 items-center text-sm font-medium",
-          current ? "bg-zinc-900/80 text-zinc-100" : "text-zinc-300",
+          "flex min-w-0 flex-1 cursor-pointer items-center rounded-lg text-left",
+          focusVisibleClassName,
+        ].join(" ")}
+        onMouseEnter={() => setHovered(true)}
+        onMouseLeave={() => setHovered(false)}
+        onClick={onTitleClick}
+        aria-expanded={navExpanded ? open : undefined}
+        aria-label={
+          collapsible
+            ? current
+              ? `${open ? "Collapse" : "Expand"} ${workspace.displayName}`
+              : `Open ${workspace.displayName}`
+            : `New conversation in ${workspace.displayName}`
+        }
+      >
+        <span className={sideNavIconGutterClassName}>
+          <span className="relative size-4">
+            <IconFolder
+              className={[
+                "absolute inset-0 size-4 transition-all duration-150 ease-out motion-reduce:transition-none",
+                showCaret ? "scale-75 opacity-0" : "scale-100 opacity-100",
+              ].join(" ")}
+              stroke={1.4}
+              aria-hidden
+            />
+            <span
+              className={[
+                "absolute inset-0 transition-all duration-150 ease-out motion-reduce:transition-none",
+                showCaret ? "scale-100 opacity-100" : "scale-75 opacity-0",
+              ].join(" ")}
+              aria-hidden
+            >
+              {open ? (
+                <IconChevronDown className="size-4" stroke={1.4} />
+              ) : (
+                <IconChevronRight className="size-4" stroke={1.4} />
+              )}
+            </span>
+          </span>
+        </span>
+        <span
+          className={[sideNavLabelClassName(navExpanded), "truncate pr-1"].join(
+            " ",
+          )}
+          aria-hidden={!navExpanded}
+        >
+          {workspace.displayName}
+        </span>
+      </button>
+      <Link
+        href={composeHref}
+        aria-label={`New conversation in ${workspace.displayName}`}
+        aria-hidden={!navExpanded}
+        tabIndex={navExpanded ? undefined : -1}
+        className={[
+          "inline-flex size-8 shrink-0 cursor-pointer items-center justify-center rounded-lg text-zinc-400 transition-[opacity,width] duration-200 ease-out motion-reduce:transition-none hover:bg-teal-900/30 hover:text-zinc-50",
+          focusVisibleClassName,
+          navExpanded
+            ? "opacity-100"
+            : "pointer-events-none w-0 overflow-hidden opacity-0",
         ].join(" ")}
       >
-        <button
-          type="button"
-          className="flex min-w-0 flex-1 items-center gap-0 text-left"
-          onMouseEnter={() => setHovered(true)}
-          onMouseLeave={() => setHovered(false)}
-          onClick={onTitleClick}
-          aria-expanded={navExpanded ? open : undefined}
-          aria-label={
-            collapsible
-              ? current
-                ? `${open ? "Collapse" : "Expand"} ${workspace.displayName}`
-                : `Open ${workspace.displayName}`
-              : `New conversation in ${workspace.displayName}`
-          }
-        >
-          <span className="flex h-5 w-auto shrink-0 items-center justify-center px-5 text-zinc-400 group-hover:text-zinc-200">
-            {showCaret ? (
-              open ? (
-                <IconChevronDown className="size-4" aria-hidden />
-              ) : (
-                <IconChevronRight className="size-4" aria-hidden />
-              )
-            ) : (
-              <IconFolder className="size-4" aria-hidden />
-            )}
-          </span>
-          {navExpanded ? (
-            <span className="min-w-0 flex-1 truncate pr-1">
-              {workspace.displayName}
-            </span>
-          ) : null}
-        </button>
-        {navExpanded ? (
-          <Button
-            variant="quiet"
-            size="icon-sm"
-            aria-label={`New conversation in ${workspace.displayName}`}
-            className="mr-2"
-            onPress={compose}
-          >
-            <IconMessageCirclePlus className="size-4" aria-hidden />
-          </Button>
-        ) : null}
-      </div>
-      {navExpanded && open ? (
+        <IconMessageCirclePlus className="size-4" stroke={1.4} aria-hidden />
+      </Link>
+    </div>
+  )
+
+  return (
+    <li className="w-full">
+      {navExpanded ? (
+        row
+      ) : (
+        <SideNavTooltip label={workspace.displayName} enabled>
+          {row}
+        </SideNavTooltip>
+      )}
+      {showConversations ? (
         <WorkspaceConversationList
           orgSlug={orgSlug}
           workspace={workspace}
+          navExpanded={navExpanded}
           currentConversationId={currentConversationId}
-          onSelect={(conversationId) => {
-            void router.navigate({
-              to: "/$orgSlug/ws/$workspaceSlug/$conversationId",
-              params: {
-                orgSlug,
-                workspaceSlug: workspace.slug,
-                conversationId,
-              },
-            })
-          }}
         />
       ) : null}
     </li>

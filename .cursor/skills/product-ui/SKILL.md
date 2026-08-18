@@ -21,6 +21,8 @@ Design the **feature content** first. Smallest useful version: the fields, rows,
 
 Leave `AppShell`, SideNav, and page-wide atmosphere alone unless the user asked to change them. Product chrome stays undecorated (no grid, no teal/blue glow).
 
+When polishing a **named region** of existing chrome or a dense control list: change only that region — do not push experiments into shared class helpers that restyle siblings. After visual polish, **Tab** the surface once — focus rings, clipping, and non-outline affordances (resize line + arrows) are part of done. Use [`focus-styles.ts`](../../../apps/ui/src/lib/focus-styles.ts); see [DESIGN.md](../../../apps/ui/DESIGN.md) **Focus / keyboard** and [visual-craft.md](references/visual-craft.md) Finishing.
+
 **Done when:** the planned surface is the feature; the shell is unchanged; every control has a backend or an explicit out-of-scope note.
 
 ## 3. Translate intent → pattern

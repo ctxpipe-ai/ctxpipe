@@ -71,6 +71,12 @@ These encode widely used interface tactics as **ctxpipe house rules**. They are 
 | Undecorated floor | No gradient, grid, grain, or map fill on Operate surfaces. Empty-state `.ctx-node` is the illustration exception |
 | Defaults upgraded | React Aria controls; branded selected state; no native radio / default underline as the design |
 | Operate, not Persuade | No landing-page heroes, atmosphere, or marketing type scale on settings / connectors / chat |
+| Focus ring readable | `outline-2` / `offset-1` / `teal-400/60`; `focus-visible:z-10` over neighbors. Use [`focus-styles.ts`](../../../../apps/ui/src/lib/focus-styles.ts). Not full-bright teal; not browser-default |
+| Outline CSS sane | No `outline-none` if hover/focus still use outline — use `outline-0` + solid, then grow/recolor. Persistent transparent width avoids hover flash |
+| Hover ≠ focus | Soft hover wash can differ (wider matching-color outline, fill); keyboard focus stays the shared product ring |
+| Rings not clipped | No parent `overflow-hidden` eating outlines; edge items trade padding→margin; focusable control shares the same radius as the painted hit target |
+| Scoped style edits | When polishing one region, do not push experiments into shared class helpers that restyle sibling regions |
+| Splitter / resize a11y | Focus shows the hover line (not a box outline); arrow keys nudge the value |
 
 ## Actions
 

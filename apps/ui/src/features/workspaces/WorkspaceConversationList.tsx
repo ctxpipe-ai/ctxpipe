@@ -1,17 +1,26 @@
 import { useInfiniteQuery } from "@tanstack/react-query"
+import { useRouter } from "@tanstack/react-router"
+import { Link } from "react-aria-components"
+import {
+  sideNavLabelClassName,
+  sideNavRowClassName,
+} from "@/components/SideNav/sideNavStyles"
+import { SideNavTooltip } from "@/components/SideNav/SideNavTooltip"
 import { Button } from "@/components/ui/Button"
 import type { ConversationListItem } from "@/features/chat/types"
 import { client } from "@/lib/api"
+import { conversationShortLabel } from "./conversationLabel"
 import { workspaceKeys } from "./queries"
 import type { Workspace } from "./types"
 
 export function WorkspaceConversationList(props: {
   orgSlug: string
   workspace: Workspace
+  navExpanded: boolean
   currentConversationId?: string
-  onSelect: (conversationId: string) => void
 }) {
-  const { orgSlug, workspace, currentConversationId, onSelect } = props
+  const { orgSlug, workspace, navExpanded, currentConversationId } = props
+  const router = useRouter()
   const query = useInfiniteQuery({
     queryKey: workspaceKeys.conversations(orgSlug, workspace.id),
     queryFn: async ({ pageParam }) => {
@@ -40,38 +49,94 @@ export function WorkspaceConversationList(props: {
 
   const items = query.data?.pages.flatMap((page) => page.items) ?? []
 
+  // One layout for both states: short label sits in the icon gutter (stays put),
+  // full name clips away as the rail width animates.
   return (
-    <ul className="mb-1 pl-8 pr-5">
+    <ul className="mt-0.5 mb-0.5 space-y-0.5">
       {query.isPending ? (
-        <li className="py-1 text-xs text-muted-foreground">Loading…</li>
+        <li
+          className={[
+            sideNavRowClassName({ active: false, interactive: false }),
+            "text-muted-foreground",
+          ].join(" ")}
+        >
+          <span className="flex size-8 shrink-0 items-center justify-center text-xs">
+            …
+          </span>
+          <span className={sideNavLabelClassName(navExpanded)}>Loading…</span>
+        </li>
       ) : items.length === 0 ? (
-        <li className="py-1 text-xs text-muted-foreground">No conversations</li>
+        <li
+          className={[
+            sideNavRowClassName({ active: false, interactive: false }),
+            "text-muted-foreground",
+          ].join(" ")}
+        >
+          <span className="size-8 shrink-0" />
+          <span className={sideNavLabelClassName(navExpanded)}>
+            No conversations
+          </span>
+        </li>
       ) : (
-        items.map((item) => (
-          <li key={item.id}>
-            <button
-              type="button"
-              onClick={() => onSelect(item.id)}
-              className={[
-                "w-full truncate rounded-lg py-1 text-left text-xs",
-                currentConversationId === item.id
-                  ? "text-foreground"
-                  : "text-muted-foreground hover:text-foreground",
-              ].join(" ")}
-            >
-              {item.name}
-            </button>
-          </li>
-        ))
+        items.map((item) => {
+          const active = currentConversationId === item.id
+          const short = conversationShortLabel(item.name)
+          const href = router.buildLocation({
+            to: "/$orgSlug/ws/$workspaceSlug/$conversationId",
+            params: {
+              orgSlug,
+              workspaceSlug: workspace.slug,
+              conversationId: item.id,
+            },
+          }).href
+          return (
+            <li key={item.id}>
+              <SideNavTooltip label={item.name} enabled={!navExpanded}>
+                <Link
+                  href={href}
+                  aria-current={active ? "page" : undefined}
+                  aria-label={item.name}
+                  className={sideNavRowClassName({ active })}
+                >
+                  <span className="relative flex size-8 shrink-0 items-center justify-center">
+                    <span
+                      className={[
+                        "text-xs font-normal tracking-tight transition-opacity duration-200 ease-out motion-reduce:transition-none",
+                        active ? "text-zinc-100" : "text-zinc-300",
+                        navExpanded ? "opacity-0" : "opacity-100",
+                      ].join(" ")}
+                      aria-hidden={navExpanded}
+                    >
+                      {short}
+                    </span>
+                  </span>
+                  <span
+                    className={[
+                      sideNavLabelClassName(navExpanded),
+                      "truncate pr-3 text-left",
+                      active ? "text-zinc-100" : "",
+                    ].join(" ")}
+                    aria-hidden={!navExpanded}
+                  >
+                    {item.name}
+                  </span>
+                </Link>
+              </SideNavTooltip>
+            </li>
+          )
+        })
       )}
       {query.hasNextPage ? (
-        <li>
+        <li className="mx-1.5 pl-8">
           <Button
             variant="quiet"
             onPress={() => {
               void query.fetchNextPage()
             }}
-            className="h-7 px-0 text-xs"
+            className={[
+              "h-8 cursor-pointer px-0 text-sm transition-opacity duration-200",
+              navExpanded ? "opacity-100" : "pointer-events-none opacity-0",
+            ].join(" ")}
           >
             Load more
           </Button>

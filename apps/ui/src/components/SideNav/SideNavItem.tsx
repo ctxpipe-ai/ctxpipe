@@ -1,6 +1,13 @@
 import { useMatchRoute, useRouter } from "@tanstack/react-router"
 import type { ReactNode } from "react"
 import { Link } from "react-aria-components"
+import {
+  sideNavActiveBarClassName,
+  sideNavIconGutterClassName,
+  sideNavLabelClassName,
+  sideNavRowClassName,
+} from "./sideNavStyles"
+import { SideNavTooltip } from "./SideNavTooltip"
 
 type SideNavItemProps = {
   to: "/$orgSlug" | "/$orgSlug/connectors"
@@ -50,49 +57,42 @@ export function SideNavItem({
     }),
   )
 
+  const tooltipLabel = status ? `${label}, ${status.label}` : label
+
   return (
-    <Link
-      href={href}
-      aria-current={isActive ? "page" : undefined}
-      aria-label={
-        expanded ? undefined : status ? `${label}, ${status.label}` : label
-      }
-      className={[
-        "group relative flex h-10 items-center text-sm font-medium transition-colors",
-        "hover:bg-teal-900/30 hover:text-zinc-50",
-        isActive ? "text-zinc-100" : "text-zinc-300",
-      ].join(" ")}
-    >
-      <span
-        aria-hidden="true"
-        className="absolute left-0 top-1/2 h-10 w-0.5 -translate-y-1/2 rounded-r bg-primary-400 opacity-0 transition-opacity group-aria-[current=page]:opacity-100"
-      />
-      <span className="flex h-5 *:h-full *:stroke-[1.4] px-5 shrink-0 items-center justify-center text-zinc-400 group-hover:text-zinc-200 group-aria-[current=page]:text-white">
-        {icon}
-      </span>
-      <span
-        className={[
-          "whitespace-nowrap transition-all duration-200",
-          expanded ? "opacity-100" : "w-0 overflow-hidden opacity-0",
-        ].join(" ")}
+    <SideNavTooltip label={tooltipLabel} enabled={!expanded}>
+      <Link
+        href={href}
+        aria-current={isActive ? "page" : undefined}
+        aria-label={expanded ? undefined : tooltipLabel}
+        className={sideNavRowClassName({ active: isActive })}
       >
-        {label}
-      </span>
-      {status ? (
+        <span aria-hidden="true" className={sideNavActiveBarClassName} />
+        <span className={sideNavIconGutterClassName}>{icon}</span>
         <span
-          className={[
-            "shrink-0",
-            expanded ? "ml-2" : "absolute left-10 top-2 ring-2 ring-zinc-950",
-            status.tone === "failed"
-              ? "ctx-indexing-failed-dot"
-              : "ctx-indexing-dot",
-          ].join(" ")}
-          aria-hidden
-        />
-      ) : null}
-      {expanded && status ? (
-        <span className="sr-only">, {status.label}</span>
-      ) : null}
-    </Link>
+          className={[sideNavLabelClassName(expanded), "truncate pr-2"].join(
+            " ",
+          )}
+          aria-hidden={!expanded}
+        >
+          {label}
+        </span>
+        {status ? (
+          <span
+            className={[
+              "shrink-0 transition-opacity duration-200",
+              expanded ? "mr-2 opacity-100" : "absolute right-1 top-1.5 opacity-100 ring-2 ring-zinc-950",
+              status.tone === "failed"
+                ? "ctx-indexing-failed-dot"
+                : "ctx-indexing-dot",
+            ].join(" ")}
+            aria-hidden
+          />
+        ) : null}
+        {expanded && status ? (
+          <span className="sr-only">, {status.label}</span>
+        ) : null}
+      </Link>
+    </SideNavTooltip>
   )
 }
