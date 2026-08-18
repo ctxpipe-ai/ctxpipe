@@ -2,10 +2,10 @@
 set -euo pipefail
 
 # Task-cgroup OOM probe for the default codesearch test suite.
-# 32 MiB is below idle Bun RSS, so the *container* is SIGKILL'd — the product
-# maps that shape to repository status `failed`, not `complete_with_issues`.
-# Child-137 classification (API still alive) is covered by
-# `src/routes/indexPhases.zoekt.test.ts` (HTTP `{ error }` body).
+# 32 MiB is below idle Bun RSS, so the *container* is SIGKILL'd.
+# This script only asserts OOMKilled / exit 137. It does not talk to the API
+# or write repository status. Child-137 HTTP classification (API still alive)
+# is covered by `src/routes/indexPhases.zoekt.test.ts`.
 
 IMAGE="${1:?usage: oom-simulation.sh <image>}"
 CONTAINER_NAME="ctxpipe-codesearch-oom-sim-$$"
