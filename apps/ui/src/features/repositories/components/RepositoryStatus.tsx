@@ -101,6 +101,7 @@ export function RepositoryStatus(props: {
   const tooltipContent =
     props.interactive === false ? null : resolveTooltipContent(props)
 
+  const description = statusDescription(props)
   const statusBadge = (
     <span
       className={
@@ -111,6 +112,7 @@ export function RepositoryStatus(props: {
     >
       <span aria-hidden className={meta.dotClassName} />
       {label}
+      {description ? <span className="sr-only">{description}</span> : null}
     </span>
   )
 
@@ -190,5 +192,27 @@ function resolveTooltipContent(props: {
     return failedDetail ? <p>{failedDetail}</p> : null
   }
 
+  return null
+}
+
+function statusDescription(props: {
+  status: RepositoryStatusState
+  failedDetail?: string | null
+  issuesDetail?: string | null
+  outOfDateDetail?: {
+    lastIngestedHash: string
+    lastIngestedAt?: string | null
+    indexingError?: string | null
+  } | null
+}): string | null {
+  if (props.status === "complete_with_issues") {
+    return props.issuesDetail?.trim() || null
+  }
+  if (props.status === "failed") {
+    return props.failedDetail?.trim() || null
+  }
+  if (props.status === "out-of-date") {
+    return props.outOfDateDetail?.indexingError?.trim() || null
+  }
   return null
 }

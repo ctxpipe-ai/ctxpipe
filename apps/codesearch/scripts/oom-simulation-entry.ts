@@ -45,7 +45,7 @@ const payload = {
   error: error.message,
   memoryFit: error.message === CODEBASE_DIDNT_FIT_AVAILABLE_MEMORY,
 }
-console.log(JSON.stringify(payload))
+process.stdout.write(`${JSON.stringify(payload)}\n`)
 
 if (!payload.memoryFit && exitCode !== 137) {
   process.exit(1)

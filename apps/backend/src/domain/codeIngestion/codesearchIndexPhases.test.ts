@@ -42,6 +42,19 @@ describe("codesearchIndexZoekt", () => {
     vi.unstubAllGlobals()
   })
 
+  it("rewrites exhausted ECONNRESET to the memory-fit message", async () => {
+    const cause = new Error("read ECONNRESET") as NodeJS.ErrnoException
+    cause.code = "ECONNRESET"
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockRejectedValue(new TypeError("fetch failed", { cause })),
+    )
+    await expect(
+      codesearchIndexZoekt({ repositoryId: "repo_1", orgId: "org_1" }),
+    ).rejects.toThrow(CODEBASE_DIDNT_FIT_AVAILABLE_MEMORY)
+    vi.unstubAllGlobals()
+  })
+
   it("rewrites HTTP 500 exit 137 bodies to the memory-fit message", async () => {
     vi.stubGlobal(
       "fetch",

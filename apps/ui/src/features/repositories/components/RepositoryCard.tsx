@@ -13,11 +13,8 @@ import {
   MenuTrigger,
 } from "@/components/ui/Menu"
 import { githubWebUrl } from "@/features/repositories/github-web-url"
-import {
-  formatIndexingStepLabel,
-  getRepositoryStatusDisplay,
-  type Repository,
-} from "../types"
+import { repositoryCardPresentation } from "../repositoryCardPresentation"
+import type { Repository } from "../types"
 import { RepositoryStatus } from "./RepositoryStatus"
 
 interface RepositoryCardProps {
@@ -38,54 +35,39 @@ export function RepositoryCard({
   interactive = true,
 }: RepositoryCardProps) {
   const webUrl = githubWebUrl(repo.gitUrl)
-  const status = repo.indexingStatus
-  const displayStatus = getRepositoryStatusDisplay(repo)
-  const isReady = status === "ready"
-  const isFailed = status === "failed"
-  const isCompleteWithIssues = status === "complete_with_issues"
-  const isUnindexing = status === "unindexing"
-
-  const stepLabel =
-    displayStatus === "queued" ||
-    displayStatus === "running" ||
-    displayStatus === "refreshing"
-      ? formatIndexingStepLabel(repo)
-      : null
-  const indexingDetail =
-    stepLabel ??
-    (displayStatus === "running" && repo.indexingReason === "merge"
-      ? "indexing merge"
-      : displayStatus === "running" && repo.indexingReason === "push"
-        ? "indexing recent changes"
-        : null)
-  const failedDetail =
-    displayStatus === "failed" ? repo.indexingError?.trim() || null : null
-  const issuesDetail =
-    displayStatus === "complete_with_issues"
-      ? repo.indexingError?.trim() || null
-      : null
-  const outOfDateDetail =
-    displayStatus === "out-of-date" && repo.lastIngestedHash
-      ? {
-          lastIngestedHash: repo.lastIngestedHash,
-          lastIngestedAt: repo.lastIngestedAt,
-          indexingError: repo.indexingError,
-        }
-      : null
+  const {
+    displayStatus,
+    indexingDetail,
+    failedDetail,
+    issuesDetail,
+    outOfDateDetail,
+    showRetryIndexing,
+    queryable,
+  } = repositoryCardPresentation(repo)
+  const isUnindexing = repo.indexingStatus === "unindexing"
+  const isCompleteWithIssues = displayStatus === "complete_with_issues"
 
   return (
     <div className="ctx-repo-row group">
       <div className="flex min-w-0 flex-1 items-center gap-4">
         <div
           className={`ctx-node h-10 w-10 shrink-0 transition-[color,background-color,border-color] duration-150 ease-out [&_svg]:h-4 [&_svg]:w-4 [&_svg]:transition-colors ${
-            isReady
+            displayStatus === "ready"
               ? "border-teal-400 bg-teal-400/5 [&_svg]:text-teal-400"
-              : "group-hover:border-teal-400 group-hover:bg-teal-400/5 [&_svg]:text-muted-foreground group-hover:[&_svg]:text-teal-400"
+              : isCompleteWithIssues
+                ? "border-amber-200/80 bg-amber-200/5 [&_svg]:text-amber-200"
+                : "group-hover:border-teal-400 group-hover:bg-teal-400/5 [&_svg]:text-muted-foreground group-hover:[&_svg]:text-teal-400"
           }`}
         >
           <IconGitBranch
             aria-hidden
-            className={`h-4 w-4 ${isReady ? "text-teal-400" : "text-muted-foreground"}`}
+            className={`h-4 w-4 ${
+              displayStatus === "ready"
+                ? "text-teal-400"
+                : isCompleteWithIssues
+                  ? "text-amber-200"
+                  : "text-muted-foreground"
+            }`}
           />
         </div>
         <div className="min-w-0">
@@ -105,9 +87,7 @@ export function RepositoryCard({
           indexingDetail={indexingDetail}
           failedDetail={failedDetail}
           issuesDetail={issuesDetail}
-          indexedAt={
-            isReady || isCompleteWithIssues ? repo.lastIngestedAt : null
-          }
+          indexedAt={queryable ? repo.lastIngestedAt : null}
           outOfDateDetail={outOfDateDetail}
           interactive={interactive}
         />
@@ -144,7 +124,7 @@ export function RepositoryCard({
                   <MenuSeparator />
                 </>
               ) : null}
-              {isFailed || isCompleteWithIssues ? (
+              {showRetryIndexing ? (
                 <>
                   <MenuItem
                     id="retry"

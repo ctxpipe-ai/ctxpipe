@@ -36,6 +36,27 @@ const indexRetryPolicy = {
   maximumInterval: "2m" as const,
 }
 
+function zoektStepResult(
+  value: unknown,
+): { ok: true } | { ok: false; error: string } {
+  if (
+    value &&
+    typeof value === "object" &&
+    "ok" in value &&
+    (value as { ok: unknown }).ok === false
+  ) {
+    const error = (value as { error?: unknown }).error
+    return {
+      ok: false,
+      error:
+        typeof error === "string" && error.trim()
+          ? error
+          : "Search index unavailable",
+    }
+  }
+  return { ok: true }
+}
+
 function logMilestone(step: string, fields: Record<string, unknown>): void {
   const l = getLogger()
   l.set({
@@ -114,28 +135,36 @@ export const repositoryIndex = defineWorkflow(
           ingestMode: checkout.ingestMode,
         })
 
-        let searchIndexOk = true
-        let searchIndexError: string | undefined
-        try {
-          await step.run({ name: "zoekt", retryPolicy: indexRetryPolicy }, () =>
-            wls("zoekt", () => codesearchIndexZoekt(auth)),
-          )
+        const zoektResult = zoektStepResult(
+          await step.run({ name: "zoekt" }, () =>
+            wls("zoekt", async () => {
+              try {
+                await codesearchIndexZoekt(auth)
+                return { ok: true as const }
+              } catch (error) {
+                const errorText = userFacingIndexingError(error)
+                if (isMemoryFitFailure(error)) {
+                  logMilestone("repository-index.memory_exceeded", {
+                    repositoryId: input.repositoryId,
+                    error: errorText,
+                  })
+                }
+                return { ok: false as const, error: errorText }
+              }
+            }),
+          ),
+        )
+        const searchIndexOk = zoektResult.ok
+        const searchIndexError = zoektResult.ok ? undefined : zoektResult.error
+        if (searchIndexOk) {
           logMilestone("repository-index.zoekt.done", {
             repositoryId: input.repositoryId,
           })
-        } catch (error) {
-          searchIndexOk = false
-          searchIndexError = userFacingIndexingError(error)
+        } else {
           logMilestone("repository-index.zoekt.failed", {
             repositoryId: input.repositoryId,
             error: searchIndexError,
           })
-          if (isMemoryFitFailure(error)) {
-            logMilestone("repository-index.memory_exceeded", {
-              repositoryId: input.repositoryId,
-              error: searchIndexError,
-            })
-          }
         }
 
         const languages = await step.run(

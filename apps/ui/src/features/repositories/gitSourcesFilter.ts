@@ -52,3 +52,26 @@ function statusDisplayMatchesFilter(
     )
   return false
 }
+
+/** Chip counts must use the same predicate as {@link repositoryMatchesStatusFilter}. */
+export function gitSourceFilterCounts(
+  repos: Array<
+    Pick<Repository, "indexReady" | "indexingStatus" | "lastIngestedHash">
+  >,
+  pendingCount: number,
+): Record<GitSourceStatusFilter, number> {
+  const counts: Record<GitSourceStatusFilter, number> = {
+    all: repos.length + pendingCount,
+    indexed: 0,
+    indexing: 0,
+    failed: 0,
+    pending: pendingCount,
+  }
+  for (const repo of repos) {
+    const display = getRepositoryStatusDisplay(repo)
+    if (statusDisplayMatchesFilter(display, "indexed")) counts.indexed += 1
+    if (statusDisplayMatchesFilter(display, "indexing")) counts.indexing += 1
+    if (statusDisplayMatchesFilter(display, "failed")) counts.failed += 1
+  }
+  return counts
+}

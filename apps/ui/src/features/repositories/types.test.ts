@@ -16,7 +16,7 @@ describe("getRepositoryStatusDisplay", () => {
     ).toBe("failed")
   })
 
-  it("maps failed with prior success to out-of-date", () => {
+  it("maps failed with prior success to out-of-date, including a memory-fit error", () => {
     expect(
       getRepositoryStatusDisplay({
         indexingStatus: "failed",

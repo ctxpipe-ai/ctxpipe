@@ -32,9 +32,15 @@ describe("errorFromIndexerExit", () => {
 })
 
 describe("userFacingIndexingError", () => {
-  it("rewrites fetch failed to the canonical memory message", () => {
+  it("rewrites exit 137 headlines to the canonical memory message", () => {
+    expect(
+      userFacingIndexingError(new Error("Command failed with exit code 137")),
+    ).toBe(CODEBASE_DIDNT_FIT_AVAILABLE_MEMORY)
+  })
+
+  it("does not remap unrelated fetch failed", () => {
     expect(userFacingIndexingError(new TypeError("fetch failed"))).toBe(
-      CODEBASE_DIDNT_FIT_AVAILABLE_MEMORY,
+      "fetch failed",
     )
   })
 })

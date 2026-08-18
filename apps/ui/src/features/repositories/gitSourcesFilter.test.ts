@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest"
 import {
+  gitSourceFilterCounts,
   gitSourceMatchesQuery,
   repositoryMatchesStatusFilter,
 } from "./gitSourcesFilter"
@@ -79,5 +80,27 @@ describe("repositoryMatchesStatusFilter", () => {
         "failed",
       ),
     ).toBe(true)
+  })
+
+  it("counts complete with issues in both indexed and failed chips", () => {
+    expect(
+      gitSourceFilterCounts(
+        [
+          { indexingStatus: "ready", lastIngestedHash: "abc" },
+          {
+            indexingStatus: "complete_with_issues",
+            lastIngestedHash: "abc",
+          },
+          { indexingStatus: "failed", lastIngestedHash: null },
+        ],
+        0,
+      ),
+    ).toEqual({
+      all: 3,
+      indexed: 2,
+      indexing: 0,
+      failed: 2,
+      pending: 0,
+    })
   })
 })

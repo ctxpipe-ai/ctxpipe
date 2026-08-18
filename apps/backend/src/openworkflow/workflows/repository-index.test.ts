@@ -124,10 +124,27 @@ describe("repositoryIndex workflow", () => {
     })
   })
 
-  it("continues SCIP when Zoekt fails and returns searchIndexOk false", async () => {
-    zoektMock.mockRejectedValueOnce(new Error("zoekt OOM"))
+  it("records Zoekt failure as a successful step result so OpenWorkflow does not retry", async () => {
+    zoektMock.mockRejectedValue(new Error("zoekt OOM"))
+    let zoektAttempts = 0
     const step = {
-      run: async (_opts: { name: string }, fn: () => unknown) => fn(),
+      run: async (
+        opts: { name: string; retryPolicy?: { maximumAttempts?: number } },
+        fn: () => unknown,
+      ) => {
+        if (opts.name !== "zoekt") return fn()
+        const max = opts.retryPolicy?.maximumAttempts ?? 1
+        let last: unknown
+        for (let attempt = 0; attempt < max; attempt += 1) {
+          zoektAttempts += 1
+          try {
+            return await fn()
+          } catch (error) {
+            last = error
+          }
+        }
+        throw last
+      },
     }
     const wf = repositoryIndex as unknown as {
       fn: (args: {
@@ -149,6 +166,7 @@ describe("repositoryIndex workflow", () => {
       step,
     })
 
+    expect(zoektAttempts).toBe(1)
     expect(scipMock).toHaveBeenCalledTimes(2)
     expect(mergeMock).toHaveBeenCalledOnce()
     expect(result).toMatchObject({

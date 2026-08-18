@@ -50,9 +50,9 @@ import {
   INDEXING_RUNNING_STALE_MS,
   listRepositoriesForGithubConnection,
   listRepositoriesForOrg,
-  pruneGithubConnectionRepositoriesNotInGitUrls,
   markRepositoryIndexingFailed,
   markRepositoryIndexingReadyWithIssues,
+  pruneGithubConnectionRepositoriesNotInGitUrls,
   setRepositoryIndexingStep,
   tryClaimRepositoryIndexingEnqueue,
 } from "./repositories.js"
@@ -62,9 +62,7 @@ const githubConnectionId = "con_github"
 const orgSlug = "acme"
 const repositoryId = "repo_AAAAAAAAAAAAAAAAAAAAAAAAAA"
 
-function mockLinkedRepos(
-  rows: Array<{ id: string; gitUrl: string }>,
-) {
+function mockLinkedRepos(rows: Array<{ id: string; gitUrl: string }>) {
   getOrgDbMock.mockReturnValue({
     select: vi.fn().mockReturnValue({
       from: vi.fn().mockReturnValue({
@@ -160,9 +158,7 @@ describe("getRepositoryForOrg", () => {
   it("returns null when no row matches (cross-tenant id)", async () => {
     mockRepositoryWithZoekt(null)
 
-    await expect(
-      getRepositoryForOrg(orgId, repositoryId),
-    ).resolves.toBeNull()
+    await expect(getRepositoryForOrg(orgId, repositoryId)).resolves.toBeNull()
     expect(getSystemDbMock).toHaveBeenCalledTimes(1)
   })
 })
@@ -317,7 +313,10 @@ describe("deleteRepository", () => {
   it("runs Postgres purge inside withOrgDbContext and graph/codesearch after", async () => {
     await deleteRepository({ orgId, orgSlug, repositoryId })
 
-    expect(withOrgDbContextMock).toHaveBeenCalledWith(orgId, expect.any(Function))
+    expect(withOrgDbContextMock).toHaveBeenCalledWith(
+      orgId,
+      expect.any(Function),
+    )
     expect(purgeRepositoryPostgresMock).toHaveBeenCalledWith({
       orgId,
       repositoryId,
@@ -409,13 +408,33 @@ describe("markRepositoryIndexingFailed", () => {
 
     await markRepositoryIndexingFailed({
       repositoryId,
-      error: new TypeError("fetch failed"),
+      error: new Error("Codebase didn't fit available memory"),
     })
 
     expect(set).toHaveBeenCalledWith(
       expect.objectContaining({
         indexingStatus: "failed",
         indexingError: "Codebase didn't fit available memory",
+        indexReady: false,
+      }),
+    )
+  })
+
+  it("does not remap unrelated fetch failed from non-codesearch work", async () => {
+    const where = vi.fn().mockResolvedValue(undefined)
+    const set = vi.fn().mockReturnValue({ where })
+    const update = vi.fn().mockReturnValue({ set })
+    getOrgDbMock.mockReturnValue({ update })
+
+    await markRepositoryIndexingFailed({
+      repositoryId,
+      error: new TypeError("fetch failed"),
+    })
+
+    expect(set).toHaveBeenCalledWith(
+      expect.objectContaining({
+        indexingStatus: "failed",
+        indexingError: "fetch failed",
         indexReady: false,
       }),
     )

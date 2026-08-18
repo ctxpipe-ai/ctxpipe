@@ -4,6 +4,7 @@ import { parseEnv } from "../../config/env.js"
 import { codesearchBaseUrl } from "../../lib/agentToolRuntime.js"
 import {
   CODEBASE_DIDNT_FIT_AVAILABLE_MEMORY,
+  isCodesearchTaskDeath,
   isMemoryFitFailure,
   userFacingIndexingError,
 } from "../../lib/memoryFitError.js"
@@ -67,7 +68,7 @@ async function codesearchPhaseFetch(
       { retries: 10, baseDelayMs: 200, maxDelayMs: 30_000 },
     )
   } catch (error) {
-    if (isMemoryFitFailure(error)) {
+    if (isMemoryFitFailure(error) || isCodesearchTaskDeath(error)) {
       log.info({
         step: "repository-index.memory_exceeded",
         path,

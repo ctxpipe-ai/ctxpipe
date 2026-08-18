@@ -3,9 +3,7 @@ export const CODEBASE_DIDNT_FIT_AVAILABLE_MEMORY =
   "Codebase didn't fit available memory"
 
 const MEMORY_FIT_MESSAGE_RE =
-  /exit code 137\b|fetch failed|\bENOMEM\b|codebase didn't fit available memory/i
-
-const MEMORY_FIT_ERRNOS = new Set(["ECONNRESET", "EPIPE", "ENOMEM"])
+  /exit code 137\b|\bENOMEM\b|codebase didn't fit available memory/i
 
 function errorCode(error: unknown): string | undefined {
   if (!error || typeof error !== "object") return undefined
@@ -37,8 +35,7 @@ export function isMemoryFitFailure(error: unknown): boolean {
     if (item instanceof Error && MEMORY_FIT_MESSAGE_RE.test(item.message)) {
       return true
     }
-    const code = errorCode(item)
-    if (code && MEMORY_FIT_ERRNOS.has(code)) return true
+    if (errorCode(item) === "ENOMEM") return true
   }
   return false
 }
