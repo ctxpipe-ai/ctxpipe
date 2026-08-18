@@ -49,8 +49,11 @@ queryable context for agents”. It spans the **backend**, **worker**, and
 - **Self-hosted**: ensure `CODESEARCH_URL` points at your codesearch service and
   that Postgres migrations have run - the codesearch app reads repository rows
   from the same logical DB model as the backend.
-- **Failures**: clone failures, private repo auth, or indexer outages surface as
-  errors on ingestion; check backend and codesearch logs.
+- **Failures**: clone or SCIP failures fail the run. If Zoekt (search index)
+  fails but SCIP succeeds, the repository is **complete with issues**: chat and
+  graph still work, lexical search may be empty, and Retry indexing starts a
+  fresh attempt. An OOM of the codesearch task is stored as
+  “Codebase didn't fit available memory”, not a raw `fetch failed`.
 
 <Callout type="info">
   Exact extractor sets and graph primitives evolve with the product; treat this

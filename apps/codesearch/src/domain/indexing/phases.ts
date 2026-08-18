@@ -23,6 +23,7 @@ import { refreshPinnedRepo } from "../zoekt/pinManager.js"
 import { detectLanguages, type ScipIndexerId } from "./detectLanguages.js"
 import { withIndexerGoLimits } from "./indexerChildEnv.js"
 import { withIndexerProcessSlot } from "./indexerProcessSemaphore.js"
+import { errorFromIndexerExit } from "./memoryFitError.js"
 import { runScipIndexer } from "./scipIndexers.js"
 import { selectTouchedScipIndexers } from "./scipTouchedLanguages.js"
 import { INDEX_CHILD_LOG_TAIL_BYTES, readStreamTail } from "./streamTail.js"
@@ -134,15 +135,18 @@ async function runCommand(
       subprocess.exited,
     ])
     if (exitCode !== 0) {
-      throw new Error(
-        [
-          `Command failed with exit code ${exitCode}`,
-          stderr.trim() ? `stderr: ${stderr.trim()}` : "",
-          stdout.trim() ? `stdout: ${stdout.trim()}` : "",
-        ]
-          .filter(Boolean)
-          .join("\n"),
-      )
+      if (exitCode === 137) {
+        tryEmitIndexEvent("codesearch.index.memory_exceeded", {
+          cmd: cmd[0],
+          exitCode,
+        })
+      }
+      throw errorFromIndexerExit({
+        exitCode,
+        stderr,
+        stdout,
+        headline: `Command failed with exit code ${exitCode}`,
+      })
     }
   } finally {
     if (heartbeatTimer !== undefined) clearInterval(heartbeatTimer)

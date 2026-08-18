@@ -1,4 +1,5 @@
 import type { Meta, StoryObj } from "@storybook/react-vite"
+import { expect, fn, userEvent, within } from "storybook/test"
 import { entryPageInnerDecorators } from "../../../../.storybook/decorators/entry-page-decorators"
 import type { StoryRouteParams } from "../../../../.storybook/decorators/with-story-route"
 import { RepositoryCard } from "./RepositoryCard"
@@ -138,4 +139,31 @@ export const Failed: Story = {
       onRetry={noop}
     />
   ),
+}
+
+export const CompleteWithIssues: Story = {
+  args: {
+    repo: {
+      ...baseRepo,
+      indexReady: true,
+      indexingStatus: "complete_with_issues",
+      indexingError: "Codebase didn't fit available memory",
+      lastIngestedAt: new Date(Date.now() - 60 * 60 * 1000).toISOString(),
+      lastIngestedHash: "abc1234",
+    },
+    onDelete: fn(),
+    onRetry: fn(),
+  },
+  play: async ({ args, canvasElement }) => {
+    const canvas = within(canvasElement)
+    await userEvent.click(
+      canvas.getByRole("button", { name: "Repository actions" }),
+    )
+    const retry = await within(canvasElement.ownerDocument.body).findByRole(
+      "menuitem",
+      { name: "Retry indexing" },
+    )
+    await userEvent.click(retry)
+    await expect(args.onRetry).toHaveBeenCalledTimes(1)
+  },
 }

@@ -143,6 +143,20 @@ slug as the `orgSlug` you passed to `CtxPipe`.
   org-scoped graph configuration will not line up.
 </Callout>
 
+### 7) Upgrade an existing stack
+
+A new `@ctxpipe/aws-cdk` version on npm is the release unit. It pins backend, worker, UI, codesearch, and migrate images to one git SHA and includes that release’s Fargate size profiles. After it is published:
+
+```bash
+pnpm update @ctxpipe/aws-cdk
+cdk synth
+cdk deploy
+```
+
+`cdk deploy` runs Postgres migrations, then rolls the ECS services. You do not set image tags in `CtxPipe` props, and you should not retag tasks to `:latest` yourself.
+
+This is how codesearch memory bumps (4 / 8 / 12 GiB) and ingest behaviour land together. Updating only container images, or only task memory, leaves the stack split across releases.
+
 ### Bonus: automate upgrades with CI/CD
 
 Set up CI/CD so dependency upgrades for `@ctxpipe/aws-cdk` trigger:
@@ -246,9 +260,9 @@ through backend routing.
 
 Use `size` to tune compute and database capacity for your single-tenant workload:
 
-- `small` (default): best for pilot/small-team deployments with moderate repository churn and cost sensitivity. Aurora and Neptune both use `db.t4g.medium` — AWS’s minimum supported burstable size for these engines (dev/test oriented).
-- `medium`: better for sustained ingestion/reindex workloads where worker and codesearch need more headroom. Aurora uses `db.t4g.large`; Neptune uses memory-optimized `db.r6g.large`.
-- `large`: for high-ingestion and lower-latency expectations, with bigger tasks, scaled backend/worker replicas, and `db.r6g.xlarge` for both Aurora and Neptune.
+- `small` (default): best for pilot/small-team deployments with moderate repository churn and cost sensitivity. Aurora and Neptune both use `db.t4g.medium` — AWS’s minimum supported burstable size for these engines (dev/test oriented). Codesearch is 4 GiB (ingest peak, not idle RSS).
+- `medium`: better for sustained ingestion/reindex workloads where worker and codesearch need more headroom. Codesearch is 8 GiB. Aurora uses `db.t4g.large`; Neptune uses memory-optimized `db.r6g.large`.
+- `large`: for high-ingestion and lower-latency expectations, with bigger tasks, scaled backend/worker replicas, and `db.r6g.xlarge` for both Aurora and Neptune. Codesearch is 12 GiB.
 
 See the [package README sizing table](https://github.com/ctxpipe-ai/ctxpipe/blob/main/packages/aws-cdk/README.md#sizing-profiles) for the full preset matrix.
 

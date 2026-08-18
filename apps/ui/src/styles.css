@@ -471,6 +471,14 @@
     @apply h-1.5 w-1.5 rounded-full bg-red-300;
   }
 
+  .ctx-indexing-issues {
+    @apply inline-flex items-center gap-1.5 font-mono text-xs text-amber-200;
+  }
+
+  .ctx-indexing-issues-dot {
+    @apply h-1.5 w-1.5 rounded-full bg-amber-200/80;
+  }
+
   .ctx-unindexing {
     @apply inline-flex items-center gap-1.5 font-mono text-xs text-red-300;
     animation: ctx-unindexing-glow 900ms ease-in-out infinite;

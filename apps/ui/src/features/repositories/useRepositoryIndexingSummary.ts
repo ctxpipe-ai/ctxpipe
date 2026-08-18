@@ -44,7 +44,9 @@ export function getRepositoryIndexingSummary(
     }
     if (status === "queued") queuedCount += 1
     if (status === "running") runningCount += 1
-    if (status === "failed") failedCount += 1
+    if (status === "failed" || status === "complete_with_issues") {
+      failedCount += 1
+    }
   }
 
   const singleActiveStepLabel =

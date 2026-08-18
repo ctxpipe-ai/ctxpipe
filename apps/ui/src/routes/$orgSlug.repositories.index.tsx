@@ -16,16 +16,12 @@ import {
   githubConnectorKeys,
 } from "@/features/connectors/queries/github-connector"
 import { useGithubConnectFlow } from "@/features/connectors/useGithubConnectFlow"
-import {
-  AddRepositoryModal,
-  getRepositoryIndexingSummary,
-  getRepositoryStatusDisplay,
-  type Repository,
-} from "@/features/repositories"
+import { AddRepositoryModal, type Repository } from "@/features/repositories"
 import { GitSourcesVirtualList } from "@/features/repositories/components/GitSourcesVirtualList"
 import { githubRepoFullNameFromGitUrl } from "@/features/repositories/github-web-url"
 import {
   type GitSourceStatusFilter,
+  gitSourceFilterCounts,
   gitSourceMatchesQuery,
   repositoryMatchesStatusFilter,
 } from "@/features/repositories/gitSourcesFilter"
@@ -387,22 +383,7 @@ export function RepositoriesPageContent({ orgSlug }: { orgSlug: string }) {
     listQuery,
     filteredRepos,
   ])
-  const indexingSummary = getRepositoryIndexingSummary(repos)
-  const filterCounts = {
-    all: repos.length + pendingCount,
-    indexed: repos.filter(
-      (repo) => getRepositoryStatusDisplay(repo) === "ready",
-    ).length,
-    indexing:
-      indexingSummary.queuedCount +
-      indexingSummary.runningCount +
-      repos.filter((repo) => repo.indexingStatus === "unindexing").length,
-    failed: repos.filter((repo) => {
-      const display = getRepositoryStatusDisplay(repo)
-      return display === "failed" || display === "out-of-date"
-    }).length,
-    pending: pendingCount,
-  }
+  const filterCounts = gitSourceFilterCounts(repos, pendingCount)
   const listIsFiltered = listQuery.trim() !== "" || statusFilter !== "all"
   const hasFilteredRows = listRows.length > 0
 

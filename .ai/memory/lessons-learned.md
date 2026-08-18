@@ -281,7 +281,7 @@ Highest-priority confirmed rules for agents. Migrated from former `patterns.md` 
 - **Source:** migrated from patterns.md
 
 ### Durable repository indexing
-- **Rule:** durability belongs in OpenWorkflow step boundaries, not DIY codesearch/Postgres phase checkpoints. `repository-ingestion` runs child workflow `repository-index` (clone-checkout → zoekt fail-fast → detect-languages → `Promise.all` `scip:${lang}` → merge-scip). Codesearch exposes phase HTTP APIs with in-process spawn admission and same-repo purge exclusion (no begin/end lease). Step badge writes are monotonic. Extract is OW+ReAct (per-root `extract-kind` then `identify`, then dedup/project/embed) — keep LangGraph for conversation/Studio, not as the ingest durable orchestrator.
+- **Rule:** durability belongs in OpenWorkflow step boundaries, not DIY codesearch/Postgres phase checkpoints. `repository-ingestion` runs child workflow `repository-index` (clone-checkout → zoekt non-fatal → detect-languages → `Promise.all` `scip:${lang}` → merge-scip). Zoekt failure returns `searchIndexOk: false` and the parent marks `complete_with_issues` so extract can still run. Codesearch exposes phase HTTP APIs with in-process spawn admission and same-repo purge exclusion (no begin/end lease). Step badge writes are monotonic. Extract is OW+ReAct (per-root `extract-kind` then `identify`, then dedup/project/embed) — keep LangGraph for conversation/Studio, not as the ingest durable orchestrator.
 - **Category:** convention
 - **Date:** 2026-08-11
 - **Source:** migrated from patterns.md
