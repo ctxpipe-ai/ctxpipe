@@ -37,10 +37,12 @@ export const workspaceIndex = defineWorkflow(
     })
     if (!org) throw new Error(`Organization not found: ${input.orgId}`)
 
-    return withOrgIdContext({ id: org.id, slug: org.slug }, () =>
-      withOrgDbContext(input.orgId, async () => {
+    return withOrgIdContext({ id: org.id, slug: org.slug }, async () => {
+      const prepared = await withOrgDbContext(input.orgId, async () => {
         const workspace = await getWorkspaceById(input.workspaceId)
-        if (!workspace) return { published: false, reason: "missing" as const }
+        if (!workspace) {
+          return { kind: "done" as const, result: { published: false, reason: "missing" as const } }
+        }
         const repos = await findRepositoriesByNormalizedGitUrls([
           normalizeWorkspaceRepositoryUrl(input.gitUrl),
         ])
@@ -52,7 +54,10 @@ export const workspaceIndex = defineWorkflow(
               message: HYDRATE_INDEX_UNAVAILABLE_MESSAGE,
             })
           }
-          return { published: false, reason: "no_repository" as const }
+          return {
+            kind: "done" as const,
+            result: { published: false, reason: "no_repository" as const },
+          }
         }
         const githubConnectionId =
           (await getGithubConnectionIdForRepository({
@@ -66,35 +71,51 @@ export const workspaceIndex = defineWorkflow(
           workspaceId: workspace.id,
           ref: input.desiredSha,
         })
-        try {
-          await step.runWorkflow(
-            repositoryIndex.spec,
-            {
-              repositoryId: repo.id,
-              orgId: input.orgId,
-              targetHash: input.desiredSha,
-              workspaceId: workspace.id,
-              ...(githubConnectionId ? { githubConnectionId } : {}),
-              jobGeneration: input.jobGeneration,
-              jobWorkspaceUrl: input.jobWorkspaceUrl,
-            },
-            { name: "repository-index" },
-          )
-        } catch (err: unknown) {
-          const message = err instanceof Error ? err.message : String(err)
-          if (
-            !workspace.activeProjectionSha &&
-            message.includes("clone-checkout failed with status 404")
-          ) {
-            await persistHydrateFailure({
-              workspaceId: workspace.id,
-              message: HYDRATE_INDEX_UNAVAILABLE_MESSAGE,
-            })
-          }
-          throw err
+        return {
+          kind: "index" as const,
+          workspace,
+          repo,
+          githubConnectionId,
         }
+      })
+
+      if (prepared.kind === "done") return prepared.result
+
+      try {
+        await step.runWorkflow(
+          repositoryIndex.spec,
+          {
+            repositoryId: prepared.repo.id,
+            orgId: input.orgId,
+            targetHash: input.desiredSha,
+            workspaceId: prepared.workspace.id,
+            ...(prepared.githubConnectionId
+              ? { githubConnectionId: prepared.githubConnectionId }
+              : {}),
+            jobGeneration: input.jobGeneration,
+            jobWorkspaceUrl: input.jobWorkspaceUrl,
+          },
+          { name: "repository-index" },
+        )
+      } catch (err: unknown) {
+        const message = err instanceof Error ? err.message : String(err)
+        if (
+          !prepared.workspace.activeProjectionSha &&
+          message.includes("clone-checkout failed with status 404")
+        ) {
+          await withOrgDbContext(input.orgId, () =>
+            persistHydrateFailure({
+              workspaceId: prepared.workspace.id,
+              message: HYDRATE_INDEX_UNAVAILABLE_MESSAGE,
+            }),
+          )
+        }
+        throw err
+      }
+
+      return withOrgDbContext(input.orgId, async () => {
         if (input.role === "linked" && input.linkedId) {
-          const linked = (await listLinkedRepositories(workspace.id)).find(
+          const linked = (await listLinkedRepositories(prepared.workspace.id)).find(
             (row) => row.id === input.linkedId,
           )
           if (!linked) {
@@ -102,7 +123,7 @@ export const workspaceIndex = defineWorkflow(
           }
           const published = await persistLinkedIndexedSha({
             linkedId: input.linkedId,
-            workspaceId: workspace.id,
+            workspaceId: prepared.workspace.id,
             indexedSha: input.desiredSha,
             expectedDesiredSha: input.desiredSha,
             expectedGeneration: input.jobGeneration,
@@ -113,14 +134,14 @@ export const workspaceIndex = defineWorkflow(
           return { published, role: input.role }
         }
         const published = await persistIndexedSha({
-          workspaceId: workspace.id,
+          workspaceId: prepared.workspace.id,
           indexedSha: input.desiredSha,
           expectedGeneration: input.jobGeneration,
           expectedUrl: input.jobWorkspaceUrl,
           expectedDesiredSha: input.desiredSha,
         })
         return { published, role: input.role }
-      }),
-    )
+      })
+    })
   },
 )

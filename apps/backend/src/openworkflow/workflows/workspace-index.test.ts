@@ -6,6 +6,17 @@ const findRepositoriesByNormalizedGitUrlsMock = vi.hoisted(() => vi.fn())
 const getGithubConnectionIdForRepositoryMock = vi.hoisted(() => vi.fn())
 const ensureWorkspaceCheckoutMock = vi.hoisted(() => vi.fn())
 const persistIndexedShaMock = vi.hoisted(() => vi.fn())
+const orgTxDepth = vi.hoisted(() => ({ value: 0 }))
+const withOrgDbContextMock = vi.hoisted(() =>
+  vi.fn(async (_orgId: string, fn: () => unknown) => {
+    orgTxDepth.value += 1
+    try {
+      return await fn()
+    } finally {
+      orgTxDepth.value -= 1
+    }
+  }),
+)
 
 vi.mock("../../db/client.js", () => ({
   getSystemDb: () => ({
@@ -15,8 +26,7 @@ vi.mock("../../db/client.js", () => ({
       },
     },
   }),
-  withOrgDbContext: (_orgId: string, fn: () => unknown) =>
-    Promise.resolve(fn()),
+  withOrgDbContext: withOrgDbContextMock,
 }))
 
 vi.mock("../../auth/withAuth.js", () => ({
@@ -105,6 +115,7 @@ const workspaceInput = {
 describe("workspaceIndex workflow", () => {
   beforeEach(() => {
     vi.clearAllMocks()
+    orgTxDepth.value = 0
     getWorkspaceByIdMock.mockResolvedValue({
       id: "ws_1",
       activeProjectionSha: null,
@@ -175,5 +186,19 @@ describe("workspaceIndex workflow", () => {
       }),
       { name: "repository-index" },
     )
+  })
+
+  it("does not call codesearch while the org transaction is still open", async () => {
+    const step = {
+      runWorkflow: vi.fn().mockImplementation(() => {
+        expect(orgTxDepth.value).toBe(0)
+        return Promise.resolve()
+      }),
+    }
+
+    await indexFn.fn({ input: workspaceInput, step })
+
+    expect(ensureWorkspaceCheckoutMock).toHaveBeenCalled()
+    expect(step.runWorkflow).toHaveBeenCalled()
   })
 })
