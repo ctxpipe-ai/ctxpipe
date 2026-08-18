@@ -72,7 +72,7 @@ export async function enqueueWorkspaceWriteCommit(
     mergeDeletePaths?: string[]
   },
   log: { error: (err: Error) => void },
-): Promise<void> {
+): Promise<{ started: boolean }> {
   const jobId = input.jobId ?? generateObjectId("wjob")
   let jobGeneration = input.jobGeneration
   let jobWorkspaceUrl = input.jobWorkspaceUrl
@@ -113,8 +113,9 @@ export async function enqueueWorkspaceWriteCommit(
     } catch (err: unknown) {
       const error = err instanceof Error ? err : new Error(String(err))
       log.error(error)
+      return { started: false }
     }
-    return
+    return { started: true }
   }
   const generation = jobGeneration ?? desiredGeneration ?? 1
   const intent = writeJobIntentStatus({
@@ -159,9 +160,18 @@ export async function enqueueWorkspaceWriteCommit(
     } catch {
       // Persist is best-effort when org db is not open.
     }
-    if (status !== WRITE_JOB_STATUSES.queued) return
+    if (status !== WRITE_JOB_STATUSES.queued) return { started: false }
   }
-  if (status !== WRITE_JOB_STATUSES.queued) return
+  if (status !== WRITE_JOB_STATUSES.queued) {
+    if (input.kind === "migration_export") {
+      await persistHydrateFailure({
+        workspaceId: input.workspaceId,
+        message:
+          "The workspace repository is not writable, so the first knowledge export cannot start.",
+      }).catch(() => undefined)
+    }
+    return { started: false }
+  }
   try {
     await runWorkflowWithWorkerWake(workspaceWriteCommit.spec, {
       ...input,
@@ -178,5 +188,7 @@ export async function enqueueWorkspaceWriteCommit(
     } catch {
       // Keep a resumable row even if this status write fails.
     }
+    return { started: false }
   }
+  return { started: true }
 }

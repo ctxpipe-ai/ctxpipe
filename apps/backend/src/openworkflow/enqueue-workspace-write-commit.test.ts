@@ -163,6 +163,31 @@ describe("enqueueWorkspaceWriteCommit", () => {
     expect(runWorkflowWithWorkerWakeMock).not.toHaveBeenCalled()
   })
 
+  it("marks prepare failed when a migration export is parked unwritable", async () => {
+    getWorkspaceByIdMock.mockResolvedValue({
+      id: "ws_1",
+      desiredGeneration: 1,
+      workspaceRepositoryUrl: "https://github.com/acme/docs",
+      desiredSha: null,
+      writeStatus: "read_only",
+    })
+    const log = { error: vi.fn() }
+    await enqueueWorkspaceWriteCommit(
+      {
+        orgId: "org_1",
+        workspaceId: "ws_1",
+        kind: "migration_export",
+      },
+      log,
+    )
+    expect(runWorkflowWithWorkerWakeMock).not.toHaveBeenCalled()
+    expect(persistHydrateFailureMock).toHaveBeenCalledWith({
+      workspaceId: "ws_1",
+      message:
+        "The workspace repository is not writable, so the first knowledge export cannot start.",
+    })
+  })
+
   it("starts the workflow when the workspace snapshot cannot be loaded", async () => {
     getWorkspaceByIdMock.mockRejectedValue(new Error("db down"))
     const log = { error: vi.fn() }

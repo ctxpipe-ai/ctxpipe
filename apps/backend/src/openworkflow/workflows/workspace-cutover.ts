@@ -15,7 +15,9 @@ import {
   listCompletedMigrationExportWorkspaceIds,
   listOrgWorkspaces,
   persistFirstWorkspaceId,
+  persistHydrateFailure,
 } from "../../models/workspaces.js"
+import { log } from "../../observability/logger.js"
 import { enqueueWorkspaceWriteCommit } from "../enqueue-workspace-write-commit.js"
 
 const workspaceCutoverInputSchema = z.object({
@@ -87,15 +89,24 @@ export const workspaceCutover = defineWorkflow(
           )
           for (const workspace of targetWorkspaces) {
             if (!pendingIds.has(workspace.id)) continue
-            exports += 1
-            void enqueueWorkspaceWriteCommit(
-              {
-                orgId: input.orgId,
+            try {
+              const enqueued = await enqueueWorkspaceWriteCommit(
+                {
+                  orgId: input.orgId,
+                  workspaceId: workspace.id,
+                  kind: "migration_export",
+                },
+                { error: (err) => log.error(err) },
+              )
+              if (enqueued.started) exports += 1
+            } catch (err: unknown) {
+              const error = err instanceof Error ? err : new Error(String(err))
+              log.error(error)
+              await persistHydrateFailure({
                 workspaceId: workspace.id,
-                kind: "migration_export",
-              },
-              { error: () => undefined },
-            )
+                message: error.message,
+              }).catch(() => undefined)
+            }
           }
         }
         return {
