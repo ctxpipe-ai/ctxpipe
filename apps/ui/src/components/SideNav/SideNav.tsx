@@ -6,7 +6,7 @@ import {
   IconSearch,
 } from "@tabler/icons-react"
 import { useRouter } from "@tanstack/react-router"
-import { useState } from "react"
+import { useRef, useState } from "react"
 import { Button } from "react-aria-components"
 import { WorkspaceCommandPalette } from "@/features/workspaces/WorkspaceCommandPalette"
 import { WorkspaceNavList } from "@/features/workspaces/WorkspaceNavList"
@@ -43,7 +43,8 @@ export function SideNav() {
     updatePreferences,
   ] = useUserPreferences()
   const [paletteOpen, setPaletteOpen] = useState(false)
-  const [dragWidth, setDragWidth] = useState<number | null>(null)
+  const [isResizing, setIsResizing] = useState(false)
+  const navRef = useRef<HTMLElement>(null)
   const pathname = router.state?.location.pathname ?? ""
   const segments = pathname.split("/").filter(Boolean)
   const firstSegment = segments[0]
@@ -71,17 +72,21 @@ export function SideNav() {
   }
 
   const persistedWidth = sideNavWidth ?? SIDE_NAV_DEFAULT_WIDTH
-  const width = expanded
-    ? (dragWidth ?? persistedWidth)
-    : SIDE_NAV_COLLAPSED_WIDTH
+  const width = expanded ? persistedWidth : SIDE_NAV_COLLAPSED_WIDTH
 
   return (
     <nav
-      className="group/sidenav relative z-20 hidden shrink-0 flex-col transition-[width] duration-200 ease-out motion-reduce:transition-none sm:sticky sm:top-0 sm:flex sm:h-screen"
+      ref={navRef}
+      className={[
+        "group/sidenav relative z-20 hidden shrink-0 flex-col pt-1 sm:sticky sm:top-0 sm:flex sm:h-screen",
+        isResizing
+          ? ""
+          : "transition-[width] duration-200 ease-out motion-reduce:transition-none",
+      ].join(" ")}
       style={{ width }}
       aria-label="Main navigation"
     >
-      {/* Fixed header height keeps menu icons from jumping vertically on collapse. */}
+      {/* Fixed header height; pt-1 on nav aligns with conversation tab strip. */}
       <div className="relative flex h-11 shrink-0 items-center">
         <div
           className={[
@@ -128,7 +133,7 @@ export function SideNav() {
       </div>
 
       <ul
-        className="relative mt-1 min-h-0 flex-1 space-y-0.5 overflow-y-auto px-0.5 py-1 pb-2"
+        className="relative mt-1 min-h-0 flex-1 space-y-0.5 overflow-y-auto py-1 pb-2"
         aria-label="Primary"
       >
         <li>
@@ -227,10 +232,14 @@ export function SideNav() {
           aria-valuemax={SIDE_NAV_MAX_WIDTH}
           aria-valuenow={persistedWidth}
           className={[
-            "absolute inset-y-0 right-0 z-30 w-3 translate-x-1/2 cursor-col-resize border-0 bg-transparent p-0 outline-none",
-            "after:pointer-events-none after:absolute after:inset-y-0 after:left-1/2 after:w-px after:-translate-x-1/2 after:bg-transparent after:transition-colors",
-            "hover:after:bg-teal-400/50 focus-visible:after:bg-teal-400/50 active:after:bg-teal-400/70",
-            dragWidth != null ? "after:bg-teal-400/60" : "",
+            // Hit target straddles the nav/main seam; the line is the pane's left edge.
+            "absolute right-0 z-30 w-3 translate-x-1/2 cursor-col-resize border-0 bg-transparent p-0 outline-none",
+            // Inset matches conversation chrome, plus 2px each end vs the pane corners.
+            "top-[16px] bottom-[22px]",
+            "after:pointer-events-none after:absolute after:inset-y-0 after:left-1/2 after:w-px after:translate-x-[calc(-50%+0.5px)]",
+            "after:rounded-full after:bg-transparent after:transition-colors",
+            "hover:after:bg-white/40 focus-visible:after:bg-white/40",
+            isResizing ? "after:bg-white/55" : "",
           ].join(" ")}
           onKeyDown={(event) => {
             if (event.key !== "ArrowLeft" && event.key !== "ArrowRight") return
@@ -248,13 +257,18 @@ export function SideNav() {
             target.setPointerCapture(event.pointerId)
             const startX = event.clientX
             const startWidth = persistedWidth
+            const nav = navRef.current
+            setIsResizing(true)
             document.body.style.cursor = "col-resize"
             document.body.style.userSelect = "none"
 
+            // Mutate width on the element during drag — avoids re-rendering the
+            // whole nav tree (and fighting transition-[width]) on every move.
             const move = (next: PointerEvent) => {
-              setDragWidth(
-                clampSideNavWidth(startWidth + (next.clientX - startX)),
+              const nextWidth = clampSideNavWidth(
+                startWidth + (next.clientX - startX),
               )
+              if (nav) nav.style.width = `${nextWidth}px`
             }
             const up = (next: PointerEvent) => {
               target.releasePointerCapture(next.pointerId)
@@ -265,11 +279,11 @@ export function SideNav() {
               const nextWidth = clampSideNavWidth(
                 startWidth + (next.clientX - startX),
               )
-              setDragWidth(null)
               updatePreferences((prev) => ({
                 ...prev,
                 sideNavWidth: nextWidth,
               }))
+              setIsResizing(false)
             }
             window.addEventListener("pointermove", move)
             window.addEventListener("pointerup", up)

@@ -2,7 +2,7 @@ import {
   IconAffiliate,
   IconArrowsMaximize,
   IconArrowsMinimize,
-  IconFiles,
+  IconFolder,
   IconSettings,
   IconX,
 } from "@tabler/icons-react"
@@ -10,6 +10,14 @@ import { useSuspenseQuery } from "@tanstack/react-query"
 import type { ReactNode } from "react"
 import { Suspense } from "react"
 import { Button } from "@/components/ui/Button"
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipProvider,
+  TooltipTrigger,
+} from "@/components/ui/Tooltip"
+import { focusVisibleClassName } from "@/lib/focus-styles"
+import { cn } from "@/lib/utils"
 import { filePaneId, type ParsedPane } from "./pane"
 import { workspaceFilesOptions, workspaceGraphOptions } from "./queries"
 import type { WorkspaceDetail, WorkspaceFilesResponse } from "./types"
@@ -324,41 +332,57 @@ export function WorkspacePaneTriggers(props: {
   onOpen: (pane: ParsedPane) => void
 }) {
   return (
-    <div className="flex gap-1">
-      <HeaderIcon
-        label="Files"
-        icon={<IconFiles />}
-        onClick={() => props.onOpen({ kind: "files" })}
-      />
-      <HeaderIcon
-        label="Graph"
-        icon={<IconAffiliate />}
-        onClick={() => props.onOpen({ kind: "graph" })}
-      />
-      <HeaderIcon
-        label="Settings"
-        icon={<IconSettings />}
-        onClick={() => props.onOpen({ kind: "settings" })}
-      />
-    </div>
+    <TooltipProvider delay={200}>
+      <div className="mb-0.5 flex items-center gap-0">
+        <HeaderIcon
+          label="Files"
+          icon={<IconFolder stroke={1.6} aria-hidden />}
+          onClick={() => props.onOpen({ kind: "files" })}
+        />
+        <HeaderIcon
+          label="Graph"
+          icon={<IconAffiliate stroke={1.6} aria-hidden />}
+          onClick={() => props.onOpen({ kind: "graph" })}
+        />
+        <HeaderIcon
+          label="Settings"
+          icon={<IconSettings stroke={1.6} aria-hidden />}
+          onClick={() => props.onOpen({ kind: "settings" })}
+        />
+      </div>
+    </TooltipProvider>
   )
 }
 
+/** Compact hit target: larger glyph, less padding than a full `size-9` tab. */
 function HeaderIcon(props: {
   label: string
   icon: ReactNode
   onClick: () => void
 }) {
   return (
-    <Button
-      variant="quiet"
-      size="icon-sm"
-      aria-label={props.label}
-      onPress={props.onClick}
-    >
-      <span className="size-4 text-muted-foreground" aria-hidden>
-        {props.icon}
-      </span>
-    </Button>
+    <Tooltip>
+      <TooltipTrigger
+        aria-label={props.label}
+        onClick={props.onClick}
+        className={cn(
+          "inline-flex size-8 shrink-0 cursor-pointer items-center justify-center rounded-lg border-0 bg-transparent text-zinc-400",
+          "transition-colors hover:bg-teal-900/30 hover:text-zinc-50",
+          focusVisibleClassName,
+        )}
+      >
+        <span className="inline-flex size-4 items-center justify-center [&_svg]:size-4 [&_svg]:stroke-[1.6]">
+          {props.icon}
+        </span>
+      </TooltipTrigger>
+      <TooltipContent
+        side="bottom"
+        sideOffset={6}
+        className="border-0 bg-zinc-800 text-zinc-100 shadow-md"
+        arrowClassName="bg-zinc-800 fill-zinc-800"
+      >
+        {props.label}
+      </TooltipContent>
+    </Tooltip>
   )
 }

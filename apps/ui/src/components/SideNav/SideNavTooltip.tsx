@@ -18,7 +18,9 @@ export function SideNavTooltip(props: {
   return (
     <TooltipProvider delay={200}>
       <Tooltip>
-        <TooltipTrigger className="block w-full">{children}</TooltipTrigger>
+        {/* Compose onto the row control — do not wrap in an extra <button>
+            (that was squashing collapsed icon hit targets). */}
+        <TooltipTrigger render={children} nativeButton={false} />
         <TooltipContent
           side="right"
           sideOffset={6}

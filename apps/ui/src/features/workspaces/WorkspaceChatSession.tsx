@@ -135,13 +135,13 @@ export function WorkspaceChatSession(props: {
       headerExtra={props.headerExtra}
     >
       {composing && messages.length === 0 ? (
-        <div className="flex min-h-0 flex-1 flex-col items-center justify-center p-8">
-          <div className="w-full max-w-2xl space-y-6">
+        <div className="flex min-h-0 flex-1 flex-col items-center justify-center px-6 py-10">
+          <div className="w-full max-w-2xl space-y-5">
             <div>
               <h1 className="text-lg font-medium tracking-tight">
                 {workspace.displayName}
               </h1>
-              <p className="mt-2 text-sm text-muted-foreground">
+              <p className="mt-1.5 text-sm text-muted-foreground">
                 Ask about this Workspace. The first message creates the
                 conversation.
               </p>
