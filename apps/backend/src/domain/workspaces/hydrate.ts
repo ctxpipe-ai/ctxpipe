@@ -157,6 +157,9 @@ export const HYDRATE_EXPORT_MISSING_MESSAGE =
 export const HYDRATE_EXPORT_WAITING_MESSAGE =
   "Waiting for the first knowledge export to land in git."
 
+export const HYDRATE_INDEX_UNAVAILABLE_MESSAGE =
+  "We could not open this repository for indexing."
+
 export type WorkspaceHydrateView =
   | "waiting_for_tip"
   | "hydrating"

@@ -2,6 +2,7 @@ import { defineWorkflow } from "openworkflow"
 import { z } from "zod"
 import { withOrgIdContext } from "../../auth/withAuth.js"
 import { getSystemDb, withOrgDbContext } from "../../db/client.js"
+import { HYDRATE_INDEX_UNAVAILABLE_MESSAGE } from "../../domain/workspaces/hydrate.js"
 import { normalizeWorkspaceRepositoryUrl } from "../../domain/workspaces/slug.js"
 import {
   ensureWorkspaceCheckout,
@@ -11,6 +12,7 @@ import {
 import {
   getWorkspaceById,
   listLinkedRepositories,
+  persistHydrateFailure,
   persistIndexedSha,
   persistLinkedIndexedSha,
 } from "../../models/workspaces.js"
@@ -44,30 +46,53 @@ export const workspaceIndex = defineWorkflow(
         ])
         const repo = repos[0]
         if (!repo) {
+          if (!workspace.activeProjectionSha) {
+            await persistHydrateFailure({
+              workspaceId: workspace.id,
+              message: HYDRATE_INDEX_UNAVAILABLE_MESSAGE,
+            })
+          }
           return { published: false, reason: "no_repository" as const }
         }
-        const githubConnectionId = await getGithubConnectionIdForRepository({
-          orgId: input.orgId,
-          repositoryId: repo.id,
-        })
+        const githubConnectionId =
+          (await getGithubConnectionIdForRepository({
+            orgId: input.orgId,
+            repositoryId: repo.id,
+          })) ??
+          workspace.githubConnectionId ??
+          null
         await ensureWorkspaceCheckout({
           repositoryId: repo.id,
           workspaceId: workspace.id,
           ref: input.desiredSha,
         })
-        await step.runWorkflow(
-          repositoryIndex.spec,
-          {
-            repositoryId: repo.id,
-            orgId: input.orgId,
-            targetHash: input.desiredSha,
-            workspaceId: workspace.id,
-            ...(githubConnectionId ? { githubConnectionId } : {}),
-            jobGeneration: input.jobGeneration,
-            jobWorkspaceUrl: input.jobWorkspaceUrl,
-          },
-          { name: "repository-index" },
-        )
+        try {
+          await step.runWorkflow(
+            repositoryIndex.spec,
+            {
+              repositoryId: repo.id,
+              orgId: input.orgId,
+              targetHash: input.desiredSha,
+              workspaceId: workspace.id,
+              ...(githubConnectionId ? { githubConnectionId } : {}),
+              jobGeneration: input.jobGeneration,
+              jobWorkspaceUrl: input.jobWorkspaceUrl,
+            },
+            { name: "repository-index" },
+          )
+        } catch (err: unknown) {
+          const message = err instanceof Error ? err.message : String(err)
+          if (
+            !workspace.activeProjectionSha &&
+            message.includes("clone-checkout failed with status 404")
+          ) {
+            await persistHydrateFailure({
+              workspaceId: workspace.id,
+              message: HYDRATE_INDEX_UNAVAILABLE_MESSAGE,
+            })
+          }
+          throw err
+        }
         if (input.role === "linked" && input.linkedId) {
           const linked = (await listLinkedRepositories(workspace.id)).find(
             (row) => row.id === input.linkedId,
