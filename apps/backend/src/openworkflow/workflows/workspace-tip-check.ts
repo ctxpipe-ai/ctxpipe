@@ -1,7 +1,8 @@
 import { defineWorkflow } from "openworkflow"
 import { z } from "zod"
+import { withOrgIdContext } from "../../auth/withAuth.js"
 import { parseEnv } from "../../config/env.js"
-import { withOrgDbContext } from "../../db/client.js"
+import { getSystemDb, withOrgDbContext } from "../../db/client.js"
 import {
   chatSandboxesDueForDestroy,
   destroySandboxesForConversation,
@@ -44,7 +45,12 @@ export const workspaceTipCheck = defineWorkflow(
   { name: "workspace-tip-check", schema: workspaceTipCheckInputSchema },
   async ({ input }) => {
     const env = parseEnv(process.env as Record<string, string | undefined>)
-    return withOrgDbContext(input.orgId, async () => {
+    const org = await getSystemDb().query.organizations.findFirst({
+      where: { id: { eq: input.orgId } },
+    })
+    if (!org) throw new Error(`Organization not found: ${input.orgId}`)
+    return withOrgIdContext({ id: org.id, slug: org.slug }, () =>
+    withOrgDbContext(input.orgId, async () => {
       void enqueueWorkspaceCutover(input.orgId, { error: () => undefined })
       const workspaces = await listOrgWorkspaces(input.orgId)
       const quietLog = { error: () => undefined }
@@ -164,7 +170,7 @@ export const workspaceTipCheck = defineWorkflow(
       }
       const now = new Date()
       const idleChats = chatSandboxesDueForDestroy({
-        conversations: await listOrgConversationsForSandboxGc(),
+        conversations: await listOrgConversationsForSandboxGc(input.orgId),
         now,
       })
       for (const conversationId of idleChats) {
@@ -181,6 +187,7 @@ export const workspaceTipCheck = defineWorkflow(
         await destroySandboxesForWorkspace(workspaceId, "job")
       }
       return { updated: updated.length, linkedUpdated: linkedUpdated.length }
-    })
+    }),
+    )
   },
 )

@@ -156,14 +156,15 @@ export async function reserveConversationChatPrNumber(
   return row.lastChatPrNumber
 }
 
-export async function listOrgConversationsForSandboxGc(): Promise<
+export async function listOrgConversationsForSandboxGc(
+  orgId: string = requireCurrentOrgId(),
+): Promise<
   Array<{
     id: string
     workspaceId: string | null
     lastMessageAt: Date | null
   }>
 > {
-  const orgId = requireCurrentOrgId()
   return getOrgDb()
     .select({
       id: conversations.id,
