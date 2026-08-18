@@ -59,7 +59,6 @@ For scripts and CI, use explicit flags:
 npx ctxpipe init --org acme --agents cursor,claude --scope repo --non-interactive
 npx ctxpipe mcp add --org acme --client opencode --scope user --non-interactive
 npx ctxpipe doctor --json
-npx ctxpipe doctor mcp --url "https://app.ctxpipe.ai/mcp?orgSlug=acme"
 ```
 
 Use `npx ctxpipe init --help` and `npx ctxpipe mcp add --help` for the full flag list, including `--base-url`, `--org`, `--scope`, `--agents`, `--client`, `--non-interactive`, `--json`, and `--dry-run`.
@@ -219,24 +218,12 @@ If your client's docs only mention `http` or SSE, check the current client docum
 
 ## Troubleshooting
 
-Start with the lightweight doctor before opening a client or MCPJam session.
-See [MCP troubleshooting](/docs/mcp/troubleshooting) for the full workflow:
-local doctor, PR preview, production test organisation, then version-pinned
-MCPJam for OAuth and `ctx_advisor`.
-
-A `ready-for-oauth` doctor result means discovery is coherent. It does not prove
-that authenticated tools work.
-
-```bash
-npx ctxpipe doctor mcp --url "https://app.ctxpipe.ai/mcp?orgSlug=your-org"
-```
-
 - **CLI sign-in worked, but the MCP client still asks for authorization** - expected. CLI setup auth and MCP client OAuth are separate flows.
 - **Connection fails after pasting URL only** - add the client-specific `type` field. Most clients do not infer the transport reliably.
 - **OpenCode shows the server but it never connects** - use the top-level `mcp.ctxpipe` shape with `type: "remote"` and `enabled: true`.
 - **`streamable-http` is not recognized** - upgrade the client, or check whether that client expects `http` for its config key while still using a Streamable HTTP remote server.
 - **Team PR flow is unavailable** - confirm GitHub is connected, the repositories are visible to the GitHub App installation, and your ctx| account is an organization admin or owner.
-- **Your client cannot complete OAuth** - use a client with remote MCP OAuth support. The hosted docs assume OAuth-based MCP access. Follow [MCP troubleshooting](/docs/mcp/troubleshooting) if discovery itself is failing.
+- **Your client cannot complete OAuth** - use a client with remote MCP OAuth support. The hosted docs assume OAuth-based MCP access.
 
 ## Notes
 
@@ -248,5 +235,4 @@ npx ctxpipe doctor mcp --url "https://app.ctxpipe.ai/mcp?orgSlug=your-org"
 
 - [Managing your organization](/docs/managing-organization) - org slug and membership
 - [Install MCPs via PR](/docs/git-repositories/install-mcps-via-pr) - team rollout through GitHub pull requests
-- [MCP troubleshooting](/docs/mcp/troubleshooting) - doctor mcp, OAuth discovery, and MCPJam hand-off
 - [Local memory](/docs/mcp/local-memory) - repo-local Markdown memory with capture hooks

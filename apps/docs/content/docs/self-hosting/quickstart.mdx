@@ -54,7 +54,8 @@ first time it connects.
 
 <Callout type="info">
   The `orgSlug` query parameter is required. Requests without it are rejected.
-  See [ctx| MCP](/docs/mcp/mcp-docs) for full transport and auth documentation.
+  See [Remote MCP](/docs/mcp/mcp-docs) for client config shapes, and
+  [MCP](/docs/self-hosting/mcp) if discovery or OAuth fails on this deployment.
 </Callout>
 
 ## 4. Start your agent
@@ -71,6 +72,7 @@ before writing code, and again whenever a major decision changes.
 - [Architecture](/docs/self-hosting/architecture) - services, state, and request flow.
 - [Configuration](/docs/self-hosting/configuration) - required environment variables and connector secrets.
 - [Authentication](/docs/self-hosting/authentication) - sign-in, API keys, and OAuth.
+- [MCP](/docs/self-hosting/mcp) - endpoint diagnostics, OAuth discovery, and MCPJam.
 - [Model configuration](/docs/self-hosting/models) - LLM tiers and embeddings.
 - [Graph databases](/docs/self-hosting/graph-databases) - FalkorDB, Neo4j, Memgraph, and Neptune.
 - [Operations](/docs/self-hosting/operations) - health checks, logs, backups, and recovery.

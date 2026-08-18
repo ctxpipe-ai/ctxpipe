@@ -22,6 +22,11 @@ const config = withMDX({
         destination: "/docs/connections/source-connectors/confluence",
         permanent: false,
       },
+      {
+        source: "/docs/mcp/troubleshooting",
+        destination: "/docs/self-hosting/mcp",
+        permanent: false,
+      },
     ]
   },
 })
