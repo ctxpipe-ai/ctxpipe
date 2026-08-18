@@ -481,13 +481,13 @@ export const workspaceWriteCommit = defineWorkflow(
                     expectedUrl: jobWorkspaceUrl,
                     expectedDesiredSha: jobDesiredSha,
                   })
-                  void enqueueWorkspaceHydrate(
+                  await enqueueWorkspaceHydrate(
                     {
                       orgId: input.orgId,
                       workspaceId: workspace.id,
                       defaultBranch,
                     },
-                    { error: () => undefined },
+                    { error: (err) => getLogger().error(err) },
                   )
                 }
                 void (async () => {
@@ -643,13 +643,13 @@ export const workspaceWriteCommit = defineWorkflow(
                       ? live.desiredSha
                       : jobDesiredSha,
                 })
-                void enqueueWorkspaceHydrate(
+                await enqueueWorkspaceHydrate(
                   {
                     orgId: input.orgId,
                     workspaceId: workspace.id,
                     defaultBranch,
                   },
-                  { error: () => undefined },
+                  { error: (err) => getLogger().error(err) },
                 )
               }
               if (

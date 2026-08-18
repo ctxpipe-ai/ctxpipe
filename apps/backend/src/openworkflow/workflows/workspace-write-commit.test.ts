@@ -216,4 +216,41 @@ describe("workspaceWriteCommit workflow", () => {
       message: "write job start failed",
     })
   })
+
+  it("does not finish a no-op export until hydrate enqueue settles", async () => {
+    let settleHydrate: (() => void) | undefined
+    enqueueWorkspaceHydrateMock.mockImplementation(
+      () =>
+        new Promise<void>((resolve) => {
+          settleHydrate = resolve
+        }),
+    )
+    const wf = workspaceWriteCommit as unknown as {
+      fn: (args: {
+        input: {
+          orgId: string
+          workspaceId: string
+          kind: "migration_export"
+        }
+      }) => Promise<{ exportSha?: string | null }>
+    }
+    const pending = wf.fn({
+      input: {
+        orgId: "org_1",
+        workspaceId: "ws_1",
+        kind: "migration_export",
+      },
+    })
+    let finished = false
+    void pending.then(() => {
+      finished = true
+    })
+    await vi.waitFor(() => {
+      expect(enqueueWorkspaceHydrateMock).toHaveBeenCalled()
+    })
+    expect(finished).toBe(false)
+    settleHydrate?.()
+    await pending
+    expect(finished).toBe(true)
+  })
 })

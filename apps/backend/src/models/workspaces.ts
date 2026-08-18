@@ -1524,6 +1524,36 @@ export async function persistHydrateFailure(input: {
     .where(eq(workspaces.id, input.workspaceId))
 }
 
+export async function persistHydrateMessage(input: {
+  workspaceId: string
+  message: string
+}): Promise<void> {
+  await getOrgDb()
+    .update(workspaces)
+    .set({
+      hydrateError: input.message,
+      updatedAt: new Date(),
+    })
+    .where(eq(workspaces.id, input.workspaceId))
+}
+
+export async function getLatestMigrationExportJobStatus(
+  workspaceId: string,
+): Promise<string | null> {
+  const [row] = await getOrgDb()
+    .select({ status: workspaceWriteJobs.status })
+    .from(workspaceWriteJobs)
+    .where(
+      and(
+        eq(workspaceWriteJobs.workspaceId, workspaceId),
+        eq(workspaceWriteJobs.kind, "migration_export"),
+      ),
+    )
+    .orderBy(desc(workspaceWriteJobs.createdAt))
+    .limit(1)
+  return row?.status ?? null
+}
+
 export async function persistHydrateRetry(
   workspaceId: string,
 ): Promise<WorkspaceRecord | undefined> {

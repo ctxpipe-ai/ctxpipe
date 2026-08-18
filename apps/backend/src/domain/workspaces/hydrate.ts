@@ -151,6 +151,12 @@ export function shouldHydrateBeforeMigrationExport(
   return !migrationExportSha
 }
 
+export const HYDRATE_EXPORT_MISSING_MESSAGE =
+  "The first knowledge export has not landed in git yet."
+
+export const HYDRATE_EXPORT_WAITING_MESSAGE =
+  "Waiting for the first knowledge export to land in git."
+
 export type WorkspaceHydrateView =
   | "waiting_for_tip"
   | "hydrating"

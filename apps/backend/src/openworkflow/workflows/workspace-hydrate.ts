@@ -14,6 +14,8 @@ import {
   hydrateReadPlan,
   hydrateReadsStoredDesiredSha,
   hydrateUnitsToProjectionClaims,
+  HYDRATE_EXPORT_MISSING_MESSAGE,
+  HYDRATE_EXPORT_WAITING_MESSAGE,
   shouldHydrateBeforeMigrationExport,
 } from "../../domain/workspaces/hydrate.js"
 import {
@@ -37,11 +39,13 @@ import { loadMigrationExportSource } from "../../models/workspace-export.js"
 import {
   commitHydrateProjection,
   countWriteJobAttempts,
+  getLatestMigrationExportJobStatus,
   getMigrationExportSha,
   getWorkspaceById,
   listLinkedRepositories,
   listWorkspaceKnowledgeUnits,
   persistHydrateFailure,
+  persistHydrateMessage,
   persistHydratePhases,
   persistResolvedDesiredSha,
   persistUnitEmbeddings,
@@ -124,6 +128,22 @@ export const workspaceHydrate = defineWorkflow(
                   await getMigrationExportSha(workspace.id),
                 )
               ) {
+                const exportJobStatus =
+                  await getLatestMigrationExportJobStatus(workspace.id)
+                if (
+                  exportJobStatus === "queued" ||
+                  exportJobStatus === "running"
+                ) {
+                  await persistHydrateMessage({
+                    workspaceId: workspace.id,
+                    message: HYDRATE_EXPORT_WAITING_MESSAGE,
+                  })
+                } else {
+                  await persistHydrateFailure({
+                    workspaceId: workspace.id,
+                    message: HYDRATE_EXPORT_MISSING_MESSAGE,
+                  })
+                }
                 return {
                   hydrated: false,
                   reason: "migration_export_missing" as const,
