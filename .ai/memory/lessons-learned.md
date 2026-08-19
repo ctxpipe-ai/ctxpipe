@@ -196,6 +196,12 @@ Highest-priority confirmed rules for agents. Migrated from former `patterns.md` 
 - **Date:** 2026-08-11
 - **Source:** migrated from patterns.md
 
+### New source connectors are git-native
+- **Rule:** this is how to **build new** connectors — do not retrofit Linear, Notion, Slack, or Confluence. Identity, encrypted secrets, and repo binding live on `connections.config` jsonb ([ADR-018](decisions/ADR-018-unified-connections-table.md)). No connector-specific tables (Confluence’s extra tables stay frozen). Connector **config** lives in `<slug>/config.yaml` and is created via PR; **content** may commit to the target branch. Prefer Markdown; copy images and other attachments as files. The store is git; GitHub is today’s rich PR/commit adapter. Same code for hosted and self-host; self-host traffic never transits ctxpipe SaaS (no proxy, relay, gateway, or hosted OAuth app). Process: [source-connectors skill](../../.agents/skills/source-connectors/SKILL.md).
+- **Category:** convention
+- **Date:** 2026-08-19
+- **Source:** user direction after Linear, Notion, and Slack (PR #267)
+
 ### Tool organization
 - **Rule:** reusable agent tools under `src/tools`; graph-specific instructions and nodes under `src/graphs/<graphName>/`
 - **Category:** convention

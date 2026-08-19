@@ -106,7 +106,7 @@ describe("memory harness e2e (Layer A)", () => {
         existsSync(join(cwd, ".cursor", "skills", "memory-search", "SKILL.md")),
       ).toBe(true)
 
-      // 2a) Cursor afterFileEdit through observe CLI — must write on its own
+      // 2a) Cursor afterFileEdit must not mint candidates from edit bodies
       const cursorEdit = {
         ...(JSON.parse(
           readFileSync(join(FIXTURES, "cursor-afterFileEdit.json"), "utf8"),
@@ -118,6 +118,32 @@ describe("memory harness e2e (Layer A)", () => {
         ["memory", "capture", "observe", "--host", "cursor", "--event", "afterFileEdit"],
         home,
         JSON.stringify(cursorEdit),
+      )
+      expect(readCandidates(cwd)).toEqual([])
+
+      // 2a') User prompt through observe CLI — must write on its own
+      const cursorPrompt = {
+        ...(JSON.parse(
+          readFileSync(
+            join(FIXTURES, "cursor-beforeSubmitPrompt.json"),
+            "utf8",
+          ),
+        ) as Record<string, unknown>),
+        cwd,
+      }
+      run(
+        cwd,
+        [
+          "memory",
+          "capture",
+          "observe",
+          "--host",
+          "cursor",
+          "--event",
+          "beforeSubmitPrompt",
+        ],
+        home,
+        JSON.stringify(cursorPrompt),
       )
       const afterObserve = readCandidates(cwd)
       expect(afterObserve.length).toBeGreaterThanOrEqual(1)
