@@ -33,8 +33,12 @@ const CLASSIFIERS: Array<{
     destination: ".ai/memory/lessons-learned.md",
     action: "Append a lesson with Rule / Category / Date / Source",
     patterns: [
-      /\b(always|never|from now on|make sure you|don't|do not|stop doing)\b/i,
-      /\b(prefer|avoid)\b.+\b(always|never)\b/i,
+      /\bfrom now on\b/i,
+      /\bmake sure you\b/i,
+      /\bstop doing\b/i,
+      /\bnever\b.{0,80}\b(commit|use|do)\b/i,
+      /\balways\b.{0,80}\b(use|prefer|pass|colocate)\b/i,
+      /\bprefer\b.{0,80}\binstead of\b/i,
     ],
   },
   {
@@ -69,8 +73,6 @@ const FACT_PATTERNS: RegExp[] = [
   /\b(runs on|listens on|binds to)\s+(port\s+)?\d{2,5}\b/i,
   /\b(base url|endpoint|database|postgres|redis|falkordb)\b.+\b(is|are|uses|at)\b/i,
   /\b(the canonical|source of truth|must live in|belongs in)\b/i,
-  /\b(prefer|use|avoid)\b.+\b(for|when|instead)\b/i,
-  /\b(ADR-\d+|lessons-learned|decisions\/)\b/i,
 ]
 
 const SECRET_PATTERNS: Array<[RegExp, string]> = [
@@ -102,7 +104,15 @@ const DENY_PATH_FRAGMENTS = [
 ]
 
 const SELF_CAPTURE_RE =
-  /memory capture|memory-capture|capture\.ts|capture-adr|capture-lesson|capture-glossary|capture-decision/i
+  /memory capture|memory-capture|capture\.ts|capture-adr|capture-lesson|capture-glossary|capture-decision|Memory candidates \(|Promote via skills\/rules|mark ids promoted\/dismissed|do not auto-write ADRs from hooks/i
+
+const FOLLOWUP_PROMPT_RE =
+  /Memory candidates \(|Promote via skills\/rules|mark ids promoted\/dismissed|do not auto-write ADRs from hooks/i
+
+const TOOL_DUMP_RE =
+  /error TS\d+|Cannot find module|vitest run|FAIL\s+|^\s*✓\s+/m
+
+const MEMORY_PATH_RE = /(?:^|[\\/])\.ai[\\/]memory(?:[\\/]|$)/i
 
 const MAX_TEXT = 2000
 const MAX_EXCERPT = 700
@@ -382,6 +392,54 @@ function isSelfCapture(payload: Record<string, unknown>, text: string): boolean 
   )
 }
 
+export function isUserPromptEvent(eventType: string): boolean {
+  return /^(beforeSubmitPrompt|UserPromptSubmit)$/i.test(eventType.trim())
+}
+
+function isMemoryDurablePath(path: string): boolean {
+  return MEMORY_PATH_RE.test(path.replace(/\\/g, "/"))
+}
+
+function isToolDumpNoise(
+  toolName: string,
+  toolInput: string,
+  toolOutput: string,
+): boolean {
+  const blob = `${toolName}\n${toolInput}\n${toolOutput}`
+  if (TOOL_DUMP_RE.test(blob)) return true
+  if (
+    /\b(rg|grep|ripgrep)\b/i.test(`${toolName} ${toolInput}`) &&
+    MEMORY_PATH_RE.test(blob)
+  ) {
+    return true
+  }
+  if (
+    /["']pattern["']\s*:/.test(toolInput) &&
+    /lessons-learned|\.ai\/memory|SELF_CAPTURE|isSelfCapture/.test(toolInput)
+  ) {
+    return true
+  }
+  return false
+}
+
+function excerptDedupKey(kind: string, excerpt: string): string {
+  return createHash("sha256")
+    .update(`${kind}\n${excerpt.trim()}`)
+    .digest("hex")
+    .slice(0, 16)
+}
+
+function existingExcerptKeys(repoRoot: string): Set<string> {
+  const keys = new Set<string>()
+  const { candidates } = readCandidates(repoRoot)
+  for (const c of candidates) {
+    const kind = String(c.kind ?? "")
+    const excerpt = String(c.excerpt ?? "")
+    if (kind && excerpt) keys.add(excerptDedupKey(kind, excerpt))
+  }
+  return keys
+}
+
 export type ObserveResult = {
   ok: true
   wrote: boolean
@@ -402,25 +460,40 @@ export function observeCapture(opts: {
   payload: Record<string, unknown>
   cwd?: string
 }): ObserveResult {
-  const promptRaw = extractPrompt(opts.payload)
+  const promptRaw = isUserPromptEvent(opts.eventType)
+    ? extractPrompt(opts.payload)
+    : ""
   const { toolName, toolInput, toolOutput } = extractToolBits(opts.payload)
   const assistantRaw = extractAssistant(opts.payload)
   const { files: editFiles, editText } = extractEdits(opts.payload)
   const payloadCwd = extractWorkspaceCwd(opts.payload, editFiles[0])
   const repoRoot = resolveRepoRoot(opts.cwd ?? payloadCwd ?? process.cwd())
-  const combined = [
-    promptRaw,
-    toolName,
-    toolInput,
-    toolOutput,
-    assistantRaw,
-    editText,
-    editFiles.join("\n"),
-  ]
-    .filter(Boolean)
-    .join("\n")
+  const files = filterFiles([
+    ...editFiles,
+    ...(Array.isArray(opts.payload.files) ? opts.payload.files : []),
+    ...(Array.isArray(opts.payload.file_paths) ? opts.payload.file_paths : []),
+  ])
 
-  if (!combined.trim() || isSelfCapture(opts.payload, combined)) {
+  if (
+    FOLLOWUP_PROMPT_RE.test(promptRaw) ||
+    FOLLOWUP_PROMPT_RE.test(assistantRaw)
+  ) {
+    return { ok: true, wrote: false, candidateCount: 0 }
+  }
+
+  if (
+    files.some(isMemoryDurablePath) ||
+    editFiles.some(isMemoryDurablePath)
+  ) {
+    return { ok: true, wrote: false, candidateCount: 0 }
+  }
+
+  if (isToolDumpNoise(toolName, toolInput, toolOutput)) {
+    return { ok: true, wrote: false, candidateCount: 0 }
+  }
+
+  const selfText = [promptRaw, assistantRaw, toolName, toolInput].join("\n")
+  if (!selfText.trim() || isSelfCapture(opts.payload, selfText)) {
     return { ok: true, wrote: false, candidateCount: 0 }
   }
 
@@ -429,15 +502,30 @@ export function observeCapture(opts: {
   const redactedOutput = redactText(toolOutput)
   const redactedAssistant = redactText(assistantRaw)
   const redactedEdits = redactText(editText)
-  const classifySource = [
-    redactedPrompt.text,
-    redactedInput.text,
-    redactedOutput.text,
-    redactedAssistant.text,
-    redactedEdits.text,
-  ].join("\n")
+  // Tool dumps and file edits may be logged, but only prompt/assistant mint candidates.
+  const classifySource = [redactedPrompt.text, redactedAssistant.text]
+    .filter((t) => t.trim())
+    .join("\n")
+  if (!classifySource.trim()) {
+    return { ok: true, wrote: false, candidateCount: 0 }
+  }
   const classifications = classifyText(classifySource)
   if (classifications.length === 0) {
+    return { ok: true, wrote: false, candidateCount: 0 }
+  }
+
+  const excerpt = pickMatchingExcerpt([
+    redactedAssistant.text,
+    redactedPrompt.text,
+  ]).slice(0, MAX_EXCERPT)
+  const seen = existingExcerptKeys(repoRoot)
+  const unique = classifications.filter((c) => {
+    const key = excerptDedupKey(c.kind, excerpt)
+    if (seen.has(key)) return false
+    seen.add(key)
+    return true
+  })
+  if (unique.length === 0) {
     return { ok: true, wrote: false, candidateCount: 0 }
   }
 
@@ -448,11 +536,6 @@ export function observeCapture(opts: {
     "unknown"
   const eventId = randomUUID()
   const timestamp = new Date().toISOString()
-  const files = filterFiles([
-    ...editFiles,
-    ...(Array.isArray(opts.payload.files) ? opts.payload.files : []),
-    ...(Array.isArray(opts.payload.file_paths) ? opts.payload.file_paths : []),
-  ])
 
   const event = {
     schemaVersion: 1,
@@ -476,7 +559,7 @@ export function observeCapture(opts: {
       redactedEdits.redacted
         ? "redacted"
         : "clean",
-    classifications,
+    classifications: unique,
   }
 
   const dayFile = join(eventsDir, "events", `${dayStamp()}.jsonl`)
@@ -484,15 +567,7 @@ export function observeCapture(opts: {
 
   const candidatesPath = join(eventsDir, "candidates.jsonl")
   let candidateCount = 0
-  // Prefer the excerpt that actually triggered classification (not an unrelated prompt).
-  const excerpt = pickMatchingExcerpt([
-    redactedAssistant.text,
-    redactedEdits.text,
-    redactedOutput.text,
-    redactedInput.text,
-    redactedPrompt.text,
-  ])
-  for (const c of classifications) {
+  for (const c of unique) {
     const candidate = {
       schemaVersion: 1,
       candidateId: createHash("sha256")
@@ -504,10 +579,11 @@ export function observeCapture(opts: {
       kind: c.kind,
       destination: c.destination,
       action: c.action,
-      excerpt: excerpt.slice(0, MAX_EXCERPT),
+      excerpt,
       files,
       createdAt: timestamp,
       sourceHost: opts.host,
+      sourceEventType: opts.eventType,
     }
     appendFileSync(candidatesPath, `${JSON.stringify(candidate)}\n`, "utf8")
     candidateCount += 1
@@ -705,8 +781,15 @@ export function markDismissed(ids: string[], opts: { cwd?: string } = {}): void 
 /**
  * Build a summary of pending candidates (batch of SUMMARY_BATCH).
  * Does **not** advance lifecycle — caller must acknowledgeSurfaced after delivery.
+ *
+ * Cursor Stop injects `followup_message` as a new user turn, so only never-shown
+ * user-prompt candidates get a follow-up. Tool/edit-sourced items wait for the
+ * next real user prompt. Claude/Codex may re-show unresolved surfaced ids.
  */
-export function summarizeCapture(opts: { cwd?: string } = {}): SummaryResult {
+export function summarizeCapture(
+  opts: { cwd?: string; host?: CaptureHost } = {},
+): SummaryResult {
+  const host = opts.host ?? "cursor"
   const repoRoot = resolveRepoRoot(opts.cwd)
   const { candidates: all, parseErrors } = readCandidates(repoRoot)
   const lifecycle = readLifecycle(repoRoot)
@@ -717,11 +800,12 @@ export function summarizeCapture(opts: { cwd?: string } = {}): SummaryResult {
     return id && !closed.has(id)
   })
 
+  const parseNote =
+    parseErrors > 0
+      ? ` Warning: ${parseErrors} malformed candidate line(s) in candidates.jsonl were skipped.`
+      : ""
+
   if (pending.length === 0) {
-    const parseNote =
-      parseErrors > 0
-        ? ` Warning: ${parseErrors} malformed candidate line(s) in candidates.jsonl were skipped.`
-        : ""
     return {
       priority: "low",
       message:
@@ -732,14 +816,35 @@ export function summarizeCapture(opts: { cwd?: string } = {}): SummaryResult {
     }
   }
 
-  // Prefer never-shown ids, then re-show unresolved surfaced ones until promote/dismiss.
   const neverShown = pending.filter(
     (c) => !surfaced.has(String(c.candidateId ?? "")),
   )
   const previouslyShown = pending.filter((c) =>
     surfaced.has(String(c.candidateId ?? "")),
   )
-  const batch = [...neverShown, ...previouslyShown].slice(0, SUMMARY_BATCH)
+
+  const cursorFollowUp =
+    host === "cursor"
+      ? neverShown.filter((c) =>
+          isUserPromptEvent(String(c.sourceEventType ?? "")),
+        )
+      : []
+
+  if (host === "cursor" && cursorFollowUp.length === 0) {
+    return {
+      priority: "low",
+      message: `${pending.length} memory candidate(s) pending (already shown or not from a user prompt). Not injecting a turn.${parseNote}`,
+      candidates: [],
+      surfacedIds: [],
+      parseErrors,
+    }
+  }
+
+  const pool =
+    host === "cursor"
+      ? cursorFollowUp
+      : [...neverShown, ...previouslyShown]
+  const batch = pool.slice(0, SUMMARY_BATCH)
   const listed: SummaryCandidate[] = batch.map((c) => ({
     candidateId: String(c.candidateId ?? ""),
     kind: String(c.kind ?? ""),
@@ -748,9 +853,9 @@ export function summarizeCapture(opts: { cwd?: string } = {}): SummaryResult {
     excerpt: String(c.excerpt ?? "").slice(0, 220),
   }))
 
-  const remaining = pending.length - batch.length
+  const remaining = pool.length - batch.length
   const lines = [
-    `Memory candidates (${pending.length} pending${remaining > 0 ? `, showing ${batch.length}` : ""}). Promote via skills/rules — do not auto-write ADRs from hooks.`,
+    `Memory candidates (${pool.length} pending${remaining > 0 ? `, showing ${batch.length}` : ""}). Promote via skills/rules — do not auto-write ADRs from hooks.`,
     ...listed.map(
       (c, i) =>
         `${i + 1}. [${c.kind}] ${c.candidateId} → ${c.destination}: ${c.excerpt.replace(/\n/g, " ")}`,
@@ -769,7 +874,7 @@ export function summarizeCapture(opts: { cwd?: string } = {}): SummaryResult {
     .filter((id) => id.length > 0)
 
   return {
-    priority: pending.length >= 3 ? "high" : "medium",
+    priority: pool.length >= 3 ? "high" : "medium",
     message: lines.join("\n"),
     candidates: listed,
     surfacedIds,

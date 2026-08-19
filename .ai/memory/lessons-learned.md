@@ -563,8 +563,14 @@ Highest-priority confirmed rules for agents. Migrated from former `patterns.md` 
 - **Source:** workspace responsive layout feedback
 
 ### React Aria first for interactive chrome
-- **Rule:** New or restyled interactive controls in `apps/ui` start from React Aria Components (`src/components/ui/*` when the primitive exists, otherwise `react-aria-components`). Tab strips use RAC `Tabs` / `TabList` / `Tab` / `TabPanel` (keyboard + ARIA), not a row of raw `<button>`s. Documented in [apps/ui/AGENTS.md](../../apps/ui/AGENTS.md) and product-ui Build.
+- **Rule:** New or restyled interactive controls in `apps/ui` start from React Aria Components (`src/components/ui/*` when the primitive exists, otherwise `react-aria-components`). Tab strips use RAC `Tabs` / `TabList` / `Tab` / `TabPanel` (keyboard + ARIA), not a row of raw `<button>`s. Documented in [apps/ui/AGENTS.md](../../apps/ui/AGENTS.md) and product-ui Build. **Exception:** the Workspace Files explorer tree and file/diff surfaces are Pierre (`@pierre/trees`, `@pierre/diffs`) — same class of exception as Cosmograph. Context menus on that pane stay RAC.
 - **Category:** convention
 - **Date:** 2026-08-18
 - **Source:** workspace pane tabs accessibility
+
+### Workspace Files pane — Pierre trees and diffs, not a homemade explorer
+- **Rule:** Do not keep growing a custom RAC file tree / `<pre>` preview for the Files pane. Use `@pierre/trees` (explorer) and `@pierre/diffs` (`File` / `FileDiff`). Pierre is chrome only — persist via workspace **write jobs**. The pane is a **workspace-repository** explorer (full git tree), not hydrate `.md` units only. Theme via host `--trees-theme-*`; use `unsafeCSS` only when variables cannot express a rule. See [ADR-025](decisions/ADR-025-pierre-files-pane-chrome.md).
+- **Category:** convention
+- **Date:** 2026-08-19
+- **Source:** user product choice (Pierre as Files chrome)
 
