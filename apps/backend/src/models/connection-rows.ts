@@ -409,6 +409,7 @@ export type SlackConnectionShape = {
   teamId: string | null
   teamName: string | null
   botUserId: string | null
+  botHandle: string | null
   appId: string | null
   ownerUserId: string | null
   status: string
@@ -429,6 +430,7 @@ export function slackConnectionToShape(row: ConnectionRow): SlackConnectionShape
     teamId: c.teamId ?? null,
     teamName: c.teamName ?? null,
     botUserId: c.botUserId ?? null,
+    botHandle: c.botHandle ?? null,
     appId: c.appId ?? null,
     ownerUserId: c.ownerUserId ?? null,
     status: c.status,
@@ -449,6 +451,7 @@ export function slackShapeToConfig(
     teamId: input.teamId,
     teamName: input.teamName,
     botUserId: input.botUserId,
+    botHandle: input.botHandle,
     appId: input.appId,
     ownerUserId: input.ownerUserId,
     status: input.status,

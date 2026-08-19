@@ -11,6 +11,7 @@ const installedStatus = {
   isInstalled: true,
   installationStatus: "installed",
   teamName: "Acme Workspace",
+  botHandle: "ctxpipe",
   isGithubLinked: true,
   setupPhase: "live",
   syncTarget: {

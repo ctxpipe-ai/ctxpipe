@@ -30,6 +30,7 @@ vi.mock("../../models/slack-connector.js", () => ({
     "Multiple Slack connections for this organization; specify connectionId query parameter",
   resolveSlackConnectionForOrgDetailed: resolveConnectionMock,
   SlackRepositoryNotFoundError: SlackRepositoryNotFoundErrorMock,
+  SlackTeamAlreadyConnectedError: class SlackTeamAlreadyConnectedError extends Error {},
   upsertSlackConnectionFromOAuth: vi.fn(),
 }))
 vi.mock("../../observability/logger.js", () => ({
@@ -38,6 +39,7 @@ vi.mock("../../observability/logger.js", () => ({
 vi.mock("../../services/slack/client.js", () => ({
   assertSlackOAuthConfigured: assertOAuthConfiguredMock,
   exchangeSlackOAuthCode: vi.fn(),
+  fetchSlackUserProfile: vi.fn(),
   getSlackOAuthAuthorizeUrl: vi.fn(
     () => "https://slack.com/oauth/v2/authorize",
   ),
@@ -51,6 +53,7 @@ const connection = {
   status: "installed",
   botTokenEnc: "encrypted-token",
   teamName: "Acme Workspace",
+  botHandle: "ctxpipe",
 }
 
 function testApp() {
@@ -105,6 +108,7 @@ describe("Slack connector routes", () => {
       isInstalled: true,
       isGithubLinked: true,
       setupPhase: "live",
+      botHandle: "ctxpipe",
       syncTarget: {
         repositoryId: "repo_1",
         repositoryName: "acme/context",

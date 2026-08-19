@@ -11,12 +11,14 @@ import {
   MULTIPLE_SLACK_CONNECTIONS_MESSAGE,
   resolveSlackConnectionForOrgDetailed,
   SlackRepositoryNotFoundError,
+  SlackTeamAlreadyConnectedError,
   upsertSlackConnectionFromOAuth,
 } from "../../models/slack-connector.js"
 import { getLogger } from "../../observability/logger.js"
 import {
   assertSlackOAuthConfigured,
   exchangeSlackOAuthCode,
+  fetchSlackUserProfile,
   getSlackOAuthAuthorizeUrl,
 } from "../../services/slack/client.js"
 
@@ -45,6 +47,7 @@ const SlackStatusResponseSchema = z
     isInstalled: z.boolean(),
     installationStatus: z.string().nullable(),
     teamName: z.string().nullable(),
+    botHandle: z.string().nullable(),
     isGithubLinked: z.boolean(),
     setupPhase: z.enum(SLACK_SETUP_PHASES),
     syncTarget: z
@@ -100,6 +103,9 @@ const getOAuthCallbackRoute = createRoute({
     401: {
       content: { "application/json": { schema: ErrorResponseSchema } },
       description: "Unauthorized",
+    },
+    409: {
+      description: "Slack workspace already connected to another organization",
     },
   },
 })
@@ -270,11 +276,14 @@ function slackSetupRelayPath(input: {
   return `/.slack/setup?${params.toString()}`
 }
 
-function slackSetupRelayResponse(input: {
-  orgSlug: string
-  connectionId?: string
-  error?: string
-}) {
+function slackSetupRelayResponse(
+  input: {
+    orgSlug: string
+    connectionId?: string
+    error?: string
+  },
+  status = 200,
+) {
   const result = {
     connectionId: input.connectionId,
     error: input.error,
@@ -306,6 +315,7 @@ function slackSetupRelayResponse(input: {
   </body>
 </html>`,
     {
+      status,
       headers: {
         "cache-control": "no-store",
         "content-type": "text/html; charset=utf-8",
@@ -425,22 +435,44 @@ export const slackOAuthCallbackRoutes = new OpenAPIHono<AppEnv>().openapi(
         400,
       )
     }
-    const connection = await withOrgDbContext(state.orgId, () =>
-      upsertSlackConnectionFromOAuth({
-        orgId: state.orgId,
-        env,
-        ownerUserId: user.id,
-        botToken,
-        teamId,
-        teamName: token.team?.name ?? null,
-        botUserId: token.bot_user_id ?? null,
-        appId: token.app_id ?? null,
-      }),
-    )
-    return slackSetupRelayResponse({
-      orgSlug: state.orgSlug,
-      connectionId: connection.id,
-    })
+    const botHandle = token.bot_user_id
+      ? ((
+          await fetchSlackUserProfile({
+            botToken,
+            userId: token.bot_user_id,
+          })
+        )?.handle ?? null)
+      : null
+    try {
+      const connection = await withOrgDbContext(state.orgId, () =>
+        upsertSlackConnectionFromOAuth({
+          orgId: state.orgId,
+          env,
+          ownerUserId: user.id,
+          botToken,
+          teamId,
+          teamName: token.team?.name ?? null,
+          botUserId: token.bot_user_id ?? null,
+          botHandle,
+          appId: token.app_id ?? null,
+        }),
+      )
+      return slackSetupRelayResponse({
+        orgSlug: state.orgSlug,
+        connectionId: connection.id,
+      })
+    } catch (error) {
+      if (error instanceof SlackTeamAlreadyConnectedError) {
+        return slackSetupRelayResponse(
+          {
+            orgSlug: state.orgSlug,
+            error: error.message,
+          },
+          409,
+        )
+      }
+      throw error
+    }
   },
 )
 
@@ -472,14 +504,19 @@ slackConnectorRoutes
         ? getSlackSyncTargetWithRepoByConnectionId(orgId, connection.id)
         : Promise.resolve(undefined),
     ])
+    const installed =
+      connection?.status === "installed" && Boolean(connection.botTokenEnc)
     return c.json(
       {
-        isInstalled:
-          connection?.status === "installed" && Boolean(connection.botTokenEnc),
+        isInstalled: installed,
         installationStatus: connection?.status ?? null,
         teamName: connection?.teamName ?? null,
+        botHandle: connection?.botHandle ?? null,
         isGithubLinked,
-        setupPhase: syncTarget?.setupPhase ?? "draft",
+        setupPhase:
+          installed && syncTarget?.enabled
+            ? (syncTarget.setupPhase ?? "draft")
+            : "draft",
         syncTarget: syncTarget
           ? {
               repositoryId: syncTarget.repositoryId,

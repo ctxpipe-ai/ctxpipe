@@ -20,6 +20,7 @@ const slackStatusState = vi.hoisted(() => ({
     isInstalled: true,
     installationStatus: "installed",
     teamName: "Acme Workspace",
+    botHandle: "ctxpipe",
     isGithubLinked: true,
     setupPhase: "draft" as "draft" | "live",
     syncTarget: null as {
@@ -192,9 +193,11 @@ vi.mock("../queries/github-connector", () => ({
 }))
 
 vi.mock("../queries/org-connections", () => ({
-  fetchOrgConnections: vi.fn().mockResolvedValue([
-    { id: "ghc_1", type: "github", createdAt: "", updatedAt: "" },
-  ]),
+  fetchOrgConnections: vi
+    .fn()
+    .mockResolvedValue([
+      { id: "ghc_1", type: "github", createdAt: "", updatedAt: "" },
+    ]),
   orgConnectionsKeys: {
     list: (orgSlug: string) => ["org-connections", orgSlug],
   },
@@ -215,6 +218,7 @@ vi.mock("../queries/slack-connector", () => ({
     isInstalled: true,
     installationStatus: "installed",
     teamName: "Acme Workspace",
+    botHandle: "ctxpipe",
     isGithubLinked: true,
     setupPhase: "draft",
     syncTarget: null,
@@ -295,6 +299,7 @@ describe("SlackSetupDialog", () => {
 
   it("shows capture instructions once the connector is live", async () => {
     Object.assign(slackStatusState.current, {
+      botHandle: "ctxpipe",
       setupPhase: "live",
       syncTarget: {
         repositoryId: "repo_1",
@@ -321,7 +326,8 @@ describe("SlackSetupDialog", () => {
 
     expect(container.textContent).toContain("Slack is connected")
     expect(container.textContent).toContain("/invite @ctxpipe")
-    expect(container.textContent).toContain("Any text after the mention is ignored")
+    expect(container.textContent).toContain("capture this")
+    expect(container.textContent).toContain("auditable")
     expect(container.textContent).toContain("acme/context")
   })
 

@@ -7,10 +7,10 @@ describe("Slack workflow discovery", () => {
   it("keeps Slack workflows in the OpenWorkflow CLI discovery directory", async () => {
     const files = await readdir(dirname(fileURLToPath(import.meta.url)))
 
-    expect(files).toEqual(expect.arrayContaining(["slack-capture-thread.ts"]))
+    expect(files).toEqual(expect.arrayContaining(["slack-mention-agent.ts"]))
 
-    const { slackCaptureThread } = await import("./slack-capture-thread.js")
+    const { slackMentionAgent } = await import("./slack-mention-agent.js")
 
-    expect(slackCaptureThread.spec.name).toBe("slack-capture-thread")
+    expect(slackMentionAgent.spec.name).toBe("slack-mention-agent")
   })
 })

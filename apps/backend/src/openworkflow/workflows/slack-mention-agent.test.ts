@@ -2,12 +2,12 @@ import { beforeEach, describe, expect, it, vi } from "vitest"
 
 const getTargetMock = vi.hoisted(() => vi.fn())
 const getConnectionMock = vi.hoisted(() => vi.fn())
-const captureSlackThreadMock = vi.hoisted(() => vi.fn())
+const runAgentMock = vi.hoisted(() => vi.fn())
 const postStatusMock = vi.hoisted(() => vi.fn())
 const updateStatusMock = vi.hoisted(() => vi.fn())
 
 vi.mock("../../config/env.js", () => ({
-  parseEnv: () => ({}),
+  parseEnv: () => ({ MODEL_PROVIDER_API_KEY: "sk" }),
 }))
 vi.mock("../../db/client.js", () => ({
   withOrgDbContext: (_orgId: string, fn: () => unknown) => fn(),
@@ -16,21 +16,30 @@ vi.mock("../../models/slack-connector.js", () => ({
   getSlackConnectionByConnectionId: getConnectionMock,
   getSlackSyncTargetByConnectionId: getTargetMock,
 }))
-vi.mock("../../services/slack/sync.js", () => ({
-  captureSlackThread: captureSlackThreadMock,
-}))
+vi.mock("../../services/slack/mention-agent.js", async (importOriginal) => {
+  const actual =
+    await importOriginal<
+      typeof import("../../services/slack/mention-agent.js")
+    >()
+  return {
+    ...actual,
+    runSlackMentionAgent: runAgentMock,
+  }
+})
 vi.mock("../../services/slack/client.js", () => ({
   postSlackThreadMessage: postStatusMock,
   updateSlackMessage: updateStatusMock,
-  SLACK_CAPTURE_STATUS_CAPTURING: "ctx| agent capturing engineering context…",
+  SLACK_MENTION_STATUS_WORKING: "ctx| agent working…",
   SLACK_CAPTURE_STATUS_CAPTURED: "Engineering context captured.",
   SLACK_CAPTURE_STATUS_FAILED: "Engineering context capture failed.",
+  SLACK_MENTION_CAPABILITY_REPLY:
+    "I can capture this thread into your context repo. Ask me to capture it, or mention me with no extra text.",
 }))
 vi.mock("../../observability/logger.js", () => ({
   getLogger: () => ({ warn: vi.fn(), info: vi.fn(), error: vi.fn() }),
 }))
 
-import { slackCaptureThread } from "./slack-capture-thread.js"
+import { slackMentionAgent } from "./slack-mention-agent.js"
 
 const target = {
   connectionId: "con_1",
@@ -43,48 +52,47 @@ const target = {
 
 const connection = { id: "con_1", orgId: "org_1", teamId: "T1" }
 
-describe("slackCaptureThread workflow", () => {
+describe("slackMentionAgent workflow", () => {
   beforeEach(() => {
     vi.clearAllMocks()
     getTargetMock.mockResolvedValue(target)
     getConnectionMock.mockResolvedValue(connection)
     postStatusMock.mockResolvedValue({ ts: "1710000000.000999" })
     updateStatusMock.mockResolvedValue(true)
-    captureSlackThreadMock.mockResolvedValue({
-      status: "completed",
-      messageCount: 3,
-      commitSha: "abc123",
-      threadPath: "slack/channels/eng--C1/threads/2026/03/1710000000.000100/index.md",
-      githubUrl:
-        "https://github.com/acme/context/blob/abc123/slack/channels/eng--C1/threads/2026/03/1710000000.000100/index.md",
-      channelName: "eng",
+    runAgentMock.mockResolvedValue({
+      kind: "captured",
+      capture: {
+        status: "completed",
+        messageCount: 3,
+        githubUrl:
+          "https://github.com/acme/context/blob/abc123/slack/channels/eng--C1/threads/2026/03/1710000000.000100/index.md",
+      },
     })
   })
 
-  it("posts capturing status, captures, then updates to captured", async () => {
-    const result = await slackCaptureThread.fn({
+  it("posts working status, runs the agent, then updates to captured", async () => {
+    const result = await slackMentionAgent.fn({
       input: {
         orgId: "org_1",
         connectionId: "con_1",
         channelId: "C1",
         threadTs: "1710000000.000100",
+        mentionText: "<@U_BOT>",
+        mentionUserId: "U1",
       },
     } as never)
 
     expect(postStatusMock).toHaveBeenCalledWith(
       expect.objectContaining({
-        text: "ctx| agent capturing engineering context…",
+        text: "ctx| agent working…",
         channelId: "C1",
         threadTs: "1710000000.000100",
       }),
     )
-    expect(captureSlackThreadMock).toHaveBeenCalledWith(
+    expect(runAgentMock).toHaveBeenCalledWith(
       expect.objectContaining({
-        orgId: "org_1",
-        connection,
-        target,
-        channelId: "C1",
-        threadTs: "1710000000.000100",
+        mentionText: "<@U_BOT>",
+        mentionUserId: "U1",
         excludeMessageTs: "1710000000.000999",
       }),
     )
@@ -94,13 +102,34 @@ describe("slackCaptureThread workflow", () => {
         text: "Engineering context captured. <https://github.com/acme/context/blob/abc123/slack/channels/eng--C1/threads/2026/03/1710000000.000100/index.md|View in GitHub>",
       }),
     )
-    expect(result).toMatchObject({ status: "completed", messageCount: 3 })
+    expect(result).toMatchObject({ kind: "captured" })
   })
 
-  it("still captures when the status post fails", async () => {
+  it("settles status with a capability reply when the agent does not capture", async () => {
+    runAgentMock.mockResolvedValue({ kind: "capability" })
+
+    const result = await slackMentionAgent.fn({
+      input: {
+        orgId: "org_1",
+        connectionId: "con_1",
+        channelId: "C1",
+        threadTs: "1710000000.000100",
+        mentionText: "<@U_BOT> what is this?",
+      },
+    } as never)
+
+    expect(updateStatusMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        text: expect.stringContaining("Ask me to capture"),
+      }),
+    )
+    expect(result).toEqual({ kind: "capability" })
+  })
+
+  it("still runs the agent when the status post fails", async () => {
     postStatusMock.mockResolvedValue(null)
 
-    await slackCaptureThread.fn({
+    await slackMentionAgent.fn({
       input: {
         orgId: "org_1",
         connectionId: "con_1",
@@ -109,17 +138,17 @@ describe("slackCaptureThread workflow", () => {
       },
     } as never)
 
-    expect(captureSlackThreadMock).toHaveBeenCalledWith(
+    expect(runAgentMock).toHaveBeenCalledWith(
       expect.objectContaining({ excludeMessageTs: undefined }),
     )
     expect(updateStatusMock).not.toHaveBeenCalled()
   })
 
-  it("throws when the sync target is not configured", async () => {
-    getTargetMock.mockResolvedValue(undefined)
+  it("updates status even when the agent throws", async () => {
+    runAgentMock.mockRejectedValue(new Error("boom"))
 
     await expect(
-      slackCaptureThread.fn({
+      slackMentionAgent.fn({
         input: {
           orgId: "org_1",
           connectionId: "con_1",
@@ -127,15 +156,20 @@ describe("slackCaptureThread workflow", () => {
           threadTs: "1710000000.000100",
         },
       } as never),
-    ).rejects.toThrow("Slack sync target is not configured")
-    expect(captureSlackThreadMock).not.toHaveBeenCalled()
+    ).rejects.toThrow("boom")
+
+    expect(updateStatusMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        text: "Engineering context capture failed. boom",
+      }),
+    )
   })
 
   it("throws when the connector is not live", async () => {
     getTargetMock.mockResolvedValue({ ...target, setupPhase: "draft" })
 
     await expect(
-      slackCaptureThread.fn({
+      slackMentionAgent.fn({
         input: {
           orgId: "org_1",
           connectionId: "con_1",
@@ -144,31 +178,6 @@ describe("slackCaptureThread workflow", () => {
         },
       } as never),
     ).rejects.toThrow("Slack connector is not live")
-    expect(captureSlackThreadMock).not.toHaveBeenCalled()
-  })
-
-  it("updates status to failed then surfaces the capture error", async () => {
-    captureSlackThreadMock.mockResolvedValue({
-      status: "failed",
-      messageCount: 0,
-      error: "Slack thread has no messages to capture",
-    })
-
-    await expect(
-      slackCaptureThread.fn({
-        input: {
-          orgId: "org_1",
-          connectionId: "con_1",
-          channelId: "C1",
-          threadTs: "1710000000.000100",
-        },
-      } as never),
-    ).rejects.toThrow("Slack thread has no messages to capture")
-
-    expect(updateStatusMock).toHaveBeenCalledWith(
-      expect.objectContaining({
-        text: "Engineering context capture failed.",
-      }),
-    )
+    expect(runAgentMock).not.toHaveBeenCalled()
   })
 })

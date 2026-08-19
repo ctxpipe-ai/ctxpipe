@@ -1,4 +1,5 @@
-import { index, jsonb, pgTable, text, timestamp } from "drizzle-orm/pg-core"
+import { sql } from "drizzle-orm"
+import { index, jsonb, pgTable, text, timestamp, uniqueIndex } from "drizzle-orm/pg-core"
 import { organizations } from "./auth.js"
 
 /** `connections.type` — provider connection rows. */
@@ -34,5 +35,8 @@ export const connections = pgTable(
   (t) => [
     index("connections_org_id_idx").on(t.orgId),
     index("connections_org_id_type_idx").on(t.orgId, t.type),
+    uniqueIndex("connections_slack_team_id_uq")
+      .using("btree", sql`(${t.config}->>'teamId')`)
+      .where(sql`${t.type} = 'slack'`),
   ],
 )

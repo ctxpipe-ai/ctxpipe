@@ -22,14 +22,23 @@ const resolveChannelInfoMock = vi.hoisted(() =>
     isPrivate: false,
   })),
 )
+const getPermalinkMock = vi.hoisted(() =>
+  vi.fn(async () => "https://acme.slack.com/archives/C1/p1710000000000100"),
+)
+const resolveProfileMock = vi.hoisted(() =>
+  vi.fn(async () => ({ handle: "ada", name: "Ada Lovelace" })),
+)
 
 vi.mock("./client.js", async (importOriginal) => ({
   ...(await importOriginal<typeof import("./client.js")>()),
   listSlackConversationReplies: listRepliesMock,
   resolveSlackChannelInfo: resolveChannelInfoMock,
   resolveSlackUserDisplayName: vi.fn(async ({ userId }) => userId),
+  resolveSlackUserProfile: resolveProfileMock,
+  getSlackPermalink: getPermalinkMock,
 }))
 
+import { SlackDirectMessageNotSupportedError } from "./client.js"
 import { captureSlackThread } from "./sync.js"
 
 const target = {
@@ -62,6 +71,18 @@ const connection = {
 describe("captureSlackThread", () => {
   beforeEach(() => {
     vi.clearAllMocks()
+    resolveChannelInfoMock.mockResolvedValue({
+      channelId: "C1",
+      name: "eng",
+      isPrivate: false,
+    })
+    getPermalinkMock.mockResolvedValue(
+      "https://acme.slack.com/archives/C1/p1710000000000100",
+    )
+    resolveProfileMock.mockResolvedValue({
+      handle: "ada",
+      name: "Ada Lovelace",
+    })
     limitMock.mockResolvedValue([
       { name: "acme/context", githubConnectionId: "ghc_1" },
     ])
@@ -72,11 +93,11 @@ describe("captureSlackThread", () => {
     listRepliesMock.mockResolvedValue({
       truncated: false,
       messages: [
-      {
-        ts: "1710000000.000100",
-        user: "U1",
-        text: "hello world",
-      },
+        {
+          ts: "1710000000.000100",
+          user: "U1",
+          text: "hello world",
+        },
       ],
     })
 
@@ -120,12 +141,12 @@ describe("captureSlackThread", () => {
     listRepliesMock.mockResolvedValue({
       truncated: false,
       messages: [
-      { ts: "1710000000.000100", user: "U1", text: "decision" },
-      {
-        ts: "1710000000.000200",
-        user: "U_BOT",
-        text: "ctx| agent capturing engineering context…",
-      },
+        { ts: "1710000000.000100", user: "U1", text: "decision" },
+        {
+          ts: "1710000000.000200",
+          user: "U_BOT",
+          text: "ctx| agent capturing engineering context…",
+        },
       ],
     })
 
@@ -143,29 +164,127 @@ describe("captureSlackThread", () => {
       path: string
       content: string
     }>
-    const threadMd = files.find((file) => file.path.endsWith("/index.md") &&
-      file.path.includes("/threads/"))
+    const threadMd = files.find(
+      (file) =>
+        file.path.endsWith("/index.md") && file.path.includes("/threads/"),
+    )
     expect(threadMd?.content).toContain("decision")
     expect(threadMd?.content).not.toContain("capturing engineering context")
+  })
+
+  it("writes captured_by handle+name, permalink, and captured_at", async () => {
+    listRepliesMock.mockResolvedValue({
+      truncated: false,
+      messages: [{ ts: "1710000000.000100", user: "U1", text: "decision" }],
+    })
+
+    await captureSlackThread({
+      orgId: "org_1",
+      env: {} as never,
+      connection,
+      target,
+      channelId: "C1",
+      threadTs: "1710000000.000100",
+      capturedByUserId: "U1",
+    })
+
+    const files = commitFilesMock.mock.calls[0]?.[0]?.files as Array<{
+      path: string
+      content: string
+    }>
+    const threadMd = files.find(
+      (file) =>
+        file.path.endsWith("/index.md") && file.path.includes("/threads/"),
+    )
+    expect(threadMd?.path).toContain("/threads/2024/03/1710000000.000100/")
+    expect(threadMd?.content).toContain('handle: "ada"')
+    expect(threadMd?.content).toContain('name: "Ada Lovelace"')
+    expect(threadMd?.content).toContain(
+      'permalink: "https://acme.slack.com/archives/C1/p1710000000000100"',
+    )
+    expect(threadMd?.content).toMatch(/captured_at: "/)
+  })
+
+  it("does not persist url_private attachment links", async () => {
+    listRepliesMock.mockResolvedValue({
+      truncated: false,
+      messages: [
+        {
+          ts: "1710000000.000100",
+          user: "U1",
+          text: "file",
+          files: [
+            {
+              id: "F1",
+              name: "secret.png",
+              url_private: "https://files.slack.com/files-pri/T1-F1/secret.png",
+            },
+          ],
+        },
+      ],
+    })
+
+    await captureSlackThread({
+      orgId: "org_1",
+      env: {} as never,
+      connection,
+      target,
+      channelId: "C1",
+      threadTs: "1710000000.000100",
+    })
+
+    const files = commitFilesMock.mock.calls[0]?.[0]?.files as Array<{
+      path: string
+      content: string
+    }>
+    const threadMd = files.find(
+      (file) =>
+        file.path.endsWith("/index.md") && file.path.includes("/threads/"),
+    )
+    expect(threadMd?.content).toContain("[secret.png](#file-F1)")
+    expect(threadMd?.content).not.toContain("files.slack.com")
+    expect(threadMd?.content).not.toContain("url_private")
+  })
+
+  it("fails capture for DMs instead of treating them as public channels", async () => {
+    resolveChannelInfoMock.mockRejectedValue(
+      new SlackDirectMessageNotSupportedError(),
+    )
+
+    const result = await captureSlackThread({
+      orgId: "org_1",
+      env: {} as never,
+      connection,
+      target,
+      channelId: "D1",
+      threadTs: "1710000000.000100",
+    })
+
+    expect(result).toMatchObject({
+      status: "failed",
+      errorCode: "dm_not_supported",
+    })
+    expect(commitFilesMock).not.toHaveBeenCalled()
   })
 
   it("stubs Slack file permalinks instead of committing binaries", async () => {
     listRepliesMock.mockResolvedValue({
       truncated: false,
       messages: [
-      {
-        ts: "1710000000.000100",
-        user: "U1",
-        text: "see diagram",
-        files: [
-          {
-            id: "F1",
-            name: "diagram.png",
-            permalink: "https://acme.slack.com/files/U1/F1/diagram.png",
-            url_private_download: "https://files.slack.com/files-pri/T1-F1/download/diagram.png",
-          },
-        ],
-      },
+        {
+          ts: "1710000000.000100",
+          user: "U1",
+          text: "see diagram",
+          files: [
+            {
+              id: "F1",
+              name: "diagram.png",
+              permalink: "https://acme.slack.com/files/U1/F1/diagram.png",
+              url_private_download:
+                "https://files.slack.com/files-pri/T1-F1/download/diagram.png",
+            },
+          ],
+        },
       ],
     })
 

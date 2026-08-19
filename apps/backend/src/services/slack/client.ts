@@ -176,6 +176,7 @@ export function botTokenFromConnection(
     teamId: connection.teamId,
     teamName: connection.teamName,
     botUserId: connection.botUserId,
+    botHandle: connection.botHandle,
     appId: connection.appId,
     ownerUserId: connection.ownerUserId,
     status: connection.status,
@@ -212,6 +213,13 @@ export type SlackChannelInfo = {
   isPrivate: boolean
 }
 
+export class SlackDirectMessageNotSupportedError extends Error {
+  constructor() {
+    super("Slack direct messages are not supported")
+    this.name = "SlackDirectMessageNotSupportedError"
+  }
+}
+
 /** Resolve a human-readable channel name for git paths (ADR-025 layout). */
 export async function resolveSlackChannelInfo(input: {
   env: Env
@@ -219,40 +227,37 @@ export async function resolveSlackChannelInfo(input: {
   channelId: string
 }): Promise<SlackChannelInfo> {
   const botToken = botTokenFromConnection(input.connection, input.env)
-  try {
-    const page = await slackApiCall<{
-      ok: boolean
-      error?: string
-      channel?: {
-        id?: string
-        name?: string
-        is_private?: boolean
-      }
-    }>({
-      method: "conversations.info",
-      botToken,
-      query: { channel: input.channelId },
-    })
-    const name = page.channel?.name?.trim()
-    return {
-      channelId: input.channelId,
-      name: name && name.length > 0 ? name : input.channelId,
-      isPrivate: Boolean(page.channel?.is_private),
+  const page = await slackApiCall<{
+    ok: boolean
+    error?: string
+    channel?: {
+      id?: string
+      name?: string
+      is_private?: boolean
+      is_im?: boolean
+      is_mpim?: boolean
     }
-  } catch {
-    return {
-      channelId: input.channelId,
-      name: input.channelId,
-      isPrivate: false,
-    }
+  }>({
+    method: "conversations.info",
+    botToken,
+    query: { channel: input.channelId },
+  })
+  if (page.channel?.is_im || page.channel?.is_mpim) {
+    throw new SlackDirectMessageNotSupportedError()
+  }
+  const name = page.channel?.name?.trim()
+  return {
+    channelId: input.channelId,
+    name: name && name.length > 0 ? name : input.channelId,
+    isPrivate: Boolean(page.channel?.is_private),
   }
 }
 
-export const SLACK_CAPTURE_STATUS_CAPTURING =
-  "ctx| agent capturing engineering context…"
+export const SLACK_MENTION_STATUS_WORKING = "ctx| agent working…"
 export const SLACK_CAPTURE_STATUS_CAPTURED = "Engineering context captured."
-export const SLACK_CAPTURE_STATUS_FAILED =
-  "Engineering context capture failed."
+export const SLACK_CAPTURE_STATUS_FAILED = "Engineering context capture failed."
+export const SLACK_MENTION_CAPABILITY_REPLY =
+  "I can capture this thread into your context repo. Ask me to capture it, or mention me with no extra text."
 
 export async function postSlackThreadMessage(input: {
   env: Env
@@ -360,15 +365,32 @@ export async function listSlackConversationReplies(input: {
   return capSlackThreadMessages(messages, false)
 }
 
-export async function resolveSlackUserDisplayName(input: {
-  env: Env
-  connection: SlackConnectionShape
+export type SlackUserProfile = {
+  /** Slack username without `@` (`users.info` `name`). */
+  handle: string
+  /** Display or real name — never a Slack user id. */
+  name: string
+}
+
+function slackUserProfileFromApi(user: {
+  name?: string
+  real_name?: string
+  profile?: { display_name?: string; real_name?: string }
+}): SlackUserProfile | undefined {
+  const handle = user.name?.trim()
+  if (!handle || /^U[A-Z0-9]+$/i.test(handle)) return undefined
+  const name =
+    user.profile?.display_name?.trim() ||
+    user.profile?.real_name?.trim() ||
+    user.real_name?.trim() ||
+    handle
+  return { handle, name }
+}
+
+export async function fetchSlackUserProfile(input: {
+  botToken: string
   userId: string
-  cache: Map<string, string>
-}): Promise<string> {
-  const cached = input.cache.get(input.userId)
-  if (cached) return cached
-  const botToken = botTokenFromConnection(input.connection, input.env)
+}): Promise<SlackUserProfile | undefined> {
   try {
     const page = await slackApiCall<{
       ok: boolean
@@ -380,20 +402,74 @@ export async function resolveSlackUserDisplayName(input: {
       }
     }>({
       method: "users.info",
-      botToken,
+      botToken: input.botToken,
       query: { user: input.userId },
     })
-    const display =
-      page.user?.profile?.display_name ||
-      page.user?.profile?.real_name ||
-      page.user?.real_name ||
-      page.user?.name ||
-      input.userId
-    input.cache.set(input.userId, display)
-    return display
+    if (!page.user) return undefined
+    return slackUserProfileFromApi(page.user)
   } catch {
-    input.cache.set(input.userId, input.userId)
-    return input.userId
+    return undefined
   }
 }
 
+export async function resolveSlackUserProfile(input: {
+  env: Env
+  connection: SlackConnectionShape
+  userId: string
+  cache: Map<string, SlackUserProfile>
+}): Promise<SlackUserProfile | undefined> {
+  const cached = input.cache.get(input.userId)
+  if (cached) return cached
+  const botToken = botTokenFromConnection(input.connection, input.env)
+  const profile = await fetchSlackUserProfile({
+    botToken,
+    userId: input.userId,
+  })
+  if (profile) input.cache.set(input.userId, profile)
+  return profile
+}
+
+export async function resolveSlackUserDisplayName(input: {
+  env: Env
+  connection: SlackConnectionShape
+  userId: string
+  cache: Map<string, string>
+}): Promise<string> {
+  const cached = input.cache.get(input.userId)
+  if (cached) return cached
+  const profileCache = new Map<string, SlackUserProfile>()
+  const profile = await resolveSlackUserProfile({
+    ...input,
+    cache: profileCache,
+  })
+  const display = profile ? `${profile.name} (@${profile.handle})` : "unknown"
+  input.cache.set(input.userId, display)
+  return display
+}
+
+export async function getSlackPermalink(input: {
+  env: Env
+  connection: SlackConnectionShape
+  channelId: string
+  messageTs: string
+}): Promise<string | undefined> {
+  const botToken = botTokenFromConnection(input.connection, input.env)
+  try {
+    const page = await slackApiCall<{
+      ok: boolean
+      error?: string
+      permalink?: string
+    }>({
+      method: "chat.getPermalink",
+      botToken,
+      query: {
+        channel: input.channelId,
+        message_ts: input.messageTs,
+      },
+    })
+    const permalink = page.permalink?.trim()
+    return permalink && permalink.length > 0 ? permalink : undefined
+  } catch {
+    return undefined
+  }
+}

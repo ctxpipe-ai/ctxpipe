@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest"
 import type { SlackConnectorStatus } from "./queries/slack-connector"
 import {
+  formatSlackBotMention,
   getSlackSetupPhaseLabel,
   getSlackSetupStepIndex,
   getSlackSetupView,
@@ -10,6 +11,7 @@ const status = {
   isInstalled: true,
   installationStatus: "installed",
   teamName: "Acme",
+  botHandle: "ctxpipe",
   isGithubLinked: true,
   setupPhase: "draft",
   syncTarget: null,
@@ -77,9 +79,22 @@ describe("getSlackSetupStepIndex", () => {
 
 describe("getSlackSetupPhaseLabel", () => {
   it("uses human-readable connector status labels", () => {
-    expect(getSlackSetupPhaseLabel({ setupPhase: "draft" })).toBe(
-      "Setup required",
-    )
-    expect(getSlackSetupPhaseLabel({ setupPhase: "live" })).toBe("Connected")
+    expect(
+      getSlackSetupPhaseLabel({ setupPhase: "draft", isInstalled: true }),
+    ).toBe("Setup required")
+    expect(
+      getSlackSetupPhaseLabel({ setupPhase: "live", isInstalled: true }),
+    ).toBe("Connected")
+    expect(
+      getSlackSetupPhaseLabel({ setupPhase: "live", isInstalled: false }),
+    ).toBe("Setup required")
+  })
+})
+
+describe("formatSlackBotMention", () => {
+  it("prefixes the installed handle and falls back when missing", () => {
+    expect(formatSlackBotMention("ctxpipe")).toBe("@ctxpipe")
+    expect(formatSlackBotMention("@already")).toBe("@already")
+    expect(formatSlackBotMention(null)).toBe("the ctx| bot")
   })
 })

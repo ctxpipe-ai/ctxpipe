@@ -20,6 +20,7 @@ export type SlackConnectorStatus = {
   isInstalled: boolean
   installationStatus: string | null
   teamName: string | null
+  botHandle: string | null
   isGithubLinked: boolean
   setupPhase: SlackSetupPhase
   syncTarget: {

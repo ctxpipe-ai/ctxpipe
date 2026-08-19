@@ -9,21 +9,27 @@ description: Capture specific Slack threads into a GitHub context repository by 
   app first. See [Self-host Slack](/docs/self-hosting/slack).
 </Callout>
 
-The **Slack connector** lets you push **specific engineering conversations** into
-repo-backed context for ctx|. It does **not** mirror whole channels, index the
-workspace, or sync banter in the background.
+The **Slack connector** promotes **durable engineering context** — decisions,
+incidents, and design debates — from Slack into a git-backed context repository.
+It does **not** mirror whole channels, index the workspace, or sync banter in
+the background. Captures are **auditable** (git history records who captured,
+when, and which Slack thread), not a reviewed pull-request gate.
 
 Connect Slack to ctx|, bind a context repository, then **@mention** the bot in
-Slack when a thread is worth keeping. Any text after the mention is ignored —
-there is no required phrase. ctx| snapshots that thread as Markdown under
-`slack/channels/` and ingests it through the normal repository pipeline.
+Slack. Mentioning the bot starts a small in-thread agent. Ask it to **capture
+this**, or mention it with no extra text, to snapshot the thread as Markdown
+under `slack/channels/`. Later mentions on the same thread **update the same
+file**. Other intents get a short capability reply; v1 does not answer product
+questions in Slack.
+
+A Slack workspace can be connected to **one** ctx| organization.
 
 ## Two ways to work with Slack
 
 | Approach | Job |
 | --- | --- |
-| **ctx\| Slack connector** (this page) | Durable, reviewed context: capture chosen threads into git for indexing |
-| **[Slack MCP server](https://docs.slack.dev/ai/slack-mcp-server)** | Query-time access: search and read the workspace from your developer agent |
+| **ctx\| Slack connector** (this page) | Durable, auditable context: capture chosen threads into git for indexing |
+| **[Slack MCP server](https://docs.slack.dev/ai/slack-mcp-server)** | Query-time access: search and read the live workspace from your developer agent |
 
 If you want general access to your Slack workspace from tools such as Cursor or
 Claude, add Slack’s MCP server to your developer environment. See Slack’s
@@ -51,61 +57,69 @@ git-native, ingested context that the connector does.
     ### Authorise the workspace
 
     Complete the Slack OAuth popup. ctx| stores an encrypted bot token for that
-    workspace connection.
+    workspace connection. One Slack workspace maps to one ctx| org.
   </Step>
 
   <Step>
     ### Bind a context repository
 
-    Select the repository that should receive captured threads. ctx| uses its
-    default branch. Prefer a separate private repo when captures may include
-    sensitive private-channel content. The ctx| GitHub App must have access to
-    the selected repository and permission to write contents.
+    Select the repository that should receive captured threads. ctx| commits
+    snapshots to its default branch. Prefer a separate private repo when captures
+    may include sensitive private-channel content. The ctx| GitHub App must have
+    access to the selected repository and permission to write contents.
   </Step>
 
   <Step>
     ### Capture threads in Slack
 
     In each channel where you want capture, `/invite` the bot (use its Slack
-    **@handle**, which may differ from the display name), then mention it in the
-    thread — or on a channel message to capture that message as a one-message
-    thread:
+    **@handle** from the connector card), then mention it in the thread — or on
+    a channel message to capture that message as a one-message thread:
 
     ```text
-    @ctxpipe
+    @your-bot-handle capture this
     ```
 
-    ctx| replies in the thread with **ctx| agent capturing engineering
-    context…**, then updates that message to **Engineering context captured**
-    with a **View in GitHub** link when the snapshot is committed. Later replies
-    are not mirrored unless you mention the bot again on that thread.
+    A bare mention with no extra text also captures. ctx| replies in the thread
+    with **ctx| agent working…**, then updates that message to **Engineering
+    context captured** with a **View in GitHub** link, or a short capability
+    reply if you asked for something else. Later replies are not mirrored unless
+    you mention the bot again on that thread (that recapture overwrites the same
+    snapshot).
   </Step>
 </Steps>
 
 ## What is captured
 
 - Thread-first Markdown under `slack/channels/<slug>--<channelId>/threads/…`
-- File and image attachments as Markdown links to the Slack permalink (no binaries in git)
+- Frontmatter identity: `captured_at`, Slack permalink, channel and thread ids,
+  and `captured_by` handle + name (never a Slack user id)
+- File and image attachments as Markdown links to the Slack permalink (no
+  binaries and no private download URLs in git)
 - The in-thread status reply is excluded from the snapshot
-- Threads longer than 500 messages are truncated (oldest kept)
+- Threads longer than 500 messages are truncated (oldest kept); Slack status
+  calls that out. Hosted deployments share one Slack app quota.
 
 ## What is out of scope (v1)
 
 - Continuous channel mirroring or history backfill
 - Direct messages and multi-party DMs
 - Automatic refresh when someone replies after a capture
-- Writing conversational replies back to Slack
+- Slack Q&A / retrieval in-thread (future tool on the same agent)
 - Full video or file binary archival (attachments are permalink stubs)
+- Deleting git history when you uninstall Slack. Uninstall marks the connection
+  revoked; captured files stay in the repository.
 
 ## Troubleshooting
 
 ### Capture does nothing
 
 Confirm the connector status is **Connected** (repository bound), the bot is
-invited to the channel, and you used Slack autocomplete to **@mention** the bot
-(not only the word “ctxpipe” in plain text). Extra words after the mention are
-not required. Self-hosted operators should confirm Event Subscriptions include
-**`app_mention`** — see [Self-host Slack](/docs/self-hosting/slack).
+invited to the channel, and you used Slack autocomplete to **@mention** the bot.
+Bare mention or “capture this” snapshots the thread. Self-hosted operators
+should confirm Event Subscriptions include **`app_mention`** and that
+`MODEL_PROVIDER*` is set so the mention agent can interpret extra text — see
+[Self-host Slack](/docs/self-hosting/slack).
 
 ### Private channel
 

@@ -2,12 +2,13 @@ import type { OpenAPIHono } from "@hono/zod-openapi"
 import { z } from "zod"
 import type { AppEnv } from "../../../app/env.js"
 import {
+  getSlackConnectionByTeamId,
   getSlackSyncTargetByConnectionId,
-  listSlackConnectionsByTeamId,
+  revokeSlackConnectionByTeamId,
 } from "../../../models/slack-connector.js"
 import { getLogger } from "../../../observability/logger.js"
 import { runWorkflowWithWorkerWake } from "../../../openworkflow/client.js"
-import { slackCaptureThread } from "../../../openworkflow/workflows/slack-capture-thread.js"
+import { slackMentionAgent } from "../../../openworkflow/workflows/slack-mention-agent.js"
 import { verifySlackRequestSignature } from "../../../services/slack/verify-signature.js"
 
 const SlackEventEnvelopeSchema = z.object({
@@ -19,8 +20,11 @@ const SlackEventEnvelopeSchema = z.object({
     .object({
       type: z.string(),
       channel: z.string().optional(),
+      channel_type: z.string().optional(),
       ts: z.string().optional(),
       thread_ts: z.string().optional(),
+      text: z.string().optional(),
+      user: z.string().optional(),
     })
     .passthrough()
     .optional(),
@@ -69,66 +73,86 @@ export function registerSlackWebhookRoute(app: OpenAPIHono<AppEnv>) {
       return c.json({ ok: true }, 200)
     }
 
-    // v1 ingest is intent capture only: `app_mention` triggers a thread
-    // snapshot. There is no channel mirror, so other event types are ignored
-    // (ADR-025 §3).
     const event = parsed.data.event
+    const teamId = parsed.data.team_id
+
+    if (event.type === "app_uninstalled" || event.type === "tokens_revoked") {
+      if (teamId) {
+        const revoked = await revokeSlackConnectionByTeamId(teamId)
+        getLogger().info("slack_connection_revoked_from_event", {
+          teamId,
+          eventType: event.type,
+          revoked,
+        })
+      }
+      return c.json({ ok: true }, 200)
+    }
+
+    // v1 ingest: `app_mention` starts the mention agent (ADR-025 §3).
     if (event.type !== "app_mention") {
       return c.json({ ok: true }, 200)
     }
 
-    const teamId = parsed.data.team_id
+    if (event.channel_type === "im" || event.channel_type === "mpim") {
+      getLogger().info("slack_webhook_dm_ignored", {
+        teamId,
+        channelType: event.channel_type,
+      })
+      return c.json({ ok: true }, 200)
+    }
+
     const channelId = event.channel
     const mentionTs = event.ts
     // The mentioned message is treated as the thread root when it has no
-    // thread of its own (ADR-025 §3).
+    // thread of its own (ADR-025 §3). Recapture overwrites that path.
     const threadTs = event.thread_ts ?? mentionTs
     if (!teamId || !channelId || !threadTs || !mentionTs) {
       return c.json({ ok: true }, 200)
     }
 
-    const connections = await listSlackConnectionsByTeamId(teamId)
-    if (connections.length === 0) {
+    const connection = await getSlackConnectionByTeamId(teamId)
+    if (!connection) {
       getLogger().info("slack_webhook_unknown_team", { teamId })
       return c.json({ ok: true }, 200)
     }
 
-    for (const connection of connections) {
-      const target = await getSlackSyncTargetByConnectionId(connection.id)
-      if (
-        !target ||
-        target.orgId !== connection.orgId ||
-        !target.enabled ||
-        target.setupPhase !== "live"
-      ) {
-        continue
-      }
+    const target = await getSlackSyncTargetByConnectionId(connection.id)
+    if (
+      !target ||
+      target.orgId !== connection.orgId ||
+      !target.enabled ||
+      target.setupPhase !== "live"
+    ) {
+      return c.json({ ok: true }, 200)
+    }
 
-      void runWorkflowWithWorkerWake(
-        slackCaptureThread.spec,
+    try {
+      await runWorkflowWithWorkerWake(
+        slackMentionAgent.spec,
         {
           orgId: connection.orgId,
           connectionId: connection.id,
           channelId,
           threadTs,
+          mentionText: event.text,
+          mentionUserId: event.user,
         },
         {
-          // Mention ts (not thread root) so a later @ recaptures; Slack
-          // retries reuse the same event ts and still dedupe (ADR-025 §4).
-          idempotencyKey: `slack-capture:${connection.id}:${channelId}:${threadTs}:${mentionTs}`,
+          // Mention ts (not thread root) so a later @ is a new agent run;
+          // Slack retries reuse the same event ts and still dedupe (ADR-025 §4).
+          idempotencyKey: `slack-mention:${connection.id}:${channelId}:${threadTs}:${mentionTs}`,
         },
-      ).catch((err: unknown) => {
-        getLogger().error(err instanceof Error ? err : new Error(String(err)), {
-          step: "slack_capture_thread.enqueue",
-          connectionId: connection.id,
-        })
-      })
-
-      getLogger().info("slack_capture_thread_enqueued", {
+      )
+      getLogger().info("slack_mention_agent_enqueued", {
         connectionId: connection.id,
         channelId,
         threadTs,
         eventId: parsed.data.event_id,
+      })
+    } catch (err: unknown) {
+      getLogger().error(err instanceof Error ? err : new Error(String(err)), {
+        step: "slack_mention_agent.enqueue",
+        connectionId: connection.id,
       })
     }
 

@@ -1,0 +1,1 @@
+CREATE UNIQUE INDEX "connections_slack_team_id_uq" ON "connections" (("config"->>'teamId')) WHERE "type" = 'slack';

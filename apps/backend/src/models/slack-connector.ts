@@ -16,6 +16,7 @@ import { generateObjectId } from "../lib/id.js"
 import {
   type SlackConnectionShape,
   slackConnectionToShape,
+  slackShapeToConfig,
 } from "./connection-rows.js"
 import { DEFAULT_CHECKOUT_KEY } from "./repositories.js"
 
@@ -94,6 +95,16 @@ export async function getSlackConnectionByConnectionId(
 export const MULTIPLE_SLACK_CONNECTIONS_MESSAGE =
   "Multiple Slack connections for this organization; specify connectionId query parameter"
 
+export const SLACK_TEAM_ALREADY_CONNECTED_MESSAGE =
+  "This Slack workspace is already connected to another ctx| organization"
+
+export class SlackTeamAlreadyConnectedError extends Error {
+  constructor() {
+    super(SLACK_TEAM_ALREADY_CONNECTED_MESSAGE)
+    this.name = "SlackTeamAlreadyConnectedError"
+  }
+}
+
 export type ResolveSlackConnectionResult =
   | { status: "ok"; connection: SlackConnection }
   | { status: "none" }
@@ -127,8 +138,14 @@ export async function upsertSlackConnectionFromOAuth(input: {
   teamId: string
   teamName?: string | null
   botUserId?: string | null
+  botHandle?: string | null
   appId?: string | null
 }): Promise<SlackConnection> {
+  const existingForTeam = await getSlackConnectionByTeamId(input.teamId)
+  if (existingForTeam && existingForTeam.orgId !== input.orgId) {
+    throw new SlackTeamAlreadyConnectedError()
+  }
+
   const db = getOrgDb()
   const [existing] = await db
     .select()
@@ -149,6 +166,7 @@ export async function upsertSlackConnectionFromOAuth(input: {
     teamId: input.teamId,
     teamName: input.teamName ?? null,
     botUserId: input.botUserId ?? null,
+    botHandle: input.botHandle ?? existingForTeam?.botHandle ?? null,
     appId: input.appId ?? null,
     ownerUserId: input.ownerUserId,
     status: "installed",
@@ -201,6 +219,35 @@ export async function deleteSlackConnectionById(
   return removed.length > 0
 }
 
+export async function revokeSlackConnectionByTeamId(
+  teamId: string,
+): Promise<boolean> {
+  const connection = await getSlackConnectionByTeamId(teamId)
+  if (!connection) return false
+  const db = getSystemDb()
+  const {
+    id: _id,
+    orgId: _orgId,
+    createdAt: _createdAt,
+    updatedAt: _updatedAt,
+    ...shape
+  } = connection
+  await db.transaction(async (tx) => {
+    await tx
+      .update(connections)
+      .set({
+        config: slackShapeToConfig({ ...shape, status: "revoked" }),
+        updatedAt: new Date(),
+      })
+      .where(eq(connections.id, connection.id))
+    await tx
+      .update(slackSyncTargets)
+      .set({ enabled: false, updatedAt: new Date() })
+      .where(eq(slackSyncTargets.connectionId, connection.id))
+  })
+  return true
+}
+
 export async function getSlackSyncTargetWithRepoByConnectionId(
   orgId: string,
   connectionId: string,
@@ -233,11 +280,11 @@ export async function getSlackSyncTargetWithRepoByConnectionId(
   return row ? withNormalizedSlackSetupPhase(row) : undefined
 }
 
-export async function listSlackConnectionsByTeamId(
+export async function getSlackConnectionByTeamId(
   teamId: string,
-): Promise<SlackConnection[]> {
+): Promise<SlackConnection | undefined> {
   const db = getSystemDb()
-  const rows = await db
+  const [row] = await db
     .select()
     .from(connections)
     .where(
@@ -247,7 +294,16 @@ export async function listSlackConnectionsByTeamId(
       ),
     )
     .orderBy(desc(connections.updatedAt))
-  return rows.map(slackConnectionToShape)
+    .limit(1)
+  return row ? slackConnectionToShape(row) : undefined
+}
+
+/** @deprecated Use getSlackConnectionByTeamId — one Slack team maps to one org. */
+export async function listSlackConnectionsByTeamId(
+  teamId: string,
+): Promise<SlackConnection[]> {
+  const connection = await getSlackConnectionByTeamId(teamId)
+  return connection ? [connection] : []
 }
 
 export async function getSlackSyncTargetByConnectionId(
@@ -285,10 +341,9 @@ export type SlackBindRepositoryInput = {
  * created `ctxpipe-context` can be selected without a repositories-page detour.
  */
 async function resolveRepositoryIdForSlackSync(
+  db: ReturnType<typeof getOrgDb>,
   input: SlackBindRepositoryInput,
 ): Promise<{ repositoryId: string; branch: string }> {
-  const db = getOrgDb()
-
   if (input.repositoryId) {
     const [byId] = await db
       .select({
@@ -382,30 +437,35 @@ export async function bindSlackSyncTargetRepository(
   input: SlackBindRepositoryInput,
 ): Promise<SlackSyncTarget> {
   const db = getOrgDb()
-  const { repositoryId, branch } = await resolveRepositoryIdForSlackSync(input)
+  return db.transaction(async (tx) => {
+    const { repositoryId, branch } = await resolveRepositoryIdForSlackSync(
+      tx,
+      input,
+    )
 
-  const [row] = await db
-    .insert(slackSyncTargets)
-    .values({
-      id: generateObjectId("sst"),
-      orgId: input.orgId,
-      connectionId: input.connectionId,
-      repositoryId,
-      branch,
-      enabled: true,
-      setupPhase: "live",
-    })
-    .onConflictDoUpdate({
-      target: slackSyncTargets.connectionId,
-      set: {
+    const [row] = await tx
+      .insert(slackSyncTargets)
+      .values({
+        id: generateObjectId("sst"),
+        orgId: input.orgId,
+        connectionId: input.connectionId,
         repositoryId,
         branch,
         enabled: true,
         setupPhase: "live",
-        updatedAt: new Date(),
-      },
-    })
-    .returning()
-  if (!row) throw new Error("Failed to save Slack sync target")
-  return row
+      })
+      .onConflictDoUpdate({
+        target: slackSyncTargets.connectionId,
+        set: {
+          repositoryId,
+          branch,
+          enabled: true,
+          setupPhase: "live",
+          updatedAt: new Date(),
+        },
+      })
+      .returning()
+    if (!row) throw new Error("Failed to save Slack sync target")
+    return row
+  })
 }

@@ -16,6 +16,7 @@ import {
   fetchSlackConnectorStatus,
   slackConnectorKeys,
 } from "../queries/slack-connector"
+import { formatSlackBotMention } from "../slack-setup-model"
 import {
   ConnectorListItem,
   ConnectorRemoveMenu,
@@ -69,7 +70,7 @@ export function SlackConnectionCard({
     },
   })
 
-  const live = status?.setupPhase === "live"
+  const live = Boolean(status?.isInstalled && status.setupPhase === "live")
   const health = resolveConnectorHealth({
     statusError: isError,
     checking: isPending || !status,
@@ -119,13 +120,13 @@ export function SlackConnectionCard({
           <p className="text-sm text-muted-foreground">
             Invite the bot with{" "}
             <code className="rounded-none bg-muted px-1 py-0.5 text-[11px]">
-              /invite @ctxpipe
+              /invite {formatSlackBotMention(status.botHandle)}
             </code>
             , then mention{" "}
             <code className="rounded-none bg-muted px-1 py-0.5 text-[11px]">
-              @ctxpipe
+              {formatSlackBotMention(status.botHandle)}
             </code>{" "}
-            in a thread to capture it.
+            to capture a thread, or say capture this.
           </p>
         ) : null}
       </ConnectorListItem>

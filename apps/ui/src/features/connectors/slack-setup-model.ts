@@ -32,7 +32,15 @@ export function getSlackSetupStepIndex(
 }
 
 export function getSlackSetupPhaseLabel(
-  status: Pick<SlackConnectorStatus, "setupPhase">,
+  status: Pick<SlackConnectorStatus, "setupPhase" | "isInstalled">,
 ): string {
+  if (!status.isInstalled) return "Setup required"
   return status.setupPhase === "live" ? "Connected" : "Setup required"
+}
+
+export function formatSlackBotMention(
+  handle: string | null | undefined,
+): string {
+  const trimmed = handle?.replace(/^@/, "").trim()
+  return trimmed ? `@${trimmed}` : "the ctx| bot"
 }

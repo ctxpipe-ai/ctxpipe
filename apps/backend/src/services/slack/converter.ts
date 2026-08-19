@@ -100,6 +100,8 @@ export function toSlackThreadMarkdownFile(input: {
   threadTs: string
   permalink?: string | null
   truncated?: boolean
+  capturedAt?: string | null
+  capturedBy?: { handle: string; name: string } | null
   messages: SlackMirrorMessage[]
 }): { path: string; content: string } {
   const path = getSlackThreadPath(input)
@@ -112,6 +114,7 @@ export function toSlackThreadMarkdownFile(input: {
   ]
   const oldest = input.messages[0]?.ts
   const latest = input.messages[input.messages.length - 1]?.ts
+  const capturedBy = input.capturedBy
   const frontmatter = [
     "---",
     "source: slack",
@@ -121,6 +124,12 @@ export function toSlackThreadMarkdownFile(input: {
     `thread_ts: ${JSON.stringify(input.threadTs)}`,
     input.teamId ? `team_id: ${JSON.stringify(input.teamId)}` : null,
     input.permalink ? `permalink: ${JSON.stringify(input.permalink)}` : null,
+    input.capturedAt
+      ? `captured_at: ${JSON.stringify(input.capturedAt)}`
+      : null,
+    capturedBy ? "captured_by:" : null,
+    capturedBy ? `  handle: ${JSON.stringify(capturedBy.handle)}` : null,
+    capturedBy ? `  name: ${JSON.stringify(capturedBy.name)}` : null,
     `message_count: ${input.messages.length}`,
     input.truncated ? "truncated: true" : null,
     `participant_ids: ${JSON.stringify(participants)}`,
@@ -131,10 +140,7 @@ export function toSlackThreadMarkdownFile(input: {
     .filter(Boolean)
     .join("\n")
 
-  const bodyLines: string[] = [
-    `# Thread in #${input.channelName}`,
-    "",
-  ]
+  const bodyLines: string[] = [`# Thread in #${input.channelName}`, ""]
   if (input.truncated) {
     bodyLines.push(
       `_Oldest ${input.messages.length} messages captured; later replies were omitted._`,

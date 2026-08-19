@@ -170,6 +170,7 @@ async function processPushEvent(
 
   await maybeEnqueueConfluenceSyncOnConfigPush({
     installationId: installation.id,
+    githubConnectionId,
     repoFullName: repo.full_name,
     ref,
     repository: { full_name: repo.full_name, default_branch: defaultBranch },
@@ -181,6 +182,7 @@ async function processPushEvent(
 
   await maybeEnqueueNotionSyncOnConfigPush({
     installationId: installation.id,
+    githubConnectionId,
     repoFullName: repo.full_name,
     ref,
     repository: { full_name: repo.full_name, default_branch: defaultBranch },
@@ -198,7 +200,6 @@ async function processPushEvent(
     before,
     after,
     log: ctx.log,
-    githubConnectionId,
   })
 
   if (ref !== `refs/heads/${defaultBranch}`) {
@@ -389,8 +390,7 @@ export function registerGithubWebhookRoute(app: OpenAPIHono<AppEnv>) {
     const signature = c.req.header("x-hub-signature-256")
     const eventName = c.req.header("x-github-event") ?? ""
 
-    let connectionIds: string[] | undefined
-    let verified = Boolean(
+    const verified = Boolean(
       signature && (await webhooks.verify(rawBody, signature)),
     )
 
@@ -403,51 +403,11 @@ export function registerGithubWebhookRoute(app: OpenAPIHono<AppEnv>) {
         : c.json({ error: "Unauthorized" }, 401)
     }
 
-    if (!verified && signature) {
-      const parsedInstallation = z
-        .object({ installation: z.object({ id: z.number() }) })
-        .safeParse(payload)
-      if (parsedInstallation.success) {
-        const installations = await listInstallationsByGithubInstallationId(
-          parsedInstallation.data.installation.id,
-        )
-        const verifiedConnectionIds: string[] = []
-        for (const installation of installations) {
-          const secret = await getWebhookSecretForGithubConnection(
-            installation.id,
-            env,
-          )
-          if (!secret) continue
-          if (await new Webhooks({ secret }).verify(rawBody, signature)) {
-            verifiedConnectionIds.push(installation.id)
-            log.warn("github_webhook_connection_secret_used_on_legacy_route", {
-              connectionId: installation.id,
-            })
-          }
-        }
-        if (verifiedConnectionIds.length > 0) {
-          verified = true
-          connectionIds = verifiedConnectionIds
-        }
-      }
-    }
-
     if (!verified) {
       return c.json({ error: "Unauthorized" }, 401)
     }
 
-    if (connectionIds) {
-      for (const connectionId of connectionIds) {
-        await processGithubWebhookPayload(
-          eventName,
-          payload,
-          { log, env },
-          { connectionId },
-        )
-      }
-    } else {
-      await processGithubWebhookPayload(eventName, payload, { log, env })
-    }
+    await processGithubWebhookPayload(eventName, payload, { log, env })
     return c.body(null, 200)
   })
 }

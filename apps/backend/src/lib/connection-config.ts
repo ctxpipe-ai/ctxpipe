@@ -450,6 +450,10 @@ export const slackConnectionConfigStoredSchema = z
       trimNullableConnectionString,
       z.string().nullable().optional(),
     ),
+    botHandle: z.preprocess(
+      trimNullableConnectionString,
+      z.string().nullable().optional(),
+    ),
     appId: z.preprocess(
       trimNullableConnectionString,
       z.string().nullable().optional(),

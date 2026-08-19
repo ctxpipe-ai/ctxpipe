@@ -7,7 +7,10 @@ const andMock = vi.hoisted(() =>
   vi.fn((...conditions: unknown[]) => conditions),
 )
 const limitMock = vi.hoisted(() => vi.fn())
-const whereMock = vi.hoisted(() => vi.fn(() => ({ limit: limitMock })))
+const orderByMock = vi.hoisted(() => vi.fn(() => ({ limit: limitMock })))
+const whereMock = vi.hoisted(() =>
+  vi.fn(() => ({ limit: limitMock, orderBy: orderByMock })),
+)
 const leftJoinMock = vi.hoisted(() => vi.fn(() => ({ where: whereMock })))
 const fromMock = vi.hoisted(() =>
   vi.fn(() => ({ leftJoin: leftJoinMock, where: whereMock })),
@@ -25,8 +28,15 @@ const valuesMock = vi.hoisted(() =>
 )
 const insertMock = vi.hoisted(() => vi.fn(() => ({ values: valuesMock })))
 const getOrgDbMock = vi.hoisted(() =>
-  vi.fn(() => ({ select: selectMock, insert: insertMock })),
+  vi.fn(() => {
+    const db = { select: selectMock, insert: insertMock }
+    return {
+      ...db,
+      transaction: async (fn: (tx: typeof db) => unknown) => fn(db),
+    }
+  }),
 )
+const getSystemDbMock = vi.hoisted(() => vi.fn())
 
 vi.mock("drizzle-orm", async (importOriginal) => ({
   ...(await importOriginal<typeof import("drizzle-orm")>()),
@@ -35,13 +45,15 @@ vi.mock("drizzle-orm", async (importOriginal) => ({
 }))
 vi.mock("../db/client.js", () => ({
   getOrgDb: getOrgDbMock,
-  getSystemDb: vi.fn(),
+  getSystemDb: getSystemDbMock,
 }))
 
 import {
   bindSlackSyncTargetRepository,
   normalizeSlackSetupPhase,
   SlackRepositoryNotFoundError,
+  SlackTeamAlreadyConnectedError,
+  upsertSlackConnectionFromOAuth,
 } from "./slack-connector.js"
 
 describe("normalizeSlackSetupPhase", () => {
@@ -177,5 +189,45 @@ describe("bindSlackSyncTargetRepository", () => {
         setupPhase: "live",
       }),
     )
+  })
+})
+
+describe("upsertSlackConnectionFromOAuth", () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+  })
+
+  it("rejects a second organization connecting the same Slack teamId", async () => {
+    getSystemDbMock.mockReturnValue({
+      select: () => ({
+        from: () => ({
+          where: () => ({
+            orderBy: () => ({
+              limit: async () => [
+                {
+                  id: "con_other",
+                  orgId: "org_other",
+                  type: "slack",
+                  config: { teamId: "T1", status: "installed" },
+                  createdAt: new Date("2026-08-01T00:00:00.000Z"),
+                  updatedAt: new Date("2026-08-01T00:00:00.000Z"),
+                },
+              ],
+            }),
+          }),
+        }),
+      }),
+    })
+
+    await expect(
+      upsertSlackConnectionFromOAuth({
+        orgId: "org_1",
+        env: { AUTH_SECRET: "a".repeat(32) } as never,
+        ownerUserId: "user_1",
+        botToken: "xoxb-token",
+        teamId: "T1",
+      }),
+    ).rejects.toBeInstanceOf(SlackTeamAlreadyConnectedError)
+    expect(insertMock).not.toHaveBeenCalled()
   })
 })

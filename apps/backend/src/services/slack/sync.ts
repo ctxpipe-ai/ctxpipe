@@ -8,10 +8,15 @@ import type {
 } from "../../models/slack-connector.js"
 import { commitFiles } from "../github/installation-write-client.js"
 import {
+  getSlackPermalink,
   listSlackConversationReplies,
   resolveSlackChannelInfo,
   resolveSlackUserDisplayName,
+  resolveSlackUserProfile,
+  SlackApiError,
   type SlackApiMessage,
+  SlackDirectMessageNotSupportedError,
+  type SlackUserProfile,
 } from "./client.js"
 import {
   getSlackThreadPath,
@@ -54,19 +59,17 @@ async function resolveRepoContextForSyncTarget(
   })
 }
 
-/** Prefer durable Slack UI links over auth-gated private download URLs. */
+/** Prefer durable Slack UI links; never persist auth-gated private download URLs. */
 function slackFileStubLink(file: {
   id: string
+  name?: string
   permalink?: string
   permalink_public?: string
-  url_private?: string
 }): string {
   const permalink = file.permalink?.trim()
   if (permalink) return permalink
   const publicPermalink = file.permalink_public?.trim()
   if (publicPermalink) return publicPermalink
-  const privateUrl = file.url_private?.trim()
-  if (privateUrl) return privateUrl
   return `#file-${file.id}`
 }
 
@@ -93,6 +96,9 @@ async function buildThreadFiles(input: {
   isPrivate: boolean
   teamId?: string | null
   threadTs: string
+  permalink?: string | null
+  capturedAt: string
+  capturedBy?: SlackUserProfile | null
   messages: SlackApiMessage[]
   truncated?: boolean
   userCache: Map<string, string>
@@ -132,11 +138,21 @@ async function buildThreadFiles(input: {
     isPrivate: input.isPrivate,
     teamId: input.teamId,
     threadTs: input.threadTs,
+    permalink: input.permalink,
+    capturedAt: input.capturedAt,
+    capturedBy: input.capturedBy,
     truncated: input.truncated,
     messages: mirrorMessages,
   })
   return [{ path: md.path, content: md.content }]
 }
+
+export type SlackCaptureErrorCode =
+  | "not_in_channel"
+  | "github_protected_branch"
+  | "repo_missing"
+  | "dm_not_supported"
+  | "capture_failed"
 
 export type SlackCaptureResult = {
   status: "completed" | "failed"
@@ -147,7 +163,47 @@ export type SlackCaptureResult = {
   /** GitHub blob URL for the captured markdown (success only, when resolvable). */
   githubUrl?: string
   channelName?: string
+  truncated?: boolean
+  errorCode?: SlackCaptureErrorCode
   error?: string
+}
+
+export function classifySlackCaptureError(
+  error: unknown,
+): Pick<SlackCaptureResult, "errorCode" | "error"> {
+  if (error instanceof SlackDirectMessageNotSupportedError) {
+    return { errorCode: "dm_not_supported", error: error.message }
+  }
+  if (error instanceof SlackApiError) {
+    if (
+      error.slackError === "not_in_channel" ||
+      error.slackError === "channel_not_found" ||
+      error.slackError === "missing_scope"
+    ) {
+      return {
+        errorCode: "not_in_channel",
+        error: "Bot is not in this channel",
+      }
+    }
+    if (error.slackError === "method_not_supported_for_channel_type") {
+      return { errorCode: "dm_not_supported", error: error.message }
+    }
+  }
+  const message = error instanceof Error ? error.message : String(error)
+  if (
+    /protected branch/i.test(message) ||
+    /cannot update this protected/i.test(message)
+  ) {
+    return { errorCode: "github_protected_branch", error: message }
+  }
+  if (
+    /repository not found/i.test(message) ||
+    /no GitHub connection/i.test(message) ||
+    /GitHub installation not found/i.test(message)
+  ) {
+    return { errorCode: "repo_missing", error: message }
+  }
+  return { errorCode: "capture_failed", error: message }
 }
 
 /**
@@ -156,7 +212,9 @@ export type SlackCaptureResult = {
  * config PR — a capture is a point-in-time export (ADR-025 §3-5).
  *
  * `excludeMessageTs` omits the in-thread status reply from the snapshot so the
- * capturing → captured progress message is not ingested as engineering context.
+ * working → captured progress message is not ingested as engineering context.
+ * Recapture always writes `slack/channels/.../threads/<yyyy>/<mm>/<threadTs>/index.md`
+ * keyed on the thread root `ts`, not the mention `ts`.
  */
 export async function captureSlackThread(input: {
   orgId: string
@@ -166,98 +224,129 @@ export async function captureSlackThread(input: {
   channelId: string
   threadTs: string
   excludeMessageTs?: string
+  capturedByUserId?: string
 }): Promise<SlackCaptureResult> {
-  const { repositoryName, githubConnectionId } =
-    await resolveRepoContextForSyncTarget(input.orgId, input.target)
-
-  const channelInfo = await resolveSlackChannelInfo({
-    env: input.env,
-    connection: input.connection,
-    channelId: input.channelId,
-  })
-  const channelName = channelInfo.name
-  const isPrivate = channelInfo.isPrivate
-
-  let messages: SlackApiMessage[]
-  let truncated = false
   try {
-    const replies = await listSlackConversationReplies({
+    const { repositoryName, githubConnectionId } =
+      await resolveRepoContextForSyncTarget(input.orgId, input.target)
+
+    const channelInfo = await resolveSlackChannelInfo({
       env: input.env,
       connection: input.connection,
       channelId: input.channelId,
+    })
+    const channelName = channelInfo.name
+    const isPrivate = channelInfo.isPrivate
+
+    let messages: SlackApiMessage[]
+    let truncated = false
+    try {
+      const replies = await listSlackConversationReplies({
+        env: input.env,
+        connection: input.connection,
+        channelId: input.channelId,
+        threadTs: input.threadTs,
+      })
+      messages = replies.messages
+      truncated = replies.truncated
+    } catch (error) {
+      const classified = classifySlackCaptureError(error)
+      return {
+        status: "failed",
+        messageCount: 0,
+        channelName,
+        ...classified,
+      }
+    }
+    if (input.excludeMessageTs) {
+      messages = messages.filter(
+        (message) => message.ts !== input.excludeMessageTs,
+      )
+    }
+    if (messages.length === 0) {
+      return {
+        status: "failed",
+        messageCount: 0,
+        channelName,
+        errorCode: "capture_failed",
+        error: "Slack thread has no messages to capture",
+      }
+    }
+
+    const userCache = new Map<string, string>()
+    const profileCache = new Map<string, SlackUserProfile>()
+    const capturedBy = input.capturedByUserId
+      ? await resolveSlackUserProfile({
+          env: input.env,
+          connection: input.connection,
+          userId: input.capturedByUserId,
+          cache: profileCache,
+        })
+      : undefined
+    const permalink = await getSlackPermalink({
+      env: input.env,
+      connection: input.connection,
+      channelId: input.channelId,
+      messageTs: input.threadTs,
+    })
+    const capturedAt = new Date().toISOString()
+
+    const channelIndex = toSlackChannelIndexFile({
+      channelId: input.channelId,
+      channelName,
+      isPrivate,
+      teamId: input.connection.teamId,
+    })
+    const threadFiles = await buildThreadFiles({
+      env: input.env,
+      connection: input.connection,
+      channelId: input.channelId,
+      channelName,
+      isPrivate,
+      teamId: input.connection.teamId,
+      threadTs: input.threadTs,
+      permalink,
+      capturedAt,
+      capturedBy,
+      messages,
+      truncated,
+      userCache,
+    })
+    const threadPath = getSlackThreadPath({
+      channelId: input.channelId,
+      channelName,
       threadTs: input.threadTs,
     })
-    messages = replies.messages
-    truncated = replies.truncated
+
+    const commit = await commitFiles({
+      orgId: input.orgId,
+      env: input.env,
+      repositoryName,
+      branch: input.target.branch,
+      githubConnectionId,
+      message: `chore(slack): capture thread ${input.threadTs} from #${channelName}`,
+      files: [channelIndex, ...threadFiles],
+      deletePaths: [],
+    })
+
+    return {
+      status: "completed",
+      messageCount: messages.length,
+      commitSha: commit.commitSha,
+      threadPath,
+      githubUrl: githubBlobUrl({
+        repositoryName,
+        ref: commit.commitSha || input.target.branch,
+        path: threadPath,
+      }),
+      channelName,
+      truncated,
+    }
   } catch (error) {
     return {
       status: "failed",
       messageCount: 0,
-      channelName,
-      error: error instanceof Error ? error.message : "Failed to fetch thread",
+      ...classifySlackCaptureError(error),
     }
-  }
-  if (input.excludeMessageTs) {
-    messages = messages.filter(
-      (message) => message.ts !== input.excludeMessageTs,
-    )
-  }
-  if (messages.length === 0) {
-    return {
-      status: "failed",
-      messageCount: 0,
-      channelName,
-      error: "Slack thread has no messages to capture",
-    }
-  }
-
-  const userCache = new Map<string, string>()
-
-  const channelIndex = toSlackChannelIndexFile({
-    channelId: input.channelId,
-    channelName,
-    isPrivate,
-    teamId: input.connection.teamId,
-  })
-  const threadFiles = await buildThreadFiles({
-    env: input.env,
-    connection: input.connection,
-    channelId: input.channelId,
-    channelName,
-    isPrivate,
-    teamId: input.connection.teamId,
-    threadTs: input.threadTs,
-    messages,
-    truncated,
-    userCache,
-  })
-  const threadPath = getSlackThreadPath({
-    channelId: input.channelId,
-    channelName,
-    threadTs: input.threadTs,
-  })
-
-  const commit = await commitFiles({
-    orgId: input.orgId,
-    env: input.env,
-    repositoryName,
-    branch: input.target.branch,
-    githubConnectionId,
-    message: `chore(slack): capture thread ${input.threadTs} from #${channelName}`,
-    files: [channelIndex, ...threadFiles],
-    deletePaths: [],
-  })
-
-  return {
-    status: "completed",
-    messageCount: messages.length,
-    commitSha: commit.commitSha,
-    threadPath,
-    githubUrl: githubBlobUrl({
-      repositoryName,
-      ref: commit.commitSha || input.target.branch,
-      path: threadPath,
-    }),
-    channelName,
   }
 }

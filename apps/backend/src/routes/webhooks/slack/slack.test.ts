@@ -2,14 +2,16 @@ import { Hono } from "hono"
 import { beforeEach, describe, expect, it, vi } from "vitest"
 import type { AppEnv } from "../../../app/env.js"
 
-const listConnectionsMock = vi.hoisted(() => vi.fn())
+const getConnectionMock = vi.hoisted(() => vi.fn())
 const getTargetMock = vi.hoisted(() => vi.fn())
+const revokeMock = vi.hoisted(() => vi.fn())
 const runWorkflowMock = vi.hoisted(() => vi.fn())
 const verifySignatureMock = vi.hoisted(() => vi.fn())
 
 vi.mock("../../../models/slack-connector.js", () => ({
+  getSlackConnectionByTeamId: getConnectionMock,
   getSlackSyncTargetByConnectionId: getTargetMock,
-  listSlackConnectionsByTeamId: listConnectionsMock,
+  revokeSlackConnectionByTeamId: revokeMock,
 }))
 vi.mock("../../../observability/logger.js", () => ({
   getLogger: () => ({
@@ -21,8 +23,8 @@ vi.mock("../../../observability/logger.js", () => ({
 vi.mock("../../../openworkflow/client.js", () => ({
   runWorkflowWithWorkerWake: runWorkflowMock,
 }))
-vi.mock("../../../openworkflow/workflows/slack-capture-thread.js", () => ({
-  slackCaptureThread: { spec: { name: "slack-capture-thread" } },
+vi.mock("../../../openworkflow/workflows/slack-mention-agent.js", () => ({
+  slackMentionAgent: { spec: { name: "slack-mention-agent" } },
 }))
 vi.mock("../../../services/slack/verify-signature.js", () => ({
   verifySlackRequestSignature: verifySignatureMock,
@@ -46,6 +48,9 @@ function mentionRequest(overrides?: {
   channel?: string
   ts?: string
   thread_ts?: string
+  text?: string
+  user?: string
+  channel_type?: string
 }) {
   return testApp().request("/api/v1/webhook/slack", {
     method: "POST",
@@ -62,7 +67,12 @@ function mentionRequest(overrides?: {
         type: "app_mention",
         channel: overrides?.channel ?? "C1",
         ts: overrides?.ts ?? "1710000000.000001",
+        text: overrides?.text ?? "<@U_BOT>",
+        user: overrides?.user ?? "U1",
         ...(overrides?.thread_ts ? { thread_ts: overrides.thread_ts } : {}),
+        ...(overrides?.channel_type
+          ? { channel_type: overrides.channel_type }
+          : {}),
       },
     }),
   })
@@ -72,7 +82,7 @@ describe("Slack webhook", () => {
   beforeEach(() => {
     vi.clearAllMocks()
     verifySignatureMock.mockReturnValue(true)
-    listConnectionsMock.mockResolvedValue([{ id: "con_1", orgId: "org_1" }])
+    getConnectionMock.mockResolvedValue({ id: "con_1", orgId: "org_1" })
     getTargetMock.mockResolvedValue({
       connectionId: "con_1",
       orgId: "org_1",
@@ -80,23 +90,27 @@ describe("Slack webhook", () => {
       setupPhase: "live",
     })
     runWorkflowMock.mockResolvedValue(undefined)
+    revokeMock.mockResolvedValue(true)
   })
 
-  it("enqueues a thread capture for an app_mention on a live connector", async () => {
+  it("enqueues a mention agent for an app_mention on a live connector", async () => {
     const response = await mentionRequest()
 
     expect(response.status).toBe(200)
+    expect(runWorkflowMock).toHaveBeenCalledTimes(1)
     expect(runWorkflowMock).toHaveBeenCalledWith(
-      { name: "slack-capture-thread" },
+      { name: "slack-mention-agent" },
       {
         orgId: "org_1",
         connectionId: "con_1",
         channelId: "C1",
         threadTs: "1710000000.000001",
+        mentionText: "<@U_BOT>",
+        mentionUserId: "U1",
       },
       {
         idempotencyKey:
-          "slack-capture:con_1:C1:1710000000.000001:1710000000.000001",
+          "slack-mention:con_1:C1:1710000000.000001:1710000000.000001",
       },
     )
   })
@@ -108,11 +122,11 @@ describe("Slack webhook", () => {
     })
 
     expect(runWorkflowMock).toHaveBeenCalledWith(
-      { name: "slack-capture-thread" },
+      { name: "slack-mention-agent" },
       expect.objectContaining({ threadTs: "1710000000.000001" }),
       {
         idempotencyKey:
-          "slack-capture:con_1:C1:1710000000.000001:1710000000.000200",
+          "slack-mention:con_1:C1:1710000000.000001:1710000000.000200",
       },
     )
   })
@@ -125,10 +139,74 @@ describe("Slack webhook", () => {
 
     expect(response.status).toBe(200)
     expect(runWorkflowMock).toHaveBeenCalledWith(
-      { name: "slack-capture-thread" },
+      { name: "slack-mention-agent" },
       expect.objectContaining({ threadTs: "1700000000.000000" }),
       expect.any(Object),
     )
+  })
+
+  it("awaits workflow enqueue before returning 200", async () => {
+    let released = false
+    runWorkflowMock.mockImplementation(
+      () =>
+        new Promise((resolve) => {
+          queueMicrotask(() => {
+            released = true
+            resolve(undefined)
+          })
+        }),
+    )
+
+    await mentionRequest()
+    expect(released).toBe(true)
+  })
+
+  it("ignores DMs and MPIMs", async () => {
+    const dm = await mentionRequest({ channel_type: "im" })
+    const mpim = await mentionRequest({ channel_type: "mpim" })
+
+    expect(dm.status).toBe(200)
+    expect(mpim.status).toBe(200)
+    expect(runWorkflowMock).not.toHaveBeenCalled()
+  })
+
+  it("revokes the connection on app_uninstalled", async () => {
+    const response = await testApp().request("/api/v1/webhook/slack", {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        "x-slack-request-timestamp": "1710000000",
+        "x-slack-signature": "v0=test",
+      },
+      body: JSON.stringify({
+        type: "event_callback",
+        team_id: "T1",
+        event: { type: "app_uninstalled" },
+      }),
+    })
+
+    expect(response.status).toBe(200)
+    expect(revokeMock).toHaveBeenCalledWith("T1")
+    expect(runWorkflowMock).not.toHaveBeenCalled()
+  })
+
+  it("revokes the connection on tokens_revoked", async () => {
+    const response = await testApp().request("/api/v1/webhook/slack", {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        "x-slack-request-timestamp": "1710000000",
+        "x-slack-signature": "v0=test",
+      },
+      body: JSON.stringify({
+        type: "event_callback",
+        team_id: "T1",
+        event: { type: "tokens_revoked", tokens: { bot: ["xoxb"] } },
+      }),
+    })
+
+    expect(response.status).toBe(200)
+    expect(revokeMock).toHaveBeenCalledWith("T1")
   })
 
   it("ignores non-mention events", async () => {
@@ -152,7 +230,7 @@ describe("Slack webhook", () => {
     })
 
     expect(response.status).toBe(200)
-    expect(listConnectionsMock).not.toHaveBeenCalled()
+    expect(getConnectionMock).not.toHaveBeenCalled()
     expect(runWorkflowMock).not.toHaveBeenCalled()
   })
 
@@ -178,7 +256,7 @@ describe("Slack webhook", () => {
     const response = await mentionRequest()
 
     expect(response.status).toBe(401)
-    expect(listConnectionsMock).not.toHaveBeenCalled()
+    expect(getConnectionMock).not.toHaveBeenCalled()
   })
 
   it("answers Slack URL verification challenges", async () => {

@@ -131,7 +131,7 @@ describe("POST /api/v1/webhook/github", () => {
     expect(res.status).toBe(401)
   })
 
-  it("accepts a connection-specific secret at the legacy webhook URL", async () => {
+    it("rejects a connection-specific secret at the legacy webhook URL", async () => {
     listInstallationsMock.mockResolvedValue([
       {
         id: "con_abc",
@@ -157,11 +157,11 @@ describe("POST /api/v1/webhook/github", () => {
       body,
     })
 
-    expect(res.status).toBe(200)
-    expect(getWebhookSecretMock).toHaveBeenCalledWith("con_abc", env)
+    expect(res.status).toBe(401)
+    expect(enqueueIngestionMock).not.toHaveBeenCalled()
   })
 
-  it("fans out a legacy webhook to every connection sharing its verified secret", async () => {
+  it("does not accept a connection-specific secret as a fan-out on the legacy URL", async () => {
     listInstallationsMock.mockResolvedValue([
       {
         id: "con_1",
@@ -175,21 +175,6 @@ describe("POST /api/v1/webhook/github", () => {
       },
     ])
     getWebhookSecretMock.mockResolvedValue("shared-connection-secret")
-    findRepoMock
-      .mockResolvedValueOnce({
-        id: "repo_1",
-        orgId: "org_1",
-        name: "acme/app",
-        gitUrl: "https://github.com/acme/app.git",
-        githubConnectionId: "con_1",
-      } as never)
-      .mockResolvedValueOnce({
-        id: "repo_2",
-        orgId: "org_2",
-        name: "acme/app",
-        gitUrl: "https://github.com/acme/app.git",
-        githubConnectionId: "con_2",
-      } as never)
     const payload = {
       ref: "refs/heads/main",
       repository: {
@@ -213,16 +198,8 @@ describe("POST /api/v1/webhook/github", () => {
       body,
     })
 
-    expect(response.status).toBe(200)
-    expect(enqueueIngestionMock).toHaveBeenCalledTimes(2)
-    expect(enqueueIngestionMock).toHaveBeenCalledWith(
-      expect.objectContaining({ orgId: "org_1", repositoryId: "repo_1" }),
-      expect.any(Object),
-    )
-    expect(enqueueIngestionMock).toHaveBeenCalledWith(
-      expect.objectContaining({ orgId: "org_2", repositoryId: "repo_2" }),
-      expect.any(Object),
-    )
+    expect(response.status).toBe(401)
+    expect(enqueueIngestionMock).not.toHaveBeenCalled()
   })
 
   it("returns 503 when webhook secret is not configured", async () => {

@@ -9,10 +9,12 @@ Self-hosted Slack uses the same connector flow as hosted ctx|, but your
 deployment owns **one** Slack app. Organisations authorise that app into their
 workspace; they do not create their own Slack apps or webhook URLs.
 
-Capture is **intent-based**: when a user mentions the bot in a thread, ctx|
-snapshots that thread as Markdown under `slack/` in a GitHub context repository
-(typically `ctxpipe-context`), then ingests it like any other repo. There is no
-continuous channel mirror.
+Capture is **intent-based**: mentioning the bot starts a small in-thread agent.
+Bare mention or “capture this” snapshots that thread as Markdown under `slack/`
+in a GitHub context repository (typically `ctxpipe-context`), then ingest runs
+like any other repo. Other mention text gets a capability reply — v1 does not
+answer questions in Slack. There is no continuous channel mirror. Uninstalling
+the Slack app **does not purge git**.
 
 For general workspace search and read from developer agents, point operators at
 Slack’s own [MCP server](https://docs.slack.dev/ai/slack-mcp-server) — that is
@@ -25,6 +27,8 @@ separate from this connector. See the
 - A Slack app with OAuth and Event Subscriptions enabled.
 - A GitHub connector and a repository that will receive captured threads.
 - Backend env: `SLACK_CLIENT_ID`, `SLACK_CLIENT_SECRET`, `SLACK_SIGNING_SECRET`.
+- Model env (`MODEL_PROVIDER*` / Bedrock) so the mention agent can interpret
+  extra text after `@mention`. A bare mention still captures without the model.
 - The same stable `AUTH_SECRET` and, when set,
   `CONNECTION_SECRETS_ENCRYPTION_KEY` on backend and worker so the worker can
   decrypt stored bot tokens.
@@ -137,14 +141,17 @@ After the deployment Slack app is configured, each organisation can:
 2. Bind a sync-target (context) repository.
 3. Invite the bot into channels where capture is needed (`/invite` the bot's
    **@handle**, which may differ from its display name).
-4. Mention that handle in a thread to capture it. Any text after the mention is
-   ignored; there is no required phrase.
+4. Mention that handle in a thread. Say **capture this** or mention with no extra
+   text to snapshot it. Later mentions on the same thread update the same file.
+   Other intents receive a short capability reply.
 
-Direct messages are not supported in v1. Captures are snapshots; mention the
-bot again on the same thread to refresh after new replies.
+Direct messages are not supported in v1. Captures are auditable snapshots
+committed to the bound default branch. Uninstall does not delete git.
 
-Reinstalling or rotating the Slack app **drops channel membership**. Invite the
-bot again in every channel where capture should work.
+One Slack workspace can be connected to one ctx| organization. Reinstalling or
+rotating the Slack app **drops channel membership**. Invite the bot again in
+every channel where capture should work. Hosted and self-host deployments share
+the Slack app’s rate quota across organisations.
 
 ## 4. Layout
 
@@ -197,10 +204,12 @@ callback. Its value must exactly match a redirect URL registered in Slack.
   again.
 - Mention the bot's **@handle** (Slack autocomplete), not only a display name
   typed as plain text.
-- Inspect the OpenWorkflow worker logs for `slack-capture-thread`. Backend and
+- Inspect the OpenWorkflow worker logs for `slack-mention-agent`. Backend and
   worker must use the same database and stable encryption material
   (`AUTH_SECRET` and, when set, `CONNECTION_SECRETS_ENCRYPTION_KEY`). The
   selected repository's GitHub connection must still have contents write access.
+  Extra text after a mention requires `MODEL_PROVIDER*` (or Bedrock). A second
+  org cannot OAuth-install a workspace that is already connected.
 
 ### Capture commits but the repository never indexes
 

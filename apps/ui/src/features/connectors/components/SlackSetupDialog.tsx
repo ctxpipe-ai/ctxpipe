@@ -34,7 +34,11 @@ import {
   SlackOAuthNotConfiguredError,
   slackConnectorKeys,
 } from "../queries/slack-connector"
-import { getSlackSetupStepIndex, getSlackSetupView } from "../slack-setup-model"
+import {
+  formatSlackBotMention,
+  getSlackSetupStepIndex,
+  getSlackSetupView,
+} from "../slack-setup-model"
 import {
   CONNECTOR_CONTEXT_REPOSITORY_NAME,
   ConnectorContextRepositoryGuidance,
@@ -395,7 +399,7 @@ export function SlackSetupDialog({
               </h2>
               <p className="mt-2 text-sm text-muted-foreground">
                 Capture specific Slack threads into a context repository by
-                mentioning the ctxpipe bot.
+                mentioning the bot.
               </p>
               <a
                 href={SLACK_DOCS_URL}
@@ -525,7 +529,7 @@ export function SlackSetupDialog({
                   <p>
                     Invite the bot to the channel:{" "}
                     <code className="rounded-none bg-muted px-1 py-0.5 text-[11px]">
-                      /invite @ctxpipe
+                      /invite {formatSlackBotMention(status?.botHandle)}
                     </code>
                   </p>
                 </li>
@@ -534,19 +538,22 @@ export function SlackSetupDialog({
                     2
                   </span>
                   <p>
-                    In the thread, mention the bot with Slack autocomplete
-                    (for example{" "}
+                    Mention {formatSlackBotMention(status?.botHandle)} to run
+                    ctx|. Say{" "}
                     <code className="rounded-none bg-muted px-1 py-0.5 text-[11px]">
-                      @ctxpipe
-                    </code>
-                    ). Any text after the mention is ignored.
+                      capture this
+                    </code>{" "}
+                    or mention the bot with no extra text to snapshot the thread
+                    into git. Later mentions on the same thread update the same
+                    snapshot.
                   </p>
                 </li>
               </ol>
               <p className="mt-3 text-sm text-muted-foreground">
-                ctxpipe converts the thread to Markdown and commits it to your
-                context repository. Mention the bot again on the same thread to
-                refresh the snapshot with new replies.
+                Use this for decisions, incidents, and design debates you want
+                as auditable engineering context. For live workspace search, use
+                Slack MCP. Uninstalling the Slack app does not delete git
+                history.
               </p>
             </div>
             <div className="flex flex-wrap justify-end gap-2 border-t border-border pt-4">
