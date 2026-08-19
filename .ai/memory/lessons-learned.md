@@ -196,6 +196,12 @@ Highest-priority confirmed rules for agents. Migrated from former `patterns.md` 
 - **Date:** 2026-08-11
 - **Source:** migrated from patterns.md
 
+### New source connectors are git-native
+- **Rule:** new source connectors inherit Linear/Notion (scoped mirror) or Slack (intent capture). Identity, encrypted secrets, and repo binding live on `connections.config` jsonb ([ADR-018](decisions/ADR-018-unified-connections-table.md), [ADR-022](decisions/ADR-022-linear-connector-git-native-mirror.md), [ADR-023](decisions/ADR-023-notion-connector-git-native-mirror.md)). Keep Confluence’s tables only while maintaining Confluence. Pipe content as plain-text files (usually Markdown) under a managed git root; new connectors commit images as files. Same code for hosted and self-host; self-host traffic stays on the customer deployment. Process: [source-connectors skill](../../.agents/skills/source-connectors/SKILL.md).
+- **Category:** convention
+- **Date:** 2026-08-19
+- **Source:** user direction after Linear, Notion, and Slack (PR #267)
+
 ### Tool organization
 - **Rule:** reusable agent tools under `src/tools`; graph-specific instructions and nodes under `src/graphs/<graphName>/`
 - **Category:** convention
