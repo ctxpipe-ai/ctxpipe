@@ -5,6 +5,7 @@ import { join } from "node:path"
 import { afterEach, describe, expect, it } from "vitest"
 import { decodeScipIndex, encodeScipIndex } from "../graph/scipProto.js"
 import {
+  discardScipShardFiles,
   publishMergedScipIndex,
   runOptionalIndexPhase,
   writeMergedScipIndex,
@@ -230,5 +231,21 @@ describe("publishMergedScipIndex", () => {
 
     expect(existsSync(malformedShardPath)).toBe(false)
     expect(existsSync(outputPath)).toBe(false)
+  })
+})
+
+describe("discardScipShardFiles", () => {
+  it("deletes leftover language shards so the next partial ingest reindexes them", async () => {
+    const directory = await mkdtemp(join(tmpdir(), "ctxpipe-scip-discard-"))
+    const goShardPath = join(directory, "go.scip")
+    const tsShardPath = join(directory, "typescript.scip")
+    await writeFile(goShardPath, new Uint8Array([1]))
+    await writeFile(tsShardPath, new Uint8Array([1]))
+
+    await discardScipShardFiles([goShardPath, tsShardPath])
+
+    expect(existsSync(goShardPath)).toBe(false)
+    expect(existsSync(tsShardPath)).toBe(false)
+    await rm(directory, { recursive: true, force: true })
   })
 })

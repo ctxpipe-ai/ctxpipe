@@ -417,6 +417,14 @@ async function readGitHead(clonePath: string): Promise<string | null> {
   return sha.length > 0 ? sha : null
 }
 
+export async function discardScipShardFiles(
+  shardPaths: readonly string[],
+): Promise<void> {
+  await Promise.all(
+    shardPaths.map((shardPath) => rm(shardPath, { force: true })),
+  )
+}
+
 export async function publishMergedScipIndex(input: {
   detectedLanguages: readonly string[]
   shardPaths: readonly string[]
@@ -706,15 +714,26 @@ export async function phaseMergeScip(
       ? [...params.languagesToMerge]
       : detected
   await writeStep("merging_intelligence", detected)
-  return withPhase("scip_merge", () =>
-    publishMergedScipIndex({
+  return withPhase("scip_merge", async () => {
+    const shardPaths = languagesToMerge.map((indexerId) =>
+      scipLangShardPath(ctx.orgId, ctx.repoId, indexerId),
+    )
+    if (
+      params.languagesToMerge !== undefined &&
+      languagesToMerge.length === 0
+    ) {
+      await discardScipShardFiles(
+        detected.map((indexerId) =>
+          scipLangShardPath(ctx.orgId, ctx.repoId, indexerId),
+        ),
+      )
+    }
+    return publishMergedScipIndex({
       detectedLanguages: detected,
-      shardPaths: languagesToMerge.map((indexerId) =>
-        scipLangShardPath(ctx.orgId, ctx.repoId, indexerId),
-      ),
+      shardPaths,
       outputPath: ctx.scipIndexPath,
-    }),
-  )
+    })
+  })
 }
 
 export async function phaseMarkCheckoutIndexed(

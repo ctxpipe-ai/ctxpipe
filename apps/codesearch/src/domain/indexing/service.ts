@@ -7,6 +7,7 @@ import {
   withRepositoryIndexOperation,
 } from "./indexConcurrency.js"
 import {
+  discardScipShardFiles,
   type IndexPhaseRepoContext,
   phaseCloneCheckout,
   phaseDetectLanguages,
@@ -43,7 +44,7 @@ type IndexInput = {
   fromHash?: string
 }
 
-export { publishMergedScipIndex, writeMergedScipIndex }
+export { discardScipShardFiles, publishMergedScipIndex, writeMergedScipIndex }
 
 /**
  * Run an optional index phase. Failures are warnings so non-OW callers get

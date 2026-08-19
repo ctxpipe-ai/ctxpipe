@@ -70,6 +70,7 @@ vi.mock("openworkflow", () => ({
   }),
 }))
 
+import type { CodesearchIndexAuth } from "../../domain/codeIngestion/codesearchIndexPhases.js"
 import { repositoryIndex } from "./repository-index.js"
 
 describe("repositoryIndex workflow", () => {
@@ -283,9 +284,11 @@ describe("repositoryIndex workflow", () => {
   })
 
   it("merges surviving SCIP langs when one language fails", async () => {
-    scipMock.mockImplementation(async (_auth: unknown, lang: string) => {
-      if (lang === "go") throw new Error("scip-go failed")
-    })
+    scipMock.mockImplementation(
+      async (_auth: CodesearchIndexAuth, lang: string) => {
+        if (lang === "go") throw new Error("scip-go failed")
+      },
+    )
     const step = {
       run: async (_opts: { name: string }, fn: () => unknown) => fn(),
     }
