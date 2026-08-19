@@ -1,6 +1,6 @@
 # Connector implementation file-map
 
-Read this in skill step 6. `<slug>` is the connection type (`linear`, `notion`, `slack`, …). Skip rows that the **kind** does not use (capture has no `config.yaml` / `*-sync-config`).
+Read this in skill step 6. `<slug>` is the connection type (`linear`, `notion`, `slack`, …). Native git skips yaml/content-sync rows. Every new connector that writes into a context repo includes `config.yaml` + config PR (`*-sync-config`), including capture.
 
 Anchor implementations: Linear and Notion on `main`; Slack on PR #267 (`slack-connector`).
 
@@ -25,21 +25,22 @@ Partial unique indexes (e.g. one Slack `teamId` per org) belong on `connections`
 | Surface | Where |
 |---------|--------|
 | HTTP/SDK client, token refresh | `apps/backend/src/services/<slug>/client.ts` |
-| Markdown/CSV/image conversion | `apps/backend/src/services/<slug>/converter.ts` |
-| Git commit | `commitFiles` in `apps/backend/src/services/github/installation-write-client.ts` |
-| Scoped: yaml schema + load from repo | `config-yaml.ts`, `config-from-repo.ts` |
+| Markdown/CSV + attachment conversion | `apps/backend/src/services/<slug>/converter.ts` |
+| Git commit (GitHub today) | `commitFiles` in `apps/backend/src/services/github/installation-write-client.ts` |
+| Config yaml schema + load from repo | `config-yaml.ts`, `config-from-repo.ts` |
 | Scoped: full mirror + incremental | `sync.ts`, `incremental.ts` |
-| Capture: snapshot writer | e.g. Slack `sync.ts` + mention agent |
+| Capture: snapshot writer | e.g. Slack `sync.ts` + mention agent (new capture still has config yaml) |
 
 ## Workflows and webhooks
 
 | Surface | Where |
 |---------|--------|
 | Workflows | `apps/backend/src/openworkflow/workflows/<slug>-*.ts` (CLI discovers this directory; add a `*-workflow-discovery.test.ts`) |
-| Scoped | `<slug>-sync-config`, `<slug>-sync-content`, `<slug>-sync-entity` |
-| Capture | event/mention workflow that writes git then ingests |
+| Config PR | `<slug>-sync-config` (required for every new git-writing connector) |
+| Scoped content | `<slug>-sync-content`, `<slug>-sync-entity` |
+| Capture content | event/mention workflow that writes git then ingests |
 | Provider webhook | `apps/backend/src/routes/webhooks/<slug>/<slug>.ts` — register in `routes/webhooks.ts` |
-| GitHub config-merge (scoped only) | `routes/webhooks/github/github-<slug>-push.ts` wired from `github.ts` |
+| GitHub config-merge | `routes/webhooks/github/github-<slug>-push.ts` wired from `github.ts` |
 | Enqueue | `runWorkflowWithWorkerWake`; after git write `runRepositoryIngestionWorkflow` |
 
 Webhook: verify signature on the **raw** body; enqueue; ACK. Non-live phases skip. Do not parse-and-reserialise JSON before HMAC.
@@ -89,7 +90,7 @@ Self-host page must list: provider app creation, exact callback, exact Event URL
 
 ## Tests (minimum)
 
-- Converter fixtures for representative payloads (including an image if the provider has them).
+- Converter fixtures for representative payloads (including an image or other attachment if the provider has them).
 - `commitFiles` with `encoding: "base64"` when binaries are written.
 - Webhook: valid HMAC on the raw body, reject tampered/stale, enqueue-then-ACK, skip when not live.
 - Workflow discovery test (`*-workflow-discovery.test.ts`).
