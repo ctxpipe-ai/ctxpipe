@@ -71,8 +71,8 @@ describe("repositoryIngestionOrchestrator workflow", () => {
     const childError = new Error("child failed")
     const step = {
       runWorkflow: vi.fn().mockRejectedValue(childError),
-      run: vi.fn(
-        async (_opts: { name: string }, fn: () => Promise<unknown>) => fn(),
+      run: vi.fn(async (_opts: { name: string }, fn: () => Promise<unknown>) =>
+        fn(),
       ),
     }
 
@@ -120,8 +120,8 @@ describe("repositoryIngestionOrchestrator workflow", () => {
     cancelSignal.name = "CancelSignal"
     const step = {
       runWorkflow: vi.fn().mockRejectedValue(cancelSignal),
-      run: vi.fn(
-        async (_opts: { name: string }, fn: () => Promise<unknown>) => fn(),
+      run: vi.fn(async (_opts: { name: string }, fn: () => Promise<unknown>) =>
+        fn(),
       ),
     }
 
@@ -139,6 +139,28 @@ describe("repositoryIngestionOrchestrator workflow", () => {
     expect(markRepositoryIndexingFailedMock).toHaveBeenCalledWith({
       repositoryId: "repo_1",
       error: cancelSignal,
+    })
+  })
+
+  it("marks failed with the memory-fit message when the child dies mid-index", async () => {
+    const childError = new Error("Codebase didn't fit available memory")
+    const step = {
+      runWorkflow: vi.fn().mockRejectedValue(childError),
+      run: vi.fn(async (_opts: { name: string }, fn: () => Promise<unknown>) =>
+        fn(),
+      ),
+    }
+
+    await expect(
+      repositoryIngestionOrchestrator.fn({
+        input: { repositoryId: "repo_1", orgId: "org_1" },
+        step,
+      } as never),
+    ).rejects.toThrow("Codebase didn't fit available memory")
+
+    expect(markRepositoryIndexingFailedMock).toHaveBeenCalledWith({
+      repositoryId: "repo_1",
+      error: childError,
     })
   })
 })

@@ -1,7 +1,7 @@
 import { Hono } from "hono"
 import { beforeEach, describe, expect, it, vi } from "vitest"
 import type { AppEnv } from "../app/env.js"
-import { oauthAccessTokens } from "../db/schema/auth.js"
+import { oauthAccessTokens, organizations } from "../db/schema/auth.js"
 
 const {
   getSessionMock,
@@ -104,6 +104,15 @@ function createMockDb(input: {
 
       return {
         from: vi.fn((table: unknown) => {
+          if (table === organizations) {
+            return {
+              innerJoin: vi.fn(() => ({
+                where: vi.fn(() => ({
+                  limit: vi.fn(async () => orgRows),
+                })),
+              })),
+            }
+          }
           const rows = table === oauthAccessTokens ? opaqueTokenRows : orgRows
           return {
             where: vi.fn(() => ({
@@ -472,6 +481,23 @@ describe("auth middleware composition", () => {
     expect(jwtVerifyMock).not.toHaveBeenCalled()
   })
 
+  it("rejects an authenticated user who is not a member of the requested org", async () => {
+    getSessionMock.mockResolvedValueOnce({
+      user: { id: "user_outsider", email: "outsider@example.com" },
+      session: { id: "sess_outsider", userId: "user_outsider" },
+    })
+    testState.db = createMockDb({ orgRows: [] })
+
+    const app = createComposedTestApp()
+    const response = await app.request("/mcp?orgSlug=private-org", {
+      method: "POST",
+    })
+
+    expect(response.status).toBe(404)
+    expect(await response.json()).toEqual({ error: "Not found" })
+    expect(withOrgDbContextMock).not.toHaveBeenCalled()
+  })
+
   it("composed middleware uses bearer auth for bearer-only requests", async () => {
     getSessionMock.mockResolvedValueOnce(null)
     jwtVerifyMock.mockResolvedValueOnce({
@@ -558,7 +584,9 @@ describe("auth middleware composition", () => {
       headers: { authorization: "Bearer opaque-but-unverified" },
     })
     expect(response.status).toBe(401)
-    expect(response.headers.get("WWW-Authenticate")).toContain('error="invalid_token"')
+    expect(response.headers.get("WWW-Authenticate")).toContain(
+      'error="invalid_token"',
+    )
   })
 
   it("requireAuth on non-MCP path omits resource_metadata", async () => {

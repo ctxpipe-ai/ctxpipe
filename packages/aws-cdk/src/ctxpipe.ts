@@ -43,7 +43,7 @@ const SIZE_PROFILES: Record<CtxPipeSize, CtxPipeSizeProfile> = {
       backend: { cpu: 256, memoryLimitMiB: 512 },
       worker: { cpu: 512, memoryLimitMiB: 1024 },
       ui: { cpu: 256, memoryLimitMiB: 512 },
-      codesearch: { cpu: 512, memoryLimitMiB: 1024 },
+      codesearch: { cpu: 512, memoryLimitMiB: 4096 },
       migrate: { cpu: 256, memoryLimitMiB: 512 },
     },
     services: {
@@ -69,7 +69,7 @@ const SIZE_PROFILES: Record<CtxPipeSize, CtxPipeSizeProfile> = {
       backend: { cpu: 512, memoryLimitMiB: 1024 },
       worker: { cpu: 1024, memoryLimitMiB: 2048 },
       ui: { cpu: 256, memoryLimitMiB: 512 },
-      codesearch: { cpu: 1024, memoryLimitMiB: 2048 },
+      codesearch: { cpu: 1024, memoryLimitMiB: 8192 },
       migrate: { cpu: 512, memoryLimitMiB: 1024 },
     },
     services: {
@@ -95,7 +95,7 @@ const SIZE_PROFILES: Record<CtxPipeSize, CtxPipeSizeProfile> = {
       backend: { cpu: 1024, memoryLimitMiB: 2048 },
       worker: { cpu: 2048, memoryLimitMiB: 4096 },
       ui: { cpu: 512, memoryLimitMiB: 1024 },
-      codesearch: { cpu: 2048, memoryLimitMiB: 4096 },
+      codesearch: { cpu: 2048, memoryLimitMiB: 12288 },
       migrate: { cpu: 1024, memoryLimitMiB: 2048 },
     },
     services: {

@@ -26,6 +26,7 @@ const RepositoryIndexingStatusSchema = z.enum([
   "ready",
   "failed",
   "unindexing",
+  "complete_with_issues",
 ])
 
 const RepositorySchema = z

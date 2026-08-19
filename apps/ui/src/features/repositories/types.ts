@@ -14,6 +14,7 @@ export type RepositoryIndexingStatus =
   | "ready"
   | "failed"
   | "unindexing"
+  | "complete_with_issues"
 
 /** UI-only display labels derived from API status + prior success. */
 export type RepositoryStatusDisplay =

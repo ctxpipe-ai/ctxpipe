@@ -33,6 +33,30 @@ function neptuneInstanceClasses(template: Template): string[] {
   );
 }
 
+function codesearchTaskCpuMemory(template: Template): {
+  cpu: string;
+  memory: string;
+} {
+  const resources = template.findResources("AWS::ECS::TaskDefinition");
+  for (const resource of Object.values(resources)) {
+    const properties = resource.Properties as {
+      Cpu?: string;
+      Memory?: string;
+      ContainerDefinitions?: Array<{ Name?: string }>;
+    };
+    const hasCodesearch = properties.ContainerDefinitions?.some(
+      (container) => container.Name === "codesearch",
+    );
+    if (hasCodesearch) {
+      return {
+        cpu: properties.Cpu ?? "",
+        memory: properties.Memory ?? "",
+      };
+    }
+  }
+  throw new Error("codesearch task definition not found");
+}
+
 describe("SIZE_PROFILES database instance classes", () => {
   it.each([
     ["small", "db.t4g.medium", "db.t4g.medium"],
@@ -59,4 +83,20 @@ describe("SIZE_PROFILES database instance classes", () => {
       }
     }
   });
+});
+
+describe("SIZE_PROFILES codesearch task size", () => {
+  it.each([
+    ["small", "512", "4096"],
+    ["medium", "1024", "8192"],
+    ["large", "2048", "12288"],
+  ] as const)(
+    "size %s uses codesearch cpu %s memory %s",
+    (size, cpu, memory) => {
+      expect(codesearchTaskCpuMemory(synthForSize(size))).toEqual({
+        cpu,
+        memory,
+      });
+    },
+  );
 });

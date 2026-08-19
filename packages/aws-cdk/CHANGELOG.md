@@ -1,5 +1,23 @@
 # @ctxpipe/aws-cdk
 
+## 3.1.0
+
+### Minor Changes
+
+- b694aaa: Add the production-ready Notion connector, including scoped page and database mirroring, recursive child-page sync, GitHub-backed Markdown output, OAuth refresh handling, and app-level webhook-driven updates.
+- b5dd479: Raise codesearch Fargate memory to 4/8/12 GiB on small/medium/large so ingest peaks fit. Upgrading this package and running `cdk deploy` also rolls pinned backend, worker, UI, codesearch, and migrate images: Zoekt-optional `complete_with_issues` ingest, the memory-fit error instead of `fetch failed`, and the Postgres enum migration (run automatically on deploy).
+- 412a83d: Add the Git-native Linear connector, including OAuth, signed incremental webhooks, reviewable scope configuration, content mirroring, deployment wiring, and self-hosting support.
+- b694aaa: Add Notion OAuth and webhook secret injection to the self-hosted AWS construct.
+
+### Patch Changes
+
+- 5423a9d: Fix invited-user onboarding so successful invitation acceptance joins the intended organization and failed acceptance remains visible instead of redirecting users to organization creation.
+- 3e6bd1e: Make Git sources usable at hundreds of repositories (virtualised list and picker, merge-on-save) and unify the connectors list and setup wizard chrome.
+- aa4987a: Select TypeScript SCIP only when a root `tsconfig.json` / `jsconfig.json` exists, so nested-only configs no longer schedule `scip-typescript` (and fail ingest) when the indexer always runs with cwd at checkout root.
+- 52370f7: Require organisation membership for MCP and org-scoped REST. Harden Streamable HTTP transport and add ctxpipe doctor mcp plus version-pinned MCPJam diagnostic scripts.
+- c07af15: Large-repository indexing reliability: SCIP/Zoekt phase orchestration, bounded indexer concurrency, tenant-safe Zoekt identity, safer indexer child env, durable repository deletion, and related ingestion scale fixes.
+- 602f56c: Harden Linear and Notion connector setup sync edges: keep wizards on the merge step while config PRs are in flight, initialise empty GitHub repos before content commits, pass the binding branch into repository ingestion, and improve Linear mirror readability (names and private media placeholders).
+
 ## 3.0.2
 
 ### Patch Changes

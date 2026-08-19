@@ -46,6 +46,8 @@ import {
   INDEXING_RUNNING_STALE_MS,
   listRepositoriesForGithubConnection,
   listRepositoriesForOrg,
+  markRepositoryIndexingFailed,
+  markRepositoryIndexingReadyWithIssues,
   pruneGithubConnectionRepositoriesNotInGitUrls,
   setRepositoryIndexingStep,
   tryClaimRepositoryIndexingEnqueue,
@@ -56,9 +58,7 @@ const githubConnectionId = "con_github"
 const orgSlug = "acme"
 const repositoryId = "repo_AAAAAAAAAAAAAAAAAAAAAAAAAA"
 
-function mockLinkedRepos(
-  rows: Array<{ id: string; gitUrl: string }>,
-) {
+function mockLinkedRepos(rows: Array<{ id: string; gitUrl: string }>) {
   getOrgDbMock.mockReturnValue({
     select: vi.fn().mockReturnValue({
       from: vi.fn().mockReturnValue({
@@ -154,9 +154,7 @@ describe("getRepositoryForOrg", () => {
   it("returns null when no row matches (cross-tenant id)", async () => {
     mockRepositoryWithZoekt(null)
 
-    await expect(
-      getRepositoryForOrg(orgId, repositoryId),
-    ).resolves.toBeNull()
+    await expect(getRepositoryForOrg(orgId, repositoryId)).resolves.toBeNull()
     expect(getSystemDbMock).toHaveBeenCalledTimes(1)
   })
 })
@@ -311,7 +309,10 @@ describe("deleteRepository", () => {
   it("runs Postgres purge inside withOrgDbContext and graph/codesearch after", async () => {
     await deleteRepository({ orgId, orgSlug, repositoryId })
 
-    expect(withOrgDbContextMock).toHaveBeenCalledWith(orgId, expect.any(Function))
+    expect(withOrgDbContextMock).toHaveBeenCalledWith(
+      orgId,
+      expect.any(Function),
+    )
     expect(purgeRepositoryPostgresMock).toHaveBeenCalledWith({
       orgId,
       repositoryId,
@@ -359,6 +360,80 @@ describe("deleteRepository", () => {
 
     expect(withGraphClientMock).not.toHaveBeenCalled()
     expect(notifyCodesearchRepositoryDeletedMock).not.toHaveBeenCalled()
+  })
+})
+
+describe("markRepositoryIndexingReadyWithIssues", () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+  })
+
+  it("keeps indexReady and stores the Zoekt issue", async () => {
+    const where = vi.fn().mockResolvedValue(undefined)
+    const set = vi.fn().mockReturnValue({ where })
+    const update = vi.fn().mockReturnValue({ set })
+    getOrgDbMock.mockReturnValue({ update })
+
+    await markRepositoryIndexingReadyWithIssues({
+      repositoryId,
+      targetHash: "abc123",
+      error: new Error("Command failed with exit code 137"),
+    })
+
+    expect(set).toHaveBeenCalledWith(
+      expect.objectContaining({
+        indexingStatus: "complete_with_issues",
+        indexReady: true,
+        indexingError: "Codebase didn't fit available memory",
+        lastIngestedHash: "abc123",
+      }),
+    )
+  })
+})
+
+describe("markRepositoryIndexingFailed", () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+  })
+
+  it("stores the memory-fit message instead of fetch failed", async () => {
+    const where = vi.fn().mockResolvedValue(undefined)
+    const set = vi.fn().mockReturnValue({ where })
+    const update = vi.fn().mockReturnValue({ set })
+    getOrgDbMock.mockReturnValue({ update })
+
+    await markRepositoryIndexingFailed({
+      repositoryId,
+      error: new Error("Codebase didn't fit available memory"),
+    })
+
+    expect(set).toHaveBeenCalledWith(
+      expect.objectContaining({
+        indexingStatus: "failed",
+        indexingError: "Codebase didn't fit available memory",
+        indexReady: false,
+      }),
+    )
+  })
+
+  it("does not remap unrelated fetch failed from non-codesearch work", async () => {
+    const where = vi.fn().mockResolvedValue(undefined)
+    const set = vi.fn().mockReturnValue({ where })
+    const update = vi.fn().mockReturnValue({ set })
+    getOrgDbMock.mockReturnValue({ update })
+
+    await markRepositoryIndexingFailed({
+      repositoryId,
+      error: new TypeError("fetch failed"),
+    })
+
+    expect(set).toHaveBeenCalledWith(
+      expect.objectContaining({
+        indexingStatus: "failed",
+        indexingError: "fetch failed",
+        indexReady: false,
+      }),
+    )
   })
 })
 

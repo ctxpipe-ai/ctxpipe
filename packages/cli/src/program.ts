@@ -1,6 +1,4 @@
 import { Command, Option } from "commander"
-import { DEFAULT_BASE_URL } from "./constants.js"
-import { packageVersion } from "./version.js"
 import {
   runAuthLogin,
   runAuthLogout,
@@ -8,7 +6,9 @@ import {
   runDoctor,
   runInit,
   runMcpAdd,
+  runMcpDoctor,
 } from "./commands.js"
+import { DEFAULT_BASE_URL } from "./constants.js"
 import {
   runMemoryCaptureDismiss,
   runMemoryCaptureFinalize,
@@ -20,6 +20,7 @@ import {
   runMemoryStatus,
   runMemoryStop,
 } from "./memory/index.js"
+import { packageVersion } from "./version.js"
 
 function collectList(value: string, previous: string[]): string[] {
   return [
@@ -42,7 +43,9 @@ function addNonInteractiveOption(command: Command): Command {
       "Apply without prompts; required for scripts/CI when stdin is not a TTY",
       false,
     )
-    .addOption(new Option("--yes", "Deprecated alias for --non-interactive").hideHelp())
+    .addOption(
+      new Option("--yes", "Deprecated alias for --non-interactive").hideHelp(),
+    )
 }
 
 export async function runProgram(argv: string[]): Promise<void> {
@@ -60,6 +63,7 @@ Examples (non-interactive):
   npx ctxpipe init --org acme --agents codex,claude --scope repo --non-interactive
   npx ctxpipe mcp add --org acme --client cursor --scope repo --non-interactive
   npx ctxpipe doctor --json
+  npx ctxpipe doctor mcp --url "https://app.example.com/mcp?orgSlug=acme"
 `,
     )
 
@@ -69,7 +73,10 @@ Examples (non-interactive):
       .description(
         "Initialize the current repo (or user scope) for ctx|. Writes .ctxpipe/config.json and optional MCP client configs.",
       )
-      .option("--org <slug>", "ctx| organization slug (required when not interactive)")
+      .option(
+        "--org <slug>",
+        "ctx| organization slug (required when not interactive)",
+      )
       .option(
         "--base-url <url>",
         `ctx| app origin for auth and MCP (default: ${DEFAULT_BASE_URL})`,
@@ -116,43 +123,82 @@ Examples (non-interactive):
         "Skip local memory setup even if interactive selection would suggest it",
       ),
   ).action(async (rawOpts: Record<string, unknown>) => {
-      const opts = rawOpts as {
-        org?: string
-        baseUrl: string
-        scope?: string
-        agents: string[]
-        agent: string[]
-        client: string[]
-        dryRun: boolean
-        json: boolean
-        mcp: boolean
-        memory?: boolean
-      }
-      const agents = [
-        ...(opts.agents ?? []),
-        ...(opts.agent ?? []),
-        ...(opts.client ?? []),
-      ]
-      await runInit({
-        baseUrl: opts.baseUrl,
-        org: opts.org,
-        scope: opts.scope,
-        agents,
-        dryRun: opts.dryRun,
-        json: opts.json,
-        nonInteractive: resolveNonInteractive(rawOpts),
-        mcp: opts.mcp,
-        memory: opts.memory,
-      })
+    const opts = rawOpts as {
+      org?: string
+      baseUrl: string
+      scope?: string
+      agents: string[]
+      agent: string[]
+      client: string[]
+      dryRun: boolean
+      json: boolean
+      mcp: boolean
+      memory?: boolean
+    }
+    const agents = [
+      ...(opts.agents ?? []),
+      ...(opts.agent ?? []),
+      ...(opts.client ?? []),
+    ]
+    await runInit({
+      baseUrl: opts.baseUrl,
+      org: opts.org,
+      scope: opts.scope,
+      agents,
+      dryRun: opts.dryRun,
+      json: opts.json,
+      nonInteractive: resolveNonInteractive(rawOpts),
+      mcp: opts.mcp,
+      memory: opts.memory,
     })
+  })
 
-  program
+  const doctor = program
     .command("doctor")
-    .description("Print environment diagnostics (Node version, cwd, detected client CLIs).")
+    .description(
+      "Print environment diagnostics (Node version, cwd, detected client CLIs).",
+    )
     .option("--json", "Print diagnostics as JSON", false)
     .action((rawOpts: Record<string, unknown>) => {
       const opts = rawOpts as { json: boolean }
       runDoctor({ json: opts.json })
+    })
+
+  doctor
+    .command("mcp")
+    .description(
+      "Diagnose a ctx| Streamable HTTP endpoint and its OAuth discovery metadata.",
+    )
+    .requiredOption(
+      "--url <url>",
+      "ctx| MCP URL, including /mcp?orgSlug=<slug>",
+    )
+    .option("--timeout <ms>", "Per-request timeout in milliseconds", "10000")
+    .option("--json", "Print diagnostics as JSON", false)
+    .addHelpText(
+      "after",
+      `
+This command diagnoses ctx| HTTP routing, TLS/reachability, the unauthenticated
+Bearer challenge, and OAuth discovery. It does not run browser OAuth, list
+authenticated tools, invoke ctx_advisor, or test STDIO servers. A successful
+result means the endpoint is ready for OAuth, not that authenticated tools work.
+`,
+    )
+    .action(async (rawOpts: Record<string, unknown>) => {
+      const opts = rawOpts as {
+        url: string
+        timeout: string
+        json: boolean
+      }
+      const timeoutMs = Number(opts.timeout)
+      if (!Number.isInteger(timeoutMs) || timeoutMs <= 0) {
+        throw new Error("--timeout must be a positive integer")
+      }
+      await runMcpDoctor({
+        url: opts.url,
+        timeoutMs,
+        json: opts.json,
+      })
     })
 
   const mcp = program.command("mcp").description("MCP-only commands for ctx|.")
@@ -160,8 +206,13 @@ Examples (non-interactive):
   addNonInteractiveOption(
     mcp
       .command("add")
-      .description("Configure ctx| MCP for one or more clients without re-running full init.")
-      .option("--org <slug>", "ctx| organization slug (required when not interactive)")
+      .description(
+        "Configure ctx| MCP for one or more clients without re-running full init.",
+      )
+      .option(
+        "--org <slug>",
+        "ctx| organization slug (required when not interactive)",
+      )
       .option(
         "--base-url <url>",
         `ctx| app origin for MCP URL (default: ${DEFAULT_BASE_URL})`,
@@ -190,32 +241,38 @@ Examples (non-interactive):
         false,
       ),
   ).action(async (rawOpts: Record<string, unknown>) => {
-      const opts = rawOpts as {
-        org: string
-        baseUrl: string
-        scope?: string
-        client: string[]
-        clients: string[]
-        dryRun: boolean
-        json: boolean
-      }
-      const clients = [...(opts.client ?? []), ...(opts.clients ?? [])]
-      await runMcpAdd({
-        baseUrl: opts.baseUrl,
-        org: opts.org,
-        scope: opts.scope,
-        clients,
-        dryRun: opts.dryRun,
-        json: opts.json,
-        nonInteractive: resolveNonInteractive(rawOpts),
-      })
+    const opts = rawOpts as {
+      org: string
+      baseUrl: string
+      scope?: string
+      client: string[]
+      clients: string[]
+      dryRun: boolean
+      json: boolean
+    }
+    const clients = [...(opts.client ?? []), ...(opts.clients ?? [])]
+    await runMcpAdd({
+      baseUrl: opts.baseUrl,
+      org: opts.org,
+      scope: opts.scope,
+      clients,
+      dryRun: opts.dryRun,
+      json: opts.json,
+      nonInteractive: resolveNonInteractive(rawOpts),
     })
+  })
 
-  const auth = program.command("auth").description("Setup sign-in for listing organizations (separate from MCP OAuth).")
+  const auth = program
+    .command("auth")
+    .description(
+      "Setup sign-in for listing organizations (separate from MCP OAuth).",
+    )
 
   auth
     .command("login")
-    .description("Sign in with a browser/device code and store credentials for setup commands.")
+    .description(
+      "Sign in with a browser/device code and store credentials for setup commands.",
+    )
     .option(
       "--base-url <url>",
       `ctx| app origin for auth (default: ${DEFAULT_BASE_URL})`,
@@ -228,7 +285,9 @@ Examples (non-interactive):
 
   auth
     .command("whoami")
-    .description("Show whether you are signed in for setup and which user the server reports.")
+    .description(
+      "Show whether you are signed in for setup and which user the server reports.",
+    )
     .option(
       "--base-url <url>",
       `ctx| app origin (default: ${DEFAULT_BASE_URL})`,
@@ -298,33 +357,37 @@ Examples (non-interactive):
         [] as string[],
       )
       .option("--dry-run", "Print planned changes without writing files", false)
-      .option("--json", "Print machine-readable JSON (use with --non-interactive to apply)", false),
+      .option(
+        "--json",
+        "Print machine-readable JSON (use with --non-interactive to apply)",
+        false,
+      ),
   ).action(async (rawOpts: Record<string, unknown>) => {
-      const opts = rawOpts as {
-        org?: string
-        baseUrl: string
-        scope?: string
-        agents: string[]
-        agent: string[]
-        client: string[]
-        dryRun: boolean
-        json: boolean
-      }
-      const agents = [
-        ...(opts.agents ?? []),
-        ...(opts.agent ?? []),
-        ...(opts.client ?? []),
-      ]
-      await runMemoryInit({
-        baseUrl: opts.baseUrl,
-        org: opts.org,
-        scope: opts.scope,
-        agents,
-        dryRun: opts.dryRun,
-        json: opts.json,
-        nonInteractive: resolveNonInteractive(rawOpts),
-      })
+    const opts = rawOpts as {
+      org?: string
+      baseUrl: string
+      scope?: string
+      agents: string[]
+      agent: string[]
+      client: string[]
+      dryRun: boolean
+      json: boolean
+    }
+    const agents = [
+      ...(opts.agents ?? []),
+      ...(opts.agent ?? []),
+      ...(opts.client ?? []),
+    ]
+    await runMemoryInit({
+      baseUrl: opts.baseUrl,
+      org: opts.org,
+      scope: opts.scope,
+      agents,
+      dryRun: opts.dryRun,
+      json: opts.json,
+      nonInteractive: resolveNonInteractive(rawOpts),
     })
+  })
 
   const capture = memory
     .command("capture")
@@ -407,7 +470,9 @@ Examples (non-interactive):
 
   memory
     .command("doctor")
-    .description("Diagnose local Markdown memory setup (layout, indexes, events).")
+    .description(
+      "Diagnose local Markdown memory setup (layout, indexes, events).",
+    )
     .option(
       "--base-url <url>",
       `ctx| app origin (default: ${DEFAULT_BASE_URL})`,
@@ -421,7 +486,9 @@ Examples (non-interactive):
 
   memory
     .command("stop")
-    .description("No-op compatibility command (no local memory runtime in Markdown-only mode).")
+    .description(
+      "No-op compatibility command (no local memory runtime in Markdown-only mode).",
+    )
     .option("--json", "Print result as JSON", false)
     .action(async (rawOpts: Record<string, unknown>) => {
       const opts = rawOpts as { json: boolean }

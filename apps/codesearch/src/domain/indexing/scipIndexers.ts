@@ -1,11 +1,12 @@
 import { randomUUID } from "node:crypto"
 import { copyFile, mkdir, rename, rm, stat } from "node:fs/promises"
 import { basename, dirname, join, resolve } from "node:path"
+import { tryEmitIndexEvent } from "../../observability/indexingLog.js"
 import type { ScipIndexerId } from "./detectLanguages.js"
 import { withIndexerGoLimits } from "./indexerChildEnv.js"
 import { withIndexerProcessSlot } from "./indexerProcessSemaphore.js"
+import { errorFromIndexerExit } from "./memoryFitError.js"
 import { INDEX_CHILD_LOG_TAIL_BYTES, readStreamTail } from "./streamTail.js"
-import { tryEmitIndexEvent } from "../../observability/indexingLog.js"
 
 /**
  * Direct upstream SCIP indexer CLIs. These commands run from the checkout root.
@@ -147,15 +148,18 @@ async function runIndexerProcess(input: {
       ])
 
       if (exitCode !== 0) {
-        throw new Error(
-          [
-            `SCIP indexer "${input.indexerId}" failed with exit code ${exitCode} (${input.argv.join(" ")})`,
-            stderr.trim() ? `stderr: ${stderr.trim()}` : "",
-            stdout.trim() ? `stdout: ${stdout.trim()}` : "",
-          ]
-            .filter(Boolean)
-            .join("\n"),
-        )
+        if (exitCode === 137) {
+          tryEmitIndexEvent("codesearch.index.memory_exceeded", {
+            indexerId: input.indexerId,
+            exitCode,
+          })
+        }
+        throw errorFromIndexerExit({
+          exitCode,
+          stderr,
+          stdout,
+          headline: `SCIP indexer "${input.indexerId}" failed with exit code ${exitCode} (${input.argv.join(" ")})`,
+        })
       }
     } finally {
       clearInterval(heartbeatTimer)

@@ -2,7 +2,14 @@ import { z } from "zod"
 import { signUpstreamJwt } from "../../auth/upstreamJwt.js"
 import { parseEnv } from "../../config/env.js"
 import { codesearchBaseUrl } from "../../lib/agentToolRuntime.js"
+import {
+  CODEBASE_DIDNT_FIT_AVAILABLE_MEMORY,
+  isCodesearchTaskDeath,
+  isMemoryFitFailure,
+  userFacingIndexingError,
+} from "../../lib/memoryFitError.js"
 import { withTransientHttpRetry } from "../../lib/withTransientHttpRetry.js"
+import { log } from "../../observability/logger.js"
 
 const renameSchema = z.object({
   from: z.string(),
@@ -38,29 +45,42 @@ async function codesearchPhaseFetch(
   init: RequestInit,
 ): Promise<Response> {
   const env = parseEnv(process.env as Record<string, string | undefined>)
-  return withTransientHttpRetry(
-    async () => {
-      const token = await signUpstreamJwt({
-        env,
-        audience: env.AUTH_TOKEN_AUDIENCE_CODESEARCH ?? "codesearch",
-        claims: {
-          sub: `repo:${auth.repositoryId}`,
-          orgId: auth.orgId,
-          principal: "service",
-          ...(auth.workspaceId ? { workspaceId: auth.workspaceId } : {}),
-        },
+  try {
+    return await withTransientHttpRetry(
+      async () => {
+        const token = await signUpstreamJwt({
+          env,
+          audience: env.AUTH_TOKEN_AUDIENCE_CODESEARCH ?? "codesearch",
+          claims: {
+            sub: `repo:${auth.repositoryId}`,
+            orgId: auth.orgId,
+            principal: "service",
+            ...(auth.workspaceId ? { workspaceId: auth.workspaceId } : {}),
+          },
+        })
+        return fetch(`${codesearchBaseUrl()}/${auth.repositoryId}${path}`, {
+          ...init,
+          headers: {
+            "Content-Type": "application/json",
+            Authorization: `Bearer ${token}`,
+            ...(init.headers ?? {}),
+          },
+        })
+      },
+      { retries: 10, baseDelayMs: 200, maxDelayMs: 30_000 },
+    )
+  } catch (error) {
+    if (isMemoryFitFailure(error) || isCodesearchTaskDeath(error)) {
+      log.info({
+        step: "repository-index.memory_exceeded",
+        path,
+        repositoryId: auth.repositoryId,
+        error: userFacingIndexingError(error),
       })
-      return fetch(`${codesearchBaseUrl()}/${auth.repositoryId}${path}`, {
-        ...init,
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: `Bearer ${token}`,
-          ...(init.headers ?? {}),
-        },
-      })
-    },
-    { retries: 10, baseDelayMs: 200, maxDelayMs: 30_000 },
-  )
+      throw new Error(CODEBASE_DIDNT_FIT_AVAILABLE_MEMORY, { cause: error })
+    }
+    throw error
+  }
 }
 
 async function parseOrThrow<T>(
@@ -79,7 +99,12 @@ async function parseOrThrow<T>(
     } catch {
       // non-JSON
     }
-    throw new Error(`${label} failed with status ${res.status}: ${detail}`)
+    const combined = `${label} failed with status ${res.status}: ${detail}`
+    throw new Error(
+      isMemoryFitFailure(combined) || isMemoryFitFailure(detail)
+        ? CODEBASE_DIDNT_FIT_AVAILABLE_MEMORY
+        : combined,
+    )
   }
   let json: unknown
   try {

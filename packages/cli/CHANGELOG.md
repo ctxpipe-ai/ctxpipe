@@ -1,5 +1,11 @@
 # ctxpipe
 
+## 0.3.0
+
+### Minor Changes
+
+- 52370f7: Require organisation membership for MCP and org-scoped REST. Harden Streamable HTTP transport and add ctxpipe doctor mcp plus version-pinned MCPJam diagnostic scripts.
+
 ## 0.2.0
 
 ### Minor Changes

@@ -103,11 +103,11 @@ const DENY_PATH_FRAGMENTS = [
   ".git/",
 ]
 
-const SELF_CAPTURE_RE =
-  /memory capture|memory-capture|capture\.ts|capture-adr|capture-lesson|capture-glossary|capture-decision|Memory candidates \(|Promote via skills\/rules|mark ids promoted\/dismissed|do not auto-write ADRs from hooks/i
-
 const FOLLOWUP_PROMPT_RE =
   /Memory candidates \(|Promote via skills\/rules|mark ids promoted\/dismissed|do not auto-write ADRs from hooks/i
+
+const SELF_CAPTURE_RE =
+  /memory capture|memory-capture|capture\.ts|capture-adr|capture-lesson|capture-glossary|capture-decision|Memory candidates \(|Promote via skills\/rules|mark ids promoted\/dismissed|do not auto-write ADRs from hooks/i
 
 const TOOL_DUMP_RE =
   /error TS\d+|Cannot find module|vitest run|FAIL\s+|^\s*✓\s+/m
@@ -385,11 +385,8 @@ function extractToolBits(payload: Record<string, unknown>): {
 
 function isSelfCapture(payload: Record<string, unknown>, text: string): boolean {
   const { toolName, toolInput } = extractToolBits(payload)
-  return (
-    SELF_CAPTURE_RE.test(toolName) ||
-    SELF_CAPTURE_RE.test(toolInput) ||
-    SELF_CAPTURE_RE.test(text)
-  )
+  const blob = `${toolName}\n${toolInput}\n${text}`
+  return SELF_CAPTURE_RE.test(blob) || FOLLOWUP_PROMPT_RE.test(blob)
 }
 
 export function isUserPromptEvent(eventType: string): boolean {

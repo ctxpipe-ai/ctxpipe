@@ -15,9 +15,22 @@ inviting users back in.
 4. Preserve current deployment secrets and image tags or commit SHA.
 5. Confirm there are no long-running connector or ingestion jobs you need to let
    finish first.
-6. Run migrations against the target database.
+6. Run migrations against the target database (AWS CDK: this is part of
+   `cdk deploy`).
 7. Deploy backend, worker, UI, and codesearch from the same commit or release.
 8. Validate health, sign-in, repository indexing, Chat/MCP, and connectors.
+
+## AWS CDK flow
+
+Self-hosted AWS stacks upgrade by bumping `@ctxpipe/aws-cdk` and redeploying. The published package pins backend, worker, UI, codesearch, and migrate images to the same git SHA and applies that release’s Fargate size profiles.
+
+```bash
+pnpm update @ctxpipe/aws-cdk
+cdk synth
+cdk deploy
+```
+
+`cdk deploy` runs the migrate task, then updates ECS services. Do not retag services to `:latest` or mix image SHAs from different package versions. See [AWS](/docs/self-hosting/deployment/aws).
 
 ## Docker Compose flow
 

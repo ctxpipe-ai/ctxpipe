@@ -33,6 +33,45 @@ npx ctxpipe memory init --agents cursor --non-interactive
 npx ctxpipe doctor --json
 ```
 
+### Diagnose Streamable HTTP MCP
+
+Run the lightweight doctor against the exact organisation-scoped endpoint:
+
+```bash
+# Local host development
+NODE_EXTRA_CA_CERTS="$HOME/.portless/ca.pem" \
+  npx ctxpipe doctor mcp \
+  --url "https://app.ctxpipe.localhost/mcp?orgSlug=acme"
+
+# Hosted or self-hosted deployment
+npx ctxpipe doctor mcp \
+  --url "https://app.example.com/mcp?orgSlug=acme" \
+  --json
+```
+
+The command checks backend reachability, the unauthenticated Bearer challenge,
+RFC 9728 protected-resource metadata, and RFC 8414 authorisation-server
+metadata. A `ready-for-oauth` result means discovery is coherent; it does not
+prove that browser OAuth, authenticated tools, or `ctx_advisor` work. The doctor
+does not accept bearer tokens and does not test STDIO servers.
+
+Use the external, version-pinned MCPJam CLI for the authenticated part of the
+investigation:
+
+```bash
+npx @mcpjam/cli@3.24.0 oauth login \
+  --url "https://app.example.com/mcp?orgSlug=acme" \
+  --registration dcr \
+  --credentials-out .mcpjam/credentials.json
+
+npx @mcpjam/cli@3.24.0 tools list \
+  --url "https://app.example.com/mcp?orgSlug=acme" \
+  --credentials-file .mcpjam/credentials.json
+```
+
+MCPJam remains an external diagnostic client; it is not bundled into the
+`ctxpipe` package or the self-hosted backend.
+
 ### Local memory (Markdown-only)
 
 ```bash

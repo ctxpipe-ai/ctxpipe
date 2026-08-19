@@ -452,7 +452,17 @@ describe("memory/capture", () => {
     ).toEqual([])
     expect(
       classifyText(
+        "Use React Aria Tabs when composing a keyboard-accessible tab strip.",
+      ),
+    ).toEqual([])
+    expect(
+      classifyText(
         "src/foo.ts(12,5): error TS2307: Cannot find module '@pierre/trees'",
+      ),
+    ).toEqual([])
+    expect(
+      classifyText(
+        "src/foo.ts(12,5): error TS2307: Cannot find module 'react-aria-components'",
       ),
     ).toEqual([])
     expect(
