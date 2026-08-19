@@ -9,6 +9,10 @@ import {
 import { getLogger } from "../../../observability/logger.js"
 import { runWorkflowWithWorkerWake } from "../../../openworkflow/client.js"
 import { slackMentionAgent } from "../../../openworkflow/workflows/slack-mention-agent.js"
+import {
+  publishSlackMentionStatus,
+  SLACK_MENTION_STATUS_ENQUEUE_FAILED,
+} from "../../../services/slack/mention-status.js"
 import { verifySlackRequestSignature } from "../../../services/slack/verify-signature.js"
 
 const SlackEventEnvelopeSchema = z.object({
@@ -149,6 +153,16 @@ export function registerSlackWebhookRoute(app: OpenAPIHono<AppEnv>) {
         step: "slack_mention_agent.enqueue",
         connectionId: connection.id,
       })
+      const published = await publishSlackMentionStatus({
+        env,
+        connection,
+        channelId,
+        threadTs,
+        text: SLACK_MENTION_STATUS_ENQUEUE_FAILED,
+      })
+      if (!published) {
+        return c.json({ error: "Failed to enqueue Slack mention agent" }, 503)
+      }
     }
 
     return c.json({ ok: true }, 200)

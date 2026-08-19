@@ -7,6 +7,7 @@ const getTargetMock = vi.hoisted(() => vi.fn())
 const revokeMock = vi.hoisted(() => vi.fn())
 const runWorkflowMock = vi.hoisted(() => vi.fn())
 const verifySignatureMock = vi.hoisted(() => vi.fn())
+const postStatusMock = vi.hoisted(() => vi.fn())
 
 vi.mock("../../../models/slack-connector.js", () => ({
   getSlackConnectionByTeamId: getConnectionMock,
@@ -28,6 +29,10 @@ vi.mock("../../../openworkflow/workflows/slack-mention-agent.js", () => ({
 }))
 vi.mock("../../../services/slack/verify-signature.js", () => ({
   verifySlackRequestSignature: verifySignatureMock,
+}))
+vi.mock("../../../services/slack/client.js", () => ({
+  postSlackThreadMessage: postStatusMock,
+  updateSlackMessage: vi.fn(),
 }))
 
 import { registerSlackWebhookRoute } from "./slack.js"
@@ -91,6 +96,7 @@ describe("Slack webhook", () => {
     })
     runWorkflowMock.mockResolvedValue(undefined)
     revokeMock.mockResolvedValue(true)
+    postStatusMock.mockResolvedValue({ ts: "1710000000.000900" })
   })
 
   it("enqueues a mention agent for an app_mention on a live connector", async () => {
@@ -113,6 +119,34 @@ describe("Slack webhook", () => {
           "slack-mention:con_1:C1:1710000000.000001:1710000000.000001",
       },
     )
+    expect(postStatusMock).not.toHaveBeenCalled()
+  })
+
+  it("posts a terminal failure and returns 200 when enqueue fails", async () => {
+    runWorkflowMock.mockRejectedValue(new Error("queue down"))
+
+    const response = await mentionRequest()
+
+    expect(response.status).toBe(200)
+    expect(postStatusMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        channelId: "C1",
+        threadTs: "1710000000.000001",
+        text: "Engineering context capture failed. Could not start the capture job. Mention the bot again.",
+      }),
+    )
+  })
+
+  it("returns 503 when enqueue fails and the failure status cannot be posted", async () => {
+    runWorkflowMock.mockRejectedValue(new Error("queue down"))
+    postStatusMock.mockResolvedValue(null)
+
+    const response = await mentionRequest()
+
+    expect(response.status).toBe(503)
+    await expect(response.json()).resolves.toEqual({
+      error: "Failed to enqueue Slack mention agent",
+    })
   })
 
   it("uses a new idempotency key when the same thread is mentioned again", async () => {

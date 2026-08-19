@@ -125,8 +125,10 @@ describe("slackMentionAgent workflow", () => {
     expect(result).toEqual({ kind: "capability" })
   })
 
-  it("still runs the agent when the status post fails", async () => {
-    postStatusMock.mockResolvedValue(null)
+  it("posts a terminal status when the working message never landed", async () => {
+    postStatusMock
+      .mockResolvedValueOnce(null)
+      .mockResolvedValueOnce({ ts: "1710000000.001000" })
 
     await slackMentionAgent.fn({
       input: {
@@ -141,6 +143,38 @@ describe("slackMentionAgent workflow", () => {
       expect.objectContaining({ excludeMessageTs: undefined }),
     )
     expect(updateStatusMock).not.toHaveBeenCalled()
+    expect(postStatusMock).toHaveBeenLastCalledWith(
+      expect.objectContaining({
+        text: expect.stringContaining("Engineering context captured."),
+        threadTs: "1710000000.000100",
+      }),
+    )
+  })
+
+  it("posts a fallback reply when chat.update of the working message fails", async () => {
+    updateStatusMock.mockResolvedValue(false)
+    postStatusMock
+      .mockResolvedValueOnce({ ts: "1710000000.000999" })
+      .mockResolvedValueOnce({ ts: "1710000000.001000" })
+
+    await slackMentionAgent.fn({
+      input: {
+        orgId: "org_1",
+        connectionId: "con_1",
+        channelId: "C1",
+        threadTs: "1710000000.000100",
+      },
+    } as never)
+
+    expect(updateStatusMock).toHaveBeenCalledWith(
+      expect.objectContaining({ messageTs: "1710000000.000999" }),
+    )
+    expect(postStatusMock).toHaveBeenLastCalledWith(
+      expect.objectContaining({
+        text: expect.stringContaining("Engineering context captured."),
+        threadTs: "1710000000.000100",
+      }),
+    )
   })
 
   it("updates status even when the agent throws", async () => {

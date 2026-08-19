@@ -6,18 +6,17 @@ import {
   getSlackConnectionByConnectionId,
   getSlackSyncTargetByConnectionId,
 } from "../../models/slack-connector.js"
-import { getLogger } from "../../observability/logger.js"
 import {
   postSlackThreadMessage,
   SLACK_CAPTURE_STATUS_FAILED,
   SLACK_MENTION_STATUS_WORKING,
-  updateSlackMessage,
 } from "../../services/slack/client.js"
 import {
   formatSlackMentionStatusText,
   runSlackMentionAgent,
   type SlackMentionAgentResult,
 } from "../../services/slack/mention-agent.js"
+import { publishSlackMentionStatus } from "../../services/slack/mention-status.js"
 
 const slackMentionAgentInputSchema = z.object({
   orgId: z.string().min(1),
@@ -81,24 +80,14 @@ export const slackMentionAgent = defineWorkflow(
       }
       throw error
     } finally {
-      if (statusMessage) {
-        const text = formatSlackMentionStatusText(outcome)
-        const updated = await updateSlackMessage({
-          env,
-          connection,
-          channelId: input.channelId,
-          messageTs: statusMessage.ts,
-          text,
-        })
-        if (!updated) {
-          getLogger().warn("slack_mention_status_update_failed", {
-            connectionId: input.connectionId,
-            channelId: input.channelId,
-            threadTs: input.threadTs,
-            statusMessageTs: statusMessage.ts,
-          })
-        }
-      }
+      await publishSlackMentionStatus({
+        env,
+        connection,
+        channelId: input.channelId,
+        threadTs: input.threadTs,
+        text: formatSlackMentionStatusText(outcome),
+        messageTs: statusMessage?.ts,
+      })
     }
 
     if (outcome.kind === "failed") {
