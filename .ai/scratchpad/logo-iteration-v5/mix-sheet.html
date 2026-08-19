@@ -1,0 +1,55 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <style>
+      * { box-sizing: border-box; }
+      body { margin: 0; background: #09090b; color: #e4e4e7; font-family: ui-sans-serif, system-ui, sans-serif; }
+      .page { padding: 20px 24px 28px; }
+      h1 { font-size: 16px; margin: 0 0 4px; }
+      .meta { color: #71717a; font-size: 12px; margin: 0 0 16px; }
+      .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+      .card { border: 1px solid #3f3f46; overflow: hidden; background: #18181b; }
+      .card h2 { margin: 0; padding: 8px 12px; font-size: 11px; letter-spacing: .06em; text-transform: uppercase; color: #40e0d0; background: #134e4a; }
+      .stage { min-height: 180px; display: grid; place-items: center; padding: 28px; background: #09090b; }
+      .stage.light { background: #f4f4f5; }
+      .stage img { height: 72px; width: auto; display: block; }
+      .marks { display: flex; gap: 16px; align-items: center; justify-content: center; padding: 16px; background: #18181b; border-top: 1px solid #3f3f46; }
+      .marks img { image-rendering: pixelated; }
+      .marks .m64 { width: 64px; height: 64px; }
+      .marks .m16 { width: 32px; height: 32px; }
+    </style>
+  </head>
+  <body>
+    <div class="page">
+      <h1>In the mix — echo wordmark + terminal slab</h1>
+      <p class="meta">Pass 4 echo stays. Pass 5 recommended is zinc title + teal knockout glass. Dark then light. Marks at 64 and 16.</p>
+      <div class="grid">
+        <section class="card">
+          <h2>Terminal slab (pass 5 · 7C)</h2>
+          <div class="stage"><img id="td" alt="" /></div>
+          <div class="stage light"><img id="tl" alt="" /></div>
+          <div class="marks">
+            <img id="tm64" class="m64" alt="" />
+            <img id="tm16" class="m16" alt="" />
+          </div>
+        </section>
+        <section class="card">
+          <h2>Echo wordmark (pass 4 · keep)</h2>
+          <div class="stage"><img id="ed" alt="" /></div>
+          <div class="stage light"><img id="el" alt="" /></div>
+          <div class="marks">
+            <img id="em64" class="m64" alt="" />
+          </div>
+        </section>
+      </div>
+    </div>
+    <script>
+      const q = new URLSearchParams(location.search)
+      for (const id of ["td","tl","tm64","tm16","ed","el","em64"]) {
+        const v = q.get(id)
+        if (v) document.getElementById(id).src = v
+      }
+    </script>
+  </body>
+</html>

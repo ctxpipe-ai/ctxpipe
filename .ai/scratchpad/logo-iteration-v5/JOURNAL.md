@@ -20,6 +20,8 @@ Concept review after loops 1, 2, and 4 (separate agent, first-read only, no “w
 
 **Recommended (terminal family):** zinc title slab + teal glass with pixel `ctx|` knocked out. Sharp. Dark `#40E0D0` / light `#0F766E`.
 
+**16px craft:** knockout marks use a dark cursor on teal glass (`cursor: #09090B`). Teal-on-teal hid the hint.
+
 **Still in the mix:** pass 4 echo wordmark (`mix/echo-*.svg`).
 
 Production `apps/ui/public/ctx_.svg` is unchanged.

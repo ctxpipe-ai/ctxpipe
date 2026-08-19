@@ -305,12 +305,14 @@ export function mark16({
   frame = TEAL,
   pipe = TEAL,
   screen = "#09090B",
+  cursor = null,
   chevron = false,
   fatRight = false,
 } = {}) {
+  const barFill = cursor ?? pipe
   const bar = fatRight
-    ? `<rect x="12" y="2" width="3" height="12" fill="${pipe}"/>`
-    : `<rect x="5" y="5" width="2" height="7" fill="${pipe}"/>`
+    ? `<rect x="12" y="2" width="3" height="12" fill="${barFill}"/>`
+    : `<rect x="5" y="5" width="2" height="7" fill="${barFill}"/>`
   const ch = chevron ? `<path d="M3 5l3 3-3 3" stroke="${pipe}" stroke-width="1.4" fill="none"/>` : ""
   return `<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 16 16" fill="none" shape-rendering="crispEdges">
   <rect x="1" y="1" width="14" height="14" stroke="${frame}" stroke-width="1.5"/>

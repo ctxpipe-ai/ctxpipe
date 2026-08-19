@@ -7,7 +7,7 @@ function marks() {
   return [
     markWindow({ frame: INK_DARK, screen: TEAL, pipe: "#09090B", title: true }),
     markWindow({ frame: INK_DARK, screen: INK_DARK, pipe: INK_DARK, title: true }),
-    mark16({ frame: INK_DARK, pipe: TEAL, screen: TEAL }),
+    mark16({ frame: INK_DARK, pipe: TEAL, screen: TEAL, cursor: "#09090B" }),
   ]
 }
 
