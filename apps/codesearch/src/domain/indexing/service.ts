@@ -46,27 +46,21 @@ type IndexInput = {
 export { publishMergedScipIndex, writeMergedScipIndex }
 
 /**
- * Run Zoekt then SCIP sequentially (reduces peak RSS vs parallel phases).
- * Indexer failures are warnings so non-OW callers get the same degradation
- * as OpenWorkflow. Clone/detect stay fail-closed at their call sites.
+ * Run an optional index phase. Failures are warnings so non-OW callers get
+ * the same degradation as OpenWorkflow. Clone/detect stay fail-closed at
+ * their call sites.
  */
-export async function settleIndexPhases(
-  zoektPhase: () => Promise<void>,
-  scipPhase: () => Promise<void>,
+export async function runOptionalIndexPhase(
+  step: string,
+  fn: () => Promise<void>,
+  extra?: Record<string, string>,
 ): Promise<void> {
   try {
-    await zoektPhase()
+    await fn()
   } catch (reason) {
     log.warn({
-      step: "codesearch.index.zoekt.failed",
-      error: reason instanceof Error ? reason.message : String(reason),
-    })
-  }
-  try {
-    await scipPhase()
-  } catch (reason) {
-    log.warn({
-      step: "codesearch.index.scip.failed",
+      step,
+      ...extra,
       error: reason instanceof Error ? reason.message : String(reason),
     })
   }
@@ -116,14 +110,9 @@ async function cloneAndIndexRepositoryInner(
     fromHash: input.fromHash,
   })
 
-  try {
-    await phaseZoekt(ctx)
-  } catch (reason) {
-    log.warn({
-      step: "codesearch.index.zoekt.failed",
-      error: reason instanceof Error ? reason.message : String(reason),
-    })
-  }
+  await runOptionalIndexPhase("codesearch.index.zoekt.failed", () =>
+    phaseZoekt(ctx),
+  )
 
   const detectResult = await phaseDetectLanguages(ctx, {
     ingestMode: checkout.ingestMode,
@@ -133,31 +122,26 @@ async function cloneAndIndexRepositoryInner(
   })
   const detectedLanguages = detectResult.detectedLanguages
   await Promise.all(
-    detectResult.languagesToIndex.map(async (language) => {
-      try {
-        await phaseScipLanguage(ctx, {
-          language,
-          detectedLanguages,
-        })
-      } catch (reason) {
-        log.warn({
-          step: "codesearch.index.scip.lang.failed",
-          language,
-          error: reason instanceof Error ? reason.message : String(reason),
-        })
-      }
-    }),
+    detectResult.languagesToIndex.map((language) =>
+      runOptionalIndexPhase(
+        "codesearch.index.scip.lang.failed",
+        () =>
+          phaseScipLanguage(ctx, {
+            language,
+            detectedLanguages,
+          }),
+        { language },
+      ),
+    ),
   )
-  try {
-    await phaseMergeScip(ctx, {
-      detectedLanguages,
-    })
-  } catch (reason) {
-    log.warn({
-      step: "codesearch.index.scip.merge.failed",
-      error: reason instanceof Error ? reason.message : String(reason),
-    })
-  }
+  await runOptionalIndexPhase(
+    "codesearch.index.scip.merge.failed",
+    async () => {
+      await phaseMergeScip(ctx, {
+        detectedLanguages,
+      })
+    },
+  )
 
   await phaseMarkCheckoutIndexed(ctx)
 

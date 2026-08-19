@@ -11,9 +11,10 @@ Codesearch remains one service with one checkout:
 POST /index
   → clone / checkout
   → Zoekt indexing (optional; memory-fit skip of SCIP langs)
+  → detect languages (fail-closed)
   → language-specific SCIP indexers (optional per language)
   → merge surviving SCIP shards
-  → mark checkout indexed after clone succeeds (Zoekt/SCIP may degrade)
+  → mark checkout indexed after clone and detect succeed (Zoekt/SCIP may degrade)
 
 Queries
   → Zoekt       text, regex, and rough symbol discovery

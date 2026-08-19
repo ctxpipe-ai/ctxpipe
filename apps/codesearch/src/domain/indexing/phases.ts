@@ -698,7 +698,7 @@ export async function phaseMergeScip(
     detectedLanguages: readonly string[]
     languagesToMerge?: readonly string[]
   },
-): Promise<void> {
+): Promise<{ shardCount: number }> {
   const writeStep = monotonicWriteStep(ctx.db, ctx.repoId)
   const detected = [...params.detectedLanguages]
   const languagesToMerge =
@@ -706,7 +706,7 @@ export async function phaseMergeScip(
       ? [...params.languagesToMerge]
       : detected
   await writeStep("merging_intelligence", detected)
-  await withPhase("scip_merge", () =>
+  return withPhase("scip_merge", () =>
     publishMergedScipIndex({
       detectedLanguages: detected,
       shardPaths: languagesToMerge.map((indexerId) =>

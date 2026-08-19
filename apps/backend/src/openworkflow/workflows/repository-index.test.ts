@@ -88,7 +88,7 @@ describe("repositoryIndex workflow", () => {
       languagesToIndex: ["go", "typescript"],
     })
     scipMock.mockResolvedValue(undefined)
-    mergeMock.mockResolvedValue(undefined)
+    mergeMock.mockResolvedValue({ shardCount: 2 })
   })
 
   it("runs phases in order and parallelizes SCIP langs", async () => {
@@ -240,7 +240,8 @@ describe("repositoryIndex workflow", () => {
 
   it("maps SCIP exit 137 to the canonical error, does not retry, and still merges", async () => {
     scipMock.mockRejectedValue(new Error("Command failed with exit code 137"))
-    const scipRetryPolicies: Array<unknown> = []
+    const scipRetryPolicies: Array<{ maximumAttempts?: number } | undefined> =
+      []
     const step = {
       run: async (
         opts: { name: string; retryPolicy?: { maximumAttempts?: number } },
@@ -314,6 +315,39 @@ describe("repositoryIndex workflow", () => {
       searchIndexOk: true,
       scipIndexOk: false,
       scipIndexError: "scip-go failed",
+    })
+  })
+
+  it("marks scipIndexOk false when merge publishes zero shards for detected languages", async () => {
+    mergeMock.mockResolvedValue({ shardCount: 0 })
+    const step = {
+      run: async (_opts: { name: string }, fn: () => unknown) => fn(),
+    }
+    const wf = repositoryIndex as unknown as {
+      fn: (args: {
+        input: {
+          repositoryId: string
+          orgId: string
+          targetHash: string
+        }
+        step: typeof step
+      }) => Promise<unknown>
+    }
+
+    const result = await wf.fn({
+      input: {
+        repositoryId: "repo_1",
+        orgId: "org_1",
+        targetHash: "abc",
+      },
+      step,
+    })
+
+    expect(mergeMock).toHaveBeenCalledOnce()
+    expect(result).toMatchObject({
+      searchIndexOk: true,
+      scipIndexOk: false,
+      scipIndexError: "SCIP index unavailable",
     })
   })
 

@@ -151,15 +151,19 @@ describe("codesearchIndexMergeScip", () => {
 
   it("sends an empty languagesToMerge array so merge omits leftover shards", async () => {
     const fetchMock = vi.fn().mockResolvedValue(
-      new Response(JSON.stringify({ ok: true }), { status: 200 }),
+      new Response(JSON.stringify({ ok: true, shardCount: 0 }), {
+        status: 200,
+      }),
     )
     vi.stubGlobal("fetch", fetchMock)
 
-    await codesearchIndexMergeScip(
-      { repositoryId: "repo_1", orgId: "org_1" },
-      ["go", "typescript"],
-      [],
-    )
+    await expect(
+      codesearchIndexMergeScip(
+        { repositoryId: "repo_1", orgId: "org_1" },
+        ["go", "typescript"],
+        [],
+      ),
+    ).resolves.toEqual({ ok: true, shardCount: 0 })
 
     expect(fetchMock).toHaveBeenCalledOnce()
     const [, init] = fetchMock.mock.calls[0] as [string, RequestInit]
@@ -172,14 +176,17 @@ describe("codesearchIndexMergeScip", () => {
 
   it("omits languagesToMerge when the caller does not override shards", async () => {
     const fetchMock = vi.fn().mockResolvedValue(
-      new Response(JSON.stringify({ ok: true }), { status: 200 }),
+      new Response(JSON.stringify({ ok: true, shardCount: 1 }), {
+        status: 200,
+      }),
     )
     vi.stubGlobal("fetch", fetchMock)
 
-    await codesearchIndexMergeScip(
-      { repositoryId: "repo_1", orgId: "org_1" },
-      ["go"],
-    )
+    await expect(
+      codesearchIndexMergeScip({ repositoryId: "repo_1", orgId: "org_1" }, [
+        "go",
+      ]),
+    ).resolves.toEqual({ ok: true, shardCount: 1 })
 
     expect(fetchMock).toHaveBeenCalledOnce()
     const [, init] = fetchMock.mock.calls[0] as [string, RequestInit]

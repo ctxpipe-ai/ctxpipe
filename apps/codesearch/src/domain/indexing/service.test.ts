@@ -6,30 +6,28 @@ import { afterEach, describe, expect, it } from "vitest"
 import { decodeScipIndex, encodeScipIndex } from "../graph/scipProto.js"
 import {
   publishMergedScipIndex,
-  settleIndexPhases,
+  runOptionalIndexPhase,
   writeMergedScipIndex,
 } from "./service.js"
 
-describe("settleIndexPhases", () => {
+describe("runOptionalIndexPhase", () => {
   it("runs Zoekt before SCIP (sequential) and continues after both failures", async () => {
     const order: string[] = []
     let scipStartedBeforeZoektFinished = false
 
-    await settleIndexPhases(
-      async () => {
-        order.push("zoekt-start")
-        await new Promise((r) => setTimeout(r, 30))
-        order.push("zoekt-end")
-        throw new Error("Zoekt failed")
-      },
-      async () => {
-        if (!order.includes("zoekt-end")) {
-          scipStartedBeforeZoektFinished = true
-        }
-        order.push("scip")
-        throw new Error("SCIP failed")
-      },
-    )
+    await runOptionalIndexPhase("codesearch.index.zoekt.failed", async () => {
+      order.push("zoekt-start")
+      await new Promise((r) => setTimeout(r, 30))
+      order.push("zoekt-end")
+      throw new Error("Zoekt failed")
+    })
+    await runOptionalIndexPhase("codesearch.index.scip.failed", async () => {
+      if (!order.includes("zoekt-end")) {
+        scipStartedBeforeZoektFinished = true
+      }
+      order.push("scip")
+      throw new Error("SCIP failed")
+    })
 
     expect(scipStartedBeforeZoektFinished).toBe(false)
     expect(order).toEqual(["zoekt-start", "zoekt-end", "scip"])

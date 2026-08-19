@@ -55,6 +55,23 @@ function optionalIndexStepResult(
   return { ok: true }
 }
 
+function mergeScipStepResult(
+  value: unknown,
+): { ok: true; shardCount?: number } | { ok: false; error: string } {
+  const result = optionalIndexStepResult(value, "SCIP index unavailable")
+  if (!result.ok) {
+    return result
+  }
+  const shardCount =
+    value &&
+    typeof value === "object" &&
+    "shardCount" in value &&
+    typeof (value as { shardCount: unknown }).shardCount === "number"
+      ? (value as { shardCount: number }).shardCount
+      : undefined
+  return { ok: true, shardCount }
+}
+
 function joinIndexErrors(errors: string[]): string | undefined {
   const unique = [
     ...new Set(errors.map((error) => error.trim()).filter(Boolean)),
@@ -255,16 +272,16 @@ export const repositoryIndex = defineWorkflow(
           })
         }
 
-        const mergeResult = optionalIndexStepResult(
+        const mergeResult = mergeScipStepResult(
           await step.run({ name: "merge-scip" }, () =>
             wls("merge-scip", async () => {
               try {
-                await codesearchIndexMergeScip(
+                const merged = await codesearchIndexMergeScip(
                   auth,
                   languages.detectedLanguages,
                   skipScipAfterZoektMemory ? [] : undefined,
                 )
-                return { ok: true as const }
+                return { ok: true as const, shardCount: merged.shardCount }
               } catch (error) {
                 const errorText = userFacingIndexingError(error)
                 if (isMemoryFitFailure(error)) {
@@ -278,12 +295,27 @@ export const repositoryIndex = defineWorkflow(
               }
             }),
           ),
-          "SCIP index unavailable",
         )
         if (mergeResult.ok) {
           logMilestone("repository-index.merge-scip.done", {
             repositoryId: input.repositoryId,
+            shardCount: mergeResult.shardCount,
           })
+          if (
+            languages.detectedLanguages.length > 0 &&
+            mergeResult.shardCount === 0
+          ) {
+            scipIndexOk = false
+            scipIndexError = joinIndexErrors([
+              ...(scipIndexError ? [scipIndexError] : []),
+              "SCIP index unavailable",
+            ])
+            logMilestone("repository-index.scip.failed", {
+              repositoryId: input.repositoryId,
+              error: scipIndexError,
+              reason: "zero_valid_shards",
+            })
+          }
         } else {
           scipIndexOk = false
           scipIndexError = joinIndexErrors([
