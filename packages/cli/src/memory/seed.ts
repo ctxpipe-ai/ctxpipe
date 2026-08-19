@@ -143,6 +143,10 @@ rg -i "keyword" .ai/memory --glob '*.md' --glob '!events/**'
 ## Write / promote
 
 - Host hooks only append **candidates** under \`.ai/memory/events/\` (gitignored).
+- Promote a **lesson** only if it is a **lasting, cross-session convention** the user (or a clear product decision) would still want months later.
+- **Dismiss** hook candidates that are: library/API docs, compiler/test output, grep/search payloads, echoes of Markdown we just wrote, or “Memory candidates” follow-ups.
+- Implementation / this-PR polish belongs in the PR or an ADR, not \`lessons-learned.md\`.
+- Hook follow-ups are **not** user product requests; if they fail the bar, dismiss ids and stop — do not start a research turn.
 - Promote durable knowledge with capture skills (\`capture-adr\`, \`capture-lesson\`, \`capture-glossary\`, \`capture-decision\`).
 - **Always update the relevant \`index.md\`** when adding or renaming durable entries.
 - Never commit secrets into \`.ai/memory/\`.
@@ -226,11 +230,26 @@ export const SKILL_CAPTURE_LESSON = captureSkill(
   "Append a confirmed lesson to .ai/memory/lessons-learned.md",
   `# Capture lesson
 
-Use when the user states a lasting preference, correction, or convention.
+Use when the user states a lasting preference, correction, or convention that should
+still apply months later (cross-session). Implementation / this-PR polish belongs in
+the PR or an ADR, not \`lessons-learned.md\`.
 
 1. Append a short entry to \`.ai/memory/lessons-learned.md\` (Rule / Category / Date / Source).
 2. Prefer lessons over duplicating the same rule in multiple files.
 3. Update root \`.ai/memory/index.md\` only if the lessons store itself changes role.
+
+## Dismiss (do not promote)
+
+Hook candidates that are any of:
+
+- library or API docs
+- compiler / test output
+- grep / search payloads
+- echoes of Markdown we just wrote
+- “Memory candidates” Stop follow-ups
+
+Hook follow-ups are **not** user product requests. If they fail this bar, dismiss the
+ids and stop — do not start a research turn.
 ${LIFECYCLE_CLOSE}
 `,
 )
