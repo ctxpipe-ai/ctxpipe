@@ -3,7 +3,9 @@ import {
   explorerBlobFromContent,
   explorerBlobFromGitFile,
   explorerBlobPath,
+  explorerGitNumstatFromStdout,
   explorerGitStatusFromPorcelain,
+  withExplorerGitLineCounts,
   workspaceGitExplorerTarget,
 } from "./git-explorer.js"
 import { WRITE_STATUS_REASONS } from "./write-status.js"
@@ -155,6 +157,47 @@ describe("explorerGitStatusFromPorcelain", () => {
     expect(
       explorerGitStatusFromPorcelain(" M ../secret\n?? \n M knowledge/ok.md"),
     ).toEqual([{ path: "knowledge/ok.md", status: "modified" }])
+  })
+})
+
+describe("explorerGitNumstatFromStdout", () => {
+  it("parses added and deleted line counts", () => {
+    const counts = explorerGitNumstatFromStdout(
+      [
+        "3\t1\tknowledge/ledger.md",
+        "-\t-\tassets/logo.png",
+        "0\t4\tknowledge/gone.md",
+      ].join("\n"),
+    )
+    expect(counts.get("knowledge/ledger.md")).toEqual({
+      additions: 3,
+      deletions: 1,
+    })
+    expect(counts.get("assets/logo.png")).toEqual({
+      additions: 0,
+      deletions: 0,
+    })
+    expect(counts.get("knowledge/gone.md")).toEqual({
+      additions: 0,
+      deletions: 4,
+    })
+  })
+})
+
+describe("withExplorerGitLineCounts", () => {
+  it("counts untracked file lines as additions", () => {
+    expect(
+      withExplorerGitLineCounts(
+        { path: "scratch.ts", status: "untracked" },
+        new Map(),
+        "export {}\n",
+      ),
+    ).toEqual({
+      path: "scratch.ts",
+      status: "untracked",
+      additions: 1,
+      deletions: 0,
+    })
   })
 })
 

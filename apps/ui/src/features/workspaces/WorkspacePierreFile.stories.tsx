@@ -51,3 +51,27 @@ export const Editable: Story = {
     editable: true,
   },
 }
+
+const longLine =
+  "A single row that is wider than the preview so the horizontal scrollbar sits on the pane, not under the last line of text. "
+
+export const ShortFile: Story = {
+  args: {
+    path: "apps/ui/src/main.tsx",
+    body: 'export function boot() {\n  return "ok"\n}\n',
+    cacheKey: "story:short:apps/ui/src/main.tsx",
+  },
+}
+
+export const LongFile: Story = {
+  args: {
+    path: "knowledge/handbook.md",
+    body: [
+      "# Handbook",
+      "",
+      ...Array.from({ length: 80 }, (_, index) => `Line ${index + 1}.`),
+      longLine.repeat(12).trimEnd(),
+    ].join("\n"),
+    cacheKey: "story:long:knowledge/handbook.md",
+  },
+}

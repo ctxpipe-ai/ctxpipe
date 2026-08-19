@@ -143,6 +143,8 @@ export type ExplorerGitStatus = (typeof EXPLORER_GIT_STATUSES)[number]
 export type ExplorerGitStatusEntry = {
   path: string
   status: ExplorerGitStatus
+  additions?: number
+  deletions?: number
 }
 
 function porcelainPath(raw: string): string | null {
@@ -175,4 +177,49 @@ export function explorerGitStatusFromPorcelain(
     items.push({ path, status })
   }
   return items
+}
+
+export type ExplorerGitLineCounts = {
+  additions: number
+  deletions: number
+}
+
+/** Parse `git diff --numstat HEAD` (`added<tab>deleted<tab>path`). */
+export function explorerGitNumstatFromStdout(
+  stdout: string,
+): Map<string, ExplorerGitLineCounts> {
+  const counts = new Map<string, ExplorerGitLineCounts>()
+  for (const raw of stdout.split("\n")) {
+    const line = raw.trimEnd()
+    if (!line) continue
+    const tabs = line.split("\t")
+    if (tabs.length < 3) continue
+    const addedRaw = tabs[0]
+    const deletedRaw = tabs[1]
+    const path = porcelainPath(tabs.slice(2).join("\t"))
+    if (!path || addedRaw == null || deletedRaw == null) continue
+    const additions = addedRaw === "-" ? 0 : Number.parseInt(addedRaw, 10)
+    const deletions = deletedRaw === "-" ? 0 : Number.parseInt(deletedRaw, 10)
+    if (!Number.isFinite(additions) || !Number.isFinite(deletions)) continue
+    counts.set(path, { additions, deletions })
+  }
+  return counts
+}
+
+export function withExplorerGitLineCounts(
+  entry: ExplorerGitStatusEntry,
+  counts: Map<string, ExplorerGitLineCounts>,
+  body?: string | null,
+): ExplorerGitStatusEntry {
+  const fromDiff = counts.get(entry.path)
+  if (fromDiff) return { ...entry, ...fromDiff }
+  if (entry.status === "untracked" && body) {
+    const lines =
+      body === "" ? 0 : body.split("\n").length - (body.endsWith("\n") ? 1 : 0)
+    return { ...entry, additions: lines, deletions: 0 }
+  }
+  if (entry.status === "deleted") {
+    return { ...entry, additions: 0, deletions: fromDiff?.deletions }
+  }
+  return entry
 }

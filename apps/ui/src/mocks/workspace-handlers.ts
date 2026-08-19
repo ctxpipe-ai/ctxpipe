@@ -20,6 +20,7 @@ import {
   docsWorkspaceDetail,
   docsWorkspaceFiles,
   docsWorkspaceGitBlobs,
+  docsWorkspaceGitStatus,
   docsWorkspaceGitTree,
   docsWorkspaceGraph,
   eligibleGithubRepos,
@@ -121,11 +122,7 @@ export function workspaceGitBlobHandler(
 }
 
 export function workspaceGitStatusHandler(
-  status: WorkspaceGitStatusResponse = {
-    sha: docsWorkspaceGitTree.sha,
-    source: "clean",
-    items: [],
-  },
+  status: WorkspaceGitStatusResponse = docsWorkspaceGitStatus,
 ) {
   return http.get(
     ({ request }) =>

@@ -1,8 +1,16 @@
 import { useQueryClient, useSuspenseQuery } from "@tanstack/react-query"
-import { useNavigate } from "@tanstack/react-router"
+import { useNavigate, useSearch } from "@tanstack/react-router"
 import { Component, type ReactNode, Suspense, useEffect, useState } from "react"
 import { AppShell } from "@/components/AppShell"
 import { cn } from "@/lib/utils"
+import {
+  closeFileTab,
+  type FileTabSession,
+  pinFile,
+  previewFile,
+  seedFileTabSession,
+  tabsIncludingPanePath,
+} from "./fileTabs"
 import { type ParsedPane, parsePane, serializePane, visiblePane } from "./pane"
 import {
   workspacePrepareNeedsPoll,
@@ -72,8 +80,11 @@ function WorkspaceSurfaceReady(props: {
   conversationId?: string
   paneParam?: string
 }) {
-  const { orgSlug, workspaceSlug, conversationId, paneParam } = props
+  const { orgSlug, workspaceSlug, conversationId } = props
   const navigate = useNavigate()
+  const search = useSearch({ strict: false }) as { pane?: string }
+  const paneParam =
+    typeof search.pane === "string" ? search.pane : props.paneParam
   const queryClient = useQueryClient()
   const { data: workspace } = useSuspenseQuery({
     ...workspaceDetailOptions(orgSlug, workspaceSlug),
@@ -87,16 +98,16 @@ function WorkspaceSurfaceReady(props: {
   const pane = parsePane(paneParam)
   const shownPane = visiblePane(pane)
   const [maximized, setMaximized] = useState(false)
-  const [paneWidth, setPaneWidth] = useState(380)
+  const [paneWidth, setPaneWidth] = useState<number | null>(null)
   const [treeCollapsed, setTreeCollapsed] = useState(false)
-  const [selectedFilePath, setSelectedFilePath] = useState<string | null>(null)
-  const [sessionFileTabs, setSessionFileTabs] = useState<string[]>([])
+  const [paneCollapsed, setPaneCollapsed] = useState(false)
+  const [fileTabs, setFileTabs] = useState<FileTabSession>({
+    tabs: [],
+    previewPath: null,
+  })
 
   const fileFromPane = pane?.kind === "file" ? pane.path : null
-  const fileTabs =
-    fileFromPane && !sessionFileTabs.includes(fileFromPane)
-      ? [...sessionFileTabs, fileFromPane]
-      : sessionFileTabs
+  const openFileTabs = tabsIncludingPanePath(fileTabs.tabs, fileFromPane)
 
   useEffect(() => {
     void touchWorkspace(orgSlug, workspaceSlug).then(() => {
@@ -107,6 +118,7 @@ function WorkspaceSurfaceReady(props: {
   }, [orgSlug, workspaceSlug, queryClient])
 
   const setPane = (next: ParsedPane | null) => {
+    if (next) setPaneCollapsed(false)
     void navigate({
       to: conversationId
         ? "/$orgSlug/ws/$workspaceSlug/$conversationId"
@@ -156,13 +168,14 @@ function WorkspaceSurfaceReady(props: {
         maximized={maximized}
         paneWidth={paneWidth}
         treeCollapsed={treeCollapsed}
-        selectedFilePath={selectedFilePath}
-        fileTabs={fileTabs}
+        paneCollapsed={paneCollapsed}
+        fileTabs={openFileTabs}
+        previewPath={fileTabs.previewPath}
         setMaximized={setMaximized}
         setPaneWidth={setPaneWidth}
         setTreeCollapsed={setTreeCollapsed}
-        setSelectedFilePath={setSelectedFilePath}
-        setSessionFileTabs={setSessionFileTabs}
+        setPaneCollapsed={setPaneCollapsed}
+        setFileTabs={setFileTabs}
         setPane={setPane}
       />
     )
@@ -177,13 +190,14 @@ function WorkspaceSurfaceReady(props: {
       maximized={maximized}
       paneWidth={paneWidth}
       treeCollapsed={treeCollapsed}
-      selectedFilePath={selectedFilePath}
-      fileTabs={fileTabs}
+      paneCollapsed={paneCollapsed}
+      fileTabs={openFileTabs}
+      previewPath={fileTabs.previewPath}
       setMaximized={setMaximized}
       setPaneWidth={setPaneWidth}
       setTreeCollapsed={setTreeCollapsed}
-      setSelectedFilePath={setSelectedFilePath}
-      setSessionFileTabs={setSessionFileTabs}
+      setPaneCollapsed={setPaneCollapsed}
+      setFileTabs={setFileTabs}
       setPane={setPane}
     />
   )
@@ -195,15 +209,16 @@ function WorkspaceSurfaceShell(props: {
   conversationId: string
   shownPane: ParsedPane | null
   maximized: boolean
-  paneWidth: number
+  paneWidth: number | null
   treeCollapsed: boolean
-  selectedFilePath: string | null
+  paneCollapsed: boolean
   fileTabs: string[]
+  previewPath: string | null
   setMaximized: React.Dispatch<React.SetStateAction<boolean>>
-  setPaneWidth: React.Dispatch<React.SetStateAction<number>>
+  setPaneWidth: React.Dispatch<React.SetStateAction<number | null>>
   setTreeCollapsed: React.Dispatch<React.SetStateAction<boolean>>
-  setSelectedFilePath: React.Dispatch<React.SetStateAction<string | null>>
-  setSessionFileTabs: React.Dispatch<React.SetStateAction<string[]>>
+  setPaneCollapsed: React.Dispatch<React.SetStateAction<boolean>>
+  setFileTabs: React.Dispatch<React.SetStateAction<FileTabSession>>
   setPane: (next: ParsedPane | null) => void
 }) {
   const { data } = useSuspenseQuery(
@@ -227,15 +242,16 @@ function WorkspaceSurfaceLayout(props: {
   conversationTitle: string
   shownPane: ParsedPane | null
   maximized: boolean
-  paneWidth: number
+  paneWidth: number | null
   treeCollapsed: boolean
-  selectedFilePath: string | null
+  paneCollapsed: boolean
   fileTabs: string[]
+  previewPath: string | null
   setMaximized: React.Dispatch<React.SetStateAction<boolean>>
-  setPaneWidth: React.Dispatch<React.SetStateAction<number>>
+  setPaneWidth: React.Dispatch<React.SetStateAction<number | null>>
   setTreeCollapsed: React.Dispatch<React.SetStateAction<boolean>>
-  setSelectedFilePath: React.Dispatch<React.SetStateAction<string | null>>
-  setSessionFileTabs: React.Dispatch<React.SetStateAction<string[]>>
+  setPaneCollapsed: React.Dispatch<React.SetStateAction<boolean>>
+  setFileTabs: React.Dispatch<React.SetStateAction<FileTabSession>>
   setPane: (next: ParsedPane | null) => void
 }) {
   return (
@@ -252,15 +268,16 @@ function WorkspaceSurfaceColumns(props: {
   conversationTitle: string
   shownPane: ParsedPane | null
   maximized: boolean
-  paneWidth: number
+  paneWidth: number | null
   treeCollapsed: boolean
-  selectedFilePath: string | null
+  paneCollapsed: boolean
   fileTabs: string[]
+  previewPath: string | null
   setMaximized: React.Dispatch<React.SetStateAction<boolean>>
-  setPaneWidth: React.Dispatch<React.SetStateAction<number>>
+  setPaneWidth: React.Dispatch<React.SetStateAction<number | null>>
   setTreeCollapsed: React.Dispatch<React.SetStateAction<boolean>>
-  setSelectedFilePath: React.Dispatch<React.SetStateAction<string | null>>
-  setSessionFileTabs: React.Dispatch<React.SetStateAction<string[]>>
+  setPaneCollapsed: React.Dispatch<React.SetStateAction<boolean>>
+  setFileTabs: React.Dispatch<React.SetStateAction<FileTabSession>>
   setPane: (next: ParsedPane | null) => void
 }) {
   const {
@@ -272,20 +289,36 @@ function WorkspaceSurfaceColumns(props: {
     maximized,
     paneWidth,
     treeCollapsed,
-    selectedFilePath,
+    paneCollapsed,
     fileTabs,
+    previewPath,
     setMaximized,
     setPaneWidth,
     setTreeCollapsed,
-    setSelectedFilePath,
-    setSessionFileTabs,
+    setPaneCollapsed,
+    setFileTabs,
     setPane,
   } = props
 
-  const paneOpen = Boolean(shownPane)
+  const paneOpen = Boolean(shownPane) && !paneCollapsed
+  const panePath = shownPane?.kind === "file" ? shownPane.path : null
+
+  const collapsePane = () => {
+    setMaximized(false)
+    setFileTabs((current) => seedFileTabSession(current, panePath))
+    setPaneCollapsed(true)
+  }
+
+  const openFile = (path: string, pin: boolean) => {
+    setFileTabs((current) => {
+      const seeded = seedFileTabSession(current, panePath)
+      return pin ? pinFile(seeded, path) : previewFile(seeded, path)
+    })
+    setPane({ kind: "file", path })
+  }
 
   return (
-    <div className="flex min-h-screen min-w-0" data-workspace-surface="">
+    <div className="flex h-svh min-h-0 min-w-0" data-workspace-surface="">
       {/*
         Column visibility is CSS:
         - maximised → hide chat
@@ -294,7 +327,7 @@ function WorkspaceSurfaceColumns(props: {
       */}
       <div
         className={cn(
-          "flex min-h-0 min-w-0 flex-1",
+          "flex h-full min-h-0 min-w-0 flex-1",
           maximized ? "hidden" : paneOpen ? "max-lg:hidden" : null,
         )}
       >
@@ -303,53 +336,51 @@ function WorkspaceSurfaceColumns(props: {
           workspace={workspace}
           conversationId={conversationId}
           headerExtra={
-            shownPane ? null : (
-              <WorkspacePaneTriggers onOpen={(next) => setPane(next)} />
+            paneOpen ? null : (
+              <WorkspacePaneTriggers
+                onOpen={(next) => setPane(next)}
+                onExpand={
+                  fileTabs.length > 0
+                    ? () => {
+                        if (shownPane) setPaneCollapsed(false)
+                        else setPane({ kind: "files" })
+                      }
+                    : undefined
+                }
+              />
             )
           }
         />
       </div>
-      {shownPane ? (
+      {paneOpen && shownPane ? (
         <WorkspacePane
           orgSlug={orgSlug}
           workspace={workspace}
           pane={shownPane}
           fileTabs={fileTabs}
-          selectedFilePath={selectedFilePath}
+          previewPath={previewPath}
           treeCollapsed={treeCollapsed}
           maximized={maximized}
           width={paneWidth}
           conversationTitle={conversationTitle}
           onPane={(next) => setPane(next)}
-          onClose={() => {
-            setMaximized(false)
-            setPane(null)
-          }}
+          onClose={collapsePane}
           onToggleMaximize={() => setMaximized((value) => !value)}
           onRestoreConversation={() => {
             setMaximized(false)
-            // Below lg the tools pane owns the viewport — restore means close it.
+            // Below lg the tools pane owns the viewport — restore means hide it.
             if (
               typeof window !== "undefined" &&
               window.matchMedia("(max-width: 1023px)").matches
             ) {
-              setPane(null)
+              collapsePane()
             }
           }}
           onResize={setPaneWidth}
-          onSelectFile={(path) => {
-            setSelectedFilePath(path)
-            setPane({ kind: "files" })
-          }}
-          onOpenFileTab={(path) => {
-            setSessionFileTabs((tabs) =>
-              tabs.includes(path) ? tabs : [...tabs, path],
-            )
-            setSelectedFilePath(path)
-            setPane({ kind: "file", path })
-          }}
+          onPreviewFile={(path) => openFile(path, false)}
+          onPinFile={(path) => openFile(path, true)}
           onCloseFileTab={(path) => {
-            setSessionFileTabs((tabs) => tabs.filter((item) => item !== path))
+            setFileTabs((current) => closeFileTab(current, path))
             if (shownPane.kind === "file" && shownPane.path === path) {
               setPane({ kind: "files" })
             }
@@ -357,10 +388,9 @@ function WorkspaceSurfaceColumns(props: {
           onCloseActiveFile={() => {
             if (shownPane?.kind === "file") {
               const path = shownPane.path
-              setSessionFileTabs((tabs) => tabs.filter((item) => item !== path))
+              setFileTabs((current) => closeFileTab(current, path))
               setPane({ kind: "files" })
             }
-            setSelectedFilePath(null)
           }}
           onToggleTree={() => setTreeCollapsed((value) => !value)}
         />

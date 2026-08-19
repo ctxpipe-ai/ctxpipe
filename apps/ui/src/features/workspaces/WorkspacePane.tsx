@@ -1,10 +1,14 @@
 import {
   IconAffiliate,
   IconAlertCircle,
-  IconArrowsMaximize,
-  IconArrowsMinimize,
+  IconArrowBackUp,
+  IconArrowForwardUp,
+  IconArrowsDiagonal2,
+  IconArrowsDiagonalMinimize,
   IconFolder,
-  IconMenu2,
+  IconLayoutSidebarLeftExpand,
+  IconLayoutSidebarRightCollapse,
+  IconLayoutSidebarRightExpand,
   IconSettings,
   IconX,
 } from "@tabler/icons-react"
@@ -15,7 +19,7 @@ import {
   useSuspenseQuery,
 } from "@tanstack/react-query"
 import type { CSSProperties, ReactNode } from "react"
-import { Suspense, useMemo, useState } from "react"
+import { Suspense, useEffect, useMemo, useRef, useState } from "react"
 import {
   Heading,
   type Key,
@@ -59,7 +63,11 @@ import {
   type WorkspaceFileTreeItem,
 } from "./WorkspaceFileTree"
 import { WorkspaceGraphPane } from "./WorkspaceGraphPane"
-import { WorkspacePierreFile } from "./WorkspacePierreFile"
+import {
+  type FileEditorHandle,
+  type FileEditorHistory,
+  WorkspacePierreFile,
+} from "./WorkspacePierreFile"
 import { WorkspaceSettingsPane } from "./WorkspaceSettingsPane"
 import {
   workspaceChromeCardPaneClassName,
@@ -76,26 +84,26 @@ export function WorkspacePane(props: {
   workspace: WorkspaceDetail
   pane: ParsedPane
   fileTabs: string[]
-  selectedFilePath: string | null
+  previewPath: string | null
   treeCollapsed: boolean
   maximized: boolean
-  width: number
+  width: number | null
   onPane: (pane: ParsedPane) => void
   onClose: () => void
   onToggleMaximize: () => void
   onRestoreConversation: () => void
   onResize: (width: number) => void
-  onSelectFile: (path: string) => void
-  onOpenFileTab: (path: string) => void
+  onPreviewFile: (path: string) => void
+  onPinFile: (path: string) => void
   onCloseFileTab: (path: string) => void
   onCloseActiveFile: () => void
   onToggleTree: () => void
   conversationTitle: string
 }) {
-  const activeFile =
-    props.pane.kind === "file" ? props.pane.path : props.selectedFilePath
+  const activeFile = props.pane.kind === "file" ? props.pane.path : null
   const filesTabActive = props.pane.kind === "files"
   const selectedKey = serializePane(props.pane)
+  const paneWidthLocked = props.width != null
 
   const onSelectTab = (key: Key | null) => {
     if (key == null) return
@@ -108,13 +116,13 @@ export function WorkspacePane(props: {
       className={cn(
         workspaceChromeOuterClassName,
         workspaceChromeOuterFlushClassName,
-        "relative pl-0 pr-3",
-        props.maximized
+        "relative flex h-full min-h-0 pl-0 pr-3",
+        props.maximized || !paneWidthLocked
           ? "min-w-0 flex-1"
           : "w-[var(--workspace-pane-width)] max-lg:min-w-0 max-lg:w-auto max-lg:flex-1 shrink-0",
       )}
       style={
-        props.maximized
+        props.maximized || !paneWidthLocked
           ? undefined
           : ({
               "--workspace-pane-width": `${props.width}px`,
@@ -136,11 +144,14 @@ export function WorkspacePane(props: {
           onPointerDown={(event) => {
             event.preventDefault()
             const startX = event.clientX
-            const startWidth = props.width
+            const aside = event.currentTarget.closest("aside")
+            const startWidth =
+              props.width ?? aside?.getBoundingClientRect().width ?? 480
+            const maxWidth = Math.max(480, window.innerWidth - 280)
             const move = (next: PointerEvent) => {
               props.onResize(
                 Math.min(
-                  720,
+                  maxWidth,
                   Math.max(280, startWidth + (startX - next.clientX)),
                 ),
               )
@@ -158,7 +169,7 @@ export function WorkspacePane(props: {
       <Tabs
         selectedKey={selectedKey}
         onSelectionChange={onSelectTab}
-        className="flex min-h-0 flex-1 flex-col"
+        className="flex h-full min-h-0 flex-1 flex-col"
         aria-label="Workspace tools"
       >
         <TooltipProvider delay={200}>
@@ -223,7 +234,14 @@ export function WorkspacePane(props: {
                       props.onCloseFileTab(path)
                     }}
                   >
-                    <span className="truncate font-mono">{title}</span>
+                    <span
+                      className={cn(
+                        "truncate font-mono",
+                        props.previewPath === path && "italic",
+                      )}
+                    >
+                      {title}
+                    </span>
                     <span
                       aria-hidden
                       className="rounded p-0.5 hover:bg-zinc-700"
@@ -242,30 +260,28 @@ export function WorkspacePane(props: {
                 )
               })}
             </TabList>
-            <div className="mb-px flex shrink-0 items-center gap-0.5 self-end pb-0.5">
-              <Button
-                variant="quiet"
-                size="icon-sm"
-                aria-label={
+            <div className="flex shrink-0 items-end gap-0.5">
+              <HeaderIcon
+                label={
                   props.maximized ? "Show conversation" : "Maximise pane"
                 }
-                onPress={props.onToggleMaximize}
+                icon={
+                  props.maximized ? (
+                    <IconArrowsDiagonalMinimize stroke={1.6} aria-hidden />
+                  ) : (
+                    <IconArrowsDiagonal2 stroke={1.6} aria-hidden />
+                  )
+                }
+                onClick={props.onToggleMaximize}
                 className="hidden lg:inline-flex"
-              >
-                {props.maximized ? (
-                  <IconArrowsMinimize className="size-4" aria-hidden />
-                ) : (
-                  <IconArrowsMaximize className="size-4" aria-hidden />
-                )}
-              </Button>
-              <Button
-                variant="quiet"
-                size="icon-sm"
-                aria-label="Close pane"
-                onPress={props.onClose}
-              >
-                <IconX className="size-4" aria-hidden />
-              </Button>
+              />
+              <HeaderIcon
+                label="Hide pane"
+                icon={
+                  <IconLayoutSidebarRightCollapse stroke={1.6} aria-hidden />
+                }
+                onClick={props.onClose}
+              />
             </div>
           </div>
         </TooltipProvider>
@@ -280,11 +296,11 @@ export function WorkspacePane(props: {
             "flex min-h-0 p-0 outline-0",
           )}
         >
-          <div className="flex min-h-0 flex-1">
+          <div className="flex h-full min-h-0 min-w-0 flex-1 flex-col">
             {props.pane.kind === "files" || props.pane.kind === "file" ? (
               <Suspense
                 fallback={
-                  <div className="flex flex-1 items-center p-4">
+                  <div className="flex h-full min-h-0 flex-1 items-center p-4">
                     <p className="text-xs text-muted-foreground">
                       Loading files…
                     </p>
@@ -300,10 +316,10 @@ export function WorkspacePane(props: {
                     ""
                   }
                   writeStatus={props.workspace.writeStatus}
-                  readOnlyReason={props.workspace.readOnlyReason}
                   activeFile={activeFile}
                   treeCollapsed={props.treeCollapsed}
-                  onOpenFileTab={props.onOpenFileTab}
+                  onPreviewFile={props.onPreviewFile}
+                  onPinFile={props.onPinFile}
                   onToggleTree={props.onToggleTree}
                   onCloseActiveFile={props.onCloseActiveFile}
                 />
@@ -350,10 +366,10 @@ function WorkspaceFilesPaneBody(props: {
   workspaceSlug: string
   sha: string
   writeStatus: string
-  readOnlyReason: string | null
   activeFile: string | null
   treeCollapsed: boolean
-  onOpenFileTab: (path: string) => void
+  onPreviewFile: (path: string) => void
+  onPinFile: (path: string) => void
   onToggleTree: () => void
   onCloseActiveFile: () => void
 }) {
@@ -364,24 +380,25 @@ function WorkspaceFilesPaneBody(props: {
     workspaceGitStatusOptions(props.orgSlug, props.workspaceSlug, props.sha),
   )
   return (
-    <WorkspaceFilesPaneContent
-      orgSlug={props.orgSlug}
-      workspaceSlug={props.workspaceSlug}
-      sha={props.sha}
-      writeStatus={props.writeStatus}
-      readOnlyReason={props.readOnlyReason}
-      tree={data}
-      gitStatus={statusQuery.data?.items ?? []}
-      activeFile={props.activeFile}
-      treeCollapsed={props.treeCollapsed}
-      onOpenFileTab={props.onOpenFileTab}
-      onToggleTree={props.onToggleTree}
-      onCloseActiveFile={props.onCloseActiveFile}
-    />
+    <div className="h-full min-h-0 min-w-0 flex-1">
+      <WorkspaceFilesPaneContent
+        orgSlug={props.orgSlug}
+        workspaceSlug={props.workspaceSlug}
+        sha={props.sha}
+        writeStatus={props.writeStatus}
+        tree={data}
+        gitStatus={statusQuery.data?.items ?? []}
+        activeFile={props.activeFile}
+        treeCollapsed={props.treeCollapsed}
+        onPreviewFile={props.onPreviewFile}
+        onPinFile={props.onPinFile}
+        onToggleTree={props.onToggleTree}
+        onCloseActiveFile={props.onCloseActiveFile}
+      />
+    </div>
   )
 }
 
-const FILES_COL_HEADER_CLASS = "flex h-8 shrink-0 items-center gap-1 px-1"
 const FILES_HEADER_ICON_BUTTON_CLASS =
   "size-6 min-h-6 min-w-6 p-0 leading-none [&_svg]:block"
 const TREE_WIDTH_MIN = 140
@@ -397,12 +414,12 @@ function WorkspaceFilesPaneContent(props: {
   workspaceSlug: string
   sha: string
   writeStatus: string
-  readOnlyReason: string | null
   tree: WorkspaceGitTreeResponse
   gitStatus: readonly WorkspaceGitStatusItem[]
   activeFile: string | null
   treeCollapsed: boolean
-  onOpenFileTab: (path: string) => void
+  onPreviewFile: (path: string) => void
+  onPinFile: (path: string) => void
   onToggleTree: () => void
   onCloseActiveFile: () => void
 }) {
@@ -420,7 +437,23 @@ function WorkspaceFilesPaneContent(props: {
     null,
   )
   const [jobError, setJobError] = useState<string | null>(null)
-  const [editorEpoch, setEditorEpoch] = useState(0)
+  const fileEditorRef = useRef<FileEditorHandle | null>(null)
+  const saveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const pendingSavePathRef = useRef<string | null>(null)
+  const latestDraftRef = useRef<{ path: string; body: string } | null>(null)
+  const draftsRef = useRef(drafts)
+  draftsRef.current = drafts
+  const writableRef = useRef(writable)
+  writableRef.current = writable
+  const [editorHistory, setEditorHistory] = useState<FileEditorHistory>({
+    canUndo: false,
+    canRedo: false,
+  })
+  const [historyFile, setHistoryFile] = useState(props.activeFile)
+  if (historyFile !== props.activeFile) {
+    setHistoryFile(props.activeFile)
+    setEditorHistory({ canUndo: false, canRedo: false })
+  }
   const fileName = props.activeFile
     ? (props.activeFile.split("/").pop() ?? props.activeFile)
     : null
@@ -436,6 +469,8 @@ function WorkspaceFilesPaneContent(props: {
         path,
         status: existing?.status ?? "modified",
         body: drafts[path],
+        additions: existing?.additions,
+        deletions: existing?.deletions,
       })
     }
     return [...byPath.values()]
@@ -509,20 +544,26 @@ function WorkspaceFilesPaneContent(props: {
       setJobError(null)
       if (input.op === "save") {
         setDrafts((current) => {
+          if (current[input.path] !== input.content) return current
           const next = { ...current }
           delete next[input.path]
           return next
         })
-        setEditorEpoch((value) => value + 1)
+        if (
+          latestDraftRef.current?.path === input.path &&
+          latestDraftRef.current.body === input.content
+        ) {
+          latestDraftRef.current = null
+        }
       }
-      if (input.op === "rename") props.onOpenFileTab(input.to)
+      if (input.op === "rename") props.onPinFile(input.to)
       if (input.op === "move") {
         const name = input.from.split("/").pop() ?? input.from
         const next = input.toDirectory ? `${input.toDirectory}/${name}` : name
-        props.onOpenFileTab(next)
+        props.onPinFile(next)
       }
       if (input.op === "create" && input.kind === "file") {
-        props.onOpenFileTab(input.path)
+        props.onPinFile(input.path)
       }
       if (input.op === "delete" && props.activeFile) {
         const prefix = `${input.path}/`
@@ -548,14 +589,53 @@ function WorkspaceFilesPaneContent(props: {
     },
   })
 
-  const saveActive = () => {
-    if (!props.activeFile || activeDraft === undefined) return
-    jobMutation.mutate({
-      op: "save",
-      path: props.activeFile,
-      content: activeDraft,
-    })
+  const flushSave = (path: string | null) => {
+    if (!writableRef.current || !path) return
+    const latest = latestDraftRef.current
+    const content =
+      latest?.path === path ? latest.body : draftsRef.current[path]
+    if (content === undefined) return
+    jobMutation.mutate({ op: "save", path, content })
   }
+
+  const clearAutosaveTimer = () => {
+    if (saveTimerRef.current) {
+      clearTimeout(saveTimerRef.current)
+      saveTimerRef.current = null
+    }
+  }
+
+  const scheduleAutosave = (path: string) => {
+    if (!writableRef.current) return
+    if (pendingSavePathRef.current && pendingSavePathRef.current !== path) {
+      const previous = pendingSavePathRef.current
+      clearAutosaveTimer()
+      pendingSavePathRef.current = null
+      flushSave(previous)
+    } else {
+      clearAutosaveTimer()
+    }
+    pendingSavePathRef.current = path
+    saveTimerRef.current = setTimeout(() => {
+      saveTimerRef.current = null
+      const toSave = pendingSavePathRef.current
+      pendingSavePathRef.current = null
+      flushSave(toSave)
+    }, 10_000)
+  }
+
+  const saveOnBlur = () => {
+    const path = pendingSavePathRef.current ?? props.activeFile
+    clearAutosaveTimer()
+    pendingSavePathRef.current = null
+    flushSave(path)
+  }
+
+  useEffect(() => {
+    return () => {
+      if (saveTimerRef.current) clearTimeout(saveTimerRef.current)
+    }
+  }, [])
 
   const submitCreate = () => {
     if (!createDialog) return
@@ -571,18 +651,24 @@ function WorkspaceFilesPaneContent(props: {
   }
 
   return (
-    <div className="flex min-h-0 min-w-0 flex-1">
+    <div
+      className="relative grid h-full min-h-0 min-w-0 flex-1 overflow-hidden"
+      style={{
+        gridTemplateColumns: props.treeCollapsed
+          ? "minmax(0,1fr)"
+          : `minmax(0, ${treeWidth}px) minmax(0,1fr)`,
+        gridTemplateRows: "minmax(0,1fr)",
+      }}
+    >
       {props.treeCollapsed ? null : (
-        <div
-          className="relative flex h-full min-h-0 min-w-0 shrink-0 flex-col"
-          style={{ width: treeWidth }}
-        >
+        <div className="relative flex h-full min-h-0 min-w-0 flex-col border-r border-white/[0.06]">
           <WorkspaceFileTree
             paths={props.tree.paths}
             selectedPath={props.activeFile}
             gitStatus={gitStatus}
             writable={writable}
-            onSelect={props.onOpenFileTab}
+            onSelect={props.onPreviewFile}
+            onPin={props.onPinFile}
             onHideTree={props.onToggleTree}
             onRequestCreate={(kind, parentPath) => {
               setCreateName("")
@@ -596,21 +682,19 @@ function WorkspaceFilesPaneContent(props: {
               jobMutation.mutate({ op: "move", from, toDirectory })
             }
           />
-          <Button
-            variant="ghost"
+          <button
+            type="button"
             aria-label="Resize file tree"
             aria-orientation="vertical"
             aria-valuemin={TREE_WIDTH_MIN}
             aria-valuemax={TREE_WIDTH_MAX}
             aria-valuenow={treeWidth}
             className={cn(
-              "absolute inset-y-0 right-0 z-10 w-3 translate-x-1/2 cursor-col-resize rounded-none border-0 bg-transparent p-0",
-              "hover:bg-transparent pressed:bg-transparent",
-              "outline-0 focus-visible:outline-0",
+              "absolute inset-y-0 right-0 z-20 w-3 translate-x-1/2 cursor-col-resize border-0 bg-transparent p-0 outline-0",
               "after:pointer-events-none after:absolute after:inset-y-0 after:left-1/2 after:w-px after:-translate-x-1/2",
-              "after:rounded-full after:bg-white/[0.06] after:transition-colors",
+              "after:bg-transparent after:transition-colors",
               "hover:after:bg-white/40 focus-visible:after:bg-white/40",
-              treeResizing && "after:bg-white/55",
+              treeResizing && "after:bg-white/40",
             )}
             onPointerDown={(event) => {
               event.preventDefault()
@@ -649,8 +733,13 @@ function WorkspaceFilesPaneContent(props: {
           />
         </div>
       )}
-      <div className="flex min-h-0 min-w-0 flex-1 flex-col">
-        <div className={FILES_COL_HEADER_CLASS}>
+      <div className="flex h-full min-h-0 min-w-0 flex-col overflow-hidden">
+        <div
+          className={cn(
+            "flex h-8 shrink-0 items-center gap-1 pr-1",
+            props.treeCollapsed ? "pl-1" : "pl-3",
+          )}
+        >
           {props.treeCollapsed ? (
             <Button
               variant="quiet"
@@ -659,7 +748,11 @@ function WorkspaceFilesPaneContent(props: {
               onPress={props.onToggleTree}
               className={FILES_HEADER_ICON_BUTTON_CLASS}
             >
-              <IconMenu2 className="size-4" stroke={1.6} aria-hidden />
+              <IconLayoutSidebarLeftExpand
+                className="size-4"
+                stroke={1.6}
+                aria-hidden
+              />
             </Button>
           ) : null}
           {fileName ? (
@@ -675,34 +768,37 @@ function WorkspaceFilesPaneContent(props: {
           ) : (
             <span className="min-w-0 flex-1" />
           )}
-          {props.activeFile ? (
+          {writable && props.activeFile ? (
             <>
-              <SaveFileButton
-                writable={writable}
-                dirty={dirty}
-                pending={jobMutation.isPending}
-                readOnlyReason={props.readOnlyReason}
-                onSave={saveActive}
-              />
               <Button
                 variant="quiet"
                 size="icon-sm"
-                aria-label="Close file"
-                onPress={props.onCloseActiveFile}
+                aria-label="Undo"
+                isDisabled={!editorHistory.canUndo}
+                preventFocusOnPress
+                onPress={() => fileEditorRef.current?.undo()}
                 className={FILES_HEADER_ICON_BUTTON_CLASS}
               >
-                <IconX className="size-4" aria-hidden />
+                <IconArrowBackUp className="size-4" stroke={1.6} aria-hidden />
+              </Button>
+              <Button
+                variant="quiet"
+                size="icon-sm"
+                aria-label="Redo"
+                isDisabled={!editorHistory.canRedo}
+                preventFocusOnPress
+                onPress={() => fileEditorRef.current?.redo()}
+                className={FILES_HEADER_ICON_BUTTON_CLASS}
+              >
+                <IconArrowForwardUp
+                  className="size-4"
+                  stroke={1.6}
+                  aria-hidden
+                />
               </Button>
             </>
           ) : null}
         </div>
-        {jobError ? (
-          <div className="px-2 pb-2">
-            <InlineAlert variant="error" title="Could not save">
-              {jobError}
-            </InlineAlert>
-          </div>
-        ) : null}
         {jobError ? (
           <div className="px-2 pb-2">
             <InlineAlert variant="error" title="Could not save">
@@ -715,9 +811,7 @@ function WorkspaceFilesPaneContent(props: {
             <Suspense
               fallback={
                 <div className="flex h-full items-center p-4">
-                  <p className="text-sm text-muted-foreground">
-                    Loading file…
-                  </p>
+                  <p className="text-sm text-muted-foreground">Loading file…</p>
                 </div>
               }
             >
@@ -726,23 +820,35 @@ function WorkspaceFilesPaneContent(props: {
                 workspaceSlug={props.workspaceSlug}
                 path={props.activeFile}
                 sha={props.sha || props.tree.sha}
-                editorEpoch={editorEpoch}
                 remoteBody={
                   gitStatus.find((item) => item.path === props.activeFile)?.body
                 }
                 editable={writable}
+                editorHandleRef={fileEditorRef}
+                onHistoryChange={setEditorHistory}
+                onBlur={saveOnBlur}
                 onChange={(body, headBody) => {
                   const path = props.activeFile
                   if (!path) return
-                  setDrafts((current) => {
-                    if (body === (headBody ?? "")) {
+                  if (body === (headBody ?? "")) {
+                    if (latestDraftRef.current?.path === path) {
+                      latestDraftRef.current = null
+                    }
+                    if (pendingSavePathRef.current === path) {
+                      clearAutosaveTimer()
+                      pendingSavePathRef.current = null
+                    }
+                    setDrafts((current) => {
                       if (!(path in current)) return current
                       const next = { ...current }
                       delete next[path]
                       return next
-                    }
-                    return { ...current, [path]: body }
-                  })
+                    })
+                    return
+                  }
+                  latestDraftRef.current = { path, body }
+                  setDrafts((current) => ({ ...current, [path]: body }))
+                  scheduleAutosave(path)
                 }}
               />
             </Suspense>
@@ -857,48 +963,16 @@ function WorkspaceFilesPaneContent(props: {
   )
 }
 
-function SaveFileButton(props: {
-  writable: boolean
-  dirty: boolean
-  pending: boolean
-  readOnlyReason: string | null
-  onSave: () => void
-}) {
-  const button = (
-    <Button
-      variant="quiet"
-      aria-label="Save"
-      isDisabled={!props.writable || !props.dirty || props.pending}
-      onPress={props.onSave}
-      className="h-6 min-h-6 px-2 text-xs"
-    >
-      Save
-    </Button>
-  )
-  if (props.writable) return button
-  return (
-    <Tooltip>
-      <TooltipTrigger className="inline-flex">{button}</TooltipTrigger>
-      <TooltipContent
-        side="bottom"
-        sideOffset={6}
-        className="border-0 bg-zinc-800 text-zinc-100 shadow-md"
-        arrowClassName="bg-zinc-800 fill-zinc-800"
-      >
-        {props.readOnlyReason ?? "This Workspace is read-only."}
-      </TooltipContent>
-    </Tooltip>
-  )
-}
-
 function WorkspaceGitFilePreview(props: {
   orgSlug: string
   workspaceSlug: string
   path: string
   sha: string
-  editorEpoch: number
   remoteBody?: string | null
   editable: boolean
+  editorHandleRef: { current: FileEditorHandle | null }
+  onHistoryChange: (history: FileEditorHistory) => void
+  onBlur: () => void
   onChange: (body: string, headBody: string | null) => void
 }) {
   const { data } = useSuspenseQuery(
@@ -911,7 +985,7 @@ function WorkspaceGitFilePreview(props: {
   )
   if (data.binary) {
     return (
-      <div className="flex h-full min-h-full items-center p-4">
+      <div className="flex h-full min-h-0 items-center p-4">
         <p className="text-sm text-muted-foreground">
           This file is binary and cannot be previewed.
         </p>
@@ -930,13 +1004,16 @@ function WorkspaceGitFilePreview(props: {
     )
   }
   return (
-    <div className="h-full min-h-full min-w-0">
+    <div className="h-full min-h-0 min-w-0">
       <WorkspacePierreFile
         path={props.path}
         body={workingBody ?? ""}
         oldBody={headBody}
-        cacheKey={`${props.sha}:${props.path}:${props.editorEpoch}`}
+        cacheKey={`${props.sha}:${props.path}`}
         editable={props.editable}
+        editorHandleRef={props.editorHandleRef}
+        onHistoryChange={props.onHistoryChange}
+        onBlur={props.onBlur}
         onChange={(body) => props.onChange(body, headBody)}
       />
     </div>
@@ -972,6 +1049,7 @@ function PaneIconTab(props: { id: string; label: string; icon: ReactNode }) {
 
 export function WorkspacePaneTriggers(props: {
   onOpen: (pane: ParsedPane) => void
+  onExpand?: () => void
 }) {
   return (
     <TooltipProvider delay={200}>
@@ -991,6 +1069,13 @@ export function WorkspacePaneTriggers(props: {
           icon={<IconSettings stroke={1.6} aria-hidden />}
           onClick={() => props.onOpen({ kind: "settings" })}
         />
+        {props.onExpand ? (
+          <HeaderIcon
+            label="Show pane"
+            icon={<IconLayoutSidebarRightExpand stroke={1.6} aria-hidden />}
+            onClick={props.onExpand}
+          />
+        ) : null}
       </div>
     </TooltipProvider>
   )
@@ -1001,13 +1086,18 @@ function HeaderIcon(props: {
   label: string
   icon: ReactNode
   onClick: () => void
+  className?: string
 }) {
   return (
     <Tooltip>
       <TooltipTrigger
         aria-label={props.label}
         onClick={props.onClick}
-        className={cn(workspaceChromeTabIdleClassName, focusVisibleClassName)}
+        className={cn(
+          workspaceChromeTabIdleClassName,
+          focusVisibleClassName,
+          props.className,
+        )}
       >
         <span className="inline-flex size-4 items-center justify-center [&_svg]:size-4 [&_svg]:stroke-[1.6]">
           {props.icon}

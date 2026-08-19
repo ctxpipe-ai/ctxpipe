@@ -1,5 +1,5 @@
 import { FileTree, useFileTree, useFileTreeSearch } from "@pierre/trees/react"
-import { IconMenu2, IconSearch } from "@tabler/icons-react"
+import { IconLayoutSidebarLeftCollapse, IconSearch } from "@tabler/icons-react"
 import { type CSSProperties, useEffect, useMemo, useRef } from "react"
 import { Button } from "@/components/ui/Button"
 import { Menu, MenuItem, MenuTrigger } from "@/components/ui/Menu"
@@ -14,6 +14,8 @@ import type { WorkspaceGitStatusItem } from "./types"
 const TREE_HEADER_CLASS = "flex h-8 shrink-0 items-center gap-1 px-1"
 const TREE_HEADER_ICON_CLASS =
   "size-6 min-h-6 min-w-6 p-0 leading-none [&_svg]:block"
+const ADDITIONS_COLOR = "#34d399"
+const DELETIONS_COLOR = "#f87171"
 
 const TREE_UNSAFE_CSS = `
   :host {
@@ -45,12 +47,33 @@ export type WorkspaceFileTreeItem = {
   path: string
 }
 
+function lineCountDecoration(item: WorkspaceGitStatusItem | undefined) {
+  if (!item) return null
+  const additions = item.additions ?? 0
+  const deletions = item.deletions ?? 0
+  if (additions === 0 && deletions === 0) return null
+  const parts = [
+    ...(additions > 0
+      ? [{ text: `+${additions}`, color: ADDITIONS_COLOR }]
+      : []),
+    ...(deletions > 0
+      ? [{ text: `−${deletions}`, color: DELETIONS_COLOR }]
+      : []),
+  ]
+  return {
+    text: parts.map((part) => part.text).join(" "),
+    title: `${additions} added, ${deletions} deleted`,
+    parts,
+  }
+}
+
 export function WorkspaceFileTree(props: {
   paths: readonly string[]
   selectedPath: string | null
   gitStatus?: readonly WorkspaceGitStatusItem[]
   writable: boolean
   onSelect: (path: string) => void
+  onPin?: (path: string) => void
   onRequestCreate?: (kind: "file" | "folder", parentPath: string | null) => void
   onRequestDelete?: (item: WorkspaceFileTreeItem) => void
   onRename?: (from: string, to: string) => void
@@ -60,6 +83,8 @@ export function WorkspaceFileTree(props: {
   const fileSet = useMemo(() => new Set(props.paths), [props.paths])
   const onSelectRef = useRef(props.onSelect)
   onSelectRef.current = props.onSelect
+  const onPinRef = useRef(props.onPin)
+  onPinRef.current = props.onPin
   const fileSetRef = useRef(fileSet)
   fileSetRef.current = fileSet
   const writableRef = useRef(props.writable)
@@ -72,6 +97,14 @@ export function WorkspaceFileTree(props: {
   onRequestCreateRef.current = props.onRequestCreate
   const onRequestDeleteRef = useRef(props.onRequestDelete)
   onRequestDeleteRef.current = props.onRequestDelete
+  const gitStatusByPathRef = useRef(new Map<string, WorkspaceGitStatusItem>())
+  gitStatusByPathRef.current = new Map(
+    (props.gitStatus ?? []).map((item) => [item.path, item]),
+  )
+  const pierreGitStatus = useMemo(
+    () => (props.gitStatus ?? []).map(({ path, status }) => ({ path, status })),
+    [props.gitStatus],
+  )
 
   const { model } = useFileTree({
     paths: props.paths,
@@ -80,8 +113,12 @@ export function WorkspaceFileTree(props: {
     flattenEmptyDirectories: true,
     density: "compact",
     icons: { set: "standard", colored: false },
-    gitStatus: props.gitStatus,
+    gitStatus: pierreGitStatus,
     initialSelectedPaths: props.selectedPath ? [props.selectedPath] : [],
+    renderRowDecoration: ({ item }) => {
+      if (item.kind !== "file") return null
+      return lineCountDecoration(gitStatusByPathRef.current.get(item.path))
+    },
     dragAndDrop: {
       canDrag: () => writableRef.current,
       canDrop: (event) => {
@@ -122,8 +159,8 @@ export function WorkspaceFileTree(props: {
   }, [model, props.paths])
 
   useEffect(() => {
-    model.setGitStatus(props.gitStatus)
-  }, [model, props.gitStatus])
+    model.setGitStatus(pierreGitStatus)
+  }, [model, pierreGitStatus])
 
   useEffect(() => {
     if (!props.selectedPath) return
@@ -135,7 +172,7 @@ export function WorkspaceFileTree(props: {
   }, [model, props.selectedPath])
 
   return (
-    <div className="flex min-h-0 min-w-0 flex-1 flex-col">
+    <div className="flex h-full min-h-0 min-w-0 flex-col">
       <div className={TREE_HEADER_CLASS}>
         <span className="min-w-0 flex-1" />
         <Button
@@ -143,6 +180,7 @@ export function WorkspaceFileTree(props: {
           size="icon-sm"
           aria-label={search.isOpen ? "Close search" : "Search files"}
           aria-pressed={search.isOpen}
+          preventFocusOnPress
           onPress={() => {
             if (search.isOpen) search.close()
             else search.open()
@@ -162,15 +200,25 @@ export function WorkspaceFileTree(props: {
             onPress={props.onHideTree}
             className={TREE_HEADER_ICON_CLASS}
           >
-            <IconMenu2 className="size-4" stroke={1.6} aria-hidden />
+              <IconLayoutSidebarLeftCollapse
+                className="size-4"
+                stroke={1.6}
+                aria-hidden
+              />
           </Button>
         ) : null}
       </div>
       <FileTree
         model={model}
-        className="block min-h-0 min-w-0 flex-1"
+        className="block h-full min-h-0 min-w-0 flex-1"
         style={TREE_HOST_STYLE}
         aria-label="Workspace files"
+        onDoubleClick={() => {
+          const file = model
+            .getSelectedPaths()
+            .find((path) => fileSetRef.current.has(path))
+          if (file) onPinRef.current?.(file)
+        }}
         renderContextMenu={(item, context) => (
           <WorkspaceFileTreeMenu
             item={item}

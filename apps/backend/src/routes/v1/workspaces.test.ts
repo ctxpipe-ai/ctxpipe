@@ -903,11 +903,20 @@ describe("workspaces API", () => {
       activeProjectionSha: "active-sha",
     })
     getJobSandboxMock.mockReturnValue({
-      exec: async () => ({
-        stdout: " M knowledge/billing/ledger.md\n?? scratch.ts\n",
-        stderr: "",
-        exitCode: 0,
-      }),
+      exec: async (command: string) => {
+        if (command.includes("numstat")) {
+          return {
+            stdout: "1\t0\tknowledge/billing/ledger.md\n1\t0\tscratch.ts\n",
+            stderr: "",
+            exitCode: 0,
+          }
+        }
+        return {
+          stdout: " M knowledge/billing/ledger.md\n?? scratch.ts\n",
+          stderr: "",
+          exitCode: 0,
+        }
+      },
       fs: {
         read: async (path: string) => {
           if (path === "knowledge/billing/ledger.md") return "# dirty\n"
@@ -929,8 +938,16 @@ describe("workspaces API", () => {
           path: "knowledge/billing/ledger.md",
           status: "modified",
           body: "# dirty\n",
+          additions: 1,
+          deletions: 0,
         },
-        { path: "scratch.ts", status: "untracked", body: "export {}\n" },
+        {
+          path: "scratch.ts",
+          status: "untracked",
+          body: "export {}\n",
+          additions: 1,
+          deletions: 0,
+        },
       ],
     })
   })

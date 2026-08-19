@@ -1,5 +1,5 @@
 import type { Meta, StoryObj } from "@storybook/react-vite"
-import { fn } from "storybook/test"
+import { fn, userEvent, within } from "storybook/test"
 import { entryPageInnerDecorators } from "../../../.storybook/decorators/entry-page-decorators"
 import type { StoryRouteParams } from "../../../.storybook/decorators/with-story-route"
 import { WorkspaceFileTree } from "./WorkspaceFileTree"
@@ -46,6 +46,7 @@ const meta = {
   args: {
     selectedPath: "knowledge/billing.md",
     onSelect: fn(),
+    onPin: fn(),
     onHideTree: fn(),
     paths: nestedPaths,
     writable: true,
@@ -57,6 +58,13 @@ export default meta
 type Story = StoryObj<typeof meta>
 
 export const Nested: Story = {}
+
+export const SearchOpen: Story = {
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement)
+    await userEvent.click(canvas.getByRole("button", { name: "Search files" }))
+  },
+}
 
 export const LongNames: Story = {
   decorators: [
@@ -93,12 +101,30 @@ export const GitShaped: Story = {
 }
 
 export const GitStatus: Story = {
+  decorators: [
+    (Story) => (
+      <div className="flex h-96 w-80 flex-col bg-card">
+        <Story />
+      </div>
+    ),
+  ],
   args: {
     paths: docsWorkspaceGitTree.paths,
     selectedPath: "knowledge/billing/ledger.md",
     gitStatus: [
-      { path: "knowledge/billing/ledger.md", status: "modified" },
-      { path: "AGENTS.md", status: "added" },
+      {
+        path: "knowledge/billing/ledger.md",
+        status: "modified",
+        additions: 2,
+        deletions: 0,
+      },
+      { path: "AGENTS.md", status: "added", additions: 3, deletions: 0 },
+      {
+        path: "README.md",
+        status: "modified",
+        additions: 4,
+        deletions: 1,
+      },
     ],
   },
 }

@@ -7,7 +7,9 @@ import {
   explorerBlobFromContent,
   explorerBlobFromGitFile,
   explorerBlobPath,
+  explorerGitNumstatFromStdout,
   explorerGitStatusFromPorcelain,
+  withExplorerGitLineCounts,
   workspaceGitExplorerTarget,
 } from "../../domain/workspaces/git-explorer.js"
 import {
@@ -545,6 +547,8 @@ const WorkspaceGitStatusItemSchema = z
     path: z.string(),
     status: ExplorerGitStatusSchema,
     body: z.string().nullable().optional(),
+    additions: z.number().int().nonnegative().optional(),
+    deletions: z.number().int().nonnegative().optional(),
   })
   .openapi("WorkspaceGitStatusItem")
 
@@ -837,10 +841,9 @@ async function loadWorkspaceGitExplorer(c: Context<AppEnv>) {
 }
 
 function gitExplorerUpstreamError(error: unknown, step: string) {
-  getLogger().error(
-    error instanceof Error ? error : new Error(String(error)),
-    { step },
-  )
+  getLogger().error(error instanceof Error ? error : new Error(String(error)), {
+    step,
+  })
 }
 
 export const workspaceRoutes = new OpenAPIHono<AppEnv>()
@@ -988,19 +991,29 @@ export const workspaceRoutes = new OpenAPIHono<AppEnv>()
           200,
         )
       }
+      const numstat = await sandbox.exec("git diff --numstat HEAD", { env: {} })
+      const lineCounts =
+        numstat.exitCode === 0
+          ? explorerGitNumstatFromStdout(numstat.stdout)
+          : new Map()
       const entries = explorerGitStatusFromPorcelain(status.stdout)
       const items = await Promise.all(
         entries.map(async (entry) => {
           if (entry.status === "deleted" || entry.status === "ignored") {
-            return entry
+            return withExplorerGitLineCounts(entry, lineCounts)
           }
           try {
             const content = await sandbox.fs.read(entry.path)
             const blob = explorerBlobFromContent(content)
-            if (!blob || blob.binary) return entry
-            return { ...entry, body: blob.body }
+            if (!blob || blob.binary) {
+              return withExplorerGitLineCounts(entry, lineCounts)
+            }
+            return {
+              ...withExplorerGitLineCounts(entry, lineCounts, blob.body),
+              body: blob.body,
+            }
           } catch {
-            return entry
+            return withExplorerGitLineCounts(entry, lineCounts)
           }
         }),
       )

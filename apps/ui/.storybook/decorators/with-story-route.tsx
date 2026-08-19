@@ -7,6 +7,7 @@ import {
   Outlet,
   RouterProvider,
 } from "@tanstack/react-router"
+import { type ComponentType, type ReactElement, useMemo, useRef } from "react"
 
 function storyRouteStub() {
   return null
@@ -30,11 +31,42 @@ export type StoryRouteParams =
 /**
  * Puts the story component on a real route (sign-in, onboarding, org home index)
  * so pages that use `Navigate` / layout match production paths — without testing `/` redirects.
+ *
+ * The memory router is created once per story mount. Recreating it on every
+ * decorator render (Storybook actions, arg updates) resets `?pane=` and is why
+ * file tabs appeared but never selected. `storybook-addon-tanstack-router`'s
+ * `withTanStackRouter` has the same recreate-on-render behaviour — we keep our
+ * own provider and do not nest that decorator.
  */
 export const withStoryRoute: Decorator = (Story, context) => {
   const spec = context.parameters.storyRoute as StoryRouteParams | undefined
   if (!spec) return <Story />
+  return <StoryRouteProvider key={context.id} spec={spec} Story={Story} />
+}
 
+function StoryRouteProvider(props: {
+  spec: StoryRouteParams
+  Story: ComponentType
+}) {
+  const storyRef = useRef(props.Story)
+  storyRef.current = props.Story
+  const specKey = JSON.stringify(props.spec)
+  const router = useMemo(
+    () =>
+      createStoryRouter(JSON.parse(specKey) as StoryRouteParams, () => {
+        const Latest = storyRef.current
+        return <Latest />
+      }),
+    [specKey],
+  )
+  return <RouterProvider router={router} />
+}
+
+function createStoryRouter(
+  spec: StoryRouteParams,
+  renderStory: () => ReactElement,
+) {
+  const StoryRoute = () => renderStory()
   const rootRoute = createRootRoute({
     component: () => <Outlet />,
   })
@@ -43,7 +75,7 @@ export const withStoryRoute: Decorator = (Story, context) => {
     const leaf = createRoute({
       getParentRoute: () => rootRoute,
       path: spec.path,
-      component: Story,
+      component: StoryRoute,
     })
     const siblings =
       spec.path === "/.auth/sign-in"
@@ -56,12 +88,10 @@ export const withStoryRoute: Decorator = (Story, context) => {
             }),
             leaf,
           ]
-    const routeTree = rootRoute.addChildren(siblings)
-    const router = createRouter({
-      routeTree,
+    return createRouter({
+      routeTree: rootRoute.addChildren(siblings),
       history: createMemoryHistory({ initialEntries: [spec.path] }),
     })
-    return <RouterProvider router={router} />
   }
 
   const orgRoute = createRoute({
@@ -70,11 +100,12 @@ export const withStoryRoute: Decorator = (Story, context) => {
     path: "$orgSlug",
     component: () => <Outlet />,
   })
-  const orgIndexForStory = spec.pattern === "orgIndex" ? Story : storyRouteStub
+  const orgIndexForStory =
+    spec.pattern === "orgIndex" ? StoryRoute : storyRouteStub
   const orgConnectorsForStory =
-    spec.pattern === "orgConnectors" ? Story : storyRouteStub
+    spec.pattern === "orgConnectors" ? StoryRoute : storyRouteStub
   const orgRepositoriesIndexForStory =
-    spec.pattern === "orgRepositories" ? Story : storyRouteStub
+    spec.pattern === "orgRepositories" ? StoryRoute : storyRouteStub
 
   const orgIndex = createRoute({
     getParentRoute: () => orgRoute,
@@ -97,9 +128,9 @@ export const withStoryRoute: Decorator = (Story, context) => {
     component: orgConnectorsForStory,
   })
   const orgWorkspaceNewForStory =
-    spec.pattern === "orgWorkspaceNew" ? Story : storyRouteStub
+    spec.pattern === "orgWorkspaceNew" ? StoryRoute : storyRouteStub
   const orgWorkspaceForStory =
-    spec.pattern === "orgWorkspace" ? Story : storyRouteStub
+    spec.pattern === "orgWorkspace" ? StoryRoute : storyRouteStub
   const orgWorkspacesNew = createRoute({
     getParentRoute: () => orgRoute,
     path: "workspaces/new",
@@ -161,9 +192,8 @@ export const withStoryRoute: Decorator = (Story, context) => {
               ? `/${spec.orgSlug}/ws/${spec.workspaceSlug}/${spec.conversationId}${workspaceSearch}`
               : `/${spec.orgSlug}/ws/${spec.workspaceSlug}${workspaceSearch}`
             : `/${spec.orgSlug}`
-  const router = createRouter({
+  return createRouter({
     routeTree,
     history: createMemoryHistory({ initialEntries: [initialPath] }),
   })
-  return <RouterProvider router={router} />
 }

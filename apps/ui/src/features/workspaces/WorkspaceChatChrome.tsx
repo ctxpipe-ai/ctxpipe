@@ -25,7 +25,7 @@ export function WorkspaceChatChrome(props: {
       className={cn(
         workspaceChromeOuterClassName,
         workspaceChromeOuterFlushClassName,
-        "min-w-0 flex-1 pl-0 pr-3",
+        "h-full min-w-0 flex-1 pl-0 pr-3",
       )}
       data-workspace-surface=""
     >

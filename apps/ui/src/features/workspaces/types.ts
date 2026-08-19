@@ -78,6 +78,8 @@ export type WorkspaceGitStatusItem = {
   path: string
   status: WorkspaceGitStatus
   body?: string | null
+  additions?: number
+  deletions?: number
 }
 
 export type WorkspaceGitStatusResponse = {

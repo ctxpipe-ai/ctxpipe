@@ -7,6 +7,7 @@ import type {
   WorkspaceDetail,
   WorkspaceFilesResponse,
   WorkspaceFileTreeNode,
+  WorkspaceGitStatusResponse,
   WorkspaceGitTreeResponse,
   WorkspaceGraphPayload,
 } from "./types"
@@ -233,6 +234,32 @@ const docsKnowledgePaths = Object.keys(docsWorkspaceGitBlobs).filter((path) =>
 export const docsWorkspaceGitTree: WorkspaceGitTreeResponse = {
   sha: docsWorkspace.activeProjectionSha ?? "abc123def456",
   paths: Object.keys(docsWorkspaceGitBlobs).sort(),
+}
+
+export const docsWorkspaceGitStatus: WorkspaceGitStatusResponse = {
+  sha: docsWorkspaceGitTree.sha,
+  source: "sandbox",
+  items: [
+    {
+      path: "knowledge/billing/ledger.md",
+      status: "modified",
+      body: `${docsWorkspaceGitBlobs["knowledge/billing/ledger.md"] ?? ""}\nQueued sandbox edit.\n`,
+      additions: 2,
+      deletions: 0,
+    },
+    {
+      path: "AGENTS.md",
+      status: "added",
+      additions: 3,
+      deletions: 0,
+    },
+    {
+      path: "README.md",
+      status: "modified",
+      additions: 4,
+      deletions: 1,
+    },
+  ],
 }
 
 export const docsWorkspaceFiles: WorkspaceFilesResponse =
