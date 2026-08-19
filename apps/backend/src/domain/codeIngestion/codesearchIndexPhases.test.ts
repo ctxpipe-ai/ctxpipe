@@ -22,6 +22,7 @@ vi.mock("../../observability/logger.js", () => ({
 
 import { CODEBASE_DIDNT_FIT_AVAILABLE_MEMORY } from "../../lib/memoryFitError.js"
 import {
+  codesearchIndexMergeScip,
   codesearchIndexScipLang,
   codesearchIndexZoekt,
 } from "./codesearchIndexPhases.js"
@@ -136,6 +137,55 @@ describe("codesearchIndexScipLang", () => {
         ["go"],
       ),
     ).rejects.toThrow(CODEBASE_DIDNT_FIT_AVAILABLE_MEMORY)
+    vi.unstubAllGlobals()
+  })
+})
+
+describe("codesearchIndexMergeScip", () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+    signUpstreamJwtMock.mockResolvedValue("token")
+    parseEnvMock.mockReturnValue({})
+    codesearchBaseUrlMock.mockReturnValue("http://codesearch:3001")
+  })
+
+  it("sends an empty languagesToMerge array so merge omits leftover shards", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(
+      new Response(JSON.stringify({ ok: true }), { status: 200 }),
+    )
+    vi.stubGlobal("fetch", fetchMock)
+
+    await codesearchIndexMergeScip(
+      { repositoryId: "repo_1", orgId: "org_1" },
+      ["go", "typescript"],
+      [],
+    )
+
+    expect(fetchMock).toHaveBeenCalledOnce()
+    const [, init] = fetchMock.mock.calls[0] as [string, RequestInit]
+    expect(JSON.parse(String(init.body))).toEqual({
+      detectedLanguages: ["go", "typescript"],
+      languagesToMerge: [],
+    })
+    vi.unstubAllGlobals()
+  })
+
+  it("omits languagesToMerge when the caller does not override shards", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(
+      new Response(JSON.stringify({ ok: true }), { status: 200 }),
+    )
+    vi.stubGlobal("fetch", fetchMock)
+
+    await codesearchIndexMergeScip(
+      { repositoryId: "repo_1", orgId: "org_1" },
+      ["go"],
+    )
+
+    expect(fetchMock).toHaveBeenCalledOnce()
+    const [, init] = fetchMock.mock.calls[0] as [string, RequestInit]
+    expect(JSON.parse(String(init.body))).toEqual({
+      detectedLanguages: ["go"],
+    })
     vi.unstubAllGlobals()
   })
 })

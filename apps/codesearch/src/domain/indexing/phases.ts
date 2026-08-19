@@ -417,11 +417,13 @@ async function readGitHead(clonePath: string): Promise<string | null> {
   return sha.length > 0 ? sha : null
 }
 
-export async function selectValidScipShardPaths(
-  shardPaths: readonly string[],
-): Promise<string[]> {
+export async function publishMergedScipIndex(input: {
+  detectedLanguages: readonly string[]
+  shardPaths: readonly string[]
+  outputPath: string
+}): Promise<{ shardCount: number }> {
   const valid: string[] = []
-  for (const shardPath of shardPaths) {
+  for (const shardPath of input.shardPaths) {
     let bytes: Buffer
     try {
       const info = await stat(shardPath)
@@ -430,15 +432,24 @@ export async function selectValidScipShardPaths(
           shardPath,
           reason: "empty",
         })
+        await rm(shardPath, { force: true })
         continue
       }
       bytes = await readFile(shardPath)
-    } catch {
-      tryEmitIndexEvent("codesearch.index.scip.shard_skipped", {
-        shardPath,
-        reason: "missing",
-      })
-      continue
+    } catch (error) {
+      if (
+        typeof error === "object" &&
+        error !== null &&
+        "code" in error &&
+        (error as { code?: string }).code === "ENOENT"
+      ) {
+        tryEmitIndexEvent("codesearch.index.scip.shard_skipped", {
+          shardPath,
+          reason: "missing",
+        })
+        continue
+      }
+      throw error
     }
     try {
       decodeScipIndex(bytes)
@@ -448,24 +459,11 @@ export async function selectValidScipShardPaths(
         reason: "malformed",
         error: error instanceof Error ? error.message : String(error),
       })
+      await rm(shardPath, { force: true })
       continue
     }
     valid.push(shardPath)
   }
-  return valid
-}
-
-/**
- * Publish a merged SCIP index from surviving shards.
- * No detected languages → empty index (success). Languages detected but no
- * valid shards → omit/delete the published file so graph tools soft-miss.
- */
-export async function publishMergedScipIndex(input: {
-  detectedLanguages: readonly string[]
-  shardPaths: readonly string[]
-  outputPath: string
-}): Promise<{ shardCount: number }> {
-  const valid = await selectValidScipShardPaths(input.shardPaths)
   if (valid.length === 0) {
     if (input.detectedLanguages.length === 0) {
       await writeMergedScipIndex([], input.outputPath)
@@ -696,15 +694,22 @@ export async function phaseScipLanguage(
 
 export async function phaseMergeScip(
   ctx: IndexPhaseRepoContext,
-  params: { detectedLanguages: readonly string[] },
+  params: {
+    detectedLanguages: readonly string[]
+    languagesToMerge?: readonly string[]
+  },
 ): Promise<void> {
   const writeStep = monotonicWriteStep(ctx.db, ctx.repoId)
   const detected = [...params.detectedLanguages]
+  const languagesToMerge =
+    params.languagesToMerge !== undefined
+      ? [...params.languagesToMerge]
+      : detected
   await writeStep("merging_intelligence", detected)
   await withPhase("scip_merge", () =>
     publishMergedScipIndex({
       detectedLanguages: detected,
-      shardPaths: detected.map((indexerId) =>
+      shardPaths: languagesToMerge.map((indexerId) =>
         scipLangShardPath(ctx.orgId, ctx.repoId, indexerId),
       ),
       outputPath: ctx.scipIndexPath,

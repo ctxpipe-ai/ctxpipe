@@ -202,10 +202,14 @@ export async function codesearchIndexScipLang(
 export async function codesearchIndexMergeScip(
   auth: CodesearchIndexAuth,
   detectedLanguages: string[],
+  languagesToMerge?: string[],
 ): Promise<void> {
   const res = await codesearchPhaseFetch("/index/merge-scip", auth, {
     method: "POST",
-    body: JSON.stringify({ detectedLanguages }),
+    body: JSON.stringify({
+      detectedLanguages,
+      ...(languagesToMerge !== undefined ? { languagesToMerge } : {}),
+    }),
   })
   await parseOrThrow(res, okResponseSchema, "codesearch index merge-scip")
 }

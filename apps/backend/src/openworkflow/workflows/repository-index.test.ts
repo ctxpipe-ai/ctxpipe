@@ -223,6 +223,11 @@ describe("repositoryIndex workflow", () => {
 
     expect(scipMock).not.toHaveBeenCalled()
     expect(mergeMock).toHaveBeenCalledOnce()
+    expect(mergeMock).toHaveBeenCalledWith(
+      expect.anything(),
+      ["go", "typescript"],
+      [],
+    )
     expect(stepNames).not.toContain("scip:go")
     expect(stepNames).toContain("merge-scip")
     expect(result).toMatchObject({

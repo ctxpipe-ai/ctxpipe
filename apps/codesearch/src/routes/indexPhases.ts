@@ -103,6 +103,7 @@ const scipLangRequestSchema = z
 const mergeScipRequestSchema = z
   .object({
     detectedLanguages: z.array(z.string()),
+    languagesToMerge: z.array(z.string()).optional(),
   })
   .openapi("IndexMergeScipRequest")
 
@@ -428,6 +429,7 @@ export function registerIndexPhaseRoutes(app: OpenAPIHono<AppEnv>) {
           async () => {
             await phaseMergeScip(resolved.ctx, {
               detectedLanguages: body.detectedLanguages,
+              languagesToMerge: body.languagesToMerge,
             })
             await phaseMarkCheckoutIndexed(resolved.ctx)
           },

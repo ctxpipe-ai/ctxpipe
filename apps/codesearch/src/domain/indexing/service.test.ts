@@ -201,4 +201,36 @@ describe("publishMergedScipIndex", () => {
     expect(published).toEqual({ shardCount: 0 })
     expect(existsSync(outputPath)).toBe(false)
   })
+
+  it("deletes empty shards so the next partial ingest retries them", async () => {
+    const directory = await createTemporaryDirectory()
+    const emptyShardPath = join(directory, "go.scip")
+    const outputPath = join(directory, "index.scip")
+    await writeFile(emptyShardPath, new Uint8Array())
+
+    await publishMergedScipIndex({
+      detectedLanguages: ["go"],
+      shardPaths: [emptyShardPath],
+      outputPath,
+    })
+
+    expect(existsSync(emptyShardPath)).toBe(false)
+    expect(existsSync(outputPath)).toBe(false)
+  })
+
+  it("deletes malformed shards so the next partial ingest retries them", async () => {
+    const directory = await createTemporaryDirectory()
+    const malformedShardPath = join(directory, "go.scip")
+    const outputPath = join(directory, "index.scip")
+    await writeFile(malformedShardPath, new Uint8Array([0x12, 0x05, 0x01]))
+
+    await publishMergedScipIndex({
+      detectedLanguages: ["go"],
+      shardPaths: [malformedShardPath],
+      outputPath,
+    })
+
+    expect(existsSync(malformedShardPath)).toBe(false)
+    expect(existsSync(outputPath)).toBe(false)
+  })
 })

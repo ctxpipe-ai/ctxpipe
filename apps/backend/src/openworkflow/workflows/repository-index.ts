@@ -202,15 +202,13 @@ export const repositoryIndex = defineWorkflow(
           : languages.languagesToIndex
 
         if (skipScipAfterZoektMemory) {
-          if (languages.languagesToIndex.length > 0) {
-            scipIndexOk = false
-            scipIndexError = searchIndexError ?? "SCIP index unavailable"
-            logMilestone("repository-index.scip.skipped", {
-              repositoryId: input.repositoryId,
-              reason: "zoekt_memory_fit",
-              error: scipIndexError,
-            })
-          }
+          scipIndexOk = false
+          scipIndexError = searchIndexError ?? "SCIP index unavailable"
+          logMilestone("repository-index.scip.skipped", {
+            repositoryId: input.repositoryId,
+            reason: "zoekt_memory_fit",
+            error: scipIndexError,
+          })
         }
 
         const scipResults = await Promise.all(
@@ -264,6 +262,7 @@ export const repositoryIndex = defineWorkflow(
                 await codesearchIndexMergeScip(
                   auth,
                   languages.detectedLanguages,
+                  skipScipAfterZoektMemory ? [] : undefined,
                 )
                 return { ok: true as const }
               } catch (error) {

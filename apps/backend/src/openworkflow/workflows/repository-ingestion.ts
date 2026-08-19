@@ -55,23 +55,6 @@ const extractRetryPolicy = {
   maximumInterval: "2m" as const,
 }
 
-function repositoryIndexIssuesError(state: {
-  searchIndexOk?: boolean
-  searchIndexError?: string
-  scipIndexOk?: boolean
-  scipIndexError?: string
-}): string | undefined {
-  const parts: string[] = []
-  if (state.searchIndexOk === false) {
-    parts.push(state.searchIndexError?.trim() || "Search index unavailable")
-  }
-  if (state.scipIndexOk === false) {
-    parts.push(state.scipIndexError?.trim() || "SCIP index unavailable")
-  }
-  const unique = [...new Set(parts.filter(Boolean))]
-  return unique.length > 0 ? unique.join("; ") : undefined
-}
-
 /** Milestone log inside `withLogger` — uses getLogger + immediate emit. */
 function logWorkflowMilestone(
   step: string,
@@ -613,7 +596,22 @@ export const repositoryIngestion = defineWorkflow(
           await step.run({ name: "mark-success" }, () =>
             wls("mark-success", () =>
               withOrgDbContext(input.orgId, () => {
-                const issueError = repositoryIndexIssuesError(reindexState)
+                const parts: string[] = []
+                if (reindexState.searchIndexOk === false) {
+                  parts.push(
+                    reindexState.searchIndexError?.trim() ||
+                      "Search index unavailable",
+                  )
+                }
+                if (reindexState.scipIndexOk === false) {
+                  parts.push(
+                    reindexState.scipIndexError?.trim() ||
+                      "SCIP index unavailable",
+                  )
+                }
+                const issueError = [...new Set(parts.filter(Boolean))].join(
+                  "; ",
+                )
                 return issueError
                   ? markRepositoryIndexingReadyWithIssues({
                       repositoryId: input.repositoryId,
