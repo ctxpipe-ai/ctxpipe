@@ -55,6 +55,44 @@ export type WorkspaceFilesResponse = {
   tree: WorkspaceFileTreeNode[]
 }
 
+export type WorkspaceGitTreeResponse = {
+  sha: string
+  paths: string[]
+}
+
+export type WorkspaceGitBlobResponse = {
+  path: string
+  body: string | null
+  binary: boolean
+}
+
+export type WorkspaceGitStatus =
+  | "added"
+  | "deleted"
+  | "ignored"
+  | "modified"
+  | "renamed"
+  | "untracked"
+
+export type WorkspaceGitStatusItem = {
+  path: string
+  status: WorkspaceGitStatus
+  body?: string | null
+}
+
+export type WorkspaceGitStatusResponse = {
+  sha: string
+  source: "sandbox" | "clean"
+  items: WorkspaceGitStatusItem[]
+}
+
+export type WorkspaceFileJobRequest =
+  | { op: "save"; path: string; content: string }
+  | { op: "create"; path: string; kind: "file" | "folder"; content?: string }
+  | { op: "rename"; from: string; to: string }
+  | { op: "move"; from: string; toDirectory: string | null }
+  | { op: "delete"; path: string }
+
 export type WorkspaceGraphPayload = {
   metrics: {
     totalNodes: number

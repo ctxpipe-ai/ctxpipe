@@ -131,6 +131,25 @@ describe("filesForWorkspaceWriteKind", () => {
       }),
     ).toEqual(["knowledge/gone.md"])
   })
+
+  it("replays Files pane writes for ui_file_edit", () => {
+    expect(
+      filesForWorkspaceWriteKind({
+        kind: "ui_file_edit",
+        displayName: "Docs",
+        linkedUrls: [],
+        existing: new Map(),
+        mergeFiles: [{ path: "AGENTS.md", content: "edited" }],
+      }),
+    ).toEqual([{ path: "AGENTS.md", content: "edited" }])
+    expect(
+      deletePathsForWorkspaceWriteKind({
+        kind: "ui_file_edit",
+        linkedUrls: [],
+        mergeDeletePaths: ["scratch.md"],
+      }),
+    ).toEqual(["scratch.md"])
+  })
 })
 
 describe("shouldEnqueueBootstrapAfterExport", () => {

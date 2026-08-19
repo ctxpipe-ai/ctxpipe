@@ -354,6 +354,14 @@ function WorkspaceSurfaceColumns(props: {
               setPane({ kind: "files" })
             }
           }}
+          onCloseActiveFile={() => {
+            if (shownPane?.kind === "file") {
+              const path = shownPane.path
+              setSessionFileTabs((tabs) => tabs.filter((item) => item !== path))
+              setPane({ kind: "files" })
+            }
+            setSelectedFilePath(null)
+          }}
           onToggleTree={() => setTreeCollapsed((value) => !value)}
         />
       ) : null}

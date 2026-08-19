@@ -22,6 +22,11 @@ const getMigrationExportShaMock = vi.hoisted(() =>
 const listMigrationExportShasMock = vi.hoisted(() =>
   vi.fn().mockResolvedValue(new Map()),
 )
+const listFilesAtShaMock = vi.hoisted(() => vi.fn().mockResolvedValue([]))
+const getFileContentBytesMock = vi.hoisted(() =>
+  vi.fn().mockResolvedValue({ kind: "missing" }),
+)
+const getJobSandboxMock = vi.hoisted(() => vi.fn().mockReturnValue(null))
 
 vi.mock("../../openworkflow/enqueue-workspace-write-commit.js", () => ({
   enqueueWorkspaceWriteCommit: vi.fn().mockResolvedValue(undefined),
@@ -42,6 +47,7 @@ vi.mock("../../openworkflow/enqueue-workspace-tip-check.js", () => ({
 vi.mock("../../domain/workspaces/sandbox-registry.js", () => ({
   destroySandboxesForWorkspace: destroySandboxesForWorkspaceMock,
   withDestroyedWorkspaceSandboxes: withDestroyedWorkspaceSandboxesMock,
+  getJobSandbox: getJobSandboxMock,
 }))
 
 vi.mock("../../models/workspaces.js", () => ({
@@ -60,6 +66,11 @@ vi.mock("../../models/workspaces.js", () => ({
   linkRepository: linkRepositoryMock,
   unlinkRepository: unlinkRepositoryMock,
   getPersistedFirstWorkspaceId: vi.fn().mockResolvedValue(null),
+}))
+
+vi.mock("../../services/github/installation-write-client.js", () => ({
+  listFilesAtSha: listFilesAtShaMock,
+  getFileContentBytes: getFileContentBytesMock,
 }))
 
 import { WRITE_STATUS_REASONS } from "../../domain/workspaces/write-status.js"
@@ -94,6 +105,8 @@ function app() {
   hono.use("*", async (c, next) => {
     c.set("user", { id: "user_test" } as AppEnv["Variables"]["user"])
     c.set("session", { id: "sess_test" } as AppEnv["Variables"]["session"])
+    c.set("orgId", "org_mock")
+    c.set("env", { NODE_ENV: "test" } as AppEnv["Variables"]["env"])
     c.set("log", {
       error: vi.fn(),
       info: vi.fn(),
@@ -112,6 +125,9 @@ describe("workspaces API", () => {
     getMigrationExportShaMock.mockResolvedValue(null)
     listMigrationExportShasMock.mockResolvedValue(new Map())
     destroySandboxesForWorkspaceMock.mockResolvedValue(0)
+    listFilesAtShaMock.mockResolvedValue([])
+    getFileContentBytesMock.mockResolvedValue({ kind: "missing" })
+    getJobSandboxMock.mockReturnValue(null)
     withDestroyedWorkspaceSandboxesMock.mockImplementation(
       async (
         _input: { workspaceId: string; orgId: string },
@@ -645,6 +661,349 @@ describe("workspaces API", () => {
       { path: "knowledge/billing/ledger.md", body: "Ledger" },
     ])
     expect(body.tree[0]?.name).toBe("knowledge")
+  })
+
+  it("lists the git tree at the active projection SHA", async () => {
+    getWorkspaceBySlugMock.mockResolvedValue({
+      ...workspaceRow,
+      githubConnectionId: "con_1",
+      activeProjectionUrl: "https://github.com/acme/knowledge",
+      activeProjectionSha: "active-sha",
+      desiredSha: "desired-sha",
+    })
+    listFilesAtShaMock.mockResolvedValue([
+      { path: "AGENTS.md", sha: "blob-1" },
+      { path: "knowledge/billing/ledger.md", sha: "blob-2" },
+    ])
+    const res = await app().request("/workspaces/knowledge/files/tree")
+    expect(res.status).toBe(200)
+    expect(await res.json()).toEqual({
+      sha: "active-sha",
+      paths: ["AGENTS.md", "knowledge/billing/ledger.md"],
+    })
+    expect(listFilesAtShaMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        orgId: "org_mock",
+        repositoryName: "acme/knowledge",
+        githubConnectionId: "con_1",
+        sha: "active-sha",
+        missing: "throw",
+      }),
+    )
+  })
+
+  it("reads the active remote during relink instead of the desired repository", async () => {
+    getWorkspaceBySlugMock.mockResolvedValue({
+      ...workspaceRow,
+      workspaceRepositoryUrl: "https://github.com/acme/desired",
+      githubConnectionId: "con_1",
+      activeProjectionUrl: "https://github.com/acme/active",
+      activeProjectionSha: "active-sha",
+      desiredSha: "desired-sha",
+    })
+    listFilesAtShaMock.mockResolvedValue([{ path: "AGENTS.md", sha: "blob-1" }])
+    const res = await app().request("/workspaces/knowledge/files/tree")
+    expect(res.status).toBe(200)
+    expect(listFilesAtShaMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        repositoryName: "acme/active",
+        sha: "active-sha",
+      }),
+    )
+  })
+
+  it("rejects a git tree read when GitHub is not connected", async () => {
+    getWorkspaceBySlugMock.mockResolvedValue({
+      ...workspaceRow,
+      activeProjectionSha: "active-sha",
+    })
+    const res = await app().request("/workspaces/knowledge/files/tree")
+    expect(res.status).toBe(409)
+    expect(await res.json()).toEqual({
+      error: WRITE_STATUS_REASONS.githubNotConnected,
+    })
+    expect(listFilesAtShaMock).not.toHaveBeenCalled()
+  })
+
+  it("rejects a git tree read for a non-GitHub remote", async () => {
+    getWorkspaceBySlugMock.mockResolvedValue({
+      ...workspaceRow,
+      workspaceRepositoryUrl: "https://gitlab.com/acme/docs",
+      githubConnectionId: "con_1",
+      activeProjectionSha: "active-sha",
+    })
+    const res = await app().request("/workspaces/knowledge/files/tree")
+    expect(res.status).toBe(409)
+    expect(await res.json()).toEqual({
+      error: WRITE_STATUS_REASONS.nonGithubHost,
+    })
+    expect(listFilesAtShaMock).not.toHaveBeenCalled()
+  })
+
+  it("rejects a git tree read when no SHA is stored", async () => {
+    getWorkspaceBySlugMock.mockResolvedValue({
+      ...workspaceRow,
+      githubConnectionId: "con_1",
+    })
+    const res = await app().request("/workspaces/knowledge/files/tree")
+    expect(res.status).toBe(409)
+    expect(await res.json()).toEqual({
+      error: "This Workspace has no git SHA to browse yet.",
+    })
+  })
+
+  it("returns a git blob at the projection SHA", async () => {
+    getWorkspaceBySlugMock.mockResolvedValue({
+      ...workspaceRow,
+      githubConnectionId: "con_1",
+      activeProjectionSha: "active-sha",
+    })
+    getFileContentBytesMock.mockResolvedValue({
+      kind: "bytes",
+      bytes: Buffer.from("# Ledger\n", "utf8"),
+    })
+    const res = await app().request(
+      "/workspaces/knowledge/files/blob?path=knowledge/billing/ledger.md",
+    )
+    expect(res.status).toBe(200)
+    expect(await res.json()).toEqual({
+      path: "knowledge/billing/ledger.md",
+      body: "# Ledger\n",
+      binary: false,
+    })
+    expect(getFileContentBytesMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        orgId: "org_mock",
+        repositoryName: "acme/knowledge",
+        githubConnectionId: "con_1",
+        branch: "active-sha",
+        path: "knowledge/billing/ledger.md",
+      }),
+    )
+  })
+
+  it("rejects a git blob read when GitHub is not connected", async () => {
+    getWorkspaceBySlugMock.mockResolvedValue({
+      ...workspaceRow,
+      activeProjectionSha: "active-sha",
+    })
+    const res = await app().request(
+      "/workspaces/knowledge/files/blob?path=knowledge/billing/ledger.md",
+    )
+    expect(res.status).toBe(409)
+    expect(await res.json()).toEqual({
+      error: WRITE_STATUS_REASONS.githubNotConnected,
+    })
+    expect(getFileContentBytesMock).not.toHaveBeenCalled()
+  })
+
+  it("rejects a git blob read for a non-GitHub remote", async () => {
+    getWorkspaceBySlugMock.mockResolvedValue({
+      ...workspaceRow,
+      workspaceRepositoryUrl: "https://gitlab.com/acme/docs",
+      githubConnectionId: "con_1",
+      activeProjectionSha: "active-sha",
+    })
+    const res = await app().request(
+      "/workspaces/knowledge/files/blob?path=knowledge/billing/ledger.md",
+    )
+    expect(res.status).toBe(409)
+    expect(await res.json()).toEqual({
+      error: WRITE_STATUS_REASONS.nonGithubHost,
+    })
+    expect(getFileContentBytesMock).not.toHaveBeenCalled()
+  })
+
+  it("rejects a git blob read when no SHA is stored", async () => {
+    getWorkspaceBySlugMock.mockResolvedValue({
+      ...workspaceRow,
+      githubConnectionId: "con_1",
+    })
+    const res = await app().request(
+      "/workspaces/knowledge/files/blob?path=knowledge/billing/ledger.md",
+    )
+    expect(res.status).toBe(409)
+    expect(await res.json()).toEqual({
+      error: "This Workspace has no git SHA to browse yet.",
+    })
+    expect(getFileContentBytesMock).not.toHaveBeenCalled()
+  })
+
+  it("marks a git blob with NUL bytes as binary", async () => {
+    getWorkspaceBySlugMock.mockResolvedValue({
+      ...workspaceRow,
+      githubConnectionId: "con_1",
+      desiredSha: "desired-sha",
+    })
+    getFileContentBytesMock.mockResolvedValue({
+      kind: "bytes",
+      bytes: Buffer.from("png\0bytes", "utf8"),
+    })
+    const res = await app().request(
+      "/workspaces/knowledge/files/blob?path=logo.png",
+    )
+    expect(res.status).toBe(200)
+    expect(await res.json()).toEqual({
+      path: "logo.png",
+      body: null,
+      binary: true,
+    })
+  })
+
+  it("marks omitted GitHub blob content as binary", async () => {
+    getWorkspaceBySlugMock.mockResolvedValue({
+      ...workspaceRow,
+      githubConnectionId: "con_1",
+      activeProjectionSha: "active-sha",
+    })
+    getFileContentBytesMock.mockResolvedValue({ kind: "omitted" })
+    const res = await app().request(
+      "/workspaces/knowledge/files/blob?path=logo.png",
+    )
+    expect(res.status).toBe(200)
+    expect(await res.json()).toEqual({
+      path: "logo.png",
+      body: null,
+      binary: true,
+    })
+  })
+
+  it("rejects a git blob path that leaves the repository", async () => {
+    getWorkspaceBySlugMock.mockResolvedValue({
+      ...workspaceRow,
+      githubConnectionId: "con_1",
+      activeProjectionSha: "active-sha",
+    })
+    const res = await app().request(
+      "/workspaces/knowledge/files/blob?path=../secret",
+    )
+    expect(res.status).toBe(400)
+    expect(getFileContentBytesMock).not.toHaveBeenCalled()
+  })
+
+  it("returns a clean git status when no write sandbox is attached", async () => {
+    getWorkspaceBySlugMock.mockResolvedValue({
+      ...workspaceRow,
+      githubConnectionId: "con_1",
+      activeProjectionSha: "active-sha",
+    })
+    const res = await app().request("/workspaces/knowledge/files/status")
+    expect(res.status).toBe(200)
+    expect(await res.json()).toEqual({
+      sha: "active-sha",
+      source: "clean",
+      items: [],
+    })
+  })
+
+  it("maps write-sandbox porcelain into Files pane git status", async () => {
+    getWorkspaceBySlugMock.mockResolvedValue({
+      ...workspaceRow,
+      githubConnectionId: "con_1",
+      activeProjectionSha: "active-sha",
+    })
+    getJobSandboxMock.mockReturnValue({
+      exec: async () => ({
+        stdout: " M knowledge/billing/ledger.md\n?? scratch.ts\n",
+        stderr: "",
+        exitCode: 0,
+      }),
+      fs: {
+        read: async (path: string) => {
+          if (path === "knowledge/billing/ledger.md") return "# dirty\n"
+          if (path === "scratch.ts") return "export {}\n"
+          throw new Error("missing")
+        },
+        write: async () => undefined,
+        remove: async () => undefined,
+        mkdir: async () => undefined,
+      },
+    })
+    const res = await app().request("/workspaces/knowledge/files/status")
+    expect(res.status).toBe(200)
+    expect(await res.json()).toEqual({
+      sha: "active-sha",
+      source: "sandbox",
+      items: [
+        {
+          path: "knowledge/billing/ledger.md",
+          status: "modified",
+          body: "# dirty\n",
+        },
+        { path: "scratch.ts", status: "untracked", body: "export {}\n" },
+      ],
+    })
+  })
+
+  it("queues a Files pane save as a write job", async () => {
+    getWorkspaceBySlugMock.mockResolvedValue({
+      ...workspaceRow,
+      writeStatus: "writable",
+      githubConnectionId: "con_1",
+      activeProjectionSha: "active-sha",
+    })
+    listFilesAtShaMock.mockResolvedValue([{ path: "AGENTS.md", sha: "blob-1" }])
+    const res = await app().request("/workspaces/knowledge/files/jobs", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        op: "save",
+        path: "AGENTS.md",
+        content: "# saved\n",
+      }),
+    })
+    expect(res.status).toBe(202)
+    expect(await res.json()).toEqual({ queued: true })
+    expect(enqueueWorkspaceWriteCommit).toHaveBeenCalledWith(
+      expect.objectContaining({
+        workspaceId: "ws_abc",
+        kind: "ui_file_edit",
+        mergeFiles: [{ path: "AGENTS.md", content: "# saved\n" }],
+        mergeDeletePaths: [],
+      }),
+      expect.anything(),
+    )
+  })
+
+  it("refuses a Files pane write when the Workspace is read-only", async () => {
+    getWorkspaceBySlugMock.mockResolvedValue({
+      ...workspaceRow,
+      writeStatus: "read_only",
+      githubConnectionId: "con_1",
+      activeProjectionSha: "active-sha",
+    })
+    const res = await app().request("/workspaces/knowledge/files/jobs", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        op: "save",
+        path: "AGENTS.md",
+        content: "# saved\n",
+      }),
+    })
+    expect(res.status).toBe(400)
+    expect(await res.json()).toEqual({ error: "Workspace is read-only" })
+    expect(enqueueWorkspaceWriteCommit).not.toHaveBeenCalled()
+  })
+
+  it("rejects a Files pane write that leaves the repository", async () => {
+    getWorkspaceBySlugMock.mockResolvedValue({
+      ...workspaceRow,
+      writeStatus: "writable",
+      githubConnectionId: "con_1",
+      activeProjectionSha: "active-sha",
+    })
+    listFilesAtShaMock.mockResolvedValue([{ path: "AGENTS.md", sha: "blob-1" }])
+    const res = await app().request("/workspaces/knowledge/files/jobs", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        op: "delete",
+        path: "../secret",
+      }),
+    })
+    expect(res.status).toBe(400)
+    expect(enqueueWorkspaceWriteCommit).not.toHaveBeenCalled()
   })
 
   it("lists this Workspace’s projection for the Graph pane", async () => {

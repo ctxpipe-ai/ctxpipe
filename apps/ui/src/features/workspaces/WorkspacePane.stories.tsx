@@ -1,8 +1,11 @@
 import type { Meta, StoryObj } from "@storybook/react-vite"
 import { fn } from "storybook/test"
 import {
-  workspaceFilesHandler,
-  workspaceFilesLoadingHandler,
+  workspaceFileJobHandler,
+  workspaceGitBlobHandler,
+  workspaceGitStatusHandler,
+  workspaceGitTreeHandler,
+  workspaceGitTreeLoadingHandler,
   workspaceGraphHandler,
   workspaceGraphLoadingHandler,
   workspaceListHandler,
@@ -13,7 +16,9 @@ import { WorkspacePane } from "./WorkspacePane"
 import {
   docsWorkspace,
   docsWorkspaceDetail,
-  docsWorkspaceFiles,
+  docsWorkspaceGitBlobs,
+  docsWorkspaceGitTree,
+  readOnlyWorkspaceDetail,
 } from "./workspace-fixtures"
 
 const paneCallbacks = {
@@ -25,8 +30,16 @@ const paneCallbacks = {
   onSelectFile: fn(),
   onOpenFileTab: fn(),
   onCloseFileTab: fn(),
+  onCloseActiveFile: fn(),
   onToggleTree: fn(),
 }
+
+const gitFilesHandlers = [
+  workspaceGitTreeHandler(docsWorkspaceGitTree),
+  workspaceGitBlobHandler(docsWorkspaceGitBlobs),
+  workspaceGitStatusHandler(),
+  workspaceFileJobHandler(),
+]
 
 const meta = {
   title: "Components/Workspaces/Pane",
@@ -70,7 +83,7 @@ export const Files: Story = {
   parameters: {
     msw: {
       handlers: {
-        page: [workspaceFilesHandler()],
+        page: gitFilesHandlers,
       },
     },
   },
@@ -80,7 +93,7 @@ export const FilesLoading: Story = {
   parameters: {
     msw: {
       handlers: {
-        page: [workspaceFilesLoadingHandler()],
+        page: [workspaceGitTreeLoadingHandler()],
       },
     },
   },
@@ -90,7 +103,7 @@ export const FilesEmpty: Story = {
   parameters: {
     msw: {
       handlers: {
-        page: [workspaceFilesHandler({ items: [], tree: [] })],
+        page: [workspaceGitTreeHandler({ sha: "abc123def456", paths: [] })],
       },
     },
   },
@@ -98,9 +111,9 @@ export const FilesEmpty: Story = {
 
 export const FilePreview: Story = {
   args: {
-    pane: { kind: "file", path: "knowledge/billing.md" },
-    fileTabs: ["knowledge/billing.md"],
-    selectedFilePath: "knowledge/billing.md",
+    pane: { kind: "file", path: "knowledge/billing/ledger.md" },
+    fileTabs: ["knowledge/billing/ledger.md"],
+    selectedFilePath: "knowledge/billing/ledger.md",
   },
   parameters: {
     storyRoute: {
@@ -111,7 +124,65 @@ export const FilePreview: Story = {
     } satisfies StoryRouteParams,
     msw: {
       handlers: {
-        page: [workspaceFilesHandler(docsWorkspaceFiles)],
+        page: gitFilesHandlers,
+      },
+    },
+  },
+}
+
+export const FileDiff: Story = {
+  args: {
+    pane: { kind: "file", path: "knowledge/billing/ledger.md" },
+    fileTabs: ["knowledge/billing/ledger.md"],
+    selectedFilePath: "knowledge/billing/ledger.md",
+  },
+  parameters: {
+    storyRoute: {
+      pattern: "orgWorkspace",
+      orgSlug: "acme",
+      workspaceSlug: "docs",
+      pane: "file:knowledge%2Fbilling%2Fledger.md",
+    } satisfies StoryRouteParams,
+    msw: {
+      handlers: {
+        page: [
+          workspaceGitTreeHandler(docsWorkspaceGitTree),
+          workspaceGitBlobHandler(docsWorkspaceGitBlobs),
+          workspaceGitStatusHandler({
+            sha: docsWorkspaceGitTree.sha,
+            source: "sandbox",
+            items: [
+              {
+                path: "knowledge/billing/ledger.md",
+                status: "modified",
+                body: `${docsWorkspaceGitBlobs["knowledge/billing/ledger.md"] ?? ""}\nQueued sandbox edit.\n`,
+              },
+            ],
+          }),
+          workspaceFileJobHandler(),
+        ],
+      },
+    },
+  },
+}
+
+export const ReadOnly: Story = {
+  args: {
+    workspace: readOnlyWorkspaceDetail,
+    pane: { kind: "file", path: "AGENTS.md" },
+    fileTabs: ["AGENTS.md"],
+    selectedFilePath: "AGENTS.md",
+  },
+  parameters: {
+    storyRoute: {
+      pattern: "orgWorkspace",
+      orgSlug: "acme",
+      workspaceSlug: "handbook",
+      pane: "file:AGENTS.md",
+    } satisfies StoryRouteParams,
+    msw: {
+      handlers: {
+        page: gitFilesHandlers,
       },
     },
   },
@@ -119,9 +190,9 @@ export const FilePreview: Story = {
 
 export const TreeCollapsed: Story = {
   args: {
-    pane: { kind: "file", path: "knowledge/billing.md" },
-    fileTabs: ["knowledge/billing.md"],
-    selectedFilePath: "knowledge/billing.md",
+    pane: { kind: "file", path: "knowledge/billing/ledger.md" },
+    fileTabs: ["knowledge/billing/ledger.md"],
+    selectedFilePath: "knowledge/billing/ledger.md",
     treeCollapsed: true,
   },
   parameters: {
@@ -133,7 +204,7 @@ export const TreeCollapsed: Story = {
     } satisfies StoryRouteParams,
     msw: {
       handlers: {
-        page: [workspaceFilesHandler(docsWorkspaceFiles)],
+        page: gitFilesHandlers,
       },
     },
   },
@@ -198,7 +269,7 @@ export const Maximized: Story = {
   parameters: {
     msw: {
       handlers: {
-        page: [workspaceFilesHandler()],
+        page: gitFilesHandlers,
       },
     },
   },

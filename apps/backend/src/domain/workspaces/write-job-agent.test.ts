@@ -39,6 +39,13 @@ describe("write-job agents", () => {
     ).toEqual({ action: "write_planned" })
     expect(
       planWriteJobAgent({
+        kind: "ui_file_edit",
+        plannedFileCount: 1,
+        hasJobSandbox: true,
+      }),
+    ).toEqual({ action: "write_planned" })
+    expect(
+      planWriteJobAgent({
         kind: "extract_ingest",
         plannedFileCount: 0,
         hasJobSandbox: false,

@@ -204,6 +204,7 @@ describe("write runner", () => {
       }),
     ).toBe(false)
     expect(jobUsesInSandboxWorktree("extract_ingest")).toBe(true)
+    expect(jobUsesInSandboxWorktree("ui_file_edit")).toBe(true)
     expect(jobUsesInSandboxWorktree("migration_export")).toBe(false)
     expect(jobCommitPath({ kind: "extract_ingest", provider: "docker" })).toBe(
       "worktree",

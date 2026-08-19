@@ -110,7 +110,7 @@ export function filesForWorkspaceWriteKind(input: {
       introducingCommitTimestamp: input.introducingCommitTimestamp ?? "",
     })
   }
-  if (input.kind === "semantic_merge") {
+  if (input.kind === "semantic_merge" || input.kind === "ui_file_edit") {
     return [...(input.mergeFiles ?? [])]
   }
   if (input.kind === "migration_export" && input.exportPlan) {
@@ -135,7 +135,7 @@ export function deletePathsForWorkspaceWriteKind(input: {
   linkChange?: WorkspaceLinkChange
   mergeDeletePaths?: readonly string[]
 }): string[] {
-  if (input.kind === "semantic_merge") {
+  if (input.kind === "semantic_merge" || input.kind === "ui_file_edit") {
     return [...(input.mergeDeletePaths ?? [])]
   }
   void input.linkedUrls

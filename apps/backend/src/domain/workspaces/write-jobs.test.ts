@@ -25,6 +25,7 @@ describe("workspace write job kinds", () => {
       "ops_folder_map",
       "bootstrap",
       "link_unlink",
+      "ui_file_edit",
     ])
     expect(isWorkspaceWriteJobKind("bootstrap")).toBe(true)
     expect(isWorkspaceWriteJobKind("maintenance")).toBe(false)

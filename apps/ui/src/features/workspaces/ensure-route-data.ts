@@ -3,7 +3,8 @@ import { parsePane, visiblePane } from "./pane"
 import {
   workspaceConversationOptions,
   workspaceDetailOptions,
-  workspaceFilesOptions,
+  workspaceGitBlobOptions,
+  workspaceGitTreeOptions,
   workspaceGraphOptions,
 } from "./queries"
 
@@ -32,9 +33,16 @@ export async function ensureWorkspaceRouteData(input: {
   if (!pane || !workspace) return workspace
 
   if (pane.kind === "files" || pane.kind === "file") {
+    const sha =
+      workspace.activeProjectionSha?.trim() || workspace.desiredSha?.trim() || ""
     await queryClient.ensureQueryData(
-      workspaceFilesOptions(orgSlug, workspaceSlug),
+      workspaceGitTreeOptions(orgSlug, workspaceSlug, sha),
     )
+    if (pane.kind === "file") {
+      await queryClient.ensureQueryData(
+        workspaceGitBlobOptions(orgSlug, workspaceSlug, sha, pane.path),
+      )
+    }
   } else if (pane.kind === "graph") {
     await queryClient.ensureQueryData(
       workspaceGraphOptions(orgSlug, workspaceSlug),

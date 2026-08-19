@@ -7,7 +7,10 @@ import type {
 import type {
   Workspace,
   WorkspaceDetail,
+  WorkspaceFileJobRequest,
   WorkspaceFilesResponse,
+  WorkspaceGitStatusResponse,
+  WorkspaceGitTreeResponse,
   WorkspaceGraphPayload,
 } from "@/features/workspaces/types"
 import {
@@ -16,6 +19,8 @@ import {
   docsWorkspace,
   docsWorkspaceDetail,
   docsWorkspaceFiles,
+  docsWorkspaceGitBlobs,
+  docsWorkspaceGitTree,
   docsWorkspaceGraph,
   eligibleGithubRepos,
   readOnlyWorkspace,
@@ -76,6 +81,72 @@ export const workspaceTouchHandler = http.post(
     /\/api\/v1\/workspaces\/[^/]+\/touch$/.test(pathnameOf(request)),
   () => new HttpResponse(null, { status: 204 }),
 )
+
+export function workspaceGitTreeHandler(
+  tree: WorkspaceGitTreeResponse = docsWorkspaceGitTree,
+) {
+  return http.get(
+    ({ request }) =>
+      /\/api\/v1\/workspaces\/[^/]+\/files\/tree$/.test(pathnameOf(request)),
+    () => HttpResponse.json(tree),
+  )
+}
+
+export function workspaceGitTreeLoadingHandler() {
+  return http.get(
+    ({ request }) =>
+      /\/api\/v1\/workspaces\/[^/]+\/files\/tree$/.test(pathnameOf(request)),
+    async () => {
+      await delay("infinite")
+      return HttpResponse.json(docsWorkspaceGitTree)
+    },
+  )
+}
+
+export function workspaceGitBlobHandler(
+  blobs: Record<string, string> = docsWorkspaceGitBlobs,
+) {
+  return http.get(
+    ({ request }) =>
+      /\/api\/v1\/workspaces\/[^/]+\/files\/blob$/.test(pathnameOf(request)),
+    ({ request }) => {
+      const path = new URL(request.url).searchParams.get("path") ?? ""
+      const body = blobs[path]
+      if (body === undefined) {
+        return HttpResponse.json({ error: "Not found" }, { status: 404 })
+      }
+      return HttpResponse.json({ path, body, binary: false })
+    },
+  )
+}
+
+export function workspaceGitStatusHandler(
+  status: WorkspaceGitStatusResponse = {
+    sha: docsWorkspaceGitTree.sha,
+    source: "clean",
+    items: [],
+  },
+) {
+  return http.get(
+    ({ request }) =>
+      /\/api\/v1\/workspaces\/[^/]+\/files\/status$/.test(pathnameOf(request)),
+    () => HttpResponse.json(status),
+  )
+}
+
+export function workspaceFileJobHandler(
+  onJob?: (body: WorkspaceFileJobRequest) => void,
+) {
+  return http.post(
+    ({ request }) =>
+      /\/api\/v1\/workspaces\/[^/]+\/files\/jobs$/.test(pathnameOf(request)),
+    async ({ request }) => {
+      const body = (await request.json()) as WorkspaceFileJobRequest
+      onJob?.(body)
+      return HttpResponse.json({ queued: true }, { status: 202 })
+    },
+  )
+}
 
 export function workspaceFilesHandler(
   files: WorkspaceFilesResponse = docsWorkspaceFiles,
@@ -179,6 +250,9 @@ export function workspaceShellHandlers(input?: {
   conversations?: ConversationListItem[]
   conversation?: ConversationDetail | null
   files?: WorkspaceFilesResponse
+  gitTree?: WorkspaceGitTreeResponse
+  gitBlobs?: Record<string, string>
+  gitStatus?: WorkspaceGitStatusResponse
   graph?: WorkspaceGraphPayload
 }) {
   const workspaces = input?.workspaces ?? [docsWorkspace, readOnlyWorkspace]
@@ -193,6 +267,10 @@ export function workspaceShellHandlers(input?: {
         ? (input.conversation ?? null)
         : docsConversationDetail,
     ),
+    workspaceGitTreeHandler(input?.gitTree ?? docsWorkspaceGitTree),
+    workspaceGitBlobHandler(input?.gitBlobs ?? docsWorkspaceGitBlobs),
+    workspaceGitStatusHandler(input?.gitStatus),
+    workspaceFileJobHandler(),
     workspaceFilesHandler(input?.files ?? docsWorkspaceFiles),
     workspaceGraphHandler(input?.graph ?? docsWorkspaceGraph),
   ]

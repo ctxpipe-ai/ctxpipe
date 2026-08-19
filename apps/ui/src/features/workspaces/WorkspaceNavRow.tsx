@@ -8,7 +8,6 @@ import { useNavigate, useRouter } from "@tanstack/react-router"
 import { useState } from "react"
 import { Link } from "react-aria-components"
 import {
-  sideNavActiveBarClassName,
   sideNavIconGutterClassName,
   sideNavLabelClassName,
   sideNavRowClassName,
@@ -100,7 +99,6 @@ export function WorkspaceNavRow(props: {
       data-active={workspaceActive ? "true" : undefined}
       className={sideNavRowClassName({ active: workspaceActive })}
     >
-      <span aria-hidden="true" className={sideNavActiveBarClassName} />
       <button
         type="button"
         className={[

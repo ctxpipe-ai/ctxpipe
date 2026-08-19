@@ -97,6 +97,7 @@ const workspaceWriteCommitInputSchema = z.object({
     "ops_folder_map",
     "bootstrap",
     "link_unlink",
+    "ui_file_edit",
   ]),
   defaultBranch: z.string().min(1).optional(),
   jobId: z.string().min(1).optional(),

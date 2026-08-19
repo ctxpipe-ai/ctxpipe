@@ -192,7 +192,9 @@ export async function getCommitTimestamp(
     return Number.isNaN(parsed.getTime()) ? null : parsed.toISOString()
   })
 }
-export async function listFilesAtSha(input: BaseInput & { sha: string }) {
+export async function listFilesAtSha(
+  input: BaseInput & { sha: string; missing?: "empty" | "throw" },
+) {
   return withTransientGitHubRetry(async () => {
     const context = await getInstallationContext(input)
     try {
@@ -207,15 +209,23 @@ export async function listFilesAtSha(input: BaseInput & { sha: string }) {
         .map((entry) => ({ path: entry.path ?? "", sha: entry.sha ?? "" }))
     } catch (error) {
       const status = (error as { status?: number }).status
-      if (status === 404 || status === 409) return []
+      if (status === 404 || status === 409) {
+        if (input.missing === "throw") throw error
+        return []
+      }
       throw error
     }
   })
 }
 
-export async function getFileContent(
+export type GitHubFileBytes =
+  | { kind: "missing" }
+  | { kind: "omitted" }
+  | { kind: "bytes"; bytes: Buffer }
+
+export async function getFileContentBytes(
   input: BaseInput & { branch: string; path: string },
-): Promise<string | undefined> {
+): Promise<GitHubFileBytes> {
   const context = await getInstallationContext(input)
   for (let a = 0; a < GITHUB_API_MAX_ATTEMPTS; a += 1) {
     let data: Awaited<
@@ -232,7 +242,7 @@ export async function getFileContent(
     } catch (error) {
       const status = (error as { status?: number }).status
       if (status === 404) {
-        return undefined
+        return { kind: "missing" }
       }
       if (isTransientGithubError(error) && a < GITHUB_API_MAX_ATTEMPTS - 1) {
         await new Promise((r) => setTimeout(r, 300 * 2 ** a))
@@ -241,12 +251,29 @@ export async function getFileContent(
       throw error
     }
     if (Array.isArray(data) || !("content" in data)) {
-      return undefined
+      return { kind: "missing" }
     }
-    if (!data.content) return ""
-    return Buffer.from(data.content, "base64").toString("utf8")
+    const encoding =
+      "encoding" in data && typeof data.encoding === "string"
+        ? data.encoding
+        : undefined
+    const size = "size" in data && typeof data.size === "number" ? data.size : 0
+    if (encoding === "none" || (size > 0 && !data.content)) {
+      return { kind: "omitted" }
+    }
+    if (!data.content) return { kind: "bytes", bytes: Buffer.alloc(0) }
+    return { kind: "bytes", bytes: Buffer.from(data.content, "base64") }
   }
-  return undefined
+  return { kind: "missing" }
+}
+
+export async function getFileContent(
+  input: BaseInput & { branch: string; path: string },
+): Promise<string | undefined> {
+  const file = await getFileContentBytes(input)
+  if (file.kind === "missing") return undefined
+  if (file.kind === "omitted") return ""
+  return file.bytes.toString("utf8")
 }
 
 export async function githubRefExists(

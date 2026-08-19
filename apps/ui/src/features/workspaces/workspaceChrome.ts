@@ -14,8 +14,8 @@ export const workspaceChromeOuterClassName =
 
 /**
  * Active tab: 12px x-padding, 37px tall including the 1px hairline.
- * Idle tab: 32px face + 2px (`0.5`) inset top and bottom so it sits in the
- * strip with a gap above the card, icons still centered.
+ * Idle tab: 32px face + 2px (`0.5`) inset; `-translate-y-px` restores the gap
+ * above the card after the strip sits 1px over the hairline.
  */
 export const workspaceChromeTabClassName = [
   "relative z-10 box-border inline-flex h-[37px] shrink-0 items-center justify-center px-3",
@@ -24,7 +24,7 @@ export const workspaceChromeTabClassName = [
 ].join(" ")
 
 export const workspaceChromeTabIdleClassName = [
-  "box-border my-0.5 inline-flex h-8 shrink-0 cursor-pointer items-center justify-center px-3",
+  "box-border my-0.5 -translate-y-px inline-flex h-8 shrink-0 cursor-pointer items-center justify-center px-3",
   "rounded-lg border-0 bg-transparent",
   "text-sm font-medium leading-none text-zinc-400",
   "transition-colors hover:bg-teal-900/30 hover:text-zinc-50",
@@ -56,7 +56,7 @@ export const workspaceChromeCardClassName = [
   workspaceChromeCardFlushClassName,
 ].join(" ")
 
-/** Tools pane card. Top-left radius is restored unless Files is selected. */
+/** Tools pane card. Top-left radius is restored unless Files leads the strip. */
 export const workspaceChromeCardPaneClassName = [
   "relative flex min-h-0 flex-1 flex-col overflow-hidden",
   "rounded-lg border border-white/[0.06]",

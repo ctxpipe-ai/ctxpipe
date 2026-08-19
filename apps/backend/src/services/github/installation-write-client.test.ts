@@ -15,6 +15,7 @@ import {
   compareCommitsTouchesPath,
   createPullRequestWithFiles,
   getCommitTimestamp,
+  getFileContentBytes,
   getPullRequestHeadBranch,
   listFilesAtSha,
 } from "./installation-write-client.js"
@@ -313,6 +314,75 @@ describe("listFilesAtSha", () => {
       recursive: "true",
     })
     expect(createOrUpdateFileContents).not.toHaveBeenCalled()
+  })
+
+  it("rethrows a missing tree when the caller asks not to mask 404s", async () => {
+    const getTree = vi.fn(async () => {
+      throw Object.assign(new Error("Not Found"), { status: 404 })
+    })
+    getInstallationOctokitForOrgMock.mockResolvedValue({
+      installation: { installationId: 1 },
+      octokit: { rest: { git: { getTree } } },
+    })
+    await expect(
+      listFilesAtSha({
+        orgId: "org_test",
+        repositoryName: "acme/docs",
+        env: {} as Env,
+        sha: "missing-sha",
+        missing: "throw",
+      }),
+    ).rejects.toMatchObject({ status: 404 })
+  })
+})
+
+describe("getFileContentBytes", () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+  })
+
+  it("returns omitted when GitHub withholds the blob body", async () => {
+    const getContent = vi.fn(async () => ({
+      data: { encoding: "none", size: 2_000_000, content: "" },
+    }))
+    getInstallationOctokitForOrgMock.mockResolvedValue({
+      installation: { installationId: 1 },
+      octokit: { rest: { repos: { getContent } } },
+    })
+    await expect(
+      getFileContentBytes({
+        orgId: "org_test",
+        repositoryName: "acme/docs",
+        env: {} as Env,
+        branch: "abc",
+        path: "logo.png",
+      }),
+    ).resolves.toEqual({ kind: "omitted" })
+  })
+
+  it("returns raw bytes without UTF-8 decoding", async () => {
+    const getContent = vi.fn(async () => ({
+      data: {
+        encoding: "base64",
+        size: 4,
+        content: Buffer.from([0xff, 0xfe, 0x00, 0x01]).toString("base64"),
+      },
+    }))
+    getInstallationOctokitForOrgMock.mockResolvedValue({
+      installation: { installationId: 1 },
+      octokit: { rest: { repos: { getContent } } },
+    })
+    const result = await getFileContentBytes({
+      orgId: "org_test",
+      repositoryName: "acme/docs",
+      env: {} as Env,
+      branch: "abc",
+      path: "logo.png",
+    })
+    expect(result).toEqual({
+      kind: "bytes",
+      bytes: Buffer.from([0xff, 0xfe, 0x00, 0x01]),
+    })
   })
 })
 

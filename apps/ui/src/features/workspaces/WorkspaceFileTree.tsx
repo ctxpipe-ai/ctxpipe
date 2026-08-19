@@ -1,75 +1,265 @@
-import type { WorkspaceFileTreeNode } from "./types"
+import { FileTree, useFileTree, useFileTreeSearch } from "@pierre/trees/react"
+import { IconMenu2, IconSearch } from "@tabler/icons-react"
+import { type CSSProperties, useEffect, useMemo, useRef } from "react"
+import { Button } from "@/components/ui/Button"
+import { Menu, MenuItem, MenuTrigger } from "@/components/ui/Menu"
+import { cn } from "@/lib/utils"
+import {
+  destinationAfterMove,
+  isMoveIntoSelf,
+  parentDirectory,
+} from "./fileTreeMutations"
+import type { WorkspaceGitStatusItem } from "./types"
+
+const TREE_HEADER_CLASS = "flex h-8 shrink-0 items-center gap-1 px-1"
+const TREE_HEADER_ICON_CLASS =
+  "size-6 min-h-6 min-w-6 p-0 leading-none [&_svg]:block"
+
+const TREE_UNSAFE_CSS = `
+  :host {
+    background-color: transparent;
+    border-color: transparent;
+  }
+  [data-file-tree-search-container]:not([data-open="true"]) {
+    display: none;
+  }
+`
+
+const TREE_HOST_STYLE = {
+  height: "100%",
+  minHeight: 0,
+  display: "block",
+  background: "transparent",
+  "--trees-bg-override": "transparent",
+  "--trees-theme-sidebar-bg": "transparent",
+  "--trees-theme-input-bg": "var(--color-zinc-900)",
+  "--trees-theme-list-active-selection-bg": "var(--color-zinc-800)",
+  "--trees-theme-list-hover-bg": "var(--color-zinc-900)",
+  "--trees-theme-focus-ring":
+    "color-mix(in srgb, var(--color-teal-400) 60%, transparent)",
+} as CSSProperties
+
+export type WorkspaceFileTreeItem = {
+  kind: "directory" | "file"
+  name: string
+  path: string
+}
 
 export function WorkspaceFileTree(props: {
-  nodes: WorkspaceFileTreeNode[]
+  paths: readonly string[]
   selectedPath: string | null
+  gitStatus?: readonly WorkspaceGitStatusItem[]
+  writable: boolean
   onSelect: (path: string) => void
-  onOpenTab: (path: string) => void
+  onRequestCreate?: (kind: "file" | "folder", parentPath: string | null) => void
+  onRequestDelete?: (item: WorkspaceFileTreeItem) => void
+  onRename?: (from: string, to: string) => void
+  onMove?: (from: string, toDirectory: string | null) => void
+  onHideTree?: () => void
 }) {
+  const fileSet = useMemo(() => new Set(props.paths), [props.paths])
+  const onSelectRef = useRef(props.onSelect)
+  onSelectRef.current = props.onSelect
+  const fileSetRef = useRef(fileSet)
+  fileSetRef.current = fileSet
+  const writableRef = useRef(props.writable)
+  writableRef.current = props.writable
+  const onRenameRef = useRef(props.onRename)
+  onRenameRef.current = props.onRename
+  const onMoveRef = useRef(props.onMove)
+  onMoveRef.current = props.onMove
+  const onRequestCreateRef = useRef(props.onRequestCreate)
+  onRequestCreateRef.current = props.onRequestCreate
+  const onRequestDeleteRef = useRef(props.onRequestDelete)
+  onRequestDeleteRef.current = props.onRequestDelete
+
+  const { model } = useFileTree({
+    paths: props.paths,
+    search: true,
+    unsafeCSS: TREE_UNSAFE_CSS,
+    flattenEmptyDirectories: true,
+    density: "compact",
+    icons: { set: "standard", colored: false },
+    gitStatus: props.gitStatus,
+    initialSelectedPaths: props.selectedPath ? [props.selectedPath] : [],
+    dragAndDrop: {
+      canDrag: () => writableRef.current,
+      canDrop: (event) => {
+        if (!writableRef.current) return false
+        const directory = event.target.directoryPath
+        return !event.draggedPaths.some((path) =>
+          isMoveIntoSelf(path, directory),
+        )
+      },
+      onDropComplete: (event) => {
+        const directory = event.target.directoryPath
+        for (const from of event.draggedPaths) {
+          const to = destinationAfterMove(from, directory)
+          if (!to || to === from) continue
+          onMoveRef.current?.(from, directory)
+        }
+      },
+    },
+    renaming: {
+      canRename: () => writableRef.current,
+      onRename: (event) => {
+        if (event.sourcePath === event.destinationPath) return
+        onRenameRef.current?.(event.sourcePath, event.destinationPath)
+      },
+    },
+    onSelectionChange: (selectedPaths) => {
+      const file = [...selectedPaths]
+        .reverse()
+        .find((path) => fileSetRef.current.has(path))
+      if (file) onSelectRef.current(file)
+    },
+  })
+
+  const search = useFileTreeSearch(model)
+
+  useEffect(() => {
+    model.resetPaths(props.paths)
+  }, [model, props.paths])
+
+  useEffect(() => {
+    model.setGitStatus(props.gitStatus)
+  }, [model, props.gitStatus])
+
+  useEffect(() => {
+    if (!props.selectedPath) return
+    if (model.getSelectedPaths().includes(props.selectedPath)) return
+    for (const path of model.getSelectedPaths()) {
+      model.getItem(path)?.deselect()
+    }
+    model.getItem(props.selectedPath)?.select()
+  }, [model, props.selectedPath])
+
   return (
-    <ul className="space-y-0.5">
-      {props.nodes.map((node) => (
-        <FileTreeItem
-          key={node.path}
-          node={node}
-          depth={0}
-          selectedPath={props.selectedPath}
-          onSelect={props.onSelect}
-          onOpenTab={props.onOpenTab}
-        />
-      ))}
-    </ul>
+    <div className="flex min-h-0 min-w-0 flex-1 flex-col">
+      <div className={TREE_HEADER_CLASS}>
+        <span className="min-w-0 flex-1" />
+        <Button
+          variant="quiet"
+          size="icon-sm"
+          aria-label={search.isOpen ? "Close search" : "Search files"}
+          aria-pressed={search.isOpen}
+          onPress={() => {
+            if (search.isOpen) search.close()
+            else search.open()
+          }}
+          className={cn(
+            TREE_HEADER_ICON_CLASS,
+            search.isOpen && "text-teal-500",
+          )}
+        >
+          <IconSearch className="size-4" stroke={1.6} aria-hidden />
+        </Button>
+        {props.onHideTree ? (
+          <Button
+            variant="quiet"
+            size="icon-sm"
+            aria-label="Hide tree"
+            onPress={props.onHideTree}
+            className={TREE_HEADER_ICON_CLASS}
+          >
+            <IconMenu2 className="size-4" stroke={1.6} aria-hidden />
+          </Button>
+        ) : null}
+      </div>
+      <FileTree
+        model={model}
+        className="block min-h-0 min-w-0 flex-1"
+        style={TREE_HOST_STYLE}
+        aria-label="Workspace files"
+        renderContextMenu={(item, context) => (
+          <WorkspaceFileTreeMenu
+            item={item}
+            writable={props.writable}
+            onClose={context.close}
+            onCreate={(kind) => {
+              context.close()
+              const parentPath =
+                item.kind === "directory"
+                  ? item.path
+                  : parentDirectory(item.path)
+              onRequestCreateRef.current?.(kind, parentPath)
+            }}
+            onRename={() => {
+              context.close({ restoreFocus: false })
+              model.startRenaming(item.path)
+            }}
+            onDelete={() => {
+              context.close()
+              onRequestDeleteRef.current?.(item)
+            }}
+          />
+        )}
+      />
+    </div>
   )
 }
 
-function FileTreeItem(props: {
-  node: WorkspaceFileTreeNode
-  depth: number
-  selectedPath: string | null
-  onSelect: (path: string) => void
-  onOpenTab: (path: string) => void
+function WorkspaceFileTreeMenu(props: {
+  item: WorkspaceFileTreeItem
+  writable: boolean
+  onClose: () => void
+  onCreate: (kind: "file" | "folder") => void
+  onRename: () => void
+  onDelete: () => void
 }) {
-  const isFile = !props.node.children
-  const selected = props.selectedPath === props.node.path
+  const triggerStyle = {
+    position: "fixed",
+    width: 1,
+    height: 1,
+    opacity: 0,
+    pointerEvents: "none",
+  } as CSSProperties
+
   return (
-    <li>
-      {isFile ? (
-        <button
-          type="button"
-          className={[
-            "block w-full truncate rounded-lg px-2 py-1 text-left font-mono text-xs",
-            selected
-              ? "bg-zinc-800 text-foreground"
-              : "text-muted-foreground hover:bg-zinc-900 hover:text-foreground",
-          ].join(" ")}
-          style={{ paddingLeft: `${0.5 + props.depth * 0.75}rem` }}
-          onClick={() => props.onSelect(props.node.path)}
-          onDoubleClick={() => props.onOpenTab(props.node.path)}
+    <div data-file-tree-context-menu-root="true">
+      <MenuTrigger
+        isOpen
+        onOpenChange={(open) => {
+          if (!open) props.onClose()
+        }}
+        placement="bottom start"
+        popoverClassName="rounded-lg border-zinc-800 bg-zinc-900"
+      >
+        <Button
+          variant="ghost"
+          size="icon-sm"
+          aria-label={`${props.item.name} actions`}
+          className="sr-only"
+          style={triggerStyle}
+        />
+        <Menu
+          aria-label={`${props.item.name} actions`}
+          disabledKeys={
+            props.writable ? [] : ["new-file", "new-folder", "rename", "delete"]
+          }
         >
-          {props.node.name}
-        </button>
-      ) : (
-        <div>
-          <p
-            className="truncate px-2 py-1 font-mono text-xs text-muted-foreground"
-            style={{ paddingLeft: `${0.5 + props.depth * 0.75}rem` }}
+          <MenuItem
+            id="new-file"
+            textValue="New file"
+            onAction={() => props.onCreate("file")}
           >
-            {props.node.name}
-          </p>
-          <ul className="space-y-0.5">
-            {props.node.children?.map((child) => (
-              <FileTreeItem
-                key={child.path}
-                node={child}
-                depth={props.depth + 1}
-                selectedPath={props.selectedPath}
-                onSelect={props.onSelect}
-                onOpenTab={props.onOpenTab}
-              />
-            ))}
-          </ul>
-        </div>
-      )}
-    </li>
+            New file
+          </MenuItem>
+          <MenuItem
+            id="new-folder"
+            textValue="New folder"
+            onAction={() => props.onCreate("folder")}
+          >
+            New folder
+          </MenuItem>
+          <MenuItem id="rename" textValue="Rename" onAction={props.onRename}>
+            Rename
+          </MenuItem>
+          <MenuItem id="delete" textValue="Delete" onAction={props.onDelete}>
+            Delete
+          </MenuItem>
+        </Menu>
+      </MenuTrigger>
+    </div>
   )
 }

@@ -4,7 +4,11 @@ import { getApiClient } from "@/lib/api"
 import type {
   Workspace,
   WorkspaceDetail,
+  WorkspaceFileJobRequest,
   WorkspaceFilesResponse,
+  WorkspaceGitBlobResponse,
+  WorkspaceGitStatusResponse,
+  WorkspaceGitTreeResponse,
   WorkspaceGraphPayload,
   WorkspaceLinkedRepository,
   WorkspaceListResponse,
@@ -23,6 +27,12 @@ export const workspaceKeys = {
   ) => ["conversation", orgSlug, conversationId, workspaceId] as const,
   files: (orgSlug: string, slug: string) =>
     ["workspace-files", orgSlug, slug] as const,
+  gitTree: (orgSlug: string, slug: string, sha: string) =>
+    ["workspace-git-tree", orgSlug, slug, sha] as const,
+  gitBlob: (orgSlug: string, slug: string, sha: string, path: string) =>
+    ["workspace-git-blob", orgSlug, slug, sha, path] as const,
+  gitStatus: (orgSlug: string, slug: string, sha: string) =>
+    ["workspace-git-status", orgSlug, slug, sha] as const,
   graph: (orgSlug: string, slug: string) =>
     ["workspace-graph", orgSlug, slug] as const,
 }
@@ -67,6 +77,80 @@ export async function fetchWorkspaceFiles(
   })
   if (!res.ok) throw new Error("Failed to load Workspace files")
   return res.json() as Promise<WorkspaceFilesResponse>
+}
+
+export async function fetchWorkspaceGitTree(
+  orgSlug: string,
+  workspaceSlug: string,
+): Promise<WorkspaceGitTreeResponse> {
+  const client = await getApiClient()
+  const res = await client[":orgSlug"].api.v1.workspaces[
+    ":workspaceSlug"
+  ].files.tree.$get({
+    param: { orgSlug, workspaceSlug },
+  })
+  if (!res.ok) {
+    const err = (await res.json().catch(() => ({}))) as { error?: string }
+    throw new Error(err.error ?? "Failed to load Workspace files")
+  }
+  return res.json() as Promise<WorkspaceGitTreeResponse>
+}
+
+export async function fetchWorkspaceGitBlob(
+  orgSlug: string,
+  workspaceSlug: string,
+  path: string,
+): Promise<WorkspaceGitBlobResponse> {
+  const client = await getApiClient()
+  const res = await client[":orgSlug"].api.v1.workspaces[
+    ":workspaceSlug"
+  ].files.blob.$get({
+    param: { orgSlug, workspaceSlug },
+    query: { path },
+  })
+  if (res.status === 404) {
+    return { path, body: null, binary: false }
+  }
+  if (!res.ok) {
+    const err = (await res.json().catch(() => ({}))) as { error?: string }
+    throw new Error(err.error ?? "Failed to load file")
+  }
+  return res.json() as Promise<WorkspaceGitBlobResponse>
+}
+
+export async function fetchWorkspaceGitStatus(
+  orgSlug: string,
+  workspaceSlug: string,
+): Promise<WorkspaceGitStatusResponse> {
+  const client = await getApiClient()
+  const res = await client[":orgSlug"].api.v1.workspaces[
+    ":workspaceSlug"
+  ].files.status.$get({
+    param: { orgSlug, workspaceSlug },
+  })
+  if (!res.ok) {
+    const err = (await res.json().catch(() => ({}))) as { error?: string }
+    throw new Error(err.error ?? "Failed to load git status")
+  }
+  return res.json() as Promise<WorkspaceGitStatusResponse>
+}
+
+export async function enqueueWorkspaceFileJob(
+  orgSlug: string,
+  workspaceSlug: string,
+  input: WorkspaceFileJobRequest,
+): Promise<void> {
+  const client = await getApiClient()
+  const res = await client[":orgSlug"].api.v1.workspaces[
+    ":workspaceSlug"
+  ].files.jobs.$post({
+    param: { orgSlug, workspaceSlug },
+    json: input,
+  })
+  if (!res.ok) {
+    const err = (await res.json().catch(() => ({}))) as { error?: string }
+    throw new Error(err.error ?? "Failed to save file changes")
+  }
 }
 
 export async function fetchWorkspaceGraph(
@@ -127,6 +211,40 @@ export function workspaceFilesOptions(orgSlug: string, workspaceSlug: string) {
   return queryOptions({
     queryKey: workspaceKeys.files(orgSlug, workspaceSlug),
     queryFn: () => fetchWorkspaceFiles(orgSlug, workspaceSlug),
+  })
+}
+
+export function workspaceGitTreeOptions(
+  orgSlug: string,
+  workspaceSlug: string,
+  sha: string,
+) {
+  return queryOptions({
+    queryKey: workspaceKeys.gitTree(orgSlug, workspaceSlug, sha),
+    queryFn: () => fetchWorkspaceGitTree(orgSlug, workspaceSlug),
+  })
+}
+
+export function workspaceGitBlobOptions(
+  orgSlug: string,
+  workspaceSlug: string,
+  sha: string,
+  path: string,
+) {
+  return queryOptions({
+    queryKey: workspaceKeys.gitBlob(orgSlug, workspaceSlug, sha, path),
+    queryFn: () => fetchWorkspaceGitBlob(orgSlug, workspaceSlug, path),
+  })
+}
+
+export function workspaceGitStatusOptions(
+  orgSlug: string,
+  workspaceSlug: string,
+  sha: string,
+) {
+  return queryOptions({
+    queryKey: workspaceKeys.gitStatus(orgSlug, workspaceSlug, sha),
+    queryFn: () => fetchWorkspaceGitStatus(orgSlug, workspaceSlug),
   })
 }
 

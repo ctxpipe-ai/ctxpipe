@@ -6,6 +6,8 @@ import type {
   Workspace,
   WorkspaceDetail,
   WorkspaceFilesResponse,
+  WorkspaceFileTreeNode,
+  WorkspaceGitTreeResponse,
   WorkspaceGraphPayload,
 } from "./types"
 
@@ -156,7 +158,7 @@ export const docsConversationDetail: ConversationDetail = {
       parts: [
         {
           type: "text",
-          text: "Billing lives in knowledge/billing.md. Invoices follow the org rules in that file.",
+          text: "Billing lives in knowledge/billing/ledger.md. Invoices follow the org rules in that file.",
         },
       ],
       metadata: { createdAt: "2026-08-16T09:30:12.000Z" },
@@ -164,27 +166,120 @@ export const docsConversationDetail: ConversationDetail = {
   ],
 }
 
-export const docsWorkspaceFiles: WorkspaceFilesResponse = {
-  items: [
-    {
-      path: "knowledge/billing.md",
-      body: "# Billing\n\nInvoicing rules for the org.",
-    },
-    {
-      path: "knowledge/auth.md",
-      body: "# Auth\n\nOrg authentication.",
-    },
-  ],
-  tree: [
-    {
-      name: "knowledge",
-      path: "knowledge",
-      children: [
-        { name: "billing.md", path: "knowledge/billing.md" },
-        { name: "auth.md", path: "knowledge/auth.md" },
-      ],
-    },
-  ],
+export const docsWorkspaceGitBlobs: Record<string, string> = {
+  "AGENTS.md":
+    "# Docs workspace\n\nUse knowledge files as the source of truth for this org.",
+  "README.md":
+    "# Docs\n\nOrg knowledge and imported Confluence / Notion mirrors.",
+  "apps/ui/package.json": '{\n  "name": "@acme/ui"\n}\n',
+  "apps/ui/src/main.tsx": "export {}\n",
+  "knowledge/auth/idp.md":
+    "# Identity provider\n\nOrg SSO is Okta. Login and session both depend on this IdP.",
+  "knowledge/auth/login.md":
+    "# Login\n\nBrowser login redirects to the [identity provider](idp.md), then issues a [session](session.md).",
+  "knowledge/auth/session.md":
+    "# Session\n\nOrg authentication issues session cookies after IdP login. See [login](login.md).",
+  "knowledge/billing/invoices.md":
+    "# Invoices\n\nInvoice documents are generated from the [ledger](ledger.md).",
+  "knowledge/billing/ledger.md": `# Billing ledger
+
+Invoicing rules for the org. The payments API depends on this ledger.
+
+See [Payments API](../payments/api.md) and [invoices](invoices.md).`,
+  "knowledge/billing/tax.md":
+    "# Tax\n\nVAT treatment for invoices. Applied when posting to the [ledger](ledger.md).",
+  "knowledge/imported/billing.md":
+    "# Billing (imported)\n\nMigrated notes from the previous knowledge store. Prefer [ledger](../billing/ledger.md).",
+  "knowledge/imported/org-handbook.md":
+    "# Org handbook\n\nMigrated notes from the previous knowledge store.",
+  "knowledge/imported/on-call.md":
+    "# On-call (imported)\n\nOlder on-call notes. Prefer the Confluence ENG on-call space.",
+  "knowledge/payments/api.md": `---
+claims:
+  - to: ../billing/ledger.md
+    predicate: DEPENDS_ON
+    confidence: 0.7
+---
+
+The payments API depends on [Billing ledger](../billing/ledger.md).`,
+  "knowledge/payments/refunds.md":
+    "# Refunds\n\nRefunds go through the [payments API](api.md) and reverse the [ledger](../billing/ledger.md).",
+  "knowledge/payments/webhooks.md":
+    "# Webhooks\n\nProvider callbacks for charges and [refunds](refunds.md).",
+  "confluence/ENG/on-call/index.md":
+    "# On-call\n\nEngineering on-call home. Child pages cover rotation and severity.",
+  "confluence/ENG/on-call/pager-rotation--111.md":
+    "# Pager rotation\n\nPrimary and secondary rotation for the ENG space.",
+  "confluence/ENG/on-call/severity-levels--112.md":
+    "# Severity levels\n\nSEV-1 through SEV-4 for incidents.",
+  "confluence/HANDBOOK/welcome--200.md":
+    "# Welcome\n\nHandbook space root page for new joiners.",
+  "notion/pages/engineering-wiki--page-1/index.md":
+    "# Engineering wiki\n\nSynced Notion page. Child pages live alongside this index.",
+  "notion/pages/engineering-wiki--page-1/auth-rfc--page-2/index.md":
+    "# Auth RFC\n\nNested Notion page under the engineering wiki.",
+  "notion/databases/launch-checklist--db-1/index.md":
+    "# Launch checklist\n\nSynced Notion database. Rows are nested under this folder.",
+  "notion/databases/launch-checklist--db-1/rows/cutover-runbook--row-1/index.md":
+    "# Cutover runbook\n\nDatabase row mirrored as markdown.",
+  "notion/databases/launch-checklist--db-1/rows/prepare-release--row-2/index.md":
+    "# Prepare release\n\nChecklist row for the launch database.",
+}
+
+const docsKnowledgePaths = Object.keys(docsWorkspaceGitBlobs).filter((path) =>
+  path.endsWith(".md"),
+)
+
+export const docsWorkspaceGitTree: WorkspaceGitTreeResponse = {
+  sha: docsWorkspace.activeProjectionSha ?? "abc123def456",
+  paths: Object.keys(docsWorkspaceGitBlobs).sort(),
+}
+
+export const docsWorkspaceFiles: WorkspaceFilesResponse =
+  workspaceFilesFromBodies(
+    Object.fromEntries(
+      docsKnowledgePaths.map((path) => [
+        path,
+        docsWorkspaceGitBlobs[path] ?? "",
+      ]),
+    ),
+  )
+
+function workspaceFilesFromBodies(
+  bodies: Record<string, string>,
+): WorkspaceFilesResponse {
+  const paths = Object.keys(bodies).sort()
+  return {
+    items: paths.map((path) => ({ path, body: bodies[path] ?? "" })),
+    tree: fileTreeFromPaths(paths),
+  }
+}
+
+function fileTreeFromPaths(paths: readonly string[]): WorkspaceFileTreeNode[] {
+  const root: WorkspaceFileTreeNode[] = []
+  for (const path of [...paths].sort()) {
+    const parts = path.split("/").filter(Boolean)
+    let level = root
+    let prefix = ""
+    for (const [index, part] of parts.entries()) {
+      prefix = prefix ? `${prefix}/${part}` : part
+      const existing = level.find((node) => node.name === part)
+      if (existing) {
+        if (index < parts.length - 1) {
+          existing.children ??= []
+          level = existing.children
+        }
+        continue
+      }
+      const node: WorkspaceFileTreeNode =
+        index === parts.length - 1
+          ? { name: part, path: prefix }
+          : { name: part, path: prefix, children: [] }
+      level.push(node)
+      if (node.children) level = node.children
+    }
+  }
+  return root
 }
 
 export const docsWorkspaceGraph: WorkspaceGraphPayload = {
@@ -198,22 +293,22 @@ export const docsWorkspaceGraph: WorkspaceGraphPayload = {
   },
   nodes: [
     {
-      id: "knowledge/billing.md",
+      id: "knowledge/billing/ledger.md",
       kind: "file",
-      name: "billing.md",
+      name: "ledger.md",
       summary: "Invoicing rules",
     },
     {
-      id: "knowledge/auth.md",
+      id: "knowledge/auth/session.md",
       kind: "file",
-      name: "auth.md",
+      name: "session.md",
       summary: "Org auth",
     },
   ],
   edges: [
     {
-      sourceId: "knowledge/billing.md",
-      targetId: "knowledge/auth.md",
+      sourceId: "knowledge/billing/ledger.md",
+      targetId: "knowledge/auth/session.md",
       predicate: "depends_on",
       lastObservedAt: "2026-08-16T10:00:00.000Z",
       confidence: 0.8,
