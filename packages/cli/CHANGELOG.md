@@ -1,5 +1,11 @@
 # ctxpipe
 
+## 0.3.1
+
+### Patch Changes
+
+- 44dd8dc: Stop memory capture from looping on Cursor Stop follow-ups. Classify user/assistant speech only, raise the lesson bar, and emit a one-shot follow-up so promotion turns cannot recapture themselves.
+
 ## 0.3.0
 
 ### Minor Changes
