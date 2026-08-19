@@ -538,3 +538,9 @@ Highest-priority confirmed rules for agents. Migrated from former `patterns.md` 
 - **Date:** 2026-08-13
 - **Source:** repo-page-ux
 
+### Do not squash migrations already applied to PR Neon
+- **Rule:** PR preview DBs are reused (`preview/pr-N` from production, not reset each deploy). Deleting applied Drizzle folders and regenerating the same DDL under a new tag re-runs `CREATE UNIQUE INDEX` and fails with `42P07`. Keep the original folders, or make the replacement DDL idempotent (`IF NOT EXISTS`) like `clean_lyja` / `smart_nextwave`. Never squash unreleased history that a long-lived PR branch may already have applied.
+- **Category:** convention
+- **Date:** 2026-08-19
+- **Source:** slack-connector PR deploy (`connections_slack_team_id_uq` already exists)
+
