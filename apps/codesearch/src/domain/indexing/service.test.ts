@@ -1,16 +1,21 @@
+import { existsSync } from "node:fs"
 import { mkdtemp, readdir, readFile, rm, writeFile } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { afterEach, describe, expect, it } from "vitest"
 import { decodeScipIndex, encodeScipIndex } from "../graph/scipProto.js"
-import { settleIndexPhases, writeMergedScipIndex } from "./service.js"
+import {
+  publishMergedScipIndex,
+  settleIndexPhases,
+  writeMergedScipIndex,
+} from "./service.js"
 
 describe("settleIndexPhases", () => {
-  it("runs Zoekt before SCIP (sequential) and reports both failures", async () => {
+  it("runs Zoekt before SCIP (sequential) and continues after both failures", async () => {
     const order: string[] = []
     let scipStartedBeforeZoektFinished = false
 
-    const result = settleIndexPhases(
+    await settleIndexPhases(
       async () => {
         order.push("zoekt-start")
         await new Promise((r) => setTimeout(r, 30))
@@ -26,9 +31,6 @@ describe("settleIndexPhases", () => {
       },
     )
 
-    await expect(result).rejects.toThrow(
-      "Repository indexing failed:\nZoekt: Zoekt failed\nSCIP: SCIP failed",
-    )
     expect(scipStartedBeforeZoektFinished).toBe(false)
     expect(order).toEqual(["zoekt-start", "zoekt-end", "scip"])
   })
@@ -118,5 +120,85 @@ describe("writeMergedScipIndex", () => {
       "index.scip",
       "typescript.scip",
     ])
+  })
+})
+
+describe("publishMergedScipIndex", () => {
+  const temporaryDirectories: string[] = []
+
+  afterEach(async () => {
+    await Promise.all(
+      temporaryDirectories
+        .splice(0)
+        .map((directory) => rm(directory, { recursive: true, force: true })),
+    )
+  })
+
+  async function createTemporaryDirectory(): Promise<string> {
+    const directory = await mkdtemp(join(tmpdir(), "ctxpipe-scip-publish-"))
+    temporaryDirectories.push(directory)
+    return directory
+  }
+
+  it("skips missing and malformed shards and publishes survivors", async () => {
+    const directory = await createTemporaryDirectory()
+    const validShardPath = join(directory, "typescript.scip")
+    const missingShardPath = join(directory, "go.scip")
+    const malformedShardPath = join(directory, "python.scip")
+    const outputPath = join(directory, "index.scip")
+    const shard = encodeScipIndex({
+      documents: [{ relativePath: "src/main.ts" }],
+      externalSymbols: [],
+    })
+    await writeFile(validShardPath, shard)
+    await writeFile(malformedShardPath, new Uint8Array([0x12, 0x05, 0x01]))
+
+    const published = await publishMergedScipIndex({
+      detectedLanguages: ["typescript", "go", "python"],
+      shardPaths: [validShardPath, missingShardPath, malformedShardPath],
+      outputPath,
+    })
+
+    expect(published).toEqual({ shardCount: 1 })
+    expect(decodeScipIndex(await readFile(outputPath))).toMatchObject({
+      documents: [{ relativePath: "src/main.ts" }],
+    })
+  })
+
+  it("writes an empty index when no languages were detected", async () => {
+    const directory = await createTemporaryDirectory()
+    const outputPath = join(directory, "index.scip")
+
+    const published = await publishMergedScipIndex({
+      detectedLanguages: [],
+      shardPaths: [],
+      outputPath,
+    })
+
+    expect(published).toEqual({ shardCount: 0 })
+    expect(decodeScipIndex(await readFile(outputPath))).toMatchObject({
+      documents: [],
+    })
+  })
+
+  it("omits the published index when languages were detected but all shards failed", async () => {
+    const directory = await createTemporaryDirectory()
+    const outputPath = join(directory, "index.scip")
+    await writeFile(
+      outputPath,
+      encodeScipIndex({
+        documents: [{ relativePath: "previous.ts" }],
+        externalSymbols: [],
+      }),
+    )
+
+    const published = await publishMergedScipIndex({
+      detectedLanguages: ["go"],
+      shardPaths: [join(directory, "go.scip")],
+      outputPath,
+    })
+
+    expect(published).toEqual({ shardCount: 0 })
+    expect(existsSync(outputPath)).toBe(false)
   })
 })

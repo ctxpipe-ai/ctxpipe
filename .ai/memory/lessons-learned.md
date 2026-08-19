@@ -281,7 +281,7 @@ Highest-priority confirmed rules for agents. Migrated from former `patterns.md` 
 - **Source:** migrated from patterns.md
 
 ### Durable repository indexing
-- **Rule:** durability belongs in OpenWorkflow step boundaries, not DIY codesearch/Postgres phase checkpoints. `repository-ingestion` runs child workflow `repository-index` (clone-checkout → zoekt non-fatal → detect-languages → `Promise.all` `scip:${lang}` → merge-scip). Zoekt failure returns `searchIndexOk: false` and the parent marks `complete_with_issues` so extract can still run. Codesearch exposes phase HTTP APIs with in-process spawn admission and same-repo purge exclusion (no begin/end lease). Step badge writes are monotonic. Extract is OW+ReAct (per-root `extract-kind` then `identify`, then dedup/project/embed) — keep LangGraph for conversation/Studio, not as the ingest durable orchestrator.
+- **Rule:** durability belongs in OpenWorkflow step boundaries, not DIY codesearch/Postgres phase checkpoints. `repository-ingestion` runs child workflow `repository-index` (clone-checkout → zoekt non-fatal → detect-languages → `Promise.all` `scip:${lang}` non-fatal → merge-scip non-fatal). Zoekt or SCIP failure returns `searchIndexOk` / `scipIndexOk: false` and the parent marks `complete_with_issues` so extract can still run. Zoekt memory-fit failure skips SCIP langs. Codesearch exposes phase HTTP APIs with in-process spawn admission and same-repo purge exclusion (no begin/end lease). Step badge writes are monotonic. Extract is OW+ReAct (per-root `extract-kind` then `identify`, then dedup/project/embed) — keep LangGraph for conversation/Studio, not as the ingest durable orchestrator.
 - **Category:** convention
 - **Date:** 2026-08-11
 - **Source:** migrated from patterns.md
@@ -489,6 +489,12 @@ Highest-priority confirmed rules for agents. Migrated from former `patterns.md` 
 - **Category:** convention
 - **Date:** 2026-08-11
 - **Source:** migrated from patterns.md
+
+### Codesearch ingest OOM classification
+- **Rule:** optional-index / memory-fit ingest changes must include automated child-137 HTTP classification (phase route + codesearch client rewrite, same split as Zoekt) plus the shared Docker `oom-simulation.sh` probe already in the default codesearch suite. After those PRs, run a Sol (`gpt-5.6-sol-high`) Standards + Spec adversarial review.
+- **Category:** convention
+- **Date:** 2026-08-19
+- **Source:** user correction (SCIP optional ingest; mirror Zoekt mem-crash tests + Sol review)
 
 ### Stay on feature branch across planning sessions
 - **Rule:** Do not create a new git branch unless HEAD is already on `main` (or the user explicitly asks). Continue multiple planning/implementation sessions on the current feature branch.

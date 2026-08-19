@@ -417,6 +417,67 @@ async function readGitHead(clonePath: string): Promise<string | null> {
   return sha.length > 0 ? sha : null
 }
 
+export async function selectValidScipShardPaths(
+  shardPaths: readonly string[],
+): Promise<string[]> {
+  const valid: string[] = []
+  for (const shardPath of shardPaths) {
+    let bytes: Buffer
+    try {
+      const info = await stat(shardPath)
+      if (!info.isFile() || info.size === 0) {
+        tryEmitIndexEvent("codesearch.index.scip.shard_skipped", {
+          shardPath,
+          reason: "empty",
+        })
+        continue
+      }
+      bytes = await readFile(shardPath)
+    } catch {
+      tryEmitIndexEvent("codesearch.index.scip.shard_skipped", {
+        shardPath,
+        reason: "missing",
+      })
+      continue
+    }
+    try {
+      decodeScipIndex(bytes)
+    } catch (error) {
+      tryEmitIndexEvent("codesearch.index.scip.shard_skipped", {
+        shardPath,
+        reason: "malformed",
+        error: error instanceof Error ? error.message : String(error),
+      })
+      continue
+    }
+    valid.push(shardPath)
+  }
+  return valid
+}
+
+/**
+ * Publish a merged SCIP index from surviving shards.
+ * No detected languages → empty index (success). Languages detected but no
+ * valid shards → omit/delete the published file so graph tools soft-miss.
+ */
+export async function publishMergedScipIndex(input: {
+  detectedLanguages: readonly string[]
+  shardPaths: readonly string[]
+  outputPath: string
+}): Promise<{ shardCount: number }> {
+  const valid = await selectValidScipShardPaths(input.shardPaths)
+  if (valid.length === 0) {
+    if (input.detectedLanguages.length === 0) {
+      await writeMergedScipIndex([], input.outputPath)
+    } else {
+      await rm(input.outputPath, { force: true })
+    }
+    return { shardCount: 0 }
+  }
+  await writeMergedScipIndex(valid, input.outputPath)
+  return { shardCount: valid.length }
+}
+
 export async function writeMergedScipIndex(
   shardPaths: readonly string[],
   outputPath: string,
@@ -641,12 +702,13 @@ export async function phaseMergeScip(
   const detected = [...params.detectedLanguages]
   await writeStep("merging_intelligence", detected)
   await withPhase("scip_merge", () =>
-    writeMergedScipIndex(
-      detected.map((indexerId) =>
+    publishMergedScipIndex({
+      detectedLanguages: detected,
+      shardPaths: detected.map((indexerId) =>
         scipLangShardPath(ctx.orgId, ctx.repoId, indexerId),
       ),
-      ctx.scipIndexPath,
-    ),
+      outputPath: ctx.scipIndexPath,
+    }),
   )
 }
 

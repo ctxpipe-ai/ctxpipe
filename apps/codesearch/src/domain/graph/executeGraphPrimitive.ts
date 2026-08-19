@@ -564,7 +564,7 @@ export async function executeScipGraphQuery(
     return {
       ok: true,
       results: [],
-      note: "SCIP index not found for this checkout (run repository indexing).",
+      note: "SCIP index unavailable for this checkout; use search or find_symbol_references instead.",
     }
   }
   const index = loaded.index
