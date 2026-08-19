@@ -1,9 +1,9 @@
 {
   "version": "8",
   "dialect": "postgres",
-  "id": "0fd019da-dfee-4ed9-8838-f7f55dded761",
+  "id": "287ff6d5-d409-4454-a89d-d4935dd2194b",
   "prevIds": [
-    "666b302f-12cb-4f65-8dfd-ed36b6013ec4"
+    "d5a414de-64ef-40f5-a8df-f306e0336bfe"
   ],
   "ddl": [
     {
@@ -177,12 +177,6 @@
     {
       "isRlsEnabled": false,
       "name": "repository_checkouts",
-      "entityType": "tables",
-      "schema": "public"
-    },
-    {
-      "isRlsEnabled": false,
-      "name": "slack_sync_targets",
       "entityType": "tables",
       "schema": "public"
     },
@@ -3788,123 +3782,6 @@
       "table": "repository_checkouts"
     },
     {
-      "type": "text",
-      "typeSchema": null,
-      "notNull": true,
-      "dimensions": 0,
-      "default": null,
-      "generated": null,
-      "identity": null,
-      "name": "id",
-      "entityType": "columns",
-      "schema": "public",
-      "table": "slack_sync_targets"
-    },
-    {
-      "type": "text",
-      "typeSchema": null,
-      "notNull": true,
-      "dimensions": 0,
-      "default": null,
-      "generated": null,
-      "identity": null,
-      "name": "org_id",
-      "entityType": "columns",
-      "schema": "public",
-      "table": "slack_sync_targets"
-    },
-    {
-      "type": "text",
-      "typeSchema": null,
-      "notNull": true,
-      "dimensions": 0,
-      "default": null,
-      "generated": null,
-      "identity": null,
-      "name": "connection_id",
-      "entityType": "columns",
-      "schema": "public",
-      "table": "slack_sync_targets"
-    },
-    {
-      "type": "text",
-      "typeSchema": null,
-      "notNull": true,
-      "dimensions": 0,
-      "default": null,
-      "generated": null,
-      "identity": null,
-      "name": "repository_id",
-      "entityType": "columns",
-      "schema": "public",
-      "table": "slack_sync_targets"
-    },
-    {
-      "type": "text",
-      "typeSchema": null,
-      "notNull": true,
-      "dimensions": 0,
-      "default": null,
-      "generated": null,
-      "identity": null,
-      "name": "branch",
-      "entityType": "columns",
-      "schema": "public",
-      "table": "slack_sync_targets"
-    },
-    {
-      "type": "boolean",
-      "typeSchema": null,
-      "notNull": true,
-      "dimensions": 0,
-      "default": "true",
-      "generated": null,
-      "identity": null,
-      "name": "enabled",
-      "entityType": "columns",
-      "schema": "public",
-      "table": "slack_sync_targets"
-    },
-    {
-      "type": "text",
-      "typeSchema": null,
-      "notNull": true,
-      "dimensions": 0,
-      "default": "'draft'",
-      "generated": null,
-      "identity": null,
-      "name": "setup_phase",
-      "entityType": "columns",
-      "schema": "public",
-      "table": "slack_sync_targets"
-    },
-    {
-      "type": "timestamp with time zone",
-      "typeSchema": null,
-      "notNull": true,
-      "dimensions": 0,
-      "default": "now()",
-      "generated": null,
-      "identity": null,
-      "name": "created_at",
-      "entityType": "columns",
-      "schema": "public",
-      "table": "slack_sync_targets"
-    },
-    {
-      "type": "timestamp with time zone",
-      "typeSchema": null,
-      "notNull": true,
-      "dimensions": 0,
-      "default": "now()",
-      "generated": null,
-      "identity": null,
-      "name": "updated_at",
-      "entityType": "columns",
-      "schema": "public",
-      "table": "slack_sync_targets"
-    },
-    {
       "nameExplicit": true,
       "columns": [
         {
@@ -4825,48 +4702,6 @@
       "table": "repository_checkouts"
     },
     {
-      "nameExplicit": true,
-      "columns": [
-        {
-          "value": "connection_id",
-          "isExpression": false,
-          "asc": true,
-          "nullsFirst": false,
-          "opclass": null
-        }
-      ],
-      "isUnique": true,
-      "where": null,
-      "with": "",
-      "method": "btree",
-      "concurrently": false,
-      "name": "slack_sync_targets_connection_id_uq",
-      "entityType": "indexes",
-      "schema": "public",
-      "table": "slack_sync_targets"
-    },
-    {
-      "nameExplicit": true,
-      "columns": [
-        {
-          "value": "repository_id",
-          "isExpression": false,
-          "asc": true,
-          "nullsFirst": false,
-          "opclass": null
-        }
-      ],
-      "isUnique": false,
-      "where": null,
-      "with": "",
-      "method": "btree",
-      "concurrently": false,
-      "name": "slack_sync_targets_repository_id_idx",
-      "entityType": "indexes",
-      "schema": "public",
-      "table": "slack_sync_targets"
-    },
-    {
       "nameExplicit": false,
       "columns": [
         "user_id"
@@ -5360,57 +5195,6 @@
       "table": "repository_checkouts"
     },
     {
-      "nameExplicit": false,
-      "columns": [
-        "org_id"
-      ],
-      "schemaTo": "public",
-      "tableTo": "organizations",
-      "columnsTo": [
-        "id"
-      ],
-      "onUpdate": "NO ACTION",
-      "onDelete": "CASCADE",
-      "name": "slack_sync_targets_org_id_organizations_id_fkey",
-      "entityType": "fks",
-      "schema": "public",
-      "table": "slack_sync_targets"
-    },
-    {
-      "nameExplicit": false,
-      "columns": [
-        "connection_id"
-      ],
-      "schemaTo": "public",
-      "tableTo": "connections",
-      "columnsTo": [
-        "id"
-      ],
-      "onUpdate": "NO ACTION",
-      "onDelete": "CASCADE",
-      "name": "slack_sync_targets_connection_id_connections_id_fkey",
-      "entityType": "fks",
-      "schema": "public",
-      "table": "slack_sync_targets"
-    },
-    {
-      "nameExplicit": false,
-      "columns": [
-        "repository_id"
-      ],
-      "schemaTo": "public",
-      "tableTo": "repositories",
-      "columnsTo": [
-        "id"
-      ],
-      "onUpdate": "NO ACTION",
-      "onDelete": "RESTRICT",
-      "name": "slack_sync_targets_repository_id_repositories_id_fkey",
-      "entityType": "fks",
-      "schema": "public",
-      "table": "slack_sync_targets"
-    },
-    {
       "columns": [
         "id"
       ],
@@ -5678,16 +5462,6 @@
       "name": "repository_checkouts_pkey",
       "schema": "public",
       "table": "repository_checkouts",
-      "entityType": "pks"
-    },
-    {
-      "columns": [
-        "id"
-      ],
-      "nameExplicit": false,
-      "name": "slack_sync_targets_pkey",
-      "schema": "public",
-      "table": "slack_sync_targets",
       "entityType": "pks"
     },
     {
