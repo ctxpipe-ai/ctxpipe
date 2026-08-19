@@ -4,11 +4,17 @@ Highest-priority confirmed rules for agents. Migrated from former `patterns.md` 
 
 ## Entries
 
+### Liked logo families stay in the mix
+- **Rule:** when a human likes a logo winner but asks for a **new architecture**, keep the liked family as an alternate (do not delete it). Pass 4 echo wordmark stays in the mix while later passes explore other objects. Production `apps/ui/public/ctx_.svg` stays until they pick a ship family.
+- **Category:** convention
+- **Date:** 2026-08-19
+- **Source:** logo-iteration-v5 (user: quite like the echo winner, polish later, keep it in the mix)
+
 ### Logo iteration is a tournament
-- **Rule:** each logo loop draws **four new descendants of the previous winner**, picks one, and that pick is the **only** basis for the next loop. Do not reset to four independent concepts, and do not spend a loop on one optical tweak of a single lockup. Show the basis on the sheet so lineage is visible. If a human names a concept they like (e.g. echo), refine that lineage — do not abandon it for invert / block / chamfer in the next round.
+- **Rule:** each logo loop draws **four new descendants of the previous winner**, picks one, and that pick is the **only** basis for the next loop. Do not reset to four independent concepts, and do not spend a loop on one optical tweak of a single lockup. Show the basis on the sheet so lineage is visible. If a human names a concept they like (e.g. echo), refine that lineage — do not abandon it for invert / block / chamfer in the next round. If a loop’s four are too close (same object, fill-only), the **next** loop must change the object, not the fill. Concept review must not invent a replacement metaphor or a new architecture.
 - **Category:** convention
 - **Date:** 2026-08-15
-- **Source:** logo-iteration-v3 (user: iterations looked independent and like one idea, not 4; liked echo and wanted it refined)
+- **Source:** logo-iteration-v3 (user: iterations looked independent and like one idea, not 4; liked echo and wanted it refined); v5 loop 3 (four teal slabs)
 
 ### Logo iteration integrity
 - **Rule:** a logo loop that only asks a model to rank metaphors will ship a clever diagram with broken letters. Worse: asking that same model “FINISHED? WOULD SHIP?” will **green** known-broken work (2026-08-15 last-loop family: Sol said ship; the mark fails `TYPE` and `CONSTRUCT` next to Geist `ctx|`). Gate every candidate with the **logo-design** skill: calibrate on the known-broken fixture first, fill the observational scorecard (not “would you ship?”), and keep Sol as a **concept** reviewer on green work only. Custom lettering that loses to Geist `ctx|` at the same size is red.
