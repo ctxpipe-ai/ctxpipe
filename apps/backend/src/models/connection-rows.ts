@@ -414,11 +414,16 @@ export type SlackConnectionShape = {
   ownerUserId: string | null
   status: string
   lastEventPayload: unknown
+  repositoryId: string | null
+  branch: string | null
+  enabled: boolean
   createdAt: Date
   updatedAt: Date
 }
 
-export function slackConnectionToShape(row: ConnectionRow): SlackConnectionShape {
+export function slackConnectionToShape(
+  row: ConnectionRow,
+): SlackConnectionShape {
   if (row.type !== CONNECTION_TYPE_SLACK) {
     throw new Error("Expected slack connection row")
   }
@@ -435,16 +440,16 @@ export function slackConnectionToShape(row: ConnectionRow): SlackConnectionShape
     ownerUserId: c.ownerUserId ?? null,
     status: c.status,
     lastEventPayload: c.lastEventPayload,
+    repositoryId: c.repositoryId,
+    branch: c.branch,
+    enabled: c.enabled,
     createdAt: row.createdAt,
     updatedAt: row.updatedAt,
   }
 }
 
 export function slackShapeToConfig(
-  input: Omit<
-    SlackConnectionShape,
-    "id" | "orgId" | "createdAt" | "updatedAt"
-  >,
+  input: Omit<SlackConnectionShape, "id" | "orgId" | "createdAt" | "updatedAt">,
 ): Record<string, unknown> {
   return serialiseSlackConnectionConfigForDb({
     botTokenEnc: input.botTokenEnc,
@@ -456,11 +461,16 @@ export function slackShapeToConfig(
     ownerUserId: input.ownerUserId,
     status: input.status,
     lastEventPayload: input.lastEventPayload,
+    repositoryId: input.repositoryId,
+    branch: input.branch,
+    enabled: input.enabled,
   })
 }
 
 export function slackRowHasBotToken(row: ConnectionRow, env: Env): boolean {
   if (row.type !== CONNECTION_TYPE_SLACK) return false
-  const stored = parseSlackConnectionStored(row.config as Record<string, unknown>)
+  const stored = parseSlackConnectionStored(
+    row.config as Record<string, unknown>,
+  )
   return decodeSlackBotToken(stored, env) != null
 }

@@ -42,13 +42,12 @@ import { SlackDirectMessageNotSupportedError } from "./client.js"
 import { captureSlackThread } from "./sync.js"
 
 const target = {
-  id: "sst_1",
+  id: "con_1",
   orgId: "org_1",
   connectionId: "con_1",
   repositoryId: "repo_1",
   branch: "main",
   enabled: true,
-  setupPhase: "live" as const,
   createdAt: new Date("2026-08-01T00:00:00.000Z"),
   updatedAt: new Date("2026-08-01T00:00:00.000Z"),
 }
@@ -60,10 +59,14 @@ const connection = {
   teamName: "Acme",
   botTokenEnc: "enc",
   botUserId: "U_BOT",
+  botHandle: "ctxpipe",
   appId: null,
   ownerUserId: null,
   status: "installed",
   lastEventPayload: null,
+  repositoryId: "repo_1",
+  branch: "main",
+  enabled: true,
   createdAt: new Date("2026-08-01T00:00:00.000Z"),
   updatedAt: new Date("2026-08-01T00:00:00.000Z"),
 }

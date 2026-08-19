@@ -20,7 +20,7 @@ import {
 } from "./client.js"
 import {
   getSlackThreadPath,
-  type SlackMirrorMessage,
+  type SlackCaptureMessage,
   toSlackChannelIndexFile,
   toSlackThreadMarkdownFile,
 } from "./converter.js"
@@ -103,7 +103,7 @@ async function buildThreadFiles(input: {
   truncated?: boolean
   userCache: Map<string, string>
 }): Promise<Array<{ path: string; content: string }>> {
-  const mirrorMessages: SlackMirrorMessage[] = []
+  const captureMessages: SlackCaptureMessage[] = []
 
   for (const message of input.messages) {
     const userDisplay = message.user
@@ -123,7 +123,7 @@ async function buildThreadFiles(input: {
         path: slackFileStubLink(file),
       })
     }
-    mirrorMessages.push({
+    captureMessages.push({
       ts: message.ts,
       userId: message.user,
       userDisplay,
@@ -142,7 +142,7 @@ async function buildThreadFiles(input: {
     capturedAt: input.capturedAt,
     capturedBy: input.capturedBy,
     truncated: input.truncated,
-    messages: mirrorMessages,
+    messages: captureMessages,
   })
   return [{ path: md.path, content: md.content }]
 }

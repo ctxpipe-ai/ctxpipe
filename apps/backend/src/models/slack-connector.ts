@@ -5,51 +5,85 @@ import { CONNECTION_TYPE_SLACK, connections } from "../db/schema/connections.js"
 import { repositories } from "../db/schema/repositories.js"
 import { repositoryCheckouts } from "../db/schema/repository_checkouts.js"
 import {
-  type SlackSetupPhase,
-  slackSyncTargets,
-} from "../db/schema/slackSyncTargets.js"
-import {
+  derivedSlackSetupPhase,
   encodeSlackBotTokenForDb,
+  parseSlackConnectionStored,
   serialiseSlackConnectionConfigForDb,
+  type SlackSetupPhase,
 } from "../lib/connection-config.js"
 import { generateObjectId } from "../lib/id.js"
 import {
+  type ConnectionRow,
   type SlackConnectionShape,
   slackConnectionToShape,
   slackShapeToConfig,
 } from "./connection-rows.js"
 import { DEFAULT_CHECKOUT_KEY } from "./repositories.js"
 
-export type SlackConnection = SlackConnectionShape
-export type SlackSyncTarget = typeof slackSyncTargets.$inferSelect
+export type { SlackSetupPhase } from "../lib/connection-config.js"
+export {
+  derivedSlackSetupPhase,
+  SLACK_SETUP_PHASES,
+} from "../lib/connection-config.js"
 
-export type SlackSyncTargetWithRepo = SlackSyncTarget & {
+export type SlackConnection = SlackConnectionShape
+
+/** Sync binding projected from `connections.config` (+ timestamps from the connection row). */
+export type SlackBinding = {
+  id: string
+  orgId: string
+  connectionId: string
+  repositoryId: string
+  branch: string
+  enabled: boolean
+  createdAt: Date
+  updatedAt: Date
+}
+
+export type SlackBindingWithRepo = SlackBinding & {
   repositoryName: string
   githubConnectionId: string | null
 }
 
-/**
- * Coerce legacy channel-mirror phases onto the capture-only `draft` | `live`
- * contract so existing preview/prod rows keep working after ADR-025 revisit.
- */
-export function normalizeSlackSetupPhase(
-  phase: string | null | undefined,
-): SlackSetupPhase {
-  if (
-    phase === "live" ||
-    phase === "awaiting_merge" ||
-    phase === "initial_sync" ||
-    phase === "sync_failed"
-  ) {
-    return "live"
+/** Capture/write path still uses this name; same shape as {@link SlackBinding}. */
+export type SlackSyncTarget = SlackBinding
+export type SlackSyncTargetWithRepo = SlackBindingWithRepo
+
+function bindingFromConnectionRow(
+  row: ConnectionRow,
+): SlackBinding | undefined {
+  const config = parseSlackConnectionStored(
+    row.config as Record<string, unknown>,
+  )
+  if (!config.repositoryId || !config.branch) return undefined
+  return {
+    id: row.id,
+    orgId: row.orgId,
+    connectionId: row.id,
+    repositoryId: config.repositoryId,
+    branch: config.branch,
+    enabled: config.enabled,
+    createdAt: row.createdAt,
+    updatedAt: row.updatedAt,
   }
-  return "draft"
 }
 
-function withNormalizedSlackSetupPhase<T extends { setupPhase: string }>(
-  row: T,
-): T & { setupPhase: SlackSetupPhase } {
-  return { ...row, setupPhase: normalizeSlackSetupPhase(row.setupPhase) }
+function mergeSlackStoredConfig(
+  row: ConnectionRow,
+  patch: Partial<{
+    repositoryId: string | null
+    branch: string | null
+    enabled: boolean
+    status: string
+  }>,
+): Record<string, unknown> {
+  const stored = parseSlackConnectionStored(
+    row.config as Record<string, unknown>,
+  )
+  return serialiseSlackConnectionConfigForDb({
+    ...stored,
+    ...patch,
+  } as Parameters<typeof serialiseSlackConnectionConfigForDb>[0])
 }
 
 function slackConfigTeamIdRef() {
@@ -161,22 +195,24 @@ export async function upsertSlackConnectionFromOAuth(input: {
     .limit(1)
 
   const botTokenEnc = encodeSlackBotTokenForDb(input.botToken, input.env)
+  const existingStored = existing
+    ? parseSlackConnectionStored(existing.config as Record<string, unknown>)
+    : undefined
   const config = serialiseSlackConnectionConfigForDb({
+    ...existingStored,
     botTokenEnc,
     teamId: input.teamId,
-    teamName: input.teamName ?? null,
-    botUserId: input.botUserId ?? null,
-    botHandle: input.botHandle ?? existingForTeam?.botHandle ?? null,
-    appId: input.appId ?? null,
+    teamName: input.teamName ?? existingStored?.teamName ?? null,
+    botUserId: input.botUserId ?? existingStored?.botUserId ?? null,
+    botHandle:
+      input.botHandle ??
+      existingStored?.botHandle ??
+      existingForTeam?.botHandle ??
+      null,
+    appId: input.appId ?? existingStored?.appId ?? null,
     ownerUserId: input.ownerUserId,
     status: "installed",
-    lastEventPayload:
-      existing &&
-      typeof (existing.config as Record<string, unknown>).lastEventPayload !==
-        "undefined"
-        ? (existing.config as Record<string, unknown>).lastEventPayload
-        : null,
-  })
+  } as Parameters<typeof serialiseSlackConnectionConfigForDb>[0])
 
   if (existing) {
     const [row] = await db
@@ -232,53 +268,61 @@ export async function revokeSlackConnectionByTeamId(
     updatedAt: _updatedAt,
     ...shape
   } = connection
-  await db.transaction(async (tx) => {
-    await tx
-      .update(connections)
-      .set({
-        config: slackShapeToConfig({ ...shape, status: "revoked" }),
-        updatedAt: new Date(),
-      })
-      .where(eq(connections.id, connection.id))
-    await tx
-      .update(slackSyncTargets)
-      .set({ enabled: false, updatedAt: new Date() })
-      .where(eq(slackSyncTargets.connectionId, connection.id))
-  })
+  await db
+    .update(connections)
+    .set({
+      config: slackShapeToConfig({
+        ...shape,
+        status: "revoked",
+        enabled: false,
+      }),
+      updatedAt: new Date(),
+    })
+    .where(eq(connections.id, connection.id))
   return true
 }
 
-export async function getSlackSyncTargetWithRepoByConnectionId(
+export async function getSlackBindingWithRepoByConnectionId(
   orgId: string,
   connectionId: string,
-): Promise<SlackSyncTargetWithRepo | undefined> {
+): Promise<SlackBindingWithRepo | undefined> {
   const db = getSystemDb()
   const [row] = await db
     .select({
-      id: slackSyncTargets.id,
-      orgId: slackSyncTargets.orgId,
-      connectionId: slackSyncTargets.connectionId,
-      repositoryId: slackSyncTargets.repositoryId,
-      branch: slackSyncTargets.branch,
-      enabled: slackSyncTargets.enabled,
-      setupPhase: slackSyncTargets.setupPhase,
-      createdAt: slackSyncTargets.createdAt,
-      updatedAt: slackSyncTargets.updatedAt,
+      connection: connections,
       repositoryName: repositories.name,
       githubConnectionId: repositories.githubConnectionId,
     })
-    .from(slackSyncTargets)
-    .innerJoin(repositories, eq(slackSyncTargets.repositoryId, repositories.id))
+    .from(connections)
+    .innerJoin(
+      repositories,
+      and(
+        eq(repositories.orgId, connections.orgId),
+        eq(repositories.id, sql`${connections.config}->>'repositoryId'`),
+      ),
+    )
     .where(
       and(
-        eq(slackSyncTargets.orgId, orgId),
-        eq(slackSyncTargets.connectionId, connectionId),
+        eq(connections.id, connectionId),
+        eq(connections.orgId, orgId),
+        eq(connections.type, CONNECTION_TYPE_SLACK),
         eq(repositories.orgId, orgId),
       ),
     )
     .limit(1)
-  return row ? withNormalizedSlackSetupPhase(row) : undefined
+  if (!row) return undefined
+  const target = bindingFromConnectionRow(row.connection)
+  if (!target) return undefined
+  return {
+    ...target,
+    repositoryName: row.repositoryName,
+    githubConnectionId: row.githubConnectionId,
+  }
 }
+
+/** @deprecated Prefer {@link getSlackBindingWithRepoByConnectionId}. */
+export const getSlackSyncTargetWithRepoByConnectionId =
+  getSlackBindingWithRepoByConnectionId
 
 export async function getSlackConnectionByTeamId(
   teamId: string,
@@ -298,25 +342,25 @@ export async function getSlackConnectionByTeamId(
   return row ? slackConnectionToShape(row) : undefined
 }
 
-/** @deprecated Use getSlackConnectionByTeamId — one Slack team maps to one org. */
-export async function listSlackConnectionsByTeamId(
-  teamId: string,
-): Promise<SlackConnection[]> {
-  const connection = await getSlackConnectionByTeamId(teamId)
-  return connection ? [connection] : []
-}
-
-export async function getSlackSyncTargetByConnectionId(
+export async function getSlackBindingByConnectionId(
   connectionId: string,
-): Promise<SlackSyncTarget | undefined> {
+): Promise<SlackBinding | undefined> {
   const db = getSystemDb()
   const [row] = await db
     .select()
-    .from(slackSyncTargets)
-    .where(eq(slackSyncTargets.connectionId, connectionId))
+    .from(connections)
+    .where(
+      and(
+        eq(connections.id, connectionId),
+        eq(connections.type, CONNECTION_TYPE_SLACK),
+      ),
+    )
     .limit(1)
-  return row ? withNormalizedSlackSetupPhase(row) : undefined
+  return row ? bindingFromConnectionRow(row) : undefined
 }
+
+/** @deprecated Prefer {@link getSlackBindingByConnectionId}. */
+export const getSlackSyncTargetByConnectionId = getSlackBindingByConnectionId
 
 export class SlackRepositoryNotFoundError extends Error {
   constructor() {
@@ -335,15 +379,24 @@ export type SlackBindRepositoryInput = {
   branch?: string
 }
 
+export type SlackBindRepositoryResult = SlackBinding & {
+  setupPhase: SlackSetupPhase
+  repositoryIngestion?: {
+    orgId: string
+    repositoryId: string
+    targetBranch?: string
+  }
+}
+
 /**
  * Resolve an existing org repository or create one from GitHub installation
- * metadata — same create-on-bind path Notion/Linear/Confluence use so a newly
+ * metadata — same create-on-bind path Notion/Linear use so a newly
  * created `ctxpipe-context` can be selected without a repositories-page detour.
  */
 async function resolveRepositoryIdForSlackSync(
   db: ReturnType<typeof getOrgDb>,
   input: SlackBindRepositoryInput,
-): Promise<{ repositoryId: string; branch: string }> {
+): Promise<{ repositoryId: string; branch: string; didCreate: boolean }> {
   if (input.repositoryId) {
     const [byId] = await db
       .select({
@@ -369,6 +422,7 @@ async function resolveRepositoryIdForSlackSync(
     return {
       repositoryId: byId.id,
       branch: input.branch ?? byId.defaultBranch ?? "main",
+      didCreate: false,
     }
   }
 
@@ -397,6 +451,7 @@ async function resolveRepositoryIdForSlackSync(
     return {
       repositoryId: byUrl.id,
       branch: input.branch ?? byUrl.defaultBranch ?? "main",
+      didCreate: false,
     }
   }
 
@@ -425,47 +480,111 @@ async function resolveRepositoryIdForSlackSync(
     .returning({ id: repositoryCheckouts.id })
   if (!checkout) throw new Error("Failed to create repository checkout")
 
-  return { repositoryId, branch }
+  return { repositoryId, branch, didCreate: true }
 }
 
 /**
- * Bind (or rebind) a context repository to a Slack connection and flip the
- * setup phase straight to `live` — there is no channel scope or config PR
- * gate to wait on for capture-based ingest (ADR-025 §5).
+ * Bind (or rebind) a context repository to a Slack connection.
+ * Capture is live as soon as the repo is bound — there is no config PR gate
+ * (ADR-025 §5).
  */
 export async function bindSlackSyncTargetRepository(
   input: SlackBindRepositoryInput,
-): Promise<SlackSyncTarget> {
+): Promise<SlackBindRepositoryResult> {
   const db = getOrgDb()
   return db.transaction(async (tx) => {
-    const { repositoryId, branch } = await resolveRepositoryIdForSlackSync(
-      tx,
-      input,
-    )
+    const { repositoryId, branch, didCreate } =
+      await resolveRepositoryIdForSlackSync(tx, input)
 
-    const [row] = await tx
-      .insert(slackSyncTargets)
-      .values({
-        id: generateObjectId("sst"),
-        orgId: input.orgId,
-        connectionId: input.connectionId,
-        repositoryId,
-        branch,
-        enabled: true,
-        setupPhase: "live",
-      })
-      .onConflictDoUpdate({
-        target: slackSyncTargets.connectionId,
-        set: {
+    const [connectionRow] = await tx
+      .select()
+      .from(connections)
+      .where(
+        and(
+          eq(connections.id, input.connectionId),
+          eq(connections.orgId, input.orgId),
+          eq(connections.type, CONNECTION_TYPE_SLACK),
+        ),
+      )
+      .limit(1)
+    if (!connectionRow) {
+      throw new Error("Slack connection does not belong to organization")
+    }
+
+    const [updated] = await tx
+      .update(connections)
+      .set({
+        config: mergeSlackStoredConfig(connectionRow, {
           repositoryId,
           branch,
           enabled: true,
-          setupPhase: "live",
-          updatedAt: new Date(),
-        },
+        }),
+        updatedAt: new Date(),
       })
+      .where(eq(connections.id, input.connectionId))
       .returning()
-    if (!row) throw new Error("Failed to save Slack sync target")
-    return row
+    if (!updated) throw new Error("Failed to save Slack sync binding")
+    const binding = bindingFromConnectionRow(updated)
+    if (!binding) throw new Error("Failed to save Slack sync binding")
+    return {
+      ...binding,
+      setupPhase: derivedSlackSetupPhase(binding),
+      ...(didCreate
+        ? {
+            repositoryIngestion: {
+              orgId: input.orgId,
+              repositoryId,
+              targetBranch: branch,
+            },
+          }
+        : {}),
+    }
   })
+}
+
+/** Clear Slack capture bindings that pointed at a repository about to be deleted. */
+export async function clearSlackSyncBindingsForRepository(input: {
+  orgId: string
+  repositoryId: string
+}): Promise<number> {
+  const db = getOrgDb()
+  const ids = await db
+    .select({ id: connections.id })
+    .from(connections)
+    .where(
+      and(
+        eq(connections.orgId, input.orgId),
+        eq(connections.type, CONNECTION_TYPE_SLACK),
+        eq(sql`${connections.config}->>'repositoryId'`, input.repositoryId),
+      ),
+    )
+  let cleared = 0
+  for (const { id } of ids) {
+    const [row] = await db
+      .select()
+      .from(connections)
+      .where(
+        and(
+          eq(connections.id, id),
+          eq(connections.orgId, input.orgId),
+          eq(connections.type, CONNECTION_TYPE_SLACK),
+          eq(sql`${connections.config}->>'repositoryId'`, input.repositoryId),
+        ),
+      )
+      .limit(1)
+    if (!row) continue
+    await db
+      .update(connections)
+      .set({
+        config: mergeSlackStoredConfig(row, {
+          repositoryId: null,
+          branch: null,
+          enabled: false,
+        }),
+        updatedAt: new Date(),
+      })
+      .where(eq(connections.id, id))
+    cleared += 1
+  }
+  return cleared
 }

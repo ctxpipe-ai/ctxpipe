@@ -78,11 +78,11 @@ describe("createPullRequestWithFiles", () => {
       env,
       githubConnectionId: "con_github",
       baseBranch: "main",
-      title: "Configure Slack sync",
+      title: "Configure Linear sync",
       body: "Review and merge.",
-      commitMessage: "Configure Slack sync",
-      files: [{ path: "slack/config.yaml", content: "channels: []\n" }],
-      featureBranchPrefix: "ctxpipe/slack-config",
+      commitMessage: "Configure Linear sync",
+      files: [{ path: "linear/config.yaml", content: "teams: []\n" }],
+      featureBranchPrefix: "ctxpipe/linear-config",
     })
 
     expect(createOrUpdateFileContents).toHaveBeenCalledWith({
@@ -117,7 +117,7 @@ describe("compareCommitsTouchesPath", () => {
 
   it("passes separate base and head refs to Octokit", async () => {
     compareCommitsMock.mockResolvedValue({
-      data: { files: [{ filename: "slack/config.yaml" }] },
+      data: { files: [{ filename: "linear/config.yaml" }] },
     })
 
     await expect(
@@ -127,7 +127,7 @@ describe("compareCommitsTouchesPath", () => {
         env: {} as Env,
         baseSha: "base-sha",
         headSha: "head-sha",
-        path: "slack/config.yaml",
+        path: "linear/config.yaml",
       }),
     ).resolves.toBe(true)
     expect(compareCommitsMock).toHaveBeenCalledWith({
@@ -143,8 +143,8 @@ describe("compareCommitsTouchesPath", () => {
       data: {
         files: [
           {
-            filename: "slack/config-archived.yaml",
-            previous_filename: "slack/config.yaml",
+            filename: "linear/config-archived.yaml",
+            previous_filename: "linear/config.yaml",
           },
         ],
       },
@@ -157,7 +157,7 @@ describe("compareCommitsTouchesPath", () => {
         env: {} as Env,
         baseSha: "base-sha",
         headSha: "head-sha",
-        path: "slack/config.yaml",
+        path: "linear/config.yaml",
       }),
     ).resolves.toBe(true)
   })

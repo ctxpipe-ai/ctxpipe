@@ -6,6 +6,7 @@ const orgHasGithubMock = vi.hoisted(() => vi.fn())
 const resolveConnectionMock = vi.hoisted(() => vi.fn())
 const getTargetMock = vi.hoisted(() => vi.fn())
 const bindRepositoryMock = vi.hoisted(() => vi.fn())
+const enqueueIngestionMock = vi.hoisted(() => vi.fn())
 const assertOAuthConfiguredMock = vi.hoisted(() => vi.fn())
 const SlackRepositoryNotFoundErrorMock = vi.hoisted(
   () =>
@@ -25,16 +26,27 @@ vi.mock("../../models/github-installation.js", () => ({
 vi.mock("../../models/slack-connector.js", () => ({
   bindSlackSyncTargetRepository: bindRepositoryMock,
   deleteSlackConnectionById: vi.fn(),
-  getSlackSyncTargetWithRepoByConnectionId: getTargetMock,
+  derivedSlackSetupPhase: ({
+    repositoryId,
+    enabled,
+  }: {
+    repositoryId?: string | null
+    enabled: boolean
+  }) => (repositoryId && enabled ? "live" : "draft"),
+  getSlackBindingWithRepoByConnectionId: getTargetMock,
   MULTIPLE_SLACK_CONNECTIONS_MESSAGE:
     "Multiple Slack connections for this organization; specify connectionId query parameter",
   resolveSlackConnectionForOrgDetailed: resolveConnectionMock,
+  SLACK_SETUP_PHASES: ["draft", "live"] as const,
   SlackRepositoryNotFoundError: SlackRepositoryNotFoundErrorMock,
   SlackTeamAlreadyConnectedError: class SlackTeamAlreadyConnectedError extends Error {},
   upsertSlackConnectionFromOAuth: vi.fn(),
 }))
 vi.mock("../../observability/logger.js", () => ({
   getLogger: () => ({ error: vi.fn(), info: vi.fn(), warn: vi.fn() }),
+}))
+vi.mock("../../openworkflow/enqueue-repository-ingestion.js", () => ({
+  enqueueRepositoryIngestionWorkflow: enqueueIngestionMock,
 }))
 vi.mock("../../services/slack/client.js", () => ({
   assertSlackOAuthConfigured: assertOAuthConfiguredMock,
@@ -167,6 +179,7 @@ describe("Slack connector routes", () => {
       githubConnectionId: undefined,
       branch: undefined,
     })
+    expect(enqueueIngestionMock).not.toHaveBeenCalled()
   })
 
   it("binds by GitHub repository metadata when the repo is not registered yet", async () => {
@@ -194,6 +207,47 @@ describe("Slack connector routes", () => {
       githubConnectionId: "ghc_1",
       branch: "main",
     })
+    expect(enqueueIngestionMock).not.toHaveBeenCalled()
+  })
+
+  it("enqueues repository ingestion when bind creates a new repository", async () => {
+    bindRepositoryMock.mockResolvedValue({
+      orgId: "org_1",
+      connectionId: "con_1",
+      repositoryId: "repo_new",
+      branch: "main",
+      enabled: true,
+      setupPhase: "live",
+      repositoryIngestion: {
+        orgId: "org_1",
+        repositoryId: "repo_new",
+        targetBranch: "main",
+      },
+    })
+
+    const response = await testApp().request(
+      "/acme/api/v1/connectors/slack/config?connectionId=con_1",
+      {
+        method: "PATCH",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          repositoryName: "acme/ctxpipe-context",
+          gitUrl: "https://github.com/acme/ctxpipe-context.git",
+          githubConnectionId: "ghc_1",
+          branch: "main",
+        }),
+      },
+    )
+
+    expect(response.status).toBe(200)
+    expect(enqueueIngestionMock).toHaveBeenCalledWith(
+      {
+        orgId: "org_1",
+        repositoryId: "repo_new",
+        targetBranch: "main",
+      },
+      expect.objectContaining({ error: expect.any(Function) }),
+    )
   })
 
   it("returns 404 when the repository does not belong to the org", async () => {

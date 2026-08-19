@@ -29,7 +29,6 @@ const target = {
   connectionId: "con_1",
   orgId: "org_1",
   enabled: true,
-  setupPhase: "live" as const,
 }
 const captured = {
   status: "completed" as const,

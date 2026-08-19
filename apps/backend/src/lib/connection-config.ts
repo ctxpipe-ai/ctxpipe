@@ -430,6 +430,18 @@ export function serialiseNotionConnectionConfigForDb(
   >
 }
 
+/** API/UI phases for Slack — derived, not persisted (no config-PR lifecycle). */
+export const SLACK_SETUP_PHASES = ["draft", "live"] as const
+export type SlackSetupPhase = (typeof SLACK_SETUP_PHASES)[number]
+
+/** `live` when a context repo is bound and capture is enabled. */
+export function derivedSlackSetupPhase(input: {
+  repositoryId: string | null | undefined
+  enabled: boolean
+}): SlackSetupPhase {
+  return input.repositoryId && input.enabled ? "live" : "draft"
+}
+
 /** Stored in `connections.config` for `type === "slack"` (bot token encrypted). */
 export const slackConnectionConfigStoredSchema = z
   .object({
@@ -464,10 +476,17 @@ export const slackConnectionConfigStoredSchema = z
     ),
     status: z.string().optional(),
     lastEventPayload: z.unknown().nullish(),
+    /** Context repository for intent capture (not a separate table). */
+    repositoryId: z.string().min(1).nullable().optional(),
+    branch: z.string().min(1).nullable().optional(),
+    enabled: z.boolean().optional(),
   })
   .transform((c) => ({
     ...c,
     status: c.status ?? "pending",
+    repositoryId: c.repositoryId ?? null,
+    branch: c.branch ?? null,
+    enabled: c.enabled ?? true,
   }))
 
 export type SlackConnectionConfigStored = z.infer<
@@ -505,9 +524,6 @@ export function decodeSlackBotToken(
   return decryptConnectionSecret(stored.botTokenEnc, env)
 }
 
-export function encodeSlackBotTokenForDb(
-  botToken: string,
-  env: Env,
-): string {
+export function encodeSlackBotTokenForDb(botToken: string, env: Env): string {
   return encryptConnectionSecret(botToken.trim(), env)
 }

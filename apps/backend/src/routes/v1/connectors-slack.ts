@@ -2,19 +2,21 @@ import { createHmac, timingSafeEqual } from "node:crypto"
 import { createRoute, OpenAPIHono, z } from "@hono/zod-openapi"
 import type { AppEnv } from "../../app/env.js"
 import { withOrgDbContext } from "../../db/client.js"
-import { SLACK_SETUP_PHASES } from "../../db/schema/slackSyncTargets.js"
 import { orgHasAnyGithubConnection } from "../../models/github-installation.js"
 import {
   bindSlackSyncTargetRepository,
   deleteSlackConnectionById,
-  getSlackSyncTargetWithRepoByConnectionId,
+  derivedSlackSetupPhase,
+  getSlackBindingWithRepoByConnectionId,
   MULTIPLE_SLACK_CONNECTIONS_MESSAGE,
   resolveSlackConnectionForOrgDetailed,
+  SLACK_SETUP_PHASES,
   SlackRepositoryNotFoundError,
   SlackTeamAlreadyConnectedError,
   upsertSlackConnectionFromOAuth,
 } from "../../models/slack-connector.js"
 import { getLogger } from "../../observability/logger.js"
+import { enqueueRepositoryIngestionWorkflow } from "../../openworkflow/enqueue-repository-ingestion.js"
 import {
   assertSlackOAuthConfigured,
   exchangeSlackOAuthCode,
@@ -501,7 +503,7 @@ slackConnectorRoutes
     const [isGithubLinked, syncTarget] = await Promise.all([
       orgHasAnyGithubConnection(orgId),
       connection
-        ? getSlackSyncTargetWithRepoByConnectionId(orgId, connection.id)
+        ? getSlackBindingWithRepoByConnectionId(orgId, connection.id)
         : Promise.resolve(undefined),
     ])
     const installed =
@@ -514,8 +516,8 @@ slackConnectorRoutes
         botHandle: connection?.botHandle ?? null,
         isGithubLinked,
         setupPhase:
-          installed && syncTarget?.enabled
-            ? (syncTarget.setupPhase ?? "draft")
+          installed && syncTarget
+            ? derivedSlackSetupPhase(syncTarget)
             : "draft",
         syncTarget: syncTarget
           ? {
@@ -555,6 +557,23 @@ slackConnectorRoutes
           branch: body.branch,
         }),
       )
+      if (target.repositoryIngestion) {
+        await enqueueRepositoryIngestionWorkflow(
+          {
+            orgId: target.repositoryIngestion.orgId,
+            repositoryId: target.repositoryIngestion.repositoryId,
+            ...(target.repositoryIngestion.targetBranch !== undefined
+              ? { targetBranch: target.repositoryIngestion.targetBranch }
+              : {}),
+          },
+          {
+            error: (error) =>
+              getLogger().error(error, {
+                step: "slack.repository_ingestion.enqueue",
+              }),
+          },
+        )
+      }
       return c.json(
         { accepted: true as const, setupPhase: target.setupPhase },
         200,

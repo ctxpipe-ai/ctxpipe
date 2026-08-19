@@ -47,7 +47,6 @@ const target = {
   repositoryId: "repo_1",
   branch: "main",
   enabled: true,
-  setupPhase: "live" as const,
 }
 
 const connection = { id: "con_1", orgId: "org_1", teamId: "T1" }
@@ -166,7 +165,7 @@ describe("slackMentionAgent workflow", () => {
   })
 
   it("throws when the connector is not live", async () => {
-    getTargetMock.mockResolvedValue({ ...target, setupPhase: "draft" })
+    getTargetMock.mockResolvedValue({ ...target, enabled: false })
 
     await expect(
       slackMentionAgent.fn({

@@ -117,12 +117,7 @@ export function registerSlackWebhookRoute(app: OpenAPIHono<AppEnv>) {
     }
 
     const target = await getSlackSyncTargetByConnectionId(connection.id)
-    if (
-      !target ||
-      target.orgId !== connection.orgId ||
-      !target.enabled ||
-      target.setupPhase !== "live"
-    ) {
+    if (!target || target.orgId !== connection.orgId || !target.enabled) {
       return c.json({ ok: true }, 200)
     }
 

@@ -148,6 +148,12 @@ Highest-priority confirmed rules for agents. Migrated from former `patterns.md` 
 - **Date:** 2026-08-11
 - **Source:** ADR-024 migration
 
+### Memory hook candidates that are file-read telemetry
+- **Rule:** Dismiss observe candidates whose excerpt is only `{file_path, content_length}` (or a glob/plan dump) of files already under `.ai/memory/` or `/opt/cursor/artifacts/plans/`. Those are Read-tool telemetry, not lessons. Do not copy them into `lessons-learned.md` or auto-write ADRs from hooks ([ADR-024](decisions/ADR-024-markdown-only-local-memory-capture.md)). Promote only user-confirmed facts via capture skills.
+- **Category:** convention
+- **Date:** 2026-08-19
+- **Source:** PR #267 audit session (25 false-positive lesson candidates)
+
 ### `@ctxpipe/aws-cdk` self-host deploy ordering
 - **Rule:** run Postgres migrations as an internal CloudFormation custom resource that launches ECS `MigrateTask` (`RunTask` + `DescribeTasks` polling), then add explicit dependencies from ECS services to that custom resource so app rollout waits for schema readiness; keep migration task definition output internal-only.
 - **Category:** convention
@@ -195,6 +201,12 @@ Highest-priority confirmed rules for agents. Migrated from former `patterns.md` 
 - **Category:** convention
 - **Date:** 2026-08-11
 - **Source:** migrated from patterns.md
+
+### New source connectors follow Linear/Notion, not Confluence
+- **Rule:** do **not** copy Confluence’s control plane (`*_sync_targets` tables, config-PR columns, channel/space catalogues in Postgres, dirty-entity flush tables) when adding or simplifying a connector. Linear and Notion are the aligned pattern: identity and repo binding on `connections.config` jsonb ([ADR-022](decisions/ADR-022-linear-connector-git-native-mirror.md), [ADR-023](decisions/ADR-023-notion-connector-git-native-mirror.md)). A connector that is thinner than a git-native mirror (e.g. Slack intent capture) should stay thinner — omit `pendingConfig*`, `*/config.yaml`, and GitHub config-push remirror unless the product actually has a reviewed scope file. Keep `confluence_sync_targets` as legacy Confluence only.
+- **Category:** convention
+- **Date:** 2026-08-19
+- **Source:** user correction during Slack `slack_sync_targets` unification (PR #267)
 
 ### Tool organization
 - **Rule:** reusable agent tools under `src/tools`; graph-specific instructions and nodes under `src/graphs/<graphName>/`

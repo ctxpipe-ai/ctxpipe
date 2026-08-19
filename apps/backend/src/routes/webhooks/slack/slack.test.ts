@@ -235,14 +235,27 @@ describe("Slack webhook", () => {
   })
 
   it.each([
-    { enabled: false, setupPhase: "live" },
-    { enabled: true, setupPhase: "draft" },
-  ])("ignores mentions for non-live targets %#", async (target) => {
-    getTargetMock.mockResolvedValue({
-      connectionId: "con_1",
-      orgId: "org_1",
-      ...target,
-    })
+    { enabled: false },
+    { enabled: false, repositoryId: "repo_1" },
+  ])("ignores mentions for disabled or unbound targets %#", async (target) => {
+    getTargetMock.mockResolvedValue(
+      "repositoryId" in target
+        ? {
+            connectionId: "con_1",
+            orgId: "org_1",
+            ...target,
+          }
+        : { connectionId: "con_1", orgId: "org_1", enabled: false },
+    )
+
+    const response = await mentionRequest()
+
+    expect(response.status).toBe(200)
+    expect(runWorkflowMock).not.toHaveBeenCalled()
+  })
+
+  it("ignores mentions when no capture binding exists", async () => {
+    getTargetMock.mockResolvedValue(undefined)
 
     const response = await mentionRequest()
 

@@ -17,19 +17,24 @@ const fromMock = vi.hoisted(() =>
 )
 const selectMock = vi.hoisted(() => vi.fn(() => ({ from: fromMock })))
 const returningMock = vi.hoisted(() => vi.fn())
-const onConflictDoUpdateMock = vi.hoisted(() =>
-  vi.fn(() => ({ returning: returningMock })),
-)
 const valuesMock = vi.hoisted(() =>
   vi.fn(() => ({
-    onConflictDoUpdate: onConflictDoUpdateMock,
     returning: returningMock,
   })),
 )
 const insertMock = vi.hoisted(() => vi.fn(() => ({ values: valuesMock })))
+const whereUpdateMock = vi.hoisted(() =>
+  vi.fn(() => ({ returning: returningMock })),
+)
+const setMock = vi.hoisted(() => vi.fn(() => ({ where: whereUpdateMock })))
+const updateMock = vi.hoisted(() => vi.fn(() => ({ set: setMock })))
 const getOrgDbMock = vi.hoisted(() =>
   vi.fn(() => {
-    const db = { select: selectMock, insert: insertMock }
+    const db = {
+      select: selectMock,
+      insert: insertMock,
+      update: updateMock,
+    }
     return {
       ...db,
       transaction: async (fn: (tx: typeof db) => unknown) => fn(db),
@@ -50,20 +55,37 @@ vi.mock("../db/client.js", () => ({
 
 import {
   bindSlackSyncTargetRepository,
-  normalizeSlackSetupPhase,
+  derivedSlackSetupPhase,
   SlackRepositoryNotFoundError,
   SlackTeamAlreadyConnectedError,
   upsertSlackConnectionFromOAuth,
 } from "./slack-connector.js"
 
-describe("normalizeSlackSetupPhase", () => {
-  it("maps legacy mirror phases to live and everything else to draft", () => {
-    expect(normalizeSlackSetupPhase("live")).toBe("live")
-    expect(normalizeSlackSetupPhase("awaiting_merge")).toBe("live")
-    expect(normalizeSlackSetupPhase("initial_sync")).toBe("live")
-    expect(normalizeSlackSetupPhase("sync_failed")).toBe("live")
-    expect(normalizeSlackSetupPhase("draft")).toBe("draft")
-    expect(normalizeSlackSetupPhase(undefined)).toBe("draft")
+const now = new Date("2026-08-01T00:00:00.000Z")
+const slackConnectionRow = {
+  id: "con_1",
+  orgId: "org_1",
+  type: "slack" as const,
+  config: {
+    teamId: "T1",
+    status: "installed",
+    enabled: true,
+  },
+  createdAt: now,
+  updatedAt: now,
+}
+
+describe("derivedSlackSetupPhase", () => {
+  it("is live only when a repository is bound and capture is enabled", () => {
+    expect(
+      derivedSlackSetupPhase({ repositoryId: "repo_1", enabled: true }),
+    ).toBe("live")
+    expect(
+      derivedSlackSetupPhase({ repositoryId: "repo_1", enabled: false }),
+    ).toBe("draft")
+    expect(derivedSlackSetupPhase({ repositoryId: null, enabled: true })).toBe(
+      "draft",
+    )
   })
 })
 
@@ -82,20 +104,22 @@ describe("bindSlackSyncTargetRepository", () => {
         repositoryId: "repo_missing",
       }),
     ).rejects.toBeInstanceOf(SlackRepositoryNotFoundError)
-    expect(insertMock).not.toHaveBeenCalled()
+    expect(updateMock).not.toHaveBeenCalled()
   })
 
-  it("binds the repository and sets the connector live", async () => {
-    limitMock.mockResolvedValue([{ id: "repo_1", defaultBranch: "develop" }])
+  it("binds the repository on connections.config and reports live", async () => {
+    limitMock
+      .mockResolvedValueOnce([{ id: "repo_1", defaultBranch: "develop" }])
+      .mockResolvedValueOnce([slackConnectionRow])
     returningMock.mockResolvedValue([
       {
-        id: "sst_1",
-        orgId: "org_1",
-        connectionId: "con_1",
-        repositoryId: "repo_1",
-        branch: "develop",
-        enabled: true,
-        setupPhase: "live",
+        ...slackConnectionRow,
+        config: {
+          ...slackConnectionRow.config,
+          repositoryId: "repo_1",
+          branch: "develop",
+          enabled: true,
+        },
       },
     ])
 
@@ -106,37 +130,33 @@ describe("bindSlackSyncTargetRepository", () => {
     })
 
     expect(result.setupPhase).toBe("live")
-    expect(valuesMock).toHaveBeenCalledWith(
+    expect(result.repositoryId).toBe("repo_1")
+    expect(result.branch).toBe("develop")
+    expect(result.repositoryIngestion).toBeUndefined()
+    expect(setMock).toHaveBeenCalledWith(
       expect.objectContaining({
-        orgId: "org_1",
-        connectionId: "con_1",
-        repositoryId: "repo_1",
-        branch: "develop",
-        setupPhase: "live",
-      }),
-    )
-    expect(onConflictDoUpdateMock).toHaveBeenCalledWith(
-      expect.objectContaining({
-        set: expect.objectContaining({
+        config: expect.objectContaining({
           repositoryId: "repo_1",
           branch: "develop",
-          setupPhase: "live",
+          enabled: true,
         }),
       }),
     )
   })
 
   it("falls back to main when the repository has no default checkout", async () => {
-    limitMock.mockResolvedValue([{ id: "repo_1", defaultBranch: null }])
+    limitMock
+      .mockResolvedValueOnce([{ id: "repo_1", defaultBranch: null }])
+      .mockResolvedValueOnce([slackConnectionRow])
     returningMock.mockResolvedValue([
       {
-        id: "sst_1",
-        orgId: "org_1",
-        connectionId: "con_1",
-        repositoryId: "repo_1",
-        branch: "main",
-        enabled: true,
-        setupPhase: "live",
+        ...slackConnectionRow,
+        config: {
+          ...slackConnectionRow.config,
+          repositoryId: "repo_1",
+          branch: "main",
+          enabled: true,
+        },
       },
     ])
 
@@ -150,19 +170,21 @@ describe("bindSlackSyncTargetRepository", () => {
   })
 
   it("creates a repository from GitHub metadata when it is not registered yet", async () => {
-    limitMock.mockResolvedValue([])
+    limitMock
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([slackConnectionRow])
     returningMock
       .mockResolvedValueOnce([{ id: "repo_new" }])
       .mockResolvedValueOnce([{ id: "co_1" }])
       .mockResolvedValueOnce([
         {
-          id: "sst_1",
-          orgId: "org_1",
-          connectionId: "con_1",
-          repositoryId: "repo_new",
-          branch: "main",
-          enabled: true,
-          setupPhase: "live",
+          ...slackConnectionRow,
+          config: {
+            ...slackConnectionRow.config,
+            repositoryId: "repo_created",
+            branch: "main",
+            enabled: true,
+          },
         },
       ])
 
@@ -176,17 +198,17 @@ describe("bindSlackSyncTargetRepository", () => {
     })
 
     expect(result.setupPhase).toBe("live")
+    expect(result.repositoryIngestion).toEqual(
+      expect.objectContaining({
+        orgId: "org_1",
+        targetBranch: "main",
+      }),
+    )
     expect(valuesMock).toHaveBeenCalledWith(
       expect.objectContaining({
         name: "acme/ctxpipe-context",
         gitUrl: "https://github.com/acme/ctxpipe-context.git",
         githubConnectionId: "ghc_1",
-      }),
-    )
-    expect(valuesMock).toHaveBeenCalledWith(
-      expect.objectContaining({
-        connectionId: "con_1",
-        setupPhase: "live",
       }),
     )
   })

@@ -21,6 +21,7 @@ describe("slack connection config", () => {
       teamId: "T123",
       teamName: "Acme",
       botUserId: "U456",
+      botHandle: null,
       appId: null,
       ownerUserId: null,
       status: "installed",
@@ -36,9 +37,35 @@ describe("slack connection config", () => {
       teamId: "T1",
       teamName: null,
       botUserId: null,
+      botHandle: null,
       appId: null,
       ownerUserId: null,
     })
     expect(parseSlackConnectionStored(stored).status).toBe("pending")
+    expect(parseSlackConnectionStored(stored).repositoryId).toBeNull()
+    expect(parseSlackConnectionStored(stored).branch).toBeNull()
+    expect(parseSlackConnectionStored(stored).enabled).toBe(true)
+  })
+
+  it("persists capture binding fields on the connection config", () => {
+    const stored = serialiseSlackConnectionConfigForDb({
+      botTokenEnc: null,
+      teamId: "T1",
+      teamName: null,
+      botUserId: null,
+      botHandle: null,
+      appId: null,
+      ownerUserId: null,
+      status: "installed",
+      repositoryId: "repo_1",
+      branch: "main",
+      enabled: true,
+    })
+    expect(parseSlackConnectionStored(stored)).toMatchObject({
+      repositoryId: "repo_1",
+      branch: "main",
+      enabled: true,
+      status: "installed",
+    })
   })
 })

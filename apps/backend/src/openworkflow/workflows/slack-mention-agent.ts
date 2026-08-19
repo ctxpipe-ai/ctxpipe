@@ -39,7 +39,7 @@ export const slackMentionAgent = defineWorkflow(
     if (target.orgId !== input.orgId) {
       throw new Error("Slack sync target does not belong to organization")
     }
-    if (!target.enabled || target.setupPhase !== "live") {
+    if (!target.enabled) {
       throw new Error("Slack connector is not live for this connection")
     }
 

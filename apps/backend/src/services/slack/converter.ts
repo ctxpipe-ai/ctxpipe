@@ -2,7 +2,7 @@ import slugify from "@sindresorhus/slugify"
 
 const MANAGED_ROOT = "slack"
 
-export type SlackMirrorMessage = {
+export type SlackCaptureMessage = {
   ts: string
   userId?: string
   userDisplay?: string
@@ -102,7 +102,7 @@ export function toSlackThreadMarkdownFile(input: {
   truncated?: boolean
   capturedAt?: string | null
   capturedBy?: { handle: string; name: string } | null
-  messages: SlackMirrorMessage[]
+  messages: SlackCaptureMessage[]
 }): { path: string; content: string } {
   const path = getSlackThreadPath(input)
   const participants = [
