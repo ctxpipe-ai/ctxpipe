@@ -5,7 +5,7 @@
 Zinc title slab + teal knockout glass. Pixel `ctx|` cut from the screen.
 
 - `lockup-dark.svg` / `lockup-light.svg`
-- `mark-64.svg` / `mark-64-mono.svg` / `mark-16.svg`
+- `mark-64.svg` / `mark-64-mono.svg` / `mark-16.svg` (16px cursor is dark on teal — not teal-on-teal)
 
 ## Echo family (pass 4, still in the mix)
 
