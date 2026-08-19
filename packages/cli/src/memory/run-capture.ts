@@ -30,7 +30,7 @@ async function writeStopStdout(
 ): Promise<void> {
   let delivered = false
   try {
-    const result = summarizeCapture({ cwd })
+    const result = summarizeCapture({ cwd, host })
     const output = formatStopHookOutput(host, result, payload)
     await writeStdoutJson(output)
     delivered = true

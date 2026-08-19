@@ -1,9 +1,53 @@
 import { createServer } from "node:http"
-import { createApp } from "../app/app.js"
-import { closeDb } from "../db/client.js"
+import { evlog } from "evlog/hono"
+import { Hono } from "hono"
+import { contextStorage } from "hono/context-storage"
+import { z } from "zod"
+import type { AppEnv } from "../app/env.js"
+import {
+  handleMcpTransportRequest,
+  rejectInvalidMcpOrigin,
+} from "../mcp/transport.js"
 
-const app = createApp()
 const port = Number(process.env.PORT ?? 33123)
+const app = new Hono<AppEnv>()
+
+app.use(contextStorage())
+app.use(evlog())
+app.use("*", async (c, next) => {
+  c.set("env", {
+    AUTH_BASE_URL: `http://127.0.0.1:${port}`,
+  } as AppEnv["Variables"]["env"])
+  c.set("user", {
+    id: "user_conformance",
+    email: "conformance@example.com",
+  } as AppEnv["Variables"]["user"])
+  c.set("session", {
+    id: "session_conformance",
+    userId: "user_conformance",
+  } as AppEnv["Variables"]["session"])
+  c.set("orgSlug", "acme")
+  c.set("orgId", "org_conformance")
+  await next()
+})
+app.get("/.status", (c) => c.json({ status: "ok" }))
+app.use("/mcp", (c, next) => rejectInvalidMcpOrigin(c) ?? next())
+app.all("/mcp", (c) =>
+  handleMcpTransportRequest(c, (server) => {
+    server.registerTool(
+      "conformance_echo",
+      {
+        title: "Conformance Echo",
+        description: "Return text for deterministic MCP conformance checks.",
+        inputSchema: z.object({ text: z.string() }),
+      },
+      async ({ text }) => ({
+        content: [{ type: "text", text }],
+      }),
+    )
+  }),
+)
+
 let shuttingDown = false
 
 const server = createServer(async (req, res) => {
@@ -44,7 +88,6 @@ server.listen(port, "127.0.0.1")
 async function shutdown() {
   if (shuttingDown) return
   shuttingDown = true
-  await closeDb()
   server.close(() => {
     process.exit(0)
   })

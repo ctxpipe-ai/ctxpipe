@@ -202,6 +202,12 @@ Highest-priority confirmed rules for agents. Migrated from former `patterns.md` 
 - **Date:** 2026-08-11
 - **Source:** migrated from patterns.md
 
+### New source connectors are git-native
+- **Rule:** this is how to **build new** connectors — do not retrofit Linear, Notion, Slack, or Confluence. Identity, encrypted secrets, and repo binding live on `connections.config` jsonb ([ADR-018](decisions/ADR-018-unified-connections-table.md)). No connector-specific tables (Confluence’s extra tables stay frozen). Connector **config** lives in `<slug>/config.yaml` and is created via PR; **content** may commit to the target branch. Prefer Markdown; copy images and other attachments as files. The store is git; GitHub is today’s rich PR/commit adapter. Same code for hosted and self-host; self-host traffic never transits ctxpipe SaaS (no proxy, relay, gateway, or hosted OAuth app). Process: [source-connectors skill](../../.agents/skills/source-connectors/SKILL.md).
+- **Category:** convention
+- **Date:** 2026-08-19
+- **Source:** user direction after Linear, Notion, and Slack (PR #267)
+
 ### New source connectors follow Linear/Notion, not Confluence
 - **Rule:** do **not** copy Confluence’s control plane (`*_sync_targets` tables, config-PR columns, channel/space catalogues in Postgres, dirty-entity flush tables) when adding or simplifying a connector. Linear and Notion are the aligned pattern: identity and repo binding on `connections.config` jsonb ([ADR-022](decisions/ADR-022-linear-connector-git-native-mirror.md), [ADR-023](decisions/ADR-023-notion-connector-git-native-mirror.md)). A connector that is thinner than a git-native mirror (e.g. Slack intent capture) should stay thinner — omit `pendingConfig*`, `*/config.yaml`, and GitHub config-push remirror unless the product actually has a reviewed scope file. Keep `confluence_sync_targets` as legacy Confluence only.
 - **Category:** convention
@@ -293,7 +299,7 @@ Highest-priority confirmed rules for agents. Migrated from former `patterns.md` 
 - **Source:** migrated from patterns.md
 
 ### Durable repository indexing
-- **Rule:** durability belongs in OpenWorkflow step boundaries, not DIY codesearch/Postgres phase checkpoints. `repository-ingestion` runs child workflow `repository-index` (clone-checkout → zoekt fail-fast → detect-languages → `Promise.all` `scip:${lang}` → merge-scip). Codesearch exposes phase HTTP APIs with in-process spawn admission and same-repo purge exclusion (no begin/end lease). Step badge writes are monotonic. Extract is OW+ReAct (per-root `extract-kind` then `identify`, then dedup/project/embed) — keep LangGraph for conversation/Studio, not as the ingest durable orchestrator.
+- **Rule:** durability belongs in OpenWorkflow step boundaries, not DIY codesearch/Postgres phase checkpoints. `repository-ingestion` runs child workflow `repository-index` (clone-checkout → zoekt non-fatal → detect-languages → `Promise.all` `scip:${lang}` → merge-scip). Zoekt failure returns `searchIndexOk: false` and the parent marks `complete_with_issues` so extract can still run. Codesearch exposes phase HTTP APIs with in-process spawn admission and same-repo purge exclusion (no begin/end lease). Step badge writes are monotonic. Extract is OW+ReAct (per-root `extract-kind` then `identify`, then dedup/project/embed) — keep LangGraph for conversation/Studio, not as the ingest durable orchestrator.
 - **Category:** convention
 - **Date:** 2026-08-11
 - **Source:** migrated from patterns.md
@@ -533,10 +539,22 @@ Highest-priority confirmed rules for agents. Migrated from former `patterns.md` 
 - **Source:** repo-page-ux
 
 ### Connector setup wizards
-- **Rule:** Linear, Notion, and Confluence share the same chrome: `ctx-node` mark in the header, `rounded-none` on buttons/inputs/copy boxes/scope chips, semantic colour tokens, no nested zinc cards. Do not leave Atlassian/Confluence on `rounded-md` callback boxes or filled `bg-zinc-900` panels.
+- **Rule:** Linear, Notion, and Confluence share the same chrome: `ctx-node` mark in the header, semantic colour tokens, no nested zinc cards. Existing `rounded-none` on those wizards stays until a dedicated pass; **new or touched** chrome follows [apps/ui/DESIGN.md](../../apps/ui/DESIGN.md) (`rounded-lg` / `--radius`). Do not add more square overrides. Do not leave Atlassian/Confluence on `rounded-md` callback boxes or filled `bg-zinc-900` panels.
 - **Category:** convention
 - **Date:** 2026-08-13
-- **Source:** repo-page-ux
+- **Source:** repo-page-ux; updated 2026-08-15 for product-ui radius target
+
+### Product UI skills vs marketing frontend-design
+- **Rule:** Do not install Anthropic `frontend-design` (or similar marketing taste skills) as always-on for `apps/ui`. Use first-party [product-ui](../../.agents/skills/product-ui/SKILL.md) + [DESIGN.md](../../apps/ui/DESIGN.md). Do not paste copyrighted book prose or figures (including Refactoring UI) into skills or the repo; encode tactics as house yes/no rules in our own words.
+- **Category:** convention
+- **Date:** 2026-08-15
+- **Source:** ui-design-skills research / product-ui skill
+
+### Cursor Task models
+- **Rule:** always pass an explicit Task `model` (see root [AGENTS.md](../../AGENTS.md) **Cursor Task models**). Implementation and explore: `cursor-grok-4.6-high-fast`. Review and grilling: `gpt-5.6-sol-high`. Map leftover Claude names: Sonnet/Fable/Haiku → Grok; Opus (including xhigh/fast) → `gpt-5.6-sol-high`. This is a parent-agent nudge; disabling Claude in Cursor Settings → Models is the hard block.
+- **Category:** convention
+- **Date:** 2026-08-17
+- **Source:** user preference (Grok for implementations, Sol for reviews)
 
 ### Do not squash migrations already applied to PR Neon
 - **Rule:** PR preview DBs are reused (`preview/pr-N` from production, not reset each deploy). Deleting applied Drizzle folders and regenerating the same DDL under a new tag re-runs `CREATE UNIQUE INDEX` and fails with `42P07`. Keep the original folders, or make the replacement DDL idempotent (`IF NOT EXISTS`) like `clean_lyja` / `smart_nextwave`. Never squash unreleased history that a long-lived PR branch may already have applied.

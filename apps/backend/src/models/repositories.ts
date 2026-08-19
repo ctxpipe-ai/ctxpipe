@@ -12,6 +12,7 @@ import {
   purgeRepositoryPostgres,
 } from "../domain/repositoryDeletion.js"
 import { generateObjectId } from "../lib/id.js"
+import { userFacingIndexingError } from "../lib/memoryFitError.js"
 import { log } from "../observability/logger.js"
 import { withGraphClient } from "../platform/graph/client.js"
 
@@ -56,12 +57,7 @@ export function deriveRepositoryIndexingStatus(input: {
 }
 
 function sanitizeIndexingError(input: unknown): string {
-  if (input instanceof Error && input.message.trim()) {
-    return input.message.trim().slice(0, MAX_INDEXING_ERROR_CHARS)
-  }
-  const raw =
-    typeof input === "string" ? input.trim() : String(input ?? "").trim()
-  return raw.slice(0, MAX_INDEXING_ERROR_CHARS) || "Repository ingestion failed"
+  return userFacingIndexingError(input).slice(0, MAX_INDEXING_ERROR_CHARS)
 }
 
 function repositoryWithZoektJoin(db: Db) {
@@ -403,6 +399,30 @@ export async function markRepositoryIndexingReady(input: {
       indexReady: true,
       indexingStatus: "ready",
       indexingError: null,
+      indexingFailedAt: null,
+      indexingReason: null,
+      indexingStep: null,
+      indexingStepTotal: null,
+      indexingStepKey: null,
+      lastIngestedHash: input.targetHash,
+      lastIngestedAt: new Date(),
+      updatedAt: new Date(),
+    })
+    .where(eq(repositories.id, input.repositoryId))
+}
+
+export async function markRepositoryIndexingReadyWithIssues(input: {
+  repositoryId: string
+  targetHash: string
+  error: unknown
+}) {
+  const db = getOrgDb()
+  await db
+    .update(repositories)
+    .set({
+      indexReady: true,
+      indexingStatus: "complete_with_issues",
+      indexingError: sanitizeIndexingError(input.error),
       indexingFailedAt: null,
       indexingReason: null,
       indexingStep: null,

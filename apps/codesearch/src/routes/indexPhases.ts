@@ -2,14 +2,15 @@ import type { OpenAPIHono } from "@hono/zod-openapi"
 import { createRoute, z } from "@hono/zod-openapi"
 import type { AppEnv } from "../app/env.js"
 import { withRepositoryIndexOperation } from "../domain/indexing/indexConcurrency.js"
+import { userFacingIndexingError } from "../domain/indexing/memoryFitError.js"
 import {
+  type IndexPhaseRepoContext,
   phaseCloneCheckout,
   phaseDetectLanguages,
   phaseMarkCheckoutIndexed,
   phaseMergeScip,
   phaseScipLanguage,
   phaseZoekt,
-  type IndexPhaseRepoContext,
 } from "../domain/indexing/phases.js"
 import {
   DEFAULT_CHECKOUT_KEY,
@@ -299,8 +300,7 @@ export function registerIndexPhaseRoutes(app: OpenAPIHono<AppEnv>) {
         )
         return c.json({ ok: true as const, ...result }, 200)
       } catch (error) {
-        const message =
-          error instanceof Error ? error.message : "Clone/checkout failed"
+        const message = userFacingIndexingError(error, "Clone/checkout failed")
         return c.json({ error: message }, 500)
       }
     })
@@ -332,8 +332,7 @@ export function registerIndexPhaseRoutes(app: OpenAPIHono<AppEnv>) {
         )
         return c.json({ ok: true as const }, 200)
       } catch (error) {
-        const message =
-          error instanceof Error ? error.message : "Zoekt indexing failed"
+        const message = userFacingIndexingError(error, "Zoekt indexing failed")
         return c.json({ error: message }, 500)
       }
     })
@@ -367,8 +366,10 @@ export function registerIndexPhaseRoutes(app: OpenAPIHono<AppEnv>) {
         )
         return c.json({ ok: true as const, ...result }, 200)
       } catch (error) {
-        const message =
-          error instanceof Error ? error.message : "Language detection failed"
+        const message = userFacingIndexingError(
+          error,
+          "Language detection failed",
+        )
         return c.json({ error: message }, 500)
       }
     })
@@ -400,8 +401,7 @@ export function registerIndexPhaseRoutes(app: OpenAPIHono<AppEnv>) {
         )
         return c.json({ ok: true as const }, 200)
       } catch (error) {
-        const message =
-          error instanceof Error ? error.message : "SCIP indexing failed"
+        const message = userFacingIndexingError(error, "SCIP indexing failed")
         return c.json({ error: message }, 500)
       }
     })
@@ -434,8 +434,7 @@ export function registerIndexPhaseRoutes(app: OpenAPIHono<AppEnv>) {
         )
         return c.json({ ok: true as const }, 200)
       } catch (error) {
-        const message =
-          error instanceof Error ? error.message : "SCIP merge failed"
+        const message = userFacingIndexingError(error, "SCIP merge failed")
         return c.json({ error: message }, 500)
       }
     })

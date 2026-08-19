@@ -3,10 +3,10 @@
 Agent instructions are **distributed**: this file covers repo-wide rules; apps and packages can have their own `AGENTS.md` with local instructions. When working in an app or package, read both the root AGENTS.md and that folder's AGENTS.md (if present).
 
 - **Root** (this file): architecture, code style.
-- **apps/backend**: [apps/backend/AGENTS.md](apps/backend/AGENTS.md) — API, OpenAPI, MCP, Drizzle, TypeScript, etc.
+- **apps/backend**: [apps/backend/AGENTS.md](apps/backend/AGENTS.md) — API, OpenAPI, MCP, Drizzle, TypeScript, etc. **[Source-connectors skill](.agents/skills/source-connectors/)** when designing, building, or reviewing a source connector (Linear, Notion, Slack, git-native mirror/capture, `connections.config`, self-host).
 - **apps/otel-collector**: OpenTelemetry Collector for Better Stack + LangFuse; config + `.env` in `apps/otel-collector/`.
 - **apps/codesearch**: [apps/codesearch/AGENTS.md](apps/codesearch/AGENTS.md) — Zoekt/SCIP orchestration, read-only DB, OpenAPI + Zod, and the manual Kubernetes ingest memory gate.
-- **apps/ui**: [apps/ui/AGENTS.md](apps/ui/AGENTS.md) — TanStack Start frontend, React Aria, Tailwind, Storybook, Vitest; **[React skill](.agents/skills/react/)** when building or editing components.
+- **apps/ui**: [apps/ui/AGENTS.md](apps/ui/AGENTS.md) — TanStack Start frontend, React Aria, Tailwind, Storybook, Vitest; **[React skill](.agents/skills/react/)** when building or editing components; **[product-ui skill](.agents/skills/product-ui/)** and [DESIGN.md](apps/ui/DESIGN.md) when building or restyling product screens.
 - **apps/docs**: [apps/docs/AGENTS.md](apps/docs/AGENTS.md) — Fumadocs documentation site (Next.js 15, Shiki, forced-dark, deploys to docs.ctxpipe.ai).
 - **examples/**: runnable consumer examples for ctxpipe packages (manual e2e tests against real infra). See [examples/README.md](examples/README.md); first entry is [examples/aws-cdk-self-host](examples/aws-cdk-self-host) for `@ctxpipe-ai/aws-cdk` on AWS.
 
@@ -44,6 +44,10 @@ For Storybook conventions and tools, read [.agents/skills/storybook/SKILL.md](.a
 ## Agent skills
 
 Skills that say "commit your work" (or similar) are overridden: create a git commit only when the user explicitly asks to commit in the conversation.
+
+### Cursor Task models
+
+On Task, always set `model`: `cursor-grok-4.6-high-fast` for implementation and explore; `gpt-5.6-sol-high` for review and grilling. Treat Claude/Sonnet/Opus/Fable/Haiku names as those two slugs.
 
 ### Issue tracker
 

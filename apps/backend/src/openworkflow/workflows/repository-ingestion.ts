@@ -21,6 +21,7 @@ import type {
 import { withIngestAgentContext } from "../../graphs/codeIngestionGraph/withIngestAgentContext.js"
 import {
   markRepositoryIndexingReady,
+  markRepositoryIndexingReadyWithIssues,
   markRepositoryIndexingRunning,
   setRepositoryIndexingStep,
 } from "../../models/repositories.js"
@@ -229,6 +230,7 @@ export const repositoryIngestion = defineWorkflow(
             repositoryId: input.repositoryId,
             targetHash: reindexState.targetHash ?? resolved.hash,
             ingestMode: reindexState.ingestMode,
+            searchIndexOk: reindexState.searchIndexOk !== false,
             changedPathsCount: reindexState.changedPaths?.length ?? 0,
             deletedPathsCount: reindexState.deletedPaths?.length ?? 0,
             renamesCount: reindexState.renames?.length ?? 0,
@@ -593,10 +595,18 @@ export const repositoryIngestion = defineWorkflow(
           await step.run({ name: "mark-success" }, () =>
             wls("mark-success", () =>
               withOrgDbContext(input.orgId, () =>
-                markRepositoryIndexingReady({
-                  repositoryId: input.repositoryId,
-                  targetHash: result.targetHash,
-                }),
+                reindexState.searchIndexOk === false
+                  ? markRepositoryIndexingReadyWithIssues({
+                      repositoryId: input.repositoryId,
+                      targetHash: result.targetHash,
+                      error:
+                        reindexState.searchIndexError ??
+                        "Search index unavailable",
+                    })
+                  : markRepositoryIndexingReady({
+                      repositoryId: input.repositoryId,
+                      targetHash: result.targetHash,
+                    }),
               ),
             ),
           )

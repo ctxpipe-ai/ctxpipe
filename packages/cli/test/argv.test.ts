@@ -33,6 +33,32 @@ describe("CLI help and argv", () => {
     expect(out).toContain("--base-url")
   })
 
+  it("doctor --help still documents environment diagnostics", () => {
+    const out = help(["doctor", "--help"])
+    expect(out).toContain("--json")
+    expect(out).toContain("mcp")
+    expect(out).toContain("environment diagnostics")
+  })
+
+  it("doctor --json still prints environment diagnostics", () => {
+    const out = execFileSync(process.execPath, [bin, "doctor", "--json"], {
+      encoding: "utf8",
+      cwd: pkgRoot,
+    })
+    const data = JSON.parse(out) as { package?: string; node?: string }
+    expect(data.package).toBe("ctxpipe")
+    expect(data.node).toEqual(expect.stringMatching(/^v\d+/))
+  })
+
+  it("doctor mcp --help documents endpoint diagnostics", () => {
+    const out = help(["doctor", "mcp", "--help"])
+    expect(out).toContain("--url")
+    expect(out).toContain("--timeout")
+    expect(out).toContain("--json")
+    expect(out).toContain("Streamable HTTP")
+    expect(out).toContain("does not run browser OAuth")
+  })
+
   it("memory --help lists the memory subcommands", () => {
     const out = help(["memory", "--help"])
     expect(out).toContain("init")

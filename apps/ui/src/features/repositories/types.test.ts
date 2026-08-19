@@ -16,7 +16,7 @@ describe("getRepositoryStatusDisplay", () => {
     ).toBe("failed")
   })
 
-  it("maps failed with prior success to out-of-date", () => {
+  it("maps failed with prior success to out-of-date, including a memory-fit error", () => {
     expect(
       getRepositoryStatusDisplay({
         indexingStatus: "failed",
@@ -56,6 +56,15 @@ describe("getRepositoryStatusDisplay", () => {
         lastIngestedHash: "abc123def456",
       }),
     ).toBe("queued")
+  })
+
+  it("keeps complete_with_issues even when a hash was ingested", () => {
+    expect(
+      getRepositoryStatusDisplay({
+        indexingStatus: "complete_with_issues",
+        lastIngestedHash: "abc123def456",
+      }),
+    ).toBe("complete_with_issues")
   })
 })
 

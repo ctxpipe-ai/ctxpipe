@@ -8,7 +8,7 @@
 | ADRs | [decisions/index.md](./decisions/index.md) | Architecture decisions |
 | PRDs | [PRDs/index.md](./PRDs/index.md) | Living product requirements |
 | Sessions | [sessions/index.md](./sessions/index.md) | Episodic summaries |
-| Research | [research/](./research/) | Prior art notes (see research indexes) |
+| Research | [research/index.md](./research/index.md) | Prior art notes (local-memory, ui-design-skills, …) |
 | Events (local) | [events/](./events/) | Gitignored candidate inbox |
 
 Update this file when adding a new top-level durable store.

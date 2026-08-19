@@ -57,6 +57,28 @@ describe("withTransientHttpRetry", () => {
     expect(log.error).not.toHaveBeenCalled()
   })
 
+  it("logs nested cause and errno on fetch failed retries", async () => {
+    const cause = new Error("read ECONNRESET") as NodeJS.ErrnoException
+    cause.code = "ECONNRESET"
+    let n = 0
+    await withTransientHttpRetry(
+      async () => {
+        n += 1
+        if (n < 2) throw new TypeError("fetch failed", { cause })
+        return "ok"
+      },
+      { retries: 2, baseDelayMs: 1 },
+    )
+    expect(log.info).toHaveBeenCalledWith(
+      expect.objectContaining({
+        step: "http.transient_retry",
+        message: "fetch failed",
+        errno: "ECONNRESET",
+        cause: "read ECONNRESET",
+      }),
+    )
+  })
+
   it("does not retry on AbortError", async () => {
     const err = new DOMException("aborted", "AbortError")
     await expect(
@@ -138,8 +160,8 @@ describe("withTransientHttpRetry", () => {
   })
 
   it("does not retry non-gateway Response statuses", async () => {
-    const result = await withTransientHttpRetry(async () =>
-      new Response("nope", { status: 404 }),
+    const result = await withTransientHttpRetry(
+      async () => new Response("nope", { status: 404 }),
     )
     expect(result.status).toBe(404)
     expect(log.info).not.toHaveBeenCalled()

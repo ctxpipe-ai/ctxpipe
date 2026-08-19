@@ -145,9 +145,9 @@ modelProvider: {
 
 | Size              | ECS task sizes (cpu/memory MiB)                                                                     | ECS desired count                               | Aurora writer   | Neptune instance | Backup retention |
 | ----------------- | --------------------------------------------------------------------------------------------------- | ----------------------------------------------- | --------------- | ---------------- | ---------------- |
-| `small` (default) | backend `256/512`, worker `512/1024`, ui `256/512`, codesearch `512/1024`, migrate `256/512`        | backend `1`, worker `1`, ui `1`, codesearch `1` | `db.t4g.medium` | `db.t4g.medium`  | 7 days           |
-| `medium`          | backend `512/1024`, worker `1024/2048`, ui `256/512`, codesearch `1024/2048`, migrate `512/1024`    | backend `1`, worker `1`, ui `1`, codesearch `1` | `db.t4g.large`  | `db.r6g.large`   | 7 days           |
-| `large`           | backend `1024/2048`, worker `2048/4096`, ui `512/1024`, codesearch `2048/4096`, migrate `1024/2048` | backend `2`, worker `2`, ui `1`, codesearch `1` | `db.r6g.xlarge` | `db.r6g.xlarge`  | 14 days          |
+| `small` (default) | backend `256/512`, worker `512/1024`, ui `256/512`, codesearch `512/4096`, migrate `256/512`        | backend `1`, worker `1`, ui `1`, codesearch `1` | `db.t4g.medium` | `db.t4g.medium`  | 7 days           |
+| `medium`          | backend `512/1024`, worker `1024/2048`, ui `256/512`, codesearch `1024/8192`, migrate `512/1024`    | backend `1`, worker `1`, ui `1`, codesearch `1` | `db.t4g.large`  | `db.r6g.large`   | 7 days           |
+| `large`           | backend `1024/2048`, worker `2048/4096`, ui `512/1024`, codesearch `2048/12288`, migrate `1024/2048` | backend `2`, worker `2`, ui `1`, codesearch `1` | `db.r6g.xlarge` | `db.r6g.xlarge`  | 14 days          |
 
 
 Sizing guidance:
@@ -156,6 +156,7 @@ Sizing guidance:
 - Use `medium` when ingestion/reindex bursts are frequent and you want more headroom. Neptune moves to memory-optimized `db.r6g.large`.
 - Use `large` for high-ingestion repositories with stricter latency requirements. Aurora and Neptune both use `db.r6g.xlarge`.
 - Scale worker first when queue pressure grows; codesearch replicas stay conservative.
+- Codesearch memory is sized for **ingest peaks** (Zoekt/SCIP), not idle RSS. Fargate cannot grow a running task; `small` is 4 GiB, `medium` 8 GiB, `large` 12 GiB.
 
 Networking note:
 
@@ -205,6 +206,23 @@ Runtime defaults injected by the construct include:
 `@ctxpipe/aws-cdk` always uses one internal default GHCR tag for backend/worker/ui/codesearch/migrate task definitions. That tag is release-managed and stamped during CI to the same commit SHA used to publish `ghcr.io/ctxpipe-ai/*:<sha>` images on `main`.
 
 This keeps the package and service images aligned by default with no extra config in `CtxPipeProps`.
+
+## Upgrading an existing stack
+
+Bump the construct, then redeploy. Do not retag ECS services to `:latest` by hand — the package pin is what keeps images, Fargate sizes, and migrations on the same release.
+
+```bash
+pnpm update @ctxpipe/aws-cdk
+cdk synth
+cdk deploy
+```
+
+That deploy:
+
+- updates codesearch (and other) task CPU/memory from this package version’s size profiles
+- rolls backend, worker, UI, codesearch, and migrate to the SHA stamped into this package
+- runs Postgres migrations (including new enum values) before ECS services update
+
 
 ## Environment checklist
 

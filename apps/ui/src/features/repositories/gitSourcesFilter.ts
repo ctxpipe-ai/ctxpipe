@@ -34,7 +34,8 @@ function statusDisplayMatchesFilter(
   display: RepositoryStatusDisplay,
   filter: GitSourceStatusFilter,
 ): boolean {
-  if (filter === "indexed") return display === "ready"
+  if (filter === "indexed")
+    return display === "ready" || display === "complete_with_issues"
   if (filter === "indexing") {
     return (
       display === "queued" ||
@@ -44,6 +45,33 @@ function statusDisplayMatchesFilter(
     )
   }
   if (filter === "failed")
-    return display === "failed" || display === "out-of-date"
+    return (
+      display === "failed" ||
+      display === "out-of-date" ||
+      display === "complete_with_issues"
+    )
   return false
+}
+
+/** Chip counts must use the same predicate as {@link repositoryMatchesStatusFilter}. */
+export function gitSourceFilterCounts(
+  repos: Array<
+    Pick<Repository, "indexReady" | "indexingStatus" | "lastIngestedHash">
+  >,
+  pendingCount: number,
+): Record<GitSourceStatusFilter, number> {
+  const counts: Record<GitSourceStatusFilter, number> = {
+    all: repos.length + pendingCount,
+    indexed: 0,
+    indexing: 0,
+    failed: 0,
+    pending: pendingCount,
+  }
+  for (const repo of repos) {
+    const display = getRepositoryStatusDisplay(repo)
+    if (statusDisplayMatchesFilter(display, "indexed")) counts.indexed += 1
+    if (statusDisplayMatchesFilter(display, "indexing")) counts.indexing += 1
+    if (statusDisplayMatchesFilter(display, "failed")) counts.failed += 1
+  }
+  return counts
 }

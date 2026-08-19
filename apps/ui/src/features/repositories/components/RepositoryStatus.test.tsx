@@ -34,4 +34,34 @@ describe("RepositoryStatus", () => {
       ),
     ).toContain("indexed ·")
   })
+
+  it("labels complete_with_issues and exposes the stored error to assistive text", () => {
+    const html = renderToStaticMarkup(
+      <RepositoryStatus
+        status="complete_with_issues"
+        issuesDetail="Codebase didn't fit available memory"
+        indexedAt={new Date(Date.now() - 60 * 60 * 1000).toISOString()}
+        interactive={false}
+      />,
+    )
+    expect(html).toContain("complete with issues")
+    expect(html).toContain("sr-only")
+    expect(html).toContain("Codebase didn&#x27;t fit available memory")
+    expect(html).toContain("ctx-indexing-issues")
+  })
+
+  it("exposes a prior-success task OOM as out of date with the memory-fit error", () => {
+    const html = renderToStaticMarkup(
+      <RepositoryStatus
+        status="out-of-date"
+        outOfDateDetail={{
+          lastIngestedHash: "abc123def456",
+          indexingError: "Codebase didn't fit available memory",
+        }}
+        interactive={false}
+      />,
+    )
+    expect(html).toContain("out of date")
+    expect(html).toContain("Codebase didn&#x27;t fit available memory")
+  })
 })

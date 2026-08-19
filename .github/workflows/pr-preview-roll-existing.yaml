@@ -1,0 +1,165 @@
+# Deploy-only PR preview roll (avoids Blacksmith image rebuild / codeload 429).
+# Uses an already-published GHCR tag and clears UI healthcheck so Railway can roll.
+name: PR preview roll existing images
+
+on:
+  workflow_dispatch:
+    inputs:
+      pr_number:
+        description: Pull request number
+        required: true
+        type: string
+        default: "280"
+      head_sha:
+        description: Full git SHA already published to GHCR as pr-<N>-<sha>
+        required: true
+        type: string
+
+jobs:
+  roll:
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    env:
+      RAILWAY_API_TOKEN: ${{ secrets.RAILWAY_API_TOKEN }}
+      RAILWAY_PROJECT_ID: ${{ vars.RAILWAY_PROJECT_ID }}
+      BACKEND_SERVICE_ID: ${{ vars.RAILWAY_BACKEND_SERVICE_ID }}
+      WORKER_SERVICE_ID: ${{ vars.RAILWAY_WORKER_SERVICE_ID }}
+      UI_SERVICE_ID: ${{ vars.RAILWAY_UI_SERVICE_ID }}
+      CODESEARCH_SERVICE_ID: ${{ vars.RAILWAY_CODESEARCH_SERVICE_ID }}
+      PR_ENV: pr-${{ inputs.pr_number }}
+      IMAGE_TAG: pr-${{ inputs.pr_number }}-${{ inputs.head_sha }}
+      BACKEND_IMAGE: ghcr.io/ctxpipe-ai/backend:pr-${{ inputs.pr_number }}-${{ inputs.head_sha }}
+      WORKER_IMAGE: ghcr.io/ctxpipe-ai/worker:pr-${{ inputs.pr_number }}-${{ inputs.head_sha }}
+      UI_IMAGE: ghcr.io/ctxpipe-ai/ui:pr-${{ inputs.pr_number }}-${{ inputs.head_sha }}
+      CODESEARCH_IMAGE: ghcr.io/ctxpipe-ai/codesearch:pr-${{ inputs.pr_number }}-${{ inputs.head_sha }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Railway CLI
+        run: npm install -g @railway/cli@4.35.2
+
+      - name: Resolve Railway environment ID
+        id: env
+        run: |
+          set -euo pipefail
+          railway link --project "$RAILWAY_PROJECT_ID" --environment "$PR_ENV"
+          ENV_ID="$(railway environment config --environment "$PR_ENV" --json | jq -r '.id // .environment.id // empty')"
+          if [[ -z "$ENV_ID" ]]; then
+            # Fallback GraphQL lookup by name
+            RESP="$(curl -sS -H "Authorization: Bearer $RAILWAY_API_TOKEN" -H "Content-Type: application/json" \
+              -d "$(jq -nc --arg id "$RAILWAY_PROJECT_ID" '{query:"query($id:String!){project(id:$id){environments{edges{node{id name}}}}}",variables:{id:$id}}')" \
+              https://backboard.railway.com/graphql/v2)"
+            ENV_ID="$(echo "$RESP" | jq -r --arg n "$PR_ENV" '.data.project.environments.edges[]?.node | select(.name==$n) | .id' | head -1)"
+          fi
+          [[ -n "$ENV_ID" ]] || { echo "Missing env id for $PR_ENV"; exit 1; }
+          echo "env_id=$ENV_ID" >> "$GITHUB_OUTPUT"
+          echo "ENV_ID=$ENV_ID"
+
+      - name: Roll images and wait for UI SUCCESS
+        env:
+          ENV_ID: ${{ steps.env.outputs.env_id }}
+        run: |
+          set -euo pipefail
+          railway_graphql() {
+            local query="$1"
+            local variables="$2"
+            local raw http_code body
+            raw="$(curl -sS -w '\n%{http_code}' \
+              -H "Authorization: Bearer $RAILWAY_API_TOKEN" \
+              -H "Content-Type: application/json" \
+              -d "$(jq -nc --arg q "$query" --argjson v "$variables" '{query:$q,variables:$v}')" \
+              https://backboard.railway.com/graphql/v2)" || return $?
+            http_code="$(printf '%s' "$raw" | tail -n1)"
+            body="$(printf '%s' "$raw" | sed '$d')"
+            if [[ "$http_code" != "200" ]]; then
+              echo "Railway GraphQL HTTP $http_code" >&2
+              echo "$body" >&2
+              return 22
+            fi
+            if echo "$body" | jq -e '.errors | type == "array" and length > 0' >/dev/null 2>&1; then
+              echo "Railway GraphQL errors:" >&2
+              echo "$body" | jq -c '.errors' >&2
+              return 22
+            fi
+            printf '%s' "$body"
+          }
+
+          update_ui() {
+            railway_graphql \
+              'mutation serviceInstanceUpdate($environmentId: String, $serviceId: String!, $input: ServiceInstanceUpdateInput!) { serviceInstanceUpdate(environmentId: $environmentId, serviceId: $serviceId, input: $input) }' \
+              "$(jq -nc --arg env "$ENV_ID" --arg service "$UI_SERVICE_ID" --arg img "$UI_IMAGE" \
+                '{environmentId:$env, serviceId:$service, input:{source:{image:$img}, sleepApplication:true, healthcheckPath:""}}')"
+            echo "UI image=$UI_IMAGE healthcheckPath cleared"
+          }
+
+          update_img() {
+            local sid="$1" img="$2"
+            railway_graphql \
+              'mutation serviceInstanceUpdate($environmentId: String, $serviceId: String!, $input: ServiceInstanceUpdateInput!) { serviceInstanceUpdate(environmentId: $environmentId, serviceId: $serviceId, input: $input) }' \
+              "$(jq -nc --arg env "$ENV_ID" --arg service "$sid" --arg img "$img" \
+                '{environmentId:$env, serviceId:$service, input:{source:{image:$img}, sleepApplication:true}}')" >/dev/null
+          }
+
+          deploy() {
+            railway_graphql \
+              'mutation serviceInstanceDeployV2($serviceId: String!, $environmentId: String!) { serviceInstanceDeployV2(serviceId: $serviceId, environmentId: $environmentId) }' \
+              "$(jq -nc --arg env "$ENV_ID" --arg service "$1" '{environmentId:$env, serviceId:$service}')" >/dev/null
+          }
+
+          wait_ok() {
+            local label="$1" sid="$2" expected="$3"
+            local tag="${expected##*:}" deadline=$(( $(date +%s) + 420 ))
+            echo "Waiting for $label ($expected)"
+            while true; do
+              local response node status
+              response="$(railway_graphql \
+                'query deployments($input: DeploymentListInput!) { deployments(input: $input) { edges { node { id status meta } } } }' \
+                "$(jq -nc --arg env "$ENV_ID" --arg service "$sid" '{input:{environmentId:$env, serviceId:$service}}')")"
+              node="$(echo "$response" | jq -c --arg tag "$tag" '[.data.deployments.edges[]?.node // empty | select((.meta|tostring)|contains($tag))][0] // empty')"
+              status="$(echo "$node" | jq -r '.status // empty')"
+              echo "$label status=${status:-none}"
+              if [[ "$status" == "SUCCESS" || "$status" == "SLEEPING" ]]; then
+                return 0
+              fi
+              if [[ "$status" == "FAILED" || "$status" == "CRASHED" || "$status" == "REMOVED" ]]; then
+                echo "$node" >&2
+                dep="$(echo "$node" | jq -r '.id // empty')"
+                if [[ -n "$dep" ]]; then
+                  railway_graphql \
+                    'query($id: String!, $limit: Int) { deploymentLogs(deploymentId: $id, limit: $limit) { timestamp severity message } }' \
+                    "$(jq -nc --arg id "$dep" '{id:$id, limit:100}')" \
+                    | jq -r '(.data.deploymentLogs // [])[]? | "\(.timestamp) [\(.severity)] \(.message)"' >&2 || true
+                fi
+                return 1
+              fi
+              if (( $(date +%s) >= deadline )); then
+                echo "timeout $label" >&2
+                return 1
+              fi
+              sleep 8
+            done
+          }
+
+          # Bind UI to all interfaces for later healthchecks if re-enabled.
+          railway_graphql \
+            'mutation variableCollectionUpsert($input: VariableCollectionUpsertInput!) { variableCollectionUpsert(input: $input) }' \
+            "$(jq -nc --arg project "$RAILWAY_PROJECT_ID" --arg env "$ENV_ID" --arg service "$UI_SERVICE_ID" \
+              '{input:{projectId:$project,environmentId:$env,serviceId:$service,skipDeploys:true,variables:{HOST:"0.0.0.0",NITRO_HOST:"0.0.0.0"}}}')" >/dev/null
+
+          update_img "$BACKEND_SERVICE_ID" "$BACKEND_IMAGE"
+          deploy "$BACKEND_SERVICE_ID"
+          wait_ok backend "$BACKEND_SERVICE_ID" "$BACKEND_IMAGE"
+
+          update_img "$WORKER_SERVICE_ID" "$WORKER_IMAGE"
+          deploy "$WORKER_SERVICE_ID"
+          wait_ok worker "$WORKER_SERVICE_ID" "$WORKER_IMAGE"
+
+          update_ui
+          deploy "$UI_SERVICE_ID"
+          wait_ok ui "$UI_SERVICE_ID" "$UI_IMAGE"
+
+          update_img "$CODESEARCH_SERVICE_ID" "$CODESEARCH_IMAGE"
+          deploy "$CODESEARCH_SERVICE_ID"
+          wait_ok codesearch "$CODESEARCH_SERVICE_ID" "$CODESEARCH_IMAGE"
+
+          echo "Rolled preview to $IMAGE_TAG"

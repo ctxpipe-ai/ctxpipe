@@ -167,6 +167,8 @@ For backend API, OpenAPI, MCP, and package scripts, see
 | `pnpm build` | Build the monorepo with Turborepo. |
 | `pnpm lint` / `pnpm format` | Run Biome. |
 | `pnpm mcp:inspect` | Open the MCP inspector for the backend. |
+| `pnpm mcpjam:inspect --url <mcp-url> --oauth` | Open the pinned MCPJam Inspector against an MCP endpoint. |
+| `pnpm mcpjam:doctor --url <mcp-url>` | Probe an MCP endpoint and capture transport/OAuth diagnostics. |
 | `pnpm changeset` | Create a Changesets entry for publishable package changes. |
 | `pnpm release` | Build and publish release-ready packages. |
 

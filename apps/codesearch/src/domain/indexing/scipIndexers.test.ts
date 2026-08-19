@@ -229,6 +229,29 @@ describe("runScipIndexer", () => {
     }
   })
 
+  it("maps SIGKILL exit 137 to the memory-fit error", async () => {
+    const directory = await mkdtemp(join(tmpdir(), "scip-indexers-"))
+    const checkoutPath = join(directory, "checkout")
+    const shardPath = join(directory, "shards", "go.scip")
+    await mkdir(checkoutPath)
+
+    vi.stubGlobal("Bun", {
+      spawn: vi.fn(() => fakeSubprocess(Promise.resolve(137))),
+    })
+
+    try {
+      await expect(
+        runScipIndexer({
+          indexerId: "go",
+          checkoutPath,
+          shardPath,
+        }),
+      ).rejects.toThrow("Codebase didn't fit available memory")
+    } finally {
+      await rm(directory, { recursive: true, force: true })
+    }
+  })
+
   it("rejects and removes an empty final shard", async () => {
     const directory = await mkdtemp(join(tmpdir(), "scip-indexers-"))
     const checkoutPath = join(directory, "checkout")

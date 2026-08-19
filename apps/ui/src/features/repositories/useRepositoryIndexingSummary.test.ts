@@ -120,6 +120,19 @@ describe("getRepositoryIndexingSummary", () => {
     })
   })
 
+  it("counts complete with issues toward failedCount", () => {
+    expect(
+      getRepositoryIndexingSummary([
+        { indexingStatus: "complete_with_issues" },
+        { indexingStatus: "ready" },
+      ]),
+    ).toMatchObject({
+      totalCount: 2,
+      activeCount: 0,
+      failedCount: 1,
+    })
+  })
+
   it("returns null singleActiveStepLabel when multiple repos are active", () => {
     expect(
       getRepositoryIndexingSummary([
