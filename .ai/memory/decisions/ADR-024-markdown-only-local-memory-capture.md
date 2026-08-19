@@ -46,6 +46,8 @@ Observe appends JSON lines under `.ai/memory/events/` (`events/YYYY-MM-DD.jsonl`
 
 - Remove AgentMemory supervisor/hydration/`ctxpipe-memory` MCP from default memory init.
 - Retire legacy memory-sync/search/handoff skills in favor of capture/promote skills and the always-apply rule.
+- Observe classifies **user prompt and assistant text only**. It must not mint candidates from tool dumps, Stop follow-up prompts, or promotion writes under durable `.ai/memory/` files.
+- Cursor Stop `followup_message` is one-shot for never-shown **user-prompt** candidates so promotion turns cannot recapture themselves.
 - ADR-021 remains historical; new work follows this ADR.
 - Backend OpenAI-compatible proxy may remain for other product features; it is not required for local memory recall.
 

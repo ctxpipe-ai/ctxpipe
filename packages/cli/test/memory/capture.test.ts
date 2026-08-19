@@ -122,32 +122,37 @@ describe("memory/capture", () => {
     "summary lists pending candidates and marks only surfaced ones after ack",
     { timeout: 15_000 },
     () => {
-    const cwd = mkdtempSync(join(tmpdir(), "ctxpipe-capture-sum-"))
-    observeCapture({
-      host: "claude",
-      eventType: "UserPromptSubmit",
-      cwd,
-      payload: {
-        prompt: "Never commit secrets into .ai/memory",
-        sessionId: "s2",
-      },
-    })
-    const first = summarizeCapture({ cwd })
-    expect(first.candidates.length).toBeGreaterThan(0)
-    expect(first.candidates[0]?.candidateId).toBeTruthy()
-    expect(first.surfacedIds.length).toBe(first.candidates.length)
-    expect(first.priority).not.toBe("low")
-    // Before ack, candidates remain pending (delivery may have failed).
-    expect(summarizeCapture({ cwd }).candidates.length).toBeGreaterThan(0)
-    acknowledgeSurfaced(first.surfacedIds, { cwd })
-    // Surfaced-but-unresolved stay visible until promote/dismiss.
-    const second = summarizeCapture({ cwd })
-    expect(second.candidates.length).toBeGreaterThan(0)
-    expect(second.candidates[0]?.candidateId).toBe(first.candidates[0]?.candidateId)
-    expect(
-      existsSync(join(cwd, ".ai", "memory", "events", "lifecycle.json")),
-    ).toBe(true)
-  })
+      const cwd = mkdtempSync(join(tmpdir(), "ctxpipe-capture-sum-"))
+      observeCapture({
+        host: "claude",
+        eventType: "UserPromptSubmit",
+        cwd,
+        payload: {
+          prompt: "Never commit secrets into .ai/memory",
+          sessionId: "s2",
+        },
+      })
+      const first = summarizeCapture({ cwd, host: "claude" })
+      expect(first.candidates.length).toBeGreaterThan(0)
+      expect(first.candidates[0]?.candidateId).toBeTruthy()
+      expect(first.surfacedIds.length).toBe(first.candidates.length)
+      expect(first.priority).not.toBe("low")
+      // Before ack, candidates remain pending (delivery may have failed).
+      expect(
+        summarizeCapture({ cwd, host: "claude" }).candidates.length,
+      ).toBeGreaterThan(0)
+      acknowledgeSurfaced(first.surfacedIds, { cwd })
+      // Claude: surfaced-but-unresolved stay visible until promote/dismiss.
+      const second = summarizeCapture({ cwd, host: "claude" })
+      expect(second.candidates.length).toBeGreaterThan(0)
+      expect(second.candidates[0]?.candidateId).toBe(
+        first.candidates[0]?.candidateId,
+      )
+      expect(
+        existsSync(join(cwd, ".ai", "memory", "events", "lifecycle.json")),
+      ).toBe(true)
+    },
+  )
 
   it(
     "second summary still surfaces candidates beyond the first batch of 8",
@@ -178,9 +183,13 @@ describe("memory/capture", () => {
         second.candidates.some((c) => !firstIds.has(c.candidateId)),
       ).toBe(true)
       acknowledgeSurfaced(second.surfacedIds, { cwd })
-      // Still unresolved → still visible (no false completeness after ack).
-      const third = summarizeCapture({ cwd })
-      expect(third.candidates.length).toBeGreaterThan(0)
+      // Cursor: do not recycle follow-ups after every never-shown id was shown.
+      const third = summarizeCapture({ cwd, host: "cursor" })
+      expect(third.candidates).toEqual([])
+      expect(third.priority).toBe("low")
+      // Claude may re-show unresolved surfaced ids.
+      const claudeAgain = summarizeCapture({ cwd, host: "claude" })
+      expect(claudeAgain.candidates.length).toBeGreaterThan(0)
     },
   )
 
@@ -248,7 +257,7 @@ describe("memory/capture", () => {
     expect(summarizeCapture({ cwd }).candidates).toEqual([])
   })
 
-  it("captures Cursor afterFileEdit payloads with durable facts in edits", () => {
+  it("does not mint candidates from afterFileEdit bodies", () => {
     const cwd = mkdtempSync(join(tmpdir(), "ctxpipe-capture-edit-"))
     const result = observeCapture({
       host: "cursor",
@@ -266,8 +275,8 @@ describe("memory/capture", () => {
         cwd,
       },
     })
-    expect(result.wrote).toBe(true)
-    expect(result.candidateCount).toBeGreaterThan(0)
+    expect(result.wrote).toBe(false)
+    expect(result.candidateCount).toBe(0)
   })
 
   it("captures Claude Stop with last_assistant_message facts", () => {
@@ -408,5 +417,164 @@ describe("memory/capture", () => {
       decision: "block",
       reason: "Promote candidate abc",
     })
+  })
+
+  it("does not classify docs, compiler dumps, Stop follow-ups, or grep payloads", () => {
+    expect(
+      classifyText(
+        "Use React Aria Tabs when composing a keyboard-accessible tab strip.",
+      ),
+    ).toEqual([])
+    expect(
+      classifyText(
+        "src/foo.ts(12,5): error TS2307: Cannot find module 'react-aria-components'",
+      ),
+    ).toEqual([])
+    expect(
+      classifyText(
+        "Memory candidates (2 pending). Promote via skills/rules — do not auto-write ADRs from hooks.\nThen mark ids promoted/dismissed.",
+      ),
+    ).toEqual([])
+    expect(
+      classifyText(
+        JSON.stringify({
+          pattern: "lessons-learned|ADR-024",
+          path: ".ai/memory/lessons-learned.md",
+        }),
+      ),
+    ).toEqual([])
+  })
+
+  it("still classifies user-preference lessons", () => {
+    const hits = classifyText(
+      "From now on always colocate Zod with routes",
+    )
+    expect(hits.some((h) => h.kind === "lesson")).toBe(true)
+  })
+
+  it("does not observe Stop follow-up prompts, memory-file edits, or tsc dumps", () => {
+    const cwd = mkdtempSync(join(tmpdir(), "ctxpipe-capture-noise-"))
+    expect(
+      observeCapture({
+        host: "cursor",
+        eventType: "beforeSubmitPrompt",
+        cwd,
+        payload: {
+          prompt:
+            "Memory candidates (2 pending). Promote via skills/rules — do not auto-write ADRs from hooks.",
+        },
+      }).wrote,
+    ).toBe(false)
+
+    expect(
+      observeCapture({
+        host: "cursor",
+        eventType: "afterFileEdit",
+        cwd,
+        payload: {
+          file_path: join(cwd, ".ai", "memory", "lessons-learned.md"),
+          edits: [
+            {
+              old_string: "",
+              new_string:
+                "### Example\n- **Rule:** From now on always use Zod schemas collocated with routes\n",
+            },
+          ],
+        },
+      }).wrote,
+    ).toBe(false)
+
+    expect(
+      observeCapture({
+        host: "cursor",
+        eventType: "postToolUse",
+        cwd,
+        payload: {
+          toolName: "Shell",
+          toolOutput:
+            "src/foo.ts(12,5): error TS2307: Cannot find module 'react-aria-components'",
+        },
+      }).wrote,
+    ).toBe(false)
+  })
+
+  it("writes a lesson candidate for a user-preference prompt and dedups the same excerpt", () => {
+    const cwd = mkdtempSync(join(tmpdir(), "ctxpipe-capture-user-lesson-"))
+    const payload = {
+      prompt: "From now on always colocate Zod with routes",
+      sessionId: "user-lesson",
+    }
+    const first = observeCapture({
+      host: "cursor",
+      eventType: "beforeSubmitPrompt",
+      cwd,
+      payload,
+    })
+    expect(first.wrote).toBe(true)
+    expect(first.candidateCount).toBeGreaterThan(0)
+    const second = observeCapture({
+      host: "cursor",
+      eventType: "beforeSubmitPrompt",
+      cwd,
+      payload,
+    })
+    expect(second.wrote).toBe(false)
+    expect(second.candidateCount).toBe(0)
+    const lines = readFileSync(
+      join(cwd, ".ai", "memory", "events", "candidates.jsonl"),
+      "utf8",
+    )
+      .trim()
+      .split("\n")
+    expect(lines).toHaveLength(1)
+  })
+
+  it("does not emit a Cursor follow-up for tool-sourced pending candidates", () => {
+    const cwd = mkdtempSync(join(tmpdir(), "ctxpipe-capture-tool-src-"))
+    mkdirSync(join(cwd, ".ai", "memory", "events"), { recursive: true })
+    writeFileSync(
+      join(cwd, ".ai", "memory", "events", "candidates.jsonl"),
+      `${JSON.stringify({
+        schemaVersion: 1,
+        candidateId: "toolsrc000000001",
+        kind: "lesson",
+        destination: ".ai/memory/lessons-learned.md",
+        action: "Append a lesson",
+        excerpt: "From now on always use a fake tool-sourced fact",
+        sourceEventType: "postToolUse",
+        sourceHost: "cursor",
+      })}\n`,
+      "utf8",
+    )
+    const summary = summarizeCapture({ cwd, host: "cursor" })
+    expect(summary.priority).toBe("low")
+    expect(summary.candidates).toEqual([])
+    expect(
+      formatStopHookOutput("cursor", summary, {}),
+    ).toEqual({})
+  })
+
+  it("emits a Cursor follow-up once for a never-shown user-prompt candidate", () => {
+    const cwd = mkdtempSync(join(tmpdir(), "ctxpipe-capture-once-"))
+    observeCapture({
+      host: "cursor",
+      eventType: "beforeSubmitPrompt",
+      cwd,
+      payload: {
+        prompt: "From now on always colocate Zod with routes",
+        sessionId: "once-1",
+      },
+    })
+    const first = summarizeCapture({ cwd, host: "cursor" })
+    expect(first.priority).not.toBe("low")
+    expect(first.candidates.length).toBeGreaterThan(0)
+    expect(
+      formatStopHookOutput("cursor", first, {}).followup_message,
+    ).toBeTruthy()
+    acknowledgeSurfaced(first.surfacedIds, { cwd })
+    const second = summarizeCapture({ cwd, host: "cursor" })
+    expect(second.priority).toBe("low")
+    expect(second.candidates).toEqual([])
+    expect(formatStopHookOutput("cursor", second, {})).toEqual({})
   })
 })
