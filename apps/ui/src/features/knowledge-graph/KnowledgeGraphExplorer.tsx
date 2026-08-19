@@ -1,7 +1,5 @@
-import { useQuery } from "@tanstack/react-query"
 import { useCallback, useEffect, useMemo, useRef, useState } from "react"
-import { getRepositoryIndexingStatus } from "@/features/repositories/types"
-import { client } from "@/lib/api"
+import { InlineAlert } from "@/components/ui/InlineAlert"
 import type { ActivityBuckets } from "./ActivitySparkline"
 import {
   type GraphLinkRow,
@@ -10,10 +8,7 @@ import {
   type KnowledgeGraphSelectionEvent,
 } from "./KnowledgeGraphCosmographCanvas"
 import { type EmptyReason, KnowledgeGraphEmpty } from "./KnowledgeGraphEmpty"
-import {
-  KnowledgeGraphHelpButton,
-  KnowledgeGraphIntroCallout,
-} from "./KnowledgeGraphIntroCallout"
+import { KnowledgeGraphIntroCallout } from "./KnowledgeGraphIntroCallout"
 import {
   dismissKnowledgeGraphIntro,
   shouldShowKnowledgeGraphIntro,
@@ -31,8 +26,7 @@ import type {
   NodeFactsSummary,
 } from "./types"
 
-/* KG chat can highlight a richer context set than we should naively frame.
- * Robust fitting keeps most focus nodes while trimming positional outliers. */
+/* Robust fitting keeps most focus nodes while trimming positional outliers. */
 const KG_FIT_STRATEGY = "robust" as const
 
 const DEEP_LINK_PARAM = "node"
@@ -84,7 +78,21 @@ function syncDeepLink(nodeId: string | null): void {
   window.history.replaceState(window.history.state, "", url)
 }
 
-export function KnowledgeGraphExplorer({ orgSlug }: { orgSlug: string }) {
+export function KnowledgeGraphExplorer({
+  orgSlug,
+  graph,
+  pending = false,
+  error = null,
+  onOpenSource,
+}: {
+  orgSlug: string
+  graph: KnowledgeGraphPayload | undefined
+  pending?: boolean
+  error?: Error | null
+  onOpenSource?: (path: string) => void
+}) {
+  const data = graph
+  const isLoading = pending
   const [selectedId, setSelectedId] = useState<string | null>(() =>
     readDeepLinkNodeId(),
   )
@@ -107,41 +115,6 @@ export function KnowledgeGraphExplorer({ orgSlug }: { orgSlug: string }) {
 
   /** Once data lands for a deep-linked node, recenter the viewport on it. */
   const deepLinkFocusedRef = useRef(false)
-
-  const { data, isLoading, error, refetch, isFetching } = useQuery({
-    queryKey: ["knowledge-graph", orgSlug],
-    queryFn: async (): Promise<KnowledgeGraphPayload> => {
-      const res = await client[":orgSlug"].api.v1["knowledge-graph"].$get({
-        param: { orgSlug },
-      })
-      if (res.status === 401) {
-        throw new Error("Sign in to view the knowledge graph.")
-      }
-      if (!res.ok) {
-        const err = (await res.json().catch(() => null)) as {
-          error?: string
-        } | null
-        throw new Error(err?.error ?? "Could not load the knowledge graph.")
-      }
-      return res.json()
-    },
-  })
-
-  /* Used only to pick an honest empty-state message — "no repos" vs "still
-   * indexing" vs "indexed but no claims yet". */
-  const { data: repos } = useQuery({
-    queryKey: ["repositories", orgSlug],
-    queryFn: async () => {
-      const res = await client[":orgSlug"].api.v1.repositories.$get({
-        param: { orgSlug },
-      })
-      if (!res.ok) throw new Error("Failed to fetch repositories")
-      const json = (await res.json()) as {
-        items: Array<{ indexReady?: boolean; indexingStatus?: string | null }>
-      }
-      return json.items
-    },
-  })
 
   const sanitizedNodes = useMemo(() => {
     if (!data?.nodes) return []
@@ -293,8 +266,8 @@ export function KnowledgeGraphExplorer({ orgSlug }: { orgSlug: string }) {
     return map
   }, [sanitizedNodes, nodeFacts])
 
-  /* Product-specific selection bridge: explicit drawer/Ask/deep-link focus can
-   * still steer the canvas, while stock Cosmograph controls own search/filter
+  /* Product-specific selection bridge: drawer and deep-link focus can still
+   * steer the canvas, while stock Cosmograph controls own search/filter
    * selection. */
   useEffect(() => {
     if (!data) return
@@ -416,19 +389,8 @@ export function KnowledgeGraphExplorer({ orgSlug }: { orgSlug: string }) {
 
   const showGraph = Boolean(data && !error && graphPoints.length > 0)
 
-  const emptyReason: EmptyReason | null = useMemo(() => {
-    if (!data || error || graphPoints.length > 0 || isLoading) return null
-    if (!repos || repos.length === 0) return "no-repos"
-    if (
-      repos.some((r) => {
-        const status = getRepositoryIndexingStatus(r)
-        return status === "queued" || status === "running"
-      })
-    ) {
-      return "indexing"
-    }
-    return "no-claims"
-  }, [data, error, graphPoints.length, isLoading, repos])
+  const emptyReason: EmptyReason | null =
+    !isLoading && !error && graphPoints.length === 0 ? "no-projection" : null
 
   const activityBuckets = useMemo<ActivityBuckets | null>(() => {
     if (edgeTimeIndex.length === 0) return null
@@ -546,11 +508,9 @@ export function KnowledgeGraphExplorer({ orgSlug }: { orgSlug: string }) {
       : (activityBuckets?.rangeEnd ?? null)
   const hasLastUpdated =
     inferredLastUpdatedMs != null && Number.isFinite(inferredLastUpdatedMs)
-  const showEmptyGraphChrome =
-    !showGraph && !isLoading && Boolean(data || error)
 
   return (
-    <div className="relative z-10 h-[100dvh] min-h-[100dvh] w-full shrink-0">
+    <div className="relative z-10 h-full min-h-0 w-full min-w-0 shrink-0 @container">
       {showGraph ? (
         <div className="absolute inset-0 z-0 h-full w-full min-h-0">
           <KnowledgeGraphCosmographCanvas
@@ -561,21 +521,21 @@ export function KnowledgeGraphExplorer({ orgSlug }: { orgSlug: string }) {
               data?.metrics ? (
                 <div className="flex flex-wrap items-center gap-x-4 gap-y-1 leading-none">
                   <span>
-                    <span>Nodes</span>{" "}
-                    <span className="tabular-nums text-zinc-400">
+                    Nodes{" "}
+                    <span className="tabular-nums text-foreground">
                       {data.metrics.totalNodes.toLocaleString()}
                     </span>
                   </span>
                   <span>
-                    <span>Edges</span>{" "}
-                    <span className="tabular-nums text-zinc-400">
+                    Edges{" "}
+                    <span className="tabular-nums text-foreground">
                       {data.metrics.totalEdges.toLocaleString()}
                     </span>
                   </span>
                   {hasLastUpdated ? (
                     <span>
-                      <span>Updated</span>{" "}
-                      <span className="tabular-nums text-zinc-400">
+                      Updated{" "}
+                      <span className="tabular-nums text-foreground">
                         {formatIsoDateTime(
                           new Date(
                             inferredLastUpdatedMs as number,
@@ -587,11 +547,22 @@ export function KnowledgeGraphExplorer({ orgSlug }: { orgSlug: string }) {
                   {data.metrics.truncated ? (
                     <span className="text-amber-200/85">
                       Subset shown ({data.metrics.nodesReturned}n /{" "}
-                      {data.metrics.edgesReturned}e); totals are org-wide.
+                      {data.metrics.edgesReturned}e).
                     </span>
                   ) : null}
                 </div>
               ) : null
+            }
+            onTips={() => setKgIntroOpen((open) => !open)}
+            tipsActive={kgIntroOpen}
+            tipsPanel={
+              <KnowledgeGraphIntroCallout
+                open={kgIntroOpen}
+                onDismiss={() => {
+                  dismissKnowledgeGraphIntro(orgSlug)
+                  setKgIntroOpen(false)
+                }}
+              />
             }
             onPointClick={onPointClick}
             onBackgroundClick={onBackgroundClick}
@@ -600,58 +571,24 @@ export function KnowledgeGraphExplorer({ orgSlug }: { orgSlug: string }) {
         </div>
       ) : null}
 
-      {showEmptyGraphChrome ? (
-        <div className="pointer-events-none absolute left-4 top-4 z-30 flex max-w-[calc(100vw-2rem)] flex-col items-start gap-3">
-          <h1 className="font-mono text-[12px] uppercase tracking-[0.24em] text-teal-400 drop-shadow-[0_1px_8px_rgba(0,0,0,0.85)]">
-            Knowledge graph
-          </h1>
-          <div className="pointer-events-auto flex flex-col gap-2">
-            <KnowledgeGraphIntroCallout
-              open={kgIntroOpen}
-              onDismiss={() => {
-                dismissKnowledgeGraphIntro(orgSlug)
-                setKgIntroOpen(false)
-              }}
-            />
-            {!kgIntroOpen ? (
-              <KnowledgeGraphHelpButton onClick={() => setKgIntroOpen(true)} />
-            ) : null}
-          </div>
-        </div>
-      ) : null}
-
       {isLoading && !data ? (
-        <div
-          className="absolute inset-0 z-20 flex flex-col items-center justify-center gap-3"
-          style={{ backgroundColor: "#09090b" }}
-        >
-          <div className="flex items-center gap-2 font-mono text-[12px] uppercase tracking-[0.24em] text-teal-400">
-            <span className="inline-block h-1.5 w-1.5 animate-pulse bg-teal-400" />
-            <span>Loading knowledge graph</span>
-          </div>
-          <p className="text-[12px] text-zinc-600">
+        <div className="absolute inset-0 z-20 flex flex-col items-center justify-center gap-2 bg-background">
+          <p className="text-sm font-medium text-foreground">Loading graph</p>
+          <p className="text-sm text-muted-foreground">
             Large graphs may take a few seconds to arrive and lay out.
           </p>
         </div>
       ) : null}
 
       {error ? (
-        <div
-          className="absolute left-4 right-4 top-24 z-20 mx-auto max-w-md rounded-none border border-red-500/35 bg-zinc-950/92 px-3 py-2 text-[13px] text-red-200/95 shadow-xl shadow-black/40 backdrop-blur-md sm:top-28"
-          role="alert"
-        >
-          {error instanceof Error ? error.message : "Failed to load graph."}
+        <div className="absolute left-4 right-4 top-24 z-20 mx-auto max-w-md">
+          <InlineAlert variant="error" title="Could not load graph">
+            {error instanceof Error ? error.message : "Failed to load graph."}
+          </InlineAlert>
         </div>
       ) : null}
 
-      {emptyReason ? (
-        <KnowledgeGraphEmpty
-          reason={emptyReason}
-          orgSlug={orgSlug}
-          isFetching={isFetching}
-          onRefresh={() => void refetch()}
-        />
-      ) : null}
+      {emptyReason ? <KnowledgeGraphEmpty reason={emptyReason} /> : null}
 
       {selectionInspector && !displayedNode ? (
         <SelectionInspectorPanel
@@ -693,6 +630,7 @@ export function KnowledgeGraphExplorer({ orgSlug }: { orgSlug: string }) {
             cgRef.current?.focusNode(displayedNode.id)
           }}
           onNeighbourSelect={(id) => setSelectedId(id)}
+          onOpenSource={onOpenSource}
         />
       ) : null}
     </div>

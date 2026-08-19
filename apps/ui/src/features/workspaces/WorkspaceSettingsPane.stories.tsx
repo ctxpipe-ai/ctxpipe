@@ -12,6 +12,7 @@ import {
   docsWorkspace,
   docsWorkspaceDetail,
   emptyLinkedWorkspaceDetail,
+  hydratingWorkspaceDetail,
   projectionLagWorkspaceDetail,
   readOnlyWorkspaceDetail,
 } from "./workspace-fixtures"
@@ -72,6 +73,26 @@ export const EmptyLinkedRepos: Story = {
   },
 }
 
+export const AddRepositories: Story = {
+  args: {
+    workspace: emptyLinkedWorkspaceDetail,
+  },
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement)
+    await userEvent.click(
+      canvas.getByRole("button", { name: /add repositories/i }),
+    )
+    const body = within(canvasElement.ownerDocument.body)
+    await body.findByRole("dialog", { name: /add repositories/i })
+  },
+}
+
+export const Hydrating: Story = {
+  args: {
+    workspace: hydratingWorkspaceDetail,
+  },
+}
+
 export const RelinkError: Story = {
   parameters: {
     msw: {
@@ -96,13 +117,19 @@ export const RelinkError: Story = {
   },
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement)
-    await userEvent.click(canvas.getByRole("button", { name: /paste url/i }))
+    await userEvent.click(
+      canvas.getByRole("button", { name: /edit workspace repository/i }),
+    )
+    const body = within(canvasElement.ownerDocument.body)
+    const dialog = await body.findByRole("dialog")
+    const scoped = within(dialog)
+    await userEvent.click(scoped.getByRole("button", { name: /paste url/i }))
     await userEvent.type(
-      canvas.getByLabelText(/git url/i),
+      scoped.getByLabelText(/git url/i),
       "https://github.com/acme/taken.git",
     )
-    await userEvent.click(canvas.getByRole("button", { name: /^relink$/i }))
-    await waitFor(() => canvas.getByText(/could not save/i))
+    await userEvent.click(scoped.getByRole("button", { name: /^save$/i }))
+    await waitFor(() => scoped.getByText(/could not save/i))
   },
 }
 

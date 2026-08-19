@@ -1,4 +1,4 @@
-import { IconAlertCircle } from "@tabler/icons-react"
+import { IconAlertCircle, IconGitBranch, IconPencil } from "@tabler/icons-react"
 import { useMutation, useQueryClient } from "@tanstack/react-query"
 import { useNavigate } from "@tanstack/react-router"
 import { useState } from "react"
@@ -10,15 +10,88 @@ import { InlineAlert } from "@/components/ui/InlineAlert"
 import { Modal } from "@/components/ui/Modal"
 import { TextField } from "@/components/ui/TextField"
 import {
-  deleteWorkspace,
-  linkWorkspaceRepository,
-  unlinkWorkspaceRepository,
-  updateWorkspace,
-  workspaceKeys,
-} from "./queries"
+  githubRepoFullNameFromGitUrl,
+  githubWebUrl,
+} from "@/features/repositories/github-web-url"
+import { cn } from "@/lib/utils"
+import { deleteWorkspace, updateWorkspace, workspaceKeys } from "./queries"
 import type { WorkspaceDetail } from "./types"
+import { WorkspaceLinkedRepositories } from "./WorkspaceLinkedRepositories"
 import { WorkspaceRepositoryPicker } from "./WorkspaceRepositoryPicker"
 import { workspaceDeleteNameMatches } from "./workspaceDeleteNameMatches"
+
+function writeTag(status: string): { label: string; className: string } {
+  if (status === "writable") {
+    return {
+      label: "Writable",
+      className: "border-teal-400/30 bg-teal-400/10 text-teal-200",
+    }
+  }
+  return {
+    label: "Read-only",
+    className: "border-amber-400/30 bg-amber-400/10 text-amber-200",
+  }
+}
+
+function hydrateTag(status: string): {
+  label: string
+  className: string
+  pulse?: boolean
+} {
+  if (status === "ready") {
+    return {
+      label: "Hydrate ready",
+      className: "border-teal-400/30 bg-teal-400/10 text-teal-200",
+    }
+  }
+  if (status === "failed") {
+    return {
+      label: "Hydrate failed",
+      className: "border-rose-400/30 bg-rose-400/10 text-rose-200",
+    }
+  }
+  if (status === "running") {
+    return {
+      label: "Hydrating",
+      className: "border-amber-400/30 bg-amber-400/10 text-amber-200",
+      pulse: true,
+    }
+  }
+  return {
+    label: "Hydrate pending",
+    className: "border-border bg-zinc-800 text-muted-foreground",
+    pulse: true,
+  }
+}
+
+function StatusTag({
+  label,
+  className,
+  pulse,
+}: {
+  label: string
+  className: string
+  pulse?: boolean
+}) {
+  return (
+    <span
+      className={cn(
+        "inline-flex items-center gap-1.5 rounded-lg border px-2 py-0.5 text-xs",
+        className,
+      )}
+    >
+      <span
+        className={
+          pulse
+            ? "size-1.5 shrink-0 animate-pulse rounded-full bg-current"
+            : "size-1.5 shrink-0 rounded-full bg-current"
+        }
+        aria-hidden
+      />
+      {label}
+    </span>
+  )
+}
 
 export function WorkspaceSettingsPane(props: {
   orgSlug: string
@@ -29,10 +102,14 @@ export function WorkspaceSettingsPane(props: {
   const queryClient = useQueryClient()
   const [displayName, setDisplayName] = useState(workspace.displayName)
   const [slug, setSlug] = useState(workspace.slug)
-  const [linkUrl, setLinkUrl] = useState("")
+  const [relinkOpen, setRelinkOpen] = useState(false)
   const [relinkError, setRelinkError] = useState<string | null>(null)
   const [deleteOpen, setDeleteOpen] = useState(false)
   const [confirmName, setConfirmName] = useState("")
+
+  const dirty =
+    displayName.trim() !== workspace.displayName ||
+    slug.trim() !== workspace.slug
 
   const invalidate = () => {
     void queryClient.invalidateQueries({
@@ -72,32 +149,11 @@ export function WorkspaceSettingsPane(props: {
       }),
     onSuccess: () => {
       setRelinkError(null)
+      setRelinkOpen(false)
       invalidate()
       toast.success("Workspace repository updated")
     },
     onError: (error: Error) => setRelinkError(error.message),
-  })
-
-  const linkMutation = useMutation({
-    mutationFn: () => linkWorkspaceRepository(orgSlug, workspace.slug, linkUrl),
-    onSuccess: () => {
-      setLinkUrl("")
-      void queryClient.invalidateQueries({
-        queryKey: workspaceKeys.detail(orgSlug, workspace.slug),
-      })
-    },
-    onError: (error: Error) => toast.error(error.message),
-  })
-
-  const unlinkMutation = useMutation({
-    mutationFn: (linkedId: string) =>
-      unlinkWorkspaceRepository(orgSlug, workspace.slug, linkedId),
-    onSuccess: () => {
-      void queryClient.invalidateQueries({
-        queryKey: workspaceKeys.detail(orgSlug, workspace.slug),
-      })
-    },
-    onError: (error: Error) => toast.error(error.message),
   })
 
   const deleteMutation = useMutation({
@@ -128,37 +184,56 @@ export function WorkspaceSettingsPane(props: {
       ? workspace.activeProjectionUrl
       : null
 
+  const write = writeTag(workspace.writeStatus)
+  const hydrate = hydrateTag(workspace.hydrateStatus)
+  const repoTitle =
+    githubRepoFullNameFromGitUrl(workspace.workspaceRepositoryUrl) ??
+    workspace.workspaceRepositoryUrl
+  const repoWebUrl = githubWebUrl(workspace.workspaceRepositoryUrl)
+
   return (
     <div className="min-h-0 flex-1 overflow-auto p-4">
-      <h2 className="text-lg font-medium tracking-tight">Workspace settings</h2>
-      <p className="mt-1 text-sm text-muted-foreground">
-        This Workspace only. Add Workspace lives in organisation settings.
-      </p>
+      <div className="flex items-start justify-between gap-4">
+        <h1 className="text-lg font-medium tracking-tight">
+          Workspace settings
+        </h1>
+        <Button
+          type="submit"
+          form="workspace-settings"
+          variant="primary"
+          isDisabled={saveMutation.isPending || !dirty}
+        >
+          Save
+        </Button>
+      </div>
 
-      <section className="mt-6 max-w-md">
-        <p className="ctx-label text-muted-foreground">Status</p>
-        <p className="mt-2 text-sm">
-          Write: {workspace.writeStatus.replace("_", "-")}. Hydrate:{" "}
-          {workspace.hydrateStatus}.
+      <div className="mt-4 flex flex-wrap items-center gap-1.5">
+        <StatusTag label={write.label} className={write.className} />
+        <StatusTag
+          label={hydrate.label}
+          className={hydrate.className}
+          pulse={hydrate.pulse}
+        />
+      </div>
+
+      {workspace.readOnlyReason ? (
+        <div className="mt-4 max-w-lg">
+          <InlineAlert variant="warning" title="Read-only">
+            {workspace.readOnlyReason}
+          </InlineAlert>
+        </div>
+      ) : null}
+      {projectionLag ? (
+        <p className="mt-3 max-w-lg text-sm text-muted-foreground">
+          Serving still uses{" "}
+          <code className="font-mono text-xs">{projectionLag}</code> until
+          hydrate of the new remote succeeds.
         </p>
-        {workspace.readOnlyReason ? (
-          <div className="mt-3">
-            <InlineAlert variant="warning" title="Read-only">
-              {workspace.readOnlyReason}
-            </InlineAlert>
-          </div>
-        ) : null}
-        {projectionLag ? (
-          <p className="mt-3 text-sm text-muted-foreground">
-            Serving still uses{" "}
-            <code className="font-mono text-xs">{projectionLag}</code> until
-            hydrate of the new remote succeeds.
-          </p>
-        ) : null}
-      </section>
+      ) : null}
 
       <form
-        className="mt-8 flex max-w-md flex-col gap-4"
+        id="workspace-settings"
+        className="mt-8 flex max-w-lg flex-col gap-4"
         onSubmit={(event) => {
           event.preventDefault()
           saveMutation.mutate()
@@ -168,7 +243,6 @@ export function WorkspaceSettingsPane(props: {
           label="Display name"
           value={displayName}
           onChange={setDisplayName}
-          description="Git-canonical in AGENTS.md. May differ from the slug."
         />
         <TextField
           label="Slug"
@@ -176,89 +250,56 @@ export function WorkspaceSettingsPane(props: {
           onChange={setSlug}
           description="URL segment. Relink does not change it. The old slug 404s."
         />
-        <Button
-          type="submit"
-          variant="primary"
-          isDisabled={saveMutation.isPending}
-        >
-          Save
-        </Button>
       </form>
 
-      <section className="mt-10 max-w-md">
-        <h3 className="text-sm font-medium">Workspace repository</h3>
-        <p className="mt-1 font-mono text-xs text-muted-foreground">
-          {workspace.workspaceRepositoryUrl}
-        </p>
-        <p className="mt-2 text-sm text-muted-foreground">
-          Relink keeps this Workspace and its conversations. Knowledge on the
-          old remote is left as-is.
-        </p>
-        <div className="mt-4">
-          <WorkspaceRepositoryPicker
-            orgSlug={orgSlug}
-            currentUrl={workspace.workspaceRepositoryUrl}
-            submitLabel="Relink"
-            pending={relinkMutation.isPending}
-            error={relinkError}
-            onSubmit={(url) => {
+      <section className="mt-10 max-w-lg">
+        <h2 className="text-sm font-medium text-foreground">
+          Workspace repository
+        </h2>
+        <div className="mt-3 flex items-center gap-3 rounded-lg border border-border px-3 py-2">
+          <span
+            className="ctx-node size-8 shrink-0 rounded-lg text-muted-foreground"
+            aria-hidden
+          >
+            <IconGitBranch className="size-4" />
+          </span>
+          <div className="min-w-0 flex-1">
+            <p className="truncate text-sm text-foreground">{repoTitle}</p>
+            {repoWebUrl ? (
+              <a
+                href={repoWebUrl}
+                target="_blank"
+                rel="noreferrer"
+                className="truncate text-xs text-muted-foreground hover:text-foreground"
+              >
+                {workspace.workspaceRepositoryUrl}
+              </a>
+            ) : (
+              <p className="truncate font-mono text-xs text-muted-foreground">
+                {workspace.workspaceRepositoryUrl}
+              </p>
+            )}
+          </div>
+          <Button
+            variant="quiet"
+            size="icon-sm"
+            aria-label="Edit workspace repository"
+            onPress={() => {
               setRelinkError(null)
-              relinkMutation.mutate(url)
+              setRelinkOpen(true)
             }}
-          />
+          >
+            <IconPencil className="size-4 text-muted-foreground" aria-hidden />
+          </Button>
         </div>
       </section>
 
-      <section className="mt-10 max-w-md">
-        <h3 className="text-sm font-medium">Linked repositories</h3>
-        <p className="mt-1 text-sm text-muted-foreground">
-          Extra remotes for codesearch. Link or unlink here.
-        </p>
-        <ul className="mt-3 space-y-2">
-          {workspace.linkedRepositories.length === 0 ? (
-            <li className="text-sm text-muted-foreground">None linked.</li>
-          ) : (
-            workspace.linkedRepositories.map((item) => (
-              <li
-                key={item.id}
-                className="flex items-center justify-between gap-2 rounded-lg border border-border px-3 py-2"
-              >
-                <span className="min-w-0 truncate font-mono text-xs">
-                  {item.gitUrl}
-                </span>
-                <Button
-                  variant="outline"
-                  className="shrink-0"
-                  onPress={() => unlinkMutation.mutate(item.id)}
-                >
-                  Unlink
-                </Button>
-              </li>
-            ))
-          )}
-        </ul>
-        <form
-          className="mt-4 flex gap-2"
-          onSubmit={(event) => {
-            event.preventDefault()
-            if (linkUrl.trim()) linkMutation.mutate()
-          }}
-        >
-          <TextField
-            aria-label="Git URL to link"
-            value={linkUrl}
-            onChange={setLinkUrl}
-            placeholder="https://github.com/org/repo.git"
-            className="min-w-0 flex-1"
-          />
-          <Button type="submit" variant="secondary">
-            Link
-          </Button>
-        </form>
-      </section>
+      <WorkspaceLinkedRepositories orgSlug={orgSlug} workspace={workspace} />
 
-      <section className="mt-16 max-w-md">
-        <h3 className="text-sm font-medium">Delete Workspace</h3>
+      <section className="mt-16 max-w-lg">
+        <h2 className="text-sm font-medium text-foreground">
+          Delete Workspace
+        </h2>
         <p className="mt-1 text-sm text-muted-foreground">
           This removes the Workspace, its conversations, and serving knowledge.
           The git remote is not deleted.
@@ -276,6 +317,41 @@ export function WorkspaceSettingsPane(props: {
       </section>
 
       <Modal
+        isOpen={relinkOpen}
+        onOpenChange={(open) => {
+          setRelinkOpen(open)
+          if (!open) setRelinkError(null)
+        }}
+        isDismissable={!relinkMutation.isPending}
+      >
+        <Dialog>
+          <Heading
+            slot="title"
+            className="my-0 text-lg font-medium leading-6 text-foreground"
+          >
+            Workspace repository
+          </Heading>
+          <p className="mt-1 text-sm text-muted-foreground">
+            Relink keeps this Workspace and its conversations. Knowledge on the
+            old remote is left as-is.
+          </p>
+          <div className="mt-5">
+            <WorkspaceRepositoryPicker
+              orgSlug={orgSlug}
+              currentUrl={workspace.workspaceRepositoryUrl}
+              submitLabel="Save"
+              pending={relinkMutation.isPending}
+              error={relinkError}
+              onSubmit={(url) => {
+                setRelinkError(null)
+                relinkMutation.mutate(url)
+              }}
+            />
+          </div>
+        </Dialog>
+      </Modal>
+
+      <Modal
         isOpen={deleteOpen}
         onOpenChange={(open) => {
           setDeleteOpen(open)
@@ -288,16 +364,16 @@ export function WorkspaceSettingsPane(props: {
             <>
               <Heading
                 slot="title"
-                className="my-0 text-xl font-semibold leading-6 text-zinc-100"
+                className="my-0 text-lg font-medium leading-6 text-foreground"
               >
                 Delete Workspace?
               </Heading>
               <div className="absolute right-6 top-6 size-6 text-destructive">
                 <IconAlertCircle aria-hidden className="size-6 stroke-2" />
               </div>
-              <p className="mt-3 text-zinc-400">
+              <p className="mt-3 text-sm text-muted-foreground">
                 Type{" "}
-                <strong className="font-medium text-zinc-100">
+                <strong className="font-medium text-foreground">
                   {workspace.displayName}
                 </strong>{" "}
                 to confirm. This removes the Workspace, its conversations, and

@@ -1,41 +1,26 @@
-import type { Meta, StoryObj } from "@storybook/react-vite"
-import { userEvent, within } from "storybook/test"
+import type { Decorator, Meta, StoryObj } from "@storybook/react-vite"
 import { entryPageInnerDecorators } from "../../../.storybook/decorators/entry-page-decorators"
 import type { StoryRouteParams } from "../../../.storybook/decorators/with-story-route"
 import { WorkspaceGraphPane } from "./WorkspaceGraphPane"
 import { docsWorkspaceGraph } from "./workspace-fixtures"
 
-const graphWithOrphan = {
-  ...docsWorkspaceGraph,
-  metrics: {
-    ...docsWorkspaceGraph.metrics,
-    totalNodes: 3,
-    totalEdges: 1,
-    nodesReturned: 3,
-    edgesReturned: 1,
-  },
-  nodes: [
-    ...docsWorkspaceGraph.nodes,
-    {
-      id: "knowledge/orphan.md",
-      kind: "file",
-      name: "orphan.md",
-      summary: "No claims yet",
-    },
-  ],
+function paneFrame(widthClass: string): Decorator {
+  return (Story) => (
+    <div className={`flex h-[32rem] overflow-hidden bg-zinc-950 ${widthClass}`}>
+      <Story />
+    </div>
+  )
 }
 
 const meta = {
   title: "Components/Workspaces/GraphPane",
   component: WorkspaceGraphPane,
-  decorators: [
-    (Story) => (
-      <div className="flex h-[24rem] bg-zinc-950">
-        <Story />
-      </div>
-    ),
-    ...entryPageInnerDecorators,
-  ],
+  decorators: [paneFrame("w-full"), ...entryPageInnerDecorators],
+  args: {
+    orgSlug: "acme",
+    workspaceSlug: "docs",
+    pending: false,
+  },
   parameters: {
     layout: "fullscreen",
     storyRoute: {
@@ -50,38 +35,46 @@ export default meta
 type Story = StoryObj<typeof meta>
 
 export const EmptyProjection: Story = {
-  args: { graph: undefined, pending: false },
+  args: {
+    pending: false,
+    graph: {
+      ...docsWorkspaceGraph,
+      metrics: {
+        ...docsWorkspaceGraph.metrics,
+        totalNodes: 0,
+        totalEdges: 0,
+        nodesReturned: 0,
+        edgesReturned: 0,
+      },
+      nodes: [],
+      edges: [],
+    },
+  },
 }
 
 export const Loading: Story = {
   args: { graph: undefined, pending: true },
 }
 
-export const WithUnits: Story = {
+export const Populated: Story = {
   args: {
     pending: false,
     graph: docsWorkspaceGraph,
   },
 }
 
-export const UnitSelected: Story = {
+export const NarrowPane: Story = {
   args: {
     pending: false,
     graph: docsWorkspaceGraph,
   },
-  play: async ({ canvasElement }) => {
-    const canvas = within(canvasElement)
-    await userEvent.click(canvas.getByRole("button", { name: "billing.md" }))
-  },
+  decorators: [paneFrame("w-96")],
 }
 
-export const UnitNoClaims: Story = {
+export const WidePane: Story = {
   args: {
     pending: false,
-    graph: graphWithOrphan,
+    graph: docsWorkspaceGraph,
   },
-  play: async ({ canvasElement }) => {
-    const canvas = within(canvasElement)
-    await userEvent.click(canvas.getByRole("button", { name: "orphan.md" }))
-  },
+  decorators: [paneFrame("w-full max-w-5xl")],
 }

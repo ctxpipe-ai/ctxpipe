@@ -29,9 +29,9 @@ function interquartileRange(values: number[]): number {
 }
 
 /**
- * Choose a camera-fit subset for KG answer focus. We keep most focused nodes in
- * frame, but trim positional outliers so one far-away match does not make the
- * actual answer unreadably small.
+ * Choose a camera-fit subset for lasso, search, and neighbourhood focus.
+ * Keep most focused nodes in frame, but trim positional outliers so one
+ * far-away match does not shrink the rest unreadably.
  */
 export function chooseRobustFocusFitIndices(
   indices: number[],

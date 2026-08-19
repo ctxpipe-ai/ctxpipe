@@ -43,9 +43,19 @@ export function WorkspaceRepositoryPicker(props: {
         query: { per_page: "100" },
       })
       if (!res.ok)
-        return { repositories: [] as { name: string; clone_url: string }[] }
+        return {
+          repositories: [] as {
+            name: string
+            full_name?: string
+            clone_url: string
+          }[],
+        }
       return res.json() as Promise<{
-        repositories: { name: string; clone_url: string }[]
+        repositories: {
+          name: string
+          full_name?: string
+          clone_url: string
+        }[]
       }>
     },
     enabled: mode === "select",
@@ -147,7 +157,7 @@ export function WorkspaceRepositoryPicker(props: {
                   disabled={pending}
                   onClick={() => onSubmit(repo.clone_url)}
                 >
-                  <span>{repo.name}</span>
+                  <span>{repo.full_name ?? repo.name}</span>
                   <span className="font-mono text-xs text-muted-foreground">
                     {repo.clone_url}
                   </span>

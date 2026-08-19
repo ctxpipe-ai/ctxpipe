@@ -119,3 +119,23 @@ export default meta
 type Story = StoryObj<typeof meta>
 
 export const NativeLegends: Story = {}
+
+export const PaneNarrow: Story = {
+  decorators: [
+    (Story) => (
+      <div className="relative h-[32rem] w-96 overflow-hidden bg-zinc-950">
+        <Story />
+      </div>
+    ),
+  ],
+}
+
+export const PaneWide: Story = {
+  decorators: [
+    (Story) => (
+      <div className="relative h-[32rem] w-full max-w-5xl overflow-hidden bg-zinc-950">
+        <Story />
+      </div>
+    ),
+  ],
+}

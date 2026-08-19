@@ -262,9 +262,7 @@ export function WorkspacePane(props: {
             </TabList>
             <div className="flex shrink-0 items-end gap-0.5">
               <HeaderIcon
-                label={
-                  props.maximized ? "Show conversation" : "Maximise pane"
-                }
+                label={props.maximized ? "Show conversation" : "Maximise pane"}
                 icon={
                   props.maximized ? (
                     <IconArrowsDiagonalMinimize stroke={1.6} aria-hidden />
@@ -328,16 +326,19 @@ export function WorkspacePane(props: {
             {props.pane.kind === "graph" ? (
               <Suspense
                 fallback={
-                  <div className="flex flex-1 flex-col gap-2 p-4">
-                    <div className="h-3 w-24 rounded-lg bg-zinc-800" />
-                    <div className="h-8 rounded-lg bg-zinc-900" />
-                    <div className="h-8 rounded-lg bg-zinc-900" />
-                  </div>
+                  <WorkspaceGraphPane
+                    orgSlug={props.orgSlug}
+                    workspaceSlug={props.workspace.slug}
+                    graph={undefined}
+                    pending
+                    onOpenSource={props.onPinFile}
+                  />
                 }
               >
                 <WorkspaceGraphPaneBody
                   orgSlug={props.orgSlug}
                   workspaceSlug={props.workspace.slug}
+                  onOpenSource={props.onPinFile}
                 />
               </Suspense>
             ) : null}
@@ -1023,11 +1024,20 @@ function WorkspaceGitFilePreview(props: {
 function WorkspaceGraphPaneBody(props: {
   orgSlug: string
   workspaceSlug: string
+  onOpenSource?: (path: string) => void
 }) {
   const { data } = useSuspenseQuery(
     workspaceGraphOptions(props.orgSlug, props.workspaceSlug),
   )
-  return <WorkspaceGraphPane graph={data} pending={false} />
+  return (
+    <WorkspaceGraphPane
+      orgSlug={props.orgSlug}
+      workspaceSlug={props.workspaceSlug}
+      graph={data}
+      pending={false}
+      onOpenSource={props.onOpenSource}
+    />
+  )
 }
 
 function PaneIconTab(props: { id: string; label: string; icon: ReactNode }) {

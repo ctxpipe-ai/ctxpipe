@@ -1,6 +1,7 @@
 import { useVirtualizer } from "@tanstack/react-virtual"
 import { useRef } from "react"
 import { Checkbox } from "@/components/ui/Checkbox"
+import { cn } from "@/lib/utils"
 import type { GithubRepoItem } from "../githubRepoSelection"
 
 const ROW_SIZE_PX = 40
@@ -9,10 +10,12 @@ export function GithubRepoPickerList({
   repos,
   selectedIds,
   onToggle,
+  className,
 }: {
   repos: readonly GithubRepoItem[]
   selectedIds: ReadonlySet<number>
   onToggle: (id: number, selected: boolean) => void
+  className?: string
 }) {
   const parentRef = useRef<HTMLDivElement>(null)
   const virtualizer = useVirtualizer({
@@ -26,7 +29,10 @@ export function GithubRepoPickerList({
   return (
     <div
       ref={parentRef}
-      className="max-h-96 overflow-auto rounded-none border border-white/[0.06] bg-card/40 [overflow-anchor:none]"
+      className={cn(
+        "max-h-96 overflow-auto rounded-none border border-white/[0.06] bg-card/40 [overflow-anchor:none]",
+        className,
+      )}
     >
       <ul
         aria-label="Repositories"
