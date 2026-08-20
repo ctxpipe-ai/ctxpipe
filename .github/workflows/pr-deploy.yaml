@@ -417,6 +417,81 @@ jobs:
               echo "Set HOST/NITRO_HOST=0.0.0.0 and AUTH_BASE_URL=$auth_base for UI $service_id"
             }
 
+            # Preview UI has no production Railway domain, so duplicate-from-production
+            # leaves backend UI_PROXY_URL on a private hostname that can still resolve
+            # to the warm production UI. Pin a PR-specific public domain instead.
+            preview_ui_public_domain() {
+              local response domain created
+              response="$(railway_graphql \
+                'query serviceInstanceDomain($environmentId: String!, $serviceId: String!) { serviceInstance(environmentId: $environmentId, serviceId: $serviceId) { domains { serviceDomains { domain } customDomains { domain } } } }' \
+                "$(jq -nc --arg env "$ENV_ID" --arg service "$UI_SERVICE_ID" '{environmentId:$env, serviceId:$service}')")"
+              domain="$(echo "$response" | jq -r '.data.serviceInstance.domains.customDomains[0].domain // .data.serviceInstance.domains.serviceDomains[0].domain // empty')"
+              if [[ -n "$domain" ]]; then
+                printf '%s' "$domain"
+                return 0
+              fi
+              created="$(railway_graphql \
+                'mutation serviceDomainCreate($input: ServiceDomainCreateInput!) { serviceDomainCreate(input: $input) { id domain } }' \
+                "$(jq -nc --arg env "$ENV_ID" --arg service "$UI_SERVICE_ID" '{input:{environmentId:$env, serviceId:$service, targetPort:3002}}')" 2>/dev/null || true)"
+              domain="$(echo "${created:-}" | jq -r '.data.serviceDomainCreate.domain // empty')"
+              if [[ -z "$domain" ]]; then
+                created="$(railway_graphql \
+                  'mutation serviceDomainCreate($input: ServiceDomainCreateInput!) { serviceDomainCreate(input: $input) { id domain } }' \
+                  "$(jq -nc --arg env "$ENV_ID" --arg service "$UI_SERVICE_ID" '{input:{environmentId:$env, serviceId:$service}}')")"
+                domain="$(echo "$created" | jq -r '.data.serviceDomainCreate.domain // empty')"
+              fi
+              if [[ -z "$domain" ]]; then
+                echo "Failed to create preview UI public domain: $(echo "$created" | jq -c '{data,errors}')" >&2
+                return 1
+              fi
+              printf '%s' "$domain"
+            }
+
+            upsert_backend_ui_proxy_url() {
+              local ui_url="$1"
+              railway_graphql \
+                'mutation variableCollectionUpsert($input: VariableCollectionUpsertInput!) { variableCollectionUpsert(input: $input) }' \
+                "$(jq -nc --arg project "$RAILWAY_PROJECT_ID" --arg env "$ENV_ID" --arg service "$BACKEND_SERVICE_ID" --arg url "$ui_url" \
+                  '{
+                    input: {
+                      projectId: $project,
+                      environmentId: $env,
+                      serviceId: $service,
+                      skipDeploys: true,
+                      variables: {
+                        UI_PROXY_URL: $url
+                      }
+                    }
+                  }')"
+              echo "Set backend UI_PROXY_URL=$ui_url"
+            }
+
+            smoke_test_preview_ui() {
+              local backend_url="https://backend-pr-${PR_NUMBER}.up.railway.app"
+              local deadline html js_path js
+              deadline=$(( $(date +%s) + 180 ))
+              echo "Smoke-testing preview UI via $backend_url (workspace routes, not production /repositories)"
+              while true; do
+                html="$(curl -fsS --max-time 25 "$backend_url/" || true)"
+                js_path="$(printf '%s' "$html" | grep -oE '/assets/main-[A-Za-z0-9._-]+\.js' | head -1 || true)"
+                if [[ -n "$js_path" ]]; then
+                  js="$(curl -fsS --max-time 25 "${backend_url}${js_path}" || true)"
+                  if printf '%s' "$js" | grep -q '_orgSlug.ws._workspaceSlug'; then
+                    echo "Preview UI smoke test passed ($js_path includes workspace routes)"
+                    return 0
+                  fi
+                  echo "Preview UI JS $js_path still looks like production (no workspace routes yet)" >&2
+                else
+                  echo "Preview UI HTML had no main JS bundle yet" >&2
+                fi
+                if (( $(date +%s) >= deadline )); then
+                  echo "ERROR: preview is still serving production UI at $backend_url" >&2
+                  return 1
+                fi
+                sleep 8
+              done
+            }
+
             # Backend: allow waking the worker after enqueue (Railway GraphQL deploy).
             upsert_preview_backend_wake_variables() {
               local service_id="$1"
@@ -655,6 +730,9 @@ jobs:
             upsert_database_url_without_deploy "$BACKEND_SERVICE_ID" >/dev/null
             upsert_preview_service_variables "$BACKEND_SERVICE_ID" >/dev/null
             upsert_preview_backend_wake_variables "$BACKEND_SERVICE_ID" >/dev/null
+            UI_PUBLIC_DOMAIN="$(preview_ui_public_domain)"
+            echo "Preview UI public domain: $UI_PUBLIC_DOMAIN"
+            upsert_backend_ui_proxy_url "https://${UI_PUBLIC_DOMAIN}" >/dev/null
             update_source_image "$BACKEND_SERVICE_ID" "$BACKEND_IMAGE" >/dev/null
             deploy_service "$BACKEND_SERVICE_ID" >/dev/null
             wait_for_image_deploy "backend" "$BACKEND_SERVICE_ID" "$BACKEND_IMAGE"
@@ -671,6 +749,7 @@ jobs:
             update_ui_source_image "$UI_SERVICE_ID" "$UI_IMAGE" >/dev/null
             deploy_service "$UI_SERVICE_ID" >/dev/null
             wait_for_image_deploy "ui" "$UI_SERVICE_ID" "$UI_IMAGE"
+            smoke_test_preview_ui
 
             upsert_database_url_without_deploy "$CODESEARCH_SERVICE_ID" >/dev/null
             update_source_image "$CODESEARCH_SERVICE_ID" "$CODESEARCH_IMAGE" >/dev/null

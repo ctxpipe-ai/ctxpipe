@@ -146,6 +146,26 @@ jobs:
             "$(jq -nc --arg project "$RAILWAY_PROJECT_ID" --arg env "$ENV_ID" --arg service "$UI_SERVICE_ID" --arg auth "https://backend-pr-${{ inputs.pr_number }}.up.railway.app" \
               '{input:{projectId:$project,environmentId:$env,serviceId:$service,skipDeploys:true,variables:{HOST:"0.0.0.0",NITRO_HOST:"0.0.0.0",AUTH_BASE_URL:$auth}}}')" >/dev/null
 
+          UI_DOMAIN="$(railway_graphql \
+            'query serviceInstanceDomain($environmentId: String!, $serviceId: String!) { serviceInstance(environmentId: $environmentId, serviceId: $serviceId) { domains { serviceDomains { domain } customDomains { domain } } } }' \
+            "$(jq -nc --arg env "$ENV_ID" --arg service "$UI_SERVICE_ID" '{environmentId:$env, serviceId:$service}')" \
+            | jq -r '.data.serviceInstance.domains.customDomains[0].domain // .data.serviceInstance.domains.serviceDomains[0].domain // empty')"
+          if [[ -z "$UI_DOMAIN" ]]; then
+            UI_DOMAIN="$(railway_graphql \
+              'mutation serviceDomainCreate($input: ServiceDomainCreateInput!) { serviceDomainCreate(input: $input) { domain } }' \
+              "$(jq -nc --arg env "$ENV_ID" --arg service "$UI_SERVICE_ID" '{input:{environmentId:$env, serviceId:$service, targetPort:3002}}')" \
+              | jq -r '.data.serviceDomainCreate.domain // empty')"
+          fi
+          if [[ -n "$UI_DOMAIN" ]]; then
+            railway_graphql \
+              'mutation variableCollectionUpsert($input: VariableCollectionUpsertInput!) { variableCollectionUpsert(input: $input) }' \
+              "$(jq -nc --arg project "$RAILWAY_PROJECT_ID" --arg env "$ENV_ID" --arg service "$BACKEND_SERVICE_ID" --arg url "https://${UI_DOMAIN}" \
+                '{input:{projectId:$project,environmentId:$env,serviceId:$service,skipDeploys:true,variables:{UI_PROXY_URL:$url}}}')" >/dev/null
+            echo "Set backend UI_PROXY_URL=https://${UI_DOMAIN}"
+          else
+            echo "Warning: could not resolve a preview UI public domain; leaving UI_PROXY_URL unchanged" >&2
+          fi
+
           update_img "$BACKEND_SERVICE_ID" "$BACKEND_IMAGE"
           deploy "$BACKEND_SERVICE_ID"
           wait_ok backend "$BACKEND_SERVICE_ID" "$BACKEND_IMAGE"
