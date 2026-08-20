@@ -42,12 +42,19 @@ describe("Linear setup model", () => {
       "target",
     )
     expect(
-      getLinearWizardBodyId({ ...liveStatus, selectedScopeCount: 0 }),
+      getLinearWizardBodyId({
+        ...liveStatus,
+        selectedScopeCount: null,
+        setupPhase: "draft",
+      }),
     ).toBe("scope")
     expect(
       getLinearWizardBodyId({ ...liveStatus, setupPhase: "awaiting_merge" }),
     ).toBe("merge")
     expect(getLinearWizardBodyId(liveStatus)).toBe("complete")
+    expect(
+      getLinearWizardBodyId({ ...liveStatus, selectedScopeCount: null }),
+    ).toBe("complete")
     expect(getLinearCardPrimaryCta(liveStatus)).toEqual({
       kind: "manage_scope",
       label: "Manage scope",

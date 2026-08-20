@@ -616,3 +616,9 @@ Highest-priority confirmed rules for agents. Migrated from former `patterns.md` 
 - **Date:** 2026-08-19
 - **Source:** slack-connector PR-267 live diagnosis (499 webhook retries and three replacing worker deploys)
 
+### Connector status must not hold DB transactions across provider calls
+- **Rule:** Do not fetch GitHub/provider state from a frequently polled connector status endpoint while `withNetworkOrgContext` keeps the request-wide org transaction open. In production, 3-second status polling exhausted GitHub quota; Octokit back-off left Postgres transactions idle, `idle-in-transaction` termination destabilised the pool, and auth/MCP/connectors queued for 30–120 seconds. Status reads should use persisted or bounded-cache state, provider calls need short timeouts outside DB transactions, and stable connector screens must not poll every few seconds.
+- **Category:** reliability
+- **Date:** 2026-08-20
+- **Source:** production Railway incident diagnosis (GitHub quota exhaustion → idle transaction termination → pg-pool acquisition timeouts)
+
