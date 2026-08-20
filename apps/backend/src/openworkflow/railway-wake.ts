@@ -1,6 +1,8 @@
 import { log } from "../observability/logger.js"
 
-const DEBOUNCE_MS = 25_000
+// Slack retries (~3s) plus PR worker boot (~30s). A 25s window still stacked
+// serviceInstanceDeployV2 calls that replaced workers mid-start (PR-267).
+const DEBOUNCE_MS = 120_000
 
 /** Same as Terraform `railway_service.open_workflow.name`. */
 const OPENWORKFLOW_SERVICE_NAME = "openworkflow"

@@ -122,48 +122,61 @@ export function registerSlackWebhookRoute(app: OpenAPIHono<AppEnv>) {
 
     const target = await getSlackSyncTargetByConnectionId(connection.id)
     if (!target || target.orgId !== connection.orgId || !target.enabled) {
+      getLogger().info("slack_webhook_mention_skipped_not_live", {
+        connectionId: connection.id,
+        teamId,
+        enabled: target?.enabled ?? false,
+      })
       return c.json({ ok: true }, 200)
     }
 
-    try {
-      await runWorkflowWithWorkerWake(
-        slackMentionAgent.spec,
-        {
-          orgId: connection.orgId,
+    getLogger().info("slack_webhook_app_mention", {
+      connectionId: connection.id,
+      channelId,
+      threadTs,
+      eventId: parsed.data.event_id,
+    })
+
+    // Slack Events must ACK within ~3s. Awaiting OpenWorkflow + Neon on a PR
+    // preview overruns that; Slack returns 499, retries, and each retry wakes a
+    // new openworkflow deploy that kills the previous worker. Enqueue after 200.
+    void runWorkflowWithWorkerWake(
+      slackMentionAgent.spec,
+      {
+        orgId: connection.orgId,
+        connectionId: connection.id,
+        channelId,
+        threadTs,
+        mentionText: event.text,
+        mentionUserId: event.user,
+      },
+      {
+        // Mention ts (not thread root) so a later @ is a new agent run;
+        // Slack retries reuse the same event ts and still dedupe (ADR-025 §4).
+        idempotencyKey: `slack-mention:${connection.id}:${channelId}:${threadTs}:${mentionTs}`,
+      },
+    )
+      .then(() => {
+        getLogger().info("slack_mention_agent_enqueued", {
           connectionId: connection.id,
           channelId,
           threadTs,
-          mentionText: event.text,
-          mentionUserId: event.user,
-        },
-        {
-          // Mention ts (not thread root) so a later @ is a new agent run;
-          // Slack retries reuse the same event ts and still dedupe (ADR-025 §4).
-          idempotencyKey: `slack-mention:${connection.id}:${channelId}:${threadTs}:${mentionTs}`,
-        },
-      )
-      getLogger().info("slack_mention_agent_enqueued", {
-        connectionId: connection.id,
-        channelId,
-        threadTs,
-        eventId: parsed.data.event_id,
+          eventId: parsed.data.event_id,
+        })
       })
-    } catch (err: unknown) {
-      getLogger().error(err instanceof Error ? err : new Error(String(err)), {
-        step: "slack_mention_agent.enqueue",
-        connectionId: connection.id,
+      .catch(async (err: unknown) => {
+        getLogger().error(err instanceof Error ? err : new Error(String(err)), {
+          step: "slack_mention_agent.enqueue",
+          connectionId: connection.id,
+        })
+        await publishSlackMentionStatus({
+          env,
+          connection,
+          channelId,
+          threadTs,
+          text: SLACK_MENTION_STATUS_ENQUEUE_FAILED,
+        })
       })
-      const published = await publishSlackMentionStatus({
-        env,
-        connection,
-        channelId,
-        threadTs,
-        text: SLACK_MENTION_STATUS_ENQUEUE_FAILED,
-      })
-      if (!published) {
-        return c.json({ error: "Failed to enqueue Slack mention agent" }, 503)
-      }
-    }
 
     return c.json({ ok: true }, 200)
   })

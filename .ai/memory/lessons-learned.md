@@ -562,3 +562,45 @@ Highest-priority confirmed rules for agents. Migrated from former `patterns.md` 
 - **Date:** 2026-08-19
 - **Source:** slack-connector PR deploy (`connections_slack_team_id_uq` already exists)
 
+### Slack Events API bot green-dot is an app-settings toggle
+- **Rule:** HTTP Events API bots are grey until **Always Show My Bot as Online** is on in [api.slack.com/apps](https://api.slack.com/apps) → **App Home** / **Bot Users** (Marketplace apps: Live App Settings). Slack then sets `always_active: true`; clients show a green dot even though `presence` stays `away`. `users.setPresence` cannot force a bot online. Socket Mode does **not** restore RTM-style connected=green and is the wrong production delivery path (Marketplace requires HTTP). Leave Socket Mode **off** for ctxpipe (`POST /api/v1/webhook/slack`). The toggle is a liveness lie — same one Claude/Cursor use — not a second event-delivery protocol.
+- **Category:** convention
+- **Date:** 2026-08-20
+- **Source:** user feedback after first successful Slack capture (PR-267); Slack [presence docs](https://docs.slack.dev/apis/web-api/user-presence-and-status) Events API bots section
+
+### Slack mention “working…” latency is the worker, not the ACK
+- **Rule:** After ACK-first, Slack already has the mention. **ctx| agent working…** is posted by `slack-mention-agent`, not the webhook. On Railway `pr-N` the worker idle-exits (~180s) and wake is a full `serviceInstanceDeployV2`, so 10–20s to the first status is boot. A warm worker should be ~1–3s to that reply. Do not diagnose that delay as Slack Events slowness. To match Claude-like snappiness, post working from the webhook (bot token is already on that request) and let the job `chat.update` it.
+- **Category:** workflow
+- **Date:** 2026-08-20
+- **Source:** user feedback after first successful Slack capture (PR-267)
+
+### Slack Event Subscriptions URL is app-wide
+- **Rule:** Slack OAuth can succeed against a PR `AUTH_BASE_URL` while `app_mention` still POSTs to production (or nowhere). Event Subscriptions Request URL is one dashboard setting, not per-install. To test capture on a PR env, point it at that env’s `/api/v1/webhook/slack` and mention the bot via autocomplete. `status === installed` in Postgres is not proof events are reaching this deploy.
+- **Category:** convention
+- **Date:** 2026-08-19
+- **Source:** slack-connector live test (PR-267); zero webhook logs on mention
+
+### PR preview codesearch and worker sleep
+- **Rule:** Railway `pr-N` codesearch often SLEEPING minutes after boot; GitHub ingest then fails (connection refused / mid-job kill). Openworkflow idle-exits after `OPENWORKFLOW_IDLE_EXIT_SECONDS` (180 on previews) with a **clean shutdown**, so `environment_status` still shows SUCCESS. Proof of a restart is a **new deploy timestamp**, not the SUCCESS badge — do not wait 10 minutes, it will sleep again. Backend `RAILWAY_TOKEN` is supposed to `serviceInstanceDeployV2` after enqueue (`railway-wake.ts`); if no new worker deploy appears, the job did not run. Slack Events time out in ~3s; a sleeping PR backend can take ~12s to accept `POST /api/v1/webhook/slack`, so a real `app_mention` pill vanishes with **no 200** — wake backend (hit the app) and worker **before** mentioning. Do not treat a failed chip as a Slack-connector bug without checking sleep first.
+- **Category:** workflow
+- **Date:** 2026-08-19
+- **Source:** slack-connector PR-267 (codesearch stopped ~13:42 UTC; worker idle-exit 14:01 with no wake deploy)
+
+### Slack capture: webhook 200 and Connectors Connected are not capture
+- **Rule:** `POST /api/v1/webhook/slack` returns 200 for skipped events, a dead worker, and a successful enqueue. `GET …/connectors` 200 only means Postgres has `installed` + a bound repo. A working capture is all three: a **new** webhook POST after the mention, **ctx| agent working…** in-thread, and a git commit under `slack/`. After reconnect, no new webhook means the message was not an `app_mention` (need the autocomplete pill). `chat.postMessage` swallows `not_in_channel` — you get silence, not an error reply.
+- **Category:** workflow
+- **Date:** 2026-08-19
+- **Source:** slack-connector PR-267 live debug (webhooks 13:58/14:07; none after 14:10 rebind; last git capture 13 Aug)
+
+### GitHub App credential precedence and PEM validation
+- **Rule:** GitHub writes resolve complete encrypted credentials from the selected `connections.config` **before** falling back to `GITHUB_PRIVATE_KEY`. Changing the worker environment does not repair a malformed `privateKeyEnc`; the backfill intentionally only fills rows where it is absent. Validate both the environment key and the decrypted per-connection key with `crypto.createPrivateKey()` without printing either secret. Repair an existing bad row through explicit credential rotation, not a blanket backfill.
+- **Category:** convention
+- **Date:** 2026-08-19
+- **Source:** slack-connector PR-267 live diagnosis (`SlackTest` environment PEM valid; stored connection PEM failed with `ERR_OSSL_NO_START_LINE`)
+
+### Slack Events must ACK before durable enqueue
+- **Rule:** After signature, event-shape, and live-target validation, return Slack Events HTTP 200 before awaiting OpenWorkflow/Neon. Awaiting enqueue can exceed Slack's roughly three-second deadline and produce 499 retries; in Railway PR previews, each retry can trigger `serviceInstanceDeployV2` and replace the worker that is still booting. Enqueue asynchronously, publish a terminal status on enqueue failure, and debounce worker wakes beyond the retry burst.
+- **Category:** workflow
+- **Date:** 2026-08-19
+- **Source:** slack-connector PR-267 live diagnosis (499 webhook retries and three replacing worker deploys)
+

@@ -122,31 +122,31 @@ describe("Slack webhook", () => {
     expect(postStatusMock).not.toHaveBeenCalled()
   })
 
-  it("posts a terminal failure and returns 200 when enqueue fails", async () => {
+  it("posts a terminal failure after 200 when enqueue fails", async () => {
     runWorkflowMock.mockRejectedValue(new Error("queue down"))
 
     const response = await mentionRequest()
 
     expect(response.status).toBe(200)
-    expect(postStatusMock).toHaveBeenCalledWith(
-      expect.objectContaining({
-        channelId: "C1",
-        threadTs: "1710000000.000001",
-        text: "Engineering context capture failed. Could not start the capture job. Mention the bot again.",
-      }),
-    )
+    await vi.waitFor(() => {
+      expect(postStatusMock).toHaveBeenCalledWith(
+        expect.objectContaining({
+          channelId: "C1",
+          threadTs: "1710000000.000001",
+          text: "Engineering context capture failed. Could not start the capture job. Mention the bot again.",
+        }),
+      )
+    })
   })
 
-  it("returns 503 when enqueue fails and the failure status cannot be posted", async () => {
+  it("still returns 200 when enqueue fails and the failure status cannot be posted", async () => {
     runWorkflowMock.mockRejectedValue(new Error("queue down"))
     postStatusMock.mockResolvedValue(null)
 
     const response = await mentionRequest()
 
-    expect(response.status).toBe(503)
-    await expect(response.json()).resolves.toEqual({
-      error: "Failed to enqueue Slack mention agent",
-    })
+    expect(response.status).toBe(200)
+    await expect(response.json()).resolves.toEqual({ ok: true })
   })
 
   it("uses a new idempotency key when the same thread is mentioned again", async () => {
@@ -179,20 +179,24 @@ describe("Slack webhook", () => {
     )
   })
 
-  it("awaits workflow enqueue before returning 200", async () => {
+  it("returns 200 before workflow enqueue settles", async () => {
     let released = false
     runWorkflowMock.mockImplementation(
       () =>
         new Promise((resolve) => {
-          queueMicrotask(() => {
+          setTimeout(() => {
             released = true
             resolve(undefined)
-          })
+          }, 50)
         }),
     )
 
-    await mentionRequest()
-    expect(released).toBe(true)
+    const response = await mentionRequest()
+    expect(response.status).toBe(200)
+    expect(released).toBe(false)
+    await vi.waitFor(() => {
+      expect(released).toBe(true)
+    })
   })
 
   it("ignores DMs and MPIMs", async () => {
