@@ -214,6 +214,12 @@ Highest-priority confirmed rules for agents. Migrated from former `patterns.md` 
 - **Date:** 2026-08-19
 - **Source:** user correction during Slack `slack_sync_targets` unification (PR #267)
 
+### Connector product vs self-host docs
+- **Rule:** scoped-mirror connectors (Linear, Notion) need a **hosted product page** under `apps/docs/content/docs/(guide)/connections/source-connectors/<slug>.mdx` and a **self-host operator page** under `apps/docs/content/docs/self-hosting/<slug>.mdx`. Use Linear's hosted page as the structural template (managed-app callout, config-in-git, setup steps, layout, webhooks, troubleshooting). Copy Linear's headings, not Linear's provider-specific content. The hosted page describes user setup; it does not document creating the provider OAuth app — that stays on the self-host page, with a User guide pointer back. Add the slug to `source-connectors/meta.json` and cross-link connected-sources / context-repository.
+- **Category:** convention
+- **Date:** 2026-08-20
+- **Source:** notion-docs branch; Linear hosted guide as template
+
 ### Tool organization
 - **Rule:** reusable agent tools under `src/tools`; graph-specific instructions and nodes under `src/graphs/<graphName>/`
 - **Category:** convention

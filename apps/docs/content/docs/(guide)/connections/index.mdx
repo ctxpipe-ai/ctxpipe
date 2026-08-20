@@ -36,10 +36,10 @@ Linear connector lets you choose teams, projects, documents, and initiatives,
 and the Notion connector lets you choose pages and databases. Each connector
 copies its selected content into a GitHub repository, then updates that
 Git-backed source when upstream content changes.
-For Linear, the configuration pull request branch holds the draft
-`linear/config.yaml`, the target branch holds the live YAML after merge, and
-the connection record's `config` stores the repository binding rather than a
-second copy of scope.
+For Linear and Notion, the configuration pull request branch holds the draft
+`linear/config.yaml` or `notion/config.yaml`, the target branch holds the live
+YAML after merge, and the connection record's `config` stores the repository
+binding rather than a second copy of scope.
 
 This gives you:
 
