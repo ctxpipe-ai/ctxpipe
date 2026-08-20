@@ -143,6 +143,32 @@ describe("withTransientHttpRetry", () => {
     expect(result.status).toBe(404)
   })
 
+  it("retries opaque 500 Internal Server Error then succeeds", async () => {
+    let n = 0
+    const result = await withTransientHttpRetry(
+      async () => {
+        n += 1
+        if (n < 2) {
+          return new Response("Internal Server Error", { status: 500 })
+        }
+        return new Response("ok", { status: 200 })
+      },
+      { retries: 2, baseDelayMs: 1 },
+    )
+    expect(result.status).toBe(200)
+    expect(n).toBe(2)
+  })
+
+  it("does not retry JSON 500 bodies from the upstream handler", async () => {
+    const result = await withTransientHttpRetry(
+      async () =>
+        new Response(JSON.stringify({ error: "Clone/checkout failed" }), {
+          status: 500,
+        }),
+    )
+    expect(result.status).toBe(500)
+  })
+
   it("returns on the first successful attempt", async () => {
     const result = await withTransientHttpRetry(async () => "ok")
     expect(result).toBe("ok")

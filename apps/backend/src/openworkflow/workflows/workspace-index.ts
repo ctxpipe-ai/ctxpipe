@@ -41,7 +41,10 @@ export const workspaceIndex = defineWorkflow(
       const prepared = await withOrgDbContext(input.orgId, async () => {
         const workspace = await getWorkspaceById(input.workspaceId)
         if (!workspace) {
-          return { kind: "done" as const, result: { published: false, reason: "missing" as const } }
+          return {
+            kind: "done" as const,
+            result: { published: false, reason: "missing" as const },
+          }
         }
         const repos = await findRepositoriesByNormalizedGitUrls([
           normalizeWorkspaceRepositoryUrl(input.gitUrl),
@@ -101,7 +104,7 @@ export const workspaceIndex = defineWorkflow(
         const message = err instanceof Error ? err.message : String(err)
         if (
           !prepared.workspace.activeProjectionSha &&
-          message.includes("clone-checkout failed with status 404")
+          /clone-checkout failed with status (404|5\d\d)/.test(message)
         ) {
           await withOrgDbContext(input.orgId, () =>
             persistHydrateFailure({
@@ -115,9 +118,9 @@ export const workspaceIndex = defineWorkflow(
 
       return withOrgDbContext(input.orgId, async () => {
         if (input.role === "linked" && input.linkedId) {
-          const linked = (await listLinkedRepositories(prepared.workspace.id)).find(
-            (row) => row.id === input.linkedId,
-          )
+          const linked = (
+            await listLinkedRepositories(prepared.workspace.id)
+          ).find((row) => row.id === input.linkedId)
           if (!linked) {
             return { published: false, reason: "missing_linked" as const }
           }

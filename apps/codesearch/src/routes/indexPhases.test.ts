@@ -119,4 +119,45 @@ describe("POST /{repoId}/index/clone-checkout checkout isolation", () => {
       expect.anything(),
     )
   })
+
+  it("returns 503 when the repository lookup loses its database connection", async () => {
+    getAccessibleRepositoryMock.mockRejectedValue(
+      new Error("Connection terminated unexpectedly"),
+    )
+
+    const res = await createTestApp("ws_alpha").request(
+      "/repo_abcdef27/index/clone-checkout",
+      {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({}),
+      },
+    )
+
+    expect(res.status).toBe(503)
+    expect(await res.json()).toEqual({
+      error: "Database connection lost",
+    })
+    expect(phaseCloneCheckoutMock).not.toHaveBeenCalled()
+  })
+
+  it("returns 503 when clone/checkout loses its database connection", async () => {
+    phaseCloneCheckoutMock.mockRejectedValue(
+      new Error("Connection terminated unexpectedly"),
+    )
+
+    const res = await createTestApp("ws_alpha").request(
+      "/repo_abcdef27/index/clone-checkout",
+      {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({}),
+      },
+    )
+
+    expect(res.status).toBe(503)
+    expect(await res.json()).toEqual({
+      error: "Database connection lost",
+    })
+  })
 })

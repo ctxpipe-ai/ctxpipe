@@ -42,8 +42,7 @@ vi.mock("../../models/workspaces.js", () => ({
 }))
 
 vi.mock("../../models/repositories.js", () => ({
-  findRepositoriesByNormalizedGitUrls:
-    findRepositoriesByNormalizedGitUrlsMock,
+  findRepositoriesByNormalizedGitUrls: findRepositoriesByNormalizedGitUrlsMock,
   getGithubConnectionIdForRepository: getGithubConnectionIdForRepositoryMock,
   ensureWorkspaceCheckout: ensureWorkspaceCheckoutMock,
 }))
@@ -133,16 +132,39 @@ describe("workspaceIndex workflow", () => {
 
   it("persists a friendly hydrate error when clone-checkout 404s before the first projection", async () => {
     const step = {
-      runWorkflow: vi.fn().mockRejectedValue(
-        new Error(
-          "codesearch index clone-checkout failed with status 404: Repository not found or access denied",
+      runWorkflow: vi
+        .fn()
+        .mockRejectedValue(
+          new Error(
+            "codesearch index clone-checkout failed with status 404: Repository not found or access denied",
+          ),
         ),
-      ),
     }
 
-    await expect(
-      indexFn.fn({ input: workspaceInput, step }),
-    ).rejects.toThrow(/clone-checkout failed with status 404/)
+    await expect(indexFn.fn({ input: workspaceInput, step })).rejects.toThrow(
+      /clone-checkout failed with status 404/,
+    )
+
+    expect(persistHydrateFailureMock).toHaveBeenCalledWith({
+      workspaceId: "ws_1",
+      message: "We could not open this repository for indexing.",
+    })
+  })
+
+  it("persists a friendly hydrate error when clone-checkout 500s before the first projection", async () => {
+    const step = {
+      runWorkflow: vi
+        .fn()
+        .mockRejectedValue(
+          new Error(
+            "codesearch index clone-checkout failed with status 500: Internal Server Error",
+          ),
+        ),
+    }
+
+    await expect(indexFn.fn({ input: workspaceInput, step })).rejects.toThrow(
+      /clone-checkout failed with status 500/,
+    )
 
     expect(persistHydrateFailureMock).toHaveBeenCalledWith({
       workspaceId: "ws_1",
@@ -154,9 +176,10 @@ describe("workspaceIndex workflow", () => {
     findRepositoriesByNormalizedGitUrlsMock.mockResolvedValue([])
     const step = { runWorkflow: vi.fn() }
 
-    await expect(
-      indexFn.fn({ input: workspaceInput, step }),
-    ).resolves.toEqual({ published: false, reason: "no_repository" })
+    await expect(indexFn.fn({ input: workspaceInput, step })).resolves.toEqual({
+      published: false,
+      reason: "no_repository",
+    })
 
     expect(step.runWorkflow).not.toHaveBeenCalled()
     expect(persistHydrateFailureMock).toHaveBeenCalledWith({

@@ -2,6 +2,10 @@ import { drizzle } from "drizzle-orm/node-postgres"
 import { Pool } from "pg"
 import type { Env } from "../config/env.js"
 import * as schema from "./schema.js"
+import {
+  attachPoolErrorListener,
+  wrapPoolQueryWithTransientRetry,
+} from "./transient.js"
 
 /**
  * Create a Drizzle client for PostgreSQL (read-only usage).
@@ -17,6 +21,8 @@ export function createDb(env: Env) {
     idleTimeoutMillis: 300_000,
     keepAlive: true,
   })
+  attachPoolErrorListener(client)
+  wrapPoolQueryWithTransientRetry(client)
   return drizzle({ client, schema })
 }
 

@@ -2,6 +2,7 @@ import type { OpenAPIHono } from "@hono/zod-openapi"
 import { createRoute, z } from "@hono/zod-openapi"
 import type { AppEnv } from "../app/env.js"
 import { checkoutKeyFromAuth } from "../auth/jwt.js"
+import { isTransientDbConnectionError } from "../db/transient.js"
 import { withRepositoryIndexOperation } from "../domain/indexing/indexConcurrency.js"
 import { userFacingIndexingError } from "../domain/indexing/memoryFitError.js"
 import {
@@ -230,9 +231,17 @@ async function resolvePhaseContext(
   options: { checkoutKey: string; githubToken?: string },
 ): Promise<
   | { ok: true; ctx: IndexPhaseRepoContext }
-  | { ok: false; status: 404; error: string }
+  | { ok: false; status: 404 | 503; error: string }
 > {
-  const repo = await getAccessibleRepository(db, repoId, orgId)
+  let repo: Awaited<ReturnType<typeof getAccessibleRepository>>
+  try {
+    repo = await getAccessibleRepository(db, repoId, orgId)
+  } catch (error) {
+    if (isTransientDbConnectionError(error)) {
+      return { ok: false, status: 503, error: "Database connection lost" }
+    }
+    throw error
+  }
   if (!repo) {
     return {
       ok: false,
@@ -241,7 +250,15 @@ async function resolvePhaseContext(
     }
   }
   const checkoutKey = options.checkoutKey
-  const indexable = await getIndexableRepository(db, repoId, orgId, checkoutKey)
+  let indexable: Awaited<ReturnType<typeof getIndexableRepository>>
+  try {
+    indexable = await getIndexableRepository(db, repoId, orgId, checkoutKey)
+  } catch (error) {
+    if (isTransientDbConnectionError(error)) {
+      return { ok: false, status: 503, error: "Database connection lost" }
+    }
+    throw error
+  }
   if (!indexable) {
     return {
       ok: false,
@@ -271,7 +288,6 @@ async function resolvePhaseContext(
     },
   }
 }
-
 export function registerIndexPhaseRoutes(app: OpenAPIHono<AppEnv>) {
   app.openapi(cloneCheckoutRoute, async (c) => {
     const db = c.get("db")
@@ -316,6 +332,9 @@ export function registerIndexPhaseRoutes(app: OpenAPIHono<AppEnv>) {
         )
         return c.json({ ok: true as const, ...result }, 200)
       } catch (error) {
+        if (isTransientDbConnectionError(error)) {
+          return c.json({ error: "Database connection lost" }, 503)
+        }
         const message = userFacingIndexingError(error, "Clone/checkout failed")
         return c.json({ error: message }, 500)
       }
@@ -350,6 +369,9 @@ export function registerIndexPhaseRoutes(app: OpenAPIHono<AppEnv>) {
         )
         return c.json({ ok: true as const }, 200)
       } catch (error) {
+        if (isTransientDbConnectionError(error)) {
+          return c.json({ error: "Database connection lost" }, 503)
+        }
         const message = userFacingIndexingError(error, "Zoekt indexing failed")
         return c.json({ error: message }, 500)
       }
@@ -386,6 +408,9 @@ export function registerIndexPhaseRoutes(app: OpenAPIHono<AppEnv>) {
         )
         return c.json({ ok: true as const, ...result }, 200)
       } catch (error) {
+        if (isTransientDbConnectionError(error)) {
+          return c.json({ error: "Database connection lost" }, 503)
+        }
         const message = userFacingIndexingError(
           error,
           "Language detection failed",
@@ -423,6 +448,9 @@ export function registerIndexPhaseRoutes(app: OpenAPIHono<AppEnv>) {
         )
         return c.json({ ok: true as const }, 200)
       } catch (error) {
+        if (isTransientDbConnectionError(error)) {
+          return c.json({ error: "Database connection lost" }, 503)
+        }
         const message = userFacingIndexingError(error, "SCIP indexing failed")
         return c.json({ error: message }, 500)
       }
@@ -458,6 +486,9 @@ export function registerIndexPhaseRoutes(app: OpenAPIHono<AppEnv>) {
         )
         return c.json({ ok: true as const }, 200)
       } catch (error) {
+        if (isTransientDbConnectionError(error)) {
+          return c.json({ error: "Database connection lost" }, 503)
+        }
         const message = userFacingIndexingError(error, "SCIP merge failed")
         return c.json({ error: message }, 500)
       }
