@@ -471,6 +471,7 @@ describe("sandbox registry GC", () => {
     expect(attached.providerSandboxId).toBe("sbx_live")
     expect(getRegisteredChatSandbox("conv_bind")?.id).toBe("tanstack-key")
     expect(getChatSandbox("conv_bind")).toBe(handle)
+    expect(withOrgDbContext).toHaveBeenCalledWith("org_1", expect.any(Function))
   })
 
   it("keeps the resume row when destroy fails on a differently keyed handle", async () => {

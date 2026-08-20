@@ -1,6 +1,12 @@
+import { readFileSync } from "node:fs"
+import { dirname, join } from "node:path"
+import { fileURLToPath } from "node:url"
 import { describe, expect, it } from "vitest"
 import {
+  WORKSPACE_CHAT_DOCKER_SANDBOX,
+  WORKSPACE_CHAT_OPENCODE_PORT,
   WORKSPACE_CHAT_RUNTIME,
+  WORKSPACE_CHAT_SANDBOX_SETUP,
   workspaceChatGitSource,
   workspaceChatLiveSandboxId,
   workspaceChatRuntimeConfig,
@@ -16,6 +22,27 @@ describe("workspace chat runtime", () => {
       harness: "opencodeText",
       permissionMode: "acceptEdits",
     })
+  })
+
+  it("installs opencode in the sandbox and publishes the serve port", () => {
+    expect(WORKSPACE_CHAT_OPENCODE_PORT).toBe(4096)
+    expect(WORKSPACE_CHAT_DOCKER_SANDBOX).toEqual({
+      image: "node:22",
+      publishPorts: [4096],
+    })
+    expect(WORKSPACE_CHAT_SANDBOX_SETUP.join("\n")).toMatch(
+      /command -v opencode/,
+    )
+    expect(WORKSPACE_CHAT_SANDBOX_SETUP.join("\n")).toMatch(/opencode-ai/)
+  })
+
+  it("puts opencode and GNU find on the backend image PATH", () => {
+    const dockerfile = readFileSync(
+      join(dirname(fileURLToPath(import.meta.url)), "../../../Dockerfile"),
+      "utf8",
+    )
+    expect(dockerfile).toMatch(/opencode-ai/)
+    expect(dockerfile).toMatch(/findutils/)
   })
 
   it("keys the sandbox by org, workspace, desired URL, and SHA", () => {

@@ -106,6 +106,44 @@ export const Streaming: Story = {
   },
 }
 
+export const ComposeSendError: Story = {
+  args: {
+    conversationId: "conv_pending",
+    composing: true,
+    title: "New conversation",
+    initialMessages: [],
+  },
+  parameters: {
+    msw: {
+      handlers: {
+        page: [
+          http.post(conversationPostPath, () =>
+            HttpResponse.json(
+              {
+                error:
+                  "opencode serve exited before becoming ready: sh: opencode: not found",
+              },
+              { status: 500 },
+            ),
+          ),
+          ...workspaceShellHandlers(),
+        ],
+      },
+    },
+  },
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement)
+    await userEvent.type(
+      canvas.getByPlaceholderText(/ask about this workspace/i),
+      "What is in this Workspace?",
+    )
+    await userEvent.click(canvas.getByRole("button", { name: /send/i }))
+    await waitFor(() =>
+      canvas.getByText(/opencode: not found|chat request failed|failed/i),
+    )
+  },
+}
+
 export const SendError: Story = {
   args: {
     conversationId: "conv_1",

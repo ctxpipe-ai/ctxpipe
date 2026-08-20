@@ -87,10 +87,15 @@ export async function attachChatSandboxHandle(
     lastHeartbeatAt?: Date
   },
 ): Promise<RegisteredSandbox> {
-  const rows = await listSandboxInstances({
-    conversationId: sandbox.conversationId,
-    kind: "chat",
-  }).catch((error) => {
+  const listChat = () =>
+    listSandboxInstances({
+      conversationId: sandbox.conversationId,
+      kind: "chat",
+    })
+  const rows = await (sandbox.orgId
+    ? withOrgDbContext(sandbox.orgId, listChat)
+    : listChat()
+  ).catch((error) => {
     logSandboxError("list-sandbox-instances", sandbox.conversationId, error)
     return [] as SandboxInstanceRecord[]
   })
@@ -156,7 +161,10 @@ export function heartbeatChatSandboxes(
 ): void {
   const attached = getRegisteredChatSandbox(conversationId)
   if (attached) heartbeatWorkspaceSandbox(attached.id, now)
-  void listSandboxInstances({ conversationId, kind: "chat" })
+  const listChat = () => listSandboxInstances({ conversationId, kind: "chat" })
+  void (
+    attached?.orgId ? withOrgDbContext(attached.orgId, listChat) : listChat()
+  )
     .then((rows) => {
       for (const row of rows) {
         if (row.id === attached?.id) continue

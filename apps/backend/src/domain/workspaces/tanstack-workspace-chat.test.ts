@@ -191,9 +191,20 @@ describe("runTanstackWorkspaceChat", () => {
     expect(res.status).toBe(200)
     expect(opencodeTextMock).toHaveBeenCalledWith(
       expect.any(String),
-      expect.objectContaining({ permissionMode: "acceptEdits" }),
+      expect.objectContaining({ permissionMode: "acceptEdits", port: 4096 }),
     )
     expect(withSandboxMock).toHaveBeenCalled()
+    expect(dockerSandboxMock).toHaveBeenCalledWith({
+      image: "node:22",
+      publishPorts: [4096],
+    })
+    expect(defineWorkspaceMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        setup: expect.arrayContaining([
+          expect.stringMatching(/command -v opencode/),
+        ]),
+      }),
+    )
     expect(chatMock).toHaveBeenCalledWith(
       expect.objectContaining({
         threadId: "conv_1",

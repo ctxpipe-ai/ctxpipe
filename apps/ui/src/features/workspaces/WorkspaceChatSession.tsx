@@ -154,6 +154,11 @@ export function WorkspaceChatSession(props: {
               isDisabled={status === "submitted" || status === "streaming"}
               placeholder="Ask about this Workspace…"
             />
+            {error ? (
+              <p className="text-sm text-destructive">
+                {error.message || "Chat request failed."}
+              </p>
+            ) : null}
           </div>
         </div>
       ) : (

@@ -19,6 +19,23 @@ export const WORKSPACE_CHAT_RUNTIME = {
   limits: CHAT_SANDBOX_LIMITS,
 } as const
 
+/** Port `opencode serve` binds inside the sandbox. Docker must publish it. */
+export const WORKSPACE_CHAT_OPENCODE_PORT = 4096
+
+export const WORKSPACE_CHAT_DOCKER_SANDBOX = {
+  image: "node:22",
+  publishPorts: [WORKSPACE_CHAT_OPENCODE_PORT],
+} as const
+
+/**
+ * Bootstrap must leave `opencode` on PATH. TanStack's adapter spawns
+ * `opencode serve` inside the sandbox; `node:22` and a host without the CLI
+ * both miss that binary.
+ */
+export const WORKSPACE_CHAT_SANDBOX_SETUP = [
+  "command -v opencode >/dev/null 2>&1 || npm install -g opencode-ai",
+] as const
+
 export function workspaceChatSandboxId(input: {
   orgId: string
   workspaceId: string

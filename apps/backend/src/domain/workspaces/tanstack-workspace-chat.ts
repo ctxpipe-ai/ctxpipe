@@ -21,6 +21,9 @@ import {
   shouldHeartbeatChatSandbox,
 } from "./chat-lifecycle.js"
 import {
+  WORKSPACE_CHAT_DOCKER_SANDBOX,
+  WORKSPACE_CHAT_OPENCODE_PORT,
+  WORKSPACE_CHAT_SANDBOX_SETUP,
   workspaceChatGitSource,
   workspaceChatRuntimeConfig,
   workspaceChatSandboxId,
@@ -92,7 +95,7 @@ function providerFactoryForStoredChat(
 ) {
   if (storedProvider === "sbx") return modules.sbxSandbox?.()
   if (storedProvider === "docker") {
-    return modules.dockerSandbox?.({ image: "node:22" })
+    return modules.dockerSandbox?.(WORKSPACE_CHAT_DOCKER_SANDBOX)
   }
   if (
     storedProvider === "local-process" ||
@@ -282,7 +285,7 @@ async function prepareTanstackWorkspaceChat(
   let provider = storedProvider
     ? providerFactoryForStoredChat(modules, storedProvider)
     : spec.isolation === "docker"
-      ? modules.dockerSandbox?.({ image: "node:22" })
+      ? modules.dockerSandbox?.(WORKSPACE_CHAT_DOCKER_SANDBOX)
       : modules.localProcessSandbox?.()
   if (
     !storedProvider &&
@@ -355,6 +358,7 @@ async function prepareTanstackWorkspaceChat(
           token: input.cloneToken,
         }),
       ),
+      setup: [...WORKSPACE_CHAT_SANDBOX_SETUP],
     }),
     lifecycle: spec.lifecycle,
     hooks: {
@@ -381,6 +385,7 @@ async function prepareTanstackWorkspaceChat(
   })
   const stream = modules.chat({
     adapter: modules.opencodeText(model, {
+      port: WORKSPACE_CHAT_OPENCODE_PORT,
       permissionMode: runtime.permissionMode,
       onPermissionRequest: runtime.onPermissionRequest,
     }),
