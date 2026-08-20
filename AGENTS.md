@@ -67,7 +67,7 @@ Single-context via `.ai/memory/` (product context, glossary, ADRs). See [`.ai/ag
 - **When you change architecture**: Before making structural or architectural changes (adding/changing apps, packages, tooling, or cross-cutting patterns), read the relevant ADRs in `.ai/memory/decisions/` first.
 - **Keeping ADRs up to date**: When you make a new architectural decision, use the `capture-adr` skill and update `decisions/index.md`.
 - **Agent workflow**: Treat ADRs as the source of truth for high-level decisions. If the code and ADRs disagree, prefer updating the ADRs (and then the code) so future agents can follow a consistent story.
-- **Connectors data model**: GitHub, Confluence/Forge, and Notion integrations live in **`connections`** (`con_*`, typed `github` \| `forge` \| `notion`); see [ADR-018](.ai/memory/decisions/ADR-018-unified-connections-table.md) and [ADR-023](.ai/memory/decisions/ADR-023-notion-connector-git-native-mirror.md). Prefer **`connectionId`** or repo-scoped resolution over “one install per org” assumptions.
+- **Connectors data model**: GitHub, Confluence/Forge, Slack, Linear, and Notion integrations live in **`connections`** (`con_*`, typed `github` \| `forge` \| `slack` \| `linear` \| `notion`); see [ADR-018](.ai/memory/decisions/ADR-018-unified-connections-table.md), [ADR-022](.ai/memory/decisions/ADR-022-linear-connector-git-native-mirror.md) (Linear), [ADR-023](.ai/memory/decisions/ADR-023-notion-connector-git-native-mirror.md) (Notion), and [ADR-025](.ai/memory/decisions/ADR-025-slack-connector-git-native-mirror.md) (Slack). Prefer **`connectionId`** or repo-scoped resolution over “one install per org” assumptions.
 
 ## Local development
 

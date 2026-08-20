@@ -183,8 +183,9 @@ export function getConfluenceCardPrimaryCta(
     case "target":
       return { kind: "open_wizard", label: "Select repository" }
     case "scope":
-    case "merge":
       return { kind: "open_scope", label: "Configure scope" }
+    case "merge":
+      return { kind: "open_wizard", label: "Continue setup" }
     default: {
       const _x: never = step
       return _x

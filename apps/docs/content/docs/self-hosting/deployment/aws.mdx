@@ -232,6 +232,14 @@ Replace `defaultModel: "gpt-4.1-mini"` with `models: { fast: "gpt-4.1-mini" }`.
 | `customDomain.hostedZoneId` | Same as openai-like — DNS/TLS/SES records. |
 | `modelProvider.models.fast` | Bedrock model ID for the fast tier (`MODEL_FAST_NAME`). Enable it in the Bedrock console for the stack region. |
 
+### Optional connector secrets
+
+Pass deployment-wide connector credentials through `connectorSecrets`. For
+Slack, set `slackClientId`, `slackClientSecret`, and `slackSigningSecret`
+together. The construct stores them in Secrets Manager and injects them into
+the required ECS tasks. See [Self-host Slack](/docs/self-hosting/slack) for the
+Slack app callback, event, scope, and distribution settings.
+
 ## High-level architecture
 
 `CtxPipe` provisions a single AWS stack with these layers:

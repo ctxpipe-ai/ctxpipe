@@ -23,6 +23,7 @@ type GithubWebhookLog = { error: (e: Error) => void }
 
 export async function maybeEnqueueNotionSyncOnConfigPush(input: {
   installationId: number
+  githubConnectionId?: string
   repoFullName: string
   ref: string
   repository: {
@@ -62,8 +63,11 @@ export async function maybeEnqueueNotionSyncOnConfigPush(input: {
 
   const env = parseEnv(process.env as Record<string, string | undefined>)
   const compareConfigPathCache = new Map<string, Promise<boolean>>()
-  const installationRows = await listInstallationsByGithubInstallationId(
-    input.installationId,
+  const installationRows = (
+    await listInstallationsByGithubInstallationId(input.installationId)
+  ).filter(
+    (installation) =>
+      !input.githubConnectionId || installation.id === input.githubConnectionId,
   )
 
   for (const installationRow of installationRows) {

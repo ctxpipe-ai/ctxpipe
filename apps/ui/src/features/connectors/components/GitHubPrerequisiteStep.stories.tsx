@@ -22,26 +22,50 @@ export default meta
 
 type Story = StoryObj<typeof meta>
 
-export const Notion: Story = {
-  render: () => (
+export const Slack: Story = {
+  args: {
+    orgSlug,
+    sourceName: "Slack",
+  },
+  render: (args) => (
     <div className="w-full max-w-xl p-2">
-      <GitHubPrerequisiteStep orgSlug={orgSlug} sourceName="Notion" />
+      <GitHubPrerequisiteStep {...args} />
+    </div>
+  ),
+}
+
+export const Notion: Story = {
+  args: {
+    orgSlug,
+    sourceName: "Notion",
+  },
+  render: (args) => (
+    <div className="w-full max-w-xl p-2">
+      <GitHubPrerequisiteStep {...args} />
     </div>
   ),
 }
 
 export const Confluence: Story = {
-  render: () => (
+  args: {
+    orgSlug,
+    sourceName: "Confluence",
+  },
+  render: (args) => (
     <div className="w-full max-w-xl p-2">
-      <GitHubPrerequisiteStep orgSlug={orgSlug} sourceName="Confluence" />
+      <GitHubPrerequisiteStep {...args} />
     </div>
   ),
 }
 
 export const Linear: Story = {
-  render: () => (
+  args: {
+    orgSlug,
+    sourceName: "Linear",
+  },
+  render: (args) => (
     <div className="w-full max-w-xl p-2">
-      <GitHubPrerequisiteStep orgSlug={orgSlug} sourceName="Linear" />
+      <GitHubPrerequisiteStep {...args} />
     </div>
   ),
 }

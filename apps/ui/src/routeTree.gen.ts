@@ -13,6 +13,7 @@ import { Route as OnboardingRouteImport } from './routes/onboarding'
 import { Route as OrgSlugRouteImport } from './routes/$orgSlug'
 import { Route as IndexRouteImport } from './routes/index'
 import { Route as OrgSlugIndexRouteImport } from './routes/$orgSlug.index'
+import { Route as DotslackSetupRouteImport } from './routes/[.]slack.setup'
 import { Route as DotnotionSetupRouteImport } from './routes/[.]notion.setup'
 import { Route as DotgithubSetupRouteImport } from './routes/[.]github.setup'
 import { Route as DotauthSignInRouteImport } from './routes/[.]auth.sign-in'
@@ -54,6 +55,11 @@ const OrgSlugIndexRoute = OrgSlugIndexRouteImport.update({
   id: '/',
   path: '/',
   getParentRoute: () => OrgSlugRoute,
+} as any)
+const DotslackSetupRoute = DotslackSetupRouteImport.update({
+  id: '/.slack/setup',
+  path: '/.slack/setup',
+  getParentRoute: () => rootRouteImport,
 } as any)
 const DotnotionSetupRoute = DotnotionSetupRouteImport.update({
   id: '/.notion/setup',
@@ -185,6 +191,7 @@ export interface FileRoutesByFullPath {
   '/.auth/sign-in': typeof DotauthSignInRoute
   '/.github/setup': typeof DotgithubSetupRoute
   '/.notion/setup': typeof DotnotionSetupRoute
+  '/.slack/setup': typeof DotslackSetupRoute
   '/$orgSlug/': typeof OrgSlugIndexRoute
   '/$orgSlug/chat/$conversationId': typeof OrgSlugChatConversationIdRoute
   '/$orgSlug/organization/$organizationView': typeof OrgSlugOrganizationOrganizationViewRoute
@@ -209,6 +216,7 @@ export interface FileRoutesByTo {
   '/.auth/sign-in': typeof DotauthSignInRoute
   '/.github/setup': typeof DotgithubSetupRoute
   '/.notion/setup': typeof DotnotionSetupRoute
+  '/.slack/setup': typeof DotslackSetupRoute
   '/$orgSlug': typeof OrgSlugIndexRoute
   '/$orgSlug/chat/$conversationId': typeof OrgSlugChatConversationIdRoute
   '/$orgSlug/organization/$organizationView': typeof OrgSlugOrganizationOrganizationViewRoute
@@ -237,6 +245,7 @@ export interface FileRoutesById {
   '/.auth/sign-in': typeof DotauthSignInRoute
   '/.github/setup': typeof DotgithubSetupRoute
   '/.notion/setup': typeof DotnotionSetupRoute
+  '/.slack/setup': typeof DotslackSetupRoute
   '/$orgSlug/': typeof OrgSlugIndexRoute
   '/$orgSlug/chat/$conversationId': typeof OrgSlugChatConversationIdRoute
   '/$orgSlug/organization/$organizationView': typeof OrgSlugOrganizationOrganizationViewRoute
@@ -266,6 +275,7 @@ export interface FileRouteTypes {
     | '/.auth/sign-in'
     | '/.github/setup'
     | '/.notion/setup'
+    | '/.slack/setup'
     | '/$orgSlug/'
     | '/$orgSlug/chat/$conversationId'
     | '/$orgSlug/organization/$organizationView'
@@ -290,6 +300,7 @@ export interface FileRouteTypes {
     | '/.auth/sign-in'
     | '/.github/setup'
     | '/.notion/setup'
+    | '/.slack/setup'
     | '/$orgSlug'
     | '/$orgSlug/chat/$conversationId'
     | '/$orgSlug/organization/$organizationView'
@@ -317,6 +328,7 @@ export interface FileRouteTypes {
     | '/.auth/sign-in'
     | '/.github/setup'
     | '/.notion/setup'
+    | '/.slack/setup'
     | '/$orgSlug/'
     | '/$orgSlug/chat/$conversationId'
     | '/$orgSlug/organization/$organizationView'
@@ -340,6 +352,7 @@ export interface RootRouteChildren {
   DotauthSignInRoute: typeof DotauthSignInRoute
   DotgithubSetupRoute: typeof DotgithubSetupRoute
   DotnotionSetupRoute: typeof DotnotionSetupRoute
+  DotslackSetupRoute: typeof DotslackSetupRoute
   DotauthOrganizationOrganizationViewRoute: typeof DotauthOrganizationOrganizationViewRoute
 }
 
@@ -372,6 +385,13 @@ declare module '@tanstack/react-router' {
       fullPath: '/$orgSlug/'
       preLoaderRoute: typeof OrgSlugIndexRouteImport
       parentRoute: typeof OrgSlugRoute
+    }
+    '/.slack/setup': {
+      id: '/.slack/setup'
+      path: '/.slack/setup'
+      fullPath: '/.slack/setup'
+      preLoaderRoute: typeof DotslackSetupRouteImport
+      parentRoute: typeof rootRouteImport
     }
     '/.notion/setup': {
       id: '/.notion/setup'
@@ -599,6 +619,7 @@ const rootRouteChildren: RootRouteChildren = {
   DotauthSignInRoute: DotauthSignInRoute,
   DotgithubSetupRoute: DotgithubSetupRoute,
   DotnotionSetupRoute: DotnotionSetupRoute,
+  DotslackSetupRoute: DotslackSetupRoute,
   DotauthOrganizationOrganizationViewRoute:
     DotauthOrganizationOrganizationViewRoute,
 }

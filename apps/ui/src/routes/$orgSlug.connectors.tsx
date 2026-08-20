@@ -13,6 +13,7 @@ import {
   AddGithubConnectorButton,
   AddLinearConnectorButton,
   AddNotionConnectorButton,
+  AddSlackConnectorButton,
   ConfluenceConnectionCard,
   ConnectorSetupDialog,
   ConnectorsEmptyState,
@@ -23,10 +24,12 @@ import {
   NotionConnectionCard,
   NotionOAuthSetupModal,
   NotionSetupDialog,
+  SlackConnectionCard,
 } from "@/features/connectors"
 import { AtlassianAccountClaimModalContent } from "@/features/connectors/components/AtlassianAccountClaimModalContent"
 import { ConnectorsOAuthErrorBanner } from "@/features/connectors/components/ConnectorsOAuthErrorBanner"
 import { GithubSelfHostedWizardModal } from "@/features/connectors/components/GithubSelfHostedWizardModal"
+import { SlackSetupDialog } from "@/features/connectors/components/SlackSetupDialog"
 import { atlassianConnectorKeys } from "@/features/connectors/queries/atlassian-connector"
 import {
   CONNECTORS_PAGE_POLL_INTERVAL_MS,
@@ -102,6 +105,7 @@ export function ConnectorsPageContent({ orgSlug }: { orgSlug: string }) {
   )
   const [githubSelfHostedWizardOpen, setGithubSelfHostedWizardOpen] =
     useState(false)
+  const [slackSetupOpen, setSlackSetupOpen] = useState(false)
   const [linearWizardOpen, setLinearWizardOpen] = useState(false)
   const [linearConnectionId, setLinearConnectionId] = useState<
     string | undefined
@@ -243,6 +247,15 @@ export function ConnectorsPageContent({ orgSlug }: { orgSlug: string }) {
                   />
                 )
               }
+              if (row.type === "slack") {
+                return (
+                  <SlackConnectionCard
+                    key={row.id}
+                    orgSlug={orgSlug}
+                    connectionId={row.id}
+                  />
+                )
+              }
               if (row.type === "linear") {
                 return (
                   <LinearConnectionCard
@@ -306,6 +319,15 @@ export function ConnectorsPageContent({ orgSlug }: { orgSlug: string }) {
             />
           </li>
           <li>
+            <AddSlackConnectorButton
+              orgSlug={orgSlug}
+              onOpenSetup={() => {
+                setCatalogOpen(false)
+                setSlackSetupOpen(true)
+              }}
+            />
+          </li>
+          <li>
             <AddLinearConnectorButton
               onStart={() => {
                 setLinearConnectionId(undefined)
@@ -346,6 +368,12 @@ export function ConnectorsPageContent({ orgSlug }: { orgSlug: string }) {
                 })
             })
           }}
+        />
+
+        <SlackSetupDialog
+          orgSlug={orgSlug}
+          isOpen={slackSetupOpen}
+          onOpenChange={setSlackSetupOpen}
         />
 
         <ConnectorSetupDialog
