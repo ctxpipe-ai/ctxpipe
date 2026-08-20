@@ -586,6 +586,12 @@ Highest-priority confirmed rules for agents. Migrated from former `patterns.md` 
 - **Date:** 2026-08-19
 - **Source:** slack-connector PR-267 (codesearch stopped ~13:42 UTC; worker idle-exit 14:01 with no wake deploy)
 
+### Slack channel-top-level mention is not a channel capture
+- **Rule:** Capture requires `event.thread_ts` (a mention **inside** an existing thread). A channel-top-level `@bot capture` has no `thread_ts`; do **not** collapse to mention `ts` and snapshot the invocation. The webhook posts a refusal in-thread and does not enqueue `slack-mention-agent`. Mentioning on the channel-visible parent of a thread is the same signal (Slack omits `thread_ts`); tell the user to reply in the thread. Do not treat a success status on a channel-top-level mention as proof of engineering context.
+- **Category:** workflow
+- **Date:** 2026-08-20
+- **Source:** user correction after `@ctxpipe-dev capture` in-channel (PR-267); git wrote the invocation, not the discussion
+
 ### Slack capture: webhook 200 and Connectors Connected are not capture
 - **Rule:** `POST /api/v1/webhook/slack` returns 200 for skipped events, a dead worker, and a successful enqueue. `GET …/connectors` 200 only means Postgres has `installed` + a bound repo. A working capture is all three: a **new** webhook POST after the mention, **ctx| agent working…** in-thread, and a git commit under `slack/`. After reconnect, no new webhook means the message was not an `app_mention` (need the autocomplete pill). `chat.postMessage` swallows `not_in_channel` — you get silence, not an error reply.
 - **Category:** workflow

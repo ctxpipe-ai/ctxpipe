@@ -100,7 +100,9 @@ describe("Slack webhook", () => {
   })
 
   it("enqueues a mention agent for an app_mention on a live connector", async () => {
-    const response = await mentionRequest()
+    const response = await mentionRequest({
+      thread_ts: "1710000000.000001",
+    })
 
     expect(response.status).toBe(200)
     expect(runWorkflowMock).toHaveBeenCalledTimes(1)
@@ -125,7 +127,9 @@ describe("Slack webhook", () => {
   it("posts a terminal failure after 200 when enqueue fails", async () => {
     runWorkflowMock.mockRejectedValue(new Error("queue down"))
 
-    const response = await mentionRequest()
+    const response = await mentionRequest({
+      thread_ts: "1710000000.000001",
+    })
 
     expect(response.status).toBe(200)
     await vi.waitFor(() => {
@@ -143,7 +147,9 @@ describe("Slack webhook", () => {
     runWorkflowMock.mockRejectedValue(new Error("queue down"))
     postStatusMock.mockResolvedValue(null)
 
-    const response = await mentionRequest()
+    const response = await mentionRequest({
+      thread_ts: "1710000000.000001",
+    })
 
     expect(response.status).toBe(200)
     await expect(response.json()).resolves.toEqual({ ok: true })
@@ -165,7 +171,7 @@ describe("Slack webhook", () => {
     )
   })
 
-  it("treats the mention message as the thread root when it has no thread_ts", async () => {
+  it("uses event.thread_ts as the capture thread when present", async () => {
     const response = await mentionRequest({
       ts: "1710000000.000001",
       thread_ts: "1700000000.000000",
@@ -191,7 +197,9 @@ describe("Slack webhook", () => {
         }),
     )
 
-    const response = await mentionRequest()
+    const response = await mentionRequest({
+      thread_ts: "1710000000.000001",
+    })
     expect(response.status).toBe(200)
     expect(released).toBe(false)
     await vi.waitFor(() => {
@@ -206,6 +214,33 @@ describe("Slack webhook", () => {
     expect(dm.status).toBe(200)
     expect(mpim.status).toBe(200)
     expect(runWorkflowMock).not.toHaveBeenCalled()
+    expect(postStatusMock).not.toHaveBeenCalled()
+  })
+
+  it("refuses channel-top-level mentions and does not enqueue capture", async () => {
+    const response = await mentionRequest()
+
+    expect(response.status).toBe(200)
+    expect(runWorkflowMock).not.toHaveBeenCalled()
+    await vi.waitFor(() => {
+      expect(postStatusMock).toHaveBeenCalledWith(
+        expect.objectContaining({
+          channelId: "C1",
+          threadTs: "1710000000.000001",
+          text: "Capture only works inside an existing thread. Mention me in a thread, not at the top of the channel.",
+        }),
+      )
+    })
+  })
+
+  it("still returns 200 when a channel-top-level refusal cannot be posted", async () => {
+    postStatusMock.mockResolvedValue(null)
+
+    const response = await mentionRequest()
+
+    expect(response.status).toBe(200)
+    expect(runWorkflowMock).not.toHaveBeenCalled()
+    await expect(response.json()).resolves.toEqual({ ok: true })
   })
 
   it("revokes the connection on app_uninstalled", async () => {
@@ -290,6 +325,7 @@ describe("Slack webhook", () => {
 
     expect(response.status).toBe(200)
     expect(runWorkflowMock).not.toHaveBeenCalled()
+    expect(postStatusMock).not.toHaveBeenCalled()
   })
 
   it("ignores mentions when no capture binding exists", async () => {
@@ -299,6 +335,7 @@ describe("Slack webhook", () => {
 
     expect(response.status).toBe(200)
     expect(runWorkflowMock).not.toHaveBeenCalled()
+    expect(postStatusMock).not.toHaveBeenCalled()
   })
 
   it("rejects invalid signatures before parsing the payload", async () => {

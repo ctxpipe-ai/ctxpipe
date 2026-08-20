@@ -73,8 +73,8 @@ git-native, ingested context that the connector does.
     ### Capture threads in Slack
 
     In each channel where you want capture, `/invite` the bot (use its Slack
-    **@handle** from the connector card), then mention it in the thread — or on
-    a channel message to capture that message as a one-message thread:
+    **@handle** from the connector card), then mention it **inside an existing
+    thread** — a channel-top-level mention is refused:
 
     ```text
     @your-bot-handle capture this

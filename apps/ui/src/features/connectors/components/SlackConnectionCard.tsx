@@ -126,7 +126,7 @@ export function SlackConnectionCard({
             <code className="rounded-none bg-muted px-1 py-0.5 text-[11px]">
               {formatSlackBotMention(status.botHandle)}
             </code>{" "}
-            to capture a thread, or say capture this.
+            in a thread to capture it, or say capture this.
           </p>
         ) : null}
       </ConnectorListItem>

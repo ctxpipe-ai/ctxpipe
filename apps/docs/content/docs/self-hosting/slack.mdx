@@ -141,8 +141,9 @@ After the deployment Slack app is configured, each organisation can:
 2. Bind a sync-target (context) repository.
 3. Invite the bot into channels where capture is needed (`/invite` the bot's
    **@handle**, which may differ from its display name).
-4. Mention that handle in a thread. Say **capture this** or mention with no extra
-   text to snapshot it. Later mentions on the same thread update the same file.
+4. Mention that handle **in an existing thread**. Say **capture this** or mention with no extra
+   text to snapshot it. A mention at the top of the channel is refused. Later mentions on the
+   same thread update the same file.
    Other intents receive a short capability reply.
 
 Direct messages are not supported in v1. Captures are auditable snapshots

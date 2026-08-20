@@ -538,14 +538,15 @@ export function SlackSetupDialog({
                     2
                   </span>
                   <p>
-                    Mention {formatSlackBotMention(status?.botHandle)} to run
-                    ctx|. Say{" "}
+                    Mention {formatSlackBotMention(status?.botHandle)} in an
+                    existing thread to run ctx|. Say{" "}
                     <code className="rounded-none bg-muted px-1 py-0.5 text-[11px]">
                       capture this
                     </code>{" "}
                     or mention the bot with no extra text to snapshot the thread
                     into git. Later mentions on the same thread update the same
-                    snapshot.
+                    snapshot. Mention the bot in a thread, not at the top of the
+                    channel.
                   </p>
                 </li>
               </ol>

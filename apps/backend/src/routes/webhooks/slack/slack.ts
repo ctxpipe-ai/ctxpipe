@@ -12,6 +12,7 @@ import { slackMentionAgent } from "../../../openworkflow/workflows/slack-mention
 import {
   publishSlackMentionStatus,
   SLACK_MENTION_STATUS_ENQUEUE_FAILED,
+  SLACK_MENTION_STATUS_NEEDS_THREAD,
 } from "../../../services/slack/mention-status.js"
 import { verifySlackRequestSignature } from "../../../services/slack/verify-signature.js"
 
@@ -107,10 +108,7 @@ export function registerSlackWebhookRoute(app: OpenAPIHono<AppEnv>) {
 
     const channelId = event.channel
     const mentionTs = event.ts
-    // The mentioned message is treated as the thread root when it has no
-    // thread of its own (ADR-025 §3). Recapture overwrites that path.
-    const threadTs = event.thread_ts ?? mentionTs
-    if (!teamId || !channelId || !threadTs || !mentionTs) {
+    if (!teamId || !channelId || !mentionTs) {
       return c.json({ ok: true }, 200)
     }
 
@@ -129,6 +127,28 @@ export function registerSlackWebhookRoute(app: OpenAPIHono<AppEnv>) {
       })
       return c.json({ ok: true }, 200)
     }
+
+    // Channel-top-level mentions have no `thread_ts`. Collapsing to mention ts
+    // would snapshot only the invocation. Capture requires an existing thread
+    // (ADR-025 §3).
+    if (!event.thread_ts) {
+      getLogger().info("slack_webhook_channel_top_level_mention_refused", {
+        connectionId: connection.id,
+        channelId,
+        mentionTs,
+        eventId: parsed.data.event_id,
+      })
+      void publishSlackMentionStatus({
+        env,
+        connection,
+        channelId,
+        threadTs: mentionTs,
+        text: SLACK_MENTION_STATUS_NEEDS_THREAD,
+      })
+      return c.json({ ok: true }, 200)
+    }
+
+    const threadTs = event.thread_ts
 
     getLogger().info("slack_webhook_app_mention", {
       connectionId: connection.id,

@@ -7,6 +7,10 @@ import { postSlackThreadMessage, updateSlackMessage } from "./client.js"
 export const SLACK_MENTION_STATUS_ENQUEUE_FAILED =
   "Engineering context capture failed. Could not start the capture job. Mention the bot again."
 
+/** Posted when the mention is at channel top-level (no `thread_ts`). */
+export const SLACK_MENTION_STATUS_NEEDS_THREAD =
+  "Capture only works inside an existing thread. Mention me in a thread, not at the top of the channel."
+
 /**
  * Prefer `chat.update` of the working status message. If that message was
  * never posted or update fails, post a new thread reply so the thread never
