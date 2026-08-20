@@ -54,6 +54,7 @@ export const workspaceTipCheck = defineWorkflow(
         void enqueueWorkspaceCutover(input.orgId, { error: () => undefined })
         const workspaces = await listOrgWorkspaces(input.orgId)
         const quietLog = { error: () => undefined }
+        const writeStatusById = new Map<string, string>()
         for (const workspace of workspaces) {
           const probe = await probeWorkspaceWriteAccess({
             workspaceRepositoryUrl: workspace.workspaceRepositoryUrl,
@@ -67,6 +68,7 @@ export const workspaceTipCheck = defineWorkflow(
               }),
           })
           await persistWriteStatus(workspace.id, probe)
+          writeStatusById.set(workspace.id, probe.writeStatus)
           if (probe.writeStatus !== "writable") continue
           await resumePausedWriteJobs({
             orgId: input.orgId,
@@ -110,7 +112,7 @@ export const workspaceTipCheck = defineWorkflow(
               migrationExportSha: exportShas.get(workspace.id) ?? null,
               desiredSha: desiredById.get(workspace.id) ?? null,
               activeProjectionSha: workspace.activeProjectionSha,
-              writeStatus: workspace.writeStatus,
+              writeStatus: writeStatusById.get(workspace.id),
             })
           ) {
             void enqueueWorkspaceHydrate(
