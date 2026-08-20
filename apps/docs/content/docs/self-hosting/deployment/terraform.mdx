@@ -44,6 +44,12 @@ Apply only after the plan matches the intended environment:
 terraform -chdir=infra apply
 ```
 
+Optional Slack support is enabled only when `slack_client_id`,
+`slack_client_secret`, and `slack_signing_secret` are all set. Keep them in the
+CI secret store used for Terraform inputs; see
+[Self-host Slack](/docs/self-hosting/slack) for the app-side OAuth and Events API
+configuration.
+
 ## Image rollout
 
 The deployment path expects CI to build and push app images, then pass the image

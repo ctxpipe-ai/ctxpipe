@@ -69,6 +69,7 @@ export const Loading: Story = {
 
 const forgeId = "conn_forge_1"
 const githubId = "conn_github_1"
+const slackId = "conn_slack_1"
 const linearId = "conn_linear_1"
 const notionId = "conn_notion_1"
 
@@ -82,6 +83,12 @@ const connectionItems = [
   {
     id: forgeId,
     type: "forge" as const,
+    createdAt: "2025-01-01T00:00:00.000Z",
+    updatedAt: "2025-01-02T00:00:00.000Z",
+  },
+  {
+    id: slackId,
+    type: "slack" as const,
     createdAt: "2025-01-01T00:00:00.000Z",
     updatedAt: "2025-01-02T00:00:00.000Z",
   },
@@ -170,6 +177,20 @@ const linearStatusComplete = {
   },
 }
 
+const slackStatusComplete = {
+  isInstalled: true,
+  installationStatus: "installed",
+  teamName: "Acme Workspace",
+  isGithubLinked: true,
+  setupPhase: "live",
+  syncTarget: {
+    repositoryId: "repo_1",
+    repositoryName: "acme/ctxpipe-context",
+    branch: "main",
+    githubConnectionId: githubId,
+  },
+}
+
 const githubInstallationComplete = {
   id: githubId,
   installationId: 12345,
@@ -224,6 +245,19 @@ function linearStatusHandler(status: object) {
   )
 }
 
+function slackStatusHandler(status: object) {
+  return http.get(
+    ({ request }) => {
+      const u = new URL(request.url)
+      return (
+        u.pathname.includes("/api/v1/connectors/slack/status") &&
+        u.searchParams.get("connectionId") === slackId
+      )
+    },
+    () => HttpResponse.json(status),
+  )
+}
+
 function githubInstallationHandler(body: object | null) {
   return http.get(
     ({ request }) => {
@@ -271,6 +305,7 @@ export const Full: Story = {
     notionStatusHandler(notionStatusComplete),
     githubInstallationHandler(githubInstallationComplete),
     linearStatusHandler(linearStatusComplete),
+    slackStatusHandler(slackStatusComplete),
   ]),
 }
 
@@ -313,6 +348,12 @@ export const InProgress: Story = {
       pendingConfigPrCreating: false,
       syncTarget: notionStatusComplete.syncTarget,
     }),
+    slackStatusHandler({
+      ...slackStatusComplete,
+      isGithubLinked: false,
+      setupPhase: "draft",
+      syncTarget: null,
+    }),
   ]),
 }
 
@@ -340,6 +381,7 @@ export const MixedHealth: Story = {
       ...notionStatusComplete,
       setupPhase: "config_failed",
     }),
+    slackStatusHandler(slackStatusComplete),
   ]),
 }
 
@@ -352,5 +394,6 @@ export const CouldntLoad: Story = {
     statusFailed("/api/v1/connectors/atlassian/status", forgeId),
     statusFailed("/api/v1/connectors/linear/status", linearId),
     statusFailed("/api/v1/connectors/notion/status", notionId),
+    statusFailed("/api/v1/connectors/slack/status", slackId),
   ]),
 }

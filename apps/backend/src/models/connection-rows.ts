@@ -6,11 +6,13 @@ import {
   CONNECTION_TYPE_GITHUB,
   CONNECTION_TYPE_LINEAR,
   CONNECTION_TYPE_NOTION,
+  CONNECTION_TYPE_SLACK,
 } from "../db/schema/connections.js"
 import {
   decodeGithubAppCredentials,
   decodeLinearTokens,
   decodeNotionTokens,
+  decodeSlackBotToken,
   encodeLinearTokensForDb,
   encodeNotionTokensForDb,
   type githubConnectionConfigStoredSchema,
@@ -20,10 +22,12 @@ import {
   parseGithubConnectionStored,
   parseLinearConnectionStored,
   parseNotionConnectionConfig,
+  parseSlackConnectionStored,
   serialiseForgeConnectionConfigForDb,
   serialiseGithubConnectionConfigForDb,
   serialiseLinearConnectionConfigForDb,
   serialiseNotionConnectionConfigForDb,
+  serialiseSlackConnectionConfigForDb,
 } from "../lib/connection-config.js"
 
 export type ConnectionRow = typeof connections.$inferSelect
@@ -395,4 +399,78 @@ export function notionShapeToConfig(
     pendingConfigPullUrl: input.pendingConfigPullUrl,
     pendingConfigPrCreating: input.pendingConfigPrCreating,
   })
+}
+
+/** Runtime shape for Slack connections (bot token decrypted only when needed). */
+export type SlackConnectionShape = {
+  id: string
+  orgId: string
+  botTokenEnc: string | null
+  teamId: string | null
+  teamName: string | null
+  botUserId: string | null
+  botHandle: string | null
+  appId: string | null
+  ownerUserId: string | null
+  status: string
+  lastEventPayload: unknown
+  repositoryId: string | null
+  branch: string | null
+  enabled: boolean
+  createdAt: Date
+  updatedAt: Date
+}
+
+export function slackConnectionToShape(
+  row: ConnectionRow,
+): SlackConnectionShape {
+  if (row.type !== CONNECTION_TYPE_SLACK) {
+    throw new Error("Expected slack connection row")
+  }
+  const c = parseSlackConnectionStored(row.config as Record<string, unknown>)
+  return {
+    id: row.id,
+    orgId: row.orgId,
+    botTokenEnc: c.botTokenEnc ?? null,
+    teamId: c.teamId ?? null,
+    teamName: c.teamName ?? null,
+    botUserId: c.botUserId ?? null,
+    botHandle: c.botHandle ?? null,
+    appId: c.appId ?? null,
+    ownerUserId: c.ownerUserId ?? null,
+    status: c.status,
+    lastEventPayload: c.lastEventPayload,
+    repositoryId: c.repositoryId,
+    branch: c.branch,
+    enabled: c.enabled,
+    createdAt: row.createdAt,
+    updatedAt: row.updatedAt,
+  }
+}
+
+export function slackShapeToConfig(
+  input: Omit<SlackConnectionShape, "id" | "orgId" | "createdAt" | "updatedAt">,
+): Record<string, unknown> {
+  return serialiseSlackConnectionConfigForDb({
+    botTokenEnc: input.botTokenEnc,
+    teamId: input.teamId,
+    teamName: input.teamName,
+    botUserId: input.botUserId,
+    botHandle: input.botHandle,
+    appId: input.appId,
+    ownerUserId: input.ownerUserId,
+    status: input.status,
+    lastEventPayload: input.lastEventPayload,
+    repositoryId: input.repositoryId,
+    branch: input.branch,
+    enabled: input.enabled,
+  })
+}
+
+export function slackRowHasBotToken(row: ConnectionRow, env: Env): boolean {
+  if (row.type !== CONNECTION_TYPE_SLACK) return false
+  const stored = parseSlackConnectionStored(
+    row.config as Record<string, unknown>,
+  )
+  return decodeSlackBotToken(stored, env) != null
 }

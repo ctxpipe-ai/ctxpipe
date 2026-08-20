@@ -3,22 +3,13 @@
   "hooks": {
     "beforeSubmitPrompt": [
       {
-        "command": "node packages/cli/bin/ctxpipe.js memory capture observe --host cursor --event beforeSubmitPrompt"
-      }
-    ],
-    "afterFileEdit": [
-      {
-        "command": "node packages/cli/bin/ctxpipe.js memory capture observe --host cursor --event afterFileEdit"
-      }
-    ],
-    "postToolUse": [
-      {
-        "command": "node packages/cli/bin/ctxpipe.js memory capture observe --host cursor --event postToolUse"
+        "command": "bash .cursor/hooks/memory-capture.sh memory capture observe --host cursor --event beforeSubmitPrompt"
       }
     ],
     "stop": [
       {
-        "command": "node packages/cli/bin/ctxpipe.js memory capture summary"
+        "command": "bash .cursor/hooks/memory-capture.sh memory capture finalize --host cursor --event stop",
+        "loop_limit": 1
       }
     ]
   }

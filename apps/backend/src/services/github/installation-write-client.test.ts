@@ -84,7 +84,7 @@ describe("createPullRequestWithFiles", () => {
       title: "Configure Linear sync",
       body: "Review and merge.",
       commitMessage: "Configure Linear sync",
-      files: [{ path: "linear/config.yaml", content: "scope: {}\n" }],
+      files: [{ path: "linear/config.yaml", content: "teams: []\n" }],
       featureBranchPrefix: "ctxpipe/linear-config",
     })
 
@@ -139,6 +139,30 @@ describe("compareCommitsTouchesPath", () => {
       base: "base-sha",
       head: "head-sha",
     })
+  })
+
+  it("matches renamed files by their previous path", async () => {
+    compareCommitsMock.mockResolvedValue({
+      data: {
+        files: [
+          {
+            filename: "linear/config-archived.yaml",
+            previous_filename: "linear/config.yaml",
+          },
+        ],
+      },
+    })
+
+    await expect(
+      compareCommitsTouchesPath({
+        orgId: "org_1",
+        repositoryName: "acme/context",
+        env: {} as Env,
+        baseSha: "base-sha",
+        headSha: "head-sha",
+        path: "linear/config.yaml",
+      }),
+    ).resolves.toBe(true)
   })
 })
 

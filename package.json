@@ -36,7 +36,7 @@
     "@biomejs/biome": "^2.4.4",
     "concurrently": "^9.1.0",
     "portless": "^0.9.4",
-    "turbo": "^2.8.10",
+    "turbo": "^2.10.9",
     "typescript": "^5.9.3"
   },
   "pnpm": {

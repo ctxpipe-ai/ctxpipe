@@ -16,6 +16,7 @@ import {
 } from "../lib/withTransientHttpRetry.js"
 import { clearLinearSyncBindingsForRepository } from "../models/linear-connector.js"
 import { clearNotionSyncBindingsForRepository } from "../models/notion-connector.js"
+import { clearSlackSyncBindingsForRepository } from "../models/slack-connector.js"
 import { DEFAULT_CHECKOUT_KEY } from "../models/repositories.js"
 import { log } from "../observability/logger.js"
 import { getGraphClient } from "../platform/graph/client.js"
@@ -267,6 +268,7 @@ export async function deleteRepositoryRowPostgres(params: {
   // webhooks/UI cannot keep targeting a deleted repository.
   const linearCleared = await clearLinearSyncBindingsForRepository(params)
   const notionCleared = await clearNotionSyncBindingsForRepository(params)
+  const slackCleared = await clearSlackSyncBindingsForRepository(params)
   const del = await db
     .delete(repositories)
     .where(
@@ -281,6 +283,7 @@ export async function deleteRepositoryRowPostgres(params: {
     deleted,
     linearCleared,
     notionCleared,
+    slackCleared,
   })
   return deleted
 }

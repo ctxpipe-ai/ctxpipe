@@ -224,6 +224,15 @@ export class SecretsConstruct extends Construct {
                   ATLASSIAN_CLIENT_SECRET: props.connectorSecrets.atlassianClientSecret,
                 }
               : {}),
+            ...(props.connectorSecrets.slackClientId
+              ? { SLACK_CLIENT_ID: props.connectorSecrets.slackClientId }
+              : {}),
+            ...(props.connectorSecrets.slackClientSecret
+              ? { SLACK_CLIENT_SECRET: props.connectorSecrets.slackClientSecret }
+              : {}),
+            ...(props.connectorSecrets.slackSigningSecret
+              ? { SLACK_SIGNING_SECRET: props.connectorSecrets.slackSigningSecret }
+              : {}),
             ...(props.connectorSecrets.linearClientId
               ? { LINEAR_CLIENT_ID: props.connectorSecrets.linearClientId }
               : {}),
@@ -299,6 +308,24 @@ export class SecretsConstruct extends Construct {
         connectorEnv.ATLASSIAN_CLIENT_SECRET = ecs.Secret.fromSecretsManager(
           connectorSecret,
           "ATLASSIAN_CLIENT_SECRET",
+        );
+      }
+      if (props.connectorSecrets?.slackClientId) {
+        connectorEnv.SLACK_CLIENT_ID = ecs.Secret.fromSecretsManager(
+          connectorSecret,
+          "SLACK_CLIENT_ID",
+        );
+      }
+      if (props.connectorSecrets?.slackClientSecret) {
+        connectorEnv.SLACK_CLIENT_SECRET = ecs.Secret.fromSecretsManager(
+          connectorSecret,
+          "SLACK_CLIENT_SECRET",
+        );
+      }
+      if (props.connectorSecrets?.slackSigningSecret) {
+        connectorEnv.SLACK_SIGNING_SECRET = ecs.Secret.fromSecretsManager(
+          connectorSecret,
+          "SLACK_SIGNING_SECRET",
         );
       }
       if (props.connectorSecrets?.linearClientId) {

@@ -25,7 +25,7 @@ export async function maybeEnqueueConfluenceSyncOnConfigPush(input: {
   ref: string
   repository: {
     full_name: string
-    default_branch: string | null | undefined
+    default_branch?: string | null
   }
   commits?: Array<{
     added?: string[]
@@ -36,6 +36,7 @@ export async function maybeEnqueueConfluenceSyncOnConfigPush(input: {
   before?: string
   after?: string
   log: GithubWebhookLog
+  githubConnectionId?: string
 }): Promise<void> {
   const defaultBranch = input.repository.default_branch
   if (!defaultBranch) return
@@ -64,8 +65,11 @@ export async function maybeEnqueueConfluenceSyncOnConfigPush(input: {
   const env = parseEnv(process.env as Record<string, string | undefined>)
   const compareConfigPathCache = new Map<string, Promise<boolean>>()
 
-  const installationRows = await listInstallationsByGithubInstallationId(
-    input.installationId,
+  const installationRows = (
+    await listInstallationsByGithubInstallationId(input.installationId)
+  ).filter(
+    (installation) =>
+      !input.githubConnectionId || installation.id === input.githubConnectionId,
   )
 
   for (const installationRow of installationRows) {

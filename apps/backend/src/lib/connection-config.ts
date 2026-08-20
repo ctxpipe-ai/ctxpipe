@@ -429,3 +429,101 @@ export function serialiseNotionConnectionConfigForDb(
     unknown
   >
 }
+
+/** API/UI phases for Slack — derived, not persisted (no config-PR lifecycle). */
+export const SLACK_SETUP_PHASES = ["draft", "live"] as const
+export type SlackSetupPhase = (typeof SLACK_SETUP_PHASES)[number]
+
+/** `live` when a context repo is bound and capture is enabled. */
+export function derivedSlackSetupPhase(input: {
+  repositoryId: string | null | undefined
+  enabled: boolean
+}): SlackSetupPhase {
+  return input.repositoryId && input.enabled ? "live" : "draft"
+}
+
+/** Stored in `connections.config` for `type === "slack"` (bot token encrypted). */
+export const slackConnectionConfigStoredSchema = z
+  .object({
+    /** AES-GCM ciphertext of the bot user OAuth token (`xoxb-…`). */
+    botTokenEnc: z.preprocess(
+      trimNullableConnectionString,
+      z.string().nullable().optional(),
+    ),
+    teamId: z.preprocess(
+      trimNullableConnectionString,
+      z.string().nullable().optional(),
+    ),
+    teamName: z.preprocess(
+      trimNullableConnectionString,
+      z.string().nullable().optional(),
+    ),
+    botUserId: z.preprocess(
+      trimNullableConnectionString,
+      z.string().nullable().optional(),
+    ),
+    botHandle: z.preprocess(
+      trimNullableConnectionString,
+      z.string().nullable().optional(),
+    ),
+    appId: z.preprocess(
+      trimNullableConnectionString,
+      z.string().nullable().optional(),
+    ),
+    ownerUserId: z.preprocess(
+      trimNullableConnectionString,
+      z.string().nullable().optional(),
+    ),
+    status: z.string().optional(),
+    lastEventPayload: z.unknown().nullish(),
+    /** Context repository for intent capture (not a separate table). */
+    repositoryId: z.string().min(1).nullable().optional(),
+    branch: z.string().min(1).nullable().optional(),
+    enabled: z.boolean().optional(),
+  })
+  .transform((c) => ({
+    ...c,
+    status: c.status ?? "pending",
+    repositoryId: c.repositoryId ?? null,
+    branch: c.branch ?? null,
+    enabled: c.enabled ?? true,
+  }))
+
+export type SlackConnectionConfigStored = z.infer<
+  typeof slackConnectionConfigStoredSchema
+>
+
+export function parseSlackConnectionStored(
+  config: Record<string, unknown>,
+): SlackConnectionConfigStored {
+  return slackConnectionConfigStoredSchema.parse(config)
+}
+
+export function tryParseSlackConnectionStored(
+  config: unknown,
+): SlackConnectionConfigStored | null {
+  const r = slackConnectionConfigStoredSchema.safeParse(config)
+  return r.success ? r.data : null
+}
+
+/** Persisted JSON for `connections.config` when `type === "slack"`. */
+export function serialiseSlackConnectionConfigForDb(
+  input: z.input<typeof slackConnectionConfigStoredSchema>,
+): Record<string, unknown> {
+  return slackConnectionConfigStoredSchema.parse(input) as unknown as Record<
+    string,
+    unknown
+  >
+}
+
+export function decodeSlackBotToken(
+  stored: SlackConnectionConfigStored,
+  env: Env,
+): string | undefined {
+  if (!stored.botTokenEnc) return undefined
+  return decryptConnectionSecret(stored.botTokenEnc, env)
+}
+
+export function encodeSlackBotTokenForDb(botToken: string, env: Env): string {
+  return encryptConnectionSecret(botToken.trim(), env)
+}

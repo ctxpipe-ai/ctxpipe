@@ -1,5 +1,10 @@
 import { describe, expect, it } from "vitest"
-import { getConfluenceWizardBodyId } from "./confluence-setup-model"
+import {
+  getConfluenceCardCurrentIndex,
+  getConfluenceCardPrimaryCta,
+  getConfluenceWizardBodyId,
+  MANAGED_CONFLUENCE_WIZARD_STEPS,
+} from "./confluence-setup-model"
 import type { AtlassianConnectorStatus } from "./types"
 
 const baseStatus: AtlassianConnectorStatus = {
@@ -43,5 +48,45 @@ describe("getConfluenceWizardBodyId Forge / wait coherence", () => {
         managedOauth,
       ),
     ).toBe("install")
+  })
+})
+
+describe("Confluence card primary action", () => {
+  const configuredStatus: AtlassianConnectorStatus = {
+    ...baseStatus,
+    isInstalled: true,
+    installationStatus: "installed",
+    isGithubLinked: true,
+    selectedSpaceCount: 1,
+    syncTargetConfigured: true,
+    setupPhase: "awaiting_merge",
+  }
+
+  it("continues setup while configuration is awaiting merge or syncing", () => {
+    const currentIndex = getConfluenceCardCurrentIndex(
+      configuredStatus,
+      undefined,
+    )
+
+    expect(
+      getConfluenceCardPrimaryCta(
+        currentIndex,
+        MANAGED_CONFLUENCE_WIZARD_STEPS,
+      ),
+    ).toEqual({ kind: "open_wizard", label: "Continue setup" })
+  })
+
+  it("manages scope after the connector is live", () => {
+    const currentIndex = getConfluenceCardCurrentIndex(
+      { ...configuredStatus, setupPhase: "live" },
+      undefined,
+    )
+
+    expect(
+      getConfluenceCardPrimaryCta(
+        currentIndex,
+        MANAGED_CONFLUENCE_WIZARD_STEPS,
+      ),
+    ).toEqual({ kind: "open_scope", label: "Manage scope" })
   })
 })

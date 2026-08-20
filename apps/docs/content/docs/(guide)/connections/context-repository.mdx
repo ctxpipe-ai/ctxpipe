@@ -1,6 +1,6 @@
 ---
 title: Connector context repository
-description: Create one Git repository for content synchronized from Notion, Confluence, and other ctxpipe connectors.
+description: Create one Git repository for content synchronized from Confluence, Slack, Linear, Notion, and other ctxpipe connectors.
 ---
 
 ctxpipe is Git-native. Source connectors mirror approved content into a GitHub
@@ -21,13 +21,17 @@ Each connector owns its own path, so their files do not overlap. For example:
 
 ```text
 ctxpipe-context/
+├── confluence/
+│   ├── config.yaml
+│   └── ...
 ├── notion/
 │   ├── config.yaml
 │   ├── pages/
 │   └── databases/
-└── confluence/
-    ├── config.yaml
-    └── ...
+├── linear/
+│   └── config.yaml
+└── slack/
+    └── channels/
 ```
 
 ## Create the repository
@@ -61,7 +65,9 @@ ctxpipe-context/
     ### Reuse it for later connectors
 
     When the organization already has one active connector context repository,
-    ctxpipe recommends and preselects it during subsequent connector setup.
+    ctxpipe recommends and preselects it during subsequent connector setup;
+    prefer that same repository for subsequent connectors unless access
+    requirements differ.
   </Step>
 </Steps>
 
@@ -72,24 +78,34 @@ organization contains several independent ctxpipe organizations or security
 boundaries, use a qualified name such as `ctxpipe-context-platform` and keep
 their repositories separate.
 
-Use a separate repository when connector content has materially different
-access requirements. Repository access remains part of your security boundary;
-do not combine sources merely to avoid an extra setup step.
+Use a **separate** repository when connector content has materially different
+access requirements — for example private Slack channels that should not live
+beside broadly shared Confluence docs. Repository access remains part of your
+security boundary; do not combine sources merely to avoid an extra setup step.
 
 ## What ctxpipe writes
 
-Connector setup first proposes a configuration file such as
-`notion/config.yaml` or `confluence/config.yaml` in a pull request. That file
-records the approved source scope. After it is merged, ctxpipe synchronizes the
+For curated systems such as Confluence, Notion, and Linear, connector setup
+first proposes a configuration file (for example `confluence/config.yaml`,
+`notion/config.yaml`, or `linear/config.yaml`) in a pull request. That file
+records the approved source scope. After it is merged, ctxpipe synchronises the
 selected content under the connector's directory and reindexes repository
 changes.
 
-Your team can inspect the generated Markdown, review configuration changes, and
-use Git history to understand when connector context changed.
+Slack is different: there is no channel-scope config file. After you bind a
+context repository, users capture specific threads by mentioning the bot in
+Slack; ctxpipe commits those snapshots under `slack/` and reindexes like any
+other repository change. See the [Slack connector](/docs/connections/source-connectors/slack).
+
+Your team can inspect the generated Markdown, review configuration changes where
+they apply, and use Git history to understand when connector context changed.
 
 ## Related pages
 
 - [GitHub connector](/docs/connections/source-connectors/github)
 - [Confluence connector](/docs/connections/source-connectors/confluence)
+- [Slack connector](/docs/connections/source-connectors/slack)
+- [Linear connector](/docs/connections/source-connectors/linear)
+- [Self-host Notion](/docs/self-hosting/notion)
 - [Manage repositories](/docs/git-repositories/manage-repositories)
 - [Ingestion](/docs/connections/ingestion)

@@ -64,6 +64,9 @@ export function ConfluenceSetupWizard({
       fetchAtlassianConnectorStatus(orgSlug, atlassianConnectionId),
     placeholderData: keepPreviousData,
     enabled: isOpen,
+    staleTime: 0,
+    refetchOnWindowFocus: "always",
+    refetchIntervalInBackground: true,
     refetchInterval: (query) => {
       const data = query.state.data as AtlassianConnectorStatus | undefined
       if (!isOpen) return false

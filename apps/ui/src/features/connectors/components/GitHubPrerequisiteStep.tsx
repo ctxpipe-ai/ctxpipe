@@ -6,7 +6,7 @@ import { useGithubConnectFlow } from "@/features/connectors/useGithubConnectFlow
 
 type GitHubPrerequisiteStepProps = {
   orgSlug: string
-  sourceName: "Confluence" | "Linear" | "Notion"
+  sourceName: "Confluence" | "Linear" | "Notion" | "Slack"
   onConnected?: () => void | Promise<void>
 }
 
@@ -31,8 +31,8 @@ export function GitHubPrerequisiteStep({
             Connect GitHub
           </h3>
           <p className="mt-2 max-w-xl text-sm leading-relaxed text-muted-foreground">
-            {sourceName} content is mirrored into a GitHub repository, then
-            managed through the same config PR flow.
+            {sourceName} content is written into a GitHub context repository, so
+            a GitHub connection is required before you can continue.
           </p>
         </div>
         <div className="flex flex-wrap items-center gap-3">

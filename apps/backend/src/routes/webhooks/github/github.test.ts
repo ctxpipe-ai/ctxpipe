@@ -74,6 +74,7 @@ const findRepoMock = vi.mocked(findRepositoryByGithubInstallation)
 
 const baseInstallationRow = {
   installationId: 999,
+  appSlug: null as string | null,
   accountSlug: null as string | null,
   ingestAllRepositories: false,
   includeFutureRepos: false,
@@ -107,6 +108,7 @@ describe("POST /api/v1/webhook/github", () => {
     runWorkflowMock.mockResolvedValue({ workflowRun: { id: "wr_1" } })
     enqueueIngestionMock.mockResolvedValue(undefined)
     listInstallationsMock.mockReset()
+    listInstallationsMock.mockResolvedValue([])
     findRepoMock.mockReset()
     getRowByConMock.mockReset()
     registerInstallMock.mockReset()
@@ -144,6 +146,77 @@ describe("POST /api/v1/webhook/github", () => {
       body: "{}",
     })
     expect(res.status).toBe(401)
+  })
+
+    it("rejects a connection-specific secret at the legacy webhook URL", async () => {
+    listInstallationsMock.mockResolvedValue([
+      {
+        id: "con_abc",
+        orgId: "org_1",
+        ...baseInstallationRow,
+      },
+    ])
+    getWebhookSecretMock.mockResolvedValue("connection-webhook-secret")
+    const payload = { installation: { id: 999 } }
+    const body = JSON.stringify(payload)
+    const signature = await new Webhooks({
+      secret: "connection-webhook-secret",
+    }).sign(body)
+
+    const app = createTestApp()
+    const res = await app.request("/api/v1/webhook/github", {
+      method: "POST",
+      headers: {
+        "x-github-event": "issues",
+        "x-hub-signature-256": signature,
+        "content-type": "application/json",
+      },
+      body,
+    })
+
+    expect(res.status).toBe(401)
+    expect(enqueueIngestionMock).not.toHaveBeenCalled()
+  })
+
+  it("does not accept a connection-specific secret as a fan-out on the legacy URL", async () => {
+    listInstallationsMock.mockResolvedValue([
+      {
+        id: "con_1",
+        orgId: "org_1",
+        ...baseInstallationRow,
+      },
+      {
+        id: "con_2",
+        orgId: "org_2",
+        ...baseInstallationRow,
+      },
+    ])
+    getWebhookSecretMock.mockResolvedValue("shared-connection-secret")
+    const payload = {
+      ref: "refs/heads/main",
+      repository: {
+        full_name: "acme/app",
+        default_branch: "main",
+      },
+      installation: { id: 999 },
+    }
+    const body = JSON.stringify(payload)
+    const signature = await new Webhooks({
+      secret: "shared-connection-secret",
+    }).sign(body)
+
+    const response = await createTestApp().request("/api/v1/webhook/github", {
+      method: "POST",
+      headers: {
+        "x-github-event": "push",
+        "x-hub-signature-256": signature,
+        "content-type": "application/json",
+      },
+      body,
+    })
+
+    expect(response.status).toBe(401)
+    expect(enqueueIngestionMock).not.toHaveBeenCalled()
   })
 
   it("returns 503 when webhook secret is not configured", async () => {
@@ -524,7 +597,10 @@ describe("POST /api/v1/webhook/github/:connectionId", () => {
       orgId: "org_1",
       type: "github",
       name: null,
-      config: {},
+      config: {
+        ingestAllRepositories: false,
+        includeFutureRepos: false,
+      },
       createdAt: new Date(),
       updatedAt: new Date(),
     } as Record<string, unknown>)
@@ -567,7 +643,10 @@ describe("POST /api/v1/webhook/github/:connectionId", () => {
       orgId: "org_1",
       type: "github",
       name: null,
-      config: {},
+      config: {
+        ingestAllRepositories: false,
+        includeFutureRepos: false,
+      },
       createdAt: new Date(),
       updatedAt: new Date(),
     } as Record<string, unknown>)
@@ -604,6 +683,104 @@ describe("POST /api/v1/webhook/github/:connectionId", () => {
       installationId: 129_416_215,
       env,
     })
+  })
+
+  it("rejects a payload for a different GitHub installation", async () => {
+    getRowByConMock.mockResolvedValue({
+      id: "con_abc",
+      orgId: "org_1",
+      type: "github",
+      name: null,
+      config: {
+        installationId: 999,
+        ingestAllRepositories: false,
+        includeFutureRepos: false,
+      },
+      createdAt: new Date(),
+      updatedAt: new Date(),
+    } as never)
+
+    const payload = {
+      ref: "refs/heads/main",
+      repository: { full_name: "acme/app", default_branch: "main" },
+      installation: { id: 123 },
+    }
+    const body = JSON.stringify(payload)
+    const signature = await new Webhooks({
+      secret: perConnectionSecret,
+    }).sign(body)
+
+    const response = await createTestApp().request(
+      "/api/v1/webhook/github/con_abc",
+      {
+        method: "POST",
+        headers: {
+          "x-github-event": "push",
+          "x-hub-signature-256": signature,
+          "content-type": "application/json",
+        },
+        body,
+      },
+    )
+
+    expect(response.status).toBe(401)
+    expect(listInstallationsMock).not.toHaveBeenCalled()
+    expect(enqueueIngestionMock).not.toHaveBeenCalled()
+  })
+
+  it("processes only the GitHub connection that authenticated a push", async () => {
+    getRowByConMock.mockResolvedValue({
+      id: "con_abc",
+      orgId: "org_1",
+      type: "github",
+      name: null,
+      config: {
+        installationId: 999,
+        ingestAllRepositories: false,
+        includeFutureRepos: false,
+      },
+      createdAt: new Date(),
+      updatedAt: new Date(),
+    } as never)
+    listInstallationsMock.mockResolvedValue([
+      { id: "con_abc", orgId: "org_1", ...baseInstallationRow },
+      { id: "con_other", orgId: "org_2", ...baseInstallationRow },
+    ])
+    findRepoMock.mockResolvedValue({
+      id: "repo_abc",
+      orgId: "org_1",
+      name: "acme/app",
+      gitUrl: "https://github.com/acme/app.git",
+      githubConnectionId: "con_abc",
+    } as never)
+
+    const payload = {
+      ref: "refs/heads/main",
+      repository: { full_name: "acme/app", default_branch: "main" },
+      installation: { id: 999 },
+    }
+    const body = JSON.stringify(payload)
+    const signature = await new Webhooks({
+      secret: perConnectionSecret,
+    }).sign(body)
+
+    const response = await createTestApp().request(
+      "/api/v1/webhook/github/con_abc",
+      {
+        method: "POST",
+        headers: {
+          "x-github-event": "push",
+          "x-hub-signature-256": signature,
+          "content-type": "application/json",
+        },
+        body,
+      },
+    )
+
+    expect(response.status).toBe(200)
+    expect(findRepoMock).toHaveBeenCalledOnce()
+    expect(findRepoMock).toHaveBeenCalledWith("org_1", "acme/app", "con_abc")
+    expect(enqueueIngestionMock).toHaveBeenCalledOnce()
   })
 
   it("returns 503 when per-connection webhook secret is not configured", async () => {

@@ -1,4 +1,4 @@
-# ADR-025: Pierre trees and diffs as Workspace Files explorer chrome
+# ADR-026: Pierre trees and diffs as Workspace Files explorer chrome
 
 **Status:** Accepted | **Date:** 2026-08-19 | **Tags:** ui, workspaces, git
 

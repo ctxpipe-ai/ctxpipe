@@ -33,4 +33,5 @@ Parent: [`.ai/memory/README.md`](../README.md).
 | [ADR-022](ADR-022-linear-connector-git-native-mirror.md) | Linear connector Git-native mirror | Accepted |
 | [ADR-023](ADR-023-notion-connector-git-native-mirror.md) | Notion connector Git-native mirror | Accepted |
 | [ADR-024](ADR-024-markdown-only-local-memory-capture.md) | Markdown-only local memory with candidate-first capture | Accepted |
-| [ADR-025](ADR-025-pierre-files-pane-chrome.md) | Pierre trees/diffs as Workspace Files explorer chrome | Accepted |
+| [ADR-025](ADR-025-slack-connector-git-native-mirror.md) | Slack connector as intent-based git-native capture | Accepted |
+| [ADR-026](ADR-026-pierre-files-pane-chrome.md) | Pierre trees/diffs as Workspace Files explorer chrome | Accepted |
