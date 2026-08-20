@@ -5,6 +5,11 @@ const listMigrationExportShasMock = vi.hoisted(() => vi.fn())
 const listOrgLinkedRepositoriesMock = vi.hoisted(() => vi.fn())
 const enqueueWorkspaceHydrateMock = vi.hoisted(() => vi.fn())
 const enqueueWorkspaceIndexMock = vi.hoisted(() => vi.fn())
+const enqueueWorkspaceWriteCommitMock = vi.hoisted(() => vi.fn())
+const getGithubRepoWriteViewMock = vi.hoisted(() => vi.fn())
+const probeInTx = vi.hoisted(() => ({ value: false, seen: false }))
+const enqueueInTx = vi.hoisted(() => ({ value: false, seen: false }))
+const orgTxDepth = vi.hoisted(() => ({ value: 0 }))
 
 vi.mock("../../config/env.js", () => ({
   parseEnv: () => ({}),
@@ -18,8 +23,16 @@ vi.mock("../../db/client.js", () => ({
       },
     },
   }),
-  withOrgDbContext: (_orgId: string, fn: () => unknown) =>
-    Promise.resolve(fn()),
+  withOrgDbContext: async (_orgId: string, fn: () => unknown) => {
+    orgTxDepth.value += 1
+    try {
+      return await fn()
+    } finally {
+      orgTxDepth.value -= 1
+    }
+  },
+  assertNotInOrgDbContext: () => undefined,
+  tryGetOrgDb: () => (orgTxDepth.value > 0 ? {} : undefined),
   getOrgDb: () => ({
     select: () => ({
       from: () => ({
@@ -29,12 +42,31 @@ vi.mock("../../db/client.js", () => ({
   }),
 }))
 
+vi.mock("../../auth/withAuth.js", () => ({
+  withOrgIdContext: (_org: unknown, fn: () => unknown) => fn(),
+}))
+
+vi.mock("../../models/conversations.js", () => ({
+  listOrgConversationsForSandboxGc: vi.fn().mockResolvedValue([]),
+}))
+
 vi.mock("../../models/workspaces.js", () => ({
   listOrgWorkspaces: listOrgWorkspacesMock,
   listMigrationExportShas: listMigrationExportShasMock,
   listOrgLinkedRepositories: listOrgLinkedRepositoriesMock,
-  listPausedWriteJobs: vi.fn().mockResolvedValue([]),
-  claimPausedWriteJob: vi.fn(),
+  listPausedWriteJobs: vi.fn().mockResolvedValue([
+    {
+      id: "wjob_paused",
+      kind: "migration_export",
+      generation: 1,
+      desiredSha: "abc",
+      status: "paused",
+      payload: {
+        jobWorkspaceUrl: "https://github.com/acme/app.git",
+      },
+    },
+  ]),
+  claimPausedWriteJob: vi.fn().mockResolvedValue(true),
   getWorkspaceById: vi.fn(),
   persistLinkedDesiredSha: vi.fn(),
   persistResolvedDesiredSha: vi.fn(),
@@ -49,7 +81,11 @@ vi.mock("../../domain/workspaces/sandbox-registry.js", () => ({
 }))
 
 vi.mock("../../routes/webhooks/github/github-workspace-tip.js", () => ({
-  getGithubRepoWriteView: vi.fn(),
+  getGithubRepoWriteView: (...args: unknown[]) => {
+    probeInTx.seen = true
+    probeInTx.value = orgTxDepth.value > 0
+    return getGithubRepoWriteViewMock(...args)
+  },
   resolveWorkspaceRepositoryTip: vi.fn(),
 }))
 
@@ -62,7 +98,11 @@ vi.mock("../enqueue-workspace-index.js", () => ({
 }))
 
 vi.mock("../enqueue-workspace-write-commit.js", () => ({
-  enqueueWorkspaceWriteCommit: vi.fn(),
+  enqueueWorkspaceWriteCommit: (...args: unknown[]) => {
+    enqueueInTx.seen = true
+    enqueueInTx.value = orgTxDepth.value > 0
+    return enqueueWorkspaceWriteCommitMock(...args)
+  },
 }))
 
 vi.mock("openworkflow", () => ({
@@ -87,9 +127,19 @@ const tipCheckFn = workspaceTipCheck as unknown as {
 describe("workspaceTipCheck workflow", () => {
   beforeEach(() => {
     vi.clearAllMocks()
+    orgTxDepth.value = 0
+    probeInTx.seen = false
+    probeInTx.value = false
+    enqueueInTx.seen = false
+    enqueueInTx.value = false
     listOrgWorkspacesMock.mockResolvedValue([])
     listMigrationExportShasMock.mockResolvedValue(new Map())
     listOrgLinkedRepositoriesMock.mockResolvedValue([])
+    getGithubRepoWriteViewMock.mockResolvedValue({
+      canPush: true,
+      defaultBranch: "main",
+    })
+    enqueueWorkspaceWriteCommitMock.mockResolvedValue({ started: true })
   })
 
   it("completes sandbox GC without a Hono request", async () => {
@@ -99,5 +149,25 @@ describe("workspaceTipCheck workflow", () => {
         linkedUpdated: 0,
       },
     )
+  })
+
+  it("probes GitHub and enqueues write-commit outside the org SQL transaction", async () => {
+    listOrgWorkspacesMock.mockResolvedValue([
+      {
+        id: "ws_1",
+        workspaceRepositoryUrl: "https://github.com/acme/app.git",
+        desiredGeneration: 1,
+        desiredSha: "abc",
+        activeProjectionSha: "abc",
+        githubConnectionId: "con_gh",
+        createdAt: new Date(),
+        lastJobAt: null,
+      },
+    ])
+    await tipCheckFn.fn({ input: { orgId: "org_1" } })
+    expect(probeInTx.seen).toBe(true)
+    expect(probeInTx.value).toBe(false)
+    expect(enqueueInTx.seen).toBe(true)
+    expect(enqueueInTx.value).toBe(false)
   })
 })

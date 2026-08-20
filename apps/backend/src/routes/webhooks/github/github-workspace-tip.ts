@@ -1,4 +1,5 @@
 import type { Env } from "../../../config/env.js"
+import { assertNotInOrgDbContext } from "../../../db/client.js"
 import {
   applyResolvedTipsForMatchingLinked,
   applyResolvedTipsForMatchingWorkspaces,
@@ -24,6 +25,7 @@ export async function resolveGithubBranchTip(input: {
   branch: string
   env: Env
 }): Promise<string | null> {
+  assertNotInOrgDbContext()
   try {
     const ctx = await getInstallationOctokitForOrg(
       input.orgId,
@@ -50,6 +52,7 @@ export async function resolveGithubDefaultBranch(input: {
   repoFullName: string
   env: Env
 }): Promise<string | null> {
+  assertNotInOrgDbContext()
   try {
     const ctx = await getInstallationOctokitForOrg(
       input.orgId,
@@ -72,6 +75,7 @@ export async function getGithubRepoWriteView(input: {
   repoFullName: string
   env: Env
 }): Promise<GithubRepoWriteView> {
+  assertNotInOrgDbContext()
   const ctx = await getInstallationOctokitForOrg(
     input.orgId,
     input.env,

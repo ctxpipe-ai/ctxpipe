@@ -417,32 +417,37 @@ async function defaultWorkspaceChatRetrieval(
   query: string,
   input: { orgId: string; workspaceId: string },
 ): Promise<string> {
-  return withOrgDbContext(input.orgId, async () => {
+  const loaded = await withOrgDbContext(input.orgId, async () => {
     const workspace = await getWorkspaceById(input.workspaceId)
-    if (!workspace?.activeProjectionSha) return ""
+    if (!workspace?.activeProjectionSha) return null
     const units = await listWorkspaceKnowledgeUnitsForChat(input.workspaceId)
-    let embedding: number[] | null = null
-    let objectHits: Array<{ objectId: string }> = []
-    try {
-      embedding = await generateEmbedding(query)
-      objectHits = await hybridSearch(
-        input.orgId,
-        { embedding, query },
-        { limit: 20 },
-      )
-    } catch {
-      embedding = null
-      objectHits = []
-    }
-    return formatWorkspaceChatHits({
+    return {
       activeProjectionSha: workspace.activeProjectionSha,
-      hits: workspaceChatHybridHits({
-        query,
-        activeProjectionSha: workspace.activeProjectionSha,
-        units,
-        embedding,
-        objectHits,
-      }),
-    })
+      units,
+    }
+  })
+  if (!loaded) return ""
+  let embedding: number[] | null = null
+  let objectHits: Array<{ objectId: string }> = []
+  try {
+    embedding = await generateEmbedding(query)
+    objectHits = await hybridSearch(
+      input.orgId,
+      { embedding, query },
+      { limit: 20 },
+    )
+  } catch {
+    embedding = null
+    objectHits = []
+  }
+  return formatWorkspaceChatHits({
+    activeProjectionSha: loaded.activeProjectionSha,
+    hits: workspaceChatHybridHits({
+      query,
+      activeProjectionSha: loaded.activeProjectionSha,
+      units: loaded.units,
+      embedding,
+      objectHits,
+    }),
   })
 }

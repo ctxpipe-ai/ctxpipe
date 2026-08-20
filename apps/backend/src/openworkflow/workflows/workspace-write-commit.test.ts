@@ -28,12 +28,19 @@ const enqueueWorkspaceHydrateMock = vi.hoisted(() =>
 const runWorkflowWithWorkerWakeMock = vi.hoisted(() =>
   vi.fn().mockResolvedValue(undefined),
 )
+const orgTxDepth = vi.hoisted(() => ({ value: 0 }))
+const tipInTx = vi.hoisted(() => ({ value: false, seen: false }))
+const enqueueInTx = vi.hoisted(() => ({ value: false, seen: false }))
 
 vi.mock("../../config/env.js", () => ({
   parseEnv: () => ({}),
 }))
 
 vi.mock("../../db/client.js", () => ({
+  tryGetOrgDb: () => (orgTxDepth.value > 0 ? {} : undefined),
+  tryGetOrgDbOrgId: () => (orgTxDepth.value > 0 ? "org_1" : undefined),
+  assertNotInOrgDbContext: () => undefined,
+
   getSystemDb: () => ({
     query: {
       organizations: {
@@ -41,8 +48,14 @@ vi.mock("../../db/client.js", () => ({
       },
     },
   }),
-  withOrgDbContext: (_orgId: string, fn: () => unknown) =>
-    Promise.resolve(fn()),
+  withOrgDbContext: async (_orgId: string, fn: () => unknown) => {
+    orgTxDepth.value += 1
+    try {
+      return await fn()
+    } finally {
+      orgTxDepth.value -= 1
+    }
+  },
   withLockClient: async (
     fn: (client: { query: () => Promise<void> }) => unknown,
   ) => fn({ query: async () => undefined }),
@@ -104,7 +117,11 @@ vi.mock("../../models/github-installation.js", () => ({
 
 vi.mock("../../routes/webhooks/github/github-workspace-tip.js", () => ({
   resolveGithubDefaultBranch: vi.fn().mockResolvedValue("main"),
-  resolveWorkspaceRepositoryTip: resolveWorkspaceRepositoryTipMock,
+  resolveWorkspaceRepositoryTip: (...args: unknown[]) => {
+    tipInTx.seen = true
+    tipInTx.value = orgTxDepth.value > 0
+    return resolveWorkspaceRepositoryTipMock(...args)
+  },
 }))
 
 vi.mock("../../services/github/installation-write-client.js", () => ({
@@ -116,7 +133,11 @@ vi.mock("../../services/github/installation-write-client.js", () => ({
 }))
 
 vi.mock("../enqueue-workspace-hydrate.js", () => ({
-  enqueueWorkspaceHydrate: enqueueWorkspaceHydrateMock,
+  enqueueWorkspaceHydrate: (...args: unknown[]) => {
+    enqueueInTx.seen = true
+    enqueueInTx.value = orgTxDepth.value > 0
+    return enqueueWorkspaceHydrateMock(...args)
+  },
 }))
 
 vi.mock("../enqueue-workspace-write-commit.js", () => ({
@@ -148,6 +169,11 @@ import { workspaceWriteCommit } from "./workspace-write-commit.js"
 describe("workspaceWriteCommit workflow", () => {
   beforeEach(() => {
     vi.clearAllMocks()
+    orgTxDepth.value = 0
+    tipInTx.seen = false
+    tipInTx.value = false
+    enqueueInTx.seen = false
+    enqueueInTx.value = false
     persistResolvedDesiredShaMock.mockResolvedValue(true)
     resolveWorkspaceRepositoryTipMock.mockResolvedValue("abc123def456")
     loadMigrationExportSourceMock.mockResolvedValue({
@@ -186,6 +212,10 @@ describe("workspaceWriteCommit workflow", () => {
         resolvedTip: "abc123def456",
       }),
     )
+    expect(tipInTx.seen).toBe(true)
+    expect(tipInTx.value).toBe(false)
+    expect(enqueueInTx.seen).toBe(true)
+    expect(enqueueInTx.value).toBe(false)
   })
 
   it("persists hydrate failure then rethrows when the job dies after start", async () => {

@@ -18,6 +18,10 @@ vi.mock("../setIngestionIndexingStep.js", () => ({
 }))
 
 vi.mock("../../../db/client.js", () => ({
+    tryGetOrgDb: () => ({}),
+    tryGetOrgDbOrgId: () => "org_test",
+    assertNotInOrgDbContext: () => undefined,
+
   getSystemDb: getSystemDbMock,
 }))
 
@@ -118,10 +122,7 @@ describe("embed", () => {
     )
 
     expect(generateEmbeddingsMock).toHaveBeenCalledTimes(1)
-    expect(generateEmbeddingsMock.mock.calls[0]?.[0]).toEqual([
-      "a sa",
-      "b sb",
-    ])
+    expect(generateEmbeddingsMock.mock.calls[0]?.[0]).toEqual(["a sa", "b sb"])
     expect(setIngestionIndexingStepMock).toHaveBeenCalledWith(
       expect.anything(),
       "embedding",

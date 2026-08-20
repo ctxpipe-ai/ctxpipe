@@ -14,6 +14,10 @@ const enqueueIngestionMock = vi.hoisted(() =>
 )
 
 vi.mock("../../../db/client.js", () => ({
+    tryGetOrgDb: () => ({}),
+    tryGetOrgDbOrgId: () => "org_test",
+    assertNotInOrgDbContext: () => undefined,
+
   // Webhook handler now wraps findRepositoryByGithubInstallation in
   // withOrgDbContext (moved out of the model). In tests we pass through so
   // mocked models still run.
@@ -148,7 +152,7 @@ describe("POST /api/v1/webhook/github", () => {
     expect(res.status).toBe(401)
   })
 
-    it("rejects a connection-specific secret at the legacy webhook URL", async () => {
+  it("rejects a connection-specific secret at the legacy webhook URL", async () => {
     listInstallationsMock.mockResolvedValue([
       {
         id: "con_abc",

@@ -1,3 +1,5 @@
+import { assertNotInOrgDbContext } from "../../db/client.js"
+
 export const SANDBOX_PROVIDERS = ["docker", "railway", "unsandboxed"] as const
 
 export type SandboxProvider = (typeof SANDBOX_PROVIDERS)[number]
@@ -99,6 +101,7 @@ async function destroyWithProviderFactory(input: {
   provider: string
   providerSandboxId: string
 }): Promise<void> {
+  assertNotInOrgDbContext()
   if (!input.factory) {
     throw new Error(`Cannot destroy detached ${input.provider} sandbox`)
   }

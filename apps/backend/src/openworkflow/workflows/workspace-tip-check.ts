@@ -34,7 +34,10 @@ import {
 } from "../../routes/webhooks/github/github-workspace-tip.js"
 import { enqueueWorkspaceHydrate } from "../enqueue-workspace-hydrate.js"
 import { enqueueWorkspaceIndex } from "../enqueue-workspace-index.js"
-import { enqueueWorkspaceWriteCommit } from "../enqueue-workspace-write-commit.js"
+import {
+  enqueueWorkspaceWriteCommit,
+  type EnqueueWorkspaceWriteCommitInput,
+} from "../enqueue-workspace-write-commit.js"
 
 const workspaceTipCheckInputSchema = z.object({
   orgId: z.string().min(1),
@@ -48,26 +51,30 @@ export const workspaceTipCheck = defineWorkflow(
       where: { id: { eq: input.orgId } },
     })
     if (!org) throw new Error(`Organization not found: ${input.orgId}`)
-    return withOrgIdContext({ id: org.id, slug: org.slug }, () =>
-      withOrgDbContext(input.orgId, async () => {
-        const workspaces = await listOrgWorkspaces(input.orgId)
-        const quietLog = { error: () => undefined }
-        const writeStatusById = new Map<string, string>()
-        for (const workspace of workspaces) {
-          const probe = await probeWorkspaceWriteAccess({
-            workspaceRepositoryUrl: workspace.workspaceRepositoryUrl,
-            githubConnectionId: workspace.githubConnectionId,
-            getRepo: (fullName) =>
-              getGithubRepoWriteView({
-                orgId: input.orgId,
-                githubConnectionId: workspace.githubConnectionId,
-                repoFullName: fullName,
-                env,
-              }),
-          })
-          await persistWriteStatus(workspace.id, probe)
-          writeStatusById.set(workspace.id, probe.writeStatus)
-          if (probe.writeStatus !== "writable") continue
+    return withOrgIdContext({ id: org.id, slug: org.slug }, async () => {
+      const workspaces = await withOrgDbContext(input.orgId, () =>
+        listOrgWorkspaces(input.orgId),
+      )
+      const quietLog = { error: () => undefined }
+      const writeStatusById = new Map<string, string>()
+      const writeCommitsToEnqueue: EnqueueWorkspaceWriteCommitInput[] = []
+      for (const workspace of workspaces) {
+        const probe = await probeWorkspaceWriteAccess({
+          workspaceRepositoryUrl: workspace.workspaceRepositoryUrl,
+          githubConnectionId: workspace.githubConnectionId,
+          getRepo: (fullName) =>
+            getGithubRepoWriteView({
+              orgId: input.orgId,
+              githubConnectionId: workspace.githubConnectionId,
+              repoFullName: fullName,
+              env,
+            }),
+        })
+        writeStatusById.set(workspace.id, probe.writeStatus)
+        const claimed = await withOrgDbContext(input.orgId, async () => {
+          await persistWriteStatus(workspace.id, probe, input.orgId)
+          if (probe.writeStatus !== "writable") return []
+          const pending: EnqueueWorkspaceWriteCommitInput[] = []
           await resumePausedWriteJobs({
             orgId: input.orgId,
             workspaceId: workspace.id,
@@ -76,121 +83,139 @@ export const workspaceTipCheck = defineWorkflow(
             desiredWorkspaceUrl: workspace.workspaceRepositoryUrl,
             jobs: await listPausedWriteJobs(workspace.id),
             claim: claimPausedWriteJob,
-            enqueue: enqueueWorkspaceWriteCommit,
+            enqueue: async (args) => {
+              pending.push(args)
+              return { started: true }
+            },
             log: quietLog,
           })
-        }
-        const updated = await runCronTipChecks({
-          workspaces,
-          resolveTip: (workspaceRepositoryUrl) => {
-            const row = workspaces.find(
-              (item) => item.workspaceRepositoryUrl === workspaceRepositoryUrl,
-            )
-            return resolveWorkspaceRepositoryTip({
-              orgId: input.orgId,
-              githubConnectionId: row?.githubConnectionId,
-              workspaceRepositoryUrl,
-              env,
-            })
-          },
-          persist: persistResolvedDesiredSha,
-          reloadDesiredSha: async (workspaceId) =>
-            (await getWorkspaceById(workspaceId))?.desiredSha ?? null,
+          return pending
         })
-        const desiredById = new Map(
-          workspaces.map((row) => [row.id, row.desiredSha]),
-        )
-        for (const item of updated) {
-          desiredById.set(item.workspaceId, item.resolvedTip)
-        }
-        const exportShas = await listMigrationExportShas()
-        for (const workspace of workspaces) {
-          if (
-            shouldEnqueueCronHydrate({
-              migrationExportSha: exportShas.get(workspace.id) ?? null,
-              desiredSha: desiredById.get(workspace.id) ?? null,
-              activeProjectionSha: workspace.activeProjectionSha,
-              writeStatus: writeStatusById.get(workspace.id),
-            })
-          ) {
-            void enqueueWorkspaceHydrate(
-              { orgId: input.orgId, workspaceId: workspace.id },
-              { error: () => undefined },
-            )
-          }
-        }
-        for (const item of updated) {
+        writeCommitsToEnqueue.push(...claimed)
+      }
+      for (const args of writeCommitsToEnqueue) {
+        await enqueueWorkspaceWriteCommit(args, quietLog)
+      }
+      const updated = await runCronTipChecks({
+        workspaces,
+        resolveTip: (workspaceRepositoryUrl) => {
           const row = workspaces.find(
-            (workspace) => workspace.id === item.workspaceId,
+            (item) => item.workspaceRepositoryUrl === workspaceRepositoryUrl,
           )
-          if (row) {
-            void enqueueWorkspaceIndex(
-              {
-                orgId: input.orgId,
-                workspaceId: row.id,
-                gitUrl: row.workspaceRepositoryUrl,
-                desiredSha: item.resolvedTip,
-                role: "workspace",
-                jobGeneration: row.desiredGeneration,
-                jobWorkspaceUrl: row.workspaceRepositoryUrl,
-              },
-              { error: () => undefined },
-            )
-          }
+          return resolveWorkspaceRepositoryTip({
+            orgId: input.orgId,
+            githubConnectionId: row?.githubConnectionId,
+            workspaceRepositoryUrl,
+            env,
+          })
+        },
+        persist: (row) =>
+          withOrgDbContext(input.orgId, () => persistResolvedDesiredSha(row)),
+        reloadDesiredSha: async (workspaceId) =>
+          withOrgDbContext(
+            input.orgId,
+            async () =>
+              (await getWorkspaceById(workspaceId))?.desiredSha ?? null,
+          ),
+      })
+      const desiredById = new Map(
+        workspaces.map((row) => [row.id, row.desiredSha]),
+      )
+      for (const item of updated) {
+        desiredById.set(item.workspaceId, item.resolvedTip)
+      }
+      const exportShas = await withOrgDbContext(input.orgId, () =>
+        listMigrationExportShas(),
+      )
+      for (const workspace of workspaces) {
+        if (
+          shouldEnqueueCronHydrate({
+            migrationExportSha: exportShas.get(workspace.id) ?? null,
+            desiredSha: desiredById.get(workspace.id) ?? null,
+            activeProjectionSha: workspace.activeProjectionSha,
+            writeStatus: writeStatusById.get(workspace.id),
+          })
+        ) {
+          void enqueueWorkspaceHydrate(
+            { orgId: input.orgId, workspaceId: workspace.id },
+            { error: () => undefined },
+          )
         }
-        const linked = await listOrgLinkedRepositories(input.orgId)
-        const linkedUpdated = await runCronLinkedTipChecks({
-          linked,
-          resolveTip: (gitUrl, desiredRef) =>
-            resolveWorkspaceRepositoryTip({
-              orgId: input.orgId,
-              workspaceRepositoryUrl: gitUrl,
-              branch: desiredRef,
-              env,
-            }),
-          persist: persistLinkedDesiredSha,
-        })
-        for (const item of linkedUpdated) {
-          const row = linked.find((linkedRow) => linkedRow.id === item.linkedId)
-          if (!row) continue
-          const workspace = workspaces.find(
-            (item) => item.id === row.workspaceId,
-          )
-          if (!workspace) continue
+      }
+      for (const item of updated) {
+        const row = workspaces.find(
+          (workspace) => workspace.id === item.workspaceId,
+        )
+        if (row) {
           void enqueueWorkspaceIndex(
             {
               orgId: input.orgId,
-              workspaceId: row.workspaceId,
-              gitUrl: row.gitUrl,
+              workspaceId: row.id,
+              gitUrl: row.workspaceRepositoryUrl,
               desiredSha: item.resolvedTip,
-              role: "linked",
-              linkedId: row.id,
-              jobGeneration: workspace.desiredGeneration,
-              jobWorkspaceUrl: workspace.workspaceRepositoryUrl,
+              role: "workspace",
+              jobGeneration: row.desiredGeneration,
+              jobWorkspaceUrl: row.workspaceRepositoryUrl,
             },
             { error: () => undefined },
           )
         }
-        const now = new Date()
-        const idleChats = chatSandboxesDueForDestroy({
-          conversations: await listOrgConversationsForSandboxGc(input.orgId),
-          now,
-        })
-        for (const conversationId of idleChats) {
-          await destroySandboxesForConversation(conversationId)
-        }
-        const idleJobs = jobSandboxesDueForDestroy({
-          workspaces: workspaces.map((row) => ({
-            id: row.id,
-            lastJobAt: row.lastJobAt,
-          })),
-          now,
-        })
-        for (const workspaceId of idleJobs) {
-          await destroySandboxesForWorkspace(workspaceId, "job")
-        }
-        return { updated: updated.length, linkedUpdated: linkedUpdated.length }
-      }),
-    )
+      }
+      const linked = await withOrgDbContext(input.orgId, () =>
+        listOrgLinkedRepositories(input.orgId),
+      )
+      const linkedUpdated = await runCronLinkedTipChecks({
+        linked,
+        resolveTip: (gitUrl, desiredRef) =>
+          resolveWorkspaceRepositoryTip({
+            orgId: input.orgId,
+            workspaceRepositoryUrl: gitUrl,
+            branch: desiredRef,
+            env,
+          }),
+        persist: (row) =>
+          withOrgDbContext(input.orgId, () => persistLinkedDesiredSha(row)),
+      })
+      for (const item of linkedUpdated) {
+        const row = linked.find((linkedRow) => linkedRow.id === item.linkedId)
+        if (!row) continue
+        const workspace = workspaces.find((item) => item.id === row.workspaceId)
+        if (!workspace) continue
+        void enqueueWorkspaceIndex(
+          {
+            orgId: input.orgId,
+            workspaceId: row.workspaceId,
+            gitUrl: row.gitUrl,
+            desiredSha: item.resolvedTip,
+            role: "linked",
+            linkedId: row.id,
+            jobGeneration: workspace.desiredGeneration,
+            jobWorkspaceUrl: workspace.workspaceRepositoryUrl,
+          },
+          { error: () => undefined },
+        )
+      }
+      const now = new Date()
+      const idleChats = chatSandboxesDueForDestroy({
+        conversations: await withOrgDbContext(input.orgId, () =>
+          listOrgConversationsForSandboxGc(input.orgId),
+        ),
+        now,
+      })
+      for (const conversationId of idleChats) {
+        await destroySandboxesForConversation(conversationId)
+      }
+      const idleJobs = jobSandboxesDueForDestroy({
+        workspaces: workspaces.map((row) => ({
+          id: row.id,
+          lastJobAt: row.lastJobAt,
+        })),
+        now,
+      })
+      for (const workspaceId of idleJobs) {
+        await destroySandboxesForWorkspace(workspaceId, "job")
+      }
+      return { updated: updated.length, linkedUpdated: linkedUpdated.length }
+    })
   },
 )

@@ -42,6 +42,10 @@ vi.mock("./config.js", () => ({
 }))
 
 vi.mock("../db/client.js", () => ({
+    tryGetOrgDb: () => ({}),
+    tryGetOrgDbOrgId: () => "org_test",
+    assertNotInOrgDbContext: () => undefined,
+
   getSystemDb: getSystemDbMock,
   withOrgDbContext: withOrgDbContextMock,
 }))
@@ -54,7 +58,10 @@ import {
   withCookieAuth,
   withNetworkOrgContext,
 } from "./withAuth.js"
-import { contextStorage, withTestRequestLogger } from "../test/hono-test-logger.js"
+import {
+  contextStorage,
+  withTestRequestLogger,
+} from "../test/hono-test-logger.js"
 
 function createMockDb(input: {
   orgRows?: Array<{ id: string }>
@@ -479,6 +486,7 @@ describe("auth middleware composition", () => {
       orgId: "org_cookie",
     })
     expect(jwtVerifyMock).not.toHaveBeenCalled()
+    expect(withOrgDbContextMock).not.toHaveBeenCalled()
   })
 
   it("rejects an authenticated user who is not a member of the requested org", async () => {

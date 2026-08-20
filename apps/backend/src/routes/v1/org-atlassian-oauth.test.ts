@@ -14,6 +14,10 @@ vi.mock("../../auth/config.js", () => ({
 const limitResult = vi.hoisted<{ value: unknown[] }>(() => ({ value: [] }))
 
 vi.mock("../../db/client.js", () => ({
+    tryGetOrgDb: () => ({}),
+    tryGetOrgDbOrgId: () => "org_test",
+    assertNotInOrgDbContext: () => undefined,
+
   getSystemDb: vi.fn(() => ({
     select: vi.fn(() => ({
       from: vi.fn(() => ({

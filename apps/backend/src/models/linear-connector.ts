@@ -1,7 +1,12 @@
 import { and, desc, eq, sql } from "drizzle-orm"
 import type { Env } from "../config/env.js"
 import type { Db } from "../db/client.js"
-import { getOrgDb, getSystemDb } from "../db/client.js"
+import {
+  assertNotInOrgDbContext,
+  getOrgDb,
+  getSystemDb,
+  withOrgDbContext,
+} from "../db/client.js"
 import {
   CONNECTION_TYPE_LINEAR,
   connections,
@@ -22,6 +27,11 @@ import {
 } from "./connection-rows.js"
 import { listGithubConnectionsForOrg } from "./github-installation.js"
 import { DEFAULT_CHECKOUT_KEY } from "./repositories.js"
+import { withAmbientOrgDb } from "../db/org-sql.js"
+
+function orgSql<T>(fn: () => Promise<T>): Promise<T> {
+  return withAmbientOrgDb(fn)
+}
 
 export type { LinearSetupPhase } from "../lib/connection-config.js"
 
@@ -169,18 +179,20 @@ export async function listLinearConnectionsForOrg(
   orgId: string,
   env: Env,
 ): Promise<LinearConnection[]> {
-  const db = getOrgDb()
-  const rows = await db
-    .select()
-    .from(connections)
-    .where(
-      and(
-        eq(connections.orgId, orgId),
-        eq(connections.type, CONNECTION_TYPE_LINEAR),
-      ),
-    )
-    .orderBy(desc(connections.updatedAt))
-  return rows.map((row) => linearConnectionToShape(row, env))
+  return orgSql(async () => {
+    const db = getOrgDb()
+    const rows = await db
+      .select()
+      .from(connections)
+      .where(
+        and(
+          eq(connections.orgId, orgId),
+          eq(connections.type, CONNECTION_TYPE_LINEAR),
+        ),
+      )
+      .orderBy(desc(connections.updatedAt))
+    return rows.map((row) => linearConnectionToShape(row, env))
+  })
 }
 
 export async function getLinearConnectionByConnectionId(
@@ -188,19 +200,21 @@ export async function getLinearConnectionByConnectionId(
   connectionId: string,
   env: Env,
 ): Promise<LinearConnection | undefined> {
-  const db = getOrgDb()
-  const [row] = await db
-    .select()
-    .from(connections)
-    .where(
-      and(
-        eq(connections.id, connectionId),
-        eq(connections.orgId, orgId),
-        eq(connections.type, CONNECTION_TYPE_LINEAR),
-      ),
-    )
-    .limit(1)
-  return row ? linearConnectionToShape(row, env) : undefined
+  return orgSql(async () => {
+    const db = getOrgDb()
+    const [row] = await db
+      .select()
+      .from(connections)
+      .where(
+        and(
+          eq(connections.id, connectionId),
+          eq(connections.orgId, orgId),
+          eq(connections.type, CONNECTION_TYPE_LINEAR),
+        ),
+      )
+      .limit(1)
+    return row ? linearConnectionToShape(row, env) : undefined
+  })
 }
 
 export const MULTIPLE_LINEAR_CONNECTIONS_MESSAGE =
@@ -245,86 +259,88 @@ export async function upsertLinearConnectionFromOAuth(input: {
   workspaceUrlKey: string | null
   actorUserId: string | null
 }): Promise<LinearConnection> {
-  const db = getOrgDb()
-  return db.transaction(async (tx) => {
-    await tx.execute(
-      sql`select pg_advisory_xact_lock(hashtextextended(${`${input.orgId}:${input.workspaceId}`}, 0))`,
-    )
-    const [matched] = await tx
-      .select()
-      .from(connections)
-      .where(
-        and(
-          eq(connections.orgId, input.orgId),
-          eq(connections.type, CONNECTION_TYPE_LINEAR),
-          eq(linearConfigWorkspaceIdRef(), input.workspaceId),
-        ),
-      )
-      .orderBy(desc(connections.updatedAt))
-      .limit(1)
-    let existing = matched
-    if (existing) {
+  return orgSql(async () => {
+    const db = getOrgDb()
+    return db.transaction(async (tx) => {
       await tx.execute(
-        sql`select pg_advisory_xact_lock(hashtextextended(${existing.id}, 0))`,
+        sql`select pg_advisory_xact_lock(hashtextextended(${`${input.orgId}:${input.workspaceId}`}, 0))`,
       )
-      const [latestExisting] = await tx
+      const [matched] = await tx
         .select()
         .from(connections)
-        .where(eq(connections.id, existing.id))
+        .where(
+          and(
+            eq(connections.orgId, input.orgId),
+            eq(connections.type, CONNECTION_TYPE_LINEAR),
+            eq(linearConfigWorkspaceIdRef(), input.workspaceId),
+          ),
+        )
+        .orderBy(desc(connections.updatedAt))
         .limit(1)
-      existing = latestExisting
-    }
+      let existing = matched
+      if (existing) {
+        await tx.execute(
+          sql`select pg_advisory_xact_lock(hashtextextended(${existing.id}, 0))`,
+        )
+        const [latestExisting] = await tx
+          .select()
+          .from(connections)
+          .where(eq(connections.id, existing.id))
+          .limit(1)
+        existing = latestExisting
+      }
 
-    const existingShape = existing
-      ? linearConnectionToShape(existing, input.env)
-      : undefined
-    const config = linearShapeToConfig(
-      {
-        accessToken: input.accessToken,
-        refreshToken: input.refreshToken,
-        accessTokenExpiresAt: input.accessTokenExpiresAt,
-        workspaceId: input.workspaceId,
-        workspaceName: input.workspaceName,
-        workspaceUrlKey: input.workspaceUrlKey,
-        actorUserId: input.actorUserId,
-        ownerUserId: input.ownerUserId,
-        status: "installed",
-        lastEventPayload:
-          existingShape?.lastEventPayload !== undefined
-            ? existingShape.lastEventPayload
-            : null,
-        repositoryId: existingShape?.repositoryId ?? null,
-        branch: existingShape?.branch ?? null,
-        enabled: existingShape?.enabled ?? true,
-        setupPhase: existingShape?.setupPhase ?? "draft",
-        pendingConfigPullUrl: existingShape?.pendingConfigPullUrl ?? null,
-        pendingConfigPrCreating:
-          existingShape?.pendingConfigPrCreating ?? false,
-      },
-      input.env,
-    )
+      const existingShape = existing
+        ? linearConnectionToShape(existing, input.env)
+        : undefined
+      const config = linearShapeToConfig(
+        {
+          accessToken: input.accessToken,
+          refreshToken: input.refreshToken,
+          accessTokenExpiresAt: input.accessTokenExpiresAt,
+          workspaceId: input.workspaceId,
+          workspaceName: input.workspaceName,
+          workspaceUrlKey: input.workspaceUrlKey,
+          actorUserId: input.actorUserId,
+          ownerUserId: input.ownerUserId,
+          status: "installed",
+          lastEventPayload:
+            existingShape?.lastEventPayload !== undefined
+              ? existingShape.lastEventPayload
+              : null,
+          repositoryId: existingShape?.repositoryId ?? null,
+          branch: existingShape?.branch ?? null,
+          enabled: existingShape?.enabled ?? true,
+          setupPhase: existingShape?.setupPhase ?? "draft",
+          pendingConfigPullUrl: existingShape?.pendingConfigPullUrl ?? null,
+          pendingConfigPrCreating:
+            existingShape?.pendingConfigPrCreating ?? false,
+        },
+        input.env,
+      )
 
-    if (!existing) {
+      if (!existing) {
+        const [row] = await tx
+          .insert(connections)
+          .values({
+            id: generateObjectId("con"),
+            orgId: input.orgId,
+            type: CONNECTION_TYPE_LINEAR,
+            config,
+          })
+          .returning()
+        if (!row) throw new Error("Failed to create Linear connection")
+        return linearConnectionToShape(row, input.env)
+      }
+
       const [row] = await tx
-        .insert(connections)
-        .values({
-          id: generateObjectId("con"),
-          orgId: input.orgId,
-          type: CONNECTION_TYPE_LINEAR,
-          config,
-        })
+        .update(connections)
+        .set({ config, updatedAt: new Date() })
+        .where(eq(connections.id, existing.id))
         .returning()
-      if (!row) throw new Error("Failed to create Linear connection")
+      if (!row) throw new Error("Failed to update Linear connection")
       return linearConnectionToShape(row, input.env)
-    }
-
-    const [row] = await tx
-      .update(connections)
-      .set({ config, updatedAt: new Date() })
-      .where(eq(connections.id, existing.id))
-      .returning()
-    if (!row) throw new Error("Failed to update Linear connection")
-    return linearConnectionToShape(row, input.env)
+    })
   })
 }
 
@@ -344,8 +360,38 @@ export async function refreshLinearConnectionTokensWithLock(input: {
   refreshToken: string | null
   accessTokenExpiresAt: string | null
 }> {
-  const db = getOrgDb()
-  return db.transaction(async (tx) => {
+  assertNotInOrgDbContext()
+  const snapshot = await withOrgDbContext(input.orgId, async (tx) => {
+    const [row] = await tx
+      .select()
+      .from(connections)
+      .where(
+        and(
+          eq(connections.id, input.connectionId),
+          eq(connections.orgId, input.orgId),
+          eq(connections.type, CONNECTION_TYPE_LINEAR),
+        ),
+      )
+      .limit(1)
+    if (!row) throw new Error("Linear connection not found")
+    return linearConnectionToShape(row, input.env)
+  })
+  if (
+    snapshot.accessToken !== input.expectedAccessToken ||
+    (snapshot.refreshToken &&
+      snapshot.refreshToken !== input.expectedRefreshToken)
+  ) {
+    return {
+      accessToken: snapshot.accessToken,
+      refreshToken: snapshot.refreshToken,
+      accessTokenExpiresAt: snapshot.accessTokenExpiresAt,
+    }
+  }
+  if (!snapshot.refreshToken) {
+    throw new Error("Linear connection has no refresh token")
+  }
+  const refreshed = await input.refresh(snapshot.refreshToken)
+  return withOrgDbContext(input.orgId, async (tx) => {
     await tx.execute(
       sql`select pg_advisory_xact_lock(hashtextextended(${input.connectionId}, 0))`,
     )
@@ -373,10 +419,6 @@ export async function refreshLinearConnectionTokensWithLock(input: {
         accessTokenExpiresAt: current.accessTokenExpiresAt,
       }
     }
-    if (!current.refreshToken) {
-      throw new Error("Linear connection has no refresh token")
-    }
-    const refreshed = await input.refresh(current.refreshToken)
     const config = linearShapeToConfig(
       {
         ...current,
@@ -389,7 +431,13 @@ export async function refreshLinearConnectionTokensWithLock(input: {
     const [updated] = await tx
       .update(connections)
       .set({ config, updatedAt: new Date() })
-      .where(eq(connections.id, input.connectionId))
+      .where(
+        and(
+          eq(connections.id, input.connectionId),
+          eq(connections.orgId, input.orgId),
+          eq(connections.type, CONNECTION_TYPE_LINEAR),
+        ),
+      )
       .returning({ id: connections.id })
     if (updated) return refreshed
     throw new Error("Linear connection was removed during token refresh")
@@ -456,22 +504,24 @@ export async function deleteLinearConnectionById(
   orgId: string,
   connectionId: string,
 ): Promise<boolean> {
-  const db = getOrgDb()
-  return db.transaction(async (tx) => {
-    await tx.execute(
-      sql`select pg_advisory_xact_lock(hashtextextended(${connectionId}, 0))`,
-    )
-    const removed = await tx
-      .delete(connections)
-      .where(
-        and(
-          eq(connections.id, connectionId),
-          eq(connections.orgId, orgId),
-          eq(connections.type, CONNECTION_TYPE_LINEAR),
-        ),
+  return orgSql(async () => {
+    const db = getOrgDb()
+    return db.transaction(async (tx) => {
+      await tx.execute(
+        sql`select pg_advisory_xact_lock(hashtextextended(${connectionId}, 0))`,
       )
-      .returning({ id: connections.id })
-    return removed.length > 0
+      const removed = await tx
+        .delete(connections)
+        .where(
+          and(
+            eq(connections.id, connectionId),
+            eq(connections.orgId, orgId),
+            eq(connections.type, CONNECTION_TYPE_LINEAR),
+          ),
+        )
+        .returning({ id: connections.id })
+      return removed.length > 0
+    })
   })
 }
 
@@ -1169,53 +1219,58 @@ export async function clearLinearSyncBindingsForRepository(input: {
   orgId: string
   repositoryId: string
 }): Promise<number> {
-  const db = getOrgDb()
-  const ids = await db
-    .select({ id: connections.id })
-    .from(connections)
-    .where(
-      and(
-        eq(connections.orgId, input.orgId),
-        eq(connections.type, CONNECTION_TYPE_LINEAR),
-        eq(sql`${connections.config}->>'repositoryId'`, input.repositoryId),
-      ),
-    )
-  let cleared = 0
-  for (const { id } of ids) {
-    const updated = await db.transaction(async (tx) => {
-      await tx.execute(
-        sql`select pg_advisory_xact_lock(hashtextextended(${id}, 0))`,
+  return orgSql(async () => {
+    const db = getOrgDb()
+    const ids = await db
+      .select({ id: connections.id })
+      .from(connections)
+      .where(
+        and(
+          eq(connections.orgId, input.orgId),
+          eq(connections.type, CONNECTION_TYPE_LINEAR),
+          eq(sql`${connections.config}->>'repositoryId'`, input.repositoryId),
+        ),
       )
-      const [row] = await tx
-        .select()
-        .from(connections)
-        .where(
-          and(
-            eq(connections.id, id),
-            eq(connections.orgId, input.orgId),
-            eq(connections.type, CONNECTION_TYPE_LINEAR),
-            eq(sql`${connections.config}->>'repositoryId'`, input.repositoryId),
-          ),
+    let cleared = 0
+    for (const { id } of ids) {
+      const updated = await db.transaction(async (tx) => {
+        await tx.execute(
+          sql`select pg_advisory_xact_lock(hashtextextended(${id}, 0))`,
         )
-        .limit(1)
-      if (!row) return false
-      await tx
-        .update(connections)
-        .set({
-          config: mergeLinearStoredConfig(row, {
-            repositoryId: null,
-            branch: null,
-            enabled: false,
-            setupPhase: "draft",
-            pendingConfigPullUrl: null,
-            pendingConfigPrCreating: false,
-          }),
-          updatedAt: new Date(),
-        })
-        .where(eq(connections.id, id))
-      return true
-    })
-    if (updated) cleared += 1
-  }
-  return cleared
+        const [row] = await tx
+          .select()
+          .from(connections)
+          .where(
+            and(
+              eq(connections.id, id),
+              eq(connections.orgId, input.orgId),
+              eq(connections.type, CONNECTION_TYPE_LINEAR),
+              eq(
+                sql`${connections.config}->>'repositoryId'`,
+                input.repositoryId,
+              ),
+            ),
+          )
+          .limit(1)
+        if (!row) return false
+        await tx
+          .update(connections)
+          .set({
+            config: mergeLinearStoredConfig(row, {
+              repositoryId: null,
+              branch: null,
+              enabled: false,
+              setupPhase: "draft",
+              pendingConfigPullUrl: null,
+              pendingConfigPrCreating: false,
+            }),
+            updatedAt: new Date(),
+          })
+          .where(eq(connections.id, id))
+        return true
+      })
+      if (updated) cleared += 1
+    }
+    return cleared
+  })
 }

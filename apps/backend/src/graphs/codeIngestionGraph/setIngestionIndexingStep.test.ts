@@ -10,6 +10,7 @@ const setRepositoryIndexingStepMock = vi.hoisted(() =>
 
 vi.mock("../../db/client.js", () => ({
   withOrgDbContext: withOrgDbContextMock,
+  assertNotInOrgDbContext: () => undefined,
   tryGetOrgDb: tryGetOrgDbMock,
 }))
 
@@ -35,7 +36,10 @@ describe("setIngestionIndexingStep", () => {
   it("calls setRepositoryIndexingStep with the key and monotonic: true", async () => {
     await withTestLogger(() => setIngestionIndexingStep(state, "finding_roots"))
 
-    expect(withOrgDbContextMock).toHaveBeenCalledWith("org_1", expect.any(Function))
+    expect(withOrgDbContextMock).toHaveBeenCalledWith(
+      "org_1",
+      expect.any(Function),
+    )
     expect(setRepositoryIndexingStepMock).toHaveBeenCalledWith({
       repositoryId: "repo_1",
       key: "finding_roots",

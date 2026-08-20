@@ -47,13 +47,27 @@ vi.mock("@tanstack/ai-sandbox-local-process", () => ({
 const nameConversationIfUnnamedMock = vi.hoisted(() =>
   vi.fn().mockResolvedValue(null),
 )
+const orgTxDepth = vi.hoisted(() => ({ value: 0 }))
+const embedInTx = vi.hoisted(() => ({ value: false, seen: false }))
+const searchInTx = vi.hoisted(() => ({ value: false, seen: false }))
 
 vi.mock("../../graphs/conversationGraph/nodes/conversationNaming.js", () => ({
   nameConversationIfUnnamed: nameConversationIfUnnamedMock,
 }))
 
 vi.mock("../../db/client.js", () => ({
-  withOrgDbContext: (_orgId: string, fn: () => unknown) => fn(),
+  tryGetOrgDb: () => (orgTxDepth.value > 0 ? {} : undefined),
+  tryGetOrgDbOrgId: () => (orgTxDepth.value > 0 ? "org_1" : undefined),
+  assertNotInOrgDbContext: () => undefined,
+
+  withOrgDbContext: async (_orgId: string, fn: () => unknown) => {
+    orgTxDepth.value += 1
+    try {
+      return await fn()
+    } finally {
+      orgTxDepth.value -= 1
+    }
+  },
   withLockClient: async (
     fn: (client: { query: () => Promise<void> }) => unknown,
   ) => fn({ query: async () => undefined }),
@@ -158,11 +172,19 @@ vi.mock("../../models/repositories.js", () => ({
 }))
 
 vi.mock("../../retrieval/index.js", () => ({
-  hybridSearch: vi.fn(async () => [{ objectId: "kn_1" }]),
+  hybridSearch: async () => {
+    searchInTx.seen = true
+    searchInTx.value = orgTxDepth.value > 0
+    return [{ objectId: "kn_1" }]
+  },
 }))
 
 vi.mock("../../retrieval/services/modelProvider.js", () => ({
-  generateEmbedding: vi.fn(async () => [1, 0, 0]),
+  generateEmbedding: async () => {
+    embedInTx.seen = true
+    embedInTx.value = orgTxDepth.value > 0
+    return [1, 0, 0]
+  },
 }))
 
 import { runTanstackWorkspaceChat } from "./tanstack-workspace-chat.js"
@@ -170,6 +192,11 @@ import { runTanstackWorkspaceChat } from "./tanstack-workspace-chat.js"
 describe("runTanstackWorkspaceChat", () => {
   beforeEach(() => {
     vi.clearAllMocks()
+    orgTxDepth.value = 0
+    embedInTx.seen = false
+    embedInTx.value = false
+    searchInTx.seen = false
+    searchInTx.value = false
     process.env.SANDBOX_PROVIDER = "docker"
     claimSandboxInstance.mockImplementation(async (input: { id: string }) => ({
       record: input,
@@ -244,6 +271,10 @@ describe("runTanstackWorkspaceChat", () => {
         content: "hello",
       }),
     )
+    expect(embedInTx.seen).toBe(true)
+    expect(embedInTx.value).toBe(false)
+    expect(searchInTx.seen).toBe(true)
+    expect(searchInTx.value).toBe(false)
   })
 
   it("emits a conversation rename data part before finish", async () => {

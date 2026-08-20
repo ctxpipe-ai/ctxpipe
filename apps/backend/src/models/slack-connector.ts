@@ -19,6 +19,11 @@ import {
   slackShapeToConfig,
 } from "./connection-rows.js"
 import { DEFAULT_CHECKOUT_KEY } from "./repositories.js"
+import { withAmbientOrgDb } from "../db/org-sql.js"
+
+function orgSql<T>(fn: () => Promise<T>): Promise<T> {
+  return withAmbientOrgDb(fn)
+}
 
 export type { SlackSetupPhase } from "../lib/connection-config.js"
 export {
@@ -93,37 +98,41 @@ function slackConfigTeamIdRef() {
 export async function listSlackConnectionsForOrg(
   orgId: string,
 ): Promise<SlackConnection[]> {
-  const db = getOrgDb()
-  const rows = await db
-    .select()
-    .from(connections)
-    .where(
-      and(
-        eq(connections.orgId, orgId),
-        eq(connections.type, CONNECTION_TYPE_SLACK),
-      ),
-    )
-    .orderBy(desc(connections.updatedAt))
-  return rows.map(slackConnectionToShape)
+  return orgSql(async () => {
+    const db = getOrgDb()
+    const rows = await db
+      .select()
+      .from(connections)
+      .where(
+        and(
+          eq(connections.orgId, orgId),
+          eq(connections.type, CONNECTION_TYPE_SLACK),
+        ),
+      )
+      .orderBy(desc(connections.updatedAt))
+    return rows.map(slackConnectionToShape)
+  })
 }
 
 export async function getSlackConnectionByConnectionId(
   orgId: string,
   connectionId: string,
 ): Promise<SlackConnection | undefined> {
-  const db = getOrgDb()
-  const [row] = await db
-    .select()
-    .from(connections)
-    .where(
-      and(
-        eq(connections.id, connectionId),
-        eq(connections.orgId, orgId),
-        eq(connections.type, CONNECTION_TYPE_SLACK),
-      ),
-    )
-    .limit(1)
-  return row ? slackConnectionToShape(row) : undefined
+  return orgSql(async () => {
+    const db = getOrgDb()
+    const [row] = await db
+      .select()
+      .from(connections)
+      .where(
+        and(
+          eq(connections.id, connectionId),
+          eq(connections.orgId, orgId),
+          eq(connections.type, CONNECTION_TYPE_SLACK),
+        ),
+      )
+      .limit(1)
+    return row ? slackConnectionToShape(row) : undefined
+  })
 }
 
 export const MULTIPLE_SLACK_CONNECTIONS_MESSAGE =
@@ -175,84 +184,88 @@ export async function upsertSlackConnectionFromOAuth(input: {
   botHandle?: string | null
   appId?: string | null
 }): Promise<SlackConnection> {
-  const existingForTeam = await getSlackConnectionByTeamId(input.teamId)
-  if (existingForTeam && existingForTeam.orgId !== input.orgId) {
-    throw new SlackTeamAlreadyConnectedError()
-  }
+  return orgSql(async () => {
+    const existingForTeam = await getSlackConnectionByTeamId(input.teamId)
+    if (existingForTeam && existingForTeam.orgId !== input.orgId) {
+      throw new SlackTeamAlreadyConnectedError()
+    }
 
-  const db = getOrgDb()
-  const [existing] = await db
-    .select()
-    .from(connections)
-    .where(
-      and(
-        eq(connections.orgId, input.orgId),
-        eq(connections.type, CONNECTION_TYPE_SLACK),
-        eq(slackConfigTeamIdRef(), input.teamId),
-      ),
-    )
-    .orderBy(desc(connections.updatedAt))
-    .limit(1)
+    const db = getOrgDb()
+    const [existing] = await db
+      .select()
+      .from(connections)
+      .where(
+        and(
+          eq(connections.orgId, input.orgId),
+          eq(connections.type, CONNECTION_TYPE_SLACK),
+          eq(slackConfigTeamIdRef(), input.teamId),
+        ),
+      )
+      .orderBy(desc(connections.updatedAt))
+      .limit(1)
 
-  const botTokenEnc = encodeSlackBotTokenForDb(input.botToken, input.env)
-  const existingStored = existing
-    ? parseSlackConnectionStored(existing.config as Record<string, unknown>)
-    : undefined
-  const config = serialiseSlackConnectionConfigForDb({
-    ...existingStored,
-    botTokenEnc,
-    teamId: input.teamId,
-    teamName: input.teamName ?? existingStored?.teamName ?? null,
-    botUserId: input.botUserId ?? existingStored?.botUserId ?? null,
-    botHandle:
-      input.botHandle ??
-      existingStored?.botHandle ??
-      existingForTeam?.botHandle ??
-      null,
-    appId: input.appId ?? existingStored?.appId ?? null,
-    ownerUserId: input.ownerUserId,
-    status: "installed",
-  } as Parameters<typeof serialiseSlackConnectionConfigForDb>[0])
+    const botTokenEnc = encodeSlackBotTokenForDb(input.botToken, input.env)
+    const existingStored = existing
+      ? parseSlackConnectionStored(existing.config as Record<string, unknown>)
+      : undefined
+    const config = serialiseSlackConnectionConfigForDb({
+      ...existingStored,
+      botTokenEnc,
+      teamId: input.teamId,
+      teamName: input.teamName ?? existingStored?.teamName ?? null,
+      botUserId: input.botUserId ?? existingStored?.botUserId ?? null,
+      botHandle:
+        input.botHandle ??
+        existingStored?.botHandle ??
+        existingForTeam?.botHandle ??
+        null,
+      appId: input.appId ?? existingStored?.appId ?? null,
+      ownerUserId: input.ownerUserId,
+      status: "installed",
+    } as Parameters<typeof serialiseSlackConnectionConfigForDb>[0])
 
-  if (existing) {
+    if (existing) {
+      const [row] = await db
+        .update(connections)
+        .set({ config, updatedAt: new Date() })
+        .where(eq(connections.id, existing.id))
+        .returning()
+      if (!row) throw new Error("Failed to update Slack connection")
+      return slackConnectionToShape(row)
+    }
+
     const [row] = await db
-      .update(connections)
-      .set({ config, updatedAt: new Date() })
-      .where(eq(connections.id, existing.id))
+      .insert(connections)
+      .values({
+        id: generateObjectId("con"),
+        orgId: input.orgId,
+        type: CONNECTION_TYPE_SLACK,
+        config,
+      })
       .returning()
-    if (!row) throw new Error("Failed to update Slack connection")
+    if (!row) throw new Error("Failed to create Slack connection")
     return slackConnectionToShape(row)
-  }
-
-  const [row] = await db
-    .insert(connections)
-    .values({
-      id: generateObjectId("con"),
-      orgId: input.orgId,
-      type: CONNECTION_TYPE_SLACK,
-      config,
-    })
-    .returning()
-  if (!row) throw new Error("Failed to create Slack connection")
-  return slackConnectionToShape(row)
+  })
 }
 
 export async function deleteSlackConnectionById(
   orgId: string,
   connectionId: string,
 ): Promise<boolean> {
-  const db = getOrgDb()
-  const removed = await db
-    .delete(connections)
-    .where(
-      and(
-        eq(connections.orgId, orgId),
-        eq(connections.id, connectionId),
-        eq(connections.type, CONNECTION_TYPE_SLACK),
-      ),
-    )
-    .returning({ id: connections.id })
-  return removed.length > 0
+  return orgSql(async () => {
+    const db = getOrgDb()
+    const removed = await db
+      .delete(connections)
+      .where(
+        and(
+          eq(connections.orgId, orgId),
+          eq(connections.id, connectionId),
+          eq(connections.type, CONNECTION_TYPE_SLACK),
+        ),
+      )
+      .returning({ id: connections.id })
+    return removed.length > 0
+  })
 }
 
 export async function revokeSlackConnectionByTeamId(
@@ -491,54 +504,56 @@ async function resolveRepositoryIdForSlackSync(
 export async function bindSlackSyncTargetRepository(
   input: SlackBindRepositoryInput,
 ): Promise<SlackBindRepositoryResult> {
-  const db = getOrgDb()
-  return db.transaction(async (tx) => {
-    const { repositoryId, branch, didCreate } =
-      await resolveRepositoryIdForSlackSync(tx, input)
+  return orgSql(async () => {
+    const db = getOrgDb()
+    return db.transaction(async (tx) => {
+      const { repositoryId, branch, didCreate } =
+        await resolveRepositoryIdForSlackSync(tx, input)
 
-    const [connectionRow] = await tx
-      .select()
-      .from(connections)
-      .where(
-        and(
-          eq(connections.id, input.connectionId),
-          eq(connections.orgId, input.orgId),
-          eq(connections.type, CONNECTION_TYPE_SLACK),
-        ),
-      )
-      .limit(1)
-    if (!connectionRow) {
-      throw new Error("Slack connection does not belong to organization")
-    }
+      const [connectionRow] = await tx
+        .select()
+        .from(connections)
+        .where(
+          and(
+            eq(connections.id, input.connectionId),
+            eq(connections.orgId, input.orgId),
+            eq(connections.type, CONNECTION_TYPE_SLACK),
+          ),
+        )
+        .limit(1)
+      if (!connectionRow) {
+        throw new Error("Slack connection does not belong to organization")
+      }
 
-    const [updated] = await tx
-      .update(connections)
-      .set({
-        config: mergeSlackStoredConfig(connectionRow, {
-          repositoryId,
-          branch,
-          enabled: true,
-        }),
-        updatedAt: new Date(),
-      })
-      .where(eq(connections.id, input.connectionId))
-      .returning()
-    if (!updated) throw new Error("Failed to save Slack sync binding")
-    const binding = bindingFromConnectionRow(updated)
-    if (!binding) throw new Error("Failed to save Slack sync binding")
-    return {
-      ...binding,
-      setupPhase: derivedSlackSetupPhase(binding),
-      ...(didCreate
-        ? {
-            repositoryIngestion: {
-              orgId: input.orgId,
-              repositoryId,
-              targetBranch: branch,
-            },
-          }
-        : {}),
-    }
+      const [updated] = await tx
+        .update(connections)
+        .set({
+          config: mergeSlackStoredConfig(connectionRow, {
+            repositoryId,
+            branch,
+            enabled: true,
+          }),
+          updatedAt: new Date(),
+        })
+        .where(eq(connections.id, input.connectionId))
+        .returning()
+      if (!updated) throw new Error("Failed to save Slack sync binding")
+      const binding = bindingFromConnectionRow(updated)
+      if (!binding) throw new Error("Failed to save Slack sync binding")
+      return {
+        ...binding,
+        setupPhase: derivedSlackSetupPhase(binding),
+        ...(didCreate
+          ? {
+              repositoryIngestion: {
+                orgId: input.orgId,
+                repositoryId,
+                targetBranch: branch,
+              },
+            }
+          : {}),
+      }
+    })
   })
 }
 
@@ -547,44 +562,46 @@ export async function clearSlackSyncBindingsForRepository(input: {
   orgId: string
   repositoryId: string
 }): Promise<number> {
-  const db = getOrgDb()
-  const ids = await db
-    .select({ id: connections.id })
-    .from(connections)
-    .where(
-      and(
-        eq(connections.orgId, input.orgId),
-        eq(connections.type, CONNECTION_TYPE_SLACK),
-        eq(sql`${connections.config}->>'repositoryId'`, input.repositoryId),
-      ),
-    )
-  let cleared = 0
-  for (const { id } of ids) {
-    const [row] = await db
-      .select()
+  return orgSql(async () => {
+    const db = getOrgDb()
+    const ids = await db
+      .select({ id: connections.id })
       .from(connections)
       .where(
         and(
-          eq(connections.id, id),
           eq(connections.orgId, input.orgId),
           eq(connections.type, CONNECTION_TYPE_SLACK),
           eq(sql`${connections.config}->>'repositoryId'`, input.repositoryId),
         ),
       )
-      .limit(1)
-    if (!row) continue
-    await db
-      .update(connections)
-      .set({
-        config: mergeSlackStoredConfig(row, {
-          repositoryId: null,
-          branch: null,
-          enabled: false,
-        }),
-        updatedAt: new Date(),
-      })
-      .where(eq(connections.id, id))
-    cleared += 1
-  }
-  return cleared
+    let cleared = 0
+    for (const { id } of ids) {
+      const [row] = await db
+        .select()
+        .from(connections)
+        .where(
+          and(
+            eq(connections.id, id),
+            eq(connections.orgId, input.orgId),
+            eq(connections.type, CONNECTION_TYPE_SLACK),
+            eq(sql`${connections.config}->>'repositoryId'`, input.repositoryId),
+          ),
+        )
+        .limit(1)
+      if (!row) continue
+      await db
+        .update(connections)
+        .set({
+          config: mergeSlackStoredConfig(row, {
+            repositoryId: null,
+            branch: null,
+            enabled: false,
+          }),
+          updatedAt: new Date(),
+        })
+        .where(eq(connections.id, id))
+      cleared += 1
+    }
+    return cleared
+  })
 }

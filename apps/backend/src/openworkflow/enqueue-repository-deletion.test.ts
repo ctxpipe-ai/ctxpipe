@@ -5,10 +5,16 @@ const withOrgDbContextMock = vi.hoisted(() =>
   vi.fn((_orgId: string, fn: () => unknown) => Promise.resolve(fn())),
 )
 const markUnindexingMock = vi.hoisted(() =>
-  vi.fn().mockResolvedValue({ updatedAt: new Date("2026-08-03T12:00:00.000Z") }),
+  vi
+    .fn()
+    .mockResolvedValue({ updatedAt: new Date("2026-08-03T12:00:00.000Z") }),
 )
 
 vi.mock("../db/client.js", () => ({
+    tryGetOrgDb: () => ({}),
+    tryGetOrgDbOrgId: () => "org_test",
+    assertNotInOrgDbContext: () => undefined,
+
   withOrgDbContext: withOrgDbContextMock,
 }))
 

@@ -7,6 +7,12 @@ vi.mock("./client.js", () => ({
   runWorkflowWithWorkerWake: runWorkflowWithWorkerWakeMock,
 }))
 
+vi.mock("../db/client.js", () => ({
+  assertNotInOrgDbContext: () => undefined,
+  withOrgDbContext: (_orgId: string, fn: () => unknown) =>
+    Promise.resolve(fn()),
+}))
+
 vi.mock("./workflows/workspace-hydrate.js", () => ({
   workspaceHydrate: { spec: { name: "workspace-hydrate" } },
 }))

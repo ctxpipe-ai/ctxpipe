@@ -1,5 +1,6 @@
 import { signUpstreamJwt } from "../../auth/upstreamJwt.js"
 import { parseEnv } from "../../config/env.js"
+import { assertNotInOrgDbContext } from "../../db/client.js"
 import { codesearchBaseUrl } from "../../lib/agentToolRuntime.js"
 import { withTransientHttpRetry } from "../../lib/withTransientHttpRetry.js"
 
@@ -25,6 +26,7 @@ async function fetchWithAuth(
   repositoryId: string,
   orgId: string,
 ): Promise<Response> {
+  assertNotInOrgDbContext()
   const env = parseEnv(process.env as Record<string, string | undefined>)
   const token = await signUpstreamJwt({
     env,
@@ -74,7 +76,9 @@ export async function listFiles(
     } catch {
       // non-JSON body; use raw text
     }
-    throw new Error(`listFiles failed: ${res.status}${detail ? `: ${detail}` : ""}`)
+    throw new Error(
+      `listFiles failed: ${res.status}${detail ? `: ${detail}` : ""}`,
+    )
   }
   const data = (await res.json()) as { entries: FileEntry[] }
   return data.entries

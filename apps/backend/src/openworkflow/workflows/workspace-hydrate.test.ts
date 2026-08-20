@@ -50,7 +50,20 @@ vi.mock("../../config/env.js", () => ({
   parseEnv: () => ({}),
 }))
 
+const orgTxDepth = vi.hoisted(() => ({ value: 0 }))
+const tipInTx = vi.hoisted(() => ({ value: false, seen: false }))
+const enqueueInTx = vi.hoisted(() => ({ value: false, seen: false }))
+
 vi.mock("../../db/client.js", () => ({
+  tryGetOrgDb: () => (orgTxDepth.value > 0 ? {} : undefined),
+  tryGetOrgDbOrgId: () => (orgTxDepth.value > 0 ? "org_1" : undefined),
+  assertNotInOrgDbContext: () => {
+    if (orgTxDepth.value > 0) {
+      throw new Error(
+        "Outbound I/O cannot run inside withOrgDbContext; finish the SQL transaction first.",
+      )
+    }
+  },
   getSystemDb: () => ({
     query: {
       organizations: {
@@ -58,8 +71,14 @@ vi.mock("../../db/client.js", () => ({
       },
     },
   }),
-  withOrgDbContext: (_orgId: string, fn: () => unknown) =>
-    Promise.resolve(fn()),
+  withOrgDbContext: async (_orgId: string, fn: () => unknown) => {
+    orgTxDepth.value += 1
+    try {
+      return await fn()
+    } finally {
+      orgTxDepth.value -= 1
+    }
+  },
 }))
 
 vi.mock("../../auth/withAuth.js", () => ({
@@ -82,7 +101,11 @@ vi.mock("../../models/workspaces.js", () => ({
 }))
 
 vi.mock("../../routes/webhooks/github/github-workspace-tip.js", () => ({
-  resolveWorkspaceRepositoryTip: resolveWorkspaceRepositoryTipMock,
+  resolveWorkspaceRepositoryTip: (...args: unknown[]) => {
+    tipInTx.seen = true
+    tipInTx.value = orgTxDepth.value > 0
+    return resolveWorkspaceRepositoryTipMock(...args)
+  },
 }))
 
 vi.mock("../../models/workspace-export.js", () => ({
@@ -90,7 +113,11 @@ vi.mock("../../models/workspace-export.js", () => ({
 }))
 
 vi.mock("../enqueue-workspace-index.js", () => ({
-  enqueueWorkspaceIndex: enqueueWorkspaceIndexMock,
+  enqueueWorkspaceIndex: (...args: unknown[]) => {
+    enqueueInTx.seen = true
+    enqueueInTx.value = orgTxDepth.value > 0
+    return enqueueWorkspaceIndexMock(...args)
+  },
 }))
 
 vi.mock("../../retrieval/services/graphProjection.js", () => ({
@@ -134,6 +161,11 @@ const hydrateFn = workspaceHydrate as unknown as {
 describe("workspaceHydrate workflow", () => {
   beforeEach(() => {
     vi.clearAllMocks()
+    orgTxDepth.value = 0
+    tipInTx.seen = false
+    tipInTx.value = false
+    enqueueInTx.seen = false
+    enqueueInTx.value = false
     listLinkedRepositoriesMock.mockResolvedValue([])
     getWorkspaceByIdMock.mockResolvedValue(hydrateWorkspaceRow)
     persistResolvedDesiredShaMock.mockResolvedValue(true)
@@ -260,5 +292,20 @@ describe("workspaceHydrate workflow", () => {
       workspaceId: "ws_1",
       message: "Waiting for the first knowledge export to land in git.",
     })
+  })
+
+  it("resolves GitHub tip and enqueues index outside the org SQL transaction", async () => {
+    getWorkspaceByIdMock.mockResolvedValue({
+      ...hydrateWorkspaceRow,
+      desiredSha: null,
+      indexedSha: null,
+    })
+    await hydrateFn.fn({
+      input: { orgId: "org_1", workspaceId: "ws_1" },
+    })
+    expect(tipInTx.seen).toBe(true)
+    expect(tipInTx.value).toBe(false)
+    expect(enqueueInTx.seen).toBe(true)
+    expect(enqueueInTx.value).toBe(false)
   })
 })

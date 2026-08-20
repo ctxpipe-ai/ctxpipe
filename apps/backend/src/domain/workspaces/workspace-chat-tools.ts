@@ -348,10 +348,8 @@ function wrapExplorerTool(input: {
       const invokeArgs = SCIP_GRAPH_TOOL_NAMES.has(input.tool.name)
         ? forcedWorkspaceCheckoutArgs(args, input.checkoutKey)
         : (args ?? {})
-      return withOrgDbContext(input.orgId, () =>
-        withOrgIdContext({ id: input.orgId, slug: input.orgId }, () =>
-          input.tool.invoke(invokeArgs),
-        ),
+      return withOrgIdContext({ id: input.orgId, slug: input.orgId }, () =>
+        input.tool.invoke(invokeArgs),
       )
     },
   }
@@ -374,22 +372,20 @@ function graphLookupTool(input: {
       const nodeId = stringArg(args, "nodeId")
       if (!nodeId) return toToon({ error: "nodeId_required" })
       try {
-        return await withOrgDbContext(input.orgId, () =>
-          withGraphClient(
-            { orgId: input.orgId, orgSlug: input.orgId },
-            async () => {
-              const { records } = await getGraphClient().executeQuery(
-                workspaceGraphLookupCypher(),
-                {
-                  nodeId,
-                  orgId: input.orgId,
-                  workspaceId: input.workspaceId,
-                },
-              )
-              const node = records[0]?.get("n")
-              return toToon({ node: nodeProperties(node, nodeId, input.orgId) })
-            },
-          ),
+        return await withGraphClient(
+          { orgId: input.orgId, orgSlug: input.orgId },
+          async () => {
+            const { records } = await getGraphClient().executeQuery(
+              workspaceGraphLookupCypher(),
+              {
+                nodeId,
+                orgId: input.orgId,
+                workspaceId: input.workspaceId,
+              },
+            )
+            const node = records[0]?.get("n")
+            return toToon({ node: nodeProperties(node, nodeId, input.orgId) })
+          },
         )
       } catch (err) {
         log.error({
@@ -431,29 +427,27 @@ function graphNeighborsTool(input: {
           ? Math.min(50, Math.max(1, Math.floor(limitRaw)))
           : 20
       try {
-        return await withOrgDbContext(input.orgId, () =>
-          withGraphClient(
-            { orgId: input.orgId, orgSlug: input.orgId },
-            async () => {
-              const { records } = await getGraphClient().executeQuery(
-                workspaceGraphNeighborsCypher(),
-                {
-                  nodeId,
-                  orgId: input.orgId,
-                  workspaceId: input.workspaceId,
-                  projectionSha: input.projectionSha,
-                  limit,
-                },
-              )
-              return toToon({
-                neighbors: records.map((record) => ({
-                  node: nodeProperties(record.get("n"), "", input.orgId),
-                  predicate: record.get("predicate"),
-                  claimId: record.get("claimId"),
-                })),
-              })
-            },
-          ),
+        return await withGraphClient(
+          { orgId: input.orgId, orgSlug: input.orgId },
+          async () => {
+            const { records } = await getGraphClient().executeQuery(
+              workspaceGraphNeighborsCypher(),
+              {
+                nodeId,
+                orgId: input.orgId,
+                workspaceId: input.workspaceId,
+                projectionSha: input.projectionSha,
+                limit,
+              },
+            )
+            return toToon({
+              neighbors: records.map((record) => ({
+                node: nodeProperties(record.get("n"), "", input.orgId),
+                predicate: record.get("predicate"),
+                claimId: record.get("claimId"),
+              })),
+            })
+          },
         )
       } catch (err) {
         log.error({

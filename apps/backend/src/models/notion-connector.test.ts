@@ -20,6 +20,7 @@ vi.mock("../db/client.js", async (importOriginal) => {
     ...actual,
     getOrgDb: dbMocks.getOrgDb,
     getSystemDb: dbMocks.getSystemDb,
+    tryGetOrgDb: () => dbMocks.getOrgDb(),
   }
 })
 

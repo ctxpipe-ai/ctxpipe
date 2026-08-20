@@ -27,6 +27,23 @@ import type { AppEnv } from "./env.js"
 
 export type { AppEnv } from "./env.js"
 
+/**
+ * Paths that must not resolve Better Auth sessions (static UI + auth/webhook).
+ * Session lookup shares the backend pool; asset storms must not SELECT `sessions`.
+ */
+export const betterAuthIdentifyExclude = [
+  "/.auth/api/v1/auth/**",
+  "/.auth/api/config",
+  "/.auth/api/v1/public/**",
+  "/.well-known/**",
+  "/.status",
+  "/api/v1/webhook/**",
+  "/assets/**",
+  "/fonts/**",
+  "/favicon.ico",
+  "/@**",
+] as const
+
 export function createApp() {
   const env = parseEnv(process.env as Record<string, string | undefined>)
   // Amplitude: only initializes when `AMPLITUDE_API_KEY` is set (see `observability/amplitude.ts`).
@@ -42,14 +59,7 @@ export function createApp() {
   const identifyBetterAuthUser = createAuthMiddleware(
     getAuth() as unknown as BetterAuthInstance,
     {
-      exclude: [
-        "/.auth/api/v1/auth/**",
-        "/.auth/api/config",
-        "/.auth/api/v1/public/**",
-        "/.well-known/**",
-        "/.status",
-        "/api/v1/webhook/**",
-      ],
+      exclude: [...betterAuthIdentifyExclude],
       maskEmail: env.NODE_ENV === "production",
     },
   )

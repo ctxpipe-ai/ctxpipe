@@ -9,6 +9,10 @@ const listRepliesMock = vi.hoisted(() => vi.fn())
 const commitFilesMock = vi.hoisted(() => vi.fn())
 
 vi.mock("../../db/client.js", () => ({
+    tryGetOrgDb: () => ({}),
+    tryGetOrgDbOrgId: () => "org_test",
+    assertNotInOrgDbContext: () => undefined,
+
   getOrgDb: getOrgDbMock,
   withOrgDbContext: (_orgId: string, fn: () => unknown) => fn(),
 }))

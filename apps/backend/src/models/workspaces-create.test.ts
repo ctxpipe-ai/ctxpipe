@@ -8,6 +8,10 @@ vi.mock("../auth/context.js", () => ({
 }))
 
 vi.mock("../db/client.js", () => ({
+    tryGetOrgDb: () => ({}),
+    tryGetOrgDbOrgId: () => "org_test",
+    assertNotInOrgDbContext: () => undefined,
+
   getOrgDb: getOrgDbMock,
 }))
 

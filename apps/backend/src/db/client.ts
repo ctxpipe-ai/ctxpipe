@@ -46,8 +46,10 @@ function createDrizzleDb(connectionString: string) {
 type AppDb = ReturnType<typeof createDrizzleDb>
 export type Db = Omit<AppDb, "$client">
 
+type OrgDbStore = { db: Db; orgId: string }
+
 const systemDbStorage = new AsyncLocalStorage<Db>()
-const orgDbStorage = new AsyncLocalStorage<Db>()
+const orgDbStorage = new AsyncLocalStorage<OrgDbStore>()
 let appDb: AppDb | null = null
 let lockPool: Pool | null = null
 const SANDBOX_LOCK_POOL_MAX = 32
@@ -99,8 +101,8 @@ export function getSystemDb(): Db {
 }
 
 export function getOrgDb(): Db {
-  const db = orgDbStorage.getStore()
-  if (db) return db
+  const stored = orgDbStorage.getStore()
+  if (stored) return stored.db
   throw new Error(
     "Org database not initialized. Call withOrgDbContext() during startup.",
   )
@@ -108,18 +110,54 @@ export function getOrgDb(): Db {
 
 /** Returns the current org DB transaction when inside `withOrgDbContext`, else undefined. */
 export function tryGetOrgDb(): Db | undefined {
-  return orgDbStorage.getStore()
+  return orgDbStorage.getStore()?.db
+}
+
+export function tryGetOrgDbOrgId(): string | undefined {
+  return orgDbStorage.getStore()?.orgId
+}
+
+/**
+ * Throws if an org SQL transaction is open. Call at HTTP/enqueue/graph
+ * gateways so I/O cannot run inside `BEGIN`.
+ */
+export function assertNotInOrgDbContext(): void {
+  if (orgDbStorage.getStore()) {
+    throw new Error(
+      "Outbound I/O cannot run inside withOrgDbContext; finish the SQL transaction first.",
+    )
+  }
 }
 
 export type OrgDbContextOptions = {
   idleInTransactionSessionTimeout?: string
 }
 
+/**
+ * Short org SQL transaction (`SET LOCAL app.organization_id`).
+ * Nested same-org calls reuse this transaction (no second pool checkout).
+ * Nested different-org calls throw. Inner throw aborts the outer transaction
+ * (no savepoints); independent commits must run after this handler returns.
+ */
 export async function withOrgDbContext<T>(
   orgId: string,
   handler: (db: Db) => Promise<T>,
   options?: OrgDbContextOptions,
 ): Promise<T> {
+  const existing = orgDbStorage.getStore()
+  if (existing) {
+    if (existing.orgId !== orgId) {
+      throw new Error(
+        `withOrgDbContext nested org mismatch: open=${existing.orgId} requested=${orgId}`,
+      )
+    }
+    if (options?.idleInTransactionSessionTimeout) {
+      throw new Error(
+        "idleInTransactionSessionTimeout cannot be applied to a nested withOrgDbContext",
+      )
+    }
+    return handler(existing.db)
+  }
   const db = getSystemDb()
   return db.transaction(async (tx) => {
     await tx.execute(
@@ -133,7 +171,7 @@ export async function withOrgDbContext<T>(
     try {
       // Explicit `async` wrapper: some runtimes (e.g. Bun inside OpenWorkflow steps)
       // drop AsyncLocalStorage across `() => handler(tx)` when `handler` is async.
-      return await orgDbStorage.run(tx, async () => handler(tx))
+      return await orgDbStorage.run({ db: tx, orgId }, async () => handler(tx))
     } catch (err) {
       log.error({
         step: "withOrgDbContext.rollback",

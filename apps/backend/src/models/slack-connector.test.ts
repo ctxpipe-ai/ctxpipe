@@ -49,6 +49,10 @@ vi.mock("drizzle-orm", async (importOriginal) => ({
   eq: eqMock,
 }))
 vi.mock("../db/client.js", () => ({
+    tryGetOrgDb: () => ({}),
+    tryGetOrgDbOrgId: () => "org_test",
+    assertNotInOrgDbContext: () => undefined,
+
   getOrgDb: getOrgDbMock,
   getSystemDb: getSystemDbMock,
 }))

@@ -1,4 +1,5 @@
 import { parseEnv } from "../config/env.js"
+import { assertNotInOrgDbContext, withOrgDbContext } from "../db/client.js"
 import type { WorkspaceWriteKind } from "../domain/workspaces/write-commit-files.js"
 import {
   WRITE_JOB_STATUSES,
@@ -47,32 +48,37 @@ async function probedWriteStatus(input: {
           env,
         }),
     })
-    await persistWriteStatus(input.workspace.id, probe)
+    await withOrgDbContext(input.orgId, () =>
+      persistWriteStatus(input.workspace.id, probe, input.orgId),
+    )
     return probe.writeStatus
   } catch {
     return input.workspace.writeStatus
   }
 }
 
+export type EnqueueWorkspaceWriteCommitInput = {
+  orgId: string
+  workspaceId: string
+  kind: WorkspaceWriteKind
+  defaultBranch?: string
+  jobId?: string
+  linkAction?: "link" | "unlink"
+  linkGitUrl?: string
+  jobGeneration?: number
+  jobWorkspaceUrl?: string
+  jobDesiredSha?: string | null
+  conflictParentSha?: string | null
+  remoteTipSha?: string | null
+  mergeFiles?: Array<{ path: string; content: string }>
+  mergeDeletePaths?: string[]
+}
+
 export async function enqueueWorkspaceWriteCommit(
-  input: {
-    orgId: string
-    workspaceId: string
-    kind: WorkspaceWriteKind
-    defaultBranch?: string
-    jobId?: string
-    linkAction?: "link" | "unlink"
-    linkGitUrl?: string
-    jobGeneration?: number
-    jobWorkspaceUrl?: string
-    jobDesiredSha?: string | null
-    conflictParentSha?: string | null
-    remoteTipSha?: string | null
-    mergeFiles?: Array<{ path: string; content: string }>
-    mergeDeletePaths?: string[]
-  },
+  input: EnqueueWorkspaceWriteCommitInput,
   log: { error: (err: Error) => void },
 ): Promise<{ started: boolean }> {
+  assertNotInOrgDbContext()
   const jobId = input.jobId ?? generateObjectId("wjob")
   let jobGeneration = input.jobGeneration
   let jobWorkspaceUrl = input.jobWorkspaceUrl
@@ -80,7 +86,9 @@ export async function enqueueWorkspaceWriteCommit(
   let writeStatus: string | null = null
   let desiredGeneration = jobGeneration
   try {
-    const workspace = await getWorkspaceById(input.workspaceId)
+    const workspace = await withOrgDbContext(input.orgId, () =>
+      getWorkspaceById(input.workspaceId),
+    )
     if (workspace) {
       jobGeneration = jobGeneration ?? workspace.desiredGeneration
       jobWorkspaceUrl = jobWorkspaceUrl ?? workspace.workspaceRepositoryUrl
@@ -130,33 +138,37 @@ export async function enqueueWorkspaceWriteCommit(
         ? WRITE_JOB_STATUSES.paused
         : WRITE_JOB_STATUSES.queued
   try {
-    await persistWriteJobIntent({
-      id: jobId,
-      workspaceId: input.workspaceId,
-      kind: input.kind,
-      generation,
-      desiredSha: jobDesiredSha ?? null,
-      status,
-      payload: writeJobIntentPayload({
+    await withOrgDbContext(input.orgId, () =>
+      persistWriteJobIntent({
+        id: jobId,
+        workspaceId: input.workspaceId,
         kind: input.kind,
-        defaultBranch: input.defaultBranch,
-        linkAction: input.linkAction,
-        linkGitUrl: input.linkGitUrl,
-        jobWorkspaceUrl,
-        conflictParentSha: input.conflictParentSha,
-        remoteTipSha: input.remoteTipSha,
-        mergeFiles: input.mergeFiles,
-        mergeDeletePaths: input.mergeDeletePaths,
+        generation,
+        desiredSha: jobDesiredSha ?? null,
+        status,
+        payload: writeJobIntentPayload({
+          kind: input.kind,
+          defaultBranch: input.defaultBranch,
+          linkAction: input.linkAction,
+          linkGitUrl: input.linkGitUrl,
+          jobWorkspaceUrl,
+          conflictParentSha: input.conflictParentSha,
+          remoteTipSha: input.remoteTipSha,
+          mergeFiles: input.mergeFiles,
+          mergeDeletePaths: input.mergeDeletePaths,
+        }),
       }),
-    })
+    )
   } catch (err: unknown) {
     const error = err instanceof Error ? err : new Error(String(err))
     log.error(error)
     try {
-      await persistHydrateFailure({
-        workspaceId: input.workspaceId,
-        message: error.message,
-      })
+      await withOrgDbContext(input.orgId, () =>
+        persistHydrateFailure({
+          workspaceId: input.workspaceId,
+          message: error.message,
+        }),
+      )
     } catch {
       // Persist is best-effort when org db is not open.
     }
@@ -177,7 +189,9 @@ export async function enqueueWorkspaceWriteCommit(
     const error = err instanceof Error ? err : new Error(String(err))
     log.error(error)
     try {
-      await persistWriteJobStatus(jobId, WRITE_JOB_STATUSES.paused)
+      await withOrgDbContext(input.orgId, () =>
+        persistWriteJobStatus(jobId, WRITE_JOB_STATUSES.paused),
+      )
     } catch {
       // Keep a resumable row even if this status write fails.
     }

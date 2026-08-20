@@ -664,3 +664,9 @@ Highest-priority confirmed rules for agents. Migrated from former `patterns.md` 
 - **Date:** 2026-08-20
 - **Source:** user correction (git-backed workspaces dest backfill)
 
+### Org SQL is a short GUC transaction, not RLS and not request-lifetime BEGIN
+- **Rule:** `withOrgDbContext` is a short Postgres transaction plus `SET LOCAL app.organization_id` (an org session GUC for a future policy hook). Preview Neon has no `pg_policies` / `relrowsecurity`. Do not call this RLS. Nested same-org calls reuse the open tx; nested different-org or nested idle-timeout throws; inner throw aborts the outer (no savepoints). GitHub, sandbox HTTP, codesearch, FalkorDB, connector HTTP, embeddings, and `enqueueWorkspace*` must run after COMMIT — `assertNotInOrgDbContext()` at those gateways. Better Auth `sessions` Failed-query is a separate pool-client path (identify on `*`, including static assets); a `workspaces.write_status` lock cannot block that SELECT. Do not “fix” either symptom by shrinking pool `max`, flipping keepAlive, or blaming IPv4/SSL.
+- **Category:** convention
+- **Date:** 2026-08-20
+- **Source:** preview/pr-280 pg_stat_activity + Sol SQL-contract review
+

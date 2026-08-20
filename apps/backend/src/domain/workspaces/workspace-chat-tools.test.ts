@@ -20,9 +20,22 @@ const executeQuery = vi.hoisted(() =>
     records: [] as Array<{ get: (key: string) => unknown }>,
   })),
 )
+const orgTxDepth = vi.hoisted(() => ({ value: 0 }))
+const graphInTx = vi.hoisted(() => ({ value: false, seen: false }))
 
 vi.mock("../../db/client.js", () => ({
-  withOrgDbContext: (_orgId: string, fn: () => unknown) => fn(),
+  tryGetOrgDb: () => (orgTxDepth.value > 0 ? {} : undefined),
+  tryGetOrgDbOrgId: () => (orgTxDepth.value > 0 ? "org_1" : undefined),
+  assertNotInOrgDbContext: () => undefined,
+
+  withOrgDbContext: async (_orgId: string, fn: () => unknown) => {
+    orgTxDepth.value += 1
+    try {
+      return await fn()
+    } finally {
+      orgTxDepth.value -= 1
+    }
+  },
 }))
 
 vi.mock("../../auth/withAuth.js", () => ({
@@ -39,7 +52,11 @@ vi.mock("../../models/repositories.js", () => ({
 }))
 
 vi.mock("../../platform/graph/client.js", () => ({
-  withGraphClient: (_ctx: unknown, fn: () => unknown) => fn(),
+  withGraphClient: (_ctx: unknown, fn: () => unknown) => {
+    graphInTx.seen = true
+    graphInTx.value = orgTxDepth.value > 0
+    return fn()
+  },
   getGraphClient: () => ({ executeQuery }),
 }))
 
@@ -50,6 +67,9 @@ const NEW_ID = "repo_cccccccccccccccccccccccc"
 describe("workspace chat tools", () => {
   beforeEach(() => {
     vi.clearAllMocks()
+    orgTxDepth.value = 0
+    graphInTx.seen = false
+    graphInTx.value = false
     getWorkspaceById.mockResolvedValue({
       id: "ws_1",
       workspaceRepositoryUrl: "https://github.com/acme/new",
@@ -232,5 +252,7 @@ describe("workspace chat tools", () => {
       workspaceId: "ws_1",
     })
     expect(String(result)).toContain("kn_1")
+    expect(graphInTx.seen).toBe(true)
+    expect(graphInTx.value).toBe(false)
   })
 })

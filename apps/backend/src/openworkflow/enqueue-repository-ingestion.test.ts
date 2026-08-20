@@ -7,6 +7,10 @@ const withOrgDbContextMock = vi.hoisted(() =>
 const tryClaimMock = vi.hoisted(() => vi.fn().mockResolvedValue(true))
 
 vi.mock("../db/client.js", () => ({
+    tryGetOrgDb: () => ({}),
+    tryGetOrgDbOrgId: () => "org_test",
+    assertNotInOrgDbContext: () => undefined,
+
   withOrgDbContext: withOrgDbContextMock,
 }))
 

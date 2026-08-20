@@ -13,6 +13,10 @@ vi.mock("../../../config/env.js", () => ({
 }))
 
 vi.mock("../../../db/client.js", () => ({
+    tryGetOrgDb: () => ({}),
+    tryGetOrgDbOrgId: () => "org_test",
+    assertNotInOrgDbContext: () => undefined,
+
   withOrgDbContext: (_orgId: string, fn: () => unknown) => fn(),
 }))
 
@@ -65,7 +69,9 @@ describe("maybeEnqueueConfluenceSyncOnConfigPush", () => {
       name: "acme/docs",
       githubConnectionId: "ghc_1",
     } as never)
-    vi.mocked(listConfluenceSyncTargetsWithRepoByRepositoryId).mockResolvedValue([
+    vi.mocked(
+      listConfluenceSyncTargetsWithRepoByRepositoryId,
+    ).mockResolvedValue([
       {
         orgId: "org_1",
         connectionId: "con_1",
@@ -105,7 +111,9 @@ describe("maybeEnqueueConfluenceSyncOnConfigPush", () => {
       githubConnectionId: "ghc_1",
     } as never)
     compareCommitsTouchesPathMock.mockResolvedValue(true)
-    vi.mocked(listConfluenceSyncTargetsWithRepoByRepositoryId).mockResolvedValue([
+    vi.mocked(
+      listConfluenceSyncTargetsWithRepoByRepositoryId,
+    ).mockResolvedValue([
       {
         orgId: "org_1",
         connectionId: "con_1",
@@ -143,7 +151,9 @@ describe("maybeEnqueueConfluenceSyncOnConfigPush", () => {
       name: "acme/docs",
       githubConnectionId: "ghc_1",
     } as never)
-    vi.mocked(listConfluenceSyncTargetsWithRepoByRepositoryId).mockResolvedValue([
+    vi.mocked(
+      listConfluenceSyncTargetsWithRepoByRepositoryId,
+    ).mockResolvedValue([
       {
         orgId: "org_1",
         connectionId: "con_1",
@@ -164,6 +174,8 @@ describe("maybeEnqueueConfluenceSyncOnConfigPush", () => {
     })
 
     expect(enqueueMock).toHaveBeenCalledTimes(1)
-    expect(enqueueMock.mock.calls[0]?.[0]?.scopeFromRepo).toEqual({ spaces: [] })
+    expect(enqueueMock.mock.calls[0]?.[0]?.scopeFromRepo).toEqual({
+      spaces: [],
+    })
   })
 })

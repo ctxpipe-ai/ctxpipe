@@ -2,7 +2,10 @@ import { createHmac } from "node:crypto"
 import { Hono } from "hono"
 import { beforeEach, describe, expect, it, vi } from "vitest"
 import type { AppEnv } from "../../../app/env.js"
-import { contextStorage, withTestRequestLogger } from "../../../test/hono-test-logger.js"
+import {
+  contextStorage,
+  withTestRequestLogger,
+} from "../../../test/hono-test-logger.js"
 
 const connectionsMock = vi.hoisted(() => vi.fn())
 const runWorkflowMock = vi.hoisted(() => vi.fn().mockResolvedValue(undefined))
@@ -13,6 +16,10 @@ const provisioningToken = createHmac("sha256", notionClientSecret)
   .digest("base64url")
 
 vi.mock("../../../db/client.js", () => ({
+    tryGetOrgDb: () => ({}),
+    tryGetOrgDbOrgId: () => "org_test",
+    assertNotInOrgDbContext: () => undefined,
+
   withOrgDbContext: (_orgId: string, fn: () => unknown) => fn(),
 }))
 vi.mock("../../../models/notion-connector.js", () => ({

@@ -4,6 +4,7 @@ import {
   requireCurrentOrgSlug,
 } from "../../auth/context.js"
 import { getOrgDb, getSystemDb } from "../../db/client.js"
+import { withAmbientOrgDb } from "../../db/org-sql.js"
 import { claimEvidence } from "../../db/schema/claim_evidence.js"
 import { claims } from "../../db/schema/claims.js"
 import { objects } from "../../db/schema/objects.js"
@@ -657,77 +658,79 @@ export async function refreshClaimProjections(
   const uniqueIds = [...new Set(claimIds.filter(Boolean))]
   if (uniqueIds.length === 0) return 0
 
-  const resolvedOrgId = requireCurrentOrgId()
-  const db = getOrgDb()
-  const subjectRo = aliasedTable(objects, "subject_ro")
-  const objectRo = aliasedTable(objects, "object_ro")
+  const projectionClaims = await withAmbientOrgDb(async () => {
+    const resolvedOrgId = requireCurrentOrgId()
+    const db = getOrgDb()
+    const subjectRo = aliasedTable(objects, "subject_ro")
+    const objectRo = aliasedTable(objects, "object_ro")
+    const loaded: ClaimForProjection[] = []
 
-  const projectionClaims: ClaimForProjection[] = []
+    for (const idChunk of chunkArray(uniqueIds, PROJECT_CLAIM_BATCH_SIZE)) {
+      const rows = await db
+        .select({
+          id: claims.id,
+          subjectId: claims.subjectId,
+          objectId: claims.objectId,
+          subjectKind: subjectRo.kind,
+          objectKind: objectRo.kind,
+          predicate: claims.predicate,
+          status: claims.status,
+          aggregatedConfidence: claims.aggregatedConfidence,
+          lastObservedAt: claims.lastObservedAt,
+          validFrom: claims.validFrom,
+          validTo: claims.validTo,
+        })
+        .from(claims)
+        .innerJoin(subjectRo, eq(claims.subjectId, subjectRo.id))
+        .innerJoin(objectRo, eq(claims.objectId, objectRo.id))
+        .where(
+          and(
+            eq(claims.orgId, resolvedOrgId),
+            inArray(claims.id, idChunk),
+            eq(subjectRo.orgId, resolvedOrgId),
+            eq(objectRo.orgId, resolvedOrgId),
+          ),
+        )
 
-  for (const idChunk of chunkArray(uniqueIds, PROJECT_CLAIM_BATCH_SIZE)) {
-    const rows = await db
-      .select({
-        id: claims.id,
-        subjectId: claims.subjectId,
-        objectId: claims.objectId,
-        subjectKind: subjectRo.kind,
-        objectKind: objectRo.kind,
-        predicate: claims.predicate,
-        status: claims.status,
-        aggregatedConfidence: claims.aggregatedConfidence,
-        lastObservedAt: claims.lastObservedAt,
-        validFrom: claims.validFrom,
-        validTo: claims.validTo,
-      })
-      .from(claims)
-      .innerJoin(subjectRo, eq(claims.subjectId, subjectRo.id))
-      .innerJoin(objectRo, eq(claims.objectId, objectRo.id))
-      .where(
-        and(
-          eq(claims.orgId, resolvedOrgId),
-          inArray(claims.id, idChunk),
-          eq(subjectRo.orgId, resolvedOrgId),
-          eq(objectRo.orgId, resolvedOrgId),
-        ),
+      if (rows.length === 0) continue
+
+      const evidenceCounts = Object.fromEntries(
+        (
+          await db
+            .select({
+              claimId: claimEvidence.claimId,
+              count: sql<number>`count(*)::int`,
+            })
+            .from(claimEvidence)
+            .where(
+              inArray(
+                claimEvidence.claimId,
+                rows.map((r) => r.id),
+              ),
+            )
+            .groupBy(claimEvidence.claimId)
+        ).map((r) => [r.claimId, r.count]),
       )
 
-    if (rows.length === 0) continue
-
-    const evidenceCounts = Object.fromEntries(
-      (
-        await db
-          .select({
-            claimId: claimEvidence.claimId,
-            count: sql<number>`count(*)::int`,
-          })
-          .from(claimEvidence)
-          .where(
-            inArray(
-              claimEvidence.claimId,
-              rows.map((r) => r.id),
-            ),
-          )
-          .groupBy(claimEvidence.claimId)
-      ).map((r) => [r.claimId, r.count]),
-    )
-
-    for (const row of rows) {
-      projectionClaims.push({
-        id: row.id,
-        subjectId: row.subjectId,
-        objectId: row.objectId,
-        subjectKind: row.subjectKind,
-        objectKind: row.objectKind,
-        predicate: row.predicate,
-        status: row.status,
-        aggregatedConfidence: row.aggregatedConfidence,
-        sourceCount: evidenceCounts[row.id] ?? 0,
-        lastObservedAt: row.lastObservedAt.toISOString(),
-        validFrom: row.validFrom?.toISOString() ?? null,
-        validTo: row.validTo?.toISOString() ?? null,
-      })
+      for (const row of rows) {
+        loaded.push({
+          id: row.id,
+          subjectId: row.subjectId,
+          objectId: row.objectId,
+          subjectKind: row.subjectKind,
+          objectKind: row.objectKind,
+          predicate: row.predicate,
+          status: row.status,
+          aggregatedConfidence: row.aggregatedConfidence,
+          sourceCount: evidenceCounts[row.id] ?? 0,
+          lastObservedAt: row.lastObservedAt.toISOString(),
+          validFrom: row.validFrom?.toISOString() ?? null,
+          validTo: row.validTo?.toISOString() ?? null,
+        })
+      }
     }
-  }
+    return loaded
+  })
 
   if (projectionClaims.length === 0) return 0
   const result = await projectClaimsFromState(projectionClaims)

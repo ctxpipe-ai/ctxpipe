@@ -21,6 +21,15 @@ vi.mock("../lib/id.js", () => ({
   generateObjectId: generateObjectIdMock,
 }))
 
+vi.mock("../db/client.js", () => ({
+    tryGetOrgDb: () => ({}),
+    tryGetOrgDbOrgId: () => "org_test",
+    assertNotInOrgDbContext: () => undefined,
+
+  withOrgDbContext: (_orgId: string, fn: () => unknown) =>
+    Promise.resolve(fn()),
+}))
+
 vi.mock("../models/workspaces.js", () => ({
   getWorkspaceById: getWorkspaceByIdMock,
   persistHydrateFailure: persistHydrateFailureMock,

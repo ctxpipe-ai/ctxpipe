@@ -1,7 +1,7 @@
 import { and, eq, inArray } from "drizzle-orm"
 import { signUpstreamJwt } from "../../auth/upstreamJwt.js"
 import { parseEnv } from "../../config/env.js"
-import { getOrgDb, withOrgDbContext } from "../../db/client.js"
+import { withOrgDbContext, assertNotInOrgDbContext } from "../../db/client.js"
 import { repositories } from "../../db/schema/repositories.js"
 import { repositoryCheckouts } from "../../db/schema/repository_checkouts.js"
 import {
@@ -141,7 +141,9 @@ export async function codeSearch(
     ? workspaceCheckoutKey(params.workspaceId)
     : DEFAULT_CHECKOUT_KEY
   const membershipUrls = params.workspaceId
-    ? await workspaceCodesearchMembershipUrls(params.workspaceId)
+    ? await withOrgDbContext(orgId, () =>
+        workspaceCodesearchMembershipUrls(params.workspaceId as string),
+      )
     : null
   if (membershipUrls && membershipUrls.length === 0) return []
   const baseWhere = eq(repositories.orgId, orgId)
@@ -149,10 +151,8 @@ export async function codeSearch(
     ? and(baseWhere, inArray(repositories.id, params.repositoryIds))
     : baseWhere
 
-  let repos: { id: string; name: string; gitUrl: string; zoektRepoId: number }[]
-  try {
-    const db = getOrgDb()
-    repos = await db
+  let repos = await withOrgDbContext(orgId, async (db) =>
+    db
       .select({
         id: repositories.id,
         name: repositories.name,
@@ -167,27 +167,8 @@ export async function codeSearch(
           eq(repositoryCheckouts.checkoutKey, checkoutKey),
         ),
       )
-      .where(where)
-  } catch {
-    repos = await withOrgDbContext(orgId, async (db) =>
-      db
-        .select({
-          id: repositories.id,
-          name: repositories.name,
-          gitUrl: repositories.gitUrl,
-          zoektRepoId: repositoryCheckouts.zoektRepoId,
-        })
-        .from(repositories)
-        .innerJoin(
-          repositoryCheckouts,
-          and(
-            eq(repositoryCheckouts.repositoryId, repositories.id),
-            eq(repositoryCheckouts.checkoutKey, checkoutKey),
-          ),
-        )
-        .where(where),
-    )
-  }
+      .where(where),
+  )
 
   if (membershipUrls) {
     const allowed = new Set(membershipUrls)
@@ -198,6 +179,7 @@ export async function codeSearch(
 
   if (repos.length === 0) return []
 
+  assertNotInOrgDbContext()
   const env = parseEnv(process.env as Record<string, string | undefined>)
   const token = await signUpstreamJwt({
     env,

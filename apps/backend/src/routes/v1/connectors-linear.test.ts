@@ -2,7 +2,10 @@ import { OpenAPIHono } from "@hono/zod-openapi"
 import { beforeEach, describe, expect, it, vi } from "vitest"
 import type { AppEnv } from "../../app/env.js"
 import type { Env } from "../../config/env.js"
-import { contextStorage, withTestRequestLogger } from "../../test/hono-test-logger.js"
+import {
+  contextStorage,
+  withTestRequestLogger,
+} from "../../test/hono-test-logger.js"
 import { createLinearOAuthState } from "../../services/linear/oauth-state.js"
 import {
   linearConnectorRoutes,
@@ -29,6 +32,10 @@ vi.mock("../../auth/withAuth.js", () => ({
   hasOrgAdminOrOwnerRole: mocks.hasAdminRole,
 }))
 vi.mock("../../db/client.js", () => ({
+    tryGetOrgDb: () => ({}),
+    tryGetOrgDbOrgId: () => "org_test",
+    assertNotInOrgDbContext: () => undefined,
+
   withOrgDbContext: vi.fn((_orgId: string, run: () => Promise<unknown>) =>
     run(),
   ),
@@ -99,15 +106,15 @@ function appWithVariables() {
     .use(contextStorage())
     .use(withTestRequestLogger)
     .use("*", async (c, next) => {
-    c.set("env", env)
-    c.set("user", { id: "user_1" } as unknown as AppEnv["Variables"]["user"])
-    c.set("session", {
-      id: "session_1",
-    } as unknown as AppEnv["Variables"]["session"])
-    c.set("orgId", "org_1")
-    c.set("orgSlug", "acme")
-    await next()
-  })
+      c.set("env", env)
+      c.set("user", { id: "user_1" } as unknown as AppEnv["Variables"]["user"])
+      c.set("session", {
+        id: "session_1",
+      } as unknown as AppEnv["Variables"]["session"])
+      c.set("orgId", "org_1")
+      c.set("orgSlug", "acme")
+      await next()
+    })
 }
 
 beforeEach(() => {

@@ -1,3 +1,4 @@
+import { assertNotInOrgDbContext } from "../db/client.js"
 import { runWorkflowWithWorkerWake } from "./client.js"
 import { workspaceIndex } from "./workflows/workspace-index.js"
 
@@ -14,6 +15,7 @@ export async function enqueueWorkspaceIndex(
   },
   log: { error: (err: Error) => void },
 ): Promise<void> {
+  assertNotInOrgDbContext()
   try {
     await runWorkflowWithWorkerWake(workspaceIndex.spec, input)
   } catch (err: unknown) {
