@@ -72,6 +72,8 @@ describe("memory init (end-to-end)", () => {
       /memory capture finalize --host cursor --event stop/,
     )
     expect(hooks.hooks?.stop?.[0]?.loop_limit).toBe(1)
+    expect(hooks.hooks?.afterFileEdit).toBeUndefined()
+    expect(hooks.hooks?.postToolUse).toBeUndefined()
 
     const gitignore = readFileSync(join(cwd, ".gitignore"), "utf8")
     expect(gitignore).toContain(".ai/memory/events/**")

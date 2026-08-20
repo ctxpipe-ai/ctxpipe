@@ -568,6 +568,10 @@ describe("memory/capture", () => {
     expect(
       formatStopHookOutput("cursor", summary, {}),
     ).toEqual({})
+    const lifecycle = JSON.parse(
+      readFileSync(join(cwd, ".ai", "memory", "events", "lifecycle.json"), "utf8"),
+    ) as { dismissed?: string[] }
+    expect(lifecycle.dismissed).toContain("toolsrc000000001")
   })
 
   it("emits a Cursor follow-up once for a never-shown user-prompt candidate", () => {

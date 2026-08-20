@@ -18,11 +18,8 @@ const FINALIZE = (host: string, event: string) =>
 
 const CURSOR_HOOKS = {
   beforeSubmitPrompt: [{ command: OBSERVE("cursor", "beforeSubmitPrompt") }],
-  afterFileEdit: [{ command: OBSERVE("cursor", "afterFileEdit") }],
-  postToolUse: [{ command: OBSERVE("cursor", "postToolUse") }],
-  // finalize reads workspace_roots from stdin so user-scoped hooks hit the right repo.
-  // Cursor 3.11 defaults to 5 auto follow-ups; cap at 1 as a backstop if observe
-  // ever mints the injected follow-up prompt (the root-cause filter is in capture.ts).
+  // afterFileEdit / postToolUse mint tool dumps (MCP schemas, grep, test edits).
+  // Cursor capture is prompt + Stop only; those events are stripped on merge.
   stop: [{ command: FINALIZE("cursor", "stop"), loop_limit: 1 }],
 }
 
@@ -150,6 +147,15 @@ function mergeCursorHooks(existing: Record<string, unknown>): Record<string, unk
   for (const [key, ours] of Object.entries(CURSOR_HOOKS)) {
     const prev = Array.isArray(hooks[key]) ? (hooks[key] as unknown[]) : []
     hooks[key] = dedupeHookEntries(prev, ours)
+  }
+  // Drop legacy Cursor observe hooks that classified MCP/grep/test dumps as lessons.
+  for (const key of ["afterFileEdit", "postToolUse"]) {
+    const prev = Array.isArray(hooks[key]) ? (hooks[key] as unknown[]) : []
+    const kept = prev
+      .map((entry) => stripCtxpipeFromHookEntry(entry))
+      .filter((entry): entry is NonNullable<typeof entry> => entry != null)
+    if (kept.length === 0) delete hooks[key]
+    else hooks[key] = kept
   }
   return {
     ...existing,

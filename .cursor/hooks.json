@@ -6,16 +6,6 @@
         "command": "bash .cursor/hooks/memory-capture.sh memory capture observe --host cursor --event beforeSubmitPrompt"
       }
     ],
-    "afterFileEdit": [
-      {
-        "command": "bash .cursor/hooks/memory-capture.sh memory capture observe --host cursor --event afterFileEdit"
-      }
-    ],
-    "postToolUse": [
-      {
-        "command": "bash .cursor/hooks/memory-capture.sh memory capture observe --host cursor --event postToolUse"
-      }
-    ],
     "stop": [
       {
         "command": "bash .cursor/hooks/memory-capture.sh memory capture finalize --host cursor --event stop",

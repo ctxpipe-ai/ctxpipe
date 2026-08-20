@@ -824,8 +824,9 @@ export function markDismissed(ids: string[], opts: { cwd?: string } = {}): void 
  * Does **not** advance lifecycle — caller must acknowledgeSurfaced after delivery.
  *
  * Cursor Stop injects `followup_message` as a new user turn, so only never-shown
- * user-prompt candidates get a follow-up. Tool/edit-sourced items wait for the
- * next real user prompt. Claude/Codex may re-show unresolved surfaced ids.
+ * user-prompt candidates get a follow-up. Tool/edit-sourced items are dismissed
+ * (they are MCP/grep/test dumps, not conventions). Claude/Codex may re-show
+ * unresolved surfaced ids.
  */
 export function summarizeCapture(
   opts: { cwd?: string; host?: CaptureHost } = {},
@@ -836,10 +837,25 @@ export function summarizeCapture(
   const lifecycle = readLifecycle(repoRoot)
   const closed = closedIds(lifecycle)
   const surfaced = new Set(lifecycle.surfaced)
-  const pending = all.filter((c) => {
+  let pending = all.filter((c) => {
     const id = typeof c.candidateId === "string" ? c.candidateId : ""
     return id && !closed.has(id)
   })
+
+  if (host === "cursor") {
+    const noiseIds = pending
+      .filter((c) => !isUserPromptEvent(String(c.sourceEventType ?? "")))
+      .map((c) => String(c.candidateId ?? ""))
+      .filter(Boolean)
+    if (noiseIds.length > 0) {
+      markDismissed(noiseIds, { cwd: opts.cwd })
+      const nextClosed = closedIds(readLifecycle(repoRoot))
+      pending = all.filter((c) => {
+        const id = typeof c.candidateId === "string" ? c.candidateId : ""
+        return id && !nextClosed.has(id)
+      })
+    }
+  }
 
   const parseNote =
     parseErrors > 0
