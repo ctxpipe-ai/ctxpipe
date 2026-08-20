@@ -1,5 +1,12 @@
 # @ctxpipe/aws-cdk
 
+## 3.1.1
+
+### Patch Changes
+
+- c7aef1e: Ship DB-only Linear and Notion status reads and stop stable connector-page polling to prevent GitHub throttling from exhausting PostgreSQL connections.
+- 34f8818: Allow optional Slack app credentials (`SLACK_CLIENT_*`, `SLACK_SIGNING_SECRET`) in connector secrets for self-hosted ECS.
+
 ## 3.1.0
 
 ### Minor Changes
