@@ -190,6 +190,8 @@ jobs:
       R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
       R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
       RAILWAY_TOKEN: ${{ secrets.RAILWAY_TOKEN }}
+      RAILWAY_API_TOKEN: ${{ secrets.RAILWAY_API_TOKEN }}
+      RAILWAY_PROJECT_ID: ${{ vars.RAILWAY_PROJECT_ID }}
       NEON_API_KEY: ${{ secrets.NEON_API_KEY }}
 
     steps:
@@ -209,6 +211,101 @@ jobs:
 
       - name: Terraform Apply
         run: terraform apply -auto-approve terraform.plan
+
+      # Image rolls must be environment-scoped. Terraform railway_service.source_image
+      # is service-global; provider Update() serviceConnect + redeployAllInstances
+      # would overwrite pr-* previews. ignore_changes keeps Terraform off the image.
+      - name: Roll production Railway images
+        working-directory: ${{ github.workspace }}
+        env:
+          IMAGE_SHA: ${{ github.sha }}
+        run: |
+          set -euo pipefail
+
+          TOKEN="${RAILWAY_API_TOKEN:-${RAILWAY_TOKEN:-}}"
+          if [[ -z "$TOKEN" ]]; then
+            echo "Missing RAILWAY_API_TOKEN / RAILWAY_TOKEN secret"
+            exit 1
+          fi
+          if [[ -z "${RAILWAY_PROJECT_ID:-}" ]]; then
+            echo "Missing RAILWAY_PROJECT_ID variable"
+            exit 1
+          fi
+          if [[ -z "${IMAGE_SHA:-}" ]]; then
+            echo "Missing IMAGE_SHA"
+            exit 1
+          fi
+
+          railway_graphql() {
+            local query="$1"
+            local variables="$2"
+            local raw http_code body
+            raw="$(curl -sS -w '\n%{http_code}' \
+              -H "Authorization: Bearer $TOKEN" \
+              -H "Content-Type: application/json" \
+              -d "$(jq -nc --arg q "$query" --argjson v "$variables" '{query:$q,variables:$v}')" \
+              https://backboard.railway.com/graphql/v2)" || return $?
+            http_code="$(printf '%s' "$raw" | tail -n1)"
+            body="$(printf '%s' "$raw" | sed '$d')"
+            if [[ "$http_code" != "200" ]]; then
+              echo "Railway GraphQL HTTP $http_code for query: ${query:0:120}…" >&2
+              echo "$body" >&2
+              return 22
+            fi
+            if echo "$body" | jq -e '.errors | type == "array" and length > 0' >/dev/null 2>&1; then
+              echo "Railway GraphQL errors for query: ${query:0:120}…" >&2
+              echo "$body" | jq -c '.errors' >&2
+              return 22
+            fi
+            printf '%s' "$body"
+          }
+
+          project="$(railway_graphql \
+            'query Project($id: String!) { project(id: $id) { environments { edges { node { id name } } } services { edges { node { id name } } } } }' \
+            "$(jq -nc --arg id "$RAILWAY_PROJECT_ID" '{id:$id}')")"
+
+          env_id="$(echo "$project" | jq -r '
+            .data.project.environments.edges[]?.node
+            | select(.name == "production")
+            | .id
+          ' | head -1)"
+          if [[ -z "$env_id" ]]; then
+            echo "Could not find Railway environment named production"
+            echo "$project" | jq -c '{data,errors}' >&2 || true
+            exit 1
+          fi
+          echo "Production environment id: $env_id"
+
+          services_json="$(echo "$project" | jq -c '
+            [.data.project.services.edges[]?.node // empty | select(.name and .id) | {key: .name, value: .id}]
+            | from_entries
+          ')"
+
+          roll_image() {
+            local railway_name="$1"
+            local image="$2"
+            local service_id
+            service_id="$(echo "$services_json" | jq -r --arg n "$railway_name" '.[$n] // empty')"
+            if [[ -z "$service_id" ]]; then
+              echo "Missing Railway service named $railway_name in project $RAILWAY_PROJECT_ID"
+              exit 1
+            fi
+            echo "Updating $railway_name ($service_id) -> $image (production only)"
+            railway_graphql \
+              'mutation serviceInstanceUpdate($environmentId: String, $serviceId: String!, $input: ServiceInstanceUpdateInput!) { serviceInstanceUpdate(environmentId: $environmentId, serviceId: $serviceId, input: $input) }' \
+              "$(jq -nc --arg env "$env_id" --arg service "$service_id" --arg img "$image" \
+                '{environmentId:$env, serviceId:$service, input:{source:{image:$img}}}')" >/dev/null
+            railway_graphql \
+              'mutation serviceInstanceDeployV2($serviceId: String!, $environmentId: String!) { serviceInstanceDeployV2(serviceId: $serviceId, environmentId: $environmentId) }' \
+              "$(jq -nc --arg env "$env_id" --arg service "$service_id" '{environmentId:$env, serviceId:$service}')" >/dev/null
+          }
+
+          roll_image backend "ghcr.io/ctxpipe-ai/backend:${IMAGE_SHA}"
+          roll_image openworkflow "ghcr.io/ctxpipe-ai/worker:${IMAGE_SHA}"
+          roll_image ui "ghcr.io/ctxpipe-ai/ui:${IMAGE_SHA}"
+          roll_image codesearch "ghcr.io/ctxpipe-ai/codesearch:${IMAGE_SHA}"
+          roll_image otelcollector "ghcr.io/ctxpipe-ai/otel-collector:${IMAGE_SHA}"
+          echo "Queued production-only image rolls for ${IMAGE_SHA}"
 
   forge_deploy:
     name: Deploy Forge app (production)

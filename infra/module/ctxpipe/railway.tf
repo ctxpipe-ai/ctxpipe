@@ -174,6 +174,9 @@ resource "railway_service" "ui" {
 
   lifecycle {
     prevent_destroy = true
+    # SHA rolls are environment-scoped GraphQL in CI. Terraform Update()
+    # calls serviceConnect + redeployAllInstances and would overwrite pr-* envs.
+    ignore_changes  = [source_image]
   }
 }
 
@@ -214,6 +217,7 @@ resource "railway_service" "otelcollector" {
   source_image = "${var.otel_collector_source_image}:${var.image_tag}"
   lifecycle {
     prevent_destroy = true
+    ignore_changes  = [source_image]
   }
 }
 
@@ -245,6 +249,7 @@ resource "railway_service" "backend" {
   depends_on   = [railway_service.falkordb, railway_service.ui, railway_service.code_search, railway_service.otelcollector]
   lifecycle {
     prevent_destroy = true
+    ignore_changes  = [source_image]
   }
 }
 
@@ -291,6 +296,7 @@ resource "railway_service" "code_search" {
   }
   lifecycle {
     prevent_destroy = true
+    ignore_changes  = [source_image]
   }
 }
 
@@ -334,6 +340,7 @@ resource "railway_service" "open_workflow" {
   depends_on   = [railway_service.falkordb, railway_service.backend, railway_service.otelcollector]
   lifecycle {
     prevent_destroy = true
+    ignore_changes  = [source_image]
   }
 }
 
