@@ -21,6 +21,7 @@ describe("WorkspaceHydrateProgress failed view", () => {
       </QueryClientProvider>,
     )
     expect(markup).toContain("Prepare failed")
+    expect(markup).toContain("Change the Workspace repository in settings")
     expect(markup).toContain("getLogger: no logger in context.")
     expect(markup).toContain("Try again")
     expect(markup).not.toContain("Waiting for a resolved tip.")
@@ -76,26 +77,5 @@ describe("WorkspaceHydrateProgress waiting_for_tip view", () => {
     expect(markup).toContain(
       "Hydrate does not wait on a bootstrap commit. Try again resolves the git tip and hydrates.",
     )
-  })
-})
-
-describe("WorkspaceHydrateProgress failed view", () => {
-  it("names the failure and offers Try again without waiting copy", () => {
-    const queryClient = new QueryClient({
-      defaultOptions: { queries: { retry: false } },
-    })
-    const markup = renderToStaticMarkup(
-      <QueryClientProvider client={queryClient}>
-        <WorkspaceHydrateProgress
-          orgSlug="acme"
-          workspace={failedHydrateWorkspace}
-        />
-      </QueryClientProvider>,
-    )
-    expect(markup).toContain("Prepare failed")
-    expect(markup).toContain("getLogger: no logger in context.")
-    expect(markup).toContain("Try again")
-    expect(markup).not.toContain("Waiting for a resolved tip.")
-    expect(markup).not.toContain("animate-ping")
   })
 })

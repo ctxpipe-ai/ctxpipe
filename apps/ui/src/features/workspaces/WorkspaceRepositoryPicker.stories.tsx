@@ -14,7 +14,7 @@ const meta = {
   component: WorkspaceRepositoryPicker,
   decorators: [
     (Story) => (
-      <div className="min-h-[24rem] w-full max-w-lg bg-zinc-950 px-6 py-10">
+      <div className="min-h-[28rem] w-full max-w-2xl bg-zinc-950 px-6 py-10">
         <Story />
       </div>
     ),
@@ -46,14 +46,11 @@ export default meta
 
 type Story = StoryObj<typeof meta>
 
-export const PasteUrl: Story = {}
-
 export const SelectGitHub: Story = {
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement)
-    await userEvent.click(
-      canvas.getByRole("button", { name: /select github/i }),
-    )
+    await canvas.findByRole("list", { name: /repositories/i })
+    await canvas.findByRole("link", { name: /change access/i })
   },
 }
 
@@ -70,9 +67,28 @@ export const SelectGitHubEmpty: Story = {
   },
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement)
-    await userEvent.click(
-      canvas.getByRole("button", { name: /select github/i }),
-    )
+    await canvas.findByText(/no installation repositories/i)
+    await canvas.findByRole("link", { name: /change access/i })
+  },
+}
+
+export const SelectGitHubAllAccess: Story = {
+  parameters: {
+    msw: {
+      handlers: {
+        page: [
+          workspaceListHandler([docsWorkspace]),
+          githubInstallationReposHandler(undefined, {
+            repositorySelection: "all",
+          }),
+        ],
+      },
+    },
+  },
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement)
+    await canvas.findByText(/all repositories/i)
+    await canvas.findByRole("link", { name: /change access/i })
   },
 }
 
@@ -80,8 +96,16 @@ export const CreateOnGitHub: Story = {
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement)
     await userEvent.click(
-      canvas.getByRole("button", { name: /create on github/i }),
+      canvas.getByRole("tab", { name: /create on github/i }),
     )
+    await canvas.findByRole("button", { name: /open github/i })
+  },
+}
+
+export const PasteUrl: Story = {
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement)
+    await userEvent.click(canvas.getByRole("tab", { name: /paste url/i }))
   },
 }
 

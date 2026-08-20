@@ -2,6 +2,7 @@ import type { Meta, StoryObj } from "@storybook/react-vite"
 import { HttpResponse, http } from "msw"
 import {
   conversationDetailLoadingHandler,
+  githubInstallationReposHandler,
   workspaceDetailErrorHandler,
   workspaceDetailLoadingHandler,
   workspaceShellHandlers,
@@ -12,6 +13,7 @@ import { WorkspaceSurface } from "./WorkspaceSurface"
 import {
   docsWorkspace,
   failedHydrateWorkspace,
+  failedHydrateWorkspaceDetail,
   hydratingWorkspaceDetail,
   readOnlyWorkspace,
   waitingForTipWorkspaceDetail,
@@ -146,8 +148,9 @@ export const PrepareFailed: Story = {
           ),
           ...workspaceShellHandlers({
             workspaces: [failedHydrateWorkspace, docsWorkspace],
-            detail: { ...failedHydrateWorkspace, linkedRepositories: [] },
+            detail: failedHydrateWorkspaceDetail,
           }),
+          githubInstallationReposHandler(),
         ],
       },
     },

@@ -16,10 +16,9 @@ import {
 } from "@/features/repositories/github-web-url"
 import {
   collectInstallationRepoPages,
-  type GithubRepoItem,
+  fetchGithubInstallationReposPage,
 } from "@/features/repositories/githubRepoSelection"
 import { gitSourceMatchesQuery } from "@/features/repositories/gitSourcesFilter"
-import { client } from "@/lib/api"
 import { cn } from "@/lib/utils"
 import { eligibleInstallationRepos } from "./gitUrl"
 import {
@@ -28,44 +27,6 @@ import {
   workspaceKeys,
 } from "./queries"
 import type { WorkspaceDetail, WorkspaceLinkedRepository } from "./types"
-
-async function fetchInstallationReposPage(
-  orgSlug: string,
-  page: number,
-): Promise<{
-  repositories: GithubRepoItem[]
-  hasMore: boolean
-  repositorySelection: string
-}> {
-  const res = await (
-    client[":orgSlug"].api.v1.github.installation.repositories.$get as (arg: {
-      param: { orgSlug: string }
-      query: { page: string; per_page: string }
-    }) => Promise<Response>
-  )({
-    param: { orgSlug },
-    query: { page: String(page), per_page: "100" },
-  })
-  if (!res.ok) throw new Error("Failed to fetch repositories")
-  const body = (await res.json()) as {
-    repositories: Array<
-      Partial<GithubRepoItem> & { name: string; clone_url: string }
-    >
-    hasMore?: boolean
-    repositorySelection?: string
-  }
-  return {
-    repositories: body.repositories.map((repo, index) => ({
-      id: repo.id ?? index + 1 + (page - 1) * 100,
-      name: repo.name,
-      full_name: repo.full_name ?? repo.name,
-      html_url: repo.html_url ?? repo.clone_url.replace(/\.git$/i, ""),
-      clone_url: repo.clone_url,
-    })),
-    hasMore: body.hasMore === true,
-    repositorySelection: body.repositorySelection ?? "selected",
-  }
-}
 
 function repoTitle(gitUrl: string): string {
   return githubRepoFullNameFromGitUrl(gitUrl) ?? gitUrl
@@ -269,7 +230,7 @@ function AddLinkedReposModal(props: {
     queryKey: ["github-installation-repos", orgSlug],
     queryFn: () =>
       collectInstallationRepoPages((page) =>
-        fetchInstallationReposPage(orgSlug, page),
+        fetchGithubInstallationReposPage(orgSlug, page),
       ),
     enabled: isOpen,
   })

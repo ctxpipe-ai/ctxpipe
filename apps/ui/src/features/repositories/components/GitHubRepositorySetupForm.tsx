@@ -15,7 +15,7 @@ import {
   collectInstallationRepoPages,
   countSelectionDelta,
   describeSelectionDelta,
-  type GithubRepoItem,
+  fetchGithubInstallationReposPage,
   githubCloneUrlKey,
   matchSavedRepoIds,
   selectedCloneUrlKeys,
@@ -37,31 +37,6 @@ export type GitHubRepositorySetupFormProps = {
   variant?: "page" | "onboarding"
   onSaveSuccess: () => void
   onCancel: () => void
-}
-
-async function fetchInstallationReposPage(
-  orgSlug: string,
-  page: number,
-): Promise<{
-  repositories: GithubRepoItem[]
-  hasMore: boolean
-  repositorySelection: string
-}> {
-  const res = await (
-    client[":orgSlug"].api.v1.github.installation.repositories.$get as (arg: {
-      param: { orgSlug: string }
-      query: { page: string; per_page: string }
-    }) => Promise<Response>
-  )({
-    param: { orgSlug },
-    query: { page: String(page), per_page: "100" },
-  })
-  if (!res.ok) throw new Error("Failed to fetch repositories")
-  return (await res.json()) as {
-    repositories: GithubRepoItem[]
-    hasMore: boolean
-    repositorySelection: string
-  }
 }
 
 export function GitHubRepositorySetupForm({
@@ -102,7 +77,7 @@ export function GitHubRepositorySetupForm({
     queryKey: ["github-installation-repos", orgSlug],
     queryFn: () =>
       collectInstallationRepoPages((page) =>
-        fetchInstallationReposPage(orgSlug, page),
+        fetchGithubInstallationReposPage(orgSlug, page),
       ),
     enabled: !!session,
   })

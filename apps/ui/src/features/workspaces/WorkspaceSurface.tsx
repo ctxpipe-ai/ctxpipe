@@ -13,6 +13,7 @@ import {
 } from "./fileTabs"
 import { type ParsedPane, parsePane, serializePane, visiblePane } from "./pane"
 import {
+  workspaceHydrateView,
   workspacePrepareNeedsPoll,
   workspaceProjectionReady,
 } from "./projection"
@@ -24,7 +25,11 @@ import {
 } from "./queries"
 import type { WorkspaceDetail } from "./types"
 import { WorkspaceChat } from "./WorkspaceChat"
-import { WorkspaceHydrateProgress } from "./WorkspaceHydrateProgress"
+import { WorkspaceChatChrome } from "./WorkspaceChatChrome"
+import {
+  WorkspaceHydrateFailedBody,
+  WorkspaceHydrateProgress,
+} from "./WorkspaceHydrateProgress"
 import { WorkspacePane, WorkspacePaneTriggers } from "./WorkspacePane"
 import { WorkspaceRouteError } from "./WorkspaceRouteError"
 
@@ -72,6 +77,85 @@ class WorkspaceQueryErrorBoundary extends Component<
     }
     return this.props.children
   }
+}
+
+function WorkspacePrepareFailedLayout(props: {
+  orgSlug: string
+  workspace: WorkspaceDetail
+}) {
+  const { orgSlug, workspace } = props
+  const [pane, setPane] = useState<ParsedPane>({ kind: "settings" })
+  const [paneCollapsed, setPaneCollapsed] = useState(false)
+  const [paneWidth, setPaneWidth] = useState<number | null>(null)
+  const [maximized, setMaximized] = useState(false)
+  const paneOpen = !paneCollapsed
+
+  return (
+    <div className="flex h-svh min-h-0 min-w-0" data-workspace-surface="">
+      <div
+        className={cn(
+          "flex h-full min-h-0 min-w-0 flex-1",
+          maximized ? "hidden" : paneOpen ? "max-lg:hidden" : null,
+        )}
+      >
+        <WorkspaceChatChrome
+          workspace={workspace}
+          title={workspace.displayName}
+          headerExtra={
+            paneOpen ? null : (
+              <WorkspacePaneTriggers
+                onOpen={(next) => {
+                  setPane(next)
+                  setPaneCollapsed(false)
+                }}
+              />
+            )
+          }
+        >
+          <div className="flex min-h-0 flex-1 items-center justify-center px-8 py-12">
+            <WorkspaceHydrateFailedBody
+              orgSlug={orgSlug}
+              workspace={workspace}
+            />
+          </div>
+        </WorkspaceChatChrome>
+      </div>
+      {paneOpen ? (
+        <WorkspacePane
+          orgSlug={orgSlug}
+          workspace={workspace}
+          pane={pane}
+          fileTabs={[]}
+          previewPath={null}
+          treeCollapsed
+          maximized={maximized}
+          width={paneWidth}
+          conversationTitle={workspace.displayName}
+          onPane={setPane}
+          onClose={() => {
+            setMaximized(false)
+            setPaneCollapsed(true)
+          }}
+          onToggleMaximize={() => setMaximized((value) => !value)}
+          onRestoreConversation={() => {
+            setMaximized(false)
+            if (
+              typeof window !== "undefined" &&
+              window.matchMedia("(max-width: 1023px)").matches
+            ) {
+              setPaneCollapsed(true)
+            }
+          }}
+          onResize={setPaneWidth}
+          onPreviewFile={() => {}}
+          onPinFile={() => {}}
+          onCloseFileTab={() => {}}
+          onCloseActiveFile={() => {}}
+          onToggleTree={() => {}}
+        />
+      ) : null}
+    </div>
+  )
 }
 
 function WorkspaceSurfaceReady(props: {
@@ -151,6 +235,16 @@ function WorkspaceSurfaceReady(props: {
   }
 
   if (!workspaceProjectionReady(workspace)) {
+    if (workspaceHydrateView(workspace) === "failed") {
+      return (
+        <AppShell>
+          <WorkspacePrepareFailedLayout
+            orgSlug={orgSlug}
+            workspace={workspace}
+          />
+        </AppShell>
+      )
+    }
     return (
       <AppShell>
         <WorkspaceHydrateProgress orgSlug={orgSlug} workspace={workspace} />

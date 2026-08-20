@@ -5,6 +5,53 @@ import { workspaceHydrateView } from "./projection"
 import { retryPrepareWorkspace, workspaceKeys } from "./queries"
 import type { Workspace } from "./types"
 
+export function WorkspaceHydrateFailedBody(props: {
+  orgSlug: string
+  workspace: Workspace
+}) {
+  const { orgSlug, workspace } = props
+  const queryClient = useQueryClient()
+  const retryMutation = useMutation({
+    mutationFn: () => retryPrepareWorkspace(orgSlug, workspace.slug),
+    onSuccess: () => {
+      void queryClient.invalidateQueries({
+        queryKey: workspaceKeys.detail(orgSlug, workspace.slug),
+      })
+      void queryClient.invalidateQueries({
+        queryKey: workspaceKeys.list(orgSlug),
+      })
+    },
+  })
+
+  return (
+    <div className="w-full max-w-md">
+      <h1 className="text-lg font-medium tracking-tight">Prepare failed</h1>
+      <p className="mt-2 text-sm text-muted-foreground">
+        Chat and the graph wait until hydrate succeeds. Change the Workspace
+        repository in settings, or try again.
+      </p>
+      <div className="mt-5">
+        <InlineAlert
+          variant="error"
+          title="Could not hydrate"
+          actions={
+            <Button
+              variant="primary"
+              isPending={retryMutation.isPending}
+              onPress={() => retryMutation.mutate()}
+            >
+              Try again
+            </Button>
+          }
+        >
+          {workspace.hydrateError ??
+            "The prepare job failed before a hydrate SHA was ready."}
+        </InlineAlert>
+      </div>
+    </div>
+  )
+}
+
 export function WorkspaceHydrateProgress(props: {
   orgSlug: string
   workspace: Workspace
@@ -27,36 +74,9 @@ export function WorkspaceHydrateProgress(props: {
 
   if (view === "failed") {
     return (
-      <main className="flex min-h-0 flex-1 items-center justify-center px-6 py-16">
-        <div className="max-w-md">
-          <p className="ctx-label text-teal-400">Workspace</p>
-          <h1 className="mt-3 text-xl font-medium tracking-tight">
-            Preparing {workspace.displayName}
-          </h1>
-          <p className="mt-3 text-sm text-muted-foreground">
-            Chat and the graph wait until the first hydrate SHA is the active
-            projection. Prepare did not finish.
-          </p>
-          <div className="mt-5">
-            <InlineAlert
-              variant="error"
-              title="Prepare failed"
-              actions={
-                <Button
-                  variant="primary"
-                  isPending={retryMutation.isPending}
-                  onPress={() => retryMutation.mutate()}
-                >
-                  Try again
-                </Button>
-              }
-            >
-              {workspace.hydrateError ??
-                "The prepare job failed before a hydrate SHA was ready."}
-            </InlineAlert>
-          </div>
-        </div>
-      </main>
+      <div className="flex min-h-0 flex-1 items-center justify-center px-8 py-12">
+        <WorkspaceHydrateFailedBody orgSlug={orgSlug} workspace={workspace} />
+      </div>
     )
   }
 

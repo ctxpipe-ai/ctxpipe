@@ -8,6 +8,7 @@ import {
 } from "@/features/workspaces/workspace-fixtures"
 import {
   conversationsListHandler,
+  githubInstallationReposHandler,
   workspaceListHandler,
 } from "@/mocks/workspace-handlers"
 import { entryPageInnerDecorators } from "../../../.storybook/decorators/entry-page-decorators"
@@ -48,6 +49,7 @@ export const SingleWorkspace: Story = {
         page: [
           workspaceListHandler([docsWorkspace]),
           conversationsListHandler(docsConversations),
+          githubInstallationReposHandler(),
         ],
       },
     },
@@ -66,6 +68,7 @@ export const MultipleWorkspaces: Story = {
         page: [
           workspaceListHandler([docsWorkspace, readOnlyWorkspace]),
           conversationsListHandler(docsConversations),
+          githubInstallationReposHandler(),
         ],
       },
     },
@@ -84,6 +87,7 @@ export const Collapsed: Story = {
         page: [
           workspaceListHandler([docsWorkspace, readOnlyWorkspace]),
           conversationsListHandler(docsConversations),
+          githubInstallationReposHandler(),
         ],
       },
     },
@@ -93,5 +97,33 @@ export const Collapsed: Story = {
     await userEvent.click(
       canvas.getByRole("button", { name: /collapse navigation/i }),
     )
+  },
+}
+
+export const AddWorkspaceOpen: Story = {
+  parameters: {
+    storyRoute: {
+      pattern: "orgWorkspace",
+      orgSlug: "acme",
+      workspaceSlug: "docs",
+    } satisfies StoryRouteParams,
+    msw: {
+      handlers: {
+        page: [
+          workspaceListHandler([docsWorkspace]),
+          conversationsListHandler(docsConversations),
+          githubInstallationReposHandler(),
+        ],
+      },
+    },
+  },
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement)
+    const add = canvas.getByRole("button", { name: /add workspace/i })
+    await userEvent.hover(add)
+    await userEvent.click(add)
+    const body = within(canvasElement.ownerDocument.body)
+    const dialog = await body.findByRole("dialog")
+    await within(dialog).findByRole("list", { name: /repositories/i })
   },
 }

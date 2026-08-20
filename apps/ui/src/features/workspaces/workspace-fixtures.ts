@@ -120,6 +120,11 @@ export const hydratingWorkspaceDetail: WorkspaceDetail = {
   linkedRepositories: [],
 }
 
+export const failedHydrateWorkspaceDetail: WorkspaceDetail = {
+  ...failedHydrateWorkspace,
+  linkedRepositories: [],
+}
+
 export const docsConversationListItem: ConversationListItem = {
   id: "conv_1",
   name: "Repo layout",

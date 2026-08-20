@@ -214,18 +214,12 @@ export function SideNav() {
             />
           </li>
           {orgSlug ? (
-            <>
-              <li
-                aria-hidden="true"
-                className="mx-3 my-2.5 border-t border-border"
-              />
-              <WorkspaceNavList
-                orgSlug={orgSlug}
-                expanded={expanded}
-                currentWorkspaceSlug={currentWorkspaceSlug}
-                currentConversationId={currentConversationId}
-              />
-            </>
+            <WorkspaceNavList
+              orgSlug={orgSlug}
+              expanded={expanded}
+              currentWorkspaceSlug={currentWorkspaceSlug}
+              currentConversationId={currentConversationId}
+            />
           ) : null}
         </ul>
 

@@ -39,14 +39,17 @@ export default meta
 
 type Story = StoryObj<typeof meta>
 
-export const ZeroWorkspaces: Story = {}
+export const ZeroWorkspaces: Story = {
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement)
+    await canvas.findByRole("list", { name: /repositories/i })
+  },
+}
 
 export const SelectGitHub: Story = {
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement)
-    await userEvent.click(
-      canvas.getByRole("button", { name: /select github/i }),
-    )
+    await canvas.findByRole("list", { name: /repositories/i })
   },
 }
 
@@ -54,7 +57,7 @@ export const CreateOnGitHub: Story = {
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement)
     await userEvent.click(
-      canvas.getByRole("button", { name: /create on github/i }),
+      canvas.getByRole("tab", { name: /create on github/i }),
     )
   },
 }
@@ -81,6 +84,7 @@ export const SaveError: Story = {
   },
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement)
+    await userEvent.click(canvas.getByRole("tab", { name: /paste url/i }))
     await userEvent.type(
       canvas.getByLabelText(/git url/i),
       "https://github.com/acme/taken.git",

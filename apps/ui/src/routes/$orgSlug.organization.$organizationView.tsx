@@ -2,7 +2,6 @@ import { OrganizationView } from "@daveyplate/better-auth-ui"
 import { createFileRoute, Navigate } from "@tanstack/react-router"
 import { AppShell } from "@/components/AppShell"
 import { organizationViewClassNames } from "@/features/organization/organizationViewTheme"
-import { OrgWorkspacesSettings } from "@/features/workspaces/OrgWorkspacesSettings"
 import { useSession } from "@/lib/auth-client"
 
 export const Route = createFileRoute(
@@ -13,7 +12,7 @@ export const Route = createFileRoute(
 
 function OrganizationViewRoute() {
   const { data: session, isPending } = useSession()
-  const { organizationView, orgSlug } = Route.useParams()
+  const { organizationView } = Route.useParams()
 
   if (isPending) {
     return (
@@ -41,7 +40,6 @@ function OrganizationViewRoute() {
         <h1 className="mb-6 font-mono text-xs font-normal uppercase tracking-[0.24em] text-teal-400 sm:mb-8">
           organisation settings
         </h1>
-        <OrgWorkspacesSettings orgSlug={orgSlug} />
         {/* Org members / invites: better-auth-ui `OrganizationView` composes cards such as
             OrganizationMembersCard — https://better-auth-ui.com/components/organization-members-card */}
         <OrganizationView

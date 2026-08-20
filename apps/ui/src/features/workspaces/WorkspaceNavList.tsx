@@ -2,6 +2,8 @@ import { useSuspenseQuery } from "@tanstack/react-query"
 import { Suspense, useState } from "react"
 import { isWorkspaceNavOpen } from "./nav"
 import { workspaceListOptions } from "./queries"
+import { WorkspaceCreateModal } from "./WorkspaceCreateModal"
+import { WorkspaceNavHeading } from "./WorkspaceNavHeading"
 import { WorkspaceNavRow } from "./WorkspaceNavRow"
 
 export function WorkspaceNavList(props: {
@@ -14,7 +16,14 @@ export function WorkspaceNavList(props: {
     <Suspense
       fallback={
         props.expanded ? (
-          <li className="px-3 py-2 text-xs text-muted-foreground">Loading…</li>
+          <>
+            <li className="mx-1.5 mt-2.5 mb-0.5 flex h-8 w-[calc(100%-0.75rem)] items-center px-2">
+              <p className="ctx-label-muted">Workspaces</p>
+            </li>
+            <li className="px-3 py-2 text-xs text-muted-foreground">
+              Loading…
+            </li>
+          </>
         ) : (
           <li>
             <span className="sr-only">Loading Workspaces</span>
@@ -40,6 +49,7 @@ function WorkspaceNavListReady(props: {
   const n = workspaces.length
   const [expandedIds, setExpandedIds] = useState<string[]>([])
   const [syncedSlug, setSyncedSlug] = useState<string | undefined>(undefined)
+  const [createOpen, setCreateOpen] = useState(false)
   const currentWorkspace = workspaces.find(
     (workspace) => workspace.slug === currentWorkspaceSlug,
   )
@@ -54,6 +64,12 @@ function WorkspaceNavListReady(props: {
 
   return (
     <>
+      <li>
+        <WorkspaceNavHeading
+          expanded={expanded}
+          onAddWorkspace={() => setCreateOpen(true)}
+        />
+      </li>
       {workspaces.map((workspace) => {
         const collapsible = n > 1
         const open = isWorkspaceNavOpen({
@@ -86,6 +102,11 @@ function WorkspaceNavListReady(props: {
           />
         )
       })}
+      <WorkspaceCreateModal
+        orgSlug={orgSlug}
+        isOpen={createOpen}
+        onOpenChange={setCreateOpen}
+      />
     </>
   )
 }

@@ -232,12 +232,28 @@ export function conversationDetailLoadingHandler() {
 }
 
 export function githubInstallationReposHandler(
-  repositories: { name: string; clone_url: string }[] = eligibleGithubRepos,
+  repositories?: { name: string; clone_url: string }[],
+  options?: {
+    repositorySelection?: string
+    manageUrl?: string | null
+    totalCount?: number
+  },
 ) {
+  const repos = repositories ?? eligibleGithubRepos
   return http.get(
     ({ request }) =>
       pathnameOf(request).endsWith("/api/v1/github/installation/repositories"),
-    () => HttpResponse.json({ repositories }),
+    () =>
+      HttpResponse.json({
+        repositories: repos,
+        repositorySelection: options?.repositorySelection ?? "selected",
+        manageUrl:
+          options && "manageUrl" in options
+            ? options.manageUrl
+            : "https://github.com/organizations/acme/settings/installations/123",
+        hasMore: false,
+        totalCount: options?.totalCount ?? repos.length,
+      }),
   )
 }
 

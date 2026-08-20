@@ -33,15 +33,17 @@ type Story = StoryObj<typeof meta>
 
 export const PasteUrl: Story = {
   render: () => <NewWorkspacePageContent orgSlug={orgSlug} />,
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement)
+    await userEvent.click(canvas.getByRole("tab", { name: /paste url/i }))
+  },
 }
 
 export const SelectGitHub: Story = {
   render: () => <NewWorkspacePageContent orgSlug={orgSlug} />,
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement)
-    await userEvent.click(
-      canvas.getByRole("button", { name: /select github/i }),
-    )
+    await canvas.findByRole("list", { name: /repositories/i })
   },
 }
 
@@ -50,7 +52,7 @@ export const CreateOnGitHub: Story = {
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement)
     await userEvent.click(
-      canvas.getByRole("button", { name: /create on github/i }),
+      canvas.getByRole("tab", { name: /create on github/i }),
     )
   },
 }

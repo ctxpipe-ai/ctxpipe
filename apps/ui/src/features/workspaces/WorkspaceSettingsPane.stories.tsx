@@ -12,6 +12,7 @@ import {
   docsWorkspace,
   docsWorkspaceDetail,
   emptyLinkedWorkspaceDetail,
+  failedHydrateWorkspaceDetail,
   hydratingWorkspaceDetail,
   projectionLagWorkspaceDetail,
   readOnlyWorkspaceDetail,
@@ -93,6 +94,12 @@ export const Hydrating: Story = {
   },
 }
 
+export const HydrateFailed: Story = {
+  args: {
+    workspace: failedHydrateWorkspaceDetail,
+  },
+}
+
 export const RelinkError: Story = {
   parameters: {
     msw: {
@@ -123,7 +130,7 @@ export const RelinkError: Story = {
     const body = within(canvasElement.ownerDocument.body)
     const dialog = await body.findByRole("dialog")
     const scoped = within(dialog)
-    await userEvent.click(scoped.getByRole("button", { name: /paste url/i }))
+    await userEvent.click(scoped.getByRole("tab", { name: /paste url/i }))
     await userEvent.type(
       scoped.getByLabelText(/git url/i),
       "https://github.com/acme/taken.git",

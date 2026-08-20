@@ -323,6 +323,8 @@ export function WorkspaceSettingsPane(props: {
           if (!open) setRelinkError(null)
         }}
         isDismissable={!relinkMutation.isPending}
+        size="medium"
+        placement="top"
       >
         <Dialog>
           <Heading

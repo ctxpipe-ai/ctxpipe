@@ -10,7 +10,7 @@ export const Route = createFileRoute("/$orgSlug/workspaces/new")({
 export function NewWorkspacePageContent(props: { orgSlug: string }) {
   return (
     <AppShell>
-      <main className="mx-auto flex min-h-screen w-full max-w-lg items-center px-6 py-16">
+      <main className="mx-auto flex min-h-screen w-full max-w-2xl items-center px-6 py-16">
         <WorkspaceCreateForm orgSlug={props.orgSlug} />
       </main>
     </AppShell>
