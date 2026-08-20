@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest"
 import {
   classifyWorkspaceWriteHost,
   githubConnectionIdForWriteProbe,
+  githubInstallationCanPush,
   githubRepoFullNameFromWorkspaceUrl,
   probeWorkspaceWriteAccess,
   WRITE_STATUS_REASONS,
@@ -90,6 +91,21 @@ describe("writeStatusFromGithubProbeError", () => {
         message: "Repository ruleset prevents this push",
       }).readOnlyReason,
     ).toBe(WRITE_STATUS_REASONS.protectedBranch)
+  })
+})
+
+describe("githubInstallationCanPush", () => {
+  it("treats GitHub App contents:write as push, not only the user push bit", () => {
+    expect(githubInstallationCanPush({ contents: "write" })).toBe(true)
+    expect(githubInstallationCanPush({ contents: "admin" })).toBe(true)
+    expect(githubInstallationCanPush({ push: true })).toBe(true)
+    expect(githubInstallationCanPush({ admin: true })).toBe(true)
+    expect(githubInstallationCanPush({ maintain: true })).toBe(true)
+    expect(githubInstallationCanPush({ contents: "read", pull: true })).toBe(
+      false,
+    )
+    expect(githubInstallationCanPush({ push: false, pull: true })).toBe(false)
+    expect(githubInstallationCanPush(undefined)).toBe(false)
   })
 })
 

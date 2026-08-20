@@ -116,6 +116,37 @@ export function writableWorkspaceWriteProbe(): WorkspaceWriteProbe {
   }
 }
 
+export type GithubRepoPermissionBits = {
+  admin?: boolean | null
+  maintain?: boolean | null
+  push?: boolean | null
+  pull?: boolean | null
+  contents?: string | boolean | null
+}
+
+/**
+ * GitHub App installation tokens often expose `contents: "write"` instead of
+ * the user-token `push` bit. Treat either as writable.
+ */
+export function githubInstallationCanPush(
+  permissions: GithubRepoPermissionBits | null | undefined,
+): boolean {
+  if (!permissions) return false
+  if (
+    permissions.admin === true ||
+    permissions.push === true ||
+    permissions.maintain === true
+  ) {
+    return true
+  }
+  if (permissions.contents === true) return true
+  if (typeof permissions.contents === "string") {
+    const contents = permissions.contents.toLowerCase()
+    return contents === "write" || contents === "admin"
+  }
+  return false
+}
+
 export type GithubRepoWriteView = {
   defaultBranch: string
   canPush: boolean

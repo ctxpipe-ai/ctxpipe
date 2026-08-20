@@ -3,8 +3,12 @@ import {
   applyResolvedTipsForMatchingLinked,
   applyResolvedTipsForMatchingWorkspaces,
 } from "../../../domain/workspaces/tip-resolve.js"
-import type { GithubRepoWriteView } from "../../../domain/workspaces/write-status.js"
-import { githubRepoFullNameFromWorkspaceUrl } from "../../../domain/workspaces/write-status.js"
+import {
+  type GithubRepoPermissionBits,
+  type GithubRepoWriteView,
+  githubInstallationCanPush,
+  githubRepoFullNameFromWorkspaceUrl,
+} from "../../../domain/workspaces/write-status.js"
 import { getInstallationOctokitForOrg } from "../../../models/github-installation.js"
 import {
   listOrgLinkedRepositories,
@@ -92,7 +96,9 @@ export async function getGithubRepoWriteView(input: {
   const permissions = data.permissions
   return {
     defaultBranch: data.default_branch || "",
-    canPush: Boolean(permissions?.push || permissions?.admin),
+    canPush: permissions
+      ? githubInstallationCanPush(permissions as GithubRepoPermissionBits)
+      : true,
   }
 }
 
