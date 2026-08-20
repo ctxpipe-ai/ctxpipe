@@ -64,7 +64,6 @@ vi.mock("../auth/context.js", () => ({
 
 vi.mock("../models/workspaces.js", () => ({
   listWorkspaces: listWorkspacesMock,
-  getPersistedFirstWorkspaceId: vi.fn(async () => "ws_first"),
   getWorkspaceById: getWorkspaceByIdMock,
 }))
 
@@ -170,6 +169,47 @@ describe("registerMcpTools", () => {
     expect(generateObjectIdMock).toHaveBeenCalledWith("conv")
     expect(collectChatMock).toHaveBeenCalledWith(
       expect.objectContaining({ conversationId: "conv_test" }),
+    )
+  })
+
+  it("uses the oldest Workspace when no persisted first id exists", async () => {
+    collectChatMock.mockResolvedValueOnce({ ok: true, text: "Response" })
+    listWorkspacesMock.mockResolvedValueOnce({
+      lastUsedWorkspaceId: "ws_newer",
+      items: [
+        {
+          id: "ws_newer",
+          createdAt: new Date("2026-08-18T00:00:00.000Z"),
+        },
+        {
+          id: "ws_older",
+          createdAt: new Date("2026-08-15T00:00:00.000Z"),
+        },
+      ],
+    })
+    getWorkspaceByIdMock.mockResolvedValueOnce({
+      id: "ws_older",
+      workspaceRepositoryUrl: "https://github.com/acme/docs",
+      desiredSha: "abc",
+      desiredGeneration: 1,
+      writeStatus: "writable",
+      githubConnectionId: "con_github",
+    })
+    const registerToolMock = vi.fn()
+    const server = { registerTool: registerToolMock } as unknown as McpServer
+    registerMcpTools(server)
+    const [, , handler] = registerToolMock.mock.calls[0] as [
+      string,
+      unknown,
+      (
+        input: { prompt: string },
+        extra: { sendNotification: (n: unknown) => Promise<void> },
+      ) => Promise<{ content: Array<{ text: string }> }>,
+    ]
+    await handler({ prompt: "Test" }, { sendNotification: vi.fn(async () => {}) })
+    expect(getWorkspaceByIdMock).toHaveBeenCalledWith("ws_older")
+    expect(collectChatMock).toHaveBeenCalledWith(
+      expect.objectContaining({ workspaceId: "ws_older" }),
     )
   })
 

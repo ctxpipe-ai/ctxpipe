@@ -18,7 +18,6 @@ import {
 } from "../models/conversations.js"
 import { getRepoReadCloneToken } from "../models/github-installation.js"
 import {
-  getPersistedFirstWorkspaceId,
   getWorkspaceById,
   listWorkspaces,
 } from "../models/workspaces.js"
@@ -103,8 +102,7 @@ export function registerMcpTools(server: McpServer): void {
         toolName: "ctx_advisor",
       })
       const { items } = await listWorkspaces()
-      const persistedFirst = await getPersistedFirstWorkspaceId()
-      const workspaceId = advisorWorkspaceId(persistedFirst, items)
+      const workspaceId = advisorWorkspaceId(null, items)
       if (!workspaceId) {
         throw createError({
           message: "Create a Workspace before using ctx_advisor",

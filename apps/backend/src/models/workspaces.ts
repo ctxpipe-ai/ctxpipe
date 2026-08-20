@@ -16,7 +16,6 @@ import { conversations } from "../db/schema/conversations.js"
 import { repositories } from "../db/schema/repositories.js"
 import {
   orgMemberPreferences,
-  orgWorkspaceCutover,
   workspaceKnowledgeUnits,
   workspaceLinkedRepositories,
   workspaceSandboxInstances,
@@ -28,7 +27,6 @@ import {
   type HydratePhaseRecord,
   initialHydratePhases,
 } from "../domain/workspaces/hydrate-phases.js"
-import { firstConnectorTarget } from "../domain/workspaces/migration-cutover.js"
 import { nextRelinkFields } from "../domain/workspaces/relink.js"
 import {
   applyResolvedDesiredSha,
@@ -321,28 +319,6 @@ export async function createWorkspace(input: {
             },
           })
 
-        const cutover = await tx
-          .select({ firstWorkspaceId: orgWorkspaceCutover.firstWorkspaceId })
-          .from(orgWorkspaceCutover)
-          .where(eq(orgWorkspaceCutover.orgId, orgId))
-          .limit(1)
-        if (!cutover[0]) {
-          const created = await tx
-            .select({
-              id: workspaces.id,
-              createdAt: workspaces.createdAt,
-            })
-            .from(workspaces)
-            .where(eq(workspaces.orgId, orgId))
-          const first = firstConnectorTarget(created)
-          if (first) {
-            await tx.insert(orgWorkspaceCutover).values({
-              orgId,
-              firstWorkspaceId: first.id,
-            })
-          }
-        }
-
         return { ...row, autoLinkGitUrls }
       })
     } catch (error) {
@@ -388,97 +364,6 @@ export async function createWorkspace(input: {
   throw lastError instanceof Error
     ? lastError
     : new Error("Failed to create workspace")
-}
-
-/** Version-start create: no member prefs and no first-Workspace auto-link. */
-export async function createCutoverWorkspace(input: {
-  gitUrl: string
-  displayName?: string
-  githubConnectionId?: string | null
-}): Promise<WorkspaceRecord> {
-  const orgId = requireCurrentOrgId()
-  const db = getOrgDb()
-  const workspaceRepositoryUrl = normalizeWorkspaceRepositoryUrl(input.gitUrl)
-  if (!workspaceRepositoryUrl) {
-    throw createError({
-      message: "A git URL is required",
-      status: 400,
-      why: "Cutover create needs a workspace repository URL",
-    })
-  }
-  const existing = await db
-    .select()
-    .from(workspaces)
-    .where(
-      and(
-        eq(workspaces.orgId, orgId),
-        eq(workspaces.workspaceRepositoryUrl, workspaceRepositoryUrl),
-      ),
-    )
-    .limit(1)
-  if (existing[0]) return existing[0]
-
-  const desiredSlug = slugFromGitUrl(input.gitUrl)
-  const displayName =
-    input.displayName?.trim() || displayNameFromGitUrl(input.gitUrl)
-  const slugRows = await db
-    .select({ slug: workspaces.slug })
-    .from(workspaces)
-    .where(eq(workspaces.orgId, orgId))
-  const slug = nextSlugCandidate(
-    desiredSlug,
-    new Set(slugRows.map((row) => row.slug.toLowerCase())),
-  )
-  try {
-    const [row] = await db
-      .insert(workspaces)
-      .values({
-        id: generateObjectId("ws"),
-        orgId,
-        slug,
-        displayName,
-        workspaceRepositoryUrl,
-        githubConnectionId: input.githubConnectionId ?? null,
-        desiredGeneration: 1,
-        hydrateStatus: "pending",
-        ...writeStatusFromClassification({
-          workspaceRepositoryUrl,
-          githubConnectionId: input.githubConnectionId ?? null,
-        }),
-      })
-      .onConflictDoNothing({
-        target: [workspaces.orgId, workspaces.workspaceRepositoryUrl],
-      })
-      .returning()
-    if (row) return row
-    const raced = await db
-      .select()
-      .from(workspaces)
-      .where(
-        and(
-          eq(workspaces.orgId, orgId),
-          eq(workspaces.workspaceRepositoryUrl, workspaceRepositoryUrl),
-        ),
-      )
-      .limit(1)
-    if (raced[0]) return raced[0]
-  } catch (error) {
-    if (isUniqueViolation(error, "workspaces_org_id_repository_url_uidx")) {
-      const raced = await db
-        .select()
-        .from(workspaces)
-        .where(
-          and(
-            eq(workspaces.orgId, orgId),
-            eq(workspaces.workspaceRepositoryUrl, workspaceRepositoryUrl),
-          ),
-        )
-        .limit(1)
-      if (raced[0]) return raced[0]
-    }
-    throw error
-  }
-  throw new Error("Failed to create cutover workspace")
 }
 
 export async function updateWorkspace(
@@ -648,14 +533,6 @@ export async function deleteWorkspace(
         and(
           eq(conversations.orgId, orgId),
           eq(conversations.workspaceId, row.id),
-        ),
-      )
-    await tx
-      .delete(orgWorkspaceCutover)
-      .where(
-        and(
-          eq(orgWorkspaceCutover.orgId, orgId),
-          eq(orgWorkspaceCutover.firstWorkspaceId, row.id),
         ),
       )
     await tx
@@ -1523,21 +1400,6 @@ export async function persistWriteJobCommitSha(
     .where(eq(workspaceWriteJobs.id, jobId))
 }
 
-export async function listCompletedMigrationExportWorkspaceIds(): Promise<
-  string[]
-> {
-  const rows = await getOrgDb()
-    .select({ workspaceId: workspaceWriteJobs.workspaceId })
-    .from(workspaceWriteJobs)
-    .where(
-      and(
-        eq(workspaceWriteJobs.kind, "migration_export"),
-        isNotNull(workspaceWriteJobs.commitSha),
-      ),
-    )
-  return [...new Set(rows.map((row) => row.workspaceId))]
-}
-
 export async function listMigrationExportShas(): Promise<Map<string, string>> {
   const rows = await getOrgDb()
     .select({
@@ -1692,27 +1554,6 @@ export async function persistHydratePhases(input: {
         eq(workspaces.activeProjectionSha, input.expectedSha),
       ),
     )
-}
-
-export async function getPersistedFirstWorkspaceId(
-  orgId = requireCurrentOrgId(),
-): Promise<string | null> {
-  const [row] = await getOrgDb()
-    .select({ firstWorkspaceId: orgWorkspaceCutover.firstWorkspaceId })
-    .from(orgWorkspaceCutover)
-    .where(eq(orgWorkspaceCutover.orgId, orgId))
-    .limit(1)
-  return row?.firstWorkspaceId ?? null
-}
-
-export async function persistFirstWorkspaceId(
-  firstWorkspaceId: string,
-  orgId = requireCurrentOrgId(),
-): Promise<void> {
-  await getOrgDb()
-    .insert(orgWorkspaceCutover)
-    .values({ orgId, firstWorkspaceId })
-    .onConflictDoNothing()
 }
 
 export async function findWorkspacesAndLinkedByGitUrl(gitUrl: string): Promise<{

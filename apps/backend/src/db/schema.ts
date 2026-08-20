@@ -30,7 +30,6 @@ import { repositories } from "./schema/repositories.js"
 import { repositoryCheckouts } from "./schema/repository_checkouts.js"
 import {
   orgMemberPreferences,
-  orgWorkspaceCutover,
   workspaceKnowledgeUnits,
   workspaceLinkedRepositories,
   workspaceSandboxInstances,
@@ -71,7 +70,6 @@ const schema = {
   workspaceLinkedRepositories,
   workspaceKnowledgeUnits,
   orgMemberPreferences,
-  orgWorkspaceCutover,
   workspaceWriteJobs,
   workspaceSandboxInstances,
 } as const

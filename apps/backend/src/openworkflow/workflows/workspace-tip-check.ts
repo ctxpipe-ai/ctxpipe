@@ -32,7 +32,6 @@ import {
   getGithubRepoWriteView,
   resolveWorkspaceRepositoryTip,
 } from "../../routes/webhooks/github/github-workspace-tip.js"
-import { enqueueWorkspaceCutover } from "../enqueue-workspace-cutover.js"
 import { enqueueWorkspaceHydrate } from "../enqueue-workspace-hydrate.js"
 import { enqueueWorkspaceIndex } from "../enqueue-workspace-index.js"
 import { enqueueWorkspaceWriteCommit } from "../enqueue-workspace-write-commit.js"
@@ -51,7 +50,6 @@ export const workspaceTipCheck = defineWorkflow(
     if (!org) throw new Error(`Organization not found: ${input.orgId}`)
     return withOrgIdContext({ id: org.id, slug: org.slug }, () =>
       withOrgDbContext(input.orgId, async () => {
-        void enqueueWorkspaceCutover(input.orgId, { error: () => undefined })
         const workspaces = await listOrgWorkspaces(input.orgId)
         const quietLog = { error: () => undefined }
         const writeStatusById = new Map<string, string>()

@@ -3,7 +3,6 @@ import { beforeEach, describe, expect, it, vi } from "vitest"
 const listOrgWorkspacesMock = vi.hoisted(() => vi.fn())
 const listMigrationExportShasMock = vi.hoisted(() => vi.fn())
 const listOrgLinkedRepositoriesMock = vi.hoisted(() => vi.fn())
-const enqueueWorkspaceCutoverMock = vi.hoisted(() => vi.fn())
 const enqueueWorkspaceHydrateMock = vi.hoisted(() => vi.fn())
 const enqueueWorkspaceIndexMock = vi.hoisted(() => vi.fn())
 
@@ -54,10 +53,6 @@ vi.mock("../../routes/webhooks/github/github-workspace-tip.js", () => ({
   resolveWorkspaceRepositoryTip: vi.fn(),
 }))
 
-vi.mock("../enqueue-workspace-cutover.js", () => ({
-  enqueueWorkspaceCutover: enqueueWorkspaceCutoverMock,
-}))
-
 vi.mock("../enqueue-workspace-hydrate.js", () => ({
   enqueueWorkspaceHydrate: enqueueWorkspaceHydrateMock,
 }))
@@ -95,7 +90,6 @@ describe("workspaceTipCheck workflow", () => {
     listOrgWorkspacesMock.mockResolvedValue([])
     listMigrationExportShasMock.mockResolvedValue(new Map())
     listOrgLinkedRepositoriesMock.mockResolvedValue([])
-    enqueueWorkspaceCutoverMock.mockResolvedValue(undefined)
   })
 
   it("completes sandbox GC without a Hono request", async () => {

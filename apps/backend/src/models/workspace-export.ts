@@ -5,8 +5,8 @@ import { claimEvidence } from "../db/schema/claim_evidence.js"
 import { claims } from "../db/schema/claims.js"
 import { objects } from "../db/schema/objects.js"
 import { repositories } from "../db/schema/repositories.js"
-import { orgWorkspaceCutover, workspaces } from "../db/schema/workspaces.js"
-import { firstWorkspaceIdForCutover } from "../domain/workspaces/migration-cutover.js"
+import { workspaces } from "../db/schema/workspaces.js"
+import { firstConnectorTarget } from "../domain/workspaces/migration-cutover.js"
 import type {
   ExportClaimRow,
   ExportObjectRow,
@@ -31,7 +31,6 @@ export async function loadMigrationExportSource(): Promise<{
     evidenceRows,
     repoRows,
     workspaceRows,
-    cutover,
   ] = await Promise.all([
     db
       .select({
@@ -73,11 +72,6 @@ export async function loadMigrationExportSource(): Promise<{
       })
       .from(workspaces)
       .where(eq(workspaces.orgId, orgId)),
-    db
-      .select({ firstWorkspaceId: orgWorkspaceCutover.firstWorkspaceId })
-      .from(orgWorkspaceCutover)
-      .where(eq(orgWorkspaceCutover.orgId, orgId))
-      .limit(1),
   ])
 
   const sourceByClaim = new Map<string, string>()
@@ -96,10 +90,7 @@ export async function loadMigrationExportSource(): Promise<{
     }
   }
 
-  const firstWorkspaceId = firstWorkspaceIdForCutover({
-    persistedFirstWorkspaceId: cutover[0]?.firstWorkspaceId ?? null,
-    currentWorkspaceIds: workspaceRows.map((row) => row.id),
-  })
+  const firstWorkspaceId = firstConnectorTarget(workspaceRows)?.id ?? null
 
   return {
     firstWorkspaceId,

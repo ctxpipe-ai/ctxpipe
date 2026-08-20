@@ -36,10 +36,6 @@ vi.mock("../../openworkflow/enqueue-workspace-hydrate.js", () => ({
   enqueueWorkspaceHydrate: vi.fn().mockResolvedValue(undefined),
 }))
 
-vi.mock("../../openworkflow/enqueue-workspace-cutover.js", () => ({
-  enqueueWorkspaceCutover: vi.fn().mockResolvedValue(undefined),
-}))
-
 vi.mock("../../openworkflow/enqueue-workspace-tip-check.js", () => ({
   enqueueWorkspaceTipCheck: vi.fn().mockResolvedValue(undefined),
 }))
@@ -65,7 +61,6 @@ vi.mock("../../models/workspaces.js", () => ({
   listMigrationExportShas: listMigrationExportShasMock,
   linkRepository: linkRepositoryMock,
   unlinkRepository: unlinkRepositoryMock,
-  getPersistedFirstWorkspaceId: vi.fn().mockResolvedValue(null),
 }))
 
 vi.mock("../../services/github/installation-write-client.js", () => ({
@@ -75,6 +70,7 @@ vi.mock("../../services/github/installation-write-client.js", () => ({
 
 import { WRITE_STATUS_REASONS } from "../../domain/workspaces/write-status.js"
 import { enqueueWorkspaceHydrate } from "../../openworkflow/enqueue-workspace-hydrate.js"
+import { enqueueWorkspaceTipCheck } from "../../openworkflow/enqueue-workspace-tip-check.js"
 import { enqueueWorkspaceWriteCommit } from "../../openworkflow/enqueue-workspace-write-commit.js"
 import { workspaceRoutes } from "./workspaces.js"
 
@@ -151,6 +147,10 @@ describe("workspaces API", () => {
     expect(body.items[0].slug).toBe("knowledge")
     expect(body.items[0].id).toBe("ws_abc")
     expect(body.items[0].migrationExportSha).toBe("exportsha")
+    expect(enqueueWorkspaceTipCheck).toHaveBeenCalledWith(
+      "org_mock",
+      expect.anything(),
+    )
   })
 
   it("creates a workspace from a git URL", async () => {

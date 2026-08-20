@@ -150,14 +150,6 @@ export const orgMemberPreferences = pgTable(
   (t) => [primaryKey({ columns: [t.userId, t.orgId] })],
 )
 
-export const orgWorkspaceCutover = pgTable("org_workspace_cutover", {
-  orgId: text("org_id").primaryKey(),
-  firstWorkspaceId: text("first_workspace_id").notNull(),
-  createdAt: timestamp("created_at", { withTimezone: true, mode: "date" })
-    .notNull()
-    .defaultNow(),
-})
-
 /** Job id → commit SHA so a crash after push is idempotent on the remote. */
 export const workspaceWriteJobs = pgTable(
   "workspace_write_jobs",

@@ -3,15 +3,11 @@ import {
   assignImportedRepository,
   classifyUnkeyedKnowledgeCollision,
   firstConnectorTarget,
-  firstWorkspaceIdForCutover,
   mergeImportedClaims,
   nextImportedKnowledgePath,
   parseUnkeyedCollisionReply,
-  planVersionStartCutover,
   shouldExportClaim,
   unkeyedCollisionExcerpt,
-  workspacesNeedingMigrationExport,
-  workspacesToCreateForConnectorTargets,
 } from "./migration-cutover.js"
 
 describe("firstConnectorTarget", () => {
@@ -93,110 +89,6 @@ describe("shouldExportClaim", () => {
         toWorkspaceId: "ws_a",
       }),
     ).toBe(true)
-  })
-})
-
-describe("workspacesToCreateForConnectorTargets", () => {
-  it("creates one Workspace per unseen connector-target URL", () => {
-    expect(
-      workspacesToCreateForConnectorTargets({
-        repositories: [
-          { gitUrl: "https://github.com/acme/docs.git" },
-          { gitUrl: "https://github.com/acme/app" },
-          { gitUrl: "https://github.com/acme/docs" },
-        ],
-        existingWorkspaceUrls: ["https://github.com/acme/docs"],
-        normalizeUrl: (url) => url.replace(/\.git$/i, ""),
-      }),
-    ).toEqual(["https://github.com/acme/app"])
-  })
-})
-
-describe("planVersionStartCutover", () => {
-  const normalizeUrl = (url: string) => url.replace(/\.git$/i, "")
-
-  it("creates missing connector-target Workspaces and persists first before export", () => {
-    expect(
-      planVersionStartCutover({
-        connectorTargets: [
-          { gitUrl: "https://github.com/acme/docs.git" },
-          { gitUrl: "https://github.com/acme/app" },
-        ],
-        existingWorkspaceUrls: [],
-        persistedFirstWorkspaceId: null,
-        normalizeUrl,
-      }),
-    ).toEqual({
-      urlsToCreate: [
-        "https://github.com/acme/docs",
-        "https://github.com/acme/app",
-      ],
-      persistFirst: true,
-      enqueueExports: true,
-    })
-  })
-
-  it("does not recompute first when it is already persisted", () => {
-    expect(
-      planVersionStartCutover({
-        connectorTargets: [{ gitUrl: "https://github.com/acme/new" }],
-        existingWorkspaceUrls: ["https://github.com/acme/docs"],
-        persistedFirstWorkspaceId: "ws_first",
-        normalizeUrl,
-      }),
-    ).toEqual({
-      urlsToCreate: ["https://github.com/acme/new"],
-      persistFirst: false,
-      enqueueExports: true,
-    })
-  })
-
-  it("enqueues nothing when the org has no connector target", () => {
-    expect(
-      planVersionStartCutover({
-        connectorTargets: [],
-        existingWorkspaceUrls: [],
-        persistedFirstWorkspaceId: null,
-        normalizeUrl,
-      }),
-    ).toEqual({
-      urlsToCreate: [],
-      persistFirst: false,
-      enqueueExports: false,
-    })
-  })
-})
-
-describe("firstWorkspaceIdForCutover", () => {
-  it("keeps the persisted first Workspace even when a newer row sorts first", () => {
-    expect(
-      firstWorkspaceIdForCutover({
-        persistedFirstWorkspaceId: "ws_first",
-        currentWorkspaceIds: ["ws_newer", "ws_first"],
-        computedFirstWorkspaceId: "ws_newer",
-      }),
-    ).toBe("ws_first")
-  })
-
-  it("does not recompute when no first Workspace is persisted", () => {
-    expect(
-      firstWorkspaceIdForCutover({
-        persistedFirstWorkspaceId: null,
-        currentWorkspaceIds: ["ws_newer"],
-        computedFirstWorkspaceId: "ws_newer",
-      }),
-    ).toBeNull()
-  })
-})
-
-describe("workspacesNeedingMigrationExport", () => {
-  it("skips Workspaces whose export commit is already recorded", () => {
-    expect(
-      workspacesNeedingMigrationExport({
-        workspaces: [{ id: "ws_done" }, { id: "ws_pending" }],
-        completedExportWorkspaceIds: ["ws_done"],
-      }),
-    ).toEqual(["ws_pending"])
   })
 })
 

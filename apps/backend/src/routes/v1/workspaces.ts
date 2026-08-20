@@ -33,7 +33,6 @@ import {
   createWorkspace,
   deleteWorkspace,
   getMigrationExportSha,
-  getPersistedFirstWorkspaceId,
   getWorkspaceBySlug,
   listLinkedRepositories,
   listMigrationExportShas,
@@ -45,7 +44,6 @@ import {
   updateWorkspace,
 } from "../../models/workspaces.js"
 import { getLogger } from "../../observability/logger.js"
-import { enqueueWorkspaceCutover } from "../../openworkflow/enqueue-workspace-cutover.js"
 import { enqueueWorkspaceHydrate } from "../../openworkflow/enqueue-workspace-hydrate.js"
 import { enqueueWorkspaceTipCheck } from "../../openworkflow/enqueue-workspace-tip-check.js"
 import { enqueueWorkspaceWriteCommit } from "../../openworkflow/enqueue-workspace-write-commit.js"
@@ -853,9 +851,6 @@ export const workspaceRoutes = new OpenAPIHono<AppEnv>()
     }
     const { items, lastUsedWorkspaceId } = await listWorkspaces()
     const orgId = c.get("orgId")
-    if (orgId && !(await getPersistedFirstWorkspaceId(orgId))) {
-      void enqueueWorkspaceCutover(orgId, c.get("log"))
-    }
     if (orgId) void enqueueWorkspaceTipCheck(orgId, c.get("log"))
     const exportShas = await listMigrationExportShas()
     return c.json(

@@ -653,7 +653,7 @@ Highest-priority confirmed rules for agents. Migrated from former `patterns.md` 
 - **Source:** slack-connector PR-267 live diagnosis (499 webhook retries and three replacing worker deploys)
 
 ### Workspace add is + from GitHub, uniqueness only
-- **Rule:** Creating a Workspace is click **+** → pick a GitHub repo → go. The only extra check is whether a Workspace already uses that repo as its workspace repository (return the existing row). Do **not** auto-create Workspaces from Linear/Notion/Confluence dests (`workspace-cutover`). Do not add sourcing-repo, unbind-first, or identity-FK special cases to that flow. `workspace-cutover` is leftover one-time tenant migration, not part of add.
+- **Rule:** Creating a Workspace is click **+** → pick a GitHub repo → go. The only extra check is whether a Workspace already uses that repo as its workspace repository (return the existing row). Do **not** auto-create Workspaces from Linear/Notion/Confluence/Slack dests at runtime. Existing dest Workspaces are a one-shot SQL migrate. Do not add sourcing-repo, unbind-first, or identity-FK special cases to that flow.
 - **Category:** product
 - **Date:** 2026-08-20
 - **Source:** user correction (git-backed workspaces add flow)
