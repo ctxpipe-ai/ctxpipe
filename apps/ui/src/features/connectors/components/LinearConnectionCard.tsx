@@ -13,6 +13,7 @@ import {
 import {
   getLinearCardPrimaryCta,
   getLinearSetupCurrentIndex,
+  getLinearStatusRefetchInterval,
   LINEAR_SETUP_STEPS,
 } from "../linear-setup-model"
 import {
@@ -46,6 +47,10 @@ export function LinearConnectionCard({
   const statusQuery = useQuery({
     queryKey: linearConnectorKeys.status(orgSlug, connectionId),
     queryFn: () => fetchLinearConnectorStatus(orgSlug, connectionId),
+    refetchInterval: (query) =>
+      query.state.status === "error"
+        ? false
+        : getLinearStatusRefetchInterval(query.state.data),
   })
   const removeMutation = useMutation({
     mutationFn: () => deleteLinearConnector(orgSlug, connectionId),

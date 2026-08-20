@@ -15,6 +15,21 @@ function stepIndex(id: LinearSetupStepId): number {
   return LINEAR_SETUP_STEPS.findIndex((step) => step.id === id)
 }
 
+export function getLinearStatusRefetchInterval(
+  status:
+    | Pick<LinearConnectorStatus, "pendingConfigPrCreating" | "setupPhase">
+    | undefined,
+): number | false {
+  if (
+    status?.pendingConfigPrCreating ||
+    status?.setupPhase === "awaiting_merge" ||
+    status?.setupPhase === "initial_sync"
+  ) {
+    return 2000
+  }
+  return false
+}
+
 export function getLinearSetupCurrentIndex(
   status: LinearConnectorStatus,
 ): number {
