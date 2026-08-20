@@ -104,6 +104,8 @@ function WorkspacePrepareFailedLayout(props: {
           headerExtra={
             paneOpen ? null : (
               <WorkspacePaneTriggers
+                orgSlug={orgSlug}
+                workspace={workspace}
                 onOpen={(next) => {
                   setPane(next)
                   setPaneCollapsed(false)
@@ -432,6 +434,8 @@ function WorkspaceSurfaceColumns(props: {
           headerExtra={
             paneOpen ? null : (
               <WorkspacePaneTriggers
+                orgSlug={orgSlug}
+                workspace={workspace}
                 onOpen={(next) => setPane(next)}
                 onExpand={
                   fileTabs.length > 0

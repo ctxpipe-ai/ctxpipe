@@ -8,7 +8,7 @@ import {
   workspaceGraphOptions,
 } from "./queries"
 
-/** Prefetch workspace detail (+ conversation / pane) for SSR and navigations. */
+/** Prefetch workspace detail (+ conversation / landing pane) for SSR and workspace entry. */
 export async function ensureWorkspaceRouteData(input: {
   queryClient: QueryClient
   orgSlug: string
@@ -34,7 +34,9 @@ export async function ensureWorkspaceRouteData(input: {
 
   if (pane.kind === "files" || pane.kind === "file") {
     const sha =
-      workspace.activeProjectionSha?.trim() || workspace.desiredSha?.trim() || ""
+      workspace.activeProjectionSha?.trim() ||
+      workspace.desiredSha?.trim() ||
+      ""
     await queryClient.ensureQueryData(
       workspaceGitTreeOptions(orgSlug, workspaceSlug, sha),
     )

@@ -13,6 +13,7 @@ import {
   IconX,
 } from "@tabler/icons-react"
 import {
+  type QueryClient,
   useMutation,
   useQuery,
   useQueryClient,
@@ -100,15 +101,22 @@ export function WorkspacePane(props: {
   onToggleTree: () => void
   conversationTitle: string
 }) {
+  const queryClient = useQueryClient()
   const activeFile = props.pane.kind === "file" ? props.pane.path : null
   const filesTabActive = props.pane.kind === "files"
   const selectedKey = serializePane(props.pane)
   const paneWidthLocked = props.width != null
 
+  const prefetchPane = (next: ParsedPane) => {
+    prefetchWorkspacePane(queryClient, props.orgSlug, props.workspace, next)
+  }
+
   const onSelectTab = (key: Key | null) => {
     if (key == null) return
     const next = parsePane(String(key))
-    if (next) props.onPane(next)
+    if (!next) return
+    prefetchPane(next)
+    props.onPane(next)
   }
   const fileTabListRef = useRef<HTMLDivElement>(null)
 
@@ -221,11 +229,13 @@ export function WorkspacePane(props: {
                 id="files"
                 label="Files"
                 icon={<IconFolder stroke={1.6} aria-hidden />}
+                onIntent={() => prefetchPane({ kind: "files" })}
               />
               <PaneIconTab
                 id="graph"
                 label="Graph"
                 icon={<IconAffiliate stroke={1.6} aria-hidden />}
+                onIntent={() => prefetchPane({ kind: "graph" })}
               />
               <PaneIconTab
                 id="settings"
@@ -1057,11 +1067,41 @@ function WorkspaceGraphPaneBody(props: {
   )
 }
 
-function PaneIconTab(props: { id: string; label: string; icon: ReactNode }) {
+function prefetchWorkspacePane(
+  queryClient: QueryClient,
+  orgSlug: string,
+  workspace: WorkspaceDetail,
+  pane: ParsedPane,
+) {
+  const sha =
+    workspace.activeProjectionSha?.trim() || workspace.desiredSha?.trim() || ""
+  if (pane.kind === "files" || pane.kind === "file") {
+    void queryClient.prefetchQuery(
+      workspaceGitTreeOptions(orgSlug, workspace.slug, sha),
+    )
+    if (pane.kind === "file") {
+      void queryClient.prefetchQuery(
+        workspaceGitBlobOptions(orgSlug, workspace.slug, sha, pane.path),
+      )
+    }
+  } else if (pane.kind === "graph") {
+    void queryClient.prefetchQuery(
+      workspaceGraphOptions(orgSlug, workspace.slug),
+    )
+  }
+}
+
+function PaneIconTab(props: {
+  id: string
+  label: string
+  icon: ReactNode
+  onIntent?: () => void
+}) {
   return (
     <Tab
       id={props.id}
       aria-label={props.label}
+      onHoverStart={props.onIntent}
       className={({ isSelected }) =>
         cn(workspaceChromeIconTabClassName(isSelected), focusVisibleClassName)
       }
@@ -1077,21 +1117,35 @@ function PaneIconTab(props: { id: string; label: string; icon: ReactNode }) {
 }
 
 export function WorkspacePaneTriggers(props: {
+  orgSlug: string
+  workspace: WorkspaceDetail
   onOpen: (pane: ParsedPane) => void
   onExpand?: () => void
 }) {
+  const queryClient = useQueryClient()
+  const prefetch = (pane: ParsedPane) => {
+    prefetchWorkspacePane(queryClient, props.orgSlug, props.workspace, pane)
+  }
   return (
     <TooltipProvider delay={200}>
       <div className={workspaceChromeTabStripClassName}>
         <HeaderIcon
           label="Files"
           icon={<IconFolder stroke={1.6} aria-hidden />}
-          onClick={() => props.onOpen({ kind: "files" })}
+          onIntent={() => prefetch({ kind: "files" })}
+          onClick={() => {
+            prefetch({ kind: "files" })
+            props.onOpen({ kind: "files" })
+          }}
         />
         <HeaderIcon
           label="Graph"
           icon={<IconAffiliate stroke={1.6} aria-hidden />}
-          onClick={() => props.onOpen({ kind: "graph" })}
+          onIntent={() => prefetch({ kind: "graph" })}
+          onClick={() => {
+            prefetch({ kind: "graph" })
+            props.onOpen({ kind: "graph" })
+          }}
         />
         <HeaderIcon
           label="Settings"
@@ -1115,6 +1169,7 @@ function HeaderIcon(props: {
   label: string
   icon: ReactNode
   onClick: () => void
+  onIntent?: () => void
   className?: string
 }) {
   return (
@@ -1122,6 +1177,7 @@ function HeaderIcon(props: {
       <TooltipTrigger
         aria-label={props.label}
         onClick={props.onClick}
+        onPointerEnter={props.onIntent}
         className={cn(
           workspaceChromeTabIdleClassName,
           focusVisibleClassName,

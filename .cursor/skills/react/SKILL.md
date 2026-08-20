@@ -1,8 +1,8 @@
 ---
 name: react
 description: React UI patterns for apps/ui—Effects vs rendering, TanStack Query for all server data, useMemo, keys, event handlers. Start here when creating or editing React components.
-skill_version: 1.0.1
-updated_at: 2026-04-25T12:00:00Z
+skill_version: 1.0.2
+updated_at: 2026-08-20T12:00:00Z
 tags: [react, hooks, useeffect, usememo, performance, components]
 progressive_disclosure:
   entry_point:
@@ -34,7 +34,7 @@ If there is **no external system**—for example, you only need to update local 
 
 **Data fetching in this repo:** use **TanStack Query** (`useQuery`, `useMutation`, `useInfiniteQuery`, etc.) for all server/API data. **Do not** use `useEffect` to load, refetch, or keep server data in sync—Query handles caching, loading and error state, and invalidation.
 
-**SSR product screens (e.g. Workspace):** warm the cache in route loaders with `queryClient.ensureQueryData(…queryOptions)` and read with **`useSuspenseQuery`** (same `queryOptions` factories). Create the **`QueryClient` per request** in `getRouter()` — never a module-level singleton. Keep streaming, polling, infinite “load more”, and mutations client-only.
+**SSR product screens (e.g. Workspace):** warm the cache in route loaders with `queryClient.ensureQueryData(…queryOptions)` and read with **`useSuspenseQuery`** (same `queryOptions` factories). Create the **`QueryClient` per request** in `getRouter()` — never a module-level singleton. Keep streaming, polling, infinite “load more”, and mutations client-only. Loaders warm **entry** (first SSR / workspace change). They must not gate **in-page chrome** — see **Feel fast**.
 
 **Responsive layout:** CSS-first (Tailwind breakpoint classes). Do not use `useEffect` + `matchMedia` / `useMediaQuery` to toggle layout chrome when responsive classes can do it. JS only when CSS cannot express the behaviour — see [apps/ui/AGENTS.md](../../../apps/ui/AGENTS.md) and [product-ui](../product-ui/SKILL.md) Build.
 
@@ -43,7 +43,8 @@ If there is **no external system**—for example, you only need to update local 
 | Situation | Prefer |
 |-----------|--------|
 | Server / API data (read, mutations, refetch) | **TanStack Query** only—never `useEffect` + manual fetch for data loading |
-| First paint must include product data (SSR) | Route `ensureQueryData` + `useSuspenseQuery`; no module-level `QueryClient` |
+| First paint must include product data (SSR) | Route `ensureQueryData` + `useSuspenseQuery`; no module-level `QueryClient`. Do **not** put tab/pane search in `loaderDeps` |
+| In-page tab / pane / region switch | Commit the URL or selected chrome immediately; load that region with local `Suspense`. Prefetch on hover/select; do not `await` it before navigate |
 | Value derivable from props/state | Compute during render; avoid redundant state ([Thinking in React](https://react.dev/learn/thinking-in-react)) |
 | Expensive pure calculation | `useMemo` with correct deps; measure before optimizing. **React Compiler** may reduce the need for manual `useMemo` ([docs](https://react.dev/learn/react-compiler)) |
 | Reset *all* inner state when a prop changes (e.g. `userId`) | `key={userId}` on a child so React remounts a fresh subtree |
@@ -57,6 +58,18 @@ If there is **no external system**—for example, you only need to update local 
 | Data needed by both parent and child | **Data flows down**—parent fetches/owns, passes props down |
 
 **Rule of thumb:** If code runs *because the user did something specific*, it probably belongs in an **event handler**. If it runs *because the user saw the component on screen*, it might belong in an **Effect** (if it’s about an external system or real synchronization).
+
+## Feel fast
+
+Speed of the Operate UI is part of the product. **Chrome must move on the click.**
+
+Route `loader` + `ensureQueryData` is for **entry**: SSR and navigations that change org / workspace / conversation identity. Putting in-page search (`?pane=`, tabs, other chrome that only swaps a region) in `loaderDeps` blocks the URL until that fetch finishes — the selected tab cannot update, and the region’s own `Suspense` never gets to show.
+
+- **Loader:** identity queries only. It may still *read* landing search (e.g. `search.pane`) on first load to warm that pane. Do not list that search key in `loaderDeps`.
+- **Region:** `useSuspenseQuery` + **local** `Suspense` (skeleton for that pane, not a full-page “Loading Workspace…”).
+- **Intent:** `prefetchQuery` on hover/select; do not `await` it before `navigate`.
+
+A blocked tab click is a bug, even if the data eventually arrives.
 
 ## Checklist before adding `useEffect`
 

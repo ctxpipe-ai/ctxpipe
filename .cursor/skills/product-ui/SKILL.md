@@ -61,11 +61,11 @@ For this feature only: empty, loading, error, and dense data.
 
 Empty: short title + one sentence + **one primary** control. Hide tabs, filters, and search until there is content. Center only if copy is ≤2 lines; otherwise left-align.
 
-Loading: a skeleton that mirrors the final pattern (not “Loading…”).
+Loading: a skeleton that mirrors the final pattern (not “Loading…”). Selected chrome (tabs, pane switchers) updates **on the click**; the skeleton stays inside the region that needs data. A click that waits for a route loader before the tab moves is not done.
 
 Error: [`InlineAlert`](../../../apps/ui/src/components/ui/InlineAlert.tsx) + a next step. Dark slab, same-hue muted secondary, no `text-white/50`.
 
-**Done when:** each state has a pattern; empty chrome is hidden; the empty CTA is `variant="primary"`.
+**Done when:** each state has a pattern; empty chrome is hidden; the empty CTA is `variant="primary"`; selected chrome does not wait on a loader.
 
 ## 7. Build
 
@@ -75,11 +75,12 @@ Error: [`InlineAlert`](../../../apps/ui/src/components/ui/InlineAlert.tsx) + a n
 - Icons: `@tabler/icons-react` at ~16–20px, `text-muted-foreground`, `aria-hidden`. Lucide only if Tabler has no equivalent. Enclose in `.ctx-node` if the hit area must be large.
 - Destructive on the page: `outline` or `quiet`. Filled red only on [`AlertDialog`](../../../apps/ui/src/components/ui/AlertDialog.tsx).
 - Copy: UK English, plain, specific. Semantic `h1` at `text-lg` / `text-xl` on product screens.
+- **Feel fast:** chrome must move on the click. Do not put in-page tab/pane search in route `loaderDeps`. Load the region with local `Suspense`. See [react](../react/SKILL.md) **Feel fast**.
 - **Responsive — CSS-first:** Express breakpoints with Tailwind (`sm:`, `md:`, `lg:`, `max-md:`, …) — visibility, padding, borders, column layout, overlay vs rail. Reach for JS (`matchMedia`, `useMediaQuery`, resize Effects) **only when CSS cannot do the job** (interactive state like an open drawer; a one-shot `matchMedia` inside a click handler is fine). Do not drive layout chrome from reactive media-query state when a responsive class would suffice.
 
 Then follow the [react](../react/SKILL.md) skill for data flow.
 
-**Done when:** the markup matches the named pattern, uses existing primitives, the title/radius/icon rules above hold, and responsive behaviour is CSS-first.
+**Done when:** the markup matches the named pattern, uses existing primitives, the title/radius/icon rules above hold, responsive behaviour is CSS-first, and chrome moves on the click.
 
 ## 8. Scan
 
