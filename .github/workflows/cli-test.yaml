@@ -10,8 +10,12 @@ on:
       - synchronize
       - ready_for_review
   push:
-    branches:
-      - main
+    tags-ignore:
+      - "**"
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.head_ref || github.ref_name }}
+  cancel-in-progress: true
 
 permissions:
   contents: read

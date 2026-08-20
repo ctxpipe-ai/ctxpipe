@@ -9,9 +9,15 @@ on:
       - reopened
       - synchronize
       - ready_for_review
+  # Cursor Cloud Agent pushes often skip pull_request synchronize. Push still
+  # runs CI on the branch; concurrency cancels the duplicate when both fire.
   push:
-    branches:
-      - main
+    tags-ignore:
+      - "**"
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.head_ref || github.ref_name }}
+  cancel-in-progress: true
 
 permissions:
   contents: read
