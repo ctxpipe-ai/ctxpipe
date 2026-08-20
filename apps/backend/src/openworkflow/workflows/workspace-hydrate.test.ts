@@ -209,31 +209,43 @@ describe("workspaceHydrate workflow", () => {
     })
   })
 
-  it("does not activate a projection before the migration-export SHA exists", async () => {
+  it("hydrates from git when the first export has not started", async () => {
     getMigrationExportShaMock.mockResolvedValue(null)
-    const wf = workspaceHydrate as unknown as {
-      fn: (args: {
-        input: { orgId: string; workspaceId: string }
-      }) => Promise<{ reason?: string; hydrated?: boolean }>
-    }
+    getWorkspaceByIdMock.mockResolvedValue({
+      ...hydrateWorkspaceRow,
+      writeStatus: "read_only",
+    })
 
-    const result = await wf.fn({
+    const result = await hydrateFn.fn({
       input: { orgId: "org_1", workspaceId: "ws_1" },
     })
 
-    expect(result).toEqual({
-      hydrated: false,
-      reason: "migration_export_missing",
-    })
-    expect(persistHydrateFailureMock).toHaveBeenCalledWith({
-      workspaceId: "ws_1",
-      message: "The first knowledge export has not landed in git yet.",
-    })
+    expect(result.reason).not.toBe("migration_export_missing")
+    expect(persistHydrateFailureMock).not.toHaveBeenCalled()
   })
 
-  it("keeps pending while a migration export is still queued", async () => {
+  it("hydrates from git when write status is still unknown", async () => {
+    getMigrationExportShaMock.mockResolvedValue(null)
+    getWorkspaceByIdMock.mockResolvedValue({
+      ...hydrateWorkspaceRow,
+      writeStatus: "unknown",
+    })
+
+    const result = await hydrateFn.fn({
+      input: { orgId: "org_1", workspaceId: "ws_1" },
+    })
+
+    expect(result.reason).not.toBe("migration_export_missing")
+    expect(persistHydrateFailureMock).not.toHaveBeenCalled()
+  })
+
+  it("keeps pending while a writable migration export is still queued", async () => {
     getMigrationExportShaMock.mockResolvedValue(null)
     getLatestMigrationExportJobStatusMock.mockResolvedValue("queued")
+    getWorkspaceByIdMock.mockResolvedValue({
+      ...hydrateWorkspaceRow,
+      writeStatus: "writable",
+    })
 
     const result = await hydrateFn.fn({
       input: { orgId: "org_1", workspaceId: "ws_1" },
@@ -241,7 +253,7 @@ describe("workspaceHydrate workflow", () => {
 
     expect(result).toEqual({
       hydrated: false,
-      reason: "migration_export_missing",
+      reason: "migration_export_waiting",
     })
     expect(persistHydrateFailureMock).not.toHaveBeenCalled()
     expect(persistHydrateMessageMock).toHaveBeenCalledWith({

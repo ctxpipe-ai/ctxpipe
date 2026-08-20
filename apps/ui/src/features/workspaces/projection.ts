@@ -8,10 +8,17 @@ export function workspaceProjectionReady(input: {
   hydrateStatus: string
   activeProjectionSha: string | null
   migrationExportSha?: string | null
+  writeStatus?: string | null
 }): boolean {
   void input.hydrateStatus
-  if (!input.migrationExportSha) return false
-  return Boolean(input.activeProjectionSha)
+  if (!input.activeProjectionSha) return false
+  if (input.writeStatus === "writable") {
+    return Boolean(input.migrationExportSha)
+  }
+  if (input.writeStatus === "read_only" || input.writeStatus === "unknown") {
+    return true
+  }
+  return Boolean(input.migrationExportSha)
 }
 
 export function workspaceHydrateView(input: {
@@ -52,12 +59,14 @@ export function workspacePrepareNeedsPoll(input: {
   hydrateError?: string | null
   activeProjectionSha?: string | null
   migrationExportSha?: string | null
+  writeStatus?: string | null
 }): boolean {
   if (
     workspaceProjectionReady({
       hydrateStatus: input.hydrateStatus,
       activeProjectionSha: input.activeProjectionSha ?? null,
       migrationExportSha: input.migrationExportSha,
+      writeStatus: input.writeStatus,
     })
   ) {
     return workspaceHydrateInFlight(input)

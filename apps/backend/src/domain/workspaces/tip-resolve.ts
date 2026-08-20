@@ -35,8 +35,12 @@ export function shouldEnqueueCronHydrate(input: {
   migrationExportSha: string | null | undefined
   desiredSha?: string | null
   activeProjectionSha?: string | null
+  writeStatus?: string | null
 }): boolean {
-  if (!input.migrationExportSha || !input.desiredSha) return false
+  if (!input.desiredSha) return false
+  const skipExportWait =
+    input.writeStatus === "read_only" || input.writeStatus === "unknown"
+  if (!skipExportWait && !input.migrationExportSha) return false
   return input.desiredSha !== input.activeProjectionSha
 }
 

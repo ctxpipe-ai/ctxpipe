@@ -163,7 +163,7 @@ describe("enqueueWorkspaceWriteCommit", () => {
     expect(runWorkflowWithWorkerWakeMock).not.toHaveBeenCalled()
   })
 
-  it("marks prepare failed when a migration export is parked unwritable", async () => {
+  it("parks an unwritable migration export without failing hydrate", async () => {
     getWorkspaceByIdMock.mockResolvedValue({
       id: "ws_1",
       desiredGeneration: 1,
@@ -172,7 +172,7 @@ describe("enqueueWorkspaceWriteCommit", () => {
       writeStatus: "read_only",
     })
     const log = { error: vi.fn() }
-    await enqueueWorkspaceWriteCommit(
+    const result = await enqueueWorkspaceWriteCommit(
       {
         orgId: "org_1",
         workspaceId: "ws_1",
@@ -180,12 +180,15 @@ describe("enqueueWorkspaceWriteCommit", () => {
       },
       log,
     )
+    expect(result).toEqual({ started: false })
     expect(runWorkflowWithWorkerWakeMock).not.toHaveBeenCalled()
-    expect(persistHydrateFailureMock).toHaveBeenCalledWith({
-      workspaceId: "ws_1",
-      message:
-        "The workspace repository is not writable, so the first knowledge export cannot start.",
-    })
+    expect(persistWriteJobIntentMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        kind: "migration_export",
+        status: "paused",
+      }),
+    )
+    expect(persistHydrateFailureMock).not.toHaveBeenCalled()
   })
 
   it("starts the workflow when the workspace snapshot cannot be loaded", async () => {

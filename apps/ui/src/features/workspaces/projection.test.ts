@@ -27,6 +27,20 @@ describe("workspaceProjectionReady", () => {
         migrationExportSha: "export",
       }),
     ).toBe(true)
+    expect(
+      workspaceProjectionReady({
+        hydrateStatus: "ready",
+        activeProjectionSha: "aaa",
+        writeStatus: "writable",
+      }),
+    ).toBe(false)
+    expect(
+      workspaceProjectionReady({
+        hydrateStatus: "ready",
+        activeProjectionSha: "aaa",
+        writeStatus: "read_only",
+      }),
+    ).toBe(true)
   })
 })
 
@@ -145,6 +159,14 @@ describe("workspacePrepareNeedsPoll", () => {
         desiredSha: "aaa",
         activeProjectionSha: null,
         migrationExportSha: null,
+      }),
+    ).toBe(false)
+    expect(
+      workspacePrepareNeedsPoll({
+        hydrateStatus: "ready",
+        desiredSha: "aaa",
+        activeProjectionSha: "aaa",
+        writeStatus: "read_only",
       }),
     ).toBe(false)
     expect(

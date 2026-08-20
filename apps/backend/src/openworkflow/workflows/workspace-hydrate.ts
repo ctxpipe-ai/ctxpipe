@@ -10,13 +10,12 @@ import {
 import {
   applyEffectiveValidFromToUnits,
   displayNameFromAgentsMarkdown,
+  HYDRATE_EXPORT_WAITING_MESSAGE,
   hydrateKnowledgeTree,
   hydrateReadPlan,
   hydrateReadsStoredDesiredSha,
   hydrateUnitsToProjectionClaims,
-  HYDRATE_EXPORT_MISSING_MESSAGE,
-  HYDRATE_EXPORT_WAITING_MESSAGE,
-  shouldHydrateBeforeMigrationExport,
+  shouldWaitForMigrationExport,
 } from "../../domain/workspaces/hydrate.js"
 import {
   type HydratePhaseRecord,
@@ -124,29 +123,21 @@ export const workspaceHydrate = defineWorkflow(
               if (!workspace) throw new Error("Workspace not found")
               void input.defaultBranch
               if (
-                shouldHydrateBeforeMigrationExport(
-                  await getMigrationExportSha(workspace.id),
-                )
+                shouldWaitForMigrationExport({
+                  migrationExportSha: await getMigrationExportSha(workspace.id),
+                  exportJobStatus: await getLatestMigrationExportJobStatus(
+                    workspace.id,
+                  ),
+                  writeStatus: workspace.writeStatus,
+                })
               ) {
-                const exportJobStatus =
-                  await getLatestMigrationExportJobStatus(workspace.id)
-                if (
-                  exportJobStatus === "queued" ||
-                  exportJobStatus === "running"
-                ) {
-                  await persistHydrateMessage({
-                    workspaceId: workspace.id,
-                    message: HYDRATE_EXPORT_WAITING_MESSAGE,
-                  })
-                } else {
-                  await persistHydrateFailure({
-                    workspaceId: workspace.id,
-                    message: HYDRATE_EXPORT_MISSING_MESSAGE,
-                  })
-                }
+                await persistHydrateMessage({
+                  workspaceId: workspace.id,
+                  message: HYDRATE_EXPORT_WAITING_MESSAGE,
+                })
                 return {
                   hydrated: false,
-                  reason: "migration_export_missing" as const,
+                  reason: "migration_export_waiting" as const,
                 }
               }
               if (!workspace.desiredSha) {

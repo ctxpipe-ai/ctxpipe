@@ -10,6 +10,7 @@ import {
   servingIdForKnowledgePath,
   shouldHydrateBeforeMigrationExport,
   shouldReplaceKnowledgeProjection,
+  shouldWaitForMigrationExport,
   workspaceHydrateInFlight,
   workspaceHydrateView,
   workspaceProjectionReady,
@@ -160,11 +161,81 @@ describe("workspaceProjectionReady", () => {
         migrationExportSha: "export",
       }),
     ).toBe(true)
+    expect(
+      workspaceProjectionReady({
+        hydrateStatus: "ready",
+        activeProjectionSha: "aaa",
+        writeStatus: "writable",
+      }),
+    ).toBe(false)
+    expect(
+      workspaceProjectionReady({
+        hydrateStatus: "ready",
+        activeProjectionSha: "aaa",
+        writeStatus: "read_only",
+      }),
+    ).toBe(true)
+    expect(
+      workspaceProjectionReady({
+        hydrateStatus: "pending",
+        activeProjectionSha: "aaa",
+        writeStatus: "unknown",
+      }),
+    ).toBe(true)
   })
 
-  it("does not hydrate a random tip before the migration-export SHA exists", () => {
+  it("waits for an in-flight export only on a writable workspace", () => {
     expect(shouldHydrateBeforeMigrationExport(null)).toBe(true)
     expect(shouldHydrateBeforeMigrationExport("export")).toBe(false)
+    expect(
+      shouldWaitForMigrationExport({
+        migrationExportSha: null,
+        exportJobStatus: "queued",
+        writeStatus: "writable",
+      }),
+    ).toBe(true)
+    expect(
+      shouldWaitForMigrationExport({
+        migrationExportSha: null,
+        exportJobStatus: "running",
+        writeStatus: "writable",
+      }),
+    ).toBe(true)
+    expect(
+      shouldWaitForMigrationExport({
+        migrationExportSha: null,
+        exportJobStatus: null,
+        writeStatus: "writable",
+      }),
+    ).toBe(false)
+    expect(
+      shouldWaitForMigrationExport({
+        migrationExportSha: null,
+        exportJobStatus: "paused",
+        writeStatus: "writable",
+      }),
+    ).toBe(false)
+    expect(
+      shouldWaitForMigrationExport({
+        migrationExportSha: null,
+        exportJobStatus: "queued",
+        writeStatus: "read_only",
+      }),
+    ).toBe(false)
+    expect(
+      shouldWaitForMigrationExport({
+        migrationExportSha: null,
+        exportJobStatus: null,
+        writeStatus: "unknown",
+      }),
+    ).toBe(false)
+    expect(
+      shouldWaitForMigrationExport({
+        migrationExportSha: "export",
+        exportJobStatus: "queued",
+        writeStatus: "writable",
+      }),
+    ).toBe(false)
   })
 })
 

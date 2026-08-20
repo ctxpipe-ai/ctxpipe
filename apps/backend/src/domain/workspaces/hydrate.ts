@@ -139,10 +139,17 @@ export function workspaceProjectionReady(input: {
   hydrateStatus: string
   activeProjectionSha: string | null
   migrationExportSha?: string | null
+  writeStatus?: string | null
 }): boolean {
   void input.hydrateStatus
-  if (!input.migrationExportSha) return false
-  return Boolean(input.activeProjectionSha)
+  if (!input.activeProjectionSha) return false
+  if (input.writeStatus === "writable") {
+    return Boolean(input.migrationExportSha)
+  }
+  if (input.writeStatus === "read_only" || input.writeStatus === "unknown") {
+    return true
+  }
+  return Boolean(input.migrationExportSha)
 }
 
 export function shouldHydrateBeforeMigrationExport(
@@ -151,8 +158,18 @@ export function shouldHydrateBeforeMigrationExport(
   return !migrationExportSha
 }
 
-export const HYDRATE_EXPORT_MISSING_MESSAGE =
-  "The first knowledge export has not landed in git yet."
+/** Wait only while a writable workspace has a queued/running first export. */
+export function shouldWaitForMigrationExport(input: {
+  migrationExportSha: string | null | undefined
+  exportJobStatus?: string | null
+  writeStatus?: string | null
+}): boolean {
+  if (input.migrationExportSha) return false
+  if (input.writeStatus !== "writable") return false
+  return (
+    input.exportJobStatus === "queued" || input.exportJobStatus === "running"
+  )
+}
 
 export const HYDRATE_EXPORT_WAITING_MESSAGE =
   "Waiting for the first knowledge export to land in git."

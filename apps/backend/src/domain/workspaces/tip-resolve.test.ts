@@ -41,19 +41,29 @@ describe("tip resolve", () => {
     ).toBe(true)
   })
 
-  it("does not enqueue cron hydrate before a migration-export SHA exists", () => {
+  it("does not enqueue cron hydrate before a writable migration-export SHA exists", () => {
     expect(
       shouldEnqueueCronHydrate({
         migrationExportSha: null,
         desiredSha: "abc",
         activeProjectionSha: null,
+        writeStatus: "writable",
       }),
     ).toBe(false)
+    expect(
+      shouldEnqueueCronHydrate({
+        migrationExportSha: null,
+        desiredSha: "abc",
+        activeProjectionSha: null,
+        writeStatus: "read_only",
+      }),
+    ).toBe(true)
     expect(
       shouldEnqueueCronHydrate({
         migrationExportSha: "export",
         desiredSha: "abc",
         activeProjectionSha: null,
+        writeStatus: "writable",
       }),
     ).toBe(true)
     expect(
@@ -61,6 +71,7 @@ describe("tip resolve", () => {
         migrationExportSha: "export",
         desiredSha: "abc",
         activeProjectionSha: "abc",
+        writeStatus: "writable",
       }),
     ).toBe(false)
   })

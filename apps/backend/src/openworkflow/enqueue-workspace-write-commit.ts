@@ -163,13 +163,6 @@ export async function enqueueWorkspaceWriteCommit(
     if (status !== WRITE_JOB_STATUSES.queued) return { started: false }
   }
   if (status !== WRITE_JOB_STATUSES.queued) {
-    if (input.kind === "migration_export") {
-      await persistHydrateFailure({
-        workspaceId: input.workspaceId,
-        message:
-          "The workspace repository is not writable, so the first knowledge export cannot start.",
-      }).catch(() => undefined)
-    }
     return { started: false }
   }
   try {
