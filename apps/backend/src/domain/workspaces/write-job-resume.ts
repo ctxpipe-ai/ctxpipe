@@ -25,7 +25,7 @@ export async function resumePausedWriteJobs(input: {
   enqueue: (
     args: ReturnType<typeof enqueueInputFromPausedJob>,
     log: { error: (err: Error) => void },
-  ) => Promise<void>
+  ) => Promise<{ started: boolean } | undefined>
   log: { error: (err: Error) => void }
 }): Promise<string[]> {
   const resumed: string[] = []

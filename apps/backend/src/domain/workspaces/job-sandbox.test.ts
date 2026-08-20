@@ -1,4 +1,8 @@
 import { beforeEach, describe, expect, it, vi } from "vitest"
+import type {
+  ClaimedSandboxInstance,
+  SandboxInstanceRecord,
+} from "../../models/workspaces.js"
 import {
   createTanstackJobSandbox,
   ensureJobSandbox,
@@ -8,10 +12,12 @@ import {
 import { getJobSandbox } from "./sandbox-registry.js"
 
 const claimSandboxInstance = vi.hoisted(() =>
-  vi.fn(async (input: { id: string }) => ({
-    record: input,
-    inserted: true,
-  })),
+  vi.fn(
+    async (input: SandboxInstanceRecord): Promise<ClaimedSandboxInstance> => ({
+      record: input,
+      inserted: true,
+    }),
+  ),
 )
 const deleteSandboxInstance = vi.hoisted(() => vi.fn(async () => {}))
 const persistSandboxInstance = vi.hoisted(() => vi.fn(async () => {}))
@@ -47,10 +53,12 @@ vi.mock("./sandbox-instance-store.js", () => ({
 describe("job sandbox", () => {
   beforeEach(() => {
     claimSandboxInstance.mockReset()
-    claimSandboxInstance.mockImplementation(async (input: { id: string }) => ({
-      record: input,
-      inserted: true,
-    }))
+    claimSandboxInstance.mockImplementation(
+      async (input: SandboxInstanceRecord) => ({
+        record: input,
+        inserted: true,
+      }),
+    )
     deleteSandboxInstance.mockClear()
     persistSandboxInstance.mockClear()
     destroyDetachedProviderSandbox.mockReset()

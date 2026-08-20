@@ -12,7 +12,22 @@ const gitSourceMock = vi.hoisted(() => vi.fn((input) => input))
 const withSandboxMock = vi.hoisted(() => vi.fn((def) => def))
 const dockerSandboxMock = vi.hoisted(() => vi.fn(() => "docker-provider"))
 const sbxSandboxMock = vi.hoisted(() => vi.fn(() => "sbx-provider"))
-const listSandboxInstancesMock = vi.hoisted(() => vi.fn(async () => []))
+const listSandboxInstancesMock = vi.hoisted(() =>
+  vi.fn(
+    async (): Promise<
+      Array<{
+        id: string
+        kind: "chat" | "job"
+        workspaceId: string
+        conversationId?: string
+        provider?: string
+        providerSandboxId?: string
+        state: "live" | "destroy_failed"
+        lastHeartbeatAt: Date
+      }>
+    > => [],
+  ),
+)
 
 vi.mock("@tanstack/ai", () => ({ chat: chatMock }))
 vi.mock("@tanstack/ai-opencode", () => ({ opencodeText: opencodeTextMock }))
@@ -81,10 +96,21 @@ const getWorkspaceById = vi.hoisted(() =>
 )
 
 const claimSandboxInstance = vi.hoisted(() =>
-  vi.fn(async (input: { id: string }) => ({
-    record: input,
-    inserted: true,
-  })),
+  vi.fn(
+    async (input: {
+      id: string
+      kind?: string
+      workspaceId?: string
+      conversationId?: string
+      provider?: string
+      providerSandboxId?: string
+      state?: string
+      lastHeartbeatAt?: Date
+    }) => ({
+      record: input,
+      inserted: true,
+    }),
+  ),
 )
 
 vi.mock("../../models/workspaces.js", () => ({

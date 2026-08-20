@@ -3,9 +3,16 @@ import { beforeEach, describe, expect, it, vi } from "vitest"
 const getSandboxInstance = vi.hoisted(() => vi.fn())
 const persistSandboxInstance = vi.hoisted(() => vi.fn(async () => {}))
 const deleteSandboxInstance = vi.hoisted(() => vi.fn(async () => {}))
-const getWorkspaceById = vi.hoisted(() => vi.fn(async () => ({ id: "ws_1" })))
+const getWorkspaceById = vi.hoisted(() =>
+  vi.fn(async (): Promise<{ id: string } | null> => ({ id: "ws_1" })),
+)
 const getConversation = vi.hoisted(() =>
-  vi.fn(async () => ({ id: "conv_1", workspaceId: "ws_1" })),
+  vi.fn(
+    async (): Promise<{ id: string; workspaceId: string } | null> => ({
+      id: "conv_1",
+      workspaceId: "ws_1",
+    }),
+  ),
 )
 const withDbClientMock = vi.hoisted(() => vi.fn())
 const withOrgDbContextMock = vi.hoisted(() =>

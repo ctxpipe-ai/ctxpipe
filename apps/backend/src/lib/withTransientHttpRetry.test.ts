@@ -1,4 +1,14 @@
 import { beforeEach, describe, expect, it, vi } from "vitest"
+
+vi.mock("../observability/logger.js", () => ({
+  log: {
+    info: vi.fn(),
+    error: vi.fn(),
+    warn: vi.fn(),
+  },
+}))
+
+import { log } from "../observability/logger.js"
 import {
   TransientHttpError,
   withTransientHttpRetry,
@@ -6,6 +16,7 @@ import {
 
 describe("withTransientHttpRetry", () => {
   beforeEach(() => {
+    vi.clearAllMocks()
     vi.useRealTimers()
   })
 

@@ -46,7 +46,7 @@ const DIFF_OPTIONS = {
 }
 
 function createPierreEditor(options: ConstructorParameters<typeof Editor>[0]) {
-  return new Editor(options)
+  return new Editor<unknown>(options)
 }
 
 export type FileEditorHistory = {
@@ -76,7 +76,7 @@ export function WorkspacePierreFile(props: {
   onBlurRef.current = props.onBlur
   const onHistoryChangeRef = useRef(props.onHistoryChange)
   onHistoryChangeRef.current = props.onHistoryChange
-  const editorRef = useRef<Editor | null>(null)
+  const editorRef = useRef<Editor<unknown> | null>(null)
   const editorHandleOutRef = useRef(props.editorHandleRef)
   editorHandleOutRef.current = props.editorHandleRef
   const editorOptions = useMemo(() => {
@@ -90,7 +90,7 @@ export function WorkspacePierreFile(props: {
     }
     return {
       persistState: true,
-      onAttach: (editor: Editor) => {
+      onAttach: (editor: Editor<unknown>) => {
         editorRef.current = editor
         const handleOut = editorHandleOutRef.current
         if (handleOut) {

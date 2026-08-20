@@ -110,6 +110,26 @@ export function WorkspacePane(props: {
     const next = parsePane(String(key))
     if (next) props.onPane(next)
   }
+  const fileTabListRef = useRef<HTMLDivElement>(null)
+
+  useEffect(() => {
+    const node = fileTabListRef.current
+    if (!node) return
+    const onKeyDown = (event: globalThis.KeyboardEvent) => {
+      if (event.key !== "Delete" && event.key !== "Backspace") return
+      const target = event.target instanceof Element ? event.target : null
+      const key =
+        target?.closest("[data-key]")?.getAttribute("data-key") ??
+        target?.closest("[id]")?.id
+      if (!key) return
+      const path = props.fileTabs.find((item) => filePaneId(item) === key)
+      if (!path) return
+      event.preventDefault()
+      props.onCloseFileTab(path)
+    }
+    node.addEventListener("keydown", onKeyDown)
+    return () => node.removeEventListener("keydown", onKeyDown)
+  }, [props.fileTabs, props.onCloseFileTab])
 
   return (
     <aside
@@ -193,7 +213,10 @@ export function WorkspacePane(props: {
             >
               <span className="truncate">{props.conversationTitle}</span>
             </Button>
-            <TabList className="flex min-w-0 flex-1 items-end gap-0.5 overflow-x-auto overflow-y-hidden [scrollbar-width:none]">
+            <TabList
+              ref={fileTabListRef}
+              className="flex min-w-0 flex-1 items-end gap-0.5 overflow-x-auto overflow-y-hidden [scrollbar-width:none]"
+            >
               <PaneIconTab
                 id="files"
                 label="Files"
@@ -226,13 +249,6 @@ export function WorkspacePane(props: {
                         focusVisibleClassName,
                       )
                     }
-                    onKeyDown={(event) => {
-                      if (event.key !== "Delete" && event.key !== "Backspace") {
-                        return
-                      }
-                      event.preventDefault()
-                      props.onCloseFileTab(path)
-                    }}
                   >
                     <span
                       className={cn(
@@ -685,6 +701,7 @@ function WorkspaceFilesPaneContent(props: {
           />
           <button
             type="button"
+            role="slider"
             aria-label="Resize file tree"
             aria-orientation="vertical"
             aria-valuemin={TREE_WIDTH_MIN}
@@ -1045,12 +1062,14 @@ function PaneIconTab(props: { id: string; label: string; icon: ReactNode }) {
     <Tab
       id={props.id}
       aria-label={props.label}
-      title={props.label}
       className={({ isSelected }) =>
         cn(workspaceChromeIconTabClassName(isSelected), focusVisibleClassName)
       }
     >
-      <span className="inline-flex size-4 items-center justify-center [&_svg]:size-4 [&_svg]:stroke-[1.6]">
+      <span
+        title={props.label}
+        className="inline-flex size-4 items-center justify-center [&_svg]:size-4 [&_svg]:stroke-[1.6]"
+      >
         {props.icon}
       </span>
     </Tab>

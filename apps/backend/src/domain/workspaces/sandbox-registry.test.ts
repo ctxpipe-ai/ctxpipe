@@ -1,4 +1,8 @@
 import { beforeEach, describe, expect, it, vi } from "vitest"
+import type {
+  ClaimedSandboxInstance,
+  SandboxInstanceRecord,
+} from "../../models/workspaces.js"
 import { CHAT_SANDBOX_IDLE_MS, JOB_SANDBOX_IDLE_MS } from "./chat-lifecycle.js"
 import {
   attachChatSandboxHandle,
@@ -41,16 +45,27 @@ vi.mock("../../db/client.js", () => ({
 }))
 
 const claimSandboxInstance = vi.hoisted(() =>
-  vi.fn(async (input: { id: string }) => ({
-    record: input,
-    inserted: true,
-  })),
+  vi.fn(
+    async (input: SandboxInstanceRecord): Promise<ClaimedSandboxInstance> => ({
+      record: input,
+      inserted: true,
+    }),
+  ),
 )
-const listSandboxInstances = vi.hoisted(() => vi.fn(async () => []))
+const listSandboxInstances = vi.hoisted(() =>
+  vi.fn(
+    async (_input?: {
+      conversationId?: string
+      workspaceId?: string
+    }): Promise<SandboxInstanceRecord[]> => [],
+  ),
+)
 const deleteSandboxInstance = vi.hoisted(() => vi.fn(async () => {}))
 const persistSandboxInstance = vi.hoisted(() => vi.fn(async () => {}))
 const heartbeatSandboxInstance = vi.hoisted(() => vi.fn(async () => {}))
-const getSandboxInstance = vi.hoisted(() => vi.fn(async () => null))
+const getSandboxInstance = vi.hoisted(() =>
+  vi.fn(async (_id?: string): Promise<SandboxInstanceRecord | null> => null),
+)
 
 vi.mock("../../models/workspaces.js", () => ({
   claimSandboxInstance,
@@ -73,10 +88,12 @@ const handle = {
 
 describe("sandbox registry GC", () => {
   beforeEach(() => {
-    claimSandboxInstance.mockImplementation(async (input: { id: string }) => ({
-      record: input,
-      inserted: true,
-    }))
+    claimSandboxInstance.mockImplementation(
+      async (input: SandboxInstanceRecord) => ({
+        record: input,
+        inserted: true,
+      }),
+    )
     claimSandboxInstance.mockClear()
     listSandboxInstances.mockResolvedValue([])
     deleteSandboxInstance.mockClear()
@@ -233,8 +250,11 @@ describe("sandbox registry GC", () => {
 
   it("GCs chat and job rows from Postgres when this process has no handle", async () => {
     listSandboxInstances.mockImplementation(
-      async (input: { conversationId?: string; workspaceId?: string }) => {
-        if (input.conversationId === "conv_orphan") {
+      async (input?: {
+        conversationId?: string
+        workspaceId?: string
+      }): Promise<SandboxInstanceRecord[]> => {
+        if (input?.conversationId === "conv_orphan") {
           return [
             {
               id: "chat-orphan",
@@ -246,7 +266,7 @@ describe("sandbox registry GC", () => {
             },
           ]
         }
-        if (input.workspaceId === "ws_orphan_job") {
+        if (input?.workspaceId === "ws_orphan_job") {
           return [
             {
               id: "job-orphan",
@@ -478,8 +498,9 @@ describe("sandbox registry GC", () => {
       lastHeartbeatAt: new Date(),
     }
     listSandboxInstances.mockResolvedValue([stored])
-    getSandboxInstance.mockImplementation(async (id: string) =>
-      id === "tanstack-key" ? stored : null,
+    getSandboxInstance.mockImplementation(
+      async (id?: string): Promise<SandboxInstanceRecord | null> =>
+        id === "tanstack-key" ? stored : null,
     )
     await expect(
       destroySandboxesForConversation("conv_mismatch"),

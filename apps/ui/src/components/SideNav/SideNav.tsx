@@ -6,7 +6,7 @@ import {
   IconSearch,
 } from "@tabler/icons-react"
 import { useRouter } from "@tanstack/react-router"
-import { useEffect, useRef, useState, type CSSProperties } from "react"
+import { type CSSProperties, useEffect, useRef, useState } from "react"
 import { Button } from "react-aria-components"
 import { OverlayNavCloseButton } from "@/components/OverlayNavButton"
 import { useShellLayout } from "@/components/ShellLayoutContext"
@@ -25,6 +25,7 @@ import {
 import { SideNavItem } from "./SideNavItem"
 import { SideNavLogo } from "./SideNavLogo"
 import { SideNavOrganizationButton } from "./SideNavOrganizationButton"
+import { SideNavTooltip } from "./SideNavTooltip"
 import { SideNavUserButton } from "./SideNavUserButton"
 import {
   sideNavIconGutterClassName,
@@ -33,17 +34,12 @@ import {
   sideNavRowClassName,
   sideNavTrailingSlotClassName,
 } from "./sideNavStyles"
-import { SideNavTooltip } from "./SideNavTooltip"
 
 export function SideNav() {
   const router = useRouter()
   const { navOpen, setNavOpen } = useShellLayout()
   const [
-    {
-      isSideNavExpanded: expanded,
-      selectedOrganizationSlug,
-      sideNavWidth,
-    },
+    { isSideNavExpanded: expanded, selectedOrganizationSlug, sideNavWidth },
     updatePreferences,
   ] = useUserPreferences()
   const [paletteOpen, setPaletteOpen] = useState(false)
@@ -60,7 +56,7 @@ export function SideNav() {
     segments[1] === "ws" && segments[3] ? segments[3] : undefined
 
   useEffect(() => {
-    setNavOpen(false)
+    if (pathname) setNavOpen(false)
   }, [pathname, setNavOpen])
 
   const handleToggle = () => {
@@ -255,6 +251,7 @@ export function SideNav() {
         {expanded ? (
           <button
             type="button"
+            role="slider"
             aria-label="Resize navigation"
             aria-orientation="vertical"
             aria-valuemin={SIDE_NAV_MIN_WIDTH}

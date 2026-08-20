@@ -219,7 +219,7 @@ export function withExplorerGitLineCounts(
     return { ...entry, additions: lines, deletions: 0 }
   }
   if (entry.status === "deleted") {
-    return { ...entry, additions: 0, deletions: fromDiff?.deletions }
+    return { ...entry, additions: 0 }
   }
   return entry
 }

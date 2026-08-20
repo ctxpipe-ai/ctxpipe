@@ -96,12 +96,21 @@ export const workspaceCutover = defineWorkflow(
                   workspaceId: workspace.id,
                   kind: "migration_export",
                 },
-                { error: (err) => log.error(err) },
+                {
+                  error: (err) =>
+                    log.error({
+                      step: "workspace.cutover.export",
+                      message: err.message,
+                    }),
+                },
               )
               if (enqueued.started) exports += 1
             } catch (err: unknown) {
               const error = err instanceof Error ? err : new Error(String(err))
-              log.error(error)
+              log.error({
+                step: "workspace.cutover.export",
+                message: error.message,
+              })
               await persistHydrateFailure({
                 workspaceId: workspace.id,
                 message: error.message,

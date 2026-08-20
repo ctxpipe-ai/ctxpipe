@@ -7,12 +7,12 @@ import {
 import { useNavigate, useRouter } from "@tanstack/react-router"
 import { useState } from "react"
 import { Link } from "react-aria-components"
+import { SideNavTooltip } from "@/components/SideNav/SideNavTooltip"
 import {
   sideNavIconGutterClassName,
   sideNavLabelClassName,
   sideNavRowClassName,
 } from "@/components/SideNav/sideNavStyles"
-import { SideNavTooltip } from "@/components/SideNav/SideNavTooltip"
 import { focusVisibleClassName } from "@/lib/focus-styles"
 import { workspaceTitleAction } from "./nav"
 import type { Workspace } from "./types"
@@ -155,7 +155,7 @@ export function WorkspaceNavRow(props: {
         href={composeHref}
         aria-label={`New conversation in ${workspace.displayName}`}
         aria-hidden={!navExpanded}
-        tabIndex={navExpanded ? undefined : -1}
+        isDisabled={!navExpanded}
         className={[
           "inline-flex size-8 shrink-0 cursor-pointer items-center justify-center rounded-lg text-zinc-400 transition-[opacity,width] duration-200 ease-out motion-reduce:transition-none hover:bg-teal-900/30 hover:text-zinc-50",
           focusVisibleClassName,
