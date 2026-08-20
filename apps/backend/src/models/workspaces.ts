@@ -64,14 +64,28 @@ export type WorkspaceListItem = WorkspaceRecord & {
 }
 
 function isUniqueViolation(error: unknown, constraint: string): boolean {
-  if (!error || typeof error !== "object") return false
-  const code = "code" in error ? String(error.code) : ""
-  if (code !== "23505") return false
-  const name =
-    "constraint" in error && typeof error.constraint === "string"
-      ? error.constraint
-      : ""
-  return name === constraint || name.includes(constraint)
+  const queue: unknown[] = [error]
+  const seen = new Set<unknown>()
+  while (queue.length > 0) {
+    const current = queue.shift()
+    if (current == null || seen.has(current) || typeof current !== "object") {
+      continue
+    }
+    seen.add(current)
+    const code = "code" in current ? String(current.code) : ""
+    const name =
+      "constraint" in current && typeof current.constraint === "string"
+        ? current.constraint
+        : ""
+    if (
+      code === "23505" &&
+      (name === constraint || name.includes(constraint))
+    ) {
+      return true
+    }
+    if ("cause" in current) queue.push(current.cause)
+  }
+  return false
 }
 
 async function takenSlugs(
@@ -391,8 +405,22 @@ export async function createCutoverWorkspace(input: {
           githubConnectionId: input.githubConnectionId ?? null,
         }),
       })
+      .onConflictDoNothing({
+        target: [workspaces.orgId, workspaces.workspaceRepositoryUrl],
+      })
       .returning()
     if (row) return row
+    const raced = await db
+      .select()
+      .from(workspaces)
+      .where(
+        and(
+          eq(workspaces.orgId, orgId),
+          eq(workspaces.workspaceRepositoryUrl, workspaceRepositoryUrl),
+        ),
+      )
+      .limit(1)
+    if (raced[0]) return raced[0]
   } catch (error) {
     if (isUniqueViolation(error, "workspaces_org_id_repository_url_uidx")) {
       const raced = await db
