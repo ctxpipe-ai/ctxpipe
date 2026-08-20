@@ -232,7 +232,7 @@ export async function createWorkspace(input: {
     try {
       return await db.transaction(async (tx) => {
         const existingUrl = await tx
-          .select({ id: workspaces.id })
+          .select()
           .from(workspaces)
           .where(
             and(
@@ -241,7 +241,22 @@ export async function createWorkspace(input: {
             ),
           )
           .limit(1)
-        if (existingUrl[0]) throw urlConflict()
+        if (existingUrl[0]) {
+          let row = existingUrl[0]
+          if (input.write) {
+            const [updated] = await tx
+              .update(workspaces)
+              .set({
+                writeStatus: input.write.writeStatus,
+                readOnlyReason: input.write.readOnlyReason,
+                updatedAt: new Date(),
+              })
+              .where(eq(workspaces.id, row.id))
+              .returning()
+            if (updated) row = updated
+          }
+          return { ...row, autoLinkGitUrls: [] }
+        }
 
         const slugRows = await tx
           .select({ slug: workspaces.slug })
@@ -332,6 +347,32 @@ export async function createWorkspace(input: {
       })
     } catch (error) {
       if (isUniqueViolation(error, "workspaces_org_id_repository_url_uidx")) {
+        const raced = await db
+          .select()
+          .from(workspaces)
+          .where(
+            and(
+              eq(workspaces.orgId, orgId),
+              eq(workspaces.workspaceRepositoryUrl, workspaceRepositoryUrl),
+            ),
+          )
+          .limit(1)
+        if (raced[0]) {
+          let row = raced[0]
+          if (input.write) {
+            const [updated] = await db
+              .update(workspaces)
+              .set({
+                writeStatus: input.write.writeStatus,
+                readOnlyReason: input.write.readOnlyReason,
+                updatedAt: new Date(),
+              })
+              .where(eq(workspaces.id, row.id))
+              .returning()
+            if (updated) row = updated
+          }
+          return { ...row, autoLinkGitUrls: [] }
+        }
         throw urlConflict()
       }
       if (
