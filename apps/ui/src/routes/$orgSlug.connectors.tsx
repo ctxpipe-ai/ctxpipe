@@ -32,7 +32,6 @@ import { GithubSelfHostedWizardModal } from "@/features/connectors/components/Gi
 import { SlackSetupDialog } from "@/features/connectors/components/SlackSetupDialog"
 import { atlassianConnectorKeys } from "@/features/connectors/queries/atlassian-connector"
 import {
-  CONNECTORS_PAGE_POLL_INTERVAL_MS,
   fetchOrgConnections,
   orgConnectionsKeys,
   sortOrgConnectionsForDisplay,
@@ -111,15 +110,12 @@ export function ConnectorsPageContent({ orgSlug }: { orgSlug: string }) {
     string | undefined
   >(undefined)
 
-  useGithubConnectorBootstrap(orgSlug, {
-    refetchInterval: CONNECTORS_PAGE_POLL_INTERVAL_MS,
-  })
+  useGithubConnectorBootstrap(orgSlug)
 
   const { data: connections, isPending: connectionsPending } = useQuery({
     queryKey: orgConnectionsKeys.list(orgSlug),
     queryFn: () => fetchOrgConnections(orgSlug),
     enabled: true,
-    refetchInterval: CONNECTORS_PAGE_POLL_INTERVAL_MS,
   })
 
   const items = sortOrgConnectionsForDisplay(connections ?? [])

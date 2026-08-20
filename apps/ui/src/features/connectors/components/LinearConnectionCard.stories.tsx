@@ -13,7 +13,7 @@ const connected: LinearConnectorStatus = {
   installationStatus: "installed",
   workspaceName: "Acme Product",
   isGithubLinked: true,
-  selectedScopeCount: 4,
+  selectedScopeCount: null,
   setupPhase: "live",
   pendingConfigPullUrl: null,
   pendingConfigPrCreating: false,

@@ -102,7 +102,8 @@ export interface NotionConnectorStatus {
   installationStatus: string | null
   workspaceName: string | null
   isGithubLinked: boolean
-  selectedResourceCount: number
+  /** Null on status reads; exact scope is loaded only when setup is opened. */
+  selectedResourceCount: number | null
   syncTargetConfigured: boolean
   setupPhase: string
   pendingConfigPullUrl: string | null

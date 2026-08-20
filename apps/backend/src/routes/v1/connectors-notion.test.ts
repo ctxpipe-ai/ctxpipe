@@ -151,6 +151,19 @@ describe("Notion connector config", () => {
     releaseNotionConfigPrCreationClaimMock.mockResolvedValue(undefined)
   })
 
+  it("returns live status without reading GitHub scope config", async () => {
+    const response = await app().request(
+      "/demo/api/v1/connectors/notion/status?connectionId=con_1",
+    )
+
+    expect(response.status).toBe(200)
+    expect(await response.json()).toMatchObject({
+      selectedResourceCount: null,
+      setupPhase: "live",
+    })
+    expect(loadNotionScopeFromRepoMock).not.toHaveBeenCalled()
+  })
+
   it("enqueues the config workflow with the requested resources when the git scope differs", async () => {
     const response = await patchResources()
 

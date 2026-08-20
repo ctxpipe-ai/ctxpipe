@@ -130,7 +130,7 @@ const getStatusRoute = createRoute({
             installationStatus: z.string().nullable(),
             workspaceName: z.string().nullable(),
             isGithubLinked: z.boolean(),
-            selectedScopeCount: z.number().int(),
+            selectedScopeCount: z.number().int().nullable(),
             setupPhase: z.string(),
             pendingConfigPullUrl: z.string().nullable(),
             pendingConfigPrCreating: z.boolean(),
@@ -146,7 +146,7 @@ const getStatusRoute = createRoute({
         },
       },
       description:
-        "Current Linear setup status, with git-backed scope count and the repository binding from connection config",
+        "Current Linear setup status and repository binding. Scope count is omitted so this frequently polled route never calls GitHub.",
     },
     400: {
       content: { "application/json": { schema: ErrorResponseSchema } },
@@ -570,18 +570,13 @@ export const linearConnectorRoutes = new OpenAPIHono<AppEnv>()
         ? getLinearBindingWithRepoByConnectionId(orgId, connection.id)
         : Promise.resolve(undefined),
     ])
-    const scopes = await loadLinearScopesFromGit({
-      orgId,
-      env: c.var.env,
-      binding,
-    })
     return c.json(
       {
         isInstalled: connection?.status === "installed",
         installationStatus: connection?.status ?? null,
         workspaceName: connection?.workspaceName ?? null,
         isGithubLinked,
-        selectedScopeCount: scopes.length,
+        selectedScopeCount: null,
         setupPhase: binding?.setupPhase ?? "draft",
         pendingConfigPullUrl: binding?.pendingConfigPullUrl ?? null,
         pendingConfigPrCreating: binding?.pendingConfigPrCreating ?? false,

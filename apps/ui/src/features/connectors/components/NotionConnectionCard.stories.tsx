@@ -13,7 +13,7 @@ const statusComplete = {
   installationStatus: "installed",
   workspaceName: "Acme",
   isGithubLinked: true,
-  selectedResourceCount: 2,
+  selectedResourceCount: null,
   syncTargetConfigured: true,
   setupPhase: "live",
   pendingConfigPullUrl: null,

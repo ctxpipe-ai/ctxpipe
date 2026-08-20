@@ -28,7 +28,8 @@ export type LinearConnectorStatus = {
   installationStatus: string | null
   workspaceName: string | null
   isGithubLinked: boolean
-  selectedScopeCount: number
+  /** Null on status reads; exact scope is loaded only when setup is opened. */
+  selectedScopeCount: number | null
   setupPhase: LinearSetupPhase
   pendingConfigPullUrl: string | null
   pendingConfigPrCreating: boolean

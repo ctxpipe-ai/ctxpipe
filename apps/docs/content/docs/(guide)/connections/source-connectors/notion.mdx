@@ -1,0 +1,220 @@
+---
+title: Notion connector
+description: Connect a Notion workspace, review its Git-backed scope, and keep selected pages and databases available to ctx|.
+---
+
+The **Notion connector** mirrors selected workspace context into a GitHub
+repository, then sends that repository through the normal ctx| ingestion
+pipeline. The generated `notion/config.yaml` pull request makes the scope
+reviewable before content sync begins.
+
+ctx| reads Notion pages and databases. It does not create or update Notion
+content.
+
+<Callout title="Fully managed app flow">
+  The hosted ctx| service supplies the Notion OAuth application and webhook
+  configuration. Self-hosted operators must register their own public
+  integration before authorisation can succeed. See
+  [Self-host Notion](/docs/self-hosting/notion).
+</Callout>
+
+## What is mirrored
+
+You can select pages and databases that the ctx| Notion integration can already
+see. Their related content can include:
+
+- Selected pages as Markdown, including descendant pages added later.
+- Selected databases as an index page, a `table.csv` snapshot, and one Markdown
+  file per row (properties plus page body).
+- Headings, lists, tasks, quotes, code, and in-scope page links rewritten to
+  relative Git paths when the target is also mirrored.
+- External image and file URLs when Notion stores them as public links.
+
+Notion-hosted file and image uploads are not copied into Git. The Markdown keeps
+a caption stub instead of an expiring Notion download URL. Page comments are not
+mirrored.
+
+<Callout title="Page sharing is the access gate">
+  Notion only lists pages and databases already shared with the ctx| integration.
+  Share those resources during the OAuth picker, or later in Notion, then choose
+  **Refresh Notion resources** in setup. Review the selected scope and the
+  generated pull request before merging it. Repository access becomes the
+  practical access boundary for the mirrored files.
+</Callout>
+
+## Prerequisites
+
+- Permission to authorize an application in the Notion workspace and share the
+  pages or databases that should be mirrored.
+- A ctx| GitHub connection with access to the destination repository.
+- Permission to merge the generated configuration pull request.
+
+## Configuration source of truth
+
+Notion scope exists only in `notion/config.yaml`:
+
+- **Draft scope** is the YAML on the generated configuration pull request's
+  branch.
+- **Live scope** is the YAML on the selected target branch after that pull
+  request is merged.
+
+ctx| does not keep a second draft or live scope in PostgreSQL. The Notion
+connection's `connections.config` stores only the repository binding and setup
+state, including the repository, target branch, enabled state, and pending
+configuration pull request metadata.
+
+## Setup flow
+
+<Steps>
+  <Step>
+    ### Connect Notion
+
+    Open **Connectors**, choose **Add connection**, then select **Notion**.
+    Authorize the ctx| application in the Notion popup and share the pages or
+    databases the connector should be allowed to read.
+  </Step>
+
+  <Step>
+    ### Confirm GitHub
+
+    Notion content is stored in Git before ingestion. If GitHub is not connected
+    for this ctx| organization, complete the GitHub App installation first.
+  </Step>
+
+  <Step>
+    ### Choose a context repository
+
+    Select an existing connected repository. A dedicated private repository
+    usually gives the clearest ownership and access boundary; create it in
+    GitHub first, grant the ctx| GitHub App access, then refresh the repository
+    list in ctx|.
+  </Step>
+
+  <Step>
+    ### Select scope
+
+    Select at least one page or database. Page selection includes that page's
+    child pages, including pages added later. Database selection includes the
+    database rows. Keep the selection narrow when the workspace holds mixed
+    private and shared notes.
+  </Step>
+
+  <Step>
+    ### Merge the configuration pull request
+
+    ctx| opens a pull request containing `notion/config.yaml`. Review the
+    selected pages and databases, then merge it.
+
+    The pull request branch YAML is the draft. The target branch YAML becomes
+    live only after merge; the setup dialog submits scope to that Git workflow
+    rather than storing another copy.
+  </Step>
+
+  <Step>
+    ### Wait for initial sync and ingestion
+
+    After GitHub reports the merge, ctx| performs the first Notion mirror and
+    starts repository ingestion. The connector reaches **Connected** when the
+    mirror succeeds. Repository indexing may continue afterwards; see
+    [Ingestion](/docs/connections/ingestion) for the indexing lifecycle.
+  </Step>
+</Steps>
+
+## Files in the repository
+
+Mirrored files live under `notion/`:
+
+- Pages: `notion/pages/<slug>--<id>/index.md`, with child pages nested under
+  their ancestors.
+- Databases: `notion/databases/<slug>--<id>/index.md`, `table.csv`, and
+  `rows/<slug>--<id>/index.md`.
+
+Paths include stable Notion IDs, so renaming a page or database does not create
+a second copy.
+
+Do not hand-edit generated content. Change scope through **Manage scope** and
+review the replacement configuration pull request.
+
+## Keeping content current
+
+Notion sends signed webhook events to ctx| when supported entities change.
+While the connector is live, ctx| validates the event against the Git scope,
+directly enqueues an OpenWorkflow entity-sync run, updates the affected files,
+and starts another repository ingestion. Incremental updates re-mirror the
+affected top-level resource (a page subtree or a database), not a single block.
+Events that arrive before the connector is live (including during initial sync)
+are skipped — the same trade-off as Linear and Confluence — rather than buffered
+in a Notion-specific dirty-entity table. Missed webhook events are not
+automatically backfilled: repair webhook delivery, then update the affected
+pages or databases in Notion again so fresh events are delivered, or use content
+retry / remirror after a failed initial sync.
+
+## Verify the complete flow
+
+1. Complete Notion OAuth and confirm the expected workspace appears.
+2. Share at least one page or database with the ctx| integration, then select
+   it in setup.
+3. Open and merge the generated `notion/config.yaml` pull request.
+4. Confirm the connector reaches **Connected** and the repository contains
+   generated files under `notion/`.
+5. Edit a mirrored page in Notion and confirm the matching Git file changes.
+6. Confirm the destination repository reaches an indexed state in ctx|.
+
+Steps 3 and 4 test the GitHub push webhook and initial mirror. Step 5 separately
+tests Notion webhook delivery.
+
+## Troubleshooting
+
+### Authorization fails
+
+Allow popups and retry. On fully managed ctx|, report persistent OAuth errors to
+support. On a self-hosted deployment, ask the operator to verify that Notion
+OAuth credentials are configured and that the callback URI matches exactly.
+
+### No pages or databases appear
+
+The integration can only list resources already shared with it. Share the page
+or database with the ctx| Notion app in Notion, then choose **Refresh Notion
+resources**. Empty search results usually mean a sharing problem, not a missing
+workspace.
+
+### No pull request appears
+
+Confirm that at least one page or database is selected and that the GitHub App
+has write access to the destination repository. Empty repositories are
+supported; ctx| initializes the default branch before opening the pull request.
+If setup reports that pull request creation failed, open the connector and
+choose **Retry configuration pull request**.
+
+### The connector stays on “Approve configuration”
+
+The configuration pull request must be merged, not merely approved. Confirm
+that `notion/config.yaml` reached the default branch and that GitHub webhooks
+for the ctx| GitHub App are healthy.
+
+### Content sync failed
+
+Open the connector and choose **Retry content sync**. This retries the mirror
+without opening another configuration pull request. If it fails again, ask the
+operator to check worker logs, Notion token refresh, GitHub write access, and
+outbound access to `api.notion.com`.
+
+### Changes in Notion do not arrive
+
+Initial sync can still succeed when webhooks are misconfigured. Ask the
+operator to verify the Notion integration webhook URL and signing secret. See
+[Self-host Notion](/docs/self-hosting/notion) for the exact settings.
+
+### Notion authorization was revoked
+
+Open the connector and authorize Notion again. Incremental updates stop while
+the workspace authorization is revoked. Pages unshared from the integration
+disappear from the searchable list; they remain in Git until you remove them
+from scope and merge the replacement configuration pull request.
+
+### Removing the connector
+
+Removing the connector deletes its ctx| authorization and repository binding
+from the connection record. It does not delete `notion/config.yaml`, generated
+files, or Git history from the destination repository; remove those in GitHub
+if they are no longer required.

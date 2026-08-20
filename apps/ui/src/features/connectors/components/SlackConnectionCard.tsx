@@ -7,10 +7,7 @@ import { toast } from "sonner"
 import { AlertDialog } from "@/components/ui/AlertDialog"
 import { Modal } from "@/components/ui/Modal"
 import { resolveConnectorHealth } from "../connectorHealth"
-import {
-  CONNECTORS_PAGE_POLL_INTERVAL_MS,
-  orgConnectionsKeys,
-} from "../queries/org-connections"
+import { orgConnectionsKeys } from "../queries/org-connections"
 import {
   deleteSlackConnector,
   fetchSlackConnectorStatus,
@@ -46,7 +43,6 @@ export function SlackConnectionCard({
   } = useQuery({
     queryKey: slackConnectorKeys.status(orgSlug, connectionId),
     queryFn: () => fetchSlackConnectorStatus(orgSlug, connectionId),
-    refetchInterval: CONNECTORS_PAGE_POLL_INTERVAL_MS,
   })
 
   const removeMutation = useMutation({
