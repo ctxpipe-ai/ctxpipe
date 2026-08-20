@@ -9,7 +9,8 @@
 | Workspace repository | The single git remote that *is* the Workspace’s portable source of truth (knowledge + connector mirrors). Any git URL in principle; GitHub has first-class select/create UX. A URL is the workspace repository of at most one Workspace per Organisation. Implicitly included in that Workspace’s codesearch set. Described in `AGENTS.md`; not duplicated as a self-URL under `repositories/` by default. Formerly “backing repository.” |
 | Linked repository | A git repository scoped to a Workspace for codesearch, in addition to the workspace repository. May be a URL that another Workspace already uses as its workspace repository. Declared as a markdown file under `repositories/` in the workspace tree (front matter: git URL, branch, …; body: description). Formerly “attached repository.” |
 | Unlinked repository | A repository in an Organisation that is neither a workspace repository nor linked to any Workspace. A Workspace cannot exist without a workspace repository; a repo can exist without a Workspace. |
-| Job | Background work that **updates the workspace repository**. Many kinds: ingest, connector sync, ops/bootstrap, link/unlink, rename rewrite, claims upgrade, `valid_from` backfill, semantic rebase, … There is no single “the maintenance job.” Distinct from **hydrate**, which refreshes the projection and does not edit git. |
+| Job | Background work that **updates the workspace repository**. Many kinds: ingest, connector sync, ops/bootstrap, link/unlink, rename rewrite, claims upgrade, `valid_from` backfill, semantic rebase, UI file edit, … There is no single “the maintenance job.” Distinct from **hydrate**, which refreshes the projection and does not edit git. Product ledger is `workspace_write_jobs`; OpenWorkflow `workspace-write-commit` **runs** an attempt. |
+| workspace_write_jobs | Org-scoped Postgres ledger for write **jobs** (`wjob_` id): kind, generation, desired SHA, status (including paused), payload, and commit SHA. Used for crash-after-push idempotency, pause/resume when the remote is not writable, per-kind retry caps, and relink CAS. Not an OpenWorkflow table; do not query OW internals for this state. |
 | Projection | Derived retrieval state built from a workspace-repository SHA: Postgres knowledge rows, FalkorDB, Zoekt/SCIP, embeddings, and similar indexes. Intent is search/retrieval, not source of truth. If ctxpipe is off, the projection goes away; the Workspace repository remains. |
 | Hydrate | Read-only (wrt git) rebuild of the **projection** from a workspace-repository tree. No extract LLM. Never writes the workspace repository. |
 | Desired SHA | Stored commit we intend for a remote: workspace repository = tip of the **default branch**; linked repository = tip of front-matter `branch` (or default). Follows the remote tip, including rewind. Not a high-water mark. Always written from a **resolve** of that ref (webhook/push are triggers only — do not persist payload `after`). Distinct from the **active projection** SHA and the **indexed SHA**. |
@@ -52,4 +53,4 @@
 | ORM | Object-Relational Mapping |
 
 ---
-*Last updated: 2026-08-19*
+*Last updated: 2026-08-20*

@@ -574,6 +574,12 @@ Highest-priority confirmed rules for agents. Migrated from former `patterns.md` 
 - **Date:** 2026-08-18
 - **Source:** workspace pane tabs accessibility
 
+### Workspace write jobs vs OpenWorkflow
+- **Rule:** Do **not** query OpenWorkflow tables for Workspace write state. Persist write intents in org-scoped `workspace_write_jobs` (kind, generation, SHA, pause payload, commit SHA for crash-after-push). Enqueue OpenWorkflow `workspace-write-commit` to **run** a queued attempt. Pause/resume, per-kind retry caps, and relink CAS are product facts; an OW run completing as paused does not resume itself. Connector syncs (Linear/Notion) still enqueue OW without a dirty-entity table — that exception does not apply to git write jobs.
+- **Category:** convention
+- **Date:** 2026-08-20
+- **Source:** git-backed-projects write protocol (issue 10); confirmed 2026-08-20
+
 ### Workspace Files pane — Pierre trees and diffs, not a homemade explorer
 - **Rule:** Do not keep growing a custom RAC file tree / `<pre>` preview for the Files pane. Use `@pierre/trees` (explorer) and `@pierre/diffs` (`File` / `FileDiff`). Pierre is chrome only — persist via workspace **write jobs**. The pane is a **workspace-repository** explorer (full git tree), not hydrate `.md` units only. Theme via host `--trees-theme-*`; use `unsafeCSS` only when variables cannot express a rule. See [ADR-025](decisions/ADR-025-pierre-files-pane-chrome.md).
 - **Category:** convention
