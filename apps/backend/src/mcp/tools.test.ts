@@ -206,7 +206,10 @@ describe("registerMcpTools", () => {
         extra: { sendNotification: (n: unknown) => Promise<void> },
       ) => Promise<{ content: Array<{ text: string }> }>,
     ]
-    await handler({ prompt: "Test" }, { sendNotification: vi.fn(async () => {}) })
+    await handler(
+      { prompt: "Test" },
+      { sendNotification: vi.fn(async () => {}) },
+    )
     expect(getWorkspaceByIdMock).toHaveBeenCalledWith("ws_older")
     expect(collectChatMock).toHaveBeenCalledWith(
       expect.objectContaining({ workspaceId: "ws_older" }),

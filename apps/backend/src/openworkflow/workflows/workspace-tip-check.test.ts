@@ -93,11 +93,11 @@ describe("workspaceTipCheck workflow", () => {
   })
 
   it("completes sandbox GC without a Hono request", async () => {
-    await expect(
-      tipCheckFn.fn({ input: { orgId: "org_1" } }),
-    ).resolves.toEqual({
-      updated: 0,
-      linkedUpdated: 0,
-    })
+    await expect(tipCheckFn.fn({ input: { orgId: "org_1" } })).resolves.toEqual(
+      {
+        updated: 0,
+        linkedUpdated: 0,
+      },
+    )
   })
 })

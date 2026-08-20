@@ -16,9 +16,11 @@ describe("dest workspace SQL backfill", () => {
   it("inserts workspaces and links without starting jobs", () => {
     expect(migrationSql).not.toMatch(/workflow_runs/i)
     expect(migrationSql).not.toMatch(/runWorkflow/i)
-    expect(migrationSql).not.toMatch(/enqueue/i)
+    expect(migrationSql).not.toMatch(/INSERT INTO openworkflow/i)
     expect(migrationSql).toContain('INSERT INTO "workspaces"')
-    expect(migrationSql).toContain('INSERT INTO "workspace_linked_repositories"')
+    expect(migrationSql).toContain(
+      'INSERT INTO "workspace_linked_repositories"',
+    )
     expect(migrationSql).toContain("ON CONFLICT ON CONSTRAINT")
     expect(migrationSql).toContain("linear")
     expect(migrationSql).toContain("notion")

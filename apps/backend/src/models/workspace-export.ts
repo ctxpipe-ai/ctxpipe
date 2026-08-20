@@ -25,54 +25,49 @@ export async function loadMigrationExportSource(): Promise<{
 }> {
   const orgId = requireCurrentOrgId()
   const db = getOrgDb()
-  const [
-    objectRows,
-    claimRows,
-    evidenceRows,
-    repoRows,
-    workspaceRows,
-  ] = await Promise.all([
-    db
-      .select({
-        id: objects.id,
-        deduplicationKey: objects.deduplicationKey,
-        payload: objects.payload,
-      })
-      .from(objects)
-      .where(eq(objects.orgId, orgId)),
-    db
-      .select({
-        id: claims.id,
-        subjectId: claims.subjectId,
-        objectId: claims.objectId,
-        predicate: claims.predicate,
-        aggregatedConfidence: claims.aggregatedConfidence,
-        validFrom: claims.validFrom,
-        validTo: claims.validTo,
-        status: claims.status,
-      })
-      .from(claims)
-      .where(eq(claims.orgId, orgId)),
-    db
-      .select({
-        claimId: claimEvidence.claimId,
-        sourceType: claimEvidence.sourceType,
-        logicalSourceKey: claimEvidence.logicalSourceKey,
-      })
-      .from(claimEvidence),
-    db
-      .select({ id: repositories.id, gitUrl: repositories.gitUrl })
-      .from(repositories)
-      .where(eq(repositories.orgId, orgId)),
-    db
-      .select({
-        id: workspaces.id,
-        workspaceRepositoryUrl: workspaces.workspaceRepositoryUrl,
-        createdAt: workspaces.createdAt,
-      })
-      .from(workspaces)
-      .where(eq(workspaces.orgId, orgId)),
-  ])
+  const [objectRows, claimRows, evidenceRows, repoRows, workspaceRows] =
+    await Promise.all([
+      db
+        .select({
+          id: objects.id,
+          deduplicationKey: objects.deduplicationKey,
+          payload: objects.payload,
+        })
+        .from(objects)
+        .where(eq(objects.orgId, orgId)),
+      db
+        .select({
+          id: claims.id,
+          subjectId: claims.subjectId,
+          objectId: claims.objectId,
+          predicate: claims.predicate,
+          aggregatedConfidence: claims.aggregatedConfidence,
+          validFrom: claims.validFrom,
+          validTo: claims.validTo,
+          status: claims.status,
+        })
+        .from(claims)
+        .where(eq(claims.orgId, orgId)),
+      db
+        .select({
+          claimId: claimEvidence.claimId,
+          sourceType: claimEvidence.sourceType,
+          logicalSourceKey: claimEvidence.logicalSourceKey,
+        })
+        .from(claimEvidence),
+      db
+        .select({ id: repositories.id, gitUrl: repositories.gitUrl })
+        .from(repositories)
+        .where(eq(repositories.orgId, orgId)),
+      db
+        .select({
+          id: workspaces.id,
+          workspaceRepositoryUrl: workspaces.workspaceRepositoryUrl,
+          createdAt: workspaces.createdAt,
+        })
+        .from(workspaces)
+        .where(eq(workspaces.orgId, orgId)),
+    ])
 
   const sourceByClaim = new Map<string, string>()
   for (const row of evidenceRows) {
