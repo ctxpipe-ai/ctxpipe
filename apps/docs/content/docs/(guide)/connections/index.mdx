@@ -22,7 +22,7 @@ GitHub is critical because it supports two jobs:
 - It gives ctx| direct access to source code for single-repo and cross-repo code
   search.
 - It provides the target repositories used by other connections, such as
-  Confluence, Slack, and Linear, when external content needs to become
+  Confluence, Slack, Linear, and Notion, when external content needs to become
   repo-backed context.
 
 ## Other connections flow through Git
@@ -31,10 +31,11 @@ For docs and tools outside GitHub, ctx| keeps synced content visible to your
 team. The connection scopes the source first, then syncs selected content into a
 GitHub repository you control.
 
-For example, the Confluence connector lets you choose spaces and pages, while
-the Linear connector lets you choose teams, projects, documents, and
-initiatives. Each connector copies its selected content into a GitHub
-repository, then updates that Git-backed source when upstream content changes.
+For example, the Confluence connector lets you choose spaces and pages, the
+Linear connector lets you choose teams, projects, documents, and initiatives,
+and the Notion connector lets you choose pages and databases. Each connector
+copies its selected content into a GitHub repository, then updates that
+Git-backed source when upstream content changes.
 For Linear, the configuration pull request branch holds the draft
 `linear/config.yaml`, the target branch holds the live YAML after merge, and
 the connection record's `config` stores the repository binding rather than a

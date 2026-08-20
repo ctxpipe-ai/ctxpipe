@@ -55,7 +55,7 @@ managed SaaS at [ctxpipe.ai](https://ctxpipe.ai/early-access).
 | Capability | What it gives you |
 |---|---|
 | Cross-repo code search | Connect multiple repositories and let agents search across the codebase, not just the files currently open in an editor. |
-| Product and engineering connectors | Bring in GitHub and Confluence today, with source material synced into Git-backed context your team can inspect. |
+| Product and engineering connectors | Bring in GitHub, Confluence, Linear, Slack, and Notion, with source material synced into Git-backed context your team can inspect. |
 | Single org-scoped knowledge graph | Turn services, APIs, libraries, decisions, standards, and relationships into one shared graph for the organization. |
 | One MCP for engineering knowledge | Give Cursor, Claude Code, Codex, and custom tools the same [MCP](https://docs.ctxpipe.ai/docs/mcp/mcp-docs) endpoint for ctx\| context. |
 | Chat/MCP UI | Give new team members a place to ask questions about code, systems, and decisions without hunting through repos and docs. See agent interactions via MCP filter. |
@@ -74,7 +74,7 @@ These workflows are available through the `ctxpipe` CLI:
 - Dashboard to see agent activity, patterns, and insights.
 - Proactive insights that surface stale context, missing instructions, and useful
   patterns from agent usage.
-- More product and engineering connectors (Notion, Linear, Jira, Slack, Figma, and many more).
+- More product and engineering connectors (Jira, Figma, and others).
 
 ## Deployment options
 
