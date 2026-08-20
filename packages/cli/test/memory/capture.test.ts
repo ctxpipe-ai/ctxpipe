@@ -401,6 +401,22 @@ describe("memory/capture", () => {
     expect(out).toEqual({})
   })
 
+  it("suppresses Cursor Stop follow-up when loop_count is already 1", () => {
+    const out = formatStopHookOutput(
+      "cursor",
+      {
+        priority: "high",
+        message:
+          "Memory candidates (2 pending). Promote via skills/rules — do not auto-write ADRs from hooks.",
+        candidates: [],
+        surfacedIds: ["abc"],
+        parseErrors: 0,
+      },
+      { status: "completed", loop_count: 1 },
+    )
+    expect(out).toEqual({})
+  })
+
   it("formats Codex Stop output with decision block + reason", () => {
     const out = formatStopHookOutput(
       "codex",
@@ -552,6 +568,10 @@ describe("memory/capture", () => {
     expect(
       formatStopHookOutput("cursor", summary, {}),
     ).toEqual({})
+    const lifecycle = JSON.parse(
+      readFileSync(join(cwd, ".ai", "memory", "events", "lifecycle.json"), "utf8"),
+    ) as { dismissed?: string[] }
+    expect(lifecycle.dismissed).toContain("toolsrc000000001")
   })
 
   it("emits a Cursor follow-up once for a never-shown user-prompt candidate", () => {
@@ -576,5 +596,59 @@ describe("memory/capture", () => {
     expect(second.priority).toBe("low")
     expect(second.candidates).toEqual([])
     expect(formatStopHookOutput("cursor", second, {})).toEqual({})
+  })
+
+  it("does not recapture an injected Cursor Stop follow-up as a new lesson", () => {
+    const cwd = mkdtempSync(join(tmpdir(), "ctxpipe-capture-recapture-"))
+    const firstObserve = observeCapture({
+      host: "cursor",
+      eventType: "beforeSubmitPrompt",
+      cwd,
+      payload: {
+        prompt: "From now on always colocate Zod with routes",
+        sessionId: "recapture",
+      },
+    })
+    expect(firstObserve.wrote).toBe(true)
+    const first = summarizeCapture({ cwd, host: "cursor" })
+    const injected = formatStopHookOutput("cursor", first, {
+      status: "completed",
+      loop_count: 0,
+    })
+    expect(injected.followup_message).toBeTruthy()
+    acknowledgeSurfaced(first.surfacedIds, { cwd })
+
+    const followUpPrompt = String(injected.followup_message)
+    expect(followUpPrompt).toContain("Memory candidates (")
+    expect(
+      observeCapture({
+        host: "cursor",
+        eventType: "beforeSubmitPrompt",
+        cwd,
+        payload: { prompt: followUpPrompt, sessionId: "recapture" },
+      }).wrote,
+    ).toBe(false)
+
+    expect(
+      observeCapture({
+        host: "cursor",
+        eventType: "beforeSubmitPrompt",
+        cwd,
+        payload: {
+          prompt: {
+            content: [{ type: "text", text: followUpPrompt }],
+          },
+          sessionId: "recapture",
+        },
+      }).wrote,
+    ).toBe(false)
+
+    const second = summarizeCapture({ cwd, host: "cursor" })
+    expect(
+      formatStopHookOutput("cursor", second, {
+        status: "completed",
+        loop_count: 1,
+      }),
+    ).toEqual({})
   })
 })
