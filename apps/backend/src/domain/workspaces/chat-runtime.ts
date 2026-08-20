@@ -22,10 +22,13 @@ export const WORKSPACE_CHAT_RUNTIME = {
 /** Port `opencode serve` binds inside the sandbox. Docker must publish it. */
 export const WORKSPACE_CHAT_OPENCODE_PORT = 4096
 
-export const WORKSPACE_CHAT_DOCKER_SANDBOX = {
+export const WORKSPACE_CHAT_DOCKER_SANDBOX: {
+  image: string
+  publishPorts: number[]
+} = {
   image: "node:22",
   publishPorts: [WORKSPACE_CHAT_OPENCODE_PORT],
-} as const
+}
 
 /**
  * Bootstrap must leave `opencode` on PATH. TanStack's adapter spawns
