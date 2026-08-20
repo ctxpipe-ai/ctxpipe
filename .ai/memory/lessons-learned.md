@@ -658,3 +658,9 @@ Highest-priority confirmed rules for agents. Migrated from former `patterns.md` 
 - **Date:** 2026-08-20
 - **Source:** user correction (git-backed workspaces add flow)
 
+### Product row backfills are SQL, not OpenWorkflow enqueue
+- **Rule:** Do not copy `t08_enqueue_scip_migration_workflows` (`INSERT INTO openworkflow.workflow_runs`) for product data backfills. That migration existed to reindex every repo. Dest Workspace create/link is `INSERT` into `workspaces` / `workspace_linked_repositories` only — no job start from `db:migrate`.
+- **Category:** convention
+- **Date:** 2026-08-20
+- **Source:** user correction (git-backed workspaces dest backfill)
+
