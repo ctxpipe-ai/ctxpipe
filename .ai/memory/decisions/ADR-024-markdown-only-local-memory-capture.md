@@ -50,7 +50,7 @@ Observe appends JSON lines under `.ai/memory/events/` (`events/YYYY-MM-DD.jsonl`
 - Cursor project hooks observe **`beforeSubmitPrompt` only** (plus Stop finalize). `afterFileEdit` / `postToolUse` classified MCP schemas, grep output, and test edits as lessons; those events are not installed for Cursor and leftover tool-sourced pending ids are dismissed on summarize.
 - Cursor Stop `followup_message` is injected as a **new user turn**. Observe must ignore that payload (including nested/wrapped prompt shapes). Emitting another `followup_message` when Cursor `loop_count >= 1` would recapture the same text as a new lesson.
 - Cursor Stop `followup_message` is one-shot for never-shown **user-prompt** candidates so promotion turns cannot recapture themselves. Installed Cursor `stop` hooks set `loop_limit: 1` as a backstop (Cursor 3.11 defaults to 5).
-- This monorepo’s project hooks run the in-repo CLI from source (not `npx ctxpipe`). Published 0.3.0 still classifies the follow-up as a lesson; a stale `packages/cli/dist` has the same bug.
+- This monorepo’s project hooks run `.cursor/hooks/memory-capture.sh`: `bun packages/cli/src/cli.ts` directly (no Turbo). If bun is missing, Turbo `build --filter=ctxpipe` must succeed, then `node packages/cli/bin/ctxpipe.js`. Failed/missing Turbo fail-opens (`{}`) instead of executing unverified `dist`. Never `npx ctxpipe`. Published 0.3.0 still classifies the follow-up as a lesson until a CLI release ships the capture fix.
 - ADR-021 remains historical; new work follows this ADR.
 - Backend OpenAI-compatible proxy may remain for other product features; it is not required for local memory recall.
 
