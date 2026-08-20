@@ -47,7 +47,9 @@ Observe appends JSON lines under `.ai/memory/events/` (`events/YYYY-MM-DD.jsonl`
 - Remove AgentMemory supervisor/hydration/`ctxpipe-memory` MCP from default memory init.
 - Retire legacy memory-sync/search/handoff skills in favor of capture/promote skills and the always-apply rule.
 - Observe classifies **user prompt and assistant text only**. It must not mint candidates from tool dumps, Stop follow-up prompts, or promotion writes under durable `.ai/memory/` files.
-- Cursor Stop `followup_message` is one-shot for never-shown **user-prompt** candidates so promotion turns cannot recapture themselves.
+- Cursor Stop `followup_message` is injected as a **new user turn**. Observe must ignore that payload (including nested/wrapped prompt shapes). Emitting another `followup_message` when Cursor `loop_count >= 1` would recapture the same text as a new lesson.
+- Cursor Stop `followup_message` is one-shot for never-shown **user-prompt** candidates so promotion turns cannot recapture themselves. Installed Cursor `stop` hooks set `loop_limit: 1` as a backstop (Cursor 3.11 defaults to 5).
+- This monorepo’s project hooks run the in-repo CLI from source (not `npx ctxpipe`). Published 0.3.0 still classifies the follow-up as a lesson; a stale `packages/cli/dist` has the same bug.
 - ADR-021 remains historical; new work follows this ADR.
 - Backend OpenAI-compatible proxy may remain for other product features; it is not required for local memory recall.
 

@@ -3,22 +3,23 @@
   "hooks": {
     "beforeSubmitPrompt": [
       {
-        "command": "npx -y ctxpipe memory capture observe --host cursor --event beforeSubmitPrompt"
+        "command": "bash .cursor/hooks/memory-capture.sh memory capture observe --host cursor --event beforeSubmitPrompt"
       }
     ],
     "afterFileEdit": [
       {
-        "command": "npx -y ctxpipe memory capture observe --host cursor --event afterFileEdit"
+        "command": "bash .cursor/hooks/memory-capture.sh memory capture observe --host cursor --event afterFileEdit"
       }
     ],
     "postToolUse": [
       {
-        "command": "npx -y ctxpipe memory capture observe --host cursor --event postToolUse"
+        "command": "bash .cursor/hooks/memory-capture.sh memory capture observe --host cursor --event postToolUse"
       }
     ],
     "stop": [
       {
-        "command": "npx -y ctxpipe memory capture summary"
+        "command": "bash .cursor/hooks/memory-capture.sh memory capture finalize --host cursor --event stop",
+        "loop_limit": 1
       }
     ]
   }

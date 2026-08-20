@@ -21,7 +21,9 @@ const CURSOR_HOOKS = {
   afterFileEdit: [{ command: OBSERVE("cursor", "afterFileEdit") }],
   postToolUse: [{ command: OBSERVE("cursor", "postToolUse") }],
   // finalize reads workspace_roots from stdin so user-scoped hooks hit the right repo.
-  stop: [{ command: FINALIZE("cursor", "stop") }],
+  // Cursor 3.11 defaults to 5 auto follow-ups; cap at 1 as a backstop if observe
+  // ever mints the injected follow-up prompt (the root-cause filter is in capture.ts).
+  stop: [{ command: FINALIZE("cursor", "stop"), loop_limit: 1 }],
 }
 
 const CLAUDE_HOOK_BLOCK = {

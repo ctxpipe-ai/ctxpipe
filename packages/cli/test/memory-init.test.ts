@@ -59,13 +59,19 @@ describe("memory init (end-to-end)", () => {
 
     const hooks = JSON.parse(
       readFileSync(join(cwd, ".cursor", "hooks.json"), "utf8"),
-    ) as { hooks?: Record<string, Array<{ command: string }>> }
+    ) as {
+      hooks?: Record<
+        string,
+        Array<{ command: string; loop_limit?: number | null }>
+      >
+    }
     expect(hooks.hooks?.beforeSubmitPrompt?.[0]?.command).toMatch(
       /memory capture observe --host cursor/,
     )
     expect(hooks.hooks?.stop?.[0]?.command).toMatch(
       /memory capture finalize --host cursor --event stop/,
     )
+    expect(hooks.hooks?.stop?.[0]?.loop_limit).toBe(1)
 
     const gitignore = readFileSync(join(cwd, ".gitignore"), "utf8")
     expect(gitignore).toContain(".ai/memory/events/**")

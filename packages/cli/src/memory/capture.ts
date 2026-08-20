@@ -307,13 +307,29 @@ function extractPrompt(payload: Record<string, unknown>): string {
     "transcript",
   ]
   for (const k of keys) {
-    const v = payload[k]
-    if (typeof v === "string" && v.trim()) return v
+    const extracted = extractTextish(payload[k])
+    if (extracted) return extracted
   }
-  const prompt = payload.prompt
-  if (prompt && typeof prompt === "object" && prompt !== null) {
-    const p = prompt as Record<string, unknown>
-    if (typeof p.text === "string") return p.text
+  return ""
+}
+
+/** Pull user-visible text out of Cursor's string or nested { content: [{ text }] } shapes. */
+function extractTextish(value: unknown, depth = 0): string {
+  if (depth > 5 || value == null) return ""
+  if (typeof value === "string") return value.trim() ? value : ""
+  if (typeof value === "number" || typeof value === "boolean") return ""
+  if (Array.isArray(value)) {
+    return value
+      .map((item) => extractTextish(item, depth + 1))
+      .filter(Boolean)
+      .join("\n")
+  }
+  if (typeof value === "object") {
+    const obj = value as Record<string, unknown>
+    for (const key of ["text", "content", "prompt", "message"]) {
+      const nested = extractTextish(obj[key], depth + 1)
+      if (nested) return nested
+    }
   }
   return ""
 }
@@ -471,9 +487,16 @@ export function observeCapture(opts: {
     ...(Array.isArray(opts.payload.file_paths) ? opts.payload.file_paths : []),
   ])
 
+  let payloadBlob = ""
+  try {
+    payloadBlob = JSON.stringify(opts.payload)
+  } catch {
+    payloadBlob = ""
+  }
   if (
     FOLLOWUP_PROMPT_RE.test(promptRaw) ||
-    FOLLOWUP_PROMPT_RE.test(assistantRaw)
+    FOLLOWUP_PROMPT_RE.test(assistantRaw) ||
+    FOLLOWUP_PROMPT_RE.test(payloadBlob)
   ) {
     return { ok: true, wrote: false, candidateCount: 0 }
   }
@@ -606,14 +629,31 @@ export type SummaryResult = {
   parseErrors: number
 }
 
+function stopHookLoopCount(payload: Record<string, unknown>): number {
+  const raw = payload.loop_count ?? payload.loopCount
+  if (typeof raw === "number" && Number.isFinite(raw)) return raw
+  if (typeof raw === "string" && raw.trim()) {
+    const n = Number(raw)
+    if (Number.isFinite(n)) return n
+  }
+  return 0
+}
+
+/** True when this Stop is already a hook-injected continuation (do not emit again). */
+function isStopHookContinuation(payload: Record<string, unknown>): boolean {
+  if (payload.stop_hook_active === true || payload.stopHookActive === true) {
+    return true
+  }
+  // Cursor 3.11+ sends loop_count on stop (starts at 0; increments after each follow-up).
+  return stopHookLoopCount(payload) >= 1
+}
+
 /** Host-specific Stop/summary stdout. Empty object = allow stop / no follow-up. */
 export function formatStopHookOutput(
   host: CaptureHost,
   result: SummaryResult,
   payload: Record<string, unknown> = {},
 ): Record<string, unknown> {
-  const stopActive =
-    payload.stop_hook_active === true || payload.stopHookActive === true
   const cursorStatus =
     typeof payload.status === "string" ? payload.status.toLowerCase() : ""
   // Cursor ignores follow-ups on aborted/error stops — do not emit or ack.
@@ -623,7 +663,11 @@ export function formatStopHookOutput(
   ) {
     return {}
   }
-  if (stopActive || result.priority === "low" || !result.message.trim()) {
+  if (
+    isStopHookContinuation(payload) ||
+    result.priority === "low" ||
+    !result.message.trim()
+  ) {
     return {}
   }
   if (host === "claude") {
