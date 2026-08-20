@@ -468,24 +468,25 @@ jobs:
 
             smoke_test_preview_ui() {
               local backend_url="https://backend-pr-${PR_NUMBER}.up.railway.app"
-              local deadline html js_path js
+              local deadline html js_path
               deadline=$(( $(date +%s) + 180 ))
               echo "Smoke-testing preview UI via $backend_url (workspace routes, not production /repositories)"
               while true; do
-                html="$(curl -fsS --max-time 25 "$backend_url/" || true)"
+                html="$(curl -fsS --compressed --max-time 25 "$backend_url/" || true)"
                 js_path="$(printf '%s' "$html" | grep -oE '/assets/main-[A-Za-z0-9._-]+\.js' | head -1 || true)"
+                # Fixed-string match; $workspaceSlug must stay single-quoted (set -u).
+                if printf '%s' "$html" | grep -Fq 'ws/$workspaceSlug'; then
+                  echo "Preview UI smoke test passed (html ${js_path:-bundle} includes workspace routes)"
+                  return 0
+                fi
                 if [[ -n "$js_path" ]]; then
-                  js="$(curl -fsS --max-time 25 "${backend_url}${js_path}" || true)"
-                  if printf '%s' "$js" | grep -q '_orgSlug.ws._workspaceSlug'; then
-                    echo "Preview UI smoke test passed ($js_path includes workspace routes)"
-                    return 0
-                  fi
-                  echo "Preview UI JS $js_path still looks like production (no workspace routes yet)" >&2
+                  echo "Preview UI HTML still looks like production (js=$js_path; no ws/\$workspaceSlug route)" >&2
                 else
                   echo "Preview UI HTML had no main JS bundle yet" >&2
                 fi
                 if (( $(date +%s) >= deadline )); then
                   echo "ERROR: preview is still serving production UI at $backend_url" >&2
+                  printf '%s\n' "$html" | head -c 500 >&2 || true
                   return 1
                 fi
                 sleep 8
