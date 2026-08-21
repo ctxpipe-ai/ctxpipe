@@ -20,7 +20,7 @@ A second `lockPool` checked out a `PoolClient` and held **session** `pg_advisory
 
 - Concurrent job claims: one insert wins; the loser resumes or returns without creating a second provider.
 - List or destroy failure on user delete does not delete the workspace row (409 when a provider id remains).
-- RLS policies can be added later without changing the GUC transaction shape; `getSystemDb()` tenant leaks must be fixed first.
+- RLS policies can be added later without changing the GUC transaction shape; `getSystemDb()` tenant leaks must be fixed first. Enablement landed in [ADR-028](ADR-028-postgres-rls-app-role.md) (`ENABLE` on `ctxpipe_app`, no FORCE).
 - LangGraph / OpenWorkflow / codesearch pools are unchanged.
 
 ## Alternatives Considered

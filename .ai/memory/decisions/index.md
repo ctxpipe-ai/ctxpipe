@@ -36,3 +36,4 @@ Parent: [`.ai/memory/README.md`](../README.md).
 | [ADR-025](ADR-025-slack-connector-git-native-mirror.md) | Slack connector as intent-based git-native capture | Accepted |
 | [ADR-026](ADR-026-pierre-files-pane-chrome.md) | Pierre trees/diffs as Workspace Files explorer chrome | Accepted |
 | [ADR-027](ADR-027-short-org-sql-unique-sandbox-rows.md) | Short org SQL transactions and unique sandbox rows | Accepted |
+| [ADR-028](ADR-028-postgres-rls-app-role.md) | Postgres RLS with a non-owner app role | Accepted |
