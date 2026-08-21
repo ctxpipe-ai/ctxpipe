@@ -62,7 +62,7 @@ jobs:
           elif [[ "$EVENT_NAME" == "push" ]]; then
             OWNER="${{ github.repository_owner }}"
             BRANCH="${{ github.ref_name }}"
-            PR_NUMBER="$(gh api "repos/${REPO}/pulls" -f head="${OWNER}:${BRANCH}" -f state=open --jq '.[0].number // empty')"
+            PR_NUMBER="$(gh api -X GET "repos/${REPO}/pulls?state=open&head=${OWNER}:${BRANCH}" --jq '.[0].number // empty')"
             HEAD_SHA="${{ github.sha }}"
             if [[ -z "$PR_NUMBER" ]]; then
               echo "No open PR for ${OWNER}:${BRANCH}; skipping preview deploy"
