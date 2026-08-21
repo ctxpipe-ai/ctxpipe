@@ -10,6 +10,7 @@ config({ path: resolve(__dirname, ".env") })
 import { defineConfig } from "@openworkflow/cli"
 import { BackendPostgres } from "openworkflow/postgres"
 import { parseEnv } from "./src/config/env.js"
+import { assertSeededRlsCanary } from "./src/db/assert-rls-canary.js"
 import { assertRuntimeRoleDoesNotBypassRls } from "./src/db/assert-runtime-role.js"
 import { initDb } from "./src/db/client.js"
 import {
@@ -18,6 +19,7 @@ import {
   initEvlog,
 } from "./src/observability/logger.js"
 import { initOtel, shutdownOtel } from "./src/observability/otel.js"
+
 const databaseUrl = process.env.DATABASE_URL
 if (!databaseUrl) throw new Error("DATABASE_URL is required for the worker")
 initDb(databaseUrl)
@@ -25,6 +27,7 @@ const env = parseEnv(process.env as Record<string, string | undefined>)
 initOtel(env)
 initEvlog()
 await assertRuntimeRoleDoesNotBypassRls(databaseUrl)
+await assertSeededRlsCanary(databaseUrl)
 
 let shuttingDown = false
 async function shutdownWorkerObservability() {

@@ -40,6 +40,25 @@ describe("checkoutKeyFromAuth", () => {
     expect(checkoutKeyFromAuth(auth as VerifiedToken)).toBe("default")
   })
 
+  it("returns null when the JWT omits orgId", async () => {
+    const token = await new SignJWT({
+      principal: "service",
+    })
+      .setProtectedHeader({ alg: "HS256" })
+      .setSubject("repo:repo_test")
+      .setIssuer("ctxpipe-test")
+      .setAudience("codesearch")
+      .setExpirationTime("5m")
+      .sign(new TextEncoder().encode(env.AUTH_SECRET))
+
+    await expect(
+      verifyCodesearchJwt({
+        env,
+        authorizationHeader: `Bearer ${token}`,
+      }),
+    ).resolves.toBeNull()
+  })
+
   it("derives the workspace checkout from a verified JWT workspaceId", async () => {
     const auth = await verifyCodesearchJwt({
       env,

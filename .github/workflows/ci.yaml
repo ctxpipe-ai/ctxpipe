@@ -107,3 +107,41 @@ jobs:
           DATABASE_URL: postgresql://ctxpipe:ctxpipe@localhost:5432/postgres
           MIGRATE_BASE_REF: origin/main
         run: bash scripts/ci-migrate.sh
+
+  rls:
+    name: RLS isolation (ctxpipe_app)
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: pgvector/pgvector:pg17
+        env:
+          POSTGRES_USER: ctxpipe
+          POSTGRES_PASSWORD: ctxpipe
+          POSTGRES_DB: ctxpipe
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U ctxpipe -d ctxpipe"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+    steps:
+      - uses: actions/checkout@v6
+      - uses: pnpm/action-setup@v6
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 22
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - name: Migrate as owner and provision ctxpipe_app
+        env:
+          DATABASE_URL: postgresql://ctxpipe:ctxpipe@localhost:5432/ctxpipe
+          DATABASE_APP_PASSWORD: ctxpipe
+        working-directory: apps/backend
+        run: |
+          pnpm exec drizzle-kit migrate
+          pnpm exec tsx src/db/provision-app-role-cli.ts
+      - name: Isolation tests as ctxpipe_app
+        env:
+          DATABASE_URL: postgresql://ctxpipe_app:ctxpipe@localhost:5432/ctxpipe
+        run: pnpm --filter @ctxpipe/backend test:rls
