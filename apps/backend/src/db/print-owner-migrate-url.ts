@@ -1,8 +1,8 @@
 import { config } from "dotenv"
 import { ownerUrlForMigrate } from "./owner-migrate-url.js"
 
-config({ path: ".env.local" })
-config({ path: ".env" })
+config({ path: ".env.local", quiet: true })
+config({ path: ".env", quiet: true })
 
 const url = process.env.DATABASE_URL
 if (!url) {
