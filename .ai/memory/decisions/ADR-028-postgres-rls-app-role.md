@@ -4,7 +4,7 @@
 
 ## Context
 
-[ADR-027](ADR-027-short-org-sql-unique-sandbox-rows.md) kept org SQL as short `SET LOCAL app.organization_id` transactions so policies could read `current_setting('app.organization_id', true)`. Tenant tables still used `getSystemDb()` and the runtime role was the table owner (`neondb_owner` / Compose `ctxpipe` / Aurora master `ctxpipe`). Owner roles inherit `BYPASSRLS`, so `ENABLE ROW LEVEL SECURITY` alone would be theater, and `FORCE ROW LEVEL SECURITY` is inert on those owners (Neon especially). Drizzle kit cannot emit `FORCE`. A `SECURITY DEFINER` webhook helper owned by the same role as the app would also see nothing useful under FORCE.
+[ADR-027](ADR-027-short-org-sql-unique-sandbox-rows.md) kept org SQL as short `SET LOCAL app.organization_id` transactions so policies could read `current_setting('app.organization_id', true)`. Tenant tables still used `getSystemDb()` and the runtime role was the table owner (`neondb_owner` / Compose `ctxpipe` / Aurora master `ctxpipe`). Owner roles inherit `BYPASSRLS` (`neondb_owner`, Compose/Aurora master `ctxpipe` as superuser), so `ENABLE ROW LEVEL SECURITY` alone would be theater on the migrate URL, and `FORCE ROW LEVEL SECURITY` is inert on those same owners. Drizzle kit cannot emit `FORCE`. ENABLE binds because the runtime role is not the owner. A `SECURITY DEFINER` webhook helper owned by the same role as the app would also see nothing useful under FORCE.
 
 AWS self-hosters must keep the existing upgrade path: bump `@ctxpipe/aws-cdk` and `cdk deploy`. No new `CtxPipe` props, no operator `psql`, no second connection string in their CDK app.
 
@@ -30,7 +30,7 @@ AWS self-hosters must keep the existing upgrade path: bump `@ctxpipe/aws-cdk` an
 
 ## Alternatives considered
 
-- **FORCE on the owner role** — Rejected; Neon `neondb_owner` inherits `BYPASSRLS`, so FORCE is inert in prod/PR preview and would only bind on Compose.
+- **FORCE on the owner role** — Rejected; the migrate owners inherit `BYPASSRLS`, so FORCE is inert on Neon and on Compose/Aurora `ctxpipe`. ENABLE binds on `ctxpipe_app` because that role is not the owner and has no `BYPASSRLS`.
 - **SECURITY DEFINER directory/webhook functions** — Rejected; same-owner DEFINER does not survive FORCE and is unnecessary once the directory table is unRLS’d.
 - **New `CtxPipe` props / operator `psql` / a second URL in the CDK app** — Rejected; the construct rewrites the existing runtime secret.
 - **`SET SESSION` or `app.rls_bypass`** — Rejected; transaction-mode poolers drop session GUCs, and a bypass GUC is another hole.
