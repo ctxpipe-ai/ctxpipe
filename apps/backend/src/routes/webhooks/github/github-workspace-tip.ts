@@ -1,5 +1,5 @@
 import type { Env } from "../../../config/env.js"
-import { assertNotInOrgDbContext } from "../../../db/client.js"
+import { assertNotInOrgDbContext, withOrgDbContext } from "../../../db/client.js"
 import {
   applyResolvedTipsForMatchingLinked,
   applyResolvedTipsForMatchingWorkspaces,
@@ -163,13 +163,17 @@ export async function persistWorkspaceTipsOnDefaultBranchPush(input: {
   resolveTip: (fullName: string, ref: string) => Promise<string | null>
 }): Promise<number> {
   void input.payloadAfter
-  const workspaces = await listOrgWorkspaces(input.orgId)
+  const workspaces = await withOrgDbContext(input.orgId, () =>
+    listOrgWorkspaces(input.orgId),
+  )
+  assertNotInOrgDbContext()
   return applyResolvedTipsForMatchingWorkspaces({
     repoFullName: input.repoFullName,
     defaultBranch: input.defaultBranch,
     workspaces,
     resolveTip: input.resolveTip,
-    persist: persistResolvedDesiredSha,
+    persist: (row) =>
+      withOrgDbContext(input.orgId, () => persistResolvedDesiredSha(row)),
   })
 }
 
@@ -180,13 +184,17 @@ export async function persistLinkedTipsOnRefPush(input: {
   defaultBranch: string
   resolveTip: (fullName: string, ref: string) => Promise<string | null>
 }): Promise<Array<{ linkedId: string; resolvedTip: string }>> {
-  const linked = await listOrgLinkedRepositories(input.orgId)
+  const linked = await withOrgDbContext(input.orgId, () =>
+    listOrgLinkedRepositories(input.orgId),
+  )
+  assertNotInOrgDbContext()
   return applyResolvedTipsForMatchingLinked({
     repoFullName: input.repoFullName,
     webhookRef: input.webhookRef,
     defaultBranch: input.defaultBranch,
     linked,
     resolveTip: input.resolveTip,
-    persist: persistLinkedDesiredSha,
+    persist: (row) =>
+      withOrgDbContext(input.orgId, () => persistLinkedDesiredSha(row)),
   })
 }

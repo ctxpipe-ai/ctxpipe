@@ -3,10 +3,21 @@ import { beforeEach, describe, expect, it, vi } from "vitest"
 const listOrgWorkspacesMock = vi.hoisted(() => vi.fn())
 const persistResolvedDesiredShaMock = vi.hoisted(() => vi.fn())
 const getInstallationOctokitForOrgMock = vi.hoisted(() => vi.fn())
+const withOrgDbContextMock = vi.hoisted(() =>
+  vi.fn(async (_orgId: string, fn: () => unknown) => fn()),
+)
+const assertNotInOrgDbContextMock = vi.hoisted(() => vi.fn())
+
+vi.mock("../../../db/client.js", () => ({
+  withOrgDbContext: withOrgDbContextMock,
+  assertNotInOrgDbContext: assertNotInOrgDbContextMock,
+}))
 
 vi.mock("../../../models/workspaces.js", () => ({
   listOrgWorkspaces: listOrgWorkspacesMock,
   persistResolvedDesiredSha: persistResolvedDesiredShaMock,
+  listOrgLinkedRepositories: vi.fn().mockResolvedValue([]),
+  persistLinkedDesiredSha: vi.fn(),
 }))
 
 vi.mock("../../../models/github-installation.js", () => ({
@@ -22,6 +33,8 @@ import {
 describe("persistWorkspaceTipsOnDefaultBranchPush", () => {
   beforeEach(() => {
     vi.clearAllMocks()
+    withOrgDbContextMock.mockImplementation(async (_orgId, fn) => fn())
+    assertNotInOrgDbContextMock.mockReset()
   })
 
   it("persists the resolved tip and ignores payload after", async () => {
@@ -56,6 +69,43 @@ describe("persistWorkspaceTipsOnDefaultBranchPush", () => {
     expect(
       persistResolvedDesiredShaMock.mock.calls[0]?.[0].resolvedTip,
     ).not.toBe("do-not-persist-me")
+  })
+
+  it("lists in an org tx, resolves GitHub over HTTP, then persists in a new org tx", async () => {
+    const order: string[] = []
+    withOrgDbContextMock.mockImplementation(async (_orgId, fn) => {
+      order.push("tx")
+      return fn()
+    })
+    listOrgWorkspacesMock.mockImplementation(async () => {
+      order.push("list")
+      return [
+        {
+          id: "ws_1",
+          workspaceRepositoryUrl: "https://github.com/acme/docs.git",
+          desiredGeneration: 1,
+          desiredSha: null,
+        },
+      ]
+    })
+    persistResolvedDesiredShaMock.mockImplementation(async () => {
+      order.push("persist")
+      return true
+    })
+    const resolveTip = vi.fn(async () => {
+      order.push("http")
+      return "tip"
+    })
+
+    await persistWorkspaceTipsOnDefaultBranchPush({
+      orgId: "org_1",
+      repoFullName: "acme/docs",
+      defaultBranch: "main",
+      resolveTip,
+    })
+
+    expect(order).toEqual(["tx", "list", "http", "tx", "persist"])
+    expect(assertNotInOrgDbContextMock).toHaveBeenCalled()
   })
 })
 
