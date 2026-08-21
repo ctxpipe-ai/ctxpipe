@@ -49,6 +49,8 @@ describe("getOrgDb ambient-context audit", () => {
     expect(workspaces).toMatch(
       /persistWriteStatus[\s\S]*eq\(workspaces\.orgId, orgId\)/,
     )
-    expect(workspaces).toMatch(/eq\(workspaceSandboxInstances\.orgId, orgId\)/)
+    expect(workspaces).toMatch(
+      /eq\(workspaceSandboxInstances\.orgId, scopedOrgId\)/,
+    )
   })
 })
