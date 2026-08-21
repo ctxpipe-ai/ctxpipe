@@ -8,6 +8,21 @@ const getTargetMock = vi.hoisted(() => vi.fn())
 const bindRepositoryMock = vi.hoisted(() => vi.fn())
 const enqueueIngestionMock = vi.hoisted(() => vi.fn())
 const assertOAuthConfiguredMock = vi.hoisted(() => vi.fn())
+const exchangeOAuthCodeMock = vi.hoisted(() => vi.fn())
+const verifyInstallationMock = vi.hoisted(() => vi.fn())
+const upsertConnectionMock = vi.hoisted(() => vi.fn())
+const SlackOAuthMissingScopesErrorMock = vi.hoisted(
+  () =>
+    class SlackOAuthMissingScopesError extends Error {
+      readonly missingScopes: string[]
+
+      constructor(missingScopes: string[]) {
+        super(`Missing Slack scopes: ${missingScopes.join(", ")}`)
+        this.name = "SlackOAuthMissingScopesError"
+        this.missingScopes = missingScopes
+      }
+    },
+)
 const SlackRepositoryNotFoundErrorMock = vi.hoisted(
   () =>
     class SlackRepositoryNotFoundError extends Error {
@@ -40,7 +55,7 @@ vi.mock("../../models/slack-connector.js", () => ({
   SLACK_SETUP_PHASES: ["draft", "live"] as const,
   SlackRepositoryNotFoundError: SlackRepositoryNotFoundErrorMock,
   SlackTeamAlreadyConnectedError: class SlackTeamAlreadyConnectedError extends Error {},
-  upsertSlackConnectionFromOAuth: vi.fn(),
+  upsertSlackConnectionFromOAuth: upsertConnectionMock,
 }))
 vi.mock("../../observability/logger.js", () => ({
   getLogger: () => ({ error: vi.fn(), info: vi.fn(), warn: vi.fn() }),
@@ -50,14 +65,21 @@ vi.mock("../../openworkflow/enqueue-repository-ingestion.js", () => ({
 }))
 vi.mock("../../services/slack/client.js", () => ({
   assertSlackOAuthConfigured: assertOAuthConfiguredMock,
-  exchangeSlackOAuthCode: vi.fn(),
+  botTokenFromConnection: vi.fn(() => "xoxb-test"),
+  exchangeSlackOAuthCode: exchangeOAuthCodeMock,
   fetchSlackUserProfile: vi.fn(),
   getSlackOAuthAuthorizeUrl: vi.fn(
-    () => "https://slack.com/oauth/v2/authorize",
+    ({ state }: { state: string }) =>
+      `https://slack.com/oauth/v2/authorize?state=${state}`,
   ),
+  SlackOAuthMissingScopesError: SlackOAuthMissingScopesErrorMock,
+  verifySlackInstallation: verifyInstallationMock,
 }))
 
-import { slackConnectorRoutes } from "./connectors-slack.js"
+import {
+  slackConnectorRoutes,
+  slackOAuthCallbackRoutes,
+} from "./connectors-slack.js"
 
 const connection = {
   id: "con_1",
@@ -78,6 +100,10 @@ function testApp() {
     await next()
   })
   app.route("/:orgSlug/api/v1/connectors/slack", slackConnectorRoutes as never)
+  app.route(
+    "/api/v1/connectors/slack",
+    slackOAuthCallbackRoutes as never,
+  )
   return app
 }
 
@@ -107,6 +133,17 @@ describe("Slack connector routes", () => {
       branch: "main",
       enabled: true,
       setupPhase: "live",
+    })
+    verifyInstallationMock.mockResolvedValue({
+      appId: "A_CTXPIPE",
+      storedTeamId: "T_TRU",
+      storedBotUserId: "U_BOT",
+      reportedTeamId: "T_TRU",
+      reportedBotUserId: "U_BOT",
+      botId: "B_BOT",
+      grantedScopes: ["app_mentions:read", "chat:write"],
+      missingScopes: ["channels:history"],
+      identityMatches: true,
     })
   })
 
@@ -153,6 +190,53 @@ describe("Slack connector routes", () => {
     await expect(response.json()).resolves.toMatchObject({
       code: "slack_oauth_not_configured",
     })
+  })
+
+  it("verifies the live Slack token without returning the token", async () => {
+    const response = await testApp().request(
+      "/acme/api/v1/connectors/slack/verify?connectionId=con_1",
+      { method: "POST" },
+    )
+
+    expect(response.status).toBe(200)
+    const result = await response.json()
+    expect(result).toMatchObject({
+      appId: "A_CTXPIPE",
+      storedTeamId: "T_TRU",
+      reportedTeamId: "T_TRU",
+      grantedScopes: ["app_mentions:read", "chat:write"],
+      missingScopes: ["channels:history"],
+      identityMatches: true,
+    })
+    expect(JSON.stringify(result)).not.toContain("xoxb-test")
+    expect(verifyInstallationMock).toHaveBeenCalledWith({
+      connection,
+      botToken: "xoxb-test",
+    })
+  })
+
+  it("relays missing OAuth scopes without persisting the token", async () => {
+    const startResponse = await testApp().request(
+      "/acme/api/v1/connectors/slack/oauth/start",
+    )
+    const { authorizationUrl } = (await startResponse.json()) as {
+      authorizationUrl: string
+    }
+    const state = new URL(authorizationUrl).searchParams.get("state")
+    expect(state).toBeTruthy()
+    exchangeOAuthCodeMock.mockRejectedValue(
+      new SlackOAuthMissingScopesErrorMock(["app_mentions:read"]),
+    )
+
+    const response = await testApp().request(
+      `/api/v1/connectors/slack/oauth/callback?code=oauth-code&state=${encodeURIComponent(state ?? "")}`,
+    )
+
+    expect(response.status).toBe(400)
+    expect(await response.text()).toContain(
+      "Slack did not grant required permissions: app_mentions:read",
+    )
+    expect(upsertConnectionMock).not.toHaveBeenCalled()
   })
 
   it("binds a context repository and reports the connector as live", async () => {

@@ -4,7 +4,11 @@ import {
   parseSlackConnectionStored,
 } from "../../lib/connection-config.js"
 import type { SlackConnectionShape } from "../../models/connection-rows.js"
-import { slackBotScopeString } from "./scopes.js"
+import {
+  missingSlackBotScopes,
+  parseSlackScopes,
+  slackBotScopeString,
+} from "./scopes.js"
 
 const SLACK_API = "https://slack.com/api"
 
@@ -35,6 +39,70 @@ export class SlackApiError extends Error {
     this.slackError = input.slackError
     this.status = input.status
     this.retryAfterSeconds = input.retryAfterSeconds
+  }
+}
+
+export class SlackOAuthMissingScopesError extends Error {
+  readonly missingScopes: string[]
+
+  constructor(missingScopes: string[]) {
+    super(
+      `Slack OAuth token is missing required bot scopes: ${missingScopes.join(", ")}`,
+    )
+    this.name = "SlackOAuthMissingScopesError"
+    this.missingScopes = missingScopes
+  }
+}
+
+export type SlackInstallationVerification = {
+  appId: string | null
+  storedTeamId: string | null
+  storedBotUserId: string | null
+  reportedTeamId: string | null
+  reportedBotUserId: string | null
+  botId: string | null
+  grantedScopes: string[]
+  missingScopes: string[]
+  identityMatches: boolean
+}
+
+export async function verifySlackInstallation(input: {
+  connection: SlackConnectionShape
+  botToken: string
+}): Promise<SlackInstallationVerification> {
+  const res = await fetch(`${SLACK_API}/auth.test`, {
+    method: "POST",
+    headers: { authorization: `Bearer ${input.botToken}` },
+  })
+  const json = (await res.json()) as {
+    ok: boolean
+    error?: string
+    team_id?: string
+    user_id?: string
+    bot_id?: string
+  }
+  if (!res.ok || !json.ok) {
+    throw new SlackApiError({
+      slackError: json.error ?? `http_${res.status}`,
+      status: res.status,
+    })
+  }
+
+  const grantedScopes = parseSlackScopes(res.headers.get("x-oauth-scopes"))
+  const reportedTeamId = json.team_id ?? null
+  const reportedBotUserId = json.user_id ?? null
+  return {
+    appId: input.connection.appId,
+    storedTeamId: input.connection.teamId,
+    storedBotUserId: input.connection.botUserId,
+    reportedTeamId,
+    reportedBotUserId,
+    botId: json.bot_id ?? null,
+    grantedScopes,
+    missingScopes: missingSlackBotScopes(grantedScopes),
+    identityMatches:
+      reportedTeamId === input.connection.teamId &&
+      reportedBotUserId === input.connection.botUserId,
   }
 }
 
@@ -86,6 +154,10 @@ export async function exchangeSlackOAuthCode(input: {
     throw new Error(
       `Slack OAuth token exchange failed (${json.error ?? res.status})`,
     )
+  }
+  const missingScopes = missingSlackBotScopes(parseSlackScopes(json.scope))
+  if (missingScopes.length > 0) {
+    throw new SlackOAuthMissingScopesError(missingScopes)
   }
   return json
 }

@@ -8,6 +8,7 @@ const revokeMock = vi.hoisted(() => vi.fn())
 const runWorkflowMock = vi.hoisted(() => vi.fn())
 const verifySignatureMock = vi.hoisted(() => vi.fn())
 const postStatusMock = vi.hoisted(() => vi.fn())
+const logInfoMock = vi.hoisted(() => vi.fn())
 
 vi.mock("../../../models/slack-connector.js", () => ({
   getSlackConnectionByTeamId: getConnectionMock,
@@ -17,7 +18,7 @@ vi.mock("../../../models/slack-connector.js", () => ({
 vi.mock("../../../observability/logger.js", () => ({
   getLogger: () => ({
     error: vi.fn(),
-    info: vi.fn(),
+    info: logInfoMock,
     warn: vi.fn(),
   }),
 }))
@@ -66,6 +67,7 @@ function mentionRequest(overrides?: {
     },
     body: JSON.stringify({
       type: "event_callback",
+      api_app_id: "A_CTXPIPE",
       team_id: "T1",
       event_id: "Ev1",
       event: {
@@ -122,6 +124,12 @@ describe("Slack webhook", () => {
       },
     )
     expect(postStatusMock).not.toHaveBeenCalled()
+    expect(logInfoMock).toHaveBeenCalledWith("slack_webhook_event_received", {
+      apiAppId: "A_CTXPIPE",
+      teamId: "T1",
+      eventType: "app_mention",
+      eventId: "Ev1",
+    })
   })
 
   it("posts a terminal failure after 200 when enqueue fails", async () => {
