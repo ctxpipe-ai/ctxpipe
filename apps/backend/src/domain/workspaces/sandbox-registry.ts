@@ -227,7 +227,9 @@ async function destroyListedSandboxesForConversation(
   ])
   let destroyed = 0
   for (const id of ids) {
-    if (await destroyWorkspaceSandbox(id)) destroyed += 1
+    const orgId =
+      options?.orgId ?? stored.find((row) => row.id === id)?.orgId ?? undefined
+    if (await destroyWorkspaceSandbox(id, orgId)) destroyed += 1
   }
   return destroyed
 }
@@ -285,7 +287,9 @@ async function destroyListedSandboxesForWorkspace(
   ])
   let destroyed = 0
   for (const id of ids) {
-    if (await destroyWorkspaceSandbox(id)) destroyed += 1
+    const orgId =
+      options?.orgId ?? stored.find((row) => row.id === id)?.orgId ?? undefined
+    if (await destroyWorkspaceSandbox(id, orgId)) destroyed += 1
   }
   return destroyed
 }
@@ -327,15 +331,17 @@ function destroyFailedRecord(
   }
 }
 
-export async function destroyWorkspaceSandbox(id: string): Promise<boolean> {
+export async function destroyWorkspaceSandbox(
+  id: string,
+  orgId?: string | null,
+): Promise<boolean> {
   assertNotInOrgDbContext()
   const existing = sandboxes.get(id)
-  const stored = await getSandboxInstance(id, existing?.orgId).catch(
-    (error) => {
-      logSandboxError("get-sandbox-instance", id, error)
-      return null
-    },
-  )
+  const scopedOrgId = existing?.orgId ?? orgId ?? null
+  const stored = await getSandboxInstance(id, scopedOrgId).catch((error) => {
+    logSandboxError("get-sandbox-instance", id, error)
+    return null
+  })
   const handleRow = existing ?? findHandleForStored(stored)
   if (handleRow?.destroy) {
     try {
@@ -345,7 +351,10 @@ export async function destroyWorkspaceSandbox(id: string): Promise<boolean> {
       const failed = destroyFailedRecord(handleRow, stored)
       if (failed) {
         try {
-          await persistSandboxInstance(failed)
+          await persistSandboxInstance({
+            ...failed,
+            orgId: failed.orgId ?? scopedOrgId,
+          })
         } catch (persistError) {
           logSandboxError("persist-sandbox-instance", failed.id, persistError)
         }
@@ -367,7 +376,10 @@ export async function destroyWorkspaceSandbox(id: string): Promise<boolean> {
       const failed = destroyFailedRecord(undefined, stored)
       if (failed) {
         try {
-          await persistSandboxInstance(failed)
+          await persistSandboxInstance({
+            ...failed,
+            orgId: failed.orgId ?? scopedOrgId,
+          })
         } catch (persistError) {
           logSandboxError("persist-sandbox-instance", failed.id, persistError)
         }
@@ -376,7 +388,10 @@ export async function destroyWorkspaceSandbox(id: string): Promise<boolean> {
     }
   }
   try {
-    await deleteSandboxInstance(id, existing?.orgId ?? stored?.orgId)
+    await deleteSandboxInstance(
+      id,
+      existing?.orgId ?? stored?.orgId ?? scopedOrgId,
+    )
   } catch (error) {
     logSandboxError("delete-sandbox-instance", id, error)
     return handleRow != null || existing != null

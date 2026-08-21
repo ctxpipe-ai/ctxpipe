@@ -281,11 +281,55 @@ describe("sandbox registry GC", () => {
     await expect(destroySandboxesForConversation("conv_orphan")).resolves.toBe(
       1,
     )
-    expect(deleteSandboxInstance).toHaveBeenCalledWith("chat-orphan", undefined)
+    expect(getSandboxInstance).toHaveBeenCalledWith("chat-orphan", "org_1")
+    expect(deleteSandboxInstance).toHaveBeenCalledWith("chat-orphan", "org_1")
     await expect(
       destroySandboxesForWorkspace("ws_orphan_job", "job"),
     ).resolves.toBe(1)
-    expect(deleteSandboxInstance).toHaveBeenCalledWith("job-orphan", undefined)
+    expect(getSandboxInstance).toHaveBeenCalledWith("job-orphan", "org_1")
+    expect(deleteSandboxInstance).toHaveBeenCalledWith("job-orphan", "org_1")
+  })
+
+  it("destroys detached workspace sandboxes with the listed orgId when this process has no handle", async () => {
+    const stored = {
+      id: "job-orphan",
+      kind: "job" as const,
+      orgId: "org_1",
+      workspaceId: "ws_del",
+      provider: "docker",
+      providerSandboxId: "sbx_live",
+      state: "live" as const,
+      lastHeartbeatAt: new Date(),
+    }
+    listSandboxInstances
+      .mockResolvedValueOnce([stored])
+      .mockResolvedValueOnce([])
+    getSandboxInstance.mockImplementation(
+      async (
+        id?: string,
+        orgId?: string | null,
+      ): Promise<SandboxInstanceRecord | null> => {
+        if (!orgId) throw new Error("sandbox orgId is required")
+        return id === stored.id ? stored : null
+      },
+    )
+    deleteSandboxInstance.mockImplementation(
+      async (_id: string, orgId?: string | null) => {
+        if (!orgId) throw new Error("sandbox orgId is required")
+      },
+    )
+    await expect(
+      withDestroyedWorkspaceSandboxes(
+        { workspaceId: "ws_del", orgId: "org_1" },
+        async (remaining) => remaining,
+      ),
+    ).resolves.toEqual([])
+    expect(getSandboxInstance).toHaveBeenCalledWith("job-orphan", "org_1")
+    expect(destroyDetachedProviderSandbox).toHaveBeenCalledWith({
+      provider: "docker",
+      providerSandboxId: "sbx_live",
+    })
+    expect(deleteSandboxInstance).toHaveBeenCalledWith("job-orphan", "org_1")
   })
 
   it("lists then commits before the caller inspects remaining rows", async () => {
