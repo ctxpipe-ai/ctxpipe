@@ -10,9 +10,10 @@ on:
       - synchronize
       - ready_for_review
   # Cursor Cloud Agent pushes often skip pull_request synchronize. Push still
-  # runs CI on the branch; concurrency cancels the duplicate when both fire.
+  # runs CI on every branch; concurrency cancels the duplicate when both fire.
+  # branches must be listed (not only tags-ignore) or GitHub skips branch pushes.
   push:
-    tags-ignore:
+    branches:
       - "**"
 
 concurrency:

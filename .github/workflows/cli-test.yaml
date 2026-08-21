@@ -10,7 +10,7 @@ on:
       - synchronize
       - ready_for_review
   push:
-    tags-ignore:
+    branches:
       - "**"
 
 concurrency:
