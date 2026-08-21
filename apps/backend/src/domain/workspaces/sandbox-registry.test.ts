@@ -55,11 +55,18 @@ const listSandboxInstances = vi.hoisted(() =>
     }): Promise<SandboxInstanceRecord[]> => [],
   ),
 )
-const deleteSandboxInstance = vi.hoisted(() => vi.fn(async () => {}))
+const deleteSandboxInstance = vi.hoisted(() =>
+  vi.fn(async (_id?: string, _orgId?: string | null) => {}),
+)
 const persistSandboxInstance = vi.hoisted(() => vi.fn(async () => {}))
 const heartbeatSandboxInstance = vi.hoisted(() => vi.fn(async () => {}))
 const getSandboxInstance = vi.hoisted(() =>
-  vi.fn(async (_id?: string): Promise<SandboxInstanceRecord | null> => null),
+  vi.fn(
+    async (
+      _id?: string,
+      _orgId?: string | null,
+    ): Promise<SandboxInstanceRecord | null> => null,
+  ),
 )
 
 vi.mock("../../models/workspaces.js", () => ({
@@ -314,7 +321,7 @@ describe("sandbox registry GC", () => {
       },
     )
     deleteSandboxInstance.mockImplementation(
-      async (_id: string, orgId?: string | null) => {
+      async (_id?: string, orgId?: string | null) => {
         if (!orgId) throw new Error("sandbox orgId is required")
       },
     )
