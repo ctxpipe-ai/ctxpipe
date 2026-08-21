@@ -185,7 +185,7 @@ Runtime defaults injected by the construct include:
 - `UI_PROXY_URL=http://ui.ctxpipe.local:3002`
 - `CODESEARCH_URL=http://codesearch.ctxpipe.local:3001`
 - `AUTH_SECRET` generated in Secrets Manager and injected into backend/worker/codesearch/migrate tasks
-- `DATABASE_URL` secret injected into backend/worker/codesearch tasks
+- `DATABASE_URL` secret injected into backend/worker/codesearch tasks (rewritten to the `ctxpipe_app` role during migrate; you do not add a second connection string or `CtxPipe` prop)
 - `SMTP_CONNECTION_URL` and `EMAIL_FROM_ADDRESS` injected into backend from SES SMTP credentials
   - `EMAIL_FROM_ADDRESS` is always `ctxpipe-noreply@<hosted-zone-apex>`
 
@@ -222,6 +222,7 @@ That deploy:
 - updates codesearch (and other) task CPU/memory from this package version’s size profiles
 - rolls backend, worker, UI, codesearch, and migrate to the SHA stamped into this package
 - runs Postgres migrations (including new enum values) before ECS services update
+- creates the `ctxpipe_app` LOGIN role (no `BYPASSRLS`) during the migrate task if it is missing, then rewrites the runtime `DATABASE_URL` secret to that role. Do not run `psql`, add `CtxPipe` props, or put a second connection string in your CDK app. Image-tag-only rolls without a construct bump do not create the role.
 
 
 ## Environment checklist
@@ -240,7 +241,7 @@ That deploy:
 ### CDK-generated defaults
 
 - `AUTH_SECRET` (Secrets Manager generated value)
-- `DATABASE_URL` (Secrets Manager + Aurora endpoint)
+- `DATABASE_URL` (Secrets Manager + Aurora endpoint; runtime value is `ctxpipe_app`, migrate keeps the Aurora master)
 - `GRAPH_DB_PROVIDER=neptune`
 - `GRAPH_DB_URI` (Neptune endpoint)
 - `GRAPH_DB_URI_<orgSlug>` (Neptune endpoint for the configured org slug)

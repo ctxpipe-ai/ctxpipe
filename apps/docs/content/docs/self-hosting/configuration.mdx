@@ -46,7 +46,7 @@ on the host.
 
 | Variable | Description |
 |---|---|
-| `DATABASE_URL` | PostgreSQL connection string, for example `postgresql://user:pass@host:5432/db` |
+| `DATABASE_URL` | Runtime PostgreSQL URL for backend, worker, and codesearch. Must be the `ctxpipe_app` role (no `BYPASSRLS`). Example: `postgresql://ctxpipe_app:pass@host:5432/db`. Migrate uses the table-owner URL instead. **AWS CDK** operators do not set either URL — `cdk deploy` writes them. |
 | `AUTH_SECRET` | Random 32+ character string for session signing. Generate with `openssl rand -hex 32`. |
 | `AUTH_BASE_URL` | Public URL of your ctx\| instance, for example `https://ctx.example.com` |
 | `CTXPIPE_PUBLIC_APP_URL` | Public backend URL baked into the UI image. Usually the same value as `AUTH_BASE_URL`. |
@@ -206,7 +206,12 @@ that can fan out to APM and Langfuse-style trace backends.
 ## Railway
 
 ctx| can be deployed on Railway with prebuilt images from GitHub Container
-Registry. A typical flow is:
+Registry. Runtime services (`backend`, `worker`, `codesearch`) must use a
+`DATABASE_URL` for `ctxpipe_app`. The migrate job uses the Neon owner / pooler
+URL (`neondb_owner`) and then GRANTs the app role. Do not point app services at
+the owner URL — they refuse to boot when the role has `BYPASSRLS`.
+
+A typical flow is:
 
 1. Build and push service images from CI:
    - `ghcr.io/ctxpipe-ai/backend:<sha>`

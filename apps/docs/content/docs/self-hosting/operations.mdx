@@ -26,7 +26,8 @@ keep a running instance healthy and to diagnose component-level failures.
 ## Migrations
 
 The Compose `deploy` profile starts a `migrate` service before backend, worker,
-UI, and codesearch. It runs:
+UI, and codesearch. Migrate uses the owner URL and provisions `ctxpipe_app`.
+App processes use the app-role `DATABASE_URL`. The migrate container runs:
 
 ```bash
 bun run apps/backend/src/db/migrate.ts
