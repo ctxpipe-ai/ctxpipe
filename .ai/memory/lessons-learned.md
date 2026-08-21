@@ -166,6 +166,18 @@ Highest-priority confirmed rules for agents. Migrated from former `patterns.md` 
 - **Date:** 2026-08-11
 - **Source:** migrated from patterns.md
 
+### `@ctxpipe/aws-cdk` self-host upgrades stay `cdk deploy`
+- **Rule:** AWS self-hosters pick up construct-managed infra (new DB roles, secret rewrites, migrate-time provisioning) by bumping `@ctxpipe/aws-cdk` and running `cdk deploy`. Do not add `CtxPipe` props, a second connection string in the operator CDK app, or operator `psql` for work the construct can do. When that operator-visible behavior changes, update [`packages/aws-cdk/README.md`](../../packages/aws-cdk/README.md) and `apps/docs` self-hosting upgrade/AWS pages so the story remains bump-package-then-deploy.
+- **Category:** convention
+- **Date:** 2026-08-21
+- **Source:** user requirement (RLS two-role split; candidate `2f0d95e99ba317d8`)
+
+### `@ctxpipe/aws-cdk` self-host upgrades stay `cdk deploy`
+- **Rule:** AWS self-hosters pick up construct-managed infra (new DB roles, secret rewrites, migrate-time provisioning) by bumping `@ctxpipe/aws-cdk` and running `cdk deploy`. Do not add `CtxPipe` props, a second connection string in the operator CDK app, or operator `psql` for work the construct can do. When that operator-visible behavior changes, update [`packages/aws-cdk/README.md`](../../packages/aws-cdk/README.md) and `apps/docs` self-hosting upgrade/AWS pages so the story remains bump-package-then-deploy.
+- **Category:** convention
+- **Date:** 2026-08-21
+- **Source:** user requirement (RLS two-role split; candidate `2f0d95e99ba317d8`)
+
 ### `@ctxpipe/aws-cdk-self-host` CDK command orchestration
 - **Rule:** define Turbo task `cdk:exec` with `dependsOn: ["^build"]` and wrap user-facing `pnpm cdk ...` to run through Turbo so workspace dependency `@ctxpipe/aws-cdk` is built automatically before synth/deploy/destroy flows.
 - **Category:** convention
