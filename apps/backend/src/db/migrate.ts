@@ -9,6 +9,7 @@ import { parseEnv } from "../config/env.js"
 import { initEvlog, log } from "../observability/logger.js"
 import { backfillGithubAppSecretsFromEnv } from "../scripts/backfillGithubConnectionSecrets.js"
 import { closeDb, initDb } from "./client.js"
+import { migrateLanggraphCheckpoints } from "./migrate-checkpoints.js"
 import { migrateOpenWorkflow } from "./migrate-openworkflow.js"
 import { APP_ROLE_NAME, provisionAppRole } from "./provision-app-role.js"
 
@@ -32,6 +33,7 @@ if (appRolePassword) {
 log.info({ step: "migrate", message: "[migrate] running migrations…" })
 await migrate(db, { migrationsFolder: "./apps/backend/migrations" })
 await migrateOpenWorkflow(connectionString)
+await migrateLanggraphCheckpoints(connectionString)
 
 let env: ReturnType<typeof parseEnv> | undefined
 try {

@@ -61,18 +61,21 @@ describe("getOrgDb ambient-context audit", () => {
       const text = readFileSync(file, "utf8")
       if (!text.includes("getSystemDb")) continue
       const starts: number[] = []
-      const startRe =
-        /(?:^|\n)(?:export\s+)?(?:async\s+)?function\s+\w+/g
-      let match: RegExpExecArray | null
-      while ((match = startRe.exec(text)) !== null) starts.push(match.index)
+      const startRe = /(?:^|\n)(?:export\s+)?(?:async\s+)?function\s+\w+/g
+      for (;;) {
+        const match = startRe.exec(text)
+        if (!match) break
+        starts.push(match.index)
+      }
       if (starts.length === 0) continue
       starts.push(text.length)
       for (let i = 0; i < starts.length - 1; i++) {
         const body = text.slice(starts[i], starts[i + 1])
         if (!body.includes("getSystemDb")) continue
         const fromRe = new RegExp(tenantFrom.source, "g")
-        let fromMatch: RegExpExecArray | null
-        while ((fromMatch = fromRe.exec(body)) !== null) {
+        for (;;) {
+          const fromMatch = fromRe.exec(body)
+          if (!fromMatch) break
           const before = body.slice(0, fromMatch.index)
           const lastSystem = before.lastIndexOf("getSystemDb")
           const lastOrg = Math.max(

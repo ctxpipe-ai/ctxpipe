@@ -18,6 +18,7 @@ const listSandboxInstancesMock = vi.hoisted(() =>
       Array<{
         id: string
         kind: "chat" | "job"
+        orgId: string
         workspaceId: string
         conversationId?: string
         provider?: string

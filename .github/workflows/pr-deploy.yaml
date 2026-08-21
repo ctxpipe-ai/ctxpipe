@@ -220,6 +220,7 @@ jobs:
         run: |
           NO_COLOR=1 CI=true stdbuf -oL -eL pnpm exec drizzle-kit migrate
           pnpm exec tsx src/db/migrate-openworkflow.ts
+          pnpm exec tsx src/db/migrate-checkpoints.ts
         env:
           DATABASE_URL: ${{ steps.neon_branch.outputs.db_url }}
 

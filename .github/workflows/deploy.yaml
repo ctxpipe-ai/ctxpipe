@@ -147,6 +147,7 @@ jobs:
         run: |
           pnpm exec drizzle-kit migrate
           pnpm exec tsx src/db/migrate-openworkflow.ts
+          pnpm exec tsx src/db/migrate-checkpoints.ts
         # Owner URL only. ctxpipe_app is created by terraform neon_role, then GRANTed
         # in the terraform job before Railway DATABASE_URL is rewritten.
 
