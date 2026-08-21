@@ -223,6 +223,42 @@ jobs:
         env:
           DATABASE_URL: ${{ steps.neon_branch.outputs.db_url }}
 
+      - name: Resolve Neon ctxpipe_app URLs
+        id: neon_app_role
+        continue-on-error: true
+        uses: neondatabase/create-branch-action@v6
+        with:
+          project_id: ${{ vars.NEON_PROJECT_ID }}
+          branch_name: preview/pr-${{ needs.resolve_pr.outputs.pr_number }}
+          parent_branch: production
+          role: ctxpipe_app
+          api_key: ${{ secrets.NEON_API_KEY }}
+          expires_at: ${{ steps.neon_expires.outputs.expires_at }}
+
+      - name: Provision ctxpipe_app on PR branch
+        id: neon_app
+        working-directory: apps/backend
+        env:
+          OWNER_DB_URL: ${{ steps.neon_branch.outputs.db_url }}
+          OWNER_DB_URL_POOLED: ${{ steps.neon_branch.outputs.db_url_pooled }}
+          APP_DB_URL_POOLED: ${{ steps.neon_app_role.outputs.db_url_pooled }}
+          APP_PASSWORD: ${{ steps.neon_app_role.outputs.password }}
+          APP_ROLE_OK: ${{ steps.neon_app_role.outcome }}
+        run: |
+          set -euo pipefail
+          if [[ "$APP_ROLE_OK" == "success" && -n "${APP_DB_URL_POOLED:-}" && -n "${APP_PASSWORD:-}" ]]; then
+            PASSWORD="$APP_PASSWORD"
+            POOLED="$APP_DB_URL_POOLED"
+          else
+            echo "Neon parent has no ctxpipe_app yet; creating it on this preview branch"
+            PASSWORD="$(openssl rand -base64 24)"
+            POOLED="$(python3 -c 'import sys; from urllib.parse import urlparse, urlunparse, quote; parsed=urlparse(sys.argv[1]); password=quote(sys.argv[2], safe=""); host=parsed.hostname or ""; netloc=f"ctxpipe_app:{password}@{host}" + (f":{parsed.port}" if parsed.port else ""); print(urlunparse(parsed._replace(netloc=netloc)))' "$OWNER_DB_URL_POOLED" "$PASSWORD")"
+          fi
+          echo "::add-mask::$PASSWORD"
+          echo "::add-mask::$POOLED"
+          DATABASE_URL="$OWNER_DB_URL" DATABASE_APP_PASSWORD="$PASSWORD" pnpm exec tsx src/db/provision-app-role-cli.ts
+          echo "db_url_pooled=$POOLED" >> "$GITHUB_OUTPUT"
+
       - name: Get Railway environment ID
         id: railway_env
         env:
@@ -254,7 +290,7 @@ jobs:
           RAILWAY_API_TOKEN: ${{ secrets.RAILWAY_API_TOKEN }}
           RAILWAY_PROJECT_ID: ${{ vars.RAILWAY_PROJECT_ID }}
           ENV_ID: ${{ steps.railway_env.outputs.env_id }}
-          NEON_DB_URL: ${{ steps.neon_branch.outputs.db_url_pooled }}
+          NEON_DB_URL: ${{ steps.neon_app.outputs.db_url_pooled }}
           BACKEND_SERVICE_ID: ${{ vars.RAILWAY_BACKEND_SERVICE_ID }}
           WORKER_SERVICE_ID: ${{ vars.RAILWAY_WORKER_SERVICE_ID }}
           UI_SERVICE_ID: ${{ vars.RAILWAY_UI_SERVICE_ID }}

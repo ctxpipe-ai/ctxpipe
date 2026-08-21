@@ -16,7 +16,7 @@
     "db:generate": "drizzle-kit generate",
     "auth:generate": "pnpm dlx auth@latest generate --config ./src/auth/cli.ts --output ./src/db/schema/auth.ts --adapter drizzle --dialect postgresql -y",
     "auth:migrate": "pnpm dlx auth@latest migrate --config ./src/auth/cli.ts --yes",
-    "db:migrate": "bash -c 'source ../../scripts/worktree-db.sh && drizzle-kit migrate && pnpm exec tsx src/db/migrate-openworkflow.ts'",
+    "db:migrate": "bash ../../scripts/db-migrate.sh",
     "migrate": "pnpm run db:migrate",
     "db:studio": "drizzle-kit studio",
     "mcp:inspect": "pnpm dlx @modelcontextprotocol/inspector --config ../../.cursor/mcp.json --server ctxpipe",

@@ -89,7 +89,7 @@ Cloud agents run on an isolated Ubuntu machine. This repo provides a default clo
   - If Docker is **not** available or you prefer managed services, use a hosted Postgres and set `DATABASE_URL` via Secrets.
 - **Secrets (Cursor dashboard → Cloud Agents → Secrets)**:
   - **Required**: `AUTH_SECRET` (≥ 32 chars) for backend auth initialization/tests (see [apps/backend/.env.example](apps/backend/.env.example)).
-  - **Database**: set `DATABASE_URL` unless you intentionally rely on a Compose-started Postgres on the VM (e.g. `postgresql://ctxpipe:ctxpipe@localhost:5433/ctxpipe`).
+  - **Database**: set `DATABASE_URL` to the **ctxpipe_app** runtime role (not the owner/migrate role). Compose on the VM defaults to `ctxpipe_app` via [`.agents/start.sh`](.agents/start.sh); `pnpm db:migrate` still connects as owner `ctxpipe`.
   - **Optional**: `GRAPH_DB_URI` (when running graph features; use `redis://localhost:6379` if FalkorDB is started by `pnpm dev:infra`), and any model/API keys you need for specific tasks.
 - **Suggested verification commands** (no full dev stack):
   - `pnpm lint`
@@ -133,7 +133,7 @@ Run **`pnpm`** commands from the **repository root** (not inside `apps/*`).
 
 **Migrations only** (no dev servers): **`pnpm db:migrate`** from repo root.
 
-**How migrate picks `DATABASE_URL`**: [`apps/backend/package.json`](apps/backend/package.json) **`db:migrate`** runs **`source ../../scripts/worktree-db.sh`** then **`drizzle-kit migrate`**. In a **linked** worktree, the script creates the DB if needed and **`export`s `DATABASE_URL` in that shell** (no `.env` edits). That requires **`psql`** on `PATH` to talk to Postgres. In a **normal** checkout, the script does nothing to the shell; Drizzle uses **`DATABASE_URL`** from `.env.local` / defaults.
+**How migrate picks `DATABASE_URL`**: [`scripts/db-migrate.sh`](scripts/db-migrate.sh) (via [`apps/backend/package.json`](apps/backend/package.json) **`db:migrate`**) sources [`scripts/worktree-db.sh`](scripts/worktree-db.sh), rewrites local `ctxpipe_app` URLs to owner `ctxpipe` for DDL, runs Drizzle + OpenWorkflow migrations, then GRANTs `ctxpipe_app`. In a **linked** worktree, `worktree-db.sh` creates the DB if needed and **`export`s** the owner URL in that shell (no `.env` edits). That requires **`psql`** on `PATH`. Runtime **`.env.local`** should keep **`ctxpipe_app`**. In a **normal** checkout, the script loads `.env.local` and rewrites the user for migrate only.
 
 **Direct script** (optional): **`eval "$(./scripts/worktree-db.sh)"`** sets `DATABASE_URL` in the **current** shell (script prints `export …` when run with `bash`, not `source`).
 

@@ -25,3 +25,8 @@ output "neon_default_branch_id" {
   value = neon_project.this.default_branch_id
 }
 
+output "ctxpipe_app_password" {
+  value     = neon_role.app.password
+  sensitive = true
+}
+

@@ -11,7 +11,7 @@ resource "railway_project" "this" {
 }
 
 locals {
-  database_url  = neon_project.this.connection_uri_pooler
+  database_url  = local.app_database_url
   falkordb_port = 6379
   regions = [
     {
@@ -268,6 +268,7 @@ resource "railway_custom_domain" "app" {
 resource "railway_variable_collection" "backend_env" {
   environment_id = railway_project.this.default_environment.id
   service_id     = railway_service.backend.id
+  depends_on     = [terraform_data.app_database_url]
 
   variables = concat(local.shared_backend_env_variables, [
     {
@@ -303,6 +304,7 @@ resource "railway_service" "code_search" {
 resource "railway_variable_collection" "code_search_env" {
   environment_id = railway_project.this.default_environment.id
   service_id     = railway_service.code_search.id
+  depends_on     = [terraform_data.app_database_url]
 
   variables = [
     {
@@ -347,6 +349,7 @@ resource "railway_service" "open_workflow" {
 resource "railway_variable_collection" "open_workflow_env" {
   environment_id = railway_project.this.default_environment.id
   service_id     = railway_service.open_workflow.id
+  depends_on     = [terraform_data.app_database_url]
 
   variables = concat(local.shared_backend_env_variables, [
     {

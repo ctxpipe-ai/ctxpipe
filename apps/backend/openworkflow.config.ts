@@ -10,6 +10,7 @@ config({ path: resolve(__dirname, ".env") })
 import { defineConfig } from "@openworkflow/cli"
 import { BackendPostgres } from "openworkflow/postgres"
 import { parseEnv } from "./src/config/env.js"
+import { assertRuntimeRoleDoesNotBypassRls } from "./src/db/assert-runtime-role.js"
 import { initDb } from "./src/db/client.js"
 import {
   createLogger,
@@ -25,6 +26,7 @@ initDb(databaseUrl)
 const env = parseEnv(process.env as Record<string, string | undefined>)
 initOtel(env)
 initEvlog()
+await assertRuntimeRoleDoesNotBypassRls(databaseUrl)
 await backfillGithubAppSecretsFromEnv(env)
 
 let shuttingDown = false
