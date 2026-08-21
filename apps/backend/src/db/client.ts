@@ -1,7 +1,7 @@
 import { AsyncLocalStorage } from "node:async_hooks"
 import { sql } from "drizzle-orm"
 import { drizzle } from "drizzle-orm/node-postgres"
-import { Pool, type PoolClient } from "pg"
+import { Pool } from "pg"
 import { log } from "../observability/logger.js"
 import { relations, schema } from "./schema.js"
 import {
@@ -51,39 +51,11 @@ type OrgDbStore = { db: Db; orgId: string }
 const systemDbStorage = new AsyncLocalStorage<Db>()
 const orgDbStorage = new AsyncLocalStorage<OrgDbStore>()
 let appDb: AppDb | null = null
-let lockPool: Pool | null = null
-const SANDBOX_LOCK_POOL_MAX = 32
 
 export function initDb(connectionString: string): Db {
   if (appDb) return appDb
   appDb = createDrizzleDb(connectionString)
-  lockPool = createLockPool(connectionString)
   return appDb
-}
-
-function createLockPool(connectionString: string): Pool {
-  const pool = new Pool({
-    connectionString,
-    max: SANDBOX_LOCK_POOL_MAX,
-    allowExitOnIdle: isRailwayPrPreview(),
-    keepAlive: true,
-    idleTimeoutMillis: 30_000,
-    connectionTimeoutMillis: 30_000,
-    application_name: "ctxpipe-backend-sandbox-lock",
-  })
-  pool.on("error", (err) => {
-    log.error({
-      step: "db.lock-pool",
-      message: "Unexpected pg lock pool error",
-      error: err instanceof Error ? err.message : String(err),
-      code:
-        err && typeof err === "object" && "code" in err
-          ? String((err as { code: unknown }).code)
-          : undefined,
-    })
-  })
-  wrapPoolQueryWithTransientRetry(pool)
-  return pool
 }
 
 export async function withSystemDbContext<T>(
@@ -185,25 +157,7 @@ export async function withOrgDbContext<T>(
   })
 }
 
-export async function withLockClient<T>(
-  fn: (client: PoolClient) => Promise<T>,
-): Promise<T> {
-  if (!lockPool) {
-    throw new Error("Database not initialized. Call initDb() during startup.")
-  }
-  const client = await lockPool.connect()
-  try {
-    return await fn(client)
-  } finally {
-    client.release()
-  }
-}
-
 export async function closeDb(): Promise<void> {
-  if (lockPool) {
-    await lockPool.end()
-    lockPool = null
-  }
   if (!appDb) return
   await appDb.$client.end()
   appDb = null

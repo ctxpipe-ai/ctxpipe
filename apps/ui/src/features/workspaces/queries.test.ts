@@ -1,7 +1,11 @@
 import { HttpResponse, http } from "msw"
 import { setupServer } from "msw/node"
 import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest"
-import { landingWorkspace, retryPrepareWorkspace } from "./queries"
+import {
+  deleteWorkspace,
+  landingWorkspace,
+  retryPrepareWorkspace,
+} from "./queries"
 import type { Workspace, WorkspaceListResponse } from "./types"
 import { failedHydrateWorkspace } from "./workspace-fixtures"
 
@@ -56,7 +60,7 @@ describe("landingWorkspace", () => {
 
 const server = setupServer()
 
-describe("retryPrepareWorkspace", () => {
+describe("workspace query HTTP helpers", () => {
   beforeAll(() => {
     server.listen({ onUnhandledRequest: "error" })
     const intercepted = globalThis.fetch
@@ -88,5 +92,40 @@ describe("retryPrepareWorkspace", () => {
     const result = await retryPrepareWorkspace("acme", "knowledge-failed")
     expect(result.hydrateStatus).toBe("pending")
     expect(result.hydrateError).toBeNull()
+  })
+
+  it("surfaces evlog { message } when { error } is absent", async () => {
+    server.use(
+      http.delete(
+        "http://localhost:3000/:orgSlug/api/v1/workspaces/:workspaceSlug",
+        () =>
+          HttpResponse.json(
+            { message: "Connection terminated unexpectedly" },
+            { status: 500 },
+          ),
+      ),
+    )
+    await expect(deleteWorkspace("acme", "docs", "Docs")).rejects.toThrow(
+      "Connection terminated unexpectedly",
+    )
+  })
+
+  it("prefers { error } over { message } for delete failures", async () => {
+    server.use(
+      http.delete(
+        "http://localhost:3000/:orgSlug/api/v1/workspaces/:workspaceSlug",
+        () =>
+          HttpResponse.json(
+            {
+              error: "Type the Workspace display name to confirm delete",
+              message: "Bad Request",
+            },
+            { status: 400 },
+          ),
+      ),
+    )
+    await expect(deleteWorkspace("acme", "docs", "wrong")).rejects.toThrow(
+      "Type the Workspace display name to confirm delete",
+    )
   })
 })

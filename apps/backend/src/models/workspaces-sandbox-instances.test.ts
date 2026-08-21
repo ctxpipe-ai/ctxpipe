@@ -142,4 +142,49 @@ describe("claimSandboxInstance", () => {
       providerSandboxId: "sbx_old",
     })
   })
+
+  it("treats a live-job unique conflict as resume, not a second insert", async () => {
+    const error = Object.assign(new Error("duplicate key"), {
+      code: "23505",
+      constraint: "workspace_sandbox_instances_live_job_workspace_uidx",
+    })
+    let selectCount = 0
+    const limit = vi.fn().mockImplementation(async () => {
+      selectCount += 1
+      if (selectCount === 1) return []
+      return [liveRow({ id: "job-winner", providerSandboxId: "sbx_live" })]
+    })
+    const orderBy = vi.fn().mockReturnValue({ limit })
+    const where = vi.fn().mockReturnValue({ orderBy, limit })
+    const from = vi.fn().mockReturnValue({ where })
+    const select = vi.fn().mockReturnValue({ from })
+    const onConflictDoUpdate = vi.fn().mockRejectedValue(error)
+    const values = vi.fn().mockReturnValue({ onConflictDoUpdate })
+    const insert = vi.fn().mockReturnValue({ values })
+    const transaction = vi.fn(async (fn: (tx: unknown) => unknown) =>
+      fn({ execute: vi.fn(), select, insert, update: vi.fn() }),
+    )
+    getOrgDbMock.mockReturnValue({
+      transaction,
+      execute: vi.fn(),
+      select,
+      insert,
+    })
+    const claimed = await claimSandboxInstance({
+      id: "job-loser",
+      kind: "job",
+      orgId: "org_1",
+      workspaceId: "ws_1",
+      state: "live",
+      lastHeartbeatAt: new Date(),
+    })
+    expect(insert).toHaveBeenCalled()
+    expect(claimed).toEqual({
+      inserted: false,
+      record: expect.objectContaining({
+        id: "job-winner",
+        providerSandboxId: "sbx_live",
+      }),
+    })
+  })
 })

@@ -223,5 +223,15 @@ export const workspaceSandboxInstances = pgTable(
     index("workspace_sandbox_instances_conversation_id_idx").on(
       t.conversationId,
     ),
+    uniqueIndex("workspace_sandbox_instances_live_job_workspace_uidx")
+      .on(t.workspaceId)
+      .where(
+        sql`${t.kind} = 'job' and ${t.state} in ('live', 'destroy_failed')`,
+      ),
+    uniqueIndex("workspace_sandbox_instances_live_chat_conversation_uidx")
+      .on(t.conversationId)
+      .where(
+        sql`${t.kind} = 'chat' and ${t.conversationId} is not null and ${t.state} in ('live', 'destroy_failed')`,
+      ),
   ],
 )

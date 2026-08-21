@@ -6,10 +6,6 @@ import {
 import { scrubOriginAfterCloneCommand } from "./clone-credentials.js"
 import type { JobSandboxHandle, JobWorktreeExec } from "./job-worktree.js"
 import {
-  withSandboxAdvisoryLock,
-  workspaceSandboxLockKey,
-} from "./sandbox-instance-store.js"
-import {
   destroyDetachedProviderSandbox,
   detectSandboxProviderFromEnv,
   type SandboxProvider,
@@ -95,96 +91,92 @@ export async function ensureJobSandbox(input: {
   if (input.existing) return input.existing
   const attached = getJobSandbox(input.workspaceId)
   if (attached) return attached
-  return withSandboxAdvisoryLock(
-    workspaceSandboxLockKey(input.workspaceId),
-    async () => {
-      const attachedInside = getJobSandbox(input.workspaceId)
-      if (attachedInside) return attachedInside
-      const preferredId =
-        workspaceWriteSandboxId({
-          orgId: input.orgId,
-          workspaceId: input.workspaceId,
-          desiredUrl: input.desiredUrl,
-          desiredSha: input.desiredSha,
-        }) ?? `${input.orgId}:${input.workspaceId}:write`
-      const claimed = await claimSandboxInstance({
-        id: preferredId,
-        kind: "job",
-        orgId: input.orgId,
-        workspaceId: input.workspaceId,
-        desiredUrl: input.desiredUrl,
-        desiredSha: input.desiredSha,
+  const preferredId =
+    workspaceWriteSandboxId({
+      orgId: input.orgId,
+      workspaceId: input.workspaceId,
+      desiredUrl: input.desiredUrl,
+      desiredSha: input.desiredSha,
+    }) ?? `${input.orgId}:${input.workspaceId}:write`
+  const claimed = await claimSandboxInstance({
+    id: preferredId,
+    kind: "job",
+    orgId: input.orgId,
+    workspaceId: input.workspaceId,
+    desiredUrl: input.desiredUrl,
+    desiredSha: input.desiredSha,
+    state: "live",
+    lastHeartbeatAt: new Date(),
+  })
+  const attachedAfterClaim = getJobSandbox(input.workspaceId)
+  if (attachedAfterClaim) return attachedAfterClaim
+  if (!claimed.inserted && !claimed.record.providerSandboxId) {
+    return getJobSandbox(input.workspaceId)
+  }
+  const resumeId = claimed.record.providerSandboxId ?? claimed.record.id
+  const created = await input.create(resumeId, {
+    storedProvider: claimed.record.providerSandboxId
+      ? claimed.record.provider
+      : undefined,
+    persistLive: async ({ providerSandboxId, provider }) => {
+      await persistSandboxInstance({
+        ...claimed.record,
+        provider,
+        providerSandboxId,
         state: "live",
         lastHeartbeatAt: new Date(),
       })
-      const attachedAfterClaim = getJobSandbox(input.workspaceId)
-      if (attachedAfterClaim) return attachedAfterClaim
-      const resumeId = claimed.record.providerSandboxId ?? claimed.record.id
-      const created = await input.create(resumeId, {
-        storedProvider: claimed.record.providerSandboxId
-          ? claimed.record.provider
-          : undefined,
-        persistLive: async ({ providerSandboxId, provider }) => {
-          await persistSandboxInstance({
-            ...claimed.record,
-            provider,
-            providerSandboxId,
-            state: "live",
-            lastHeartbeatAt: new Date(),
-          })
-        },
-        abandon: async ({ providerSandboxId, provider, destroyed }) => {
-          if (destroyed) {
-            await deleteSandboxInstance(claimed.record.id, claimed.record.orgId)
-            return
-          }
-          await persistSandboxInstance({
-            ...claimed.record,
-            provider,
-            providerSandboxId,
-            state: "destroy_failed",
-            lastHeartbeatAt: new Date(),
-          })
-        },
-      })
-      if (!created) return null
-      try {
-        await registerWorkspaceSandbox({
-          id: claimed.record.id,
-          kind: "job",
-          orgId: input.orgId,
-          workspaceId: input.workspaceId,
-          desiredUrl: input.desiredUrl,
-          desiredSha: input.desiredSha,
-          provider: created.provider,
-          providerSandboxId: created.providerSandboxId ?? resumeId,
-          handle: created.handle,
-          destroy: created.destroy,
-        })
-      } catch (error) {
-        let destroyed = false
-        try {
-          await created.destroy?.()
-          destroyed = true
-        } catch {
-          destroyed = false
-        }
-        if (destroyed) {
-          await deleteSandboxInstance(claimed.record.id, claimed.record.orgId)
-        } else {
-          await persistSandboxInstance({
-            ...claimed.record,
-            provider: created.provider,
-            providerSandboxId: created.providerSandboxId ?? resumeId,
-            state: "destroy_failed",
-            lastHeartbeatAt: new Date(),
-          })
-        }
-        throw error
-      }
-      return created.handle
     },
-  )
+    abandon: async ({ providerSandboxId, provider, destroyed }) => {
+      if (destroyed) {
+        await deleteSandboxInstance(claimed.record.id, claimed.record.orgId)
+        return
+      }
+      await persistSandboxInstance({
+        ...claimed.record,
+        provider,
+        providerSandboxId,
+        state: "destroy_failed",
+        lastHeartbeatAt: new Date(),
+      })
+    },
+  })
+  if (!created) return null
+  try {
+    await registerWorkspaceSandbox({
+      id: claimed.record.id,
+      kind: "job",
+      orgId: input.orgId,
+      workspaceId: input.workspaceId,
+      desiredUrl: input.desiredUrl,
+      desiredSha: input.desiredSha,
+      provider: created.provider,
+      providerSandboxId: created.providerSandboxId ?? resumeId,
+      handle: created.handle,
+      destroy: created.destroy,
+    })
+  } catch (error) {
+    let destroyed = false
+    try {
+      await created.destroy?.()
+      destroyed = true
+    } catch {
+      destroyed = false
+    }
+    if (destroyed) {
+      await deleteSandboxInstance(claimed.record.id, claimed.record.orgId)
+    } else {
+      await persistSandboxInstance({
+        ...claimed.record,
+        provider: created.provider,
+        providerSandboxId: created.providerSandboxId ?? resumeId,
+        state: "destroy_failed",
+        lastHeartbeatAt: new Date(),
+      })
+    }
+    throw error
+  }
+  return created.handle
 }
 
 type SandboxFactory = {

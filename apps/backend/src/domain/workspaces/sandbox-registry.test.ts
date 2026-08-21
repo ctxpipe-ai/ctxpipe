@@ -22,18 +22,9 @@ import {
 } from "./sandbox-registry.js"
 
 const destroyDetachedProviderSandbox = vi.hoisted(() => vi.fn(async () => {}))
-const withSandboxAdvisoryLock = vi.hoisted(() =>
-  vi.fn(async (_key: string, fn: () => Promise<unknown>) => fn()),
-)
 
 vi.mock("./sandbox-provider.js", () => ({
   destroyDetachedProviderSandbox,
-}))
-
-vi.mock("./sandbox-instance-store.js", () => ({
-  withSandboxAdvisoryLock,
-  workspaceSandboxLockKey: (workspaceId: string) =>
-    `sandbox:job:${workspaceId}`,
 }))
 
 const withOrgDbContext = vi.hoisted(() =>
@@ -110,10 +101,6 @@ describe("sandbox registry GC", () => {
     withOrgDbContext.mockReset()
     withOrgDbContext.mockImplementation(
       async (_orgId: string, fn: () => Promise<unknown>) => fn(),
-    )
-    withSandboxAdvisoryLock.mockReset()
-    withSandboxAdvisoryLock.mockImplementation(
-      async (_key: string, fn: () => Promise<unknown>) => fn(),
     )
     resetRegisteredSandboxes()
   })
@@ -288,69 +275,14 @@ describe("sandbox registry GC", () => {
       1,
     )
     expect(deleteSandboxInstance).toHaveBeenCalledWith("chat-orphan", undefined)
-    expect(withSandboxAdvisoryLock).toHaveBeenCalledWith(
-      "sandbox:job:ws_orphan",
-      expect.any(Function),
-    )
     await expect(
       destroySandboxesForWorkspace("ws_orphan_job", "job"),
     ).resolves.toBe(1)
     expect(deleteSandboxInstance).toHaveBeenCalledWith("job-orphan", undefined)
-    expect(withSandboxAdvisoryLock).toHaveBeenCalledWith(
-      "sandbox:job:ws_orphan_job",
-      expect.any(Function),
-    )
   })
 
-  it("re-lists job sandboxes after taking the workspace advisory lock", async () => {
+  it("lists then commits before the caller inspects remaining rows", async () => {
     const order: string[] = []
-    withSandboxAdvisoryLock.mockImplementation(
-      async (key: string, fn: () => Promise<unknown>) => {
-        order.push(`lock:${key}`)
-        try {
-          return await fn()
-        } finally {
-          order.push("unlock")
-        }
-      },
-    )
-    listSandboxInstances.mockImplementation(async () => {
-      order.push("list")
-      return [
-        {
-          id: "job-locked",
-          kind: "job" as const,
-          workspaceId: "ws_lock",
-          state: "live" as const,
-          lastHeartbeatAt: new Date(),
-        },
-      ]
-    })
-    getSandboxInstance.mockResolvedValue({
-      id: "job-locked",
-      kind: "job",
-      workspaceId: "ws_lock",
-      state: "live",
-      lastHeartbeatAt: new Date(),
-    })
-    await expect(destroySandboxesForWorkspace("ws_lock", "job")).resolves.toBe(
-      1,
-    )
-    expect(order).toEqual(["lock:sandbox:job:ws_lock", "list", "unlock"])
-  })
-
-  it("holds the job lock while the caller inspects remaining rows", async () => {
-    const order: string[] = []
-    withSandboxAdvisoryLock.mockImplementation(
-      async (key: string, fn: () => Promise<unknown>) => {
-        order.push(`lock:${key}`)
-        try {
-          return await fn()
-        } finally {
-          order.push("unlock")
-        }
-      },
-    )
     listSandboxInstances.mockImplementation(async () => {
       order.push("list")
       return []
@@ -375,14 +307,27 @@ describe("sandbox registry GC", () => {
       ),
     ).resolves.toBe("ok")
     expect(order).toEqual([
-      "lock:sandbox:job:ws_del",
+      "org-tx",
       "list",
+      "org-commit",
       "org-tx",
       "list",
       "fn:0",
       "org-commit",
-      "unlock",
     ])
+  })
+
+  it("does not run the delete callback when listing sandbox rows fails", async () => {
+    listSandboxInstances.mockRejectedValue(new Error("db down"))
+    const fn = vi.fn(async () => "ok")
+    await expect(
+      withDestroyedWorkspaceSandboxes(
+        { workspaceId: "ws_del", orgId: "org_1" },
+        fn,
+      ),
+    ).rejects.toThrow("db down")
+    expect(fn).not.toHaveBeenCalled()
+    expect(deleteSandboxInstance).not.toHaveBeenCalled()
   })
 
   it("destroys a detached provider sandbox before deleting the resume row", async () => {
@@ -476,6 +421,34 @@ describe("sandbox registry GC", () => {
     expect(getRegisteredChatSandbox("conv_bind")?.id).toBe("tanstack-key")
     expect(getChatSandbox("conv_bind")).toBe(handle)
     expect(withOrgDbContext).toHaveBeenCalledWith("org_1", expect.any(Function))
+  })
+
+  it("still lists remaining rows after a provider destroy failure", async () => {
+    const stored = {
+      id: "job-stuck",
+      kind: "job" as const,
+      orgId: "org_1",
+      workspaceId: "ws_del",
+      provider: "docker",
+      providerSandboxId: "sbx_live",
+      state: "live" as const,
+      lastHeartbeatAt: new Date(),
+    }
+    listSandboxInstances.mockResolvedValue([stored])
+    getSandboxInstance.mockResolvedValue(stored)
+    destroyDetachedProviderSandbox.mockRejectedValueOnce(
+      new Error("still running"),
+    )
+    const remaining = await withDestroyedWorkspaceSandboxes(
+      { workspaceId: "ws_del", orgId: "org_1" },
+      async (rows) => rows,
+    )
+    expect(remaining).toEqual([
+      expect.objectContaining({
+        id: "job-stuck",
+        providerSandboxId: "sbx_live",
+      }),
+    ])
   })
 
   it("keeps the resume row when destroy fails on a differently keyed handle", async () => {

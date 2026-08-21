@@ -68,9 +68,6 @@ vi.mock("../../db/client.js", () => ({
       orgTxDepth.value -= 1
     }
   },
-  withLockClient: async (
-    fn: (client: { query: () => Promise<void> }) => unknown,
-  ) => fn({ query: async () => undefined }),
 }))
 
 vi.mock("../../auth/withAuth.js", () => ({

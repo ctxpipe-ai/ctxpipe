@@ -1918,35 +1918,67 @@ export async function claimSandboxInstance(
         return { record: live, inserted: false }
       }
 
-      await tx
-        .insert(workspaceSandboxInstances)
-        .values({
-          id: input.id,
-          kind: input.kind,
-          orgId: input.orgId ?? null,
-          workspaceId: input.workspaceId,
-          conversationId: input.conversationId ?? null,
-          desiredUrl: input.desiredUrl ?? null,
-          desiredGeneration: input.desiredGeneration ?? null,
-          desiredSha: input.desiredSha ?? null,
-          state: "live",
-          lastHeartbeatAt: input.lastHeartbeatAt,
-          createdAt: now,
-          updatedAt: now,
-        })
-        .onConflictDoUpdate({
-          target: workspaceSandboxInstances.id,
-          set: {
+      try {
+        await tx
+          .insert(workspaceSandboxInstances)
+          .values({
+            id: input.id,
             kind: input.kind,
+            orgId: input.orgId ?? null,
+            workspaceId: input.workspaceId,
             conversationId: input.conversationId ?? null,
             desiredUrl: input.desiredUrl ?? null,
             desiredGeneration: input.desiredGeneration ?? null,
             desiredSha: input.desiredSha ?? null,
             state: "live",
             lastHeartbeatAt: input.lastHeartbeatAt,
+            createdAt: now,
             updatedAt: now,
-          },
-        })
+          })
+          .onConflictDoUpdate({
+            target: workspaceSandboxInstances.id,
+            set: {
+              kind: input.kind,
+              conversationId: input.conversationId ?? null,
+              desiredUrl: input.desiredUrl ?? null,
+              desiredGeneration: input.desiredGeneration ?? null,
+              desiredSha: input.desiredSha ?? null,
+              state: "live",
+              lastHeartbeatAt: input.lastHeartbeatAt,
+              updatedAt: now,
+            },
+          })
+      } catch (error) {
+        const identityConstraint =
+          input.kind === "chat"
+            ? "workspace_sandbox_instances_live_chat_conversation_uidx"
+            : "workspace_sandbox_instances_live_job_workspace_uidx"
+        if (!isUniqueViolation(error, identityConstraint)) throw error
+        const [conflict] = await tx
+          .select()
+          .from(workspaceSandboxInstances)
+          .where(
+            and(
+              eq(workspaceSandboxInstances.kind, input.kind),
+              or(
+                eq(workspaceSandboxInstances.state, "live"),
+                eq(workspaceSandboxInstances.state, "destroy_failed"),
+              ),
+              identityFilter,
+            ),
+          )
+          .orderBy(
+            sql`(${workspaceSandboxInstances.providerSandboxId} is not null) desc`,
+            asc(workspaceSandboxInstances.createdAt),
+            asc(workspaceSandboxInstances.id),
+          )
+          .limit(1)
+        if (!conflict) throw error
+        return {
+          record: toSandboxInstanceRecord(conflict),
+          inserted: false,
+        }
+      }
       const [row] = await tx
         .select()
         .from(workspaceSandboxInstances)

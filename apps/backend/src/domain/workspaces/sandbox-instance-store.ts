@@ -1,10 +1,9 @@
-import { AsyncLocalStorage } from "node:async_hooks"
 import type { LockStore } from "@tanstack/ai/locks"
 import type {
   SandboxInstanceStore,
   SandboxInstanceRecord as TanstackSandboxInstanceRecord,
 } from "@tanstack/ai-sandbox"
-import { withLockClient, withOrgDbContext } from "../../db/client.js"
+import { withOrgDbContext } from "../../db/client.js"
 import { getConversation } from "../../models/conversations.js"
 import {
   deleteSandboxInstance,
@@ -12,13 +11,6 @@ import {
   getWorkspaceById,
   persistSandboxInstance,
 } from "../../models/workspaces.js"
-import { log } from "../../observability/logger.js"
-
-const heldSandboxLocks = new AsyncLocalStorage<Set<string>>()
-
-export function workspaceSandboxLockKey(workspaceId: string): string {
-  return `sandbox:job:${workspaceId}`
-}
 
 export function postgresSandboxInstanceStore(input: {
   orgId: string
@@ -60,74 +52,36 @@ export function postgresSandboxInstanceStore(input: {
   }
 }
 
-export async function withSandboxAdvisoryLock<T>(
-  key: string,
-  fn: (signal: AbortSignal) => Promise<T>,
-): Promise<T> {
-  const held = heldSandboxLocks.getStore()
-  if (held?.has(key)) {
-    return fn(new AbortController().signal)
-  }
-  const nextHeld = new Set(held)
-  nextHeld.add(key)
-  const abort = new AbortController()
-  return heldSandboxLocks.run(nextHeld, () =>
-    withLockClient(async (client) => {
-      await client.query("select pg_advisory_lock(hashtextextended($1, 0))", [
-        key,
-      ])
-      try {
-        return await fn(abort.signal)
-      } finally {
-        abort.abort()
-        try {
-          await client.query(
-            "select pg_advisory_unlock(hashtextextended($1, 0))",
-            [key],
-          )
-        } catch (error) {
-          log.error({
-            step: "sandbox-advisory-unlock",
-            sandboxKey: key,
-            error: error instanceof Error ? error.message : String(error),
-          })
-          await client.query("select pg_advisory_unlock_all()").catch(() => {})
-        }
-      }
-    }),
-  )
-}
-
 export function postgresSandboxLockStore(input: {
   orgId: string
   workspaceId: string
   conversationId?: string
 }): LockStore {
-  const workspaceKey = workspaceSandboxLockKey(input.workspaceId)
   return {
-    withLock(key, fn) {
-      return withSandboxAdvisoryLock(workspaceKey, async (signal) => {
-        await withOrgDbContext(input.orgId, async () => {
-          const workspace = await getWorkspaceById(input.workspaceId)
-          if (!workspace) {
-            throw new Error(
-              `Workspace ${input.workspaceId} is gone; refusing sandbox create`,
-            )
-          }
-          if (!input.conversationId) return
-          const conversation = await getConversation(input.conversationId, {
-            workspaceId: input.workspaceId,
-          })
-          if (!conversation) {
-            throw new Error(
-              `Conversation ${input.conversationId} is gone; refusing sandbox create`,
-            )
-          }
+    async withLock(_key, fn) {
+      const abort = new AbortController()
+      await withOrgDbContext(input.orgId, async () => {
+        const workspace = await getWorkspaceById(input.workspaceId)
+        if (!workspace) {
+          throw new Error(
+            `Workspace ${input.workspaceId} is gone; refusing sandbox create`,
+          )
+        }
+        if (!input.conversationId) return
+        const conversation = await getConversation(input.conversationId, {
+          workspaceId: input.workspaceId,
         })
-        return key === workspaceKey
-          ? fn(signal)
-          : withSandboxAdvisoryLock(key, () => fn(signal))
+        if (!conversation) {
+          throw new Error(
+            `Conversation ${input.conversationId} is gone; refusing sandbox create`,
+          )
+        }
       })
+      try {
+        return await fn(abort.signal)
+      } finally {
+        abort.abort()
+      }
     },
   }
 }

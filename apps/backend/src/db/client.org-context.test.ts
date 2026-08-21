@@ -108,4 +108,19 @@ describe("withOrgDbContext identity-aware reuse", () => {
     })
     expect(() => assertNotInOrgDbContext()).not.toThrow()
   })
+
+  it("sets app.organization_id as a transaction-local GUC", async () => {
+    await withOrgDbContext("org_1", async () => undefined)
+    const sqlText = JSON.stringify(executeMock.mock.calls.map((call) => call[0]))
+    expect(sqlText).toContain("set_config")
+    expect(sqlText).toContain("app.organization_id")
+    expect(sqlText).toMatch(/true/)
+    expect(sqlText).not.toMatch(/SET SESSION/i)
+  })
+
+  it("does not export a lock pool or session advisory lock helper", async () => {
+    const client = await import("./client.js")
+    expect("withLockClient" in client).toBe(false)
+    expect("createLockPool" in client).toBe(false)
+  })
 })

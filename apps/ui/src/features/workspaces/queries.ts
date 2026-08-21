@@ -313,8 +313,11 @@ export async function deleteWorkspace(
     json: { confirmName },
   })
   if (!res.ok && res.status !== 204) {
-    const err = (await res.json().catch(() => ({}))) as { error?: string }
-    throw new Error(err.error ?? "Failed to delete Workspace")
+    const err = (await res.json().catch(() => ({}))) as {
+      error?: string
+      message?: string
+    }
+    throw new Error(err.error ?? err.message ?? "Failed to delete Workspace")
   }
 }
 
