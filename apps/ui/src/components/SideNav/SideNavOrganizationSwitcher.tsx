@@ -6,12 +6,8 @@ import {
   OrganizationLogo,
   useCurrentOrganization,
 } from "@daveyplate/better-auth-ui"
+import { IconPlus, IconSelector, IconSettings } from "@tabler/icons-react"
 import type { Organization } from "better-auth/plugins/organization"
-import {
-  IconPlus,
-  IconSelector,
-  IconSettings,
-} from "@tabler/icons-react"
 import { useCallback, useContext, useEffect, useMemo, useState } from "react"
 import {
   DropdownMenu,
@@ -20,6 +16,7 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu"
+import { useUrgentValue } from "@/lib/useUrgentValue"
 import { cn } from "@/lib/utils"
 import { SideNavOrganizationCreateDialog } from "./SideNavOrganizationCreateDialog"
 import {
@@ -64,13 +61,22 @@ export function SideNavOrganizationSwitcher({
     refetch: organizationRefetch,
   } = useCurrentOrganization({ slug: organizationOptions?.slug })
 
+  const [urgentOrgSlug, setUrgentOrgSlug] = useUrgentValue(
+    routeOrgSlug,
+    routeOrgSlug ?? "",
+  )
+
   const displayedOrganization = useMemo(() => {
+    if (urgentOrgSlug && organizations) {
+      const fromUrgent = organizations.find((org) => org.slug === urgentOrgSlug)
+      if (fromUrgent) return fromUrgent
+    }
     if (routeOrgSlug && organizations) {
       const fromRoute = organizations.find((org) => org.slug === routeOrgSlug)
       if (fromRoute) return fromRoute
     }
     return activeOrganization
-  }, [routeOrgSlug, organizations, activeOrganization])
+  }, [urgentOrgSlug, routeOrgSlug, organizations, activeOrganization])
 
   const isPending =
     organizationsPending ||
@@ -116,6 +122,7 @@ export function SideNavOrganizationSwitcher({
 
   const switchOrganization = useCallback(
     async (organization: Organization) => {
+      setUrgentOrgSlug(organization.slug)
       setActiveOrganizationPending(true)
       try {
         onSetActive(organization)
@@ -125,6 +132,7 @@ export function SideNavOrganizationSwitcher({
         })
         organizationRefetch?.()
       } catch (error) {
+        setUrgentOrgSlug(routeOrgSlug)
         toast({
           variant: "error",
           message:
@@ -135,7 +143,14 @@ export function SideNavOrganizationSwitcher({
         setActiveOrganizationPending(false)
       }
     },
-    [authClient, onSetActive, organizationRefetch, toast],
+    [
+      authClient,
+      onSetActive,
+      organizationRefetch,
+      toast,
+      routeOrgSlug,
+      setUrgentOrgSlug,
+    ],
   )
 
   useEffect(() => {
@@ -207,11 +222,7 @@ export function SideNavOrganizationSwitcher({
           )}
         </DropdownMenuTrigger>
 
-        <DropdownMenuContent
-          className="rounded-lg"
-          align="end"
-          side="right"
-        >
+        <DropdownMenuContent className="rounded-lg" align="end" side="right">
           <div className="flex items-center justify-between gap-2 p-2">
             <OrganizationCellView
               classNames={sideNavAccountOrgViewClassNames}

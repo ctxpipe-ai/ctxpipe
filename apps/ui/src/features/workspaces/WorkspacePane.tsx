@@ -42,6 +42,7 @@ import {
   TooltipTrigger,
 } from "@/components/ui/Tooltip"
 import { focusVisibleClassName } from "@/lib/focus-styles"
+import { useUrgentValue } from "@/lib/useUrgentValue"
 import { cn } from "@/lib/utils"
 import { joinFileName, optimisticPathsAfterJob } from "./fileTreeMutations"
 import { filePaneId, type ParsedPane, parsePane, serializePane } from "./pane"
@@ -103,12 +104,7 @@ export function WorkspacePane(props: {
 }) {
   const queryClient = useQueryClient()
   const urlPaneKey = serializePane(props.pane)
-  const [pane, setPane] = useState(props.pane)
-  const [seenUrlPaneKey, setSeenUrlPaneKey] = useState(urlPaneKey)
-  if (urlPaneKey !== seenUrlPaneKey) {
-    setSeenUrlPaneKey(urlPaneKey)
-    setPane(props.pane)
-  }
+  const [pane, setPane] = useUrgentValue(props.pane, urlPaneKey)
   const activeFile = pane.kind === "file" ? pane.path : null
   const filesTabActive = pane.kind === "files"
   const selectedKey = serializePane(pane)

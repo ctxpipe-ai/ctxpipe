@@ -1,5 +1,5 @@
 import type { QueryClient } from "@tanstack/react-query"
-import { parsePane, visiblePane } from "./pane"
+import { landingPane } from "./pane"
 import {
   workspaceConversationOptions,
   workspaceDetailOptions,
@@ -15,9 +15,17 @@ export async function ensureWorkspaceRouteData(input: {
   workspaceSlug: string
   conversationId?: string
   paneParam?: string
+  /** Warm the landing pane (files by default). Skip on in-page search stays. */
+  warmLandingPane?: boolean
 }) {
-  const { queryClient, orgSlug, workspaceSlug, conversationId, paneParam } =
-    input
+  const {
+    queryClient,
+    orgSlug,
+    workspaceSlug,
+    conversationId,
+    paneParam,
+    warmLandingPane = true,
+  } = input
 
   const workspace = await queryClient.ensureQueryData(
     workspaceDetailOptions(orgSlug, workspaceSlug),
@@ -29,8 +37,9 @@ export async function ensureWorkspaceRouteData(input: {
     )
   }
 
-  const pane = visiblePane(parsePane(paneParam))
-  if (!pane || !workspace) return workspace
+  if (!warmLandingPane || !workspace) return workspace
+
+  const pane = landingPane(paneParam)
 
   if (pane.kind === "files" || pane.kind === "file") {
     const sha =

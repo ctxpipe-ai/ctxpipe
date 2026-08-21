@@ -2,7 +2,7 @@
 
 Agents read this file before building or restyling user-visible product UI. It records **decided** personality and the tokens we keep — not a dump of `styles.css`, and not a license to restyle the whole app.
 
-`apps/ui` is an **Operate** surface: dense, trusted, keyboard-heavy, dark zinc, white primary, teal accent. **Ceiling** (large type, atmosphere) is onboarding and marketing only. Knowledge-graph may stay a bit more spatial but must not reintroduce page-wide glow or grid.
+`apps/ui` is an **Operate** surface: dense, trusted, keyboard-heavy, dark zinc, white primary, teal accent. It answers the click immediately — waiting chrome is a defect. **Ceiling** (large type, atmosphere) is onboarding and marketing only. Knowledge-graph may stay a bit more spatial but must not reintroduce page-wide glow or grid.
 
 Existing square (`rounded-none`) overrides stay until a later pass. Apply the target below on **new or touched** UI. Do not add more square chrome.
 

@@ -38,6 +38,7 @@ const meta = {
     orgSlug: "acme",
     expanded: true,
     currentWorkspaceSlug: "docs",
+    onSelectNav: () => {},
   },
 } satisfies Meta<typeof WorkspaceNavList>
 

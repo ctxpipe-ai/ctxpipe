@@ -38,6 +38,7 @@ const meta = {
     current: false,
     onToggle: fn(),
     onExpand: fn(),
+    onSelectNav: fn(),
   },
 } satisfies Meta<typeof WorkspaceNavRow>
 

@@ -1,13 +1,13 @@
-import { useMatchRoute, useRouter } from "@tanstack/react-router"
+import { useRouter } from "@tanstack/react-router"
 import type { ReactNode } from "react"
 import { Link } from "react-aria-components"
+import { SideNavTooltip } from "./SideNavTooltip"
 import {
   sideNavActiveBarClassName,
   sideNavIconGutterClassName,
   sideNavLabelClassName,
   sideNavRowClassName,
 } from "./sideNavStyles"
-import { SideNavTooltip } from "./SideNavTooltip"
 
 type SideNavItemProps = {
   to: "/$orgSlug" | "/$orgSlug/connectors"
@@ -15,7 +15,8 @@ type SideNavItemProps = {
   label: string
   icon: ReactNode
   expanded: boolean
-  exact?: boolean
+  active: boolean
+  onPress?: () => void
   status?: {
     label: string
     tone: "indexing" | "failed"
@@ -28,11 +29,11 @@ export function SideNavItem({
   label,
   icon,
   expanded,
-  exact = false,
+  active,
+  onPress,
   status,
 }: SideNavItemProps) {
   const router = useRouter()
-  const matchRoute = useMatchRoute()
   if (!params.orgSlug) return null
 
   const href = router.buildLocation(
@@ -49,13 +50,7 @@ export function SideNavItem({
         }
       : { to, params: { orgSlug: params.orgSlug } },
   ).href
-  const isActive = Boolean(
-    matchRoute({
-      to,
-      params: { orgSlug: params.orgSlug },
-      fuzzy: !exact,
-    }),
-  )
+  const isActive = active
 
   const tooltipLabel = status ? `${label}, ${status.label}` : label
 
@@ -63,6 +58,7 @@ export function SideNavItem({
     <SideNavTooltip label={tooltipLabel} enabled={!expanded}>
       <Link
         href={href}
+        onPress={onPress}
         aria-current={isActive ? "page" : undefined}
         aria-label={expanded ? undefined : tooltipLabel}
         className={sideNavRowClassName({ active: isActive })}
@@ -81,7 +77,9 @@ export function SideNavItem({
           <span
             className={[
               "shrink-0 transition-opacity duration-200",
-              expanded ? "mr-2 opacity-100" : "absolute right-1 top-1.5 opacity-100 ring-2 ring-zinc-950",
+              expanded
+                ? "mr-2 opacity-100"
+                : "absolute right-1 top-1.5 opacity-100 ring-2 ring-zinc-950",
               status.tone === "failed"
                 ? "ctx-indexing-failed-dot"
                 : "ctx-indexing-dot",

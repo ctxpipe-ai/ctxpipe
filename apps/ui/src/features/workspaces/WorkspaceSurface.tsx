@@ -2,6 +2,7 @@ import { useQueryClient, useSuspenseQuery } from "@tanstack/react-query"
 import { useNavigate, useSearch } from "@tanstack/react-router"
 import { Component, type ReactNode, Suspense, useEffect, useState } from "react"
 import { AppShell } from "@/components/AppShell"
+import { useUrgentValue } from "@/lib/useUrgentValue"
 import { cn } from "@/lib/utils"
 import {
   closeFileTab,
@@ -11,7 +12,12 @@ import {
   seedFileTabSession,
   tabsIncludingPanePath,
 } from "./fileTabs"
-import { type ParsedPane, parsePane, serializePane, visiblePane } from "./pane"
+import {
+  landingPane,
+  type ParsedPane,
+  serializePane,
+  visiblePane,
+} from "./pane"
 import {
   workspaceHydrateView,
   workspacePrepareNeedsPoll,
@@ -181,15 +187,9 @@ function WorkspaceSurfaceReady(props: {
     },
   })
 
-  const urlPane = visiblePane(parsePane(paneParam))
-  const urlPaneKey = `${orgSlug}/${workspaceSlug}:${urlPane ? serializePane(urlPane) : ""}`
-  const [optimisticPane, setOptimisticPane] = useState(urlPane)
-  const [seenUrlPaneKey, setSeenUrlPaneKey] = useState(urlPaneKey)
-  if (urlPaneKey !== seenUrlPaneKey) {
-    setSeenUrlPaneKey(urlPaneKey)
-    setOptimisticPane(urlPane)
-  }
-  const shownPane = optimisticPane
+  const urlPane = landingPane(paneParam)
+  const urlPaneKey = `${orgSlug}/${workspaceSlug}:${serializePane(urlPane)}`
+  const [shownPane, setShownPane] = useUrgentValue(urlPane, urlPaneKey)
   const [maximized, setMaximized] = useState(false)
   const [paneWidth, setPaneWidth] = useState<number | null>(null)
   const [treeCollapsed, setTreeCollapsed] = useState(false)
@@ -211,7 +211,7 @@ function WorkspaceSurfaceReady(props: {
   }, [orgSlug, workspaceSlug, queryClient])
 
   const setPane = (next: ParsedPane | null) => {
-    setOptimisticPane(next ? visiblePane(next) : null)
+    setShownPane(next ? (visiblePane(next) ?? landingPane()) : landingPane())
     if (next) setPaneCollapsed(false)
     void navigate({
       to: conversationId
@@ -311,7 +311,7 @@ function WorkspaceSurfaceShell(props: {
   orgSlug: string
   workspace: WorkspaceDetail
   conversationId: string
-  shownPane: ParsedPane | null
+  shownPane: ParsedPane
   maximized: boolean
   paneWidth: number | null
   treeCollapsed: boolean
@@ -344,7 +344,7 @@ function WorkspaceSurfaceLayout(props: {
   workspace: WorkspaceDetail
   conversationId?: string
   conversationTitle: string
-  shownPane: ParsedPane | null
+  shownPane: ParsedPane
   maximized: boolean
   paneWidth: number | null
   treeCollapsed: boolean
@@ -370,7 +370,7 @@ function WorkspaceSurfaceColumns(props: {
   workspace: WorkspaceDetail
   conversationId?: string
   conversationTitle: string
-  shownPane: ParsedPane | null
+  shownPane: ParsedPane
   maximized: boolean
   paneWidth: number | null
   treeCollapsed: boolean
@@ -404,8 +404,8 @@ function WorkspaceSurfaceColumns(props: {
     setPane,
   } = props
 
-  const paneOpen = Boolean(shownPane) && !paneCollapsed
-  const panePath = shownPane?.kind === "file" ? shownPane.path : null
+  const paneOpen = !paneCollapsed
+  const panePath = shownPane.kind === "file" ? shownPane.path : null
 
   const collapsePane = () => {
     setMaximized(false)
@@ -447,10 +447,7 @@ function WorkspaceSurfaceColumns(props: {
                 onOpen={(next) => setPane(next)}
                 onExpand={
                   fileTabs.length > 0
-                    ? () => {
-                        if (shownPane) setPaneCollapsed(false)
-                        else setPane({ kind: "files" })
-                      }
+                    ? () => setPaneCollapsed(false)
                     : undefined
                 }
               />
@@ -458,7 +455,7 @@ function WorkspaceSurfaceColumns(props: {
           }
         />
       </div>
-      {paneOpen && shownPane ? (
+      {paneOpen ? (
         <WorkspacePane
           orgSlug={orgSlug}
           workspace={workspace}
@@ -492,7 +489,7 @@ function WorkspaceSurfaceColumns(props: {
             }
           }}
           onCloseActiveFile={() => {
-            if (shownPane?.kind === "file") {
+            if (shownPane.kind === "file") {
               const path = shownPane.path
               setFileTabs((current) => closeFileTab(current, path))
               setPane({ kind: "files" })

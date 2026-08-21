@@ -4,10 +4,11 @@ import {
   IconFolder,
   IconMessageCirclePlus,
 } from "@tabler/icons-react"
-import { useNavigate, useRouter } from "@tanstack/react-router"
+import { useRouter } from "@tanstack/react-router"
 import { useState } from "react"
 import { Link } from "react-aria-components"
 import { SideNavTooltip } from "@/components/SideNav/SideNavTooltip"
+import type { SideNavLocation } from "@/components/SideNav/sideNavLocation"
 import {
   sideNavIconGutterClassName,
   sideNavLabelClassName,
@@ -27,10 +28,10 @@ export function WorkspaceNavRow(props: {
   open: boolean
   current: boolean
   currentConversationId?: string
+  onSelectNav: (next: SideNavLocation) => void
   onToggle: () => void
   onExpand: () => void
 }) {
-  const navigate = useNavigate()
   const router = useRouter()
   const {
     orgSlug,
@@ -41,118 +42,141 @@ export function WorkspaceNavRow(props: {
     open,
     current,
     currentConversationId,
+    onSelectNav,
     onToggle,
     onExpand,
   } = props
   const [hovered, setHovered] = useState(false)
+  const titleAction = workspaceTitleAction({
+    workspaceCount,
+    isCurrent: current,
+  })
 
   const composeHref = router.buildLocation({
     to: "/$orgSlug/ws/$workspaceSlug",
     params: { orgSlug, workspaceSlug: workspace.slug },
   }).href
-
-  const compose = () => {
-    void navigate({
-      to: "/$orgSlug/ws/$workspaceSlug",
-      params: { orgSlug, workspaceSlug: workspace.slug },
-    })
-  }
-
-  const resumeMostRecent = () => {
-    if (workspace.mostRecentConversationId) {
-      void navigate({
+  const resumeHref = workspace.mostRecentConversationId
+    ? router.buildLocation({
         to: "/$orgSlug/ws/$workspaceSlug/$conversationId",
         params: {
           orgSlug,
           workspaceSlug: workspace.slug,
           conversationId: workspace.mostRecentConversationId,
         },
-      })
-      return
-    }
-    compose()
+      }).href
+    : composeHref
+  const titleHref = titleAction === "resume" ? resumeHref : composeHref
+
+  const selectWorkspaceCompose = () => {
+    onSelectNav({
+      orgSlug,
+      primary: "workspace",
+      workspaceSlug: workspace.slug,
+    })
   }
 
-  const onTitleClick = () => {
-    const action = workspaceTitleAction({
-      workspaceCount,
-      isCurrent: current,
-    })
-    if (action === "compose") {
-      compose()
-      return
-    }
-    if (action === "toggle") {
+  const onTitlePress = () => {
+    if (titleAction === "toggle") {
       onToggle()
       return
     }
-    resumeMostRecent()
-    onExpand()
+    if (titleAction === "resume" && workspace.mostRecentConversationId) {
+      onSelectNav({
+        orgSlug,
+        primary: "workspace",
+        workspaceSlug: workspace.slug,
+        conversationId: workspace.mostRecentConversationId,
+      })
+      onExpand()
+      return
+    }
+    selectWorkspaceCompose()
   }
 
   const showCaret = collapsible && hovered && navExpanded
   const workspaceActive = current && !currentConversationId
   const showConversations = open
+  const titleControlClassName = [
+    "flex min-w-0 flex-1 cursor-pointer items-center rounded-lg text-left",
+    focusVisibleClassName,
+  ].join(" ")
+  const titleInner = (
+    <>
+      <span className={sideNavIconGutterClassName}>
+        <span className="relative size-4">
+          <IconFolder
+            className={[
+              "absolute inset-0 size-4 transition-all duration-150 ease-out motion-reduce:transition-none",
+              showCaret ? "scale-75 opacity-0" : "scale-100 opacity-100",
+            ].join(" ")}
+            stroke={1.4}
+            aria-hidden
+          />
+          <span
+            className={[
+              "absolute inset-0 transition-all duration-150 ease-out motion-reduce:transition-none",
+              showCaret ? "scale-100 opacity-100" : "scale-75 opacity-0",
+            ].join(" ")}
+            aria-hidden
+          >
+            {open ? (
+              <IconChevronDown className="size-4" stroke={1.4} />
+            ) : (
+              <IconChevronRight className="size-4" stroke={1.4} />
+            )}
+          </span>
+        </span>
+      </span>
+      <span
+        className={[sideNavLabelClassName(navExpanded), "truncate pr-1"].join(
+          " ",
+        )}
+        aria-hidden={!navExpanded}
+      >
+        {workspace.displayName}
+      </span>
+    </>
+  )
+  const titleAriaLabel = collapsible
+    ? current
+      ? `${open ? "Collapse" : "Expand"} ${workspace.displayName}`
+      : `Open ${workspace.displayName}`
+    : `New conversation in ${workspace.displayName}`
 
   const row = (
     <div
       data-active={workspaceActive ? "true" : undefined}
       className={sideNavRowClassName({ active: workspaceActive })}
     >
-      <button
-        type="button"
-        className={[
-          "flex min-w-0 flex-1 cursor-pointer items-center rounded-lg text-left",
-          focusVisibleClassName,
-        ].join(" ")}
-        onMouseEnter={() => setHovered(true)}
-        onMouseLeave={() => setHovered(false)}
-        onClick={onTitleClick}
-        aria-expanded={navExpanded ? open : undefined}
-        aria-label={
-          collapsible
-            ? current
-              ? `${open ? "Collapse" : "Expand"} ${workspace.displayName}`
-              : `Open ${workspace.displayName}`
-            : `New conversation in ${workspace.displayName}`
-        }
-      >
-        <span className={sideNavIconGutterClassName}>
-          <span className="relative size-4">
-            <IconFolder
-              className={[
-                "absolute inset-0 size-4 transition-all duration-150 ease-out motion-reduce:transition-none",
-                showCaret ? "scale-75 opacity-0" : "scale-100 opacity-100",
-              ].join(" ")}
-              stroke={1.4}
-              aria-hidden
-            />
-            <span
-              className={[
-                "absolute inset-0 transition-all duration-150 ease-out motion-reduce:transition-none",
-                showCaret ? "scale-100 opacity-100" : "scale-75 opacity-0",
-              ].join(" ")}
-              aria-hidden
-            >
-              {open ? (
-                <IconChevronDown className="size-4" stroke={1.4} />
-              ) : (
-                <IconChevronRight className="size-4" stroke={1.4} />
-              )}
-            </span>
-          </span>
-        </span>
-        <span
-          className={[sideNavLabelClassName(navExpanded), "truncate pr-1"].join(
-            " ",
-          )}
-          aria-hidden={!navExpanded}
+      {titleAction === "toggle" ? (
+        <button
+          type="button"
+          className={titleControlClassName}
+          onMouseEnter={() => setHovered(true)}
+          onMouseLeave={() => setHovered(false)}
+          onClick={onTitlePress}
+          aria-expanded={navExpanded ? open : undefined}
+          aria-label={titleAriaLabel}
         >
-          {workspace.displayName}
-        </span>
-      </button>
+          {titleInner}
+        </button>
+      ) : (
+        <Link
+          href={titleHref}
+          onPress={onTitlePress}
+          onHoverStart={() => setHovered(true)}
+          onHoverEnd={() => setHovered(false)}
+          className={titleControlClassName}
+          aria-expanded={navExpanded ? open : undefined}
+          aria-label={titleAriaLabel}
+        >
+          {titleInner}
+        </Link>
+      )}
       <Link
         href={composeHref}
+        onPress={selectWorkspaceCompose}
         aria-label={`New conversation in ${workspace.displayName}`}
         aria-hidden={!navExpanded}
         isDisabled={!navExpanded}
@@ -184,6 +208,7 @@ export function WorkspaceNavRow(props: {
           workspace={workspace}
           navExpanded={navExpanded}
           currentConversationId={currentConversationId}
+          onSelectNav={onSelectNav}
         />
       ) : null}
     </li>

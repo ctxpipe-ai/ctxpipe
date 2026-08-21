@@ -15,10 +15,9 @@ export const Route = createFileRoute(
       orgSlug: params.orgSlug,
       workspaceSlug: params.workspaceSlug,
       conversationId: params.conversationId,
-      paneParam:
-        cause === "enter"
-          ? workspaceSearch(location.search as Record<string, unknown>).pane
-          : undefined,
+      paneParam: workspaceSearch(location.search as Record<string, unknown>)
+        .pane,
+      warmLandingPane: cause === "enter",
     })
   },
   errorComponent: ({ error, reset }) => (

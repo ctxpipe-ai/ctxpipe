@@ -5,22 +5,17 @@ import { SideNavTooltip } from "./SideNavTooltip"
 
 type SideNavOrganizationButtonProps = {
   expanded: boolean
-}
-
-function orgSlugFromPathname(pathname: string): string | null {
-  const firstSegment = pathname.split("/").filter(Boolean)[0]
-  if (!firstSegment || firstSegment.startsWith(".")) return null
-  return firstSegment
+  routeOrgSlug: string | null
+  onSelectOrg: (orgSlug: string) => void
 }
 
 export function SideNavOrganizationButton({
   expanded,
+  routeOrgSlug,
+  onSelectOrg,
 }: SideNavOrganizationButtonProps) {
   const router = useRouter()
   const [, setPreferences] = useUserPreferences()
-  const routeOrgSlug = orgSlugFromPathname(
-    router.state?.location.pathname ?? "",
-  )
 
   return (
     <SideNavTooltip label="Organization" enabled={!expanded}>
@@ -29,6 +24,7 @@ export function SideNavOrganizationButton({
           expanded={expanded}
           routeOrgSlug={routeOrgSlug}
           onSetActive={(org) => {
+            onSelectOrg(org.slug)
             setPreferences((prev) => ({
               ...prev,
               selectedOrganizationSlug: org.slug,

@@ -1,8 +1,8 @@
 ---
 name: react
 description: React UI patterns for apps/ui—Effects vs rendering, TanStack Query for all server data, useMemo, keys, event handlers. Start here when creating or editing React components.
-skill_version: 1.0.3
-updated_at: 2026-08-21T00:00:00Z
+skill_version: 1.0.4
+updated_at: 2026-08-21T12:00:00Z
 tags: [react, hooks, useeffect, usememo, performance, components]
 progressive_disclosure:
   entry_point:
@@ -44,7 +44,7 @@ If there is **no external system**—for example, you only need to update local 
 |-----------|--------|
 | Server / API data (read, mutations, refetch) | **TanStack Query** only—never `useEffect` + manual fetch for data loading |
 | First paint must include product data (SSR) | Route `ensureQueryData` + `useSuspenseQuery`; no module-level `QueryClient`. Do **not** put tab/pane search in `loaderDeps` |
-| In-page tab / pane / region switch | Set selected chrome in the click handler; write the URL afterwards. Load that region with local `Suspense`. Prefetch on hover/select; do not `await` it before navigate |
+| In-page tab / pane / nav highlight | Set selected chrome in the click handler (`useUrgentValue`); write the URL afterwards. `Link` / `useMatchRoute` still wait on the router. Load the region with local `Suspense`. Prefetch on hover/select; do not `await` it before navigate |
 | Value derivable from props/state | Compute during render; avoid redundant state ([Thinking in React](https://react.dev/learn/thinking-in-react)) |
 | Expensive pure calculation | `useMemo` with correct deps; measure before optimizing. **React Compiler** may reduce the need for manual `useMemo` ([docs](https://react.dev/learn/react-compiler)) |
 | Reset *all* inner state when a prop changes (e.g. `userId`) | `key={userId}` on a child so React remounts a fresh subtree |
@@ -61,16 +61,20 @@ If there is **no external system**—for example, you only need to update local 
 
 ## Feel fast
 
-Speed of the Operate UI is part of the product. **Chrome must move on the click.**
+Speed of the Operate UI is part of the product. **Chrome must move on the click. First HTML still includes the landing region.**
 
-Route `loader` + `ensureQueryData` is for **entry**: SSR and navigations that change org / workspace / conversation identity. Putting in-page search (`?pane=`, tabs, other chrome that only swaps a region) in `loaderDeps` blocks the URL until that fetch finishes — the selected tab cannot update, and the region’s own `Suspense` never gets to show.
+TanStack Router commits location inside `React.startTransition`. If `selectedKey`, `aria-current`, or “current workspace” is driven only from `useSearch()` / `useParams()` / `useMatchRoute()` / `router.state.location`, the highlight waits until the new page body is ready. `Link` does not fix that.
 
-- **Loader:** identity queries only. It may still *read* landing search (e.g. `search.pane`) on first load to warm that pane. Do not list that search key in `loaderDeps`. Skip reloading on search-only `stay`.
-- **Region:** `useSuspenseQuery` + **local** `Suspense` (skeleton for that pane, not a full-page “Loading Workspace…”).
-- **Intent:** `prefetchQuery` on hover/select; do not `await` it before `navigate`.
-- **Selected chrome:** set the selected tab/pane in the **click handler** (urgent local state). Keep `?pane=` (or similar) for share/refresh; do **not** drive `selectedKey` solely from `useSearch()` — TanStack Router commits search inside `startTransition`, so the highlight waits for the new pane body. Adopt the URL during render when it changes from outside (back/forward).
+Urgent local state is for **in-page clicks**. Route **enter** (SSR, refresh, org/workspace identity) still `await ensureQueryData` for the region that will paint.
 
-A blocked tab click is a bug, even if the data eventually arrives.
+Use [`useUrgentValue`](../../../apps/ui/src/lib/useUrgentValue.ts): set the value in the event handler; adopt the committed URL during render when it changes (back/forward). Include org/workspace in the key so ids do not leak across identities.
+
+- **Loader:** identity queries on enter. Warm the **landing** region on enter (workspace default is files when `?pane=` is empty). Do not list in-page search in `loaderDeps`. `shouldReload: ({ cause }) => cause === "enter"` so search-only / sibling stays do not re-await. Never pass `paneParam: undefined` on enter.
+- **Region:** `useSuspenseQuery` + **local** `Suspense` (skeleton for that pane, not a full-page “Loading Workspace…”). Fallbacks are for **client clicks**, not first HTML.
+- **Intent:** `prefetchQuery` on hover/select; do not `await` it before `navigate`. Prefer `Link` (router `defaultPreload: "intent"`) plus `onPress` for urgent selection — `navigate()` in `onClick` misses preload.
+- **Selected chrome:** tabs, panes, SideNav rows, org switcher label. Keep the URL for share/refresh; do not wait for it to paint the highlight.
+
+A blocked tab or nav click is a bug, even if the data eventually arrives. Dropping SSR of the landing files tree to make a click feel fast is also a bug.
 
 ## Checklist before adding `useEffect`
 

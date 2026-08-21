@@ -62,7 +62,8 @@ export const Nested: Story = {}
 export const SearchOpen: Story = {
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement)
-    await userEvent.click(canvas.getByRole("button", { name: "Search files" }))
+    const search = await canvas.findByRole("button", { name: "Search files" })
+    await userEvent.click(search)
   },
 }
 

@@ -1,11 +1,12 @@
 import { useInfiniteQuery } from "@tanstack/react-query"
 import { useRouter } from "@tanstack/react-router"
 import { Link } from "react-aria-components"
+import { SideNavTooltip } from "@/components/SideNav/SideNavTooltip"
+import type { SideNavLocation } from "@/components/SideNav/sideNavLocation"
 import {
   sideNavLabelClassName,
   sideNavRowClassName,
 } from "@/components/SideNav/sideNavStyles"
-import { SideNavTooltip } from "@/components/SideNav/SideNavTooltip"
 import { Button } from "@/components/ui/Button"
 import type { ConversationListItem } from "@/features/chat/types"
 import { client } from "@/lib/api"
@@ -18,8 +19,15 @@ export function WorkspaceConversationList(props: {
   workspace: Workspace
   navExpanded: boolean
   currentConversationId?: string
+  onSelectNav: (next: SideNavLocation) => void
 }) {
-  const { orgSlug, workspace, navExpanded, currentConversationId } = props
+  const {
+    orgSlug,
+    workspace,
+    navExpanded,
+    currentConversationId,
+    onSelectNav,
+  } = props
   const router = useRouter()
   const query = useInfiniteQuery({
     queryKey: workspaceKeys.conversations(orgSlug, workspace.id),
@@ -94,6 +102,14 @@ export function WorkspaceConversationList(props: {
               <SideNavTooltip label={item.name} enabled={!navExpanded}>
                 <Link
                   href={href}
+                  onPress={() => {
+                    onSelectNav({
+                      orgSlug,
+                      primary: "workspace",
+                      workspaceSlug: workspace.slug,
+                      conversationId: item.id,
+                    })
+                  }}
                   aria-current={active ? "page" : undefined}
                   aria-label={item.name}
                   className={sideNavRowClassName({ active })}

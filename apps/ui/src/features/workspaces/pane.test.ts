@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest"
-import { parsePane, serializePane, visiblePane } from "./pane"
+import { landingPane, parsePane, serializePane, visiblePane } from "./pane"
 
 describe("parsePane", () => {
   it("maps built-in ids", () => {
@@ -24,6 +24,21 @@ describe("parsePane", () => {
   it("returns null when missing", () => {
     expect(parsePane(undefined)).toBeNull()
     expect(parsePane("")).toBeNull()
+  })
+})
+
+describe("landingPane", () => {
+  it("defaults to files when search is empty", () => {
+    expect(landingPane(undefined)).toEqual({ kind: "files" })
+    expect(landingPane("")).toEqual({ kind: "files" })
+  })
+
+  it("keeps a visible URL pane", () => {
+    expect(landingPane("graph")).toEqual({ kind: "graph" })
+    expect(landingPane("file:README.md")).toEqual({
+      kind: "file",
+      path: "README.md",
+    })
   })
 })
 

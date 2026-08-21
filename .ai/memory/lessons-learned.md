@@ -676,3 +676,9 @@ Highest-priority confirmed rules for agents. Migrated from former `patterns.md` 
 - **Date:** 2026-08-20
 - **Source:** preview/pr-280 pg_stat_activity + Sol SQL-contract review
 
+### Selected chrome is urgent; enter still SSRs the landing region
+- **Rule:** TanStack Router commits location inside `startTransition`, so `selectedKey` / `aria-current` / current workspace driven only from `useSearch`, `useMatchRoute`, or `pathname` waits for the new body. Set selection in the click handler (`useUrgentValue`); write the URL afterwards. `Link` does not make the highlight instant. Loaders `shouldReload` only on `enter` and still `ensureQueryData` the landing region (workspace default is files when `?pane=` is empty) so first HTML is not “Loading files…”. Do not put in-page chrome in `loaderDeps`.
+- **Category:** convention
+- **Date:** 2026-08-21
+- **Source:** workspace pane tab lag in PR preview; files tree dropped off SSR after stay-only loaders
+

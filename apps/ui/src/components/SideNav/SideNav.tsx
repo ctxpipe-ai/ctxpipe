@@ -13,7 +13,6 @@ import { useShellLayout } from "@/components/ShellLayoutContext"
 import { WorkspaceCommandPalette } from "@/features/workspaces/WorkspaceCommandPalette"
 import { WorkspaceNavList } from "@/features/workspaces/WorkspaceNavList"
 import { focusVisibleClassName } from "@/lib/focus-styles"
-import { cn } from "@/lib/utils"
 import {
   clampSideNavWidth,
   SIDE_NAV_COLLAPSED_WIDTH,
@@ -21,12 +20,19 @@ import {
   SIDE_NAV_MAX_WIDTH,
   SIDE_NAV_MIN_WIDTH,
   useUserPreferences,
-} from "../../lib/user-preferences"
+} from "@/lib/user-preferences"
+import { useUrgentValue } from "@/lib/useUrgentValue"
+import { cn } from "@/lib/utils"
 import { SideNavItem } from "./SideNavItem"
 import { SideNavLogo } from "./SideNavLogo"
 import { SideNavOrganizationButton } from "./SideNavOrganizationButton"
 import { SideNavTooltip } from "./SideNavTooltip"
 import { SideNavUserButton } from "./SideNavUserButton"
+import {
+  parseSideNavLocation,
+  type SideNavLocation,
+  sideNavLocationKey,
+} from "./sideNavLocation"
 import {
   sideNavIconGutterClassName,
   sideNavLabelClassName,
@@ -46,14 +52,17 @@ export function SideNav() {
   const [isResizing, setIsResizing] = useState(false)
   const navRef = useRef<HTMLElement>(null)
   const pathname = router.state?.location.pathname ?? ""
-  const segments = pathname.split("/").filter(Boolean)
-  const firstSegment = segments[0]
-  const orgSlug =
-    (!firstSegment?.startsWith(".") ? firstSegment : null) ??
-    selectedOrganizationSlug
-  const currentWorkspaceSlug = segments[1] === "ws" ? segments[2] : undefined
-  const currentConversationId =
-    segments[1] === "ws" && segments[3] ? segments[3] : undefined
+  const committedNav = parseSideNavLocation(pathname, selectedOrganizationSlug)
+  const [nav, setNav] = useUrgentValue(
+    committedNav,
+    sideNavLocationKey(committedNav),
+  )
+  const orgSlug = nav.orgSlug
+  const currentWorkspaceSlug = nav.workspaceSlug
+  const currentConversationId = nav.conversationId
+  const selectNav = (next: SideNavLocation) => {
+    setNav(next)
+  }
 
   useEffect(() => {
     if (pathname) setNavOpen(false)
@@ -166,7 +175,8 @@ export function SideNav() {
               label="Home"
               icon={<IconHome stroke={1.4} />}
               expanded={expanded}
-              exact
+              active={nav.primary === "home"}
+              onPress={() => selectNav({ orgSlug, primary: "home" })}
             />
           </li>
           <li>
@@ -211,6 +221,8 @@ export function SideNav() {
               label="Connectors"
               icon={<IconPlug stroke={1.4} />}
               expanded={expanded}
+              active={nav.primary === "connectors"}
+              onPress={() => selectNav({ orgSlug, primary: "connectors" })}
             />
           </li>
           {orgSlug ? (
@@ -219,6 +231,7 @@ export function SideNav() {
               expanded={expanded}
               currentWorkspaceSlug={currentWorkspaceSlug}
               currentConversationId={currentConversationId}
+              onSelectNav={selectNav}
             />
           ) : null}
         </ul>
@@ -228,7 +241,13 @@ export function SideNav() {
           aria-label="User actions"
         >
           <li className="w-full">
-            <SideNavOrganizationButton expanded={expanded} />
+            <SideNavOrganizationButton
+              expanded={expanded}
+              routeOrgSlug={orgSlug}
+              onSelectOrg={(nextOrgSlug) =>
+                selectNav({ orgSlug: nextOrgSlug, primary: "home" })
+              }
+            />
           </li>
           <li className="w-full">
             <SideNavUserButton expanded={expanded} />

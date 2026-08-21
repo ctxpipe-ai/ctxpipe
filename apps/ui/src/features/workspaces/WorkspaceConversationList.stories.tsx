@@ -31,6 +31,7 @@ const meta = {
     workspace: docsWorkspace,
     navExpanded: true,
     currentConversationId: "conv_1",
+    onSelectNav: () => {},
   },
 } satisfies Meta<typeof WorkspaceConversationList>
 

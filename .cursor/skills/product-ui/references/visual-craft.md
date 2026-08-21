@@ -77,6 +77,7 @@ These encode widely used interface tactics as **ctxpipe house rules**. They are 
 | Rings not clipped | No parent `overflow-hidden` eating outlines; edge items trade padding→margin; focusable control shares the same radius as the painted hit target |
 | Scoped style edits | When polishing one region, do not push experiments into shared class helpers that restyle sibling regions |
 | Splitter / resize a11y | Focus shows the hover line (not a box outline); arrow keys nudge the value |
+| Selected chrome on press | Tab, nav row, and switcher highlight move in the click handler. Skeleton stays inside the region. First HTML still has the landing files/data |
 
 ## Actions
 

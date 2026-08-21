@@ -3,6 +3,7 @@ import { workspaceListOptions } from "@/features/workspaces/queries"
 import { fetchSsrOrganizations, fetchSsrSession } from "@/lib/auth-ssr"
 
 export const Route = createFileRoute("/$orgSlug")({
+  shouldReload: ({ cause }) => cause === "enter",
   beforeLoad: async ({ params, context }) => {
     const session = await fetchSsrSession()
     if (!session) {

@@ -1,5 +1,6 @@
 import { useSuspenseQuery } from "@tanstack/react-query"
 import { Suspense, useState } from "react"
+import type { SideNavLocation } from "@/components/SideNav/sideNavLocation"
 import { isWorkspaceNavOpen } from "./nav"
 import { workspaceListOptions } from "./queries"
 import { WorkspaceCreateModal } from "./WorkspaceCreateModal"
@@ -11,6 +12,7 @@ export function WorkspaceNavList(props: {
   expanded: boolean
   currentWorkspaceSlug?: string
   currentConversationId?: string
+  onSelectNav: (next: SideNavLocation) => void
 }) {
   return (
     <Suspense
@@ -41,9 +43,15 @@ function WorkspaceNavListReady(props: {
   expanded: boolean
   currentWorkspaceSlug?: string
   currentConversationId?: string
+  onSelectNav: (next: SideNavLocation) => void
 }) {
-  const { orgSlug, expanded, currentWorkspaceSlug, currentConversationId } =
-    props
+  const {
+    orgSlug,
+    expanded,
+    currentWorkspaceSlug,
+    currentConversationId,
+    onSelectNav,
+  } = props
   const { data } = useSuspenseQuery(workspaceListOptions(orgSlug))
   const workspaces = data.items
   const n = workspaces.length
@@ -87,6 +95,7 @@ function WorkspaceNavListReady(props: {
             open={open}
             current={workspace.slug === currentWorkspaceSlug}
             currentConversationId={currentConversationId}
+            onSelectNav={onSelectNav}
             onToggle={() => {
               setExpandedIds((ids) =>
                 ids.includes(workspace.id)

@@ -11,10 +11,9 @@ export const Route = createFileRoute("/$orgSlug/ws/$workspaceSlug")({
       queryClient: context.queryClient,
       orgSlug: params.orgSlug,
       workspaceSlug: params.workspaceSlug,
-      paneParam:
-        cause === "enter"
-          ? workspaceSearch(location.search as Record<string, unknown>).pane
-          : undefined,
+      paneParam: workspaceSearch(location.search as Record<string, unknown>)
+        .pane,
+      warmLandingPane: cause === "enter",
     })
   },
   errorComponent: ({ error, reset }) => (

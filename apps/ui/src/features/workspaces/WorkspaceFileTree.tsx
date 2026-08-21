@@ -1,5 +1,6 @@
 import { FileTree, useFileTree, useFileTreeSearch } from "@pierre/trees/react"
 import { IconLayoutSidebarLeftCollapse, IconSearch } from "@tabler/icons-react"
+import { ClientOnly } from "@tanstack/react-router"
 import { type CSSProperties, useEffect, useMemo, useRef } from "react"
 import { Button } from "@/components/ui/Button"
 import { Menu, MenuItem, MenuTrigger } from "@/components/ui/Menu"
@@ -68,6 +69,75 @@ function lineCountDecoration(item: WorkspaceGitStatusItem | undefined) {
 }
 
 export function WorkspaceFileTree(props: {
+  paths: readonly string[]
+  selectedPath: string | null
+  gitStatus?: readonly WorkspaceGitStatusItem[]
+  writable: boolean
+  onSelect: (path: string) => void
+  onPin?: (path: string) => void
+  onRequestCreate?: (kind: "file" | "folder", parentPath: string | null) => void
+  onRequestDelete?: (item: WorkspaceFileTreeItem) => void
+  onRename?: (from: string, to: string) => void
+  onMove?: (from: string, toDirectory: string | null) => void
+  onHideTree?: () => void
+}) {
+  return (
+    <ClientOnly fallback={<FileTreeSsrFallback {...props} />}>
+      <WorkspaceFileTreeClient {...props} />
+    </ClientOnly>
+  )
+}
+
+function FileTreeSsrFallback(props: {
+  paths: readonly string[]
+  selectedPath: string | null
+  onHideTree?: () => void
+}) {
+  return (
+    <div className="flex h-full min-h-0 min-w-0 flex-col">
+      <div className={TREE_HEADER_CLASS}>
+        <span className="min-w-0 flex-1" />
+        {props.onHideTree ? (
+          <Button
+            variant="quiet"
+            size="icon-sm"
+            aria-label="Hide tree"
+            onPress={props.onHideTree}
+            className={TREE_HEADER_ICON_CLASS}
+          >
+            <IconLayoutSidebarLeftCollapse
+              className="size-4"
+              stroke={1.6}
+              aria-hidden
+            />
+          </Button>
+        ) : null}
+      </div>
+      <ul
+        aria-label="Workspace files"
+        className="min-h-0 flex-1 overflow-auto px-2 pb-2 font-mono text-xs leading-6 text-zinc-300"
+      >
+        {props.paths.map((path) => {
+          const name = path.split("/").pop() ?? path
+          const selected = props.selectedPath === path
+          return (
+            <li
+              key={path}
+              className={cn(
+                "truncate rounded-sm px-1",
+                selected && "bg-zinc-800 text-zinc-100",
+              )}
+            >
+              {name}
+            </li>
+          )
+        })}
+      </ul>
+    </div>
+  )
+}
+
+function WorkspaceFileTreeClient(props: {
   paths: readonly string[]
   selectedPath: string | null
   gitStatus?: readonly WorkspaceGitStatusItem[]
@@ -200,11 +270,11 @@ export function WorkspaceFileTree(props: {
             onPress={props.onHideTree}
             className={TREE_HEADER_ICON_CLASS}
           >
-              <IconLayoutSidebarLeftCollapse
-                className="size-4"
-                stroke={1.6}
-                aria-hidden
-              />
+            <IconLayoutSidebarLeftCollapse
+              className="size-4"
+              stroke={1.6}
+              aria-hidden
+            />
           </Button>
         ) : null}
       </div>
