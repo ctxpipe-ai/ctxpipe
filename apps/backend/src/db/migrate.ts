@@ -6,6 +6,7 @@ import { drizzle } from "drizzle-orm/node-postgres"
 import { migrate } from "drizzle-orm/node-postgres/migrator"
 import { Pool } from "pg"
 import { initEvlog, log } from "../observability/logger.js"
+import { migrateOpenWorkflow } from "./migrate-openworkflow.js"
 import { APP_ROLE_NAME, provisionAppRole } from "./provision-app-role.js"
 
 initEvlog()
@@ -27,6 +28,7 @@ if (appRolePassword) {
 
 log.info({ step: "migrate", message: "[migrate] running migrations…" })
 await migrate(db, { migrationsFolder: "./apps/backend/migrations" })
+await migrateOpenWorkflow(connectionString)
 
 if (appRolePassword) {
   await provisionAppRole(pool, appRolePassword)

@@ -217,7 +217,9 @@ jobs:
 
       - name: Run Drizzle migrations on PR Neon branch
         working-directory: apps/backend
-        run: NO_COLOR=1 CI=true stdbuf -oL -eL pnpm exec drizzle-kit migrate
+        run: |
+          NO_COLOR=1 CI=true stdbuf -oL -eL pnpm exec drizzle-kit migrate
+          bun run src/db/migrate-openworkflow.ts
         env:
           DATABASE_URL: ${{ steps.neon_branch.outputs.db_url }}
 
