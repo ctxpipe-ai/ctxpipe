@@ -1,8 +1,8 @@
 ---
 name: react
 description: React UI patterns for apps/ui—Effects vs rendering, TanStack Query for all server data, useMemo, keys, event handlers. Start here when creating or editing React components.
-skill_version: 1.0.2
-updated_at: 2026-08-20T12:00:00Z
+skill_version: 1.0.3
+updated_at: 2026-08-21T00:00:00Z
 tags: [react, hooks, useeffect, usememo, performance, components]
 progressive_disclosure:
   entry_point:
@@ -44,7 +44,7 @@ If there is **no external system**—for example, you only need to update local 
 |-----------|--------|
 | Server / API data (read, mutations, refetch) | **TanStack Query** only—never `useEffect` + manual fetch for data loading |
 | First paint must include product data (SSR) | Route `ensureQueryData` + `useSuspenseQuery`; no module-level `QueryClient`. Do **not** put tab/pane search in `loaderDeps` |
-| In-page tab / pane / region switch | Commit the URL or selected chrome immediately; load that region with local `Suspense`. Prefetch on hover/select; do not `await` it before navigate |
+| In-page tab / pane / region switch | Set selected chrome in the click handler; write the URL afterwards. Load that region with local `Suspense`. Prefetch on hover/select; do not `await` it before navigate |
 | Value derivable from props/state | Compute during render; avoid redundant state ([Thinking in React](https://react.dev/learn/thinking-in-react)) |
 | Expensive pure calculation | `useMemo` with correct deps; measure before optimizing. **React Compiler** may reduce the need for manual `useMemo` ([docs](https://react.dev/learn/react-compiler)) |
 | Reset *all* inner state when a prop changes (e.g. `userId`) | `key={userId}` on a child so React remounts a fresh subtree |
@@ -65,9 +65,10 @@ Speed of the Operate UI is part of the product. **Chrome must move on the click.
 
 Route `loader` + `ensureQueryData` is for **entry**: SSR and navigations that change org / workspace / conversation identity. Putting in-page search (`?pane=`, tabs, other chrome that only swaps a region) in `loaderDeps` blocks the URL until that fetch finishes — the selected tab cannot update, and the region’s own `Suspense` never gets to show.
 
-- **Loader:** identity queries only. It may still *read* landing search (e.g. `search.pane`) on first load to warm that pane. Do not list that search key in `loaderDeps`.
+- **Loader:** identity queries only. It may still *read* landing search (e.g. `search.pane`) on first load to warm that pane. Do not list that search key in `loaderDeps`. Skip reloading on search-only `stay`.
 - **Region:** `useSuspenseQuery` + **local** `Suspense` (skeleton for that pane, not a full-page “Loading Workspace…”).
 - **Intent:** `prefetchQuery` on hover/select; do not `await` it before `navigate`.
+- **Selected chrome:** set the selected tab/pane in the **click handler** (urgent local state). Keep `?pane=` (or similar) for share/refresh; do **not** drive `selectedKey` solely from `useSearch()` — TanStack Router commits search inside `startTransition`, so the highlight waits for the new pane body. Adopt the URL during render when it changes from outside (back/forward).
 
 A blocked tab click is a bug, even if the data eventually arrives.
 

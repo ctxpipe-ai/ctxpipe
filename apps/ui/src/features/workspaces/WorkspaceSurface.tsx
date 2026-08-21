@@ -181,8 +181,15 @@ function WorkspaceSurfaceReady(props: {
     },
   })
 
-  const pane = parsePane(paneParam)
-  const shownPane = visiblePane(pane)
+  const urlPane = visiblePane(parsePane(paneParam))
+  const urlPaneKey = `${orgSlug}/${workspaceSlug}:${urlPane ? serializePane(urlPane) : ""}`
+  const [optimisticPane, setOptimisticPane] = useState(urlPane)
+  const [seenUrlPaneKey, setSeenUrlPaneKey] = useState(urlPaneKey)
+  if (urlPaneKey !== seenUrlPaneKey) {
+    setSeenUrlPaneKey(urlPaneKey)
+    setOptimisticPane(urlPane)
+  }
+  const shownPane = optimisticPane
   const [maximized, setMaximized] = useState(false)
   const [paneWidth, setPaneWidth] = useState<number | null>(null)
   const [treeCollapsed, setTreeCollapsed] = useState(false)
@@ -192,7 +199,7 @@ function WorkspaceSurfaceReady(props: {
     previewPath: null,
   })
 
-  const fileFromPane = pane?.kind === "file" ? pane.path : null
+  const fileFromPane = shownPane?.kind === "file" ? shownPane.path : null
   const openFileTabs = tabsIncludingPanePath(fileTabs.tabs, fileFromPane)
 
   useEffect(() => {
@@ -204,6 +211,7 @@ function WorkspaceSurfaceReady(props: {
   }, [orgSlug, workspaceSlug, queryClient])
 
   const setPane = (next: ParsedPane | null) => {
+    setOptimisticPane(next ? visiblePane(next) : null)
     if (next) setPaneCollapsed(false)
     void navigate({
       to: conversationId

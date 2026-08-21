@@ -102,21 +102,33 @@ export function WorkspacePane(props: {
   conversationTitle: string
 }) {
   const queryClient = useQueryClient()
-  const activeFile = props.pane.kind === "file" ? props.pane.path : null
-  const filesTabActive = props.pane.kind === "files"
-  const selectedKey = serializePane(props.pane)
+  const urlPaneKey = serializePane(props.pane)
+  const [pane, setPane] = useState(props.pane)
+  const [seenUrlPaneKey, setSeenUrlPaneKey] = useState(urlPaneKey)
+  if (urlPaneKey !== seenUrlPaneKey) {
+    setSeenUrlPaneKey(urlPaneKey)
+    setPane(props.pane)
+  }
+  const activeFile = pane.kind === "file" ? pane.path : null
+  const filesTabActive = pane.kind === "files"
+  const selectedKey = serializePane(pane)
   const paneWidthLocked = props.width != null
 
   const prefetchPane = (next: ParsedPane) => {
     prefetchWorkspacePane(queryClient, props.orgSlug, props.workspace, next)
   }
 
+  const selectPane = (next: ParsedPane) => {
+    setPane(next)
+    prefetchPane(next)
+    props.onPane(next)
+  }
+
   const onSelectTab = (key: Key | null) => {
     if (key == null) return
     const next = parsePane(String(key))
     if (!next) return
-    prefetchPane(next)
-    props.onPane(next)
+    selectPane(next)
   }
   const fileTabListRef = useRef<HTMLDivElement>(null)
 
@@ -321,7 +333,7 @@ export function WorkspacePane(props: {
           )}
         >
           <div className="flex h-full min-h-0 min-w-0 flex-1 flex-col">
-            {props.pane.kind === "files" || props.pane.kind === "file" ? (
+            {pane.kind === "files" || pane.kind === "file" ? (
               <Suspense
                 fallback={
                   <div className="flex h-full min-h-0 flex-1 items-center p-4">
@@ -342,14 +354,20 @@ export function WorkspacePane(props: {
                   writeStatus={props.workspace.writeStatus}
                   activeFile={activeFile}
                   treeCollapsed={props.treeCollapsed}
-                  onPreviewFile={props.onPreviewFile}
-                  onPinFile={props.onPinFile}
+                  onPreviewFile={(path) => {
+                    setPane({ kind: "file", path })
+                    props.onPreviewFile(path)
+                  }}
+                  onPinFile={(path) => {
+                    setPane({ kind: "file", path })
+                    props.onPinFile(path)
+                  }}
                   onToggleTree={props.onToggleTree}
                   onCloseActiveFile={props.onCloseActiveFile}
                 />
               </Suspense>
             ) : null}
-            {props.pane.kind === "graph" ? (
+            {pane.kind === "graph" ? (
               <Suspense
                 fallback={
                   <WorkspaceGraphPane
@@ -357,24 +375,30 @@ export function WorkspacePane(props: {
                     workspaceSlug={props.workspace.slug}
                     graph={undefined}
                     pending
-                    onOpenSource={props.onPinFile}
+                    onOpenSource={(path) => {
+                      setPane({ kind: "file", path })
+                      props.onPinFile(path)
+                    }}
                   />
                 }
               >
                 <WorkspaceGraphPaneBody
                   orgSlug={props.orgSlug}
                   workspaceSlug={props.workspace.slug}
-                  onOpenSource={props.onPinFile}
+                  onOpenSource={(path) => {
+                    setPane({ kind: "file", path })
+                    props.onPinFile(path)
+                  }}
                 />
               </Suspense>
             ) : null}
-            {props.pane.kind === "settings" ? (
+            {pane.kind === "settings" ? (
               <WorkspaceSettingsPane
                 orgSlug={props.orgSlug}
                 workspace={props.workspace}
               />
             ) : null}
-            {props.pane.kind === "unknown" ? (
+            {pane.kind === "unknown" ? (
               <div className="flex flex-1 items-center justify-center p-6">
                 <p className="text-sm text-muted-foreground">
                   This pane id is kept in the URL and ignored.

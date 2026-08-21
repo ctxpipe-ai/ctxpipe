@@ -8,14 +8,17 @@ export const Route = createFileRoute(
   "/$orgSlug/ws/$workspaceSlug/$conversationId",
 )({
   validateSearch: workspaceSearch,
-  loader: async ({ context, params, location }) => {
+  shouldReload: ({ cause }) => cause === "enter",
+  loader: async ({ context, params, location, cause }) => {
     await ensureWorkspaceRouteData({
       queryClient: context.queryClient,
       orgSlug: params.orgSlug,
       workspaceSlug: params.workspaceSlug,
       conversationId: params.conversationId,
-      paneParam: workspaceSearch(location.search as Record<string, unknown>)
-        .pane,
+      paneParam:
+        cause === "enter"
+          ? workspaceSearch(location.search as Record<string, unknown>).pane
+          : undefined,
     })
   },
   errorComponent: ({ error, reset }) => (
