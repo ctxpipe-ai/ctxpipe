@@ -1,51 +1,82 @@
 import type { Pool } from "pg"
-import { afterEach, describe, expect, it, vi } from "vitest"
+import { describe, expect, it } from "vitest"
+import { APP_ROLE_NAME, provisionAppRole } from "./provision-app-role.js"
 
-const log = { info: vi.fn(), error: vi.fn() }
+type RoleAttrs = {
+  rolsuper: boolean
+  rolbypassrls: boolean
+  rolcreatedb: boolean
+  rolcreaterole: boolean
+  rolreplication: boolean
+  rolcanlogin: boolean
+}
 
-vi.mock("../observability/logger.js", () => ({ log }))
-
-const { provisionAppRole, APP_ROLE_NAME } = await import(
-  "./provision-app-role.js"
-)
-
-function createFakePool(queries: Array<{ sql: string; params?: unknown[] }>) {
+function createFakePool(options?: {
+  roleExists?: boolean
+  roleAttrs?: RoleAttrs
+  ownedRelation?: string
+  namespaces?: string[]
+}) {
+  const queries: Array<{ sql: string; params?: unknown[] }> = []
+  const roleAttrs: RoleAttrs = options?.roleAttrs ?? {
+    rolsuper: false,
+    rolbypassrls: false,
+    rolcreatedb: false,
+    rolcreaterole: false,
+    rolreplication: false,
+    rolcanlogin: true,
+  }
   const client = {
-    query: vi.fn(async (sql: string, params?: unknown[]) => {
+    query: async (sql: string, params?: unknown[]) => {
       queries.push({ sql, params })
-      if (sql.includes("pg_roles")) {
-        return { rowCount: 0, rows: [] }
+      if (sql.includes("SELECT 1 FROM pg_catalog.pg_roles")) {
+        return { rowCount: options?.roleExists ? 1 : 0, rows: [] }
+      }
+      if (sql.includes("format('ALTER ROLE")) {
+        return {
+          rows: [
+            {
+              sql: `ALTER ROLE "${APP_ROLE_NAME}" WITH LOGIN PASSWORD 'quoted'`,
+            },
+          ],
+        }
+      }
+      if (sql.includes("rolbypassrls")) {
+        return { rows: [roleAttrs] }
+      }
+      if (sql.includes("pg_class")) {
+        return {
+          rows: options?.ownedRelation ? [{ n: options.ownedRelation }] : [],
+        }
       }
       if (sql.includes("current_database")) {
         return { rows: [{ current_database: "ctxpipe" }] }
       }
       if (sql.includes("pg_namespace")) {
         return {
-          rows: [
-            { nspname: "public" },
-            { nspname: "pg_catalog" },
-            { nspname: "information_schema" },
-          ],
+          rows: (
+            options?.namespaces ?? [
+              "public",
+              "drizzle",
+              "pg_catalog",
+              "information_schema",
+            ]
+          ).map((nspname) => ({ nspname })),
         }
       }
       return { rowCount: 0, rows: [] }
-    }),
-    release: vi.fn(),
+    },
+    release: () => undefined,
   }
   return {
+    queries,
     pool: { connect: async () => client } as unknown as Pool,
-    client,
   }
 }
 
 describe("provisionAppRole", () => {
-  afterEach(() => {
-    vi.clearAllMocks()
-  })
-
-  it("creates the app role, binds the password, and grants public DML", async () => {
-    const queries: Array<{ sql: string; params?: unknown[] }> = []
-    const { pool } = createFakePool(queries)
+  it("creates the app role, quotes the password via format(), and grants public DML", async () => {
+    const { pool, queries } = createFakePool()
 
     await provisionAppRole(pool, "s3cret")
 
@@ -53,24 +84,52 @@ describe("provisionAppRole", () => {
     expect(sql).toContain(`CREATE ROLE "${APP_ROLE_NAME}" LOGIN`)
     expect(sql).toContain("NOBYPASSRLS")
     expect(sql).toContain(
+      "SELECT format('ALTER ROLE %I WITH LOGIN PASSWORD %L'",
+    )
+    expect(sql).toContain(
       `GRANT CONNECT ON DATABASE "ctxpipe" TO "${APP_ROLE_NAME}"`,
     )
     expect(sql).toContain(
       `GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA "public" TO "${APP_ROLE_NAME}"`,
     )
     expect(sql).toContain(`ALTER DEFAULT PRIVILEGES IN SCHEMA "public"`)
-    expect(sql).not.toContain('IN SCHEMA "pg_catalog"')
-    expect(sql).not.toContain('ON SCHEMA "pg_catalog"')
+    expect(sql).not.toContain('IN SCHEMA "drizzle"')
+    expect(sql).not.toContain('ON SCHEMA "drizzle"')
+    expect(sql).not.toContain("PASSWORD $1")
+    expect(sql).not.toContain("s3cret")
     expect(
       queries.some(
-        (q) => q.sql.includes("PASSWORD $1") && q.params?.[0] === "s3cret",
+        (q) =>
+          q.sql.includes("format('ALTER ROLE %I WITH LOGIN PASSWORD %L'") &&
+          q.params?.[1] === "s3cret",
       ),
     ).toBe(true)
-    expect(sql).not.toContain("s3cret")
+  })
+
+  it("fails closed when an existing app role has BYPASSRLS", async () => {
+    const { pool } = createFakePool({
+      roleExists: true,
+      roleAttrs: {
+        rolsuper: false,
+        rolbypassrls: true,
+        rolcreatedb: false,
+        rolcreaterole: false,
+        rolreplication: false,
+        rolcanlogin: true,
+      },
+    })
+    await expect(provisionAppRole(pool, "pw")).rejects.toThrow(
+      /elevated attributes/,
+    )
+  })
+
+  it("fails closed when the app role owns a relation", async () => {
+    const { pool } = createFakePool({ ownedRelation: "workspaces" })
+    await expect(provisionAppRole(pool, "pw")).rejects.toThrow(/owns relation/)
   })
 
   it("rejects unsafe role names instead of interpolating them", async () => {
-    const { pool } = createFakePool([])
+    const { pool } = createFakePool()
     await expect(
       provisionAppRole(pool, "pw", 'bad"; DROP ROLE x; --'),
     ).rejects.toThrow(/unsafe SQL identifier/)

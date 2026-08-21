@@ -1,9 +1,10 @@
-import type { Pool } from "pg"
+import type { Pool, PoolClient } from "pg"
 import { log } from "../observability/logger.js"
 
 export const APP_ROLE_NAME = "ctxpipe_app"
 
 const SAFE_IDENT = /^[a-z_][a-z0-9_]*$/
+const APP_SCHEMAS = new Set(["public", "openworkflow"])
 
 function quoteIdent(name: string): string {
   if (!SAFE_IDENT.test(name)) {
@@ -12,14 +13,81 @@ function quoteIdent(name: string): string {
   return `"${name}"`
 }
 
-function isUserSchema(nspname: string): boolean {
-  return nspname !== "information_schema" && !nspname.startsWith("pg_")
+function isAppSchema(nspname: string): boolean {
+  return APP_SCHEMAS.has(nspname)
+}
+
+async function alterRolePassword(
+  client: PoolClient,
+  roleName: string,
+  password: string,
+): Promise<void> {
+  const formatted = await client.query<{ sql: string }>(
+    "SELECT format('ALTER ROLE %I WITH LOGIN PASSWORD %L', $1::text, $2::text) AS sql",
+    [roleName, password],
+  )
+  const sql = formatted.rows[0]?.sql
+  if (!sql) {
+    throw new Error("format() returned empty ALTER ROLE")
+  }
+  await client.query(sql)
+}
+
+async function assertAppRoleSafe(
+  client: PoolClient,
+  roleName: string,
+): Promise<void> {
+  const attrs = await client.query<{
+    rolsuper: boolean
+    rolbypassrls: boolean
+    rolcreatedb: boolean
+    rolcreaterole: boolean
+    rolreplication: boolean
+    rolcanlogin: boolean
+  }>(
+    `SELECT rolsuper, rolbypassrls, rolcreatedb, rolcreaterole, rolreplication, rolcanlogin
+     FROM pg_catalog.pg_roles
+     WHERE rolname = $1`,
+    [roleName],
+  )
+  const role = attrs.rows[0]
+  if (!role) {
+    throw new Error(`app role ${roleName} missing after CREATE ROLE`)
+  }
+  if (
+    role.rolsuper ||
+    role.rolbypassrls ||
+    role.rolcreatedb ||
+    role.rolcreaterole ||
+    role.rolreplication
+  ) {
+    throw new Error(
+      `app role ${roleName} has elevated attributes (bypassrls=${role.rolbypassrls} super=${role.rolsuper}); refusing to continue`,
+    )
+  }
+  if (!role.rolcanlogin) {
+    throw new Error(`app role ${roleName} cannot LOGIN`)
+  }
+
+  const owned = await client.query<{ n: string }>(
+    `SELECT c.relname AS n
+     FROM pg_catalog.pg_class c
+     JOIN pg_catalog.pg_roles r ON r.oid = c.relowner
+     WHERE r.rolname = $1
+     LIMIT 1`,
+    [roleName],
+  )
+  if (owned.rows.length > 0) {
+    throw new Error(
+      `app role ${roleName} owns relation ${owned.rows[0]?.n}; runtime role must own nothing`,
+    )
+  }
 }
 
 /**
- * Create `ctxpipe_app` (LOGIN, no BYPASSRLS) and grant DML on existing and
- * future objects. Runs as the table owner before and after drizzle migrate.
- * Password is bound as a parameter — never interpolated into SQL.
+ * Create `ctxpipe_app` (LOGIN, no BYPASSRLS) and grant DML on application
+ * schemas. Runs as the table owner before and after drizzle migrate.
+ * Password is quoted by Postgres `format(%L)`, never interpolated in JS.
  */
 export async function provisionAppRole(
   pool: Pool,
@@ -38,7 +106,8 @@ export async function provisionAppRole(
         `CREATE ROLE ${role} LOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOINHERIT NOBYPASSRLS`,
       )
     }
-    await client.query(`ALTER ROLE ${role} WITH LOGIN PASSWORD $1`, [password])
+    await alterRolePassword(client, roleName, password)
+    await assertAppRoleSafe(client, roleName)
 
     const databaseName = (
       await client.query<{ current_database: string }>(
@@ -58,7 +127,7 @@ export async function provisionAppRole(
       )
     ).rows
       .map((row) => row.nspname)
-      .filter(isUserSchema)
+      .filter(isAppSchema)
 
     for (const schemaName of schemas) {
       const schema = quoteIdent(schemaName)
