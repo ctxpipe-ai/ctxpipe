@@ -1,5 +1,5 @@
 import { BackendPostgres } from "openworkflow/postgres"
-import { initEvlog, log } from "../observability/logger.js"
+import { log } from "../observability/logger.js"
 
 /** Apply OpenWorkflow schema as the table owner. Runtime connects with migrations off. */
 export async function migrateOpenWorkflow(
@@ -15,13 +15,19 @@ export async function migrateOpenWorkflow(
   await backend.stop()
 }
 
-const invokedDirectly = process.argv[1]?.includes("migrate-openworkflow")
-
-if (invokedDirectly) {
-  initEvlog()
-  const connectionString = process.env.DATABASE_URL
+/** GitHub migrate jobs only provide DATABASE_URL — do not parse app env / AUTH_SECRET. */
+export async function runMigrateOpenWorkflowFromEnv(
+  env: NodeJS.ProcessEnv = process.env,
+): Promise<void> {
+  const connectionString = env.DATABASE_URL
   if (!connectionString) {
     throw new Error("DATABASE_URL is required")
   }
   await migrateOpenWorkflow(connectionString)
+}
+
+const invokedDirectly = process.argv[1]?.includes("migrate-openworkflow.ts")
+
+if (invokedDirectly) {
+  await runMigrateOpenWorkflowFromEnv()
 }
