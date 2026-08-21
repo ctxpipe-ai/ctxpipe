@@ -49,11 +49,13 @@ export function WorkspaceChatChrome(props: {
           {props.headerExtra || props.workspace.readOnlyReason ? (
             <div className="ml-auto flex min-w-0 items-end gap-0.5">
               {props.workspace.readOnlyReason ? (
-                <span
-                  title={props.workspace.readOnlyReason}
-                  className="shrink-0 self-center rounded-lg border border-amber-500/80 bg-amber-950 px-2 py-0.5 text-xs font-medium text-amber-200"
-                >
-                  Read-only
+                <span className="inline-flex h-[37px] shrink-0 items-center">
+                  <span
+                    title={props.workspace.readOnlyReason}
+                    className="rounded-lg border border-amber-500/80 bg-amber-950 px-2 py-0.5 text-xs font-medium text-amber-200"
+                  >
+                    Read-only
+                  </span>
                 </span>
               ) : null}
               {props.headerExtra}
