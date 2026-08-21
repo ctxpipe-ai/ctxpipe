@@ -15,7 +15,11 @@ export async function migrateOpenWorkflow(
   await backend.stop()
 }
 
-if (import.meta.main) {
+const invokedDirectly =
+  process.argv[1] !== undefined &&
+  process.argv[1].includes("migrate-openworkflow")
+
+if (invokedDirectly) {
   initEvlog()
   const connectionString = process.env.DATABASE_URL
   if (!connectionString) {

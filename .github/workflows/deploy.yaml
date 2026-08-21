@@ -146,7 +146,7 @@ jobs:
         working-directory: apps/backend
         run: |
           pnpm exec drizzle-kit migrate
-          bun run src/db/migrate-openworkflow.ts
+          pnpm exec tsx src/db/migrate-openworkflow.ts
 
   terraform:
     name: Terraform Init/Plan/Apply
