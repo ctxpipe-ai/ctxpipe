@@ -676,6 +676,12 @@ Highest-priority confirmed rules for agents. Migrated from former `patterns.md` 
 - **Date:** 2026-08-21
 - **Source:** user correction (RLS is a hard requirement; lock pool caused DELETE 500)
 
+### Enable RLS in the same PR as the org-SQL work
+- **Rule:** Do not split RLS enablement into a follow-up because the org-SQL / workspace PR already needs a full preview pass. Enabling policies does not add a second product-surface test matrix; ship the audit and enablement on that branch. A role-split `DATABASE_URL` still needs one preview smoke (sign-in, list, webhook, index) as deploy verification, not extra feature testing.
+- **Category:** convention
+- **Date:** 2026-08-21
+- **Source:** user correction (RLS in this branch; does not expand manual-test scope)
+
 ### Selected chrome is urgent; enter still SSRs the landing region
 - **Rule:** TanStack Router commits location inside `startTransition`, so `selectedKey` / `aria-current` / current workspace driven only from `useSearch`, `useMatchRoute`, or `pathname` waits for the new body. Set selection in the click handler (`useUrgentValue`); write the URL afterwards. `Link` does not make the highlight instant. Loaders `shouldReload` only on `enter` and still `ensureQueryData` the landing region (workspace default is files when `?pane=` is empty) so first HTML is not “Loading files…”. Do not put in-page chrome in `loaderDeps`.
 - **Category:** convention
