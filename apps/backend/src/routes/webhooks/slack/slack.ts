@@ -19,6 +19,7 @@ import { verifySlackRequestSignature } from "../../../services/slack/verify-sign
 const SlackEventEnvelopeSchema = z.object({
   type: z.string(),
   challenge: z.string().optional(),
+  api_app_id: z.string().optional(),
   team_id: z.string().optional(),
   event_id: z.string().optional(),
   event: z
@@ -80,6 +81,12 @@ export function registerSlackWebhookRoute(app: OpenAPIHono<AppEnv>) {
 
     const event = parsed.data.event
     const teamId = parsed.data.team_id
+    getLogger().info("slack_webhook_event_received", {
+      apiAppId: parsed.data.api_app_id,
+      teamId,
+      eventType: event.type,
+      eventId: parsed.data.event_id,
+    })
 
     if (event.type === "app_uninstalled" || event.type === "tokens_revoked") {
       if (teamId) {
