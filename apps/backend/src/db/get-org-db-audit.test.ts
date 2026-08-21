@@ -43,6 +43,52 @@ describe("getOrgDb ambient-context audit", () => {
     expect(violations).toEqual([])
   })
 
+  it("getSystemDb does not query tenant tables except the migrate-role allowlist", () => {
+    const tenantTables =
+      "connections|repositories|objects|claims|claimEvidence|workspaces|workspaceLinkedRepositories|workspaceWriteJobs|workspaceSandboxInstances|workspaceKnowledgeUnits|orgMemberPreferences|conversationMessages|conversations|confluenceSpaces|confluenceSyncTargets|orgOnboarding|repositoryCheckouts"
+    const tenantFrom = new RegExp(
+      `(?:\\.from\\(\\s*(?:${tenantTables})\\s*\\)|\\.(?:insert|update|delete)\\(\\s*(?:${tenantTables})\\s*\\)|\\.query\\.(?:${tenantTables}))`,
+    )
+    const allowlist = new Set([
+      "db/client.ts",
+      "scripts/backfillGithubConnectionSecrets.ts",
+    ])
+    const files = walk(SRC)
+    const violations: string[] = []
+    for (const file of files) {
+      const rel = relative(SRC, file)
+      if (allowlist.has(rel)) continue
+      const text = readFileSync(file, "utf8")
+      if (!text.includes("getSystemDb")) continue
+      const starts: number[] = []
+      const startRe =
+        /(?:^|\n)(?:export\s+)?(?:async\s+)?function\s+\w+/g
+      let match: RegExpExecArray | null
+      while ((match = startRe.exec(text)) !== null) starts.push(match.index)
+      if (starts.length === 0) continue
+      starts.push(text.length)
+      for (let i = 0; i < starts.length - 1; i++) {
+        const body = text.slice(starts[i], starts[i + 1])
+        if (!body.includes("getSystemDb")) continue
+        const fromRe = new RegExp(tenantFrom.source, "g")
+        let fromMatch: RegExpExecArray | null
+        while ((fromMatch = fromRe.exec(body)) !== null) {
+          const before = body.slice(0, fromMatch.index)
+          const lastSystem = before.lastIndexOf("getSystemDb")
+          const lastOrg = Math.max(
+            before.lastIndexOf("getOrgDb"),
+            before.lastIndexOf("withOrgDbContext"),
+          )
+          if (lastSystem >= 0 && lastSystem > lastOrg) {
+            violations.push(`${rel}:${i + 1}`)
+            break
+          }
+        }
+      }
+    }
+    expect(violations).toEqual([])
+  })
+
   it("persistWriteStatus and sandbox instance lookups include orgId predicates", () => {
     const workspaces = readFileSync(join(SRC, "models/workspaces.ts"), "utf8")
     expect(workspaces).toContain("eq(workspaces.orgId, orgId)")
@@ -55,13 +101,11 @@ describe("getOrgDb ambient-context audit", () => {
       "deleteSandboxInstance",
     ] as const) {
       const start = workspaces.indexOf(`export async function ${name}`)
-      expect(start, name).toBeGreaterThanOrEqual(0)
+      if (start < 0) throw new Error(`missing ${name}`)
       const next = workspaces.indexOf("\nexport async function ", start + 1)
       const body =
         next < 0 ? workspaces.slice(start) : workspaces.slice(start, next)
-      expect(body).toContain(
-        "eq(workspaceSandboxInstances.orgId, scopedOrgId)",
-      )
+      expect(body).toContain("eq(workspaceSandboxInstances.orgId, scopedOrgId)")
     }
   })
 })

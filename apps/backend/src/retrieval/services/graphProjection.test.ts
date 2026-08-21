@@ -4,6 +4,9 @@ const requireCurrentOrgIdMock = vi.hoisted(() => vi.fn(() => "org_1"))
 const requireCurrentOrgSlugMock = vi.hoisted(() => vi.fn(() => "acme"))
 const getSystemDbMock = vi.hoisted(() => vi.fn())
 const getOrgDbMock = vi.hoisted(() => vi.fn())
+const withOrgDbContextMock = vi.hoisted(() =>
+  vi.fn(async (_orgId: string, fn: () => unknown) => fn()),
+)
 const executeQueryMock = vi.hoisted(() => vi.fn())
 const getGraphClientMock = vi.hoisted(() =>
   vi.fn(() => ({ executeQuery: executeQueryMock })),
@@ -18,12 +21,12 @@ vi.mock("../../auth/context.js", () => ({
 }))
 
 vi.mock("../../db/client.js", () => ({
-    tryGetOrgDb: () => ({}),
-    tryGetOrgDbOrgId: () => "org_test",
-    assertNotInOrgDbContext: () => undefined,
-
+  tryGetOrgDb: () => ({}),
+  tryGetOrgDbOrgId: () => "org_test",
+  assertNotInOrgDbContext: () => undefined,
   getSystemDb: getSystemDbMock,
   getOrgDb: getOrgDbMock,
+  withOrgDbContext: withOrgDbContextMock,
 }))
 
 vi.mock("../../platform/graph/client.js", () => ({
@@ -124,11 +127,13 @@ describe("projectClaimsFromState", () => {
         payload: { name: "db" },
       },
     ])
-    getSystemDbMock.mockReturnValue({
+    const selectChain = {
       select: vi.fn().mockReturnValue({
         from: vi.fn().mockReturnValue({ where }),
       }),
-    })
+    }
+    getSystemDbMock.mockReturnValue(selectChain)
+    getOrgDbMock.mockReturnValue(selectChain)
   })
 
   it("issues far fewer graph queries than claims via UNWIND batches", async () => {

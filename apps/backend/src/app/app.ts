@@ -12,7 +12,6 @@ import { getAuth } from "../auth/config.js"
 import { parseEnv } from "../config/env.js"
 import { initDb } from "../db/client.js"
 import { initAmplitudeFromEnv } from "../observability/amplitude.js"
-import { backfillGithubAppSecretsFromEnv } from "../scripts/backfillGithubConnectionSecrets.js"
 import { createEvlogDrain, log } from "../observability/logger.js"
 import { registerAuthRoutes } from "../routes/auth.js"
 import { registerLangsmithRoutes } from "../routes/langsmith.js"
@@ -49,11 +48,6 @@ export function createApp() {
   // Amplitude: only initializes when `AMPLITUDE_API_KEY` is set (see `observability/amplitude.ts`).
   initAmplitudeFromEnv(env)
   initDb(env.DATABASE_URL)
-  void backfillGithubAppSecretsFromEnv(env).catch((err: unknown) => {
-    log.error(err instanceof Error ? err : new Error(String(err)), {
-      step: "backfill.github_connection_secrets",
-    })
-  })
 
   /** Evlog only: enriches `c.var.log` wide events; does not set `c.var.user` or gate routes. */
   const identifyBetterAuthUser = createAuthMiddleware(

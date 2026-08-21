@@ -1,4 +1,4 @@
-import { and, desc, eq, ne, or, sql } from "drizzle-orm"
+import { and, desc, eq, inArray, sql } from "drizzle-orm"
 import { requireCurrentOrgId } from "../auth/context.js"
 import {
   type Db,
@@ -20,9 +20,17 @@ import {
 import { generateObjectId } from "../lib/id.js"
 import {
   type ForgeInstallationShape,
+  type ConnectionRow,
   forgeConnectionToShape,
   forgeShapeToConfig,
 } from "./connection-rows.js"
+import {
+  deleteConnectionDirectory,
+  listConnectionDirectoryByForgeCloudId,
+  listConnectionDirectoryByForgeInstallationId,
+  loadConnectionViaDirectory,
+  upsertConnectionDirectory,
+} from "./connection-directory.js"
 import { listGithubConnectionsForOrg } from "./github-installation.js"
 import { DEFAULT_CHECKOUT_KEY } from "./repositories.js"
 
@@ -61,7 +69,7 @@ function normalizeForgeInstallationIdForLookup(
 export async function getAtlassianUserAccessToken(
   userId: string,
 ): Promise<string | undefined> {
-  const db = getOrgDb()
+  const db = getSystemDb()
   const [row] = await db
     .select({ accessToken: accounts.accessToken })
     .from(accounts)
@@ -80,19 +88,20 @@ export async function getForgeInstallationByCloudId(
   cloudId: string,
   orgId: string,
 ): Promise<ForgeInstallationShape | undefined> {
-  const db = getSystemDb()
-  const [row] = await db
-    .select()
-    .from(connections)
-    .where(
-      and(
-        eq(connections.type, CONNECTION_TYPE_FORGE),
-        eq(connections.orgId, orgId),
-        eq(forgeConfigCloudIdRef(), cloudId),
-      ),
-    )
-    .limit(1)
-  return row ? forgeConnectionToShape(row) : undefined
+  return withOrgDbContext(orgId, async () => {
+    const [row] = await getOrgDb()
+      .select()
+      .from(connections)
+      .where(
+        and(
+          eq(connections.type, CONNECTION_TYPE_FORGE),
+          eq(connections.orgId, orgId),
+          eq(forgeConfigCloudIdRef(), cloudId),
+        ),
+      )
+      .limit(1)
+    return row ? forgeConnectionToShape(row) : undefined
+  })
 }
 
 /** Resolve by Forge ecosystem installation id (bare UUID or full ARI). */
@@ -101,40 +110,36 @@ export async function getForgeInstallationByForgeInstallationId(
 ): Promise<ForgeInstallationShape | undefined> {
   const bare = normalizeForgeInstallationIdForLookup(installationId)
   if (!bare) return undefined
-  const ari = `${FORGE_ECOSYSTEM_INSTALLATION_ARI_PREFIX}${bare}`
-  const db = getSystemDb()
-  const [row] = await db
-    .select()
-    .from(connections)
-    .where(
-      and(
-        eq(connections.type, CONNECTION_TYPE_FORGE),
-        or(
-          eq(forgeConfigInstallationIdRef(), bare),
-          eq(forgeConfigInstallationIdRef(), ari),
-        ),
-      ),
-    )
-    .limit(1)
-  return row ? forgeConnectionToShape(row) : undefined
+  const directoryRows = [
+    ...(await listConnectionDirectoryByForgeInstallationId(bare)),
+    ...(await listConnectionDirectoryByForgeInstallationId(
+      `${FORGE_ECOSYSTEM_INSTALLATION_ARI_PREFIX}${bare}`,
+    )),
+  ]
+  for (const directoryRow of directoryRows) {
+    const row = await loadConnectionViaDirectory(directoryRow.connectionId)
+    if (row?.type === CONNECTION_TYPE_FORGE) return forgeConnectionToShape(row)
+  }
+  return undefined
 }
 
 /** Must run inside {@link withOrgDbContext} when `orgId` is known. */
 export async function listForgeConnectionsForOrg(
   orgId: string,
 ): Promise<ForgeInstallationShape[]> {
-  const db = getOrgDb()
-  const rows = await db
-    .select()
-    .from(connections)
-    .where(
-      and(
-        eq(connections.orgId, orgId),
-        eq(connections.type, CONNECTION_TYPE_FORGE),
-      ),
-    )
-    .orderBy(desc(connections.updatedAt))
-  return rows.map(forgeConnectionToShape)
+  return withOrgDbContext(orgId, async () => {
+    const rows = await getOrgDb()
+      .select()
+      .from(connections)
+      .where(
+        and(
+          eq(connections.orgId, orgId),
+          eq(connections.type, CONNECTION_TYPE_FORGE),
+        ),
+      )
+      .orderBy(desc(connections.updatedAt))
+    return rows.map(forgeConnectionToShape)
+  })
 }
 
 /**
@@ -204,7 +209,7 @@ export async function patchForgeConnectionTypedConfig(
   connectionId: string,
   patch: Partial<ForgeConnectionConfig>,
 ): Promise<ForgeInstallationShape | undefined> {
-  return withOrgDbContext(orgId, async (db) => {
+  const updated = await withOrgDbContext(orgId, async (db) => {
     const [row] = await db
       .select()
       .from(connections)
@@ -226,8 +231,11 @@ export async function patchForgeConnectionTypedConfig(
       .set({ config: next as Record<string, unknown>, updatedAt: new Date() })
       .where(eq(connections.id, connectionId))
       .returning()
-    return out ? forgeConnectionToShape(out) : undefined
+    return out
   })
+  if (!updated) return undefined
+  await upsertConnectionDirectory(updated)
+  return forgeConnectionToShape(updated)
 }
 
 /** Explicit `connectionId` or the only forge row when exactly one. */
@@ -244,17 +252,19 @@ export async function deleteForgeConnectionById(
   orgId: string,
   connectionId: string,
 ): Promise<boolean> {
-  const db = getOrgDb()
-  const removed = await db
-    .delete(connections)
-    .where(
-      and(
-        eq(connections.orgId, orgId),
-        eq(connections.id, connectionId),
-        eq(connections.type, CONNECTION_TYPE_FORGE),
-      ),
-    )
-    .returning({ id: connections.id })
+  const removed = await withOrgDbContext(orgId, () =>
+    getOrgDb()
+      .delete(connections)
+      .where(
+        and(
+          eq(connections.orgId, orgId),
+          eq(connections.id, connectionId),
+          eq(connections.type, CONNECTION_TYPE_FORGE),
+        ),
+      )
+      .returning({ id: connections.id }),
+  )
+  await deleteConnectionDirectory(connectionId)
   return removed.length > 0
 }
 
@@ -262,16 +272,20 @@ export async function deleteForgeConnectionById(
 export async function deleteForgeInstallationByOrgId(
   orgId: string,
 ): Promise<boolean> {
-  const db = getOrgDb()
-  const removed = await db
-    .delete(connections)
-    .where(
-      and(
-        eq(connections.orgId, orgId),
-        eq(connections.type, CONNECTION_TYPE_FORGE),
-      ),
-    )
-    .returning({ id: connections.id })
+  const removed = await withOrgDbContext(orgId, () =>
+    getOrgDb()
+      .delete(connections)
+      .where(
+        and(
+          eq(connections.orgId, orgId),
+          eq(connections.type, CONNECTION_TYPE_FORGE),
+        ),
+      )
+      .returning({ id: connections.id }),
+  )
+  await Promise.all(
+    removed.map((row) => deleteConnectionDirectory(row.id)),
+  )
   return removed.length > 0
 }
 
@@ -284,22 +298,21 @@ export async function updateForgeAppSystemTokenByInstallationId(input: {
   appSystemToken: string
   atlassianApiBaseUrl?: string
 }): Promise<boolean> {
-  const systemDb = getSystemDb()
-  const candidates = await systemDb
-    .select()
-    .from(connections)
-    .where(
-      and(
-        eq(connections.type, CONNECTION_TYPE_FORGE),
-        eq(forgeConfigInstallationIdRef(), input.installationId),
-        eq(forgeConfigStatusRef(), "installed"),
-      ),
+  const directoryRows =
+    await listConnectionDirectoryByForgeInstallationId(input.installationId)
+  let row: ConnectionRow | undefined
+  for (const directoryRow of directoryRows) {
+    const candidate = await loadConnectionViaDirectory(
+      directoryRow.connectionId,
     )
-    .limit(1)
-  const row = candidates[0]
+    if (candidate?.type === CONNECTION_TYPE_FORGE) {
+      row = candidate
+      break
+    }
+  }
   if (!row) return false
 
-  return withOrgDbContext(row.orgId, async () => {
+  const updated = await withOrgDbContext(row.orgId, async () => {
     const db = getOrgDb()
     const shape = forgeConnectionToShape(row)
     const nextConfig = forgeShapeToConfig(
@@ -316,13 +329,16 @@ export async function updateForgeAppSystemTokenByInstallationId(input: {
         >,
       },
     )
-    const updated = await db
+    const [result] = await db
       .update(connections)
       .set({ config: nextConfig, updatedAt: new Date() })
       .where(eq(connections.id, row.id))
-      .returning({ id: connections.id })
-    return updated.length > 0
+      .returning()
+    return result
   })
+  if (!updated) return false
+  await upsertConnectionDirectory(updated)
+  return true
 }
 
 export async function getPendingForgeInstallationForUserInOtherOrg(input: {
@@ -330,29 +346,31 @@ export async function getPendingForgeInstallationForUserInOtherOrg(input: {
   orgId: string
 }): Promise<ForgeInstallationShape | undefined> {
   const db = getSystemDb()
-  const [row] = await db
-    .select({ installation: connections })
-    .from(connections)
-    .innerJoin(
-      members,
-      and(
-        eq(members.organizationId, connections.orgId),
-        eq(members.userId, input.userId),
-      ),
-    )
-    .where(
-      and(
-        eq(connections.type, CONNECTION_TYPE_FORGE),
-        eq(forgeConfigStatusRef(), "pending"),
-        eq(forgeConfigInstalledByUserIdRef(), input.userId),
-        ne(connections.orgId, input.orgId),
-      ),
-    )
-    .orderBy(desc(connections.updatedAt))
-    .limit(1)
-  return row?.installation
-    ? forgeConnectionToShape(row.installation)
-    : undefined
+  const orgRows = await db
+    .select({ orgId: members.organizationId })
+    .from(members)
+    .where(eq(members.userId, input.userId))
+  for (const { orgId } of orgRows) {
+    if (orgId === input.orgId) continue
+    const installation = await withOrgDbContext(orgId, async () => {
+      const [row] = await getOrgDb()
+        .select()
+        .from(connections)
+        .where(
+          and(
+            eq(connections.orgId, orgId),
+            eq(connections.type, CONNECTION_TYPE_FORGE),
+            eq(forgeConfigStatusRef(), "pending"),
+            eq(forgeConfigInstalledByUserIdRef(), input.userId),
+          ),
+        )
+        .orderBy(desc(connections.updatedAt))
+        .limit(1)
+      return row ? forgeConnectionToShape(row) : undefined
+    })
+    if (installation) return installation
+  }
+  return undefined
 }
 
 /** Must run inside {@link withOrgDbContext} for `input.orgId`. */
@@ -404,6 +422,7 @@ export async function upsertPendingForgeInstallation(input: {
       .where(eq(connections.id, existing.id))
       .returning()
     if (!row) throw new Error("Failed to upsert pending forge installation")
+    await upsertConnectionDirectory(row)
     return forgeConnectionToShape(row)
   }
 
@@ -418,6 +437,7 @@ export async function upsertPendingForgeInstallation(input: {
     })
     .returning()
   if (!row) throw new Error("Failed to upsert pending forge installation")
+  await upsertConnectionDirectory(row)
   return forgeConnectionToShape(row)
 }
 
@@ -425,35 +445,41 @@ export async function getPendingForgeInstallationByInstallerAccountId(
   installerAccountId: string,
 ): Promise<ForgeInstallationShape | undefined> {
   const db = getSystemDb()
-  const [row] = await db
-    .select({ installation: connections })
+  const [account] = await db
+    .select({ userId: accounts.userId })
     .from(accounts)
-    .innerJoin(
-      connections,
-      and(
-        eq(connections.type, CONNECTION_TYPE_FORGE),
-        eq(forgeConfigStatusRef(), "pending"),
-        sql`${connections.config}->>'installedByUserId' = ${accounts.userId}`,
-      ),
-    )
-    .innerJoin(
-      members,
-      and(
-        eq(members.organizationId, connections.orgId),
-        eq(members.userId, accounts.userId),
-      ),
-    )
     .where(
       and(
         eq(accounts.providerId, "atlassian"),
         eq(accounts.accountId, installerAccountId),
       ),
     )
-    .orderBy(desc(connections.updatedAt))
     .limit(1)
-  return row?.installation
-    ? forgeConnectionToShape(row.installation)
-    : undefined
+  if (!account) return undefined
+  const orgRows = await db
+    .select({ orgId: members.organizationId })
+    .from(members)
+    .where(eq(members.userId, account.userId))
+  for (const { orgId } of orgRows) {
+    const installation = await withOrgDbContext(orgId, async () => {
+      const [row] = await getOrgDb()
+        .select()
+        .from(connections)
+        .where(
+          and(
+            eq(connections.orgId, orgId),
+            eq(connections.type, CONNECTION_TYPE_FORGE),
+            eq(forgeConfigStatusRef(), "pending"),
+            eq(forgeConfigInstalledByUserIdRef(), account.userId),
+          ),
+        )
+        .orderBy(desc(connections.updatedAt))
+        .limit(1)
+      return row ? forgeConnectionToShape(row) : undefined
+    })
+    if (installation) return installation
+  }
+  return undefined
 }
 
 /**
@@ -560,6 +586,7 @@ export async function upsertForgeInstallationFromEvent(input: {
         .where(eq(connections.id, existing.id))
         .returning()
       if (!row) throw new Error("Failed to upsert forge installation")
+      await upsertConnectionDirectory(row)
       return forgeConnectionToShape(row)
     }
 
@@ -574,6 +601,7 @@ export async function upsertForgeInstallationFromEvent(input: {
       })
       .returning()
     if (!row) throw new Error("Failed to upsert forge installation")
+    await upsertConnectionDirectory(row)
     return forgeConnectionToShape(row)
   })
 }
@@ -583,21 +611,20 @@ export async function getOrganizationSlugForCloudIdByUser(
   cloudId: string,
 ): Promise<string | undefined> {
   const db = getSystemDb()
+  const directoryRows = await listConnectionDirectoryByForgeCloudId(cloudId)
+  const orgIds = [...new Set(directoryRows.map((row) => row.orgId))]
+  if (orgIds.length === 0) return undefined
   const [row] = await db
     .select({ orgSlug: organizations.slug })
-    .from(connections)
+    .from(members)
     .innerJoin(
-      members,
-      and(
-        eq(members.organizationId, connections.orgId),
-        eq(members.userId, userId),
-      ),
+      organizations,
+      eq(organizations.id, members.organizationId),
     )
-    .innerJoin(organizations, eq(organizations.id, connections.orgId))
     .where(
       and(
-        eq(connections.type, CONNECTION_TYPE_FORGE),
-        eq(forgeConfigCloudIdRef(), cloudId),
+        eq(members.userId, userId),
+        inArray(members.organizationId, orgIds),
       ),
     )
     .limit(1)

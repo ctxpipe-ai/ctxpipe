@@ -5,7 +5,10 @@
 import { drizzle } from "drizzle-orm/node-postgres"
 import { migrate } from "drizzle-orm/node-postgres/migrator"
 import { Pool } from "pg"
+import { parseEnv } from "../config/env.js"
 import { initEvlog, log } from "../observability/logger.js"
+import { backfillGithubAppSecretsFromEnv } from "../scripts/backfillGithubConnectionSecrets.js"
+import { closeDb, initDb } from "./client.js"
 import { migrateOpenWorkflow } from "./migrate-openworkflow.js"
 import { APP_ROLE_NAME, provisionAppRole } from "./provision-app-role.js"
 
@@ -29,6 +32,25 @@ if (appRolePassword) {
 log.info({ step: "migrate", message: "[migrate] running migrations…" })
 await migrate(db, { migrationsFolder: "./apps/backend/migrations" })
 await migrateOpenWorkflow(connectionString)
+
+let env: ReturnType<typeof parseEnv> | undefined
+try {
+  env = parseEnv(process.env as Record<string, string | undefined>)
+} catch (error) {
+  log.info({
+    step: "migrate",
+    message: "github secrets backfill skipped (env not parseable)",
+    error: error instanceof Error ? error.message : String(error),
+  })
+}
+if (env) {
+  try {
+    initDb(connectionString)
+    await backfillGithubAppSecretsFromEnv(env)
+  } finally {
+    await closeDb()
+  }
+}
 
 if (appRolePassword) {
   await provisionAppRole(pool, appRolePassword)

@@ -3,7 +3,7 @@ import {
   requireCurrentOrgId,
   requireCurrentOrgSlug,
 } from "../../auth/context.js"
-import { getOrgDb, getSystemDb } from "../../db/client.js"
+import { getOrgDb, withOrgDbContext } from "../../db/client.js"
 import { withAmbientOrgDb } from "../../db/org-sql.js"
 import { claimEvidence } from "../../db/schema/claim_evidence.js"
 import { claims } from "../../db/schema/claims.js"
@@ -105,16 +105,17 @@ async function loadEntityMapForProjection(
 
   if (uniqueIds.size === 0) return entityMap
 
-  const db = getSystemDb()
   const ids = [...uniqueIds]
-  const rows = await db
-    .select({
-      id: objects.id,
-      kind: objects.kind,
-      payload: objects.payload,
-    })
-    .from(objects)
-    .where(and(eq(objects.orgId, orgId), inArray(objects.id, ids)))
+  const rows = await withOrgDbContext(orgId, () =>
+    getOrgDb()
+      .select({
+        id: objects.id,
+        kind: objects.kind,
+        payload: objects.payload,
+      })
+      .from(objects)
+      .where(and(eq(objects.orgId, orgId), inArray(objects.id, ids))),
+  )
 
   for (const r of rows) {
     entityMap.set(r.id, {

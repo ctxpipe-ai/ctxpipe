@@ -98,6 +98,7 @@ export async function maybeActivateLinearSyncOnConfigPush(input: {
     if (!configTouched) continue
 
     const targets = await listLinearBindingsWithRepoByRepositoryId(
+      installation.orgId,
       repository.id,
     )
     for (const target of targets) {

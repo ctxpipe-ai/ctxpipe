@@ -12,6 +12,8 @@ import {
 const dbMocks = vi.hoisted(() => ({
   getOrgDb: vi.fn(),
   getSystemDb: vi.fn(),
+  getConnectionDirectoryByConnectionId: vi.fn(),
+  upsertConnectionDirectory: vi.fn(),
 }))
 
 vi.mock("../db/client.js", async (importOriginal) => {
@@ -21,6 +23,25 @@ vi.mock("../db/client.js", async (importOriginal) => {
     getOrgDb: dbMocks.getOrgDb,
     getSystemDb: dbMocks.getSystemDb,
     tryGetOrgDb: () => dbMocks.getOrgDb(),
+    withOrgDbContext: async (
+      _orgId: string,
+      fn: (db: Db) => Promise<unknown>,
+    ) => {
+      const db = dbMocks.getSystemDb()
+      if (db?.transaction) return db.transaction(fn)
+      return fn(dbMocks.getOrgDb())
+    },
+  }
+})
+
+vi.mock("./connection-directory.js", async (importOriginal) => {
+  const actual =
+    await importOriginal<typeof import("./connection-directory.js")>()
+  return {
+    ...actual,
+    getConnectionDirectoryByConnectionId:
+      dbMocks.getConnectionDirectoryByConnectionId,
+    upsertConnectionDirectory: dbMocks.upsertConnectionDirectory,
   }
 })
 
@@ -81,6 +102,12 @@ function systemDb(
 describe("Notion connector lifecycle", () => {
   beforeEach(() => {
     vi.clearAllMocks()
+    dbMocks.getConnectionDirectoryByConnectionId.mockResolvedValue({
+      connectionId: "con_notion",
+      orgId: "org_1",
+      type: "notion",
+    })
+    dbMocks.upsertConnectionDirectory.mockResolvedValue(undefined)
   })
 
   it.each([
@@ -191,7 +218,9 @@ describe("Notion connection storage maintenance", () => {
       },
     }
     const set = vi.fn((_value: { config: Record<string, unknown> }) => ({
-      where: vi.fn().mockResolvedValue(undefined),
+      where: vi.fn(() => ({
+        returning: vi.fn().mockResolvedValue([row]),
+      })),
     }))
     const selectRow = () => ({
       from: vi.fn(() => ({
@@ -200,16 +229,10 @@ describe("Notion connection storage maintenance", () => {
         })),
       })),
     })
-    const tx = {
+    const db = {
       execute: vi.fn(),
       select: vi.fn(selectRow),
       update: vi.fn(() => ({ set })),
-    }
-    const db = {
-      select: vi.fn(selectRow),
-      transaction: vi.fn((operation: (transaction: Db) => Promise<unknown>) =>
-        operation(tx as unknown as Db),
-      ),
     } as unknown as Db
     dbMocks.getOrgDb.mockReturnValue(db)
 
@@ -243,30 +266,29 @@ describe("Notion connection storage maintenance", () => {
       },
     }
     const set = vi.fn((_value: { config: Record<string, unknown> }) => ({
-      where: vi.fn().mockResolvedValue(undefined),
+      where: vi.fn(() => ({
+        returning: vi.fn().mockResolvedValue([row]),
+      })),
     }))
-    const tx = {
+    const db = {
       execute: vi.fn(),
-      select: vi.fn(() => ({
-        from: vi.fn(() => ({
-          where: vi.fn(() => ({
-            limit: vi.fn().mockResolvedValue([row]),
+      select: vi
+        .fn()
+        .mockImplementationOnce(() => ({
+          from: vi.fn(() => ({
+            where: vi
+              .fn()
+              .mockResolvedValue([{ id: row.id }, { id: "con_notion_2" }]),
+          })),
+        }))
+        .mockImplementation(() => ({
+          from: vi.fn(() => ({
+            where: vi.fn(() => ({
+              limit: vi.fn().mockResolvedValue([row]),
+            })),
           })),
         })),
-      })),
       update: vi.fn(() => ({ set })),
-    }
-    const db = {
-      select: vi.fn(() => ({
-        from: vi.fn(() => ({
-          where: vi
-            .fn()
-            .mockResolvedValue([{ id: row.id }, { id: "con_notion_2" }]),
-        })),
-      })),
-      transaction: vi.fn((operation: (transaction: Db) => Promise<unknown>) =>
-        operation(tx as unknown as Db),
-      ),
     } as unknown as Db
     dbMocks.getOrgDb.mockReturnValue(db)
 

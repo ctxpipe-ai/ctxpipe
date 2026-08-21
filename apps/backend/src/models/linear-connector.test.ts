@@ -1,4 +1,4 @@
-import { describe, expect, it, vi } from "vitest"
+import { beforeEach, describe, expect, it, vi } from "vitest"
 import type { Env } from "../config/env.js"
 import type { Db } from "../db/client.js"
 import {
@@ -8,22 +8,45 @@ import {
   serialiseLinearConnectionConfigForDb,
 } from "../lib/connection-config.js"
 import {
+  claimLinearBindingInitialSync,
   claimLinearConfigPrCreation,
+  type LinearBinding,
   LinearConfigPrCreationInProgressError,
   LinearSyncBindingBusyError,
-  claimLinearBindingInitialSync,
   planLinearSyncBindingUpdate,
-  type LinearBinding,
   withLinearBindingSnapshot,
 } from "./linear-connector.js"
 
 const dbMocks = vi.hoisted(() => ({
   getSystemDb: vi.fn(),
+  getConnectionDirectoryByConnectionId: vi.fn(),
+  upsertConnectionDirectory: vi.fn(),
 }))
 
 vi.mock("../db/client.js", async (importOriginal) => {
   const actual = await importOriginal<typeof import("../db/client.js")>()
-  return { ...actual, getSystemDb: dbMocks.getSystemDb }
+  return {
+    ...actual,
+    getSystemDb: dbMocks.getSystemDb,
+    withOrgDbContext: async (
+      _orgId: string,
+      fn: (db: Db) => Promise<unknown>,
+    ) => {
+      const db = dbMocks.getSystemDb()
+      return db.transaction(fn)
+    },
+  }
+})
+
+vi.mock("./connection-directory.js", async (importOriginal) => {
+  const actual =
+    await importOriginal<typeof import("./connection-directory.js")>()
+  return {
+    ...actual,
+    getConnectionDirectoryByConnectionId:
+      dbMocks.getConnectionDirectoryByConnectionId,
+    upsertConnectionDirectory: dbMocks.upsertConnectionDirectory,
+  }
 })
 
 function binding(overrides: Partial<LinearBinding> = {}): LinearBinding {
@@ -139,6 +162,15 @@ function systemDb(
 }
 
 describe("Linear connector model", () => {
+  beforeEach(() => {
+    dbMocks.getConnectionDirectoryByConnectionId.mockResolvedValue({
+      connectionId: "con_linear",
+      orgId: "org_1",
+      type: "linear",
+    })
+    dbMocks.upsertConnectionDirectory.mockResolvedValue(undefined)
+  })
+
   it("encrypts OAuth tokens before serialising connection config", () => {
     const env = {
       AUTH_SECRET: "linear-test-secret-that-is-long-enough",

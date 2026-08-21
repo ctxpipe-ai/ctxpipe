@@ -13,20 +13,23 @@ vi.mock("../../auth/config.js", () => ({
 
 const limitResult = vi.hoisted<{ value: unknown[] }>(() => ({ value: [] }))
 
-vi.mock("../../db/client.js", () => ({
-    tryGetOrgDb: () => ({}),
-    tryGetOrgDbOrgId: () => "org_test",
-    assertNotInOrgDbContext: () => undefined,
-
-  getSystemDb: vi.fn(() => ({
-    select: vi.fn(() => ({
-      from: vi.fn(() => ({
-        where: vi.fn(() => ({
-          limit: vi.fn(() => Promise.resolve(limitResult.value)),
-        })),
+const selectChain = () => ({
+  select: vi.fn(() => ({
+    from: vi.fn(() => ({
+      where: vi.fn(() => ({
+        limit: vi.fn(() => Promise.resolve(limitResult.value)),
       })),
     })),
   })),
+})
+
+vi.mock("../../db/client.js", () => ({
+  tryGetOrgDb: () => ({}),
+  tryGetOrgDbOrgId: () => "org_test",
+  assertNotInOrgDbContext: () => undefined,
+  getSystemDb: vi.fn(() => selectChain()),
+  getOrgDb: vi.fn(() => selectChain()),
+  withOrgDbContext: vi.fn(async (_orgId: string, fn: () => unknown) => fn()),
 }))
 
 const patchForgeConnectionTypedConfigMock = vi.hoisted(() => vi.fn())

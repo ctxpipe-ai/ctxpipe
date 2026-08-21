@@ -19,9 +19,9 @@ vi.mock("../auth/context.js", () => ({
 }))
 
 vi.mock("../db/client.js", () => ({
-    tryGetOrgDb: () => ({}),
-    tryGetOrgDbOrgId: () => "org_test",
-    assertNotInOrgDbContext: () => undefined,
+  tryGetOrgDb: () => ({}),
+  tryGetOrgDbOrgId: () => "org_test",
+  assertNotInOrgDbContext: () => undefined,
 
   getOrgDb: getOrgDbMock,
   getSystemDb: getSystemDbMock,
@@ -86,7 +86,7 @@ function mockRepositoriesWithZoekt(
 
 function mockRepositoryWithZoekt(
   row: Record<string, unknown> | null,
-  dbMock: typeof getSystemDbMock = getSystemDbMock,
+  dbMock: typeof getOrgDbMock = getOrgDbMock,
 ) {
   const limit = vi.fn().mockResolvedValue(row ? [row] : [])
   const where = vi.fn().mockReturnValue({ limit })
@@ -133,7 +133,7 @@ describe("getRepositoryForOrg", () => {
     vi.clearAllMocks()
   })
 
-  it("queries system db with org and repository id filters", async () => {
+  it("queries org db with org and repository id filters", async () => {
     const row = {
       id: repositoryId,
       orgId,
@@ -150,7 +150,11 @@ describe("getRepositoryForOrg", () => {
     const query = mockRepositoryWithZoekt(row)
 
     await expect(getRepositoryForOrg(orgId, repositoryId)).resolves.toEqual(row)
-    expect(getSystemDbMock).toHaveBeenCalledTimes(1)
+    expect(withOrgDbContextMock).toHaveBeenCalledWith(
+      orgId,
+      expect.any(Function),
+    )
+    expect(getOrgDbMock).toHaveBeenCalledTimes(1)
     expect(query.where).toHaveBeenCalledTimes(1)
     expect(query.limit).toHaveBeenCalledWith(1)
   })
@@ -159,7 +163,7 @@ describe("getRepositoryForOrg", () => {
     mockRepositoryWithZoekt(null)
 
     await expect(getRepositoryForOrg(orgId, repositoryId)).resolves.toBeNull()
-    expect(getSystemDbMock).toHaveBeenCalledTimes(1)
+    expect(getOrgDbMock).toHaveBeenCalledTimes(1)
   })
 })
 
@@ -168,7 +172,7 @@ describe("listRepositoriesForOrg", () => {
     vi.clearAllMocks()
   })
 
-  it("queries system db filtered by org id", async () => {
+  it("queries org db filtered by org id", async () => {
     const rows = [
       {
         id: repositoryId,
@@ -184,10 +188,14 @@ describe("listRepositoriesForOrg", () => {
         zoektRepoId: 1,
       },
     ]
-    const query = mockRepositoriesWithZoekt(rows, getSystemDbMock)
+    const query = mockRepositoriesWithZoekt(rows, getOrgDbMock)
 
     await expect(listRepositoriesForOrg(orgId)).resolves.toEqual(rows)
-    expect(getSystemDbMock).toHaveBeenCalledTimes(1)
+    expect(withOrgDbContextMock).toHaveBeenCalledWith(
+      orgId,
+      expect.any(Function),
+    )
+    expect(getOrgDbMock).toHaveBeenCalledTimes(1)
     expect(query.where).toHaveBeenCalledTimes(1)
   })
 })

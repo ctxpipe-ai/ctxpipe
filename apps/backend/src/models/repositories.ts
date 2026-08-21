@@ -1,11 +1,6 @@
 import { and, count, eq, isNull, lt, lte, notInArray, or } from "drizzle-orm"
 import { requireCurrentOrgId } from "../auth/context.js"
-import {
-  type Db,
-  getOrgDb,
-  getSystemDb,
-  withOrgDbContext,
-} from "../db/client.js"
+import { type Db, getOrgDb, withOrgDbContext } from "../db/client.js"
 import { withAmbientOrgDb } from "../db/org-sql.js"
 import { repositories } from "../db/schema/repositories.js"
 import { repositoryCheckouts } from "../db/schema/repository_checkouts.js"
@@ -255,19 +250,23 @@ export async function findRepositoriesByNormalizedGitUrls(
   })
 }
 
-/** Returns repositories for org via system DB (explicit orgId filter). */
+/** Returns repositories for org via org DB (explicit orgId filter). */
 export const listRepositoriesForOrg = async (
   orgId: string,
 ): Promise<RepositoryWithSearch[]> => {
-  return selectRepositoriesWithZoekt(getSystemDb(), orgId)
+  return withOrgDbContext(orgId, () =>
+    selectRepositoriesWithZoekt(getOrgDb(), orgId),
+  )
 }
 
-/** Single repository for org via system DB (explicit orgId + repositoryId filter). */
+/** Single repository for org via org DB (explicit orgId + repositoryId filter). */
 export const getRepositoryForOrg = async (
   orgId: string,
   repositoryId: string,
 ): Promise<RepositoryWithSearch | null> => {
-  return selectRepositoryWithZoekt(getSystemDb(), orgId, repositoryId)
+  return withOrgDbContext(orgId, () =>
+    selectRepositoryWithZoekt(getOrgDb(), orgId, repositoryId),
+  )
 }
 
 export const getRepository = async (

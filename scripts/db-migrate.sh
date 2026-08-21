@@ -15,6 +15,7 @@ export DATABASE_URL
 
 pnpm exec drizzle-kit migrate
 pnpm exec tsx src/db/migrate-openworkflow.ts
+pnpm exec tsx src/db/backfill-github-secrets-cli.ts
 
 export DATABASE_APP_PASSWORD="${DATABASE_APP_PASSWORD:-ctxpipe}"
 pnpm exec tsx src/db/provision-app-role-cli.ts

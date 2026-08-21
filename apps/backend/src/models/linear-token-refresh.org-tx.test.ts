@@ -12,6 +12,11 @@ const selectRow = vi.hoisted(() => ({
   updatedAt: new Date(),
 }))
 
+vi.mock("./connection-directory.js", () => ({
+  upsertConnectionDirectory: vi.fn(async () => undefined),
+  deleteConnectionDirectory: vi.fn(async () => undefined),
+}))
+
 vi.mock("../db/client.js", async (importOriginal) => {
   const actual = await importOriginal<typeof import("../db/client.js")>()
   return {

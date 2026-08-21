@@ -18,8 +18,6 @@ import {
   initEvlog,
 } from "./src/observability/logger.js"
 import { initOtel, shutdownOtel } from "./src/observability/otel.js"
-import { backfillGithubAppSecretsFromEnv } from "./src/scripts/backfillGithubConnectionSecrets.js"
-
 const databaseUrl = process.env.DATABASE_URL
 if (!databaseUrl) throw new Error("DATABASE_URL is required for the worker")
 initDb(databaseUrl)
@@ -27,7 +25,6 @@ const env = parseEnv(process.env as Record<string, string | undefined>)
 initOtel(env)
 initEvlog()
 await assertRuntimeRoleDoesNotBypassRls(databaseUrl)
-await backfillGithubAppSecretsFromEnv(env)
 
 let shuttingDown = false
 async function shutdownWorkerObservability() {
