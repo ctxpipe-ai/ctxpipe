@@ -2,7 +2,7 @@
 
 Agents read this file before building or restyling user-visible product UI. It records **decided** personality and the tokens we keep — not a dump of `styles.css`, and not a license to restyle the whole app.
 
-`apps/ui` is an **Operate** surface: dense, trusted, keyboard-heavy, dark zinc, white primary, teal accent. It answers the click immediately — waiting chrome is a defect. **Ceiling** (large type, atmosphere) is onboarding and marketing only. Knowledge-graph may stay a bit more spatial but must not reintroduce page-wide glow or grid.
+`apps/ui` is an **Operate** surface: dense, trusted, keyboard-heavy, dark zinc, white primary, teal accent. It answers the click immediately — waiting chrome is a defect. Region waits use skeletons; process waits use the teal loader. **Ceiling** (large type, atmosphere) is onboarding and marketing only. Knowledge-graph may stay a bit more spatial but must not reintroduce page-wide glow or grid.
 
 Existing square (`rounded-none`) overrides stay until a later pass. Apply the target below on **new or touched** UI. Do not add more square chrome.
 
@@ -95,6 +95,7 @@ Decorative icons: `aria-hidden`, `text-muted-foreground`, intended size (~16–2
 - **Titles:** product screens `text-lg` / `text-xl`. `text-3xl`+ only on onboarding / marketing.
 - **Alerts:** keep dark slabs ([`InlineAlert`](src/components/ui/InlineAlert.tsx)); no opacity-as-grey; same-hue muted secondary text on the slab. Prefer Tabler icons on new alerts.
 - **Empty states:** short title + one sentence + **one primary** control. Hide tabs/filters until there is data. Center only if copy is ≤2 lines; otherwise left-align.
+- **Loading:** region waits (list, tree, thread, pane) use [`Skeleton`](src/components/ui/Skeleton.tsx) that matches the populated pattern. Process waits (hydrate, OAuth, discovery) use [`InlineLoader`](src/components/ui/InlineLoader.tsx). Button mutations use `isPending`. Status uses a pulse-dot plus the word. See product-ui **Plan states**.
 - **Lists:** icon + title + one-line body rows for features / capabilities. `list-disc` only for legal / consent or a true prose outline (see [`KnowledgeGraphIntroCallout`](src/features/knowledge-graph/KnowledgeGraphIntroCallout.tsx)).
 - **Destructive:** outline or quiet on the page. Filled red only on the confirm dialog ([`AlertDialog`](src/components/ui/AlertDialog.tsx)).
 - **Actions:** one primary per surface; outline / secondary next; link / quiet for tertiary. Teal is for the one real action in a dense list — not every row title.

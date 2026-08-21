@@ -682,3 +682,9 @@ Highest-priority confirmed rules for agents. Migrated from former `patterns.md` 
 - **Date:** 2026-08-21
 - **Source:** workspace pane tab lag in PR preview; files tree dropped off SSR after stay-only loaders
 
+### Region loading is a skeleton; process loading is the teal bar
+- **Rule:** A wait whose populated UI is a list, tree, thread, or pane uses `Skeleton` / `SkeletonRow` that matches those rows — not `"Loading…"` and not a centered spinner. Long jobs or unknown structure (hydrate, OAuth wait, discovery) use `InlineLoader` / `ProgressLoader`. Button mutations use `isPending`. In-progress status on a known entity is a pulse-dot plus the word. Every fetch surface ships a `Loading` (or `Checking` / `Hydrating`) story with `delay("infinite")`.
+- **Category:** convention
+- **Date:** 2026-08-21
+- **Source:** skeleton loading backfill (Operate UI audit)
+

@@ -1,4 +1,5 @@
 import { createFileRoute, Navigate } from "@tanstack/react-router"
+import { PageBodySkeleton } from "@/components/ui/Skeleton"
 import { useListOrganizations, useSession } from "@/lib/auth-client"
 import { useUserPreferences } from "@/lib/user-preferences"
 
@@ -12,7 +13,16 @@ function OrgSettingsRedirect() {
   const { data: organizations, isPending: orgsPending } = useListOrganizations()
   const [preferences] = useUserPreferences()
 
-  if (sessionPending || orgsPending) return null
+  if (sessionPending || orgsPending) {
+    return (
+      <div className="flex min-h-screen items-center bg-zinc-950 px-6 py-16">
+        <PageBodySkeleton
+          label="Loading organisation settings"
+          className="mx-auto"
+        />
+      </div>
+    )
+  }
   if (!session) return <Navigate to="/.auth/sign-in" replace />
 
   const storedSlug = preferences.selectedOrganizationSlug

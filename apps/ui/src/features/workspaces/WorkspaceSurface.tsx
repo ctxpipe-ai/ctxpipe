@@ -38,6 +38,7 @@ import {
 } from "./WorkspaceHydrateProgress"
 import { WorkspacePane, WorkspacePaneTriggers } from "./WorkspacePane"
 import { WorkspaceRouteError } from "./WorkspaceRouteError"
+import { WorkspaceSurfaceSkeleton } from "./workspaceSkeletons"
 
 export function WorkspaceSurface(props: {
   orgSlug: string
@@ -50,9 +51,7 @@ export function WorkspaceSurface(props: {
       <Suspense
         fallback={
           <AppShell>
-            <p className="p-8 text-sm text-muted-foreground">
-              Loading Workspace…
-            </p>
+            <WorkspaceSurfaceSkeleton />
           </AppShell>
         }
       >

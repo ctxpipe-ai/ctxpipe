@@ -6,7 +6,10 @@ import {
 } from "@/mocks/workspace-handlers"
 import { entryPageInnerDecorators } from "../../.storybook/decorators/entry-page-decorators"
 import type { StoryRouteParams } from "../../.storybook/decorators/with-story-route"
-import { NewWorkspacePageContent } from "./$orgSlug.workspaces.new"
+import {
+  NewWorkspacePageContent,
+  NewWorkspaceSessionFallback,
+} from "./$orgSlug.workspaces.new"
 
 const orgSlug = "acme"
 
@@ -30,6 +33,10 @@ const meta = {
 export default meta
 
 type Story = StoryObj<typeof meta>
+
+export const Loading: Story = {
+  render: () => <NewWorkspaceSessionFallback />,
+}
 
 export const PasteUrl: Story = {
   render: () => <NewWorkspacePageContent orgSlug={orgSlug} />,

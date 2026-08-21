@@ -5,6 +5,7 @@ import { fn } from "storybook/test"
 import {
   workspaceFileJobHandler,
   workspaceGitBlobHandler,
+  workspaceGitBlobLoadingHandler,
   workspaceGitStatusHandler,
   workspaceGitTreeHandler,
   workspaceGitTreeLoadingHandler,
@@ -230,6 +231,32 @@ export const FilePreview: Story = {
     msw: {
       handlers: {
         page: gitFilesHandlers,
+      },
+    },
+  },
+}
+
+export const FilePreviewLoading: Story = {
+  args: {
+    pane: { kind: "file", path: ledgerPath },
+    fileTabs: [ledgerPath],
+    previewPath: ledgerPath,
+  },
+  parameters: {
+    storyRoute: {
+      pattern: "orgWorkspace",
+      orgSlug: "acme",
+      workspaceSlug: "docs",
+      pane: serializePane({ kind: "file", path: ledgerPath }),
+    } satisfies StoryRouteParams,
+    msw: {
+      handlers: {
+        page: [
+          workspaceGitTreeHandler(docsWorkspaceGitTree),
+          workspaceGitBlobLoadingHandler(),
+          workspaceGitStatusHandler(),
+          workspaceFileJobHandler(),
+        ],
       },
     },
   },

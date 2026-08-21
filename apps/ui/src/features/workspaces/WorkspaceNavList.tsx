@@ -1,6 +1,7 @@
 import { useSuspenseQuery } from "@tanstack/react-query"
 import { Suspense, useState } from "react"
 import type { SideNavLocation } from "@/components/SideNav/sideNavLocation"
+import { SkeletonRow } from "@/components/ui/Skeleton"
 import { isWorkspaceNavOpen } from "./nav"
 import { workspaceListOptions } from "./queries"
 import { WorkspaceCreateModal } from "./WorkspaceCreateModal"
@@ -22,13 +23,21 @@ export function WorkspaceNavList(props: {
             <li className="mx-1.5 mt-2.5 mb-0.5 flex h-8 w-[calc(100%-0.75rem)] items-center px-2">
               <p className="ctx-label-muted">Workspaces</p>
             </li>
-            <li className="px-3 py-2 text-xs text-muted-foreground">
-              Loading…
+            <li className="space-y-0.5">
+              <div aria-busy>
+                <span className="sr-only">Loading workspaces</span>
+                <SkeletonRow />
+                <SkeletonRow />
+                <SkeletonRow />
+              </div>
             </li>
           </>
         ) : (
           <li>
-            <span className="sr-only">Loading Workspaces</span>
+            <div aria-busy>
+              <span className="sr-only">Loading workspaces</span>
+              <SkeletonRow className="mx-1.5 w-[calc(100%-0.75rem)] px-0" />
+            </div>
           </li>
         )
       }

@@ -4,6 +4,7 @@ import { useEffect, useMemo, useState } from "react"
 import { McpConfigPreviewDiff } from "@/components/onboarding/McpConfigPreviewDiff"
 import { Button } from "@/components/ui/Button"
 import { InlineLoader } from "@/components/ui/InlineLoader"
+import { GithubRepoPickerSkeleton } from "@/features/repositories/components/GithubRepoPickerList"
 import { client } from "@/lib/api"
 import { cn } from "@/lib/utils"
 
@@ -393,7 +394,7 @@ export function McpConfigPrWizard(props: McpConfigPrWizardProps) {
           {openSection === "repos" && (
             <div className="border-t border-border px-5 pb-5 pt-5">
               {isRepoPagePending && hasGithubInstallation ? (
-                <InlineLoader label="Loading repositories" />
+                <GithubRepoPickerSkeleton />
               ) : isRepoListError ? (
                 <p className="text-sm text-red-400">
                   {repoListError instanceof Error

@@ -12,6 +12,7 @@ import {
   type GitHubRepositorySetupData,
   GitHubRepositorySetupForm,
 } from "@/features/repositories"
+import { GithubRepoPickerSkeleton } from "@/features/repositories/components/GithubRepoPickerList"
 import { client } from "@/lib/api"
 import { useSession } from "@/lib/auth-client"
 
@@ -84,7 +85,9 @@ function GitHubSetupPage() {
             <h1 className="text-3xl font-medium tracking-tight text-foreground">
               GitHub repository setup
             </h1>
-            <p className="mt-3 text-sm text-zinc-300">Loading setup…</p>
+            <div className="mt-8">
+              <GithubRepoPickerSkeleton />
+            </div>
           </section>
         </main>
       </AppShell>

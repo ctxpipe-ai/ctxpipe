@@ -4,8 +4,8 @@ import { useEffect, useState } from "react"
 import { toast } from "sonner"
 import { Button } from "@/components/ui/Button"
 import { ComboBox, ComboBoxItem } from "@/components/ui/ComboBox"
-import { Spinner } from "@/components/ui/spinner"
 import type { Repository } from "@/features/repositories"
+import { GithubRepoPickerSkeleton } from "@/features/repositories/components/GithubRepoPickerList"
 import { client } from "@/lib/api"
 import {
   atlassianConnectorKeys,
@@ -296,12 +296,7 @@ export function SelectSyncTargetStep({
           </div>
         ) : null}
 
-        {isSearchingRepos ? (
-          <div className="flex items-center gap-2 text-sm text-muted-foreground">
-            <Spinner className="size-4" />
-            Searching repositories...
-          </div>
-        ) : null}
+        {isSearchingRepos ? <GithubRepoPickerSkeleton rows={4} /> : null}
 
         {!isSearchingRepos &&
         debouncedRepoSearch.length > 0 &&

@@ -104,6 +104,17 @@ export function workspaceGitTreeLoadingHandler() {
   )
 }
 
+export function workspaceGitBlobLoadingHandler() {
+  return http.get(
+    ({ request }) =>
+      /\/api\/v1\/workspaces\/[^/]+\/files\/blob$/.test(pathnameOf(request)),
+    async () => {
+      await delay("infinite")
+      return HttpResponse.json({ path: "", body: "", binary: false })
+    },
+  )
+}
+
 export function workspaceGitBlobHandler(
   blobs: Record<string, string> = docsWorkspaceGitBlobs,
 ) {

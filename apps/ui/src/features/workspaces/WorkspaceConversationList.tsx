@@ -8,6 +8,7 @@ import {
   sideNavRowClassName,
 } from "@/components/SideNav/sideNavStyles"
 import { Button } from "@/components/ui/Button"
+import { SkeletonRow } from "@/components/ui/Skeleton"
 import type { ConversationListItem } from "@/features/chat/types"
 import { client } from "@/lib/api"
 import { conversationShortLabel } from "./conversationLabel"
@@ -62,16 +63,13 @@ export function WorkspaceConversationList(props: {
   return (
     <ul className="mt-0.5 mb-0.5 space-y-0.5">
       {query.isPending ? (
-        <li
-          className={[
-            sideNavRowClassName({ active: false, interactive: false }),
-            "text-muted-foreground",
-          ].join(" ")}
-        >
-          <span className="flex size-8 shrink-0 items-center justify-center text-xs">
-            …
-          </span>
-          <span className={sideNavLabelClassName(navExpanded)}>Loading…</span>
+        <li className="space-y-0.5">
+          <div aria-busy>
+            <span className="sr-only">Loading conversations</span>
+            <SkeletonRow />
+            <SkeletonRow />
+            <SkeletonRow />
+          </div>
         </li>
       ) : items.length === 0 ? (
         <li

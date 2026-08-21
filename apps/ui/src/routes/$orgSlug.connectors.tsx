@@ -4,9 +4,8 @@ import { createFileRoute, Navigate, useNavigate } from "@tanstack/react-router"
 import { useEffect, useState } from "react"
 import { AppShell } from "@/components/AppShell"
 import { Button } from "@/components/ui/Button"
-import { InlineLoader } from "@/components/ui/InlineLoader"
 import { Modal } from "@/components/ui/Modal"
-import { Spinner } from "@/components/ui/spinner"
+import { SkeletonRow } from "@/components/ui/Skeleton"
 import {
   AddConfluenceConnectorButton,
   AddConnectorCatalogDialog,
@@ -67,8 +66,27 @@ function ConnectorsPage() {
   if (sessionPending) {
     return (
       <AppShell>
-        <main className="mx-auto flex w-full max-w-2xl items-center justify-center p-8">
-          <Spinner className="text-muted-foreground" />
+        <main className="mx-auto box-border flex min-h-full w-full max-w-2xl flex-col p-8 text-foreground">
+          <header className="mb-8">
+            <span className="font-mono text-xs uppercase tracking-[0.24em] text-teal-400">
+              Connectors
+            </span>
+          </header>
+          <h1 className="text-3xl font-medium tracking-tight text-foreground">
+            Connectors
+          </h1>
+          <div className="mt-12 border-t border-white/[0.06]" aria-busy>
+            <span className="sr-only">Loading connectors</span>
+            <SkeletonRow
+              size="catalog"
+              className="border-b border-white/[0.06]"
+            />
+            <SkeletonRow
+              size="catalog"
+              className="border-b border-white/[0.06]"
+            />
+            <SkeletonRow size="catalog" />
+          </div>
         </main>
       </AppShell>
     )
@@ -216,7 +234,18 @@ export function ConnectorsPageContent({ orgSlug }: { orgSlug: string }) {
           }`}
         >
           {showPageLoading ? (
-            <InlineLoader label="Loading connectors" />
+            <div aria-busy>
+              <span className="sr-only">Loading connectors</span>
+              <SkeletonRow
+                size="catalog"
+                className="border-b border-white/[0.06]"
+              />
+              <SkeletonRow
+                size="catalog"
+                className="border-b border-white/[0.06]"
+              />
+              <SkeletonRow size="catalog" />
+            </div>
           ) : showEmptyState ? (
             <ConnectorsEmptyState
               onAddConnection={() => setCatalogOpen(true)}

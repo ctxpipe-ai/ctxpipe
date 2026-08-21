@@ -1,6 +1,7 @@
 import { OrganizationView } from "@daveyplate/better-auth-ui"
 import { createFileRoute, Navigate } from "@tanstack/react-router"
 import { AppShell } from "@/components/AppShell"
+import { PageBodySkeleton } from "@/components/ui/Skeleton"
 import { organizationViewClassNames } from "@/features/organization/organizationViewTheme"
 import { useSession } from "@/lib/auth-client"
 
@@ -17,10 +18,8 @@ function OrganizationViewRoute() {
   if (isPending) {
     return (
       <AppShell>
-        <main className="flex min-h-screen items-center justify-center px-6 text-center text-zinc-100">
-          <p className="text-sm text-zinc-400">
-            Loading organisation settings…
-          </p>
+        <main className="mx-auto max-w-3xl px-2 py-2 text-zinc-100 sm:px-6 sm:py-10">
+          <PageBodySkeleton label="Loading organisation settings" />
         </main>
       </AppShell>
     )

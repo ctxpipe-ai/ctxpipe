@@ -5,6 +5,7 @@ import { useEffect, useMemo } from "react"
 import { toast } from "sonner"
 import { AppShell } from "@/components/AppShell"
 import { Button } from "@/components/ui/Button"
+import { PageBodySkeleton } from "@/components/ui/Skeleton"
 import { Spinner } from "@/components/ui/spinner"
 import { resolveGithubSetupOrganization } from "@/features/connectors/githubConnectFlow"
 import { client } from "@/lib/api"
@@ -335,12 +336,8 @@ function DirectSetupPage() {
             <p className="mt-3 text-sm text-zinc-400">
               Checking your GitHub App installation…
             </p>
-
-            <div className="mt-8 max-w-md">
-              <p className="flex items-center gap-2 text-sm text-zinc-300">
-                <Spinner className="text-zinc-400" />
-                Loading…
-              </p>
+            <div className="mt-8">
+              <PageBodySkeleton label="Loading GitHub setup" />
             </div>
           </section>
         </main>

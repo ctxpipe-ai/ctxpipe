@@ -1,9 +1,9 @@
-import { IconLoader2 } from "@tabler/icons-react"
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import { Link } from "@tanstack/react-router"
 import { useEffect, useState } from "react"
 import { toast } from "sonner"
 import { Button } from "@/components/ui/Button"
+import { SkeletonRow } from "@/components/ui/Skeleton"
 import {
   atlassianConnectorKeys,
   fetchAtlassianConnectorConfig,
@@ -121,9 +121,13 @@ export function EditScopeModal({
         }`}
       >
         {isLoadingScope ? (
-          <div className="flex items-center gap-2 pt-4 text-sm text-muted-foreground">
-            <IconLoader2 className="h-4 w-4 animate-spin" />
-            Loading saved scope...
+          <div className="space-y-0.5 pt-4" aria-busy>
+            <span className="sr-only">Loading saved scope</span>
+            <SkeletonRow />
+            <SkeletonRow className="pl-4" />
+            <SkeletonRow className="pl-4" />
+            <SkeletonRow />
+            <SkeletonRow className="pl-4" />
           </div>
         ) : scopeLoadError ? (
           <p className="pt-4 text-sm text-destructive">

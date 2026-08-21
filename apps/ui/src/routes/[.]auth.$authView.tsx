@@ -3,12 +3,13 @@ import { useMutation, useQuery } from "@tanstack/react-query"
 import { createFileRoute } from "@tanstack/react-router"
 import type { FormEvent } from "react"
 import { useEffect, useMemo, useRef, useState } from "react"
-import { betterAuthAuthViewClassNames } from "@/features/auth/betterAuthShellClassNames"
-import { acceptInvitationThenRedirect } from "@/features/auth/accept-invitation"
 import { Button } from "@/components/ui/Button"
+import { PageBodySkeleton } from "@/components/ui/Skeleton"
 import { Spinner } from "@/components/ui/spinner"
-import { getAuthContinuationProps } from "@/lib/auth-continuation"
+import { acceptInvitationThenRedirect } from "@/features/auth/accept-invitation"
+import { betterAuthAuthViewClassNames } from "@/features/auth/betterAuthShellClassNames"
 import { authClient, useSession } from "@/lib/auth-client"
+import { getAuthContinuationProps } from "@/lib/auth-continuation"
 import { useGetAuthConfig } from "@/lib/useGetAuthConfig"
 
 export const Route = createFileRoute("/.auth/$authView")({
@@ -60,8 +61,9 @@ function InviteAcceptSignUp(props: InviteAcceptSignUpProps = {}) {
     typeof window === "undefined"
       ? "/.auth/accept-invitation"
       : `${window.location.pathname}${window.location.search}`
-  const invitationId = props.invitationId ?? (params.get("invitationId") ?? "")
-  const redirectTo = props.redirectTo ?? (params.get("redirectTo") ?? "/onboarding")
+  const invitationId = props.invitationId ?? params.get("invitationId") ?? ""
+  const redirectTo =
+    props.redirectTo ?? params.get("redirectTo") ?? "/onboarding"
   const [name, setName] = useState("")
   const [password, setPassword] = useState("")
   const [confirmPassword, setConfirmPassword] = useState("")
@@ -95,14 +97,17 @@ function InviteAcceptSignUp(props: InviteAcceptSignUpProps = {}) {
   })
 
   const signUpMutation = useMutation({
-    mutationFn: async (input: { email: string; name: string; password: string }) => {
+    mutationFn: async (input: {
+      email: string
+      name: string
+      password: string
+    }) => {
       autoAcceptAttemptedRef.current = true
       await authClient.signUp.email({
         email: input.email,
         password: input.password,
         name: input.name,
-        callbackURL:
-          currentLocation,
+        callbackURL: currentLocation,
         fetchOptions: { throw: true },
       })
       await acceptInvitationThenRedirect(
@@ -127,15 +132,11 @@ function InviteAcceptSignUp(props: InviteAcceptSignUpProps = {}) {
     ).catch((err) => {
       setError(extractErrorMessage(err))
     })
-  }, [
-    session,
-    sessionPending,
-    invitationId,
-    redirectTo,
-    acceptInviteMutation,
-  ])
+  }, [session, sessionPending, invitationId, redirectTo, acceptInviteMutation])
 
-  if (sessionPending) return null
+  if (sessionPending) {
+    return <PageBodySkeleton label="Loading sign-in" />
+  }
   if (session && error) {
     return <p className="text-sm text-red-400">{error}</p>
   }
@@ -152,7 +153,7 @@ function InviteAcceptSignUp(props: InviteAcceptSignUpProps = {}) {
   }
 
   if (invitationEmailQuery.isPending) {
-    return <AuthStatusMessage message="Loading invitation…" />
+    return <PageBodySkeleton label="Loading invitation" />
   }
 
   if (invitationEmailQuery.error || !invitationEmailQuery.data) {
@@ -307,12 +308,14 @@ function SignOutView() {
       finish()
     }, 4000)
 
-    void authClient.signOut({
-      fetchOptions: { throw: false },
-    }).finally(() => {
-      window.clearTimeout(timeoutId)
-      finish()
-    })
+    void authClient
+      .signOut({
+        fetchOptions: { throw: false },
+      })
+      .finally(() => {
+        window.clearTimeout(timeoutId)
+        finish()
+      })
 
     return () => {
       window.clearTimeout(timeoutId)

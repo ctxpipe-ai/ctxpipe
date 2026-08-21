@@ -1,14 +1,16 @@
 import { IconExternalLink } from "@tabler/icons-react"
 import { useQuery } from "@tanstack/react-query"
 import { useMemo, useState } from "react"
-import { Link, TextField as AriaTextField } from "react-aria-components"
+import { TextField as AriaTextField, Link } from "react-aria-components"
 import { Button } from "@/components/ui/Button"
 import { FieldGroup, Input, Label } from "@/components/ui/Field"
 import { InlineAlert } from "@/components/ui/InlineAlert"
-import { InlineLoader } from "@/components/ui/InlineLoader"
 import { SearchField } from "@/components/ui/SearchField"
 import { Tab, TabList, TabPanel, Tabs } from "@/components/ui/Tabs"
-import { GithubRepoPickerList } from "@/features/repositories/components/GithubRepoPickerList"
+import {
+  GithubRepoPickerList,
+  GithubRepoPickerSkeleton,
+} from "@/features/repositories/components/GithubRepoPickerList"
 import {
   collectInstallationRepoPages,
   fetchGithubInstallationReposPage,
@@ -212,7 +214,7 @@ function SelectGitHubPanel(props: {
   )
 
   if (props.reposPending) {
-    return <InlineLoader label="Loading repositories" />
+    return <GithubRepoPickerSkeleton />
   }
 
   if (props.reposFailed) {

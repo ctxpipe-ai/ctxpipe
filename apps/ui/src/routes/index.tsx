@@ -1,6 +1,7 @@
 import { useSuspenseQuery } from "@tanstack/react-query"
 import { createFileRoute, Navigate } from "@tanstack/react-router"
 import { Suspense } from "react"
+import { PageBodySkeleton } from "@/components/ui/Skeleton"
 import {
   landingWorkspace,
   workspaceListOptions,
@@ -41,7 +42,13 @@ export function IndexRoutePage() {
   const [{ selectedOrganizationSlug }] = useUserPreferences()
   const { error, error_description, pendingAccountClaim } = Route.useSearch()
 
-  if (isPending || orgsPending) return null
+  if (isPending || orgsPending) {
+    return (
+      <div className="flex min-h-screen items-center bg-zinc-950 px-6 py-16">
+        <PageBodySkeleton label="Loading" className="mx-auto" />
+      </div>
+    )
+  }
   if (!session) return <Navigate to="/.auth/sign-in" replace />
 
   const user = session.user as {

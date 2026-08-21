@@ -10,6 +10,7 @@ import { createFileRoute, Navigate, useNavigate } from "@tanstack/react-router"
 import { motion, type Variants } from "motion/react"
 import { type ReactNode, useEffect } from "react"
 import { AppShell } from "@/components/AppShell"
+import { PageBodySkeleton } from "@/components/ui/Skeleton"
 import {
   fetchGithubInstallationSummary,
   githubConnectorKeys,
@@ -135,6 +136,16 @@ function OrgHomePage() {
   return <OrgHomePageContent orgSlug={orgSlug} />
 }
 
+export function OrgHomeSessionFallback() {
+  return (
+    <AppShell>
+      <main className="mx-auto box-border flex min-h-screen w-full max-w-2xl items-center p-8 text-zinc-100">
+        <PageBodySkeleton label="Loading home" />
+      </main>
+    </AppShell>
+  )
+}
+
 /** Exported for Storybook — same dashboard as org home `/` under `/$orgSlug`. */
 export function OrgHomePageContent({ orgSlug }: { orgSlug: string }) {
   const navigate = useNavigate()
@@ -212,15 +223,7 @@ export function OrgHomePageContent({ orgSlug }: { orgSlug: string }) {
     }
   }, [orgSlug, preferences.selectedOrganizationSlug, updatePreferences])
 
-  if (sessionPending) {
-    return (
-      <AppShell>
-        <main className="mx-auto box-border flex min-h-screen w-full max-w-2xl items-center justify-center p-8 text-zinc-100">
-          <p className="text-sm text-zinc-400">Loading workspace…</p>
-        </main>
-      </AppShell>
-    )
-  }
+  if (sessionPending) return <OrgHomeSessionFallback />
   if (!session) return <Navigate to="/.auth/sign-in" replace />
 
   const handleGithubConnect = () => {

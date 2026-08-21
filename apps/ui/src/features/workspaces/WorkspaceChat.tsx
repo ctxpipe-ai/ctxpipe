@@ -1,6 +1,6 @@
 import { useSuspenseQuery } from "@tanstack/react-query"
 import { type ReactNode, Suspense, useState } from "react"
-import { ShimmerPlaceholder } from "@/components/ui/ShimmerPlaceholder"
+import { Skeleton } from "@/components/ui/Skeleton"
 import { ConversationThreadSkeleton } from "@/features/chat/components/ConversationThreadSkeleton"
 import { createObjectId } from "@/lib/id"
 import { workspaceConversationOptions } from "./queries"
@@ -22,7 +22,7 @@ export function WorkspaceChat(props: {
         fallback={
           <WorkspaceChatChrome
             workspace={workspace}
-            title={<ShimmerPlaceholder className="inline-block h-4 w-40" />}
+            title={<Skeleton className="inline-block h-4 w-40" />}
             headerExtra={props.headerExtra}
           >
             <ConversationThreadSkeleton />

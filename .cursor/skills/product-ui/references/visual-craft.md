@@ -78,6 +78,7 @@ These encode widely used interface tactics as **ctxpipe house rules**. They are 
 | Scoped style edits | When polishing one region, do not push experiments into shared class helpers that restyle sibling regions |
 | Splitter / resize a11y | Focus shows the hover line (not a box outline); arrow keys nudge the value |
 | Selected chrome on press | Tab, nav row, and switcher highlight move in the click handler. Skeleton stays inside the region. First HTML still has the landing files/data |
+| Loading matches the pattern | Region wait is a skeleton of the populated rows. `"Loading…"` and a centered spinner are not the UI when the shape is already a list, tree, or pane |
 
 ## Actions
 

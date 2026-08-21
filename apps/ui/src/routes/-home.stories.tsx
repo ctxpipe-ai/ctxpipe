@@ -1,5 +1,5 @@
 import type { Meta, StoryObj } from "@storybook/react-vite"
-import { HttpResponse, http } from "msw"
+import { delay, HttpResponse, http } from "msw"
 import { githubInstallationNoneHandler } from "@/mocks/handlers"
 import { entryPageInnerDecorators } from "../../.storybook/decorators/entry-page-decorators"
 import type { StoryRouteParams } from "../../.storybook/decorators/with-story-route"
@@ -16,6 +16,26 @@ const meta = {
 export default meta
 
 type Story = StoryObj<typeof meta>
+
+export const Loading: Story = {
+  render: () => <OrgHomePageContent orgSlug="acme" />,
+  parameters: {
+    storyRoute: {
+      pattern: "orgIndex",
+      orgSlug: "acme",
+    } satisfies StoryRouteParams,
+    msw: {
+      handlers: {
+        page: [
+          http.get("*/.auth/api/v1/auth/get-session", async () => {
+            await delay("infinite")
+            return HttpResponse.json(null)
+          }),
+        ],
+      },
+    },
+  },
+}
 
 export const Start: Story = {
   render: () => <OrgHomePageContent orgSlug="acme" />,

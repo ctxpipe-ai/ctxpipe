@@ -5,6 +5,7 @@ import { AnimatedBackground } from "@/components/AnimatedBackground"
 import { Button } from "@/components/ui/Button"
 import { Dialog } from "@/components/ui/Dialog"
 import { Modal } from "@/components/ui/Modal"
+import { PageBodySkeleton } from "@/components/ui/Skeleton"
 import {
   fetchGithubInstallationSummary,
   githubConnectorKeys,
@@ -84,8 +85,8 @@ function OrgSetupPage() {
   if (sessionPending) {
     return (
       <main className="min-h-screen bg-zinc-950 text-zinc-100">
-        <div className="flex min-h-screen items-center justify-center px-6 text-center">
-          <p className="text-sm text-zinc-400">Loading setup…</p>
+        <div className="flex min-h-screen items-center px-6">
+          <PageBodySkeleton label="Loading setup" className="mx-auto" />
         </div>
       </main>
     )

@@ -1,6 +1,7 @@
 import { useVirtualizer } from "@tanstack/react-virtual"
 import { useRef } from "react"
 import { Checkbox } from "@/components/ui/Checkbox"
+import { SkeletonRow } from "@/components/ui/Skeleton"
 import { cn } from "@/lib/utils"
 import type { GithubRepoItem } from "../githubRepoSelection"
 
@@ -69,6 +70,36 @@ export function GithubRepoPickerList({
           )
         })}
       </ul>
+    </div>
+  )
+}
+
+export function GithubRepoPickerSkeleton({
+  rows = 6,
+  className,
+}: {
+  rows?: number
+  className?: string
+}) {
+  const keys = ["one", "two", "three", "four", "five", "six", "seven", "eight"]
+  return (
+    <div
+      className={cn(
+        "max-h-96 overflow-hidden rounded-none border border-white/[0.06] bg-card/40",
+        className,
+      )}
+      aria-busy
+    >
+      <span className="sr-only">Loading repositories</span>
+      {keys.slice(0, rows).map((id, index) => (
+        <SkeletonRow
+          key={id}
+          className={cn(
+            "h-10 px-3",
+            index > 0 && "border-t border-white/[0.06]",
+          )}
+        />
+      ))}
     </div>
   )
 }

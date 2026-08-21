@@ -5,7 +5,6 @@ import { type FormEvent, useMemo, useState } from "react"
 import { toast } from "sonner"
 import { Button } from "@/components/ui/Button"
 import { Checkbox } from "@/components/ui/Checkbox"
-import { InlineLoader } from "@/components/ui/InlineLoader"
 import { Radio, RadioGroup } from "@/components/ui/RadioGroup"
 import { SearchField } from "@/components/ui/SearchField"
 import { client } from "@/lib/api"
@@ -21,7 +20,10 @@ import {
   selectedCloneUrlKeys,
   unmatchedSavedRepos,
 } from "../githubRepoSelection"
-import { GithubRepoPickerList } from "./GithubRepoPickerList"
+import {
+  GithubRepoPickerList,
+  GithubRepoPickerSkeleton,
+} from "./GithubRepoPickerList"
 
 export type GitHubRepositorySetupData = {
   ingestAllRepositories: boolean
@@ -278,7 +280,7 @@ export function GitHubRepositorySetupForm({
             />
 
             {selectBusy ? (
-              <InlineLoader label="Loading repositories" />
+              <GithubRepoPickerSkeleton />
             ) : reposFailed ? (
               <p className="text-sm text-zinc-300">
                 Failed to load repositories.

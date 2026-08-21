@@ -1,4 +1,5 @@
 import type { Meta, StoryObj } from "@storybook/react-vite"
+import { delay, HttpResponse, http } from "msw"
 import { fn, userEvent, within } from "storybook/test"
 import {
   githubInstallationReposHandler,
@@ -45,6 +46,28 @@ const meta = {
 export default meta
 
 type Story = StoryObj<typeof meta>
+
+export const Loading: Story = {
+  parameters: {
+    msw: {
+      handlers: {
+        page: [
+          workspaceListHandler([docsWorkspace]),
+          http.get(
+            ({ request }) =>
+              new URL(request.url).pathname.endsWith(
+                "/api/v1/github/installation/repositories",
+              ),
+            async () => {
+              await delay("infinite")
+              return HttpResponse.json({ repositories: [] })
+            },
+          ),
+        ],
+      },
+    },
+  },
+}
 
 export const SelectGitHub: Story = {
   play: async ({ canvasElement }) => {

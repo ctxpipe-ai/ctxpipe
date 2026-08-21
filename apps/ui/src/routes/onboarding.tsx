@@ -11,6 +11,7 @@ import { OnboardingOverviewSlide } from "@/components/onboarding/OnboardingOverv
 import { OnboardingPageShell } from "@/components/onboarding/OnboardingPageShell"
 import { OnboardingWelcomeSlide } from "@/components/onboarding/OnboardingWelcomeSlide"
 import { useOnboardingCarousel } from "@/components/onboarding/useOnboardingCarousel"
+import { PageBodySkeleton } from "@/components/ui/Skeleton"
 import {
   fetchGithubInstallationSummary,
   githubConnectorKeys,
@@ -155,7 +156,7 @@ export function OnboardingPageContent({
         onGoToSlide={() => {}}
       >
         <div className="onboarding-fade-in mx-auto max-w-2xl">
-          <p className="text-sm text-zinc-400">Preparing onboarding…</p>
+          <PageBodySkeleton label="Preparing onboarding" />
         </div>
       </OnboardingPageShell>
     )

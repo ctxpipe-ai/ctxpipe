@@ -61,11 +61,20 @@ For this feature only: empty, loading, error, and dense data.
 
 Empty: short title + one sentence + **one primary** control. Hide tabs, filters, and search until there is content. Center only if copy is ≤2 lines; otherwise left-align.
 
-Loading: a skeleton that mirrors the final pattern (not “Loading…”). **Interaction responsiveness:** selected chrome (tabs, pane switchers, SideNav rows, org switcher) updates **on the click**; the skeleton stays inside the region that needs data. A click that leaves chrome unchanged until the next page paints is not done. Enter/SSR still includes the landing region in the first HTML (see [react](../react/SKILL.md) **Feel fast**).
+Loading: pick the **kind** first. Do not mix them.
+
+| Kind | When | UI |
+|------|------|-----|
+| Region | Fetching a list, tree, thread, or pane whose shape we already ship | [`Skeleton`](../../../apps/ui/src/components/ui/Skeleton.tsx) / `SkeletonRow` that matches the populated rows. Not “Loading…” |
+| Process | Long job or unknown structure (hydrate, OAuth wait, discovery) | [`InlineLoader`](../../../apps/ui/src/components/ui/InlineLoader.tsx) / `ProgressLoader` |
+| Control | Mutation on a button | `Button isPending` |
+| Status | Known entity, in-progress (health, indexing, streaming) | Pulse-dot **plus** the word |
+
+**Interaction responsiveness:** selected chrome (tabs, pane switchers, SideNav rows, org switcher) updates **on the click**; the skeleton stays inside the region that needs data. A click that leaves chrome unchanged until the next page paints is not done. Enter/SSR still includes the landing region in the first HTML (see [react](../react/SKILL.md) **Feel fast**).
 
 Error: [`InlineAlert`](../../../apps/ui/src/components/ui/InlineAlert.tsx) + a next step. Dark slab, same-hue muted secondary, no `text-white/50`.
 
-**Done when:** each state has a pattern; empty chrome is hidden; the empty CTA is `variant="primary"`; selected chrome moves on press; first HTML still has the landing region.
+**Done when:** each state has a pattern; empty chrome is hidden; the empty CTA is `variant="primary"`; selected chrome moves on press; first HTML still has the landing region; a region wait is a skeleton, not `"Loading…"` or a centered spinner.
 
 ## 7. Build
 
@@ -98,4 +107,4 @@ Run all three. Fix before considering the UI done.
 
 Add or update a colocated Storybook story for the new or touched surface. Follow the [storybook](../storybook/SKILL.md) skill.
 
-**Done when:** a story exists for the visible state you shipped (empty, error, populated — whichever you added).
+**Done when:** a story exists for the visible state you shipped (empty, **loading**, error, populated — whichever you added). If the surface fetches, export `Loading` (or `Checking` / `Hydrating` when that is the real wait) with `delay("infinite")`.

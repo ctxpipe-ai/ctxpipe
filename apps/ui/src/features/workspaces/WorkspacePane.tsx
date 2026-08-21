@@ -80,6 +80,10 @@ import {
   workspaceChromeTabIdleClassName,
   workspaceChromeTabStripClassName,
 } from "./workspaceChrome"
+import {
+  WorkspaceFilePreviewSkeleton,
+  WorkspaceFilesPaneSkeleton,
+} from "./workspaceSkeletons"
 
 export function WorkspacePane(props: {
   orgSlug: string
@@ -330,15 +334,7 @@ export function WorkspacePane(props: {
         >
           <div className="flex h-full min-h-0 min-w-0 flex-1 flex-col">
             {pane.kind === "files" || pane.kind === "file" ? (
-              <Suspense
-                fallback={
-                  <div className="flex h-full min-h-0 flex-1 items-center p-4">
-                    <p className="text-xs text-muted-foreground">
-                      Loading files…
-                    </p>
-                  </div>
-                }
-              >
+              <Suspense fallback={<WorkspaceFilesPaneSkeleton />}>
                 <WorkspaceFilesPaneBody
                   orgSlug={props.orgSlug}
                   workspaceSlug={props.workspace.slug}
@@ -856,13 +852,7 @@ function WorkspaceFilesPaneContent(props: {
         ) : null}
         {props.activeFile ? (
           <div className="min-h-0 min-w-0 flex-1 overflow-hidden">
-            <Suspense
-              fallback={
-                <div className="flex h-full items-center p-4">
-                  <p className="text-sm text-muted-foreground">Loading file…</p>
-                </div>
-              }
-            >
+            <Suspense fallback={<WorkspaceFilePreviewSkeleton />}>
               <WorkspaceGitFilePreview
                 orgSlug={props.orgSlug}
                 workspaceSlug={props.workspaceSlug}
