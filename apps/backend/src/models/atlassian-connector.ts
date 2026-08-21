@@ -50,10 +50,6 @@ function forgeConfigInstalledByUserIdRef() {
   return sql<string>`${connections.config}->>'installedByUserId'`
 }
 
-function forgeConfigInstallationIdRef() {
-  return sql<string>`${connections.config}->>'installationId'`
-}
-
 const FORGE_ECOSYSTEM_INSTALLATION_ARI_PREFIX =
   "ari:cloud:ecosystem::installation/"
 
@@ -264,7 +260,7 @@ export async function deleteForgeConnectionById(
       )
       .returning({ id: connections.id }),
   )
-  await deleteConnectionDirectory(connectionId)
+  if (removed.length > 0) await deleteConnectionDirectory(connectionId)
   return removed.length > 0
 }
 
@@ -373,70 +369,71 @@ export async function getPendingForgeInstallationForUserInOtherOrg(input: {
   return undefined
 }
 
-/** Must run inside {@link withOrgDbContext} for `input.orgId`. */
 export async function upsertPendingForgeInstallation(input: {
   orgId: string
   installedByUserId: string
 }): Promise<ForgeInstallationShape> {
-  const db = getOrgDb()
-  const [existing] = await db
-    .select()
-    .from(connections)
-    .where(
-      and(
-        eq(connections.orgId, input.orgId),
-        eq(connections.type, CONNECTION_TYPE_FORGE),
-        eq(forgeConfigStatusRef(), "pending"),
-        eq(forgeConfigInstalledByUserIdRef(), input.installedByUserId),
-      ),
-    )
-    .orderBy(desc(connections.updatedAt))
-    .limit(1)
+  const row = await withOrgDbContext(input.orgId, async () => {
+    const db = getOrgDb()
+    const [existing] = await db
+      .select()
+      .from(connections)
+      .where(
+        and(
+          eq(connections.orgId, input.orgId),
+          eq(connections.type, CONNECTION_TYPE_FORGE),
+          eq(forgeConfigStatusRef(), "pending"),
+          eq(forgeConfigInstalledByUserIdRef(), input.installedByUserId),
+        ),
+      )
+      .orderBy(desc(connections.updatedAt))
+      .limit(1)
 
-  const pendingConfig = forgeShapeToConfig({
-    cloudId: null,
-    installationContext: null,
-    installationId: null,
-    appId: null,
-    appSystemToken: null,
-    atlassianApiBaseUrl: null,
-    installedByUserId: input.installedByUserId,
-    status: "pending",
-    lastEventPayload: null,
-    confluenceSiteHost: null,
-    confluenceForgeInstallUrl: null,
-    forgeScopedApiToken: null,
-    forgeOperatorEmail: null,
-    provisionStatus: "idle",
-    provisionErrorCode: null,
-    provisionStderr: null,
-    provisionWorkflowRunId: null,
-    lastProvisionAt: null,
-    atlassianOAuthClientId: null,
-  })
-
-  if (existing) {
-    const [row] = await db
-      .update(connections)
-      .set({ config: pendingConfig, updatedAt: new Date() })
-      .where(eq(connections.id, existing.id))
-      .returning()
-    if (!row) throw new Error("Failed to upsert pending forge installation")
-    await upsertConnectionDirectory(row)
-    return forgeConnectionToShape(row)
-  }
-
-  const id = generateObjectId("con")
-  const [row] = await db
-    .insert(connections)
-    .values({
-      id,
-      orgId: input.orgId,
-      type: CONNECTION_TYPE_FORGE,
-      config: pendingConfig,
+    const pendingConfig = forgeShapeToConfig({
+      cloudId: null,
+      installationContext: null,
+      installationId: null,
+      appId: null,
+      appSystemToken: null,
+      atlassianApiBaseUrl: null,
+      installedByUserId: input.installedByUserId,
+      status: "pending",
+      lastEventPayload: null,
+      confluenceSiteHost: null,
+      confluenceForgeInstallUrl: null,
+      forgeScopedApiToken: null,
+      forgeOperatorEmail: null,
+      provisionStatus: "idle",
+      provisionErrorCode: null,
+      provisionStderr: null,
+      provisionWorkflowRunId: null,
+      lastProvisionAt: null,
+      atlassianOAuthClientId: null,
     })
-    .returning()
-  if (!row) throw new Error("Failed to upsert pending forge installation")
+
+    if (existing) {
+      const [updated] = await db
+        .update(connections)
+        .set({ config: pendingConfig, updatedAt: new Date() })
+        .where(eq(connections.id, existing.id))
+        .returning()
+      if (!updated) throw new Error("Failed to upsert pending forge installation")
+      return updated
+    }
+
+    const id = generateObjectId("con")
+    const [created] = await db
+      .insert(connections)
+      .values({
+        id,
+        orgId: input.orgId,
+        type: CONNECTION_TYPE_FORGE,
+        config: pendingConfig,
+      })
+      .returning()
+    if (!created) throw new Error("Failed to upsert pending forge installation")
+    return created
+  })
   await upsertConnectionDirectory(row)
   return forgeConnectionToShape(row)
 }
@@ -504,7 +501,7 @@ export async function upsertForgeInstallationFromEvent(input: {
    */
   connectionId?: string | null
 }): Promise<ForgeInstallationShape> {
-  return withOrgDbContext(input.orgId, async () => {
+  const row = await withOrgDbContext(input.orgId, async () => {
     const db = getOrgDb()
     type ConnRow = typeof connections.$inferSelect
     let existing: ConnRow | undefined
@@ -586,12 +583,11 @@ export async function upsertForgeInstallationFromEvent(input: {
         .where(eq(connections.id, existing.id))
         .returning()
       if (!row) throw new Error("Failed to upsert forge installation")
-      await upsertConnectionDirectory(row)
-      return forgeConnectionToShape(row)
+      return row
     }
 
     const id = generateObjectId("con")
-    const [row] = await db
+    const [created] = await db
       .insert(connections)
       .values({
         id,
@@ -600,10 +596,11 @@ export async function upsertForgeInstallationFromEvent(input: {
         config: mergedConfig,
       })
       .returning()
-    if (!row) throw new Error("Failed to upsert forge installation")
-    await upsertConnectionDirectory(row)
-    return forgeConnectionToShape(row)
+    if (!created) throw new Error("Failed to upsert forge installation")
+    return created
   })
+  await upsertConnectionDirectory(row)
+  return forgeConnectionToShape(row)
 }
 
 export async function getOrganizationSlugForCloudIdByUser(

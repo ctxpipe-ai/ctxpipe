@@ -421,9 +421,12 @@ export async function refreshLinearConnectionTokensWithLock(input: {
         current.refreshToken !== input.expectedRefreshToken)
     ) {
       return {
-        accessToken: current.accessToken,
-        refreshToken: current.refreshToken,
-        accessTokenExpiresAt: current.accessTokenExpiresAt,
+        kind: "current" as const,
+        tokens: {
+          accessToken: current.accessToken,
+          refreshToken: current.refreshToken,
+          accessTokenExpiresAt: current.accessTokenExpiresAt,
+        },
       }
     }
     const config = linearShapeToConfig(
@@ -446,16 +449,20 @@ export async function refreshLinearConnectionTokensWithLock(input: {
         ),
       )
       .returning({ id: connections.id })
-    if (updated) {
-      return { tokens: refreshed, row: { ...row, config } }
+    if (!updated) {
+      throw new Error("Linear connection was removed during token refresh")
     }
-    throw new Error("Linear connection was removed during token refresh")
+    return {
+      kind: "refreshed" as const,
+      tokens: refreshed,
+      row: { ...row, config },
+    }
   })
-  if ("row" in result) {
+  if (result.kind === "refreshed") {
     await upsertConnectionDirectory(result.row)
     return result.tokens
   }
-  return result
+  return result.tokens
 }
 
 export async function listLinearConnectionsByWorkspaceId(
@@ -467,7 +474,9 @@ export async function listLinearConnectionsByWorkspaceId(
   const rows = await Promise.all(
     directoryRows.map((row) => loadConnectionViaDirectory(row.connectionId)),
   )
-  return rows.map((row) => linearConnectionToShape(row, env))
+  return rows
+    .filter((row): row is ConnectionRow => row != null)
+    .map((row) => linearConnectionToShape(row, env))
 }
 
 export async function recordLinearOAuthRevocation(input: {
@@ -517,7 +526,7 @@ export async function recordLinearOAuthRevocation(input: {
       return result
     })
   })
-  await upsertConnectionDirectory(updated)
+  if (updated) await upsertConnectionDirectory(updated)
 }
 
 export async function deleteLinearConnectionById(
@@ -543,7 +552,7 @@ export async function deleteLinearConnectionById(
       return removed.length > 0
     })
   })
-  await deleteConnectionDirectory(connectionId)
+  if (removed) await deleteConnectionDirectory(connectionId)
   return removed
 }
 

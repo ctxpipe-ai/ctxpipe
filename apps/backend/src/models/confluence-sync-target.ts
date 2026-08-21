@@ -28,6 +28,20 @@ async function withOrgDbForConnection<T>(
   return withOrgDbContext(directoryRow.orgId, fn)
 }
 
+async function requireConfluenceSyncTargetWrite(
+  connectionId: string,
+  fn: (db: Db) => Promise<{ id: string } | undefined>,
+): Promise<void> {
+  const directoryRow = await getConnectionDirectoryByConnectionId(connectionId)
+  if (!directoryRow) {
+    throw new Error(`connection_directory missing for ${connectionId}`)
+  }
+  const updated = await withOrgDbContext(directoryRow.orgId, fn)
+  if (!updated) {
+    throw new Error(`confluence sync target UPDATE 0 for ${connectionId}`)
+  }
+}
+
 export async function getConfluenceSyncTargetByOrgId(
   orgId: string,
 ): Promise<ConfluenceSyncTarget | undefined> {
@@ -186,21 +200,17 @@ export async function setPendingConfigPrCreating(input: {
   connectionId: string
   pendingConfigPrCreating: boolean
 }): Promise<void> {
-  const updated = await withOrgDbForConnection(
-    input.connectionId,
-    async (db) => {
-      const [row] = await db
-        .update(confluenceSyncTargets)
-        .set({
-          pendingConfigPrCreating: input.pendingConfigPrCreating,
-          updatedAt: new Date(),
-        })
-        .where(eq(confluenceSyncTargets.connectionId, input.connectionId))
-        .returning({ id: confluenceSyncTargets.id })
-      return row
-    },
-  )
-  if (!updated) return
+  await requireConfluenceSyncTargetWrite(input.connectionId, async (db) => {
+    const [row] = await db
+      .update(confluenceSyncTargets)
+      .set({
+        pendingConfigPrCreating: input.pendingConfigPrCreating,
+        updatedAt: new Date(),
+      })
+      .where(eq(confluenceSyncTargets.connectionId, input.connectionId))
+      .returning({ id: confluenceSyncTargets.id })
+    return row
+  })
 }
 
 export async function updateConfluenceSyncTargetPrState(input: {
@@ -209,92 +219,76 @@ export async function updateConfluenceSyncTargetPrState(input: {
   pendingConfigPrCreating: boolean
   setupPhase: string
 }): Promise<void> {
-  const updated = await withOrgDbForConnection(
-    input.connectionId,
-    async (db) => {
-      const [row] = await db
-        .update(confluenceSyncTargets)
-        .set({
-          pendingConfigPullUrl: input.pendingConfigPullUrl,
-          pendingConfigPrCreating: input.pendingConfigPrCreating,
-          setupPhase: input.setupPhase,
-          updatedAt: new Date(),
-        })
-        .where(eq(confluenceSyncTargets.connectionId, input.connectionId))
-        .returning({ id: confluenceSyncTargets.id })
-      return row
-    },
-  )
-  if (!updated) return
+  await requireConfluenceSyncTargetWrite(input.connectionId, async (db) => {
+    const [row] = await db
+      .update(confluenceSyncTargets)
+      .set({
+        pendingConfigPullUrl: input.pendingConfigPullUrl,
+        pendingConfigPrCreating: input.pendingConfigPrCreating,
+        setupPhase: input.setupPhase,
+        updatedAt: new Date(),
+      })
+      .where(eq(confluenceSyncTargets.connectionId, input.connectionId))
+      .returning({ id: confluenceSyncTargets.id })
+    return row
+  })
 }
 
 /** Before enqueueing config PR workflow — shows loading / awaiting-merge in UI */
 export async function markAwaitingConfigMergeSetup(input: {
   connectionId: string
 }): Promise<void> {
-  const updated = await withOrgDbForConnection(
-    input.connectionId,
-    async (db) => {
-      const [row] = await db
-        .update(confluenceSyncTargets)
-        .set({
-          setupPhase: "awaiting_merge",
-          pendingConfigPrCreating: true,
-          updatedAt: new Date(),
-        })
-        .where(eq(confluenceSyncTargets.connectionId, input.connectionId))
-        .returning({ id: confluenceSyncTargets.id })
-      return row
-    },
-  )
-  if (!updated) return
+  await requireConfluenceSyncTargetWrite(input.connectionId, async (db) => {
+    const [row] = await db
+      .update(confluenceSyncTargets)
+      .set({
+        setupPhase: "awaiting_merge",
+        pendingConfigPrCreating: true,
+        updatedAt: new Date(),
+      })
+      .where(eq(confluenceSyncTargets.connectionId, input.connectionId))
+      .returning({ id: confluenceSyncTargets.id })
+    return row
+  })
 }
 
 /** After config push webhook: first full reconcile from Git before flipping to `live`. */
 export async function markConfluenceSyncTargetInitialSync(input: {
   connectionId: string
 }): Promise<void> {
-  const updated = await withOrgDbForConnection(
-    input.connectionId,
-    async (db) => {
-      const [row] = await db
-        .update(confluenceSyncTargets)
-        .set({
-          setupPhase: "initial_sync",
-          pendingConfigPullUrl: null,
-          pendingConfigPrCreating: false,
-          enabled: true,
-          updatedAt: new Date(),
-        })
-        .where(eq(confluenceSyncTargets.connectionId, input.connectionId))
-        .returning({ id: confluenceSyncTargets.id })
-      return row
-    },
-  )
-  if (!updated) return
+  await requireConfluenceSyncTargetWrite(input.connectionId, async (db) => {
+    const [row] = await db
+      .update(confluenceSyncTargets)
+      .set({
+        setupPhase: "initial_sync",
+        pendingConfigPullUrl: null,
+        pendingConfigPrCreating: false,
+        enabled: true,
+        updatedAt: new Date(),
+      })
+      .where(eq(confluenceSyncTargets.connectionId, input.connectionId))
+      .returning({ id: confluenceSyncTargets.id })
+    return row
+  })
 }
 
 export async function markConfluenceSyncTargetLive(input: {
   connectionId: string
 }): Promise<void> {
-  const updated = await withOrgDbForConnection(
-    input.connectionId,
-    async (db) => {
-      const [row] = await db
-        .update(confluenceSyncTargets)
-        .set({
-          setupPhase: "live",
-          pendingConfigPullUrl: null,
-          pendingConfigPrCreating: false,
-          enabled: true,
-          updatedAt: new Date(),
-        })
-        .where(eq(confluenceSyncTargets.connectionId, input.connectionId))
-        .returning({ id: confluenceSyncTargets.id })
-      return row
-    },
-  )
-  if (!updated) return
+  await requireConfluenceSyncTargetWrite(input.connectionId, async (db) => {
+    const [row] = await db
+      .update(confluenceSyncTargets)
+      .set({
+        setupPhase: "live",
+        pendingConfigPullUrl: null,
+        pendingConfigPrCreating: false,
+        enabled: true,
+        updatedAt: new Date(),
+      })
+      .where(eq(confluenceSyncTargets.connectionId, input.connectionId))
+      .returning({ id: confluenceSyncTargets.id })
+    return row
+  })
 }
 
 /**

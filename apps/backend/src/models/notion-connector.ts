@@ -181,7 +181,7 @@ async function migrateLegacyNotionTokensOnRead(
       env,
     )
     if (!config) return
-    const [updated] = await db
+    await db
       .update(connections)
       .set({ config, updatedAt: new Date() })
       .where(
@@ -191,8 +191,6 @@ async function migrateLegacyNotionTokensOnRead(
           eq(connections.type, CONNECTION_TYPE_NOTION),
         ),
       )
-      .returning()
-    if (updated) await upsertConnectionDirectory(updated)
   } catch (error) {
     log.warn({
       step: "notionConnection.migrateLegacyTokens",

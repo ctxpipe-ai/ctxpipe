@@ -430,7 +430,7 @@ export async function deleteGithubConnectionById(
       .returning({ id: connections.id })
     return removed
   })
-  await deleteConnectionDirectory(connectionId)
+  if (row) await deleteConnectionDirectory(connectionId)
   return Boolean(row)
 }
 
