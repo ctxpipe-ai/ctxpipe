@@ -49,14 +49,19 @@ describe("getOrgDb ambient-context audit", () => {
     expect(workspaces).toMatch(
       /persistWriteStatus[\s\S]*eq\(workspaces\.orgId, orgId\)/,
     )
-    expect(workspaces).toMatch(
-      /async function heartbeatSandboxInstance[\s\S]*?eq\(workspaceSandboxInstances\.orgId, scopedOrgId\)/,
-    )
-    expect(workspaces).toMatch(
-      /async function getSandboxInstance[\s\S]*?eq\(workspaceSandboxInstances\.orgId, scopedOrgId\)/,
-    )
-    expect(workspaces).toMatch(
-      /async function deleteSandboxInstance[\s\S]*?eq\(workspaceSandboxInstances\.orgId, scopedOrgId\)/,
-    )
+    for (const name of [
+      "heartbeatSandboxInstance",
+      "getSandboxInstance",
+      "deleteSandboxInstance",
+    ] as const) {
+      const start = workspaces.indexOf(`export async function ${name}`)
+      expect(start, name).toBeGreaterThanOrEqual(0)
+      const next = workspaces.indexOf("\nexport async function ", start + 1)
+      const body =
+        next < 0 ? workspaces.slice(start) : workspaces.slice(start, next)
+      expect(body).toContain(
+        "eq(workspaceSandboxInstances.orgId, scopedOrgId)",
+      )
+    }
   })
 })
