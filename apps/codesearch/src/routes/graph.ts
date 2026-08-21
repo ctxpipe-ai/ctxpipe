@@ -3,6 +3,7 @@ import { createRoute, z } from "@hono/zod-openapi"
 import { and, eq } from "drizzle-orm"
 import type { AppEnv } from "../app/env.js"
 import { checkoutKeyFromAuth } from "../auth/jwt.js"
+import { withOrgDbContext } from "../db/client.js"
 import { repositoryCheckouts } from "../db/schema.js"
 import { executeScipGraphQuery } from "../domain/graph/executeGraphPrimitive.js"
 import {
@@ -131,16 +132,19 @@ export function registerGraphRoutes(app: OpenAPIHono<AppEnv>) {
     if (!repo)
       return c.json({ error: "Repository not found or access denied" }, 404)
 
-    const [checkout] = await db
-      .select({ id: repositoryCheckouts.id })
-      .from(repositoryCheckouts)
-      .where(
-        and(
-          eq(repositoryCheckouts.repositoryId, repoId),
-          eq(repositoryCheckouts.checkoutKey, checkoutKey),
-        ),
-      )
-      .limit(1)
+    const [checkout] = await withOrgDbContext(db, auth.orgId, async (tx) =>
+      tx
+        .select({ id: repositoryCheckouts.id })
+        .from(repositoryCheckouts)
+        .where(
+          and(
+            eq(repositoryCheckouts.repositoryId, repoId),
+            eq(repositoryCheckouts.orgId, auth.orgId),
+            eq(repositoryCheckouts.checkoutKey, checkoutKey),
+          ),
+        )
+        .limit(1),
+    )
 
     if (!checkout) {
       return c.json({ error: "Checkout not found" }, 404)

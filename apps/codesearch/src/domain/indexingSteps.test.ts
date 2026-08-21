@@ -128,8 +128,17 @@ describe("setRepositoryIndexingStep", () => {
     const updateWhere = vi.fn().mockResolvedValue(undefined)
     const update = vi.fn().mockReturnValue({ set: updateSet })
     updateSet.mockReturnValue({ where: updateWhere })
+    const execute = vi.fn().mockResolvedValue(undefined)
+    const tx = { update, execute }
+    const db = {
+      update,
+      execute,
+      transaction: vi.fn(async (fn: (inner: typeof tx) => Promise<unknown>) =>
+        fn(tx),
+      ),
+    }
     return {
-      db: { update } as unknown as Db,
+      db: db as unknown as Db,
       update,
       updateSet,
       updateWhere,
@@ -138,7 +147,7 @@ describe("setRepositoryIndexingStep", () => {
 
   it("calls db.update with resolved step/total/key", async () => {
     const { db, update, updateSet, updateWhere } = makeMockDb()
-    await setRepositoryIndexingStep(db, "repo_abc", "cloning", [])
+    await setRepositoryIndexingStep(db, "org_1", "repo_abc", "cloning", [])
     expect(update).toHaveBeenCalledOnce()
     expect(updateSet).toHaveBeenCalledOnce()
     const setArgs = updateSet.mock.calls[0]![0]
@@ -151,14 +160,26 @@ describe("setRepositoryIndexingStep", () => {
 
   it("does not call db.update for an unknown key", async () => {
     const { db, update } = makeMockDb()
-    await setRepositoryIndexingStep(db, "repo_abc", "unknown_key" as never, [])
+    await setRepositoryIndexingStep(
+      db,
+      "org_1",
+      "repo_abc",
+      "unknown_key" as never,
+      [],
+    )
     expect(update).not.toHaveBeenCalled()
   })
 
   it("includes scip languages in total when writing a scip step", async () => {
     const { db, updateSet } = makeMockDb()
     const langs = ["typescript", "go"]
-    await setRepositoryIndexingStep(db, "repo_abc", "scip:typescript", langs)
+    await setRepositoryIndexingStep(
+      db,
+      "org_1",
+      "repo_abc",
+      "scip:typescript",
+      langs,
+    )
     const setArgs = updateSet.mock.calls[0]![0]
     expect(setArgs.indexingStepKey).toBe("scip:typescript")
     const baseTotal = resolveIndexingStep("cloning")!.total
@@ -167,7 +188,7 @@ describe("setRepositoryIndexingStep", () => {
 
   it("adds a monotonic WHERE guard when monotonic: true", async () => {
     const { db, updateWhere } = makeMockDb()
-    await setRepositoryIndexingStep(db, "repo_abc", "cloning", [], {
+    await setRepositoryIndexingStep(db, "org_1", "repo_abc", "cloning", [], {
       monotonic: true,
     })
     expect(updateWhere).toHaveBeenCalledOnce()
@@ -184,9 +205,14 @@ describe("trySetRepositoryIndexingStep", () => {
         where: vi.fn().mockRejectedValue(new Error("DB error")),
       }),
     })
-    const db = { update } as unknown as Db
+    const db = {
+      update,
+      transaction: vi.fn(async (fn: (tx: { update: typeof update; execute: ReturnType<typeof vi.fn> }) => Promise<unknown>) =>
+        fn({ update, execute: vi.fn() }),
+      ),
+    } as unknown as Db
     await expect(
-      trySetRepositoryIndexingStep(db, "repo_abc", "cloning"),
+      trySetRepositoryIndexingStep(db, "org_1", "repo_abc", "cloning"),
     ).resolves.toBeUndefined()
   })
 })

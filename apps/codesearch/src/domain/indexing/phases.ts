@@ -3,7 +3,11 @@ import { mkdir, readFile, rename, rm, stat, writeFile } from "node:fs/promises"
 import { dirname, join } from "node:path"
 import { and, eq } from "drizzle-orm"
 import { ZOEKT_INDEX_DIR } from "../../config/paths.js"
-import type { Db } from "../../db/client.js"
+import {
+  assertNotInOrgDbContext,
+  type Db,
+  withOrgDbContext,
+} from "../../db/client.js"
 import { repositoryCheckouts } from "../../db/schema.js"
 import { tryEmitIndexEvent } from "../../observability/indexingLog.js"
 import { authenticatedGitUrl } from "../../utils/git.js"
@@ -59,6 +63,7 @@ type WriteStep = (
 ) => Promise<void>
 
 async function withPhase<T>(phase: string, fn: () => Promise<T>): Promise<T> {
+  assertNotInOrgDbContext()
   const startMs = Date.now()
   tryEmitIndexEvent("codesearch.index.phase.start", { phase })
   try {
@@ -461,9 +466,9 @@ export async function writeMergedScipIndex(
   }
 }
 
-function monotonicWriteStep(db: Db, repoId: string): WriteStep {
+function monotonicWriteStep(db: Db, orgId: string, repoId: string): WriteStep {
   return (key, scipLanguages) =>
-    trySetRepositoryIndexingStep(db, repoId, key, scipLanguages, {
+    trySetRepositoryIndexingStep(db, orgId, repoId, key, scipLanguages, {
       monotonic: true,
     })
 }
@@ -472,7 +477,7 @@ export async function phaseCloneCheckout(
   ctx: IndexPhaseRepoContext,
   params: { targetHash?: string; fromHash?: string },
 ): Promise<CloneCheckoutResult> {
-  const writeStep = monotonicWriteStep(ctx.db, ctx.repoId)
+  const writeStep = monotonicWriteStep(ctx.db, ctx.orgId, ctx.repoId)
 
   await writeStep("cloning")
   await withPhase("clone", () =>
@@ -555,7 +560,7 @@ export async function phaseCloneCheckout(
 }
 
 export async function phaseZoekt(ctx: IndexPhaseRepoContext): Promise<void> {
-  const writeStep = monotonicWriteStep(ctx.db, ctx.repoId)
+  const writeStep = monotonicWriteStep(ctx.db, ctx.orgId, ctx.repoId)
   await writeStep("indexing_search")
   await withPhase("zoekt", () =>
     indexRepository({
@@ -576,7 +581,7 @@ export async function phaseDetectLanguages(
     renames: readonly { from: string; to: string }[]
   },
 ): Promise<DetectLanguagesResult> {
-  const writeStep = monotonicWriteStep(ctx.db, ctx.repoId)
+  const writeStep = monotonicWriteStep(ctx.db, ctx.orgId, ctx.repoId)
   await writeStep("detecting_languages")
 
   return withPhase("detect_languages", async () => {
@@ -622,7 +627,7 @@ export async function phaseScipLanguage(
     detectedLanguages: readonly string[]
   },
 ): Promise<void> {
-  const writeStep = monotonicWriteStep(ctx.db, ctx.repoId)
+  const writeStep = monotonicWriteStep(ctx.db, ctx.orgId, ctx.repoId)
   const shardPath = scipLangShardPath(
     ctx.orgId,
     ctx.repoId,
@@ -645,7 +650,7 @@ export async function phaseMergeScip(
   ctx: IndexPhaseRepoContext,
   params: { detectedLanguages: readonly string[] },
 ): Promise<void> {
-  const writeStep = monotonicWriteStep(ctx.db, ctx.repoId)
+  const writeStep = monotonicWriteStep(ctx.db, ctx.orgId, ctx.repoId)
   const detected = [...params.detectedLanguages]
   await writeStep("merging_intelligence", detected)
   await withPhase("scip_merge", () =>
@@ -662,16 +667,19 @@ export async function phaseMarkCheckoutIndexed(
   ctx: IndexPhaseRepoContext,
 ): Promise<void> {
   const head = await readGitHead(ctx.clonePath)
-  await ctx.db
-    .update(repositoryCheckouts)
-    .set({
-      commitSha: head,
-      updatedAt: new Date(),
-    })
-    .where(
-      and(
-        eq(repositoryCheckouts.repositoryId, ctx.repoId),
-        eq(repositoryCheckouts.checkoutKey, ctx.checkoutKey),
-      ),
-    )
+  await withOrgDbContext(ctx.db, ctx.orgId, async (tx) => {
+    await tx
+      .update(repositoryCheckouts)
+      .set({
+        commitSha: head,
+        updatedAt: new Date(),
+      })
+      .where(
+        and(
+          eq(repositoryCheckouts.repositoryId, ctx.repoId),
+          eq(repositoryCheckouts.orgId, ctx.orgId),
+          eq(repositoryCheckouts.checkoutKey, ctx.checkoutKey),
+        ),
+      )
+  })
 }

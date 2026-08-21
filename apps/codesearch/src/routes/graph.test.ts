@@ -31,7 +31,15 @@ function createTestApp(workspaceId: string) {
   const select = vi.fn().mockReturnValue({ from })
   const app = new OpenAPIHono<AppEnv>()
   app.use("*", async (c, next) => {
-    c.set("db", { select } as unknown as AppEnv["Variables"]["db"])
+    c.set("db", {
+      select,
+      transaction: async (
+        fn: (tx: {
+          select: typeof select
+          execute: () => Promise<void>
+        }) => unknown,
+      ) => fn({ select, execute: async () => undefined }),
+    } as unknown as AppEnv["Variables"]["db"])
     c.set("env", { NODE_ENV: "test", PORT: 3001 } as AppEnv["Variables"]["env"])
     c.set("auth", {
       sub: "user_test",

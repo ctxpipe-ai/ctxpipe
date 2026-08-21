@@ -59,7 +59,13 @@ function mockDb(
   const innerJoin = vi.fn().mockReturnValue({ where })
   const from = vi.fn().mockReturnValue({ innerJoin })
   const select = vi.fn().mockReturnValue({ from })
-  return { select, where }
+  return {
+    select,
+    where,
+    transaction: async (
+      fn: (tx: { select: typeof select; execute: () => Promise<void> }) => unknown,
+    ) => fn({ select, execute: async () => undefined }),
+  }
 }
 
 describe("POST /search", () => {

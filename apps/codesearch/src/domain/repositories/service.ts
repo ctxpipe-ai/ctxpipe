@@ -1,5 +1,6 @@
 import { and, eq } from "drizzle-orm"
 import type { AppEnv } from "../../app/env.js"
+import { withOrgDbContext } from "../../db/client.js"
 import { repositories, repositoryCheckouts } from "../../db/schema.js"
 import { DEFAULT_CHECKOUT_KEY } from "./paths.js"
 
@@ -19,15 +20,17 @@ export async function getAccessibleRepository(
   repoId: string,
   orgId: string,
 ): Promise<AccessibleRepository | null> {
-  const [row] = await db
-    .select()
-    .from(repositories)
-    .where(eq(repositories.id, repoId))
-    .limit(1)
-  if (!row || row.orgId !== orgId) {
-    return null
-  }
-  return { id: row.id, orgId: row.orgId, name: row.name, gitUrl: row.gitUrl }
+  return withOrgDbContext(db, orgId, async (tx) => {
+    const [row] = await tx
+      .select()
+      .from(repositories)
+      .where(and(eq(repositories.id, repoId), eq(repositories.orgId, orgId)))
+      .limit(1)
+    if (!row || row.orgId !== orgId) {
+      return null
+    }
+    return { id: row.id, orgId: row.orgId, name: row.name, gitUrl: row.gitUrl }
+  })
 }
 
 export async function getIndexableRepository(
@@ -36,26 +39,29 @@ export async function getIndexableRepository(
   orgId: string,
   checkoutKey = DEFAULT_CHECKOUT_KEY,
 ): Promise<IndexableRepository | null> {
-  const [row] = await db
-    .select({
-      id: repositories.id,
-      orgId: repositories.orgId,
-      gitUrl: repositories.gitUrl,
-      zoektRepoId: repositoryCheckouts.zoektRepoId,
-      name: repositories.name,
-    })
-    .from(repositories)
-    .innerJoin(
-      repositoryCheckouts,
-      and(
-        eq(repositoryCheckouts.repositoryId, repositories.id),
-        eq(repositoryCheckouts.checkoutKey, checkoutKey),
-      ),
-    )
-    .where(eq(repositories.id, repoId))
-    .limit(1)
-  if (!row || row.orgId !== orgId) {
-    return null
-  }
-  return row
+  return withOrgDbContext(db, orgId, async (tx) => {
+    const [row] = await tx
+      .select({
+        id: repositories.id,
+        orgId: repositories.orgId,
+        gitUrl: repositories.gitUrl,
+        zoektRepoId: repositoryCheckouts.zoektRepoId,
+        name: repositories.name,
+      })
+      .from(repositories)
+      .innerJoin(
+        repositoryCheckouts,
+        and(
+          eq(repositoryCheckouts.repositoryId, repositories.id),
+          eq(repositoryCheckouts.orgId, orgId),
+          eq(repositoryCheckouts.checkoutKey, checkoutKey),
+        ),
+      )
+      .where(and(eq(repositories.id, repoId), eq(repositories.orgId, orgId)))
+      .limit(1)
+    if (!row || row.orgId !== orgId) {
+      return null
+    }
+    return row
+  })
 }

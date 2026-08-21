@@ -105,7 +105,13 @@ export async function cloneAndIndexRepository(
   return withRepositoryIndexOperation(input.repoId, () =>
     withIndexConcurrency(
       () => cloneAndIndexRepositoryInner(input),
-      () => trySetRepositoryIndexingStep(input.db, input.repoId, "index_queue"),
+      () =>
+        trySetRepositoryIndexingStep(
+          input.db,
+          input.orgId,
+          input.repoId,
+          "index_queue",
+        ),
     ),
   )
 }
