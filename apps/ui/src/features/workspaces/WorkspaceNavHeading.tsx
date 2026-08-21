@@ -33,7 +33,9 @@ export function WorkspaceNavHeading(props: {
 
   return (
     <div className="group/wsh mx-1.5 mt-2.5 mb-0.5 flex h-8 w-[calc(100%-0.75rem)] items-center">
-      <p className="ctx-label-muted min-w-0 flex-1 truncate px-2">Workspaces</p>
+      <p className="min-w-0 flex-1 truncate px-2 text-[10px] font-normal uppercase tracking-tighter text-muted-foreground">
+        Workspaces
+      </p>
       <Button
         variant="ghost"
         size="icon-sm"

@@ -706,3 +706,9 @@ Highest-priority confirmed rules for agents. Migrated from former `patterns.md` 
 - **Date:** 2026-08-21
 - **Source:** skeleton loading backfill (Operate UI audit)
 
+### Prefer named Tailwind utilities over arbitrary values
+- **Rule:** Use the Tailwind scale (`tracking-tighter`, `p-2`, `text-sm`, `gap-3`). Write `tracking-[-0.5px]`, `text-[15px]`, or `p-[13px]` only when no named token is close.
+- **Category:** convention
+- **Date:** 2026-08-21
+- **Source:** user correction (Workspaces nav label tracking)
+

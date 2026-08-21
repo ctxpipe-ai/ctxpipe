@@ -21,7 +21,9 @@ export function WorkspaceNavList(props: {
         props.expanded ? (
           <>
             <li className="mx-1.5 mt-2.5 mb-0.5 flex h-8 w-[calc(100%-0.75rem)] items-center px-2">
-              <p className="ctx-label-muted">Workspaces</p>
+              <p className="text-[10px] font-normal uppercase tracking-tighter text-muted-foreground">
+                Workspaces
+              </p>
             </li>
             <li className="space-y-0.5">
               <div aria-busy>

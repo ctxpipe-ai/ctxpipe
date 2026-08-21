@@ -40,6 +40,7 @@ const TREE_HOST_STYLE = {
   "--trees-theme-list-hover-bg": "var(--color-zinc-900)",
   "--trees-theme-focus-ring":
     "color-mix(in srgb, var(--color-teal-400) 60%, transparent)",
+  "--trees-padding-inline-override": "8px",
 } as CSSProperties
 
 export type WorkspaceFileTreeItem = {
@@ -115,7 +116,7 @@ function FileTreeSsrFallback(props: {
       </div>
       <ul
         aria-label="Workspace files"
-        className="min-h-0 flex-1 overflow-auto px-2 pb-2 font-mono text-xs leading-6 text-zinc-300"
+        className="min-h-0 flex-1 overflow-auto px-1 pb-2 font-mono text-xs leading-6 text-zinc-300"
       >
         {props.paths.map((path) => {
           const name = path.split("/").pop() ?? path

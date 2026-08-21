@@ -21,7 +21,7 @@ Implementation process: [`.agents/skills/product-ui/SKILL.md`](../../.agents/ski
 
 ## Tokens we keep
 
-Use existing CSS variables and Tailwind theme stops. Do not invent a new palette, typeface, shadow recipe, or third radius.
+Use existing CSS variables and Tailwind theme stops. Prefer **named** utilities (`tracking-tighter`, `p-2`, `text-sm`) over arbitrary values (`tracking-[-0.5px]`, `p-[13px]`, `text-[15px]`). Do not invent a new palette, typeface, shadow recipe, or third radius.
 
 ### Type
 
@@ -38,7 +38,7 @@ Weights: `font-normal` (400) and `font-medium` (500). Never quiet text with weig
 
 Leading: tighter on large type, looser on small / wide prose. Do not use `leading-loose` on titles.
 
-Letter-spacing: do not track body copy. Open tracking on short all-caps only (`.ctx-label` already does this).
+Letter-spacing: do not track body copy. Open tracking on short all-caps only (`.ctx-label` already does this). Tight tracking uses `tracking-tight` / `tracking-tighter`, not `tracking-[-0.5px]`.
 
 Pick sizes from the Tailwind scale by trying neighbors (`text-sm` ↔ `text-base`). Do not invent midpoints (`text-[15px]`, `h-[25px]`).
 
