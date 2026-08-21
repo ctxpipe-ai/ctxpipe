@@ -15,9 +15,7 @@ export async function migrateOpenWorkflow(
   await backend.stop()
 }
 
-const invokedDirectly =
-  process.argv[1] !== undefined &&
-  process.argv[1].includes("migrate-openworkflow")
+const invokedDirectly = process.argv[1]?.includes("migrate-openworkflow")
 
 if (invokedDirectly) {
   initEvlog()
