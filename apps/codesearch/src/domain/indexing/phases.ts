@@ -668,7 +668,7 @@ export async function phaseMarkCheckoutIndexed(
 ): Promise<void> {
   const head = await readGitHead(ctx.clonePath)
   await withOrgDbContext(ctx.db, ctx.orgId, async (tx) => {
-    await tx
+    const updated = await tx
       .update(repositoryCheckouts)
       .set({
         commitSha: head,
@@ -681,5 +681,11 @@ export async function phaseMarkCheckoutIndexed(
           eq(repositoryCheckouts.checkoutKey, ctx.checkoutKey),
         ),
       )
+      .returning({ id: repositoryCheckouts.id })
+    if (updated.length === 0) {
+      throw new Error(
+        `repository_checkouts UPDATE 0 for ${ctx.repoId} ${ctx.checkoutKey}`,
+      )
+    }
   })
 }
