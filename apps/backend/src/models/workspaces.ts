@@ -1974,10 +1974,9 @@ export async function claimSandboxInstance(
           )
           .limit(1)
         if (!conflict) throw error
-        return {
-          record: toSandboxInstanceRecord(conflict),
-          inserted: false,
-        }
+        const record = toSandboxInstanceRecord(conflict)
+        if (!record) throw error
+        return { record, inserted: false }
       }
       const [row] = await tx
         .select()
