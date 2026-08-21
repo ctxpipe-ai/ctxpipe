@@ -59,6 +59,7 @@ describe("postgresSandboxInstanceStore", () => {
     getSandboxInstance.mockResolvedValueOnce({
       id: "key-1",
       kind: "chat",
+      orgId: "org_1",
       workspaceId: "ws_1",
       state: "live",
       lastHeartbeatAt: new Date(),
@@ -71,6 +72,7 @@ describe("postgresSandboxInstanceStore", () => {
     getSandboxInstance.mockResolvedValueOnce({
       id: "key-1",
       kind: "chat",
+      orgId: "org_1",
       workspaceId: "ws_1",
       conversationId: "conv_1",
       provider: "docker",

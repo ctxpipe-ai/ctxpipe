@@ -76,8 +76,18 @@ async function seed() {
     },
   ])
   await db.insert(repositoryCheckouts).values([
-    { id: CHECKOUT_A, repositoryId: REPO_A, checkoutKey: "default" },
-    { id: CHECKOUT_B, repositoryId: REPO_B, checkoutKey: "default" },
+    {
+      id: CHECKOUT_A,
+      orgId: ORG_ID,
+      repositoryId: REPO_A,
+      checkoutKey: "default",
+    },
+    {
+      id: CHECKOUT_B,
+      orgId: ORG_ID,
+      repositoryId: REPO_B,
+      checkoutKey: "default",
+    },
   ])
   await db.insert(objects).values([
     { id: objA, orgId: ORG_ID, kind: "Service", payload: {} },
@@ -113,6 +123,7 @@ async function seed() {
   await db.insert(claimEvidence).values([
     {
       id: generateObjectId("cev"),
+      orgId: ORG_ID,
       claimId: claimAB,
       sourceType: "git",
       sourceId: `identifyLibraries:${REPO_A}:main`,
@@ -123,6 +134,7 @@ async function seed() {
     },
     {
       id: generateObjectId("cev"),
+      orgId: ORG_ID,
       claimId: claimAB,
       sourceType: "git",
       sourceId: `identifyLibraries:${REPO_B}:main`,
@@ -133,6 +145,7 @@ async function seed() {
     },
     {
       id: generateObjectId("cev"),
+      orgId: ORG_ID,
       claimId: claimAC,
       sourceType: "git",
       sourceId: `extractIU:${REPO_A}:main`,

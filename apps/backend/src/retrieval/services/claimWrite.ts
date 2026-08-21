@@ -153,6 +153,7 @@ export async function createClaim(
         const evId = generateObjectId("ev")
         await tx.insert(claimEvidence).values({
           id: evId,
+          orgId: resolvedOrgId,
           claimId,
           sourceType: initialEvidence.sourceType,
           sourceId: initialEvidence.sourceId,
@@ -229,6 +230,7 @@ export async function createClaimsWithEvidenceBulk(
       await db.insert(claimEvidence).values(
         chunk.map((item) => ({
           id: generateObjectId("ev"),
+          orgId: resolvedOrgId,
           claimId: item.claimId,
           sourceType: item.evidence.sourceType,
           sourceId: item.evidence.sourceId,
@@ -256,11 +258,13 @@ export async function addEvidenceBulk(
 
     const now = new Date()
     const db = getOrgDb()
+    const resolvedOrgId = requireCurrentOrgId()
 
     for (const chunk of chunkArray(inputs, CLAIM_WRITE_BATCH_SIZE)) {
       await db.insert(claimEvidence).values(
         chunk.map((input) => ({
           id: generateObjectId("ev"),
+          orgId: resolvedOrgId,
           claimId: input.claimId,
           sourceType: input.sourceType,
           sourceId: input.sourceId,
@@ -340,10 +344,12 @@ export async function addEvidence(input: AddEvidenceInput): Promise<string> {
     const evId = generateObjectId("ev")
     const now = new Date()
     const db = getOrgDb()
+    const resolvedOrgId = requireCurrentOrgId()
 
     return db.transaction(async (tx) => {
       await tx.insert(claimEvidence).values({
         id: evId,
+        orgId: resolvedOrgId,
         claimId: input.claimId,
         sourceType: input.sourceType,
         sourceId: input.sourceId,

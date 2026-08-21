@@ -11,11 +11,12 @@ import {
   uniqueIndex,
 } from "drizzle-orm/pg-core"
 import { connections } from "./connections.js"
+import { orgIsolationPolicy } from "./org-rls.js"
 
 /**
  * Context Workspace (`ws_`). One workspace repository URL per org; slug unique per org.
  */
-export const workspaces = pgTable(
+export const workspaces = pgTable.withRLS(
   "workspaces",
   {
     id: text("id").primaryKey(),
@@ -64,13 +65,15 @@ export const workspaces = pgTable(
       t.workspaceRepositoryUrl,
     ),
     index("workspaces_org_id_idx").on(t.orgId),
+    orgIsolationPolicy(t.orgId),
   ],
 )
 
-export const workspaceLinkedRepositories = pgTable(
+export const workspaceLinkedRepositories = pgTable.withRLS(
   "workspace_linked_repositories",
   {
     id: text("id").primaryKey(),
+    orgId: text("org_id").notNull(),
     workspaceId: text("workspace_id")
       .notNull()
       .references(() => workspaces.id, { onDelete: "cascade" }),
@@ -88,10 +91,12 @@ export const workspaceLinkedRepositories = pgTable(
       t.gitUrl,
     ),
     index("workspace_linked_repositories_workspace_id_idx").on(t.workspaceId),
+    index("workspace_linked_repositories_org_id_idx").on(t.orgId),
+    orgIsolationPolicy(t.orgId),
   ],
 )
 
-export const workspaceKnowledgeUnits = pgTable(
+export const workspaceKnowledgeUnits = pgTable.withRLS(
   "workspace_knowledge_units",
   {
     servingId: text("serving_id").primaryKey(),
@@ -131,10 +136,11 @@ export const workspaceKnowledgeUnits = pgTable(
     ),
     index("workspace_knowledge_units_workspace_id_idx").on(t.workspaceId),
     index("workspace_knowledge_units_org_id_idx").on(t.orgId),
+    orgIsolationPolicy(t.orgId),
   ],
 )
 
-export const orgMemberPreferences = pgTable(
+export const orgMemberPreferences = pgTable.withRLS(
   "org_member_preferences",
   {
     userId: text("user_id").notNull(),
@@ -147,14 +153,18 @@ export const orgMemberPreferences = pgTable(
       .notNull()
       .defaultNow(),
   },
-  (t) => [primaryKey({ columns: [t.userId, t.orgId] })],
+  (t) => [
+    primaryKey({ columns: [t.userId, t.orgId] }),
+    orgIsolationPolicy(t.orgId),
+  ],
 )
 
 /** Job id → commit SHA so a crash after push is idempotent on the remote. */
-export const workspaceWriteJobs = pgTable(
+export const workspaceWriteJobs = pgTable.withRLS(
   "workspace_write_jobs",
   {
     id: text("id").primaryKey(),
+    orgId: text("org_id").notNull(),
     workspaceId: text("workspace_id")
       .notNull()
       .references(() => workspaces.id, { onDelete: "cascade" }),
@@ -186,15 +196,17 @@ export const workspaceWriteJobs = pgTable(
       t.workspaceId,
       t.status,
     ),
+    index("workspace_write_jobs_org_id_idx").on(t.orgId),
+    orgIsolationPolicy(t.orgId),
   ],
 )
 
-export const workspaceSandboxInstances = pgTable(
+export const workspaceSandboxInstances = pgTable.withRLS(
   "workspace_sandbox_instances",
   {
     id: text("id").primaryKey(),
     kind: text("kind").notNull(),
-    orgId: text("org_id"),
+    orgId: text("org_id").notNull(),
     workspaceId: text("workspace_id")
       .notNull()
       .references(() => workspaces.id, { onDelete: "cascade" }),
@@ -223,6 +235,7 @@ export const workspaceSandboxInstances = pgTable(
     index("workspace_sandbox_instances_conversation_id_idx").on(
       t.conversationId,
     ),
+    index("workspace_sandbox_instances_org_id_idx").on(t.orgId),
     uniqueIndex("workspace_sandbox_instances_live_job_workspace_uidx")
       .on(t.workspaceId)
       .where(
@@ -233,5 +246,6 @@ export const workspaceSandboxInstances = pgTable(
       .where(
         sql`${t.kind} = 'chat' and ${t.conversationId} is not null and ${t.state} in ('live', 'destroy_failed')`,
       ),
+    orgIsolationPolicy(t.orgId),
   ],
 )

@@ -486,6 +486,7 @@ async function resolveRepositoryIdForSlackSync(
     .insert(repositoryCheckouts)
     .values({
       id: generateObjectId("co"),
+      orgId: input.orgId,
       repositoryId,
       ref: branch,
       checkoutKey: DEFAULT_CHECKOUT_KEY,

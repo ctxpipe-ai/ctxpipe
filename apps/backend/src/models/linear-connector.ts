@@ -766,6 +766,7 @@ async function resolveRepositoryIdForLinearSync(
     .insert(repositoryCheckouts)
     .values({
       id: generateObjectId("co"),
+      orgId,
       repositoryId,
       ref: sync.branch,
       checkoutKey: DEFAULT_CHECKOUT_KEY,

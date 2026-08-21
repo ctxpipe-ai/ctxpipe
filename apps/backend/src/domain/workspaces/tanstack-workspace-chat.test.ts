@@ -380,6 +380,7 @@ describe("runTanstackWorkspaceChat", () => {
       {
         id: "tanstack-key",
         kind: "chat",
+        orgId: "org_1",
         workspaceId: "ws_1",
         conversationId: "conv_1",
         provider: "sbx",
@@ -411,6 +412,7 @@ describe("runTanstackWorkspaceChat", () => {
       {
         id: "tanstack-key",
         kind: "chat",
+        orgId: "org_1",
         workspaceId: "ws_1",
         conversationId: "conv_1",
         provider: "railway",

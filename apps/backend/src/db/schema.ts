@@ -21,7 +21,7 @@ import { claimEvidence } from "./schema/claim_evidence.js"
 import { claims } from "./schema/claims.js"
 import { confluenceSpaces } from "./schema/confluenceSpaces.js"
 import { confluenceSyncTargets } from "./schema/confluenceSyncTargets.js"
-import { connections } from "./schema/connections.js"
+import { connections, connectionDirectory } from "./schema/connections.js"
 import { conversationMessages, conversations } from "./schema/conversations.js"
 import { objects } from "./schema/objects.js"
 import { orgOnboarding } from "./schema/org_onboarding.js"
@@ -57,6 +57,7 @@ const schema = {
   repositories,
   repositoryCheckouts,
   connections,
+  connectionDirectory,
   confluenceSpaces,
   confluenceSyncTargets,
   conversations,

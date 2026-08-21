@@ -6,8 +6,9 @@ import {
   timestamp,
   unique,
 } from "drizzle-orm/pg-core"
+import { orgIsolationPolicy } from "./org-rls.js"
 
-export const conversations = pgTable(
+export const conversations = pgTable.withRLS(
   "conversations",
   {
     id: text("id").primaryKey(),
@@ -36,10 +37,11 @@ export const conversations = pgTable(
     index().on(t.orgId, t.updatedAt),
     index().on(t.orgId, t.userId, t.lastMessageAt),
     index().on(t.orgId, t.workspaceId, t.userId, t.lastMessageAt),
+    orgIsolationPolicy(t.orgId),
   ],
 )
 
-export const conversationMessages = pgTable(
+export const conversationMessages = pgTable.withRLS(
   "conversation_messages",
   {
     id: text("id").primaryKey(),
@@ -60,5 +62,6 @@ export const conversationMessages = pgTable(
       t.seq,
     ),
     index("conversation_messages_conversation_id_idx").on(t.conversationId),
+    orgIsolationPolicy(t.orgId),
   ],
 )

@@ -861,6 +861,7 @@ export async function linkRepository(input: {
         .insert(workspaceLinkedRepositories)
         .values({
           id: generateObjectId("wlr"),
+          orgId: workspace.orgId,
           workspaceId: input.workspaceId,
           gitUrl,
         })
@@ -965,6 +966,7 @@ export async function syncLinkedRepositoriesFromHydrate(input: {
         if (!current) {
           await tx.insert(workspaceLinkedRepositories).values({
             id: generateObjectId("wlr"),
+            orgId: requireCurrentOrgId(),
             workspaceId: input.workspaceId,
             gitUrl,
             desiredRef: branch,
@@ -1188,6 +1190,7 @@ export async function commitHydrateProjection(input: {
         if (!current) {
           await tx.insert(workspaceLinkedRepositories).values({
             id: generateObjectId("wlr"),
+            orgId: input.orgId,
             workspaceId: input.workspaceId,
             gitUrl,
             desiredRef: branch,
@@ -1321,6 +1324,7 @@ export async function persistWriteJobIntent(input: {
       .insert(workspaceWriteJobs)
       .values({
         id: input.id,
+        orgId: requireCurrentOrgId(),
         workspaceId: input.workspaceId,
         kind: input.kind,
         generation: input.generation,
@@ -1359,6 +1363,7 @@ export async function persistWriteJobStart(input: {
       .insert(workspaceWriteJobs)
       .values({
         id: input.id,
+        orgId: requireCurrentOrgId(),
         workspaceId: input.workspaceId,
         kind: input.kind,
         generation: input.generation,
@@ -1770,7 +1775,7 @@ export async function publishWorkspaceIndexForGitUrl(input: {
 export type SandboxInstanceRecord = {
   id: string
   kind: "chat" | "job"
-  orgId?: string | null
+  orgId: string
   workspaceId: string
   conversationId?: string | null
   desiredUrl?: string | null
@@ -1812,25 +1817,30 @@ function toSandboxInstanceRecord(
   }
 }
 
+function requireSandboxOrgId(orgId: string | null | undefined): string {
+  if (!orgId) throw new Error("sandbox orgId is required")
+  return orgId
+}
+
 async function withSandboxInstanceDb<T>(
-  orgId: string | null | undefined,
+  orgId: string,
   fn: () => Promise<T>,
 ): Promise<T> {
-  if (orgId) return withOrgDbContext(orgId, fn)
-  return fn()
+  return withOrgDbContext(orgId, fn)
 }
 
 export async function persistSandboxInstance(
   input: SandboxInstanceRecord,
 ): Promise<void> {
+  const orgId = requireSandboxOrgId(input.orgId)
   const now = new Date()
-  await withSandboxInstanceDb(input.orgId, async () => {
+  await withSandboxInstanceDb(orgId, async () => {
     await getOrgDb()
       .insert(workspaceSandboxInstances)
       .values({
         id: input.id,
         kind: input.kind,
-        orgId: input.orgId ?? null,
+        orgId,
         workspaceId: input.workspaceId,
         conversationId: input.conversationId ?? null,
         desiredUrl: input.desiredUrl ?? null,
@@ -1868,7 +1878,8 @@ export async function persistSandboxInstance(
 export async function claimSandboxInstance(
   input: SandboxInstanceRecord,
 ): Promise<ClaimedSandboxInstance> {
-  return withSandboxInstanceDb(input.orgId, async () => {
+  const orgId = requireSandboxOrgId(input.orgId)
+  return withSandboxInstanceDb(orgId, async () => {
     const db = getOrgDb()
     return db.transaction(async (tx) => {
       const identityFilter =
@@ -1924,7 +1935,7 @@ export async function claimSandboxInstance(
           .values({
             id: input.id,
             kind: input.kind,
-            orgId: input.orgId ?? null,
+            orgId,
             workspaceId: input.workspaceId,
             conversationId: input.conversationId ?? null,
             desiredUrl: input.desiredUrl ?? null,
@@ -1997,17 +2008,16 @@ export async function heartbeatSandboxInstance(
   at: Date,
   orgId?: string | null,
 ): Promise<void> {
-  await withSandboxInstanceDb(orgId, async () => {
+  const scopedOrgId = requireSandboxOrgId(orgId)
+  await withSandboxInstanceDb(scopedOrgId, async () => {
     await getOrgDb()
       .update(workspaceSandboxInstances)
       .set({ lastHeartbeatAt: at, updatedAt: new Date() })
       .where(
-        orgId
-          ? and(
-              eq(workspaceSandboxInstances.id, id),
-              eq(workspaceSandboxInstances.orgId, orgId),
-            )
-          : eq(workspaceSandboxInstances.id, id),
+        and(
+          eq(workspaceSandboxInstances.id, id),
+          eq(workspaceSandboxInstances.orgId, scopedOrgId),
+        ),
       )
   })
 }
@@ -2047,17 +2057,16 @@ export async function getSandboxInstance(
   id: string,
   orgId?: string | null,
 ): Promise<SandboxInstanceRecord | null> {
-  return withSandboxInstanceDb(orgId, async () => {
+  const scopedOrgId = requireSandboxOrgId(orgId)
+  return withSandboxInstanceDb(scopedOrgId, async () => {
     const [row] = await getOrgDb()
       .select()
       .from(workspaceSandboxInstances)
       .where(
-        orgId
-          ? and(
-              eq(workspaceSandboxInstances.id, id),
-              eq(workspaceSandboxInstances.orgId, orgId),
-            )
-          : eq(workspaceSandboxInstances.id, id),
+        and(
+          eq(workspaceSandboxInstances.id, id),
+          eq(workspaceSandboxInstances.orgId, scopedOrgId),
+        ),
       )
       .limit(1)
     return row ? toSandboxInstanceRecord(row) : null
@@ -2068,16 +2077,15 @@ export async function deleteSandboxInstance(
   id: string,
   orgId?: string | null,
 ): Promise<void> {
-  await withSandboxInstanceDb(orgId, async () => {
+  const scopedOrgId = requireSandboxOrgId(orgId)
+  await withSandboxInstanceDb(scopedOrgId, async () => {
     await getOrgDb()
       .delete(workspaceSandboxInstances)
       .where(
-        orgId
-          ? and(
-              eq(workspaceSandboxInstances.id, id),
-              eq(workspaceSandboxInstances.orgId, orgId),
-            )
-          : eq(workspaceSandboxInstances.id, id),
+        and(
+          eq(workspaceSandboxInstances.id, id),
+          eq(workspaceSandboxInstances.orgId, scopedOrgId),
+        ),
       )
   })
 }

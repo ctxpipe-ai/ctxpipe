@@ -1,4 +1,5 @@
 import { and, desc, eq, ne, or, sql } from "drizzle-orm"
+import { requireCurrentOrgId } from "../auth/context.js"
 import {
   type Db,
   getOrgDb,
@@ -637,6 +638,7 @@ export async function replaceConfluenceSpacesForConnection(input: {
       .values(
         input.spaces.map((space) => ({
           id: generateObjectId("csp"),
+          orgId: requireCurrentOrgId(),
           connectionId: input.connectionId,
           spaceKey: space.spaceKey,
           spaceName: space.spaceName ?? null,
@@ -727,6 +729,7 @@ async function resolveRepositoryIdForConfluenceSync(
     .insert(repositoryCheckouts)
     .values({
       id: checkoutId,
+      orgId,
       repositoryId: id,
       ref: "main",
       checkoutKey: DEFAULT_CHECKOUT_KEY,
@@ -770,6 +773,7 @@ export async function patchAtlassianConnectorConfig(input: {
         await tx.insert(confluenceSpaces).values(
           input.spaces.map((space) => ({
             id: generateObjectId("csp"),
+            orgId: input.orgId,
             connectionId: input.connectionId,
             spaceKey: space.spaceKey,
             spaceName: space.spaceName ?? null,

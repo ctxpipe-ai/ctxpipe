@@ -137,6 +137,7 @@ describe("sandbox registry GC", () => {
     await registerWorkspaceSandbox({
       id: "job-ws_1",
       kind: "job",
+      orgId: "org_1",
       workspaceId: "ws_1",
       handle,
     })
@@ -169,6 +170,7 @@ describe("sandbox registry GC", () => {
     await registerWorkspaceSandbox({
       id: "chat-conv_fail",
       kind: "chat",
+      orgId: "org_1",
       workspaceId: "ws_1",
       conversationId: "conv_fail",
       handle,
@@ -190,6 +192,7 @@ describe("sandbox registry GC", () => {
     await registerWorkspaceSandbox({
       id: "chat-conv_await",
       kind: "chat",
+      orgId: "org_1",
       workspaceId: "ws_1",
       conversationId: "conv_await",
       handle,
@@ -223,6 +226,7 @@ describe("sandbox registry GC", () => {
       record: {
         id: "job-live-from-store",
         kind: "job",
+        orgId: "org_1",
         workspaceId: "ws_claim",
         state: "live",
         lastHeartbeatAt: new Date("2026-08-17T00:00:00.000Z"),
@@ -232,6 +236,7 @@ describe("sandbox registry GC", () => {
     const registered = await registerWorkspaceSandbox({
       id: "job-preferred",
       kind: "job",
+      orgId: "org_1",
       workspaceId: "ws_claim",
       handle,
     })
@@ -250,6 +255,7 @@ describe("sandbox registry GC", () => {
             {
               id: "chat-orphan",
               kind: "chat",
+              orgId: "org_1",
               workspaceId: "ws_orphan",
               conversationId: "conv_orphan",
               state: "live",
@@ -262,6 +268,7 @@ describe("sandbox registry GC", () => {
             {
               id: "job-orphan",
               kind: "job",
+              orgId: "org_1",
               workspaceId: "ws_orphan_job",
               state: "live",
               lastHeartbeatAt: new Date(),

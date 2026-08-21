@@ -41,10 +41,11 @@ function toInstanceRecord(
   sandbox: RegisteredSandbox,
   state: SandboxInstanceRecord["state"],
 ): SandboxInstanceRecord {
+  if (!sandbox.orgId) throw new Error("sandbox orgId is required")
   return {
     id: sandbox.id,
     kind: sandbox.kind,
-    orgId: sandbox.orgId ?? null,
+    orgId: sandbox.orgId,
     workspaceId: sandbox.workspaceId,
     conversationId: sandbox.conversationId ?? null,
     desiredUrl: sandbox.desiredUrl ?? null,

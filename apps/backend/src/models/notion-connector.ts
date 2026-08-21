@@ -986,6 +986,7 @@ async function resolveRepositoryIdForNotionSync(
     .insert(repositoryCheckouts)
     .values({
       id: checkoutId,
+      orgId,
       repositoryId: id,
       ref: "main",
       checkoutKey: DEFAULT_CHECKOUT_KEY,

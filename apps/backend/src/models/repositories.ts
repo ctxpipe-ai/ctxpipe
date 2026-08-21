@@ -41,6 +41,7 @@ export async function ensureWorkspaceCheckout(input: {
       .insert(repositoryCheckouts)
       .values({
         id: generateObjectId("co"),
+        orgId: requireCurrentOrgId(),
         repositoryId: input.repositoryId,
         ref: input.ref,
         checkoutKey: workspaceCheckoutKey(input.workspaceId),
@@ -623,6 +624,7 @@ export const createRepository = async (input: {
         .insert(repositoryCheckouts)
         .values({
           id: checkoutId,
+          orgId,
           repositoryId: repository.id,
           ref: "main",
           checkoutKey: DEFAULT_CHECKOUT_KEY,
@@ -676,6 +678,7 @@ async function bulkCreateRepositoriesWithDb(
         .insert(repositoryCheckouts)
         .values({
           id: generateObjectId("co"),
+          orgId,
           repositoryId: repository.id,
           ref: "main",
           checkoutKey: DEFAULT_CHECKOUT_KEY,
