@@ -670,11 +670,11 @@ Highest-priority confirmed rules for agents. Migrated from former `patterns.md` 
 - **Date:** 2026-08-20
 - **Source:** user correction (git-backed workspaces dest backfill)
 
-### Org SQL is a short GUC transaction, not RLS and not request-lifetime BEGIN
-- **Rule:** `withOrgDbContext` is a short Postgres transaction plus `SET LOCAL app.organization_id` (an org session GUC for a future policy hook). Preview Neon has no `pg_policies` / `relrowsecurity`. Do not call this RLS. Nested same-org calls reuse the open tx; nested different-org or nested idle-timeout throws; inner throw aborts the outer (no savepoints). GitHub, sandbox HTTP, codesearch, FalkorDB, connector HTTP, embeddings, and `enqueueWorkspace*` must run after COMMIT — `assertNotInOrgDbContext()` at those gateways. Better Auth `sessions` Failed-query is a separate pool-client path (identify on `*`, including static assets); a `workspaces.write_status` lock cannot block that SELECT. Do not “fix” either symptom by shrinking pool `max`, flipping keepAlive, or blaming IPv4/SSL.
+### Org SQL is a short GUC transaction
+- **Rule:** Org SQL is a short `BEGIN` + `SET LOCAL app.organization_id` (`set_config(..., true)`) + `COMMIT` on the Neon transaction-mode pooler. That GUC is the RLS hook; enabling RLS is a hard requirement even though policies are not on yet (`getSystemDb()` still hits tenant tables). Do not `SET SESSION` on the pooled URL. Do not hold a `PoolClient` until the HTTP response. Do not add `connect()` retries as a substitute for releasing the client. Nested same-org calls reuse the open tx; nested different-org or nested idle-timeout throws; inner throw aborts the outer (no savepoints). GitHub, sandbox **provider** I/O (Docker / `sbx` / local-process / Railway), codesearch, FalkorDB, connector HTTP, embeddings, and `enqueueWorkspace*` must run after COMMIT — `assertNotInOrgDbContext()` at those gateways. Session advisory locks and a second lock pool are forbidden; live job/chat sandbox identity is a unique row, not a held connection.
 - **Category:** convention
-- **Date:** 2026-08-20
-- **Source:** preview/pr-280 pg_stat_activity + Sol SQL-contract review
+- **Date:** 2026-08-21
+- **Source:** user correction (RLS is a hard requirement; lock pool caused DELETE 500)
 
 ### Selected chrome is urgent; enter still SSRs the landing region
 - **Rule:** TanStack Router commits location inside `startTransition`, so `selectedKey` / `aria-current` / current workspace driven only from `useSearch`, `useMatchRoute`, or `pathname` waits for the new body. Set selection in the click handler (`useUrgentValue`); write the URL afterwards. `Link` does not make the highlight instant. Loaders `shouldReload` only on `enter` and still `ensureQueryData` the landing region (workspace default is files when `?pane=` is empty) so first HTML is not “Loading files…”. Do not put in-page chrome in `loaderDeps`.
