@@ -24,8 +24,27 @@ export class SecretsConstruct extends Construct {
     });
 
     const databaseUrlSecret = new secretsmanager.Secret(this, "DatabaseUrlSecret", {
-      description: "PostgreSQL connection URL for ctxpipe services (populated at deploy time)",
+      description:
+        "PostgreSQL connection URL for ctxpipe runtime services (ctxpipe_app, populated after migrate)",
     });
+
+    const ownerDatabaseUrlSecret = new secretsmanager.Secret(this, "OwnerDatabaseUrlSecret", {
+      description:
+        "PostgreSQL connection URL for ctxpipe migrate (Aurora owner ctxpipe, populated at deploy time)",
+    });
+
+    const appDatabaseCredentialsSecret = new secretsmanager.Secret(
+      this,
+      "AppDatabaseCredentialsSecret",
+      {
+        generateSecretString: {
+          secretStringTemplate: JSON.stringify({ username: "ctxpipe_app" }),
+          generateStringKey: "password",
+          excludePunctuation: true,
+          passwordLength: 32,
+        },
+      },
+    );
 
     const databaseUrlWriterFunction = new lambda.Function(this, "DatabaseUrlWriterFunction", {
       runtime: lambda.Runtime.NODEJS_20_X,
@@ -39,15 +58,16 @@ export class SecretsConstruct extends Construct {
           } = require("@aws-sdk/client-secrets-manager");
 
           exports.handler = async (event) => {
+            const properties = event.ResourceProperties;
+            const physicalId =
+              properties.WriterPhysicalId ||
+              event.PhysicalResourceId ||
+              "database-url-writer";
             if (event.RequestType === "Delete") {
-              return {
-                PhysicalResourceId: event.PhysicalResourceId || "database-url-writer",
-              };
+              return { PhysicalResourceId: physicalId };
             }
 
-            const properties = event.ResourceProperties;
             const client = new SecretsManagerClient({});
-
             const credentialsResponse = await client.send(
               new GetSecretValueCommand({
                 SecretId: properties.DbCredentialsSecretArn,
@@ -59,9 +79,16 @@ export class SecretsConstruct extends Construct {
               throw new Error("Database credentials secret missing password");
             }
 
+            const username = properties.Username;
+            if (!username) {
+              throw new Error("Database URL writer missing Username");
+            }
+
             const databaseUrl =
-              "postgresql://ctxpipe:" +
-              password +
+              "postgresql://" +
+              encodeURIComponent(username) +
+              ":" +
+              encodeURIComponent(password) +
               "@" +
               properties.DbHost +
               ":" +
@@ -77,32 +104,60 @@ export class SecretsConstruct extends Construct {
             );
 
             return {
-              PhysicalResourceId: "database-url-writer",
-              Data: { Written: "true" },
+              PhysicalResourceId: physicalId,
+              Data: { Written: "true", Username: username },
             };
           };
         `),
     });
 
     props.dataPlane.dbCredentialsSecret.grantRead(databaseUrlWriterFunction);
+    appDatabaseCredentialsSecret.grantRead(databaseUrlWriterFunction);
+    ownerDatabaseUrlSecret.grantWrite(databaseUrlWriterFunction);
     databaseUrlSecret.grantWrite(databaseUrlWriterFunction);
 
     const databaseUrlWriterProvider = new cr.Provider(this, "DatabaseUrlWriterProvider", {
       onEventHandler: databaseUrlWriterFunction,
     });
 
+    const dbHost = props.dataPlane.dbCluster.clusterEndpoint.hostname;
+    const dbPort = cdk.Token.asString(props.dataPlane.dbCluster.clusterEndpoint.port);
+
     const databaseUrlWriter = new cdk.CustomResource(this, "DatabaseUrlWriter", {
       serviceToken: databaseUrlWriterProvider.serviceToken,
       properties: {
+        WriterPhysicalId: "database-url-writer",
+        Username: "ctxpipe",
         DbCredentialsSecretArn: props.dataPlane.dbCredentialsSecret.secretArn,
-        DatabaseUrlSecretArn: databaseUrlSecret.secretArn,
-        DbHost: props.dataPlane.dbCluster.clusterEndpoint.hostname,
-        DbPort: cdk.Token.asString(props.dataPlane.dbCluster.clusterEndpoint.port),
+        DatabaseUrlSecretArn: ownerDatabaseUrlSecret.secretArn,
+        DbHost: dbHost,
+        DbPort: dbPort,
         DatabaseName: props.databaseName,
       },
     });
     databaseUrlWriter.node.addDependency(props.dataPlane.dbCredentialsSecret);
     databaseUrlWriter.node.addDependency(props.dataPlane.dbCluster);
+    databaseUrlWriter.node.addDependency(ownerDatabaseUrlSecret);
+
+    const runtimeDatabaseUrlWriter = new cdk.CustomResource(
+      this,
+      "RuntimeDatabaseUrlWriter",
+      {
+        serviceToken: databaseUrlWriterProvider.serviceToken,
+        properties: {
+          WriterPhysicalId: "runtime-database-url-writer",
+          Username: "ctxpipe_app",
+          DbCredentialsSecretArn: appDatabaseCredentialsSecret.secretArn,
+          DatabaseUrlSecretArn: databaseUrlSecret.secretArn,
+          DbHost: dbHost,
+          DbPort: dbPort,
+          DatabaseName: props.databaseName,
+        },
+      },
+    );
+    runtimeDatabaseUrlWriter.node.addDependency(appDatabaseCredentialsSecret);
+    runtimeDatabaseUrlWriter.node.addDependency(props.dataPlane.dbCluster);
+    runtimeDatabaseUrlWriter.node.addDependency(databaseUrlSecret);
 
     const modelProviderSecret = props.modelProviderApiKey
       ? new secretsmanager.Secret(this, "ModelProviderSecret", {
@@ -375,7 +430,10 @@ export class SecretsConstruct extends Construct {
     this.resources = {
       authSecret,
       databaseUrlSecret,
+      ownerDatabaseUrlSecret,
+      appDatabaseCredentialsSecret,
       databaseUrlWriter,
+      runtimeDatabaseUrlWriter,
       modelProviderSecret,
       smtpSecret,
       connectorSecret,

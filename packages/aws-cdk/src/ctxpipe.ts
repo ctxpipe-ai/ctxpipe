@@ -168,7 +168,7 @@ export class CtxPipe extends Construct {
       },
     )
 
-    const migrateOnDeploy = new MigrateOnDeployConstruct(
+    new MigrateOnDeployConstruct(
       this,
       "MigrateOnDeploy",
       {
@@ -183,7 +183,7 @@ export class CtxPipe extends Construct {
       networking: networking.resources,
       tasks: taskDefinitions.resources,
       sizeProfile,
-      migrateDependency: migrateOnDeploy.resources.migrateResource,
+      migrateDependency: secrets.resources.runtimeDatabaseUrlWriter,
       codesearchEfsMountDependency:
         dataPlane.resources.codesearchFileSystem.mountTargetsAvailable,
     })
