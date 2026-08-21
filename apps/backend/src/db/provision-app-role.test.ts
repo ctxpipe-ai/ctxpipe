@@ -15,6 +15,8 @@ function createFakePool(options?: {
   roleExists?: boolean
   roleAttrs?: RoleAttrs
   ownedRelation?: string
+  ownedSchema?: string
+  membership?: string
   namespaces?: string[]
 }) {
   const queries: Array<{ sql: string; params?: unknown[] }> = []
@@ -43,6 +45,16 @@ function createFakePool(options?: {
       }
       if (sql.includes("rolbypassrls")) {
         return { rows: [roleAttrs] }
+      }
+      if (sql.includes("pg_auth_members")) {
+        return {
+          rows: options?.membership ? [{ n: options.membership }] : [],
+        }
+      }
+      if (sql.includes("nspowner")) {
+        return {
+          rows: options?.ownedSchema ? [{ n: options.ownedSchema }] : [],
+        }
       }
       if (sql.includes("pg_class")) {
         return {
@@ -107,7 +119,7 @@ describe("provisionAppRole", () => {
   })
 
   it("fails closed when an existing app role has BYPASSRLS", async () => {
-    const { pool } = createFakePool({
+    const { pool, queries } = createFakePool({
       roleExists: true,
       roleAttrs: {
         rolsuper: false,
@@ -121,11 +133,28 @@ describe("provisionAppRole", () => {
     await expect(provisionAppRole(pool, "pw")).rejects.toThrow(
       /elevated attributes/,
     )
+    expect(queries.some((q) => q.sql.includes("format('ALTER ROLE"))).toBe(
+      false,
+    )
   })
 
   it("fails closed when the app role owns a relation", async () => {
-    const { pool } = createFakePool({ ownedRelation: "workspaces" })
+    const { pool, queries } = createFakePool({
+      roleExists: true,
+      ownedRelation: "workspaces",
+    })
     await expect(provisionAppRole(pool, "pw")).rejects.toThrow(/owns relation/)
+    expect(queries.some((q) => q.sql.includes("format('ALTER ROLE"))).toBe(
+      false,
+    )
+  })
+
+  it("fails closed when the app role is a member of another role", async () => {
+    const { pool } = createFakePool({
+      roleExists: true,
+      membership: "rds_superuser",
+    })
+    await expect(provisionAppRole(pool, "pw")).rejects.toThrow(/member of/)
   })
 
   it("rejects unsafe role names instead of interpolating them", async () => {

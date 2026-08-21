@@ -69,7 +69,7 @@ async function assertAppRoleSafe(
     throw new Error(`app role ${roleName} cannot LOGIN`)
   }
 
-  const owned = await client.query<{ n: string }>(
+  const ownedRelation = await client.query<{ n: string }>(
     `SELECT c.relname AS n
      FROM pg_catalog.pg_class c
      JOIN pg_catalog.pg_roles r ON r.oid = c.relowner
@@ -77,9 +77,66 @@ async function assertAppRoleSafe(
      LIMIT 1`,
     [roleName],
   )
-  if (owned.rows.length > 0) {
+  if (ownedRelation.rows.length > 0) {
     throw new Error(
-      `app role ${roleName} owns relation ${owned.rows[0]?.n}; runtime role must own nothing`,
+      `app role ${roleName} owns relation ${ownedRelation.rows[0]?.n}; runtime role must own nothing`,
+    )
+  }
+
+  const ownedSchema = await client.query<{ n: string }>(
+    `SELECT n.nspname AS n
+     FROM pg_catalog.pg_namespace n
+     JOIN pg_catalog.pg_roles r ON r.oid = n.nspowner
+     WHERE r.rolname = $1
+     LIMIT 1`,
+    [roleName],
+  )
+  if (ownedSchema.rows.length > 0) {
+    throw new Error(
+      `app role ${roleName} owns schema ${ownedSchema.rows[0]?.n}; runtime role must own nothing`,
+    )
+  }
+
+  const ownedDatabase = await client.query<{ n: string }>(
+    `SELECT d.datname AS n
+     FROM pg_catalog.pg_database d
+     JOIN pg_catalog.pg_roles r ON r.oid = d.datdba
+     WHERE r.rolname = $1
+     LIMIT 1`,
+    [roleName],
+  )
+  if (ownedDatabase.rows.length > 0) {
+    throw new Error(
+      `app role ${roleName} owns database ${ownedDatabase.rows[0]?.n}; runtime role must own nothing`,
+    )
+  }
+
+  const ownedFunction = await client.query<{ n: string }>(
+    `SELECT p.proname AS n
+     FROM pg_catalog.pg_proc p
+     JOIN pg_catalog.pg_roles r ON r.oid = p.proowner
+     WHERE r.rolname = $1
+     LIMIT 1`,
+    [roleName],
+  )
+  if (ownedFunction.rows.length > 0) {
+    throw new Error(
+      `app role ${roleName} owns function ${ownedFunction.rows[0]?.n}; runtime role must own nothing`,
+    )
+  }
+
+  const membership = await client.query<{ n: string }>(
+    `SELECT r.rolname AS n
+     FROM pg_catalog.pg_auth_members m
+     JOIN pg_catalog.pg_roles r ON r.oid = m.roleid
+     JOIN pg_catalog.pg_roles mbr ON mbr.oid = m.member
+     WHERE mbr.rolname = $1
+     LIMIT 1`,
+    [roleName],
+  )
+  if (membership.rows.length > 0) {
+    throw new Error(
+      `app role ${roleName} is a member of ${membership.rows[0]?.n}; runtime role must not SET ROLE`,
     )
   }
 }
@@ -105,6 +162,8 @@ export async function provisionAppRole(
       await client.query(
         `CREATE ROLE ${role} LOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOINHERIT NOBYPASSRLS`,
       )
+    } else {
+      await assertAppRoleSafe(client, roleName)
     }
     await alterRolePassword(client, roleName, password)
     await assertAppRoleSafe(client, roleName)
