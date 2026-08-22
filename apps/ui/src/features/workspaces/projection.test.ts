@@ -87,7 +87,8 @@ describe("workspaceHydrateView", () => {
         hydrateStatus: "pending",
         desiredSha: "87797371c413",
         activeProjectionSha: null,
-        hydrateError: "Waiting for the first knowledge export to land in git.",
+        hydrateError:
+          "Could not resolve the git tip for this workspace repository.",
       }),
     ).toBe("failed")
     expect(
@@ -95,7 +96,8 @@ describe("workspaceHydrateView", () => {
         hydrateStatus: "pending",
         desiredSha: "87797371c413",
         activeProjectionSha: null,
-        hydrateError: "Waiting for the first knowledge export to land in git.",
+        hydrateError:
+          "Could not resolve the git tip for this workspace repository.",
         migrationExportSha: null,
       }),
     ).toBe(false)

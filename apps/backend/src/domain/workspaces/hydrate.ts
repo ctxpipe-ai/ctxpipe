@@ -155,22 +155,6 @@ export function shouldHydrateBeforeMigrationExport(
   return !migrationExportSha
 }
 
-/** Wait only while a writable workspace has a queued/running first export. */
-export function shouldWaitForMigrationExport(input: {
-  migrationExportSha: string | null | undefined
-  exportJobStatus?: string | null
-  writeStatus?: string | null
-}): boolean {
-  if (input.migrationExportSha) return false
-  if (input.writeStatus !== "writable") return false
-  return (
-    input.exportJobStatus === "queued" || input.exportJobStatus === "running"
-  )
-}
-
-export const HYDRATE_EXPORT_WAITING_MESSAGE =
-  "Waiting for the first knowledge export to land in git."
-
 export const HYDRATE_INDEX_UNAVAILABLE_MESSAGE =
   "We could not open this repository for indexing."
 

@@ -43,14 +43,14 @@ describe("WorkspaceHydrateProgress pending plus hydrateError", () => {
             hydrateStatus: "pending",
             desiredSha: "87797371c413",
             hydrateError:
-              "Waiting for the first knowledge export to land in git.",
+              "Could not resolve the git tip for this workspace repository.",
           }}
         />
       </QueryClientProvider>,
     )
     expect(markup).toContain("Prepare failed")
     expect(markup).toContain(
-      "Waiting for the first knowledge export to land in git.",
+      "Could not resolve the git tip for this workspace repository.",
     )
     expect(markup).toContain("Try again")
     expect(markup).not.toContain("animate-ping")

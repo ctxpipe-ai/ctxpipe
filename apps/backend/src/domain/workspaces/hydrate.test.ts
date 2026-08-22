@@ -10,7 +10,6 @@ import {
   servingIdForKnowledgePath,
   shouldHydrateBeforeMigrationExport,
   shouldReplaceKnowledgeProjection,
-  shouldWaitForMigrationExport,
   workspaceHydrateInFlight,
   workspaceHydrateView,
   workspaceProjectionReady,
@@ -184,58 +183,9 @@ describe("workspaceProjectionReady", () => {
     ).toBe(true)
   })
 
-  it("waits for an in-flight export only on a writable workspace", () => {
+  it("does not treat a missing export SHA as a hydrate blocker", () => {
     expect(shouldHydrateBeforeMigrationExport(null)).toBe(true)
     expect(shouldHydrateBeforeMigrationExport("export")).toBe(false)
-    expect(
-      shouldWaitForMigrationExport({
-        migrationExportSha: null,
-        exportJobStatus: "queued",
-        writeStatus: "writable",
-      }),
-    ).toBe(true)
-    expect(
-      shouldWaitForMigrationExport({
-        migrationExportSha: null,
-        exportJobStatus: "running",
-        writeStatus: "writable",
-      }),
-    ).toBe(true)
-    expect(
-      shouldWaitForMigrationExport({
-        migrationExportSha: null,
-        exportJobStatus: null,
-        writeStatus: "writable",
-      }),
-    ).toBe(false)
-    expect(
-      shouldWaitForMigrationExport({
-        migrationExportSha: null,
-        exportJobStatus: "paused",
-        writeStatus: "writable",
-      }),
-    ).toBe(false)
-    expect(
-      shouldWaitForMigrationExport({
-        migrationExportSha: null,
-        exportJobStatus: "queued",
-        writeStatus: "read_only",
-      }),
-    ).toBe(false)
-    expect(
-      shouldWaitForMigrationExport({
-        migrationExportSha: null,
-        exportJobStatus: null,
-        writeStatus: "unknown",
-      }),
-    ).toBe(false)
-    expect(
-      shouldWaitForMigrationExport({
-        migrationExportSha: "export",
-        exportJobStatus: "queued",
-        writeStatus: "writable",
-      }),
-    ).toBe(false)
   })
 })
 
@@ -371,7 +321,7 @@ describe("workspaceHydrateView", () => {
         hydrateStatus: "pending",
         desiredSha: "87797371c413",
         activeProjectionSha: null,
-        hydrateError: "Waiting for the first knowledge export to land in git.",
+        hydrateError: "Could not resolve the git tip for this workspace repository.",
       }),
     ).toBe("failed")
   })

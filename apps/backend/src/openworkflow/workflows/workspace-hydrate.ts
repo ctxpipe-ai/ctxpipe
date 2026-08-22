@@ -10,12 +10,10 @@ import {
 import {
   applyEffectiveValidFromToUnits,
   displayNameFromAgentsMarkdown,
-  HYDRATE_EXPORT_WAITING_MESSAGE,
   hydrateKnowledgeTree,
   hydrateReadPlan,
   hydrateReadsStoredDesiredSha,
   hydrateUnitsToProjectionClaims,
-  shouldWaitForMigrationExport,
 } from "../../domain/workspaces/hydrate.js"
 import {
   type HydratePhaseRecord,
@@ -38,13 +36,10 @@ import { loadMigrationExportSource } from "../../models/workspace-export.js"
 import {
   commitHydrateProjection,
   countWriteJobAttempts,
-  getLatestMigrationExportJobStatus,
-  getMigrationExportSha,
   getWorkspaceById,
   listLinkedRepositories,
   listWorkspaceKnowledgeUnits,
   persistHydrateFailure,
-  persistHydrateMessage,
   persistHydratePhases,
   persistResolvedDesiredSha,
   persistUnitEmbeddings,
@@ -128,30 +123,6 @@ export const workspaceHydrate = defineWorkflow(
             if (!loaded) throw new Error("Workspace not found")
             let workspace = loaded
             void input.defaultBranch
-            const exportWait = await orgSql(async () => ({
-              migrationExportSha: await getMigrationExportSha(workspace.id),
-              exportJobStatus: await getLatestMigrationExportJobStatus(
-                workspace.id,
-              ),
-            }))
-            if (
-              shouldWaitForMigrationExport({
-                migrationExportSha: exportWait.migrationExportSha,
-                exportJobStatus: exportWait.exportJobStatus,
-                writeStatus: workspace.writeStatus,
-              })
-            ) {
-              await orgSql(() =>
-                persistHydrateMessage({
-                  workspaceId: workspace.id,
-                  message: HYDRATE_EXPORT_WAITING_MESSAGE,
-                }),
-              )
-              return {
-                hydrated: false,
-                reason: "migration_export_waiting" as const,
-              }
-            }
             if (!workspace.desiredSha) {
               const tip = await resolveWorkspaceRepositoryTip({
                 orgId: input.orgId,

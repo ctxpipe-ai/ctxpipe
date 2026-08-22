@@ -6,11 +6,9 @@ const {
   hydrateWorkspaceRow,
   getWorkspaceByIdMock,
   persistHydrateFailureMock,
-  persistHydrateMessageMock,
   persistResolvedDesiredShaMock,
   resolveWorkspaceRepositoryTipMock,
   getMigrationExportShaMock,
-  getLatestMigrationExportJobStatusMock,
 } = vi.hoisted(() => {
   const hydrateWorkspaceRow = {
     id: "ws_1",
@@ -36,9 +34,7 @@ const {
     hydrateWorkspaceRow,
     getWorkspaceByIdMock: vi.fn().mockResolvedValue(hydrateWorkspaceRow),
     persistHydrateFailureMock: vi.fn().mockResolvedValue(undefined),
-    persistHydrateMessageMock: vi.fn().mockResolvedValue(undefined),
     persistResolvedDesiredShaMock: vi.fn().mockResolvedValue(true),
-    getLatestMigrationExportJobStatusMock: vi.fn().mockResolvedValue(null),
     resolveWorkspaceRepositoryTipMock: vi
       .fn()
       .mockResolvedValue("abc123def456"),
@@ -95,9 +91,7 @@ vi.mock("../../models/workspaces.js", () => ({
   persistUnitEmbeddings: vi.fn(),
   countWriteJobAttempts: vi.fn(),
   persistHydrateFailure: persistHydrateFailureMock,
-  persistHydrateMessage: persistHydrateMessageMock,
   persistResolvedDesiredSha: persistResolvedDesiredShaMock,
-  getLatestMigrationExportJobStatus: getLatestMigrationExportJobStatusMock,
 }))
 
 vi.mock("../../routes/webhooks/github/github-workspace-tip.js", () => ({
@@ -171,7 +165,6 @@ describe("workspaceHydrate workflow", () => {
     persistResolvedDesiredShaMock.mockResolvedValue(true)
     resolveWorkspaceRepositoryTipMock.mockResolvedValue("abc123def456")
     getMigrationExportShaMock.mockResolvedValue("exportsha")
-    getLatestMigrationExportJobStatusMock.mockResolvedValue(null)
   })
 
   it("does not throw getLogger when only index is lagging", async () => {
@@ -271,9 +264,8 @@ describe("workspaceHydrate workflow", () => {
     expect(persistHydrateFailureMock).not.toHaveBeenCalled()
   })
 
-  it("keeps pending while a writable migration export is still queued", async () => {
+  it("hydrates a writable workspace while the first export is still queued", async () => {
     getMigrationExportShaMock.mockResolvedValue(null)
-    getLatestMigrationExportJobStatusMock.mockResolvedValue("queued")
     getWorkspaceByIdMock.mockResolvedValue({
       ...hydrateWorkspaceRow,
       writeStatus: "writable",
@@ -283,15 +275,8 @@ describe("workspaceHydrate workflow", () => {
       input: { orgId: "org_1", workspaceId: "ws_1" },
     })
 
-    expect(result).toEqual({
-      hydrated: false,
-      reason: "migration_export_waiting",
-    })
+    expect(result.reason).not.toBe("migration_export_waiting")
     expect(persistHydrateFailureMock).not.toHaveBeenCalled()
-    expect(persistHydrateMessageMock).toHaveBeenCalledWith({
-      workspaceId: "ws_1",
-      message: "Waiting for the first knowledge export to land in git.",
-    })
   })
 
   it("resolves GitHub tip and enqueues index outside the org SQL transaction", async () => {
