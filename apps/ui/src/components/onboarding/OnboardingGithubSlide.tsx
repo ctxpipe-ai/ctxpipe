@@ -38,7 +38,8 @@ export function OnboardingGithubSlide({
     enabled: !!orgSlug,
   })
 
-  const hasGithubInstallation = Boolean(installation) || connectOptimistic
+  const hasGithubInstallation =
+    Boolean(installation?.installationId) || connectOptimistic
 
   const hookOrg = orgSlug ?? ""
   const flowEnabled = !!orgSlug

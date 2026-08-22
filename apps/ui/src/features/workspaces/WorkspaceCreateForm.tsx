@@ -1,6 +1,7 @@
 import { useMutation, useQueryClient } from "@tanstack/react-query"
 import { useNavigate } from "@tanstack/react-router"
 import { useState } from "react"
+import { workspaceCreateLandingSearch } from "./github-workspace-destination-nav"
 import { createWorkspace, workspaceKeys } from "./queries"
 import { WorkspaceRepositoryPicker } from "./WorkspaceRepositoryPicker"
 
@@ -27,7 +28,7 @@ export function WorkspaceCreateForm(props: {
       void navigate({
         to: "/$orgSlug/ws/$workspaceSlug",
         params: { orgSlug, workspaceSlug: workspace.slug },
-        search: after === "settings" ? { pane: "settings" } : undefined,
+        search: workspaceCreateLandingSearch(after),
       })
     },
     onError: (err: Error) => setError(err.message),

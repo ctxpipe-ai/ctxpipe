@@ -8,15 +8,14 @@ import {
 import { useMemo } from "react"
 import { AppShell } from "@/components/AppShell"
 import { Button } from "@/components/ui/Button"
+import { InlineAlert } from "@/components/ui/InlineAlert"
+import { SkeletonRow } from "@/components/ui/Skeleton"
 import {
   fetchGithubInstallationSummary,
   githubConnectorKeys,
 } from "@/features/connectors/queries/github-connector"
 import { orgConnectionsKeys } from "@/features/connectors/queries/org-connections"
-import {
-  GithubWorkspaceDestination,
-  GithubWorkspaceDestinationFromApi,
-} from "@/features/workspaces/GithubWorkspaceDestination"
+import { GithubWorkspaceDestinationFromApi } from "@/features/workspaces/GithubWorkspaceDestination"
 import { useSession } from "@/lib/auth-client"
 
 function returnToFromSearch(search: unknown): "connectors" | undefined {
@@ -78,17 +77,23 @@ function GitHubSetupPage() {
   })
   const installationLinked = installationQuery.data?.installationId != null
 
-  if (sessionPending) {
+  if (sessionPending || (session && installationQuery.isPending)) {
     return (
       <AppShell>
         <main className="mx-auto box-border w-full max-w-2xl p-8 text-zinc-100">
-          <GithubWorkspaceDestination
-            status="loading"
-            workspaces={[]}
-            onCreateWorkspace={goCreate}
-            onSelectWorkspace={() => undefined}
-            onClose={goBack}
-          />
+          <header className="mb-8">
+            <span className="ctx-label text-teal-400">GitHub</span>
+          </header>
+          <div aria-busy>
+            <span className="sr-only">Checking GitHub connection</span>
+            <SkeletonRow size="catalog" lines={2} />
+            <SkeletonRow size="catalog" lines={2} />
+          </div>
+          <div className="mt-6">
+            <Button variant="quiet" onPress={goBack}>
+              Close wizard
+            </Button>
+          </div>
         </main>
       </AppShell>
     )
@@ -99,17 +104,33 @@ function GitHubSetupPage() {
     )
   }
 
-  if (installationQuery.isPending) {
+  if (installationQuery.isError) {
     return (
       <AppShell>
         <main className="mx-auto box-border w-full max-w-2xl p-8 text-zinc-100">
-          <GithubWorkspaceDestination
-            status="loading"
-            workspaces={[]}
-            onCreateWorkspace={goCreate}
-            onSelectWorkspace={() => undefined}
-            onClose={goBack}
-          />
+          <header className="mb-8">
+            <span className="ctx-label text-teal-400">GitHub</span>
+          </header>
+          <InlineAlert
+            variant="error"
+            title="Could not check GitHub"
+            actions={
+              <Button
+                variant="outline"
+                className="rounded-lg"
+                onPress={() => void installationQuery.refetch()}
+              >
+                Retry
+              </Button>
+            }
+          >
+            Try again, or close the wizard.
+          </InlineAlert>
+          <div className="mt-6">
+            <Button variant="quiet" onPress={goBack}>
+              Close wizard
+            </Button>
+          </div>
         </main>
       </AppShell>
     )

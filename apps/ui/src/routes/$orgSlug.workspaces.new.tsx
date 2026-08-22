@@ -1,16 +1,9 @@
 import { createFileRoute, Navigate, useLocation } from "@tanstack/react-router"
 import { AppShell } from "@/components/AppShell"
 import { PageBodySkeleton } from "@/components/ui/Skeleton"
+import { afterFromSearch } from "@/features/workspaces/github-workspace-destination-nav"
 import { WorkspaceCreateForm } from "@/features/workspaces/WorkspaceCreateForm"
 import { useSession } from "@/lib/auth-client"
-
-function afterFromSearch(search: unknown): "settings" | undefined {
-  if (search && typeof search === "object" && "after" in search) {
-    const after = (search as { after?: unknown }).after
-    if (after === "settings") return "settings"
-  }
-  return undefined
-}
 
 export const Route = createFileRoute("/$orgSlug/workspaces/new")({
   component: NewWorkspaceRoute,

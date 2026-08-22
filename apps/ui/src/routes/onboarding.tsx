@@ -94,7 +94,7 @@ export function OnboardingPageContent({
       orgSlug ? fetchGithubInstallationSummary(orgSlug) : Promise.resolve(null),
     enabled: Boolean(orgSlug && session),
   })
-  const hasGithubInstallation = Boolean(installation)
+  const hasGithubInstallation = Boolean(installation?.installationId)
   const repositoryIndexing = useRepositoryIndexingSummary(orgSlug, {
     enabled: Boolean(orgSlug && session),
   })
@@ -263,14 +263,20 @@ export function OnboardingPageContent({
 
   const completeJoinerOnboarding = async () => {
     if (completing) return
+    setCompleting(true)
     try {
-      await fetch("/api/v1/onboarding/user/complete", {
+      const userComplete = await fetch("/api/v1/onboarding/user/complete", {
         method: "POST",
         credentials: "include",
       })
+      if (!userComplete.ok) {
+        setCompleting(false)
+        return
+      }
       void getSession({ fetchOptions: { throw: false } })
     } catch {
-      // best-effort
+      setCompleting(false)
+      return
     }
     transitionToApp(() => {
       void router.navigate({

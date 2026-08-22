@@ -18,7 +18,8 @@ export function repositoryNameFromGitUrl(gitUrl: string): string {
     if (url.hostname.toLowerCase() === "github.com" && parts.length >= 2) {
       return `${parts[0]}/${parts[1]}`
     }
-    return `${url.hostname}/${parts.join("/")}`
+    const host = url.port ? `${url.hostname}:${url.port}` : url.hostname
+    return `${host}/${parts.join("/")}`
   } catch {
     // fall through to basename
   }

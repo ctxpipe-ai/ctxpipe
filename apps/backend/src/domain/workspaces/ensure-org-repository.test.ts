@@ -35,6 +35,9 @@ describe("repositoryNameFromGitUrl", () => {
     expect(repositoryNameFromGitUrl("https://gitlab.com/other/app.git")).toBe(
       "gitlab.com/other/app",
     )
+    expect(
+      repositoryNameFromGitUrl("https://git.example:8443/acme/app.git"),
+    ).toBe("git.example:8443/acme/app")
   })
 })
 
