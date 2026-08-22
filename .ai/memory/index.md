@@ -2,7 +2,7 @@
 
 | Store | Path | Notes |
 |-------|------|--------|
-| Lessons | [lessons-learned.md](./lessons-learned.md) | User-confirmed rules |
+| Lessons | [lessons-learned.md](./lessons-learned.md) | User-confirmed rules (incl. logo tournament + keep liked families in the mix) |
 | Glossary | [glossary.md](./glossary.md) | Domain terms |
 | Product context | [product-context.md](./product-context.md) | Overview / architecture |
 | ADRs | [decisions/index.md](./decisions/index.md) | Architecture decisions |

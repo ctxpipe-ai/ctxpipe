@@ -1,0 +1,16 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="360" height="88" viewBox="0 0 360 88" fill="none">
+  <!-- Typographic Lock: D mark + redrawn open lowercase ctx, optical weight -->
+  <g transform="translate(10,12)">
+    <rect x="10" y="8" width="36" height="7" fill="#F4F4F5"/>
+    <rect x="0" y="26" width="46" height="8" fill="#F4F4F5"/>
+    <rect x="18" y="46" width="28" height="7" fill="#F4F4F5"/>
+    <rect x="46" y="2" width="9" height="60" fill="#40E0D0"/>
+    <rect x="55" y="34" width="22" height="8" fill="#40E0D0"/>
+  </g>
+  <g fill="#F4F4F5" transform="translate(108,12)">
+    <path d="M32 24c-10.5 0-19 8.5-19 19s8.5 19 19 19c7.6 0 14.1-4.1 17.4-10.2l-7.2-4.8A11.7 11.7 0 0 1 32 55c-6.6 0-12-5.4-12-12s5.4-12 12-12c4.1 0 7.7 2.1 9.9 5.3l7.2-4.8A18.8 18.8 0 0 0 32 24Z"/>
+    <rect x="62" y="2" width="7" height="56"/>
+    <rect x="55" y="16" width="21" height="7"/>
+    <path d="M90 26h9l11.6 14.2L122.2 26H131l-16 19.4 17.2 22.6h-10.2L110.6 52 99.2 68H89l16.2-22.6L90 26Z"/>
+  </g>
+</svg>

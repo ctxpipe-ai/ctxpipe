@@ -1,0 +1,35 @@
+{
+  "loop": "03",
+  "title": "Loop 3 — Asymmetric Route variations",
+  "meta": "A Docked Asymmetry · B Directional Bias · C Lower Junction · D Typographic Lock. Winner of loop 2 is the long-middle / short-flank / off-center stdout mark.",
+  "items": [
+    {
+      "id": "A",
+      "name": "Docked Asymmetry",
+      "blurb": "Every inlet terminates into the teal pipe. Long middle, dropped output. Steal Hard Dock junctions.",
+      "dark": "loops/03/a-docked-dark.svg",
+      "light": "loops/03/a-docked-light.svg"
+    },
+    {
+      "id": "B",
+      "name": "Directional Bias",
+      "blurb": "Shorter flanks, ~30% longer teal stdout. Stronger left-to-right flow, less hamburger.",
+      "dark": "loops/03/b-directional-dark.svg",
+      "light": "loops/03/b-directional-light.svg"
+    },
+    {
+      "id": "C",
+      "name": "Lower Junction",
+      "blurb": "Output junction clearly below center. Sequential: aggregate, then route out.",
+      "dark": "loops/03/c-lower-dark.svg",
+      "light": "loops/03/c-lower-light.svg"
+    },
+    {
+      "id": "D",
+      "name": "Typographic Lock",
+      "blurb": "Same D mark; redrawn open lowercase ctx with optical — not identical — stroke weight.",
+      "dark": "loops/03/d-typelock-dark.svg",
+      "light": "loops/03/d-typelock-light.svg"
+    }
+  ]
+}

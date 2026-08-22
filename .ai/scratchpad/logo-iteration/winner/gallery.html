@@ -1,0 +1,61 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<title>Recommended ctx| family</title>
+<style>
+  * { box-sizing: border-box; }
+  body { margin: 0; font-family: ui-sans-serif, system-ui, sans-serif; background: #111113; color: #e4e4e7; }
+  .page { padding: 28px 32px 40px; }
+  h1 { font-size: 20px; margin: 0 0 4px; }
+  .meta { color: #a1a1aa; font-size: 13px; margin: 0 0 22px; max-width: 880px; line-height: 1.45; }
+  .row { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; margin-bottom: 16px; }
+  .card { border: 1px solid #3f3f46; border-radius: 12px; overflow: hidden; background: #18181b; }
+  .card h2 { margin: 0; padding: 10px 14px; font-size: 12px; letter-spacing: .04em; text-transform: uppercase; color: #a1a1aa; background: #27272a; }
+  .stage { min-height: 160px; display: grid; place-items: center; padding: 24px; }
+  .dark { background: #09090b; }
+  .light { background: #f4f4f5; }
+  .stage img.lock { height: 52px; width: auto; }
+  .icons { display: flex; gap: 18px; align-items: flex-end; padding: 16px 18px 20px; background: #09090b; }
+  .ibox { display: grid; justify-items: center; gap: 6px; }
+  .ibox span { font-size: 11px; color: #71717a; }
+  .compare { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+</style>
+</head>
+<body>
+  <div class="page">
+    <h1>Recommended family after 10 Sol loops</h1>
+    <p class="meta">Two-inlet mark + lowercase ctx. Teal only on the down-and-out route. Dark #35D6C0, light #087F73, mono has no teal. Pixel wordmark retired. No second pipe.</p>
+    <div class="row">
+      <section class="card">
+        <h2>Lockup — dark product</h2>
+        <div class="stage dark"><img class="lock" src="lockup-dark.svg" alt="" /></div>
+      </section>
+      <section class="card">
+        <h2>Lockup — light / merch</h2>
+        <div class="stage light"><img class="lock" src="lockup-light.svg" alt="" /></div>
+      </section>
+    </div>
+    <div class="row">
+      <section class="card">
+        <h2>Wordmark only</h2>
+        <div class="stage dark"><img class="lock" src="wordmark-dark.svg" alt="" /></div>
+      </section>
+      <section class="card">
+        <h2>App icon 64</h2>
+        <div class="stage dark"><img src="icon-64-dark.svg" width="64" height="64" alt="" /></div>
+      </section>
+    </div>
+    <section class="card">
+      <h2>Icon scale — 64 / 32 / 16 / light / mono</h2>
+      <div class="icons">
+        <div class="ibox"><img src="icon-64-dark.svg" width="64" height="64" alt="" /><span>64</span></div>
+        <div class="ibox"><img src="icon-64-dark.svg" width="32" height="32" alt="" /><span>32</span></div>
+        <div class="ibox"><img src="icon-16-dark.svg" width="16" height="16" alt="" /><span>16 hinted</span></div>
+        <div class="ibox" style="background:#f4f4f5;padding:8px;border-radius:8px"><img src="icon-16-light.svg" width="16" height="16" alt="" /><span>16 light</span></div>
+        <div class="ibox"><img src="icon-16-mono.svg" width="16" height="16" alt="" /><span>16 mono</span></div>
+      </div>
+    </section>
+  </div>
+</body>
+</html>

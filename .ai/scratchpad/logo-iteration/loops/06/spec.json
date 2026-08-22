@@ -1,0 +1,35 @@
+{
+  "loop": "06",
+  "title": "Loop 6 \u2014 lockup alignment + icon crop",
+  "meta": "A Junction Compact \u00b7 B X-Height Anchor \u00b7 C Route Forward \u00b7 D Icon Master. Lower Junction geometry only.",
+  "items": [
+    {
+      "id": "A",
+      "name": "Junction Compact",
+      "blurb": "Larger mark, 25% tighter gap. Top inlet aligns to t ascender; teal exit to baseline.",
+      "dark": "loops/06/a-compact-dark.svg",
+      "light": "loops/06/a-compact-light.svg"
+    },
+    {
+      "id": "B",
+      "name": "X-Height Anchor",
+      "blurb": "Middle inlet keys to c/x x-height. Mark sits lower, engineered into the wordmark.",
+      "dark": "loops/06/b-xheight-dark.svg",
+      "light": "loops/06/b-xheight-light.svg"
+    },
+    {
+      "id": "C",
+      "name": "Route Forward",
+      "blurb": "Compact proportions. Teal exit extended one unit toward ctx.",
+      "dark": "loops/06/c-forward-dark.svg",
+      "light": "loops/06/c-forward-light.svg"
+    },
+    {
+      "id": "D",
+      "name": "Icon Master",
+      "blurb": "Mark designed inside a square 64 crop first; lockup derived from that master.",
+      "dark": "loops/06/d-iconmaster-dark.svg",
+      "light": "loops/06/d-iconmaster-light.svg"
+    }
+  ]
+}

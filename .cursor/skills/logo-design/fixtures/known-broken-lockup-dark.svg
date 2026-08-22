@@ -1,0 +1,14 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="268" height="80" viewBox="0 0 268 80" fill="none">
+  <!-- Recommended lockup: Calibrated Reference + baseline finish. Teal #35D6C0 on dark. -->
+  <g transform="translate(6,16)">
+    <rect x="16" y="16" width="24" height="6" fill="#F4F4F5"/>
+    <rect x="8" y="30" width="34" height="7" fill="#F4F4F5"/>
+    <path fill="#35D6C0" d="M42 41h7v17h-7V48h16v7H42z"/>
+  </g>
+  <g fill="#F4F4F5" transform="translate(78,12)">
+    <path d="M27 18c-9.4 0-17 7.6-17 17s7.6 17 17 17c6.9 0 12.8-3.7 15.8-9.2l-6.4-4.4A10.3 10.3 0 0 1 27 46c-6.1 0-11-4.9-11-11s4.9-11 11-11c3.7 0 7 1.8 9 4.7l6.4-4.4A16.8 16.8 0 0 0 27 18Z"/>
+    <rect x="56" y="0" width="6.5" height="50"/>
+    <rect x="51" y="13" width="16.5" height="6.5"/>
+    <path d="M79 19h7.6L98 32.6 109.2 19H117L103.2 36.8 118.6 58h-8.8L98 42.4 87.2 58H79l15.4-21.2L79 19Z"/>
+  </g>
+</svg>

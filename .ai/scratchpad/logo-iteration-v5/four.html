@@ -1,0 +1,56 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <style>
+      * { box-sizing: border-box; }
+      body { margin: 0; background: #09090b; color: #e4e4e7; font-family: ui-sans-serif, system-ui, sans-serif; }
+      .page { padding: 16px 20px 24px; }
+      h1 { font-size: 15px; margin: 0 0 2px; }
+      .meta { color: #71717a; font-size: 12px; margin: 0 0 12px; }
+      .basis { border: 1px solid #40e0d0; margin-bottom: 12px; background: #18181b; }
+      .basis h2 { margin: 0; padding: 8px 12px; font-size: 11px; letter-spacing: .06em; text-transform: uppercase; color: #40e0d0; background: #134e4a; }
+      .basis-row { display: grid; grid-template-columns: 1fr 1fr; }
+      .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+      .card { border: 1px solid #3f3f46; overflow: hidden; background: #18181b; }
+      .card h2 { margin: 0; padding: 8px 12px; font-size: 11px; letter-spacing: .05em; text-transform: uppercase; color: #a1a1aa; background: #27272a; }
+      .stage { min-height: 150px; display: grid; place-items: center; padding: 20px; background: #09090b; }
+      .stage.light { background: #f4f4f5; }
+      .stage img { height: 56px; width: auto; display: block; }
+    </style>
+  </head>
+  <body>
+    <div class="page">
+      <h1 id="title">Four descendants</h1>
+      <p class="meta" id="meta">Basis on top (teal). Four new ideas from that winner. Dark then light.</p>
+      <section class="basis">
+        <h2 id="basis-label">Basis — previous winner</h2>
+        <div class="basis-row">
+          <div class="stage"><img id="bd" alt="" /></div>
+          <div class="stage light"><img id="bl" alt="" /></div>
+        </div>
+      </section>
+      <div class="grid">
+        <section class="card"><h2 id="l0">A</h2><div class="stage"><img id="d0" alt="" /></div><div class="stage light"><img id="lgt0" alt="" /></div></section>
+        <section class="card"><h2 id="l1">B</h2><div class="stage"><img id="d1" alt="" /></div><div class="stage light"><img id="lgt1" alt="" /></div></section>
+        <section class="card"><h2 id="l2">C</h2><div class="stage"><img id="d2" alt="" /></div><div class="stage light"><img id="lgt2" alt="" /></div></section>
+        <section class="card"><h2 id="l3">D</h2><div class="stage"><img id="d3" alt="" /></div><div class="stage light"><img id="lgt3" alt="" /></div></section>
+      </div>
+    </div>
+    <script>
+      const q = new URLSearchParams(location.search)
+      if (q.get("title")) document.getElementById("title").textContent = q.get("title")
+      if (q.get("meta")) document.getElementById("meta").textContent = q.get("meta")
+      if (q.get("basis")) document.getElementById("basis-label").textContent = q.get("basis")
+      if (q.get("bd")) document.getElementById("bd").src = q.get("bd")
+      if (q.get("bl")) document.getElementById("bl").src = q.get("bl")
+      for (let i = 0; i < 4; i++) {
+        const name = q.get("n"+i) || String.fromCharCode(65+i)
+        document.getElementById("l"+i).textContent = name
+        const d = q.get("d"+i); const l = q.get("l"+i)
+        if (d) document.getElementById("d0".replace("0", String(i))).src = d
+        if (l) document.getElementById("lgt0".replace("0", String(i))).src = l
+      }
+    </script>
+  </body>
+</html>

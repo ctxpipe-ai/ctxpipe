@@ -1,0 +1,16 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="340" height="88" viewBox="0 0 340 88" fill="none">
+  <!-- Directional Bias: shorter flanks, ~30% longer teal output -->
+  <g transform="translate(10,12)">
+    <rect x="22" y="8" width="24" height="7" fill="#F4F4F5"/>
+    <rect x="0" y="26" width="46" height="8" fill="#F4F4F5"/>
+    <rect x="28" y="46" width="18" height="7" fill="#F4F4F5"/>
+    <rect x="46" y="2" width="9" height="60" fill="#40E0D0"/>
+    <rect x="55" y="34" width="34" height="8" fill="#40E0D0"/>
+  </g>
+  <g fill="#F4F4F5" transform="translate(118,16)">
+    <path d="M34 20c-12.2 0-22 9.8-22 22s9.8 22 22 22c7.4 0 13.9-3.6 18-9.2l-7.2-5.4A13.9 13.9 0 0 1 34 56c-7.7 0-14-6.3-14-14s6.3-14 14-14c4.6 0 8.7 2.2 11.3 5.6l7.2-5.4A21.9 21.9 0 0 0 34 20Z"/>
+    <rect x="62" y="0" width="8" height="56"/>
+    <rect x="55" y="18" width="22" height="8"/>
+    <path d="M88 22h9.2L108 35.4 118.8 22H128L113.2 40 129 62h-10l-11-14.2L97 62H88l15.6-22L88 22Z"/>
+  </g>
+</svg>

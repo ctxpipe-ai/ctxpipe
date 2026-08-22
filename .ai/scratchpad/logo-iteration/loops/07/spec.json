@@ -1,0 +1,47 @@
+{
+  "loop": "07",
+  "title": "Loop 7 \u2014 icon system from Icon Master",
+  "meta": "A Optical Lockup \u00b7 B Junction Authority \u00b7 C Crop Balance \u00b7 D Wordmark Calibration. Same geometry at 48/32/16 + light + mono.",
+  "items": [
+    {
+      "id": "A",
+      "name": "Optical Lockup",
+      "blurb": "Master mark, gap measured from visible bounds. No crop box. Optical center vs ctx.",
+      "dark": "loops/07/a-optical-dark.svg",
+      "light": "loops/07/a-optical-light.svg",
+      "icon": "loops/07/icon-a-dark.svg",
+      "iconLight": "loops/07/icon-a-light.svg",
+      "mono": "loops/07/icon-a-mono.svg"
+    },
+    {
+      "id": "B",
+      "name": "Junction Authority",
+      "blurb": "Slightly heavier inlets and teal route so 16px and embroidery survive.",
+      "dark": "loops/07/b-authority-dark.svg",
+      "light": "loops/07/b-authority-light.svg",
+      "icon": "loops/07/icon-b-dark.svg",
+      "iconLight": "loops/07/icon-b-light.svg",
+      "mono": "loops/07/icon-b-mono.svg"
+    },
+    {
+      "id": "C",
+      "name": "Crop Balance",
+      "blurb": "Same grammar, visual mass centered in the square \u2014 an app icon, not a logo in a box.",
+      "dark": "loops/07/c-crop-dark.svg",
+      "light": "loops/07/c-crop-light.svg",
+      "icon": "loops/07/icon-c-dark.svg",
+      "iconLight": "loops/07/icon-c-light.svg",
+      "mono": "loops/07/icon-c-mono.svg"
+    },
+    {
+      "id": "D",
+      "name": "Wordmark Calibration",
+      "blurb": "Master icon kept. ctx redrawn: opener c, narrower t, calmer x.",
+      "dark": "loops/07/d-word-dark.svg",
+      "light": "loops/07/d-word-light.svg",
+      "icon": "loops/07/icon-d-dark.svg",
+      "iconLight": "loops/07/icon-d-light.svg",
+      "mono": "loops/07/icon-d-mono.svg"
+    }
+  ]
+}

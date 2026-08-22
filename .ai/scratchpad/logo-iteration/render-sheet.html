@@ -1,0 +1,135 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>ctxpipe logo review sheet</title>
+    <style>
+      :root {
+        --teal: #40e0d0;
+        --ink: #09090b;
+        --paper: #f4f4f5;
+        --muted: #71717a;
+      }
+      * { box-sizing: border-box; }
+      body {
+        margin: 0;
+        font-family: ui-sans-serif, system-ui, sans-serif;
+        background: #18181b;
+        color: #e4e4e7;
+      }
+      .page { padding: 32px 40px 48px; }
+      h1 { font-size: 20px; font-weight: 600; margin: 0 0 6px; }
+      .meta { color: var(--muted); font-size: 13px; margin-bottom: 28px; }
+      .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; }
+      .card { border-radius: 12px; overflow: hidden; border: 1px solid #3f3f46; }
+      .card h2 {
+        margin: 0;
+        padding: 10px 14px;
+        font-size: 12px;
+        letter-spacing: 0.04em;
+        text-transform: uppercase;
+        color: #a1a1aa;
+        background: #27272a;
+      }
+      .stage {
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        min-height: 220px;
+        padding: 28px;
+      }
+      .dark { background: #09090b; }
+      .light { background: #f4f4f5; }
+      .zinc { background: #27272a; }
+      .white { background: #ffffff; }
+      .stage img { display: block; height: var(--h, 56px); width: auto; }
+      .sizes {
+        display: flex;
+        align-items: flex-end;
+        gap: 28px;
+        padding: 24px 28px 28px;
+        background: #09090b;
+      }
+      .size { text-align: center; }
+      .size span {
+        display: block;
+        margin-top: 8px;
+        font-size: 11px;
+        color: #71717a;
+      }
+      .icon-row {
+        display: flex;
+        gap: 16px;
+        align-items: center;
+        padding: 24px 28px;
+        background: #09090b;
+      }
+      .icon {
+        width: var(--s);
+        height: var(--s);
+        display: grid;
+        place-items: center;
+        background: #18181b;
+        border: 1px solid #3f3f46;
+        border-radius: 10px;
+        overflow: hidden;
+      }
+      .icon.round { border-radius: 50%; }
+      .icon img { height: 55%; width: auto; }
+      .full { grid-column: 1 / -1; }
+    </style>
+  </head>
+  <body>
+    <div class="page">
+      <h1 id="title">Current logo — ctx|</h1>
+      <p class="meta" id="meta">Pixel wordmark + teal pipe. Brand teal #40E0D0. Review surfaces: dark app, light, small nav, app icon.</p>
+      <div class="grid">
+        <section class="card">
+          <h2>Dark product UI</h2>
+          <div class="stage dark"><img id="dark" src="" alt="logo on dark" style="--h:64px" /></div>
+        </section>
+        <section class="card">
+          <h2>Light surface</h2>
+          <div class="stage light"><img id="light" src="" alt="logo on light" style="--h:64px" /></div>
+        </section>
+        <section class="card">
+          <h2>Zinc panel</h2>
+          <div class="stage zinc"><img id="zinc" src="" alt="logo on zinc" style="--h:56px" /></div>
+        </section>
+        <section class="card">
+          <h2>White / merch</h2>
+          <div class="stage white"><img id="white" src="" alt="logo on white" style="--h:56px" /></div>
+        </section>
+        <section class="card full">
+          <h2>Scale — 64 / 32 / 20 / 16</h2>
+          <div class="sizes">
+            <div class="size"><img id="s64" src="" alt="" style="--h:64px" /><span>64px nav</span></div>
+            <div class="size"><img id="s32" src="" alt="" style="--h:32px" /><span>32px</span></div>
+            <div class="size"><img id="s20" src="" alt="" style="--h:20px" /><span>20px sidenav</span></div>
+            <div class="size"><img id="s16" src="" alt="" style="--h:16px" /><span>16px favicon-ish</span></div>
+          </div>
+        </section>
+        <section class="card full">
+          <h2>App icon crop (square)</h2>
+          <div class="icon-row">
+            <div class="icon" style="--s:72px"><img id="i72" src="" alt="" /></div>
+            <div class="icon" style="--s:48px"><img id="i48" src="" alt="" /></div>
+            <div class="icon" style="--s:32px"><img id="i32" src="" alt="" /></div>
+            <div class="icon round" style="--s:48px"><img id="i48r" src="" alt="" /></div>
+          </div>
+        </section>
+      </div>
+    </div>
+    <script>
+      const params = new URLSearchParams(location.search);
+      const src = params.get("src") || "/workspace/apps/ui/public/ctx_.svg";
+      const title = params.get("title");
+      const meta = params.get("meta");
+      if (title) document.getElementById("title").textContent = title;
+      if (meta) document.getElementById("meta").textContent = meta;
+      for (const id of ["dark","light","zinc","white","s64","s32","s20","s16","i72","i48","i32","i48r"]) {
+        document.getElementById(id).src = src;
+      }
+    </script>
+  </body>
+</html>

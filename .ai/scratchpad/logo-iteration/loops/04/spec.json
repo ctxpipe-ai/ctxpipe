@@ -1,0 +1,35 @@
+{
+  "loop": "04",
+  "title": "Loop 4 — Directional Bias: kill hamburger / plus",
+  "meta": "A Two-Inlet Route · B Hard Offset · C Staggered Dock · D Weight Bias. Teal only down+out. Open lowercase ctx from loop 3D.",
+  "items": [
+    {
+      "id": "A",
+      "name": "Two-Inlet Route",
+      "blurb": "Drop one flank. Short upper + long middle. Teal runs only down from the junction, then out.",
+      "dark": "loops/04/a-twoinlet-dark.svg",
+      "light": "loops/04/a-twoinlet-light.svg"
+    },
+    {
+      "id": "B",
+      "name": "Hard Offset",
+      "blurb": "Three inlets remain. No teal above the long-inlet junction. Pipe hangs down and out.",
+      "dark": "loops/04/b-hardoffset-dark.svg",
+      "light": "loops/04/b-hardoffset-light.svg"
+    },
+    {
+      "id": "C",
+      "name": "Staggered Dock",
+      "blurb": "Flanks stop short at different x. Only the middle inlet meets the teal stdout.",
+      "dark": "loops/04/c-stagger-dark.svg",
+      "light": "loops/04/c-stagger-light.svg"
+    },
+    {
+      "id": "D",
+      "name": "Weight Bias",
+      "blurb": "Heavy primary route (middle + teal). Flanks materially lighter and shorter.",
+      "dark": "loops/04/d-weight-dark.svg",
+      "light": "loops/04/d-weight-light.svg"
+    }
+  ]
+}

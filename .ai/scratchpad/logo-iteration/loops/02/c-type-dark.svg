@@ -1,0 +1,19 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="360" height="88" viewBox="0 0 360 88" fill="none">
+  <!-- Typographic Route: mark bars share 8px stroke with letter stems; clearly lowercase ctx -->
+  <g transform="translate(10,16)">
+    <rect x="0" y="10" width="34" height="8" fill="#F4F4F5"/>
+    <rect x="0" y="26" width="42" height="8" fill="#F4F4F5"/>
+    <rect x="0" y="42" width="26" height="8" fill="#F4F4F5"/>
+    <rect x="42" y="2" width="8" height="56" fill="#40E0D0"/>
+    <rect x="50" y="26" width="20" height="8" fill="#40E0D0"/>
+  </g>
+  <g fill="#F4F4F5" transform="translate(100,14)">
+    <!-- c sits on x-height; opening is wide so it cannot read as C/O -->
+    <path d="M36 22c-11.6 0-21 9.4-21 21s9.4 21 21 21c8.2 0 15.2-4.4 18.8-10.8l-7.6-5.2A13 13 0 0 1 36 56c-7.2 0-13-5.8-13-13s5.8-13 13-13c4.4 0 8.3 2.2 10.7 5.6l7.6-5.2A20.8 20.8 0 0 0 36 22Z"/>
+    <!-- t: narrow 8px stem matching pipe; short crossbar -->
+    <rect x="66" y="0" width="8" height="58"/>
+    <rect x="58" y="16" width="24" height="8"/>
+    <!-- x: same 8px stroke language, more open crotch -->
+    <path d="M94 24h10l12 14.8L128 24h10l-17 20 18 22h-11L116 50.8 104 66H94l17-22-17-20Z"/>
+  </g>
+</svg>
