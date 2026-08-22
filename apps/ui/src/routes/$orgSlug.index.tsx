@@ -14,6 +14,7 @@ import { PageBodySkeleton } from "@/components/ui/Skeleton"
 import {
   fetchGithubInstallationSummary,
   githubConnectorKeys,
+  githubInstallationIsLinked,
 } from "@/features/connectors/queries/github-connector"
 import { useGithubConnectFlow } from "@/features/connectors/useGithubConnectFlow"
 import { useRepositoryIndexingSummary } from "@/features/repositories"
@@ -157,7 +158,7 @@ export function OrgHomePageContent({ orgSlug }: { orgSlug: string }) {
     enabled: !!session,
   })
   const { data: githubInstallation } = githubInstallationQuery
-  const githubConnected = Boolean(githubInstallation)
+  const githubConnected = githubInstallationIsLinked(githubInstallation)
   const { summary: repositorySummary } = useRepositoryIndexingSummary(orgSlug, {
     enabled: Boolean(session),
   })

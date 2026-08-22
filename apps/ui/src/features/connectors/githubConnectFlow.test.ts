@@ -10,6 +10,8 @@ describe("githubInstallationIsLinked", () => {
     expect(githubInstallationIsLinked({ installationId: 9 })).toBe(true)
     expect(githubInstallationIsLinked({ installationId: null })).toBe(false)
     expect(githubInstallationIsLinked({ installationId: 0 })).toBe(false)
+    expect(githubInstallationIsLinked({ installationId: -1 })).toBe(false)
+    expect(githubInstallationIsLinked({ installationId: 1.5 })).toBe(false)
     expect(githubInstallationIsLinked({ id: "con_1" })).toBe(false)
     expect(githubInstallationIsLinked(null)).toBe(false)
   })

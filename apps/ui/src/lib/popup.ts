@@ -1,6 +1,9 @@
 import type { QueryClient } from "@tanstack/react-query"
 import { useEffect, useRef } from "react"
-import { githubConnectorKeys } from "@/features/connectors/queries/github-connector"
+import {
+  githubConnectorKeys,
+  githubInstallationIsLinked,
+} from "@/features/connectors/queries/github-connector"
 import { orgConnectionsKeys } from "@/features/connectors/queries/org-connections"
 import { client } from "@/lib/api"
 
@@ -334,8 +337,10 @@ export async function handleGithubSetupPopupResult(
         },
       )
       if (response.ok) {
-        const linked = (await response.json()) as { id: string } | null
-        if (linked) status = "registered"
+        const linked = (await response.json()) as {
+          installationId?: number | null
+        } | null
+        if (githubInstallationIsLinked(linked)) status = "registered"
       }
     } catch {
       // Keep "no_result" and let caller decide UX.

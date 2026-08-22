@@ -7,7 +7,10 @@ import { useState } from "react"
 import { toast } from "sonner"
 import { AlertDialog } from "@/components/ui/AlertDialog"
 import { Modal } from "@/components/ui/Modal"
-import { githubConnectorKeys } from "@/features/connectors/queries/github-connector"
+import {
+  githubConnectorKeys,
+  githubInstallationIsLinked,
+} from "@/features/connectors/queries/github-connector"
 import { resolveConnectorHealth } from "../connectorHealth"
 import {
   CONNECTORS_PAGE_POLL_INTERVAL_MS,
@@ -97,7 +100,7 @@ export function GithubConnectionCard({
     onError: (e: Error) => toast.error(e.message),
   })
 
-  const linked = installation?.installationId != null
+  const linked = githubInstallationIsLinked(installation)
   const health = resolveConnectorHealth({
     statusError: isError,
     checking: isPending,
