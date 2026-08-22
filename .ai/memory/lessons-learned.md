@@ -748,3 +748,9 @@ Highest-priority confirmed rules for agents. Migrated from former `patterns.md` 
 - **Date:** 2026-08-21
 - **Source:** user correction (Workspaces nav label tracking)
 
+### Workspace OpenCode chat uses the configured proxy, not native provider keys
+- **Rule:** OpenCode ignores `MODEL_PROVIDER_*`. Do not remap `MODEL_PROVIDER_API_KEY` to `ANTHROPIC_API_KEY` / `OPENAI_API_KEY` / `OPENROUTER_API_KEY`. Chat uses only `MODEL_FAST_NAME` / `MODEL_MEDIUM_NAME` / `MODEL_HIGH_NAME` (default **fast**) through the loopback ctxpipe OpenAI-compatible proxy. Pin `opencode-ai@1.18.18` with the locked SDK. When TanStack tools exist, the adapter overwrites `OPENCODE_CONFIG_CONTENT` — ship config as `opencode.json` plus `OPENCODE_CONFIG` via `createSecrets`. Model ids containing `gpt-5` still post `/v1/chat/completions` and require `chat.completion.chunk` SSE. Unset `SANDBOX_PROVIDER` is the `local_process` fallback; a Railway sandbox is later work.
+- **Category:** convention
+- **Date:** 2026-08-22
+- **Source:** OpenCode chatStream 500 (H1: Claude fallback + empty Anthropic credentials)
+
