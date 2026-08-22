@@ -417,6 +417,73 @@ async function readGitHead(clonePath: string): Promise<string | null> {
   return sha.length > 0 ? sha : null
 }
 
+export async function discardScipShardFiles(
+  shardPaths: readonly string[],
+): Promise<void> {
+  await Promise.all(
+    shardPaths.map((shardPath) => rm(shardPath, { force: true })),
+  )
+}
+
+export async function publishMergedScipIndex(input: {
+  detectedLanguages: readonly string[]
+  shardPaths: readonly string[]
+  outputPath: string
+}): Promise<{ shardCount: number }> {
+  const valid: string[] = []
+  for (const shardPath of input.shardPaths) {
+    let bytes: Buffer
+    try {
+      const info = await stat(shardPath)
+      if (!info.isFile() || info.size === 0) {
+        tryEmitIndexEvent("codesearch.index.scip.shard_skipped", {
+          shardPath,
+          reason: "empty",
+        })
+        await rm(shardPath, { force: true })
+        continue
+      }
+      bytes = await readFile(shardPath)
+    } catch (error) {
+      if (
+        typeof error === "object" &&
+        error !== null &&
+        "code" in error &&
+        (error as { code?: string }).code === "ENOENT"
+      ) {
+        tryEmitIndexEvent("codesearch.index.scip.shard_skipped", {
+          shardPath,
+          reason: "missing",
+        })
+        continue
+      }
+      throw error
+    }
+    try {
+      decodeScipIndex(bytes)
+    } catch (error) {
+      tryEmitIndexEvent("codesearch.index.scip.shard_skipped", {
+        shardPath,
+        reason: "malformed",
+        error: error instanceof Error ? error.message : String(error),
+      })
+      await rm(shardPath, { force: true })
+      continue
+    }
+    valid.push(shardPath)
+  }
+  if (valid.length === 0) {
+    if (input.detectedLanguages.length === 0) {
+      await writeMergedScipIndex([], input.outputPath)
+    } else {
+      await rm(input.outputPath, { force: true })
+    }
+    return { shardCount: 0 }
+  }
+  await writeMergedScipIndex(valid, input.outputPath)
+  return { shardCount: valid.length }
+}
+
 export async function writeMergedScipIndex(
   shardPaths: readonly string[],
   outputPath: string,
@@ -635,19 +702,38 @@ export async function phaseScipLanguage(
 
 export async function phaseMergeScip(
   ctx: IndexPhaseRepoContext,
-  params: { detectedLanguages: readonly string[] },
-): Promise<void> {
+  params: {
+    detectedLanguages: readonly string[]
+    languagesToMerge?: readonly string[]
+  },
+): Promise<{ shardCount: number }> {
   const writeStep = monotonicWriteStep(ctx.db, ctx.repoId)
   const detected = [...params.detectedLanguages]
+  const languagesToMerge =
+    params.languagesToMerge !== undefined
+      ? [...params.languagesToMerge]
+      : detected
   await writeStep("merging_intelligence", detected)
-  await withPhase("scip_merge", () =>
-    writeMergedScipIndex(
-      detected.map((indexerId) =>
-        scipLangShardPath(ctx.orgId, ctx.repoId, indexerId),
-      ),
-      ctx.scipIndexPath,
-    ),
-  )
+  return withPhase("scip_merge", async () => {
+    const shardPaths = languagesToMerge.map((indexerId) =>
+      scipLangShardPath(ctx.orgId, ctx.repoId, indexerId),
+    )
+    if (
+      params.languagesToMerge !== undefined &&
+      languagesToMerge.length === 0
+    ) {
+      await discardScipShardFiles(
+        detected.map((indexerId) =>
+          scipLangShardPath(ctx.orgId, ctx.repoId, indexerId),
+        ),
+      )
+    }
+    return publishMergedScipIndex({
+      detectedLanguages: detected,
+      shardPaths,
+      outputPath: ctx.scipIndexPath,
+    })
+  })
 }
 
 export async function phaseMarkCheckoutIndexed(

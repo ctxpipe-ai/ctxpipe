@@ -36,8 +36,9 @@ const indexRetryPolicy = {
   maximumInterval: "2m" as const,
 }
 
-function zoektStepResult(
+function optionalIndexStepResult(
   value: unknown,
+  fallbackError: string,
 ): { ok: true } | { ok: false; error: string } {
   if (
     value &&
@@ -48,13 +49,34 @@ function zoektStepResult(
     const error = (value as { error?: unknown }).error
     return {
       ok: false,
-      error:
-        typeof error === "string" && error.trim()
-          ? error
-          : "Search index unavailable",
+      error: typeof error === "string" && error.trim() ? error : fallbackError,
     }
   }
   return { ok: true }
+}
+
+function mergeScipStepResult(
+  value: unknown,
+): { ok: true; shardCount?: number } | { ok: false; error: string } {
+  const result = optionalIndexStepResult(value, "SCIP index unavailable")
+  if (!result.ok) {
+    return result
+  }
+  const shardCount =
+    value &&
+    typeof value === "object" &&
+    "shardCount" in value &&
+    typeof (value as { shardCount: unknown }).shardCount === "number"
+      ? (value as { shardCount: number }).shardCount
+      : undefined
+  return { ok: true, shardCount }
+}
+
+function joinIndexErrors(errors: string[]): string | undefined {
+  const unique = [
+    ...new Set(errors.map((error) => error.trim()).filter(Boolean)),
+  ]
+  return unique.length > 0 ? unique.join("; ") : undefined
 }
 
 function logMilestone(step: string, fields: Record<string, unknown>): void {
@@ -72,11 +94,11 @@ function logMilestone(step: string, fields: Record<string, unknown>): void {
 
 /**
  * Durable codesearch index pipeline: clone/checkout → zoekt (non-fatal) →
- * detect langs → parallel scip:lang → merge.
+ * detect langs → parallel scip:lang (non-fatal) → merge (non-fatal).
  *
- * Zoekt failure is recorded as `searchIndexOk: false` so SCIP and extract can
- * still complete (lexical search degrades; graph/ast-grep remain usable).
- * Clone or SCIP failure still fails the workflow.
+ * Zoekt or SCIP failure is recorded on the result so extract can still
+ * complete (lexical search and/or graph tools degrade). Clone failure
+ * still fails the workflow.
  */
 export const repositoryIndex = defineWorkflow(
   { name: "repository-index", schema: repositoryIndexInputSchema },
@@ -135,7 +157,7 @@ export const repositoryIndex = defineWorkflow(
           ingestMode: checkout.ingestMode,
         })
 
-        const zoektResult = zoektStepResult(
+        const zoektResult = optionalIndexStepResult(
           await step.run({ name: "zoekt" }, () =>
             wls("zoekt", async () => {
               try {
@@ -153,6 +175,7 @@ export const repositoryIndex = defineWorkflow(
               }
             }),
           ),
+          "Search index unavailable",
         )
         const searchIndexOk = zoektResult.ok
         const searchIndexError = zoektResult.ok ? undefined : zoektResult.error
@@ -186,36 +209,124 @@ export const repositoryIndex = defineWorkflow(
           toIndexCount: languages.languagesToIndex.length,
         })
 
-        await Promise.all(
-          languages.languagesToIndex.map((lang) =>
-            step.run(
-              {
-                name: `scip:${lang}`,
-                retryPolicy: indexRetryPolicy,
-              },
-              () =>
-                wls(`scip:${lang}`, () =>
-                  codesearchIndexScipLang(
+        const skipScipAfterZoektMemory =
+          !searchIndexOk && isMemoryFitFailure(searchIndexError ?? "")
+
+        let scipIndexOk = true
+        let scipIndexError: string | undefined
+        const languagesToIndex = skipScipAfterZoektMemory
+          ? []
+          : languages.languagesToIndex
+
+        if (skipScipAfterZoektMemory) {
+          scipIndexOk = false
+          scipIndexError = searchIndexError ?? "SCIP index unavailable"
+          logMilestone("repository-index.scip.skipped", {
+            repositoryId: input.repositoryId,
+            reason: "zoekt_memory_fit",
+            error: scipIndexError,
+          })
+        }
+
+        const scipResults = await Promise.all(
+          languagesToIndex.map((lang) =>
+            step.run({ name: `scip:${lang}` }, () =>
+              wls(`scip:${lang}`, async () => {
+                try {
+                  await codesearchIndexScipLang(
                     auth,
                     lang,
                     languages.detectedLanguages,
-                  ),
-                ),
+                  )
+                  return { ok: true as const }
+                } catch (error) {
+                  const errorText = userFacingIndexingError(error)
+                  if (isMemoryFitFailure(error)) {
+                    logMilestone("repository-index.memory_exceeded", {
+                      repositoryId: input.repositoryId,
+                      phase: `scip:${lang}`,
+                      error: errorText,
+                    })
+                  }
+                  return { ok: false as const, error: errorText }
+                }
+              }),
             ),
           ),
         )
 
-        await step.run(
-          { name: "merge-scip", retryPolicy: indexRetryPolicy },
-          () =>
-            wls("merge-scip", () =>
-              codesearchIndexMergeScip(auth, languages.detectedLanguages),
-            ),
-        )
+        const failedScip = scipResults
+          .map((value) =>
+            optionalIndexStepResult(value, "SCIP index unavailable"),
+          )
+          .filter((result) => !result.ok)
+        if (failedScip.length > 0) {
+          scipIndexOk = false
+          scipIndexError = joinIndexErrors(
+            failedScip.map((result) => result.error),
+          )
+          logMilestone("repository-index.scip.failed", {
+            repositoryId: input.repositoryId,
+            error: scipIndexError,
+            failedCount: failedScip.length,
+          })
+        }
 
-        logMilestone("repository-index.merge-scip.done", {
-          repositoryId: input.repositoryId,
-        })
+        const mergeResult = mergeScipStepResult(
+          await step.run({ name: "merge-scip" }, () =>
+            wls("merge-scip", async () => {
+              try {
+                const merged = await codesearchIndexMergeScip(
+                  auth,
+                  languages.detectedLanguages,
+                  skipScipAfterZoektMemory ? [] : undefined,
+                )
+                return { ok: true as const, shardCount: merged.shardCount }
+              } catch (error) {
+                const errorText = userFacingIndexingError(error)
+                if (isMemoryFitFailure(error)) {
+                  logMilestone("repository-index.memory_exceeded", {
+                    repositoryId: input.repositoryId,
+                    phase: "merge-scip",
+                    error: errorText,
+                  })
+                }
+                return { ok: false as const, error: errorText }
+              }
+            }),
+          ),
+        )
+        if (mergeResult.ok) {
+          logMilestone("repository-index.merge-scip.done", {
+            repositoryId: input.repositoryId,
+            shardCount: mergeResult.shardCount,
+          })
+          if (
+            languages.detectedLanguages.length > 0 &&
+            mergeResult.shardCount === 0
+          ) {
+            scipIndexOk = false
+            scipIndexError = joinIndexErrors([
+              ...(scipIndexError ? [scipIndexError] : []),
+              "SCIP index unavailable",
+            ])
+            logMilestone("repository-index.scip.failed", {
+              repositoryId: input.repositoryId,
+              error: scipIndexError,
+              reason: "zero_valid_shards",
+            })
+          }
+        } else {
+          scipIndexOk = false
+          scipIndexError = joinIndexErrors([
+            ...(scipIndexError ? [scipIndexError] : []),
+            mergeResult.error,
+          ])
+          logMilestone("repository-index.merge-scip.failed", {
+            repositoryId: input.repositoryId,
+            error: mergeResult.error,
+          })
+        }
 
         return {
           indexedAt: new Date().toISOString(),
@@ -226,6 +337,8 @@ export const repositoryIndex = defineWorkflow(
           renames: checkout.renames,
           searchIndexOk,
           searchIndexError,
+          scipIndexOk,
+          scipIndexError,
         }
       },
     ),

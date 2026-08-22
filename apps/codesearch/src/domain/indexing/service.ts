@@ -1,20 +1,23 @@
 import type { Db } from "../../db/client.js"
+import { log } from "../../observability/logger.js"
+import { trySetRepositoryIndexingStep } from "../indexingSteps.js"
+import { zoektRepositoryName } from "../zoekt/shardPrefix.js"
 import {
   withIndexConcurrency,
   withRepositoryIndexOperation,
 } from "./indexConcurrency.js"
 import {
+  discardScipShardFiles,
+  type IndexPhaseRepoContext,
   phaseCloneCheckout,
   phaseDetectLanguages,
   phaseMarkCheckoutIndexed,
   phaseMergeScip,
   phaseScipLanguage,
   phaseZoekt,
+  publishMergedScipIndex,
   writeMergedScipIndex,
-  type IndexPhaseRepoContext,
 } from "./phases.js"
-import { trySetRepositoryIndexingStep } from "../indexingSteps.js"
-import { zoektRepositoryName } from "../zoekt/shardPrefix.js"
 
 export type IndexRepoResult = {
   targetHash: string
@@ -41,34 +44,26 @@ type IndexInput = {
   fromHash?: string
 }
 
-export { writeMergedScipIndex }
+export { discardScipShardFiles, publishMergedScipIndex, writeMergedScipIndex }
 
 /**
- * Run Zoekt then SCIP sequentially (reduces peak RSS vs parallel phases).
- * Still attempts SCIP after a Zoekt failure so both errors can be reported.
- * Prefer fail-fast (throw on Zoekt) for OpenWorkflow phased indexing.
+ * Run an optional index phase. Failures are warnings so non-OW callers get
+ * the same degradation as OpenWorkflow. Clone/detect stay fail-closed at
+ * their call sites.
  */
-export async function settleIndexPhases(
-  zoektPhase: () => Promise<void>,
-  scipPhase: () => Promise<void>,
+export async function runOptionalIndexPhase(
+  step: string,
+  fn: () => Promise<void>,
+  extra?: Record<string, string>,
 ): Promise<void> {
-  const failures: string[] = []
   try {
-    await zoektPhase()
+    await fn()
   } catch (reason) {
-    failures.push(
-      `Zoekt: ${reason instanceof Error ? reason.message : String(reason)}`,
-    )
-  }
-  try {
-    await scipPhase()
-  } catch (reason) {
-    failures.push(
-      `SCIP: ${reason instanceof Error ? reason.message : String(reason)}`,
-    )
-  }
-  if (failures.length > 0) {
-    throw new Error(`Repository indexing failed:\n${failures.join("\n")}`)
+    log.warn({
+      step,
+      ...extra,
+      error: reason instanceof Error ? reason.message : String(reason),
+    })
   }
 }
 
@@ -93,7 +88,7 @@ function toPhaseContext(input: IndexInput): IndexPhaseRepoContext {
 
 /**
  * Legacy monolithic `POST /:repoId/index` composer.
- * Preserves settleIndexPhases (SCIP still attempted after Zoekt failure).
+ * Zoekt and SCIP indexer failures degrade; clone/detect stay fail-closed.
  * Durable ingestion uses OpenWorkflow phase endpoints instead.
  */
 export async function cloneAndIndexRepository(
@@ -116,26 +111,33 @@ async function cloneAndIndexRepositoryInner(
     fromHash: input.fromHash,
   })
 
-  let detectResult: Awaited<ReturnType<typeof phaseDetectLanguages>> | undefined
+  await runOptionalIndexPhase("codesearch.index.zoekt.failed", () =>
+    phaseZoekt(ctx),
+  )
 
-  await settleIndexPhases(
-    () => phaseZoekt(ctx),
-    async () => {
-      detectResult = await phaseDetectLanguages(ctx, {
-        ingestMode: checkout.ingestMode,
-        changedPaths: checkout.changedPaths,
-        deletedPaths: checkout.deletedPaths,
-        renames: checkout.renames,
-      })
-      const detectedLanguages = detectResult.detectedLanguages
-      await Promise.all(
-        detectResult.languagesToIndex.map((language) =>
+  const detectResult = await phaseDetectLanguages(ctx, {
+    ingestMode: checkout.ingestMode,
+    changedPaths: checkout.changedPaths,
+    deletedPaths: checkout.deletedPaths,
+    renames: checkout.renames,
+  })
+  const detectedLanguages = detectResult.detectedLanguages
+  await Promise.all(
+    detectResult.languagesToIndex.map((language) =>
+      runOptionalIndexPhase(
+        "codesearch.index.scip.lang.failed",
+        () =>
           phaseScipLanguage(ctx, {
             language,
             detectedLanguages,
           }),
-        ),
-      )
+        { language },
+      ),
+    ),
+  )
+  await runOptionalIndexPhase(
+    "codesearch.index.scip.merge.failed",
+    async () => {
       await phaseMergeScip(ctx, {
         detectedLanguages,
       })

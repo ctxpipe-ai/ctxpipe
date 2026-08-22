@@ -1,34 +1,35 @@
+import { existsSync } from "node:fs"
 import { mkdtemp, readdir, readFile, rm, writeFile } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { afterEach, describe, expect, it } from "vitest"
 import { decodeScipIndex, encodeScipIndex } from "../graph/scipProto.js"
-import { settleIndexPhases, writeMergedScipIndex } from "./service.js"
+import {
+  discardScipShardFiles,
+  publishMergedScipIndex,
+  runOptionalIndexPhase,
+  writeMergedScipIndex,
+} from "./service.js"
 
-describe("settleIndexPhases", () => {
-  it("runs Zoekt before SCIP (sequential) and reports both failures", async () => {
+describe("runOptionalIndexPhase", () => {
+  it("runs Zoekt before SCIP (sequential) and continues after both failures", async () => {
     const order: string[] = []
     let scipStartedBeforeZoektFinished = false
 
-    const result = settleIndexPhases(
-      async () => {
-        order.push("zoekt-start")
-        await new Promise((r) => setTimeout(r, 30))
-        order.push("zoekt-end")
-        throw new Error("Zoekt failed")
-      },
-      async () => {
-        if (!order.includes("zoekt-end")) {
-          scipStartedBeforeZoektFinished = true
-        }
-        order.push("scip")
-        throw new Error("SCIP failed")
-      },
-    )
+    await runOptionalIndexPhase("codesearch.index.zoekt.failed", async () => {
+      order.push("zoekt-start")
+      await new Promise((r) => setTimeout(r, 30))
+      order.push("zoekt-end")
+      throw new Error("Zoekt failed")
+    })
+    await runOptionalIndexPhase("codesearch.index.scip.failed", async () => {
+      if (!order.includes("zoekt-end")) {
+        scipStartedBeforeZoektFinished = true
+      }
+      order.push("scip")
+      throw new Error("SCIP failed")
+    })
 
-    await expect(result).rejects.toThrow(
-      "Repository indexing failed:\nZoekt: Zoekt failed\nSCIP: SCIP failed",
-    )
     expect(scipStartedBeforeZoektFinished).toBe(false)
     expect(order).toEqual(["zoekt-start", "zoekt-end", "scip"])
   })
@@ -118,5 +119,133 @@ describe("writeMergedScipIndex", () => {
       "index.scip",
       "typescript.scip",
     ])
+  })
+})
+
+describe("publishMergedScipIndex", () => {
+  const temporaryDirectories: string[] = []
+
+  afterEach(async () => {
+    await Promise.all(
+      temporaryDirectories
+        .splice(0)
+        .map((directory) => rm(directory, { recursive: true, force: true })),
+    )
+  })
+
+  async function createTemporaryDirectory(): Promise<string> {
+    const directory = await mkdtemp(join(tmpdir(), "ctxpipe-scip-publish-"))
+    temporaryDirectories.push(directory)
+    return directory
+  }
+
+  it("skips missing and malformed shards and publishes survivors", async () => {
+    const directory = await createTemporaryDirectory()
+    const validShardPath = join(directory, "typescript.scip")
+    const missingShardPath = join(directory, "go.scip")
+    const malformedShardPath = join(directory, "python.scip")
+    const outputPath = join(directory, "index.scip")
+    const shard = encodeScipIndex({
+      documents: [{ relativePath: "src/main.ts" }],
+      externalSymbols: [],
+    })
+    await writeFile(validShardPath, shard)
+    await writeFile(malformedShardPath, new Uint8Array([0x12, 0x05, 0x01]))
+
+    const published = await publishMergedScipIndex({
+      detectedLanguages: ["typescript", "go", "python"],
+      shardPaths: [validShardPath, missingShardPath, malformedShardPath],
+      outputPath,
+    })
+
+    expect(published).toEqual({ shardCount: 1 })
+    expect(decodeScipIndex(await readFile(outputPath))).toMatchObject({
+      documents: [{ relativePath: "src/main.ts" }],
+    })
+  })
+
+  it("writes an empty index when no languages were detected", async () => {
+    const directory = await createTemporaryDirectory()
+    const outputPath = join(directory, "index.scip")
+
+    const published = await publishMergedScipIndex({
+      detectedLanguages: [],
+      shardPaths: [],
+      outputPath,
+    })
+
+    expect(published).toEqual({ shardCount: 0 })
+    expect(decodeScipIndex(await readFile(outputPath))).toMatchObject({
+      documents: [],
+    })
+  })
+
+  it("omits the published index when languages were detected but all shards failed", async () => {
+    const directory = await createTemporaryDirectory()
+    const outputPath = join(directory, "index.scip")
+    await writeFile(
+      outputPath,
+      encodeScipIndex({
+        documents: [{ relativePath: "previous.ts" }],
+        externalSymbols: [],
+      }),
+    )
+
+    const published = await publishMergedScipIndex({
+      detectedLanguages: ["go"],
+      shardPaths: [join(directory, "go.scip")],
+      outputPath,
+    })
+
+    expect(published).toEqual({ shardCount: 0 })
+    expect(existsSync(outputPath)).toBe(false)
+  })
+
+  it("deletes empty shards so the next partial ingest retries them", async () => {
+    const directory = await createTemporaryDirectory()
+    const emptyShardPath = join(directory, "go.scip")
+    const outputPath = join(directory, "index.scip")
+    await writeFile(emptyShardPath, new Uint8Array())
+
+    await publishMergedScipIndex({
+      detectedLanguages: ["go"],
+      shardPaths: [emptyShardPath],
+      outputPath,
+    })
+
+    expect(existsSync(emptyShardPath)).toBe(false)
+    expect(existsSync(outputPath)).toBe(false)
+  })
+
+  it("deletes malformed shards so the next partial ingest retries them", async () => {
+    const directory = await createTemporaryDirectory()
+    const malformedShardPath = join(directory, "go.scip")
+    const outputPath = join(directory, "index.scip")
+    await writeFile(malformedShardPath, new Uint8Array([0x12, 0x05, 0x01]))
+
+    await publishMergedScipIndex({
+      detectedLanguages: ["go"],
+      shardPaths: [malformedShardPath],
+      outputPath,
+    })
+
+    expect(existsSync(malformedShardPath)).toBe(false)
+    expect(existsSync(outputPath)).toBe(false)
+  })
+})
+
+describe("discardScipShardFiles", () => {
+  it("deletes leftover language shards so the next partial ingest reindexes them", async () => {
+    const directory = await mkdtemp(join(tmpdir(), "ctxpipe-scip-discard-"))
+    const goShardPath = join(directory, "go.scip")
+    const tsShardPath = join(directory, "typescript.scip")
+    await writeFile(goShardPath, new Uint8Array([1]))
+    await writeFile(tsShardPath, new Uint8Array([1]))
+
+    await discardScipShardFiles([goShardPath, tsShardPath])
+
+    expect(existsSync(goShardPath)).toBe(false)
+    expect(existsSync(tsShardPath)).toBe(false)
+    await rm(directory, { recursive: true, force: true })
   })
 })

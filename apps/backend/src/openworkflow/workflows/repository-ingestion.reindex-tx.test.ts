@@ -323,6 +323,82 @@ describe("repository-ingestion index workflow boundary", () => {
     expect(enqueueFollowUpIfTipAheadMock).toHaveBeenCalled()
   })
 
+  it("marks complete with issues when SCIP failed but search succeeded", async () => {
+    const step = {
+      run: async (
+        _opts: { name: string; retryPolicy?: { maximumAttempts?: number } },
+        fn: () => unknown,
+      ) => fn(),
+      runWorkflow: async () => ({
+        ...repositoryIndexResult,
+        searchIndexOk: true,
+        scipIndexOk: false,
+        scipIndexError: "Codebase didn't fit available memory",
+      }),
+    }
+
+    const wf = repositoryIngestion as unknown as {
+      run: (args: {
+        input: { repositoryId: string; orgId: string }
+        step: typeof step
+        run?: { id: string }
+      }) => Promise<unknown>
+    }
+
+    await wf.run({
+      input: { repositoryId: "repo_1", orgId: "org_1" },
+      step,
+      run: { id: "wr_scip" },
+    })
+
+    expect(runWithLangfuseContextMock).toHaveBeenCalled()
+    expect(markRepositoryIndexingReadyWithIssues).toHaveBeenCalledWith({
+      repositoryId: "repo_1",
+      targetHash: "abc",
+      error: "Codebase didn't fit available memory",
+    })
+    expect(markRepositoryIndexingReady).not.toHaveBeenCalled()
+    expect(enqueueFollowUpIfTipAheadMock).toHaveBeenCalled()
+  })
+
+  it("dedupes identical memory-fit errors when both indexes fail", async () => {
+    const step = {
+      run: async (
+        _opts: { name: string; retryPolicy?: { maximumAttempts?: number } },
+        fn: () => unknown,
+      ) => fn(),
+      runWorkflow: async () => ({
+        ...repositoryIndexResult,
+        searchIndexOk: false,
+        searchIndexError: "Codebase didn't fit available memory",
+        scipIndexOk: false,
+        scipIndexError: "Codebase didn't fit available memory",
+      }),
+    }
+
+    const wf = repositoryIngestion as unknown as {
+      run: (args: {
+        input: { repositoryId: string; orgId: string }
+        step: typeof step
+        run?: { id: string }
+      }) => Promise<unknown>
+    }
+
+    await wf.run({
+      input: { repositoryId: "repo_1", orgId: "org_1" },
+      step,
+      run: { id: "wr_both" },
+    })
+
+    expect(markRepositoryIndexingReadyWithIssues).toHaveBeenCalledWith({
+      repositoryId: "repo_1",
+      targetHash: "abc",
+      error: "Codebase didn't fit available memory",
+    })
+    expect(markRepositoryIndexingReady).not.toHaveBeenCalled()
+    expect(enqueueFollowUpIfTipAheadMock).toHaveBeenCalled()
+  })
+
   it("does not mark complete with issues when the index child dies", async () => {
     const step = {
       run: async (
