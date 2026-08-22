@@ -3,8 +3,10 @@ import { AuthUIProviderTanstack } from "@daveyplate/better-auth-ui/tanstack"
 import { Link, useRouter } from "@tanstack/react-router"
 import { type ComponentProps, type FC, useEffect, useRef } from "react"
 import { authClient } from "@/lib/auth-client"
+import { orgGateKeys } from "@/lib/org-gate"
 import { useAuthEvlogIdentity } from "@/lib/useAuthEvlogIdentity"
 import { useGetAuthConfig } from "@/lib/useGetAuthConfig"
+import type { RouterContext } from "@/router"
 
 /**
  * better-auth-ui's SignUpForm navigates to sign-in after a successful link-based
@@ -117,6 +119,10 @@ export const AuthProvider: FC<React.PropsWithChildren> = ({ children }) => {
             : { basePath: "/.auth/organization" }
         }
         onSessionChange={() => {
+          const queryClient = (
+            router?.options.context as RouterContext | undefined
+          )?.queryClient
+          void queryClient?.invalidateQueries({ queryKey: orgGateKeys.all })
           void router?.invalidate()
         }}
         Link={

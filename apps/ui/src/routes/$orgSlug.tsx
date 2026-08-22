@@ -1,3 +1,4 @@
+import type { QueryClient } from "@tanstack/react-query"
 import {
   createFileRoute,
   Link,
@@ -7,55 +8,46 @@ import {
 } from "@tanstack/react-router"
 import { AppShell } from "@/components/AppShell"
 import { workspaceListOptions } from "@/features/workspaces/queries"
-import { fetchSsrOrganizations, fetchSsrSession } from "@/lib/auth-ssr"
+import { orgGateOptions, peekOrgGate } from "@/lib/org-gate"
 
 export const Route = createFileRoute("/$orgSlug")({
   shouldReload: ({ cause }) => cause === "enter",
-  beforeLoad: async ({ params, context }) => {
-    const [session, organizations] = await Promise.all([
-      fetchSsrSession(),
-      fetchSsrOrganizations(),
-    ])
-    if (!session) {
-      throw redirect({ to: "/.auth/sign-in" })
+  beforeLoad: ({ cause, params, context }) => {
+    if (cause === "stay" || cause === "preload") {
+      const cached = peekOrgGate(context.queryClient, params.orgSlug)
+      if (cached) return cached
     }
-
-    const user = session.user
-    if (!user.onboardingCompletedAt) {
-      throw redirect({
-        to: "/onboarding",
-        search: { orgSlug: undefined },
-      })
-    }
-
-    if (organizations.length === 0) {
-      throw redirect({
-        to: "/onboarding",
-        search: { orgSlug: undefined },
-      })
-    }
-
-    const isMember = organizations.some((org) => org.slug === params.orgSlug)
-    if (!isMember) {
-      return {
-        session,
-        organizations,
-        orgAccessDenied: true as const,
-      }
-    }
-
-    await context.queryClient.ensureQueryData(
-      workspaceListOptions(params.orgSlug),
-    )
-
-    return {
-      session,
-      organizations,
-      orgAccessDenied: false as const,
-    }
+    return resolveOrgGate(context.queryClient, params.orgSlug)
   },
   component: OrgScopedLayout,
 })
+
+async function resolveOrgGate(queryClient: QueryClient, orgSlug: string) {
+  const gate = await queryClient.ensureQueryData(orgGateOptions(orgSlug))
+  if (!gate.session) {
+    throw redirect({ to: "/.auth/sign-in" })
+  }
+
+  const user = gate.session.user
+  if (!user.onboardingCompletedAt) {
+    throw redirect({
+      to: "/onboarding",
+      search: { orgSlug: undefined },
+    })
+  }
+
+  if (gate.organizations.length === 0) {
+    throw redirect({
+      to: "/onboarding",
+      search: { orgSlug: undefined },
+    })
+  }
+
+  if (gate.orgAccessDenied) return gate
+
+  await queryClient.ensureQueryData(workspaceListOptions(orgSlug))
+  return gate
+}
 
 function OrgScopedLayout() {
   const { orgSlug } = Route.useParams()
