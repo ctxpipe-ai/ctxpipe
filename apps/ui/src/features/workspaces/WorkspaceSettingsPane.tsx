@@ -381,36 +381,53 @@ export function WorkspaceSettingsPane(props: {
                 to confirm. This removes the Workspace, its conversations, and
                 serving knowledge. The git remote is not deleted.
               </p>
-              <TextField
+              <form
                 className="mt-4"
-                label="Workspace name"
-                placeholder={workspace.displayName}
-                value={confirmName}
-                onChange={setConfirmName}
-                autoFocus
-              />
-              <div className="mt-6 flex justify-end gap-2">
-                <Button
-                  variant="quiet"
-                  isDisabled={deleteMutation.isPending}
-                  onPress={close}
-                >
-                  Cancel
-                </Button>
-                <Button
-                  variant="destructive"
-                  isDisabled={
+                onSubmit={(event) => {
+                  event.preventDefault()
+                  if (
                     deleteMutation.isPending ||
                     !workspaceDeleteNameMatches(
                       confirmName,
                       workspace.displayName,
                     )
+                  ) {
+                    return
                   }
-                  onPress={() => deleteMutation.mutate(confirmName.trim())}
-                >
-                  Delete Workspace
-                </Button>
-              </div>
+                  deleteMutation.mutate(confirmName.trim())
+                }}
+              >
+                <TextField
+                  label="Workspace name"
+                  placeholder={workspace.displayName}
+                  value={confirmName}
+                  onChange={setConfirmName}
+                  autoFocus
+                />
+                <div className="mt-6 flex justify-end gap-2">
+                  <Button
+                    type="button"
+                    variant="quiet"
+                    isDisabled={deleteMutation.isPending}
+                    onPress={close}
+                  >
+                    Cancel
+                  </Button>
+                  <Button
+                    type="submit"
+                    variant="destructive"
+                    isDisabled={
+                      deleteMutation.isPending ||
+                      !workspaceDeleteNameMatches(
+                        confirmName,
+                        workspace.displayName,
+                      )
+                    }
+                  >
+                    Delete Workspace
+                  </Button>
+                </div>
+              </form>
             </>
           )}
         </Dialog>

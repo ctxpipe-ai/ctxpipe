@@ -173,5 +173,9 @@ export const DeleteConfirmOpen: Story = {
     await userEvent.clear(scoped.getByLabelText("Workspace name"))
     await userEvent.type(scoped.getByLabelText("Workspace name"), "Docs")
     expect(confirm).toBeEnabled()
+    await userEvent.keyboard("{Enter}")
+    await waitFor(() => {
+      expect(body.queryByRole("alertdialog")).not.toBeInTheDocument()
+    })
   },
 }
