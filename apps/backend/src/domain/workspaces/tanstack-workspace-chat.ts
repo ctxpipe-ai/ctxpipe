@@ -181,27 +181,28 @@ export async function runTanstackWorkspaceChat(
         })
       const recordChatAttempt = (error?: unknown) => {
         const fields = chatAttemptFields(error)
+        const message = String(fields.message ?? "OpenCode chat stream failed")
         const logged =
           error == null
             ? null
             : error instanceof Error
               ? error
-              : new Error(fields.message)
+              : new Error(message)
         try {
           const logger = getLogger()
           logger.set(fields)
           if (logged) logger.error(logged, fields)
-          else logger.info(fields.message)
+          else logger.info(message)
         } catch {
-          if (logged) log.error(logged, fields)
+          if (logged) log.error(fields)
           else log.info(fields)
         }
-        return { fields, logged }
+        return { fields, logged, message }
       }
       const failTurn = async (error: unknown) => {
-        const { fields, logged } = recordChatAttempt(error)
+        const { logged, message } = recordChatAttempt(error)
         await input.onError?.()
-        controller.error(logged ?? new Error(fields.message))
+        controller.error(logged ?? new Error(message))
       }
       try {
         lastHeartbeatAt = new Date()

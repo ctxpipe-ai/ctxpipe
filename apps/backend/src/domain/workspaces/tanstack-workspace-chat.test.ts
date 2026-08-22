@@ -530,12 +530,15 @@ describe("runTanstackWorkspaceChat", () => {
 
   it("errors the stream on an OpenCode 500 instead of finishing empty", async () => {
     const onError = vi.fn(async () => {})
-    chatMock.mockImplementationOnce(async function* () {
-      throw Object.assign(
-        new Error("Unexpected server error. Check server logs for details."),
-        { status: 500 },
-      )
-    })
+    chatMock.mockImplementationOnce(
+      // biome-ignore lint/correctness/useYield: the mocked stream fails before the first chunk
+      async function* () {
+        throw Object.assign(
+          new Error("Unexpected server error. Check server logs for details."),
+          { status: 500 },
+        )
+      },
+    )
     initLogger({
       enabled: true,
       pretty: false,
@@ -582,9 +585,12 @@ describe("runTanstackWorkspaceChat", () => {
   })
 
   it("errors an empty stream when TanStack only logs a console fatal", async () => {
-    chatMock.mockImplementationOnce(async function* () {
-      console.error("❌ [tanstack-ai:errors] ❌ opencode.chatStream fatal")
-    })
+    chatMock.mockImplementationOnce(
+      // biome-ignore lint/correctness/useYield: TanStack logs a fatal and yields no chunks
+      async function* () {
+        console.error("❌ [tanstack-ai:errors] ❌ opencode.chatStream fatal")
+      },
+    )
     await withTestLogger(async () => {
       const res = await runTanstackWorkspaceChat({
         conversationId: "conv_1",

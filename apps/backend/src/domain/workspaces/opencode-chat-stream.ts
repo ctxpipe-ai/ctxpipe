@@ -1,4 +1,4 @@
-const ANSI = /\u001b\[[0-9;]*m/g
+const ANSI = new RegExp(`${String.fromCharCode(27)}\\[[0-9;]*m`, "g")
 
 export const OPENCODE_CHAT_STREAM_STEP = "opencode.chatStream" as const
 
@@ -34,17 +34,7 @@ export function opencodeChatStreamEvent(input: {
   opencodePort?: number
   durationMs?: number
   stderrExcerpt?: string
-}): {
-  step: typeof OPENCODE_CHAT_STREAM_STEP
-  conversationId: string
-  workspaceId: string
-  status: number | null
-  bodyExcerpt: string
-  message: string
-  provider?: string
-  opencodePort?: number
-  durationMs?: number
-} {
+}): Record<string, unknown> {
   const failed = input.error != null
   const status = failed ? opencodeHttpStatus(input.error) : 200
   const bodyExcerpt = failed
