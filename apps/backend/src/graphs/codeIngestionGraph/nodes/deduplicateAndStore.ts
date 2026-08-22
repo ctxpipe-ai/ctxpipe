@@ -219,22 +219,22 @@ export async function deduplicateAndStore(
   state: CodeIngestionState,
 ): Promise<Partial<CodeIngestionState>> {
   await setIngestionIndexingStep(state, "deduplicating")
-  const logger = getLogger()
-  logger.set({
+  getLogger().set({
     repositoryId: state.repositoryId,
     orgId: state.orgId,
     roots: state.roots,
     extractedObjectsCount: state.extractedObjects?.length ?? 0,
     extractedClaimsCount: state.extractedClaims?.length ?? 0,
   })
-  logger.info("deduplicating and storing")
+  getLogger().info("deduplicating and storing")
   const orgId = requireCurrentOrgId()
   const { extractedObjects = [], extractedClaims = [] } = state
   const { targetHash } = state
   const dedupStartedAt = Date.now()
 
   const emitProgress = (fields: Record<string, unknown>) => {
-    logger.set({
+    const progressLog = getLogger()
+    progressLog.set({
       step: "codeIngestion.deduplicateAndStore.progress",
       repositoryId: state.repositoryId,
       orgId: state.orgId,
@@ -244,7 +244,7 @@ export async function deduplicateAndStore(
       extractedClaimsCount: extractedClaims.length,
       ...fields,
     })
-    logger.info("deduplicateAndStore progress")
+    progressLog.info("deduplicateAndStore progress")
     flushWorkflowLog()
   }
 
@@ -335,7 +335,7 @@ export async function deduplicateAndStore(
     const subjectId = resolveRefFromMap(c.subjectRef, keyToId)
     if (!subjectId) {
       claimsSkippedUnresolvedRef++
-      logger.set({
+      getLogger().set({
         step: "codeIngestion.deduplicateAndStore.claimSkipped",
         reason: "unresolved_subject_ref",
         repositoryId: state.repositoryId,
@@ -346,7 +346,7 @@ export async function deduplicateAndStore(
         objectRef: c.objectRef,
         sourceId: c.sourceId,
       })
-      logger.warn(
+      getLogger().warn(
         "[codeIngestion] skipping claim: unresolved subject deduplication ref",
         {
           repositoryId: state.repositoryId,
@@ -362,7 +362,7 @@ export async function deduplicateAndStore(
     const objectId = resolveRefFromMap(c.objectRef, keyToId)
     if (!objectId) {
       claimsSkippedUnresolvedRef++
-      logger.set({
+      getLogger().set({
         step: "codeIngestion.deduplicateAndStore.claimSkipped",
         reason: "unresolved_object_ref",
         repositoryId: state.repositoryId,
@@ -373,7 +373,7 @@ export async function deduplicateAndStore(
         objectRef: c.objectRef,
         sourceId: c.sourceId,
       })
-      logger.warn(
+      getLogger().warn(
         "[codeIngestion] skipping claim: unresolved object deduplication ref",
         {
           repositoryId: state.repositoryId,
@@ -445,7 +445,7 @@ export async function deduplicateAndStore(
       evidenceSourceIdMayHaveWindowsDriveColon(c.sourceId)
     ) {
       warnedWindowsDriveColonInSourceId = true
-      logger.warn(
+      getLogger().warn(
         "deduplicateAndStore: source_id may contain a Windows drive colon; colon-delimited evidence keys can be ambiguous",
         {
           repositoryId: state.repositoryId,
@@ -632,7 +632,7 @@ export async function deduplicateAndStore(
 
   const uniqueObjectIds = [...new Set(objectIds)]
   const uniqueTouchedObjectIds = [...new Set(touchedObjectIds)]
-  logger.set({
+  getLogger().set({
     step: "codeIngestion.deduplicateAndStore.summary",
     repositoryId: state.repositoryId,
     orgId: state.orgId,
@@ -647,7 +647,7 @@ export async function deduplicateAndStore(
     claimsSkippedUnresolvedRef,
     claimsForProjectionCount: claimsForProjection.length,
   })
-  logger.info("deduplicateAndStore summary")
+  getLogger().info("deduplicateAndStore summary")
 
   return {
     objectIds: uniqueObjectIds,

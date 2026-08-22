@@ -5,6 +5,7 @@ import { cors } from "hono/cors"
 import { verifyCodesearchJwt } from "../auth/jwt.js"
 import type { Env } from "../config/env.js"
 import { createDb } from "../db/client.js"
+import { httpWideEventMessage } from "../observability/http-wide-event-message.js"
 import { createEvlogDrain } from "../observability/logger.js"
 import { registerGraphRoutes } from "../routes/graph.js"
 import { registerOpenapiRoutes } from "../routes/openapi.js"
@@ -21,7 +22,19 @@ export function createApp(env: Env) {
 
   app.use("*", cors())
   app.use(contextStorage())
-  app.use(evlog({ drain: createEvlogDrain() }))
+  app.use(
+    evlog({
+      drain: createEvlogDrain(),
+      enrich: (ctx) => {
+        const message = httpWideEventMessage({
+          method: ctx.event.method ?? ctx.request?.method,
+          path: ctx.event.path ?? ctx.request?.path,
+          status: ctx.event.status ?? ctx.response?.status,
+        })
+        if (message) ctx.event.message = message
+      },
+    }),
+  )
   app.use("*", async (c, next) => {
     c.set("db", db)
     c.set("env", env)

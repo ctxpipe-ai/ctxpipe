@@ -12,6 +12,7 @@ import { getAuth } from "../auth/config.js"
 import { parseEnv } from "../config/env.js"
 import { initDb } from "../db/client.js"
 import { initAmplitudeFromEnv } from "../observability/amplitude.js"
+import { httpWideEventMessage } from "../domain/workspaces/opencode-chat-stream.js"
 import { createEvlogDrain, log } from "../observability/logger.js"
 import { registerAuthRoutes } from "../routes/auth.js"
 import { registerLangsmithRoutes } from "../routes/langsmith.js"
@@ -73,7 +74,19 @@ export function createApp() {
     }),
   )
   app.use(contextStorage())
-  app.use(evlog({ drain: createEvlogDrain() }))
+  app.use(
+    evlog({
+      drain: createEvlogDrain(),
+      enrich: (ctx) => {
+        const message = httpWideEventMessage({
+          method: ctx.event.method ?? ctx.request?.method,
+          path: ctx.event.path ?? ctx.request?.path,
+          status: ctx.event.status ?? ctx.response?.status,
+        })
+        if (message) ctx.event.message = message
+      },
+    }),
+  )
   app.use("*", async (c, next) => {
     const requestLog = c.get("log")
     if (requestLog) {
