@@ -6,7 +6,6 @@ import {
   useNavigate,
 } from "@tanstack/react-router"
 import { useMemo } from "react"
-import { AppShell } from "@/components/AppShell"
 import { Button } from "@/components/ui/Button"
 import { InlineAlert } from "@/components/ui/InlineAlert"
 import { SkeletonRow } from "@/components/ui/Skeleton"
@@ -79,23 +78,21 @@ function GitHubSetupPage() {
 
   if (sessionPending || (session && installationQuery.isPending)) {
     return (
-      <AppShell>
-        <main className="mx-auto box-border w-full max-w-2xl p-8 text-zinc-100">
-          <header className="mb-8">
-            <span className="ctx-label text-teal-400">GitHub</span>
-          </header>
-          <div aria-busy>
-            <span className="sr-only">Checking GitHub connection</span>
-            <SkeletonRow size="catalog" lines={2} />
-            <SkeletonRow size="catalog" lines={2} />
-          </div>
-          <div className="mt-6">
-            <Button variant="quiet" onPress={goBack}>
-              Close wizard
-            </Button>
-          </div>
-        </main>
-      </AppShell>
+      <main className="mx-auto box-border w-full max-w-2xl p-8 text-zinc-100">
+        <header className="mb-8">
+          <span className="ctx-label text-teal-400">GitHub</span>
+        </header>
+        <div aria-busy>
+          <span className="sr-only">Checking GitHub connection</span>
+          <SkeletonRow size="catalog" lines={2} />
+          <SkeletonRow size="catalog" lines={2} />
+        </div>
+        <div className="mt-6">
+          <Button variant="quiet" onPress={goBack}>
+            Close wizard
+          </Button>
+        </div>
+      </main>
     )
   }
   if (!session) {
@@ -106,76 +103,70 @@ function GitHubSetupPage() {
 
   if (installationQuery.isError) {
     return (
-      <AppShell>
-        <main className="mx-auto box-border w-full max-w-2xl p-8 text-zinc-100">
-          <header className="mb-8">
-            <span className="ctx-label text-teal-400">GitHub</span>
-          </header>
-          <InlineAlert
-            variant="error"
-            title="Could not check GitHub"
-            actions={
-              <Button
-                variant="outline"
-                className="rounded-lg"
-                onPress={() => void installationQuery.refetch()}
-              >
-                Retry
-              </Button>
-            }
-          >
-            Try again, or close the wizard.
-          </InlineAlert>
-          <div className="mt-6">
-            <Button variant="quiet" onPress={goBack}>
-              Close wizard
+      <main className="mx-auto box-border w-full max-w-2xl p-8 text-zinc-100">
+        <header className="mb-8">
+          <span className="ctx-label text-teal-400">GitHub</span>
+        </header>
+        <InlineAlert
+          variant="error"
+          title="Could not check GitHub"
+          actions={
+            <Button
+              variant="outline"
+              className="rounded-lg"
+              onPress={() => void installationQuery.refetch()}
+            >
+              Retry
             </Button>
-          </div>
-        </main>
-      </AppShell>
+          }
+        >
+          Try again, or close the wizard.
+        </InlineAlert>
+        <div className="mt-6">
+          <Button variant="quiet" onPress={goBack}>
+            Close wizard
+          </Button>
+        </div>
+      </main>
     )
   }
 
   if (!installationLinked) {
     return (
-      <AppShell>
-        <main className="mx-auto box-border w-full max-w-2xl p-8 text-zinc-100">
-          <header className="mb-8">
-            <span className="ctx-label text-teal-400">GitHub</span>
-          </header>
-          <h1 className="text-xl font-medium tracking-tight text-foreground">
-            Finish connecting GitHub
-          </h1>
-          <p className="mt-3 max-w-prose text-sm leading-relaxed text-muted-foreground">
-            The GitHub App is not installed yet. Close this wizard and complete
-            the install from Connectors.
-          </p>
-          <div className="mt-8">
-            <Button variant="quiet" onPress={goBack}>
-              Close wizard
-            </Button>
-          </div>
-        </main>
-      </AppShell>
+      <main className="mx-auto box-border w-full max-w-2xl p-8 text-zinc-100">
+        <header className="mb-8">
+          <span className="ctx-label text-teal-400">GitHub</span>
+        </header>
+        <h1 className="text-xl font-medium tracking-tight text-foreground">
+          Finish connecting GitHub
+        </h1>
+        <p className="mt-3 max-w-prose text-sm leading-relaxed text-muted-foreground">
+          The GitHub App is not installed yet. Close this wizard and complete
+          the install from Connectors.
+        </p>
+        <div className="mt-8">
+          <Button variant="quiet" onPress={goBack}>
+            Close wizard
+          </Button>
+        </div>
+      </main>
     )
   }
 
   return (
-    <AppShell>
-      <main className="mx-auto box-border w-full max-w-2xl p-8 text-zinc-100">
-        <GithubWorkspaceDestinationFromApi
-          orgSlug={orgSlug}
-          onCreateWorkspace={goCreate}
-          onSelectWorkspace={(workspace) => {
-            void navigate({
-              to: "/$orgSlug/ws/$workspaceSlug",
-              params: { orgSlug, workspaceSlug: workspace.slug },
-              search: { pane: "settings" },
-            })
-          }}
-          onClose={goBack}
-        />
-      </main>
-    </AppShell>
+    <main className="mx-auto box-border w-full max-w-2xl p-8 text-zinc-100">
+      <GithubWorkspaceDestinationFromApi
+        orgSlug={orgSlug}
+        onCreateWorkspace={goCreate}
+        onSelectWorkspace={(workspace) => {
+          void navigate({
+            to: "/$orgSlug/ws/$workspaceSlug",
+            params: { orgSlug, workspaceSlug: workspace.slug },
+            search: { pane: "settings" },
+          })
+        }}
+        onClose={goBack}
+      />
+    </main>
   )
 }

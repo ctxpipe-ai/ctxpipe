@@ -1,7 +1,7 @@
 import { createFileRoute } from "@tanstack/react-router"
 import {
   ensureWorkspaceRouteData,
-  prefetchWorkspaceConversation,
+  prefetchWorkspaceRouteData,
 } from "@/features/workspaces/ensure-route-data"
 import { workspaceSearch } from "@/features/workspaces/pane"
 import { WorkspaceRouteError } from "@/features/workspaces/WorkspaceRouteError"
@@ -12,25 +12,22 @@ export const Route = createFileRoute(
   validateSearch: workspaceSearch,
   shouldReload: ({ cause }) => cause === "enter",
   loader: async ({ context, params, location, cause }) => {
-    const isServer = typeof document === "undefined"
-    if (isServer) {
-      await ensureWorkspaceRouteData({
-        queryClient: context.queryClient,
-        orgSlug: params.orgSlug,
-        workspaceSlug: params.workspaceSlug,
-        conversationId: params.conversationId,
-        paneParam: workspaceSearch(location.search as Record<string, unknown>)
-          .pane,
-        warmLandingPane: cause === "enter" && typeof window !== "undefined",
-      })
+    const paneParam = workspaceSearch(
+      location.search as Record<string, unknown>,
+    ).pane
+    const input = {
+      queryClient: context.queryClient,
+      orgSlug: params.orgSlug,
+      workspaceSlug: params.workspaceSlug,
+      conversationId: params.conversationId,
+      paneParam,
+      warmLandingPane: cause === "enter" && typeof window !== "undefined",
+    }
+    if (typeof document === "undefined") {
+      await ensureWorkspaceRouteData(input)
       return
     }
-    prefetchWorkspaceConversation(
-      context.queryClient,
-      params.orgSlug,
-      params.workspaceSlug,
-      params.conversationId,
-    )
+    prefetchWorkspaceRouteData(input)
   },
   errorComponent: ({ error, reset }) => (
     <WorkspaceRouteError error={error} reset={reset} />

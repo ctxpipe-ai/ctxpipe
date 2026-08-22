@@ -16,6 +16,7 @@ import {
   sideNavRowClassName,
 } from "@/components/SideNav/sideNavStyles"
 import { focusVisibleClassName } from "@/lib/focus-styles"
+import { prefetchWorkspaceRouteData } from "./ensure-route-data"
 import { workspaceTitleAction } from "./nav"
 import { workspaceConversationOptions } from "./queries"
 import type { Workspace } from "./types"
@@ -71,18 +72,28 @@ export function WorkspaceNavRow(props: {
     : composeHref
   const titleHref = titleAction === "resume" ? resumeHref : composeHref
 
+  const prefetchWorkspace = (conversationId?: string) => {
+    prefetchWorkspaceRouteData({
+      queryClient,
+      orgSlug,
+      workspaceSlug: workspace.slug,
+      conversationId,
+      warmLandingPane: true,
+    })
+    if (conversationId) {
+      void queryClient.prefetchQuery(
+        workspaceConversationOptions(orgSlug, conversationId, workspace.id),
+      )
+    }
+  }
+
   const prefetchResume = () => {
     if (!workspace.mostRecentConversationId) return
-    void queryClient.prefetchQuery(
-      workspaceConversationOptions(
-        orgSlug,
-        workspace.mostRecentConversationId,
-        workspace.id,
-      ),
-    )
+    prefetchWorkspace(workspace.mostRecentConversationId)
   }
 
   const selectWorkspaceCompose = () => {
+    prefetchWorkspace()
     onSelectNav({
       orgSlug,
       primary: "workspace",
@@ -183,6 +194,7 @@ export function WorkspaceNavRow(props: {
           onHoverStart={() => {
             setHovered(true)
             if (titleAction === "resume") prefetchResume()
+            else prefetchWorkspace()
           }}
           onHoverEnd={() => setHovered(false)}
           className={titleControlClassName}
@@ -194,6 +206,7 @@ export function WorkspaceNavRow(props: {
       )}
       <Link
         href={composeHref}
+        onHoverStart={() => prefetchWorkspace()}
         onPress={selectWorkspaceCompose}
         aria-label={`New conversation in ${workspace.displayName}`}
         aria-hidden={!navExpanded}

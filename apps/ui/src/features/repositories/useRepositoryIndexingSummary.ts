@@ -1,4 +1,4 @@
-import { useQuery } from "@tanstack/react-query"
+import { queryOptions, useQuery } from "@tanstack/react-query"
 import { client } from "@/lib/api"
 import { pollWhileOk, readApiJson } from "@/lib/api-result"
 import {
@@ -65,18 +65,10 @@ export function getRepositoryIndexingSummary(
   }
 }
 
-export function useRepositoryIndexingSummary(
-  orgSlug: string | null,
-  options: {
-    enabled?: boolean
-    pollWhileEmpty?: boolean
-  } = {},
-) {
-  const query = useQuery({
+export function repositoriesListOptions(orgSlug: string) {
+  return queryOptions({
     queryKey: ["repositories", orgSlug],
-    enabled: Boolean(orgSlug) && (options.enabled ?? true),
     queryFn: async () => {
-      if (!orgSlug) throw new Error("Missing organisation")
       const res = await client[":orgSlug"].api.v1.repositories.$get({
         param: { orgSlug },
       })
@@ -85,6 +77,19 @@ export function useRepositoryIndexingSummary(
       })
       return json.items
     },
+  })
+}
+
+export function useRepositoryIndexingSummary(
+  orgSlug: string | null,
+  options: {
+    enabled?: boolean
+    pollWhileEmpty?: boolean
+  } = {},
+) {
+  const query = useQuery({
+    ...repositoriesListOptions(orgSlug ?? ""),
+    enabled: Boolean(orgSlug) && (options.enabled ?? true),
     refetchInterval: (query) => {
       const interval = pollWhileOk(3000)(query)
       if (interval === false) return false

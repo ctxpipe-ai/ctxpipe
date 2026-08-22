@@ -5,6 +5,7 @@ import {
   IconPlug,
   IconSearch,
 } from "@tabler/icons-react"
+import { useQueryClient } from "@tanstack/react-query"
 import { useRouter } from "@tanstack/react-router"
 import { type CSSProperties, useEffect, useRef, useState } from "react"
 import { Button } from "react-aria-components"
@@ -23,6 +24,7 @@ import {
 } from "@/lib/user-preferences"
 import { useUrgentValue } from "@/lib/useUrgentValue"
 import { cn } from "@/lib/utils"
+import { prefetchOrgConnectors, prefetchOrgHome } from "./prefetch-org-pages"
 import { SideNavItem } from "./SideNavItem"
 import { SideNavLogo } from "./SideNavLogo"
 import { SideNavOrganizationButton } from "./SideNavOrganizationButton"
@@ -43,6 +45,7 @@ import {
 
 export function SideNav() {
   const router = useRouter()
+  const queryClient = useQueryClient()
   const { navOpen, setNavOpen } = useShellLayout()
   const [
     { isSideNavExpanded: expanded, selectedOrganizationSlug, sideNavWidth },
@@ -176,7 +179,13 @@ export function SideNav() {
               icon={<IconHome stroke={1.4} />}
               expanded={expanded}
               active={nav.primary === "home"}
-              onPress={() => selectNav({ orgSlug, primary: "home" })}
+              onHoverStart={() => {
+                if (orgSlug) prefetchOrgHome(queryClient, orgSlug)
+              }}
+              onPress={() => {
+                if (orgSlug) prefetchOrgHome(queryClient, orgSlug)
+                selectNav({ orgSlug, primary: "home" })
+              }}
             />
           </li>
           <li>
@@ -222,7 +231,13 @@ export function SideNav() {
               icon={<IconPlug stroke={1.4} />}
               expanded={expanded}
               active={nav.primary === "connectors"}
-              onPress={() => selectNav({ orgSlug, primary: "connectors" })}
+              onHoverStart={() => {
+                if (orgSlug) prefetchOrgConnectors(queryClient, orgSlug)
+              }}
+              onPress={() => {
+                if (orgSlug) prefetchOrgConnectors(queryClient, orgSlug)
+                selectNav({ orgSlug, primary: "connectors" })
+              }}
             />
           </li>
           {orgSlug ? (

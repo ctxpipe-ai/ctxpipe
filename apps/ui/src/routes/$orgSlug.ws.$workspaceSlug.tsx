@@ -1,5 +1,8 @@
 import { createFileRoute, useMatch } from "@tanstack/react-router"
-import { ensureWorkspaceRouteData } from "@/features/workspaces/ensure-route-data"
+import {
+  ensureWorkspaceRouteData,
+  prefetchWorkspaceRouteData,
+} from "@/features/workspaces/ensure-route-data"
 import { workspaceSearch } from "@/features/workspaces/pane"
 import { WorkspaceRouteError } from "@/features/workspaces/WorkspaceRouteError"
 import { WorkspaceSurface } from "@/features/workspaces/WorkspaceSurface"
@@ -8,14 +11,21 @@ export const Route = createFileRoute("/$orgSlug/ws/$workspaceSlug")({
   validateSearch: workspaceSearch,
   shouldReload: ({ cause }) => cause === "enter",
   loader: async ({ context, params, location, cause }) => {
-    await ensureWorkspaceRouteData({
+    const paneParam = workspaceSearch(
+      location.search as Record<string, unknown>,
+    ).pane
+    const input = {
       queryClient: context.queryClient,
       orgSlug: params.orgSlug,
       workspaceSlug: params.workspaceSlug,
-      paneParam: workspaceSearch(location.search as Record<string, unknown>)
-        .pane,
+      paneParam,
       warmLandingPane: cause === "enter" && typeof window !== "undefined",
-    })
+    }
+    if (typeof document === "undefined") {
+      await ensureWorkspaceRouteData(input)
+      return
+    }
+    prefetchWorkspaceRouteData(input)
   },
   errorComponent: ({ error, reset }) => (
     <WorkspaceRouteError error={error} reset={reset} />

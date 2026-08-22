@@ -1,3 +1,4 @@
+import { queryOptions } from "@tanstack/react-query"
 import { client } from "@/lib/api"
 import { apiFetch, readApiJson } from "@/lib/api-result"
 import { fetchOrgConnections } from "./org-connections"
@@ -59,6 +60,16 @@ export function isAmbiguousGithubConnectionsError(body: unknown): boolean {
     typeof (body as { error: unknown }).error === "string" &&
     (body as { error: string }).error.includes("specify connectionId")
   )
+}
+
+export function githubInstallationOptions(
+  orgSlug: string,
+  connectionId?: string,
+) {
+  return queryOptions({
+    queryKey: githubConnectorKeys.installation(orgSlug, connectionId),
+    queryFn: () => fetchGithubInstallationSummary(orgSlug, connectionId),
+  })
 }
 
 export async function fetchGithubInstallationSummary(

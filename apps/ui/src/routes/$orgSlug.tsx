@@ -1,4 +1,11 @@
-import { createFileRoute, Link, Outlet, redirect } from "@tanstack/react-router"
+import {
+  createFileRoute,
+  Link,
+  Outlet,
+  redirect,
+  useMatch,
+} from "@tanstack/react-router"
+import { AppShell } from "@/components/AppShell"
 import { workspaceListOptions } from "@/features/workspaces/queries"
 import { fetchSsrOrganizations, fetchSsrSession } from "@/lib/auth-ssr"
 
@@ -53,6 +60,10 @@ export const Route = createFileRoute("/$orgSlug")({
 function OrgScopedLayout() {
   const { orgSlug } = Route.useParams()
   const { orgAccessDenied } = Route.useRouteContext()
+  const setupMatch = useMatch({
+    from: "/$orgSlug/setup",
+    shouldThrow: false,
+  })
 
   if (orgAccessDenied) {
     return (
@@ -87,5 +98,11 @@ function OrgScopedLayout() {
     )
   }
 
-  return <Outlet />
+  if (setupMatch) return <Outlet />
+
+  return (
+    <AppShell>
+      <Outlet />
+    </AppShell>
+  )
 }

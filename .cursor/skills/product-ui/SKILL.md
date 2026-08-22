@@ -70,7 +70,7 @@ Loading: pick the **kind** first. Do not mix them.
 | Control | Mutation on a button | `Button isPending` |
 | Status | Known entity, in-progress (health, indexing, streaming) | Pulse-dot **plus** the word |
 
-**Interaction responsiveness:** selected chrome (tabs, pane switchers, SideNav rows, org switcher) updates **on the click**; the skeleton stays inside the region that needs data. The **page body** stays too — sibling columns, `AppShell`, and in-page state must not remount while one region fetches. A click that leaves chrome or the rest of the page unchanged until the next route paints is not done. Enter/SSR still includes the landing region in the first HTML (see [react](../react/SKILL.md) **Feel fast**).
+**Interaction responsiveness:** selected chrome (tabs, pane switchers, SideNav rows, org switcher) updates **on the click**; the skeleton stays inside the region that needs data. The **page body** stays too — sibling columns, `AppShell`, and in-page state must not remount while one region fetches. Home / Connectors / Workspace share the org `AppShell`; a client page click must not remount the nav or wait on a loader before the main column swaps. A click that leaves chrome or the rest of the page unchanged until the next route paints is not done. SSR still includes the landing region in the first HTML (see [react](../react/SKILL.md) **Feel fast**).
 
 Error: [`InlineAlert`](../../../apps/ui/src/components/ui/InlineAlert.tsx) + a next step. Dark slab, same-hue muted secondary, no `text-white/50`.
 

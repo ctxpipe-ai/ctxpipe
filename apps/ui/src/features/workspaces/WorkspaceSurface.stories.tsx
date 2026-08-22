@@ -8,7 +8,7 @@ import {
   workspaceDetailLoadingHandler,
   workspaceShellHandlers,
 } from "@/mocks/workspace-handlers"
-import { entryPageInnerDecorators } from "../../../.storybook/decorators/entry-page-decorators"
+import { orgPageDecorators } from "../../../.storybook/decorators/entry-page-decorators"
 import type { StoryRouteParams } from "../../../.storybook/decorators/with-story-route"
 import { WorkspaceSurface } from "./WorkspaceSurface"
 import {
@@ -26,7 +26,7 @@ const workspaceSlug = "docs"
 const meta = {
   title: "Pages/Workspaces",
   component: WorkspaceSurface,
-  decorators: entryPageInnerDecorators,
+  decorators: orgPageDecorators,
   parameters: {
     layout: "fullscreen",
   },
@@ -61,6 +61,13 @@ export const Loading: Story = {
         page: [workspaceDetailLoadingHandler(), ...workspaceShellHandlers()],
       },
     },
+  },
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement)
+    expect(
+      canvas.getByRole("navigation", { name: "Main navigation" }),
+    ).toBeVisible()
+    expect(canvas.getByText("Loading workspace")).toBeInTheDocument()
   },
 }
 
@@ -194,6 +201,9 @@ export const ConversationLoading: Story = {
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement)
     await canvas.findByRole("list", { name: "Workspace files" })
+    expect(
+      canvas.getByRole("navigation", { name: "Main navigation" }),
+    ).toBeVisible()
     expect(canvas.queryByText("Loading workspace")).not.toBeInTheDocument()
   },
 }

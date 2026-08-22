@@ -5,7 +5,6 @@ import {
 } from "@tanstack/react-query"
 import { useNavigate, useRouterState, useSearch } from "@tanstack/react-router"
 import { Component, type ReactNode, Suspense, useEffect, useState } from "react"
-import { AppShell } from "@/components/AppShell"
 import { parseSideNavLocation } from "@/components/SideNav/sideNavLocation"
 import { pollWhileOk } from "@/lib/api-result"
 import { useUrgentValue } from "@/lib/useUrgentValue"
@@ -59,16 +58,14 @@ export function WorkspaceSurface(props: {
     props.conversationId
   return (
     <WorkspaceQueryErrorBoundary>
-      <AppShell>
-        <Suspense fallback={<WorkspaceSurfaceSkeleton />}>
-          <WorkspaceSurfaceReady
-            orgSlug={props.orgSlug}
-            workspaceSlug={props.workspaceSlug}
-            conversationId={conversationId}
-            paneParam={props.paneParam}
-          />
-        </Suspense>
-      </AppShell>
+      <Suspense fallback={<WorkspaceSurfaceSkeleton />}>
+        <WorkspaceSurfaceReady
+          orgSlug={props.orgSlug}
+          workspaceSlug={props.workspaceSlug}
+          conversationId={conversationId}
+          paneParam={props.paneParam}
+        />
+      </Suspense>
     </WorkspaceQueryErrorBoundary>
   )
 }

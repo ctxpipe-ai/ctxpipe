@@ -1,3 +1,4 @@
+import { queryOptions } from "@tanstack/react-query"
 import { apiFetch, readApiJson } from "@/lib/api-result"
 
 export type OrgConnectionListItem = {
@@ -26,6 +27,13 @@ export function sortOrgConnectionsForDisplay(
     const byType = TYPE_ORDER[a.type] - TYPE_ORDER[b.type]
     if (byType !== 0) return byType
     return a.createdAt.localeCompare(b.createdAt)
+  })
+}
+
+export function orgConnectionsOptions(orgSlug: string) {
+  return queryOptions({
+    queryKey: orgConnectionsKeys.list(orgSlug),
+    queryFn: () => fetchOrgConnections(orgSlug),
   })
 }
 

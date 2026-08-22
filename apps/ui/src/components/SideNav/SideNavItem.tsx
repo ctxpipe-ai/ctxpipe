@@ -17,6 +17,7 @@ type SideNavItemProps = {
   expanded: boolean
   active: boolean
   onPress?: () => void
+  onHoverStart?: () => void
   status?: {
     label: string
     tone: "indexing" | "failed"
@@ -31,6 +32,7 @@ export function SideNavItem({
   expanded,
   active,
   onPress,
+  onHoverStart,
   status,
 }: SideNavItemProps) {
   const router = useRouter()
@@ -59,6 +61,7 @@ export function SideNavItem({
       <Link
         href={href}
         onPress={onPress}
+        onHoverStart={onHoverStart}
         aria-current={isActive ? "page" : undefined}
         aria-label={expanded ? undefined : tooltipLabel}
         className={sideNavRowClassName({ active: isActive })}

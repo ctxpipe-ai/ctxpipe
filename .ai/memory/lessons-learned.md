@@ -718,17 +718,17 @@ Highest-priority confirmed rules for agents. Migrated from former `patterns.md` 
 - **Date:** 2026-08-21
 - **Source:** user correction (RLS in this branch; does not expand manual-test scope)
 
-### Selected chrome is urgent; enter still SSRs the landing region
-- **Rule:** TanStack Router commits location inside `startTransition`, so `selectedKey` / `aria-current` / current workspace driven only from `useSearch`, `useMatchRoute`, or `pathname` waits for the new body. Set selection in the click handler (`useUrgentValue`); write the URL afterwards. `Link` does not make the highlight instant. Loaders `shouldReload` only on `enter` and still `ensureQueryData` the landing region (workspace default is files when `?pane=` is empty) so first HTML is not “Loading files…”. Do not put in-page chrome in `loaderDeps`.
-- **Category:** convention
-- **Date:** 2026-08-21
-- **Source:** workspace pane tab lag in PR preview; files tree dropped off SSR after stay-only loaders
-
-### In-page identity must not remount the shell
-- **Rule:** Compose vs thread (or any sibling route that is the same screen) belongs on the **layout** that stays mounted. Children return `null`. Client loaders `prefetchQuery` in-page detail (conversation, messages) and do not `await` it — sibling `enter` still runs the child loader. `useSuspenseQuery` for that detail sits under a **local** `Suspense` (chat column only). Never wrap `AppShell` or the files pane in that boundary. RAC `Link` does not preload; `prefetchQuery` on hover/press. In-page `navigate` keeps `?pane=`.
+### Selected chrome is urgent; SSR still includes the landing region
+- **Rule:** TanStack Router commits location inside `startTransition`, so `selectedKey` / `aria-current` / current workspace driven only from `useSearch`, `useMatchRoute`, or `pathname` waits for the new body. Set selection in the click handler (`useUrgentValue`); write the URL afterwards. `Link` does not make the highlight instant. SSR `ensureQueryData`s the landing region (workspace default is files when `?pane=` is empty) so first HTML is not “Loading files…”. Client page enter (Home / Connectors / Workspace) `prefetchQuery`s and does not `await`. Do not put in-page chrome in `loaderDeps`.
 - **Category:** convention
 - **Date:** 2026-08-22
-- **Source:** workspace nav audit (fast rail, slow chat + right pane)
+- **Source:** workspace pane tab lag in PR preview; Home / Connectors / Workspace page enter still awaited files
+
+### Org pages and in-page identity must not remount the shell
+- **Rule:** `AppShell` lives on `/$orgSlug`. Home, Connectors, and Workspace leaves render main content only. Compose vs thread belongs on the workspace **layout** that stays mounted; children return `null`. Client loaders `prefetchQuery` landing + in-page detail and do not `await` — sibling `enter` still runs the child loader. `useSuspenseQuery` for that detail sits under a **local** `Suspense`. Never wrap `AppShell` or a sibling pane in that boundary. Session-pending fallbacks are main-column skeletons. RAC `Link` does not preload; `prefetchQuery` on hover/press. In-page `navigate` keeps `?pane=`.
+- **Category:** convention
+- **Date:** 2026-08-22
+- **Source:** workspace nav audit; page switches remounted SideNav and awaited the files tree
 
 ### Region loading is a skeleton; process loading is the teal bar
 - **Rule:** A wait whose populated UI is a list, tree, thread, or pane uses `Skeleton` / `SkeletonRow` that matches those rows — not `"Loading…"` and not a centered spinner. Long jobs or unknown structure (hydrate, OAuth wait, discovery) use `InlineLoader` / `ProgressLoader`. Button mutations use `isPending`. In-progress status on a known entity is a pulse-dot plus the word. Every fetch surface ships a `Loading` (or `Checking` / `Hydrating`) story with `delay("infinite")`.

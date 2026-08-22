@@ -65,6 +65,13 @@ export async function ensureWorkspaceRouteData(input: {
   return workspace
 }
 
+/** Client page enter / hover: start the same fetches without gating the route. */
+export function prefetchWorkspaceRouteData(
+  input: Parameters<typeof ensureWorkspaceRouteData>[0],
+) {
+  void ensureWorkspaceRouteData(input)
+}
+
 /** Client in-page nav: start the conversation fetch without gating the route. */
 export function prefetchWorkspaceConversation(
   queryClient: QueryClient,
@@ -75,7 +82,16 @@ export function prefetchWorkspaceConversation(
   const workspace = queryClient.getQueryData(
     workspaceDetailOptions(orgSlug, workspaceSlug).queryKey,
   )
-  if (!workspace) return
+  if (!workspace) {
+    prefetchWorkspaceRouteData({
+      queryClient,
+      orgSlug,
+      workspaceSlug,
+      conversationId,
+      warmLandingPane: true,
+    })
+    return
+  }
   void queryClient.prefetchQuery(
     workspaceConversationOptions(orgSlug, conversationId, workspace.id),
   )

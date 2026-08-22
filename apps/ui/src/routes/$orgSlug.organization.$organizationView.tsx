@@ -1,6 +1,5 @@
 import { OrganizationView } from "@daveyplate/better-auth-ui"
 import { createFileRoute, Navigate } from "@tanstack/react-router"
-import { AppShell } from "@/components/AppShell"
 import { PageBodySkeleton } from "@/components/ui/Skeleton"
 import { organizationViewClassNames } from "@/features/organization/organizationViewTheme"
 import { useSession } from "@/lib/auth-client"
@@ -17,11 +16,9 @@ function OrganizationViewRoute() {
 
   if (isPending) {
     return (
-      <AppShell>
-        <main className="mx-auto max-w-3xl px-2 py-2 text-zinc-100 sm:px-6 sm:py-10">
-          <PageBodySkeleton label="Loading organisation settings" />
-        </main>
-      </AppShell>
+      <main className="mx-auto max-w-3xl px-2 py-2 text-zinc-100 sm:px-6 sm:py-10">
+        <PageBodySkeleton label="Loading organisation settings" />
+      </main>
     )
   }
   if (!session) return <Navigate to="/.auth/sign-in" replace />
@@ -34,18 +31,16 @@ function OrganizationViewRoute() {
   }
 
   return (
-    <AppShell>
-      <main className="mx-auto max-w-3xl px-2 py-2 text-zinc-100 sm:px-6 sm:py-10">
-        <h1 className="mb-6 font-mono text-xs font-normal uppercase tracking-[0.24em] text-teal-400 sm:mb-8">
-          organisation settings
-        </h1>
-        {/* Org members / invites: better-auth-ui `OrganizationView` composes cards such as
+    <main className="mx-auto max-w-3xl px-2 py-2 text-zinc-100 sm:px-6 sm:py-10">
+      <h1 className="mb-6 font-mono text-xs font-normal uppercase tracking-[0.24em] text-teal-400 sm:mb-8">
+        organisation settings
+      </h1>
+      {/* Org members / invites: better-auth-ui `OrganizationView` composes cards such as
             OrganizationMembersCard — https://better-auth-ui.com/components/organization-members-card */}
-        <OrganizationView
-          pathname={organizationView}
-          classNames={organizationViewClassNames}
-        />
-      </main>
-    </AppShell>
+      <OrganizationView
+        pathname={organizationView}
+        classNames={organizationViewClassNames}
+      />
+    </main>
   )
 }

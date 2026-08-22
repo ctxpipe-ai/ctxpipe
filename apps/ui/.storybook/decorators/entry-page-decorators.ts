@@ -1,6 +1,7 @@
 import type { Decorator } from "@storybook/react-vite"
 import { withAmplitude } from "./with-amplitude"
 import { withAuth } from "./with-auth"
+import { withOrgAppShell } from "./with-org-app-shell"
 import { withReactAriaRouter } from "./with-react-aria-router"
 import { withStoryRoute } from "./with-story-route"
 
@@ -14,4 +15,11 @@ export const entryPageInnerDecorators: Decorator[] = [
   withAmplitude,
   withAuth,
   withStoryRoute,
+]
+
+export { withOrgAppShell }
+
+export const orgPageDecorators: Decorator[] = [
+  withOrgAppShell,
+  ...entryPageInnerDecorators,
 ]

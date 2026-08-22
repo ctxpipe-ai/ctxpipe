@@ -141,7 +141,7 @@ function createStoryRouter(
       pane: typeof search.pane === "string" ? search.pane : undefined,
     }),
     // Same as production: the workspace layout owns the surface so compose ↔
-    // thread does not remount AppShell / the files pane.
+    // thread does not remount the files pane. Org AppShell is the page decorator.
     component: spec.pattern === "orgWorkspace" ? StoryRoute : () => <Outlet />,
   })
   const orgWsIndex = createRoute({

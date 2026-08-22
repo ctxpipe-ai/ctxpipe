@@ -30,7 +30,7 @@ When you add a **reusable component** or a **new page/screen** (a route that rep
 ## Colocation and naming
 
 - **Component stories**: colocate with the component; `title` uses **`Components/...`** (or **`App/...`** for app shell) — see existing stories under `src/components/` and feature folders.
-- **Full-page / route stories**: `title` under **`Pages/...`**, e.g. `Pages/Connections` for a connectors page story. See **`entryPageInnerDecorators`**, `parameters.storyRoute`, and **`layout: "fullscreen"`** as in [ConfluenceConnectionCard.stories.tsx](../../../apps/ui/src/features/connectors/components/ConfluenceConnectionCard.stories.tsx).
+- **Full-page / route stories**: `title` under **`Pages/...`**, e.g. `Pages/Connections` for a connectors page story. Org product pages (Home, Connectors, Workspace, new workspace) use **`orgPageDecorators`** (`AppShell` + `entryPageInnerDecorators`) so the shell matches production `/$orgSlug`. Isolated feature stories keep **`entryPageInnerDecorators`**. See `parameters.storyRoute` and **`layout: "fullscreen"`**.
 - **Route file naming**: use **`-` prefix** for story files next to routes (e.g. `-connectors.stories.tsx`) so they are not picked up as route modules.
 - **Story export names (CSF)**: **Do not** name a story export `Default`. Each export should describe the **visible state or scenario** (e.g. `Empty`, `Loading`, `WelcomeAnimation`, `ValidationError`, `Installed`). If the surface fetches, export **`Loading`** (or `Checking` / `Hydrating` when that is the real wait). If you need a particular story first in the sidebar, use **`parameters` / story sort** (or Storybook’s ordering options)—not a `Default` name.
 
@@ -40,6 +40,7 @@ When you add a **reusable component** or a **new page/screen** (a route that rep
 - **Do** use **MSW** for API, auth-adjacent, and other network boundaries. The addon is **`msw-storybook-addon`**; preview wires **`mswLoader`** and default handlers. Project defaults live in [apps/ui/.storybook/preview.tsx](../../../apps/ui/.storybook/preview.tsx) (auth/session org handlers from [apps/ui/src/mocks/handlers](../../../apps/ui/src/mocks/handlers)).
 - **Per-story API behavior**: set **`parameters.msw.handlers.page`** (array of `http.*` handlers) in that story, matching patterns in existing connector and page stories. Use **`delay("infinite")`** for loading states when you need a hanging request.
 - **In-page nav:** a delayed region (conversation, blob) must skeleton **only** that region. Sibling chrome (files pane, `AppShell`) stays populated. Play functions that click compose ↔ thread should assert the sibling pane is still there and the page is not `"Loading workspace"`.
+- **Org page enter:** delayed Home / Connectors / Workspace detail must skeleton **only the main column**. SideNav stays (assert `navigation` named `Main navigation`). Do not remount `AppShell` inside the story component.
 - **Shared MSW**: put reusable handlers in **`src/mocks/handlers`** and import them in stories **only** when the same request contract is used across **multiple** story files. Otherwise keep handlers **inline** in the story for clarity.
 - **Handlers**: use **`http.get` / `http.post`**, **`HttpResponse.json`**, and path/query checks consistent with the real API (see existing stories for org-scoped paths like `/:orgSlug/api/...`).
 

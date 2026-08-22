@@ -9,12 +9,10 @@ import { useQuery } from "@tanstack/react-query"
 import { createFileRoute, Navigate, useNavigate } from "@tanstack/react-router"
 import { motion, type Variants } from "motion/react"
 import { type ReactNode, useEffect } from "react"
-import { AppShell } from "@/components/AppShell"
 import { PageBodySkeleton } from "@/components/ui/Skeleton"
 import {
-  fetchGithubInstallationSummary,
-  githubConnectorKeys,
   githubInstallationIsLinked,
+  githubInstallationOptions,
 } from "@/features/connectors/queries/github-connector"
 import { useGithubConnectFlow } from "@/features/connectors/useGithubConnectFlow"
 import { useRepositoryIndexingSummary } from "@/features/repositories"
@@ -139,11 +137,9 @@ function OrgHomePage() {
 
 export function OrgHomeSessionFallback() {
   return (
-    <AppShell>
-      <main className="mx-auto box-border flex min-h-screen w-full max-w-2xl items-center p-8 text-zinc-100">
-        <PageBodySkeleton label="Loading home" />
-      </main>
-    </AppShell>
+    <main className="mx-auto box-border flex min-h-screen w-full max-w-2xl items-center p-8 text-zinc-100">
+      <PageBodySkeleton label="Loading home" />
+    </main>
   )
 }
 
@@ -153,8 +149,7 @@ export function OrgHomePageContent({ orgSlug }: { orgSlug: string }) {
   const [preferences, updatePreferences] = useUserPreferences()
   const { data: session, isPending: sessionPending } = useSession()
   const githubInstallationQuery = useQuery({
-    queryKey: githubConnectorKeys.installation(orgSlug),
-    queryFn: () => fetchGithubInstallationSummary(orgSlug),
+    ...githubInstallationOptions(orgSlug),
     enabled: !!session,
   })
   const { data: githubInstallation } = githubInstallationQuery
@@ -235,7 +230,7 @@ export function OrgHomePageContent({ orgSlug }: { orgSlug: string }) {
   const githubRowBusy = ghBusy || isSyncing
 
   return (
-    <AppShell>
+    <>
       <div className="flex min-h-full min-w-0 flex-1 flex-col text-foreground">
         {/* Dashboard column: w-full up to max-w-2xl (42rem / 672px), centred in main. */}
         <div className="mx-auto box-border flex w-full max-w-2xl flex-1 flex-col justify-center p-8">
@@ -378,6 +373,6 @@ export function OrgHomePageContent({ orgSlug }: { orgSlug: string }) {
         </div>
       </div>
       {SelfHostedWizardModal}
-    </AppShell>
+    </>
   )
 }

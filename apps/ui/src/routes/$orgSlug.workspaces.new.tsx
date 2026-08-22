@@ -1,5 +1,4 @@
 import { createFileRoute, Navigate, useLocation } from "@tanstack/react-router"
-import { AppShell } from "@/components/AppShell"
 import { PageBodySkeleton } from "@/components/ui/Skeleton"
 import { afterFromSearch } from "@/features/workspaces/github-workspace-destination-nav"
 import { WorkspaceCreateForm } from "@/features/workspaces/WorkspaceCreateForm"
@@ -11,11 +10,9 @@ export const Route = createFileRoute("/$orgSlug/workspaces/new")({
 
 export function NewWorkspaceSessionFallback() {
   return (
-    <AppShell>
-      <main className="mx-auto flex min-h-screen w-full max-w-2xl items-center px-6 py-16">
-        <PageBodySkeleton label="Loading new workspace" />
-      </main>
-    </AppShell>
+    <main className="mx-auto flex min-h-screen w-full max-w-2xl items-center px-6 py-16">
+      <PageBodySkeleton label="Loading new workspace" />
+    </main>
   )
 }
 
@@ -24,11 +21,9 @@ export function NewWorkspacePageContent(props: {
   after?: "settings"
 }) {
   return (
-    <AppShell>
-      <main className="mx-auto flex min-h-screen w-full max-w-2xl items-center px-6 py-16">
-        <WorkspaceCreateForm orgSlug={props.orgSlug} after={props.after} />
-      </main>
-    </AppShell>
+    <main className="mx-auto flex min-h-screen w-full max-w-2xl items-center px-6 py-16">
+      <WorkspaceCreateForm orgSlug={props.orgSlug} after={props.after} />
+    </main>
   )
 }
 
