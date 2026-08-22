@@ -95,8 +95,7 @@ const resolveGithubInstallationForOrgDetailedMock = vi.hoisted(() =>
 )
 
 vi.mock("../../models/github-installation.js", () => ({
-  getGithubInstallationByConnectionId:
-    getGithubInstallationByConnectionIdMock,
+  getGithubInstallationByConnectionId: getGithubInstallationByConnectionIdMock,
   resolveGithubInstallationForOrgDetailed:
     resolveGithubInstallationForOrgDetailedMock,
 }))

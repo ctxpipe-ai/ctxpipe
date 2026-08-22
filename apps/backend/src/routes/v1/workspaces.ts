@@ -2,6 +2,10 @@ import { createRoute, OpenAPIHono, z } from "@hono/zod-openapi"
 import type { Context } from "hono"
 import type { AppEnv } from "../../app/env.js"
 import type { Env } from "../../config/env.js"
+import {
+  resolveWorkspaceGithubConnectionId,
+  type WorkspaceAddSource,
+} from "../../domain/workspaces/bind-github-connection.js"
 import { ensureOrgRepositoryAndIngest } from "../../domain/workspaces/ensure-org-repository.js"
 import { fileTreeFromPaths } from "../../domain/workspaces/file-tree.js"
 import {
@@ -29,10 +33,6 @@ import {
 import { normalizeWorkspaceRepositoryUrl } from "../../domain/workspaces/slug.js"
 import { workspaceGraphFromUnits } from "../../domain/workspaces/workspace-graph.js"
 import { writeJobQueueHttpDecision } from "../../domain/workspaces/write-jobs.js"
-import {
-  resolveWorkspaceGithubConnectionId,
-  type WorkspaceAddSource,
-} from "../../domain/workspaces/bind-github-connection.js"
 import {
   githubConnectionIdForWriteProbe,
   writeStatusFromClassification,

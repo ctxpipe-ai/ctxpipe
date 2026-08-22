@@ -155,9 +155,7 @@ export function WorkspaceRepositoryPicker(props: {
               eligibleCount={eligibleRepos.length}
               selectedIds={selectedIds}
               selectedRepoUrl={selectedRepo?.clone_url ?? null}
-              reposPending={
-                connectionsQuery.isPending || reposQuery.isPending
-              }
+              reposPending={connectionsQuery.isPending || reposQuery.isPending}
               reposFailed={connectionsQuery.isError || reposQuery.isError}
               onToggle={(id, selected) => {
                 setSelectedId(selected ? id : null)
