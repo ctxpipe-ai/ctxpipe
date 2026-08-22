@@ -9,7 +9,9 @@ export function shouldShowKnowledgeGraphIntro(orgSlug: string): boolean {
 
 export function isKnowledgeGraphIntroDismissed(orgSlug: string): boolean {
   if (typeof window === "undefined") return false
-  return window.localStorage.getItem(knowledgeGraphIntroStorageKey(orgSlug)) === "1"
+  return (
+    window.localStorage.getItem(knowledgeGraphIntroStorageKey(orgSlug)) === "1"
+  )
 }
 
 export function dismissKnowledgeGraphIntro(orgSlug: string): void {

@@ -2,6 +2,7 @@ import type { BaseMessageLike } from "@langchain/core/messages"
 import { AIMessage, SystemMessage } from "@langchain/core/messages"
 import { mergeConfigs } from "@langchain/core/runnables"
 import { getConfig } from "@langchain/langgraph"
+import { decideChatToolPermission } from "../../../domain/workspaces/chat-sandbox-policy.js"
 import { getModel } from "../../../retrieval/services/modelProvider.js"
 import { listRepositoriesTool } from "../../../tools/listRepositories.js"
 import { standardRepoExplorerTools } from "../../../tools/repoExplorerTools.js"
@@ -77,15 +78,49 @@ RESPONSE FORMAT (primary consumers are agents):
 ${mcpAnswerStructure}
 `.trim()
 
+function withWorkspaceChatPermission<
+  T extends { name: string; invoke: (...args: never[]) => unknown },
+>(tool: T): T {
+  const original = tool.invoke.bind(tool)
+  tool.invoke = ((input: unknown, config?: unknown) => {
+    const writeStatus = String(
+      (getConfig().configurable as { writeStatus?: string } | undefined)
+        ?.writeStatus ?? "read_only",
+    )
+    const excerpt =
+      typeof input === "string" ? input : JSON.stringify(input ?? "")
+    if (
+      decideChatToolPermission({
+        toolName: tool.name,
+        argsExcerpt: excerpt.slice(0, 400),
+        writeStatus,
+      }) === "deny" &&
+      /commit|push|write|edit|apply_patch/i.test(tool.name)
+    ) {
+      return Promise.resolve({
+        error: "permission_denied",
+        reason: "workspace_chat_policy",
+      })
+    }
+    return original(input as never, config as never)
+  }) as T["invoke"]
+  return tool
+}
+
+const conversationTools = [
+  listRepositoriesTool,
+  ...standardRepoExplorerTools,
+].map((tool) => withWorkspaceChatPermission(tool))
+
 const agentHuman = createAgent({
   model: getModel("medium", { temperature: 0.2, reasoning: false }),
-  tools: [listRepositoriesTool, ...standardRepoExplorerTools],
+  tools: conversationTools,
   systemPrompt: `${baseInstructions}\n\n${humanResponseFormat}`,
 })
 
 const agentMcp = createAgent({
   model: getModel("medium", { temperature: 0.2, reasoning: false }),
-  tools: [listRepositoriesTool, ...standardRepoExplorerTools],
+  tools: conversationTools,
   systemPrompt: `${baseInstructions}\n\n${agentResponseFormat}`,
 })
 

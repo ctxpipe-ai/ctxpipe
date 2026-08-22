@@ -1,4 +1,5 @@
 import type { Env } from "../../config/env.js"
+import { assertNotInOrgDbContext } from "../../db/client.js"
 import {
   decodeSlackBotToken,
   parseSlackConnectionStored,
@@ -171,6 +172,7 @@ async function slackApiCall<T extends { ok: boolean; error?: string }>(input: {
   /** When set, send a JSON POST body (chat.postMessage / chat.update). */
   jsonBody?: Record<string, unknown>
 }): Promise<T> {
+  assertNotInOrgDbContext()
   const url = new URL(`${SLACK_API}/${input.method}`)
   for (const [key, value] of Object.entries(input.query ?? {})) {
     if (value !== undefined) url.searchParams.set(key, value)

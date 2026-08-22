@@ -1,6 +1,7 @@
 import { LinearClient } from "@linear/sdk"
 import { z } from "zod"
 import type { Env } from "../../config/env.js"
+import { assertNotInOrgDbContext } from "../../db/client.js"
 import type { LinearConnection } from "../../models/linear-connector.js"
 
 const LinearOAuthTokenResponseSchema = z.object({
@@ -77,6 +78,7 @@ async function requestLinearOAuthToken(
   env: Env,
   body: URLSearchParams,
 ): Promise<LinearOAuthTokenResponse> {
+  assertNotInOrgDbContext()
   assertLinearOAuthConfigured(env)
   body.set("client_id", env.LINEAR_CLIENT_ID)
   body.set("client_secret", env.LINEAR_CLIENT_SECRET)

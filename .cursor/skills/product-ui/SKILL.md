@@ -21,6 +21,8 @@ Design the **feature content** first. Smallest useful version: the fields, rows,
 
 Leave `AppShell`, SideNav, and page-wide atmosphere alone unless the user asked to change them. Product chrome stays undecorated (no grid, no teal/blue glow).
 
+When polishing a **named region** of existing chrome or a dense control list: change only that region — do not push experiments into shared class helpers that restyle siblings. After visual polish, **Tab** the surface once — focus rings, clipping, and non-outline affordances (resize line + arrows) are part of done. Use [`focus-styles.ts`](../../../apps/ui/src/lib/focus-styles.ts); see [DESIGN.md](../../../apps/ui/DESIGN.md) **Focus / keyboard** and [visual-craft.md](references/visual-craft.md) Finishing.
+
 **Done when:** the planned surface is the feature; the shell is unchanged; every control has a backend or an explicit out-of-scope note.
 
 ## 3. Translate intent → pattern
@@ -59,23 +61,36 @@ For this feature only: empty, loading, error, and dense data.
 
 Empty: short title + one sentence + **one primary** control. Hide tabs, filters, and search until there is content. Center only if copy is ≤2 lines; otherwise left-align.
 
-Loading: a skeleton that mirrors the final pattern (not “Loading…”).
+Loading: pick the **kind** first. Do not mix them.
+
+| Kind | When | UI |
+|------|------|-----|
+| Region | Fetching a list, tree, thread, or pane whose shape we already ship | [`Skeleton`](../../../apps/ui/src/components/ui/Skeleton.tsx) / `SkeletonRow` that matches the populated rows. Not “Loading…” |
+| Process | Long job or unknown structure (hydrate, OAuth wait, discovery) | [`InlineLoader`](../../../apps/ui/src/components/ui/InlineLoader.tsx) / `ProgressLoader` |
+| Control | Mutation on a button | `Button isPending` |
+| Status | Known entity, in-progress (health, indexing, streaming) | Pulse-dot **plus** the word |
+
+**Interaction responsiveness:** selected chrome (tabs, pane switchers, SideNav rows, org switcher) updates **on the click**; the skeleton stays inside the region that needs data. The **page body** stays too — sibling columns, `AppShell`, and in-page state must not remount while one region fetches. Home / Connectors / Workspace share the org `AppShell`; a client page click must not remount the nav or wait on a loader before the main column swaps. A click that leaves chrome or the rest of the page unchanged until the next route paints is not done. SSR still includes the landing region in the first HTML (see [react](../react/SKILL.md) **Feel fast**).
 
 Error: [`InlineAlert`](../../../apps/ui/src/components/ui/InlineAlert.tsx) + a next step. Dark slab, same-hue muted secondary, no `text-white/50`.
 
-**Done when:** each state has a pattern; empty chrome is hidden; the empty CTA is `variant="primary"`.
+**Done when:** each state has a pattern; empty chrome is hidden; the empty CTA is `variant="primary"`; selected chrome moves on press; the region that needs data skeletons and everything else stays; first HTML still has the landing region; a region wait is a skeleton, not `"Loading…"` or a centered spinner.
 
 ## 7. Build
 
-- Primitives from `src/components/ui/*`. Do not invent a new Button or checkbox.
+- Primitives from `src/components/ui/*` (React Aria). Do not invent a new Button or checkbox.
+- **React Aria first:** tabs, dialogs, menus, lists, links, and similar controls start from [React Aria Components](https://react-spectrum.adobe.com/react-aria/components.html). Use the house wrapper in `src/components/ui/*` when the visual matches; otherwise compose RAC primitives (`Tabs` / `TabList` / `Tab`, `Button`, `Link`, …) and style them. Hand-rolled `<button>` tablists are not a substitute for `Tabs`.
 - New chrome: `rounded-lg` / `--radius`. Do not add `rounded-none`.
 - Icons: `@tabler/icons-react` at ~16–20px, `text-muted-foreground`, `aria-hidden`. Lucide only if Tabler has no equivalent. Enclose in `.ctx-node` if the hit area must be large.
 - Destructive on the page: `outline` or `quiet`. Filled red only on [`AlertDialog`](../../../apps/ui/src/components/ui/AlertDialog.tsx).
-- Copy: UK English, plain, specific. Semantic `h1` at `text-lg` / `text-xl` on product screens.
+- Copy: US English, plain, specific. Semantic `h1` at `text-lg` / `text-xl` on product screens.
+- **Named Tailwind:** use the scale (`tracking-tighter`, `p-2`, `text-sm`, `gap-3`). Arbitrary values (`tracking-[-0.5px]`, `text-[15px]`, `p-[13px]`) only when no named token is close.
+- **Feel fast:** interaction responsiveness is UX. Selected chrome (nav, tabs, panes, switchers) must move on the click — set it in the handler, do not wait for `useSearch()` / `useMatchRoute` / `loaderDeps`. Do not remount the shell or sibling panes for in-page identity. Client loaders do not `await` in-page detail. Route loaders warm **enter** (SSR still includes the landing region). Local `Suspense` for the region that is loading. See [react](../react/SKILL.md) **Feel fast**.
+- **Responsive — CSS-first:** Express breakpoints with Tailwind (`sm:`, `md:`, `lg:`, `max-md:`, …) — visibility, padding, borders, column layout, overlay vs rail. Reach for JS (`matchMedia`, `useMediaQuery`, resize Effects) **only when CSS cannot do the job** (interactive state like an open drawer; a one-shot `matchMedia` inside a click handler is fine). Do not drive layout chrome from reactive media-query state when a responsive class would suffice.
 
 Then follow the [react](../react/SKILL.md) skill for data flow.
 
-**Done when:** the markup matches the named pattern, uses existing primitives, and the title/radius/icon rules above hold.
+**Done when:** the markup matches the named pattern, uses existing primitives, the title/radius/icon rules above hold, responsive behaviour is CSS-first, and selected chrome moves on the click.
 
 ## 8. Scan
 
@@ -93,4 +108,4 @@ Run all three. Fix before considering the UI done.
 
 Add or update a colocated Storybook story for the new or touched surface. Follow the [storybook](../storybook/SKILL.md) skill.
 
-**Done when:** a story exists for the visible state you shipped (empty, error, populated — whichever you added).
+**Done when:** a story exists for the visible state you shipped (empty, **loading**, error, populated — whichever you added). If the surface fetches, export `Loading` (or `Checking` / `Hydrating` when that is the real wait) with `delay("infinite")`.

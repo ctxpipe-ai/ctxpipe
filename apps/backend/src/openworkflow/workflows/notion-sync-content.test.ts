@@ -11,6 +11,10 @@ vi.mock("../../config/env.js", () => ({
   parseEnv: vi.fn(() => ({})),
 }))
 vi.mock("../../db/client.js", () => ({
+    tryGetOrgDb: () => ({}),
+    tryGetOrgDbOrgId: () => "org_test",
+    assertNotInOrgDbContext: () => undefined,
+
   withOrgDbContext: vi.fn((_orgId: string, operation: () => Promise<unknown>) =>
     operation(),
   ),
@@ -19,9 +23,6 @@ vi.mock("../../models/notion-connector.js", () => ({
   finalizeNotionBindingAfterContentWorkflow: mocks.finalizeBinding,
   getNotionBindingByConnectionId: mocks.getBinding,
   getNotionConnectionByConnectionId: mocks.getConnection,
-}))
-vi.mock("../../observability/logger.js", () => ({
-  getLogger: vi.fn(() => ({ error: vi.fn() })),
 }))
 vi.mock("../../services/notion/sync.js", () => ({
   syncNotionContent: mocks.syncContent,

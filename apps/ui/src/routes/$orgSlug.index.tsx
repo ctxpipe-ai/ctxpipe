@@ -3,17 +3,16 @@ import {
   IconCheck,
   IconChevronRight,
   IconFileDescription,
-  IconMessageCircle,
   IconPlug,
 } from "@tabler/icons-react"
 import { useQuery } from "@tanstack/react-query"
 import { createFileRoute, Navigate, useNavigate } from "@tanstack/react-router"
 import { motion, type Variants } from "motion/react"
 import { type ReactNode, useEffect } from "react"
-import { AppShell } from "@/components/AppShell"
+import { PageBodySkeleton } from "@/components/ui/Skeleton"
 import {
-  fetchGithubInstallationSummary,
-  githubConnectorKeys,
+  githubInstallationIsLinked,
+  githubInstallationOptions,
 } from "@/features/connectors/queries/github-connector"
 import { useGithubConnectFlow } from "@/features/connectors/useGithubConnectFlow"
 import { useRepositoryIndexingSummary } from "@/features/repositories"
@@ -136,18 +135,25 @@ function OrgHomePage() {
   return <OrgHomePageContent orgSlug={orgSlug} />
 }
 
+export function OrgHomeSessionFallback() {
+  return (
+    <main className="mx-auto box-border flex min-h-screen w-full max-w-2xl items-center p-8 text-zinc-100">
+      <PageBodySkeleton label="Loading home" />
+    </main>
+  )
+}
+
 /** Exported for Storybook — same dashboard as org home `/` under `/$orgSlug`. */
 export function OrgHomePageContent({ orgSlug }: { orgSlug: string }) {
   const navigate = useNavigate()
   const [preferences, updatePreferences] = useUserPreferences()
   const { data: session, isPending: sessionPending } = useSession()
   const githubInstallationQuery = useQuery({
-    queryKey: githubConnectorKeys.installation(orgSlug),
-    queryFn: () => fetchGithubInstallationSummary(orgSlug),
+    ...githubInstallationOptions(orgSlug),
     enabled: !!session,
   })
   const { data: githubInstallation } = githubInstallationQuery
-  const githubConnected = Boolean(githubInstallation)
+  const githubConnected = githubInstallationIsLinked(githubInstallation)
   const { summary: repositorySummary } = useRepositoryIndexingSummary(orgSlug, {
     enabled: Boolean(session),
   })
@@ -160,7 +166,9 @@ export function OrgHomePageContent({ orgSlug }: { orgSlug: string }) {
             `${
               repositorySummary.runningCount > 0 ? "Indexing" : "Preparing"
             } ${repositorySummary.activeCount} ${
-              repositorySummary.activeCount === 1 ? "repository" : "repositories"
+              repositorySummary.activeCount === 1
+                ? "repository"
+                : "repositories"
             }`,
           description:
             repositorySummary.failedCount > 0
@@ -177,7 +185,7 @@ export function OrgHomePageContent({ orgSlug }: { orgSlug: string }) {
                 ? "repository needs"
                 : "repositories need"
             } attention`,
-            description: "Open Repositories to review and retry indexing.",
+            description: "Open Connectors to review GitHub indexing.",
           }
         : null
 
@@ -211,15 +219,7 @@ export function OrgHomePageContent({ orgSlug }: { orgSlug: string }) {
     }
   }, [orgSlug, preferences.selectedOrganizationSlug, updatePreferences])
 
-  if (sessionPending) {
-    return (
-      <AppShell>
-        <main className="mx-auto box-border flex min-h-screen w-full max-w-2xl items-center justify-center p-8 text-zinc-100">
-          <p className="text-sm text-zinc-400">Loading workspace…</p>
-        </main>
-      </AppShell>
-    )
-  }
+  if (sessionPending) return <OrgHomeSessionFallback />
   if (!session) return <Navigate to="/.auth/sign-in" replace />
 
   const handleGithubConnect = () => {
@@ -230,7 +230,7 @@ export function OrgHomePageContent({ orgSlug }: { orgSlug: string }) {
   const githubRowBusy = ghBusy || isSyncing
 
   return (
-    <AppShell>
+    <>
       <div className="flex min-h-full min-w-0 flex-1 flex-col text-foreground">
         {/* Dashboard column: w-full up to max-w-2xl (42rem / 672px), centred in main. */}
         <div className="mx-auto box-border flex w-full max-w-2xl flex-1 flex-col justify-center p-8">
@@ -262,8 +262,14 @@ export function OrgHomePageContent({ orgSlug }: { orgSlug: string }) {
               aria-label={`${repositoryStatus.title}. ${repositoryStatus.description} View repository progress.`}
               onClick={() => {
                 void navigate({
-                  to: "/$orgSlug/repositories",
+                  to: "/$orgSlug/connectors",
                   params: { orgSlug },
+                  search: {
+                    error: undefined,
+                    error_description: undefined,
+                    pendingAccountClaim: undefined,
+                    notionConnectionId: undefined,
+                  },
                 })
               }}
             >
@@ -355,16 +361,6 @@ export function OrgHomePageContent({ orgSlug }: { orgSlug: string }) {
               />
             </li>
             <li className="w-full">
-              <OnboardingNavButton
-                to="/$orgSlug/chat"
-                params={{ orgSlug }}
-                icon={<IconMessageCircle aria-hidden />}
-                title="Query your knowledge graph"
-                description="See what ctx| knows about your context"
-                tag="Chat"
-              />
-            </li>
-            <li className="w-full">
               <OnboardingExternalButton
                 href={DOCS_ORIGIN}
                 icon={<IconFileDescription aria-hidden />}
@@ -377,6 +373,6 @@ export function OrgHomePageContent({ orgSlug }: { orgSlug: string }) {
         </div>
       </div>
       {SelfHostedWizardModal}
-    </AppShell>
+    </>
   )
 }

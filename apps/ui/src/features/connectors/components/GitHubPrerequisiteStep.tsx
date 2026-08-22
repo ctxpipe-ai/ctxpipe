@@ -49,7 +49,7 @@ export function GitHubPrerequisiteStep({
             className="text-sm text-muted-foreground underline decoration-border underline-offset-4 transition-colors hover:text-foreground"
             onClick={() => {
               void navigate({
-                to: "/$orgSlug/repositories",
+                to: "/$orgSlug/connectors",
                 params: { orgSlug },
               })
             }}

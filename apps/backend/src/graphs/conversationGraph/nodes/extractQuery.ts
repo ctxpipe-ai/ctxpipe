@@ -1,4 +1,5 @@
 import type { BaseMessageLike } from "@langchain/core/messages"
+import { getConfig } from "@langchain/langgraph"
 import {
   requireCurrentOrgId,
   requireCurrentOrgSlug,
@@ -37,6 +38,9 @@ export async function extractQueryNode(
 
   const orgId = requireCurrentOrgId()
   const orgSlug = requireCurrentOrgSlug()
+  const workspaceId = (
+    getConfig().configurable as { workspaceId?: string } | undefined
+  )?.workspaceId
 
   const embedding = await generateEmbedding(query).catch(() => undefined)
 
@@ -45,5 +49,6 @@ export async function extractQueryNode(
     embedding: embedding ?? undefined,
     orgId,
     orgSlug,
+    ...(workspaceId ? { workspaceId } : {}),
   }
 }

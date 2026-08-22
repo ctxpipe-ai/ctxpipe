@@ -14,7 +14,10 @@ import {
   commitFiles,
   compareCommitsTouchesPath,
   createPullRequestWithFiles,
+  getCommitTimestamp,
+  getFileContentBytes,
   getPullRequestHeadBranch,
+  listFilesAtSha,
 } from "./installation-write-client.js"
 
 describe("createPullRequestWithFiles", () => {
@@ -249,5 +252,188 @@ describe("commitFiles", () => {
     )
     expect(updateRef).toHaveBeenCalledTimes(2)
     expect(result.commitSha).toBe("commit-2")
+  })
+
+  it("commits against the captured parent and does not overlay after a non-fast-forward", async () => {
+    const getRef = vi.fn()
+    const getCommit = vi.fn(async () => ({
+      data: { tree: { sha: "tree-captured" } },
+    }))
+    const createCommit = vi.fn(async () => ({ data: { sha: "commit-cas" } }))
+    const updateRef = vi.fn().mockRejectedValue(
+      Object.assign(new Error("Update is not a fast forward"), {
+        status: 422,
+      }),
+    )
+
+    getInstallationOctokitForOrgMock.mockResolvedValue({
+      installation: { installationId: 123 },
+      octokit: {
+        rest: {
+          git: {
+            getRef,
+            getCommit,
+            createBlob: vi.fn(async () => ({ data: { sha: "blob" } })),
+            createTree: vi.fn(async () => ({ data: { sha: "tree" } })),
+            createCommit,
+            updateRef,
+          },
+        },
+      },
+    })
+
+    await expect(
+      commitFiles({
+        orgId: "org_test",
+        repositoryName: "acme/docs",
+        env: {} as never,
+        branch: "main",
+        message: "Knowledge update",
+        files: [{ path: "knowledge/imported/a.md", content: "# A\n" }],
+        expectedParentSha: "captured-sha",
+      }),
+    ).rejects.toMatchObject({ status: 422 })
+
+    expect(getRef).not.toHaveBeenCalled()
+    expect(getCommit).toHaveBeenCalledWith(
+      expect.objectContaining({ commit_sha: "captured-sha" }),
+    )
+    expect(createCommit).toHaveBeenCalledTimes(1)
+    expect(createCommit).toHaveBeenCalledWith(
+      expect.objectContaining({ parents: ["captured-sha"] }),
+    )
+    expect(updateRef).toHaveBeenCalledTimes(1)
+  })
+})
+
+describe("listFilesAtSha", () => {
+  it("reads the tree at a SHA without initializing an empty repository", async () => {
+    const getTree = vi.fn(async () => ({
+      data: {
+        tree: [{ type: "blob", path: "AGENTS.md", sha: "blob-1" }],
+      },
+    }))
+    const createOrUpdateFileContents = vi.fn()
+    getInstallationOctokitForOrgMock.mockResolvedValue({
+      installation: { installationId: 1 },
+      octokit: {
+        rest: {
+          git: { getTree },
+          repos: { createOrUpdateFileContents },
+        },
+      },
+    })
+    await expect(
+      listFilesAtSha({
+        orgId: "org_test",
+        repositoryName: "acme/docs",
+        env: {} as Env,
+        sha: "desired-sha",
+      }),
+    ).resolves.toEqual([{ path: "AGENTS.md", sha: "blob-1" }])
+    expect(getTree).toHaveBeenCalledWith({
+      owner: "acme",
+      repo: "docs",
+      tree_sha: "desired-sha",
+      recursive: "true",
+    })
+    expect(createOrUpdateFileContents).not.toHaveBeenCalled()
+  })
+
+  it("rethrows a missing tree when the caller asks not to mask 404s", async () => {
+    const getTree = vi.fn(async () => {
+      throw Object.assign(new Error("Not Found"), { status: 404 })
+    })
+    getInstallationOctokitForOrgMock.mockResolvedValue({
+      installation: { installationId: 1 },
+      octokit: { rest: { git: { getTree } } },
+    })
+    await expect(
+      listFilesAtSha({
+        orgId: "org_test",
+        repositoryName: "acme/docs",
+        env: {} as Env,
+        sha: "missing-sha",
+        missing: "throw",
+      }),
+    ).rejects.toMatchObject({ status: 404 })
+  })
+})
+
+describe("getFileContentBytes", () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+  })
+
+  it("returns omitted when GitHub withholds the blob body", async () => {
+    const getContent = vi.fn(async () => ({
+      data: { encoding: "none", size: 2_000_000, content: "" },
+    }))
+    getInstallationOctokitForOrgMock.mockResolvedValue({
+      installation: { installationId: 1 },
+      octokit: { rest: { repos: { getContent } } },
+    })
+    await expect(
+      getFileContentBytes({
+        orgId: "org_test",
+        repositoryName: "acme/docs",
+        env: {} as Env,
+        branch: "abc",
+        path: "logo.png",
+      }),
+    ).resolves.toEqual({ kind: "omitted" })
+  })
+
+  it("returns raw bytes without UTF-8 decoding", async () => {
+    const getContent = vi.fn(async () => ({
+      data: {
+        encoding: "base64",
+        size: 4,
+        content: Buffer.from([0xff, 0xfe, 0x00, 0x01]).toString("base64"),
+      },
+    }))
+    getInstallationOctokitForOrgMock.mockResolvedValue({
+      installation: { installationId: 1 },
+      octokit: { rest: { repos: { getContent } } },
+    })
+    const result = await getFileContentBytes({
+      orgId: "org_test",
+      repositoryName: "acme/docs",
+      env: {} as Env,
+      branch: "abc",
+      path: "logo.png",
+    })
+    expect(result).toEqual({
+      kind: "bytes",
+      bytes: Buffer.from([0xff, 0xfe, 0x00, 0x01]),
+    })
+  })
+})
+
+describe("getCommitTimestamp", () => {
+  it("returns the committer date as ISO", async () => {
+    const getCommit = vi.fn(async () => ({
+      data: {
+        committer: { date: "2026-08-16T12:00:00Z" },
+        author: { date: "2026-08-15T12:00:00Z" },
+      },
+    }))
+    getInstallationOctokitForOrgMock.mockResolvedValue({
+      installation: { installationId: 1 },
+      octokit: { rest: { git: { getCommit } } },
+    })
+    await expect(
+      getCommitTimestamp({
+        orgId: "org_test",
+        repositoryName: "acme/docs",
+        env: {} as Env,
+        sha: "abc",
+      }),
+    ).resolves.toBe("2026-08-16T12:00:00.000Z")
+    expect(getCommit).toHaveBeenCalledWith({
+      owner: "acme",
+      repo: "docs",
+      commit_sha: "abc",
+    })
   })
 })

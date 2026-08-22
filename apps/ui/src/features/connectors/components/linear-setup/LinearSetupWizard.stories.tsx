@@ -1,5 +1,5 @@
 import type { Meta, StoryObj } from "@storybook/react-vite"
-import { HttpResponse, http } from "msw"
+import { delay, HttpResponse, http } from "msw"
 import { fn } from "storybook/test"
 import { entryPageInnerDecorators } from "../../../../../.storybook/decorators/entry-page-decorators"
 import type { StoryRouteParams } from "../../../../../.storybook/decorators/with-story-route"
@@ -54,6 +54,21 @@ const meta = {
 export default meta
 
 type Story = StoryObj<typeof meta>
+
+export const Loading: Story = {
+  parameters: {
+    msw: {
+      handlers: {
+        page: [
+          http.get(`/${orgSlug}/api/v1/connectors/linear/status`, async () => {
+            await delay("infinite")
+            return HttpResponse.json(baseStatus)
+          }),
+        ],
+      },
+    },
+  },
+}
 
 export const ConnectWorkspace: Story = {
   args: { connectionId: undefined },

@@ -7,6 +7,7 @@ import {
   DisclosureHeader,
   DisclosurePanel,
 } from "@/components/ui/Disclosure"
+import { InlineLoader } from "@/components/ui/InlineLoader"
 import { authClient } from "@/lib/auth-client"
 import {
   atlassianConnectorKeys,
@@ -61,9 +62,7 @@ export function LinkAtlassianStep({
           </p>
         )}
       </div>
-      {meta.isPending ? (
-        <p className="text-sm text-muted-foreground">Loading…</p>
-      ) : null}
+      {meta.isPending ? <InlineLoader label="Loading Atlassian OAuth" /> : null}
       {meta.isError ? (
         <p className="text-sm text-destructive">
           Could not load org OAuth settings.

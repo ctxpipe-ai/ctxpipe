@@ -11,6 +11,10 @@ vi.mock("../../config/env.js", () => ({
   parseEnv: vi.fn(() => ({})),
 }))
 vi.mock("../../db/client.js", () => ({
+    tryGetOrgDb: () => ({}),
+    tryGetOrgDbOrgId: () => "org_test",
+    assertNotInOrgDbContext: () => undefined,
+
   withOrgDbContext: vi.fn((_orgId: string, operation: () => Promise<unknown>) =>
     operation(),
   ),

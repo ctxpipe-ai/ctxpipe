@@ -1,23 +1,25 @@
-import { HumanMessage } from "@langchain/core/messages"
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js"
-import slugify from "@sindresorhus/slugify"
+import { createError } from "evlog"
 import { z } from "zod"
 import {
   requireCurrentOrgId,
   requireCurrentOrgSlug,
   requireCurrentUserId,
 } from "../auth/context.js"
-import { conversationGraph } from "../graphs/index.js"
+import { parseEnv } from "../config/env.js"
+import { advisorWorkspaceId } from "../domain/workspaces/chat-sandbox-policy.js"
+import { collectTanstackWorkspaceChatText } from "../domain/workspaces/tanstack-workspace-chat.js"
+import { githubRepoFullNameFromWorkspaceUrl } from "../domain/workspaces/write-status.js"
 import { generateObjectId } from "../lib/id.js"
 import {
+  discardUnstartedConversation,
   ensureConversation,
   touchConversationLastMessage,
 } from "../models/conversations.js"
+import { getRepoReadCloneToken } from "../models/github-installation.js"
+import { getWorkspaceById, listWorkspaces } from "../models/workspaces.js"
 import { trackMcpToolInvocation } from "../observability/amplitude.js"
-import {
-  getLangfuseHandler,
-  runWithLangfuseContext,
-} from "../observability/langfuse.js"
+import { runWithLangfuseContext } from "../observability/langfuse.js"
 
 /**
  * Register MCP tools. Tools should call into domain/ services so REST and MCP
@@ -28,8 +30,10 @@ export function registerMcpTools(server: McpServer): void {
     "ctx_advisor",
     {
       title:
-        "Primary org knowledge (ctx_advisor) — call before planning & standards",
+        "Deprecated Workspace chat shim (ctx_advisor) — first Workspace only",
       description: [
+        "DEPRECATED. ctx_advisor is a compatibility shim for Workspace chat on the organisation's first Workspace. There is no workspace.id argument and no org-wide advisor. Zero Workspaces → fail; create a Workspace first.",
+        "Each invocation starts a new hidden MCP conversation (no cross-call memory).",
         "MANDATORY default: Call ctx_advisor early and often whenever org standards, architecture, tooling choices, or plans are involved. When in doubt, call — more calls beats too few. This is the single entrypoint to your organization's knowledge graph (CoALA, memory engine, indexed org context).",
         "",
         "RISK — Skipping ctx_advisor risks rework, diverging from org patterns, violating ADRs, and introducing technology that isn't allowed.",
@@ -94,156 +98,93 @@ export function registerMcpTools(server: McpServer): void {
         orgSlug: requireCurrentOrgSlug(),
         toolName: "ctx_advisor",
       })
-      const threadId =
-        conversationId != null
-          ? `${userId}_${slugify(currentProjectName ?? "default")}_${conversationId}`
-          : generateObjectId("thr")
-      await ensureConversation({ id: threadId, source: "mcp" })
-      const invocationConfig = {
-        configurable: {
-          thread_id: threadId,
-          checkpoint_ns: "ctx_advisor",
-          source: "mcp",
-        },
+      const { items } = await listWorkspaces()
+      const workspaceId = advisorWorkspaceId(null, items)
+      if (!workspaceId) {
+        throw createError({
+          message: "Create a Workspace before using ctx_advisor",
+          status: 400,
+          why: "Deprecated advisor targets the first Workspace; the org has none",
+        })
       }
-      return runWithLangfuseContext(
-        { sessionId: threadId, tags: ["mcp"] },
-        async () => {
-          const initialState: {
-            messages: HumanMessage[]
-            currentProjectName: string | null
-          } = {
-            messages: [new HumanMessage(prompt)],
-            currentProjectName: currentProjectName ?? null,
-          }
-          const stream = await conversationGraph.stream(initialState, {
-            streamMode: "values",
-            ...invocationConfig,
-            callbacks: [getLangfuseHandler()],
-          })
-          void touchConversationLastMessage(threadId)
-          const progressToken = extra._meta?.progressToken
-          let progress = 0
-          let streamedText = ""
-          let finalMessages: unknown[] | undefined
-
-          for await (const chunk of stream) {
-            if (
-              typeof chunk !== "object" ||
-              chunk === null ||
-              !("messages" in chunk) ||
-              !Array.isArray(chunk.messages)
-            ) {
-              continue
-            }
-            finalMessages = chunk.messages
-
-            if (!progressToken) continue
-            const currentText = extractFinalText({ messages: chunk.messages })
-            if (
-              currentText.length === 0 ||
-              currentText === "No answer could be produced."
-            ) {
-              continue
-            }
-
-            const delta = currentText.startsWith(streamedText)
-              ? currentText.slice(streamedText.length)
-              : currentText
-            if (delta.length === 0) continue
-
-            streamedText = currentText
-            progress += 1
-            await extra.sendNotification({
-              method: "notifications/progress",
-              params: {
-                progressToken,
-                progress,
-                message: delta,
-              },
-            })
-          }
-
-          const result = {
-            messages: finalMessages ?? [],
-          }
-          const text = extractFinalText(result)
-          if (progressToken && text.length > 0 && text !== streamedText) {
-            progress += 1
-            await extra.sendNotification({
-              method: "notifications/progress",
-              params: {
-                progressToken,
-                progress,
-                message: text,
-              },
-            })
-          }
-
-          if (!finalMessages) {
-            const fallbackState: {
-              messages: HumanMessage[]
-              currentProjectName: string | null
-            } = {
-              messages: [new HumanMessage(prompt)],
-              currentProjectName: currentProjectName ?? null,
-            }
-            const fallback = await conversationGraph.invoke(fallbackState, {
-              ...invocationConfig,
-              callbacks: [getLangfuseHandler()],
-            })
-            return {
-              content: [{ type: "text", text: extractFinalText(fallback) }],
-            }
-          }
-
-          return {
-            content: [{ type: "text", text }],
-          }
-        },
+      void conversationId
+      const threadId = generateObjectId("conv")
+      await ensureConversation({
+        id: threadId,
+        source: "mcp",
+        workspaceId,
+      })
+      const workspace = await getWorkspaceById(workspaceId)
+      const desiredSha = workspace?.desiredSha
+      if (!workspace || !desiredSha) {
+        await discardUnstartedConversation(threadId)
+        throw createError({
+          message: "First Workspace is not hydrated yet",
+          status: 409,
+          why: "ctx_advisor needs a stored desired SHA on the first Workspace",
+        })
+      }
+      const env = parseEnv(process.env as Record<string, string | undefined>)
+      const repoFullName = githubRepoFullNameFromWorkspaceUrl(
+        workspace.workspaceRepositoryUrl,
       )
+      const promptWithProject = currentProjectName
+        ? `Project: ${currentProjectName}\n\n${prompt}`
+        : prompt
+      try {
+        return await runWithLangfuseContext(
+          { sessionId: threadId, tags: ["mcp"] },
+          async () => {
+            const progressToken = extra._meta?.progressToken
+            let progress = 0
+            const collected = await collectTanstackWorkspaceChatText({
+              conversationId: threadId,
+              prompt: promptWithProject,
+              orgId: requireCurrentOrgId(),
+              workspaceId,
+              desiredUrl: workspace.workspaceRepositoryUrl,
+              desiredSha,
+              desiredGeneration: workspace.desiredGeneration,
+              ref: desiredSha,
+              writeStatus: workspace.writeStatus,
+              cloneToken: repoFullName
+                ? ((await getRepoReadCloneToken(requireCurrentOrgId(), env, {
+                    githubConnectionId:
+                      workspace.githubConnectionId ?? undefined,
+                    repoFullName,
+                  })) ?? null)
+                : null,
+              onDelta: progressToken
+                ? async (delta) => {
+                    progress += 1
+                    await extra.sendNotification({
+                      method: "notifications/progress",
+                      params: {
+                        progressToken,
+                        progress,
+                        message: delta,
+                      },
+                    })
+                  }
+                : undefined,
+            })
+            void touchConversationLastMessage(threadId)
+            if (!collected.ok) {
+              throw createError({
+                message: collected.error,
+                status: collected.status,
+                why: "Workspace chat runtime refused the MCP turn",
+              })
+            }
+            return {
+              content: [{ type: "text" as const, text: collected.text }],
+            }
+          },
+        )
+      } catch (error) {
+        await discardUnstartedConversation(threadId)
+        throw error
+      }
     },
   )
-}
-
-function extractFinalText(result: unknown): string {
-  if (
-    typeof result !== "object" ||
-    result === null ||
-    !("messages" in result) ||
-    !Array.isArray(result.messages)
-  ) {
-    return "No answer could be produced."
-  }
-
-  const finalMessage = result.messages.at(-1)
-  if (
-    typeof finalMessage !== "object" ||
-    finalMessage === null ||
-    !("content" in finalMessage)
-  ) {
-    return "No answer could be produced."
-  }
-
-  const content = finalMessage.content
-  if (typeof content === "string") {
-    const trimmed = content.trim()
-    return trimmed.length > 0 ? trimmed : "No answer could be produced."
-  }
-
-  if (Array.isArray(content)) {
-    const textParts = content
-      .flatMap((item) =>
-        typeof item === "object" &&
-        item !== null &&
-        "text" in item &&
-        typeof item.text === "string"
-          ? [item.text.trim()]
-          : [],
-      )
-      .filter((part) => part.length > 0)
-    if (textParts.length > 0) return textParts.join("\n")
-  }
-
-  return "No answer could be produced."
 }

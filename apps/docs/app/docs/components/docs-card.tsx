@@ -34,6 +34,7 @@ export function Cards({ className, children, ...props }: CardsProps) {
   }, [])
 
   return (
+    // biome-ignore lint/a11y/noStaticElementInteractions: decorative hover highlight tracking only
     <div
       {...props}
       ref={gridRef}

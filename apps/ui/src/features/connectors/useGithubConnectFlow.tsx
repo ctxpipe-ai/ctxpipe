@@ -13,14 +13,14 @@ import {
   clearGithubPopupFlow,
   GITHUB_DRAFT_CONNECTION_KEY,
   GITHUB_POPUP_NAME,
-  GITHUB_SETUP_RESULT_MESSAGE,
   GITHUB_SETUP_RESULT_KEY,
+  GITHUB_SETUP_RESULT_MESSAGE,
   type GithubSetupRegistrationStatus,
   handleGithubSetupPopupResult,
   openCenteredPopup,
   setGithubSetupOrgHint,
-  withGithubPopupState,
   useWatchPopupClose,
+  withGithubPopupState,
 } from "@/lib/popup"
 import { useGithubConnectorBootstrap } from "@/lib/useGithubConnectorBootstrap"
 
@@ -164,63 +164,62 @@ export function useGithubConnectFlow({
     ],
   )
 
-  const start = useCallback((intent: "connect" | "manage_scope") => {
-    if (!orgSlug.trim()) return
-    if (intent === "manage_scope" && installation?.appSlug?.trim()) {
-      openManagedInstallPopup(
-        `https://github.com/apps/${encodeURIComponent(
-          installation.appSlug.trim(),
-        )}/installations/select_target`,
-      )
-      return
-    }
-    const branch = getGithubConnectStartBranch({
-      installationPending,
+  const start = useCallback(
+    (intent: "connect" | "manage_scope") => {
+      if (!orgSlug.trim()) return
+      if (intent === "manage_scope" && installation?.appSlug?.trim()) {
+        openManagedInstallPopup(
+          `https://github.com/apps/${encodeURIComponent(
+            installation.appSlug.trim(),
+          )}/installations/select_target`,
+        )
+        return
+      }
+      const branch = getGithubConnectStartBranch({
+        installationPending,
+        installation,
+        bootstrapPending,
+        hostedDefaultAppInstallUrl: bootstrap?.hostedDefaultAppInstallUrl,
+        intent,
+      })
+
+      if (branch === "already_installed") {
+        onAlreadyInstalled?.()
+        return
+      }
+      if (
+        branch === "noop_bootstrap_pending" ||
+        branch === "noop_installation_pending"
+      ) {
+        return
+      }
+      if (branch === "managed_install") {
+        const hostedUrl = bootstrap?.hostedDefaultAppInstallUrl
+        if (!hostedUrl) return
+        openManagedInstallPopup(hostedUrl)
+        return
+      }
+
+      // self_hosted_wizard
+      if (delegateSelfHostedWizard) {
+        delegateSelfHostedWizard()
+        return
+      }
+      onFlowStarted?.()
+      setSelfHostedWizardOpen(true)
+    },
+    [
       installation,
+      installationPending,
       bootstrapPending,
-      hostedDefaultAppInstallUrl: bootstrap?.hostedDefaultAppInstallUrl,
-      intent,
-    })
-
-    if (branch === "already_installed") {
-      onAlreadyInstalled?.()
-      return
-    }
-    if (
-      branch === "noop_bootstrap_pending" ||
-      branch === "noop_installation_pending"
-    ) {
-      return
-    }
-    if (branch === "managed_install") {
-      const hostedUrl = bootstrap?.hostedDefaultAppInstallUrl
-      if (!hostedUrl) return
-      openManagedInstallPopup(hostedUrl)
-      return
-    }
-
-    // self_hosted_wizard
-    if (delegateSelfHostedWizard) {
-      delegateSelfHostedWizard()
-      return
-    }
-    onFlowStarted?.()
-    setSelfHostedWizardOpen(true)
-  }, [
-    installation,
-    installationPending,
-    bootstrapPending,
-    bootstrap?.hostedDefaultAppInstallUrl,
-    orgSlug,
-    queryClient,
-    watchPopupClose,
-    onAlreadyInstalled,
-    onFlowStarted,
-    delegateSelfHostedWizard,
-    handleInstallSettled,
-    applyFinalizeDelay,
-    openManagedInstallPopup,
-  ])
+      bootstrap?.hostedDefaultAppInstallUrl,
+      orgSlug,
+      onAlreadyInstalled,
+      onFlowStarted,
+      delegateSelfHostedWizard,
+      openManagedInstallPopup,
+    ],
+  )
 
   const showInlineSelfHostedWizard = delegateSelfHostedWizard == null
 

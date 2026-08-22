@@ -63,8 +63,9 @@ fix_docker_sock
 ENV_LOCAL="apps/backend/.env.local"
 
 if [ ! -f "$ENV_LOCAL" ] && [ -n "${AUTH_SECRET:-}" ]; then
+  # Runtime URL is ctxpipe_app. Migrate still uses owner ctxpipe via db:migrate.
   # Defaults match docker-compose.yml infra profile (see docker-compose.env.example).
-  PG_DEFAULT="postgresql://ctxpipe:ctxpipe@localhost:5433/ctxpipe" # pragma: allowlist secret
+  PG_DEFAULT="postgresql://ctxpipe_app:ctxpipe@localhost:5433/ctxpipe" # pragma: allowlist secret
   REDIS_DEFAULT="redis://localhost:6379" # pragma: allowlist secret
   DB="${DATABASE_URL:-$PG_DEFAULT}"
   GRAPH="${GRAPH_DB_URI:-$REDIS_DEFAULT}"

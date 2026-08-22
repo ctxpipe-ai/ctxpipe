@@ -12,7 +12,7 @@ import { getAuth } from "../auth/config.js"
 import { parseEnv } from "../config/env.js"
 import { initDb } from "../db/client.js"
 import { initAmplitudeFromEnv } from "../observability/amplitude.js"
-import { backfillGithubAppSecretsFromEnv } from "../scripts/backfillGithubConnectionSecrets.js"
+import { httpWideEventMessage } from "../domain/workspaces/opencode-chat-stream.js"
 import { createEvlogDrain, log } from "../observability/logger.js"
 import { registerAuthRoutes } from "../routes/auth.js"
 import { registerLangsmithRoutes } from "../routes/langsmith.js"
@@ -27,29 +27,34 @@ import type { AppEnv } from "./env.js"
 
 export type { AppEnv } from "./env.js"
 
+/**
+ * Paths that must not resolve Better Auth sessions (static UI + auth/webhook).
+ * Session lookup shares the backend pool; asset storms must not SELECT `sessions`.
+ */
+export const betterAuthIdentifyExclude = [
+  "/.auth/api/v1/auth/**",
+  "/.auth/api/config",
+  "/.auth/api/v1/public/**",
+  "/.well-known/**",
+  "/.status",
+  "/api/v1/webhook/**",
+  "/assets/**",
+  "/fonts/**",
+  "/favicon.ico",
+  "/@**",
+] as const
+
 export function createApp() {
   const env = parseEnv(process.env as Record<string, string | undefined>)
   // Amplitude: only initializes when `AMPLITUDE_API_KEY` is set (see `observability/amplitude.ts`).
   initAmplitudeFromEnv(env)
   initDb(env.DATABASE_URL)
-  void backfillGithubAppSecretsFromEnv(env).catch((err: unknown) => {
-    log.error(err instanceof Error ? err : new Error(String(err)), {
-      step: "backfill.github_connection_secrets",
-    })
-  })
 
   /** Evlog only: enriches `c.var.log` wide events; does not set `c.var.user` or gate routes. */
   const identifyBetterAuthUser = createAuthMiddleware(
     getAuth() as unknown as BetterAuthInstance,
     {
-      exclude: [
-        "/.auth/api/v1/auth/**",
-        "/.auth/api/config",
-        "/.auth/api/v1/public/**",
-        "/.well-known/**",
-        "/.status",
-        "/api/v1/webhook/**",
-      ],
+      exclude: [...betterAuthIdentifyExclude],
       maskEmail: env.NODE_ENV === "production",
     },
   )
@@ -69,9 +74,24 @@ export function createApp() {
     }),
   )
   app.use(contextStorage())
-  app.use(evlog({ drain: createEvlogDrain() }))
+  app.use(
+    evlog({
+      drain: createEvlogDrain(),
+      enrich: (ctx) => {
+        const message = httpWideEventMessage({
+          method: ctx.event.method ?? ctx.request?.method,
+          path: ctx.event.path ?? ctx.request?.path,
+          status: ctx.event.status ?? ctx.response?.status,
+        })
+        if (message) ctx.event.message = message
+      },
+    }),
+  )
   app.use("*", async (c, next) => {
-    await identifyBetterAuthUser(c.get("log"), c.req.raw.headers, c.req.path)
+    const requestLog = c.get("log")
+    if (requestLog) {
+      await identifyBetterAuthUser(requestLog, c.req.raw.headers, c.req.path)
+    }
     await next()
   })
   app.use("*", async (c, next) => {
@@ -93,7 +113,12 @@ export function createApp() {
       return new Response(null, { status: 499 })
     }
 
-    c.get("log").error(error)
+    const requestLog = c.get("log")
+    if (requestLog) {
+      requestLog.error(error)
+    } else {
+      log.error(error instanceof Error ? error : new Error(String(error)))
+    }
     const parsed = parseError(error)
 
     return c.json(

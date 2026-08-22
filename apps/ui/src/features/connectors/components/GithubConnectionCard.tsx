@@ -7,7 +7,11 @@ import { useState } from "react"
 import { toast } from "sonner"
 import { AlertDialog } from "@/components/ui/AlertDialog"
 import { Modal } from "@/components/ui/Modal"
-import { githubConnectorKeys } from "@/features/connectors/queries/github-connector"
+import {
+  githubConnectorKeys,
+  githubInstallationIsLinked,
+} from "@/features/connectors/queries/github-connector"
+import { apiFetch, readApiJson } from "@/lib/api-result"
 import { resolveConnectorHealth } from "../connectorHealth"
 import { orgConnectionsKeys } from "../queries/org-connections"
 import {
@@ -26,14 +30,11 @@ async function deleteGithubConnector(
   connectionId: string,
 ): Promise<void> {
   const qs = new URLSearchParams({ connectionId })
-  const res = await fetch(
+  const res = await apiFetch(
     `/${orgSlug}/api/v1/github/installation?${qs.toString()}`,
     { method: "DELETE", credentials: "include" },
   )
-  if (!res.ok) {
-    const body = (await res.json().catch(() => ({}))) as { error?: string }
-    throw new Error(body.error ?? "Failed to remove connector")
-  }
+  await readApiJson(res, { message: "Failed to remove connector" })
 }
 
 export function GithubConnectionCard({
@@ -52,17 +53,18 @@ export function GithubConnectionCard({
     queryKey: githubConnectorKeys.installation(orgSlug, connectionId),
     queryFn: async () => {
       const qs = new URLSearchParams({ connectionId })
-      const res = await fetch(
+      const res = await apiFetch(
         `/${orgSlug}/api/v1/github/installation?${qs.toString()}`,
         { credentials: "include" },
       )
-      if (!res.ok) throw new Error("Failed to load GitHub connection")
-      return (await res.json()) as {
+      return readApiJson<{
         id: string
         installationId: number | null
         accountSlug: string | null
         ingestionRepositoryCount: number
-      } | null
+      } | null>(res, {
+        message: "Failed to load GitHub connection",
+      })
     },
   })
 
@@ -93,19 +95,12 @@ export function GithubConnectionCard({
     onError: (e: Error) => toast.error(e.message),
   })
 
-  const linked = installation?.installationId != null
+  const linked = githubInstallationIsLinked(installation)
   const health = resolveConnectorHealth({
     statusError: isError,
     checking: isPending,
     connected: linked,
   })
-
-  const repoCount =
-    linked &&
-    typeof installation?.ingestionRepositoryCount === "number" &&
-    Number.isFinite(installation.ingestionRepositoryCount)
-      ? Math.trunc(installation.ingestionRepositoryCount)
-      : null
 
   return (
     <>
@@ -123,11 +118,7 @@ export function GithubConnectionCard({
           />
         }
         workspace={connectorDash(installation?.accountSlug)}
-        scope={
-          repoCount == null
-            ? "—"
-            : `${repoCount} ${repoCount === 1 ? "repository" : "repositories"}`
-        }
+        scope="GitHub App"
         syncRepository="—"
         actionLabel={
           isError
@@ -136,7 +127,7 @@ export function GithubConnectionCard({
               ? undefined
               : !linked
                 ? "Complete GitHub install"
-                : "Manage repositories"
+                : "Link to a workspace"
         }
         onAction={
           isError
@@ -153,8 +144,9 @@ export function GithubConnectionCard({
                     return
                   }
                   void navigate({
-                    to: "/$orgSlug/repositories",
+                    to: "/$orgSlug/repositories/github/setup",
                     params: { orgSlug },
+                    search: { returnTo: "connectors" },
                   })
                 }
         }

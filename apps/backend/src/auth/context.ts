@@ -2,15 +2,23 @@ import { getContext } from "hono/context-storage"
 import type { AppEnv } from "../app/env.js"
 import { orgIdStorage } from "./withAuth.js"
 
+function requestOrg(): { id?: string; slug?: string } {
+  try {
+    const vars = getContext<AppEnv>().var
+    return { id: vars.orgId, slug: vars.orgSlug }
+  } catch {
+    return {}
+  }
+}
+
 export function requireCurrentOrgId(): string {
-  const orgId = orgIdStorage.getStore()?.id ?? getContext<AppEnv>().var.orgId
+  const orgId = orgIdStorage.getStore()?.id ?? requestOrg().id
   if (!orgId) throw new Error("Missing org context")
   return orgId
 }
 
 export function requireCurrentOrgSlug(): string {
-  const orgSlug =
-    orgIdStorage.getStore()?.slug ?? getContext<AppEnv>().var.orgSlug
+  const orgSlug = orgIdStorage.getStore()?.slug ?? requestOrg().slug
   if (!orgSlug) throw new Error("Missing org context")
   return orgSlug
 }

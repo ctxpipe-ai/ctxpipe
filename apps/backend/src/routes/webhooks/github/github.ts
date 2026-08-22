@@ -4,6 +4,7 @@ import { z } from "zod"
 import type { AppEnv } from "../../../app/env.js"
 import type { Env } from "../../../config/env.js"
 import { withOrgDbContext } from "../../../db/client.js"
+import { isDefaultBranchPush } from "../../../domain/workspaces/tip-resolve.js"
 import { parseGithubConnectionStored } from "../../../lib/connection-config.js"
 import {
   getGithubConnectionRowByConnectionId,
@@ -14,10 +15,16 @@ import {
 import { findRepositoryByGithubInstallation } from "../../../models/repositories.js"
 import { ow } from "../../../openworkflow/client.js"
 import { enqueueRepositoryIngestionWorkflow } from "../../../openworkflow/enqueue-repository-ingestion.js"
+import { enqueueWorkspaceTipCheck } from "../../../openworkflow/enqueue-workspace-tip-check.js"
 import { syncGithubRepositories } from "../../../openworkflow/workflows/sync-github-repositories.js"
 import { maybeEnqueueConfluenceSyncOnConfigPush } from "./github-confluence-push.js"
 import { maybeActivateLinearSyncOnConfigPush } from "./github-linear-push.js"
 import { maybeEnqueueNotionSyncOnConfigPush } from "./github-notion-push.js"
+import {
+  persistLinkedTipsOnRefPush,
+  persistWorkspaceTipsOnDefaultBranchPush,
+  resolveGithubBranchTip,
+} from "./github-workspace-tip.js"
 
 const pushPayloadSchema = z.object({
   ref: z.string(),
@@ -202,9 +209,49 @@ async function processPushEvent(
     log: ctx.log,
   })
 
-  if (ref !== `refs/heads/${defaultBranch}`) {
-    return
+  const onDefaultBranch = isDefaultBranchPush(ref, defaultBranch)
+  const installationRows = await listInstallationsByGithubInstallationId(
+    installation.id,
+  )
+  for (const installationRow of installationRows) {
+    try {
+      if (onDefaultBranch) {
+        await persistWorkspaceTipsOnDefaultBranchPush({
+          orgId: installationRow.orgId,
+          repoFullName: repo.full_name,
+          defaultBranch,
+          payloadAfter: after,
+          resolveTip: (fullName, branch) =>
+            resolveGithubBranchTip({
+              orgId: installationRow.orgId,
+              githubConnectionId: installationRow.id,
+              repoFullName: fullName,
+              branch,
+              env: ctx.env,
+            }),
+        })
+      }
+      await persistLinkedTipsOnRefPush({
+        orgId: installationRow.orgId,
+        repoFullName: repo.full_name,
+        webhookRef: ref,
+        defaultBranch,
+        resolveTip: (fullName, branch) =>
+          resolveGithubBranchTip({
+            orgId: installationRow.orgId,
+            githubConnectionId: installationRow.id,
+            repoFullName: fullName,
+            branch,
+            env: ctx.env,
+          }),
+      })
+    } catch (err: unknown) {
+      ctx.log.error(err instanceof Error ? err : new Error(String(err)))
+    }
+    void enqueueWorkspaceTipCheck(installationRow.orgId, ctx.log)
   }
+
+  if (!onDefaultBranch) return
 
   await enqueueIngestionForInstallationRepos(
     installation.id,

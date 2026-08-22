@@ -37,6 +37,10 @@ const withLangfuseObservationMock = vi.hoisted(() =>
 )
 
 vi.mock("../../db/client.js", () => ({
+    tryGetOrgDb: () => ({}),
+    tryGetOrgDbOrgId: () => "org_test",
+    assertNotInOrgDbContext: () => undefined,
+
   getSystemDb: () => ({
     query: {
       organizations: {
@@ -49,18 +53,6 @@ vi.mock("../../db/client.js", () => ({
 
 vi.mock("../../auth/withAuth.js", () => ({
   withOrgIdContext: (_org: unknown, fn: () => unknown) => fn(),
-}))
-
-vi.mock("../../observability/logger.js", () => ({
-  createLogger: () => ({}),
-  withLogger: (_l: unknown, fn: () => unknown) => fn(),
-  getLogger: () => ({
-    set: vi.fn(),
-    info: vi.fn(),
-    error: vi.fn(),
-    warn: vi.fn(),
-  }),
-  flushWorkflowLog: vi.fn(),
 }))
 
 vi.mock("../../graphs/codeIngestionGraph/withIngestAgentContext.js", () => ({

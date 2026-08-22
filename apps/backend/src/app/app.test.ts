@@ -58,7 +58,8 @@ vi.mock("../routes/webhooks.js", () => ({
   registerWebhookRoutes: vi.fn(),
 }))
 
-import { createApp } from "./app.js"
+import { createAuthMiddleware } from "evlog/better-auth"
+import { betterAuthIdentifyExclude, createApp } from "./app.js"
 
 const AUTH_SECRET = "abcdefghijklmnopqrstuvwxyz123456"
 
@@ -107,6 +108,24 @@ describe("UI fallback proxy for unmatched backend routes", () => {
     const [target] = fetchSpy.mock.calls[0] as [Request]
     expect(target.url).toBe("http://ui:3002/dashboard?tab=home")
     expect(target.method).toBe("GET")
+  })
+
+  it("does not resolve Better Auth sessions for static asset paths", async () => {
+    const getSession = vi.fn().mockResolvedValue(null)
+    const identify = createAuthMiddleware(
+      { api: { getSession } },
+      { exclude: [...betterAuthIdentifyExclude] },
+    )
+    const log = { set: vi.fn() }
+
+    await identify(log as never, new Headers(), "/assets/index-abc.js")
+    await identify(log as never, new Headers(), "/fonts/Inter.woff2")
+    await identify(log as never, new Headers(), "/favicon.ico")
+    await identify(log as never, new Headers(), "/@vite/client")
+    expect(getSession).not.toHaveBeenCalled()
+
+    await identify(log as never, new Headers(), "/acme/api/v1/workspaces")
+    expect(getSession).toHaveBeenCalledTimes(1)
   })
 
   it("forwards method, query, headers, and body for non-GET routes", async () => {

@@ -75,7 +75,7 @@ Follow [product-ui](../../product-ui/SKILL.md). Connector list lesson: `Connecto
 | OAuth popup route if needed | `routes/[.]<slug>.setup.tsx` |
 | List type union | `OrgConnectionListItem['type']` |
 
-UK English in copy (`organisation`). GitHub prerequisite step before choosing a context repo.
+US English in copy (`organization`). GitHub prerequisite step before choosing a context repo.
 
 ## Docs
 

@@ -5,6 +5,48 @@ import type { Env } from "../config/env.js"
 
 type UiProxyClientMessage = string | ArrayBuffer | Uint8Array
 
+export const UI_PROXY_TIMEOUT_MS = 15_000
+
+export function isUiProxyAbortError(error: unknown): boolean {
+  return error instanceof Error && error.name === "AbortError"
+}
+
+export async function proxyUiRequest(
+  request: Request,
+  uiProxyUrl: string,
+  timeoutMs = UI_PROXY_TIMEOUT_MS,
+): Promise<Response> {
+  const sourceUrl = new URL(request.url)
+  const upstreamUrl = new URL(
+    `${sourceUrl.pathname}${sourceUrl.search}`,
+    uiProxyUrl,
+  )
+  const headers = new Headers(request.headers)
+  headers.set("Host", upstreamUrl.host)
+  const timeout = AbortSignal.timeout(timeoutMs)
+  const signal =
+    typeof AbortSignal.any === "function"
+      ? AbortSignal.any([request.signal, timeout])
+      : timeout
+  try {
+    return await proxy(upstreamUrl, {
+      raw: request,
+      headers: Object.fromEntries(headers),
+      redirect: "follow",
+      signal,
+    })
+  } catch (error) {
+    if (
+      isUiProxyAbortError(error) ||
+      timeout.aborted ||
+      request.signal.aborted
+    ) {
+      return new Response("Gateway Timeout", { status: 504 })
+    }
+    throw error
+  }
+}
+
 export type UiProxyWebSocketData = {
   upstream: WebSocket
   pendingMessages: UiProxyClientMessage[]
@@ -28,18 +70,7 @@ const VITE_WS_PROTOCOLS = new Set(["vite-hmr", "vite-ping"])
 
 export function registerUiRoutes(app: Hono<AppEnv>, env: Env) {
   app.all("*", async (c) => {
-    const sourceUrl = new URL(c.req.url)
-    const upstreamUrl = new URL(
-      `${sourceUrl.pathname}${sourceUrl.search}`,
-      env.UI_PROXY_URL,
-    )
-    const headers = new Headers(c.req.raw.headers)
-    headers.set("Host", upstreamUrl.host)
-    return proxy(upstreamUrl, {
-      raw: c.req.raw,
-      headers: Object.fromEntries(headers),
-      redirect: "follow",
-    })
+    return proxyUiRequest(c.req.raw, env.UI_PROXY_URL)
   })
   return app
 }

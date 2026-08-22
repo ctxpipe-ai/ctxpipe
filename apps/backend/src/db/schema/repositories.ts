@@ -15,6 +15,7 @@ import {
   unique,
 } from "drizzle-orm/pg-core"
 import { connections } from "./connections.js"
+import { orgIsolationPolicy } from "./org-rls.js"
 
 export const repositoryIndexingStatusValues = [
   "queued",
@@ -29,7 +30,7 @@ export const repositoryIndexingStatusEnum = pgEnum(
   repositoryIndexingStatusValues,
 )
 
-export const repositories = pgTable(
+export const repositories = pgTable.withRLS(
   "repositories",
   {
     id: text("id").primaryKey(),
@@ -72,5 +73,6 @@ export const repositories = pgTable(
     unique().on(t.gitUrl, t.orgId),
     index().on(t.name),
     index("repositories_github_connection_id_idx").on(t.githubConnectionId),
+    orgIsolationPolicy(t.orgId),
   ],
 )

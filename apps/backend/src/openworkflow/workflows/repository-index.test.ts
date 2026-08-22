@@ -35,20 +35,12 @@ vi.mock("../../models/github-installation.js", () => ({
   getInstallationToken: vi.fn().mockResolvedValue("tok"),
 }))
 
-vi.mock("../../observability/logger.js", () => ({
-  createLogger: () => ({}),
-  withLogger: (_l: unknown, fn: () => unknown) => fn(),
-  getLogger: () => ({
-    set: vi.fn(),
-    info: vi.fn(),
-    error: vi.fn(),
-    warn: vi.fn(),
-  }),
-  flushWorkflowLog: vi.fn(),
-}))
-
 vi.mock("../withLoggedStepAttempt.js", () => ({
   withLoggedStepAttempt: (_n: string, _ctx: unknown, fn: () => unknown) => fn(),
+}))
+
+vi.mock("../publish-workspace-index.js", () => ({
+  publishWorkspaceIndexAfterCodesearch: vi.fn().mockResolvedValue(0),
 }))
 
 vi.mock("openworkflow", () => ({
@@ -121,6 +113,10 @@ describe("repositoryIndex workflow", () => {
     })
 
     expect(cloneMock).toHaveBeenCalledOnce()
+    expect(cloneMock.mock.calls[0]?.[0]).toEqual({
+      repositoryId: "repo_1",
+      orgId: "org_1",
+    })
     expect(zoektMock).toHaveBeenCalledOnce()
     expect(detectMock).toHaveBeenCalledOnce()
     expect(scipMock).toHaveBeenCalledTimes(2)
@@ -130,7 +126,7 @@ describe("repositoryIndex workflow", () => {
     expect(stepNames).toContain("zoekt")
     expect(stepNames).toContain("scip:go")
     expect(stepNames).toContain("scip:typescript")
-    expect(stepNames[stepNames.length - 1]).toBe("merge-scip")
+    expect(stepNames[stepNames.length - 1]).toBe("publish-workspace-index")
     expect(result).toMatchObject({
       targetHash: "abc",
       ingestMode: "full",
@@ -287,5 +283,42 @@ describe("repositoryIndex workflow", () => {
 
     expect(detectMock).toHaveBeenCalledOnce()
     expect(mergeMock).not.toHaveBeenCalled()
+  })
+
+  it("forwards workspaceId into codesearch auth and checkout key", async () => {
+    const step = {
+      run: async (_opts: { name: string }, fn: () => unknown) => fn(),
+    }
+    const wf = repositoryIndex as unknown as {
+      fn: (args: {
+        input: {
+          repositoryId: string
+          orgId: string
+          targetHash: string
+          workspaceId: string
+        }
+        step: typeof step
+      }) => Promise<unknown>
+    }
+    await wf.fn({
+      input: {
+        repositoryId: "repo_1",
+        orgId: "org_1",
+        targetHash: "abc",
+        workspaceId: "ws_1",
+      },
+      step,
+    })
+    expect(cloneMock).toHaveBeenCalledWith(
+      {
+        repositoryId: "repo_1",
+        orgId: "org_1",
+        workspaceId: "ws_1",
+      },
+      expect.objectContaining({
+        targetHash: "abc",
+      }),
+    )
+    expect(cloneMock.mock.calls[0]?.[1]).not.toHaveProperty("checkoutKey")
   })
 })

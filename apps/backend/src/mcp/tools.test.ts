@@ -1,31 +1,49 @@
-import { HumanMessage } from "@langchain/core/messages"
 import { describe, expect, it, vi } from "vitest"
 
 const {
   generateObjectIdMock,
-  streamMock,
-  invokeMock,
+  collectChatMock,
   ensureConversationMock,
   touchConversationLastMessageMock,
   requireCurrentUserIdMock,
   requireCurrentOrgIdMock,
   requireCurrentOrgSlugMock,
+  listWorkspacesMock,
+  getWorkspaceByIdMock,
 } = vi.hoisted(() => ({
-  generateObjectIdMock: vi.fn(() => "thr_test"),
-  streamMock: vi.fn(),
-  invokeMock: vi.fn(),
+  generateObjectIdMock: vi.fn(() => "conv_test"),
+  collectChatMock: vi.fn(),
   ensureConversationMock: vi.fn(async () => ({})),
   touchConversationLastMessageMock: vi.fn(async () => {}),
   requireCurrentUserIdMock: vi.fn(() => "user_test123"),
   requireCurrentOrgIdMock: vi.fn(() => "org_test"),
   requireCurrentOrgSlugMock: vi.fn(() => "test-org"),
+  listWorkspacesMock: vi.fn(
+    async (): Promise<{
+      lastUsedWorkspaceId: string | null
+      items: Array<{ id: string; createdAt: Date }>
+    }> => ({
+      lastUsedWorkspaceId: "ws_first",
+      items: [
+        {
+          id: "ws_first",
+          createdAt: new Date("2026-08-15T00:00:00.000Z"),
+        },
+      ],
+    }),
+  ),
+  getWorkspaceByIdMock: vi.fn(async () => ({
+    id: "ws_first",
+    workspaceRepositoryUrl: "https://github.com/acme/docs",
+    desiredSha: "abc",
+    desiredGeneration: 1,
+    writeStatus: "writable",
+    githubConnectionId: "con_github",
+  })),
 }))
 
-vi.mock("../graphs/index.js", () => ({
-  conversationGraph: {
-    stream: streamMock,
-    invoke: invokeMock,
-  },
+vi.mock("../domain/workspaces/tanstack-workspace-chat.js", () => ({
+  collectTanstackWorkspaceChatText: collectChatMock,
 }))
 
 vi.mock("../lib/id.js", () => ({
@@ -35,6 +53,7 @@ vi.mock("../lib/id.js", () => ({
 vi.mock("../models/conversations.js", () => ({
   ensureConversation: ensureConversationMock,
   touchConversationLastMessage: touchConversationLastMessageMock,
+  discardUnstartedConversation: vi.fn(async () => {}),
 }))
 
 vi.mock("../auth/context.js", () => ({
@@ -43,24 +62,41 @@ vi.mock("../auth/context.js", () => ({
   requireCurrentOrgSlug: requireCurrentOrgSlugMock,
 }))
 
+vi.mock("../models/workspaces.js", () => ({
+  listWorkspaces: listWorkspacesMock,
+  getWorkspaceById: getWorkspaceByIdMock,
+}))
+
+vi.mock("../models/github-installation.js", () => ({
+  getRepoReadCloneToken: vi.fn(async () => "tok"),
+}))
+
+vi.mock("../config/env.js", () => ({
+  parseEnv: vi.fn(() => ({})),
+}))
+
+vi.mock("../observability/langfuse.js", () => ({
+  runWithLangfuseContext: (_meta: unknown, fn: () => Promise<unknown>) => fn(),
+}))
+
+vi.mock("../observability/amplitude.js", () => ({
+  trackMcpToolInvocation: vi.fn(),
+}))
+
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js"
 import { registerMcpTools } from "./tools.js"
 
 describe("registerMcpTools", () => {
-  it("registers ctx advisor tool and streams progress", async () => {
-    const chunkOne = {
-      messages: [{ content: "Plan the integration in phases" }],
-    }
-    const chunkTwo = {
-      messages: [
-        { content: "Plan the integration in phases with auth-first steps" },
-      ],
-    }
-    streamMock.mockResolvedValueOnce(
-      (async function* () {
-        yield chunkOne
-        yield chunkTwo
-      })(),
+  it("registers ctx advisor and runs the first-Workspace TanStack chat runtime", async () => {
+    collectChatMock.mockImplementationOnce(
+      async (input: { onDelta?: (delta: string) => Promise<void> }) => {
+        await input.onDelta?.("Plan the integration in phases")
+        await input.onDelta?.(" with auth-first steps")
+        return {
+          ok: true,
+          text: "Plan the integration in phases with auth-first steps",
+        }
+      },
     )
 
     const registerToolMock = vi.fn()
@@ -85,12 +121,8 @@ describe("registerMcpTools", () => {
     ]
     expect(name).toBe("ctx_advisor")
     expect(config.title).toContain("ctx_advisor")
-    expect(config.description).toContain("ctx_advisor")
-    expect(config.description).toContain("repository search")
-    expect(config.description).toContain("grep")
-    expect(config.inputSchema.shape.prompt._def.type).toBe("string")
-    expect("currentProjectName" in config.inputSchema.shape).toBe(true)
-    expect("conversationId" in config.inputSchema.shape).toBe(true)
+    expect(config.description).toContain("DEPRECATED")
+    expect(config.description).toContain("first Workspace")
 
     const sendNotification = vi.fn(async () => {})
     const result = await handler(
@@ -100,202 +132,130 @@ describe("registerMcpTools", () => {
     expect(result.content[0]?.text).toBe(
       "Plan the integration in phases with auth-first steps",
     )
-    expect(streamMock).toHaveBeenCalledTimes(1)
-    expect(sendNotification).toHaveBeenCalledTimes(2)
-    expect(invokeMock).not.toHaveBeenCalled()
-
-    const callArg = streamMock.mock.calls[0]?.[0] as {
-      messages: unknown[]
-    }
-    expect(callArg.messages).toHaveLength(1)
-    expect(callArg.messages[0]).toBeInstanceOf(HumanMessage)
-    expect((callArg.messages[0] as HumanMessage).content).toBe(
-      "How should we structure this route?",
+    expect(collectChatMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        conversationId: "conv_test",
+        workspaceId: "ws_first",
+        prompt: "How should we structure this route?",
+        desiredSha: "abc",
+      }),
     )
-
-    const callConfig = streamMock.mock.calls[0]?.[1] as {
-      configurable?: {
-        checkpoint_ns?: string
-        thread_id?: string
-        source?: string
-      }
-    }
-    expect(callConfig.configurable?.checkpoint_ns).toBe("ctx_advisor")
-    expect(callConfig.configurable?.thread_id).toBe("thr_test")
-    expect(callConfig.configurable?.source).toBe("mcp")
-    expect(generateObjectIdMock).toHaveBeenCalledWith("thr")
+    expect(sendNotification).toHaveBeenCalledTimes(2)
     expect(ensureConversationMock).toHaveBeenCalledWith({
-      id: "thr_test",
+      id: "conv_test",
       source: "mcp",
+      workspaceId: "ws_first",
     })
-    expect(touchConversationLastMessageMock).toHaveBeenCalledWith("thr_test")
+    expect(touchConversationLastMessageMock).toHaveBeenCalledWith("conv_test")
   })
 
-  it("passes checkpoint config to fallback invoke path", async () => {
-    streamMock.mockResolvedValueOnce(
-      (async function* () {
-        // no chunks on stream, forcing fallback invoke path
-      })(),
-    )
-    invokeMock.mockResolvedValueOnce({
-      messages: [{ content: "Fallback response" }],
-    })
-
+  it("starts a new MCP conversation even when conversationId is provided", async () => {
+    collectChatMock.mockResolvedValueOnce({ ok: true, text: "Response" })
     const registerToolMock = vi.fn()
     const server = { registerTool: registerToolMock } as unknown as McpServer
     registerMcpTools(server)
+    const [, , handler] = registerToolMock.mock.calls[0] as [
+      string,
+      unknown,
+      (
+        input: { prompt: string; conversationId?: string },
+        extra: { sendNotification: (n: unknown) => Promise<void> },
+      ) => Promise<{ content: Array<{ text: string }> }>,
+    ]
+    await handler(
+      { prompt: "Test", conversationId: "conv-xyz" },
+      { sendNotification: vi.fn(async () => {}) },
+    )
+    expect(generateObjectIdMock).toHaveBeenCalledWith("conv")
+    expect(collectChatMock).toHaveBeenCalledWith(
+      expect.objectContaining({ conversationId: "conv_test" }),
+    )
+  })
 
+  it("uses the oldest Workspace when no persisted first id exists", async () => {
+    collectChatMock.mockResolvedValueOnce({ ok: true, text: "Response" })
+    listWorkspacesMock.mockResolvedValueOnce({
+      lastUsedWorkspaceId: "ws_newer",
+      items: [
+        {
+          id: "ws_newer",
+          createdAt: new Date("2026-08-18T00:00:00.000Z"),
+        },
+        {
+          id: "ws_older",
+          createdAt: new Date("2026-08-15T00:00:00.000Z"),
+        },
+      ],
+    })
+    getWorkspaceByIdMock.mockResolvedValueOnce({
+      id: "ws_older",
+      workspaceRepositoryUrl: "https://github.com/acme/docs",
+      desiredSha: "abc",
+      desiredGeneration: 1,
+      writeStatus: "writable",
+      githubConnectionId: "con_github",
+    })
+    const registerToolMock = vi.fn()
+    const server = { registerTool: registerToolMock } as unknown as McpServer
+    registerMcpTools(server)
     const [, , handler] = registerToolMock.mock.calls[0] as [
       string,
       unknown,
       (
         input: { prompt: string },
-        extra: {
-          _meta?: { progressToken?: string | number }
-          sendNotification: (notification: unknown) => Promise<void>
-        },
-      ) => Promise<{ content: Array<{ text: string }> }>,
-    ]
-
-    const sendNotification = vi.fn(async () => {})
-    const result = await handler(
-      { prompt: "Use fallback path" },
-      { _meta: { progressToken: "progress_2" }, sendNotification },
-    )
-
-    expect(result.content[0]?.text).toBe("Fallback response")
-    expect(invokeMock).toHaveBeenCalledTimes(1)
-
-    const invokeConfig = invokeMock.mock.calls[0]?.[1] as {
-      configurable?: {
-        checkpoint_ns?: string
-        thread_id?: string
-        source?: string
-      }
-    }
-    expect(invokeConfig.configurable?.checkpoint_ns).toBe("ctx_advisor")
-    expect(invokeConfig.configurable?.thread_id).toBe("thr_test")
-    expect(invokeConfig.configurable?.source).toBe("mcp")
-    expect(ensureConversationMock).toHaveBeenCalledWith({
-      id: "thr_test",
-      source: "mcp",
-    })
-    expect(touchConversationLastMessageMock).toHaveBeenCalledWith("thr_test")
-  })
-
-  it("uses composite threadId when conversationId is provided", async () => {
-    generateObjectIdMock.mockClear()
-    requireCurrentUserIdMock.mockClear()
-    const callCountBefore = streamMock.mock.calls.length
-    streamMock.mockResolvedValueOnce(
-      (async function* () {
-        yield { messages: [{ content: "Response" }] }
-      })(),
-    )
-
-    const registerToolMock = vi.fn()
-    const server = { registerTool: registerToolMock } as unknown as McpServer
-    registerMcpTools(server)
-
-    const [, , handler] = registerToolMock.mock.calls[0] as [
-      string,
-      unknown,
-      (
-        input: { prompt: string; currentProjectName?: string; conversationId?: string },
-        extra: { _meta?: { progressToken?: string }; sendNotification: (n: unknown) => Promise<void> },
-      ) => Promise<{ content: Array<{ text: string }> }>,
-    ]
-
-    await handler(
-      {
-        prompt: "Test",
-        currentProjectName: "my-backend",
-        conversationId: "conv-xyz",
-      },
-      { sendNotification: vi.fn(async () => {}) },
-    )
-
-    expect(requireCurrentUserIdMock).toHaveBeenCalledTimes(1)
-    expect(generateObjectIdMock).not.toHaveBeenCalled()
-
-    const lastStreamCall = streamMock.mock.calls[callCountBefore]
-    const callConfig = lastStreamCall?.[1] as {
-      configurable?: { thread_id?: string }
-    }
-    expect(callConfig.configurable?.thread_id).toBe(
-      "user_test123_my-backend_conv-xyz",
-    )
-    expect(ensureConversationMock).toHaveBeenCalledWith({
-      id: "user_test123_my-backend_conv-xyz",
-      source: "mcp",
-    })
-  })
-
-  it("passes currentProjectName to graph state when provided", async () => {
-    const callCountBefore = streamMock.mock.calls.length
-    streamMock.mockResolvedValueOnce(
-      (async function* () {
-        yield { messages: [{ content: "Response" }] }
-      })(),
-    )
-
-    const registerToolMock = vi.fn()
-    const server = { registerTool: registerToolMock } as unknown as McpServer
-    registerMcpTools(server)
-
-    const [, , handler] = registerToolMock.mock.calls[0] as [
-      string,
-      unknown,
-      (
-        input: { prompt: string; currentProjectName?: string },
         extra: { sendNotification: (n: unknown) => Promise<void> },
       ) => Promise<{ content: Array<{ text: string }> }>,
     ]
-
-    await handler(
-      { prompt: "Test", currentProjectName: "ctxpipe" },
-      { sendNotification: vi.fn(async () => {}) },
-    )
-
-    const lastStreamCall = streamMock.mock.calls[callCountBefore]
-    const callArg = lastStreamCall?.[0] as {
-      messages: unknown[]
-      currentProjectName?: string | null
-    }
-    expect(callArg.currentProjectName).toBe("ctxpipe")
-  })
-
-  it("sets currentProjectName to null when not provided", async () => {
-    const callCountBefore = streamMock.mock.calls.length
-    streamMock.mockResolvedValueOnce(
-      (async function* () {
-        yield { messages: [{ content: "Response" }] }
-      })(),
-    )
-
-    const registerToolMock = vi.fn()
-    const server = { registerTool: registerToolMock } as unknown as McpServer
-    registerMcpTools(server)
-
-    const [, , handler] = registerToolMock.mock.calls[0] as [
-      string,
-      unknown,
-      (
-        input: { prompt: string; currentProjectName?: string },
-        extra: { sendNotification: (n: unknown) => Promise<void> },
-      ) => Promise<{ content: Array<{ text: string }> }>,
-    ]
-
     await handler(
       { prompt: "Test" },
       { sendNotification: vi.fn(async () => {}) },
     )
+    expect(getWorkspaceByIdMock).toHaveBeenCalledWith("ws_older")
+    expect(collectChatMock).toHaveBeenCalledWith(
+      expect.objectContaining({ workspaceId: "ws_older" }),
+    )
+  })
 
-    const lastStreamCall = streamMock.mock.calls[callCountBefore]
-    const callArg = lastStreamCall?.[0] as {
-      messages: unknown[]
-      currentProjectName?: string | null
-    }
-    expect(callArg.currentProjectName).toBeNull()
+  it("fails when the organisation has no Workspace", async () => {
+    listWorkspacesMock.mockResolvedValueOnce({
+      lastUsedWorkspaceId: null,
+      items: [],
+    })
+    const registerToolMock = vi.fn()
+    const server = { registerTool: registerToolMock } as unknown as McpServer
+    registerMcpTools(server)
+    const [, , handler] = registerToolMock.mock.calls[0] as [
+      string,
+      unknown,
+      (
+        input: { prompt: string },
+        extra: { sendNotification: (n: unknown) => Promise<void> },
+      ) => Promise<{ content: Array<{ text: string }> }>,
+    ]
+    await expect(
+      handler({ prompt: "Test" }, { sendNotification: vi.fn(async () => {}) }),
+    ).rejects.toThrow(/Create a Workspace/)
+  })
+
+  it("prefixes currentProjectName onto the Workspace chat prompt", async () => {
+    collectChatMock.mockResolvedValueOnce({ ok: true, text: "Response" })
+    const registerToolMock = vi.fn()
+    const server = { registerTool: registerToolMock } as unknown as McpServer
+    registerMcpTools(server)
+    const [, , handler] = registerToolMock.mock.calls[0] as [
+      string,
+      unknown,
+      (
+        input: { prompt: string; currentProjectName?: string },
+        extra: { sendNotification: (n: unknown) => Promise<void> },
+      ) => Promise<{ content: Array<{ text: string }> }>,
+    ]
+    await handler(
+      { prompt: "Test", currentProjectName: "ctxpipe" },
+      { sendNotification: vi.fn(async () => {}) },
+    )
+    expect(collectChatMock).toHaveBeenCalledWith(
+      expect.objectContaining({ prompt: "Project: ctxpipe\n\nTest" }),
+    )
   })
 })

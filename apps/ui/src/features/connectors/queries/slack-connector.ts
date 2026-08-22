@@ -1,4 +1,5 @@
 import { client } from "@/lib/api"
+import { ApiError, readApiJson } from "@/lib/api-result"
 
 export type SlackSetupPhase = "draft" | "live"
 
@@ -48,9 +49,16 @@ export async function fetchSlackConnectorStatus(
     param: { orgSlug },
     ...connectionQuery(connectionId),
   })
-  if (res.status === 404) throw new SlackConnectionNotFoundError()
-  if (!res.ok) throw new Error("Failed to fetch Slack connector status")
-  return res.json() as Promise<SlackConnectorStatus>
+  try {
+    return await readApiJson<SlackConnectorStatus>(res, {
+      message: "Failed to fetch Slack connector status",
+    })
+  } catch (error) {
+    if (error instanceof ApiError && error.status === 404) {
+      throw new SlackConnectionNotFoundError()
+    }
+    throw error
+  }
 }
 
 export async function fetchSlackOAuthStart(
@@ -61,17 +69,19 @@ export async function fetchSlackOAuthStart(
       param: { orgSlug },
     },
   )
-  if (!res.ok) {
-    const body = (await res.json().catch(() => ({}))) as {
-      code?: string
-      error?: string
-    }
-    if (body.code === "slack_oauth_not_configured") {
+  try {
+    return await readApiJson<{ authorizationUrl: string }>(res, {
+      message: "Failed to start Slack authorization",
+    })
+  } catch (error) {
+    if (
+      error instanceof ApiError &&
+      error.body.code === "slack_oauth_not_configured"
+    ) {
       throw new SlackOAuthNotConfiguredError()
     }
-    throw new Error(body.error ?? "Failed to start Slack authorization")
+    throw error
   }
-  return res.json() as Promise<{ authorizationUrl: string }>
 }
 
 export type SlackBindRepositoryBody = {
@@ -92,11 +102,9 @@ export async function patchSlackConnectorConfig(
     ...connectionQuery(connectionId),
     json: body,
   })
-  if (!res.ok) {
-    const err = (await res.json().catch(() => ({}))) as { error?: string }
-    throw new Error(err.error ?? "Failed to save Slack connector config")
-  }
-  return res.json() as Promise<{ accepted: true; setupPhase: SlackSetupPhase }>
+  return readApiJson<{ accepted: true; setupPhase: SlackSetupPhase }>(res, {
+    message: "Failed to save Slack connector config",
+  })
 }
 
 export async function deleteSlackConnector(
@@ -107,7 +115,5 @@ export async function deleteSlackConnector(
     param: { orgSlug },
     ...connectionQuery(connectionId),
   })
-  if (!res.ok && res.status !== 204) {
-    throw new Error("Failed to remove Slack connector")
-  }
+  await readApiJson<void>(res, { message: "Failed to remove Slack connector" })
 }

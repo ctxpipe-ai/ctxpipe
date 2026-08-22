@@ -43,7 +43,7 @@ function renderMessagePart(part: UIMessage["parts"][number], key: string) {
     return (
       <details
         key={key}
-        className="rounded-none border border-border/60 bg-foreground/[0.04] p-3 text-sm text-muted-foreground"
+        className="rounded-lg border border-border/60 bg-zinc-900/60 p-3 text-sm text-muted-foreground"
       >
         <summary className="cursor-pointer text-foreground">Reasoning</summary>
         <MessageResponse>{part.text}</MessageResponse>
@@ -108,7 +108,7 @@ export function ConversationThread(props: {
       <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
         <Conversation className="min-h-0 flex-1">
           <ConversationContent
-            className={cn("mx-auto max-w-2xl space-y-6 p-6", contentClassName)}
+            className={cn("mx-auto max-w-2xl space-y-5 px-4 py-5", contentClassName)}
           >
             {messages.length === 0 ? (
               <ConversationEmptyState
@@ -176,7 +176,7 @@ export function ConversationThread(props: {
                   >
                     <div className="flex w-full max-w-[85%] items-center gap-3">
                       <div
-                        className="flex size-8 shrink-0 items-center justify-center rounded-full border border-white/[0.08] bg-foreground/[0.04]"
+                        className="flex size-8 shrink-0 items-center justify-center rounded-lg border border-white/[0.08] bg-zinc-900"
                         aria-hidden
                       >
                         <span className="ctx-indexing-dot" />

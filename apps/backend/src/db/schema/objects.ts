@@ -7,11 +7,12 @@ import {
   timestamp,
   vector,
 } from "drizzle-orm/pg-core"
+import { orgIsolationPolicy } from "./org-rls.js"
 
 /** Qwen3 Embedding 8B with MRL: 2000 dims for pgvector HNSW index compatibility */
 const EMBEDDING_DIMENSIONS = 2000
 
-export const objects = pgTable(
+export const objects = pgTable.withRLS(
   "objects",
   {
     id: text("id").primaryKey(),
@@ -43,5 +44,6 @@ export const objects = pgTable(
       "gin",
       sql`to_tsvector('english', ${t.searchContent})`,
     ),
+    orgIsolationPolicy(t.orgId),
   ],
 )

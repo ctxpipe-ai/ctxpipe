@@ -1,0 +1,2 @@
+CREATE UNIQUE INDEX "workspace_sandbox_instances_live_job_workspace_uidx" ON "workspace_sandbox_instances" ("workspace_id") WHERE "kind" = 'job' and "state" in ('live', 'destroy_failed');--> statement-breakpoint
+CREATE UNIQUE INDEX "workspace_sandbox_instances_live_chat_conversation_uidx" ON "workspace_sandbox_instances" ("conversation_id") WHERE "kind" = 'chat' and "conversation_id" is not null and "state" in ('live', 'destroy_failed');

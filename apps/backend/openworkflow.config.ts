@@ -11,9 +11,12 @@ import { defineConfig } from "@openworkflow/cli"
 import { BackendPostgres } from "openworkflow/postgres"
 import { parseEnv } from "./src/config/env.js"
 import { initDb } from "./src/db/client.js"
-import { createLogger, flushEvlog, initEvlog } from "./src/observability/logger.js"
+import {
+  createLogger,
+  flushEvlog,
+  initEvlog,
+} from "./src/observability/logger.js"
 import { initOtel, shutdownOtel } from "./src/observability/otel.js"
-import { backfillGithubAppSecretsFromEnv } from "./src/scripts/backfillGithubConnectionSecrets.js"
 
 const databaseUrl = process.env.DATABASE_URL
 if (!databaseUrl) throw new Error("DATABASE_URL is required for the worker")
@@ -21,7 +24,6 @@ initDb(databaseUrl)
 const env = parseEnv(process.env as Record<string, string | undefined>)
 initOtel(env)
 initEvlog()
-await backfillGithubAppSecretsFromEnv(env)
 
 let shuttingDown = false
 async function shutdownWorkerObservability() {
@@ -48,11 +50,11 @@ bootstrapLog.info("openworkflow worker config loaded")
 bootstrapLog.emit()
 
 export default defineConfig({
-  backend: await BackendPostgres.connect(databaseUrl),
+  backend: await BackendPostgres.connect(databaseUrl, { runMigrations: false }),
   dirs: ["./src/openworkflow/workflows"],
   // CLI imports every *.ts under dirs; skip Vitest files (dev-only deps).
   ignorePatterns: ["**/*.test.*", "**/*.spec.*"],
   worker: {
-    concurrency: 20
-  }
+    concurrency: 20,
+  },
 })

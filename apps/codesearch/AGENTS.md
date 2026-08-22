@@ -35,6 +35,7 @@ These instructions supplement the repository-root `AGENTS.md`.
 
 ## Testing
 
+- Vitest uses `src/test/setup-evlog.ts` (`initLogger({ enabled: false })`) via `test.setupFiles`. Never `vi.mock` `observability/logger.js`. If a test throws `getLogger: no logger in context`, wrap the production path in `withLogger` or run the helper inside `withLogger` in the test.
 - Keep unit tests collocated with the code under `src/`.
 - The default `pnpm --filter @ctxpipe/codesearch test` builds and runs the
   Docker-based Vitest suite.

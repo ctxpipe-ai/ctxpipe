@@ -1,13 +1,14 @@
 import type { Meta, StoryObj } from "@storybook/react-vite"
-import { HttpResponse, http } from "msw"
+import { delay, HttpResponse, http } from "msw"
+import { expect, within } from "storybook/test"
 import { githubInstallationNoneHandler } from "@/mocks/handlers"
-import { entryPageInnerDecorators } from "../../.storybook/decorators/entry-page-decorators"
+import { orgPageDecorators } from "../../.storybook/decorators/entry-page-decorators"
 import type { StoryRouteParams } from "../../.storybook/decorators/with-story-route"
 import { OrgHomePageContent } from "./$orgSlug.index"
 
 const meta = {
   title: "Pages/Home",
-  decorators: entryPageInnerDecorators,
+  decorators: orgPageDecorators,
   parameters: {
     layout: "fullscreen",
   },
@@ -16,6 +17,33 @@ const meta = {
 export default meta
 
 type Story = StoryObj<typeof meta>
+
+export const Loading: Story = {
+  render: () => <OrgHomePageContent orgSlug="acme" />,
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement)
+    expect(
+      canvas.getByRole("navigation", { name: "Main navigation" }),
+    ).toBeVisible()
+    expect(canvas.getByText("Loading home")).toBeInTheDocument()
+  },
+  parameters: {
+    storyRoute: {
+      pattern: "orgIndex",
+      orgSlug: "acme",
+    } satisfies StoryRouteParams,
+    msw: {
+      handlers: {
+        page: [
+          http.get("*/.auth/api/v1/auth/get-session", async () => {
+            await delay("infinite")
+            return HttpResponse.json(null)
+          }),
+        ],
+      },
+    },
+  },
+}
 
 export const Start: Story = {
   render: () => <OrgHomePageContent orgSlug="acme" />,

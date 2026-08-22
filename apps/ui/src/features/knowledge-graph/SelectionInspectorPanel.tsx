@@ -1,10 +1,6 @@
-import {
-  IconFocusCentered,
-  IconMessageCircle,
-  IconSearch,
-  IconX,
-} from "@tabler/icons-react"
+import { IconFocusCentered, IconSearch, IconX } from "@tabler/icons-react"
 import { type ReactNode, useMemo, useState } from "react"
+import { Button } from "@/components/ui/Button"
 import { cn } from "@/lib/utils"
 import { PanelLabel } from "./FloatingPanel"
 import { KIND_FALLBACK_COLOR } from "./theme"
@@ -38,14 +34,12 @@ function formatRange(range: { from: number; to: number }): string {
 
 export function SelectionInspectorPanel({
   kindColors,
-  onAskSelection,
   onClose,
   onFitSelection,
   onNodeSelect,
   selection,
 }: {
   kindColors: Map<string, string>
-  onAskSelection: () => void
   onClose: () => void
   onFitSelection: () => void
   onNodeSelect: (id: string) => void
@@ -67,36 +61,36 @@ export function SelectionInspectorPanel({
 
   return (
     <aside
-      className="pointer-events-auto absolute right-0 top-0 z-20 flex h-[100dvh] w-[440px] max-w-[90vw] translate-x-0 flex-col border-l border-zinc-800/95 bg-zinc-950/95 shadow-2xl shadow-black/50 backdrop-blur-md transition-transform duration-200 ease-out motion-reduce:transition-none"
+      className="pointer-events-auto absolute top-2 right-2 bottom-2 z-20 flex w-[min(28rem,calc(100%-1rem))] translate-x-0 flex-col rounded-lg border border-border bg-zinc-900 shadow-md transition-transform duration-200 ease-out motion-reduce:transition-none"
       aria-label={selection.title}
     >
-      <div className="flex items-start gap-3 border-b border-zinc-800/95 p-4">
+      <div className="flex items-start gap-3 border-b border-border p-4">
         <div className="min-w-0 flex-1">
-          <p className="text-[12px] font-semibold uppercase tracking-[0.18em] text-zinc-500">
+          <p className="ctx-label text-muted-foreground">
             {selection.source === "lasso" ? "Lasso selection" : "Time filter"}
           </p>
-          <h2 className="mt-0.5 truncate font-mono text-[13px] text-zinc-100">
+          <h2 className="mt-0.5 truncate text-lg font-medium text-foreground">
             {selection.title}
           </h2>
         </div>
-        <button
-          type="button"
-          onClick={onClose}
+        <Button
+          variant="ghost"
+          size="icon-sm"
+          onPress={onClose}
           aria-label="Close selection inspector"
-          className="inline-flex h-6 w-6 shrink-0 items-center justify-center text-zinc-500 transition-colors hover:text-zinc-100"
         >
-          <IconX className="h-3.5 w-3.5" aria-hidden />
-        </button>
+          <IconX className="size-4 text-muted-foreground" aria-hidden />
+        </Button>
       </div>
 
       <div className="flex-1 space-y-4 overflow-y-auto p-4">
-        <p className="text-[13px] leading-snug text-zinc-400">
+        <p className="text-sm leading-snug text-zinc-400">
           {selection.description}
         </p>
 
         {selection.range ? (
           <DetailBlock label="Range">
-            <p className="font-mono text-[12px] text-zinc-300">
+            <p className="font-mono text-xs text-zinc-300">
               {formatRange(selection.range)}
             </p>
           </DetailBlock>
@@ -109,25 +103,18 @@ export function SelectionInspectorPanel({
           </div>
         </DetailBlock>
 
-        <div className="grid grid-cols-2 gap-2">
-          <button
-            type="button"
-            onClick={onFitSelection}
-            disabled={selection.nodeIds.length === 0}
-            className="inline-flex items-center justify-center gap-1.5 border border-zinc-800/95 bg-zinc-900/55 px-2 py-1.5 text-[12px] text-zinc-300 transition-colors hover:border-zinc-700 hover:bg-zinc-900 disabled:cursor-not-allowed disabled:opacity-40"
+        <div>
+          <Button
+            variant="outline"
+            onPress={onFitSelection}
+            isDisabled={selection.nodeIds.length === 0}
           >
-            <IconFocusCentered className="h-3.5 w-3.5" aria-hidden />
+            <IconFocusCentered
+              className="size-4 text-muted-foreground"
+              aria-hidden
+            />
             Fit selection
-          </button>
-          <button
-            type="button"
-            onClick={onAskSelection}
-            disabled={selection.nodeIds.length === 0}
-            className="inline-flex items-center justify-center gap-1.5 border border-teal-500/55 bg-teal-500/10 px-2 py-1.5 text-[12px] text-teal-200 transition-colors hover:border-teal-500/70 hover:bg-teal-500/15 disabled:cursor-not-allowed disabled:opacity-40"
-          >
-            <IconMessageCircle className="h-3.5 w-3.5" aria-hidden />
-            Ask ctx|
-          </button>
+          </Button>
         </div>
 
         {selection.kindCounts.length > 0 ? (
@@ -136,7 +123,7 @@ export function SelectionInspectorPanel({
               {selection.kindCounts.slice(0, 10).map(([kind, count]) => (
                 <span
                   key={kind}
-                  className="inline-flex items-center gap-1.5 border border-zinc-800/95 bg-zinc-900/70 px-1.5 py-0.5 text-[13px] text-zinc-300"
+                  className="inline-flex items-center gap-1.5 border border-zinc-800/95 bg-zinc-900/70 px-1.5 py-0.5 text-sm text-zinc-300"
                 >
                   <span
                     className="h-2 w-2"
@@ -164,7 +151,7 @@ export function SelectionInspectorPanel({
                 .map(([predicate, count]) => (
                   <span
                     key={predicate}
-                    className="inline-flex items-center gap-1.5 border border-zinc-800/95 bg-zinc-900/70 px-1.5 py-0.5 text-[13px] text-zinc-300"
+                    className="inline-flex items-center gap-1.5 border border-zinc-800/95 bg-zinc-900/70 px-1.5 py-0.5 text-sm text-zinc-300"
                   >
                     <span className="truncate">{predicate}</span>
                     <span className="font-mono tabular-nums text-zinc-500">
@@ -179,14 +166,14 @@ export function SelectionInspectorPanel({
         <DetailBlock label={`Nodes · ${filteredNodes.length.toLocaleString()}`}>
           <div className="relative mb-2">
             <IconSearch
-              className="pointer-events-none absolute left-2 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-zinc-600"
+              className="pointer-events-none absolute left-2 top-1/2 size-4 -translate-y-1/2 text-muted-foreground"
               aria-hidden
             />
             <input
               value={query}
               onChange={(event) => setQuery(event.target.value)}
               placeholder="Filter selected nodes"
-              className="h-8 w-full border border-zinc-800/95 bg-zinc-950/80 pl-7 pr-2 text-[13px] text-zinc-200 outline-none placeholder:text-zinc-600 focus:border-teal-500/50"
+              className="h-8 w-full rounded-lg border border-border bg-background pl-8 pr-2 text-sm text-foreground outline-none placeholder:text-muted-foreground"
             />
           </div>
           <ul className="flex flex-col gap-0.5">
@@ -206,14 +193,14 @@ export function SelectionInspectorPanel({
                       aria-hidden
                     />
                     <span className="min-w-0 flex-1">
-                      <span className="block truncate text-[13px] text-zinc-200">
+                      <span className="block truncate text-sm text-zinc-200">
                         {displayNodeName(node)}
                       </span>
-                      <span className="block truncate font-mono text-[11px] text-zinc-600">
+                      <span className="block truncate font-mono text-xs text-zinc-600">
                         {node.id}
                       </span>
                     </span>
-                    <span className="shrink-0 text-[11px] uppercase tracking-[0.12em] text-zinc-500">
+                    <span className="shrink-0 text-xs uppercase tracking-[0.12em] text-zinc-500">
                       {kind}
                     </span>
                   </button>
@@ -222,7 +209,7 @@ export function SelectionInspectorPanel({
             })}
           </ul>
           {hiddenNodeCount > 0 ? (
-            <p className="mt-2 text-[12px] text-zinc-600">
+            <p className="mt-2 text-xs text-zinc-600">
               {hiddenNodeCount.toLocaleString()} more matching nodes hidden.
               Narrow the filter to inspect them.
             </p>
@@ -264,12 +251,12 @@ function StatCell({
         accent ? "bg-teal-500/5" : "bg-zinc-900/45",
       )}
     >
-      <div className="font-mono text-[11px] uppercase tracking-[0.16em] text-zinc-500">
+      <div className="font-mono text-xs uppercase tracking-[0.16em] text-zinc-500">
         {label}
       </div>
       <div
         className={cn(
-          "mt-0.5 truncate font-mono text-[13px] tabular-nums",
+          "mt-0.5 truncate font-mono text-sm tabular-nums",
           accent ? "text-teal-200" : "text-zinc-300",
         )}
       >

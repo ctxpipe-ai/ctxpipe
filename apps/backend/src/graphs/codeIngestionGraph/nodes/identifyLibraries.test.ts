@@ -64,7 +64,7 @@ describe("identifyLibraries post-processing", () => {
       { name: "prisma", path: "./" },
       { name: "drizzle", path: "./" },
     ]
-    const { objects, claims } = postProcessLibraries(captured, state)
+    const { objects } = postProcessLibraries(captured, state)
 
     expect(objects).toHaveLength(2) // Prisma (deduped), Drizzle
     const names = objects.map((o) => o.name).sort()

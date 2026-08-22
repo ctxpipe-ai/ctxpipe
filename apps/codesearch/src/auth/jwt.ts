@@ -1,10 +1,23 @@
 import { jwtVerify } from "jose"
 import type { Env } from "../config/env.js"
+import {
+  DEFAULT_CHECKOUT_KEY,
+  workspaceCheckoutKey,
+} from "../domain/repositories/paths.js"
 
 export type VerifiedToken = {
   sub: string
   orgId: string
   principal: "user" | "service"
+  workspaceId?: string
+}
+
+export function checkoutKeyFromAuth(
+  auth: Pick<VerifiedToken, "workspaceId">,
+): string {
+  return auth.workspaceId
+    ? workspaceCheckoutKey(auth.workspaceId)
+    : DEFAULT_CHECKOUT_KEY
 }
 
 function readBearerToken(authHeader: string | undefined): string | null {
@@ -44,9 +57,15 @@ export async function verifyCodesearchJwt(input: {
     return null
   }
 
+  const workspaceId =
+    typeof payload.workspaceId === "string" && payload.workspaceId.length > 0
+      ? payload.workspaceId
+      : undefined
+
   return {
     sub: subject,
     orgId,
     principal,
+    ...(workspaceId ? { workspaceId } : {}),
   }
 }

@@ -2,11 +2,9 @@ import { IconPlus } from "@tabler/icons-react"
 import { useQuery, useQueryClient } from "@tanstack/react-query"
 import { createFileRoute, Navigate, useNavigate } from "@tanstack/react-router"
 import { useEffect, useState } from "react"
-import { AppShell } from "@/components/AppShell"
 import { Button } from "@/components/ui/Button"
-import { InlineLoader } from "@/components/ui/InlineLoader"
 import { Modal } from "@/components/ui/Modal"
-import { Spinner } from "@/components/ui/spinner"
+import { SkeletonRow } from "@/components/ui/Skeleton"
 import {
   AddConfluenceConnectorButton,
   AddConnectorCatalogDialog,
@@ -32,10 +30,11 @@ import { GithubSelfHostedWizardModal } from "@/features/connectors/components/Gi
 import { SlackSetupDialog } from "@/features/connectors/components/SlackSetupDialog"
 import { atlassianConnectorKeys } from "@/features/connectors/queries/atlassian-connector"
 import {
-  fetchOrgConnections,
   orgConnectionsKeys,
+  orgConnectionsOptions,
   sortOrgConnectionsForDisplay,
 } from "@/features/connectors/queries/org-connections"
+import { apiFetch, readApiJson } from "@/lib/api-result"
 import { oauthErrorMessage } from "@/lib/atlassian-oauth-messages"
 import { useSession } from "@/lib/auth-client"
 import { useGithubConnectorBootstrap } from "@/lib/useGithubConnectorBootstrap"
@@ -65,11 +64,28 @@ function ConnectorsPage() {
 
   if (sessionPending) {
     return (
-      <AppShell>
-        <main className="mx-auto flex w-full max-w-2xl items-center justify-center p-8">
-          <Spinner className="text-muted-foreground" />
-        </main>
-      </AppShell>
+      <main className="mx-auto box-border flex min-h-full w-full max-w-2xl flex-col p-8 text-foreground">
+        <header className="mb-8">
+          <span className="font-mono text-xs uppercase tracking-[0.24em] text-teal-400">
+            Connectors
+          </span>
+        </header>
+        <h1 className="text-3xl font-medium tracking-tight text-foreground">
+          Connectors
+        </h1>
+        <div className="mt-12 border-t border-white/[0.06]" aria-busy>
+          <span className="sr-only">Loading connectors</span>
+          <SkeletonRow
+            size="catalog"
+            className="border-b border-white/[0.06]"
+          />
+          <SkeletonRow
+            size="catalog"
+            className="border-b border-white/[0.06]"
+          />
+          <SkeletonRow size="catalog" />
+        </div>
+      </main>
     )
   }
 
@@ -113,8 +129,7 @@ export function ConnectorsPageContent({ orgSlug }: { orgSlug: string }) {
   useGithubConnectorBootstrap(orgSlug)
 
   const { data: connections, isPending: connectionsPending } = useQuery({
-    queryKey: orgConnectionsKeys.list(orgSlug),
-    queryFn: () => fetchOrgConnections(orgSlug),
+    ...orgConnectionsOptions(orgSlug),
     enabled: true,
   })
 
@@ -137,10 +152,6 @@ export function ConnectorsPageContent({ orgSlug }: { orgSlug: string }) {
       to: "/$orgSlug/connectors",
       params: { orgSlug },
       search: (prev) => ({
-        orgSlug: prev.orgSlug,
-        installation_id: prev.installation_id,
-        setup_action: prev.setup_action,
-        seed: prev.seed,
         error: prev.error,
         error_description: prev.error_description,
         pendingAccountClaim: prev.pendingAccountClaim,
@@ -157,372 +168,374 @@ export function ConnectorsPageContent({ orgSlug }: { orgSlug: string }) {
       to: "/$orgSlug/connectors",
       params: { orgSlug },
       search: (prev) => ({
-        orgSlug: prev.orgSlug,
-        installation_id: prev.installation_id,
-        setup_action: prev.setup_action,
-        seed: prev.seed,
         error: undefined,
         error_description: undefined,
         pendingAccountClaim: prev.pendingAccountClaim,
+        notionConnectionId: prev.notionConnectionId,
       }),
       replace: true,
     })
   }, [search.error, search.error_description, navigate, orgSlug])
 
   return (
-    <AppShell>
-      <main className="mx-auto box-border flex min-h-full w-full max-w-2xl flex-col p-8 text-foreground">
-        {errorBanner ? (
-          <ConnectorsOAuthErrorBanner
-            title={errorBanner.title}
-            description={errorBanner.description}
-          />
-        ) : null}
-        <header className="mb-8">
-          <span className="font-mono text-xs uppercase tracking-[0.24em] text-teal-400">
-            Connectors
-          </span>
-        </header>
+    <main className="mx-auto box-border flex min-h-full w-full max-w-2xl flex-col p-8 text-foreground">
+      {errorBanner ? (
+        <ConnectorsOAuthErrorBanner
+          title={errorBanner.title}
+          description={errorBanner.description}
+        />
+      ) : null}
+      <header className="mb-8">
+        <span className="font-mono text-xs uppercase tracking-[0.24em] text-teal-400">
+          Connectors
+        </span>
+      </header>
 
-        <section>
-          <div className="flex flex-col gap-6 sm:flex-row sm:items-start sm:justify-between sm:gap-8">
-            <div className="min-w-0 flex-1">
-              <h1 className="text-3xl font-medium tracking-tight text-foreground">
-                Connectors
-              </h1>
-              <p className="mt-3 leading-relaxed text-muted-foreground">
-                Connect external tools and choose what content ctxpipe should
-                ingest.
-              </p>
-            </div>
-            {!showEmptyState ? (
-              <div className="flex shrink-0 flex-wrap items-center gap-2 sm:pt-1">
-                <Button
-                  variant="secondary"
-                  size="icon"
-                  className="rounded-none"
-                  aria-label="Add connection"
-                  onPress={() => setCatalogOpen(true)}
-                >
-                  <IconPlus className="size-5" aria-hidden />
-                </Button>
-              </div>
-            ) : null}
+      <section>
+        <div className="flex flex-col gap-6 sm:flex-row sm:items-start sm:justify-between sm:gap-8">
+          <div className="min-w-0 flex-1">
+            <h1 className="text-3xl font-medium tracking-tight text-foreground">
+              Connectors
+            </h1>
+            <p className="mt-3 leading-relaxed text-muted-foreground">
+              Connect external tools and choose what content ctxpipe should
+              ingest.
+            </p>
           </div>
-        </section>
+          {!showEmptyState ? (
+            <div className="flex shrink-0 flex-wrap items-center gap-2 sm:pt-1">
+              <Button
+                variant="secondary"
+                size="icon"
+                className="rounded-none"
+                aria-label="Add connection"
+                onPress={() => setCatalogOpen(true)}
+              >
+                <IconPlus className="size-5" aria-hidden />
+              </Button>
+            </div>
+          ) : null}
+        </div>
+      </section>
 
-        <section
-          className={`mt-12 flex min-h-0 flex-col ${
-            !showPageLoading && !showEmptyState
-              ? "border-t border-white/[0.06]"
-              : ""
-          }`}
-        >
-          {showPageLoading ? (
-            <InlineLoader label="Loading connectors" />
-          ) : showEmptyState ? (
-            <ConnectorsEmptyState
-              onAddConnection={() => setCatalogOpen(true)}
+      <section
+        className={`mt-12 flex min-h-0 flex-col ${
+          !showPageLoading && !showEmptyState
+            ? "border-t border-white/[0.06]"
+            : ""
+        }`}
+      >
+        {showPageLoading ? (
+          <div aria-busy>
+            <span className="sr-only">Loading connectors</span>
+            <SkeletonRow
+              size="catalog"
+              className="border-b border-white/[0.06]"
             />
-          ) : (
-            items.map((row) => {
-              if (row.type === "forge") {
-                return (
-                  <ConfluenceConnectionCard
-                    key={row.id}
-                    orgSlug={orgSlug}
-                    connectionId={row.id}
-                    onOpenWizard={() => {
-                      setWizardAtlassianConnectionId(row.id)
-                      setWizardOpen(true)
-                    }}
-                    onOpenScope={() => {
-                      setScopeConnectionId(row.id)
-                      setScopeOpen(true)
-                    }}
-                  />
-                )
-              }
-              if (row.type === "slack") {
-                return (
-                  <SlackConnectionCard
-                    key={row.id}
-                    orgSlug={orgSlug}
-                    connectionId={row.id}
-                  />
-                )
-              }
-              if (row.type === "linear") {
-                return (
-                  <LinearConnectionCard
-                    key={row.id}
-                    orgSlug={orgSlug}
-                    connectionId={row.id}
-                    onOpenWizard={(manageScope) => {
-                      setLinearConnectionId(row.id)
-                      setLinearManageScope(manageScope)
-                      setLinearWizardOpen(true)
-                    }}
-                  />
-                )
-              }
-              if (row.type === "notion") {
-                return (
-                  <NotionConnectionCard
-                    key={row.id}
-                    orgSlug={orgSlug}
-                    connectionId={row.id}
-                    onOpenSetup={(manageScope) => {
-                      setNotionConnectionId(row.id)
-                      setNotionManageScope(manageScope)
-                      setNotionSetupOpen(true)
-                    }}
-                  />
-                )
-              }
+            <SkeletonRow
+              size="catalog"
+              className="border-b border-white/[0.06]"
+            />
+            <SkeletonRow size="catalog" />
+          </div>
+        ) : showEmptyState ? (
+          <ConnectorsEmptyState onAddConnection={() => setCatalogOpen(true)} />
+        ) : (
+          items.map((row) => {
+            if (row.type === "forge") {
               return (
-                <GithubConnectionCard
+                <ConfluenceConnectionCard
+                  key={row.id}
+                  orgSlug={orgSlug}
+                  connectionId={row.id}
+                  onOpenWizard={() => {
+                    setWizardAtlassianConnectionId(row.id)
+                    setWizardOpen(true)
+                  }}
+                  onOpenScope={() => {
+                    setScopeConnectionId(row.id)
+                    setScopeOpen(true)
+                  }}
+                />
+              )
+            }
+            if (row.type === "slack") {
+              return (
+                <SlackConnectionCard
                   key={row.id}
                   orgSlug={orgSlug}
                   connectionId={row.id}
                 />
               )
-            })
-          )}
-        </section>
-
-        <AddConnectorCatalogDialog
-          isOpen={catalogOpen}
-          onOpenChange={setCatalogOpen}
-        >
-          <li>
-            <AddGithubConnectorButton
-              orgSlug={orgSlug}
-              onRequestSelfHostedWizard={() => {
-                setCatalogOpen(false)
-                setGithubSelfHostedWizardOpen(true)
-              }}
-            />
-          </li>
-          <li>
-            <AddConfluenceConnectorButton
-              orgSlug={orgSlug}
-              onInstallIntentRegistered={({ connectionId }) => {
-                setWizardAtlassianConnectionId(connectionId)
-                setWizardOpen(true)
-                setCatalogOpen(false)
-              }}
-            />
-          </li>
-          <li>
-            <AddSlackConnectorButton
-              orgSlug={orgSlug}
-              onOpenSetup={() => {
-                setCatalogOpen(false)
-                setSlackSetupOpen(true)
-              }}
-            />
-          </li>
-          <li>
-            <AddLinearConnectorButton
-              onStart={() => {
-                setLinearConnectionId(undefined)
-                setLinearWizardOpen(true)
-                setCatalogOpen(false)
-              }}
-            />
-          </li>
-          <li>
-            <AddNotionConnectorButton
-              orgSlug={orgSlug}
-              onConfigurationRequired={() => {
-                setCatalogOpen(false)
-                setNotionOAuthSetupOpen(true)
-              }}
-              onFlowFinished={({ connectionId }) => {
-                setCatalogOpen(false)
-                if (!connectionId) return
-                setNotionConnectionId(connectionId)
-                setNotionSetupOpen(true)
-              }}
-            />
-          </li>
-        </AddConnectorCatalogDialog>
-
-        <GithubSelfHostedWizardModal
-          orgSlug={orgSlug}
-          isOpen={githubSelfHostedWizardOpen}
-          onOpenChange={setGithubSelfHostedWizardOpen}
-          onInstallFlowStarted={() => setCatalogOpen(false)}
-          onDraftCreated={({ connectionId }) => {
-            queueMicrotask(() => {
-              document
-                .getElementById(`connector-github-${connectionId}`)
-                ?.scrollIntoView({
-                  behavior: "smooth",
-                  block: "nearest",
-                })
-            })
-          }}
-        />
-
-        <SlackSetupDialog
-          orgSlug={orgSlug}
-          isOpen={slackSetupOpen}
-          onOpenChange={setSlackSetupOpen}
-        />
-
-        <ConnectorSetupDialog
-          orgSlug={orgSlug}
-          atlassianConnectionId={wizardAtlassianConnectionId}
-          isOpen={wizardOpen}
-          onOpenChange={(open) => {
-            setWizardOpen(open)
-            if (!open) {
-              void queryClient.invalidateQueries({
-                queryKey: orgConnectionsKeys.list(orgSlug),
-              })
             }
-          }}
-        />
+            if (row.type === "linear") {
+              return (
+                <LinearConnectionCard
+                  key={row.id}
+                  orgSlug={orgSlug}
+                  connectionId={row.id}
+                  onOpenWizard={(manageScope) => {
+                    setLinearConnectionId(row.id)
+                    setLinearManageScope(manageScope)
+                    setLinearWizardOpen(true)
+                  }}
+                />
+              )
+            }
+            if (row.type === "notion") {
+              return (
+                <NotionConnectionCard
+                  key={row.id}
+                  orgSlug={orgSlug}
+                  connectionId={row.id}
+                  onOpenSetup={(manageScope) => {
+                    setNotionConnectionId(row.id)
+                    setNotionManageScope(manageScope)
+                    setNotionSetupOpen(true)
+                  }}
+                />
+              )
+            }
+            return (
+              <GithubConnectionCard
+                key={row.id}
+                orgSlug={orgSlug}
+                connectionId={row.id}
+              />
+            )
+          })
+        )}
+      </section>
 
-        <LinearSetupWizard
-          orgSlug={orgSlug}
-          connectionId={linearConnectionId}
-          isOpen={linearWizardOpen}
-          manageScope={linearManageScope}
-          onConnectionIdChange={(connectionId) => {
-            setLinearConnectionId(connectionId)
+      <AddConnectorCatalogDialog
+        isOpen={catalogOpen}
+        onOpenChange={setCatalogOpen}
+      >
+        <li>
+          <AddGithubConnectorButton
+            orgSlug={orgSlug}
+            onRequestSelfHostedWizard={() => {
+              setCatalogOpen(false)
+              setGithubSelfHostedWizardOpen(true)
+            }}
+          />
+        </li>
+        <li>
+          <AddConfluenceConnectorButton
+            orgSlug={orgSlug}
+            onInstallIntentRegistered={({ connectionId }) => {
+              setWizardAtlassianConnectionId(connectionId)
+              setWizardOpen(true)
+              setCatalogOpen(false)
+            }}
+          />
+        </li>
+        <li>
+          <AddSlackConnectorButton
+            orgSlug={orgSlug}
+            onOpenSetup={() => {
+              setCatalogOpen(false)
+              setSlackSetupOpen(true)
+            }}
+          />
+        </li>
+        <li>
+          <AddLinearConnectorButton
+            onStart={() => {
+              setLinearConnectionId(undefined)
+              setLinearWizardOpen(true)
+              setCatalogOpen(false)
+            }}
+          />
+        </li>
+        <li>
+          <AddNotionConnectorButton
+            orgSlug={orgSlug}
+            onConfigurationRequired={() => {
+              setCatalogOpen(false)
+              setNotionOAuthSetupOpen(true)
+            }}
+            onFlowFinished={({ connectionId }) => {
+              setCatalogOpen(false)
+              if (!connectionId) return
+              setNotionConnectionId(connectionId)
+              setNotionSetupOpen(true)
+            }}
+          />
+        </li>
+      </AddConnectorCatalogDialog>
+
+      <GithubSelfHostedWizardModal
+        orgSlug={orgSlug}
+        isOpen={githubSelfHostedWizardOpen}
+        onOpenChange={setGithubSelfHostedWizardOpen}
+        onInstallFlowStarted={() => setCatalogOpen(false)}
+        onDraftCreated={({ connectionId }) => {
+          queueMicrotask(() => {
+            document
+              .getElementById(`connector-github-${connectionId}`)
+              ?.scrollIntoView({
+                behavior: "smooth",
+                block: "nearest",
+              })
+          })
+        }}
+      />
+
+      <SlackSetupDialog
+        orgSlug={orgSlug}
+        isOpen={slackSetupOpen}
+        onOpenChange={setSlackSetupOpen}
+      />
+
+      <ConnectorSetupDialog
+        orgSlug={orgSlug}
+        atlassianConnectionId={wizardAtlassianConnectionId}
+        isOpen={wizardOpen}
+        onOpenChange={(open) => {
+          setWizardOpen(open)
+          if (!open) {
             void queryClient.invalidateQueries({
               queryKey: orgConnectionsKeys.list(orgSlug),
             })
-          }}
-          onOpenChange={(open) => {
-            setLinearWizardOpen(open)
-            if (!open) {
-              setLinearManageScope(false)
-              void queryClient.invalidateQueries({
-                queryKey: orgConnectionsKeys.list(orgSlug),
-              })
-            }
-          }}
-        />
+          }
+        }}
+      />
 
-        <Modal
-          isOpen={scopeOpen}
-          onOpenChange={(open) => {
-            setScopeOpen(open)
-            if (!open) setScopeConnectionId(null)
-          }}
-          isDismissable
-          size="wide"
-          className="max-w-[min(92vw,780px)]"
-        >
-          {scopeConnectionId ? (
-            <EditScopeModal
-              orgSlug={orgSlug}
-              atlassianConnectionId={scopeConnectionId}
-              onClose={() => {
-                setScopeOpen(false)
-                setScopeConnectionId(null)
-              }}
-            />
-          ) : null}
-        </Modal>
+      <LinearSetupWizard
+        orgSlug={orgSlug}
+        connectionId={linearConnectionId}
+        isOpen={linearWizardOpen}
+        manageScope={linearManageScope}
+        onConnectionIdChange={(connectionId) => {
+          setLinearConnectionId(connectionId)
+          void queryClient.invalidateQueries({
+            queryKey: orgConnectionsKeys.list(orgSlug),
+          })
+        }}
+        onOpenChange={(open) => {
+          setLinearWizardOpen(open)
+          if (!open) {
+            setLinearManageScope(false)
+            void queryClient.invalidateQueries({
+              queryKey: orgConnectionsKeys.list(orgSlug),
+            })
+          }
+        }}
+      />
 
-        <Modal isOpen={claimOpen} onOpenChange={setClaimOpen} isDismissable>
-          <AtlassianAccountClaimModalContent
-            onCancel={async () => {
-              if (!search.pendingAccountClaim) {
-                setClaimOpen(false)
-                return
-              }
-              const id = encodeURIComponent(search.pendingAccountClaim)
-              await fetch(
-                `/${orgSlug}/api/v1/connectors/atlassian/pending-claim/${id}/cancel`,
-                { method: "POST", credentials: "include" },
-              )
-              setClaimOpen(false)
-              void navigate({
-                to: "/$orgSlug/connectors",
-                params: { orgSlug },
-                search: (prev) => ({
-                  orgSlug: prev.orgSlug,
-                  installation_id: prev.installation_id,
-                  setup_action: prev.setup_action,
-                  seed: prev.seed,
-                  error: prev.error,
-                  error_description: prev.error_description,
-                  pendingAccountClaim: undefined,
-                }),
-                replace: true,
-              })
+      <Modal
+        isOpen={scopeOpen}
+        onOpenChange={(open) => {
+          setScopeOpen(open)
+          if (!open) setScopeConnectionId(null)
+        }}
+        isDismissable
+        size="wide"
+        className="max-w-[min(92vw,780px)]"
+      >
+        {scopeConnectionId ? (
+          <EditScopeModal
+            orgSlug={orgSlug}
+            atlassianConnectionId={scopeConnectionId}
+            onClose={() => {
+              setScopeOpen(false)
+              setScopeConnectionId(null)
             }}
-            onConfirm={async () => {
-              if (!search.pendingAccountClaim) {
-                setClaimOpen(false)
-                return
-              }
-              const id = encodeURIComponent(search.pendingAccountClaim)
-              const res = await fetch(
+          />
+        ) : null}
+      </Modal>
+
+      <Modal isOpen={claimOpen} onOpenChange={setClaimOpen} isDismissable>
+        <AtlassianAccountClaimModalContent
+          onCancel={async () => {
+            if (!search.pendingAccountClaim) {
+              setClaimOpen(false)
+              return
+            }
+            const id = encodeURIComponent(search.pendingAccountClaim)
+            await apiFetch(
+              `/${orgSlug}/api/v1/connectors/atlassian/pending-claim/${id}/cancel`,
+              { method: "POST", credentials: "include" },
+            )
+            setClaimOpen(false)
+            void navigate({
+              to: "/$orgSlug/connectors",
+              params: { orgSlug },
+              search: (prev) => ({
+                error: prev.error,
+                error_description: prev.error_description,
+                pendingAccountClaim: undefined,
+                notionConnectionId: prev.notionConnectionId,
+              }),
+              replace: true,
+            })
+          }}
+          onConfirm={async () => {
+            if (!search.pendingAccountClaim) {
+              setClaimOpen(false)
+              return
+            }
+            const id = encodeURIComponent(search.pendingAccountClaim)
+            try {
+              const res = await apiFetch(
                 `/${orgSlug}/api/v1/connectors/atlassian/pending-claim/${id}/confirm`,
                 { method: "POST", credentials: "include" },
               )
-              if (!res.ok) {
-                setClaimOpen(false)
-                return
-              }
+              await readApiJson(res, {
+                message: "Failed to confirm Atlassian account claim",
+              })
+            } catch {
               setClaimOpen(false)
-              await queryClient.invalidateQueries({
-                queryKey: orgConnectionsKeys.list(orgSlug),
-              })
-              await queryClient.invalidateQueries({
-                queryKey: atlassianConnectorKeys.allStatusForOrg(orgSlug),
-              })
-              await queryClient.invalidateQueries({
-                queryKey: atlassianConnectorKeys.allConfigForOrg(orgSlug),
-              })
-              void navigate({
-                to: "/$orgSlug/connectors",
-                params: { orgSlug },
-                search: (prev) => ({
-                  orgSlug: prev.orgSlug,
-                  installation_id: prev.installation_id,
-                  setup_action: prev.setup_action,
-                  seed: prev.seed,
-                  error: prev.error,
-                  error_description: prev.error_description,
-                  pendingAccountClaim: undefined,
-                }),
-                replace: true,
-              })
-            }}
-          />
-        </Modal>
-
-        <NotionSetupDialog
-          key={notionConnectionId ?? "notion-setup"}
-          orgSlug={orgSlug}
-          connectionId={notionConnectionId ?? undefined}
-          githubConnectionIds={items
-            .filter((item) => item.type === "github")
-            .map((item) => item.id)}
-          manageScope={notionManageScope}
-          isOpen={notionSetupOpen}
-          onOpenChange={(open) => {
-            setNotionSetupOpen(open)
-            if (!open) {
-              setNotionConnectionId(null)
-              setNotionManageScope(false)
+              return
             }
+            setClaimOpen(false)
+            await queryClient.invalidateQueries({
+              queryKey: orgConnectionsKeys.list(orgSlug),
+            })
+            await queryClient.invalidateQueries({
+              queryKey: atlassianConnectorKeys.allStatusForOrg(orgSlug),
+            })
+            await queryClient.invalidateQueries({
+              queryKey: atlassianConnectorKeys.allConfigForOrg(orgSlug),
+            })
+            void navigate({
+              to: "/$orgSlug/connectors",
+              params: { orgSlug },
+              search: (prev) => ({
+                error: prev.error,
+                error_description: prev.error_description,
+                pendingAccountClaim: undefined,
+                notionConnectionId: prev.notionConnectionId,
+              }),
+              replace: true,
+            })
           }}
         />
+      </Modal>
 
-        <NotionOAuthSetupModal
-          isOpen={notionOAuthSetupOpen}
-          onOpenChange={setNotionOAuthSetupOpen}
-        />
-      </main>
-    </AppShell>
+      <NotionSetupDialog
+        key={notionConnectionId ?? "notion-setup"}
+        orgSlug={orgSlug}
+        connectionId={notionConnectionId ?? undefined}
+        githubConnectionIds={items
+          .filter((item) => item.type === "github")
+          .map((item) => item.id)}
+        manageScope={notionManageScope}
+        isOpen={notionSetupOpen}
+        onOpenChange={(open) => {
+          setNotionSetupOpen(open)
+          if (!open) {
+            setNotionConnectionId(null)
+            setNotionManageScope(false)
+          }
+        }}
+      />
+
+      <NotionOAuthSetupModal
+        isOpen={notionOAuthSetupOpen}
+        onOpenChange={setNotionOAuthSetupOpen}
+      />
+    </main>
   )
 }

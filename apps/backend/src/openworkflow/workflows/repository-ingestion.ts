@@ -182,15 +182,20 @@ export const repositoryIngestion = defineWorkflow(
             branch: input.targetBranch ?? null,
           })
 
-          const resolved = await step.run({ name: "resolve-ref" }, () =>
-            wls("resolve-ref", () =>
-              resolveRepositoryRef({
-                repositoryId: input.repositoryId,
-                orgId: input.orgId,
-                branch: input.targetBranch ?? undefined,
-                githubConnectionId,
-              }),
-            ),
+          const resolved = await step.run(
+            {
+              name: "resolve-ref",
+              retryPolicy: { maximumAttempts: 1 },
+            },
+            () =>
+              wls("resolve-ref", () =>
+                resolveRepositoryRef({
+                  repositoryId: input.repositoryId,
+                  orgId: input.orgId,
+                  branch: input.targetBranch ?? undefined,
+                  githubConnectionId,
+                }),
+              ),
           )
 
           logWorkflowMilestone("repository-ingestion.step.resolve-ref.done", {

@@ -38,6 +38,7 @@ import {
 } from "./org-atlassian-oauth.js"
 import { pendingAtlassianClaimRoutes } from "./pending-atlassian-claim.js"
 import { repositoryRoutes } from "./repositories.js"
+import { workspaceRoutes } from "./workspaces.js"
 
 const githubInstallationAdminScoped = new OpenAPIHono<AppEnv>()
   .use("*", requireOrgAdminOrOwner)
@@ -69,6 +70,7 @@ export function registerV1Routes(app: OpenAPIHono<AppEnv>) {
     .use("*", requireAuth)
     .use("*", withNetworkOrgContext)
     .route("/repositories", repositoryRoutes)
+    .route("/workspaces", workspaceRoutes)
     .route("/conversations", conversationRoutes)
     .route("/github/installation", githubInstallationReadRoutes)
     .route("/github/installation", githubInstallationAdminScoped)

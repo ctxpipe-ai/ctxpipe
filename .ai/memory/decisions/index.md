@@ -34,3 +34,6 @@ Parent: [`.ai/memory/README.md`](../README.md).
 | [ADR-023](ADR-023-notion-connector-git-native-mirror.md) | Notion connector Git-native mirror | Accepted |
 | [ADR-024](ADR-024-markdown-only-local-memory-capture.md) | Markdown-only local memory with candidate-first capture | Accepted |
 | [ADR-025](ADR-025-slack-connector-git-native-mirror.md) | Slack connector as intent-based git-native capture | Accepted |
+| [ADR-026](ADR-026-pierre-files-pane-chrome.md) | Pierre trees/diffs as Workspace Files explorer chrome | Accepted |
+| [ADR-027](ADR-027-short-org-sql-unique-sandbox-rows.md) | Short org SQL transactions and unique sandbox rows | Accepted |
+| [ADR-028](ADR-028-postgres-rls-app-role.md) | Postgres RLS with a non-owner app role | Accepted |

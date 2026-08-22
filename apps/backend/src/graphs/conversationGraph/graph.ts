@@ -65,7 +65,8 @@ if (process.env.DATABASE_URL) {
     })
   })
   checkpointer = new PostgresSaver(checkpointPool)
-  await checkpointer.setup()
+  // DDL is owner-only (`migrate-checkpoints.ts`). CREATE SCHEMA as
+  // ctxpipe_app is "permission denied for database".
 }
 
 const graph = checkpointer

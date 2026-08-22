@@ -9,6 +9,7 @@ import {
   deleteGithubConnectionById,
   getGithubConnectionRow,
   getGithubUserAccessToken,
+  isGithubInstallationTokenError,
   listAllReposForInstallation,
   listGithubConnectionRowsForOrg,
   listReposForInstallation,
@@ -150,13 +151,7 @@ const GITHUB_INSTALLATION_UNAVAILABLE_MESSAGE =
   "GitHub installation is no longer available. Reconnect GitHub from the Connectors page."
 
 function isGitHubInstallationUnavailableError(e: unknown): boolean {
-  if (!(e instanceof Error)) return false
-  const status =
-    "status" in e && typeof (e as { status: unknown }).status === "number"
-      ? (e as { status: number }).status
-      : undefined
-  if (status === 404) return true
-  return e.message.includes("create-an-installation-access-token-for-an-app")
+  return isGithubInstallationTokenError(e)
 }
 
 const GitHubRepoItemSchema = z

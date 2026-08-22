@@ -2,8 +2,10 @@ import type { Meta, StoryObj } from "@storybook/react-vite"
 import { delay, HttpResponse, http } from "msw"
 import { OnboardingGithubSlide } from "@/components/onboarding/OnboardingGithubSlide"
 import { githubConnectorBootstrapHandler } from "@/features/connectors/mocks/github-bootstrap-msw"
+import { workspaceListHandler } from "@/mocks/workspace-handlers"
 import { entryPageInnerDecorators } from "../../../.storybook/decorators/entry-page-decorators"
 import type { StoryRouteParams } from "../../../.storybook/decorators/with-story-route"
+import { docsWorkspace } from "@/features/workspaces/workspace-fixtures"
 
 const orgSlug = "acme"
 
@@ -49,45 +51,12 @@ const installationInstalled = http.get(
   () => HttpResponse.json({ id: "story-install" }),
 )
 
-const setupEmpty = http.get(
-  ({ request }) =>
-    new URL(request.url).pathname ===
-    `/${orgSlug}/api/v1/github/installation/setup`,
-  () =>
-    HttpResponse.json({
-      ingestAllRepositories: false,
-      includeFutureRepos: false,
-      savedRepositories: [],
-    }),
-)
-
-const installationRepositories = http.get(
-  ({ request }) =>
-    new URL(request.url).pathname ===
-    `/${orgSlug}/api/v1/github/installation/repositories`,
-  () =>
-    HttpResponse.json({
-      repositories: [
-        {
-          id: 1,
-          full_name: "acme/web",
-          html_url: "https://github.com/acme/web",
-          clone_url: "https://github.com/acme/web.git",
-          name: "web",
-        },
-        {
-          id: 2,
-          full_name: "acme/api",
-          html_url: "https://github.com/acme/api",
-          clone_url: "https://github.com/acme/api.git",
-          name: "api",
-        },
-      ],
-      repositorySelection: "selected",
-      manageUrl:
-        "https://github.com/organizations/acme/settings/installations/123",
-      hasMore: false,
-    }),
+const workspacesLoading = http.get(
+  ({ request }) => /\/api\/v1\/workspaces$/.test(new URL(request.url).pathname),
+  async () => {
+    await delay("infinite")
+    return HttpResponse.json({ items: [], lastUsedWorkspaceId: null })
+  },
 )
 
 const bootstrapLoading = http.get(
@@ -193,7 +162,7 @@ export const BootstrapLoading: Story = {
   },
 }
 
-export const InstalledRepositoryPicker: Story = {
+export const InstalledEmpty: Story = {
   args: {
     orgSlug,
     onContinue: () => {},
@@ -204,9 +173,40 @@ export const InstalledRepositoryPicker: Story = {
         page: [
           bootstrapHosted,
           installationInstalled,
-          setupEmpty,
-          installationRepositories,
+          workspaceListHandler([]),
         ],
+      },
+    },
+  },
+}
+
+export const InstalledPopulated: Story = {
+  args: {
+    orgSlug,
+    onContinue: () => {},
+  },
+  parameters: {
+    msw: {
+      handlers: {
+        page: [
+          bootstrapHosted,
+          installationInstalled,
+          workspaceListHandler([docsWorkspace]),
+        ],
+      },
+    },
+  },
+}
+
+export const InstalledLoading: Story = {
+  args: {
+    orgSlug,
+    onContinue: () => {},
+  },
+  parameters: {
+    msw: {
+      handlers: {
+        page: [bootstrapHosted, installationInstalled, workspacesLoading],
       },
     },
   },

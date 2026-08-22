@@ -7,6 +7,7 @@ export type UpstreamClaims = {
   sub: string
   orgId: string
   principal: UpstreamPrincipal
+  workspaceId?: string
 }
 
 function getSigningSecret(env: Env): Uint8Array {
@@ -26,6 +27,9 @@ export async function signUpstreamJwt(input: {
   return new SignJWT({
     orgId: input.claims.orgId,
     principal: input.claims.principal,
+    ...(input.claims.workspaceId
+      ? { workspaceId: input.claims.workspaceId }
+      : {}),
   })
     .setProtectedHeader({ alg: "HS256" })
     .setSubject(input.claims.sub)

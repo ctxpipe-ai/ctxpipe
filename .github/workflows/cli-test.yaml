@@ -11,7 +11,11 @@ on:
       - ready_for_review
   push:
     branches:
-      - main
+      - "**"
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event_name }}-${{ github.head_ref || github.ref_name }}
+  cancel-in-progress: true
 
 permissions:
   contents: read
@@ -19,6 +23,9 @@ permissions:
 jobs:
   ctxpipe-cli:
     name: ctxpipe CLI
+    if: |
+      (github.event_name == 'pull_request') !=
+      (github.actor == 'cursor[bot]' || github.actor == 'cursoragent')
     runs-on: ubuntu-latest
     steps:
       - name: Checkout repository

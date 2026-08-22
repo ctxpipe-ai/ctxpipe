@@ -71,9 +71,9 @@ describe("fetchSlackConnectorStatus", () => {
   it("throws SlackConnectionNotFoundError on 404", async () => {
     getStatusMock.mockResolvedValue(new Response(null, { status: 404 }))
 
-    await expect(fetchSlackConnectorStatus("acme", "con_missing")).rejects.toThrow(
-      SlackConnectionNotFoundError,
-    )
+    await expect(
+      fetchSlackConnectorStatus("acme", "con_missing"),
+    ).rejects.toThrow(SlackConnectionNotFoundError)
   })
 })
 

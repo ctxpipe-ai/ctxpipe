@@ -2,10 +2,11 @@ import type { OpenAPIHono } from "@hono/zod-openapi"
 import { createRoute, z } from "@hono/zod-openapi"
 import { and, eq } from "drizzle-orm"
 import type { AppEnv } from "../app/env.js"
+import { checkoutKeyFromAuth } from "../auth/jwt.js"
+import { withOrgDbContext } from "../db/client.js"
 import { repositoryCheckouts } from "../db/schema.js"
 import { executeScipGraphQuery } from "../domain/graph/executeGraphPrimitive.js"
 import {
-  DEFAULT_CHECKOUT_KEY,
   repoCheckoutPath,
   resolveSafePath,
   scipIndexPath,
@@ -25,7 +26,7 @@ const graphPrimitiveSchema = z.enum([
 const graphRequestSchema = z
   .object({
     primitive: graphPrimitiveSchema,
-    checkoutKey: z.string().min(1).optional().default(DEFAULT_CHECKOUT_KEY),
+    checkoutKey: z.string().min(1).optional(),
     symbol: z.string().min(1).optional(),
     filePath: z.string().min(1).optional(),
     module: z.string().min(1).optional(),
@@ -66,6 +67,7 @@ export const graphRoute = createRoute({
     },
     400: { description: "Bad request" },
     401: { description: "Unauthorized" },
+    403: { description: "Checkout does not match authenticated workspace" },
     404: { description: "Repository or checkout not found" },
     503: { description: "Service unavailable (e.g. database not configured)" },
   },
@@ -79,6 +81,13 @@ export function registerGraphRoutes(app: OpenAPIHono<AppEnv>) {
     if (!auth) throw new Error("Missing auth context")
     const { repoId } = c.req.valid("param")
     const body = c.req.valid("json")
+    const checkoutKey = checkoutKeyFromAuth(auth)
+    if (body.checkoutKey && body.checkoutKey !== checkoutKey) {
+      return c.json(
+        { error: "Checkout does not match authenticated workspace" },
+        403,
+      )
+    }
 
     const hasAnchor = Boolean(body.symbol ?? body.filePath ?? body.module)
     if (body.primitive !== "find_symbol" && !hasAnchor) {
@@ -123,23 +132,26 @@ export function registerGraphRoutes(app: OpenAPIHono<AppEnv>) {
     if (!repo)
       return c.json({ error: "Repository not found or access denied" }, 404)
 
-    const [checkout] = await db
-      .select({ id: repositoryCheckouts.id })
-      .from(repositoryCheckouts)
-      .where(
-        and(
-          eq(repositoryCheckouts.repositoryId, repoId),
-          eq(repositoryCheckouts.checkoutKey, body.checkoutKey),
-        ),
-      )
-      .limit(1)
+    const [checkout] = await withOrgDbContext(db, auth.orgId, async (tx) =>
+      tx
+        .select({ id: repositoryCheckouts.id })
+        .from(repositoryCheckouts)
+        .where(
+          and(
+            eq(repositoryCheckouts.repositoryId, repoId),
+            eq(repositoryCheckouts.orgId, auth.orgId),
+            eq(repositoryCheckouts.checkoutKey, checkoutKey),
+          ),
+        )
+        .limit(1),
+    )
 
     if (!checkout) {
       return c.json({ error: "Checkout not found" }, 404)
     }
 
-    const checkoutPath = repoCheckoutPath(repo.orgId, repo.id, body.checkoutKey)
-    const graphIndexPath = scipIndexPath(repo.orgId, repo.id, body.checkoutKey)
+    const checkoutPath = repoCheckoutPath(repo.orgId, repo.id, checkoutKey)
+    const graphIndexPath = scipIndexPath(repo.orgId, repo.id, checkoutKey)
     const resolvedFilePath = body.filePath
       ? resolveSafePath(checkoutPath, body.filePath)
       : undefined

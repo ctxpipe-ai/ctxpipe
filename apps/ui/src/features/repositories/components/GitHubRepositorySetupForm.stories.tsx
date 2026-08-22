@@ -1,5 +1,5 @@
 import type { Meta, StoryObj } from "@storybook/react-vite"
-import { HttpResponse, http } from "msw"
+import { delay, HttpResponse, http } from "msw"
 import { AppShell } from "@/components/AppShell"
 import { entryPageInnerDecorators } from "../../../../.storybook/decorators/entry-page-decorators"
 import type { StoryRouteParams } from "../../../../.storybook/decorators/with-story-route"
@@ -53,6 +53,36 @@ const meta = {
 export default meta
 
 type Story = StoryObj<typeof meta>
+
+export const Loading: Story = {
+  args: {
+    orgSlug,
+    setupData: {
+      ingestAllRepositories: false,
+      includeFutureRepos: false,
+      savedRepositories: [],
+    },
+    onSaveSuccess: () => undefined,
+    onCancel: () => undefined,
+  },
+  parameters: {
+    msw: {
+      handlers: {
+        page: [
+          http.get(
+            ({ request }) =>
+              new URL(request.url).pathname ===
+              `/${orgSlug}/api/v1/github/installation/repositories`,
+            async () => {
+              await delay("infinite")
+              return HttpResponse.json({ repositories: [] })
+            },
+          ),
+        ],
+      },
+    },
+  },
+}
 
 export const FourHundredGitHubPicker: Story = {
   args: {

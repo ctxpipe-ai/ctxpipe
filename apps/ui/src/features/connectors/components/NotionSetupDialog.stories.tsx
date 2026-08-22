@@ -1,5 +1,5 @@
 import type { Meta, StoryObj } from "@storybook/react-vite"
-import { HttpResponse, http } from "msw"
+import { delay, HttpResponse, http } from "msw"
 import { entryPageInnerDecorators } from "../../../../.storybook/decorators/entry-page-decorators"
 import type { StoryRouteParams } from "../../../../.storybook/decorators/with-story-route"
 import { NotionSetupDialog } from "./NotionSetupDialog"
@@ -34,6 +34,36 @@ const githubInstallationHandler = http.get(
       accountSlug: "acme",
     }),
 )
+
+export const Loading: Story = {
+  render: () => (
+    <NotionSetupDialog
+      orgSlug={orgSlug}
+      connectionId={connectionId}
+      githubConnectionIds={["con_github"]}
+      isOpen
+      onOpenChange={() => {}}
+    />
+  ),
+  parameters: {
+    msw: {
+      handlers: {
+        page: [
+          http.get(
+            ({ request }) =>
+              new URL(request.url).pathname.includes(
+                "/api/v1/connectors/notion/status",
+              ),
+            async () => {
+              await delay("infinite")
+              return HttpResponse.json({})
+            },
+          ),
+        ],
+      },
+    },
+  },
+}
 
 export const ResourceSelection: Story = {
   render: () => (

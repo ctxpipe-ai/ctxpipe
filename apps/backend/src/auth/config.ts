@@ -166,19 +166,10 @@ export function createBetterAuth() {
         requireEmailVerificationOnInvitation: false,
         organizationHooks: {
           async beforeDeleteOrganization({ organization }) {
-            const { withOrgDbContext } = await import("../db/client.js")
-            const { withGraphClient } = await import(
-              "../platform/graph/client.js"
-            )
             const { purgeOrgDataBeforeAuthDelete } = await import(
               "../domain/repositoryDeletion.js"
             )
-            await withOrgDbContext(organization.id, () =>
-              withGraphClient(
-                { orgId: organization.id, orgSlug: organization.slug },
-                () => purgeOrgDataBeforeAuthDelete(organization.id),
-              ),
-            )
+            await purgeOrgDataBeforeAuthDelete(organization.id)
           },
         },
         async sendInvitationEmail(data) {

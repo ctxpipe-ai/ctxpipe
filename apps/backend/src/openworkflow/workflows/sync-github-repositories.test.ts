@@ -5,6 +5,13 @@ const listAllReposForInstallationMock = vi.hoisted(() => vi.fn())
 const bulkCreateRepositoriesForOrgMock = vi.hoisted(() => vi.fn())
 const runRepositoryIngestionWorkflowMock = vi.hoisted(() => vi.fn())
 
+vi.mock("../../config/env.js", () => ({
+  parseEnv: () => ({
+    DATABASE_URL: "postgres://localhost:5432/ctxpipe",
+    AUTH_SECRET: "abcdefghijklmnopqrstuvwxyz123456",
+  }),
+}))
+
 vi.mock("../../models/github-installation.js", () => ({
   getGithubInstallationByConnectionId: getGithubInstallationByConnectionIdMock,
   listAllReposForInstallation: listAllReposForInstallationMock,
@@ -16,12 +23,6 @@ vi.mock("../../models/repositories.js", () => ({
 
 vi.mock("../enqueue-repository-ingestion.js", () => ({
   runRepositoryIngestionWorkflow: runRepositoryIngestionWorkflowMock,
-}))
-
-vi.mock("../../observability/logger.js", () => ({
-  createLogger: () => ({}),
-  getLogger: () => ({ error: vi.fn() }),
-  withLogger: (_logger: unknown, fn: () => unknown) => fn(),
 }))
 
 import { syncGithubRepositories } from "./sync-github-repositories.js"

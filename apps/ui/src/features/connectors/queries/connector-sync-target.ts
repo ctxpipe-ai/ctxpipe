@@ -1,4 +1,5 @@
 import { client } from "@/lib/api"
+import { readApiJson } from "@/lib/api-result"
 import type { SuggestedConnectorSyncTarget } from "../types"
 
 export const connectorSyncTargetKeys = {
@@ -14,9 +15,8 @@ export async function fetchSuggestedConnectorSyncTarget(
   ].$get({
     param: { orgSlug },
   })
-  if (!res.ok) throw new Error("Failed to load connector repository suggestion")
-  const body = (await res.json()) as {
+  const body = await readApiJson<{
     target: SuggestedConnectorSyncTarget | null
-  }
+  }>(res, { message: "Failed to load connector repository suggestion" })
   return body.target
 }

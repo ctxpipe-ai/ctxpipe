@@ -1,7 +1,7 @@
 import type { Preview } from "@storybook/react-vite"
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query"
 import { initialize, mswLoader } from "msw-storybook-addon"
-import { type ReactElement, useMemo } from "react"
+import { type ReactElement, Suspense, useMemo } from "react"
 import {
   authConfigHandler,
   organizationListWithOrgHandler,
@@ -49,7 +49,13 @@ const preview: Preview = {
     (Story, { id }): ReactElement => (
       <div className="min-h-screen bg-background font-sans text-foreground antialiased">
         <StorybookQueryBoundary key={id}>
-          <Story />
+          <Suspense
+            fallback={
+              <p className="p-4 text-sm text-muted-foreground">Loading…</p>
+            }
+          >
+            <Story />
+          </Suspense>
         </StorybookQueryBoundary>
       </div>
     ),

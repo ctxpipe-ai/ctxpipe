@@ -6,7 +6,7 @@ import {
   getNotionBindingWithRepoByConnectionId,
   getNotionConnectionByConnectionId,
 } from "../../models/notion-connector.js"
-import { getLogger } from "../../observability/logger.js"
+import { getLogger, createLogger, withLogger } from "../../observability/logger.js"
 import { loadNotionScopeFromRepo } from "../../services/notion/config-from-repo.js"
 import { syncNotionIncrementalContent } from "../../services/notion/sync.js"
 import { runRepositoryIngestionWorkflow } from "../enqueue-repository-ingestion.js"
@@ -22,7 +22,14 @@ const notionSyncEntityInputSchema = z.object({
 
 export const notionSyncEntity = defineWorkflow(
   { name: "notion-sync-entity", schema: notionSyncEntityInputSchema },
-  async ({ input, step }) => {
+  async ({ input, step }) =>
+    withLogger(
+      createLogger({
+        workflow: "notion-sync-entity",
+        orgId: input.orgId,
+        connectionId: input.connectionId,
+      }),
+      async () => {
     const env = parseEnv(process.env as Record<string, string | undefined>)
     const context = await step.run(
       { name: "load-notion-entity-context" },
@@ -131,5 +138,6 @@ export const notionSyncEntity = defineWorkflow(
       deleted: result.deleted,
       errors: result.errors,
     }
-  },
+      },
+    ),
 )

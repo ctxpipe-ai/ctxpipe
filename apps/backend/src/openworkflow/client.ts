@@ -3,8 +3,11 @@ import { BackendPostgres } from "openworkflow/postgres"
 import { scheduleEnsureWorkerRunning } from "./railway-wake.js"
 
 const databaseUrl = process.env.DATABASE_URL
-if (!databaseUrl) throw new Error("DATABASE_URL is required for OpenWorkflow client")
-const backend = await BackendPostgres.connect(databaseUrl)
+if (!databaseUrl)
+  throw new Error("DATABASE_URL is required for OpenWorkflow client")
+const backend = await BackendPostgres.connect(databaseUrl, {
+  runMigrations: false,
+})
 export const ow = new OpenWorkflow({ backend })
 
 /** Prefer this over `ow.runWorkflow` so PR workers are woken on Railway after enqueue. */

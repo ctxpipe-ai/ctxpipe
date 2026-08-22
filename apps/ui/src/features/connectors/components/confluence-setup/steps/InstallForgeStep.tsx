@@ -4,6 +4,7 @@ import { Button } from "@/components/ui/Button"
 import { InlineAlert } from "@/components/ui/InlineAlert"
 import { Spinner } from "@/components/ui/spinner"
 import { TextField } from "@/components/ui/TextField"
+import { pollWhileOk } from "@/lib/api-result"
 import { useConfluenceForgeRuntime } from "@/providers/ConfluenceForgeRuntimeContext"
 import {
   atlassianConnectorKeys,
@@ -79,6 +80,8 @@ export function InstallForgeStep({
       Boolean(atlassianConnectionId) && caps.isSuccess && !hasHostedInstall,
     staleTime: 0,
     refetchInterval: (query) => {
+      const interval = pollWhileOk(PROVISION_POLL_MS)(query)
+      if (interval === false) return false
       const ps = query.state.data?.provisionStatus
       const running = ps === "running"
       const idleWaiting =
@@ -86,7 +89,7 @@ export function InstallForgeStep({
       const needsPoll = provisionFlowActive || running || idleWaiting
       if (!needsPoll) return false
       if (ps === "succeeded" || ps === "failed") return false
-      return PROVISION_POLL_MS
+      return interval
     },
   })
 

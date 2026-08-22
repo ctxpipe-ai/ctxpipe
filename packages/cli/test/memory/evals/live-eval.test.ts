@@ -21,7 +21,10 @@ describe("memory live evals (Layer B)", () => {
 
     const promptMatch = scenario.match(/^prompt:\s*\|\s*\n([\s\S]*?)^expect:/m)
     expect(promptMatch?.[1]).toBeTruthy()
-    const prompt = promptMatch![1]!
+    const promptBody = promptMatch?.[1]
+    expect(promptBody).toBeTruthy()
+    if (!promptBody) throw new Error("expected prompt body")
+    const prompt = promptBody
       .split("\n")
       .map((line) => line.replace(/^ {2}/, ""))
       .join("\n")
