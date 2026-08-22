@@ -1,5 +1,11 @@
 # @ctxpipe/aws-cdk
 
+## 3.1.2
+
+### Patch Changes
+
+- 2456609: Ship explicit Slack app-mention permissions, installation diagnostics, and safe OAuth failure handling for hosted and self-hosted connectors.
+
 ## 3.1.1
 
 ### Patch Changes
