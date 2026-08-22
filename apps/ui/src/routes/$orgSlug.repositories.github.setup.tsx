@@ -1,4 +1,4 @@
-import { useQuery, useQueryClient } from "@tanstack/react-query"
+import { useQueryClient } from "@tanstack/react-query"
 import {
   createFileRoute,
   Navigate,
@@ -9,11 +9,9 @@ import { useMemo } from "react"
 import { AppShell } from "@/components/AppShell"
 import { orgConnectionsKeys } from "@/features/connectors/queries/org-connections"
 import {
-  type GitHubRepositorySetupData,
-  GitHubRepositorySetupForm,
-} from "@/features/repositories"
-import { GithubRepoPickerSkeleton } from "@/features/repositories/components/GithubRepoPickerList"
-import { client } from "@/lib/api"
+  GithubWorkspaceDestination,
+  GithubWorkspaceDestinationFromApi,
+} from "@/features/workspaces/GithubWorkspaceDestination"
 import { useSession } from "@/lib/auth-client"
 
 function returnToFromSearch(search: unknown): "connectors" | undefined {
@@ -42,60 +40,13 @@ function GitHubSetupPage() {
     returnTo ? `?returnTo=${returnTo}` : ""
   }`
 
-  const { data: setupData, isPending: setupPending } = useQuery({
-    queryKey: ["github-installation-setup", orgSlug],
-    queryFn: async () => {
-      const res = await (
-        client[":orgSlug"].api.v1.github.installation.setup.$get as (arg: {
-          param: { orgSlug: string }
-        }) => Promise<Response>
-      )({ param: { orgSlug } })
-      if (res.status === 404) return null
-      if (!res.ok) throw new Error("Failed to fetch setup data")
-      return (await res.json()) as GitHubRepositorySetupData
-    },
-    enabled: !!session,
-  })
-
-  if (sessionPending) {
-    return (
-      <AppShell>
-        <main className="mx-auto box-border flex min-h-screen w-full max-w-2xl items-center justify-center p-8 text-zinc-100">
-          <p className="text-sm text-zinc-400">Loading GitHub setup…</p>
-        </main>
-      </AppShell>
-    )
-  }
-  if (!session) {
-    return (
-      <Navigate to="/.auth/sign-in" search={{ redirectTo: redirect }} replace />
-    )
-  }
-
-  if (setupPending) {
-    return (
-      <AppShell>
-        <main className="mx-auto box-border w-full max-w-2xl p-8 text-zinc-100">
-          <header className="mb-8">
-            <span className="font-mono text-xs uppercase tracking-[0.24em] text-teal-400">
-              {returnTo === "connectors" ? "Connectors" : "Repositories"}
-            </span>
-          </header>
-          <section>
-            <h1 className="text-3xl font-medium tracking-tight text-foreground">
-              GitHub repository setup
-            </h1>
-            <div className="mt-8">
-              <GithubRepoPickerSkeleton />
-            </div>
-          </section>
-        </main>
-      </AppShell>
-    )
-  }
-
   const goBack = () => {
-    navigate({
+    if (returnTo === "connectors") {
+      void queryClient.invalidateQueries({
+        queryKey: orgConnectionsKeys.list(orgSlug),
+      })
+    }
+    void navigate({
       to: "/$orgSlug/connectors",
       params: { orgSlug },
       search: {
@@ -107,26 +58,49 @@ function GitHubSetupPage() {
     })
   }
 
-  const onSaveSuccess = () => {
-    if (returnTo === "connectors") {
-      void queryClient.invalidateQueries({
-        queryKey: orgConnectionsKeys.list(orgSlug),
-      })
-    }
-    goBack()
+  const goCreate = () => {
+    void navigate({
+      to: "/$orgSlug/workspaces/new",
+      params: { orgSlug },
+      search: { after: "settings" },
+    })
+  }
+
+  if (sessionPending) {
+    return (
+      <AppShell>
+        <main className="mx-auto box-border w-full max-w-2xl p-8 text-zinc-100">
+          <GithubWorkspaceDestination
+            status="loading"
+            workspaces={[]}
+            onCreateWorkspace={goCreate}
+            onSelectWorkspace={() => undefined}
+            onClose={goBack}
+          />
+        </main>
+      </AppShell>
+    )
+  }
+  if (!session) {
+    return (
+      <Navigate to="/.auth/sign-in" search={{ redirectTo: redirect }} replace />
+    )
   }
 
   return (
     <AppShell>
       <main className="mx-auto box-border w-full max-w-2xl p-8 text-zinc-100">
-        <GitHubRepositorySetupForm
+        <GithubWorkspaceDestinationFromApi
           orgSlug={orgSlug}
-          setupData={setupData ?? undefined}
-          pageContext={
-            returnTo === "connectors" ? "connectors" : "repositories"
-          }
-          onSaveSuccess={onSaveSuccess}
-          onCancel={goBack}
+          onCreateWorkspace={goCreate}
+          onSelectWorkspace={(workspace) => {
+            void navigate({
+              to: "/$orgSlug/ws/$workspaceSlug",
+              params: { orgSlug, workspaceSlug: workspace.slug },
+              search: { pane: "settings" },
+            })
+          }}
+          onClose={goBack}
         />
       </main>
     </AppShell>

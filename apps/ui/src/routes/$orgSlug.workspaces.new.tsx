@@ -1,8 +1,16 @@
-import { createFileRoute, Navigate } from "@tanstack/react-router"
+import { createFileRoute, Navigate, useLocation } from "@tanstack/react-router"
 import { AppShell } from "@/components/AppShell"
 import { PageBodySkeleton } from "@/components/ui/Skeleton"
 import { WorkspaceCreateForm } from "@/features/workspaces/WorkspaceCreateForm"
 import { useSession } from "@/lib/auth-client"
+
+function afterFromSearch(search: unknown): "settings" | undefined {
+  if (search && typeof search === "object" && "after" in search) {
+    const after = (search as { after?: unknown }).after
+    if (after === "settings") return "settings"
+  }
+  return undefined
+}
 
 export const Route = createFileRoute("/$orgSlug/workspaces/new")({
   component: NewWorkspaceRoute,
@@ -18,11 +26,14 @@ export function NewWorkspaceSessionFallback() {
   )
 }
 
-export function NewWorkspacePageContent(props: { orgSlug: string }) {
+export function NewWorkspacePageContent(props: {
+  orgSlug: string
+  after?: "settings"
+}) {
   return (
     <AppShell>
       <main className="mx-auto flex min-h-screen w-full max-w-2xl items-center px-6 py-16">
-        <WorkspaceCreateForm orgSlug={props.orgSlug} />
+        <WorkspaceCreateForm orgSlug={props.orgSlug} after={props.after} />
       </main>
     </AppShell>
   )
@@ -30,10 +41,12 @@ export function NewWorkspacePageContent(props: { orgSlug: string }) {
 
 function NewWorkspaceRoute() {
   const { orgSlug } = Route.useParams()
+  const location = useLocation()
+  const after = afterFromSearch(location.search)
   const { data: session, isPending } = useSession()
 
   if (isPending) return <NewWorkspaceSessionFallback />
   if (!session) return <Navigate to="/.auth/sign-in" replace />
 
-  return <NewWorkspacePageContent orgSlug={orgSlug} />
+  return <NewWorkspacePageContent orgSlug={orgSlug} after={after} />
 }

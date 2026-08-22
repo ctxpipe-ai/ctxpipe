@@ -7,8 +7,9 @@ import { WorkspaceRepositoryPicker } from "./WorkspaceRepositoryPicker"
 export function WorkspaceCreateForm(props: {
   orgSlug: string
   onCreated?: (slug: string) => void
+  after?: "settings"
 }) {
-  const { orgSlug, onCreated } = props
+  const { orgSlug, onCreated, after } = props
   const navigate = useNavigate()
   const queryClient = useQueryClient()
   const [error, setError] = useState<string | null>(null)
@@ -26,6 +27,7 @@ export function WorkspaceCreateForm(props: {
       void navigate({
         to: "/$orgSlug/ws/$workspaceSlug",
         params: { orgSlug, workspaceSlug: workspace.slug },
+        search: after === "settings" ? { pane: "settings" } : undefined,
       })
     },
     onError: (err: Error) => setError(err.message),
@@ -37,6 +39,9 @@ export function WorkspaceCreateForm(props: {
       <p className="mt-2 text-sm text-muted-foreground">
         Select the repository that will be the source of truth for all the
         context in this Workspace.
+        {after === "settings"
+          ? " You can add more repositories in Settings after you create."
+          : null}
       </p>
       <div className="mt-6">
         <WorkspaceRepositoryPicker

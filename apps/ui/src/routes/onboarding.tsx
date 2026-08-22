@@ -66,8 +66,6 @@ export function OnboardingPageContent({
   const [sceneReady, setSceneReady] = useState(false)
   const [showWelcomeDotNav, setShowWelcomeDotNav] = useState(false)
   const [completing, setCompleting] = useState(false)
-  const [repositorySelectionSaved, setRepositorySelectionSaved] =
-    useState(false)
 
   useEffect(() => {
     if (sceneReady || sceneFailed) return
@@ -99,10 +97,8 @@ export function OnboardingPageContent({
   const hasGithubInstallation = Boolean(installation)
   const repositoryIndexing = useRepositoryIndexingSummary(orgSlug, {
     enabled: Boolean(orgSlug && session),
-    pollWhileEmpty: repositorySelectionSaved,
   })
-  const { activeCount, failedCount, runningCount, totalCount } =
-    repositoryIndexing.summary
+  const { activeCount, failedCount, runningCount } = repositoryIndexing.summary
   const repositoryStatus =
     activeCount > 0
       ? {
@@ -118,14 +114,7 @@ export function OnboardingPageContent({
               failedCount === 1 ? "repository needs" : "repositories need"
             } attention`,
           }
-        : repositorySelectionSaved &&
-            totalCount === 0 &&
-            !repositoryIndexing.isError
-          ? {
-              tone: "indexing" as const,
-              label: "Starting repository indexing",
-            }
-          : null
+        : null
 
   const onWelcomeDetailsVisible = useCallback(() => {
     setShowWelcomeDotNav(true)
@@ -221,7 +210,7 @@ export function OnboardingPageContent({
     }, 320)
   }
 
-  const completeOnboarding = async () => {
+  const completeOnboardingThen = async (leave: () => void) => {
     if (!orgSlug || completing) return
     const organization = organizations?.find(
       (org: { slug: string }) => org.slug === orgSlug,
@@ -250,7 +239,11 @@ export function OnboardingPageContent({
     } catch {
       // best-effort
     }
-    transitionToApp(() => {
+    transitionToApp(leave)
+  }
+
+  const completeOnboarding = async () => {
+    await completeOnboardingThen(() => {
       void router.navigate({
         to: "/",
         search: {
@@ -363,8 +356,29 @@ export function OnboardingPageContent({
         {currentSlideName === "github" ? (
           <OnboardingGithubSlide
             orgSlug={orgSlug}
-            onRepositoriesQueued={() => setRepositorySelectionSaved(true)}
             onContinue={() => goToSlide(currentSlide + 1)}
+            onCreateWorkspace={() => {
+              if (!orgSlug) return
+              void completeOnboardingThen(() => {
+                void router.navigate({
+                  to: "/$orgSlug/workspaces/new",
+                  params: { orgSlug },
+                  search: { after: "settings" },
+                  replace: true,
+                })
+              })
+            }}
+            onSelectWorkspace={(workspace) => {
+              if (!orgSlug) return
+              void completeOnboardingThen(() => {
+                void router.navigate({
+                  to: "/$orgSlug/ws/$workspaceSlug",
+                  params: { orgSlug, workspaceSlug: workspace.slug },
+                  search: { pane: "settings" },
+                  replace: true,
+                })
+              })
+            }}
           />
         ) : null}
 

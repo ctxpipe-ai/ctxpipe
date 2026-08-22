@@ -455,10 +455,10 @@ Highest-priority confirmed rules for agents. Migrated from former `patterns.md` 
 - **Source:** migrated from patterns.md
 
 ### UI copy language
-- **Rule:** use UK English spelling in user-facing UI copy, for example `organisation` rather than `organization`
+- **Rule:** use US English spelling in user-facing UI copy, for example `organization` rather than `organisation`
 - **Category:** convention
-- **Date:** 2026-08-11
-- **Source:** migrated from patterns.md
+- **Date:** 2026-08-22
+- **Source:** GitHub workspace destination flow; supersedes 2026-08-11 UK English rule
 
 ### UI icon library
 - **Rule:** use `@tabler/icons-react` (not lucide-react); map Tabler `Icon*` names semantically from prior Lucide glyphs; keep size/class/ARIA props

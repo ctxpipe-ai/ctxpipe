@@ -17,7 +17,7 @@ Implementation process: [`.agents/skills/product-ui/SKILL.md`](../../.agents/ski
   - Mono uppercase tracked labels (`.ctx-label`)
   - Pulsing status dots **plus** a text label (not color-only)
   - Quiet-button teal hover glow (`variant="quiet"`)
-- **Copy register:** UK English. Plain, specific, not cute. “Add connection”, not “Let’s get you connected!” or “Utilize webhook configuration.”
+- **Copy register:** US English. Plain, specific, not cute. “Add connection”, not “Let’s get you connected!” or “Utilize webhook configuration.”
 
 ## Tokens we keep
 

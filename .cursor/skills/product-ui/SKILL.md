@@ -83,7 +83,7 @@ Error: [`InlineAlert`](../../../apps/ui/src/components/ui/InlineAlert.tsx) + a n
 - New chrome: `rounded-lg` / `--radius`. Do not add `rounded-none`.
 - Icons: `@tabler/icons-react` at ~16–20px, `text-muted-foreground`, `aria-hidden`. Lucide only if Tabler has no equivalent. Enclose in `.ctx-node` if the hit area must be large.
 - Destructive on the page: `outline` or `quiet`. Filled red only on [`AlertDialog`](../../../apps/ui/src/components/ui/AlertDialog.tsx).
-- Copy: UK English, plain, specific. Semantic `h1` at `text-lg` / `text-xl` on product screens.
+- Copy: US English, plain, specific. Semantic `h1` at `text-lg` / `text-xl` on product screens.
 - **Named Tailwind:** use the scale (`tracking-tighter`, `p-2`, `text-sm`, `gap-3`). Arbitrary values (`tracking-[-0.5px]`, `text-[15px]`, `p-[13px]`) only when no named token is close.
 - **Feel fast:** interaction responsiveness is UX. Selected chrome (nav, tabs, panes, switchers) must move on the click — set it in the handler, do not wait for `useSearch()` / `useMatchRoute` / `loaderDeps`. Route loaders warm **enter** (SSR still includes the landing region). Local `Suspense` for the region that is loading. See [react](../react/SKILL.md) **Feel fast**.
 - **Responsive — CSS-first:** Express breakpoints with Tailwind (`sm:`, `md:`, `lg:`, `max-md:`, …) — visibility, padding, borders, column layout, overlay vs rail. Reach for JS (`matchMedia`, `useMediaQuery`, resize Effects) **only when CSS cannot do the job** (interactive state like an open drawer; a one-shot `matchMedia` inside a click handler is fine). Do not drive layout chrome from reactive media-query state when a responsive class would suffice.

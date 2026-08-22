@@ -104,13 +104,6 @@ export function GithubConnectionCard({
     connected: linked,
   })
 
-  const repoCount =
-    linked &&
-    typeof installation?.ingestionRepositoryCount === "number" &&
-    Number.isFinite(installation.ingestionRepositoryCount)
-      ? Math.trunc(installation.ingestionRepositoryCount)
-      : null
-
   return (
     <>
       <ConnectorListItem
@@ -127,11 +120,7 @@ export function GithubConnectionCard({
           />
         }
         workspace={connectorDash(installation?.accountSlug)}
-        scope={
-          repoCount == null
-            ? "—"
-            : `${repoCount} ${repoCount === 1 ? "repository" : "repositories"}`
-        }
+        scope="GitHub App"
         syncRepository="—"
         actionLabel={
           isError
@@ -140,7 +129,7 @@ export function GithubConnectionCard({
               ? undefined
               : !linked
                 ? "Complete GitHub install"
-                : "Manage repositories"
+                : "Link to a workspace"
         }
         onAction={
           isError
@@ -157,8 +146,9 @@ export function GithubConnectionCard({
                     return
                   }
                   void navigate({
-                    to: "/$orgSlug/connectors",
+                    to: "/$orgSlug/repositories/github/setup",
                     params: { orgSlug },
+                    search: { returnTo: "connectors" },
                   })
                 }
         }
