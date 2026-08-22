@@ -209,7 +209,7 @@ ctx| can be deployed on Railway with prebuilt images from GitHub Container
 Registry. Runtime services (`backend`, `worker`, `codesearch`) must use a
 `DATABASE_URL` for `ctxpipe_app`. The migrate job uses the Neon owner / pooler
 URL (`neondb_owner`) and then GRANTs the app role. Do not point app services at
-the owner URL — they refuse to boot when the role has `BYPASSRLS`.
+the owner URL — that role has `BYPASSRLS`, so `ENABLE` policies do not bind.
 
 A typical flow is:
 

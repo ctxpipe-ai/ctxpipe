@@ -1,6 +1,6 @@
 # ADR-028: Postgres RLS with a non-owner app role
 
-**Status:** Accepted | **Date:** 2026-08-21 | **Tags:** postgres, rls, neon, aws-cdk, railway, compose
+**Status:** Accepted | **Date:** 2026-08-22 | **Tags:** postgres, rls, neon, aws-cdk, railway, compose
 
 ## Context
 
@@ -12,7 +12,7 @@ AWS self-hosters must keep the existing upgrade path: bump `@ctxpipe/aws-cdk` an
 
 - **Two roles.** The table owner runs migrations. Runtime `ctxpipe_app` is `LOGIN`, **no `BYPASSRLS`**, owns nothing, and has DML + sequence grants. Backend, worker, and codesearch `DATABASE_URL` is the app role. Migrate keeps the owner URL.
 - **`ENABLE` only** via Drizzle `pgTable.withRLS` + `pgPolicy` (`pnpm run db:generate`). Qual: `org_id = current_setting('app.organization_id', true)` (org_onboarding uses `organization_id`). No FORCE. The app is not owner, so ENABLE binds.
-- **Boot refuse** if `pg_roles.rolbypassrls` is true for `current_user`. Then a **seeded** canary: insert/select/update one workspace row under GUC, then without GUC assert `SELECT` 0 and `UPDATE` 0. Empty-table `count(*)=0` is not a canary. Codesearch checks the role only; it does not write the workspace canary.
+- **No boot probe.** Processes do not query `pg_roles` or write a sentinel workspace on start. Isolation is two live-DB tests on the existing migrate CI job (`src/db/rls-isolation.test.ts` as `ctxpipe_app` after owner migrate + grants). Default `pnpm test` excludes that file.
 - Keep **`SET LOCAL`** (`set_config(..., true)`). No `SET SESSION`. No held client across I/O. No `app.rls_bypass`.
 - **Webhook bootstrap** uses unRLS’d `connection_directory` (`connection_id`, `org_id`, `type`, external ids; no secrets). Look up the directory, then `withOrgDbContext` for tenant `connections`. No SECURITY DEFINER.
 - **Tenant SQL** goes through `withOrgDbContext` / `orgSql` / `getOrgDb()`. Keep `getSystemDb()` for Better Auth tables, `organizations` slug lookup, `members`, `invitations`, and `connection_directory`.
@@ -22,11 +22,10 @@ AWS self-hosters must keep the existing upgrade path: bump `@ctxpipe/aws-cdk` an
 
 ## Consequences
 
-- Wrong `DATABASE_URL` (owner) fails boot. Rolling AWS deploys may keep old owner tasks until ECS replaces them.
+- Wrong `DATABASE_URL` (owner) does not fail boot; ENABLE is theater on that role. Compose / Railway / CDK already wire runtime services to `ctxpipe_app`. Rolling AWS deploys may keep old owner tasks until ECS replaces them.
 - Missing GUC means tenant `SELECT`/`UPDATE`/`DELETE` return 0 and `INSERT` fails the policy. Helpers that ignored `rowCount` must fail closed.
 - Webhooks that skip the directory cannot see `connections`. Directory rows are org-visible to any caller with the owner or app role — store no secrets there.
 - One PR-preview pass after the role split is deploy verification (sign-in, list, webhook, index), not extra product-surface testing. The identity of `DATABASE_URL` changed.
-- Isolation CI migrates as owner and runs `src/db/rls-isolation.test.ts` as `ctxpipe_app`. Default `pnpm test` excludes that file.
 
 ## Alternatives considered
 
@@ -34,3 +33,4 @@ AWS self-hosters must keep the existing upgrade path: bump `@ctxpipe/aws-cdk` an
 - **SECURITY DEFINER directory/webhook functions** — Rejected; same-owner DEFINER does not survive FORCE and is unnecessary once the directory table is unRLS’d.
 - **New `CtxPipe` props / operator `psql` / a second URL in the CDK app** — Rejected; the construct rewrites the existing runtime secret.
 - **`SET SESSION` or `app.rls_bypass`** — Rejected; transaction-mode poolers drop session GUCs, and a bypass GUC is another hole.
+- **Boot refuse + seeded canary + dedicated isolation CI job** — Rejected; RLS is configuration (`ENABLE` + `ctxpipe_app` + `SET LOCAL`). A startup `pg_roles` probe and a sentinel `workspaces` row on every backend/worker wake (Railway sleep) is noise. Isolation belongs in two migrate-job tests, not a second Postgres CI job.
