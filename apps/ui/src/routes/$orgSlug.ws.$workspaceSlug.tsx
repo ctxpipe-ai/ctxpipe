@@ -1,7 +1,8 @@
-import { createFileRoute, Outlet } from "@tanstack/react-router"
+import { createFileRoute, useMatch } from "@tanstack/react-router"
 import { ensureWorkspaceRouteData } from "@/features/workspaces/ensure-route-data"
 import { workspaceSearch } from "@/features/workspaces/pane"
 import { WorkspaceRouteError } from "@/features/workspaces/WorkspaceRouteError"
+import { WorkspaceSurface } from "@/features/workspaces/WorkspaceSurface"
 
 export const Route = createFileRoute("/$orgSlug/ws/$workspaceSlug")({
   validateSearch: workspaceSearch,
@@ -23,5 +24,18 @@ export const Route = createFileRoute("/$orgSlug/ws/$workspaceSlug")({
 })
 
 function WorkspaceSlugLayout() {
-  return <Outlet />
+  const { orgSlug, workspaceSlug } = Route.useParams()
+  const { pane } = Route.useSearch()
+  const conversationMatch = useMatch({
+    from: "/$orgSlug/ws/$workspaceSlug/$conversationId",
+    shouldThrow: false,
+  })
+  return (
+    <WorkspaceSurface
+      orgSlug={orgSlug}
+      workspaceSlug={workspaceSlug}
+      conversationId={conversationMatch?.params.conversationId}
+      paneParam={pane}
+    />
+  )
 }

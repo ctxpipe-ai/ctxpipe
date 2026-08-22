@@ -1,7 +1,12 @@
-import { useQueryClient, useSuspenseQuery } from "@tanstack/react-query"
-import { useNavigate, useSearch } from "@tanstack/react-router"
+import {
+  type QueryClient,
+  useQueryClient,
+  useSuspenseQuery,
+} from "@tanstack/react-query"
+import { useNavigate, useRouterState, useSearch } from "@tanstack/react-router"
 import { Component, type ReactNode, Suspense, useEffect, useState } from "react"
 import { AppShell } from "@/components/AppShell"
+import { parseSideNavLocation } from "@/components/SideNav/sideNavLocation"
 import { pollWhileOk } from "@/lib/api-result"
 import { useUrgentValue } from "@/lib/useUrgentValue"
 import { cn } from "@/lib/utils"
@@ -26,7 +31,6 @@ import {
 } from "./projection"
 import {
   touchWorkspace,
-  workspaceConversationOptions,
   workspaceDetailOptions,
   workspaceKeys,
 } from "./queries"
@@ -47,17 +51,24 @@ export function WorkspaceSurface(props: {
   conversationId?: string
   paneParam?: string
 }) {
+  const pathname = useRouterState({
+    select: (state) => state.location.pathname,
+  })
+  const conversationId =
+    parseSideNavLocation(pathname, props.orgSlug).conversationId ??
+    props.conversationId
   return (
     <WorkspaceQueryErrorBoundary>
-      <Suspense
-        fallback={
-          <AppShell>
-            <WorkspaceSurfaceSkeleton />
-          </AppShell>
-        }
-      >
-        <WorkspaceSurfaceReady {...props} />
-      </Suspense>
+      <AppShell>
+        <Suspense fallback={<WorkspaceSurfaceSkeleton />}>
+          <WorkspaceSurfaceReady
+            orgSlug={props.orgSlug}
+            workspaceSlug={props.workspaceSlug}
+            conversationId={conversationId}
+            paneParam={props.paneParam}
+          />
+        </Suspense>
+      </AppShell>
     </WorkspaceQueryErrorBoundary>
   )
 }
@@ -229,69 +240,41 @@ function WorkspaceSurfaceReady(props: {
 
   if (workspace === null) {
     return (
-      <AppShell>
-        <main className="mx-auto max-w-lg px-6 py-16">
-          <p className="font-mono text-xs uppercase tracking-[0.24em] text-teal-400">
-            Workspace
-          </p>
-          <h1 className="mt-3 text-xl font-medium tracking-tight">
-            Workspace not found
-          </h1>
-          <p className="mt-3 text-sm text-muted-foreground">
-            That slug is not used in this organisation. Changing a slug replaces
-            the URL; the old slug is not kept as an alias.
-          </p>
-        </main>
-      </AppShell>
+      <main className="mx-auto max-w-lg px-6 py-16">
+        <p className="font-mono text-xs uppercase tracking-[0.24em] text-teal-400">
+          Workspace
+        </p>
+        <h1 className="mt-3 text-xl font-medium tracking-tight">
+          Workspace not found
+        </h1>
+        <p className="mt-3 text-sm text-muted-foreground">
+          That slug is not used in this organisation. Changing a slug replaces
+          the URL; the old slug is not kept as an alias.
+        </p>
+      </main>
     )
   }
 
   if (!workspaceProjectionReady(workspace)) {
     if (workspaceHydrateView(workspace) === "failed") {
       return (
-        <AppShell>
-          <WorkspacePrepareFailedLayout
-            orgSlug={orgSlug}
-            workspace={workspace}
-          />
-        </AppShell>
+        <WorkspacePrepareFailedLayout orgSlug={orgSlug} workspace={workspace} />
       )
     }
-    return (
-      <AppShell>
-        <WorkspaceHydrateProgress orgSlug={orgSlug} workspace={workspace} />
-      </AppShell>
-    )
-  }
-
-  if (conversationId) {
-    return (
-      <WorkspaceSurfaceShell
-        orgSlug={orgSlug}
-        workspace={workspace}
-        conversationId={conversationId}
-        shownPane={shownPane}
-        maximized={maximized}
-        paneWidth={paneWidth}
-        treeCollapsed={treeCollapsed}
-        paneCollapsed={paneCollapsed}
-        fileTabs={openFileTabs}
-        previewPath={fileTabs.previewPath}
-        setMaximized={setMaximized}
-        setPaneWidth={setPaneWidth}
-        setTreeCollapsed={setTreeCollapsed}
-        setPaneCollapsed={setPaneCollapsed}
-        setFileTabs={setFileTabs}
-        setPane={setPane}
-      />
-    )
+    return <WorkspaceHydrateProgress orgSlug={orgSlug} workspace={workspace} />
   }
 
   return (
     <WorkspaceSurfaceLayout
       orgSlug={orgSlug}
       workspace={workspace}
-      conversationTitle="New conversation"
+      conversationId={conversationId}
+      conversationTitle={conversationTitleFromList(
+        queryClient,
+        orgSlug,
+        workspace.id,
+        conversationId,
+      )}
       shownPane={shownPane}
       maximized={maximized}
       paneWidth={paneWidth}
@@ -309,36 +292,20 @@ function WorkspaceSurfaceReady(props: {
   )
 }
 
-function WorkspaceSurfaceShell(props: {
-  orgSlug: string
-  workspace: WorkspaceDetail
-  conversationId: string
-  shownPane: ParsedPane
-  maximized: boolean
-  paneWidth: number | null
-  treeCollapsed: boolean
-  paneCollapsed: boolean
-  fileTabs: string[]
-  previewPath: string | null
-  setMaximized: React.Dispatch<React.SetStateAction<boolean>>
-  setPaneWidth: React.Dispatch<React.SetStateAction<number | null>>
-  setTreeCollapsed: React.Dispatch<React.SetStateAction<boolean>>
-  setPaneCollapsed: React.Dispatch<React.SetStateAction<boolean>>
-  setFileTabs: React.Dispatch<React.SetStateAction<FileTabSession>>
-  setPane: (next: ParsedPane | null) => void
-}) {
-  const { data } = useSuspenseQuery(
-    workspaceConversationOptions(
-      props.orgSlug,
-      props.conversationId,
-      props.workspace.id,
-    ),
-  )
-  const conversationTitle = data?.conversation.name ?? "New conversation"
-
-  return (
-    <WorkspaceSurfaceLayout {...props} conversationTitle={conversationTitle} />
-  )
+function conversationTitleFromList(
+  queryClient: QueryClient,
+  orgSlug: string,
+  workspaceId: string,
+  conversationId?: string,
+) {
+  if (!conversationId) return "New conversation"
+  const cached = queryClient.getQueryData<{
+    pages: { items: { id: string; name: string }[] }[]
+  }>(workspaceKeys.conversations(orgSlug, workspaceId))
+  const name = cached?.pages
+    .flatMap((page) => page.items)
+    .find((item) => item.id === conversationId)?.name
+  return name?.trim() || "New conversation"
 }
 
 function WorkspaceSurfaceLayout(props: {
@@ -360,11 +327,7 @@ function WorkspaceSurfaceLayout(props: {
   setFileTabs: React.Dispatch<React.SetStateAction<FileTabSession>>
   setPane: (next: ParsedPane | null) => void
 }) {
-  return (
-    <AppShell>
-      <WorkspaceSurfaceColumns {...props} />
-    </AppShell>
-  )
+  return <WorkspaceSurfaceColumns {...props} />
 }
 
 function WorkspaceSurfaceColumns(props: {

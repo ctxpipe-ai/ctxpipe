@@ -1,5 +1,6 @@
 import type { Meta, StoryObj } from "@storybook/react-vite"
 import { HttpResponse, http } from "msw"
+import { expect, userEvent, waitFor, within } from "storybook/test"
 import {
   conversationDetailLoadingHandler,
   githubInstallationReposHandler,
@@ -189,6 +190,39 @@ export const ConversationLoading: Story = {
         page: [conversationDetailLoadingHandler(), ...workspaceShellHandlers()],
       },
     },
+  },
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement)
+    await canvas.findByRole("list", { name: "Workspace files" })
+    expect(canvas.queryByText("Loading workspace")).not.toBeInTheDocument()
+  },
+}
+
+export const ComposeThreadKeepsFiles: Story = {
+  parameters: {
+    storyRoute: workspaceRoute({ pane: "files" }),
+    msw: {
+      handlers: {
+        page: workspaceShellHandlers(),
+      },
+    },
+  },
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement)
+    await canvas.findByRole("list", { name: "Workspace files" })
+    await userEvent.click(canvas.getByRole("link", { name: "Repo layout" }))
+    await waitFor(() => {
+      expect(canvas.getByText("How is billing structured?")).toBeInTheDocument()
+    })
+    expect(canvas.getByRole("list", { name: "Workspace files" })).toBeVisible()
+    await userEvent.click(
+      canvas.getByRole("link", { name: "New conversation in Docs" }),
+    )
+    await waitFor(() => {
+      expect(canvas.getByText("Ask about this Workspace.")).toBeInTheDocument()
+    })
+    expect(canvas.getByRole("list", { name: "Workspace files" })).toBeVisible()
+    expect(canvas.queryByText("Loading workspace")).not.toBeInTheDocument()
   },
 }
 

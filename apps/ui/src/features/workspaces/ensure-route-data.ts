@@ -64,3 +64,19 @@ export async function ensureWorkspaceRouteData(input: {
 
   return workspace
 }
+
+/** Client in-page nav: start the conversation fetch without gating the route. */
+export function prefetchWorkspaceConversation(
+  queryClient: QueryClient,
+  orgSlug: string,
+  workspaceSlug: string,
+  conversationId: string,
+) {
+  const workspace = queryClient.getQueryData(
+    workspaceDetailOptions(orgSlug, workspaceSlug).queryKey,
+  )
+  if (!workspace) return
+  void queryClient.prefetchQuery(
+    workspaceConversationOptions(orgSlug, conversationId, workspace.id),
+  )
+}

@@ -61,18 +61,27 @@ If there is **no external system**—for example, you only need to update local 
 
 ## Feel fast
 
-Speed of the Operate UI is part of the product. **Chrome must move on the click. First HTML still includes the landing region.**
+Speed of the Operate UI is part of the product. **Chrome and the page body must move on the click. First HTML still includes the landing region.**
 
-TanStack Router commits location inside `React.startTransition`. If `selectedKey`, `aria-current`, or “current workspace” is driven only from `useSearch()` / `useParams()` / `useMatchRoute()` / `router.state.location`, the highlight waits until the new page body is ready. `Link` does not fix that.
+TanStack Router commits location inside `React.startTransition`. If `selectedKey`, `aria-current`, or “current workspace” is driven only from `useSearch()` / `useParams()` / `useMatchRoute()` / `router.state.location`, the highlight waits until the new page body is ready. `Link` does not fix that. RAC `Link` also does **not** fire `defaultPreload: "intent"` — prefetch with `prefetchQuery` on hover/press.
 
 Urgent local state is for **in-page clicks**. Route **enter** (SSR, refresh, org/workspace identity) still `await ensureQueryData` for the region that will paint.
 
 Use [`useUrgentValue`](../../../apps/ui/src/lib/useUrgentValue.ts): set the value in the event handler; adopt the committed URL during render when it changes (back/forward). Include org/workspace in the key so ids do not leak across identities.
 
+Default checklist for any Operate screen:
+
+- **Chrome** — `useUrgentValue` in the press handler. RAC `Link` + `prefetchQuery` on hover/press.
+- **Shell stays** — in-page identity (tab, pane, conversation, compose vs thread) must not remount `AppShell` or sibling columns. Hoist shared state to the layout that does not change. Sibling file routes that each mount the same surface are a bug.
+- **Client loaders do not await in-page detail** — `await ensureQueryData` is for **identity + landing region** on SSR / real enter (org, workspace). Conversation, blob, graph, messages: `prefetchQuery` on the client. Sibling `enter` still runs the child loader — `shouldReload: enter` does not save compose ↔ thread.
+- **Suspense is local** — one region, skeleton fallback. Never put `AppShell` or a sibling pane inside that boundary. A cache miss must not flash the whole page.
+- **Preserve `search`** — in-page `navigate` keeps `?pane=` and other chrome search.
+
+Wrong: `$workspaceSlug/` and `$workspaceSlug/$conversationId` each render `WorkspaceSurface` (remounts files + `AppShell`) and the conversation loader `await`s messages on the client.
+
+Right: the workspace **layout** owns `WorkspaceSurface`; children return `null`. Conversation `useSuspenseQuery` lives under the chat column’s `Suspense`. Client conversation loader only `prefetchQuery`.
+
 - **Loader:** identity queries on enter. Warm the **landing** region on enter (workspace default is files when `?pane=` is empty) **only when that region can succeed** (e.g. `workspaceProjectionReady`). Do not list in-page search in `loaderDeps`. `shouldReload: ({ cause }) => cause === "enter"` so search-only / sibling stays do not re-await. Never pass `paneParam: undefined` on enter.
-- **Region:** `useSuspenseQuery` + **local** `Suspense` (skeleton for that pane, not a full-page “Loading Workspace…”). Fallbacks are for **client clicks**, not first HTML.
-- **Intent:** `prefetchQuery` on hover/select; do not `await` it before `navigate`. Prefer `Link` (router `defaultPreload: "intent"`) plus `onPress` for urgent selection — `navigate()` in `onClick` misses preload.
-- **Selected chrome:** tabs, panes, SideNav rows, org switcher label. Keep the URL for share/refresh; do not wait for it to paint the highlight.
 - **HTTP:** every product call goes through `apiFetch` / `readApiJson`. Bare `fetch` + `if (!res.ok) throw` is a bug. Expected 409/404 (not ready / not installed) are data via `emptyOn`, not thrown errors. Query retries never run on 4xx (`retryQuery`). `refetchInterval` always uses `pollWhileOk` (or equivalent: return `false` on error).
 - **Loaders / `beforeLoad`:** `await` only queries required to **choose the route** (session, org membership, workspace identity). Parallelize independent identity fetches (`Promise.all`). Keep the workspace SSR skip (`warmLandingPane` only in the browser). Do **not** flip the app to `ssr: false`.
 

@@ -1,9 +1,13 @@
-import { useSuspenseQuery } from "@tanstack/react-query"
+import {
+  type QueryClient,
+  useQueryClient,
+  useSuspenseQuery,
+} from "@tanstack/react-query"
 import { type ReactNode, Suspense, useState } from "react"
 import { Skeleton } from "@/components/ui/Skeleton"
 import { ConversationThreadSkeleton } from "@/features/chat/components/ConversationThreadSkeleton"
 import { createObjectId } from "@/lib/id"
-import { workspaceConversationOptions } from "./queries"
+import { workspaceConversationOptions, workspaceKeys } from "./queries"
 import type { Workspace } from "./types"
 import { WorkspaceChatChrome } from "./WorkspaceChatChrome"
 import { WorkspaceChatSession } from "./WorkspaceChatSession"
@@ -14,52 +18,77 @@ export function WorkspaceChat(props: {
   conversationId?: string
   headerExtra?: ReactNode
 }) {
-  const { orgSlug, workspace, conversationId: conversationIdFromParams } = props
+  const { orgSlug, workspace, conversationId: routeConversationId } = props
+  const queryClient = useQueryClient()
+  const [composeId, setComposeId] = useState(() => createObjectId("conv"))
+  const [seenRouteId, setSeenRouteId] = useState(routeConversationId)
 
-  if (conversationIdFromParams) {
+  if (routeConversationId !== seenRouteId) {
+    const leavingForCompose = !routeConversationId && seenRouteId != null
+    setSeenRouteId(routeConversationId)
+    if (leavingForCompose) {
+      setComposeId(createObjectId("conv"))
+    }
+  }
+
+  const isOwnCompose = !routeConversationId || routeConversationId === composeId
+
+  if (isOwnCompose) {
     return (
-      <Suspense
-        fallback={
-          <WorkspaceChatChrome
-            workspace={workspace}
-            title={<Skeleton className="inline-block h-4 w-40" />}
-            headerExtra={props.headerExtra}
-          >
-            <ConversationThreadSkeleton />
-          </WorkspaceChatChrome>
-        }
-      >
-        <WorkspaceChatResume
-          orgSlug={orgSlug}
-          workspace={workspace}
-          conversationId={conversationIdFromParams}
-          headerExtra={props.headerExtra}
-        />
-      </Suspense>
+      <WorkspaceChatSession
+        key={composeId}
+        orgSlug={orgSlug}
+        workspace={workspace}
+        conversationId={composeId}
+        composing={!routeConversationId}
+        title="New conversation"
+        initialMessages={[]}
+        headerExtra={props.headerExtra}
+      />
     )
   }
 
-  return <WorkspaceChatCompose {...props} />
+  const listTitle = conversationTitleFromList(
+    queryClient,
+    orgSlug,
+    workspace.id,
+    routeConversationId,
+  )
+
+  return (
+    <Suspense
+      fallback={
+        <WorkspaceChatChrome
+          workspace={workspace}
+          title={listTitle ?? <Skeleton className="inline-block h-4 w-40" />}
+          headerExtra={props.headerExtra}
+        >
+          <ConversationThreadSkeleton />
+        </WorkspaceChatChrome>
+      }
+    >
+      <WorkspaceChatResume
+        orgSlug={orgSlug}
+        workspace={workspace}
+        conversationId={routeConversationId}
+        headerExtra={props.headerExtra}
+      />
+    </Suspense>
+  )
 }
 
-function WorkspaceChatCompose(props: {
-  orgSlug: string
-  workspace: Workspace
-  headerExtra?: ReactNode
-}) {
-  const [pendingId] = useState(() => createObjectId("conv"))
-  return (
-    <WorkspaceChatSession
-      key={pendingId}
-      orgSlug={props.orgSlug}
-      workspace={props.workspace}
-      conversationId={pendingId}
-      composing
-      title="New conversation"
-      initialMessages={[]}
-      headerExtra={props.headerExtra}
-    />
-  )
+function conversationTitleFromList(
+  queryClient: QueryClient,
+  orgSlug: string,
+  workspaceId: string,
+  conversationId: string,
+) {
+  const cached = queryClient.getQueryData<{
+    pages: { items: { id: string; name: string }[] }[]
+  }>(workspaceKeys.conversations(orgSlug, workspaceId))
+  return cached?.pages
+    .flatMap((page) => page.items)
+    .find((item) => item.id === conversationId)?.name
 }
 
 function WorkspaceChatResume(props: {

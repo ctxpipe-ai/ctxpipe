@@ -4,6 +4,7 @@ import {
   IconFolder,
   IconMessageCirclePlus,
 } from "@tabler/icons-react"
+import { useQueryClient } from "@tanstack/react-query"
 import { useRouter } from "@tanstack/react-router"
 import { useState } from "react"
 import { Link } from "react-aria-components"
@@ -16,6 +17,7 @@ import {
 } from "@/components/SideNav/sideNavStyles"
 import { focusVisibleClassName } from "@/lib/focus-styles"
 import { workspaceTitleAction } from "./nav"
+import { workspaceConversationOptions } from "./queries"
 import type { Workspace } from "./types"
 import { WorkspaceConversationList } from "./WorkspaceConversationList"
 
@@ -33,6 +35,7 @@ export function WorkspaceNavRow(props: {
   onExpand: () => void
 }) {
   const router = useRouter()
+  const queryClient = useQueryClient()
   const {
     orgSlug,
     workspace,
@@ -68,6 +71,17 @@ export function WorkspaceNavRow(props: {
     : composeHref
   const titleHref = titleAction === "resume" ? resumeHref : composeHref
 
+  const prefetchResume = () => {
+    if (!workspace.mostRecentConversationId) return
+    void queryClient.prefetchQuery(
+      workspaceConversationOptions(
+        orgSlug,
+        workspace.mostRecentConversationId,
+        workspace.id,
+      ),
+    )
+  }
+
   const selectWorkspaceCompose = () => {
     onSelectNav({
       orgSlug,
@@ -82,6 +96,7 @@ export function WorkspaceNavRow(props: {
       return
     }
     if (titleAction === "resume" && workspace.mostRecentConversationId) {
+      prefetchResume()
       onSelectNav({
         orgSlug,
         primary: "workspace",
@@ -165,7 +180,10 @@ export function WorkspaceNavRow(props: {
         <Link
           href={titleHref}
           onPress={onTitlePress}
-          onHoverStart={() => setHovered(true)}
+          onHoverStart={() => {
+            setHovered(true)
+            if (titleAction === "resume") prefetchResume()
+          }}
           onHoverEnd={() => setHovered(false)}
           className={titleControlClassName}
           aria-expanded={navExpanded ? open : undefined}

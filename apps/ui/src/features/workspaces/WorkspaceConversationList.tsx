@@ -1,4 +1,4 @@
-import { useInfiniteQuery } from "@tanstack/react-query"
+import { useInfiniteQuery, useQueryClient } from "@tanstack/react-query"
 import { useRouter } from "@tanstack/react-router"
 import { Link } from "react-aria-components"
 import { SideNavTooltip } from "@/components/SideNav/SideNavTooltip"
@@ -13,7 +13,7 @@ import type { ConversationListItem } from "@/features/chat/types"
 import { client } from "@/lib/api"
 import { readApiJson } from "@/lib/api-result"
 import { conversationShortLabel } from "./conversationLabel"
-import { workspaceKeys } from "./queries"
+import { workspaceConversationOptions, workspaceKeys } from "./queries"
 import type { Workspace } from "./types"
 
 export function WorkspaceConversationList(props: {
@@ -31,6 +31,12 @@ export function WorkspaceConversationList(props: {
     onSelectNav,
   } = props
   const router = useRouter()
+  const queryClient = useQueryClient()
+  const prefetchConversation = (conversationId: string) => {
+    void queryClient.prefetchQuery(
+      workspaceConversationOptions(orgSlug, conversationId, workspace.id),
+    )
+  }
   const query = useInfiniteQuery({
     queryKey: workspaceKeys.conversations(orgSlug, workspace.id),
     queryFn: async ({ pageParam }) => {
@@ -100,7 +106,9 @@ export function WorkspaceConversationList(props: {
               <SideNavTooltip label={item.name} enabled={!navExpanded}>
                 <Link
                   href={href}
+                  onHoverStart={() => prefetchConversation(item.id)}
                   onPress={() => {
+                    prefetchConversation(item.id)
                     onSelectNav({
                       orgSlug,
                       primary: "workspace",

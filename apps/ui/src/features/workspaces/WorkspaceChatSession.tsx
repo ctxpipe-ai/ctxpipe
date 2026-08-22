@@ -107,6 +107,7 @@ export function WorkspaceChatSession(props: {
         workspaceSlug: workspace.slug,
         conversationId,
       },
+      search: (prev) => prev,
     })
   }, [
     composing,

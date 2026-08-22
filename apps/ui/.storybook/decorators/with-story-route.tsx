@@ -129,8 +129,6 @@ function createStoryRouter(
   })
   const orgWorkspaceNewForStory =
     spec.pattern === "orgWorkspaceNew" ? StoryRoute : storyRouteStub
-  const orgWorkspaceForStory =
-    spec.pattern === "orgWorkspace" ? StoryRoute : storyRouteStub
   const orgWorkspacesNew = createRoute({
     getParentRoute: () => orgRoute,
     path: "workspaces/new",
@@ -142,17 +140,19 @@ function createStoryRouter(
     validateSearch: (search: Record<string, unknown>) => ({
       pane: typeof search.pane === "string" ? search.pane : undefined,
     }),
-    component: () => <Outlet />,
+    // Same as production: the workspace layout owns the surface so compose ↔
+    // thread does not remount AppShell / the files pane.
+    component: spec.pattern === "orgWorkspace" ? StoryRoute : () => <Outlet />,
   })
   const orgWsIndex = createRoute({
     getParentRoute: () => orgWs,
     path: "/",
-    component: orgWorkspaceForStory,
+    component: storyRouteStub,
   })
   const orgWsConversation = createRoute({
     getParentRoute: () => orgWs,
     path: "$conversationId",
-    component: orgWorkspaceForStory,
+    component: storyRouteStub,
   })
   /** So `Navigate` from org pages (session/onboarding gates) never hits a missing route before MSW resolves. */
   const authSignInStub = createRoute({

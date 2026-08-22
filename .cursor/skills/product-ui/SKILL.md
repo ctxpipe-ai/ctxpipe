@@ -70,11 +70,11 @@ Loading: pick the **kind** first. Do not mix them.
 | Control | Mutation on a button | `Button isPending` |
 | Status | Known entity, in-progress (health, indexing, streaming) | Pulse-dot **plus** the word |
 
-**Interaction responsiveness:** selected chrome (tabs, pane switchers, SideNav rows, org switcher) updates **on the click**; the skeleton stays inside the region that needs data. A click that leaves chrome unchanged until the next page paints is not done. Enter/SSR still includes the landing region in the first HTML (see [react](../react/SKILL.md) **Feel fast**).
+**Interaction responsiveness:** selected chrome (tabs, pane switchers, SideNav rows, org switcher) updates **on the click**; the skeleton stays inside the region that needs data. The **page body** stays too — sibling columns, `AppShell`, and in-page state must not remount while one region fetches. A click that leaves chrome or the rest of the page unchanged until the next route paints is not done. Enter/SSR still includes the landing region in the first HTML (see [react](../react/SKILL.md) **Feel fast**).
 
 Error: [`InlineAlert`](../../../apps/ui/src/components/ui/InlineAlert.tsx) + a next step. Dark slab, same-hue muted secondary, no `text-white/50`.
 
-**Done when:** each state has a pattern; empty chrome is hidden; the empty CTA is `variant="primary"`; selected chrome moves on press; first HTML still has the landing region; a region wait is a skeleton, not `"Loading…"` or a centered spinner.
+**Done when:** each state has a pattern; empty chrome is hidden; the empty CTA is `variant="primary"`; selected chrome moves on press; the region that needs data skeletons and everything else stays; first HTML still has the landing region; a region wait is a skeleton, not `"Loading…"` or a centered spinner.
 
 ## 7. Build
 
@@ -85,7 +85,7 @@ Error: [`InlineAlert`](../../../apps/ui/src/components/ui/InlineAlert.tsx) + a n
 - Destructive on the page: `outline` or `quiet`. Filled red only on [`AlertDialog`](../../../apps/ui/src/components/ui/AlertDialog.tsx).
 - Copy: US English, plain, specific. Semantic `h1` at `text-lg` / `text-xl` on product screens.
 - **Named Tailwind:** use the scale (`tracking-tighter`, `p-2`, `text-sm`, `gap-3`). Arbitrary values (`tracking-[-0.5px]`, `text-[15px]`, `p-[13px]`) only when no named token is close.
-- **Feel fast:** interaction responsiveness is UX. Selected chrome (nav, tabs, panes, switchers) must move on the click — set it in the handler, do not wait for `useSearch()` / `useMatchRoute` / `loaderDeps`. Route loaders warm **enter** (SSR still includes the landing region). Local `Suspense` for the region that is loading. See [react](../react/SKILL.md) **Feel fast**.
+- **Feel fast:** interaction responsiveness is UX. Selected chrome (nav, tabs, panes, switchers) must move on the click — set it in the handler, do not wait for `useSearch()` / `useMatchRoute` / `loaderDeps`. Do not remount the shell or sibling panes for in-page identity. Client loaders do not `await` in-page detail. Route loaders warm **enter** (SSR still includes the landing region). Local `Suspense` for the region that is loading. See [react](../react/SKILL.md) **Feel fast**.
 - **Responsive — CSS-first:** Express breakpoints with Tailwind (`sm:`, `md:`, `lg:`, `max-md:`, …) — visibility, padding, borders, column layout, overlay vs rail. Reach for JS (`matchMedia`, `useMediaQuery`, resize Effects) **only when CSS cannot do the job** (interactive state like an open drawer; a one-shot `matchMedia` inside a click handler is fine). Do not drive layout chrome from reactive media-query state when a responsive class would suffice.
 
 Then follow the [react](../react/SKILL.md) skill for data flow.
