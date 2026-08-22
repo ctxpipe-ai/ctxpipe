@@ -143,10 +143,15 @@ export function WorkspaceSettingsPane(props: {
   })
 
   const relinkMutation = useMutation({
-    mutationFn: (choice: { gitUrl: string; githubConnectionId?: string }) =>
+    mutationFn: (choice: {
+      gitUrl: string
+      githubConnectionId?: string
+      source: "select" | "paste"
+    }) =>
       updateWorkspace(orgSlug, workspace.slug, {
         workspaceRepositoryUrl: choice.gitUrl,
         githubConnectionId: choice.githubConnectionId ?? null,
+        source: choice.source,
       }),
     onSuccess: () => {
       setRelinkError(null)

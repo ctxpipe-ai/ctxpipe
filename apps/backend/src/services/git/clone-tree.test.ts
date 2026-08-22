@@ -58,5 +58,40 @@ describe("clone-tree", () => {
     await expect(
       readFileAtGitSha({ url: dir, sha, path: "missing.md" }),
     ).resolves.toEqual({ kind: "missing" })
+    await expect(
+      readFileAtGitSha({ url: dir, sha, path: "../secret" }),
+    ).resolves.toEqual({ kind: "missing" })
+  })
+
+  it("does not follow a repo symlink out of the checkout", async () => {
+    dir = await mkdtemp(join(tmpdir(), "ctxpipe-clone-tree-"))
+    await execFileAsync("git", ["init", dir])
+    await execFileAsync("git", [
+      "-C",
+      dir,
+      "config",
+      "user.email",
+      "dev@example.com",
+    ])
+    await execFileAsync("git", ["-C", dir, "config", "user.name", "Dev"])
+    await execFileAsync("ln", ["-s", "/etc/passwd", join(dir, "leak")])
+    await execFileAsync("git", ["-C", dir, "add", "."])
+    await execFileAsync("git", ["-C", dir, "commit", "-m", "symlink"])
+    const { stdout } = await execFileAsync("git", [
+      "-C",
+      dir,
+      "rev-parse",
+      "HEAD",
+    ])
+    const sha = stdout.trim()
+
+    const file = await readFileAtGitSha({ url: dir, sha, path: "leak" })
+    expect(file).toEqual({
+      kind: "bytes",
+      bytes: Buffer.from("/etc/passwd"),
+    })
+    expect(
+      file.kind === "bytes" ? Buffer.from(file.bytes).toString("utf8") : "",
+    ).not.toMatch(/root:/)
   })
 })

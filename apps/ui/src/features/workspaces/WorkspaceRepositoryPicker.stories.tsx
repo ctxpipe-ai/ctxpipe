@@ -3,6 +3,7 @@ import { delay, HttpResponse, http } from "msw"
 import { fn, userEvent, within } from "storybook/test"
 import {
   githubInstallationReposHandler,
+  orgGithubConnectionsHandler,
   workspaceListHandler,
 } from "@/mocks/workspace-handlers"
 import { entryPageInnerDecorators } from "../../../.storybook/decorators/entry-page-decorators"
@@ -31,6 +32,7 @@ const meta = {
       handlers: {
         page: [
           workspaceListHandler([docsWorkspace]),
+          orgGithubConnectionsHandler(),
           githubInstallationReposHandler(),
         ],
       },
@@ -53,6 +55,7 @@ export const Loading: Story = {
       handlers: {
         page: [
           workspaceListHandler([docsWorkspace]),
+          orgGithubConnectionsHandler(),
           http.get(
             ({ request }) =>
               new URL(request.url).pathname.endsWith(
@@ -83,6 +86,7 @@ export const SelectGitHubEmpty: Story = {
       handlers: {
         page: [
           workspaceListHandler([docsWorkspace]),
+          orgGithubConnectionsHandler(),
           githubInstallationReposHandler([]),
         ],
       },
@@ -101,6 +105,7 @@ export const SelectGitHubAllAccess: Story = {
       handlers: {
         page: [
           workspaceListHandler([docsWorkspace]),
+          orgGithubConnectionsHandler(),
           githubInstallationReposHandler(undefined, {
             repositorySelection: "all",
           }),

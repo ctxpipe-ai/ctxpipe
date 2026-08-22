@@ -12,6 +12,7 @@ export type GithubRepoItem = {
   html_url: string
   clone_url: string
   name: string
+  githubConnectionId?: string
 }
 
 export type SelectedGithubRepo = {
@@ -94,6 +95,7 @@ export async function collectInstallationRepoPages(
 export async function fetchGithubInstallationReposPage(
   orgSlug: string,
   page: number,
+  connectionId?: string,
 ): Promise<{
   repositories: GithubRepoItem[]
   hasMore: boolean
@@ -104,11 +106,15 @@ export async function fetchGithubInstallationReposPage(
   const res = await (
     client[":orgSlug"].api.v1.github.installation.repositories.$get as (arg: {
       param: { orgSlug: string }
-      query: { page: string; per_page: string }
+      query: { page: string; per_page: string; connectionId?: string }
     }) => Promise<Response>
   )({
     param: { orgSlug },
-    query: { page: String(page), per_page: "100" },
+    query: {
+      page: String(page),
+      per_page: "100",
+      ...(connectionId ? { connectionId } : {}),
+    },
   })
   const body = await readApiJson<{
     repositories: Array<
@@ -126,6 +132,7 @@ export async function fetchGithubInstallationReposPage(
       full_name: repo.full_name ?? repo.name,
       html_url: repo.html_url ?? repo.clone_url.replace(/\.git$/i, ""),
       clone_url: repo.clone_url,
+      ...(connectionId ? { githubConnectionId: connectionId } : {}),
     })),
     hasMore: body.hasMore === true,
     repositorySelection: body.repositorySelection ?? "selected",

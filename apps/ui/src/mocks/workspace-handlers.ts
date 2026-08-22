@@ -242,6 +242,23 @@ export function conversationDetailLoadingHandler() {
   )
 }
 
+export function orgGithubConnectionsHandler(
+  items: Array<{ id: string }> = [{ id: "con_gh" }],
+) {
+  return http.get(
+    ({ request }) => pathnameOf(request).endsWith("/api/v1/connectors"),
+    () =>
+      HttpResponse.json({
+        items: items.map((item) => ({
+          id: item.id,
+          type: "github",
+          createdAt: "2026-08-15T10:00:00.000Z",
+          updatedAt: "2026-08-15T10:00:00.000Z",
+        })),
+      }),
+  )
+}
+
 export function githubInstallationReposHandler(
   repositories?: { name: string; clone_url: string }[],
   options?: {

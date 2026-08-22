@@ -259,6 +259,9 @@ export async function createWorkspace(input: {
                 .set({
                   writeStatus: input.write.writeStatus,
                   readOnlyReason: input.write.readOnlyReason,
+                  ...(input.githubConnectionId !== undefined
+                    ? { githubConnectionId: input.githubConnectionId }
+                    : {}),
                   updatedAt: new Date(),
                 })
                 .where(eq(workspaces.id, row.id))
@@ -353,6 +356,9 @@ export async function createWorkspace(input: {
                 .set({
                   writeStatus: input.write.writeStatus,
                   readOnlyReason: input.write.readOnlyReason,
+                  ...(input.githubConnectionId !== undefined
+                    ? { githubConnectionId: input.githubConnectionId }
+                    : {}),
                   updatedAt: new Date(),
                 })
                 .where(eq(workspaces.id, row.id))
@@ -480,7 +486,13 @@ export async function updateWorkspace(
               }),
           ),
         )
+      } else if (input.write) {
+        patch.writeStatus = input.write.writeStatus
+        patch.readOnlyReason = input.write.readOnlyReason
       }
+    } else if (input.write) {
+      patch.writeStatus = input.write.writeStatus
+      patch.readOnlyReason = input.write.readOnlyReason
     }
 
     if (input.githubConnectionId !== undefined) {

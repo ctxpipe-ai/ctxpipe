@@ -16,8 +16,11 @@ export function WorkspaceCreateForm(props: {
   const [error, setError] = useState<string | null>(null)
 
   const createMutation = useMutation({
-    mutationFn: (choice: { gitUrl: string; githubConnectionId?: string }) =>
-      createWorkspace(orgSlug, choice),
+    mutationFn: (choice: {
+      gitUrl: string
+      githubConnectionId?: string
+      source: "select" | "paste"
+    }) => createWorkspace(orgSlug, choice),
     onSuccess: (workspace) => {
       void queryClient.invalidateQueries({
         queryKey: workspaceKeys.list(orgSlug),

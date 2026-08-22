@@ -113,6 +113,10 @@ vi.mock("../../domain/codeIngestion/queue.js", () => ({
     .mockResolvedValue({ hash: "abc", branch: "main" }),
 }))
 
+vi.mock("../../models/github-installation.js", () => ({
+  isGithubInstallationTokenError: () => false,
+}))
+
 vi.mock("../../models/repositories.js", () => ({
   markRepositoryIndexingRunning: vi.fn().mockResolvedValue(undefined),
   markRepositoryIndexingReady: vi.fn().mockResolvedValue(undefined),

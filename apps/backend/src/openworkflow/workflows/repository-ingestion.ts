@@ -1,8 +1,10 @@
+import { createError } from "evlog"
 import { defineWorkflow } from "openworkflow"
 import { z } from "zod"
 import { withOrgIdContext } from "../../auth/withAuth.js"
 import { getSystemDb, withOrgDbContext } from "../../db/client.js"
 import { resolveRepositoryRef } from "../../domain/codeIngestion/queue.js"
+import { isGithubInstallationTokenError } from "../../models/github-installation.js"
 import { deduplicateAndStore } from "../../graphs/codeIngestionGraph/nodes/deduplicateAndStore.js"
 import { embed } from "../../graphs/codeIngestionGraph/nodes/embed.js"
 import { identifyRoots } from "../../graphs/codeIngestionGraph/nodes/identifyRoots.js"
@@ -185,18 +187,38 @@ export const repositoryIngestion = defineWorkflow(
           const resolved = await step.run(
             {
               name: "resolve-ref",
-              retryPolicy: { maximumAttempts: 1 },
+              retryPolicy: extractRetryPolicy,
             },
             () =>
-              wls("resolve-ref", () =>
-                resolveRepositoryRef({
-                  repositoryId: input.repositoryId,
-                  orgId: input.orgId,
-                  branch: input.targetBranch ?? undefined,
-                  githubConnectionId,
-                }),
-              ),
+              wls("resolve-ref", async () => {
+                try {
+                  const tip = await resolveRepositoryRef({
+                    repositoryId: input.repositoryId,
+                    orgId: input.orgId,
+                    branch: input.targetBranch ?? undefined,
+                    githubConnectionId,
+                  })
+                  return { ok: true as const, ...tip }
+                } catch (error) {
+                  if (isGithubInstallationTokenError(error)) {
+                    return {
+                      ok: false as const,
+                      message:
+                        error instanceof Error
+                          ? error.message
+                          : String(error),
+                    }
+                  }
+                  throw error
+                }
+              }),
           )
+          if (!resolved.ok) {
+            throw createError({
+              message: resolved.message,
+              why: "GitHub installation token mint failed",
+            })
+          }
 
           logWorkflowMilestone("repository-ingestion.step.resolve-ref.done", {
             repositoryId: input.repositoryId,

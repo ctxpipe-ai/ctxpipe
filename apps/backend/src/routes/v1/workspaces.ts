@@ -30,6 +30,10 @@ import { normalizeWorkspaceRepositoryUrl } from "../../domain/workspaces/slug.js
 import { workspaceGraphFromUnits } from "../../domain/workspaces/workspace-graph.js"
 import { writeJobQueueHttpDecision } from "../../domain/workspaces/write-jobs.js"
 import {
+  resolveWorkspaceGithubConnectionId,
+  type WorkspaceAddSource,
+} from "../../domain/workspaces/bind-github-connection.js"
+import {
   githubConnectionIdForWriteProbe,
   writeStatusFromClassification,
 } from "../../domain/workspaces/write-status.js"
@@ -124,12 +128,15 @@ const ListWorkspacesResponseSchema = z
   })
   .openapi("WorkspaceListResponse")
 
+const WorkspaceAddSourceSchema = z.enum(["select", "paste"])
+
 const CreateWorkspaceRequestSchema = z
   .object({
     gitUrl: z.string().min(1),
     displayName: z.string().min(1).optional(),
     slug: z.string().min(1).optional(),
     githubConnectionId: z.string().min(1).optional(),
+    source: WorkspaceAddSourceSchema.optional(),
   })
   .openapi("CreateWorkspaceRequest")
 
@@ -139,6 +146,7 @@ const UpdateWorkspaceRequestSchema = z
     slug: z.string().min(1).optional(),
     workspaceRepositoryUrl: z.string().min(1).optional(),
     githubConnectionId: z.string().min(1).nullable().optional(),
+    source: WorkspaceAddSourceSchema.optional(),
     readOnlyReason: z.string().min(1).nullable().optional(),
   })
   .openapi("UpdateWorkspaceRequest")
@@ -925,11 +933,24 @@ export const workspaceRoutes = new OpenAPIHono<AppEnv>()
       return c.json({ error: "Unauthorized" }, 401)
     }
     const body = CreateWorkspaceRequestSchema.parse(await c.req.json())
+    const orgId = c.get("orgId")
+    if (!orgId) return c.json({ error: "Unauthorized" }, 401)
+    const githubConnectionId = await resolveWorkspaceGithubConnectionId({
+      orgId,
+      requested: body.githubConnectionId,
+      source: body.source as WorkspaceAddSource | undefined,
+    })
     const write = writeStatusFromClassification({
       workspaceRepositoryUrl: body.gitUrl,
-      githubConnectionId: body.githubConnectionId ?? null,
+      githubConnectionId,
     })
-    const created = await createWorkspace({ ...body, write })
+    const created = await createWorkspace({
+      gitUrl: body.gitUrl,
+      displayName: body.displayName,
+      slug: body.slug,
+      ...(githubConnectionId ? { githubConnectionId } : {}),
+      write,
+    })
     await attachOrgRepository({
       orgId: created.orgId,
       gitUrl: created.workspaceRepositoryUrl,
@@ -1161,17 +1182,42 @@ export const workspaceRoutes = new OpenAPIHono<AppEnv>()
     const body = UpdateWorkspaceRequestSchema.parse(await c.req.json())
     const current = await getWorkspaceBySlug(workspaceSlug)
     if (!current) return c.json({ error: "Not found" }, 404)
-    const write = body.workspaceRepositoryUrl
-      ? writeStatusFromClassification({
-          workspaceRepositoryUrl: body.workspaceRepositoryUrl,
-          githubConnectionId: githubConnectionIdForWriteProbe({
+    const bindingSubmitted =
+      body.workspaceRepositoryUrl !== undefined ||
+      body.githubConnectionId !== undefined ||
+      body.source !== undefined
+    const orgId = c.get("orgId") ?? current.orgId
+    const githubConnectionId = bindingSubmitted
+      ? await resolveWorkspaceGithubConnectionId({
+          orgId,
+          requested: githubConnectionIdForWriteProbe({
             requested: body.githubConnectionId,
             existing: current.githubConnectionId,
           }),
+          source: body.source as WorkspaceAddSource | undefined,
+        })
+      : current.githubConnectionId
+    const write = bindingSubmitted
+      ? writeStatusFromClassification({
+          workspaceRepositoryUrl:
+            body.workspaceRepositoryUrl ?? current.workspaceRepositoryUrl,
+          githubConnectionId,
         })
       : undefined
+    const persistConnection =
+      body.githubConnectionId !== undefined || body.source === "select"
     const updated = await updateWorkspace(workspaceSlug, {
-      ...body,
+      ...(body.displayName !== undefined
+        ? { displayName: body.displayName }
+        : {}),
+      ...(body.slug !== undefined ? { slug: body.slug } : {}),
+      ...(body.workspaceRepositoryUrl !== undefined
+        ? { workspaceRepositoryUrl: body.workspaceRepositoryUrl }
+        : {}),
+      ...(body.readOnlyReason !== undefined
+        ? { readOnlyReason: body.readOnlyReason }
+        : {}),
+      ...(persistConnection ? { githubConnectionId } : {}),
       ...(write ? { write } : {}),
     })
     if (!updated) return c.json({ error: "Not found" }, 404)

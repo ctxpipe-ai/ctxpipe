@@ -45,7 +45,10 @@ describe("createWorkspace", () => {
   })
 
   it("returns the existing workspace when the git URL already backs one", async () => {
-    const existing = existingWorkspaceRow()
+    const existing = {
+      ...existingWorkspaceRow(),
+      githubConnectionId: null,
+    }
     const updated = {
       ...existing,
       writeStatus: "writable",
@@ -74,6 +77,12 @@ describe("createWorkspace", () => {
     expect(result.autoLinkGitUrls).toEqual([])
     expect(result.writeStatus).toBe("writable")
     expect(update).toHaveBeenCalled()
+    expect(set).toHaveBeenCalledWith({
+      writeStatus: "writable",
+      readOnlyReason: null,
+      githubConnectionId: "con_gh",
+      updatedAt: expect.any(Date),
+    })
   })
 
   it("returns the raced workspace when insert hits the URL unique index", async () => {

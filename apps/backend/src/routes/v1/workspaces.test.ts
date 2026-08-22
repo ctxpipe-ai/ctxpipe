@@ -85,6 +85,22 @@ vi.mock("../../services/git/clone-tree.js", () => ({
   readFileAtGitSha: readFileAtGitShaMock,
 }))
 
+const getGithubInstallationByConnectionIdMock = vi.hoisted(() =>
+  vi.fn(async (_orgId: string, connectionId: string) => ({
+    id: connectionId,
+  })),
+)
+const resolveGithubInstallationForOrgDetailedMock = vi.hoisted(() =>
+  vi.fn(async () => ({ status: "none" as const })),
+)
+
+vi.mock("../../models/github-installation.js", () => ({
+  getGithubInstallationByConnectionId:
+    getGithubInstallationByConnectionIdMock,
+  resolveGithubInstallationForOrgDetailed:
+    resolveGithubInstallationForOrgDetailedMock,
+}))
+
 import { WRITE_STATUS_REASONS } from "../../domain/workspaces/write-status.js"
 import { enqueueWorkspaceHydrate } from "../../openworkflow/enqueue-workspace-hydrate.js"
 import { enqueueWorkspaceTipCheck } from "../../openworkflow/enqueue-workspace-tip-check.js"
@@ -145,6 +161,12 @@ describe("workspaces API", () => {
     getJobSandboxMock.mockReturnValue(null)
     ensureOrgRepositoryAndIngestMock.mockReset()
     ensureOrgRepositoryAndIngestMock.mockResolvedValue(null)
+    getGithubInstallationByConnectionIdMock.mockImplementation(
+      async (_orgId: string, connectionId: string) => ({ id: connectionId }),
+    )
+    resolveGithubInstallationForOrgDetailedMock.mockResolvedValue({
+      status: "none",
+    })
     withDestroyedWorkspaceSandboxesMock.mockImplementation(
       async (
         _input: { workspaceId: string; orgId: string },
@@ -237,6 +259,82 @@ describe("workspaces API", () => {
         githubConnectionId: "con_gh",
       }),
     )
+  })
+
+  it("does not treat a foreign GitHub connection as writable", async () => {
+    getGithubInstallationByConnectionIdMock.mockResolvedValue(undefined)
+    createWorkspaceMock.mockResolvedValue(workspaceRow)
+    const res = await app().request("/workspaces", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        gitUrl: "https://github.com/acme/knowledge.git",
+        githubConnectionId: "con_other",
+        source: "select",
+      }),
+    })
+    expect(res.status).toBe(201)
+    expect(createWorkspaceMock).toHaveBeenCalledWith({
+      gitUrl: "https://github.com/acme/knowledge.git",
+      write: {
+        writeStatus: "read_only",
+        readOnlyReason: WRITE_STATUS_REASONS.githubNotConnected,
+      },
+    })
+  })
+
+  it("uses the org's only GitHub connection when Select omitted an id", async () => {
+    resolveGithubInstallationForOrgDetailedMock.mockResolvedValue({
+      status: "ok",
+      installation: { id: "con_only" },
+    })
+    createWorkspaceMock.mockResolvedValue({
+      ...workspaceRow,
+      githubConnectionId: "con_only",
+      writeStatus: "writable",
+    })
+    const res = await app().request("/workspaces", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        gitUrl: "https://github.com/acme/knowledge.git",
+        source: "select",
+      }),
+    })
+    expect(res.status).toBe(201)
+    expect(createWorkspaceMock).toHaveBeenCalledWith({
+      gitUrl: "https://github.com/acme/knowledge.git",
+      githubConnectionId: "con_only",
+      write: {
+        writeStatus: "writable",
+        readOnlyReason: null,
+      },
+    })
+  })
+
+  it("does not infer a connection when Paste omitted an id", async () => {
+    resolveGithubInstallationForOrgDetailedMock.mockResolvedValue({
+      status: "ok",
+      installation: { id: "con_only" },
+    })
+    createWorkspaceMock.mockResolvedValue(workspaceRow)
+    const res = await app().request("/workspaces", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        gitUrl: "https://github.com/acme/knowledge.git",
+        source: "paste",
+      }),
+    })
+    expect(res.status).toBe(201)
+    expect(createWorkspaceMock).toHaveBeenCalledWith({
+      gitUrl: "https://github.com/acme/knowledge.git",
+      write: {
+        writeStatus: "read_only",
+        readOnlyReason: WRITE_STATUS_REASONS.githubNotConnected,
+      },
+    })
+    expect(resolveGithubInstallationForOrgDetailedMock).not.toHaveBeenCalled()
   })
 
   it("queues export and hydrate when create is writable", async () => {
@@ -361,6 +459,33 @@ describe("workspaces API", () => {
     const body = await res.json()
     expect(body.slug).toBe("knowledge")
     expect(body.desiredGeneration).toBe(2)
+  })
+
+  it("applies write status when relinking the same URL with a connection", async () => {
+    getWorkspaceBySlugMock.mockResolvedValue(workspaceRow)
+    updateWorkspaceMock.mockResolvedValue({
+      ...workspaceRow,
+      githubConnectionId: "con_gh",
+      writeStatus: "writable",
+    })
+    const res = await app().request("/workspaces/knowledge", {
+      method: "PATCH",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        workspaceRepositoryUrl: "https://github.com/acme/knowledge.git",
+        githubConnectionId: "con_gh",
+        source: "select",
+      }),
+    })
+    expect(res.status).toBe(200)
+    expect(updateWorkspaceMock).toHaveBeenCalledWith("knowledge", {
+      workspaceRepositoryUrl: "https://github.com/acme/knowledge.git",
+      githubConnectionId: "con_gh",
+      write: {
+        writeStatus: "writable",
+        readOnlyReason: null,
+      },
+    })
   })
 
   it("patches slug and display name", async () => {

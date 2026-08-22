@@ -262,6 +262,7 @@ export async function createWorkspace(
     displayName?: string
     slug?: string
     githubConnectionId?: string
+    source?: "select" | "paste"
   },
 ): Promise<Workspace> {
   const client = await getApiClient()
@@ -280,6 +281,7 @@ export async function updateWorkspace(
     slug?: string
     workspaceRepositoryUrl?: string
     githubConnectionId?: string | null
+    source?: "select" | "paste"
   },
 ): Promise<Workspace> {
   const client = await getApiClient()

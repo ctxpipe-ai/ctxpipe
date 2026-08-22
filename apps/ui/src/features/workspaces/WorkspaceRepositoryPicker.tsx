@@ -7,10 +7,7 @@ import { FieldGroup, Input, Label } from "@/components/ui/Field"
 import { InlineAlert } from "@/components/ui/InlineAlert"
 import { SearchField } from "@/components/ui/SearchField"
 import { Tab, TabList, TabPanel, Tabs } from "@/components/ui/Tabs"
-import {
-  fetchGithubInstallationSummary,
-  githubConnectorKeys,
-} from "@/features/connectors/queries/github-connector"
+import { orgConnectionsOptions } from "@/features/connectors/queries/org-connections"
 import {
   GithubRepoPickerList,
   GithubRepoPickerSkeleton,
@@ -28,6 +25,7 @@ import { fetchWorkspaces, workspaceKeys } from "./queries"
 export type WorkspaceRepositoryChoice = {
   gitUrl: string
   githubConnectionId?: string
+  source: "select" | "paste"
 }
 
 type Mode = "select" | "create" | "paste"
@@ -54,19 +52,44 @@ export function WorkspaceRepositoryPicker(props: {
     (item) => item.workspaceRepositoryUrl,
   )
 
-  const installationQuery = useQuery({
-    queryKey: githubConnectorKeys.installation(orgSlug),
-    queryFn: () => fetchGithubInstallationSummary(orgSlug),
-  })
+  const connectionsQuery = useQuery(orgConnectionsOptions(orgSlug))
+  const githubConnectionIds = (connectionsQuery.data ?? [])
+    .filter((connection) => connection.type === "github")
+    .map((connection) => connection.id)
   const reposQuery = useQuery({
-    queryKey: ["github-installation-repos", orgSlug],
-    queryFn: () =>
-      collectInstallationRepoPages((page) =>
-        fetchGithubInstallationReposPage(orgSlug, page),
-      ),
+    queryKey: ["github-installation-repos", orgSlug, githubConnectionIds],
+    enabled: connectionsQuery.isSuccess,
+    queryFn: async () => {
+      if (githubConnectionIds.length === 0) {
+        return {
+          repositories: [] as GithubRepoItem[],
+          repositorySelection: "selected",
+          manageUrl: null,
+          totalCount: 0,
+        }
+      }
+      const pages = await Promise.all(
+        githubConnectionIds.map(async (connectionId) => {
+          const collected = await collectInstallationRepoPages((page) =>
+            fetchGithubInstallationReposPage(orgSlug, page, connectionId),
+          )
+          return { connectionId, ...collected }
+        }),
+      )
+      return {
+        repositories: pages.flatMap((page) =>
+          page.repositories.map((repo) => ({
+            ...repo,
+            githubConnectionId: page.connectionId,
+          })),
+        ),
+        repositorySelection: pages[0]?.repositorySelection ?? "selected",
+        manageUrl: pages[0]?.manageUrl ?? null,
+        totalCount: pages.reduce((sum, page) => sum + page.totalCount, 0),
+      }
+    },
     refetchOnWindowFocus: "always",
   })
-  const githubConnectionId = installationQuery.data?.id
 
   const eligibleRepos = useMemo(
     () =>
@@ -132,16 +155,18 @@ export function WorkspaceRepositoryPicker(props: {
               eligibleCount={eligibleRepos.length}
               selectedIds={selectedIds}
               selectedRepoUrl={selectedRepo?.clone_url ?? null}
-              reposPending={reposQuery.isPending}
-              reposFailed={reposQuery.isError}
+              reposPending={
+                connectionsQuery.isPending || reposQuery.isPending
+              }
+              reposFailed={connectionsQuery.isError || reposQuery.isError}
               onToggle={(id, selected) => {
                 setSelectedId(selected ? id : null)
               }}
-              onSubmit={(gitUrl) => {
+              onSubmit={(gitUrl, githubConnectionId) => {
                 if (!githubConnectionId) return
-                onSubmit({ gitUrl, githubConnectionId })
+                onSubmit({ gitUrl, githubConnectionId, source: "select" })
               }}
-              githubConnectionId={githubConnectionId}
+              githubConnectionId={selectedRepo?.githubConnectionId}
               accessReady={accessReady}
               repositorySelection={repositorySelection}
               accessRepoCount={accessRepoCount}
@@ -174,7 +199,9 @@ export function WorkspaceRepositoryPicker(props: {
               className="flex items-end gap-2"
               onSubmit={(event) => {
                 event.preventDefault()
-                if (gitUrl.trim()) onSubmit({ gitUrl: gitUrl.trim() })
+                if (gitUrl.trim()) {
+                  onSubmit({ gitUrl: gitUrl.trim(), source: "paste" })
+                }
               }}
             >
               <AriaTextField
@@ -216,7 +243,7 @@ function SelectGitHubPanel(props: {
   reposPending: boolean
   reposFailed: boolean
   onToggle: (id: number, selected: boolean) => void
-  onSubmit: (gitUrl: string) => void
+  onSubmit: (gitUrl: string, githubConnectionId?: string) => void
   githubConnectionId?: string
   accessReady: boolean
   repositorySelection: string | undefined
@@ -282,7 +309,9 @@ function SelectGitHubPanel(props: {
             className="ml-auto shrink-0"
             isDisabled={props.pending || !props.githubConnectionId}
             onPress={() => {
-              if (props.selectedRepoUrl) props.onSubmit(props.selectedRepoUrl)
+              if (props.selectedRepoUrl) {
+                props.onSubmit(props.selectedRepoUrl, props.githubConnectionId)
+              }
             }}
           >
             {props.submitLabel}
