@@ -2,7 +2,7 @@
 
 Research date: 2026-08-22
 
-Scope: why this repo vendors a simplicity pass instead of installing [petekp/simplicity-audit](https://www.skills.sh/petekp/agent-skills/simplicity-audit) as-is. Implementation lives in [`.agents/skills/simplicity-audit/`](../../../.agents/skills/simplicity-audit/SKILL.md). This note is prior art, not the skill.
+Scope: why this repo vendors a simplicity pass instead of installing [petekp/simplicity-audit](https://www.skills.sh/petekp/agent-skills/simplicity-audit) as-is. Implementation lives in [`.agents/skills/simplicity-audit/`](../../../../.agents/skills/simplicity-audit/SKILL.md). This note is prior art, not the skill.
 
 ## Question
 
