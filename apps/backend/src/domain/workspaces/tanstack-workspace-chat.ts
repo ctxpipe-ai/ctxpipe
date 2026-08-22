@@ -12,7 +12,7 @@ import {
   listSandboxInstances,
   listWorkspaceKnowledgeUnitsForChat,
 } from "../../models/workspaces.js"
-import { getLogger, log } from "../../observability/logger.js"
+import { getLogger } from "../../observability/logger.js"
 import { hybridSearch } from "../../retrieval/index.js"
 import { generateEmbedding } from "../../retrieval/services/modelProvider.js"
 import { aguiIterableToUiMessageChunks } from "./agui-to-ui-message.js"
@@ -44,6 +44,7 @@ import {
   workspaceChatHybridHits,
 } from "./workspace-chat-retrieval.js"
 import {
+  emitOpencodeChatAttempt,
   opencodeChatStreamEvent,
   shouldFailEmptyChatTurn,
   withTanstackConsoleCapture,
@@ -188,15 +189,7 @@ export async function runTanstackWorkspaceChat(
             : error instanceof Error
               ? error
               : new Error(message)
-        try {
-          const logger = getLogger()
-          logger.set(fields)
-          if (logged) logger.error(logged, fields)
-          else logger.info(message)
-        } catch {
-          if (logged) log.error(fields)
-          else log.info(fields)
-        }
+        emitOpencodeChatAttempt(fields, logged)
         return { fields, logged, message }
       }
       const failTurn = async (error: unknown) => {

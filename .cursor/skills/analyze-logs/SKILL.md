@@ -27,8 +27,10 @@ Do **not** export Better Stack **CSV**. Mixed-service CSV drops HTTP `message`, 
 
 1. Prefer **Railway MCP** JSON/JSONL for `service=backend`. Better Stack only if you can export **JSON or JSONL**.
 2. Filter `step` in (`opencode.chatStream`, `tanstack-workspace-chat`, `attach-chat-sandbox-handle`) plus the conversation `POST /:orgSlug/api/v1/conversations/:conversationId` `requestId`.
-3. The chat-attempt event must include `conversationId`, `status`, and `bodyExcerpt` (OpenCode/TanStack fatal). Grep `opencode.chatStream`, not `message == ""`.
-4. Redact session tokens and emails before pasting. Do not add a second drain or a new env var.
+3. The conversation `POST` is **200** when the stream opens (~17–18s). That is not a successful turn. The chat-attempt event is a **second** row with `step=opencode.chatStream` after Hono emits the HTTP event.
+4. If you see `[evlog] log.set() called after the wide event was emitted` dropping `step, conversationId, workspaceId, status, bodyExcerpt`, that deploy still writes to the sealed request logger — the chat-attempt fields never land.
+5. The chat-attempt event must include `conversationId`, `status`, and `bodyExcerpt` (OpenCode/TanStack fatal). Grep `opencode.chatStream`, not `message == ""`.
+6. Redact session tokens and emails before pasting. Do not add a second drain or a new env var.
 
 Out of scope unless that body names them: codesearch `POST /search` 503 (Zoekt warmup) and `SANDBOX_PROVIDER=railway` fail-closed.
 

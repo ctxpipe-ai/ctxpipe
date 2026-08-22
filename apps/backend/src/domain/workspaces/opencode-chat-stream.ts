@@ -1,3 +1,5 @@
+import { log } from "../../observability/logger.js"
+
 const ANSI = new RegExp(`${String.fromCharCode(27)}\\[[0-9;]*m`, "g")
 
 export const OPENCODE_CHAT_STREAM_STEP = "opencode.chatStream" as const
@@ -54,6 +56,25 @@ export function opencodeChatStreamEvent(input: {
     ...(input.opencodePort != null ? { opencodePort: input.opencodePort } : {}),
     ...(input.durationMs != null ? { durationMs: input.durationMs } : {}),
   }
+}
+
+/**
+ * Chat streams keep running after Hono emits the HTTP wide event.
+ * Writing to `getLogger()` is dropped (`log.set() called after … emitted`).
+ * Standalone `log` emits a second event that Better Stack / Railway keep.
+ */
+export function emitOpencodeChatAttempt(
+  fields: ReturnType<typeof opencodeChatStreamEvent>,
+  error?: Error | null,
+): void {
+  if (error) {
+    log.error({
+      ...fields,
+      error: error.message,
+    })
+    return
+  }
+  log.info(fields)
 }
 
 export function isOpencodeChatFatal(error: unknown): boolean {

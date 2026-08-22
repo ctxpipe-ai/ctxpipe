@@ -530,6 +530,7 @@ describe("runTanstackWorkspaceChat", () => {
 
   it("errors the stream on an OpenCode 500 instead of finishing empty", async () => {
     const onError = vi.fn(async () => {})
+    const drained: Array<Record<string, unknown>> = []
     chatMock.mockImplementationOnce(
       // biome-ignore lint/correctness/useYield: the mocked stream fails before the first chunk
       async function* () {
@@ -543,6 +544,9 @@ describe("runTanstackWorkspaceChat", () => {
       enabled: true,
       pretty: false,
       env: { service: "ctxpipe-backend-test" },
+      drain: (ctx) => {
+        drained.push(ctx.event as Record<string, unknown>)
+      },
     })
     try {
       await withTestLogger(async () => {
@@ -558,6 +562,7 @@ describe("runTanstackWorkspaceChat", () => {
           onError,
         })
         expect(res.status).toBe(200)
+        getLogger().emit()
         await expect(res.text()).rejects.toThrow(/Unexpected server error/)
         expect(onError).toHaveBeenCalled()
         expect(appendTurnMock).toHaveBeenCalledWith(
@@ -570,11 +575,15 @@ describe("runTanstackWorkspaceChat", () => {
         expect(appendTurnMock).not.toHaveBeenCalledWith(
           expect.objectContaining({ role: "assistant" }),
         )
-        const ctx = getLogger().getContext()
-        expect(ctx.step).toBe("opencode.chatStream")
-        expect(ctx.conversationId).toBe("conv_1")
-        expect(ctx.status).toBe(500)
-        expect(String(ctx.bodyExcerpt)).toContain("Unexpected server error")
+        expect(getLogger().getContext().step).not.toBe("opencode.chatStream")
+        expect(
+          drained.find((event) => event.step === "opencode.chatStream"),
+        ).toMatchObject({
+          conversationId: "conv_1",
+          workspaceId: "ws_1",
+          status: 500,
+          bodyExcerpt: "Unexpected server error. Check server logs for details.",
+        })
       })
     } finally {
       initLogger({
