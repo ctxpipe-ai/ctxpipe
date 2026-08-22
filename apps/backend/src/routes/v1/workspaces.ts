@@ -2,6 +2,7 @@ import { createRoute, OpenAPIHono, z } from "@hono/zod-openapi"
 import type { Context } from "hono"
 import type { AppEnv } from "../../app/env.js"
 import type { Env } from "../../config/env.js"
+import { ensureOrgRepositoryAndIngest } from "../../domain/workspaces/ensure-org-repository.js"
 import { fileTreeFromPaths } from "../../domain/workspaces/file-tree.js"
 import {
   explorerBlobFromContent,
@@ -52,6 +53,19 @@ import {
   listFilesAtSha,
 } from "../../services/github/installation-write-client.js"
 import { getGithubRepoWriteView } from "../webhooks/github/github-workspace-tip.js"
+
+async function attachOrgRepository(input: {
+  orgId: string
+  gitUrl: string
+  githubConnectionId?: string | null
+  log: { error: (err: Error) => void }
+}) {
+  try {
+    await ensureOrgRepositoryAndIngest(input)
+  } catch (error) {
+    input.log.error(error instanceof Error ? error : new Error(String(error)))
+  }
+}
 
 const ErrorResponseSchema = z
   .object({ error: z.string() })
@@ -875,6 +889,12 @@ export const workspaceRoutes = new OpenAPIHono<AppEnv>()
       githubConnectionId: body.githubConnectionId ?? null,
     })
     const created = await createWorkspace({ ...body, write })
+    await attachOrgRepository({
+      orgId: created.orgId,
+      gitUrl: created.workspaceRepositoryUrl,
+      githubConnectionId: created.githubConnectionId,
+      log: c.get("log"),
+    })
     void enqueueWorkspaceHydrate(
       { orgId: created.orgId, workspaceId: created.id },
       c.get("log"),
@@ -1132,6 +1152,12 @@ export const workspaceRoutes = new OpenAPIHono<AppEnv>()
       void destroySandboxesForWorkspace(updated.id)
     }
     if (body.workspaceRepositoryUrl) {
+      await attachOrgRepository({
+        orgId: updated.orgId,
+        gitUrl: updated.workspaceRepositoryUrl,
+        githubConnectionId: updated.githubConnectionId,
+        log: c.get("log"),
+      })
       void enqueueWorkspaceWriteCommit(
         {
           orgId: updated.orgId,
@@ -1278,6 +1304,12 @@ export const workspaceRoutes = new OpenAPIHono<AppEnv>()
         409,
       )
     }
+    await attachOrgRepository({
+      orgId: workspace.orgId,
+      gitUrl,
+      githubConnectionId: workspace.githubConnectionId,
+      log: c.get("log"),
+    })
     void enqueueWorkspaceWriteCommit(
       {
         orgId: workspace.orgId,

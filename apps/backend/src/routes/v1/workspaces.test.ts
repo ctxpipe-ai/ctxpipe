@@ -28,6 +28,14 @@ const getFileContentBytesMock = vi.hoisted(() =>
 )
 const getJobSandboxMock = vi.hoisted(() => vi.fn().mockReturnValue(null))
 
+const ensureOrgRepositoryAndIngestMock = vi.hoisted(() =>
+  vi.fn().mockResolvedValue(null),
+)
+
+vi.mock("../../domain/workspaces/ensure-org-repository.js", () => ({
+  ensureOrgRepositoryAndIngest: ensureOrgRepositoryAndIngestMock,
+}))
+
 vi.mock("../../openworkflow/enqueue-workspace-write-commit.js", () => ({
   enqueueWorkspaceWriteCommit: vi.fn().mockResolvedValue(undefined),
 }))
@@ -124,6 +132,8 @@ describe("workspaces API", () => {
     listFilesAtShaMock.mockResolvedValue([])
     getFileContentBytesMock.mockResolvedValue({ kind: "missing" })
     getJobSandboxMock.mockReturnValue(null)
+    ensureOrgRepositoryAndIngestMock.mockReset()
+    ensureOrgRepositoryAndIngestMock.mockResolvedValue(null)
     withDestroyedWorkspaceSandboxesMock.mockImplementation(
       async (
         _input: { workspaceId: string; orgId: string },
@@ -173,6 +183,12 @@ describe("workspaces API", () => {
     })
     const body = await res.json()
     expect(body.slug).toBe("knowledge")
+    expect(ensureOrgRepositoryAndIngestMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        orgId: "org_mock",
+        gitUrl: "https://github.com/acme/knowledge",
+      }),
+    )
     expect(enqueueWorkspaceHydrate).toHaveBeenCalledWith(
       expect.objectContaining({
         orgId: "org_mock",
@@ -196,6 +212,12 @@ describe("workspaces API", () => {
       }),
     })
     expect(res.status).toBe(201)
+    expect(ensureOrgRepositoryAndIngestMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        orgId: "org_mock",
+        gitUrl: "https://github.com/acme/knowledge",
+      }),
+    )
     expect(enqueueWorkspaceHydrate).toHaveBeenCalledWith(
       expect.objectContaining({
         workspaceId: "ws_abc",
@@ -284,6 +306,12 @@ describe("workspaces API", () => {
         defaultBranch: null,
       },
     })
+    expect(ensureOrgRepositoryAndIngestMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        orgId: "org_mock",
+        gitUrl: "https://github.com/acme/docs",
+      }),
+    )
     expect(enqueueWorkspaceWriteCommit).toHaveBeenCalledWith(
       expect.objectContaining({
         workspaceId: "ws_abc",
@@ -575,6 +603,12 @@ describe("workspaces API", () => {
       },
     )
     expect(res.status).toBe(202)
+    expect(ensureOrgRepositoryAndIngestMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        orgId: "org_mock",
+        gitUrl: "https://github.com/acme/app",
+      }),
+    )
     expect(enqueueWorkspaceWriteCommit).toHaveBeenCalledWith(
       {
         orgId: "org_mock",
