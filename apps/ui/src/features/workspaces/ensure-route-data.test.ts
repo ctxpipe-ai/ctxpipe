@@ -3,10 +3,7 @@ import { HttpResponse, http } from "msw"
 import { setupServer } from "msw/node"
 import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest"
 import { ensureWorkspaceRouteData } from "./ensure-route-data"
-import {
-  docsWorkspaceDetail,
-  hydratingWorkspace,
-} from "./workspace-fixtures"
+import { docsWorkspaceDetail, hydratingWorkspace } from "./workspace-fixtures"
 
 const hydratingWorkspaceDetail = {
   ...hydratingWorkspace,
