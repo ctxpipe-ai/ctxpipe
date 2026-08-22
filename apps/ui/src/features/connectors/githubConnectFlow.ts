@@ -1,3 +1,5 @@
+import { githubInstallationIsLinked } from "@/features/connectors/queries/github-connector"
+
 /**
  * Pure decision helper for GitHub connector “start connect” — easy to unit test.
  * Mirrors {@link useGithubConnectFlow} branching without browser APIs.
@@ -8,17 +10,6 @@ export type GithubConnectStartBranch =
   | "already_installed"
   | "managed_install"
   | "self_hosted_wizard"
-
-export function githubInstallationIsLinked(
-  installation: unknown,
-): installation is { installationId: number } {
-  if (typeof installation !== "object" || installation === null) return false
-  return (
-    "installationId" in installation &&
-    typeof (installation as { installationId: unknown }).installationId ===
-      "number"
-  )
-}
 
 export function getGithubConnectStartBranch(args: {
   installationPending: boolean

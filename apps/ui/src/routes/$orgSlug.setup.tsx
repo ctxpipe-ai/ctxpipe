@@ -9,6 +9,7 @@ import { PageBodySkeleton } from "@/components/ui/Skeleton"
 import {
   fetchGithubInstallationSummary,
   githubConnectorKeys,
+  githubInstallationIsLinked,
 } from "@/features/connectors/queries/github-connector"
 import { useGithubConnectFlow } from "@/features/connectors/useGithubConnectFlow"
 import { client } from "@/lib/api"
@@ -70,7 +71,7 @@ function OrgSetupPage() {
   })
 
   const hasGithubInstallation =
-    Boolean(installation) || githubConnectedOptimistic
+    githubInstallationIsLinked(installation) || githubConnectedOptimistic
 
   const githubButtonBusy = installationPending || ghFlowPending || isSyncing
 
@@ -231,8 +232,8 @@ function OrgSetupPage() {
                     {isSyncing
                       ? "Finalising your GitHub connection..."
                       : hasGithubInstallation
-                        ? "GitHub is connected. Continue onboarding, or adjust repository selection."
-                        : "ctx| allows you to determine which repos are ingested into your knowledge system. As ctx| detects insights about your engineering processes, it will raise changes in GitHub for you to view."}
+                        ? "GitHub is connected. Continue onboarding, or link repositories from a workspace."
+                        : "Connect the GitHub App. Then create a workspace or add repositories to one you already have."}
                   </p>
                   <p className="mx-auto min-h-5 text-xs text-zinc-400">
                     {githubSetupError ? githubSetupError : "\u00A0"}

@@ -1,4 +1,5 @@
 import { client } from "@/lib/api"
+import { fetchOrgConnections } from "./org-connections"
 
 export const githubConnectorKeys = {
   bootstrap: (orgSlug: string) =>
@@ -31,6 +32,22 @@ export async function fetchGithubConnectorBootstrap(orgSlug: string): Promise<{
 export type GithubConnectorBootstrap = Awaited<
   ReturnType<typeof fetchGithubConnectorBootstrap>
 >
+
+export function githubInstallationIsLinked(
+  installation: unknown,
+): installation is { installationId: number } {
+  if (typeof installation !== "object" || installation === null) return false
+  const id = (installation as { installationId?: unknown }).installationId
+  return typeof id === "number" && Number.isSafeInteger(id) && id > 0
+}
+
+export function githubSetupLinkStateFromSummaries(
+  summaries: ReadonlyArray<{ installationId: number | null } | null>,
+): "linked" | "unlinked" {
+  return summaries.some((summary) => githubInstallationIsLinked(summary))
+    ? "linked"
+    : "unlinked"
+}
 
 export function isAmbiguousGithubConnectionsError(body: unknown): boolean {
   return (
@@ -69,12 +86,22 @@ export async function fetchGithubSetupLinkState(
   })
   if (res.status === 400) {
     const body: unknown = await res.json().catch(() => ({}))
-    if (isAmbiguousGithubConnectionsError(body)) return "linked"
-    throw new Error("Failed to check GitHub installation")
+    if (!isAmbiguousGithubConnectionsError(body)) {
+      throw new Error("Failed to check GitHub installation")
+    }
+    const githubIds = (await fetchOrgConnections(orgSlug))
+      .filter((connection) => connection.type === "github")
+      .map((connection) => connection.id)
+    const summaries = await Promise.all(
+      githubIds.map((connectionId) =>
+        fetchGithubInstallationSummary(orgSlug, connectionId),
+      ),
+    )
+    return githubSetupLinkStateFromSummaries(summaries)
   }
   if (!res.ok) throw new Error("Failed to check GitHub installation")
   const data = (await res.json()) as { installationId: number | null } | null
-  return data?.installationId != null ? "linked" : "unlinked"
+  return githubSetupLinkStateFromSummaries([data])
 }
 
 export type CreateGithubDraftBody = {

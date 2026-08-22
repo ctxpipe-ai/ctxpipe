@@ -6,6 +6,7 @@ import { GITHUB_FINALISING_MIN_MS } from "@/components/onboarding/constants"
 import {
   fetchGithubInstallationSummary,
   githubConnectorKeys,
+  githubInstallationIsLinked,
 } from "@/features/connectors/queries/github-connector"
 import { useGithubConnectFlow } from "@/features/connectors/useGithubConnectFlow"
 import { GithubWorkspaceDestinationFromApi } from "@/features/workspaces/GithubWorkspaceDestination"
@@ -39,7 +40,7 @@ export function OnboardingGithubSlide({
   })
 
   const hasGithubInstallation =
-    Boolean(installation?.installationId) || connectOptimistic
+    githubInstallationIsLinked(installation) || connectOptimistic
 
   const hookOrg = orgSlug ?? ""
   const flowEnabled = !!orgSlug

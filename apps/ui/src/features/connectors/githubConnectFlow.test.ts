@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest"
+import { githubInstallationIsLinked } from "@/features/connectors/queries/github-connector"
 import {
   getGithubConnectStartBranch,
-  githubInstallationIsLinked,
   resolveGithubSetupOrganization,
 } from "./githubConnectFlow"
 
@@ -9,6 +9,7 @@ describe("githubInstallationIsLinked", () => {
   it("requires a numeric installationId", () => {
     expect(githubInstallationIsLinked({ installationId: 9 })).toBe(true)
     expect(githubInstallationIsLinked({ installationId: null })).toBe(false)
+    expect(githubInstallationIsLinked({ installationId: 0 })).toBe(false)
     expect(githubInstallationIsLinked({ id: "con_1" })).toBe(false)
     expect(githubInstallationIsLinked(null)).toBe(false)
   })

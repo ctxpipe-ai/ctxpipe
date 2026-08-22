@@ -15,6 +15,7 @@ import { PageBodySkeleton } from "@/components/ui/Skeleton"
 import {
   fetchGithubInstallationSummary,
   githubConnectorKeys,
+  githubInstallationIsLinked,
 } from "@/features/connectors/queries/github-connector"
 import { useRepositoryIndexingSummary } from "@/features/repositories"
 import { client } from "@/lib/api"
@@ -94,7 +95,7 @@ export function OnboardingPageContent({
       orgSlug ? fetchGithubInstallationSummary(orgSlug) : Promise.resolve(null),
     enabled: Boolean(orgSlug && session),
   })
-  const hasGithubInstallation = Boolean(installation?.installationId)
+  const hasGithubInstallation = githubInstallationIsLinked(installation)
   const repositoryIndexing = useRepositoryIndexingSummary(orgSlug, {
     enabled: Boolean(orgSlug && session),
   })
