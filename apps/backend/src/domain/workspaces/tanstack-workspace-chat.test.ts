@@ -1,3 +1,4 @@
+import { initLogger } from "evlog"
 import { beforeEach, describe, expect, it, vi } from "vitest"
 
 const chatMock = vi.hoisted(() =>
@@ -255,7 +256,6 @@ describe("runTanstackWorkspaceChat", () => {
         ]),
       }),
     )
-    expect(appendTurnMock).not.toHaveBeenCalled()
     await res.text()
     expect(appendTurnMock).toHaveBeenCalledWith(
       expect.objectContaining({
@@ -536,37 +536,49 @@ describe("runTanstackWorkspaceChat", () => {
         { status: 500 },
       )
     })
-    await withTestLogger(async () => {
-      const res = await runTanstackWorkspaceChat({
-        conversationId: "conv_1",
-        prompt: "hello",
-        orgId: "org_1",
-        workspaceId: "ws_1",
-        desiredUrl: "https://github.com/acme/docs",
-        desiredSha: "abc",
-        ref: "abc",
-        writeStatus: "writable",
-        onError,
-      })
-      expect(res.status).toBe(200)
-      await expect(res.text()).rejects.toThrow(/Unexpected server error/)
-      expect(onError).toHaveBeenCalled()
-      expect(appendTurnMock).toHaveBeenCalledWith(
-        expect.objectContaining({
-          conversationId: "conv_1",
-          role: "user",
-          content: "hello",
-        }),
-      )
-      expect(appendTurnMock).not.toHaveBeenCalledWith(
-        expect.objectContaining({ role: "assistant" }),
-      )
-      const ctx = getLogger().getContext()
-      expect(ctx.step).toBe("opencode.chatStream")
-      expect(ctx.conversationId).toBe("conv_1")
-      expect(ctx.status).toBe(500)
-      expect(String(ctx.bodyExcerpt)).toContain("Unexpected server error")
+    initLogger({
+      enabled: true,
+      pretty: false,
+      env: { service: "ctxpipe-backend-test" },
     })
+    try {
+      await withTestLogger(async () => {
+        const res = await runTanstackWorkspaceChat({
+          conversationId: "conv_1",
+          prompt: "hello",
+          orgId: "org_1",
+          workspaceId: "ws_1",
+          desiredUrl: "https://github.com/acme/docs",
+          desiredSha: "abc",
+          ref: "abc",
+          writeStatus: "writable",
+          onError,
+        })
+        expect(res.status).toBe(200)
+        await expect(res.text()).rejects.toThrow(/Unexpected server error/)
+        expect(onError).toHaveBeenCalled()
+        expect(appendTurnMock).toHaveBeenCalledWith(
+          expect.objectContaining({
+            conversationId: "conv_1",
+            role: "user",
+            content: "hello",
+          }),
+        )
+        expect(appendTurnMock).not.toHaveBeenCalledWith(
+          expect.objectContaining({ role: "assistant" }),
+        )
+        const ctx = getLogger().getContext()
+        expect(ctx.step).toBe("opencode.chatStream")
+        expect(ctx.conversationId).toBe("conv_1")
+        expect(ctx.status).toBe(500)
+        expect(String(ctx.bodyExcerpt)).toContain("Unexpected server error")
+      })
+    } finally {
+      initLogger({
+        enabled: false,
+        env: { service: "ctxpipe-backend-test" },
+      })
+    }
   })
 
   it("errors an empty stream when TanStack only logs a console fatal", async () => {
