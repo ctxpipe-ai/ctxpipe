@@ -15,6 +15,7 @@ import {
   serialiseGithubConnectionConfigForDb,
 } from "../lib/connection-config.js"
 import { generateObjectId } from "../lib/id.js"
+import { log } from "../observability/logger.js"
 import {
   type ConnectionRow,
   type GitHubInstallationShape,
@@ -730,6 +731,18 @@ export async function userCanAccessInstallation(
   return false
 }
 
+export function isGithubInstallationTokenError(error: unknown): boolean {
+  const status =
+    error && typeof error === "object" && "status" in error
+      ? (error as { status?: number }).status
+      : undefined
+  const message = error instanceof Error ? error.message : String(error)
+  return (
+    status === 404 ||
+    message.includes("create-an-installation-access-token-for-an-app")
+  )
+}
+
 export async function getInstallationToken(
   orgId: string,
   env: Env,
@@ -742,12 +755,27 @@ export async function getInstallationToken(
   const id = githubConnectionId ?? installation.id
   const row = await loadGithubConnectionRow(orgId, id)
   if (!row) return undefined
-  const app = buildAppForConnection(row, env)
-  const octokit = await app.getInstallationOctokit(installation.installationId)
-  const { token } = (await octokit.auth({ type: "installation" })) as {
-    token: string
+  try {
+    const app = buildAppForConnection(row, env)
+    const octokit = await app.getInstallationOctokit(installation.installationId)
+    const { token } = (await octokit.auth({ type: "installation" })) as {
+      token: string
+    }
+    return token
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error)
+    if (isGithubInstallationTokenError(error)) {
+      const stored = parseGithubConnectionStored(
+        row.config as Record<string, unknown>,
+      )
+      log.error(error instanceof Error ? error : new Error(message), {
+        step: "github.installation_token",
+        githubAppId: stored.githubAppId ?? env.GITHUB_APP_ID?.trim() ?? null,
+        installationId: installation.installationId,
+      })
+    }
+    throw error
   }
-  return token
 }
 
 export async function getRepoReadCloneToken(

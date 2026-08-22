@@ -7,7 +7,7 @@ import {
 } from "./projection"
 
 describe("workspaceProjectionReady", () => {
-  it("serves chat once a projection SHA exists after migration export", () => {
+  it("is ready once a projection SHA exists, regardless of write status or export", () => {
     expect(
       workspaceProjectionReady({
         hydrateStatus: "pending",
@@ -19,13 +19,6 @@ describe("workspaceProjectionReady", () => {
         hydrateStatus: "ready",
         activeProjectionSha: "abc",
       }),
-    ).toBe(false)
-    expect(
-      workspaceProjectionReady({
-        hydrateStatus: "pending",
-        activeProjectionSha: "aaa",
-        migrationExportSha: "export",
-      }),
     ).toBe(true)
     expect(
       workspaceProjectionReady({
@@ -33,7 +26,7 @@ describe("workspaceProjectionReady", () => {
         activeProjectionSha: "aaa",
         writeStatus: "writable",
       }),
-    ).toBe(false)
+    ).toBe(true)
     expect(
       workspaceProjectionReady({
         hydrateStatus: "ready",
@@ -152,7 +145,7 @@ describe("workspacePrepareNeedsPoll", () => {
         desiredSha: "aaa",
         activeProjectionSha: "aaa",
       }),
-    ).toBe(true)
+    ).toBe(false)
     expect(
       workspacePrepareNeedsPoll({
         hydrateStatus: "failed",

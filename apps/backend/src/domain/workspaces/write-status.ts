@@ -44,7 +44,10 @@ export function classifyWorkspaceWriteHost(url: string): "github" | "other" {
   return githubRepoFullNameFromWorkspaceUrl(url) ? "github" : "other"
 }
 
-/** Cheap probe used on create/relink. Live GitHub permission checks come later. */
+/**
+ * Write status from how the repo was added: Select GitHub stamps a connection
+ * (writable). Paste URL / non-GitHub remotes stay read-only.
+ */
 export function writeStatusFromClassification(input: {
   workspaceRepositoryUrl: string
   githubConnectionId: string | null | undefined
@@ -55,15 +58,12 @@ export function writeStatusFromClassification(input: {
       readOnlyReason: WRITE_STATUS_REASONS.nonGithubHost,
     }
   }
-  if (!input.githubConnectionId) {
-    return {
-      writeStatus: WORKSPACE_WRITE_STATUSES.read_only,
-      readOnlyReason: WRITE_STATUS_REASONS.githubNotConnected,
-    }
+  if (input.githubConnectionId) {
+    return writableWorkspaceWriteProbe()
   }
   return {
-    writeStatus: WORKSPACE_WRITE_STATUSES.unknown,
-    readOnlyReason: null,
+    writeStatus: WORKSPACE_WRITE_STATUSES.read_only,
+    readOnlyReason: WRITE_STATUS_REASONS.githubNotConnected,
   }
 }
 
@@ -156,45 +156,13 @@ export type WorkspaceWriteProbeResult = WorkspaceWriteProbe & {
   defaultBranch: string | null
 }
 
-/**
- * Classify first; if the remote might be writable, optionally ask GitHub.
- * Never assume the default branch is `main`.
- */
+/** Same rule as create/relink — no live GitHub permission probe. */
 export async function probeWorkspaceWriteAccess(input: {
   workspaceRepositoryUrl: string
   githubConnectionId: string | null | undefined
-  getRepo?: (fullName: string) => Promise<GithubRepoWriteView>
 }): Promise<WorkspaceWriteProbeResult> {
-  const classified = writeStatusFromClassification(input)
-  if (classified.writeStatus !== WORKSPACE_WRITE_STATUSES.unknown) {
-    return { ...classified, defaultBranch: null }
-  }
-  const fullName = githubRepoFullNameFromWorkspaceUrl(
-    input.workspaceRepositoryUrl,
-  )
-  if (!fullName || !input.getRepo) {
-    return { ...classified, defaultBranch: null }
-  }
-  try {
-    const repo = await input.getRepo(fullName)
-    if (!repo.canPush) {
-      return {
-        writeStatus: WORKSPACE_WRITE_STATUSES.read_only,
-        readOnlyReason: WRITE_STATUS_REASONS.contentsWriteDenied,
-        defaultBranch: repo.defaultBranch,
-      }
-    }
-    return {
-      writeStatus: WORKSPACE_WRITE_STATUSES.writable,
-      readOnlyReason: null,
-      defaultBranch: repo.defaultBranch,
-    }
-  } catch (error) {
-    const mapped = writeStatusFromGithubProbeError(
-      error && typeof error === "object"
-        ? (error as { status?: number; message?: string })
-        : {},
-    )
-    return { ...mapped, defaultBranch: null }
+  return {
+    ...writeStatusFromClassification(input),
+    defaultBranch: null,
   }
 }

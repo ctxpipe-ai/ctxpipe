@@ -1,4 +1,3 @@
-import { parseEnv } from "../config/env.js"
 import { assertNotInOrgDbContext, withOrgDbContext } from "../db/client.js"
 import type { WorkspaceWriteKind } from "../domain/workspaces/write-commit-files.js"
 import {
@@ -15,7 +14,6 @@ import {
   persistWriteJobStatus,
   persistWriteStatus,
 } from "../models/workspaces.js"
-import { getGithubRepoWriteView } from "../routes/webhooks/github/github-workspace-tip.js"
 import { runWorkflowWithWorkerWake } from "./client.js"
 import { workspaceWriteCommit } from "./workflows/workspace-write-commit.js"
 
@@ -36,17 +34,9 @@ async function probedWriteStatus(input: {
     return input.workspace.writeStatus
   }
   try {
-    const env = parseEnv(process.env as Record<string, string | undefined>)
     const probe = await probeWorkspaceWriteAccess({
       workspaceRepositoryUrl: input.workspace.workspaceRepositoryUrl,
       githubConnectionId: input.workspace.githubConnectionId,
-      getRepo: (fullName) =>
-        getGithubRepoWriteView({
-          orgId: input.orgId,
-          githubConnectionId: input.workspace.githubConnectionId,
-          repoFullName: fullName,
-          env,
-        }),
     })
     await withOrgDbContext(input.orgId, () =>
       persistWriteStatus(input.workspace.id, probe, input.orgId),

@@ -8,7 +8,6 @@ import {
   withExplorerGitLineCounts,
   workspaceGitExplorerTarget,
 } from "./git-explorer.js"
-import { WRITE_STATUS_REASONS } from "./write-status.js"
 
 describe("workspaceGitExplorerTarget", () => {
   it("prefers the active projection SHA over desired", () => {
@@ -23,6 +22,7 @@ describe("workspaceGitExplorerTarget", () => {
       ok: true,
       target: {
         sha: "active",
+        url: "https://github.com/acme/docs",
         repositoryName: "acme/docs",
         githubConnectionId: "con_1",
       },
@@ -41,6 +41,7 @@ describe("workspaceGitExplorerTarget", () => {
       ok: true,
       target: {
         sha: "active-sha",
+        url: "https://github.com/acme/active",
         repositoryName: "acme/active",
         githubConnectionId: "con_1",
       },
@@ -59,13 +60,14 @@ describe("workspaceGitExplorerTarget", () => {
       ok: true,
       target: {
         sha: "desired",
+        url: "https://github.com/acme/docs.git",
         repositoryName: "acme/docs",
         githubConnectionId: "con_1",
       },
     })
   })
 
-  it("rejects a non-GitHub remote", () => {
+  it("browses a hydrated SHA on a non-GitHub remote", () => {
     expect(
       workspaceGitExplorerTarget({
         workspaceRepositoryUrl: "https://gitlab.com/acme/docs",
@@ -75,13 +77,17 @@ describe("workspaceGitExplorerTarget", () => {
         desiredSha: "abc",
       }),
     ).toEqual({
-      ok: false,
-      status: 409,
-      error: WRITE_STATUS_REASONS.nonGithubHost,
+      ok: true,
+      target: {
+        sha: "abc",
+        url: "https://gitlab.com/acme/docs",
+        repositoryName: null,
+        githubConnectionId: "con_1",
+      },
     })
   })
 
-  it("rejects a GitHub remote with no App connection", () => {
+  it("browses a hydrated SHA without a GitHub connection", () => {
     expect(
       workspaceGitExplorerTarget({
         workspaceRepositoryUrl: "https://github.com/acme/docs",
@@ -91,9 +97,13 @@ describe("workspaceGitExplorerTarget", () => {
         desiredSha: "abc",
       }),
     ).toEqual({
-      ok: false,
-      status: 409,
-      error: WRITE_STATUS_REASONS.githubNotConnected,
+      ok: true,
+      target: {
+        sha: "abc",
+        url: "https://github.com/acme/docs",
+        repositoryName: "acme/docs",
+        githubConnectionId: null,
+      },
     })
   })
 

@@ -1,7 +1,7 @@
 import {
   bulkCreateRepositoriesForOrg,
   findRepositoriesByNormalizedGitUrls,
-  setRepositoryGithubConnectionIdIfMissing,
+  setRepositoryGithubConnectionId,
 } from "../../models/repositories.js"
 import { enqueueRepositoryIngestionWorkflow } from "../../openworkflow/enqueue-repository-ingestion.js"
 import {
@@ -37,7 +37,7 @@ export async function ensureOrgRepositoryForGitUrl(input: {
   const existing = await findRepositoriesByNormalizedGitUrls([gitUrl])
   if (existing[0]) {
     if (input.githubConnectionId) {
-      await setRepositoryGithubConnectionIdIfMissing({
+      await setRepositoryGithubConnectionId({
         repositoryId: existing[0].id,
         githubConnectionId: input.githubConnectionId,
       })
@@ -57,7 +57,7 @@ export async function ensureOrgRepositoryForGitUrl(input: {
   const raced = await findRepositoriesByNormalizedGitUrls([gitUrl])
   if (!raced[0]) return null
   if (input.githubConnectionId) {
-    await setRepositoryGithubConnectionIdIfMissing({
+    await setRepositoryGithubConnectionId({
       repositoryId: raced[0].id,
       githubConnectionId: input.githubConnectionId,
     })

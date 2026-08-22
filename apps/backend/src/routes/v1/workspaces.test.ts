@@ -26,6 +26,10 @@ const listFilesAtShaMock = vi.hoisted(() => vi.fn().mockResolvedValue([]))
 const getFileContentBytesMock = vi.hoisted(() =>
   vi.fn().mockResolvedValue({ kind: "missing" }),
 )
+const listPathsAtGitShaMock = vi.hoisted(() => vi.fn().mockResolvedValue([]))
+const readFileAtGitShaMock = vi.hoisted(() =>
+  vi.fn().mockResolvedValue({ kind: "missing" }),
+)
 const getJobSandboxMock = vi.hoisted(() => vi.fn().mockReturnValue(null))
 
 const ensureOrgRepositoryAndIngestMock = vi.hoisted(() =>
@@ -74,6 +78,11 @@ vi.mock("../../models/workspaces.js", () => ({
 vi.mock("../../services/github/installation-write-client.js", () => ({
   listFilesAtSha: listFilesAtShaMock,
   getFileContentBytes: getFileContentBytesMock,
+}))
+
+vi.mock("../../services/git/clone-tree.js", () => ({
+  listPathsAtGitSha: listPathsAtGitShaMock,
+  readFileAtGitSha: readFileAtGitShaMock,
 }))
 
 import { WRITE_STATUS_REASONS } from "../../domain/workspaces/write-status.js"
@@ -131,6 +140,8 @@ describe("workspaces API", () => {
     destroySandboxesForWorkspaceMock.mockResolvedValue(0)
     listFilesAtShaMock.mockResolvedValue([])
     getFileContentBytesMock.mockResolvedValue({ kind: "missing" })
+    listPathsAtGitShaMock.mockResolvedValue([])
+    readFileAtGitShaMock.mockResolvedValue({ kind: "missing" })
     getJobSandboxMock.mockReturnValue(null)
     ensureOrgRepositoryAndIngestMock.mockReset()
     ensureOrgRepositoryAndIngestMock.mockResolvedValue(null)
@@ -178,7 +189,6 @@ describe("workspaces API", () => {
       write: {
         writeStatus: "read_only",
         readOnlyReason: WRITE_STATUS_REASONS.githubNotConnected,
-        defaultBranch: null,
       },
     })
     const body = await res.json()
@@ -197,6 +207,36 @@ describe("workspaces API", () => {
       expect.anything(),
     )
     expect(enqueueWorkspaceWriteCommit).not.toHaveBeenCalled()
+  })
+
+  it("creates a writable workspace when Select GitHub sends a connection", async () => {
+    createWorkspaceMock.mockResolvedValue({
+      ...workspaceRow,
+      githubConnectionId: "con_gh",
+      writeStatus: "writable",
+    })
+    const res = await app().request("/workspaces", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        gitUrl: "https://github.com/acme/knowledge.git",
+        githubConnectionId: "con_gh",
+      }),
+    })
+    expect(res.status).toBe(201)
+    expect(createWorkspaceMock).toHaveBeenCalledWith({
+      gitUrl: "https://github.com/acme/knowledge.git",
+      githubConnectionId: "con_gh",
+      write: {
+        writeStatus: "writable",
+        readOnlyReason: null,
+      },
+    })
+    expect(ensureOrgRepositoryAndIngestMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        githubConnectionId: "con_gh",
+      }),
+    )
   })
 
   it("queues export and hydrate when create is writable", async () => {
@@ -303,7 +343,6 @@ describe("workspaces API", () => {
       write: {
         writeStatus: "read_only",
         readOnlyReason: WRITE_STATUS_REASONS.githubNotConnected,
-        defaultBranch: null,
       },
     })
     expect(ensureOrgRepositoryAndIngestMock).toHaveBeenCalledWith(
@@ -746,30 +785,39 @@ describe("workspaces API", () => {
     )
   })
 
-  it("rejects a git tree read when GitHub is not connected", async () => {
+  it("lists the git tree after hydrate without a stored GitHub connection", async () => {
     getWorkspaceBySlugMock.mockResolvedValue({
       ...workspaceRow,
+      githubConnectionId: null,
       activeProjectionSha: "active-sha",
     })
+    listPathsAtGitShaMock.mockResolvedValue(["AGENTS.md"])
     const res = await app().request("/workspaces/knowledge/files/tree")
-    expect(res.status).toBe(409)
+    expect(res.status).toBe(200)
     expect(await res.json()).toEqual({
-      error: WRITE_STATUS_REASONS.githubNotConnected,
+      sha: "active-sha",
+      paths: ["AGENTS.md"],
+    })
+    expect(listPathsAtGitShaMock).toHaveBeenCalledWith({
+      url: "https://github.com/acme/knowledge",
+      sha: "active-sha",
     })
     expect(listFilesAtShaMock).not.toHaveBeenCalled()
   })
 
-  it("rejects a git tree read for a non-GitHub remote", async () => {
+  it("lists the git tree for a hydrated non-GitHub remote", async () => {
     getWorkspaceBySlugMock.mockResolvedValue({
       ...workspaceRow,
       workspaceRepositoryUrl: "https://gitlab.com/acme/docs",
-      githubConnectionId: "con_1",
+      githubConnectionId: null,
       activeProjectionSha: "active-sha",
     })
+    listPathsAtGitShaMock.mockResolvedValue(["README.md"])
     const res = await app().request("/workspaces/knowledge/files/tree")
-    expect(res.status).toBe(409)
+    expect(res.status).toBe(200)
     expect(await res.json()).toEqual({
-      error: WRITE_STATUS_REASONS.nonGithubHost,
+      sha: "active-sha",
+      paths: ["README.md"],
     })
     expect(listFilesAtShaMock).not.toHaveBeenCalled()
   })
@@ -816,34 +864,29 @@ describe("workspaces API", () => {
     )
   })
 
-  it("rejects a git blob read when GitHub is not connected", async () => {
+  it("returns a git blob after hydrate without a stored GitHub connection", async () => {
     getWorkspaceBySlugMock.mockResolvedValue({
       ...workspaceRow,
+      githubConnectionId: null,
       activeProjectionSha: "active-sha",
+    })
+    readFileAtGitShaMock.mockResolvedValue({
+      kind: "bytes",
+      bytes: Buffer.from("# Ledger\n", "utf8"),
     })
     const res = await app().request(
       "/workspaces/knowledge/files/blob?path=knowledge/billing/ledger.md",
     )
-    expect(res.status).toBe(409)
+    expect(res.status).toBe(200)
     expect(await res.json()).toEqual({
-      error: WRITE_STATUS_REASONS.githubNotConnected,
+      path: "knowledge/billing/ledger.md",
+      body: "# Ledger\n",
+      binary: false,
     })
-    expect(getFileContentBytesMock).not.toHaveBeenCalled()
-  })
-
-  it("rejects a git blob read for a non-GitHub remote", async () => {
-    getWorkspaceBySlugMock.mockResolvedValue({
-      ...workspaceRow,
-      workspaceRepositoryUrl: "https://gitlab.com/acme/docs",
-      githubConnectionId: "con_1",
-      activeProjectionSha: "active-sha",
-    })
-    const res = await app().request(
-      "/workspaces/knowledge/files/blob?path=knowledge/billing/ledger.md",
-    )
-    expect(res.status).toBe(409)
-    expect(await res.json()).toEqual({
-      error: WRITE_STATUS_REASONS.nonGithubHost,
+    expect(readFileAtGitShaMock).toHaveBeenCalledWith({
+      url: "https://github.com/acme/knowledge",
+      sha: "active-sha",
+      path: "knowledge/billing/ledger.md",
     })
     expect(getFileContentBytesMock).not.toHaveBeenCalled()
   })

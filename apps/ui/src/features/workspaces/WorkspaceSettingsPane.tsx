@@ -143,9 +143,10 @@ export function WorkspaceSettingsPane(props: {
   })
 
   const relinkMutation = useMutation({
-    mutationFn: (gitUrl: string) =>
+    mutationFn: (choice: { gitUrl: string; githubConnectionId?: string }) =>
       updateWorkspace(orgSlug, workspace.slug, {
-        workspaceRepositoryUrl: gitUrl,
+        workspaceRepositoryUrl: choice.gitUrl,
+        githubConnectionId: choice.githubConnectionId ?? null,
       }),
     onSuccess: () => {
       setRelinkError(null)
@@ -346,9 +347,9 @@ export function WorkspaceSettingsPane(props: {
               submitLabel="Save"
               pending={relinkMutation.isPending}
               error={relinkError}
-              onSubmit={(url) => {
+              onSubmit={(choice) => {
                 setRelinkError(null)
-                relinkMutation.mutate(url)
+                relinkMutation.mutate(choice)
               }}
             />
           </div>

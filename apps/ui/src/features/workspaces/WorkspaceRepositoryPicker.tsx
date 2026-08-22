@@ -8,6 +8,10 @@ import { InlineAlert } from "@/components/ui/InlineAlert"
 import { SearchField } from "@/components/ui/SearchField"
 import { Tab, TabList, TabPanel, Tabs } from "@/components/ui/Tabs"
 import {
+  fetchGithubInstallationSummary,
+  githubConnectorKeys,
+} from "@/features/connectors/queries/github-connector"
+import {
   GithubRepoPickerList,
   GithubRepoPickerSkeleton,
 } from "@/features/repositories/components/GithubRepoPickerList"
@@ -21,6 +25,11 @@ import { focusVisibleClassName } from "@/lib/focus-styles"
 import { eligibleInstallationRepos } from "./gitUrl"
 import { fetchWorkspaces, workspaceKeys } from "./queries"
 
+export type WorkspaceRepositoryChoice = {
+  gitUrl: string
+  githubConnectionId?: string
+}
+
 type Mode = "select" | "create" | "paste"
 
 export function WorkspaceRepositoryPicker(props: {
@@ -29,7 +38,7 @@ export function WorkspaceRepositoryPicker(props: {
   submitLabel: string
   pending?: boolean
   error?: string | null
-  onSubmit: (gitUrl: string) => void
+  onSubmit: (choice: WorkspaceRepositoryChoice) => void
 }) {
   const { orgSlug, currentUrl, submitLabel, pending, error, onSubmit } = props
   const [mode, setMode] = useState<Mode>("select")
@@ -45,6 +54,10 @@ export function WorkspaceRepositoryPicker(props: {
     (item) => item.workspaceRepositoryUrl,
   )
 
+  const installationQuery = useQuery({
+    queryKey: githubConnectorKeys.installation(orgSlug),
+    queryFn: () => fetchGithubInstallationSummary(orgSlug),
+  })
   const reposQuery = useQuery({
     queryKey: ["github-installation-repos", orgSlug],
     queryFn: () =>
@@ -53,6 +66,7 @@ export function WorkspaceRepositoryPicker(props: {
       ),
     refetchOnWindowFocus: "always",
   })
+  const githubConnectionId = installationQuery.data?.id
 
   const eligibleRepos = useMemo(
     () =>
@@ -123,7 +137,11 @@ export function WorkspaceRepositoryPicker(props: {
               onToggle={(id, selected) => {
                 setSelectedId(selected ? id : null)
               }}
-              onSubmit={onSubmit}
+              onSubmit={(gitUrl) => {
+                if (!githubConnectionId) return
+                onSubmit({ gitUrl, githubConnectionId })
+              }}
+              githubConnectionId={githubConnectionId}
               accessReady={accessReady}
               repositorySelection={repositorySelection}
               accessRepoCount={accessRepoCount}
@@ -156,7 +174,7 @@ export function WorkspaceRepositoryPicker(props: {
               className="flex items-end gap-2"
               onSubmit={(event) => {
                 event.preventDefault()
-                if (gitUrl.trim()) onSubmit(gitUrl.trim())
+                if (gitUrl.trim()) onSubmit({ gitUrl: gitUrl.trim() })
               }}
             >
               <AriaTextField
@@ -199,6 +217,7 @@ function SelectGitHubPanel(props: {
   reposFailed: boolean
   onToggle: (id: number, selected: boolean) => void
   onSubmit: (gitUrl: string) => void
+  githubConnectionId?: string
   accessReady: boolean
   repositorySelection: string | undefined
   accessRepoCount: number
@@ -261,7 +280,7 @@ function SelectGitHubPanel(props: {
           <Button
             variant="primary"
             className="ml-auto shrink-0"
-            isDisabled={props.pending}
+            isDisabled={props.pending || !props.githubConnectionId}
             onPress={() => {
               if (props.selectedRepoUrl) props.onSubmit(props.selectedRepoUrl)
             }}

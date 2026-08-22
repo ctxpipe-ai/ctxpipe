@@ -38,14 +38,6 @@ vi.mock("../models/workspaces.js", () => ({
   persistWriteStatus: persistWriteStatusMock,
 }))
 
-vi.mock("../routes/webhooks/github/github-workspace-tip.js", () => ({
-  getGithubRepoWriteView: vi
-    .fn()
-    .mockRejectedValue(
-      Object.assign(new Error("not in installation"), { status: 404 }),
-    ),
-}))
-
 import { enqueueWorkspaceWriteCommit } from "./enqueue-workspace-write-commit.js"
 
 describe("enqueueWorkspaceWriteCommit", () => {

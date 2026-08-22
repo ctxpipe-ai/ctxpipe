@@ -1,12 +1,10 @@
-import {
-  githubRepoFullNameFromWorkspaceUrl,
-  WRITE_STATUS_REASONS,
-} from "./write-status.js"
+import { githubRepoFullNameFromWorkspaceUrl } from "./write-status.js"
 
 export type WorkspaceGitExplorerTarget = {
   sha: string
-  repositoryName: string
-  githubConnectionId: string
+  url: string
+  repositoryName: string | null
+  githubConnectionId: string | null
 }
 
 export type WorkspaceGitExplorerResult =
@@ -55,23 +53,6 @@ export function workspaceGitExplorerTarget(input: {
   desiredSha: string | null
 }): WorkspaceGitExplorerResult {
   const remote = workspaceExplorerRemote(input)
-  const repositoryName = githubRepoFullNameFromWorkspaceUrl(
-    remote?.url ?? input.workspaceRepositoryUrl,
-  )
-  if (!repositoryName) {
-    return {
-      ok: false,
-      status: 409,
-      error: WRITE_STATUS_REASONS.nonGithubHost,
-    }
-  }
-  if (!input.githubConnectionId) {
-    return {
-      ok: false,
-      status: 409,
-      error: WRITE_STATUS_REASONS.githubNotConnected,
-    }
-  }
   if (!remote) {
     return {
       ok: false,
@@ -83,7 +64,8 @@ export function workspaceGitExplorerTarget(input: {
     ok: true,
     target: {
       sha: remote.sha,
-      repositoryName,
+      url: remote.url,
+      repositoryName: githubRepoFullNameFromWorkspaceUrl(remote.url),
       githubConnectionId: input.githubConnectionId,
     },
   }

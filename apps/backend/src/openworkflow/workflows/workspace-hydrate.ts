@@ -221,8 +221,10 @@ export const workspaceHydrate = defineWorkflow(
             }
             const files: Array<{ path: string; content: string }> = []
             if (
-              hydrateReadPlan(workspace.workspaceRepositoryUrl).via ===
-                "github" &&
+              hydrateReadPlan(
+                workspace.workspaceRepositoryUrl,
+                workspace.githubConnectionId,
+              ).via === "github" &&
               repoName
             ) {
               const tree = await listFilesAtSha({

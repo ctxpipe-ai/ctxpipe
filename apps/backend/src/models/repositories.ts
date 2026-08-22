@@ -250,7 +250,7 @@ export async function findRepositoriesByNormalizedGitUrls(
   })
 }
 
-export async function setRepositoryGithubConnectionIdIfMissing(input: {
+export async function setRepositoryGithubConnectionId(input: {
   repositoryId: string
   githubConnectionId: string
 }): Promise<void> {
@@ -262,7 +262,6 @@ export async function setRepositoryGithubConnectionIdIfMissing(input: {
         and(
           eq(repositories.id, input.repositoryId),
           eq(repositories.orgId, requireCurrentOrgId()),
-          isNull(repositories.githubConnectionId),
         ),
       )
   })

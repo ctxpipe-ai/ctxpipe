@@ -81,6 +81,32 @@ describe("ensureWorkspaceRouteData", () => {
     expect(treeHits).toBe(0)
   })
 
+  it("fetches files/tree for a writable workspace with a SHA and no export", async () => {
+    listenForWorkspaceHttp()
+    server.use(
+      http.get(
+        "http://localhost:3000/:orgSlug/api/v1/workspaces/:workspaceSlug",
+        () =>
+          HttpResponse.json({
+            ...docsWorkspaceDetail,
+            writeStatus: "writable",
+            activeProjectionSha: "abc123def456",
+            migrationExportSha: null,
+          }),
+      ),
+    )
+    const queryClient = new QueryClient({
+      defaultOptions: { queries: { retry: false } },
+    })
+    await ensureWorkspaceRouteData({
+      queryClient,
+      orgSlug: "acme",
+      workspaceSlug: docsWorkspaceDetail.slug,
+      warmLandingPane: true,
+    })
+    expect(treeHits).toBe(1)
+  })
+
   it("fetches files/tree when the workspace is projection-ready", async () => {
     listenForWorkspaceHttp()
     const queryClient = new QueryClient({

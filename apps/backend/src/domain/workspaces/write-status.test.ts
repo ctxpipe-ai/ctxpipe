@@ -57,13 +57,13 @@ describe("writeStatusFromClassification", () => {
     })
   })
 
-  it("leaves GitHub with a connection unknown until a live probe", () => {
+  it("marks GitHub with a connection writable", () => {
     expect(
       writeStatusFromClassification({
         workspaceRepositoryUrl: "https://github.com/acme/docs",
         githubConnectionId: "con_gh",
       }),
-    ).toEqual({ writeStatus: "unknown", readOnlyReason: null })
+    ).toEqual({ writeStatus: "writable", readOnlyReason: null })
   })
 })
 
@@ -127,53 +127,34 @@ describe("githubConnectionIdForWriteProbe", () => {
 })
 
 describe("probeWorkspaceWriteAccess", () => {
-  it("skips GitHub when classification already decided", async () => {
-    const getRepo = async () => {
-      throw new Error("should not call GitHub")
-    }
+  it("uses the add-source rule and does not talk to GitHub", async () => {
     await expect(
       probeWorkspaceWriteAccess({
         workspaceRepositoryUrl: "https://gitlab.com/acme/docs",
         githubConnectionId: "con_gh",
-        getRepo,
       }),
     ).resolves.toMatchObject({
       writeStatus: "read_only",
       defaultBranch: null,
     })
-  })
-
-  it("uses the repository default branch and push bit", async () => {
     await expect(
       probeWorkspaceWriteAccess({
         workspaceRepositoryUrl: "https://github.com/acme/docs",
         githubConnectionId: "con_gh",
-        getRepo: async (fullName) => {
-          expect(fullName).toBe("acme/docs")
-          return { defaultBranch: "develop", canPush: true }
-        },
       }),
     ).resolves.toEqual({
       writeStatus: "writable",
       readOnlyReason: null,
-      defaultBranch: "develop",
+      defaultBranch: null,
     })
-  })
-
-  it("maps a 404 from getRepo to not-in-installation", async () => {
     await expect(
       probeWorkspaceWriteAccess({
         workspaceRepositoryUrl: "https://github.com/acme/docs",
-        githubConnectionId: "con_gh",
-        getRepo: async () => {
-          const error = new Error("Not Found") as Error & { status: number }
-          error.status = 404
-          throw error
-        },
+        githubConnectionId: null,
       }),
     ).resolves.toMatchObject({
       writeStatus: "read_only",
-      readOnlyReason: WRITE_STATUS_REASONS.notInInstallation,
+      readOnlyReason: WRITE_STATUS_REASONS.githubNotConnected,
     })
   })
 })

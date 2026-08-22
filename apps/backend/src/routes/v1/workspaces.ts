@@ -17,7 +17,10 @@ import {
   parseWorkspaceFileJobRequest,
   planWorkspaceFileJob,
 } from "../../domain/workspaces/git-file-jobs.js"
-import { shouldHydrateBeforeMigrationExport } from "../../domain/workspaces/hydrate.js"
+import {
+  hydrateReadPlan,
+  shouldHydrateBeforeMigrationExport,
+} from "../../domain/workspaces/hydrate.js"
 import {
   destroySandboxesForWorkspace,
   getJobSandbox,
@@ -28,7 +31,7 @@ import { workspaceGraphFromUnits } from "../../domain/workspaces/workspace-graph
 import { writeJobQueueHttpDecision } from "../../domain/workspaces/write-jobs.js"
 import {
   githubConnectionIdForWriteProbe,
-  probeWorkspaceWriteAccess,
+  writeStatusFromClassification,
 } from "../../domain/workspaces/write-status.js"
 import {
   createWorkspace,
@@ -49,10 +52,13 @@ import { enqueueWorkspaceHydrate } from "../../openworkflow/enqueue-workspace-hy
 import { enqueueWorkspaceTipCheck } from "../../openworkflow/enqueue-workspace-tip-check.js"
 import { enqueueWorkspaceWriteCommit } from "../../openworkflow/enqueue-workspace-write-commit.js"
 import {
+  listPathsAtGitSha,
+  readFileAtGitSha,
+} from "../../services/git/clone-tree.js"
+import {
   getFileContentBytes,
   listFilesAtSha,
 } from "../../services/github/installation-write-client.js"
-import { getGithubRepoWriteView } from "../webhooks/github/github-workspace-tip.js"
 
 async function attachOrgRepository(input: {
   orgId: string
@@ -169,28 +175,6 @@ const LinkedWriteQueuedSchema = z
     gitUrl: z.string(),
   })
   .openapi("WorkspaceLinkedWriteQueued")
-
-async function liveWriteProbe(input: {
-  orgId: string | null
-  env: Env | undefined
-  workspaceRepositoryUrl: string
-  githubConnectionId: string | null | undefined
-}) {
-  return probeWorkspaceWriteAccess({
-    workspaceRepositoryUrl: input.workspaceRepositoryUrl,
-    githubConnectionId: input.githubConnectionId,
-    getRepo:
-      input.orgId && input.env
-        ? (fullName) =>
-            getGithubRepoWriteView({
-              orgId: input.orgId as string,
-              githubConnectionId: input.githubConnectionId,
-              repoFullName: fullName,
-              env: input.env as Env,
-            })
-        : undefined,
-  })
-}
 
 function serializeWorkspace(
   row: {
@@ -827,11 +811,70 @@ function resolveWorkspaceGitReadInput(
     input: {
       orgId,
       env,
+      url: resolved.target.url,
       repositoryName: resolved.target.repositoryName,
-      githubConnectionId: resolved.target.githubConnectionId,
+      githubConnectionId: resolved.target.githubConnectionId ?? undefined,
       sha: resolved.target.sha,
     },
   }
+}
+
+function explorerReadsViaGithub(input: {
+  url: string
+  githubConnectionId?: string
+}): boolean {
+  return (
+    hydrateReadPlan(input.url, input.githubConnectionId ?? null).via ===
+    "github"
+  )
+}
+
+async function readExplorerTree(input: {
+  orgId: string
+  env: Env
+  url: string
+  repositoryName: string | null
+  githubConnectionId?: string
+  sha: string
+}) {
+  if (explorerReadsViaGithub(input) && input.repositoryName) {
+    const files = await listFilesAtSha({
+      orgId: input.orgId,
+      env: input.env,
+      repositoryName: input.repositoryName,
+      githubConnectionId: input.githubConnectionId,
+      sha: input.sha,
+      missing: "throw",
+    })
+    return files.map((file) => file.path).filter(Boolean)
+  }
+  return listPathsAtGitSha({ url: input.url, sha: input.sha })
+}
+
+async function readExplorerBlob(input: {
+  orgId: string
+  env: Env
+  url: string
+  repositoryName: string | null
+  githubConnectionId?: string
+  sha: string
+  path: string
+}) {
+  if (explorerReadsViaGithub(input) && input.repositoryName) {
+    return getFileContentBytes({
+      orgId: input.orgId,
+      env: input.env,
+      repositoryName: input.repositoryName,
+      githubConnectionId: input.githubConnectionId,
+      branch: input.sha,
+      path: input.path,
+    })
+  }
+  return readFileAtGitSha({
+    url: input.url,
+    sha: input.sha,
+    path: input.path,
+  })
 }
 
 async function loadWorkspaceGitExplorer(c: Context<AppEnv>) {
@@ -882,9 +925,7 @@ export const workspaceRoutes = new OpenAPIHono<AppEnv>()
       return c.json({ error: "Unauthorized" }, 401)
     }
     const body = CreateWorkspaceRequestSchema.parse(await c.req.json())
-    const write = await liveWriteProbe({
-      orgId: c.get("orgId"),
-      env: c.get("env"),
+    const write = writeStatusFromClassification({
       workspaceRepositoryUrl: body.gitUrl,
       githubConnectionId: body.githubConnectionId ?? null,
     })
@@ -950,14 +991,11 @@ export const workspaceRoutes = new OpenAPIHono<AppEnv>()
     const loaded = await loadWorkspaceGitExplorer(c)
     if (!loaded.ok) return c.json({ error: loaded.error }, loaded.status)
     try {
-      const files = await listFilesAtSha({
-        ...loaded.input,
-        missing: "throw",
-      })
+      const paths = await readExplorerTree(loaded.input)
       return c.json(
         {
           sha: loaded.input.sha,
-          paths: files.map((file) => file.path).filter(Boolean),
+          paths,
         },
         200,
       )
@@ -972,9 +1010,8 @@ export const workspaceRoutes = new OpenAPIHono<AppEnv>()
     const loaded = await loadWorkspaceGitExplorer(c)
     if (!loaded.ok) return c.json({ error: loaded.error }, loaded.status)
     try {
-      const file = await getFileContentBytes({
+      const file = await readExplorerBlob({
         ...loaded.input,
-        branch: loaded.input.sha,
         path,
       })
       const blob = explorerBlobFromGitFile(file)
@@ -1053,18 +1090,13 @@ export const workspaceRoutes = new OpenAPIHono<AppEnv>()
     const gate = writeJobQueueHttpDecision(loaded.workspace.writeStatus)
     if (!gate.enqueue) return c.json({ error: gate.error }, gate.status)
     try {
-      const files = await listFilesAtSha({
-        ...loaded.input,
-        missing: "throw",
-      })
-      const treePaths = files.map((file) => file.path).filter(Boolean)
+      const treePaths = await readExplorerTree(loaded.input)
       const planned = await planWorkspaceFileJob({
         request,
         treePaths,
         readBlob: async (path) => {
-          const file = await getFileContentBytes({
+          const file = await readExplorerBlob({
             ...loaded.input,
-            branch: loaded.input.sha,
             path,
           })
           return explorerBlobFromGitFile(file)?.body ?? null
@@ -1130,9 +1162,7 @@ export const workspaceRoutes = new OpenAPIHono<AppEnv>()
     const current = await getWorkspaceBySlug(workspaceSlug)
     if (!current) return c.json({ error: "Not found" }, 404)
     const write = body.workspaceRepositoryUrl
-      ? await liveWriteProbe({
-          orgId: c.get("orgId"),
-          env: c.get("env"),
+      ? writeStatusFromClassification({
           workspaceRepositoryUrl: body.workspaceRepositoryUrl,
           githubConnectionId: githubConnectionIdForWriteProbe({
             requested: body.githubConnectionId,

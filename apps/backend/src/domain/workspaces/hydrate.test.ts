@@ -153,7 +153,7 @@ describe("workspaceProjectionReady", () => {
         hydrateStatus: "pending",
         activeProjectionSha: "aaa",
       }),
-    ).toBe(false)
+    ).toBe(true)
     expect(
       workspaceProjectionReady({
         hydrateStatus: "ready",
@@ -167,7 +167,7 @@ describe("workspaceProjectionReady", () => {
         activeProjectionSha: "aaa",
         writeStatus: "writable",
       }),
-    ).toBe(false)
+    ).toBe(true)
     expect(
       workspaceProjectionReady({
         hydrateStatus: "ready",
@@ -419,13 +419,20 @@ describe("hydrateReadsStoredDesiredSha", () => {
     expect(hydrateReadsStoredDesiredSha(null)).toBeNull()
   })
 
-  it("clones non-GitHub remotes at the stored SHA", () => {
-    expect(hydrateReadPlan("https://github.com/acme/docs.git")).toEqual({
+  it("clones paste and non-GitHub remotes; GitHub with a connection uses the App", () => {
+    expect(
+      hydrateReadPlan("https://github.com/acme/docs.git", "con_gh"),
+    ).toEqual({
       via: "github",
     })
-    expect(hydrateReadPlan("https://gitlab.com/acme/docs.git")).toEqual({
+    expect(hydrateReadPlan("https://github.com/acme/docs.git", null)).toEqual({
       via: "git_clone",
     })
+    expect(hydrateReadPlan("https://gitlab.com/acme/docs.git", "con_gh")).toEqual(
+      {
+        via: "git_clone",
+      },
+    )
   })
 })
 

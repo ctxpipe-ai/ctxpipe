@@ -104,11 +104,13 @@ export function hydrateReadsStoredDesiredSha(
   return sha || null
 }
 
-/** GitHub uses the installation API; every other host clones the stored SHA. */
+/** GitHub + a connection uses the installation API; paste/other hosts clone. */
 export function hydrateReadPlan(
   workspaceRepositoryUrl: string,
+  githubConnectionId?: string | null,
 ): { via: "github" } | { via: "git_clone" } {
-  return githubRepoFullNameFromWorkspaceUrl(workspaceRepositoryUrl)
+  return githubRepoFullNameFromWorkspaceUrl(workspaceRepositoryUrl) &&
+    githubConnectionId
     ? { via: "github" }
     : { via: "git_clone" }
 }
@@ -142,14 +144,9 @@ export function workspaceProjectionReady(input: {
   writeStatus?: string | null
 }): boolean {
   void input.hydrateStatus
-  if (!input.activeProjectionSha) return false
-  if (input.writeStatus === "writable") {
-    return Boolean(input.migrationExportSha)
-  }
-  if (input.writeStatus === "read_only" || input.writeStatus === "unknown") {
-    return true
-  }
-  return Boolean(input.migrationExportSha)
+  void input.migrationExportSha
+  void input.writeStatus
+  return Boolean(input.activeProjectionSha)
 }
 
 export function shouldHydrateBeforeMigrationExport(

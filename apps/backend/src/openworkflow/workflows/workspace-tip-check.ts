@@ -28,10 +28,7 @@ import {
   persistResolvedDesiredSha,
   persistWriteStatus,
 } from "../../models/workspaces.js"
-import {
-  getGithubRepoWriteView,
-  resolveWorkspaceRepositoryTip,
-} from "../../routes/webhooks/github/github-workspace-tip.js"
+import { resolveWorkspaceRepositoryTip } from "../../routes/webhooks/github/github-workspace-tip.js"
 import { enqueueWorkspaceHydrate } from "../enqueue-workspace-hydrate.js"
 import { enqueueWorkspaceIndex } from "../enqueue-workspace-index.js"
 import {
@@ -62,13 +59,6 @@ export const workspaceTipCheck = defineWorkflow(
         const probe = await probeWorkspaceWriteAccess({
           workspaceRepositoryUrl: workspace.workspaceRepositoryUrl,
           githubConnectionId: workspace.githubConnectionId,
-          getRepo: (fullName) =>
-            getGithubRepoWriteView({
-              orgId: input.orgId,
-              githubConnectionId: workspace.githubConnectionId,
-              repoFullName: fullName,
-              env,
-            }),
         })
         writeStatusById.set(workspace.id, probe.writeStatus)
         const claimed = await withOrgDbContext(input.orgId, async () => {

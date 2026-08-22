@@ -16,7 +16,8 @@ export function WorkspaceCreateForm(props: {
   const [error, setError] = useState<string | null>(null)
 
   const createMutation = useMutation({
-    mutationFn: (url: string) => createWorkspace(orgSlug, { gitUrl: url }),
+    mutationFn: (choice: { gitUrl: string; githubConnectionId?: string }) =>
+      createWorkspace(orgSlug, choice),
     onSuccess: (workspace) => {
       void queryClient.invalidateQueries({
         queryKey: workspaceKeys.list(orgSlug),
@@ -50,9 +51,9 @@ export function WorkspaceCreateForm(props: {
           submitLabel="Create Workspace"
           pending={createMutation.isPending}
           error={error}
-          onSubmit={(url) => {
+          onSubmit={(choice) => {
             setError(null)
-            createMutation.mutate(url)
+            createMutation.mutate(choice)
           }}
         />
       </div>

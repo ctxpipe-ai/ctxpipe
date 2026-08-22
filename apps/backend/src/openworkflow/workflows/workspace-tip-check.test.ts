@@ -6,8 +6,6 @@ const listOrgLinkedRepositoriesMock = vi.hoisted(() => vi.fn())
 const enqueueWorkspaceHydrateMock = vi.hoisted(() => vi.fn())
 const enqueueWorkspaceIndexMock = vi.hoisted(() => vi.fn())
 const enqueueWorkspaceWriteCommitMock = vi.hoisted(() => vi.fn())
-const getGithubRepoWriteViewMock = vi.hoisted(() => vi.fn())
-const probeInTx = vi.hoisted(() => ({ value: false, seen: false }))
 const enqueueInTx = vi.hoisted(() => ({ value: false, seen: false }))
 const orgTxDepth = vi.hoisted(() => ({ value: 0 }))
 
@@ -81,11 +79,6 @@ vi.mock("../../domain/workspaces/sandbox-registry.js", () => ({
 }))
 
 vi.mock("../../routes/webhooks/github/github-workspace-tip.js", () => ({
-  getGithubRepoWriteView: (...args: unknown[]) => {
-    probeInTx.seen = true
-    probeInTx.value = orgTxDepth.value > 0
-    return getGithubRepoWriteViewMock(...args)
-  },
   resolveWorkspaceRepositoryTip: vi.fn(),
 }))
 
@@ -128,17 +121,11 @@ describe("workspaceTipCheck workflow", () => {
   beforeEach(() => {
     vi.clearAllMocks()
     orgTxDepth.value = 0
-    probeInTx.seen = false
-    probeInTx.value = false
     enqueueInTx.seen = false
     enqueueInTx.value = false
     listOrgWorkspacesMock.mockResolvedValue([])
     listMigrationExportShasMock.mockResolvedValue(new Map())
     listOrgLinkedRepositoriesMock.mockResolvedValue([])
-    getGithubRepoWriteViewMock.mockResolvedValue({
-      canPush: true,
-      defaultBranch: "main",
-    })
     enqueueWorkspaceWriteCommitMock.mockResolvedValue({ started: true })
   })
 
@@ -151,7 +138,7 @@ describe("workspaceTipCheck workflow", () => {
     )
   })
 
-  it("probes GitHub and enqueues write-commit outside the org SQL transaction", async () => {
+  it("enqueues write-commit outside the org SQL transaction", async () => {
     listOrgWorkspacesMock.mockResolvedValue([
       {
         id: "ws_1",
@@ -165,8 +152,6 @@ describe("workspaceTipCheck workflow", () => {
       },
     ])
     await tipCheckFn.fn({ input: { orgId: "org_1" } })
-    expect(probeInTx.seen).toBe(true)
-    expect(probeInTx.value).toBe(false)
     expect(enqueueInTx.seen).toBe(true)
     expect(enqueueInTx.value).toBe(false)
   })
