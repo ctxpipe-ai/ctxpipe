@@ -86,12 +86,23 @@ vi.mock("../../services/git/clone-tree.js", () => ({
 }))
 
 const getGithubInstallationByConnectionIdMock = vi.hoisted(() =>
-  vi.fn(async (_orgId: string, connectionId: string) => ({
-    id: connectionId,
-  })),
+  vi.fn(
+    async (
+      _orgId: string,
+      connectionId: string,
+    ): Promise<{ id: string } | undefined> => ({
+      id: connectionId,
+    }),
+  ),
 )
 const resolveGithubInstallationForOrgDetailedMock = vi.hoisted(() =>
-  vi.fn(async () => ({ status: "none" as const })),
+  vi.fn(
+    async (): Promise<
+      | { status: "none" }
+      | { status: "ok"; installation: { id: string } }
+      | { status: "ambiguous" }
+    > => ({ status: "none" }),
+  ),
 )
 
 vi.mock("../../models/github-installation.js", () => ({
