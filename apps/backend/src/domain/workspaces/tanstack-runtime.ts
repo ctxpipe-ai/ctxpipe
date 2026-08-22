@@ -10,6 +10,8 @@ export type TanstackChatModules = {
   defineSandbox: typeof TanstackSandbox.defineSandbox
   defineWorkspace: typeof TanstackSandbox.defineWorkspace
   gitSource: typeof TanstackSandbox.gitSource
+  fileSkill: typeof TanstackSandbox.fileSkill
+  createSecrets: typeof TanstackSandbox.createSecrets
   withSandbox: typeof TanstackSandbox.withSandbox
   dockerSandbox?: typeof TanstackDocker.dockerSandbox
   sbxSandbox?: typeof TanstackDocker.sbxSandbox
@@ -31,6 +33,8 @@ export async function loadTanstackChatModules(): Promise<TanstackChatModules> {
     defineSandbox: sandbox.defineSandbox,
     defineWorkspace: sandbox.defineWorkspace,
     gitSource: sandbox.gitSource,
+    fileSkill: sandbox.fileSkill,
+    createSecrets: sandbox.createSecrets,
     withSandbox: sandbox.withSandbox,
     dockerSandbox: docker?.dockerSandbox,
     sbxSandbox: docker?.sbxSandbox,

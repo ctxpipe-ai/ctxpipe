@@ -1,3 +1,7 @@
+import { randomBytes } from "node:crypto"
+import { writeFileSync } from "node:fs"
+import { tmpdir } from "node:os"
+import { join } from "node:path"
 import { createUIMessageStreamResponse, type UIMessageChunk } from "ai"
 import { withOrgDbContext } from "../../db/client.js"
 import { nameConversationIfUnnamed } from "../../graphs/conversationGraph/nodes/conversationNaming.js"
@@ -31,6 +35,12 @@ import {
 } from "./chat-runtime.js"
 import { adaptTanstackHandle, type TanstackLikeHandle } from "./job-sandbox.js"
 import {
+  emitOpencodeChatAttempt,
+  opencodeChatStreamEvent,
+  shouldFailEmptyChatTurn,
+  withTanstackConsoleCapture,
+} from "./opencode-chat-stream.js"
+import {
   postgresSandboxInstanceStore,
   postgresSandboxLockStore,
 } from "./sandbox-instance-store.js"
@@ -39,16 +49,16 @@ import {
   heartbeatChatSandboxes,
 } from "./sandbox-registry.js"
 import { loadTanstackChatModules } from "./tanstack-runtime.js"
+import { startWorkspaceChatModelProxy } from "./workspace-chat-model-proxy.js"
+import {
+  WORKSPACE_CHAT_LOCAL_PROCESS_SCRUB_ENV,
+  workspaceChatOpenCodeConfig,
+  workspaceChatOpenCodeContract,
+} from "./workspace-chat-opencode-contract.js"
 import {
   formatWorkspaceChatHits,
   workspaceChatHybridHits,
 } from "./workspace-chat-retrieval.js"
-import {
-  emitOpencodeChatAttempt,
-  opencodeChatStreamEvent,
-  shouldFailEmptyChatTurn,
-  withTanstackConsoleCapture,
-} from "./opencode-chat-stream.js"
 import { workspaceChatTools } from "./workspace-chat-tools.js"
 
 export type TanstackWorkspaceChatInput = {
@@ -95,6 +105,14 @@ function aguiTextDelta(chunk: object): string {
   return ""
 }
 
+function localProcessChatProvider(
+  modules: Awaited<ReturnType<typeof loadTanstackChatModules>>,
+) {
+  return modules.localProcessSandbox?.({
+    scrubEnv: [...WORKSPACE_CHAT_LOCAL_PROCESS_SCRUB_ENV],
+  })
+}
+
 function providerFactoryForStoredChat(
   modules: Awaited<ReturnType<typeof loadTanstackChatModules>>,
   storedProvider: string,
@@ -107,7 +125,7 @@ function providerFactoryForStoredChat(
     storedProvider === "local-process" ||
     storedProvider === "local_process"
   ) {
-    return modules.localProcessSandbox?.()
+    return localProcessChatProvider(modules)
   }
   return undefined
 }
@@ -289,6 +307,14 @@ async function prepareTanstackWorkspaceChat(
   const runtime = workspaceChatRuntimeConfig({
     writeStatus: input.writeStatus,
   })
+  const contract = workspaceChatOpenCodeContract(process.env)
+  if (!contract.ok) {
+    return {
+      ok: false,
+      status: contract.status,
+      error: contract.error,
+    }
+  }
   const snapshotId = workspaceChatSandboxId({
     orgId: input.orgId,
     workspaceId: input.workspaceId,
@@ -334,14 +360,14 @@ async function prepareTanstackWorkspaceChat(
     ? providerFactoryForStoredChat(modules, storedProvider)
     : spec.isolation === "docker"
       ? modules.dockerSandbox?.(WORKSPACE_CHAT_DOCKER_SANDBOX)
-      : modules.localProcessSandbox?.()
+      : localProcessChatProvider(modules)
   if (
     !storedProvider &&
     !provider &&
     locked !== "docker" &&
     locked !== "railway"
   ) {
-    provider = modules.localProcessSandbox?.()
+    provider = localProcessChatProvider(modules)
   }
   if (!provider) {
     return {
@@ -377,8 +403,22 @@ async function prepareTanstackWorkspaceChat(
     { role: "user" as const, content: input.prompt },
   ]
 
-  const model =
-    process.env.MODEL_FAST_NAME?.trim() || "anthropic/claude-sonnet-4-5"
+  const runToken = randomBytes(32).toString("hex")
+  const proxy = await startWorkspaceChatModelProxy({
+    runToken,
+    upstreamBaseUrl: contract.upstreamBaseUrl,
+    upstreamApiKey: contract.apiKey,
+    modelBase: contract.modelBase,
+    modelParams: contract.modelParams,
+  })
+  const opencodeConfig = workspaceChatOpenCodeConfig({
+    modelBase: contract.modelBase,
+    baseUrl: `${proxy.baseUrl}/v1`,
+  })
+  const opencodeConfigPath = join(
+    tmpdir(),
+    `ctxpipe-opencode-${input.conversationId}.json`,
+  )
   const tools = await workspaceChatTools({
     orgId: input.orgId,
     workspaceId: input.workspaceId,
@@ -395,72 +435,102 @@ async function prepareTanstackWorkspaceChat(
     searchObjects: async (query, embedding) =>
       hybridSearch(input.orgId, { embedding, query }, { limit: 20 }),
   }).catch(() => [])
-  const definition = modules.defineSandbox({
-    id: spec.id,
-    provider,
-    workspace: modules.defineWorkspace({
-      source: modules.gitSource(
-        workspaceChatGitSource({
-          url: spec.source.url,
-          ref: spec.source.ref,
-          token: input.cloneToken,
-        }),
-      ),
-      setup: [...WORKSPACE_CHAT_SANDBOX_SETUP],
-    }),
-    lifecycle: spec.lifecycle,
-    hooks: {
-      onReady: (handle: TanstackLikeHandle) => {
-        void attachChatSandboxHandle({
-          kind: "chat",
-          workspaceId: input.workspaceId,
-          conversationId: input.conversationId,
-          orgId: input.orgId,
-          desiredUrl: input.desiredUrl,
-          desiredGeneration: input.desiredGeneration,
-          desiredSha: input.desiredSha,
-          defaultBranch: input.defaultBranch,
-          handle: adaptTanstackHandle(handle),
-          destroy: () => handle.destroy(),
-        }).catch((error) => {
-          getLogger().error(
-            error instanceof Error ? error : new Error(String(error)),
-            { step: "attach-chat-sandbox-handle" },
-          )
-        })
-      },
-    },
-  })
-  const constructed = await withTanstackConsoleCapture(async () =>
-    modules.chat({
-      adapter: modules.opencodeText(model, {
-        port: WORKSPACE_CHAT_OPENCODE_PORT,
-        permissionMode: runtime.permissionMode,
-        onPermissionRequest: runtime.onPermissionRequest,
-      }),
-      threadId: input.conversationId,
-      messages,
-      tools,
-      middleware: [
-        modules.withSandbox(definition, {
-          instances: postgresSandboxInstanceStore({
-            orgId: input.orgId,
-            workspaceId: input.workspaceId,
+  try {
+    writeFileSync(
+      opencodeConfigPath,
+      `${JSON.stringify(opencodeConfig, null, 2)}\n`,
+    )
+    const definition = modules.defineSandbox({
+      id: spec.id,
+      provider,
+      workspace: modules.defineWorkspace({
+        source: modules.gitSource(
+          workspaceChatGitSource({
+            url: spec.source.url,
+            ref: spec.source.ref,
+            token: input.cloneToken,
           }),
-          locks: postgresSandboxLockStore({
-            orgId: input.orgId,
+        ),
+        setup: [...WORKSPACE_CHAT_SANDBOX_SETUP],
+        secrets: modules.createSecrets({
+          CTXPIPE_OPENCODE_RUN_TOKEN: runToken,
+          OPENCODE_CONFIG: opencodeConfigPath,
+        }),
+        skills: [
+          modules.fileSkill({
+            path: "opencode.json",
+            content: `${JSON.stringify(opencodeConfig, null, 2)}\n`,
+          }),
+        ],
+      }),
+      lifecycle: spec.lifecycle,
+      hooks: {
+        onReady: (handle: TanstackLikeHandle) => {
+          void attachChatSandboxHandle({
+            kind: "chat",
             workspaceId: input.workspaceId,
             conversationId: input.conversationId,
-          }),
+            orgId: input.orgId,
+            desiredUrl: input.desiredUrl,
+            desiredGeneration: input.desiredGeneration,
+            desiredSha: input.desiredSha,
+            defaultBranch: input.defaultBranch,
+            handle: adaptTanstackHandle(handle),
+            destroy: () => handle.destroy(),
+          }).catch((error) => {
+            getLogger().error(
+              error instanceof Error ? error : new Error(String(error)),
+              { step: "attach-chat-sandbox-handle" },
+            )
+          })
+        },
+      },
+    })
+    const constructed = await withTanstackConsoleCapture(async () =>
+      modules.chat({
+        adapter: modules.opencodeText(contract.opencodeModel, {
+          port: WORKSPACE_CHAT_OPENCODE_PORT,
+          permissionMode: runtime.permissionMode,
+          onPermissionRequest: runtime.onPermissionRequest,
         }),
-      ],
-    }),
-  )
-  return {
-    ok: true,
-    stream: constructed.result,
-    persistUserAfterSuccess,
-    constructFatal: constructed.fatal,
+        threadId: input.conversationId,
+        messages,
+        tools,
+        middleware: [
+          modules.withSandbox(definition, {
+            instances: postgresSandboxInstanceStore({
+              orgId: input.orgId,
+              workspaceId: input.workspaceId,
+            }),
+            locks: postgresSandboxLockStore({
+              orgId: input.orgId,
+              workspaceId: input.workspaceId,
+              conversationId: input.conversationId,
+            }),
+          }),
+        ],
+      }),
+    )
+    return {
+      ok: true,
+      stream: closeProxyAfterStream(constructed.result, proxy.close),
+      persistUserAfterSuccess,
+      constructFatal: constructed.fatal,
+    }
+  } catch (error) {
+    await proxy.close().catch(() => undefined)
+    throw error
+  }
+}
+
+async function* closeProxyAfterStream(
+  stream: AsyncIterable<object>,
+  close: () => Promise<void>,
+): AsyncGenerator<object> {
+  try {
+    yield* stream
+  } finally {
+    await close().catch(() => undefined)
   }
 }
 

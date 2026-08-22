@@ -33,10 +33,28 @@ const listSandboxInstancesMock = vi.hoisted(() =>
 
 vi.mock("@tanstack/ai", () => ({ chat: chatMock }))
 vi.mock("@tanstack/ai-opencode", () => ({ opencodeText: opencodeTextMock }))
+const createSecretsMock = vi.hoisted(() =>
+  vi.fn((values: Record<string, string>) => values),
+)
+const fileSkillMock = vi.hoisted(() =>
+  vi.fn((input: { path: string; content: string }) => ({
+    kind: "file",
+    ...input,
+  })),
+)
+const startWorkspaceChatModelProxyMock = vi.hoisted(() =>
+  vi.fn(async () => ({
+    baseUrl: "http://127.0.0.1:18789",
+    close: vi.fn(async () => {}),
+  })),
+)
+
 vi.mock("@tanstack/ai-sandbox", () => ({
   defineSandbox: defineSandboxMock,
   defineWorkspace: defineWorkspaceMock,
   gitSource: gitSourceMock,
+  fileSkill: fileSkillMock,
+  createSecrets: createSecretsMock,
   withSandbox: withSandboxMock,
 }))
 vi.mock("@tanstack/ai-sandbox-docker", () => ({
@@ -45,6 +63,9 @@ vi.mock("@tanstack/ai-sandbox-docker", () => ({
 }))
 vi.mock("@tanstack/ai-sandbox-local-process", () => ({
   localProcessSandbox: vi.fn(() => "local-provider"),
+}))
+vi.mock("./workspace-chat-model-proxy.js", () => ({
+  startWorkspaceChatModelProxy: startWorkspaceChatModelProxyMock,
 }))
 const nameConversationIfUnnamedMock = vi.hoisted(() =>
   vi.fn().mockResolvedValue(null),
@@ -199,6 +220,10 @@ describe("runTanstackWorkspaceChat", () => {
     searchInTx.seen = false
     searchInTx.value = false
     process.env.SANDBOX_PROVIDER = "docker"
+    process.env.MODEL_PROVIDER = "openai-like"
+    process.env.MODEL_PROVIDER_API_KEY = "sk-test-chat"
+    delete process.env.MODEL_FAST_NAME
+    delete process.env.MODEL_PROVIDER_URL
     claimSandboxInstance.mockImplementation(async (input: { id: string }) => ({
       record: input,
       inserted: true,
@@ -218,8 +243,19 @@ describe("runTanstackWorkspaceChat", () => {
     })
     expect(res.status).toBe(200)
     expect(opencodeTextMock).toHaveBeenCalledWith(
-      expect.any(String),
+      "ctxpipe/openai/gpt-5.6-terra",
       expect.objectContaining({ permissionMode: "acceptEdits", port: 4096 }),
+    )
+    expect(createSecretsMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        CTXPIPE_OPENCODE_RUN_TOKEN: expect.any(String),
+        OPENCODE_CONFIG: expect.stringMatching(
+          /ctxpipe-opencode-conv_1\.json$/,
+        ),
+      }),
+    )
+    expect(fileSkillMock).toHaveBeenCalledWith(
+      expect.objectContaining({ path: "opencode.json" }),
     )
     expect(withSandboxMock).toHaveBeenCalled()
     expect(dockerSandboxMock).toHaveBeenCalledWith({
@@ -324,6 +360,7 @@ describe("runTanstackWorkspaceChat", () => {
         ],
       }),
     )
+    await res.text()
   })
 
   it("passes a clone token to gitSource without putting it in the sandbox id", async () => {
@@ -349,6 +386,7 @@ describe("runTanstackWorkspaceChat", () => {
         id: "org_1:ws_1:https://github.com/acme/docs@abc:chat:1",
       }),
     )
+    await res.text()
   })
 
   it("passes a Postgres instance store and lock to withSandbox", async () => {
@@ -376,6 +414,7 @@ describe("runTanstackWorkspaceChat", () => {
         }),
       }),
     )
+    await res.text()
   })
 
   it("resumes a stored sbx chat sandbox through sbxSandbox", async () => {
@@ -408,6 +447,7 @@ describe("runTanstackWorkspaceChat", () => {
     expect(defineSandboxMock).toHaveBeenCalledWith(
       expect.objectContaining({ provider: "sbx-provider" }),
     )
+    await res.text()
   })
 
   it("fails closed when the stored chat provider is unavailable", async () => {
@@ -464,6 +504,7 @@ describe("runTanstackWorkspaceChat", () => {
         ],
       }),
     )
+    await res.text()
   })
 
   it("refuses Railway when no isolated provider exists", async () => {
@@ -498,7 +539,38 @@ describe("runTanstackWorkspaceChat", () => {
       writeStatus: "writable",
     })
     expect(res.status).toBe(200)
-    expect(localProcessSandbox).toHaveBeenCalled()
+    expect(localProcessSandbox).toHaveBeenCalledWith({
+      scrubEnv: expect.arrayContaining([
+        "AUTH_SECRET",
+        "DATABASE_URL",
+        "MODEL_PROVIDER_API_KEY",
+        "ANTHROPIC_API_KEY",
+        "OPENAI_API_KEY",
+        "OPENROUTER_API_KEY",
+      ]),
+    })
+    await res.text()
+  })
+
+  it("fails closed before chat when the provider contract cannot run", async () => {
+    delete process.env.MODEL_PROVIDER_API_KEY
+    const res = await runTanstackWorkspaceChat({
+      conversationId: "conv_1",
+      prompt: "hello",
+      orgId: "org_1",
+      workspaceId: "ws_1",
+      desiredUrl: "https://github.com/acme/docs",
+      desiredSha: "abc",
+      ref: "abc",
+      writeStatus: "writable",
+    })
+    expect(res.status).toBe(503)
+    expect(await res.json()).toEqual({
+      error:
+        "Workspace chat needs MODEL_PROVIDER_API_KEY for the configured model provider.",
+    })
+    expect(chatMock).not.toHaveBeenCalled()
+    expect(startWorkspaceChatModelProxyMock).not.toHaveBeenCalled()
   })
 
   it("omits retrieval tools without an active projection SHA", async () => {
@@ -526,6 +598,7 @@ describe("runTanstackWorkspaceChat", () => {
         tools: [],
       }),
     )
+    await res.text()
   })
 
   it("errors the stream on an OpenCode 500 instead of finishing empty", async () => {
@@ -577,12 +650,16 @@ describe("runTanstackWorkspaceChat", () => {
         )
         expect(getLogger().getContext().step).not.toBe("opencode.chatStream")
         expect(
-          drained.find((event) => event.step === "opencode.chatStream"),
+          drained.find(
+            (event) =>
+              event.step === "opencode.chatStream" && event.status === 500,
+          ),
         ).toMatchObject({
           conversationId: "conv_1",
           workspaceId: "ws_1",
           status: 500,
-          bodyExcerpt: "Unexpected server error. Check server logs for details.",
+          bodyExcerpt:
+            "Unexpected server error. Check server logs for details.",
         })
       })
     } finally {

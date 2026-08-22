@@ -33,7 +33,9 @@ describe("workspace chat runtime", () => {
     expect(WORKSPACE_CHAT_SANDBOX_SETUP.join("\n")).toMatch(
       /command -v opencode/,
     )
-    expect(WORKSPACE_CHAT_SANDBOX_SETUP.join("\n")).toMatch(/opencode-ai/)
+    expect(WORKSPACE_CHAT_SANDBOX_SETUP.join("\n")).toMatch(
+      /opencode-ai@1\.18\.18/,
+    )
   })
 
   it("puts opencode and GNU find on the backend image PATH", () => {
@@ -41,7 +43,7 @@ describe("workspace chat runtime", () => {
       join(dirname(fileURLToPath(import.meta.url)), "../../../Dockerfile"),
       "utf8",
     )
-    expect(dockerfile).toMatch(/opencode-ai/)
+    expect(dockerfile).toMatch(/opencode-ai@1\.18\.18/)
     expect(dockerfile).toMatch(/findutils/)
   })
 

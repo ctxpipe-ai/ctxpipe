@@ -102,6 +102,22 @@ describe("createWorkspaceChatPermissionHandler", () => {
         title: "git commit -am leaked",
       }),
     ).resolves.toBe("reject")
+    await expect(
+      handler({
+        id: "perm_4",
+        sessionID: "sess_1",
+        type: "bash",
+        title: "printenv",
+      }),
+    ).resolves.toBe("reject")
+    await expect(
+      handler({
+        id: "perm_5",
+        sessionID: "sess_1",
+        type: "bash",
+        title: "echo $MODEL_PROVIDER_API_KEY",
+      }),
+    ).resolves.toBe("reject")
   })
 })
 

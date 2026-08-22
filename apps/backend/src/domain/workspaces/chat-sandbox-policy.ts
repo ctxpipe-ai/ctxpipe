@@ -20,6 +20,8 @@ export const CHAT_HARD_DENY_REASONS = [
   "commit_push",
   "cloud_metadata",
   "host_not_allowlisted",
+  "printenv",
+  "key_exfil",
 ] as const
 
 export type ChatHardDenyReason = (typeof CHAT_HARD_DENY_REASONS)[number]
@@ -83,6 +85,23 @@ export function classifyChatToolRequest(input: {
   }
   if (name.includes("auth_secret") || excerpt.includes("auth_secret")) {
     return { hardDeny: "auth_secret", acceptEditsWouldAllow: false }
+  }
+  if (
+    name.includes("printenv") ||
+    excerpt.includes("printenv") ||
+    excerpt.includes("env |") ||
+    excerpt.includes("export -p")
+  ) {
+    return { hardDeny: "printenv", acceptEditsWouldAllow: false }
+  }
+  if (
+    excerpt.includes("model_provider_api_key") ||
+    excerpt.includes("openai_api_key") ||
+    excerpt.includes("anthropic_api_key") ||
+    excerpt.includes("openrouter_api_key") ||
+    excerpt.includes("database_url")
+  ) {
+    return { hardDeny: "key_exfil", acceptEditsWouldAllow: false }
   }
   if (
     excerpt.includes("169.254.169.254") ||

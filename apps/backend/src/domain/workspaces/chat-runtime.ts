@@ -9,6 +9,7 @@ import {
   detectSandboxProviderFromEnv,
   sandboxMustFailClosed,
 } from "./sandbox-provider.js"
+import { WORKSPACE_CHAT_OPENCODE_CLI } from "./workspace-chat-opencode-contract.js"
 
 /** Locked product chat path: TanStack `chat()` + `withSandbox` + `opencodeText`. */
 export const WORKSPACE_CHAT_RUNTIME = {
@@ -36,7 +37,7 @@ export const WORKSPACE_CHAT_DOCKER_SANDBOX: {
  * both miss that binary.
  */
 export const WORKSPACE_CHAT_SANDBOX_SETUP = [
-  "command -v opencode >/dev/null 2>&1 || npm install -g opencode-ai",
+  `command -v opencode >/dev/null 2>&1 || npm install -g ${WORKSPACE_CHAT_OPENCODE_CLI}`,
 ] as const
 
 export function workspaceChatSandboxId(input: {
