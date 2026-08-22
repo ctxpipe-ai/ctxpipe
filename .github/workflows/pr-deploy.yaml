@@ -7,10 +7,10 @@ on:
       - reopened
       - synchronize
       - closed
-  # Cursor Cloud Agent pushes (author cursoragent) often do not emit
-  # pull_request synchronize, so Actions never starts. Listen to push on the
-  # branch as well; resolve_pr maps the branch to an open PR. Ignore main
-  # (production Deploy) and tags. Manual fallback: Run workflow → PR number.
+  # Cloud Agent pushes sometimes skip pull_request synchronize. Keep push so
+  # resolve_pr can map the branch to an open PR. Agent jobs run on push only;
+  # humans on pull_request only. Ignore main (production Deploy) and tags.
+  # Manual fallback: Run workflow → PR number.
   push:
     branches-ignore:
       - main
@@ -39,11 +39,14 @@ jobs:
     name: Resolve PR number and head SHA
     if: |
       github.event_name == 'workflow_dispatch' ||
-      github.event_name == 'push' ||
-      (github.event_name == 'pull_request' && (
-        github.event.action == 'synchronize'
-        || github.event.action == 'opened'
-        || github.event.action == 'reopened') &&
+      (github.event_name == 'push' &&
+        (github.actor == 'cursor[bot]' || github.actor == 'cursoragent')) ||
+      (github.event_name == 'pull_request' &&
+        github.actor != 'cursor[bot]' &&
+        github.actor != 'cursoragent' &&
+        (github.event.action == 'synchronize'
+          || github.event.action == 'opened'
+          || github.event.action == 'reopened') &&
         github.event.pull_request.head.repo.full_name == github.repository)
     runs-on: blacksmith-4vcpu-ubuntu-2404
     outputs:

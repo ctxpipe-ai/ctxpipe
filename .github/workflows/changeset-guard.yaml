@@ -25,7 +25,10 @@ permissions:
 jobs:
   require_changesets:
     name: Require changesets for apps and packages
-    if: github.actor != 'github-actions[bot]'
+    if: |
+      github.actor != 'github-actions[bot]' &&
+      ((github.event_name == 'pull_request') !=
+        (github.actor == 'cursor[bot]' || github.actor == 'cursoragent'))
     runs-on: ubuntu-latest
     steps:
       - name: Checkout repository

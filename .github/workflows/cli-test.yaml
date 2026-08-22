@@ -23,6 +23,9 @@ permissions:
 jobs:
   ctxpipe-cli:
     name: ctxpipe CLI
+    if: |
+      (github.event_name == 'pull_request') !=
+      (github.actor == 'cursor[bot]' || github.actor == 'cursoragent')
     runs-on: ubuntu-latest
     steps:
       - name: Checkout repository

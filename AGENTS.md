@@ -95,7 +95,7 @@ Cloud agents run on an isolated Ubuntu machine. This repo provides a default clo
   - `pnpm lint`
   - `pnpm --filter @ctxpipe/backend test`
   - `pnpm --filter @ctxpipe/ui test`
-- **GitHub Actions after a cloud-agent push:** Cursor Agent commits often skip `pull_request` `synchronize`, so PR Deploy / CI also listen to `push` on the branch (not `main`). Concurrency is keyed by branch so a human push does not double-deploy. Manual fallback: Actions → PR Deploy → Run workflow → PR number.
+- **GitHub Actions after a cloud-agent push:** CI, CLI tests, Changeset Guard, and PR Deploy listen to both `push` and `pull_request` because Cloud Agent commits sometimes skip `synchronize`. Jobs run **exactly one** of those events: `cursor[bot]` / `cursoragent` on `push` only; everyone else on `pull_request` only. Concurrency does not hide a twin suite. Manual fallback: Actions → PR Deploy → Run workflow → PR number.
 - **Running dev servers on cloud VMs** (without portless) — **default for Cursor Cloud and headless VMs**:
   - **Why:** Portless requires HTTPS on port 443 and a local CA; that does not work on headless cloud VMs. **`pnpm dev`** invokes portless via [`scripts/dev-apps.sh`](scripts/dev-apps.sh) — skip it here.
   - **Steps** (run migrations once after infra is up):
