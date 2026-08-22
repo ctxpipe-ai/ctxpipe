@@ -1,5 +1,6 @@
 import type { QueryClient } from "@tanstack/react-query"
 import { landingPane } from "./pane"
+import { workspaceProjectionReady } from "./projection"
 import {
   workspaceConversationOptions,
   workspaceDetailOptions,
@@ -42,6 +43,7 @@ export async function ensureWorkspaceRouteData(input: {
   const pane = landingPane(paneParam)
 
   if (pane.kind === "files" || pane.kind === "file") {
+    if (!workspaceProjectionReady(workspace)) return workspace
     const sha =
       workspace.activeProjectionSha?.trim() ||
       workspace.desiredSha?.trim() ||

@@ -89,6 +89,9 @@ export async function fetchWorkspaceGitTree(
   ].files.tree.$get({
     param: { orgSlug, workspaceSlug },
   })
+  if (res.status === 409) {
+    return { sha: "", paths: [] }
+  }
   if (!res.ok) {
     const err = (await res.json().catch(() => ({}))) as { error?: string }
     throw new Error(err.error ?? "Failed to load Workspace files")
@@ -222,6 +225,7 @@ export function workspaceGitTreeOptions(
   return queryOptions({
     queryKey: workspaceKeys.gitTree(orgSlug, workspaceSlug, sha),
     queryFn: () => fetchWorkspaceGitTree(orgSlug, workspaceSlug),
+    retry: false,
   })
 }
 

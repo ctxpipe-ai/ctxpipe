@@ -17,7 +17,7 @@ export const Route = createFileRoute(
       conversationId: params.conversationId,
       paneParam: workspaceSearch(location.search as Record<string, unknown>)
         .pane,
-      warmLandingPane: cause === "enter",
+      warmLandingPane: cause === "enter" && typeof window !== "undefined",
     })
   },
   errorComponent: ({ error, reset }) => (

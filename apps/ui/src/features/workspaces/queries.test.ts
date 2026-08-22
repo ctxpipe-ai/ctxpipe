@@ -3,8 +3,10 @@ import { setupServer } from "msw/node"
 import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest"
 import {
   deleteWorkspace,
+  fetchWorkspaceGitTree,
   landingWorkspace,
   retryPrepareWorkspace,
+  workspaceGitTreeOptions,
 } from "./queries"
 import type { Workspace, WorkspaceListResponse } from "./types"
 import { failedHydrateWorkspace } from "./workspace-fixtures"
@@ -127,5 +129,30 @@ describe("workspace query HTTP helpers", () => {
     await expect(deleteWorkspace("acme", "docs", "wrong")).rejects.toThrow(
       "Type the Workspace display name to confirm delete",
     )
+  })
+
+  it("returns an empty tree when files/tree is not ready to browse", async () => {
+    let hits = 0
+    server.use(
+      http.get(
+        "http://localhost:3000/:orgSlug/api/v1/workspaces/:workspaceSlug/files/tree",
+        () => {
+          hits += 1
+          return HttpResponse.json(
+            { error: "This Workspace has no git SHA to browse yet." },
+            { status: 409 },
+          )
+        },
+      ),
+    )
+    await expect(fetchWorkspaceGitTree("acme", "knowledge")).resolves.toEqual({
+      sha: "",
+      paths: [],
+    })
+    expect(hits).toBe(1)
+  })
+
+  it("does not retry files/tree queries", () => {
+    expect(workspaceGitTreeOptions("acme", "knowledge", "").retry).toBe(false)
   })
 })
