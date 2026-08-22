@@ -15,6 +15,21 @@ function stepIndex(id: LinearSetupStepId): number {
   return LINEAR_SETUP_STEPS.findIndex((step) => step.id === id)
 }
 
+export function getLinearStatusRefetchInterval(
+  status:
+    | Pick<LinearConnectorStatus, "pendingConfigPrCreating" | "setupPhase">
+    | undefined,
+): number | false {
+  if (
+    status?.pendingConfigPrCreating ||
+    status?.setupPhase === "awaiting_merge" ||
+    status?.setupPhase === "initial_sync"
+  ) {
+    return 2000
+  }
+  return false
+}
+
 export function getLinearSetupCurrentIndex(
   status: LinearConnectorStatus,
 ): number {
@@ -29,8 +44,8 @@ export function getLinearSetupCurrentIndex(
   ) {
     return stepIndex("scope")
   }
-  // Git-backed selectedScopeCount stays 0 while the config PR is creating and
-  // can stay 0 until the PR-head YAML is readable — do not bounce to scope.
+  // Git scope is loaded only inside setup. Status polling must stay DB-only, so
+  // the count is null and lifecycle state drives progress here.
   if (
     status.pendingConfigPrCreating ||
     status.pendingConfigPullUrl ||
@@ -41,9 +56,8 @@ export function getLinearSetupCurrentIndex(
   ) {
     return stepIndex("merge")
   }
-  if (status.selectedScopeCount === 0) return stepIndex("scope")
   if (status.setupPhase === "live") return LINEAR_SETUP_STEPS.length
-  return stepIndex("merge")
+  return stepIndex("scope")
 }
 
 export function getLinearWizardBodyId(

@@ -226,6 +226,12 @@ Highest-priority confirmed rules for agents. Migrated from former `patterns.md` 
 - **Date:** 2026-08-19
 - **Source:** user correction during Slack `slack_sync_targets` unification (PR #267)
 
+### Connector product vs self-host docs
+- **Rule:** scoped-mirror connectors (Linear, Notion) need a **hosted product page** under `apps/docs/content/docs/(guide)/connections/source-connectors/<slug>.mdx` and a **self-host operator page** under `apps/docs/content/docs/self-hosting/<slug>.mdx`. Use Linear's hosted page as the structural template (managed-app callout, config-in-git, setup steps, layout, webhooks, troubleshooting). Copy Linear's headings, not Linear's provider-specific content. The hosted page describes user setup; it does not document creating the provider OAuth app — that stays on the self-host page, with a User guide pointer back. Add the slug to `source-connectors/meta.json` and cross-link connected-sources / context-repository.
+- **Category:** convention
+- **Date:** 2026-08-20
+- **Source:** notion-docs branch; Linear hosted guide as template
+
 ### Tool organization
 - **Rule:** reusable agent tools under `src/tools`; graph-specific instructions and nodes under `src/graphs/<graphName>/`
 - **Category:** convention
@@ -675,6 +681,18 @@ Highest-priority confirmed rules for agents. Migrated from former `patterns.md` 
 - **Category:** workflow
 - **Date:** 2026-08-19
 - **Source:** slack-connector PR-267 live diagnosis (499 webhook retries and three replacing worker deploys)
+
+### Connector status must not hold DB transactions across provider calls
+- **Rule:** Do not fetch GitHub/provider state from a frequently polled connector status endpoint while `withNetworkOrgContext` keeps the request-wide org transaction open. In production, 3-second status polling exhausted GitHub quota; Octokit back-off left Postgres transactions idle, `idle-in-transaction` termination destabilised the pool, and auth/MCP/connectors queued for 30–120 seconds. Status reads should use persisted or bounded-cache state, provider calls need short timeouts outside DB transactions, and stable connector screens must not poll every few seconds.
+- **Category:** reliability
+- **Date:** 2026-08-20
+- **Source:** production Railway incident diagnosis (GitHub quota exhaustion → idle transaction termination → pg-pool acquisition timeouts)
+
+### Distributed OAuth connectors require a clean external-workspace acceptance test
+- **Rule:** Never treat a provider workspace that already hosts the development app as proof that a new customer installation works. OAuth grants can be workspace-specific, additive, and contaminated by dashboard installs or earlier re-authorisations; Slack can also silently suppress Events API delivery when the installed token lacks an event scope. Before shipping a distributed connector, install it through the product OAuth flow into a fresh second workspace, inspect the returned and live token scopes, exercise the real webhook-to-durable-output path, and test re-authorisation after a required scope changes. Keep provider app configuration in a committed manifest and CI-check its scopes against the backend request.
+- **Category:** testing
+- **Date:** 2026-08-21
+- **Source:** user-confirmed Slack connector production incident (ctxpipe workspace passed because its historical grant masked the fresh Tru Rec installation path)
 
 ### Workspace add is + from GitHub, uniqueness only
 - **Rule:** Creating a Workspace is click **+** → pick a GitHub repo → go. The only extra check is whether a Workspace already uses that repo as its workspace repository (return the existing row). Do **not** auto-create Workspaces from Linear/Notion/Confluence/Slack dests at runtime. Existing dest Workspaces are a one-shot SQL migrate. Do not add sourcing-repo, unbind-first, or identity-FK special cases to that flow.

@@ -119,7 +119,9 @@ invited to the channel, and you used Slack autocomplete to **@mention** the bot.
 Bare mention or “capture this” snapshots the thread. Self-hosted operators
 should confirm Event Subscriptions include **`app_mention`** and that
 `MODEL_PROVIDER*` is set so the mention agent can interpret extra text — see
-[Self-host Slack](/docs/self-hosting/slack).
+[Self-host Slack](/docs/self-hosting/slack). If the Slack app's bot scopes were
+changed after installation, re-authorise the workspace; existing bot tokens do
+not gain new permissions automatically.
 
 ### Private channel
 

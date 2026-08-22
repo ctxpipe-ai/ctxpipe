@@ -48,12 +48,16 @@ multi-workspace distribution.
 
 Add bot token scopes at least:
 
+- `app_mentions:read` (receive capture requests from bot mentions)
 - `channels:history`, `channels:read`
 - `groups:history`, `groups:read` (private channels; bot must be invited)
 - `chat:write` (in-thread capturing → captured status replies)
 - `files:read`
 - `users:read`
-- `team:read`
+
+When adding a scope after a workspace has already installed the app, that
+workspace must complete OAuth again. Updating Slack app settings does not
+upgrade an existing bot token.
 
 Register this OAuth redirect URL:
 

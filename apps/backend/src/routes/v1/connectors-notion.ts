@@ -57,7 +57,7 @@ const NotionStatusResponseSchema = z
     installationStatus: z.string().nullable(),
     workspaceName: z.string().nullable(),
     isGithubLinked: z.boolean(),
-    selectedResourceCount: z.number(),
+    selectedResourceCount: z.number().nullable(),
     syncTargetConfigured: z.boolean(),
     setupPhase: z.string(),
     pendingConfigPullUrl: z.string().nullable(),
@@ -752,11 +752,6 @@ notionConnectorRoutes
         ? getNotionBindingWithRepoByConnectionId(orgId, connection.id)
         : Promise.resolve(undefined),
     ])
-    const resources = await loadNotionResourcesFromGit({
-      orgId,
-      env: c.var.env,
-      binding,
-    })
     return c.json(
       {
         isInstalled:
@@ -764,7 +759,7 @@ notionConnectorRoutes
         installationStatus: connection?.status ?? null,
         workspaceName: connection?.workspaceName ?? null,
         isGithubLinked,
-        selectedResourceCount: resources.length,
+        selectedResourceCount: null,
         syncTargetConfigured: Boolean(binding),
         setupPhase: binding?.setupPhase ?? "draft",
         pendingConfigPullUrl: binding?.pendingConfigPullUrl ?? null,

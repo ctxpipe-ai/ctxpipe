@@ -70,8 +70,7 @@ export function NotionConnectionCard({
     onError: (e: Error) => toast.error(e.message),
   })
   const failureAction = status ? getNotionFailureAction(status) : null
-  const live =
-    status?.setupPhase === "live" && (status.selectedResourceCount ?? 0) > 0
+  const live = status?.setupPhase === "live"
   const health = resolveConnectorHealth({
     statusError: isError,
     checking: isPending || !status,
@@ -95,7 +94,11 @@ export function NotionConnectionCard({
         }
         workspace={connectorDash(status?.workspaceName)}
         scope={
-          status ? formatSelectedItemCount(status.selectedResourceCount) : "—"
+          status?.selectedResourceCount != null
+            ? formatSelectedItemCount(status.selectedResourceCount)
+            : live
+              ? "Configured"
+              : "—"
         }
         syncRepository={formatSyncRepositoryLine(status?.syncTarget ?? null)}
         actionLabel={
@@ -124,7 +127,7 @@ export function NotionConnectionCard({
         {!failureAction &&
         status &&
         status.setupPhase !== "live" &&
-        status.selectedResourceCount > 0 ? (
+        (status.selectedResourceCount ?? 0) > 0 ? (
           <p className="text-xs text-muted-foreground">
             Merge the open pull request for{" "}
             <code className="rounded-none bg-muted px-1 py-0.5 text-[11px]">

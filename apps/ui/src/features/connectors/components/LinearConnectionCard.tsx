@@ -6,7 +6,6 @@ import { useState } from "react"
 import { toast } from "sonner"
 import { AlertDialog } from "@/components/ui/AlertDialog"
 import { Modal } from "@/components/ui/Modal"
-import { pollWhileOk } from "@/lib/api-result"
 import {
   formatSelectedItemCount,
   resolveConnectorHealth,
@@ -14,6 +13,7 @@ import {
 import {
   getLinearCardPrimaryCta,
   getLinearSetupCurrentIndex,
+  getLinearStatusRefetchInterval,
   LINEAR_SETUP_STEPS,
 } from "../linear-setup-model"
 import {
@@ -21,10 +21,7 @@ import {
   fetchLinearConnectorStatus,
   linearConnectorKeys,
 } from "../queries/linear-connector"
-import {
-  CONNECTORS_PAGE_POLL_INTERVAL_MS,
-  orgConnectionsKeys,
-} from "../queries/org-connections"
+import { orgConnectionsKeys } from "../queries/org-connections"
 import {
   ConnectorListItem,
   ConnectorRemoveMenu,
@@ -50,7 +47,10 @@ export function LinearConnectionCard({
   const statusQuery = useQuery({
     queryKey: linearConnectorKeys.status(orgSlug, connectionId),
     queryFn: () => fetchLinearConnectorStatus(orgSlug, connectionId),
-    refetchInterval: pollWhileOk(CONNECTORS_PAGE_POLL_INTERVAL_MS),
+    refetchInterval: (query) =>
+      query.state.status === "error"
+        ? false
+        : getLinearStatusRefetchInterval(query.state.data),
   })
   const removeMutation = useMutation({
     mutationFn: () => deleteLinearConnector(orgSlug, connectionId),
@@ -95,7 +95,11 @@ export function LinearConnectionCard({
         }
         workspace={connectorDash(status?.workspaceName)}
         scope={
-          status ? formatSelectedItemCount(status.selectedScopeCount) : "—"
+          status?.selectedScopeCount != null
+            ? formatSelectedItemCount(status.selectedScopeCount)
+            : status?.setupPhase === "live"
+              ? "Configured"
+              : "—"
         }
         syncRepository={formatSyncRepositoryLine(status?.syncTarget ?? null)}
         actionLabel={

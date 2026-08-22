@@ -11,12 +11,9 @@ import {
   githubConnectorKeys,
   githubInstallationIsLinked,
 } from "@/features/connectors/queries/github-connector"
-import { apiFetch, pollWhileOk, readApiJson } from "@/lib/api-result"
+import { apiFetch, readApiJson } from "@/lib/api-result"
 import { resolveConnectorHealth } from "../connectorHealth"
-import {
-  CONNECTORS_PAGE_POLL_INTERVAL_MS,
-  orgConnectionsKeys,
-} from "../queries/org-connections"
+import { orgConnectionsKeys } from "../queries/org-connections"
 import {
   ConnectorListItem,
   ConnectorRemoveMenu,
@@ -54,7 +51,6 @@ export function GithubConnectionCard({
     refetch,
   } = useQuery({
     queryKey: githubConnectorKeys.installation(orgSlug, connectionId),
-    refetchInterval: pollWhileOk(CONNECTORS_PAGE_POLL_INTERVAL_MS),
     queryFn: async () => {
       const qs = new URLSearchParams({ connectionId })
       const res = await apiFetch(

@@ -301,7 +301,7 @@ describe("Linear connector routes", () => {
     )
   })
 
-  it("counts live scopes from the target branch", async () => {
+  it("returns live status without reading GitHub scope config", async () => {
     mocks.getTarget.mockResolvedValueOnce({
       repositoryId: "repo_1",
       repositoryName: "acme/context",
@@ -320,12 +320,10 @@ describe("Linear connector routes", () => {
 
     expect(response.status).toBe(200)
     expect(await response.json()).toMatchObject({
-      selectedScopeCount: scopes.length,
+      selectedScopeCount: null,
     })
     expect(mocks.getPullHead).not.toHaveBeenCalled()
-    expect(mocks.loadConfig).toHaveBeenCalledWith(
-      expect.objectContaining({ branch: "main" }),
-    )
+    expect(mocks.loadConfig).not.toHaveBeenCalled()
   })
 
   it("does not claim a config pull request for a target-only patch", async () => {

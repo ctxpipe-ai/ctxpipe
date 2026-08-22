@@ -920,7 +920,7 @@ export function summarizeCapture(
     ...(remaining > 0
       ? [`${remaining} more pending — will surface on the next summary.`]
       : []),
-    "Update the matching index.md when you add durable entries. Then mark ids promoted/dismissed.",
+    "Update the matching index.md when you add durable entries. Then mark ids promoted/dismissed. Reply to the user with one short sentence naming only what was learned; if nothing was promoted, say nothing about memory.",
     ...(parseErrors > 0
       ? [`Warning: skipped ${parseErrors} malformed candidates.jsonl line(s).`]
       : []),

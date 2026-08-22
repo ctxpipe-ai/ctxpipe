@@ -7,11 +7,11 @@ GitHub is the first source connector most teams set up. It gives ctx| access to
 the repositories your organization chooses, and those repositories become the
 base for code search, file reads, knowledge graph ingestion, and agent context.
 
-GitHub also supports other connectors. When a source like Confluence or Linear
-needs to become visible and reviewable, ctx| syncs selected content into a
+GitHub also supports other connectors. When a source like Confluence, Linear, or
+Notion needs to become visible and reviewable, ctx| syncs selected content into a
 GitHub repository first, then ingests it through the same Git-backed pipeline.
-For Linear, the configuration pull request branch is the draft scope and the
-target branch becomes the live scope after merge.
+For Linear and Notion, the configuration pull request branch is the draft scope
+and the target branch becomes the live scope after merge.
 
 You can connect GitHub during onboarding, or later from the **Connectors** page.
 
@@ -80,3 +80,5 @@ indexing and other Git-backed operations:
   ingestion.
 - [Linear connector](/docs/connections/source-connectors/linear) covers the
   reviewable `linear/config.yaml` scope and Git-backed Linear mirror.
+- [Notion connector](/docs/connections/source-connectors/notion) covers the
+  reviewable `notion/config.yaml` scope and Git-backed Notion mirror.

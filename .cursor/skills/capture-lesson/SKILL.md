@@ -24,7 +24,7 @@ Hook candidates that are any of:
 - “Memory candidates” Stop follow-ups
 
 Hook follow-ups are **not** user product requests. If they fail this bar, dismiss the
-ids and stop — do not start a research turn.
+ids and end the turn — do not start a research turn.
 
 ## Close the candidate lifecycle
 
@@ -36,3 +36,9 @@ npx -y ctxpipe memory capture promote <candidateId>
 # or
 npx -y ctxpipe memory capture dismiss <candidateId>
 ```
+
+## User reply
+
+After closing candidates, reply with one short sentence naming only what was learned (for example: Learned to keep UI copy in US English).
+If nothing was promoted, say nothing about memory.
+Omit dismissals, candidate ids, and unchanged files or stores.

@@ -19,9 +19,12 @@ import { getLogger } from "../../observability/logger.js"
 import { enqueueRepositoryIngestionWorkflow } from "../../openworkflow/enqueue-repository-ingestion.js"
 import {
   assertSlackOAuthConfigured,
+  botTokenFromConnection,
   exchangeSlackOAuthCode,
   fetchSlackUserProfile,
   getSlackOAuthAuthorizeUrl,
+  SlackOAuthMissingScopesError,
+  verifySlackInstallation,
 } from "../../services/slack/client.js"
 
 const ErrorResponseSchema = z
@@ -62,6 +65,20 @@ const SlackStatusResponseSchema = z
       .nullable(),
   })
   .openapi("SlackConnectorStatusResponse")
+
+const SlackVerificationResponseSchema = z
+  .object({
+    appId: z.string().nullable(),
+    storedTeamId: z.string().nullable(),
+    storedBotUserId: z.string().nullable(),
+    reportedTeamId: z.string().nullable(),
+    reportedBotUserId: z.string().nullable(),
+    botId: z.string().nullable(),
+    grantedScopes: z.array(z.string()),
+    missingScopes: z.array(z.string()),
+    identityMatches: z.boolean(),
+  })
+  .openapi("SlackConnectorVerificationResponse")
 
 const getOAuthStartRoute = createRoute({
   method: "get",
@@ -109,6 +126,9 @@ const getOAuthCallbackRoute = createRoute({
     409: {
       description: "Slack workspace already connected to another organization",
     },
+    502: {
+      description: "Slack OAuth token exchange failed",
+    },
   },
 })
 
@@ -132,6 +152,40 @@ const getStatusRoute = createRoute({
     401: {
       content: { "application/json": { schema: ErrorResponseSchema } },
       description: "Unauthorized",
+    },
+  },
+})
+
+const verifyInstallationRoute = createRoute({
+  method: "post",
+  path: "/verify",
+  request: { query: ConnectionIdQuerySchema },
+  responses: {
+    200: {
+      content: {
+        "application/json": { schema: SlackVerificationResponseSchema },
+      },
+      description: "Verify Slack token identity and granted bot scopes",
+    },
+    400: {
+      content: { "application/json": { schema: ErrorResponseSchema } },
+      description: "Multiple Slack connections; pass connectionId",
+    },
+    401: {
+      content: { "application/json": { schema: ErrorResponseSchema } },
+      description: "Unauthorized",
+    },
+    404: {
+      content: { "application/json": { schema: ErrorResponseSchema } },
+      description: "Unknown connectionId",
+    },
+    409: {
+      content: { "application/json": { schema: ErrorResponseSchema } },
+      description: "Slack connection is not installed",
+    },
+    502: {
+      content: { "application/json": { schema: ErrorResponseSchema } },
+      description: "Slack token verification failed",
     },
   },
 })
@@ -425,10 +479,38 @@ export const slackOAuthCallbackRoutes = new OpenAPIHono<AppEnv>().openapi(
     if (!state || state.userId !== user.id) {
       return c.json({ error: "Invalid Slack OAuth state" }, 400)
     }
-    const token = await exchangeSlackOAuthCode({
-      env,
-      code: query.code,
-    })
+    let token: Awaited<ReturnType<typeof exchangeSlackOAuthCode>>
+    try {
+      token = await exchangeSlackOAuthCode({
+        env,
+        code: query.code,
+      })
+    } catch (error) {
+      if (error instanceof SlackOAuthMissingScopesError) {
+        getLogger().warn("slack_oauth_missing_required_scopes", {
+          orgId: state.orgId,
+          missingScopes: error.missingScopes,
+        })
+        return slackSetupRelayResponse(
+          {
+            orgSlug: state.orgSlug,
+            error: `Slack did not grant required permissions: ${error.missingScopes.join(", ")}`,
+          },
+          400,
+        )
+      }
+      getLogger().error(
+        error instanceof Error ? error : new Error(String(error)),
+        { step: "slack.oauth.exchange", orgId: state.orgId },
+      )
+      return slackSetupRelayResponse(
+        {
+          orgSlug: state.orgSlug,
+          error: "Slack authorization failed. Please try again.",
+        },
+        502,
+      )
+    }
     const teamId = token.team?.id
     const botToken = token.access_token
     if (!teamId || !botToken) {
@@ -530,6 +612,45 @@ slackConnectorRoutes
       },
       200,
     )
+  })
+  .openapi(verifyInstallationRoute, async (c) => {
+    if (!c.get("user") || !c.get("session")) {
+      return c.json({ error: "Unauthorized" }, 401)
+    }
+    const orgId = c.get("orgId")
+    if (!orgId) return c.json({ error: "Unauthorized" }, 401)
+    const { connectionId } = ConnectionIdQuerySchema.parse({
+      connectionId: c.req.query("connectionId") ?? undefined,
+    })
+    const installed = await resolveInstalledSlack(orgId, connectionId ?? null)
+    if ("error" in installed) {
+      return c.json({ error: installed.error }, installed.status)
+    }
+    try {
+      const verification = await verifySlackInstallation({
+        connection: installed.connection,
+        botToken: botTokenFromConnection(installed.connection, c.var.env),
+      })
+      getLogger().info("slack_installation_verified", {
+        connectionId: installed.connection.id,
+        appId: verification.appId,
+        storedTeamId: verification.storedTeamId,
+        reportedTeamId: verification.reportedTeamId,
+        identityMatches: verification.identityMatches,
+        grantedScopes: verification.grantedScopes,
+        missingScopes: verification.missingScopes,
+      })
+      return c.json(verification, 200)
+    } catch (error) {
+      getLogger().error(
+        error instanceof Error ? error : new Error(String(error)),
+        {
+          step: "slack.installation.verify",
+          connectionId: installed.connection.id,
+        },
+      )
+      return c.json({ error: "Slack token verification failed" }, 502)
+    }
   })
   .openapi(patchConfigRoute, async (c) => {
     if (!c.get("user") || !c.get("session")) {
