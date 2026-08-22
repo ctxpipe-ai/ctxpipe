@@ -146,10 +146,16 @@ rg -i "keyword" .ai/memory --glob '*.md' --glob '!events/**'
 - Promote a **lesson** only if it is a **lasting, cross-session convention** the user (or a clear product decision) would still want months later.
 - **Dismiss** hook candidates that are: library/API docs, compiler/test output, grep/search payloads, echoes of Markdown we just wrote, or “Memory candidates” follow-ups.
 - Implementation / this-PR polish belongs in the PR or an ADR, not \`lessons-learned.md\`.
-- Hook follow-ups are **not** user product requests; if they fail the bar, dismiss ids and stop — do not start a research turn.
+- Hook follow-ups are **not** user product requests; if they fail the bar, dismiss ids and end the turn — do not start a research turn.
 - Promote durable knowledge with capture skills (\`capture-adr\`, \`capture-lesson\`, \`capture-glossary\`, \`capture-decision\`).
 - **Always update the relevant \`index.md\`** when adding or renaming durable entries.
 - Never commit secrets into \`.ai/memory/\`.
+
+## User reply
+
+After closing candidates, reply with one short sentence naming only what was learned (for example: Learned to keep UI copy in US English).
+If nothing was promoted, say nothing about memory.
+Omit dismissals, candidate ids, and unchanged files or stores.
 `
 
 export function captureSkill(name: string, description: string, body: string): string {
@@ -207,6 +213,12 @@ npx -y ctxpipe memory capture promote <candidateId>
 # or
 npx -y ctxpipe memory capture dismiss <candidateId>
 \`\`\`
+
+## User reply
+
+After closing candidates, reply with one short sentence naming only what was learned (for example: Learned to keep UI copy in US English).
+If nothing was promoted, say nothing about memory.
+Omit dismissals, candidate ids, and unchanged files or stores.
 `
 
 export const SKILL_CAPTURE_ADR = captureSkill(
@@ -249,7 +261,7 @@ Hook candidates that are any of:
 - “Memory candidates” Stop follow-ups
 
 Hook follow-ups are **not** user product requests. If they fail this bar, dismiss the
-ids and stop — do not start a research turn.
+ids and end the turn — do not start a research turn.
 ${LIFECYCLE_CLOSE}
 `,
 )
