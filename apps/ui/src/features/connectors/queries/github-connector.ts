@@ -32,6 +32,16 @@ export type GithubConnectorBootstrap = Awaited<
   ReturnType<typeof fetchGithubConnectorBootstrap>
 >
 
+export function isAmbiguousGithubConnectionsError(body: unknown): boolean {
+  return (
+    typeof body === "object" &&
+    body !== null &&
+    "error" in body &&
+    typeof (body as { error: unknown }).error === "string" &&
+    (body as { error: string }).error.includes("specify connectionId")
+  )
+}
+
 export async function fetchGithubInstallationSummary(
   orgSlug: string,
   connectionId?: string,
@@ -49,6 +59,22 @@ export async function fetchGithubInstallationSummary(
   })
   if (!res.ok) throw new Error("Failed to check GitHub installation")
   return res.json()
+}
+
+export async function fetchGithubSetupLinkState(
+  orgSlug: string,
+): Promise<"linked" | "unlinked"> {
+  const res = await fetch(`/${orgSlug}/api/v1/github/installation`, {
+    credentials: "include",
+  })
+  if (res.status === 400) {
+    const body: unknown = await res.json().catch(() => ({}))
+    if (isAmbiguousGithubConnectionsError(body)) return "linked"
+    throw new Error("Failed to check GitHub installation")
+  }
+  if (!res.ok) throw new Error("Failed to check GitHub installation")
+  const data = (await res.json()) as { installationId: number | null } | null
+  return data?.installationId != null ? "linked" : "unlinked"
 }
 
 export type CreateGithubDraftBody = {

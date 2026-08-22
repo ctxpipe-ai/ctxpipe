@@ -9,6 +9,17 @@ export type GithubConnectStartBranch =
   | "managed_install"
   | "self_hosted_wizard"
 
+export function githubInstallationIsLinked(
+  installation: unknown,
+): installation is { installationId: number } {
+  if (typeof installation !== "object" || installation === null) return false
+  return (
+    "installationId" in installation &&
+    typeof (installation as { installationId: unknown }).installationId ===
+      "number"
+  )
+}
+
 export function getGithubConnectStartBranch(args: {
   installationPending: boolean
   installation: unknown
@@ -18,15 +29,16 @@ export function getGithubConnectStartBranch(args: {
 }): GithubConnectStartBranch {
   if (args.bootstrapPending) return "noop_bootstrap_pending"
   const hosted = args.hostedDefaultAppInstallUrl
+  const linked = githubInstallationIsLinked(args.installation)
   if (
     args.intent === "manage_scope" &&
-    !args.installation &&
+    !linked &&
     hosted != null &&
     hosted !== ""
   ) {
     return "managed_install"
   }
-  if (args.installation) return "already_installed"
+  if (linked) return "already_installed"
   if (args.installationPending) return "noop_installation_pending"
   if (hosted != null && hosted !== "") return "managed_install"
   return "self_hosted_wizard"

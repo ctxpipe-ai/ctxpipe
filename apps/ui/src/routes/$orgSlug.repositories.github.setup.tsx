@@ -11,7 +11,7 @@ import { Button } from "@/components/ui/Button"
 import { InlineAlert } from "@/components/ui/InlineAlert"
 import { SkeletonRow } from "@/components/ui/Skeleton"
 import {
-  fetchGithubInstallationSummary,
+  fetchGithubSetupLinkState,
   githubConnectorKeys,
 } from "@/features/connectors/queries/github-connector"
 import { orgConnectionsKeys } from "@/features/connectors/queries/org-connections"
@@ -71,11 +71,11 @@ function GitHubSetupPage() {
   }
 
   const installationQuery = useQuery({
-    queryKey: githubConnectorKeys.installation(orgSlug),
-    queryFn: () => fetchGithubInstallationSummary(orgSlug),
+    queryKey: [...githubConnectorKeys.installation(orgSlug), "setup-link"],
+    queryFn: () => fetchGithubSetupLinkState(orgSlug),
     enabled: !!session,
   })
-  const installationLinked = installationQuery.data?.installationId != null
+  const installationLinked = installationQuery.data === "linked"
 
   if (sessionPending || (session && installationQuery.isPending)) {
     return (

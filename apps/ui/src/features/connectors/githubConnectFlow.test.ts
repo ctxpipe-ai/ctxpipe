@@ -1,8 +1,18 @@
 import { describe, expect, it } from "vitest"
 import {
   getGithubConnectStartBranch,
+  githubInstallationIsLinked,
   resolveGithubSetupOrganization,
 } from "./githubConnectFlow"
+
+describe("githubInstallationIsLinked", () => {
+  it("requires a numeric installationId", () => {
+    expect(githubInstallationIsLinked({ installationId: 9 })).toBe(true)
+    expect(githubInstallationIsLinked({ installationId: null })).toBe(false)
+    expect(githubInstallationIsLinked({ id: "con_1" })).toBe(false)
+    expect(githubInstallationIsLinked(null)).toBe(false)
+  })
+})
 
 describe("getGithubConnectStartBranch", () => {
   it("returns noop when bootstrap is pending", () => {
@@ -17,16 +27,29 @@ describe("getGithubConnectStartBranch", () => {
     ).toBe("noop_bootstrap_pending")
   })
 
-  it("returns already_installed when installation exists", () => {
+  it("returns already_installed when the App is linked", () => {
     expect(
       getGithubConnectStartBranch({
         bootstrapPending: false,
         installationPending: false,
-        installation: { id: "con_1" },
+        installation: { id: "con_1", installationId: 42 },
         hostedDefaultAppInstallUrl: null,
         intent: "connect",
       }),
     ).toBe("already_installed")
+  })
+
+  it("does not treat a draft connection as already installed", () => {
+    expect(
+      getGithubConnectStartBranch({
+        bootstrapPending: false,
+        installationPending: false,
+        installation: { id: "con_1", installationId: null },
+        hostedDefaultAppInstallUrl:
+          "https://github.com/apps/ctxpipe-agent/installations/new",
+        intent: "connect",
+      }),
+    ).toBe("managed_install")
   })
 
   it("keeps already_installed precedence over installation pending", () => {
@@ -34,7 +57,7 @@ describe("getGithubConnectStartBranch", () => {
       getGithubConnectStartBranch({
         bootstrapPending: false,
         installationPending: true,
-        installation: { id: "con_1" },
+        installation: { id: "con_1", installationId: 42 },
         hostedDefaultAppInstallUrl:
           "https://github.com/apps/ctxpipe-agent/installations/new",
         intent: "connect",
@@ -86,7 +109,7 @@ describe("getGithubConnectStartBranch", () => {
       getGithubConnectStartBranch({
         bootstrapPending: false,
         installationPending: false,
-        installation: { id: "con_1" },
+        installation: { id: "con_1", installationId: 42 },
         hostedDefaultAppInstallUrl:
           "https://github.com/apps/ctxpipe-agent/installations/new",
         intent: "manage_scope",
