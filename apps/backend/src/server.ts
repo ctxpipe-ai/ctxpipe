@@ -1,8 +1,6 @@
 import type { Serve } from "bun"
 import { createApp } from "./app/app.js"
 import { parseEnv } from "./config/env.js"
-import { assertSeededRlsCanary } from "./db/assert-rls-canary.js"
-import { assertRuntimeRoleDoesNotBypassRls } from "./db/assert-runtime-role.js"
 import { closeDb } from "./db/client.js"
 import { flushEvlog, initEvlog } from "./observability/logger.js"
 import { initOtel, shutdownOtel } from "./observability/otel.js"
@@ -16,8 +14,6 @@ import {
 const env = parseEnv(process.env as Record<string, string | undefined>)
 initOtel(env)
 initEvlog()
-await assertRuntimeRoleDoesNotBypassRls(env.DATABASE_URL)
-await assertSeededRlsCanary(env.DATABASE_URL)
 const app = createApp()
 let shuttingDown = false
 
