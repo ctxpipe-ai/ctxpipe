@@ -52,7 +52,7 @@ export const Loading: Story = {
   },
 }
 
-export const Error: Story = {
+export const LoadError: Story = {
   args: {
     status: "error",
     workspaces: [],
