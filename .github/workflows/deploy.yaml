@@ -345,6 +345,40 @@ jobs:
           roll_image otelcollector "ghcr.io/ctxpipe-ai/otel-collector:${IMAGE_SHA}"
           echo "Queued production-only image rolls for ${IMAGE_SHA}"
 
+          # Prove serviceInstanceUpdate stayed instance-scoped. If Railway still
+          # writes service-global source.image, every pr-* wake pulls this SHA.
+          ui_id="$(echo "$services_json" | jq -r '.ui // empty')"
+          backend_id="$(echo "$services_json" | jq -r '.backend // empty')"
+          if [[ -z "$ui_id" || -z "$backend_id" ]]; then
+            echo "Missing ui/backend service ids; cannot assert preview source images"
+            exit 1
+          fi
+          clobbered=0
+          while IFS= read -r preview_env; do
+            [[ -z "$preview_env" ]] && continue
+            preview_name="$(echo "$preview_env" | jq -r '.name')"
+            preview_id="$(echo "$preview_env" | jq -r '.id')"
+            for svc_name in ui backend; do
+              sid="$(echo "$services_json" | jq -r --arg n "$svc_name" '.[$n] // empty')"
+              img="$(railway_graphql \
+                'query serviceInstanceSource($environmentId: String!, $serviceId: String!) { serviceInstance(environmentId: $environmentId, serviceId: $serviceId) { source { image } } }' \
+                "$(jq -nc --arg env "$preview_id" --arg service "$sid" '{environmentId:$env, serviceId:$service}')" \
+                | jq -r '.data.serviceInstance.source.image // empty')"
+              echo "preview $preview_name $svc_name source.image=${img:-unknown}"
+              tag="${img##*:}"
+              if [[ "$tag" == "latest" || "$tag" == "$IMAGE_SHA" ]]; then
+                echo "ERROR: $preview_name $svc_name source image '$img' matches this production roll; serviceInstanceUpdate is not instance-scoped" >&2
+                clobbered=1
+              elif [[ -n "$tag" && ! "$tag" =~ ^pr-[0-9]+- ]]; then
+                echo "Warning: $preview_name $svc_name source image '$img' is not a pr-N-* tag (preview may never have rolled)"
+              fi
+            done
+          done < <(echo "$project" | jq -c '.data.project.environments.edges[]?.node | select(.name | startswith("pr-"))')
+          if [[ "$clobbered" -ne 0 ]]; then
+            echo "ERROR: production image roll clobbered one or more pr-* source images" >&2
+            exit 1
+          fi
+
   forge_deploy:
     name: Deploy Forge app (production)
     if: github.event_name != 'workflow_dispatch'

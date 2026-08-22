@@ -183,3 +183,42 @@ jobs:
           wait_ok codesearch "$CODESEARCH_SERVICE_ID" "$CODESEARCH_IMAGE"
 
           echo "Rolled preview to $IMAGE_TAG"
+
+          smoke_test_preview_ui() {
+            local backend_url="https://backend-pr-${{ inputs.pr_number }}.up.railway.app"
+            local prod_url="https://app.ctxpipe.ai"
+            local deadline html js_path prod_html prod_js_path js_file
+            deadline=$(( $(date +%s) + 180 ))
+            js_file="$(mktemp)"
+            echo "Smoke-testing preview UI via $backend_url (JS hash vs production; workspace routes in bundle)"
+            while true; do
+              html="$(curl -fsS --compressed --max-time 25 "$backend_url/" || true)"
+              js_path="$(printf '%s' "$html" | grep -oE '/assets/main-[A-Za-z0-9._-]+\.js' | head -1 || true)"
+              prod_html="$(curl -fsS --compressed --max-time 25 "$prod_url/" || true)"
+              prod_js_path="$(printf '%s' "$prod_html" | grep -oE '/assets/main-[A-Za-z0-9._-]+\.js' | head -1 || true)"
+              if [[ -n "$js_path" && -n "$prod_js_path" && "$js_path" == "$prod_js_path" ]]; then
+                echo "Preview UI JS hash matches production ($js_path); still serving main" >&2
+              elif [[ -n "$js_path" ]]; then
+                if curl -fsS --compressed --max-time 25 "${backend_url}${js_path}" -o "$js_file"; then
+                  if grep -aFq 'ws/$workspaceSlug' "$js_file" \
+                    || grep -aFq '_orgSlug.ws._workspaceSlug' "$js_file"; then
+                    echo "Preview UI smoke test passed (js=$js_path differs from production ${prod_js_path:-unknown}; workspace routes in bundle)"
+                    rm -f "$js_file"
+                    return 0
+                  fi
+                fi
+                echo "Preview UI bundle $js_path has no workspace routes (production js=${prod_js_path:-none})" >&2
+              else
+                echo "Preview UI HTML had no main JS bundle yet" >&2
+              fi
+              if (( $(date +%s) >= deadline )); then
+                echo "ERROR: preview is still serving production UI at $backend_url" >&2
+                echo "preview js=${js_path:-none} production js=${prod_js_path:-none}" >&2
+                printf '%s\n' "$html" | head -c 500 >&2 || true
+                rm -f "$js_file"
+                return 1
+              fi
+              sleep 8
+            done
+          }
+          smoke_test_preview_ui

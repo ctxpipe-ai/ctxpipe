@@ -23,9 +23,11 @@ on:
         required: true
         type: string
 
+# Queue, do not cancel. Cancelling the GH job leaves Railway still DEPLOYING;
+# the next run then waits 7m on leftover rolls and never reaches the UI canary.
 concurrency:
   group: ${{ github.workflow }}-${{ github.event_name == 'workflow_dispatch' && format('pr-{0}', inputs.pr_number) || github.head_ref || github.ref_name }}
-  cancel-in-progress: true
+  cancel-in-progress: false
 
 permissions:
   contents: read
@@ -132,6 +134,7 @@ jobs:
     needs: [resolve_pr, build_pr_images]
     if: needs.resolve_pr.outputs.pr_number != ''
     runs-on: blacksmith-4vcpu-ubuntu-2404
+    timeout-minutes: 45
     env:
       RAILWAY_API_TOKEN: ${{ secrets.RAILWAY_API_TOKEN }}
       PR_ENV: pr-${{ needs.resolve_pr.outputs.pr_number }}
@@ -300,13 +303,11 @@ jobs:
           WORKER_IMAGE: ghcr.io/ctxpipe-ai/worker:${{ env.IMAGE_TAG }}
           UI_IMAGE: ghcr.io/ctxpipe-ai/ui:${{ env.IMAGE_TAG }}
           CODESEARCH_IMAGE: ghcr.io/ctxpipe-ai/codesearch:${{ env.IMAGE_TAG }}
-        # Railway API/CLI calls can be flaky; retry once before failing.
-        # Waits for backend/worker/ui/codesearch deploys to SUCCESS (up to ~7m each).
-        uses: nick-fields/retry@v4
-        with:
-          timeout_minutes: 35
-          max_attempts: 2
-          command: |
+        # Single Railway roll. Do not wrap this script in nick-fields/retry —
+        # a second attempt stacks serviceInstanceDeployV2 on a still-DEPLOYING
+        # instance. GraphQL HTTP retries live in railway_graphql.
+        timeout-minutes: 35
+        run: |
             set -euo pipefail
 
             if [[ -z "${RAILWAY_API_TOKEN:-}" ]]; then
@@ -345,29 +346,35 @@ jobs:
             railway_graphql() {
               local query="$1"
               local variables="$2"
-              local raw http_code body
-              # Capture body + status so GraphQL validation/400s are visible in logs
-              # (curl -f alone only prints "returned error: 400").
-              raw="$(curl -sS -w '\n%{http_code}' \
-                -H "Authorization: Bearer $RAILWAY_API_TOKEN" \
-                -H "Content-Type: application/json" \
-                -d "$(jq -nc --arg q "$query" --argjson v "$variables" '{query:$q,variables:$v}')" \
-                https://backboard.railway.com/graphql/v2)" || return $?
-              http_code="$(printf '%s' "$raw" | tail -n1)"
-              body="$(printf '%s' "$raw" | sed '$d')"
-              if [[ "$http_code" != "200" ]]; then
-                echo "Railway GraphQL HTTP $http_code for query: ${query:0:120}…" >&2
+              local attempt raw http_code body
+              # Retry HTTP/GraphQL transport only. Do not retry the whole deploy
+              # script — that stacks serviceInstanceDeployV2 on a still-DEPLOYING instance.
+              for attempt in 1 2 3; do
+                raw="$(curl -sS -w '\n%{http_code}' \
+                  -H "Authorization: Bearer $RAILWAY_API_TOKEN" \
+                  -H "Content-Type: application/json" \
+                  -d "$(jq -nc --arg q "$query" --argjson v "$variables" '{query:$q,variables:$v}')" \
+                  https://backboard.railway.com/graphql/v2)" || {
+                  echo "Railway GraphQL curl failed (attempt $attempt) for query: ${query:0:120}…" >&2
+                  if [[ "$attempt" != 3 ]]; then
+                    sleep 3
+                    continue
+                  fi
+                  return 22
+                }
+                http_code="$(printf '%s' "$raw" | tail -n1)"
+                body="$(printf '%s' "$raw" | sed '$d')"
+                if [[ "$http_code" == "200" ]] && ! echo "$body" | jq -e '.errors | type == "array" and length > 0' >/dev/null 2>&1; then
+                  printf '%s' "$body"
+                  return 0
+                fi
+                echo "Railway GraphQL HTTP $http_code (attempt $attempt) for query: ${query:0:120}…" >&2
                 echo "$body" >&2
-                return 22
-              fi
-              # Railway often returns HTTP 200 with GraphQL errors; treat those as failure
-              # so image updates / deploys cannot silently no-op.
-              if echo "$body" | jq -e '.errors | type == "array" and length > 0' >/dev/null 2>&1; then
-                echo "Railway GraphQL errors for query: ${query:0:120}…" >&2
-                echo "$body" | jq -c '.errors' >&2
-                return 22
-              fi
-              printf '%s' "$body"
+                if [[ "$attempt" != 3 ]]; then
+                  sleep 3
+                fi
+              done
+              return 22
             }
 
             # Cache of name -> id from a single project services query (Terraform names).
@@ -531,25 +538,40 @@ jobs:
 
             smoke_test_preview_ui() {
               local backend_url="https://backend-pr-${PR_NUMBER}.up.railway.app"
-              local deadline html js_path
+              local prod_url="https://app.ctxpipe.ai"
+              local deadline html js_path prod_html prod_js_path js_file
               deadline=$(( $(date +%s) + 180 ))
-              echo "Smoke-testing preview UI via $backend_url (workspace routes, not production /repositories)"
+              js_file="$(mktemp)"
+              echo "Smoke-testing preview UI via $backend_url (JS hash vs production; workspace routes in bundle)"
               while true; do
                 html="$(curl -fsS --compressed --max-time 25 "$backend_url/" || true)"
                 js_path="$(printf '%s' "$html" | grep -oE '/assets/main-[A-Za-z0-9._-]+\.js' | head -1 || true)"
-                # Fixed-string match; $workspaceSlug must stay single-quoted (set -u).
-                if printf '%s' "$html" | grep -Fq 'ws/$workspaceSlug'; then
-                  echo "Preview UI smoke test passed (html ${js_path:-bundle} includes workspace routes)"
-                  return 0
-                fi
-                if [[ -n "$js_path" ]]; then
-                  echo "Preview UI HTML still looks like production (js=$js_path; no ws/\$workspaceSlug route)" >&2
+                prod_html="$(curl -fsS --compressed --max-time 25 "$prod_url/" || true)"
+                prod_js_path="$(printf '%s' "$prod_html" | grep -oE '/assets/main-[A-Za-z0-9._-]+\.js' | head -1 || true)"
+                # SSR of / only serializes matched routes. ws/$workspaceSlug is in the
+                # JS route tree, not reliably in the HTML. Fail immediately if the
+                # hashed bundle is the same file production is serving.
+                if [[ -n "$js_path" && -n "$prod_js_path" && "$js_path" == "$prod_js_path" ]]; then
+                  echo "Preview UI JS hash matches production ($js_path); still serving main" >&2
+                elif [[ -n "$js_path" ]]; then
+                  if curl -fsS --compressed --max-time 25 "${backend_url}${js_path}" -o "$js_file"; then
+                    # -a: minified bundles can look binary. $workspaceSlug stays single-quoted (set -u).
+                    if grep -aFq 'ws/$workspaceSlug' "$js_file" \
+                      || grep -aFq '_orgSlug.ws._workspaceSlug' "$js_file"; then
+                      echo "Preview UI smoke test passed (js=$js_path differs from production ${prod_js_path:-unknown}; workspace routes in bundle)"
+                      rm -f "$js_file"
+                      return 0
+                    fi
+                  fi
+                  echo "Preview UI bundle $js_path has no workspace routes (production js=${prod_js_path:-none})" >&2
                 else
                   echo "Preview UI HTML had no main JS bundle yet" >&2
                 fi
                 if (( $(date +%s) >= deadline )); then
                   echo "ERROR: preview is still serving production UI at $backend_url" >&2
+                  echo "preview js=${js_path:-none} production js=${prod_js_path:-none}" >&2
                   printf '%s\n' "$html" | head -c 500 >&2 || true
+                  rm -f "$js_file"
                   return 1
                 fi
                 sleep 8
@@ -692,6 +714,32 @@ jobs:
               done <<< "$dep_ids"
             }
 
+            # Leave SUCCESS running; only kill leftover rolls from cancelled GH jobs.
+            stop_in_flight_deployments() {
+              local service_id="$1"
+              local response dep_ids
+              response="$(railway_graphql \
+                'query deployments($input: DeploymentListInput!) { deployments(input: $input) { edges { node { id status } } } }' \
+                "$(jq -nc --arg env "$ENV_ID" --arg service "$service_id" '{input:{environmentId:$env, serviceId:$service}}')")"
+              dep_ids="$(echo "$response" | jq -r '
+                .data.deployments.edges[]?
+                | .node
+                | select(.status == "DEPLOYING" or .status == "INITIALIZING" or .status == "BUILDING" or .status == "WAITING")
+                | .id
+              ' 2>/dev/null || true)"
+              if [[ -z "$dep_ids" ]]; then
+                echo "No in-flight deployments to stop for service $service_id"
+                return 0
+              fi
+              while IFS= read -r dep_id; do
+                [[ -z "$dep_id" ]] && continue
+                railway_graphql \
+                  'mutation deploymentStop($id: String!) { deploymentStop(id: $id) }' \
+                  "$(jq -nc --arg id "$dep_id" '{id:$id}')" >/dev/null || true
+                echo "Stopped in-flight deployment $dep_id for service $service_id"
+              done <<< "$dep_ids"
+            }
+
             # Read back sleepApplication for deploy logs / debugging.
             verify_sleep_application() {
               local label="$1"
@@ -709,6 +757,7 @@ jobs:
 
             deploy_service() {
               local service_id="$1"
+              stop_in_flight_deployments "$service_id"
               railway_graphql \
                 'mutation serviceInstanceDeployV2($serviceId: String!, $environmentId: String!) { serviceInstanceDeployV2(serviceId: $serviceId, environmentId: $environmentId) }' \
                 "$(jq -nc --arg env "$ENV_ID" --arg service "$service_id" '{environmentId:$env, serviceId:$service}')"
@@ -725,7 +774,7 @@ jobs:
               local started_at deadline response status image node_json newest
               started_at="$(date +%s)"
               deadline=$((started_at + timeout_s))
-              echo "Waiting for $label ($service_id) to reach SUCCESS with image $expected_image (timeout ${timeout_s}s)"
+              echo "Waiting for $label ($service_id) to reach SUCCESS or SLEEPING with image $expected_image (timeout ${timeout_s}s)"
               while true; do
                 response="$(railway_graphql \
                   'query deployments($input: DeploymentListInput!) { deployments(input: $input) { edges { node { id status createdAt meta } } } }' \
@@ -744,7 +793,7 @@ jobs:
                   status="$(echo "$node_json" | jq -r '.status // empty')"
                   image="$(echo "$node_json" | jq -r '.meta.image // empty')"
                   echo "$label matching deploy status=${status:-unknown} image=${image:-unknown}"
-                  if [[ "$status" == "SUCCESS" ]]; then
+                  if [[ "$status" == "SUCCESS" || "$status" == "SLEEPING" ]]; then
                     # Best-effort confirm configured source image (schema may vary).
                     if response="$(railway_graphql \
                       'query serviceInstanceSource($environmentId: String!, $serviceId: String!) { serviceInstance(environmentId: $environmentId, serviceId: $serviceId) { source { image } } }' \
