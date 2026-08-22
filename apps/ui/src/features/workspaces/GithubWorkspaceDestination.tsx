@@ -65,16 +65,21 @@ export function GithubWorkspaceDestination({
       </p>
 
       {status === "loading" ? (
-        <div className="mt-8" aria-busy>
-          <span className="sr-only">Loading workspaces</span>
-          <SkeletonRow size="catalog" lines={2} />
-          <SkeletonRow size="catalog" lines={2} />
-          <SkeletonRow size="catalog" lines={2} />
+        <div className="mt-8 space-y-6">
+          <div aria-busy>
+            <span className="sr-only">Loading workspaces</span>
+            <SkeletonRow size="catalog" lines={2} />
+            <SkeletonRow size="catalog" lines={2} />
+            <SkeletonRow size="catalog" lines={2} />
+          </div>
+          <Button variant="quiet" onPress={onClose}>
+            Close wizard
+          </Button>
         </div>
       ) : null}
 
       {status === "error" ? (
-        <div className="mt-8">
+        <div className="mt-8 space-y-6">
           <InlineAlert
             variant="error"
             title="Could not load workspaces"
@@ -93,6 +98,9 @@ export function GithubWorkspaceDestination({
             Try again, or close the wizard and open a workspace from the
             sidebar.
           </InlineAlert>
+          <Button variant="quiet" onPress={onClose}>
+            Close wizard
+          </Button>
         </div>
       ) : null}
 

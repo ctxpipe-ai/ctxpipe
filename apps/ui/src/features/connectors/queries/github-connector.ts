@@ -39,6 +39,7 @@ export async function fetchGithubInstallationSummary(
   id: string
   appSlug: string | null
   accountSlug: string | null
+  installationId: number | null
 } | null> {
   const query = connectionId
     ? `?${new URLSearchParams({ connectionId }).toString()}`

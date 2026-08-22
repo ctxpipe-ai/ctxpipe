@@ -2,11 +2,14 @@ import { beforeEach, describe, expect, it, vi } from "vitest"
 
 const findRepositoriesByNormalizedGitUrlsMock = vi.hoisted(() => vi.fn())
 const bulkCreateRepositoriesForOrgMock = vi.hoisted(() => vi.fn())
+const setRepositoryGithubConnectionIdIfMissingMock = vi.hoisted(() => vi.fn())
 const enqueueRepositoryIngestionWorkflowMock = vi.hoisted(() => vi.fn())
 
 vi.mock("../../models/repositories.js", () => ({
   findRepositoriesByNormalizedGitUrls: findRepositoriesByNormalizedGitUrlsMock,
   bulkCreateRepositoriesForOrg: bulkCreateRepositoriesForOrgMock,
+  setRepositoryGithubConnectionIdIfMissing:
+    setRepositoryGithubConnectionIdIfMissingMock,
 }))
 
 vi.mock("../../openworkflow/enqueue-repository-ingestion.js", () => ({
@@ -25,10 +28,13 @@ describe("repositoryNameFromGitUrl", () => {
     )
   })
 
-  it("uses the last path segment for other hosts", () => {
+  it("uses host plus path for other hosts so names stay unique per org", () => {
     expect(
       repositoryNameFromGitUrl("https://gitlab.com/acme/group/app.git"),
-    ).toBe("app")
+    ).toBe("gitlab.com/acme/group/app")
+    expect(repositoryNameFromGitUrl("https://gitlab.com/other/app.git")).toBe(
+      "gitlab.com/other/app",
+    )
   })
 })
 
@@ -38,8 +44,10 @@ describe("ensureOrgRepositoryAndIngest", () => {
   beforeEach(() => {
     findRepositoriesByNormalizedGitUrlsMock.mockReset()
     bulkCreateRepositoriesForOrgMock.mockReset()
+    setRepositoryGithubConnectionIdIfMissingMock.mockReset()
     enqueueRepositoryIngestionWorkflowMock.mockReset()
     enqueueRepositoryIngestionWorkflowMock.mockResolvedValue(undefined)
+    setRepositoryGithubConnectionIdIfMissingMock.mockResolvedValue(undefined)
   })
 
   it("creates a repositories row when none exists and enqueues ingestion", async () => {
@@ -84,9 +92,28 @@ describe("ensureOrgRepositoryAndIngest", () => {
 
     expect(result).toEqual({ id: "repo_existing", created: false })
     expect(bulkCreateRepositoriesForOrgMock).not.toHaveBeenCalled()
+    expect(setRepositoryGithubConnectionIdIfMissingMock).not.toHaveBeenCalled()
     expect(enqueueRepositoryIngestionWorkflowMock).toHaveBeenCalledWith(
       { repositoryId: "repo_existing", orgId: "org_1" },
       log,
     )
+  })
+
+  it("backfills github_connection_id on an existing row when known", async () => {
+    findRepositoriesByNormalizedGitUrlsMock.mockResolvedValue([
+      { id: "repo_existing", gitUrl: "https://github.com/acme/docs" },
+    ])
+
+    await ensureOrgRepositoryAndIngest({
+      orgId: "org_1",
+      gitUrl: "https://github.com/acme/docs",
+      githubConnectionId: "con_gh",
+      log,
+    })
+
+    expect(setRepositoryGithubConnectionIdIfMissingMock).toHaveBeenCalledWith({
+      repositoryId: "repo_existing",
+      githubConnectionId: "con_gh",
+    })
   })
 })

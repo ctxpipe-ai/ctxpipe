@@ -250,6 +250,24 @@ export async function findRepositoriesByNormalizedGitUrls(
   })
 }
 
+export async function setRepositoryGithubConnectionIdIfMissing(input: {
+  repositoryId: string
+  githubConnectionId: string
+}): Promise<void> {
+  return orgSql(async () => {
+    await getOrgDb()
+      .update(repositories)
+      .set({ githubConnectionId: input.githubConnectionId })
+      .where(
+        and(
+          eq(repositories.id, input.repositoryId),
+          eq(repositories.orgId, requireCurrentOrgId()),
+          isNull(repositories.githubConnectionId),
+        ),
+      )
+  })
+}
+
 /** Returns repositories for org via org DB (explicit orgId filter). */
 export const listRepositoriesForOrg = async (
   orgId: string,

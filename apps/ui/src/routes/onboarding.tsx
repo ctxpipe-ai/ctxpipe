@@ -222,7 +222,7 @@ export function OnboardingPageContent({
           fetchOptions: { throw: true },
         })
       }
-      await Promise.all([
+      const [userComplete, orgComplete] = await Promise.all([
         fetch("/api/v1/onboarding/user/complete", {
           method: "POST",
           credentials: "include",
@@ -231,13 +231,18 @@ export function OnboardingPageContent({
           param: { orgSlug },
         }),
       ])
+      if (!userComplete.ok || !orgComplete.ok) {
+        setCompleting(false)
+        return
+      }
       setPreferences((prev) => ({
         ...prev,
         selectedOrganizationSlug: orgSlug,
       }))
       void getSession({ fetchOptions: { throw: false } })
     } catch {
-      // best-effort
+      setCompleting(false)
+      return
     }
     transitionToApp(leave)
   }
