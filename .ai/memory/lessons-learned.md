@@ -455,10 +455,16 @@ Highest-priority confirmed rules for agents. Migrated from former `patterns.md` 
 - **Source:** migrated from patterns.md
 
 ### UI copy language
-- **Rule:** use US English spelling in user-facing UI copy, for example `organization` rather than `organisation`
+- **Rule:** use US English spelling in user-facing UI copy, for example `organization` rather than `organisation`. Keep the same register in design instructions (`apps/ui/DESIGN.md`, product-ui skill, ai-tells).
 - **Category:** convention
 - **Date:** 2026-08-22
-- **Source:** GitHub workspace destination flow; supersedes 2026-08-11 UK English rule
+- **Source:** GitHub workspace destination flow; supersedes 2026-08-11 UK English rule; candidate `ba616391f38e94cf`
+
+### GitHub setup copy after connect
+- **Rule:** After the GitHub App is installed, tell the user the connection is complete, then offer create a workspace, add repositories to an existing one (listed), or close the wizard. Do **not** explain that the connection is organization-wide or that repositories are linked per workspace.
+- **Category:** product
+- **Date:** 2026-08-22
+- **Source:** user correction (GitHub workspace destination); candidate `ba616391f38e94cf`
 
 ### UI icon library
 - **Rule:** use `@tabler/icons-react` (not lucide-react); map Tabler `Icon*` names semantically from prior Lucide glyphs; keep size/class/ARIA props
@@ -527,10 +533,10 @@ Highest-priority confirmed rules for agents. Migrated from former `patterns.md` 
 - **Source:** user correction
 
 ### Git sources vs GitHub picker
-- **Rule:** the repositories page is an inventory of what is indexed (search, status, relative `lastIngestedAt`). Changing *which* GitHub App repos are ingested is the setup form. Do not mix connector types (docs/tools) onto Git sources. Picker save merges already-indexed URLs with the selected GitHub ids — never “whatever was visible”. Logic lives in `githubRepoSelection.ts`. Large-list UX is verified with Storybook + MSW (400-repo stories), not a DB/GitHub seed script.
+- **Rule:** GitHub App install grants **access** only. The post-install setup page is a **workspace destination** (create / pick existing / close), not an org ingest picker. Link remotes from workspace Settings; ingest is on-attach. Do not mix connector types (docs/tools) onto Git sources. Large-list UX for remaining GitHub repo pickers (workspace Settings add) is verified with Storybook + MSW, not a DB/GitHub seed script.
 - **Category:** pattern
-- **Date:** 2026-08-13
-- **Source:** repo-page-ux
+- **Date:** 2026-08-13; updated 2026-08-22
+- **Source:** repo-page-ux; GitHub workspace destination (candidate `ba616391f38e94cf`)
 
 ### Git sources list virtualisation
 - **Rule:** `/$orgSlug/repositories` uses `@tanstack/react-virtual` `useWindowVirtualizer` (`GitSourcesVirtualList`). Do not mount every `RepositoryCard`/React Aria menu. Row order is `buildGitSourceListRows` (pending then indexed). Scroll is still the document. Use a **fixed row size** — do not `measureElement`. While `isScrolling`, skip menus/tooltips and raise overscan. Hairline dividers (`border-white/[0.06]` / 1px repeating gradient), not a painted `gap`. Verify with **Pages / Repositories / Four Hundred Sources**.
