@@ -40,6 +40,7 @@ import {
   touchConversationLastMessage,
   updateConversation,
 } from "../../models/conversations.js"
+import { loadConversationTurns } from "../../models/conversation-messages.js"
 import { getRepoReadCloneToken } from "../../models/github-installation.js"
 import { getWorkspaceById } from "../../models/workspaces.js"
 import { getLogger } from "../../observability/logger.js"
@@ -568,7 +569,12 @@ export const conversationRoutes = new OpenAPIHono<AppEnv>()
               })) ?? null)
             : null,
         onFinish: () => touchConversationLastMessage(conversationId),
-        onError: () => discardUnstartedConversation(conversationId),
+        onError: async () => {
+          const turns = await loadConversationTurns(conversationId)
+          if (turns.length === 0) {
+            await discardUnstartedConversation(conversationId)
+          }
+        },
       })
       return response
     } catch {

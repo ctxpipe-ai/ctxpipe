@@ -185,6 +185,8 @@ vi.mock("../../retrieval/services/modelProvider.js", () => ({
   },
 }))
 
+import { getLogger } from "../../observability/logger.js"
+import { withTestLogger } from "../../test/with-test-logger.js"
 import { runTanstackWorkspaceChat } from "./tanstack-workspace-chat.js"
 
 describe("runTanstackWorkspaceChat", () => {
@@ -524,6 +526,69 @@ describe("runTanstackWorkspaceChat", () => {
         tools: [],
       }),
     )
+  })
+
+  it("errors the stream on an OpenCode 500 instead of finishing empty", async () => {
+    const onError = vi.fn(async () => {})
+    chatMock.mockImplementationOnce(async function* () {
+      throw Object.assign(
+        new Error("Unexpected server error. Check server logs for details."),
+        { status: 500 },
+      )
+    })
+    await withTestLogger(async () => {
+      const res = await runTanstackWorkspaceChat({
+        conversationId: "conv_1",
+        prompt: "hello",
+        orgId: "org_1",
+        workspaceId: "ws_1",
+        desiredUrl: "https://github.com/acme/docs",
+        desiredSha: "abc",
+        ref: "abc",
+        writeStatus: "writable",
+        onError,
+      })
+      expect(res.status).toBe(200)
+      await expect(res.text()).rejects.toThrow(/Unexpected server error/)
+      expect(onError).toHaveBeenCalled()
+      expect(appendTurnMock).toHaveBeenCalledWith(
+        expect.objectContaining({
+          conversationId: "conv_1",
+          role: "user",
+          content: "hello",
+        }),
+      )
+      expect(appendTurnMock).not.toHaveBeenCalledWith(
+        expect.objectContaining({ role: "assistant" }),
+      )
+      const ctx = getLogger().getContext()
+      expect(ctx.step).toBe("opencode.chatStream")
+      expect(ctx.conversationId).toBe("conv_1")
+      expect(ctx.status).toBe(500)
+      expect(String(ctx.bodyExcerpt)).toContain("Unexpected server error")
+    })
+  })
+
+  it("errors an empty stream when TanStack only logs a console fatal", async () => {
+    chatMock.mockImplementationOnce(async function* () {
+      console.error("❌ [tanstack-ai:errors] ❌ opencode.chatStream fatal")
+    })
+    await withTestLogger(async () => {
+      const res = await runTanstackWorkspaceChat({
+        conversationId: "conv_1",
+        prompt: "hello",
+        orgId: "org_1",
+        workspaceId: "ws_1",
+        desiredUrl: "https://github.com/acme/docs",
+        desiredSha: "abc",
+        ref: "abc",
+        writeStatus: "writable",
+      })
+      await expect(res.text()).rejects.toThrow(/opencode.chatStream/)
+      expect(appendTurnMock).not.toHaveBeenCalledWith(
+        expect.objectContaining({ role: "assistant" }),
+      )
+    })
   })
 
   it("refuses chat without a stored desired SHA", async () => {

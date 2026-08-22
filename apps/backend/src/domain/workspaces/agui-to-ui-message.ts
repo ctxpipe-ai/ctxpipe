@@ -5,6 +5,7 @@ export type AguiChunk = {
   delta?: string
   messageId?: string
   id?: string
+  message?: string
 }
 
 function readAguiChunk(chunk: object): AguiChunk {
@@ -15,6 +16,7 @@ function readAguiChunk(chunk: object): AguiChunk {
     messageId:
       typeof record.messageId === "string" ? record.messageId : undefined,
     id: typeof record.id === "string" ? record.id : undefined,
+    message: typeof record.message === "string" ? record.message : undefined,
   }
 }
 
@@ -38,7 +40,10 @@ export function aguiChunkToUiMessageChunks(
   if (chunk.type === "TEXT_MESSAGE_END") {
     return [{ type: "text-end", id: chunk.id ?? textId }]
   }
-  if (chunk.type === "RUN_FINISHED" || chunk.type === "RUN_ERROR") {
+  if (chunk.type === "RUN_ERROR") {
+    throw new Error(chunk.message?.trim() || "OpenCode chat stream failed")
+  }
+  if (chunk.type === "RUN_FINISHED") {
     return [{ type: "finish" }]
   }
   return []

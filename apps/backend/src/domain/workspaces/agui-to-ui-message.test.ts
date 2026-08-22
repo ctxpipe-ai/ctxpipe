@@ -18,6 +18,12 @@ describe("aguiChunkToUiMessageChunks", () => {
     expect(aguiChunkToUiMessageChunks({ type: "RUN_FINISHED" }, "t1")).toEqual([
       { type: "finish" },
     ])
+    expect(() =>
+      aguiChunkToUiMessageChunks(
+        { type: "RUN_ERROR", message: "Unexpected server error" },
+        "t1",
+      ),
+    ).toThrow("Unexpected server error")
   })
 })
 

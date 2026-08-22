@@ -1,6 +1,7 @@
 import { useChat } from "@ai-sdk/react"
 import { useQueryClient } from "@tanstack/react-query"
 import { useNavigate } from "@tanstack/react-router"
+import type { UIMessage } from "ai"
 import { type ReactNode, useEffect, useMemo, useRef, useState } from "react"
 import { ConversationThread } from "@/features/chat/ConversationThread"
 import { createTransport } from "@/features/chat/chatTransport"
@@ -9,6 +10,18 @@ import type { ConversationDetail } from "@/features/chat/types"
 import { workspaceKeys } from "./queries"
 import type { Workspace } from "./types"
 import { WorkspaceChatChrome } from "./WorkspaceChatChrome"
+
+export function workspaceChatHasAssistantText(
+  messages: Array<Pick<UIMessage, "role" | "parts">>,
+): boolean {
+  return messages.some(
+    (message) =>
+      message.role === "assistant" &&
+      message.parts.some(
+        (part) => part.type === "text" && Boolean(part.text?.trim()),
+      ),
+  )
+}
 
 export function WorkspaceChatSession(props: {
   orgSlug: string
@@ -89,10 +102,12 @@ export function WorkspaceChatSession(props: {
     },
   })
 
+  const hasAssistantText = workspaceChatHasAssistantText(messages)
+
   useEffect(() => {
     if (!composing || committedRef.current) return
-    if (status !== "streaming") return
     if (sendFailedRef.current) return
+    if (!hasAssistantText) return
     committedRef.current = true
     void queryClient.invalidateQueries({
       queryKey: workspaceKeys.conversations(orgSlug, workspace.id),
@@ -112,10 +127,10 @@ export function WorkspaceChatSession(props: {
   }, [
     composing,
     conversationId,
+    hasAssistantText,
     navigate,
     orgSlug,
     queryClient,
-    status,
     workspace.id,
     workspace.slug,
   ])

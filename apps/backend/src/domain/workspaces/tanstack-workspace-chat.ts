@@ -12,7 +12,7 @@ import {
   listSandboxInstances,
   listWorkspaceKnowledgeUnitsForChat,
 } from "../../models/workspaces.js"
-import { getLogger } from "../../observability/logger.js"
+import { getLogger, log } from "../../observability/logger.js"
 import { hybridSearch } from "../../retrieval/index.js"
 import { generateEmbedding } from "../../retrieval/services/modelProvider.js"
 import { aguiIterableToUiMessageChunks } from "./agui-to-ui-message.js"
@@ -43,6 +43,11 @@ import {
   formatWorkspaceChatHits,
   workspaceChatHybridHits,
 } from "./workspace-chat-retrieval.js"
+import {
+  opencodeChatStreamEvent,
+  shouldFailEmptyChatTurn,
+  withTanstackConsoleCapture,
+} from "./opencode-chat-stream.js"
 import { workspaceChatTools } from "./workspace-chat-tools.js"
 
 export type TanstackWorkspaceChatInput = {
@@ -142,10 +147,14 @@ export async function runTanstackWorkspaceChat(
   }
   const textId = generateObjectId("txt")
   const uiChunks = aguiIterableToUiMessageChunks(prepared.stream, textId)
+  const runtime = workspaceChatRuntimeConfig({
+    writeStatus: input.writeStatus,
+  })
   const readable = new ReadableStream<UIMessageChunk>({
     async start(controller) {
       let lastHeartbeatAt: Date | null = null
       let assistant = ""
+      const startedAt = Date.now()
       const heartbeat = setInterval(() => {
         const now = new Date()
         if (
@@ -161,14 +170,53 @@ export async function runTanstackWorkspaceChat(
         heartbeatChatSandboxes(input.conversationId, now)
         void input.onHeartbeat?.()
       }, CHAT_HEARTBEAT_INTERVAL_MS)
+      const chatAttemptFields = (error?: unknown) =>
+        opencodeChatStreamEvent({
+          conversationId: input.conversationId,
+          workspaceId: input.workspaceId,
+          error,
+          provider: runtime.provider,
+          opencodePort: WORKSPACE_CHAT_OPENCODE_PORT,
+          durationMs: Date.now() - startedAt,
+        })
+      const recordChatAttempt = (error?: unknown) => {
+        const fields = chatAttemptFields(error)
+        const logged =
+          error == null
+            ? null
+            : error instanceof Error
+              ? error
+              : new Error(fields.message)
+        try {
+          const logger = getLogger()
+          logger.set(fields)
+          if (logged) logger.error(logged, fields)
+          else logger.info(fields.message)
+        } catch {
+          if (logged) log.error(logged, fields)
+          else log.info(fields)
+        }
+        return { fields, logged }
+      }
+      const failTurn = async (error: unknown) => {
+        const { fields, logged } = recordChatAttempt(error)
+        await input.onError?.()
+        controller.error(logged ?? new Error(fields.message))
+      }
       try {
         lastHeartbeatAt = new Date()
         heartbeatChatSandboxes(input.conversationId, lastHeartbeatAt)
         void input.onHeartbeat?.()
+        if (prepared.persistUserAfterSuccess) {
+          await persistCompletedTurns(input, {
+            persistUser: true,
+            assistant: "",
+          })
+        }
         let finished = false
         const completeTurn = async () => {
           await persistCompletedTurns(input, {
-            persistUser: prepared.persistUserAfterSuccess,
+            persistUser: false,
             assistant,
           })
           const name = await nameConversationIfUnnamed({
@@ -180,23 +228,28 @@ export async function runTanstackWorkspaceChat(
           }
           if (input.onFinish) await input.onFinish()
         }
-        for await (const chunk of uiChunks) {
-          if (chunk.type === "text-delta") assistant += chunk.delta
-          if (chunk.type === "finish") {
-            finished = true
-            await completeTurn()
+        const captured = await withTanstackConsoleCapture(async () => {
+          for await (const chunk of uiChunks) {
+            if (chunk.type === "text-delta") assistant += chunk.delta
+            if (chunk.type === "finish") finished = true
+            controller.enqueue(chunk)
           }
-          controller.enqueue(chunk)
+        })
+        const streamFatal = captured.fatal ?? prepared.constructFatal
+        if (
+          shouldFailEmptyChatTurn({
+            assistant,
+            error: streamFatal,
+          })
+        ) {
+          await failTurn(streamFatal)
+          return
         }
-        if (!finished) await completeTurn()
+        if (finished || assistant.trim()) await completeTurn()
+        recordChatAttempt()
         controller.close()
       } catch (error) {
-        getLogger().error(
-          error instanceof Error ? error : new Error(String(error)),
-          { step: "tanstack-workspace-chat" },
-        )
-        await input.onError?.()
-        controller.error(error)
+        await failTurn(error)
       } finally {
         clearInterval(heartbeat)
       }
@@ -235,6 +288,7 @@ async function prepareTanstackWorkspaceChat(
       ok: true
       stream: AsyncIterable<object>
       persistUserAfterSuccess: boolean
+      constructFatal: Error | null
     }
   | { ok: false; status: number; error: string }
 > {
@@ -383,33 +437,36 @@ async function prepareTanstackWorkspaceChat(
       },
     },
   })
-  const stream = modules.chat({
-    adapter: modules.opencodeText(model, {
-      port: WORKSPACE_CHAT_OPENCODE_PORT,
-      permissionMode: runtime.permissionMode,
-      onPermissionRequest: runtime.onPermissionRequest,
-    }),
-    threadId: input.conversationId,
-    messages,
-    tools,
-    middleware: [
-      modules.withSandbox(definition, {
-        instances: postgresSandboxInstanceStore({
-          orgId: input.orgId,
-          workspaceId: input.workspaceId,
-        }),
-        locks: postgresSandboxLockStore({
-          orgId: input.orgId,
-          workspaceId: input.workspaceId,
-          conversationId: input.conversationId,
-        }),
+  const constructed = await withTanstackConsoleCapture(async () =>
+    modules.chat({
+      adapter: modules.opencodeText(model, {
+        port: WORKSPACE_CHAT_OPENCODE_PORT,
+        permissionMode: runtime.permissionMode,
+        onPermissionRequest: runtime.onPermissionRequest,
       }),
-    ],
-  })
+      threadId: input.conversationId,
+      messages,
+      tools,
+      middleware: [
+        modules.withSandbox(definition, {
+          instances: postgresSandboxInstanceStore({
+            orgId: input.orgId,
+            workspaceId: input.workspaceId,
+          }),
+          locks: postgresSandboxLockStore({
+            orgId: input.orgId,
+            workspaceId: input.workspaceId,
+            conversationId: input.conversationId,
+          }),
+        }),
+      ],
+    }),
+  )
   return {
     ok: true,
-    stream,
+    stream: constructed.result,
     persistUserAfterSuccess,
+    constructFatal: constructed.fatal,
   }
 }
 

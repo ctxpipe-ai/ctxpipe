@@ -13,6 +13,9 @@ const deleteConversationMock = vi.hoisted(() => vi.fn())
 const loadConversationUiMessagesMock = vi.hoisted(() => vi.fn())
 const toPromptFromIncomingMessageMock = vi.hoisted(() => vi.fn())
 const createDataStreamConversationTransportMock = vi.hoisted(() => vi.fn())
+const loadConversationTurnsMock = vi.hoisted(() =>
+  vi.fn(async (): Promise<Array<{ role: string; content: string }>> => []),
+)
 
 const getWorkspaceByIdMock = vi.hoisted(() => vi.fn())
 const getRegisteredChatSandboxMock = vi.hoisted(() => vi.fn())
@@ -70,6 +73,10 @@ vi.mock("../../domain/workspaces/chat-pull-request.js", () => ({
   checkoutPublishedChatBranch: vi.fn(async () => {}),
 }))
 
+vi.mock("../../models/conversation-messages.js", () => ({
+  loadConversationTurns: loadConversationTurnsMock,
+}))
+
 vi.mock("../../domain/conversations/transport.js", () => ({
   loadConversationUiMessages: loadConversationUiMessagesMock,
   toPromptFromIncomingMessage: toPromptFromIncomingMessageMock,
@@ -113,6 +120,7 @@ function app() {
 describe("conversations API", () => {
   beforeEach(() => {
     vi.clearAllMocks()
+    loadConversationTurnsMock.mockResolvedValue([])
     loadConversationUiMessagesMock.mockResolvedValue([])
     getWorkspaceByIdMock.mockResolvedValue({
       id: "ws_abc",
@@ -260,6 +268,32 @@ describe("conversations API", () => {
     expect(discardUnstartedConversationMock).not.toHaveBeenCalled()
     await toResponse.mock.calls[0]?.[0].onError()
     expect(discardUnstartedConversationMock).toHaveBeenCalledWith("conv_1")
+  })
+
+  it("keeps a conversation that already has a user turn when the stream errors", async () => {
+    toPromptFromIncomingMessageMock.mockReturnValue("hello")
+    ensureConversationMock.mockResolvedValue(conversationRow)
+    loadConversationTurnsMock.mockResolvedValue([
+      { role: "user", content: "hello" },
+    ])
+    const toResponse = vi
+      .fn()
+      .mockResolvedValue(new Response("ok", { status: 200 }))
+    createDataStreamConversationTransportMock.mockReturnValue({ toResponse })
+
+    const res = await app().request("/conversations/conv_1", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        message: { role: "user", content: "hello" },
+        source: "ui",
+        workspaceId: "ws_abc",
+      }),
+    })
+
+    expect(res.status).toBe(200)
+    await toResponse.mock.calls[0]?.[0].onError()
+    expect(discardUnstartedConversationMock).not.toHaveBeenCalled()
   })
 
   it("brokers a PR from the live sandbox tree and returns GitHub's pull number", async () => {
