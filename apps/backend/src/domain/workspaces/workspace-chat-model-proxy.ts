@@ -120,8 +120,17 @@ async function handleProxyRequest(
     res.end()
     return
   }
-  const buffer = Buffer.from(await upstream.arrayBuffer())
-  res.end(buffer)
+  const reader = upstream.body.getReader()
+  try {
+    while (true) {
+      const { done, value } = await reader.read()
+      if (done) break
+      if (value) res.write(Buffer.from(value))
+    }
+  } finally {
+    reader.releaseLock()
+    res.end()
+  }
 }
 
 function headerValue(value: string | string[] | undefined): string | undefined {

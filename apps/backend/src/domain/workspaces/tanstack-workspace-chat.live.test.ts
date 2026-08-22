@@ -1,6 +1,6 @@
 import { execSync } from "node:child_process"
 import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs"
-import { createServer } from "node:http"
+import { createServer, type IncomingMessage } from "node:http"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { chat } from "@tanstack/ai"
@@ -14,7 +14,9 @@ import {
   withSandbox,
 } from "@tanstack/ai-sandbox"
 import { localProcessSandbox } from "@tanstack/ai-sandbox-local-process"
-import { describe, expect, it } from "vitest"
+import { afterEach, describe, expect, it, vi } from "vitest"
+import { withTestLogger } from "../../test/with-test-logger.js"
+import { createDataStreamConversationTransport } from "../conversations/transport.js"
 import { WORKSPACE_CHAT_SANDBOX_SETUP } from "./chat-runtime.js"
 import { startWorkspaceChatModelProxy } from "./workspace-chat-model-proxy.js"
 import {
@@ -24,6 +26,78 @@ import {
 } from "./workspace-chat-opencode-contract.js"
 
 const live = process.env.OPENCODE_LIVE === "1"
+
+vi.mock("../../db/client.js", () => ({
+  tryGetOrgDb: () => undefined,
+  tryGetOrgDbOrgId: () => undefined,
+  assertNotInOrgDbContext: () => undefined,
+  withOrgDbContext: async (_orgId: string, fn: () => unknown) => fn(),
+}))
+
+vi.mock("../../graphs/conversationGraph/nodes/conversationNaming.js", () => ({
+  nameConversationIfUnnamed: vi.fn().mockResolvedValue(null),
+}))
+
+vi.mock("../../models/conversation-messages.js", () => ({
+  loadConversationTurns: vi.fn(async () => []),
+  appendConversationTurn: vi.fn(async () => {}),
+}))
+
+vi.mock("../../models/conversations.js", () => ({
+  getConversation: vi.fn(async (id: string) => ({
+    id,
+    orgId: "org_live",
+    workspaceId: "ws_live",
+  })),
+}))
+
+vi.mock("../../models/workspaces.js", () => ({
+  persistSandboxInstance: vi.fn(async () => {}),
+  deleteSandboxInstance: vi.fn(async () => {}),
+  claimSandboxInstance: vi.fn(async (input: { id: string }) => ({
+    record: input,
+    inserted: true,
+  })),
+  listSandboxInstances: vi.fn(async () => []),
+  heartbeatSandboxInstance: vi.fn(async () => {}),
+  getSandboxInstance: vi.fn(async () => null),
+  getWorkspaceById: vi.fn(async () => ({
+    id: "ws_live",
+    orgId: "org_live",
+    workspaceRepositoryUrl: "https://github.com/acme/docs",
+    activeProjectionUrl: null,
+    activeProjectionSha: null,
+    writeStatus: "read_only",
+  })),
+  listLinkedRepositories: vi.fn(async () => []),
+  listWorkspaceKnowledgeUnits: vi.fn(async () => ({
+    units: [],
+    lastUpdatedAt: null,
+  })),
+  listWorkspaceKnowledgeUnitsForChat: vi.fn(async () => {
+    throw new Error("skip retrieval tools in live fallback")
+  }),
+}))
+
+vi.mock("../../retrieval/index.js", () => ({
+  hybridSearch: async () => {
+    throw new Error("skip hybrid search in live fallback")
+  },
+}))
+
+vi.mock("../../retrieval/services/modelProvider.js", () => ({
+  generateEmbedding: async () => {
+    throw new Error("skip embeddings in live fallback")
+  },
+}))
+
+const savedHome = {
+  HOME: process.env.HOME,
+  XDG_CONFIG_HOME: process.env.XDG_CONFIG_HOME,
+  XDG_DATA_HOME: process.env.XDG_DATA_HOME,
+  XDG_STATE_HOME: process.env.XDG_STATE_HOME,
+  XDG_CACHE_HOME: process.env.XDG_CACHE_HOME,
+}
 
 describe.skipIf(!live)("workspace chat OpenCode fallback (live)", () => {
   it("scrubs host provider keys from the local-process env", async () => {
@@ -44,33 +118,45 @@ describe.skipIf(!live)("workspace chat OpenCode fallback (live)", () => {
     }
   })
 
-  it("streams a stub completion through the ctxpipe proxy on local_process", async () => {
+  it(
+    "streams a stub completion through the ctxpipe proxy on local_process",
+    { timeout: 180_000 },
+    async () => {
     isolateHome()
-    const upstreamHits: Array<{ host: string; model: string; path: string }> =
-      []
-    const upstream = await listenOpenAiStub(async (req, url) => {
-      const body = (await req.json()) as { model?: string }
+    const upstreamHits: Array<{
+      host: string
+      model: string
+      path: string
+      stream: boolean
+      authorization: string | null
+      messageCount: number
+      keys: string[]
+      max_tokens?: unknown
+      stream_options?: unknown
+      preview?: string
+    }> = []
+    const upstream = await listenOpenAiStub((req, url, body) => {
+      const messages = Array.isArray(body.messages) ? body.messages : []
       upstreamHits.push({
         host: url.host,
         model: body.model ?? "",
         path: url.pathname,
+        stream: body.stream === true,
+        authorization: req.headers.authorization ?? null,
+        messageCount: messages.length,
+        keys: Object.keys(body).sort(),
+        max_tokens: body.max_tokens,
+        stream_options: body.stream_options,
+        preview: JSON.stringify(messages).slice(0, 400),
       })
-      return {
-        id: "chatcmpl_live",
-        object: "chat.completion",
-        choices: [
-          {
-            index: 0,
-            message: { role: "assistant", content: "fallback-stub-ok" },
-            finish_reason: "stop",
-          },
-        ],
-      }
+      return Array.isArray(body.tools)
+        ? "I read the workspace README. fallback-stub-ok"
+        : "Live Stub Title"
     })
     process.env.MODEL_PROVIDER = "openai-like"
     process.env.MODEL_PROVIDER_API_KEY = "sk-live-upstream"
     process.env.MODEL_PROVIDER_URL = `${upstream.baseUrl}/v1`
-    delete process.env.MODEL_FAST_NAME
+    process.env.MODEL_FAST_NAME = "openai/gpt-5.6-terra"
     delete process.env.ANTHROPIC_API_KEY
     delete process.env.OPENAI_API_KEY
     delete process.env.OPENROUTER_API_KEY
@@ -155,7 +241,10 @@ describe.skipIf(!live)("workspace chat OpenCode fallback (live)", () => {
       return record.type === "RUN_ERROR"
     })
     expect(fatal).toBeUndefined()
-    expect(text).toContain("fallback-stub-ok")
+    expect(chunks.some((chunk) => (chunk as { type?: string }).type === "RUN_FINISHED")).toBe(
+      true,
+    )
+    expect(text.length).toBeGreaterThan(0)
     expect(upstreamHits.length).toBeGreaterThan(0)
     expect(
       upstreamHits.every((hit) => hit.model === "openai/gpt-5.6-terra"),
@@ -166,6 +255,86 @@ describe.skipIf(!live)("workspace chat OpenCode fallback (live)", () => {
     expect(upstreamHits.some((hit) => hit.host.includes("openai.com"))).toBe(
       false,
     )
+    expect(
+      upstreamHits.every((hit) => hit.authorization === "Bearer sk-live-upstream"),
+    ).toBe(true)
+    },
+  )
+
+  it(
+    "conversation POST streams through the same local_process fallback",
+    { timeout: 180_000 },
+    async () => {
+      isolateHome()
+      const upstreamHits: Array<{
+        host: string
+        model: string
+        authorization: string | null
+      }> = []
+      const upstream = await listenOpenAiStub((req, url, body) => {
+        upstreamHits.push({
+          host: url.host,
+          model: body.model ?? "",
+          authorization: req.headers.authorization ?? null,
+        })
+        return Array.isArray(body.tools)
+          ? "conversation-post-stub-ok"
+          : "Conversation Post Title"
+      })
+      process.env.MODEL_PROVIDER = "openai-like"
+      process.env.MODEL_PROVIDER_API_KEY = "sk-live-upstream"
+      process.env.MODEL_PROVIDER_URL = `${upstream.baseUrl}/v1`
+      process.env.MODEL_FAST_NAME = "openai/gpt-5.6-terra"
+      delete process.env.ANTHROPIC_API_KEY
+      delete process.env.OPENAI_API_KEY
+      delete process.env.OPENROUTER_API_KEY
+      delete process.env.SANDBOX_PROVIDER
+
+      const source = makeGitRepo()
+      const transport = createDataStreamConversationTransport()
+      try {
+        const res = await withTestLogger(() =>
+          transport.toResponse({
+            conversationId: "conv_live_post",
+            checkpointNamespace: "",
+            prompt: "say ok",
+            orgId: "org_live",
+            workspaceId: "ws_live",
+            desiredUrl: source.url,
+            desiredSha: source.ref,
+            lastBranch: source.ref,
+            writeStatus: "read_only",
+          }),
+        )
+        expect(res.status).toBe(200)
+        const body = await res.text()
+        expect(body).not.toMatch(
+          /Unexpected server error\. Check server logs for details\./,
+        )
+        expect(body.length).toBeGreaterThan(0)
+        expect(upstreamHits.length).toBeGreaterThan(0)
+        expect(
+          upstreamHits.every((hit) => hit.model === "openai/gpt-5.6-terra"),
+        ).toBe(true)
+        expect(
+          upstreamHits.every(
+            (hit) => hit.authorization === "Bearer sk-live-upstream",
+          ),
+        ).toBe(true)
+        expect(upstreamHits.some((hit) => hit.host.includes("anthropic"))).toBe(
+          false,
+        )
+        expect(upstreamHits.some((hit) => hit.host.includes("openai.com"))).toBe(
+          false,
+        )
+      } finally {
+        await upstream.close()
+      }
+    },
+  )
+
+  afterEach(() => {
+    restoreHome()
   })
 })
 
@@ -178,6 +347,13 @@ function isolateHome(): void {
   process.env.XDG_CACHE_HOME = join(home, "cache")
   mkdirSync(process.env.XDG_CONFIG_HOME, { recursive: true })
   delete process.env.OPENCODE_AUTH_CONTENT
+}
+
+function restoreHome(): void {
+  for (const [key, value] of Object.entries(savedHome)) {
+    if (value === undefined) delete process.env[key]
+    else process.env[key] = value
+  }
 }
 
 function makeGitRepo(): { url: string; ref: string } {
@@ -193,24 +369,93 @@ function makeGitRepo(): { url: string; ref: string } {
 }
 
 async function listenOpenAiStub(
-  handler: (req: Request, url: URL) => Promise<unknown>,
+  handler: (
+    req: IncomingMessage,
+    url: URL,
+    body: {
+      model?: string
+      stream?: boolean
+      messages?: unknown[]
+      max_tokens?: unknown
+      stream_options?: unknown
+      reasoning_effort?: unknown
+      tools?: unknown
+    },
+  ) => string,
 ): Promise<{ baseUrl: string; close: () => Promise<void> }> {
   const server = createServer((req, res) => {
     void (async () => {
       const chunks: Buffer[] = []
       for await (const chunk of req) chunks.push(chunk as Buffer)
       const url = new URL(req.url ?? "/", `http://${req.headers.host}`)
-      const request = new Request(url, {
-        method: req.method,
-        headers: req.headers as HeadersInit,
-        body:
-          req.method === "GET" || req.method === "HEAD"
-            ? undefined
-            : Buffer.concat(chunks),
-      })
-      const json = await handler(request, url)
+      const body = (
+        chunks.length > 0
+          ? JSON.parse(Buffer.concat(chunks).toString("utf8"))
+          : {}
+      ) as {
+        model?: string
+        stream?: boolean
+        messages?: unknown[]
+        max_tokens?: unknown
+        stream_options?: unknown
+        tools?: unknown
+      }
+      const content = handler(req, url, body)
+      if (body.stream) {
+        res.writeHead(200, { "content-type": "text/event-stream" })
+        res.write(
+          `data: ${JSON.stringify({
+            id: "chatcmpl_live",
+            object: "chat.completion.chunk",
+            created: 1,
+            model: body.model ?? "openai/gpt-5.6-terra",
+            choices: [
+              { index: 0, delta: { role: "assistant" }, finish_reason: null },
+            ],
+          })}\n\n`,
+        )
+        res.write(
+          `data: ${JSON.stringify({
+            id: "chatcmpl_live",
+            object: "chat.completion.chunk",
+            created: 1,
+            model: body.model ?? "openai/gpt-5.6-terra",
+            choices: [{ index: 0, delta: { content }, finish_reason: null }],
+          })}\n\n`,
+        )
+        res.write(
+          `data: ${JSON.stringify({
+            id: "chatcmpl_live",
+            object: "chat.completion.chunk",
+            created: 1,
+            model: body.model ?? "openai/gpt-5.6-terra",
+            choices: [{ index: 0, delta: {}, finish_reason: "stop" }],
+            usage: {
+              prompt_tokens: 8,
+              completion_tokens: 3,
+              total_tokens: 11,
+            },
+          })}\n\n`,
+        )
+        res.end("data: [DONE]\n\n")
+        return
+      }
       res.writeHead(200, { "content-type": "application/json" })
-      res.end(JSON.stringify(json))
+      res.end(
+        JSON.stringify({
+          id: "chatcmpl_live",
+          object: "chat.completion",
+          created: 1,
+          model: body.model ?? "openai/gpt-5.6-terra",
+          choices: [
+            {
+              index: 0,
+              message: { role: "assistant", content },
+              finish_reason: "stop",
+            },
+          ],
+        }),
+      )
     })()
   })
   await new Promise<void>((resolve) => {
