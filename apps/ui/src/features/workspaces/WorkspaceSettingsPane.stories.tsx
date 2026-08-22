@@ -1,5 +1,5 @@
 import type { Meta, StoryObj } from "@storybook/react-vite"
-import { HttpResponse, http } from "msw"
+import { delay, HttpResponse, http } from "msw"
 import { expect, userEvent, waitFor, within } from "storybook/test"
 import {
   githubInstallationReposHandler,
@@ -176,6 +176,46 @@ export const DeleteConfirmOpen: Story = {
     await userEvent.keyboard("{Enter}")
     await waitFor(() => {
       expect(body.queryByRole("alertdialog")).not.toBeInTheDocument()
+    })
+  },
+}
+
+export const DeleteConfirmPending: Story = {
+  parameters: {
+    msw: {
+      handlers: {
+        page: [
+          workspaceListHandler([docsWorkspace]),
+          githubInstallationReposHandler(),
+          http.delete(
+            ({ request }) =>
+              /\/api\/v1\/workspaces\/[^/]+$/.test(
+                new URL(request.url).pathname,
+              ),
+            async () => {
+              await delay("infinite")
+              return new HttpResponse(null, { status: 204 })
+            },
+          ),
+        ],
+      },
+    },
+  },
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement)
+    await userEvent.click(
+      canvas.getByRole("button", { name: "Delete Workspace" }),
+    )
+    const body = within(canvasElement.ownerDocument.body)
+    const dialog = await body.findByRole("alertdialog")
+    const scoped = within(dialog)
+    await userEvent.type(scoped.getByLabelText("Workspace name"), "Docs")
+    await userEvent.keyboard("{Enter}")
+    await waitFor(() => {
+      const pending = scoped.getByRole("button", { name: "Delete Workspace" })
+      expect(
+        pending.querySelector("svg[role='presentation']"),
+      ).toBeInTheDocument()
     })
   },
 }

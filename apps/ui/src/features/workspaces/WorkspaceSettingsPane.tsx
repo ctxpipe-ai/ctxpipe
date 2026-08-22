@@ -160,17 +160,19 @@ export function WorkspaceSettingsPane(props: {
     mutationFn: (name: string) =>
       deleteWorkspace(orgSlug, workspace.slug, name),
     onSuccess: () => {
-      void queryClient.invalidateQueries({
-        queryKey: workspaceKeys.list(orgSlug),
-      })
-      void queryClient.invalidateQueries({
-        queryKey: workspaceKeys.detail(orgSlug, workspace.slug),
-      })
       toast.success("Workspace deleted")
       setDeleteOpen(false)
       void navigate({
-        to: "/$orgSlug/organization/$organizationView",
-        params: { orgSlug, organizationView: "settings" },
+        to: "/$orgSlug",
+        params: { orgSlug },
+        replace: true,
+      }).then(() => {
+        queryClient.removeQueries({
+          queryKey: workspaceKeys.detail(orgSlug, workspace.slug),
+        })
+        void queryClient.invalidateQueries({
+          queryKey: workspaceKeys.list(orgSlug),
+        })
       })
     },
     onError: (error: Error) => {
@@ -416,8 +418,8 @@ export function WorkspaceSettingsPane(props: {
                   <Button
                     type="submit"
                     variant="destructive"
+                    isPending={deleteMutation.isPending}
                     isDisabled={
-                      deleteMutation.isPending ||
                       !workspaceDeleteNameMatches(
                         confirmName,
                         workspace.displayName,
