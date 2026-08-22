@@ -21,10 +21,13 @@ const DEFAULT_TIER_SPECS = {
   high: "openai/gpt-5.6-terra?reasoning.effort=high",
 } as const
 
-const SUPPORTED_PROVIDERS = new Set<ModelProviderKind>([
-  "openai-like",
-  "openrouter",
-])
+type WorkspaceChatOpenCodeProvider = "openai-like" | "openrouter"
+
+function isWorkspaceChatOpenCodeProvider(
+  provider: ModelProviderKind,
+): provider is WorkspaceChatOpenCodeProvider {
+  return provider === "openai-like" || provider === "openrouter"
+}
 
 export type WorkspaceChatOpenCodeContract =
   | {
@@ -132,7 +135,7 @@ export function workspaceChatOpenCodeContract(
   tier: ModelTier = "fast",
 ): WorkspaceChatOpenCodeContract {
   const provider = resolveProvider(env.MODEL_PROVIDER)
-  if (!SUPPORTED_PROVIDERS.has(provider)) {
+  if (!isWorkspaceChatOpenCodeProvider(provider)) {
     return {
       ok: false,
       status: 503,
