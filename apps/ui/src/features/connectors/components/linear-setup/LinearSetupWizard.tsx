@@ -6,6 +6,7 @@ import { toast } from "sonner"
 import { Button } from "@/components/ui/Button"
 import { Modal } from "@/components/ui/Modal"
 import { Spinner } from "@/components/ui/spinner"
+import { pollWhileOk } from "@/lib/api-result"
 import {
   getLinearSetupCurrentIndex,
   getLinearWizardBodyId,
@@ -54,6 +55,8 @@ export function LinearSetupWizard({
     queryFn: () => fetchLinearConnectorStatus(orgSlug, connectionId),
     enabled: isOpen && Boolean(connectionId),
     refetchInterval: (query) => {
+      const interval = pollWhileOk(2000)(query)
+      if (interval === false) return false
       if (!isOpen) return false
       const status = query.state.data as LinearConnectorStatus | undefined
       if (
@@ -61,7 +64,7 @@ export function LinearSetupWizard({
         status?.setupPhase === "awaiting_merge" ||
         status?.setupPhase === "initial_sync"
       ) {
-        return 2000
+        return interval
       }
       return false
     },

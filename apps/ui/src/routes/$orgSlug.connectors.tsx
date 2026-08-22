@@ -36,6 +36,7 @@ import {
   orgConnectionsKeys,
   sortOrgConnectionsForDisplay,
 } from "@/features/connectors/queries/org-connections"
+import { apiFetch, pollWhileOk, readApiJson } from "@/lib/api-result"
 import { oauthErrorMessage } from "@/lib/atlassian-oauth-messages"
 import { useSession } from "@/lib/auth-client"
 import { useGithubConnectorBootstrap } from "@/lib/useGithubConnectorBootstrap"
@@ -130,14 +131,14 @@ export function ConnectorsPageContent({ orgSlug }: { orgSlug: string }) {
   >(undefined)
 
   useGithubConnectorBootstrap(orgSlug, {
-    refetchInterval: CONNECTORS_PAGE_POLL_INTERVAL_MS,
+    refetchInterval: pollWhileOk(CONNECTORS_PAGE_POLL_INTERVAL_MS),
   })
 
   const { data: connections, isPending: connectionsPending } = useQuery({
     queryKey: orgConnectionsKeys.list(orgSlug),
     queryFn: () => fetchOrgConnections(orgSlug),
     enabled: true,
-    refetchInterval: CONNECTORS_PAGE_POLL_INTERVAL_MS,
+    refetchInterval: pollWhileOk(CONNECTORS_PAGE_POLL_INTERVAL_MS),
   })
 
   const items = sortOrgConnectionsForDisplay(connections ?? [])
@@ -464,7 +465,7 @@ export function ConnectorsPageContent({ orgSlug }: { orgSlug: string }) {
                 return
               }
               const id = encodeURIComponent(search.pendingAccountClaim)
-              await fetch(
+              await apiFetch(
                 `/${orgSlug}/api/v1/connectors/atlassian/pending-claim/${id}/cancel`,
                 { method: "POST", credentials: "include" },
               )
@@ -487,11 +488,15 @@ export function ConnectorsPageContent({ orgSlug }: { orgSlug: string }) {
                 return
               }
               const id = encodeURIComponent(search.pendingAccountClaim)
-              const res = await fetch(
-                `/${orgSlug}/api/v1/connectors/atlassian/pending-claim/${id}/confirm`,
-                { method: "POST", credentials: "include" },
-              )
-              if (!res.ok) {
+              try {
+                const res = await apiFetch(
+                  `/${orgSlug}/api/v1/connectors/atlassian/pending-claim/${id}/confirm`,
+                  { method: "POST", credentials: "include" },
+                )
+                await readApiJson(res, {
+                  message: "Failed to confirm Atlassian account claim",
+                })
+              } catch {
                 setClaimOpen(false)
                 return
               }

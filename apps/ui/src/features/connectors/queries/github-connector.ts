@@ -1,4 +1,5 @@
 import { client } from "@/lib/api"
+import { apiFetch, readApiJson } from "@/lib/api-result"
 import { fetchOrgConnections } from "./org-connections"
 
 export const githubConnectorKeys = {
@@ -25,8 +26,9 @@ export async function fetchGithubConnectorBootstrap(orgSlug: string): Promise<{
   ].$get({
     param: { orgSlug },
   })
-  if (!res.ok) throw new Error("Failed to load GitHub connector bootstrap")
-  return res.json()
+  return readApiJson(res, {
+    message: "Failed to load GitHub connector bootstrap",
+  })
 }
 
 export type GithubConnectorBootstrap = Awaited<
@@ -71,17 +73,16 @@ export async function fetchGithubInstallationSummary(
   const query = connectionId
     ? `?${new URLSearchParams({ connectionId }).toString()}`
     : ""
-  const res = await fetch(`/${orgSlug}/api/v1/github/installation${query}`, {
+  const res = await apiFetch(`/${orgSlug}/api/v1/github/installation${query}`, {
     credentials: "include",
   })
-  if (!res.ok) throw new Error("Failed to check GitHub installation")
-  return res.json()
+  return readApiJson(res, { message: "Failed to check GitHub installation" })
 }
 
 export async function fetchGithubSetupLinkState(
   orgSlug: string,
 ): Promise<"linked" | "unlinked"> {
-  const res = await fetch(`/${orgSlug}/api/v1/github/installation`, {
+  const res = await apiFetch(`/${orgSlug}/api/v1/github/installation`, {
     credentials: "include",
   })
   if (res.status === 400) {
@@ -99,8 +100,10 @@ export async function fetchGithubSetupLinkState(
     )
     return githubSetupLinkStateFromSummaries(summaries)
   }
-  if (!res.ok) throw new Error("Failed to check GitHub installation")
-  const data = (await res.json()) as { installationId: number | null } | null
+  const data = await readApiJson<{ installationId: number | null } | null>(
+    res,
+    { message: "Failed to check GitHub installation" },
+  )
   return githubSetupLinkStateFromSummaries([data])
 }
 
@@ -119,45 +122,37 @@ export async function createGithubDraftConnection(
     param: { orgSlug },
     json: body,
   })
-  if (!res.ok) {
-    const err = (await res.json().catch(() => ({}))) as { error?: string }
-    throw new Error(err.error ?? "Failed to save connector")
-  }
-  const data = (await res.json()) as { id: string }
-  return data
+  return readApiJson<{ id: string }>(res, {
+    message: "Failed to save connector",
+  })
 }
 
 export async function createGithubDraftPlaceholder(orgSlug: string): Promise<{
   id: string
   webhookUrl: string
 }> {
-  const res = await fetch(
+  const res = await apiFetch(
     `/${orgSlug}/api/v1/github/installation/draft/placeholder`,
     { method: "POST", credentials: "include" },
   )
-  if (!res.ok) {
-    const err = (await res.json().catch(() => ({}))) as { error?: string }
-    throw new Error(err.error ?? "Failed to reserve connector")
-  }
-  return res.json() as Promise<{ id: string; webhookUrl: string }>
+  return readApiJson<{ id: string; webhookUrl: string }>(res, {
+    message: "Failed to reserve connector",
+  })
 }
 
 export async function patchGithubDraftConnection(
   orgSlug: string,
   body: CreateGithubDraftBody & { connectionId: string },
 ): Promise<{ id: string }> {
-  const res = await fetch(`/${orgSlug}/api/v1/github/installation/draft`, {
+  const res = await apiFetch(`/${orgSlug}/api/v1/github/installation/draft`, {
     method: "PATCH",
     credentials: "include",
     headers: { "content-type": "application/json" },
     body: JSON.stringify(body),
   })
-  if (!res.ok) {
-    const err = (await res.json().catch(() => ({}))) as { error?: string }
-    throw new Error(err.error ?? "Failed to save connector")
-  }
-  const data = (await res.json()) as { id: string }
-  return data
+  return readApiJson<{ id: string }>(res, {
+    message: "Failed to save connector",
+  })
 }
 
 export type GithubConnectorStatus = Awaited<
@@ -181,6 +176,7 @@ export async function fetchGithubConnectorStatus(
     param: { orgSlug },
     query: { connectionId },
   })
-  if (!res.ok) throw new Error("Failed to load GitHub connector status")
-  return res.json()
+  return readApiJson(res, {
+    message: "Failed to load GitHub connector status",
+  })
 }

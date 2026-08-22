@@ -10,6 +10,7 @@ import { InlineAlert } from "@/components/ui/InlineAlert"
 import { Spinner } from "@/components/ui/spinner"
 import type { Repository } from "@/features/repositories"
 import { client } from "@/lib/api"
+import { readApiJson } from "@/lib/api-result"
 import { searchGithubInstallationRepos } from "../../queries/atlassian-connector"
 import {
   fetchGithubInstallationSummary,
@@ -68,8 +69,9 @@ export function LinearTargetStep({
       const response = await client[":orgSlug"].api.v1.repositories.$get({
         param: { orgSlug },
       })
-      if (!response.ok) throw new Error("Failed to fetch repositories")
-      const body = (await response.json()) as { items: Repository[] }
+      const body = await readApiJson<{ items: Repository[] }>(response, {
+        message: "Failed to fetch repositories",
+      })
       return body.items
     },
   })

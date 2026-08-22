@@ -13,6 +13,7 @@ import {
 } from "@/features/connectors/queries/github-connector"
 import { useGithubConnectFlow } from "@/features/connectors/useGithubConnectFlow"
 import { client } from "@/lib/api"
+import { readApiJson } from "@/lib/api-result"
 import { authClient, getSession, useSession } from "@/lib/auth-client"
 
 export const Route = createFileRoute("/$orgSlug/setup")({
@@ -173,10 +174,14 @@ function OrgSetupPage() {
   const completeSetup = async () => {
     try {
       await Promise.all([
-        client[":orgSlug"].api.v1.onboarding.complete.$post({
-          param: { orgSlug },
-        }),
-        client.api.v1.onboarding.user.complete.$post(),
+        client[":orgSlug"].api.v1.onboarding.complete
+          .$post({
+            param: { orgSlug },
+          })
+          .then((res) => readApiJson(res)),
+        client.api.v1.onboarding.user.complete
+          .$post()
+          .then((res) => readApiJson(res)),
       ])
       await getSession({ fetchOptions: { throw: false } })
     } catch {

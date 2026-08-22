@@ -9,6 +9,7 @@ import { PageBodySkeleton } from "@/components/ui/Skeleton"
 import { Spinner } from "@/components/ui/spinner"
 import { resolveGithubSetupOrganization } from "@/features/connectors/githubConnectFlow"
 import { client } from "@/lib/api"
+import { ApiError, apiFetch, readApiJson } from "@/lib/api-result"
 import { authClient, useListOrganizations } from "@/lib/auth-client"
 import {
   consumeGithubSetupOrgHint,
@@ -170,10 +171,9 @@ function ConnectGithubView({
           ...(connectionId ? { connectionId } : {}),
         },
       })
-
-      if (!res.ok) {
-        throw { data: await res.json(), status: res.status }
-      }
+      await readApiJson(res, {
+        message: "Failed to register GitHub installation",
+      })
       return orgSlug
     },
     onSuccess: (orgSlug) => {
@@ -188,12 +188,12 @@ function ConnectGithubView({
       })
     },
     onError: (err) => {
-      const parsedError = parseError(err)
-      if (parsedError?.why === "github_not_linked") {
+      const why = err instanceof ApiError ? err.body.why : parseError(err)?.why
+      if (why === "github_not_linked") {
         return
       }
 
-      toast.error(err.message)
+      toast.error(err instanceof Error ? err.message : "Request failed")
     },
   })
 
@@ -203,9 +203,10 @@ function ConnectGithubView({
     mutate(selectedOrganizationSlug)
   }, [mutate, selectedOrganizationSlug, isIdle])
 
-  const parsedError = parseError(error)
+  const parsedErrorWhy =
+    error instanceof ApiError ? error.body.why : parseError(error)?.why
 
-  if (parsedError?.why === "github_not_linked") {
+  if (parsedErrorWhy === "github_not_linked") {
     return (
       <AppShell>
         <main className="mx-auto box-border w-full max-w-2xl p-8 text-zinc-100">
@@ -306,16 +307,16 @@ function DirectSetupPage() {
   const { data: existingOrgSlug, isPending: existingOrgPending } = useQuery({
     queryKey: ["github-installation-org-lookup", search.installation_id],
     queryFn: async () => {
-      const res = await fetch(
+      const res = await apiFetch(
         `/api/v1/me/github/installations/${search.installation_id}/organization`,
         { credentials: "include" },
       )
-      if (res.status === 404) return null
-      if (!res.ok) {
-        throw new Error("Failed to look up installation organization")
-      }
-      const json = (await res.json()) as { orgSlug: string }
-      return json.orgSlug
+      const json = await readApiJson<{ orgSlug: string } | null>(res, {
+        emptyOn: [404],
+        empty: null,
+        message: "Failed to look up installation organization",
+      })
+      return json?.orgSlug ?? null
     },
     enabled: !!search.installation_id,
   })

@@ -2,6 +2,7 @@ import { useQueryClient, useSuspenseQuery } from "@tanstack/react-query"
 import { useNavigate, useSearch } from "@tanstack/react-router"
 import { Component, type ReactNode, Suspense, useEffect, useState } from "react"
 import { AppShell } from "@/components/AppShell"
+import { pollWhileOk } from "@/lib/api-result"
 import { useUrgentValue } from "@/lib/useUrgentValue"
 import { cn } from "@/lib/utils"
 import {
@@ -180,9 +181,11 @@ function WorkspaceSurfaceReady(props: {
   const { data: workspace } = useSuspenseQuery({
     ...workspaceDetailOptions(orgSlug, workspaceSlug),
     refetchInterval: (query) => {
+      const interval = pollWhileOk(2000)(query)
+      if (interval === false) return false
       const data = query.state.data
       if (!data) return false
-      return workspacePrepareNeedsPoll(data) ? 2000 : false
+      return workspacePrepareNeedsPoll(data) ? interval : false
     },
   })
 

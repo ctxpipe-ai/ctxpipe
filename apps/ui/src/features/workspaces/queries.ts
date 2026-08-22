@@ -1,6 +1,7 @@
 import { queryOptions } from "@tanstack/react-query"
 import type { ConversationDetail } from "@/features/chat/types"
 import { getApiClient } from "@/lib/api"
+import { readApiJson } from "@/lib/api-result"
 import type {
   Workspace,
   WorkspaceDetail,
@@ -44,8 +45,9 @@ export async function fetchWorkspaces(
   const res = await client[":orgSlug"].api.v1.workspaces.$get({
     param: { orgSlug },
   })
-  if (!res.ok) throw new Error("Failed to load Workspaces")
-  return res.json() as Promise<WorkspaceListResponse>
+  return readApiJson<WorkspaceListResponse>(res, {
+    message: "Failed to load Workspaces",
+  })
 }
 
 export async function fetchConversation(
@@ -60,9 +62,11 @@ export async function fetchConversation(
     param: { orgSlug, conversationId },
     query: workspaceId ? { workspaceId } : {},
   })
-  if (res.status === 404) return null
-  if (!res.ok) throw new Error("Failed to load conversation")
-  return res.json() as Promise<ConversationDetail>
+  return readApiJson<ConversationDetail | null>(res, {
+    emptyOn: [404],
+    empty: null,
+    message: "Failed to load conversation",
+  })
 }
 
 export async function fetchWorkspaceFiles(
@@ -75,8 +79,9 @@ export async function fetchWorkspaceFiles(
   ].files.$get({
     param: { orgSlug, workspaceSlug },
   })
-  if (!res.ok) throw new Error("Failed to load Workspace files")
-  return res.json() as Promise<WorkspaceFilesResponse>
+  return readApiJson<WorkspaceFilesResponse>(res, {
+    message: "Failed to load Workspace files",
+  })
 }
 
 export async function fetchWorkspaceGitTree(
@@ -89,14 +94,11 @@ export async function fetchWorkspaceGitTree(
   ].files.tree.$get({
     param: { orgSlug, workspaceSlug },
   })
-  if (res.status === 409) {
-    return { sha: "", paths: [] }
-  }
-  if (!res.ok) {
-    const err = (await res.json().catch(() => ({}))) as { error?: string }
-    throw new Error(err.error ?? "Failed to load Workspace files")
-  }
-  return res.json() as Promise<WorkspaceGitTreeResponse>
+  return readApiJson<WorkspaceGitTreeResponse>(res, {
+    emptyOn: [409],
+    empty: { sha: "", paths: [] },
+    message: "Failed to load Workspace files",
+  })
 }
 
 export async function fetchWorkspaceGitBlob(
@@ -111,14 +113,11 @@ export async function fetchWorkspaceGitBlob(
     param: { orgSlug, workspaceSlug },
     query: { path },
   })
-  if (res.status === 404) {
-    return { path, body: null, binary: false }
-  }
-  if (!res.ok) {
-    const err = (await res.json().catch(() => ({}))) as { error?: string }
-    throw new Error(err.error ?? "Failed to load file")
-  }
-  return res.json() as Promise<WorkspaceGitBlobResponse>
+  return readApiJson<WorkspaceGitBlobResponse>(res, {
+    emptyOn: [404],
+    empty: { path, body: null, binary: false },
+    message: "Failed to load file",
+  })
 }
 
 export async function fetchWorkspaceGitStatus(
@@ -131,11 +130,9 @@ export async function fetchWorkspaceGitStatus(
   ].files.status.$get({
     param: { orgSlug, workspaceSlug },
   })
-  if (!res.ok) {
-    const err = (await res.json().catch(() => ({}))) as { error?: string }
-    throw new Error(err.error ?? "Failed to load git status")
-  }
-  return res.json() as Promise<WorkspaceGitStatusResponse>
+  return readApiJson<WorkspaceGitStatusResponse>(res, {
+    message: "Failed to load git status",
+  })
 }
 
 export async function enqueueWorkspaceFileJob(
@@ -150,10 +147,7 @@ export async function enqueueWorkspaceFileJob(
     param: { orgSlug, workspaceSlug },
     json: input,
   })
-  if (!res.ok) {
-    const err = (await res.json().catch(() => ({}))) as { error?: string }
-    throw new Error(err.error ?? "Failed to save file changes")
-  }
+  await readApiJson<void>(res, { message: "Failed to save file changes" })
 }
 
 export async function fetchWorkspaceGraph(
@@ -166,8 +160,9 @@ export async function fetchWorkspaceGraph(
   ].graph.$get({
     param: { orgSlug, workspaceSlug },
   })
-  if (!res.ok) throw new Error("Failed to load Workspace graph")
-  return res.json() as Promise<WorkspaceGraphPayload>
+  return readApiJson<WorkspaceGraphPayload>(res, {
+    message: "Failed to load Workspace graph",
+  })
 }
 
 export async function fetchWorkspace(
@@ -180,9 +175,11 @@ export async function fetchWorkspace(
       param: { orgSlug, workspaceSlug },
     },
   )
-  if (res.status === 404) return null
-  if (!res.ok) throw new Error("Failed to load Workspace")
-  return res.json() as Promise<WorkspaceDetail>
+  return readApiJson<WorkspaceDetail | null>(res, {
+    emptyOn: [404],
+    empty: null,
+    message: "Failed to load Workspace",
+  })
 }
 
 export function workspaceListOptions(orgSlug: string) {
@@ -225,7 +222,6 @@ export function workspaceGitTreeOptions(
   return queryOptions({
     queryKey: workspaceKeys.gitTree(orgSlug, workspaceSlug, sha),
     queryFn: () => fetchWorkspaceGitTree(orgSlug, workspaceSlug),
-    retry: false,
   })
 }
 
@@ -273,11 +269,7 @@ export async function createWorkspace(
     param: { orgSlug },
     json: input,
   })
-  if (!res.ok) {
-    const err = (await res.json().catch(() => ({}))) as { error?: string }
-    throw new Error(err.error ?? "Failed to create Workspace")
-  }
-  return res.json() as Promise<Workspace>
+  return readApiJson<Workspace>(res, { message: "Failed to create Workspace" })
 }
 
 export async function updateWorkspace(
@@ -297,11 +289,7 @@ export async function updateWorkspace(
     param: { orgSlug, workspaceSlug },
     json: input,
   })
-  if (!res.ok) {
-    const err = (await res.json().catch(() => ({}))) as { error?: string }
-    throw new Error(err.error ?? "Failed to update Workspace")
-  }
-  return res.json() as Promise<Workspace>
+  return readApiJson<Workspace>(res, { message: "Failed to update Workspace" })
 }
 
 export async function deleteWorkspace(
@@ -316,13 +304,7 @@ export async function deleteWorkspace(
     param: { orgSlug, workspaceSlug },
     json: { confirmName },
   })
-  if (!res.ok && res.status !== 204) {
-    const err = (await res.json().catch(() => ({}))) as {
-      error?: string
-      message?: string
-    }
-    throw new Error(err.error ?? err.message ?? "Failed to delete Workspace")
-  }
+  await readApiJson<void>(res, { message: "Failed to delete Workspace" })
 }
 
 export async function touchWorkspace(
@@ -335,9 +317,9 @@ export async function touchWorkspace(
   ].touch.$post({
     param: { orgSlug, workspaceSlug },
   })
-  if (!res.ok && res.status !== 204) {
-    throw new Error("Failed to record last-used Workspace")
-  }
+  await readApiJson<void>(res, {
+    message: "Failed to record last-used Workspace",
+  })
 }
 
 export async function retryPrepareWorkspace(
@@ -350,11 +332,9 @@ export async function retryPrepareWorkspace(
   ].$post({
     param: { orgSlug, workspaceSlug },
   })
-  if (!res.ok) {
-    const err = (await res.json().catch(() => ({}))) as { error?: string }
-    throw new Error(err.error ?? "Failed to retry Workspace prepare")
-  }
-  return res.json() as Promise<Workspace>
+  return readApiJson<Workspace>(res, {
+    message: "Failed to retry Workspace prepare",
+  })
 }
 
 export async function linkWorkspaceRepository(
@@ -369,11 +349,9 @@ export async function linkWorkspaceRepository(
     param: { orgSlug, workspaceSlug },
     json: { gitUrl },
   })
-  if (!res.ok) {
-    const err = (await res.json().catch(() => ({}))) as { error?: string }
-    throw new Error(err.error ?? "Failed to link repository")
-  }
-  return res.json() as Promise<WorkspaceLinkedRepository>
+  return readApiJson<WorkspaceLinkedRepository>(res, {
+    message: "Failed to link repository",
+  })
 }
 
 export async function unlinkWorkspaceRepository(
@@ -387,9 +365,7 @@ export async function unlinkWorkspaceRepository(
   ][":linkedId"].$delete({
     param: { orgSlug, workspaceSlug, linkedId },
   })
-  if (!res.ok && res.status !== 204) {
-    throw new Error("Failed to unlink repository")
-  }
+  await readApiJson<void>(res, { message: "Failed to unlink repository" })
 }
 
 export function landingWorkspace(

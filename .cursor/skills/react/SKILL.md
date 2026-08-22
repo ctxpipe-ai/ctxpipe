@@ -69,12 +69,14 @@ Urgent local state is for **in-page clicks**. Route **enter** (SSR, refresh, org
 
 Use [`useUrgentValue`](../../../apps/ui/src/lib/useUrgentValue.ts): set the value in the event handler; adopt the committed URL during render when it changes (back/forward). Include org/workspace in the key so ids do not leak across identities.
 
-- **Loader:** identity queries on enter. Warm the **landing** region on enter (workspace default is files when `?pane=` is empty). Do not list in-page search in `loaderDeps`. `shouldReload: ({ cause }) => cause === "enter"` so search-only / sibling stays do not re-await. Never pass `paneParam: undefined` on enter.
+- **Loader:** identity queries on enter. Warm the **landing** region on enter (workspace default is files when `?pane=` is empty) **only when that region can succeed** (e.g. `workspaceProjectionReady`). Do not list in-page search in `loaderDeps`. `shouldReload: ({ cause }) => cause === "enter"` so search-only / sibling stays do not re-await. Never pass `paneParam: undefined` on enter.
 - **Region:** `useSuspenseQuery` + **local** `Suspense` (skeleton for that pane, not a full-page “Loading Workspace…”). Fallbacks are for **client clicks**, not first HTML.
 - **Intent:** `prefetchQuery` on hover/select; do not `await` it before `navigate`. Prefer `Link` (router `defaultPreload: "intent"`) plus `onPress` for urgent selection — `navigate()` in `onClick` misses preload.
 - **Selected chrome:** tabs, panes, SideNav rows, org switcher label. Keep the URL for share/refresh; do not wait for it to paint the highlight.
+- **HTTP:** every product call goes through `apiFetch` / `readApiJson`. Bare `fetch` + `if (!res.ok) throw` is a bug. Expected 409/404 (not ready / not installed) are data via `emptyOn`, not thrown errors. Query retries never run on 4xx (`retryQuery`). `refetchInterval` always uses `pollWhileOk` (or equivalent: return `false` on error).
+- **Loaders / `beforeLoad`:** `await` only queries required to **choose the route** (session, org membership, workspace identity). Parallelize independent identity fetches (`Promise.all`). Keep the workspace SSR skip (`warmLandingPane` only in the browser). Do **not** flip the app to `ssr: false`.
 
-A blocked tab or nav click is a bug, even if the data eventually arrives. Dropping SSR of the landing files tree to make a click feel fast is also a bug.
+A blocked tab or nav click is a bug, even if the data eventually arrives. Holding the HTML document on a retried 4xx or hung fetch until the edge 502s is also a bug.
 
 ## Checklist before adding `useEffect`
 

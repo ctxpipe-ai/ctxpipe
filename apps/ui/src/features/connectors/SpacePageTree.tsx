@@ -9,6 +9,7 @@ import { useQuery } from "@tanstack/react-query"
 import { useCallback, useEffect, useState } from "react"
 import { Checkbox } from "@/components/ui/Checkbox"
 import { SkeletonRow } from "@/components/ui/Skeleton"
+import { apiFetch, readApiJson } from "@/lib/api-result"
 import type { ConfluencePage, ConfluenceSpace, SpaceScopeItem } from "./types"
 
 function connectorsAtlassianUrl(
@@ -64,7 +65,7 @@ function PageNode({
       page.id,
     ],
     queryFn: async () => {
-      const res = await fetch(
+      const res = await apiFetch(
         connectorsAtlassianUrl(
           orgSlug,
           `/available-spaces/${encodeURIComponent(spaceKey)}/pages`,
@@ -73,8 +74,9 @@ function PageNode({
         ),
         { credentials: "include" },
       )
-      if (!res.ok) throw new Error(`HTTP ${res.status}`)
-      const json = (await res.json()) as { items: ConfluencePage[] }
+      const json = await readApiJson<{ items: ConfluencePage[] }>(res, {
+        message: `HTTP ${res.status}`,
+      })
       return json.items
     },
     enabled: expanded,
@@ -201,7 +203,7 @@ function SpaceNode({
       space.key,
     ],
     queryFn: async () => {
-      const res = await fetch(
+      const res = await apiFetch(
         connectorsAtlassianUrl(
           orgSlug,
           `/available-spaces/${encodeURIComponent(space.key)}/pages`,
@@ -209,8 +211,9 @@ function SpaceNode({
         ),
         { credentials: "include" },
       )
-      if (!res.ok) throw new Error(`Failed to fetch pages (${res.status})`)
-      const json = (await res.json()) as { items: ConfluencePage[] }
+      const json = await readApiJson<{ items: ConfluencePage[] }>(res, {
+        message: `Failed to fetch pages (${res.status})`,
+      })
       return json.items
     },
     enabled: expanded && !isSearching,
@@ -226,7 +229,7 @@ function SpaceNode({
       search,
     ],
     queryFn: async () => {
-      const res = await fetch(
+      const res = await apiFetch(
         connectorsAtlassianUrl(
           orgSlug,
           `/available-spaces/${encodeURIComponent(space.key)}/search`,
@@ -235,8 +238,9 @@ function SpaceNode({
         ),
         { credentials: "include" },
       )
-      if (!res.ok) throw new Error(`Failed to search pages (${res.status})`)
-      const json = (await res.json()) as { items: ConfluencePage[] }
+      const json = await readApiJson<{ items: ConfluencePage[] }>(res, {
+        message: `Failed to search pages (${res.status})`,
+      })
       return json.items
     },
     enabled: isSearching,
@@ -486,7 +490,7 @@ export function SpacePageTree({
       atlassianConnectionId ?? "default",
     ],
     queryFn: async () => {
-      const res = await fetch(
+      const res = await apiFetch(
         connectorsAtlassianUrl(
           orgSlug,
           "/available-spaces",
@@ -496,8 +500,9 @@ export function SpacePageTree({
           credentials: "include",
         },
       )
-      if (!res.ok) throw new Error("Failed to fetch spaces")
-      const json = (await res.json()) as { items: ConfluenceSpace[] }
+      const json = await readApiJson<{ items: ConfluenceSpace[] }>(res, {
+        message: "Failed to fetch spaces",
+      })
       return json.items
     },
     throwOnError: false,

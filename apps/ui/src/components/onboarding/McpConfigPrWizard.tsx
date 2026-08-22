@@ -6,6 +6,7 @@ import { Button } from "@/components/ui/Button"
 import { InlineLoader } from "@/components/ui/InlineLoader"
 import { GithubRepoPickerSkeleton } from "@/features/repositories/components/GithubRepoPickerList"
 import { client } from "@/lib/api"
+import { apiFetch, readApiJson } from "@/lib/api-result"
 import { cn } from "@/lib/utils"
 
 type McpAgentId = "cursor" | "claude_code" | "opencode"
@@ -92,13 +93,15 @@ export function McpConfigPrWizard(props: McpConfigPrWizardProps) {
           param: { orgSlug: string }
         }) => Promise<Response>
       )({ param: { orgSlug } })
-      if (res.status === 404) return null
-      if (!res.ok) throw new Error("Failed to load GitHub setup")
-      return (await res.json()) as {
+      return readApiJson<{
         ingestAllRepositories: boolean
         includeFutureRepos: boolean
         savedRepositories: SetupRepo[]
-      }
+      } | null>(res, {
+        emptyOn: [404],
+        empty: null,
+        message: "Failed to load GitHub setup",
+      })
     },
     enabled: Boolean(orgSlug) && hasGithubInstallation,
   })
@@ -122,21 +125,12 @@ export function McpConfigPrWizard(props: McpConfigPrWizardProps) {
         param: { orgSlug },
         query: { page: "1", per_page: "100" },
       })
-      if (!res.ok) {
-        const errJson = (await res.json().catch(() => ({}))) as {
-          error?: string
-          message?: string
-        }
-        const msg =
-          errJson.error ??
-          errJson.message ??
-          `Failed to list repositories (${res.status})`
-        throw new Error(msg)
-      }
-      return (await res.json()) as {
+      return readApiJson<{
         repositories: GitHubRepoItem[]
         hasMore: boolean
-      }
+      }>(res, {
+        message: `Failed to list repositories (${res.status})`,
+      })
     },
     enabled: Boolean(orgSlug) && hasGithubInstallation,
   })
@@ -198,7 +192,7 @@ export function McpConfigPrWizard(props: McpConfigPrWizardProps) {
     ],
     queryFn: async (): Promise<{ files: McpPreviewFileRow[] }> => {
       if (!orgSlug) throw new Error("Missing organisation")
-      const res = await fetch(
+      const res = await apiFetch(
         `/${encodeURIComponent(orgSlug)}/api/v1/github/installation/mcp-config-preview`,
         {
           method: "POST",
@@ -210,13 +204,12 @@ export function McpConfigPrWizard(props: McpConfigPrWizardProps) {
           }),
         },
       )
-      const json = (await res.json()) as {
+      const json = await readApiJson<{
         files?: McpPreviewFileRow[]
         error?: string
-      }
-      if (!res.ok) {
-        throw new Error(json.error ?? "Failed to load MCP config preview")
-      }
+      }>(res, {
+        message: "Failed to load MCP config preview",
+      })
       return { files: json.files ?? [] }
     },
     enabled:
@@ -265,7 +258,7 @@ export function McpConfigPrWizard(props: McpConfigPrWizardProps) {
       const repos = [...selectedRepoFullNames]
       if (repos.length === 0) throw new Error("Select at least one repository")
       const agentList = [...agents]
-      const res = await fetch(
+      const res = await apiFetch(
         `/${encodeURIComponent(orgSlug)}/api/v1/github/installation/mcp-config-prs`,
         {
           method: "POST",
@@ -277,14 +270,13 @@ export function McpConfigPrWizard(props: McpConfigPrWizardProps) {
           }),
         },
       )
-      const json = (await res.json()) as {
+      const json = await readApiJson<{
         pullRequests?: { repository: string; pullRequestUrl: string }[]
         failures?: { repository: string; error: string }[]
         error?: string
-      }
-      if (!res.ok) {
-        throw new Error(json.error ?? "Failed to open pull requests")
-      }
+      }>(res, {
+        message: "Failed to open pull requests",
+      })
       return {
         pullRequests: json.pullRequests ?? [],
         failures: json.failures ?? [],

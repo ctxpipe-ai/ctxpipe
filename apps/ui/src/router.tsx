@@ -1,6 +1,7 @@
 import { QueryClient } from "@tanstack/react-query"
 import { createRouter as createTanStackRouter } from "@tanstack/react-router"
 import { setupRouterSsrQueryIntegration } from "@tanstack/react-router-ssr-query"
+import { retryQuery } from "./lib/api-result"
 import { routeTree } from "./routeTree.gen"
 
 export type RouterContext = {
@@ -12,6 +13,7 @@ export function getRouter() {
     defaultOptions: {
       queries: {
         staleTime: 60_000,
+        retry: retryQuery,
       },
     },
   })

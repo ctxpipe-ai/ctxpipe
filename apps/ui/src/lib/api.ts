@@ -1,5 +1,6 @@
 import { hc } from "hono/client"
 import type { registerV1Routes } from "../../../backend/src/routes/v1"
+import { apiFetch } from "./api-result"
 import { ssrApiBaseUrl } from "./ssr-api-base"
 
 type V1Routes = ReturnType<typeof registerV1Routes>
@@ -25,7 +26,7 @@ async function getRequestInit(): Promise<RequestInit> {
 /** Isomorphic Hono client — forwards Cookie on SSR, credentials on the browser. */
 export async function getApiClient(): Promise<ApiClient> {
   const init = await getRequestInit()
-  return hc<V1Routes>(apiBaseUrl(), { init })
+  return hc<V1Routes>(apiBaseUrl(), { init, fetch: apiFetch })
 }
 
 /**
@@ -34,4 +35,5 @@ export async function getApiClient(): Promise<ApiClient> {
  */
 export const client = hc<V1Routes>("/", {
   init: { credentials: "include" },
+  fetch: apiFetch,
 })

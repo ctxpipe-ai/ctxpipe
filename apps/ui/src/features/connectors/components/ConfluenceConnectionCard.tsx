@@ -6,6 +6,7 @@ import { useState } from "react"
 import { toast } from "sonner"
 import { AlertDialog } from "@/components/ui/AlertDialog"
 import { Modal } from "@/components/ui/Modal"
+import { pollWhileOk } from "@/lib/api-result"
 import {
   getConfluenceCardCurrentIndex,
   getConfluenceCardPrimaryCta,
@@ -57,7 +58,7 @@ export function ConfluenceConnectionCard({
   } = useQuery({
     queryKey: atlassianConnectorKeys.status(orgSlug, connectionId),
     queryFn: () => fetchAtlassianConnectorStatus(orgSlug, connectionId),
-    refetchInterval: CONNECTORS_PAGE_POLL_INTERVAL_MS,
+    refetchInterval: pollWhileOk(CONNECTORS_PAGE_POLL_INTERVAL_MS),
   })
 
   const {
@@ -67,7 +68,7 @@ export function ConfluenceConnectionCard({
   } = useQuery({
     queryKey: atlassianConnectorKeys.orgAtlassianOauth(orgSlug, connectionId),
     queryFn: () => fetchOrgAtlassianOauth(orgSlug, connectionId),
-    refetchInterval: CONNECTORS_PAGE_POLL_INTERVAL_MS,
+    refetchInterval: pollWhileOk(CONNECTORS_PAGE_POLL_INTERVAL_MS),
   })
 
   const oauthForCard = oauthSuccess ? orgOauthData : undefined

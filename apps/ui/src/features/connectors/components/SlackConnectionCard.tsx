@@ -6,6 +6,7 @@ import { useState } from "react"
 import { toast } from "sonner"
 import { AlertDialog } from "@/components/ui/AlertDialog"
 import { Modal } from "@/components/ui/Modal"
+import { pollWhileOk } from "@/lib/api-result"
 import { resolveConnectorHealth } from "../connectorHealth"
 import {
   CONNECTORS_PAGE_POLL_INTERVAL_MS,
@@ -46,7 +47,7 @@ export function SlackConnectionCard({
   } = useQuery({
     queryKey: slackConnectorKeys.status(orgSlug, connectionId),
     queryFn: () => fetchSlackConnectorStatus(orgSlug, connectionId),
-    refetchInterval: CONNECTORS_PAGE_POLL_INTERVAL_MS,
+    refetchInterval: pollWhileOk(CONNECTORS_PAGE_POLL_INTERVAL_MS),
   })
 
   const removeMutation = useMutation({

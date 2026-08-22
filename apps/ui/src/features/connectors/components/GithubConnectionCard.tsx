@@ -11,6 +11,7 @@ import {
   githubConnectorKeys,
   githubInstallationIsLinked,
 } from "@/features/connectors/queries/github-connector"
+import { apiFetch, pollWhileOk, readApiJson } from "@/lib/api-result"
 import { resolveConnectorHealth } from "../connectorHealth"
 import {
   CONNECTORS_PAGE_POLL_INTERVAL_MS,
@@ -32,14 +33,11 @@ async function deleteGithubConnector(
   connectionId: string,
 ): Promise<void> {
   const qs = new URLSearchParams({ connectionId })
-  const res = await fetch(
+  const res = await apiFetch(
     `/${orgSlug}/api/v1/github/installation?${qs.toString()}`,
     { method: "DELETE", credentials: "include" },
   )
-  if (!res.ok) {
-    const body = (await res.json().catch(() => ({}))) as { error?: string }
-    throw new Error(body.error ?? "Failed to remove connector")
-  }
+  await readApiJson(res, { message: "Failed to remove connector" })
 }
 
 export function GithubConnectionCard({
@@ -56,20 +54,21 @@ export function GithubConnectionCard({
     refetch,
   } = useQuery({
     queryKey: githubConnectorKeys.installation(orgSlug, connectionId),
-    refetchInterval: CONNECTORS_PAGE_POLL_INTERVAL_MS,
+    refetchInterval: pollWhileOk(CONNECTORS_PAGE_POLL_INTERVAL_MS),
     queryFn: async () => {
       const qs = new URLSearchParams({ connectionId })
-      const res = await fetch(
+      const res = await apiFetch(
         `/${orgSlug}/api/v1/github/installation?${qs.toString()}`,
         { credentials: "include" },
       )
-      if (!res.ok) throw new Error("Failed to load GitHub connection")
-      return (await res.json()) as {
+      return readApiJson<{
         id: string
         installationId: number | null
         accountSlug: string | null
         ingestionRepositoryCount: number
-      } | null
+      } | null>(res, {
+        message: "Failed to load GitHub connection",
+      })
     },
   })
 

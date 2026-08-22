@@ -1,3 +1,4 @@
+import { apiFetch } from "./api-result"
 import { ssrApiBaseUrl } from "./ssr-api-base"
 
 export type SsrAuthUser = {
@@ -39,7 +40,7 @@ async function authFetchInit(): Promise<RequestInit> {
 export async function fetchSsrSession(): Promise<SsrSession> {
   const init = await authFetchInit()
   try {
-    const res = await fetch(
+    const res = await apiFetch(
       `${authBaseUrl()}/.auth/api/v1/auth/get-session`,
       init,
     )
@@ -56,7 +57,7 @@ export async function fetchSsrSession(): Promise<SsrSession> {
 export async function fetchSsrOrganizations(): Promise<SsrOrganization[]> {
   const init = await authFetchInit()
   try {
-    const res = await fetch(
+    const res = await apiFetch(
       `${authBaseUrl()}/.auth/api/v1/auth/organization/list`,
       init,
     )

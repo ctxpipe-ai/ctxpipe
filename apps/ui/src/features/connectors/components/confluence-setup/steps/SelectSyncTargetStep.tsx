@@ -7,6 +7,7 @@ import { ComboBox, ComboBoxItem } from "@/components/ui/ComboBox"
 import type { Repository } from "@/features/repositories"
 import { GithubRepoPickerSkeleton } from "@/features/repositories/components/GithubRepoPickerList"
 import { client } from "@/lib/api"
+import { readApiJson } from "@/lib/api-result"
 import {
   atlassianConnectorKeys,
   fetchAtlassianConnectorConfig,
@@ -62,8 +63,9 @@ export function SelectSyncTargetStep({
       const res = await client[":orgSlug"].api.v1.repositories.$get({
         param: { orgSlug },
       })
-      if (!res.ok) throw new Error("Failed to fetch repositories")
-      const json = (await res.json()) as { items: Repository[] }
+      const json = await readApiJson<{ items: Repository[] }>(res, {
+        message: "Failed to fetch repositories",
+      })
       return json.items
     },
   })

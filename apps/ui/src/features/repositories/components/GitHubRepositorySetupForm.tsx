@@ -8,6 +8,7 @@ import { Checkbox } from "@/components/ui/Checkbox"
 import { Radio, RadioGroup } from "@/components/ui/RadioGroup"
 import { SearchField } from "@/components/ui/SearchField"
 import { client } from "@/lib/api"
+import { readApiJson } from "@/lib/api-result"
 import { useSession } from "@/lib/auth-client"
 import {
   buildSelectedRepositories,
@@ -139,12 +140,7 @@ export function GitHubRepositorySetupForm({
             includeFutureRepos,
           },
         })
-        if (!res.ok) {
-          const err = (await res.json().catch(() => ({}))) as {
-            error?: string
-          }
-          throw new Error(err.error ?? "Failed to save")
-        }
+        await readApiJson(res, { message: "Failed to save" })
         return {
           ingestAllRepositories: true,
           includeFutureRepos,
@@ -165,12 +161,7 @@ export function GitHubRepositorySetupForm({
           selectedRepositories,
         },
       })
-      if (!res.ok) {
-        const err = (await res.json().catch(() => ({}))) as {
-          error?: string
-        }
-        throw new Error(err.error ?? "Failed to save")
-      }
+      await readApiJson(res, { message: "Failed to save" })
       return {
         ingestAllRepositories: false,
         includeFutureRepos: false,

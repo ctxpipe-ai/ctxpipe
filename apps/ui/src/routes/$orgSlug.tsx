@@ -5,7 +5,10 @@ import { fetchSsrOrganizations, fetchSsrSession } from "@/lib/auth-ssr"
 export const Route = createFileRoute("/$orgSlug")({
   shouldReload: ({ cause }) => cause === "enter",
   beforeLoad: async ({ params, context }) => {
-    const session = await fetchSsrSession()
+    const [session, organizations] = await Promise.all([
+      fetchSsrSession(),
+      fetchSsrOrganizations(),
+    ])
     if (!session) {
       throw redirect({ to: "/.auth/sign-in" })
     }
@@ -18,7 +21,6 @@ export const Route = createFileRoute("/$orgSlug")({
       })
     }
 
-    const organizations = await fetchSsrOrganizations()
     if (organizations.length === 0) {
       throw redirect({
         to: "/onboarding",

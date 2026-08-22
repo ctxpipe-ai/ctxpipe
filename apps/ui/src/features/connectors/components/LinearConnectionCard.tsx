@@ -6,6 +6,7 @@ import { useState } from "react"
 import { toast } from "sonner"
 import { AlertDialog } from "@/components/ui/AlertDialog"
 import { Modal } from "@/components/ui/Modal"
+import { pollWhileOk } from "@/lib/api-result"
 import {
   formatSelectedItemCount,
   resolveConnectorHealth,
@@ -49,7 +50,7 @@ export function LinearConnectionCard({
   const statusQuery = useQuery({
     queryKey: linearConnectorKeys.status(orgSlug, connectionId),
     queryFn: () => fetchLinearConnectorStatus(orgSlug, connectionId),
-    refetchInterval: CONNECTORS_PAGE_POLL_INTERVAL_MS,
+    refetchInterval: pollWhileOk(CONNECTORS_PAGE_POLL_INTERVAL_MS),
   })
   const removeMutation = useMutation({
     mutationFn: () => deleteLinearConnector(orgSlug, connectionId),

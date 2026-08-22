@@ -19,6 +19,7 @@ import {
 } from "@/features/connectors/queries/github-connector"
 import { useRepositoryIndexingSummary } from "@/features/repositories"
 import { client } from "@/lib/api"
+import { apiFetch, readApiJson } from "@/lib/api-result"
 import {
   authClient,
   getSession,
@@ -223,19 +224,17 @@ export function OnboardingPageContent({
           fetchOptions: { throw: true },
         })
       }
-      const [userComplete, orgComplete] = await Promise.all([
-        fetch("/api/v1/onboarding/user/complete", {
+      await Promise.all([
+        apiFetch("/api/v1/onboarding/user/complete", {
           method: "POST",
           credentials: "include",
-        }),
-        client[":orgSlug"].api.v1.onboarding.complete.$post({
-          param: { orgSlug },
-        }),
+        }).then((res) => readApiJson(res)),
+        client[":orgSlug"].api.v1.onboarding.complete
+          .$post({
+            param: { orgSlug },
+          })
+          .then((res) => readApiJson(res)),
       ])
-      if (!userComplete.ok || !orgComplete.ok) {
-        setCompleting(false)
-        return
-      }
       setPreferences((prev) => ({
         ...prev,
         selectedOrganizationSlug: orgSlug,
@@ -266,14 +265,10 @@ export function OnboardingPageContent({
     if (completing) return
     setCompleting(true)
     try {
-      const userComplete = await fetch("/api/v1/onboarding/user/complete", {
+      await apiFetch("/api/v1/onboarding/user/complete", {
         method: "POST",
         credentials: "include",
-      })
-      if (!userComplete.ok) {
-        setCompleting(false)
-        return
-      }
+      }).then((res) => readApiJson(res))
       void getSession({ fetchOptions: { throw: false } })
     } catch {
       setCompleting(false)

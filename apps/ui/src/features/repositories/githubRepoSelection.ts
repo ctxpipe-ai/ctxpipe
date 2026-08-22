@@ -1,4 +1,5 @@
 import { client } from "@/lib/api"
+import { readApiJson } from "@/lib/api-result"
 
 export type SavedGithubRepo = {
   name: string
@@ -109,8 +110,7 @@ export async function fetchGithubInstallationReposPage(
     param: { orgSlug },
     query: { page: String(page), per_page: "100" },
   })
-  if (!res.ok) throw new Error("Failed to fetch repositories")
-  const body = (await res.json()) as {
+  const body = await readApiJson<{
     repositories: Array<
       Partial<GithubRepoItem> & { name: string; clone_url: string }
     >
@@ -118,7 +118,7 @@ export async function fetchGithubInstallationReposPage(
     repositorySelection?: string
     manageUrl?: string | null
     totalCount?: number
-  }
+  }>(res, { message: "Failed to fetch repositories" })
   return {
     repositories: body.repositories.map((repo, index) => ({
       id: repo.id ?? index + 1 + (page - 1) * 100,

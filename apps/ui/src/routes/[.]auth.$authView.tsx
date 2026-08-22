@@ -8,6 +8,7 @@ import { PageBodySkeleton } from "@/components/ui/Skeleton"
 import { Spinner } from "@/components/ui/spinner"
 import { acceptInvitationThenRedirect } from "@/features/auth/accept-invitation"
 import { betterAuthAuthViewClassNames } from "@/features/auth/betterAuthShellClassNames"
+import { apiFetch, readApiJson } from "@/lib/api-result"
 import { authClient, useSession } from "@/lib/auth-client"
 import { getAuthContinuationProps } from "@/lib/auth-continuation"
 import { useGetAuthConfig } from "@/lib/useGetAuthConfig"
@@ -73,12 +74,13 @@ function InviteAcceptSignUp(props: InviteAcceptSignUpProps = {}) {
   const invitationEmailQuery = useQuery({
     queryKey: ["public-invitation-details", invitationId],
     queryFn: async () => {
-      const res = await fetch(
+      const res = await apiFetch(
         `/.auth/api/v1/public/invitations/${encodeURIComponent(invitationId)}`,
         { credentials: "include" },
       )
-      if (!res.ok) throw new Error("Invitation not found or expired")
-      const json = (await res.json()) as InvitationDetails
+      const json = await readApiJson<InvitationDetails>(res, {
+        message: "Invitation not found or expired",
+      })
       return {
         email: props.invitationEmail ?? json.email,
         organizationName: json.organizationName,

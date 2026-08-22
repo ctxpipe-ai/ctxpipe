@@ -712,6 +712,12 @@ Highest-priority confirmed rules for agents. Migrated from former `patterns.md` 
 - **Date:** 2026-08-21
 - **Source:** skeleton loading backfill (Operate UI audit)
 
+### Product HTTP goes through the UI API gateway
+- **Rule:** Every product HTTP call in `apps/ui` goes through `apiFetch` / `readApiJson` (`apps/ui/src/lib/api-result.ts`). Bare `fetch` + `if (!res.ok) throw` is a bug. Hono clients (`getApiClient`, `client`) and `auth-ssr` use `apiFetch`. `readApiJson` treats listed `emptyOn` statuses (409/404 only where that is already the contract) as data; every other `!ok` is `ApiError` with `status`. QueryClient default `retry` is `retryQuery`: at most one retry, only for `status === 0` or `>= 500` — never 4xx. Every `refetchInterval` uses `pollWhileOk` (or equivalent: stop on error). Loaders/`beforeLoad` may `await` only queries required to choose the route; landing-region warmup only when that region can succeed. The backend UI proxy aborts at 15s and returns 504. No env flag for these timeouts.
+- **Category:** convention
+- **Date:** 2026-08-22
+- **Source:** workspace document-path 502 (files/tree 409 retried on SSR; connectors status 500 polled)
+
 ### Prefer named Tailwind utilities over arbitrary values
 - **Rule:** Use the Tailwind scale (`tracking-tighter`, `p-2`, `text-sm`, `gap-3`). Write `tracking-[-0.5px]`, `text-[15px]`, or `p-[13px]` only when no named token is close.
 - **Category:** convention

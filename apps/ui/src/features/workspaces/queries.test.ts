@@ -152,7 +152,9 @@ describe("workspace query HTTP helpers", () => {
     expect(hits).toBe(1)
   })
 
-  it("does not retry files/tree queries", () => {
-    expect(workspaceGitTreeOptions("acme", "knowledge", "").retry).toBe(false)
+  it("uses the shared query retry policy for files/tree", () => {
+    expect(
+      workspaceGitTreeOptions("acme", "knowledge", "").retry,
+    ).toBeUndefined()
   })
 })

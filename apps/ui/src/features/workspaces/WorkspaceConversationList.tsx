@@ -11,6 +11,7 @@ import { Button } from "@/components/ui/Button"
 import { SkeletonRow } from "@/components/ui/Skeleton"
 import type { ConversationListItem } from "@/features/chat/types"
 import { client } from "@/lib/api"
+import { readApiJson } from "@/lib/api-result"
 import { conversationShortLabel } from "./conversationLabel"
 import { workspaceKeys } from "./queries"
 import type { Workspace } from "./types"
@@ -43,11 +44,10 @@ export function WorkspaceConversationList(props: {
             pageParam !== "" && { after: pageParam as string }),
         },
       })
-      if (!res.ok) throw new Error("Failed to fetch conversations")
-      return res.json() as Promise<{
+      return readApiJson<{
         items: ConversationListItem[]
         pageInfo: { hasNextPage: boolean; endCursor: string | null }
-      }>
+      }>(res, { message: "Failed to fetch conversations" })
     },
     getNextPageParam: (lastPage) =>
       lastPage.pageInfo.hasNextPage && lastPage.pageInfo.endCursor
