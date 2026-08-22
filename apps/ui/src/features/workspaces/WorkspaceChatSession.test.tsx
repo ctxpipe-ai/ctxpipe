@@ -1,13 +1,13 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query"
+import type { UIMessage } from "ai"
 import { renderToStaticMarkup } from "react-dom/server"
 import { beforeEach, describe, expect, it, vi } from "vitest"
 import { readOnlyWorkspace } from "./workspace-fixtures"
 
+type ChatPreviewMessage = Pick<UIMessage, "role" | "parts">
+
 const useChatState = vi.hoisted(() => ({
-  messages: [] as Array<{
-    role: string
-    parts: Array<{ type: string; text?: string }>
-  }>,
+  messages: [] as ChatPreviewMessage[],
   status: "error",
   error: new Error(
     "opencode serve exited before becoming ready: sh: opencode: not found",
