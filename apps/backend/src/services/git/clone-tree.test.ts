@@ -94,4 +94,18 @@ describe("clone-tree", () => {
       file.kind === "bytes" ? Buffer.from(file.bytes).toString("utf8") : "",
     ).not.toMatch(/root:/)
   })
+
+  it("fails clearly when git is not on PATH", async () => {
+    const previousPath = process.env.PATH
+    process.env.PATH = "/tmp/ctxpipe-no-git"
+    try {
+      await expect(
+        listPathsAtGitSha({ url: "https://example.com/repo.git", sha: "abc" }),
+      ).rejects.toThrow(
+        "git is not installed on this service; cannot read a repository by clone.",
+      )
+    } finally {
+      process.env.PATH = previousPath
+    }
+  })
 })

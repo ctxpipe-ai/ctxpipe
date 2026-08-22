@@ -19,7 +19,8 @@ ENV NODE_ENV=production
 ENV PATH="/usr/local/bin:${PATH}"
 # GNU find: TanStack sandbox watch on Linux exec-polls with `find -printf`.
 # OpenCode: `opencodeText` spawns `opencode serve` in the local-process sandbox.
-RUN apk add --no-cache findutils
+# git: clone-tree and paste-URL hydrate/explorer spawn the git CLI.
+RUN apk add --no-cache findutils git
 COPY --from=opencode /usr/local/bin/ /usr/local/bin/
 COPY --from=opencode /usr/local/lib/node_modules/ /usr/local/lib/node_modules/
 COPY --from=deps /app/node_modules ./node_modules

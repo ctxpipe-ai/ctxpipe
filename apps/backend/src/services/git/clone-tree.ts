@@ -6,6 +6,26 @@ import { promisify } from "node:util"
 
 const execFileAsync = promisify(execFile)
 
+async function gitExec(
+  args: string[],
+  options: Parameters<typeof execFileAsync>[2] = {},
+) {
+  try {
+    return await execFileAsync("git", args, options)
+  } catch (error) {
+    const err = error as NodeJS.ErrnoException & { message?: string }
+    if (
+      err.code === "ENOENT" ||
+      /not found in \$PATH/i.test(err.message ?? "")
+    ) {
+      throw new Error(
+        "git is not installed on this service; cannot read a repository by clone.",
+      )
+    }
+    throw error
+  }
+}
+
 export type GitShaFile =
   | { kind: "missing" }
   | { kind: "bytes"; bytes: Uint8Array }
@@ -35,15 +55,14 @@ async function withFetchedGitSha<T>(
   const dir = await mkdtemp(join(tmpdir(), "ctxpipe-hydrate-"))
   const remote = authenticatedGitUrl(input.url, input.token)
   try {
-    await execFileAsync("git", ["init", dir], { timeout: 15_000 })
-    await execFileAsync("git", ["-C", dir, "remote", "add", "origin", remote], {
+    await gitExec(["init", dir], { timeout: 15_000 })
+    await gitExec(["-C", dir, "remote", "add", "origin", remote], {
       timeout: 15_000,
     })
-    await execFileAsync(
-      "git",
-      ["-C", dir, "fetch", "--depth", "1", "origin", input.sha],
-      { timeout: 60_000, env: { ...process.env, GIT_TERMINAL_PROMPT: "0" } },
-    )
+    await gitExec(["-C", dir, "fetch", "--depth", "1", "origin", input.sha], {
+      timeout: 60_000,
+      env: { ...process.env, GIT_TERMINAL_PROMPT: "0" },
+    })
     return await read(dir)
   } finally {
     await rm(dir, { recursive: true, force: true })
@@ -51,8 +70,7 @@ async function withFetchedGitSha<T>(
 }
 
 async function listTreePaths(dir: string): Promise<string[]> {
-  const { stdout } = await execFileAsync(
-    "git",
+  const { stdout } = await gitExec(
     ["-C", dir, "ls-tree", "-r", "--name-only", "FETCH_HEAD"],
     { timeout: 15_000, maxBuffer: 10 * 1024 * 1024 },
   )
@@ -65,15 +83,11 @@ async function listTreePaths(dir: string): Promise<string[]> {
 async function gitShowBytes(dir: string, path: string): Promise<GitShaFile> {
   if (!isSafeGitPath(path)) return { kind: "missing" }
   try {
-    const { stdout } = await execFileAsync(
-      "git",
-      ["-C", dir, "show", `FETCH_HEAD:${path}`],
-      {
-        encoding: "buffer",
-        timeout: 15_000,
-        maxBuffer: 10 * 1024 * 1024,
-      },
-    )
+    const { stdout } = await gitExec(["-C", dir, "show", `FETCH_HEAD:${path}`], {
+      encoding: "buffer",
+      timeout: 15_000,
+      maxBuffer: 10 * 1024 * 1024,
+    })
     return { kind: "bytes", bytes: stdout }
   } catch {
     return { kind: "missing" }
