@@ -277,7 +277,7 @@ export async function handleGithubSetupPopupResult(
         (typeof popupFlowNonce === "string" &&
           popupFlowNonce.length > 0 &&
           popupFlowNonce === activePopupFlow.nonce)
-      if (installationId && orgSlug) {
+      if (githubInstallationIsLinked({ installationId }) && orgSlug) {
         if (nonceMatches) {
           const response = await client[
             ":orgSlug"
