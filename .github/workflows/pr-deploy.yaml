@@ -26,7 +26,7 @@ on:
 # Queue, do not cancel. Cancelling the GH job leaves Railway still DEPLOYING;
 # the next run then waits 7m on leftover rolls and never reaches the UI canary.
 concurrency:
-  group: ${{ github.workflow }}-${{ github.event_name == 'workflow_dispatch' && format('pr-{0}', inputs.pr_number) || github.head_ref || github.ref_name }}
+  group: ${{ github.workflow }}-${{ github.event_name }}-${{ github.event_name == 'workflow_dispatch' && format('pr-{0}', inputs.pr_number) || github.head_ref || github.ref_name }}
   cancel-in-progress: false
 
 permissions:
