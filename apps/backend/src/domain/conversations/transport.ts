@@ -6,16 +6,28 @@ import {
   type TanstackWorkspaceChatInput,
 } from "../workspaces/tanstack-workspace-chat.js"
 import {
+  type WorkspaceChatWireFormat,
+  withWorkspaceChatHeartbeats,
   workspaceChatHttpResponse,
   workspaceChatWireFormat,
-  withWorkspaceChatHeartbeats,
-  type WorkspaceChatWireFormat,
 } from "../workspaces/workspace-chat-agui.js"
+
+export type ConversationChatRequest = {
+  prompt: string
+  workspaceId: string
+  source?: string
+  messages?: TanstackWorkspaceChatInput["messages"]
+  threadId?: string
+  runId?: string
+}
 
 export type StreamInput = {
   conversationId: string
   checkpointNamespace: string
   prompt: string
+  messages?: TanstackWorkspaceChatInput["messages"]
+  threadId?: string
+  runId?: string
   source?: string | null
   writeStatus?: string | null
   lastBranch?: string | null
@@ -71,6 +83,9 @@ function toChatInput(input: StreamInput): TanstackWorkspaceChatInput | null {
   return {
     conversationId: input.conversationId,
     prompt: input.prompt,
+    messages: input.messages,
+    threadId: input.threadId,
+    runId: input.runId,
     orgId,
     workspaceId,
     desiredUrl,
@@ -108,7 +123,8 @@ export function workspaceChatStreamResponse(
   if (!chatInput) {
     return Response.json({ error: "workspace_required" }, { status: 409 })
   }
-  const format = input.wireFormat ?? (request ? workspaceChatWireFormat(request) : "sse")
+  const format =
+    input.wireFormat ?? (request ? workspaceChatWireFormat(request) : "sse")
   return workspaceChatHttpResponse(
     withWorkspaceChatHeartbeats(streamTanstackWorkspaceChat(chatInput)),
     format,
@@ -164,18 +180,18 @@ export function toPromptFromIncomingMessage(message: {
   return ""
 }
 
-export async function parseConversationChatRequest(body: unknown): Promise<{
-  prompt: string
-  workspaceId: string
-  source?: string
-}> {
+export async function parseConversationChatRequest(
+  body: unknown,
+): Promise<ConversationChatRequest> {
   if (body && typeof body === "object" && "messages" in body) {
     const params = await chatParamsFromRequestBody(body)
     const last = [...params.messages].reverse().find((message) => {
       return "role" in message && message.role === "user"
     })
     const prompt = last
-      ? toPromptFromIncomingMessage(last as { content?: unknown; parts?: unknown[] })
+      ? toPromptFromIncomingMessage(
+          last as { content?: unknown; parts?: unknown[] },
+        )
       : ""
     const forwarded = params.forwardedProps
     const workspaceId =
@@ -184,10 +200,18 @@ export async function parseConversationChatRequest(body: unknown): Promise<{
       ""
     const source =
       typeof forwarded.source === "string" ? forwarded.source : undefined
-    return { prompt, workspaceId, source }
+    return {
+      prompt,
+      workspaceId,
+      source,
+      messages: params.messages,
+      threadId: params.threadId,
+      runId: params.runId,
+    }
   }
 
-  const record = body && typeof body === "object" ? (body as Record<string, unknown>) : {}
+  const record =
+    body && typeof body === "object" ? (body as Record<string, unknown>) : {}
   const message =
     record.message && typeof record.message === "object"
       ? (record.message as { content?: unknown; parts?: unknown[] })

@@ -236,11 +236,11 @@ vi.mock("../../retrieval/services/modelProvider.js", () => ({
 
 import { getLogger } from "../../observability/logger.js"
 import { withTestLogger } from "../../test/with-test-logger.js"
-import { parseSseDataLines } from "./workspace-chat-agui.js"
 import {
   runTanstackWorkspaceChat as runTanstackWorkspaceChatHttp,
   type TanstackWorkspaceChatInput,
 } from "./tanstack-workspace-chat.js"
+import { parseSseDataLines } from "./workspace-chat-agui.js"
 
 async function runTanstackWorkspaceChat(input: TanstackWorkspaceChatInput) {
   const res = await runTanstackWorkspaceChatHttp(input)
@@ -313,13 +313,7 @@ describe("runTanstackWorkspaceChat", () => {
     expect(chatMock).toHaveBeenCalledWith(
       expect.objectContaining({
         threadId: "conv_1",
-        messages: [
-          {
-            role: "user",
-            content: expect.stringContaining("knowledge/billing/ledger.md"),
-          },
-          { role: "user", content: "hello" },
-        ],
+        messages: [{ role: "user", content: "hello" }],
         tools: expect.arrayContaining([
           expect.objectContaining({
             name: "hybrid_search",
@@ -348,10 +342,8 @@ describe("runTanstackWorkspaceChat", () => {
         content: "hello",
       }),
     )
-    expect(embedInTx.seen).toBe(true)
-    expect(embedInTx.value).toBe(false)
-    expect(searchInTx.seen).toBe(true)
-    expect(searchInTx.value).toBe(false)
+    expect(embedInTx.seen).toBe(false)
+    expect(searchInTx.seen).toBe(false)
   })
 
   it("emits a conversation rename data part before finish", async () => {
@@ -372,14 +364,22 @@ describe("runTanstackWorkspaceChat", () => {
     expect(body).toContain("Billing ledger")
   })
 
-  it("loads prior turns into every TanStack chat call", async () => {
+  it("passes client messages and runId through to chat() without Postgres history", async () => {
     loadTurnsMock.mockResolvedValueOnce([
       { role: "user", content: "earlier" },
       { role: "assistant", content: "reply" },
     ])
+    const clientMessages = [
+      { role: "user", content: "earlier" },
+      { role: "assistant", content: "reply" },
+      { role: "user", content: "hello" },
+    ]
     const res = await runTanstackWorkspaceChat({
       conversationId: "conv_1",
       prompt: "hello",
+      messages: clientMessages,
+      threadId: "conv_1",
+      runId: "run_client",
       orgId: "org_1",
       workspaceId: "ws_1",
       desiredUrl: "https://github.com/acme/docs",
@@ -388,20 +388,20 @@ describe("runTanstackWorkspaceChat", () => {
       writeStatus: "writable",
     })
     expect(res.status).toBe(200)
+    expect(loadTurnsMock).not.toHaveBeenCalled()
     expect(chatMock).toHaveBeenCalledWith(
       expect.objectContaining({
-        messages: [
-          {
-            role: "user",
-            content: expect.stringContaining("knowledge/billing/ledger.md"),
-          },
-          { role: "user", content: "earlier" },
-          { role: "assistant", content: "reply" },
-          { role: "user", content: "hello" },
-        ],
+        threadId: "conv_1",
+        runId: "run_client",
+        messages: clientMessages,
       }),
     )
-    await res.text()
+    const events = parseSseDataLines(await res.text())
+    expect(events[0]).toMatchObject({
+      type: "RUN_STARTED",
+      threadId: "conv_1",
+      runId: "run_client",
+    })
   })
 
   it("passes a clone token to gitSource without putting it in the sandbox id", async () => {
@@ -518,39 +518,49 @@ describe("runTanstackWorkspaceChat", () => {
     expect(res.status).toBe(200)
     const events = parseSseDataLines(await res.text())
     expect(events[0]).toMatchObject({ type: "RUN_STARTED" })
-    expect(events.some((event) => (event as { type?: string }).type === "RUN_ERROR")).toBe(
-      true,
-    )
+    expect(
+      events.some((event) => (event as { type?: string }).type === "RUN_ERROR"),
+    ).toBe(true)
     expect(dockerSandboxMock).not.toHaveBeenCalled()
     expect(chatMock).not.toHaveBeenCalled()
   })
 
-  it("grounds chat in Workspace projection snippets", async () => {
+  it("persists this-run assistant deltas only", async () => {
+    chatMock.mockImplementationOnce(async function* () {
+      yield { type: "TEXT_MESSAGE_CONTENT", delta: "only-this-run" }
+      yield { type: "RUN_FINISHED" }
+    })
     const res = await runTanstackWorkspaceChat({
       conversationId: "conv_1",
       prompt: "hello",
+      messages: [
+        { role: "user", content: "earlier" },
+        { role: "assistant", content: "old reply that must not be persisted" },
+        { role: "user", content: "hello" },
+      ],
+      threadId: "conv_1",
+      runId: "run_client",
       orgId: "org_1",
       workspaceId: "ws_1",
       desiredUrl: "https://github.com/acme/docs",
       desiredSha: "abc",
       ref: "abc",
       writeStatus: "writable",
-      retrieveContext: async () =>
-        "Workspace projection context:\n## knowledge/a.md\nHello",
+      userTurnAccepted: true,
     })
     expect(res.status).toBe(200)
-    expect(chatMock).toHaveBeenCalledWith(
+    await res.text()
+    expect(appendTurnMock).not.toHaveBeenCalledWith(
+      expect.objectContaining({ role: "user" }),
+    )
+    expect(appendTurnMock).toHaveBeenCalledTimes(1)
+    expect(appendTurnMock).toHaveBeenCalledWith(
       expect.objectContaining({
-        messages: [
-          {
-            role: "user",
-            content: "Workspace projection context:\n## knowledge/a.md\nHello",
-          },
-          { role: "user", content: "hello" },
-        ],
+        conversationId: "conv_1",
+        role: "assistant",
+        content: "only-this-run",
       }),
     )
-    await res.text()
   })
 
   it("refuses Railway when no isolated provider exists", async () => {
@@ -568,9 +578,9 @@ describe("runTanstackWorkspaceChat", () => {
     expect(res.status).toBe(200)
     const events = parseSseDataLines(await res.text())
     expect(events[0]).toMatchObject({ type: "RUN_STARTED" })
-    expect(events.some((event) => (event as { type?: string }).type === "RUN_ERROR")).toBe(
-      true,
-    )
+    expect(
+      events.some((event) => (event as { type?: string }).type === "RUN_ERROR"),
+    ).toBe(true)
     expect(chatMock).not.toHaveBeenCalled()
   })
 
@@ -689,7 +699,9 @@ describe("runTanstackWorkspaceChat", () => {
         const events = parseSseDataLines(await res.text())
         expect(events[0]).toMatchObject({ type: "RUN_STARTED" })
         expect(
-          events.some((event) => (event as { type?: string }).type === "RUN_ERROR"),
+          events.some(
+            (event) => (event as { type?: string }).type === "RUN_ERROR",
+          ),
         ).toBe(true)
         expect(onError).toHaveBeenCalled()
         expect(appendTurnMock).toHaveBeenCalledWith(
@@ -744,7 +756,9 @@ describe("runTanstackWorkspaceChat", () => {
       })
       const events = parseSseDataLines(await res.text())
       expect(
-        events.some((event) => (event as { type?: string }).type === "RUN_ERROR"),
+        events.some(
+          (event) => (event as { type?: string }).type === "RUN_ERROR",
+        ),
       ).toBe(true)
       expect(appendTurnMock).not.toHaveBeenCalledWith(
         expect.objectContaining({ role: "assistant" }),

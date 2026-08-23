@@ -5,11 +5,7 @@ import { join } from "node:path"
 import type { StreamChunk } from "@tanstack/ai"
 import { withOrgDbContext } from "../../db/client.js"
 import { nameConversationIfUnnamed } from "../../graphs/conversationGraph/nodes/conversationNaming.js"
-import {
-  appendConversationTurn,
-  type ConversationTurn,
-  loadConversationTurns,
-} from "../../models/conversation-messages.js"
+import { appendConversationTurn } from "../../models/conversation-messages.js"
 import {
   getWorkspaceById,
   listSandboxInstances,
@@ -18,16 +14,6 @@ import {
 import { getLogger } from "../../observability/logger.js"
 import { hybridSearch } from "../../retrieval/index.js"
 import { generateEmbedding } from "../../retrieval/services/modelProvider.js"
-import {
-  aguiTextDelta,
-  conversationRenameChunk,
-  workspaceChatHttpResponse,
-  workspaceChatRunError,
-  workspaceChatRunStarted,
-  workspaceChatWireFormat,
-  withWorkspaceChatHeartbeats,
-  type WorkspaceChatWireFormat,
-} from "./workspace-chat-agui.js"
 import {
   CHAT_HEARTBEAT_INTERVAL_MS,
   shouldHeartbeatChatSandbox,
@@ -57,21 +43,36 @@ import {
   heartbeatChatSandboxes,
 } from "./sandbox-registry.js"
 import { loadTanstackChatModules } from "./tanstack-runtime.js"
+import {
+  aguiTextDelta,
+  conversationRenameChunk,
+  type WorkspaceChatWireFormat,
+  withWorkspaceChatHeartbeats,
+  workspaceChatHttpResponse,
+  workspaceChatRunError,
+  workspaceChatRunStarted,
+  workspaceChatWireFormat,
+} from "./workspace-chat-agui.js"
 import { startWorkspaceChatModelProxy } from "./workspace-chat-model-proxy.js"
 import {
   WORKSPACE_CHAT_LOCAL_PROCESS_SCRUB_ENV,
   workspaceChatOpenCodeConfig,
   workspaceChatOpenCodeContract,
 } from "./workspace-chat-opencode-contract.js"
-import {
-  formatWorkspaceChatHits,
-  workspaceChatHybridHits,
-} from "./workspace-chat-retrieval.js"
 import { workspaceChatTools } from "./workspace-chat-tools.js"
+
+export type TanstackWorkspaceChatMessage = {
+  role: string
+  content?: unknown
+  parts?: unknown[]
+}
 
 export type TanstackWorkspaceChatInput = {
   conversationId: string
   prompt: string
+  messages?: TanstackWorkspaceChatMessage[]
+  threadId?: string
+  runId?: string
   orgId: string
   workspaceId: string
   desiredUrl: string
@@ -90,14 +91,12 @@ export type TanstackWorkspaceChatInput = {
   userTurnAccepted?: boolean
   resolveRuntime?: () => Promise<Partial<TanstackWorkspaceChatInput>>
   wireFormat?: WorkspaceChatWireFormat
-  loadTurns?: (conversationId: string) => Promise<ConversationTurn[]>
   appendTurn?: (input: {
     conversationId: string
     role: "user" | "assistant"
     content: string
     orgId?: string
   }) => Promise<void>
-  retrieveContext?: (query: string) => Promise<string>
 }
 
 export { conversationRenameChunk } from "./workspace-chat-agui.js"
@@ -157,7 +156,10 @@ export async function collectTanstackWorkspaceChatText(
 export async function* streamTanstackWorkspaceChat(
   input: TanstackWorkspaceChatInput,
 ): AsyncGenerator<StreamChunk> {
-  yield workspaceChatRunStarted({ conversationId: input.conversationId })
+  yield workspaceChatRunStarted({
+    conversationId: input.threadId ?? input.conversationId,
+    runId: input.runId,
+  })
   const resolved = input.resolveRuntime ? await input.resolveRuntime() : {}
   const turn: TanstackWorkspaceChatInput = { ...input, ...resolved }
   if (!turn.userTurnAccepted) {
@@ -208,11 +210,7 @@ export async function* streamTanstackWorkspaceChat(
     const fields = chatAttemptFields(error)
     const message = String(fields.message ?? "OpenCode chat stream failed")
     const logged =
-      error == null
-        ? null
-        : error instanceof Error
-          ? error
-          : new Error(message)
+      error == null ? null : error instanceof Error ? error : new Error(message)
     emitOpencodeChatAttempt(fields, logged)
     return { fields, logged, message }
   }
@@ -410,24 +408,10 @@ async function prepareTanstackWorkspaceChat(
     }
   }
 
-  const loadTurns = input.loadTurns ?? loadConversationTurns
-  const history = await loadTurns(input.conversationId)
-  const lastTurn = history[history.length - 1]
-  const historyHasPrompt =
-    lastTurn?.role === "user" && lastTurn.content === input.prompt
-  const retrieval = input.retrieveContext
-    ? await input.retrieveContext(input.prompt).catch(() => "")
-    : await defaultWorkspaceChatRetrieval(input.prompt, {
-        orgId: input.orgId,
-        workspaceId: input.workspaceId,
-      }).catch(() => "")
-  const messages = [
-    ...(retrieval ? [{ role: "user" as const, content: retrieval }] : []),
-    ...history,
-    ...(historyHasPrompt
-      ? []
-      : [{ role: "user" as const, content: input.prompt }]),
-  ]
+  const messages =
+    input.messages && input.messages.length > 0
+      ? input.messages
+      : [{ role: "user" as const, content: input.prompt }]
 
   const runToken = randomBytes(32).toString("hex")
   const proxy = await startWorkspaceChatModelProxy({
@@ -519,7 +503,8 @@ async function prepareTanstackWorkspaceChat(
           permissionMode: runtime.permissionMode,
           onPermissionRequest: runtime.onPermissionRequest,
         }),
-        threadId: input.conversationId,
+        threadId: input.threadId ?? input.conversationId,
+        runId: input.runId,
         messages,
         tools,
         middleware: [
@@ -557,43 +542,4 @@ async function* closeProxyAfterStream(
   } finally {
     await close().catch(() => undefined)
   }
-}
-
-async function defaultWorkspaceChatRetrieval(
-  query: string,
-  input: { orgId: string; workspaceId: string },
-): Promise<string> {
-  const loaded = await withOrgDbContext(input.orgId, async () => {
-    const workspace = await getWorkspaceById(input.workspaceId)
-    if (!workspace?.activeProjectionSha) return null
-    const units = await listWorkspaceKnowledgeUnitsForChat(input.workspaceId)
-    return {
-      activeProjectionSha: workspace.activeProjectionSha,
-      units,
-    }
-  })
-  if (!loaded) return ""
-  let embedding: number[] | null = null
-  let objectHits: Array<{ objectId: string }> = []
-  try {
-    embedding = await generateEmbedding(query)
-    objectHits = await hybridSearch(
-      input.orgId,
-      { embedding, query },
-      { limit: 20 },
-    )
-  } catch {
-    embedding = null
-    objectHits = []
-  }
-  return formatWorkspaceChatHits({
-    activeProjectionSha: loaded.activeProjectionSha,
-    hits: workspaceChatHybridHits({
-      query,
-      activeProjectionSha: loaded.activeProjectionSha,
-      units: loaded.units,
-      embedding,
-      objectHits,
-    }),
-  })
 }

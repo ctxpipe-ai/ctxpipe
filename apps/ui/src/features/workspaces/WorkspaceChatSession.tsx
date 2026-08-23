@@ -1,11 +1,15 @@
 import type { StreamChunk } from "@tanstack/ai"
-import { type UIMessage, useChat } from "@tanstack/ai-react"
+import {
+  fetchServerSentEvents,
+  type UIMessage,
+  useChat,
+} from "@tanstack/ai-react"
 import { useQueryClient } from "@tanstack/react-query"
 import { useNavigate } from "@tanstack/react-router"
 import { type ReactNode, useMemo, useRef, useState } from "react"
 import { InlineAlert } from "@/components/ui/InlineAlert"
 import { ConversationThread } from "@/features/chat/ConversationThread"
-import { createWorkspaceChatConnection } from "@/features/chat/chatConnection"
+import { workspaceChatHttpPath } from "@/features/chat/chatConnection"
 import { insertConversationListItem } from "@/features/chat/insertConversationListItem"
 import { MessageInputBox } from "@/features/chat/MessageInputBox"
 import type {
@@ -76,12 +80,10 @@ export function WorkspaceChatSession(props: {
 
   const connection = useMemo(
     () =>
-      createWorkspaceChatConnection({
-        orgSlug,
-        conversationId,
-        workspaceId: workspace.id,
+      fetchServerSentEvents(workspaceChatHttpPath(orgSlug, conversationId), {
+        credentials: "include",
       }),
-    [orgSlug, conversationId, workspace.id],
+    [orgSlug, conversationId],
   )
 
   const applyRename = (name: string) => {

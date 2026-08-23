@@ -1,5 +1,5 @@
-import { and, eq } from "drizzle-orm"
 import { chatParamsFromRequestBody, type StreamChunk } from "@tanstack/ai"
+import { and, eq } from "drizzle-orm"
 import { getAuth } from "../../auth/config.js"
 import { withUserIdContext } from "../../auth/context.js"
 import { withOrgIdContext } from "../../auth/withAuth.js"
@@ -7,15 +7,16 @@ import { parseEnv } from "../../config/env.js"
 import { getSystemDb } from "../../db/client.js"
 import { members, organizations } from "../../db/schema/auth.js"
 import {
+  type ConversationChatRequest,
   parseConversationChatRequest,
   workspaceChatStreamReady,
 } from "../../domain/conversations/transport.js"
 import { streamTanstackWorkspaceChat } from "../../domain/workspaces/tanstack-workspace-chat.js"
-import { resolveWorkspaceChatTurnRuntime } from "../../domain/workspaces/workspace-chat-turn-runtime.js"
 import {
   WORKSPACE_CHAT_HEARTBEAT_MS,
   workspaceChatRunError,
 } from "../../domain/workspaces/workspace-chat-agui.js"
+import { resolveWorkspaceChatTurnRuntime } from "../../domain/workspaces/workspace-chat-turn-runtime.js"
 import {
   appendConversationTurn,
   loadConversationTurns,
@@ -135,8 +136,7 @@ export const conversationWebSocketHandlers = {
   },
 
   async message(ws: ChatSocket, raw: string | ArrayBuffer | Uint8Array) {
-    const text =
-      typeof raw === "string" ? raw : new TextDecoder().decode(raw)
+    const text = typeof raw === "string" ? raw : new TextDecoder().decode(raw)
     let body: unknown
     try {
       body = JSON.parse(text)
@@ -163,7 +163,7 @@ async function runWorkspaceChatSocketTurn(
   body: unknown,
 ): Promise<void> {
   const log = getLogger()
-  let parsed: { prompt: string; workspaceId: string; source?: string }
+  let parsed: ConversationChatRequest
   try {
     parsed = await parseConversationChatRequest(body)
     if (!parsed.prompt) {
@@ -207,7 +207,9 @@ async function runWorkspaceChatSocketTurn(
       step: "workspace-chat-ws-accept",
     })
     await discardUnstartedConversation(conversation.id)
-    ws.send(JSON.stringify(workspaceChatRunError("Failed to start conversation")))
+    ws.send(
+      JSON.stringify(workspaceChatRunError("Failed to start conversation")),
+    )
     return
   }
 
@@ -226,6 +228,9 @@ async function runWorkspaceChatSocketTurn(
     for await (const chunk of streamTanstackWorkspaceChat({
       conversationId: conversation.id,
       prompt: parsed.prompt,
+      messages: parsed.messages,
+      threadId: parsed.threadId ?? conversation.id,
+      runId: parsed.runId,
       orgId: workspace?.orgId ?? conversation.orgId,
       workspaceId: conversation.workspaceId ?? parsed.workspaceId,
       desiredUrl: workspace?.workspaceRepositoryUrl ?? "",
@@ -277,7 +282,9 @@ async function runWorkspaceChatSocketTurn(
       step: "workspace-chat-ws-stream",
     })
     if (ws.readyState === WebSocket.OPEN) {
-      ws.send(JSON.stringify(workspaceChatRunError("OpenCode chat stream failed")))
+      ws.send(
+        JSON.stringify(workspaceChatRunError("OpenCode chat stream failed")),
+      )
     }
   }
 }

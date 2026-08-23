@@ -300,6 +300,47 @@ describe("conversations API", () => {
     expect(discardUnstartedConversationMock).not.toHaveBeenCalled()
   })
 
+  it("forwards AG-UI messages, threadId, and runId into one stream call", async () => {
+    ensureConversationMock.mockResolvedValue(conversationRow)
+    const messages = [
+      { role: "user", content: "earlier" },
+      { role: "assistant", content: "reply" },
+      { role: "user", content: "hello" },
+    ]
+    parseConversationChatRequestMock.mockResolvedValue({
+      prompt: "hello",
+      workspaceId: "ws_abc",
+      source: "ui",
+      messages,
+      threadId: "conv_1",
+      runId: "run_1",
+    })
+
+    const res = await app().request("/conversations/conv_1", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        threadId: "conv_1",
+        runId: "run_1",
+        messages,
+        forwardedProps: { workspaceId: "ws_abc", source: "ui" },
+      }),
+    })
+
+    expect(res.status).toBe(200)
+    expect(workspaceChatStreamResponseMock).toHaveBeenCalledTimes(1)
+    expect(workspaceChatStreamResponseMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        prompt: "hello",
+        messages,
+        threadId: "conv_1",
+        runId: "run_1",
+        userTurnAccepted: true,
+      }),
+      expect.any(Request),
+    )
+  })
+
   it("keeps a conversation that already has a user turn when the stream errors", async () => {
     ensureConversationMock.mockResolvedValue(conversationRow)
     loadConversationTurnsMock.mockResolvedValue([

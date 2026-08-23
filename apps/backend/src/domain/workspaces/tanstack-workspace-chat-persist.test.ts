@@ -170,12 +170,21 @@ beforeEach(() => {
   delete process.env.SANDBOX_PROVIDER
 })
 
-async function collectTurn(prompt: string) {
-  const chunks: Array<{ type?: string; delta?: string }> = []
+async function collectTurn(
+  prompt: string,
+  extras?: {
+    messages?: Array<{ role: string; content: string }>
+    runId?: string
+  },
+) {
+  const chunks: Array<{ type?: string; delta?: string; runId?: string }> = []
   await withOrgIdContext({ id: org.id, slug: org.slug }, async () => {
     for await (const chunk of streamTanstackWorkspaceChat({
       conversationId,
       prompt,
+      messages: extras?.messages,
+      threadId: conversationId,
+      runId: extras?.runId,
       orgId: org.id,
       workspaceId,
       desiredUrl: `https://github.com/ctxpipe-ai/${runId}`,
@@ -183,7 +192,7 @@ async function collectTurn(prompt: string) {
       ref: desiredSha,
       writeStatus: "writable",
     })) {
-      chunks.push(chunk as { type?: string; delta?: string })
+      chunks.push(chunk as { type?: string; delta?: string; runId?: string })
     }
   })
   return chunks
@@ -206,10 +215,29 @@ describe("two-turn workspace chat persist", () => {
     expect(firstDelta).toBeGreaterThan(firstStarted)
     expect(firstFinished).toBeGreaterThan(firstDelta)
 
-    const second = await collectTurn("second question")
+    const clientMessages = [
+      { role: "user", content: "first question" },
+      { role: "assistant", content: "pong" },
+      { role: "user", content: "second question" },
+    ]
+    const second = await collectTurn("second question", {
+      messages: clientMessages,
+      runId: "run_second",
+    })
+    expect(chatMock).toHaveBeenLastCalledWith(
+      expect.objectContaining({
+        threadId: conversationId,
+        runId: "run_second",
+        messages: clientMessages,
+      }),
+    )
     const secondStarted = second.findIndex(
       (chunk) => chunk.type === "RUN_STARTED",
     )
+    expect(second[secondStarted]).toMatchObject({
+      type: "RUN_STARTED",
+      runId: "run_second",
+    })
     const secondDelta = second.findIndex(
       (chunk) =>
         chunk.type === "TEXT_MESSAGE_CONTENT" && chunk.delta === "pong",

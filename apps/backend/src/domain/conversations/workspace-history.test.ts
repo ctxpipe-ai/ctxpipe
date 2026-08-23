@@ -19,6 +19,7 @@ vi.mock("../workspaces/tanstack-workspace-chat.js", () => ({
 import {
   createDataStreamConversationTransport,
   loadConversationUiMessages,
+  parseConversationChatRequest,
   workspaceChatStreamReady,
 } from "./transport.js"
 
@@ -94,6 +95,34 @@ describe("createDataStreamConversationTransport", () => {
         desiredUrl: "https://github.com/acme/docs",
       }),
     ).toBe(false)
+  })
+
+  it("keeps AG-UI messages, threadId, and runId when parsing a chat body", async () => {
+    const messages = [
+      { id: "m1", role: "user" as const, content: "earlier" },
+      { id: "m2", role: "assistant" as const, content: "reply" },
+      { id: "m3", role: "user" as const, content: "hello" },
+    ]
+    const parsed = await parseConversationChatRequest({
+      threadId: "conv_1",
+      runId: "run_client",
+      messages,
+      tools: [],
+      context: [],
+      forwardedProps: { workspaceId: "ws_1", source: "ui" },
+    })
+    expect(parsed).toMatchObject({
+      prompt: "hello",
+      workspaceId: "ws_1",
+      source: "ui",
+      threadId: "conv_1",
+      runId: "run_client",
+    })
+    expect(parsed.messages).toHaveLength(3)
+    expect(parsed.messages?.[2]).toMatchObject({
+      role: "user",
+      content: "hello",
+    })
   })
 
   it("runs TanStack Workspace chat when the Workspace is present", async () => {

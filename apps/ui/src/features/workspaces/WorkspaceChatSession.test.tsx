@@ -14,16 +14,23 @@ const useChatState = vi.hoisted(() => ({
 }))
 
 const navigateMock = vi.hoisted(() => vi.fn())
-
-vi.mock("@tanstack/ai-react", () => ({
-  useChat: () => ({
+const fetchServerSentEventsMock = vi.hoisted(() =>
+  vi.fn(() => ({ kind: "official-sse" })),
+)
+const useChatMock = vi.hoisted(() =>
+  vi.fn(() => ({
     messages: useChatState.messages,
     sendMessage: vi.fn(),
     status: useChatState.status,
     isLoading: useChatState.isLoading,
     error: useChatState.error,
     stop: vi.fn(),
-  }),
+  })),
+)
+
+vi.mock("@tanstack/ai-react", () => ({
+  useChat: useChatMock,
+  fetchServerSentEvents: fetchServerSentEventsMock,
 }))
 
 vi.mock("@tanstack/react-router", () => ({
@@ -64,6 +71,8 @@ function renderCompose(initialMessages: ChatMessage[] = []) {
 describe("WorkspaceChatSession compose failure", () => {
   beforeEach(() => {
     navigateMock.mockReset()
+    fetchServerSentEventsMock.mockClear()
+    useChatMock.mockClear()
     useChatState.messages = []
     useChatState.status = "error"
     useChatState.isLoading = false
@@ -125,5 +134,55 @@ describe("WorkspaceChatSession compose failure", () => {
         { role: "assistant", parts: [{ type: "text", content: "Hi" }] },
       ]),
     ).toBe(true)
+  })
+
+  it("pairs useChat with official SSE and one POST path", () => {
+    renderCompose()
+    expect(fetchServerSentEventsMock).toHaveBeenCalledTimes(1)
+    expect(fetchServerSentEventsMock).toHaveBeenCalledWith(
+      "/api/v1/orgs/acme/conversations/conv_pending/chat",
+      { credentials: "include" },
+    )
+    expect(useChatMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        threadId: "conv_pending",
+        connection: { kind: "official-sse" },
+        forwardedProps: {
+          workspaceId: readOnlyWorkspace.id,
+          source: "ui",
+        },
+      }),
+    )
+  })
+
+  it("paints one new assistant bubble on top of stored turns", () => {
+    useChatState.status = "ready"
+    useChatState.error = null
+    useChatState.messages = [
+      {
+        id: "conv_stored:0",
+        role: "user",
+        parts: [{ type: "text", content: "stored user turn" }],
+      },
+      {
+        id: "conv_stored:1",
+        role: "assistant",
+        parts: [{ type: "text", content: "stored assistant turn" }],
+      },
+      {
+        id: "conv_stored:2",
+        role: "user",
+        parts: [{ type: "text", content: "second question" }],
+      },
+      {
+        id: "conv_stored:3",
+        role: "assistant",
+        parts: [{ type: "text", content: "this-run reply" }],
+      },
+    ]
+    const markup = renderCompose(useChatState.messages.slice(0, 2))
+    expect(markup.match(/stored user turn/g)).toHaveLength(1)
+    expect(markup.match(/stored assistant turn/g)).toHaveLength(1)
+    expect(markup.match(/this-run reply/g)).toHaveLength(1)
   })
 })

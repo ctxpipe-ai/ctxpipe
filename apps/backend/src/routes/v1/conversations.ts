@@ -2,6 +2,7 @@ import { createRoute, OpenAPIHono, z } from "@hono/zod-openapi"
 import type { AppEnv } from "../../app/env.js"
 import { parseEnv } from "../../config/env.js"
 import {
+  type ConversationChatRequest,
   loadConversationUiMessages,
   parseConversationChatRequest,
   workspaceChatStreamResponse,
@@ -12,7 +13,6 @@ import {
   planChatPullRequest,
   shouldDestroyChatSandbox,
 } from "../../domain/workspaces/chat-lifecycle.js"
-import { resolveWorkspaceChatTurnRuntime } from "../../domain/workspaces/workspace-chat-turn-runtime.js"
 import {
   checkoutPublishedChatBranch,
   collectChatPullRequestTree,
@@ -22,8 +22,13 @@ import {
   getRegisteredChatSandbox,
   withDestroyedConversationSandboxes,
 } from "../../domain/workspaces/sandbox-registry.js"
+import { resolveWorkspaceChatTurnRuntime } from "../../domain/workspaces/workspace-chat-turn-runtime.js"
 import { githubRepoFullNameFromWorkspaceUrl } from "../../domain/workspaces/write-status.js"
 import { PageInfoSchema } from "../../lib/pagination.js"
+import {
+  appendConversationTurn,
+  loadConversationTurns,
+} from "../../models/conversation-messages.js"
 import {
   deleteConversation,
   discardUnstartedConversation,
@@ -35,10 +40,6 @@ import {
   touchConversationLastMessage,
   updateConversation,
 } from "../../models/conversations.js"
-import {
-  appendConversationTurn,
-  loadConversationTurns,
-} from "../../models/conversation-messages.js"
 import { getWorkspaceById } from "../../models/workspaces.js"
 import { getLogger } from "../../observability/logger.js"
 import { createPullRequestWithFiles } from "../../services/github/installation-write-client.js"
@@ -457,7 +458,7 @@ export const conversationRoutes = new OpenAPIHono<AppEnv>()
     if (!user || !session) return c.json({ error: "Unauthorized" }, 401)
 
     const conversationId = c.req.param("conversationId")
-    let parsed: { prompt: string; workspaceId: string; source?: string }
+    let parsed: ConversationChatRequest
     try {
       parsed = await parseConversationChatRequest(await c.req.json())
     } catch {
@@ -498,6 +499,9 @@ export const conversationRoutes = new OpenAPIHono<AppEnv>()
         conversationId,
         checkpointNamespace: "",
         prompt: parsed.prompt,
+        messages: parsed.messages,
+        threadId: parsed.threadId ?? conversationId,
+        runId: parsed.runId,
         source: parsed.source ?? null,
         writeStatus: workspace?.writeStatus ?? "read_only",
         workspaceId: conversation.workspaceId,
