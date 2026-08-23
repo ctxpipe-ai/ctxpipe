@@ -43,12 +43,12 @@ describe("loadConversationUiMessages", () => {
       {
         id: "conv_1:0",
         role: "user",
-        parts: [{ type: "text", text: "hello" }],
+        parts: [{ type: "text", content: "hello" }],
       },
       {
         id: "conv_1:1",
         role: "assistant",
-        parts: [{ type: "text", text: "hi" }],
+        parts: [{ type: "text", content: "hi" }],
       },
     ])
   })

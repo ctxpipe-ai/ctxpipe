@@ -312,6 +312,12 @@ describe.skipIf(!live)("workspace chat OpenCode fallback (live)", () => {
           /Unexpected server error\. Check server logs for details\./,
         )
         expect(body.length).toBeGreaterThan(0)
+        const started = body.indexOf("RUN_STARTED")
+        const delta = body.search(/TEXT_MESSAGE_CONTENT|"delta":/)
+        const finished = body.indexOf("RUN_FINISHED")
+        expect(started).toBeGreaterThanOrEqual(0)
+        expect(delta).toBeGreaterThan(started)
+        if (finished >= 0) expect(delta).toBeLessThan(finished)
         expect(upstreamHits.length).toBeGreaterThan(0)
         expect(
           upstreamHits.every((hit) => hit.model === "openai/gpt-5.6-terra"),

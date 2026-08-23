@@ -1,11 +1,21 @@
+import { AsyncLocalStorage } from "node:async_hooks"
 import { getContext } from "hono/context-storage"
 import type { AppEnv } from "../app/env.js"
 import { orgIdStorage } from "./withAuth.js"
 
+const userIdStorage = new AsyncLocalStorage<string>()
+
+export function withUserIdContext<T>(
+  userId: string,
+  handler: () => Promise<T>,
+): Promise<T> {
+  return userIdStorage.run(userId, handler)
+}
+
 function requestOrg(): { id?: string; slug?: string } {
   try {
     const vars = getContext<AppEnv>().var
-    return { id: vars.orgId, slug: vars.orgSlug }
+    return { id: vars.orgId ?? undefined, slug: vars.orgSlug ?? undefined }
   } catch {
     return {}
   }
@@ -24,7 +34,13 @@ export function requireCurrentOrgSlug(): string {
 }
 
 export function requireCurrentUserId(): string {
-  const userId = getContext<AppEnv>().var.user?.id
-  if (!userId) throw new Error("Missing user context")
-  return userId
+  try {
+    const fromRequest = getContext<AppEnv>().var.user?.id
+    if (fromRequest) return fromRequest
+  } catch {
+    /* WebSocket and other non-Hono callers use the ALS below. */
+  }
+  const fromStore = userIdStorage.getStore()
+  if (!fromStore) throw new Error("Missing user context")
+  return fromStore
 }

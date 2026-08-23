@@ -11,8 +11,9 @@ const discardUnstartedConversationMock = vi.hoisted(() => vi.fn())
 const updateConversationMock = vi.hoisted(() => vi.fn())
 const deleteConversationMock = vi.hoisted(() => vi.fn())
 const loadConversationUiMessagesMock = vi.hoisted(() => vi.fn())
-const toPromptFromIncomingMessageMock = vi.hoisted(() => vi.fn())
-const createDataStreamConversationTransportMock = vi.hoisted(() => vi.fn())
+const parseConversationChatRequestMock = vi.hoisted(() => vi.fn())
+const workspaceChatStreamResponseMock = vi.hoisted(() => vi.fn())
+const appendConversationTurnMock = vi.hoisted(() => vi.fn(async () => {}))
 const loadConversationTurnsMock = vi.hoisted(() =>
   vi.fn(async (): Promise<Array<{ role: string; content: string }>> => []),
 )
@@ -75,13 +76,26 @@ vi.mock("../../domain/workspaces/chat-pull-request.js", () => ({
 
 vi.mock("../../models/conversation-messages.js", () => ({
   loadConversationTurns: loadConversationTurnsMock,
+  appendConversationTurn: appendConversationTurnMock,
 }))
 
 vi.mock("../../domain/conversations/transport.js", () => ({
   loadConversationUiMessages: loadConversationUiMessagesMock,
-  toPromptFromIncomingMessage: toPromptFromIncomingMessageMock,
-  createDataStreamConversationTransport:
-    createDataStreamConversationTransportMock,
+  parseConversationChatRequest: parseConversationChatRequestMock,
+  workspaceChatStreamResponse: workspaceChatStreamResponseMock,
+}))
+
+vi.mock("../../domain/workspaces/workspace-chat-turn-runtime.js", () => ({
+  resolveWorkspaceChatTurnRuntime: vi.fn(async () => ({
+    lastBranch: "main",
+    defaultBranch: "main",
+    cloneToken: "tok",
+    writeStatus: "writable",
+    desiredUrl: "https://github.com/acme/docs",
+    desiredSha: "abc",
+    orgId: "org_mock",
+    workspaceId: "ws_abc",
+  })),
 }))
 
 import {
@@ -122,6 +136,15 @@ describe("conversations API", () => {
     vi.clearAllMocks()
     loadConversationTurnsMock.mockResolvedValue([])
     loadConversationUiMessagesMock.mockResolvedValue([])
+    parseConversationChatRequestMock.mockResolvedValue({
+      prompt: "hello",
+      workspaceId: "ws_abc",
+      source: "ui",
+    })
+    workspaceChatStreamResponseMock.mockReturnValue(
+      new Response("ok", { status: 200 }),
+    )
+    appendConversationTurnMock.mockResolvedValue(undefined)
     getWorkspaceByIdMock.mockResolvedValue({
       id: "ws_abc",
       orgId: "org_mock",
@@ -201,12 +224,9 @@ describe("conversations API", () => {
     expect(body.conversation.workspaceId).toBe("ws_abc")
   })
 
-  it("discards an unstarted compose row when the stream fails to start", async () => {
-    toPromptFromIncomingMessageMock.mockReturnValue("hello")
+  it("discards an unstarted compose row when the user turn cannot persist", async () => {
     ensureConversationMock.mockResolvedValue(conversationRow)
-    createDataStreamConversationTransportMock.mockReturnValue({
-      toResponse: vi.fn().mockRejectedValue(new Error("model down")),
-    })
+    appendConversationTurnMock.mockRejectedValue(new Error("db down"))
 
     const res = await app().request("/conversations/conv_1", {
       method: "POST",
@@ -220,11 +240,15 @@ describe("conversations API", () => {
 
     expect(res.status).toBe(500)
     expect(touchConversationLastMessageMock).not.toHaveBeenCalled()
+    expect(workspaceChatStreamResponseMock).not.toHaveBeenCalled()
     expect(discardUnstartedConversationMock).toHaveBeenCalledWith("conv_1")
   })
 
   it("refuses product chat without a Workspace id", async () => {
-    toPromptFromIncomingMessageMock.mockReturnValue("hello")
+    parseConversationChatRequestMock.mockResolvedValue({
+      prompt: "hello",
+      workspaceId: "",
+    })
     const res = await app().request("/conversations/conv_1", {
       method: "POST",
       headers: { "content-type": "application/json" },
@@ -235,16 +259,11 @@ describe("conversations API", () => {
     })
     expect(res.status).toBe(400)
     expect(ensureConversationMock).not.toHaveBeenCalled()
-    expect(createDataStreamConversationTransportMock).not.toHaveBeenCalled()
+    expect(workspaceChatStreamResponseMock).not.toHaveBeenCalled()
   })
 
-  it("does not mark the conversation started until the stream finishes", async () => {
-    toPromptFromIncomingMessageMock.mockReturnValue("hello")
+  it("marks the conversation listable when the user turn persists", async () => {
     ensureConversationMock.mockResolvedValue(conversationRow)
-    const toResponse = vi
-      .fn()
-      .mockResolvedValue(new Response("ok", { status: 200 }))
-    createDataStreamConversationTransportMock.mockReturnValue({ toResponse })
 
     const res = await app().request("/conversations/conv_1", {
       method: "POST",
@@ -257,29 +276,35 @@ describe("conversations API", () => {
     })
 
     expect(res.status).toBe(200)
-    expect(toResponse).toHaveBeenCalledWith(
+    expect(appendConversationTurnMock).toHaveBeenCalledWith(
       expect.objectContaining({
-        onFinish: expect.any(Function),
-        onError: expect.any(Function),
+        conversationId: "conv_1",
+        role: "user",
+        content: "hello",
       }),
     )
-    expect(toResponse.mock.calls[0]?.[0].onHeartbeat).toBeUndefined()
-    expect(touchConversationLastMessageMock).not.toHaveBeenCalled()
+    expect(touchConversationLastMessageMock).toHaveBeenCalledWith("conv_1")
+    expect(workspaceChatStreamResponseMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        userTurnAccepted: true,
+        prompt: "hello",
+        onError: expect.any(Function),
+      }),
+      expect.any(Request),
+    )
     expect(discardUnstartedConversationMock).not.toHaveBeenCalled()
-    await toResponse.mock.calls[0]?.[0].onError()
-    expect(discardUnstartedConversationMock).toHaveBeenCalledWith("conv_1")
+    loadConversationTurnsMock.mockResolvedValue([
+      { role: "user", content: "hello" },
+    ])
+    await workspaceChatStreamResponseMock.mock.calls[0]?.[0].onError()
+    expect(discardUnstartedConversationMock).not.toHaveBeenCalled()
   })
 
   it("keeps a conversation that already has a user turn when the stream errors", async () => {
-    toPromptFromIncomingMessageMock.mockReturnValue("hello")
     ensureConversationMock.mockResolvedValue(conversationRow)
     loadConversationTurnsMock.mockResolvedValue([
       { role: "user", content: "hello" },
     ])
-    const toResponse = vi
-      .fn()
-      .mockResolvedValue(new Response("ok", { status: 200 }))
-    createDataStreamConversationTransportMock.mockReturnValue({ toResponse })
 
     const res = await app().request("/conversations/conv_1", {
       method: "POST",
@@ -292,7 +317,7 @@ describe("conversations API", () => {
     })
 
     expect(res.status).toBe(200)
-    await toResponse.mock.calls[0]?.[0].onError()
+    await workspaceChatStreamResponseMock.mock.calls[0]?.[0].onError()
     expect(discardUnstartedConversationMock).not.toHaveBeenCalled()
   })
 

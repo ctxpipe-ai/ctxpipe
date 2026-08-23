@@ -2,28 +2,23 @@ import { createRoute, OpenAPIHono, z } from "@hono/zod-openapi"
 import type { AppEnv } from "../../app/env.js"
 import { parseEnv } from "../../config/env.js"
 import {
-  createDataStreamConversationTransport,
   loadConversationUiMessages,
-  toPromptFromIncomingMessage,
+  parseConversationChatRequest,
+  workspaceChatStreamResponse,
 } from "../../domain/conversations/transport.js"
 import {
-  applyQuietChatUpdate,
   chatSessionBranchName,
-  lastBranchExistsOnRemote,
   mayForcePushBranch,
   planChatPullRequest,
-  quietUpdateChatBranch,
-  restoreBranchAfterIdle,
   shouldDestroyChatSandbox,
-  treeDirtyFromPorcelain,
 } from "../../domain/workspaces/chat-lifecycle.js"
+import { resolveWorkspaceChatTurnRuntime } from "../../domain/workspaces/workspace-chat-turn-runtime.js"
 import {
   checkoutPublishedChatBranch,
   collectChatPullRequestTree,
 } from "../../domain/workspaces/chat-pull-request.js"
 import {
   destroySandboxesForConversation,
-  getChatSandbox,
   getRegisteredChatSandbox,
   withDestroyedConversationSandboxes,
 } from "../../domain/workspaces/sandbox-registry.js"
@@ -40,14 +35,13 @@ import {
   touchConversationLastMessage,
   updateConversation,
 } from "../../models/conversations.js"
-import { loadConversationTurns } from "../../models/conversation-messages.js"
-import { getRepoReadCloneToken } from "../../models/github-installation.js"
+import {
+  appendConversationTurn,
+  loadConversationTurns,
+} from "../../models/conversation-messages.js"
 import { getWorkspaceById } from "../../models/workspaces.js"
 import { getLogger } from "../../observability/logger.js"
-import {
-  createPullRequestWithFiles,
-  githubRefExists,
-} from "../../services/github/installation-write-client.js"
+import { createPullRequestWithFiles } from "../../services/github/installation-write-client.js"
 import { resolveGithubDefaultBranch } from "../webhooks/github/github-workspace-tip.js"
 
 const ErrorResponseSchema = z
@@ -102,10 +96,15 @@ const IncomingMessageSchema = z
 
 const CreateConversationMessageRequestSchema = z
   .object({
-    message: IncomingMessageSchema,
+    message: IncomingMessageSchema.optional(),
+    messages: z.array(z.unknown()).optional(),
     source: z.string().optional(),
-    workspaceId: z.string().min(1),
+    workspaceId: z.string().optional(),
+    threadId: z.string().optional(),
+    runId: z.string().optional(),
+    forwardedProps: z.record(z.string(), z.unknown()).optional(),
   })
+  .passthrough()
   .openapi("CreateConversationMessageRequest")
 
 const ConversationDetailResponseSchema = z
@@ -458,129 +457,83 @@ export const conversationRoutes = new OpenAPIHono<AppEnv>()
     if (!user || !session) return c.json({ error: "Unauthorized" }, 401)
 
     const conversationId = c.req.param("conversationId")
-    const body = CreateConversationMessageRequestSchema.parse(
-      await c.req.json(),
-    )
-    const prompt = toPromptFromIncomingMessage(body.message)
-    if (prompt.length === 0) {
+    let parsed: { prompt: string; workspaceId: string; source?: string }
+    try {
+      parsed = await parseConversationChatRequest(await c.req.json())
+    } catch {
       return c.json({ error: "Message text is required" }, 400)
     }
-    if (!body.workspaceId.trim()) {
-      return c.json({ error: "workspace_required" }, 409)
+    if (parsed.prompt.length === 0) {
+      return c.json({ error: "Message text is required" }, 400)
+    }
+    if (!parsed.workspaceId.trim()) {
+      return c.json({ error: "workspace_required" }, 400)
     }
 
     const conversation = await ensureConversation({
       id: conversationId,
-      source: body.source,
-      workspaceId: body.workspaceId,
+      source: parsed.source,
+      workspaceId: parsed.workspaceId,
     })
     const workspace = conversation.workspaceId
       ? await getWorkspaceById(conversation.workspaceId)
       : null
     const env = parseEnv(process.env as Record<string, string | undefined>)
-    const repoName = workspace
-      ? githubRepoFullNameFromWorkspaceUrl(workspace.workspaceRepositoryUrl)
-      : null
-    const defaultBranch =
-      workspace && repoName
-        ? ((await resolveGithubDefaultBranch({
-            orgId: workspace.orgId,
-            githubConnectionId: workspace.githubConnectionId,
-            repoFullName: repoName,
-            env,
-          })) ?? "main")
-        : "main"
-    let remoteHasLastBranch = false
-    if (conversation.lastBranch && workspace && repoName) {
-      try {
-        remoteHasLastBranch = await githubRefExists({
-          orgId: workspace.orgId,
-          repositoryName: repoName,
-          env,
-          githubConnectionId: workspace.githubConnectionId ?? undefined,
-          ref: conversation.lastBranch,
-        })
-      } catch {
-        remoteHasLastBranch = false
-      }
-    }
-    const lastBranch = restoreBranchAfterIdle({
-      lastBranch: conversation.lastBranch,
-      lastBranchExistsOnRemote: lastBranchExistsOnRemote({
-        lastBranch: conversation.lastBranch,
-        remoteBranches:
-          remoteHasLastBranch && conversation.lastBranch
-            ? [conversation.lastBranch]
-            : [],
-      }),
-      defaultBranch,
-    })
-    if (lastBranch.startsWith("ctxpipe/chat/")) {
-      await persistConversationLastBranch({
-        conversationId,
-        lastBranch,
-      })
-    }
-    const chatSandbox = getChatSandbox(conversationId)
-    if (chatSandbox && workspace?.desiredSha) {
-      const status = await chatSandbox.exec("git status --porcelain", {
-        env: {},
-      })
-      const tipPresent = await chatSandbox.exec(
-        `git cat-file -t ${workspace.desiredSha}`,
-        { env: {} },
-      )
-      const treeDirty = treeDirtyFromPorcelain(status.stdout)
-      await applyQuietChatUpdate({
-        decision: quietUpdateChatBranch({
-          lastBranch,
-          defaultBranch,
-          lastBranchPublished:
-            remoteHasLastBranch && lastBranch.startsWith("ctxpipe/chat/"),
-          treeDirty,
-          rebaseApplies: tipPresent.exitCode === 0 && treeDirty,
-        }),
-        desiredSha: workspace.desiredSha,
-        exec: chatSandbox.exec,
-      }).catch(() => undefined)
-    }
-
-    const transport = createDataStreamConversationTransport()
 
     try {
-      const response = await transport.toResponse({
+      await appendConversationTurn({
+        conversationId,
+        role: "user",
+        content: parsed.prompt,
+        orgId: workspace?.orgId ?? conversation.orgId,
+      })
+      await touchConversationLastMessage(conversationId)
+    } catch {
+      await discardUnstartedConversation(conversationId)
+      return c.json({ error: "Failed to start conversation" }, 500)
+    }
+
+    return workspaceChatStreamResponse(
+      {
         conversationId,
         checkpointNamespace: "",
-        prompt,
-        source: body.source ?? null,
+        prompt: parsed.prompt,
+        source: parsed.source ?? null,
         writeStatus: workspace?.writeStatus ?? "read_only",
-        lastBranch,
         workspaceId: conversation.workspaceId,
         orgId: workspace?.orgId ?? conversation.orgId,
         desiredUrl: workspace?.workspaceRepositoryUrl ?? null,
         desiredSha: workspace?.desiredSha ?? null,
         desiredGeneration: workspace?.desiredGeneration,
-        defaultBranch,
-        cloneToken:
-          workspace && repoName
-            ? ((await getRepoReadCloneToken(workspace.orgId, env, {
-                githubConnectionId: workspace.githubConnectionId ?? undefined,
-                repoFullName: repoName,
-              })) ?? null)
-            : null,
-        onFinish: () => touchConversationLastMessage(conversationId),
+        userTurnAccepted: true,
+        resolveRuntime: async () => {
+          const runtime = await resolveWorkspaceChatTurnRuntime({
+            conversation,
+            workspace,
+            env,
+          })
+          return {
+            ref: runtime.lastBranch || runtime.desiredSha || "HEAD",
+            lastBranch: runtime.lastBranch,
+            defaultBranch: runtime.defaultBranch,
+            cloneToken: runtime.cloneToken,
+            writeStatus: runtime.writeStatus,
+            desiredUrl: runtime.desiredUrl ?? undefined,
+            desiredSha: runtime.desiredSha,
+            desiredGeneration: runtime.desiredGeneration,
+            orgId: runtime.orgId,
+            workspaceId: runtime.workspaceId ?? undefined,
+          }
+        },
         onError: async () => {
           const turns = await loadConversationTurns(conversationId)
           if (turns.length === 0) {
             await discardUnstartedConversation(conversationId)
           }
         },
-      })
-      return response
-    } catch {
-      await discardUnstartedConversation(conversationId)
-      return c.json({ error: "Failed to start conversation" }, 500)
-    }
+      },
+      c.req.raw,
+    )
   })
   .openapi(postConversationPullRequestRoute, async (c) => {
     const user = c.get("user")

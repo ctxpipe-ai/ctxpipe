@@ -31,7 +31,34 @@ const listSandboxInstancesMock = vi.hoisted(() =>
   ),
 )
 
-vi.mock("@tanstack/ai", () => ({ chat: chatMock }))
+const toSseResponse = vi.hoisted(() => {
+  return (stream: AsyncIterable<object>): Response => {
+    const encoder = new TextEncoder()
+    return new Response(
+      new ReadableStream({
+        async start(controller) {
+          try {
+            for await (const chunk of stream) {
+              controller.enqueue(
+                encoder.encode(`data: ${JSON.stringify(chunk)}\n\n`),
+              )
+            }
+            controller.close()
+          } catch (error) {
+            controller.error(error)
+          }
+        },
+      }),
+      { headers: { "Content-Type": "text/event-stream" } },
+    )
+  }
+})
+
+vi.mock("@tanstack/ai", () => ({
+  chat: chatMock,
+  toServerSentEventsResponse: toSseResponse,
+  toHttpResponse: toSseResponse,
+}))
 vi.mock("@tanstack/ai-opencode", () => ({ opencodeText: opencodeTextMock }))
 const createSecretsMock = vi.hoisted(() =>
   vi.fn((values: Record<string, string>) => values),
@@ -209,11 +236,25 @@ vi.mock("../../retrieval/services/modelProvider.js", () => ({
 
 import { getLogger } from "../../observability/logger.js"
 import { withTestLogger } from "../../test/with-test-logger.js"
-import { runTanstackWorkspaceChat } from "./tanstack-workspace-chat.js"
+import { parseSseDataLines } from "./workspace-chat-agui.js"
+import {
+  runTanstackWorkspaceChat as runTanstackWorkspaceChatHttp,
+  type TanstackWorkspaceChatInput,
+} from "./tanstack-workspace-chat.js"
+
+async function runTanstackWorkspaceChat(input: TanstackWorkspaceChatInput) {
+  const res = await runTanstackWorkspaceChatHttp(input)
+  const body = await res.text()
+  return new Response(body, {
+    status: res.status,
+    headers: res.headers,
+  })
+}
 
 describe("runTanstackWorkspaceChat", () => {
   beforeEach(() => {
     vi.clearAllMocks()
+    nameConversationIfUnnamedMock.mockResolvedValue(null)
     orgTxDepth.value = 0
     embedInTx.seen = false
     embedInTx.value = false
@@ -314,7 +355,7 @@ describe("runTanstackWorkspaceChat", () => {
   })
 
   it("emits a conversation rename data part before finish", async () => {
-    nameConversationIfUnnamedMock.mockResolvedValueOnce("Billing ledger")
+    nameConversationIfUnnamedMock.mockResolvedValue("Billing ledger")
     const res = await runTanstackWorkspaceChat({
       conversationId: "conv_1",
       prompt: "hello",
@@ -327,7 +368,7 @@ describe("runTanstackWorkspaceChat", () => {
     })
     expect(res.status).toBe(200)
     const body = await res.text()
-    expect(body).toContain("data-rename-conversation")
+    expect(body).toContain("rename-conversation")
     expect(body).toContain("Billing ledger")
   })
 
@@ -474,7 +515,12 @@ describe("runTanstackWorkspaceChat", () => {
       ref: "abc",
       writeStatus: "writable",
     })
-    expect(res.status).toBe(503)
+    expect(res.status).toBe(200)
+    const events = parseSseDataLines(await res.text())
+    expect(events[0]).toMatchObject({ type: "RUN_STARTED" })
+    expect(events.some((event) => (event as { type?: string }).type === "RUN_ERROR")).toBe(
+      true,
+    )
     expect(dockerSandboxMock).not.toHaveBeenCalled()
     expect(chatMock).not.toHaveBeenCalled()
   })
@@ -519,7 +565,12 @@ describe("runTanstackWorkspaceChat", () => {
       ref: "abc",
       writeStatus: "writable",
     })
-    expect(res.status).toBe(503)
+    expect(res.status).toBe(200)
+    const events = parseSseDataLines(await res.text())
+    expect(events[0]).toMatchObject({ type: "RUN_STARTED" })
+    expect(events.some((event) => (event as { type?: string }).type === "RUN_ERROR")).toBe(
+      true,
+    )
     expect(chatMock).not.toHaveBeenCalled()
   })
 
@@ -564,11 +615,10 @@ describe("runTanstackWorkspaceChat", () => {
       ref: "abc",
       writeStatus: "writable",
     })
-    expect(res.status).toBe(503)
-    expect(await res.json()).toEqual({
-      error:
-        "Workspace chat needs MODEL_PROVIDER_API_KEY for the configured model provider.",
-    })
+    expect(res.status).toBe(200)
+    const events = parseSseDataLines(await res.text())
+    expect(events[0]).toMatchObject({ type: "RUN_STARTED" })
+    expect(JSON.stringify(events)).toContain("MODEL_PROVIDER_API_KEY")
     expect(chatMock).not.toHaveBeenCalled()
     expect(startWorkspaceChatModelProxyMock).not.toHaveBeenCalled()
   })
@@ -636,7 +686,11 @@ describe("runTanstackWorkspaceChat", () => {
         })
         expect(res.status).toBe(200)
         getLogger().emit()
-        await expect(res.text()).rejects.toThrow(/Unexpected server error/)
+        const events = parseSseDataLines(await res.text())
+        expect(events[0]).toMatchObject({ type: "RUN_STARTED" })
+        expect(
+          events.some((event) => (event as { type?: string }).type === "RUN_ERROR"),
+        ).toBe(true)
         expect(onError).toHaveBeenCalled()
         expect(appendTurnMock).toHaveBeenCalledWith(
           expect.objectContaining({
@@ -688,7 +742,10 @@ describe("runTanstackWorkspaceChat", () => {
         ref: "abc",
         writeStatus: "writable",
       })
-      await expect(res.text()).rejects.toThrow(/opencode.chatStream/)
+      const events = parseSseDataLines(await res.text())
+      expect(
+        events.some((event) => (event as { type?: string }).type === "RUN_ERROR"),
+      ).toBe(true)
       expect(appendTurnMock).not.toHaveBeenCalledWith(
         expect.objectContaining({ role: "assistant" }),
       )
@@ -706,7 +763,38 @@ describe("runTanstackWorkspaceChat", () => {
       ref: "HEAD",
       writeStatus: "writable",
     })
-    expect(res.status).toBe(409)
+    expect(res.status).toBe(200)
+    const events = parseSseDataLines(await res.text())
+    expect(events[0]).toMatchObject({ type: "RUN_STARTED" })
+    expect(JSON.stringify(events)).toContain("desired SHA")
     expect(chatMock).not.toHaveBeenCalled()
+  })
+
+  it("writes the first AG-UI event before resolveRuntime / OpenCode work", async () => {
+    let resolved = false
+    const res = await runTanstackWorkspaceChatHttp({
+      conversationId: "conv_1",
+      prompt: "hello",
+      orgId: "org_1",
+      workspaceId: "ws_1",
+      desiredUrl: "https://github.com/acme/docs",
+      desiredSha: "abc",
+      ref: "abc",
+      writeStatus: "writable",
+      resolveRuntime: async () => {
+        await new Promise((resolve) => setTimeout(resolve, 40))
+        resolved = true
+        return {}
+      },
+    })
+    const reader = res.body?.getReader()
+    expect(reader).toBeTruthy()
+    const first = await reader?.read()
+    const text = new TextDecoder().decode(first?.value)
+    expect(text).toContain("RUN_STARTED")
+    expect(resolved).toBe(false)
+    await new Promise((resolve) => setTimeout(resolve, 50))
+    expect(resolved).toBe(true)
+    await reader?.cancel()
   })
 })

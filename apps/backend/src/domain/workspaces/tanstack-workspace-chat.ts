@@ -2,10 +2,9 @@ import { randomBytes } from "node:crypto"
 import { writeFileSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
-import { createUIMessageStreamResponse, type UIMessageChunk } from "ai"
+import type { StreamChunk } from "@tanstack/ai"
 import { withOrgDbContext } from "../../db/client.js"
 import { nameConversationIfUnnamed } from "../../graphs/conversationGraph/nodes/conversationNaming.js"
-import { generateObjectId } from "../../lib/id.js"
 import {
   appendConversationTurn,
   type ConversationTurn,
@@ -19,7 +18,16 @@ import {
 import { getLogger } from "../../observability/logger.js"
 import { hybridSearch } from "../../retrieval/index.js"
 import { generateEmbedding } from "../../retrieval/services/modelProvider.js"
-import { aguiIterableToUiMessageChunks } from "./agui-to-ui-message.js"
+import {
+  aguiTextDelta,
+  conversationRenameChunk,
+  workspaceChatHttpResponse,
+  workspaceChatRunError,
+  workspaceChatRunStarted,
+  workspaceChatWireFormat,
+  withWorkspaceChatHeartbeats,
+  type WorkspaceChatWireFormat,
+} from "./workspace-chat-agui.js"
 import {
   CHAT_HEARTBEAT_INTERVAL_MS,
   shouldHeartbeatChatSandbox,
@@ -76,7 +84,12 @@ export type TanstackWorkspaceChatInput = {
   onHeartbeat?: () => Promise<void> | void
   onFinish?: () => Promise<void> | void
   onError?: () => Promise<void> | void
+  onUserPersist?: () => Promise<void> | void
   onDelta?: (delta: string) => Promise<void> | void
+  /** Set when the user turn + lastMessageAt were written before the stream opened. */
+  userTurnAccepted?: boolean
+  resolveRuntime?: () => Promise<Partial<TanstackWorkspaceChatInput>>
+  wireFormat?: WorkspaceChatWireFormat
   loadTurns?: (conversationId: string) => Promise<ConversationTurn[]>
   appendTurn?: (input: {
     conversationId: string
@@ -87,23 +100,7 @@ export type TanstackWorkspaceChatInput = {
   retrieveContext?: (query: string) => Promise<string>
 }
 
-export function conversationRenameChunk(name: string): UIMessageChunk {
-  return {
-    type: "data-rename-conversation",
-    data: { name },
-  } as UIMessageChunk
-}
-
-function aguiTextDelta(chunk: object): string {
-  const record = chunk as Record<string, unknown>
-  if (
-    record.type === "TEXT_MESSAGE_CONTENT" &&
-    typeof record.delta === "string"
-  ) {
-    return record.delta
-  }
-  return ""
-}
+export { conversationRenameChunk } from "./workspace-chat-agui.js"
 
 function localProcessChatProvider(
   modules: Awaited<ReturnType<typeof loadTanstackChatModules>>,
@@ -147,7 +144,7 @@ export async function collectTanstackWorkspaceChatText(
       }
     }
     await persistCompletedTurns(input, {
-      persistUser: prepared.persistUserAfterSuccess,
+      persistUser: !input.userTurnAccepted,
       assistant: text,
     })
     return { ok: true, text }
@@ -157,117 +154,152 @@ export async function collectTanstackWorkspaceChatText(
   }
 }
 
+export async function* streamTanstackWorkspaceChat(
+  input: TanstackWorkspaceChatInput,
+): AsyncGenerator<StreamChunk> {
+  yield workspaceChatRunStarted({ conversationId: input.conversationId })
+  const resolved = input.resolveRuntime ? await input.resolveRuntime() : {}
+  const turn: TanstackWorkspaceChatInput = { ...input, ...resolved }
+  if (!turn.userTurnAccepted) {
+    await persistCompletedTurns(turn, { persistUser: true, assistant: "" })
+    await turn.onUserPersist?.()
+  }
+
+  const prepared = await prepareTanstackWorkspaceChat(turn)
+  if (!prepared.ok) {
+    await turn.onError?.()
+    yield workspaceChatRunError(prepared.error)
+    return
+  }
+
+  const runtime = workspaceChatRuntimeConfig({
+    writeStatus: turn.writeStatus,
+  })
+  let lastHeartbeatAt: Date | null = new Date()
+  heartbeatChatSandboxes(turn.conversationId, lastHeartbeatAt)
+  void turn.onHeartbeat?.()
+  const heartbeat = setInterval(() => {
+    const now = new Date()
+    if (
+      !shouldHeartbeatChatSandbox({
+        turnInProgress: true,
+        lastHeartbeatAt,
+        now,
+      })
+    ) {
+      return
+    }
+    lastHeartbeatAt = now
+    heartbeatChatSandboxes(turn.conversationId, now)
+    void turn.onHeartbeat?.()
+  }, CHAT_HEARTBEAT_INTERVAL_MS)
+
+  const startedAt = Date.now()
+  const chatAttemptFields = (error?: unknown) =>
+    opencodeChatStreamEvent({
+      conversationId: turn.conversationId,
+      workspaceId: turn.workspaceId,
+      error,
+      provider: runtime.provider,
+      opencodePort: WORKSPACE_CHAT_OPENCODE_PORT,
+      durationMs: Date.now() - startedAt,
+    })
+  const recordChatAttempt = (error?: unknown) => {
+    const fields = chatAttemptFields(error)
+    const message = String(fields.message ?? "OpenCode chat stream failed")
+    const logged =
+      error == null
+        ? null
+        : error instanceof Error
+          ? error
+          : new Error(message)
+    emitOpencodeChatAttempt(fields, logged)
+    return { fields, logged, message }
+  }
+
+  let assistant = ""
+  let finished = false
+  const capturedFatals: Error[] = []
+  const originalConsole = {
+    error: console.error,
+    info: console.info,
+    log: console.log,
+    warn: console.warn,
+  }
+  const intercept = (...args: unknown[]) => {
+    const text = args.map((arg) => String(arg)).join(" ")
+    if (
+      text.includes("tanstack-ai:errors") ||
+      text.includes("opencode.chatStream") ||
+      text.includes("Unexpected server error")
+    ) {
+      capturedFatals.push(new Error(text))
+    }
+  }
+  console.error = intercept
+  console.info = intercept
+  console.log = intercept
+  console.warn = intercept
+  try {
+    for await (const chunk of prepared.stream) {
+      const typed = chunk as StreamChunk
+      const delta = aguiTextDelta(typed)
+      if (delta) assistant += delta
+      if (typed.type === "RUN_FINISHED") finished = true
+      if (typed.type === "RUN_ERROR") {
+        throw new Error(
+          "message" in typed && typeof typed.message === "string"
+            ? typed.message
+            : "OpenCode chat stream failed",
+        )
+      }
+      yield typed
+    }
+    const streamFatal = capturedFatals[0] ?? prepared.constructFatal
+    if (
+      shouldFailEmptyChatTurn({
+        assistant,
+        error: streamFatal,
+      })
+    ) {
+      const { message } = recordChatAttempt(streamFatal)
+      await turn.onError?.()
+      yield workspaceChatRunError(message)
+      return
+    }
+    if (finished || assistant.trim()) {
+      await persistCompletedTurns(turn, {
+        persistUser: false,
+        assistant,
+      })
+      const name = await nameConversationIfUnnamed({
+        conversationId: turn.conversationId,
+        prompt: turn.prompt,
+      }).catch(() => null)
+      if (name) yield conversationRenameChunk(name)
+      if (turn.onFinish) await turn.onFinish()
+    }
+    recordChatAttempt()
+  } catch (error) {
+    const { message } = recordChatAttempt(error)
+    await turn.onError?.()
+    yield workspaceChatRunError(message)
+  } finally {
+    console.error = originalConsole.error
+    console.info = originalConsole.info
+    console.log = originalConsole.log
+    console.warn = originalConsole.warn
+    clearInterval(heartbeat)
+  }
+}
+
 export async function runTanstackWorkspaceChat(
   input: TanstackWorkspaceChatInput,
 ): Promise<Response> {
-  const prepared = await prepareTanstackWorkspaceChat(input)
-  if (!prepared.ok) {
-    return Response.json({ error: prepared.error }, { status: prepared.status })
-  }
-  const textId = generateObjectId("txt")
-  const uiChunks = aguiIterableToUiMessageChunks(prepared.stream, textId)
-  const runtime = workspaceChatRuntimeConfig({
-    writeStatus: input.writeStatus,
-  })
-  const readable = new ReadableStream<UIMessageChunk>({
-    async start(controller) {
-      let lastHeartbeatAt: Date | null = null
-      let assistant = ""
-      const startedAt = Date.now()
-      const heartbeat = setInterval(() => {
-        const now = new Date()
-        if (
-          !shouldHeartbeatChatSandbox({
-            turnInProgress: true,
-            lastHeartbeatAt,
-            now,
-          })
-        ) {
-          return
-        }
-        lastHeartbeatAt = now
-        heartbeatChatSandboxes(input.conversationId, now)
-        void input.onHeartbeat?.()
-      }, CHAT_HEARTBEAT_INTERVAL_MS)
-      const chatAttemptFields = (error?: unknown) =>
-        opencodeChatStreamEvent({
-          conversationId: input.conversationId,
-          workspaceId: input.workspaceId,
-          error,
-          provider: runtime.provider,
-          opencodePort: WORKSPACE_CHAT_OPENCODE_PORT,
-          durationMs: Date.now() - startedAt,
-        })
-      const recordChatAttempt = (error?: unknown) => {
-        const fields = chatAttemptFields(error)
-        const message = String(fields.message ?? "OpenCode chat stream failed")
-        const logged =
-          error == null
-            ? null
-            : error instanceof Error
-              ? error
-              : new Error(message)
-        emitOpencodeChatAttempt(fields, logged)
-        return { fields, logged, message }
-      }
-      const failTurn = async (error: unknown) => {
-        const { logged, message } = recordChatAttempt(error)
-        await input.onError?.()
-        controller.error(logged ?? new Error(message))
-      }
-      try {
-        lastHeartbeatAt = new Date()
-        heartbeatChatSandboxes(input.conversationId, lastHeartbeatAt)
-        void input.onHeartbeat?.()
-        if (prepared.persistUserAfterSuccess) {
-          await persistCompletedTurns(input, {
-            persistUser: true,
-            assistant: "",
-          })
-        }
-        let finished = false
-        const completeTurn = async () => {
-          await persistCompletedTurns(input, {
-            persistUser: false,
-            assistant,
-          })
-          const name = await nameConversationIfUnnamed({
-            conversationId: input.conversationId,
-            prompt: input.prompt,
-          }).catch(() => null)
-          if (name) {
-            controller.enqueue(conversationRenameChunk(name))
-          }
-          if (input.onFinish) await input.onFinish()
-        }
-        const captured = await withTanstackConsoleCapture(async () => {
-          for await (const chunk of uiChunks) {
-            if (chunk.type === "text-delta") assistant += chunk.delta
-            if (chunk.type === "finish") finished = true
-            controller.enqueue(chunk)
-          }
-        })
-        const streamFatal = captured.fatal ?? prepared.constructFatal
-        if (
-          shouldFailEmptyChatTurn({
-            assistant,
-            error: streamFatal,
-          })
-        ) {
-          await failTurn(streamFatal)
-          return
-        }
-        if (finished || assistant.trim()) await completeTurn()
-        recordChatAttempt()
-        controller.close()
-      } catch (error) {
-        await failTurn(error)
-      } finally {
-        clearInterval(heartbeat)
-      }
-    },
-  })
-  return createUIMessageStreamResponse({ stream: readable })
+  return workspaceChatHttpResponse(
+    withWorkspaceChatHeartbeats(streamTanstackWorkspaceChat(input)),
+    input.wireFormat ?? workspaceChatWireFormat(new Request("http://local")),
+  )
 }
 
 async function persistCompletedTurns(
@@ -299,7 +331,6 @@ async function prepareTanstackWorkspaceChat(
   | {
       ok: true
       stream: AsyncIterable<object>
-      persistUserAfterSuccess: boolean
       constructFatal: Error | null
     }
   | { ok: false; status: number; error: string }
@@ -380,17 +411,10 @@ async function prepareTanstackWorkspaceChat(
   }
 
   const loadTurns = input.loadTurns ?? loadConversationTurns
-  const append = input.appendTurn ?? appendConversationTurn
   const history = await loadTurns(input.conversationId)
-  const persistUserAfterSuccess = history.length === 0
-  if (!persistUserAfterSuccess) {
-    await append({
-      conversationId: input.conversationId,
-      role: "user",
-      content: input.prompt,
-      orgId: input.orgId,
-    })
-  }
+  const lastTurn = history[history.length - 1]
+  const historyHasPrompt =
+    lastTurn?.role === "user" && lastTurn.content === input.prompt
   const retrieval = input.retrieveContext
     ? await input.retrieveContext(input.prompt).catch(() => "")
     : await defaultWorkspaceChatRetrieval(input.prompt, {
@@ -400,7 +424,9 @@ async function prepareTanstackWorkspaceChat(
   const messages = [
     ...(retrieval ? [{ role: "user" as const, content: retrieval }] : []),
     ...history,
-    { role: "user" as const, content: input.prompt },
+    ...(historyHasPrompt
+      ? []
+      : [{ role: "user" as const, content: input.prompt }]),
   ]
 
   const runToken = randomBytes(32).toString("hex")
@@ -514,7 +540,6 @@ async function prepareTanstackWorkspaceChat(
     return {
       ok: true,
       stream: closeProxyAfterStream(constructed.result, proxy.close),
-      persistUserAfterSuccess,
       constructFatal: constructed.fatal,
     }
   } catch (error) {
