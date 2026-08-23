@@ -566,6 +566,92 @@ describe("runTanstackWorkspaceChat", () => {
     )
   })
 
+  it("omits the OpenCode user-prompt echo from SSE and persist", async () => {
+    chatMock.mockImplementationOnce(async function* () {
+      yield {
+        type: "TEXT_MESSAGE_CONTENT",
+        messageId: "user-part",
+        delta: "hello",
+      }
+      yield {
+        type: "TEXT_MESSAGE_CONTENT",
+        messageId: "asst",
+        delta: "only-this-run",
+      }
+      yield { type: "RUN_FINISHED" }
+    })
+    const res = await runTanstackWorkspaceChat({
+      conversationId: "conv_1",
+      prompt: "hello",
+      orgId: "org_1",
+      workspaceId: "ws_1",
+      desiredUrl: "https://github.com/acme/docs",
+      desiredSha: "abc",
+      ref: "abc",
+      writeStatus: "writable",
+    })
+    expect(res.status).toBe(200)
+    const events = parseSseDataLines(await res.text())
+    const text = events
+      .filter(
+        (event) => (event as { type?: string }).type === "TEXT_MESSAGE_CONTENT",
+      )
+      .map((event) => (event as { delta?: string }).delta ?? "")
+      .join("")
+    expect(text).toBe("only-this-run")
+    expect(appendTurnMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        role: "assistant",
+        content: "only-this-run",
+      }),
+    )
+    expect(appendTurnMock).not.toHaveBeenCalledWith(
+      expect.objectContaining({
+        role: "assistant",
+        content: "helloonly-this-run",
+      }),
+    )
+  })
+
+  it("uses reuse none and port 4096 when SANDBOX_PROVIDER is unset", async () => {
+    delete process.env.SANDBOX_PROVIDER
+    listSandboxInstancesMock.mockResolvedValueOnce([
+      {
+        id: "conv_1",
+        kind: "chat",
+        orgId: "org_1",
+        workspaceId: "ws_1",
+        conversationId: "conv_1",
+        provider: "local-process",
+        providerSandboxId: "/tmp/old",
+        state: "live",
+        lastHeartbeatAt: new Date(),
+      },
+    ])
+    const res = await runTanstackWorkspaceChat({
+      conversationId: "conv_1",
+      prompt: "hello",
+      orgId: "org_1",
+      workspaceId: "ws_1",
+      desiredUrl: "https://github.com/acme/docs",
+      desiredSha: "abc",
+      ref: "abc",
+      writeStatus: "writable",
+    })
+    expect(res.status).toBe(200)
+    expect(opencodeTextMock).toHaveBeenCalledWith(
+      "ctxpipe/openai/gpt-5.6-terra",
+      expect.objectContaining({ port: 4096 }),
+    )
+    expect(defineSandboxMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        lifecycle: expect.objectContaining({ reuse: "none" }),
+      }),
+    )
+    expect(dockerSandboxMock).not.toHaveBeenCalled()
+    await res.text()
+  })
+
   it("refuses Railway when no isolated provider exists", async () => {
     process.env.SANDBOX_PROVIDER = "railway"
     const res = await runTanstackWorkspaceChat({

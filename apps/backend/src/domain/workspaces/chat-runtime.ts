@@ -83,25 +83,35 @@ export function workspaceChatSandboxSpec(input: {
       isolation: "docker" | "local_process"
       source: { type: "git"; url: string; ref: string }
       lifecycle: {
-        reuse: "thread"
+        reuse: "thread" | "none"
         snapshot: "after-setup"
         keepAlive: typeof CHAT_SANDBOX_KEEP_ALIVE
+        destroyOnComplete?: boolean
       }
     }
   | { ok: false; reason: "no_isolated_provider" } {
   if (input.provider === "railway") {
     return { ok: false, reason: "no_isolated_provider" }
   }
+  const isolation = input.provider === "docker" ? "docker" : "local_process"
   return {
     ok: true,
     id: input.sandboxId,
-    isolation: input.provider === "docker" ? "docker" : "local_process",
+    isolation,
     source: { type: "git", url: input.gitUrl, ref: input.ref },
-    lifecycle: {
-      reuse: "thread",
-      snapshot: "after-setup",
-      keepAlive: CHAT_SANDBOX_KEEP_ALIVE,
-    },
+    lifecycle:
+      isolation === "local_process"
+        ? {
+            reuse: "none",
+            snapshot: "after-setup",
+            keepAlive: CHAT_SANDBOX_KEEP_ALIVE,
+            destroyOnComplete: true,
+          }
+        : {
+            reuse: "thread",
+            snapshot: "after-setup",
+            keepAlive: CHAT_SANDBOX_KEEP_ALIVE,
+          },
   }
 }
 
