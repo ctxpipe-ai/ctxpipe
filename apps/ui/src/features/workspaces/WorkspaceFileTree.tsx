@@ -49,16 +49,16 @@ export type WorkspaceFileTreeItem = {
   path: string
 }
 
-export function workspaceFilePathFromHoverEvent(
-  event: { composedPath(): EventTarget[] },
+export function workspaceFilePathFromHoverNodes(
+  nodes: readonly unknown[],
   files: ReadonlySet<string>,
 ): string | null {
-  for (const node of event.composedPath()) {
+  for (const node of nodes) {
     if (!node || typeof node !== "object" || !("getAttribute" in node)) continue
-    const path = (
-      node as { getAttribute: (name: string) => string | null }
-    ).getAttribute("data-item-path")
-    if (path && files.has(path)) return path
+    const getAttribute = Reflect.get(node, "getAttribute")
+    if (typeof getAttribute !== "function") continue
+    const path = getAttribute.call(node, "data-item-path")
+    if (typeof path === "string" && files.has(path)) return path
   }
   return null
 }
@@ -305,8 +305,8 @@ function WorkspaceFileTreeClient(props: {
         style={TREE_HOST_STYLE}
         aria-label="Workspace files"
         onMouseOver={(event) => {
-          const path = workspaceFilePathFromHoverEvent(
-            event,
+          const path = workspaceFilePathFromHoverNodes(
+            event.nativeEvent.composedPath(),
             fileSetRef.current,
           )
           if (path) onHoverFileRef.current?.(path)
