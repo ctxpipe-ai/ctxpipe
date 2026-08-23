@@ -1,26 +1,48 @@
-import { useChat } from "@ai-sdk/react"
+import type { StreamChunk } from "@tanstack/ai"
+import { useChat, type UIMessage } from "@tanstack/ai-react"
 import { useQueryClient } from "@tanstack/react-query"
 import { useNavigate } from "@tanstack/react-router"
-import type { UIMessage } from "ai"
-import { type ReactNode, useEffect, useMemo, useRef, useState } from "react"
+import { type ReactNode, useMemo, useRef, useState } from "react"
 import { ConversationThread } from "@/features/chat/ConversationThread"
-import { createTransport } from "@/features/chat/chatTransport"
+import { createWorkspaceChatConnection } from "@/features/chat/chatConnection"
+import { insertConversationListItem } from "@/features/chat/insertConversationListItem"
 import { MessageInputBox } from "@/features/chat/MessageInputBox"
-import type { ConversationDetail } from "@/features/chat/types"
+import type {
+  ChatMessage,
+  ConversationDetail,
+  ConversationListInfiniteData,
+} from "@/features/chat/types"
 import { workspaceKeys } from "./queries"
 import type { Workspace } from "./types"
 import { WorkspaceChatChrome } from "./WorkspaceChatChrome"
 
 export function workspaceChatHasAssistantText(
-  messages: Array<Pick<UIMessage, "role" | "parts">>,
+  messages: Array<Pick<ChatMessage, "role" | "parts">>,
 ): boolean {
   return messages.some(
     (message) =>
       message.role === "assistant" &&
-      message.parts.some(
-        (part) => part.type === "text" && Boolean(part.text?.trim()),
-      ),
+      message.parts.some((part) => {
+        if (part.type !== "text") return false
+        const text = part.content ?? part.text ?? ""
+        return Boolean(text.trim())
+      }),
   )
+}
+
+function renameFromChunk(chunk: StreamChunk): string | null {
+  if (chunk.type !== "CUSTOM") return null
+  if (!("name" in chunk) || chunk.name !== "rename-conversation") return null
+  const value = "value" in chunk ? chunk.value : null
+  if (
+    value &&
+    typeof value === "object" &&
+    "name" in value &&
+    typeof value.name === "string"
+  ) {
+    return value.name
+  }
+  return null
 }
 
 export function WorkspaceChatSession(props: {
@@ -45,13 +67,15 @@ export function WorkspaceChatSession(props: {
   const sendFailedRef = useRef(false)
   const committedRef = useRef(false)
   const [headerTitle, setHeaderTitle] = useState(title)
-  useEffect(() => {
+  const [seenTitle, setSeenTitle] = useState(title)
+  if (title !== seenTitle) {
+    setSeenTitle(title)
     setHeaderTitle(title)
-  }, [title])
+  }
 
-  const transport = useMemo(
+  const connection = useMemo(
     () =>
-      createTransport({
+      createWorkspaceChatConnection({
         orgSlug,
         conversationId,
         workspaceId: workspace.id,
@@ -59,62 +83,76 @@ export function WorkspaceChatSession(props: {
     [orgSlug, conversationId, workspace.id],
   )
 
-  const { messages, sendMessage, status, error, stop } = useChat({
-    id: conversationId,
-    messages: initialMessages,
-    transport,
+  const applyRename = (name: string) => {
+    setHeaderTitle(name)
+    queryClient.setQueryData<ConversationDetail>(
+      workspaceKeys.conversation(orgSlug, conversationId, workspace.id),
+      (old) =>
+        old ? { ...old, conversation: { ...old.conversation, name } } : old,
+    )
+    queryClient.setQueriesData<ConversationListInfiniteData>(
+      { queryKey: workspaceKeys.conversations(orgSlug, workspace.id) },
+      (old) =>
+        old
+          ? {
+              ...old,
+              pages: old.pages.map((page) => ({
+                ...page,
+                items: page.items.map((item) =>
+                  item.id === conversationId ? { ...item, name } : item,
+                ),
+              })),
+            }
+          : old,
+    )
+  }
+
+  const { messages, sendMessage, status, error, isLoading, stop } = useChat({
+    threadId: conversationId,
+    initialMessages: initialMessages as UIMessage[],
+    connection,
+    forwardedProps: {
+      workspaceId: workspace.id,
+      source: "ui",
+    },
     onError: () => {
       sendFailedRef.current = true
     },
-    onData: ({ type, data }) => {
-      if (
-        type === "data-rename-conversation" &&
-        data &&
-        typeof data === "object" &&
-        "name" in data &&
-        typeof (data as { name: string }).name === "string"
-      ) {
-        const name = (data as { name: string }).name
-        setHeaderTitle(name)
-        queryClient.setQueryData<ConversationDetail>(
-          workspaceKeys.conversation(orgSlug, conversationId, workspace.id),
-          (old) =>
-            old ? { ...old, conversation: { ...old.conversation, name } } : old,
-        )
-        queryClient.setQueriesData<{
-          pages: { items: { id: string; name: string }[] }[]
-        }>(
-          { queryKey: workspaceKeys.conversations(orgSlug, workspace.id) },
-          (old) =>
-            old && "pages" in old
-              ? {
-                  ...old,
-                  pages: old.pages.map((page) => ({
-                    ...page,
-                    items: page.items.map((item) =>
-                      item.id === conversationId ? { ...item, name } : item,
-                    ),
-                  })),
-                }
-              : old,
-        )
+    onChunk: (chunk) => {
+      const name = renameFromChunk(chunk)
+      if (name) applyRename(name)
+      if (chunk.type === "RUN_FINISHED") {
+        void queryClient.invalidateQueries({
+          queryKey: workspaceKeys.conversations(orgSlug, workspace.id),
+        })
+        void queryClient.invalidateQueries({
+          queryKey: workspaceKeys.list(orgSlug),
+        })
       }
+    },
+    onFinish: () => {
+      void queryClient.invalidateQueries({
+        queryKey: workspaceKeys.conversations(orgSlug, workspace.id),
+      })
     },
   })
 
-  const hasAssistantText = workspaceChatHasAssistantText(messages)
+  const insertComposeRow = () => {
+    queryClient.setQueriesData<ConversationListInfiniteData>(
+      { queryKey: workspaceKeys.conversations(orgSlug, workspace.id) },
+      (old) =>
+        insertConversationListItem(old, {
+          id: conversationId,
+          name: headerTitle || "New conversation",
+          source: "ui",
+          lastMessageAt: new Date().toISOString(),
+        }),
+    )
+  }
 
-  useEffect(() => {
-    if (!composing || committedRef.current) return
-    if (sendFailedRef.current) return
-    if (!hasAssistantText) return
+  const commitComposeRoute = () => {
+    if (!composing || committedRef.current || sendFailedRef.current) return
     committedRef.current = true
-    void queryClient.invalidateQueries({
-      queryKey: workspaceKeys.conversations(orgSlug, workspace.id),
-    })
-    void queryClient.invalidateQueries({
-      queryKey: workspaceKeys.list(orgSlug),
-    })
     void navigate({
       to: "/$orgSlug/ws/$workspaceSlug/$conversationId",
       params: {
@@ -124,21 +162,14 @@ export function WorkspaceChatSession(props: {
       },
       search: (prev) => prev,
     })
-  }, [
-    composing,
-    conversationId,
-    hasAssistantText,
-    navigate,
-    orgSlug,
-    queryClient,
-    workspace.id,
-    workspace.slug,
-  ])
+  }
 
   const handleSendMessage = async (params: { text: string }) => {
     sendFailedRef.current = false
+    insertComposeRow()
+    commitComposeRoute()
     try {
-      await sendMessage(params)
+      await sendMessage(params.text)
     } catch {
       return
     }
@@ -167,7 +198,7 @@ export function WorkspaceChatSession(props: {
               sendMessage={handleSendMessage}
               status={status}
               onStop={stop}
-              isDisabled={status === "submitted" || status === "streaming"}
+              isDisabled={isLoading}
               placeholder="Ask about this Workspace…"
             />
             {error ? (
@@ -189,7 +220,7 @@ export function WorkspaceChatSession(props: {
             sendMessage={handleSendMessage}
             status={status}
             onStop={stop}
-            isDisabled={status === "submitted" || status === "streaming"}
+            isDisabled={isLoading}
           />
         </>
       )}

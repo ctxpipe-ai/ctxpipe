@@ -9,6 +9,12 @@ import {
   workspaceGraphOptions,
 } from "./queries"
 
+/** Conversation document: `/$org/ws/$slug/$conversationId`. */
+export function isWorkspaceConversationDocument(pathname: string): boolean {
+  const parts = pathname.split("/").filter(Boolean)
+  return parts.length >= 4 && parts[1] === "ws" && Boolean(parts[3])
+}
+
 /** Prefetch workspace detail (+ conversation / landing pane) for SSR and workspace entry. */
 export async function ensureWorkspaceRouteData(input: {
   queryClient: QueryClient

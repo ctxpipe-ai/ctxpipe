@@ -1,6 +1,6 @@
 import { IconMessageCircle } from "@tabler/icons-react"
-import type { UIMessage } from "ai"
 import type { ReactElement } from "react"
+import type { ChatMessage, ChatStatus } from "@/features/chat/types"
 import {
   Conversation,
   ConversationContent,
@@ -17,36 +17,44 @@ import { cn } from "@/lib/utils"
 
 const HIDDEN_DATA_PARTS = new Set(["data-rename-conversation", "data-kg-focus"])
 
-function formatMessageTimeLabel(message: UIMessage): string | null {
-  const meta = message.metadata as { createdAt?: string } | undefined
-  if (!meta?.createdAt) return null
-  const d = new Date(meta.createdAt)
-  if (Number.isNaN(d.getTime())) return null
-  return formatDate(meta.createdAt)
+function partText(part: ChatMessage["parts"][number]): string {
+  return (part.content ?? part.text ?? "").trim()
 }
 
-function isRenderableMessagePart(part: UIMessage["parts"][number]) {
+function formatMessageTimeLabel(message: ChatMessage): string | null {
+  const createdAt =
+    message.createdAt instanceof Date
+      ? message.createdAt.toISOString()
+      : undefined
+  if (!createdAt) return null
+  const d = new Date(createdAt)
+  if (Number.isNaN(d.getTime())) return null
+  return formatDate(createdAt)
+}
+
+function isRenderableMessagePart(part: ChatMessage["parts"][number]) {
   if (HIDDEN_DATA_PARTS.has(part.type)) return false
-  if (part.type === "text") return Boolean(part.text?.trim())
-  if (part.type === "reasoning") return Boolean(part.text?.trim())
+  if (part.type === "text" || part.type === "thinking") {
+    return Boolean(partText(part))
+  }
   if (part.type === "source-url") return true
   if (part.type.startsWith("data-")) return "data" in part
   return false
 }
 
-function renderMessagePart(part: UIMessage["parts"][number], key: string) {
+function renderMessagePart(part: ChatMessage["parts"][number], key: string) {
   if (!isRenderableMessagePart(part)) return null
   if (part.type === "text") {
-    return <MessageResponse key={key}>{part.text}</MessageResponse>
+    return <MessageResponse key={key}>{partText(part)}</MessageResponse>
   }
-  if (part.type === "reasoning") {
+  if (part.type === "thinking") {
     return (
       <details
         key={key}
         className="rounded-lg border border-border/60 bg-zinc-900/60 p-3 text-sm text-muted-foreground"
       >
         <summary className="cursor-pointer text-foreground">Reasoning</summary>
-        <MessageResponse>{part.text}</MessageResponse>
+        <MessageResponse>{partText(part)}</MessageResponse>
       </details>
     )
   }
@@ -75,9 +83,7 @@ function renderMessagePart(part: UIMessage["parts"][number], key: string) {
   return null
 }
 
-export type ChatStatus = "submitted" | "streaming" | "ready" | "error"
-
-function messageHasRenderableParts(message: UIMessage) {
+function messageHasRenderableParts(message: ChatMessage) {
   return message.parts.some(isRenderableMessagePart)
 }
 
@@ -88,7 +94,7 @@ function AgentSenderLabel() {
 }
 
 export function ConversationThread(props: {
-  messages: UIMessage[]
+  messages: ChatMessage[]
   error: Error | null
   status?: ChatStatus
   contentClassName?: string

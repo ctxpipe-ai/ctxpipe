@@ -184,3 +184,117 @@ export const SendError: Story = {
     )
   },
 }
+
+function aguiSse(events: object[]) {
+  return events.map((event) => `data: ${JSON.stringify(event)}\n\n`).join("")
+}
+
+export const SseFallbackStream: Story = {
+  args: {
+    conversationId: "conv_1",
+    composing: false,
+    title: docsConversationDetail.conversation.name,
+    initialMessages: docsConversationDetail.messages,
+  },
+  parameters: {
+    storyRoute: {
+      pattern: "orgWorkspace",
+      orgSlug: "acme",
+      workspaceSlug: "docs",
+      conversationId: "conv_1",
+    } satisfies StoryRouteParams,
+    msw: {
+      handlers: {
+        page: [
+          http.post(conversationPostPath, () =>
+            new HttpResponse(
+              aguiSse([
+                { type: "RUN_STARTED", threadId: "conv_1", runId: "run_1" },
+                {
+                  type: "TEXT_MESSAGE_START",
+                  messageId: "msg_sse",
+                  role: "assistant",
+                },
+                {
+                  type: "TEXT_MESSAGE_CONTENT",
+                  messageId: "msg_sse",
+                  delta: "SSE fallback token",
+                },
+                { type: "TEXT_MESSAGE_END", messageId: "msg_sse" },
+                { type: "RUN_FINISHED", threadId: "conv_1", runId: "run_1" },
+              ]),
+              {
+                status: 200,
+                headers: { "Content-Type": "text/event-stream" },
+              },
+            ),
+          ),
+          ...workspaceShellHandlers(),
+        ],
+      },
+    },
+  },
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement)
+    await userEvent.type(
+      canvas.getByPlaceholderText(/continue the conversation/i),
+      "Stream this",
+    )
+    await userEvent.click(canvas.getByRole("button", { name: /send/i }))
+    await waitFor(() => canvas.getByText(/SSE fallback token/))
+  },
+}
+
+export const ListInsertOnSend: Story = {
+  args: {
+    conversationId: "conv_compose",
+    composing: true,
+    title: "New conversation",
+    initialMessages: [],
+  },
+  parameters: {
+    msw: {
+      handlers: {
+        page: [
+          http.post(conversationPostPath, () =>
+            new HttpResponse(
+              aguiSse([
+                { type: "RUN_STARTED", threadId: "conv_compose", runId: "run_1" },
+                {
+                  type: "TEXT_MESSAGE_START",
+                  messageId: "msg_nav",
+                  role: "assistant",
+                },
+                {
+                  type: "TEXT_MESSAGE_CONTENT",
+                  messageId: "msg_nav",
+                  delta: "Nav row should already exist",
+                },
+                { type: "TEXT_MESSAGE_END", messageId: "msg_nav" },
+                {
+                  type: "RUN_FINISHED",
+                  threadId: "conv_compose",
+                  runId: "run_1",
+                },
+              ]),
+              {
+                status: 200,
+                headers: { "Content-Type": "text/event-stream" },
+              },
+            ),
+          ),
+          ...workspaceShellHandlers(),
+        ],
+      },
+    },
+  },
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement)
+    await userEvent.type(
+      canvas.getByPlaceholderText(/ask about this workspace/i),
+      "Create this conversation",
+    )
+    await userEvent.click(canvas.getByRole("button", { name: /send/i }))
+    await waitFor(() => canvas.getByText(/Nav row should already exist/))
+  },
+}

@@ -155,8 +155,8 @@ export const docsConversationDetail: ConversationDetail = {
     {
       id: "msg_user_1",
       role: "user",
-      parts: [{ type: "text", text: "How is billing structured?" }],
-      metadata: { createdAt: "2026-08-16T09:30:00.000Z" },
+      parts: [{ type: "text", content: "How is billing structured?" }],
+      createdAt: new Date("2026-08-16T09:30:00.000Z"),
     },
     {
       id: "msg_assistant_1",
@@ -164,10 +164,11 @@ export const docsConversationDetail: ConversationDetail = {
       parts: [
         {
           type: "text",
-          text: "Billing lives in knowledge/billing/ledger.md. Invoices follow the org rules in that file.",
+          content:
+            "Billing lives in knowledge/billing/ledger.md. Invoices follow the org rules in that file.",
         },
       ],
-      metadata: { createdAt: "2026-08-16T09:30:12.000Z" },
+      createdAt: new Date("2026-08-16T09:30:12.000Z"),
     },
   ],
 }

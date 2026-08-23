@@ -21,7 +21,8 @@ export const Route = createFileRoute(
       workspaceSlug: params.workspaceSlug,
       conversationId: params.conversationId,
       paneParam,
-      warmLandingPane: cause === "enter" && typeof window !== "undefined",
+      // Conversation HTML is stored turns only — never files/git/graph/OpenCode.
+      warmLandingPane: false,
     }
     if (typeof document === "undefined") {
       await ensureWorkspaceRouteData(input)

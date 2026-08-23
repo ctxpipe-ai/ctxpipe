@@ -7,22 +7,29 @@ import {
   useMatch,
 } from "@tanstack/react-router"
 import { AppShell } from "@/components/AppShell"
+import { isWorkspaceConversationDocument } from "@/features/workspaces/ensure-route-data"
 import { workspaceListOptions } from "@/features/workspaces/queries"
 import { orgGateOptions, peekOrgGate } from "@/lib/org-gate"
 
 export const Route = createFileRoute("/$orgSlug")({
   shouldReload: ({ cause }) => cause === "enter",
-  beforeLoad: ({ cause, params, context }) => {
+  beforeLoad: ({ cause, params, context, location }) => {
     if (cause === "stay" || cause === "preload") {
       const cached = peekOrgGate(context.queryClient, params.orgSlug)
       if (cached) return cached
     }
-    return resolveOrgGate(context.queryClient, params.orgSlug)
+    return resolveOrgGate(context.queryClient, params.orgSlug, {
+      awaitWorkspaceList: !isWorkspaceConversationDocument(location.pathname),
+    })
   },
   component: OrgScopedLayout,
 })
 
-async function resolveOrgGate(queryClient: QueryClient, orgSlug: string) {
+async function resolveOrgGate(
+  queryClient: QueryClient,
+  orgSlug: string,
+  options?: { awaitWorkspaceList?: boolean },
+) {
   const gate = await queryClient.ensureQueryData(orgGateOptions(orgSlug))
   if (!gate.session) {
     throw redirect({ to: "/.auth/sign-in" })
@@ -44,6 +51,11 @@ async function resolveOrgGate(queryClient: QueryClient, orgSlug: string) {
   }
 
   if (gate.orgAccessDenied) return gate
+
+  if (options?.awaitWorkspaceList === false) {
+    void queryClient.prefetchQuery(workspaceListOptions(orgSlug))
+    return gate
+  }
 
   await queryClient.ensureQueryData(workspaceListOptions(orgSlug))
   return gate

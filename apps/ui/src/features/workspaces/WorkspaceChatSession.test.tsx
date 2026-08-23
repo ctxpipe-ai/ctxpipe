@@ -1,14 +1,13 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query"
-import type { UIMessage } from "ai"
 import { renderToStaticMarkup } from "react-dom/server"
 import { beforeEach, describe, expect, it, vi } from "vitest"
+import type { ChatMessage } from "@/features/chat/types"
 import { readOnlyWorkspace } from "./workspace-fixtures"
 
-type ChatPreviewMessage = Pick<UIMessage, "role" | "parts">
-
 const useChatState = vi.hoisted(() => ({
-  messages: [] as ChatPreviewMessage[],
-  status: "error",
+  messages: [] as ChatMessage[],
+  status: "error" as const,
+  isLoading: false,
   error: new Error(
     "opencode serve exited before becoming ready: sh: opencode: not found",
   ) as Error | null,
@@ -16,11 +15,12 @@ const useChatState = vi.hoisted(() => ({
 
 const navigateMock = vi.hoisted(() => vi.fn())
 
-vi.mock("@ai-sdk/react", () => ({
+vi.mock("@tanstack/ai-react", () => ({
   useChat: () => ({
     messages: useChatState.messages,
     sendMessage: vi.fn(),
     status: useChatState.status,
+    isLoading: useChatState.isLoading,
     error: useChatState.error,
     stop: vi.fn(),
   }),
@@ -43,7 +43,7 @@ import {
   workspaceChatHasAssistantText,
 } from "./WorkspaceChatSession"
 
-function renderCompose() {
+function renderCompose(initialMessages: ChatMessage[] = []) {
   const queryClient = new QueryClient({
     defaultOptions: { queries: { retry: false } },
   })
@@ -55,7 +55,7 @@ function renderCompose() {
         conversationId="conv_pending"
         composing
         title="New conversation"
-        initialMessages={[]}
+        initialMessages={initialMessages}
       />
     </QueryClientProvider>,
   )
@@ -66,6 +66,7 @@ describe("WorkspaceChatSession compose failure", () => {
     navigateMock.mockReset()
     useChatState.messages = []
     useChatState.status = "error"
+    useChatState.isLoading = false
     useChatState.error = new Error(
       "opencode serve exited before becoming ready: sh: opencode: not found",
     )
@@ -75,6 +76,26 @@ describe("WorkspaceChatSession compose failure", () => {
     const markup = renderCompose()
     expect(markup).toMatch(/opencode: not found/)
     expect(markup).toMatch(/Ask about this Workspace/)
+  })
+
+  it("paints stored turns in the first HTML", () => {
+    useChatState.status = "ready"
+    useChatState.error = null
+    useChatState.messages = [
+      {
+        id: "conv_stored:0",
+        role: "user",
+        parts: [{ type: "text", content: "stored user turn" }],
+      },
+      {
+        id: "conv_stored:1",
+        role: "assistant",
+        parts: [{ type: "text", content: "stored assistant turn" }],
+      },
+    ]
+    const markup = renderCompose(useChatState.messages)
+    expect(markup).toMatch(/stored user turn/)
+    expect(markup).toMatch(/stored assistant turn/)
   })
 
   it("keeps the compose error after a fake streaming status with no assistant text", () => {
@@ -91,17 +112,17 @@ describe("WorkspaceChatSession compose failure", () => {
   it("does not treat streaming-without-tokens as a reason to leave compose", () => {
     expect(
       workspaceChatHasAssistantText([
-        { role: "user", parts: [{ type: "text", text: "hello" }] },
+        { role: "user", parts: [{ type: "text", content: "hello" }] },
       ]),
     ).toBe(false)
     expect(
       workspaceChatHasAssistantText([
-        { role: "assistant", parts: [{ type: "text", text: "  " }] },
+        { role: "assistant", parts: [{ type: "text", content: "  " }] },
       ]),
     ).toBe(false)
     expect(
       workspaceChatHasAssistantText([
-        { role: "assistant", parts: [{ type: "text", text: "Hi" }] },
+        { role: "assistant", parts: [{ type: "text", content: "Hi" }] },
       ]),
     ).toBe(true)
   })

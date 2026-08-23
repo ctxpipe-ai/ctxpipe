@@ -1,7 +1,7 @@
 "use client"
 
 import { IconArrowUp } from "@tabler/icons-react"
-import type { ChatStatus } from "ai"
+import type { ChatStatus } from "@/features/chat/types"
 import { useEffect } from "react"
 import {
   PromptInput,

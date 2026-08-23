@@ -3,6 +3,7 @@ import { HttpResponse, http } from "msw"
 import { setupServer } from "msw/node"
 import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest"
 import { ensureWorkspaceRouteData } from "./ensure-route-data"
+import { workspaceConversationOptions } from "./queries"
 import { docsWorkspaceDetail, hydratingWorkspace } from "./workspace-fixtures"
 
 const hydratingWorkspaceDetail = {
@@ -119,6 +120,67 @@ describe("ensureWorkspaceRouteData", () => {
       warmLandingPane: true,
     })
     expect(treeHits).toBe(1)
+  })
+
+  it("loads stored conversation turns without files or git on the document", async () => {
+    listenForWorkspaceHttp()
+    let conversationHits = 0
+    server.use(
+      http.get(
+        "http://localhost:3000/:orgSlug/api/v1/conversations/:conversationId",
+        () => {
+          conversationHits += 1
+          return HttpResponse.json({
+            conversation: {
+              id: "conv_stored",
+              orgId: "org_1",
+              userId: "user_1",
+              workspaceId: docsWorkspaceDetail.id,
+              name: "Stored thread",
+              source: "ui",
+              lastMessageAt: "2026-08-22T10:00:00.000Z",
+              createdAt: "2026-08-22T09:00:00.000Z",
+              updatedAt: "2026-08-22T10:00:00.000Z",
+            },
+            messages: [
+              {
+                id: "conv_stored:0",
+                role: "user",
+                parts: [{ type: "text", content: "stored user turn" }],
+              },
+            ],
+          })
+        },
+      ),
+    )
+    const queryClient = new QueryClient({
+      defaultOptions: { queries: { retry: false } },
+    })
+    await ensureWorkspaceRouteData({
+      queryClient,
+      orgSlug: "acme",
+      workspaceSlug: docsWorkspaceDetail.slug,
+      conversationId: "conv_stored",
+      warmLandingPane: false,
+    })
+    expect(conversationHits).toBe(1)
+    expect(treeHits).toBe(0)
+    expect(blobHits).toBe(0)
+    expect(
+      queryClient.getQueryData(
+        workspaceConversationOptions(
+          "acme",
+          "conv_stored",
+          docsWorkspaceDetail.id,
+        ).queryKey,
+      ),
+    ).toMatchObject({
+      messages: [
+        {
+          parts: [{ type: "text", content: "stored user turn" }],
+        },
+      ],
+    })
   })
 
   it("does not fetch files/tree or blob when pane warmup is skipped", async () => {
