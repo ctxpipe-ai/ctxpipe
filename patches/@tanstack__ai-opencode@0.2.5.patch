@@ -1,0 +1,164 @@
+diff --git a/dist/esm/adapters/text.js b/dist/esm/adapters/text.js
+index 28fb47e410b1289040bc750a6b3392ff90829845..2c8b56e92482b931976f28853a61d1207d6ca28f 100644
+--- a/dist/esm/adapters/text.js
++++ b/dist/esm/adapters/text.js
+@@ -85,6 +85,18 @@ var OpencodeTextAdapter = class extends BaseTextAdapter {
+ 			});
+ 			const approvalRequests = [];
+ 			const queue = new AsyncQueue();
++			let finishedMessage;
++			let sawIdle = false;
++			let settled = false;
++			const settle = () => {
++				if (settled || finishedMessage === void 0 || !sawIdle) return;
++				settled = true;
++				queue.push({
++					kind: "done",
++					message: finishedMessage
++				});
++				queue.end();
++			};
+ 			const mode = modelOptions?.permissionMode ?? this.adapterConfig.permissionMode ?? "default";
+ 			const permissionHandler = this.adapterConfig.onPermissionRequest ?? ((request) => {
+ 				const result = resolveInteractivePermission(request, mode, bridgedToolNames, options.approvals);
+@@ -120,10 +132,16 @@ var OpencodeTextAdapter = class extends BaseTextAdapter {
+ 				providerID,
+ 				modelID,
+ 				...sessionId !== void 0 && { resumeSessionId: sessionId },
+-				onEvent: (event) => queue.push({
+-					kind: "event",
+-					event
+-				}),
++				onEvent: (event) => {
++					queue.push({
++						kind: "event",
++						event
++					});
++					if (event.type === "session.idle") {
++						sawIdle = true;
++						settle();
++					}
++				},
+ 				onPermissionRequest: permissionHandler,
+ 				onError: (error) => queue.fail(error)
+ 			});
+@@ -138,12 +156,28 @@ var OpencodeTextAdapter = class extends BaseTextAdapter {
+ 				sessionId: session.sessionId
+ 			});
+ 			const promptText = this.applySystemPrompts(options, session.resumed || sessionId === void 0 ? resumePrompt : buildPrompt(options.messages, void 0).prompt);
+-			session.prompt(promptText).then(({ message }) => {
+-				queue.push({
+-					kind: "done",
+-					message
+-				});
+-				queue.end();
++			session.prompt(promptText).then(({ message, text }) => {
++				finishedMessage = message;
++				settle();
++				setTimeout(() => {
++					if (settled) return;
++					if (text) queue.push({
++						kind: "event",
++						event: {
++							type: "message.part.updated",
++							properties: {
++								part: {
++									id: "opencode-prompt-text",
++									type: "text",
++									text
++								},
++								delta: text
++							}
++						}
++					});
++					sawIdle = true;
++					settle();
++				}, 2e3);
+ 			}).catch((error) => queue.fail(error));
+ 			yield* mergeChunkStreams(translateOpencodeStream(queue, {
+ 				model: this.model,
+diff --git a/src/adapters/text.ts b/src/adapters/text.ts
+index de3650103c43c53650be6c11935ccb3c33632add..fa17d687eab89ebaefa4b7fb0d9fdea9cb712b92 100644
+--- a/src/adapters/text.ts
++++ b/src/adapters/text.ts
+@@ -37,7 +37,10 @@ import type {
+   OpencodePermissionMode,
+   PermissionHandler,
+ } from '../process/permissions'
+-import type { OpencodeStreamEvent } from '../stream/sdk-types'
++import type {
++  OpencodeAssistantMessage,
++  OpencodeStreamEvent,
++} from '../stream/sdk-types'
+ import type { OpencodeModel } from '../model-meta'
+ import type { OpencodeTextProviderOptions } from '../provider-options'
+ 
+@@ -235,6 +238,19 @@ export class OpencodeTextAdapter<
+       const approvalRequests: Array<StreamChunk> = []
+ 
+       const queue = new AsyncQueue<OpencodeStreamEvent>()
++      // prompt() resolves when the HTTP turn returns, but OpenCode's event
++      // SSE still delivers the assistant text parts (and session.idle)
++      // afterward. Ending the queue on prompt() drops those events, so the
++      // translator only sees the user-text echo. Wait for session.idle.
++      let finishedMessage: OpencodeAssistantMessage | undefined
++      let sawIdle = false
++      let settled = false
++      const settle = () => {
++        if (settled || finishedMessage === undefined || !sawIdle) return
++        settled = true
++        queue.push({ kind: 'done', message: finishedMessage })
++        queue.end()
++      }
+       const mode =
+         modelOptions?.permissionMode ??
+         this.adapterConfig.permissionMode ??
+@@ -307,7 +323,13 @@ export class OpencodeTextAdapter<
+         providerID,
+         modelID,
+         ...(sessionId !== undefined && { resumeSessionId: sessionId }),
+-        onEvent: (event) => queue.push({ kind: 'event', event }),
++        onEvent: (event) => {
++          queue.push({ kind: 'event', event })
++          if (event.type === 'session.idle') {
++            sawIdle = true
++            settle()
++          }
++        },
+         onPermissionRequest: permissionHandler,
+         onError: (error) => queue.fail(error),
+       })
+@@ -330,9 +352,30 @@ export class OpencodeTextAdapter<
+ 
+       session
+         .prompt(promptText)
+-        .then(({ message }) => {
+-          queue.push({ kind: 'done', message })
+-          queue.end()
++        .then(({ message, text }) => {
++          finishedMessage = message
++          settle()
++          setTimeout(() => {
++            if (settled) return
++            if (text) {
++              queue.push({
++                kind: 'event',
++                event: {
++                  type: 'message.part.updated',
++                  properties: {
++                    part: {
++                      id: 'opencode-prompt-text',
++                      type: 'text',
++                      text,
++                    },
++                    delta: text,
++                  },
++                },
++              })
++            }
++            sawIdle = true
++            settle()
++          }, 2_000)
+         })
+         .catch((error: unknown) => queue.fail(error))
+ 

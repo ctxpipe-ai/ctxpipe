@@ -23,7 +23,7 @@ import {
   initDb,
   withOrgDbContext,
 } from "../../db/client.js"
-import { organizations } from "../../db/schema/auth.js"
+import { organizations, users } from "../../db/schema/auth.js"
 import {
   conversationMessages,
   conversations,
@@ -40,10 +40,8 @@ config({
   quiet: true,
 })
 
-/** Same gate as tanstack-workspace-chat.live.test.ts — default CI has no OpenCode CLI. */
-const live = process.env.OPENCODE_LIVE === "1"
 const databaseUrl = process.env.DATABASE_URL
-if (live && !databaseUrl) {
+if (!databaseUrl) {
   throw new Error(
     "DATABASE_URL is required; run pnpm --filter @ctxpipe/backend test against a migrated Postgres (ctxpipe_app after owner migrate)",
   )
@@ -55,9 +53,9 @@ const org = {
   slug: `${runId}-org`,
   name: "Live multi-turn org",
 }
+const userId = `${runId}_user`
 const workspaceId = `ws_${runId}`
 const conversationId = `conv_${runId}`
-const userId = `user_${runId}`
 const llmOrigin = "https://llm.msw.test"
 
 const savedHome = {
@@ -90,6 +88,15 @@ function openaiSse(content: string, model: string) {
       created: 1,
       model,
       choices: [{ index: 0, delta, finish_reason: finish }],
+      ...(finish === "stop"
+        ? {
+            usage: {
+              prompt_tokens: 8,
+              completion_tokens: 3,
+              total_tokens: 11,
+            },
+          }
+        : {}),
     })}\n\n`
   return `${chunk({ role: "assistant" }, null)}${chunk({ content }, null)}${chunk({}, "stop")}data: [DONE]\n\n`
 }
@@ -163,23 +170,23 @@ function restoreHome(): void {
   }
 }
 
-const source = live ? makeGitRepo() : { url: "", ref: "" }
+const source = makeGitRepo()
 
-describe.skipIf(!live)("live two-turn workspace chat", () => {
+describe("live two-turn workspace chat", () => {
   beforeAll(async () => {
-    server.listen({
-      onUnhandledRequest: (req) => {
-        if (req.url.startsWith(llmOrigin)) {
-          throw new Error(`unhandled LLM request ${req.method} ${req.url}`)
-        }
-      },
-    })
-    if (!databaseUrl) {
-      throw new Error("DATABASE_URL is required for OPENCODE_LIVE")
-    }
+    server.listen({ onUnhandledRequest: "bypass" })
     initDb(databaseUrl)
     const now = new Date()
-    await getSystemDb()
+    const db = getSystemDb()
+    await db.insert(users).values({
+      id: userId,
+      name: "Live chat user",
+      email: `${runId}@ctxpipe.test`,
+      emailVerified: true,
+      createdAt: now,
+      updatedAt: now,
+    })
+    await db
       .insert(organizations)
       .values({ id: org.id, name: org.name, slug: org.slug, createdAt: now })
     await withOrgDbContext(org.id, async (db) => {
@@ -216,9 +223,9 @@ describe.skipIf(!live)("live two-turn workspace chat", () => {
           .where(eq(conversations.id, conversationId))
         await db.delete(workspaces).where(eq(workspaces.id, workspaceId))
       })
-      await getSystemDb()
-        .delete(organizations)
-        .where(eq(organizations.id, org.id))
+      const system = getSystemDb()
+      await system.delete(organizations).where(eq(organizations.id, org.id))
+      await system.delete(users).where(eq(users.id, userId))
     } finally {
       await closeDb()
     }
