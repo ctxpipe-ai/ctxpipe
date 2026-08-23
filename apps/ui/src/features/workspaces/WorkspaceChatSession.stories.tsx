@@ -1,14 +1,34 @@
 import type { Meta, StoryObj } from "@storybook/react-vite"
 import { delay, HttpResponse, http } from "msw"
 import { userEvent, waitFor, within } from "storybook/test"
+import {
+  conversationAguiSseResponse,
+  conversationAguiTextEvents,
+  conversationPostPath,
+} from "@/mocks/conversation-agui"
 import { workspaceShellHandlers } from "@/mocks/workspace-handlers"
 import { entryPageInnerDecorators } from "../../../.storybook/decorators/entry-page-decorators"
 import type { StoryRouteParams } from "../../../.storybook/decorators/with-story-route"
 import { WorkspaceChatSession } from "./WorkspaceChatSession"
-import { docsConversationDetail, docsWorkspace } from "./workspace-fixtures"
+import {
+  codeAnswerMessages,
+  docsConversationDetail,
+  docsWorkspace,
+  longThreadMessages,
+  markdownAnswerMessages,
+  readOnlyWorkspace,
+  reasoningMessages,
+  sourceLinkMessages,
+} from "./workspace-fixtures"
 
-const conversationPostPath = ({ request }: { request: Request }) =>
-  /\/api\/v1\/conversations\/[^/]+$/.test(new URL(request.url).pathname)
+const SEND_WAIT_MS = 5_000
+
+const threadRoute = {
+  pattern: "orgWorkspace",
+  orgSlug: "acme",
+  workspaceSlug: "docs",
+  conversationId: "conv_1",
+} satisfies StoryRouteParams
 
 const meta = {
   title: "Components/Workspaces/ChatSession",
@@ -48,39 +68,79 @@ export default meta
 
 type Story = StoryObj<typeof meta>
 
-export const ComposeEmpty: Story = {}
-
-export const ThreadWithMessages: Story = {
-  args: {
+function threadArgs(
+  messages: typeof docsConversationDetail.messages,
+  title = docsConversationDetail.conversation.name,
+) {
+  return {
     conversationId: "conv_1",
     composing: false,
-    title: docsConversationDetail.conversation.name,
-    initialMessages: docsConversationDetail.messages,
+    title,
+    initialMessages: messages,
+  }
+}
+
+export const ComposeEmpty: Story = {}
+
+export const ThreadShort: Story = {
+  args: threadArgs(docsConversationDetail.messages),
+  parameters: {
+    storyRoute: threadRoute,
+  },
+}
+
+export const ThreadLong: Story = {
+  args: threadArgs(longThreadMessages),
+  parameters: {
+    storyRoute: threadRoute,
+  },
+}
+
+export const MarkdownAnswer: Story = {
+  args: threadArgs(markdownAnswerMessages, "Auth"),
+  parameters: {
+    storyRoute: threadRoute,
+  },
+}
+
+export const CodeAnswer: Story = {
+  args: threadArgs(codeAnswerMessages, "Session helper"),
+  parameters: {
+    storyRoute: threadRoute,
+  },
+}
+
+export const Reasoning: Story = {
+  args: threadArgs(reasoningMessages, "Ledger"),
+  parameters: {
+    storyRoute: threadRoute,
+  },
+}
+
+export const SourceLinks: Story = {
+  args: threadArgs(sourceLinkMessages, "Payments API"),
+  parameters: {
+    storyRoute: threadRoute,
+  },
+}
+
+export const ReadOnly: Story = {
+  args: {
+    ...threadArgs(docsConversationDetail.messages),
+    workspace: readOnlyWorkspace,
   },
   parameters: {
     storyRoute: {
-      pattern: "orgWorkspace",
-      orgSlug: "acme",
-      workspaceSlug: "docs",
-      conversationId: "conv_1",
+      ...threadRoute,
+      workspaceSlug: "handbook",
     } satisfies StoryRouteParams,
   },
 }
 
-export const Streaming: Story = {
-  args: {
-    conversationId: "conv_1",
-    composing: false,
-    title: docsConversationDetail.conversation.name,
-    initialMessages: docsConversationDetail.messages,
-  },
+export const Waiting: Story = {
+  args: threadArgs(docsConversationDetail.messages),
   parameters: {
-    storyRoute: {
-      pattern: "orgWorkspace",
-      orgSlug: "acme",
-      workspaceSlug: "docs",
-      conversationId: "conv_1",
-    } satisfies StoryRouteParams,
+    storyRoute: threadRoute,
     msw: {
       handlers: {
         page: [
@@ -100,9 +160,44 @@ export const Streaming: Story = {
       "What about auth?",
     )
     await userEvent.click(canvas.getByRole("button", { name: /send/i }))
-    await waitFor(() =>
-      canvas.getByRole("status", { name: /waiting for response/i }),
+    await waitFor(
+      () => canvas.getByRole("status", { name: /waiting for response/i }),
+      { timeout: SEND_WAIT_MS },
     )
+  },
+}
+
+export const Streaming: Story = {
+  args: threadArgs(docsConversationDetail.messages),
+  parameters: {
+    storyRoute: threadRoute,
+    msw: {
+      handlers: {
+        page: [
+          http.post(conversationPostPath, () =>
+            conversationAguiSseResponse(
+              conversationAguiTextEvents({
+                threadId: "conv_1",
+                messageId: "msg_sse",
+                text: "SSE fallback token",
+              }),
+            ),
+          ),
+          ...workspaceShellHandlers(),
+        ],
+      },
+    },
+  },
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement)
+    await userEvent.type(
+      canvas.getByPlaceholderText(/continue the conversation/i),
+      "Stream this",
+    )
+    await userEvent.click(canvas.getByRole("button", { name: /send/i }))
+    await waitFor(() => canvas.getByText(/SSE fallback token/), {
+      timeout: SEND_WAIT_MS,
+    })
   },
 }
 
@@ -138,26 +233,14 @@ export const ComposeSendError: Story = {
       "What is in this Workspace?",
     )
     await userEvent.click(canvas.getByRole("button", { name: /send/i }))
-    await waitFor(() =>
-      canvas.getByText(/opencode: not found|chat request failed|failed/i),
-    )
+    await waitFor(() => canvas.getByRole("alert"), { timeout: SEND_WAIT_MS })
   },
 }
 
 export const SendError: Story = {
-  args: {
-    conversationId: "conv_1",
-    composing: false,
-    title: docsConversationDetail.conversation.name,
-    initialMessages: docsConversationDetail.messages,
-  },
+  args: threadArgs(docsConversationDetail.messages),
   parameters: {
-    storyRoute: {
-      pattern: "orgWorkspace",
-      orgSlug: "acme",
-      workspaceSlug: "docs",
-      conversationId: "conv_1",
-    } satisfies StoryRouteParams,
+    storyRoute: threadRoute,
     msw: {
       handlers: {
         page: [
@@ -179,69 +262,7 @@ export const SendError: Story = {
       "Retry this?",
     )
     await userEvent.click(canvas.getByRole("button", { name: /send/i }))
-    await waitFor(() =>
-      canvas.getByText(/chat request failed|sandbox is gone|failed/i),
-    )
-  },
-}
-
-function aguiSse(events: object[]) {
-  return events.map((event) => `data: ${JSON.stringify(event)}\n\n`).join("")
-}
-
-export const SseFallbackStream: Story = {
-  args: {
-    conversationId: "conv_1",
-    composing: false,
-    title: docsConversationDetail.conversation.name,
-    initialMessages: docsConversationDetail.messages,
-  },
-  parameters: {
-    storyRoute: {
-      pattern: "orgWorkspace",
-      orgSlug: "acme",
-      workspaceSlug: "docs",
-      conversationId: "conv_1",
-    } satisfies StoryRouteParams,
-    msw: {
-      handlers: {
-        page: [
-          http.post(conversationPostPath, () =>
-            new HttpResponse(
-              aguiSse([
-                { type: "RUN_STARTED", threadId: "conv_1", runId: "run_1" },
-                {
-                  type: "TEXT_MESSAGE_START",
-                  messageId: "msg_sse",
-                  role: "assistant",
-                },
-                {
-                  type: "TEXT_MESSAGE_CONTENT",
-                  messageId: "msg_sse",
-                  delta: "SSE fallback token",
-                },
-                { type: "TEXT_MESSAGE_END", messageId: "msg_sse" },
-                { type: "RUN_FINISHED", threadId: "conv_1", runId: "run_1" },
-              ]),
-              {
-                status: 200,
-                headers: { "Content-Type": "text/event-stream" },
-              },
-            ),
-          ),
-          ...workspaceShellHandlers(),
-        ],
-      },
-    },
-  },
-  play: async ({ canvasElement }) => {
-    const canvas = within(canvasElement)
-    await userEvent.type(
-      canvas.getByPlaceholderText(/continue the conversation/i),
-      "Stream this",
-    )
-    await userEvent.click(canvas.getByRole("button", { name: /send/i }))
-    await waitFor(() => canvas.getByText(/SSE fallback token/))
+    await waitFor(() => canvas.getByRole("alert"), { timeout: SEND_WAIT_MS })
   },
 }
 
@@ -257,30 +278,12 @@ export const ListInsertOnSend: Story = {
       handlers: {
         page: [
           http.post(conversationPostPath, () =>
-            new HttpResponse(
-              aguiSse([
-                { type: "RUN_STARTED", threadId: "conv_compose", runId: "run_1" },
-                {
-                  type: "TEXT_MESSAGE_START",
-                  messageId: "msg_nav",
-                  role: "assistant",
-                },
-                {
-                  type: "TEXT_MESSAGE_CONTENT",
-                  messageId: "msg_nav",
-                  delta: "Nav row should already exist",
-                },
-                { type: "TEXT_MESSAGE_END", messageId: "msg_nav" },
-                {
-                  type: "RUN_FINISHED",
-                  threadId: "conv_compose",
-                  runId: "run_1",
-                },
-              ]),
-              {
-                status: 200,
-                headers: { "Content-Type": "text/event-stream" },
-              },
+            conversationAguiSseResponse(
+              conversationAguiTextEvents({
+                threadId: "conv_compose",
+                messageId: "msg_nav",
+                text: "Nav row should already exist",
+              }),
             ),
           ),
           ...workspaceShellHandlers(),
@@ -295,6 +298,8 @@ export const ListInsertOnSend: Story = {
       "Create this conversation",
     )
     await userEvent.click(canvas.getByRole("button", { name: /send/i }))
-    await waitFor(() => canvas.getByText(/Nav row should already exist/))
+    await waitFor(() => canvas.getByText(/Nav row should already exist/), {
+      timeout: SEND_WAIT_MS,
+    })
   },
 }

@@ -5,6 +5,7 @@ import { code } from "@streamdown/code"
 import { math } from "@streamdown/math"
 import { mermaid } from "@streamdown/mermaid"
 export type ChatMessageRole = "system" | "user" | "assistant"
+
 import { ChevronLeftIcon, ChevronRightIcon } from "lucide-react"
 import type { ComponentProps, HTMLAttributes, ReactElement } from "react"
 import {
@@ -51,7 +52,7 @@ export const MessageContent = ({
 }: MessageContentProps) => (
   <div
     className={cn(
-      "flex w-full min-w-0 max-w-full flex-col gap-2 text-[15px] leading-relaxed",
+      "flex w-full min-w-0 max-w-full flex-col gap-2 text-sm leading-relaxed",
       /* User bubble: clip to rounded box. Assistant: no overflow-y clip so Streamdown code
          block sticky copy/download controls (negative top offset) stay visible and clickable. */
       "group-[.is-user]:overflow-hidden",
@@ -334,7 +335,7 @@ export const MessageResponse = memo(
     <Streamdown
       {...props}
       className={cn(
-        "ctx-streamdown size-full [&>*:first-child]:mt-0 [&>*:last-child]:mb-0",
+        "ctx-streamdown size-full text-sm leading-relaxed [&>*:first-child]:mt-0 [&>*:last-child]:mb-0",
         /* Body copy only — fenced code blocks are not inside these, so Shiki keeps token colours */
         "[&_blockquote]:text-muted-foreground [&_h1]:text-foreground [&_h2]:text-foreground [&_h3]:text-foreground [&_h4]:text-foreground [&_li]:text-foreground/90 [&_ol]:text-foreground/90 [&_p]:text-foreground/90 [&_strong]:text-foreground [&_ul]:text-foreground/90",
         "*:data-[streamdown='table-wrapper']:bg-transparent",

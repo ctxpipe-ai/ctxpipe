@@ -3,7 +3,9 @@ import {
   useQueryClient,
   useSuspenseQuery,
 } from "@tanstack/react-query"
+import { useNavigate } from "@tanstack/react-router"
 import { type ReactNode, Suspense, useState } from "react"
+import { Button } from "@/components/ui/Button"
 import { Skeleton } from "@/components/ui/Skeleton"
 import { ConversationThreadSkeleton } from "@/features/chat/components/ConversationThreadSkeleton"
 import { createObjectId } from "@/lib/id"
@@ -98,6 +100,7 @@ function WorkspaceChatResume(props: {
   headerExtra?: ReactNode
 }) {
   const { orgSlug, workspace, conversationId } = props
+  const navigate = useNavigate()
   const { data: detail } = useSuspenseQuery(
     workspaceConversationOptions(orgSlug, conversationId, workspace.id),
   )
@@ -110,11 +113,32 @@ function WorkspaceChatResume(props: {
         title="Conversation not found"
         headerExtra={props.headerExtra}
       >
-        <div className="flex min-h-0 flex-1 items-center justify-center p-8">
-          <p className="max-w-sm text-sm text-muted-foreground">
-            That conversation is not in this Workspace. Resume from the
-            Workspace list, or start a new conversation.
-          </p>
+        <div className="flex min-h-0 flex-1 items-center justify-center px-6 py-10">
+          <div className="w-full max-w-sm space-y-5">
+            <div>
+              <h1 className="text-lg font-medium tracking-tight">
+                Conversation not found
+              </h1>
+              <p className="mt-1.5 text-sm text-muted-foreground">
+                That conversation is not in this Workspace. Start a new one.
+              </p>
+            </div>
+            <Button
+              variant="primary"
+              onPress={() => {
+                void navigate({
+                  to: "/$orgSlug/ws/$workspaceSlug",
+                  params: {
+                    orgSlug,
+                    workspaceSlug: workspace.slug,
+                  },
+                  search: (prev) => prev,
+                })
+              }}
+            >
+              New conversation
+            </Button>
+          </div>
         </div>
       </WorkspaceChatChrome>
     )

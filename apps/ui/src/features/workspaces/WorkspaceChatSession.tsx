@@ -1,8 +1,9 @@
 import type { StreamChunk } from "@tanstack/ai"
-import { useChat, type UIMessage } from "@tanstack/ai-react"
+import { type UIMessage, useChat } from "@tanstack/ai-react"
 import { useQueryClient } from "@tanstack/react-query"
 import { useNavigate } from "@tanstack/react-router"
 import { type ReactNode, useMemo, useRef, useState } from "react"
+import { InlineAlert } from "@/components/ui/InlineAlert"
 import { ConversationThread } from "@/features/chat/ConversationThread"
 import { createWorkspaceChatConnection } from "@/features/chat/chatConnection"
 import { insertConversationListItem } from "@/features/chat/insertConversationListItem"
@@ -198,13 +199,13 @@ export function WorkspaceChatSession(props: {
               sendMessage={handleSendMessage}
               status={status}
               onStop={stop}
-              isDisabled={isLoading}
+              isDisabled={isLoading || Boolean(workspace.readOnlyReason)}
               placeholder="Ask about this Workspace…"
             />
             {error ? (
-              <p className="text-sm text-destructive">
-                {error.message || "Chat request failed."}
-              </p>
+              <InlineAlert variant="error" title="Could not send">
+                {error.message || "Chat request failed."} Send again to retry.
+              </InlineAlert>
             ) : null}
           </div>
         </div>
@@ -220,7 +221,7 @@ export function WorkspaceChatSession(props: {
             sendMessage={handleSendMessage}
             status={status}
             onStop={stop}
-            isDisabled={isLoading}
+            isDisabled={isLoading || Boolean(workspace.readOnlyReason)}
           />
         </>
       )}

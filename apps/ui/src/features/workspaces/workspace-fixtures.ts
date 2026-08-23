@@ -1,4 +1,5 @@
 import type {
+  ChatMessage,
   ConversationDetail,
   ConversationListItem,
 } from "@/features/chat/types"
@@ -172,6 +173,174 @@ export const docsConversationDetail: ConversationDetail = {
     },
   ],
 }
+
+export const longThreadMessages: ChatMessage[] = [
+  {
+    id: "msg_long_u1",
+    role: "user",
+    parts: [{ type: "text", content: "How is billing structured?" }],
+    createdAt: new Date("2026-08-16T09:30:00.000Z"),
+  },
+  {
+    id: "msg_long_a1",
+    role: "assistant",
+    parts: [
+      {
+        type: "text",
+        content:
+          "Billing lives in knowledge/billing/ledger.md. Invoices follow the org rules in that file.",
+      },
+    ],
+    createdAt: new Date("2026-08-16T09:30:12.000Z"),
+  },
+  {
+    id: "msg_long_u2",
+    role: "user",
+    parts: [{ type: "text", content: "Where do refunds go?" }],
+    createdAt: new Date("2026-08-16T09:31:00.000Z"),
+  },
+  {
+    id: "msg_long_a2",
+    role: "assistant",
+    parts: [
+      {
+        type: "text",
+        content:
+          "Refunds go through the payments API and reverse the ledger. See knowledge/payments/refunds.md.",
+      },
+    ],
+    createdAt: new Date("2026-08-16T09:31:18.000Z"),
+  },
+  {
+    id: "msg_long_u3",
+    role: "user",
+    parts: [{ type: "text", content: "And tax?" }],
+    createdAt: new Date("2026-08-16T09:32:00.000Z"),
+  },
+  {
+    id: "msg_long_a3",
+    role: "assistant",
+    parts: [
+      {
+        type: "text",
+        content:
+          "VAT is applied when posting to the ledger. The tax notes live next to invoices.",
+      },
+    ],
+    createdAt: new Date("2026-08-16T09:32:10.000Z"),
+  },
+]
+
+export const markdownAnswerMessages: ChatMessage[] = [
+  {
+    id: "msg_md_u1",
+    role: "user",
+    parts: [{ type: "text", content: "Explain auth in this Workspace." }],
+    createdAt: new Date("2026-08-16T09:40:00.000Z"),
+  },
+  {
+    id: "msg_md_a1",
+    role: "assistant",
+    parts: [
+      {
+        type: "text",
+        content: `# Auth
+
+## Session cookies
+
+Org login issues a session after the identity provider returns.
+
+- Okta is the IdP
+- Cookies are httpOnly
+  - Refresh is silent
+  - Expiry is 7 days
+
+1. Redirect to Okta
+2. Exchange the code
+3. Set the session cookie`,
+      },
+    ],
+    createdAt: new Date("2026-08-16T09:40:14.000Z"),
+  },
+]
+
+export const codeAnswerMessages: ChatMessage[] = [
+  {
+    id: "msg_code_u1",
+    role: "user",
+    parts: [{ type: "text", content: "Show the session helper." }],
+    createdAt: new Date("2026-08-16T09:41:00.000Z"),
+  },
+  {
+    id: "msg_code_a1",
+    role: "assistant",
+    parts: [
+      {
+        type: "text",
+        content: `Read the cookie prefix before you trust it.
+
+\`\`\`ts
+export function sessionFromCookie(raw: string) {
+  return raw.slice(0, 8)
+}
+\`\`\``,
+      },
+    ],
+    createdAt: new Date("2026-08-16T09:41:12.000Z"),
+  },
+]
+
+export const reasoningMessages: ChatMessage[] = [
+  {
+    id: "msg_think_u1",
+    role: "user",
+    parts: [{ type: "text", content: "Why ledger.md and not invoices.md?" }],
+    createdAt: new Date("2026-08-16T09:42:00.000Z"),
+  },
+  {
+    id: "msg_think_a1",
+    role: "assistant",
+    parts: [
+      {
+        type: "thinking",
+        content:
+          "The payments API claims DEPENDS_ON ledger.md. Invoices are generated from that file, so the ledger is the source of truth.",
+      },
+      {
+        type: "text",
+        content:
+          "Use knowledge/billing/ledger.md. Invoice documents are generated from it.",
+      },
+    ],
+    createdAt: new Date("2026-08-16T09:42:16.000Z"),
+  },
+]
+
+export const sourceLinkMessages: ChatMessage[] = [
+  {
+    id: "msg_src_u1",
+    role: "user",
+    parts: [{ type: "text", content: "Where is the payments API?" }],
+    createdAt: new Date("2026-08-16T09:43:00.000Z"),
+  },
+  {
+    id: "msg_src_a1",
+    role: "assistant",
+    parts: [
+      {
+        type: "text",
+        content:
+          "The payments API lives in knowledge/payments/api.md and depends on the billing ledger.",
+      },
+      {
+        type: "source-url",
+        url: "https://github.com/acme/docs/blob/main/knowledge/payments/api.md",
+        title: "knowledge/payments/api.md",
+      },
+    ],
+    createdAt: new Date("2026-08-16T09:43:10.000Z"),
+  },
+]
 
 export const docsWorkspaceGitBlobs: Record<string, string> = {
   "AGENTS.md":

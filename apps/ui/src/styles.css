@@ -565,6 +565,72 @@
   .ctx-streamdown [data-streamdown="code-block-download-button"]:disabled {
     @apply cursor-not-allowed opacity-50;
   }
+
+  /*
+   * Chat Streamdown prose: Operate scale. Streamdown ships marketing headings
+   * (text-3xl) and list-inside; beat those utilities with the house hook.
+   */
+  .ctx-streamdown [data-streamdown="heading-1"] {
+    font-size: var(--text-base) !important;
+    line-height: var(--text-base--line-height) !important;
+    font-weight: 500 !important;
+    margin-top: calc(var(--spacing) * 3) !important;
+    margin-bottom: calc(var(--spacing) * 1.5) !important;
+  }
+
+  .ctx-streamdown [data-streamdown="heading-2"],
+  .ctx-streamdown [data-streamdown="heading-3"],
+  .ctx-streamdown [data-streamdown="heading-4"],
+  .ctx-streamdown [data-streamdown="heading-5"],
+  .ctx-streamdown [data-streamdown="heading-6"] {
+    font-size: var(--text-sm) !important;
+    line-height: var(--text-sm--line-height) !important;
+    font-weight: 500 !important;
+    margin-top: calc(var(--spacing) * 3) !important;
+    margin-bottom: calc(var(--spacing) * 1.5) !important;
+  }
+
+  .ctx-streamdown [data-streamdown="unordered-list"],
+  .ctx-streamdown [data-streamdown="ordered-list"] {
+    list-style-position: outside !important;
+    padding-inline-start: calc(var(--spacing) * 4) !important;
+    margin-block: calc(var(--spacing) * 1.5);
+  }
+
+  .ctx-streamdown [data-streamdown="unordered-list"] {
+    list-style-type: disc !important;
+  }
+
+  .ctx-streamdown [data-streamdown="ordered-list"] {
+    list-style-type: decimal !important;
+  }
+
+  .ctx-streamdown [data-streamdown="list-item"] {
+    padding-block: 0.125rem !important;
+  }
+
+  .ctx-streamdown
+    [data-streamdown="list-item"]
+    [data-streamdown="unordered-list"],
+  .ctx-streamdown
+    [data-streamdown="list-item"]
+    [data-streamdown="ordered-list"] {
+    padding-inline-start: calc(var(--spacing) * 5) !important;
+    margin-block: calc(var(--spacing) * 1);
+  }
+
+  .ctx-streamdown p {
+    font-size: var(--text-sm);
+    line-height: 1.625;
+  }
+
+  .ctx-streamdown > :first-child {
+    margin-top: 0 !important;
+  }
+
+  .ctx-streamdown > :last-child {
+    margin-bottom: 0 !important;
+  }
 }
 
 .ctx-status-pulse {

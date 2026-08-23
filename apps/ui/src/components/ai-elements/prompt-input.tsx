@@ -1129,7 +1129,7 @@ export const PromptInputSubmit = ({
 
   return (
     <InputGroupButton
-      aria-label={isGenerating ? "Stop" : "Submit"}
+      aria-label={isGenerating ? "Stop" : "Send"}
       className={cn(className)}
       onClick={handleClick}
       size={size}

@@ -1,7 +1,6 @@
 "use client"
 
 import { IconArrowUp } from "@tabler/icons-react"
-import type { ChatStatus } from "@/features/chat/types"
 import { useEffect } from "react"
 import {
   PromptInput,
@@ -13,6 +12,7 @@ import {
   PromptInputTools,
   usePromptInputController,
 } from "@/components/ai-elements/prompt-input"
+import type { ChatStatus } from "@/features/chat/types"
 import { focusVisibleClassName } from "@/lib/focus-styles"
 import { cn } from "@/lib/utils"
 
@@ -57,7 +57,7 @@ export function MessageInputBox(props: {
       />
       <div
         className={cn(
-          "relative overflow-hidden rounded-xl bg-zinc-900/80",
+          "relative overflow-hidden rounded-lg bg-zinc-900/80",
           "ring-1 ring-white/[0.08] transition-[box-shadow,background-color]",
           "focus-within:bg-zinc-900 focus-within:ring-teal-400/40",
         )}
@@ -77,7 +77,9 @@ export function MessageInputBox(props: {
               }
               className={cn(
                 "resize-none border-0 bg-transparent text-sm leading-relaxed text-foreground placeholder:text-muted-foreground focus-visible:ring-0",
-                layout === "empty" ? "min-h-28 px-4 pt-4 pb-14" : "min-h-20 px-4 pt-3 pb-12",
+                layout === "empty"
+                  ? "min-h-24 px-4 pt-4 pb-14"
+                  : "min-h-16 px-4 pt-3 pb-12",
               )}
               autoFocus={layout === "empty" && !isDisabled}
             />
@@ -91,7 +93,7 @@ export function MessageInputBox(props: {
               onStop={onStop}
               isDisabled={isDisabled}
               className={cn(
-                "size-8 shrink-0 rounded-full border-0 bg-primary text-primary-foreground shadow-none",
+                "size-8 shrink-0 rounded-lg border-0 bg-primary text-primary-foreground shadow-none",
                 "hover:bg-primary/90",
                 focusVisibleClassName,
               )}
