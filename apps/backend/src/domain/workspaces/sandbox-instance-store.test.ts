@@ -103,7 +103,7 @@ describe("postgresSandboxInstanceStore", () => {
     })
     expect(persistSandboxInstance).toHaveBeenCalledWith(
       expect.objectContaining({
-        id: "key-1",
+        id: "conv_1",
         kind: "chat",
         orgId: "org_1",
         workspaceId: "ws_1",

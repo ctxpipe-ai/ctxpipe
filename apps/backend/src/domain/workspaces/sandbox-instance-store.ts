@@ -32,12 +32,13 @@ export function postgresSandboxInstanceStore(input: {
       return record
     },
     async upsert(record) {
+      const conversationId = record.threadId.trim() || null
       await persistSandboxInstance({
-        id: record.key,
+        id: conversationId ?? record.key,
         kind: "chat",
         orgId: input.orgId,
         workspaceId: input.workspaceId,
-        conversationId: record.threadId,
+        conversationId,
         provider: record.provider,
         providerSandboxId: record.providerSandboxId,
         latestSnapshotId: record.latestSnapshotId ?? null,

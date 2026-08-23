@@ -68,6 +68,22 @@ jobs:
       (github.event_name == 'pull_request') !=
       (github.actor == 'cursor[bot]' || github.actor == 'cursoragent')
     runs-on: ubuntu-latest
+    services:
+      postgres:
+        # Same pgvector image as the migrate job so default-suite persist tests
+        # hit the live unique index instead of a dummy DATABASE_URL.
+        image: pgvector/pgvector:pg17
+        env:
+          POSTGRES_USER: ctxpipe
+          POSTGRES_PASSWORD: ctxpipe
+          POSTGRES_DB: ctxpipe
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U ctxpipe -d ctxpipe"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
     steps:
       - uses: actions/checkout@v6
       - uses: pnpm/action-setup@v6
@@ -76,12 +92,18 @@ jobs:
           node-version: 22
           cache: pnpm
       - run: pnpm install --frozen-lockfile
+      - name: Migrate backend schema
+        env:
+          DATABASE_URL: postgresql://ctxpipe:ctxpipe@localhost:5432/ctxpipe
+          DATABASE_APP_PASSWORD: ctxpipe
+        working-directory: apps/backend
+        run: |
+          pnpm exec drizzle-kit migrate
+          pnpm exec tsx src/db/provision-app-role-cli.ts
       - name: Backend tests
         env:
           AUTH_SECRET: ci-auth-secret-must-be-at-least-32-chars
-          # Unit tests that call parseEnv(process.env) need a syntactically valid URL;
-          # integration / MCP conformance suites are excluded from the default vitest run.
-          DATABASE_URL: postgresql://ctxpipe:ctxpipe@127.0.0.1:5432/ctxpipe
+          DATABASE_URL: postgresql://ctxpipe_app:ctxpipe@localhost:5432/ctxpipe
         run: pnpm --filter @ctxpipe/backend test
       - name: UI tests
         run: pnpm --filter @ctxpipe/ui test

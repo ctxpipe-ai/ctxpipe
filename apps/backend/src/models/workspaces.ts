@@ -5,6 +5,7 @@ import {
   eq,
   exists,
   isNotNull,
+  ne,
   notInArray,
   or,
   sql,
@@ -1813,30 +1814,34 @@ export async function persistSandboxInstance(
   const orgId = requireSandboxOrgId(input.orgId)
   const now = new Date()
   await withSandboxInstanceDb(orgId, async () => {
-    await getOrgDb()
-      .insert(workspaceSandboxInstances)
-      .values({
-        id: input.id,
-        kind: input.kind,
-        orgId,
-        workspaceId: input.workspaceId,
-        conversationId: input.conversationId ?? null,
-        desiredUrl: input.desiredUrl ?? null,
-        desiredGeneration: input.desiredGeneration ?? null,
-        desiredSha: input.desiredSha ?? null,
-        provider: input.provider ?? null,
-        providerSandboxId: input.providerSandboxId ?? null,
-        latestSnapshotId: input.latestSnapshotId ?? null,
-        latestRunId: input.latestRunId ?? null,
-        state: input.state,
-        lastHeartbeatAt: input.lastHeartbeatAt,
-        createdAt: now,
-        updatedAt: now,
-      })
-      .onConflictDoUpdate({
-        target: workspaceSandboxInstances.id,
-        set: {
+    const db = getOrgDb()
+    await db.transaction(async (tx) => {
+      if (input.kind === "chat" && input.conversationId) {
+        await tx
+          .delete(workspaceSandboxInstances)
+          .where(
+            and(
+              eq(workspaceSandboxInstances.orgId, orgId),
+              eq(workspaceSandboxInstances.kind, "chat"),
+              eq(
+                workspaceSandboxInstances.conversationId,
+                input.conversationId,
+              ),
+              or(
+                eq(workspaceSandboxInstances.state, "live"),
+                eq(workspaceSandboxInstances.state, "destroy_failed"),
+              ),
+              ne(workspaceSandboxInstances.id, input.id),
+            ),
+          )
+      }
+      await tx
+        .insert(workspaceSandboxInstances)
+        .values({
+          id: input.id,
           kind: input.kind,
+          orgId,
+          workspaceId: input.workspaceId,
           conversationId: input.conversationId ?? null,
           desiredUrl: input.desiredUrl ?? null,
           desiredGeneration: input.desiredGeneration ?? null,
@@ -1847,9 +1852,27 @@ export async function persistSandboxInstance(
           latestRunId: input.latestRunId ?? null,
           state: input.state,
           lastHeartbeatAt: input.lastHeartbeatAt,
+          createdAt: now,
           updatedAt: now,
-        },
-      })
+        })
+        .onConflictDoUpdate({
+          target: workspaceSandboxInstances.id,
+          set: {
+            kind: input.kind,
+            conversationId: input.conversationId ?? null,
+            desiredUrl: input.desiredUrl ?? null,
+            desiredGeneration: input.desiredGeneration ?? null,
+            desiredSha: input.desiredSha ?? null,
+            provider: input.provider ?? null,
+            providerSandboxId: input.providerSandboxId ?? null,
+            latestSnapshotId: input.latestSnapshotId ?? null,
+            latestRunId: input.latestRunId ?? null,
+            state: input.state,
+            lastHeartbeatAt: input.lastHeartbeatAt,
+            updatedAt: now,
+          },
+        })
+    })
   })
 }
 
