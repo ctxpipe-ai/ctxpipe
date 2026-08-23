@@ -408,10 +408,11 @@ async function prepareTanstackWorkspaceChat(
     }
   }
 
-  const messages =
+  const messages = tanstackChatModelMessages(
     input.messages && input.messages.length > 0
       ? input.messages
-      : [{ role: "user" as const, content: input.prompt }]
+      : [{ role: "user", content: input.prompt }],
+  )
 
   const runToken = randomBytes(32).toString("hex")
   const proxy = await startWorkspaceChatModelProxy({
@@ -531,6 +532,20 @@ async function prepareTanstackWorkspaceChat(
     await proxy.close().catch(() => undefined)
     throw error
   }
+}
+
+function tanstackChatModelMessages(
+  messages: TanstackWorkspaceChatMessage[],
+): Array<{ role: "user" | "assistant"; content: string }> {
+  return messages.map((message) => ({
+    role: message.role === "assistant" ? "assistant" : "user",
+    content:
+      typeof message.content === "string"
+        ? message.content
+        : message.content == null
+          ? ""
+          : JSON.stringify(message.content),
+  }))
 }
 
 async function* closeProxyAfterStream(

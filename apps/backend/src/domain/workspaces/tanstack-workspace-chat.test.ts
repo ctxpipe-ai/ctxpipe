@@ -2,7 +2,10 @@ import { initLogger } from "evlog"
 import { beforeEach, describe, expect, it, vi } from "vitest"
 
 const chatMock = vi.hoisted(() =>
-  vi.fn(async function* () {
+  vi.fn(async function* (): AsyncGenerator<{
+    type: string
+    delta?: string
+  }> {
     yield { type: "TEXT_MESSAGE_CONTENT", delta: "hello" }
   }),
 )
