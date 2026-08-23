@@ -1,10 +1,31 @@
 import { describe, expect, it, vi } from "vitest"
 import { withTestLogger } from "../../test/with-test-logger.js"
+import type { TanstackLikeHandle } from "./job-sandbox.js"
 import {
   invalidateChatSandbox,
   preflightChatSandbox,
   streamSawOpenCodeSession,
 } from "./workspace-chat-sandbox-health.js"
+
+function chatHandle(input: {
+  exec?: TanstackLikeHandle["process"]["exec"]
+  destroy?: TanstackLikeHandle["destroy"]
+}): TanstackLikeHandle {
+  return {
+    process: {
+      exec:
+        input.exec ??
+        (async () => ({ stdout: "", stderr: "", exitCode: 0 })),
+    },
+    fs: {
+      write: async () => undefined,
+      read: async () => "",
+      remove: async () => undefined,
+      mkdir: async () => undefined,
+    },
+    destroy: input.destroy ?? (async () => {}),
+  }
+}
 
 const deleteSandboxInstance = vi.hoisted(() => vi.fn(async () => {}))
 const listSandboxInstances = vi.hoisted(() =>
@@ -29,7 +50,7 @@ describe("preflightChatSandbox", () => {
     }))
     await expect(
       preflightChatSandbox({
-        handle: { process: { exec } },
+        handle: chatHandle({ exec }),
         isolation: "docker",
         proxyUrl: "http://127.0.0.1:1",
         stalePort: 4096,
@@ -46,7 +67,7 @@ describe("preflightChatSandbox", () => {
     await expect(
       withTestLogger(() =>
         preflightChatSandbox({
-          handle: { process: { exec } },
+          handle: chatHandle({ exec }),
           isolation: "local_process",
           proxyUrl: "http://127.0.0.1:1",
         }),
@@ -61,7 +82,7 @@ describe("invalidateChatSandbox", () => {
     listSandboxInstances.mockResolvedValueOnce([{ id: "opaque-key" }])
     await withTestLogger(() =>
       invalidateChatSandbox({
-        handle: { destroy },
+        handle: chatHandle({ destroy }),
         orgId: "org_1",
         conversationId: "conv_1",
       }),

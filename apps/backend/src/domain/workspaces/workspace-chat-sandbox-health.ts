@@ -41,9 +41,8 @@ export async function preflightChatSandbox(input: {
     "sh -c 'command -v opencode >/dev/null'",
   )
   if (cli.exitCode !== 0) {
-    getLogger().warn({
+    getLogger().warn("OpenCode CLI was not on PATH during sandbox ready", {
       step: "chat-sandbox-preflight",
-      message: "OpenCode CLI was not on PATH during sandbox ready",
     })
   }
   const git = await sandboxExec(
@@ -51,9 +50,8 @@ export async function preflightChatSandbox(input: {
     "sh -c 'git rev-parse --is-inside-work-tree >/dev/null 2>&1 || test -d .git || test -f .git'",
   )
   if (git.exitCode !== 0) {
-    getLogger().warn({
+    getLogger().warn("Sandbox workdir did not look like a git checkout", {
       step: "chat-sandbox-preflight",
-      message: "Sandbox workdir did not look like a git checkout",
     })
   }
   void input.proxyUrl
