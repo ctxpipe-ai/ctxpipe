@@ -15,6 +15,7 @@ import {
   expect,
   it,
 } from "vitest"
+import { withUserIdContext } from "../../auth/context.js"
 import { withOrgIdContext } from "../../auth/withAuth.js"
 import {
   closeDb,
@@ -39,8 +40,10 @@ config({
   quiet: true,
 })
 
+/** Same gate as tanstack-workspace-chat.live.test.ts — default CI has no OpenCode CLI. */
+const live = process.env.OPENCODE_LIVE === "1"
 const databaseUrl = process.env.DATABASE_URL
-if (!databaseUrl) {
+if (live && !databaseUrl) {
   throw new Error(
     "DATABASE_URL is required; run pnpm --filter @ctxpipe/backend test against a migrated Postgres (ctxpipe_app after owner migrate)",
   )
@@ -54,6 +57,7 @@ const org = {
 }
 const workspaceId = `ws_${runId}`
 const conversationId = `conv_${runId}`
+const userId = `user_${runId}`
 const llmOrigin = "https://llm.msw.test"
 
 const savedHome = {
@@ -159,125 +163,138 @@ function restoreHome(): void {
   }
 }
 
-const source = makeGitRepo()
+const source = live ? makeGitRepo() : { url: "", ref: "" }
 
-beforeAll(async () => {
-  server.listen({
-    onUnhandledRequest: (req) => {
-      if (req.url.startsWith(llmOrigin)) {
-        throw new Error(`unhandled LLM request ${req.method} ${req.url}`)
-      }
-    },
-  })
-  initDb(databaseUrl)
-  const now = new Date()
-  await getSystemDb()
-    .insert(organizations)
-    .values({ id: org.id, name: org.name, slug: org.slug, createdAt: now })
-  await withOrgDbContext(org.id, async (db) => {
-    await db.insert(workspaces).values({
-      id: workspaceId,
-      orgId: org.id,
-      slug: `ws-${runId}`,
-      displayName: "Live multi-turn workspace",
-      workspaceRepositoryUrl: source.url,
-      desiredSha: source.ref,
+describe.skipIf(!live)("live two-turn workspace chat", () => {
+  beforeAll(async () => {
+    server.listen({
+      onUnhandledRequest: (req) => {
+        if (req.url.startsWith(llmOrigin)) {
+          throw new Error(`unhandled LLM request ${req.method} ${req.url}`)
+        }
+      },
     })
-    await db.insert(conversations).values({
-      id: conversationId,
-      orgId: org.id,
-      name: "Two-turn live chat",
-      workspaceId,
-    })
-  })
-})
-
-afterAll(async () => {
-  server.close()
-  try {
-    await withOrgDbContext(org.id, async (db) => {
-      await db
-        .delete(workspaceSandboxInstances)
-        .where(eq(workspaceSandboxInstances.workspaceId, workspaceId))
-      await db
-        .delete(conversationMessages)
-        .where(eq(conversationMessages.conversationId, conversationId))
-      await db.delete(conversations).where(eq(conversations.id, conversationId))
-      await db.delete(workspaces).where(eq(workspaces.id, workspaceId))
-    })
+    if (!databaseUrl) {
+      throw new Error("DATABASE_URL is required for OPENCODE_LIVE")
+    }
+    initDb(databaseUrl)
+    const now = new Date()
     await getSystemDb()
-      .delete(organizations)
-      .where(eq(organizations.id, org.id))
-  } finally {
-    await closeDb()
-  }
-})
-
-beforeEach(() => {
-  isolateHome()
-  process.env.MODEL_PROVIDER = "openai-like"
-  process.env.MODEL_PROVIDER_API_KEY = "sk-msw-chat"
-  process.env.MODEL_PROVIDER_URL = `${llmOrigin}/v1`
-  process.env.MODEL_FAST_NAME = "openai/gpt-5.6-terra"
-  delete process.env.ANTHROPIC_API_KEY
-  delete process.env.OPENAI_API_KEY
-  delete process.env.OPENROUTER_API_KEY
-  delete process.env.SANDBOX_PROVIDER
-})
-
-afterEach(() => {
-  server.resetHandlers()
-  restoreHome()
-})
-
-async function collectTurn(
-  prompt: string,
-  extras?: {
-    messages?: Array<{ role: string; content: string }>
-    runId?: string
-  },
-) {
-  const chunks: Array<{ type?: string; delta?: string; message?: string }> = []
-  await withTestLogger(() =>
-    withOrgIdContext({ id: org.id, slug: org.slug }, async () => {
-      for await (const chunk of streamTanstackWorkspaceChat({
-        conversationId,
-        prompt,
-        messages: extras?.messages,
-        threadId: conversationId,
-        runId: extras?.runId,
+      .insert(organizations)
+      .values({ id: org.id, name: org.name, slug: org.slug, createdAt: now })
+    await withOrgDbContext(org.id, async (db) => {
+      await db.insert(workspaces).values({
+        id: workspaceId,
         orgId: org.id,
-        workspaceId,
-        desiredUrl: source.url,
+        slug: `ws-${runId}`,
+        displayName: "Live multi-turn workspace",
+        workspaceRepositoryUrl: source.url,
         desiredSha: source.ref,
-        ref: source.ref,
-        writeStatus: "read_only",
-      })) {
-        chunks.push(
-          chunk as { type?: string; delta?: string; message?: string },
-        )
-      }
-    }),
-  )
-  return chunks
-}
+      })
+      await db.insert(conversations).values({
+        id: conversationId,
+        orgId: org.id,
+        userId,
+        name: "Two-turn live chat",
+        workspaceId,
+      })
+    })
+  })
 
-function assistantText(
-  chunks: Array<{ type?: string; delta?: string }>,
-): string {
-  return chunks
-    .filter((chunk) => chunk.type === "TEXT_MESSAGE_CONTENT")
-    .map((chunk) => chunk.delta ?? "")
-    .join("")
-}
+  afterAll(async () => {
+    server.close()
+    try {
+      await withOrgDbContext(org.id, async (db) => {
+        await db
+          .delete(workspaceSandboxInstances)
+          .where(eq(workspaceSandboxInstances.workspaceId, workspaceId))
+        await db
+          .delete(conversationMessages)
+          .where(eq(conversationMessages.conversationId, conversationId))
+        await db
+          .delete(conversations)
+          .where(eq(conversations.id, conversationId))
+        await db.delete(workspaces).where(eq(workspaces.id, workspaceId))
+      })
+      await getSystemDb()
+        .delete(organizations)
+        .where(eq(organizations.id, org.id))
+    } finally {
+      await closeDb()
+    }
+  })
 
-describe("live two-turn workspace chat", () => {
+  beforeEach(() => {
+    isolateHome()
+    process.env.MODEL_PROVIDER = "openai-like"
+    process.env.MODEL_PROVIDER_API_KEY = "sk-msw-chat"
+    process.env.MODEL_PROVIDER_URL = `${llmOrigin}/v1`
+    process.env.MODEL_FAST_NAME = "openai/gpt-5.6-terra"
+    delete process.env.ANTHROPIC_API_KEY
+    delete process.env.OPENAI_API_KEY
+    delete process.env.OPENROUTER_API_KEY
+    delete process.env.SANDBOX_PROVIDER
+  })
+
+  afterEach(() => {
+    server.resetHandlers()
+    restoreHome()
+  })
+
+  async function collectTurn(
+    prompt: string,
+    extras?: {
+      messages?: Array<{ role: string; content: string }>
+      runId?: string
+    },
+  ) {
+    const chunks: Array<{ type?: string; delta?: string; message?: string }> =
+      []
+    await withTestLogger(() =>
+      withOrgIdContext({ id: org.id, slug: org.slug }, () =>
+        withUserIdContext(userId, async () => {
+          for await (const chunk of streamTanstackWorkspaceChat({
+            conversationId,
+            prompt,
+            messages: extras?.messages,
+            threadId: conversationId,
+            runId: extras?.runId,
+            orgId: org.id,
+            workspaceId,
+            desiredUrl: source.url,
+            desiredSha: source.ref,
+            ref: source.ref,
+            writeStatus: "read_only",
+          })) {
+            chunks.push(
+              chunk as { type?: string; delta?: string; message?: string },
+            )
+          }
+        }),
+      ),
+    )
+    return chunks
+  }
+
+  function assistantText(
+    chunks: Array<{ type?: string; delta?: string }>,
+  ): string {
+    return chunks
+      .filter((chunk) => chunk.type === "TEXT_MESSAGE_CONTENT")
+      .map((chunk) => chunk.delta ?? "")
+      .join("")
+  }
+
   it(
     "streams exact mocked replies across two live OpenCode turns",
     { timeout: 180_000 },
     async () => {
       const first = await collectTurn("ping-1")
-      expect(first.some((chunk) => chunk.type === "RUN_ERROR")).toBe(false)
+      expect(
+        first
+          .filter((chunk) => chunk.type === "RUN_ERROR")
+          .map((chunk) => chunk.message),
+      ).toEqual([])
       expect(first.some((chunk) => chunk.type === "RUN_FINISHED")).toBe(true)
       expect(assistantText(first)).toBe("pong-1")
 
@@ -289,7 +306,11 @@ describe("live two-turn workspace chat", () => {
         ],
         runId: "run_second",
       })
-      expect(second.some((chunk) => chunk.type === "RUN_ERROR")).toBe(false)
+      expect(
+        second
+          .filter((chunk) => chunk.type === "RUN_ERROR")
+          .map((chunk) => chunk.message),
+      ).toEqual([])
       expect(second.some((chunk) => chunk.type === "RUN_FINISHED")).toBe(true)
       expect(assistantText(second)).toBe("pong-2")
 

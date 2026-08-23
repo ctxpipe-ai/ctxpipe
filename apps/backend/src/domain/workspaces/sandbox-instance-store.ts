@@ -4,7 +4,7 @@ import type {
   SandboxInstanceRecord as TanstackSandboxInstanceRecord,
 } from "@tanstack/ai-sandbox"
 import { withOrgDbContext } from "../../db/client.js"
-import { getConversation } from "../../models/conversations.js"
+import { findConversationInWorkspace } from "../../models/conversations.js"
 import {
   deleteSandboxInstance,
   getSandboxInstance,
@@ -69,9 +69,10 @@ export function postgresSandboxLockStore(input: {
           )
         }
         if (!input.conversationId) return
-        const conversation = await getConversation(input.conversationId, {
-          workspaceId: input.workspaceId,
-        })
+        const conversation = await findConversationInWorkspace(
+          input.conversationId,
+          input.workspaceId,
+        )
         if (!conversation) {
           throw new Error(
             `Conversation ${input.conversationId} is gone; refusing sandbox create`,

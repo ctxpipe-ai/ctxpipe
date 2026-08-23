@@ -6,7 +6,7 @@ const deleteSandboxInstance = vi.hoisted(() => vi.fn(async () => {}))
 const getWorkspaceById = vi.hoisted(() =>
   vi.fn(async (): Promise<{ id: string } | null> => ({ id: "ws_1" })),
 )
-const getConversation = vi.hoisted(() =>
+const findConversationInWorkspace = vi.hoisted(() =>
   vi.fn(
     async (): Promise<{ id: string; workspaceId: string } | null> => ({
       id: "conv_1",
@@ -26,7 +26,7 @@ vi.mock("../../models/workspaces.js", () => ({
 }))
 
 vi.mock("../../models/conversations.js", () => ({
-  getConversation,
+  findConversationInWorkspace,
 }))
 
 vi.mock("../../db/client.js", () => ({
@@ -126,8 +126,11 @@ describe("postgresSandboxLockStore", () => {
   beforeEach(() => {
     getWorkspaceById.mockReset()
     getWorkspaceById.mockResolvedValue({ id: "ws_1" })
-    getConversation.mockReset()
-    getConversation.mockResolvedValue({ id: "conv_1", workspaceId: "ws_1" })
+    findConversationInWorkspace.mockReset()
+    findConversationInWorkspace.mockResolvedValue({
+      id: "conv_1",
+      workspaceId: "ws_1",
+    })
     withOrgDbContextMock.mockReset()
     withOrgDbContextMock.mockImplementation(
       async (_orgId: string, fn: () => Promise<unknown>) => fn(),
@@ -160,7 +163,7 @@ describe("postgresSandboxLockStore", () => {
     })
     await expect(locks.withLock("sandbox:key", ran)).resolves.toBe("ok")
     expect(order).toEqual(["org-tx", "workspace", "org-commit", "fn"])
-    expect(getConversation).not.toHaveBeenCalled()
+    expect(findConversationInWorkspace).not.toHaveBeenCalled()
   })
 
   it("refuses chat create after the Workspace row is gone", async () => {
@@ -176,8 +179,20 @@ describe("postgresSandboxLockStore", () => {
     expect(ran).not.toHaveBeenCalled()
   })
 
+  it("checks conversation existence without a user-scoped lookup", async () => {
+    const ran = vi.fn(async () => "ok")
+    const locks = postgresSandboxLockStore({
+      orgId: "org_1",
+      workspaceId: "ws_1",
+      conversationId: "conv_1",
+    })
+    await expect(locks.withLock("sandbox:key", ran)).resolves.toBe("ok")
+    expect(findConversationInWorkspace).toHaveBeenCalledWith("conv_1", "ws_1")
+    expect(ran).toHaveBeenCalledOnce()
+  })
+
   it("refuses chat create after the conversation row is gone", async () => {
-    getConversation.mockResolvedValueOnce(null)
+    findConversationInWorkspace.mockResolvedValueOnce(null)
     const ran = vi.fn(async () => "ok")
     const locks = postgresSandboxLockStore({
       orgId: "org_1",
@@ -187,9 +202,7 @@ describe("postgresSandboxLockStore", () => {
     await expect(locks.withLock("sandbox:key", ran)).rejects.toThrow(
       /Conversation conv_1 is gone/,
     )
-    expect(getConversation).toHaveBeenCalledWith("conv_1", {
-      workspaceId: "ws_1",
-    })
+    expect(findConversationInWorkspace).toHaveBeenCalledWith("conv_1", "ws_1")
     expect(ran).not.toHaveBeenCalled()
   })
 })

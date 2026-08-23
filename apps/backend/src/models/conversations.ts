@@ -386,6 +386,29 @@ export async function getConversation(
   })
 }
 
+/** Org + workspace existence check. Not an ACL — callers already authorized. */
+export async function findConversationInWorkspace(
+  conversationId: string,
+  workspaceId: string,
+): Promise<ConversationRecord | null> {
+  return orgSql(async () => {
+    const orgId = requireCurrentOrgId()
+    const db = getOrgDb()
+    const [row] = await db
+      .select()
+      .from(conversations)
+      .where(
+        and(
+          eq(conversations.id, conversationId),
+          eq(conversations.orgId, orgId),
+          eq(conversations.workspaceId, workspaceId),
+        ),
+      )
+      .limit(1)
+    return row ?? null
+  })
+}
+
 export async function updateConversation(
   conversationId: string,
   input: { name: string },
