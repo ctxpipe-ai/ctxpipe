@@ -27,6 +27,16 @@ import {
 
 const live = process.env.OPENCODE_LIVE === "1"
 
+vi.mock("../../auth/config.js", () => ({
+  getAuth: () => ({
+    api: { getSession: async () => null },
+  }),
+}))
+
+vi.mock("../../auth/withAuth.js", () => ({
+  withOrgIdContext: async (_org: unknown, fn: () => unknown) => fn(),
+}))
+
 vi.mock("../../db/client.js", () => ({
   tryGetOrgDb: () => undefined,
   tryGetOrgDbOrgId: () => undefined,
