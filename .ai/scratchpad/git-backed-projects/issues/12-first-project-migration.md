@@ -43,8 +43,8 @@ Frontier: first-target sort; claim assignment; migration commits; existing `know
 ### Round 1 (human, 2026-08-15)
 
 - **Q1:** Distinct target repository rows, `created_at` then `id`. Persist first Workspace id at migration start.
-- **Q2:** Mechanical partition into `knowledge/imported/`. Repo id → that Workspace if it is the workspace repository, else first Workspace. No repo id → first. Cross-workspace claim skipped (objects kept). No target → dump on user create.
-- **Q3:** Kind **migration export**, mechanical, one commit per Workspace (`knowledge/imported/**` + `repositories/*.md`). Then bootstrap. Mirrors not rewritten. Unwritable → pause.
+- **Q2:** Mechanical partition into `knowledge/<area>/<unit>.md` (area from object kind). Repo id → that Workspace if it is the workspace repository, else first Workspace. No repo id → first. Cross-workspace claim skipped (objects kept). No target → dump on user create.
+- **Q3:** Kind **migration export**, mechanical, one commit per Workspace (`knowledge/<area>/**` + `repositories/*.md`). Then bootstrap. Mirrors not rewritten. Unwritable → pause.
 - **Q4:** **Do not skip.** Same fact → **merge**. Name collision only → pick a different filename.
 - **Q5:** **One OpenWorkflow per Workspace** (not per org). Isolate Workspaces, not only orgs.
 - **Q6:** **Remove** legacy org-wide chat and graph. Reuse those components on the Workspace page (Workspace-scoped). No dual-read / legacy holdback.
@@ -73,7 +73,7 @@ Partition existing objects/claims **mechanically** (dedup / evidence `repository
 - No repo id → first Workspace.
 - Claim whose other end is not in this Workspace’s set → skip that claim; keep both objects.
 
-Files go under `knowledge/imported/` (greenfield area). No `obj_` / SPO jargon in the file. Slug from payload title/name. Stable **`import_key`** (from today’s dedup / `logical_source_key`, not `obj_`) so re-runs and merges can find the same fact.
+Files go under `knowledge/<area>/<unit>.md` (greenfield area from object kind: `services`, `apis`, `libraries`, …; `Repository` → `codebases`). Existing `import_key` paths stay put, including leftover `knowledge/imported/**`. No `obj_` / SPO jargon in the file. Slug from payload title/name. Stable **`import_key`** (from today’s dedup / `logical_source_key`, not `obj_`) so re-runs and merges can find the same fact.
 
 Kind **migration export**: mechanical (no agent). One commit per Workspace: the dump + `repositories/*.md` for that Workspace’s linked set. Then enqueue **bootstrap**. Do not rewrite `notion/` / `linear/` / `confluence/`. Copy claim **confidence / `valid_from` / `valid_to` / `source`** into front matter; do not drop temporality on export. Merge keeps those fields (union still prefers higher confidence).
 

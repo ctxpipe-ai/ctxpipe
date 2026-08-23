@@ -89,12 +89,12 @@ describe("filesForWorkspaceWriteKind", () => {
       linkedUrls: [],
       existing: new Map(),
       exportPlan: {
-        files: [{ path: "knowledge/imported/billing.md", content: "x\n" }],
+        files: [{ path: "knowledge/services/billing.md", content: "x\n" }],
         wouldChange: true,
       },
     })
     expect(files).toEqual([
-      { path: "knowledge/imported/billing.md", content: "x\n" },
+      { path: "knowledge/services/billing.md", content: "x\n" },
     ])
     expect(
       filesForWorkspaceWriteKind({
@@ -104,13 +104,13 @@ describe("filesForWorkspaceWriteKind", () => {
         existing: new Map(),
         exportPlan: {
           files: [
-            { path: "knowledge/imported/billing.md", content: "x\n" },
+            { path: "knowledge/services/billing.md", content: "x\n" },
             { path: "repositories/app.md", content: "---\ngit: x\n---\n" },
           ],
           wouldChange: true,
         },
       }),
-    ).toEqual([{ path: "knowledge/imported/billing.md", content: "x\n" }])
+    ).toEqual([{ path: "knowledge/services/billing.md", content: "x\n" }])
   })
 
   it("replays captured job files onto the remote tip for semantic merge", () => {

@@ -1,10 +1,14 @@
 import { createHash } from "node:crypto"
-import { parseSimpleFrontMatter } from "./layout.js"
+import {
+  greenfieldKnowledgePath,
+  knowledgeAreaFromObjectKind,
+  parseSimpleFrontMatter,
+} from "./layout.js"
 import {
   assignImportedRepository,
   classifyUnkeyedKnowledgeCollision,
   mergeImportedClaims,
-  nextImportedKnowledgePath,
+  nextKnowledgeUnitPath,
   shouldExportClaim,
   unkeyedCollisionExcerpt,
 } from "./migration-cutover.js"
@@ -13,14 +17,14 @@ import { normalizeSlug } from "./slug.js"
 export const MIGRATION_EXPORT_KIND = "migration_export"
 
 export function migrationExportFiles(input: {
-  imported: ReadonlyArray<{ slug: string; body: string }>
+  imported: ReadonlyArray<{ slug: string; body: string; area?: string }>
   takenPaths: Iterable<string>
   linkedUrls: Iterable<string>
 }): Array<{ path: string; content: string }> {
   const taken = new Set(input.takenPaths)
   const files: Array<{ path: string; content: string }> = []
   for (const item of input.imported) {
-    const path = nextImportedKnowledgePath(item.slug, taken)
+    const path = nextKnowledgeUnitPath(item.area ?? "topics", item.slug, taken)
     taken.add(path)
     files.push({ path, content: item.body })
   }
@@ -194,6 +198,7 @@ export function isoDate(
 
 export type ExportObjectRow = {
   id: string
+  kind: string
   deduplicationKey: string | null
   payload: unknown
 }
@@ -340,7 +345,8 @@ export async function planMigrationExport(input: {
     const existing = existingByImportKey.get(importKey)
     const allocated = existing
       ? { path: existing.path, mergeFrom: existing }
-      : await allocateUnkeyedImportedPath({
+      : await allocateUnkeyedKnowledgePath({
+          area: knowledgeAreaFromObjectKind(object.kind),
           slug: normalizeSlug(objectTitleFromPayload(object.payload)),
           incomingBody: objectBodyFromPayload(object.payload),
           taken,
@@ -440,7 +446,8 @@ export async function planMigrationExport(input: {
   }
 }
 
-async function allocateUnkeyedImportedPath(input: {
+async function allocateUnkeyedKnowledgePath(input: {
+  area: string
   slug: string
   incomingBody: string
   taken: Set<string>
@@ -448,7 +455,7 @@ async function allocateUnkeyedImportedPath(input: {
   claimedUnkeyed: Set<string>
   classifyUnkeyed?: (prompt: string) => Promise<string>
 }): Promise<{ path: string; mergeFrom: ExistingKnowledgeFile | null }> {
-  const preferred = `knowledge/imported/${input.slug}.md`
+  const preferred = greenfieldKnowledgePath(input.area, input.slug)
   const occupant = input.existingByPath.get(preferred)
   if (
     occupant &&
@@ -468,7 +475,7 @@ async function allocateUnkeyedImportedPath(input: {
     }
   }
   return {
-    path: nextImportedKnowledgePath(input.slug, input.taken),
+    path: nextKnowledgeUnitPath(input.area, input.slug, input.taken),
     mergeFrom: null,
   }
 }

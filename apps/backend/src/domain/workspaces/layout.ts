@@ -5,6 +5,31 @@ export function greenfieldKnowledgePath(area: string, unit: string): string {
   return `knowledge/${slugSegment(area)}/${slugSegment(unit)}.md`
 }
 
+const KIND_AREAS: Record<string, string> = {
+  Service: "services",
+  App: "apps",
+  Library: "libraries",
+  API: "apis",
+  Operation: "operations",
+  Pattern: "patterns",
+  Database: "databases",
+  Infrastructure: "infrastructure",
+  Stream: "streams",
+  InstructionUnit: "instructions",
+  Repository: "codebases",
+}
+
+export function knowledgeAreaFromObjectKind(kind: string): string {
+  const mapped = KIND_AREAS[kind.trim()]
+  if (mapped) return mapped
+  const slug = slugSegment(kind)
+  return slug === "item" ? "topics" : slug
+}
+
+export function isImportedKnowledgePath(path: string): boolean {
+  return path.startsWith("knowledge/imported/")
+}
+
 export function isConnectorMirrorPath(path: string): boolean {
   return (
     path.startsWith("linear/") ||

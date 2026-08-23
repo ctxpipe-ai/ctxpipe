@@ -1,3 +1,5 @@
+import { greenfieldKnowledgePath } from "./layout.js"
+
 /** Distinct connector-target rows: created_at, then id. */
 export function firstConnectorTarget<T extends { createdAt: Date; id: string }>(
   targets: readonly T[],
@@ -119,18 +121,19 @@ export async function classifyUnkeyedKnowledgeCollision(input: {
   }
 }
 
-export function nextImportedKnowledgePath(
+export function nextKnowledgeUnitPath(
+  area: string,
   slug: string,
   takenPaths: Iterable<string>,
 ): string {
   const taken = new Set(takenPaths)
-  const base = `knowledge/imported/${slug}.md`
+  const base = greenfieldKnowledgePath(area, slug)
   if (!taken.has(base)) return base
   for (let n = 2; n < 1000; n++) {
-    const path = `knowledge/imported/${slug}-${n}.md`
+    const path = greenfieldKnowledgePath(area, `${slug}-${n}`)
     if (!taken.has(path)) return path
   }
-  throw new Error("Unable to allocate imported knowledge path")
+  throw new Error("Unable to allocate knowledge unit path")
 }
 
 type ImportedClaim = {

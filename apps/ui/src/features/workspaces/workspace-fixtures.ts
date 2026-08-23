@@ -364,12 +364,10 @@ Invoicing rules for the org. The payments API depends on this ledger.
 See [Payments API](../payments/api.md) and [invoices](invoices.md).`,
   "knowledge/billing/tax.md":
     "# Tax\n\nVAT treatment for invoices. Applied when posting to the [ledger](ledger.md).",
-  "knowledge/imported/billing.md":
-    "# Billing (imported)\n\nMigrated notes from the previous knowledge store. Prefer [ledger](../billing/ledger.md).",
-  "knowledge/imported/org-handbook.md":
-    "# Org handbook\n\nMigrated notes from the previous knowledge store.",
-  "knowledge/imported/on-call.md":
-    "# On-call (imported)\n\nOlder on-call notes. Prefer the Confluence ENG on-call space.",
+  "knowledge/org/handbook.md":
+    "# Org handbook\n\nOrg-wide notes. Billing rules live in the [ledger](../billing/ledger.md).",
+  "knowledge/ops/on-call.md":
+    "# On-call\n\nOlder on-call notes. Prefer the Confluence ENG on-call space.",
   "knowledge/payments/api.md": `---
 claims:
   - to: ../billing/ledger.md

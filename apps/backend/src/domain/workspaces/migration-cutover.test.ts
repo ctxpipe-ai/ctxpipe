@@ -4,7 +4,7 @@ import {
   classifyUnkeyedKnowledgeCollision,
   firstConnectorTarget,
   mergeImportedClaims,
-  nextImportedKnowledgePath,
+  nextKnowledgeUnitPath,
   parseUnkeyedCollisionReply,
   shouldExportClaim,
   unkeyedCollisionExcerpt,
@@ -166,17 +166,20 @@ describe("classifyUnkeyedKnowledgeCollision", () => {
   })
 })
 
-describe("nextImportedKnowledgePath", () => {
-  it("writes knowledge/imported and increments on collision", () => {
-    expect(nextImportedKnowledgePath("billing", [])).toBe(
-      "knowledge/imported/billing.md",
+describe("nextKnowledgeUnitPath", () => {
+  it("writes knowledge/<area>/<unit>.md and increments on collision", () => {
+    expect(nextKnowledgeUnitPath("services", "billing", [])).toBe(
+      "knowledge/services/billing.md",
     )
     expect(
-      nextImportedKnowledgePath("billing", [
-        "knowledge/imported/billing.md",
-        "knowledge/imported/billing-2.md",
+      nextKnowledgeUnitPath("services", "billing", [
+        "knowledge/services/billing.md",
+        "knowledge/services/billing-2.md",
       ]),
-    ).toBe("knowledge/imported/billing-3.md")
+    ).toBe("knowledge/services/billing-3.md")
+    expect(nextKnowledgeUnitPath("codebases", "docs", [])).toBe(
+      "knowledge/codebases/docs.md",
+    )
   })
 })
 

@@ -36,6 +36,7 @@ export async function loadMigrationExportSource(): Promise<{
         db
           .select({
             id: objects.id,
+            kind: objects.kind,
             deduplicationKey: objects.deduplicationKey,
             payload: objects.payload,
           })
@@ -102,6 +103,7 @@ export async function loadMigrationExportSource(): Promise<{
       }),
       objects: objectRows.map((row) => ({
         id: row.id,
+        kind: row.kind,
         deduplicationKey:
           row.deduplicationKey ?? evidenceKeyByObject.get(row.id) ?? null,
         payload: row.payload,

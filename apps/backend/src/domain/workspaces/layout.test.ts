@@ -1,7 +1,9 @@
 import { describe, expect, it } from "vitest"
 import {
   greenfieldKnowledgePath,
+  isImportedKnowledgePath,
   isLinkedRepositoryDeclaration,
+  knowledgeAreaFromObjectKind,
   parseLinkedRepositoryMarkdown,
   parseSimpleFrontMatter,
 } from "./layout.js"
@@ -11,6 +13,17 @@ describe("knowledge layout", () => {
     expect(greenfieldKnowledgePath("Payments API", "Ledger")).toBe(
       "knowledge/payments-api/ledger.md",
     )
+  })
+
+  it("maps object kinds to knowledge area folders", () => {
+    expect(knowledgeAreaFromObjectKind("Service")).toBe("services")
+    expect(knowledgeAreaFromObjectKind("API")).toBe("apis")
+    expect(knowledgeAreaFromObjectKind("Repository")).toBe("codebases")
+    expect(knowledgeAreaFromObjectKind("InstructionUnit")).toBe("instructions")
+    expect(knowledgeAreaFromObjectKind("")).toBe("topics")
+    expect(knowledgeAreaFromObjectKind("CustomKind")).toBe("customkind")
+    expect(isImportedKnowledgePath("knowledge/imported/billing.md")).toBe(true)
+    expect(isImportedKnowledgePath("knowledge/services/billing.md")).toBe(false)
   })
 
   it("keeps repositories/*.md flat", () => {

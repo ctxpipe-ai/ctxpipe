@@ -16,15 +16,15 @@ import {
 import { normalizeWorkspaceRepositoryUrl } from "./slug.js"
 
 describe("migration export", () => {
-  it("writes knowledge/imported and repositories/*.md", () => {
+  it("writes knowledge/<area>/<unit>.md and repositories/*.md", () => {
     expect(MIGRATION_EXPORT_KIND).toBe("migration_export")
     const files = migrationExportFiles({
-      imported: [{ slug: "billing", body: "Billing\n" }],
-      takenPaths: ["knowledge/imported/billing.md"],
+      imported: [{ slug: "billing", body: "Billing\n", area: "services" }],
+      takenPaths: ["knowledge/services/billing.md"],
       linkedUrls: ["https://github.com/acme/app.git"],
     })
     expect(files.map((file) => file.path)).toEqual([
-      "knowledge/imported/billing-2.md",
+      "knowledge/services/billing-2.md",
       "repositories/app.md",
     ])
   })
@@ -122,11 +122,13 @@ describe("migration export", () => {
       objects: [
         {
           id: "obj_1",
+          kind: "Service",
           deduplicationKey: "svc:repo_app:./",
           payload: { name: "Billing", summary: "Ledger lives here." },
         },
         {
           id: "obj_2",
+          kind: "Service",
           deduplicationKey: "svc:repo_other:./",
           payload: { name: "Other" },
         },
@@ -146,7 +148,7 @@ describe("migration export", () => {
     })
     expect(planned.wouldChange).toBe(true)
     expect(planned.files.map((file) => file.path)).toEqual([
-      "knowledge/imported/billing.md",
+      "knowledge/services/billing.md",
       "repositories/docs.md",
     ])
     expect(planned.files[0]?.content).toContain("import_key: svc:repo_app:./")
@@ -167,6 +169,7 @@ describe("migration export", () => {
       objects: [
         {
           id: "obj_1",
+          kind: "Service",
           deduplicationKey: "svc:repo_app:./",
           payload: { name: "Billing", summary: "Ledger lives here." },
         },
@@ -181,6 +184,34 @@ describe("migration export", () => {
     expect(planned.wouldChange).toBe(false)
   })
 
+  it("leaves an existing import_key under knowledge/imported in place", async () => {
+    const existing = importedObjectMarkdown({
+      title: "Billing",
+      body: "Ledger lives here.",
+      importKey: "svc:repo_app:./",
+    })
+    const planned = await planMigrationExport({
+      workspaceId: "ws_app",
+      firstWorkspaceId: "ws_app",
+      workspaceByRepositoryId: new Map([["repo_app", "ws_app"]]),
+      objects: [
+        {
+          id: "obj_1",
+          kind: "Service",
+          deduplicationKey: "svc:repo_app:./",
+          payload: { name: "Billing", summary: "Ledger lives here." },
+        },
+      ],
+      claims: [],
+      existingKnowledge: [
+        { path: "knowledge/imported/billing.md", content: existing },
+      ],
+      linkedUrls: [],
+    })
+    expect(planned.files[0]?.path).toBe("knowledge/imported/billing.md")
+    expect(planned.wouldChange).toBe(false)
+  })
+
   it("appends into an unkeyed occupant instead of replacing it", async () => {
     const planned = await planMigrationExport({
       workspaceId: "ws_app",
@@ -189,6 +220,7 @@ describe("migration export", () => {
       objects: [
         {
           id: "obj_1",
+          kind: "Service",
           deduplicationKey: "svc:repo_app:./",
           payload: {
             name: "Billing",
@@ -199,14 +231,14 @@ describe("migration export", () => {
       claims: [],
       existingKnowledge: [
         {
-          path: "knowledge/imported/billing.md",
+          path: "knowledge/services/billing.md",
           content: "# Billing\n\nLedger lives here.",
         },
       ],
       linkedUrls: [],
       classifyUnkeyed: async () => "merge",
     })
-    expect(planned.files[0]?.path).toBe("knowledge/imported/billing.md")
+    expect(planned.files[0]?.path).toBe("knowledge/services/billing.md")
     expect(planned.files[0]?.content).toContain("Ledger lives here.")
     expect(planned.files[0]?.content).toContain("Also the ledger.")
     expect(planned.files[0]?.content).toContain("import_key: svc:repo_app:./")
@@ -220,6 +252,7 @@ describe("migration export", () => {
       objects: [
         {
           id: "obj_1",
+          kind: "Service",
           deduplicationKey: "svc:repo_app:./",
           payload: { name: "Billing", summary: "Invoices" },
         },
@@ -227,18 +260,18 @@ describe("migration export", () => {
       claims: [],
       existingKnowledge: [
         {
-          path: "knowledge/imported/billing.md",
+          path: "knowledge/services/billing.md",
           content: "Ledger lives here.",
         },
       ],
       linkedUrls: [],
       classifyUnkeyed: async () => "new_name",
     })
-    expect(planned.files[0]?.path).toBe("knowledge/imported/billing-2.md")
+    expect(planned.files[0]?.path).toBe("knowledge/services/billing-2.md")
     expect(planned.files[0]?.content).toContain("Invoices")
     expect(
       planned.files.some(
-        (file) => file.path === "knowledge/imported/billing.md",
+        (file) => file.path === "knowledge/services/billing.md",
       ),
     ).toBe(false)
   })
@@ -251,11 +284,13 @@ describe("migration export", () => {
       objects: [
         {
           id: "obj_1",
+          kind: "Service",
           deduplicationKey: "svc:repo_app:a",
           payload: { name: "Billing", summary: "First" },
         },
         {
           id: "obj_2",
+          kind: "Service",
           deduplicationKey: "svc:repo_app:b",
           payload: { name: "Billing", summary: "Second" },
         },
@@ -263,7 +298,7 @@ describe("migration export", () => {
       claims: [],
       existingKnowledge: [
         {
-          path: "knowledge/imported/billing.md",
+          path: "knowledge/services/billing.md",
           content: "Ledger lives here.",
         },
       ],
@@ -271,8 +306,8 @@ describe("migration export", () => {
       classifyUnkeyed: async () => "merge",
     })
     expect(planned.files.map((file) => file.path).sort()).toEqual([
-      "knowledge/imported/billing-2.md",
-      "knowledge/imported/billing.md",
+      "knowledge/services/billing-2.md",
+      "knowledge/services/billing.md",
     ])
   })
 })
