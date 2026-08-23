@@ -59,6 +59,7 @@ export function WorkspaceNavRow(props: {
   const composeHref = router.buildLocation({
     to: "/$orgSlug/ws/$workspaceSlug",
     params: { orgSlug, workspaceSlug: workspace.slug },
+    search: {},
   }).href
   const resumeHref = workspace.mostRecentConversationId
     ? router.buildLocation({
@@ -68,6 +69,7 @@ export function WorkspaceNavRow(props: {
           workspaceSlug: workspace.slug,
           conversationId: workspace.mostRecentConversationId,
         },
+        search: {},
       }).href
     : composeHref
   const titleHref = titleAction === "resume" ? resumeHref : composeHref

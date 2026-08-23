@@ -100,6 +100,7 @@ export function WorkspaceConversationList(props: {
               workspaceSlug: workspace.slug,
               conversationId: item.id,
             },
+            search: {},
           }).href
           return (
             <li key={item.id}>

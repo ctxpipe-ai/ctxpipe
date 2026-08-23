@@ -4,11 +4,23 @@ import {
   useSuspenseQuery,
 } from "@tanstack/react-query"
 import { useNavigate, useRouterState, useSearch } from "@tanstack/react-router"
-import { Component, type ReactNode, Suspense, useEffect, useState } from "react"
+import {
+  Component,
+  type ReactNode,
+  Suspense,
+  useEffect,
+  useRef,
+  useState,
+} from "react"
 import { parseSideNavLocation } from "@/components/SideNav/sideNavLocation"
 import { pollWhileOk } from "@/lib/api-result"
-import { useUrgentValue } from "@/lib/useUrgentValue"
 import { cn } from "@/lib/utils"
+import {
+  conversationPaneSnapshot,
+  readConversationPaneSession,
+  resolveConversationChrome,
+  writeConversationPaneSession,
+} from "./conversationPaneSession"
 import {
   closeFileTab,
   type FileTabSession,
@@ -20,6 +32,7 @@ import {
 import {
   landingPane,
   type ParsedPane,
+  parsePane,
   serializePane,
   visiblePane,
 } from "./pane"
@@ -197,20 +210,51 @@ function WorkspaceSurfaceReady(props: {
     },
   })
 
-  const urlPane = landingPane(paneParam)
-  const urlPaneKey = `${orgSlug}/${workspaceSlug}:${serializePane(urlPane)}`
-  const [shownPane, setShownPane] = useUrgentValue(urlPane, urlPaneKey)
+  const conversationKey = conversationId ?? "compose"
+  const chromeKey = `${orgSlug}/${workspaceSlug}/${conversationKey}:${paneParam ?? ""}`
+  const initialChrome = resolveConversationChrome({
+    paneParam,
+    conversationId,
+    stored: null,
+  })
+  const [shownPane, setShownPane] = useState(initialChrome.pane)
   const [maximized, setMaximized] = useState(false)
   const [paneWidth, setPaneWidth] = useState<number | null>(null)
   const [treeCollapsed, setTreeCollapsed] = useState(false)
-  const [paneCollapsed, setPaneCollapsed] = useState(false)
-  const [fileTabs, setFileTabs] = useState<FileTabSession>({
-    tabs: [],
-    previewPath: null,
-  })
+  const [paneCollapsed, setPaneCollapsed] = useState(initialChrome.collapsed)
+  const [fileTabs, setFileTabs] = useState<FileTabSession>(initialChrome.tabs)
+  const [hydrated, setHydrated] = useState(false)
+  const [seenChromeKey, setSeenChromeKey] = useState(chromeKey)
+  const identityRef = useRef({ orgSlug, workspaceSlug, conversationId })
 
   const fileFromPane = shownPane?.kind === "file" ? shownPane.path : null
   const openFileTabs = tabsIncludingPanePath(fileTabs.tabs, fileFromPane)
+
+  const persistChrome = (input: {
+    conversationId?: string
+    pane: ParsedPane
+    collapsed: boolean
+    tabs: FileTabSession
+  }) => {
+    if (!input.conversationId) return
+    writeConversationPaneSession(
+      orgSlug,
+      workspaceSlug,
+      input.conversationId,
+      conversationPaneSnapshot(input),
+    )
+  }
+
+  const applyChrome = (next: {
+    pane: ParsedPane
+    collapsed: boolean
+    tabs: FileTabSession
+  }) => {
+    setShownPane(next.pane)
+    setPaneCollapsed(next.collapsed)
+    setFileTabs(next.tabs)
+    setMaximized(false)
+  }
 
   useEffect(() => {
     void touchWorkspace(orgSlug, workspaceSlug).then(() => {
@@ -220,9 +264,68 @@ function WorkspaceSurfaceReady(props: {
     })
   }, [orgSlug, workspaceSlug, queryClient])
 
-  const setPane = (next: ParsedPane | null) => {
-    setShownPane(next ? (visiblePane(next) ?? landingPane()) : landingPane())
-    if (next) setPaneCollapsed(false)
+  useEffect(() => {
+    if (hydrated) return
+    if (conversationId && !visiblePane(parsePane(paneParam))) {
+      const stored = readConversationPaneSession(
+        orgSlug,
+        workspaceSlug,
+        conversationId,
+      )
+      if (stored) {
+        const next = resolveConversationChrome({
+          paneParam,
+          conversationId,
+          stored,
+        })
+        setShownPane(next.pane)
+        setPaneCollapsed(next.collapsed)
+        setFileTabs(next.tabs)
+        setMaximized(false)
+      }
+    }
+    setHydrated(true)
+  }, [hydrated, conversationId, orgSlug, paneParam, workspaceSlug])
+
+  if (hydrated && seenChromeKey !== chromeKey) {
+    const previous = identityRef.current
+    const leftConversation =
+      previous.conversationId != null &&
+      previous.conversationId !== conversationId
+    if (
+      previous.conversationId &&
+      previous.orgSlug === orgSlug &&
+      previous.workspaceSlug === workspaceSlug &&
+      leftConversation
+    ) {
+      persistChrome({
+        conversationId: previous.conversationId,
+        pane: shownPane,
+        collapsed: paneCollapsed,
+        tabs: fileTabs,
+      })
+    }
+    identityRef.current = { orgSlug, workspaceSlug, conversationId }
+    setSeenChromeKey(chromeKey)
+    const stored = conversationId
+      ? readConversationPaneSession(orgSlug, workspaceSlug, conversationId)
+      : null
+    const next = resolveConversationChrome({
+      // Conversation switches must not inherit ?pane= from the previous thread.
+      paneParam: leftConversation ? undefined : paneParam,
+      conversationId,
+      stored,
+    })
+    applyChrome(next)
+    persistChrome({
+      conversationId,
+      pane: next.pane,
+      collapsed: next.collapsed,
+      tabs: next.tabs,
+    })
+  }
+
+  const navigatePaneSearch = (next: ParsedPane | null) => {
     void navigate({
       to: conversationId
         ? "/$orgSlug/ws/$workspaceSlug/$conversationId"
@@ -233,6 +336,19 @@ function WorkspaceSurfaceReady(props: {
       search: next ? { pane: serializePane(next) } : {},
       replace: true,
     })
+  }
+
+  const setPane = (next: ParsedPane | null, tabs = fileTabs) => {
+    const pane = next ? (visiblePane(next) ?? landingPane()) : landingPane()
+    setShownPane(pane)
+    if (next) setPaneCollapsed(false)
+    persistChrome({
+      conversationId,
+      pane,
+      collapsed: next ? false : paneCollapsed,
+      tabs,
+    })
+    navigatePaneSearch(next ? pane : null)
   }
 
   if (workspace === null) {
@@ -279,12 +395,15 @@ function WorkspaceSurfaceReady(props: {
       paneCollapsed={paneCollapsed}
       fileTabs={openFileTabs}
       previewPath={fileTabs.previewPath}
+      fileTabSession={fileTabs}
       setMaximized={setMaximized}
       setPaneWidth={setPaneWidth}
       setTreeCollapsed={setTreeCollapsed}
       setPaneCollapsed={setPaneCollapsed}
       setFileTabs={setFileTabs}
       setPane={setPane}
+      persistChrome={persistChrome}
+      navigatePaneSearch={navigatePaneSearch}
     />
   )
 }
@@ -317,12 +436,20 @@ function WorkspaceSurfaceLayout(props: {
   paneCollapsed: boolean
   fileTabs: string[]
   previewPath: string | null
+  fileTabSession: FileTabSession
   setMaximized: React.Dispatch<React.SetStateAction<boolean>>
   setPaneWidth: React.Dispatch<React.SetStateAction<number | null>>
   setTreeCollapsed: React.Dispatch<React.SetStateAction<boolean>>
   setPaneCollapsed: React.Dispatch<React.SetStateAction<boolean>>
   setFileTabs: React.Dispatch<React.SetStateAction<FileTabSession>>
-  setPane: (next: ParsedPane | null) => void
+  setPane: (next: ParsedPane | null, tabs?: FileTabSession) => void
+  persistChrome: (input: {
+    conversationId?: string
+    pane: ParsedPane
+    collapsed: boolean
+    tabs: FileTabSession
+  }) => void
+  navigatePaneSearch: (next: ParsedPane | null) => void
 }) {
   return <WorkspaceSurfaceColumns {...props} />
 }
@@ -339,12 +466,20 @@ function WorkspaceSurfaceColumns(props: {
   paneCollapsed: boolean
   fileTabs: string[]
   previewPath: string | null
+  fileTabSession: FileTabSession
   setMaximized: React.Dispatch<React.SetStateAction<boolean>>
   setPaneWidth: React.Dispatch<React.SetStateAction<number | null>>
   setTreeCollapsed: React.Dispatch<React.SetStateAction<boolean>>
   setPaneCollapsed: React.Dispatch<React.SetStateAction<boolean>>
   setFileTabs: React.Dispatch<React.SetStateAction<FileTabSession>>
-  setPane: (next: ParsedPane | null) => void
+  setPane: (next: ParsedPane | null, tabs?: FileTabSession) => void
+  persistChrome: (input: {
+    conversationId?: string
+    pane: ParsedPane
+    collapsed: boolean
+    tabs: FileTabSession
+  }) => void
+  navigatePaneSearch: (next: ParsedPane | null) => void
 }) {
   const {
     orgSlug,
@@ -358,29 +493,39 @@ function WorkspaceSurfaceColumns(props: {
     paneCollapsed,
     fileTabs,
     previewPath,
+    fileTabSession,
     setMaximized,
     setPaneWidth,
     setTreeCollapsed,
     setPaneCollapsed,
     setFileTabs,
     setPane,
+    persistChrome,
+    navigatePaneSearch,
   } = props
 
   const paneOpen = !paneCollapsed
   const panePath = shownPane.kind === "file" ? shownPane.path : null
 
   const collapsePane = () => {
+    const nextTabs = seedFileTabSession(fileTabSession, panePath)
     setMaximized(false)
-    setFileTabs((current) => seedFileTabSession(current, panePath))
+    setFileTabs(nextTabs)
     setPaneCollapsed(true)
+    persistChrome({
+      conversationId,
+      pane: shownPane,
+      collapsed: true,
+      tabs: nextTabs,
+    })
+    navigatePaneSearch(null)
   }
 
   const openFile = (path: string, pin: boolean) => {
-    setFileTabs((current) => {
-      const seeded = seedFileTabSession(current, panePath)
-      return pin ? pinFile(seeded, path) : previewFile(seeded, path)
-    })
-    setPane({ kind: "file", path })
+    const seeded = seedFileTabSession(fileTabSession, panePath)
+    const nextTabs = pin ? pinFile(seeded, path) : previewFile(seeded, path)
+    setFileTabs(nextTabs)
+    setPane({ kind: "file", path }, nextTabs)
   }
 
   return (
@@ -409,7 +554,16 @@ function WorkspaceSurfaceColumns(props: {
                 onOpen={(next) => setPane(next)}
                 onExpand={
                   fileTabs.length > 0
-                    ? () => setPaneCollapsed(false)
+                    ? () => {
+                        setPaneCollapsed(false)
+                        persistChrome({
+                          conversationId,
+                          pane: shownPane,
+                          collapsed: false,
+                          tabs: fileTabSession,
+                        })
+                        navigatePaneSearch(shownPane)
+                      }
                     : undefined
                 }
               />
@@ -445,16 +599,24 @@ function WorkspaceSurfaceColumns(props: {
           onPreviewFile={(path) => openFile(path, false)}
           onPinFile={(path) => openFile(path, true)}
           onCloseFileTab={(path) => {
-            setFileTabs((current) => closeFileTab(current, path))
+            const nextTabs = closeFileTab(fileTabSession, path)
+            setFileTabs(nextTabs)
             if (shownPane.kind === "file" && shownPane.path === path) {
-              setPane({ kind: "files" })
+              setPane({ kind: "files" }, nextTabs)
+              return
             }
+            persistChrome({
+              conversationId,
+              pane: shownPane,
+              collapsed: false,
+              tabs: nextTabs,
+            })
           }}
           onCloseActiveFile={() => {
             if (shownPane.kind === "file") {
-              const path = shownPane.path
-              setFileTabs((current) => closeFileTab(current, path))
-              setPane({ kind: "files" })
+              const nextTabs = closeFileTab(fileTabSession, shownPane.path)
+              setFileTabs(nextTabs)
+              setPane({ kind: "files" }, nextTabs)
             }
           }}
           onToggleTree={() => setTreeCollapsed((value) => !value)}

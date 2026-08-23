@@ -1,5 +1,6 @@
-import type { Meta, StoryObj } from "@storybook/react-vite"
+import type { Decorator, Meta, StoryObj } from "@storybook/react-vite"
 import { HttpResponse, http } from "msw"
+import { type ReactNode, useRef } from "react"
 import { expect, userEvent, waitFor, within } from "storybook/test"
 import {
   conversationDetailLoadingHandler,
@@ -10,6 +11,7 @@ import {
 } from "@/mocks/workspace-handlers"
 import { orgPageDecorators } from "../../../.storybook/decorators/entry-page-decorators"
 import type { StoryRouteParams } from "../../../.storybook/decorators/with-story-route"
+import { writeConversationPaneSession } from "./conversationPaneSession"
 import { WorkspaceSurface } from "./WorkspaceSurface"
 import {
   docsWorkspace,
@@ -23,10 +25,37 @@ import {
 const orgSlug = "acme"
 const workspaceSlug = "docs"
 
+const PANE_SESSION_PREFIX = "ctxpipe:ws-pane:"
+
+function clearWorkspacePaneSessions() {
+  if (typeof sessionStorage === "undefined") return
+  const keys: string[] = []
+  for (let index = 0; index < sessionStorage.length; index += 1) {
+    const key = sessionStorage.key(index)
+    if (key?.startsWith(PANE_SESSION_PREFIX)) keys.push(key)
+  }
+  for (const key of keys) sessionStorage.removeItem(key)
+}
+
+function ClearWorkspacePaneSession(props: { children: ReactNode }) {
+  const cleared = useRef(false)
+  if (!cleared.current) {
+    cleared.current = true
+    clearWorkspacePaneSessions()
+  }
+  return props.children
+}
+
+const clearPaneSessionDecorator: Decorator = (Story) => (
+  <ClearWorkspacePaneSession>
+    <Story />
+  </ClearWorkspacePaneSession>
+)
+
 const meta = {
   title: "Pages/Workspaces",
   component: WorkspaceSurface,
-  decorators: orgPageDecorators,
+  decorators: [clearPaneSessionDecorator, ...orgPageDecorators],
   parameters: {
     layout: "fullscreen",
   },
@@ -200,17 +229,17 @@ export const ConversationLoading: Story = {
   },
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement)
-    await canvas.findByRole("list", { name: "Workspace files" })
     expect(
       canvas.getByRole("navigation", { name: "Main navigation" }),
     ).toBeVisible()
+    expect(canvas.queryByRole("list", { name: "Workspace files" })).toBeNull()
     expect(canvas.queryByText("Loading workspace")).not.toBeInTheDocument()
   },
 }
 
-export const ComposeThreadKeepsFiles: Story = {
+export const ConversationNavIsChatOnly: Story = {
   parameters: {
-    storyRoute: workspaceRoute({ pane: "files" }),
+    storyRoute: workspaceRoute(),
     msw: {
       handlers: {
         page: workspaceShellHandlers(),
@@ -219,20 +248,63 @@ export const ComposeThreadKeepsFiles: Story = {
   },
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement)
-    await canvas.findByRole("list", { name: "Workspace files" })
+    await canvas.findByText("Ask about this Workspace.")
+    expect(canvas.queryByRole("list", { name: "Workspace files" })).toBeNull()
     await userEvent.click(canvas.getByRole("link", { name: "Repo layout" }))
     await waitFor(() => {
       expect(canvas.getByText("How is billing structured?")).toBeInTheDocument()
     })
-    expect(canvas.getByRole("list", { name: "Workspace files" })).toBeVisible()
+    expect(canvas.queryByRole("list", { name: "Workspace files" })).toBeNull()
     await userEvent.click(
       canvas.getByRole("link", { name: "New conversation in Docs" }),
     )
     await waitFor(() => {
       expect(canvas.getByText("Ask about this Workspace.")).toBeInTheDocument()
     })
-    expect(canvas.getByRole("list", { name: "Workspace files" })).toBeVisible()
+    expect(canvas.queryByRole("list", { name: "Workspace files" })).toBeNull()
     expect(canvas.queryByText("Loading workspace")).not.toBeInTheDocument()
+  },
+}
+
+export const ConversationRestoresPaneAndTabs: Story = {
+  parameters: {
+    storyRoute: workspaceRoute(),
+    msw: {
+      handlers: {
+        page: workspaceShellHandlers(),
+      },
+    },
+  },
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement)
+    await canvas.findByText("Ask about this Workspace.")
+    writeConversationPaneSession(orgSlug, workspaceSlug, "conv_1", {
+      pane: "files",
+      collapsed: false,
+      tabs: ["knowledge/billing/ledger.md"],
+      previewPath: "knowledge/billing/ledger.md",
+    })
+    await userEvent.click(canvas.getByRole("link", { name: "Repo layout" }))
+    await waitFor(() => {
+      expect(
+        canvas.getByRole("list", { name: "Workspace files" }),
+      ).toBeVisible()
+    })
+    expect(canvas.getByRole("tab", { name: "ledger.md" })).toBeVisible()
+    await userEvent.click(
+      canvas.getByRole("link", { name: "New conversation in Docs" }),
+    )
+    await waitFor(() => {
+      expect(canvas.getByText("Ask about this Workspace.")).toBeInTheDocument()
+    })
+    expect(canvas.queryByRole("list", { name: "Workspace files" })).toBeNull()
+    await userEvent.click(canvas.getByRole("link", { name: "Repo layout" }))
+    await waitFor(() => {
+      expect(
+        canvas.getByRole("list", { name: "Workspace files" }),
+      ).toBeVisible()
+    })
+    expect(canvas.getByRole("tab", { name: "ledger.md" })).toBeVisible()
   },
 }
 
