@@ -4,7 +4,7 @@ import { workspaceChatHttpPath } from "./chatConnection"
 describe("workspaceChatHttpPath", () => {
   test("builds the org-scoped conversation chat POST path", () => {
     expect(workspaceChatHttpPath("acme", "conv_1")).toBe(
-      "/api/v1/orgs/acme/conversations/conv_1/chat",
+      "/acme/api/v1/conversations/conv_1",
     )
   })
 })

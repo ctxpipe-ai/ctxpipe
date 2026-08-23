@@ -140,7 +140,7 @@ describe("WorkspaceChatSession compose failure", () => {
     renderCompose()
     expect(fetchServerSentEventsMock).toHaveBeenCalledTimes(1)
     expect(fetchServerSentEventsMock).toHaveBeenCalledWith(
-      "/api/v1/orgs/acme/conversations/conv_pending/chat",
+      "/acme/api/v1/conversations/conv_pending",
       { credentials: "include" },
     )
     expect(useChatMock).toHaveBeenCalledWith(
