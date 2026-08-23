@@ -754,3 +754,9 @@ Highest-priority confirmed rules for agents. Migrated from former `patterns.md` 
 - **Date:** 2026-08-22
 - **Source:** OpenCode chatStream 500 (H1: Claude fallback + empty Anthropic credentials)
 
+### Workspace chat streams first; conversation SSR is stored turns only
+- **Rule:** Product workspace chat is TanStack AG-UI (`@tanstack/ai-react` + locked `@tanstack/ai@0.44.1`). Do not shim `@ai-sdk/react` / Vercel `UIMessage` on this path. Open the live connection and emit `RUN_STARTED` before GitHub, sandbox, or OpenCode. Persist the user turn and `lastMessageAt` on accept so SideNav can list the row before `RUN_FINISHED`. Conversation document SSR awaits workspace identity + stored turns only — never files, git, graph, or OpenCode. Do not raise the 15s UI proxy. Stay on 0.44.1 with an app-owned WebSocket; a helper bump pulls `@tanstack/ai-opencode` / sandbox drift.
+- **Category:** convention
+- **Date:** 2026-08-23
+- **Source:** workspace chat TTFB ~20s and conversation URL 504 at 15.73s
+
