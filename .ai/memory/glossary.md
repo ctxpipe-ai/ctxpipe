@@ -20,7 +20,8 @@
 | Temporality | Optional `[valid_from, valid_to)` window. Missing `valid_to` = evergreen (source half-life). Missing `valid_from` is derived from the introducing git commit at hydrate, then persisted by a **job**. `e = 0` before `valid_from` and at/after `valid_to`. |
 | AGENTS.md (workspace map) | Workspace-repository root file: display name in front matter; **one** semantic folder-structure section the ops job maintains (any heading the user chose). Keep folders that exist; drop dead links. Not this monorepo’s agent-instructions `AGENTS.md`. |
 | Read-only Workspace | A Workspace whose desired workspace remote can be cloned and hydrated, but ctxpipe cannot commit/push to it. Chrome shows read-only with an error-specific fix. **Jobs** that maintain that URL are paused; hydrate, search, and workspace chat continue. Distinct from hydrate-failed (tree unreadable). |
-| Job sandbox | One long-lived TanStack sandbox per Workspace for **predefined jobs** (ingest, repair, ops, …). Concurrent jobs use **in-sandbox `git worktree`s**, not per-job sandbox forks. Distinct from a **chat sandbox** (`withSandbox` per `threadId`). Any sandbox may write, with different restrictions: jobs may push the **default branch**; chat may only open a **branch + PR**. Mechanical GitHub-API mirrors do not use it. Formerly “write sandbox.” |
+| Job sandbox | One long-lived TanStack sandbox per Workspace for **predefined jobs** (ingest, repair, ops, …). Concurrent jobs use **in-sandbox `git worktree`s**, not per-job sandbox forks. Distinct from a **chat sandbox**. Any sandbox may write, with different restrictions: jobs may push the **default branch**; chat may only open a **branch + PR**. Mechanical GitHub-API mirrors do not use it. Formerly “write sandbox.” |
+| Chat sandbox | One reused TanStack `withSandbox` workdir per conversation (`threadId` = conversation id). Clone and plugins stay; `opencode serve` / session are per turn. Conversations run in parallel. See [workspace-chat-sandboxes](PRDs/workspace-chat-sandboxes.md). |
 | Zoekt | Google's open-source code search engine, used for indexing and searching repositories |
 | MCP | Model Context Protocol — AI tool interface exposed alongside REST APIs |
 | Better Auth | TypeScript authentication framework used in the backend |
@@ -55,4 +56,4 @@
 | ORM | Object-Relational Mapping |
 
 ---
-*Last updated: 2026-08-20*
+*Last updated: 2026-08-23*

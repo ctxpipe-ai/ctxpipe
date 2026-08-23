@@ -760,3 +760,9 @@ Highest-priority confirmed rules for agents. Migrated from former `patterns.md` 
 - **Date:** 2026-08-23
 - **Source:** workspace chat TTFB ~20s and conversation URL 504 at 15.73s
 
+### Workspace chat reuses the sandbox; do not patch TanStack
+- **Rule:** Reuse one TanStack sandbox/workdir per conversation (`reuse: "thread"`). Do not reclone every turn (`reuse: "none"` / `destroyOnComplete`). Many conversations must run at once — do not serialize the host on one OpenCode port or a process-wide mutex. Fix ServeError / echo / resume in our wiring; do not patch `@tanstack/ai*`. See [workspace-chat-sandboxes](PRDs/workspace-chat-sandboxes.md).
+- **Category:** convention
+- **Date:** 2026-08-23
+- **Source:** user correction (PR-280 ServeError / turn latency; candidates `34215a9a726b6c6d`, `6591dda6936d90c4`)
+
