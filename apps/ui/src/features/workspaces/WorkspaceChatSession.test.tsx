@@ -1,12 +1,12 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query"
 import { renderToStaticMarkup } from "react-dom/server"
 import { beforeEach, describe, expect, it, vi } from "vitest"
-import type { ChatMessage } from "@/features/chat/types"
+import type { ChatMessage, ChatStatus } from "@/features/chat/types"
 import { readOnlyWorkspace } from "./workspace-fixtures"
 
 const useChatState = vi.hoisted(() => ({
   messages: [] as ChatMessage[],
-  status: "error" as const,
+  status: "error" as ChatStatus,
   isLoading: false,
   error: new Error(
     "opencode serve exited before becoming ready: sh: opencode: not found",

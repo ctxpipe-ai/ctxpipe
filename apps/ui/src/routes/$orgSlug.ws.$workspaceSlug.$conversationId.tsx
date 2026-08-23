@@ -11,7 +11,7 @@ export const Route = createFileRoute(
 )({
   validateSearch: workspaceSearch,
   shouldReload: ({ cause }) => cause === "enter",
-  loader: async ({ context, params, location, cause }) => {
+  loader: async ({ context, params, location }) => {
     const paneParam = workspaceSearch(
       location.search as Record<string, unknown>,
     ).pane

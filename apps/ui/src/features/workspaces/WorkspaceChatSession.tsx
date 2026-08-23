@@ -211,7 +211,7 @@ export function WorkspaceChatSession(props: {
       ) : (
         <>
           <ConversationThread
-            messages={messages}
+            messages={messages as ChatMessage[]}
             error={error ?? null}
             status={status}
           />
