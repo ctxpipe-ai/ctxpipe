@@ -94,17 +94,20 @@ export const WORKSPACE_CHAT_LOCAL_PROCESS_SCRUB_ENV = [
 
 export const WORKSPACE_CHAT_OPENCODE_CLI = "opencode-ai@1.18.18" as const
 
-export function workspaceChatOpenCodeConfig(input: {
-  modelBase: string
-  baseUrl: string
-}): {
+export const WORKSPACE_CHAT_OPENCODE_PROXY_URL_ENV =
+  "{env:CTXPIPE_MODEL_PROXY_URL}" as const
+
+export function workspaceChatOpenCodeConfig(input: { modelBase: string }): {
   $schema: "https://opencode.ai/config.json"
   enabled_providers: readonly ["ctxpipe"]
   provider: {
     ctxpipe: {
       npm: "@ai-sdk/openai-compatible"
       name: "ctxpipe"
-      options: { baseURL: string; apiKey: "{env:CTXPIPE_OPENCODE_RUN_TOKEN}" }
+      options: {
+        baseURL: typeof WORKSPACE_CHAT_OPENCODE_PROXY_URL_ENV
+        apiKey: "{env:CTXPIPE_OPENCODE_RUN_TOKEN}"
+      }
       models: Record<string, { name: string }>
     }
   }
@@ -118,7 +121,7 @@ export function workspaceChatOpenCodeConfig(input: {
         npm: "@ai-sdk/openai-compatible",
         name: "ctxpipe",
         options: {
-          baseURL: input.baseUrl,
+          baseURL: WORKSPACE_CHAT_OPENCODE_PROXY_URL_ENV,
           apiKey: "{env:CTXPIPE_OPENCODE_RUN_TOKEN}",
         },
         models: {

@@ -61,12 +61,46 @@ export function workspaceChatLiveSandboxId(input: {
   return `${input.snapshotId}:thread:${input.conversationId}`
 }
 
-/** Clone auth is not part of the sandbox id — rotating the token must not bust the snapshot. */
+export const WORKSPACE_CHAT_CLONE_TOKEN_SECRET = "CTXPIPE_CLONE_TOKEN" as const
+
+/**
+ * Bind a TanStack SecretRef so JSON hashing sees only `{ __secretName }`,
+ * while `String(ref)` (Node child env) still yields the live token.
+ */
+export function bindWorkspaceChatSecretRef(
+  ref: { readonly __secretName: string },
+  value: string,
+): { readonly __secretName: string } {
+  return Object.create(null, {
+    __secretName: { value: ref.__secretName, enumerable: true },
+    toString: { value: () => value, enumerable: false },
+    valueOf: { value: () => value, enumerable: false },
+  })
+}
+
+export function workspaceChatCloneTokenRef(
+  secrets: Record<string, unknown>,
+  token: string | null | undefined,
+): { readonly __secretName: string } | null {
+  if (!token) return null
+  const ref = secrets[WORKSPACE_CHAT_CLONE_TOKEN_SECRET]
+  const named =
+    ref && typeof ref === "object" && "__secretName" in ref
+      ? (ref as { readonly __secretName: string })
+      : { __secretName: WORKSPACE_CHAT_CLONE_TOKEN_SECRET }
+  return bindWorkspaceChatSecretRef(named, token)
+}
+
+/** Clone auth is a SecretRef (or omitted). Plaintext tokens must not enter the workspace hash. */
 export function workspaceChatGitSource(input: {
   url: string
   ref: string
-  token?: string | null
-}): { url: string; ref: string; auth?: { token: string } } {
+  token?: { readonly __secretName: string } | null
+}): {
+  url: string
+  ref: string
+  auth?: { token: { readonly __secretName: string } }
+} {
   if (!input.token) return { url: input.url, ref: input.ref }
   return { url: input.url, ref: input.ref, auth: { token: input.token } }
 }
@@ -83,10 +117,9 @@ export function workspaceChatSandboxSpec(input: {
       isolation: "docker" | "local_process"
       source: { type: "git"; url: string; ref: string }
       lifecycle: {
-        reuse: "thread" | "none"
+        reuse: "thread"
         snapshot: "after-setup"
         keepAlive: typeof CHAT_SANDBOX_KEEP_ALIVE
-        destroyOnComplete?: boolean
       }
     }
   | { ok: false; reason: "no_isolated_provider" } {
@@ -99,19 +132,11 @@ export function workspaceChatSandboxSpec(input: {
     id: input.sandboxId,
     isolation,
     source: { type: "git", url: input.gitUrl, ref: input.ref },
-    lifecycle:
-      isolation === "local_process"
-        ? {
-            reuse: "none",
-            snapshot: "after-setup",
-            keepAlive: CHAT_SANDBOX_KEEP_ALIVE,
-            destroyOnComplete: true,
-          }
-        : {
-            reuse: "thread",
-            snapshot: "after-setup",
-            keepAlive: CHAT_SANDBOX_KEEP_ALIVE,
-          },
+    lifecycle: {
+      reuse: "thread",
+      snapshot: "after-setup",
+      keepAlive: CHAT_SANDBOX_KEEP_ALIVE,
+    },
   }
 }
 

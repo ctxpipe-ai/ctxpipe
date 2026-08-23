@@ -1,7 +1,4 @@
 import { randomBytes } from "node:crypto"
-import { writeFileSync } from "node:fs"
-import { tmpdir } from "node:os"
-import { join } from "node:path"
 import type { StreamChunk } from "@tanstack/ai"
 import { withOrgDbContext } from "../../db/client.js"
 import { nameConversationIfUnnamed } from "../../graphs/conversationGraph/nodes/conversationNaming.js"
@@ -19,9 +16,11 @@ import {
   shouldHeartbeatChatSandbox,
 } from "./chat-lifecycle.js"
 import {
+  WORKSPACE_CHAT_CLONE_TOKEN_SECRET,
   WORKSPACE_CHAT_DOCKER_SANDBOX,
   WORKSPACE_CHAT_OPENCODE_PORT,
   WORKSPACE_CHAT_SANDBOX_SETUP,
+  workspaceChatCloneTokenRef,
   workspaceChatGitSource,
   workspaceChatRuntimeConfig,
   workspaceChatSandboxId,
@@ -32,12 +31,8 @@ import {
   emitOpencodeChatAttempt,
   opencodeChatStreamEvent,
   shouldFailEmptyChatTurn,
-  withTanstackConsoleCapture,
 } from "./opencode-chat-stream.js"
-import {
-  postgresSandboxInstanceStore,
-  postgresSandboxLockStore,
-} from "./sandbox-instance-store.js"
+import { postgresSandboxInstanceStore } from "./sandbox-instance-store.js"
 import {
   attachChatSandboxHandle,
   heartbeatChatSandboxes,
@@ -61,9 +56,18 @@ import {
   workspaceChatOpenCodeContract,
 } from "./workspace-chat-opencode-contract.js"
 import {
-  waitForListenPortFree,
-  withLocalProcessOpenCodePort,
+  leaseLocalProcessOpenCodePort,
+  type LocalProcessOpenCodePortLease,
 } from "./workspace-chat-opencode-port.js"
+import {
+  invalidateChatSandbox,
+  preflightChatSandbox,
+  streamSawOpenCodeSession,
+} from "./workspace-chat-sandbox-health.js"
+import {
+  claimWorkspaceChatTurn,
+  type WorkspaceChatTurnClaim,
+} from "./workspace-chat-turn-claim.js"
 import { workspaceChatTools } from "./workspace-chat-tools.js"
 
 export type TanstackWorkspaceChatMessage = {
@@ -94,6 +98,7 @@ export type TanstackWorkspaceChatInput = {
   onDelta?: (delta: string) => Promise<void> | void
   /** Set when the user turn + lastMessageAt were written before the stream opened. */
   userTurnAccepted?: boolean
+  acceptedTurn?: WorkspaceChatTurnClaim
   resolveRuntime?: () => Promise<Partial<TanstackWorkspaceChatInput>>
   wireFormat?: WorkspaceChatWireFormat
   appendTurn?: (input: {
@@ -105,6 +110,14 @@ export type TanstackWorkspaceChatInput = {
 }
 
 export { conversationRenameChunk } from "./workspace-chat-agui.js"
+
+type PreparedChatTurn = {
+  stream: AsyncIterable<object>
+  isolation: "docker" | "local_process"
+  servePort: number
+  handle: { current: TanstackLikeHandle | null }
+  portStuck: { current: boolean }
+}
 
 function localProcessChatProvider(
   modules: Awaited<ReturnType<typeof loadTanstackChatModules>>,
@@ -166,18 +179,30 @@ export async function* streamTanstackWorkspaceChat(
   input: TanstackWorkspaceChatInput,
 ): AsyncGenerator<StreamChunk> {
   yield workspaceChatRunStarted({
-    conversationId: input.threadId ?? input.conversationId,
+    conversationId: input.conversationId,
     runId: input.runId,
   })
   const resolved = input.resolveRuntime ? await input.resolveRuntime() : {}
   const turn: TanstackWorkspaceChatInput = { ...input, ...resolved }
+  const claim = turn.acceptedTurn ?? claimWorkspaceChatTurn(turn.conversationId)
+  if (!claim) {
+    await turn.onError?.()
+    yield workspaceChatRunError("conversation_busy")
+    return
+  }
   if (!turn.userTurnAccepted) {
-    await persistCompletedTurns(turn, { persistUser: true, assistant: "" })
-    await turn.onUserPersist?.()
+    try {
+      await persistCompletedTurns(turn, { persistUser: true, assistant: "" })
+      await turn.onUserPersist?.()
+    } catch (error) {
+      claim.release()
+      throw error
+    }
   }
 
   const prepared = await prepareTanstackWorkspaceChat(turn)
   if (!prepared.ok) {
+    claim.release()
     await turn.onError?.()
     yield workspaceChatRunError(prepared.error)
     return
@@ -212,7 +237,7 @@ export async function* streamTanstackWorkspaceChat(
       workspaceId: turn.workspaceId,
       error,
       provider: runtime.provider,
-      opencodePort: WORKSPACE_CHAT_OPENCODE_PORT,
+      opencodePort: prepared.servePort,
       durationMs: Date.now() - startedAt,
     })
   const recordChatAttempt = (error?: unknown) => {
@@ -226,38 +251,20 @@ export async function* streamTanstackWorkspaceChat(
 
   const gate = createWorkspaceChatAssistantGate(turn.prompt)
   let finished = false
-  const capturedFatals: Error[] = []
-  const originalConsole = {
-    error: console.error,
-    info: console.info,
-    log: console.log,
-    warn: console.warn,
-  }
-  const intercept = (...args: unknown[]) => {
-    const text = args.map((arg) => String(arg)).join(" ")
-    if (
-      text.includes("tanstack-ai:errors") ||
-      text.includes("opencode.chatStream") ||
-      text.includes("Unexpected server error")
-    ) {
-      capturedFatals.push(new Error(text))
-    }
-  }
-  console.error = intercept
-  console.info = intercept
-  console.log = intercept
-  console.warn = intercept
+  let sawSession = false
+  let streamError: Error | null = null
   try {
     for await (const chunk of prepared.stream) {
+      if (streamSawOpenCodeSession(chunk)) sawSession = true
       for (const next of gate.take(chunk)) {
         const typed = next as StreamChunk
-        if (typed.type === "RUN_FINISHED") finished = true
         if (typed.type === "RUN_ERROR") {
-          throw new Error(
+          streamError = new Error(
             "message" in typed && typeof typed.message === "string"
               ? typed.message
               : "OpenCode chat stream failed",
           )
+          continue
         }
         yield typed
       }
@@ -265,17 +272,38 @@ export async function* streamTanstackWorkspaceChat(
     for (const next of gate.flush()) {
       const typed = next as StreamChunk
       if (typed.type === "RUN_FINISHED") finished = true
-      yield typed
+      if (typed.type === "RUN_ERROR") {
+        streamError = new Error(
+          "message" in typed && typeof typed.message === "string"
+            ? typed.message
+            : "OpenCode chat stream failed",
+        )
+        continue
+      }
     }
     const assistant = gate.assistant()
-    const streamFatal = capturedFatals[0] ?? prepared.constructFatal
-    if (
+    const failed =
+      streamError != null ||
+      prepared.portStuck.current ||
+      !assistant.trim() ||
       shouldFailEmptyChatTurn({
         assistant,
-        error: streamFatal,
+        error: streamError,
       })
-    ) {
-      const { message } = recordChatAttempt(streamFatal)
+    if (failed) {
+      const error =
+        streamError ??
+        (prepared.portStuck.current
+          ? new Error(`port ${prepared.servePort} still bound`)
+          : new Error("workspace chat produced no assistant reply"))
+      if (!sawSession || prepared.portStuck.current) {
+        await invalidateChatSandbox({
+          handle: prepared.handle.current,
+          orgId: turn.orgId,
+          conversationId: turn.conversationId,
+        })
+      }
+      const { message } = recordChatAttempt(error)
       await turn.onError?.()
       yield workspaceChatRunError(message)
       return
@@ -293,15 +321,20 @@ export async function* streamTanstackWorkspaceChat(
       if (turn.onFinish) await turn.onFinish()
     }
     recordChatAttempt()
+    yield { type: "RUN_FINISHED" } as StreamChunk
   } catch (error) {
+    if (!sawSession) {
+      await invalidateChatSandbox({
+        handle: prepared.handle.current,
+        orgId: turn.orgId,
+        conversationId: turn.conversationId,
+      })
+    }
     const { message } = recordChatAttempt(error)
     await turn.onError?.()
     yield workspaceChatRunError(message)
   } finally {
-    console.error = originalConsole.error
-    console.info = originalConsole.info
-    console.log = originalConsole.log
-    console.warn = originalConsole.warn
+    claim.release()
     clearInterval(heartbeat)
   }
 }
@@ -341,12 +374,7 @@ async function persistCompletedTurns(
 async function prepareTanstackWorkspaceChat(
   input: TanstackWorkspaceChatInput,
 ): Promise<
-  | {
-      ok: true
-      stream: AsyncIterable<object>
-      constructFatal: Error | null
-      isolation: "docker" | "local_process"
-    }
+  | { ok: true } & PreparedChatTurn
   | { ok: false; status: number; error: string }
 > {
   const runtime = workspaceChatRuntimeConfig({
@@ -378,7 +406,7 @@ async function prepareTanstackWorkspaceChat(
     sandboxId: snapshotId,
     provider: runtime.provider,
     gitUrl: input.desiredUrl,
-    ref: input.ref,
+    ref: input.desiredSha ?? input.ref,
   })
   if (!spec.ok) {
     return {
@@ -400,13 +428,9 @@ async function prepareTanstackWorkspaceChat(
     storedChat.find((row) => row.providerSandboxId)?.provider ??
     storedChat[0]?.provider ??
     null
-  const reconnectProvider =
-    storedProvider === "local-process" || storedProvider === "local_process"
-      ? null
-      : storedProvider
   const locked = process.env.SANDBOX_PROVIDER?.trim() || null
-  let provider = reconnectProvider
-    ? providerFactoryForStoredChat(modules, reconnectProvider)
+  let provider = storedProvider
+    ? providerFactoryForStoredChat(modules, storedProvider)
     : spec.isolation === "docker"
       ? modules.dockerSandbox?.(WORKSPACE_CHAT_DOCKER_SANDBOX)
       : localProcessChatProvider(modules)
@@ -441,15 +465,13 @@ async function prepareTanstackWorkspaceChat(
     upstreamApiKey: contract.apiKey,
     modelBase: contract.modelBase,
     modelParams: contract.modelParams,
+    listenHost: spec.isolation === "docker" ? "0.0.0.0" : "127.0.0.1",
+    advertisedHost:
+      spec.isolation === "docker" ? "host.docker.internal" : "127.0.0.1",
   })
   const opencodeConfig = workspaceChatOpenCodeConfig({
     modelBase: contract.modelBase,
-    baseUrl: `${proxy.baseUrl}/v1`,
   })
-  const opencodeConfigPath = join(
-    tmpdir(),
-    `ctxpipe-opencode-${input.conversationId}.json`,
-  )
   const tools = await workspaceChatTools({
     orgId: input.orgId,
     workspaceId: input.workspaceId,
@@ -466,11 +488,22 @@ async function prepareTanstackWorkspaceChat(
     searchObjects: async (query, embedding) =>
       hybridSearch(input.orgId, { embedding, query }, { limit: 20 }),
   }).catch(() => [])
+
+  let portLease: LocalProcessOpenCodePortLease | null = null
+  const handle = { current: null as TanstackLikeHandle | null }
+  const portStuck = { current: false }
   try {
-    writeFileSync(
-      opencodeConfigPath,
-      `${JSON.stringify(opencodeConfig, null, 2)}\n`,
-    )
+    if (spec.isolation === "local_process") {
+      portLease = await leaseLocalProcessOpenCodePort()
+    }
+    const servePort = portLease?.port ?? WORKSPACE_CHAT_OPENCODE_PORT
+    const secrets = modules.createSecrets({
+      CTXPIPE_OPENCODE_RUN_TOKEN: runToken,
+      CTXPIPE_MODEL_PROXY_URL: `${proxy.baseUrl}/v1`,
+      ...(input.cloneToken
+        ? { [WORKSPACE_CHAT_CLONE_TOKEN_SECRET]: input.cloneToken }
+        : {}),
+    })
     const definition = modules.defineSandbox({
       id: spec.id,
       provider,
@@ -479,14 +512,14 @@ async function prepareTanstackWorkspaceChat(
           workspaceChatGitSource({
             url: spec.source.url,
             ref: spec.source.ref,
-            token: input.cloneToken,
-          }),
+            token: workspaceChatCloneTokenRef(
+              secrets as Record<string, unknown>,
+              input.cloneToken,
+            ),
+          }) as Parameters<typeof modules.gitSource>[0],
         ),
         setup: [...WORKSPACE_CHAT_SANDBOX_SETUP],
-        secrets: modules.createSecrets({
-          CTXPIPE_OPENCODE_RUN_TOKEN: runToken,
-          OPENCODE_CONFIG: opencodeConfigPath,
-        }),
+        secrets,
         skills: [
           modules.fileSkill({
             path: "opencode.json",
@@ -496,8 +529,8 @@ async function prepareTanstackWorkspaceChat(
       }),
       lifecycle: spec.lifecycle,
       hooks: {
-        onReady: (handle: TanstackLikeHandle) => {
-          if (spec.isolation === "local_process") return
+        onReady: async (ready: TanstackLikeHandle) => {
+          handle.current = ready
           void attachChatSandboxHandle({
             kind: "chat",
             workspaceId: input.workspaceId,
@@ -507,55 +540,61 @@ async function prepareTanstackWorkspaceChat(
             desiredGeneration: input.desiredGeneration,
             desiredSha: input.desiredSha,
             defaultBranch: input.defaultBranch,
-            handle: adaptTanstackHandle(handle),
-            destroy: () => handle.destroy(),
+            handle: adaptTanstackHandle(ready),
+            destroy: () => ready.destroy(),
           }).catch((error) => {
             getLogger().error(
               error instanceof Error ? error : new Error(String(error)),
               { step: "attach-chat-sandbox-handle" },
             )
           })
+          await preflightChatSandbox({
+            handle: ready,
+            isolation: spec.isolation,
+            proxyUrl: proxy.baseUrl,
+            stalePort:
+              spec.isolation === "docker"
+                ? WORKSPACE_CHAT_OPENCODE_PORT
+                : undefined,
+          })
         },
       },
     })
-    const constructed = await withTanstackConsoleCapture(async () =>
-      modules.chat({
-        adapter: modules.opencodeText(contract.opencodeModel, {
-          port: WORKSPACE_CHAT_OPENCODE_PORT,
-          permissionMode: runtime.permissionMode,
-          onPermissionRequest: runtime.onPermissionRequest,
-        }),
-        threadId: input.threadId ?? input.conversationId,
-        runId: input.runId,
-        messages,
-        tools,
-        middleware: [
-          modules.withSandbox(definition, {
-            instances: postgresSandboxInstanceStore({
-              orgId: input.orgId,
-              workspaceId: input.workspaceId,
-            }),
-            locks: postgresSandboxLockStore({
-              orgId: input.orgId,
-              workspaceId: input.workspaceId,
-              conversationId: input.conversationId,
-            }),
-          }),
-        ],
+    const result = await modules.chat({
+      adapter: modules.opencodeText(contract.opencodeModel, {
+        port: servePort,
+        permissionMode: runtime.permissionMode,
+        onPermissionRequest: runtime.onPermissionRequest,
       }),
-    )
+      threadId: input.conversationId,
+      runId: input.runId,
+      messages,
+      tools,
+      middleware: [
+        modules.withSandbox(definition, {
+          instances: postgresSandboxInstanceStore({
+            orgId: input.orgId,
+            workspaceId: input.workspaceId,
+          }),
+        }),
+      ],
+    })
     return {
       ok: true,
-      stream: closeProxyAfterStream(
-        constructed.result,
-        proxy.close,
-        spec.isolation,
-      ),
-      constructFatal: constructed.fatal,
+      stream: closeProxyAfterStream(result, {
+        close: proxy.close,
+        port: spec.isolation === "local_process" ? servePort : null,
+        releasePort: portLease?.release,
+        portStuck,
+      }),
       isolation: spec.isolation,
+      servePort,
+      handle,
+      portStuck,
     }
   } catch (error) {
     await proxy.close().catch(() => undefined)
+    await portLease?.release().catch(() => undefined)
     throw error
   }
 }
@@ -576,32 +615,23 @@ function tanstackChatModelMessages(
 
 async function* closeProxyAfterStream(
   stream: AsyncIterable<object>,
-  close: () => Promise<void>,
-  isolation: "docker" | "local_process",
+  input: {
+    close: () => Promise<void>
+    port: number | null
+    releasePort?: () => Promise<void>
+    portStuck: { current: boolean }
+  },
 ): AsyncGenerator<object> {
-  const body = async function* () {
-    try {
-      yield* stream
-    } finally {
-      await close().catch(() => undefined)
-      if (isolation === "local_process") {
-        await waitForListenPortFree(WORKSPACE_CHAT_OPENCODE_PORT)
+  try {
+    yield* stream
+  } finally {
+    await input.close().catch(() => undefined)
+    if (input.port != null) {
+      try {
+        if (input.releasePort) await input.releasePort()
+      } catch {
+        input.portStuck.current = true
       }
     }
-  }
-  if (isolation !== "local_process") {
-    yield* body()
-    return
-  }
-  let release!: () => void
-  const held = new Promise<void>((resolve) => {
-    release = resolve
-  })
-  const slot = withLocalProcessOpenCodePort(() => held)
-  try {
-    yield* body()
-  } finally {
-    release()
-    await slot
   }
 }

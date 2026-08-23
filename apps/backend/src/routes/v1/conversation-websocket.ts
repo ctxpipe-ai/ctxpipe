@@ -17,6 +17,7 @@ import {
   workspaceChatRunError,
 } from "../../domain/workspaces/workspace-chat-agui.js"
 import { resolveWorkspaceChatTurnRuntime } from "../../domain/workspaces/workspace-chat-turn-runtime.js"
+import { claimWorkspaceChatTurn } from "../../domain/workspaces/workspace-chat-turn-claim.js"
 import {
   appendConversationTurn,
   loadConversationTurns,
@@ -193,6 +194,11 @@ async function runWorkspaceChatSocketTurn(
     ? await getWorkspaceById(conversation.workspaceId)
     : null
   const env = parseEnv(process.env as Record<string, string | undefined>)
+  const acceptedTurn = claimWorkspaceChatTurn(conversation.id)
+  if (!acceptedTurn) {
+    ws.send(JSON.stringify(workspaceChatRunError("conversation_busy")))
+    return
+  }
 
   try {
     await appendConversationTurn({
@@ -203,6 +209,7 @@ async function runWorkspaceChatSocketTurn(
     })
     await touchConversationLastMessage(conversation.id)
   } catch (error) {
+    acceptedTurn.release()
     log.error(error instanceof Error ? error : new Error(String(error)), {
       step: "workspace-chat-ws-accept",
     })
@@ -220,6 +227,7 @@ async function runWorkspaceChatSocketTurn(
       desiredUrl: workspace?.workspaceRepositoryUrl,
     })
   ) {
+    acceptedTurn.release()
     ws.send(JSON.stringify(workspaceChatRunError("workspace_required")))
     return
   }
@@ -239,6 +247,7 @@ async function runWorkspaceChatSocketTurn(
       ref: conversation.lastBranch || workspace?.desiredSha || "HEAD",
       writeStatus: workspace?.writeStatus ?? "read_only",
       userTurnAccepted: true,
+      acceptedTurn,
       resolveRuntime: async () => {
         const runtime = await resolveWorkspaceChatTurnRuntime({
           conversation,

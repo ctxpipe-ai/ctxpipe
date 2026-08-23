@@ -23,6 +23,7 @@ import {
   withDestroyedConversationSandboxes,
 } from "../../domain/workspaces/sandbox-registry.js"
 import { resolveWorkspaceChatTurnRuntime } from "../../domain/workspaces/workspace-chat-turn-runtime.js"
+import { claimWorkspaceChatTurn } from "../../domain/workspaces/workspace-chat-turn-claim.js"
 import { githubRepoFullNameFromWorkspaceUrl } from "../../domain/workspaces/write-status.js"
 import { PageInfoSchema } from "../../lib/pagination.js"
 import {
@@ -257,7 +258,7 @@ const postConversationMessageRoute = createRoute({
     },
     409: {
       content: { "application/json": { schema: ErrorResponseSchema } },
-      description: "Workspace required",
+      description: "Workspace required or conversation is already running a turn",
     },
     500: {
       content: { "application/json": { schema: ErrorResponseSchema } },
@@ -480,6 +481,10 @@ export const conversationRoutes = new OpenAPIHono<AppEnv>()
       ? await getWorkspaceById(conversation.workspaceId)
       : null
     const env = parseEnv(process.env as Record<string, string | undefined>)
+    const acceptedTurn = claimWorkspaceChatTurn(conversationId)
+    if (!acceptedTurn) {
+      return c.json({ error: "conversation_busy" }, 409)
+    }
 
     try {
       await appendConversationTurn({
@@ -490,6 +495,7 @@ export const conversationRoutes = new OpenAPIHono<AppEnv>()
       })
       await touchConversationLastMessage(conversationId)
     } catch {
+      acceptedTurn.release()
       await discardUnstartedConversation(conversationId)
       return c.json({ error: "Failed to start conversation" }, 500)
     }
@@ -510,6 +516,7 @@ export const conversationRoutes = new OpenAPIHono<AppEnv>()
         desiredSha: workspace?.desiredSha ?? null,
         desiredGeneration: workspace?.desiredGeneration,
         userTurnAccepted: true,
+        acceptedTurn,
         resolveRuntime: async () => {
           const runtime = await resolveWorkspaceChatTurnRuntime({
             conversation,

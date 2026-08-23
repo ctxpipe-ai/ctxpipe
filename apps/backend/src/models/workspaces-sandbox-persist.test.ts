@@ -115,7 +115,7 @@ describe("persistSandboxInstance live chat identity", () => {
     const afterReplace = await liveChatRows()
     expect(afterReplace).toEqual([
       {
-        id: conversationId,
+        id: "a1b2c3d4e5f60708",
         providerSandboxId: "/tmp/tanstack-ai-sandboxes/new-path",
         state: "live",
       },
@@ -134,7 +134,7 @@ describe("persistSandboxInstance live chat identity", () => {
     const afterUpdate = await liveChatRows()
     expect(afterUpdate).toEqual([
       {
-        id: conversationId,
+        id: "ffffffffffffffff",
         providerSandboxId: "/tmp/tanstack-ai-sandboxes/third-path",
         state: "live",
       },

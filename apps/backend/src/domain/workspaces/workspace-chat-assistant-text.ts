@@ -11,11 +11,14 @@ const TEXT_END = "TEXT_MESSAGE_END"
 type TextMessage = {
   id: string
   text: string
-  chunks: object[]
 }
 
 function isTextEvent(type: string | undefined): boolean {
   return type === TEXT_START || type === TEXT_CONTENT || type === TEXT_END
+}
+
+function isTerminalEvent(type: string | undefined): boolean {
+  return type === "RUN_FINISHED" || type === "RUN_ERROR"
 }
 
 function chunkMessageId(chunk: AguiRecord): string {
@@ -24,20 +27,31 @@ function chunkMessageId(chunk: AguiRecord): string {
     : "__default__"
 }
 
+function isLeftoverLog(text: string): boolean {
+  const trimmed = text.trim()
+  return (
+    trimmed === "OpenCode chat stream completed" ||
+    trimmed.startsWith("Previous conversation:") ||
+    trimmed.includes("tanstack-ai:errors") ||
+    trimmed.includes("opencode.chatStream")
+  )
+}
+
 /**
  * Harness echo is a leading text message equal to the user prompt when a later
  * assistant text message exists, or one messageId prefixed with the prompt.
- * The persist reply is the last remaining text message.
+ * The persist reply is the last remaining text message. Echo-only is empty.
  */
 export function workspaceChatAssistantReply(input: {
   prompt: string
   texts: string[]
 }): string {
   const prompt = input.prompt
+  const cleaned = input.texts.filter((text) => !isLeftoverLog(text))
   const texts =
-    input.texts.length > 1 && input.texts[0] === prompt
-      ? input.texts.slice(1)
-      : [...input.texts]
+    cleaned.length > 1 && cleaned[0] === prompt
+      ? cleaned.slice(1)
+      : [...cleaned]
   const last = texts.at(-1) ?? ""
   if (
     texts.length === 1 &&
@@ -47,35 +61,8 @@ export function workspaceChatAssistantReply(input: {
   ) {
     return last.slice(prompt.length)
   }
+  if (last === prompt) return ""
   return last
-}
-
-function lastReplyMessage(
-  prompt: string,
-  messages: TextMessage[],
-): TextMessage | null {
-  const usable =
-    messages.length > 1 && messages[0]?.text === prompt
-      ? messages.slice(1)
-      : messages
-  const last = usable.at(-1)
-  if (!last) return null
-  const reply = workspaceChatAssistantReply({
-    prompt,
-    texts: usable.map((message) => message.text),
-  })
-  if (reply === last.text) return last
-  return {
-    id: last.id,
-    text: reply,
-    chunks: [
-      {
-        type: TEXT_CONTENT,
-        ...(last.id !== "__default__" ? { messageId: last.id } : {}),
-        delta: reply,
-      },
-    ],
-  }
 }
 
 export function createWorkspaceChatAssistantGate(prompt: string): {
@@ -85,41 +72,34 @@ export function createWorkspaceChatAssistantGate(prompt: string): {
 } {
   const messages: TextMessage[] = []
   let open: TextMessage | null = null
-  let emitted = false
+  const held: object[] = []
 
   const closeOpen = (): void => {
     if (!open) return
-    if (open.chunks.length > 0 || open.text !== "") messages.push(open)
+    if (open.text !== "") messages.push(open)
     open = null
-  }
-
-  const emitLast = (): object[] => {
-    if (emitted) return []
-    closeOpen()
-    emitted = true
-    return lastReplyMessage(prompt, messages)?.chunks ?? []
   }
 
   return {
     take(chunk: object) {
       const record = chunk as AguiRecord
-      if (!isTextEvent(record.type)) {
-        const final =
-          record.type === "RUN_FINISHED" || record.type === "RUN_ERROR"
-        if (final) return [...emitLast(), chunk]
-        return [chunk]
+      if (isTerminalEvent(record.type)) {
+        held.push(chunk)
+        return []
       }
+      if (!isTextEvent(record.type)) return [chunk]
       const id = chunkMessageId(record)
       if (open && id !== open.id) closeOpen()
-      if (!open) open = { id, text: "", chunks: [] }
-      open.chunks.push(chunk)
+      if (!open) open = { id, text: "" }
       if (record.type === TEXT_CONTENT && typeof record.delta === "string") {
         open.text += record.delta
       }
-      return []
+      return [chunk]
     },
     flush() {
-      return emitLast()
+      closeOpen()
+      const terminal = held.splice(0)
+      return terminal
     },
     assistant() {
       closeOpen()

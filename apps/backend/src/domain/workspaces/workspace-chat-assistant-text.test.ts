@@ -13,10 +13,10 @@ function runGate(prompt: string, chunks: object[]) {
 }
 
 describe("workspaceChatAssistantReply", () => {
-  it("keeps a single reply that equals the prompt", () => {
+  it("treats echo-only text as an empty persist reply", () => {
     expect(
       workspaceChatAssistantReply({ prompt: "hello", texts: ["hello"] }),
-    ).toBe("hello")
+    ).toBe("")
   })
 
   it("drops a leading prompt echo when a later text message exists", () => {
@@ -39,7 +39,7 @@ describe("workspaceChatAssistantReply", () => {
 })
 
 describe("createWorkspaceChatAssistantGate", () => {
-  it("does not yield the leading prompt echo and persists only the last reply", () => {
+  it("yields text live and persists only the last reply", () => {
     const { out, assistant } = runGate("hello", [
       { type: "TEXT_MESSAGE_START", messageId: "user-part" },
       { type: "TEXT_MESSAGE_CONTENT", messageId: "user-part", delta: "hello" },
@@ -61,72 +61,52 @@ describe("createWorkspaceChatAssistantGate", () => {
         )
         .map((chunk) => (chunk as { delta?: string }).delta)
         .join(""),
-    ).toBe("only-this-run")
+    ).toBe("helloonly-this-run")
+    expect(out.some((chunk) => (chunk as { type?: string }).type === "RUN_FINISHED")).toBe(
+      true,
+    )
     expect(assistant).toBe("only-this-run")
   })
 
-  it("strips a same-id prompt prefix", () => {
-    const { out, assistant } = runGate("hello", [
-      { type: "TEXT_MESSAGE_CONTENT", messageId: "one", delta: "hello" },
-      {
-        type: "TEXT_MESSAGE_CONTENT",
-        messageId: "one",
-        delta: "only-this-run",
-      },
-      { type: "RUN_FINISHED" },
-    ])
-    expect(
-      out
-        .filter(
-          (chunk) =>
-            (chunk as { type?: string }).type === "TEXT_MESSAGE_CONTENT",
-        )
-        .map((chunk) => (chunk as { delta?: string }).delta)
-        .join(""),
-    ).toBe("only-this-run")
-    expect(assistant).toBe("only-this-run")
-  })
-
-  it("yields only the last text when the first message is not the prompt", () => {
-    const { out, assistant } = runGate("ping-2", [
-      {
-        type: "TEXT_MESSAGE_CONTENT",
-        messageId: "user-part",
-        delta: "Previous conversation:\nUser: ping-1\n\nping-2",
-      },
-      { type: "TEXT_MESSAGE_END", messageId: "user-part" },
+  it("yields a first text delta before RUN_FINISHED", () => {
+    const gate = createWorkspaceChatAssistantGate("hello")
+    const first = gate.take({
+      type: "TEXT_MESSAGE_CONTENT",
+      messageId: "asst",
+      delta: "pong",
+    })
+    expect(first).toEqual([
       {
         type: "TEXT_MESSAGE_CONTENT",
         messageId: "asst",
-        delta: "pong-2",
+        delta: "pong",
       },
-      { type: "TEXT_MESSAGE_END", messageId: "asst" },
-      { type: "RUN_FINISHED" },
     ])
-    expect(
-      out
-        .filter(
-          (chunk) =>
-            (chunk as { type?: string }).type === "TEXT_MESSAGE_CONTENT",
-        )
-        .map((chunk) => (chunk as { delta?: string }).delta)
-        .join(""),
-    ).toBe("pong-2")
-    expect(assistant).toBe("pong-2")
+    expect(gate.take({ type: "RUN_FINISHED" })).toEqual([])
+    expect(gate.flush()).toEqual([{ type: "RUN_FINISHED" }])
+    expect(gate.assistant()).toBe("pong")
   })
 
-  it("keeps a lone reply that matches the prompt", () => {
-    const { out, assistant } = runGate("hello", [
+  it("does not persist echo-only text", () => {
+    const { assistant } = runGate("hello", [
       { type: "TEXT_MESSAGE_CONTENT", delta: "hello" },
       { type: "RUN_FINISHED" },
     ])
+    expect(assistant).toBe("")
+  })
+
+  it("drops leftover TanStack / OpenCode log text", () => {
     expect(
-      out.some(
-        (chunk) =>
-          (chunk as { type?: string }).type === "TEXT_MESSAGE_CONTENT" &&
-          (chunk as { delta?: string }).delta === "hello",
-      ),
-    ).toBe(true)
-    expect(assistant).toBe("hello")
+      workspaceChatAssistantReply({
+        prompt: "hello",
+        texts: ["hello", "OpenCode chat stream completed"],
+      }),
+    ).toBe("")
+    expect(
+      workspaceChatAssistantReply({
+        prompt: "ping-1",
+        texts: ["Previous conversation:\nUser: ping-1\n"],
+      }),
+    ).toBe("")
   })
 })

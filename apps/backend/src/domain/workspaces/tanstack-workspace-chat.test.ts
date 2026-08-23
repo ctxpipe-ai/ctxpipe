@@ -1,12 +1,13 @@
 import { initLogger } from "evlog"
 import { beforeEach, describe, expect, it, vi } from "vitest"
+import { resetWorkspaceChatTurnClaims } from "./workspace-chat-turn-claim.js"
 
 const chatMock = vi.hoisted(() =>
   vi.fn(async function* (): AsyncGenerator<{
     type: string
     delta?: string
   }> {
-    yield { type: "TEXT_MESSAGE_CONTENT", delta: "hello" }
+    yield { type: "TEXT_MESSAGE_CONTENT", delta: "ok" }
   }),
 )
 const opencodeTextMock = vi.hoisted(() => vi.fn(() => "adapter"))
@@ -73,8 +74,8 @@ const fileSkillMock = vi.hoisted(() =>
   })),
 )
 const startWorkspaceChatModelProxyMock = vi.hoisted(() =>
-  vi.fn(async () => ({
-    baseUrl: "http://127.0.0.1:18789",
+  vi.fn(async (input?: { advertisedHost?: string }) => ({
+    baseUrl: `http://${input?.advertisedHost ?? "127.0.0.1"}:18789`,
     close: vi.fn(async () => {}),
   })),
 )
@@ -256,6 +257,7 @@ async function runTanstackWorkspaceChat(input: TanstackWorkspaceChatInput) {
 
 describe("runTanstackWorkspaceChat", () => {
   beforeEach(() => {
+    resetWorkspaceChatTurnClaims()
     vi.clearAllMocks()
     nameConversationIfUnnamedMock.mockResolvedValue(null)
     orgTxDepth.value = 0
@@ -293,9 +295,12 @@ describe("runTanstackWorkspaceChat", () => {
     expect(createSecretsMock).toHaveBeenCalledWith(
       expect.objectContaining({
         CTXPIPE_OPENCODE_RUN_TOKEN: expect.any(String),
-        OPENCODE_CONFIG: expect.stringMatching(
-          /ctxpipe-opencode-conv_1\.json$/,
-        ),
+        CTXPIPE_MODEL_PROXY_URL: "http://host.docker.internal:18789/v1",
+      }),
+    )
+    expect(createSecretsMock).not.toHaveBeenCalledWith(
+      expect.objectContaining({
+        OPENCODE_CONFIG: expect.anything(),
       }),
     )
     expect(fileSkillMock).toHaveBeenCalledWith(
@@ -342,7 +347,7 @@ describe("runTanstackWorkspaceChat", () => {
       expect.objectContaining({
         conversationId: "conv_1",
         role: "assistant",
-        content: "hello",
+        content: "ok",
       }),
     )
     expect(embedInTx.seen).toBe(false)
@@ -423,8 +428,13 @@ describe("runTanstackWorkspaceChat", () => {
     expect(gitSourceMock).toHaveBeenCalledWith({
       url: "https://github.com/acme/docs",
       ref: "abc",
-      auth: { token: "tok" },
+      auth: {
+        token: expect.objectContaining({ __secretName: "CTXPIPE_CLONE_TOKEN" }),
+      },
     })
+    expect(createSecretsMock).toHaveBeenCalledWith(
+      expect.objectContaining({ CTXPIPE_CLONE_TOKEN: "tok" }),
+    )
     expect(defineSandboxMock).toHaveBeenCalledWith(
       expect.objectContaining({
         id: "org_1:ws_1:https://github.com/acme/docs@abc:chat:1",
@@ -433,7 +443,7 @@ describe("runTanstackWorkspaceChat", () => {
     await res.text()
   })
 
-  it("passes a Postgres instance store and lock to withSandbox", async () => {
+  it("passes a Postgres instance store without a fake lock to withSandbox", async () => {
     const res = await runTanstackWorkspaceChat({
       conversationId: "conv_1",
       prompt: "hello",
@@ -453,11 +463,9 @@ describe("runTanstackWorkspaceChat", () => {
           upsert: expect.any(Function),
           delete: expect.any(Function),
         }),
-        locks: expect.objectContaining({
-          withLock: expect.any(Function),
-        }),
       }),
     )
+    expect(withSandboxMock.mock.calls[0]?.[1]).not.toHaveProperty("locks")
     await res.text()
   })
 
@@ -566,7 +574,7 @@ describe("runTanstackWorkspaceChat", () => {
     )
   })
 
-  it("omits the OpenCode user-prompt echo from SSE and persist", async () => {
+  it("streams prompt echo live and persists only the last reply", async () => {
     chatMock.mockImplementationOnce(async function* () {
       yield {
         type: "TEXT_MESSAGE_CONTENT",
@@ -592,13 +600,21 @@ describe("runTanstackWorkspaceChat", () => {
     })
     expect(res.status).toBe(200)
     const events = parseSseDataLines(await res.text())
+    const firstText = events.findIndex(
+      (event) => (event as { type?: string }).type === "TEXT_MESSAGE_CONTENT",
+    )
+    const finished = events.findIndex(
+      (event) => (event as { type?: string }).type === "RUN_FINISHED",
+    )
+    expect(firstText).toBeGreaterThanOrEqual(0)
+    expect(finished).toBeGreaterThan(firstText)
     const text = events
       .filter(
         (event) => (event as { type?: string }).type === "TEXT_MESSAGE_CONTENT",
       )
       .map((event) => (event as { delta?: string }).delta ?? "")
       .join("")
-    expect(text).toBe("only-this-run")
+    expect(text).toBe("helloonly-this-run")
     expect(appendTurnMock).toHaveBeenCalledWith(
       expect.objectContaining({
         role: "assistant",
@@ -613,11 +629,14 @@ describe("runTanstackWorkspaceChat", () => {
     )
   })
 
-  it("uses reuse none and port 4096 when SANDBOX_PROVIDER is unset", async () => {
+  it("reuses the local-process sandbox and leases an ephemeral serve port", async () => {
     delete process.env.SANDBOX_PROVIDER
+    const { localProcessSandbox } = await import(
+      "@tanstack/ai-sandbox-local-process"
+    )
     listSandboxInstancesMock.mockResolvedValueOnce([
       {
-        id: "conv_1",
+        id: "thread:conv_1",
         kind: "chat",
         orgId: "org_1",
         workspaceId: "ws_1",
@@ -641,13 +660,18 @@ describe("runTanstackWorkspaceChat", () => {
     expect(res.status).toBe(200)
     expect(opencodeTextMock).toHaveBeenCalledWith(
       "ctxpipe/openai/gpt-5.6-terra",
-      expect.objectContaining({ port: 4096 }),
-    )
-    expect(defineSandboxMock).toHaveBeenCalledWith(
       expect.objectContaining({
-        lifecycle: expect.objectContaining({ reuse: "none" }),
+        port: expect.any(Number),
       }),
     )
+    const port = opencodeTextMock.mock.calls.at(-1)?.[1]?.port as number
+    expect(port).not.toBe(4096)
+    expect(defineSandboxMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        lifecycle: expect.objectContaining({ reuse: "thread" }),
+      }),
+    )
+    expect(localProcessSandbox).toHaveBeenCalled()
     expect(dockerSandboxMock).not.toHaveBeenCalled()
     await res.text()
   })
@@ -899,5 +923,214 @@ describe("runTanstackWorkspaceChat", () => {
     await new Promise((resolve) => setTimeout(resolve, 50))
     expect(resolved).toBe(true)
     await reader?.cancel()
+  })
+
+  it("keeps the sandbox definition stable when run token and runId change", async () => {
+    await (
+      await runTanstackWorkspaceChat({
+        conversationId: "conv_1",
+        prompt: "hello",
+        orgId: "org_1",
+        workspaceId: "ws_1",
+        desiredUrl: "https://github.com/acme/docs",
+        desiredSha: "abc",
+        ref: "main",
+        writeStatus: "writable",
+        runId: "run_a",
+        cloneToken: "tok-a",
+      })
+    ).text()
+    const firstSkill = fileSkillMock.mock.calls[0]?.[0]
+    const firstId = defineSandboxMock.mock.calls[0]?.[0]?.id
+    startWorkspaceChatModelProxyMock.mockResolvedValueOnce({
+      baseUrl: "http://127.0.0.1:19999",
+      close: vi.fn(async () => {}),
+    })
+    await (
+      await runTanstackWorkspaceChat({
+        conversationId: "conv_1",
+        prompt: "hello",
+        orgId: "org_1",
+        workspaceId: "ws_1",
+        desiredUrl: "https://github.com/acme/docs",
+        desiredSha: "abc",
+        ref: "other-branch",
+        writeStatus: "writable",
+        runId: "run_b",
+        cloneToken: "tok-b",
+      })
+    ).text()
+    expect(defineSandboxMock.mock.calls[1]?.[0]?.id).toBe(firstId)
+    expect(fileSkillMock.mock.calls[1]?.[0]).toEqual(firstSkill)
+    expect(String(firstSkill?.content)).toContain("{env:CTXPIPE_MODEL_PROXY_URL}")
+    expect(String(firstSkill?.content)).not.toContain("18789")
+    expect(gitSourceMock).toHaveBeenLastCalledWith(
+      expect.objectContaining({
+        ref: "abc",
+        auth: {
+          token: expect.objectContaining({
+            __secretName: "CTXPIPE_CLONE_TOKEN",
+          }),
+        },
+      }),
+    )
+  })
+
+  it("leases a distinct local-process port per conversation", async () => {
+    delete process.env.SANDBOX_PROVIDER
+    chatMock.mockImplementation(async function* () {
+      yield { type: "TEXT_MESSAGE_CONTENT", delta: "pong" }
+      yield { type: "RUN_FINISHED" }
+    })
+    await (
+      await runTanstackWorkspaceChat({
+        conversationId: "conv_a",
+        prompt: "hello",
+        orgId: "org_1",
+        workspaceId: "ws_1",
+        desiredUrl: "https://github.com/acme/docs",
+        desiredSha: "abc",
+        ref: "abc",
+        writeStatus: "writable",
+      })
+    ).text()
+    await (
+      await runTanstackWorkspaceChat({
+        conversationId: "conv_b",
+        prompt: "hello",
+        orgId: "org_1",
+        workspaceId: "ws_1",
+        desiredUrl: "https://github.com/acme/docs",
+        desiredSha: "abc",
+        ref: "abc",
+        writeStatus: "writable",
+      })
+    ).text()
+    const ports = opencodeTextMock.mock.calls.map(
+      (call) => (call[1] as { port?: number }).port,
+    )
+    expect(ports).toHaveLength(2)
+    expect(ports[0]).not.toBe(ports[1])
+    expect(ports[0]).not.toBe(4096)
+    expect(ports[1]).not.toBe(4096)
+  })
+
+  it("rejects a second overlapping stream on the same conversation", async () => {
+    let release!: () => void
+    const hold = new Promise<void>((resolve) => {
+      release = resolve
+    })
+    chatMock.mockImplementationOnce(async function* () {
+      yield { type: "TEXT_MESSAGE_CONTENT", delta: "hold" }
+      await hold
+      yield { type: "RUN_FINISHED" }
+    })
+    const first = await runTanstackWorkspaceChatHttp({
+      conversationId: "conv_busy",
+      prompt: "hello",
+      orgId: "org_1",
+      workspaceId: "ws_1",
+      desiredUrl: "https://github.com/acme/docs",
+      desiredSha: "abc",
+      ref: "abc",
+      writeStatus: "writable",
+    })
+    const reader = first.body?.getReader()
+    const decoder = new TextDecoder()
+    if (!reader) throw new Error("expected stream body")
+    for (let i = 0; i < 8; i++) {
+      const { value, done } = await reader.read()
+      if (done) break
+      if (decoder.decode(value).includes("TEXT_MESSAGE_CONTENT")) break
+    }
+    const second = await runTanstackWorkspaceChat({
+      conversationId: "conv_busy",
+      prompt: "again",
+      orgId: "org_1",
+      workspaceId: "ws_1",
+      desiredUrl: "https://github.com/acme/docs",
+      desiredSha: "abc",
+      ref: "abc",
+      writeStatus: "writable",
+    })
+    const secondEvents = parseSseDataLines(await second.text())
+    expect(
+      secondEvents.some(
+        (event) =>
+          (event as { type?: string }).type === "RUN_ERROR" &&
+          String((event as { message?: string }).message).includes(
+            "conversation_busy",
+          ),
+      ),
+    ).toBe(true)
+    release()
+    while (!(await reader.read()).done) {
+      /* drain */
+    }
+  })
+
+  it("keeps the user turn and skips assistant persist on ServeError", async () => {
+    chatMock.mockImplementationOnce(async function* () {
+      yield {
+        type: "RUN_ERROR",
+        message: "opencode serve exited before becoming ready",
+      }
+    })
+    const res = await runTanstackWorkspaceChat({
+      conversationId: "conv_1",
+      prompt: "hello",
+      orgId: "org_1",
+      workspaceId: "ws_1",
+      desiredUrl: "https://github.com/acme/docs",
+      desiredSha: "abc",
+      ref: "abc",
+      writeStatus: "writable",
+    })
+    const events = parseSseDataLines(await res.text())
+    expect(
+      events.some((event) => (event as { type?: string }).type === "RUN_ERROR"),
+    ).toBe(true)
+    expect(appendTurnMock).toHaveBeenCalledWith(
+      expect.objectContaining({ role: "user", content: "hello" }),
+    )
+    expect(appendTurnMock).not.toHaveBeenCalledWith(
+      expect.objectContaining({ role: "assistant" }),
+    )
+  })
+
+  it("invalidates the sandbox after a ServeError before session-id", async () => {
+    const { deleteSandboxInstance } = await import("../../models/workspaces.js")
+    listSandboxInstancesMock.mockResolvedValueOnce([]).mockResolvedValue([
+      {
+        id: "thread:conv_1",
+        kind: "chat",
+        orgId: "org_1",
+        workspaceId: "ws_1",
+        conversationId: "conv_1",
+        provider: "local-process",
+        providerSandboxId: "/tmp/old",
+        state: "live",
+        lastHeartbeatAt: new Date(),
+      },
+    ])
+    chatMock.mockImplementationOnce(async function* () {
+      yield {
+        type: "RUN_ERROR",
+        message: "opencode serve exited before becoming ready",
+      }
+    })
+    await (
+      await runTanstackWorkspaceChat({
+        conversationId: "conv_1",
+        prompt: "hello",
+        orgId: "org_1",
+        workspaceId: "ws_1",
+        desiredUrl: "https://github.com/acme/docs",
+        desiredSha: "abc",
+        ref: "abc",
+        writeStatus: "writable",
+      })
+    ).text()
+    expect(deleteSandboxInstance).toHaveBeenCalledWith("thread:conv_1", "org_1")
   })
 })

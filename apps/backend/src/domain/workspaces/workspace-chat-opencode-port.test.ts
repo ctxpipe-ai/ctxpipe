@@ -1,8 +1,8 @@
 import { createServer } from "node:http"
 import { describe, expect, it } from "vitest"
 import {
+  leaseLocalProcessOpenCodePort,
   waitForListenPortFree,
-  withLocalProcessOpenCodePort,
 } from "./workspace-chat-opencode-port.js"
 
 describe("waitForListenPortFree", () => {
@@ -27,17 +27,12 @@ describe("waitForListenPortFree", () => {
   })
 })
 
-describe("withLocalProcessOpenCodePort", () => {
-  it("runs callbacks in series", async () => {
-    const order: number[] = []
-    const slow = withLocalProcessOpenCodePort(async () => {
-      await new Promise((resolve) => setTimeout(resolve, 30))
-      order.push(1)
-    })
-    const fast = withLocalProcessOpenCodePort(async () => {
-      order.push(2)
-    })
-    await Promise.all([slow, fast])
-    expect(order).toEqual([1, 2])
+describe("leaseLocalProcessOpenCodePort", () => {
+  it("leases distinct ports for concurrent conversations", async () => {
+    const first = await leaseLocalProcessOpenCodePort()
+    const second = await leaseLocalProcessOpenCodePort()
+    expect(first.port).not.toBe(second.port)
+    expect(first.port).toBeGreaterThan(0)
+    await Promise.all([first.release(), second.release()])
   })
 })

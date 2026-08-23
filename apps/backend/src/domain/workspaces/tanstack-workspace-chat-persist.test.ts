@@ -1,4 +1,3 @@
-import { randomBytes } from "node:crypto"
 import { resolve } from "node:path"
 import { config } from "dotenv"
 import { eq } from "drizzle-orm"
@@ -56,7 +55,7 @@ const captured = vi.hoisted(() => ({
 
 const chatMock = vi.hoisted(() =>
   vi.fn(async function* (opts: { threadId: string }) {
-    const key = randomBytes(8).toString("hex")
+    const key = `thread:${opts.threadId}`
     const store = captured.instances
     if (!store) throw new Error("withSandbox did not provide an instance store")
     await store.upsert({
@@ -269,7 +268,9 @@ describe("two-turn workspace chat persist", () => {
       return [sandboxes, messages] as const
     })
 
-    expect(rows).toEqual([{ id: conversationId, state: "live", kind: "chat" }])
+    expect(rows).toEqual([
+      { id: `thread:${conversationId}`, state: "live", kind: "chat" },
+    ])
     expect(turns).toEqual([
       { role: "user", content: "first question" },
       { role: "assistant", content: "pong" },

@@ -8,4 +8,3 @@ patchedDependencies:
   '@cosmograph/cosmograph@2.2.1': patches/@cosmograph__cosmograph@2.2.1.patch
   '@hono/zod-openapi@1.2.2': patches/@hono__zod-openapi@1.2.2.patch
   '@langchain/langgraph-api@1.4.1': patches/@langchain__langgraph-api@1.4.1.patch
-  '@tanstack/ai-opencode@0.2.5': patches/@tanstack__ai-opencode@0.2.5.patch

@@ -18,22 +18,26 @@ export async function startWorkspaceChatModelProxy(input: {
   upstreamApiKey: string
   modelBase: string
   modelParams?: ModelParams
+  listenHost?: string
+  advertisedHost?: string
   fetch?: typeof fetch
 }): Promise<WorkspaceChatModelProxy> {
   const doFetch = input.fetch ?? fetch
+  const listenHost = input.listenHost ?? "127.0.0.1"
+  const advertisedHost = input.advertisedHost ?? "127.0.0.1"
   const server = createServer((req, res) => {
     void handleProxyRequest(req, res, input, doFetch)
   })
   await new Promise<void>((resolve, reject) => {
     server.once("error", reject)
-    server.listen(0, "127.0.0.1", () => resolve())
+    server.listen(0, listenHost, () => resolve())
   })
   const address = server.address()
   if (!address || typeof address === "string") {
     throw new Error("Workspace chat model proxy failed to bind")
   }
   return {
-    baseUrl: `http://127.0.0.1:${address.port}`,
+    baseUrl: `http://${advertisedHost}:${address.port}`,
     close: () =>
       new Promise((resolve, reject) => {
         server.close((error) => (error ? reject(error) : resolve()))

@@ -1,6 +1,7 @@
 import { OpenAPIHono } from "@hono/zod-openapi"
 import { beforeEach, describe, expect, it, vi } from "vitest"
 import type { AppEnv } from "../../app/env.js"
+import { resetWorkspaceChatTurnClaims } from "../../domain/workspaces/workspace-chat-turn-claim.js"
 
 const getConversationMock = vi.hoisted(() => vi.fn())
 const listConversationsPaginatedMock = vi.hoisted(() => vi.fn())
@@ -133,6 +134,7 @@ function app() {
 
 describe("conversations API", () => {
   beforeEach(() => {
+    resetWorkspaceChatTurnClaims()
     vi.clearAllMocks()
     loadConversationTurnsMock.mockResolvedValue([])
     loadConversationUiMessagesMock.mockResolvedValue([])
@@ -287,6 +289,10 @@ describe("conversations API", () => {
     expect(workspaceChatStreamResponseMock).toHaveBeenCalledWith(
       expect.objectContaining({
         userTurnAccepted: true,
+        acceptedTurn: expect.objectContaining({
+          conversationId: "conv_1",
+          release: expect.any(Function),
+        }),
         prompt: "hello",
         onError: expect.any(Function),
       }),
@@ -409,6 +415,33 @@ describe("conversations API", () => {
       lastBranch: "ctxpipe/chat/conv_1/3",
     })
     expect(persistConversationLastChatPrNumberMock).not.toHaveBeenCalled()
+  })
+
+  it("rejects a second in-flight turn before persisting another user message", async () => {
+    ensureConversationMock.mockResolvedValue(conversationRow)
+    const first = await app().request("/conversations/conv_1", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        message: { role: "user", content: "hello" },
+        source: "ui",
+        workspaceId: "ws_abc",
+      }),
+    })
+    expect(first.status).toBe(200)
+    appendConversationTurnMock.mockClear()
+    const second = await app().request("/conversations/conv_1", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        message: { role: "user", content: "again" },
+        source: "ui",
+        workspaceId: "ws_abc",
+      }),
+    })
+    expect(second.status).toBe(409)
+    expect(await second.json()).toEqual({ error: "conversation_busy" })
+    expect(appendConversationTurnMock).not.toHaveBeenCalled()
   })
 
   it("refuses a PR when the chat sandbox is gone", async () => {

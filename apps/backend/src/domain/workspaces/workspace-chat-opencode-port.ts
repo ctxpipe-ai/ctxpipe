@@ -1,16 +1,29 @@
 import { createServer } from "node:http"
 
-let localProcessPortTail = Promise.resolve()
+const leasedPorts = new Set<number>()
 
-export function withLocalProcessOpenCodePort<T>(
-  run: () => Promise<T>,
-): Promise<T> {
-  const next = localProcessPortTail.then(run, run)
-  localProcessPortTail = next.then(
-    () => undefined,
-    () => undefined,
-  )
-  return next
+export type LocalProcessOpenCodePortLease = {
+  port: number
+  release: () => Promise<void>
+}
+
+export async function leaseLocalProcessOpenCodePort(): Promise<LocalProcessOpenCodePortLease> {
+  for (let attempt = 0; attempt < 32; attempt++) {
+    const port = await bindEphemeralPort()
+    if (leasedPorts.has(port)) continue
+    leasedPorts.add(port)
+    return {
+      port,
+      release: async () => {
+        try {
+          await waitForListenPortFree(port)
+        } finally {
+          leasedPorts.delete(port)
+        }
+      },
+    }
+  }
+  throw new Error("Could not lease a free local-process OpenCode port")
 }
 
 export async function waitForListenPortFree(
@@ -26,6 +39,25 @@ export async function waitForListenPortFree(
     }
     await new Promise((resolve) => setTimeout(resolve, 50))
   }
+}
+
+async function bindEphemeralPort(): Promise<number> {
+  const server = createServer()
+  const port = await new Promise<number>((resolve, reject) => {
+    server.once("error", reject)
+    server.listen(0, "127.0.0.1", () => {
+      const address = server.address()
+      if (!address || typeof address === "string") {
+        reject(new Error("expected tcp address"))
+        return
+      }
+      resolve(address.port)
+    })
+  })
+  await new Promise<void>((resolve, reject) => {
+    server.close((error) => (error ? reject(error) : resolve()))
+  })
+  return port
 }
 
 function tryListen(port: number): Promise<boolean> {

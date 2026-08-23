@@ -1,14 +1,10 @@
-import type { LockStore } from "@tanstack/ai/locks"
 import type {
   SandboxInstanceStore,
   SandboxInstanceRecord as TanstackSandboxInstanceRecord,
 } from "@tanstack/ai-sandbox"
-import { withOrgDbContext } from "../../db/client.js"
-import { findConversationInWorkspace } from "../../models/conversations.js"
 import {
   deleteSandboxInstance,
   getSandboxInstance,
-  getWorkspaceById,
   persistSandboxInstance,
 } from "../../models/workspaces.js"
 
@@ -34,7 +30,7 @@ export function postgresSandboxInstanceStore(input: {
     async upsert(record) {
       const conversationId = record.threadId.trim() || null
       await persistSandboxInstance({
-        id: conversationId ?? record.key,
+        id: record.key,
         kind: "chat",
         orgId: input.orgId,
         workspaceId: input.workspaceId,
@@ -49,41 +45,6 @@ export function postgresSandboxInstanceStore(input: {
     },
     async delete(key) {
       await deleteSandboxInstance(key, input.orgId)
-    },
-  }
-}
-
-export function postgresSandboxLockStore(input: {
-  orgId: string
-  workspaceId: string
-  conversationId?: string
-}): LockStore {
-  return {
-    async withLock(_key, fn) {
-      const abort = new AbortController()
-      await withOrgDbContext(input.orgId, async () => {
-        const workspace = await getWorkspaceById(input.workspaceId)
-        if (!workspace) {
-          throw new Error(
-            `Workspace ${input.workspaceId} is gone; refusing sandbox create`,
-          )
-        }
-        if (!input.conversationId) return
-        const conversation = await findConversationInWorkspace(
-          input.conversationId,
-          input.workspaceId,
-        )
-        if (!conversation) {
-          throw new Error(
-            `Conversation ${input.conversationId} is gone; refusing sandbox create`,
-          )
-        }
-      })
-      try {
-        return await fn(abort.signal)
-      } finally {
-        abort.abort()
-      }
     },
   }
 }

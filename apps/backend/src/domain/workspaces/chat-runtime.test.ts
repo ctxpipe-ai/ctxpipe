@@ -122,7 +122,7 @@ describe("workspace chat runtime", () => {
     ).toMatchObject({
       ok: true,
       isolation: "local_process",
-      lifecycle: { reuse: "none", destroyOnComplete: true, keepAlive: "30m" },
+      lifecycle: { reuse: "thread", keepAlive: "30m" },
     })
     expect(
       workspaceChatSandboxSpec({
@@ -136,12 +136,12 @@ describe("workspace chat runtime", () => {
       workspaceChatGitSource({
         url: "https://github.com/acme/docs",
         ref: "abc",
-        token: "tok",
+        token: { __secretName: "CTXPIPE_CLONE_TOKEN" },
       }),
     ).toEqual({
       url: "https://github.com/acme/docs",
       ref: "abc",
-      auth: { token: "tok" },
+      auth: { token: { __secretName: "CTXPIPE_CLONE_TOKEN" } },
     })
   })
 })

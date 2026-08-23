@@ -90,7 +90,6 @@ describe("workspaceChatOpenCodeContract", () => {
     expect(
       workspaceChatOpenCodeConfig({
         modelBase: "openai/gpt-5.6-terra",
-        baseUrl: "http://127.0.0.1:18789/v1",
       }),
     ).toEqual({
       $schema: "https://opencode.ai/config.json",
@@ -100,7 +99,7 @@ describe("workspaceChatOpenCodeContract", () => {
           npm: "@ai-sdk/openai-compatible",
           name: "ctxpipe",
           options: {
-            baseURL: "http://127.0.0.1:18789/v1",
+            baseURL: "{env:CTXPIPE_MODEL_PROXY_URL}",
             apiKey: "{env:CTXPIPE_OPENCODE_RUN_TOKEN}",
           },
           models: {

@@ -186,7 +186,6 @@ describe.skipIf(!live)("workspace chat OpenCode fallback (live)", () => {
     })
     const config = workspaceChatOpenCodeConfig({
       modelBase: contract.modelBase,
-      baseUrl: `${proxy.baseUrl}/v1`,
     })
     const configPath = join(tmpdir(), "ctxpipe-opencode-live.json")
     writeFileSync(configPath, `${JSON.stringify(config, null, 2)}\n`)
@@ -212,7 +211,7 @@ describe.skipIf(!live)("workspace chat OpenCode fallback (live)", () => {
                 setup: [...WORKSPACE_CHAT_SANDBOX_SETUP],
                 secrets: createSecrets({
                   CTXPIPE_OPENCODE_RUN_TOKEN: runToken,
-                  OPENCODE_CONFIG: configPath,
+                  CTXPIPE_MODEL_PROXY_URL: `${proxy.baseUrl}/v1`,
                 }),
                 skills: [
                   fileSkill({
