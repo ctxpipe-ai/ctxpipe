@@ -87,6 +87,34 @@ describe("createWorkspaceChatAssistantGate", () => {
     expect(assistant).toBe("only-this-run")
   })
 
+  it("yields only the last text when the first message is not the prompt", () => {
+    const { out, assistant } = runGate("ping-2", [
+      {
+        type: "TEXT_MESSAGE_CONTENT",
+        messageId: "user-part",
+        delta: "Previous conversation:\nUser: ping-1\n\nping-2",
+      },
+      { type: "TEXT_MESSAGE_END", messageId: "user-part" },
+      {
+        type: "TEXT_MESSAGE_CONTENT",
+        messageId: "asst",
+        delta: "pong-2",
+      },
+      { type: "TEXT_MESSAGE_END", messageId: "asst" },
+      { type: "RUN_FINISHED" },
+    ])
+    expect(
+      out
+        .filter(
+          (chunk) =>
+            (chunk as { type?: string }).type === "TEXT_MESSAGE_CONTENT",
+        )
+        .map((chunk) => (chunk as { delta?: string }).delta)
+        .join(""),
+    ).toBe("pong-2")
+    expect(assistant).toBe("pong-2")
+  })
+
   it("keeps a lone reply that matches the prompt", () => {
     const { out, assistant } = runGate("hello", [
       { type: "TEXT_MESSAGE_CONTENT", delta: "hello" },

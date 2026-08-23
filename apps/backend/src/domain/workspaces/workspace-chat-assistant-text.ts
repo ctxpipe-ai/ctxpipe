@@ -8,6 +8,12 @@ const TEXT_START = "TEXT_MESSAGE_START"
 const TEXT_CONTENT = "TEXT_MESSAGE_CONTENT"
 const TEXT_END = "TEXT_MESSAGE_END"
 
+type TextMessage = {
+  id: string
+  text: string
+  chunks: object[]
+}
+
 function isTextEvent(type: string | undefined): boolean {
   return type === TEXT_START || type === TEXT_CONTENT || type === TEXT_END
 }
@@ -44,57 +50,54 @@ export function workspaceChatAssistantReply(input: {
   return last
 }
 
+function lastReplyMessage(
+  prompt: string,
+  messages: TextMessage[],
+): TextMessage | null {
+  const usable =
+    messages.length > 1 && messages[0]?.text === prompt
+      ? messages.slice(1)
+      : messages
+  const last = usable.at(-1)
+  if (!last) return null
+  const reply = workspaceChatAssistantReply({
+    prompt,
+    texts: usable.map((message) => message.text),
+  })
+  if (reply === last.text) return last
+  return {
+    id: last.id,
+    text: reply,
+    chunks: [
+      {
+        type: TEXT_CONTENT,
+        ...(last.id !== "__default__" ? { messageId: last.id } : {}),
+        delta: reply,
+      },
+    ],
+  }
+}
+
 export function createWorkspaceChatAssistantGate(prompt: string): {
   take: (chunk: object) => object[]
   flush: () => object[]
   assistant: () => string
 } {
-  const texts: string[] = []
-  let openId: string | null = null
-  let openText = ""
-  let openChunks: object[] = []
-  let heldPromptEcho: object[] | null = null
-  let streamLive = false
+  const messages: TextMessage[] = []
+  let open: TextMessage | null = null
+  let emitted = false
 
-  const closeOpen = (opts: { final: boolean }): object[] => {
-    if (openId == null && openChunks.length === 0 && openText === "") {
-      if (opts.final && heldPromptEcho && texts.length === 1) {
-        const kept = heldPromptEcho
-        heldPromptEcho = null
-        return kept
-      }
-      return []
-    }
-    const text = openText
-    const chunks = openChunks
-    const id = openId
-    openId = null
-    openText = ""
-    openChunks = []
-    texts.push(text)
+  const closeOpen = (): void => {
+    if (!open) return
+    if (open.chunks.length > 0 || open.text !== "") messages.push(open)
+    open = null
+  }
 
-    if (heldPromptEcho == null && texts.length === 1 && text === prompt) {
-      if (opts.final) return chunks
-      heldPromptEcho = chunks
-      return []
-    }
-    heldPromptEcho = null
-    if (
-      texts.length === 1 &&
-      prompt.length > 0 &&
-      text.startsWith(prompt) &&
-      text.length > prompt.length
-    ) {
-      return [
-        {
-          type: TEXT_CONTENT,
-          ...(id && id !== "__default__" ? { messageId: id } : {}),
-          delta: text.slice(prompt.length),
-        },
-      ]
-    }
-    streamLive = true
-    return chunks
+  const emitLast = (): object[] => {
+    if (emitted) return []
+    closeOpen()
+    emitted = true
+    return lastReplyMessage(prompt, messages)?.chunks ?? []
   }
 
   return {
@@ -103,33 +106,27 @@ export function createWorkspaceChatAssistantGate(prompt: string): {
       if (!isTextEvent(record.type)) {
         const final =
           record.type === "RUN_FINISHED" || record.type === "RUN_ERROR"
-        return [...closeOpen({ final }), chunk]
+        if (final) return [...emitLast(), chunk]
+        return [chunk]
       }
       const id = chunkMessageId(record)
-      if (openId != null && id !== openId) {
-        const closed = closeOpen({ final: false })
-        openId = id
-        openChunks = [chunk]
-        openText =
-          record.type === TEXT_CONTENT && typeof record.delta === "string"
-            ? record.delta
-            : ""
-        if (streamLive) return [...closed, chunk]
-        return closed
-      }
-      openId = id
-      openChunks.push(chunk)
+      if (open && id !== open.id) closeOpen()
+      if (!open) open = { id, text: "", chunks: [] }
+      open.chunks.push(chunk)
       if (record.type === TEXT_CONTENT && typeof record.delta === "string") {
-        openText += record.delta
+        open.text += record.delta
       }
-      if (streamLive) return [chunk]
       return []
     },
     flush() {
-      return closeOpen({ final: true })
+      return emitLast()
     },
     assistant() {
-      return workspaceChatAssistantReply({ prompt, texts })
+      closeOpen()
+      return workspaceChatAssistantReply({
+        prompt,
+        texts: messages.map((message) => message.text),
+      })
     },
   }
 }
