@@ -23,6 +23,7 @@ export const globFilesTool = tool(
     dot,
     limit,
     offset,
+    workspaceId,
   }) => {
     const repository = await getRepositoryForOrg(
       requireCurrentOrgId(),
@@ -42,6 +43,7 @@ export const globFilesTool = tool(
         sub: `repo:${repository.id}`,
         orgId: repository.orgId,
         principal: "service",
+        ...(workspaceId ? { workspaceId } : {}),
       },
     })
     // Fetch up to the tool-wide cap, then page with offset/limit client-side
@@ -122,6 +124,7 @@ export const globFilesTool = tool(
       dot: z.boolean().optional(),
       limit: z.number().int().positive().max(MAX_GLOB_FILES_ENTRIES).optional(),
       offset: z.number().int().min(0).optional(),
+      workspaceId: z.string().min(1).optional(),
     }),
   },
 )

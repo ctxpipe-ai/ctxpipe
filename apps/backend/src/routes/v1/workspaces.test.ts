@@ -22,12 +22,10 @@ const getMigrationExportShaMock = vi.hoisted(() =>
 const listMigrationExportShasMock = vi.hoisted(() =>
   vi.fn().mockResolvedValue(new Map()),
 )
-const listFilesAtShaMock = vi.hoisted(() => vi.fn().mockResolvedValue([]))
-const getFileContentBytesMock = vi.hoisted(() =>
-  vi.fn().mockResolvedValue({ kind: "missing" }),
+const listWorkspaceCheckoutPathsMock = vi.hoisted(() =>
+  vi.fn().mockResolvedValue([]),
 )
-const listPathsAtGitShaMock = vi.hoisted(() => vi.fn().mockResolvedValue([]))
-const readFileAtGitShaMock = vi.hoisted(() =>
+const readWorkspaceCheckoutFileMock = vi.hoisted(() =>
   vi.fn().mockResolvedValue({ kind: "missing" }),
 )
 const getJobSandboxMock = vi.hoisted(() => vi.fn().mockReturnValue(null))
@@ -75,15 +73,17 @@ vi.mock("../../models/workspaces.js", () => ({
   unlinkRepository: unlinkRepositoryMock,
 }))
 
-vi.mock("../../services/github/installation-write-client.js", () => ({
-  listFilesAtSha: listFilesAtShaMock,
-  getFileContentBytes: getFileContentBytesMock,
-}))
-
-vi.mock("../../services/git/clone-tree.js", () => ({
-  listPathsAtGitSha: listPathsAtGitShaMock,
-  readFileAtGitSha: readFileAtGitShaMock,
-}))
+vi.mock("../../domain/workspaces/checkout-read.js", async (importOriginal) => {
+  const actual =
+    await importOriginal<
+      typeof import("../../domain/workspaces/checkout-read.js")
+    >()
+  return {
+    ...actual,
+    listWorkspaceCheckoutPaths: listWorkspaceCheckoutPathsMock,
+    readWorkspaceCheckoutFile: readWorkspaceCheckoutFileMock,
+  }
+})
 
 const getGithubInstallationByConnectionIdMock = vi.hoisted(() =>
   vi.fn(
@@ -164,10 +164,8 @@ describe("workspaces API", () => {
     getMigrationExportShaMock.mockResolvedValue(null)
     listMigrationExportShasMock.mockResolvedValue(new Map())
     destroySandboxesForWorkspaceMock.mockResolvedValue(0)
-    listFilesAtShaMock.mockResolvedValue([])
-    getFileContentBytesMock.mockResolvedValue({ kind: "missing" })
-    listPathsAtGitShaMock.mockResolvedValue([])
-    readFileAtGitShaMock.mockResolvedValue({ kind: "missing" })
+    listWorkspaceCheckoutPathsMock.mockResolvedValue([])
+    readWorkspaceCheckoutFileMock.mockResolvedValue({ kind: "missing" })
     getJobSandboxMock.mockReturnValue(null)
     ensureOrgRepositoryAndIngestMock.mockReset()
     ensureOrgRepositoryAndIngestMock.mockResolvedValue(null)
@@ -879,9 +877,9 @@ describe("workspaces API", () => {
       activeProjectionSha: "active-sha",
       desiredSha: "desired-sha",
     })
-    listFilesAtShaMock.mockResolvedValue([
-      { path: "AGENTS.md", sha: "blob-1" },
-      { path: "knowledge/billing/ledger.md", sha: "blob-2" },
+    listWorkspaceCheckoutPathsMock.mockResolvedValue([
+      "AGENTS.md",
+      "knowledge/billing/ledger.md",
     ])
     const res = await app().request("/workspaces/knowledge/files/tree")
     expect(res.status).toBe(200)
@@ -889,15 +887,10 @@ describe("workspaces API", () => {
       sha: "active-sha",
       paths: ["AGENTS.md", "knowledge/billing/ledger.md"],
     })
-    expect(listFilesAtShaMock).toHaveBeenCalledWith(
-      expect.objectContaining({
-        orgId: "org_mock",
-        repositoryName: "acme/knowledge",
-        githubConnectionId: "con_1",
-        sha: "active-sha",
-        missing: "throw",
-      }),
-    )
+    expect(listWorkspaceCheckoutPathsMock).toHaveBeenCalledWith({
+      workspaceId: "ws_abc",
+      gitUrl: "https://github.com/acme/knowledge",
+    })
   })
 
   it("reads the active remote during relink instead of the desired repository", async () => {
@@ -909,15 +902,13 @@ describe("workspaces API", () => {
       activeProjectionSha: "active-sha",
       desiredSha: "desired-sha",
     })
-    listFilesAtShaMock.mockResolvedValue([{ path: "AGENTS.md", sha: "blob-1" }])
+    listWorkspaceCheckoutPathsMock.mockResolvedValue(["AGENTS.md"])
     const res = await app().request("/workspaces/knowledge/files/tree")
     expect(res.status).toBe(200)
-    expect(listFilesAtShaMock).toHaveBeenCalledWith(
-      expect.objectContaining({
-        repositoryName: "acme/active",
-        sha: "active-sha",
-      }),
-    )
+    expect(listWorkspaceCheckoutPathsMock).toHaveBeenCalledWith({
+      workspaceId: "ws_abc",
+      gitUrl: "https://github.com/acme/active",
+    })
   })
 
   it("lists the git tree after hydrate without a stored GitHub connection", async () => {
@@ -926,18 +917,17 @@ describe("workspaces API", () => {
       githubConnectionId: null,
       activeProjectionSha: "active-sha",
     })
-    listPathsAtGitShaMock.mockResolvedValue(["AGENTS.md"])
+    listWorkspaceCheckoutPathsMock.mockResolvedValue(["AGENTS.md"])
     const res = await app().request("/workspaces/knowledge/files/tree")
     expect(res.status).toBe(200)
     expect(await res.json()).toEqual({
       sha: "active-sha",
       paths: ["AGENTS.md"],
     })
-    expect(listPathsAtGitShaMock).toHaveBeenCalledWith({
-      url: "https://github.com/acme/knowledge",
-      sha: "active-sha",
+    expect(listWorkspaceCheckoutPathsMock).toHaveBeenCalledWith({
+      workspaceId: "ws_abc",
+      gitUrl: "https://github.com/acme/knowledge",
     })
-    expect(listFilesAtShaMock).not.toHaveBeenCalled()
   })
 
   it("lists the git tree for a hydrated non-GitHub remote", async () => {
@@ -947,14 +937,17 @@ describe("workspaces API", () => {
       githubConnectionId: null,
       activeProjectionSha: "active-sha",
     })
-    listPathsAtGitShaMock.mockResolvedValue(["README.md"])
+    listWorkspaceCheckoutPathsMock.mockResolvedValue(["README.md"])
     const res = await app().request("/workspaces/knowledge/files/tree")
     expect(res.status).toBe(200)
     expect(await res.json()).toEqual({
       sha: "active-sha",
       paths: ["README.md"],
     })
-    expect(listFilesAtShaMock).not.toHaveBeenCalled()
+    expect(listWorkspaceCheckoutPathsMock).toHaveBeenCalledWith({
+      workspaceId: "ws_abc",
+      gitUrl: "https://gitlab.com/acme/docs",
+    })
   })
 
   it("rejects a git tree read when no SHA is stored", async () => {
@@ -975,7 +968,7 @@ describe("workspaces API", () => {
       githubConnectionId: "con_1",
       activeProjectionSha: "active-sha",
     })
-    getFileContentBytesMock.mockResolvedValue({
+    readWorkspaceCheckoutFileMock.mockResolvedValue({
       kind: "bytes",
       bytes: Buffer.from("# Ledger\n", "utf8"),
     })
@@ -988,15 +981,11 @@ describe("workspaces API", () => {
       body: "# Ledger\n",
       binary: false,
     })
-    expect(getFileContentBytesMock).toHaveBeenCalledWith(
-      expect.objectContaining({
-        orgId: "org_mock",
-        repositoryName: "acme/knowledge",
-        githubConnectionId: "con_1",
-        branch: "active-sha",
-        path: "knowledge/billing/ledger.md",
-      }),
-    )
+    expect(readWorkspaceCheckoutFileMock).toHaveBeenCalledWith({
+      workspaceId: "ws_abc",
+      gitUrl: "https://github.com/acme/knowledge",
+      path: "knowledge/billing/ledger.md",
+    })
   })
 
   it("returns a git blob after hydrate without a stored GitHub connection", async () => {
@@ -1005,7 +994,7 @@ describe("workspaces API", () => {
       githubConnectionId: null,
       activeProjectionSha: "active-sha",
     })
-    readFileAtGitShaMock.mockResolvedValue({
+    readWorkspaceCheckoutFileMock.mockResolvedValue({
       kind: "bytes",
       bytes: Buffer.from("# Ledger\n", "utf8"),
     })
@@ -1018,12 +1007,11 @@ describe("workspaces API", () => {
       body: "# Ledger\n",
       binary: false,
     })
-    expect(readFileAtGitShaMock).toHaveBeenCalledWith({
-      url: "https://github.com/acme/knowledge",
-      sha: "active-sha",
+    expect(readWorkspaceCheckoutFileMock).toHaveBeenCalledWith({
+      workspaceId: "ws_abc",
+      gitUrl: "https://github.com/acme/knowledge",
       path: "knowledge/billing/ledger.md",
     })
-    expect(getFileContentBytesMock).not.toHaveBeenCalled()
   })
 
   it("rejects a git blob read when no SHA is stored", async () => {
@@ -1038,7 +1026,7 @@ describe("workspaces API", () => {
     expect(await res.json()).toEqual({
       error: "This Workspace has no git SHA to browse yet.",
     })
-    expect(getFileContentBytesMock).not.toHaveBeenCalled()
+    expect(readWorkspaceCheckoutFileMock).not.toHaveBeenCalled()
   })
 
   it("marks a git blob with NUL bytes as binary", async () => {
@@ -1047,7 +1035,7 @@ describe("workspaces API", () => {
       githubConnectionId: "con_1",
       desiredSha: "desired-sha",
     })
-    getFileContentBytesMock.mockResolvedValue({
+    readWorkspaceCheckoutFileMock.mockResolvedValue({
       kind: "bytes",
       bytes: Buffer.from("png\0bytes", "utf8"),
     })
@@ -1062,21 +1050,25 @@ describe("workspaces API", () => {
     })
   })
 
-  it("marks omitted GitHub blob content as binary", async () => {
+  it("returns 409 when the workspace checkout is not ready", async () => {
+    const { WorkspaceCheckoutReadError } = await import(
+      "../../domain/workspaces/checkout-read.js"
+    )
     getWorkspaceBySlugMock.mockResolvedValue({
       ...workspaceRow,
       githubConnectionId: "con_1",
       activeProjectionSha: "active-sha",
     })
-    getFileContentBytesMock.mockResolvedValue({ kind: "omitted" })
-    const res = await app().request(
-      "/workspaces/knowledge/files/blob?path=logo.png",
+    listWorkspaceCheckoutPathsMock.mockRejectedValue(
+      new WorkspaceCheckoutReadError(
+        "This Workspace checkout is not ready yet.",
+        409,
+      ),
     )
-    expect(res.status).toBe(200)
+    const res = await app().request("/workspaces/knowledge/files/tree")
+    expect(res.status).toBe(409)
     expect(await res.json()).toEqual({
-      path: "logo.png",
-      body: null,
-      binary: true,
+      error: "This Workspace checkout is not ready yet.",
     })
   })
 
@@ -1090,7 +1082,7 @@ describe("workspaces API", () => {
       "/workspaces/knowledge/files/blob?path=../secret",
     )
     expect(res.status).toBe(400)
-    expect(getFileContentBytesMock).not.toHaveBeenCalled()
+    expect(readWorkspaceCheckoutFileMock).not.toHaveBeenCalled()
   })
 
   it("returns a clean git status when no write sandbox is attached", async () => {
@@ -1171,7 +1163,7 @@ describe("workspaces API", () => {
       githubConnectionId: "con_1",
       activeProjectionSha: "active-sha",
     })
-    listFilesAtShaMock.mockResolvedValue([{ path: "AGENTS.md", sha: "blob-1" }])
+    listWorkspaceCheckoutPathsMock.mockResolvedValue(["AGENTS.md"])
     const res = await app().request("/workspaces/knowledge/files/jobs", {
       method: "POST",
       headers: { "content-type": "application/json" },
@@ -1222,7 +1214,7 @@ describe("workspaces API", () => {
       githubConnectionId: "con_1",
       activeProjectionSha: "active-sha",
     })
-    listFilesAtShaMock.mockResolvedValue([{ path: "AGENTS.md", sha: "blob-1" }])
+    listWorkspaceCheckoutPathsMock.mockResolvedValue(["AGENTS.md"])
     const res = await app().request("/workspaces/knowledge/files/jobs", {
       method: "POST",
       headers: { "content-type": "application/json" },

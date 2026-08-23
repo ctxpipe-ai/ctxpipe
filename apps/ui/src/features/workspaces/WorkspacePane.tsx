@@ -467,6 +467,16 @@ function WorkspaceFilesPaneContent(props: {
   onCloseActiveFile: () => void
 }) {
   const queryClient = useQueryClient()
+  const prefetchBlob = (path: string) => {
+    void queryClient.prefetchQuery(
+      workspaceGitBlobOptions(
+        props.orgSlug,
+        props.workspaceSlug,
+        props.sha,
+        path,
+      ),
+    )
+  }
   const writable = props.writeStatus === "writable"
   const [treeWidth, setTreeWidth] = useState(TREE_WIDTH_DEFAULT)
   const [treeResizing, setTreeResizing] = useState(false)
@@ -710,7 +720,11 @@ function WorkspaceFilesPaneContent(props: {
             selectedPath={props.activeFile}
             gitStatus={gitStatus}
             writable={writable}
-            onSelect={props.onPreviewFile}
+            onHoverFile={prefetchBlob}
+            onSelect={(path) => {
+              prefetchBlob(path)
+              props.onPreviewFile(path)
+            }}
             onPin={props.onPinFile}
             onHideTree={props.onToggleTree}
             onRequestCreate={(kind, parentPath) => {

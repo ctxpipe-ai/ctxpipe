@@ -49,6 +49,20 @@ export type WorkspaceFileTreeItem = {
   path: string
 }
 
+export function workspaceFilePathFromHoverEvent(
+  event: { composedPath(): EventTarget[] },
+  files: ReadonlySet<string>,
+): string | null {
+  for (const node of event.composedPath()) {
+    if (!node || typeof node !== "object" || !("getAttribute" in node)) continue
+    const path = (
+      node as { getAttribute: (name: string) => string | null }
+    ).getAttribute("data-item-path")
+    if (path && files.has(path)) return path
+  }
+  return null
+}
+
 function lineCountDecoration(item: WorkspaceGitStatusItem | undefined) {
   if (!item) return null
   const additions = item.additions ?? 0
@@ -81,6 +95,7 @@ export function WorkspaceFileTree(props: {
   onRename?: (from: string, to: string) => void
   onMove?: (from: string, toDirectory: string | null) => void
   onHideTree?: () => void
+  onHoverFile?: (path: string) => void
 }) {
   return (
     <ClientOnly fallback={<FileTreeSsrFallback {...props} />}>
@@ -93,6 +108,7 @@ function FileTreeSsrFallback(props: {
   paths: readonly string[]
   selectedPath: string | null
   onHideTree?: () => void
+  onHoverFile?: (path: string) => void
 }) {
   return (
     <div className="flex h-full min-h-0 min-w-0 flex-col">
@@ -128,6 +144,7 @@ function FileTreeSsrFallback(props: {
                 "truncate rounded-sm px-1",
                 selected && "bg-zinc-800 text-zinc-100",
               )}
+              onMouseEnter={() => props.onHoverFile?.(path)}
             >
               {name}
             </li>
@@ -150,10 +167,13 @@ function WorkspaceFileTreeClient(props: {
   onRename?: (from: string, to: string) => void
   onMove?: (from: string, toDirectory: string | null) => void
   onHideTree?: () => void
+  onHoverFile?: (path: string) => void
 }) {
   const fileSet = useMemo(() => new Set(props.paths), [props.paths])
   const onSelectRef = useRef(props.onSelect)
   onSelectRef.current = props.onSelect
+  const onHoverFileRef = useRef(props.onHoverFile)
+  onHoverFileRef.current = props.onHoverFile
   const onPinRef = useRef(props.onPin)
   onPinRef.current = props.onPin
   const fileSetRef = useRef(fileSet)
@@ -284,6 +304,13 @@ function WorkspaceFileTreeClient(props: {
         className="block h-full min-h-0 min-w-0 flex-1"
         style={TREE_HOST_STYLE}
         aria-label="Workspace files"
+        onMouseOver={(event) => {
+          const path = workspaceFilePathFromHoverEvent(
+            event,
+            fileSetRef.current,
+          )
+          if (path) onHoverFileRef.current?.(path)
+        }}
         onDoubleClick={() => {
           const file = model
             .getSelectedPaths()

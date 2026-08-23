@@ -1,5 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from "vitest"
 import { graphFindSymbolTool } from "../../tools/codegraphTools.js"
+import { getFileTool } from "../../tools/getFile.js"
 import { workspaceCheckoutKey } from "./derived-stores.js"
 import {
   EXPLORER_INPUT_SCHEMAS,
@@ -213,6 +214,28 @@ describe("workspace chat tools", () => {
     expect(
       forcedWorkspaceCheckoutArgs({ checkoutKey: "default" }, "ws:ws_1"),
     ).toEqual({ checkoutKey: "ws:ws_1" })
+    invoke.mockRestore()
+  })
+
+  it("injects workspaceId into get_file so agents read the workspace checkout", async () => {
+    const invoke = vi.spyOn(getFileTool, "invoke").mockResolvedValue("ok")
+    const tools = await workspaceChatTools({
+      orgId: "org_1",
+      workspaceId: "ws_1",
+      writeStatus: "writable",
+      activeProjectionSha: "abc",
+      loadUnits: async () => [],
+    })
+    const getFile = tools.find((tool) => tool.name === "get_file")
+    await getFile?.execute({
+      repositoryId: DOCS_ID,
+      path: "src/a.ts",
+    })
+    expect(invoke).toHaveBeenCalledWith({
+      repositoryId: DOCS_ID,
+      path: "src/a.ts",
+      workspaceId: "ws_1",
+    })
     invoke.mockRestore()
   })
 

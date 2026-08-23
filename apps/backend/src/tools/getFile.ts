@@ -1,14 +1,8 @@
 import { tool } from "langchain"
 import { z } from "zod/v3"
 import { requireCurrentOrgId } from "../auth/context.js"
-import { signUpstreamJwt } from "../auth/upstreamJwt.js"
-import { parseEnv } from "../config/env.js"
-import {
-  codesearchBaseUrl,
-  repositoryIdSchema,
-  toToon,
-} from "../lib/agentToolRuntime.js"
-import { withTransientHttpRetry } from "../lib/withTransientHttpRetry.js"
+import { fetchCheckoutFileBytes } from "../domain/codeIngestion/codesearchClient.js"
+import { repositoryIdSchema, toToon } from "../lib/agentToolRuntime.js"
 import { getRepositoryForOrg } from "../models/repositories.js"
 
 /** Hard cap for any single read (UTF-8 chars). */
@@ -28,6 +22,7 @@ export const getFileTool = tool(
     endLine,
     maxChars,
     mode = "preview",
+    workspaceId,
   }) => {
     const repository = await getRepositoryForOrg(
       requireCurrentOrgId(),
@@ -36,37 +31,16 @@ export const getFileTool = tool(
     if (!repository) {
       throw new Error(`repository not found: ${repositoryId}`)
     }
-    const env = parseEnv(process.env as Record<string, string | undefined>)
-    const token = await signUpstreamJwt({
-      env,
-      audience: env.AUTH_TOKEN_AUDIENCE_CODESEARCH ?? "codesearch",
-      claims: {
-        sub: `repo:${repository.id}`,
-        orgId: repository.orgId,
-        principal: "service",
-      },
+    const bytes = await fetchCheckoutFileBytes({
+      repositoryId: repository.id,
+      orgId: repository.orgId,
+      workspaceId,
+      path,
     })
-    const res = await withTransientHttpRetry(
-      async () =>
-        fetch(`${codesearchBaseUrl()}/${repositoryId}/files-query`, {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-            Authorization: `Bearer ${token}`,
-          },
-          body: JSON.stringify({ paths: [path] }),
-        }),
-      { retries: 10, baseDelayMs: 200, maxDelayMs: 30_000 },
-    )
-    if (!res.ok) {
-      throw new Error(`get_file failed with status ${res.status}`)
-    }
-    const payload = (await res.json()) as Record<string, string>
-    const encoded = payload[path]
-    if (!encoded) {
+    if (!bytes) {
       throw new Error(`file not found: ${path}`)
     }
-    const content = Buffer.from(encoded, "base64").toString("utf-8")
+    const content = Buffer.from(bytes).toString("utf-8")
     const totalLines = content.length === 0 ? 1 : content.split(/\r?\n/).length
     const totalChars = content.length
 
@@ -183,6 +157,7 @@ export const getFileTool = tool(
       endLine: z.number().int().positive().optional(),
       maxChars: z.number().int().positive().max(MAX_GET_FILE_CHARS).optional(),
       mode: z.enum(["preview", "full"]).optional().default("preview"),
+      workspaceId: z.string().min(1).optional(),
     }),
   },
 )

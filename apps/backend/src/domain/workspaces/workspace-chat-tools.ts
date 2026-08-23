@@ -235,6 +235,7 @@ export async function workspaceChatTools(input: {
       orgId: input.orgId,
       allowedRepositoryIds: allowed,
       checkoutKey,
+      workspaceId: input.workspaceId,
     }),
   )
   tools.unshift(hybridSearchTool(input))
@@ -311,11 +312,14 @@ function hybridSearchTool(input: {
   }
 }
 
+const DISK_READ_TOOL_NAMES = new Set(["get_file", "glob_files"])
+
 function wrapExplorerTool(input: {
   tool: ExplorerTool
   orgId: string
   allowedRepositoryIds: ReadonlySet<string>
   checkoutKey: string
+  workspaceId: string
 }): WorkspaceChatTanstackTool {
   const schema = EXPLORER_INPUT_SCHEMAS[input.tool.name] ?? {
     type: "object" as const,
@@ -347,7 +351,14 @@ function wrapExplorerTool(input: {
       }
       const invokeArgs = SCIP_GRAPH_TOOL_NAMES.has(input.tool.name)
         ? forcedWorkspaceCheckoutArgs(args, input.checkoutKey)
-        : (args ?? {})
+        : DISK_READ_TOOL_NAMES.has(input.tool.name)
+          ? {
+              ...(args && typeof args === "object" && !Array.isArray(args)
+                ? (args as Record<string, unknown>)
+                : {}),
+              workspaceId: input.workspaceId,
+            }
+          : (args ?? {})
       return withOrgIdContext({ id: input.orgId, slug: input.orgId }, () =>
         input.tool.invoke(invokeArgs),
       )

@@ -6,6 +6,11 @@ import {
   resolveWorkspaceGithubConnectionId,
   type WorkspaceAddSource,
 } from "../../domain/workspaces/bind-github-connection.js"
+import {
+  listWorkspaceCheckoutPaths,
+  readWorkspaceCheckoutFile,
+  WorkspaceCheckoutReadError,
+} from "../../domain/workspaces/checkout-read.js"
 import { ensureOrgRepositoryAndIngest } from "../../domain/workspaces/ensure-org-repository.js"
 import { fileTreeFromPaths } from "../../domain/workspaces/file-tree.js"
 import {
@@ -21,10 +26,7 @@ import {
   parseWorkspaceFileJobRequest,
   planWorkspaceFileJob,
 } from "../../domain/workspaces/git-file-jobs.js"
-import {
-  hydrateReadPlan,
-  shouldHydrateBeforeMigrationExport,
-} from "../../domain/workspaces/hydrate.js"
+import { shouldHydrateBeforeMigrationExport } from "../../domain/workspaces/hydrate.js"
 import {
   destroySandboxesForWorkspace,
   getJobSandbox,
@@ -55,14 +57,6 @@ import { getLogger } from "../../observability/logger.js"
 import { enqueueWorkspaceHydrate } from "../../openworkflow/enqueue-workspace-hydrate.js"
 import { enqueueWorkspaceTipCheck } from "../../openworkflow/enqueue-workspace-tip-check.js"
 import { enqueueWorkspaceWriteCommit } from "../../openworkflow/enqueue-workspace-write-commit.js"
-import {
-  listPathsAtGitSha,
-  readFileAtGitSha,
-} from "../../services/git/clone-tree.js"
-import {
-  getFileContentBytes,
-  listFilesAtSha,
-} from "../../services/github/installation-write-client.js"
 
 async function attachOrgRepository(input: {
   orgId: string
@@ -481,7 +475,7 @@ const listWorkspaceGitTreeRoute = createRoute({
     },
     502: {
       content: { "application/json": { schema: ErrorResponseSchema } },
-      description: "GitHub read failed",
+      description: "Checkout read failed",
     },
   },
 })
@@ -532,7 +526,7 @@ const getWorkspaceGitBlobRoute = createRoute({
     },
     502: {
       content: { "application/json": { schema: ErrorResponseSchema } },
-      description: "GitHub read failed",
+      description: "Checkout read failed",
     },
   },
 })
@@ -640,7 +634,7 @@ const enqueueWorkspaceFileJobRoute = createRoute({
     },
     502: {
       content: { "application/json": { schema: ErrorResponseSchema } },
-      description: "GitHub read failed",
+      description: "Checkout read failed",
     },
   },
 })
@@ -800,6 +794,7 @@ function linkedRepositoryParams(c: {
 
 function resolveWorkspaceGitReadInput(
   workspace: {
+    id: string
     workspaceRepositoryUrl: string
     activeProjectionUrl: string | null
     githubConnectionId: string | null
@@ -817,70 +812,28 @@ function resolveWorkspaceGitReadInput(
   return {
     ok: true as const,
     input: {
-      orgId,
-      env,
+      workspaceId: workspace.id,
       url: resolved.target.url,
-      repositoryName: resolved.target.repositoryName,
-      githubConnectionId: resolved.target.githubConnectionId ?? undefined,
       sha: resolved.target.sha,
     },
   }
 }
 
-function explorerReadsViaGithub(input: {
-  url: string
-  githubConnectionId?: string
-}): boolean {
-  return (
-    hydrateReadPlan(input.url, input.githubConnectionId ?? null).via ===
-    "github"
-  )
-}
-
-async function readExplorerTree(input: {
-  orgId: string
-  env: Env
-  url: string
-  repositoryName: string | null
-  githubConnectionId?: string
-  sha: string
-}) {
-  if (explorerReadsViaGithub(input) && input.repositoryName) {
-    const files = await listFilesAtSha({
-      orgId: input.orgId,
-      env: input.env,
-      repositoryName: input.repositoryName,
-      githubConnectionId: input.githubConnectionId,
-      sha: input.sha,
-      missing: "throw",
-    })
-    return files.map((file) => file.path).filter(Boolean)
-  }
-  return listPathsAtGitSha({ url: input.url, sha: input.sha })
+async function readExplorerTree(input: { workspaceId: string; url: string }) {
+  return listWorkspaceCheckoutPaths({
+    workspaceId: input.workspaceId,
+    gitUrl: input.url,
+  })
 }
 
 async function readExplorerBlob(input: {
-  orgId: string
-  env: Env
+  workspaceId: string
   url: string
-  repositoryName: string | null
-  githubConnectionId?: string
-  sha: string
   path: string
 }) {
-  if (explorerReadsViaGithub(input) && input.repositoryName) {
-    return getFileContentBytes({
-      orgId: input.orgId,
-      env: input.env,
-      repositoryName: input.repositoryName,
-      githubConnectionId: input.githubConnectionId,
-      branch: input.sha,
-      path: input.path,
-    })
-  }
-  return readFileAtGitSha({
-    url: input.url,
-    sha: input.sha,
+  return readWorkspaceCheckoutFile({
+    workspaceId: input.workspaceId,
+    gitUrl: input.url,
     path: input.path,
   })
 }
@@ -907,6 +860,17 @@ function gitExplorerUpstreamError(error: unknown, step: string) {
   getLogger().error(error instanceof Error ? error : new Error(String(error)), {
     step,
   })
+}
+
+function gitExplorerReadFailure(error: unknown, step: string) {
+  if (error instanceof WorkspaceCheckoutReadError) {
+    return { error: error.message, status: error.status }
+  }
+  gitExplorerUpstreamError(error, step)
+  return {
+    error: "Could not read this Workspace repository.",
+    status: 502 as const,
+  }
 }
 
 export const workspaceRoutes = new OpenAPIHono<AppEnv>()
@@ -1021,8 +985,11 @@ export const workspaceRoutes = new OpenAPIHono<AppEnv>()
         200,
       )
     } catch (error) {
-      gitExplorerUpstreamError(error, "workspace.git_explorer.tree")
-      return c.json({ error: "Could not read this Workspace repository." }, 502)
+      const failure = gitExplorerReadFailure(
+        error,
+        "workspace.git_explorer.tree",
+      )
+      return c.json({ error: failure.error }, failure.status)
     }
   })
   .openapi(getWorkspaceGitBlobRoute, async (c) => {
@@ -1039,8 +1006,11 @@ export const workspaceRoutes = new OpenAPIHono<AppEnv>()
       if (!blob) return c.json({ error: "Not found" }, 404)
       return c.json({ path, ...blob }, 200)
     } catch (error) {
-      gitExplorerUpstreamError(error, "workspace.git_explorer.blob")
-      return c.json({ error: "Could not read this Workspace repository." }, 502)
+      const failure = gitExplorerReadFailure(
+        error,
+        "workspace.git_explorer.blob",
+      )
+      return c.json({ error: failure.error }, failure.status)
     }
   })
   .openapi(listWorkspaceGitStatusRoute, async (c) => {
@@ -1142,8 +1112,11 @@ export const workspaceRoutes = new OpenAPIHono<AppEnv>()
       )
       return c.json({ queued: true as const }, 202)
     } catch (error) {
-      gitExplorerUpstreamError(error, "workspace.git_explorer.jobs")
-      return c.json({ error: "Could not read this Workspace repository." }, 502)
+      const failure = gitExplorerReadFailure(
+        error,
+        "workspace.git_explorer.jobs",
+      )
+      return c.json({ error: failure.error }, failure.status)
     }
   })
   .openapi(listWorkspaceFilesRoute, async (c) => {
