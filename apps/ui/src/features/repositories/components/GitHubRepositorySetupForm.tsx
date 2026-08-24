@@ -306,7 +306,7 @@ export function GitHubRepositorySetupForm({
                 onChange={setSearchQuery}
                 placeholder="Search repositories"
                 aria-label="Search repositories"
-                className="min-w-0 flex-1"
+                className="min-w-0 flex-1 [&>div]:rounded-none"
               />
               <Select
                 aria-label="Sort repositories"
