@@ -714,7 +714,7 @@ async function prepareTanstackWorkspaceChat(
       hooks: {
         onReady: async (ready: TanstackLikeHandle) => {
           handle.current = ready
-          void attachChatSandboxHandle({
+          await attachChatSandboxHandle({
             kind: "chat",
             workspaceId: input.workspaceId,
             conversationId: input.conversationId,

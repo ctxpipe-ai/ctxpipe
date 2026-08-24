@@ -12,6 +12,7 @@ import {
   treeDirtyFromPorcelain,
 } from "./chat-lifecycle.js"
 import { getChatSandbox } from "./sandbox-registry.js"
+import { getWorkspaceChatConversationRuntime } from "./workspace-chat-conversation-runtime.js"
 import { githubRepoFullNameFromWorkspaceUrl } from "./write-status.js"
 
 export type WorkspaceChatTurnConversation = {
@@ -51,7 +52,9 @@ export async function resolveWorkspaceChatTurnRuntime(input: {
     ? githubRepoFullNameFromWorkspaceUrl(workspace.workspaceRepositoryUrl)
     : null
   const githubStarted = Date.now()
-  const warmCheckout = await chatSandboxHasWorktree(conversation.id)
+  const warmCheckout =
+    Boolean(getWorkspaceChatConversationRuntime(conversation.id)) ||
+    (await chatSandboxHasWorktree(conversation.id))
   const [defaultBranch, cloneToken, remoteHasLastBranch] = warmCheckout
     ? [
         conversation.lastBranch &&
