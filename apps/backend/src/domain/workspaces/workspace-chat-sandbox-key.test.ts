@@ -5,6 +5,10 @@ import {
   defineWorkspace,
   fileSkill,
   gitSource,
+  type SandboxCapabilities,
+  type SandboxCreateInput,
+  type SandboxHandle,
+  type SandboxResumeInput,
 } from "@tanstack/ai-sandbox"
 import {
   CHAT_SANDBOX_KEEP_ALIVE,
@@ -16,20 +20,53 @@ import {
 } from "./chat-runtime.js"
 import { workspaceChatOpenCodeConfig } from "./workspace-chat-opencode-contract.js"
 
-function fakeHandle(id: string) {
+const fakeCapabilities: SandboxCapabilities = {
+  fs: true,
+  exec: true,
+  env: true,
+  ports: false,
+  backgroundProcesses: false,
+  writableStdin: false,
+  killableProcesses: false,
+  snapshots: false,
+  networkPolicy: false,
+  durableFilesystem: true,
+  fork: false,
+}
+
+function fakeHandle(id: string): SandboxHandle {
   return {
     id,
+    provider: "local-process",
+    capabilities: fakeCapabilities,
     env: { set: async () => undefined },
     fs: {
       exists: async () => true,
       write: async () => undefined,
       read: async () => "",
+      readBytes: async () => new Uint8Array(),
+      list: async () => [],
       mkdir: async () => undefined,
       remove: async () => undefined,
+      rename: async () => undefined,
     },
-    git: { clone: async () => undefined },
+    git: {
+      clone: async () => undefined,
+      status: async () => "",
+      add: async () => undefined,
+      commit: async () => undefined,
+      push: async () => undefined,
+      pull: async () => undefined,
+      branch: async () => "main",
+    },
     process: {
       exec: async () => ({ stdout: "", stderr: "", exitCode: 0 }),
+      spawn: async () => {
+        throw new Error("spawn is not used in this test")
+      },
+    },
+    ports: {
+      connect: async () => ({ url: "http://127.0.0.1:1" }),
     },
     destroy: async () => undefined,
   }
@@ -55,7 +92,7 @@ function chatWorkspace(input: {
         url: input.url,
         ref: input.ref,
         token: workspaceChatCloneTokenRef(secrets, input.cloneToken),
-      }),
+      }) as Parameters<typeof gitSource>[0],
     ),
     setup: [...WORKSPACE_CHAT_SANDBOX_SETUP],
     secrets,
@@ -94,7 +131,10 @@ function sandboxKey(input: {
     id: sandboxId,
     provider: {
       name: input.providerName,
-      capabilities: () => ({}),
+      capabilities: () => fakeCapabilities,
+      create: async (createInput) => fakeHandle(createInput.id ?? "sbx"),
+      resume: async (resumeInput) => fakeHandle(resumeInput.id),
+      destroy: async () => undefined,
     },
     workspace: chatWorkspace({
       url: input.desiredUrl,
@@ -178,8 +218,12 @@ describe("workspace chat sandbox opaque key", () => {
   })
 
   it("creates once and resumes the same workdir on the second turn", async () => {
-    const create = vi.fn(async (input: { id: string }) => fakeHandle(input.id))
-    const resume = vi.fn(async (input: { id: string }) => fakeHandle(input.id))
+    const create = vi.fn(async (input: SandboxCreateInput) =>
+      fakeHandle(input.id ?? "sbx"),
+    )
+    const resume = vi.fn(async (input: SandboxResumeInput) =>
+      fakeHandle(input.id),
+    )
     const sandboxId = workspaceChatSandboxId({
       orgId: "org_1",
       workspaceId: "ws_1",
@@ -192,9 +236,10 @@ describe("workspace chat sandbox opaque key", () => {
       id: sandboxId,
       provider: {
         name: "local-process",
-        capabilities: () => ({}),
+        capabilities: () => fakeCapabilities,
         create,
         resume,
+        destroy: async () => undefined,
       },
       workspace: {
         ...chatWorkspace({
@@ -254,9 +299,10 @@ describe("workspace chat sandbox opaque key", () => {
       id: sandboxId,
       provider: {
         name: "local-process",
-        capabilities: () => ({}),
+        capabilities: () => fakeCapabilities,
         create,
         resume,
+        destroy: async () => undefined,
       },
       workspace: { ...secondWorkspace, setup: [], skills: [] },
       lifecycle: {

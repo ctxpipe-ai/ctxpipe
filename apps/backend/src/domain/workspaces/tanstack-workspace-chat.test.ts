@@ -14,11 +14,15 @@ const chatMock = vi.hoisted(() =>
     yield { type: "TEXT_MESSAGE_CONTENT", delta: "ok" }
   }),
 )
-const opencodeTextMock = vi.hoisted(() => vi.fn(() => "adapter"))
+const opencodeTextMock = vi.hoisted(() =>
+  vi.fn((_model?: string, _opts?: { port?: number }) => "adapter"),
+)
 const defineSandboxMock = vi.hoisted(() => vi.fn((input) => input))
 const defineWorkspaceMock = vi.hoisted(() => vi.fn((input) => input))
 const gitSourceMock = vi.hoisted(() => vi.fn((input) => input))
-const withSandboxMock = vi.hoisted(() => vi.fn((def) => def))
+const withSandboxMock = vi.hoisted(() =>
+  vi.fn((def: unknown, _opts?: unknown) => def),
+)
 const dockerSandboxMock = vi.hoisted(() => vi.fn(() => "docker-provider"))
 const sbxSandboxMock = vi.hoisted(() => vi.fn(() => "sbx-provider"))
 const listSandboxInstancesMock = vi.hoisted(() =>
