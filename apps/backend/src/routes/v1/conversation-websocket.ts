@@ -18,7 +18,7 @@ import {
 import { claimWorkspaceChatTurn } from "../../domain/workspaces/workspace-chat-turn-claim.js"
 import { loadConversationTurns } from "../../models/conversation-messages.js"
 import { discardUnstartedConversation } from "../../models/conversations.js"
-import { getLogger } from "../../observability/logger.js"
+import { createLogger, log, loggerStorage } from "../../observability/logger.js"
 
 const WORKSPACE_CHAT_WS_PATH =
   /^\/([^/]+)\/api\/v1\/conversations\/([^/]+)(?:\/stream)?$/
@@ -220,7 +220,6 @@ async function* streamWorkspaceChatSocketTurn(input: {
   runId: string
   forwardedProps?: Record<string, unknown>
 }) {
-  const log = getLogger()
   const body = {
     messages: input.messages,
     threadId: input.threadId,
@@ -250,6 +249,7 @@ async function* streamWorkspaceChatSocketTurn(input: {
   yield* withAuthContextStream(
     { id: input.orgId, slug: input.orgSlug },
     input.userId,
+    input.conversationId,
     streamTanstackWorkspaceChat({
       conversationId: input.conversationId,
       prompt: parsed.prompt,
@@ -285,14 +285,26 @@ async function* streamWorkspaceChatSocketTurn(input: {
 async function* withAuthContextStream<T>(
   org: { id: string; slug: string },
   userId: string,
+  conversationId: string,
   stream: AsyncIterable<T>,
 ): AsyncGenerator<T> {
+  const logger = createLogger({
+    step: "workspace-chat-ws",
+    conversationId,
+    orgSlug: org.slug,
+  })
   const iterator = stream[Symbol.asyncIterator]()
-  while (true) {
-    const next = await withOrgIdContext(org, () =>
-      withUserIdContext(userId, () => iterator.next()),
-    )
-    if (next.done) return
-    yield next.value
+  try {
+    while (true) {
+      const next = await loggerStorage.run(logger, () =>
+        withOrgIdContext(org, () =>
+          withUserIdContext(userId, () => iterator.next()),
+        ),
+      )
+      if (next.done) return
+      yield next.value
+    }
+  } finally {
+    logger.emit()
   }
 }
