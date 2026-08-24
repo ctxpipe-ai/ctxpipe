@@ -1,5 +1,11 @@
 # ctxpipe
 
+## 0.3.3
+
+### Patch Changes
+
+- 9072089: Keep memory-capture follow-ups quiet: seed a one-sentence user reply, and stay silent when nothing was promoted.
+
 ## 0.3.2
 
 ### Patch Changes
