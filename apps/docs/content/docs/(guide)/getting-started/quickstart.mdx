@@ -1,10 +1,10 @@
 ---
 title: Hosted quickstart
-description: Go from an empty ctx| organization to a useful agent workflow in four steps.
+description: Connect a repository, check its context, and configure an MCP client.
 ---
 
-This path is deliberately small: one repository, one verified question, and one
-MCP client. Add more sources only after this loop is useful.
+Use this guide to connect one repository to hosted ctx| and make its context
+available to an AI coding agent.
 
 ## Before you start
 
@@ -12,8 +12,8 @@ You need:
 
 - access to a ctx| organization,
 - permission to install or request the ctx| GitHub App,
-- one repository that contains useful code and documentation,
-- and Cursor, Claude Code, Codex, OpenCode, or VS Code with MCP support.
+- a GitHub repository you want ctx| to index,
+- and Cursor, Claude Code, Codex, OpenCode, or VS Code/Copilot with MCP support.
 
 <Callout type="info" title="Self-hosting?">
   This page covers the hosted product. Start with the
@@ -28,24 +28,27 @@ You need:
     ### Install the GitHub App
 
     Open **Connectors**, choose **Add connection**, then select **GitHub**.
-    Install or authorize the ctx| GitHub App for the GitHub organization that
-    owns your repository.
+    Install or authorize the ctx| GitHub App for the GitHub account or
+    organization that owns your repository.
   </Step>
 
   <Step>
-    ### Choose a narrow first scope
+    ### Select a repository
 
-    Open **Repositories → Select repositories** and select one representative
-    repository. A repository with a README, architecture notes, ADRs, and agent
-    instructions gives ctx| more useful evidence than code alone.
+    Open **Repositories** and choose **Select repositories** from the empty state
+    or repository actions menu. Select a repository and save the change.
+
+    If a repository is marked **pending indexing**, choose **Index now**.
   </Step>
 
   <Step>
     ### Wait for indexing
 
-    The repository moves through **pending indexing**, **indexing**, and
-    **indexed**. You can open it while work is in progress, but search and graph
-    context may be incomplete until indexing finishes.
+    After indexing starts, the repository moves from **queued** to **indexing**
+    and then **indexed**. A repository may instead finish as **complete with
+    issues** when some indexing output is unavailable.
+
+    Chat becomes available after the first repository finishes indexing.
   </Step>
 </Steps>
 
@@ -58,8 +61,8 @@ You need:
 
 ## 2. Test the context in Chat
 
-Open **Chat** and ask a question whose answer you already know. Good first
-questions force the system to identify both source code and team guidance:
+Open **Chat** and ask a question about the indexed repository. Ask for supporting
+file paths so you can inspect the source behind the answer:
 
 ```text
 What are the main services in this repository, and which files support that answer?
@@ -69,22 +72,22 @@ What are the main services in this repository, and which files support that answ
 Before changing authentication, what architecture decisions and standards should an engineer read?
 ```
 
-Treat this as a calibration step. A strong answer should distinguish verified
-source facts from recommendations and point you toward relevant files. If it
-does not, improve the repository documentation or narrow the question before
-rolling ctx| out more broadly.
+A useful answer should identify relevant files and distinguish source-backed
+facts from recommendations. Check those files before acting on a consequential
+answer.
 
 ## 3. Install ctx| MCP
 
-For an individual developer, run the interactive installer from any repository:
+Run the interactive installer from a repository:
 
 ```bash
 npx ctxpipe init
 ```
 
-Choose your ctx| organization, agent clients, and whether configuration belongs
-to the current repository or your user profile. Your MCP client will ask you to
-authorize ctx| the first time it connects.
+The installer signs you in, asks which ctx| organization and clients to
+configure, and writes configuration for the repository, your user profile, or
+both. It can also initialize local Markdown memory. Your MCP client will ask you
+to authorize ctx| the first time it connects.
 
 Then give the agent a concrete discovery task:
 
@@ -96,27 +99,27 @@ decisions, and source areas, and label anything that still needs code verificati
 See [Remote MCP](/docs/mcp/mcp-docs) for team pull requests, non-interactive CLI
 flags, and manual client configuration.
 
-## 4. Add working context when it earns its keep
+## 4. Connect additional sources
 
-Once repository context is useful, connect sources that hold decisions or
-operational knowledge:
+Connect other sources when their content should be available through the same
+search and MCP context:
 
-- **Linear and Notion** mirror selected scope through a reviewable configuration
-  pull request.
-- **Confluence** mirrors approved spaces and pages through its Atlassian setup.
-- **Slack** captures specific existing threads on demand; it does not mirror
-  channels or search the whole workspace.
+- **Linear, Notion, and Confluence** propose selected scope through a
+  configuration pull request, then mirror content into the bound GitHub
+  repository.
+- **Slack** captures an existing thread when someone mentions the ctx| bot
+  inside that thread. It does not mirror channels or search the workspace.
 
-Use a dedicated [context repository](/docs/connections/context-repository) when
-those sources should share a Git-backed audit trail.
+A dedicated [context repository](/docs/connections/context-repository) is
+recommended when those sources should share a Git-backed audit trail, but it is
+not required.
 
-## You are ready when
+## Setup is complete when
 
 - the repository is indexed,
-- Chat can answer one known question and cite useful source paths,
+- Chat can answer a repository question and cite useful source paths,
 - your MCP client can call `ctx_advisor`,
-- and your team understands that critical claims still require code
-  verification.
+- and the agent can identify the repository context relevant to a task.
 
 <Cards>
   <Card title="How ctx| works" href="/docs/getting-started/how-it-works" description="Understand the full source-to-agent flow." />

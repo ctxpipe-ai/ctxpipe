@@ -1587,12 +1587,26 @@ pre {
 /* ── Docs uplift: editorial hierarchy and durable diagrams ─────────────── */
 #nd-page h1 {
   max-width: 48rem;
-  background: linear-gradient(110deg, #fafafa 30%, #99f6e4 78%, #7dd3fc);
-  background-clip: text;
-  color: transparent;
+  color: var(--color-fd-foreground);
   font-size: clamp(2rem, 4.5vw, 3.5rem);
   letter-spacing: -0.05em;
   line-height: 1;
+}
+
+@supports ((background-clip: text) or (-webkit-background-clip: text)) {
+  #nd-page h1 {
+    background: linear-gradient(110deg, #fafafa 30%, #99f6e4 78%, #7dd3fc);
+    background-clip: text;
+    -webkit-background-clip: text;
+    color: transparent;
+  }
+}
+
+@media print, (forced-colors: active) {
+  #nd-page h1 {
+    background: none;
+    color: CanvasText;
+  }
 }
 
 #nd-page h2 {

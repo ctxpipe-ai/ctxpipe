@@ -30,9 +30,10 @@ time, then gives agents a controlled way to ask useful questions about it.
     ### Build useful context
 
     ctx| ingests connected sources so agents can search and reason over them
-    quickly. For repositories, that means cloning the selected ref, building a
-    search index, and extracting structure such as services, APIs,
-    dependencies, libraries, and patterns into the knowledge graph.
+    quickly. For repositories, that means cloning the default branch, building
+    search indexes, and extracting services, apps, APIs, libraries,
+    infrastructure, streams, patterns, and repository instructions into the
+    knowledge graph.
 
     Product knowledge matters too. Files like `AGENTS.md`, skills, ADRs, and
     other team instructions help ctx| answer in a way that matches how your
@@ -58,24 +59,18 @@ time, then gives agents a controlled way to ask useful questions about it.
     sources change, ctx| can ingest them again so agents are not stuck with stale
     context.
 
-    The update path depends on the source. GitHub repositories are indexed
-    directly. Linear, Notion, and Confluence keep selected content in Git.
-    Slack captures a specific thread only when a user asks for it.
+    The update path depends on the source. GitHub repositories are ingested
+    directly. Linear, Notion, and Confluence mirror approved scope into Git.
+    Slack captures one existing thread when someone mentions the ctx| bot inside
+    that thread.
   </Step>
 </Steps>
 
-## Answers are evidence, not authority
+## Verify consequential answers
 
-ctx| combines search results, repository files, and extracted graph claims.
-That is more useful than a generic model prompt, but it is not proof. Sources
-can be incomplete, extraction can miss a relationship, and a recent code change
-may not have been ingested yet.
-
-For consequential work, ask the agent to:
-
-- name the files and decisions behind its answer,
-- separate verified source facts from inference,
-- and check the current code before changing behavior.
+ctx| answers can combine code search, repository files, and extracted graph
+claims. For consequential work, ask for supporting source paths and check the
+current code before changing behavior.
 
 <Callout title="Self-hosting">
   Self-hosted deployments use the same product model with your own backend, UI,
@@ -84,7 +79,7 @@ For consequential work, ask the agent to:
 </Callout>
 
 <Cards>
-  <Card title="Hosted quickstart" href="/docs/getting-started/quickstart" description="Run the smallest useful source-to-agent loop." />
+  <Card title="Hosted quickstart" href="/docs/getting-started/quickstart" description="Connect a repository and configure an MCP client." />
   <Card title="Source connectors" href="/docs/connections/source-connectors" description="Compare direct Git, scoped mirrors, and intent capture." />
   <Card title="Remote MCP" href="/docs/mcp/mcp-docs" description="Connect ctx| to your coding agents." />
   <Card title="Knowledge graph" href="/docs/knowledge-graph" description="Inspect the relationships behind agent context." />

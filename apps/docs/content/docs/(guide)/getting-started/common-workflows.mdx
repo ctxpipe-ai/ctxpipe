@@ -1,0 +1,47 @@
+---
+title: Common workflows
+description: Where shared repository and team context helps engineering agents.
+---
+
+ctx| is useful when an agent needs context beyond the files already open in its
+working directory.
+
+## Work across repositories
+
+Use Chat or `ctx_advisor` to find relevant code across the repositories your
+organization has indexed. Graph claims can help identify related services,
+APIs, libraries, infrastructure, patterns, and instructions before the agent
+plans a change.
+
+## Apply team instructions
+
+Index repositories that contain `AGENTS.md`, skills, ADRs, contribution guides,
+and other engineering instructions. ctx| can retrieve those files alongside the
+code they govern, giving agents access to repository-specific guidance through
+one MCP connection.
+
+## Bring product context into Git
+
+Linear, Notion, and Confluence can mirror approved scope into a GitHub
+repository. Slack can capture a specific existing thread after an in-thread bot
+mention. The resulting files follow the same repository ingestion path as other
+Git-backed context.
+
+## Share context across agent clients
+
+Use the hosted MCP endpoint with compatible clients instead of maintaining a
+separate retrieval system for each agent. Team members can inspect the same
+indexed organization context through Chat.
+
+## Run ctx| on your own infrastructure
+
+Self-hosted deployments run the backend, worker, UI, codesearch, Postgres, and
+graph database inside infrastructure you control. See
+[Self hosting](/docs/self-hosting) for deployment and operations guidance.
+
+<Cards>
+  <Card title="Hosted quickstart" href="/docs/getting-started/quickstart" description="Connect a repository and configure an MCP client." />
+  <Card title="How ctx| works" href="/docs/getting-started/how-it-works" description="Follow context from ingestion to an agent response." />
+  <Card title="Source connectors" href="/docs/connections/source-connectors" description="Compare direct Git, scoped mirrors, and Slack capture." />
+  <Card title="Install MCP" href="/docs/mcp/mcp-docs" description="Choose a supported client and installation scope." />
+</Cards>

@@ -1,59 +1,57 @@
 ---
-title: Give every agent the context your team already knows
-description: Connect code and working context once, then make it available to Chat, coding agents, and your team through ctx| MCP.
+title: Getting started with ctx|
+description: Connect your team's repositories and working context to Chat and AI coding agents.
 ---
 
-ctx| is an organization-scoped context layer for engineering teams. It connects
-the sources your team trusts, prepares them for search and technical reasoning,
-and gives AI agents one place to ask before they make a decision.
+ctx| gives AI agents access to selected repositories, including Git-backed
+context captured from other sources. During ingestion, it builds search indexes
+and graph claims, then makes that context available through Chat and
+`ctx_advisor` over MCP.
 
 <ImageSlot
   title="ctx| Knowledge graph"
   src="/knowledge-graph.png"
   alt="ctx| knowledge graph showing repository, service, API, and instruction relationships"
-  description="ctx| turns repositories and team knowledge into a graph that agents can query."
+  description="ctx| builds graph claims from indexed repositories for Chat and ctx_advisor."
 />
 
-## Start with one useful path
+## Choose your setup
 
-You do not need to connect everything on day one. The shortest path to value is:
-
-1. Connect GitHub and index one representative repository.
-2. Ask a real architecture question in Chat.
-3. Install ctx| MCP in one coding agent.
-4. Add a context repository when you are ready to bring in Linear, Notion,
-   Confluence, or selected Slack threads.
-
-The [hosted quickstart](/docs/getting-started/quickstart) walks through that
-path end to end.
+<Cards>
+  <Card title="Hosted ctx|" href="/docs/getting-started/quickstart" description="Connect GitHub, index a repository, and install MCP." />
+  <Card title="Self-host ctx|" href="/docs/self-hosting" description="Deploy and operate ctx| on your own infrastructure." />
+</Cards>
 
 ## What ctx| gives you
 
-- **Fast repository discovery** across the code your organization has indexed.
-- **A knowledge graph** of systems, APIs, libraries, standards, and their
-  relationships.
-- **Reviewable working context** from source connectors that write to Git.
-- **One remote MCP** for Cursor, Claude Code, Codex, OpenCode, and compatible
-  clients.
-- **A human-facing Chat** for the same organization context.
+- **Code search** across repositories your organization has selected and
+  indexed.
+- **A knowledge graph** of extracted services, apps, APIs, libraries,
+  infrastructure, patterns, and repository instructions.
+- **Git-backed context** from selected documentation, issues, pages, and
+  conversations.
+- **One remote MCP endpoint** for compatible agent clients.
+- **A human-facing Chat** over the same indexed organization context.
 
-## Honest limits
+## Connect the context your team uses
 
-ctx| improves an agent's starting point; it does not make model output
-authoritative. Graph claims are extracted from connected sources and may be
-incomplete or stale. For risky changes, ask for source paths and verify the
-answer in code. ctx| complements code review and engineering judgement; it does
-not replace either.
+- Select and ingest GitHub repositories directly for code search and graph
+  extraction.
+- Mirror selected Linear, Notion, and Confluence content into a bound GitHub
+  repository. Connector scope changes are reviewed through a configuration pull
+  request; mirrored content then commits to the configured branch.
+- Capture an existing Slack thread by mentioning the ctx| bot inside that
+  thread. The snapshot commits to the bound repository.
 
-Connections are also deliberate. ctx| does not scan a developer laptop or
-silently mirror every SaaS workspace. Your team chooses the repositories,
-source scope, and Git access boundary.
+Your team controls which repositories and connector scopes contribute to ctx|.
+A dedicated context repository is recommended for connector content, but it is
+not required.
 
-## Choose your next step
+## Learn how it works
 
 <Cards>
-  <Card title="Hosted quickstart" href="/docs/getting-started/quickstart" description="Index a repository, ask a question, and install MCP." />
-  <Card title="Connect sources" href="/docs/connections" description="Choose the right path for GitHub, docs, issues, and conversations." />
-  <Card title="Install MCP" href="/docs/mcp/mcp-docs" description="Set up an individual client or roll ctx| out to a team." />
-  <Card title="Self-host ctx|" href="/docs/self-hosting" description="Choose Docker, Terraform, or AWS and own the operating boundary." />
+  <Card title="How ctx| works" href="/docs/getting-started/how-it-works" description="Follow context from a connected source to an agent response." />
+  <Card title="Connect sources" href="/docs/connections" description="Set up repositories, documentation, issues, and conversations." />
+  <Card title="Install MCP" href="/docs/mcp/mcp-docs" description="Choose a supported client and installation scope." />
+  <Card title="Explore the graph" href="/docs/knowledge-graph" description="Inspect claims extracted during repository ingestion." />
 </Cards>

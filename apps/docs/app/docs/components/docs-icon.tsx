@@ -78,7 +78,6 @@ export function DocsIcon({
       strokeLinejoin="round"
       {...props}
     >
-      <title>{name} icon</title>
       {paths[name]}
     </svg>
   )
@@ -101,10 +100,10 @@ export function docsIconForHref(href?: string): DocsIconName {
     href.includes("auth")
   )
     return "shield"
-  if (href.includes("deployment") || href.includes("self-hosting"))
-    return "server"
   if (href.includes("model")) return "cloud"
   if (href.includes("operation") || href.includes("upgrade")) return "wrench"
+  if (href.includes("deployment") || href.includes("self-hosting"))
+    return "server"
   if (href.includes("open-source") || href.includes("docs")) return "book"
   return "arrow"
 }

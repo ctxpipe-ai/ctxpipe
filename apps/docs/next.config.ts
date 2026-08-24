@@ -32,6 +32,11 @@ const config = withMDX({
         destination: "/docs/knowledge-graph/exploring#reading-graph-status",
         permanent: false,
       },
+      {
+        source: "/docs/getting-started/who-is-it-for",
+        destination: "/docs/getting-started/common-workflows",
+        permanent: false,
+      },
     ]
   },
 })
