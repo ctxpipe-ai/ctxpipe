@@ -5,11 +5,11 @@ export const WORKSPACE_CHAT_INVENTORY_PATH =
 
 export const WORKSPACE_CHAT_INSTRUCTIONS_PATH = ".ctxpipe/CHAT.md" as const
 
-export const WORKSPACE_CHAT_INSTRUCTIONS = `For questions about what is in this repository, what the workspace contains, or a file map, read ${WORKSPACE_CHAT_INVENTORY_PATH} and answer in one shot. Do not run ls, find, glob, or grep tours to rediscover the tree.
+export const WORKSPACE_CHAT_INSTRUCTIONS = `You already have the workspace inventory below. For questions about what is in this repository, what the workspace contains, or a file map, answer from that inventory in one shot. Do not run ls, find, glob, grep, or read tours.
 `
 
 const INVENTORY_PATH_LIMIT = 200
-const EXCERPT_BYTES = 4096
+const EXCERPT_BYTES = 800
 
 export function renderWorkspaceInventoryMarkdown(input: {
   paths: string[]
@@ -20,13 +20,26 @@ export function renderWorkspaceInventoryMarkdown(input: {
     .map((path) => path.trim())
     .filter((path) => path.length > 0)
     .slice(0, INVENTORY_PATH_LIMIT)
+  const roots = new Map<string, number>()
+  const topFiles: string[] = []
+  for (const path of paths) {
+    const slash = path.indexOf("/")
+    if (slash <= 0) topFiles.push(path)
+    else {
+      const root = path.slice(0, slash)
+      roots.set(root, (roots.get(root) ?? 0) + 1)
+    }
+  }
   const lines = [
     "# Workspace inventory",
     "",
-    "Org-scoped checkout paths (not a host filesystem dump).",
+    "Org-scoped checkout (not a host filesystem dump).",
     "",
-    "## Files",
-    ...paths.map((path) => `- ${path}`),
+    "## Tree",
+    ...[...roots.entries()]
+      .sort((a, b) => a[0].localeCompare(b[0]))
+      .map(([name, count]) => `- ${name}/ (${count} files)`),
+    ...topFiles.sort().map((path) => `- ${path}`),
   ]
   if (input.agentsExcerpt?.trim()) {
     lines.push("", "## AGENTS.md", "", input.agentsExcerpt.trim())
@@ -35,6 +48,12 @@ export function renderWorkspaceInventoryMarkdown(input: {
     lines.push("", "## README", "", input.readmeExcerpt.trim())
   }
   return `${lines.join("\n")}\n`
+}
+
+export function workspaceChatInstructionsWithInventory(
+  inventoryMarkdown: string,
+): string {
+  return `${WORKSPACE_CHAT_INSTRUCTIONS}\n${inventoryMarkdown}`
 }
 
 export async function writeChatSandboxInventory(input: {
@@ -73,6 +92,10 @@ export async function writeChatSandboxInventory(input: {
   })
   await input.handle.fs.mkdir(".ctxpipe")
   await input.handle.fs.write(WORKSPACE_CHAT_INVENTORY_PATH, markdown)
+  await input.handle.fs.write(
+    WORKSPACE_CHAT_INSTRUCTIONS_PATH,
+    workspaceChatInstructionsWithInventory(markdown),
+  )
 }
 
 async function sandboxExec(

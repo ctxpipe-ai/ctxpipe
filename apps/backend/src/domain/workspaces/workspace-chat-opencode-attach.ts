@@ -152,6 +152,7 @@ export async function* streamAttachedOpenCodeTurn(input: {
     throw new Error(`OpenCode models must be addressed as provider/model`)
   }
   const queue = createAttachQueue()
+  const sessionStarted = Date.now()
   const session = await withTimeout(
     startOpencodeSession({
       baseUrl: input.baseUrl,
@@ -166,6 +167,13 @@ export async function* streamAttachedOpenCodeTurn(input: {
     5_000,
     "startOpencodeSession",
   )
+  log.info({
+    step: "workspace-chat-timing",
+    phase: "attach-session",
+    message: `workspace chat timing attach-session ${Date.now() - sessionStarted}ms`,
+    ms: Date.now() - sessionStarted,
+    threadId: input.threadId,
+  })
   queue.push({ kind: "session", sessionId: session.sessionId } as never)
   session
     .prompt(input.prompt)

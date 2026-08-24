@@ -2,6 +2,7 @@ import { describe, expect, it, vi } from "vitest"
 import {
   renderWorkspaceInventoryMarkdown,
   writeChatSandboxInventory,
+  WORKSPACE_CHAT_INSTRUCTIONS_PATH,
   WORKSPACE_CHAT_INVENTORY_PATH,
 } from "./workspace-chat-inventory.js"
 import type { TanstackLikeHandle } from "./job-sandbox.js"
@@ -15,7 +16,8 @@ describe("renderWorkspaceInventoryMarkdown", () => {
     })
     expect(markdown).toContain("# Workspace inventory")
     expect(markdown).toContain("- AGENTS.md")
-    expect(markdown).toContain("- knowledge/billing.md")
+    expect(markdown).toContain("- knowledge/ (1 files)")
+    expect(markdown).not.toContain("- knowledge/billing.md")
     expect(markdown).toContain("Use knowledge/ for durable facts.")
     expect(markdown).toContain("Context workspace.")
     expect(markdown).not.toContain("/tmp/tanstack-ai-sandboxes")
@@ -44,6 +46,10 @@ describe("writeChatSandboxInventory", () => {
     expect(write).toHaveBeenCalledWith(
       WORKSPACE_CHAT_INVENTORY_PATH,
       expect.stringContaining("- AGENTS.md"),
+    )
+    expect(write).toHaveBeenCalledWith(
+      WORKSPACE_CHAT_INSTRUCTIONS_PATH,
+      expect.stringContaining("# Workspace inventory"),
     )
     expect(mkdir).toHaveBeenCalledWith(".ctxpipe")
   })
