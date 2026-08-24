@@ -53,8 +53,8 @@ describe("workspace chat AG-UI", () => {
 
   it("stops the inner producer when the heartbeat wrapper is returned", async () => {
     let returned = false
-    const hanging = {
-      [Symbol.asyncIterator]() {
+    const hanging: AsyncIterable<StreamChunk> = {
+      [Symbol.asyncIterator](): AsyncIterator<StreamChunk> {
         return {
           next: () => new Promise<IteratorResult<StreamChunk>>(() => {}),
           return: async () => {
@@ -68,7 +68,7 @@ describe("workspace chat AG-UI", () => {
       Symbol.asyncIterator
     ]()
     await iterator.next()
-    await iterator.return?.()
+    await iterator.return?.(undefined)
     expect(returned).toBe(true)
   })
 

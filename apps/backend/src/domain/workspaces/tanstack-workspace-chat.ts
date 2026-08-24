@@ -53,6 +53,7 @@ import {
 import { createWorkspaceChatAssistantGate } from "./workspace-chat-assistant-text.js"
 import {
   waitForOpenCodeAssistant,
+  type WorkspaceChatFetch,
   workspaceChatOpenCodeSessionId,
 } from "./workspace-chat-opencode-session.js"
 import { startWorkspaceChatModelProxy } from "./workspace-chat-model-proxy.js"
@@ -117,7 +118,7 @@ export type TanstackWorkspaceChatInput = {
   streamSetupMs?: number
   streamIdleMs?: number
   openCodeIdleMs?: number
-  openCodeFetch?: typeof fetch
+  openCodeFetch?: WorkspaceChatFetch
 }
 
 export { conversationRenameChunk } from "./workspace-chat-agui.js"

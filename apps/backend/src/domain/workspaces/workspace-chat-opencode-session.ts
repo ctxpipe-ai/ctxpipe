@@ -50,13 +50,18 @@ export function assistantTextFromOpenCodeMessages(
   return workspaceChatAssistantReply({ prompt, texts })
 }
 
+export type WorkspaceChatFetch = (
+  input: string,
+  init?: RequestInit,
+) => Promise<Response>
+
 export async function waitForOpenCodeAssistant(input: {
   port: number
   sessionId: string
   prompt: string
   timeoutMs?: number
   pollMs?: number
-  fetch?: typeof fetch
+  fetch?: WorkspaceChatFetch
 }): Promise<string> {
   const timeoutMs = input.timeoutMs ?? WORKSPACE_CHAT_OPENCODE_IDLE_WAIT_MS
   const pollMs = input.pollMs ?? WORKSPACE_CHAT_OPENCODE_IDLE_POLL_MS
