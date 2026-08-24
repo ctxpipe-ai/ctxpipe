@@ -97,11 +97,16 @@ describe("preflightChatSandbox", () => {
 
 describe("ensureChatSandboxCheckout", () => {
   it("clones into a temp dir and does not put the token on argv", async () => {
-    const exec = vi.fn(async () => ({
-      stdout: "",
-      stderr: "",
-      exitCode: 0,
-    }))
+    const exec = vi.fn(
+      async (
+        _command?: string,
+        _options?: { cwd?: string; env?: Record<string, string> },
+      ) => ({
+        stdout: "",
+        stderr: "",
+        exitCode: 0,
+      }),
+    )
     await ensureChatSandboxCheckout({
       handle: chatHandle({ exec }),
       repoUrl: "https://github.com/acme/docs.git",

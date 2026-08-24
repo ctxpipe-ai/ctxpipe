@@ -517,13 +517,14 @@ describe("runTanstackWorkspaceChat", () => {
       | ((handle: { process: { exec: unknown }; destroy: () => Promise<void> }) => Promise<void>)
       | undefined
     expect(onReady).toBeTypeOf("function")
+    if (!onReady) throw new Error("expected onReady")
     const exec = vi.fn(async (command: string) => ({
       stdout: "",
       stderr: "",
       exitCode: command.includes("ss -lnt") || command.includes("nc -z") ? 1 : 0,
     }))
     await withTestLogger(() =>
-      onReady?.({
+      onReady({
         process: { exec },
         destroy: async () => {},
       }),
