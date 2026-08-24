@@ -1,0 +1,55 @@
+---
+title: Source connectors
+description: Choose the right source path for code, curated working context, and deliberate conversation capture.
+---
+
+Source connectors do not all perform the same job. Pick the model that matches
+the source instead of assuming every provider is a continuous workspace sync.
+
+<ConnectorKindsDiagram />
+
+## Choose by source behavior
+
+| Source | Model | What enters ctx\| | Update boundary |
+| --- | --- | --- | --- |
+| **GitHub** | Git source | Selected repositories | Repository changes and explicit indexing |
+| **Linear** | Scoped mirror | Selected teams, projects, documents, and initiatives | Merged `linear/config.yaml` plus supported source events |
+| **Notion** | Scoped mirror | Selected pages and databases | Merged `notion/config.yaml` plus supported source events |
+| **Confluence** | Scoped mirror | Selected spaces and pages | Merged `confluence/config.yaml` plus Forge events |
+| **Slack** | Intent capture | One existing thread at a time | A user mentions the bot inside that thread |
+
+The important distinction is **scope**. A scoped mirror keeps an approved subset
+current. Slack does not have a channel scope or history backfill: users promote a
+specific discussion into durable Git history only when it is worth keeping.
+
+## Git is the review and access boundary
+
+Linear, Notion, and Confluence propose source scope in a configuration pull
+request. After merge, generated Markdown is written under the connector's
+managed directory and the repository is ingested like any other Git source.
+
+Slack captures commit directly to the selected branch because the user action in
+the thread is the approval signal. Git history records the capture, but there is
+no configuration pull request for Slack.
+
+Use a dedicated [context repository](/docs/connections/context-repository) for a
+clear audit trail. Split repositories when different source content requires a
+different audience.
+
+## Pick a connector
+
+<Cards>
+  <Card title="GitHub" href="/docs/connections/source-connectors/github" description="Index code and provide the Git foundation for other sources." />
+  <Card title="Linear" href="/docs/connections/source-connectors/linear" description="Mirror selected engineering work through reviewable Git scope." />
+  <Card title="Notion" href="/docs/connections/source-connectors/notion" description="Mirror selected pages and databases into readable repository files." />
+  <Card title="Confluence" href="/docs/connections/source-connectors/confluence" description="Connect Atlassian, approve space scope, and merge it into Git." />
+  <Card title="Slack" href="/docs/connections/source-connectors/slack" description="Capture valuable threads on demand without mirroring channels." />
+  <Card title="Connected sources" href="/docs/connections/connected-sources" description="See the complete source catalog and availability." />
+</Cards>
+
+<Callout type="info" title="Self-hosted deployments own provider apps">
+  Hosted ctx| supplies managed provider applications. A self-hosted deployment
+  uses the same product workflows but owns its OAuth applications, webhook
+  endpoints, credentials, and operating boundary. Each connector guide links to
+  the matching operator setup.
+</Callout>

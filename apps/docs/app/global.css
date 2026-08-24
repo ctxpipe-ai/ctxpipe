@@ -1432,10 +1432,12 @@ pre {
   z-index: 0;
   pointer-events: none;
   background: radial-gradient(
-    600px circle at var(--mouse-x, -9999px) var(--mouse-y, -9999px),
+    520px circle at 50% 0%,
     rgba(64, 224, 208, 0.07),
     transparent 40%
   );
+  opacity: 0;
+  transition: opacity 0.3s var(--ease-out-quart);
 }
 
 .docs-card-grid .card-pixel:hover,
@@ -1450,6 +1452,10 @@ pre {
 }
 
 .docs-card-grid .card-pixel:hover::before {
+  opacity: 1;
+}
+
+.docs-card-grid .card-pixel:hover::after {
   opacity: 1;
 }
 
@@ -1576,4 +1582,173 @@ pre {
   margin-top: 0.5rem;
   color: var(--color-fd-muted-foreground);
   font-size: 0.8125rem;
+}
+
+/* ── Docs uplift: editorial hierarchy and durable diagrams ─────────────── */
+#nd-page h1 {
+  max-width: 48rem;
+  background: linear-gradient(110deg, #fafafa 30%, #99f6e4 78%, #7dd3fc);
+  background-clip: text;
+  color: transparent;
+  font-size: clamp(2rem, 4.5vw, 3.5rem);
+  letter-spacing: -0.05em;
+  line-height: 1;
+}
+
+#nd-page h2 {
+  margin-top: 2.75rem;
+  scroll-margin-top: calc(var(--fd-nav-height) + 1rem);
+  letter-spacing: -0.025em;
+}
+
+#nd-page .prose > p:first-child {
+  font-size: 1.05rem;
+  line-height: 1.75;
+}
+
+.docs-card-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  min-height: 1.5rem;
+}
+
+.docs-card-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  color: #5eead4;
+}
+
+.docs-card-arrow {
+  color: oklch(0.62 0.004 286);
+  transition:
+    color 180ms ease,
+    transform 180ms ease;
+}
+
+.docs-card-grid .card-pixel:hover .docs-card-arrow {
+  color: #5eead4;
+  transform: translateX(0.2rem);
+}
+
+.docs-image-slot {
+  position: relative;
+  overflow: hidden;
+  border: 1px solid oklch(1 0 0 / 8%);
+  background-color: #050607;
+  box-shadow: 0 1.5rem 5rem -3rem oklch(0.78 0.13 182 / 45%);
+}
+
+.docs-image-slot::after {
+  position: absolute;
+  inset: 0;
+  border: 1px solid oklch(0.78 0.13 182 / 8%);
+  pointer-events: none;
+  content: "";
+}
+
+.docs-image-slot img {
+  border: 0;
+}
+
+.docs-connector-kinds {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 0.75rem;
+  margin: 1.5rem 0 2rem;
+}
+
+.docs-connector-kind {
+  position: relative;
+  isolation: isolate;
+  overflow: hidden;
+  border: 1px solid var(--color-fd-border);
+  background: linear-gradient(
+    145deg,
+    oklch(0.18 0.008 286 / 92%),
+    oklch(0.125 0.006 286 / 98%)
+  );
+  padding: 1rem;
+}
+
+.docs-connector-kind::before,
+.docs-connector-kind::after {
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+  pointer-events: none;
+  content: "";
+}
+
+.docs-connector-kind::before {
+  background:
+    radial-gradient(
+      20rem circle at 0% 0%,
+      rgb(var(--docs-connector-accent) / 14%),
+      transparent 58%
+    ),
+    radial-gradient(
+      16rem circle at 100% 100%,
+      rgb(var(--docs-connector-accent) / 7%),
+      transparent 62%
+    );
+}
+
+.docs-connector-kind::after {
+  opacity: 0.48;
+  background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 256 256' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.65' numOctaves='4' stitchTiles='stitch'/%3E%3CfeColorMatrix type='saturate' values='0'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)' opacity='0.22'/%3E%3C/svg%3E");
+  mix-blend-mode: overlay;
+}
+
+.docs-connector-kind > * {
+  position: relative;
+  z-index: 1;
+}
+
+.docs-connector-kind.is-teal {
+  --docs-connector-accent: 94 234 212;
+  color: #5eead4;
+}
+
+.docs-connector-kind.is-violet {
+  --docs-connector-accent: 196 181 253;
+  color: #c4b5fd;
+}
+
+.docs-connector-kind.is-amber {
+  --docs-connector-accent: 251 191 36;
+  color: #fbbf24;
+}
+
+.docs-connector-kind__icon {
+  display: inline-flex;
+  margin-bottom: 1.25rem;
+}
+
+.docs-connector-kind span {
+  color: currentColor;
+  font-family: var(--font-mono);
+  font-size: 0.58rem;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+}
+
+.docs-connector-kind h3 {
+  margin: 0.4rem 0 !important;
+  color: oklch(0.92 0 0);
+  font-size: 0.95rem !important;
+}
+
+.docs-connector-kind p {
+  margin: 0;
+  color: var(--color-fd-muted-foreground);
+  font-size: 0.75rem;
+  line-height: 1.55;
+}
+
+@media (max-width: 760px) {
+  .docs-connector-kinds {
+    grid-template-columns: 1fr;
+  }
 }

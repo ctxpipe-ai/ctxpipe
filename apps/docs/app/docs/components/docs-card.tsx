@@ -1,45 +1,20 @@
 "use client"
 
-import type { HTMLAttributes, ReactNode } from "react"
-import { useCallback, useRef } from "react"
 import Link from "fumadocs-core/link"
 import { cn } from "fumadocs-ui/utils/cn"
+import type { HTMLAttributes, ReactNode } from "react"
+import { DocsIcon, docsIconForHref } from "./docs-icon"
 
 type CardsProps = HTMLAttributes<HTMLDivElement>
 
 export function Cards({ className, children, ...props }: CardsProps) {
-  const gridRef = useRef<HTMLDivElement>(null)
-
-  const handleMouseMove = useCallback((e: React.MouseEvent<HTMLDivElement>) => {
-    const grid = gridRef.current
-    if (!grid) return
-
-    const cards = grid.querySelectorAll<HTMLElement>(".card-pixel")
-    cards.forEach((card) => {
-      const rect = card.getBoundingClientRect()
-      card.style.setProperty("--mouse-x", `${e.clientX - rect.left}px`)
-      card.style.setProperty("--mouse-y", `${e.clientY - rect.top}px`)
-    })
-  }, [])
-
-  const handleMouseLeave = useCallback(() => {
-    const grid = gridRef.current
-    if (!grid) return
-
-    const cards = grid.querySelectorAll<HTMLElement>(".card-pixel")
-    cards.forEach((card) => {
-      card.style.removeProperty("--mouse-x")
-      card.style.removeProperty("--mouse-y")
-    })
-  }, [])
-
   return (
     <div
       {...props}
-      ref={gridRef}
-      className={cn("docs-card-grid grid grid-cols-2 gap-3 @container", className)}
-      onMouseMove={handleMouseMove}
-      onMouseLeave={handleMouseLeave}
+      className={cn(
+        "docs-card-grid grid grid-cols-2 gap-3 @container",
+        className,
+      )}
     >
       {children}
     </div>
@@ -64,11 +39,19 @@ export function Card({
   className,
   ...props
 }: CardProps) {
+  const resolvedIcon = icon ?? (
+    <DocsIcon name={docsIconForHref(href)} className="size-5" />
+  )
   const content = (
     <>
-      {icon ? <div className="docs-card-icon">{icon}</div> : null}
+      <div className="docs-card-heading">
+        <span className="docs-card-icon">{resolvedIcon}</span>
+        <DocsIcon name="arrow" className="docs-card-arrow size-4" />
+      </div>
       <span className="docs-card-title">{title}</span>
-      {description ? <p className="docs-card-description">{description}</p> : null}
+      {description ? (
+        <p className="docs-card-description">{description}</p>
+      ) : null}
       {children ? <div className="docs-card-body">{children}</div> : null}
     </>
   )

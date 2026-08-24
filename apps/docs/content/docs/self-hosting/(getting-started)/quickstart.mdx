@@ -1,0 +1,102 @@
+---
+title: Quickstart
+description: Choose a deployment path, establish the public origin, and prove the source-to-agent loop.
+---
+
+This quickstart is the common path across Docker, Terraform, and AWS. Choose the
+runtime first, then validate the same product workflow: sign in, connect GitHub,
+index one repository, and call `ctx_advisor`.
+
+## 1. Choose how you will run ctx|
+
+<Cards>
+  <Card title="Docker Compose" href="/docs/self-hosting/deployment/docker" description="Fastest evaluation and small internal deployment path." />
+  <Card title="Terraform" href="/docs/self-hosting/deployment/terraform" description="Provision the repository's Railway and Neon stack as code." />
+  <Card title="AWS CDK" href="/docs/self-hosting/deployment/aws" description="Deploy the single-tenant CtxPipe construct inside your AWS account." />
+</Cards>
+
+For a local Compose evaluation, copy the environment template and set at least a
+stable auth secret, public URL, and model credentials:
+
+```bash
+cp docker-compose.env.example .env
+# edit AUTH_SECRET, AUTH_BASE_URL, CTXPIPE_PUBLIC_APP_URL,
+# MODEL_PROVIDER, and the matching model credentials
+pnpm start
+```
+
+`pnpm start` runs the Compose **`deploy`** profile, including migrations,
+backend, UI, worker, codesearch, Postgres, FalkorDB, and the optional telemetry
+collector.
+
+<Callout type="warn" title="Production needs one stable HTTPS origin">
+  Browser traffic, auth, API, connector callbacks, and MCP should all use the
+  public backend `AUTH_BASE_URL`. Keep internal services private.
+</Callout>
+
+## 2. Verify the deployment boundary
+
+Before adding a source:
+
+- `GET {AUTH_BASE_URL}/.status` returns an OK status.
+- The app opens through `AUTH_BASE_URL`, not the private UI service.
+- Sign-in works with at least one configured method.
+- Backend and worker can use the configured model provider.
+- Postgres and the graph database are healthy.
+
+See [Authentication](/docs/self-hosting/authentication) for the auth secret,
+origin, SMTP, and optional social providers.
+
+## 3. Create your GitHub App and index one repository
+
+Open **Connectors → Add connection → GitHub**. The self-hosted wizard guides an
+operator through creating a deployment-owned GitHub App with connection-specific
+callback and webhook URLs.
+
+Follow [Self-host GitHub](/docs/self-hosting/github), install the App on a narrow
+repository scope, then choose one repository under **Repositories → Select
+repositories**. Wait until it reaches **Indexed**.
+
+## 4. Connect an MCP client
+
+Use the CLI with your deployment URL:
+
+```bash
+npx ctxpipe init --base-url https://ctx.example.com
+```
+
+Or configure the remote endpoint manually:
+
+```text
+https://ctx.example.com/mcp?orgSlug=your-org-slug
+```
+
+The client should complete OAuth against **your deployment**. Access is not
+automatic merely because the URL exists; the signed-in user must belong to the
+requested organization.
+
+## 5. Prove the complete loop
+
+Ask the agent explicitly to use ctx|:
+
+```text
+Use ctx_advisor before planning. Identify the relevant architecture,
+standards, and source files, and label what still needs code verification.
+```
+
+You are ready to invite a team when:
+
+- `ctx_advisor` returns an organization-scoped answer,
+- that answer identifies useful source paths,
+- a repository retry succeeds,
+- backups and logs are configured,
+- and your rollback procedure matches the deployment path.
+
+## Related setup
+
+<Cards>
+  <Card title="Architecture" href="/docs/self-hosting/architecture" description="Services, state, and request flow." />
+  <Card title="Configuration" href="/docs/self-hosting/configuration" description="Required variables and connector secrets." />
+  <Card title="Production readiness" href="/docs/self-hosting/production-readiness" description="Origins, callbacks, persistence, and preflight checks." />
+  <Card title="MCP diagnostics" href="/docs/self-hosting/mcp" description="Verify discovery, OAuth, and ctx_advisor." />
+</Cards>

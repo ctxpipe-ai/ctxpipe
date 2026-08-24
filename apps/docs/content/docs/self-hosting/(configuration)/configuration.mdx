@@ -7,9 +7,10 @@ Configuration is environment-driven. Set only the values your deployment needs,
 but treat the required auth, database, model, and public-origin values as
 production secrets.
 
-## Requirements
+## Runtime requirements
 
-- Docker Engine 24+ and Docker Compose v2, **or** a Railway account
+- A supported [deployment path](/docs/self-hosting/deployment): Docker Compose,
+  the repository Terraform stack (Railway + Neon), or AWS CDK
 - PostgreSQL **17**; the reference Compose image is pgvector on Postgres 17
 - A graph database; FalkorDB is included in the reference Compose stack
 - An SMTP provider for transactional email
@@ -31,16 +32,12 @@ Edit `.env` with your values. The full production-style stack is the Compose
 **`deploy`** profile:
 
 ```bash
-docker compose --profile deploy up -d
+pnpm start
 ```
 
 The `deploy` profile starts Postgres, FalkorDB, OTEL collector, migrator,
 backend, worker, UI, and codesearch. The backend listens on the public app port
 and proxies the UI.
-
-For local host development, use the repo development runbook instead of this
-page: `pnpm dev:infra` starts infrastructure, and `pnpm dev` runs backend and UI
-on the host.
 
 ## Required variables
 
@@ -80,8 +77,9 @@ behavior.
 | Variable | Description |
 |---|---|
 | `MODEL_PROVIDER` | Optional. `openai-like` default, `openrouter`, `azure`, or `bedrock`. |
-| `MODEL_PROVIDER_API_KEY` | API key or Bedrock long-lived token. For Bedrock IAM, use AWS environment variables instead. |
-| `MODEL_PROVIDER_URL` | Optional for `openai-like` and `openrouter`; required for `azure` and `bedrock`. |
+| `MODEL_PROVIDER_API_KEY` | API key for OpenAI-compatible providers. Omit for native Bedrock IAM. |
+| `MODEL_PROVIDER_URL` | Optional for `openai-like` and `openrouter`; required for Azure; not used by native Bedrock. |
+| `MODEL_BEDROCK_AWS_REGION` | Optional explicit region for native Bedrock; otherwise use the AWS runtime region. |
 | `MODEL_FAST_NAME`, `MODEL_MEDIUM_NAME`, `MODEL_HIGH_NAME` | Optional model names per tier. |
 | `MODEL_EMBEDDING_NAME` | Optional embedding model ID. |
 
@@ -101,9 +99,8 @@ and tenancy behavior.
 
 ## GitHub App connector
 
-Repository connectors use GitHub App credentials. Current self-hosted
-deployments store GitHub App ID, PEM private key, and webhook secret encrypted in
-each `connections` row for `type: github`.
+Repository connectors use a deployment-owned GitHub App. The in-product wizard
+stores its ID, PEM private key, and webhook secret encrypted for the connection.
 
 | Variable | Description |
 |---|---|
@@ -113,18 +110,16 @@ each `connections` row for `type: github`.
 | `GITHUB_APP_SLUG` | Optional. Public app slug used for default install URLs. |
 | `CONNECTION_SECRETS_ENCRYPTION_KEY` | Optional 64-character hex key. When unset, encryption derives from `AUTH_SECRET`. |
 
-Set each GitHub App webhook URL to:
-
-```text
-https://<public-origin>/api/v1/webhook/github/<connectionId>
-```
-
-`<connectionId>` is the `con_*` connector id.
+The wizard reserves the connection-specific webhook URL and provides the exact
+value to paste into GitHub.
 
 <Callout title="OAuth sign-in is separate">
   `GITHUB_CLIENT_ID` and `GITHUB_CLIENT_SECRET` are for signing in with GitHub.
   GitHub App credentials are for repository installation and webhook access.
 </Callout>
+
+See [GitHub](/docs/self-hosting/github) for App registration, permissions,
+events, credentials, installation, and end-to-end verification.
 
 ## Atlassian and Confluence
 
@@ -141,7 +136,7 @@ full operator flow.
 
 ## Slack
 
-Self-hosted Slack uses one deployment-owned Slack app. Organisations authorise
+Self-hosted Slack uses one deployment-owned Slack app. Organizations authorize
 that app; they do not create per-tenant Slack apps or Event Subscription URLs.
 
 | Variable | Description |
@@ -153,7 +148,7 @@ that app; they do not create per-tenant Slack apps or Event Subscription URLs.
 Set the client ID, client secret, and signing secret together, then restart or
 redeploy backend. Backend and worker must share the same `AUTH_SECRET` and, when
 configured, `CONNECTION_SECRETS_ENCRYPTION_KEY` so encrypted Slack bot tokens
-remain usable by background sync jobs.
+remain usable by background capture jobs.
 
 Set the Slack Event Subscriptions Request URL to:
 
@@ -178,6 +173,21 @@ webhooks. Put the credentials on both backend and worker services.
 See [Linear](/docs/self-hosting/linear) for application registration, webhook
 subscriptions, preview limitations, and troubleshooting.
 
+## Notion
+
+Notion uses one deployment-owned public integration and one deployment webhook
+subscription.
+
+| Variable | Description |
+|---|---|
+| `NOTION_CLIENT_ID`, `NOTION_CLIENT_SECRET` | Public integration OAuth credentials. Both are required to enable the connector. |
+| `NOTION_REDIRECT_URI` | Optional exact callback override. Defaults to `{AUTH_BASE_URL}/api/v1/connectors/notion/oauth/callback`. |
+| `NOTION_WEBHOOK_SECRET` | Verification token shown by Notion after the first webhook delivery. Required for signed updates. |
+
+Put the OAuth credentials on every service that performs token refresh or
+connector work, then register the single deployment webhook.
+See [Notion](/docs/self-hosting/notion) for provisioning and verification.
+
 ## Observability
 
 ctx| can export OpenTelemetry data when endpoints are configured.
@@ -200,8 +210,11 @@ that can fan out to APM and Langfuse-style trace backends.
 | `AUTH_ISSUER` | Override the OAuth issuer claim. Defaults to `AUTH_BASE_URL`. |
 | `AUTH_ALLOWED_ORIGINS` | Comma-separated list of allowed CORS origins for auth endpoints. |
 | `CODESEARCH_URL` | URL of the codesearch service when running separately. |
-| `ENABLE_LANGSMITH` | Set to `"true"` to mount the LangGraph Studio API at `/langsmith` in dev-oriented environments. |
-| `AMPLITUDE_API_KEY`, `AMPLITUDE_REGION` | Optional product analytics configuration. |
+| `AMPLITUDE_API_KEY`, `AMPLITUDE_REGION` | Optional runtime product analytics configuration (`us` default or `eu`). Use the same values on backend and UI. |
+
+Amplitude configuration is read by the UI at runtime. Changing it does **not**
+require rebuilding the UI image. Leave `AMPLITUDE_API_KEY` unset to disable
+product analytics.
 
 ## Railway
 

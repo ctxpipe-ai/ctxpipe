@@ -3,7 +3,7 @@ title: MCP
 description: Point MCP clients at a self-hosted ctx| origin, then diagnose routing and OAuth with ctxpipe doctor mcp and MCPJam.
 ---
 
-Self-hosted ctx| exposes the same organisation-scoped Streamable HTTP endpoint as
+Self-hosted ctx| exposes the same organization-scoped Streamable HTTP endpoint as
 hosted ctx|:
 
 ```text
@@ -16,7 +16,7 @@ hosted ctx|; see [Remote MCP](/docs/mcp/mcp-docs) and
 [Authentication](/docs/self-hosting/authentication).
 
 This page is for operators: confirm the endpoint is reachable, then debug OAuth
-and tools on a **test organisation**.
+and tools on a **test organization**.
 
 <Callout type="warn" title="Ready for OAuth is not authenticated proof">
   `npx ctxpipe doctor mcp` checks HTTP routing, TLS or reachability, the
@@ -47,7 +47,7 @@ and MCP client OAuth are separate flows.
 
 ## Diagnose discovery
 
-Run the lightweight doctor against the exact organisation-scoped URL:
+Run the lightweight doctor against the exact organization-scoped URL:
 
 ```bash
 npx ctxpipe doctor mcp \
@@ -66,8 +66,8 @@ is allowed with a warning; remote endpoints must use HTTPS.
 | Target | Path is `/mcp` and `orgSlug` is present |
 | Backend status | `GET /.status` returns JSON with `status: "ok"` |
 | OAuth challenge | Unauthenticated Streamable HTTP `initialize` returns `401` with a Bearer `WWW-Authenticate` challenge that includes `resource_metadata` |
-| Protected resource | RFC 9728 metadata matches the `/mcp` audience and names an authorisation server |
-| Authorisation server | RFC 8414 metadata exposes authorisation, token, and registration endpoints |
+| Protected resource | RFC 9728 metadata matches the `/mcp` audience and names an authorization server |
+| Authorization server | RFC 8414 metadata exposes authorization, token, and registration endpoints |
 
 Overall status is `ready-for-oauth`, `warning`, or `failed`.
 
@@ -78,7 +78,7 @@ If TLS fails from a Node CLI against a local CA (Portless or a private CA), set
 
 MCPJam is an external diagnostic client. It is not bundled into `ctxpipe` or the
 self-hosted backend. Pin the versions below; do not use `@latest`. Use a test
-organisation, not a customer organisation.
+organization, not a customer organization.
 
 ```bash
 npx @mcpjam/cli@3.24.0 oauth login \
@@ -110,7 +110,7 @@ npx @mcpjam/inspector@2.40.0 \
 ```
 
 The hosted MCPJam application only reaches public HTTPS. It cannot use
-`localhost` or refresh against a local authorisation server.
+`localhost` or refresh against a local authorization server.
 
 ## Artefacts and credentials
 
@@ -135,9 +135,9 @@ concurrent clients. Do not gate CI on interactive OAuth or LLM evals.
 - **HTTP 401 without `resource_metadata`** — clients cannot start OAuth discovery.
 - **Protected-resource audience mismatch** — RFC 9728 `resource` canonicalises to
   `/mcp` without the query string.
-- **Authorisation-server metadata missing registration** — dynamic client
+- **Authorization-server metadata missing registration** — dynamic client
   registration cannot proceed.
-- **CLI setup sign-in worked, but the MCP client still asks for authorisation** —
+- **CLI setup sign-in worked, but the MCP client still asks for authorization** —
   expected. Setup auth and MCP OAuth are separate.
 
 ## Related pages

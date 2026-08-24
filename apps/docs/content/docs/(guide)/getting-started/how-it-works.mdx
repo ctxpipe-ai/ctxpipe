@@ -55,17 +55,37 @@ time, then gives agents a controlled way to ask useful questions about it.
     ### Keep context current
 
     ctx| tracks readiness as sources are indexed and ingested. When connected
-    sources change, ctx| can re-ingest them so agents are not stuck with stale
+    sources change, ctx| can ingest them again so agents are not stuck with stale
     context.
 
-    The exact update path depends on the connection type. GitHub repositories,
-    Confluence spaces, and other sources each have their own setup flow, but the
-    goal is the same: keep the context agents use close to the source of truth.
+    The update path depends on the source. GitHub repositories are indexed
+    directly. Linear, Notion, and Confluence keep selected content in Git.
+    Slack captures a specific thread only when a user asks for it.
   </Step>
 </Steps>
+
+## Answers are evidence, not authority
+
+ctx| combines search results, repository files, and extracted graph claims.
+That is more useful than a generic model prompt, but it is not proof. Sources
+can be incomplete, extraction can miss a relationship, and a recent code change
+may not have been ingested yet.
+
+For consequential work, ask the agent to:
+
+- name the files and decisions behind its answer,
+- separate verified source facts from inference,
+- and check the current code before changing behavior.
 
 <Callout title="Self-hosting">
   Self-hosted deployments use the same product model with your own backend, UI,
   worker, codesearch, Postgres, and graph database. See the
   [self-hosting section](/docs/self-hosting) for deployment-specific details.
 </Callout>
+
+<Cards>
+  <Card title="Hosted quickstart" href="/docs/getting-started/quickstart" description="Run the smallest useful source-to-agent loop." />
+  <Card title="Source connectors" href="/docs/connections/source-connectors" description="Compare direct Git, scoped mirrors, and intent capture." />
+  <Card title="Remote MCP" href="/docs/mcp/mcp-docs" description="Connect ctx| to your coding agents." />
+  <Card title="Knowledge graph" href="/docs/knowledge-graph" description="Inspect the relationships behind agent context." />
+</Cards>

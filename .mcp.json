@@ -1,0 +1,8 @@
+{
+  "mcpServers": {
+    "ctxpipe": {
+      "type": "streamable-http",
+      "url": "https://app.ctxpipe.ai/mcp?orgSlug=ctx-tev"
+    }
+  }
+}

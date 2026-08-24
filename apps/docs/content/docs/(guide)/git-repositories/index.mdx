@@ -13,20 +13,21 @@ to search, Chat, MCP, and knowledge graph extraction.
   alt="ctx| repositories list"
 />
 
-## What a Repository Enables
+## What a repository enables
 
 Each repository belongs to one organization and contributes to four surfaces:
 
-- **Codesearch**: cloned and indexed by Zoekt for fast text, file, and symbol
-  retrieval.
+- **Code search**: fast text, file, and symbol retrieval across connected
+  repositories.
 - **Chat**: available to the conversation graph as source material.
 - **MCP**: available to `ctx_advisor` and repo explorer tools for agent clients.
 - **Knowledge graph**: analyzed into extracted nodes and claims during ingestion.
 
-Repository state is visible in the app as **pending indexing**, **indexing**, or
-**indexed**. The UI polls while indexing is in progress.
+Repository state is visible in the app as **pending indexing**, **indexing**,
+**indexed**, or **complete with issues**. Use **Retry indexing** when a run needs
+another attempt.
 
-## Core Workflows
+## Core workflows
 
 <Cards>
   <Card title="Add repository" href="/docs/git-repositories/add-repository" description="Connect GitHub or add a single Git URL." />
@@ -35,32 +36,26 @@ Repository state is visible in the app as **pending indexing**, **indexing**, or
   <Card title="Install MCPs via PR" href="/docs/git-repositories/install-mcps-via-pr" description="Open pull requests that add ctx| MCP config to selected repos." />
 </Cards>
 
-## Data Model
+## Scope is explicit
 
-At the API level, a repository includes:
+The repository inventory answers a simple question: **what currently
+contributes to this organization's context?**
 
-| Field | Meaning |
-| --- | --- |
-| `id` | Stable repository ID, prefixed with `repo_`. |
-| `orgId` | Internal organization ID that scopes the repository. |
-| `name` | Human-readable name, usually `owner/repo` for GitHub sources. |
-| `gitUrl` | Clone URL used by ingestion. |
-| `indexReady` | Whether the default checkout has completed search indexing. |
-| `lastIngestedHash` | Last commit hash processed by ingestion, when known. |
-| `zoektRepoId` | Internal search index ID for the default checkout. |
+- Selecting a repository in the GitHub App makes it available to ctx|.
+- **Index now** starts ingestion for a selected repository.
+- **Retry indexing** starts a new run without removing the repository.
+- **Unindex** removes its search, Chat, MCP, and graph contribution from ctx|.
 
-The public UI works from the organization slug in the path:
+Changing the GitHub App installation and changing what ctx| indexes are related
+but separate actions. The [manage repositories guide](/docs/git-repositories/manage-repositories)
+explains both.
 
-```text
-/:orgSlug/repositories
-/:orgSlug/repositories/github/setup
-```
-
-The versioned REST API is scoped the same way:
-
-```text
-/:orgSlug/api/v1/repositories
-```
+<Callout type="info" title="Context repositories are repositories too">
+  If Linear, Notion, Confluence, or Slack writes into a context repository,
+  unindexing that repository removes its generated content from ctx| answers.
+  It does not delete the files or Git history, and it does not disconnect the
+  upstream provider.
+</Callout>
 
 ## Related
 

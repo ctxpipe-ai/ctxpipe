@@ -1,22 +1,11 @@
 ---
-title: Welcome to ctx|
-description: Context infrastructure for teams building with AI agents.
+title: Give every agent the context your team already knows
+description: Connect code and working context once, then make it available to Chat, coding agents, and your team through ctx| MCP.
 ---
 
-The context layer for AI agents.
-
-Welcome to **ctx|**, the shared context system for engineering teams that want
-AI agents to understand their codebase, standards, decisions, and day-to-day
-workflow.
-
-ctx| connects your repositories, docs, and engineering tools into an
-organization-scoped knowledge layer. Agents access that layer through MCP, so
-Cursor, Claude Code, and other clients can ask grounded questions before they
-plan, write, or change code.
-
-The result is not another chat surface with a bigger prompt. It is a source of
-truth that keeps compounding as your team connects code, records decisions, and
-uses agents in real work.
+ctx| is an organization-scoped context layer for engineering teams. It connects
+the sources your team trusts, prepares them for search and technical reasoning,
+and gives AI agents one place to ask before they make a decision.
 
 <ImageSlot
   title="ctx| Knowledge graph"
@@ -25,55 +14,46 @@ uses agents in real work.
   description="ctx| turns repositories and team knowledge into a graph that agents can query."
 />
 
-## What's ctx|'s vision?
+## Start with one useful path
 
-ctx| exists to make AI agents reliable inside real engineering organizations.
+You do not need to connect everything on day one. The shortest path to value is:
 
-Every team adopting agents runs into the same barrier: the model does not know
-your architecture, your conventions, your ownership boundaries, or the decision
-you made last month. Those details live across repositories, ADRs, tickets,
-docs, and people.
+1. Connect GitHub and index one representative repository.
+2. Ask a real architecture question in Chat.
+3. Install ctx| MCP in one coding agent.
+4. Add a context repository when you are ready to bring in Linear, Notion,
+   Confluence, or selected Slack threads.
 
-Our vision is to make that organizational context available wherever agents do
-work. ctx| indexes the sources you connect, builds a living knowledge system,
-and exposes it through one MCP surface that agents can query as part of their
-normal workflow.
+The [hosted quickstart](/docs/getting-started/quickstart) walks through that
+path end to end.
 
-## What we stand for
+## What ctx| gives you
 
-- **Context should be shared** - Every agent should work from the same team
-  knowledge, not a one-off prompt or a private local cache.
-- **Git remains the source of truth** - Repositories, instructions, ADRs, and
-  connected docs should feed the knowledge layer without replacing your existing
-  workflow.
-- **Agents should discover before they decide** - `ctx_advisor` gives agents a
-  place to ask what is standard, what already exists, and what changed.
-- **Teams should control their data** - ctx| is open source, supports
-  self-hosting, and is designed for organizations that care about where context
-  is stored and how it is used.
+- **Fast repository discovery** across the code your organization has indexed.
+- **A knowledge graph** of systems, APIs, libraries, standards, and their
+  relationships.
+- **Reviewable working context** from source connectors that write to Git.
+- **One remote MCP** for Cursor, Claude Code, Codex, OpenCode, and compatible
+  clients.
+- **A human-facing Chat** for the same organization context.
 
-## Where we're headed
+## Honest limits
 
-We're building the context infrastructure layer for teams that use AI agents as
-part of software delivery.
+ctx| improves an agent's starting point; it does not make model output
+authoritative. Graph claims are extracted from connected sources and may be
+incomplete or stale. For risky changes, ask for source paths and verify the
+answer in code. ctx| complements code review and engineering judgement; it does
+not replace either.
 
-That means helping teams:
+Connections are also deliberate. ctx| does not scan a developer laptop or
+silently mirror every SaaS workspace. Your team chooses the repositories,
+source scope, and Git access boundary.
 
-- connect repositories, docs, and engineering tools into one knowledge system,
-- keep architecture and standards visible to agents,
-- ground MCP workflows in organization-specific context,
-- inspect the graph behind agent answers,
-- and run the stack in the environment that fits their security model.
-
-## Where to go next
+## Choose your next step
 
 <Cards>
-  <Card title="How ctx| works" href="/docs/getting-started/how-it-works" description="Data flow from repo to graph to MCP." />
-  <Card title="Who is ctx| for?" href="/docs/getting-started/who-is-it-for" description="Teams and roles that get the most value." />
-  <Card title="MCP setup" href="/docs/mcp/mcp-docs" description="Connect a repo and MCP client." />
-  <Card title="Get in touch" href="/docs/getting-started/get-in-touch" description="Sales, support, and GitHub." />
+  <Card title="Hosted quickstart" href="/docs/getting-started/quickstart" description="Index a repository, ask a question, and install MCP." />
+  <Card title="Connect sources" href="/docs/connections" description="Choose the right path for GitHub, docs, issues, and conversations." />
+  <Card title="Install MCP" href="/docs/mcp/mcp-docs" description="Set up an individual client or roll ctx| out to a team." />
+  <Card title="Self-host ctx|" href="/docs/self-hosting" description="Choose Docker, Terraform, or AWS and own the operating boundary." />
 </Cards>
-
-## Want a walkthrough?
-
-If you want to see how ctx| fits your team, [get in touch](/docs/getting-started/get-in-touch).

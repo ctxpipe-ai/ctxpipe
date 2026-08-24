@@ -10,8 +10,9 @@ exist underneath those workflows.
 
 <Callout title="Fully managed vs self-hosted">
   Fully managed ctx| manages hosting, connector credentials, install links, model
-  provider defaults, and production operations. In a self-hosted deployment, your
-  team owns those responsibilities.
+  provider defaults, and production operations. A self-hosted deployment runs
+  the product on your infrastructure and owns every provider app, callback,
+  secret, and source-data boundary.
 </Callout>
 
 ## Fully managed vs self-hosted responsibilities
@@ -28,7 +29,9 @@ own infrastructure, with your own production controls.
 | Graph database | Managed | You provide FalkorDB or another supported graph database |
 | GitHub connector | Managed app flow | You provide or store GitHub App credentials per connection |
 | Confluence connector | Managed Atlassian OAuth and Forge install link | You configure Atlassian 3LO, Forge install/provisioning, and callbacks |
+| Slack connector | Managed Slack app and Events endpoint | You create the deployment Slack app, OAuth flow, scopes, and Events endpoint |
 | Linear connector | Managed OAuth and signed webhooks | You register a Linear OAuth application, signed webhook, and exact callbacks |
+| Notion connector | Managed public integration and webhook | You register the public integration, callback, and deployment webhook |
 | Model provider | Hosted defaults | You configure OpenRouter, Azure, Bedrock, or an OpenAI-compatible provider |
 | Secrets | Managed | You rotate and protect auth, connector, model, and encryption secrets |
 | Logs and traces | Managed | You collect stdout logs or configure OpenTelemetry exporters |
@@ -63,7 +66,7 @@ A self-hosted deployment includes:
 |---|---|
 | `backend` | Hono API, auth, REST routes, MCP endpoint, connector callbacks, UI proxy |
 | `ui` | TanStack Start web app, served through the backend public origin |
-| `worker` | OpenWorkflow jobs for ingestion, connectors, and provisioning work |
+| `worker` | Durable ingestion, connector, capture, and provisioning jobs |
 | `codesearch` | Zoekt-backed clone/index service used by repository search and ingestion |
 | `postgres` | Application database, auth/session state, connections, repositories, workflow state |
 | `graph database` | Claims and relationships used by the knowledge graph and agent context |
@@ -77,7 +80,10 @@ A self-hosted deployment includes:
   <Card title="Architecture" href="/docs/self-hosting/architecture" description="Service topology, request flow, and stateful components." />
   <Card title="AWS" href="/docs/self-hosting/deployment/aws" description="Deploy ctx| on AWS with the CtxPipe construct." />
   <Card title="Configuration" href="/docs/self-hosting/configuration" description="Compose, required environment variables, and connector secrets." />
+  <Card title="GitHub" href="/docs/self-hosting/github" description="Create the deployment-owned App that powers repository access." />
   <Card title="Linear" href="/docs/self-hosting/linear" description="Configure Linear OAuth, webhooks, and connector verification." />
+  <Card title="Slack" href="/docs/self-hosting/slack" description="Configure intent-based thread capture with your Slack app." />
+  <Card title="Notion" href="/docs/self-hosting/notion" description="Configure Notion OAuth, webhooks, and connector verification." />
   <Card title="Production readiness" href="/docs/self-hosting/production-readiness" description="TLS, domains, callbacks, persistence, and security checks." />
   <Card title="Operations" href="/docs/self-hosting/operations" description="Migrations, logs, health checks, backups, and recovery." />
   <Card title="MCP" href="/docs/self-hosting/mcp" description="Endpoint diagnostics, OAuth discovery, and MCPJam." />

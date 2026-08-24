@@ -1,0 +1,126 @@
+---
+title: Hosted quickstart
+description: Go from an empty ctx| organization to a useful agent workflow in four steps.
+---
+
+This path is deliberately small: one repository, one verified question, and one
+MCP client. Add more sources only after this loop is useful.
+
+## Before you start
+
+You need:
+
+- access to a ctx| organization,
+- permission to install or request the ctx| GitHub App,
+- one repository that contains useful code and documentation,
+- and Cursor, Claude Code, Codex, OpenCode, or VS Code with MCP support.
+
+<Callout type="info" title="Self-hosting?">
+  This page covers the hosted product. Start with the
+  [self-hosting quickstart](/docs/self-hosting/quickstart) if your team operates
+  its own deployment.
+</Callout>
+
+## 1. Connect one repository
+
+<Steps>
+  <Step>
+    ### Install the GitHub App
+
+    Open **Connectors**, choose **Add connection**, then select **GitHub**.
+    Install or authorize the ctx| GitHub App for the GitHub organization that
+    owns your repository.
+  </Step>
+
+  <Step>
+    ### Choose a narrow first scope
+
+    Open **Repositories → Select repositories** and select one representative
+    repository. A repository with a README, architecture notes, ADRs, and agent
+    instructions gives ctx| more useful evidence than code alone.
+  </Step>
+
+  <Step>
+    ### Wait for indexing
+
+    The repository moves through **pending indexing**, **indexing**, and
+    **indexed**. You can open it while work is in progress, but search and graph
+    context may be incomplete until indexing finishes.
+  </Step>
+</Steps>
+
+<ImageSlot
+  title="Git sources"
+  src="/repositories.png"
+  alt="Git sources page showing indexed repositories"
+  description="The repository inventory shows what currently contributes to your organization context."
+/>
+
+## 2. Test the context in Chat
+
+Open **Chat** and ask a question whose answer you already know. Good first
+questions force the system to identify both source code and team guidance:
+
+```text
+What are the main services in this repository, and which files support that answer?
+```
+
+```text
+Before changing authentication, what architecture decisions and standards should an engineer read?
+```
+
+Treat this as a calibration step. A strong answer should distinguish verified
+source facts from recommendations and point you toward relevant files. If it
+does not, improve the repository documentation or narrow the question before
+rolling ctx| out more broadly.
+
+## 3. Install ctx| MCP
+
+For an individual developer, run the interactive installer from any repository:
+
+```bash
+npx ctxpipe init
+```
+
+Choose your ctx| organization, agent clients, and whether configuration belongs
+to the current repository or your user profile. Your MCP client will ask you to
+authorize ctx| the first time it connects.
+
+Then give the agent a concrete discovery task:
+
+```text
+Use ctx_advisor before planning this change. Find the relevant standards,
+decisions, and source areas, and label anything that still needs code verification.
+```
+
+See [Remote MCP](/docs/mcp/mcp-docs) for team pull requests, non-interactive CLI
+flags, and manual client configuration.
+
+## 4. Add working context when it earns its keep
+
+Once repository context is useful, connect sources that hold decisions or
+operational knowledge:
+
+- **Linear and Notion** mirror selected scope through a reviewable configuration
+  pull request.
+- **Confluence** mirrors approved spaces and pages through its Atlassian setup.
+- **Slack** captures specific existing threads on demand; it does not mirror
+  channels or search the whole workspace.
+
+Use a dedicated [context repository](/docs/connections/context-repository) when
+those sources should share a Git-backed audit trail.
+
+## You are ready when
+
+- the repository is indexed,
+- Chat can answer one known question and cite useful source paths,
+- your MCP client can call `ctx_advisor`,
+- and your team understands that critical claims still require code
+  verification.
+
+<Cards>
+  <Card title="How ctx| works" href="/docs/getting-started/how-it-works" description="Understand the full source-to-agent flow." />
+  <Card title="Manage repositories" href="/docs/git-repositories/manage-repositories" description="Control scope, status, retries, and removal." />
+  <Card title="Source connectors" href="/docs/connections/source-connectors" description="Compare Git sources, scoped mirrors, and intent capture." />
+  <Card title="Data and privacy" href="/docs/resources/data-processing" description="Understand hosted processing, providers, and control boundaries." />
+</Cards>

@@ -75,6 +75,7 @@ Before starting, make sure you have:
       src="/add-connection-confluence.png"
       alt="Add Confluence connection from the ctx| Connectors page"
     />
+
   </Step>
 
   <Step>
@@ -153,10 +154,21 @@ Before starting, make sure you have:
     - Exclude stale or sensitive areas that agents should not rely on.
     - Prefer authoritative docs over duplicates or abandoned pages.
 
-    After saving, ctx| starts syncing the selected Confluence content. The
-    connector card shows its status and lets you reopen setup or edit scope
-    later.
+    Saving the selection asks ctx| to open a configuration pull request in the
+    selected repository. Content does not start synchronising yet.
 
+  </Step>
+
+  <Step>
+    ### Merge the configuration pull request
+
+    Review `confluence/config.yaml`, confirm the selected spaces and target
+    branch, then merge the pull request. Approval alone is not enough: the
+    target-branch YAML becomes live only after merge.
+
+    ctx| then performs the initial Confluence sync and starts repository
+    ingestion. The connector card tracks progress and lets you edit scope or
+    retry failed work later.
   </Step>
 </Steps>
 
@@ -167,3 +179,9 @@ Before starting, make sure you have:
 
   For self-hosted setup, go [here](/docs/self-hosting/confluence-atlassian).
 </Callout>
+
+## Related pages
+
+- [Connector context repository](/docs/connections/context-repository)
+- [Ingestion](/docs/connections/ingestion)
+- [Self-host Confluence & Atlassian](/docs/self-hosting/confluence-atlassian)

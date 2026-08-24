@@ -1,61 +1,77 @@
 ---
-title: Ingestion explanation
-description: Clone, search indexing, and graph extraction after you connect a repository.
+title: How ingestion works
+description: What ctx| prepares after you connect a repository, and how to read indexing states.
 ---
 
-**Ingestion** is the pipeline from “repository/tool URL registered” to “searchable,
-queryable context for agents”. It spans the **backend**, **worker**, and
-**codesearch** services in the monorepo.
+**Ingestion** turns a connected repository into context that Search, Chat, the
+knowledge graph, and MCP can use. It is asynchronous: a repository can appear in
+ctx| before every capability is ready.
 
-## High-level stages
+## The four stages
 
 <Steps>
   <Step>
-    ### Registration & workflow kick-off
+    ### Read the selected source
 
-    Creating a repository via the API (or UI) stores metadata and starts an
-    **OpenWorkflow** run (`repository-ingestion` in the backend). That
-    coordinates ref resolution, clone paths, and downstream steps.
+    ctx| resolves the selected repository and default branch, then prepares a
+    working copy for indexing. Private repositories require the GitHub App or
+    clone credentials to remain valid.
   </Step>
 
   <Step>
-    ### Clone & Zoekt index
+    ### Build code navigation
 
-    The **codesearch** service owns the working copy on disk and talks to
-    **zoekt-webserver** for indexing. Search-oriented tools (`search`,
-    `list_files`, `get_file`, symbol helpers) ultimately depend on this index
-    being healthy.
+    ctx| builds lexical and structural indexes so agents can search code, list
+    files, and retrieve relevant source without reading an entire repository
+    into one prompt.
   </Step>
 
   <Step>
-    ### Graph extraction (LangGraph)
+    ### Extract technical context
 
-    A separate **code ingestion** graph analyzes the tree with LLM-assisted
-    **extractors** (services, APIs, clients, libraries, streams, infrastructure,
-    patterns, etc.). Output is normalised into **claims** stored in your graph
-    backed by an OpenCypher-compatible engine.
+    Model-assisted extraction identifies systems, APIs, libraries,
+    infrastructure, instructions, and relationships. Those findings become
+    evidence-backed claims in the organization knowledge graph.
   </Step>
 
   <Step>
-    ### Readiness flags
+    ### Publish readiness
 
-    Repositories and checkouts carry flags such as index readiness so the UI and
-    APIs can show whether search/graph features are available for a given ref.
+    The repository status tells you whether work is pending, in progress,
+    complete, or complete with issues. Search and graph preparation are
+    separate, so one capability can be ready before another.
   </Step>
 </Steps>
 
-## Operator-facing notes
+## Read the repository state
 
-- **Self-hosted**: ensure `CODESEARCH_URL` points at your codesearch service and
-  that Postgres migrations have run - the codesearch app reads repository rows
-  from the same logical DB model as the backend.
-- **Failures**: clone or SCIP failures fail the run. If Zoekt (search index)
-  fails but SCIP succeeds, the repository is **complete with issues**: chat and
-  graph still work, lexical search may be empty, and Retry indexing starts a
-  fresh attempt. An OOM of the codesearch task is stored as
-  “Codebase didn't fit available memory”, not a raw `fetch failed`.
+| State | Meaning | What to do |
+| --- | --- | --- |
+| **Pending indexing** | The source is selected but ingestion has not started. | Choose **Index now**. |
+| **Indexing** | ctx| is preparing search and graph context. | Wait; answers may be incomplete. |
+| **Indexed** | The current ingestion run completed. | Test a known question in Chat or MCP. |
+| **Complete with issues** | Useful context exists, but one indexing capability failed. | Open the row menu and choose **Retry indexing** after resolving the cause. |
+| **Failed** | ctx| could not complete the repository run. | Check access, repository size, and operator logs, then retry. |
 
-<Callout type="info">
-  Exact extractor sets and graph primitives evolve with the product; treat this
-  page as the conceptual map, not a frozen schema reference.
+<Callout type="warn" title="Indexed does not mean infallible">
+  Ingestion creates search indexes and inferred graph claims; it does not certify
+  an answer as correct. Ask agents to cite files and verify risky decisions
+  against the current source.
 </Callout>
+
+## Keeping context current
+
+Repository changes can trigger another ingestion run. Connector-generated
+content follows the same path after it reaches the context repository.
+
+If a repository is stale or a run failed, use **Retry indexing**. You no longer
+need to remove and add the repository merely to start a fresh run. Use
+**Unindex** only when the repository should stop contributing to Search, Chat,
+MCP, and the graph.
+
+<Cards>
+  <Card title="Manage repositories" href="/docs/git-repositories/manage-repositories" description="Review scope, status, retries, and GitHub selection." />
+  <Card title="Retry or unindex" href="/docs/git-repositories/unindex-reindex" description="Choose the right recovery or removal action." />
+  <Card title="Knowledge graph" href="/docs/knowledge-graph" description="Understand the extracted claims produced during ingestion." />
+  <Card title="Self-host operations" href="/docs/self-hosting/operations" description="Diagnose services, logs, storage, and recovery as an operator." />
+</Cards>

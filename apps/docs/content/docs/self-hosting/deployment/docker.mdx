@@ -42,8 +42,11 @@ MODEL_PROVIDER_API_KEY=<model-provider-key>
 Then start the deploy profile:
 
 ```bash
-docker compose --profile deploy up -d
+pnpm start
 ```
+
+`pnpm start` is the repository shortcut for
+`docker compose --profile deploy up -d`.
 
 For a local evaluation, `AUTH_BASE_URL` and `CTXPIPE_PUBLIC_APP_URL` can point at
 `http://localhost:3000`. For team use, put a TLS-terminating proxy in front of

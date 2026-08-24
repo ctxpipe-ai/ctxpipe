@@ -1,30 +1,31 @@
-import type { Metadata } from "next"
-import type { ComponentProps, ComponentType } from "react"
-import { notFound, redirect } from "next/navigation"
 import type { TOCItemType } from "fumadocs-core/toc"
-import {
-  DocsPage,
-  DocsBody,
-  DocsTitle,
-  DocsDescription,
-} from "fumadocs-ui/page"
-import defaultMdxComponents from "fumadocs-ui/mdx"
 import { Callout } from "fumadocs-ui/components/callout"
 import {
   ImageZoom,
   type ImageZoomProps,
 } from "fumadocs-ui/components/image-zoom"
+import defaultMdxComponents from "fumadocs-ui/mdx"
+import {
+  DocsBody,
+  DocsDescription,
+  DocsPage,
+  DocsTitle,
+} from "fumadocs-ui/page"
+import type { Metadata } from "next"
+import { notFound, redirect } from "next/navigation"
+import type { ComponentProps, ComponentType } from "react"
 import { source } from "@/lib/source"
-import { Card, Cards } from "../components/docs-card"
 import { ConfluenceDataFlowDiagram } from "../components/confluence-data-flow-diagram"
 import { ConfluenceDataModelDiagram } from "../components/confluence-data-model-diagram"
+import { Card, Cards } from "../components/docs-card"
+import { ConnectorKindsDiagram } from "../components/docs-diagrams"
 import { ImageSlot } from "../components/docs-image-slot"
 import { Step, Steps } from "../components/docs-steps"
 
-function ZoomableImage(props: ComponentProps<"img">) {
+function ZoomableImage({ alt = "", ...props }: ComponentProps<"img">) {
   return (
-    <ImageZoom {...(props as ImageZoomProps)}>
-      <img {...props} />
+    <ImageZoom {...({ ...props, alt } as ImageZoomProps)}>
+      <img {...props} alt={alt} />
     </ImageZoom>
   )
 }
@@ -74,6 +75,7 @@ export default async function Page({ params }: Props) {
               Callout,
               ConfluenceDataFlowDiagram,
               ConfluenceDataModelDiagram,
+              ConnectorKindsDiagram,
               Step,
               Steps,
               ImageSlot,
