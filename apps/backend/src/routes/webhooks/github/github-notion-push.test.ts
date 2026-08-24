@@ -8,6 +8,10 @@ vi.mock("../../../config/env.js", () => ({
   parseEnv: () => ({}),
 }))
 vi.mock("../../../db/client.js", () => ({
+    tryGetOrgDb: () => ({}),
+    tryGetOrgDbOrgId: () => "org_test",
+    assertNotInOrgDbContext: () => undefined,
+
   withOrgDbContext: (_orgId: string, fn: () => unknown) => fn(),
 }))
 vi.mock("../../../models/github-installation.js", () => ({

@@ -1,5 +1,5 @@
 import type { Meta, StoryObj } from "@storybook/react-vite"
-import { HttpResponse, http } from "msw"
+import { delay, HttpResponse, http } from "msw"
 import { entryPageInnerDecorators } from "../../../../.storybook/decorators/entry-page-decorators"
 import type { StoryRouteParams } from "../../../../.storybook/decorators/with-story-route"
 import { SlackSetupDialog } from "./SlackSetupDialog"
@@ -103,6 +103,27 @@ const meta = {
 export default meta
 
 type Story = StoryObj<typeof meta>
+
+export const Loading: Story = {
+  parameters: {
+    msw: {
+      handlers: {
+        page: [
+          http.get(
+            ({ request }) =>
+              new URL(request.url).pathname.includes(
+                "/api/v1/connectors/slack/status",
+              ),
+            async () => {
+              await delay("infinite")
+              return HttpResponse.json({})
+            },
+          ),
+        ],
+      },
+    },
+  },
+}
 
 export const AuthorizeSlack: Story = {
   parameters: {

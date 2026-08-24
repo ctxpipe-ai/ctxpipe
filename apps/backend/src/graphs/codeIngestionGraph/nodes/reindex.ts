@@ -1,3 +1,4 @@
+import { AsyncResource } from "node:async_hooks"
 import { trace } from "@opentelemetry/api"
 import { z } from "zod/v3"
 import { signUpstreamJwt } from "../../../auth/upstreamJwt.js"
@@ -91,18 +92,21 @@ export async function reindex(state: ReindexInput): Promise<ReindexStepResult> {
       async (span): Promise<ReindexStepResult> => {
         let loggedHttpFail = false
         try {
-          heartbeatInterval = setInterval(() => {
-            const elapsedMs = Date.now() - httpStartTime
-            const waitLogger = getLogger()
-            waitLogger.set({
-              step: "codeIngestion.reindex.http.waiting",
-              elapsedMs,
-              repositoryId: state.repositoryId,
-              targetHash: state.targetHash,
-            })
-            waitLogger.info("reindex HTTP waiting")
-            flushWorkflowLog()
-          }, 30_000)
+          heartbeatInterval = setInterval(
+            AsyncResource.bind(() => {
+              const elapsedMs = Date.now() - httpStartTime
+              const waitLogger = getLogger()
+              waitLogger.set({
+                step: "codeIngestion.reindex.http.waiting",
+                elapsedMs,
+                repositoryId: state.repositoryId,
+                targetHash: state.targetHash,
+              })
+              waitLogger.info("reindex HTTP waiting")
+              flushWorkflowLog()
+            }),
+            30_000,
+          )
 
           const res = await withTransientHttpRetry(
             async () => {

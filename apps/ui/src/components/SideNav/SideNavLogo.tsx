@@ -1,5 +1,6 @@
 import { Link } from "react-aria-components"
 import { twMerge } from "tailwind-merge"
+import { focusVisibleClassName } from "@/lib/focus-styles"
 import { Logo } from "../Logo/Logo"
 
 export function SideNavLogo({ className }: { className?: string }) {
@@ -8,7 +9,9 @@ export function SideNavLogo({ className }: { className?: string }) {
       href="/"
       aria-label="Home"
       className={twMerge(
-        "inline-flex items-center py-4.5 px-3.5 text-white transition-all ",
+        // Padding traded for margin so the focus ring stays inside the rail/viewport.
+        "inline-flex items-center rounded-lg px-2.5 py-1.5 mx-1 my-1 text-white transition-all",
+        focusVisibleClassName,
         className,
       )}
     >

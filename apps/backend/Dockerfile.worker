@@ -19,6 +19,8 @@ WORKDIR /app
 ENV CI=true
 ENV NODE_ENV=production
 ENV PATH="/usr/local/bin:${PATH}"
+# git: clone-tree and paste-URL hydrate spawn the git CLI.
+RUN apk add --no-cache git
 # Node 22 + global @forge/cli from stage above (directories copied together; do not RUN npm here).
 COPY --from=nodeforge /usr/local/bin/ /usr/local/bin/
 COPY --from=nodeforge /usr/local/lib/node_modules/ /usr/local/lib/node_modules/

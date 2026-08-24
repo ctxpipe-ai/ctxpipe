@@ -153,7 +153,7 @@ cdk synth
 cdk deploy
 ```
 
-`cdk deploy` runs Postgres migrations, then rolls the ECS services. You do not set image tags in `CtxPipe` props, and you should not retag tasks to `:latest` yourself.
+`cdk deploy` runs Postgres migrations, then rolls the ECS services. You do not set image tags in `CtxPipe` props, and you should not retag tasks to `:latest` yourself. The migrate task provisions `ctxpipe_app` and rewrites the runtime `DATABASE_URL` secret; CDK operators do not set either URL by hand and do not run `psql`.
 
 This is how codesearch memory bumps (4 / 8 / 12 GiB) and ingest behaviour land together. Updating only container images, or only task memory, leaves the stack split across releases.
 
@@ -261,7 +261,7 @@ through backend routing.
 
 - `GRAPH_DB_PROVIDER=neptune` and graph URI wiring from Neptune endpoints
 - Internal service routing (`UI_PROXY_URL`, `CODESEARCH_URL`) so only backend is public
-- Generated `AUTH_SECRET` and managed `DATABASE_URL` / SMTP secrets
+- Generated `AUTH_SECRET` and managed `DATABASE_URL` (runtime `ctxpipe_app`) / SMTP secrets
 - Public app URL output and secret ARN outputs for operations
 
 ## How to choose `size`

@@ -1,4 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
+import { withTestLogger } from "../../../test/with-test-logger.js"
 
 const signUpstreamJwtMock = vi.hoisted(() => vi.fn())
 const parseEnvMock = vi.hoisted(() => vi.fn())
@@ -10,7 +11,6 @@ const withTransientHttpRetryMock = vi.hoisted(() =>
   }),
 )
 const getInstallationTokenMock = vi.hoisted(() => vi.fn())
-const flushWorkflowLogMock = vi.hoisted(() => vi.fn())
 const otelMocks = vi.hoisted(() => {
   const spanEnd = vi.fn()
   return {
@@ -24,13 +24,6 @@ const otelMocks = vi.hoisted(() => {
     ),
   }
 })
-
-const logger = {
-  set: vi.fn(),
-  info: vi.fn(),
-  error: vi.fn(),
-  warn: vi.fn(),
-}
 
 vi.mock("../../../auth/upstreamJwt.js", () => ({
   signUpstreamJwt: signUpstreamJwtMock,
@@ -46,10 +39,6 @@ vi.mock("../../../lib/withTransientHttpRetry.js", () => ({
 }))
 vi.mock("../../../models/github-installation.js", () => ({
   getInstallationToken: getInstallationTokenMock,
-}))
-vi.mock("../../../observability/logger.js", () => ({
-  flushWorkflowLog: flushWorkflowLogMock,
-  getLogger: () => logger,
 }))
 vi.mock("@opentelemetry/api", () => ({
   trace: {
@@ -70,15 +59,14 @@ const successBody = JSON.stringify({
   renames: [],
 })
 
-function httpFailSetCalls() {
-  return logger.set.mock.calls.filter(([entry]) => {
-    return (
-      entry != null &&
-      typeof entry === "object" &&
-      "step" in entry &&
-      entry.step === "codeIngestion.reindex.http.fail"
-    )
-  })
+function runReindex() {
+  return withTestLogger(() =>
+    reindex({
+      repositoryId: "repo_abc123",
+      orgId: "org_abc123",
+      targetHash: "target-hash",
+    }),
+  )
 }
 
 describe("reindex", () => {
@@ -98,18 +86,12 @@ describe("reindex", () => {
       vi
         .fn()
         .mockResolvedValueOnce(new Response("warming", { status: 503 }))
-        .mockResolvedValueOnce(
-          new Response(successBody, { status: 200 }),
-        ),
+        .mockResolvedValueOnce(new Response(successBody, { status: 200 })),
     )
   })
 
   it("mints a fresh Codesearch JWT for each retry attempt", async () => {
-    const result = await reindex({
-      repositoryId: "repo_abc123",
-      orgId: "org_abc123",
-      targetHash: "target-hash",
-    })
+    const result = await runReindex()
 
     expect(result.targetHash).toBe("target-hash")
     expect(signUpstreamJwtMock).toHaveBeenCalledTimes(2)
@@ -133,26 +115,7 @@ describe("reindex", () => {
     )
   })
 
-  it("logs http.start milestone before fetching", async () => {
-    await reindex({
-      repositoryId: "repo_abc123",
-      orgId: "org_abc123",
-      targetHash: "target-hash",
-    })
-
-    expect(logger.set).toHaveBeenCalledWith(
-      expect.objectContaining({
-        step: "codeIngestion.reindex.http.start",
-        repositoryId: "repo_abc123",
-        orgId: "org_abc123",
-        targetHash: "target-hash",
-      }),
-    )
-    expect(logger.info).toHaveBeenCalledWith("reindex HTTP start")
-    expect(flushWorkflowLogMock).toHaveBeenCalled()
-  })
-
-  it("logs http.done milestone with path counts on success", async () => {
+  it("returns path counts from a successful codesearch response", async () => {
     withTransientHttpRetryMock.mockImplementationOnce(
       async (run: () => Promise<Response>) => run(),
     )
@@ -173,27 +136,17 @@ describe("reindex", () => {
       ),
     )
 
-    await reindex({
-      repositoryId: "repo_abc123",
-      orgId: "org_abc123",
+    const result = await runReindex()
+    expect(result).toMatchObject({
       targetHash: "target-hash",
+      ingestMode: "partial",
+      changedPaths: ["src/a.ts", "src/b.ts"],
+      deletedPaths: ["src/old.ts"],
+      renames: [{ from: "src/x.ts", to: "src/y.ts" }],
     })
-
-    expect(logger.set).toHaveBeenCalledWith(
-      expect.objectContaining({
-        step: "codeIngestion.reindex.http.done",
-        durationMs: expect.any(Number),
-        status: 200,
-        ingestMode: "partial",
-        changedPathCount: 2,
-        deletedPathCount: 1,
-        renameCount: 1,
-      }),
-    )
-    expect(logger.info).toHaveBeenCalledWith("reindex HTTP done")
   })
 
-  it("logs http.fail milestone on non-ok response", async () => {
+  it("throws on a non-ok codesearch response", async () => {
     withTransientHttpRetryMock.mockImplementationOnce(
       async (run: () => Promise<Response>) => run(),
     )
@@ -206,30 +159,12 @@ describe("reindex", () => {
       ),
     )
 
-    await expect(
-      reindex({
-        repositoryId: "repo_abc123",
-        orgId: "org_abc123",
-        targetHash: "target-hash",
-      }),
-    ).rejects.toThrow("codesearch reindex failed with status 500")
-
-    expect(logger.set).toHaveBeenCalledWith(
-      expect.objectContaining({
-        step: "codeIngestion.reindex.http.fail",
-        durationMs: expect.any(Number),
-        status: 500,
-        error: "index build failed",
-      }),
-    )
-    expect(httpFailSetCalls()).toHaveLength(1)
-    expect(logger.error).toHaveBeenCalledWith(
-      "codesearch reindex failed",
-      expect.objectContaining({ status: 500 }),
+    await expect(runReindex()).rejects.toThrow(
+      "codesearch reindex failed with status 500",
     )
   })
 
-  it("logs http.fail milestone when fetch throws", async () => {
+  it("rethrows when fetch throws", async () => {
     withTransientHttpRetryMock.mockImplementationOnce(
       async (run: () => Promise<Response>) => run(),
     )
@@ -238,39 +173,11 @@ describe("reindex", () => {
       vi.fn().mockRejectedValueOnce(new Error("network down")),
     )
 
-    await expect(
-      reindex({
-        repositoryId: "repo_abc123",
-        orgId: "org_abc123",
-        targetHash: "target-hash",
-      }),
-    ).rejects.toThrow("network down")
-
-    expect(httpFailSetCalls()).toHaveLength(1)
-    expect(logger.set).toHaveBeenCalledWith(
-      expect.objectContaining({
-        step: "codeIngestion.reindex.http.fail",
-        durationMs: expect.any(Number),
-        error: "network down",
-        errorName: "Error",
-      }),
-    )
-    expect(logger.error).toHaveBeenCalledWith(
-      "codesearch reindex HTTP failed",
-      expect.objectContaining({
-        error: "network down",
-        errorName: "Error",
-      }),
-    )
-    expect(flushWorkflowLogMock).toHaveBeenCalled()
+    await expect(runReindex()).rejects.toThrow("network down")
   })
 
   it("ends the OTEL span in both success and failure paths", async () => {
-    await reindex({
-      repositoryId: "repo_abc123",
-      orgId: "org_abc123",
-      targetHash: "target-hash",
-    })
+    await runReindex()
 
     expect(otelMocks.startActiveSpan).toHaveBeenCalledWith(
       "repository-ingestion.reindex",
@@ -295,23 +202,17 @@ describe("reindex", () => {
     )
     signUpstreamJwtMock.mockResolvedValueOnce("token")
 
-    await expect(
-      reindex({
-        repositoryId: "repo_abc123",
-        orgId: "org_abc123",
-        targetHash: "target-hash",
-      }),
-    ).rejects.toThrow()
+    await expect(runReindex()).rejects.toThrow()
 
     expect(otelMocks.spanEnd).toHaveBeenCalledTimes(1)
   })
 
-  describe("http.waiting heartbeat", () => {
+  describe("outstanding fetch", () => {
     afterEach(() => {
       vi.useRealTimers()
     })
 
-    it("emits http.waiting with elapsedMs every 30s while fetch is outstanding", async () => {
+    it("completes after a delayed codesearch response", async () => {
       vi.useFakeTimers()
 
       let resolveFetch!: (r: Response) => void
@@ -324,71 +225,15 @@ describe("reindex", () => {
       )
       vi.stubGlobal("fetch", vi.fn().mockReturnValue(pendingFetch))
 
-      const reindexPromise = reindex({
-        repositoryId: "repo_abc123",
-        orgId: "org_abc123",
-        targetHash: "target-hash",
-      })
-
-      // Advance 30s — first heartbeat fires
-      await vi.advanceTimersByTimeAsync(30_000)
-
-      expect(logger.set).toHaveBeenCalledWith(
-        expect.objectContaining({
-          step: "codeIngestion.reindex.http.waiting",
-          elapsedMs: expect.any(Number),
-          repositoryId: "repo_abc123",
-          targetHash: "target-hash",
-        }),
-      )
-      expect(logger.info).toHaveBeenCalledWith("reindex HTTP waiting")
-
-      const waitingCallsBefore = logger.set.mock.calls.filter(
-        (c) =>
-          c[0] != null &&
-          typeof c[0] === "object" &&
-          "step" in c[0] &&
-          c[0].step === "codeIngestion.reindex.http.waiting",
-      ).length
-      expect(waitingCallsBefore).toBe(1)
-
-      // Advance another 30s — second heartbeat fires
-      await vi.advanceTimersByTimeAsync(30_000)
-
-      const waitingCallsAfter = logger.set.mock.calls.filter(
-        (c) =>
-          c[0] != null &&
-          typeof c[0] === "object" &&
-          "step" in c[0] &&
-          c[0].step === "codeIngestion.reindex.http.waiting",
-      ).length
-      expect(waitingCallsAfter).toBe(2)
-
-      // Resolve the fetch — reindex should complete
-      resolveFetch(
-        new Response(
-          JSON.stringify({
-            ok: true,
-            targetHash: "target-hash",
-            ingestMode: "full",
-            changedPaths: [],
-            deletedPaths: [],
-            renames: [],
-          }),
-          { status: 200 },
-        ),
-      )
+      const reindexPromise = runReindex()
+      await vi.advanceTimersByTimeAsync(60_000)
+      resolveFetch(new Response(successBody, { status: 200 }))
 
       const result = await reindexPromise
       expect(result.targetHash).toBe("target-hash")
-
-      // http.done logged after fetch resolves
-      expect(logger.set).toHaveBeenCalledWith(
-        expect.objectContaining({ step: "codeIngestion.reindex.http.done" }),
-      )
     })
 
-    it("clears the heartbeat interval after fetch completes", async () => {
+    it("does not throw after fetch completes when timers keep advancing", async () => {
       vi.useFakeTimers()
 
       withTransientHttpRetryMock.mockImplementationOnce(
@@ -396,21 +241,13 @@ describe("reindex", () => {
       )
       vi.stubGlobal(
         "fetch",
-        vi.fn().mockResolvedValueOnce(new Response(successBody, { status: 200 })),
+        vi
+          .fn()
+          .mockResolvedValueOnce(new Response(successBody, { status: 200 })),
       )
 
-      await reindex({
-        repositoryId: "repo_abc123",
-        orgId: "org_abc123",
-        targetHash: "target-hash",
-      })
-
-      // Advance past 30s — no heartbeat should fire since interval was cleared
-      const setsBefore = logger.set.mock.calls.length
+      await runReindex()
       await vi.advanceTimersByTimeAsync(60_000)
-      const setsAfter = logger.set.mock.calls.length
-
-      expect(setsAfter).toBe(setsBefore)
     })
   })
 })

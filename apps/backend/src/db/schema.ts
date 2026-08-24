@@ -21,13 +21,21 @@ import { claimEvidence } from "./schema/claim_evidence.js"
 import { claims } from "./schema/claims.js"
 import { confluenceSpaces } from "./schema/confluenceSpaces.js"
 import { confluenceSyncTargets } from "./schema/confluenceSyncTargets.js"
-import { connections } from "./schema/connections.js"
-import { conversations } from "./schema/conversations.js"
+import { connections, connectionDirectory } from "./schema/connections.js"
+import { conversationMessages, conversations } from "./schema/conversations.js"
 import { objects } from "./schema/objects.js"
 import { orgOnboarding } from "./schema/org_onboarding.js"
 import { pendingAccounts } from "./schema/pending_accounts.js"
 import { repositories } from "./schema/repositories.js"
 import { repositoryCheckouts } from "./schema/repository_checkouts.js"
+import {
+  orgMemberPreferences,
+  workspaceKnowledgeUnits,
+  workspaceLinkedRepositories,
+  workspaceSandboxInstances,
+  workspaces,
+  workspaceWriteJobs,
+} from "./schema/workspaces.js"
 
 const schema = {
   users,
@@ -49,14 +57,22 @@ const schema = {
   repositories,
   repositoryCheckouts,
   connections,
+  connectionDirectory,
   confluenceSpaces,
   confluenceSyncTargets,
   conversations,
+  conversationMessages,
   claims,
   claimEvidence,
   objects,
   orgOnboarding,
   pendingAccounts,
+  workspaces,
+  workspaceLinkedRepositories,
+  workspaceKnowledgeUnits,
+  orgMemberPreferences,
+  workspaceWriteJobs,
+  workspaceSandboxInstances,
 } as const
 
 const relations = defineRelations(schema)

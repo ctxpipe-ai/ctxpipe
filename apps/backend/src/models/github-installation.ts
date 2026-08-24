@@ -1,12 +1,13 @@
-import { and, eq, sql } from "drizzle-orm"
+import { and, eq, inArray, sql } from "drizzle-orm"
 import { App, Octokit } from "octokit"
 import type { Env } from "../config/env.js"
-import { getSystemDb } from "../db/client.js"
+import { getOrgDb, getSystemDb, withOrgDbContext } from "../db/client.js"
 import { accounts, members, organizations } from "../db/schema/auth.js"
 import {
   CONNECTION_TYPE_GITHUB,
   connections,
 } from "../db/schema/connections.js"
+import { repoReadCloneTokenRequest } from "../domain/workspaces/clone-credentials.js"
 import {
   decodeGithubAppCredentials,
   encodeGithubAppSecretsForDb,
@@ -14,6 +15,7 @@ import {
   serialiseGithubConnectionConfigForDb,
 } from "../lib/connection-config.js"
 import { generateObjectId } from "../lib/id.js"
+import { log } from "../observability/logger.js"
 import {
   type ConnectionRow,
   type GitHubInstallationShape,
@@ -21,6 +23,12 @@ import {
   githubShapeToConfig,
   mergeGithubConnectionConfig,
 } from "./connection-rows.js"
+import {
+  deleteConnectionDirectory,
+  listConnectionDirectoryByGithubInstallationId,
+  loadConnectionViaDirectory,
+  upsertConnectionDirectory,
+} from "./connection-directory.js"
 
 /** @deprecated Alias for callers importing `GitHubInstallation`. */
 export type GitHubInstallation = GitHubInstallationShape
@@ -78,19 +86,20 @@ async function loadGithubConnectionRow(
   orgId: string,
   connectionId: string,
 ): Promise<ConnectionRow | undefined> {
-  const db = getSystemDb()
-  const [row] = await db
-    .select()
-    .from(connections)
-    .where(
-      and(
-        eq(connections.id, connectionId),
-        eq(connections.orgId, orgId),
-        eq(connections.type, CONNECTION_TYPE_GITHUB),
-      ),
-    )
-    .limit(1)
-  return row
+  return withOrgDbContext(orgId, async () => {
+    const [row] = await getOrgDb()
+      .select()
+      .from(connections)
+      .where(
+        and(
+          eq(connections.id, connectionId),
+          eq(connections.orgId, orgId),
+          eq(connections.type, CONNECTION_TYPE_GITHUB),
+        ),
+      )
+      .limit(1)
+    return row
+  })
 }
 
 /** Load raw `connections` row for org GitHub connector (for credentials checks, capabilities). */
@@ -105,36 +114,16 @@ export async function getGithubConnectionRow(
 export async function getGithubConnectionRowByConnectionId(
   connectionId: string,
 ): Promise<ConnectionRow | undefined> {
-  const db = getSystemDb()
-  const [row] = await db
-    .select()
-    .from(connections)
-    .where(
-      and(
-        eq(connections.id, connectionId),
-        eq(connections.type, CONNECTION_TYPE_GITHUB),
-      ),
-    )
-    .limit(1)
-  return row
+  const row = await loadConnectionViaDirectory(connectionId)
+  return row?.type === CONNECTION_TYPE_GITHUB ? row : undefined
 }
 
 export async function getWebhookSecretForGithubConnection(
   connectionId: string,
   env: Env,
 ): Promise<string | undefined> {
-  const db = getSystemDb()
-  const [row] = await db
-    .select()
-    .from(connections)
-    .where(
-      and(
-        eq(connections.id, connectionId),
-        eq(connections.type, CONNECTION_TYPE_GITHUB),
-      ),
-    )
-    .limit(1)
-  if (!row) return undefined
+  const row = await loadConnectionViaDirectory(connectionId)
+  if (row?.type !== CONNECTION_TYPE_GITHUB) return undefined
   const stored = parseGithubConnectionStored(
     row.config as Record<string, unknown>,
   )
@@ -166,17 +155,20 @@ export async function createDraftGithubConnection(input: {
     includeFutureRepos: false,
     ...enc,
   })
-  const db = getSystemDb()
-  const [row] = await db
-    .insert(connections)
-    .values({
-      id,
-      orgId: input.orgId,
-      type: CONNECTION_TYPE_GITHUB,
-      config,
-    })
-    .returning()
+  const row = await withOrgDbContext(input.orgId, async () => {
+    const [created] = await getOrgDb()
+      .insert(connections)
+      .values({
+        id,
+        orgId: input.orgId,
+        type: CONNECTION_TYPE_GITHUB,
+        config,
+      })
+      .returning()
+    return created
+  })
   if (!row) throw new Error("Failed to create github connection")
+  await upsertConnectionDirectory(row)
   return githubConnectionToShape(row)
 }
 
@@ -189,17 +181,20 @@ export async function createPlaceholderGithubConnection(input: {
     ingestAllRepositories: false,
     includeFutureRepos: false,
   })
-  const db = getSystemDb()
-  const [row] = await db
-    .insert(connections)
-    .values({
-      id,
-      orgId: input.orgId,
-      type: CONNECTION_TYPE_GITHUB,
-      config,
-    })
-    .returning()
+  const row = await withOrgDbContext(input.orgId, async () => {
+    const [created] = await getOrgDb()
+      .insert(connections)
+      .values({
+        id,
+        orgId: input.orgId,
+        type: CONNECTION_TYPE_GITHUB,
+        config,
+      })
+      .returning()
+    return created
+  })
   if (!row) throw new Error("Failed to create placeholder github connection")
+  await upsertConnectionDirectory(row)
   return githubConnectionToShape(row)
 }
 
@@ -228,13 +223,22 @@ export async function completeGithubDraftCredentials(input: {
     row.config as Record<string, unknown>,
     enc,
   )
-  const db = getSystemDb()
-  const [updated] = await db
-    .update(connections)
-    .set({ config: merged, updatedAt: new Date() })
-    .where(eq(connections.id, input.connectionId))
-    .returning()
+  const updated = await withOrgDbContext(input.orgId, async () => {
+    const [result] = await getOrgDb()
+      .update(connections)
+      .set({ config: merged, updatedAt: new Date() })
+      .where(
+        and(
+          eq(connections.id, input.connectionId),
+          eq(connections.orgId, input.orgId),
+          eq(connections.type, CONNECTION_TYPE_GITHUB),
+        ),
+      )
+      .returning()
+    return result
+  })
   if (!updated) return undefined
+  await upsertConnectionDirectory(updated)
   invalidateGithubAppCacheForConnection(input.connectionId)
   return githubConnectionToShape(updated)
 }
@@ -251,13 +255,22 @@ export async function registerInstallationOnConnection(input: {
     row.config as Record<string, unknown>,
     { installationId: input.installationId },
   )
-  const db = getSystemDb()
-  const [updated] = await db
-    .update(connections)
-    .set({ config: merged, updatedAt: new Date() })
-    .where(eq(connections.id, input.connectionId))
-    .returning()
+  const updated = await withOrgDbContext(input.orgId, async () => {
+    const [result] = await getOrgDb()
+      .update(connections)
+      .set({ config: merged, updatedAt: new Date() })
+      .where(
+        and(
+          eq(connections.id, input.connectionId),
+          eq(connections.orgId, input.orgId),
+          eq(connections.type, CONNECTION_TYPE_GITHUB),
+        ),
+      )
+      .returning()
+    return result
+  })
   if (!updated) return undefined
+  await upsertConnectionDirectory(updated)
   invalidateGithubAppCacheForConnection(input.connectionId)
   let shape = githubConnectionToShape(updated)
   shape =
@@ -274,71 +287,75 @@ export async function upsertInstallation(
   installationId: number,
   env: Env,
 ): Promise<GitHubInstallationShape> {
-  const db = getSystemDb()
-  const [existing] = await db
-    .select()
-    .from(connections)
-    .where(
-      and(
-        eq(connections.orgId, orgId),
-        eq(connections.type, CONNECTION_TYPE_GITHUB),
-        sql`(${connections.config}->>'installationId')::int = ${installationId}`,
-      ),
-    )
-    .limit(1)
-
-  if (existing) {
+  const result = await withOrgDbContext(orgId, async () => {
+    const db = getOrgDb()
+    const [existing] = await db
+      .select()
+      .from(connections)
+      .where(
+        and(
+          eq(connections.orgId, orgId),
+          eq(connections.type, CONNECTION_TYPE_GITHUB),
+          sql`(${connections.config}->>'installationId')::int = ${installationId}`,
+        ),
+      )
+      .limit(1)
+    if (existing) {
+      const [row] = await db
+        .update(connections)
+        .set({ updatedAt: new Date() })
+        .where(eq(connections.id, existing.id))
+        .returning()
+      if (!row) throw new Error("Failed to upsert github installation")
+      return { row, draft: undefined }
+    }
+    const drafts = await db
+      .select()
+      .from(connections)
+      .where(
+        and(
+          eq(connections.orgId, orgId),
+          eq(connections.type, CONNECTION_TYPE_GITHUB),
+          sql`(${connections.config}->>'installationId') is null`,
+          sql`(${connections.config}->>'privateKeyEnc') is not null`,
+        ),
+      )
+      .orderBy(connections.createdAt)
+    if (drafts.length === 1 && drafts[0]) {
+      return { row: undefined, draft: drafts[0] }
+    }
+    const id = generateObjectId("con")
+    const config = githubShapeToConfig({
+      installationId,
+      ingestAllRepositories: false,
+      includeFutureRepos: false,
+      appSlug: null,
+    })
     const [row] = await db
-      .update(connections)
-      .set({ updatedAt: new Date() })
-      .where(eq(connections.id, existing.id))
+      .insert(connections)
+      .values({
+        id,
+        orgId,
+        type: CONNECTION_TYPE_GITHUB,
+        config,
+      })
       .returning()
     if (!row) throw new Error("Failed to upsert github installation")
-    invalidateGithubAppCacheForConnection(row.id)
-    return githubConnectionToShape(row)
-  }
-
-  const drafts = await db
-    .select()
-    .from(connections)
-    .where(
-      and(
-        eq(connections.orgId, orgId),
-        eq(connections.type, CONNECTION_TYPE_GITHUB),
-        sql`(${connections.config}->>'installationId') is null`,
-        sql`(${connections.config}->>'privateKeyEnc') is not null`,
-      ),
-    )
-    .orderBy(connections.createdAt)
-
-  if (drafts.length === 1 && drafts[0]) {
+    return { row, draft: undefined }
+  })
+  if (result.draft) {
     return (
       (await registerInstallationOnConnection({
         orgId,
-        connectionId: drafts[0].id,
+        connectionId: result.draft.id,
         installationId,
         env,
-      })) ?? githubConnectionToShape(drafts[0])
+      })) ?? githubConnectionToShape(result.draft)
     )
   }
-
-  const id = generateObjectId("con")
-  const config = githubShapeToConfig({
-    installationId,
-    ingestAllRepositories: false,
-    includeFutureRepos: false,
-    appSlug: null,
-  })
-  const [row] = await db
-    .insert(connections)
-    .values({
-      id,
-      orgId,
-      type: CONNECTION_TYPE_GITHUB,
-      config,
-    })
-    .returning()
+  const row = result.row
   if (!row) throw new Error("Failed to upsert github installation")
+  await upsertConnectionDirectory(row)
   invalidateGithubAppCacheForConnection(row.id)
   return githubConnectionToShape(row)
 }
@@ -346,34 +363,36 @@ export async function upsertInstallation(
 export async function listGithubConnectionsForOrg(
   orgId: string,
 ): Promise<GitHubInstallationShape[]> {
-  const db = getSystemDb()
-  const rows = await db
-    .select()
-    .from(connections)
-    .where(
-      and(
-        eq(connections.orgId, orgId),
-        eq(connections.type, CONNECTION_TYPE_GITHUB),
-      ),
-    )
-    .orderBy(connections.createdAt)
-  return rows.map(githubConnectionToShape)
+  return withOrgDbContext(orgId, async () => {
+    const rows = await getOrgDb()
+      .select()
+      .from(connections)
+      .where(
+        and(
+          eq(connections.orgId, orgId),
+          eq(connections.type, CONNECTION_TYPE_GITHUB),
+        ),
+      )
+      .orderBy(connections.createdAt)
+    return rows.map(githubConnectionToShape)
+  })
 }
 
 export async function listGithubConnectionRowsForOrg(
   orgId: string,
 ): Promise<ConnectionRow[]> {
-  const db = getSystemDb()
-  return db
-    .select()
-    .from(connections)
-    .where(
-      and(
-        eq(connections.orgId, orgId),
-        eq(connections.type, CONNECTION_TYPE_GITHUB),
-      ),
-    )
-    .orderBy(connections.createdAt)
+  return withOrgDbContext(orgId, () =>
+    getOrgDb()
+      .select()
+      .from(connections)
+      .where(
+        and(
+          eq(connections.orgId, orgId),
+          eq(connections.type, CONNECTION_TYPE_GITHUB),
+        ),
+      )
+      .orderBy(connections.createdAt),
+  )
 }
 
 /**
@@ -391,18 +410,7 @@ export async function getGithubInstallationByConnectionId(
   orgId: string,
   connectionId: string,
 ): Promise<GitHubInstallationShape | undefined> {
-  const db = getSystemDb()
-  const [row] = await db
-    .select()
-    .from(connections)
-    .where(
-      and(
-        eq(connections.id, connectionId),
-        eq(connections.orgId, orgId),
-        eq(connections.type, CONNECTION_TYPE_GITHUB),
-      ),
-    )
-    .limit(1)
+  const row = await loadGithubConnectionRow(orgId, connectionId)
   return row ? githubConnectionToShape(row) : undefined
 }
 
@@ -410,17 +418,20 @@ export async function deleteGithubConnectionById(
   orgId: string,
   connectionId: string,
 ): Promise<boolean> {
-  const db = getSystemDb()
-  const [row] = await db
-    .delete(connections)
-    .where(
-      and(
-        eq(connections.id, connectionId),
-        eq(connections.orgId, orgId),
-        eq(connections.type, CONNECTION_TYPE_GITHUB),
-      ),
-    )
-    .returning({ id: connections.id })
+  const row = await withOrgDbContext(orgId, async () => {
+    const [removed] = await getOrgDb()
+      .delete(connections)
+      .where(
+        and(
+          eq(connections.id, connectionId),
+          eq(connections.orgId, orgId),
+          eq(connections.type, CONNECTION_TYPE_GITHUB),
+        ),
+      )
+      .returning({ id: connections.id })
+    return removed
+  })
+  if (row) await deleteConnectionDirectory(connectionId)
   return Boolean(row)
 }
 
@@ -464,35 +475,38 @@ export async function resolveGithubInstallationForOrg(
 export async function orgHasAnyGithubConnection(
   orgId: string,
 ): Promise<boolean> {
-  const db = getSystemDb()
-  const [row] = await db
-    .select({ id: connections.id })
-    .from(connections)
-    .where(
-      and(
-        eq(connections.orgId, orgId),
-        eq(connections.type, CONNECTION_TYPE_GITHUB),
-        sql`${connections.config}->>'installationId' is not null`,
-      ),
-    )
-    .limit(1)
-  return Boolean(row)
+  return withOrgDbContext(orgId, async () => {
+    const [row] = await getOrgDb()
+      .select({ id: connections.id })
+      .from(connections)
+      .where(
+        and(
+          eq(connections.orgId, orgId),
+          eq(connections.type, CONNECTION_TYPE_GITHUB),
+          sql`${connections.config}->>'installationId' is not null`,
+        ),
+      )
+      .limit(1)
+    return Boolean(row)
+  })
 }
 
 export async function listInstallationsByGithubInstallationId(
   githubInstallationId: number,
 ): Promise<GitHubInstallationShape[]> {
-  const db = getSystemDb()
-  const rows = await db
-    .select()
-    .from(connections)
-    .where(
-      and(
-        eq(connections.type, CONNECTION_TYPE_GITHUB),
-        sql`(${connections.config}->>'installationId')::int = ${githubInstallationId}`,
-      ),
+  const directoryRows =
+    await listConnectionDirectoryByGithubInstallationId(githubInstallationId)
+  const rows = await Promise.all(
+    directoryRows.map((directoryRow) =>
+      loadConnectionViaDirectory(directoryRow.connectionId),
+    ),
+  )
+  return rows
+    .filter(
+      (row): row is ConnectionRow =>
+        row?.type === CONNECTION_TYPE_GITHUB,
     )
-  return rows.map(githubConnectionToShape)
+    .map(githubConnectionToShape)
 }
 
 export async function getOrganizationSlugForInstallationByUser(
@@ -500,21 +514,21 @@ export async function getOrganizationSlugForInstallationByUser(
   installationId: number,
 ): Promise<string | undefined> {
   const db = getSystemDb()
+  const directoryRows =
+    await listConnectionDirectoryByGithubInstallationId(installationId)
+  const orgIds = [...new Set(directoryRows.map((row) => row.orgId))]
+  if (orgIds.length === 0) return undefined
   const [row] = await db
     .select({ orgSlug: organizations.slug })
-    .from(connections)
+    .from(members)
     .innerJoin(
-      members,
-      and(
-        eq(members.organizationId, connections.orgId),
-        eq(members.userId, userId),
-      ),
+      organizations,
+      eq(organizations.id, members.organizationId),
     )
-    .innerJoin(organizations, eq(organizations.id, connections.orgId))
     .where(
       and(
-        eq(connections.type, CONNECTION_TYPE_GITHUB),
-        sql`(${connections.config}->>'installationId')::int = ${installationId}`,
+        eq(members.userId, userId),
+        inArray(members.organizationId, orgIds),
       ),
     )
     .limit(1)
@@ -529,18 +543,7 @@ export async function updateInstallationOptions(
     includeFutureRepos: boolean
   },
 ): Promise<GitHubInstallationShape | undefined> {
-  const db = getSystemDb()
-  const [row] = await db
-    .select()
-    .from(connections)
-    .where(
-      and(
-        eq(connections.id, connectionId),
-        eq(connections.orgId, orgId),
-        eq(connections.type, CONNECTION_TYPE_GITHUB),
-      ),
-    )
-    .limit(1)
+  const row = await loadGithubConnectionRow(orgId, connectionId)
   if (!row) return undefined
   const shape = githubConnectionToShape(row)
   const config = mergeGithubConnectionConfig(
@@ -552,12 +555,17 @@ export async function updateInstallationOptions(
       accountSlug: shape.accountSlug ?? undefined,
     },
   )
-  const [updated] = await db
-    .update(connections)
-    .set({ config, updatedAt: new Date() })
-    .where(eq(connections.id, row.id))
-    .returning()
-  return updated ? githubConnectionToShape(updated) : undefined
+  const updated = await withOrgDbContext(orgId, async () => {
+    const [result] = await getOrgDb()
+      .update(connections)
+      .set({ config, updatedAt: new Date() })
+      .where(eq(connections.id, row.id))
+      .returning()
+    return result
+  })
+  if (!updated) return undefined
+  await upsertConnectionDirectory(updated)
+  return githubConnectionToShape(updated)
 }
 
 export async function getGithubUserAccessToken(
@@ -653,7 +661,6 @@ export async function refreshGithubConnectionAccountSlug(
   )
   if (!slug) return installation
 
-  const db = getSystemDb()
   const config = mergeGithubConnectionConfig(
     row.config as Record<string, unknown>,
     {
@@ -663,22 +670,24 @@ export async function refreshGithubConnectionAccountSlug(
       includeFutureRepos: installation.includeFutureRepos,
     },
   )
-  const [updated] = await db
-    .update(connections)
-    .set({ config, updatedAt: new Date() })
-    .where(
-      and(
-        eq(connections.id, connectionId),
-        eq(connections.orgId, orgId),
-        eq(connections.type, CONNECTION_TYPE_GITHUB),
-      ),
-    )
-    .returning()
-  if (updated) {
-    invalidateGithubAppCacheForConnection(connectionId)
-    return githubConnectionToShape(updated)
-  }
-  return installation
+  const updated = await withOrgDbContext(orgId, async () => {
+    const [result] = await getOrgDb()
+      .update(connections)
+      .set({ config, updatedAt: new Date() })
+      .where(
+        and(
+          eq(connections.id, connectionId),
+          eq(connections.orgId, orgId),
+          eq(connections.type, CONNECTION_TYPE_GITHUB),
+        ),
+      )
+      .returning()
+    return result
+  })
+  if (!updated) throw new Error("GitHub connection was removed during account refresh")
+  await upsertConnectionDirectory(updated)
+  invalidateGithubAppCacheForConnection(connectionId)
+  return githubConnectionToShape(updated)
 }
 
 export async function getInstallationOctokitForOrg(
@@ -722,6 +731,18 @@ export async function userCanAccessInstallation(
   return false
 }
 
+export function isGithubInstallationTokenError(error: unknown): boolean {
+  const status =
+    error && typeof error === "object" && "status" in error
+      ? (error as { status?: number }).status
+      : undefined
+  const message = error instanceof Error ? error.message : String(error)
+  return (
+    status === 404 ||
+    message.includes("create-an-installation-access-token-for-an-app")
+  )
+}
+
 export async function getInstallationToken(
   orgId: string,
   env: Env,
@@ -734,11 +755,49 @@ export async function getInstallationToken(
   const id = githubConnectionId ?? installation.id
   const row = await loadGithubConnectionRow(orgId, id)
   if (!row) return undefined
+  try {
+    const app = buildAppForConnection(row, env)
+    const octokit = await app.getInstallationOctokit(installation.installationId)
+    const { token } = (await octokit.auth({ type: "installation" })) as {
+      token: string
+    }
+    return token
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error)
+    if (isGithubInstallationTokenError(error)) {
+      const stored = parseGithubConnectionStored(
+        row.config as Record<string, unknown>,
+      )
+      log.error(error instanceof Error ? error : new Error(message), {
+        step: "github.installation_token",
+        githubAppId: stored.githubAppId ?? env.GITHUB_APP_ID?.trim() ?? null,
+        installationId: installation.installationId,
+      })
+    }
+    throw error
+  }
+}
+
+export async function getRepoReadCloneToken(
+  orgId: string,
+  env: Env,
+  input: { githubConnectionId?: string; repoFullName: string },
+): Promise<string | undefined> {
+  const installation = input.githubConnectionId
+    ? await getGithubInstallationByConnectionId(orgId, input.githubConnectionId)
+    : await resolveGithubInstallationForOrg(orgId, null)
+  if (!installation || installation.installationId == null) return undefined
+  const id = input.githubConnectionId ?? installation.id
+  const row = await loadGithubConnectionRow(orgId, id)
+  if (!row) return undefined
   const app = buildAppForConnection(row, env)
   const octokit = await app.getInstallationOctokit(installation.installationId)
-  const { token } = (await octokit.auth({ type: "installation" })) as {
-    token: string
-  }
+  const request = repoReadCloneTokenRequest(input.repoFullName)
+  const { token } = (await octokit.auth({
+    type: "installation",
+    repositoryNames: request.repositoryNames,
+    permissions: request.permissions,
+  })) as { token: string }
   return token
 }
 

@@ -107,7 +107,7 @@ const FOLLOWUP_PROMPT_RE =
   /Memory candidates \(|Promote via skills\/rules|mark ids promoted\/dismissed|do not auto-write ADRs from hooks/i
 
 const SELF_CAPTURE_RE =
-  /memory capture|memory-capture|capture\.ts|capture-adr|capture-lesson|capture-glossary|capture-decision/i
+  /memory capture|memory-capture|capture\.ts|capture-adr|capture-lesson|capture-glossary|capture-decision|Memory candidates \(|Promote via skills\/rules|mark ids promoted\/dismissed|do not auto-write ADRs from hooks/i
 
 const TOOL_DUMP_RE =
   /error TS\d+|Cannot find module|vitest run|FAIL\s+|^\s*✓\s+/m

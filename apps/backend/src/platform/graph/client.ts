@@ -1,6 +1,7 @@
 import { AsyncLocalStorage } from "node:async_hooks"
 import neo4j, { type Driver } from "neo4j-driver"
 import { FalkorDB } from "falkordb"
+import { assertNotInOrgDbContext } from "../../db/client.js"
 
 const DB_PER_TENANT = ["falkordb", "neo4j-enterprise", "memgraph"] as const
 type Provider = (typeof DB_PER_TENANT)[number] | "neo4j-community" | "neptune"
@@ -52,7 +53,8 @@ function falkorReplyToRecords(
 
 type FalkorDBInstance = Awaited<ReturnType<typeof FalkorDB.connect>>
 
-const LIMIT_OR_SKIP_PARAM_REGEX = /\b(?:LIMIT|SKIP)\s+\$([A-Za-z_][A-Za-z0-9_]*)\b/g
+const LIMIT_OR_SKIP_PARAM_REGEX =
+  /\b(?:LIMIT|SKIP)\s+\$([A-Za-z_][A-Za-z0-9_]*)\b/g
 
 function normalizeBoltParamsForProvider(
   query: string,
@@ -87,6 +89,7 @@ function createFalkorDbGraphClient(
 ): GraphClient {
   return {
     async executeQuery(query, params) {
+      assertNotInOrgDbContext()
       const graph = db.selectGraph(orgId)
       const serialized = params
         ? Object.fromEntries(
@@ -121,6 +124,7 @@ function scopedBoltDriver(
 ): GraphClient {
   return {
     async executeQuery(query, params) {
+      assertNotInOrgDbContext()
       const normalizedParams = normalizeBoltParamsForProvider(
         query,
         params,

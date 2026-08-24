@@ -13,6 +13,7 @@ import { ComboBox, ComboBoxItem } from "@/components/ui/ComboBox"
 import { Modal } from "@/components/ui/Modal"
 import { Spinner } from "@/components/ui/spinner"
 import { client } from "@/lib/api"
+import { readApiJson } from "@/lib/api-result"
 import { searchGithubInstallationRepos } from "../queries/atlassian-connector"
 import {
   connectorSyncTargetKeys,
@@ -166,11 +167,12 @@ export function SlackSetupDialog({
       const res = await client[":orgSlug"].api.v1.repositories.$get({
         param: { orgSlug },
       })
-      if (!res.ok) throw new Error("Failed to list repositories")
-      const json = (await res.json()) as {
+      const json = await readApiJson<{
         items?: RepoRow[]
         repositories?: RepoRow[]
-      }
+      }>(res, {
+        message: "Failed to list repositories",
+      })
       return json.items ?? json.repositories ?? []
     },
     enabled:

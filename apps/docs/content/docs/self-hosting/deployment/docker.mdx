@@ -13,7 +13,7 @@ The Compose `deploy` profile starts:
 
 | Service | Purpose |
 |---|---|
-| `migrate` | Runs database migrations before app services start |
+| `migrate` | Runs database migrations as the Postgres owner, then GRANTs `ctxpipe_app` |
 | `backend` | Public API, auth, MCP endpoint, callbacks, and UI proxy |
 | `ui` | Product web app, proxied through the backend |
 | `worker` | Background workflows for ingestion and connector jobs |
@@ -38,6 +38,11 @@ AUTH_BASE_URL=https://ctx.example.com
 CTXPIPE_PUBLIC_APP_URL=https://ctx.example.com
 MODEL_PROVIDER_API_KEY=<model-provider-key>
 ```
+
+Compose wires two Postgres URLs for you: migrate uses `POSTGRES_USER`
+(default `ctxpipe`); backend, worker, and codesearch use `ctxpipe_app` at
+`DATABASE_APP_PASSWORD` (defaults to `POSTGRES_PASSWORD`). You do not add a
+second secret name in `.env` unless you change those passwords.
 
 Then start the deploy profile:
 

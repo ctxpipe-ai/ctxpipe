@@ -1,10 +1,20 @@
-import { IconArrowRight, IconCopy, IconX } from "@tabler/icons-react"
-import { useEffect, useMemo, useState } from "react"
+import {
+  IconAlertTriangle,
+  IconArrowRight,
+  IconArrowUpRight,
+  IconCheck,
+  IconCopy,
+  IconX,
+} from "@tabler/icons-react"
+import { type ReactNode, useMemo, useState } from "react"
+import { Button } from "@/components/ui/Button"
 import { cn } from "@/lib/utils"
 import { type ActivityBuckets, ActivitySparkline } from "./ActivitySparkline"
-import { PanelLabel } from "./FloatingPanel"
 import { KIND_FALLBACK_COLOR } from "./theme"
 import type { KnowledgeGraphNode, NodeClaim, NodeFacts } from "./types"
+
+const OVERLAY_PANEL_CLASS =
+  "absolute top-2 right-2 bottom-2 z-20 flex w-[min(28rem,calc(100%-1rem))] flex-col rounded-lg border border-border bg-zinc-900 shadow-md transition-transform duration-200 ease-out motion-reduce:transition-none"
 
 /** 0.03 → "3%". Rounds to nearest whole percent, floors at 1% so the chip
  * still reads meaningfully for nodes at the very top. */
@@ -12,13 +22,6 @@ function formatPercentile(p: number): string {
   // Top-percentile: 0.97 means the node is AT the 97th percentile → top 3%.
   const topFraction = Math.max(0.01, 1 - p)
   return `${Math.round(topFraction * 100)}%`
-}
-
-function formatIso(ms: number): string {
-  return new Intl.DateTimeFormat(undefined, {
-    dateStyle: "medium",
-    timeStyle: "short",
-  }).format(new Date(ms))
 }
 
 function formatShortDate(ms: number): string {
@@ -29,9 +32,14 @@ function formatShortDate(ms: number): string {
   }).format(new Date(ms))
 }
 
-/** 0–1 confidence → label (shown verbatim) + tailwind colour token. */
+/** Workspace hydrate units use repo-relative paths as node ids. */
+function isWorkspaceFilePath(id: string): boolean {
+  return id.includes("/") && !id.includes("://") && !id.startsWith("/")
+}
+
+/** 0–1 confidence → label (shown verbatim) + colour token. */
 function confidenceTone(c: number | null): { label: string; cls: string } {
-  if (c == null) return { label: "—", cls: "text-zinc-500" }
+  if (c == null) return { label: "—", cls: "text-muted-foreground" }
   const pct = Math.round(c * 100)
   if (c >= 0.85) return { label: `${pct}%`, cls: "text-teal-300" }
   if (c >= 0.65) return { label: `${pct}%`, cls: "text-amber-300" }
@@ -130,7 +138,7 @@ export function NodeDetailDrawer({
   onClose,
   onFocus,
   onNeighbourSelect,
-  onAskAgent,
+  onOpenSource,
 }: {
   node: KnowledgeGraphNode
   facts: NodeFacts
@@ -142,9 +150,61 @@ export function NodeDetailDrawer({
   onClose: () => void
   onFocus: () => void
   onNeighbourSelect: (id: string) => void
-  onAskAgent: (seed: string) => void
+  onOpenSource?: (path: string) => void
+}) {
+  return (
+    <aside
+      className={cn(
+        OVERLAY_PANEL_CLASS,
+        open
+          ? "pointer-events-auto translate-x-0"
+          : "pointer-events-none translate-x-full",
+      )}
+      aria-label={`Details for ${node.name ?? node.id}`}
+      aria-hidden={!open}
+    >
+      <NodeDetailDrawerBody
+        key={node.id}
+        node={node}
+        facts={facts}
+        kindColor={kindColor}
+        kindColors={kindColors}
+        nodeById={nodeById}
+        peerDegrees={peerDegrees}
+        onClose={onClose}
+        onFocus={onFocus}
+        onNeighbourSelect={onNeighbourSelect}
+        onOpenSource={onOpenSource}
+      />
+    </aside>
+  )
+}
+
+function NodeDetailDrawerBody({
+  node,
+  facts,
+  kindColor,
+  kindColors,
+  nodeById,
+  peerDegrees,
+  onClose,
+  onFocus,
+  onNeighbourSelect,
+  onOpenSource,
+}: {
+  node: KnowledgeGraphNode
+  facts: NodeFacts
+  kindColor: string
+  kindColors: Map<string, string>
+  nodeById: Map<string, KnowledgeGraphNode>
+  peerDegrees: number[]
+  onClose: () => void
+  onFocus: () => void
+  onNeighbourSelect: (id: string) => void
+  onOpenSource?: (path: string) => void
 }) {
   const kind = node.kind || "Unknown"
+  const title = node.name?.trim() || node.id
   const predicates = Array.from(facts.predicateCounts.entries())
     .sort((a, b) => b[1] - a[1])
     .slice(0, 8)
@@ -152,8 +212,6 @@ export function NodeDetailDrawer({
     (a, b) => b[1] - a[1],
   )
   const totalDegree = facts.inDegree + facts.outDegree
-  const firstSeen = facts.firstObserved ? formatIso(facts.firstObserved) : "—"
-  const lastSeen = facts.lastObserved ? formatIso(facts.lastObserved) : "—"
 
   const peerRank = useMemo(
     () => computePeerRank(totalDegree, peerDegrees),
@@ -180,13 +238,7 @@ export function NodeDetailDrawer({
   const kindChips = useMemo(() => extractKindChips(node), [node])
 
   const [predicateFilter, setPredicateFilter] = useState<string | null>(null)
-  // Reset the predicate filter when the selected node changes. biome's
-  // useExhaustiveDependencies flags `node.id` as unused because the effect
-  // body doesn't read it, but the dep IS the trigger — that's the point.
-  // biome-ignore lint/correctness/useExhaustiveDependencies: node.id is the reset trigger
-  useEffect(() => {
-    setPredicateFilter(null)
-  }, [node.id])
+  const [copied, setCopied] = useState(false)
 
   const filteredClaims = useMemo(
     () =>
@@ -196,237 +248,169 @@ export function NodeDetailDrawer({
     [facts.claims, predicateFilter],
   )
 
-  const [copied, setCopied] = useState<"id" | "link" | null>(null)
-  // Reset the "copied" flash when the selected node changes; stale feedback
-  // on a different node would be misleading.
-  // biome-ignore lint/correctness/useExhaustiveDependencies: node.id is the reset trigger
-  useEffect(() => {
-    setCopied(null)
-  }, [node.id])
-
-  const flashCopied = (kind: "id" | "link") => {
-    setCopied(kind)
-    window.setTimeout(() => {
-      // Only clear if this particular flash is still the current one — avoids
-      // a later copy's timer stomping on an earlier one mid-flash.
-      setCopied((prev) => (prev === kind ? null : prev))
-    }, 1800)
-  }
-
   const copyId = () => {
     void navigator.clipboard
       .writeText(node.id)
-      .then(() => flashCopied("id"))
+      .then(() => {
+        setCopied(true)
+        window.setTimeout(() => setCopied(false), 1800)
+      })
       .catch(() => {})
   }
 
-  const copyDeepLink = () => {
-    if (typeof window === "undefined") return
-    const url = new URL(window.location.href)
-    url.searchParams.set("node", node.id)
-    void navigator.clipboard
-      .writeText(url.toString())
-      .then(() => flashCopied("link"))
-      .catch(() => {})
-  }
-
-  /** Compact, user-visible prompt the Chat UI autosends. Kept plain-text so
-   * the user can read/edit it if they land on the chat before it fires. */
-  const buildAskSeed = (): string => {
-    const lines: string[] = []
-    const label = node.name?.trim() || node.id
-    lines.push(`I want to understand this ${kind}: ${label} (${node.id}).`)
-    lines.push("")
-    lines.push(
-      `Connections: ${facts.inDegree} in · ${facts.outDegree} out · ${totalDegree} total.`,
-    )
-    if (strongestConnections.length > 0) {
-      const links = strongestConnections
-        .slice(0, 5)
-        .map(([nid]) => {
-          const nb = nodeById.get(nid)
-          return `${nb?.name?.trim() || nid} (${nb?.kind || "Unknown"})`
-        })
-        .join(", ")
-      lines.push(`Strongest links: ${links}.`)
-    }
-    if (predicates.length > 0) {
-      const preds = predicates
-        .slice(0, 5)
-        .map(([p, c]) => `${p} (${c})`)
-        .join(", ")
-      lines.push(`Common predicates: ${preds}.`)
-    }
-    if (node.summary?.trim()) {
-      lines.push(`Summary: ${node.summary.trim()}`)
-    }
-    lines.push("")
-    lines.push(
-      "Please explain what this node does, how it fits in the broader system based on its connections, and any risk areas worth paying attention to.",
-    )
-    return lines.join("\n")
-  }
+  const canOpenSource = onOpenSource != null && isWorkspaceFilePath(node.id)
 
   return (
-    <aside
-      className={cn(
-        "absolute right-0 top-0 z-20 flex h-[100dvh] w-[440px] max-w-[90vw] flex-col border-l border-zinc-800/95 bg-zinc-950/95 shadow-2xl shadow-black/50 backdrop-blur-md transition-transform duration-200 ease-out motion-reduce:transition-none",
-        open
-          ? "pointer-events-auto translate-x-0"
-          : "pointer-events-none translate-x-full",
-      )}
-      aria-label={`Details for ${node.name ?? node.id}`}
-      aria-hidden={!open}
-    >
-      <div className="flex items-start gap-3 border-b border-zinc-800/95 p-4">
-        <span
-          className="mt-0.5 inline-block h-3 w-3 shrink-0"
-          style={{ backgroundColor: kindColor }}
-          aria-hidden
-        />
+    <>
+      <div className="flex items-start gap-2 border-b border-border px-4 py-3">
         <div className="min-w-0 flex-1">
-          <p className="text-[12px] font-semibold uppercase tracking-[0.18em] text-zinc-500">
-            {kind}
-          </p>
-          <h2 className="mt-0.5 truncate font-mono text-[13px] text-zinc-100">
-            {node.name?.trim() || node.id}
-          </h2>
-        </div>
-        <button
-          type="button"
-          onClick={onClose}
-          aria-label="Close details"
-          className="inline-flex h-6 w-6 shrink-0 items-center justify-center text-zinc-500 transition-colors hover:text-zinc-100"
-        >
-          <IconX className="h-3.5 w-3.5" aria-hidden />
-        </button>
-      </div>
-
-      <div className="flex-1 space-y-4 overflow-y-auto p-4">
-        <div className="flex items-start gap-2">
-          <div className="flex min-w-0 flex-1 flex-col items-start gap-1.5">
-            {peerRank ? (
+          <Button
+            variant="ghost"
+            onPress={onFocus}
+            aria-label={`Focus ${title} on the graph`}
+            className="-ml-1 h-auto max-w-full justify-start px-1 py-0 text-left"
+          >
+            <span className="block truncate text-lg font-medium leading-tight text-foreground">
+              {title}
+            </span>
+          </Button>
+          <div className="mt-1.5 flex flex-wrap items-center gap-1.5">
+            <Tag>
               <span
-                className="inline-flex max-w-full items-center gap-1.5 border border-teal-500/30 bg-teal-500/5 px-2 py-0.5 text-[12px] text-teal-200"
+                className="size-1.5 shrink-0 rounded-sm"
+                style={{ backgroundColor: kindColor }}
+                aria-hidden
+              />
+              {kind}
+            </Tag>
+            {peerRank ? (
+              <Tag
                 title={`Rank ${peerRank.rankFromTop.toLocaleString()} of ${peerRank.totalPeers.toLocaleString()} ${kind} nodes by total connections`}
               >
-                <span className="font-mono uppercase tracking-[0.12em] text-teal-400/80">
-                  Rank
-                </span>
-                <span className="truncate tabular-nums">
-                  Top {formatPercentile(peerRank.percentile)} of {kind}
-                </span>
-              </span>
+                Top {formatPercentile(peerRank.percentile)}
+              </Tag>
             ) : null}
             {isIsolated ? (
-              <span
-                className="inline-flex max-w-full items-center gap-1.5 border border-amber-500/30 bg-amber-500/5 px-2 py-0.5 text-[12px] text-amber-200"
+              <Tag
+                className="border-amber-500/40 bg-amber-950 text-amber-200"
                 title="Few or no connections — may indicate a stub or stale entity"
               >
-                <span className="font-mono uppercase tracking-[0.12em] text-amber-400/80">
-                  ⚠
-                </span>
-                <span className="truncate">Loosely connected</span>
-              </span>
+                <IconAlertTriangle
+                  className="size-3.5 text-amber-400"
+                  aria-hidden
+                />
+                Loosely connected
+              </Tag>
             ) : null}
           </div>
-          <button
-            type="button"
-            onClick={() => onAskAgent(buildAskSeed())}
-            className="inline-flex shrink-0 items-center gap-1.5 border border-teal-500/55 bg-teal-500/10 px-2 py-0.5 text-[12px] text-teal-200 transition-colors hover:border-teal-500/70 hover:bg-teal-500/15"
-            title="Ask the graph chat about this node"
-          >
-            Ask ctx|
-          </button>
         </div>
+        <Button
+          variant="ghost"
+          size="icon-sm"
+          onPress={onClose}
+          aria-label="Close details"
+        >
+          <IconX className="size-4 text-muted-foreground" aria-hidden />
+        </Button>
+      </div>
 
-        <DetailRow label="Id">
-          <div className="flex items-center gap-1.5">
-            <span className="truncate font-mono text-[13px] text-zinc-300">
+      <div className="flex min-h-0 flex-1 flex-col gap-6 overflow-y-auto p-4">
+        <Section label="Path">
+          <div className="flex h-5 items-center gap-1">
+            <p
+              className="min-w-0 flex-1 truncate font-mono text-sm leading-5 text-foreground"
+              title={node.id}
+            >
               {node.id}
-            </span>
-            <button
-              type="button"
-              onClick={copyId}
-              aria-label={copied === "id" ? "Id copied" : "Copy id"}
-              className={cn(
-                "shrink-0 transition-colors",
-                copied === "id"
-                  ? "text-teal-300"
-                  : "text-zinc-500 hover:text-zinc-200",
-              )}
-              title={copied === "id" ? "Copied!" : "Copy id"}
+            </p>
+            <Button
+              variant="quiet"
+              onPress={copyId}
+              aria-label={copied ? "Path copied" : "Copy path"}
+              className="size-5 min-h-5 min-w-5 p-0"
             >
-              <IconCopy className="h-3 w-3" aria-hidden />
-            </button>
-            <button
-              type="button"
-              onClick={copyDeepLink}
-              aria-live="polite"
-              className={cn(
-                "ml-auto shrink-0 border px-2 py-0.5 text-[12px] transition-colors",
-                copied === "link"
-                  ? "border-teal-500/55 bg-teal-500/10 text-teal-200"
-                  : "border-zinc-800/95 text-zinc-400 hover:border-zinc-700 hover:text-zinc-200",
+              {copied ? (
+                <IconCheck className="size-3.5 text-teal-400" aria-hidden />
+              ) : (
+                <IconCopy className="size-3.5" aria-hidden />
               )}
-              title="Copy a shareable link that opens the graph with this node already selected"
-            >
-              {copied === "link" ? "Copied!" : "Copy link"}
-            </button>
+            </Button>
+            {canOpenSource ? (
+              <Button
+                variant="quiet"
+                onPress={() => onOpenSource(node.id)}
+                aria-label="Go to definition"
+                className="size-5 min-h-5 min-w-5 p-0"
+              >
+                <IconArrowUpRight className="size-3.5" aria-hidden />
+              </Button>
+            ) : null}
           </div>
-        </DetailRow>
+        </Section>
 
         {kindChips.length > 0 ? (
-          <DetailRow label={`${kind} details`}>
-            <div className="flex flex-wrap gap-1.5">
+          <Section label={`${kind} details`}>
+            <ul className="flex flex-col gap-1.5">
               {kindChips.map(([k, v]) => (
-                <span
+                <li
                   key={k}
-                  className="inline-flex items-center gap-1.5 border border-zinc-800/95 bg-zinc-900/70 px-1.5 py-0.5 text-[13px] text-zinc-300"
+                  className="flex items-baseline justify-between gap-3"
                 >
-                  <span className="font-mono text-[12px] uppercase tracking-[0.12em] text-zinc-500">
-                    {k}
-                  </span>
-                  <span className="truncate">{v}</span>
-                </span>
+                  <span className="text-xs text-muted-foreground">{k}</span>
+                  <span className="truncate text-sm text-foreground">{v}</span>
+                </li>
               ))}
-            </div>
-          </DetailRow>
+            </ul>
+          </Section>
         ) : null}
 
         {node.summary?.trim() ? (
-          <DetailRow label="Summary">
-            <p className="whitespace-pre-wrap text-[13px] leading-snug text-zinc-300">
+          <Section label="Summary">
+            <p className="whitespace-pre-wrap text-sm leading-relaxed text-foreground">
               {node.summary}
             </p>
-          </DetailRow>
+          </Section>
         ) : null}
 
-        <DetailRow label="Connections">
-          <div className="grid grid-cols-3 gap-0 border border-zinc-800/95">
-            <StatCell label="In" value={facts.inDegree} />
-            <StatCell label="Out" value={facts.outDegree} />
-            <StatCell label="Total" value={totalDegree} accent />
+        <Section label="Connections">
+          <div
+            role="img"
+            className="flex items-center gap-2"
+            aria-label={`${facts.inDegree.toLocaleString()} in, ${facts.outDegree.toLocaleString()} out`}
+          >
+            <p className="text-sm tabular-nums text-foreground">
+              {facts.inDegree.toLocaleString()}{" "}
+              <span className="text-muted-foreground">in</span>
+            </p>
+            <IconArrowRight
+              className="size-4 shrink-0 text-muted-foreground"
+              aria-hidden
+            />
+            <span
+              className="size-4 shrink-0 rounded-sm"
+              style={{ backgroundColor: kindColor }}
+              aria-hidden
+            />
+            <IconArrowRight
+              className="size-4 shrink-0 text-muted-foreground"
+              aria-hidden
+            />
+            <p className="text-sm tabular-nums text-foreground">
+              {facts.outDegree.toLocaleString()}{" "}
+              <span className="text-muted-foreground">out</span>
+            </p>
           </div>
-        </DetailRow>
+        </Section>
 
-        {facts.firstObserved || facts.lastObserved ? (
-          <DetailRow label="Activity">
-            <div className="grid grid-cols-2 gap-0 border border-zinc-800/95">
-              <StatCell label="First seen" value={firstSeen} text />
-              <StatCell label="Last seen" value={lastSeen} text accent />
-            </div>
-            {nodeActivity ? (
-              <div className="mt-2 [&>div]:w-full">
-                <ActivitySparkline buckets={nodeActivity} />
-              </div>
-            ) : null}
-          </DetailRow>
+        {nodeActivity ? (
+          <Section label="Activity">
+            <ActivitySparkline buckets={nodeActivity} />
+          </Section>
         ) : null}
 
         {strongestConnections.length > 0 ? (
-          <DetailRow label="Strongest connections">
-            <ul className="flex flex-col gap-0.5">
+          <Section label="Strongest connections">
+            <ul className="-mx-2 flex flex-col">
               {strongestConnections.map(([nid, count]) => {
                 const nb = nodeById.get(nid)
                 const k = nb?.kind || "Unknown"
@@ -434,76 +418,71 @@ export function NodeDetailDrawer({
                 const name = nb?.name?.trim() || nid
                 return (
                   <li key={nid}>
-                    <button
-                      type="button"
-                      onClick={() => onNeighbourSelect(nid)}
-                      className="flex w-full items-center gap-2 border border-transparent bg-zinc-900/40 px-2 py-1 text-left transition-colors hover:border-zinc-700 hover:bg-zinc-900/80"
+                    <Button
+                      variant="ghost"
+                      onPress={() => onNeighbourSelect(nid)}
+                      className="h-auto w-full justify-start gap-2 px-2 py-1.5"
                     >
                       <span
-                        className="inline-block h-2 w-2 shrink-0"
+                        className="inline-block size-2 shrink-0 rounded-sm"
                         style={{ backgroundColor: color }}
                         aria-hidden
                       />
-                      <span className="flex-1 truncate text-[13px] text-zinc-200">
+                      <span className="min-w-0 flex-1 truncate text-left text-sm text-foreground">
                         {name}
                       </span>
-                      <span className="shrink-0 text-[12px] uppercase tracking-[0.12em] text-zinc-500">
+                      <span className="shrink-0 text-xs text-muted-foreground">
                         {k}
                       </span>
-                      <span className="shrink-0 font-mono tabular-nums text-[12px] text-teal-300">
+                      <span className="shrink-0 text-xs tabular-nums text-muted-foreground">
                         ×{count}
                       </span>
-                    </button>
+                    </Button>
                   </li>
                 )
               })}
             </ul>
-          </DetailRow>
+          </Section>
         ) : null}
 
         {predicates.length > 0 ? (
-          <DetailRow label="Predicates · click to filter claims">
-            <div className="flex flex-wrap gap-1.5">
+          <Section label="Predicates">
+            <div className="-mx-2 flex flex-wrap items-center gap-1.5">
               {predicates.map(([pred, count]) => {
                 const active = predicateFilter === pred
                 return (
-                  <button
+                  <Button
                     key={pred}
-                    type="button"
-                    onClick={() => setPredicateFilter(active ? null : pred)}
-                    className={cn(
-                      "inline-flex items-center gap-1.5 border px-1.5 py-0.5 text-[13px] transition-colors",
-                      active
-                        ? "border-teal-500/55 bg-teal-500/10 text-teal-200"
-                        : "border-zinc-800/95 bg-zinc-900/70 text-zinc-300 hover:border-zinc-700",
-                    )}
+                    variant={active ? "secondary" : "ghost"}
+                    onPress={() => setPredicateFilter(active ? null : pred)}
                     aria-pressed={active}
+                    className="h-7 px-2"
                   >
                     <span>{pred}</span>
-                    <span className="font-mono tabular-nums text-zinc-500">
+                    <span className="tabular-nums text-muted-foreground">
                       {count}
                     </span>
-                  </button>
+                  </Button>
                 )
               })}
               {predicateFilter ? (
-                <button
-                  type="button"
-                  onClick={() => setPredicateFilter(null)}
-                  className="text-[12px] text-teal-400 hover:text-teal-300"
+                <Button
+                  variant="quiet"
+                  onPress={() => setPredicateFilter(null)}
+                  className="h-7 px-2"
                 >
                   Clear filter
-                </button>
+                </Button>
               ) : null}
             </div>
-          </DetailRow>
+          </Section>
         ) : null}
 
         {facts.claims.length > 0 ? (
-          <DetailRow
+          <Section
             label={
               predicateFilter
-                ? `Claims · ${filteredClaims.length.toLocaleString()} / ${facts.claims.length.toLocaleString()} (${predicateFilter})`
+                ? `Claims · ${filteredClaims.length.toLocaleString()} / ${facts.claims.length.toLocaleString()}`
                 : `Claims · ${facts.claims.length.toLocaleString()}`
             }
           >
@@ -513,102 +492,69 @@ export function NodeDetailDrawer({
               kindColors={kindColors}
               onNeighbourSelect={onNeighbourSelect}
             />
-          </DetailRow>
+          </Section>
         ) : null}
 
         {neighbourKinds.length > 0 ? (
-          <DetailRow label="Neighbour kinds">
-            <ul className="flex flex-col gap-0.5">
+          <Section label="Neighbour kinds">
+            <ul className="flex flex-col gap-1.5">
               {neighbourKinds.map(([k, c]) => {
                 const color = kindColors.get(k) ?? KIND_FALLBACK_COLOR
                 return (
                   <li
                     key={k}
-                    className="flex items-center gap-2 text-[13px] text-zinc-300"
+                    className="flex items-center gap-2 text-sm text-foreground"
                   >
                     <span
-                      className="inline-block h-2 w-2 shrink-0"
+                      className="inline-block size-2 shrink-0 rounded-sm"
                       style={{ backgroundColor: color }}
                       aria-hidden
                     />
                     <span className="flex-1 truncate">{k}</span>
-                    <span className="font-mono tabular-nums text-zinc-500">
+                    <span className="tabular-nums text-muted-foreground">
                       {c}
                     </span>
                   </li>
                 )
               })}
             </ul>
-          </DetailRow>
+          </Section>
         ) : null}
       </div>
-
-      <div className="flex gap-0 border-t border-zinc-800/95 bg-zinc-950/90">
-        <button
-          type="button"
-          onClick={onFocus}
-          className="flex-1 px-3 py-2.5 text-[13px] font-medium uppercase tracking-[0.14em] text-teal-400 transition-colors hover:bg-teal-500/10"
-        >
-          Focus
-        </button>
-        <div className="w-px bg-zinc-800/95" aria-hidden />
-        <button
-          type="button"
-          onClick={onClose}
-          className="flex-1 px-3 py-2.5 text-[13px] font-medium uppercase tracking-[0.14em] text-zinc-400 transition-colors hover:bg-white/5 hover:text-zinc-200"
-        >
-          Close
-        </button>
-      </div>
-    </aside>
+    </>
   )
 }
 
-function DetailRow({
-  label,
+function Tag({
   children,
+  className,
+  title,
 }: {
-  label: string
-  children: React.ReactNode
+  children: ReactNode
+  className?: string
+  title?: string
 }) {
   return (
-    <div className="space-y-1">
-      <PanelLabel>{label}</PanelLabel>
+    <span
+      className={cn(
+        "inline-flex items-center gap-1.5 rounded-lg border border-border bg-zinc-800 px-2 py-0.5 text-xs text-muted-foreground",
+        className,
+      )}
+      title={title}
+    >
       {children}
-    </div>
+    </span>
   )
 }
 
-function StatCell({
-  label,
-  value,
-  text = false,
-  accent = false,
-}: {
-  label: string
-  value: number | string
-  text?: boolean
-  accent?: boolean
-}) {
+function Section({ label, children }: { label: string; children: ReactNode }) {
   return (
-    <div
-      className={cn(
-        "flex flex-col gap-0.5 px-2.5 py-1.5",
-        accent && "bg-teal-500/5",
-      )}
-    >
-      <span className="text-[12px] uppercase tracking-[0.18em] text-zinc-500">
+    <section className="flex flex-col gap-1">
+      <h3 className="text-xs font-medium leading-none text-muted-foreground">
         {label}
-      </span>
-      <span
-        className={cn(
-          "tabular-nums text-zinc-100",
-          text ? "text-[13px]" : "font-mono text-[13px] font-semibold",
-        )}
-      >
-        {value}
-      </span>
-    </div>
+      </h3>
+      {children}
+    </section>
   )
 }
 
@@ -625,13 +571,13 @@ function ClaimList({
 }) {
   // Most recent first; unknown timestamps sink to the bottom.
   const sorted = [...claims].sort((a, b) => {
-    const ta = a.observedAt ?? -Infinity
-    const tb = b.observedAt ?? -Infinity
+    const ta = a.observedAt ?? Number.NEGATIVE_INFINITY
+    const tb = b.observedAt ?? Number.NEGATIVE_INFINITY
     return tb - ta
   })
 
   return (
-    <ul className="flex max-h-[50vh] flex-col gap-1.5 overflow-y-auto border border-zinc-800/95 bg-zinc-950/60 p-1.5">
+    <ul className="-mx-2 flex max-h-64 flex-col gap-2 overflow-y-auto">
       {sorted.map((c, i) => {
         const neighbour = nodeById.get(c.neighbourId)
         const neighbourKind = neighbour?.kind || "Unknown"
@@ -640,58 +586,49 @@ function ClaimList({
         const tone = confidenceTone(c.confidence)
         const when =
           c.observedAt != null ? formatShortDate(c.observedAt) : "unknown"
-        const arrow =
-          c.direction === "out" ? (
-            <IconArrowRight
-              className="h-3 w-3 shrink-0 text-zinc-500"
-              aria-hidden
-            />
-          ) : (
-            <IconArrowRight
-              className="h-3 w-3 shrink-0 -scale-x-100 text-zinc-500"
-              aria-hidden
-            />
-          )
         const key = `${c.direction}-${c.predicate}-${c.neighbourId}-${i}`
         return (
           <li key={key}>
-            <button
-              type="button"
-              onClick={() => onNeighbourSelect(c.neighbourId)}
-              className="flex w-full flex-col gap-1 border border-transparent bg-zinc-900/40 px-2 py-1.5 text-left transition-colors hover:border-zinc-700 hover:bg-zinc-900/80"
+            <Button
+              variant="ghost"
+              onPress={() => onNeighbourSelect(c.neighbourId)}
+              className="h-auto w-full flex-col items-stretch gap-0.5 rounded-md px-2 py-1.5"
             >
               <div className="flex items-center gap-1.5">
-                {arrow}
-                <span className="font-mono text-[12px] uppercase tracking-[0.14em] text-zinc-400">
+                <IconArrowRight
+                  className={cn(
+                    "size-3.5 shrink-0 text-muted-foreground",
+                    c.direction === "in" && "-scale-x-100",
+                  )}
+                  aria-hidden
+                />
+                <span className="text-xs text-muted-foreground">
                   {c.predicate}
                 </span>
-                <span
-                  className={cn(
-                    "ml-auto shrink-0 font-mono text-[12px] tabular-nums",
-                    tone.cls,
-                  )}
-                  title={`Aggregated confidence ${tone.label}`}
-                >
-                  {tone.label}
+                <Tag className="shrink-0">
+                  <span
+                    className="size-1.5 shrink-0 rounded-sm"
+                    style={{ backgroundColor: kindColor }}
+                    aria-hidden
+                  />
+                  {neighbourKind}
+                </Tag>
+                <span className="ml-auto shrink-0 text-xs">
+                  <span className="text-muted-foreground">confidence: </span>
+                  <span className={cn("tabular-nums", tone.cls)}>
+                    {tone.label}
+                  </span>
                 </span>
               </div>
               <div className="flex items-center gap-1.5">
-                <span
-                  className="inline-block h-2 w-2 shrink-0"
-                  style={{ backgroundColor: kindColor }}
-                  aria-hidden
-                />
-                <span className="truncate text-[13px] text-zinc-200">
+                <span className="min-w-0 truncate text-sm text-foreground">
                   {neighbourName}
                 </span>
-                <span className="ml-auto shrink-0 text-[12px] uppercase tracking-[0.14em] text-zinc-500">
-                  {neighbourKind}
+                <span className="ml-auto shrink-0 text-xs tabular-nums text-muted-foreground">
+                  {when}
                 </span>
               </div>
-              <div className="flex items-center gap-1.5 text-[12px] tabular-nums text-zinc-500">
-                <span>{when}</span>
-              </div>
-            </button>
+            </Button>
           </li>
         )
       })}

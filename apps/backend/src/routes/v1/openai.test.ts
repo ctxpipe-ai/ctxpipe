@@ -2,6 +2,7 @@ import { createServer, type Server } from "node:http"
 import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest"
 import { OpenAPIHono } from "@hono/zod-openapi"
 import type { AppEnv } from "../../app/env.js"
+import { contextStorage, withTestRequestLogger } from "../../test/hono-test-logger.js"
 
 const mockChatInvoke = vi.hoisted(() =>
   vi.fn(async () => ({ content: "from bedrock" })),
@@ -38,15 +39,6 @@ vi.mock("@aws-sdk/client-bedrock-runtime", () => {
     InvokeModelCommand: MockInvokeModelCommand,
   }
 })
-
-vi.mock("../../observability/logger.js", () => ({
-  getLogger: () => ({
-    error: vi.fn(),
-    warn: vi.fn(),
-    info: vi.fn(),
-  }),
-  log: { error: vi.fn(), warn: vi.fn(), info: vi.fn() },
-}))
 
 let openaiRoutes: typeof import("./openai.js").openaiRoutes
 
@@ -133,6 +125,8 @@ function appWithRoutes(opts: AppOpts): OpenAPIHono<AppEnv> {
   if (embeddings[0]) env.MODEL_EMBEDDING_NAME = embeddings[0]
 
   const app = new OpenAPIHono<AppEnv>().basePath("/:orgSlug/api/v1/openai")
+  app.use(contextStorage())
+  app.use(withTestRequestLogger)
   app.use("*", async (c, next) => {
     c.set("env", env as AppEnv["Variables"]["env"])
     if (opts.authed) {

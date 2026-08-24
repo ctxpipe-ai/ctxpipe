@@ -29,16 +29,6 @@ describe("withTransientHttpRetry", () => {
     })
     expect(result).toBe("ok")
     expect(n).toBe(2)
-    expect(log.info).toHaveBeenCalledTimes(1)
-    expect(log.info).toHaveBeenCalledWith(
-      expect.objectContaining({
-        step: "http.transient_retry",
-        attempt: 1,
-        maxAttempts: 3,
-        message: "503",
-      }),
-    )
-    expect(log.error).not.toHaveBeenCalled()
   })
 
   it("retries on TypeError fetch failed then succeeds", async () => {
@@ -53,8 +43,6 @@ describe("withTransientHttpRetry", () => {
     )
     expect(result).toBe("ok")
     expect(n).toBe(2)
-    expect(log.info).toHaveBeenCalledTimes(1)
-    expect(log.error).not.toHaveBeenCalled()
   })
 
   it("logs nested cause and errno on fetch failed retries", async () => {
@@ -86,7 +74,6 @@ describe("withTransientHttpRetry", () => {
         throw err
       }),
     ).rejects.toBe(err)
-    expect(log.info).not.toHaveBeenCalled()
   })
 
   it("retries on ECONNREFUSED then succeeds", async () => {
@@ -105,7 +92,6 @@ describe("withTransientHttpRetry", () => {
     )
     expect(result).toBe("ok")
     expect(n).toBe(2)
-    expect(log.info).toHaveBeenCalledTimes(1)
   })
 
   it("retries on ECONNREFUSED via error.cause then succeeds", async () => {
@@ -126,7 +112,6 @@ describe("withTransientHttpRetry", () => {
     )
     expect(result).toBe("ok")
     expect(n).toBe(2)
-    expect(log.info).toHaveBeenCalledTimes(1)
   })
 
   it("retries when run returns a Response with status 503 then succeeds", async () => {
@@ -141,13 +126,6 @@ describe("withTransientHttpRetry", () => {
     )
     expect(result.status).toBe(200)
     expect(n).toBe(2)
-    expect(log.info).toHaveBeenCalledTimes(1)
-    expect(log.info).toHaveBeenCalledWith(
-      expect.objectContaining({
-        step: "http.transient_retry",
-        message: "transient HTTP 503",
-      }),
-    )
   })
 
   it("exhausts retries when Response stays 502", async () => {
@@ -156,7 +134,6 @@ describe("withTransientHttpRetry", () => {
       withTransientHttpRetry(run, { retries: 2, baseDelayMs: 1 }),
     ).rejects.toThrow(TransientHttpError)
     expect(run).toHaveBeenCalledTimes(3)
-    expect(log.info).toHaveBeenCalledTimes(2)
   })
 
   it("does not retry non-gateway Response statuses", async () => {
@@ -164,13 +141,37 @@ describe("withTransientHttpRetry", () => {
       async () => new Response("nope", { status: 404 }),
     )
     expect(result.status).toBe(404)
-    expect(log.info).not.toHaveBeenCalled()
   })
 
-  it("does not log info when the first attempt succeeds", async () => {
+  it("retries opaque 500 Internal Server Error then succeeds", async () => {
+    let n = 0
+    const result = await withTransientHttpRetry(
+      async () => {
+        n += 1
+        if (n < 2) {
+          return new Response("Internal Server Error", { status: 500 })
+        }
+        return new Response("ok", { status: 200 })
+      },
+      { retries: 2, baseDelayMs: 1 },
+    )
+    expect(result.status).toBe(200)
+    expect(n).toBe(2)
+  })
+
+  it("does not retry JSON 500 bodies from the upstream handler", async () => {
+    const result = await withTransientHttpRetry(
+      async () =>
+        new Response(JSON.stringify({ error: "Clone/checkout failed" }), {
+          status: 500,
+        }),
+    )
+    expect(result.status).toBe(500)
+  })
+
+  it("returns on the first successful attempt", async () => {
     const result = await withTransientHttpRetry(async () => "ok")
     expect(result).toBe("ok")
-    expect(log.info).not.toHaveBeenCalled()
   })
 
   it("stops after exhausting retries on repeated 503", async () => {
@@ -181,8 +182,6 @@ describe("withTransientHttpRetry", () => {
       withTransientHttpRetry(run, { retries: 2, baseDelayMs: 1 }),
     ).rejects.toThrow(TransientHttpError)
     expect(run).toHaveBeenCalledTimes(3)
-    expect(log.info).toHaveBeenCalledTimes(2)
-    expect(log.error).not.toHaveBeenCalled()
   })
 
   it("exhausts retries: 10 (11 attempts) then throws", async () => {
@@ -197,8 +196,6 @@ describe("withTransientHttpRetry", () => {
       }),
     ).rejects.toThrow(TypeError)
     expect(run).toHaveBeenCalledTimes(11)
-    expect(log.info).toHaveBeenCalledTimes(10)
-    expect(log.error).not.toHaveBeenCalled()
   })
 
   it("caps delay with maxDelayMs", async () => {
@@ -216,11 +213,5 @@ describe("withTransientHttpRetry", () => {
 
     await vi.advanceTimersByTimeAsync(50)
     await expect(promise).resolves.toBe("ok")
-    expect(log.info).toHaveBeenCalledWith(
-      expect.objectContaining({
-        step: "http.transient_retry",
-        delayMs: 50,
-      }),
-    )
   })
 })

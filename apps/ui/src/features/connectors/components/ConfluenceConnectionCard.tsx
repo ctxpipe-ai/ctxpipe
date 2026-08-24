@@ -136,7 +136,7 @@ export function ConfluenceConnectionCard({
                   if (primary.kind === "open_wizard") onOpenWizard()
                   else if (primary.kind === "navigate_repositories") {
                     void navigate({
-                      to: "/$orgSlug/repositories",
+                      to: "/$orgSlug/connectors",
                       params: { orgSlug },
                     })
                   } else onOpenScope()

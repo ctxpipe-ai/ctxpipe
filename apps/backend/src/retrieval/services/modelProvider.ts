@@ -2,6 +2,7 @@ import type { BaseChatModel } from "@langchain/core/language_models/chat_models"
 import { z } from "zod"
 
 import { withLangfuseGeneration } from "../../observability/langfuse.js"
+import { assertNotInOrgDbContext } from "../../db/client.js"
 import {
   type ModelParams,
   mergeModelParams,
@@ -230,6 +231,7 @@ function assertEmbeddingDims(embedding: number[], index?: number): number[] {
  */
 export async function generateEmbeddings(texts: string[]): Promise<number[][]> {
   if (texts.length === 0) return []
+  assertNotInOrgDbContext()
 
   const env = modelEnvSchema.parse(process.env)
   const embedUrl = `${resolveChatBaseUrl(env.MODEL_PROVIDER, env.MODEL_PROVIDER_URL).replace(/\/$/, "")}/embeddings`

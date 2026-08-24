@@ -15,6 +15,7 @@
     "dev:backend": "pnpm --filter @ctxpipe/backend dev",
     "db:migrate": "pnpm --filter @ctxpipe/backend db:migrate",
     "build": "turbo build",
+    "typecheck": "pnpm --filter @ctxpipe/backend typecheck:workspaces && pnpm --filter @ctxpipe/ui typecheck:workspaces",
     "lint": "biome lint apps packages",
     "format": "biome format apps packages adr",
     "mcp:inspect": "pnpm --filter @ctxpipe/backend run mcp:inspect",

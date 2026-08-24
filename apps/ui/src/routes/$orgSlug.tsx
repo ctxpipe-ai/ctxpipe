@@ -1,61 +1,75 @@
-import { createFileRoute, Link, Navigate, Outlet } from "@tanstack/react-router"
-import { getSession, useListOrganizations, useSession } from "@/lib/auth-client"
+import type { QueryClient } from "@tanstack/react-query"
+import {
+  createFileRoute,
+  Link,
+  Outlet,
+  redirect,
+  useMatch,
+} from "@tanstack/react-router"
+import { AppShell } from "@/components/AppShell"
+import { isWorkspaceConversationDocument } from "@/features/workspaces/ensure-route-data"
+import { workspaceListOptions } from "@/features/workspaces/queries"
+import { orgGateOptions, peekOrgGate } from "@/lib/org-gate"
 
 export const Route = createFileRoute("/$orgSlug")({
+  shouldReload: ({ cause }) => cause === "enter",
+  beforeLoad: ({ cause, params, context, location }) => {
+    if (cause === "stay" || cause === "preload") {
+      const cached = peekOrgGate(context.queryClient, params.orgSlug)
+      if (cached) return cached
+    }
+    return resolveOrgGate(context.queryClient, params.orgSlug, {
+      awaitWorkspaceList: !isWorkspaceConversationDocument(location.pathname),
+    })
+  },
   component: OrgScopedLayout,
 })
 
+async function resolveOrgGate(
+  queryClient: QueryClient,
+  orgSlug: string,
+  options?: { awaitWorkspaceList?: boolean },
+) {
+  const gate = await queryClient.ensureQueryData(orgGateOptions(orgSlug))
+  if (!gate.session) {
+    throw redirect({ to: "/.auth/sign-in" })
+  }
+
+  const user = gate.session.user
+  if (!user.onboardingCompletedAt) {
+    throw redirect({
+      to: "/onboarding",
+      search: { orgSlug: undefined },
+    })
+  }
+
+  if (gate.organizations.length === 0) {
+    throw redirect({
+      to: "/onboarding",
+      search: { orgSlug: undefined },
+    })
+  }
+
+  if (gate.orgAccessDenied) return gate
+
+  if (options?.awaitWorkspaceList === false) {
+    void queryClient.prefetchQuery(workspaceListOptions(orgSlug))
+    return gate
+  }
+
+  await queryClient.ensureQueryData(workspaceListOptions(orgSlug))
+  return gate
+}
+
 function OrgScopedLayout() {
   const { orgSlug } = Route.useParams()
-  const { data: session, isPending: sessionPending } = useSession()
-  const { data: organizations, isPending: orgsPending } = useListOrganizations()
+  const { orgAccessDenied } = Route.useRouteContext()
+  const setupMatch = useMatch({
+    from: "/$orgSlug/setup",
+    shouldThrow: false,
+  })
 
-  if (sessionPending) {
-    return (
-      <main className="onboarding-fade-in min-h-screen bg-zinc-950 text-zinc-100">
-        <div className="flex min-h-screen items-center justify-center px-6 text-center">
-          <p className="text-sm text-zinc-400">Loading workspace…</p>
-        </div>
-      </main>
-    )
-  }
-
-  if (!session) {
-    return <Navigate to="/.auth/sign-in" replace />
-  }
-
-  const user = session.user as {
-    id: string
-    onboardingCompletedAt?: string | null
-  }
-  if (user.onboardingCompletedAt && typeof window !== "undefined") {
-    sessionStorage.removeItem("ctxpipe:onboarding-transition-pending-at")
-  }
-  if (!user.onboardingCompletedAt) {
-    if (typeof window !== "undefined") {
-      const pendingAt = Number(
-        sessionStorage.getItem("ctxpipe:onboarding-transition-pending-at") ?? "0",
-      )
-      if (pendingAt > 0 && Date.now() - pendingAt < 10000) {
-        void getSession({ fetchOptions: { throw: false } })
-        return <Outlet />
-      }
-      if (pendingAt > 0) {
-        sessionStorage.removeItem("ctxpipe:onboarding-transition-pending-at")
-      }
-    }
-    return <Navigate to="/onboarding" replace />
-  }
-
-  if (orgsPending) return <Outlet />
-
-  const orgList = organizations ?? []
-  if (orgList.length === 0) {
-    return <Navigate to="/onboarding" replace />
-  }
-
-  const isMember = orgList.some((org) => org.slug === orgSlug)
-  if (!isMember) {
+  if (orgAccessDenied) {
     return (
       <main className="min-h-screen bg-background text-foreground">
         <div className="mx-auto max-w-lg px-6 py-16">
@@ -73,6 +87,11 @@ function OrgScopedLayout() {
           <p className="mt-6">
             <Link
               to="/"
+              search={{
+                error: undefined,
+                error_description: undefined,
+                pendingAccountClaim: undefined,
+              }}
               className="text-sm text-teal-400 no-underline hover:text-teal-300 hover:underline"
             >
               Go to home
@@ -83,5 +102,11 @@ function OrgScopedLayout() {
     )
   }
 
-  return <Outlet />
+  if (setupMatch) return <Outlet />
+
+  return (
+    <AppShell>
+      <Outlet />
+    </AppShell>
+  )
 }

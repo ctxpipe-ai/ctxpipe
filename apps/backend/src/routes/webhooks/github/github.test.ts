@@ -14,6 +14,10 @@ const enqueueIngestionMock = vi.hoisted(() =>
 )
 
 vi.mock("../../../db/client.js", () => ({
+    tryGetOrgDb: () => ({}),
+    tryGetOrgDbOrgId: () => "org_test",
+    assertNotInOrgDbContext: () => undefined,
+
   // Webhook handler now wraps findRepositoryByGithubInstallation in
   // withOrgDbContext (moved out of the model). In tests we pass through so
   // mocked models still run.
@@ -40,6 +44,21 @@ vi.mock("../../../openworkflow/client.js", () => ({
 
 vi.mock("../../../openworkflow/enqueue-repository-ingestion.js", () => ({
   enqueueRepositoryIngestionWorkflow: enqueueIngestionMock,
+}))
+
+const persistWorkspaceTipsMock = vi.hoisted(() => vi.fn().mockResolvedValue(0))
+
+vi.mock("../../../openworkflow/enqueue-workspace-tip-check.js", () => ({
+  enqueueWorkspaceTipCheck: vi.fn().mockResolvedValue(undefined),
+}))
+
+vi.mock("../../../openworkflow/enqueue-workspace-hydrate.js", () => ({
+  enqueueWorkspaceHydrate: vi.fn().mockResolvedValue(undefined),
+}))
+
+vi.mock("./github-workspace-tip.js", () => ({
+  persistWorkspaceTipsOnDefaultBranchPush: persistWorkspaceTipsMock,
+  resolveGithubBranchTip: vi.fn().mockResolvedValue(null),
 }))
 
 import {
@@ -98,6 +117,8 @@ describe("POST /api/v1/webhook/github", () => {
     getRowByConMock.mockReset()
     registerInstallMock.mockReset()
     getWebhookSecretMock.mockReset()
+    persistWorkspaceTipsMock.mockReset()
+    persistWorkspaceTipsMock.mockResolvedValue(0)
   })
 
   function createTestApp() {
@@ -131,7 +152,7 @@ describe("POST /api/v1/webhook/github", () => {
     expect(res.status).toBe(401)
   })
 
-    it("rejects a connection-specific secret at the legacy webhook URL", async () => {
+  it("rejects a connection-specific secret at the legacy webhook URL", async () => {
     listInstallationsMock.mockResolvedValue([
       {
         id: "con_abc",
@@ -280,6 +301,13 @@ describe("POST /api/v1/webhook/github", () => {
         indexingReason: "push",
       },
       expect.any(Object),
+    )
+    expect(persistWorkspaceTipsMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        orgId: "org_1",
+        repoFullName: "acme/app",
+        defaultBranch: "main",
+      }),
     )
   })
 

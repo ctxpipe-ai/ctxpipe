@@ -4,6 +4,9 @@ const requireCurrentOrgIdMock = vi.hoisted(() => vi.fn(() => "org_1"))
 const requireCurrentOrgSlugMock = vi.hoisted(() => vi.fn(() => "acme"))
 const getSystemDbMock = vi.hoisted(() => vi.fn())
 const getOrgDbMock = vi.hoisted(() => vi.fn())
+const withOrgDbContextMock = vi.hoisted(() =>
+  vi.fn(async (_orgId: string, fn: () => unknown) => fn()),
+)
 const executeQueryMock = vi.hoisted(() => vi.fn())
 const getGraphClientMock = vi.hoisted(() =>
   vi.fn(() => ({ executeQuery: executeQueryMock })),
@@ -11,16 +14,6 @@ const getGraphClientMock = vi.hoisted(() =>
 const withGraphClientMock = vi.hoisted(() =>
   vi.fn(async (_ctx: unknown, fn: () => Promise<unknown>) => fn()),
 )
-const flushWorkflowLogMock = vi.hoisted(() => vi.fn())
-const getLoggerMock = vi.hoisted(() => {
-  const logger = {
-    set: vi.fn(),
-    info: vi.fn(),
-    warn: vi.fn(),
-    error: vi.fn(),
-  }
-  return vi.fn(() => logger)
-})
 
 vi.mock("../../auth/context.js", () => ({
   requireCurrentOrgId: requireCurrentOrgIdMock,
@@ -28,8 +21,12 @@ vi.mock("../../auth/context.js", () => ({
 }))
 
 vi.mock("../../db/client.js", () => ({
+  tryGetOrgDb: () => ({}),
+  tryGetOrgDbOrgId: () => "org_test",
+  assertNotInOrgDbContext: () => undefined,
   getSystemDb: getSystemDbMock,
   getOrgDb: getOrgDbMock,
+  withOrgDbContext: withOrgDbContextMock,
 }))
 
 vi.mock("../../platform/graph/client.js", () => ({
@@ -37,21 +34,16 @@ vi.mock("../../platform/graph/client.js", () => ({
   withGraphClient: withGraphClientMock,
 }))
 
-vi.mock("../../observability/logger.js", () => ({
-  getLogger: getLoggerMock,
-  flushWorkflowLog: flushWorkflowLogMock,
-  log: { error: vi.fn(), info: vi.fn(), warn: vi.fn() },
-}))
-
+import type { ClaimForProjection } from "../schema/claimForProjection.js"
 import {
   deleteObjectsFromGraph,
   groupClaimsForBatchProjection,
   PROJECT_CLAIM_BATCH_SIZE,
+  type PreparedProjectionRow,
   projectClaimsFromState,
   retractClaimsFromGraph,
-  type PreparedProjectionRow,
 } from "./graphProjection.js"
-import type { ClaimForProjection } from "../schema/claimForProjection.js"
+import { withTestLogger } from "../../test/with-test-logger.js"
 
 function makeClaim(
   overrides: Partial<ClaimForProjection> & Pick<ClaimForProjection, "id">,
@@ -91,7 +83,11 @@ describe("groupClaimsForBatchProjection", () => {
         objectProps: { id: "db_1", kind: "Database" },
       },
       {
-        claim: makeClaim({ id: "c3", predicate: "EXPOSES_API", objectId: "api_c" }),
+        claim: makeClaim({
+          id: "c3",
+          predicate: "EXPOSES_API",
+          objectId: "api_c",
+        }),
         subjectProps: { id: "svc_a", kind: "Service" },
         objectProps: { id: "api_c", kind: "API" },
       },
@@ -107,8 +103,6 @@ describe("projectClaimsFromState", () => {
   beforeEach(() => {
     executeQueryMock.mockReset()
     executeQueryMock.mockResolvedValue({ records: [] })
-    flushWorkflowLogMock.mockReset()
-    getLoggerMock.mockClear()
     withGraphClientMock.mockClear()
 
     const where = vi.fn().mockResolvedValue([
@@ -133,11 +127,13 @@ describe("projectClaimsFromState", () => {
         payload: { name: "db" },
       },
     ])
-    getSystemDbMock.mockReturnValue({
+    const selectChain = {
       select: vi.fn().mockReturnValue({
         from: vi.fn().mockReturnValue({ where }),
       }),
-    })
+    }
+    getSystemDbMock.mockReturnValue(selectChain)
+    getOrgDbMock.mockReturnValue(selectChain)
   })
 
   it("issues far fewer graph queries than claims via UNWIND batches", async () => {
@@ -148,21 +144,22 @@ describe("projectClaimsFromState", () => {
       }),
     )
 
-    const result = await projectClaimsFromState(claims)
+    const result = await withTestLogger(() => projectClaimsFromState(claims))
     expect(result.projected).toBe(250)
     // One group (Service/API/EXPOSES_API), chunk size 100 → 3 UNWIND queries
     expect(executeQueryMock.mock.calls.length).toBe(
       Math.ceil(250 / PROJECT_CLAIM_BATCH_SIZE),
     )
     expect(executeQueryMock.mock.calls[0]?.[0]).toContain("UNWIND $rows AS row")
-    expect(flushWorkflowLogMock).toHaveBeenCalled()
   })
 
   it("skips invalid predicates without querying them", async () => {
-    await projectClaimsFromState([
-      makeClaim({ id: "ok" }),
-      makeClaim({ id: "bad", predicate: "NOT_A_REAL_EDGE" }),
-    ])
+    await withTestLogger(() =>
+      projectClaimsFromState([
+        makeClaim({ id: "ok" }),
+        makeClaim({ id: "bad", predicate: "NOT_A_REAL_EDGE" }),
+      ]),
+    )
     expect(executeQueryMock).toHaveBeenCalledTimes(1)
     const rows = executeQueryMock.mock.calls[0]?.[1]?.rows as unknown[]
     expect(rows).toHaveLength(1)
@@ -177,7 +174,7 @@ describe("projectClaimsFromState", () => {
       makeClaim({ id: "c1" }),
       makeClaim({ id: "c2", objectId: "api_c" }),
     ]
-    const result = await projectClaimsFromState(claims)
+    const result = await withTestLogger(() => projectClaimsFromState(claims))
     expect(result.projected).toBe(2)
     // 1 failed batch + 2 single-claim fallbacks
     expect(executeQueryMock).toHaveBeenCalledTimes(3)
@@ -185,18 +182,59 @@ describe("projectClaimsFromState", () => {
   })
 
   it("groups mixed predicates into separate batch queries", async () => {
-    await projectClaimsFromState([
-      makeClaim({ id: "c1", predicate: "EXPOSES_API" }),
-      makeClaim({
-        id: "c2",
-        predicate: "DEPENDS_ON",
-        objectId: "db_1",
-        objectKind: "Database",
-      }),
-    ])
+    await withTestLogger(() =>
+      projectClaimsFromState([
+        makeClaim({ id: "c1", predicate: "EXPOSES_API" }),
+        makeClaim({
+          id: "c2",
+          predicate: "DEPENDS_ON",
+          objectId: "db_1",
+          objectKind: "Database",
+        }),
+      ]),
+    )
     expect(executeQueryMock).toHaveBeenCalledTimes(2)
     expect(executeQueryMock.mock.calls[0]?.[0]).toContain(":EXPOSES_API")
     expect(executeQueryMock.mock.calls[1]?.[0]).toContain(":DEPENDS_ON")
+  })
+
+  it("scopes MERGE keys and replaces the Workspace graph before projecting", async () => {
+    await withTestLogger(() =>
+      projectClaimsFromState([makeClaim({ id: "c1" })], {
+        workspaceId: "ws_1",
+        projectionSha: "abc",
+      }),
+    )
+    expect(executeQueryMock.mock.calls[0]?.[0]).toContain("DETACH DELETE")
+    expect(executeQueryMock.mock.calls[0]?.[1]).toMatchObject({
+      workspaceId: "ws_1",
+    })
+    expect(executeQueryMock.mock.calls[0]?.[1]).not.toHaveProperty(
+      "projectionSha",
+    )
+    expect(executeQueryMock.mock.calls[1]?.[0]).toContain(
+      "workspaceId: $workspaceId",
+    )
+    expect(executeQueryMock.mock.calls[1]?.[0]).toContain("r.projectionSha")
+    expect(executeQueryMock.mock.calls[1]?.[1]).toMatchObject({
+      workspaceId: "ws_1",
+      projectionSha: "abc",
+    })
+  })
+
+  it("replaces an empty Workspace graph so deleted edges do not survive", async () => {
+    await withTestLogger(() =>
+      projectClaimsFromState([], {
+        workspaceId: "ws_1",
+        projectionSha: "abc",
+      }),
+    )
+    expect(executeQueryMock).toHaveBeenCalledTimes(1)
+    expect(executeQueryMock.mock.calls[0]?.[0]).toContain("DETACH DELETE")
+    expect(executeQueryMock.mock.calls[0]?.[1]).toEqual({
+      orgId: "org_1",
+      workspaceId: "ws_1",
+    })
   })
 })
 
@@ -207,7 +245,7 @@ describe("retractClaimsFromGraph / deleteObjectsFromGraph", () => {
   })
 
   it("retracts many claim edges with one UNWIND query", async () => {
-    await retractClaimsFromGraph(["c1", "c2", "c1"])
+    await withTestLogger(() => retractClaimsFromGraph(["c1", "c2", "c1"]))
     expect(executeQueryMock).toHaveBeenCalledTimes(1)
     expect(executeQueryMock.mock.calls[0]?.[0]).toContain("UNWIND $claimIds")
     expect(executeQueryMock.mock.calls[0]?.[1]).toEqual({
@@ -217,7 +255,7 @@ describe("retractClaimsFromGraph / deleteObjectsFromGraph", () => {
   })
 
   it("deletes many object nodes with one UNWIND query", async () => {
-    await deleteObjectsFromGraph(["o1", "o2"])
+    await withTestLogger(() => deleteObjectsFromGraph(["o1", "o2"]))
     expect(executeQueryMock).toHaveBeenCalledTimes(1)
     expect(executeQueryMock.mock.calls[0]?.[0]).toContain("UNWIND $ids")
     expect(executeQueryMock.mock.calls[0]?.[1]).toEqual({

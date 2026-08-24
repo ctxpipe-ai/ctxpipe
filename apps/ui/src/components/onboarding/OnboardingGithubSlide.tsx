@@ -6,24 +6,24 @@ import { GITHUB_FINALISING_MIN_MS } from "@/components/onboarding/constants"
 import {
   fetchGithubInstallationSummary,
   githubConnectorKeys,
+  githubInstallationIsLinked,
 } from "@/features/connectors/queries/github-connector"
 import { useGithubConnectFlow } from "@/features/connectors/useGithubConnectFlow"
-import {
-  type GitHubRepositorySetupData,
-  GitHubRepositorySetupForm,
-} from "@/features/repositories"
-import { client } from "@/lib/api"
+import { GithubWorkspaceDestinationFromApi } from "@/features/workspaces/GithubWorkspaceDestination"
+import type { Workspace } from "@/features/workspaces/types"
 
 type OnboardingGithubSlideProps = {
   orgSlug: string | null
   onContinue: () => void
-  onRepositoriesQueued?: () => void
+  onCreateWorkspace?: () => void
+  onSelectWorkspace?: (workspace: Workspace) => void
 }
 
 export function OnboardingGithubSlide({
   orgSlug,
   onContinue,
-  onRepositoriesQueued,
+  onCreateWorkspace,
+  onSelectWorkspace,
 }: OnboardingGithubSlideProps) {
   const [githubSetupError, setGithubSetupError] = useState<string | null>(null)
   const [connectOptimistic, setConnectOptimistic] = useState(false)
@@ -31,10 +31,6 @@ export function OnboardingGithubSlide({
   const onContinueStable = useCallback(() => {
     onContinue()
   }, [onContinue])
-  const handleRepositoriesSaved = useCallback(() => {
-    onRepositoriesQueued?.()
-    onContinue()
-  }, [onContinue, onRepositoriesQueued])
 
   const { data: installation, isPending: installationPending } = useQuery({
     queryKey: githubConnectorKeys.installation(orgSlug ?? ""),
@@ -43,22 +39,8 @@ export function OnboardingGithubSlide({
     enabled: !!orgSlug,
   })
 
-  const hasGithubInstallation = Boolean(installation) || connectOptimistic
-
-  const { data: setupData, isPending: setupPending } = useQuery({
-    queryKey: ["github-installation-setup", orgSlug],
-    queryFn: async () => {
-      if (!orgSlug) throw new Error("Missing organisation")
-      const res = await (
-        client[":orgSlug"].api.v1.github.installation.setup.$get as (arg: {
-          param: { orgSlug: string }
-        }) => Promise<Response>
-      )({ param: { orgSlug } })
-      if (!res.ok) throw new Error("Failed to fetch GitHub setup data")
-      return (await res.json()) as GitHubRepositorySetupData
-    },
-    enabled: Boolean(orgSlug && hasGithubInstallation),
-  })
+  const hasGithubInstallation =
+    githubInstallationIsLinked(installation) || connectOptimistic
 
   const hookOrg = orgSlug ?? ""
   const flowEnabled = !!orgSlug
@@ -97,12 +79,12 @@ export function OnboardingGithubSlide({
 
   const hostedDescription = (() => {
     if (bootstrapStillLoading) {
-      return "Connect your GitHub App to choose the organisation and repositories ctx| can index."
+      return "Connect your GitHub App to choose the organization and repositories ctx| can access."
     }
     if (hasHostedApp) {
-      return "Connect your GitHub App to choose the organisation and repositories ctx| can index."
+      return "Connect your GitHub App to choose the organization and repositories ctx| can access."
     }
-    return "This deployment uses a GitHub App you create in your organisation. You will register the app, webhook URL, and credentials, then install it on the accounts you want ctx| to index."
+    return "This deployment uses a GitHub App you create in your organization. You will register the app, webhook URL, and credentials, then install it on the accounts you want ctx| to access."
   })()
 
   const primaryLabel = bootstrapStillLoading
@@ -111,30 +93,27 @@ export function OnboardingGithubSlide({
       ? "Connect GitHub"
       : "Set up GitHub App"
 
-  if (hasGithubInstallation) {
-    if (setupPending) {
-      return (
-        <>
-          <h2 className="onb-in-1 mb-4 text-3xl font-semibold text-zinc-100 sm:text-4xl">
-            Choose repositories to index
-          </h2>
-          <div className="onb-in-2 mx-auto flex min-h-[280px] max-w-3xl items-center justify-center">
-            <p className="text-sm text-zinc-400">
-              Loading repositories from GitHub…
-            </p>
-          </div>
-        </>
-      )
-    }
-
+  if (hasGithubInstallation && orgSlug) {
     return (
       <div className="onb-in-2 mx-auto w-full max-w-3xl">
-        <GitHubRepositorySetupForm
-          orgSlug={hookOrg}
-          setupData={setupData}
+        <GithubWorkspaceDestinationFromApi
+          orgSlug={orgSlug}
           variant="onboarding"
-          onSaveSuccess={handleRepositoriesSaved}
-          onCancel={onContinueStable}
+          onCreateWorkspace={() => {
+            if (onCreateWorkspace) {
+              onCreateWorkspace()
+              return
+            }
+            onContinueStable()
+          }}
+          onSelectWorkspace={(workspace) => {
+            if (onSelectWorkspace) {
+              onSelectWorkspace(workspace)
+              return
+            }
+            onContinueStable()
+          }}
+          onClose={onContinueStable}
         />
       </div>
     )
@@ -148,7 +127,7 @@ export function OnboardingGithubSlide({
       <div className="onb-in-2 mx-auto mb-14 flex min-h-[280px] max-w-3xl flex-col">
         <p className="mx-auto mb-3 text-balance text-zinc-300">
           {isGithubSyncing
-            ? "Finalising your GitHub connection..."
+            ? "Finalizing your GitHub connection..."
             : hostedDescription}
         </p>
         <p className="mx-auto min-h-5 text-xs text-zinc-400">
@@ -174,7 +153,7 @@ export function OnboardingGithubSlide({
             }}
           >
             {isGithubSyncing
-              ? "Finalising connection..."
+              ? "Finalizing connection..."
               : installationPending || bootstrapStillLoading
                 ? "Checking..."
                 : primaryLabel}

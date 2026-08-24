@@ -19,6 +19,7 @@ import { Modal } from "@/components/ui/Modal"
 import { Spinner } from "@/components/ui/spinner"
 import type { Repository } from "@/features/repositories"
 import { client } from "@/lib/api"
+import { pollWhileOk, readApiJson } from "@/lib/api-result"
 import {
   getNotionFailureAction,
   getNotionSetupCurrentIndex,
@@ -111,6 +112,8 @@ export function NotionSetupDialog({
     queryFn: () => fetchNotionConnectorStatus(orgSlug, connectionId),
     enabled: isOpen && Boolean(connectionId),
     refetchInterval: (query) => {
+      const interval = pollWhileOk(2000)(query)
+      if (interval === false) return false
       const data = query.state.data
       if (!isOpen) return false
       if (
@@ -118,7 +121,7 @@ export function NotionSetupDialog({
         data?.setupPhase === "initial_sync" ||
         data?.pendingConfigPrCreating
       ) {
-        return 2000
+        return interval
       }
       return false
     },
@@ -136,8 +139,9 @@ export function NotionSetupDialog({
       const res = await client[":orgSlug"].api.v1.repositories.$get({
         param: { orgSlug },
       })
-      if (!res.ok) throw new Error("Failed to fetch repositories")
-      const json = (await res.json()) as { items: Repository[] }
+      const json = await readApiJson<{ items: Repository[] }>(res, {
+        message: "Failed to fetch repositories",
+      })
       return json.items
     },
     enabled: isOpen,

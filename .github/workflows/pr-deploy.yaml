@@ -7,8 +7,15 @@ on:
       - reopened
       - synchronize
       - closed
-  # Cloud-agent git pushes often do not emit pull_request synchronize. Manual
-  # redeploy: Actions → PR Deploy → Run workflow → enter PR number.
+  # Cloud Agent pushes sometimes skip pull_request synchronize. Keep push so
+  # resolve_pr can map the branch to an open PR. Agent jobs run on push only;
+  # humans on pull_request only. Ignore main (production Deploy) and tags.
+  # Manual fallback: Run workflow → PR number.
+  push:
+    branches-ignore:
+      - main
+    tags-ignore:
+      - "**"
   workflow_dispatch:
     inputs:
       pr_number:
@@ -16,8 +23,11 @@ on:
         required: true
         type: string
 
+# Queue, do not cancel. Cancelling the GH job leaves Railway still DEPLOYING;
+# the next run then waits 7m on leftover rolls and never reaches the UI canary.
 concurrency:
-  group: ${{ github.workflow }}-${{ github.event_name == 'workflow_dispatch' && format('pr-{0}', inputs.pr_number) || github.ref }}
+  group: ${{ github.workflow }}-${{ github.event_name }}-${{ github.event_name == 'workflow_dispatch' && format('pr-{0}', inputs.pr_number) || github.head_ref || github.ref_name }}
+  cancel-in-progress: false
 
 permissions:
   contents: read
@@ -28,12 +38,16 @@ jobs:
   resolve_pr:
     name: Resolve PR number and head SHA
     if: |
-      github.event_name == 'workflow_dispatch' || (
-      github.event_name == 'pull_request' && (
-      github.event.action == 'synchronize'
-      || github.event.action == 'opened'
-      || github.event.action == 'reopened') &&
-      github.event.pull_request.head.repo.full_name == github.repository)
+      github.event_name == 'workflow_dispatch' ||
+      (github.event_name == 'push' &&
+        (github.actor == 'cursor[bot]' || github.actor == 'cursoragent')) ||
+      (github.event_name == 'pull_request' &&
+        github.actor != 'cursor[bot]' &&
+        github.actor != 'cursoragent' &&
+        (github.event.action == 'synchronize'
+          || github.event.action == 'opened'
+          || github.event.action == 'reopened') &&
+        github.event.pull_request.head.repo.full_name == github.repository)
     runs-on: blacksmith-4vcpu-ubuntu-2404
     outputs:
       pr_number: ${{ steps.resolve.outputs.pr_number }}
@@ -45,9 +59,22 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           set -euo pipefail
-          if [[ "${{ github.event_name }}" == "workflow_dispatch" ]]; then
+          EVENT_NAME="${{ github.event_name }}"
+          REPO="${{ github.repository }}"
+          if [[ "$EVENT_NAME" == "workflow_dispatch" ]]; then
             PR_NUMBER="${{ inputs.pr_number }}"
-            HEAD_SHA="$(gh api "repos/${{ github.repository }}/pulls/${PR_NUMBER}" --jq .head.sha)"
+            HEAD_SHA="$(gh api "repos/${REPO}/pulls/${PR_NUMBER}" --jq .head.sha)"
+          elif [[ "$EVENT_NAME" == "push" ]]; then
+            OWNER="${{ github.repository_owner }}"
+            BRANCH="${{ github.ref_name }}"
+            PR_NUMBER="$(gh api -X GET "repos/${REPO}/pulls?state=open&head=${OWNER}:${BRANCH}" --jq '.[0].number // empty')"
+            HEAD_SHA="${{ github.sha }}"
+            if [[ -z "$PR_NUMBER" ]]; then
+              echo "No open PR for ${OWNER}:${BRANCH}; skipping preview deploy"
+              echo "pr_number=" >> "$GITHUB_OUTPUT"
+              echo "head_sha=$HEAD_SHA" >> "$GITHUB_OUTPUT"
+              exit 0
+            fi
           else
             PR_NUMBER="${{ github.event.number }}"
             HEAD_SHA="${{ github.event.pull_request.head.sha }}"
@@ -59,6 +86,7 @@ jobs:
   build_pr_images:
     name: Build and Publish PR GHCR Images
     needs: [resolve_pr]
+    if: needs.resolve_pr.outputs.pr_number != ''
     runs-on: blacksmith-4vcpu-ubuntu-2404
     timeout-minutes: 30
     strategy:
@@ -98,6 +126,8 @@ jobs:
           context: .
           file: ${{ matrix.dockerfile }}
           push: true
+          build-args: |
+            ${{ matrix.image == 'ui' && format('VITE_PUBLIC_API_URL=https://backend-pr-{0}.up.railway.app', needs.resolve_pr.outputs.pr_number) || '' }}
           tags: |
             ghcr.io/ctxpipe-ai/${{ matrix.image }}:pr-${{ needs.resolve_pr.outputs.pr_number }}-${{ needs.resolve_pr.outputs.head_sha }}
             ghcr.io/ctxpipe-ai/${{ matrix.image }}:${{ needs.resolve_pr.outputs.head_sha }}
@@ -105,7 +135,9 @@ jobs:
   deploy_pr_environment:
     name: Deploy PR environment (Railway + Neon)
     needs: [resolve_pr, build_pr_images]
+    if: needs.resolve_pr.outputs.pr_number != ''
     runs-on: blacksmith-4vcpu-ubuntu-2404
+    timeout-minutes: 45
     env:
       RAILWAY_API_TOKEN: ${{ secrets.RAILWAY_API_TOKEN }}
       PR_ENV: pr-${{ needs.resolve_pr.outputs.pr_number }}
@@ -191,9 +223,48 @@ jobs:
 
       - name: Run Drizzle migrations on PR Neon branch
         working-directory: apps/backend
-        run: NO_COLOR=1 CI=true stdbuf -oL -eL pnpm exec drizzle-kit migrate
+        run: |
+          NO_COLOR=1 CI=true stdbuf -oL -eL pnpm exec drizzle-kit migrate
+          pnpm exec tsx src/db/migrate-openworkflow.ts
+          pnpm exec tsx src/db/migrate-checkpoints.ts
         env:
           DATABASE_URL: ${{ steps.neon_branch.outputs.db_url }}
+
+      - name: Resolve Neon ctxpipe_app URLs
+        id: neon_app_role
+        continue-on-error: true
+        uses: neondatabase/create-branch-action@v6
+        with:
+          project_id: ${{ vars.NEON_PROJECT_ID }}
+          branch_name: preview/pr-${{ needs.resolve_pr.outputs.pr_number }}
+          parent_branch: production
+          role: ctxpipe_app
+          api_key: ${{ secrets.NEON_API_KEY }}
+          expires_at: ${{ steps.neon_expires.outputs.expires_at }}
+
+      - name: Provision ctxpipe_app on PR branch
+        id: neon_app
+        working-directory: apps/backend
+        env:
+          OWNER_DB_URL: ${{ steps.neon_branch.outputs.db_url }}
+          OWNER_DB_URL_POOLED: ${{ steps.neon_branch.outputs.db_url_pooled }}
+          APP_DB_URL_POOLED: ${{ steps.neon_app_role.outputs.db_url_pooled }}
+          APP_PASSWORD: ${{ steps.neon_app_role.outputs.password }}
+          APP_ROLE_OK: ${{ steps.neon_app_role.outcome }}
+        run: |
+          set -euo pipefail
+          if [[ "$APP_ROLE_OK" == "success" && -n "${APP_DB_URL_POOLED:-}" && -n "${APP_PASSWORD:-}" ]]; then
+            PASSWORD="$APP_PASSWORD"
+            POOLED="$APP_DB_URL_POOLED"
+          else
+            echo "Neon parent has no ctxpipe_app yet; creating it on this preview branch"
+            PASSWORD="$(openssl rand -base64 24)"
+            POOLED="$(python3 -c 'import sys; from urllib.parse import urlparse, urlunparse, quote; parsed=urlparse(sys.argv[1]); password=quote(sys.argv[2], safe=""); host=parsed.hostname or ""; netloc=f"ctxpipe_app:{password}@{host}" + (f":{parsed.port}" if parsed.port else ""); print(urlunparse(parsed._replace(netloc=netloc)))' "$OWNER_DB_URL_POOLED" "$PASSWORD")"
+          fi
+          echo "::add-mask::$PASSWORD"
+          echo "::add-mask::$POOLED"
+          DATABASE_URL="$OWNER_DB_URL" DATABASE_APP_PASSWORD="$PASSWORD" pnpm exec tsx src/db/provision-app-role-cli.ts
+          echo "db_url_pooled=$POOLED" >> "$GITHUB_OUTPUT"
 
       - name: Get Railway environment ID
         id: railway_env
@@ -226,7 +297,7 @@ jobs:
           RAILWAY_API_TOKEN: ${{ secrets.RAILWAY_API_TOKEN }}
           RAILWAY_PROJECT_ID: ${{ vars.RAILWAY_PROJECT_ID }}
           ENV_ID: ${{ steps.railway_env.outputs.env_id }}
-          NEON_DB_URL: ${{ steps.neon_branch.outputs.db_url_pooled }}
+          NEON_DB_URL: ${{ steps.neon_app.outputs.db_url_pooled }}
           BACKEND_SERVICE_ID: ${{ vars.RAILWAY_BACKEND_SERVICE_ID }}
           WORKER_SERVICE_ID: ${{ vars.RAILWAY_WORKER_SERVICE_ID }}
           UI_SERVICE_ID: ${{ vars.RAILWAY_UI_SERVICE_ID }}
@@ -235,12 +306,11 @@ jobs:
           WORKER_IMAGE: ghcr.io/ctxpipe-ai/worker:${{ env.IMAGE_TAG }}
           UI_IMAGE: ghcr.io/ctxpipe-ai/ui:${{ env.IMAGE_TAG }}
           CODESEARCH_IMAGE: ghcr.io/ctxpipe-ai/codesearch:${{ env.IMAGE_TAG }}
-        # Railway API/CLI calls can be flaky; retry once before failing.
-        uses: nick-fields/retry@v4
-        with:
-          timeout_minutes: 10
-          max_attempts: 2
-          command: |
+        # Single Railway roll. Do not wrap this script in nick-fields/retry —
+        # a second attempt stacks serviceInstanceDeployV2 on a still-DEPLOYING
+        # instance. GraphQL HTTP retries live in railway_graphql.
+        timeout-minutes: 35
+        run: |
             set -euo pipefail
 
             if [[ -z "${RAILWAY_API_TOKEN:-}" ]]; then
@@ -279,22 +349,35 @@ jobs:
             railway_graphql() {
               local query="$1"
               local variables="$2"
-              local raw http_code body
-              # Capture body + status so GraphQL validation/400s are visible in logs
-              # (curl -f alone only prints "returned error: 400").
-              raw="$(curl -sS -w '\n%{http_code}' \
-                -H "Authorization: Bearer $RAILWAY_API_TOKEN" \
-                -H "Content-Type: application/json" \
-                -d "$(jq -nc --arg q "$query" --argjson v "$variables" '{query:$q,variables:$v}')" \
-                https://backboard.railway.com/graphql/v2)" || return $?
-              http_code="$(printf '%s' "$raw" | tail -n1)"
-              body="$(printf '%s' "$raw" | sed '$d')"
-              if [[ "$http_code" != "200" ]]; then
-                echo "Railway GraphQL HTTP $http_code for query: ${query:0:120}…" >&2
+              local attempt raw http_code body
+              # Retry HTTP/GraphQL transport only. Do not retry the whole deploy
+              # script — that stacks serviceInstanceDeployV2 on a still-DEPLOYING instance.
+              for attempt in 1 2 3; do
+                raw="$(curl -sS -w '\n%{http_code}' \
+                  -H "Authorization: Bearer $RAILWAY_API_TOKEN" \
+                  -H "Content-Type: application/json" \
+                  -d "$(jq -nc --arg q "$query" --argjson v "$variables" '{query:$q,variables:$v}')" \
+                  https://backboard.railway.com/graphql/v2)" || {
+                  echo "Railway GraphQL curl failed (attempt $attempt) for query: ${query:0:120}…" >&2
+                  if [[ "$attempt" != 3 ]]; then
+                    sleep 3
+                    continue
+                  fi
+                  return 22
+                }
+                http_code="$(printf '%s' "$raw" | tail -n1)"
+                body="$(printf '%s' "$raw" | sed '$d')"
+                if [[ "$http_code" == "200" ]] && ! echo "$body" | jq -e '.errors | type == "array" and length > 0' >/dev/null 2>&1; then
+                  printf '%s' "$body"
+                  return 0
+                fi
+                echo "Railway GraphQL HTTP $http_code (attempt $attempt) for query: ${query:0:120}…" >&2
                 echo "$body" >&2
-                return 22
-              fi
-              printf '%s' "$body"
+                if [[ "$attempt" != 3 ]]; then
+                  sleep 3
+                fi
+              done
+              return 22
             }
 
             # Cache of name -> id from a single project services query (Terraform names).
@@ -384,6 +467,120 @@ jobs:
               echo "Updated preview ENABLE_LANGSMITH=false and deleted OTEL exporters for service $service_id"
             }
 
+            # UI Nitro must bind 0.0.0.0 or Railway healthcheck on / never reaches the process.
+            upsert_preview_ui_bind_variables() {
+              local service_id="$1"
+              local auth_base="https://backend-pr-${PR_NUMBER}.up.railway.app"
+              railway_graphql \
+                'mutation variableCollectionUpsert($input: VariableCollectionUpsertInput!) { variableCollectionUpsert(input: $input) }' \
+                "$(jq -nc --arg project "$RAILWAY_PROJECT_ID" --arg env "$ENV_ID" --arg service "$service_id" --arg auth "$auth_base" \
+                  '{
+                    input: {
+                      projectId: $project,
+                      environmentId: $env,
+                      serviceId: $service,
+                      skipDeploys: true,
+                      variables: {
+                        HOST: "0.0.0.0",
+                        NITRO_HOST: "0.0.0.0",
+                        AUTH_BASE_URL: $auth
+                      }
+                    }
+                  }')"
+              echo "Set HOST/NITRO_HOST=0.0.0.0 and AUTH_BASE_URL=$auth_base for UI $service_id"
+            }
+
+            # Preview UI has no production Railway domain, so duplicate-from-production
+            # leaves backend UI_PROXY_URL on a private hostname that can still resolve
+            # to the warm production UI. Pin a PR-specific public domain instead.
+            preview_ui_public_domain() {
+              local response domain created
+              response="$(railway_graphql \
+                'query serviceInstanceDomain($environmentId: String!, $serviceId: String!) { serviceInstance(environmentId: $environmentId, serviceId: $serviceId) { domains { serviceDomains { domain } customDomains { domain } } } }' \
+                "$(jq -nc --arg env "$ENV_ID" --arg service "$UI_SERVICE_ID" '{environmentId:$env, serviceId:$service}')")"
+              domain="$(echo "$response" | jq -r '.data.serviceInstance.domains.customDomains[0].domain // .data.serviceInstance.domains.serviceDomains[0].domain // empty')"
+              if [[ -n "$domain" ]]; then
+                printf '%s' "$domain"
+                return 0
+              fi
+              created="$(railway_graphql \
+                'mutation serviceDomainCreate($input: ServiceDomainCreateInput!) { serviceDomainCreate(input: $input) { id domain } }' \
+                "$(jq -nc --arg env "$ENV_ID" --arg service "$UI_SERVICE_ID" '{input:{environmentId:$env, serviceId:$service, targetPort:3002}}')" 2>/dev/null || true)"
+              domain="$(echo "${created:-}" | jq -r '.data.serviceDomainCreate.domain // empty')"
+              if [[ -z "$domain" ]]; then
+                created="$(railway_graphql \
+                  'mutation serviceDomainCreate($input: ServiceDomainCreateInput!) { serviceDomainCreate(input: $input) { id domain } }' \
+                  "$(jq -nc --arg env "$ENV_ID" --arg service "$UI_SERVICE_ID" '{input:{environmentId:$env, serviceId:$service}}')")"
+                domain="$(echo "$created" | jq -r '.data.serviceDomainCreate.domain // empty')"
+              fi
+              if [[ -z "$domain" ]]; then
+                echo "Failed to create preview UI public domain: $(echo "$created" | jq -c '{data,errors}')" >&2
+                return 1
+              fi
+              printf '%s' "$domain"
+            }
+
+            upsert_backend_ui_proxy_url() {
+              local ui_url="$1"
+              railway_graphql \
+                'mutation variableCollectionUpsert($input: VariableCollectionUpsertInput!) { variableCollectionUpsert(input: $input) }' \
+                "$(jq -nc --arg project "$RAILWAY_PROJECT_ID" --arg env "$ENV_ID" --arg service "$BACKEND_SERVICE_ID" --arg url "$ui_url" \
+                  '{
+                    input: {
+                      projectId: $project,
+                      environmentId: $env,
+                      serviceId: $service,
+                      skipDeploys: true,
+                      variables: {
+                        UI_PROXY_URL: $url
+                      }
+                    }
+                  }')"
+              echo "Set backend UI_PROXY_URL=$ui_url"
+            }
+
+            smoke_test_preview_ui() {
+              local backend_url="https://backend-pr-${PR_NUMBER}.up.railway.app"
+              local prod_url="https://app.ctxpipe.ai"
+              local deadline html js_path prod_html prod_js_path js_file
+              deadline=$(( $(date +%s) + 180 ))
+              js_file="$(mktemp)"
+              echo "Smoke-testing preview UI via $backend_url (JS hash vs production; workspace routes in bundle)"
+              while true; do
+                html="$(curl -fsS --compressed --max-time 25 "$backend_url/" || true)"
+                js_path="$(printf '%s' "$html" | grep -oE '/assets/main-[A-Za-z0-9._-]+\.js' | head -1 || true)"
+                prod_html="$(curl -fsS --compressed --max-time 25 "$prod_url/" || true)"
+                prod_js_path="$(printf '%s' "$prod_html" | grep -oE '/assets/main-[A-Za-z0-9._-]+\.js' | head -1 || true)"
+                # SSR of / only serializes matched routes. ws/$workspaceSlug is in the
+                # JS route tree, not reliably in the HTML. Fail immediately if the
+                # hashed bundle is the same file production is serving.
+                if [[ -n "$js_path" && -n "$prod_js_path" && "$js_path" == "$prod_js_path" ]]; then
+                  echo "Preview UI JS hash matches production ($js_path); still serving main" >&2
+                elif [[ -n "$js_path" ]]; then
+                  if curl -fsS --compressed --max-time 25 "${backend_url}${js_path}" -o "$js_file"; then
+                    # -a: minified bundles can look binary. $workspaceSlug stays single-quoted (set -u).
+                    if grep -aFq 'ws/$workspaceSlug' "$js_file" \
+                      || grep -aFq '_orgSlug.ws._workspaceSlug' "$js_file"; then
+                      echo "Preview UI smoke test passed (js=$js_path differs from production ${prod_js_path:-unknown}; workspace routes in bundle)"
+                      rm -f "$js_file"
+                      return 0
+                    fi
+                  fi
+                  echo "Preview UI bundle $js_path has no workspace routes (production js=${prod_js_path:-none})" >&2
+                else
+                  echo "Preview UI HTML had no main JS bundle yet" >&2
+                fi
+                if (( $(date +%s) >= deadline )); then
+                  echo "ERROR: preview is still serving production UI at $backend_url" >&2
+                  echo "preview js=${js_path:-none} production js=${prod_js_path:-none}" >&2
+                  printf '%s\n' "$html" | head -c 500 >&2 || true
+                  rm -f "$js_file"
+                  return 1
+                fi
+                sleep 8
+              done
+            }
+
             # Backend: allow waking the worker after enqueue (Railway GraphQL deploy).
             upsert_preview_backend_wake_variables() {
               local service_id="$1"
@@ -450,6 +647,19 @@ jobs:
                 "$(jq -nc --arg env "$ENV_ID" --arg service "$service_id" --arg img "$image" '{environmentId:$env, serviceId:$service, input:{source:{image:$img}, sleepApplication:true}}')"
             }
 
+            # Preview UI: Nitro SSR can pass local curls but Railway's / healthcheck
+            # stays "service unavailable" for 5m and blocks the image roll. Clear the
+            # path so deploy can succeed; backend still proxies to the UI privately.
+            update_ui_source_image() {
+              local service_id="$1"
+              local image="$2"
+              railway_graphql \
+                'mutation serviceInstanceUpdate($environmentId: String, $serviceId: String!, $input: ServiceInstanceUpdateInput!) { serviceInstanceUpdate(environmentId: $environmentId, serviceId: $serviceId, input: $input) }' \
+                "$(jq -nc --arg env "$ENV_ID" --arg service "$service_id" --arg img "$image" \
+                  '{environmentId:$env, serviceId:$service, input:{source:{image:$img}, sleepApplication:true, healthcheckPath:""}}')"
+              echo "Updated UI image and cleared healthcheckPath for $service_id"
+            }
+
             # Serverless only (no image change) — for infra images managed by Terraform (e.g. FalkorDB).
             enable_serverless() {
               local service_id="$1"
@@ -507,6 +717,32 @@ jobs:
               done <<< "$dep_ids"
             }
 
+            # Leave SUCCESS running; only kill leftover rolls from cancelled GH jobs.
+            stop_in_flight_deployments() {
+              local service_id="$1"
+              local response dep_ids
+              response="$(railway_graphql \
+                'query deployments($input: DeploymentListInput!) { deployments(input: $input) { edges { node { id status } } } }' \
+                "$(jq -nc --arg env "$ENV_ID" --arg service "$service_id" '{input:{environmentId:$env, serviceId:$service}}')")"
+              dep_ids="$(echo "$response" | jq -r '
+                .data.deployments.edges[]?
+                | .node
+                | select(.status == "DEPLOYING" or .status == "INITIALIZING" or .status == "BUILDING" or .status == "WAITING")
+                | .id
+              ' 2>/dev/null || true)"
+              if [[ -z "$dep_ids" ]]; then
+                echo "No in-flight deployments to stop for service $service_id"
+                return 0
+              fi
+              while IFS= read -r dep_id; do
+                [[ -z "$dep_id" ]] && continue
+                railway_graphql \
+                  'mutation deploymentStop($id: String!) { deploymentStop(id: $id) }' \
+                  "$(jq -nc --arg id "$dep_id" '{id:$id}')" >/dev/null || true
+                echo "Stopped in-flight deployment $dep_id for service $service_id"
+              done <<< "$dep_ids"
+            }
+
             # Read back sleepApplication for deploy logs / debugging.
             verify_sleep_application() {
               local label="$1"
@@ -524,30 +760,117 @@ jobs:
 
             deploy_service() {
               local service_id="$1"
+              stop_in_flight_deployments "$service_id"
               railway_graphql \
                 'mutation serviceInstanceDeployV2($serviceId: String!, $environmentId: String!) { serviceInstanceDeployV2(serviceId: $serviceId, environmentId: $environmentId) }' \
                 "$(jq -nc --arg env "$ENV_ID" --arg service "$service_id" '{environmentId:$env, serviceId:$service}')"
             }
 
+            # serviceInstanceDeployV2 is async — without waiting, preview can stay on a
+            # stale UI image while the workflow reports green.
+            wait_for_image_deploy() {
+              local label="$1"
+              local service_id="$2"
+              local expected_image="$3"
+              local timeout_s="${4:-420}"
+              local expected_tag="${expected_image##*:}"
+              local started_at deadline response status image node_json newest
+              started_at="$(date +%s)"
+              deadline=$((started_at + timeout_s))
+              echo "Waiting for $label ($service_id) to reach SUCCESS or SLEEPING with image $expected_image (timeout ${timeout_s}s)"
+              while true; do
+                response="$(railway_graphql \
+                  'query deployments($input: DeploymentListInput!) { deployments(input: $input) { edges { node { id status createdAt meta } } } }' \
+                  "$(jq -nc --arg env "$ENV_ID" --arg service "$service_id" '{input:{environmentId:$env, serviceId:$service}}')")"
+                # Only accept a deployment whose meta mentions the expected image/tag.
+                # Never treat an older SUCCESS (different tag) as done.
+                node_json="$(echo "$response" | jq -c --arg img "$expected_image" --arg tag "$expected_tag" '
+                  [.data.deployments.edges[]?.node // empty
+                    | select(
+                        ((.meta | tostring) | contains($img))
+                        or ((.meta | tostring) | contains($tag))
+                      )
+                  ][0] // empty
+                ')"
+                if [[ -n "$node_json" && "$node_json" != "null" ]]; then
+                  status="$(echo "$node_json" | jq -r '.status // empty')"
+                  image="$(echo "$node_json" | jq -r '.meta.image // empty')"
+                  echo "$label matching deploy status=${status:-unknown} image=${image:-unknown}"
+                  if [[ "$status" == "SUCCESS" || "$status" == "SLEEPING" ]]; then
+                    # Best-effort confirm configured source image (schema may vary).
+                    if response="$(railway_graphql \
+                      'query serviceInstanceSource($environmentId: String!, $serviceId: String!) { serviceInstance(environmentId: $environmentId, serviceId: $serviceId) { source { image } } }' \
+                      "$(jq -nc --arg env "$ENV_ID" --arg service "$service_id" '{environmentId:$env, serviceId:$service}')" 2>/dev/null)"; then
+                      image="$(echo "$response" | jq -r '.data.serviceInstance.source.image // empty')"
+                      echo "$label serviceInstance.source.image=${image:-unknown}"
+                      if [[ -n "$image" && "$image" != *"$expected_tag"* ]]; then
+                        echo "ERROR: $label source image is '$image', expected to contain '$expected_tag'" >&2
+                        return 1
+                      fi
+                    else
+                      echo "Warning: could not query $label serviceInstance.source.image (continuing after SUCCESS)"
+                    fi
+                    return 0
+                  fi
+                  if [[ "$status" == "FAILED" || "$status" == "CRASHED" || "$status" == "REMOVED" ]]; then
+                    echo "ERROR: $label deployment ended with status=$status" >&2
+                    echo "$node_json" >&2
+                    dep_id="$(echo "$node_json" | jq -r '.id // empty')"
+                    if [[ -n "$dep_id" ]]; then
+                      echo "=== $label deploymentLogs for $dep_id ===" >&2
+                      railway_graphql \
+                        'query($id: String!, $limit: Int) { deploymentLogs(deploymentId: $id, limit: $limit) { timestamp severity message } }' \
+                        "$(jq -nc --arg id "$dep_id" '{id:$id, limit:200}')" \
+                        | jq -r '(.data.deploymentLogs // [])[]? | "\(.timestamp) [\(.severity)] \(.message)"' >&2 || true
+                      echo "=== $label buildLogs for $dep_id ===" >&2
+                      railway_graphql \
+                        'query($id: String!, $limit: Int) { buildLogs(deploymentId: $id, limit: $limit) { timestamp severity message } }' \
+                        "$(jq -nc --arg id "$dep_id" '{id:$id, limit:100}')" \
+                        | jq -r '(.data.buildLogs // [])[]? | "\(.timestamp) [\(.severity)] \(.message)"' >&2 || true
+                    fi
+                    return 1
+                  fi
+                else
+                  newest="$(echo "$response" | jq -r '.data.deployments.edges[0].node | "\(.status // "?") meta=\(.meta|tostring)"')"
+                  echo "$label no deploy yet for $expected_tag (newest: ${newest:-none})"
+                fi
+                if (( $(date +%s) >= deadline )); then
+                  echo "ERROR: timed out waiting for $label deployment with image $expected_image" >&2
+                  echo "$response" | jq -c '.data.deployments.edges[0:5]' >&2 || true
+                  return 1
+                fi
+                sleep 8
+              done
+            }
+
             upsert_database_url_without_deploy "$BACKEND_SERVICE_ID" >/dev/null
             upsert_preview_service_variables "$BACKEND_SERVICE_ID" >/dev/null
             upsert_preview_backend_wake_variables "$BACKEND_SERVICE_ID" >/dev/null
+            UI_PUBLIC_DOMAIN="$(preview_ui_public_domain)"
+            echo "Preview UI public domain: $UI_PUBLIC_DOMAIN"
+            upsert_backend_ui_proxy_url "https://${UI_PUBLIC_DOMAIN}" >/dev/null
             update_source_image "$BACKEND_SERVICE_ID" "$BACKEND_IMAGE" >/dev/null
             deploy_service "$BACKEND_SERVICE_ID" >/dev/null
+            wait_for_image_deploy "backend" "$BACKEND_SERVICE_ID" "$BACKEND_IMAGE"
 
             upsert_database_url_without_deploy "$WORKER_SERVICE_ID" >/dev/null
             upsert_preview_service_variables "$WORKER_SERVICE_ID" >/dev/null
             upsert_preview_worker_idle_exit "$WORKER_SERVICE_ID" >/dev/null
             update_preview_worker_service_instance "$WORKER_SERVICE_ID" "$WORKER_IMAGE" >/dev/null
             deploy_service "$WORKER_SERVICE_ID" >/dev/null
+            wait_for_image_deploy "worker" "$WORKER_SERVICE_ID" "$WORKER_IMAGE"
 
             upsert_preview_service_variables "$UI_SERVICE_ID" >/dev/null
-            update_source_image "$UI_SERVICE_ID" "$UI_IMAGE" >/dev/null
+            upsert_preview_ui_bind_variables "$UI_SERVICE_ID" >/dev/null
+            update_ui_source_image "$UI_SERVICE_ID" "$UI_IMAGE" >/dev/null
             deploy_service "$UI_SERVICE_ID" >/dev/null
+            wait_for_image_deploy "ui" "$UI_SERVICE_ID" "$UI_IMAGE"
+            smoke_test_preview_ui
 
             upsert_database_url_without_deploy "$CODESEARCH_SERVICE_ID" >/dev/null
             update_source_image "$CODESEARCH_SERVICE_ID" "$CODESEARCH_IMAGE" >/dev/null
             deploy_service "$CODESEARCH_SERVICE_ID" >/dev/null
+            wait_for_image_deploy "codesearch" "$CODESEARCH_SERVICE_ID" "$CODESEARCH_IMAGE"
 
             # Terraform service names: otelcollector, falkordb (resolved via GraphQL; no GitHub vars).
             load_service_ids_by_name

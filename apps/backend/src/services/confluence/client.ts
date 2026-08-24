@@ -1,4 +1,5 @@
 import { resolveAtlassianConfluenceApiBaseUrl } from "../../lib/atlassian-api-base-url.js"
+import { assertNotInOrgDbContext } from "../../db/client.js"
 
 export type ConfluenceClientInput = {
   cloudId: string
@@ -45,6 +46,7 @@ async function fetchConfluence<T>(
   input: ConfluenceClientInput,
   path: string,
 ): Promise<T> {
+  assertNotInOrgDbContext()
   const base = resolveAtlassianConfluenceApiBaseUrl(input)
   for (let attempt = 0; attempt < CONFLUENCE_FETCH_MAX_ATTEMPTS; attempt += 1) {
     const response = await fetch(`${base}${path}`, {
@@ -56,14 +58,19 @@ async function fetchConfluence<T>(
     if (response.ok) {
       return (await response.json()) as T
     }
-    if (shouldRetryConfluenceStatus(response.status) && attempt < CONFLUENCE_FETCH_MAX_ATTEMPTS - 1) {
+    if (
+      shouldRetryConfluenceStatus(response.status) &&
+      attempt < CONFLUENCE_FETCH_MAX_ATTEMPTS - 1
+    ) {
       const delay = confluenceRetryDelayMs(attempt, response)
       await new Promise((r) => setTimeout(r, delay))
       continue
     }
     const text = await response.text().catch(() => "")
     const detail = text ? `: ${text.slice(0, 200)}` : ""
-    throw new Error(`Confluence API request failed (${response.status})${detail}`)
+    throw new Error(
+      `Confluence API request failed (${response.status})${detail}`,
+    )
   }
   throw new Error("Confluence API request failed after retries")
 }
@@ -77,7 +84,12 @@ export async function listConfluenceSpaces(
     const params = new URLSearchParams({ limit: "250" })
     if (cursor) params.set("cursor", cursor)
     const data = await fetchConfluence<{
-      results: Array<{ id: string; key: string; name: string; homepageId?: string }>
+      results: Array<{
+        id: string
+        key: string
+        name: string
+        homepageId?: string
+      }>
       _links?: { next?: string }
     }>(input, `/wiki/api/v2/spaces?${params.toString()}`)
     items.push(
@@ -89,12 +101,16 @@ export async function listConfluenceSpaces(
         // instead of omitting it or using null (see https://jira.atlassian.com/browse/CONFCLOUD-78159 ).
         // Space schema: https://developer.atlassian.com/cloud/confluence/rest/v2/api-group-space/#api-spaces-get
         homepageId:
-          space.homepageId && space.homepageId !== "0" ? space.homepageId : null,
+          space.homepageId && space.homepageId !== "0"
+            ? space.homepageId
+            : null,
       })),
     )
     const next = data._links?.next
     if (!next) break
-    cursor = new URL(next, "https://dummy.invalid").searchParams.get("cursor") ?? undefined
+    cursor =
+      new URL(next, "https://dummy.invalid").searchParams.get("cursor") ??
+      undefined
     if (!cursor) break
   }
   return items
@@ -114,7 +130,12 @@ export async function listConfluencePagesForSpace(input: {
     })
     if (cursor) params.set("cursor", cursor)
     const data = await fetchConfluence<{
-      results: Array<{ id: string; title: string; spaceId?: string; parentId?: string }>
+      results: Array<{
+        id: string
+        title: string
+        spaceId?: string
+        parentId?: string
+      }>
       _links?: { next?: string }
     }>(input.client, `/wiki/api/v2/pages?${params.toString()}`)
     pages.push(
@@ -127,7 +148,9 @@ export async function listConfluencePagesForSpace(input: {
     )
     const next = data._links?.next
     if (!next) break
-    cursor = new URL(next, "https://dummy.invalid").searchParams.get("cursor") ?? undefined
+    cursor =
+      new URL(next, "https://dummy.invalid").searchParams.get("cursor") ??
+      undefined
     if (!cursor) break
   }
   return pages

@@ -2,8 +2,9 @@ import type { OpenAPIHono } from "@hono/zod-openapi"
 import { createRoute, z } from "@hono/zod-openapi"
 import { and, eq } from "drizzle-orm"
 import type { AppEnv } from "../app/env.js"
+import { checkoutKeyFromAuth } from "../auth/jwt.js"
 import { ZOEKT_WEBSERVER_URL } from "../config/paths.js"
-import { DEFAULT_CHECKOUT_KEY } from "../domain/repositories/paths.js"
+import { assertNotInOrgDbContext, withOrgDbContext } from "../db/client.js"
 import { repositories, repositoryCheckouts } from "../db/schema.js"
 import { pinRepos } from "../domain/zoekt/pinManager.js"
 import { zoektRepositoryName } from "../domain/zoekt/shardPrefix.js"
@@ -63,25 +64,34 @@ export function registerSearchRoutes(app: OpenAPIHono<AppEnv>) {
     const auth = c.get("auth")
     if (!auth) throw new Error("Missing auth context")
     const body = c.req.valid("json")
-    const rows = await db
-      .select({
-        orgId: repositories.orgId,
-        repoId: repositories.id,
-        zoektRepoId: repositoryCheckouts.zoektRepoId,
-      })
-      .from(repositories)
-      .innerJoin(
-        repositoryCheckouts,
-        and(
-          eq(repositoryCheckouts.repositoryId, repositories.id),
-          eq(repositoryCheckouts.checkoutKey, DEFAULT_CHECKOUT_KEY),
-        ),
-      )
-      .where(eq(repositories.orgId, auth.orgId))
+    const checkoutKey = checkoutKeyFromAuth(auth)
+    const rows = await withOrgDbContext(db, auth.orgId, async (tx) =>
+      tx
+        .select({
+          orgId: repositories.orgId,
+          repoId: repositories.id,
+          zoektRepoId: repositoryCheckouts.zoektRepoId,
+        })
+        .from(repositories)
+        .innerJoin(
+          repositoryCheckouts,
+          and(
+            eq(repositoryCheckouts.repositoryId, repositories.id),
+            eq(repositoryCheckouts.orgId, auth.orgId),
+            eq(repositoryCheckouts.checkoutKey, checkoutKey),
+          ),
+        )
+        .where(eq(repositories.orgId, auth.orgId)),
+    )
+    assertNotInOrgDbContext()
     const zoektNameById = new Map(
       rows.map((r) => [
         r.zoektRepoId,
-        zoektRepositoryName({ orgId: r.orgId, repoId: r.repoId }),
+        zoektRepositoryName({
+          orgId: r.orgId,
+          repoId: r.repoId,
+          checkoutKey,
+        }),
       ]),
     )
     const orgRepoIds = rows.map((r) => r.zoektRepoId)

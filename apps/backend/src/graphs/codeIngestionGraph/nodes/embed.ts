@@ -1,10 +1,11 @@
 import { and, eq, inArray } from "drizzle-orm"
-import { getSystemDb } from "../../../db/client.js"
-import { objects } from "../../../db/schema/objects.js"
 import {
-  flushWorkflowLog,
-  getLogger,
-} from "../../../observability/logger.js"
+  assertNotInOrgDbContext,
+  getOrgDb,
+  withOrgDbContext,
+} from "../../../db/client.js"
+import { objects } from "../../../db/schema/objects.js"
+import { flushWorkflowLog, getLogger } from "../../../observability/logger.js"
 import {
   EMBEDDING_BATCH_SIZE,
   generateEmbeddings,
@@ -62,17 +63,18 @@ export async function embed(
   }
 
   const orgId = state.orgId
-  const db = getSystemDb()
   const startedAt = Date.now()
 
-  const rows = await db
-    .select({
-      id: objects.id,
-      kind: objects.kind,
-      payload: objects.payload,
-    })
-    .from(objects)
-    .where(and(eq(objects.orgId, orgId), inArray(objects.id, objectIds)))
+  const rows = await withOrgDbContext(orgId, () =>
+    getOrgDb()
+      .select({
+        id: objects.id,
+        kind: objects.kind,
+        payload: objects.payload,
+      })
+      .from(objects)
+      .where(and(eq(objects.orgId, orgId), inArray(objects.id, objectIds))),
+  )
 
   const toEmbed: Array<{ id: string; searchContent: string }> = []
   let objectsSkippedEmptySearchContent = 0
@@ -94,6 +96,7 @@ export async function embed(
   const chunks = chunkArray(toEmbed, EMBEDDING_BATCH_SIZE)
 
   for (const [chunkIndex, chunk] of chunks.entries()) {
+    assertNotInOrgDbContext()
     const embeddings = await generateEmbeddings(
       chunk.map((c) => c.searchContent),
     )
@@ -106,18 +109,25 @@ export async function embed(
       })),
       EMBED_UPDATE_CONCURRENCY,
     )) {
-      await Promise.all(
-        updateChunk.map((u) =>
-          db
-            .update(objects)
-            .set({
-              embedding: u.embedding,
-              searchContent: u.searchContent,
-              updatedAt: now,
-            })
-            .where(and(eq(objects.id, u.id), eq(objects.orgId, orgId))),
-        ),
-      )
+      await withOrgDbContext(orgId, async () => {
+        const db = getOrgDb()
+        const updated = await Promise.all(
+          updateChunk.map((u) =>
+            db
+              .update(objects)
+              .set({
+                embedding: u.embedding,
+                searchContent: u.searchContent,
+                updatedAt: now,
+              })
+              .where(and(eq(objects.id, u.id), eq(objects.orgId, orgId)))
+              .returning({ id: objects.id }),
+          ),
+        )
+        if (updated.some((rows) => rows.length === 0)) {
+          throw new Error("embed update matched 0 rows")
+        }
+      })
     }
     objectsEmbedded += chunk.length
 

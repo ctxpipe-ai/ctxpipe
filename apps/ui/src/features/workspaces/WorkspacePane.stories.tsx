@@ -1,0 +1,422 @@
+import type { Meta, StoryObj } from "@storybook/react-vite"
+import { useNavigate, useSearch } from "@tanstack/react-router"
+import { type ComponentProps, useState } from "react"
+import { fn } from "storybook/test"
+import {
+  workspaceFileJobHandler,
+  workspaceGitBlobHandler,
+  workspaceGitBlobLoadingHandler,
+  workspaceGitStatusHandler,
+  workspaceGitTreeHandler,
+  workspaceGitTreeLoadingHandler,
+  workspaceGraphHandler,
+  workspaceGraphLoadingHandler,
+  workspaceListHandler,
+} from "@/mocks/workspace-handlers"
+import { entryPageInnerDecorators } from "../../../.storybook/decorators/entry-page-decorators"
+import type { StoryRouteParams } from "../../../.storybook/decorators/with-story-route"
+import {
+  closeFileTab,
+  type FileTabSession,
+  pinFile,
+  previewFile,
+  seedFileTabSession,
+  tabsIncludingPanePath,
+} from "./fileTabs"
+import { type ParsedPane, parsePane, serializePane } from "./pane"
+import { WorkspacePane } from "./WorkspacePane"
+import {
+  docsWorkspace,
+  docsWorkspaceDetail,
+  docsWorkspaceGitBlobs,
+  docsWorkspaceGitTree,
+  readOnlyWorkspaceDetail,
+} from "./workspace-fixtures"
+
+const paneCallbacks = {
+  onPane: fn(),
+  onClose: fn(),
+  onToggleMaximize: fn(),
+  onRestoreConversation: fn(),
+  onResize: fn(),
+  onPreviewFile: fn(),
+  onPinFile: fn(),
+  onCloseFileTab: fn(),
+  onCloseActiveFile: fn(),
+  onToggleTree: fn(),
+}
+
+const gitFilesHandlers = [
+  workspaceGitTreeHandler(docsWorkspaceGitTree),
+  workspaceGitBlobHandler(docsWorkspaceGitBlobs),
+  workspaceGitStatusHandler(),
+  workspaceFileJobHandler(),
+]
+
+const ledgerPath = "knowledge/billing/ledger.md"
+const agentsPath = "AGENTS.md"
+const longAgentsBody = [
+  "# Docs workspace",
+  "",
+  ...Array.from(
+    { length: 80 },
+    (_, index) => `Line ${index + 1} of the workspace handbook.`,
+  ),
+  `Wide row ${"column ".repeat(80)}`.trimEnd(),
+].join("\n")
+
+function WorkspacePanePlayground(props: ComponentProps<typeof WorkspacePane>) {
+  const navigate = useNavigate()
+  const search = useSearch({ strict: false }) as { pane?: string }
+  const searchPane = parsePane(search.pane)
+  const [localPane, setLocalPane] = useState<ParsedPane | null>(null)
+  const pane = localPane ?? searchPane ?? props.pane
+  const [session, setSession] = useState<FileTabSession>(() => ({
+    tabs: props.fileTabs,
+    previewPath:
+      props.previewPath ??
+      (props.fileTabs.length === 1 ? (props.fileTabs[0] ?? null) : null),
+  }))
+  const [width, setWidth] = useState<number | null>(props.width)
+  const panePath = pane.kind === "file" ? pane.path : null
+  const fileTabs = tabsIncludingPanePath(session.tabs, panePath)
+
+  const setPane = (next: ParsedPane) => {
+    setLocalPane(next)
+    props.onPane(next)
+    void navigate({
+      to: "/$orgSlug/ws/$workspaceSlug",
+      params: {
+        orgSlug: props.orgSlug,
+        workspaceSlug: props.workspace.slug,
+      },
+      search: { pane: serializePane(next) },
+      replace: true,
+    })
+  }
+
+  const openFile = (path: string, pin: boolean) => {
+    setSession((current) => {
+      const seeded = seedFileTabSession(current, panePath)
+      return pin ? pinFile(seeded, path) : previewFile(seeded, path)
+    })
+    setPane({ kind: "file", path })
+  }
+
+  return (
+    <WorkspacePane
+      {...props}
+      pane={pane}
+      width={width}
+      fileTabs={fileTabs}
+      previewPath={session.previewPath}
+      onPane={setPane}
+      onResize={(next) => {
+        setWidth(next)
+        props.onResize(next)
+      }}
+      onPreviewFile={(path) => {
+        openFile(path, false)
+        props.onPreviewFile(path)
+      }}
+      onPinFile={(path) => {
+        openFile(path, true)
+        props.onPinFile(path)
+      }}
+      onCloseFileTab={(path) => {
+        setSession((current) => closeFileTab(current, path))
+        if (pane.kind === "file" && pane.path === path) {
+          setPane({ kind: "files" })
+        }
+        props.onCloseFileTab(path)
+      }}
+      onCloseActiveFile={() => {
+        if (pane.kind === "file") {
+          setSession((current) => closeFileTab(current, pane.path))
+          setPane({ kind: "files" })
+        }
+        props.onCloseActiveFile()
+      }}
+    />
+  )
+}
+
+const meta = {
+  title: "Components/Workspaces/Pane",
+  component: WorkspacePane,
+  render: (args) => <WorkspacePanePlayground {...args} />,
+  decorators: [
+    (Story, context) => (
+      <div className="flex h-svh min-h-0 bg-zinc-950">
+        {context.args.maximized ? null : (
+          <div className="flex h-full min-w-0 flex-1 flex-col p-4">
+            <p className="text-sm text-muted-foreground">Conversation</p>
+          </div>
+        )}
+        <Story />
+      </div>
+    ),
+    ...entryPageInnerDecorators,
+  ],
+  parameters: {
+    layout: "fullscreen",
+    storyRoute: {
+      pattern: "orgWorkspace",
+      orgSlug: "acme",
+      workspaceSlug: "docs",
+      pane: "files",
+    } satisfies StoryRouteParams,
+  },
+  args: {
+    orgSlug: "acme",
+    workspace: docsWorkspaceDetail,
+    pane: { kind: "files" },
+    fileTabs: [],
+    previewPath: null,
+    treeCollapsed: false,
+    maximized: false,
+    width: null,
+    conversationTitle: "Repo layout",
+    ...paneCallbacks,
+  },
+} satisfies Meta<typeof WorkspacePane>
+
+export default meta
+
+type Story = StoryObj<typeof meta>
+
+export const Files: Story = {
+  parameters: {
+    msw: {
+      handlers: {
+        page: gitFilesHandlers,
+      },
+    },
+  },
+}
+
+export const FilesLoading: Story = {
+  parameters: {
+    msw: {
+      handlers: {
+        page: [workspaceGitTreeLoadingHandler()],
+      },
+    },
+  },
+}
+
+export const FilesEmpty: Story = {
+  parameters: {
+    msw: {
+      handlers: {
+        page: [workspaceGitTreeHandler({ sha: "abc123def456", paths: [] })],
+      },
+    },
+  },
+}
+
+export const FilePreview: Story = {
+  args: {
+    pane: { kind: "file", path: ledgerPath },
+    fileTabs: [ledgerPath],
+    previewPath: ledgerPath,
+  },
+  parameters: {
+    storyRoute: {
+      pattern: "orgWorkspace",
+      orgSlug: "acme",
+      workspaceSlug: "docs",
+      pane: serializePane({ kind: "file", path: ledgerPath }),
+    } satisfies StoryRouteParams,
+    msw: {
+      handlers: {
+        page: gitFilesHandlers,
+      },
+    },
+  },
+}
+
+export const FilePreviewLoading: Story = {
+  args: {
+    pane: { kind: "file", path: ledgerPath },
+    fileTabs: [ledgerPath],
+    previewPath: ledgerPath,
+  },
+  parameters: {
+    storyRoute: {
+      pattern: "orgWorkspace",
+      orgSlug: "acme",
+      workspaceSlug: "docs",
+      pane: serializePane({ kind: "file", path: ledgerPath }),
+    } satisfies StoryRouteParams,
+    msw: {
+      handlers: {
+        page: [
+          workspaceGitTreeHandler(docsWorkspaceGitTree),
+          workspaceGitBlobLoadingHandler(),
+          workspaceGitStatusHandler(),
+          workspaceFileJobHandler(),
+        ],
+      },
+    },
+  },
+}
+
+export const FilePreviewLong: Story = {
+  args: {
+    pane: { kind: "file", path: agentsPath },
+    fileTabs: [agentsPath],
+    previewPath: agentsPath,
+  },
+  parameters: {
+    storyRoute: {
+      pattern: "orgWorkspace",
+      orgSlug: "acme",
+      workspaceSlug: "docs",
+      pane: serializePane({ kind: "file", path: agentsPath }),
+    } satisfies StoryRouteParams,
+    msw: {
+      handlers: {
+        page: [
+          workspaceGitTreeHandler(docsWorkspaceGitTree),
+          workspaceGitBlobHandler({
+            ...docsWorkspaceGitBlobs,
+            [agentsPath]: longAgentsBody,
+          }),
+          workspaceGitStatusHandler(),
+          workspaceFileJobHandler(),
+        ],
+      },
+    },
+  },
+}
+
+export const FileDiff: Story = {
+  args: {
+    pane: { kind: "file", path: ledgerPath },
+    fileTabs: [ledgerPath],
+    previewPath: ledgerPath,
+  },
+  parameters: {
+    storyRoute: {
+      pattern: "orgWorkspace",
+      orgSlug: "acme",
+      workspaceSlug: "docs",
+      pane: serializePane({ kind: "file", path: ledgerPath }),
+    } satisfies StoryRouteParams,
+    msw: {
+      handlers: {
+        page: gitFilesHandlers,
+      },
+    },
+  },
+}
+
+export const ReadOnly: Story = {
+  args: {
+    workspace: readOnlyWorkspaceDetail,
+    pane: { kind: "file", path: "AGENTS.md" },
+    fileTabs: ["AGENTS.md"],
+    previewPath: "AGENTS.md",
+  },
+  parameters: {
+    storyRoute: {
+      pattern: "orgWorkspace",
+      orgSlug: "acme",
+      workspaceSlug: "handbook",
+      pane: serializePane({ kind: "file", path: "AGENTS.md" }),
+    } satisfies StoryRouteParams,
+    msw: {
+      handlers: {
+        page: gitFilesHandlers,
+      },
+    },
+  },
+}
+
+export const TreeCollapsed: Story = {
+  args: {
+    pane: { kind: "file", path: ledgerPath },
+    fileTabs: [ledgerPath],
+    previewPath: ledgerPath,
+    treeCollapsed: true,
+  },
+  parameters: {
+    storyRoute: {
+      pattern: "orgWorkspace",
+      orgSlug: "acme",
+      workspaceSlug: "docs",
+      pane: serializePane({ kind: "file", path: ledgerPath }),
+    } satisfies StoryRouteParams,
+    msw: {
+      handlers: {
+        page: gitFilesHandlers,
+      },
+    },
+  },
+}
+
+export const Graph: Story = {
+  args: { pane: { kind: "graph" } },
+  parameters: {
+    storyRoute: {
+      pattern: "orgWorkspace",
+      orgSlug: "acme",
+      workspaceSlug: "docs",
+      pane: "graph",
+    } satisfies StoryRouteParams,
+    msw: {
+      handlers: {
+        page: [workspaceGraphHandler()],
+      },
+    },
+  },
+}
+
+export const GraphLoading: Story = {
+  args: { pane: { kind: "graph" } },
+  parameters: {
+    storyRoute: {
+      pattern: "orgWorkspace",
+      orgSlug: "acme",
+      workspaceSlug: "docs",
+      pane: "graph",
+    } satisfies StoryRouteParams,
+    msw: {
+      handlers: {
+        page: [workspaceGraphLoadingHandler()],
+      },
+    },
+  },
+}
+
+export const Settings: Story = {
+  args: { pane: { kind: "settings" } },
+  parameters: {
+    storyRoute: {
+      pattern: "orgWorkspace",
+      orgSlug: "acme",
+      workspaceSlug: "docs",
+      pane: "settings",
+    } satisfies StoryRouteParams,
+    msw: {
+      handlers: {
+        page: [workspaceListHandler([docsWorkspace])],
+      },
+    },
+  },
+}
+
+export const Maximized: Story = {
+  args: {
+    pane: { kind: "files" },
+    maximized: true,
+  },
+  parameters: {
+    msw: {
+      handlers: {
+        page: gitFilesHandlers,
+      },
+    },
+  },
+}

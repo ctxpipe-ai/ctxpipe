@@ -2,6 +2,10 @@ import { createHmac } from "node:crypto"
 import { Hono } from "hono"
 import { beforeEach, describe, expect, it, vi } from "vitest"
 import type { AppEnv } from "../../../app/env.js"
+import {
+  contextStorage,
+  withTestRequestLogger,
+} from "../../../test/hono-test-logger.js"
 
 const connectionsMock = vi.hoisted(() => vi.fn())
 const runWorkflowMock = vi.hoisted(() => vi.fn().mockResolvedValue(undefined))
@@ -12,13 +16,14 @@ const provisioningToken = createHmac("sha256", notionClientSecret)
   .digest("base64url")
 
 vi.mock("../../../db/client.js", () => ({
+    tryGetOrgDb: () => ({}),
+    tryGetOrgDbOrgId: () => "org_test",
+    assertNotInOrgDbContext: () => undefined,
+
   withOrgDbContext: (_orgId: string, fn: () => unknown) => fn(),
 }))
 vi.mock("../../../models/notion-connector.js", () => ({
   listNotionConnectionsForWebhook: connectionsMock,
-}))
-vi.mock("../../../observability/logger.js", () => ({
-  getLogger: () => ({ error: vi.fn(), info: vi.fn() }),
 }))
 vi.mock("../../../openworkflow/client.js", () => ({
   runWorkflowWithWorkerWake: runWorkflowMock,
@@ -43,6 +48,8 @@ const connection = {
 
 function testApp(options: { webhookSecret?: string } = { webhookSecret }) {
   const app = new Hono<AppEnv>()
+  app.use(contextStorage())
+  app.use(withTestRequestLogger)
   app.use("*", async (c, next) => {
     c.set("env", {
       NOTION_CLIENT_SECRET: notionClientSecret,

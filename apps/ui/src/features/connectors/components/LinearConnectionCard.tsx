@@ -112,7 +112,7 @@ export function LinearConnectionCard({
               ? () => {
                   if (primary.kind === "navigate_repositories") {
                     void navigate({
-                      to: "/$orgSlug/repositories",
+                      to: "/$orgSlug/connectors",
                       params: { orgSlug },
                     })
                   } else {

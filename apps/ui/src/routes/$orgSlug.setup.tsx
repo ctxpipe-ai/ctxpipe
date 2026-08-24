@@ -5,12 +5,15 @@ import { AnimatedBackground } from "@/components/AnimatedBackground"
 import { Button } from "@/components/ui/Button"
 import { Dialog } from "@/components/ui/Dialog"
 import { Modal } from "@/components/ui/Modal"
+import { PageBodySkeleton } from "@/components/ui/Skeleton"
 import {
   fetchGithubInstallationSummary,
   githubConnectorKeys,
+  githubInstallationIsLinked,
 } from "@/features/connectors/queries/github-connector"
 import { useGithubConnectFlow } from "@/features/connectors/useGithubConnectFlow"
 import { client } from "@/lib/api"
+import { readApiJson } from "@/lib/api-result"
 import { authClient, getSession, useSession } from "@/lib/auth-client"
 
 export const Route = createFileRoute("/$orgSlug/setup")({
@@ -69,7 +72,7 @@ function OrgSetupPage() {
   })
 
   const hasGithubInstallation =
-    Boolean(installation) || githubConnectedOptimistic
+    githubInstallationIsLinked(installation) || githubConnectedOptimistic
 
   const githubButtonBusy = installationPending || ghFlowPending || isSyncing
 
@@ -84,8 +87,8 @@ function OrgSetupPage() {
   if (sessionPending) {
     return (
       <main className="min-h-screen bg-zinc-950 text-zinc-100">
-        <div className="flex min-h-screen items-center justify-center px-6 text-center">
-          <p className="text-sm text-zinc-400">Loading setup…</p>
+        <div className="flex min-h-screen items-center px-6">
+          <PageBodySkeleton label="Loading setup" className="mx-auto" />
         </div>
       </main>
     )
@@ -171,10 +174,14 @@ function OrgSetupPage() {
   const completeSetup = async () => {
     try {
       await Promise.all([
-        client[":orgSlug"].api.v1.onboarding.complete.$post({
-          param: { orgSlug },
-        }),
-        client.api.v1.onboarding.user.complete.$post(),
+        client[":orgSlug"].api.v1.onboarding.complete
+          .$post({
+            param: { orgSlug },
+          })
+          .then((res) => readApiJson(res)),
+        client.api.v1.onboarding.user.complete
+          .$post()
+          .then((res) => readApiJson(res)),
       ])
       await getSession({ fetchOptions: { throw: false } })
     } catch {
@@ -230,8 +237,8 @@ function OrgSetupPage() {
                     {isSyncing
                       ? "Finalising your GitHub connection..."
                       : hasGithubInstallation
-                        ? "GitHub is connected. Continue onboarding, or adjust repository selection."
-                        : "ctx| allows you to determine which repos are ingested into your knowledge system. As ctx| detects insights about your engineering processes, it will raise changes in GitHub for you to view."}
+                        ? "GitHub is connected. Continue onboarding, or link repositories from a workspace."
+                        : "Connect the GitHub App. Then create a workspace or add repositories to one you already have."}
                   </p>
                   <p className="mx-auto min-h-5 text-xs text-zinc-400">
                     {githubSetupError ? githubSetupError : "\u00A0"}

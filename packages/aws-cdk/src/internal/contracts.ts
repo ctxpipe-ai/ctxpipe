@@ -83,9 +83,16 @@ export interface DataPlaneResources {
 
 export interface SecretsResources {
   readonly authSecret: secretsmanager.Secret;
+  /** Runtime `DATABASE_URL` for backend/worker/codesearch (`ctxpipe_app`). */
   readonly databaseUrlSecret: secretsmanager.Secret;
-  /** Populates `databaseUrlSecret` at deploy time (after Aurora is available). */
+  /** Owner `DATABASE_URL` for the migrate task (Aurora master `ctxpipe`). */
+  readonly ownerDatabaseUrlSecret: secretsmanager.Secret;
+  /** Login password for `ctxpipe_app`; generated once, never rotated by deploy. */
+  readonly appDatabaseCredentialsSecret: secretsmanager.Secret;
+  /** Writes the owner URL before migrate. */
   readonly databaseUrlWriter: cdk.CustomResource;
+  /** Writes the runtime `ctxpipe_app` URL; must run after migrate. */
+  readonly runtimeDatabaseUrlWriter: cdk.CustomResource;
   readonly modelProviderSecret?: secretsmanager.Secret;
   readonly smtpSecret: secretsmanager.Secret;
   readonly connectorSecret?: secretsmanager.Secret;

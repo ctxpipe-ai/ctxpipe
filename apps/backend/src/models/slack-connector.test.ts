@@ -42,6 +42,17 @@ const getOrgDbMock = vi.hoisted(() =>
   }),
 )
 const getSystemDbMock = vi.hoisted(() => vi.fn())
+const withOrgDbContextMock = vi.hoisted(() =>
+  vi.fn(async (_orgId: string, fn: (db: unknown) => unknown) =>
+    fn(getOrgDbMock()),
+  ),
+)
+const directoryMocks = vi.hoisted(() => ({
+  listConnectionDirectoryBySlackTeamId: vi.fn(),
+  loadConnectionViaDirectory: vi.fn(),
+  upsertConnectionDirectory: vi.fn(),
+  deleteConnectionDirectory: vi.fn(),
+}))
 
 vi.mock("drizzle-orm", async (importOriginal) => ({
   ...(await importOriginal<typeof import("drizzle-orm")>()),
@@ -49,8 +60,20 @@ vi.mock("drizzle-orm", async (importOriginal) => ({
   eq: eqMock,
 }))
 vi.mock("../db/client.js", () => ({
+  tryGetOrgDb: () => ({}),
+  tryGetOrgDbOrgId: () => "org_test",
+  assertNotInOrgDbContext: () => undefined,
+
   getOrgDb: getOrgDbMock,
   getSystemDb: getSystemDbMock,
+  withOrgDbContext: withOrgDbContextMock,
+}))
+vi.mock("./connection-directory.js", () => ({
+  listConnectionDirectoryBySlackTeamId:
+    directoryMocks.listConnectionDirectoryBySlackTeamId,
+  loadConnectionViaDirectory: directoryMocks.loadConnectionViaDirectory,
+  upsertConnectionDirectory: directoryMocks.upsertConnectionDirectory,
+  deleteConnectionDirectory: directoryMocks.deleteConnectionDirectory,
 }))
 
 import {
@@ -220,25 +243,16 @@ describe("upsertSlackConnectionFromOAuth", () => {
   })
 
   it("rejects a second organization connecting the same Slack teamId", async () => {
-    getSystemDbMock.mockReturnValue({
-      select: () => ({
-        from: () => ({
-          where: () => ({
-            orderBy: () => ({
-              limit: async () => [
-                {
-                  id: "con_other",
-                  orgId: "org_other",
-                  type: "slack",
-                  config: { teamId: "T1", status: "installed" },
-                  createdAt: new Date("2026-08-01T00:00:00.000Z"),
-                  updatedAt: new Date("2026-08-01T00:00:00.000Z"),
-                },
-              ],
-            }),
-          }),
-        }),
-      }),
+    directoryMocks.listConnectionDirectoryBySlackTeamId.mockResolvedValue([
+      { connectionId: "con_other", orgId: "org_other", type: "slack" },
+    ])
+    directoryMocks.loadConnectionViaDirectory.mockResolvedValue({
+      id: "con_other",
+      orgId: "org_other",
+      type: "slack",
+      config: { teamId: "T1", status: "installed" },
+      createdAt: new Date("2026-08-01T00:00:00.000Z"),
+      updatedAt: new Date("2026-08-01T00:00:00.000Z"),
     })
 
     await expect(

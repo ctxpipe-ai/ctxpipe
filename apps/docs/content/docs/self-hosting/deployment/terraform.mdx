@@ -12,7 +12,7 @@ pulling versioned images from GitHub Container Registry.
 | Area | Terraform shape |
 |---|---|
 | App platform | Railway project, environment, services, variables, and volumes |
-| Database | Neon Postgres 17 project, branch, endpoint, database, and role |
+| Database | Neon Postgres 17 project, branch, endpoint, database, owner role, and `ctxpipe_app` |
 | App images | `ghcr.io/ctxpipe-ai/backend`, `worker`, `ui`, and `codesearch` tagged by commit SHA |
 | Graph database | Railway service for FalkorDB |
 | Secrets | Terraform variables passed into provider-managed service variables |
@@ -61,6 +61,10 @@ terraform -chdir=infra apply -var="image_tag=<commit-sha>"
 
 This keeps infrastructure changes and application rollouts reviewable in the
 same workflow.
+
+Neon gets a `ctxpipe_app` role. Railway `DATABASE_URL` on backend, worker, and
+codesearch is the app-role pooler URL. Migrate / `PRODUCTION_DATABASE_URL` stays
+the owner. Do not collapse those two identities.
 
 ## When to customize
 

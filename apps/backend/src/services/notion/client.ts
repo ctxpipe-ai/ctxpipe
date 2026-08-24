@@ -1,4 +1,5 @@
 import type { Env } from "../../config/env.js"
+import { assertNotInOrgDbContext } from "../../db/client.js"
 import type { NotionConnection } from "../../models/notion-connector.js"
 
 const NOTION_API_BASE = "https://api.notion.com/v1"
@@ -137,6 +138,7 @@ async function fetchNotion<T>(
   path: string,
   init?: RequestInit,
 ): Promise<T> {
+  assertNotInOrgDbContext()
   if (!input.connection.accessToken) {
     throw new Error("Notion connection has no access token")
   }

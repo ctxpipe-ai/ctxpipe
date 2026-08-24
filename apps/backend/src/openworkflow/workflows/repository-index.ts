@@ -19,6 +19,7 @@ import {
   getLogger,
   withLogger,
 } from "../../observability/logger.js"
+import { publishWorkspaceIndexAfterCodesearch } from "../publish-workspace-index.js"
 import { withLoggedStepAttempt } from "../withLoggedStepAttempt.js"
 
 const repositoryIndexInputSchema = z.object({
@@ -27,6 +28,9 @@ const repositoryIndexInputSchema = z.object({
   targetHash: z.string().min(1),
   fromHash: z.string().optional(),
   githubConnectionId: z.string().optional(),
+  workspaceId: z.string().min(1).optional(),
+  jobGeneration: z.number().int().optional(),
+  jobWorkspaceUrl: z.string().min(1).optional(),
 })
 
 const indexRetryPolicy = {
@@ -91,6 +95,7 @@ export const repositoryIndex = defineWorkflow(
         const auth = {
           repositoryId: input.repositoryId,
           orgId: input.orgId,
+          ...(input.workspaceId ? { workspaceId: input.workspaceId } : {}),
         }
         const wls = <T>(name: string, fn: () => Promise<T>): Promise<T> =>
           withLoggedStepAttempt(
@@ -216,6 +221,18 @@ export const repositoryIndex = defineWorkflow(
         logMilestone("repository-index.merge-scip.done", {
           repositoryId: input.repositoryId,
         })
+
+        await step.run({ name: "publish-workspace-index" }, () =>
+          wls("publish-workspace-index", () =>
+            publishWorkspaceIndexAfterCodesearch({
+              orgId: input.orgId,
+              repositoryId: input.repositoryId,
+              indexedSha: checkout.targetHash,
+              jobGeneration: input.jobGeneration,
+              jobWorkspaceUrl: input.jobWorkspaceUrl,
+            }),
+          ),
+        )
 
         return {
           indexedAt: new Date().toISOString(),

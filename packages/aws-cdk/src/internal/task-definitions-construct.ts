@@ -201,8 +201,12 @@ export class TaskDefinitionsConstruct extends Construct {
       secrets: {
         AUTH_SECRET: ecs.Secret.fromSecretsManager(props.secrets.authSecret, "AUTH_SECRET"),
         DATABASE_URL: ecs.Secret.fromSecretsManager(
-          props.secrets.databaseUrlSecret,
+          props.secrets.ownerDatabaseUrlSecret,
           "DATABASE_URL",
+        ),
+        DATABASE_APP_PASSWORD: ecs.Secret.fromSecretsManager(
+          props.secrets.appDatabaseCredentialsSecret,
+          "password",
         ),
       },
       logging: ecs.LogDrivers.awsLogs({ streamPrefix: "ctxpipe-migrate" }),
@@ -228,7 +232,8 @@ export class TaskDefinitionsConstruct extends Construct {
     ]);
     this.grantTaskSecrets(migrateTask, [
       props.secrets.authSecret,
-      props.secrets.databaseUrlSecret,
+      props.secrets.ownerDatabaseUrlSecret,
+      props.secrets.appDatabaseCredentialsSecret,
     ]);
 
     this.resources = {

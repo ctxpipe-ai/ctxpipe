@@ -5,23 +5,26 @@ import { type FormEvent, useMemo, useState } from "react"
 import { toast } from "sonner"
 import { Button } from "@/components/ui/Button"
 import { Checkbox } from "@/components/ui/Checkbox"
-import { InlineLoader } from "@/components/ui/InlineLoader"
 import { Radio, RadioGroup } from "@/components/ui/RadioGroup"
 import { SearchField } from "@/components/ui/SearchField"
 import { client } from "@/lib/api"
+import { readApiJson } from "@/lib/api-result"
 import { useSession } from "@/lib/auth-client"
 import {
   buildSelectedRepositories,
   collectInstallationRepoPages,
   countSelectionDelta,
   describeSelectionDelta,
-  type GithubRepoItem,
+  fetchGithubInstallationReposPage,
   githubCloneUrlKey,
   matchSavedRepoIds,
   selectedCloneUrlKeys,
   unmatchedSavedRepos,
 } from "../githubRepoSelection"
-import { GithubRepoPickerList } from "./GithubRepoPickerList"
+import {
+  GithubRepoPickerList,
+  GithubRepoPickerSkeleton,
+} from "./GithubRepoPickerList"
 
 export type GitHubRepositorySetupData = {
   ingestAllRepositories: boolean
@@ -37,31 +40,6 @@ export type GitHubRepositorySetupFormProps = {
   variant?: "page" | "onboarding"
   onSaveSuccess: () => void
   onCancel: () => void
-}
-
-async function fetchInstallationReposPage(
-  orgSlug: string,
-  page: number,
-): Promise<{
-  repositories: GithubRepoItem[]
-  hasMore: boolean
-  repositorySelection: string
-}> {
-  const res = await (
-    client[":orgSlug"].api.v1.github.installation.repositories.$get as (arg: {
-      param: { orgSlug: string }
-      query: { page: string; per_page: string }
-    }) => Promise<Response>
-  )({
-    param: { orgSlug },
-    query: { page: String(page), per_page: "100" },
-  })
-  if (!res.ok) throw new Error("Failed to fetch repositories")
-  return (await res.json()) as {
-    repositories: GithubRepoItem[]
-    hasMore: boolean
-    repositorySelection: string
-  }
 }
 
 export function GitHubRepositorySetupForm({
@@ -102,7 +80,7 @@ export function GitHubRepositorySetupForm({
     queryKey: ["github-installation-repos", orgSlug],
     queryFn: () =>
       collectInstallationRepoPages((page) =>
-        fetchInstallationReposPage(orgSlug, page),
+        fetchGithubInstallationReposPage(orgSlug, page),
       ),
     enabled: !!session,
   })
@@ -162,12 +140,7 @@ export function GitHubRepositorySetupForm({
             includeFutureRepos,
           },
         })
-        if (!res.ok) {
-          const err = (await res.json().catch(() => ({}))) as {
-            error?: string
-          }
-          throw new Error(err.error ?? "Failed to save")
-        }
+        await readApiJson(res, { message: "Failed to save" })
         return {
           ingestAllRepositories: true,
           includeFutureRepos,
@@ -188,12 +161,7 @@ export function GitHubRepositorySetupForm({
           selectedRepositories,
         },
       })
-      if (!res.ok) {
-        const err = (await res.json().catch(() => ({}))) as {
-          error?: string
-        }
-        throw new Error(err.error ?? "Failed to save")
-      }
+      await readApiJson(res, { message: "Failed to save" })
       return {
         ingestAllRepositories: false,
         includeFutureRepos: false,
@@ -303,7 +271,7 @@ export function GitHubRepositorySetupForm({
             />
 
             {selectBusy ? (
-              <InlineLoader label="Loading repositories" />
+              <GithubRepoPickerSkeleton />
             ) : reposFailed ? (
               <p className="text-sm text-zinc-300">
                 Failed to load repositories.

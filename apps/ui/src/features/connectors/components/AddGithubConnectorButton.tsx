@@ -74,8 +74,8 @@ export function AddGithubConnectorButton({
             ) : null}
           </span>
           <span className="mt-1 block text-sm text-muted-foreground">
-            Connect the GitHub App, then choose which repositories ctx| ingests
-            for this organisation.
+            Connect the GitHub App. Then create a workspace or add repositories
+            to one you already have.
           </span>
         </span>
       </button>

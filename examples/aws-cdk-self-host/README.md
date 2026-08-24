@@ -101,6 +101,18 @@ If you override the stack name (`-c stackName=MyStack`), set the same name for s
 CDK_STACK_NAME=MyStack pnpm --filter @ctxpipe/aws-cdk-self-host smoke
 ```
 
+## Upgrading an existing stack
+
+Published `@ctxpipe/aws-cdk` versions are the upgrade unit. Bump the package and redeploy — no new `CtxPipe` props, no second `DATABASE_URL` in this example app, and no `psql`.
+
+```bash
+pnpm update @ctxpipe/aws-cdk
+pnpm --filter @ctxpipe/aws-cdk-self-host cdk synth
+pnpm --filter @ctxpipe/aws-cdk-self-host cdk deploy
+```
+
+`cdk deploy` runs the migrate task (creates `ctxpipe_app` when missing and rewrites the runtime `DATABASE_URL` secret), then rolls ECS. Do not retag images by hand.
+
 ### Expected runtime
 
 - `cdk deploy`: roughly 25–30 minutes on first run (Aurora, Neptune, SES custom resource).

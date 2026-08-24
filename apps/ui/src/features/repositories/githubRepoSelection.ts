@@ -1,3 +1,6 @@
+import { client } from "@/lib/api"
+import { readApiJson } from "@/lib/api-result"
+
 export type SavedGithubRepo = {
   name: string
   gitUrl: string
@@ -9,6 +12,7 @@ export type GithubRepoItem = {
   html_url: string
   clone_url: string
   name: string
+  githubConnectionId?: string
 }
 
 export type SelectedGithubRepo = {
@@ -57,20 +61,84 @@ export async function collectInstallationRepoPages(
     repositories: GithubRepoItem[]
     hasMore: boolean
     repositorySelection: string
+    manageUrl: string | null
+    totalCount?: number
   }>,
 ): Promise<{
   repositories: GithubRepoItem[]
   repositorySelection: string
+  manageUrl: string | null
+  totalCount: number
 }> {
   const repositories: GithubRepoItem[] = []
   let repositorySelection = "selected"
+  let manageUrl: string | null = null
+  let totalCount = 0
   for (let page = 1; page <= MAX_INSTALLATION_PAGES; page += 1) {
     const result = await fetchPage(page)
     repositorySelection = result.repositorySelection
+    manageUrl = result.manageUrl
+    if (page === 1 && typeof result.totalCount === "number") {
+      totalCount = result.totalCount
+    }
     repositories.push(...result.repositories)
     if (!result.hasMore) break
   }
-  return { repositories, repositorySelection }
+  return {
+    repositories,
+    repositorySelection,
+    manageUrl,
+    totalCount: totalCount > 0 ? totalCount : repositories.length,
+  }
+}
+
+export async function fetchGithubInstallationReposPage(
+  orgSlug: string,
+  page: number,
+  connectionId?: string,
+): Promise<{
+  repositories: GithubRepoItem[]
+  hasMore: boolean
+  repositorySelection: string
+  manageUrl: string | null
+  totalCount?: number
+}> {
+  const res = await (
+    client[":orgSlug"].api.v1.github.installation.repositories.$get as (arg: {
+      param: { orgSlug: string }
+      query: { page: string; per_page: string; connectionId?: string }
+    }) => Promise<Response>
+  )({
+    param: { orgSlug },
+    query: {
+      page: String(page),
+      per_page: "100",
+      ...(connectionId ? { connectionId } : {}),
+    },
+  })
+  const body = await readApiJson<{
+    repositories: Array<
+      Partial<GithubRepoItem> & { name: string; clone_url: string }
+    >
+    hasMore?: boolean
+    repositorySelection?: string
+    manageUrl?: string | null
+    totalCount?: number
+  }>(res, { message: "Failed to fetch repositories" })
+  return {
+    repositories: body.repositories.map((repo, index) => ({
+      id: repo.id ?? index + 1 + (page - 1) * 100,
+      name: repo.name,
+      full_name: repo.full_name ?? repo.name,
+      html_url: repo.html_url ?? repo.clone_url.replace(/\.git$/i, ""),
+      clone_url: repo.clone_url,
+      ...(connectionId ? { githubConnectionId: connectionId } : {}),
+    })),
+    hasMore: body.hasMore === true,
+    repositorySelection: body.repositorySelection ?? "selected",
+    manageUrl: body.manageUrl ?? null,
+    totalCount: body.totalCount,
+  }
 }
 
 export function selectedCloneUrlKeys(

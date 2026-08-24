@@ -140,11 +140,31 @@ jobs:
             done
           }
 
-          # Bind UI to all interfaces for later healthchecks if re-enabled.
+          # Bind UI + SSR API origin (backend public URL for this PR).
           railway_graphql \
             'mutation variableCollectionUpsert($input: VariableCollectionUpsertInput!) { variableCollectionUpsert(input: $input) }' \
-            "$(jq -nc --arg project "$RAILWAY_PROJECT_ID" --arg env "$ENV_ID" --arg service "$UI_SERVICE_ID" \
-              '{input:{projectId:$project,environmentId:$env,serviceId:$service,skipDeploys:true,variables:{HOST:"0.0.0.0",NITRO_HOST:"0.0.0.0"}}}')" >/dev/null
+            "$(jq -nc --arg project "$RAILWAY_PROJECT_ID" --arg env "$ENV_ID" --arg service "$UI_SERVICE_ID" --arg auth "https://backend-pr-${{ inputs.pr_number }}.up.railway.app" \
+              '{input:{projectId:$project,environmentId:$env,serviceId:$service,skipDeploys:true,variables:{HOST:"0.0.0.0",NITRO_HOST:"0.0.0.0",AUTH_BASE_URL:$auth}}}')" >/dev/null
+
+          UI_DOMAIN="$(railway_graphql \
+            'query serviceInstanceDomain($environmentId: String!, $serviceId: String!) { serviceInstance(environmentId: $environmentId, serviceId: $serviceId) { domains { serviceDomains { domain } customDomains { domain } } } }' \
+            "$(jq -nc --arg env "$ENV_ID" --arg service "$UI_SERVICE_ID" '{environmentId:$env, serviceId:$service}')" \
+            | jq -r '.data.serviceInstance.domains.customDomains[0].domain // .data.serviceInstance.domains.serviceDomains[0].domain // empty')"
+          if [[ -z "$UI_DOMAIN" ]]; then
+            UI_DOMAIN="$(railway_graphql \
+              'mutation serviceDomainCreate($input: ServiceDomainCreateInput!) { serviceDomainCreate(input: $input) { domain } }' \
+              "$(jq -nc --arg env "$ENV_ID" --arg service "$UI_SERVICE_ID" '{input:{environmentId:$env, serviceId:$service, targetPort:3002}}')" \
+              | jq -r '.data.serviceDomainCreate.domain // empty')"
+          fi
+          if [[ -n "$UI_DOMAIN" ]]; then
+            railway_graphql \
+              'mutation variableCollectionUpsert($input: VariableCollectionUpsertInput!) { variableCollectionUpsert(input: $input) }' \
+              "$(jq -nc --arg project "$RAILWAY_PROJECT_ID" --arg env "$ENV_ID" --arg service "$BACKEND_SERVICE_ID" --arg url "https://${UI_DOMAIN}" \
+                '{input:{projectId:$project,environmentId:$env,serviceId:$service,skipDeploys:true,variables:{UI_PROXY_URL:$url}}}')" >/dev/null
+            echo "Set backend UI_PROXY_URL=https://${UI_DOMAIN}"
+          else
+            echo "Warning: could not resolve a preview UI public domain; leaving UI_PROXY_URL unchanged" >&2
+          fi
 
           update_img "$BACKEND_SERVICE_ID" "$BACKEND_IMAGE"
           deploy "$BACKEND_SERVICE_ID"
@@ -163,3 +183,42 @@ jobs:
           wait_ok codesearch "$CODESEARCH_SERVICE_ID" "$CODESEARCH_IMAGE"
 
           echo "Rolled preview to $IMAGE_TAG"
+
+          smoke_test_preview_ui() {
+            local backend_url="https://backend-pr-${{ inputs.pr_number }}.up.railway.app"
+            local prod_url="https://app.ctxpipe.ai"
+            local deadline html js_path prod_html prod_js_path js_file
+            deadline=$(( $(date +%s) + 180 ))
+            js_file="$(mktemp)"
+            echo "Smoke-testing preview UI via $backend_url (JS hash vs production; workspace routes in bundle)"
+            while true; do
+              html="$(curl -fsS --compressed --max-time 25 "$backend_url/" || true)"
+              js_path="$(printf '%s' "$html" | grep -oE '/assets/main-[A-Za-z0-9._-]+\.js' | head -1 || true)"
+              prod_html="$(curl -fsS --compressed --max-time 25 "$prod_url/" || true)"
+              prod_js_path="$(printf '%s' "$prod_html" | grep -oE '/assets/main-[A-Za-z0-9._-]+\.js' | head -1 || true)"
+              if [[ -n "$js_path" && -n "$prod_js_path" && "$js_path" == "$prod_js_path" ]]; then
+                echo "Preview UI JS hash matches production ($js_path); still serving main" >&2
+              elif [[ -n "$js_path" ]]; then
+                if curl -fsS --compressed --max-time 25 "${backend_url}${js_path}" -o "$js_file"; then
+                  if grep -aFq 'ws/$workspaceSlug' "$js_file" \
+                    || grep -aFq '_orgSlug.ws._workspaceSlug' "$js_file"; then
+                    echo "Preview UI smoke test passed (js=$js_path differs from production ${prod_js_path:-unknown}; workspace routes in bundle)"
+                    rm -f "$js_file"
+                    return 0
+                  fi
+                fi
+                echo "Preview UI bundle $js_path has no workspace routes (production js=${prod_js_path:-none})" >&2
+              else
+                echo "Preview UI HTML had no main JS bundle yet" >&2
+              fi
+              if (( $(date +%s) >= deadline )); then
+                echo "ERROR: preview is still serving production UI at $backend_url" >&2
+                echo "preview js=${js_path:-none} production js=${prod_js_path:-none}" >&2
+                printf '%s\n' "$html" | head -c 500 >&2 || true
+                rm -f "$js_file"
+                return 1
+              fi
+              sleep 8
+            done
+          }
+          smoke_test_preview_ui

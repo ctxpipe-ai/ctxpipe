@@ -8,6 +8,10 @@ const generateObjectIdMock = vi.hoisted(() => {
 })
 
 vi.mock("../../db/client.js", () => ({
+    tryGetOrgDb: () => ({}),
+    tryGetOrgDbOrgId: () => "org_test",
+    assertNotInOrgDbContext: () => undefined,
+
   getOrgDb: getOrgDbMock,
 }))
 
@@ -19,10 +23,7 @@ vi.mock("../../lib/id.js", () => ({
   generateObjectId: generateObjectIdMock,
 }))
 
-import {
-  addEvidenceBulk,
-  createClaimsWithEvidenceBulk,
-} from "./claimWrite.js"
+import { addEvidenceBulk, createClaimsWithEvidenceBulk } from "./claimWrite.js"
 
 describe("createClaimsWithEvidenceBulk", () => {
   beforeEach(() => {

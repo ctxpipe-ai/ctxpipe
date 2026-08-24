@@ -331,6 +331,7 @@ async function runCodeSearch(
   const results = await codeSearch(orgId, {
     query: q,
     repositoryIds: repoIds,
+    workspaceId: state.workspaceId,
   })
 
   return {

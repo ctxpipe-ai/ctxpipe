@@ -1,0 +1,155 @@
+name: CI
+
+on:
+  pull_request:
+    branches:
+      - main
+    types:
+      - opened
+      - reopened
+      - synchronize
+      - ready_for_review
+  # Cloud Agent pushes sometimes skip pull_request synchronize. Keep push so
+  # those commits still get CI. Jobs XOR: agents run on push only; everyone
+  # else on pull_request only. Do not rely on concurrency to hide the twin.
+  # branches must be listed (not only tags-ignore) or GitHub skips branch pushes.
+  push:
+    branches:
+      - "**"
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event_name }}-${{ github.head_ref || github.ref_name }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+# Cloud Agent (`cursor[bot]` / `cursoragent`): push only.
+# Humans: pull_request only.
+jobs:
+  lint:
+    name: Biome
+    if: |
+      (github.event_name == 'pull_request') !=
+      (github.actor == 'cursor[bot]' || github.actor == 'cursoragent')
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - uses: pnpm/action-setup@v6
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 22
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm lint
+
+  typecheck:
+    name: Typecheck
+    if: |
+      (github.event_name == 'pull_request') !=
+      (github.actor == 'cursor[bot]' || github.actor == 'cursoragent')
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - uses: pnpm/action-setup@v6
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 22
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - name: Backend Workspace typecheck
+        run: bash scripts/typecheck-workspaces.sh
+      - name: UI Workspace typecheck
+        run: bash scripts/typecheck-ui-workspaces.sh
+
+  test:
+    name: Tests
+    if: |
+      (github.event_name == 'pull_request') !=
+      (github.actor == 'cursor[bot]' || github.actor == 'cursoragent')
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        # Same pgvector image as the migrate job so default-suite persist tests
+        # hit the live unique index instead of a dummy DATABASE_URL.
+        image: pgvector/pgvector:pg17
+        env:
+          POSTGRES_USER: ctxpipe
+          POSTGRES_PASSWORD: ctxpipe
+          POSTGRES_DB: ctxpipe
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U ctxpipe -d ctxpipe"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+    steps:
+      - uses: actions/checkout@v6
+      - uses: pnpm/action-setup@v6
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 22
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - name: Migrate backend schema
+        env:
+          DATABASE_URL: postgresql://ctxpipe:ctxpipe@localhost:5432/ctxpipe
+          DATABASE_APP_PASSWORD: ctxpipe
+        working-directory: apps/backend
+        run: |
+          pnpm exec drizzle-kit migrate
+          pnpm exec tsx src/db/provision-app-role-cli.ts
+      - name: Backend tests
+        env:
+          AUTH_SECRET: ci-auth-secret-must-be-at-least-32-chars
+          DATABASE_URL: postgresql://ctxpipe_app:ctxpipe@localhost:5432/ctxpipe
+        run: pnpm --filter @ctxpipe/backend test
+      - name: UI tests
+        run: pnpm --filter @ctxpipe/ui test
+
+  migrate:
+    name: Migrations (fresh and previous schema)
+    if: |
+      (github.event_name == 'pull_request') !=
+      (github.actor == 'cursor[bot]' || github.actor == 'cursoragent')
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        # Matches local Compose (pgvector); plain postgres:16 lacks the vector extension.
+        image: pgvector/pgvector:pg17
+        env:
+          POSTGRES_USER: ctxpipe
+          POSTGRES_PASSWORD: ctxpipe
+          POSTGRES_DB: postgres
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U ctxpipe -d postgres"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+      - uses: pnpm/action-setup@v6
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 22
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - name: Apply migrations from empty and from main
+        env:
+          DATABASE_URL: postgresql://ctxpipe:ctxpipe@localhost:5432/postgres
+          MIGRATE_BASE_REF: origin/main
+        run: bash scripts/ci-migrate.sh
+      - name: Isolation tests as ctxpipe_app
+        env:
+          DATABASE_URL: postgresql://ctxpipe:ctxpipe@localhost:5432/ctxpipe_migrate_fresh
+          DATABASE_APP_PASSWORD: ctxpipe
+        working-directory: apps/backend
+        run: |
+          pnpm exec tsx src/db/provision-app-role-cli.ts
+          DATABASE_URL=postgresql://ctxpipe_app:ctxpipe@localhost:5432/ctxpipe_migrate_fresh \
+            pnpm exec vitest run src/db/rls-isolation.test.ts

@@ -92,8 +92,8 @@ If the plan wants to replace production resources, stop and we’ll adjust the c
 Production deploys are driven by `.github/workflows/deploy.yaml`:
 
 - Build/push app images to GHCR with both `:<sha>` and `:latest`
-- Run Terraform with `TF_VAR_image_tag=<sha>`
-- Railway services are updated to `source_image = ghcr.io/ctxpipe-ai/<service>:<sha>`
+- Run Terraform for infra (variables, domains, replicas). `TF_VAR_image_tag` is still passed for **new** service creates; `lifecycle.ignore_changes = [source_image]` keeps later SHA churn off `railway_service` so the provider does not `serviceConnect` + `redeployAllInstances` (that would overwrite `pr-*` environments)
+- Roll **production** service instances only via Railway GraphQL `serviceInstanceUpdate` + `serviceInstanceDeployV2` on the environment named `production` (backend, openworkflow/worker, ui, codesearch, otelcollector). GraphQL HTTP/`.errors` fail the job; CI does not wait for Railway SUCCESS
 
 PR deploys are driven by `.github/workflows/pr-deploy.yaml`:
 

@@ -11,7 +11,7 @@ resource "railway_project" "this" {
 }
 
 locals {
-  database_url  = neon_project.this.connection_uri_pooler
+  database_url  = local.app_database_url
   falkordb_port = 6379
   regions = [
     {
@@ -174,6 +174,9 @@ resource "railway_service" "ui" {
 
   lifecycle {
     prevent_destroy = true
+    # SHA rolls are environment-scoped GraphQL in CI. Terraform Update()
+    # calls serviceConnect + redeployAllInstances and would overwrite pr-* envs.
+    ignore_changes  = [source_image]
   }
 }
 
@@ -189,6 +192,20 @@ resource "railway_variable_collection" "ui_env" {
     {
       name  = "PORT"
       value = "3002"
+    },
+    {
+      # Nitro/Vinxi default bind is localhost; Railway healthchecks need 0.0.0.0.
+      name  = "HOST"
+      value = "0.0.0.0"
+    },
+    {
+      name  = "NITRO_HOST"
+      value = "0.0.0.0"
+    },
+    {
+      # UI SSR must reach the backend (not localhost baked into VITE_PUBLIC_API_URL).
+      name  = "AUTH_BASE_URL"
+      value = "http://$${{backend.RAILWAY_PRIVATE_DOMAIN}}:$${{backend.PORT}}"
     }
   ], local.amplitude_shared_env)
 }
@@ -200,6 +217,7 @@ resource "railway_service" "otelcollector" {
   source_image = "${var.otel_collector_source_image}:${var.image_tag}"
   lifecycle {
     prevent_destroy = true
+    ignore_changes  = [source_image]
   }
 }
 
@@ -231,6 +249,7 @@ resource "railway_service" "backend" {
   depends_on   = [railway_service.falkordb, railway_service.ui, railway_service.code_search, railway_service.otelcollector]
   lifecycle {
     prevent_destroy = true
+    ignore_changes  = [source_image]
   }
 }
 
@@ -249,6 +268,7 @@ resource "railway_custom_domain" "app" {
 resource "railway_variable_collection" "backend_env" {
   environment_id = railway_project.this.default_environment.id
   service_id     = railway_service.backend.id
+  depends_on     = [terraform_data.app_database_url]
 
   variables = concat(local.shared_backend_env_variables, [
     {
@@ -277,12 +297,14 @@ resource "railway_service" "code_search" {
   }
   lifecycle {
     prevent_destroy = true
+    ignore_changes  = [source_image]
   }
 }
 
 resource "railway_variable_collection" "code_search_env" {
   environment_id = railway_project.this.default_environment.id
   service_id     = railway_service.code_search.id
+  depends_on     = [terraform_data.app_database_url]
 
   variables = [
     {
@@ -320,12 +342,14 @@ resource "railway_service" "open_workflow" {
   depends_on   = [railway_service.falkordb, railway_service.backend, railway_service.otelcollector]
   lifecycle {
     prevent_destroy = true
+    ignore_changes  = [source_image]
   }
 }
 
 resource "railway_variable_collection" "open_workflow_env" {
   environment_id = railway_project.this.default_environment.id
   service_id     = railway_service.open_workflow.id
+  depends_on     = [terraform_data.app_database_url]
 
   variables = concat(local.shared_backend_env_variables, [
     {

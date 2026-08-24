@@ -146,16 +146,24 @@ describe("collectInstallationRepoPages", () => {
           repositories: page1,
           hasMore: true,
           repositorySelection: "selected",
+          manageUrl: "https://github.com/settings/installations/123",
+          totalCount: 3,
         }
       }
       return {
         repositories: page2,
         hasMore: false,
         repositorySelection: "selected",
+        manageUrl: "https://github.com/settings/installations/123",
+        totalCount: 3,
       }
     })
     const result = await collectInstallationRepoPages(fetchPage)
     expect(fetchPage).toHaveBeenCalledTimes(2)
     expect(result.repositories.map((repo) => repo.id)).toEqual([1, 2, 31])
+    expect(result.manageUrl).toBe(
+      "https://github.com/settings/installations/123",
+    )
+    expect(result.totalCount).toBe(3)
   })
 })

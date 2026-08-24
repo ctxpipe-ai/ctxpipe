@@ -176,9 +176,56 @@ export async function listFilesInTree(input: BaseInput & { branch: string }) {
   })
 }
 
-export async function getFileContent(
+export async function getCommitTimestamp(
+  input: BaseInput & { sha: string },
+): Promise<string | null> {
+  return withTransientGitHubRetry(async () => {
+    const context = await getInstallationContext(input)
+    const { data } = await context.octokit.rest.git.getCommit({
+      owner: context.owner,
+      repo: context.repo,
+      commit_sha: input.sha,
+    })
+    const raw = data.committer?.date ?? data.author?.date
+    if (!raw) return null
+    const parsed = new Date(raw)
+    return Number.isNaN(parsed.getTime()) ? null : parsed.toISOString()
+  })
+}
+export async function listFilesAtSha(
+  input: BaseInput & { sha: string; missing?: "empty" | "throw" },
+) {
+  return withTransientGitHubRetry(async () => {
+    const context = await getInstallationContext(input)
+    try {
+      const { data } = await context.octokit.rest.git.getTree({
+        owner: context.owner,
+        repo: context.repo,
+        tree_sha: input.sha,
+        recursive: "true",
+      })
+      return (data.tree ?? [])
+        .filter((entry) => entry.type === "blob" && Boolean(entry.path))
+        .map((entry) => ({ path: entry.path ?? "", sha: entry.sha ?? "" }))
+    } catch (error) {
+      const status = (error as { status?: number }).status
+      if (status === 404 || status === 409) {
+        if (input.missing === "throw") throw error
+        return []
+      }
+      throw error
+    }
+  })
+}
+
+export type GitHubFileBytes =
+  | { kind: "missing" }
+  | { kind: "omitted" }
+  | { kind: "bytes"; bytes: Buffer }
+
+export async function getFileContentBytes(
   input: BaseInput & { branch: string; path: string },
-): Promise<string | undefined> {
+): Promise<GitHubFileBytes> {
   const context = await getInstallationContext(input)
   for (let a = 0; a < GITHUB_API_MAX_ATTEMPTS; a += 1) {
     let data: Awaited<
@@ -195,7 +242,7 @@ export async function getFileContent(
     } catch (error) {
       const status = (error as { status?: number }).status
       if (status === 404) {
-        return undefined
+        return { kind: "missing" }
       }
       if (isTransientGithubError(error) && a < GITHUB_API_MAX_ATTEMPTS - 1) {
         await new Promise((r) => setTimeout(r, 300 * 2 ** a))
@@ -204,12 +251,48 @@ export async function getFileContent(
       throw error
     }
     if (Array.isArray(data) || !("content" in data)) {
-      return undefined
+      return { kind: "missing" }
     }
-    if (!data.content) return ""
-    return Buffer.from(data.content, "base64").toString("utf8")
+    const encoding =
+      "encoding" in data && typeof data.encoding === "string"
+        ? data.encoding
+        : undefined
+    const size = "size" in data && typeof data.size === "number" ? data.size : 0
+    if (encoding === "none" || (size > 0 && !data.content)) {
+      return { kind: "omitted" }
+    }
+    if (!data.content) return { kind: "bytes", bytes: Buffer.alloc(0) }
+    return { kind: "bytes", bytes: Buffer.from(data.content, "base64") }
   }
-  return undefined
+  return { kind: "missing" }
+}
+
+export async function getFileContent(
+  input: BaseInput & { branch: string; path: string },
+): Promise<string | undefined> {
+  const file = await getFileContentBytes(input)
+  if (file.kind === "missing") return undefined
+  if (file.kind === "omitted") return ""
+  return file.bytes.toString("utf8")
+}
+
+export async function githubRefExists(
+  input: BaseInput & { ref: string },
+): Promise<boolean> {
+  try {
+    const context = await getInstallationContext(input)
+    const ref = input.ref.replace(/^refs\//, "")
+    const refName = ref.startsWith("heads/") ? ref : `heads/${ref}`
+    await context.octokit.rest.git.getRef({
+      owner: context.owner,
+      repo: context.repo,
+      ref: refName,
+    })
+    return true
+  } catch (error) {
+    if ((error as { status?: number }).status === 404) return false
+    throw error
+  }
 }
 
 export async function commitFiles(
@@ -218,17 +301,12 @@ export async function commitFiles(
     message: string
     files: CommitFile[]
     deletePaths?: string[]
+    /** When set, commit against this parent and refuse overlay-on-latest-head. */
+    expectedParentSha?: string
   },
 ) {
-  return withTransientGitHubRetry(async () => {
+  const commitOnce = async (head: { commitSha: string; treeSha: string }) => {
     const context = await getInstallationContext(input)
-    const head = await getOrInitializeBaseBranch({
-      octokit: context.octokit,
-      owner: context.owner,
-      repo: context.repo,
-      branch: input.branch,
-    })
-
     const fileEntries = await Promise.all(
       input.files.map(async (file) => {
         const blob = await context.octokit.rest.git.createBlob({
@@ -280,6 +358,30 @@ export async function commitFiles(
       branch: input.branch,
       installationId: context.installation.installationId ?? 0,
     }
+  }
+
+  if (input.expectedParentSha) {
+    const context = await getInstallationContext(input)
+    const { data: commit } = await context.octokit.rest.git.getCommit({
+      owner: context.owner,
+      repo: context.repo,
+      commit_sha: input.expectedParentSha,
+    })
+    return commitOnce({
+      commitSha: input.expectedParentSha,
+      treeSha: commit.tree.sha,
+    })
+  }
+
+  return withTransientGitHubRetry(async () => {
+    const context = await getInstallationContext(input)
+    const head = await getOrInitializeBaseBranch({
+      octokit: context.octokit,
+      owner: context.owner,
+      repo: context.repo,
+      branch: input.branch,
+    })
+    return commitOnce(head)
   })
 }
 
@@ -290,6 +392,11 @@ export async function createPullRequestWithFiles(
     body: string
     commitMessage: string
     files: CommitFile[]
+    deletePaths?: string[]
+    /** Exact session branch. When omitted, uses featureBranchPrefix + timestamp. */
+    branch?: string
+    /** When true, a 422 on createRef is a collision — do not overlay an existing branch. */
+    requireNewBranch?: boolean
     /** Defaults to the historical Confluence prefix. */
     featureBranchPrefix?: string
   },
@@ -302,15 +409,25 @@ export async function createPullRequestWithFiles(
     branch: input.baseBranch,
   })
 
-  const featureBranch = `${input.featureBranchPrefix ?? "ctxpipe/confluence-config"}-${Date.now()}`
-  await withTransientGitHubRetry(() =>
-    context.octokit.rest.git.createRef({
-      owner: context.owner,
-      repo: context.repo,
-      ref: `refs/heads/${featureBranch}`,
-      sha: base.commitSha,
-    }),
-  )
+  const featureBranch =
+    input.branch ??
+    `${input.featureBranchPrefix ?? "ctxpipe/confluence-config"}-${Date.now()}`
+  try {
+    await withTransientGitHubRetry(() =>
+      context.octokit.rest.git.createRef({
+        owner: context.owner,
+        repo: context.repo,
+        ref: `refs/heads/${featureBranch}`,
+        sha: base.commitSha,
+      }),
+    )
+  } catch (error) {
+    const status =
+      error && typeof error === "object" && "status" in error
+        ? Number(error.status)
+        : 0
+    if (status !== 422 || input.requireNewBranch) throw error
+  }
 
   await commitFiles({
     orgId: input.orgId,
@@ -320,6 +437,7 @@ export async function createPullRequestWithFiles(
     branch: featureBranch,
     message: input.commitMessage,
     files: input.files,
+    deletePaths: input.deletePaths,
   })
 
   const { data: pull } = await withTransientGitHubRetry(() =>

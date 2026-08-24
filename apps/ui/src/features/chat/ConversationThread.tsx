@@ -1,10 +1,7 @@
-import { IconMessageCircle } from "@tabler/icons-react"
-import type { UIMessage } from "ai"
 import type { ReactElement } from "react"
 import {
   Conversation,
   ConversationContent,
-  ConversationEmptyState,
   ConversationScrollButton,
 } from "@/components/ai-elements/conversation"
 import {
@@ -12,41 +9,53 @@ import {
   MessageContent,
   MessageResponse,
 } from "@/components/ai-elements/message"
+import { InlineAlert } from "@/components/ui/InlineAlert"
+import type { ChatMessage, ChatStatus } from "@/features/chat/types"
 import { formatDate } from "@/lib/format"
 import { cn } from "@/lib/utils"
 
 const HIDDEN_DATA_PARTS = new Set(["data-rename-conversation", "data-kg-focus"])
 
-function formatMessageTimeLabel(message: UIMessage): string | null {
-  const meta = message.metadata as { createdAt?: string } | undefined
-  if (!meta?.createdAt) return null
-  const d = new Date(meta.createdAt)
-  if (Number.isNaN(d.getTime())) return null
-  return formatDate(meta.createdAt)
+function partText(part: ChatMessage["parts"][number]): string {
+  return (part.content ?? part.text ?? "").trim()
 }
 
-function isRenderableMessagePart(part: UIMessage["parts"][number]) {
-  if (HIDDEN_DATA_PARTS.has(part.type)) return false
-  if (part.type === "text") return Boolean(part.text?.trim())
-  if (part.type === "reasoning") return Boolean(part.text?.trim())
+function formatMessageTimeLabel(message: ChatMessage): string | null {
+  const createdAt =
+    message.createdAt instanceof Date
+      ? message.createdAt.toISOString()
+      : undefined
+  if (!createdAt) return null
+  const d = new Date(createdAt)
+  if (Number.isNaN(d.getTime())) return null
+  return formatDate(createdAt)
+}
+
+function isRenderableMessagePart(part: ChatMessage["parts"][number]) {
+  if (HIDDEN_DATA_PARTS.has(part.type) || part.type.startsWith("data-")) {
+    return false
+  }
+  if (part.type === "text" || part.type === "thinking") {
+    return Boolean(partText(part))
+  }
   if (part.type === "source-url") return true
-  if (part.type.startsWith("data-")) return "data" in part
   return false
 }
 
-function renderMessagePart(part: UIMessage["parts"][number], key: string) {
+function renderMessagePart(part: ChatMessage["parts"][number], key: string) {
   if (!isRenderableMessagePart(part)) return null
   if (part.type === "text") {
-    return <MessageResponse key={key}>{part.text}</MessageResponse>
+    return <MessageResponse key={key}>{partText(part)}</MessageResponse>
   }
-  if (part.type === "reasoning") {
+  if (part.type === "thinking") {
     return (
-      <details
-        key={key}
-        className="rounded-none border border-border/60 bg-foreground/[0.04] p-3 text-sm text-muted-foreground"
-      >
-        <summary className="cursor-pointer text-foreground">Reasoning</summary>
-        <MessageResponse>{part.text}</MessageResponse>
+      <details key={key} className="rounded-lg text-sm text-muted-foreground">
+        <summary className="cursor-pointer font-medium text-foreground">
+          Reasoning
+        </summary>
+        <div className="mt-1.5">
+          <MessageResponse>{partText(part)}</MessageResponse>
+        </div>
       </details>
     )
   }
@@ -65,19 +74,10 @@ function renderMessagePart(part: UIMessage["parts"][number], key: string) {
       </p>
     )
   }
-  if (part.type.startsWith("data-") && "data" in part) {
-    return (
-      <pre key={key} className="text-xs text-muted-foreground">
-        {JSON.stringify(part.data)}
-      </pre>
-    )
-  }
   return null
 }
 
-export type ChatStatus = "submitted" | "streaming" | "ready" | "error"
-
-function messageHasRenderableParts(message: UIMessage) {
+function messageHasRenderableParts(message: ChatMessage) {
   return message.parts.some(isRenderableMessagePart)
 }
 
@@ -88,7 +88,7 @@ function AgentSenderLabel() {
 }
 
 export function ConversationThread(props: {
-  messages: UIMessage[]
+  messages: ChatMessage[]
   error: Error | null
   status?: ChatStatus
   contentClassName?: string
@@ -108,97 +108,88 @@ export function ConversationThread(props: {
       <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
         <Conversation className="min-h-0 flex-1">
           <ConversationContent
-            className={cn("mx-auto max-w-2xl space-y-6 p-6", contentClassName)}
+            className={cn(
+              "mx-auto max-w-2xl space-y-5 px-4 py-5",
+              contentClassName,
+            )}
           >
-            {messages.length === 0 ? (
-              <ConversationEmptyState
-                icon={
-                  <IconMessageCircle className="h-10 w-10 text-muted-foreground" />
-                }
-                title="No messages yet"
-                description="Send the first message to begin."
-              />
-            ) : (
-              <>
-                {messages.map((message) => {
-                  const renderedParts = message.parts
-                    .map((part, index) =>
-                      renderMessagePart(part, `${message.id}-${index}`),
-                    )
-                    .filter((part): part is ReactElement => part !== null)
+            {messages.map((message) => {
+              const renderedParts = message.parts
+                .map((part, index) =>
+                  renderMessagePart(part, `${message.id}-${index}`),
+                )
+                .filter((part): part is ReactElement => part !== null)
 
-                  if (renderedParts.length === 0) return null
+              if (renderedParts.length === 0) return null
 
-                  const role = message.role
-                  const timeLabel = formatMessageTimeLabel(message)
-                  const isUser = role === "user"
+              const role = message.role
+              const timeLabel = formatMessageTimeLabel(message)
+              const isUser = role === "user"
 
-                  return (
+              return (
+                <div
+                  key={message.id}
+                  className={cn(
+                    "flex w-full",
+                    isUser ? "justify-end" : "justify-start",
+                  )}
+                >
+                  <Message
+                    from={role}
+                    className={isUser ? "max-w-md" : undefined}
+                  >
                     <div
-                      key={message.id}
                       className={cn(
-                        "flex w-full",
-                        isUser ? "justify-end" : "justify-start",
+                        "flex w-full flex-col space-y-1",
+                        isUser ? "items-end" : "items-start",
                       )}
                     >
-                      <Message from={role}>
-                        <div
-                          className={cn(
-                            "flex w-full flex-col space-y-1",
-                            isUser ? "items-end" : "items-start",
-                          )}
-                        >
-                          <div className="flex items-center gap-2">
-                            {isUser ? (
-                              <span className="ctx-label-muted">you</span>
-                            ) : (
-                              <AgentSenderLabel />
-                            )}
-                            {timeLabel ? (
-                              <span className="text-[10px] text-muted-foreground/50">
-                                {timeLabel}
-                              </span>
-                            ) : null}
-                          </div>
-                          <MessageContent>{renderedParts}</MessageContent>
-                        </div>
-                      </Message>
-                    </div>
-                  )
-                })}
-                {showPulsatingLoader && (
-                  // biome-ignore lint/a11y/useSemanticElements: div + role="status" for loading indicator; output is for form/calculation results, not live status
-                  <div
-                    className="flex w-full justify-start"
-                    role="status"
-                    aria-live="polite"
-                    aria-label="Waiting for response"
-                  >
-                    <div className="flex w-full max-w-[85%] items-center gap-3">
-                      <div
-                        className="flex size-8 shrink-0 items-center justify-center rounded-full border border-white/[0.08] bg-foreground/[0.04]"
-                        aria-hidden
-                      >
-                        <span className="ctx-indexing-dot" />
+                      <div className="flex items-center gap-2">
+                        {isUser ? (
+                          <span className="ctx-label-muted">you</span>
+                        ) : (
+                          <AgentSenderLabel />
+                        )}
+                        {timeLabel ? (
+                          <span className="text-xs text-muted-foreground">
+                            {timeLabel}
+                          </span>
+                        ) : null}
                       </div>
-                      <div className="min-w-0 flex-1 space-y-0.5">
-                        <AgentSenderLabel />
-                        <p className="text-xs text-muted-foreground">
-                          Thinking…
-                        </p>
-                      </div>
+                      <MessageContent>{renderedParts}</MessageContent>
                     </div>
+                  </Message>
+                </div>
+              )
+            })}
+            {showPulsatingLoader && (
+              // biome-ignore lint/a11y/useSemanticElements: div + role="status" for loading indicator; output is for form/calculation results, not live status
+              <div
+                className="flex w-full justify-start"
+                role="status"
+                aria-live="polite"
+                aria-label="Waiting for response"
+              >
+                <div className="flex w-full flex-col items-start space-y-1">
+                  <AgentSenderLabel />
+                  <div className="flex items-center gap-2">
+                    <span className="ctx-indexing-dot" aria-hidden />
+                    <p className="text-xs text-muted-foreground">Thinking…</p>
                   </div>
-                )}
-              </>
+                </div>
+              </div>
             )}
           </ConversationContent>
           <ConversationScrollButton />
         </Conversation>
         {error ? (
-          <p className="px-6 pb-2 text-sm text-destructive">
-            {error.message || "Chat request failed."}
-          </p>
+          <div className="px-4 pb-2">
+            <div className="mx-auto max-w-2xl">
+              <InlineAlert variant="error" title="Could not send">
+                {error.message || "Chat request failed."} Send again to retry.
+              </InlineAlert>
+            </div>
+          </div>
         ) : null}
       </div>
     </div>

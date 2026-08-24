@@ -1,7 +1,6 @@
 "use client"
 
 import { IconArrowUp } from "@tabler/icons-react"
-import type { ChatStatus } from "ai"
 import { useEffect } from "react"
 import {
   PromptInput,
@@ -13,6 +12,8 @@ import {
   PromptInputTools,
   usePromptInputController,
 } from "@/components/ai-elements/prompt-input"
+import type { ChatStatus } from "@/features/chat/types"
+import { focusVisibleClassName } from "@/lib/focus-styles"
 import { cn } from "@/lib/utils"
 
 export type MessageInputLayout = "thread" | "empty"
@@ -22,7 +23,7 @@ export function MessageInputBox(props: {
   status?: ChatStatus
   onStop?: () => void
   isDisabled?: boolean
-  /** thread: footer dock with top border; empty: hero composer */
+  /** thread: footer dock; empty: hero composer */
   layout?: MessageInputLayout
   placeholder?: string
   draftSeed?: string | null
@@ -54,7 +55,13 @@ export function MessageInputBox(props: {
         seed={draftSeed ?? null}
         onConsumed={onDraftSeedConsumed}
       />
-      <div className="relative ctx-border ctx-surface overflow-hidden transition-colors focus-within:border-primary/30">
+      <div
+        className={cn(
+          "relative overflow-hidden rounded-lg bg-zinc-900/80",
+          "ring-1 ring-white/[0.08] transition-[box-shadow,background-color]",
+          "focus-within:bg-zinc-900 focus-within:ring-teal-400/40",
+        )}
+      >
         <PromptInput
           className="w-full [&_[data-slot=input-group]]:min-h-0 [&_[data-slot=input-group]]:flex-col [&_[data-slot=input-group]]:items-stretch [&_[data-slot=input-group]]:rounded-none [&_[data-slot=input-group]]:border-0 [&_[data-slot=input-group]]:bg-transparent [&_[data-slot=input-group]]:shadow-none"
           onSubmit={(message) => handleSubmit(message)}
@@ -69,29 +76,30 @@ export function MessageInputBox(props: {
                   : "Continue the conversation…")
               }
               className={cn(
-                "resize-none border-0 bg-transparent text-[15px] leading-relaxed focus-visible:ring-0",
+                "resize-none border-0 bg-transparent text-sm leading-relaxed text-foreground placeholder:text-muted-foreground focus-visible:ring-0",
                 layout === "empty"
-                  ? "min-h-[120px] p-4 pb-16"
-                  : "min-h-[80px] p-4 pb-12",
+                  ? "min-h-24 px-4 pt-4 pb-14"
+                  : "min-h-16 px-4 pt-3 pb-12",
               )}
               autoFocus={layout === "empty" && !isDisabled}
             />
           </PromptInputBody>
-          <PromptInputFooter className="absolute bottom-4 right-4 flex items-center gap-3 border-0 bg-transparent p-0 shadow-none">
+          <PromptInputFooter className="absolute inset-x-0 bottom-0 flex items-center justify-between gap-2 border-0 bg-transparent px-3 pb-3 pt-0 shadow-none">
             <PromptInputTools />
             <PromptInputSubmit
-              size="sm"
+              size="icon-sm"
               variant="primary"
               status={status}
               onStop={onStop}
               isDisabled={isDisabled}
-              className="h-8 gap-2 rounded-none border-0 bg-teal-500 px-3 text-sm font-medium text-white shadow-none hover:bg-teal-400 focus-visible:ring-2 focus-visible:ring-teal-400/80 focus-visible:ring-offset-2 focus-visible:ring-offset-background"
+              className={cn(
+                "size-8 shrink-0 rounded-lg border-0 bg-primary text-primary-foreground shadow-none",
+                "hover:bg-primary/90",
+                focusVisibleClassName,
+              )}
             >
               {isGenerating ? undefined : (
-                <>
-                  Send
-                  <IconArrowUp aria-hidden className="h-3.5 w-3.5" />
-                </>
+                <IconArrowUp aria-hidden className="size-4" stroke={1.75} />
               )}
             </PromptInputSubmit>
           </PromptInputFooter>
@@ -105,7 +113,7 @@ export function MessageInputBox(props: {
   }
 
   return (
-    <div className="shrink-0 border-t border-white/[0.04] p-4">
+    <div className="shrink-0 p-3 pt-0">
       <div className={cn("mx-auto max-w-2xl", contentClassName)}>
         {inputShell}
       </div>

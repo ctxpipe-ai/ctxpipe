@@ -51,3 +51,41 @@ resource "neon_branch" "production" {
   protected  = "yes"
   project_id = neon_project.this.id
 }
+
+resource "neon_role" "app" {
+  project_id = neon_project.this.id
+  branch_id  = neon_branch.production.id
+  name       = "ctxpipe_app"
+
+  lifecycle {
+    prevent_destroy = true
+  }
+}
+
+locals {
+  owner_pooler_uri = neon_project.this.connection_uri_pooler
+  pooler_after_user = replace(
+    local.owner_pooler_uri,
+    "//${neon_project.this.database_user}:",
+    "//ctxpipe_app:",
+  )
+  app_database_url = (
+    strcontains(local.pooler_after_user, ":${neon_project.this.database_password}@")
+    ? replace(local.pooler_after_user, ":${neon_project.this.database_password}@", ":${neon_role.app.password}@")
+    : replace(local.pooler_after_user, ":${urlencode(neon_project.this.database_password)}@", ":${urlencode(neon_role.app.password)}@")
+  )
+}
+
+resource "terraform_data" "app_database_url" {
+  input = local.app_database_url
+
+  lifecycle {
+    precondition {
+      condition = (
+        strcontains(local.app_database_url, "ctxpipe_app") &&
+        local.app_database_url != local.owner_pooler_uri
+      )
+      error_message = "Failed to rewrite Neon pooler URL from the owner role to ctxpipe_app"
+    }
+  }
+}

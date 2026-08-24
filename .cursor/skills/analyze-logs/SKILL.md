@@ -1,6 +1,6 @@
 ---
 name: analyze-logs
-description: Analyze application logs and ops signals. In this ctxpipe repo, prefer Railway → Langfuse → Better Stack MCPs (not .evlog/logs/). Upstream sections below cover optional/legacy evlog FS drain for other stacks.
+description: Analyze application logs and ops signals. In this ctxpipe repo, prefer Railway → Langfuse → Better Stack MCPs (not .evlog/logs/). For a workspace chat hang (composer spins, empty assistant), use JSONL and filter step opencode.chatStream — never Better Stack CSV. Upstream sections below cover optional/legacy evlog FS drain for other stacks.
 license: MIT
 metadata:
   author: HugoRCD
@@ -21,7 +21,20 @@ For **ctxpipe product / ops debugging**, do **not** start from (or require) a lo
 
 See also root [AGENTS.md](../../../AGENTS.md) (**Ops debugging / logs**). Use the **evlog FS drain** guidance in the sections below only as **optional / secondary** (legacy or other stacks that actually write `.evlog/logs/`), never as a prerequisite for debugging this repo’s backend.
 
----
+### Workspace chat hang (composer spins, no assistant text)
+
+Do **not** export Better Stack **CSV**. Mixed-service CSV drops HTTP `message`, splits TanStack ANSI across `info` rows, and hides the OpenCode 500 body.
+
+1. Prefer **Railway MCP** JSON/JSONL for `service=backend`. Better Stack only if you can export **JSON or JSONL**.
+2. Filter `step` in (`opencode.chatStream`, `tanstack-workspace-chat`, `attach-chat-sandbox-handle`) plus the conversation `POST /:orgSlug/api/v1/conversations/:conversationId` `requestId`.
+3. The conversation `POST` is **200** when the stream opens (~17–18s). That is not a successful turn. The chat-attempt event is a **second** row with `step=opencode.chatStream` after Hono emits the HTTP event.
+4. If you see `[evlog] log.set() called after the wide event was emitted` dropping `step, conversationId, workspaceId, status, bodyExcerpt`, that deploy still writes to the sealed request logger — the chat-attempt fields never land.
+5. The chat-attempt event must include `conversationId`, `status`, and `bodyExcerpt` (OpenCode/TanStack fatal). Grep `opencode.chatStream`, not `message == ""`.
+6. Redact session tokens and emails before pasting. Do not add a second drain or a new env var.
+
+Out of scope unless that body names them: codesearch `POST /search` 503 (Zoekt warmup) and `SANDBOX_PROVIDER=railway` fail-closed.
+
+## Local evlog FS drain (optional)
 
 Read and analyze structured wide-event logs from the local `.evlog/logs/` directory to debug errors, investigate performance issues, and understand application behavior (**optional/legacy path** — see **When in this repo** above for ctxpipe).
 

@@ -1,3 +1,6 @@
+import { queryOptions } from "@tanstack/react-query"
+import { apiFetch, readApiJson } from "@/lib/api-result"
+
 export type OrgConnectionListItem = {
   id: string
   type: "github" | "forge" | "slack" | "linear" | "notion"
@@ -27,13 +30,21 @@ export function sortOrgConnectionsForDisplay(
   })
 }
 
+export function orgConnectionsOptions(orgSlug: string) {
+  return queryOptions({
+    queryKey: orgConnectionsKeys.list(orgSlug),
+    queryFn: () => fetchOrgConnections(orgSlug),
+  })
+}
+
 export async function fetchOrgConnections(
   orgSlug: string,
 ): Promise<OrgConnectionListItem[]> {
-  const res = await fetch(`/${orgSlug}/api/v1/connectors`, {
+  const res = await apiFetch(`/${orgSlug}/api/v1/connectors`, {
     credentials: "include",
   })
-  if (!res.ok) throw new Error("Failed to load connections")
-  const json = (await res.json()) as { items: OrgConnectionListItem[] }
+  const json = await readApiJson<{ items: OrgConnectionListItem[] }>(res, {
+    message: "Failed to load connections",
+  })
   return json.items
 }

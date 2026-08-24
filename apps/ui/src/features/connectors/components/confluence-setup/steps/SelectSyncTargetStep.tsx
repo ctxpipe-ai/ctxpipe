@@ -4,9 +4,10 @@ import { useEffect, useState } from "react"
 import { toast } from "sonner"
 import { Button } from "@/components/ui/Button"
 import { ComboBox, ComboBoxItem } from "@/components/ui/ComboBox"
-import { Spinner } from "@/components/ui/spinner"
 import type { Repository } from "@/features/repositories"
+import { GithubRepoPickerSkeleton } from "@/features/repositories/components/GithubRepoPickerList"
 import { client } from "@/lib/api"
+import { readApiJson } from "@/lib/api-result"
 import {
   atlassianConnectorKeys,
   fetchAtlassianConnectorConfig,
@@ -62,8 +63,9 @@ export function SelectSyncTargetStep({
       const res = await client[":orgSlug"].api.v1.repositories.$get({
         param: { orgSlug },
       })
-      if (!res.ok) throw new Error("Failed to fetch repositories")
-      const json = (await res.json()) as { items: Repository[] }
+      const json = await readApiJson<{ items: Repository[] }>(res, {
+        message: "Failed to fetch repositories",
+      })
       return json.items
     },
   })
@@ -296,12 +298,7 @@ export function SelectSyncTargetStep({
           </div>
         ) : null}
 
-        {isSearchingRepos ? (
-          <div className="flex items-center gap-2 text-sm text-muted-foreground">
-            <Spinner className="size-4" />
-            Searching repositories...
-          </div>
-        ) : null}
+        {isSearchingRepos ? <GithubRepoPickerSkeleton rows={4} /> : null}
 
         {!isSearchingRepos &&
         debouncedRepoSearch.length > 0 &&

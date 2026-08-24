@@ -1,4 +1,4 @@
-import { QueryClient, QueryClientProvider } from "@tanstack/react-query"
+import { QueryClientProvider } from "@tanstack/react-query"
 import { useRouter } from "@tanstack/react-router"
 import type { ReactNode } from "react"
 import { RouterProvider } from "react-aria-components"
@@ -7,14 +7,7 @@ import type { ConfluenceForgeRuntimeConfig } from "@/lib/confluenceForgeRuntimeC
 import { AmplitudeProvider } from "./providers/AmplitudeProvider"
 import { AuthProvider } from "./providers/AuthProvider"
 import { ConfluenceForgeRuntimeProvider } from "./providers/ConfluenceForgeRuntimeContext"
-
-const queryClient = new QueryClient({
-  defaultOptions: {
-    queries: {
-      staleTime: 60_000,
-    },
-  },
-})
+import type { RouterContext } from "./router"
 
 export function Providers({
   children,
@@ -26,6 +19,8 @@ export function Providers({
   confluenceForgeRuntimeConfig: ConfluenceForgeRuntimeConfig
 }) {
   const router = useRouter()
+  const { queryClient } = router.options.context as RouterContext
+
   return (
     <QueryClientProvider client={queryClient}>
       <AuthProvider>

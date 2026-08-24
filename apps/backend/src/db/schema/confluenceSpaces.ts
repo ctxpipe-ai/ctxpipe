@@ -1,10 +1,12 @@
 import { index, jsonb, pgTable, text, timestamp, unique } from "drizzle-orm/pg-core"
 import { connections } from "./connections.js"
+import { orgIsolationPolicy } from "./org-rls.js"
 
-export const confluenceSpaces = pgTable(
+export const confluenceSpaces = pgTable.withRLS(
   "confluence_spaces",
   {
     id: text("id").primaryKey(),
+    orgId: text("org_id").notNull(),
     connectionId: text("connection_id")
       .notNull()
       .references(() => connections.id, { onDelete: "cascade" }),
@@ -30,5 +32,7 @@ export const confluenceSpaces = pgTable(
       t.connectionId,
       t.spaceKey,
     ),
+    index("confluence_spaces_org_id_idx").on(t.orgId),
+    orgIsolationPolicy(t.orgId),
   ],
 )
