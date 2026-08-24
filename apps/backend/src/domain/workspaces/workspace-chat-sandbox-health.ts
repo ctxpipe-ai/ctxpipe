@@ -23,8 +23,21 @@ export async function preflightChatSandbox(input: {
   handle: TanstackLikeHandle
   isolation: "docker" | "local_process"
   proxyUrl: string
+  runToken?: string
   stalePort?: number
 }): Promise<void> {
+  if (input.runToken) {
+    const modelsUrl = `${input.proxyUrl.replace(/\/+$/, "")}/v1/models`
+    const probe = await sandboxExec(
+      input.handle,
+      `sh -c 'curl -sS -o /dev/null -w "%{http_code}" --max-time 2 -H "Authorization: Bearer ${input.runToken}" "${modelsUrl}"'`,
+    )
+    if (probe.stdout.trim() !== "200") {
+      throw new Error(
+        `Chat sandbox cannot reach the model proxy at ${modelsUrl} (status ${probe.stdout.trim() || probe.exitCode})`,
+      )
+    }
+  }
   if (input.stalePort != null) {
     const stale = await sandboxExec(
       input.handle,

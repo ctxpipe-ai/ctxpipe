@@ -85,6 +85,24 @@ describe("startWorkspaceChatModelProxy", () => {
     ])
   })
 
+  it("listens on all interfaces so a local-process OpenCode can reach it", async () => {
+    const proxy = await startWorkspaceChatModelProxy({
+      runToken: "run-token-listen",
+      upstreamBaseUrl: "http://127.0.0.1:9",
+      upstreamApiKey: "sk-unused",
+      modelBase: "openai/gpt-5.6-terra",
+      listenHost: "0.0.0.0",
+      advertisedHost: "127.0.0.1",
+    })
+    servers.push(proxy)
+    const port = Number(new URL(proxy.baseUrl).port)
+    expect(proxy.baseUrl).toMatch(/^http:\/\/127\.0\.0\.1:\d+$/)
+    const res = await fetch(`http://127.0.0.1:${port}/v1/models`, {
+      headers: { authorization: "Bearer run-token-listen" },
+    })
+    expect(res.status).toBe(200)
+  })
+
   it("lists only the configured model", async () => {
     const proxy = await startWorkspaceChatModelProxy({
       runToken: "run-token-2",

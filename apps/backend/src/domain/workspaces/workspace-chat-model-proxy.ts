@@ -24,7 +24,7 @@ export async function startWorkspaceChatModelProxy(input: {
   fetch?: typeof fetch
 }): Promise<WorkspaceChatModelProxy> {
   const doFetch = input.fetch ?? fetch
-  const listenHost = input.listenHost ?? "127.0.0.1"
+  const listenHost = input.listenHost ?? "0.0.0.0"
   const advertisedHost = input.advertisedHost ?? "127.0.0.1"
   const server = createServer((req, res) => {
     void handleProxyRequest(req, res, input, doFetch)
@@ -37,8 +37,29 @@ export async function startWorkspaceChatModelProxy(input: {
   if (!address || typeof address === "string") {
     throw new Error("Workspace chat model proxy failed to bind")
   }
+  const baseUrl = `http://${advertisedHost}:${address.port}`
+  const ready = await doFetch(`${baseUrl}/v1/models`, {
+    headers: { authorization: `Bearer ${input.runToken}` },
+  }).catch((error: unknown) => {
+    throw new Error(
+      `Workspace chat model proxy bound ${listenHost}:${address.port} but is not reachable at ${baseUrl}: ${
+        error instanceof Error ? error.message : String(error)
+      }`,
+    )
+  })
+  if (!ready.ok) {
+    throw new Error(
+      `Workspace chat model proxy self-check failed at ${baseUrl}/v1/models (${ready.status})`,
+    )
+  }
+  log.info({
+    step: "workspace-chat-model-proxy.listen",
+    listenHost,
+    port: address.port,
+    advertisedHost,
+  })
   return {
-    baseUrl: `http://${advertisedHost}:${address.port}`,
+    baseUrl,
     close: () =>
       new Promise((resolve, reject) => {
         server.close((error) => (error ? reject(error) : resolve()))
@@ -74,6 +95,11 @@ async function handleProxyRequest(
   }
 
   const url = new URL(req.url ?? "/", "http://127.0.0.1")
+  log.info({
+    step: "workspace-chat-model-proxy.request",
+    method: req.method,
+    path: url.pathname,
+  })
   if (req.method === "GET" && url.pathname === "/v1/models") {
     writeJson(res, 200, {
       object: "list",

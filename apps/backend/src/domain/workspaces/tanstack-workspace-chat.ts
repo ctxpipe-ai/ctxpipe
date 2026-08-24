@@ -9,7 +9,7 @@ import {
   listSandboxInstances,
   listWorkspaceKnowledgeUnitsForChat,
 } from "../../models/workspaces.js"
-import { getLogger } from "../../observability/logger.js"
+import { getLogger, log } from "../../observability/logger.js"
 import { hybridSearch } from "../../retrieval/index.js"
 import { generateEmbedding } from "../../retrieval/services/modelProvider.js"
 import {
@@ -538,7 +538,7 @@ async function prepareTanstackWorkspaceChat(
     upstreamApiKey: contract.apiKey,
     modelBase: contract.modelBase,
     modelParams: contract.modelParams,
-    listenHost: spec.isolation === "docker" ? "0.0.0.0" : "127.0.0.1",
+    listenHost: "0.0.0.0",
     advertisedHost:
       spec.isolation === "docker" ? "host.docker.internal" : "127.0.0.1",
   })
@@ -567,9 +567,18 @@ async function prepareTanstackWorkspaceChat(
   const portStuck = { current: false }
   try {
     if (spec.isolation === "local_process") {
-      portLease = await leaseLocalProcessOpenCodePort()
+      const reserved = tcpPortFromUrl(proxy.baseUrl)
+      portLease = await leaseLocalProcessOpenCodePort(
+        reserved != null ? { reserved: [reserved] } : undefined,
+      )
     }
     const servePort = portLease?.port ?? WORKSPACE_CHAT_OPENCODE_PORT
+    log.info({
+      step: "workspace-chat-ports",
+      conversationId: input.conversationId,
+      proxyUrl: proxy.baseUrl,
+      servePort,
+    })
     const secrets = modules.createSecrets({
       CTXPIPE_OPENCODE_RUN_TOKEN: runToken,
       CTXPIPE_MODEL_PROXY_URL: `${proxy.baseUrl}/v1`,
@@ -628,6 +637,7 @@ async function prepareTanstackWorkspaceChat(
             handle: ready,
             isolation: spec.isolation,
             proxyUrl: proxy.baseUrl,
+            runToken,
             stalePort:
               spec.isolation === "docker"
                 ? WORKSPACE_CHAT_OPENCODE_PORT
@@ -672,6 +682,15 @@ async function prepareTanstackWorkspaceChat(
     await proxy.close().catch(() => undefined)
     await portLease?.release().catch(() => undefined)
     throw error
+  }
+}
+
+function tcpPortFromUrl(url: string): number | null {
+  try {
+    const port = Number(new URL(url).port)
+    return Number.isInteger(port) && port > 0 ? port : null
+  } catch {
+    return null
   }
 }
 

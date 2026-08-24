@@ -74,6 +74,26 @@ describe("preflightChatSandbox", () => {
       ),
     ).resolves.toBeUndefined()
   })
+
+  it("throws when the sandbox cannot reach the model proxy", async () => {
+    const exec = vi.fn(async (command: string) => {
+      if (command.includes("/v1/models")) {
+        return { stdout: "000", stderr: "refused", exitCode: 7 }
+      }
+      return { stdout: "", stderr: "", exitCode: 0 }
+    })
+    await expect(
+      preflightChatSandbox({
+        handle: chatHandle({ exec }),
+        isolation: "local_process",
+        proxyUrl: "http://127.0.0.1:9",
+        runToken: "run-token",
+      }),
+    ).rejects.toThrow("cannot reach the model proxy")
+    expect(exec).toHaveBeenCalledWith(
+      expect.stringContaining("http://127.0.0.1:9/v1/models"),
+    )
+  })
 })
 
 describe("invalidateChatSandbox", () => {
