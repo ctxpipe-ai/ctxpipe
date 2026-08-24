@@ -1,5 +1,7 @@
 import { randomBytes } from "node:crypto"
-import type { ChatMiddleware, StreamChunk } from "@tanstack/ai"
+import { trace } from "@opentelemetry/api"
+import type { StreamChunk } from "@tanstack/ai"
+import { otelMiddleware } from "@tanstack/ai/middlewares/otel"
 import { withOrgDbContext } from "../../db/client.js"
 import { nameConversationIfUnnamed } from "../../graphs/conversationGraph/nodes/conversationNaming.js"
 import { generateObjectId } from "../../lib/id.js"
@@ -886,7 +888,9 @@ async function prepareTanstackWorkspaceChat(
           : {}),
         tools,
         middleware: [
-          ...(await workspaceChatOtelMiddleware()),
+          otelMiddleware({
+            tracer: trace.getTracer("ctxpipe-workspace-chat"),
+          }),
           modules.withSandbox(definition, {
             instances: postgresSandboxInstanceStore({
               orgId: input.orgId,
@@ -994,22 +998,6 @@ function rememberConversationRuntime(
     ...runtime,
     workspace: runtime.workspace ?? existing?.workspace,
   })
-}
-
-async function workspaceChatOtelMiddleware(): Promise<ChatMiddleware[]> {
-  try {
-    const [{ otelMiddleware }, { trace }] = await Promise.all([
-      import("@tanstack/ai/middlewares/otel"),
-      import("@opentelemetry/api"),
-    ])
-    return [
-      otelMiddleware({
-        tracer: trace.getTracer("ctxpipe-workspace-chat"),
-      }),
-    ]
-  } catch {
-    return []
-  }
 }
 
 async function* keepConversationRuntimeAfterStream(

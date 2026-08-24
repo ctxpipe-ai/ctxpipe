@@ -175,7 +175,16 @@ const loadTurnsMock = vi.hoisted(() =>
     > => [],
   ),
 )
-const appendTurnMock = vi.hoisted(() => vi.fn(async () => {}))
+const appendTurnMock = vi.hoisted(() =>
+  vi.fn(
+    async (_input: {
+      conversationId: string
+      role: "user" | "assistant"
+      content: string
+      orgId?: string
+    }) => {},
+  ),
+)
 
 vi.mock("../../models/conversation-messages.js", () => ({
   loadConversationTurns: loadTurnsMock,
