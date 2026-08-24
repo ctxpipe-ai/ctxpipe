@@ -5,9 +5,7 @@ description: Append a confirmed lesson to .ai/memory/lessons-learned.md
 
 # Capture lesson
 
-Use when the user states a lasting preference, correction, or convention that should
-still apply months later (cross-session). Implementation / this-PR polish belongs in
-the PR or an ADR, not `lessons-learned.md`.
+Use when the user states a lasting preference, correction, or convention.
 
 1. Append a short entry to `.ai/memory/lessons-learned.md` (Rule / Category / Date / Source).
 2. Prefer lessons over duplicating the same rule in multiple files.

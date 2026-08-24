@@ -6,7 +6,7 @@ description: Configure a deployment-owned Slack app for OAuth, Events API, and i
 ## Overview
 
 Self-hosted Slack uses the same connector flow as hosted ctx|, but your
-deployment owns **one** Slack app. Organisations authorise that app into their
+deployment owns **one** Slack app. Organizations authorize that app into their
 workspace; they do not create their own Slack apps or webhook URLs.
 
 Capture is **intent-based**: mentioning the bot starts a small in-thread agent.
@@ -39,7 +39,7 @@ In the [Slack API dashboard](https://api.slack.com/apps), create an app (from
 scratch is fine). For higher rate limits in production, prefer distributing it
 as a Marketplace or internal org app rather than a throwaway development app.
 
-If organisations will install the app into workspaces other than the app
+If organizations will install the app into workspaces other than the app
 owner's development workspace, activate **Manage Distribution** in Slack.
 Marketplace listing is separate and is not required for private
 multi-workspace distribution.
@@ -90,7 +90,7 @@ ingest path. Continuous message fan-out is not used.
 **Turn Socket Mode off.** If Socket Mode is enabled, Slack will not POST to the
 Request URL (“You won’t need a Request URL”) and mentions never reach ctx|.
 
-The Events URL is deployment-wide. Do not ask each organisation to register its
+The Events URL is deployment-wide. Do not ask each organization to register its
 own webhook.
 
 ## 2. Wire deployment secrets
@@ -139,9 +139,9 @@ in source control.
 
 ## 3. Complete connector setup in the UI
 
-After the deployment Slack app is configured, each organisation can:
+After the deployment Slack app is configured, each organization can:
 
-1. Authorise the Slack workspace (popup OAuth).
+1. Authorize the Slack workspace (popup OAuth).
 2. Bind a sync-target (context) repository.
 3. Invite the bot into channels where capture is needed (`/invite` the bot's
    **@handle**, which may differ from its display name).
@@ -156,7 +156,7 @@ committed to the bound default branch. Uninstall does not delete git.
 One Slack workspace can be connected to one ctx| organization. Reinstalling or
 rotating the Slack app **drops channel membership**. Invite the bot again in
 every channel where capture should work. Hosted and self-host deployments share
-the Slack app’s rate quota across organisations.
+the Slack app’s rate quota across organizations.
 
 ## 4. Layout
 
@@ -209,8 +209,8 @@ callback. Its value must exactly match a redirect URL registered in Slack.
   again.
 - Mention the bot's **@handle** (Slack autocomplete), not only a display name
   typed as plain text.
-- Inspect the OpenWorkflow worker logs for `slack-mention-agent`. Backend and
-  worker must use the same database and stable encryption material
+- Inspect worker logs for the Slack mention capture job. Backend and worker
+  must use the same database and stable encryption material
   (`AUTH_SECRET` and, when set, `CONNECTION_SECRETS_ENCRYPTION_KEY`). The
   selected repository's GitHub connection must still have contents write access.
   Extra text after a mention requires `MODEL_PROVIDER*` (or Bedrock). A second

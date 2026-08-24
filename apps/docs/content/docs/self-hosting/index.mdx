@@ -1,85 +1,67 @@
 ---
-title: Self-hosting overview
-description: What you operate when you run ctx| yourself.
+title: Self-host ctx|
+description: Choose a deployment path and understand the services and responsibilities you own.
 ---
 
-Self-hosting docs are for operators. They cover the infrastructure, secrets,
-deployment choices, and maintenance work that fully managed ctx| normally handles for
-you. Product workflows stay in the primary docs; this section explains what must
-exist underneath those workflows.
+Self-hosted ctx| runs the same product capabilities as fully managed ctx| inside
+infrastructure you control. You operate the public application origin, runtime
+services, data stores, provider credentials, and production controls.
 
 <Callout title="Fully managed vs self-hosted">
-  Fully managed ctx| manages hosting, connector credentials, install links, model
-  provider defaults, and production operations. In a self-hosted deployment, your
-  team owns those responsibilities.
+  Fully managed ctx| operates the platform and provider integrations. With
+  self-hosting, ctx| SaaS is not in the data path: your deployment handles
+  credentials, callbacks, and source data. Model requests go directly from your
+  deployment to the provider you configure.
 </Callout>
 
-## Fully managed vs self-hosted responsibilities
-
-Use this table to decide who owns each part of the system. Fully managed ctx| is the
-managed path. Self-hosting means you run the same product capabilities on your
-own infrastructure, with your own production controls.
-
-| Area | Fully managed | Self-hosted |
-|---|---|---|
-| Application hosting | Managed service | You run backend, UI, worker, and codesearch |
-| Public origin | Managed | You configure DNS, TLS, proxying, and callback URLs |
-| Database | Managed | You provide Postgres 17 and run/monitor migrations |
-| Graph database | Managed | You provide FalkorDB or another supported graph database |
-| GitHub connector | Managed app flow | You provide or store GitHub App credentials per connection |
-| Confluence connector | Managed Atlassian OAuth and Forge install link | You configure Atlassian 3LO, Forge install/provisioning, and callbacks |
-| Linear connector | Managed OAuth and signed webhooks | You register a Linear OAuth application, signed webhook, and exact callbacks |
-| Model provider | Hosted defaults | You configure OpenRouter, Azure, Bedrock, or an OpenAI-compatible provider |
-| Secrets | Managed | You rotate and protect auth, connector, model, and encryption secrets |
-| Logs and traces | Managed | You collect stdout logs or configure OpenTelemetry exporters |
-| Backups and restore | Managed | You back up Postgres, graph data, and persistent service volumes |
-| Upgrades | Managed | You plan, test, migrate, and roll back deployments |
-
-## Deployment tiers
-
-This follows the same shape as mature self-hosting docs: start with a managed
-cloud option, keep Docker Compose positioned for evaluation or small deployments,
-and make production readiness a separate operational concern.
-
-| Tier | Use when | Shape |
-|---|---|---|
-| Fully managed | You want the product operated for you | Managed cloud |
-| Local evaluation | You want to test with your own repositories | Docker Compose `deploy` profile on one machine |
-| Small team | You need a persistent internal deployment | One backend, one UI, one worker, one codesearch service, managed Postgres if available, FalkorDB or equivalent graph database |
-| Production | Multiple teams rely on agent context | Public HTTPS origin, managed database backups, monitored workers, log/trace collection, secrets rotation, and tested upgrade/rollback process |
-
-<Callout type="info" title="Start small, operate deliberately">
-  The reference Compose stack is useful for evaluation and small deployments.
-  Production operators should externalize stateful services where appropriate,
-  add backup/restore procedures, and monitor the worker, codesearch, Postgres,
-  and graph database separately.
-</Callout>
-
-## What runs
-
-A self-hosted deployment includes:
-
-| Component | Role |
-|---|---|
-| `backend` | Hono API, auth, REST routes, MCP endpoint, connector callbacks, UI proxy |
-| `ui` | TanStack Start web app, served through the backend public origin |
-| `worker` | OpenWorkflow jobs for ingestion, connectors, and provisioning work |
-| `codesearch` | Zoekt-backed clone/index service used by repository search and ingestion |
-| `postgres` | Application database, auth/session state, connections, repositories, workflow state |
-| `graph database` | Claims and relationships used by the knowledge graph and agent context |
-| `otel-collector` | Optional collector for traces, logs, and metrics fan-out |
-
-## Where to go next
+## Choose a deployment path
 
 <Cards>
-  <Card title="Quickstart" href="/docs/self-hosting/quickstart" description="Start the reference stack and connect an MCP client." />
-  <Card title="Deployment" href="/docs/self-hosting/deployment" description="Choose Docker, Terraform, or AWS deployment paths." />
-  <Card title="Architecture" href="/docs/self-hosting/architecture" description="Service topology, request flow, and stateful components." />
-  <Card title="AWS" href="/docs/self-hosting/deployment/aws" description="Deploy ctx| on AWS with the CtxPipe construct." />
-  <Card title="Configuration" href="/docs/self-hosting/configuration" description="Compose, required environment variables, and connector secrets." />
-  <Card title="Linear" href="/docs/self-hosting/linear" description="Configure Linear OAuth, webhooks, and connector verification." />
-  <Card title="Production readiness" href="/docs/self-hosting/production-readiness" description="TLS, domains, callbacks, persistence, and security checks." />
-  <Card title="Operations" href="/docs/self-hosting/operations" description="Migrations, logs, health checks, backups, and recovery." />
-  <Card title="MCP" href="/docs/self-hosting/mcp" description="Endpoint diagnostics, OAuth discovery, and MCPJam." />
-  <Card title="Upgrades" href="/docs/self-hosting/upgrades" description="Plan, migrate, validate, and roll back safely." />
+  <Card title="Docker Compose" href="/docs/self-hosting/deployment/docker" description="Run the reference stack for evaluation or a small internal deployment." />
+  <Card title="AWS CDK" href="/docs/self-hosting/deployment/aws" description="Deploy the CtxPipe construct inside your AWS account." />
+  <Card title="Terraform" href="/docs/self-hosting/deployment/terraform" description="Provision the repository's Railway and Neon deployment as code." />
+</Cards>
+
+The deployment target changes, but every path needs one public backend origin,
+persistent data stores, worker capacity, codesearch storage, and model provider
+credentials.
+
+## What you run
+
+- **Backend and UI** — the backend provides auth, REST, MCP, webhooks, and the
+  public origin, then proxies the product UI.
+- **Worker** — runs durable ingestion, connector, capture, and provisioning
+  workflows.
+- **Codesearch** — clones repositories and maintains Zoekt and SCIP indexes on
+  persistent storage.
+- **Postgres and a graph database** — store application state, workflow data,
+  extracted claims, and relationships.
+- **OpenTelemetry collector** — optional fan-out for logs, traces, and metrics.
+
+See [Architecture](/docs/self-hosting/architecture) for the complete request
+flow, ports, public routes, and stateful data.
+
+## What you own
+
+- A stable public HTTPS origin for the browser, API, auth, MCP, and provider
+  callbacks.
+- Postgres, graph database, and codesearch persistence, including backups and
+  recovery procedures.
+- Auth, encryption, model provider, and connector secrets.
+- Deployment-owned provider applications for the connectors you enable.
+- Monitoring, migration execution, upgrades, and rollback procedures.
+
+Product workflows remain the same after the deployment is healthy. Use the
+primary guides to [connect sources](/docs/connections) and
+[install MCP](/docs/mcp/mcp-docs).
+
+## Start here
+
+<Cards>
+  <Card title="Quickstart" href="/docs/self-hosting/quickstart" description="Deploy ctx|, connect GitHub, and verify ctx_advisor." />
+  <Card title="Configuration" href="/docs/self-hosting/configuration" description="Set required URLs, secrets, providers, and service configuration." />
+  <Card title="Production readiness" href="/docs/self-hosting/production-readiness" description="Check TLS, callbacks, persistence, security, and recovery." />
+  <Card title="Operations" href="/docs/self-hosting/operations" description="Run migrations, monitor services, back up state, and recover failures." />
+  <Card title="Upgrades" href="/docs/self-hosting/upgrades" description="Plan, migrate, validate, and roll back a release." />
+  <Card title="GitHub connector" href="/docs/self-hosting/github" description="Create the deployment-owned App used for repository access." />
 </Cards>

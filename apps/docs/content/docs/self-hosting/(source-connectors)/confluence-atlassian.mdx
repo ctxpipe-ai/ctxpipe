@@ -14,8 +14,7 @@ are two modes:
 - **Self-hosted provisioning**: let the worker create, deploy, and install a
   Forge app using a scoped Forge API token and Confluence site hostname.
 
-Both modes keep connector settings on the deployment. Secrets are stored on the
-Forge connection row and are not returned by metadata APIs.
+Both modes keep connector settings and encrypted credentials on your deployment.
 
 ## What you need
 
@@ -37,23 +36,20 @@ Use this callback URL:
 
    `{AUTH_BASE_URL}/api/v1/integrations/atlassian/callback`
 
-The app stores per-connection credentials in `connections.config` as
-`atlassianOAuthClientId` and `atlassianOAuthClientSecret`. The secret is never
-returned on `GET` responses.
+ctx| encrypts per-connection credentials and does not return the client secret
+from connector metadata.
 
 ## 2. Install or provision Forge
 
-The wizard checks `GET /:orgSlug/api/v1/capabilities?connectionId=...` for a
-Forge install URL. Resolution order is:
+The wizard resolves the Forge install path in this order:
 
-1. `confluenceForgeInstallUrl` on the Forge connection config.
+1. An install URL saved for this Confluence connection.
 2. Deployment-wide **`CONFLUENCE_FORGE_INSTALL_URL`**.
 3. No install URL, which shows the self-hosted provisioning form.
 
 Provisioning runs `forge register`, `forge deploy`, and `forge install` through
-OpenWorkflow on the worker. The generated Forge manifest embeds your public API
-origin in the Forge Remote `baseUrl`; there is no separate `REMOTE_BASE_URL`
-for this automated path.
+a durable worker job. The generated Forge app uses your public API origin for
+its remote callback.
 
 ## 3. Finish the connector
 
@@ -62,7 +58,7 @@ After Atlassian is linked and Forge is installed:
 1. Link or confirm the GitHub connector.
 2. Choose the GitHub repository used as the Confluence sync target.
 3. Select the Confluence spaces and pages to ingest.
-4. Approve the generated GitHub configuration PR when the wizard asks for it.
+4. Review and merge the generated `confluence/config.yaml` pull request.
 
 Confluence content is then synced into the selected repository and moves through
 the same indexing and graph ingestion path as other source material.
@@ -83,9 +79,14 @@ the same indexing and graph ingestion path as other source material.
 
 - **`AUTH_BASE_URL` / `CTXPIPE_PUBLIC_APP_URL`** - public origin for API and callback URL registration.
 - **`ATLASSIAN_CLIENT_ID` / `ATLASSIAN_CLIENT_SECRET`** (optional) - global Atlassian OAuth app for account linking. If unset, use per-connection 3LO in the wizard.
-- **`CONFLUENCE_FORGE_INSTALL_URL`** (optional) - deployment-wide fallback for the **Install** step when the forge connection’s `connections.config` has no `confluenceForgeInstallUrl` (same for backend and UI if you set both for consistency).
+- **`CONFLUENCE_FORGE_INSTALL_URL`** (optional) - deployment-wide fallback for
+  the **Install** step when a connection does not have its own install URL.
 
-## Further reading
+## Related pages
 
-- In-repo ADR: `.ai/memory/decisions/ADR-019-confluence-forge-self-host-and-per-org-atlassian-3lo.md`
-- Forge bundle: `apps/forge-ctxpipe-agent/README.md` (manifest and Remote details; product UI is the primary path)
+<Cards>
+  <Card title="Confluence user guide" href="/docs/connections/source-connectors/confluence" description="Complete the product wizard, approve scope, and merge the configuration pull request." />
+  <Card title="GitHub" href="/docs/self-hosting/github" description="Configure the App that receives Confluence configuration and content." />
+  <Card title="Production readiness" href="/docs/self-hosting/production-readiness" description="Verify public callbacks, secrets, persistence, and recovery." />
+  <Card title="Operations" href="/docs/self-hosting/operations" description="Monitor connector jobs, logs, and service health." />
+</Cards>

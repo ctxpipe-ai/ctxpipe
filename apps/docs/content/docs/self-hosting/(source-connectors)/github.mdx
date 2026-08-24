@@ -1,0 +1,145 @@
+---
+title: GitHub
+description: Create and connect the deployment-owned GitHub App used for repository access and Git-backed connector writes.
+---
+
+GitHub is foundational to a self-hosted ctx| deployment. The GitHub App reads
+selected source repositories and writes configuration or generated context for
+connectors such as Linear, Notion, Confluence, and Slack.
+
+Your deployment must use a GitHub App that **you create and own**. Self-hosted
+repository traffic and credentials do not pass through the hosted ctx| GitHub
+App.
+
+## Before you start
+
+- Configure a stable public HTTPS `AUTH_BASE_URL`.
+- Sign in as an owner or admin of the ctx| organization.
+- Decide whether a GitHub user account or GitHub organization should own the
+  App.
+- Have permission to install the App on the GitHub accounts that own the target
+  repositories.
+
+<Callout type="warn" title="GitHub sign-in is separate">
+  A GitHub OAuth App used for product sign-in is not the repository GitHub App.
+  The repository App has its own ID, private key, webhook secret, permissions,
+  and installation.
+</Callout>
+
+## 1. Start the in-product setup
+
+Open **Connectors → Add connection → GitHub**. The self-hosted wizard reserves a
+connection and displays exact callback, setup, and webhook URLs for that
+connection.
+
+Keep the wizard open while registering the App. The webhook URL contains a
+connection identifier and should be copied from the wizard rather than guessed.
+
+## 2. Register the GitHub App
+
+Create a [new personal GitHub App](https://github.com/settings/apps/new), or
+open a GitHub organization's **Settings → Developer settings → GitHub Apps →
+New GitHub App**.
+
+Use the values shown in the ctx| wizard:
+
+| GitHub field | Value |
+| --- | --- |
+| **GitHub App name** | A unique name your operators recognize |
+| **Homepage URL** | Your `AUTH_BASE_URL` |
+| **Callback URL** | `{AUTH_BASE_URL}/.auth/api/v1/auth/callback/github` |
+| **Setup URL** | `{AUTH_BASE_URL}/.github/setup` |
+| **Redirect on update** | Enabled |
+| **Webhook active** | Enabled |
+| **Webhook URL** | Copy the connection-specific URL from the wizard |
+| **Webhook secret** | Copy the generated secret from the wizard |
+
+The connection-specific webhook follows this shape:
+
+```text
+{AUTH_BASE_URL}/api/v1/webhook/github/<connectionId>
+```
+
+## 3. Grant the required permissions
+
+Set repository permissions:
+
+- **Contents:** Read and write
+- **Pull requests:** Read and write
+
+Set account permissions:
+
+- **Email addresses:** Read-only
+
+Subscribe to these events:
+
+- **Pull request**
+- **Push**
+- **Repository**
+
+Write access is required because ctx| can open configuration pull requests and
+commit connector-generated Markdown into a context repository. Limit the App
+installation to the repositories ctx| should read or write.
+
+## 4. Generate and save credentials
+
+After creating the App:
+
+1. Copy its numeric **App ID**.
+2. Copy the App slug from its public URL.
+3. Generate and download a private key (`.pem`).
+4. Return to the ctx| wizard.
+5. Paste the App ID and slug, then upload or paste the complete PEM.
+6. Save the connection.
+
+ctx| encrypts the private key and webhook secret for this GitHub connection.
+Keep `AUTH_SECRET` stable and use
+`CONNECTION_SECRETS_ENCRYPTION_KEY` when your secret-management policy requires
+an explicit connector encryption key.
+
+## 5. Install and verify the App
+
+Install the App on the GitHub user or organization that owns the source
+repositories. Choose **Only select repositories** unless the deployment
+deliberately needs broad access.
+
+Then verify the full path:
+
+1. The GitHub connector reaches **Connected**.
+2. **Repositories → Select repositories** shows the expected installation.
+3. A selected repository can reach **Indexed**.
+4. Changing repository selection returns through the ctx| setup URL.
+5. A test push reaches the connection-specific webhook.
+6. A context repository can accept a configuration pull request.
+
+## Troubleshooting
+
+### Installation returns to the wrong host
+
+Check the App's Callback URL and Setup URL against the current
+`AUTH_BASE_URL`. Keep browser, auth, callbacks, API, and MCP on the same public
+backend origin.
+
+### Repositories do not appear
+
+Confirm that the App is installed on the correct GitHub account and has access
+to the repository. Changing the installation in GitHub does not itself tell
+ctx| to index a repository; return to **Select repositories** afterwards.
+
+### Webhooks fail signature verification
+
+The secret in the GitHub App settings must match the secret saved for this ctx|
+connection. Do not reuse a connection-specific URL with credentials from
+another connection.
+
+### Connector writes fail
+
+Confirm **Contents** and **Pull requests** are both read/write and that the
+installation includes the destination context repository.
+
+<Cards>
+  <Card title="Docker deployment" href="/docs/self-hosting/deployment/docker" description="Run the reference stack and provide deployment secrets." />
+  <Card title="Production readiness" href="/docs/self-hosting/production-readiness" description="Verify origins, callbacks, persistence, and secret handling." />
+  <Card title="GitHub user guide" href="/docs/connections/source-connectors/github" description="Select and manage repositories after operators configure the App." />
+  <Card title="Context repository" href="/docs/connections/context-repository" description="Create the Git target used by source connectors." />
+</Cards>

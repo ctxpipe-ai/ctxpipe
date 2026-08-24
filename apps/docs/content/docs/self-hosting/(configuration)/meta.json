@@ -1,0 +1,10 @@
+{
+  "title": "Configuration",
+  "pages": [
+    "configuration",
+    "authentication",
+    "models",
+    "graph-databases",
+    "mcp"
+  ]
+}

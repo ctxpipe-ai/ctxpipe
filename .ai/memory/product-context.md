@@ -1,61 +1,114 @@
 # Product Context
 
-## Project Overview
+## Project overview
 
-ctxpipe is a monorepo for a code-context platform by Appear. It provides code search, indexing (powered by Zoekt), a backend API with MCP integration, and a frontend UI — all aimed at enabling rich code understanding and navigation across repositories.
+ctx| is an organization-scoped context platform for engineering teams and AI
+agents. It ingests selected Git repositories and Git-backed connector content,
+builds search indexes and graph claims, and exposes that context through Chat,
+the knowledge graph UI, and the `ctx_advisor` MCP tool.
 
-The public repository is open-source under Elastic License 2.0 (ELv2) by default; keep package-specific exceptions explicit in package metadata and license files.
+The monorepo uses pnpm workspaces, Turbo, and Biome. The root project is licensed
+under Elastic License 2.0 by default; package-specific exceptions such as the
+CLI and Confluence Forge app declare their own licenses.
 
-Monorepo is managed with **pnpm workspaces** and **Turbo**. Apps live in `apps/`, shared packages in `packages/`.
+## Applications and packages
 
-## Architecture
+- **`apps/backend`** — Hono on Bun. Owns the REST API, in-process MCP endpoint,
+  Better Auth, Drizzle schema and migrations, LangGraph graphs, retrieval, and
+  OpenWorkflow enqueue paths.
+- **Backend worker** — the `apps/backend` OpenWorkflow worker runs durable
+  repository indexing, ingestion, deletion, GitHub synchronization, and
+  connector workflows.
+- **`apps/codesearch`** — Hono on Bun with Zoekt, SCIP, and ast-grep. Provides
+  code search, structural and symbol queries, file access, repository checkout,
+  and phased indexing APIs. It authenticates backend requests with signed JWTs.
+- **`apps/ui`** — TanStack Start, React, Vite, Tailwind CSS v4, React Aria, and
+  Geist. Product surfaces include Chat, the knowledge graph, repositories,
+  connectors, authentication, and organization settings.
+- **`apps/docs`** — Fumadocs on Next.js 15. Documentation routes use the
+  `/docs` base path; local docs run separately on port 3003.
+- **`apps/otel-collector`** — OpenTelemetry fan-out for deployed observability.
+- **`apps/forge-ctxpipe-agent`** — Atlassian Forge app for Confluence.
+- **`packages/cli`** — the `ctxpipe` CLI, including `npx ctxpipe init` and local
+  Markdown memory setup.
+- **`packages/aws-cdk`** — AWS self-hosting construct, with a runnable example
+  under `examples/aws-cdk-self-host`.
 
-- **Monorepo**: pnpm workspaces + Turborepo, Biome for linting/formatting.
-- **apps/backend**: Hono on Bun. REST (OpenAPI 3.1 via @hono/zod-openapi) + MCP (@hono/mcp). Drizzle ORM (beta/v1) on PostgreSQL. Better Auth. Neo4j for graph. LangGraph JS for orchestration. See `.ai/memory/decisions/ADR-002-backend-service-stack-and-runtime.md`, `.ai/memory/decisions/ADR-005-langgraph-integration.md`.
-- **apps/codesearch**: Hono on Bun. Orchestrates Zoekt (search proxy, on-demand indexing, file serving). Read-only Postgres `repositories`; structure mirrors backend. OpenAPI + Zod for all routes. See `.ai/memory/decisions/ADR-008-codesearch-zoekt-orchestration.md`.
-- **apps/ui**: TanStack Start (React + Vite). Tailwind CSS v4, React Aria (via shadcn registry), Geist typography. Storybook + Vitest.
-- **Local dev**: Docker Compose — Postgres, Neo4j, backend :3000, UI :3002, codesearch :3001, Zoekt internal.
+## Data and tenancy
 
-## User-defined namespaces
+- PostgreSQL 17 with pgvector stores application, auth, repository, connection,
+  conversation, retrieval, and workflow data. All migrations live in
+  `apps/backend`.
+- FalkorDB is the default graph database. The graph platform supports configured
+  OpenCypher providers through `GRAPH_DB_PROVIDER` and `GRAPH_DB_URI`.
+- Organization DB context uses AsyncLocalStorage with
+  `withSystemDbContext(...)` and `withOrgDbContext(orgId, ...)`.
+- Repository IDs use the `repo_` prefix; connections use `con_`.
+- Codesearch data paths are configurable and include the repository cache plus
+  cold and derived hot Zoekt indexes.
 
-(Leave blank – user populates)
+## Ingestion and retrieval
 
-## Components
+- Repository and connector events enqueue durable OpenWorkflow jobs.
+- `repository-ingestion` coordinates repository indexing and graph extraction.
+  Its indexing child calls codesearch phases for checkout, Zoekt, language
+  detection, SCIP, and SCIP merge.
+- LangGraph remains responsible for code extraction and the conversation graph;
+  it is not the durable workflow engine.
+- The backend owns repository readiness and indexing status. Codesearch records
+  checkout and indexing-step metadata.
+- Retrieval combines code search, repository files, extracted objects and
+  claims, graph traversal, and repository instructions.
 
-- **backend** – `apps/backend`: REST + MCP + LangGraph server; entrypoint `src/server.ts` (Bun). LangGraph graphs in `src/graphs/`; model factory in `src/retrieval/services/modelProvider.ts`. Owns Drizzle schema and migrations (including `repositories`).
-- **codesearch** – `apps/codesearch`: Zoekt orchestration (POST /search proxy, POST /:repoId/index clone+index, GET/POST file routes); entrypoint `src/server.ts` (Bun). Mirrors backend `repositories` schema and performs lifecycle update for `index_ready`; repo cache and index paths fixed in code.
-- **backend tools** – `apps/backend/src/tools/`: LangChain tools (`list_repositories`, `search`, `list_files`, `get_file`) using `repositoryId` (`repo_` prefix) and TOON-encoded payloads.
-- **backend DB context** – `apps/backend/src/db/client.ts`: `initDb(connectionString)` + `closeDb()`; AsyncLocalStorage `withSystemDbContext(...)` and `withOrgDbContext(orgId, ...)` for tenant-scoped `SET LOCAL app.organization_id`.
-- **backend repository model** – `apps/backend/src/models/repositories.ts`: Drizzle query API, org scoping.
-- **backend langsmith embedded API** – `apps/backend/src/langsmith/server.ts` + `src/routes/langsmith.ts`: in-process LangGraph API at `/langsmith` behind `ENABLE_LANGSMITH`; filesystem-backed langgraph-api storage; graphs from `src/graphs/index.ts`.
-- **backend auth core** – `apps/backend/src/auth/config.ts`: Better Auth + Drizzle adapter (`usePlural`), experimental joins, organization + 2FA + passkey + bearer + device auth + OAuth (GitHub/Google/Microsoft when env set).
-- **backend upstream JWT signer** – `apps/backend/src/auth/upstreamJwt.ts`: HS256 JWT for backend→upstream; short-lived bearer with subject, org, principal type, issuer, audience.
-- **backend auth context route** – `apps/backend/src/routes/v1/auth.ts` (`GET /:orgSlug/api/v1/auth/me`): user/session context, inferred last login method.
-- **codesearch JWT auth boundary** – `apps/codesearch/src/auth/jwt.ts` + `app.ts`: verify backend-issued bearer JWT, inject org context.
-- **ui better-auth-ui** – `apps/ui/src/providers.tsx` + auth/account/organization routes: `AuthUIProviderTanstack`, `AuthQueryProvider`, `@daveyplate/better-auth-ui` AuthView/AccountView/OrganizationView.
-- **ui app shell** – `apps/ui/src/components/AppShell.tsx` + SideNav: two-column flex, SideNav expanded/collapsed state, route-aware nav, authenticated settings routes.
-- **backend conversations API + transport** – `apps/backend/src/routes/v1/conversations.ts` + domain/conversations (transport, renameStream, models): org-scoped `/:orgSlug/api/v1/conversations/*`, metadata in Postgres, LangGraph-thread history (`checkpoint_ns: conversations`), AI SDK data-stream SSE, composable stream enhancers.
-- **ui chat workspace** – `apps/ui/src/features/chat/ChatWorkspace.tsx` + routes `$orgSlug.chat.tsx` / `$orgSlug.chat.$conversationId.tsx`: AppShell chat, AI Elements conversation/message, useChat, conversation sidebar, source filter default `ui`, first-message URL promotion to `/$orgSlug/chat/$conversationId`.
+## MCP and product interfaces
 
-## Key Stakeholders
+- REST routes are organization-scoped under `/:orgSlug/api/v1`.
+- The product MCP is an OAuth-protected Streamable HTTP endpoint at `/mcp`.
+  `ctx_advisor` is the product tool and runs the same conversation graph used by
+  Chat.
+- Repository explorer tools such as search, file, symbol, structural, and graph
+  operations are internal agent tools; they are not separate MCP tools.
+- The `ctxpipe` CLI writes MCP configuration for supported clients. Repository
+  and user installation support varies by client.
 
-- Appear engineering team (maintainers)
-- AI agents (Cursor, Claude) that consume and extend the codebase
+## Source connectors
+
+- Connections use the unified `connections` model with GitHub, Confluence
+  (`forge`), Linear, Notion, and Slack connection types.
+- GitHub repositories are selected and ingested directly.
+- Linear, Notion, and Confluence mirror approved scope into a bound GitHub
+  repository.
+- Slack captures an existing thread after an in-thread bot mention and commits
+  the snapshot to the bound repository.
+- Connector content follows the repository ingestion path after it is written
+  to Git.
+
+## Local development
+
+- `pnpm dev:infra` starts the Compose `infra` profile: PostgreSQL, FalkorDB, and
+  the OpenTelemetry collector.
+- `pnpm dev` runs backend and UI on the host behind portless and starts
+  codesearch in Docker. Browse at `https://app.ctxpipe.localhost`.
+- Linked worktrees share PostgreSQL but use one database per worktree.
+- `pnpm dev:docs` runs the documentation site at `http://localhost:3003`.
+- `pnpm start` runs the Compose `deploy` profile: migration, backend, worker,
+  UI, and codesearch services.
 
 ## Constraints
 
-- Bun container runtime (not Node) for backend and codesearch
-- Drizzle beta dist-tag (v1 API)
-- All DB migrations in apps/backend only
-- Repository IDs: TEXT, `repo_` prefix + base32-encoded UUID
-- Fixed paths for Zoekt index and repo cache (not env-configurable)
-- Zod schemas collocated, not centralized
+- Backend, worker, and codesearch use Bun.
+- Drizzle uses the beta/v1 API; migrations are generated and owned only by
+  `apps/backend`.
+- Zod schemas stay collocated with the modules they describe.
+- Backend and codesearch use evlog rather than `console.*`.
+- Environment variables are reserved for deployment, operator, tenant, or
+  secret values.
 
-## Non-Goals
+## Non-goals
 
-- Cloudflare Workers deployment (removed per ADR-007)
-- Automatic repo discovery/sync (indexing is on-demand only)
-- Central schema registry
+- Cloudflare Workers deployment, removed by ADR-007.
+- A centralized Zod schema registry.
+- Automatic ingestion of unselected developer files or entire SaaS workspaces.
 
 ---
-*Last updated: 2026-03-06 by Cursor*
+*Last updated: 2026-08-24 by Cursor*

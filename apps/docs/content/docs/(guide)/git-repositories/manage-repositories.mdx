@@ -14,7 +14,7 @@ Each row shows:
 - Repository name.
 - Clone URL or GitHub web URL.
 - Indexing status.
-- Row actions such as **View on GitHub** and **Unindex**.
+- Row actions such as **View on GitHub**, **Retry indexing**, and **Unindex**.
 
 Indexed repositories are ready for search-backed Chat and MCP workflows.
 Repositories still indexing may appear in the list before all search and graph
@@ -42,16 +42,15 @@ app can see.
 After changing the GitHub installation, return to **Select repositories** in
 ctx| to decide what to ingest.
 
-## API View
+## Recover a failed run
 
-The app reads repository state from:
+Choose **Retry indexing** from the repository row menu after fixing an access,
+capacity, or transient service problem. This starts a new ingestion attempt and
+keeps the existing repository record.
 
-```http
-GET /:orgSlug/api/v1/repositories
-```
-
-The response includes `items`, each with `indexReady`, `lastIngestedHash`,
-`gitUrl`, and timestamps. The UI polls this endpoint while any row is not ready.
+Use **Unindex** for removal, not routine recovery. A context repository may hold
+generated Linear, Notion, Confluence, or Slack files; unindexing it stops those
+files contributing to ctx| but leaves Git and the upstream connection intact.
 
 ## Related
 

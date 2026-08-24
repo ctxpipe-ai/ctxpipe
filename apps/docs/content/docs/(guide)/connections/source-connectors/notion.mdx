@@ -14,7 +14,7 @@ content.
 <Callout title="Fully managed app flow">
   The hosted ctx| service supplies the Notion OAuth application and webhook
   configuration. Self-hosted operators must register their own public
-  integration before authorisation can succeed. See
+  integration before authorization can succeed. See
   [Self-host Notion](/docs/self-hosting/notion).
 </Callout>
 
@@ -58,10 +58,9 @@ Notion scope exists only in `notion/config.yaml`:
 - **Live scope** is the YAML on the selected target branch after that pull
   request is merged.
 
-ctx| does not keep a second draft or live scope in PostgreSQL. The Notion
-connection's `connections.config` stores only the repository binding and setup
-state, including the repository, target branch, enabled state, and pending
-configuration pull request metadata.
+ctx| does not keep a second draft or live scope outside Git. The connection
+tracks where content belongs and whether setup is complete; the merged YAML
+remains the source of truth for what Notion content is approved.
 
 ## Setup flow
 
@@ -139,15 +138,13 @@ review the replacement configuration pull request.
 
 Notion sends signed webhook events to ctx| when supported entities change.
 While the connector is live, ctx| validates the event against the Git scope,
-directly enqueues an OpenWorkflow entity-sync run, updates the affected files,
-and starts another repository ingestion. Incremental updates re-mirror the
-affected top-level resource (a page subtree or a database), not a single block.
-Events that arrive before the connector is live (including during initial sync)
-are skipped — the same trade-off as Linear and Confluence — rather than buffered
-in a Notion-specific dirty-entity table. Missed webhook events are not
-automatically backfilled: repair webhook delivery, then update the affected
-pages or databases in Notion again so fresh events are delivered, or use content
-retry / remirror after a failed initial sync.
+updates the affected files, and starts another repository ingestion.
+Incremental updates re-mirror the affected top-level resource (a page subtree or
+a database), not a single block. Events that arrive before the connector is
+live, including during initial sync, are skipped rather than queued for later.
+Missed webhook events are not automatically backfilled: repair webhook delivery,
+then update the affected pages or databases in Notion again so fresh events are
+delivered, or use **Retry content sync** after a failed initial mirror.
 
 ## Verify the complete flow
 

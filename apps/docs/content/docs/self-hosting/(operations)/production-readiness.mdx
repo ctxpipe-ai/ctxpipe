@@ -47,6 +47,8 @@ Register callback and webhook URLs against your public origin.
 | GitHub App webhook | `{AUTH_BASE_URL}/api/v1/webhook/github/<connectionId>` |
 | Slack OAuth | `{AUTH_BASE_URL}/api/v1/connectors/slack/oauth/callback` |
 | Slack Events API | `{AUTH_BASE_URL}/api/v1/webhook/slack` |
+| Notion OAuth | `{AUTH_BASE_URL}/api/v1/connectors/notion/oauth/callback` |
+| Notion webhook | `{AUTH_BASE_URL}/api/v1/webhook/notion?provisioningToken=...` |
 | MCP | `{AUTH_BASE_URL}/mcp?orgSlug=<org-slug>` |
 | App auth | `/.auth/*` routes under `AUTH_BASE_URL` |
 
@@ -120,6 +122,7 @@ Before inviting users:
 <Cards>
   <Card title="Configuration" href="/docs/self-hosting/configuration" description="Environment variables and connector setup." />
   <Card title="Operations" href="/docs/self-hosting/operations" description="Logs, health, backups, and recovery." />
+  <Card title="GitHub" href="/docs/self-hosting/github" description="Deployment-owned App registration, permissions, and webhooks." />
   <Card title="Confluence & Atlassian" href="/docs/self-hosting/confluence-atlassian" description="Atlassian callbacks, Forge, and sync." />
   <Card title="Slack" href="/docs/self-hosting/slack" description="Slack app scopes, app_mention Events, deployment secrets, and troubleshooting." />
   <Card title="Linear" href="/docs/self-hosting/linear" description="Linear OAuth, signed webhooks, and end-to-end verification." />

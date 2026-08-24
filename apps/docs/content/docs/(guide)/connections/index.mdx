@@ -4,9 +4,9 @@ description: How source connections bring code and docs into ctx| through Git-ba
 ---
 
 Connections bring source material into ctx| so agents can use it as
-organization-scoped context. The important thing to understand is that ctx| is
-Git-first: GitHub gives ctx| access to code, and Git repositories also provide a
-transparent target for content synced from other systems.
+organization-scoped context. ctx| is Git-first: GitHub gives ctx| access to
+code, while context repositories provide a transparent home for selected
+content from other systems.
 
 That means your team keeps control. You choose what ctx| can read, where synced
 content lands, and what becomes part of the knowledge system agents can query.
@@ -25,23 +25,19 @@ GitHub is critical because it supports two jobs:
   Confluence, Slack, Linear, and Notion, when external content needs to become
   repo-backed context.
 
-## Other connections flow through Git
+## Three source behaviors
 
-For docs and tools outside GitHub, ctx| keeps synced content visible to your
-team. The connection scopes the source first, then syncs selected content into a
-GitHub repository you control.
+Do not treat every connection as the same kind of synchronization:
 
-For example, the Confluence connector lets you choose spaces and pages, the
-Linear connector lets you choose teams, projects, documents, and initiatives,
-and the Notion connector lets you choose pages and databases. Each connector
-copies its selected content into a GitHub repository, then updates that
-Git-backed source when upstream content changes.
-For Linear and Notion, the configuration pull request branch holds the draft
-`linear/config.yaml` or `notion/config.yaml`, the target branch holds the live
-YAML after merge, and the connection record's `config` stores the repository
-binding rather than a second copy of scope.
+- **Git sources** — GitHub repositories are indexed directly.
+- **Scoped mirrors** — Linear, Notion, and Confluence write approved source
+  scope to Git, then keep that selected content current.
+- **Intent capture** — Slack writes one existing thread only when a user
+  mentions the bot inside it. There is no channel mirror or history backfill.
 
-This gives you:
+<ConnectorKindsDiagram />
+
+The Git-backed paths give your team:
 
 - A visible Git history for synced context.
 - A clear repo owner and review surface.
@@ -56,14 +52,15 @@ and ingested.
 
 For setup details, see [ctx| MCP](/docs/mcp/mcp-docs).
 
-<Callout title="Implementation note">
-  Connections are tracked per organization, and an organization can have more
-  than one connection. The Connectors page is where you review and manage those
-  connection records.
+<Callout title="One organization can connect multiple sources">
+  Use the **Connectors** page to review each source, its status, its approved
+  scope, and the repository that receives generated context.
 </Callout>
 
 <Cards>
+  <Card title="Source connector guide" href="/docs/connections/source-connectors" description="Compare Git sources, scoped mirrors, and intent capture." />
+  <Card title="Context repository" href="/docs/connections/context-repository" description="Create the Git-backed home for connector-generated context." />
+  <Card title="GitHub connector" href="/docs/connections/source-connectors/github" description="Connect the foundational code and Git source." />
   <Card title="Connected sources" href="/docs/connections/connected-sources" description="What ctx| can connect today and how source content is scoped." />
   <Card title="Ingestion" href="/docs/connections/ingestion" description="What happens after ctx| receives repo-backed source material." />
-  <Card title="Source connectors" href="/docs/connections/source-connectors/linear" description="Connector-specific setup guides for GitHub-backed external sources." />
 </Cards>

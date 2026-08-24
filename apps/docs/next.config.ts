@@ -24,7 +24,17 @@ const config = withMDX({
       },
       {
         source: "/docs/mcp/troubleshooting",
-        destination: "/docs/self-hosting/mcp",
+        destination: "/docs/mcp/mcp-docs#troubleshooting",
+        permanent: false,
+      },
+      {
+        source: "/docs/knowledge-graph/monitoring",
+        destination: "/docs/knowledge-graph/exploring#reading-graph-status",
+        permanent: false,
+      },
+      {
+        source: "/docs/getting-started/who-is-it-for",
+        destination: "/docs/getting-started/common-workflows",
         permanent: false,
       },
     ]

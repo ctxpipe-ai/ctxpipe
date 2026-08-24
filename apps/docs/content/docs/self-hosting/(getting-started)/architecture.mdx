@@ -17,8 +17,8 @@ backend origin.
    Postgres.
 5. Repository ingestion calls `codesearch`, which clones repositories and
    maintains Zoekt indexes.
-6. The worker runs OpenWorkflow jobs for ingestion, connector setup,
-   Confluence/Slack sync, and Forge provisioning.
+6. The worker runs durable jobs for ingestion, connector setup, scoped source
+   mirrors, Slack thread capture, and Forge provisioning.
 7. Extracted claims and relationships are projected into the configured graph
    database.
 8. Chat and MCP tools retrieve from Postgres, codesearch, and the graph database
