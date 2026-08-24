@@ -74,7 +74,7 @@ export default {
     },
     message(ws, message) {
       if (isWorkspaceChatSocketData(ws.data)) {
-        void conversationWebSocketHandlers.message(
+        conversationWebSocketHandlers.message(
           ws as unknown as Parameters<
             typeof conversationWebSocketHandlers.message
           >[0],

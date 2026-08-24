@@ -257,10 +257,7 @@ describe("conversations API", () => {
     expect(body.conversation.workspaceId).toBe("ws_abc")
   })
 
-  it("discards an unstarted compose row when the user turn cannot persist", async () => {
-    ensureConversationMock.mockResolvedValue(conversationRow)
-    appendConversationTurnMock.mockRejectedValue(new Error("db down"))
-
+  it("returns the stream before persisting the user turn", async () => {
     const res = await app().request("/conversations/conv_1", {
       method: "POST",
       headers: { "content-type": "application/json" },
@@ -271,10 +268,19 @@ describe("conversations API", () => {
       }),
     })
 
-    expect(res.status).toBe(500)
-    expect(touchConversationLastMessageMock).not.toHaveBeenCalled()
-    expect(workspaceChatStreamResponseMock).not.toHaveBeenCalled()
-    expect(discardUnstartedConversationMock).toHaveBeenCalledWith("conv_1")
+    expect(res.status).toBe(200)
+    expect(appendConversationTurnMock).not.toHaveBeenCalled()
+    expect(ensureConversationMock).not.toHaveBeenCalled()
+    expect(getWorkspaceByIdMock).not.toHaveBeenCalled()
+    expect(workspaceChatStreamResponseMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        userTurnAccepted: false,
+        prompt: "hello",
+        onUserPersist: expect.any(Function),
+        resolveRuntime: expect.any(Function),
+      }),
+      expect.any(Request),
+    )
   })
 
   it("refuses product chat without a Workspace id", async () => {
@@ -295,9 +301,7 @@ describe("conversations API", () => {
     expect(workspaceChatStreamResponseMock).not.toHaveBeenCalled()
   })
 
-  it("marks the conversation listable when the user turn persists", async () => {
-    ensureConversationMock.mockResolvedValue(conversationRow)
-
+  it("marks the conversation listable when the user turn persist hook runs", async () => {
     const res = await app().request("/conversations/conv_1", {
       method: "POST",
       headers: { "content-type": "application/json" },
@@ -309,23 +313,16 @@ describe("conversations API", () => {
     })
 
     expect(res.status).toBe(200)
-    expect(appendConversationTurnMock).toHaveBeenCalledWith(
-      expect.objectContaining({
-        conversationId: "conv_1",
-        role: "user",
-        content: "hello",
-      }),
-    )
-    expect(touchConversationLastMessageMock).toHaveBeenCalledWith("conv_1")
     expect(workspaceChatStreamResponseMock).toHaveBeenCalledWith(
       expect.objectContaining({
-        userTurnAccepted: true,
+        userTurnAccepted: false,
         acceptedTurn: expect.objectContaining({
           conversationId: "conv_1",
           release: expect.any(Function),
         }),
         prompt: "hello",
         onError: expect.any(Function),
+        onUserPersist: expect.any(Function),
       }),
       expect.any(Request),
     )
@@ -372,7 +369,7 @@ describe("conversations API", () => {
         messages,
         threadId: "conv_1",
         runId: "run_1",
-        userTurnAccepted: true,
+        userTurnAccepted: false,
       }),
       expect.any(Request),
     )

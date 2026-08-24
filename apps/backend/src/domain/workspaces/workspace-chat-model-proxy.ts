@@ -4,9 +4,13 @@ import {
   type IncomingMessage,
   type ServerResponse,
 } from "node:http"
-import { log } from "evlog"
+import { log } from "../../observability/logger.js"
 import type { ModelParams } from "../../retrieval/services/modelParams.js"
 import { lowerOpenAiChatCompletionsParams } from "../../retrieval/services/providers/openAILikeModelProvider.js"
+import {
+  beginWorkspaceChatProxyGeneration,
+  recordWorkspaceChatProxyGeneration,
+} from "./workspace-chat-otel.js"
 
 export type WorkspaceChatModelProxy = {
   baseUrl: string
@@ -18,6 +22,7 @@ export async function startWorkspaceChatModelProxy(input: {
   upstreamBaseUrl: string
   upstreamApiKey: string
   modelBase: string
+  conversationId?: string
   modelParams?: ModelParams
   listenHost?: string
   advertisedHost?: string
@@ -86,6 +91,7 @@ async function handleProxyRequest(
     upstreamBaseUrl: string
     upstreamApiKey: string
     modelBase: string
+    conversationId?: string
     modelParams?: ModelParams
   },
   doFetch: typeof fetch,
@@ -131,7 +137,11 @@ async function handleProxyRequest(
   }
   const origin = input.upstreamBaseUrl.replace(/\/+$/, "").replace(/\/v1$/, "")
   const target = `${origin}/v1/chat/completions`
+  if (input.conversationId) {
+    beginWorkspaceChatProxyGeneration(input.conversationId)
+  }
   const startedAt = Date.now()
+  let ttfbMs: number | null = null
   let upstream: Response
   try {
     upstream = await doFetch(target, {
@@ -142,6 +152,7 @@ async function handleProxyRequest(
       },
       body: JSON.stringify(forwarded),
     })
+    ttfbMs = Date.now() - startedAt
   } catch {
     log.error({
       step: "workspace-chat-model-proxy",
@@ -153,30 +164,131 @@ async function handleProxyRequest(
     writeJson(res, 502, { error: "upstream unreachable" })
     return
   }
-  log.info({
-    step: "workspace-chat-model-proxy",
-    path: url.pathname,
-    status: upstream.status,
-    durationMs: Date.now() - startedAt,
-    model: typeof forwarded.model === "string" ? forwarded.model : undefined,
-  })
 
   const contentType = upstream.headers.get("content-type") ?? "application/json"
   res.writeHead(upstream.status, { "content-type": contentType })
   if (!upstream.body) {
+    recordProxyCompletion(input.conversationId, {
+      ttfbMs: ttfbMs ?? Date.now() - startedAt,
+      durationMs: Date.now() - startedAt,
+      finishReason: null,
+      tools: [],
+      status: upstream.status,
+      model: typeof forwarded.model === "string" ? forwarded.model : undefined,
+    })
     res.end()
     return
   }
+  const observer = createCompletionObserver()
   const reader = upstream.body.getReader()
   try {
     while (true) {
       const { done, value } = await reader.read()
       if (done) break
-      if (value) res.write(Buffer.from(value))
+      if (!value) continue
+      if (ttfbMs == null) ttfbMs = Date.now() - startedAt
+      observer.push(value)
+      res.write(Buffer.from(value))
     }
   } finally {
     reader.releaseLock()
     res.end()
+    recordProxyCompletion(input.conversationId, {
+      ttfbMs: ttfbMs ?? Date.now() - startedAt,
+      durationMs: Date.now() - startedAt,
+      finishReason: observer.finishReason,
+      tools: observer.tools,
+      status: upstream.status,
+      model: typeof forwarded.model === "string" ? forwarded.model : undefined,
+    })
+  }
+}
+
+function recordProxyCompletion(
+  conversationId: string | undefined,
+  input: {
+    ttfbMs: number
+    durationMs: number
+    finishReason: string | null
+    tools: string[]
+    status: number
+    model?: string
+  },
+): void {
+  log.info({
+    step: "workspace-chat-model-proxy",
+    path: "/v1/chat/completions",
+    status: input.status,
+    durationMs: input.durationMs,
+    ttfbMs: input.ttfbMs,
+    finishReason: input.finishReason,
+    tools: input.tools,
+    model: input.model,
+  })
+  if (!conversationId) return
+  recordWorkspaceChatProxyGeneration(conversationId, {
+    ttfbMs: input.ttfbMs,
+    durationMs: input.durationMs,
+    finishReason: input.finishReason,
+    tools: input.tools,
+  })
+}
+
+function createCompletionObserver(): {
+  push: (chunk: Uint8Array) => void
+  finishReason: string | null
+  tools: string[]
+} {
+  const decoder = new TextDecoder()
+  let buffer = ""
+  const tools = new Set<string>()
+  let finishReason: string | null = null
+  return {
+    get finishReason() {
+      return finishReason
+    },
+    get tools() {
+      return [...tools]
+    },
+    push(chunk) {
+      buffer += decoder.decode(chunk, { stream: true })
+      const lines = buffer.split("\n")
+      buffer = lines.pop() ?? ""
+      for (const line of lines) {
+        const payload = line.startsWith("data:")
+          ? line.slice(5).trim()
+          : line.trim()
+        if (!payload || payload === "[DONE]") continue
+        try {
+          noteCompletionJson(JSON.parse(payload) as Record<string, unknown>)
+        } catch {
+          /* ignore partial SSE */
+        }
+      }
+    },
+  }
+
+  function noteCompletionJson(json: Record<string, unknown>): void {
+    const choices = Array.isArray(json.choices) ? json.choices : []
+    for (const choice of choices) {
+      if (!choice || typeof choice !== "object") continue
+      const record = choice as Record<string, unknown>
+      if (typeof record.finish_reason === "string") {
+        finishReason = record.finish_reason
+      }
+      const delta =
+        record.delta && typeof record.delta === "object"
+          ? (record.delta as Record<string, unknown>)
+          : record.message && typeof record.message === "object"
+            ? (record.message as Record<string, unknown>)
+            : null
+      const calls = Array.isArray(delta?.tool_calls) ? delta.tool_calls : []
+      for (const call of calls) {
+        if (!call || typeof call !== "object") continue
+        const fn = (call as { function?: { name?: unknown } }).function
+        if (typeof fn?.name === "string" && fn.name.trim()) tools.add(fn.name)
+      }
+    }
   }
 }
 

@@ -1,5 +1,5 @@
 import { randomBytes } from "node:crypto"
-import type { StreamChunk } from "@tanstack/ai"
+import type { ChatMiddleware, StreamChunk } from "@tanstack/ai"
 import { withOrgDbContext } from "../../db/client.js"
 import { nameConversationIfUnnamed } from "../../graphs/conversationGraph/nodes/conversationNaming.js"
 import { generateObjectId } from "../../lib/id.js"
@@ -84,11 +84,17 @@ import {
   workspaceChatOpenCodeSessionId,
 } from "./workspace-chat-opencode-session.js"
 import {
+  beginWorkspaceChatTurn,
+  finishWorkspaceChatTurn,
+  markWorkspaceChatFirstShownToken,
+} from "./workspace-chat-otel.js"
+import {
   ensureChatSandboxCheckout,
   invalidateChatSandbox,
   preflightChatSandbox,
   streamSawOpenCodeSession,
 } from "./workspace-chat-sandbox-health.js"
+import { workspaceSnapshotFromChatInput } from "./workspace-chat-send-runtime.js"
 import { workspaceChatTools } from "./workspace-chat-tools.js"
 import {
   claimWorkspaceChatTurn,
@@ -121,7 +127,7 @@ export type TanstackWorkspaceChatInput = {
   onError?: () => Promise<void> | void
   onUserPersist?: () => Promise<void> | void
   onDelta?: (delta: string) => Promise<void> | void
-  /** Set when the user turn + lastMessageAt were written before the stream opened. */
+  /** Set when the user turn + lastMessageAt were already written for this Send. */
   userTurnAccepted?: boolean
   acceptedTurn?: WorkspaceChatTurnClaim
   resolveRuntime?: () => Promise<Partial<TanstackWorkspaceChatInput>>
@@ -206,6 +212,21 @@ export async function collectTanstackWorkspaceChatText(
 }
 
 export async function* streamTanstackWorkspaceChat(
+  input: TanstackWorkspaceChatInput,
+): AsyncGenerator<StreamChunk> {
+  beginWorkspaceChatTurn(input.conversationId)
+  try {
+    yield* streamTanstackWorkspaceChatBody(input)
+    finishWorkspaceChatTurn(input.conversationId)
+  } catch (error) {
+    finishWorkspaceChatTurn(input.conversationId, {
+      error: error instanceof Error ? error.message : String(error),
+    })
+    throw error
+  }
+}
+
+async function* streamTanstackWorkspaceChatBody(
   input: TanstackWorkspaceChatInput,
 ): AsyncGenerator<StreamChunk> {
   yield workspaceChatRunStarted({
@@ -347,6 +368,9 @@ async function* streamClaimedTanstackWorkspaceChat(
           )
           continue
         }
+        if (typed.type === "TEXT_MESSAGE_CONTENT") {
+          markWorkspaceChatFirstShownToken(turn.conversationId)
+        }
         yield typed
       }
     }
@@ -373,6 +397,7 @@ async function* streamClaimedTanstackWorkspaceChat(
         messageId,
         timestamp: Date.now(),
       } as StreamChunk
+      markWorkspaceChatFirstShownToken(turn.conversationId)
       yield {
         type: "TEXT_MESSAGE_CONTENT",
         messageId,
@@ -484,6 +509,15 @@ async function prepareTanstackWorkspaceChat(
     writeStatus: input.writeStatus,
   })
   const contract = workspaceChatOpenCodeContract(process.env)
+  if (contract.ok) {
+    log.info({
+      step: "workspace-chat-model",
+      tier: contract.tier,
+      modelSpec: contract.modelSpec,
+      modelBase: contract.modelBase,
+      conversationId: input.conversationId,
+    })
+  }
   if (!contract.ok) {
     return {
       ok: false,
@@ -593,6 +627,7 @@ async function prepareTanstackWorkspaceChat(
       ;[proxy, tools] = await Promise.all([
         startWorkspaceChatModelProxy({
           runToken,
+          conversationId: input.conversationId,
           upstreamBaseUrl: contract.upstreamBaseUrl,
           upstreamApiKey: contract.apiKey,
           modelBase: contract.modelBase,
@@ -777,6 +812,7 @@ async function prepareTanstackWorkspaceChat(
         servePortLease: portLease,
         tools,
         serve,
+        workspace: workspaceSnapshotFromChatInput(input),
       })
       log.info({
         step: "workspace-chat-timing",
@@ -805,6 +841,7 @@ async function prepareTanstackWorkspaceChat(
       servePortLease: portLease,
       tools,
       serve: existingRuntime?.serve ?? null,
+      workspace: workspaceSnapshotFromChatInput(input),
     })
     if (conversationRuntime.serve) {
       const healthy = await isOpenCodeServeHealthy(
@@ -849,6 +886,7 @@ async function prepareTanstackWorkspaceChat(
           : {}),
         tools,
         middleware: [
+          ...(await workspaceChatOtelMiddleware()),
           modules.withSandbox(definition, {
             instances: postgresSandboxInstanceStore({
               orgId: input.orgId,
@@ -948,9 +986,30 @@ async function* emptyChatStream(): AsyncGenerator<object> {}
 function rememberConversationRuntime(
   runtime: Omit<WorkspaceChatConversationRuntime, "lastUsedAt" | "serve"> & {
     serve: WorkspaceChatConversationRuntime["serve"]
+    workspace?: WorkspaceChatConversationRuntime["workspace"]
   },
 ): WorkspaceChatConversationRuntime {
-  return setWorkspaceChatConversationRuntime(runtime)
+  const existing = getWorkspaceChatConversationRuntime(runtime.conversationId)
+  return setWorkspaceChatConversationRuntime({
+    ...runtime,
+    workspace: runtime.workspace ?? existing?.workspace,
+  })
+}
+
+async function workspaceChatOtelMiddleware(): Promise<ChatMiddleware[]> {
+  try {
+    const [{ otelMiddleware }, { trace }] = await Promise.all([
+      import("@tanstack/ai/middlewares/otel"),
+      import("@opentelemetry/api"),
+    ])
+    return [
+      otelMiddleware({
+        tracer: trace.getTracer("ctxpipe-workspace-chat"),
+      }),
+    ]
+  } catch {
+    return []
+  }
 }
 
 async function* keepConversationRuntimeAfterStream(

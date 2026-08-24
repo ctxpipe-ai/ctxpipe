@@ -1,28 +1,17 @@
-import { describe, expect, it } from "vitest"
+import { describe, expect, it, vi } from "vitest"
 import {
+  bunSocketToWebSocketLike,
   isWorkspaceChatWebSocketRequest,
   parseConversationWebSocketUpgradeUrl,
-  WORKSPACE_CHAT_WS_PATH,
-} from "./conversation-websocket-url.js"
+} from "./conversation-websocket.js"
 
-describe("workspace chat websocket path", () => {
-  it("matches the product conversation stream and ignores Vite HMR", () => {
-    expect(
-      WORKSPACE_CHAT_WS_PATH.test(
-        "/acme/api/v1/conversations/conv_agqcxxv4gb3abdn46ruf3f42xe",
-      ),
-    ).toBe(true)
-    expect(WORKSPACE_CHAT_WS_PATH.test("/@vite/client")).toBe(false)
+describe("workspace chat official websocket hosting", () => {
+  it("matches the conversation upgrade path and ignores Vite HMR", () => {
     expect(
       parseConversationWebSocketUpgradeUrl(
         "http://localhost:3000/acme/api/v1/conversations/conv_1",
       ),
     ).toEqual({ orgSlug: "acme", conversationId: "conv_1" })
-    const request = new Request(
-      "http://localhost:3000/acme/api/v1/conversations/conv_1",
-      { headers: { upgrade: "websocket" } },
-    )
-    expect(isWorkspaceChatWebSocketRequest(request)).toBe(true)
     expect(
       isWorkspaceChatWebSocketRequest(
         new Request("http://localhost:3000/@vite/client", {
@@ -30,5 +19,31 @@ describe("workspace chat websocket path", () => {
         }),
       ),
     ).toBe(false)
+    expect(
+      isWorkspaceChatWebSocketRequest(
+        new Request(
+          "http://localhost:3000/acme/api/v1/conversations/conv_1",
+          { headers: { upgrade: "websocket" } },
+        ),
+      ),
+    ).toBe(true)
+  })
+
+  it("adapts a Bun-style socket to WebSocketLike", () => {
+    const sent: string[] = []
+    const like = bunSocketToWebSocketLike({
+      send: (data) => {
+        sent.push(data)
+      },
+      close: vi.fn(),
+    })
+    const messages: unknown[] = []
+    like.addEventListener("message", (ev) => {
+      messages.push(ev.data)
+    })
+    like.send("ping")
+    like.dispatchMessage("hello")
+    expect(sent).toEqual(["ping"])
+    expect(messages).toEqual(["hello"])
   })
 })

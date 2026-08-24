@@ -11,6 +11,18 @@ export type WorkspaceChatOpenCodeServe = {
   dispose: () => Promise<void>
 }
 
+export type WorkspaceChatConversationWorkspace = {
+  orgId: string
+  workspaceId: string
+  desiredUrl: string
+  desiredSha: string | null
+  desiredGeneration?: number
+  writeStatus: string
+  defaultBranch?: string
+  lastBranch?: string | null
+  cloneToken?: string | null
+}
+
 export type WorkspaceChatConversationRuntime = {
   conversationId: string
   runToken: string
@@ -20,6 +32,7 @@ export type WorkspaceChatConversationRuntime = {
   servePortLease: LocalProcessOpenCodePortLease | null
   tools: WorkspaceChatTanstackTool[]
   serve: WorkspaceChatOpenCodeServe | null
+  workspace?: WorkspaceChatConversationWorkspace
   lastUsedAt: number
 }
 

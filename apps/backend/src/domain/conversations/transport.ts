@@ -78,7 +78,11 @@ function toChatInput(input: StreamInput): TanstackWorkspaceChatInput | null {
   const workspaceId = input.workspaceId?.trim() ?? ""
   const orgId = input.orgId?.trim() ?? ""
   const desiredUrl = input.desiredUrl?.trim() ?? ""
-  if (!workspaceChatStreamReady({ workspaceId, orgId, desiredUrl })) {
+  if (!workspaceId) return null
+  if (
+    !input.resolveRuntime &&
+    !workspaceChatStreamReady({ workspaceId, orgId, desiredUrl })
+  ) {
     return null
   }
   return {

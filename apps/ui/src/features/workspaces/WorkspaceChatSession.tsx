@@ -1,15 +1,10 @@
 import type { StreamChunk } from "@tanstack/ai"
-import {
-  fetchServerSentEvents,
-  type UIMessage,
-  useChat,
-} from "@tanstack/ai-react"
+import { type UIMessage, useChat } from "@tanstack/ai-react"
 import { useQuery, useQueryClient } from "@tanstack/react-query"
 import { useNavigate } from "@tanstack/react-router"
-import { type ReactNode, useMemo, useRef, useState } from "react"
+import { type ReactNode, useEffect, useMemo, useRef, useState } from "react"
 import { InlineAlert } from "@/components/ui/InlineAlert"
 import { ConversationThread } from "@/features/chat/ConversationThread"
-import { workspaceChatHttpPath } from "@/features/chat/chatConnection"
 import { insertConversationListItem } from "@/features/chat/insertConversationListItem"
 import { MessageInputBox } from "@/features/chat/MessageInputBox"
 import type {
@@ -20,6 +15,7 @@ import type {
 import { prepareWorkspaceChat, workspaceKeys } from "./queries"
 import type { Workspace } from "./types"
 import { WorkspaceChatChrome } from "./WorkspaceChatChrome"
+import { workspaceChatWebSocket } from "./workspaceChatWebSocket"
 
 export function workspaceChatHasAssistantText(
   messages: Array<Pick<ChatMessage, "role" | "parts">>,
@@ -79,12 +75,13 @@ export function WorkspaceChatSession(props: {
   }
 
   const connection = useMemo(
-    () =>
-      fetchServerSentEvents(workspaceChatHttpPath(orgSlug, conversationId), {
-        credentials: "include",
-      }),
+    () => workspaceChatWebSocket(orgSlug, conversationId),
     [orgSlug, conversationId],
   )
+
+  useEffect(() => {
+    connection.warm()
+  }, [connection])
 
   const applyRename = (name: string) => {
     setHeaderTitle(name)

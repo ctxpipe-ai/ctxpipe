@@ -29,14 +29,15 @@ import {
   workspaceChatRunStarted,
   workspaceChatWireFormat,
 } from "../../domain/workspaces/workspace-chat-agui.js"
+import {
+  persistWorkspaceChatUserTurnListed,
+  resolveWorkspaceChatSendRuntime,
+} from "../../domain/workspaces/workspace-chat-send-runtime.js"
 import { claimWorkspaceChatTurn } from "../../domain/workspaces/workspace-chat-turn-claim.js"
 import { resolveWorkspaceChatTurnRuntime } from "../../domain/workspaces/workspace-chat-turn-runtime.js"
 import { githubRepoFullNameFromWorkspaceUrl } from "../../domain/workspaces/write-status.js"
 import { PageInfoSchema } from "../../lib/pagination.js"
-import {
-  appendConversationTurn,
-  loadConversationTurns,
-} from "../../models/conversation-messages.js"
+import { loadConversationTurns } from "../../models/conversation-messages.js"
 import {
   deleteConversation,
   discardUnstartedConversation,
@@ -45,7 +46,6 @@ import {
   listConversationsPaginated,
   persistConversationLastBranch,
   reserveConversationChatPrNumber,
-  touchConversationLastMessage,
   updateConversation,
 } from "../../models/conversations.js"
 import { getWorkspaceById } from "../../models/workspaces.js"
@@ -516,15 +516,6 @@ export const conversationRoutes = new OpenAPIHono<AppEnv>()
       return c.json({ error: "workspace_required" }, 400)
     }
 
-    const conversation = await ensureConversation({
-      id: conversationId,
-      source: parsed.source,
-      workspaceId: parsed.workspaceId,
-    })
-    const workspace = conversation.workspaceId
-      ? await getWorkspaceById(conversation.workspaceId)
-      : null
-    const env = parseEnv(process.env as Record<string, string | undefined>)
     const acceptedTurn = claimWorkspaceChatTurn(conversationId)
     if (!acceptedTurn) {
       return workspaceChatHttpResponse(
@@ -539,20 +530,6 @@ export const conversationRoutes = new OpenAPIHono<AppEnv>()
       )
     }
 
-    try {
-      await appendConversationTurn({
-        conversationId,
-        role: "user",
-        content: parsed.prompt,
-        orgId: workspace?.orgId ?? conversation.orgId,
-      })
-      await touchConversationLastMessage(conversationId)
-    } catch {
-      acceptedTurn.release()
-      await discardUnstartedConversation(conversationId)
-      return c.json({ error: "Failed to start conversation" }, 500)
-    }
-
     return workspaceChatStreamResponse(
       {
         conversationId,
@@ -562,33 +539,18 @@ export const conversationRoutes = new OpenAPIHono<AppEnv>()
         threadId: parsed.threadId ?? conversationId,
         runId: parsed.runId,
         source: parsed.source ?? null,
-        writeStatus: workspace?.writeStatus ?? "read_only",
-        workspaceId: conversation.workspaceId,
-        orgId: workspace?.orgId ?? conversation.orgId,
-        desiredUrl: workspace?.workspaceRepositoryUrl ?? null,
-        desiredSha: workspace?.desiredSha ?? null,
-        desiredGeneration: workspace?.desiredGeneration,
-        userTurnAccepted: true,
+        workspaceId: parsed.workspaceId,
+        orgId: "",
+        desiredUrl: "",
+        userTurnAccepted: false,
         acceptedTurn,
-        resolveRuntime: async () => {
-          const runtime = await resolveWorkspaceChatTurnRuntime({
-            conversation,
-            workspace,
-            env,
-          })
-          return {
-            ref: runtime.lastBranch || runtime.desiredSha || "HEAD",
-            lastBranch: runtime.lastBranch,
-            defaultBranch: runtime.defaultBranch,
-            cloneToken: runtime.cloneToken,
-            writeStatus: runtime.writeStatus,
-            desiredUrl: runtime.desiredUrl ?? undefined,
-            desiredSha: runtime.desiredSha,
-            desiredGeneration: runtime.desiredGeneration,
-            orgId: runtime.orgId,
-            workspaceId: runtime.workspaceId ?? undefined,
-          }
-        },
+        resolveRuntime: () =>
+          resolveWorkspaceChatSendRuntime({
+            conversationId,
+            workspaceId: parsed.workspaceId,
+            source: parsed.source,
+          }),
+        onUserPersist: () => persistWorkspaceChatUserTurnListed(conversationId),
         onError: async () => {
           const turns = await loadConversationTurns(conversationId)
           if (turns.length === 0) {

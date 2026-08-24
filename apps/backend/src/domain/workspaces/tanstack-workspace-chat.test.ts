@@ -282,6 +282,7 @@ import { getLogger } from "../../observability/logger.js"
 import { withTestLogger } from "../../test/with-test-logger.js"
 import {
   runTanstackWorkspaceChat as runTanstackWorkspaceChatHttp,
+  streamTanstackWorkspaceChat,
   type TanstackWorkspaceChatInput,
   warmTanstackWorkspaceChat,
 } from "./tanstack-workspace-chat.js"
@@ -669,6 +670,35 @@ describe("runTanstackWorkspaceChat", () => {
     ).toBe(true)
     expect(dockerSandboxMock).not.toHaveBeenCalled()
     expect(chatMock).not.toHaveBeenCalled()
+  })
+
+  it("persists the user turn after RUN_STARTED", async () => {
+    const order: string[] = []
+    appendTurnMock.mockImplementation(async (input) => {
+      if (input.role === "user") order.push("persist-user")
+    })
+    chatMock.mockImplementationOnce(async function* () {
+      yield { type: "TEXT_MESSAGE_CONTENT", delta: "hi" }
+      yield { type: "RUN_FINISHED" }
+    })
+    for await (const chunk of streamTanstackWorkspaceChat({
+      conversationId: "conv_1",
+      prompt: "hello",
+      threadId: "conv_1",
+      orgId: "org_1",
+      workspaceId: "ws_1",
+      desiredUrl: "https://github.com/acme/docs",
+      desiredSha: "abc",
+      ref: "abc",
+      writeStatus: "writable",
+      userTurnAccepted: false,
+    })) {
+      if ((chunk as { type?: string }).type === "RUN_STARTED") {
+        order.push("run-started")
+      }
+    }
+    expect(order[0]).toBe("run-started")
+    expect(order).toContain("persist-user")
   })
 
   it("persists this-run assistant deltas only", async () => {

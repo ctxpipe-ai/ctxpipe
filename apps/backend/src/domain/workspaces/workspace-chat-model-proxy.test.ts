@@ -143,6 +143,46 @@ describe("startWorkspaceChatModelProxy", () => {
       data: [{ id: "openai/gpt-5.6-terra", object: "model" }],
     })
   })
+
+  it("records generation TTFB and tool names from upstream SSE", async () => {
+    const {
+      beginWorkspaceChatTurn,
+      finishWorkspaceChatTurn,
+    } = await import("./workspace-chat-otel.js")
+    const upstream = await listenSse([
+      'data: {"choices":[{"delta":{"tool_calls":[{"function":{"name":"bash"}}]},"finish_reason":null}]}\n\n',
+      'data: {"choices":[{"delta":{},"finish_reason":"tool_calls"}]}\n\n',
+      "data: [DONE]\n\n",
+    ])
+    servers.push(upstream)
+    beginWorkspaceChatTurn("conv_proxy_otel")
+    const proxy = await startWorkspaceChatModelProxy({
+      runToken: "run-token-otel",
+      upstreamBaseUrl: upstream.baseUrl,
+      upstreamApiKey: "sk-upstream-secret",
+      modelBase: "openai/gpt-5.6-terra",
+      conversationId: "conv_proxy_otel",
+    })
+    servers.push(proxy)
+    const res = await fetch(`${proxy.baseUrl}/v1/chat/completions`, {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        authorization: "Bearer run-token-otel",
+      },
+      body: JSON.stringify({
+        model: "ctxpipe/openai/gpt-5.6-terra",
+        messages: [{ role: "user", content: "hi" }],
+      }),
+    })
+    expect(res.status).toBe(200)
+    await res.text()
+    const summary = finishWorkspaceChatTurn("conv_proxy_otel")
+    expect(summary?.loops).toBe(1)
+    expect(summary?.generations[0]?.finishReason).toBe("tool_calls")
+    expect(summary?.generations[0]?.tools).toEqual(["bash"])
+    expect(summary?.generations[0]?.ttfbMs).toBeGreaterThanOrEqual(0)
+  })
 })
 
 async function listenJson(
@@ -166,6 +206,31 @@ async function listenJson(
       res.writeHead(200, { "content-type": "application/json" })
       res.end(JSON.stringify(json))
     })()
+  })
+  await new Promise<void>((resolve) => {
+    server.listen(0, "127.0.0.1", resolve)
+  })
+  const address = server.address()
+  if (!address || typeof address === "string") {
+    throw new Error("expected tcp address")
+  }
+  return {
+    baseUrl: `http://127.0.0.1:${address.port}`,
+    close: () =>
+      new Promise((resolve, reject) => {
+        server.close((error) => (error ? reject(error) : resolve()))
+      }),
+  }
+}
+
+async function listenSse(
+  frames: string[],
+): Promise<{ baseUrl: string; close: () => Promise<void> }> {
+  const { createServer } = await import("node:http")
+  const server = createServer((_req, res) => {
+    res.writeHead(200, { "content-type": "text/event-stream" })
+    for (const frame of frames) res.write(frame)
+    res.end()
   })
   await new Promise<void>((resolve) => {
     server.listen(0, "127.0.0.1", resolve)

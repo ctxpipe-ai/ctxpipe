@@ -14,8 +14,8 @@ const useChatState = vi.hoisted(() => ({
 }))
 
 const navigateMock = vi.hoisted(() => vi.fn())
-const fetchServerSentEventsMock = vi.hoisted(() =>
-  vi.fn(() => ({ kind: "official-sse" })),
+const workspaceChatWebSocketMock = vi.hoisted(() =>
+  vi.fn(() => ({ kind: "official-ws", warm: vi.fn() })),
 )
 const useChatMock = vi.hoisted(() =>
   vi.fn(() => ({
@@ -30,7 +30,10 @@ const useChatMock = vi.hoisted(() =>
 
 vi.mock("@tanstack/ai-react", () => ({
   useChat: useChatMock,
-  fetchServerSentEvents: fetchServerSentEventsMock,
+}))
+
+vi.mock("./workspaceChatWebSocket", () => ({
+  workspaceChatWebSocket: workspaceChatWebSocketMock,
 }))
 
 vi.mock("@tanstack/react-router", () => ({
@@ -79,7 +82,7 @@ function renderCompose(initialMessages: ChatMessage[] = []) {
 describe("WorkspaceChatSession compose failure", () => {
   beforeEach(() => {
     navigateMock.mockReset()
-    fetchServerSentEventsMock.mockClear()
+    workspaceChatWebSocketMock.mockClear()
     useChatMock.mockClear()
     useChatState.messages = []
     useChatState.status = "error"
@@ -144,17 +147,17 @@ describe("WorkspaceChatSession compose failure", () => {
     ).toBe(true)
   })
 
-  it("pairs useChat with official SSE and one POST path", () => {
+  it("pairs useChat with official websocket on the conversation path", () => {
     renderCompose()
-    expect(fetchServerSentEventsMock).toHaveBeenCalledTimes(1)
-    expect(fetchServerSentEventsMock).toHaveBeenCalledWith(
-      "/acme/api/v1/conversations/conv_pending",
-      { credentials: "include" },
+    expect(workspaceChatWebSocketMock).toHaveBeenCalledTimes(1)
+    expect(workspaceChatWebSocketMock).toHaveBeenCalledWith(
+      "acme",
+      "conv_pending",
     )
     expect(useChatMock).toHaveBeenCalledWith(
       expect.objectContaining({
         threadId: "conv_pending",
-        connection: { kind: "official-sse" },
+        connection: { kind: "official-ws", warm: expect.any(Function) },
         forwardedProps: {
           workspaceId: readOnlyWorkspace.id,
           source: "ui",

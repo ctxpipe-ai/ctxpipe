@@ -1,44 +1,49 @@
-import { chatParamsFromRequestBody, type StreamChunk } from "@tanstack/ai"
+import { toWebSocketStream, type WebSocketLike } from "@tanstack/ai"
 import { and, eq } from "drizzle-orm"
 import { getAuth } from "../../auth/config.js"
 import { withUserIdContext } from "../../auth/context.js"
 import { withOrgIdContext } from "../../auth/withAuth.js"
-import { parseEnv } from "../../config/env.js"
 import { getSystemDb } from "../../db/client.js"
 import { members, organizations } from "../../db/schema/auth.js"
 import {
   type ConversationChatRequest,
   parseConversationChatRequest,
-  workspaceChatStreamReady,
 } from "../../domain/conversations/transport.js"
 import { streamTanstackWorkspaceChat } from "../../domain/workspaces/tanstack-workspace-chat.js"
+import { workspaceChatRunError } from "../../domain/workspaces/workspace-chat-agui.js"
 import {
-  WORKSPACE_CHAT_HEARTBEAT_MS,
-  workspaceChatRunError,
-} from "../../domain/workspaces/workspace-chat-agui.js"
-import { resolveWorkspaceChatTurnRuntime } from "../../domain/workspaces/workspace-chat-turn-runtime.js"
+  persistWorkspaceChatUserTurnListed,
+  resolveWorkspaceChatSendRuntime,
+} from "../../domain/workspaces/workspace-chat-send-runtime.js"
 import { claimWorkspaceChatTurn } from "../../domain/workspaces/workspace-chat-turn-claim.js"
-import {
-  appendConversationTurn,
-  loadConversationTurns,
-} from "../../models/conversation-messages.js"
-import {
-  discardUnstartedConversation,
-  ensureConversation,
-  touchConversationLastMessage,
-} from "../../models/conversations.js"
-import { getWorkspaceById } from "../../models/workspaces.js"
+import { loadConversationTurns } from "../../models/conversation-messages.js"
+import { discardUnstartedConversation } from "../../models/conversations.js"
 import { getLogger } from "../../observability/logger.js"
-import {
-  isWorkspaceChatWebSocketRequest,
-  parseConversationWebSocketUpgradeUrl,
-  WORKSPACE_CHAT_WS_PATH,
-} from "./conversation-websocket-url.js"
 
-export {
-  isWorkspaceChatWebSocketRequest,
-  parseConversationWebSocketUpgradeUrl,
-  WORKSPACE_CHAT_WS_PATH,
+const WORKSPACE_CHAT_WS_PATH =
+  /^\/([^/]+)\/api\/v1\/conversations\/([^/]+)(?:\/stream)?$/
+
+export function parseConversationWebSocketUpgradeUrl(
+  url: string,
+): { orgSlug: string; conversationId: string } | null {
+  let parsed: URL
+  try {
+    parsed = new URL(url)
+  } catch {
+    return null
+  }
+  const match = parsed.pathname.match(WORKSPACE_CHAT_WS_PATH)
+  const orgSlug = match?.[1]
+  const conversationId = match?.[2]
+  if (!orgSlug || !conversationId) return null
+  return { orgSlug, conversationId }
+}
+
+export function isWorkspaceChatWebSocketRequest(request: Request): boolean {
+  if (request.headers.get("upgrade")?.toLowerCase() !== "websocket") {
+    return false
+  }
+  return WORKSPACE_CHAT_WS_PATH.test(new URL(request.url).pathname)
 }
 
 export type ConversationWebSocketData = {
@@ -47,7 +52,8 @@ export type ConversationWebSocketData = {
   orgId: string
   conversationId: string
   userId: string
-  ping: ReturnType<typeof setInterval> | null
+  request: Request
+  socket: BunWebSocketLike
 }
 
 type UpgradeServer = {
@@ -61,8 +67,53 @@ type ChatSocket = {
   data: ConversationWebSocketData
   readyState: number
   send: (data: string) => void
-  ping?: () => void
   close: (code?: number, reason?: string) => void
+}
+
+type MessageHandler = (ev: { data: unknown }) => void
+type CloseHandler = () => void
+
+export type BunWebSocketLike = WebSocketLike & {
+  dispatchMessage: (data: string) => void
+  dispatchClose: () => void
+  dispatchError: () => void
+}
+
+export function bunSocketToWebSocketLike(ws: {
+  send: (data: string) => void
+  close: (code?: number, reason?: string) => void
+}): BunWebSocketLike {
+  const messageHandlers: MessageHandler[] = []
+  const closeHandlers: CloseHandler[] = []
+  const errorHandlers: CloseHandler[] = []
+  return {
+    send: (data) => {
+      ws.send(data)
+    },
+    close: (code, reason) => {
+      ws.close(code, reason)
+    },
+    addEventListener(type, handler) {
+      if (type === "message") {
+        messageHandlers.push(handler as MessageHandler)
+        return
+      }
+      if (type === "close") {
+        closeHandlers.push(handler as CloseHandler)
+        return
+      }
+      errorHandlers.push(handler as CloseHandler)
+    },
+    dispatchMessage(data) {
+      for (const handler of messageHandlers) handler({ data })
+    },
+    dispatchClose() {
+      for (const handler of closeHandlers) handler()
+    },
+    dispatchError() {
+      for (const handler of errorHandlers) handler()
+    },
+  }
 }
 
 export async function handleConversationWebSocket(
@@ -100,6 +151,14 @@ export async function handleConversationWebSocket(
   const org = orgRows[0]
   if (!org) return new Response("Not found", { status: 404 })
 
+  const socket = bunSocketToWebSocketLike({
+    send: () => {
+      /* replaced after upgrade */
+    },
+    close: () => {
+      /* replaced after upgrade */
+    },
+  })
   const upgraded = server.upgrade(request, {
     data: {
       kind: "workspace-chat",
@@ -107,7 +166,8 @@ export async function handleConversationWebSocket(
       orgId: org.id,
       conversationId,
       userId: authSession.user.id,
-      ping: null,
+      request,
+      socket,
     },
   })
   if (!upgraded) {
@@ -118,182 +178,121 @@ export async function handleConversationWebSocket(
 
 export const conversationWebSocketHandlers = {
   open(ws: ChatSocket) {
-    ws.data.ping = setInterval(() => {
-      if (ws.readyState !== WebSocket.OPEN) return
-      try {
-        ws.ping?.()
-        ws.send(
-          JSON.stringify({
-            type: "CUSTOM",
-            name: "heartbeat",
-            value: { at: Date.now() },
-            timestamp: Date.now(),
-          }),
-        )
-      } catch {
-        /* socket already closing */
-      }
-    }, WORKSPACE_CHAT_HEARTBEAT_MS)
+    const like = ws.data.socket
+    like.send = (data) => {
+      ws.send(data)
+    }
+    like.close = (code, reason) => {
+      ws.close(code, reason)
+    }
+    toWebSocketStream(like, ws.data.request, {
+      onRun: (ctx) =>
+        streamWorkspaceChatSocketTurn({
+          conversationId: ws.data.conversationId,
+          orgId: ws.data.orgId,
+          orgSlug: ws.data.orgSlug,
+          userId: ws.data.userId,
+          messages: ctx.messages,
+          threadId: ctx.threadId,
+          runId: ctx.runId,
+          forwardedProps: ctx.forwardedProps,
+        }),
+    })
   },
 
-  async message(ws: ChatSocket, raw: string | ArrayBuffer | Uint8Array) {
+  message(ws: ChatSocket, raw: string | ArrayBuffer | Uint8Array) {
     const text = typeof raw === "string" ? raw : new TextDecoder().decode(raw)
-    let body: unknown
-    try {
-      body = JSON.parse(text)
-    } catch {
-      ws.send(JSON.stringify(workspaceChatRunError("Invalid AG-UI frame")))
-      return
-    }
-
-    await withOrgIdContext({ id: ws.data.orgId, slug: ws.data.orgSlug }, () =>
-      withUserIdContext(ws.data.userId, () =>
-        runWorkspaceChatSocketTurn(ws, body),
-      ),
-    )
+    ws.data.socket.dispatchMessage(text)
   },
 
   close(ws: ChatSocket) {
-    if (ws.data.ping) clearInterval(ws.data.ping)
-    ws.data.ping = null
+    ws.data.socket.dispatchClose()
   },
 }
 
-async function runWorkspaceChatSocketTurn(
-  ws: ChatSocket,
-  body: unknown,
-): Promise<void> {
+async function* streamWorkspaceChatSocketTurn(input: {
+  conversationId: string
+  orgId: string
+  orgSlug: string
+  userId: string
+  messages: unknown
+  threadId: string
+  runId: string
+  forwardedProps?: Record<string, unknown>
+}) {
   const log = getLogger()
+  const body = {
+    messages: input.messages,
+    threadId: input.threadId,
+    runId: input.runId,
+    forwardedProps: input.forwardedProps ?? {},
+  }
   let parsed: ConversationChatRequest
   try {
     parsed = await parseConversationChatRequest(body)
-    if (!parsed.prompt) {
-      const params = await chatParamsFromRequestBody(body).catch(() => null)
-      if (params) {
-        parsed = await parseConversationChatRequest(body)
-      }
-    }
   } catch (error) {
     log.error(error instanceof Error ? error : new Error(String(error)), {
       step: "workspace-chat-ws-parse",
     })
-    ws.send(JSON.stringify(workspaceChatRunError("Invalid AG-UI frame")))
+    yield workspaceChatRunError("Invalid AG-UI frame")
     return
   }
   if (!parsed.prompt || !parsed.workspaceId.trim()) {
-    ws.send(JSON.stringify(workspaceChatRunError("workspace_required")))
+    yield workspaceChatRunError("workspace_required")
     return
   }
-
-  const conversation = await ensureConversation({
-    id: ws.data.conversationId,
-    source: parsed.source,
-    workspaceId: parsed.workspaceId,
-  })
-  const workspace = conversation.workspaceId
-    ? await getWorkspaceById(conversation.workspaceId)
-    : null
-  const env = parseEnv(process.env as Record<string, string | undefined>)
-  const acceptedTurn = claimWorkspaceChatTurn(conversation.id)
+  const acceptedTurn = claimWorkspaceChatTurn(input.conversationId)
   if (!acceptedTurn) {
-    ws.send(JSON.stringify(workspaceChatRunError("conversation_busy")))
+    yield workspaceChatRunError("conversation_busy")
     return
   }
 
-  try {
-    await appendConversationTurn({
-      conversationId: conversation.id,
-      role: "user",
-      content: parsed.prompt,
-      orgId: workspace?.orgId ?? conversation.orgId,
-    })
-    await touchConversationLastMessage(conversation.id)
-  } catch (error) {
-    acceptedTurn.release()
-    log.error(error instanceof Error ? error : new Error(String(error)), {
-      step: "workspace-chat-ws-accept",
-    })
-    await discardUnstartedConversation(conversation.id)
-    ws.send(
-      JSON.stringify(workspaceChatRunError("Failed to start conversation")),
-    )
-    return
-  }
-
-  if (
-    !workspaceChatStreamReady({
-      workspaceId: conversation.workspaceId,
-      orgId: workspace?.orgId ?? conversation.orgId,
-      desiredUrl: workspace?.workspaceRepositoryUrl,
-    })
-  ) {
-    acceptedTurn.release()
-    ws.send(JSON.stringify(workspaceChatRunError("workspace_required")))
-    return
-  }
-
-  try {
-    for await (const chunk of streamTanstackWorkspaceChat({
-      conversationId: conversation.id,
+  yield* withAuthContextStream(
+    { id: input.orgId, slug: input.orgSlug },
+    input.userId,
+    streamTanstackWorkspaceChat({
+      conversationId: input.conversationId,
       prompt: parsed.prompt,
       messages: parsed.messages,
-      threadId: parsed.threadId ?? conversation.id,
-      runId: parsed.runId,
-      orgId: workspace?.orgId ?? conversation.orgId,
-      workspaceId: conversation.workspaceId ?? parsed.workspaceId,
-      desiredUrl: workspace?.workspaceRepositoryUrl ?? "",
-      desiredSha: workspace?.desiredSha ?? null,
-      desiredGeneration: workspace?.desiredGeneration,
-      ref: conversation.lastBranch || workspace?.desiredSha || "HEAD",
-      writeStatus: workspace?.writeStatus ?? "read_only",
-      userTurnAccepted: true,
+      threadId: parsed.threadId ?? input.conversationId,
+      runId: parsed.runId ?? input.runId,
+      orgId: input.orgId,
+      workspaceId: parsed.workspaceId,
+      desiredUrl: "",
+      desiredSha: null,
+      ref: "HEAD",
+      writeStatus: "read_only",
+      userTurnAccepted: false,
       acceptedTurn,
-      resolveRuntime: async () => {
-        const runtime = await resolveWorkspaceChatTurnRuntime({
-          conversation,
-          workspace: workspace
-            ? {
-                id: workspace.id,
-                orgId: workspace.orgId,
-                workspaceRepositoryUrl: workspace.workspaceRepositoryUrl,
-                githubConnectionId: workspace.githubConnectionId ?? null,
-                writeStatus: workspace.writeStatus,
-                desiredSha: workspace.desiredSha ?? null,
-                desiredGeneration: workspace.desiredGeneration,
-              }
-            : null,
-          env,
-        })
-        return {
-          ref: runtime.lastBranch || runtime.desiredSha || "HEAD",
-          defaultBranch: runtime.defaultBranch,
-          cloneToken: runtime.cloneToken,
-          writeStatus: runtime.writeStatus,
-          desiredUrl: runtime.desiredUrl ?? undefined,
-          desiredSha: runtime.desiredSha,
-          desiredGeneration: runtime.desiredGeneration,
-          orgId: runtime.orgId,
-          workspaceId: runtime.workspaceId ?? undefined,
-        }
-      },
+      resolveRuntime: () =>
+        resolveWorkspaceChatSendRuntime({
+          conversationId: input.conversationId,
+          workspaceId: parsed.workspaceId,
+          source: parsed.source,
+        }),
+      onUserPersist: () =>
+        persistWorkspaceChatUserTurnListed(input.conversationId),
       onError: async () => {
-        const turns = await loadConversationTurns(conversation.id)
+        const turns = await loadConversationTurns(input.conversationId)
         if (turns.length === 0) {
-          await discardUnstartedConversation(conversation.id)
+          await discardUnstartedConversation(input.conversationId)
         }
       },
-    })) {
-      if (ws.readyState !== WebSocket.OPEN) return
-      ws.send(JSON.stringify(chunk satisfies StreamChunk | object))
-    }
-  } catch (error) {
-    log.error(error instanceof Error ? error : new Error(String(error)), {
-      step: "workspace-chat-ws-stream",
-    })
-    if (ws.readyState === WebSocket.OPEN) {
-      ws.send(
-        JSON.stringify(workspaceChatRunError("OpenCode chat stream failed")),
-      )
-    }
+    }),
+  )
+}
+
+async function* withAuthContextStream<T>(
+  org: { id: string; slug: string },
+  userId: string,
+  stream: AsyncIterable<T>,
+): AsyncGenerator<T> {
+  const iterator = stream[Symbol.asyncIterator]()
+  while (true) {
+    const next = await withOrgIdContext(org, () =>
+      withUserIdContext(userId, () => iterator.next()),
+    )
+    if (next.done) return
+    yield next.value
   }
 }
