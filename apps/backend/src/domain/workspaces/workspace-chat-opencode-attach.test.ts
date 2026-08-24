@@ -1,4 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest"
+import type { TanstackLikeHandle } from "./job-sandbox.js"
 
 const startOpencodeServerInSandbox = vi.hoisted(() => vi.fn())
 
@@ -9,7 +10,10 @@ vi.mock("@tanstack/ai-opencode", () => ({
   translateOpencodeStream: vi.fn(),
 }))
 
-import { startConversationOpenCodeServe } from "./workspace-chat-opencode-attach.js"
+import {
+  adoptConversationOpenCodeServe,
+  startConversationOpenCodeServe,
+} from "./workspace-chat-opencode-attach.js"
 
 const originalFetch = globalThis.fetch
 
@@ -19,23 +23,35 @@ function handle(input?: {
     stderr: AsyncIterable<string>
     kill: () => Promise<void>
   }>
-  exec?: () => Promise<{ stdout: string; stderr: string; exitCode: number }>
-}) {
+  exec?: TanstackLikeHandle["process"]["exec"]
+}): TanstackLikeHandle {
   return {
     process: {
       exec:
         input?.exec ??
-        vi.fn(async () => ({ stdout: "", stderr: "", exitCode: 0 })),
+        (async () => ({ stdout: "", stderr: "", exitCode: 0 })),
       ...(input?.spawn ? { spawn: input.spawn } : {}),
     },
     ports: {
-      connect: vi.fn(async (port: number) => ({
+      connect: async (port: number) => ({
         url: `http://127.0.0.1:${port}`,
-      })),
+      }),
     },
-    fs: {},
-    destroy: vi.fn(async () => {}),
-  }
+    fs: {
+      write: async () => undefined,
+      read: async () => "",
+      remove: async () => undefined,
+      mkdir: async () => undefined,
+    },
+    destroy: async () => {},
+  } as TanstackLikeHandle
+}
+
+function mockFetch(status: number): void {
+  globalThis.fetch = (async () =>
+    new Response(status === 200 ? "ok" : "no", {
+      status,
+    })) as unknown as typeof fetch
 }
 
 describe("startConversationOpenCodeServe", () => {
@@ -45,7 +61,7 @@ describe("startConversationOpenCodeServe", () => {
   })
 
   it("reuses a healthy serve without spawning", async () => {
-    globalThis.fetch = vi.fn(async () => new Response("ok", { status: 200 }))
+    mockFetch(200)
     const spawn = vi.fn()
     const started = await startConversationOpenCodeServe({
       handle: handle({ spawn }),
@@ -58,13 +74,18 @@ describe("startConversationOpenCodeServe", () => {
   })
 
   it("does not exec-fallback after an official spawn failure", async () => {
-    globalThis.fetch = vi.fn(async () => new Response("no", { status: 503 }))
+    mockFetch(503)
     startOpencodeServerInSandbox.mockRejectedValue(new Error("ServeError"))
-    const exec = vi.fn(async () => ({
-      stdout: "99\n",
-      stderr: "",
-      exitCode: 0,
-    }))
+    const exec = vi.fn(
+      async (
+        _command?: string,
+        _options?: { cwd?: string; env?: Record<string, string> },
+      ) => ({
+        stdout: "99\n",
+        stderr: "",
+        exitCode: 0,
+      }),
+    )
     const started = await startConversationOpenCodeServe({
       handle: handle({
         spawn: vi.fn(),
@@ -81,7 +102,7 @@ describe("startConversationOpenCodeServe", () => {
   })
 
   it("returns the official serve when spawn succeeds", async () => {
-    globalThis.fetch = vi.fn(async () => new Response("no", { status: 503 }))
+    mockFetch(503)
     startOpencodeServerInSandbox.mockResolvedValue({
       baseUrl: "http://127.0.0.1:4097",
       headers: { Authorization: "Bearer tok" },
@@ -98,5 +119,11 @@ describe("startConversationOpenCodeServe", () => {
         headers: { Authorization: "Bearer tok" },
       }),
     )
+  })
+
+  it("adopts a healthy listener for later turns", async () => {
+    mockFetch(200)
+    const adopted = await adoptConversationOpenCodeServe(4097)
+    expect(adopted?.baseUrl).toBe("http://127.0.0.1:4097")
   })
 })

@@ -136,6 +136,7 @@ const startConversationOpenCodeServeMock = vi.hoisted(() =>
 vi.mock("./workspace-chat-opencode-attach.js", () => ({
   streamAttachedOpenCodeTurn: streamAttachedOpenCodeTurnMock,
   startConversationOpenCodeServe: startConversationOpenCodeServeMock,
+  adoptConversationOpenCodeServe: vi.fn(async () => null),
 }))
 const nameConversationIfUnnamedMock = vi.hoisted(() =>
   vi.fn().mockResolvedValue(null),

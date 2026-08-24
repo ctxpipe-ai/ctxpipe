@@ -67,6 +67,7 @@ import {
 } from "./workspace-chat-inventory.js"
 import { startWorkspaceChatModelProxy } from "./workspace-chat-model-proxy.js"
 import {
+  adoptConversationOpenCodeServe,
   startConversationOpenCodeServe,
   streamAttachedOpenCodeTurn,
 } from "./workspace-chat-opencode-attach.js"
@@ -775,7 +776,9 @@ async function prepareTanstackWorkspaceChat(
         adapterName: "opencode",
       })) as TanstackLikeHandle
       handle.current = ready
-      await definition.hooks?.onReady?.(ready)
+      await definition.hooks?.onReady?.(
+        ready as Parameters<NonNullable<typeof definition.hooks.onReady>>[0],
+      )
       const serve = await startConversationOpenCodeServe({
         handle: ready,
         port: servePort,
@@ -809,7 +812,7 @@ async function prepareTanstackWorkspaceChat(
         portStuck,
       }
     }
-    const conversationRuntime = rememberConversationRuntime({
+    let conversationRuntime = rememberConversationRuntime({
       conversationId: input.conversationId,
       runToken,
       proxy,
@@ -819,6 +822,15 @@ async function prepareTanstackWorkspaceChat(
       tools,
       serve: existingRuntime?.serve ?? null,
     })
+    if (!conversationRuntime.serve && existingRuntime) {
+      const adopted = await adoptConversationOpenCodeServe(servePort)
+      if (adopted) {
+        conversationRuntime = setWorkspaceChatConversationRuntime({
+          ...conversationRuntime,
+          serve: adopted,
+        })
+      }
+    }
     const chatStarted = Date.now()
     const attached = conversationRuntime.serve
       ? streamAttachedOpenCodeTurn({
@@ -968,12 +980,16 @@ async function* keepConversationRuntimeAfterStream(
     yield* stream
   } finally {
     const runtime = getWorkspaceChatConversationRuntime(input.conversationId)
-    if (runtime && !runtime.serve && input.handle.current) {
-      const serve = await startConversationOpenCodeServe({
-        handle: input.handle.current,
-        port: input.servePort,
-        isolation: input.isolation,
-      })
+    if (runtime && !runtime.serve) {
+      const serve =
+        (await adoptConversationOpenCodeServe(input.servePort, 1_500)) ??
+        (input.handle.current
+          ? await startConversationOpenCodeServe({
+              handle: input.handle.current,
+              port: input.servePort,
+              isolation: input.isolation,
+            })
+          : null)
       if (serve) {
         setWorkspaceChatConversationRuntime({
           ...runtime,

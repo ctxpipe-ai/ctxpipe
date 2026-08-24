@@ -28,6 +28,29 @@ type SandboxSpawnHandle = TanstackLikeHandle & {
   }
 }
 
+export function workspaceChatOpenCodeServeUrl(port: number): string {
+  return `http://127.0.0.1:${port}`
+}
+
+/** Reuse a serve that is already listening so the next turn does not spawn again. */
+export async function adoptConversationOpenCodeServe(
+  port: number,
+  timeoutMs = 400,
+): Promise<WorkspaceChatOpenCodeServe | null> {
+  const baseUrl = workspaceChatOpenCodeServeUrl(port)
+  const started = Date.now()
+  while (Date.now() - started < timeoutMs) {
+    if (await isOpenCodeServeHealthy(baseUrl)) {
+      return {
+        baseUrl,
+        dispose: async () => {},
+      }
+    }
+    await sleep(150)
+  }
+  return null
+}
+
 export async function startConversationOpenCodeServe(input: {
   handle: TanstackLikeHandle
   port: number
