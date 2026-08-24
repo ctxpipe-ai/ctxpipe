@@ -148,6 +148,11 @@ export function workspaceChatOpenCodeConfig(input: { modelBase: string }): {
     }
   }
   model: string
+  permission: {
+    task: "deny"
+    webfetch: "deny"
+    websearch: "deny"
+  }
 } {
   return {
     $schema: "https://opencode.ai/config.json",
@@ -166,6 +171,13 @@ export function workspaceChatOpenCodeConfig(input: { modelBase: string }): {
       },
     },
     model: workspaceChatOpenCodeModel(input.modelBase),
+    // Subagents and outbound web tools burn TTFT and send tokens off the
+    // configured model proxy. Direct read/grep/glob/bash stay allowed.
+    permission: {
+      task: "deny",
+      webfetch: "deny",
+      websearch: "deny",
+    },
   }
 }
 

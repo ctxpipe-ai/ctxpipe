@@ -109,6 +109,11 @@ describe("workspaceChatOpenCodeContract", () => {
         },
       },
       model: "ctxpipe/openai/gpt-5.6-terra",
+      permission: {
+        task: "deny",
+        webfetch: "deny",
+        websearch: "deny",
+      },
     })
   })
 
