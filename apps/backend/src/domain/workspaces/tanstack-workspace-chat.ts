@@ -67,7 +67,7 @@ import {
 } from "./workspace-chat-inventory.js"
 import { startWorkspaceChatModelProxy } from "./workspace-chat-model-proxy.js"
 import {
-  adoptConversationOpenCodeServe,
+  isOpenCodeServeHealthy,
   startConversationOpenCodeServe,
   streamAttachedOpenCodeTurn,
 } from "./workspace-chat-opencode-attach.js"
@@ -822,12 +822,15 @@ async function prepareTanstackWorkspaceChat(
       tools,
       serve: existingRuntime?.serve ?? null,
     })
-    if (!conversationRuntime.serve && existingRuntime) {
-      const adopted = await adoptConversationOpenCodeServe(servePort)
-      if (adopted) {
+    if (conversationRuntime.serve) {
+      const healthy = await isOpenCodeServeHealthy(
+        conversationRuntime.serve.baseUrl,
+        conversationRuntime.serve.headers,
+      )
+      if (!healthy) {
         conversationRuntime = setWorkspaceChatConversationRuntime({
           ...conversationRuntime,
-          serve: adopted,
+          serve: null,
         })
       }
     }
@@ -980,16 +983,12 @@ async function* keepConversationRuntimeAfterStream(
     yield* stream
   } finally {
     const runtime = getWorkspaceChatConversationRuntime(input.conversationId)
-    if (runtime && !runtime.serve) {
-      const serve =
-        (await adoptConversationOpenCodeServe(input.servePort, 1_500)) ??
-        (input.handle.current
-          ? await startConversationOpenCodeServe({
-              handle: input.handle.current,
-              port: input.servePort,
-              isolation: input.isolation,
-            })
-          : null)
+    if (runtime && !runtime.serve && input.handle.current) {
+      const serve = await startConversationOpenCodeServe({
+        handle: input.handle.current,
+        port: input.servePort,
+        isolation: input.isolation,
+      })
       if (serve) {
         setWorkspaceChatConversationRuntime({
           ...runtime,

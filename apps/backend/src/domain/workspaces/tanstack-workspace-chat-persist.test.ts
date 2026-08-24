@@ -107,7 +107,7 @@ vi.mock("./workspace-chat-opencode-attach.js", () => ({
     yield { type: "TEXT_MESSAGE_CONTENT", delta: "attached" }
   }),
   startConversationOpenCodeServe: vi.fn(async () => null),
-  adoptConversationOpenCodeServe: vi.fn(async () => null),
+  isOpenCodeServeHealthy: vi.fn(async () => false),
 }))
 vi.mock("../../graphs/conversationGraph/nodes/conversationNaming.js", () => ({
   nameConversationIfUnnamed: vi.fn().mockResolvedValue(null),

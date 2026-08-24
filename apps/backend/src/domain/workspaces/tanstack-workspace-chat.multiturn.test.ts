@@ -171,8 +171,9 @@ function restoreHome(): void {
 }
 
 const source = makeGitRepo()
+const live = process.env.OPENCODE_LIVE === "1"
 
-describe("live two-turn workspace chat", () => {
+describe.skipIf(!live)("live two-turn workspace chat", () => {
   beforeAll(async () => {
     server.listen({ onUnhandledRequest: "bypass" })
     initDb(databaseUrl)
