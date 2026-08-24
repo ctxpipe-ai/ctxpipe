@@ -167,6 +167,8 @@ const GitHubRepoItemSchema = z
     clone_url: z.string(),
     name: z.string(),
     default_branch: z.string(),
+    created_at: z.string().nullable(),
+    pushed_at: z.string().nullable(),
   })
   .openapi("GitHubRepoItem")
 

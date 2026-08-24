@@ -4,13 +4,13 @@ Agents read this file before building or restyling user-visible product UI. It r
 
 `apps/ui` is an **Operate** surface: dense, trusted, keyboard-heavy, dark zinc, white primary, teal accent. **Ceiling** (large type, atmosphere) is onboarding and marketing only. Knowledge-graph may stay a bit more spatial but must not reintroduce page-wide glow or grid.
 
-Existing square (`rounded-none`) overrides stay until a later pass. Apply the target below on **new or touched** UI. Do not add more square chrome.
+Product chrome is square. Apply `rounded-none` to new or touched controls, menus, cards, dialogs, and data surfaces.
 
 Implementation process: [`.agents/skills/product-ui/SKILL.md`](../../.agents/skills/product-ui/SKILL.md). React data flow: [`.agents/skills/react/SKILL.md`](../../.agents/skills/react/SKILL.md). Stories: [`.agents/skills/storybook/SKILL.md`](../../.agents/skills/storybook/SKILL.md).
 
 ## Personality (copy these)
 
-- **Radius:** unify on ~8–10px (`--radius: 0.625rem` / `rounded-lg`). One radius per surface. Do not mix `rounded-none` with `rounded-md` on the same screen. Do not add `rounded-none` on new product chrome.
+- **Corners:** square (`rounded-none`). Product chrome does not use rounded corners.
 - **Primary actions:** white / light filled buttons (`bg-primary` / `text-primary-foreground`). Teal (`#40E0D0` / `teal-*`) is the **accent**, not the default filled CTA.
 - **Brand signatures (keep):**
   - Card corner crosses from [`Card.tsx`](src/components/ui/Card.tsx)
@@ -21,7 +21,7 @@ Implementation process: [`.agents/skills/product-ui/SKILL.md`](../../.agents/ski
 
 ## Tokens we keep
 
-Use existing CSS variables and Tailwind theme stops. Do not invent a new palette, typeface, shadow recipe, or third radius.
+Use existing CSS variables and Tailwind theme stops. Do not invent a new palette, typeface, shadow recipe, or corner treatment.
 
 ### Type
 
@@ -95,7 +95,7 @@ Build with `src/components/ui/*` (React Aria). Do not invent a new Button, Input
 
 ## What not to invent
 
-- A new font, hex color, or radius
+- A new font, hex color, or corner treatment
 - A new AppShell, sidebar fill, or page-wide glow/grid
 - Landing-page heroes, glass cards, four-stat strips, or Inter
 - Unbuilt attachments (paperclip with no backend)

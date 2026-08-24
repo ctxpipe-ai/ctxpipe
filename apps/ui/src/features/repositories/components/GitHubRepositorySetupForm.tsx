@@ -8,6 +8,7 @@ import { Checkbox } from "@/components/ui/Checkbox"
 import { InlineLoader } from "@/components/ui/InlineLoader"
 import { Radio, RadioGroup } from "@/components/ui/RadioGroup"
 import { SearchField } from "@/components/ui/SearchField"
+import { Select, SelectItem } from "@/components/ui/Select"
 import { client } from "@/lib/api"
 import { useSession } from "@/lib/auth-client"
 import {
@@ -16,9 +17,11 @@ import {
   countSelectionDelta,
   describeSelectionDelta,
   type GithubRepoItem,
+  type GithubRepoSort,
   githubCloneUrlKey,
   matchSavedRepoIds,
   selectedCloneUrlKeys,
+  sortGithubRepos,
   unmatchedSavedRepos,
 } from "../githubRepoSelection"
 import { GithubRepoPickerList } from "./GithubRepoPickerList"
@@ -91,6 +94,7 @@ export function GitHubRepositorySetupForm({
     () => setupData?.includeFutureRepos ?? false,
   )
   const [searchQuery, setSearchQuery] = useState("")
+  const [sort, setSort] = useState<GithubRepoSort>("pushed-desc")
   const [selectedIds, setSelectedIds] = useState<Set<number>>(() => new Set())
   const [selectionHydrated, setSelectionHydrated] = useState(false)
 
@@ -121,10 +125,12 @@ export function GitHubRepositorySetupForm({
   )
 
   const filteredRepos = useMemo(() => {
-    if (!searchQuery) return allRepos
     const q = searchQuery.toLowerCase()
-    return allRepos.filter((repo) => repo.full_name.toLowerCase().includes(q))
-  }, [allRepos, searchQuery])
+    const matchingRepos = q
+      ? allRepos.filter((repo) => repo.full_name.toLowerCase().includes(q))
+      : allRepos
+    return sortGithubRepos(matchingRepos, sort)
+  }, [allRepos, searchQuery, sort])
 
   const handleToggle = (id: number, selected: boolean) => {
     setSelectedIds((previous) => {
@@ -216,7 +222,7 @@ export function GitHubRepositorySetupForm({
           queryKey: ["github-installation-repos-preview", orgSlug],
         }),
       ])
-      toast.success("Repositories saved. Ingestion has started.")
+      toast.success("Repositories saved and queued for indexing.")
       onSaveSuccess()
     },
     onError: (err: Error) => {
@@ -294,13 +300,26 @@ export function GitHubRepositorySetupForm({
 
         {mode === "select" && (
           <div className="space-y-3">
-            <SearchField
-              value={searchQuery}
-              onChange={setSearchQuery}
-              placeholder="Search repositories"
-              aria-label="Search repositories"
-              className="[&>div]:rounded-none"
-            />
+            <div className="flex flex-col gap-3 sm:flex-row">
+              <SearchField
+                value={searchQuery}
+                onChange={setSearchQuery}
+                placeholder="Search repositories"
+                aria-label="Search repositories"
+                className="min-w-0 flex-1 [&>div]:rounded-none"
+              />
+              <Select
+                aria-label="Sort repositories"
+                selectedKey={sort}
+                onSelectionChange={(key) => setSort(key as GithubRepoSort)}
+                className="shrink-0"
+              >
+                <SelectItem id="pushed-desc">Recently pushed</SelectItem>
+                <SelectItem id="created-desc">Newest created</SelectItem>
+                <SelectItem id="created-asc">Oldest created</SelectItem>
+                <SelectItem id="name-asc">Name A–Z</SelectItem>
+              </Select>
+            </div>
 
             {selectBusy ? (
               <InlineLoader label="Loading repositories" />
@@ -356,7 +375,7 @@ export function GitHubRepositorySetupForm({
               ? "Saving…"
               : variant === "onboarding"
                 ? "Save and continue"
-                : "Save and start ingestion"}
+                : "Save and queue indexing"}
           </Button>
           <Button
             type="button"
