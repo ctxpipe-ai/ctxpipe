@@ -220,10 +220,16 @@ async function* streamWorkspaceChatSocketTurn(input: {
   runId: string
   forwardedProps?: Record<string, unknown>
 }) {
+  // toWebSocketStream already validated the official run. Reconstruct the
+  // same AG-UI body (tools/context/state are required arrays/objects) so the
+  // shared HTTP parser can extract the prompt without a second-frame failure.
   const body = {
     messages: input.messages,
     threadId: input.threadId,
     runId: input.runId,
+    tools: [],
+    context: [],
+    state: {},
     forwardedProps: input.forwardedProps ?? {},
   }
   let parsed: ConversationChatRequest

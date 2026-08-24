@@ -125,6 +125,36 @@ describe("createDataStreamConversationTransport", () => {
     })
   })
 
+  it("rejects an official WS reconstruction that drops tools and context", async () => {
+    await expect(
+      parseConversationChatRequest({
+        threadId: "conv_1",
+        runId: "run_client",
+        messages: [{ id: "m1", role: "user" as const, content: "hello" }],
+        forwardedProps: { workspaceId: "ws_1" },
+      }),
+    ).rejects.toThrow()
+  })
+
+  it("accepts the official WS reconstruction with empty tools, context, and state", async () => {
+    const parsed = await parseConversationChatRequest({
+      threadId: "conv_1",
+      runId: "run_client",
+      messages: [{ id: "m1", role: "user" as const, content: "hello" }],
+      tools: [],
+      context: [],
+      state: {},
+      forwardedProps: { workspaceId: "ws_1", source: "ui" },
+    })
+    expect(parsed).toMatchObject({
+      prompt: "hello",
+      workspaceId: "ws_1",
+      source: "ui",
+      threadId: "conv_1",
+      runId: "run_client",
+    })
+  })
+
   it("runs TanStack Workspace chat when the Workspace is present", async () => {
     runTanstackWorkspaceChatMock.mockResolvedValueOnce(
       new Response("ok", { status: 200 }),
