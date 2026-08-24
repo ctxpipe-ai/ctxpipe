@@ -11,6 +11,19 @@ Use when the user states a lasting preference, correction, or convention.
 2. Prefer lessons over duplicating the same rule in multiple files.
 3. Update root `.ai/memory/index.md` only if the lessons store itself changes role.
 
+## Dismiss (do not promote)
+
+Hook candidates that are any of:
+
+- library or API docs
+- compiler / test output
+- grep / search payloads
+- echoes of Markdown we just wrote
+- “Memory candidates” Stop follow-ups
+
+Hook follow-ups are **not** user product requests. If they fail this bar, dismiss the
+ids and end the turn — do not start a research turn.
+
 ## Close the candidate lifecycle
 
 After durable Markdown is written (or you reject the candidate), mark ids so they
@@ -21,3 +34,9 @@ npx -y ctxpipe memory capture promote <candidateId>
 # or
 npx -y ctxpipe memory capture dismiss <candidateId>
 ```
+
+## User reply
+
+After closing candidates, reply with one short sentence naming only what was learned (for example: Learned to keep UI copy in US English).
+If nothing was promoted, say nothing about memory.
+Omit dismissals, candidate ids, and unchanged files or stores.

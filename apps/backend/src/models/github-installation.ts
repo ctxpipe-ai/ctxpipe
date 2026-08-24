@@ -579,6 +579,8 @@ export type GitHubRepoItem = {
   clone_url: string
   name: string
   default_branch: string
+  created_at: string | null
+  pushed_at: string | null
 }
 
 let cachedApp: App | undefined
@@ -752,6 +754,8 @@ function mapRepoItems(
     clone_url?: string | null
     ssh_url?: string | null
     default_branch?: string | null
+    created_at?: string | null
+    pushed_at?: string | null
   }>,
 ): GitHubRepoItem[] {
   return batch.map((repo) => ({
@@ -761,6 +765,8 @@ function mapRepoItems(
     clone_url: repo.clone_url ?? repo.ssh_url ?? "",
     name: repo.name ?? "",
     default_branch: repo.default_branch ?? "main",
+    created_at: repo.created_at ?? null,
+    pushed_at: repo.pushed_at ?? null,
   }))
 }
 

@@ -40,9 +40,15 @@ describe("memory init (end-to-end)", () => {
     expect(existsSync(join(cwd, ".cursor", "rules", "ai-memory.mdc"))).toBe(
       true,
     )
-    expect(
-      readFileSync(join(cwd, ".cursor", "rules", "ai-memory.mdc"), "utf8"),
-    ).toMatch(/rg -i/)
+    const memoryRule = readFileSync(
+      join(cwd, ".cursor", "rules", "ai-memory.mdc"),
+      "utf8",
+    )
+    expect(memoryRule).toMatch(/rg -i/)
+    expect(memoryRule).toContain("## User reply")
+    expect(memoryRule).toContain(
+      "one short sentence naming only what was learned",
+    )
     expect(
       existsSync(join(cwd, ".cursor", "skills", "capture-adr", "SKILL.md")),
     ).toBe(true)
@@ -433,6 +439,9 @@ enabled = true
       "utf8",
     )
     expect(captureLesson).toContain("memory capture promote")
+    expect(captureLesson).toContain(
+      "one short sentence naming only what was learned",
+    )
     const userCodexToml = readFileSync(
       join(home, ".codex", "config.toml"),
       "utf8",

@@ -454,6 +454,12 @@ Highest-priority confirmed rules for agents. Migrated from former `patterns.md` 
 - **Date:** 2026-08-11
 - **Source:** migrated from patterns.md
 
+### Product UI corners
+- **Rule:** Product chrome is square. Use `rounded-none` for new or touched controls, menus, cards, dialogs, and data surfaces.
+- **Category:** convention
+- **Date:** 2026-08-24
+- **Source:** user correction on repository selector
+
 ### UI icon library
 - **Rule:** use `@tabler/icons-react` (not lucide-react); map Tabler `Icon*` names semantically from prior Lucide glyphs; keep size/class/ARIA props
 - **Category:** convention
@@ -545,10 +551,10 @@ Highest-priority confirmed rules for agents. Migrated from former `patterns.md` 
 - **Source:** repo-page-ux
 
 ### Connector setup wizards
-- **Rule:** Linear, Notion, and Confluence share the same chrome: `ctx-node` mark in the header, semantic colour tokens, no nested zinc cards. Existing `rounded-none` on those wizards stays until a dedicated pass; **new or touched** chrome follows [apps/ui/DESIGN.md](../../apps/ui/DESIGN.md) (`rounded-lg` / `--radius`). Do not add more square overrides. Do not leave Atlassian/Confluence on `rounded-md` callback boxes or filled `bg-zinc-900` panels.
+- **Rule:** Linear, Notion, and Confluence share the same chrome: `ctx-node` mark in the header, semantic colour tokens, no nested zinc cards. New or touched chrome follows [apps/ui/DESIGN.md](../../apps/ui/DESIGN.md) with square corners. Do not leave Atlassian/Confluence on rounded callback boxes or filled `bg-zinc-900` panels.
 - **Category:** convention
 - **Date:** 2026-08-13
-- **Source:** repo-page-ux; updated 2026-08-15 for product-ui radius target
+- **Source:** repo-page-ux; updated 2026-08-24 for square product chrome
 
 ### Product UI skills vs marketing frontend-design
 - **Rule:** Do not install Anthropic `frontend-design` (or similar marketing taste skills) as always-on for `apps/ui`. Use first-party [product-ui](../../.agents/skills/product-ui/SKILL.md) + [DESIGN.md](../../apps/ui/DESIGN.md). Do not paste copyrighted book prose or figures (including Refactoring UI) into skills or the repo; encode tactics as house yes/no rules in our own words.

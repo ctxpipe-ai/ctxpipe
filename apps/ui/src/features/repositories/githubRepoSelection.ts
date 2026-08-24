@@ -9,13 +9,51 @@ export type GithubRepoItem = {
   html_url: string
   clone_url: string
   name: string
+  created_at: string | null
+  pushed_at: string | null
 }
+
+export type GithubRepoSort =
+  | "pushed-desc"
+  | "created-desc"
+  | "created-asc"
+  | "name-asc"
 
 export type SelectedGithubRepo = {
   id?: number
   full_name: string
   name: string
   clone_url: string
+}
+
+function githubDateValue(value: string | null): number | null {
+  if (!value) return null
+  const timestamp = Date.parse(value)
+  return Number.isNaN(timestamp) ? null : timestamp
+}
+
+export function sortGithubRepos(
+  repos: readonly GithubRepoItem[],
+  sort: GithubRepoSort,
+): GithubRepoItem[] {
+  return [...repos].sort((a, b) => {
+    if (sort === "name-asc") {
+      return a.full_name.localeCompare(b.full_name) || a.id - b.id
+    }
+
+    const aDate = githubDateValue(
+      sort === "pushed-desc" ? a.pushed_at : a.created_at,
+    )
+    const bDate = githubDateValue(
+      sort === "pushed-desc" ? b.pushed_at : b.created_at,
+    )
+    if (aDate === null && bDate !== null) return 1
+    if (aDate !== null && bDate === null) return -1
+    if (aDate !== null && bDate !== null && aDate !== bDate) {
+      return sort === "created-asc" ? aDate - bDate : bDate - aDate
+    }
+    return a.full_name.localeCompare(b.full_name) || a.id - b.id
+  })
 }
 
 /** Compare GitHub clone URLs without a trailing `.git` or case differences. */
