@@ -35,12 +35,11 @@ const LinearConfigFileSchema = z.object({
     .object({
       customerRequests: z.enum(["exclude", "limited"]).default("limited"),
       githubLinks: z.literal("references_only").default("references_only"),
-      attachmentBinaries: z.literal(false).default(false),
+      attachmentBinaries: z.unknown().optional(),
     })
     .default({
       customerRequests: "limited",
       githubLinks: "references_only",
-      attachmentBinaries: false,
     }),
 })
 
@@ -163,7 +162,6 @@ export function renderLinearConfigYaml(input: {
     policy: {
       customerRequests: input.customerRequests ?? "limited",
       githubLinks: "references_only",
-      attachmentBinaries: false,
     },
   })
 }

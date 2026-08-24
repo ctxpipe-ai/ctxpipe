@@ -76,6 +76,10 @@ After the deployment integration is ready, each organization can:
 Pages are written as Markdown under `notion/pages/`. Databases are written
 under `notion/databases/`, with one `table.csv` snapshot per database and one
 Markdown file per row for task- and knowledge-oriented retrieval.
+Provider-declared files and explicit embedded external media are copied into an
+`assets/` directory beside the owning page or row, with 25 MiB per-file and
+100 MiB per-page/row limits. Expiring Notion URLs are never persisted; failed,
+unsafe, or oversized downloads leave a Notion page link or caption stub.
 
 ## User guide
 

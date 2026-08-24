@@ -21,7 +21,7 @@ type BaseInput = {
   githubConnectionId?: string
 }
 
-type CommitFile = {
+export type CommitFile = {
   path: string
   content: string
   /** Defaults to utf-8. Use base64 for binary connector assets. */
@@ -155,7 +155,9 @@ async function getOrInitializeBaseBranch(input: {
   return getBranchHead(input)
 }
 
-export async function listFilesInTree(input: BaseInput & { branch: string }) {
+export async function listFilesInTreeWithMetadata(
+  input: BaseInput & { branch: string },
+) {
   return withTransientGitHubRetry(async () => {
     const context = await getInstallationContext(input)
     const head = await getOrInitializeBaseBranch({
@@ -170,10 +172,23 @@ export async function listFilesInTree(input: BaseInput & { branch: string }) {
       tree_sha: head.treeSha,
       recursive: "true",
     })
-    return (data.tree ?? [])
-      .filter((entry) => entry.type === "blob" && Boolean(entry.path))
-      .map((entry) => ({ path: entry.path ?? "", sha: entry.sha ?? "" }))
+    return {
+      files: (data.tree ?? [])
+        .filter((entry) => entry.type === "blob" && Boolean(entry.path))
+        .map((entry) => ({ path: entry.path ?? "", sha: entry.sha ?? "" })),
+      truncated: Boolean(data.truncated),
+    }
   })
+}
+
+export async function listFilesInTree(input: BaseInput & { branch: string }) {
+  const tree = await listFilesInTreeWithMetadata(input)
+  if (tree.truncated) {
+    throw new Error(
+      "GitHub repository tree is truncated; refusing unsafe managed-file reconciliation",
+    )
+  }
+  return tree.files
 }
 
 export async function getFileContent(
@@ -229,22 +244,33 @@ export async function commitFiles(
       branch: input.branch,
     })
 
-    const fileEntries = await Promise.all(
-      input.files.map(async (file) => {
-        const blob = await context.octokit.rest.git.createBlob({
-          owner: context.owner,
-          repo: context.repo,
-          content: file.content,
-          encoding: file.encoding ?? "utf-8",
-        })
-        return {
-          path: file.path,
-          mode: "100644" as const,
-          type: "blob" as const,
-          sha: blob.data.sha,
-        }
-      }),
-    )
+    const fileEntries: Array<{
+      path: string
+      mode: "100644"
+      type: "blob"
+      sha: string
+    }> = []
+    for (let offset = 0; offset < input.files.length; offset += 8) {
+      const batch = input.files.slice(offset, offset + 8)
+      fileEntries.push(
+        ...(await Promise.all(
+          batch.map(async (file) => {
+            const blob = await context.octokit.rest.git.createBlob({
+              owner: context.owner,
+              repo: context.repo,
+              content: file.content,
+              encoding: file.encoding ?? "utf-8",
+            })
+            return {
+              path: file.path,
+              mode: "100644" as const,
+              type: "blob" as const,
+              sha: blob.data.sha,
+            }
+          }),
+        )),
+      )
+    }
 
     const deleteEntries = (input.deletePaths ?? []).map((path) => ({
       path,

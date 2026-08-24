@@ -27,6 +27,14 @@ describe("buildForgeAppManifestYml", () => {
       buildForgeAppManifestYml({ appIdAri: null, remoteBaseUrl: "  " }),
     ).toThrow(/remoteBaseUrl/)
   })
+
+  it("requests Confluence attachment read scope", () => {
+    const y = buildForgeAppManifestYml({
+      appIdAri: null,
+      remoteBaseUrl: exampleOrigin,
+    })
+    expect(y).toContain("read:attachment:confluence")
+  })
 })
 
 describe("forgeAppIdToAri", () => {

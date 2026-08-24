@@ -4,7 +4,9 @@ import { parseEnv } from "../../config/env.js"
 import { withOrgDbContext } from "../../db/client.js"
 import { getForgeInstallationByConnectionId } from "../../models/atlassian-connector.js"
 import { getConfluenceSyncTargetByConnectionId } from "../../models/confluence-sync-target.js"
+import { getLogger } from "../../observability/logger.js"
 import { syncConfluenceContent } from "../../services/confluence/sync.js"
+import { runRepositoryIngestionWorkflow } from "../enqueue-repository-ingestion.js"
 
 const confluenceSyncSpaceInputSchema = z.object({
   orgId: z.string().min(1),
@@ -54,6 +56,24 @@ export const confluenceSyncSpace = defineWorkflow(
         eventType: input.eventType,
       },
     })
+
+    if (result.commitSha) {
+      await runRepositoryIngestionWorkflow(
+        {
+          repositoryId: target.repositoryId,
+          orgId: input.orgId,
+          targetBranch: target.branch,
+          indexingReason: "Applying Confluence updates",
+        },
+        {
+          error: (error) =>
+            getLogger().error(error, {
+              step: "confluence-sync-space.ingestion",
+              connectionId: input.connectionId,
+            }),
+        },
+      )
+    }
 
     return {
       ...result,

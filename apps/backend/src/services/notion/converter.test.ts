@@ -128,7 +128,7 @@ describe("Notion markdown conversion", () => {
   it("does not persist temporary Notion-hosted media URLs", () => {
     const file = toNotionMarkdownFile({
       resource: { externalId: "page-1", title: "Planning" },
-      page,
+      page: { ...page, url: "https://www.notion.so/planning-page-1" },
       blocks: [
         {
           id: "image-1",
@@ -142,8 +142,285 @@ describe("Notion markdown conversion", () => {
       ],
     })
 
-    expect(file.content).toContain("[image: Diagram]")
+    expect(file.content).toContain(
+      "[image: Diagram](https://www.notion.so/planning-page-1)",
+    )
     expect(file.content).not.toContain("temporary.notion.test")
+  })
+
+  it("rewrites captured hosted media to relative asset links", () => {
+    const file = toNotionMarkdownFile({
+      resource: { externalId: "page-1", title: "Planning" },
+      page,
+      assets: new Map([
+        [
+          "image-1",
+          {
+            status: "ok",
+            relativePath: "./assets/image-1--diagram.png",
+            alt: "Diagram",
+            kind: "image",
+          },
+        ],
+        [
+          "file-1",
+          {
+            status: "ok",
+            relativePath: "./assets/file-1--spec.pdf",
+            alt: "Spec",
+            kind: "file",
+          },
+        ],
+        [
+          "video-1",
+          {
+            status: "ok",
+            relativePath: "./assets/video-1--walkthrough.mp4",
+            alt: "Walkthrough",
+            kind: "file",
+          },
+        ],
+        [
+          "pdf-1",
+          {
+            status: "ok",
+            relativePath: "./assets/pdf-1--brief.pdf",
+            alt: "Brief",
+            kind: "file",
+          },
+        ],
+        [
+          "audio-1",
+          {
+            status: "ok",
+            relativePath: "./assets/audio-1--notes.mp3",
+            alt: "Notes",
+            kind: "file",
+          },
+        ],
+      ]),
+      blocks: [
+        {
+          id: "image-1",
+          type: "image",
+          image: {
+            type: "file",
+            file: { url: "https://temporary.notion.test/image" },
+            caption: [{ plain_text: "Diagram" }],
+          },
+        },
+        {
+          id: "file-1",
+          type: "file",
+          file: {
+            type: "file",
+            file: { url: "https://temporary.notion.test/file" },
+            caption: [{ plain_text: "Spec" }],
+          },
+        },
+        {
+          id: "video-1",
+          type: "video",
+          video: {
+            type: "external",
+            external: { url: "https://cdn.example/walkthrough.mp4" },
+            caption: [{ plain_text: "Walkthrough" }],
+          },
+        },
+        {
+          id: "pdf-1",
+          type: "pdf",
+          pdf: {
+            type: "file",
+            file: { url: "https://temporary.notion.test/brief.pdf" },
+            caption: [{ plain_text: "Brief" }],
+          },
+        },
+        {
+          id: "audio-1",
+          type: "audio",
+          audio: {
+            type: "external",
+            external: { url: "https://cdn.example/notes.mp3" },
+            caption: [{ plain_text: "Notes" }],
+          },
+        },
+      ],
+    })
+
+    expect(file.content).toContain("![Diagram](./assets/image-1--diagram.png)")
+    expect(file.content).toContain("[Spec](./assets/file-1--spec.pdf)")
+    expect(file.content).toContain(
+      "[Walkthrough](./assets/video-1--walkthrough.mp4)",
+    )
+    expect(file.content).toContain("[Brief](./assets/pdf-1--brief.pdf)")
+    expect(file.content).toContain("[Notes](./assets/audio-1--notes.mp3)")
+    expect(file.content).not.toContain("temporary.notion.test")
+    expect(file.content).not.toContain("cdn.example")
+  })
+
+  it("renders failed media as a Notion permalink stub", () => {
+    const file = toNotionMarkdownFile({
+      resource: { externalId: "page-1", title: "Planning" },
+      page: { ...page, url: "https://www.notion.so/planning-page-1" },
+      assets: new Map([
+        [
+          "image-1",
+          {
+            status: "stub",
+            alt: "Diagram",
+            permalink: "https://www.notion.so/planning-page-1",
+            kind: "image",
+          },
+        ],
+      ]),
+      blocks: [
+        {
+          id: "image-1",
+          type: "image",
+          image: {
+            type: "external",
+            external: { url: "https://evil.example/diagram.png" },
+            caption: [{ plain_text: "Diagram" }],
+          },
+        },
+      ],
+    })
+
+    expect(file.content).toContain(
+      "[image: Diagram](https://www.notion.so/planning-page-1)",
+    )
+    expect(file.content).not.toContain("evil.example")
+  })
+
+  it("renders captured cover, icon, and database file properties", () => {
+    const pageFile = toNotionMarkdownFile({
+      resource: { externalId: "page-1", title: "Planning" },
+      page,
+      assets: new Map([
+        [
+          "cover",
+          {
+            status: "ok",
+            relativePath: "./assets/cover--banner.png",
+            alt: "Cover",
+            kind: "image",
+          },
+        ],
+        [
+          "icon",
+          {
+            status: "ok",
+            relativePath: "./assets/icon--logo.png",
+            alt: "Icon",
+            kind: "image",
+          },
+        ],
+      ]),
+      blocks: [],
+    })
+    expect(pageFile.content).toContain("![Cover](./assets/cover--banner.png)")
+    expect(pageFile.content).toContain("![Icon](./assets/icon--logo.png)")
+
+    const files = toNotionDatabaseFiles({
+      resource: { externalId: "db-1", title: "Tasks" },
+      rowAssets: new Map([
+        [
+          "row-1",
+          new Map([
+            [
+              "files:Attachments:brief.pdf",
+              {
+                status: "ok" as const,
+                relativePath: "./assets/attachments--brief.pdf",
+                alt: "brief.pdf",
+                kind: "file" as const,
+              },
+            ],
+          ]),
+        ],
+      ]),
+      rows: [
+        {
+          page: {
+            id: "row-1",
+            url: "https://www.notion.so/row-1",
+            properties: {
+              Name: {
+                type: "title",
+                title: [{ plain_text: "Prepare release" }],
+              },
+              Attachments: {
+                type: "files",
+                files: [
+                  {
+                    name: "brief.pdf",
+                    type: "file",
+                    file: { url: "https://temporary.notion.test/brief.pdf" },
+                  },
+                ],
+              },
+            },
+          },
+          blocks: [],
+        },
+      ],
+    })
+    const row = files.find((file) => file.path.includes("/rows/"))
+    expect(row?.content).toContain(
+      "[brief.pdf](./assets/attachments--brief.pdf)",
+    )
+    expect(row?.content).not.toContain("temporary.notion.test")
+  })
+
+  it("looks up files-property assets by stable property id, not array index", () => {
+    const files = toNotionDatabaseFiles({
+      resource: { externalId: "db-1", title: "Tasks" },
+      rowAssets: new Map([
+        [
+          "row-1",
+          new Map([
+            [
+              "files:prop-att:brief.pdf",
+              {
+                status: "ok" as const,
+                relativePath: "./assets/prop-att--brief.pdf",
+                alt: "brief.pdf",
+                kind: "file" as const,
+              },
+            ],
+          ]),
+        ],
+      ]),
+      rows: [
+        {
+          page: {
+            id: "row-1",
+            properties: {
+              Name: {
+                type: "title",
+                title: [{ plain_text: "Prepare release" }],
+              },
+              Evidence: {
+                id: "prop-att",
+                type: "files",
+                files: [
+                  {
+                    name: "brief.pdf",
+                    type: "file",
+                    file: { url: "https://temporary.notion.test/brief.pdf" },
+                  },
+                ],
+              },
+            },
+          },
+          blocks: [],
+        },
+      ],
+    })
+    const row = files.find((file) => file.path.includes("/rows/"))
+    expect(row?.content).toContain("[brief.pdf](./assets/prop-att--brief.pdf)")
+    expect(row?.content).not.toContain("temporary.notion.test")
   })
 
   it("preserves external links and rewrites mirrored Notion page links", () => {

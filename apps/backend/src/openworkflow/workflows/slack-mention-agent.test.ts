@@ -5,6 +5,7 @@ const getConnectionMock = vi.hoisted(() => vi.fn())
 const runAgentMock = vi.hoisted(() => vi.fn())
 const postStatusMock = vi.hoisted(() => vi.fn())
 const updateStatusMock = vi.hoisted(() => vi.fn())
+const runIngestionMock = vi.hoisted(() => vi.fn())
 
 vi.mock("../../config/env.js", () => ({
   parseEnv: () => ({ MODEL_PROVIDER_API_KEY: "sk" }),
@@ -38,6 +39,9 @@ vi.mock("../../services/slack/client.js", () => ({
 vi.mock("../../observability/logger.js", () => ({
   getLogger: () => ({ warn: vi.fn(), info: vi.fn(), error: vi.fn() }),
 }))
+vi.mock("../enqueue-repository-ingestion.js", () => ({
+  runRepositoryIngestionWorkflow: runIngestionMock,
+}))
 
 import { slackMentionAgent } from "./slack-mention-agent.js"
 
@@ -64,9 +68,10 @@ describe("slackMentionAgent workflow", () => {
         status: "completed",
         messageCount: 3,
         githubUrl:
-          "https://github.com/acme/context/blob/abc123/slack/channels/eng--C1/threads/2026/03/1710000000.000100/index.md",
+          "https://github.com/acme/context/blob/abc123/slack/channels/eng--C1/threads/2026/03/1710000000.000100/thread.md",
       },
     })
+    runIngestionMock.mockResolvedValue(undefined)
   })
 
   it("posts working status, runs the agent, then updates to captured", async () => {
@@ -98,8 +103,17 @@ describe("slackMentionAgent workflow", () => {
     expect(updateStatusMock).toHaveBeenCalledWith(
       expect.objectContaining({
         messageTs: "1710000000.000999",
-        text: "Engineering context captured. <https://github.com/acme/context/blob/abc123/slack/channels/eng--C1/threads/2026/03/1710000000.000100/index.md|View in GitHub>",
+        text: "Engineering context captured. <https://github.com/acme/context/blob/abc123/slack/channels/eng--C1/threads/2026/03/1710000000.000100/thread.md|View in GitHub>",
       }),
+    )
+    expect(runIngestionMock).toHaveBeenCalledWith(
+      {
+        repositoryId: "repo_1",
+        orgId: "org_1",
+        targetBranch: "main",
+        indexingReason: "Applying Slack capture",
+      },
+      expect.any(Object),
     )
     expect(result).toMatchObject({ kind: "captured" })
   })
@@ -122,6 +136,7 @@ describe("slackMentionAgent workflow", () => {
         text: expect.stringContaining("Ask me to capture"),
       }),
     )
+    expect(runIngestionMock).not.toHaveBeenCalled()
     expect(result).toEqual({ kind: "capability" })
   })
 
@@ -196,6 +211,7 @@ describe("slackMentionAgent workflow", () => {
         text: "Engineering context capture failed. boom",
       }),
     )
+    expect(runIngestionMock).not.toHaveBeenCalled()
   })
 
   it("throws when the connector is not live", async () => {

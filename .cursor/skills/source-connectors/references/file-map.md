@@ -26,6 +26,7 @@ Partial unique indexes (e.g. one Slack `teamId` per org) belong on `connections`
 |---------|--------|
 | HTTP/SDK client, token refresh | `apps/backend/src/services/<slug>/client.ts` |
 | Markdown/CSV + attachment conversion | `apps/backend/src/services/<slug>/converter.ts` |
+| Shared asset safety, limits, names, binary files | `apps/backend/src/services/connectors/assets.ts` + [asset contract](assets.md) |
 | Git commit (GitHub today) | `commitFiles` in `apps/backend/src/services/github/installation-write-client.ts` |
 | Config yaml schema + load from repo | `config-yaml.ts`, `config-from-repo.ts` |
 | Scoped: full mirror + incremental | `sync.ts`, `incremental.ts` |

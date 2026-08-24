@@ -105,6 +105,65 @@ describe("renderLinearIssue", () => {
     expect(file.content).toContain("https://example.com/design")
   })
 
+  it("rewrites captured uploads to sibling asset paths and keeps GitHub attachments as references", () => {
+    const file = renderLinearIssue(
+      {
+        id: "issue-4",
+        identifier: "ENG-45",
+        title: "Captured screenshot",
+        description:
+          "See ![diagram](https://uploads.linear.app/org/file.png) please",
+        url: "https://linear.app/acme/issue/ENG-45",
+        priorityLabel: "Low",
+        state: "Todo",
+        labels: [],
+        createdAt: new Date("2026-08-01T00:00:00.000Z"),
+        updatedAt: new Date("2026-08-02T00:00:00.000Z"),
+        comments: [],
+        attachments: [
+          {
+            id: "attachment-4",
+            title: "diagram.png",
+            url: "https://uploads.linear.app/org/file.png",
+            sourceType: "upload",
+            metadata: null,
+          },
+          {
+            id: "attachment-gh",
+            title: "acme/product#9",
+            url: "https://github.com/acme/product/pull/9",
+            sourceType: "github",
+            metadata: { state: "open" },
+          },
+        ],
+      },
+      [
+        {
+          sourceUrl: "https://uploads.linear.app/org/file.png",
+          sourceKey: "attachment-4",
+          relativePath: "eng-45--issue-4/assets/attachment-4--diagram.png",
+          gitPath:
+            "linear/issues/eng-45--issue-4/assets/attachment-4--diagram.png",
+          status: "downloaded",
+          filename: "diagram.png",
+          bytes: new Uint8Array([1, 2, 3]),
+        },
+      ],
+    )
+
+    expect(file.path).toBe("linear/issues/eng-45--issue-4.md")
+    expect(file.content).toContain(
+      "![diagram](eng-45--issue-4/assets/attachment-4--diagram.png)",
+    )
+    expect(file.content).not.toContain("https://uploads.linear.app/")
+    expect(file.content).toContain(
+      "path: eng-45--issue-4/assets/attachment-4--diagram.png",
+    )
+    expect(file.content).toContain("githubReferences:")
+    expect(file.content).toContain("https://github.com/acme/product/pull/9")
+    expect(file.content).not.toContain("File omitted")
+  })
+
   it("strips Linear upload URLs from description, comments, and attachment metadata", () => {
     const file = renderLinearIssue({
       id: "issue-3",
@@ -142,7 +201,49 @@ describe("renderLinearIssue", () => {
     expect(file.content).toContain("[image: diagram — view in Linear]")
     expect(file.content).toContain("[shot — view in Linear]")
     expect(file.content).not.toContain("https://uploads.linear.app/")
-    expect(file.content).toContain("Linear-hosted file omitted")
+    expect(file.content).toContain("File omitted")
+  })
+
+  it("does not persist a failed file attachment's signed URL", () => {
+    const signedUrl = "https://cdn.example.com/spec.pdf?token=expiring"
+    const file = renderLinearIssue(
+      {
+        id: "issue-5",
+        identifier: "ENG-46",
+        title: "External file",
+        description: null,
+        url: "https://linear.app/acme/issue/ENG-46",
+        priorityLabel: "Low",
+        labels: [],
+        createdAt: new Date("2026-08-01T00:00:00.000Z"),
+        updatedAt: new Date("2026-08-02T00:00:00.000Z"),
+        comments: [],
+        attachments: [
+          {
+            id: "attachment-5",
+            title: "spec.pdf",
+            url: signedUrl,
+            sourceType: "file",
+            metadata: null,
+          },
+        ],
+      },
+      [
+        {
+          sourceUrl: signedUrl,
+          sourceKey: "attachment-5",
+          relativePath: "eng-46--issue-5/assets/attachment-5--spec.pdf",
+          gitPath:
+            "linear/issues/eng-46--issue-5/assets/attachment-5--spec.pdf",
+          status: "stub",
+          reason: "download_failed",
+        },
+      ],
+    )
+
+    expect(file.content).toContain("File omitted")
+    expect(file.content).not.toContain(signedUrl)
+    expect(file.content).not.toContain("token=expiring")
   })
 })
 

@@ -32,6 +32,8 @@ export type NotionPage = {
   parent?: NotionParent
   last_edited_time?: string
   properties?: Record<string, unknown>
+  cover?: unknown
+  icon?: unknown
 }
 
 export type NotionTokenResponse = {

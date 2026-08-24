@@ -15,6 +15,8 @@ import {
   compareCommitsTouchesPath,
   createPullRequestWithFiles,
   getPullRequestHeadBranch,
+  listFilesInTree,
+  listFilesInTreeWithMetadata,
 } from "./installation-write-client.js"
 
 describe("createPullRequestWithFiles", () => {
@@ -190,9 +192,96 @@ describe("getPullRequestHeadBranch", () => {
   })
 })
 
+describe("listFilesInTree", () => {
+  it("surfaces truncation and refuses unsafe reconciliation", async () => {
+    getInstallationOctokitForOrgMock.mockResolvedValue({
+      installation: { installationId: 42 },
+      octokit: {
+        rest: {
+          git: {
+            getRef: vi.fn(async () => ({
+              data: { object: { sha: "base" } },
+            })),
+            getCommit: vi.fn(async () => ({
+              data: { tree: { sha: "tree" } },
+            })),
+            getTree: vi.fn(async () => ({
+              data: {
+                truncated: true,
+                tree: [{ type: "blob", path: "slack/thread.md", sha: "blob" }],
+              },
+            })),
+          },
+        },
+      },
+    })
+    const input = {
+      orgId: "org_1",
+      repositoryName: "acme/context",
+      env: {} as Env,
+      branch: "main",
+    }
+
+    await expect(listFilesInTreeWithMetadata(input)).resolves.toEqual({
+      files: [{ path: "slack/thread.md", sha: "blob" }],
+      truncated: true,
+    })
+    await expect(listFilesInTree(input)).rejects.toThrow(
+      "refusing unsafe managed-file reconciliation",
+    )
+  })
+})
+
 describe("commitFiles", () => {
   beforeEach(() => {
     vi.clearAllMocks()
+  })
+
+  it("passes binary connector assets to GitHub as base64 blobs", async () => {
+    const createBlob = vi.fn(async () => ({ data: { sha: "blob" } }))
+    getInstallationOctokitForOrgMock.mockResolvedValue({
+      installation: { installationId: 123 },
+      octokit: {
+        rest: {
+          git: {
+            getRef: vi.fn(async () => ({
+              data: { object: { sha: "base" } },
+            })),
+            getCommit: vi.fn(async () => ({
+              data: { tree: { sha: "base-tree" } },
+            })),
+            createBlob,
+            createTree: vi.fn(async () => ({ data: { sha: "tree" } })),
+            createCommit: vi.fn(async () => ({
+              data: { sha: "asset-commit" },
+            })),
+            updateRef: vi.fn(async () => ({ data: {} })),
+          },
+        },
+      },
+    })
+
+    await commitFiles({
+      orgId: "org_test",
+      repositoryName: "acme/docs",
+      env: {} as never,
+      branch: "main",
+      message: "Capture image",
+      files: [
+        {
+          path: "slack/thread/assets/F1--diagram.png",
+          content: "iVBORw==",
+          encoding: "base64",
+        },
+      ],
+    })
+
+    expect(createBlob).toHaveBeenCalledWith({
+      owner: "acme",
+      repo: "docs",
+      content: "iVBORw==",
+      encoding: "base64",
+    })
   })
 
   it("rebuilds the commit on the latest head after a concurrent update", async () => {

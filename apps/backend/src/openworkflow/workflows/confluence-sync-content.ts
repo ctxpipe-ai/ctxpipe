@@ -7,8 +7,10 @@ import {
   finalizeConfluenceSyncTargetAfterContentWorkflow,
   getConfluenceSyncTargetByConnectionId,
 } from "../../models/confluence-sync-target.js"
+import { getLogger } from "../../observability/logger.js"
 import { syncConfluenceContent } from "../../services/confluence/sync.js"
 import { parsedRepoScopeSchema } from "../confluence-scope-repo-schema.js"
+import { runRepositoryIngestionWorkflow } from "../enqueue-repository-ingestion.js"
 
 const confluenceSyncContentInputSchema = z.object({
   orgId: z.string().min(1),
@@ -81,6 +83,26 @@ export const confluenceSyncContent = defineWorkflow(
     )
 
     const status = contentResult.status
+
+    if (contentResult.commitSha) {
+      await step.run({ name: "ingest-confluence-content" }, () =>
+        runRepositoryIngestionWorkflow(
+          {
+            repositoryId: target.repositoryId,
+            orgId: input.orgId,
+            targetBranch: target.branch,
+            indexingReason: "Syncing Confluence content",
+          },
+          {
+            error: (error) =>
+              getLogger().error(error, {
+                step: "confluence-sync-content.ingestion",
+                connectionId: input.connectionId,
+              }),
+          },
+        ),
+      )
+    }
 
     await step.run({ name: "finalize-setup-phase" }, async () =>
       withOrgDbContext(input.orgId, () =>

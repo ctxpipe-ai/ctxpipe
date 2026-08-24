@@ -1,11 +1,14 @@
 ---
 name: source-connectors
-description: Source connectors. Use when designing, implementing, or reviewing an integration that durably imports external provider content into a ctxpipe context repository.
+description: Source connectors. Use when designing, implementing, or reviewing an integration or attachment/media path that durably imports external provider content into a ctxpipe context repository.
 ---
 
 # Source connectors
 
-This skill is how to **build new** source connectors. Do not retrofit Linear, Notion, Slack, or Confluence to match it.
+This skill governs connector content for both new and existing connectors.
+Control-plane architecture is not retrofitted: maintain Confluence's legacy
+tables and Slack's thin intent-capture lifecycle unless that architecture is the
+assigned change.
 
 A **git-native** source connector authorises the provider on **this** deployment, writes selected content as files into a **context repository**, then `runRepositoryIngestionWorkflow` indexes that repo. Same code for hosted and self-host. The provider app and webhook endpoint terminate on this deployment; credentials are deployment-shared or connection-specific according to the provider’s tenant-isolation model.
 
@@ -50,6 +53,9 @@ Encrypt tokens with `encryptConnectionSecret` (`*Enc` fields). Never log or retu
 ## 3. Pipe files into git
 
 Git is the durability and audit store.
+For images, files, attachments, and external embeds, read
+[connector assets](references/assets.md) before designing paths or download
+behaviour.
 
 - **Config** lives in the repo as `<slug>/config.yaml`. Create and change it with a **pull request** (today: GitHub). Draft = yaml on the PR branch; live = yaml on the configured target branch after merge.
 - **Content** (mirrors, entity updates, captures) may commit **directly to that target branch**. Content is not a second review PR.
@@ -58,8 +64,8 @@ Write under a managed root `<slug>/` in the bound context repository (often `ctx
 
 - **Plain text first.** Markdown for documents, issues, threads, comments. YAML for `config.yaml`. CSV only as a tabular companion beside canonical row Markdown (Notion databases).
 - **Deterministic conversion.** Convert provider-native blocks/markup into readable Markdown (or another agreed plain-text form), preserving all user-authored text, ordering, headings, lists, authors, timestamps, links, and code. No LLM rewrite, no API-JSON dumps, no retained HTML unless HTML is itself the source payload.
-- **Stable paths.** Include the provider id so renames do not duplicate. Match a nearby anchor: Linear uses flat `linear/issues/<slug>--<id>.md`; Notion pages and Slack threads use `<slug>--<id>/index.md` directories.
-- **Images and attachments are files.** New connectors download bytes through the authorised client (not anonymous CDN), commit them next to the Markdown, and rewrite links to relative paths. That includes images (`png`/`jpg`/`webp`/`svg`) and other attachments the client can read (PDF, etc.). Never persist private or expiring URLs as file sources. If a blob exceeds the git host’s file-size limit, omit that file and leave a permalink stub — do not fail the whole write.
+- **Stable paths.** Include the provider id so renames do not duplicate. Match a nearby anchor: Linear uses flat `linear/issues/<slug>--<id>.md`; Notion pages use `<slug>--<id>/index.md`; Slack thread directories use `thread.md`.
+- **Images and file attachments are files.** Copy provider-declared file attachments and explicit embedded external media through the shared asset boundary, commit them beside their owning content, and rewrite links to relative paths. Ordinary hyperlinks and link-only attachment records stay links and are never crawled. Never persist private or expiring URLs as file sources. Unsafe, unreadable, or oversized blobs leave a permalink/text stub and do not fail the whole write.
 - **Provenance.** YAML frontmatter: source, stable ids, canonical URL, timestamps. Connector uninstall does not purge git.
 
 Writes go through `commitFiles` in `installation-write-client.ts` (`encoding: "base64"` for binaries). After a successful write, enqueue `runRepositoryIngestionWorkflow`.
@@ -99,7 +105,7 @@ Follow [references/file-map.md](references/file-map.md). Inspect the named ancho
 
 If AWS CDK / deploy images change, add a changeset for `@ctxpipe/aws-cdk`.
 
-**Done when:** every file-map row for this kind is implemented or N/A; converter fixtures, binary/`base64` commits (including an attachment), raw-body signature tests, workflow discovery, empty optional env parsing, and focused UI tests pass. CDK edits: `pnpm --filter @ctxpipe/aws-cdk test`.
+**Done when:** every file-map row for this kind is implemented or N/A; converter fixtures, asset-boundary safety and reconciliation tests, binary/`base64` commits (including an attachment), raw-body signature tests, workflow discovery, empty optional env parsing, and focused UI tests pass. CDK edits: `pnpm --filter @ctxpipe/aws-cdk test`.
 
 ## 7. Record the decision
 

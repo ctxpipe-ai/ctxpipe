@@ -1,6 +1,6 @@
 # ADR-019: Confluence / Forge self-host, per-org Atlassian 3LO, and provision pipeline
 
-**Status:** Accepted | **Date:** 2026-04-25 | **Tags:** confluence, forge, atlassian, oauth, self-host, connectors, database, openworkflow, better-auth
+**Status:** Accepted | **Date:** 2026-04-25 | **Updated:** 2026-08-21 | **Tags:** confluence, forge, atlassian, oauth, self-host, connectors, database, openworkflow, better-auth
 
 ## Context
 
@@ -23,6 +23,7 @@ Self-hosted and single-tenant deployments need **end-to-end** Confluence + Forge
 6. **Provision automation:** A dedicated **OpenWorkflow** workflow (``forge-provision``) runs on the **worker** image. The worker includes **Node** and **`@forge/cli`** (Bun is not used to run the CLI in v1). The workflow **generates** `manifest.yml` (and a minimal `package.json`) from a structured spec in code—**no** copy of `apps/forge-ctxpipe-agent` into the image or workdir. The manifest **injects** the public API origin from `AUTH_BASE_URL` / `CTXPIPE_PUBLIC_APP_URL` into `remotes.baseUrl` (no Forge `environment` placeholder). It then runs `forge register` (when no `app.id` in config) → `forge deploy` → `forge install` to the configured Confluence site, and maps **stderr/exit** to **stable** `provisionErrorCode` values in `connections.config`. The `forge-ctxpipe-agent` app in-repo remains a **reference** for `forge lint` and operator deploys; keep it in sync with the spec.
 
 7. **Documentation and UI:** Self-hosting docs describe ordering (org 3LO → Forge token/site → provision), callback URL(s) to register in the Atlassian console, and error codes. New/updated wizards have **colocated Storybook** stories and MSW in line with `apps/ui/AGENTS.md`.
+8. **Confluence assets:** Page attachment metadata and bytes are read with the Forge app-system token and `read:attachment:confluence`, not the per-user 3LO identity path. Assets remain on this deployment and follow [ADR-026](ADR-026-git-native-connector-assets.md); Atlassian media/download URLs and redirected credentials are never persisted.
 
 ## Consequences
 

@@ -1,9 +1,11 @@
 import { beforeEach, describe, expect, it, vi } from "vitest"
+import { connectorAssetCommitFile } from "../connectors/assets.js"
 
 const mocks = vi.hoisted(() => ({
   retrieveNotionPage: vi.fn(),
   listNotionBlockChildren: vi.fn(),
   queryNotionDatabase: vi.fn(),
+  downloadConnectorAsset: vi.fn(),
 }))
 
 const titles: Record<string, string> = {
@@ -17,6 +19,15 @@ vi.mock("./client.js", () => ({
   queryNotionDatabase: mocks.queryNotionDatabase,
   getNotionPageTitle: (page: { id: string }) => titles[page.id] ?? "Untitled",
 }))
+
+vi.mock("../connectors/assets.js", async (importOriginal) => {
+  const actual =
+    await importOriginal<typeof import("../connectors/assets.js")>()
+  return {
+    ...actual,
+    downloadConnectorAsset: mocks.downloadConnectorAsset,
+  }
+})
 
 import type { NotionConnection } from "../../models/notion-connector.js"
 import type { ParsedNotionRepoConfig } from "./config-yaml.js"
@@ -93,6 +104,12 @@ describe("buildNotionIncrementalChanges", () => {
       }),
     )
     mocks.queryNotionDatabase.mockResolvedValue([])
+    mocks.downloadConnectorAsset.mockResolvedValue({
+      status: "downloaded",
+      bytes: Buffer.from("png-bytes"),
+      filename: "diagram.png",
+      contentType: "image/png",
+    })
   })
 
   it("no-ops when a page is not in the current git scope", async () => {
@@ -212,5 +229,114 @@ describe("buildNotionIncrementalChanges", () => {
     expect(result.deletePaths).toEqual([
       "notion/databases/gone--ds-unknown/index.md",
     ])
+  })
+
+  it("includes captured binaries in the desired set and prunes stale assets", async () => {
+    mocks.retrieveNotionPage.mockResolvedValue({
+      id: "page-root-1",
+      url: "https://www.notion.so/root",
+      parent: { type: "workspace", workspace: true },
+      properties: {
+        Name: { type: "title", title: [{ plain_text: "Root" }] },
+      },
+    })
+    mocks.listNotionBlockChildren.mockResolvedValue([
+      {
+        id: "image-1",
+        type: "image",
+        image: {
+          type: "file",
+          name: "diagram.png",
+          file: {
+            url: "https://prod-files-secure.s3.amazonaws.com/diagram.png",
+          },
+          caption: [{ plain_text: "Diagram" }],
+        },
+      },
+    ])
+
+    const result = await buildNotionIncrementalChanges({
+      env,
+      connection,
+      config,
+      entity: {
+        entityType: "page",
+        externalId: "page-root-1",
+        action: "upsert",
+      },
+      existingPaths: [
+        "notion/pages/root--page-root-1/index.md",
+        "notion/pages/root--page-root-1/assets/old-block--gone.png",
+      ],
+    })
+
+    expect(result.failures).toEqual([])
+    expect(result.files.map((file) => file.path)).toEqual([
+      "notion/pages/root--page-root-1/index.md",
+      "notion/pages/root--page-root-1/assets/image-1--diagram.png",
+    ])
+    expect(result.files[1]).toEqual(
+      connectorAssetCommitFile(
+        "notion/pages/root--page-root-1/assets/image-1--diagram.png",
+        Buffer.from("png-bytes"),
+      ),
+    )
+    const markdown = result.files[0]
+    expect(markdown && "content" in markdown ? markdown.content : "").toContain(
+      "![Diagram](./assets/image-1--diagram.png)",
+    )
+    expect(result.deletePaths).toEqual([
+      "notion/pages/root--page-root-1/assets/old-block--gone.png",
+    ])
+  })
+
+  it("keeps the resource when an asset download fails", async () => {
+    mocks.downloadConnectorAsset.mockResolvedValue({
+      status: "stub",
+      reason: "download_failed",
+    })
+    mocks.retrieveNotionPage.mockResolvedValue({
+      id: "page-root-1",
+      url: "https://www.notion.so/root",
+      parent: { type: "workspace", workspace: true },
+      properties: {
+        Name: { type: "title", title: [{ plain_text: "Root" }] },
+      },
+    })
+    mocks.listNotionBlockChildren.mockResolvedValue([
+      {
+        id: "image-1",
+        type: "image",
+        image: {
+          type: "external",
+          external: { url: "https://images.example/broken.png" },
+          caption: [{ plain_text: "Broken" }],
+        },
+      },
+    ])
+
+    const result = await buildNotionIncrementalChanges({
+      env,
+      connection,
+      config,
+      entity: {
+        entityType: "page",
+        externalId: "page-root-1",
+        action: "upsert",
+      },
+      existingPaths: [],
+    })
+
+    expect(result.failures).toEqual([])
+    expect(result.files.map((file) => file.path)).toEqual([
+      "notion/pages/root--page-root-1/index.md",
+    ])
+    const markdown = result.files[0]
+    expect(markdown && "content" in markdown ? markdown.content : "").toContain(
+      "[image: Broken](https://www.notion.so/root)",
+    )
+    expect(
+      markdown && "content" in markdown ? markdown.content : "",
+    ).not.toContain("images.example")
   })
 })

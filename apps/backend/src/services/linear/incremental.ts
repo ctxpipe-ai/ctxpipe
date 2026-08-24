@@ -2,17 +2,18 @@ import type { CustomerNeed, Issue } from "@linear/sdk"
 import type { Env } from "../../config/env.js"
 import type { LinearConnection } from "../../models/linear-connector.js"
 import {
+  linearEntityMirrorFiles,
+  linearIssueMirrorFiles,
+  linearManagedPathsForEntity,
+} from "./assets.js"
+import {
   collectLinearConnectionPages,
   type LinearTokenRefreshHandler,
   withLinearClient,
 } from "./client.js"
 import type { ParsedLinearRepoConfig } from "./config-yaml.js"
-import {
-  type LinearMirrorFile,
-  renderLinearEntity,
-  renderLinearIssue,
-} from "./converter.js"
 import { renderLinearUpdateSections } from "./content.js"
+import type { LinearMirrorFile } from "./converter.js"
 
 export type LinearIncrementalChanges = {
   files: LinearMirrorFile[]
@@ -150,16 +151,26 @@ export async function buildLinearIncrementalChanges(input: {
       return pending
     }
 
-    function removeExisting(path: string | undefined) {
-      if (path) deletePaths.add(path)
+    function removeExisting(id: string) {
+      for (const path of linearManagedPathsForEntity(input.existingPaths, id)) {
+        deletePaths.add(path)
+      }
+    }
+
+    function pruneStaleManagedPaths(id: string) {
+      for (const path of linearManagedPathsForEntity(input.existingPaths, id)) {
+        if (!files.has(path)) deletePaths.add(path)
+      }
     }
 
     function shouldUpdateExisting(id: string): boolean {
       return Boolean(existingPathForId(input.existingPaths, id))
     }
 
-    function renderCustomerNeed(need: CustomerNeed): LinearMirrorFile {
-      return renderLinearEntity({
+    async function renderCustomerNeed(
+      need: CustomerNeed,
+    ): Promise<LinearMirrorFile[]> {
+      return linearEntityMirrorFiles({
         directory: "customer-requests",
         type: "customer_request",
         id: need.id,
@@ -174,10 +185,11 @@ export async function buildLinearIncrementalChanges(input: {
           createdAt: need.createdAt.toISOString(),
           updatedAt: need.updatedAt.toISOString(),
         },
+        accessToken: input.connection.accessToken,
       })
     }
 
-    async function renderIssue(issue: Issue): Promise<LinearMirrorFile> {
+    async function renderIssue(issue: Issue): Promise<LinearMirrorFile[]> {
       const [
         comments,
         attachments,
@@ -205,76 +217,75 @@ export async function buildLinearIncrementalChanges(input: {
           return user ? user.displayName || user.name || null : null
         }),
       )
-      return renderLinearIssue({
-        id: issue.id,
-        identifier: issue.identifier,
-        title: issue.title,
-        description: issue.description,
-        url: issue.url,
-        priorityLabel: issue.priorityLabel,
-        state: state?.name ?? null,
-        teamId: issue.teamId ?? team?.id ?? null,
-        teamKey: team?.key ?? null,
-        teamName: team?.name ?? null,
-        projectId: issue.projectId ?? project?.id ?? null,
-        projectName: project?.name ?? null,
-        cycleId: issue.cycleId ?? cycle?.id ?? null,
-        cycleName: cycle?.name ?? null,
-        assigneeId: issue.assigneeId ?? assignee?.id ?? null,
-        assignee: assignee
-          ? assignee.displayName || assignee.name || null
-          : null,
-        creatorId: issue.creatorId ?? creator?.id ?? null,
-        creator: creator ? creator.displayName || creator.name || null : null,
-        labels: labels.map((label) => ({
-          id: label.id,
-          name: label.name,
-        })),
-        createdAt: issue.createdAt,
-        updatedAt: issue.updatedAt,
-        comments: comments.map((comment, index) => ({
-          id: comment.id,
-          body: comment.body,
-          userId: comment.userId ?? null,
-          userName: commentAuthors[index] ?? null,
-          createdAt: comment.createdAt,
-          updatedAt: comment.updatedAt,
-        })),
-        attachments: attachments.map((attachment) => ({
-          id: attachment.id,
-          title: attachment.title,
-          url: attachment.url,
-          sourceType: attachment.sourceType ?? null,
-          metadata:
-            attachment.metadata &&
-            typeof attachment.metadata === "object" &&
-            !Array.isArray(attachment.metadata)
-              ? (attachment.metadata as Record<string, unknown>)
-              : null,
-        })),
-      })
+      return linearIssueMirrorFiles(
+        {
+          id: issue.id,
+          identifier: issue.identifier,
+          title: issue.title,
+          description: issue.description,
+          url: issue.url,
+          priorityLabel: issue.priorityLabel,
+          state: state?.name ?? null,
+          teamId: issue.teamId ?? team?.id ?? null,
+          teamKey: team?.key ?? null,
+          teamName: team?.name ?? null,
+          projectId: issue.projectId ?? project?.id ?? null,
+          projectName: project?.name ?? null,
+          cycleId: issue.cycleId ?? cycle?.id ?? null,
+          cycleName: cycle?.name ?? null,
+          assigneeId: issue.assigneeId ?? assignee?.id ?? null,
+          assignee: assignee
+            ? assignee.displayName || assignee.name || null
+            : null,
+          creatorId: issue.creatorId ?? creator?.id ?? null,
+          creator: creator ? creator.displayName || creator.name || null : null,
+          labels: labels.map((label) => ({
+            id: label.id,
+            name: label.name,
+          })),
+          createdAt: issue.createdAt,
+          updatedAt: issue.updatedAt,
+          comments: comments.map((comment, index) => ({
+            id: comment.id,
+            body: comment.body,
+            userId: comment.userId ?? null,
+            userName: commentAuthors[index] ?? null,
+            createdAt: comment.createdAt,
+            updatedAt: comment.updatedAt,
+          })),
+          attachments: attachments.map((attachment) => ({
+            id: attachment.id,
+            title: attachment.title,
+            url: attachment.url,
+            sourceType: attachment.sourceType ?? null,
+            metadata:
+              attachment.metadata &&
+              typeof attachment.metadata === "object" &&
+              !Array.isArray(attachment.metadata)
+                ? (attachment.metadata as Record<string, unknown>)
+                : null,
+          })),
+        },
+        input.connection.accessToken,
+      )
     }
 
     for (const entity of input.entities) {
-      const existingPath = existingPathForId(
-        input.existingPaths,
-        entity.externalId,
-      )
       if (entity.action === "delete") {
-        if (existingPath) deletePaths.add(existingPath)
+        removeExisting(entity.externalId)
         continue
       }
 
       try {
-        let file: LinearMirrorFile | undefined
+        let mirrored: LinearMirrorFile[] | undefined
         switch (entity.entityType) {
           case "team": {
             const team = await client.team(entity.externalId)
             if (!selectedTeams.has(team.id)) {
-              removeExisting(existingPath)
+              removeExisting(entity.externalId)
               break
             }
-            file = renderLinearEntity({
+            mirrored = await linearEntityMirrorFiles({
               directory: "teams",
               type: "team",
               id: team.id,
@@ -289,6 +300,7 @@ export async function buildLinearIncrementalChanges(input: {
                 createdAt: team.createdAt.toISOString(),
                 updatedAt: team.updatedAt.toISOString(),
               },
+              accessToken: input.connection.accessToken,
             })
             break
           }
@@ -298,7 +310,7 @@ export async function buildLinearIncrementalChanges(input: {
               !selectedTeams.has(issue.teamId ?? "") &&
               !(await projectIsInScope(issue.projectId))
             ) {
-              removeExisting(existingPath)
+              removeExisting(entity.externalId)
               break
             }
             if (input.config.customerRequests === "limited") {
@@ -306,11 +318,12 @@ export async function buildLinearIncrementalChanges(input: {
                 issue.needs({ first: 100 }),
               )
               for (const need of needs) {
-                const needFile = renderCustomerNeed(need)
-                files.set(needFile.path, needFile)
+                for (const needFile of await renderCustomerNeed(need)) {
+                  files.set(needFile.path, needFile)
+                }
               }
             }
-            file = await renderIssue(issue)
+            mirrored = await renderIssue(issue)
             break
           }
           case "project": {
@@ -322,7 +335,7 @@ export async function buildLinearIncrementalChanges(input: {
               !(await projectIsSelectedOrInitiative(project.id)) &&
               !teams.some((team) => selectedTeams.has(team.id))
             ) {
-              removeExisting(existingPath)
+              removeExisting(entity.externalId)
               break
             }
             const updates = await collectLinearConnectionPages(() =>
@@ -333,11 +346,12 @@ export async function buildLinearIncrementalChanges(input: {
                 project.needs({ first: 100 }),
               )
               for (const need of needs) {
-                const needFile = renderCustomerNeed(need)
-                files.set(needFile.path, needFile)
+                for (const needFile of await renderCustomerNeed(need)) {
+                  files.set(needFile.path, needFile)
+                }
               }
             }
-            file = renderLinearEntity({
+            mirrored = await linearEntityMirrorFiles({
               directory: "projects",
               type: "project",
               id: project.id,
@@ -354,6 +368,7 @@ export async function buildLinearIncrementalChanges(input: {
                 updatedAt: project.updatedAt.toISOString(),
               },
               sections: renderLinearUpdateSections(updates),
+              accessToken: input.connection.accessToken,
             })
             break
           }
@@ -369,10 +384,10 @@ export async function buildLinearIncrementalChanges(input: {
                 )
               )
             ) {
-              removeExisting(existingPath)
+              removeExisting(entity.externalId)
               break
             }
-            file = renderLinearEntity({
+            mirrored = await linearEntityMirrorFiles({
               directory: "documents",
               type: "document",
               id: document.id,
@@ -384,19 +399,20 @@ export async function buildLinearIncrementalChanges(input: {
                 creatorId: document.creatorId ?? null,
                 updatedAt: document.updatedAt.toISOString(),
               },
+              accessToken: input.connection.accessToken,
             })
             break
           }
           case "initiative": {
             const initiative = await client.initiative(entity.externalId)
             if (!selectedInitiatives.has(initiative.id)) {
-              removeExisting(existingPath)
+              removeExisting(entity.externalId)
               break
             }
             const updates = await collectLinearConnectionPages(() =>
               initiative.initiativeUpdates({ first: 100 }),
             )
-            file = renderLinearEntity({
+            mirrored = await linearEntityMirrorFiles({
               directory: "initiatives",
               type: "initiative",
               id: initiative.id,
@@ -411,16 +427,17 @@ export async function buildLinearIncrementalChanges(input: {
                 updatedAt: initiative.updatedAt.toISOString(),
               },
               sections: renderLinearUpdateSections(updates),
+              accessToken: input.connection.accessToken,
             })
             break
           }
           case "cycle": {
             const cycle = await client.cycle(entity.externalId)
             if (!selectedTeams.has(cycle.teamId ?? "")) {
-              removeExisting(existingPath)
+              removeExisting(entity.externalId)
               break
             }
-            file = renderLinearEntity({
+            mirrored = await linearEntityMirrorFiles({
               directory: "cycles",
               type: "cycle",
               id: cycle.id,
@@ -432,29 +449,31 @@ export async function buildLinearIncrementalChanges(input: {
                 endsAt: cycle.endsAt.toISOString(),
                 completedAt: cycle.completedAt?.toISOString() ?? null,
               },
+              accessToken: input.connection.accessToken,
             })
             break
           }
           case "issueLabel": {
             const label = await client.issueLabel(entity.externalId)
             if (!selectedTeams.has(label.teamId ?? "")) {
-              removeExisting(existingPath)
+              removeExisting(entity.externalId)
               break
             }
-            file = renderLinearEntity({
+            mirrored = await linearEntityMirrorFiles({
               directory: "labels",
               type: "issue_label",
               id: label.id,
               title: label.name,
               body: label.description,
               metadata: { teamId: label.teamId ?? null, color: label.color },
+              accessToken: input.connection.accessToken,
             })
             break
           }
           case "user": {
             if (!shouldUpdateExisting(entity.externalId)) break
             const user = await client.user(entity.externalId)
-            file = renderLinearEntity({
+            mirrored = await linearEntityMirrorFiles({
               directory: "users",
               type: "user",
               id: user.id,
@@ -465,17 +484,16 @@ export async function buildLinearIncrementalChanges(input: {
                 guest: user.guest,
                 avatarUrl: user.avatarUrl ?? null,
               },
+              accessToken: input.connection.accessToken,
             })
             break
           }
           default:
             break
         }
-        if (file) {
-          if (existingPath && existingPath !== file.path) {
-            deletePaths.add(existingPath)
-          }
-          files.set(file.path, file)
+        if (mirrored) {
+          for (const file of mirrored) files.set(file.path, file)
+          pruneStaleManagedPaths(entity.externalId)
         }
       } catch (error) {
         failures.push({

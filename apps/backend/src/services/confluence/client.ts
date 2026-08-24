@@ -1,4 +1,9 @@
 import { resolveAtlassianConfluenceApiBaseUrl } from "../../lib/atlassian-api-base-url.js"
+import {
+  type ConnectorAssetBudget,
+  type ConnectorAssetDownloadResult,
+  downloadConnectorAsset,
+} from "../connectors/assets.js"
 
 export type ConfluenceClientInput = {
   cloudId: string
@@ -24,6 +29,14 @@ export type ConfluencePage = {
 
 export type ConfluencePageWithBody = ConfluencePage & {
   bodyStorage: string
+}
+
+export type ConfluenceAttachment = {
+  id: string
+  title: string
+  fileSize: number | null
+  mediaType: string | null
+  downloadLink: string
 }
 
 const CONFLUENCE_FETCH_MAX_ATTEMPTS = 4
@@ -56,14 +69,19 @@ async function fetchConfluence<T>(
     if (response.ok) {
       return (await response.json()) as T
     }
-    if (shouldRetryConfluenceStatus(response.status) && attempt < CONFLUENCE_FETCH_MAX_ATTEMPTS - 1) {
+    if (
+      shouldRetryConfluenceStatus(response.status) &&
+      attempt < CONFLUENCE_FETCH_MAX_ATTEMPTS - 1
+    ) {
       const delay = confluenceRetryDelayMs(attempt, response)
       await new Promise((r) => setTimeout(r, delay))
       continue
     }
     const text = await response.text().catch(() => "")
     const detail = text ? `: ${text.slice(0, 200)}` : ""
-    throw new Error(`Confluence API request failed (${response.status})${detail}`)
+    throw new Error(
+      `Confluence API request failed (${response.status})${detail}`,
+    )
   }
   throw new Error("Confluence API request failed after retries")
 }
@@ -77,7 +95,12 @@ export async function listConfluenceSpaces(
     const params = new URLSearchParams({ limit: "250" })
     if (cursor) params.set("cursor", cursor)
     const data = await fetchConfluence<{
-      results: Array<{ id: string; key: string; name: string; homepageId?: string }>
+      results: Array<{
+        id: string
+        key: string
+        name: string
+        homepageId?: string
+      }>
       _links?: { next?: string }
     }>(input, `/wiki/api/v2/spaces?${params.toString()}`)
     items.push(
@@ -89,12 +112,16 @@ export async function listConfluenceSpaces(
         // instead of omitting it or using null (see https://jira.atlassian.com/browse/CONFCLOUD-78159 ).
         // Space schema: https://developer.atlassian.com/cloud/confluence/rest/v2/api-group-space/#api-spaces-get
         homepageId:
-          space.homepageId && space.homepageId !== "0" ? space.homepageId : null,
+          space.homepageId && space.homepageId !== "0"
+            ? space.homepageId
+            : null,
       })),
     )
     const next = data._links?.next
     if (!next) break
-    cursor = new URL(next, "https://dummy.invalid").searchParams.get("cursor") ?? undefined
+    cursor =
+      new URL(next, "https://dummy.invalid").searchParams.get("cursor") ??
+      undefined
     if (!cursor) break
   }
   return items
@@ -114,7 +141,12 @@ export async function listConfluencePagesForSpace(input: {
     })
     if (cursor) params.set("cursor", cursor)
     const data = await fetchConfluence<{
-      results: Array<{ id: string; title: string; spaceId?: string; parentId?: string }>
+      results: Array<{
+        id: string
+        title: string
+        spaceId?: string
+        parentId?: string
+      }>
       _links?: { next?: string }
     }>(input.client, `/wiki/api/v2/pages?${params.toString()}`)
     pages.push(
@@ -127,7 +159,9 @@ export async function listConfluencePagesForSpace(input: {
     )
     const next = data._links?.next
     if (!next) break
-    cursor = new URL(next, "https://dummy.invalid").searchParams.get("cursor") ?? undefined
+    cursor =
+      new URL(next, "https://dummy.invalid").searchParams.get("cursor") ??
+      undefined
     if (!cursor) break
   }
   return pages
@@ -154,4 +188,78 @@ export async function getConfluencePageWithBody(input: {
     parentId: data.parentId ?? null,
     bodyStorage: data.body?.storage?.value ?? "",
   }
+}
+
+function nextCursorFromLinks(next: string | undefined): string | undefined {
+  if (!next) return undefined
+  return (
+    new URL(next, "https://dummy.invalid").searchParams.get("cursor") ??
+    undefined
+  )
+}
+
+export async function listConfluencePageAttachments(input: {
+  client: ConfluenceClientInput
+  pageId: string
+}): Promise<ConfluenceAttachment[]> {
+  const attachments: ConfluenceAttachment[] = []
+  let cursor: string | undefined
+  while (true) {
+    const params = new URLSearchParams({ limit: "250" })
+    if (cursor) params.set("cursor", cursor)
+    const data = await fetchConfluence<{
+      results: Array<{
+        id?: string
+        title?: string
+        fileSize?: number
+        mediaType?: string
+        downloadLink?: string
+      }>
+      _links?: { next?: string }
+    }>(
+      input.client,
+      `/wiki/api/v2/pages/${encodeURIComponent(input.pageId)}/attachments?${params.toString()}`,
+    )
+    for (const attachment of data.results ?? []) {
+      if (!attachment.id || !attachment.title || !attachment.downloadLink) {
+        continue
+      }
+      attachments.push({
+        id: attachment.id,
+        title: attachment.title,
+        fileSize:
+          typeof attachment.fileSize === "number" ? attachment.fileSize : null,
+        mediaType: attachment.mediaType ?? null,
+        downloadLink: attachment.downloadLink,
+      })
+    }
+    cursor = nextCursorFromLinks(data._links?.next)
+    if (!cursor) break
+  }
+  return attachments
+}
+
+function resolveConfluenceDownloadUrl(
+  apiBase: string,
+  downloadLink: string,
+): string {
+  if (/^https?:\/\//i.test(downloadLink)) return downloadLink
+  const path = downloadLink.startsWith("/") ? downloadLink : `/${downloadLink}`
+  return `${apiBase}${path}`
+}
+
+export async function downloadConfluenceAttachment(input: {
+  client: ConfluenceClientInput
+  downloadLink: string
+  filename: string
+  budget: ConnectorAssetBudget
+}): Promise<ConnectorAssetDownloadResult> {
+  const apiBase = resolveAtlassianConfluenceApiBaseUrl(input.client)
+  return downloadConnectorAsset({
+    url: resolveConfluenceDownloadUrl(apiBase, input.downloadLink),
+    budget: input.budget,
+    filename: input.filename,
+    headers: { authorization: `Bearer ${input.client.appSystemToken}` },
+    authenticatedHosts: [new URL(apiBase).hostname],
+  })
 }

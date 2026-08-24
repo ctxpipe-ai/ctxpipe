@@ -1,11 +1,15 @@
 import { beforeEach, describe, expect, it, vi } from "vitest"
 import type { Env } from "../../config/env.js"
 import type {
+  LinearBindingWithRepo,
   LinearConnection,
   LinearScope,
-  LinearBindingWithRepo,
 } from "../../models/linear-connector.js"
-import { syncLinearConfigYaml, syncLinearContentToGit } from "./sync.js"
+import {
+  syncLinearConfigYaml,
+  syncLinearContentToGit,
+  syncLinearIncrementalContent,
+} from "./sync.js"
 
 const github = vi.hoisted(() => ({
   closePullRequest: vi.fn(),
@@ -17,6 +21,9 @@ const github = vi.hoisted(() => ({
 }))
 const content = vi.hoisted(() => ({
   buildLinearMirror: vi.fn(),
+}))
+const incremental = vi.hoisted(() => ({
+  buildLinearIncrementalChanges: vi.fn(),
 }))
 const model = vi.hoisted(() => ({
   withLinearBindingSnapshot: vi.fn(
@@ -33,6 +40,7 @@ vi.mock("../github/installation-write-client.js", async (importOriginal) => {
   return { ...actual, ...github }
 })
 vi.mock("./content.js", () => content)
+vi.mock("./incremental.js", () => incremental)
 
 const connection = {
   id: "con_linear",
@@ -96,6 +104,11 @@ beforeEach(() => {
   github.listFilesInTree.mockResolvedValue([])
   github.commitFiles.mockResolvedValue("commit-sha")
   content.buildLinearMirror.mockResolvedValue({ files: [], failures: [] })
+  incremental.buildLinearIncrementalChanges.mockResolvedValue({
+    files: [],
+    deletePaths: [],
+    failures: [],
+  })
   model.withLinearBindingSnapshot.mockImplementation(
     async (_input: unknown, operation: () => Promise<unknown>) => operation(),
   )
@@ -141,6 +154,167 @@ describe("syncLinearContentToGit", () => {
     expect(github.commitFiles).toHaveBeenCalledWith(
       expect.objectContaining({
         deletePaths: ["linear/issues/eng-2--issue-2.md"],
+      }),
+    )
+  })
+
+  it("includes sibling assets in the desired set and prunes stale ones", async () => {
+    content.buildLinearMirror.mockResolvedValue({
+      files: [
+        {
+          path: "linear/issues/eng-1--issue-1.md",
+          content: "current",
+        },
+        {
+          path: "linear/issues/eng-1--issue-1/assets/attachment-4--diagram.png",
+          content: Buffer.from("png-bytes").toString("base64"),
+          encoding: "base64",
+        },
+      ],
+      failures: [],
+    })
+    github.listFilesInTree.mockResolvedValue([
+      { path: "linear/config.yaml", sha: "config" },
+      { path: "linear/issues/eng-1--issue-1.md", sha: "current" },
+      {
+        path: "linear/issues/eng-1--issue-1/assets/stale--old.png",
+        sha: "stale-asset",
+      },
+      { path: "linear/issues/eng-2--issue-2.md", sha: "stale" },
+      {
+        path: "linear/issues/eng-2--issue-2/assets/gone.png",
+        sha: "gone",
+      },
+    ])
+
+    await expect(
+      syncLinearContentToGit({
+        orgId: "org_1",
+        env: {} as Env,
+        connection,
+        target,
+        config,
+      }),
+    ).resolves.toMatchObject({
+      status: "completed",
+      written: 2,
+      deleted: 3,
+    })
+    expect(github.commitFiles).toHaveBeenCalledWith(
+      expect.objectContaining({
+        files: expect.arrayContaining([
+          expect.objectContaining({
+            path: "linear/issues/eng-1--issue-1/assets/attachment-4--diagram.png",
+            encoding: "base64",
+          }),
+        ]),
+        deletePaths: expect.arrayContaining([
+          "linear/issues/eng-1--issue-1/assets/stale--old.png",
+          "linear/issues/eng-2--issue-2.md",
+          "linear/issues/eng-2--issue-2/assets/gone.png",
+        ]),
+      }),
+    )
+    expect(github.commitFiles.mock.calls[0]?.[0].deletePaths).not.toContain(
+      "linear/config.yaml",
+    )
+  })
+
+  it("omits unchanged binary assets from the commit while keeping them in the desired set", async () => {
+    content.buildLinearMirror.mockResolvedValue({
+      files: [
+        {
+          path: "linear/issues/eng-1--issue-1.md",
+          content: "current",
+        },
+        {
+          path: "linear/issues/eng-1--issue-1/assets/attachment-4--diagram.png",
+          content: Buffer.from("hello").toString("base64"),
+          encoding: "base64",
+        },
+      ],
+      failures: [],
+    })
+    github.listFilesInTree.mockResolvedValue([
+      { path: "linear/config.yaml", sha: "config" },
+      { path: "linear/issues/eng-1--issue-1.md", sha: "md" },
+      {
+        path: "linear/issues/eng-1--issue-1/assets/attachment-4--diagram.png",
+        sha: "b6fc4c620b67d95f953a5c1c1230aaab5db5a1b0",
+      },
+      {
+        path: "linear/issues/eng-1--issue-1/assets/stale--old.png",
+        sha: "stale-asset",
+      },
+    ])
+
+    await expect(
+      syncLinearContentToGit({
+        orgId: "org_1",
+        env: {} as Env,
+        connection,
+        target,
+        config,
+      }),
+    ).resolves.toMatchObject({
+      status: "completed",
+      written: 1,
+      deleted: 1,
+    })
+    expect(github.commitFiles).toHaveBeenCalledWith(
+      expect.objectContaining({
+        files: [
+          expect.objectContaining({
+            path: "linear/issues/eng-1--issue-1.md",
+          }),
+        ],
+        deletePaths: ["linear/issues/eng-1--issue-1/assets/stale--old.png"],
+      }),
+    )
+  })
+
+  it("recommits a binary asset when the git blob sha changed", async () => {
+    content.buildLinearMirror.mockResolvedValue({
+      files: [
+        {
+          path: "linear/issues/eng-1--issue-1.md",
+          content: "current",
+        },
+        {
+          path: "linear/issues/eng-1--issue-1/assets/attachment-4--diagram.png",
+          content: Buffer.from("hello").toString("base64"),
+          encoding: "base64",
+        },
+      ],
+      failures: [],
+    })
+    github.listFilesInTree.mockResolvedValue([
+      {
+        path: "linear/issues/eng-1--issue-1/assets/attachment-4--diagram.png",
+        sha: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      },
+    ])
+
+    await expect(
+      syncLinearContentToGit({
+        orgId: "org_1",
+        env: {} as Env,
+        connection,
+        target,
+        config,
+      }),
+    ).resolves.toMatchObject({
+      written: 2,
+      deleted: 0,
+    })
+    expect(github.commitFiles).toHaveBeenCalledWith(
+      expect.objectContaining({
+        files: expect.arrayContaining([
+          expect.objectContaining({
+            path: "linear/issues/eng-1--issue-1/assets/attachment-4--diagram.png",
+            encoding: "base64",
+          }),
+        ]),
       }),
     )
   })
@@ -197,6 +371,114 @@ describe("syncLinearContentToGit", () => {
       }),
     ).rejects.toThrow("target changed")
     expect(github.commitFiles).not.toHaveBeenCalled()
+  })
+})
+
+describe("syncLinearIncrementalContent", () => {
+  const config = {
+    workspaceId: "workspace-1",
+    workspaceName: "Acme",
+    customerRequests: "limited" as const,
+    scopes: [],
+  }
+  const entity = {
+    entityType: "issue" as const,
+    externalId: "issue-1",
+    action: "upsert" as const,
+  }
+
+  it("omits unchanged incremental binaries from the commit without pruning them", async () => {
+    incremental.buildLinearIncrementalChanges.mockResolvedValue({
+      files: [
+        {
+          path: "linear/issues/eng-1--issue-1.md",
+          content: "updated",
+        },
+        {
+          path: "linear/issues/eng-1--issue-1/assets/attachment-4--diagram.png",
+          content: Buffer.from("hello").toString("base64"),
+          encoding: "base64",
+        },
+      ],
+      deletePaths: ["linear/issues/eng-1--issue-1/assets/stale--old.png"],
+      failures: [],
+    })
+    github.listFilesInTree.mockResolvedValue([
+      { path: "linear/issues/eng-1--issue-1.md", sha: "md" },
+      {
+        path: "linear/issues/eng-1--issue-1/assets/attachment-4--diagram.png",
+        sha: "b6fc4c620b67d95f953a5c1c1230aaab5db5a1b0",
+      },
+      {
+        path: "linear/issues/eng-1--issue-1/assets/stale--old.png",
+        sha: "stale-asset",
+      },
+    ])
+
+    await expect(
+      syncLinearIncrementalContent({
+        orgId: "org_1",
+        env: {} as Env,
+        connection,
+        target,
+        config,
+        entity,
+      }),
+    ).resolves.toMatchObject({
+      written: 1,
+      deleted: 1,
+    })
+    expect(github.commitFiles).toHaveBeenCalledWith(
+      expect.objectContaining({
+        files: [
+          expect.objectContaining({
+            path: "linear/issues/eng-1--issue-1.md",
+          }),
+        ],
+        deletePaths: ["linear/issues/eng-1--issue-1/assets/stale--old.png"],
+      }),
+    )
+  })
+
+  it("recommits an incremental binary when the git blob sha changed", async () => {
+    incremental.buildLinearIncrementalChanges.mockResolvedValue({
+      files: [
+        {
+          path: "linear/issues/eng-1--issue-1/assets/attachment-4--diagram.png",
+          content: Buffer.from("hello").toString("base64"),
+          encoding: "base64",
+        },
+      ],
+      deletePaths: [],
+      failures: [],
+    })
+    github.listFilesInTree.mockResolvedValue([
+      {
+        path: "linear/issues/eng-1--issue-1/assets/attachment-4--diagram.png",
+        sha: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      },
+    ])
+
+    await expect(
+      syncLinearIncrementalContent({
+        orgId: "org_1",
+        env: {} as Env,
+        connection,
+        target,
+        config,
+        entity,
+      }),
+    ).resolves.toMatchObject({ written: 1, deleted: 0 })
+    expect(github.commitFiles).toHaveBeenCalledWith(
+      expect.objectContaining({
+        files: [
+          expect.objectContaining({
+            path: "linear/issues/eng-1--issue-1/assets/attachment-4--diagram.png",
+            encoding: "base64",
+          }),
+        ],
+      }),
+    )
   })
 })
 

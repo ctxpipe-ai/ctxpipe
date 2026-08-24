@@ -9,6 +9,7 @@ import type {
 } from "../../models/notion-connector.js"
 import { updateNotionConnectionTokens } from "../../models/notion-connector.js"
 import {
+  type CommitFile,
   closePullRequest,
   commitFiles,
   createPullRequestWithFiles,
@@ -16,6 +17,11 @@ import {
   listFilesInTree,
   parseGithubPullNumberFromUrl,
 } from "../github/installation-write-client.js"
+import {
+  buildNotionDatabaseMirrorFiles,
+  buildNotionPageMirrorFiles,
+  notionCommitFilesExcludingUnchanged,
+} from "./assets.js"
 import type { NotionBlock, NotionPage } from "./client.js"
 import { queryNotionDatabase } from "./client.js"
 import {
@@ -34,8 +40,6 @@ import {
   getNotionDatabaseRowPath,
   getNotionPagePath,
   notionIdKey,
-  toNotionDatabaseFiles,
-  toNotionMarkdownFile,
 } from "./converter.js"
 import {
   buildNotionIncrementalChanges,
@@ -297,27 +301,28 @@ export async function syncNotionContent(input: {
     }
   }
 
-  const filesToWrite: Array<{ path: string; content: string }> = []
+  const filesToWrite: CommitFile[] = []
   for (const { resource, entries } of collectedPages) {
     for (const entry of entries) {
       filesToWrite.push(
-        toNotionMarkdownFile({
+        ...(await buildNotionPageMirrorFiles({
           resource,
           page: entry.page,
           blocks: entry.blocks,
           path: pathByNotionId.get(notionIdKey(entry.page.id)),
           pathByNotionId,
-        }),
+          ancestors: entry.ancestors,
+        })),
       )
     }
   }
   for (const { resource, rows } of collectedDatabases) {
     filesToWrite.push(
-      ...toNotionDatabaseFiles({
+      ...(await buildNotionDatabaseMirrorFiles({
         resource,
         rows,
         pathByNotionId,
-      }),
+      })),
     )
   }
 
@@ -341,19 +346,10 @@ export async function syncNotionContent(input: {
     resourcesFailed,
   })
 
-  const filesToCommit: Array<{ path: string; content: string }> = []
-  for (const file of filesToWrite) {
-    const current = await getFileContent({
-      orgId: input.orgId,
-      env: input.env,
-      repositoryName,
-      branch: input.binding.branch,
-      path: file.path,
-      githubConnectionId,
-    })
-    if (current === file.content) continue
-    filesToCommit.push(file)
-  }
+  const filesToCommit = notionCommitFilesExcludingUnchanged({
+    files: filesToWrite,
+    existingBlobs: allRepoFiles,
+  })
 
   let commitSha: string | undefined
   if (filesToCommit.length > 0 || deletePaths.length > 0) {
@@ -454,19 +450,10 @@ export async function syncNotionIncrementalContent(input: {
 
   // Skip re-committing files whose content already matches so repeated webhooks
   // (e.g. page.content_updated) do not produce empty commits.
-  const filesToCommit: Array<{ path: string; content: string }> = []
-  for (const file of changes.files) {
-    const current = await getFileContent({
-      orgId: input.orgId,
-      env: input.env,
-      repositoryName,
-      branch,
-      path: file.path,
-      githubConnectionId,
-    })
-    if (current === file.content) continue
-    filesToCommit.push(file)
-  }
+  const filesToCommit = notionCommitFilesExcludingUnchanged({
+    files: changes.files,
+    existingBlobs: allRepoFiles,
+  })
 
   let commitSha: string | undefined
   if (filesToCommit.length > 0 || changes.deletePaths.length > 0) {

@@ -1,5 +1,10 @@
 import type { Env } from "../../config/env.js"
 import type { NotionConnection } from "../../models/notion-connector.js"
+import type { CommitFile } from "../github/installation-write-client.js"
+import {
+  buildNotionDatabaseMirrorFiles,
+  buildNotionPageMirrorFiles,
+} from "./assets.js"
 import type { NotionPage } from "./client.js"
 import { queryNotionDatabase, retrieveNotionPage } from "./client.js"
 import type { ParsedNotionRepoConfig } from "./config-yaml.js"
@@ -9,8 +14,6 @@ import {
   getNotionDatabaseRowPath,
   getNotionPagePath,
   notionIdKey,
-  toNotionDatabaseFiles,
-  toNotionMarkdownFile,
 } from "./converter.js"
 import { listBlocksDeep, listNotionPageTree } from "./page-tree.js"
 
@@ -20,7 +23,7 @@ type NotionTokenRefresh = (tokens: {
 }) => Promise<void>
 
 /** File the mirror wants to write, matching the shape `commitFiles` expects. */
-export type NotionMirrorFile = { path: string; content: string }
+export type NotionMirrorFile = CommitFile
 
 /**
  * Webhook entity types Notion delivers for live updates. `data_source` is Notion's
@@ -212,15 +215,20 @@ async function collectPageResourceFiles(input: {
       getNotionPagePath({ page: entry.page, ancestors: entry.ancestors }),
     )
   }
-  return entries.map((entry) =>
-    toNotionMarkdownFile({
-      resource: input.resource,
-      page: entry.page,
-      blocks: entry.blocks,
-      path: pathByNotionId.get(notionIdKey(entry.page.id)),
-      pathByNotionId,
-    }),
-  )
+  const files: NotionMirrorFile[] = []
+  for (const entry of entries) {
+    files.push(
+      ...(await buildNotionPageMirrorFiles({
+        resource: input.resource,
+        page: entry.page,
+        blocks: entry.blocks,
+        path: pathByNotionId.get(notionIdKey(entry.page.id)),
+        pathByNotionId,
+        ancestors: entry.ancestors,
+      })),
+    )
+  }
+  return files
 }
 
 async function collectDatabaseResourceFiles(input: {
@@ -258,7 +266,7 @@ async function collectDatabaseResourceFiles(input: {
       getNotionDatabaseRowPath({ resource: input.resource, page }),
     )
   }
-  return toNotionDatabaseFiles({
+  return buildNotionDatabaseMirrorFiles({
     resource: input.resource,
     rows: rowsWithBlocks,
     pathByNotionId,

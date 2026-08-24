@@ -6,6 +6,7 @@ import {
   getSlackConnectionByConnectionId,
   getSlackSyncTargetByConnectionId,
 } from "../../models/slack-connector.js"
+import { getLogger } from "../../observability/logger.js"
 import {
   postSlackThreadMessage,
   SLACK_CAPTURE_STATUS_FAILED,
@@ -92,6 +93,26 @@ export const slackMentionAgent = defineWorkflow(
 
     if (outcome.kind === "failed") {
       throw new Error(outcome.error ?? "Slack mention agent failed")
+    }
+    if (outcome.kind === "captured") {
+      const { runRepositoryIngestionWorkflow } = await import(
+        "../enqueue-repository-ingestion.js"
+      )
+      await runRepositoryIngestionWorkflow(
+        {
+          repositoryId: target.repositoryId,
+          orgId: input.orgId,
+          targetBranch: target.branch,
+          indexingReason: "Applying Slack capture",
+        },
+        {
+          error: (error) =>
+            getLogger().error(error, {
+              step: "slack-mention-agent.ingestion",
+              connectionId: input.connectionId,
+            }),
+        },
+      )
     }
     return outcome
   },

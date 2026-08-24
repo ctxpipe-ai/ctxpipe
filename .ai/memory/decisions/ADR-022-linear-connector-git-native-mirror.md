@@ -1,6 +1,6 @@
 # ADR-022: Linear connector Git-native mirror
 
-**Status:** Accepted | **Date:** 2026-08-08 | **Tags:** connectors, linear, oauth, webhooks, git, multi-tenant
+**Status:** Accepted | **Date:** 2026-08-08 | **Updated:** 2026-08-21 | **Tags:** connectors, linear, oauth, webhooks, git, multi-tenant
 
 ## Context
 
@@ -14,7 +14,7 @@ ctxpipe needs Linear work context alongside code and existing source connectors.
    - **Draft** = yaml on the configuration pull-request feature branch
    - **Activated** = yaml on the configured target branch after merge
    - Scope is never persisted in PostgreSQL (not a scopes table, not `draftScopes` in config)
-4. Mirror selected teams, projects, documents, and initiatives plus their descendant issues, comments, project updates, cycles, customer requests, labels, referenced users, and attachment metadata under the managed `linear/` root.
+4. Mirror selected teams, projects, documents, and initiatives plus their descendant issues, comments, project updates, cycles, customer requests, labels, referenced users, and attachment metadata under the managed `linear/` root. Provider-declared file uploads and explicit embedded external media follow [ADR-026](ADR-026-git-native-connector-assets.md) in sibling asset directories; ordinary link attachments remain links, and the legacy `attachmentBinaries` config key is accepted for compatibility but no longer controls capture.
 5. Treat GitHub pull requests and commits as references only. Linear files may retain normalised URLs and lightweight state metadata, but must not mirror PR bodies, diffs, reviews, CI output, or commit patches.
 6. After a successful full reconcile on config merge, apply entity updates by enqueueing OpenWorkflow runs from signed Linear webhooks (ACK after enqueue). Non-live setup phases skip webhook events (same trade-off as Confluence). Failed initial syncs enter `sync_failed` and are explicitly retryable.
 7. OAuth is deployment-owned: hosted ctxpipe uses its shared public Linear OAuth app; self-hosted operators provide their own client and webhook credentials.
@@ -31,7 +31,7 @@ ctxpipe needs Linear work context alongside code and existing source connectors.
 
 - The deployment requires Linear OAuth and webhook secrets.
 - Config and sync-target updates must be atomic on `connections.config` and safe under retries/concurrent saves.
-- Customer records are privacy-sensitive; v1 stores only minimal customer metadata required to explain a request and excludes attachment binaries.
+- Customer records and copied attachments are privacy-sensitive; repository access is the durable content boundary. Customer-request scope remains limited and does not widen merely because assets are copied.
 - Events during `initial_sync` are skipped; operators recover via content retry / full remirror after config merge rather than a custom coalesce buffer.
 - Local databases that applied the removed Linear table migrations on this feature branch should reset/migrate fresh.
 

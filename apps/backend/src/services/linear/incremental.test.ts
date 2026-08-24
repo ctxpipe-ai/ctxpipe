@@ -194,6 +194,56 @@ describe("buildLinearIncrementalChanges", () => {
     expect(result.deletePaths).toEqual(["linear/issues/pro-1--issue-1.md"])
   })
 
+  it("deletes sibling assets with the markdown file on rename", async () => {
+    sdk.issue.mockResolvedValue({
+      ...linearIssue,
+      identifier: "PRO-2",
+    })
+
+    const result = await buildLinearIncrementalChanges({
+      env: {} as Env,
+      connection,
+      config: selectedConfig,
+      entities: [issueChange],
+      existingPaths: [
+        "linear/issues/pro-1--issue-1.md",
+        "linear/issues/pro-1--issue-1/assets/attachment-4--diagram.png",
+      ],
+    })
+
+    expect(result.files).toEqual([
+      expect.objectContaining({
+        path: "linear/issues/pro-2--issue-1.md",
+      }),
+    ])
+    expect(result.deletePaths).toEqual([
+      "linear/issues/pro-1--issue-1.md",
+      "linear/issues/pro-1--issue-1/assets/attachment-4--diagram.png",
+    ])
+  })
+
+  it("prunes stale sibling assets that are no longer in the desired set", async () => {
+    const result = await buildLinearIncrementalChanges({
+      env: {} as Env,
+      connection,
+      config: selectedConfig,
+      entities: [issueChange],
+      existingPaths: [
+        "linear/issues/pro-1--issue-1.md",
+        "linear/issues/pro-1--issue-1/assets/stale--old.png",
+      ],
+    })
+
+    expect(result.files).toEqual([
+      expect.objectContaining({
+        path: "linear/issues/pro-1--issue-1.md",
+      }),
+    ])
+    expect(result.deletePaths).toEqual([
+      "linear/issues/pro-1--issue-1/assets/stale--old.png",
+    ])
+  })
+
   it("deletes a matching stable-id path without fetching Linear", async () => {
     const result = await buildLinearIncrementalChanges({
       env: {} as Env,
@@ -207,6 +257,26 @@ describe("buildLinearIncrementalChanges", () => {
     })
 
     expect(result.deletePaths).toEqual(["linear/issues/old-title--issue-1.md"])
+    expect(sdk.issue).not.toHaveBeenCalled()
+  })
+
+  it("deletes sibling assets without fetching Linear", async () => {
+    const result = await buildLinearIncrementalChanges({
+      env: {} as Env,
+      connection,
+      config: selectedConfig,
+      entities: [{ ...issueChange, action: "delete" }],
+      existingPaths: [
+        "linear/config.yaml",
+        "linear/issues/old-title--issue-1.md",
+        "linear/issues/old-title--issue-1/assets/attachment-4--diagram.png",
+      ],
+    })
+
+    expect(result.deletePaths).toEqual([
+      "linear/issues/old-title--issue-1.md",
+      "linear/issues/old-title--issue-1/assets/attachment-4--diagram.png",
+    ])
     expect(sdk.issue).not.toHaveBeenCalled()
   })
 

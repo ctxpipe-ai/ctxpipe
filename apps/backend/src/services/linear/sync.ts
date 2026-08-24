@@ -1,8 +1,8 @@
 import type { Env } from "../../config/env.js"
 import {
+  type LinearBindingWithRepo,
   type LinearConnection,
   type LinearScope,
-  type LinearBindingWithRepo,
   withLinearBindingSnapshot,
 } from "../../models/linear-connector.js"
 import {
@@ -14,6 +14,7 @@ import {
   listFilesInTree,
   parseGithubPullNumberFromUrl,
 } from "../github/installation-write-client.js"
+import { omitUnchangedLinearBinaryFiles } from "./assets.js"
 import type { LinearTokenRefreshHandler } from "./client.js"
 import { LINEAR_CONFIG_PATH } from "./config-from-repo.js"
 import type { ParsedLinearRepoConfig } from "./config-yaml.js"
@@ -168,6 +169,7 @@ export async function syncLinearContentToGit(input: {
               !nextPaths.has(path),
           )
       : []
+  const filesToWrite = omitUnchangedLinearBinaryFiles(mirror.files, existing)
 
   await withLinearBindingSnapshot(
     {
@@ -177,7 +179,7 @@ export async function syncLinearContentToGit(input: {
       setupPhase: "initial_sync",
     },
     async () => {
-      if (mirror.files.length > 0 || deletePaths.length > 0) {
+      if (filesToWrite.length > 0 || deletePaths.length > 0) {
         await commitFiles({
           orgId: input.orgId,
           env: input.env,
@@ -185,7 +187,7 @@ export async function syncLinearContentToGit(input: {
           githubConnectionId,
           branch: input.target.branch,
           message: "chore(linear): sync workspace content",
-          files: mirror.files,
+          files: filesToWrite,
           deletePaths,
         })
       }
@@ -193,7 +195,7 @@ export async function syncLinearContentToGit(input: {
   )
   return {
     status: mirror.failures.length > 0 ? "partial_failed" : "completed",
-    written: mirror.files.length,
+    written: filesToWrite.length,
     deleted: deletePaths.length,
     failures: mirror.failures,
   }
@@ -231,6 +233,7 @@ export async function syncLinearIncrementalContent(input: {
     existingPaths: existing.map((file) => file.path),
     onTokenRefresh: input.onTokenRefresh,
   })
+  const filesToWrite = omitUnchangedLinearBinaryFiles(changes.files, existing)
   await withLinearBindingSnapshot(
     {
       connectionId: input.connection.id,
@@ -239,7 +242,7 @@ export async function syncLinearIncrementalContent(input: {
       setupPhase: "live",
     },
     async () => {
-      if (changes.files.length > 0 || changes.deletePaths.length > 0) {
+      if (filesToWrite.length > 0 || changes.deletePaths.length > 0) {
         await commitFiles({
           orgId: input.orgId,
           env: input.env,
@@ -247,14 +250,14 @@ export async function syncLinearIncrementalContent(input: {
           githubConnectionId,
           branch: input.target.branch,
           message: "chore(linear): apply incremental updates",
-          files: changes.files,
+          files: filesToWrite,
           deletePaths: changes.deletePaths,
         })
       }
     },
   )
   return {
-    written: changes.files.length,
+    written: filesToWrite.length,
     deleted: changes.deletePaths.length,
     failures: changes.failures,
   }

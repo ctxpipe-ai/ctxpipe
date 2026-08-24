@@ -36,6 +36,7 @@ const PERMISSION_SCOPES = [
   "read:app-system-token",
   "read:space:confluence",
   "read:page:confluence",
+  "read:attachment:confluence",
   "read:confluence-content.summary",
   "write:confluence-content",
   "read:confluence-space.summary",

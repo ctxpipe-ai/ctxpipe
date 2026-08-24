@@ -163,11 +163,16 @@ the Slack app’s rate quota across organisations.
 Threads are written under:
 
 ```text
-slack/channels/<slug>--<channelId>/threads/<yyyy>/<mm>/<threadTs>/index.md
+slack/channels/<slug>--<channelId>/threads/<yyyy>/<mm>/<threadTs>/thread.md
+slack/channels/<slug>--<channelId>/threads/<yyyy>/<mm>/<threadTs>/assets/…
 ```
 
-Attachments are recorded as Markdown links to the Slack file permalink. ctx|
-does not download image or file binaries into git.
+Slack files and explicit embedded media are downloaded through the connector and
+committed with relative links. The worker never writes Slack private/download
+URLs into Markdown. Each asset is capped at 25 MiB and each captured thread has
+a 100 MiB asset budget; unavailable, unsafe, or oversized files leave a
+permalink or textual stub. Use a private context repository whenever Slack
+captures may contain sensitive material.
 
 ## Operator troubleshooting
 

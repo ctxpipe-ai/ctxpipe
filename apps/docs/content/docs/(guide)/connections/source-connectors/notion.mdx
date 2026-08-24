@@ -28,11 +28,13 @@ see. Their related content can include:
   file per row (properties plus page body).
 - Headings, lists, tasks, quotes, code, and in-scope page links rewritten to
   relative Git paths when the target is also mirrored.
-- External image and file URLs when Notion stores them as public links.
+- Notion-hosted and explicitly embedded external images, files, video, audio,
+  and PDFs copied into an `assets/` directory beside the owning page or row.
 
-Notion-hosted file and image uploads are not copied into Git. The Markdown keeps
-a caption stub instead of an expiring Notion download URL. Page comments are not
-mirrored.
+Markdown uses relative links to copied assets. Expiring Notion download URLs are
+never written to git. Assets over 25 MiB, pages or rows over their 100 MiB asset
+budget, and unsafe or failed external downloads keep a Notion page link or
+caption stub. Page comments are not mirrored.
 
 <Callout title="Page sharing is the access gate">
   Notion only lists pages and databases already shared with the ctx| integration.
@@ -124,7 +126,8 @@ configuration pull request metadata.
 
 Mirrored files live under `notion/`:
 
-- Pages: `notion/pages/<slug>--<id>/index.md`, with child pages nested under
+- Pages: `notion/pages/<slug>--<id>/index.md`, with assets under the adjacent
+  `assets/` directory and child pages nested under
   their ancestors.
 - Databases: `notion/databases/<slug>--<id>/index.md`, `table.csv`, and
   `rows/<slug>--<id>/index.md`.

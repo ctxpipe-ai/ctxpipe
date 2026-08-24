@@ -1,5 +1,10 @@
-import { describe, expect, it } from "vitest"
-import type { NotionBlock } from "./client.js"
+import { describe, expect, it, vi } from "vitest"
+import { connectorAssetCommitFile, gitBlobSha } from "../connectors/assets.js"
+import {
+  buildNotionPageMirrorFiles,
+  notionCommitFilesExcludingUnchanged,
+} from "./assets.js"
+import type { NotionBlock, NotionPage } from "./client.js"
 import { getNotionChildPageIds, getNotionDeletePaths } from "./sync.js"
 
 describe("Notion page scope traversal", () => {
@@ -47,5 +52,68 @@ describe("Notion stale file cleanup", () => {
         resourcesFailed: 1,
       }),
     ).toEqual([])
+  })
+
+  it("reconciles full-sync desired binaries, prunes stale assets, and skips unchanged blobs", async () => {
+    const bytes = Buffer.from("png-bytes")
+    const page: NotionPage = {
+      id: "page-1",
+      url: "https://www.notion.so/planning-page-1",
+      properties: {
+        Name: { type: "title", title: [{ plain_text: "Planning" }] },
+      },
+    }
+    const files = await buildNotionPageMirrorFiles({
+      resource: { externalId: "page-1", title: "Planning" },
+      page,
+      blocks: [
+        {
+          id: "image-1",
+          type: "image",
+          image: {
+            type: "file",
+            name: "diagram.png",
+            file: {
+              url: "https://prod-files-secure.s3.us-west-2.amazonaws.com/space/diagram.png?X-Amz-Signature=abc",
+            },
+            caption: [{ plain_text: "Diagram" }],
+          },
+        },
+      ],
+      downloadAsset: vi.fn().mockResolvedValue({
+        status: "downloaded",
+        bytes,
+        filename: "diagram.png",
+        contentType: "image/png",
+      }),
+    })
+    const desiredPaths = new Set(files.map((file) => file.path))
+    const assetPath =
+      "notion/pages/planning--page-1/assets/image-1--diagram.png"
+
+    expect([...desiredPaths]).toEqual([
+      "notion/pages/planning--page-1/index.md",
+      assetPath,
+    ])
+    expect(
+      getNotionDeletePaths({
+        managedRepoPaths: [
+          "notion/pages/planning--page-1/index.md",
+          assetPath,
+          "notion/pages/planning--page-1/assets/old-block--gone.png",
+        ],
+        desiredPaths,
+        resourcesFailed: 0,
+      }),
+    ).toEqual(["notion/pages/planning--page-1/assets/old-block--gone.png"])
+    expect(
+      notionCommitFilesExcludingUnchanged({
+        files,
+        existingBlobs: [{ path: assetPath, sha: gitBlobSha(bytes) }],
+      }).map((file) => file.path),
+    ).toEqual(["notion/pages/planning--page-1/index.md"])
+    expect(files.find((file) => file.path === assetPath)).toEqual(
+      connectorAssetCommitFile(assetPath, bytes),
+    )
   })
 })

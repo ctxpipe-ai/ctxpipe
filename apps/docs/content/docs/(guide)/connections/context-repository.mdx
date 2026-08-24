@@ -23,15 +23,17 @@ Each connector owns its own path, so their files do not overlap. For example:
 ctxpipe-context/
 ├── confluence/
 │   ├── config.yaml
+│   ├── <space>/_assets/<pageId>/
 │   └── ...
 ├── notion/
 │   ├── config.yaml
 │   ├── pages/
 │   └── databases/
 ├── linear/
-│   └── config.yaml
+│   ├── config.yaml
+│   └── issues/<issue>/assets/
 └── slack/
-    └── channels/
+    └── channels/<channel>/threads/<date>/<thread>/assets/
 ```
 
 ## Create the repository
@@ -91,6 +93,14 @@ first proposes a configuration file (for example `confluence/config.yaml`,
 records the approved source scope. After it is merged, ctxpipe synchronises the
 selected content under the connector's directory and reindexes repository
 changes.
+
+Provider-declared file attachments and explicit embedded media are copied as
+binary git files and referenced with relative Markdown links. Each file is
+limited to 25 MiB and each source page, entity, or captured thread has a 100 MiB
+asset budget. Private and expiring provider download URLs are never stored.
+Copied binaries preserve repository fidelity but are not automatically parsed
+or made semantically searchable. Treat the repository as carrying the same
+sensitivity as both source text and attachments.
 
 Slack is different: there is no channel-scope config file. After you bind a
 context repository, users capture specific threads by mentioning the bot in

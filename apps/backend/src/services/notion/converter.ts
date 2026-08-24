@@ -1,5 +1,6 @@
-import { posix } from "node:path"
+import { extname, posix } from "node:path"
 import slugify from "@sindresorhus/slugify"
+import { sanitizeConnectorAssetName } from "../connectors/assets.js"
 import type { NotionBlock, NotionPage } from "./client.js"
 import { getNotionPageTitle } from "./client.js"
 
@@ -28,9 +29,127 @@ export function notionIdKey(id: string): string {
   return id.replaceAll("-", "").toLowerCase()
 }
 
+export type NotionFilesPropertyAssetKey = {
+  mapKey: string
+  pathKey: string
+  contentIdentity?: boolean
+}
+
+function notionPropertyStableId(
+  propertyName: string,
+  property: unknown,
+): string {
+  if (
+    property &&
+    typeof property === "object" &&
+    "id" in property &&
+    typeof property.id === "string" &&
+    property.id.length > 0
+  ) {
+    return property.id
+  }
+  return propertyName
+}
+
+function notionFilesItemUploadId(item: unknown): string | undefined {
+  if (!item || typeof item !== "object") return undefined
+  const upload = (item as { file_upload?: unknown }).file_upload
+  if (
+    upload &&
+    typeof upload === "object" &&
+    "id" in upload &&
+    typeof upload.id === "string" &&
+    upload.id.length > 0
+  ) {
+    return upload.id
+  }
+  return undefined
+}
+
+function notionFilesItemName(item: unknown): string {
+  if (
+    item &&
+    typeof item === "object" &&
+    "name" in item &&
+    typeof item.name === "string" &&
+    item.name.length > 0
+  ) {
+    return item.name
+  }
+  return "attachment"
+}
+
+function withDuplicateNameSuffix(base: string, occurrence: number): string {
+  if (occurrence <= 1) return base
+  const extension = extname(base)
+  const stem = extension ? base.slice(0, -extension.length) : base
+  return `${stem}-${occurrence}${extension}`
+}
+
+export function notionFilesPropertyAssetKeys(
+  propertyName: string,
+  property: unknown,
+): NotionFilesPropertyAssetKey[] {
+  if (!property || typeof property !== "object" || !("type" in property)) {
+    return []
+  }
+  const files = (property as { type?: unknown; files?: unknown }).files
+  if (
+    (property as { type?: unknown }).type !== "files" ||
+    !Array.isArray(files)
+  ) {
+    return []
+  }
+  const propertyId = notionPropertyStableId(propertyName, property)
+  const propertyStem = slugify(propertyId, { lowercase: true }) || "files"
+  const nameCounts = new Map<string, number>()
+  const sanitisedNames = files.map((item) => {
+    if (notionFilesItemUploadId(item)) return undefined
+    const sanitised = sanitizeConnectorAssetName(notionFilesItemName(item))
+    nameCounts.set(sanitised, (nameCounts.get(sanitised) ?? 0) + 1)
+    return sanitised
+  })
+  const nameOccurrences = new Map<string, number>()
+  return files.map((item, index) => {
+    const uploadId = notionFilesItemUploadId(item)
+    if (uploadId) {
+      return {
+        mapKey: `files:${propertyId}:${uploadId}`,
+        pathKey: `${propertyStem}--${uploadId}`,
+      }
+    }
+    const sanitised = sanitisedNames[index] ?? "attachment"
+    const next = (nameOccurrences.get(sanitised) ?? 0) + 1
+    nameOccurrences.set(sanitised, next)
+    return {
+      mapKey: `files:${propertyId}:${withDuplicateNameSuffix(sanitised, next)}`,
+      pathKey: `${propertyStem}--${sanitised}`,
+      contentIdentity: (nameCounts.get(sanitised) ?? 0) > 1,
+    }
+  })
+}
+
+export type NotionCapturedAsset =
+  | {
+      status: "ok"
+      relativePath: string
+      alt: string
+      kind: "image" | "file"
+    }
+  | {
+      status: "stub"
+      alt: string
+      permalink: string | null
+      kind: "image" | "file"
+    }
+
+export type NotionAssetMap = ReadonlyMap<string, NotionCapturedAsset>
+
 type NotionLinkContext = {
   currentPath: string
   pathByNotionId?: ReadonlyMap<string, string>
+  assets?: NotionAssetMap
+  pageUrl?: string | null
 }
 
 function richTextPlainText(value: unknown): string {
@@ -102,24 +221,47 @@ function blockText(block: NotionBlock, context: NotionLinkContext): string {
   return richTextMarkdown(data.rich_text, context)
 }
 
-function mediaBlockText(block: NotionBlock): string {
-  const data = block[block.type]
-  if (!data || typeof data !== "object") return `[${block.type}]`
-  const caption = "caption" in data ? richTextPlainText(data.caption) : ""
-  if (
-    "type" in data &&
-    data.type === "external" &&
-    "external" in data &&
-    data.external &&
-    typeof data.external === "object" &&
-    "url" in data.external
-  ) {
-    const url = String(data.external.url)
-    return caption
-      ? `[${block.type}: ${caption}](${url})`
-      : `[${block.type}](${url})`
+function markdownLabel(value: string): string {
+  return value.replaceAll("]", "\\]")
+}
+
+function renderCapturedMedia(
+  blockType: string,
+  caption: string,
+  captured: NotionCapturedAsset | undefined,
+  pageUrl: string | null | undefined,
+): string {
+  const kind = captured?.kind ?? (blockType === "image" ? "image" : "file")
+  const alt = captured?.alt || caption
+  if (captured?.status === "ok") {
+    const label = markdownLabel(alt || blockType)
+    return kind === "image"
+      ? `![${label}](${captured.relativePath})`
+      : `[${label}](${captured.relativePath})`
   }
-  return caption ? `[${block.type}: ${caption}]` : `[${block.type}]`
+  const permalink =
+    captured?.status === "stub" ? captured.permalink : (pageUrl ?? null)
+  const stubLabel = caption ? `${blockType}: ${caption}` : blockType
+  return permalink
+    ? `[${markdownLabel(stubLabel)}](${permalink})`
+    : `[${stubLabel}]`
+}
+
+function mediaBlockText(
+  block: NotionBlock,
+  context: NotionLinkContext,
+): string {
+  const data = block[block.type]
+  const caption =
+    data && typeof data === "object" && "caption" in data
+      ? richTextPlainText(data.caption)
+      : ""
+  return renderCapturedMedia(
+    block.type,
+    caption,
+    context.assets?.get(block.id),
+    context.pageUrl,
+  )
 }
 
 function markdownForBlock(
@@ -198,8 +340,10 @@ function markdownForBlock(
     }
     case "image":
     case "file":
-    case "video": {
-      line = mediaBlockText(block)
+    case "video":
+    case "pdf":
+    case "audio": {
+      line = mediaBlockText(block, context)
       break
     }
     default:
@@ -261,6 +405,17 @@ export function notionPropertyPlainText(value: unknown): string {
       .filter(Boolean)
       .join(", ")
   }
+  if (property.type === "files") {
+    if (!Array.isArray(typedValue)) return ""
+    return typedValue
+      .map((item) =>
+        item && typeof item === "object" && "name" in item
+          ? String(item.name)
+          : "",
+      )
+      .filter(Boolean)
+      .join(", ")
+  }
   if (property.type === "formula") return notionPropertyPlainText(typedValue)
   if (property.type === "rollup") {
     if (!typedValue || typeof typedValue !== "object") return ""
@@ -282,11 +437,18 @@ export function toNotionMarkdownFile(input: {
   blocks: NotionBlock[]
   path?: string
   pathByNotionId?: ReadonlyMap<string, string>
+  assets?: NotionAssetMap
 }): { path: string; content: string } {
   const title = getNotionPageTitle(input.page) || input.resource.title
   const path =
     input.path ??
     `${MANAGED_ROOT}/pages/${titleSlug(title)}--${input.resource.externalId}/index.md`
+  const context: NotionLinkContext = {
+    currentPath: path,
+    pathByNotionId: input.pathByNotionId,
+    assets: input.assets,
+    pageUrl: input.page.url ?? input.resource.url,
+  }
   const frontmatter = [
     "---",
     `source: notion`,
@@ -301,20 +463,28 @@ export function toNotionMarkdownFile(input: {
     .filter((line): line is string => line != null)
     .join("\n")
 
+  const chrome = ["cover", "icon"]
+    .map((key) => {
+      const captured = input.assets?.get(key)
+      if (!captured) return ""
+      return renderCapturedMedia(
+        captured.kind === "image" ? "image" : "file",
+        captured.alt,
+        captured,
+        context.pageUrl,
+      )
+    })
+    .filter(Boolean)
   const body = input.blocks
-    .map((block) =>
-      markdownForBlock(block, {
-        currentPath: path,
-        pathByNotionId: input.pathByNotionId,
-      }),
-    )
+    .map((block) => markdownForBlock(block, context))
     .map((text) => text.trimEnd())
     .filter(Boolean)
     .join("\n\n")
+  const bodyParts = [...chrome, body].filter(Boolean).join("\n\n")
 
   return {
     path,
-    content: `${frontmatter}\n\n# ${title}\n\n${body}\n`,
+    content: `${frontmatter}\n\n# ${title}\n\n${bodyParts}\n`,
   }
 }
 
@@ -347,33 +517,83 @@ export function getNotionDatabaseRowPath(input: {
   return `${MANAGED_ROOT}/databases/${databaseSegment(input.resource)}/rows/${rowSegment(input.page)}/index.md`
 }
 
+function filesPropertyItems(value: unknown): Array<{ name: string }> {
+  if (!value || typeof value !== "object" || !("type" in value)) return []
+  const property = value as { type?: unknown; files?: unknown }
+  if (property.type !== "files" || !Array.isArray(property.files)) return []
+  return property.files.map((item) => ({
+    name: notionFilesItemName(item),
+  }))
+}
+
+function propertyMarkdownLine(
+  name: string,
+  value: unknown,
+  assets: NotionAssetMap | undefined,
+  pageUrl: string | null | undefined,
+): string {
+  const keys = notionFilesPropertyAssetKeys(name, value)
+  if (keys.length > 0) {
+    const files = filesPropertyItems(value)
+    const links = keys.map((key, index) => {
+      const captured = assets?.get(key.mapKey)
+      const label = markdownLabel(captured?.alt || files[index]?.name || "file")
+      if (captured?.status === "ok")
+        return `[${label}](${captured.relativePath})`
+      const permalink =
+        captured?.status === "stub" ? captured.permalink : (pageUrl ?? null)
+      return permalink ? `[${label}](${permalink})` : label
+    })
+    return `- **${name}:** ${links.join(", ")}`
+  }
+  const text = notionPropertyPlainText(value)
+  return text ? `- **${name}:** ${text}` : ""
+}
+
 export function toNotionDatabaseRowMarkdownFile(input: {
   resource: { externalId: string; title: string; url?: string | null }
   page: NotionPage
   blocks: NotionBlock[]
   pathByNotionId?: ReadonlyMap<string, string>
+  assets?: NotionAssetMap
 }): { path: string; content: string } {
   const title = getNotionPageTitle(input.page)
   const path = getNotionDatabaseRowPath(input)
-  const propertyEntries = Object.entries(input.page.properties ?? {}).map(
-    ([name, value]) => [name, notionPropertyPlainText(value)] as const,
-  )
+  const context: NotionLinkContext = {
+    currentPath: path,
+    pathByNotionId: input.pathByNotionId,
+    assets: input.assets,
+    pageUrl: input.page.url ?? input.resource.url,
+  }
+  const propertyEntries = Object.entries(input.page.properties ?? {})
   const properties = propertyEntries
-    .map(([name, value]) => {
-      return value ? `- **${name}:** ${value}` : ""
-    })
+    .map(([name, value]) =>
+      propertyMarkdownLine(name, value, input.assets, context.pageUrl),
+    )
     .filter(Boolean)
   const frontmatterProperties = Object.fromEntries(
-    propertyEntries.filter(([, value]) => value),
+    propertyEntries
+      .map(([name, value]) => [name, notionPropertyPlainText(value)] as const)
+      .filter(([, value]) => value),
   )
+  const chrome = ["cover", "icon"]
+    .map((key) => {
+      const captured = input.assets?.get(key)
+      if (!captured) return ""
+      return renderCapturedMedia(
+        captured.kind === "image" ? "image" : "file",
+        captured.alt,
+        captured,
+        context.pageUrl,
+      )
+    })
+    .filter(Boolean)
   const body = input.blocks
-    .map((block) =>
-      markdownForBlock(block, {
-        currentPath: path,
-        pathByNotionId: input.pathByNotionId,
-      }),
-    )
+    .map((block) => markdownForBlock(block, context))
     .map((text) => text.trimEnd())
+    .filter(Boolean)
+    .join("\n\n")
+  const bodyParts = [...chrome, properties.join("\n"), body]
     .filter(Boolean)
     .join("\n\n")
   const frontmatter = [
@@ -393,7 +613,7 @@ export function toNotionDatabaseRowMarkdownFile(input: {
     .join("\n")
   return {
     path,
-    content: `${frontmatter}\n\n# ${title}\n\n${properties.join("\n")}\n\n${body}\n`,
+    content: `${frontmatter}\n\n# ${title}\n\n${bodyParts}\n`,
   }
 }
 
@@ -480,6 +700,7 @@ export function toNotionDatabaseFiles(input: {
   resource: { externalId: string; title: string; url?: string | null }
   rows: Array<{ page: NotionPage; blocks: NotionBlock[] }>
   pathByNotionId?: ReadonlyMap<string, string>
+  rowAssets?: ReadonlyMap<string, NotionAssetMap>
 }): Array<{ path: string; content: string }> {
   return [
     toNotionDatabaseIndexMarkdownFile(input),
@@ -490,6 +711,7 @@ export function toNotionDatabaseFiles(input: {
         page,
         blocks,
         pathByNotionId: input.pathByNotionId,
+        assets: input.rowAssets?.get(page.id),
       }),
     ),
   ]

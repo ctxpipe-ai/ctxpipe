@@ -259,6 +259,19 @@ export function botTokenFromConnection(
   return token
 }
 
+export type SlackApiFile = {
+  id?: string
+  name?: string
+  title?: string
+  mimetype?: string
+  size?: number
+  /** Stable Slack UI link (preferred for git stubs). */
+  permalink?: string
+  permalink_public?: string
+  url_private?: string
+  url_private_download?: string
+}
+
 export type SlackApiMessage = {
   ts: string
   user?: string
@@ -266,16 +279,12 @@ export type SlackApiMessage = {
   thread_ts?: string
   reply_count?: number
   subtype?: string
-  files?: Array<{
-    id: string
-    name?: string
-    mimetype?: string
-    size?: number
-    /** Stable Slack UI link (preferred for git stubs). */
-    permalink?: string
-    permalink_public?: string
-    url_private?: string
-    url_private_download?: string
+  files?: SlackApiFile[]
+  blocks?: unknown[]
+  attachments?: Array<{
+    image_url?: string
+    title?: string
+    files?: SlackApiFile[]
   }>
 }
 
@@ -505,18 +514,10 @@ export async function resolveSlackUserDisplayName(input: {
   env: Env
   connection: SlackConnectionShape
   userId: string
-  cache: Map<string, string>
+  cache: Map<string, SlackUserProfile>
 }): Promise<string> {
-  const cached = input.cache.get(input.userId)
-  if (cached) return cached
-  const profileCache = new Map<string, SlackUserProfile>()
-  const profile = await resolveSlackUserProfile({
-    ...input,
-    cache: profileCache,
-  })
-  const display = profile ? `${profile.name} (@${profile.handle})` : "unknown"
-  input.cache.set(input.userId, display)
-  return display
+  const profile = await resolveSlackUserProfile(input)
+  return profile ? `${profile.name} (@${profile.handle})` : "unknown"
 }
 
 export async function getSlackPermalink(input: {

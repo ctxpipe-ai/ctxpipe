@@ -26,7 +26,8 @@ content can include:
 - Project and initiative updates.
 - Cycles, labels, and referenced users.
 - Customer requests when their parent scope is selected.
-- Attachment metadata and links.
+- Linear attachments and explicit embedded external media copied into git with
+  relative links.
 
 GitHub pull requests, commits, reviews, diffs, CI output, and patches are not
 copied through Linear. When Linear references GitHub work, ctx| stores only
@@ -121,6 +122,13 @@ Mirrored files live under `linear/`, grouped into stable paths such as
 `teams/`, `projects/`, `issues/`, `documents/`, `initiatives/`, `cycles/`,
 `labels/`, `users/`, and `customer-requests/`. Paths include stable Linear IDs,
 so renaming an issue or project does not create a second copy.
+
+Linear file uploads and explicit embedded media live in a sibling
+`<entity>/assets/` directory beside the entity's Markdown file. Ordinary
+link-only attachments remain links and are never crawled. Each asset is capped
+at 25 MiB and each entity has a 100 MiB asset budget. Unsafe, unavailable, or
+oversized downloads leave a Linear link or textual stub. GitHub pull requests
+and commits remain references rather than copied attachments.
 
 Do not hand-edit generated content. Change scope through **Manage scope** and
 review the replacement configuration pull request.

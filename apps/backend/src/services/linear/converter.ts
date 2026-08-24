@@ -1,9 +1,11 @@
 import slugify from "@sindresorhus/slugify"
 import { stringify } from "yaml"
+import { rewriteLinearMarkdownImages } from "./markdown-images.js"
 
 export type LinearMirrorFile = {
   path: string
   content: string
+  encoding?: "utf-8" | "base64"
 }
 
 export type LinearAttachmentMetadata = {
@@ -13,6 +15,25 @@ export type LinearAttachmentMetadata = {
   sourceType?: string | null
   metadata?: Record<string, unknown> | null
 }
+
+export type LinearResolvedAsset =
+  | {
+      sourceUrl: string
+      sourceKey: string
+      relativePath: string
+      gitPath: string
+      status: "downloaded"
+      filename: string
+      bytes: Uint8Array
+    }
+  | {
+      sourceUrl: string
+      sourceKey: string
+      relativePath: string
+      gitPath: string
+      status: "stub"
+      reason: string
+    }
 
 export type LinearIssueForMirror = {
   id: string
@@ -54,11 +75,26 @@ function stableSlug(title: string, id: string): string {
   return `${readable}--${id}`
 }
 
+export function linearIssueMarkdownPath(
+  identifier: string,
+  id: string,
+): string {
+  return `linear/issues/${stableSlug(identifier, id)}.md`
+}
+
+export function linearEntityMarkdownPath(
+  directory: string,
+  title: string,
+  id: string,
+): string {
+  return `linear/${directory}/${stableSlug(title, id)}.md`
+}
+
 function frontmatter(metadata: Record<string, unknown>): string {
   return `---\n${stringify(metadata).trimEnd()}\n---`
 }
 
-function isLinearUploadUrl(url: string): boolean {
+export function isLinearUploadUrl(url: string): boolean {
   try {
     return LINEAR_UPLOAD_HOST.test(new URL(url).hostname)
   } catch {
@@ -66,27 +102,69 @@ function isLinearUploadUrl(url: string): boolean {
   }
 }
 
+function rewriteLinearUploadLinks(markdown: string): string {
+  return markdown.replace(
+    /\[([^\]]+)\]\((https?:\/\/[^)\s]+)\)/g,
+    (full, label: string, url: string) => {
+      if (!isLinearUploadUrl(url)) return full
+      return `[${label} — view in Linear]`
+    },
+  )
+}
+
 /** Rewrite auth-gated Linear upload URLs so GitHub/markdown viewers do not show broken images. */
 export function rewriteLinearPrivateMedia(
   markdown: string | null | undefined,
 ): string {
   if (!markdown) return ""
-  return markdown
-    .replace(
-      /!\[([^\]]*)\]\((https?:\/\/[^)\s]+)\)/g,
-      (full, alt: string, url: string) => {
-        if (!isLinearUploadUrl(url)) return full
-        const label = alt.trim() || "image"
-        return `[image: ${label} — view in Linear]`
-      },
-    )
-    .replace(
-      /\[([^\]]+)\]\((https?:\/\/[^)\s]+)\)/g,
-      (full, label: string, url: string) => {
-        if (!isLinearUploadUrl(url)) return full
-        return `[${label} — view in Linear]`
-      },
-    )
+  const withoutPrivateImages = rewriteLinearMarkdownImages(
+    markdown,
+    (image) =>
+      isLinearUploadUrl(image.url)
+        ? `[image: ${image.alt.trim() || "image"} — view in Linear]`
+        : image.source,
+    (link) =>
+      isLinearUploadUrl(link.url)
+        ? `[${link.label.trim() || "link"} — view in Linear]`
+        : link.source,
+  )
+  return rewriteLinearUploadLinks(withoutPrivateImages)
+}
+
+export function applyLinearAssetRewrites(
+  markdown: string | null | undefined,
+  assets: readonly LinearResolvedAsset[] = [],
+): string {
+  if (!markdown) return ""
+  const assetsByUrl = new Map(assets.map((asset) => [asset.sourceUrl, asset]))
+  const rewritten = rewriteLinearMarkdownImages(
+    markdown,
+    (image) => {
+      const asset = assetsByUrl.get(image.url)
+      if (asset?.status === "downloaded") {
+        return `![${image.alt}](${asset.relativePath})`
+      }
+      if (asset?.status === "stub") {
+        return isLinearUploadUrl(image.url)
+          ? `[image: ${image.alt.trim() || "image"} — view in Linear]`
+          : `[image: ${image.alt.trim() || "image"} — unavailable]`
+      }
+      return image.source
+    },
+    (link) => {
+      const asset = assetsByUrl.get(link.url)
+      if (asset?.status === "downloaded") {
+        return `[${link.label}](${asset.relativePath})`
+      }
+      if (asset?.status === "stub") {
+        return isLinearUploadUrl(link.url)
+          ? `[${link.label.trim() || "link"} — view in Linear]`
+          : `[${link.label.trim() || "link"} — unavailable]`
+      }
+      return link.source
+    },
+  )
+  return rewriteLinearPrivateMedia(rewritten)
 }
 
 function githubReference(attachment: LinearAttachmentMetadata):
@@ -123,28 +201,51 @@ function githubReference(attachment: LinearAttachmentMetadata):
   return { kind, url: attachment.url, title: attachment.title, state }
 }
 
+export function isLinearGithubReferenceAttachment(
+  attachment: LinearAttachmentMetadata,
+): boolean {
+  return githubReference(attachment) !== undefined
+}
+
+function attachmentFrontmatter(
+  attachment: LinearAttachmentMetadata,
+  assetsByUrl: Map<string, LinearResolvedAsset>,
+): Record<string, unknown> {
+  const resolved = assetsByUrl.get(attachment.url)
+  if (resolved?.status === "downloaded") {
+    return {
+      id: attachment.id,
+      title: attachment.title,
+      path: resolved.relativePath,
+      sourceType: attachment.sourceType ?? null,
+    }
+  }
+  const unavailableFile =
+    resolved?.status === "stub" || isLinearUploadUrl(attachment.url)
+  return {
+    id: attachment.id,
+    title: attachment.title,
+    url: unavailableFile ? null : attachment.url,
+    sourceType: attachment.sourceType ?? null,
+    ...(unavailableFile
+      ? {
+          note: "File omitted; open the issue in Linear to view it.",
+        }
+      : {}),
+  }
+}
+
 export function renderLinearIssue(
   issue: LinearIssueForMirror,
+  assets: readonly LinearResolvedAsset[] = [],
 ): LinearMirrorFile {
+  const assetsByUrl = new Map(assets.map((asset) => [asset.sourceUrl, asset]))
   const githubReferences = issue.attachments
     .map(githubReference)
     .filter((reference) => reference !== undefined)
   const attachmentMetadata = issue.attachments
     .filter((attachment) => !githubReference(attachment))
-    .map((attachment) => {
-      const privateUpload = isLinearUploadUrl(attachment.url)
-      return {
-        id: attachment.id,
-        title: attachment.title,
-        url: privateUpload ? null : attachment.url,
-        sourceType: attachment.sourceType ?? null,
-        ...(privateUpload
-          ? {
-              note: "Linear-hosted file omitted; open the issue in Linear to view it.",
-            }
-          : {}),
-      }
-    })
+    .map((attachment) => attachmentFrontmatter(attachment, assetsByUrl))
   const sections = [
     frontmatter({
       source: "linear",
@@ -174,7 +275,7 @@ export function renderLinearIssue(
       attachments: attachmentMetadata,
     }),
     `# ${issue.identifier}: ${issue.title}`,
-    rewriteLinearPrivateMedia(issue.description)?.trim() ||
+    applyLinearAssetRewrites(issue.description, assets).trim() ||
       "_No description._",
   ]
   if (issue.comments.length > 0) {
@@ -182,34 +283,37 @@ export function renderLinearIssue(
       "## Comments",
       ...issue.comments.map((comment) => {
         const author = comment.userName?.trim() || comment.userId || "unknown"
-        return `### ${comment.createdAt.toISOString()} · ${author}\n\n${rewriteLinearPrivateMedia(comment.body)}`
+        return `### ${comment.createdAt.toISOString()} · ${author}\n\n${applyLinearAssetRewrites(comment.body, assets)}`
       }),
     )
   }
   return {
-    path: `linear/issues/${stableSlug(issue.identifier, issue.id)}.md`,
+    path: linearIssueMarkdownPath(issue.identifier, issue.id),
     content: `${sections.join("\n\n").trim()}\n`,
   }
 }
 
-export function renderLinearEntity(input: {
-  directory:
-    | "teams"
-    | "projects"
-    | "customer-requests"
-    | "documents"
-    | "initiatives"
-    | "cycles"
-    | "labels"
-    | "users"
-  type: string
-  id: string
-  title: string
-  url?: string | null
-  body?: string | null
-  metadata?: Record<string, unknown>
-  sections?: Array<{ heading: string; body: string }>
-}): LinearMirrorFile {
+export function renderLinearEntity(
+  input: {
+    directory:
+      | "teams"
+      | "projects"
+      | "customer-requests"
+      | "documents"
+      | "initiatives"
+      | "cycles"
+      | "labels"
+      | "users"
+    type: string
+    id: string
+    title: string
+    url?: string | null
+    body?: string | null
+    metadata?: Record<string, unknown>
+    sections?: Array<{ heading: string; body: string }>
+  },
+  assets: readonly LinearResolvedAsset[] = [],
+): LinearMirrorFile {
   const content = [
     frontmatter({
       source: "linear",
@@ -220,14 +324,14 @@ export function renderLinearEntity(input: {
       ...input.metadata,
     }),
     `# ${input.title}`,
-    rewriteLinearPrivateMedia(input.body)?.trim() || "_No description._",
+    applyLinearAssetRewrites(input.body, assets).trim() || "_No description._",
     ...(input.sections ?? []).flatMap((section) => [
       `## ${section.heading}`,
-      rewriteLinearPrivateMedia(section.body),
+      applyLinearAssetRewrites(section.body, assets),
     ]),
   ]
   return {
-    path: `linear/${input.directory}/${stableSlug(input.title, input.id)}.md`,
+    path: linearEntityMarkdownPath(input.directory, input.title, input.id),
     content: `${content.join("\n\n").trim()}\n`,
   }
 }
