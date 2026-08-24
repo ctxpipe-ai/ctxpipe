@@ -161,6 +161,15 @@ export function finishWorkspaceChatTurn(
     ...(input?.error ? { "error.type": input.error } : {}),
   })
   state.rootSpan.end()
+  const generationSummary = state.generations
+    .map(
+      (generation) =>
+        `${generation.index}:ttfb=${generation.ttfbMs},ms=${generation.durationMs},reason=${generation.finishReason ?? "-"},tools=${generation.tools.join("+") || "-"}`,
+    )
+    .join(";")
+  const toolSummary = state.tools
+    .map((tool) => `${tool.name}:${tool.durationMs}@${tool.generationIndex}`)
+    .join(";")
   log.info({
     step: "workspace-chat-turn",
     conversationId,
@@ -169,7 +178,7 @@ export function finishWorkspaceChatTurn(
     generations: state.generations,
     tools: state.tools,
     error: input?.error,
-    message: `workspace chat turn loops=${state.generations.length} ttftMs=${ttftMs ?? "none"}`,
+    message: `workspace chat turn loops=${state.generations.length} ttftMs=${ttftMs ?? "none"} generations=${generationSummary || "-"} tools=${toolSummary || "-"}`,
   })
   return {
     loops: state.generations.length,

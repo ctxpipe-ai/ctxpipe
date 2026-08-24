@@ -175,6 +175,12 @@ export async function* streamAttachedOpenCodeTurn(input: {
     threadId: input.threadId,
   })
   queue.push({ kind: "session", sessionId: session.sessionId } as never)
+  log.info({
+    step: "workspace-chat-timing",
+    phase: "prompt",
+    message: "workspace chat timing prompt-started",
+    threadId: input.threadId,
+  })
   session
     .prompt(input.prompt)
     .then(({ message }) => {

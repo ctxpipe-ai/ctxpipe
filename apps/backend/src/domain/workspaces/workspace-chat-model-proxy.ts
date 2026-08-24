@@ -106,6 +106,7 @@ async function handleProxyRequest(
     step: "workspace-chat-model-proxy.request",
     method: req.method,
     path: url.pathname,
+    message: `workspace chat proxy ${req.method} ${url.pathname}`,
   })
   if (req.method === "GET" && url.pathname === "/v1/models") {
     writeJson(res, 200, {
@@ -224,6 +225,7 @@ function recordProxyCompletion(
     finishReason: input.finishReason,
     tools: input.tools,
     model: input.model,
+    message: `workspace chat generation ttfbMs=${input.ttfbMs} durationMs=${input.durationMs} finishReason=${input.finishReason ?? "-"} tools=${input.tools.join(",") || "-"}`,
   })
   if (!conversationId) return
   recordWorkspaceChatProxyGeneration(conversationId, {
