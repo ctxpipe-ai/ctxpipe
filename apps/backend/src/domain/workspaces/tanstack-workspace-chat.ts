@@ -672,7 +672,6 @@ async function prepareTanstackWorkspaceChat(
       proxyUrl: proxy.baseUrl,
       servePort,
     })
-    const abortPrepare = input.prepareOnly ? new AbortController() : null
     const secrets = modules.createSecrets({
       CTXPIPE_OPENCODE_RUN_TOKEN: runToken,
       CTXPIPE_MODEL_PROXY_URL: `${proxy.baseUrl}/v1`,
@@ -761,29 +760,55 @@ async function prepareTanstackWorkspaceChat(
                 ? WORKSPACE_CHAT_OPENCODE_PORT
                 : undefined,
           })
-          if (input.prepareOnly) {
-            const serve = await startConversationOpenCodeServe({
-              handle: ready,
-              port: servePort,
-              isolation: spec.isolation,
-            })
-            if (serve) {
-              setWorkspaceChatConversationRuntime({
-                conversationId: input.conversationId,
-                runToken,
-                proxy,
-                proxyLease,
-                servePort,
-                servePortLease: portLease,
-                tools,
-                serve,
-              })
-            }
-            abortPrepare?.abort()
-          }
         },
       },
     })
+    if (input.prepareOnly && typeof definition.ensure === "function") {
+      const ready = (await definition.ensure({
+        threadId: input.conversationId,
+        runId: input.runId ?? `prepare-${input.conversationId}`,
+        store: postgresSandboxInstanceStore({
+          orgId: input.orgId,
+          workspaceId: input.workspaceId,
+        }),
+        tenant: { orgId: input.orgId },
+        adapterName: "opencode",
+      })) as TanstackLikeHandle
+      handle.current = ready
+      await definition.hooks?.onReady?.(ready)
+      const serve = await startConversationOpenCodeServe({
+        handle: ready,
+        port: servePort,
+        isolation: spec.isolation,
+      })
+      rememberConversationRuntime({
+        conversationId: input.conversationId,
+        runToken,
+        proxy,
+        proxyLease,
+        servePort,
+        servePortLease: portLease,
+        tools,
+        serve,
+      })
+      log.info({
+        step: "workspace-chat-timing",
+        phase: "prepare",
+        message: `workspace chat timing prepare ${Date.now() - prepareStarted}ms`,
+        ms: Date.now() - prepareStarted,
+        conversationId: input.conversationId,
+        attached: false,
+        served: Boolean(serve),
+      })
+      return {
+        ok: true,
+        stream: emptyChatStream(),
+        isolation: spec.isolation,
+        servePort,
+        handle,
+        portStuck,
+      }
+    }
     const conversationRuntime = rememberConversationRuntime({
       conversationId: input.conversationId,
       runToken,
@@ -798,6 +823,9 @@ async function prepareTanstackWorkspaceChat(
     const attached = conversationRuntime.serve
       ? streamAttachedOpenCodeTurn({
           baseUrl: conversationRuntime.serve.baseUrl,
+          ...(conversationRuntime.serve.headers
+            ? { headers: conversationRuntime.serve.headers }
+            : {}),
           model: contract.opencodeModel,
           prompt: input.prompt,
           sessionId: resumeSessionId,
@@ -817,7 +845,6 @@ async function prepareTanstackWorkspaceChat(
         threadId: input.conversationId,
         runId: input.runId,
         messages,
-        ...(abortPrepare ? { abortController: abortPrepare } : {}),
         ...(resumeSessionId
           ? { modelOptions: { sessionId: resumeSessionId } }
           : {}),
@@ -916,6 +943,8 @@ function tcpPortFromUrl(url: string): number | null {
     return null
   }
 }
+
+async function* emptyChatStream(): AsyncGenerator<object> {}
 
 function rememberConversationRuntime(
   runtime: Omit<WorkspaceChatConversationRuntime, "lastUsedAt" | "serve"> & {

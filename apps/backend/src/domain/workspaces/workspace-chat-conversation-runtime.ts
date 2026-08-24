@@ -7,6 +7,7 @@ const KEEP_ALIVE_MS = parseKeepAliveMs(CHAT_SANDBOX_KEEP_ALIVE)
 
 export type WorkspaceChatOpenCodeServe = {
   baseUrl: string
+  headers?: Record<string, string>
   dispose: () => Promise<void>
 }
 

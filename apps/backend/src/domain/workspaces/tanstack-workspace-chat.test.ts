@@ -17,7 +17,22 @@ const chatMock = vi.hoisted(() =>
 const opencodeTextMock = vi.hoisted(() =>
   vi.fn((_model?: string, _opts?: { port?: number }) => "adapter"),
 )
-const defineSandboxMock = vi.hoisted(() => vi.fn((input) => input))
+const ensureSandboxMock = vi.hoisted(() =>
+  vi.fn(async () => ({
+    id: "sbx_ready",
+    process: {
+      exec: vi.fn(async () => ({ stdout: "", stderr: "", exitCode: 0 })),
+    },
+    fs: {
+      mkdir: vi.fn(async () => {}),
+      write: vi.fn(async () => {}),
+    },
+    destroy: vi.fn(async () => {}),
+  })),
+)
+const defineSandboxMock = vi.hoisted(() =>
+  vi.fn((input) => ({ ...input, ensure: ensureSandboxMock })),
+)
 const defineWorkspaceMock = vi.hoisted(() => vi.fn((input) => input))
 const gitSourceMock = vi.hoisted(() => vi.fn((input) => input))
 const withSandboxMock = vi.hoisted(() =>
@@ -112,9 +127,15 @@ const streamAttachedOpenCodeTurnMock = vi.hoisted(() =>
     yield { type: "RUN_FINISHED" }
   }),
 )
+const startConversationOpenCodeServeMock = vi.hoisted(() =>
+  vi.fn(async () => ({
+    baseUrl: "http://127.0.0.1:4097",
+    dispose: vi.fn(async () => {}),
+  })),
+)
 vi.mock("./workspace-chat-opencode-attach.js", () => ({
   streamAttachedOpenCodeTurn: streamAttachedOpenCodeTurnMock,
-  startConversationOpenCodeServe: vi.fn(async () => null),
+  startConversationOpenCodeServe: startConversationOpenCodeServeMock,
 }))
 const nameConversationIfUnnamedMock = vi.hoisted(() =>
   vi.fn().mockResolvedValue(null),
@@ -261,6 +282,7 @@ import { withTestLogger } from "../../test/with-test-logger.js"
 import {
   runTanstackWorkspaceChat as runTanstackWorkspaceChatHttp,
   type TanstackWorkspaceChatInput,
+  warmTanstackWorkspaceChat,
 } from "./tanstack-workspace-chat.js"
 import { parseSseDataLines } from "./workspace-chat-agui.js"
 import {
@@ -532,14 +554,18 @@ describe("runTanstackWorkspaceChat", () => {
       writeStatus: "writable",
     })
     const onReady = defineSandboxMock.mock.calls[0]?.[0]?.hooks?.onReady as
-      | ((handle: { process: { exec: unknown }; destroy: () => Promise<void> }) => Promise<void>)
+      | ((handle: {
+          process: { exec: unknown }
+          destroy: () => Promise<void>
+        }) => Promise<void>)
       | undefined
     expect(onReady).toBeTypeOf("function")
     if (!onReady) throw new Error("expected onReady")
     const exec = vi.fn(async (command: string) => ({
       stdout: "",
       stderr: "",
-      exitCode: command.includes("ss -lnt") || command.includes("nc -z") ? 1 : 0,
+      exitCode:
+        command.includes("ss -lnt") || command.includes("nc -z") ? 1 : 0,
     }))
     await withTestLogger(() =>
       onReady({
@@ -1194,6 +1220,24 @@ describe("runTanstackWorkspaceChat", () => {
     await res.text()
   })
 
+  it("prepares a keep-alive serve without opencodeText", async () => {
+    const warmed = await warmTanstackWorkspaceChat({
+      conversationId: "conv_prepare",
+      prompt: "prepare",
+      orgId: "org_1",
+      workspaceId: "ws_1",
+      desiredUrl: "https://github.com/acme/docs",
+      desiredSha: "abc",
+      ref: "abc",
+      writeStatus: "read_only",
+    })
+    expect(warmed).toEqual({ ok: true })
+    expect(ensureSandboxMock).toHaveBeenCalled()
+    expect(startConversationOpenCodeServeMock).toHaveBeenCalled()
+    expect(opencodeTextMock).not.toHaveBeenCalled()
+    expect(chatMock).not.toHaveBeenCalled()
+  })
+
   it("rejects a second overlapping stream on the same conversation", async () => {
     let release!: () => void
     const hold = new Promise<void>((resolve) => {
@@ -1410,7 +1454,9 @@ describe("runTanstackWorkspaceChat", () => {
         JSON.stringify([
           {
             info: { role: "assistant" },
-            parts: [{ type: "text", text: "This repo is a TypeScript monorepo." }],
+            parts: [
+              { type: "text", text: "This repo is a TypeScript monorepo." },
+            ],
           },
         ]),
         { status: 200 },
