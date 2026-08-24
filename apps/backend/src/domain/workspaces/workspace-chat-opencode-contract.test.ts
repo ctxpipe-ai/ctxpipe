@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, it } from "vitest"
 import {
   WORKSPACE_CHAT_LOCAL_PROCESS_SCRUB_ENV,
+  WORKSPACE_CHAT_OPENCODE_AGENT_PROMPT,
   WORKSPACE_CHAT_OPENCODE_CLI,
   workspaceChatOpenCodeConfig,
   workspaceChatOpenCodeContract,
@@ -116,6 +117,34 @@ describe("workspaceChatOpenCodeContract", () => {
       },
       agent: {
         title: { disable: true },
+        build: {
+          prompt: WORKSPACE_CHAT_OPENCODE_AGENT_PROMPT,
+        },
+      },
+    })
+    expect(WORKSPACE_CHAT_OPENCODE_AGENT_PROMPT).toMatch(/smallest tool set/)
+    expect(WORKSPACE_CHAT_OPENCODE_AGENT_PROMPT).toMatch(/one step/)
+    expect(WORKSPACE_CHAT_OPENCODE_AGENT_PROMPT).not.toMatch(
+      /what'?s in this repo/i,
+    )
+  })
+
+  it("embeds a bridged MCP server when tools are provisioned", () => {
+    expect(
+      workspaceChatOpenCodeConfig({
+        modelBase: "openai/gpt-5.6-terra",
+        mcp: {
+          name: "tanstack",
+          url: "http://host.docker.internal:4123/mcp",
+          token: "tok",
+        },
+      }).mcp,
+    ).toEqual({
+      tanstack: {
+        type: "remote",
+        url: "http://host.docker.internal:4123/mcp",
+        enabled: true,
+        headers: { Authorization: "Bearer tok" },
       },
     })
   })

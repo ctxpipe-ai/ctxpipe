@@ -57,6 +57,7 @@ export async function startConversationOpenCodeServe(input: {
   isolation: "docker" | "local_process"
   attempts?: number
   timeoutMs?: number
+  env?: Record<string, string>
 }): Promise<WorkspaceChatOpenCodeServe | null> {
   const attempts = Math.max(1, input.attempts ?? 2)
   const timeoutMs = input.timeoutMs ?? 12_000
@@ -87,6 +88,7 @@ export async function startConversationOpenCodeServe(input: {
             hostname: "0.0.0.0",
             cwd: "/workspace",
             timeoutMs,
+            ...(input.env ? { env: input.env } : {}),
           },
         )
         return {
@@ -134,6 +136,35 @@ export async function startConversationOpenCodeServe(input: {
     dispose: async () => {
       await exec(`sh -c 'kill ${pid} || true'`).catch(() => undefined)
     },
+  }
+}
+
+export async function createConversationOpenCodeSession(input: {
+  baseUrl: string
+  headers?: Record<string, string>
+  model: string
+}): Promise<string | null> {
+  const slash = input.model.indexOf("/")
+  if (slash <= 0) return null
+  try {
+    const session = await startOpencodeSession({
+      baseUrl: input.baseUrl,
+      ...(input.headers ? { headers: input.headers } : {}),
+      providerID: input.model.slice(0, slash),
+      modelID: input.model.slice(slash + 1),
+      onEvent: () => {},
+      onPermissionRequest: () => "once",
+    })
+    const sessionId = session.sessionId
+    await session.dispose().catch(() => undefined)
+    return sessionId
+  } catch (error) {
+    log.warn({
+      step: "workspace-chat-opencode-session",
+      message: "workspace chat prepare session create failed",
+      error: error instanceof Error ? error.message : String(error),
+    })
+    return null
   }
 }
 

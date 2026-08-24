@@ -18,6 +18,8 @@ function runtime(conversationId: string) {
     servePort: 4097,
     servePortLease: null,
     tools: [],
+    toolBridge: null,
+    sessionId: null,
     serve: null,
   }
 }
@@ -33,10 +35,19 @@ describe("workspace chat conversation runtime", () => {
     expect(getWorkspaceChatConversationRuntime("conv_b")).toBeNull()
   })
 
-  it("closes the proxy when the conversation runtime is released", async () => {
-    const created = setWorkspaceChatConversationRuntime(runtime("conv_close"))
+  it("closes the proxy and tool bridge when the conversation runtime is released", async () => {
+    const created = setWorkspaceChatConversationRuntime({
+      ...runtime("conv_close"),
+      toolBridge: {
+        name: "tanstack",
+        url: "http://127.0.0.1:9/mcp",
+        token: "tok",
+        close: vi.fn(async () => {}),
+      },
+    })
     await releaseWorkspaceChatConversationRuntime("conv_close")
     expect(created.proxy.close).toHaveBeenCalledTimes(1)
+    expect(created.toolBridge?.close).toHaveBeenCalledTimes(1)
     expect(getWorkspaceChatConversationRuntime("conv_close")).toBeNull()
   })
 })

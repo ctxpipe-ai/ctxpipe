@@ -10,8 +10,10 @@ vi.mock("@tanstack/ai-opencode", () => ({
   translateOpencodeStream: vi.fn(),
 }))
 
+import { startOpencodeSession } from "@tanstack/ai-opencode"
 import {
   adoptConversationOpenCodeServe,
+  createConversationOpenCodeSession,
   startConversationOpenCodeServe,
 } from "./workspace-chat-opencode-attach.js"
 
@@ -143,5 +145,50 @@ describe("startConversationOpenCodeServe", () => {
       expect.anything(),
       expect.objectContaining({ timeoutMs: 4_000 }),
     )
+  })
+
+  it("forwards MCP env into the official in-sandbox serve", async () => {
+    mockFetch(503)
+    startOpencodeServerInSandbox.mockResolvedValue({
+      baseUrl: "http://127.0.0.1:4097",
+      dispose: vi.fn(async () => {}),
+    })
+    await startConversationOpenCodeServe({
+      handle: handle({ spawn: vi.fn() }),
+      port: 4097,
+      isolation: "local_process",
+      env: { OPENCODE_CONFIG_CONTENT: '{"mcp":{}}' },
+    })
+    expect(startOpencodeServerInSandbox).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.objectContaining({
+        env: { OPENCODE_CONFIG_CONTENT: '{"mcp":{}}' },
+      }),
+    )
+  })
+
+  it("creates an OpenCode session without prompting", async () => {
+    const dispose = vi.fn(async () => {})
+    vi.mocked(startOpencodeSession).mockResolvedValue({
+      sessionId: "ses_prepare",
+      resumed: false,
+      prompt: vi.fn(),
+      abort: vi.fn(),
+      dispose,
+    } as never)
+    await expect(
+      createConversationOpenCodeSession({
+        baseUrl: "http://127.0.0.1:4097",
+        model: "ctxpipe/openai/gpt-5.6-terra",
+      }),
+    ).resolves.toBe("ses_prepare")
+    expect(startOpencodeSession).toHaveBeenCalledWith(
+      expect.objectContaining({
+        baseUrl: "http://127.0.0.1:4097",
+        providerID: "ctxpipe",
+        modelID: "openai/gpt-5.6-terra",
+      }),
+    )
+    expect(dispose).toHaveBeenCalled()
   })
 })

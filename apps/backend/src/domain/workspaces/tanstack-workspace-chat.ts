@@ -4,7 +4,6 @@ import type { StreamChunk } from "@tanstack/ai"
 import { otelMiddleware } from "@tanstack/ai/middlewares/otel"
 import { withOrgDbContext } from "../../db/client.js"
 import { nameConversationIfUnnamed } from "../../graphs/conversationGraph/nodes/conversationNaming.js"
-import { generateObjectId } from "../../lib/id.js"
 import { appendConversationTurn } from "../../models/conversation-messages.js"
 import {
   getWorkspaceById,
@@ -64,6 +63,7 @@ import {
 } from "./workspace-chat-conversation-runtime.js"
 import { startWorkspaceChatModelProxy } from "./workspace-chat-model-proxy.js"
 import {
+  createConversationOpenCodeSession,
   isOpenCodeServeHealthy,
   startConversationOpenCodeServe,
   streamAttachedOpenCodeTurn,
@@ -97,6 +97,10 @@ import {
   streamSawOpenCodeSession,
 } from "./workspace-chat-sandbox-health.js"
 import { workspaceSnapshotFromChatInput } from "./workspace-chat-send-runtime.js"
+import {
+  provisionWorkspaceChatToolBridge,
+  workspaceChatToolBridgeServeEnv,
+} from "./workspace-chat-tool-bridge.js"
 import { workspaceChatTools } from "./workspace-chat-tools.js"
 import {
   claimWorkspaceChatTurn,
@@ -370,7 +374,11 @@ async function* streamClaimedTanstackWorkspaceChat(
           )
           continue
         }
-        if (typed.type === "TEXT_MESSAGE_CONTENT") {
+        if (
+          typed.type === "TEXT_MESSAGE_CONTENT" ||
+          typed.type === "REASONING_MESSAGE_CONTENT" ||
+          typed.type === "TOOL_CALL_START"
+        ) {
           markWorkspaceChatFirstShownToken(turn.conversationId)
         }
         yield typed
@@ -378,14 +386,26 @@ async function* streamClaimedTanstackWorkspaceChat(
     }
     for (const next of gate.flush()) {
       const typed = next as StreamChunk
-      if (typed.type === "RUN_FINISHED") finished = true
+      if (typed.type === "RUN_FINISHED") {
+        finished = true
+        continue
+      }
       if (typed.type === "RUN_ERROR") {
         streamError = new Error(
           "message" in typed && typeof typed.message === "string"
             ? typed.message
             : "OpenCode chat stream failed",
         )
+        continue
       }
+      if (
+        typed.type === "TEXT_MESSAGE_CONTENT" ||
+        typed.type === "REASONING_MESSAGE_CONTENT" ||
+        typed.type === "TOOL_CALL_START"
+      ) {
+        markWorkspaceChatFirstShownToken(turn.conversationId)
+      }
+      yield typed
     }
     let assistant = gate.assistant()
     if (
@@ -393,24 +413,6 @@ async function* streamClaimedTanstackWorkspaceChat(
       (!assistant.trim() || isOpenCodePlanningHold(assistant))
     ) {
       assistant = lateAssistant.trim()
-      const messageId = generateObjectId("msg")
-      yield {
-        type: "TEXT_MESSAGE_START",
-        messageId,
-        timestamp: Date.now(),
-      } as StreamChunk
-      markWorkspaceChatFirstShownToken(turn.conversationId)
-      yield {
-        type: "TEXT_MESSAGE_CONTENT",
-        messageId,
-        delta: assistant,
-        timestamp: Date.now(),
-      } as StreamChunk
-      yield {
-        type: "TEXT_MESSAGE_END",
-        messageId,
-        timestamp: Date.now(),
-      } as StreamChunk
     }
     const failed =
       streamError != null ||
@@ -674,9 +676,28 @@ async function prepareTanstackWorkspaceChat(
     if (!existingRuntime) await proxyLease?.release().catch(() => undefined)
     throw error
   }
+  let toolBridge = existingRuntime?.toolBridge ?? null
+  if (!existingRuntime) {
+    toolBridge = await provisionWorkspaceChatToolBridge({
+      tools,
+      isolation: spec.isolation,
+    })
+  }
   const opencodeConfig = workspaceChatOpenCodeConfig({
     modelBase: contract.modelBase,
+    ...(toolBridge
+      ? {
+          mcp: {
+            name: toolBridge.name,
+            url: toolBridge.url,
+            token: toolBridge.token,
+          },
+        }
+      : {}),
   })
+  const serveEnv = toolBridge
+    ? workspaceChatToolBridgeServeEnv(toolBridge)
+    : undefined
 
   let portLease: LocalProcessOpenCodePortLease | null =
     existingRuntime?.servePortLease ?? null
@@ -804,6 +825,15 @@ async function prepareTanstackWorkspaceChat(
         handle: ready,
         port: servePort,
         isolation: spec.isolation,
+        ...(serveEnv ? { env: serveEnv } : {}),
+      })
+      const sessionId = await prepareConversationOpenCodeSession({
+        conversationId: input.conversationId,
+        serve,
+        model: contract.opencodeModel,
+        existingSessionId:
+          existingRuntime?.sessionId ??
+          loadWorkspaceChatOpenCodeSessionId(input.conversationId),
       })
       rememberConversationRuntime({
         conversationId: input.conversationId,
@@ -813,6 +843,8 @@ async function prepareTanstackWorkspaceChat(
         servePort,
         servePortLease: portLease,
         tools,
+        toolBridge,
+        sessionId,
         serve,
         workspace: workspaceSnapshotFromChatInput(input),
       })
@@ -824,6 +856,7 @@ async function prepareTanstackWorkspaceChat(
         conversationId: input.conversationId,
         attached: false,
         served: Boolean(serve),
+        sessionId: Boolean(sessionId),
       })
       return {
         ok: true,
@@ -842,6 +875,8 @@ async function prepareTanstackWorkspaceChat(
       servePort,
       servePortLease: portLease,
       tools,
+      toolBridge,
+      sessionId: existingRuntime?.sessionId ?? resumeSessionId,
       serve: existingRuntime?.serve ?? null,
       workspace: workspaceSnapshotFromChatInput(input),
     })
@@ -866,7 +901,7 @@ async function prepareTanstackWorkspaceChat(
             : {}),
           model: contract.opencodeModel,
           prompt: input.prompt,
-          sessionId: resumeSessionId,
+          sessionId: resumeSessionId ?? conversationRuntime.sessionId,
           threadId: input.conversationId,
           runId: input.runId,
           onPermissionRequest: runtime.onPermissionRequest,
@@ -987,6 +1022,25 @@ function tcpPortFromUrl(url: string): number | null {
 
 async function* emptyChatStream(): AsyncGenerator<object> {}
 
+async function prepareConversationOpenCodeSession(input: {
+  conversationId: string
+  serve: WorkspaceChatConversationRuntime["serve"]
+  model: string
+  existingSessionId?: string | null
+}): Promise<string | null> {
+  if (input.existingSessionId?.trim()) return input.existingSessionId
+  if (!input.serve) return null
+  const sessionId = await createConversationOpenCodeSession({
+    baseUrl: input.serve.baseUrl,
+    ...(input.serve.headers ? { headers: input.serve.headers } : {}),
+    model: input.model,
+  })
+  if (sessionId) {
+    persistWorkspaceChatOpenCodeSessionId(input.conversationId, sessionId)
+  }
+  return sessionId
+}
+
 function rememberConversationRuntime(
   runtime: Omit<WorkspaceChatConversationRuntime, "lastUsedAt" | "serve"> & {
     serve: WorkspaceChatConversationRuntime["serve"]
@@ -1021,6 +1075,9 @@ async function* keepConversationRuntimeAfterStream(
         isolation: input.isolation,
         attempts: 1,
         timeoutMs: 4_000,
+        ...(runtime.toolBridge
+          ? { env: workspaceChatToolBridgeServeEnv(runtime.toolBridge) }
+          : {}),
       })
       if (serve) {
         setWorkspaceChatConversationRuntime({

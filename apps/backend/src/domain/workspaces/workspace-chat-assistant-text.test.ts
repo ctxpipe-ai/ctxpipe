@@ -20,6 +20,16 @@ function textDeltas(chunks: object[]): string {
     .join("")
 }
 
+function reasoningDeltas(chunks: object[]): string {
+  return chunks
+    .filter(
+      (chunk) =>
+        (chunk as { type?: string }).type === "REASONING_MESSAGE_CONTENT",
+    )
+    .map((chunk) => (chunk as { delta?: string }).delta ?? "")
+    .join("")
+}
+
 describe("workspaceChatAssistantReply", () => {
   it("treats echo-only text as an empty persist reply", () => {
     expect(
@@ -136,13 +146,14 @@ describe("createWorkspaceChatAssistantGate", () => {
     expect(assistant).toBe("pong")
   })
 
-  it("does not stream a planning preamble", () => {
+  it("streams a planning preamble as reasoning, not reply text", () => {
+    const plan =
+      "I’ll inspect the repository structure and its primary project metadata to summarize its purpose and components."
     const { out, assistant } = runGate("what's in this repo?", [
       {
         type: "TEXT_MESSAGE_CONTENT",
         messageId: "plan",
-        delta:
-          "I’ll inspect the repository structure and its primary project metadata to summarize its purpose and components.",
+        delta: plan,
       },
       { type: "TEXT_MESSAGE_END", messageId: "plan" },
       {
@@ -153,6 +164,10 @@ describe("createWorkspaceChatAssistantGate", () => {
       { type: "TEXT_MESSAGE_END", messageId: "asst" },
       { type: "RUN_FINISHED" },
     ])
+    expect(reasoningDeltas(out)).toBe(plan)
+    expect(out.some((chunk) => (chunk as { type?: string }).type === "REASONING_MESSAGE_START")).toBe(
+      true,
+    )
     expect(textDeltas(out)).toBe("This repo is a TypeScript monorepo.")
     expect(assistant).toBe("This repo is a TypeScript monorepo.")
   })

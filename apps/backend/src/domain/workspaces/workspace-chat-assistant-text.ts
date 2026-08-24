@@ -7,6 +7,9 @@ type AguiRecord = {
 const TEXT_START = "TEXT_MESSAGE_START"
 const TEXT_CONTENT = "TEXT_MESSAGE_CONTENT"
 const TEXT_END = "TEXT_MESSAGE_END"
+const REASONING_START = "REASONING_MESSAGE_START"
+const REASONING_CONTENT = "REASONING_MESSAGE_CONTENT"
+const REASONING_END = "REASONING_MESSAGE_END"
 
 type TextClass = "hold" | "drop" | "reply" | "strip"
 
@@ -16,6 +19,7 @@ type OpenText = {
   held: object[]
   dropped: boolean
   released: boolean
+  releasedAsReasoning: boolean
   emittedReplyLen: number
 }
 
@@ -37,8 +41,7 @@ function isOpenCodeToolDump(text: string): boolean {
   return (
     text.includes("tanstack-ai-sandboxes") ||
     text.includes(".tanstack-projected-") ||
-    (/<path>[\s\S]*<\/path>/.test(text) &&
-      /<type>directory<\/type>/.test(text))
+    (/<path>[\s\S]*<\/path>/.test(text) && /<type>directory<\/type>/.test(text))
   )
 }
 
@@ -135,6 +138,28 @@ function replyText(prompt: string, text: string, kind: TextClass): string {
   return kind === "strip" ? text.slice(prompt.length) : text
 }
 
+function releasePlanningAsReasoning(open: OpenText, final: boolean): object[] {
+  const out: object[] = []
+  if (!open.released) {
+    open.released = true
+    open.releasedAsReasoning = true
+    out.push({ type: REASONING_START, messageId: open.id })
+  }
+  const delta = open.text.slice(open.emittedReplyLen)
+  open.emittedReplyLen = open.text.length
+  if (delta) {
+    out.push({
+      type: REASONING_CONTENT,
+      messageId: open.id,
+      delta,
+    })
+  }
+  if (final && open.releasedAsReasoning) {
+    out.push({ type: REASONING_END, messageId: open.id })
+  }
+  return out
+}
+
 function releaseOpenText(
   open: OpenText,
   prompt: string,
@@ -145,7 +170,11 @@ function releaseOpenText(
     open.dropped = true
     return []
   }
-  if (kind === "hold") return []
+  if (kind === "hold") {
+    return isOpenCodePlanningHold(open.text)
+      ? releasePlanningAsReasoning(open, final)
+      : []
+  }
   const reply = replyText(prompt, open.text, kind)
   const out: object[] = []
   if (!open.released) {
@@ -180,14 +209,18 @@ export function createWorkspaceChatAssistantGate(prompt: string): {
     if (!open) return []
     const kind = classifyAssistantText(prompt, open.text, true)
     const out =
-      open.dropped || kind === "drop" || kind === "hold"
+      open.dropped || kind === "drop"
         ? []
-        : [
-            ...releaseOpenText(open, prompt, true),
-            ...(fromEndEvent && open.released
-              ? [{ type: TEXT_END, messageId: open.id }]
-              : []),
-          ]
+        : kind === "hold"
+          ? isOpenCodePlanningHold(open.text)
+            ? releasePlanningAsReasoning(open, true)
+            : []
+          : [
+              ...releaseOpenText(open, prompt, true),
+              ...(fromEndEvent && open.released && !open.releasedAsReasoning
+                ? [{ type: TEXT_END, messageId: open.id }]
+                : []),
+            ]
     if (open.text !== "") messages.push({ id: open.id, text: open.text })
     open = null
     return out
@@ -212,6 +245,7 @@ export function createWorkspaceChatAssistantGate(prompt: string): {
           held: [],
           dropped: false,
           released: false,
+          releasedAsReasoning: false,
           emittedReplyLen: 0,
         }
       }

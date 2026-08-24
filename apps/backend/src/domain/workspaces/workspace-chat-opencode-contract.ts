@@ -133,7 +133,17 @@ function unixLoginPath(): string {
     .join(":")
 }
 
-export function workspaceChatOpenCodeConfig(input: { modelBase: string }): {
+export const WORKSPACE_CHAT_OPENCODE_AGENT_PROMPT = [
+  "Prefer the smallest tool set that answers the question.",
+  "Issue independent glob, grep, and read calls in one step when they do not depend on each other.",
+  "Do not use subagents or the web.",
+  "After the first useful files, answer. Do not keep searching for completeness.",
+].join(" ")
+
+export function workspaceChatOpenCodeConfig(input: {
+  modelBase: string
+  mcp?: { name: string; url: string; token: string }
+}): {
   $schema: "https://opencode.ai/config.json"
   enabled_providers: readonly ["ctxpipe"]
   provider: {
@@ -155,7 +165,19 @@ export function workspaceChatOpenCodeConfig(input: { modelBase: string }): {
   }
   agent: {
     title: { disable: true }
+    build: {
+      prompt: string
+    }
   }
+  mcp?: Record<
+    string,
+    {
+      type: "remote"
+      url: string
+      enabled: true
+      headers: { Authorization: string }
+    }
+  >
 } {
   return {
     $schema: "https://opencode.ai/config.json",
@@ -185,7 +207,24 @@ export function workspaceChatOpenCodeConfig(input: { modelBase: string }): {
     // model as the first user turn.
     agent: {
       title: { disable: true },
+      build: {
+        prompt: WORKSPACE_CHAT_OPENCODE_AGENT_PROMPT,
+      },
     },
+    ...(input.mcp
+      ? {
+          mcp: {
+            [input.mcp.name]: {
+              type: "remote" as const,
+              url: input.mcp.url,
+              enabled: true as const,
+              headers: {
+                Authorization: `Bearer ${input.mcp.token}`,
+              },
+            },
+          },
+        }
+      : {}),
   }
 }
 

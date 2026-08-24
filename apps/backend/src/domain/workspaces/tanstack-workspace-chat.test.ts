@@ -133,10 +133,41 @@ const startConversationOpenCodeServeMock = vi.hoisted(() =>
     dispose: vi.fn(async () => {}),
   })),
 )
+const createConversationOpenCodeSessionMock = vi.hoisted(() =>
+  vi.fn(async () => "ses_prepare"),
+)
 vi.mock("./workspace-chat-opencode-attach.js", () => ({
   streamAttachedOpenCodeTurn: streamAttachedOpenCodeTurnMock,
   startConversationOpenCodeServe: startConversationOpenCodeServeMock,
+  createConversationOpenCodeSession: createConversationOpenCodeSessionMock,
   isOpenCodeServeHealthy: vi.fn(async () => true),
+}))
+const provisionWorkspaceChatToolBridgeMock = vi.hoisted(() =>
+  vi.fn(async () => ({
+    name: "tanstack",
+    url: "http://host.docker.internal:4123/mcp",
+    token: "tok",
+    close: vi.fn(async () => {}),
+  })),
+)
+vi.mock("./workspace-chat-tool-bridge.js", () => ({
+  provisionWorkspaceChatToolBridge: provisionWorkspaceChatToolBridgeMock,
+  workspaceChatToolBridgeServeEnv: (bridge: {
+    name: string
+    url: string
+    token: string
+  }) => ({
+    OPENCODE_CONFIG_CONTENT: JSON.stringify({
+      mcp: {
+        [bridge.name]: {
+          type: "remote",
+          url: bridge.url,
+          enabled: true,
+          headers: { Authorization: `Bearer ${bridge.token}` },
+        },
+      },
+    }),
+  }),
 }))
 const nameConversationIfUnnamedMock = vi.hoisted(() =>
   vi.fn().mockResolvedValue(null),
@@ -302,6 +333,7 @@ import {
 } from "./workspace-chat-conversation-runtime.js"
 import {
   clearWorkspaceChatOpenCodeSessionId,
+  loadWorkspaceChatOpenCodeSessionId,
   persistWorkspaceChatOpenCodeSessionId,
 } from "./workspace-chat-opencode-session.js"
 
@@ -320,6 +352,7 @@ describe("runTanstackWorkspaceChat", () => {
     resetWorkspaceChatConversationRuntimes()
     clearWorkspaceChatOpenCodeSessionId("conv_1")
     clearWorkspaceChatOpenCodeSessionId("conv_resume")
+    clearWorkspaceChatOpenCodeSessionId("conv_prepare")
     vi.clearAllMocks()
     nameConversationIfUnnamedMock.mockResolvedValue(null)
     orgTxDepth.value = 0
@@ -1233,6 +1266,7 @@ describe("runTanstackWorkspaceChat", () => {
       servePort: 4097,
       servePortLease: null,
       tools: [],
+      sessionId: "ses_prepare",
       serve: {
         baseUrl: "http://127.0.0.1:4097",
         dispose: vi.fn(async () => {}),
@@ -1253,6 +1287,7 @@ describe("runTanstackWorkspaceChat", () => {
       expect.objectContaining({
         baseUrl: "http://127.0.0.1:4097",
         prompt: "what's in this repo?",
+        sessionId: "ses_prepare",
       }),
     )
     expect(opencodeTextMock).not.toHaveBeenCalled()
@@ -1273,7 +1308,22 @@ describe("runTanstackWorkspaceChat", () => {
     })
     expect(warmed).toEqual({ ok: true })
     expect(ensureSandboxMock).toHaveBeenCalled()
-    expect(startConversationOpenCodeServeMock).toHaveBeenCalled()
+    expect(startConversationOpenCodeServeMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        env: expect.objectContaining({
+          OPENCODE_CONFIG_CONTENT: expect.stringContaining("tanstack"),
+        }),
+      }),
+    )
+    expect(createConversationOpenCodeSessionMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        baseUrl: "http://127.0.0.1:4097",
+        model: "ctxpipe/openai/gpt-5.6-terra",
+      }),
+    )
+    expect(loadWorkspaceChatOpenCodeSessionId("conv_prepare")).toBe(
+      "ses_prepare",
+    )
     expect(opencodeTextMock).not.toHaveBeenCalled()
     expect(chatMock).not.toHaveBeenCalled()
   })
@@ -1468,7 +1518,7 @@ describe("runTanstackWorkspaceChat", () => {
           (event as { type?: string }).type === "TEXT_MESSAGE_CONTENT" &&
           (event as { delta?: string }).delta === "late-ok",
       ),
-    ).toBe(true)
+    ).toBe(false)
     expect(appendTurnMock).toHaveBeenCalledWith(
       expect.objectContaining({ role: "assistant", content: "late-ok" }),
     )
@@ -1514,6 +1564,21 @@ describe("runTanstackWorkspaceChat", () => {
       openCodeIdleMs: 50,
       openCodeFetch,
     })
+    const events = parseSseDataLines(await res.text())
+    expect(
+      events.some(
+        (event) =>
+          (event as { type?: string }).type === "REASONING_MESSAGE_CONTENT",
+      ),
+    ).toBe(true)
+    expect(
+      events.some(
+        (event) =>
+          (event as { type?: string }).type === "TEXT_MESSAGE_CONTENT" &&
+          (event as { delta?: string }).delta ===
+            "This repo is a TypeScript monorepo.",
+      ),
+    ).toBe(false)
     expect(appendTurnMock).toHaveBeenCalledWith(
       expect.objectContaining({
         role: "assistant",
@@ -1521,7 +1586,6 @@ describe("runTanstackWorkspaceChat", () => {
       }),
     )
     expect(openCodeFetch).toHaveBeenCalled()
-    await res.text()
   })
 
   it("releases the claim when the producer stalls after echo", async () => {

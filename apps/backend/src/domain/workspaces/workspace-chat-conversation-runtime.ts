@@ -1,6 +1,7 @@
 import { CHAT_SANDBOX_KEEP_ALIVE } from "./chat-runtime.js"
 import type { WorkspaceChatModelProxy } from "./workspace-chat-model-proxy.js"
 import type { LocalProcessOpenCodePortLease } from "./workspace-chat-opencode-port.js"
+import type { WorkspaceChatToolBridge } from "./workspace-chat-tool-bridge.js"
 import type { WorkspaceChatTanstackTool } from "./workspace-chat-tools.js"
 
 const KEEP_ALIVE_MS = parseKeepAliveMs(CHAT_SANDBOX_KEEP_ALIVE)
@@ -31,6 +32,8 @@ export type WorkspaceChatConversationRuntime = {
   servePort: number
   servePortLease: LocalProcessOpenCodePortLease | null
   tools: WorkspaceChatTanstackTool[]
+  toolBridge?: WorkspaceChatToolBridge | null
+  sessionId?: string | null
   serve: WorkspaceChatOpenCodeServe | null
   workspace?: WorkspaceChatConversationWorkspace
   lastUsedAt: number
@@ -71,6 +74,7 @@ export async function releaseWorkspaceChatConversationRuntime(
   if (!runtime) return
   runtimes.delete(conversationId)
   await runtime.serve?.dispose().catch(() => undefined)
+  await runtime.toolBridge?.close().catch(() => undefined)
   await runtime.proxy.close().catch(() => undefined)
   await runtime.proxyLease?.release().catch(() => undefined)
   await runtime.servePortLease?.release().catch(() => undefined)
