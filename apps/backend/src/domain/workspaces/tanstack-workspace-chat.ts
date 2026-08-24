@@ -52,6 +52,8 @@ import {
 } from "./workspace-chat-agui.js"
 import { createWorkspaceChatAssistantGate } from "./workspace-chat-assistant-text.js"
 import {
+  loadWorkspaceChatOpenCodeSessionId,
+  persistWorkspaceChatOpenCodeSessionId,
   waitForOpenCodeAssistant,
   type WorkspaceChatFetch,
   workspaceChatOpenCodeSessionId,
@@ -308,6 +310,9 @@ async function* streamClaimedTanstackWorkspaceChat(
       },
     })) {
       sessionId = sessionId ?? workspaceChatOpenCodeSessionId(chunk)
+      if (sessionId) {
+        persistWorkspaceChatOpenCodeSessionId(turn.conversationId, sessionId)
+      }
       if (streamSawOpenCodeSession(chunk)) sawSession = true
       for (const next of gate.take(chunk)) {
         const typed = next as StreamChunk
@@ -525,10 +530,12 @@ async function prepareTanstackWorkspaceChat(
     }
   }
 
-  const messages = tanstackChatModelMessages(
+  const messages =
     input.messages && input.messages.length > 0
       ? input.messages
-      : [{ role: "user", content: input.prompt }],
+      : [{ role: "user", content: input.prompt }]
+  const resumeSessionId = loadWorkspaceChatOpenCodeSessionId(
+    input.conversationId,
   )
 
   const runToken = randomBytes(32).toString("hex")
@@ -672,6 +679,7 @@ async function prepareTanstackWorkspaceChat(
       threadId: input.conversationId,
       runId: input.runId,
       messages,
+      ...(resumeSessionId ? { modelOptions: { sessionId: resumeSessionId } } : {}),
       tools,
       middleware: [
         modules.withSandbox(definition, {
@@ -713,20 +721,6 @@ function tcpPortFromUrl(url: string): number | null {
   } catch {
     return null
   }
-}
-
-function tanstackChatModelMessages(
-  messages: TanstackWorkspaceChatMessage[],
-): Array<{ role: "user" | "assistant"; content: string }> {
-  return messages.map((message) => ({
-    role: message.role === "assistant" ? "assistant" : "user",
-    content:
-      typeof message.content === "string"
-        ? message.content
-        : message.content == null
-          ? ""
-          : JSON.stringify(message.content),
-  }))
 }
 
 async function* closeProxyAfterStream(

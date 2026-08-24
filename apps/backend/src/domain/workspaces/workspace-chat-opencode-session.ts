@@ -1,4 +1,46 @@
+import { mkdirSync, readFileSync, unlinkSync, writeFileSync } from "node:fs"
+import { join } from "node:path"
+import { workspaceChatOpenCodeHomeDir } from "./workspace-chat-opencode-contract.js"
 import { workspaceChatAssistantReply } from "./workspace-chat-assistant-text.js"
+
+const SESSION_FILE = "ctxpipe-session-id"
+
+function sessionFilePath(conversationId: string): string {
+  return join(workspaceChatOpenCodeHomeDir(conversationId), SESSION_FILE)
+}
+
+/** Official OpenCode resume id from the previous turn (`modelOptions.sessionId`). */
+export function loadWorkspaceChatOpenCodeSessionId(
+  conversationId: string,
+): string | null {
+  try {
+    const value = readFileSync(sessionFilePath(conversationId), "utf8").trim()
+    return value.length > 0 ? value : null
+  } catch {
+    return null
+  }
+}
+
+export function persistWorkspaceChatOpenCodeSessionId(
+  conversationId: string,
+  sessionId: string,
+): void {
+  const trimmed = sessionId.trim()
+  if (!trimmed) return
+  const home = workspaceChatOpenCodeHomeDir(conversationId)
+  mkdirSync(home, { recursive: true })
+  writeFileSync(sessionFilePath(conversationId), `${trimmed}\n`, "utf8")
+}
+
+export function clearWorkspaceChatOpenCodeSessionId(
+  conversationId: string,
+): void {
+  try {
+    unlinkSync(sessionFilePath(conversationId))
+  } catch {
+    // No session stored for this conversation.
+  }
+}
 
 export const WORKSPACE_CHAT_OPENCODE_IDLE_WAIT_MS = 25_000
 export const WORKSPACE_CHAT_OPENCODE_IDLE_POLL_MS = 250

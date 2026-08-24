@@ -5,6 +5,7 @@ import {
 } from "../../models/workspaces.js"
 import { getLogger } from "../../observability/logger.js"
 import type { TanstackLikeHandle } from "./job-sandbox.js"
+import { clearWorkspaceChatOpenCodeSessionId } from "./workspace-chat-opencode-session.js"
 
 type ExecResult = { stdout: string; stderr: string; exitCode: number }
 
@@ -75,6 +76,7 @@ export async function invalidateChatSandbox(input: {
   orgId: string
   conversationId: string
 }): Promise<void> {
+  clearWorkspaceChatOpenCodeSessionId(input.conversationId)
   if (input.handle) {
     await input.handle.destroy().catch((error) => {
       getLogger().error(

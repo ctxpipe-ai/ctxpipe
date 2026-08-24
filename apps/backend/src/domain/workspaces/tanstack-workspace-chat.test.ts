@@ -253,6 +253,10 @@ import {
   type TanstackWorkspaceChatInput,
 } from "./tanstack-workspace-chat.js"
 import { parseSseDataLines } from "./workspace-chat-agui.js"
+import {
+  clearWorkspaceChatOpenCodeSessionId,
+  persistWorkspaceChatOpenCodeSessionId,
+} from "./workspace-chat-opencode-session.js"
 
 async function runTanstackWorkspaceChat(input: TanstackWorkspaceChatInput) {
   const res = await runTanstackWorkspaceChatHttp(input)
@@ -266,6 +270,8 @@ async function runTanstackWorkspaceChat(input: TanstackWorkspaceChatInput) {
 describe("runTanstackWorkspaceChat", () => {
   beforeEach(() => {
     resetWorkspaceChatTurnClaims()
+    clearWorkspaceChatOpenCodeSessionId("conv_1")
+    clearWorkspaceChatOpenCodeSessionId("conv_resume")
     vi.clearAllMocks()
     nameConversationIfUnnamedMock.mockResolvedValue(null)
     orgTxDepth.value = 0
@@ -418,6 +424,27 @@ describe("runTanstackWorkspaceChat", () => {
       threadId: "conv_1",
       runId: "run_client",
     })
+  })
+
+  it("resumes the OpenCode session with modelOptions.sessionId", async () => {
+    persistWorkspaceChatOpenCodeSessionId("conv_resume", "ses_prior")
+    const res = await runTanstackWorkspaceChat({
+      conversationId: "conv_resume",
+      prompt: "hello",
+      orgId: "org_1",
+      workspaceId: "ws_1",
+      desiredUrl: "https://github.com/acme/docs",
+      desiredSha: "abc",
+      ref: "abc",
+      writeStatus: "writable",
+    })
+    expect(res.status).toBe(200)
+    expect(chatMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        threadId: "conv_resume",
+        modelOptions: { sessionId: "ses_prior" },
+      }),
+    )
   })
 
   it("passes a clone token to gitSource without putting it in the sandbox id", async () => {
@@ -582,7 +609,7 @@ describe("runTanstackWorkspaceChat", () => {
     )
   })
 
-  it("streams prompt echo live and persists only the last reply", async () => {
+  it("does not stream prompt echo and persists only the last reply", async () => {
     chatMock.mockImplementationOnce(async function* () {
       yield {
         type: "TEXT_MESSAGE_CONTENT",
@@ -622,7 +649,7 @@ describe("runTanstackWorkspaceChat", () => {
       )
       .map((event) => (event as { delta?: string }).delta ?? "")
       .join("")
-    expect(text).toBe("helloonly-this-run")
+    expect(text).toBe("only-this-run")
     expect(appendTurnMock).toHaveBeenCalledWith(
       expect.objectContaining({
         role: "assistant",

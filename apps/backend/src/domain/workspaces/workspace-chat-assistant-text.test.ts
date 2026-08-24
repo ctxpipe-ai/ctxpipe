@@ -12,6 +12,13 @@ function runGate(prompt: string, chunks: object[]) {
   return { out, assistant: gate.assistant() }
 }
 
+function textDeltas(chunks: object[]): string {
+  return chunks
+    .filter((chunk) => (chunk as { type?: string }).type === "TEXT_MESSAGE_CONTENT")
+    .map((chunk) => (chunk as { delta?: string }).delta ?? "")
+    .join("")
+}
+
 describe("workspaceChatAssistantReply", () => {
   it("treats echo-only text as an empty persist reply", () => {
     expect(
@@ -39,7 +46,7 @@ describe("workspaceChatAssistantReply", () => {
 })
 
 describe("createWorkspaceChatAssistantGate", () => {
-  it("yields text live and persists only the last reply", () => {
+  it("does not stream a leading prompt echo", () => {
     const { out, assistant } = runGate("hello", [
       { type: "TEXT_MESSAGE_START", messageId: "user-part" },
       { type: "TEXT_MESSAGE_CONTENT", messageId: "user-part", delta: "hello" },
@@ -53,46 +60,65 @@ describe("createWorkspaceChatAssistantGate", () => {
       { type: "TEXT_MESSAGE_END", messageId: "asst" },
       { type: "RUN_FINISHED" },
     ])
-    expect(
-      out
-        .filter(
-          (chunk) =>
-            (chunk as { type?: string }).type === "TEXT_MESSAGE_CONTENT",
-        )
-        .map((chunk) => (chunk as { delta?: string }).delta)
-        .join(""),
-    ).toBe("helloonly-this-run")
+    expect(textDeltas(out)).toBe("only-this-run")
     expect(out.some((chunk) => (chunk as { type?: string }).type === "RUN_FINISHED")).toBe(
       true,
     )
     expect(assistant).toBe("only-this-run")
   })
 
-  it("yields a first text delta before RUN_FINISHED", () => {
+  it("does not stream a Previous conversation leftover", () => {
+    const prompt = "Now reply with only the word pong2"
+    const { out, assistant } = runGate(prompt, [
+      {
+        type: "TEXT_MESSAGE_CONTENT",
+        messageId: "echo",
+        delta: `Previous conversation:\nUser: pong\n\n${prompt}`,
+      },
+      { type: "TEXT_MESSAGE_END", messageId: "echo" },
+      {
+        type: "TEXT_MESSAGE_CONTENT",
+        messageId: "asst",
+        delta: "pong2",
+      },
+      { type: "TEXT_MESSAGE_END", messageId: "asst" },
+      { type: "RUN_FINISHED" },
+    ])
+    expect(textDeltas(out)).toBe("pong2")
+    expect(assistant).toBe("pong2")
+  })
+
+  it("yields a first real text delta before RUN_FINISHED", () => {
     const gate = createWorkspaceChatAssistantGate("hello")
     const first = gate.take({
       type: "TEXT_MESSAGE_CONTENT",
       messageId: "asst",
       delta: "pong",
     })
-    expect(first).toEqual([
-      {
-        type: "TEXT_MESSAGE_CONTENT",
-        messageId: "asst",
-        delta: "pong",
-      },
-    ])
+    expect(textDeltas(first)).toBe("pong")
     expect(gate.take({ type: "RUN_FINISHED" })).toEqual([])
     expect(gate.flush()).toEqual([{ type: "RUN_FINISHED" }])
     expect(gate.assistant()).toBe("pong")
   })
 
   it("does not persist echo-only text", () => {
-    const { assistant } = runGate("hello", [
+    const { out, assistant } = runGate("hello", [
       { type: "TEXT_MESSAGE_CONTENT", delta: "hello" },
       { type: "RUN_FINISHED" },
     ])
+    expect(textDeltas(out)).toBe("")
     expect(assistant).toBe("")
+  })
+
+  it("strips a same-message prompt prefix from the live stream", () => {
+    const { out, assistant } = runGate("hello", [
+      { type: "TEXT_MESSAGE_CONTENT", messageId: "asst", delta: "hello" },
+      { type: "TEXT_MESSAGE_CONTENT", messageId: "asst", delta: "only-this-run" },
+      { type: "TEXT_MESSAGE_END", messageId: "asst" },
+      { type: "RUN_FINISHED" },
+    ])
+    expect(textDeltas(out)).toBe("only-this-run")
+    expect(assistant).toBe("only-this-run")
   })
 
   it("drops leftover TanStack / OpenCode log text", () => {

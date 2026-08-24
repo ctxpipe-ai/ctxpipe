@@ -8,9 +8,15 @@ const TEXT_START = "TEXT_MESSAGE_START"
 const TEXT_CONTENT = "TEXT_MESSAGE_CONTENT"
 const TEXT_END = "TEXT_MESSAGE_END"
 
-type TextMessage = {
+type TextClass = "hold" | "drop" | "reply" | "strip"
+
+type OpenText = {
   id: string
   text: string
+  held: object[]
+  dropped: boolean
+  released: boolean
+  emittedReplyLen: number
 }
 
 function isTextEvent(type: string | undefined): boolean {
@@ -35,6 +41,27 @@ function isLeftoverLog(text: string): boolean {
     trimmed.includes("tanstack-ai:errors") ||
     trimmed.includes("opencode.chatStream")
   )
+}
+
+function classifyAssistantText(
+  prompt: string,
+  text: string,
+  final: boolean,
+): TextClass {
+  if (isLeftoverLog(text)) return "drop"
+  if (prompt.length > 0 && text === prompt) return final ? "drop" : "hold"
+  if (
+    prompt.length > 0 &&
+    text.startsWith(prompt) &&
+    text.length > prompt.length
+  ) {
+    return "strip"
+  }
+  if (text === "") return "hold"
+  if (prompt.length > 0 && prompt.startsWith(text)) return "hold"
+  const leftoverPrefix = "Previous conversation:"
+  if (leftoverPrefix.startsWith(text)) return final ? "drop" : "hold"
+  return "reply"
 }
 
 /**
@@ -65,44 +92,110 @@ export function workspaceChatAssistantReply(input: {
   return last
 }
 
+function replyText(prompt: string, text: string, kind: TextClass): string {
+  return kind === "strip" ? text.slice(prompt.length) : text
+}
+
+function releaseOpenText(
+  open: OpenText,
+  prompt: string,
+  final: boolean,
+): object[] {
+  const kind = classifyAssistantText(prompt, open.text, final)
+  if (kind === "drop") {
+    open.dropped = true
+    return []
+  }
+  if (kind === "hold") return []
+  const reply = replyText(prompt, open.text, kind)
+  const out: object[] = []
+  if (!open.released) {
+    open.released = true
+    const start = open.held.find(
+      (chunk) => (chunk as AguiRecord).type === TEXT_START,
+    )
+    out.push(start ?? { type: TEXT_START, messageId: open.id })
+  }
+  const delta = reply.slice(open.emittedReplyLen)
+  open.emittedReplyLen = reply.length
+  if (delta) {
+    out.push({
+      type: TEXT_CONTENT,
+      messageId: open.id,
+      delta,
+    })
+  }
+  return out
+}
+
 export function createWorkspaceChatAssistantGate(prompt: string): {
   take: (chunk: object) => object[]
   flush: () => object[]
   assistant: () => string
 } {
-  const messages: TextMessage[] = []
-  let open: TextMessage | null = null
-  const held: object[] = []
+  const messages: Array<{ id: string; text: string }> = []
+  let open: OpenText | null = null
+  const heldTerminal: object[] = []
 
-  const closeOpen = (): void => {
-    if (!open) return
-    if (open.text !== "") messages.push(open)
+  const closeOpen = (fromEndEvent: boolean): object[] => {
+    if (!open) return []
+    const kind = classifyAssistantText(prompt, open.text, true)
+    const out =
+      open.dropped || kind === "drop" || kind === "hold"
+        ? []
+        : [
+            ...releaseOpenText(open, prompt, true),
+            ...(fromEndEvent && open.released
+              ? [{ type: TEXT_END, messageId: open.id }]
+              : []),
+          ]
+    if (open.text !== "") messages.push({ id: open.id, text: open.text })
     open = null
+    return out
   }
 
   return {
     take(chunk: object) {
       const record = chunk as AguiRecord
       if (isTerminalEvent(record.type)) {
-        held.push(chunk)
+        heldTerminal.push(chunk)
         return []
       }
       if (!isTextEvent(record.type)) return [chunk]
       const id = chunkMessageId(record)
-      if (open && id !== open.id) closeOpen()
-      if (!open) open = { id, text: "" }
+      const out: object[] = []
+      if (open && id !== open.id) out.push(...closeOpen(true))
+      if (!open) {
+        open = {
+          id,
+          text: "",
+          held: [],
+          dropped: false,
+          released: false,
+          emittedReplyLen: 0,
+        }
+      }
+      open.held.push(chunk)
       if (record.type === TEXT_CONTENT && typeof record.delta === "string") {
         open.text += record.delta
       }
-      return [chunk]
+      if (open.dropped) return out
+      if (record.type === TEXT_END) {
+        out.push(...closeOpen(true))
+        return out
+      }
+      out.push(...releaseOpenText(open, prompt, false))
+      return out
     },
     flush() {
-      closeOpen()
-      const terminal = held.splice(0)
-      return terminal
+      const trailing = closeOpen(false)
+      return [...trailing, ...heldTerminal.splice(0)]
     },
     assistant() {
-      closeOpen()
+      if (open && open.text !== "") {
+        messages.push({ id: open.id, text: open.text })
+        open = null
+      }
       return workspaceChatAssistantReply({
         prompt,
         texts: messages.map((message) => message.text),

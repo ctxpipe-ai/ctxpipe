@@ -1,11 +1,23 @@
 import { describe, expect, it, vi } from "vitest"
 import {
   assistantTextFromOpenCodeMessages,
+  clearWorkspaceChatOpenCodeSessionId,
+  loadWorkspaceChatOpenCodeSessionId,
+  persistWorkspaceChatOpenCodeSessionId,
   waitForOpenCodeAssistant,
   workspaceChatOpenCodeSessionId,
 } from "./workspace-chat-opencode-session.js"
 
 describe("workspace chat OpenCode session", () => {
+  it("persists and reloads the official resume session id", () => {
+    const conversationId = `conv_session_${Date.now()}`
+    expect(loadWorkspaceChatOpenCodeSessionId(conversationId)).toBeNull()
+    persistWorkspaceChatOpenCodeSessionId(conversationId, "ses_saved")
+    expect(loadWorkspaceChatOpenCodeSessionId(conversationId)).toBe("ses_saved")
+    clearWorkspaceChatOpenCodeSessionId(conversationId)
+    expect(loadWorkspaceChatOpenCodeSessionId(conversationId)).toBeNull()
+  })
+
   it("reads the official session-id custom event", () => {
     expect(
       workspaceChatOpenCodeSessionId({
