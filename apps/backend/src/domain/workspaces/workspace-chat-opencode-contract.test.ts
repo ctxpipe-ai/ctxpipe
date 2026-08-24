@@ -114,6 +114,9 @@ describe("workspaceChatOpenCodeContract", () => {
         webfetch: "deny",
         websearch: "deny",
       },
+      agent: {
+        title: { disable: true },
+      },
     })
   })
 

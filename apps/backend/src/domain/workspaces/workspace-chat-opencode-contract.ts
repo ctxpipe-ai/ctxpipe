@@ -153,6 +153,9 @@ export function workspaceChatOpenCodeConfig(input: { modelBase: string }): {
     webfetch: "deny"
     websearch: "deny"
   }
+  agent: {
+    title: { disable: true }
+  }
 } {
   return {
     $schema: "https://opencode.ai/config.json",
@@ -177,6 +180,11 @@ export function workspaceChatOpenCodeConfig(input: { modelBase: string }): {
       task: "deny",
       webfetch: "deny",
       websearch: "deny",
+    },
+    // Title generation is a parallel completion that contends for the same
+    // model as the first user turn.
+    agent: {
+      title: { disable: true },
     },
   }
 }
