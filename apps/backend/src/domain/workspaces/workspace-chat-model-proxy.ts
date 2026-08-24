@@ -21,6 +21,7 @@ export async function startWorkspaceChatModelProxy(input: {
   modelParams?: ModelParams
   listenHost?: string
   advertisedHost?: string
+  port?: number
   fetch?: typeof fetch
 }): Promise<WorkspaceChatModelProxy> {
   const doFetch = input.fetch ?? fetch
@@ -31,7 +32,7 @@ export async function startWorkspaceChatModelProxy(input: {
   })
   await new Promise<void>((resolve, reject) => {
     server.once("error", reject)
-    server.listen(0, listenHost, () => resolve())
+    server.listen(input.port ?? 0, listenHost, () => resolve())
   })
   const address = server.address()
   if (!address || typeof address === "string") {

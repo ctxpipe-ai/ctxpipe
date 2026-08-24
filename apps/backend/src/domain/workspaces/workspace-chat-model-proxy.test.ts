@@ -85,6 +85,29 @@ describe("startWorkspaceChatModelProxy", () => {
     ])
   })
 
+  it("can bind an explicitly leased port", async () => {
+    const { leaseLocalProcessOpenCodePort } = await import(
+      "./workspace-chat-opencode-port.js"
+    )
+    const lease = await leaseLocalProcessOpenCodePort()
+    const proxy = await startWorkspaceChatModelProxy({
+      runToken: "run-token-port",
+      upstreamBaseUrl: "http://127.0.0.1:9",
+      upstreamApiKey: "sk-unused",
+      modelBase: "openai/gpt-5.6-terra",
+      listenHost: "0.0.0.0",
+      advertisedHost: "127.0.0.1",
+      port: lease.port,
+    })
+    servers.push({
+      close: async () => {
+        await proxy.close()
+        await lease.release()
+      },
+    })
+    expect(new URL(proxy.baseUrl).port).toBe(String(lease.port))
+  })
+
   it("listens on all interfaces so a local-process OpenCode can reach it", async () => {
     const proxy = await startWorkspaceChatModelProxy({
       runToken: "run-token-listen",

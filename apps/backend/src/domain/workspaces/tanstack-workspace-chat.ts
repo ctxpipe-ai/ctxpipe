@@ -532,16 +532,27 @@ async function prepareTanstackWorkspaceChat(
   )
 
   const runToken = randomBytes(32).toString("hex")
-  const proxy = await startWorkspaceChatModelProxy({
-    runToken,
-    upstreamBaseUrl: contract.upstreamBaseUrl,
-    upstreamApiKey: contract.apiKey,
-    modelBase: contract.modelBase,
-    modelParams: contract.modelParams,
-    listenHost: "0.0.0.0",
-    advertisedHost:
-      spec.isolation === "docker" ? "host.docker.internal" : "127.0.0.1",
-  })
+  let proxyLease: LocalProcessOpenCodePortLease | null = null
+  let proxy: Awaited<ReturnType<typeof startWorkspaceChatModelProxy>>
+  try {
+    if (spec.isolation === "local_process") {
+      proxyLease = await leaseLocalProcessOpenCodePort()
+    }
+    proxy = await startWorkspaceChatModelProxy({
+      runToken,
+      upstreamBaseUrl: contract.upstreamBaseUrl,
+      upstreamApiKey: contract.apiKey,
+      modelBase: contract.modelBase,
+      modelParams: contract.modelParams,
+      listenHost: "0.0.0.0",
+      advertisedHost:
+        spec.isolation === "docker" ? "host.docker.internal" : "127.0.0.1",
+      ...(proxyLease ? { port: proxyLease.port } : {}),
+    })
+  } catch (error) {
+    await proxyLease?.release().catch(() => undefined)
+    throw error
+  }
   const opencodeConfig = workspaceChatOpenCodeConfig({
     modelBase: contract.modelBase,
   })
@@ -567,9 +578,15 @@ async function prepareTanstackWorkspaceChat(
   const portStuck = { current: false }
   try {
     if (spec.isolation === "local_process") {
-      const reserved = tcpPortFromUrl(proxy.baseUrl)
+      const reserved = [
+        ...new Set(
+          [proxyLease?.port, tcpPortFromUrl(proxy.baseUrl)].filter(
+            (port): port is number => port != null,
+          ),
+        ),
+      ]
       portLease = await leaseLocalProcessOpenCodePort(
-        reserved != null ? { reserved: [reserved] } : undefined,
+        reserved.length > 0 ? { reserved } : undefined,
       )
     }
     const servePort = portLease?.port ?? WORKSPACE_CHAT_OPENCODE_PORT
@@ -668,7 +685,10 @@ async function prepareTanstackWorkspaceChat(
     return {
       ok: true,
       stream: closeProxyAfterStream(result, {
-        close: proxy.close,
+        close: async () => {
+          await proxy.close().catch(() => undefined)
+          await proxyLease?.release().catch(() => undefined)
+        },
         port: spec.isolation === "local_process" ? servePort : null,
         releasePort: portLease?.release,
         portStuck,
@@ -680,6 +700,7 @@ async function prepareTanstackWorkspaceChat(
     }
   } catch (error) {
     await proxy.close().catch(() => undefined)
+    await proxyLease?.release().catch(() => undefined)
     await portLease?.release().catch(() => undefined)
     throw error
   }
