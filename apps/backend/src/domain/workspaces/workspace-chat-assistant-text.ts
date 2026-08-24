@@ -33,14 +33,50 @@ function chunkMessageId(chunk: AguiRecord): string {
     : "__default__"
 }
 
+function isOpenCodeToolDump(text: string): boolean {
+  return (
+    text.includes("tanstack-ai-sandboxes") ||
+    text.includes(".tanstack-projected-") ||
+    (/<path>[\s\S]*<\/path>/.test(text) &&
+      /<type>directory<\/type>/.test(text))
+  )
+}
+
+/** Planning preamble is not the persist reply — wait for the real answer. */
+export function isOpenCodePlanningHold(text: string): boolean {
+  const trimmed = text.trim()
+  if (trimmed.length === 0 || trimmed.length > 280) return false
+  if (isOpenCodeToolDump(trimmed)) return false
+  return (
+    /^(i['’]ll|i will|let me|i['’]m going to|i am going to)\b/i.test(trimmed) &&
+    /(inspect|look|check|explore|read|search|summariz|see what)/i.test(trimmed)
+  )
+}
+
 function isLeftoverLog(text: string): boolean {
   const trimmed = text.trim()
   return (
     trimmed === "OpenCode chat stream completed" ||
     trimmed.startsWith("Previous conversation:") ||
     trimmed.includes("tanstack-ai:errors") ||
-    trimmed.includes("opencode.chatStream")
+    trimmed.includes("opencode.chatStream") ||
+    isOpenCodeToolDump(trimmed)
   )
+}
+
+function isSandboxInternalChunk(chunk: object): boolean {
+  const record = chunk as {
+    type?: string
+    content?: unknown
+    result?: unknown
+    output?: unknown
+    delta?: unknown
+  }
+  if (isTextEvent(record.type) || isTerminalEvent(record.type)) return false
+  const blob = [record.content, record.result, record.output, record.delta]
+    .map((value) => (typeof value === "string" ? value : ""))
+    .join("")
+  return blob.length > 0 && isOpenCodeToolDump(blob)
 }
 
 function classifyAssistantText(
@@ -74,7 +110,9 @@ export function workspaceChatAssistantReply(input: {
   texts: string[]
 }): string {
   const prompt = input.prompt
-  const cleaned = input.texts.filter((text) => !isLeftoverLog(text))
+  const cleaned = input.texts.filter(
+    (text) => !isLeftoverLog(text) && !isOpenCodePlanningHold(text),
+  )
   const texts =
     cleaned.length > 1 && cleaned[0] === prompt
       ? cleaned.slice(1)
@@ -161,6 +199,7 @@ export function createWorkspaceChatAssistantGate(prompt: string): {
         heldTerminal.push(chunk)
         return []
       }
+      if (isSandboxInternalChunk(chunk)) return []
       if (!isTextEvent(record.type)) return [chunk]
       const id = chunkMessageId(record)
       const out: object[] = []

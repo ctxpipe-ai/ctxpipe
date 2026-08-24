@@ -478,6 +478,60 @@ describe("runTanstackWorkspaceChat", () => {
     await res.text()
   })
 
+  it("clones the default branch, not the projection SHA", async () => {
+    const res = await runTanstackWorkspaceChat({
+      conversationId: "conv_1",
+      prompt: "hello",
+      orgId: "org_1",
+      workspaceId: "ws_1",
+      desiredUrl: "https://github.com/acme/docs",
+      desiredSha: "abc",
+      defaultBranch: "main",
+      ref: "abc",
+      writeStatus: "writable",
+      cloneToken: "tok",
+    })
+    expect(res.status).toBe(200)
+    expect(gitSourceMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        url: "https://github.com/acme/docs",
+        ref: "main",
+      }),
+    )
+    await res.text()
+  })
+
+  it("ensures a git checkout from onReady", async () => {
+    const res = await runTanstackWorkspaceChat({
+      conversationId: "conv_1",
+      prompt: "hello",
+      orgId: "org_1",
+      workspaceId: "ws_1",
+      desiredUrl: "https://github.com/acme/docs",
+      desiredSha: "abc",
+      defaultBranch: "main",
+      ref: "abc",
+      writeStatus: "writable",
+    })
+    const onReady = defineSandboxMock.mock.calls[0]?.[0]?.hooks?.onReady as
+      | ((handle: { process: { exec: unknown }; destroy: () => Promise<void> }) => Promise<void>)
+      | undefined
+    expect(onReady).toBeTypeOf("function")
+    const exec = vi.fn(async (command: string) => ({
+      stdout: "",
+      stderr: "",
+      exitCode: command.includes("ss -lnt") || command.includes("nc -z") ? 1 : 0,
+    }))
+    await withTestLogger(() =>
+      onReady?.({
+        process: { exec },
+        destroy: async () => {},
+      }),
+    )
+    expect(String(exec.mock.calls[0]?.[0])).toContain("/tmp/ctxpipe-repo-clone")
+    await res.text()
+  })
+
   it("passes a Postgres instance store without a fake lock to withSandbox", async () => {
     const res = await runTanstackWorkspaceChat({
       conversationId: "conv_1",
@@ -1273,6 +1327,53 @@ describe("runTanstackWorkspaceChat", () => {
       expect.objectContaining({ role: "assistant", content: "late-ok" }),
     )
     expect(openCodeFetch).toHaveBeenCalled()
+  })
+
+  it("waits for late text when the stream only had a planning preamble", async () => {
+    chatMock.mockImplementationOnce(async function* () {
+      yield {
+        type: "CUSTOM",
+        name: "opencode.session-id",
+        value: { sessionId: "ses_plan" },
+      }
+      yield {
+        type: "TEXT_MESSAGE_CONTENT",
+        delta:
+          "I’ll inspect the repository structure and its primary project metadata to summarize its purpose and components.",
+      }
+      yield { type: "RUN_FINISHED" }
+    })
+    const openCodeFetch = vi.fn().mockResolvedValue(
+      new Response(
+        JSON.stringify([
+          {
+            info: { role: "assistant" },
+            parts: [{ type: "text", text: "This repo is a TypeScript monorepo." }],
+          },
+        ]),
+        { status: 200 },
+      ),
+    )
+    const res = await runTanstackWorkspaceChat({
+      conversationId: "conv_plan",
+      prompt: "what's in this repo?",
+      orgId: "org_1",
+      workspaceId: "ws_1",
+      desiredUrl: "https://github.com/acme/docs",
+      desiredSha: "abc",
+      ref: "abc",
+      writeStatus: "writable",
+      openCodeIdleMs: 50,
+      openCodeFetch,
+    })
+    expect(appendTurnMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        role: "assistant",
+        content: "This repo is a TypeScript monorepo.",
+      }),
+    )
+    expect(openCodeFetch).toHaveBeenCalled()
+    await res.text()
   })
 
   it("releases the claim when the producer stalls after echo", async () => {

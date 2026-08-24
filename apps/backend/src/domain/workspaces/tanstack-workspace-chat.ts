@@ -50,7 +50,10 @@ import {
   workspaceChatRunStarted,
   workspaceChatWireFormat,
 } from "./workspace-chat-agui.js"
-import { createWorkspaceChatAssistantGate } from "./workspace-chat-assistant-text.js"
+import {
+  createWorkspaceChatAssistantGate,
+  isOpenCodePlanningHold,
+} from "./workspace-chat-assistant-text.js"
 import {
   loadWorkspaceChatOpenCodeSessionId,
   persistWorkspaceChatOpenCodeSessionId,
@@ -70,6 +73,7 @@ import {
   type LocalProcessOpenCodePortLease,
 } from "./workspace-chat-opencode-port.js"
 import {
+  ensureChatSandboxCheckout,
   invalidateChatSandbox,
   preflightChatSandbox,
   streamSawOpenCodeSession,
@@ -298,7 +302,8 @@ async function* streamClaimedTanstackWorkspaceChat(
       setupMs: turn.streamSetupMs,
       idleMs: turn.streamIdleMs,
       afterTerminal: async () => {
-        if (gate.assistant().trim()) return
+        const early = gate.assistant()
+        if (early.trim() && !isOpenCodePlanningHold(early)) return
         if (!sessionId) return
         lateAssistant = await waitForOpenCodeAssistant({
           port: prepared.servePort,
@@ -340,7 +345,10 @@ async function* streamClaimedTanstackWorkspaceChat(
       }
     }
     let assistant = gate.assistant()
-    if (!assistant.trim() && lateAssistant.trim()) {
+    if (
+      lateAssistant.trim() &&
+      (!assistant.trim() || isOpenCodePlanningHold(assistant))
+    ) {
       assistant = lateAssistant.trim()
       const messageId = generateObjectId("msg")
       yield {
@@ -540,22 +548,55 @@ async function prepareTanstackWorkspaceChat(
   )
 
   const runToken = randomBytes(32).toString("hex")
+  const prepareStarted = Date.now()
   let proxyLease: LocalProcessOpenCodePortLease | null = null
   let proxy: Awaited<ReturnType<typeof startWorkspaceChatModelProxy>>
+  let tools: Awaited<ReturnType<typeof workspaceChatTools>>
   try {
     if (spec.isolation === "local_process") {
       proxyLease = await leaseLocalProcessOpenCodePort()
     }
-    proxy = await startWorkspaceChatModelProxy({
-      runToken,
-      upstreamBaseUrl: contract.upstreamBaseUrl,
-      upstreamApiKey: contract.apiKey,
-      modelBase: contract.modelBase,
-      modelParams: contract.modelParams,
-      listenHost: "0.0.0.0",
-      advertisedHost:
-        spec.isolation === "docker" ? "host.docker.internal" : "127.0.0.1",
-      ...(proxyLease ? { port: proxyLease.port } : {}),
+    const proxyAndToolsStarted = Date.now()
+    ;[proxy, tools] = await Promise.all([
+      startWorkspaceChatModelProxy({
+        runToken,
+        upstreamBaseUrl: contract.upstreamBaseUrl,
+        upstreamApiKey: contract.apiKey,
+        modelBase: contract.modelBase,
+        modelParams: contract.modelParams,
+        listenHost: "0.0.0.0",
+        advertisedHost:
+          spec.isolation === "docker" ? "host.docker.internal" : "127.0.0.1",
+        ...(proxyLease ? { port: proxyLease.port } : {}),
+      }),
+      (async () => {
+        const activeProjectionSha = await withOrgDbContext(
+          input.orgId,
+          async () => {
+            const workspace = await getWorkspaceById(input.workspaceId)
+            return workspace?.activeProjectionSha ?? null
+          },
+        ).catch(() => null)
+        return workspaceChatTools({
+          orgId: input.orgId,
+          workspaceId: input.workspaceId,
+          writeStatus: input.writeStatus,
+          activeProjectionSha,
+          loadUnits: () =>
+            withOrgDbContext(input.orgId, () =>
+              listWorkspaceKnowledgeUnitsForChat(input.workspaceId),
+            ),
+          embedQuery: generateEmbedding,
+          searchObjects: async (query, embedding) =>
+            hybridSearch(input.orgId, { embedding, query }, { limit: 20 }),
+        }).catch(() => [])
+      })(),
+    ])
+    log.info({
+      step: "workspace-chat-timing",
+      phase: "proxy-and-tools",
+      ms: Date.now() - proxyAndToolsStarted,
+      conversationId: input.conversationId,
     })
   } catch (error) {
     await proxyLease?.release().catch(() => undefined)
@@ -564,22 +605,6 @@ async function prepareTanstackWorkspaceChat(
   const opencodeConfig = workspaceChatOpenCodeConfig({
     modelBase: contract.modelBase,
   })
-  const tools = await workspaceChatTools({
-    orgId: input.orgId,
-    workspaceId: input.workspaceId,
-    writeStatus: input.writeStatus,
-    activeProjectionSha: await withOrgDbContext(input.orgId, async () => {
-      const workspace = await getWorkspaceById(input.workspaceId)
-      return workspace?.activeProjectionSha ?? null
-    }).catch(() => null),
-    loadUnits: () =>
-      withOrgDbContext(input.orgId, () =>
-        listWorkspaceKnowledgeUnitsForChat(input.workspaceId),
-      ),
-    embedQuery: generateEmbedding,
-    searchObjects: async (query, embedding) =>
-      hybridSearch(input.orgId, { embedding, query }, { limit: 20 }),
-  }).catch(() => [])
 
   let portLease: LocalProcessOpenCodePortLease | null = null
   const handle = { current: null as TanstackLikeHandle | null }
@@ -621,7 +646,7 @@ async function prepareTanstackWorkspaceChat(
         source: modules.gitSource(
           workspaceChatGitSource({
             url: spec.source.url,
-            ref: spec.source.ref,
+            ref: input.defaultBranch ?? spec.source.ref,
             token: workspaceChatCloneTokenRef(
               secrets as Record<string, unknown>,
               input.cloneToken,
@@ -658,6 +683,19 @@ async function prepareTanstackWorkspaceChat(
               { step: "attach-chat-sandbox-handle" },
             )
           })
+          const checkoutStarted = Date.now()
+          await ensureChatSandboxCheckout({
+            handle: ready,
+            repoUrl: input.desiredUrl,
+            defaultBranch: input.defaultBranch ?? "main",
+            desiredSha: input.desiredSha,
+          })
+          log.info({
+            step: "workspace-chat-timing",
+            phase: "sandbox-checkout",
+            ms: Date.now() - checkoutStarted,
+            conversationId: input.conversationId,
+          })
           await preflightChatSandbox({
             handle: ready,
             isolation: spec.isolation,
@@ -670,6 +708,7 @@ async function prepareTanstackWorkspaceChat(
         },
       },
     })
+    const chatStarted = Date.now()
     const result = await modules.chat({
       adapter: modules.opencodeText(contract.opencodeModel, {
         port: servePort,
@@ -689,6 +728,18 @@ async function prepareTanstackWorkspaceChat(
           }),
         }),
       ],
+    })
+    log.info({
+      step: "workspace-chat-timing",
+      phase: "chat-create",
+      ms: Date.now() - chatStarted,
+      conversationId: input.conversationId,
+    })
+    log.info({
+      step: "workspace-chat-timing",
+      phase: "prepare",
+      ms: Date.now() - prepareStarted,
+      conversationId: input.conversationId,
     })
     return {
       ok: true,

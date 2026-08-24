@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest"
 import {
   createWorkspaceChatAssistantGate,
+  isOpenCodePlanningHold,
   workspaceChatAssistantReply,
 } from "./workspace-chat-assistant-text.js"
 
@@ -119,6 +120,45 @@ describe("createWorkspaceChatAssistantGate", () => {
     ])
     expect(textDeltas(out)).toBe("only-this-run")
     expect(assistant).toBe("only-this-run")
+  })
+
+  it("drops a sandbox directory tool dump", () => {
+    const dump =
+      "<path>/tmp/tanstack-ai-sandboxes/e9292094-fc12-424c-b789-c8be901b85f9/tmp/tanstack-ai-sandboxes/e9292094-fc12-424c-b789-c8be901b85f9</path>\n<type>directory</type>\n<entries>\n.tanstack-projected-6f87aac353f2008d\n\n(1 entries)\n</entries>"
+    const { out, assistant } = runGate("what's in this repo?", [
+      { type: "TEXT_MESSAGE_CONTENT", messageId: "dump", delta: dump },
+      { type: "TEXT_MESSAGE_END", messageId: "dump" },
+      { type: "TEXT_MESSAGE_CONTENT", messageId: "asst", delta: "pong" },
+      { type: "TEXT_MESSAGE_END", messageId: "asst" },
+      { type: "RUN_FINISHED" },
+    ])
+    expect(textDeltas(out)).toBe("pong")
+    expect(assistant).toBe("pong")
+  })
+
+  it("does not persist a planning preamble as the reply", () => {
+    expect(
+      isOpenCodePlanningHold(
+        "I’ll inspect the repository structure and its primary project metadata to summarize its purpose and components.",
+      ),
+    ).toBe(true)
+    expect(
+      workspaceChatAssistantReply({
+        prompt: "what's in this repo?",
+        texts: [
+          "I’ll inspect the repository structure and its primary project metadata to summarize its purpose and components.",
+        ],
+      }),
+    ).toBe("")
+    expect(
+      workspaceChatAssistantReply({
+        prompt: "what's in this repo?",
+        texts: [
+          "I’ll inspect the repository structure and its primary project metadata to summarize its purpose and components.",
+          "This repo is a TypeScript monorepo.",
+        ],
+      }),
+    ).toBe("This repo is a TypeScript monorepo.")
   })
 
   it("drops leftover TanStack / OpenCode log text", () => {

@@ -82,4 +82,46 @@ describe("workspace chat OpenCode session", () => {
       }),
     ).resolves.toBe("pong-1")
   })
+
+  it("keeps polling past a planning preamble", async () => {
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(
+        new Response(
+          JSON.stringify([
+            {
+              info: { role: "assistant" },
+              parts: [
+                {
+                  type: "text",
+                  text: "I’ll inspect the repository structure and its primary project metadata to summarize its purpose and components.",
+                },
+              ],
+            },
+          ]),
+          { status: 200 },
+        ),
+      )
+      .mockResolvedValueOnce(
+        new Response(
+          JSON.stringify([
+            {
+              info: { role: "assistant" },
+              parts: [{ type: "text", text: "This repo is a TypeScript app." }],
+            },
+          ]),
+          { status: 200 },
+        ),
+      )
+    await expect(
+      waitForOpenCodeAssistant({
+        port: 4096,
+        sessionId: "ses_1",
+        prompt: "what's in this repo?",
+        timeoutMs: 200,
+        pollMs: 5,
+        fetch: fetchMock,
+      }),
+    ).resolves.toBe("This repo is a TypeScript app.")
+  })
 })

@@ -1,7 +1,10 @@
 import { mkdirSync, readFileSync, unlinkSync, writeFileSync } from "node:fs"
 import { join } from "node:path"
 import { workspaceChatOpenCodeHomeDir } from "./workspace-chat-opencode-contract.js"
-import { workspaceChatAssistantReply } from "./workspace-chat-assistant-text.js"
+import {
+  isOpenCodePlanningHold,
+  workspaceChatAssistantReply,
+} from "./workspace-chat-assistant-text.js"
 
 const SESSION_FILE = "ctxpipe-session-id"
 
@@ -42,7 +45,7 @@ export function clearWorkspaceChatOpenCodeSessionId(
   }
 }
 
-export const WORKSPACE_CHAT_OPENCODE_IDLE_WAIT_MS = 25_000
+export const WORKSPACE_CHAT_OPENCODE_IDLE_WAIT_MS = 60_000
 export const WORKSPACE_CHAT_OPENCODE_IDLE_POLL_MS = 250
 
 export function workspaceChatOpenCodeSessionId(chunk: object): string | null {
@@ -118,7 +121,7 @@ export async function waitForOpenCodeAssistant(input: {
           await res.json(),
           input.prompt,
         )
-        if (text.trim()) return text
+        if (text.trim() && !isOpenCodePlanningHold(text)) return text
       }
     } catch {
       // Serve may still be writing the turn.

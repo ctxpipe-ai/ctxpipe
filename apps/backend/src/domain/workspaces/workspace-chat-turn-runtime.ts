@@ -9,6 +9,7 @@ import { getChatSandbox } from "./sandbox-registry.js"
 import { githubRepoFullNameFromWorkspaceUrl } from "./write-status.js"
 import { persistConversationLastBranch } from "../../models/conversations.js"
 import { getRepoReadCloneToken } from "../../models/github-installation.js"
+import { log } from "../../observability/logger.js"
 import { githubRefExists } from "../../services/github/installation-write-client.js"
 import { resolveGithubDefaultBranch } from "../../routes/webhooks/github/github-workspace-tip.js"
 import type { Env } from "../../config/env.js"
@@ -49,29 +50,38 @@ export async function resolveWorkspaceChatTurnRuntime(input: {
   const repoName = workspace
     ? githubRepoFullNameFromWorkspaceUrl(workspace.workspaceRepositoryUrl)
     : null
-  const defaultBranch =
+  const githubStarted = Date.now()
+  const [defaultBranch, cloneToken, remoteHasLastBranch] = await Promise.all([
     workspace && repoName
-      ? ((await resolveGithubDefaultBranch({
+      ? resolveGithubDefaultBranch({
           orgId: workspace.orgId,
           githubConnectionId: workspace.githubConnectionId,
           repoFullName: repoName,
           env,
-        })) ?? "main")
-      : "main"
-  let remoteHasLastBranch = false
-  if (conversation.lastBranch && workspace && repoName) {
-    try {
-      remoteHasLastBranch = await githubRefExists({
-        orgId: workspace.orgId,
-        repositoryName: repoName,
-        env,
-        githubConnectionId: workspace.githubConnectionId ?? undefined,
-        ref: conversation.lastBranch,
-      })
-    } catch {
-      remoteHasLastBranch = false
-    }
-  }
+        }).then((branch) => branch ?? "main")
+      : Promise.resolve("main"),
+    workspace && repoName
+      ? getRepoReadCloneToken(workspace.orgId, env, {
+          githubConnectionId: workspace.githubConnectionId ?? undefined,
+          repoFullName: repoName,
+        }).then((token) => token ?? null)
+      : Promise.resolve(null),
+    conversation.lastBranch && workspace && repoName
+      ? githubRefExists({
+          orgId: workspace.orgId,
+          repositoryName: repoName,
+          env,
+          githubConnectionId: workspace.githubConnectionId ?? undefined,
+          ref: conversation.lastBranch,
+        }).catch(() => false)
+      : Promise.resolve(false),
+  ])
+  log.info({
+    step: "workspace-chat-timing",
+    phase: "github-resolve",
+    ms: Date.now() - githubStarted,
+    conversationId: conversation.id,
+  })
   const lastBranch = restoreBranchAfterIdle({
     lastBranch: conversation.lastBranch,
     lastBranchExistsOnRemote: lastBranchExistsOnRemote({
@@ -116,13 +126,7 @@ export async function resolveWorkspaceChatTurnRuntime(input: {
   return {
     lastBranch,
     defaultBranch,
-    cloneToken:
-      workspace && repoName
-        ? ((await getRepoReadCloneToken(workspace.orgId, env, {
-            githubConnectionId: workspace.githubConnectionId ?? undefined,
-            repoFullName: repoName,
-          })) ?? null)
-        : null,
+    cloneToken,
     writeStatus: workspace?.writeStatus ?? "read_only",
     desiredUrl: workspace?.workspaceRepositoryUrl ?? null,
     desiredSha: workspace?.desiredSha ?? null,

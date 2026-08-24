@@ -37,7 +37,7 @@ export const WORKSPACE_CHAT_DOCKER_SANDBOX: {
  * both miss that binary.
  */
 export const WORKSPACE_CHAT_SANDBOX_SETUP = [
-  `command -v opencode >/dev/null 2>&1 || npm install -g ${WORKSPACE_CHAT_OPENCODE_CLI}`,
+  `PATH="/usr/local/bin:/usr/bin:/bin:$PATH"; command -v opencode >/dev/null 2>&1 || npm install -g ${WORKSPACE_CHAT_OPENCODE_CLI}`,
 ] as const
 
 export function workspaceChatSandboxId(input: {

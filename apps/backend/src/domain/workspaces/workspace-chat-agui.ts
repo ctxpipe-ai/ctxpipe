@@ -77,7 +77,8 @@ export function isWorkspaceChatRenameChunk(chunk: object): string | null {
 }
 
 export const WORKSPACE_CHAT_STREAM_SETUP_MS = 180_000
-export const WORKSPACE_CHAT_STREAM_IDLE_MS = 45_000
+/** Reasoning + tool turns can sit silent longer than a short idle window. */
+export const WORKSPACE_CHAT_STREAM_IDLE_MS = 180_000
 
 export function isWorkspaceChatTerminalChunk(chunk: object): boolean {
   const type = (chunk as { type?: string }).type

@@ -2,6 +2,7 @@ import { describe, expect, it, vi } from "vitest"
 import { withTestLogger } from "../../test/with-test-logger.js"
 import type { TanstackLikeHandle } from "./job-sandbox.js"
 import {
+  ensureChatSandboxCheckout,
   invalidateChatSandbox,
   preflightChatSandbox,
   streamSawOpenCodeSession,
@@ -91,6 +92,51 @@ describe("preflightChatSandbox", () => {
       ),
     ).resolves.toBeUndefined()
     expect(exec.mock.calls.join("\n")).not.toContain("/v1/models")
+  })
+})
+
+describe("ensureChatSandboxCheckout", () => {
+  it("clones into a temp dir and does not put the token on argv", async () => {
+    const exec = vi.fn(async () => ({
+      stdout: "",
+      stderr: "",
+      exitCode: 0,
+    }))
+    await ensureChatSandboxCheckout({
+      handle: chatHandle({ exec }),
+      repoUrl: "https://github.com/acme/docs.git",
+      defaultBranch: "main",
+      desiredSha: "abc123",
+    })
+    expect(exec).toHaveBeenCalledTimes(1)
+    const [command, options] = exec.mock.calls[0] ?? []
+    expect(String(command)).toContain("/tmp/ctxpipe-repo-clone")
+    expect(String(command)).toContain("credential.helper")
+    expect(String(command)).toContain("${CTXPIPE_CLONE_TOKEN}")
+    expect(String(command)).not.toContain("ghs_")
+    expect(String(command)).not.toContain("github_pat_")
+    expect(options).toEqual({
+      env: {
+        CTXPIPE_CLONE_URL: "https://github.com/acme/docs.git",
+        CTXPIPE_CLONE_BRANCH: "main",
+        CTXPIPE_CLONE_SHA: "abc123",
+      },
+    })
+  })
+
+  it("throws when the checkout script fails", async () => {
+    const exec = vi.fn(async () => ({
+      stdout: "",
+      stderr: "fatal: repository not found",
+      exitCode: 128,
+    }))
+    await expect(
+      ensureChatSandboxCheckout({
+        handle: chatHandle({ exec }),
+        repoUrl: "https://github.com/acme/docs",
+        defaultBranch: "main",
+      }),
+    ).rejects.toThrow("workspace chat git clone failed")
   })
 })
 
