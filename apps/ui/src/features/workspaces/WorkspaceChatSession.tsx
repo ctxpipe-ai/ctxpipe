@@ -201,7 +201,7 @@ export function WorkspaceChatSession(props: {
               sendMessage={handleSendMessage}
               status={status}
               onStop={stop}
-              isDisabled={isLoading || Boolean(workspace.readOnlyReason)}
+              isDisabled={isLoading}
               placeholder="Ask about this Workspace…"
             />
             {error ? (
@@ -223,7 +223,7 @@ export function WorkspaceChatSession(props: {
             sendMessage={handleSendMessage}
             status={status}
             onStop={stop}
-            isDisabled={isLoading || Boolean(workspace.readOnlyReason)}
+            isDisabled={isLoading}
           />
         </>
       )}
