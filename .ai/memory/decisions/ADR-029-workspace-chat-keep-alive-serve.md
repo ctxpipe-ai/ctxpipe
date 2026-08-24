@@ -15,7 +15,7 @@ Per-turn serve spawn plus GitHub resolve, a new model proxy, a tool tour, and a 
 - Attach subsequent turns with the official `startOpencodeSession({ baseUrl })` export. Do not patch `@tanstack/ai*`. Do not run a host-wide daemon or a shared port-4096 mutex. Do not add `OPENCODE_SERVER_PASSWORD`.
 - First materialization still uses `chat()` + `withSandbox` + `opencodeText` so the sandbox and workdir exist. After that stream ends, start (or keep) serve via `startOpencodeServerInSandbox` when the handle exposes spawn/ports, otherwise `opencode serve` on the conversation’s leased local-process port.
 - Pre-warm on compose mount (`POST /conversations/:id/prepare`) so Send does not pay clone + first serve.
-- Judge only mutate/egress. Auto-allow in-sandbox read/grep/ls after hard-denies. Answer inventory questions from `.ctxpipe/workspace-inventory.md`.
+- Judge only mutate/egress. Auto-allow in-sandbox read/grep/ls after hard-denies. Do not bake example questions or a precomputed inventory into the OpenCode prompt.
 
 ## Consequences
 

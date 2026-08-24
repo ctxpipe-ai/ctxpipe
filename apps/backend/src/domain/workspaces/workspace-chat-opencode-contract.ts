@@ -13,7 +13,6 @@ import type {
   ModelProviderKind,
   ModelTier,
 } from "../../retrieval/services/providers/providerTypes.js"
-import { WORKSPACE_CHAT_INSTRUCTIONS_PATH } from "./workspace-chat-inventory.js"
 
 export const WORKSPACE_CHAT_OPENCODE_PROVIDER_ID = "ctxpipe" as const
 
@@ -137,7 +136,6 @@ function unixLoginPath(): string {
 export function workspaceChatOpenCodeConfig(input: { modelBase: string }): {
   $schema: "https://opencode.ai/config.json"
   enabled_providers: readonly ["ctxpipe"]
-  instructions: readonly [typeof WORKSPACE_CHAT_INSTRUCTIONS_PATH]
   provider: {
     ctxpipe: {
       npm: "@ai-sdk/openai-compatible"
@@ -154,7 +152,6 @@ export function workspaceChatOpenCodeConfig(input: { modelBase: string }): {
   return {
     $schema: "https://opencode.ai/config.json",
     enabled_providers: ["ctxpipe"],
-    instructions: [WORKSPACE_CHAT_INSTRUCTIONS_PATH],
     provider: {
       ctxpipe: {
         npm: "@ai-sdk/openai-compatible",

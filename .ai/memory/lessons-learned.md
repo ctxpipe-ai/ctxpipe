@@ -766,3 +766,9 @@ Highest-priority confirmed rules for agents. Migrated from former `patterns.md` 
 - **Date:** 2026-08-23
 - **Source:** user correction (PR-280 ServeError / turn latency; candidates `34215a9a726b6c6d`, `6591dda6936d90c4`)
 
+### Example questions are not product prompts
+- **Rule:** A user example such as “what’s in this repo?” is a stand-in for a class of questions. Do not bake that wording, or a precomputed inventory cheat sheet, into OpenCode instructions or the chat prompt. Hit latency by keeping the sandbox/serve warm, not by special-casing one question.
+- **Category:** convention
+- **Date:** 2026-08-24
+- **Source:** user correction (workspace-chat latency)
+

@@ -358,7 +358,7 @@ describe("runTanstackWorkspaceChat", () => {
     expect(fileSkillMock).toHaveBeenCalledWith(
       expect.objectContaining({ path: "opencode.json" }),
     )
-    expect(fileSkillMock).toHaveBeenCalledWith(
+    expect(fileSkillMock).not.toHaveBeenCalledWith(
       expect.objectContaining({ path: ".ctxpipe/CHAT.md" }),
     )
     expect(withSandboxMock).toHaveBeenCalled()

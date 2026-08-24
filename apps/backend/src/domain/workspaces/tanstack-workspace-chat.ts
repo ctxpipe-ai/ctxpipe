@@ -60,11 +60,6 @@ import {
   setWorkspaceChatConversationRuntime,
   type WorkspaceChatConversationRuntime,
 } from "./workspace-chat-conversation-runtime.js"
-import {
-  WORKSPACE_CHAT_INSTRUCTIONS,
-  WORKSPACE_CHAT_INSTRUCTIONS_PATH,
-  writeChatSandboxInventory,
-} from "./workspace-chat-inventory.js"
 import { startWorkspaceChatModelProxy } from "./workspace-chat-model-proxy.js"
 import {
   isOpenCodeServeHealthy,
@@ -704,10 +699,6 @@ async function prepareTanstackWorkspaceChat(
             path: "opencode.json",
             content: `${JSON.stringify(opencodeConfig, null, 2)}\n`,
           }),
-          modules.fileSkill({
-            path: WORKSPACE_CHAT_INSTRUCTIONS_PATH,
-            content: WORKSPACE_CHAT_INSTRUCTIONS,
-          }),
         ],
       }),
       lifecycle: spec.lifecycle,
@@ -744,13 +735,6 @@ async function prepareTanstackWorkspaceChat(
             message: `workspace chat timing sandbox-checkout ${Date.now() - checkoutStarted}ms`,
             ms: Date.now() - checkoutStarted,
             conversationId: input.conversationId,
-          })
-          await writeChatSandboxInventory({ handle: ready }).catch((error) => {
-            log.warn({
-              step: "workspace-chat-inventory",
-              message: "workspace chat inventory write failed",
-              error: error instanceof Error ? error.message : String(error),
-            })
           })
           await preflightChatSandbox({
             handle: ready,
