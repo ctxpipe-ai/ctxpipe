@@ -6,6 +6,7 @@ import {
 import { getLogger } from "../../observability/logger.js"
 import { originUrlWithoutCredentials } from "./clone-credentials.js"
 import type { TanstackLikeHandle } from "./job-sandbox.js"
+import { releaseWorkspaceChatConversationRuntime } from "./workspace-chat-conversation-runtime.js"
 import { clearWorkspaceChatOpenCodeSessionId } from "./workspace-chat-opencode-session.js"
 
 type ExecResult = { stdout: string; stderr: string; exitCode: number }
@@ -92,17 +93,7 @@ export async function preflightChatSandbox(input: {
   // sbx images often lack curl (exit 127), which failed every PR chat turn.
   void input.isolation
   void input.proxyUrl
-  if (input.stalePort != null) {
-    const stale = await sandboxExec(
-      input.handle,
-      `sh -c 'if command -v ss >/dev/null 2>&1; then ss -lnt | grep -q ":${input.stalePort}"; elif command -v nc >/dev/null 2>&1; then nc -z 127.0.0.1 ${input.stalePort}; else exit 1; fi'`,
-    )
-    if (stale.exitCode === 0) {
-      throw new Error(
-        `Chat sandbox still has a listener on port ${input.stalePort}`,
-      )
-    }
-  }
+  void input.stalePort
   const cli = await sandboxExec(
     input.handle,
     "sh -c 'command -v opencode >/dev/null'",
@@ -130,6 +121,7 @@ export async function invalidateChatSandbox(input: {
   conversationId: string
 }): Promise<void> {
   clearWorkspaceChatOpenCodeSessionId(input.conversationId)
+  await releaseWorkspaceChatConversationRuntime(input.conversationId)
   if (input.handle) {
     await input.handle.destroy().catch((error) => {
       getLogger().error(

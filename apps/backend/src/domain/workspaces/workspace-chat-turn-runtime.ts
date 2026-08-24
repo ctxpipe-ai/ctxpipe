@@ -1,3 +1,9 @@
+import type { Env } from "../../config/env.js"
+import { persistConversationLastBranch } from "../../models/conversations.js"
+import { getRepoReadCloneToken } from "../../models/github-installation.js"
+import { log } from "../../observability/logger.js"
+import { resolveGithubDefaultBranch } from "../../routes/webhooks/github/github-workspace-tip.js"
+import { githubRefExists } from "../../services/github/installation-write-client.js"
 import {
   applyQuietChatUpdate,
   lastBranchExistsOnRemote,
@@ -7,12 +13,6 @@ import {
 } from "./chat-lifecycle.js"
 import { getChatSandbox } from "./sandbox-registry.js"
 import { githubRepoFullNameFromWorkspaceUrl } from "./write-status.js"
-import { persistConversationLastBranch } from "../../models/conversations.js"
-import { getRepoReadCloneToken } from "../../models/github-installation.js"
-import { log } from "../../observability/logger.js"
-import { githubRefExists } from "../../services/github/installation-write-client.js"
-import { resolveGithubDefaultBranch } from "../../routes/webhooks/github/github-workspace-tip.js"
-import type { Env } from "../../config/env.js"
 
 export type WorkspaceChatTurnConversation = {
   id: string
@@ -51,36 +51,47 @@ export async function resolveWorkspaceChatTurnRuntime(input: {
     ? githubRepoFullNameFromWorkspaceUrl(workspace.workspaceRepositoryUrl)
     : null
   const githubStarted = Date.now()
-  const [defaultBranch, cloneToken, remoteHasLastBranch] = await Promise.all([
-    workspace && repoName
-      ? resolveGithubDefaultBranch({
-          orgId: workspace.orgId,
-          githubConnectionId: workspace.githubConnectionId,
-          repoFullName: repoName,
-          env,
-        }).then((branch) => branch ?? "main")
-      : Promise.resolve("main"),
-    workspace && repoName
-      ? getRepoReadCloneToken(workspace.orgId, env, {
-          githubConnectionId: workspace.githubConnectionId ?? undefined,
-          repoFullName: repoName,
-        }).then((token) => token ?? null)
-      : Promise.resolve(null),
-    conversation.lastBranch && workspace && repoName
-      ? githubRefExists({
-          orgId: workspace.orgId,
-          repositoryName: repoName,
-          env,
-          githubConnectionId: workspace.githubConnectionId ?? undefined,
-          ref: conversation.lastBranch,
-        }).catch(() => false)
-      : Promise.resolve(false),
-  ])
+  const warmCheckout = await chatSandboxHasWorktree(conversation.id)
+  const [defaultBranch, cloneToken, remoteHasLastBranch] = warmCheckout
+    ? [
+        conversation.lastBranch &&
+        !conversation.lastBranch.startsWith("ctxpipe/chat/")
+          ? conversation.lastBranch
+          : "main",
+        null,
+        false,
+      ]
+    : await Promise.all([
+        workspace && repoName
+          ? resolveGithubDefaultBranch({
+              orgId: workspace.orgId,
+              githubConnectionId: workspace.githubConnectionId,
+              repoFullName: repoName,
+              env,
+            }).then((branch) => branch ?? "main")
+          : Promise.resolve("main"),
+        workspace && repoName
+          ? getRepoReadCloneToken(workspace.orgId, env, {
+              githubConnectionId: workspace.githubConnectionId ?? undefined,
+              repoFullName: repoName,
+            }).then((token) => token ?? null)
+          : Promise.resolve(null),
+        conversation.lastBranch && workspace && repoName
+          ? githubRefExists({
+              orgId: workspace.orgId,
+              repositoryName: repoName,
+              env,
+              githubConnectionId: workspace.githubConnectionId ?? undefined,
+              ref: conversation.lastBranch,
+            }).catch(() => false)
+          : Promise.resolve(false),
+      ])
   log.info({
     step: "workspace-chat-timing",
     phase: "github-resolve",
     message: `workspace chat timing github-resolve ${Date.now() - githubStarted}ms`,
     ms: Date.now() - githubStarted,
+    skipped: warmCheckout,
     conversationId: conversation.id,
   })
   const lastBranch = restoreBranchAfterIdle({
@@ -135,4 +146,15 @@ export async function resolveWorkspaceChatTurnRuntime(input: {
     orgId: workspace?.orgId ?? conversation.orgId,
     workspaceId: conversation.workspaceId,
   }
+}
+
+export async function chatSandboxHasWorktree(
+  conversationId: string,
+): Promise<boolean> {
+  const chatSandbox = getChatSandbox(conversationId)
+  if (!chatSandbox) return false
+  const git = await chatSandbox
+    .exec("git rev-parse --is-inside-work-tree", { env: {} })
+    .catch(() => null)
+  return git?.exitCode === 0
 }

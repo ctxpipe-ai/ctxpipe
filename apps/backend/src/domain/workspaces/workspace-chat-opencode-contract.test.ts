@@ -95,6 +95,7 @@ describe("workspaceChatOpenCodeContract", () => {
     ).toEqual({
       $schema: "https://opencode.ai/config.json",
       enabled_providers: ["ctxpipe"],
+      instructions: [".ctxpipe/CHAT.md"],
       provider: {
         ctxpipe: {
           npm: "@ai-sdk/openai-compatible",

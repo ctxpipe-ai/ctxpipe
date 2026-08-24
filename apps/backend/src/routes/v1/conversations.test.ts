@@ -99,6 +99,13 @@ vi.mock("../../domain/workspaces/workspace-chat-turn-runtime.js", () => ({
   })),
 }))
 
+const warmTanstackWorkspaceChatMock = vi.hoisted(() =>
+  vi.fn(async () => ({ ok: true as const })),
+)
+vi.mock("../../domain/workspaces/tanstack-workspace-chat.js", () => ({
+  warmTanstackWorkspaceChat: warmTanstackWorkspaceChatMock,
+}))
+
 import {
   contextStorage,
   withTestRequestLogger,
@@ -216,6 +223,30 @@ describe("conversations API", () => {
     expect(getConversationMock).toHaveBeenCalledWith("conv_1", {
       workspaceId: "ws_other",
     })
+  })
+
+  it("prepares the conversation sandbox without opening a chat turn", async () => {
+    ensureConversationMock.mockResolvedValue(conversationRow)
+    getWorkspaceByIdMock.mockResolvedValue({
+      id: "ws_abc",
+      orgId: "org_mock",
+      workspaceRepositoryUrl: "https://github.com/acme/docs",
+      desiredSha: "abc",
+      writeStatus: "read_only",
+    })
+    const res = await app().request("/conversations/conv_1/prepare", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ workspaceId: "ws_abc" }),
+    })
+    expect(res.status).toBe(204)
+    expect(warmTanstackWorkspaceChatMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        conversationId: "conv_1",
+        workspaceId: "ws_abc",
+      }),
+    )
+    expect(workspaceChatStreamResponseMock).not.toHaveBeenCalled()
   })
 
   it("returns GET when the conversation belongs to the Workspace", async () => {

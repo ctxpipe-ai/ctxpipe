@@ -45,6 +45,14 @@ vi.mock("@/components/OverlayNavButton", () => ({
   OverlayNavMenuButton: () => null,
 }))
 
+vi.mock("./queries", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("./queries")>()
+  return {
+    ...actual,
+    prepareWorkspaceChat: vi.fn(async () => undefined),
+  }
+})
+
 import {
   WorkspaceChatSession,
   workspaceChatHasAssistantText,

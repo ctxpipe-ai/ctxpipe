@@ -8,12 +8,6 @@ import {
   workspaceChatStreamResponse,
 } from "../../domain/conversations/transport.js"
 import {
-  workspaceChatHttpResponse,
-  workspaceChatRunError,
-  workspaceChatRunStarted,
-  workspaceChatWireFormat,
-} from "../../domain/workspaces/workspace-chat-agui.js"
-import {
   chatSessionBranchName,
   mayForcePushBranch,
   planChatPullRequest,
@@ -28,8 +22,15 @@ import {
   getRegisteredChatSandbox,
   withDestroyedConversationSandboxes,
 } from "../../domain/workspaces/sandbox-registry.js"
-import { resolveWorkspaceChatTurnRuntime } from "../../domain/workspaces/workspace-chat-turn-runtime.js"
+import { warmTanstackWorkspaceChat } from "../../domain/workspaces/tanstack-workspace-chat.js"
+import {
+  workspaceChatHttpResponse,
+  workspaceChatRunError,
+  workspaceChatRunStarted,
+  workspaceChatWireFormat,
+} from "../../domain/workspaces/workspace-chat-agui.js"
 import { claimWorkspaceChatTurn } from "../../domain/workspaces/workspace-chat-turn-claim.js"
+import { resolveWorkspaceChatTurnRuntime } from "../../domain/workspaces/workspace-chat-turn-runtime.js"
 import { githubRepoFullNameFromWorkspaceUrl } from "../../domain/workspaces/write-status.js"
 import { PageInfoSchema } from "../../lib/pagination.js"
 import {
@@ -264,11 +265,48 @@ const postConversationMessageRoute = createRoute({
     },
     409: {
       content: { "application/json": { schema: ErrorResponseSchema } },
-      description: "Workspace required or conversation is already running a turn",
+      description:
+        "Workspace required or conversation is already running a turn",
     },
     500: {
       content: { "application/json": { schema: ErrorResponseSchema } },
       description: "Failed to start the conversation stream",
+    },
+  },
+})
+
+const PrepareConversationRequestSchema = z
+  .object({
+    workspaceId: z.string().min(1),
+  })
+  .openapi("PrepareConversationRequest")
+
+const postConversationPrepareRoute = createRoute({
+  method: "post",
+  path: "/{conversationId}/prepare",
+  request: {
+    params: ConversationParamsSchema,
+    body: {
+      content: {
+        "application/json": { schema: PrepareConversationRequestSchema },
+      },
+    },
+  },
+  responses: {
+    204: {
+      description: "Workspace chat sandbox and serve are warming",
+    },
+    400: {
+      content: { "application/json": { schema: ErrorResponseSchema } },
+      description: "Bad request",
+    },
+    401: {
+      content: { "application/json": { schema: ErrorResponseSchema } },
+      description: "Unauthorized",
+    },
+    503: {
+      content: { "application/json": { schema: ErrorResponseSchema } },
+      description: "Prepare failed",
     },
   },
 })
@@ -560,6 +598,49 @@ export const conversationRoutes = new OpenAPIHono<AppEnv>()
       },
       c.req.raw,
     )
+  })
+  .openapi(postConversationPrepareRoute, async (c) => {
+    const user = c.get("user")
+    const session = c.get("session")
+    if (!user || !session) return c.json({ error: "Unauthorized" }, 401)
+
+    const conversationId = c.req.param("conversationId")
+    const body = PrepareConversationRequestSchema.parse(await c.req.json())
+    const conversation = await ensureConversation({
+      id: conversationId,
+      source: "ui",
+      workspaceId: body.workspaceId,
+    })
+    const workspace = conversation.workspaceId
+      ? await getWorkspaceById(conversation.workspaceId)
+      : null
+    if (!workspace?.workspaceRepositoryUrl) {
+      return c.json({ error: "workspace_required" }, 400)
+    }
+    const env = parseEnv(process.env as Record<string, string | undefined>)
+    const runtime = await resolveWorkspaceChatTurnRuntime({
+      conversation,
+      workspace,
+      env,
+    })
+    if (!runtime.desiredUrl) {
+      return c.json({ error: "workspace_required" }, 400)
+    }
+    const warmed = await warmTanstackWorkspaceChat({
+      conversationId,
+      prompt: "prepare",
+      orgId: runtime.orgId,
+      workspaceId: runtime.workspaceId ?? workspace.id,
+      desiredUrl: runtime.desiredUrl,
+      desiredSha: runtime.desiredSha,
+      desiredGeneration: runtime.desiredGeneration,
+      defaultBranch: runtime.defaultBranch,
+      ref: runtime.lastBranch || runtime.desiredSha || "HEAD",
+      writeStatus: runtime.writeStatus,
+      cloneToken: runtime.cloneToken,
+    })
+    if (!warmed.ok) return c.json({ error: warmed.error }, 503)
+    return c.body(null, 204)
   })
   .openapi(postConversationPullRequestRoute, async (c) => {
     const user = c.get("user")

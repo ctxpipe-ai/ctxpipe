@@ -102,6 +102,12 @@ vi.mock("./workspace-chat-model-proxy.js", () => ({
     close: vi.fn(async () => {}),
   })),
 }))
+vi.mock("./workspace-chat-opencode-attach.js", () => ({
+  streamAttachedOpenCodeTurn: vi.fn(async function* () {
+    yield { type: "TEXT_MESSAGE_CONTENT", delta: "attached" }
+  }),
+  startConversationOpenCodeServe: vi.fn(async () => null),
+}))
 vi.mock("../../graphs/conversationGraph/nodes/conversationNaming.js", () => ({
   nameConversationIfUnnamed: vi.fn().mockResolvedValue(null),
 }))
@@ -162,11 +168,15 @@ afterAll(async () => {
   }
 })
 
-beforeEach(() => {
+beforeEach(async () => {
   captured.instances = null
   process.env.MODEL_PROVIDER = "openai-like"
   process.env.MODEL_PROVIDER_API_KEY = "sk-test-chat-persist"
   delete process.env.SANDBOX_PROVIDER
+  const { resetWorkspaceChatConversationRuntimes } = await import(
+    "./workspace-chat-conversation-runtime.js"
+  )
+  resetWorkspaceChatConversationRuntimes()
 })
 
 async function collectTurn(

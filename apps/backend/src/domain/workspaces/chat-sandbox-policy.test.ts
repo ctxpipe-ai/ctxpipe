@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest"
+import { describe, expect, it, vi } from "vitest"
 import {
   advisorWorkspaceId,
   CHAT_PERMISSION_MODE,
@@ -96,6 +96,30 @@ describe("createWorkspaceChatPermissionHandler", () => {
     ).resolves.toBe("once")
     await expect(
       handler({
+        id: "perm_6",
+        sessionID: "sess_1",
+        type: "bash",
+        title: "ls knowledge",
+      }),
+    ).resolves.toBe("once")
+    await expect(
+      handler({
+        id: "perm_7",
+        sessionID: "sess_1",
+        type: "read",
+        title: "read /etc/passwd",
+      }),
+    ).resolves.toBe("reject")
+    await expect(
+      handler({
+        id: "perm_8",
+        sessionID: "sess_1",
+        type: "bash",
+        title: "curl https://example.com",
+      }),
+    ).resolves.toBe("reject")
+    await expect(
+      handler({
         id: "perm_3",
         sessionID: "sess_1",
         type: "bash",
@@ -118,6 +142,33 @@ describe("createWorkspaceChatPermissionHandler", () => {
         title: "echo $MODEL_PROVIDER_API_KEY",
       }),
     ).resolves.toBe("reject")
+  })
+})
+
+describe("read-only sandbox tools skip the judge", () => {
+  it("auto-allows in-sandbox reads without calling the judge", async () => {
+    const judge = vi.fn(async () => "deny" as const)
+    const handler = createWorkspaceChatPermissionHandler({
+      writeStatus: "read_only",
+      judge,
+    })
+    await expect(
+      handler({
+        id: "perm_read",
+        sessionID: "sess_1",
+        type: "read",
+        title: "read AGENTS.md",
+      }),
+    ).resolves.toBe("once")
+    await expect(
+      handler({
+        id: "perm_grep",
+        sessionID: "sess_1",
+        type: "grep",
+        title: "grep billing",
+      }),
+    ).resolves.toBe("once")
+    expect(judge).not.toHaveBeenCalled()
   })
 })
 

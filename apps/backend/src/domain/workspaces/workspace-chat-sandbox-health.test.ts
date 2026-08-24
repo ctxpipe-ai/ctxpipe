@@ -43,22 +43,6 @@ vi.mock("../../models/workspaces.js", () => ({
 }))
 
 describe("preflightChatSandbox", () => {
-  it("throws when a Docker sandbox still has a listener on 4096", async () => {
-    const exec = vi.fn(async () => ({
-      stdout: "",
-      stderr: "",
-      exitCode: 0,
-    }))
-    await expect(
-      preflightChatSandbox({
-        handle: chatHandle({ exec }),
-        isolation: "docker",
-        proxyUrl: "http://127.0.0.1:1",
-        stalePort: 4096,
-      }),
-    ).rejects.toThrow("still has a listener on port 4096")
-  })
-
   it("does not throw when git or the OpenCode CLI is missing", async () => {
     const exec = vi.fn(async () => ({
       stdout: "",

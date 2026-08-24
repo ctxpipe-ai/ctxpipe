@@ -36,6 +36,8 @@ export const workspaceKeys = {
     ["workspace-git-status", orgSlug, slug, sha] as const,
   graph: (orgSlug: string, slug: string) =>
     ["workspace-graph", orgSlug, slug] as const,
+  chatPrepare: (orgSlug: string, conversationId: string, workspaceId: string) =>
+    ["workspace-chat-prepare", orgSlug, conversationId, workspaceId] as const,
 }
 
 export async function fetchWorkspaces(
@@ -67,6 +69,23 @@ export async function fetchConversation(
     empty: null,
     message: "Failed to load conversation",
   })
+}
+
+export async function prepareWorkspaceChat(
+  orgSlug: string,
+  conversationId: string,
+  workspaceId: string,
+): Promise<void> {
+  const client = await getApiClient()
+  const res = await client[":orgSlug"].api.v1.conversations[
+    ":conversationId"
+  ].prepare.$post({
+    param: { orgSlug, conversationId },
+    json: { workspaceId },
+  })
+  if (!res.ok && res.status !== 204) {
+    throw new Error("Failed to prepare workspace chat")
+  }
 }
 
 export async function fetchWorkspaceFiles(

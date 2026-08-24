@@ -4,7 +4,7 @@ import {
   type UIMessage,
   useChat,
 } from "@tanstack/ai-react"
-import { useQueryClient } from "@tanstack/react-query"
+import { useQuery, useQueryClient } from "@tanstack/react-query"
 import { useNavigate } from "@tanstack/react-router"
 import { type ReactNode, useMemo, useRef, useState } from "react"
 import { InlineAlert } from "@/components/ui/InlineAlert"
@@ -17,7 +17,7 @@ import type {
   ConversationDetail,
   ConversationListInfiniteData,
 } from "@/features/chat/types"
-import { workspaceKeys } from "./queries"
+import { prepareWorkspaceChat, workspaceKeys } from "./queries"
 import type { Workspace } from "./types"
 import { WorkspaceChatChrome } from "./WorkspaceChatChrome"
 
@@ -109,6 +109,13 @@ export function WorkspaceChatSession(props: {
           : old,
     )
   }
+
+  useQuery({
+    queryKey: workspaceKeys.chatPrepare(orgSlug, conversationId, workspace.id),
+    queryFn: () => prepareWorkspaceChat(orgSlug, conversationId, workspace.id),
+    staleTime: Number.POSITIVE_INFINITY,
+    retry: false,
+  })
 
   const { messages, sendMessage, status, error, isLoading, stop } = useChat({
     threadId: conversationId,

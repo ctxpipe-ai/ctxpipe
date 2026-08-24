@@ -22,6 +22,7 @@ export const CHAT_HARD_DENY_REASONS = [
   "host_not_allowlisted",
   "printenv",
   "key_exfil",
+  "sensitive_path",
 ] as const
 
 export type ChatHardDenyReason = (typeof CHAT_HARD_DENY_REASONS)[number]
@@ -121,6 +122,12 @@ export function classifyChatToolRequest(input: {
   if (name.includes("contents_write") || excerpt.includes("contents:write")) {
     return { hardDeny: "contents_write", acceptEditsWouldAllow: false }
   }
+  if (excerptLooksLikeSensitivePath(excerpt)) {
+    return { hardDeny: "sensitive_path", acceptEditsWouldAllow: false }
+  }
+  if (excerptLooksLikeEgress(excerpt)) {
+    return { hardDeny: "host_not_allowlisted", acceptEditsWouldAllow: false }
+  }
   if (
     name.includes("edit") ||
     name.includes("write") ||
@@ -128,7 +135,59 @@ export function classifyChatToolRequest(input: {
   ) {
     return { hardDeny: null, acceptEditsWouldAllow: true }
   }
+  if (isReadOnlySandboxTool(name, excerpt)) {
+    return { hardDeny: null, acceptEditsWouldAllow: true }
+  }
   return { hardDeny: null, acceptEditsWouldAllow: false }
+}
+
+function excerptLooksLikeSensitivePath(excerpt: string): boolean {
+  return (
+    excerpt.includes("/etc/passwd") ||
+    excerpt.includes("/proc/") ||
+    excerpt.includes("/sys/") ||
+    excerpt.includes("/dev/") ||
+    excerpt.includes("/root/") ||
+    /(?:^|[\s"'`=])\/etc\/passwd/.test(excerpt)
+  )
+}
+
+function excerptLooksLikeEgress(excerpt: string): boolean {
+  if (!/\b(curl|wget|ncat|nc|ssh|scp)\b/.test(excerpt)) return false
+  return !/\b(127\.0\.0\.1|localhost|::1)\b/.test(excerpt)
+}
+
+function excerptLooksLikeMutate(excerpt: string): boolean {
+  return (
+    /\b(rm|mv|chmod|chown|mkdir|touch|tee|sed|dd)\b/.test(excerpt) ||
+    excerpt.includes(">") ||
+    excerpt.includes("git add") ||
+    excerpt.includes("git commit") ||
+    excerpt.includes("git push")
+  )
+}
+
+function isReadOnlySandboxTool(name: string, excerpt: string): boolean {
+  if (excerptLooksLikeMutate(excerpt)) return false
+  if (
+    name.includes("read") ||
+    name.includes("grep") ||
+    name.includes("glob") ||
+    name.includes("list") ||
+    name === "ls" ||
+    name.includes("search")
+  ) {
+    return true
+  }
+  if (name === "bash" || name.includes("bash") || name.includes("shell")) {
+    return (
+      !excerptLooksLikeMutate(excerpt) &&
+      /\b(ls|cat|head|tail|less|find|tree|pwd|wc|file|git status|git log|git diff|git ls-files|git rev-parse)\b/.test(
+        excerpt,
+      )
+    )
+  }
+  return false
 }
 
 export function createWorkspaceChatPermissionHandler(input: {
