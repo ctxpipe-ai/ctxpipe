@@ -1,6 +1,7 @@
 import { randomBytes } from "node:crypto"
 import type { StreamChunk } from "@tanstack/ai"
 import { withOrgDbContext } from "../../db/client.js"
+import { generateObjectId } from "../../lib/id.js"
 import { nameConversationIfUnnamed } from "../../graphs/conversationGraph/nodes/conversationNaming.js"
 import { appendConversationTurn } from "../../models/conversation-messages.js"
 import {
@@ -50,6 +51,10 @@ import {
   workspaceChatWireFormat,
 } from "./workspace-chat-agui.js"
 import { createWorkspaceChatAssistantGate } from "./workspace-chat-assistant-text.js"
+import {
+  waitForOpenCodeAssistant,
+  workspaceChatOpenCodeSessionId,
+} from "./workspace-chat-opencode-session.js"
 import { startWorkspaceChatModelProxy } from "./workspace-chat-model-proxy.js"
 import {
   WORKSPACE_CHAT_LOCAL_PROCESS_SCRUB_ENV,
@@ -111,6 +116,8 @@ export type TanstackWorkspaceChatInput = {
   }) => Promise<void>
   streamSetupMs?: number
   streamIdleMs?: number
+  openCodeIdleMs?: number
+  openCodeFetch?: typeof fetch
 }
 
 export { conversationRenameChunk } from "./workspace-chat-agui.js"
@@ -281,11 +288,25 @@ async function* streamClaimedTanstackWorkspaceChat(
   let finished = false
   let sawSession = false
   let streamError: Error | null = null
+  let sessionId: string | null = null
+  let lateAssistant = ""
   try {
     for await (const chunk of takeWorkspaceChatProducer(prepared.stream, {
       setupMs: turn.streamSetupMs,
       idleMs: turn.streamIdleMs,
+      afterTerminal: async () => {
+        if (gate.assistant().trim()) return
+        if (!sessionId) return
+        lateAssistant = await waitForOpenCodeAssistant({
+          port: prepared.servePort,
+          sessionId,
+          prompt: turn.prompt,
+          timeoutMs: turn.openCodeIdleMs,
+          fetch: turn.openCodeFetch,
+        })
+      },
     })) {
+      sessionId = sessionId ?? workspaceChatOpenCodeSessionId(chunk)
       if (streamSawOpenCodeSession(chunk)) sawSession = true
       for (const next of gate.take(chunk)) {
         const typed = next as StreamChunk
@@ -312,7 +333,27 @@ async function* streamClaimedTanstackWorkspaceChat(
         continue
       }
     }
-    const assistant = gate.assistant()
+    let assistant = gate.assistant()
+    if (!assistant.trim() && lateAssistant.trim()) {
+      assistant = lateAssistant.trim()
+      const messageId = generateObjectId("msg")
+      yield {
+        type: "TEXT_MESSAGE_START",
+        messageId,
+        timestamp: Date.now(),
+      } as StreamChunk
+      yield {
+        type: "TEXT_MESSAGE_CONTENT",
+        messageId,
+        delta: assistant,
+        timestamp: Date.now(),
+      } as StreamChunk
+      yield {
+        type: "TEXT_MESSAGE_END",
+        messageId,
+        timestamp: Date.now(),
+      } as StreamChunk
+    }
     const failed =
       streamError != null ||
       prepared.portStuck.current ||

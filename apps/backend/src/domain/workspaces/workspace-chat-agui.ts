@@ -126,7 +126,11 @@ export async function* withWorkspaceChatHeartbeats(
  */
 export async function* takeWorkspaceChatProducer(
   stream: AsyncIterable<object>,
-  input?: { setupMs?: number; idleMs?: number },
+  input?: {
+    setupMs?: number
+    idleMs?: number
+    afterTerminal?: () => Promise<void> | void
+  },
 ): AsyncGenerator<object> {
   const setupMs = input?.setupMs ?? WORKSPACE_CHAT_STREAM_SETUP_MS
   const idleMs = input?.idleMs ?? WORKSPACE_CHAT_STREAM_IDLE_MS
@@ -149,7 +153,11 @@ export async function* takeWorkspaceChatProducer(
       if (raced.result.done) return
       const chunk = raced.result.value
       yield chunk
-      if (isWorkspaceChatTerminalChunk(chunk)) return
+      if (isWorkspaceChatTerminalChunk(chunk)) {
+        // Keep the producer (and model proxy) open while OpenCode finishes.
+        await input?.afterTerminal?.()
+        return
+      }
       stallMs = idleMs
       pending = iterator.next()
     }

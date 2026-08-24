@@ -1201,6 +1201,53 @@ describe("runTanstackWorkspaceChat", () => {
     expect(claimWorkspaceChatTurn("conv_hang_finish")).not.toBeNull()
   })
 
+  it("persists late OpenCode assistant text after prompt() ends empty", async () => {
+    chatMock.mockImplementationOnce(async function* () {
+      yield {
+        type: "CUSTOM",
+        name: "opencode.session-id",
+        value: { sessionId: "ses_late" },
+      }
+      yield { type: "TEXT_MESSAGE_CONTENT", delta: "hello" }
+      yield { type: "RUN_FINISHED" }
+    })
+    const openCodeFetch = vi.fn().mockResolvedValue(
+      new Response(
+        JSON.stringify([
+          {
+            info: { role: "assistant" },
+            parts: [{ type: "text", text: "late-ok" }],
+          },
+        ]),
+        { status: 200 },
+      ),
+    )
+    const res = await runTanstackWorkspaceChat({
+      conversationId: "conv_late",
+      prompt: "hello",
+      orgId: "org_1",
+      workspaceId: "ws_1",
+      desiredUrl: "https://github.com/acme/docs",
+      desiredSha: "abc",
+      ref: "abc",
+      writeStatus: "writable",
+      openCodeIdleMs: 50,
+      openCodeFetch,
+    })
+    const events = parseSseDataLines(await res.text())
+    expect(
+      events.some(
+        (event) =>
+          (event as { type?: string }).type === "TEXT_MESSAGE_CONTENT" &&
+          (event as { delta?: string }).delta === "late-ok",
+      ),
+    ).toBe(true)
+    expect(appendTurnMock).toHaveBeenCalledWith(
+      expect.objectContaining({ role: "assistant", content: "late-ok" }),
+    )
+    expect(openCodeFetch).toHaveBeenCalled()
+  })
+
   it("releases the claim when the producer stalls after echo", async () => {
     chatMock.mockImplementationOnce(async function* () {
       yield { type: "CUSTOM", name: "opencode.session-id", value: "ses_1" }
