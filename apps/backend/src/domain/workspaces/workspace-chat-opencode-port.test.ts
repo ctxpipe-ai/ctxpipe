@@ -35,4 +35,13 @@ describe("leaseLocalProcessOpenCodePort", () => {
     expect(first.port).toBeGreaterThan(0)
     await Promise.all([first.release(), second.release()])
   })
+
+  it("does not lease a reserved model-proxy port", async () => {
+    const first = await leaseLocalProcessOpenCodePort()
+    const second = await leaseLocalProcessOpenCodePort({
+      reserved: [first.port],
+    })
+    expect(second.port).not.toBe(first.port)
+    await Promise.all([first.release(), second.release()])
+  })
 })

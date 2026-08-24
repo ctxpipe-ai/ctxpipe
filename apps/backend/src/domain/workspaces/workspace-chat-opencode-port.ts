@@ -7,10 +7,13 @@ export type LocalProcessOpenCodePortLease = {
   release: () => Promise<void>
 }
 
-export async function leaseLocalProcessOpenCodePort(): Promise<LocalProcessOpenCodePortLease> {
+export async function leaseLocalProcessOpenCodePort(input?: {
+  reserved?: Iterable<number>
+}): Promise<LocalProcessOpenCodePortLease> {
+  const reserved = new Set(input?.reserved ?? [])
   for (let attempt = 0; attempt < 32; attempt++) {
     const port = await bindEphemeralPort()
-    if (leasedPorts.has(port)) continue
+    if (leasedPorts.has(port) || reserved.has(port)) continue
     leasedPorts.add(port)
     return {
       port,
