@@ -439,9 +439,39 @@ describe("conversations API", () => {
         workspaceId: "ws_abc",
       }),
     })
-    expect(second.status).toBe(409)
-    expect(await second.json()).toEqual({ error: "conversation_busy" })
+    expect(second.status).toBe(200)
+    expect(await second.text()).toContain("conversation_busy")
     expect(appendConversationTurnMock).not.toHaveBeenCalled()
+  })
+
+  it("accepts the next turn after the first stream releases its claim", async () => {
+    ensureConversationMock.mockResolvedValue(conversationRow)
+    workspaceChatStreamResponseMock.mockImplementation((input: { acceptedTurn?: { release: () => void } }) => {
+      input.acceptedTurn?.release()
+      return new Response("ok", { status: 200 })
+    })
+    const first = await app().request("/conversations/conv_1", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        message: { role: "user", content: "hello" },
+        source: "ui",
+        workspaceId: "ws_abc",
+      }),
+    })
+    expect(first.status).toBe(200)
+    const second = await app().request("/conversations/conv_1", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        message: { role: "user", content: "again" },
+        source: "ui",
+        workspaceId: "ws_abc",
+      }),
+    })
+    expect(second.status).toBe(200)
+    expect(await second.text()).toBe("ok")
+    expect(workspaceChatStreamResponseMock).toHaveBeenCalledTimes(2)
   })
 
   it("refuses a PR when the chat sandbox is gone", async () => {

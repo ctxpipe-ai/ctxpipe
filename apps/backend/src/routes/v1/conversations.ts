@@ -8,6 +8,12 @@ import {
   workspaceChatStreamResponse,
 } from "../../domain/conversations/transport.js"
 import {
+  workspaceChatHttpResponse,
+  workspaceChatRunError,
+  workspaceChatRunStarted,
+  workspaceChatWireFormat,
+} from "../../domain/workspaces/workspace-chat-agui.js"
+import {
   chatSessionBranchName,
   mayForcePushBranch,
   planChatPullRequest,
@@ -483,7 +489,16 @@ export const conversationRoutes = new OpenAPIHono<AppEnv>()
     const env = parseEnv(process.env as Record<string, string | undefined>)
     const acceptedTurn = claimWorkspaceChatTurn(conversationId)
     if (!acceptedTurn) {
-      return c.json({ error: "conversation_busy" }, 409)
+      return workspaceChatHttpResponse(
+        (async function* () {
+          yield workspaceChatRunStarted({
+            conversationId,
+            runId: parsed.runId,
+          })
+          yield workspaceChatRunError("conversation_busy")
+        })(),
+        workspaceChatWireFormat(c.req.raw),
+      )
     }
 
     try {

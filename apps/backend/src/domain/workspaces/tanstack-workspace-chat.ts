@@ -182,6 +182,34 @@ export async function* streamTanstackWorkspaceChat(
     conversationId: input.conversationId,
     runId: input.runId,
   })
+  let claim: WorkspaceChatTurnClaim | null = input.acceptedTurn ?? null
+  let heartbeat: ReturnType<typeof setInterval> | undefined
+  try {
+    yield* streamClaimedTanstackWorkspaceChat(input, {
+      takeClaim(next) {
+        claim = next
+      },
+      setHeartbeat(next) {
+        heartbeat = next
+      },
+    })
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error)
+    await input.onError?.()
+    yield workspaceChatRunError(message)
+  } finally {
+    claim?.release()
+    if (heartbeat) clearInterval(heartbeat)
+  }
+}
+
+async function* streamClaimedTanstackWorkspaceChat(
+  input: TanstackWorkspaceChatInput,
+  hold: {
+    takeClaim: (claim: WorkspaceChatTurnClaim) => void
+    setHeartbeat: (heartbeat: ReturnType<typeof setInterval>) => void
+  },
+): AsyncGenerator<StreamChunk> {
   const resolved = input.resolveRuntime ? await input.resolveRuntime() : {}
   const turn: TanstackWorkspaceChatInput = { ...input, ...resolved }
   const claim = turn.acceptedTurn ?? claimWorkspaceChatTurn(turn.conversationId)
@@ -190,19 +218,14 @@ export async function* streamTanstackWorkspaceChat(
     yield workspaceChatRunError("conversation_busy")
     return
   }
+  hold.takeClaim(claim)
   if (!turn.userTurnAccepted) {
-    try {
-      await persistCompletedTurns(turn, { persistUser: true, assistant: "" })
-      await turn.onUserPersist?.()
-    } catch (error) {
-      claim.release()
-      throw error
-    }
+    await persistCompletedTurns(turn, { persistUser: true, assistant: "" })
+    await turn.onUserPersist?.()
   }
 
   const prepared = await prepareTanstackWorkspaceChat(turn)
   if (!prepared.ok) {
-    claim.release()
     await turn.onError?.()
     yield workspaceChatRunError(prepared.error)
     return
@@ -229,6 +252,7 @@ export async function* streamTanstackWorkspaceChat(
     heartbeatChatSandboxes(turn.conversationId, now)
     void turn.onHeartbeat?.()
   }, CHAT_HEARTBEAT_INTERVAL_MS)
+  hold.setHeartbeat(heartbeat)
 
   const startedAt = Date.now()
   const chatAttemptFields = (error?: unknown) =>

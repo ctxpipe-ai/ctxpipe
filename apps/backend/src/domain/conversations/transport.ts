@@ -107,10 +107,15 @@ function toChatInput(input: StreamInput): TanstackWorkspaceChatInput | null {
   }
 }
 
+function releaseUnstartedTurn(input: StreamInput): void {
+  input.acceptedTurn?.release()
+}
+
 class DataStreamConversationTransport implements ConversationTransportAdapter {
   async toResponse(input: StreamInput): Promise<Response> {
     const chatInput = toChatInput(input)
     if (!chatInput) {
+      releaseUnstartedTurn(input)
       return Response.json({ error: "workspace_required" }, { status: 409 })
     }
     return runTanstackWorkspaceChat(chatInput)
@@ -123,6 +128,7 @@ export function workspaceChatStreamResponse(
 ): Response {
   const chatInput = toChatInput(input)
   if (!chatInput) {
+    releaseUnstartedTurn(input)
     return Response.json({ error: "workspace_required" }, { status: 409 })
   }
   const format =

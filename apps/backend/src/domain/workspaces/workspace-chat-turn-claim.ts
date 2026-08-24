@@ -1,4 +1,5 @@
-const activeTurns = new Map<string, true>()
+const CLAIM_TTL_MS = 15 * 60 * 1000
+const activeTurns = new Map<string, number>()
 
 export type WorkspaceChatTurnClaim = {
   conversationId: string
@@ -9,8 +10,10 @@ export function claimWorkspaceChatTurn(
   conversationId: string,
 ): WorkspaceChatTurnClaim | null {
   const id = conversationId.trim()
-  if (!id || activeTurns.has(id)) return null
-  activeTurns.set(id, true)
+  const now = Date.now()
+  const expiresAt = activeTurns.get(id)
+  if (!id || (expiresAt != null && expiresAt > now)) return null
+  activeTurns.set(id, now + CLAIM_TTL_MS)
   let released = false
   return {
     conversationId: id,
@@ -23,7 +26,8 @@ export function claimWorkspaceChatTurn(
 }
 
 export function workspaceChatTurnIsBusy(conversationId: string): boolean {
-  return activeTurns.has(conversationId.trim())
+  const expiresAt = activeTurns.get(conversationId.trim())
+  return expiresAt != null && expiresAt > Date.now()
 }
 
 export function resetWorkspaceChatTurnClaims(): void {

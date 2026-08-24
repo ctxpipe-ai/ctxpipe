@@ -1,6 +1,10 @@
 import { initLogger } from "evlog"
 import { beforeEach, describe, expect, it, vi } from "vitest"
-import { resetWorkspaceChatTurnClaims } from "./workspace-chat-turn-claim.js"
+import {
+  claimWorkspaceChatTurn,
+  resetWorkspaceChatTurnClaims,
+  workspaceChatTurnIsBusy,
+} from "./workspace-chat-turn-claim.js"
 
 const chatMock = vi.hoisted(() =>
   vi.fn(async function* (): AsyncGenerator<{
@@ -895,6 +899,28 @@ describe("runTanstackWorkspaceChat", () => {
     expect(events[0]).toMatchObject({ type: "RUN_STARTED" })
     expect(JSON.stringify(events)).toContain("desired SHA")
     expect(chatMock).not.toHaveBeenCalled()
+  })
+
+  it("releases a pre-claimed turn when resolveRuntime throws", async () => {
+    const accepted = claimWorkspaceChatTurn("conv_runtime_throw")
+    expect(accepted).not.toBeNull()
+    const res = await runTanstackWorkspaceChat({
+      conversationId: "conv_runtime_throw",
+      prompt: "hello",
+      orgId: "org_1",
+      workspaceId: "ws_1",
+      desiredUrl: "https://github.com/acme/docs",
+      desiredSha: "abc",
+      ref: "abc",
+      writeStatus: "writable",
+      acceptedTurn: accepted ?? undefined,
+      resolveRuntime: async () => {
+        throw new Error("runtime boom")
+      },
+    })
+    await res.text().catch(() => undefined)
+    expect(workspaceChatTurnIsBusy("conv_runtime_throw")).toBe(false)
+    expect(claimWorkspaceChatTurn("conv_runtime_throw")).not.toBeNull()
   })
 
   it("writes the first AG-UI event before resolveRuntime / OpenCode work", async () => {
