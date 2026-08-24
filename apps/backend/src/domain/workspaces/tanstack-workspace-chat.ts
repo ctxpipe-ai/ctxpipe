@@ -662,7 +662,6 @@ async function prepareTanstackWorkspaceChat(
             handle: ready,
             isolation: spec.isolation,
             proxyUrl: proxy.baseUrl,
-            runToken,
             stalePort:
               spec.isolation === "docker"
                 ? WORKSPACE_CHAT_OPENCODE_PORT

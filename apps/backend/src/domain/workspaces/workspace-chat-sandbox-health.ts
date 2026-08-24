@@ -24,21 +24,14 @@ export async function preflightChatSandbox(input: {
   handle: TanstackLikeHandle
   isolation: "docker" | "local_process"
   proxyUrl: string
-  runToken?: string
   stalePort?: number
 }): Promise<void> {
-  if (input.runToken) {
-    const modelsUrl = `${input.proxyUrl.replace(/\/+$/, "")}/v1/models`
-    const probe = await sandboxExec(
-      input.handle,
-      `sh -c 'curl -sS -o /dev/null -w "%{http_code}" --max-time 2 -H "Authorization: Bearer ${input.runToken}" "${modelsUrl}"'`,
-    )
-    if (probe.stdout.trim() !== "200") {
-      throw new Error(
-        `Chat sandbox cannot reach the model proxy at ${modelsUrl} (status ${probe.stdout.trim() || probe.exitCode})`,
-      )
-    }
-  }
+  // Isolation and proxyUrl stay on the public input so callers keep passing
+  // them. Proxy reachability is already self-checked from the backend
+  // process — do not curl /v1/models from inside the sandbox. Railway and
+  // sbx images often lack curl (exit 127), which failed every PR chat turn.
+  void input.isolation
+  void input.proxyUrl
   if (input.stalePort != null) {
     const stale = await sandboxExec(
       input.handle,
