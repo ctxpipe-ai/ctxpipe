@@ -681,6 +681,12 @@ describe("runTanstackWorkspaceChat", () => {
     )
     expect(localProcessSandbox).toHaveBeenCalled()
     expect(dockerSandboxMock).not.toHaveBeenCalled()
+    expect(createSecretsMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        HOME: expect.stringContaining("ctxpipe-opencode-home"),
+        XDG_CONFIG_HOME: expect.stringContaining("config"),
+      }),
+    )
     await res.text()
   })
 
@@ -1162,5 +1168,68 @@ describe("runTanstackWorkspaceChat", () => {
       })
     ).text()
     expect(deleteSandboxInstance).toHaveBeenCalledWith("thread:conv_1", "org_1")
+  })
+
+  it("finishes a turn when OpenCode emits RUN_FINISHED then hangs", async () => {
+    chatMock.mockImplementationOnce(async function* () {
+      yield { type: "TEXT_MESSAGE_CONTENT", delta: "ok" }
+      yield { type: "RUN_FINISHED" }
+      await new Promise(() => {})
+    })
+    const res = await Promise.race([
+      runTanstackWorkspaceChat({
+        conversationId: "conv_hang_finish",
+        prompt: "hello",
+        orgId: "org_1",
+        workspaceId: "ws_1",
+        desiredUrl: "https://github.com/acme/docs",
+        desiredSha: "abc",
+        ref: "abc",
+        writeStatus: "writable",
+        streamIdleMs: 200,
+        streamSetupMs: 200,
+      }),
+      new Promise<Response>((_, reject) =>
+        setTimeout(() => reject(new Error("turn did not finish")), 500),
+      ),
+    ])
+    expect(res.status).toBe(200)
+    expect(workspaceChatTurnIsBusy("conv_hang_finish")).toBe(false)
+    expect(appendTurnMock).toHaveBeenCalledWith(
+      expect.objectContaining({ role: "assistant", content: "ok" }),
+    )
+    expect(claimWorkspaceChatTurn("conv_hang_finish")).not.toBeNull()
+  })
+
+  it("releases the claim when the producer stalls after echo", async () => {
+    chatMock.mockImplementationOnce(async function* () {
+      yield { type: "CUSTOM", name: "opencode.session-id", value: "ses_1" }
+      yield { type: "TEXT_MESSAGE_CONTENT", delta: "hello" }
+      await new Promise(() => {})
+    })
+    const res = await runTanstackWorkspaceChat({
+      conversationId: "conv_stall",
+      prompt: "hello",
+      orgId: "org_1",
+      workspaceId: "ws_1",
+      desiredUrl: "https://github.com/acme/docs",
+      desiredSha: "abc",
+      ref: "abc",
+      writeStatus: "writable",
+      streamIdleMs: 20,
+      streamSetupMs: 20,
+    })
+    const events = parseSseDataLines(await res.text())
+    expect(
+      events.some(
+        (event) =>
+          (event as { type?: string }).type === "RUN_ERROR" &&
+          String((event as { message?: string }).message).includes("stalled"),
+      ),
+    ).toBe(true)
+    expect(workspaceChatTurnIsBusy("conv_stall")).toBe(false)
+    expect(appendTurnMock).not.toHaveBeenCalledWith(
+      expect.objectContaining({ role: "assistant" }),
+    )
   })
 })

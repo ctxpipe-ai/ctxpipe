@@ -2,6 +2,7 @@ import type { StreamChunk } from "@tanstack/ai"
 import { describe, expect, it } from "vitest"
 import {
   parseSseDataLines,
+  takeWorkspaceChatProducer,
   workspaceChatRunStarted,
   withWorkspaceChatHeartbeats,
 } from "./workspace-chat-agui.js"
@@ -48,6 +49,65 @@ describe("workspace chat AG-UI", () => {
     }
     expect(types[0]).toBe("CUSTOM")
     expect(types.at(-1)).toBe("RUN_FINISHED")
+  })
+
+  it("stops the inner producer when the heartbeat wrapper is returned", async () => {
+    let returned = false
+    const hanging = {
+      [Symbol.asyncIterator]() {
+        return {
+          next: () => new Promise<IteratorResult<StreamChunk>>(() => {}),
+          return: async () => {
+            returned = true
+            return { done: true, value: undefined }
+          },
+        }
+      },
+    }
+    const iterator = withWorkspaceChatHeartbeats(hanging, 10)[
+      Symbol.asyncIterator
+    ]()
+    await iterator.next()
+    await iterator.return?.()
+    expect(returned).toBe(true)
+  })
+
+  it("stops after RUN_FINISHED even when the producer stays open", async () => {
+    async function* hangAfterFinish(): AsyncGenerator<object> {
+      yield { type: "TEXT_MESSAGE_CONTENT", delta: "ok" }
+      yield { type: "RUN_FINISHED" }
+      await new Promise(() => {})
+    }
+    const types: string[] = []
+    await Promise.race([
+      (async () => {
+        for await (const chunk of takeWorkspaceChatProducer(hangAfterFinish(), {
+          setupMs: 200,
+          idleMs: 200,
+        })) {
+          types.push((chunk as { type: string }).type)
+        }
+      })(),
+      new Promise((_, reject) =>
+        setTimeout(() => reject(new Error("producer did not stop")), 150),
+      ),
+    ])
+    expect(types).toEqual(["TEXT_MESSAGE_CONTENT", "RUN_FINISHED"])
+  })
+
+  it("errors when the producer goes silent after the first chunk", async () => {
+    async function* silent(): AsyncGenerator<object> {
+      yield { type: "CUSTOM", name: "opencode.session-id" }
+      await new Promise(() => {})
+    }
+    await expect(async () => {
+      for await (const _chunk of takeWorkspaceChatProducer(silent(), {
+        setupMs: 20,
+        idleMs: 20,
+      })) {
+        /* drain */
+      }
+    }).rejects.toThrow(/stalled/)
   })
 
   it("parses SSE data lines for contract proofs", () => {

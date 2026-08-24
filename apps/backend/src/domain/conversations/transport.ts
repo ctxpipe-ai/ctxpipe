@@ -136,6 +136,7 @@ export function workspaceChatStreamResponse(
   return workspaceChatHttpResponse(
     withWorkspaceChatHeartbeats(streamTanstackWorkspaceChat(chatInput)),
     format,
+    request,
   )
 }
 

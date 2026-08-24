@@ -4,6 +4,7 @@ import {
   type IncomingMessage,
   type ServerResponse,
 } from "node:http"
+import { log } from "evlog"
 import type { ModelParams } from "../../retrieval/services/modelParams.js"
 import { lowerOpenAiChatCompletionsParams } from "../../retrieval/services/providers/openAILikeModelProvider.js"
 
@@ -103,6 +104,7 @@ async function handleProxyRequest(
   }
   const origin = input.upstreamBaseUrl.replace(/\/+$/, "").replace(/\/v1$/, "")
   const target = `${origin}/v1/chat/completions`
+  const startedAt = Date.now()
   let upstream: Response
   try {
     upstream = await doFetch(target, {
@@ -114,9 +116,23 @@ async function handleProxyRequest(
       body: JSON.stringify(forwarded),
     })
   } catch {
+    log.error({
+      step: "workspace-chat-model-proxy",
+      path: url.pathname,
+      status: 502,
+      durationMs: Date.now() - startedAt,
+      message: "upstream unreachable",
+    })
     writeJson(res, 502, { error: "upstream unreachable" })
     return
   }
+  log.info({
+    step: "workspace-chat-model-proxy",
+    path: url.pathname,
+    status: upstream.status,
+    durationMs: Date.now() - startedAt,
+    model: typeof forwarded.model === "string" ? forwarded.model : undefined,
+  })
 
   const contentType = upstream.headers.get("content-type") ?? "application/json"
   res.writeHead(upstream.status, { "content-type": contentType })

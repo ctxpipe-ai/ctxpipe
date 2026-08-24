@@ -76,43 +76,110 @@ export function isWorkspaceChatRenameChunk(chunk: object): string | null {
   return null
 }
 
+export const WORKSPACE_CHAT_STREAM_SETUP_MS = 180_000
+export const WORKSPACE_CHAT_STREAM_IDLE_MS = 45_000
+
+export function isWorkspaceChatTerminalChunk(chunk: object): boolean {
+  const type = (chunk as { type?: string }).type
+  return type === "RUN_FINISHED" || type === "RUN_ERROR"
+}
+
 export async function* withWorkspaceChatHeartbeats(
   stream: AsyncIterable<StreamChunk>,
   intervalMs = WORKSPACE_CHAT_HEARTBEAT_MS,
 ): AsyncGenerator<StreamChunk> {
   const iterator = stream[Symbol.asyncIterator]()
-  let pending = iterator.next()
-  for (;;) {
-    let timeout: ReturnType<typeof setTimeout> | undefined
-    const raced = await Promise.race([
-      pending.then((result) => ({ kind: "chunk" as const, result })),
-      new Promise<{ kind: "tick" }>((resolve) => {
-        timeout = setTimeout(() => resolve({ kind: "tick" }), intervalMs)
-      }),
-    ])
-    if (timeout) clearTimeout(timeout)
-    if (raced.kind === "tick") {
-      yield {
-        type: "CUSTOM",
-        name: WORKSPACE_CHAT_HEARTBEAT_EVENT,
-        value: { at: Date.now() },
-        timestamp: Date.now(),
-      } as StreamChunk
-      continue
+  try {
+    let pending = iterator.next()
+    for (;;) {
+      let timeout: ReturnType<typeof setTimeout> | undefined
+      const raced = await Promise.race([
+        pending.then((result) => ({ kind: "chunk" as const, result })),
+        new Promise<{ kind: "tick" }>((resolve) => {
+          timeout = setTimeout(() => resolve({ kind: "tick" }), intervalMs)
+        }),
+      ])
+      if (timeout) clearTimeout(timeout)
+      if (raced.kind === "tick") {
+        yield {
+          type: "CUSTOM",
+          name: WORKSPACE_CHAT_HEARTBEAT_EVENT,
+          value: { at: Date.now() },
+          timestamp: Date.now(),
+        } as StreamChunk
+        continue
+      }
+      if (raced.result.done) return
+      yield raced.result.value
+      pending = iterator.next()
     }
-    if (raced.result.done) return
-    yield raced.result.value
-    pending = iterator.next()
+  } finally {
+    // A hung OpenCode iterator.return() must not block claim release.
+    void iterator.return?.()
   }
+}
+
+/**
+ * Drive an OpenCode/TanStack producer until it finishes or goes silent.
+ * Stock `@tanstack/ai-opencode` can keep `mergeChunkStreams` open after
+ * `RUN_FINISHED`; stop there so the turn claim can release.
+ */
+export async function* takeWorkspaceChatProducer(
+  stream: AsyncIterable<object>,
+  input?: { setupMs?: number; idleMs?: number },
+): AsyncGenerator<object> {
+  const setupMs = input?.setupMs ?? WORKSPACE_CHAT_STREAM_SETUP_MS
+  const idleMs = input?.idleMs ?? WORKSPACE_CHAT_STREAM_IDLE_MS
+  const iterator = stream[Symbol.asyncIterator]()
+  let stallMs = setupMs
+  try {
+    let pending = iterator.next()
+    for (;;) {
+      let timeout: ReturnType<typeof setTimeout> | undefined
+      const raced = await Promise.race([
+        pending.then((result) => ({ kind: "chunk" as const, result })),
+        new Promise<{ kind: "stall" }>((resolve) => {
+          timeout = setTimeout(() => resolve({ kind: "stall" }), stallMs)
+        }),
+      ])
+      if (timeout) clearTimeout(timeout)
+      if (raced.kind === "stall") {
+        throw new Error("workspace chat stream stalled")
+      }
+      if (raced.result.done) return
+      const chunk = raced.result.value
+      yield chunk
+      if (isWorkspaceChatTerminalChunk(chunk)) return
+      stallMs = idleMs
+      pending = iterator.next()
+    }
+  } finally {
+    void iterator.return?.()
+  }
+}
+
+function abortControllerForRequest(request?: Request): AbortController {
+  const abortController = new AbortController()
+  const signal = request?.signal
+  if (!signal) return abortController
+  if (signal.aborted) abortController.abort(signal.reason)
+  else {
+    signal.addEventListener("abort", () => abortController.abort(signal.reason), {
+      once: true,
+    })
+  }
+  return abortController
 }
 
 export function workspaceChatHttpResponse(
   stream: AsyncIterable<StreamChunk>,
   format: WorkspaceChatWireFormat = "sse",
+  request?: Request,
 ): Response {
+  const abortController = abortControllerForRequest(request)
   return format === "ndjson"
-    ? toHttpResponse(stream)
-    : toServerSentEventsResponse(stream)
+    ? toHttpResponse(stream, { abortController })
+    : toServerSentEventsResponse(stream, { abortController })
 }
 
 export function parseSseDataLines(body: string): object[] {

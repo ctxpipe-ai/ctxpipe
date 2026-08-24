@@ -1,3 +1,6 @@
+import { mkdirSync } from "node:fs"
+import { tmpdir } from "node:os"
+import { join } from "node:path"
 import {
   type ModelParams,
   restrictModelParamsForProvider,
@@ -96,6 +99,26 @@ export const WORKSPACE_CHAT_OPENCODE_CLI = "opencode-ai@1.18.18" as const
 
 export const WORKSPACE_CHAT_OPENCODE_PROXY_URL_ENV =
   "{env:CTXPIPE_MODEL_PROXY_URL}" as const
+
+/** Isolate local-process OpenCode from the host ~/.config/opencode + shared db. */
+export function workspaceChatOpenCodeHomeEnv(
+  conversationId: string,
+): Record<string, string> {
+  const slug = conversationId.replace(/[^a-zA-Z0-9_-]/g, "_") || "conversation"
+  const home = join(tmpdir(), "ctxpipe-opencode-home", slug)
+  const config = join(home, "config")
+  mkdirSync(config, { recursive: true })
+  mkdirSync(join(home, "data"), { recursive: true })
+  mkdirSync(join(home, "state"), { recursive: true })
+  mkdirSync(join(home, "cache"), { recursive: true })
+  return {
+    HOME: home,
+    XDG_CONFIG_HOME: config,
+    XDG_DATA_HOME: join(home, "data"),
+    XDG_STATE_HOME: join(home, "state"),
+    XDG_CACHE_HOME: join(home, "cache"),
+  }
+}
 
 export function workspaceChatOpenCodeConfig(input: { modelBase: string }): {
   $schema: "https://opencode.ai/config.json"

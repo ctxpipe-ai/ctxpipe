@@ -4,6 +4,7 @@ import {
   WORKSPACE_CHAT_OPENCODE_CLI,
   workspaceChatOpenCodeConfig,
   workspaceChatOpenCodeContract,
+  workspaceChatOpenCodeHomeEnv,
 } from "./workspace-chat-opencode-contract.js"
 
 describe("workspaceChatOpenCodeContract", () => {
@@ -124,6 +125,14 @@ describe("workspaceChatOpenCodeContract", () => {
       ]),
     )
     expect(WORKSPACE_CHAT_OPENCODE_CLI).toBe("opencode-ai@1.18.18")
+  })
+
+  it("isolates OpenCode HOME away from the host config dir", () => {
+    const env = workspaceChatOpenCodeHomeEnv("conv_1")
+    expect(env.HOME).toContain("ctxpipe-opencode-home")
+    expect(env.HOME).toContain("conv_1")
+    expect(env.HOME).not.toBe(process.env.HOME)
+    expect(env.XDG_CONFIG_HOME).toBe(`${env.HOME}/config`)
   })
 
   it("never returns a Claude or Anthropic model id", () => {

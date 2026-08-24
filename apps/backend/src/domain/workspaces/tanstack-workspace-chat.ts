@@ -42,6 +42,7 @@ import {
   aguiTextDelta,
   conversationRenameChunk,
   type WorkspaceChatWireFormat,
+  takeWorkspaceChatProducer,
   withWorkspaceChatHeartbeats,
   workspaceChatHttpResponse,
   workspaceChatRunError,
@@ -54,6 +55,7 @@ import {
   WORKSPACE_CHAT_LOCAL_PROCESS_SCRUB_ENV,
   workspaceChatOpenCodeConfig,
   workspaceChatOpenCodeContract,
+  workspaceChatOpenCodeHomeEnv,
 } from "./workspace-chat-opencode-contract.js"
 import {
   leaseLocalProcessOpenCodePort,
@@ -107,6 +109,8 @@ export type TanstackWorkspaceChatInput = {
     content: string
     orgId?: string
   }) => Promise<void>
+  streamSetupMs?: number
+  streamIdleMs?: number
 }
 
 export { conversationRenameChunk } from "./workspace-chat-agui.js"
@@ -278,7 +282,10 @@ async function* streamClaimedTanstackWorkspaceChat(
   let sawSession = false
   let streamError: Error | null = null
   try {
-    for await (const chunk of prepared.stream) {
+    for await (const chunk of takeWorkspaceChatProducer(prepared.stream, {
+      setupMs: turn.streamSetupMs,
+      idleMs: turn.streamIdleMs,
+    })) {
       if (streamSawOpenCodeSession(chunk)) sawSession = true
       for (const next of gate.take(chunk)) {
         const typed = next as StreamChunk
@@ -524,6 +531,9 @@ async function prepareTanstackWorkspaceChat(
     const secrets = modules.createSecrets({
       CTXPIPE_OPENCODE_RUN_TOKEN: runToken,
       CTXPIPE_MODEL_PROXY_URL: `${proxy.baseUrl}/v1`,
+      ...(spec.isolation === "local_process"
+        ? workspaceChatOpenCodeHomeEnv(input.conversationId)
+        : {}),
       ...(input.cloneToken
         ? { [WORKSPACE_CHAT_CLONE_TOKEN_SECRET]: input.cloneToken }
         : {}),
