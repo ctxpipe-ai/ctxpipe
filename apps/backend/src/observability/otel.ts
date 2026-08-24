@@ -20,7 +20,9 @@ let sdk: NodeSDK | undefined
  * is set, traces are also exported via OTLP (Langfuse in prod).
  *
  * Pass both processors in `spanProcessors`. NodeSDK ignores `traceExporter`
- * when `spanProcessors` is set.
+ * when `spanProcessors` is set. Auto-instrumentations stay off unless OTLP is
+ * configured — preview has no traces endpoint, and wrapping `pg` there
+ * terminated prepare connections.
  */
 export function initOtel(env: Env): void {
   if (sdk) return
@@ -61,7 +63,9 @@ export function initOtel(env: Env): void {
   sdk = new NodeSDK({
     resource,
     spanProcessors,
-    instrumentations: [getNodeAutoInstrumentations()],
+    ...(tracesEndpoint
+      ? { instrumentations: [getNodeAutoInstrumentations()] }
+      : {}),
     ...(metricReaders && { metricReaders }),
   })
   sdk.start()
