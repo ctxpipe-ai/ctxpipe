@@ -14,6 +14,8 @@ export type ChatMessage = {
     text?: string
     url?: string
     title?: string
+    name?: string
+    id?: string
     data?: unknown
   }>
   createdAt?: Date

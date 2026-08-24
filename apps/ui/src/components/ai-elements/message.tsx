@@ -331,7 +331,7 @@ const streamdownPlugins = { cjk, code, math, mermaid }
 const streamdownShikiTheme = ["github-light", "github-dark-dimmed"] as const
 
 export const MessageResponse = memo(
-  ({ className, ...props }: MessageResponseProps) => (
+  ({ className, isAnimating = false, ...props }: MessageResponseProps) => (
     <Streamdown
       {...props}
       className={cn(
@@ -348,7 +348,7 @@ export const MessageResponse = memo(
         className,
       )}
       controls={{ code: true, mermaid: true, table: true }}
-      isAnimating={false}
+      isAnimating={isAnimating}
       plugins={streamdownPlugins}
       shikiTheme={streamdownShikiTheme}
     />

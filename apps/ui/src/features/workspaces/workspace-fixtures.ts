@@ -316,6 +316,93 @@ export const reasoningMessages: ChatMessage[] = [
   },
 ]
 
+export const streamingReasoningMessages: ChatMessage[] = [
+  {
+    id: "msg_think_live_u1",
+    role: "user",
+    parts: [{ type: "text", content: "What's in this Workspace?" }],
+    createdAt: new Date("2026-08-16T09:42:20.000Z"),
+  },
+  {
+    id: "msg_think_live_a1",
+    role: "assistant",
+    parts: [
+      {
+        type: "thinking",
+        content:
+          "I'll inspect the repository structure and its primary project metadata.",
+      },
+    ],
+    createdAt: new Date("2026-08-16T09:42:21.000Z"),
+  },
+]
+
+export const oneToolMessages: ChatMessage[] = [
+  {
+    id: "msg_tool_u1",
+    role: "user",
+    parts: [{ type: "text", content: "Where is login documented?" }],
+    createdAt: new Date("2026-08-16T09:44:00.000Z"),
+  },
+  {
+    id: "msg_tool_a1",
+    role: "assistant",
+    parts: [
+      {
+        type: "tool-call",
+        id: "tc_hybrid_1",
+        name: "hybrid_search",
+      },
+      {
+        type: "text",
+        content: "Login lives in knowledge/auth/login.md.",
+      },
+    ],
+    createdAt: new Date("2026-08-16T09:44:08.000Z"),
+  },
+]
+
+export const manyToolMessages: ChatMessage[] = [
+  {
+    id: "msg_tools_u1",
+    role: "user",
+    parts: [{ type: "text", content: "How does billing work?" }],
+    createdAt: new Date("2026-08-16T09:45:00.000Z"),
+  },
+  {
+    id: "msg_tools_a1",
+    role: "assistant",
+    parts: [
+      { type: "tool-call", id: "tc_1", name: "hybrid_search" },
+      { type: "tool-call", id: "tc_2", name: "get_file" },
+      { type: "tool-call", id: "tc_3", name: "glob_files" },
+      {
+        type: "text",
+        content: "Billing is defined by knowledge/billing/ledger.md.",
+      },
+    ],
+    createdAt: new Date("2026-08-16T09:45:12.000Z"),
+  },
+]
+
+export const streamingToolMessages: ChatMessage[] = [
+  {
+    id: "msg_tools_live_u1",
+    role: "user",
+    parts: [{ type: "text", content: "Summarize the repo." }],
+    createdAt: new Date("2026-08-16T09:46:00.000Z"),
+  },
+  {
+    id: "msg_tools_live_a1",
+    role: "assistant",
+    parts: [
+      { type: "tool-call", id: "tc_live_1", name: "hybrid_search" },
+      { type: "tool-call", id: "tc_live_2", name: "get_file" },
+    ],
+    createdAt: new Date("2026-08-16T09:46:02.000Z"),
+  },
+]
+
 export const sourceLinkMessages: ChatMessage[] = [
   {
     id: "msg_src_u1",

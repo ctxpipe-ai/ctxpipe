@@ -15,10 +15,14 @@ import {
   docsConversationDetail,
   docsWorkspace,
   longThreadMessages,
+  manyToolMessages,
   markdownAnswerMessages,
+  oneToolMessages,
   readOnlyWorkspace,
   reasoningMessages,
   sourceLinkMessages,
+  streamingReasoningMessages,
+  streamingToolMessages,
 } from "./workspace-fixtures"
 
 const SEND_WAIT_MS = 5_000
@@ -112,6 +116,34 @@ export const CodeAnswer: Story = {
 
 export const Reasoning: Story = {
   args: threadArgs(reasoningMessages, "Ledger"),
+  parameters: {
+    storyRoute: threadRoute,
+  },
+}
+
+export const ReasoningStreaming: Story = {
+  args: threadArgs(streamingReasoningMessages, "Ledger"),
+  parameters: {
+    storyRoute: threadRoute,
+  },
+}
+
+export const ToolUse: Story = {
+  args: threadArgs(oneToolMessages, "Login"),
+  parameters: {
+    storyRoute: threadRoute,
+  },
+}
+
+export const ToolUseMany: Story = {
+  args: threadArgs(manyToolMessages, "Billing"),
+  parameters: {
+    storyRoute: threadRoute,
+  },
+}
+
+export const ToolUseStreaming: Story = {
+  args: threadArgs(streamingToolMessages, "Repo"),
   parameters: {
     storyRoute: threadRoute,
   },
