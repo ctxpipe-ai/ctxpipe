@@ -755,10 +755,10 @@ Highest-priority confirmed rules for agents. Migrated from former `patterns.md` 
 - **Source:** OpenCode chatStream 500 (H1: Claude fallback + empty Anthropic credentials)
 
 ### Workspace chat streams first; conversation SSR is stored turns only
-- **Rule:** Product workspace chat is TanStack AG-UI (`@tanstack/ai-react` + locked `@tanstack/ai@0.44.1`). Do not shim `@ai-sdk/react` / Vercel `UIMessage` on this path. Open the live connection and emit `RUN_STARTED` before GitHub, sandbox, or OpenCode. Persist the user turn and `lastMessageAt` on accept so SideNav can list the row before `RUN_FINISHED`. Conversation document SSR awaits workspace identity + stored turns only — never files, git, graph, or OpenCode. Do not raise the 15s UI proxy. Stay on 0.44.1 with an app-owned WebSocket; a helper bump pulls `@tanstack/ai-opencode` / sandbox drift.
+- **Rule:** Product workspace chat is TanStack AI full stack (`@tanstack/ai-react` `useChat` + official `webSocket()` / `toWebSocketStream` + `chat()`). Take latest `@tanstack/ai` (caret, not an exact pin) unless there is a strong reason not to; helper-drift is not a reason. Do not patch `@tanstack/ai*`. Open the live connection and emit `RUN_STARTED` before GitHub, sandbox, or OpenCode. Persist the user turn and `lastMessageAt` on accept so SideNav can list the row before `RUN_FINISHED`. Conversation document SSR awaits workspace identity + stored turns only — never files, git, graph, or OpenCode. Do not raise the 15s UI proxy.
 - **Category:** convention
-- **Date:** 2026-08-23
-- **Source:** workspace chat TTFB ~20s and conversation URL 504 at 15.73s
+- **Date:** 2026-08-24
+- **Source:** workspace chat TTFB ~20s; user correction to un-pin and use official WebSockets
 
 ### Workspace chat reuses the sandbox; do not patch TanStack
 - **Rule:** Reuse one TanStack sandbox/workdir per conversation (`reuse: "thread"`). Do not reclone every turn (`reuse: "none"` / `destroyOnComplete`). Many conversations must run at once — do not serialize the host on one OpenCode port or a process-wide mutex. Fix ServeError / echo / resume in our wiring; do not patch `@tanstack/ai*`. See [workspace-chat-sandboxes](PRDs/workspace-chat-sandboxes.md).
