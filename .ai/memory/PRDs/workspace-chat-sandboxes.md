@@ -9,9 +9,10 @@ Workspace chat (`chat()` + `withSandbox` + `opencodeText`) must reuse one TanSta
 - **Reuse:** keep the provider sandbox and workdir across turns (`reuse: "thread"`, `snapshot: "after-setup"`). `reuse: "none"` and `destroyOnComplete: true` are rejected — a full git clone plus plugin boot per turn is unacceptable.
 - **Parallelism:** many users and conversations run concurrently. A process-wide mutex or a single host port (for example 4096) for all `local_process` chats is rejected.
 - **TanStack stays stock:** do not patch, fork, or wrap-hack `@tanstack/ai*`. ServeError, echo, and failed resume are treated as our wiring. Do not add `OPENCODE_SERVER_PASSWORD`.
-- **Simplicity:** prefer official `chat()` + `withSandbox` + `opencodeText` practices. Per-turn OpenCode serve/session is TanStack’s model; reuse the sandbox, not a long-lived daemon.
+- **Simplicity:** prefer official `chat()` + `withSandbox` + `opencodeText` practices. Reuse the sandbox **and** keep `opencode serve` alive **inside that conversation sandbox** (attach via official `startOpencodeSession({ baseUrl })`). A host-wide daemon or shared port-4096 lock is still rejected. See [ADR-029](../decisions/ADR-029-workspace-chat-keep-alive-serve.md).
 
 Models and LLM host stay in [workspace-chat-models](workspace-chat-models.md).
+Answer-time SLO stays in [workspace-chat-latency](workspace-chat-latency.md).
 
 ## Not this document
 
