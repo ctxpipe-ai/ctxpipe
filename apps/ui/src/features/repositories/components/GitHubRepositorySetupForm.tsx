@@ -222,7 +222,7 @@ export function GitHubRepositorySetupForm({
           queryKey: ["github-installation-repos-preview", orgSlug],
         }),
       ])
-      toast.success("Repositories saved. Ingestion has started.")
+      toast.success("Repositories saved and queued for indexing.")
       onSaveSuccess()
     },
     onError: (err: Error) => {
@@ -375,7 +375,7 @@ export function GitHubRepositorySetupForm({
               ? "Saving…"
               : variant === "onboarding"
                 ? "Save and continue"
-                : "Save and start ingestion"}
+                : "Save and queue indexing"}
           </Button>
           <Button
             type="button"
