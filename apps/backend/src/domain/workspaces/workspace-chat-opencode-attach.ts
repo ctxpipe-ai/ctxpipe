@@ -55,7 +55,11 @@ export async function startConversationOpenCodeServe(input: {
   handle: TanstackLikeHandle
   port: number
   isolation: "docker" | "local_process"
+  attempts?: number
+  timeoutMs?: number
 }): Promise<WorkspaceChatOpenCodeServe | null> {
+  const attempts = Math.max(1, input.attempts ?? 2)
+  const timeoutMs = input.timeoutMs ?? 12_000
   const channel = await resolveServeChannel(input.handle, input.port)
   const baseUrl = channel.url
   const headers = channel.headers
@@ -66,12 +70,12 @@ export async function startConversationOpenCodeServe(input: {
       dispose: async () => {},
     }
   }
-  await waitUntilUnhealthy(baseUrl, headers, 2_000)
+  await waitUntilUnhealthy(baseUrl, headers, Math.min(2_000, timeoutMs))
 
   const sandbox = input.handle as SandboxSpawnHandle
   const canOfficial = Boolean(sandbox.process.spawn && sandbox.ports?.connect)
   if (canOfficial) {
-    for (let attempt = 0; attempt < 3; attempt += 1) {
+    for (let attempt = 0; attempt < attempts; attempt += 1) {
       try {
         const { startOpencodeServerInSandbox } = await import(
           "@tanstack/ai-opencode"
@@ -82,6 +86,7 @@ export async function startConversationOpenCodeServe(input: {
             port: input.port,
             hostname: "0.0.0.0",
             cwd: "/workspace",
+            timeoutMs,
           },
         )
         return {
@@ -118,7 +123,7 @@ export async function startConversationOpenCodeServe(input: {
   )
   const pid = Number(started.stdout.trim())
   if (started.exitCode !== 0 || !Number.isInteger(pid) || pid <= 0) return null
-  const ready = await waitForOpenCodeServe(baseUrl, headers)
+  const ready = await waitForOpenCodeServe(baseUrl, headers, timeoutMs)
   if (!ready) {
     await exec(`sh -c 'kill ${pid} || true'`).catch(() => undefined)
     return null
@@ -147,16 +152,20 @@ export async function* streamAttachedOpenCodeTurn(input: {
     throw new Error(`OpenCode models must be addressed as provider/model`)
   }
   const queue = createAttachQueue()
-  const session = await startOpencodeSession({
-    baseUrl: input.baseUrl,
-    ...(input.headers ? { headers: input.headers } : {}),
-    providerID: input.model.slice(0, slash),
-    modelID: input.model.slice(slash + 1),
-    ...(input.sessionId ? { resumeSessionId: input.sessionId } : {}),
-    onEvent: (event) => queue.push({ kind: "event", event } as never),
-    onPermissionRequest: input.onPermissionRequest,
-    onError: (error) => queue.fail(error),
-  })
+  const session = await withTimeout(
+    startOpencodeSession({
+      baseUrl: input.baseUrl,
+      ...(input.headers ? { headers: input.headers } : {}),
+      providerID: input.model.slice(0, slash),
+      modelID: input.model.slice(slash + 1),
+      ...(input.sessionId ? { resumeSessionId: input.sessionId } : {}),
+      onEvent: (event) => queue.push({ kind: "event", event } as never),
+      onPermissionRequest: input.onPermissionRequest,
+      onError: (error) => queue.fail(error),
+    }),
+    5_000,
+    "startOpencodeSession",
+  )
   queue.push({ kind: "session", sessionId: session.sessionId } as never)
   session
     .prompt(input.prompt)
@@ -246,6 +255,26 @@ async function killListenPort(
 
 function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms))
+}
+
+async function withTimeout<T>(
+  promise: Promise<T>,
+  timeoutMs: number,
+  label: string,
+): Promise<T> {
+  let timer: ReturnType<typeof setTimeout> | undefined
+  try {
+    return await Promise.race([
+      promise,
+      new Promise<T>((_, reject) => {
+        timer = setTimeout(() => {
+          reject(new Error(`${label} timed out after ${timeoutMs}ms`))
+        }, timeoutMs)
+      }),
+    ])
+  } finally {
+    if (timer) clearTimeout(timer)
+  }
 }
 
 function createAttachQueue(): {

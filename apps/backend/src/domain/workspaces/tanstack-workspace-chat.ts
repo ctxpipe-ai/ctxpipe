@@ -988,6 +988,8 @@ async function* keepConversationRuntimeAfterStream(
         handle: input.handle.current,
         port: input.servePort,
         isolation: input.isolation,
+        attempts: 1,
+        timeoutMs: 4_000,
       })
       if (serve) {
         setWorkspaceChatConversationRuntime({

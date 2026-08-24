@@ -126,4 +126,22 @@ describe("startConversationOpenCodeServe", () => {
     const adopted = await adoptConversationOpenCodeServe(4097)
     expect(adopted?.baseUrl).toBe("http://127.0.0.1:4097")
   })
+
+  it("bounds official start attempts and timeout", async () => {
+    mockFetch(503)
+    startOpencodeServerInSandbox.mockRejectedValue(new Error("not ready"))
+    const started = await startConversationOpenCodeServe({
+      handle: handle({ spawn: vi.fn() }),
+      port: 4097,
+      isolation: "local_process",
+      attempts: 1,
+      timeoutMs: 4_000,
+    })
+    expect(started).toBeNull()
+    expect(startOpencodeServerInSandbox).toHaveBeenCalledTimes(1)
+    expect(startOpencodeServerInSandbox).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.objectContaining({ timeoutMs: 4_000 }),
+    )
+  })
 })
