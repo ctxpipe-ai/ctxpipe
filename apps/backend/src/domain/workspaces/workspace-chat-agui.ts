@@ -186,9 +186,10 @@ export function workspaceChatHttpResponse(
   request?: Request,
 ): Response {
   const abortController = abortControllerForRequest(request)
+  const headers = { "X-Accel-Buffering": "no" }
   return format === "ndjson"
-    ? toHttpResponse(stream, { abortController })
-    : toServerSentEventsResponse(stream, { abortController })
+    ? toHttpResponse(stream, { abortController, headers })
+    : toServerSentEventsResponse(stream, { abortController, headers })
 }
 
 export function parseSseDataLines(body: string): object[] {

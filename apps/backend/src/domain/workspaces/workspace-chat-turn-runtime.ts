@@ -79,6 +79,7 @@ export async function resolveWorkspaceChatTurnRuntime(input: {
   log.info({
     step: "workspace-chat-timing",
     phase: "github-resolve",
+    message: `workspace chat timing github-resolve ${Date.now() - githubStarted}ms`,
     ms: Date.now() - githubStarted,
     conversationId: conversation.id,
   })

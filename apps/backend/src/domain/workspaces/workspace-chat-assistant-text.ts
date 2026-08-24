@@ -85,6 +85,7 @@ function classifyAssistantText(
   final: boolean,
 ): TextClass {
   if (isLeftoverLog(text)) return "drop"
+  if (isOpenCodePlanningHold(text)) return "hold"
   if (prompt.length > 0 && text === prompt) return final ? "drop" : "hold"
   if (
     prompt.length > 0 &&

@@ -49,6 +49,7 @@ import {
   workspaceChatRunError,
   workspaceChatRunStarted,
   workspaceChatWireFormat,
+  WORKSPACE_CHAT_HEARTBEAT_EVENT,
 } from "./workspace-chat-agui.js"
 import {
   createWorkspaceChatAssistantGate,
@@ -200,6 +201,12 @@ export async function* streamTanstackWorkspaceChat(
     conversationId: input.conversationId,
     runId: input.runId,
   })
+  yield {
+    type: "CUSTOM",
+    name: WORKSPACE_CHAT_HEARTBEAT_EVENT,
+    value: { at: Date.now() },
+    timestamp: Date.now(),
+  } as StreamChunk
   let claim: WorkspaceChatTurnClaim | null = input.acceptedTurn ?? null
   let heartbeat: ReturnType<typeof setInterval> | undefined
   try {
@@ -595,6 +602,7 @@ async function prepareTanstackWorkspaceChat(
     log.info({
       step: "workspace-chat-timing",
       phase: "proxy-and-tools",
+      message: `workspace chat timing proxy-and-tools ${Date.now() - proxyAndToolsStarted}ms`,
       ms: Date.now() - proxyAndToolsStarted,
       conversationId: input.conversationId,
     })
@@ -693,6 +701,7 @@ async function prepareTanstackWorkspaceChat(
           log.info({
             step: "workspace-chat-timing",
             phase: "sandbox-checkout",
+            message: `workspace chat timing sandbox-checkout ${Date.now() - checkoutStarted}ms`,
             ms: Date.now() - checkoutStarted,
             conversationId: input.conversationId,
           })
@@ -732,12 +741,14 @@ async function prepareTanstackWorkspaceChat(
     log.info({
       step: "workspace-chat-timing",
       phase: "chat-create",
+      message: `workspace chat timing chat-create ${Date.now() - chatStarted}ms`,
       ms: Date.now() - chatStarted,
       conversationId: input.conversationId,
     })
     log.info({
       step: "workspace-chat-timing",
       phase: "prepare",
+      message: `workspace chat timing prepare ${Date.now() - prepareStarted}ms`,
       ms: Date.now() - prepareStarted,
       conversationId: input.conversationId,
     })

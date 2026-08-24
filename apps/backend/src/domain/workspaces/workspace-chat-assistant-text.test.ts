@@ -136,6 +136,27 @@ describe("createWorkspaceChatAssistantGate", () => {
     expect(assistant).toBe("pong")
   })
 
+  it("does not stream a planning preamble", () => {
+    const { out, assistant } = runGate("what's in this repo?", [
+      {
+        type: "TEXT_MESSAGE_CONTENT",
+        messageId: "plan",
+        delta:
+          "I’ll inspect the repository structure and its primary project metadata to summarize its purpose and components.",
+      },
+      { type: "TEXT_MESSAGE_END", messageId: "plan" },
+      {
+        type: "TEXT_MESSAGE_CONTENT",
+        messageId: "asst",
+        delta: "This repo is a TypeScript monorepo.",
+      },
+      { type: "TEXT_MESSAGE_END", messageId: "asst" },
+      { type: "RUN_FINISHED" },
+    ])
+    expect(textDeltas(out)).toBe("This repo is a TypeScript monorepo.")
+    expect(assistant).toBe("This repo is a TypeScript monorepo.")
+  })
+
   it("does not persist a planning preamble as the reply", () => {
     expect(
       isOpenCodePlanningHold(
