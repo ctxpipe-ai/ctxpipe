@@ -134,6 +134,9 @@ describe("workspaceChatOpenCodeContract", () => {
     expect(env.HOME).toContain("conv_1")
     expect(env.HOME).not.toBe(process.env.HOME)
     expect(env.XDG_CONFIG_HOME).toBe(`${env.HOME}/config`)
+    expect(env.PATH.split(":")).toEqual(
+      expect.arrayContaining(["/bin", "/usr/bin"]),
+    )
   })
 
   it("never returns a Claude or Anthropic model id", () => {

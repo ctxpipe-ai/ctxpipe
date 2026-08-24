@@ -122,7 +122,16 @@ export function workspaceChatOpenCodeHomeEnv(
     XDG_DATA_HOME: join(home, "data"),
     XDG_STATE_HOME: join(home, "state"),
     XDG_CACHE_HOME: join(home, "cache"),
+    PATH: unixLoginPath(),
   }
+}
+
+function unixLoginPath(): string {
+  const extras = ["/usr/local/bin", "/usr/bin", "/bin"]
+  const current = (process.env.PATH ?? "").split(":").filter(Boolean)
+  return [...extras, ...current]
+    .filter((dir, index, all) => all.indexOf(dir) === index)
+    .join(":")
 }
 
 export function workspaceChatOpenCodeConfig(input: { modelBase: string }): {
