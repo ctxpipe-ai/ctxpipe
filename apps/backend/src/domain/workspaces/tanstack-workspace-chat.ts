@@ -530,10 +530,11 @@ async function prepareTanstackWorkspaceChat(
     }
   }
 
-  const messages =
+  const messages = tanstackChatModelMessages(
     input.messages && input.messages.length > 0
       ? input.messages
-      : [{ role: "user", content: input.prompt }]
+      : [{ role: "user", content: input.prompt }],
+  )
   const resumeSessionId = loadWorkspaceChatOpenCodeSessionId(
     input.conversationId,
   )
@@ -712,6 +713,20 @@ async function prepareTanstackWorkspaceChat(
     await portLease?.release().catch(() => undefined)
     throw error
   }
+}
+
+function tanstackChatModelMessages(
+  messages: TanstackWorkspaceChatMessage[],
+): Array<{ role: "user" | "assistant"; content: string }> {
+  return messages.map((message) => ({
+    role: message.role === "assistant" ? "assistant" : "user",
+    content:
+      typeof message.content === "string"
+        ? message.content
+        : message.content == null
+          ? ""
+          : JSON.stringify(message.content),
+  }))
 }
 
 function tcpPortFromUrl(url: string): number | null {
