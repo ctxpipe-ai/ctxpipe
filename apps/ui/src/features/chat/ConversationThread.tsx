@@ -229,8 +229,8 @@ export function ConversationThread(props: {
       ? messageHasVisibleActivity(lastMessage)
       : false
   const showPulsatingLoader =
-    status === "submitted" ||
-    (status === "streaming" && !lastAssistantHasVisibleActivity)
+    (status === "submitted" || status === "streaming") &&
+    !lastAssistantHasVisibleActivity
 
   return (
     <div className="flex min-h-0 flex-1 flex-col bg-transparent">
