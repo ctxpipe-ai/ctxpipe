@@ -8,7 +8,6 @@ import {
   WorkspaceCheckoutReadError,
 } from "../../domain/workspaces/checkout-read.js"
 import {
-  attachOrgRepository,
   createWorkspaceLifecycle,
   relinkWorkspaceLifecycle,
   renameWorkspaceLifecycle,
@@ -32,8 +31,6 @@ import {
   getJobSandbox,
   withDestroyedWorkspaceSandboxes,
 } from "../../domain/workspaces/sandbox-registry.js"
-import { normalizeWorkspaceRepositoryUrl } from "../../domain/workspaces/slug.js"
-import { workspaceGraphFromUnits } from "../../domain/workspaces/workspace-graph.js"
 import { writeJobQueueHttpDecision } from "../../domain/workspaces/write-jobs.js"
 import {
   deleteWorkspace,
@@ -42,7 +39,6 @@ import {
   listLinkedRepositories,
   listMigrationExportShas,
   listWorkspaceKnowledgeFiles,
-  listWorkspaceKnowledgeUnits,
   listWorkspaces,
   persistHydrateRetry,
   touchLastUsedWorkspace,
@@ -50,10 +46,16 @@ import {
 import { getLogger } from "../../observability/logger.js"
 import { enqueueWorkspaceHydrate } from "../../openworkflow/enqueue-workspace-hydrate.js"
 import { enqueueWorkspaceWriteCommit } from "../../openworkflow/enqueue-workspace-write-commit.js"
-
-const ErrorResponseSchema = z
-  .object({ error: z.string() })
-  .openapi("WorkspaceErrorResponse")
+import { workspaceGraphRoutes } from "./workspace-graph-routes.js"
+import {
+  LinkedRepositorySchema,
+  workspaceLinkedRoutes,
+} from "./workspace-linked-routes.js"
+import {
+  ErrorResponseSchema,
+  WorkspaceSlugParamsSchema,
+  workspaceSlugParams,
+} from "./workspace-route-shared.js"
 
 const WorkspaceSchema = z
   .object({
@@ -78,18 +80,6 @@ const WorkspaceSchema = z
     updatedAt: z.string().datetime(),
   })
   .openapi("Workspace")
-
-const LinkedRepositorySchema = z
-  .object({
-    id: z.string(),
-    workspaceId: z.string(),
-    gitUrl: z.string(),
-    desiredRef: z.string().nullable(),
-    desiredSha: z.string().nullable(),
-    indexedSha: z.string().nullable(),
-    createdAt: z.string().datetime(),
-  })
-  .openapi("WorkspaceLinkedRepository")
 
 const WorkspaceDetailSchema = WorkspaceSchema.extend({
   linkedRepositories: z.array(LinkedRepositorySchema),
@@ -129,33 +119,6 @@ const DeleteWorkspaceRequestSchema = z
     confirmName: z.string().min(1),
   })
   .openapi("DeleteWorkspaceRequest")
-
-const WorkspaceSlugParamsSchema = z
-  .object({
-    workspaceSlug: z.string().min(1),
-  })
-  .openapi("WorkspaceSlugParams")
-
-const LinkedRepositoryParamsSchema = z
-  .object({
-    workspaceSlug: z.string().min(1),
-    linkedId: z.string().min(1),
-  })
-  .openapi("WorkspaceLinkedRepositoryParams")
-
-const CreateLinkedRepositoryRequestSchema = z
-  .object({
-    gitUrl: z.string().min(1),
-  })
-  .openapi("CreateWorkspaceLinkedRepositoryRequest")
-
-const LinkedWriteQueuedSchema = z
-  .object({
-    queued: z.literal(true),
-    action: z.enum(["link", "unlink"]),
-    gitUrl: z.string(),
-  })
-  .openapi("WorkspaceLinkedWriteQueued")
 
 function serializeWorkspace(
   row: {
@@ -618,159 +581,6 @@ const enqueueWorkspaceFileJobRoute = createRoute({
   },
 })
 
-const WorkspaceGraphResponseSchema = z
-  .object({
-    metrics: z.object({
-      totalNodes: z.number().int(),
-      totalEdges: z.number().int(),
-      lastUpdatedAt: z.string().nullable(),
-      nodesReturned: z.number().int(),
-      edgesReturned: z.number().int(),
-      truncated: z.boolean(),
-    }),
-    nodes: z.array(
-      z.object({
-        id: z.string(),
-        kind: z.string(),
-        name: z.string().nullable(),
-        summary: z.string().nullable(),
-      }),
-    ),
-    edges: z.array(
-      z.object({
-        sourceId: z.string(),
-        targetId: z.string(),
-        predicate: z.string(),
-        lastObservedAt: z.string().nullable(),
-        confidence: z.number().nullable(),
-      }),
-    ),
-  })
-  .openapi("WorkspaceGraphResponse")
-
-const listWorkspaceGraphRoute = createRoute({
-  method: "get",
-  path: "/{workspaceSlug}/graph",
-  request: { params: WorkspaceSlugParamsSchema },
-  responses: {
-    200: {
-      content: {
-        "application/json": { schema: WorkspaceGraphResponseSchema },
-      },
-      description: "This Workspace’s hydrate projection for the Graph pane",
-    },
-    401: {
-      content: { "application/json": { schema: ErrorResponseSchema } },
-      description: "Unauthorized",
-    },
-    404: {
-      content: { "application/json": { schema: ErrorResponseSchema } },
-      description: "Not found",
-    },
-  },
-})
-
-const listLinkedRoute = createRoute({
-  method: "get",
-  path: "/{workspaceSlug}/linked-repositories",
-  request: { params: WorkspaceSlugParamsSchema },
-  responses: {
-    200: {
-      content: {
-        "application/json": {
-          schema: z
-            .object({ items: z.array(LinkedRepositorySchema) })
-            .openapi("WorkspaceLinkedRepositoryListResponse"),
-        },
-      },
-      description: "Linked remotes for this Workspace",
-    },
-    401: {
-      content: { "application/json": { schema: ErrorResponseSchema } },
-      description: "Unauthorized",
-    },
-    404: {
-      content: { "application/json": { schema: ErrorResponseSchema } },
-      description: "Not found",
-    },
-  },
-})
-
-const createLinkedRoute = createRoute({
-  method: "post",
-  path: "/{workspaceSlug}/linked-repositories",
-  request: {
-    params: WorkspaceSlugParamsSchema,
-    body: {
-      content: {
-        "application/json": { schema: CreateLinkedRepositoryRequestSchema },
-      },
-    },
-  },
-  responses: {
-    202: {
-      content: { "application/json": { schema: LinkedWriteQueuedSchema } },
-      description: "Link write queued",
-    },
-    400: {
-      content: { "application/json": { schema: ErrorResponseSchema } },
-      description: "Invalid request",
-    },
-    401: {
-      content: { "application/json": { schema: ErrorResponseSchema } },
-      description: "Unauthorized",
-    },
-    404: {
-      content: { "application/json": { schema: ErrorResponseSchema } },
-      description: "Not found",
-    },
-    409: {
-      content: { "application/json": { schema: ErrorResponseSchema } },
-      description: "Already linked",
-    },
-  },
-})
-
-const deleteLinkedRoute = createRoute({
-  method: "delete",
-  path: "/{workspaceSlug}/linked-repositories/{linkedId}",
-  request: { params: LinkedRepositoryParamsSchema },
-  responses: {
-    202: {
-      content: { "application/json": { schema: LinkedWriteQueuedSchema } },
-      description: "Unlink write queued",
-    },
-    400: {
-      content: { "application/json": { schema: ErrorResponseSchema } },
-      description: "Invalid request",
-    },
-    401: {
-      content: { "application/json": { schema: ErrorResponseSchema } },
-      description: "Unauthorized",
-    },
-    404: {
-      content: { "application/json": { schema: ErrorResponseSchema } },
-      description: "Not found",
-    },
-    409: {
-      content: { "application/json": { schema: ErrorResponseSchema } },
-      description: "Write status unknown",
-    },
-  },
-})
-
-function workspaceSlugParams(c: {
-  req: { param: () => Record<string, string> }
-}) {
-  return WorkspaceSlugParamsSchema.parse(c.req.param())
-}
-
-function linkedRepositoryParams(c: {
-  req: { param: () => Record<string, string> }
-}) {
-  return LinkedRepositoryParamsSchema.parse(c.req.param())
-}
-
 function resolveWorkspaceGitReadInput(
   workspace: {
     id: string
@@ -1072,18 +882,6 @@ export const workspaceRoutes = new OpenAPIHono<AppEnv>()
       200,
     )
   })
-  .openapi(listWorkspaceGraphRoute, async (c) => {
-    if (!c.get("user") || !c.get("session")) {
-      return c.json({ error: "Unauthorized" }, 401)
-    }
-    const { workspaceSlug } = workspaceSlugParams(c)
-    const workspace = await getWorkspaceBySlug(workspaceSlug)
-    if (!workspace) return c.json({ error: "Not found" }, 404)
-    const { units, lastUpdatedAt } = await listWorkspaceKnowledgeUnits(
-      workspace.id,
-    )
-    return c.json(workspaceGraphFromUnits({ units, lastUpdatedAt }), 200)
-  })
   .openapi(patchWorkspaceRoute, async (c) => {
     if (!c.get("user") || !c.get("session")) {
       return c.json({ error: "Unauthorized" }, 401)
@@ -1201,90 +999,5 @@ export const workspaceRoutes = new OpenAPIHono<AppEnv>()
     }
     return c.json(serializeWorkspace(retried, exportSha), 200)
   })
-  .openapi(listLinkedRoute, async (c) => {
-    if (!c.get("user") || !c.get("session")) {
-      return c.json({ error: "Unauthorized" }, 401)
-    }
-    const { workspaceSlug } = workspaceSlugParams(c)
-    const workspace = await getWorkspaceBySlug(workspaceSlug)
-    if (!workspace) return c.json({ error: "Not found" }, 404)
-    const items = await listLinkedRepositories(workspace.id)
-    return c.json(
-      {
-        items: items.map((row) => ({
-          ...row,
-          createdAt: row.createdAt.toISOString(),
-        })),
-      },
-      200,
-    )
-  })
-  .openapi(createLinkedRoute, async (c) => {
-    if (!c.get("user") || !c.get("session")) {
-      return c.json({ error: "Unauthorized" }, 401)
-    }
-    const { workspaceSlug } = workspaceSlugParams(c)
-    const workspace = await getWorkspaceBySlug(workspaceSlug)
-    if (!workspace) return c.json({ error: "Not found" }, 404)
-    const body = CreateLinkedRepositoryRequestSchema.parse(await c.req.json())
-    const gitUrl = normalizeWorkspaceRepositoryUrl(body.gitUrl)
-    if (!gitUrl) return c.json({ error: "A git URL is required" }, 400)
-    if (gitUrl === workspace.workspaceRepositoryUrl) {
-      return c.json(
-        { error: "The workspace repository is already included for search" },
-        409,
-      )
-    }
-    const existing = await listLinkedRepositories(workspace.id)
-    if (existing.some((row) => row.gitUrl === gitUrl)) {
-      return c.json(
-        { error: "That git URL is already linked to this Workspace" },
-        409,
-      )
-    }
-    await attachOrgRepository({
-      orgId: workspace.orgId,
-      gitUrl,
-      githubConnectionId: workspace.githubConnectionId,
-      log: c.get("log"),
-    })
-    void enqueueWorkspaceWriteCommit(
-      {
-        orgId: workspace.orgId,
-        workspaceId: workspace.id,
-        kind: "link_unlink",
-        linkAction: "link",
-        linkGitUrl: body.gitUrl,
-      },
-      c.get("log"),
-    )
-    return c.json(
-      { queued: true as const, action: "link" as const, gitUrl },
-      202,
-    )
-  })
-  .openapi(deleteLinkedRoute, async (c) => {
-    if (!c.get("user") || !c.get("session")) {
-      return c.json({ error: "Unauthorized" }, 401)
-    }
-    const { workspaceSlug, linkedId } = linkedRepositoryParams(c)
-    const workspace = await getWorkspaceBySlug(workspaceSlug)
-    if (!workspace) return c.json({ error: "Not found" }, 404)
-    const existing = await listLinkedRepositories(workspace.id)
-    const row = existing.find((item) => item.id === linkedId)
-    if (!row) return c.json({ error: "Not found" }, 404)
-    void enqueueWorkspaceWriteCommit(
-      {
-        orgId: workspace.orgId,
-        workspaceId: workspace.id,
-        kind: "link_unlink",
-        linkAction: "unlink",
-        linkGitUrl: row.gitUrl,
-      },
-      c.get("log"),
-    )
-    return c.json(
-      { queued: true as const, action: "unlink" as const, gitUrl: row.gitUrl },
-      202,
-    )
-  })
+  .route("/", workspaceGraphRoutes)
+  .route("/", workspaceLinkedRoutes)

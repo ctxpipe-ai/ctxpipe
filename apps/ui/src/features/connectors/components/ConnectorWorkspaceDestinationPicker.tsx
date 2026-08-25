@@ -1,4 +1,3 @@
-import { Link } from "@tanstack/react-router"
 import { useQuery } from "@tanstack/react-query"
 import { ComboBox, ComboBoxItem } from "@/components/ui/ComboBox"
 import { InlineAlert } from "@/components/ui/InlineAlert"
@@ -75,14 +74,12 @@ export function ConnectorWorkspaceDestinationPicker(props: {
           Create a workspace first. Connector files go into that workspace
           repository.
         </p>
-        <Link
-          to="/$orgSlug/workspaces/new"
-          params={{ orgSlug }}
-          search={{ after: "settings" }}
+        <a
+          href={`/${orgSlug}/workspaces/new?after=settings`}
           className="text-sm text-teal-400 hover:text-teal-300"
         >
           Create a workspace
-        </Link>
+        </a>
       </div>
     )
   }

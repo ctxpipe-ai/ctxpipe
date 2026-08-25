@@ -35,6 +35,7 @@ const slackStatusState = vi.hoisted(() => ({
 const patchSlackConnectorConfigMock = vi.hoisted(() => vi.fn())
 
 vi.mock("@tanstack/react-query", () => ({
+  queryOptions: (options: unknown) => options,
   useMutation: (options: { mutationFn: () => unknown }) => ({
     isPending: false,
     mutate: () => void options.mutationFn(),
@@ -84,6 +85,15 @@ vi.mock("@tanstack/react-query", () => ({
           appSlug: "ctxpipe-agent",
           accountSlug: "acme",
         },
+        isError: false,
+        isFetching: false,
+        isPending: false,
+        isEnabled: options.enabled !== false,
+      }
+    }
+    if (queryKey[0] === "workspaces") {
+      return {
+        data: { items: [], lastUsedWorkspaceId: null },
         isError: false,
         isFetching: false,
         isPending: false,

@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
-# Apply schema as the table owner, then GRANT DML to ctxpipe_app.
+# One owner-migration command: Drizzle, OpenWorkflow, checkpoints,
+# GitHub-secret backfill, then GRANT DML / app-role URL.
 # Runtime DATABASE_URL (ctxpipe_app) stays in .env.local; this shell uses the owner URL.
 set -euo pipefail
 

@@ -10,7 +10,6 @@
     "test": "vitest run --exclude src/db/rls-isolation.test.ts",
     "test:watch": "vitest",
     "typecheck": "tsc --noEmit",
-    "typecheck:workspaces": "bash ../../scripts/typecheck-workspaces.sh",
     "lint": "biome lint .",
     "format": "biome format --write .",
     "db:generate": "drizzle-kit generate",
