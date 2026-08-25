@@ -123,7 +123,7 @@ describe("workspace chat runtime", () => {
     ).resolves.toBe("once")
   })
 
-  it("builds a thread-reuse sandbox spec and refuses Railway without a provider", () => {
+  it("builds a thread-reuse sandbox spec for docker and the unset hosted fallback", () => {
     expect(
       workspaceChatSandboxSpec({
         sandboxId: "sbx_1",
@@ -144,7 +144,12 @@ describe("workspace chat runtime", () => {
         gitUrl: "https://github.com/acme/docs",
         ref: "abc",
       }),
-    ).toEqual({ ok: false, reason: "no_isolated_provider" })
+    ).toMatchObject({
+      ok: true,
+      isolation: "unsandboxed",
+      source: { type: "git", url: "https://github.com/acme/docs", ref: "abc" },
+      lifecycle: { reuse: "thread", keepAlive: "30m" },
+    })
     expect(
       workspaceChatSandboxSpec({
         sandboxId: "sbx_1",
@@ -152,7 +157,10 @@ describe("workspace chat runtime", () => {
         gitUrl: "https://github.com/acme/docs",
         ref: "abc",
       }),
-    ).toEqual({ ok: false, reason: "no_isolated_provider" })
+    ).toMatchObject({
+      ok: true,
+      isolation: "railway",
+    })
     expect(
       workspaceChatGitSource({
         url: "https://github.com/acme/docs",

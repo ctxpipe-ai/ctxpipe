@@ -123,6 +123,9 @@ function providerFactoryForChat(
   if (provider === "docker") {
     return modules.dockerSandbox?.(WORKSPACE_CHAT_DOCKER_SANDBOX)
   }
+  if (provider === "unsandboxed") {
+    return modules.localProcessSandbox?.()
+  }
   return undefined
 }
 

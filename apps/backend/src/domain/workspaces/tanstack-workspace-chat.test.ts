@@ -115,8 +115,10 @@ vi.mock("@tanstack/ai-sandbox-docker", () => ({
   dockerSandbox: dockerSandboxMock,
   sbxSandbox: sbxSandboxMock,
 }))
+const localProcessSandboxMock = vi.hoisted(() => vi.fn(() => "local-provider"))
+
 vi.mock("@tanstack/ai-sandbox-local-process", () => ({
-  localProcessSandbox: vi.fn(() => "local-provider"),
+  localProcessSandbox: localProcessSandboxMock,
 }))
 vi.mock("./workspace-chat-model-proxy.js", () => ({
   startWorkspaceChatModelProxy: startWorkspaceChatModelProxyMock,
@@ -262,6 +264,37 @@ describe("runTanstackWorkspaceChat", () => {
         ]),
       }),
     )
+  })
+
+  it("starts chat on the unset hosted fallback instead of refusing host OpenCode", async () => {
+    delete process.env.SANDBOX_PROVIDER
+    const res = await runTanstackWorkspaceChat(baseInput)
+    expect(res.status).toBe(200)
+    expect(await res.text()).not.toContain(
+      "Workspace chat requires an isolated TanStack sandbox provider. Host OpenCode is not a fallback.",
+    )
+    expect(localProcessSandboxMock).toHaveBeenCalled()
+    expect(dockerSandboxMock).not.toHaveBeenCalled()
+    expect(withSandboxMock).toHaveBeenCalled()
+  })
+
+  it("fails closed when a locked docker provider has no factory", async () => {
+    dockerSandboxMock.mockReturnValueOnce(undefined)
+    await expect(warmTanstackWorkspaceChat(baseInput)).resolves.toEqual({
+      ok: false,
+      status: 503,
+      error: "TanStack sandbox provider docker is not available",
+    })
+  })
+
+  it("fails closed when a locked railway provider has no factory", async () => {
+    process.env.SANDBOX_PROVIDER = "railway"
+    await expect(warmTanstackWorkspaceChat(baseInput)).resolves.toEqual({
+      ok: false,
+      status: 503,
+      error: "TanStack sandbox provider railway is not available",
+    })
+    expect(localProcessSandboxMock).not.toHaveBeenCalled()
   })
 
   it("passes client messages and runId through to chat()", async () => {

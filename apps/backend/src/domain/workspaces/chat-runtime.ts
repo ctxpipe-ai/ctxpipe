@@ -137,7 +137,7 @@ export function workspaceChatSandboxSpec(input: {
   | {
       ok: true
       id: string
-      isolation: "docker"
+      isolation: "docker" | "unsandboxed" | "railway"
       source: { type: "git"; url: string; ref: string }
       lifecycle: {
         reuse: "thread"
@@ -146,14 +146,17 @@ export function workspaceChatSandboxSpec(input: {
       }
     }
   | { ok: false; reason: "no_isolated_provider" } {
-  if (input.provider !== "docker") {
+  if (
+    input.provider !== "docker" &&
+    input.provider !== "unsandboxed" &&
+    input.provider !== "railway"
+  ) {
     return { ok: false, reason: "no_isolated_provider" }
   }
-  const isolation = "docker" as const
   return {
     ok: true,
     id: input.sandboxId,
-    isolation,
+    isolation: input.provider,
     source: { type: "git", url: input.gitUrl, ref: input.ref },
     lifecycle: {
       reuse: "thread",
