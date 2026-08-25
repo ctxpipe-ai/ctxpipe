@@ -216,6 +216,8 @@ describe("workspaces API", () => {
     expect(res.status).toBe(201)
     expect(createWorkspaceMock).toHaveBeenCalledWith({
       gitUrl: "https://github.com/acme/knowledge.git",
+      displayName: undefined,
+      slug: undefined,
       write: {
         writeStatus: "read_only",
         readOnlyReason: WRITE_STATUS_REASONS.githubNotConnected,
@@ -236,7 +238,14 @@ describe("workspaces API", () => {
       }),
       expect.anything(),
     )
-    expect(enqueueWorkspaceWriteCommit).not.toHaveBeenCalled()
+    expect(enqueueWorkspaceWriteCommit).toHaveBeenCalledWith(
+      expect.objectContaining({
+        kind: "migration_export",
+        orgId: "org_mock",
+        workspaceId: "ws_abc",
+      }),
+      expect.anything(),
+    )
   })
 
   it("creates a writable workspace when Select GitHub sends a connection", async () => {
@@ -257,8 +266,10 @@ describe("workspaces API", () => {
     expect(createWorkspaceMock).toHaveBeenCalledWith({
       gitUrl: "https://github.com/acme/knowledge.git",
       githubConnectionId: "con_gh",
+      displayName: undefined,
+      slug: undefined,
       write: {
-        writeStatus: "writable",
+        writeStatus: "unknown",
         readOnlyReason: null,
       },
     })
@@ -284,6 +295,8 @@ describe("workspaces API", () => {
     expect(res.status).toBe(201)
     expect(createWorkspaceMock).toHaveBeenCalledWith({
       gitUrl: "https://github.com/acme/knowledge.git",
+      displayName: undefined,
+      slug: undefined,
       write: {
         writeStatus: "read_only",
         readOnlyReason: WRITE_STATUS_REASONS.githubNotConnected,
@@ -313,8 +326,10 @@ describe("workspaces API", () => {
     expect(createWorkspaceMock).toHaveBeenCalledWith({
       gitUrl: "https://github.com/acme/knowledge.git",
       githubConnectionId: "con_only",
+      displayName: undefined,
+      slug: undefined,
       write: {
-        writeStatus: "writable",
+        writeStatus: "unknown",
         readOnlyReason: null,
       },
     })
@@ -337,6 +352,8 @@ describe("workspaces API", () => {
     expect(res.status).toBe(201)
     expect(createWorkspaceMock).toHaveBeenCalledWith({
       gitUrl: "https://github.com/acme/knowledge.git",
+      displayName: undefined,
+      slug: undefined,
       write: {
         writeStatus: "read_only",
         readOnlyReason: WRITE_STATUS_REASONS.githubNotConnected,
@@ -505,7 +522,7 @@ describe("workspaces API", () => {
       workspaceRepositoryUrl: "https://github.com/acme/knowledge.git",
       githubConnectionId: "con_gh",
       write: {
-        writeStatus: "writable",
+        writeStatus: "unknown",
         readOnlyReason: null,
       },
     })
@@ -655,7 +672,14 @@ describe("workspaces API", () => {
       }),
       expect.anything(),
     )
-    expect(enqueueWorkspaceWriteCommit).not.toHaveBeenCalled()
+    expect(enqueueWorkspaceWriteCommit).toHaveBeenCalledWith(
+      expect.objectContaining({
+        kind: "migration_export",
+        orgId: "org_mock",
+        workspaceId: "ws_abc",
+      }),
+      expect.anything(),
+    )
   })
 
   it("retries hydrate and export when writable with no tip", async () => {

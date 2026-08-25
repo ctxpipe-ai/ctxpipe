@@ -32,9 +32,37 @@ const orgTxDepth = vi.hoisted(() => ({ value: 0 }))
 const tipInTx = vi.hoisted(() => ({ value: false, seen: false }))
 const enqueueInTx = vi.hoisted(() => ({ value: false, seen: false }))
 
+const createTanstackJobSandboxMock = vi.hoisted(() =>
+  vi.fn(async () => ({
+    handle: {
+      exec: vi.fn(async () => ({ stdout: "", stderr: "", exitCode: 0 })),
+      fs: {
+        write: async () => undefined,
+        read: async () => "",
+        remove: async () => undefined,
+        mkdir: async () => undefined,
+      },
+    },
+    destroy: async () => {},
+    providerSandboxId: "sbx_job",
+    provider: "docker",
+  })),
+)
+
 vi.mock("../../config/env.js", () => ({
   parseEnv: () => ({}),
 }))
+
+vi.mock("../../domain/workspaces/job-sandbox.js", async (importOriginal) => {
+  const actual =
+    await importOriginal<
+      typeof import("../../domain/workspaces/job-sandbox.js")
+    >()
+  return {
+    ...actual,
+    createTanstackJobSandbox: createTanstackJobSandboxMock,
+  }
+})
 
 vi.mock("../../db/client.js", () => ({
   tryGetOrgDb: () => (orgTxDepth.value > 0 ? {} : undefined),

@@ -60,7 +60,7 @@ const chatMock = vi.hoisted(() =>
     if (!store) throw new Error("withSandbox did not provide an instance store")
     await store.upsert({
       key,
-      provider: "local-process",
+      provider: "docker",
       providerSandboxId: `/tmp/tanstack-ai-sandboxes/${key}`,
       threadId: opts.threadId,
       updatedAt: Date.now(),
@@ -194,7 +194,7 @@ beforeEach(async () => {
   captured.instances = null
   process.env.MODEL_PROVIDER = "openai-like"
   process.env.MODEL_PROVIDER_API_KEY = "sk-test-chat-persist"
-  delete process.env.SANDBOX_PROVIDER
+  process.env.SANDBOX_PROVIDER = "docker"
 })
 
 async function collectTurn(

@@ -38,6 +38,17 @@ vi.mock("../models/workspaces.js", () => ({
   persistWriteStatus: persistWriteStatusMock,
 }))
 
+vi.mock("../config/env.js", () => ({
+  parseEnv: () => ({}),
+}))
+
+vi.mock("../routes/webhooks/github/github-workspace-tip.js", () => ({
+  getGithubRepoWriteView: vi.fn(async () => ({
+    defaultBranch: "main",
+    canPush: true,
+  })),
+}))
+
 import { enqueueWorkspaceWriteCommit } from "./enqueue-workspace-write-commit.js"
 
 describe("enqueueWorkspaceWriteCommit", () => {
@@ -50,6 +61,7 @@ describe("enqueueWorkspaceWriteCommit", () => {
       workspaceRepositoryUrl: "https://github.com/acme/docs",
       desiredSha: "aaa",
       writeStatus: "writable",
+      githubConnectionId: "con_1",
     })
     runWorkflowWithWorkerWakeMock.mockResolvedValue({
       workflowRun: { id: "run_write" },

@@ -143,6 +143,14 @@ vi.mock("../../db/client.js", () => ({
 vi.mock("../../auth/withAuth.js", () => ({
   withOrgIdContext: (_org: unknown, fn: () => unknown) => fn(),
 }))
+vi.mock("./sandbox-registry.js", async (importOriginal) => {
+  const actual =
+    await importOriginal<typeof import("./sandbox-registry.js")>()
+  return {
+    ...actual,
+    destroySandboxesForConversation: vi.fn(async () => {}),
+  }
+})
 vi.mock("../../models/conversation-messages.js", () => ({
   loadConversationTurns: vi.fn(async () => []),
   appendConversationTurn: vi.fn(async () => {}),
@@ -336,17 +344,18 @@ describe("runTanstackWorkspaceChat", () => {
     )
   })
 
-  it("resumes a stored sbx chat sandbox through sbxSandbox", async () => {
+  it("replaces a stored sbx chat sandbox with docker", async () => {
     listSandboxInstancesMock.mockResolvedValueOnce([
       { provider: "sbx", providerSandboxId: "sbx_vm" },
     ])
     const res = await runTanstackWorkspaceChat(baseInput)
     expect(res.status).toBe(200)
-    expect(sbxSandboxMock).toHaveBeenCalled()
-    expect(dockerSandboxMock).not.toHaveBeenCalled()
+    expect(dockerSandboxMock).toHaveBeenCalled()
+    expect(sbxSandboxMock).not.toHaveBeenCalled()
+    expect(chatMock).toHaveBeenCalled()
   })
 
-  it("fails closed when the stored chat provider is unavailable", async () => {
+  it("replaces an unavailable stored chat provider with docker", async () => {
     listSandboxInstancesMock.mockResolvedValueOnce([
       { provider: "railway", providerSandboxId: "sbx_rail" },
     ])
@@ -356,8 +365,9 @@ describe("runTanstackWorkspaceChat", () => {
     expect(events[0]).toMatchObject({ type: "RUN_STARTED" })
     expect(
       events.some((event) => (event as { type?: string }).type === "RUN_ERROR"),
-    ).toBe(true)
-    expect(chatMock).not.toHaveBeenCalled()
+    ).toBe(false)
+    expect(dockerSandboxMock).toHaveBeenCalled()
+    expect(chatMock).toHaveBeenCalled()
   })
 
   it("does not stream prompt echo", async () => {

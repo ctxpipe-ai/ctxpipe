@@ -691,6 +691,7 @@ describe("job sandbox", () => {
     })
     const created = await createTanstackJobSandbox({
       sandboxId: "sbx_live",
+      storedProvider: "docker",
       gitUrl: "https://github.com/acme/docs",
       ref: "abc",
       env: { SANDBOX_PROVIDER: "docker" },
@@ -740,7 +741,7 @@ describe("job sandbox", () => {
     expect(order).toEqual(["persist", "clone"])
     expect(persistProviderId).toHaveBeenCalledWith({
       providerSandboxId: "sbx_job_1",
-      provider: "local-process",
+      provider: "docker",
     })
   })
 
