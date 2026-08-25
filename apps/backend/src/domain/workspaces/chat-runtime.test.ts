@@ -1,4 +1,6 @@
-import { readFileSync } from "node:fs"
+import { execFileSync } from "node:child_process"
+import { mkdtempSync, readFileSync, writeFileSync } from "node:fs"
+import { tmpdir } from "node:os"
 import { dirname, join } from "node:path"
 import { fileURLToPath } from "node:url"
 import { describe, expect, it } from "vitest"
@@ -36,6 +38,29 @@ describe("workspace chat runtime", () => {
     expect(WORKSPACE_CHAT_SANDBOX_SETUP.join("\n")).toMatch(
       /opencode-ai@1\.18\.18/,
     )
+  })
+
+  it("does not exit the TanStack bootstrap shell when a worktree already exists", () => {
+    const setup = WORKSPACE_CHAT_SANDBOX_SETUP.join("\n")
+    expect(setup).not.toMatch(/\bexit\b/)
+    expect(setup).not.toMatch(/\bset -e\b/)
+
+    const cloneSetup = WORKSPACE_CHAT_SANDBOX_SETUP[1]
+    const home = mkdtempSync(join(tmpdir(), "ws-chat-setup-"))
+    execFileSync("git", ["init", "-b", "main"], { cwd: home })
+    writeFileSync(join(home, "README.md"), "already cloned\n")
+    execFileSync("git", ["add", "README.md"], { cwd: home })
+    execFileSync(
+      "git",
+      ["-c", "user.email=setup@ctxpipe.test", "-c", "user.name=setup", "commit", "-m", "init"],
+      { cwd: home },
+    )
+    const out = execFileSync(
+      "sh",
+      ["-c", `{ ${cloneSetup} ; } 2>&1; printf "\\n__BSSH_0__ $?\\n"`],
+      { cwd: home, encoding: "utf8" },
+    )
+    expect(out).toMatch(/__BSSH_0__ 0/)
   })
 
   it("puts opencode and GNU find on the backend image PATH", () => {
