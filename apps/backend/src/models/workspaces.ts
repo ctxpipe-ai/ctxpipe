@@ -552,6 +552,7 @@ export async function listOrgWorkspaces(
       | "desiredSha"
       | "activeProjectionSha"
       | "githubConnectionId"
+      | "writeStatus"
       | "createdAt"
       | "lastJobAt"
     >
@@ -566,6 +567,7 @@ export async function listOrgWorkspaces(
         desiredSha: workspaces.desiredSha,
         activeProjectionSha: workspaces.activeProjectionSha,
         githubConnectionId: workspaces.githubConnectionId,
+        writeStatus: workspaces.writeStatus,
         createdAt: workspaces.createdAt,
         lastJobAt: workspaces.lastJobAt,
       })

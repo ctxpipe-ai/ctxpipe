@@ -37,7 +37,9 @@ const memorySandboxSnapshotsMock = vi.hoisted(() =>
     checkpoints: {},
   })),
 )
-const dockerSandboxMock = vi.hoisted(() => vi.fn(() => "docker-provider"))
+const dockerSandboxMock = vi.hoisted(() =>
+  vi.fn((): string | undefined => "docker-provider"),
+)
 const sbxSandboxMock = vi.hoisted(() => vi.fn(() => "sbx-provider"))
 const listSandboxInstancesMock = vi.hoisted(() =>
   vi.fn(
