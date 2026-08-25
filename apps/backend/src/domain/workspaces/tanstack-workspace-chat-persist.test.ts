@@ -80,6 +80,7 @@ vi.mock("@tanstack/ai", () => ({
   toServerSentEventsResponse: vi.fn(),
   toHttpResponse: vi.fn(),
   modelMessagesToUIMessages: (messages: unknown[]) => messages,
+  defineChatMiddleware: <T>(middleware: T) => middleware,
 }))
 vi.mock("@tanstack/ai-persistence", () => ({
   withPersistence: vi.fn((persistence: unknown) => persistence),

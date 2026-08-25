@@ -86,6 +86,7 @@ vi.mock("@tanstack/ai", () => ({
   },
   toHttpResponse: vi.fn(),
   modelMessagesToUIMessages: (messages: unknown[]) => messages,
+  defineChatMiddleware: <T>(middleware: T) => middleware,
 }))
 vi.mock("@tanstack/ai-opencode", () => ({ opencodeText: opencodeTextMock }))
 vi.mock("@tanstack/ai-persistence", () => ({
