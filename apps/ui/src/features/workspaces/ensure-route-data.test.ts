@@ -103,6 +103,7 @@ describe("ensureWorkspaceRouteData", () => {
       queryClient,
       orgSlug: "acme",
       workspaceSlug: docsWorkspaceDetail.slug,
+      paneParam: "files",
       warmLandingPane: true,
     })
     expect(treeHits).toBe(1)
@@ -117,6 +118,7 @@ describe("ensureWorkspaceRouteData", () => {
       queryClient,
       orgSlug: "acme",
       workspaceSlug: docsWorkspaceDetail.slug,
+      paneParam: "files",
       warmLandingPane: true,
     })
     expect(treeHits).toBe(1)

@@ -1,13 +1,10 @@
 import {
   and,
-  asc,
   desc,
   eq,
   exists,
   inArray,
   isNotNull,
-  notInArray,
-  or,
   sql,
 } from "drizzle-orm"
 import { createError } from "evlog"

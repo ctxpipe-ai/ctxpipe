@@ -1,7 +1,7 @@
 import { and, asc, eq, or, sql } from "drizzle-orm"
 import { getOrgDb, withOrgDbContext } from "../db/client.js"
 import { workspaceSandboxInstances } from "../db/schema/workspaces.js"
-import { isUniqueViolation } from "./workspace-sql.js"
+import { isUniqueViolation, orgSql } from "./workspace-sql.js"
 
 export type SandboxInstanceRecord = {
   id: string

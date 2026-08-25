@@ -36,7 +36,7 @@ describe("getOrgDb ambient-context audit", () => {
       const wrapped =
         text.includes("withAmbientOrgDb") ||
         text.includes("withOrgDbContext") ||
-        text.includes("function orgSql") ||
+        text.includes("orgSql") ||
         text.includes("withSandboxInstanceDb")
       if (!wrapped) violations.push(rel)
     }
@@ -94,6 +94,10 @@ describe("getOrgDb ambient-context audit", () => {
 
   it("persistWriteStatus and sandbox instance lookups include orgId predicates", () => {
     const workspaces = readFileSync(join(SRC, "models/workspaces.ts"), "utf8")
+    const sandboxes = readFileSync(
+      join(SRC, "models/workspace-sandboxes.ts"),
+      "utf8",
+    )
     expect(workspaces).toContain("eq(workspaces.orgId, orgId)")
     expect(workspaces).toMatch(
       /persistWriteStatus[\s\S]*eq\(workspaces\.orgId, orgId\)/,
@@ -103,11 +107,11 @@ describe("getOrgDb ambient-context audit", () => {
       "getSandboxInstance",
       "deleteSandboxInstance",
     ] as const) {
-      const start = workspaces.indexOf(`export async function ${name}`)
+      const start = sandboxes.indexOf(`export async function ${name}`)
       if (start < 0) throw new Error(`missing ${name}`)
-      const next = workspaces.indexOf("\nexport async function ", start + 1)
+      const next = sandboxes.indexOf("\nexport async function ", start + 1)
       const body =
-        next < 0 ? workspaces.slice(start) : workspaces.slice(start, next)
+        next < 0 ? sandboxes.slice(start) : sandboxes.slice(start, next)
       expect(body).toContain("eq(workspaceSandboxInstances.orgId, scopedOrgId)")
     }
   })

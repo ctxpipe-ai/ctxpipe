@@ -38,7 +38,7 @@ import {
   workspaceChatSandboxSpec,
 } from "./chat-runtime.js"
 import { originUrlWithoutCredentials } from "./clone-credentials.js"
-import { type TanstackLikeHandle } from "./job-sandbox.js"
+import type { TanstackLikeHandle } from "./job-sandbox.js"
 import {
   emitOpencodeChatAttempt,
   opencodeChatStreamEvent,

@@ -57,10 +57,10 @@ jobs:
           node-version: 22
           cache: pnpm
       - run: pnpm install --frozen-lockfile
-      - name: Backend typecheck
-        run: pnpm --filter @ctxpipe/backend typecheck
-      - name: UI typecheck
-        run: pnpm --filter @ctxpipe/ui typecheck
+      - name: Backend Workspace typecheck
+        run: bash scripts/typecheck-workspaces.sh
+      - name: UI Workspace typecheck
+        run: bash scripts/typecheck-ui-workspaces.sh
 
   test:
     name: Tests

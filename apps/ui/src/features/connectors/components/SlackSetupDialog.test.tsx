@@ -34,6 +34,10 @@ const slackStatusState = vi.hoisted(() => ({
 
 const patchSlackConnectorConfigMock = vi.hoisted(() => vi.fn())
 
+vi.mock("@tanstack/react-router", () => ({
+  Link: ({ children }: { children?: ReactNode }) => <span>{children}</span>,
+}))
+
 vi.mock("@tanstack/react-query", () => ({
   queryOptions: (options: unknown) => options,
   useMutation: (options: { mutationFn: () => unknown }) => ({
