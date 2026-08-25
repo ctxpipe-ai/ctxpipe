@@ -17,7 +17,9 @@ const opencodeTextMock = vi.hoisted(() =>
 const ensureSandboxMock = vi.hoisted(() =>
   vi.fn(async () => ({
     id: "sbx_ready",
-    process: { exec: vi.fn(async () => ({ stdout: "", stderr: "", exitCode: 0 })) },
+    process: {
+      exec: vi.fn(async () => ({ stdout: "", stderr: "", exitCode: 0 })),
+    },
     destroy: vi.fn(async () => {}),
   })),
 )
@@ -38,7 +40,11 @@ const memorySandboxSnapshotsMock = vi.hoisted(() =>
 const dockerSandboxMock = vi.hoisted(() => vi.fn(() => "docker-provider"))
 const sbxSandboxMock = vi.hoisted(() => vi.fn(() => "sbx-provider"))
 const listSandboxInstancesMock = vi.hoisted(() =>
-  vi.fn(async (): Promise<Array<{ provider?: string; providerSandboxId?: string }>> => []),
+  vi.fn(
+    async (): Promise<
+      Array<{ provider?: string; providerSandboxId?: string }>
+    > => [],
+  ),
 )
 const createSecretsMock = vi.hoisted(() =>
   vi.fn((values: Record<string, string>) => values),
@@ -55,16 +61,16 @@ const startWorkspaceChatModelProxyMock = vi.hoisted(() =>
     close: vi.fn(async () => {}),
   })),
 )
-const withPersistenceMock = vi.hoisted(() => vi.fn((persistence: unknown) => persistence))
+const withPersistenceMock = vi.hoisted(() =>
+  vi.fn((persistence: unknown) => persistence),
+)
 const nameConversationIfUnnamedMock = vi.hoisted(() =>
   vi.fn().mockResolvedValue(null),
 )
 
 vi.mock("@tanstack/ai", () => ({
   chat: chatMock,
-  toServerSentEventsResponse: (
-    stream: AsyncIterable<object>,
-  ): Response => {
+  toServerSentEventsResponse: (stream: AsyncIterable<object>): Response => {
     const encoder = new TextEncoder()
     return new Response(
       new ReadableStream({
@@ -415,6 +421,79 @@ describe("streamTanstackWorkspaceChat", () => {
     process.env.SANDBOX_PROVIDER = "docker"
     process.env.MODEL_PROVIDER = "openai-like"
     process.env.MODEL_PROVIDER_API_KEY = "sk-test-chat"
+  })
+
+  it("recovers stop-generation text when tools ran and persist is empty", async () => {
+    const { recordWorkspaceChatProxyGeneration } = await import(
+      "./workspace-chat-otel.js"
+    )
+    chatMock.mockImplementationOnce(async function* () {
+      recordWorkspaceChatProxyGeneration("conv_1", {
+        ttfbMs: 10,
+        durationMs: 20,
+        finishReason: "tool_calls",
+        tools: ["glob"],
+      })
+      recordWorkspaceChatProxyGeneration("conv_1", {
+        ttfbMs: 10,
+        durationMs: 30,
+        finishReason: "stop",
+        tools: [],
+        text: "This repo is a TypeScript monorepo.",
+      })
+      yield { type: "RUN_STARTED", threadId: "conv_1", runId: "run_1" }
+      yield {
+        type: "TEXT_MESSAGE_CONTENT",
+        messageId: "plan",
+        delta:
+          "I'll inspect the repository structure and see what it contains.",
+      }
+      yield { type: "TEXT_MESSAGE_END", messageId: "plan" }
+      yield { type: "TOOL_CALL_START", toolCallId: "t1", toolCallName: "glob" }
+      yield { type: "RUN_FINISHED" }
+    })
+    const events: object[] = []
+    for await (const chunk of streamTanstackWorkspaceChat(baseInput)) {
+      events.push(chunk)
+    }
+    expect(
+      events.some((chunk) => (chunk as { type?: string }).type === "RUN_ERROR"),
+    ).toBe(false)
+    const text = events
+      .filter(
+        (chunk) => (chunk as { type?: string }).type === "TEXT_MESSAGE_CONTENT",
+      )
+      .map((chunk) => (chunk as { delta?: string }).delta ?? "")
+      .join("")
+    expect(text).toBe("This repo is a TypeScript monorepo.")
+    expect(
+      events.some(
+        (chunk) => (chunk as { type?: string }).type === "RUN_FINISHED",
+      ),
+    ).toBe(true)
+  })
+
+  it("still fails when persist and stop-generation text are both empty", async () => {
+    chatMock.mockImplementationOnce(async function* () {
+      yield { type: "RUN_STARTED", threadId: "conv_1", runId: "run_1" }
+      yield {
+        type: "TEXT_MESSAGE_CONTENT",
+        messageId: "plan",
+        delta:
+          "I'll inspect the repository structure and see what it contains.",
+      }
+      yield { type: "TEXT_MESSAGE_END", messageId: "plan" }
+      yield { type: "TOOL_CALL_START", toolCallId: "t1", toolCallName: "glob" }
+      yield { type: "RUN_FINISHED" }
+    })
+    const events: object[] = []
+    for await (const chunk of streamTanstackWorkspaceChat(baseInput)) {
+      events.push(chunk)
+    }
+    const error = events.find(
+      (chunk) => (chunk as { type?: string }).type === "RUN_ERROR",
+    ) as { message?: string } | undefined
+    expect(error?.message).toBe("workspace chat produced no assistant reply")
   })
 
   it("touches lastMessageAt before chat() when onUserPersist is set", async () => {

@@ -1,8 +1,8 @@
 import { randomBytes } from "node:crypto"
 import { trace } from "@opentelemetry/api"
 import {
-  modelMessagesToUIMessages,
   type ModelMessage,
+  modelMessagesToUIMessages,
   type StreamChunk,
   type UIMessage,
 } from "@tanstack/ai"
@@ -19,7 +19,6 @@ import {
 import { getLogger, log } from "../../observability/logger.js"
 import { hybridSearch } from "../../retrieval/index.js"
 import { generateEmbedding } from "../../retrieval/services/modelProvider.js"
-import { originUrlWithoutCredentials } from "./clone-credentials.js"
 import {
   CHAT_HEARTBEAT_INTERVAL_MS,
   shouldHeartbeatChatSandbox,
@@ -38,6 +37,7 @@ import {
   workspaceChatSandboxId,
   workspaceChatSandboxSpec,
 } from "./chat-runtime.js"
+import { originUrlWithoutCredentials } from "./clone-credentials.js"
 import { adaptTanstackHandle, type TanstackLikeHandle } from "./job-sandbox.js"
 import {
   emitOpencodeChatAttempt,
@@ -55,16 +55,17 @@ import {
   conversationRenameChunk,
   takeWorkspaceChatProducer,
   type WorkspaceChatWireFormat,
+  withWorkspaceChatHeartbeats,
   workspaceChatHttpResponse,
   workspaceChatRunError,
   workspaceChatRunFinished,
   workspaceChatRunStarted,
   workspaceChatWireFormat,
-  withWorkspaceChatHeartbeats,
 } from "./workspace-chat-agui.js"
 import {
   createWorkspaceChatAssistantGate,
   isOpenCodePlanningHold,
+  workspaceChatRecoveredAssistant,
 } from "./workspace-chat-assistant-text.js"
 import { startWorkspaceChatModelProxy } from "./workspace-chat-model-proxy.js"
 import {
@@ -81,14 +82,15 @@ import {
   type LocalProcessOpenCodePortLease,
   leaseLocalProcessOpenCodePort,
 } from "./workspace-chat-opencode-port.js"
-import { workspaceChatPersistence } from "./workspace-chat-persistence.js"
-import { invalidateChatSandbox } from "./workspace-chat-sandbox-health.js"
-import { workspaceChatTools } from "./workspace-chat-tools.js"
 import {
   beginWorkspaceChatTurn,
   finishWorkspaceChatTurn,
+  lastWorkspaceChatStopText,
   markWorkspaceChatFirstShownToken,
 } from "./workspace-chat-otel.js"
+import { workspaceChatPersistence } from "./workspace-chat-persistence.js"
+import { invalidateChatSandbox } from "./workspace-chat-sandbox-health.js"
+import { workspaceChatTools } from "./workspace-chat-tools.js"
 
 export type TanstackWorkspaceChatMessage = {
   role: string
@@ -155,9 +157,13 @@ function abortControllerFrom(signal?: AbortSignal): AbortController {
   if (!signal) return abortController
   if (signal.aborted) abortController.abort(signal.reason)
   else {
-    signal.addEventListener("abort", () => abortController.abort(signal.reason), {
-      once: true,
-    })
+    signal.addEventListener(
+      "abort",
+      () => abortController.abort(signal.reason),
+      {
+        once: true,
+      },
+    )
   }
   return abortController
 }
@@ -252,7 +258,11 @@ async function* streamTanstackWorkspaceChatBody(
     const message = String(fields.message ?? "OpenCode chat stream failed")
     emitOpencodeChatAttempt(
       fields,
-      error == null ? null : error instanceof Error ? error : new Error(message),
+      error == null
+        ? null
+        : error instanceof Error
+          ? error
+          : new Error(message),
     )
     return message
   }
@@ -308,7 +318,31 @@ async function* streamTanstackWorkspaceChatBody(
       }
       yield typed
     }
-    const assistant = gate.assistant()
+    const streamed = gate.assistant()
+    const assistant = workspaceChatRecoveredAssistant({
+      prompt: turn.prompt,
+      streamed,
+      fallback: streamError
+        ? undefined
+        : lastWorkspaceChatStopText(turn.conversationId),
+    })
+    if (assistant.trim() && assistant !== streamed.trim()) {
+      const messageId = `recover-${turn.conversationId}`
+      yield {
+        type: "TEXT_MESSAGE_START",
+        messageId,
+      } as StreamChunk
+      yield {
+        type: "TEXT_MESSAGE_CONTENT",
+        messageId,
+        delta: assistant,
+      } as StreamChunk
+      yield {
+        type: "TEXT_MESSAGE_END",
+        messageId,
+      } as StreamChunk
+      markWorkspaceChatFirstShownToken(turn.conversationId)
+    }
     const failed =
       streamError != null ||
       !assistant.trim() ||
@@ -407,9 +441,12 @@ export async function warmTanstackWorkspaceChat(
     })
     return { ok: true }
   } catch (error) {
-    getLogger().error(error instanceof Error ? error : new Error(String(error)), {
-      step: "workspace-chat-prepare-ensure",
-    })
+    getLogger().error(
+      error instanceof Error ? error : new Error(String(error)),
+      {
+        step: "workspace-chat-prepare-ensure",
+      },
+    )
     return { ok: false, status: 503, error: "workspace chat prepare failed" }
   }
 }
@@ -505,10 +542,9 @@ async function startWorkspaceChat(input: TanstackWorkspaceChatInput): Promise<
       }),
       threadId: input.threadId ?? input.conversationId,
       runId: input.runId,
-      messages: messagesForOpenCodeChat(
-        input.messages,
-        input.prompt,
-      ) as Array<ModelMessage | UIMessage>,
+      messages: messagesForOpenCodeChat(input.messages, input.prompt) as Array<
+        ModelMessage | UIMessage
+      >,
       abortController: abortControllerFrom(input.abortSignal),
       tools,
       middleware: [
@@ -554,7 +590,11 @@ async function buildWorkspaceChatSandbox(input: TanstackWorkspaceChatInput) {
   const runtime = workspaceChatRuntimeConfig({ writeStatus: input.writeStatus })
   const contract = workspaceChatOpenCodeContract(process.env)
   if (!contract.ok) {
-    return { ok: false as const, status: contract.status, error: contract.error }
+    return {
+      ok: false as const,
+      status: contract.status,
+      error: contract.error,
+    }
   }
   const snapshotId = workspaceChatSandboxId({
     orgId: input.orgId,
@@ -633,13 +673,8 @@ async function buildWorkspaceChatSandbox(input: TanstackWorkspaceChatInput) {
 
 function defineConversationSandbox(input: {
   modules: Awaited<ReturnType<typeof loadTanstackChatModules>>
-  spec: Extract<
-    ReturnType<typeof workspaceChatSandboxSpec>,
-    { ok: true }
-  >
-  provider: NonNullable<
-    ReturnType<typeof providerFactoryForStoredChat>
-  >
+  spec: Extract<ReturnType<typeof workspaceChatSandboxSpec>, { ok: true }>
+  provider: NonNullable<ReturnType<typeof providerFactoryForStoredChat>>
   input: TanstackWorkspaceChatInput
   runToken: string
   proxyUrl: string

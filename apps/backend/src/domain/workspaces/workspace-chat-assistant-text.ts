@@ -56,11 +56,30 @@ export function isOpenCodePlanningHold(text: string): boolean {
   )
 }
 
+const CONVERSATION_DUMP_PREFIX = "Previous conversation:"
+
+function isConversationDump(text: string): boolean {
+  return text.trim().startsWith(CONVERSATION_DUMP_PREFIX)
+}
+
+/**
+ * OpenCode `buildPrompt` prefixes flattened history with this header. The
+ * model answer can arrive in the same text part after the trailing user
+ * prompt; keep that suffix.
+ */
+function conversationDumpRemainder(prompt: string, text: string): string {
+  const trimmed = text.trim()
+  if (!trimmed.startsWith(CONVERSATION_DUMP_PREFIX)) return trimmed
+  if (prompt.length === 0) return ""
+  const idx = trimmed.lastIndexOf(prompt)
+  if (idx < 0) return ""
+  return trimmed.slice(idx + prompt.length).trim()
+}
+
 function isLeftoverLog(text: string): boolean {
   const trimmed = text.trim()
   return (
     trimmed === "OpenCode chat stream completed" ||
-    trimmed.startsWith("Previous conversation:") ||
     trimmed.includes("tanstack-ai:errors") ||
     trimmed.includes("opencode.chatStream") ||
     isOpenCodeToolDump(trimmed)
@@ -88,6 +107,10 @@ function classifyAssistantText(
   final: boolean,
 ): TextClass {
   if (isLeftoverLog(text)) return "drop"
+  if (isConversationDump(text)) {
+    if (!final) return "hold"
+    return conversationDumpRemainder(prompt, text) ? "strip" : "drop"
+  }
   if (isOpenCodePlanningHold(text)) return "hold"
   if (prompt.length > 0 && text === prompt) return final ? "drop" : "hold"
   if (
@@ -99,8 +122,7 @@ function classifyAssistantText(
   }
   if (text === "") return "hold"
   if (prompt.length > 0 && prompt.startsWith(text)) return "hold"
-  const leftoverPrefix = "Previous conversation:"
-  if (leftoverPrefix.startsWith(text)) return final ? "drop" : "hold"
+  if (CONVERSATION_DUMP_PREFIX.startsWith(text)) return final ? "drop" : "hold"
   return "reply"
 }
 
@@ -114,9 +136,16 @@ export function workspaceChatAssistantReply(input: {
   texts: string[]
 }): string {
   const prompt = input.prompt
-  const cleaned = input.texts.filter(
-    (text) => !isLeftoverLog(text) && !isOpenCodePlanningHold(text),
-  )
+  const cleaned = input.texts
+    .map((text) =>
+      isConversationDump(text) ? conversationDumpRemainder(prompt, text) : text,
+    )
+    .filter(
+      (text) =>
+        text.trim().length > 0 &&
+        !isLeftoverLog(text) &&
+        !isOpenCodePlanningHold(text),
+    )
   const texts =
     cleaned.length > 1 && cleaned[0] === prompt
       ? cleaned.slice(1)
@@ -135,7 +164,25 @@ export function workspaceChatAssistantReply(input: {
 }
 
 function replyText(prompt: string, text: string, kind: TextClass): string {
-  return kind === "strip" ? text.slice(prompt.length) : text
+  if (kind !== "strip") return text
+  if (isConversationDump(text)) return conversationDumpRemainder(prompt, text)
+  return text.slice(prompt.length)
+}
+
+/** Prefer the streamed persist reply; otherwise a stop-generation fallback. */
+export function workspaceChatRecoveredAssistant(input: {
+  prompt: string
+  streamed: string
+  fallback?: string
+}): string {
+  const streamed = input.streamed.trim()
+  if (streamed.length > 0 && !isOpenCodePlanningHold(streamed)) return streamed
+  const fallback = input.fallback?.trim() ?? ""
+  if (!fallback) return ""
+  return workspaceChatAssistantReply({
+    prompt: input.prompt,
+    texts: [fallback],
+  })
 }
 
 function releasePlanningAsReasoning(open: OpenText, final: boolean): object[] {

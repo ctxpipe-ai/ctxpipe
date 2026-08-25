@@ -3,6 +3,7 @@ import {
   beginWorkspaceChatProxyGeneration,
   beginWorkspaceChatTurn,
   finishWorkspaceChatTurn,
+  lastWorkspaceChatStopText,
   markWorkspaceChatFirstShownToken,
   recordWorkspaceChatProxyGeneration,
 } from "./workspace-chat-otel.js"
@@ -22,7 +23,11 @@ describe("workspace chat otel turn summary", () => {
       durationMs: 90,
       finishReason: "stop",
       tools: [],
+      text: "This repo is a TypeScript monorepo.",
     })
+    expect(lastWorkspaceChatStopText("conv_otel")).toBe(
+      "This repo is a TypeScript monorepo.",
+    )
     markWorkspaceChatFirstShownToken("conv_otel")
     const summary = finishWorkspaceChatTurn("conv_otel")
     expect(summary?.loops).toBe(2)

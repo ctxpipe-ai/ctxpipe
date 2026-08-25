@@ -7,6 +7,7 @@ export type WorkspaceChatGenerationRecord = {
   durationMs: number
   finishReason: string | null
   tools: string[]
+  text?: string
 }
 
 export type WorkspaceChatToolRecord = {
@@ -101,6 +102,7 @@ export function recordWorkspaceChatProxyGeneration(
     durationMs: number
     finishReason: string | null
     tools: string[]
+    text?: string
   },
 ): void {
   const state = turns.get(conversationId)
@@ -110,6 +112,7 @@ export function recordWorkspaceChatProxyGeneration(
     durationMs: input.durationMs,
     finishReason: input.finishReason,
     tools: input.tools,
+    ...(input.text?.trim() ? { text: input.text } : {}),
   }
   if (!state) return
   state.generationSpan?.setAttributes({
@@ -135,6 +138,18 @@ export function recordWorkspaceChatProxyGeneration(
       }),
     )
   }
+}
+
+export function lastWorkspaceChatStopText(conversationId: string): string {
+  const state = turns.get(conversationId)
+  if (!state) return ""
+  for (let i = state.generations.length - 1; i >= 0; i -= 1) {
+    const generation = state.generations[i]
+    const finish = generation?.finishReason
+    const text = generation?.text?.trim() ?? ""
+    if ((finish === "stop" || finish === "length") && text) return text
+  }
+  return ""
 }
 
 export function finishWorkspaceChatTurn(
@@ -175,7 +190,9 @@ export function finishWorkspaceChatTurn(
     conversationId,
     loops: state.generations.length,
     ttftMs,
-    generations: state.generations,
+    generations: state.generations.map(
+      ({ text: _text, ...generation }) => generation,
+    ),
     tools: state.tools,
     error: input?.error,
     message: `workspace chat turn loops=${state.generations.length} ttftMs=${ttftMs ?? "none"} generations=${generationSummary || "-"} tools=${toolSummary || "-"}`,

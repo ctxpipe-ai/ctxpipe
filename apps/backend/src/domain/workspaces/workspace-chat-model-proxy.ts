@@ -199,6 +199,7 @@ async function handleProxyRequest(
       durationMs: Date.now() - startedAt,
       finishReason: observer.finishReason,
       tools: observer.tools,
+      text: observer.text,
       status: upstream.status,
       model: typeof forwarded.model === "string" ? forwarded.model : undefined,
     })
@@ -212,6 +213,7 @@ function recordProxyCompletion(
     durationMs: number
     finishReason: string | null
     tools: string[]
+    text?: string
     status: number
     model?: string
   },
@@ -233,6 +235,7 @@ function recordProxyCompletion(
     durationMs: input.durationMs,
     finishReason: input.finishReason,
     tools: input.tools,
+    ...(input.text?.trim() ? { text: input.text } : {}),
   })
 }
 
@@ -240,9 +243,11 @@ function createCompletionObserver(): {
   push: (chunk: Uint8Array) => void
   finishReason: string | null
   tools: string[]
+  text: string
 } {
   const decoder = new TextDecoder()
   let buffer = ""
+  let text = ""
   const tools = new Set<string>()
   let finishReason: string | null = null
   return {
@@ -251,6 +256,9 @@ function createCompletionObserver(): {
     },
     get tools() {
       return [...tools]
+    },
+    get text() {
+      return text
     },
     push(chunk) {
       buffer += decoder.decode(chunk, { stream: true })
@@ -284,6 +292,7 @@ function createCompletionObserver(): {
           : record.message && typeof record.message === "object"
             ? (record.message as Record<string, unknown>)
             : null
+      if (typeof delta?.content === "string") text += delta.content
       const calls = Array.isArray(delta?.tool_calls) ? delta.tool_calls : []
       for (const call of calls) {
         if (!call || typeof call !== "object") continue

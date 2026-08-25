@@ -3,6 +3,7 @@ import {
   createWorkspaceChatAssistantGate,
   isOpenCodePlanningHold,
   workspaceChatAssistantReply,
+  workspaceChatRecoveredAssistant,
 } from "./workspace-chat-assistant-text.js"
 
 function runGate(prompt: string, chunks: object[]) {
@@ -15,7 +16,9 @@ function runGate(prompt: string, chunks: object[]) {
 
 function textDeltas(chunks: object[]): string {
   return chunks
-    .filter((chunk) => (chunk as { type?: string }).type === "TEXT_MESSAGE_CONTENT")
+    .filter(
+      (chunk) => (chunk as { type?: string }).type === "TEXT_MESSAGE_CONTENT",
+    )
     .map((chunk) => (chunk as { delta?: string }).delta ?? "")
     .join("")
 }
@@ -72,9 +75,9 @@ describe("createWorkspaceChatAssistantGate", () => {
       { type: "RUN_FINISHED" },
     ])
     expect(textDeltas(out)).toBe("only-this-run")
-    expect(out.some((chunk) => (chunk as { type?: string }).type === "RUN_FINISHED")).toBe(
-      true,
-    )
+    expect(
+      out.some((chunk) => (chunk as { type?: string }).type === "RUN_FINISHED"),
+    ).toBe(true)
     expect(assistant).toBe("only-this-run")
   })
 
@@ -124,7 +127,11 @@ describe("createWorkspaceChatAssistantGate", () => {
   it("strips a same-message prompt prefix from the live stream", () => {
     const { out, assistant } = runGate("hello", [
       { type: "TEXT_MESSAGE_CONTENT", messageId: "asst", delta: "hello" },
-      { type: "TEXT_MESSAGE_CONTENT", messageId: "asst", delta: "only-this-run" },
+      {
+        type: "TEXT_MESSAGE_CONTENT",
+        messageId: "asst",
+        delta: "only-this-run",
+      },
       { type: "TEXT_MESSAGE_END", messageId: "asst" },
       { type: "RUN_FINISHED" },
     ])
@@ -165,11 +172,53 @@ describe("createWorkspaceChatAssistantGate", () => {
       { type: "RUN_FINISHED" },
     ])
     expect(reasoningDeltas(out)).toBe(plan)
-    expect(out.some((chunk) => (chunk as { type?: string }).type === "REASONING_MESSAGE_START")).toBe(
-      true,
-    )
+    expect(
+      out.some(
+        (chunk) =>
+          (chunk as { type?: string }).type === "REASONING_MESSAGE_START",
+      ),
+    ).toBe(true)
     expect(textDeltas(out)).toBe("This repo is a TypeScript monorepo.")
     expect(assistant).toBe("This repo is a TypeScript monorepo.")
+  })
+
+  it("streams the answer after a Previous conversation dump on the same message", () => {
+    const prompt = "what's in this repo?"
+    const { out, assistant } = runGate(prompt, [
+      {
+        type: "TEXT_MESSAGE_CONTENT",
+        messageId: "plan",
+        delta:
+          "I'll inspect the repository structure and see what it contains.",
+      },
+      { type: "TEXT_MESSAGE_END", messageId: "plan" },
+      { type: "TOOL_CALL_START", toolCallId: "t1", toolCallName: "glob" },
+      {
+        type: "TEXT_MESSAGE_CONTENT",
+        messageId: "dump",
+        delta: `Previous conversation:\nUser: hello\nAssistant: hi\n\n${prompt}\n\nThis repo is a TypeScript monorepo.`,
+      },
+      { type: "TEXT_MESSAGE_END", messageId: "dump" },
+      { type: "RUN_FINISHED" },
+    ])
+    expect(reasoningDeltas(out)).toContain("I'll inspect")
+    expect(textDeltas(out)).toBe("This repo is a TypeScript monorepo.")
+    expect(assistant).toBe("This repo is a TypeScript monorepo.")
+  })
+
+  it("does not persist planning plus tools without later text", () => {
+    const { assistant } = runGate("what's in this repo?", [
+      {
+        type: "TEXT_MESSAGE_CONTENT",
+        messageId: "plan",
+        delta:
+          "I'll inspect the repository structure and see what it contains.",
+      },
+      { type: "TEXT_MESSAGE_END", messageId: "plan" },
+      { type: "TOOL_CALL_START", toolCallId: "t1", toolCallName: "glob" },
+      { type: "RUN_FINISHED" },
+    ])
+    expect(assistant).toBe("")
   })
 
   it("does not persist a planning preamble as the reply", () => {
@@ -208,6 +257,42 @@ describe("createWorkspaceChatAssistantGate", () => {
       workspaceChatAssistantReply({
         prompt: "ping-1",
         texts: ["Previous conversation:\nUser: ping-1\n"],
+      }),
+    ).toBe("")
+  })
+
+  it("keeps the answer after a Previous conversation dump", () => {
+    const prompt = "what's in this repo?"
+    expect(
+      workspaceChatAssistantReply({
+        prompt,
+        texts: [
+          "I’ll inspect the repository structure and see what it contains.",
+          `Previous conversation:\nUser: hello\nAssistant: hi\n\n${prompt}\n\nThis repo is a TypeScript monorepo.`,
+        ],
+      }),
+    ).toBe("This repo is a TypeScript monorepo.")
+  })
+})
+
+describe("workspaceChatRecoveredAssistant", () => {
+  it("uses a stop-generation fallback when persist is empty", () => {
+    expect(
+      workspaceChatRecoveredAssistant({
+        prompt: "what's in this repo?",
+        streamed: "",
+        fallback: "This repo is a TypeScript monorepo.",
+      }),
+    ).toBe("This repo is a TypeScript monorepo.")
+  })
+
+  it("does not treat planning as a recovered reply", () => {
+    expect(
+      workspaceChatRecoveredAssistant({
+        prompt: "what's in this repo?",
+        streamed:
+          "I'll inspect the repository structure and see what it contains.",
+        fallback: "",
       }),
     ).toBe("")
   })

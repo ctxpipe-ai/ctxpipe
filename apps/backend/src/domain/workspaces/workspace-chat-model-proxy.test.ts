@@ -145,10 +145,9 @@ describe("startWorkspaceChatModelProxy", () => {
   })
 
   it("records generation TTFB and tool names from upstream SSE", async () => {
-    const {
-      beginWorkspaceChatTurn,
-      finishWorkspaceChatTurn,
-    } = await import("./workspace-chat-otel.js")
+    const { beginWorkspaceChatTurn, finishWorkspaceChatTurn } = await import(
+      "./workspace-chat-otel.js"
+    )
     const upstream = await listenSse([
       'data: {"choices":[{"delta":{"tool_calls":[{"function":{"name":"bash"}}]},"finish_reason":null}]}\n\n',
       'data: {"choices":[{"delta":{},"finish_reason":"tool_calls"}]}\n\n',
@@ -182,6 +181,46 @@ describe("startWorkspaceChatModelProxy", () => {
     expect(summary?.generations[0]?.finishReason).toBe("tool_calls")
     expect(summary?.generations[0]?.tools).toEqual(["bash"])
     expect(summary?.generations[0]?.ttfbMs).toBeGreaterThanOrEqual(0)
+  })
+
+  it("records stop-generation text from upstream SSE", async () => {
+    const {
+      beginWorkspaceChatTurn,
+      lastWorkspaceChatStopText,
+      finishWorkspaceChatTurn,
+    } = await import("./workspace-chat-otel.js")
+    const upstream = await listenSse([
+      'data: {"choices":[{"delta":{"content":"This repo is "},"finish_reason":null}]}\n\n',
+      'data: {"choices":[{"delta":{"content":"a TypeScript monorepo."},"finish_reason":"stop"}]}\n\n',
+      "data: [DONE]\n\n",
+    ])
+    servers.push(upstream)
+    beginWorkspaceChatTurn("conv_proxy_stop_text")
+    const proxy = await startWorkspaceChatModelProxy({
+      runToken: "run-token-stop",
+      upstreamBaseUrl: upstream.baseUrl,
+      upstreamApiKey: "sk-upstream-secret",
+      modelBase: "openai/gpt-5.6-terra",
+      conversationId: "conv_proxy_stop_text",
+    })
+    servers.push(proxy)
+    const res = await fetch(`${proxy.baseUrl}/v1/chat/completions`, {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        authorization: "Bearer run-token-stop",
+      },
+      body: JSON.stringify({
+        model: "ctxpipe/openai/gpt-5.6-terra",
+        messages: [{ role: "user", content: "hi" }],
+      }),
+    })
+    expect(res.status).toBe(200)
+    await res.text()
+    expect(lastWorkspaceChatStopText("conv_proxy_stop_text")).toBe(
+      "This repo is a TypeScript monorepo.",
+    )
+    finishWorkspaceChatTurn("conv_proxy_stop_text")
   })
 })
 
