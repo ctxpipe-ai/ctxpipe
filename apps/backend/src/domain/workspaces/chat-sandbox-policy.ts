@@ -4,15 +4,6 @@ import { firstConnectorTarget } from "./migration-cutover.js"
 
 export const CHAT_PERMISSION_MODE = "acceptEdits" as const
 
-export const CHAT_SANDBOX_LIMITS = {
-  vcpu: 1,
-  memoryMib: 1024,
-  pids: 128,
-  diskGib: 4,
-  nonRoot: true,
-  privileged: false,
-} as const
-
 export const CHAT_HARD_DENY_REASONS = [
   "app_pem",
   "auth_secret",

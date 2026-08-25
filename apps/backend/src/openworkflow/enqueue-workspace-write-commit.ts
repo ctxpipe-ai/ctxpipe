@@ -1,3 +1,4 @@
+import { parseEnv } from "../config/env.js"
 import { assertNotInOrgDbContext, withOrgDbContext } from "../db/client.js"
 import type { WorkspaceWriteKind } from "../domain/workspaces/write-commit-files.js"
 import {
@@ -30,13 +31,19 @@ async function probedWriteStatus(input: {
   orgId: string
   workspace: WorkspaceWriteSnapshot
 }): Promise<string> {
-  if (input.workspace.writeStatus === "writable") {
-    return input.workspace.writeStatus
-  }
   try {
+    const { getGithubRepoWriteView } = await import(
+      "../routes/webhooks/github/github-workspace-tip.js"
+    )
     const probe = await probeWorkspaceWriteAccess({
       workspaceRepositoryUrl: input.workspace.workspaceRepositoryUrl,
       githubConnectionId: input.workspace.githubConnectionId,
+      orgId: input.orgId,
+      fetchWriteView: (args) =>
+        getGithubRepoWriteView({
+          ...args,
+          env: parseEnv(process.env as Record<string, string | undefined>),
+        }),
     })
     await withOrgDbContext(input.orgId, () =>
       persistWriteStatus(input.workspace.id, probe, input.orgId),

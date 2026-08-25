@@ -34,10 +34,7 @@ import {
 import {
   countRepositoriesForGithubConnection,
   listRepositoriesForGithubConnection,
-  pruneGithubConnectionRepositoriesNotInGitUrls,
 } from "../../models/repositories.js"
-import { runWorkflowWithWorkerWake } from "../../openworkflow/client.js"
-import { syncGithubRepositories } from "../../openworkflow/workflows/sync-github-repositories.js"
 
 const ErrorResponseSchema = z
   .object({
@@ -1151,32 +1148,6 @@ export const githubInstallationRoutes = new OpenAPIHono<AppEnv>()
         return c.json(
           { error: "No GitHub installation found for this org" },
           404,
-        )
-      }
-
-      if (!body.ingestAllRepositories) {
-        const allowedGitUrls = new Set(selectedRepos.map((r) => r.clone_url))
-        await pruneGithubConnectionRepositoriesNotInGitUrls(
-          orgId,
-          installation.id,
-          allowedGitUrls,
-        )
-      }
-
-      const workflowPayload = body.ingestAllRepositories
-        ? { orgId, githubConnectionId: installation.id }
-        : {
-            orgId,
-            githubConnectionId: installation.id,
-            reposToSync: selectedRepos.map((r) => ({
-              name: r.full_name,
-              gitUrl: r.clone_url,
-            })),
-          }
-      if (installation.installationId != null) {
-        void runWorkflowWithWorkerWake(
-          syncGithubRepositories.spec,
-          workflowPayload,
         )
       }
 

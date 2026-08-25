@@ -13,10 +13,8 @@ import {
   registerInstallationOnConnection,
 } from "../../../models/github-installation.js"
 import { findRepositoryByGithubInstallation } from "../../../models/repositories.js"
-import { ow } from "../../../openworkflow/client.js"
 import { enqueueRepositoryIngestionWorkflow } from "../../../openworkflow/enqueue-repository-ingestion.js"
 import { enqueueWorkspaceTipCheck } from "../../../openworkflow/enqueue-workspace-tip-check.js"
-import { syncGithubRepositories } from "../../../openworkflow/workflows/sync-github-repositories.js"
 import { maybeEnqueueConfluenceSyncOnConfigPush } from "./github-confluence-push.js"
 import { maybeActivateLinearSyncOnConfigPush } from "./github-linear-push.js"
 import { maybeEnqueueNotionSyncOnConfigPush } from "./github-notion-push.js"
@@ -44,15 +42,6 @@ const pushPayloadSchema = z.object({
       }),
     )
     .optional(),
-})
-
-const repositoryCreatedSchema = z.object({
-  action: z.literal("created"),
-  repository: z.object({
-    full_name: z.string(),
-    clone_url: z.string(),
-  }),
-  installation: z.object({ id: z.number() }),
 })
 
 type GithubWebhookContext = {
@@ -262,41 +251,11 @@ async function processPushEvent(
 }
 
 async function processRepositoryEvent(
-  payload: unknown,
-  { log }: GithubWebhookContext,
-  githubConnectionId?: string,
+  _payload: unknown,
+  _ctx: GithubWebhookContext,
+  _githubConnectionId?: string,
 ) {
-  const parsed = repositoryCreatedSchema.safeParse(payload)
-  if (!parsed.success) {
-    return
-  }
-  const { repository: repo, installation } = parsed.data
-
-  const installationRows = (
-    await listInstallationsByGithubInstallationId(installation.id)
-  ).filter(
-    (installationRow) =>
-      !githubConnectionId || installationRow.id === githubConnectionId,
-  )
-
-  for (const installationRow of installationRows) {
-    if (
-      !installationRow.includeFutureRepos ||
-      !installationRow.ingestAllRepositories
-    ) {
-      continue
-    }
-
-    void ow
-      .runWorkflow(syncGithubRepositories.spec, {
-        orgId: installationRow.orgId,
-        githubConnectionId: installationRow.id,
-        reposToSync: [{ name: repo.full_name, gitUrl: repo.clone_url }],
-      })
-      .catch((err: unknown) => {
-        log.error(err instanceof Error ? err : new Error(String(err)))
-      })
-  }
+  return
 }
 
 async function processInstallationEvent(

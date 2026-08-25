@@ -249,3 +249,25 @@ export const workspaceSandboxInstances = pgTable.withRLS(
     orgIsolationPolicy(t.orgId),
   ],
 )
+
+/**
+ * Durable first connector-target Workspace per org (source repo created_at, id).
+ * Used by migration export assignment; not recomputed from random Workspace rows.
+ */
+export const orgFirstWorkspaces = pgTable.withRLS(
+  "org_first_workspaces",
+  {
+    orgId: text("org_id").primaryKey(),
+    workspaceId: text("workspace_id")
+      .notNull()
+      .references(() => workspaces.id, { onDelete: "restrict" }),
+    sourceRepositoryId: text("source_repository_id").notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true, mode: "date" })
+      .notNull()
+      .defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true, mode: "date" })
+      .notNull()
+      .defaultNow(),
+  },
+  (t) => [orgIsolationPolicy(t.orgId)],
+)

@@ -4,8 +4,8 @@ import {
   desc,
   eq,
   exists,
+  inArray,
   isNotNull,
-  ne,
   notInArray,
   or,
   sql,
@@ -17,6 +17,7 @@ import { withAmbientOrgDb } from "../db/org-sql.js"
 import { conversations } from "../db/schema/conversations.js"
 import { repositories } from "../db/schema/repositories.js"
 import {
+  orgFirstWorkspaces,
   orgMemberPreferences,
   workspaceKnowledgeUnits,
   workspaceLinkedRepositories,
@@ -24,6 +25,10 @@ import {
   workspaces,
   workspaceWriteJobs,
 } from "../db/schema/workspaces.js"
+import {
+  type DestWorkspaceLinkPlan,
+  planDestWorkspaceLinks,
+} from "../domain/workspaces/dest-workspace-assignment.js"
 import type { HydrateUnit } from "../domain/workspaces/hydrate.js"
 import {
   type HydratePhaseRecord,
@@ -1501,6 +1506,172 @@ export async function persistWriteJobCommitSha(
   })
 }
 
+export async function getOrgFirstWorkspace(orgId: string): Promise<{
+  workspaceId: string
+  sourceRepositoryId: string
+} | null> {
+  return orgSql(async () => {
+    const [row] = await getOrgDb()
+      .select({
+        workspaceId: orgFirstWorkspaces.workspaceId,
+        sourceRepositoryId: orgFirstWorkspaces.sourceRepositoryId,
+      })
+      .from(orgFirstWorkspaces)
+      .where(eq(orgFirstWorkspaces.orgId, orgId))
+      .limit(1)
+    return row ?? null
+  })
+}
+
+export async function persistOrgFirstWorkspace(input: {
+  orgId: string
+  workspaceId: string
+  sourceRepositoryId: string
+}): Promise<void> {
+  return orgSql(async () => {
+    await getOrgDb()
+      .insert(orgFirstWorkspaces)
+      .values({
+        orgId: input.orgId,
+        workspaceId: input.workspaceId,
+        sourceRepositoryId: input.sourceRepositoryId,
+      })
+      .onConflictDoNothing({ target: orgFirstWorkspaces.orgId })
+  })
+}
+
+export async function listOrgRepositoriesForDestAssignment(): Promise<
+  Array<{ id: string; gitUrl: string; createdAt: Date }>
+> {
+  return orgSql(async () => {
+    const orgId = requireCurrentOrgId()
+    return getOrgDb()
+      .select({
+        id: repositories.id,
+        gitUrl: repositories.gitUrl,
+        createdAt: repositories.createdAt,
+      })
+      .from(repositories)
+      .where(eq(repositories.orgId, orgId))
+  })
+}
+
+export async function applyDestWorkspaceLinkPlan(
+  plan: DestWorkspaceLinkPlan,
+): Promise<void> {
+  return orgSql(async () => {
+    const orgId = requireCurrentOrgId()
+    const db = getOrgDb()
+    if (plan.deleteLinkIds.length > 0) {
+      await db
+        .delete(workspaceLinkedRepositories)
+        .where(
+          and(
+            eq(workspaceLinkedRepositories.orgId, orgId),
+            inArray(workspaceLinkedRepositories.id, plan.deleteLinkIds),
+          ),
+        )
+    }
+    for (const link of plan.insertLinks) {
+      await db
+        .insert(workspaceLinkedRepositories)
+        .values({
+          id: generateObjectId("wlr"),
+          orgId,
+          workspaceId: link.workspaceId,
+          gitUrl: link.gitUrl,
+        })
+        .onConflictDoNothing({
+          target: [
+            workspaceLinkedRepositories.workspaceId,
+            workspaceLinkedRepositories.gitUrl,
+          ],
+        })
+    }
+  })
+}
+
+export async function reconcileDestWorkspaceAssignment(orgId: string): Promise<{
+  firstWorkspaceId: string | null
+  firstSourceRepositoryId: string | null
+}> {
+  return orgSql(async () => {
+    const [workspaceRows, repositoryRows, existingLinks, persistedFirst] =
+      await Promise.all([
+        getOrgDb()
+          .select({
+            id: workspaces.id,
+            workspaceRepositoryUrl: workspaces.workspaceRepositoryUrl,
+          })
+          .from(workspaces)
+          .where(eq(workspaces.orgId, orgId)),
+        getOrgDb()
+          .select({
+            id: repositories.id,
+            gitUrl: repositories.gitUrl,
+            createdAt: repositories.createdAt,
+          })
+          .from(repositories)
+          .where(eq(repositories.orgId, orgId)),
+        getOrgDb()
+          .select({
+            id: workspaceLinkedRepositories.id,
+            workspaceId: workspaceLinkedRepositories.workspaceId,
+            gitUrl: workspaceLinkedRepositories.gitUrl,
+          })
+          .from(workspaceLinkedRepositories)
+          .where(eq(workspaceLinkedRepositories.orgId, orgId)),
+        getOrgDb()
+          .select({
+            workspaceId: orgFirstWorkspaces.workspaceId,
+            sourceRepositoryId: orgFirstWorkspaces.sourceRepositoryId,
+          })
+          .from(orgFirstWorkspaces)
+          .where(eq(orgFirstWorkspaces.orgId, orgId))
+          .limit(1),
+      ])
+    const connectorTargetRepositoryIds = repositoryRows
+      .filter((repo) =>
+        workspaceRows.some(
+          (row) => row.workspaceRepositoryUrl === repo.gitUrl,
+        ),
+      )
+      .map((repo) => repo.id)
+    const plan = planDestWorkspaceLinks({
+      workspaces: workspaceRows,
+      repositories: repositoryRows,
+      connectorTargetRepositoryIds,
+      existingLinks,
+    })
+    if (plan.firstWorkspaceId && plan.firstSourceRepositoryId) {
+      await persistOrgFirstWorkspace({
+        orgId,
+        workspaceId: plan.firstWorkspaceId,
+        sourceRepositoryId: plan.firstSourceRepositoryId,
+      })
+    }
+    await applyDestWorkspaceLinkPlan(plan)
+    const first = persistedFirst[0]
+    return {
+      firstWorkspaceId: first?.workspaceId ?? plan.firstWorkspaceId,
+      firstSourceRepositoryId:
+        first?.sourceRepositoryId ?? plan.firstSourceRepositoryId,
+    }
+  })
+}
+
+export async function listMigrationExportJobWorkspaceIds(): Promise<
+  Set<string>
+> {
+  return orgSql(async () => {
+    const rows = await getOrgDb()
+      .select({ workspaceId: workspaceWriteJobs.workspaceId })
+      .from(workspaceWriteJobs)
+      .where(eq(workspaceWriteJobs.kind, "migration_export"))
+    return new Set(rows.map((row) => row.workspaceId))
+  })
+}
+
 export async function listMigrationExportShas(): Promise<Map<string, string>> {
   return orgSql(async () => {
     const rows = await getOrgDb()
@@ -1817,8 +1988,9 @@ export async function persistSandboxInstance(
     const db = getOrgDb()
     await db.transaction(async (tx) => {
       if (input.kind === "chat" && input.conversationId) {
-        await tx
-          .delete(workspaceSandboxInstances)
+        const [existing] = await tx
+          .select()
+          .from(workspaceSandboxInstances)
           .where(
             and(
               eq(workspaceSandboxInstances.orgId, orgId),
@@ -1831,9 +2003,37 @@ export async function persistSandboxInstance(
                 eq(workspaceSandboxInstances.state, "live"),
                 eq(workspaceSandboxInstances.state, "destroy_failed"),
               ),
-              ne(workspaceSandboxInstances.id, input.id),
             ),
           )
+          .orderBy(
+            sql`(${workspaceSandboxInstances.providerSandboxId} is not null) desc`,
+            asc(workspaceSandboxInstances.createdAt),
+            asc(workspaceSandboxInstances.id),
+          )
+          .limit(1)
+        if (existing && existing.id !== input.id) {
+          const sameInstance =
+            Boolean(existing.providerSandboxId) &&
+            existing.providerSandboxId === (input.providerSandboxId ?? null)
+          if (sameInstance) {
+            await tx
+              .update(workspaceSandboxInstances)
+              .set({
+                provider: input.provider ?? existing.provider,
+                latestSnapshotId:
+                  input.latestSnapshotId ?? existing.latestSnapshotId,
+                latestRunId: input.latestRunId ?? existing.latestRunId,
+                state: input.state,
+                lastHeartbeatAt: input.lastHeartbeatAt,
+                updatedAt: now,
+              })
+              .where(eq(workspaceSandboxInstances.id, existing.id))
+            return
+          }
+          throw new Error(
+            "Live chat sandbox row already exists for this conversation",
+          )
+        }
       }
       await tx
         .insert(workspaceSandboxInstances)

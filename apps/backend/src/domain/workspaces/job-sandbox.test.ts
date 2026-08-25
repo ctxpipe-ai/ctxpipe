@@ -57,8 +57,8 @@ describe("job sandbox", () => {
   })
   it("uses Docker when present and fails closed when Docker is locked but missing", () => {
     expect(jobSandboxIsolation("docker")).toBe("docker")
-    expect(jobSandboxIsolation("unsandboxed")).toBe("local_process")
-    expect(jobSandboxIsolation("railway")).toBe("local_process")
+    expect(jobSandboxIsolation("unsandboxed")).toBeNull()
+    expect(jobSandboxIsolation("railway")).toBeNull()
     expect(
       resolveJobSandboxIsolation({
         provider: "docker",
@@ -79,7 +79,7 @@ describe("job sandbox", () => {
         hasDocker: false,
         hasLocal: true,
       }),
-    ).toBe("local_process")
+    ).toBeNull()
     expect(
       resolveJobSandboxIsolation({
         provider: "docker",
@@ -541,9 +541,9 @@ describe("job sandbox", () => {
       gitUrl: "https://github.com/acme/docs",
       ref: "abc",
       cloneToken: "tok",
-      env: {},
+      env: { SANDBOX_PROVIDER: "docker" },
       loadModules: async () => ({
-        localProcessSandbox: () => ({
+        dockerSandbox: () => ({
           create: async () => raw,
         }),
       }),
@@ -582,9 +582,9 @@ describe("job sandbox", () => {
       ref: "bbb2222",
       fetchShas: ["aaa1111"],
       cloneToken: "tok",
-      env: {},
+      env: { SANDBOX_PROVIDER: "docker" },
       loadModules: async () => ({
-        localProcessSandbox: () => ({
+        dockerSandbox: () => ({
           create: async () => ({
             id: "sbx_job_1",
             process: { exec },
@@ -618,9 +618,9 @@ describe("job sandbox", () => {
         sandboxId: "job-1",
         gitUrl: "https://github.com/acme/docs",
         ref: "abc",
-        env: {},
+        env: { SANDBOX_PROVIDER: "docker" },
         loadModules: async () => ({
-          localProcessSandbox: () => ({
+          dockerSandbox: () => ({
             create: async () => ({
               id: "sbx_job_1",
               process: { exec },
@@ -648,9 +648,9 @@ describe("job sandbox", () => {
         sandboxId: "job-1",
         gitUrl: "https://github.com/acme/docs",
         ref: "abc",
-        env: {},
+        env: { SANDBOX_PROVIDER: "docker" },
         loadModules: async () => ({
-          localProcessSandbox: () => ({
+          dockerSandbox: () => ({
             create: async () => ({
               id: "sbx_job_1",
               process: { exec },
@@ -693,9 +693,9 @@ describe("job sandbox", () => {
       sandboxId: "sbx_live",
       gitUrl: "https://github.com/acme/docs",
       ref: "abc",
-      env: {},
+      env: { SANDBOX_PROVIDER: "docker" },
       loadModules: async () => ({
-        localProcessSandbox: () => ({ create, resume }),
+        dockerSandbox: () => ({ create, resume }),
       }),
     })
     expect(created?.providerSandboxId).toBe("sbx_live")
@@ -716,10 +716,10 @@ describe("job sandbox", () => {
       sandboxId: "job-1",
       gitUrl: "https://github.com/acme/docs",
       ref: "abc",
-      env: {},
+      env: { SANDBOX_PROVIDER: "docker" },
       persistProviderId,
       loadModules: async () => ({
-        localProcessSandbox: () => ({
+        dockerSandbox: () => ({
           create: async () => ({
             id: "sbx_job_1",
             process: {
@@ -863,7 +863,27 @@ describe("job sandbox", () => {
     })
   })
 
-  it("resumes a stored docker sandbox even when the current env is local-process", async () => {
+  it("does not resume a stored docker sandbox when the current env is not docker", async () => {
+    const dockerResume = vi.fn()
+    const localCreate = vi.fn()
+    await expect(
+      createTanstackJobSandbox({
+        sandboxId: "sbx_docker",
+        storedProvider: "docker",
+        gitUrl: "https://github.com/acme/docs",
+        ref: "abc",
+        env: {},
+        loadModules: async () => ({
+          dockerSandbox: () => ({ create: vi.fn(), resume: dockerResume }),
+          localProcessSandbox: () => ({ create: localCreate }),
+        }),
+      }),
+    ).rejects.toThrow(/locked or unavailable/)
+    expect(dockerResume).not.toHaveBeenCalled()
+    expect(localCreate).not.toHaveBeenCalled()
+  })
+
+  it("resumes a stored docker sandbox only when Docker is the effective provider", async () => {
     const dockerResume = vi.fn(async (input: { id: string }) => {
       expect(input.id).toBe("sbx_docker")
       return {
@@ -881,29 +901,26 @@ describe("job sandbox", () => {
         destroy: async () => undefined,
       }
     })
-    const localCreate = vi.fn()
     const created = await createTanstackJobSandbox({
       sandboxId: "sbx_docker",
       storedProvider: "docker",
       gitUrl: "https://github.com/acme/docs",
       ref: "abc",
-      env: {},
+      env: { SANDBOX_PROVIDER: "docker" },
       loadModules: async () => ({
         dockerSandbox: () => ({ create: vi.fn(), resume: dockerResume }),
-        localProcessSandbox: () => ({ create: localCreate }),
       }),
     })
     expect(created?.providerSandboxId).toBe("sbx_docker")
     expect(created?.provider).toBe("docker")
     expect(dockerResume).toHaveBeenCalledWith({ id: "sbx_docker" })
-    expect(localCreate).not.toHaveBeenCalled()
     expect(destroyDetachedProviderSandbox).not.toHaveBeenCalled()
   })
 
-  it("destroys a stored docker sandbox before creating a local replacement", async () => {
-    const dockerResume = vi.fn(async () => null)
-    const localCreate = vi.fn(async () => ({
-      id: "sbx_local",
+  it("destroys a stored sbx sandbox when Docker is locked, then creates Docker", async () => {
+    const sbxResume = vi.fn()
+    const dockerCreate = vi.fn(async () => ({
+      id: "ctr_docker",
       process: {
         exec: async () => ({ stdout: "", stderr: "", exitCode: 0 }),
       },
@@ -917,85 +934,24 @@ describe("job sandbox", () => {
       destroy: async () => undefined,
     }))
     const created = await createTanstackJobSandbox({
-      sandboxId: "sbx_docker",
-      storedProvider: "docker",
-      gitUrl: "https://github.com/acme/docs",
-      ref: "abc",
-      env: {},
-      persistProviderId: async () => undefined,
-      loadModules: async () => ({
-        dockerSandbox: () => ({ create: vi.fn(), resume: dockerResume }),
-        localProcessSandbox: () => ({ create: localCreate }),
-      }),
-    })
-    expect(dockerResume).toHaveBeenCalledWith({ id: "sbx_docker" })
-    expect(destroyDetachedProviderSandbox).toHaveBeenCalledWith({
-      provider: "docker",
-      providerSandboxId: "sbx_docker",
-    })
-    expect(localCreate).toHaveBeenCalled()
-    expect(created?.providerSandboxId).toBe("sbx_local")
-    expect(created?.provider).toBe("local-process")
-  })
-
-  it("does not replace a stored docker sandbox when destroy fails", async () => {
-    destroyDetachedProviderSandbox.mockRejectedValueOnce(
-      new Error("still running"),
-    )
-    const localCreate = vi.fn()
-    await expect(
-      createTanstackJobSandbox({
-        sandboxId: "sbx_docker",
-        storedProvider: "docker",
-        gitUrl: "https://github.com/acme/docs",
-        ref: "abc",
-        env: {},
-        loadModules: async () => ({
-          dockerSandbox: () => ({
-            create: vi.fn(),
-            resume: async () => null,
-          }),
-          localProcessSandbox: () => ({ create: localCreate }),
-        }),
-      }),
-    ).rejects.toThrow("still running")
-    expect(localCreate).not.toHaveBeenCalled()
-  })
-
-  it("resumes a stored sbx sandbox through sbxSandbox and keeps the sbx provider name", async () => {
-    const sbxResume = vi.fn(async (input: { id: string }) => {
-      expect(input.id).toBe("sbx_vm")
-      return {
-        id: "sbx_vm",
-        process: {
-          exec: async () => ({ stdout: "", stderr: "", exitCode: 0 }),
-        },
-        fs: {
-          write: async () => undefined,
-          read: async () => "",
-          remove: async () => undefined,
-          mkdir: async () => undefined,
-        },
-        git: { clone: async () => undefined },
-        destroy: async () => undefined,
-      }
-    })
-    const dockerCreate = vi.fn()
-    const created = await createTanstackJobSandbox({
       sandboxId: "sbx_vm",
       storedProvider: "sbx",
       gitUrl: "https://github.com/acme/docs",
       ref: "abc",
       env: { SANDBOX_PROVIDER: "docker" },
+      persistProviderId: async () => undefined,
       loadModules: async () => ({
         sbxSandbox: () => ({ create: vi.fn(), resume: sbxResume }),
-        dockerSandbox: () => ({ create: dockerCreate }),
+        dockerSandbox: () => ({ create: dockerCreate, resume: async () => null }),
       }),
     })
-    expect(created?.providerSandboxId).toBe("sbx_vm")
-    expect(created?.provider).toBe("sbx")
-    expect(sbxResume).toHaveBeenCalledWith({ id: "sbx_vm" })
-    expect(dockerCreate).not.toHaveBeenCalled()
-    expect(destroyDetachedProviderSandbox).not.toHaveBeenCalled()
+    expect(sbxResume).not.toHaveBeenCalled()
+    expect(destroyDetachedProviderSandbox).toHaveBeenCalledWith({
+      provider: "sbx",
+      providerSandboxId: "sbx_vm",
+    })
+    expect(dockerCreate).toHaveBeenCalled()
+    expect(created?.providerSandboxId).toBe("ctr_docker")
+    expect(created?.provider).toBe("docker")
   })
 })

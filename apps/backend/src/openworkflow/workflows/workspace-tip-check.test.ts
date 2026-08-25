@@ -51,6 +51,11 @@ vi.mock("../../models/conversations.js", () => ({
 vi.mock("../../models/workspaces.js", () => ({
   listOrgWorkspaces: listOrgWorkspacesMock,
   listMigrationExportShas: listMigrationExportShasMock,
+  listMigrationExportJobWorkspaceIds: vi.fn().mockResolvedValue(new Set()),
+  reconcileDestWorkspaceAssignment: vi.fn().mockResolvedValue({
+    firstWorkspaceId: null,
+    firstSourceRepositoryId: null,
+  }),
   listOrgLinkedRepositories: listOrgLinkedRepositoriesMock,
   listPausedWriteJobs: vi.fn().mockResolvedValue([
     {
@@ -80,6 +85,10 @@ vi.mock("../../domain/workspaces/sandbox-registry.js", () => ({
 
 vi.mock("../../routes/webhooks/github/github-workspace-tip.js", () => ({
   resolveWorkspaceRepositoryTip: vi.fn(),
+  getGithubRepoWriteView: vi.fn().mockResolvedValue({
+    defaultBranch: "main",
+    canPush: true,
+  }),
 }))
 
 vi.mock("../enqueue-workspace-hydrate.js", () => ({
@@ -154,5 +163,30 @@ describe("workspaceTipCheck workflow", () => {
     await tipCheckFn.fn({ input: { orgId: "org_1" } })
     expect(enqueueInTx.seen).toBe(true)
     expect(enqueueInTx.value).toBe(false)
+  })
+
+  it("enqueues a missing migration_export for a writable workspace without an export job", async () => {
+    listOrgWorkspacesMock.mockResolvedValue([
+      {
+        id: "ws_backfill",
+        workspaceRepositoryUrl: "https://github.com/acme/docs.git",
+        desiredGeneration: 1,
+        desiredSha: "abc",
+        activeProjectionSha: "abc",
+        githubConnectionId: "con_gh",
+        createdAt: new Date(),
+        lastJobAt: null,
+      },
+    ])
+    listMigrationExportShasMock.mockResolvedValue(new Map())
+    await tipCheckFn.fn({ input: { orgId: "org_1" } })
+    expect(enqueueWorkspaceWriteCommitMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        orgId: "org_1",
+        workspaceId: "ws_backfill",
+        kind: "migration_export",
+      }),
+      expect.anything(),
+    )
   })
 })

@@ -11,7 +11,7 @@ import {
   readWorkspaceCheckoutFile,
   WorkspaceCheckoutReadError,
 } from "../../domain/workspaces/checkout-read.js"
-import { ensureOrgRepositoryAndIngest } from "../../domain/workspaces/ensure-org-repository.js"
+import { ensureOrgRepositoryForGitUrl } from "../../domain/workspaces/ensure-org-repository.js"
 import { fileTreeFromPaths } from "../../domain/workspaces/file-tree.js"
 import {
   explorerBlobFromContent,
@@ -65,7 +65,7 @@ async function attachOrgRepository(input: {
   log: { error: (err: Error) => void }
 }) {
   try {
-    await ensureOrgRepositoryAndIngest(input)
+    await ensureOrgRepositoryForGitUrl(input)
   } catch (error) {
     input.log.error(error instanceof Error ? error : new Error(String(error)))
   }
@@ -141,7 +141,6 @@ const UpdateWorkspaceRequestSchema = z
     workspaceRepositoryUrl: z.string().min(1).optional(),
     githubConnectionId: z.string().min(1).nullable().optional(),
     source: WorkspaceAddSourceSchema.optional(),
-    readOnlyReason: z.string().min(1).nullable().optional(),
   })
   .openapi("UpdateWorkspaceRequest")
 
@@ -925,27 +924,25 @@ export const workspaceRoutes = new OpenAPIHono<AppEnv>()
       { orgId: created.orgId, workspaceId: created.id },
       c.get("log"),
     )
-    if (writeJobQueueHttpDecision(created.writeStatus).enqueue) {
+    void enqueueWorkspaceWriteCommit(
+      {
+        orgId: created.orgId,
+        workspaceId: created.id,
+        kind: "migration_export",
+      },
+      c.get("log"),
+    )
+    for (const gitUrl of created.autoLinkGitUrls) {
       void enqueueWorkspaceWriteCommit(
         {
           orgId: created.orgId,
           workspaceId: created.id,
-          kind: "migration_export",
+          kind: "link_unlink",
+          linkAction: "link",
+          linkGitUrl: gitUrl,
         },
         c.get("log"),
       )
-      for (const gitUrl of created.autoLinkGitUrls) {
-        void enqueueWorkspaceWriteCommit(
-          {
-            orgId: created.orgId,
-            workspaceId: created.id,
-            kind: "link_unlink",
-            linkAction: "link",
-            linkGitUrl: gitUrl,
-          },
-          c.get("log"),
-        )
-      }
     }
     void enqueueWorkspaceTipCheck(created.orgId, c.get("log"))
     return c.json(serializeWorkspace(created, null), 201)
@@ -1187,9 +1184,6 @@ export const workspaceRoutes = new OpenAPIHono<AppEnv>()
       ...(body.workspaceRepositoryUrl !== undefined
         ? { workspaceRepositoryUrl: body.workspaceRepositoryUrl }
         : {}),
-      ...(body.readOnlyReason !== undefined
-        ? { readOnlyReason: body.readOnlyReason }
-        : {}),
       ...(persistConnection ? { githubConnectionId } : {}),
       ...(write ? { write } : {}),
     })
@@ -1297,10 +1291,7 @@ export const workspaceRoutes = new OpenAPIHono<AppEnv>()
       { orgId: retried.orgId, workspaceId: retried.id },
       c.get("log"),
     )
-    if (
-      shouldHydrateBeforeMigrationExport(exportSha) &&
-      writeJobQueueHttpDecision(retried.writeStatus).enqueue
-    ) {
+    if (shouldHydrateBeforeMigrationExport(exportSha)) {
       void enqueueWorkspaceWriteCommit(
         {
           orgId: retried.orgId,

@@ -2,7 +2,6 @@ import { describe, expect, it, vi } from "vitest"
 import {
   advisorWorkspaceId,
   CHAT_PERMISSION_MODE,
-  CHAT_SANDBOX_LIMITS,
   chatSandboxAllowsRemotePush,
   createWorkspaceChatPermissionHandler,
   decideChatPermission,
@@ -14,13 +13,6 @@ import {
 describe("chat sandbox policy", () => {
   it("does not use bypassPermissions", () => {
     expect(CHAT_PERMISSION_MODE).toBe("acceptEdits")
-    expect(CHAT_SANDBOX_LIMITS).toMatchObject({
-      vcpu: 1,
-      memoryMib: 1024,
-      pids: 128,
-      diskGib: 4,
-      privileged: false,
-    })
   })
 
   it("never offers commit/push while the Workspace is read-only", () => {

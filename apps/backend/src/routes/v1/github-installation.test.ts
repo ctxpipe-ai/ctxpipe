@@ -96,7 +96,6 @@ vi.mock("../../models/github-installation.js", async (importOriginal) => {
 import { requireOrgAdminOrOwner } from "../../auth/withAuth.js"
 import { parseEnv } from "../../config/env.js"
 import type { Env } from "../../config/env.js"
-import { syncGithubRepositories } from "../../openworkflow/workflows/sync-github-repositories.js"
 import { githubInstallationRoutes } from "./github-installation.js"
 import { meGithubInstallationsRoutes } from "./me-github-installations.js"
 
@@ -540,31 +539,11 @@ describe("PATCH /github/installation", () => {
     })
 
     expect(res.status).toBe(200)
-    expect(pruneGithubConnectionRepositoriesNotInGitUrlsMock).toHaveBeenCalledWith(
-      "org_1",
-      "con_github",
-      new Set([
-        "https://github.com/acme/alpha.git",
-        "https://github.com/acme/beta.git",
-      ]),
-    )
-    expect(runWorkflowMock).toHaveBeenCalledWith(syncGithubRepositories.spec, {
-      orgId: "org_1",
-      githubConnectionId: "con_github",
-      reposToSync: [
-        {
-          name: "acme/alpha",
-          gitUrl: "https://github.com/acme/alpha.git",
-        },
-        {
-          name: "acme/beta",
-          gitUrl: "https://github.com/acme/beta.git",
-        },
-      ],
-    })
+    expect(pruneGithubConnectionRepositoriesNotInGitUrlsMock).not.toHaveBeenCalled()
+    expect(runWorkflowMock).not.toHaveBeenCalled()
   })
 
-  it("all mode enqueues full sync without reposToSync", async () => {
+  it("all mode does not enqueue org ingest sync", async () => {
     const app = createApp()
     const res = await app.request("/github/installation", {
       method: "PATCH",
@@ -577,11 +556,7 @@ describe("PATCH /github/installation", () => {
 
     expect(res.status).toBe(200)
     expect(pruneGithubConnectionRepositoriesNotInGitUrlsMock).not.toHaveBeenCalled()
-    expect(runWorkflowMock).toHaveBeenCalledWith(syncGithubRepositories.spec, {
-      orgId: "org_1",
-      githubConnectionId: "con_github",
-    })
-    expect(runWorkflowMock.mock.calls[0]?.[1]).not.toHaveProperty("reposToSync")
+    expect(runWorkflowMock).not.toHaveBeenCalled()
   })
 
   it("select mode with empty selection returns 400 and does not enqueue sync", async () => {

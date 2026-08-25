@@ -85,15 +85,15 @@ async function liveChatRows() {
 }
 
 describe("persistSandboxInstance live chat identity", () => {
-  it("replaces a leftover random-key live chat and updates the conversation row in place", async () => {
+  it("retains the live row when a different instance tries to upsert", async () => {
     await persistSandboxInstance({
       id: leftoverId,
       kind: "chat",
       orgId: org.id,
       workspaceId,
       conversationId,
-      provider: "local-process",
-      providerSandboxId: "/tmp/tanstack-ai-sandboxes/old-path",
+      provider: "docker",
+      providerSandboxId: "ctr_old",
       state: "live",
       lastHeartbeatAt: new Date("2026-08-23T00:00:00.000Z"),
     })
@@ -105,18 +105,18 @@ describe("persistSandboxInstance live chat identity", () => {
     await expect(
       store.upsert({
         key: "a1b2c3d4e5f60708",
-        provider: "local-process",
-        providerSandboxId: "/tmp/tanstack-ai-sandboxes/new-path",
+        provider: "docker",
+        providerSandboxId: "ctr_new",
         threadId: conversationId,
         updatedAt: Date.parse("2026-08-23T00:01:00.000Z"),
       }),
-    ).resolves.toBeUndefined()
+    ).rejects.toThrow("Live chat sandbox row already exists for this conversation")
 
-    const afterReplace = await liveChatRows()
-    expect(afterReplace).toEqual([
+    const afterConflict = await liveChatRows()
+    expect(afterConflict).toEqual([
       {
-        id: "a1b2c3d4e5f60708",
-        providerSandboxId: "/tmp/tanstack-ai-sandboxes/new-path",
+        id: leftoverId,
+        providerSandboxId: "ctr_old",
         state: "live",
       },
     ])
@@ -124,18 +124,18 @@ describe("persistSandboxInstance live chat identity", () => {
     await expect(
       store.upsert({
         key: "ffffffffffffffff",
-        provider: "local-process",
-        providerSandboxId: "/tmp/tanstack-ai-sandboxes/third-path",
+        provider: "docker",
+        providerSandboxId: "ctr_old",
         threadId: conversationId,
         updatedAt: Date.parse("2026-08-23T00:02:00.000Z"),
       }),
     ).resolves.toBeUndefined()
 
-    const afterUpdate = await liveChatRows()
-    expect(afterUpdate).toEqual([
+    const afterSameInstance = await liveChatRows()
+    expect(afterSameInstance).toEqual([
       {
-        id: "ffffffffffffffff",
-        providerSandboxId: "/tmp/tanstack-ai-sandboxes/third-path",
+        id: leftoverId,
+        providerSandboxId: "ctr_old",
         state: "live",
       },
     ])

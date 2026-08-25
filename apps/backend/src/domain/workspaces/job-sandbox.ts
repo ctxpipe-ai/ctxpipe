@@ -30,24 +30,38 @@ export type TanstackLikeHandle = {
   destroy: () => Promise<void>
 }
 
-export function jobSandboxIsolation(
-  provider: SandboxProvider,
-): "docker" | "local_process" {
-  return provider === "docker" ? "docker" : "local_process"
+export class SandboxProviderUnavailableError extends Error {
+  readonly provider: string
+  constructor(provider: string) {
+    super(`Sandbox provider ${provider} is locked or unavailable`)
+    this.name = "SandboxProviderUnavailableError"
+    this.provider = provider
+  }
 }
 
-/** Locked docker/railway fail closed. Unset/unsandboxed may use local-process. */
+export function jobSandboxIsolation(
+  provider: SandboxProvider,
+): "docker" | null {
+  return provider === "docker" ? "docker" : null
+}
+
+/** Product jobs use Docker only. Local-process is not a product adapter. */
 export function resolveJobSandboxIsolation(input: {
   provider: SandboxProvider
   hasDocker: boolean
-  hasLocal: boolean
-}): "docker" | "local_process" | null {
-  if (input.provider === "docker") {
-    return input.hasDocker ? "docker" : null
-  }
-  if (input.provider === "railway") return null
-  if (input.hasLocal) return "local_process"
+  hasLocal?: boolean
+}): "docker" | null {
+  void input.hasLocal
+  if (input.provider === "docker" && input.hasDocker) return "docker"
   return null
+}
+
+export function jobProviderMatchesEffective(
+  storedProvider: string | null | undefined,
+  effective: "docker" | "sbx" | "local-process",
+): boolean {
+  if (!storedProvider) return false
+  return jobProviderName(storedProvider) === effective
 }
 
 export function adaptTanstackHandle(
@@ -273,8 +287,25 @@ export async function createTanstackJobSandbox(input: {
   provider: string
 } | null> {
   const modules = await (input.loadModules ?? loadJobSandboxModules)()
+  const provider = detectSandboxProviderFromEnv({ env: input.env })
+  const isolation = resolveJobSandboxIsolation({
+    provider,
+    hasDocker: Boolean(modules.dockerSandbox),
+  })
+  if (!isolation) {
+    throw new SandboxProviderUnavailableError(provider)
+  }
+  const providerName = jobProviderName(isolation)
+  const factory = factoryForProvider(modules, providerName)
+  if (!factory) {
+    throw new SandboxProviderUnavailableError(providerName)
+  }
   const storedProvider = input.storedProvider ?? undefined
-  if (input.sandboxId && storedProvider) {
+  const storedMatches = jobProviderMatchesEffective(
+    storedProvider,
+    providerName,
+  )
+  if (input.sandboxId && storedProvider && storedMatches) {
     const storedFactory = factoryForProvider(modules, storedProvider)
     const resumed = storedFactory
       ? await storedFactory.resume?.({ id: input.sandboxId })
@@ -284,29 +315,17 @@ export async function createTanstackJobSandbox(input: {
         handle: adaptTanstackHandle(resumed),
         destroy: () => resumed.destroy(),
         providerSandboxId: resumed.id ?? input.sandboxId,
-        provider: jobProviderName(storedProvider),
+        provider: providerName,
       }
     }
   }
-  const provider = detectSandboxProviderFromEnv({ env: input.env })
-  const isolation = resolveJobSandboxIsolation({
-    provider,
-    hasDocker: Boolean(modules.dockerSandbox),
-    hasLocal: Boolean(modules.localProcessSandbox),
-  })
-  if (!isolation) return null
-  const factory = factoryForProvider(modules, jobProviderName(isolation))
-  if (!factory) return null
-  const providerName = jobProviderName(isolation)
-  if (input.sandboxId && storedProvider) {
+  if (input.sandboxId && storedProvider && !storedMatches) {
     await destroyDetachedProviderSandbox({
       provider: storedProvider,
       providerSandboxId: input.sandboxId,
     })
-  } else {
-    const resumed = input.sandboxId
-      ? await factory.resume?.({ id: input.sandboxId })
-      : null
+  } else if (input.sandboxId && storedMatches) {
+    const resumed = await factory.resume?.({ id: input.sandboxId })
     if (resumed) {
       return {
         handle: adaptTanstackHandle(resumed),

@@ -5,8 +5,7 @@ import { claimEvidence } from "../db/schema/claim_evidence.js"
 import { claims } from "../db/schema/claims.js"
 import { objects } from "../db/schema/objects.js"
 import { repositories } from "../db/schema/repositories.js"
-import { workspaces } from "../db/schema/workspaces.js"
-import { firstConnectorTarget } from "../domain/workspaces/migration-cutover.js"
+import { orgFirstWorkspaces, workspaces } from "../db/schema/workspaces.js"
 import type {
   ExportClaimRow,
   ExportObjectRow,
@@ -31,8 +30,14 @@ export async function loadMigrationExportSource(): Promise<{
   return orgSql(async () => {
     const orgId = requireCurrentOrgId()
     const db = getOrgDb()
-    const [objectRows, claimRows, evidenceRows, repoRows, workspaceRows] =
-      await Promise.all([
+    const [
+      objectRows,
+      claimRows,
+      evidenceRows,
+      repoRows,
+      workspaceRows,
+      firstWorkspaceRow,
+    ] = await Promise.all([
         db
           .select({
             id: objects.id,
@@ -74,6 +79,11 @@ export async function loadMigrationExportSource(): Promise<{
           })
           .from(workspaces)
           .where(eq(workspaces.orgId, orgId)),
+        db
+          .select({ workspaceId: orgFirstWorkspaces.workspaceId })
+          .from(orgFirstWorkspaces)
+          .where(eq(orgFirstWorkspaces.orgId, orgId))
+          .limit(1),
       ])
 
     const sourceByClaim = new Map<string, string>()
@@ -92,7 +102,7 @@ export async function loadMigrationExportSource(): Promise<{
       }
     }
 
-    const firstWorkspaceId = firstConnectorTarget(workspaceRows)?.id ?? null
+    const firstWorkspaceId = firstWorkspaceRow[0]?.workspaceId ?? null
 
     return {
       firstWorkspaceId,

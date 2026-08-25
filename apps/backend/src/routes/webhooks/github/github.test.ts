@@ -3,7 +3,6 @@ import { Webhooks } from "@octokit/webhooks"
 import { beforeEach, describe, expect, it, vi } from "vitest"
 import type { AppEnv } from "../../../app/env.js"
 import { parseEnv } from "../../../config/env.js"
-import { syncGithubRepositories } from "../../../openworkflow/workflows/sync-github-repositories.js"
 
 const runWorkflowMock = vi.hoisted(() =>
   vi.fn().mockResolvedValue({ workflowRun: { id: "wr_1" } }),
@@ -434,7 +433,7 @@ describe("POST /api/v1/webhook/github", () => {
     expect(runWorkflowMock).not.toHaveBeenCalled()
   })
 
-  it("repository created with both flags enqueues sync workflow", async () => {
+  it("repository created never enqueues org ingest sync", async () => {
     listInstallationsMock.mockResolvedValue([
       {
         id: "ghi_1",
@@ -472,19 +471,10 @@ describe("POST /api/v1/webhook/github", () => {
     })
 
     expect(res.status).toBe(200)
-    expect(runWorkflowMock).toHaveBeenCalledWith(syncGithubRepositories.spec, {
-      orgId: "org_1",
-      githubConnectionId: "ghi_1",
-      reposToSync: [
-        {
-          name: "acme/new-repo",
-          gitUrl: "https://github.com/acme/new-repo.git",
-        },
-      ],
-    })
+    expect(runWorkflowMock).not.toHaveBeenCalled()
   })
 
-  it("repository created enqueues sync for each org with auto-sync enabled", async () => {
+  it("repository created does not enqueue sync for any org", async () => {
     listInstallationsMock.mockResolvedValue([
       {
         id: "ghi_1",
@@ -532,27 +522,7 @@ describe("POST /api/v1/webhook/github", () => {
     })
 
     expect(res.status).toBe(200)
-    expect(runWorkflowMock).toHaveBeenCalledTimes(2)
-    expect(runWorkflowMock).toHaveBeenCalledWith(syncGithubRepositories.spec, {
-      orgId: "org_1",
-      githubConnectionId: "ghi_1",
-      reposToSync: [
-        {
-          name: "acme/new-repo",
-          gitUrl: "https://github.com/acme/new-repo.git",
-        },
-      ],
-    })
-    expect(runWorkflowMock).toHaveBeenCalledWith(syncGithubRepositories.spec, {
-      orgId: "org_2",
-      githubConnectionId: "ghi_2",
-      reposToSync: [
-        {
-          name: "acme/new-repo",
-          gitUrl: "https://github.com/acme/new-repo.git",
-        },
-      ],
-    })
+    expect(runWorkflowMock).not.toHaveBeenCalled()
   })
 })
 

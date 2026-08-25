@@ -3,7 +3,6 @@ import {
   destroyDetachedProviderSandbox,
   detectSandboxProvider,
   detectSandboxProviderFromEnv,
-  sandboxMustFailClosed,
 } from "./sandbox-provider.js"
 
 const dockerSandbox = vi.hoisted(() => vi.fn())
@@ -41,17 +40,6 @@ describe("detectSandboxProvider", () => {
     ).toThrow(/Unknown SANDBOX_PROVIDER/)
   })
 
-  it("fails closed when an isolated provider cannot enforce limits", () => {
-    expect(
-      sandboxMustFailClosed({ provider: "docker", canEnforceLimits: false }),
-    ).toBe(true)
-    expect(
-      sandboxMustFailClosed({
-        provider: "unsandboxed",
-        canEnforceLimits: false,
-      }),
-    ).toBe(false)
-  })
 })
 
 describe("destroyDetachedProviderSandbox", () => {

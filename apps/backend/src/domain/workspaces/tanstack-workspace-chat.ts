@@ -47,6 +47,7 @@ import {
 import { postgresSandboxInstanceStore } from "./sandbox-instance-store.js"
 import {
   attachChatSandboxHandle,
+  destroySandboxesForConversation,
   heartbeatChatSandboxes,
 } from "./sandbox-registry.js"
 import { loadTanstackChatModules } from "./tanstack-runtime.js"
@@ -69,19 +70,13 @@ import {
 } from "./workspace-chat-assistant-text.js"
 import { startWorkspaceChatModelProxy } from "./workspace-chat-model-proxy.js"
 import {
-  WORKSPACE_CHAT_LOCAL_PROCESS_SCRUB_ENV,
   workspaceChatOpenCodeConfig,
   workspaceChatOpenCodeContract,
-  workspaceChatOpenCodeHomeEnv,
 } from "./workspace-chat-opencode-contract.js"
 import {
   messagesForOpenCodeChat,
   openCodeTrailingUserMiddleware,
 } from "./workspace-chat-opencode-messages.js"
-import {
-  type LocalProcessOpenCodePortLease,
-  leaseLocalProcessOpenCodePort,
-} from "./workspace-chat-opencode-port.js"
 import {
   beginWorkspaceChatTurn,
   finishWorkspaceChatTurn,
@@ -127,29 +122,21 @@ export type TanstackWorkspaceChatInput = {
 
 export { conversationRenameChunk } from "./workspace-chat-agui.js"
 
-function localProcessChatProvider(
+function providerFactoryForChat(
   modules: Awaited<ReturnType<typeof loadTanstackChatModules>>,
+  provider: string,
 ) {
-  return modules.localProcessSandbox?.({
-    scrubEnv: [...WORKSPACE_CHAT_LOCAL_PROCESS_SCRUB_ENV],
-  })
-}
-
-function providerFactoryForStoredChat(
-  modules: Awaited<ReturnType<typeof loadTanstackChatModules>>,
-  storedProvider: string,
-) {
-  if (storedProvider === "sbx") return modules.sbxSandbox?.()
-  if (storedProvider === "docker") {
+  if (provider === "docker") {
     return modules.dockerSandbox?.(WORKSPACE_CHAT_DOCKER_SANDBOX)
   }
-  if (
-    storedProvider === "local-process" ||
-    storedProvider === "local_process"
-  ) {
-    return localProcessChatProvider(modules)
-  }
   return undefined
+}
+
+function chatProviderMatchesEffective(
+  storedProvider: string | null,
+  effective: string,
+): boolean {
+  return storedProvider === effective
 }
 
 function abortControllerFrom(signal?: AbortSignal): AbortController {
@@ -470,15 +457,10 @@ async function startWorkspaceChat(input: TanstackWorkspaceChatInput): Promise<
   }
 
   const runToken = randomBytes(32).toString("hex")
-  let proxyLease: LocalProcessOpenCodePortLease | null = null
-  let portLease: LocalProcessOpenCodePortLease | null = null
   let proxy: Awaited<ReturnType<typeof startWorkspaceChatModelProxy>> | null =
     null
   const handle = { current: null as TanstackLikeHandle | null }
   try {
-    if (built.spec.isolation === "local_process") {
-      proxyLease = await leaseLocalProcessOpenCodePort()
-    }
     const proxyAndToolsStarted = Date.now()
     const [startedProxy, tools] = await Promise.all([
       startWorkspaceChatModelProxy({
@@ -489,11 +471,7 @@ async function startWorkspaceChat(input: TanstackWorkspaceChatInput): Promise<
         modelBase: contract.modelBase,
         modelParams: contract.modelParams,
         listenHost: "0.0.0.0",
-        advertisedHost:
-          built.spec.isolation === "docker"
-            ? "host.docker.internal"
-            : "127.0.0.1",
-        ...(proxyLease ? { port: proxyLease.port } : {}),
+        advertisedHost: "host.docker.internal",
       }),
       loadWorkspaceChatTools(input),
     ])
@@ -505,14 +483,7 @@ async function startWorkspaceChat(input: TanstackWorkspaceChatInput): Promise<
       ms: Date.now() - proxyAndToolsStarted,
       conversationId: input.conversationId,
     })
-    if (built.spec.isolation === "local_process") {
-      portLease = await leaseLocalProcessOpenCodePort({
-        reserved: [proxyLease?.port].filter(
-          (port): port is number => port != null,
-        ),
-      })
-    }
-    const servePort = portLease?.port ?? WORKSPACE_CHAT_OPENCODE_PORT
+    const servePort = WORKSPACE_CHAT_OPENCODE_PORT
     const modules = built.modules
     const definition = defineConversationSandbox({
       modules,
@@ -574,14 +545,10 @@ async function startWorkspaceChat(input: TanstackWorkspaceChatInput): Promise<
       handle,
       dispose: async () => {
         await proxy?.close().catch(() => undefined)
-        await proxyLease?.release().catch(() => undefined)
-        await portLease?.release().catch(() => undefined)
       },
     }
   } catch (error) {
     await proxy?.close().catch(() => undefined)
-    await proxyLease?.release().catch(() => undefined)
-    await portLease?.release().catch(() => undefined)
     throw error
   }
 }
@@ -635,27 +602,19 @@ async function buildWorkspaceChatSandbox(input: TanstackWorkspaceChatInput) {
     storedChat.find((row) => row.providerSandboxId)?.provider ??
     storedChat[0]?.provider ??
     null
-  const locked = process.env.SANDBOX_PROVIDER?.trim() || null
-  let provider = storedProvider
-    ? providerFactoryForStoredChat(modules, storedProvider)
-    : spec.isolation === "docker"
-      ? modules.dockerSandbox?.(WORKSPACE_CHAT_DOCKER_SANDBOX)
-      : localProcessChatProvider(modules)
+  const effective = runtime.provider
   if (
-    !storedProvider &&
-    !provider &&
-    locked !== "docker" &&
-    locked !== "railway"
+    storedProvider &&
+    !chatProviderMatchesEffective(storedProvider, effective)
   ) {
-    provider = localProcessChatProvider(modules)
+    await destroySandboxesForConversation(input.conversationId)
   }
+  const provider = providerFactoryForChat(modules, effective)
   if (!provider) {
     return {
       ok: false as const,
       status: 503,
-      error: storedProvider
-        ? `TanStack sandbox provider ${storedProvider} is not available`
-        : "TanStack sandbox provider is not installed",
+      error: `TanStack sandbox provider ${effective} is not available`,
     }
   }
   return {
@@ -674,7 +633,7 @@ async function buildWorkspaceChatSandbox(input: TanstackWorkspaceChatInput) {
 function defineConversationSandbox(input: {
   modules: Awaited<ReturnType<typeof loadTanstackChatModules>>
   spec: Extract<ReturnType<typeof workspaceChatSandboxSpec>, { ok: true }>
-  provider: NonNullable<ReturnType<typeof providerFactoryForStoredChat>>
+  provider: NonNullable<ReturnType<typeof providerFactoryForChat>>
   input: TanstackWorkspaceChatInput
   runToken: string
   proxyUrl: string
@@ -691,9 +650,6 @@ function defineConversationSandbox(input: {
     [WORKSPACE_CHAT_CLONE_BRANCH_SECRET]:
       chatInput.defaultBranch?.trim() || "main",
     [WORKSPACE_CHAT_CLONE_SHA_SECRET]: chatInput.desiredSha?.trim() ?? "",
-    ...(spec.isolation === "local_process"
-      ? workspaceChatOpenCodeHomeEnv(chatInput.conversationId)
-      : {}),
     ...(chatInput.cloneToken
       ? { [WORKSPACE_CHAT_CLONE_TOKEN_SECRET]: chatInput.cloneToken }
       : {}),

@@ -57,13 +57,13 @@ describe("writeStatusFromClassification", () => {
     })
   })
 
-  it("marks GitHub with a connection writable", () => {
+  it("marks GitHub with a connection unknown until a live probe", () => {
     expect(
       writeStatusFromClassification({
         workspaceRepositoryUrl: "https://github.com/acme/docs",
         githubConnectionId: "con_gh",
       }),
-    ).toEqual({ writeStatus: "writable", readOnlyReason: null })
+    ).toEqual({ writeStatus: "unknown", readOnlyReason: null })
   })
 })
 
@@ -127,7 +127,7 @@ describe("githubConnectionIdForWriteProbe", () => {
 })
 
 describe("probeWorkspaceWriteAccess", () => {
-  it("uses the add-source rule and does not talk to GitHub", async () => {
+  it("stays unknown on GitHub until a permission reader runs", async () => {
     await expect(
       probeWorkspaceWriteAccess({
         workspaceRepositoryUrl: "https://gitlab.com/acme/docs",
@@ -143,7 +143,7 @@ describe("probeWorkspaceWriteAccess", () => {
         githubConnectionId: "con_gh",
       }),
     ).resolves.toEqual({
-      writeStatus: "writable",
+      writeStatus: "unknown",
       readOnlyReason: null,
       defaultBranch: null,
     })
@@ -155,6 +155,40 @@ describe("probeWorkspaceWriteAccess", () => {
     ).resolves.toMatchObject({
       writeStatus: "read_only",
       readOnlyReason: WRITE_STATUS_REASONS.githubNotConnected,
+    })
+  })
+
+  it("uses the GitHub permission reader when provided", async () => {
+    const fetchWriteView = async () => ({
+      defaultBranch: "main",
+      canPush: true,
+    })
+    await expect(
+      probeWorkspaceWriteAccess({
+        workspaceRepositoryUrl: "https://github.com/acme/docs",
+        githubConnectionId: "con_gh",
+        orgId: "org_1",
+        fetchWriteView,
+      }),
+    ).resolves.toEqual({
+      writeStatus: "writable",
+      readOnlyReason: null,
+      defaultBranch: "main",
+    })
+    await expect(
+      probeWorkspaceWriteAccess({
+        workspaceRepositoryUrl: "https://github.com/acme/docs",
+        githubConnectionId: "con_gh",
+        orgId: "org_1",
+        fetchWriteView: async () => ({
+          defaultBranch: "main",
+          canPush: false,
+        }),
+      }),
+    ).resolves.toEqual({
+      writeStatus: "read_only",
+      readOnlyReason: WRITE_STATUS_REASONS.contentsWriteDenied,
+      defaultBranch: "main",
     })
   })
 })

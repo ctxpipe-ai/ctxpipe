@@ -64,6 +64,15 @@ services:
       postgres:
         condition: service_healthy
 
+  dind:
+    profiles: [deploy]
+    image: docker:27-dind
+    restart: unless-stopped
+    privileged: true
+    environment:
+      DOCKER_TLS_CERTDIR: ""
+    command: ["--host=tcp://0.0.0.0:2375"]
+
   backend:
     profiles: [deploy]
     build:
@@ -76,6 +85,8 @@ services:
       GRAPH_DB_URI: redis://falkordb:6379
       UI_PROXY_URL: http://ui:3002
       CODESEARCH_URL: http://codesearch:3001
+      SANDBOX_PROVIDER: docker
+      DOCKER_HOST: tcp://dind:2375
       PORT: "3000"
       AUTH_SECRET: ${AUTH_SECRET:-}
       AUTH_BASE_URL: ${AUTH_BASE_URL:-http://localhost:3000}
@@ -109,6 +120,8 @@ services:
         condition: service_started
       ui:
         condition: service_started
+      dind:
+        condition: service_started
 
   worker:
     profiles: [deploy]
@@ -120,6 +133,8 @@ services:
       NODE_ENV: production
       DATABASE_URL: postgresql://ctxpipe_app:${POSTGRES_PASSWORD:-ctxpipe}@postgres:5432/${POSTGRES_DB:-ctxpipe}
       GRAPH_DB_URI: redis://falkordb:6379
+      SANDBOX_PROVIDER: docker
+      DOCKER_HOST: tcp://dind:2375
       # Required to decrypt connection secrets (Slack bot tokens, GitHub App keys).
       AUTH_SECRET: ${AUTH_SECRET:-}
       AUTH_BASE_URL: ${AUTH_BASE_URL:-http://localhost:3000}
@@ -141,6 +156,8 @@ services:
       postgres:
         condition: service_healthy
       falkordb:
+        condition: service_started
+      dind:
         condition: service_started
 
   ui:

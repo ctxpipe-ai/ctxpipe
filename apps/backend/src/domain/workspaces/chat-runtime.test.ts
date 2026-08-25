@@ -144,11 +144,7 @@ describe("workspace chat runtime", () => {
         gitUrl: "https://github.com/acme/docs",
         ref: "abc",
       }),
-    ).toMatchObject({
-      ok: true,
-      isolation: "local_process",
-      lifecycle: { reuse: "thread", keepAlive: "30m" },
-    })
+    ).toEqual({ ok: false, reason: "no_isolated_provider" })
     expect(
       workspaceChatSandboxSpec({
         sandboxId: "sbx_1",

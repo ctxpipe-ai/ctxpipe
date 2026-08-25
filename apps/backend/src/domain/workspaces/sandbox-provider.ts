@@ -34,14 +34,6 @@ export function detectSandboxProviderFromEnv(input?: {
   })
 }
 
-export function sandboxMustFailClosed(input: {
-  provider: SandboxProvider
-  canEnforceLimits: boolean
-}): boolean {
-  if (input.provider === "unsandboxed") return false
-  return !input.canEnforceLimits
-}
-
 export async function destroyDetachedProviderSandbox(input: {
   provider?: string | null
   providerSandboxId: string

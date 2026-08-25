@@ -45,8 +45,8 @@ export function classifyWorkspaceWriteHost(url: string): "github" | "other" {
 }
 
 /**
- * Write status from how the repo was added: Select GitHub stamps a connection
- * (writable). Paste URL / non-GitHub remotes stay read-only.
+ * Binding classification only. GitHub + a connection is `unknown` until a
+ * live permission probe (or a successful write) proves writable.
  */
 export function writeStatusFromClassification(input: {
   workspaceRepositoryUrl: string
@@ -59,7 +59,10 @@ export function writeStatusFromClassification(input: {
     }
   }
   if (input.githubConnectionId) {
-    return writableWorkspaceWriteProbe()
+    return {
+      writeStatus: WORKSPACE_WRITE_STATUSES.unknown,
+      readOnlyReason: null,
+    }
   }
   return {
     writeStatus: WORKSPACE_WRITE_STATUSES.read_only,
@@ -156,13 +159,58 @@ export type WorkspaceWriteProbeResult = WorkspaceWriteProbe & {
   defaultBranch: string | null
 }
 
-/** Same rule as create/relink — no live GitHub permission probe. */
+export type WorkspaceWriteViewFetcher = (input: {
+  orgId: string
+  githubConnectionId?: string | null
+  repoFullName: string
+}) => Promise<GithubRepoWriteView>
+
+/** Live GitHub permission/default-branch probe. Classification is not enough. */
 export async function probeWorkspaceWriteAccess(input: {
   workspaceRepositoryUrl: string
   githubConnectionId: string | null | undefined
+  orgId?: string
+  fetchWriteView?: WorkspaceWriteViewFetcher
 }): Promise<WorkspaceWriteProbeResult> {
-  return {
-    ...writeStatusFromClassification(input),
-    defaultBranch: null,
+  const classified = writeStatusFromClassification(input)
+  if (classified.writeStatus !== WORKSPACE_WRITE_STATUSES.unknown) {
+    return { ...classified, defaultBranch: null }
+  }
+  const repoFullName = githubRepoFullNameFromWorkspaceUrl(
+    input.workspaceRepositoryUrl,
+  )
+  if (!repoFullName || !input.githubConnectionId) {
+    return { ...classified, defaultBranch: null }
+  }
+  if (!input.fetchWriteView) {
+    return { ...classified, defaultBranch: null }
+  }
+  if (!input.orgId) {
+    return { ...classified, defaultBranch: null }
+  }
+  try {
+    const view = await input.fetchWriteView({
+      orgId: input.orgId,
+      githubConnectionId: input.githubConnectionId,
+      repoFullName,
+    })
+    if (!view.canPush) {
+      return {
+        writeStatus: WORKSPACE_WRITE_STATUSES.read_only,
+        readOnlyReason: WRITE_STATUS_REASONS.contentsWriteDenied,
+        defaultBranch: view.defaultBranch || null,
+      }
+    }
+    return {
+      ...writableWorkspaceWriteProbe(),
+      defaultBranch: view.defaultBranch || null,
+    }
+  } catch (error) {
+    return {
+      ...writeStatusFromGithubProbeError(
+        error as { status?: number; message?: string },
+      ),
+      defaultBranch: null,
+    }
   }
 }

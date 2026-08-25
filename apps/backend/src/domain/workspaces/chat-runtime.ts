@@ -1,14 +1,10 @@
 import {
   CHAT_PERMISSION_MODE,
-  CHAT_SANDBOX_LIMITS,
   createWorkspaceChatPermissionHandler,
   judgeChatToolWithFastModel,
 } from "./chat-sandbox-policy.js"
 import { sandboxSnapshotKey } from "./revision.js"
-import {
-  detectSandboxProviderFromEnv,
-  sandboxMustFailClosed,
-} from "./sandbox-provider.js"
+import { detectSandboxProviderFromEnv } from "./sandbox-provider.js"
 import { WORKSPACE_CHAT_OPENCODE_CLI } from "./workspace-chat-opencode-contract.js"
 
 /** Locked product chat path: TanStack `chat()` + `withSandbox` + `opencodeText`. */
@@ -17,7 +13,6 @@ export const WORKSPACE_CHAT_RUNTIME = {
   sandbox: "withSandbox",
   harness: "opencodeText",
   permissionMode: CHAT_PERMISSION_MODE,
-  limits: CHAT_SANDBOX_LIMITS,
 } as const
 
 /** Port `opencode serve` binds inside the sandbox. Docker must publish it. */
@@ -142,7 +137,7 @@ export function workspaceChatSandboxSpec(input: {
   | {
       ok: true
       id: string
-      isolation: "docker" | "local_process"
+      isolation: "docker"
       source: { type: "git"; url: string; ref: string }
       lifecycle: {
         reuse: "thread"
@@ -151,10 +146,10 @@ export function workspaceChatSandboxSpec(input: {
       }
     }
   | { ok: false; reason: "no_isolated_provider" } {
-  if (input.provider === "railway") {
+  if (input.provider !== "docker") {
     return { ok: false, reason: "no_isolated_provider" }
   }
-  const isolation = input.provider === "docker" ? "docker" : "local_process"
+  const isolation = "docker" as const
   return {
     ok: true,
     id: input.sandboxId,
@@ -186,10 +181,6 @@ export function workspaceChatRuntimeConfig(input?: {
   return {
     ...WORKSPACE_CHAT_RUNTIME,
     provider,
-    failClosed: sandboxMustFailClosed({
-      provider,
-      canEnforceLimits: true,
-    }),
     onPermissionRequest: createWorkspaceChatPermissionHandler({
       writeStatus: input?.writeStatus ?? "read_only",
       judge: input?.judge ?? judgeChatToolWithFastModel,

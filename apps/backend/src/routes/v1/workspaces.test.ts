@@ -30,12 +30,12 @@ const readWorkspaceCheckoutFileMock = vi.hoisted(() =>
 )
 const getJobSandboxMock = vi.hoisted(() => vi.fn().mockReturnValue(null))
 
-const ensureOrgRepositoryAndIngestMock = vi.hoisted(() =>
+const ensureOrgRepositoryForGitUrlMock = vi.hoisted(() =>
   vi.fn().mockResolvedValue(null),
 )
 
 vi.mock("../../domain/workspaces/ensure-org-repository.js", () => ({
-  ensureOrgRepositoryAndIngest: ensureOrgRepositoryAndIngestMock,
+  ensureOrgRepositoryForGitUrl: ensureOrgRepositoryForGitUrlMock,
 }))
 
 vi.mock("../../openworkflow/enqueue-workspace-write-commit.js", () => ({
@@ -167,8 +167,8 @@ describe("workspaces API", () => {
     listWorkspaceCheckoutPathsMock.mockResolvedValue([])
     readWorkspaceCheckoutFileMock.mockResolvedValue({ kind: "missing" })
     getJobSandboxMock.mockReturnValue(null)
-    ensureOrgRepositoryAndIngestMock.mockReset()
-    ensureOrgRepositoryAndIngestMock.mockResolvedValue(null)
+    ensureOrgRepositoryForGitUrlMock.mockReset()
+    ensureOrgRepositoryForGitUrlMock.mockResolvedValue(null)
     getGithubInstallationByConnectionIdMock.mockImplementation(
       async (_orgId: string, connectionId: string) => ({ id: connectionId }),
     )
@@ -223,7 +223,7 @@ describe("workspaces API", () => {
     })
     const body = await res.json()
     expect(body.slug).toBe("knowledge")
-    expect(ensureOrgRepositoryAndIngestMock).toHaveBeenCalledWith(
+    expect(ensureOrgRepositoryForGitUrlMock).toHaveBeenCalledWith(
       expect.objectContaining({
         orgId: "org_mock",
         gitUrl: "https://github.com/acme/knowledge",
@@ -262,7 +262,7 @@ describe("workspaces API", () => {
         readOnlyReason: null,
       },
     })
-    expect(ensureOrgRepositoryAndIngestMock).toHaveBeenCalledWith(
+    expect(ensureOrgRepositoryForGitUrlMock).toHaveBeenCalledWith(
       expect.objectContaining({
         githubConnectionId: "con_gh",
       }),
@@ -358,7 +358,7 @@ describe("workspaces API", () => {
       }),
     })
     expect(res.status).toBe(201)
-    expect(ensureOrgRepositoryAndIngestMock).toHaveBeenCalledWith(
+    expect(ensureOrgRepositoryForGitUrlMock).toHaveBeenCalledWith(
       expect.objectContaining({
         orgId: "org_mock",
         gitUrl: "https://github.com/acme/knowledge",
@@ -379,7 +379,7 @@ describe("workspaces API", () => {
     )
   })
 
-  it("does not queue first-create links while write status is unknown", async () => {
+  it("queues paused first-create export and links while write status is unknown", async () => {
     createWorkspaceMock.mockResolvedValue({
       ...workspaceRow,
       writeStatus: "unknown",
@@ -394,7 +394,22 @@ describe("workspaces API", () => {
     })
     expect(res.status).toBe(201)
     expect(enqueueWorkspaceHydrate).toHaveBeenCalled()
-    expect(enqueueWorkspaceWriteCommit).not.toHaveBeenCalled()
+    expect(enqueueWorkspaceWriteCommit).toHaveBeenCalledWith(
+      expect.objectContaining({
+        workspaceId: "ws_abc",
+        kind: "migration_export",
+      }),
+      expect.anything(),
+    )
+    expect(enqueueWorkspaceWriteCommit).toHaveBeenCalledWith(
+      expect.objectContaining({
+        workspaceId: "ws_abc",
+        kind: "link_unlink",
+        linkAction: "link",
+        linkGitUrl: "https://github.com/acme/app.git",
+      }),
+      expect.anything(),
+    )
   })
 
   it("returns workspace details with linked remotes", async () => {
@@ -451,7 +466,7 @@ describe("workspaces API", () => {
         readOnlyReason: WRITE_STATUS_REASONS.githubNotConnected,
       },
     })
-    expect(ensureOrgRepositoryAndIngestMock).toHaveBeenCalledWith(
+    expect(ensureOrgRepositoryForGitUrlMock).toHaveBeenCalledWith(
       expect.objectContaining({
         orgId: "org_mock",
         gitUrl: "https://github.com/acme/docs",
@@ -775,7 +790,7 @@ describe("workspaces API", () => {
       },
     )
     expect(res.status).toBe(202)
-    expect(ensureOrgRepositoryAndIngestMock).toHaveBeenCalledWith(
+    expect(ensureOrgRepositoryForGitUrlMock).toHaveBeenCalledWith(
       expect.objectContaining({
         orgId: "org_mock",
         gitUrl: "https://github.com/acme/app",

@@ -20,15 +20,20 @@ import { listOrgConversationsForSandboxGc } from "../../models/conversations.js"
 import {
   claimPausedWriteJob,
   getWorkspaceById,
+  listMigrationExportJobWorkspaceIds,
   listMigrationExportShas,
   listOrgLinkedRepositories,
   listOrgWorkspaces,
   listPausedWriteJobs,
+  reconcileDestWorkspaceAssignment,
   persistLinkedDesiredSha,
   persistResolvedDesiredSha,
   persistWriteStatus,
 } from "../../models/workspaces.js"
-import { resolveWorkspaceRepositoryTip } from "../../routes/webhooks/github/github-workspace-tip.js"
+import {
+  getGithubRepoWriteView,
+  resolveWorkspaceRepositoryTip,
+} from "../../routes/webhooks/github/github-workspace-tip.js"
 import { enqueueWorkspaceHydrate } from "../enqueue-workspace-hydrate.js"
 import { enqueueWorkspaceIndex } from "../enqueue-workspace-index.js"
 import {
@@ -49,6 +54,9 @@ export const workspaceTipCheck = defineWorkflow(
     })
     if (!org) throw new Error(`Organization not found: ${input.orgId}`)
     return withOrgIdContext({ id: org.id, slug: org.slug }, async () => {
+      await withOrgDbContext(input.orgId, () =>
+        reconcileDestWorkspaceAssignment(input.orgId),
+      )
       const workspaces = await withOrgDbContext(input.orgId, () =>
         listOrgWorkspaces(input.orgId),
       )
@@ -59,6 +67,12 @@ export const workspaceTipCheck = defineWorkflow(
         const probe = await probeWorkspaceWriteAccess({
           workspaceRepositoryUrl: workspace.workspaceRepositoryUrl,
           githubConnectionId: workspace.githubConnectionId,
+          orgId: input.orgId,
+          fetchWriteView: (args) =>
+            getGithubRepoWriteView({
+              ...args,
+              env,
+            }),
         })
         writeStatusById.set(workspace.id, probe.writeStatus)
         const claimed = await withOrgDbContext(input.orgId, async () => {
@@ -114,10 +128,30 @@ export const workspaceTipCheck = defineWorkflow(
       for (const item of updated) {
         desiredById.set(item.workspaceId, item.resolvedTip)
       }
-      const exportShas = await withOrgDbContext(input.orgId, () =>
-        listMigrationExportShas(),
+      const [exportShas, exportJobWorkspaceIds] = await withOrgDbContext(
+        input.orgId,
+        () =>
+          Promise.all([
+            listMigrationExportShas(),
+            listMigrationExportJobWorkspaceIds(),
+          ]),
       )
       for (const workspace of workspaces) {
+        const writeStatus = writeStatusById.get(workspace.id)
+        if (
+          writeStatus === "writable" &&
+          !exportShas.has(workspace.id) &&
+          !exportJobWorkspaceIds.has(workspace.id)
+        ) {
+          await enqueueWorkspaceWriteCommit(
+            {
+              orgId: input.orgId,
+              workspaceId: workspace.id,
+              kind: "migration_export",
+            },
+            quietLog,
+          )
+        }
         if (
           shouldEnqueueCronHydrate({
             migrationExportSha: exportShas.get(workspace.id) ?? null,
