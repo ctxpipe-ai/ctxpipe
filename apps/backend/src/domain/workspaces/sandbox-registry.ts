@@ -15,7 +15,6 @@ import {
 } from "./chat-lifecycle.js"
 import type { JobSandboxHandle } from "./job-worktree.js"
 import { destroyDetachedProviderSandbox } from "./sandbox-provider.js"
-import { releaseWorkspaceChatConversationRuntime } from "./workspace-chat-conversation-runtime.js"
 
 export type RegisteredSandbox = {
   id: string
@@ -226,7 +225,6 @@ async function destroyListedSandboxesForConversation(
       .map((row) => row.id),
     ...stored.map((row) => row.id),
   ])
-  await releaseWorkspaceChatConversationRuntime(conversationId)
   let destroyed = 0
   for (const id of ids) {
     const orgId =

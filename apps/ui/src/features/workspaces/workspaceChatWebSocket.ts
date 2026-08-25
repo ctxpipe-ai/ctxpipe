@@ -49,6 +49,23 @@ export function workspaceChatWebSocket(
 
   return {
     ...connection,
+    async hydrate(threadId: string) {
+      if (typeof fetch === "undefined") {
+        return { messages: [], activeRun: null }
+      }
+      const res = await fetch(
+        `${path}/chat?threadId=${encodeURIComponent(threadId)}`,
+        {
+          headers: { Accept: "application/json" },
+          credentials: "include",
+        },
+      )
+      if (!res.ok) return { messages: [], activeRun: null }
+      return (await res.json()) as {
+        messages: unknown[]
+        activeRun: { runId: string } | null
+      }
+    },
     warm() {
       if (typeof WebSocket === "undefined") return
       if (warmed && warmed.readyState <= WebSocket.OPEN) return

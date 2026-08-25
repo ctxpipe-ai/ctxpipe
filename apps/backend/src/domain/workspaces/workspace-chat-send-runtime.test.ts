@@ -19,46 +19,13 @@ vi.mock("./workspace-chat-turn-runtime.js", () => ({
 }))
 
 import { resolveWorkspaceChatSendRuntime } from "./workspace-chat-send-runtime.js"
-import {
-  resetWorkspaceChatConversationRuntimes,
-  setWorkspaceChatConversationRuntime,
-} from "./workspace-chat-conversation-runtime.js"
 
 describe("resolveWorkspaceChatSendRuntime", () => {
   beforeEach(() => {
     vi.clearAllMocks()
-    resetWorkspaceChatConversationRuntimes()
   })
 
-  it("skips workspace fetch when the conversation runtime already has a snapshot", async () => {
-    setWorkspaceChatConversationRuntime({
-      conversationId: "conv_warm",
-      runToken: "tok",
-      proxy: { close: async () => {} } as never,
-      proxyLease: null,
-      servePort: 4097,
-      servePortLease: null,
-      tools: [],
-      serve: null,
-      workspace: {
-        orgId: "org_1",
-        workspaceId: "ws_1",
-        desiredUrl: "https://github.com/acme/docs",
-        desiredSha: "abc",
-        writeStatus: "read_only",
-      },
-    })
-    const resolved = await resolveWorkspaceChatSendRuntime({
-      conversationId: "conv_warm",
-      workspaceId: "ws_1",
-    })
-    expect(resolved.desiredUrl).toBe("https://github.com/acme/docs")
-    expect(ensureConversationMock).not.toHaveBeenCalled()
-    expect(getWorkspaceByIdMock).not.toHaveBeenCalled()
-    expect(resolveWorkspaceChatTurnRuntimeMock).not.toHaveBeenCalled()
-  })
-
-  it("loads workspace identity when the conversation runtime has no snapshot", async () => {
+  it("loads workspace identity from the conversation row", async () => {
     ensureConversationMock.mockResolvedValue({
       id: "conv_cold",
       workspaceId: "ws_1",

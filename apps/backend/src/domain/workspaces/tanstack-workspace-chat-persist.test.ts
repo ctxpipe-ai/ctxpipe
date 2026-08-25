@@ -54,7 +54,7 @@ const captured = vi.hoisted(() => ({
 }))
 
 const chatMock = vi.hoisted(() =>
-  vi.fn(async function* (opts: { threadId: string }) {
+  vi.fn(async function* (opts: { threadId: string; runId?: string }) {
     const key = `thread:${opts.threadId}`
     const store = captured.instances
     if (!store) throw new Error("withSandbox did not provide an instance store")
@@ -65,6 +65,11 @@ const chatMock = vi.hoisted(() =>
       threadId: opts.threadId,
       updatedAt: Date.now(),
     })
+    yield {
+      type: "RUN_STARTED",
+      threadId: opts.threadId,
+      runId: opts.runId ?? "run_first",
+    }
     yield { type: "TEXT_MESSAGE_CONTENT", delta: "pong" }
     yield { type: "RUN_FINISHED" }
   }),
@@ -74,6 +79,13 @@ vi.mock("@tanstack/ai", () => ({
   chat: chatMock,
   toServerSentEventsResponse: vi.fn(),
   toHttpResponse: vi.fn(),
+  modelMessagesToUIMessages: (messages: unknown[]) => messages,
+}))
+vi.mock("@tanstack/ai-persistence", () => ({
+  withPersistence: vi.fn((persistence: unknown) => persistence),
+}))
+vi.mock("@tanstack/ai/middlewares/otel", () => ({
+  otelMiddleware: () => "otel",
 }))
 vi.mock("@tanstack/ai-opencode", () => ({
   opencodeText: vi.fn(() => "adapter"),
@@ -88,6 +100,11 @@ vi.mock("@tanstack/ai-sandbox", () => ({
     captured.instances = opts.instances
     return "mw"
   }),
+  memorySandboxSnapshots: vi.fn(async () => ({
+    persistence: { stores: {} },
+    checkpoints: {},
+  })),
+  createSandboxSnapshots: vi.fn((input: unknown) => input),
 }))
 vi.mock("@tanstack/ai-sandbox-docker", () => ({
   dockerSandbox: vi.fn(() => "docker-provider"),
@@ -102,12 +119,15 @@ vi.mock("./workspace-chat-model-proxy.js", () => ({
     close: vi.fn(async () => {}),
   })),
 }))
-vi.mock("./workspace-chat-opencode-attach.js", () => ({
-  streamAttachedOpenCodeTurn: vi.fn(async function* () {
-    yield { type: "TEXT_MESSAGE_CONTENT", delta: "attached" }
+vi.mock("./workspace-chat-persistence.js", () => ({
+  workspaceChatPersistence: () => ({
+    stores: {
+      messages: {
+        loadThread: async () => [],
+        saveThread: async () => {},
+      },
+    },
   }),
-  startConversationOpenCodeServe: vi.fn(async () => null),
-  isOpenCodeServeHealthy: vi.fn(async () => false),
 }))
 vi.mock("../../graphs/conversationGraph/nodes/conversationNaming.js", () => ({
   nameConversationIfUnnamed: vi.fn().mockResolvedValue(null),
@@ -174,10 +194,6 @@ beforeEach(async () => {
   process.env.MODEL_PROVIDER = "openai-like"
   process.env.MODEL_PROVIDER_API_KEY = "sk-test-chat-persist"
   delete process.env.SANDBOX_PROVIDER
-  const { resetWorkspaceChatConversationRuntimes } = await import(
-    "./workspace-chat-conversation-runtime.js"
-  )
-  resetWorkspaceChatConversationRuntimes()
 })
 
 async function collectTurn(
@@ -259,34 +275,20 @@ describe("two-turn workspace chat persist", () => {
     expect(secondDelta).toBeGreaterThan(secondStarted)
     expect(secondFinished).toBeGreaterThan(secondDelta)
 
-    const [rows, turns] = await withOrgDbContext(org.id, async (db) => {
-      const sandboxes = await db
+    const rows = await withOrgDbContext(org.id, async (db) =>
+      db
         .select({
           id: workspaceSandboxInstances.id,
           state: workspaceSandboxInstances.state,
           kind: workspaceSandboxInstances.kind,
         })
         .from(workspaceSandboxInstances)
-        .where(eq(workspaceSandboxInstances.conversationId, conversationId))
-      const messages = await db
-        .select({
-          role: conversationMessages.role,
-          content: conversationMessages.content,
-        })
-        .from(conversationMessages)
-        .where(eq(conversationMessages.conversationId, conversationId))
-        .orderBy(conversationMessages.seq)
-      return [sandboxes, messages] as const
-    })
+        .where(eq(workspaceSandboxInstances.conversationId, conversationId)),
+    )
 
     expect(rows).toEqual([
       { id: `thread:${conversationId}`, state: "live", kind: "chat" },
     ])
-    expect(turns).toEqual([
-      { role: "user", content: "first question" },
-      { role: "assistant", content: "pong" },
-      { role: "user", content: "second question" },
-      { role: "assistant", content: "pong" },
-    ])
+    expect(chatMock).toHaveBeenCalledTimes(2)
   })
 })

@@ -1,6 +1,6 @@
 # ADR-029: In-sandbox keep-alive OpenCode serve
 
-**Status:** Accepted | **Date:** 2026-08-24 | **Tags:** workspace-chat, tanstack, opencode, latency
+**Status:** Superseded by [ADR-030](ADR-030-workspace-chat-stock-tanstack.md) | **Date:** 2026-08-24 | **Tags:** workspace-chat, tanstack, opencode, latency
 
 ## Context
 

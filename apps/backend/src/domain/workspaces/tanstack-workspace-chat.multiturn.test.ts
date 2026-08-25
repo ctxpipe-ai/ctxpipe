@@ -24,10 +24,7 @@ import {
   withOrgDbContext,
 } from "../../db/client.js"
 import { organizations, users } from "../../db/schema/auth.js"
-import {
-  conversationMessages,
-  conversations,
-} from "../../db/schema/conversations.js"
+import { conversations } from "../../db/schema/conversations.js"
 import {
   workspaceSandboxInstances,
   workspaces,
@@ -217,9 +214,6 @@ describe.skipIf(!live)("live two-turn workspace chat", () => {
           .delete(workspaceSandboxInstances)
           .where(eq(workspaceSandboxInstances.workspaceId, workspaceId))
         await db
-          .delete(conversationMessages)
-          .where(eq(conversationMessages.conversationId, conversationId))
-        await db
           .delete(conversations)
           .where(eq(conversations.id, conversationId))
         await db.delete(workspaces).where(eq(workspaces.id, workspaceId))
@@ -324,43 +318,22 @@ describe.skipIf(!live)("live two-turn workspace chat", () => {
         ),
       ).toEqual([])
 
-      const [rows, turns] = await withOrgDbContext(org.id, async (db) => {
-        const sandboxes = await db
+      const rows = await withOrgDbContext(org.id, async (db) =>
+        db
           .select({ id: workspaceSandboxInstances.id })
           .from(workspaceSandboxInstances)
-          .where(eq(workspaceSandboxInstances.conversationId, conversationId))
-        const messages = await db
-          .select({
-            role: conversationMessages.role,
-            content: conversationMessages.content,
-          })
-          .from(conversationMessages)
-          .where(eq(conversationMessages.conversationId, conversationId))
-          .orderBy(conversationMessages.seq)
-        return [sandboxes, messages] as const
-      })
+          .where(eq(workspaceSandboxInstances.conversationId, conversationId)),
+      )
       expect(rows).toHaveLength(1)
 
-      expect(turns.filter((turn) => turn.role === "user")).toEqual([
-        { role: "user", content: "ping-1" },
-        { role: "user", content: "ping-2" },
-      ])
-      const assistants = turns.filter((turn) => turn.role === "assistant")
-      for (const turn of assistants) {
-        expect(["pong-1", "pong-2"]).toContain(turn.content)
-      }
       const firstText = assistantText(first)
       const secondText = assistantText(second)
       if (
         first.some((chunk) => chunk.type === "RUN_FINISHED") &&
-        second.some((chunk) => chunk.type === "RUN_FINISHED") &&
-        firstText === "pong-1" &&
-        secondText === "pong-2"
+        second.some((chunk) => chunk.type === "RUN_FINISHED")
       ) {
-        expect(assistants).toEqual([
-          { role: "assistant", content: "pong-1" },
-          { role: "assistant", content: "pong-2" },
-        ])
+        expect(firstText).toBe("pong-1")
+        expect(secondText).toBe("pong-2")
       }
     },
   )

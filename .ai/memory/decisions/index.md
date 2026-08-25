@@ -37,4 +37,5 @@ Parent: [`.ai/memory/README.md`](../README.md).
 | [ADR-026](ADR-026-pierre-files-pane-chrome.md) | Pierre trees/diffs as Workspace Files explorer chrome | Accepted |
 | [ADR-027](ADR-027-short-org-sql-unique-sandbox-rows.md) | Short org SQL transactions and unique sandbox rows | Accepted |
 | [ADR-028](ADR-028-postgres-rls-app-role.md) | Postgres RLS with a non-owner app role | Accepted |
-| [ADR-029](ADR-029-workspace-chat-keep-alive-serve.md) | In-sandbox keep-alive OpenCode serve | Accepted |
+| [ADR-029](ADR-029-workspace-chat-keep-alive-serve.md) | In-sandbox keep-alive OpenCode serve | Superseded by [ADR-030](ADR-030-workspace-chat-stock-tanstack.md) |
+| [ADR-030](ADR-030-workspace-chat-stock-tanstack.md) | Stock TanStack workspace chat | Accepted |

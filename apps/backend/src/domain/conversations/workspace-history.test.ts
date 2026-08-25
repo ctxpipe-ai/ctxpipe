@@ -2,9 +2,21 @@ import { beforeEach, describe, expect, it, vi } from "vitest"
 
 const loadTurnsMock = vi.hoisted(() => vi.fn())
 const runTanstackWorkspaceChatMock = vi.hoisted(() => vi.fn())
+const loadThreadMock = vi.hoisted(() => vi.fn(async () => []))
 
 vi.mock("../../models/conversation-messages.js", () => ({
   loadConversationTurns: loadTurnsMock,
+}))
+
+vi.mock("../workspaces/workspace-chat-persistence.js", () => ({
+  workspaceChatPersistence: () => ({
+    stores: {
+      messages: {
+        loadThread: loadThreadMock,
+        saveThread: async () => {},
+      },
+    },
+  }),
 }))
 
 vi.mock("../../observability/langfuse.js", () => ({
@@ -26,7 +38,29 @@ import {
 describe("loadConversationUiMessages", () => {
   beforeEach(() => {
     loadTurnsMock.mockReset()
+    loadThreadMock.mockReset()
+    loadThreadMock.mockResolvedValue([])
     runTanstackWorkspaceChatMock.mockReset()
+  })
+
+  it("prefers persisted TanStack messages over text-only turns", async () => {
+    loadThreadMock.mockResolvedValueOnce([
+      {
+        role: "assistant",
+        content: [
+          { type: "reasoning", text: "think" },
+          { type: "text", text: "stored" },
+        ],
+      },
+    ])
+    const messages = await loadConversationUiMessages({
+      conversationId: "conv_1",
+      checkpointNamespace: "",
+      workspaceId: "ws_1",
+    })
+    expect(loadTurnsMock).not.toHaveBeenCalled()
+    expect(messages.length).toBeGreaterThan(0)
+    expect(JSON.stringify(messages)).toMatch(/think|stored|reasoning/)
   })
 
   it("loads Workspace turns from Postgres instead of LangGraph", async () => {
