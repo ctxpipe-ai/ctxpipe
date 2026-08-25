@@ -15,7 +15,10 @@ import {
   shouldEnqueueCronHydrate,
 } from "../../domain/workspaces/tip-resolve.js"
 import { resumePausedWriteJobs } from "../../domain/workspaces/write-job-resume.js"
-import { probeWorkspaceWriteAccess } from "../../domain/workspaces/write-status.js"
+import {
+  nextPersistedWriteProbe,
+  probeWorkspaceWriteAccess,
+} from "../../domain/workspaces/write-status.js"
 import { listOrgConversationsForSandboxGc } from "../../models/conversations.js"
 import {
   claimPausedWriteJob,
@@ -74,10 +77,14 @@ export const workspaceTipCheck = defineWorkflow(
               env,
             }),
         })
-        writeStatusById.set(workspace.id, probe.writeStatus)
+        const write = nextPersistedWriteProbe({
+          currentStatus: workspace.writeStatus,
+          probe,
+        })
+        writeStatusById.set(workspace.id, write.writeStatus)
         const claimed = await withOrgDbContext(input.orgId, async () => {
-          await persistWriteStatus(workspace.id, probe, input.orgId)
-          if (probe.writeStatus !== "writable") return []
+          await persistWriteStatus(workspace.id, write, input.orgId)
+          if (write.writeStatus !== "writable") return []
           const pending: EnqueueWorkspaceWriteCommitInput[] = []
           await resumePausedWriteJobs({
             orgId: input.orgId,

@@ -4,6 +4,7 @@ import {
   githubConnectionIdForWriteProbe,
   githubInstallationCanPush,
   githubRepoFullNameFromWorkspaceUrl,
+  nextPersistedWriteProbe,
   probeWorkspaceWriteAccess,
   WRITE_STATUS_REASONS,
   writeStatusFromClassification,
@@ -190,5 +191,46 @@ describe("probeWorkspaceWriteAccess", () => {
       readOnlyReason: WRITE_STATUS_REASONS.contentsWriteDenied,
       defaultBranch: "main",
     })
+  })
+})
+
+describe("nextPersistedWriteProbe", () => {
+  it("does not persist read_only over writable on a lookup miss or unknown probe", () => {
+    expect(
+      nextPersistedWriteProbe({
+        currentStatus: "writable",
+        probe: {
+          writeStatus: "read_only",
+          readOnlyReason: WRITE_STATUS_REASONS.notInInstallation,
+        },
+      }),
+    ).toEqual({ writeStatus: "unknown", readOnlyReason: null })
+    expect(
+      nextPersistedWriteProbe({
+        currentStatus: "writable",
+        probe: { writeStatus: "unknown", readOnlyReason: null },
+      }),
+    ).toEqual({ writeStatus: "unknown", readOnlyReason: null })
+  })
+
+  it("persists a positive deny and a proven writable result", () => {
+    expect(
+      nextPersistedWriteProbe({
+        currentStatus: "writable",
+        probe: {
+          writeStatus: "read_only",
+          readOnlyReason: WRITE_STATUS_REASONS.contentsWriteDenied,
+        },
+      }),
+    ).toEqual({
+      writeStatus: "read_only",
+      readOnlyReason: WRITE_STATUS_REASONS.contentsWriteDenied,
+    })
+    expect(
+      nextPersistedWriteProbe({
+        currentStatus: "unknown",
+        probe: { writeStatus: "writable", readOnlyReason: null },
+      }),
+    ).toEqual({ writeStatus: "writable", readOnlyReason: null })
   })
 })

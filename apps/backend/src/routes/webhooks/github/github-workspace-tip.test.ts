@@ -25,6 +25,7 @@ vi.mock("../../../models/github-installation.js", () => ({
 }))
 
 import {
+  getGithubRepoWriteView,
   persistWorkspaceTipsOnDefaultBranchPush,
   resolveGithubBranchTip,
   resolveWorkspaceRepositoryTip,
@@ -184,5 +185,126 @@ describe("resolveWorkspaceRepositoryTip", () => {
       repo: "docs",
       ref: "heads/release",
     })
+  })
+})
+
+describe("getGithubRepoWriteView", () => {
+  const env = {} as never
+
+  it("treats App contents:write or push as writable", async () => {
+    getInstallationOctokitForOrgMock.mockResolvedValue({
+      octokit: {
+        rest: {
+          repos: {
+            get: async () => ({
+              data: {
+                default_branch: "main",
+                permissions: { contents: "write" },
+              },
+            }),
+          },
+        },
+      },
+    })
+    await expect(
+      getGithubRepoWriteView({
+        orgId: "org_1",
+        githubConnectionId: "con_gh",
+        repoFullName: "acme/docs",
+        env,
+      }),
+    ).resolves.toEqual({ defaultBranch: "main", canPush: true })
+
+    getInstallationOctokitForOrgMock.mockResolvedValue({
+      octokit: {
+        rest: {
+          repos: {
+            get: async () => ({
+              data: {
+                default_branch: "main",
+                permissions: { push: true },
+              },
+            }),
+          },
+        },
+      },
+    })
+    await expect(
+      getGithubRepoWriteView({
+        orgId: "org_1",
+        githubConnectionId: "con_gh",
+        repoFullName: "acme/docs",
+        env,
+      }),
+    ).resolves.toEqual({ defaultBranch: "main", canPush: true })
+  })
+
+  it("treats a successful repos.get without permissions as writable", async () => {
+    getInstallationOctokitForOrgMock.mockResolvedValue({
+      octokit: {
+        rest: {
+          repos: {
+            get: async () => ({
+              data: { default_branch: "develop" },
+            }),
+          },
+        },
+      },
+    })
+    await expect(
+      getGithubRepoWriteView({
+        orgId: "org_1",
+        githubConnectionId: "con_gh",
+        repoFullName: "acme/docs",
+        env,
+      }),
+    ).resolves.toEqual({ defaultBranch: "develop", canPush: true })
+  })
+
+  it("denies pull-only permissions", async () => {
+    getInstallationOctokitForOrgMock.mockResolvedValue({
+      octokit: {
+        rest: {
+          repos: {
+            get: async () => ({
+              data: {
+                default_branch: "main",
+                permissions: { pull: true },
+              },
+            }),
+          },
+        },
+      },
+    })
+    await expect(
+      getGithubRepoWriteView({
+        orgId: "org_1",
+        githubConnectionId: "con_gh",
+        repoFullName: "acme/docs",
+        env,
+      }),
+    ).resolves.toEqual({ defaultBranch: "main", canPush: false })
+  })
+
+  it("does not mark an installation lookup miss as a 404 deny", async () => {
+    getInstallationOctokitForOrgMock.mockResolvedValue(undefined)
+    await expect(
+      getGithubRepoWriteView({
+        orgId: "org_1",
+        githubConnectionId: "con_gh",
+        repoFullName: "acme/docs",
+        env,
+      }),
+    ).rejects.toMatchObject({
+      message: "GitHub installation not found",
+    })
+    await expect(
+      getGithubRepoWriteView({
+        orgId: "org_1",
+        githubConnectionId: "con_gh",
+        repoFullName: "acme/docs",
+        env,
+      }).catch((error: { status?: number }) => error.status),
+    ).resolves.toBeUndefined()
   })
 })

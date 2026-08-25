@@ -3,6 +3,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest"
 const listOrgWorkspacesMock = vi.hoisted(() => vi.fn())
 const listMigrationExportShasMock = vi.hoisted(() => vi.fn())
 const listOrgLinkedRepositoriesMock = vi.hoisted(() => vi.fn())
+const persistWriteStatusMock = vi.hoisted(() => vi.fn())
 const enqueueWorkspaceHydrateMock = vi.hoisted(() => vi.fn())
 const enqueueWorkspaceIndexMock = vi.hoisted(() => vi.fn())
 const enqueueWorkspaceWriteCommitMock = vi.hoisted(() => vi.fn())
@@ -73,7 +74,7 @@ vi.mock("../../models/workspaces.js", () => ({
   getWorkspaceById: vi.fn(),
   persistLinkedDesiredSha: vi.fn(),
   persistResolvedDesiredSha: vi.fn(),
-  persistWriteStatus: vi.fn(),
+  persistWriteStatus: persistWriteStatusMock,
 }))
 
 vi.mock("../../domain/workspaces/sandbox-registry.js", () => ({
@@ -83,12 +84,16 @@ vi.mock("../../domain/workspaces/sandbox-registry.js", () => ({
   destroySandboxesForWorkspace: vi.fn(),
 }))
 
-vi.mock("../../routes/webhooks/github/github-workspace-tip.js", () => ({
-  resolveWorkspaceRepositoryTip: vi.fn(),
-  getGithubRepoWriteView: vi.fn().mockResolvedValue({
+const getGithubRepoWriteViewMock = vi.hoisted(() =>
+  vi.fn().mockResolvedValue({
     defaultBranch: "main",
     canPush: true,
   }),
+)
+
+vi.mock("../../routes/webhooks/github/github-workspace-tip.js", () => ({
+  resolveWorkspaceRepositoryTip: vi.fn(),
+  getGithubRepoWriteView: getGithubRepoWriteViewMock,
 }))
 
 vi.mock("../enqueue-workspace-hydrate.js", () => ({
@@ -136,6 +141,10 @@ describe("workspaceTipCheck workflow", () => {
     listMigrationExportShasMock.mockResolvedValue(new Map())
     listOrgLinkedRepositoriesMock.mockResolvedValue([])
     enqueueWorkspaceWriteCommitMock.mockResolvedValue({ started: true })
+    getGithubRepoWriteViewMock.mockResolvedValue({
+      defaultBranch: "main",
+      canPush: true,
+    })
   })
 
   it("completes sandbox GC without a Hono request", async () => {
@@ -187,6 +196,31 @@ describe("workspaceTipCheck workflow", () => {
         kind: "migration_export",
       }),
       expect.anything(),
+    )
+  })
+
+  it("does not persist read_only over a writable workspace on a lookup miss", async () => {
+    listOrgWorkspacesMock.mockResolvedValue([
+      {
+        id: "ws_live",
+        workspaceRepositoryUrl: "https://github.com/acme/docs.git",
+        desiredGeneration: 1,
+        desiredSha: "abc",
+        activeProjectionSha: "abc",
+        githubConnectionId: "con_gh",
+        writeStatus: "writable",
+        createdAt: new Date(),
+        lastJobAt: null,
+      },
+    ])
+    getGithubRepoWriteViewMock.mockRejectedValueOnce(
+      new Error("GitHub installation not found"),
+    )
+    await tipCheckFn.fn({ input: { orgId: "org_1" } })
+    expect(persistWriteStatusMock).toHaveBeenCalledWith(
+      "ws_live",
+      { writeStatus: "unknown", readOnlyReason: null },
+      "org_1",
     )
   })
 })

@@ -6,7 +6,10 @@ import {
   writeJobIntentPayload,
   writeJobIntentStatus,
 } from "../domain/workspaces/write-job-intent.js"
-import { probeWorkspaceWriteAccess } from "../domain/workspaces/write-status.js"
+import {
+  nextPersistedWriteProbe,
+  probeWorkspaceWriteAccess,
+} from "../domain/workspaces/write-status.js"
 import { generateObjectId } from "../lib/id.js"
 import {
   getWorkspaceById,
@@ -45,10 +48,14 @@ async function probedWriteStatus(input: {
           env: parseEnv(process.env as Record<string, string | undefined>),
         }),
     })
+    const write = nextPersistedWriteProbe({
+      currentStatus: input.workspace.writeStatus,
+      probe,
+    })
     await withOrgDbContext(input.orgId, () =>
-      persistWriteStatus(input.workspace.id, probe, input.orgId),
+      persistWriteStatus(input.workspace.id, write, input.orgId),
     )
-    return probe.writeStatus
+    return write.writeStatus
   } catch {
     return input.workspace.writeStatus
   }

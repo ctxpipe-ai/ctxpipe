@@ -82,11 +82,7 @@ export async function getGithubRepoWriteView(input: {
     input.githubConnectionId ?? undefined,
   )
   if (!ctx) {
-    const error = new Error("GitHub installation not found") as Error & {
-      status: number
-    }
-    error.status = 404
-    throw error
+    throw new Error("GitHub installation not found")
   }
   const [owner, repo] = input.repoFullName.split("/")
   if (!owner || !repo) {

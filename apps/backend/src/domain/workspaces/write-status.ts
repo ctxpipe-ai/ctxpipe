@@ -166,6 +166,33 @@ export type WorkspaceWriteViewFetcher = (input: {
 }) => Promise<GithubRepoWriteView>
 
 /** Live GitHub permission/default-branch probe. Classification is not enough. */
+/** Persist a live probe without downgrading writable to read_only on a miss. */
+export function nextPersistedWriteProbe(input: {
+  currentStatus: string
+  probe: WorkspaceWriteProbe
+}): WorkspaceWriteProbe {
+  if (input.probe.writeStatus === WORKSPACE_WRITE_STATUSES.writable) {
+    return {
+      writeStatus: WORKSPACE_WRITE_STATUSES.writable,
+      readOnlyReason: null,
+    }
+  }
+  if (
+    input.probe.writeStatus === WORKSPACE_WRITE_STATUSES.read_only &&
+    input.probe.readOnlyReason === WRITE_STATUS_REASONS.notInInstallation &&
+    input.currentStatus === WORKSPACE_WRITE_STATUSES.writable
+  ) {
+    return { writeStatus: WORKSPACE_WRITE_STATUSES.unknown, readOnlyReason: null }
+  }
+  if (input.probe.writeStatus === WORKSPACE_WRITE_STATUSES.read_only) {
+    return {
+      writeStatus: WORKSPACE_WRITE_STATUSES.read_only,
+      readOnlyReason: input.probe.readOnlyReason,
+    }
+  }
+  return { writeStatus: WORKSPACE_WRITE_STATUSES.unknown, readOnlyReason: null }
+}
+
 export async function probeWorkspaceWriteAccess(input: {
   workspaceRepositoryUrl: string
   githubConnectionId: string | null | undefined
