@@ -40,6 +40,18 @@ export function workspaceChatRunStarted(input: {
   } as StreamChunk
 }
 
+export function workspaceChatRunFinished(input: {
+  conversationId: string
+  runId?: string
+}): StreamChunk {
+  return {
+    type: "RUN_FINISHED",
+    threadId: input.conversationId,
+    runId: input.runId ?? generateObjectId("run"),
+    timestamp: Date.now(),
+  } as StreamChunk
+}
+
 export function workspaceChatRunError(message: string): StreamChunk {
   return {
     type: "RUN_ERROR",
@@ -115,7 +127,7 @@ export async function* withWorkspaceChatHeartbeats(
       pending = iterator.next()
     }
   } finally {
-    // A hung OpenCode iterator.return() must not block claim release.
+    // A hung OpenCode iterator.return() must not block stream teardown.
     void iterator.return?.()
   }
 }

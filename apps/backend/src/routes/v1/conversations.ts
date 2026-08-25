@@ -479,9 +479,18 @@ export const conversationRoutes = new OpenAPIHono<AppEnv>()
 
     const url = new URL(c.req.url)
     url.searchParams.set("threadId", conversationId)
-    return reconstructChat(workspaceChatPersistence(), new Request(url), {
-      authorize: async (threadId) => threadId === conversationId,
-    })
+    const reconstructed = await reconstructChat(
+      workspaceChatPersistence(),
+      new Request(url),
+      { authorize: async (threadId) => threadId === conversationId },
+    )
+    if (reconstructed.status === 403) {
+      return c.json({ error: "Forbidden" }, 403)
+    }
+    return c.json(
+      ReconstructChatResponseSchema.parse(await reconstructed.json()),
+      200,
+    )
   })
   .openapi(patchConversationRoute, async (c) => {
     const user = c.get("user")

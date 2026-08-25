@@ -112,8 +112,22 @@ vi.mock("../../domain/workspaces/tanstack-workspace-chat.js", () => ({
   warmTanstackWorkspaceChat: warmTanstackWorkspaceChatMock,
   conversationHasStoredTurns: conversationHasStoredTurnsMock,
 }))
-vi.mock("@tanstack/ai-persistence", () => ({
-  reconstructChat: reconstructChatMock,
+vi.mock("@tanstack/ai-persistence", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@tanstack/ai-persistence")>()
+  return {
+    ...actual,
+    reconstructChat: reconstructChatMock,
+  }
+})
+vi.mock("../../domain/workspaces/workspace-chat-persistence.js", () => ({
+  workspaceChatPersistence: () => ({
+    stores: {
+      messages: {
+        loadThread: async () => [],
+        saveThread: async () => {},
+      },
+    },
+  }),
 }))
 
 import {
@@ -307,7 +321,6 @@ describe("conversations API", () => {
     expect(getWorkspaceByIdMock).not.toHaveBeenCalled()
     expect(workspaceChatStreamResponseMock).toHaveBeenCalledWith(
       expect.objectContaining({
-        userTurnAccepted: false,
         prompt: "hello",
         onUserPersist: expect.any(Function),
         resolveRuntime: expect.any(Function),
@@ -397,7 +410,6 @@ describe("conversations API", () => {
         messages,
         threadId: "conv_1",
         runId: "run_1",
-        userTurnAccepted: false,
       }),
       expect.any(Request),
     )

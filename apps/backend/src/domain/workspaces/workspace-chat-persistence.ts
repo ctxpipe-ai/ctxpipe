@@ -42,7 +42,7 @@ function mapRun(row: typeof chatRuns.$inferSelect): RunRecord {
         }
       : {}),
     ...(row.usageJson != null
-      ? { usage: row.usageJson as RunRecord["usage"] }
+      ? { usage: row.usageJson as unknown as RunRecord["usage"] }
       : {}),
     ...(row.sandboxKey != null ? { sandboxKey: row.sandboxKey } : {}),
     ...(row.detachedSince != null ? { detachedSince: row.detachedSince } : {}),
@@ -143,7 +143,7 @@ function createRunStore(): RunStore {
         set.errorCode = patch.error.code ?? null
       }
       if (patch.usage !== undefined) {
-        set.usageJson = patch.usage as Record<string, unknown>
+        set.usageJson = patch.usage as unknown as Record<string, unknown>
       }
       if ("sandboxKey" in patch) set.sandboxKey = patch.sandboxKey ?? null
       if ("detachedSince" in patch) {

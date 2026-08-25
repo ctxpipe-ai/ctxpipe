@@ -244,8 +244,10 @@ async function* streamWorkspaceChatSocketTurn(input: {
   try {
     parsed = await parseConversationChatRequest(body)
   } catch (error) {
-    log.error(error instanceof Error ? error : new Error(String(error)), {
+    log.error({
       step: "workspace-chat-ws-parse",
+      message:
+        error instanceof Error ? error.message : String(error),
     })
     yield workspaceChatRunError("Invalid AG-UI frame")
     return

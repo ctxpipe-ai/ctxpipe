@@ -1,6 +1,11 @@
 import { randomBytes } from "node:crypto"
 import { trace } from "@opentelemetry/api"
-import { modelMessagesToUIMessages, type StreamChunk } from "@tanstack/ai"
+import {
+  modelMessagesToUIMessages,
+  type ModelMessage,
+  type StreamChunk,
+  type UIMessage,
+} from "@tanstack/ai"
 import { otelMiddleware } from "@tanstack/ai/middlewares/otel"
 import { withPersistence } from "@tanstack/ai-persistence"
 import { withOrgDbContext } from "../../db/client.js"
@@ -52,6 +57,7 @@ import {
   type WorkspaceChatWireFormat,
   workspaceChatHttpResponse,
   workspaceChatRunError,
+  workspaceChatRunFinished,
   workspaceChatRunStarted,
   workspaceChatWireFormat,
   withWorkspaceChatHeartbeats,
@@ -274,6 +280,7 @@ async function* streamTanstackWorkspaceChatBody(
         yield typed
       }
     }
+    let finished: StreamChunk | null = null
     for (const next of gate.flush()) {
       const typed = next as StreamChunk
       if (typed.type === "RUN_ERROR") {
@@ -284,6 +291,10 @@ async function* streamTanstackWorkspaceChatBody(
         )
         continue
       }
+      if (typed.type === "RUN_FINISHED") {
+        finished = typed
+        continue
+      }
       if (
         typed.type === "TEXT_MESSAGE_CONTENT" ||
         typed.type === "REASONING_MESSAGE_CONTENT" ||
@@ -291,7 +302,7 @@ async function* streamTanstackWorkspaceChatBody(
       ) {
         markWorkspaceChatFirstShownToken(turn.conversationId)
       }
-      if (typed.type !== "RUN_FINISHED") yield typed
+      yield typed
     }
     const assistant = gate.assistant()
     const failed =
@@ -319,6 +330,11 @@ async function* streamTanstackWorkspaceChatBody(
     if (name) yield conversationRenameChunk(name)
     if (turn.onFinish) await turn.onFinish()
     recordChatAttempt()
+    yield finished ??
+      workspaceChatRunFinished({
+        conversationId: turn.conversationId,
+        runId: turn.runId,
+      })
   } catch (error) {
     await invalidateChatSandbox({
       handle: prepared.handle.current,
@@ -485,7 +501,7 @@ async function startWorkspaceChat(input: TanstackWorkspaceChatInput): Promise<
       }),
       threadId: input.threadId ?? input.conversationId,
       runId: input.runId,
-      messages: input.messages ?? [],
+      messages: (input.messages ?? []) as Array<ModelMessage | UIMessage>,
       abortController: abortControllerFrom(input.abortSignal),
       tools,
       middleware: [
