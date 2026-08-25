@@ -1,4 +1,8 @@
-import { convertMessagesToModelMessages } from "@tanstack/ai"
+import {
+  convertMessagesToModelMessages,
+  type ModelMessage,
+  type UIMessage,
+} from "@tanstack/ai"
 import { describe, expect, it } from "vitest"
 import {
   messagesForOpenCodeChat,
@@ -70,7 +74,9 @@ describe("messagesForOpenCodeChat", () => {
       ],
       "next turn",
     )
-    const converted = convertMessagesToModelMessages(rewritten)
+    const converted = convertMessagesToModelMessages(
+      rewritten as Array<ModelMessage | UIMessage>,
+    )
     expect(openCodeTrailingUserText(converted)).toBe("next turn")
   })
 
@@ -106,17 +112,27 @@ describe("messagesForOpenCodeChat", () => {
     expect(openCodeTrailingUserText(normalized)).toBe("from hydrate")
   })
 
-  it("re-applies the trailing user on middleware onConfig", () => {
+  it("re-applies the trailing user on middleware onConfig", async () => {
     const mw = openCodeTrailingUserMiddleware("next turn")
-    const result = mw.onConfig(
-      { phase: "beforeModel" },
+    const onConfig = mw.onConfig
+    expect(onConfig).toEqual(expect.any(Function))
+    if (!onConfig) return
+    const result = await onConfig(
+      { phase: "beforeModel" } as Parameters<typeof onConfig>[0],
       {
         messages: [
           { role: "user", content: "earlier" },
           { role: "assistant", content: "reply" },
         ],
+        systemPrompts: [],
+        tools: [],
       },
     )
-    expect(openCodeTrailingUserText(result.messages)).toBe("next turn")
+    const messages =
+      result && typeof result === "object" && "messages" in result
+        ? result.messages
+        : undefined
+    expect(messages).toBeDefined()
+    expect(openCodeTrailingUserText(messages ?? [])).toBe("next turn")
   })
 })

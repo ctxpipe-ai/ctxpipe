@@ -1,3 +1,5 @@
+import { defineChatMiddleware } from "@tanstack/ai"
+
 /**
  * OpenCode `buildPrompt` only reads `message.content` as a string or as
  * `{ type: "text", content }` parts, and it requires the last message to be
@@ -50,15 +52,12 @@ export function messagesForOpenCodeChat<
 }
 
 export function openCodeTrailingUserMiddleware(prompt: string) {
-  return {
+  return defineChatMiddleware({
     name: "opencode-trailing-user",
-    onConfig(
-      _ctx: { phase?: string },
-      config: { messages: Array<{ role?: string; content?: unknown }> },
-    ) {
+    onConfig(_ctx, config) {
       return {
         messages: messagesForOpenCodeChat(config.messages, prompt),
       }
     },
-  }
+  })
 }
