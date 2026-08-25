@@ -11,6 +11,14 @@ type EagerSocket = {
   warm: () => void
 }
 
+type ChatHydrationResult = Awaited<
+  ReturnType<NonNullable<SubscribeConnectionAdapter["hydrate"]>>
+>
+
+function emptyChatHydration(): ChatHydrationResult {
+  return { messages: [], activeRun: null, interrupts: null }
+}
+
 /**
  * Official TanStack `webSocket()` with handshake started on compose mount.
  * Reuses the already-open socket for the first Send (same path, ignore search).
@@ -18,7 +26,10 @@ type EagerSocket = {
 export function workspaceChatWebSocket(
   orgSlug: string,
   conversationId: string,
-): SubscribeConnectionAdapter & EagerSocket {
+): SubscribeConnectionAdapter &
+  EagerSocket & {
+    hydrate: NonNullable<SubscribeConnectionAdapter["hydrate"]>
+  } {
   const path = workspaceChatSocketPath(orgSlug, conversationId)
   let warmed: WebSocket | undefined
 
@@ -49,6 +60,26 @@ export function workspaceChatWebSocket(
 
   return {
     ...connection,
+    async hydrate(threadId: string) {
+      if (typeof fetch === "undefined") return emptyChatHydration()
+      const res = await fetch(
+        `${path}/chat?threadId=${encodeURIComponent(threadId)}`,
+        {
+          headers: { Accept: "application/json" },
+          credentials: "include",
+        },
+      )
+      if (!res.ok) return emptyChatHydration()
+      const data = (await res.json()) as Partial<ChatHydrationResult>
+      return {
+        messages: Array.isArray(data.messages) ? data.messages : [],
+        activeRun:
+          data.activeRun && typeof data.activeRun.runId === "string"
+            ? { runId: data.activeRun.runId }
+            : null,
+        interrupts: data.interrupts ?? null,
+      }
+    },
     warm() {
       if (typeof WebSocket === "undefined") return
       if (warmed && warmed.readyState <= WebSocket.OPEN) return

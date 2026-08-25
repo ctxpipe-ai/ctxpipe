@@ -1,5 +1,6 @@
-import { chatParamsFromRequestBody } from "@tanstack/ai"
+import { chatParamsFromRequestBody, modelMessagesToUIMessages } from "@tanstack/ai"
 import { loadConversationTurns } from "../../models/conversation-messages.js"
+import { workspaceChatPersistence } from "../workspaces/workspace-chat-persistence.js"
 import {
   runTanstackWorkspaceChat,
   streamTanstackWorkspaceChat,
@@ -38,20 +39,25 @@ export type StreamInput = {
   desiredGeneration?: number
   defaultBranch?: string
   cloneToken?: string | null
-  userTurnAccepted?: boolean
-  acceptedTurn?: TanstackWorkspaceChatInput["acceptedTurn"]
   resolveRuntime?: TanstackWorkspaceChatInput["resolveRuntime"]
   onHeartbeat?: () => Promise<void> | void
   onFinish?: () => Promise<void> | void
   onError?: () => Promise<void> | void
   onUserPersist?: () => Promise<void> | void
   wireFormat?: WorkspaceChatWireFormat
+  abortSignal?: AbortSignal
 }
 
 export type ConversationChatMessage = {
   id: string
-  role: "user" | "assistant"
-  parts: Array<{ type: "text"; content: string }>
+  role: string
+  parts: Array<{
+    type: string
+    content?: string
+    text?: string
+    name?: string
+    id?: string
+  }>
 }
 
 export interface ConversationTransportAdapter {
@@ -100,8 +106,7 @@ function toChatInput(input: StreamInput): TanstackWorkspaceChatInput | null {
     ref: input.lastBranch || input.desiredSha || "HEAD",
     writeStatus: input.writeStatus ?? "read_only",
     cloneToken: input.cloneToken,
-    userTurnAccepted: input.userTurnAccepted,
-    acceptedTurn: input.acceptedTurn,
+    abortSignal: input.abortSignal,
     resolveRuntime: input.resolveRuntime,
     onHeartbeat: input.onHeartbeat,
     onFinish: input.onFinish,
@@ -111,15 +116,10 @@ function toChatInput(input: StreamInput): TanstackWorkspaceChatInput | null {
   }
 }
 
-function releaseUnstartedTurn(input: StreamInput): void {
-  input.acceptedTurn?.release()
-}
-
 class DataStreamConversationTransport implements ConversationTransportAdapter {
   async toResponse(input: StreamInput): Promise<Response> {
     const chatInput = toChatInput(input)
     if (!chatInput) {
-      releaseUnstartedTurn(input)
       return Response.json({ error: "workspace_required" }, { status: 409 })
     }
     return runTanstackWorkspaceChat(chatInput)
@@ -132,7 +132,6 @@ export function workspaceChatStreamResponse(
 ): Response {
   const chatInput = toChatInput(input)
   if (!chatInput) {
-    releaseUnstartedTurn(input)
     return Response.json({ error: "workspace_required" }, { status: 409 })
   }
   const format =
@@ -151,6 +150,12 @@ export async function loadConversationUiMessages(input: {
 }): Promise<ConversationChatMessage[]> {
   void input.checkpointNamespace
   if (!input.workspaceId?.trim()) return []
+  const stored = await workspaceChatPersistence()
+    .stores.messages.loadThread(input.conversationId)
+    .catch(() => [])
+  if (stored.length > 0) {
+    return modelMessagesToUIMessages(stored) as ConversationChatMessage[]
+  }
   const turns = await loadConversationTurns(input.conversationId)
   return turns.map((turn, index) => ({
     id: `${input.conversationId}:${index}`,
@@ -181,6 +186,14 @@ export function toPromptFromIncomingMessage(message: {
     message.content.trim().length > 0
   ) {
     return message.content
+  }
+  if (Array.isArray(message.content)) {
+    const fromContentParts = message.content
+      .map(textFromMessagePart)
+      .filter(Boolean)
+      .join("\n")
+      .trim()
+    if (fromContentParts.length > 0) return fromContentParts
   }
   if (Array.isArray(message.parts)) {
     const textParts = message.parts

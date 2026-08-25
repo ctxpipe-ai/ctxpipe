@@ -1,4 +1,8 @@
-import { toWebSocketStream, type WebSocketLike } from "@tanstack/ai"
+import {
+  memoryStream,
+  toWebSocketStream,
+  type WebSocketLike,
+} from "@tanstack/ai"
 import { and, eq } from "drizzle-orm"
 import { getAuth } from "../../auth/config.js"
 import { withUserIdContext } from "../../auth/context.js"
@@ -9,14 +13,15 @@ import {
   type ConversationChatRequest,
   parseConversationChatRequest,
 } from "../../domain/conversations/transport.js"
-import { streamTanstackWorkspaceChat } from "../../domain/workspaces/tanstack-workspace-chat.js"
+import {
+  conversationHasStoredTurns,
+  streamTanstackWorkspaceChat,
+} from "../../domain/workspaces/tanstack-workspace-chat.js"
 import { workspaceChatRunError } from "../../domain/workspaces/workspace-chat-agui.js"
 import {
   persistWorkspaceChatUserTurnListed,
   resolveWorkspaceChatSendRuntime,
 } from "../../domain/workspaces/workspace-chat-send-runtime.js"
-import { claimWorkspaceChatTurn } from "../../domain/workspaces/workspace-chat-turn-claim.js"
-import { loadConversationTurns } from "../../models/conversation-messages.js"
 import { discardUnstartedConversation } from "../../models/conversations.js"
 import { createLogger, log, loggerStorage } from "../../observability/logger.js"
 
@@ -186,6 +191,7 @@ export const conversationWebSocketHandlers = {
       ws.close(code, reason)
     }
     toWebSocketStream(like, ws.data.request, {
+      durability: (ctx) => memoryStream(ctx.request),
       onRun: (ctx) =>
         streamWorkspaceChatSocketTurn({
           conversationId: ws.data.conversationId,
@@ -196,6 +202,7 @@ export const conversationWebSocketHandlers = {
           threadId: ctx.threadId,
           runId: ctx.runId,
           forwardedProps: ctx.forwardedProps,
+          signal: ctx.signal,
         }),
     })
   },
@@ -219,6 +226,7 @@ async function* streamWorkspaceChatSocketTurn(input: {
   threadId: string
   runId: string
   forwardedProps?: Record<string, unknown>
+  signal: AbortSignal
 }) {
   // toWebSocketStream already validated the official run. Reconstruct the
   // same AG-UI body (tools/context/state are required arrays/objects) so the
@@ -236,8 +244,10 @@ async function* streamWorkspaceChatSocketTurn(input: {
   try {
     parsed = await parseConversationChatRequest(body)
   } catch (error) {
-    log.error(error instanceof Error ? error : new Error(String(error)), {
+    log.error({
       step: "workspace-chat-ws-parse",
+      message:
+        error instanceof Error ? error.message : String(error),
     })
     yield workspaceChatRunError("Invalid AG-UI frame")
     return
@@ -246,12 +256,6 @@ async function* streamWorkspaceChatSocketTurn(input: {
     yield workspaceChatRunError("workspace_required")
     return
   }
-  const acceptedTurn = claimWorkspaceChatTurn(input.conversationId)
-  if (!acceptedTurn) {
-    yield workspaceChatRunError("conversation_busy")
-    return
-  }
-
   yield* withAuthContextStream(
     { id: input.orgId, slug: input.orgSlug },
     input.userId,
@@ -262,14 +266,13 @@ async function* streamWorkspaceChatSocketTurn(input: {
       messages: parsed.messages,
       threadId: parsed.threadId ?? input.conversationId,
       runId: parsed.runId ?? input.runId,
+      abortSignal: input.signal,
       orgId: input.orgId,
       workspaceId: parsed.workspaceId,
       desiredUrl: "",
       desiredSha: null,
       ref: "HEAD",
       writeStatus: "read_only",
-      userTurnAccepted: false,
-      acceptedTurn,
       resolveRuntime: () =>
         resolveWorkspaceChatSendRuntime({
           conversationId: input.conversationId,
@@ -279,8 +282,7 @@ async function* streamWorkspaceChatSocketTurn(input: {
       onUserPersist: () =>
         persistWorkspaceChatUserTurnListed(input.conversationId),
       onError: async () => {
-        const turns = await loadConversationTurns(input.conversationId)
-        if (turns.length === 0) {
+        if (!(await conversationHasStoredTurns(input.conversationId))) {
           await discardUnstartedConversation(input.conversationId)
         }
       },

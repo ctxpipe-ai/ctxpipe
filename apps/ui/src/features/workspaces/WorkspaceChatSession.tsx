@@ -1,5 +1,5 @@
 import type { StreamChunk } from "@tanstack/ai"
-import { type UIMessage, useChat } from "@tanstack/ai-react"
+import { useChat } from "@tanstack/ai-react"
 import { useQuery, useQueryClient } from "@tanstack/react-query"
 import { useNavigate } from "@tanstack/react-router"
 import { type ReactNode, useEffect, useMemo, useRef, useState } from "react"
@@ -61,8 +61,8 @@ export function WorkspaceChatSession(props: {
     conversationId,
     composing,
     title,
-    initialMessages,
   } = props
+  void props.initialMessages
   const queryClient = useQueryClient()
   const navigate = useNavigate()
   const sendFailedRef = useRef(false)
@@ -116,8 +116,8 @@ export function WorkspaceChatSession(props: {
 
   const { messages, sendMessage, status, error, isLoading, stop } = useChat({
     threadId: conversationId,
-    initialMessages: initialMessages as UIMessage[],
     connection,
+    persistence: true,
     forwardedProps: {
       workspaceId: workspace.id,
       source: "ui",

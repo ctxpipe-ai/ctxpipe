@@ -2,9 +2,21 @@ import { beforeEach, describe, expect, it, vi } from "vitest"
 
 const loadTurnsMock = vi.hoisted(() => vi.fn())
 const runTanstackWorkspaceChatMock = vi.hoisted(() => vi.fn())
+const loadThreadMock = vi.hoisted(() => vi.fn(async () => []))
 
 vi.mock("../../models/conversation-messages.js", () => ({
   loadConversationTurns: loadTurnsMock,
+}))
+
+vi.mock("../workspaces/workspace-chat-persistence.js", () => ({
+  workspaceChatPersistence: () => ({
+    stores: {
+      messages: {
+        loadThread: loadThreadMock,
+        saveThread: async () => {},
+      },
+    },
+  }),
 }))
 
 vi.mock("../../observability/langfuse.js", () => ({
@@ -26,7 +38,27 @@ import {
 describe("loadConversationUiMessages", () => {
   beforeEach(() => {
     loadTurnsMock.mockReset()
+    loadThreadMock.mockReset()
+    loadThreadMock.mockResolvedValue([])
     runTanstackWorkspaceChatMock.mockReset()
+  })
+
+  it("prefers persisted TanStack messages over text-only turns", async () => {
+    loadThreadMock.mockResolvedValueOnce([
+      {
+        role: "assistant",
+        content: "stored",
+        thinking: [{ content: "think" }],
+      },
+    ])
+    const messages = await loadConversationUiMessages({
+      conversationId: "conv_1",
+      checkpointNamespace: "",
+      workspaceId: "ws_1",
+    })
+    expect(loadTurnsMock).not.toHaveBeenCalled()
+    expect(messages.length).toBeGreaterThan(0)
+    expect(JSON.stringify(messages)).toMatch(/think|stored|thinking/)
   })
 
   it("loads Workspace turns from Postgres instead of LangGraph", async () => {
@@ -123,6 +155,26 @@ describe("createDataStreamConversationTransport", () => {
       role: "user",
       content: "hello",
     })
+  })
+
+  it("reads the prompt from AG-UI user content parts that use text", async () => {
+    const parsed = await parseConversationChatRequest({
+      threadId: "conv_1",
+      runId: "run_second",
+      messages: [
+        { id: "m1", role: "user" as const, content: "earlier" },
+        { id: "m2", role: "assistant" as const, content: "reply" },
+        {
+          id: "m3",
+          role: "user" as const,
+          content: [{ type: "text", text: "next turn" }],
+        },
+      ],
+      tools: [],
+      context: [],
+      forwardedProps: { workspaceId: "ws_1", source: "ui" },
+    })
+    expect(parsed.prompt).toBe("next turn")
   })
 
   it("rejects an official WS reconstruction that drops tools and context", async () => {

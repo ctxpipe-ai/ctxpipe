@@ -157,6 +157,7 @@ describe("WorkspaceChatSession compose failure", () => {
     expect(useChatMock).toHaveBeenCalledWith(
       expect.objectContaining({
         threadId: "conv_pending",
+        persistence: true,
         connection: { kind: "official-ws", warm: expect.any(Function) },
         forwardedProps: {
           workspaceId: readOnlyWorkspace.id,

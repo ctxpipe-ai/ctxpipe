@@ -38,6 +38,31 @@ export const WORKSPACE_CHAT_DOCKER_SANDBOX: {
  */
 export const WORKSPACE_CHAT_SANDBOX_SETUP = [
   `PATH="/usr/local/bin:/usr/bin:/bin:$PATH"; command -v opencode >/dev/null 2>&1 || npm install -g ${WORKSPACE_CHAT_OPENCODE_CLI}`,
+  // TanStack drives setup on a persistent `sh` (`{ $command ; } 2>&1; printf
+  // sentinel`). `exit` / `set -e` kill that shell before the sentinel. End
+  // on `true` so dash accepts the wrapper's trailing `;`.
+  `if git rev-parse --is-inside-work-tree >/dev/null 2>&1; then
+  true
+else
+  DEST=/tmp/ctxpipe-repo-clone
+  rm -rf "$DEST"
+  clone_repo() {
+    if [ -n "\${CTXPIPE_CLONE_TOKEN:-}" ]; then
+      git -c credential.helper='!f() { echo username=x-access-token; echo password=\${CTXPIPE_CLONE_TOKEN}; }; f' "$@"
+    else
+      git "$@"
+    fi
+  }
+  if ! clone_repo clone --depth 1 --single-branch --branch "$CTXPIPE_CLONE_BRANCH" -- "$CTXPIPE_CLONE_URL" "$DEST"; then
+    clone_repo clone --depth 1 -- "$CTXPIPE_CLONE_URL" "$DEST"
+  fi
+  cp -a "$DEST"/. .
+  if [ -n "\${CTXPIPE_CLONE_SHA:-}" ]; then
+    git fetch --depth 1 origin "$CTXPIPE_CLONE_SHA" && git checkout --detach "$CTXPIPE_CLONE_SHA" || true
+  fi
+  git rev-parse --is-inside-work-tree >/dev/null
+fi
+true`,
 ] as const
 
 export function workspaceChatSandboxId(input: {
@@ -62,6 +87,9 @@ export function workspaceChatLiveSandboxId(input: {
 }
 
 export const WORKSPACE_CHAT_CLONE_TOKEN_SECRET = "CTXPIPE_CLONE_TOKEN" as const
+export const WORKSPACE_CHAT_CLONE_URL_SECRET = "CTXPIPE_CLONE_URL" as const
+export const WORKSPACE_CHAT_CLONE_BRANCH_SECRET = "CTXPIPE_CLONE_BRANCH" as const
+export const WORKSPACE_CHAT_CLONE_SHA_SECRET = "CTXPIPE_CLONE_SHA" as const
 
 /**
  * Bind a TanStack SecretRef so JSON hashing sees only `{ __secretName }`,

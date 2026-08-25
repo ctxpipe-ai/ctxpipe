@@ -63,6 +63,7 @@
     "@sindresorhus/slugify": "^3.0.0",
     "@tanstack/ai": "^0.48.0",
     "@tanstack/ai-opencode": "^0.3.4",
+    "@tanstack/ai-persistence": "^0.5.1",
     "@tanstack/ai-sandbox": "^0.5.0",
     "@tanstack/ai-sandbox-docker": "^0.3.2",
     "@tanstack/ai-sandbox-local-process": "^0.2.4",

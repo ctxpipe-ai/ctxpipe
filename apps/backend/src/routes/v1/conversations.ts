@@ -22,22 +22,19 @@ import {
   getRegisteredChatSandbox,
   withDestroyedConversationSandboxes,
 } from "../../domain/workspaces/sandbox-registry.js"
-import { warmTanstackWorkspaceChat } from "../../domain/workspaces/tanstack-workspace-chat.js"
+import { reconstructChat } from "@tanstack/ai-persistence"
 import {
-  workspaceChatHttpResponse,
-  workspaceChatRunError,
-  workspaceChatRunStarted,
-  workspaceChatWireFormat,
-} from "../../domain/workspaces/workspace-chat-agui.js"
+  conversationHasStoredTurns,
+  warmTanstackWorkspaceChat,
+} from "../../domain/workspaces/tanstack-workspace-chat.js"
+import { workspaceChatPersistence } from "../../domain/workspaces/workspace-chat-persistence.js"
 import {
   persistWorkspaceChatUserTurnListed,
   resolveWorkspaceChatSendRuntime,
 } from "../../domain/workspaces/workspace-chat-send-runtime.js"
-import { claimWorkspaceChatTurn } from "../../domain/workspaces/workspace-chat-turn-claim.js"
 import { resolveWorkspaceChatTurnRuntime } from "../../domain/workspaces/workspace-chat-turn-runtime.js"
 import { githubRepoFullNameFromWorkspaceUrl } from "../../domain/workspaces/write-status.js"
 import { PageInfoSchema } from "../../lib/pagination.js"
-import { loadConversationTurns } from "../../models/conversation-messages.js"
 import {
   deleteConversation,
   discardUnstartedConversation,
@@ -281,6 +278,43 @@ const PrepareConversationRequestSchema = z
   })
   .openapi("PrepareConversationRequest")
 
+const ReconstructChatResponseSchema = z
+  .object({
+    messages: z.array(z.unknown()),
+    activeRun: z.object({ runId: z.string() }).nullable(),
+    interrupts: z.unknown().nullable(),
+  })
+  .openapi("ReconstructChatResponse")
+
+const getConversationChatRoute = createRoute({
+  method: "get",
+  path: "/{conversationId}/chat",
+  request: {
+    params: ConversationParamsSchema,
+    query: GetConversationQuerySchema,
+  },
+  responses: {
+    200: {
+      content: {
+        "application/json": { schema: ReconstructChatResponseSchema },
+      },
+      description: "Persisted TanStack chat transcript",
+    },
+    401: {
+      content: { "application/json": { schema: ErrorResponseSchema } },
+      description: "Unauthorized",
+    },
+    403: {
+      content: { "application/json": { schema: ErrorResponseSchema } },
+      description: "Forbidden",
+    },
+    404: {
+      content: { "application/json": { schema: ErrorResponseSchema } },
+      description: "Not found",
+    },
+  },
+})
+
 const postConversationPrepareRoute = createRoute({
   method: "post",
   path: "/{conversationId}/prepare",
@@ -294,7 +328,7 @@ const postConversationPrepareRoute = createRoute({
   },
   responses: {
     204: {
-      description: "Workspace chat sandbox and serve are warming",
+      description: "Workspace chat sandbox is warming",
     },
     400: {
       content: { "application/json": { schema: ErrorResponseSchema } },
@@ -431,6 +465,33 @@ export const conversationRoutes = new OpenAPIHono<AppEnv>()
       200,
     )
   })
+  .openapi(getConversationChatRoute, async (c) => {
+    const user = c.get("user")
+    const session = c.get("session")
+    if (!user || !session) return c.json({ error: "Unauthorized" }, 401)
+
+    const conversationId = c.req.param("conversationId")
+    const workspaceId = c.req.query("workspaceId")
+    const conversation = await getConversation(conversationId, {
+      workspaceId,
+    })
+    if (!conversation) return c.json({ error: "Not found" }, 404)
+
+    const url = new URL(c.req.url)
+    url.searchParams.set("threadId", conversationId)
+    const reconstructed = await reconstructChat(
+      workspaceChatPersistence(),
+      new Request(url),
+      { authorize: async (threadId) => threadId === conversationId },
+    )
+    if (reconstructed.status === 403) {
+      return c.json({ error: "Forbidden" }, 403)
+    }
+    return c.json(
+      ReconstructChatResponseSchema.parse(await reconstructed.json()),
+      200,
+    )
+  })
   .openapi(patchConversationRoute, async (c) => {
     const user = c.get("user")
     const session = c.get("session")
@@ -516,20 +577,6 @@ export const conversationRoutes = new OpenAPIHono<AppEnv>()
       return c.json({ error: "workspace_required" }, 400)
     }
 
-    const acceptedTurn = claimWorkspaceChatTurn(conversationId)
-    if (!acceptedTurn) {
-      return workspaceChatHttpResponse(
-        (async function* () {
-          yield workspaceChatRunStarted({
-            conversationId,
-            runId: parsed.runId,
-          })
-          yield workspaceChatRunError("conversation_busy")
-        })(),
-        workspaceChatWireFormat(c.req.raw),
-      )
-    }
-
     return workspaceChatStreamResponse(
       {
         conversationId,
@@ -542,8 +589,6 @@ export const conversationRoutes = new OpenAPIHono<AppEnv>()
         workspaceId: parsed.workspaceId,
         orgId: "",
         desiredUrl: "",
-        userTurnAccepted: false,
-        acceptedTurn,
         resolveRuntime: () =>
           resolveWorkspaceChatSendRuntime({
             conversationId,
@@ -552,8 +597,7 @@ export const conversationRoutes = new OpenAPIHono<AppEnv>()
           }),
         onUserPersist: () => persistWorkspaceChatUserTurnListed(conversationId),
         onError: async () => {
-          const turns = await loadConversationTurns(conversationId)
-          if (turns.length === 0) {
+          if (!(await conversationHasStoredTurns(conversationId))) {
             await discardUnstartedConversation(conversationId)
           }
         },

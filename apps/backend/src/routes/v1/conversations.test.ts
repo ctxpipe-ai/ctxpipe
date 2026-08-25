@@ -1,8 +1,6 @@
 import { OpenAPIHono } from "@hono/zod-openapi"
 import { beforeEach, describe, expect, it, vi } from "vitest"
 import type { AppEnv } from "../../app/env.js"
-import { resetWorkspaceChatTurnClaims } from "../../domain/workspaces/workspace-chat-turn-claim.js"
-
 const getConversationMock = vi.hoisted(() => vi.fn())
 const listConversationsPaginatedMock = vi.hoisted(() => vi.fn())
 const ensureConversationMock = vi.hoisted(() => vi.fn())
@@ -102,8 +100,40 @@ vi.mock("../../domain/workspaces/workspace-chat-turn-runtime.js", () => ({
 const warmTanstackWorkspaceChatMock = vi.hoisted(() =>
   vi.fn(async () => ({ ok: true as const })),
 )
+const conversationHasStoredTurnsMock = vi.hoisted(() =>
+  vi.fn(async () => true),
+)
+const reconstructChatMock = vi.hoisted(() =>
+  vi.fn(
+    async (
+      _persistence: unknown,
+      _request: Request,
+      _options?: {
+        authorize?: (threadId: string) => boolean | Promise<boolean>
+      },
+    ) => Response.json({ messages: [], activeRun: null, interrupts: null }),
+  ),
+)
 vi.mock("../../domain/workspaces/tanstack-workspace-chat.js", () => ({
   warmTanstackWorkspaceChat: warmTanstackWorkspaceChatMock,
+  conversationHasStoredTurns: conversationHasStoredTurnsMock,
+}))
+vi.mock("@tanstack/ai-persistence", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@tanstack/ai-persistence")>()
+  return {
+    ...actual,
+    reconstructChat: reconstructChatMock,
+  }
+})
+vi.mock("../../domain/workspaces/workspace-chat-persistence.js", () => ({
+  workspaceChatPersistence: () => ({
+    stores: {
+      messages: {
+        loadThread: async () => [],
+        saveThread: async () => {},
+      },
+    },
+  }),
 }))
 
 import {
@@ -141,7 +171,6 @@ function app() {
 
 describe("conversations API", () => {
   beforeEach(() => {
-    resetWorkspaceChatTurnClaims()
     vi.clearAllMocks()
     loadConversationTurnsMock.mockResolvedValue([])
     loadConversationUiMessagesMock.mockResolvedValue([])
@@ -249,6 +278,32 @@ describe("conversations API", () => {
     expect(workspaceChatStreamResponseMock).not.toHaveBeenCalled()
   })
 
+  it("reconstructs the official persisted chat transcript", async () => {
+    getConversationMock.mockResolvedValue(conversationRow)
+    reconstructChatMock.mockResolvedValueOnce(
+      Response.json({
+        messages: [{ id: "m1", role: "user", parts: [{ type: "text" }] }],
+        activeRun: null,
+        interrupts: null,
+      }),
+    )
+    const res = await app().request("/conversations/conv_1/chat?workspaceId=ws_abc")
+    expect(res.status).toBe(200)
+    expect(reconstructChatMock).toHaveBeenCalled()
+    const call = reconstructChatMock.mock.calls[0]
+    expect(call).toBeDefined()
+    const [persistence, request, options] = call ?? []
+    expect(persistence).toBeTruthy()
+    expect(request).toBeInstanceOf(Request)
+    if (!request) return
+    expect(new URL(request.url).searchParams.get("threadId")).toBe("conv_1")
+    const authorize = options?.authorize
+    expect(authorize).toBeDefined()
+    if (!authorize) return
+    await expect(authorize("conv_1")).resolves.toBe(true)
+    await expect(authorize("conv_other")).resolves.toBe(false)
+  })
+
   it("returns GET when the conversation belongs to the Workspace", async () => {
     getConversationMock.mockResolvedValue(conversationRow)
     const res = await app().request("/conversations/conv_1?workspaceId=ws_abc")
@@ -274,7 +329,6 @@ describe("conversations API", () => {
     expect(getWorkspaceByIdMock).not.toHaveBeenCalled()
     expect(workspaceChatStreamResponseMock).toHaveBeenCalledWith(
       expect.objectContaining({
-        userTurnAccepted: false,
         prompt: "hello",
         onUserPersist: expect.any(Function),
         resolveRuntime: expect.any(Function),
@@ -315,11 +369,6 @@ describe("conversations API", () => {
     expect(res.status).toBe(200)
     expect(workspaceChatStreamResponseMock).toHaveBeenCalledWith(
       expect.objectContaining({
-        userTurnAccepted: false,
-        acceptedTurn: expect.objectContaining({
-          conversationId: "conv_1",
-          release: expect.any(Function),
-        }),
         prompt: "hello",
         onError: expect.any(Function),
         onUserPersist: expect.any(Function),
@@ -369,7 +418,6 @@ describe("conversations API", () => {
         messages,
         threadId: "conv_1",
         runId: "run_1",
-        userTurnAccepted: false,
       }),
       expect.any(Request),
     )
@@ -445,7 +493,7 @@ describe("conversations API", () => {
     expect(persistConversationLastChatPrNumberMock).not.toHaveBeenCalled()
   })
 
-  it("rejects a second in-flight turn before persisting another user message", async () => {
+  it("streams a second turn without a custom claim lock", async () => {
     ensureConversationMock.mockResolvedValue(conversationRow)
     const first = await app().request("/conversations/conv_1", {
       method: "POST",
@@ -456,8 +504,6 @@ describe("conversations API", () => {
         workspaceId: "ws_abc",
       }),
     })
-    expect(first.status).toBe(200)
-    appendConversationTurnMock.mockClear()
     const second = await app().request("/conversations/conv_1", {
       method: "POST",
       headers: { "content-type": "application/json" },
@@ -467,38 +513,8 @@ describe("conversations API", () => {
         workspaceId: "ws_abc",
       }),
     })
-    expect(second.status).toBe(200)
-    expect(await second.text()).toContain("conversation_busy")
-    expect(appendConversationTurnMock).not.toHaveBeenCalled()
-  })
-
-  it("accepts the next turn after the first stream releases its claim", async () => {
-    ensureConversationMock.mockResolvedValue(conversationRow)
-    workspaceChatStreamResponseMock.mockImplementation((input: { acceptedTurn?: { release: () => void } }) => {
-      input.acceptedTurn?.release()
-      return new Response("ok", { status: 200 })
-    })
-    const first = await app().request("/conversations/conv_1", {
-      method: "POST",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify({
-        message: { role: "user", content: "hello" },
-        source: "ui",
-        workspaceId: "ws_abc",
-      }),
-    })
     expect(first.status).toBe(200)
-    const second = await app().request("/conversations/conv_1", {
-      method: "POST",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify({
-        message: { role: "user", content: "again" },
-        source: "ui",
-        workspaceId: "ws_abc",
-      }),
-    })
     expect(second.status).toBe(200)
-    expect(await second.text()).toBe("ok")
     expect(workspaceChatStreamResponseMock).toHaveBeenCalledTimes(2)
   })
 
