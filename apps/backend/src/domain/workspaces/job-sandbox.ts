@@ -91,6 +91,7 @@ export async function ensureJobSandbox(input: {
   workspaceId: string
   desiredUrl: string
   desiredSha: string | null
+  desiredGeneration?: number
   existing?: JobSandboxHandle | null
   create: (
     sandboxId: string,
@@ -111,6 +112,7 @@ export async function ensureJobSandbox(input: {
       workspaceId: input.workspaceId,
       desiredUrl: input.desiredUrl,
       desiredSha: input.desiredSha,
+      desiredGeneration: input.desiredGeneration,
     }) ?? `${input.orgId}:${input.workspaceId}:write`
   const claimed = await claimSandboxInstance({
     id: preferredId,

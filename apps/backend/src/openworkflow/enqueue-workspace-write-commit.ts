@@ -1,7 +1,7 @@
 import { parseEnv } from "../config/env.js"
 import { assertNotInOrgDbContext, withOrgDbContext } from "../db/client.js"
-import type { WorkspaceWriteKind } from "../domain/workspaces/write-commit-files.js"
 import {
+  type EnqueueWriteJobInput,
   WRITE_JOB_STATUSES,
   writeJobIntentPayload,
   writeJobIntentStatus,
@@ -54,25 +54,10 @@ async function probedWriteStatus(input: {
   }
 }
 
-export type EnqueueWorkspaceWriteCommitInput = {
-  orgId: string
-  workspaceId: string
-  kind: WorkspaceWriteKind
-  defaultBranch?: string
-  jobId?: string
-  linkAction?: "link" | "unlink"
-  linkGitUrl?: string
-  jobGeneration?: number
-  jobWorkspaceUrl?: string
-  jobDesiredSha?: string | null
-  conflictParentSha?: string | null
-  remoteTipSha?: string | null
-  mergeFiles?: Array<{ path: string; content: string }>
-  mergeDeletePaths?: string[]
-}
+export type EnqueueWorkspaceWriteCommitInput = EnqueueWriteJobInput
 
-export async function enqueueWorkspaceWriteCommit(
-  input: EnqueueWorkspaceWriteCommitInput,
+export async function enqueueWriteJob(
+  input: EnqueueWriteJobInput,
   log: { error: (err: Error) => void },
 ): Promise<{ started: boolean }> {
   assertNotInOrgDbContext()
@@ -196,3 +181,5 @@ export async function enqueueWorkspaceWriteCommit(
   }
   return { started: true }
 }
+
+export const enqueueWorkspaceWriteCommit = enqueueWriteJob

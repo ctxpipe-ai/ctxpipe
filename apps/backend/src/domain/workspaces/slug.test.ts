@@ -5,6 +5,7 @@ import {
   nextSlugCandidate,
   normalizeSlug,
   normalizeWorkspaceRepositoryUrl,
+  repositoryKeyFromGitUrl,
   slugFromGitUrl,
 } from "./slug.js"
 
@@ -89,5 +90,13 @@ describe("normalizeWorkspaceRepositoryUrl", () => {
     expect(
       normalizeWorkspaceRepositoryUrl("git@github.com:acme/knowledge.git"),
     ).toBe("https://github.com/acme/knowledge")
+  })
+})
+
+describe("repositoryKeyFromGitUrl", () => {
+  it("lowercases GitHub owner/repo", () => {
+    expect(
+      repositoryKeyFromGitUrl("https://github.com/Acme/Knowledge.git"),
+    ).toBe("acme/knowledge")
   })
 })

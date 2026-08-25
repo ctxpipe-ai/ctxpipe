@@ -10,6 +10,7 @@ import {
   shouldRetryWriteJobKind,
   WORKSPACE_WRITE_JOB_KINDS,
   WRITE_JOB_RETRY_CAP_PER_SHA,
+  writeJobLoopGuardSha,
   writeJobQueueHttpDecision,
 } from "./write-jobs.js"
 
@@ -40,6 +41,12 @@ describe("workspace write job kinds", () => {
       false,
     )
     expect(isBootstrapAllowedPath("knowledge/foo.md")).toBe(false)
+  })
+
+  it("keys the loop guard on the planned root SHA", () => {
+    expect(writeJobLoopGuardSha("abc")).toBe("abc")
+    expect(writeJobLoopGuardSha("  ")).toBeNull()
+    expect(writeJobLoopGuardSha(null)).toBeNull()
   })
 })
 

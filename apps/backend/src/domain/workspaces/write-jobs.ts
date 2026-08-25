@@ -17,6 +17,14 @@ export type WorkspaceWriteJobKind = (typeof WORKSPACE_WRITE_JOB_KINDS)[number]
 /** Cap retries of one kind against one SHA. Other kinds are unaffected. */
 export const WRITE_JOB_RETRY_CAP_PER_SHA = 3
 
+/** Stable root SHA the job was planned against, not the tip after this write. */
+export function writeJobLoopGuardSha(
+  jobDesiredSha: string | null | undefined,
+): string | null {
+  const sha = jobDesiredSha?.trim() ?? ""
+  return sha.length > 0 ? sha : null
+}
+
 export const BOOTSTRAP_AGENTS_MD = "AGENTS.md"
 export const BOOTSTRAP_KNOWLEDGE_SKILL_PREFIX =
   ".agents/skills/ctxpipe-knowledge/"

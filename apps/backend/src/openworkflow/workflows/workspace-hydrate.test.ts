@@ -24,8 +24,6 @@ const {
       url: "https://github.com/acme/docs",
       sha: "abc123def456",
       embeddings: true,
-      graph: true,
-      remainders: true,
     },
   }
   return {
@@ -176,31 +174,19 @@ describe("workspaceHydrate workflow", () => {
     expect(persistResolvedDesiredShaMock).not.toHaveBeenCalled()
   })
 
-  it("resolves and persists the tip when desiredSha is missing", async () => {
+  it("fails when desiredSha is missing instead of resolving a tip", async () => {
     getWorkspaceByIdMock.mockResolvedValue({
       ...hydrateWorkspaceRow,
       desiredSha: null,
     })
 
-    const result = await hydrateFn.fn({
-      input: { orgId: "org_1", workspaceId: "ws_1" },
-    })
-
-    expect(result.reason).toBe("index_lag")
-    expect(result.reason).not.toBe("desired_sha_missing")
-    expect(resolveWorkspaceRepositoryTipMock).toHaveBeenCalledWith({
-      orgId: "org_1",
-      githubConnectionId: "con_1",
-      workspaceRepositoryUrl: "https://github.com/acme/docs",
-      env: {},
-    })
-    expect(persistResolvedDesiredShaMock).toHaveBeenCalledWith({
-      workspaceId: "ws_1",
-      resolvedTip: "abc123def456",
-      expectedGeneration: 1,
-      expectedUrl: "https://github.com/acme/docs",
-      expectedDesiredSha: null,
-    })
+    await expect(
+      hydrateFn.fn({
+        input: { orgId: "org_1", workspaceId: "ws_1" },
+      }),
+    ).rejects.toThrow(/git tip/)
+    expect(resolveWorkspaceRepositoryTipMock).not.toHaveBeenCalled()
+    expect(persistResolvedDesiredShaMock).not.toHaveBeenCalled()
   })
 
   it("persists hydrate failure when the tip cannot be resolved", async () => {

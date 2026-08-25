@@ -180,15 +180,16 @@ describe("write runner", () => {
     ).resolves.toEqual({ committed: false, reason: "no_changes" })
   })
 
-  it("keys the write sandbox by org, Workspace, URL, and SHA", () => {
+  it("keys the write sandbox by org, Workspace, generation, and URL", () => {
     expect(
       workspaceWriteSandboxId({
         orgId: "org_1",
         workspaceId: "ws_1",
         desiredUrl: "https://github.com/acme/docs",
         desiredSha: "abc",
+        desiredGeneration: 2,
       }),
-    ).toBe("org_1:ws_1:write:https://github.com/acme/docs@abc")
+    ).toBe("org_1:ws_1:2:https://github.com/acme/docs:write")
     expect(
       shouldSpawnJobWorktree({
         writeStatus: "unknown",
@@ -203,22 +204,22 @@ describe("write runner", () => {
         maxConcurrent: 4,
       }),
     ).toBe(false)
-    expect(jobUsesInSandboxWorktree("extract_ingest")).toBe(true)
-    expect(jobUsesInSandboxWorktree("ui_file_edit")).toBe(true)
+    expect(jobUsesInSandboxWorktree("semantic_merge")).toBe(true)
+    expect(jobUsesInSandboxWorktree("ui_file_edit")).toBe(false)
     expect(jobUsesInSandboxWorktree("migration_export")).toBe(false)
-    expect(jobCommitPath({ kind: "extract_ingest", provider: "docker" })).toBe(
-      "worktree",
+    expect(jobCommitPath({ kind: "ui_file_edit", provider: "docker" })).toBe(
+      "github_api",
     )
     expect(
-      jobCommitPath({ kind: "extract_ingest", provider: "unsandboxed" }),
-    ).toBe("worktree")
-    expect(jobCommitPath({ kind: "extract_ingest", provider: "railway" })).toBe(
+      jobCommitPath({ kind: "claims_upgrade", provider: "unsandboxed" }),
+    ).toBe("github_api")
+    expect(jobCommitPath({ kind: "semantic_merge", provider: "docker" })).toBe(
       "worktree",
     )
     expect(
       planJobWorktree({
         jobId: "job_1",
-        kind: "extract_ingest",
+        kind: "semantic_merge",
         writeStatus: "writable",
         runningJobCount: 0,
         provider: "docker",
@@ -227,12 +228,12 @@ describe("write runner", () => {
     expect(
       planJobWorktree({
         jobId: "job_1",
-        kind: "extract_ingest",
+        kind: "ui_file_edit",
         writeStatus: "writable",
         runningJobCount: 0,
-        provider: "unsandboxed",
+        provider: "docker",
       }),
-    ).toEqual({ spawn: true, worktree: "job-job_1" })
+    ).toEqual({ spawn: false, reason: "mechanical_github_api" })
     expect(
       planJobWorktree({
         jobId: "job_1",

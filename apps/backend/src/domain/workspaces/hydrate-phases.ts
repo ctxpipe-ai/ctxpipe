@@ -2,16 +2,12 @@ export type HydratePhaseRecord = {
   url: string
   sha: string
   embeddings: boolean
-  graph: boolean
-  remainders: boolean
 }
 
 export type PendingHydratePhases = {
   postgres: boolean
   embeddings: boolean
-  graph: boolean
   index: boolean
-  remainders: boolean
 }
 
 /** Git SHAs are hex; ISO timestamps and calendar dates are not. */
@@ -55,20 +51,12 @@ export function pendingHydratePhases(input: {
   return {
     postgres,
     embeddings: postgres || !phaseMatches || !input.phases?.embeddings,
-    graph: postgres || !phaseMatches || !input.phases?.graph,
     index: input.indexedSha !== input.desiredSha,
-    remainders: postgres || !phaseMatches || !input.phases?.remainders,
   }
 }
 
 export function hydrateHasPendingWork(pending: PendingHydratePhases): boolean {
-  return (
-    pending.postgres ||
-    pending.embeddings ||
-    pending.graph ||
-    pending.index ||
-    pending.remainders
-  )
+  return pending.postgres || pending.embeddings || pending.index
 }
 
 export function initialHydratePhases(input: {
@@ -79,14 +67,12 @@ export function initialHydratePhases(input: {
     url: input.url,
     sha: input.sha,
     embeddings: false,
-    graph: false,
-    remainders: false,
   }
 }
 
 export function markHydratePhase(
   phases: HydratePhaseRecord,
-  phase: "embeddings" | "graph" | "remainders",
+  phase: "embeddings",
 ): HydratePhaseRecord {
   return { ...phases, [phase]: true }
 }

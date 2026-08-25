@@ -9,10 +9,7 @@ import {
 import type { WorkspaceWriteKind } from "./write-commit-files.js"
 import { jobUsesInSandboxWorktree } from "./write-runner.js"
 
-const LLM_WRITE_KINDS = new Set<WorkspaceWriteKind>([
-  "extract_ingest",
-  "semantic_merge",
-])
+const LLM_WRITE_KINDS = new Set<WorkspaceWriteKind>(["semantic_merge"])
 
 export const SEMANTIC_MERGE_MAX_TURNS = 8
 

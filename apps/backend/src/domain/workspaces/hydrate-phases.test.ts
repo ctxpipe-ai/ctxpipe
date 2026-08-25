@@ -58,16 +58,12 @@ describe("hydrate phases", () => {
         url: "https://github.com/acme/docs",
         sha: "abc",
         embeddings: false,
-        graph: true,
-        remainders: true,
       },
     })
     expect(pending).toEqual({
       postgres: false,
       embeddings: true,
-      graph: false,
       index: false,
-      remainders: false,
     })
     expect(hydrateHasPendingWork(pending)).toBe(true)
   })
@@ -84,16 +80,12 @@ describe("hydrate phases", () => {
           url: "https://github.com/acme/a",
           sha: "aaa",
           embeddings: true,
-          graph: true,
-          remainders: true,
         },
       }),
     ).toEqual({
       postgres: true,
       embeddings: true,
-      graph: true,
       index: true,
-      remainders: true,
     })
   })
 

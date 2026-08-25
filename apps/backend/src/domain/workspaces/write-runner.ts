@@ -1,4 +1,3 @@
-import { sandboxSnapshotKey } from "./revision.js"
 import type { WorkspaceWriteKind } from "./write-commit-files.js"
 import {
   fallbackCommitSubject,
@@ -8,14 +7,8 @@ import {
 export const JOB_WORKTREE_PREFIX = "job"
 export const MAX_CONCURRENT_JOB_WORKTREES = 4
 
-const MECHANICAL_WRITE_KINDS = new Set<WorkspaceWriteKind>([
-  "migration_export",
-  "link_unlink",
-  "connector_mirror",
-])
-
 export function jobUsesInSandboxWorktree(kind: WorkspaceWriteKind): boolean {
-  return !MECHANICAL_WRITE_KINDS.has(kind)
+  return kind === "semantic_merge"
 }
 
 export function jobCommitPath(input: {
@@ -32,16 +25,18 @@ export function jobWorktreeName(jobId: string): string {
   return `${JOB_WORKTREE_PREFIX}-${safe || "unknown"}`
 }
 
-/** One write sandbox per Workspace, keyed by desired URL + SHA. */
+/** One write sandbox per org + Workspace + repository generation/URL, not SHA. */
 export function workspaceWriteSandboxId(input: {
   orgId: string
   workspaceId: string
-  desiredUrl: string
-  desiredSha: string | null
-}): string | null {
-  const snapshot = sandboxSnapshotKey(input.desiredUrl, input.desiredSha)
-  if (!snapshot) return null
-  return `${input.orgId}:${input.workspaceId}:write:${snapshot}`
+  desiredUrl?: string
+  desiredSha?: string | null
+  desiredGeneration?: number
+}): string {
+  void input.desiredSha
+  const generation = input.desiredGeneration ?? 0
+  const url = input.desiredUrl?.trim() ?? ""
+  return `${input.orgId}:${input.workspaceId}:${generation}:${url}:write`
 }
 
 export function shouldSpawnJobWorktree(input: {

@@ -1,5 +1,5 @@
 import { defineWorkflow } from "openworkflow"
-import { z } from "zod"
+import { workspaceWriteJobInputSchema } from "../../domain/workspaces/write-job-intent.js"
 import { withOrgIdContext } from "../../auth/withAuth.js"
 import { parseEnv } from "../../config/env.js"
 import { getSystemDb, withOrgDbContext } from "../../db/client.js"
@@ -83,36 +83,7 @@ import {
 } from "../../services/github/installation-write-client.js"
 import { enqueueWorkspaceHydrate } from "../enqueue-workspace-hydrate.js"
 
-const workspaceWriteCommitInputSchema = z.object({
-  orgId: z.string().min(1),
-  workspaceId: z.string().min(1),
-  kind: z.enum([
-    "migration_export",
-    "extract_ingest",
-    "connector_mirror",
-    "claims_upgrade",
-    "rename_rewrite",
-    "valid_from_persist",
-    "semantic_merge",
-    "ops_folder_map",
-    "bootstrap",
-    "link_unlink",
-    "ui_file_edit",
-  ]),
-  defaultBranch: z.string().min(1).optional(),
-  jobId: z.string().min(1).optional(),
-  linkAction: z.enum(["link", "unlink"]).optional(),
-  linkGitUrl: z.string().min(1).optional(),
-  jobGeneration: z.number().int().optional(),
-  jobWorkspaceUrl: z.string().min(1).optional(),
-  jobDesiredSha: z.string().nullable().optional(),
-  conflictParentSha: z.string().nullable().optional(),
-  remoteTipSha: z.string().nullable().optional(),
-  mergeFiles: z
-    .array(z.object({ path: z.string().min(1), content: z.string() }))
-    .optional(),
-  mergeDeletePaths: z.array(z.string().min(1)).optional(),
-})
+const workspaceWriteCommitInputSchema = workspaceWriteJobInputSchema
 
 export const workspaceWriteCommit = defineWorkflow(
   { name: "workspace-write-commit", schema: workspaceWriteCommitInputSchema },
@@ -436,6 +407,7 @@ export const workspaceWriteCommit = defineWorkflow(
               workspaceId: workspace.id,
               desiredUrl: jobWorkspaceUrl,
               desiredSha: parentSha,
+              desiredGeneration: jobGeneration,
               existing: existingSandbox,
               create: async (sandboxId, hooks) =>
                 createTanstackJobSandbox({

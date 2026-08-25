@@ -1,3 +1,4 @@
+import { z } from "zod"
 import type { WorkspaceWriteKind } from "./write-commit-files.js"
 import { shouldEnqueueWorkspaceWriteJob } from "./write-jobs.js"
 
@@ -23,17 +24,60 @@ export type WorkspaceWriteJobPayload = {
   mergeDeletePaths?: string[]
 }
 
-export type WriteJobEnqueueFields = {
-  kind: WorkspaceWriteKind
-  defaultBranch?: string
-  linkAction?: "link" | "unlink"
-  linkGitUrl?: string
-  jobWorkspaceUrl?: string
-  conflictParentSha?: string | null
-  remoteTipSha?: string | null
-  mergeFiles?: Array<{ path: string; content: string }>
-  mergeDeletePaths?: string[]
-}
+const writeJobFileSchema = z.object({
+  path: z.string().min(1),
+  content: z.string(),
+})
+
+const writeJobBaseSchema = z.object({
+  orgId: z.string().min(1),
+  workspaceId: z.string().min(1),
+  jobId: z.string().min(1).optional(),
+  jobGeneration: z.number().int().optional(),
+  jobWorkspaceUrl: z.string().min(1).optional(),
+  jobDesiredSha: z.string().nullable().optional(),
+  defaultBranch: z.string().min(1).optional(),
+})
+
+const writeJobKindSchema = z.enum([
+  "migration_export",
+  "extract_ingest",
+  "connector_mirror",
+  "claims_upgrade",
+  "rename_rewrite",
+  "valid_from_persist",
+  "semantic_merge",
+  "ops_folder_map",
+  "bootstrap",
+  "link_unlink",
+  "ui_file_edit",
+])
+
+/** Shared enqueue + workflow input. Kind-specific fields stay on the payload. */
+export const workspaceWriteJobInputSchema = writeJobBaseSchema.extend({
+  kind: writeJobKindSchema,
+  linkAction: z.enum(["link", "unlink"]).optional(),
+  linkGitUrl: z.string().min(1).optional(),
+  conflictParentSha: z.string().nullable().optional(),
+  remoteTipSha: z.string().nullable().optional(),
+  mergeFiles: z.array(writeJobFileSchema).optional(),
+  mergeDeletePaths: z.array(z.string().min(1)).optional(),
+})
+
+export type EnqueueWriteJobInput = z.infer<typeof workspaceWriteJobInputSchema>
+
+export type WriteJobEnqueueFields = Pick<
+  EnqueueWriteJobInput,
+  | "kind"
+  | "defaultBranch"
+  | "linkAction"
+  | "linkGitUrl"
+  | "jobWorkspaceUrl"
+  | "conflictParentSha"
+  | "remoteTipSha"
+  | "mergeFiles"
+  | "mergeDeletePaths"
+>
 
 export function writeJobIntentPayload(
   input: WriteJobEnqueueFields,
@@ -99,22 +143,7 @@ export function enqueueInputFromPausedJob(input: {
     desiredSha: string | null
     payload: WorkspaceWriteJobPayload | null
   }
-}): {
-  orgId: string
-  workspaceId: string
-  kind: WorkspaceWriteKind
-  jobId: string
-  jobGeneration: number
-  jobDesiredSha: string | null
-  jobWorkspaceUrl?: string
-  defaultBranch?: string
-  linkAction?: "link" | "unlink"
-  linkGitUrl?: string
-  conflictParentSha?: string | null
-  remoteTipSha?: string | null
-  mergeFiles?: Array<{ path: string; content: string }>
-  mergeDeletePaths?: string[]
-} {
+}): EnqueueWriteJobInput {
   const payload = input.job.payload ?? {}
   return {
     orgId: input.orgId,

@@ -5,13 +5,9 @@ import { log } from "../../observability/logger.js"
 import { resolveGithubDefaultBranch } from "../../routes/webhooks/github/github-workspace-tip.js"
 import { githubRefExists } from "../../services/github/installation-write-client.js"
 import {
-  applyQuietChatUpdate,
   lastBranchExistsOnRemote,
-  quietUpdateChatBranch,
   restoreBranchAfterIdle,
-  treeDirtyFromPorcelain,
 } from "./chat-lifecycle.js"
-import { getChatSandbox } from "./sandbox-registry.js"
 import { githubRepoFullNameFromWorkspaceUrl } from "./write-status.js"
 
 export type WorkspaceChatTurnConversation = {
@@ -111,30 +107,6 @@ export async function resolveWorkspaceChatTurnRuntime(input: {
       lastBranch,
     })
   }
-  const chatSandbox = getChatSandbox(conversation.id)
-  if (chatSandbox && workspace?.desiredSha) {
-    const status = await chatSandbox.exec("git status --porcelain", {
-      env: {},
-    })
-    const tipPresent = await chatSandbox.exec(
-      `git cat-file -t ${workspace.desiredSha}`,
-      { env: {} },
-    )
-    const treeDirty = treeDirtyFromPorcelain(status.stdout)
-    await applyQuietChatUpdate({
-      decision: quietUpdateChatBranch({
-        lastBranch,
-        defaultBranch,
-        lastBranchPublished:
-          remoteHasLastBranch && lastBranch.startsWith("ctxpipe/chat/"),
-        treeDirty,
-        rebaseApplies: tipPresent.exitCode === 0 && treeDirty,
-      }),
-      desiredSha: workspace.desiredSha,
-      exec: chatSandbox.exec,
-    }).catch(() => undefined)
-  }
-
   return {
     lastBranch,
     defaultBranch,

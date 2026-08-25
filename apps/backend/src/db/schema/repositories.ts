@@ -13,6 +13,7 @@ import {
   text,
   timestamp,
   unique,
+  uniqueIndex,
 } from "drizzle-orm/pg-core"
 import { connections } from "./connections.js"
 import { orgIsolationPolicy } from "./org-rls.js"
@@ -37,6 +38,7 @@ export const repositories = pgTable.withRLS(
     orgId: text("org_id").notNull(),
     name: text("name").notNull(),
     gitUrl: text("git_url").notNull(),
+    repositoryKey: text("repository_key"),
     indexReady: boolean("index_ready").notNull().default(false),
     indexingStatus: repositoryIndexingStatusEnum("indexing_status"),
     indexingError: text("indexing_error"),
@@ -71,6 +73,10 @@ export const repositories = pgTable.withRLS(
   (t) => [
     unique().on(t.name, t.orgId),
     unique().on(t.gitUrl, t.orgId),
+    uniqueIndex("repositories_org_id_repository_key_uidx").on(
+      t.orgId,
+      t.repositoryKey,
+    ),
     index().on(t.name),
     index("repositories_github_connection_id_idx").on(t.githubConnectionId),
     orgIsolationPolicy(t.orgId),

@@ -3,15 +3,16 @@ import type { Context } from "hono"
 import type { AppEnv } from "../../app/env.js"
 import type { Env } from "../../config/env.js"
 import {
-  resolveWorkspaceGithubConnectionId,
-  type WorkspaceAddSource,
-} from "../../domain/workspaces/bind-github-connection.js"
-import {
   listWorkspaceCheckoutPaths,
   readWorkspaceCheckoutFile,
   WorkspaceCheckoutReadError,
 } from "../../domain/workspaces/checkout-read.js"
-import { ensureOrgRepositoryForGitUrl } from "../../domain/workspaces/ensure-org-repository.js"
+import {
+  attachOrgRepository,
+  createWorkspaceLifecycle,
+  relinkWorkspaceLifecycle,
+  renameWorkspaceLifecycle,
+} from "../../domain/workspaces/workspace-lifecycle.js"
 import { fileTreeFromPaths } from "../../domain/workspaces/file-tree.js"
 import {
   explorerBlobFromContent,
@@ -28,7 +29,6 @@ import {
 } from "../../domain/workspaces/git-file-jobs.js"
 import { shouldHydrateBeforeMigrationExport } from "../../domain/workspaces/hydrate.js"
 import {
-  destroySandboxesForWorkspace,
   getJobSandbox,
   withDestroyedWorkspaceSandboxes,
 } from "../../domain/workspaces/sandbox-registry.js"
@@ -36,11 +36,6 @@ import { normalizeWorkspaceRepositoryUrl } from "../../domain/workspaces/slug.js
 import { workspaceGraphFromUnits } from "../../domain/workspaces/workspace-graph.js"
 import { writeJobQueueHttpDecision } from "../../domain/workspaces/write-jobs.js"
 import {
-  githubConnectionIdForWriteProbe,
-  writeStatusFromClassification,
-} from "../../domain/workspaces/write-status.js"
-import {
-  createWorkspace,
   deleteWorkspace,
   getMigrationExportSha,
   getWorkspaceBySlug,
@@ -51,25 +46,10 @@ import {
   listWorkspaces,
   persistHydrateRetry,
   touchLastUsedWorkspace,
-  updateWorkspace,
 } from "../../models/workspaces.js"
 import { getLogger } from "../../observability/logger.js"
 import { enqueueWorkspaceHydrate } from "../../openworkflow/enqueue-workspace-hydrate.js"
-import { enqueueWorkspaceTipCheck } from "../../openworkflow/enqueue-workspace-tip-check.js"
 import { enqueueWorkspaceWriteCommit } from "../../openworkflow/enqueue-workspace-write-commit.js"
-
-async function attachOrgRepository(input: {
-  orgId: string
-  gitUrl: string
-  githubConnectionId?: string | null
-  log: { error: (err: Error) => void }
-}) {
-  try {
-    await ensureOrgRepositoryForGitUrl(input)
-  } catch (error) {
-    input.log.error(error instanceof Error ? error : new Error(String(error)))
-  }
-}
 
 const ErrorResponseSchema = z
   .object({ error: z.string() })
@@ -878,8 +858,6 @@ export const workspaceRoutes = new OpenAPIHono<AppEnv>()
       return c.json({ error: "Unauthorized" }, 401)
     }
     const { items, lastUsedWorkspaceId } = await listWorkspaces()
-    const orgId = c.get("orgId")
-    if (orgId) void enqueueWorkspaceTipCheck(orgId, c.get("log"))
     const exportShas = await listMigrationExportShas()
     return c.json(
       {
@@ -898,53 +876,15 @@ export const workspaceRoutes = new OpenAPIHono<AppEnv>()
     const body = CreateWorkspaceRequestSchema.parse(await c.req.json())
     const orgId = c.get("orgId")
     if (!orgId) return c.json({ error: "Unauthorized" }, 401)
-    const githubConnectionId = await resolveWorkspaceGithubConnectionId({
+    const created = await createWorkspaceLifecycle({
       orgId,
-      requested: body.githubConnectionId,
-      source: body.source as WorkspaceAddSource | undefined,
-    })
-    const write = writeStatusFromClassification({
-      workspaceRepositoryUrl: body.gitUrl,
-      githubConnectionId,
-    })
-    const created = await createWorkspace({
       gitUrl: body.gitUrl,
       displayName: body.displayName,
       slug: body.slug,
-      ...(githubConnectionId ? { githubConnectionId } : {}),
-      write,
-    })
-    await attachOrgRepository({
-      orgId: created.orgId,
-      gitUrl: created.workspaceRepositoryUrl,
-      githubConnectionId: created.githubConnectionId,
+      githubConnectionId: body.githubConnectionId,
+      source: body.source,
       log: c.get("log"),
     })
-    void enqueueWorkspaceHydrate(
-      { orgId: created.orgId, workspaceId: created.id },
-      c.get("log"),
-    )
-    void enqueueWorkspaceWriteCommit(
-      {
-        orgId: created.orgId,
-        workspaceId: created.id,
-        kind: "migration_export",
-      },
-      c.get("log"),
-    )
-    for (const gitUrl of created.autoLinkGitUrls) {
-      void enqueueWorkspaceWriteCommit(
-        {
-          orgId: created.orgId,
-          workspaceId: created.id,
-          kind: "link_unlink",
-          linkAction: "link",
-          linkGitUrl: gitUrl,
-        },
-        c.get("log"),
-      )
-    }
-    void enqueueWorkspaceTipCheck(created.orgId, c.get("log"))
     return c.json(serializeWorkspace(created, null), 201)
   })
   .openapi(getWorkspaceRoute, async (c) => {
@@ -1156,69 +1096,27 @@ export const workspaceRoutes = new OpenAPIHono<AppEnv>()
       body.workspaceRepositoryUrl !== undefined ||
       body.githubConnectionId !== undefined ||
       body.source !== undefined
-    const orgId = c.get("orgId") ?? current.orgId
-    const githubConnectionId = bindingSubmitted
-      ? await resolveWorkspaceGithubConnectionId({
-          orgId,
-          requested: githubConnectionIdForWriteProbe({
-            requested: body.githubConnectionId,
-            existing: current.githubConnectionId,
-          }),
-          source: body.source as WorkspaceAddSource | undefined,
-        })
-      : current.githubConnectionId
-    const write = bindingSubmitted
-      ? writeStatusFromClassification({
-          workspaceRepositoryUrl:
-            body.workspaceRepositoryUrl ?? current.workspaceRepositoryUrl,
-          githubConnectionId,
-        })
-      : undefined
     const persistConnection =
       body.githubConnectionId !== undefined || body.source === "select"
-    const updated = await updateWorkspace(workspaceSlug, {
-      ...(body.displayName !== undefined
-        ? { displayName: body.displayName }
-        : {}),
-      ...(body.slug !== undefined ? { slug: body.slug } : {}),
-      ...(body.workspaceRepositoryUrl !== undefined
-        ? { workspaceRepositoryUrl: body.workspaceRepositoryUrl }
-        : {}),
-      ...(persistConnection ? { githubConnectionId } : {}),
-      ...(write ? { write } : {}),
+    const { workspace: updated } = await relinkWorkspaceLifecycle({
+      slug: workspaceSlug,
+      current,
+      orgId: c.get("orgId") ?? current.orgId,
+      workspaceRepositoryUrl: body.workspaceRepositoryUrl,
+      githubConnectionId: body.githubConnectionId,
+      source: body.source,
+      nextSlug: body.slug,
+      persistConnection,
+      bindingSubmitted,
+      log: c.get("log"),
     })
     if (!updated) return c.json({ error: "Not found" }, 404)
-    if (
-      body.workspaceRepositoryUrl &&
-      body.workspaceRepositoryUrl !== current.workspaceRepositoryUrl
-    ) {
-      void destroySandboxesForWorkspace(updated.id)
-    }
-    if (body.workspaceRepositoryUrl) {
-      await attachOrgRepository({
+    if (body.displayName) {
+      await renameWorkspaceLifecycle({
         orgId: updated.orgId,
-        gitUrl: updated.workspaceRepositoryUrl,
-        githubConnectionId: updated.githubConnectionId,
+        workspaceId: updated.id,
         log: c.get("log"),
       })
-      void enqueueWorkspaceWriteCommit(
-        {
-          orgId: updated.orgId,
-          workspaceId: updated.id,
-          kind: "bootstrap",
-        },
-        c.get("log"),
-      )
-    }
-    if (body.displayName) {
-      void enqueueWorkspaceWriteCommit(
-        {
-          orgId: updated.orgId,
-          workspaceId: updated.id,
-          kind: "ops_folder_map",
-        },
-        c.get("log"),
-      )
     }
     return c.json(
       serializeWorkspace(updated, await getMigrationExportSha(updated.id)),

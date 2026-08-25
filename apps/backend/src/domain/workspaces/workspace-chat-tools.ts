@@ -229,15 +229,17 @@ export async function workspaceChatTools(input: {
     listRepositoriesTool as unknown as ExplorerTool,
     ...(standardRepoExplorerTools as unknown as ExplorerTool[]),
   ]
-  const tools: WorkspaceChatTanstackTool[] = explorer.map((tool) =>
-    wrapExplorerTool({
-      tool,
-      orgId: input.orgId,
-      allowedRepositoryIds: allowed,
-      checkoutKey,
-      workspaceId: input.workspaceId,
-    }),
-  )
+  const tools: WorkspaceChatTanstackTool[] = explorer
+    .filter((tool) => !DISK_READ_TOOL_NAMES.has(tool.name))
+    .map((tool) =>
+      wrapExplorerTool({
+        tool,
+        orgId: input.orgId,
+        allowedRepositoryIds: allowed,
+        checkoutKey,
+        workspaceId: input.workspaceId,
+      }),
+    )
   tools.unshift(hybridSearchTool(input))
   tools.push(
     graphLookupTool({

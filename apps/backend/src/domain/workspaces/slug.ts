@@ -33,6 +33,22 @@ export function slugFromGitUrl(gitUrl: string): string {
   }
 }
 
+/** Canonical uniqueness key: GitHub `owner/repo` lowercased, else host/path. */
+export function repositoryKeyFromGitUrl(gitUrl: string): string {
+  const normalized = normalizeWorkspaceRepositoryUrl(gitUrl)
+  try {
+    const url = new URL(normalized)
+    const parts = url.pathname.replace(/^\/+|\/+$/g, "").split("/")
+    if (url.hostname.toLowerCase() === "github.com" && parts.length >= 2) {
+      return `${parts[0]}/${parts[1]}`.toLowerCase()
+    }
+    const host = url.port ? `${url.hostname}:${url.port}` : url.hostname
+    return `${host}/${parts.join("/")}`.toLowerCase()
+  } catch {
+    return displayNameFromGitUrl(normalized).toLowerCase()
+  }
+}
+
 export function displayNameFromGitUrl(gitUrl: string): string {
   const trimmed = gitUrl.trim()
   const ssh = trimmed.match(/^git@([^:]+):(.+)$/)

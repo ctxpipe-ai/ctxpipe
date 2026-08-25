@@ -10,8 +10,6 @@ const touchLastUsedWorkspaceMock = vi.hoisted(() => vi.fn())
 const listLinkedRepositoriesMock = vi.hoisted(() => vi.fn())
 const listWorkspaceKnowledgeFilesMock = vi.hoisted(() => vi.fn())
 const listWorkspaceKnowledgeUnitsMock = vi.hoisted(() => vi.fn())
-const linkRepositoryMock = vi.hoisted(() => vi.fn())
-const unlinkRepositoryMock = vi.hoisted(() => vi.fn())
 const persistHydrateRetryMock = vi.hoisted(() => vi.fn())
 const deleteWorkspaceMock = vi.hoisted(() => vi.fn())
 const destroySandboxesForWorkspaceMock = vi.hoisted(() => vi.fn())
@@ -69,8 +67,6 @@ vi.mock("../../models/workspaces.js", () => ({
   deleteWorkspace: deleteWorkspaceMock,
   getMigrationExportSha: getMigrationExportShaMock,
   listMigrationExportShas: listMigrationExportShasMock,
-  linkRepository: linkRepositoryMock,
-  unlinkRepository: unlinkRepositoryMock,
 }))
 
 vi.mock("../../domain/workspaces/checkout-read.js", async (importOriginal) => {
@@ -198,10 +194,7 @@ describe("workspaces API", () => {
     expect(body.items[0].slug).toBe("knowledge")
     expect(body.items[0].id).toBe("ws_abc")
     expect(body.items[0].migrationExportSha).toBe("exportsha")
-    expect(enqueueWorkspaceTipCheck).toHaveBeenCalledWith(
-      "org_mock",
-      expect.anything(),
-    )
+    expect(enqueueWorkspaceTipCheck).not.toHaveBeenCalled()
   })
 
   it("creates a workspace from a git URL", async () => {
@@ -542,8 +535,14 @@ describe("workspaces API", () => {
     expect(res.status).toBe(200)
     expect(updateWorkspaceMock).toHaveBeenCalledWith("knowledge", {
       slug: "docs",
-      displayName: "Docs",
     })
+    expect(enqueueWorkspaceWriteCommit).toHaveBeenCalledWith(
+      expect.objectContaining({
+        workspaceId: "ws_abc",
+        kind: "ops_folder_map",
+      }),
+      expect.anything(),
+    )
     const body = await res.json()
     expect(body.slug).toBe("docs")
   })
@@ -847,7 +846,6 @@ describe("workspaces API", () => {
       },
     )
     expect(res.status).toBe(202)
-    expect(linkRepositoryMock).not.toHaveBeenCalled()
     expect(enqueueWorkspaceWriteCommit).toHaveBeenCalledWith(
       {
         orgId: "org_mock",
@@ -881,7 +879,6 @@ describe("workspaces API", () => {
       { method: "DELETE" },
     )
     expect(res.status).toBe(202)
-    expect(unlinkRepositoryMock).not.toHaveBeenCalled()
     expect(enqueueWorkspaceWriteCommit).toHaveBeenCalledWith(
       {
         orgId: "org_mock",

@@ -269,9 +269,6 @@ async function* streamWorkspaceChatSocketTurn(input: {
       abortSignal: input.signal,
       orgId: input.orgId,
       workspaceId: parsed.workspaceId,
-      desiredUrl: "",
-      desiredSha: null,
-      ref: "HEAD",
       writeStatus: "read_only",
       resolveRuntime: () =>
         resolveWorkspaceChatSendRuntime({

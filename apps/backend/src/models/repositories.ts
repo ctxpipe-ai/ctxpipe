@@ -14,7 +14,10 @@ import {
   purgeRepositoryPostgres,
 } from "../domain/repositoryDeletion.js"
 import { workspaceCheckoutKey } from "../domain/workspaces/derived-stores.js"
-import { normalizeWorkspaceRepositoryUrl } from "../domain/workspaces/slug.js"
+import {
+  normalizeWorkspaceRepositoryUrl,
+  repositoryKeyFromGitUrl,
+} from "../domain/workspaces/slug.js"
 import { generateObjectId } from "../lib/id.js"
 import { userFacingIndexingError } from "../lib/memoryFitError.js"
 import { log } from "../observability/logger.js"
@@ -633,6 +636,7 @@ export const createRepository = async (input: {
           orgId: orgId,
           name: input.name,
           gitUrl: input.gitUrl,
+          repositoryKey: repositoryKeyFromGitUrl(input.gitUrl),
         })
         .returning()
       if (!repository) return []
@@ -683,6 +687,7 @@ async function bulkCreateRepositoriesWithDb(
           orgId,
           name: r.name,
           gitUrl: r.gitUrl,
+          repositoryKey: repositoryKeyFromGitUrl(r.gitUrl),
           githubConnectionId: opts?.githubConnectionId,
         })
         .onConflictDoNothing({

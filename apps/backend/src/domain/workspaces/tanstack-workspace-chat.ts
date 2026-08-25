@@ -46,7 +46,6 @@ import {
 } from "./opencode-chat-stream.js"
 import { postgresSandboxInstanceStore } from "./sandbox-instance-store.js"
 import {
-  attachChatSandboxHandle,
   destroySandboxesForConversation,
   heartbeatChatSandboxes,
 } from "./sandbox-registry.js"
@@ -63,11 +62,7 @@ import {
   workspaceChatRunStarted,
   workspaceChatWireFormat,
 } from "./workspace-chat-agui.js"
-import {
-  createWorkspaceChatAssistantGate,
-  isOpenCodePlanningHold,
-  workspaceChatRecoveredAssistant,
-} from "./workspace-chat-assistant-text.js"
+import { isOpenCodePlanningHold } from "./workspace-chat-assistant-text.js"
 import { startWorkspaceChatModelProxy } from "./workspace-chat-model-proxy.js"
 import {
   workspaceChatOpenCodeConfig,
@@ -80,7 +75,6 @@ import {
 import {
   beginWorkspaceChatTurn,
   finishWorkspaceChatTurn,
-  lastWorkspaceChatStopText,
   markWorkspaceChatFirstShownToken,
 } from "./workspace-chat-otel.js"
 import { workspaceChatPersistence } from "./workspace-chat-persistence.js"
@@ -102,11 +96,11 @@ export type TanstackWorkspaceChatInput = {
   abortSignal?: AbortSignal
   orgId: string
   workspaceId: string
-  desiredUrl: string
-  desiredSha: string | null
+  desiredUrl?: string
+  desiredSha?: string | null
   desiredGeneration?: number
   defaultBranch?: string
-  ref: string
+  ref?: string
   writeStatus: string
   cloneToken?: string | null
   onHeartbeat?: () => Promise<void> | void
@@ -160,19 +154,16 @@ export async function collectTanstackWorkspaceChatText(
 ): Promise<
   { ok: true; text: string } | { ok: false; status: number; error: string }
 > {
-  const gate = createWorkspaceChatAssistantGate(input.prompt)
   try {
+    let text = ""
     for await (const chunk of streamTanstackWorkspaceChat(input)) {
-      for (const next of gate.take(chunk)) {
-        const delta = aguiTextDelta(next)
-        if (delta) await input.onDelta?.(delta)
+      const delta = aguiTextDelta(chunk)
+      if (delta) {
+        text += delta
+        await input.onDelta?.(delta)
       }
     }
-    for (const next of gate.flush()) {
-      const delta = aguiTextDelta(next)
-      if (delta) await input.onDelta?.(delta)
-    }
-    return { ok: true, text: gate.assistant() }
+    return { ok: true, text }
   } catch (error) {
     await input.onError?.()
     throw error
@@ -254,36 +245,15 @@ async function* streamTanstackWorkspaceChatBody(
     return message
   }
 
-  const gate = createWorkspaceChatAssistantGate(turn.prompt)
   let streamError: Error | null = null
+  let assistant = ""
   try {
+    let finished: StreamChunk | null = null
     for await (const chunk of takeWorkspaceChatProducer(prepared.stream, {
       setupMs: turn.streamSetupMs,
       idleMs: turn.streamIdleMs,
     })) {
-      for (const next of gate.take(chunk)) {
-        const typed = next as StreamChunk
-        if (typed.type === "RUN_ERROR") {
-          streamError = new Error(
-            "message" in typed && typeof typed.message === "string"
-              ? typed.message
-              : "OpenCode chat stream failed",
-          )
-          continue
-        }
-        if (
-          typed.type === "TEXT_MESSAGE_CONTENT" ||
-          typed.type === "REASONING_MESSAGE_CONTENT" ||
-          typed.type === "TOOL_CALL_START"
-        ) {
-          markWorkspaceChatFirstShownToken(turn.conversationId)
-        }
-        yield typed
-      }
-    }
-    let finished: StreamChunk | null = null
-    for (const next of gate.flush()) {
-      const typed = next as StreamChunk
+      const typed = chunk as StreamChunk
       if (typed.type === "RUN_ERROR") {
         streamError = new Error(
           "message" in typed && typeof typed.message === "string"
@@ -296,6 +266,8 @@ async function* streamTanstackWorkspaceChatBody(
         finished = typed
         continue
       }
+      const delta = aguiTextDelta(typed)
+      if (delta) assistant += delta
       if (
         typed.type === "TEXT_MESSAGE_CONTENT" ||
         typed.type === "REASONING_MESSAGE_CONTENT" ||
@@ -304,31 +276,6 @@ async function* streamTanstackWorkspaceChatBody(
         markWorkspaceChatFirstShownToken(turn.conversationId)
       }
       yield typed
-    }
-    const streamed = gate.assistant()
-    const assistant = workspaceChatRecoveredAssistant({
-      prompt: turn.prompt,
-      streamed,
-      fallback: streamError
-        ? undefined
-        : lastWorkspaceChatStopText(turn.conversationId),
-    })
-    if (assistant.trim() && assistant !== streamed.trim()) {
-      const messageId = `recover-${turn.conversationId}`
-      yield {
-        type: "TEXT_MESSAGE_START",
-        messageId,
-      } as StreamChunk
-      yield {
-        type: "TEXT_MESSAGE_CONTENT",
-        messageId,
-        delta: assistant,
-      } as StreamChunk
-      yield {
-        type: "TEXT_MESSAGE_END",
-        messageId,
-      } as StreamChunk
-      markWorkspaceChatFirstShownToken(turn.conversationId)
     }
     const failed =
       streamError != null ||
@@ -554,6 +501,14 @@ async function startWorkspaceChat(input: TanstackWorkspaceChatInput): Promise<
 }
 
 async function buildWorkspaceChatSandbox(input: TanstackWorkspaceChatInput) {
+  const desiredUrl = input.desiredUrl?.trim() ?? ""
+  if (!desiredUrl) {
+    return {
+      ok: false as const,
+      status: 400,
+      error: "workspace_required",
+    }
+  }
   const runtime = workspaceChatRuntimeConfig({ writeStatus: input.writeStatus })
   const contract = workspaceChatOpenCodeContract(process.env)
   if (!contract.ok) {
@@ -566,8 +521,8 @@ async function buildWorkspaceChatSandbox(input: TanstackWorkspaceChatInput) {
   const snapshotId = workspaceChatSandboxId({
     orgId: input.orgId,
     workspaceId: input.workspaceId,
-    desiredUrl: input.desiredUrl,
-    desiredSha: input.desiredSha,
+    desiredUrl,
+    desiredSha: input.desiredSha ?? null,
     image: "chat:1",
   })
   if (!snapshotId) {
@@ -580,7 +535,7 @@ async function buildWorkspaceChatSandbox(input: TanstackWorkspaceChatInput) {
   const spec = workspaceChatSandboxSpec({
     sandboxId: snapshotId,
     provider: runtime.provider,
-    gitUrl: input.desiredUrl,
+    gitUrl: desiredUrl,
     ref: input.desiredSha ?? input.ref,
   })
   if (!spec.ok) {
@@ -645,7 +600,7 @@ function defineConversationSandbox(input: {
     CTXPIPE_OPENCODE_RUN_TOKEN: input.runToken,
     CTXPIPE_MODEL_PROXY_URL: `${input.proxyUrl}/v1`,
     [WORKSPACE_CHAT_CLONE_URL_SECRET]: originUrlWithoutCredentials(
-      chatInput.desiredUrl,
+      chatInput.desiredUrl ?? "",
     ),
     [WORKSPACE_CHAT_CLONE_BRANCH_SECRET]:
       chatInput.defaultBranch?.trim() || "main",
@@ -684,23 +639,6 @@ function defineConversationSandbox(input: {
     hooks: {
       onReady: async (ready: TanstackLikeHandle) => {
         handle.current = ready
-        await attachChatSandboxHandle({
-          kind: "chat",
-          workspaceId: chatInput.workspaceId,
-          conversationId: chatInput.conversationId,
-          orgId: chatInput.orgId,
-          desiredUrl: chatInput.desiredUrl,
-          desiredGeneration: chatInput.desiredGeneration,
-          desiredSha: chatInput.desiredSha,
-          defaultBranch: chatInput.defaultBranch,
-          handle: adaptTanstackHandle(ready),
-          destroy: () => ready.destroy(),
-        }).catch((error) => {
-          getLogger().error(
-            error instanceof Error ? error : new Error(String(error)),
-            { step: "attach-chat-sandbox-handle" },
-          )
-        })
       },
     },
   })

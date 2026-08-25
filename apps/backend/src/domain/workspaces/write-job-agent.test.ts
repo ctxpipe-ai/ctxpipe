@@ -18,11 +18,11 @@ describe("write-job agents", () => {
   it("attaches to the existing job sandbox instead of calling withSandbox", () => {
     expect(
       planWriteJobAgent({
-        kind: "extract_ingest",
+        kind: "claims_upgrade",
         plannedFileCount: 0,
         hasJobSandbox: true,
       }),
-    ).toEqual({ action: "run_agent" })
+    ).toEqual({ action: "github_api" })
     expect(
       planWriteJobAgent({
         kind: "semantic_merge",
@@ -36,17 +36,17 @@ describe("write-job agents", () => {
         plannedFileCount: 2,
         hasJobSandbox: true,
       }),
-    ).toEqual({ action: "write_planned" })
+    ).toEqual({ action: "github_api" })
     expect(
       planWriteJobAgent({
         kind: "ui_file_edit",
         plannedFileCount: 1,
         hasJobSandbox: true,
       }),
-    ).toEqual({ action: "write_planned" })
+    ).toEqual({ action: "github_api" })
     expect(
       planWriteJobAgent({
-        kind: "extract_ingest",
+        kind: "claims_upgrade",
         plannedFileCount: 0,
         hasJobSandbox: false,
       }),
