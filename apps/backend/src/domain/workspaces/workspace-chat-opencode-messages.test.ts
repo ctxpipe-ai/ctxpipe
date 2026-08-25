@@ -1,5 +1,9 @@
+import { convertMessagesToModelMessages } from "@tanstack/ai"
 import { describe, expect, it } from "vitest"
-import { messagesForOpenCodeChat } from "./workspace-chat-opencode-messages.js"
+import {
+  messagesForOpenCodeChat,
+  openCodeTrailingUserMiddleware,
+} from "./workspace-chat-opencode-messages.js"
 
 /** Mirrors `@tanstack/ai-opencode` `buildPrompt` / `extractText` (0.3.4). */
 function openCodeTrailingUserText(
@@ -47,11 +51,27 @@ describe("messagesForOpenCodeChat", () => {
       },
     ]
     const normalized = messagesForOpenCodeChat(messages, "next turn")
-    expect(normalized.at(-1)).toMatchObject({
+    expect(normalized.at(-1)).toEqual({
       role: "user",
       content: "next turn",
     })
+    expect(normalized.at(-1)).not.toHaveProperty("parts")
     expect(openCodeTrailingUserText(normalized)).toBe("next turn")
+  })
+
+  it("strips leftover parts so convert+OpenCode still see string content", () => {
+    const rewritten = messagesForOpenCodeChat(
+      [
+        {
+          role: "user",
+          content: "next turn",
+          parts: [{ type: "text", text: "next turn" }],
+        },
+      ],
+      "next turn",
+    )
+    const converted = convertMessagesToModelMessages(rewritten)
+    expect(openCodeTrailingUserText(converted)).toBe("next turn")
   })
 
   it("appends the current prompt when the transcript ends on the assistant", () => {
@@ -84,5 +104,19 @@ describe("messagesForOpenCodeChat", () => {
     const normalized = messagesForOpenCodeChat(messages, "from hydrate")
     expect(openCodeTrailingUserText(messages)).toBe("")
     expect(openCodeTrailingUserText(normalized)).toBe("from hydrate")
+  })
+
+  it("re-applies the trailing user on middleware onConfig", () => {
+    const mw = openCodeTrailingUserMiddleware("next turn")
+    const result = mw.onConfig(
+      { phase: "beforeModel" },
+      {
+        messages: [
+          { role: "user", content: "earlier" },
+          { role: "assistant", content: "reply" },
+        ],
+      },
+    )
+    expect(openCodeTrailingUserText(result.messages)).toBe("next turn")
   })
 })

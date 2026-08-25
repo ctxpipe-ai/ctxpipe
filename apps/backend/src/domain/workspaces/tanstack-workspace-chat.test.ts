@@ -234,6 +234,9 @@ describe("runTanstackWorkspaceChat", () => {
       expect.objectContaining({
         threadId: "conv_1",
         messages: [{ role: "user", content: "hello" }],
+        middleware: expect.arrayContaining([
+          expect.objectContaining({ name: "opencode-trailing-user" }),
+        ]),
       }),
     )
     expect(defineWorkspaceMock).toHaveBeenCalledWith(

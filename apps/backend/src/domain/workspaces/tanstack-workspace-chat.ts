@@ -73,7 +73,10 @@ import {
   workspaceChatOpenCodeContract,
   workspaceChatOpenCodeHomeEnv,
 } from "./workspace-chat-opencode-contract.js"
-import { messagesForOpenCodeChat } from "./workspace-chat-opencode-messages.js"
+import {
+  messagesForOpenCodeChat,
+  openCodeTrailingUserMiddleware,
+} from "./workspace-chat-opencode-messages.js"
 import {
   type LocalProcessOpenCodePortLease,
   leaseLocalProcessOpenCodePort,
@@ -517,6 +520,7 @@ async function startWorkspaceChat(input: TanstackWorkspaceChatInput): Promise<
           instances,
           snapshots,
         }),
+        openCodeTrailingUserMiddleware(input.prompt),
       ],
     })
     log.info({
