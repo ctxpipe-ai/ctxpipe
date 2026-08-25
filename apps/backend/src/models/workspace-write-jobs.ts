@@ -1,4 +1,4 @@
-import { and, asc, desc, eq, isNotNull, sql } from "drizzle-orm"
+import { and, asc, eq, isNotNull, sql } from "drizzle-orm"
 import { getOrgDb } from "../db/client.js"
 import { workspaces, workspaceWriteJobs } from "../db/schema/workspaces.js"
 import type { WorkspaceWriteKind } from "../domain/workspaces/write-commit-files.js"
