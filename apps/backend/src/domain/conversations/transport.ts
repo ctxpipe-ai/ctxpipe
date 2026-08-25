@@ -187,6 +187,14 @@ export function toPromptFromIncomingMessage(message: {
   ) {
     return message.content
   }
+  if (Array.isArray(message.content)) {
+    const fromContentParts = message.content
+      .map(textFromMessagePart)
+      .filter(Boolean)
+      .join("\n")
+      .trim()
+    if (fromContentParts.length > 0) return fromContentParts
+  }
   if (Array.isArray(message.parts)) {
     const textParts = message.parts
       .map(textFromMessagePart)

@@ -157,6 +157,26 @@ describe("createDataStreamConversationTransport", () => {
     })
   })
 
+  it("reads the prompt from AG-UI user content parts that use text", async () => {
+    const parsed = await parseConversationChatRequest({
+      threadId: "conv_1",
+      runId: "run_second",
+      messages: [
+        { id: "m1", role: "user" as const, content: "earlier" },
+        { id: "m2", role: "assistant" as const, content: "reply" },
+        {
+          id: "m3",
+          role: "user" as const,
+          content: [{ type: "text", text: "next turn" }],
+        },
+      ],
+      tools: [],
+      context: [],
+      forwardedProps: { workspaceId: "ws_1", source: "ui" },
+    })
+    expect(parsed.prompt).toBe("next turn")
+  })
+
   it("rejects an official WS reconstruction that drops tools and context", async () => {
     await expect(
       parseConversationChatRequest({

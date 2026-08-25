@@ -73,6 +73,7 @@ import {
   workspaceChatOpenCodeContract,
   workspaceChatOpenCodeHomeEnv,
 } from "./workspace-chat-opencode-contract.js"
+import { messagesForOpenCodeChat } from "./workspace-chat-opencode-messages.js"
 import {
   type LocalProcessOpenCodePortLease,
   leaseLocalProcessOpenCodePort,
@@ -501,7 +502,10 @@ async function startWorkspaceChat(input: TanstackWorkspaceChatInput): Promise<
       }),
       threadId: input.threadId ?? input.conversationId,
       runId: input.runId,
-      messages: (input.messages ?? []) as Array<ModelMessage | UIMessage>,
+      messages: messagesForOpenCodeChat(
+        input.messages,
+        input.prompt,
+      ) as Array<ModelMessage | UIMessage>,
       abortController: abortControllerFrom(input.abortSignal),
       tools,
       middleware: [

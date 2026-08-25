@@ -233,7 +233,7 @@ describe("runTanstackWorkspaceChat", () => {
     expect(chatMock).toHaveBeenCalledWith(
       expect.objectContaining({
         threadId: "conv_1",
-        messages: [],
+        messages: [{ role: "user", content: "hello" }],
       }),
     )
     expect(defineWorkspaceMock).toHaveBeenCalledWith(
@@ -272,6 +272,29 @@ describe("runTanstackWorkspaceChat", () => {
       threadId: "conv_1",
       runId: "run_client",
     })
+  })
+
+  it("appends the current prompt when the client transcript ends on the assistant", async () => {
+    const res = await runTanstackWorkspaceChat({
+      ...baseInput,
+      prompt: "next turn",
+      messages: [
+        { role: "user", content: "earlier" },
+        { role: "assistant", content: "reply" },
+      ],
+      runId: "run_second",
+    })
+    expect(res.status).toBe(200)
+    expect(chatMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        runId: "run_second",
+        messages: [
+          { role: "user", content: "earlier" },
+          { role: "assistant", content: "reply" },
+          { role: "user", content: "next turn" },
+        ],
+      }),
+    )
   })
 
   it("emits a conversation rename data part before finish", async () => {
