@@ -304,7 +304,7 @@ export const reasoningMessages: ChatMessage[] = [
       {
         type: "thinking",
         content:
-          "The payments API claims DEPENDS_ON ledger.md. Invoices are generated from that file, so the ledger is the source of truth.",
+          "The payments API claims DEPENDS_ON ledger.md. Invoice documents are generated from that file, so they are a derived view rather than the source of truth. I should confirm by searching the billing docs and then reading the ledger itself before answering.",
       },
       {
         type: "text",
@@ -400,6 +400,63 @@ export const streamingToolMessages: ChatMessage[] = [
       { type: "tool-call", id: "tc_live_2", name: "get_file" },
     ],
     createdAt: new Date("2026-08-16T09:46:02.000Z"),
+  },
+]
+
+export const reasoningAndToolsMessages: ChatMessage[] = [
+  {
+    id: "msg_all_u1",
+    role: "user",
+    parts: [{ type: "text", content: "Why ledger.md and not invoices.md?" }],
+    createdAt: new Date("2026-08-16T09:47:00.000Z"),
+  },
+  {
+    id: "msg_all_a1",
+    role: "assistant",
+    parts: [
+      {
+        type: "thinking",
+        content:
+          "The payments API claims DEPENDS_ON ledger.md. Invoice documents are generated from that file, so they are a derived view rather than the source of truth. I should confirm by searching the billing docs and then reading the ledger itself before answering.",
+      },
+      { type: "tool-call", id: "tc_all_1", name: "hybrid_search" },
+      { type: "tool-call", id: "tc_all_2", name: "get_file" },
+      { type: "tool-call", id: "tc_all_3", name: "glob_files" },
+      {
+        type: "text",
+        content:
+          "Use knowledge/billing/ledger.md. Invoice documents are generated from it.",
+      },
+      {
+        type: "source-url",
+        url: "https://github.com/acme/docs/blob/main/knowledge/billing/ledger.md",
+        title: "knowledge/billing/ledger.md",
+      },
+    ],
+    createdAt: new Date("2026-08-16T09:47:16.000Z"),
+  },
+]
+
+export const streamingReasoningAndToolsMessages: ChatMessage[] = [
+  {
+    id: "msg_all_live_u1",
+    role: "user",
+    parts: [{ type: "text", content: "Why ledger.md and not invoices.md?" }],
+    createdAt: new Date("2026-08-16T09:47:20.000Z"),
+  },
+  {
+    id: "msg_all_live_a1",
+    role: "assistant",
+    parts: [
+      {
+        type: "thinking",
+        content:
+          "The payments API claims DEPENDS_ON ledger.md. Invoice documents are generated from that file, so they are a derived view. Searching billing docs next.",
+      },
+      { type: "tool-call", id: "tc_all_live_1", name: "hybrid_search" },
+      { type: "tool-call", id: "tc_all_live_2", name: "get_file" },
+    ],
+    createdAt: new Date("2026-08-16T09:47:21.000Z"),
   },
 ]
 

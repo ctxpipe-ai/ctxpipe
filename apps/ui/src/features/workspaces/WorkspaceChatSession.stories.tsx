@@ -19,8 +19,10 @@ import {
   markdownAnswerMessages,
   oneToolMessages,
   readOnlyWorkspace,
+  reasoningAndToolsMessages,
   reasoningMessages,
   sourceLinkMessages,
+  streamingReasoningAndToolsMessages,
   streamingReasoningMessages,
   streamingToolMessages,
 } from "./workspace-fixtures"
@@ -144,6 +146,20 @@ export const ToolUseMany: Story = {
 
 export const ToolUseStreaming: Story = {
   args: threadArgs(streamingToolMessages, "Repo"),
+  parameters: {
+    storyRoute: threadRoute,
+  },
+}
+
+export const ReasoningAndTools: Story = {
+  args: threadArgs(reasoningAndToolsMessages, "Ledger"),
+  parameters: {
+    storyRoute: threadRoute,
+  },
+}
+
+export const ReasoningAndToolsStreaming: Story = {
+  args: threadArgs(streamingReasoningAndToolsMessages, "Ledger"),
   parameters: {
     storyRoute: threadRoute,
   },

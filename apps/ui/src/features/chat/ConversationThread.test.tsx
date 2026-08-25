@@ -59,8 +59,10 @@ describe("ConversationThread activity chrome", () => {
     )
     expect(html).toContain("Used")
     expect(html).toContain("2")
-    expect(html).toContain("hybrid_search")
-    expect(html).toContain("get_file")
+    expect(html).toContain("tools")
+    expect(html).toContain('aria-expanded="false"')
+    expect(html).not.toContain("hybrid_search")
+    expect(html).not.toContain("get_file")
     expect(html).not.toContain("Thinking…")
   })
 
@@ -79,10 +81,33 @@ describe("ConversationThread activity chrome", () => {
       ],
       "ready",
     )
-    expect(html).toContain("<details")
+    expect(html).toContain('aria-expanded="false"')
     expect(html).toContain("Reasoning")
+    expect(html).toContain("inspect the repository")
     expect(html).toContain("This is a TypeScript monorepo.")
     expect(html).not.toContain("Thinking…")
+  })
+
+  it("omits sender marks and timestamps", () => {
+    const html = renderThread(
+      [
+        {
+          ...user,
+          createdAt: new Date("2026-08-16T09:42:00.000Z"),
+        },
+        {
+          id: "a1",
+          role: "assistant",
+          createdAt: new Date("2026-08-16T09:42:16.000Z"),
+          parts: [{ type: "text", content: "This is a TypeScript monorepo." }],
+        },
+      ],
+      "ready",
+    )
+    expect(html).not.toContain("you")
+    expect(html).not.toContain(">ctx<")
+    expect(html).not.toContain("Aug")
+    expect(html).not.toContain("2026")
   })
 
   it("shows Thinking… only before activity arrives", () => {
@@ -152,8 +177,8 @@ describe("ConversationThread activity chrome", () => {
     )
     expect(html).toContain("Reasoning")
     expect(html).toContain("Inspecting repositories")
-    expect(html).toContain("hybrid_search")
     expect(html).toContain("Used")
+    expect(html).not.toContain("hybrid_search")
     expect(html).not.toContain("Thinking…")
     expect(html).not.toContain("Auth0")
 
@@ -175,6 +200,31 @@ describe("ConversationThread activity chrome", () => {
     )
     expect(withReply).toContain("Sign-in is handled by Auth0.")
     expect(withReply).toContain("Reasoning")
-    expect(withReply).toContain("hybrid_search")
+    expect(withReply).toContain("Used")
+    expect(withReply).toContain('aria-expanded="false"')
+  })
+
+  it("collapses tool names to a Used N tools summary after the reply", () => {
+    const html = renderThread(
+      [
+        user,
+        {
+          id: "a1",
+          role: "assistant",
+          parts: [
+            { type: "tool-call", id: "tc_1", name: "hybrid_search" },
+            { type: "tool-call", id: "tc_2", name: "get_file" },
+            { type: "text", content: "Billing lives in the ledger." },
+          ],
+        },
+      ],
+      "ready",
+    )
+    expect(html).toContain("Used")
+    expect(html).toContain("2")
+    expect(html).toContain("tools")
+    expect(html).toContain('aria-expanded="false"')
+    expect(html).not.toContain("hybrid_search")
+    expect(html).toContain("Billing lives in the ledger.")
   })
 })

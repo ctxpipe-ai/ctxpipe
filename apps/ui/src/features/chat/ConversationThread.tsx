@@ -1,4 +1,6 @@
-import type { ReactElement } from "react"
+import { IconBrain, IconTool } from "@tabler/icons-react"
+import { type ReactElement, useState } from "react"
+import { Button as AriaButton } from "react-aria-components"
 import {
   Conversation,
   ConversationContent,
@@ -11,7 +13,7 @@ import {
 } from "@/components/ai-elements/message"
 import { InlineAlert } from "@/components/ui/InlineAlert"
 import type { ChatMessage, ChatStatus } from "@/features/chat/types"
-import { formatDate } from "@/lib/format"
+import { focusVisibleClassName } from "@/lib/focus-styles"
 import { cn } from "@/lib/utils"
 
 const HIDDEN_DATA_PARTS = new Set(["data-rename-conversation", "data-kg-focus"])
@@ -20,17 +22,6 @@ type ChatPart = ChatMessage["parts"][number]
 
 function partText(part: ChatPart): string {
   return (part.content ?? part.text ?? "").trim()
-}
-
-function formatMessageTimeLabel(message: ChatMessage): string | null {
-  const createdAt =
-    message.createdAt instanceof Date
-      ? message.createdAt.toISOString()
-      : undefined
-  if (!createdAt) return null
-  const d = new Date(createdAt)
-  if (Number.isNaN(d.getTime())) return null
-  return formatDate(createdAt)
 }
 
 function uniqueToolCalls(
@@ -66,37 +57,69 @@ function isRenderableMessagePart(part: ChatPart) {
   return false
 }
 
+function ActivityIconSlot(props: { live: boolean; children: ReactElement }) {
+  return (
+    <span className="mt-0.5 flex size-4 shrink-0 items-center justify-center text-zinc-500">
+      {props.live ? (
+        <span className="ctx-indexing-dot" aria-hidden />
+      ) : (
+        props.children
+      )}
+    </span>
+  )
+}
+
+function reasoningResponseClassName() {
+  return "text-xs leading-relaxed text-muted-foreground [&_blockquote]:text-muted-foreground [&_h1]:text-muted-foreground [&_h2]:text-muted-foreground [&_h3]:text-muted-foreground [&_h4]:text-muted-foreground [&_li]:text-muted-foreground [&_ol]:text-muted-foreground [&_p]:text-muted-foreground [&_strong]:text-muted-foreground [&_ul]:text-muted-foreground"
+}
+
 function ReasoningBox(props: {
   text: string
   live: boolean
   collapsed: boolean
 }) {
   const { text, live, collapsed } = props
-  if (collapsed) {
+  const [userExpanded, setUserExpanded] = useState<boolean | null>(null)
+  const expanded = live || (userExpanded ?? !collapsed)
+
+  if (live) {
     return (
-      <details className="rounded-lg border border-teal-400/20 bg-teal-400/5 px-3 py-2 text-xs text-muted-foreground">
-        <summary className="cursor-pointer font-medium text-foreground">
-          Reasoning
-        </summary>
-        <div className="mt-1.5 text-sm">
-          <MessageResponse>{text}</MessageResponse>
+      // biome-ignore lint/a11y/useSemanticElements: live reasoning is a status, not a form output
+      <div
+        className="flex w-full min-w-0 items-start gap-2"
+        role="status"
+        aria-label="Reasoning"
+      >
+        <ActivityIconSlot live>
+          <IconBrain className="size-4" aria-hidden />
+        </ActivityIconSlot>
+        <div className="min-w-0 flex-1">
+          <MessageResponse className={reasoningResponseClassName()} isAnimating>
+            {text}
+          </MessageResponse>
         </div>
-      </details>
+      </div>
     )
   }
+
   return (
-    <div
-      className="rounded-lg border border-teal-400/20 bg-teal-400/5 px-3 py-2"
-      role={live ? "status" : undefined}
+    <AriaButton
+      aria-expanded={expanded}
+      aria-label="Reasoning"
+      onPress={() => setUserExpanded(!expanded)}
+      className={cn(
+        focusVisibleClassName,
+        "flex w-full min-w-0 items-start gap-2 rounded-lg text-left text-xs leading-relaxed text-muted-foreground",
+        "hover:text-foreground/80",
+      )}
     >
-      <div className="flex items-center gap-2">
-        {live ? <span className="ctx-indexing-dot" aria-hidden /> : null}
-        <p className="text-xs font-medium text-foreground">Reasoning</p>
-      </div>
-      <div className="mt-1.5 text-sm text-muted-foreground">
-        <MessageResponse isAnimating={live}>{text}</MessageResponse>
-      </div>
-    </div>
+      <ActivityIconSlot live={false}>
+        <IconBrain className="size-4" aria-hidden />
+      </ActivityIconSlot>
+      <span className={cn("min-w-0 flex-1", !expanded && "line-clamp-1")}>
+        {text}
+      </span>
+    </AriaButton>
   )
 }
 
@@ -105,27 +128,49 @@ function ToolUseRow(props: {
   live: boolean
 }) {
   const { tools, live } = props
+  const [expanded, setExpanded] = useState(false)
   const count = tools.length
   const label = count === 1 ? "Used 1 tool" : `Used ${count} tools`
-  return (
-    <details className="rounded-lg border border-white/10 px-3 py-2 text-xs text-muted-foreground">
-      <summary className="cursor-pointer font-medium text-foreground">
-        <span className="inline-flex items-center gap-2">
-          {live ? <span className="ctx-indexing-dot" aria-hidden /> : null}
-          <span>
-            Used <span className="tabular-nums">{count}</span>{" "}
-            {count === 1 ? "tool" : "tools"}
-          </span>
+  const names = tools.map((tool, index) => (
+    <span key={tool.id}>
+      {index > 0 ? <span className="text-muted-foreground/40"> · </span> : null}
+      {tool.name}
+    </span>
+  ))
+
+  const button = (
+    <AriaButton
+      aria-expanded={expanded}
+      aria-label={label}
+      onPress={() => setExpanded(!expanded)}
+      className={cn(
+        focusVisibleClassName,
+        "flex w-full min-w-0 items-start gap-2 rounded-lg text-left text-xs leading-relaxed text-muted-foreground",
+        "hover:text-foreground/80",
+      )}
+    >
+      <ActivityIconSlot live={live}>
+        <IconTool className="size-4" aria-hidden />
+      </ActivityIconSlot>
+      {expanded ? (
+        <span className="min-w-0 flex-1 font-mono">{names}</span>
+      ) : (
+        <span className="min-w-0 flex-1">
+          Used <span className="tabular-nums">{count}</span>{" "}
+          {count === 1 ? "tool" : "tools"}
         </span>
-      </summary>
-      <ul className="mt-1.5 space-y-0.5 font-mono text-xs">
-        {tools.map((tool) => (
-          <li key={tool.id}>{tool.name}</li>
-        ))}
-      </ul>
-      <span className="sr-only">{label}</span>
-    </details>
+      )}
+    </AriaButton>
   )
+
+  if (live) {
+    return (
+      // biome-ignore lint/a11y/useSemanticElements: live tool use is a status, not a form output
+      <div role="status">{button}</div>
+    )
+  }
+
+  return button
 }
 
 function renderUserParts(message: ChatMessage): ReactElement[] {
@@ -158,8 +203,9 @@ function renderAssistantParts(
     (part) => part.type === "text" && Boolean(partText(part)),
   )
   const nodes: ReactElement[] = []
+  const activity: ReactElement[] = []
   if (tools.length > 0) {
-    nodes.push(
+    activity.push(
       <ToolUseRow
         key={`${message.id}-tools`}
         tools={tools}
@@ -168,13 +214,23 @@ function renderAssistantParts(
     )
   }
   if (thinking) {
-    nodes.push(
+    activity.push(
       <ReasoningBox
         key={`${message.id}-reasoning`}
         text={thinking}
         live={options.streaming && !hasReply}
         collapsed={hasReply}
       />,
+    )
+  }
+  if (activity.length > 0) {
+    nodes.push(
+      <div
+        key={`${message.id}-activity`}
+        className="flex w-full min-w-0 flex-col gap-1.5"
+      >
+        {activity}
+      </div>,
     )
   }
   replyParts.forEach((part, index) => {
@@ -210,12 +266,6 @@ function messageHasVisibleActivity(message: ChatMessage) {
   )
 }
 
-function AgentSenderLabel() {
-  // biome-ignore format: keep pipe inline so the span has no whitespace around |
-  const pipe = <span key="pipe" className="text-teal-400">|</span>
-  return <span className="ctx-label-muted">{["ctx", pipe]}</span>
-}
-
 export function ConversationThread(props: {
   messages: ChatMessage[]
   error: Error | null
@@ -237,10 +287,7 @@ export function ConversationThread(props: {
       <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
         <Conversation className="min-h-0 flex-1">
           <ConversationContent
-            className={cn(
-              "mx-auto max-w-2xl space-y-5 px-4 py-5",
-              contentClassName,
-            )}
+            className={cn("mx-auto max-w-2xl gap-6 p-5", contentClassName)}
           >
             {messages.map((message, messageIndex) => {
               const streaming =
@@ -254,9 +301,7 @@ export function ConversationThread(props: {
 
               if (renderedParts.length === 0) return null
 
-              const role = message.role
-              const timeLabel = formatMessageTimeLabel(message)
-              const isUser = role === "user"
+              const isUser = message.role === "user"
 
               return (
                 <div
@@ -267,29 +312,12 @@ export function ConversationThread(props: {
                   )}
                 >
                   <Message
-                    from={role}
+                    from={message.role}
                     className={isUser ? "max-w-md" : undefined}
                   >
-                    <div
-                      className={cn(
-                        "flex w-full flex-col space-y-1",
-                        isUser ? "items-end" : "items-start",
-                      )}
-                    >
-                      <div className="flex items-center gap-2">
-                        {isUser ? (
-                          <span className="ctx-label-muted">you</span>
-                        ) : (
-                          <AgentSenderLabel />
-                        )}
-                        {timeLabel ? (
-                          <span className="text-xs text-muted-foreground">
-                            {timeLabel}
-                          </span>
-                        ) : null}
-                      </div>
-                      <MessageContent>{renderedParts}</MessageContent>
-                    </div>
+                    <MessageContent className={isUser ? undefined : "gap-5"}>
+                      {renderedParts}
+                    </MessageContent>
                   </Message>
                 </div>
               )
@@ -302,12 +330,9 @@ export function ConversationThread(props: {
                 aria-live="polite"
                 aria-label="Waiting for response"
               >
-                <div className="flex w-full flex-col items-start space-y-1">
-                  <AgentSenderLabel />
-                  <div className="flex items-center gap-2">
-                    <span className="ctx-indexing-dot" aria-hidden />
-                    <p className="text-xs text-muted-foreground">Thinking…</p>
-                  </div>
+                <div className="flex items-center gap-2">
+                  <span className="ctx-indexing-dot" aria-hidden />
+                  <p className="text-xs text-muted-foreground">Thinking…</p>
                 </div>
               </div>
             )}
