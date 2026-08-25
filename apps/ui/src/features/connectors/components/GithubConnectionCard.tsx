@@ -137,14 +137,14 @@ export function GithubConnectionCard({
               : () => {
                   if (!linked) {
                     void navigate({
-                      to: "/$orgSlug/repositories/github/setup",
+                      to: "/$orgSlug/github/setup",
                       params: { orgSlug },
                       search: { returnTo: "connectors" },
                     })
                     return
                   }
                   void navigate({
-                    to: "/$orgSlug/repositories/github/setup",
+                    to: "/$orgSlug/github/setup",
                     params: { orgSlug },
                     search: { returnTo: "connectors" },
                   })

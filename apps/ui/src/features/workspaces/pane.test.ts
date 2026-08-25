@@ -28,9 +28,9 @@ describe("parsePane", () => {
 })
 
 describe("landingPane", () => {
-  it("defaults to files when search is empty", () => {
-    expect(landingPane(undefined)).toEqual({ kind: "files" })
-    expect(landingPane("")).toEqual({ kind: "files" })
+  it("is closed when search is empty", () => {
+    expect(landingPane(undefined)).toBeNull()
+    expect(landingPane("")).toBeNull()
   })
 
   it("keeps a visible URL pane", () => {

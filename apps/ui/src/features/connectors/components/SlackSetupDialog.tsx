@@ -9,24 +9,15 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import { useCallback, useEffect, useState } from "react"
 import { toast } from "sonner"
 import { Button } from "@/components/ui/Button"
-import { ComboBox, ComboBoxItem } from "@/components/ui/ComboBox"
 import { Modal } from "@/components/ui/Modal"
-import { Spinner } from "@/components/ui/spinner"
-import { client } from "@/lib/api"
-import { readApiJson } from "@/lib/api-result"
-import { searchGithubInstallationRepos } from "../queries/atlassian-connector"
+import { workspaceListOptions } from "@/features/workspaces/queries"
+import type { Workspace } from "@/features/workspaces/types"
 import {
-  connectorSyncTargetKeys,
-  fetchSuggestedConnectorSyncTarget,
-} from "../queries/connector-sync-target"
-import {
-  fetchGithubInstallationSummary,
-  githubConnectorKeys,
-} from "../queries/github-connector"
-import {
-  fetchOrgConnections,
-  orgConnectionsKeys,
-} from "../queries/org-connections"
+  ConnectorWorkspaceDestinationPicker,
+  destinationFromWorkspace,
+  workspaceMatchingGitUrl,
+} from "./ConnectorWorkspaceDestinationPicker"
+import { orgConnectionsKeys } from "../queries/org-connections"
 import {
   fetchSlackConnectorStatus,
   fetchSlackOAuthStart,
@@ -40,11 +31,6 @@ import {
   getSlackSetupStepIndex,
   getSlackSetupView,
 } from "../slack-setup-model"
-import {
-  CONNECTOR_CONTEXT_REPOSITORY_NAME,
-  ConnectorContextRepositoryGuidance,
-  getConnectorContextRepositoryCreateUrl,
-} from "./ConnectorContextRepositoryGuidance"
 import { ConnectorSetupStepper } from "./ConnectorSetupStepper"
 import { GitHubPrerequisiteStep } from "./GitHubPrerequisiteStep"
 
@@ -56,7 +42,7 @@ const SLACK_DOCS_URL =
 const SLACK_SETUP_STEPS = [
   { id: "authorize", label: "Authorize Slack workspace" },
   { id: "github", label: "Connect GitHub" },
-  { id: "target", label: "Choose context repository" },
+  { id: "target", label: "Choose workspace" },
 ] as const
 
 type SlackSetupDialogProps = {
@@ -64,22 +50,6 @@ type SlackSetupDialogProps = {
   isOpen: boolean
   onOpenChange: (open: boolean) => void
   connectionId?: string
-}
-
-type RepoRow = {
-  id: string
-  name: string
-  gitUrl: string
-  githubConnectionId: string | null
-}
-
-type GitHubRepoItem = {
-  id: number
-  full_name: string
-  html_url: string
-  clone_url: string
-  name: string
-  default_branch: string
 }
 
 export function SlackSetupDialog({
@@ -92,9 +62,9 @@ export function SlackSetupDialog({
   const [connectionId, setConnectionId] = useState<string | undefined>(
     initialConnectionId,
   )
-  const [selectedRepo, setSelectedRepo] = useState<GitHubRepoItem | null>(null)
-  const [repoSearch, setRepoSearch] = useState("")
-  const [debouncedRepoSearch, setDebouncedRepoSearch] = useState("")
+  const [selectedWorkspace, setSelectedWorkspace] = useState<Workspace | null>(
+    null,
+  )
   const [manualView, setManualView] = useState<"target" | null>(null)
   const [targetInitialized, setTargetInitialized] = useState(false)
 
@@ -105,8 +75,7 @@ export function SlackSetupDialog({
   useEffect(() => {
     if (!isOpen) {
       setTargetInitialized(false)
-      setSelectedRepo(null)
-      setRepoSearch("")
+      setSelectedWorkspace(null)
       setManualView(null)
       return
     }
@@ -114,11 +83,6 @@ export function SlackSetupDialog({
     // OAuth in this dialog instance — that 404s status and blocks re-auth.
     setConnectionId(initialConnectionId)
   }, [isOpen, initialConnectionId])
-
-  useEffect(() => {
-    const id = window.setTimeout(() => setDebouncedRepoSearch(repoSearch), 300)
-    return () => window.clearTimeout(id)
-  }, [repoSearch])
 
   const statusQuery = useQuery({
     queryKey: slackConnectorKeys.status(orgSlug, connectionId),
@@ -139,125 +103,31 @@ export function SlackSetupDialog({
     setConnectionId(undefined)
   }, [connectionId, isOpen, statusQuery.error])
 
-  const { data: githubConnections = [] } = useQuery({
-    queryKey: orgConnectionsKeys.list(orgSlug),
-    queryFn: () => fetchOrgConnections(orgSlug),
-    select: (connections) =>
-      connections.filter((connection) => connection.type === "github"),
+  const workspacesQuery = useQuery({
+    ...workspaceListOptions(orgSlug),
     enabled: isOpen && Boolean(statusQuery.data?.isGithubLinked),
   })
-
-  const suggestedTargetQuery = useQuery({
-    queryKey: connectorSyncTargetKeys.suggestion(orgSlug),
-    queryFn: () => fetchSuggestedConnectorSyncTarget(orgSlug),
-    enabled:
-      isOpen &&
-      Boolean(statusQuery.data?.isGithubLinked) &&
-      !statusQuery.data?.syncTarget,
-  })
-
-  const activeGithubConnectionId =
-    statusQuery.data?.syncTarget?.githubConnectionId ??
-    suggestedTargetQuery.data?.githubConnectionId ??
-    (githubConnections.length === 1 ? githubConnections[0]?.id : undefined)
-
-  const reposQuery = useQuery({
-    queryKey: ["slack-setup-repos", orgSlug],
-    queryFn: async (): Promise<RepoRow[]> => {
-      const res = await client[":orgSlug"].api.v1.repositories.$get({
-        param: { orgSlug },
-      })
-      const json = await readApiJson<{
-        items?: RepoRow[]
-        repositories?: RepoRow[]
-      }>(res, {
-        message: "Failed to list repositories",
-      })
-      return json.items ?? json.repositories ?? []
-    },
-    enabled:
-      isOpen &&
-      Boolean(statusQuery.data?.isInstalled) &&
-      Boolean(statusQuery.data?.isGithubLinked),
-  })
-
-  const repoResultsQuery = useQuery({
-    queryKey: [
-      "slack-setup-github-repos",
-      orgSlug,
-      debouncedRepoSearch,
-      activeGithubConnectionId,
-    ],
-    queryFn: () =>
-      searchGithubInstallationRepos(
-        orgSlug,
-        debouncedRepoSearch,
-        activeGithubConnectionId,
-      ),
-    enabled:
-      isOpen &&
-      Boolean(statusQuery.data?.isInstalled) &&
-      Boolean(statusQuery.data?.isGithubLinked),
-  })
-  const githubInstallationQuery = useQuery({
-    queryKey: githubConnectorKeys.installation(
-      orgSlug,
-      activeGithubConnectionId,
-    ),
-    queryFn: () =>
-      fetchGithubInstallationSummary(orgSlug, activeGithubConnectionId),
-    enabled: isOpen && Boolean(statusQuery.data?.isGithubLinked),
-  })
-  const createRepositoryUrl = getConnectorContextRepositoryCreateUrl(
-    githubInstallationQuery.data?.accountSlug,
-  )
 
   useEffect(() => {
-    if (
-      targetInitialized ||
-      statusQuery.isPending ||
-      (suggestedTargetQuery.isEnabled && suggestedTargetQuery.isPending)
-    ) {
+    if (targetInitialized || statusQuery.isPending || workspacesQuery.isPending) {
       return
     }
     const st = statusQuery.data?.syncTarget
     if (st) {
-      const name = st.repositoryName
-      const fromOrg = reposQuery.data?.find(
-        (repo) => repo.id === st.repositoryId,
+      setSelectedWorkspace(
+        workspaceMatchingGitUrl(
+          workspacesQuery.data?.items ?? [],
+          `https://github.com/${st.repositoryName}.git`,
+        ),
       )
-      setSelectedRepo({
-        id: 0,
-        full_name: name,
-        html_url:
-          fromOrg?.gitUrl.replace(/\.git$/, "") ?? `https://github.com/${name}`,
-        clone_url: fromOrg?.gitUrl ?? `https://github.com/${name}.git`,
-        name: fromOrg?.name ?? name.split("/").pop() ?? name,
-        default_branch: st.branch,
-      })
-      setRepoSearch(name)
-    } else if (suggestedTargetQuery.data) {
-      const suggested = suggestedTargetQuery.data
-      setSelectedRepo({
-        id: 0,
-        full_name: suggested.repositoryName,
-        html_url: suggested.gitUrl.replace(/\.git$/, ""),
-        clone_url: suggested.gitUrl,
-        name:
-          suggested.repositoryName.split("/").pop() ?? suggested.repositoryName,
-        default_branch: suggested.branch,
-      })
-      setRepoSearch(suggested.repositoryName)
     }
     setTargetInitialized(true)
   }, [
-    reposQuery.data,
     statusQuery.data?.syncTarget,
     statusQuery.isPending,
-    suggestedTargetQuery.data,
-    suggestedTargetQuery.isEnabled,
-    suggestedTargetQuery.isPending,
     targetInitialized,
+    workspacesQuery.data?.items,
+    workspacesQuery.isPending,
   ])
 
   const consumeSetupResult = useCallback(() => {
@@ -318,42 +188,28 @@ export function SlackSetupDialog({
 
   const saveMutation = useMutation({
     mutationFn: async () => {
-      if (!selectedRepo) throw new Error("Select a context repository")
-      const repository = reposQuery.data?.find(
-        (repo) =>
-          repo.gitUrl === selectedRepo.clone_url ||
-          repo.name === selectedRepo.name ||
-          repo.name === selectedRepo.full_name ||
-          repo.gitUrl.replace(/\.git$/, "") ===
-            selectedRepo.clone_url.replace(/\.git$/, ""),
-      )
+      if (!selectedWorkspace) throw new Error("Select a workspace")
+      const destination = destinationFromWorkspace(selectedWorkspace)
       return patchSlackConnectorConfig(
         orgSlug,
         {
-          ...(repository
-            ? { repositoryId: repository.id }
-            : {
-                repositoryName: selectedRepo.full_name,
-                gitUrl: selectedRepo.clone_url,
-                githubConnectionId: activeGithubConnectionId,
-              }),
-          branch: selectedRepo.default_branch,
+          repositoryName: destination.repositoryName,
+          gitUrl: destination.gitUrl,
+          githubConnectionId: destination.githubConnectionId ?? undefined,
+          branch: destination.branch,
         },
         connectionId,
       )
     },
     onSuccess: async () => {
-      toast.success("Context repository saved. Slack capture is now live.")
+      toast.success("Workspace destination saved. Slack capture is now live.")
       setManualView(null)
       await Promise.all([
         queryClient.invalidateQueries({
           queryKey: orgConnectionsKeys.list(orgSlug),
         }),
         queryClient.invalidateQueries({
-          queryKey: ["slack-setup-repos", orgSlug],
-        }),
-        queryClient.invalidateQueries({
-          queryKey: ["repositories", orgSlug],
+          queryKey: workspaceListOptions(orgSlug).queryKey,
         }),
         queryClient.invalidateQueries({
           queryKey: slackConnectorKeys.status(orgSlug, connectionId),
@@ -565,7 +421,7 @@ export function SlackSetupDialog({
                 className="rounded-none"
                 onPress={() => setManualView("target")}
               >
-                Change repository
+                Change workspace
               </Button>
               <Button className="rounded-none" onPress={() => setOpen(false)}>
                 Done
@@ -576,138 +432,23 @@ export function SlackSetupDialog({
           <div className="space-y-4">
             <div>
               <h3 className="text-base font-medium text-foreground">
-                Select a repository for Slack content
+                Select a workspace for Slack content
               </h3>
               <p className="mt-2 text-sm text-muted-foreground">
-                Choose the context repository where captured Slack threads
-                should be committed.
+                Captured Slack threads are committed to that workspace
+                repository.
               </p>
             </div>
-            <ConnectorContextRepositoryGuidance
-              suggestedTarget={suggestedTargetQuery.data}
+            <ConnectorWorkspaceDestinationPicker
+              orgSlug={orgSlug}
+              selectedWorkspaceId={selectedWorkspace?.id ?? null}
+              onSelect={setSelectedWorkspace}
             />
-            <ComboBox
-              label="Repository"
-              placeholder="Type to search repositories..."
-              selectedKey={selectedRepo?.id.toString() ?? null}
-              inputValue={selectedRepo?.full_name ?? repoSearch}
-              onInputChange={(value) => {
-                setRepoSearch(value)
-                if (selectedRepo && value !== selectedRepo.full_name) {
-                  setSelectedRepo(null)
-                }
-              }}
-              onSelectionChange={(key) => {
-                const repo = repoResultsQuery.data?.repositories.find(
-                  (item) => item.id.toString() === String(key),
-                )
-                if (repo) {
-                  setSelectedRepo(repo)
-                  setRepoSearch(repo.full_name)
-                }
-              }}
-              items={repoResultsQuery.data?.repositories ?? []}
-            >
-              {(repo) => (
-                <ComboBoxItem
-                  id={repo.id.toString()}
-                  textValue={repo.full_name}
-                >
-                  {repo.full_name}
-                </ComboBoxItem>
-              )}
-            </ComboBox>
-            {!selectedRepo ? (
-              <div className="border border-border bg-card/30 p-4">
-                <h4 className="text-sm font-medium text-foreground">
-                  Create your shared context repository
-                </h4>
-                <ol className="mt-3 space-y-3 text-sm text-muted-foreground">
-                  <li className="flex gap-3">
-                    <span className="flex size-5 shrink-0 items-center justify-center border border-border text-xs text-foreground">
-                      1
-                    </span>
-                    <p>
-                      <a
-                        href={createRepositoryUrl}
-                        target="_blank"
-                        rel="noreferrer"
-                        className="inline-flex items-center gap-1 text-teal-400 hover:text-teal-300"
-                      >
-                        Create {CONNECTOR_CONTEXT_REPOSITORY_NAME} on GitHub
-                        <IconExternalLink className="size-3.5" aria-hidden />
-                      </a>
-                      {githubInstallationQuery.data?.accountSlug ? (
-                        <>
-                          {" "}
-                          under{" "}
-                          <code className="rounded-none bg-muted px-1 py-0.5 text-[11px]">
-                            {githubInstallationQuery.data.accountSlug}
-                          </code>
-                        </>
-                      ) : null}
-                      .
-                    </p>
-                  </li>
-                  {repoResultsQuery.data?.repositorySelection === "selected" &&
-                  repoResultsQuery.data.manageUrl ? (
-                    <li className="flex gap-3">
-                      <span className="flex size-5 shrink-0 items-center justify-center border border-border text-xs text-foreground">
-                        2
-                      </span>
-                      <p>
-                        <a
-                          href={repoResultsQuery.data.manageUrl}
-                          target="_blank"
-                          rel="noreferrer"
-                          className="inline-flex items-center gap-1 text-teal-400 hover:text-teal-300"
-                        >
-                          Give the ctx| GitHub App access
-                          <IconExternalLink className="size-3.5" aria-hidden />
-                        </a>{" "}
-                        to the new repository.
-                      </p>
-                    </li>
-                  ) : null}
-                  <li className="flex gap-3">
-                    <span className="flex size-5 shrink-0 items-center justify-center border border-border text-xs text-foreground">
-                      {repoResultsQuery.data?.repositorySelection ===
-                        "selected" && repoResultsQuery.data.manageUrl
-                        ? 3
-                        : 2}
-                    </span>
-                    <div>
-                      <p>Return here and refresh the repository list.</p>
-                      <Button
-                        variant="secondary"
-                        className="mt-2 h-8 rounded-none px-3"
-                        isPending={repoResultsQuery.isFetching}
-                        onPress={() => void repoResultsQuery.refetch()}
-                      >
-                        Refresh repositories
-                      </Button>
-                    </div>
-                  </li>
-                </ol>
-              </div>
-            ) : null}
-            {repoResultsQuery.isFetching ? (
-              <div className="flex items-center gap-2 text-sm text-muted-foreground">
-                <Spinner className="size-4" />
-                Searching repositories…
-              </div>
-            ) : null}
-            {repoResultsQuery.isError ? (
-              <p className="text-sm text-destructive">
-                Failed to search repositories. Confirm the GitHub App can access
-                the target repository.
-              </p>
-            ) : null}
             <div className="flex justify-between border-t border-border pt-4">
               {manualView === "target" && baseView === "live" ? (
                 <Button
                   variant="secondary"
-                  className="rounded-none"
+                  className="rounded-lg"
                   onPress={() => setManualView(null)}
                 >
                   Cancel
@@ -716,12 +457,12 @@ export function SlackSetupDialog({
                 <span />
               )}
               <Button
-                className="rounded-none"
+                className="rounded-lg"
                 isPending={saveMutation.isPending}
-                isDisabled={!selectedRepo || saveMutation.isPending}
+                isDisabled={!selectedWorkspace || saveMutation.isPending}
                 onPress={() => saveMutation.mutate()}
               >
-                {baseView === "live" ? "Save repository" : "Save & continue"}
+                {baseView === "live" ? "Save workspace" : "Save & continue"}
               </Button>
             </div>
           </div>

@@ -61,8 +61,8 @@ export function WorkspaceChatSession(props: {
     conversationId,
     composing,
     title,
+    initialMessages,
   } = props
-  void props.initialMessages
   const queryClient = useQueryClient()
   const navigate = useNavigate()
   const sendFailedRef = useRef(false)
@@ -118,6 +118,7 @@ export function WorkspaceChatSession(props: {
     threadId: conversationId,
     connection,
     persistence: true,
+    initialMessages,
     forwardedProps: {
       workspaceId: workspace.id,
       source: "ui",
@@ -173,13 +174,14 @@ export function WorkspaceChatSession(props: {
 
   const handleSendMessage = async (params: { text: string }) => {
     sendFailedRef.current = false
-    insertComposeRow()
-    commitComposeRoute()
     try {
       await sendMessage(params.text)
     } catch {
       return
     }
+    if (sendFailedRef.current) return
+    insertComposeRow()
+    commitComposeRoute()
   }
 
   return (

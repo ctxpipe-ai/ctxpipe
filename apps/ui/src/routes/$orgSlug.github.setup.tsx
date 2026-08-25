@@ -25,7 +25,7 @@ function returnToFromSearch(search: unknown): "connectors" | undefined {
   return undefined
 }
 
-export const Route = createFileRoute("/$orgSlug/repositories/github/setup")({
+export const Route = createFileRoute("/$orgSlug/github/setup")({
   component: GitHubSetupPage,
 })
 
@@ -39,7 +39,7 @@ function GitHubSetupPage() {
   )
   const navigate = useNavigate()
   const queryClient = useQueryClient()
-  const redirect = `/${orgSlug}/repositories/github/setup${
+  const redirect = `/${orgSlug}/github/setup${
     returnTo ? `?returnTo=${returnTo}` : ""
   }`
 

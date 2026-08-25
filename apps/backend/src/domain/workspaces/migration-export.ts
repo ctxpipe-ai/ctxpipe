@@ -11,7 +11,7 @@ import {
   nextKnowledgeUnitPath,
   shouldExportClaim,
   unkeyedCollisionExcerpt,
-} from "./migration-cutover.js"
+} from "./dest-workspace-first.js"
 import { normalizeSlug } from "./slug.js"
 
 export const MIGRATION_EXPORT_KIND = "migration_export"

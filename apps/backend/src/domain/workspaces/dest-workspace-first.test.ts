@@ -8,7 +8,7 @@ import {
   parseUnkeyedCollisionReply,
   shouldExportClaim,
   unkeyedCollisionExcerpt,
-} from "./migration-cutover.js"
+} from "./dest-workspace-first.js"
 
 describe("firstConnectorTarget", () => {
   it("picks created_at then id", () => {

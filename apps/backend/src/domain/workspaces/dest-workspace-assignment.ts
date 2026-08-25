@@ -1,4 +1,4 @@
-import { firstConnectorTarget } from "./migration-cutover.js"
+import { firstConnectorTarget } from "./dest-workspace-first.js"
 import { normalizeWorkspaceRepositoryUrl } from "./slug.js"
 
 export type DestWorkspaceRow = {

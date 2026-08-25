@@ -198,13 +198,13 @@ export function OrgHomePageContent({ orgSlug }: { orgSlug: string }) {
     orgSlug,
     onAlreadyInstalled: () => {
       void navigate({
-        to: "/$orgSlug/repositories/github/setup",
+        to: "/$orgSlug/github/setup",
         params: { orgSlug },
       })
     },
     onRegistered: () => {
       void navigate({
-        to: "/$orgSlug/repositories/github/setup",
+        to: "/$orgSlug/github/setup",
         params: { orgSlug },
       })
     },

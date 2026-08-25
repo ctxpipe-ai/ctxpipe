@@ -289,7 +289,7 @@ describe("SlackSetupDialog", () => {
     })
 
     expect(container.textContent).toContain(
-      "Select a repository for Slack content",
+      "Select a workspace for Slack content",
     )
     expect(slackStatusState.statusQueryOptions).toMatchObject({
       staleTime: 0,
@@ -331,7 +331,7 @@ describe("SlackSetupDialog", () => {
     expect(container.textContent).toContain("acme/context")
   })
 
-  it("lets the user return to repository selection from the live view", async () => {
+  it("lets the user return to workspace selection from the live view", async () => {
     Object.assign(slackStatusState.current, {
       setupPhase: "live",
       syncTarget: {
@@ -359,13 +359,13 @@ describe("SlackSetupDialog", () => {
 
     const changeRepoButton = Array.from(
       container.querySelectorAll("button"),
-    ).find((button) => button.textContent === "Change repository")
+    ).find((button) => button.textContent === "Change workspace")
     expect(changeRepoButton).toBeDefined()
 
     await act(async () => changeRepoButton?.click())
 
     expect(container.textContent).toContain(
-      "Select a repository for Slack content",
+      "Select a workspace for Slack content",
     )
     const cancelButton = Array.from(container.querySelectorAll("button")).find(
       (button) => button.textContent === "Cancel",

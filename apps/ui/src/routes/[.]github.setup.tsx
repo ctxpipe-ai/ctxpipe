@@ -183,7 +183,7 @@ function ConnectGithubView({
         // ignore
       }
       navigate({
-        to: "/$orgSlug/repositories/github/setup",
+        to: "/$orgSlug/github/setup",
         params: { orgSlug },
       })
     },
@@ -357,7 +357,7 @@ function DirectSetupPage() {
   if (organization.kind === "existing") {
     return (
       <Navigate
-        to="/$orgSlug/repositories/github/setup"
+        to="/$orgSlug/github/setup"
         params={{ orgSlug: organization.orgSlug }}
         replace
       />

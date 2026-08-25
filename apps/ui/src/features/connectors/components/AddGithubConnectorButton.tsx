@@ -31,7 +31,7 @@ export function AddGithubConnectorButton({
 
   const goToSharedSetup = useCallback(() => {
     navigate({
-      to: "/$orgSlug/repositories/github/setup",
+      to: "/$orgSlug/github/setup",
       params: { orgSlug },
       search: { returnTo: "connectors" },
     })

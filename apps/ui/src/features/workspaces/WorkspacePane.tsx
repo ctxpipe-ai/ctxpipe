@@ -477,7 +477,7 @@ function WorkspaceFilesPaneContent(props: {
       ),
     )
   }
-  const writable = props.writeStatus === "writable"
+  const writable = false
   const [treeWidth, setTreeWidth] = useState(TREE_WIDTH_DEFAULT)
   const [treeResizing, setTreeResizing] = useState(false)
   const [drafts, setDrafts] = useState<Record<string, string>>({})
@@ -875,7 +875,7 @@ function WorkspaceFilesPaneContent(props: {
                 remoteBody={
                   gitStatus.find((item) => item.path === props.activeFile)?.body
                 }
-                editable={writable}
+                editable={false}
                 editorHandleRef={fileEditorRef}
                 onHistoryChange={setEditorHistory}
                 onBlur={saveOnBlur}

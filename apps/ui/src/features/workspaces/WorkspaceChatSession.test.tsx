@@ -158,6 +158,7 @@ describe("WorkspaceChatSession compose failure", () => {
       expect.objectContaining({
         threadId: "conv_pending",
         persistence: true,
+        initialMessages: [],
         connection: { kind: "official-ws", warm: expect.any(Function) },
         forwardedProps: {
           workspaceId: readOnlyWorkspace.id,
@@ -165,6 +166,7 @@ describe("WorkspaceChatSession compose failure", () => {
         },
       }),
     )
+    expect(navigateMock).not.toHaveBeenCalled()
   })
 
   it("paints one new assistant bubble on top of stored turns", () => {

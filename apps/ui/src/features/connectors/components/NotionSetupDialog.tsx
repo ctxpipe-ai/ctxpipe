@@ -5,21 +5,13 @@ import {
   IconExternalLink,
   IconSearch,
 } from "@tabler/icons-react"
-import {
-  useMutation,
-  useQueries,
-  useQuery,
-  useQueryClient,
-} from "@tanstack/react-query"
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import { useEffect, useMemo, useState } from "react"
 import { toast } from "sonner"
 import { Button } from "@/components/ui/Button"
-import { ComboBox, ComboBoxItem } from "@/components/ui/ComboBox"
 import { Modal } from "@/components/ui/Modal"
 import { Spinner } from "@/components/ui/spinner"
-import type { Repository } from "@/features/repositories"
-import { client } from "@/lib/api"
-import { pollWhileOk, readApiJson } from "@/lib/api-result"
+import { pollWhileOk } from "@/lib/api-result"
 import {
   getNotionFailureAction,
   getNotionSetupCurrentIndex,
@@ -28,17 +20,9 @@ import {
   shouldShowNotionSetupComplete,
 } from "../notion-setup-model"
 import {
-  atlassianConnectorKeys,
-  searchGithubInstallationRepos,
-} from "../queries/atlassian-connector"
-import {
   connectorSyncTargetKeys,
   fetchSuggestedConnectorSyncTarget,
 } from "../queries/connector-sync-target"
-import {
-  fetchGithubInstallationSummary,
-  githubConnectorKeys,
-} from "../queries/github-connector"
 import {
   fetchNotionConnectorConfig,
   fetchNotionConnectorStatus,
@@ -49,22 +33,15 @@ import {
   searchNotionResources,
 } from "../queries/notion-connector"
 import type { NotionResource } from "../types"
-import {
-  CONNECTOR_CONTEXT_REPOSITORY_NAME,
-  ConnectorContextRepositoryGuidance,
-  getConnectorContextRepositoryCreateUrl,
-} from "./ConnectorContextRepositoryGuidance"
 import { ConnectorSetupStepper } from "./ConnectorSetupStepper"
+import {
+  ConnectorWorkspaceDestinationPicker,
+  destinationFromWorkspace,
+  workspaceMatchingGitUrl,
+} from "./ConnectorWorkspaceDestinationPicker"
 import { GitHubPrerequisiteStep } from "./GitHubPrerequisiteStep"
-
-type GitHubRepoItem = {
-  id: number
-  full_name: string
-  html_url: string
-  clone_url: string
-  name: string
-  default_branch: string
-}
+import { workspaceListOptions } from "@/features/workspaces/queries"
+import type { Workspace } from "@/features/workspaces/types"
 
 type NotionSetupDialogProps = {
   orgSlug: string
@@ -84,23 +61,15 @@ export function NotionSetupDialog({
   onOpenChange,
 }: NotionSetupDialogProps) {
   const queryClient = useQueryClient()
-  const [repoSearch, setRepoSearch] = useState("")
-  const [debouncedRepoSearch, setDebouncedRepoSearch] = useState("")
-  const [selectedRepo, setSelectedRepo] = useState<GitHubRepoItem | null>(null)
-  const [selectedGithubConnectionId, setSelectedGithubConnectionId] = useState<
-    string | null
-  >(null)
+  const [selectedWorkspace, setSelectedWorkspace] = useState<Workspace | null>(
+    null,
+  )
   const [resourceSearch, setResourceSearch] = useState("")
   const [debouncedResourceSearch, setDebouncedResourceSearch] = useState("")
   const [selectedResources, setSelectedResources] = useState<NotionResource[]>(
     [],
   )
   const [initialized, setInitialized] = useState(false)
-
-  useEffect(() => {
-    const id = setTimeout(() => setDebouncedRepoSearch(repoSearch), 300)
-    return () => clearTimeout(id)
-  }, [repoSearch])
 
   useEffect(() => {
     const id = setTimeout(() => setDebouncedResourceSearch(resourceSearch), 300)
@@ -133,20 +102,6 @@ export function NotionSetupDialog({
     enabled: isOpen && Boolean(connectionId),
   })
 
-  const { data: orgRepos } = useQuery({
-    queryKey: ["repositories", orgSlug],
-    queryFn: async () => {
-      const res = await client[":orgSlug"].api.v1.repositories.$get({
-        param: { orgSlug },
-      })
-      const json = await readApiJson<{ items: Repository[] }>(res, {
-        message: "Failed to fetch repositories",
-      })
-      return json.items
-    },
-    enabled: isOpen,
-  })
-
   const suggestedTargetQuery = useQuery({
     queryKey: connectorSyncTargetKeys.suggestion(orgSlug),
     queryFn: () => fetchSuggestedConnectorSyncTarget(orgSlug),
@@ -157,39 +112,14 @@ export function NotionSetupDialog({
   })
 
   const activeGithubConnectionId =
-    selectedGithubConnectionId ??
     configQuery.data?.syncTarget?.githubConnectionId ??
     suggestedTargetQuery.data?.githubConnectionId ??
     (githubConnectionIds.length === 1 ? githubConnectionIds[0] : undefined)
 
-  const githubInstallationQueries = useQueries({
-    queries: githubConnectionIds.map((githubConnectionId) => ({
-      queryKey: githubConnectorKeys.installation(orgSlug, githubConnectionId),
-      queryFn: () =>
-        fetchGithubInstallationSummary(orgSlug, githubConnectionId),
-      enabled:
-        isOpen &&
-        Boolean(statusQuery.data?.isGithubLinked) &&
-        !statusQuery.data?.syncTargetConfigured,
-    })),
+  const workspacesQuery = useQuery({
+    ...workspaceListOptions(orgSlug),
+    enabled: isOpen,
   })
-  const githubConnectionOptions = githubConnectionIds.map(
-    (githubConnectionId, index) => {
-      const installation = githubInstallationQueries[index]?.data
-      return {
-        id: githubConnectionId,
-        label:
-          installation?.accountSlug && installation.appSlug
-            ? `${installation.accountSlug} — ${installation.appSlug}`
-            : (installation?.accountSlug ??
-              installation?.appSlug ??
-              githubConnectionId),
-      }
-    },
-  )
-  const githubInstallation = githubInstallationQueries.find(
-    (query) => query.data?.id === activeGithubConnectionId,
-  )?.data
 
   useEffect(() => {
     const config = configQuery.data
@@ -197,61 +127,21 @@ export function NotionSetupDialog({
       return
     setSelectedResources(config?.resources ?? [])
     if (config?.syncTarget) {
-      const st = config.syncTarget
-      const fromOrg = orgRepos?.find((r) => r.id === st.repositoryId)
-      setSelectedRepo({
-        id: 0,
-        full_name: st.repositoryName,
-        html_url:
-          fromOrg?.gitUrl?.replace(/\.git$/, "") ??
-          `https://github.com/${st.repositoryName}`,
-        clone_url:
-          fromOrg?.gitUrl ?? `https://github.com/${st.repositoryName}.git`,
-        name:
-          fromOrg?.name ??
-          st.repositoryName.split("/").pop() ??
-          st.repositoryName,
-        default_branch: st.branch,
-      })
-    } else if (suggestedTargetQuery.data) {
-      const suggested = suggestedTargetQuery.data
-      setSelectedRepo({
-        id: 0,
-        full_name: suggested.repositoryName,
-        html_url: suggested.gitUrl.replace(/\.git$/, ""),
-        clone_url: suggested.gitUrl,
-        name:
-          suggested.repositoryName.split("/").pop() ?? suggested.repositoryName,
-        default_branch: suggested.branch,
-      })
+      setSelectedWorkspace(
+        workspaceMatchingGitUrl(
+          workspacesQuery.data?.items ?? [],
+          `https://github.com/${config.syncTarget.repositoryName}.git`,
+        ),
+      )
     }
     setInitialized(true)
   }, [
     configQuery.data,
     initialized,
-    orgRepos,
+    workspacesQuery.data?.items,
     suggestedTargetQuery.data,
     suggestedTargetQuery.isPending,
   ])
-
-  const repoResultsQuery = useQuery({
-    queryKey: atlassianConnectorKeys.githubRepos(
-      orgSlug,
-      debouncedRepoSearch,
-      activeGithubConnectionId,
-    ),
-    queryFn: () =>
-      searchGithubInstallationRepos(
-        orgSlug,
-        debouncedRepoSearch,
-        activeGithubConnectionId,
-      ),
-    enabled:
-      isOpen &&
-      Boolean(statusQuery.data?.isGithubLinked) &&
-      Boolean(activeGithubConnectionId),
-    refetchOnWindowFocus: "always",
-  })
 
   const resourcesQuery = useQuery({
     queryKey: notionConnectorKeys.resources(
@@ -269,29 +159,21 @@ export function NotionSetupDialog({
     () => new Set(selectedResources.map((resource) => resource.externalId)),
     [selectedResources],
   )
-  const createRepositoryUrl = getConnectorContextRepositoryCreateUrl(
-    githubInstallation?.accountSlug,
-  )
-
   const saveTargetMutation = useMutation({
     mutationFn: async () => {
-      if (!selectedRepo) throw new Error("No repository selected")
-      const ctxRepo = orgRepos?.find(
-        (r) =>
-          r.gitUrl === selectedRepo.clone_url ||
-          r.name === selectedRepo.name ||
-          r.gitUrl.replace(/\.git$/, "") ===
-            selectedRepo.clone_url.replace(/\.git$/, ""),
-      )
+      if (!selectedWorkspace) throw new Error("Select a workspace")
+      const destination = destinationFromWorkspace(selectedWorkspace)
       return patchNotionConnectorConfig(
         orgSlug,
         {
           syncTarget: {
-            ...(ctxRepo ? { repositoryId: ctxRepo.id } : {}),
-            repositoryName: selectedRepo.full_name,
-            gitUrl: selectedRepo.clone_url,
-            githubConnectionId: activeGithubConnectionId,
-            branch: selectedRepo.default_branch,
+            repositoryName: destination.repositoryName,
+            gitUrl: destination.gitUrl,
+            githubConnectionId:
+              destination.githubConnectionId ??
+              activeGithubConnectionId ??
+              undefined,
+            branch: destination.branch,
             enabled: true,
           },
         },
@@ -425,144 +307,34 @@ export function NotionSetupDialog({
         <div className="space-y-4">
           <div>
             <h3 className="text-base font-medium text-foreground">
-              Select a repository for Notion content
+              Select a workspace for Notion content
             </h3>
             <p className="mt-2 text-sm text-muted-foreground">
-              Choose where ctxpipe should mirror your selected Notion pages and
-              databases.
+              Notion pages and databases are mirrored into that workspace
+              repository.
             </p>
           </div>
-          <ConnectorContextRepositoryGuidance
-            suggestedTarget={suggestedTargetQuery.data}
+          <ConnectorWorkspaceDestinationPicker
+            orgSlug={orgSlug}
+            selectedWorkspaceId={
+              selectedWorkspace?.id ??
+              workspaceMatchingGitUrl(
+                workspacesQuery.data?.items ?? [],
+                configQuery.data?.syncTarget
+                  ? `https://github.com/${configQuery.data.syncTarget.repositoryName}.git`
+                  : null,
+              )?.id ??
+              null
+            }
+            onSelect={setSelectedWorkspace}
           />
-          {githubConnectionOptions.length > 1 ? (
-            <ComboBox
-              label="GitHub connection"
-              placeholder="Select a GitHub account..."
-              description="Choose the GitHub App installation that can access the context repository."
-              selectedKey={activeGithubConnectionId ?? null}
-              onSelectionChange={(key) => {
-                setSelectedGithubConnectionId(key ? String(key) : null)
-                setSelectedRepo(null)
-                setRepoSearch("")
-              }}
-              items={githubConnectionOptions}
-            >
-              {(option) => (
-                <ComboBoxItem id={option.id} textValue={option.label}>
-                  {option.label}
-                </ComboBoxItem>
-              )}
-            </ComboBox>
-          ) : null}
-          <ComboBox
-            label="Repository"
-            placeholder="Type to search repositories..."
-            isDisabled={!activeGithubConnectionId}
-            inputValue={selectedRepo?.full_name ?? repoSearch}
-            onInputChange={(value) => {
-              setRepoSearch(value)
-              if (selectedRepo && value !== selectedRepo.full_name) {
-                setSelectedRepo(null)
-              }
-            }}
-            onSelectionChange={(key) => {
-              const repo = repoResultsQuery.data?.repositories.find(
-                (r) => r.id.toString() === key,
-              )
-              if (repo) {
-                setSelectedRepo(repo)
-                setRepoSearch(repo.full_name)
-              }
-            }}
-            items={repoResultsQuery.data?.repositories ?? []}
-          >
-            {(repo) => (
-              <ComboBoxItem id={repo.id.toString()} textValue={repo.full_name}>
-                {repo.full_name}
-              </ComboBoxItem>
-            )}
-          </ComboBox>
-
-          {!selectedRepo ? (
-            <div className="border border-border bg-card/30 p-4">
-              <h4 className="text-sm font-medium text-foreground">
-                Create your shared context repository
-              </h4>
-              <ol className="mt-3 space-y-3 text-sm text-muted-foreground">
-                <li className="flex gap-3">
-                  <span className="flex size-5 shrink-0 items-center justify-center border border-border text-xs text-foreground">
-                    1
-                  </span>
-                  <p>
-                    <a
-                      href={createRepositoryUrl}
-                      target="_blank"
-                      rel="noreferrer"
-                      className="inline-flex items-center gap-1 text-teal-400 hover:text-teal-300"
-                    >
-                      Create {CONNECTOR_CONTEXT_REPOSITORY_NAME} on GitHub
-                      <IconExternalLink className="size-3.5" aria-hidden />
-                    </a>
-                    .
-                  </p>
-                </li>
-                {repoResultsQuery.data?.repositorySelection === "selected" &&
-                repoResultsQuery.data.manageUrl ? (
-                  <li className="flex gap-3">
-                    <span className="flex size-5 shrink-0 items-center justify-center border border-border text-xs text-foreground">
-                      2
-                    </span>
-                    <p>
-                      <a
-                        href={repoResultsQuery.data.manageUrl}
-                        target="_blank"
-                        rel="noreferrer"
-                        className="inline-flex items-center gap-1 text-teal-400 hover:text-teal-300"
-                      >
-                        Give the ctx| GitHub App access
-                        <IconExternalLink className="size-3.5" aria-hidden />
-                      </a>{" "}
-                      to the new repository.
-                    </p>
-                  </li>
-                ) : null}
-                <li className="flex gap-3">
-                  <span className="flex size-5 shrink-0 items-center justify-center border border-border text-xs text-foreground">
-                    {repoResultsQuery.data?.repositorySelection ===
-                      "selected" && repoResultsQuery.data.manageUrl
-                      ? 3
-                      : 2}
-                  </span>
-                  <div>
-                    <p>Return here and refresh the repository list.</p>
-                    <Button
-                      variant="secondary"
-                      className="mt-2 h-8 rounded-none px-3"
-                      isPending={repoResultsQuery.isFetching}
-                      onPress={() => void repoResultsQuery.refetch()}
-                    >
-                      Refresh repositories
-                    </Button>
-                  </div>
-                </li>
-              </ol>
-            </div>
-          ) : null}
-
-          {repoResultsQuery.isFetching ? (
-            <div className="flex items-center gap-2 text-sm text-muted-foreground">
-              <Spinner className="size-4" />
-              Searching repositories...
-            </div>
-          ) : null}
 
           <div className="flex justify-end border-t border-border pt-4">
             <Button
               variant="primary"
-              className="rounded-none"
+              className="rounded-lg"
               isPending={saveTargetMutation.isPending}
-              isDisabled={!selectedRepo || !activeGithubConnectionId}
+              isDisabled={!selectedWorkspace}
               onPress={() => void saveTargetMutation.mutateAsync()}
             >
               Continue

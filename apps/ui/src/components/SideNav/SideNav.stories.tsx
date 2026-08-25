@@ -99,31 +99,3 @@ export const Collapsed: Story = {
     )
   },
 }
-
-export const AddWorkspaceOpen: Story = {
-  parameters: {
-    storyRoute: {
-      pattern: "orgWorkspace",
-      orgSlug: "acme",
-      workspaceSlug: "docs",
-    } satisfies StoryRouteParams,
-    msw: {
-      handlers: {
-        page: [
-          workspaceListHandler([docsWorkspace]),
-          conversationsListHandler(docsConversations),
-          githubInstallationReposHandler(),
-        ],
-      },
-    },
-  },
-  play: async ({ canvasElement }) => {
-    const canvas = within(canvasElement)
-    const add = canvas.getByRole("button", { name: /add workspace/i })
-    await userEvent.hover(add)
-    await userEvent.click(add)
-    const body = within(canvasElement.ownerDocument.body)
-    const dialog = await body.findByRole("dialog")
-    await within(dialog).findByRole("list", { name: /repositories/i })
-  },
-}

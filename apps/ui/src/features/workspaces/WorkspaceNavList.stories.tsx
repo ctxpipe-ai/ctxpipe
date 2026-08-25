@@ -1,6 +1,5 @@
 import type { Meta, StoryObj } from "@storybook/react-vite"
 import { delay, HttpResponse, http } from "msw"
-import { userEvent, within } from "storybook/test"
 import {
   conversationsListHandler,
   githubInstallationReposHandler,
@@ -81,29 +80,6 @@ export const Empty: Story = {
         page: [workspaceListHandler([]), githubInstallationReposHandler()],
       },
     },
-  },
-}
-
-export const AddWorkspaceOpen: Story = {
-  parameters: {
-    msw: {
-      handlers: {
-        page: [
-          workspaceListHandler([docsWorkspace]),
-          conversationsListHandler(docsConversations),
-          githubInstallationReposHandler(),
-        ],
-      },
-    },
-  },
-  play: async ({ canvasElement }) => {
-    const canvas = within(canvasElement)
-    const add = canvas.getByRole("button", { name: /add workspace/i })
-    await userEvent.hover(add)
-    await userEvent.click(add)
-    const body = within(canvasElement.ownerDocument.body)
-    const dialog = await body.findByRole("dialog")
-    await within(dialog).findByRole("list", { name: /repositories/i })
   },
 }
 

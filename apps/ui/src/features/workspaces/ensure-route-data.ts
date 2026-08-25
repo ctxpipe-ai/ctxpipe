@@ -47,6 +47,7 @@ export async function ensureWorkspaceRouteData(input: {
   if (!warmLandingPane || !workspace) return workspace
 
   const pane = landingPane(paneParam)
+  if (!pane) return workspace
 
   if (pane.kind === "files" || pane.kind === "file") {
     if (!workspaceProjectionReady(workspace)) return workspace

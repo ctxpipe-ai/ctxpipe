@@ -37,9 +37,9 @@ export function visiblePane(pane: ParsedPane | null): ParsedPane | null {
   return pane
 }
 
-/** Workspace landing pane for SSR / enter. Empty search opens files. */
-export function landingPane(paneParam?: string): ParsedPane {
-  return visiblePane(parsePane(paneParam)) ?? { kind: "files" }
+/** Absent `?pane=` is closed. An explicit id opens that pane. */
+export function landingPane(paneParam?: string): ParsedPane | null {
+  return visiblePane(parsePane(paneParam))
 }
 
 export function filePaneId(path: string): string {

@@ -60,7 +60,7 @@ function OrgSetupPage() {
     minFinalizeAfterRegistrationMs: GITHUB_FINALISING_MIN_MS,
     onAlreadyInstalled: () => {
       void router.navigate({
-        to: "/$orgSlug/repositories/github/setup",
+        to: "/$orgSlug/github/setup",
         params: { orgSlug },
       })
     },

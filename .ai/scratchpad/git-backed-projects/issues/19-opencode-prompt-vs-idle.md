@@ -1,12 +1,14 @@
 # OpenCode prompt() can end the stream before assistant text
 
-Status: ready-for-human
+Status: historical
 
-Stock `@tanstack/ai-opencode@0.2.5` ends the event queue when `session.prompt()` resolves, not when `session.idle` fires. Assistant `message.part.updated` events that arrive after that are dropped. Workspace chat then sees harness echo or an empty persist reply.
+The 0.2.5 version pin and attach/idle-wait workaround are historical. Product chat is stock TanStack (`@tanstack/ai@0.48` + `@tanstack/ai-opencode@0.3.4`); see [ADR-030](../../../memory/decisions/ADR-030-workspace-chat-stock-tanstack.md).
+
+Stock `@tanstack/ai-opencode@0.2.5` ended the event queue when `session.prompt()` resolved, not when `session.idle` fired. Assistant `message.part.updated` events that arrived after that were dropped. Workspace chat then saw harness echo or an empty persist reply.
 
 ## What we will not do
 
-Do not patch, fork, or version-bump `@tanstack/ai*`. ServeError / echo stay our wiring unless TanStack ships an idle-wait fix.
+Do not patch or fork `@tanstack/ai*`. ServeError / echo stay our wiring. The old pin against a version bump no longer applies.
 
 ## Observed
 

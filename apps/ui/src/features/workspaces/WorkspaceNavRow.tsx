@@ -5,7 +5,7 @@ import {
   IconMessageCirclePlus,
 } from "@tabler/icons-react"
 import { useQueryClient } from "@tanstack/react-query"
-import { useRouter } from "@tanstack/react-router"
+import { useRouter, useSearch } from "@tanstack/react-router"
 import { useState } from "react"
 import { Link } from "react-aria-components"
 import { SideNavTooltip } from "@/components/SideNav/SideNavTooltip"
@@ -17,6 +17,7 @@ import {
 } from "@/components/SideNav/sideNavStyles"
 import { focusVisibleClassName } from "@/lib/focus-styles"
 import { prefetchWorkspaceRouteData } from "./ensure-route-data"
+import { workspaceSearch } from "./pane"
 import { workspaceTitleAction } from "./nav"
 import { workspaceConversationOptions } from "./queries"
 import type { Workspace } from "./types"
@@ -36,6 +37,8 @@ export function WorkspaceNavRow(props: {
   onExpand: () => void
 }) {
   const router = useRouter()
+  const search = useSearch({ strict: false })
+  const paneSearch = workspaceSearch(search)
   const queryClient = useQueryClient()
   const {
     orgSlug,
@@ -59,7 +62,7 @@ export function WorkspaceNavRow(props: {
   const composeHref = router.buildLocation({
     to: "/$orgSlug/ws/$workspaceSlug",
     params: { orgSlug, workspaceSlug: workspace.slug },
-    search: {},
+    search: paneSearch,
   }).href
   const resumeHref = workspace.mostRecentConversationId
     ? router.buildLocation({
@@ -69,7 +72,7 @@ export function WorkspaceNavRow(props: {
           workspaceSlug: workspace.slug,
           conversationId: workspace.mostRecentConversationId,
         },
-        search: {},
+        search: paneSearch,
       }).href
     : composeHref
   const titleHref = titleAction === "resume" ? resumeHref : composeHref

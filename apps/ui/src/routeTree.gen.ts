@@ -10,7 +10,6 @@
 
 import { Route as rootRouteImport } from './routes/__root'
 import { Route as OnboardingRouteImport } from './routes/onboarding'
-import { Route as DotworkspaceUiPrototypeRouteImport } from './routes/[.]workspace-ui-prototype'
 import { Route as OrgSlugRouteImport } from './routes/$orgSlug'
 import { Route as IndexRouteImport } from './routes/index'
 import { Route as OrgSlugIndexRouteImport } from './routes/$orgSlug.index'
@@ -33,16 +32,11 @@ import { Route as OrgSlugWorkspacesNewRouteImport } from './routes/$orgSlug.work
 import { Route as OrgSlugOrganizationOrganizationViewRouteImport } from './routes/$orgSlug.organization.$organizationView'
 import { Route as OrgSlugWsWorkspaceSlugIndexRouteImport } from './routes/$orgSlug.ws.$workspaceSlug.index'
 import { Route as OrgSlugWsWorkspaceSlugConversationIdRouteImport } from './routes/$orgSlug.ws.$workspaceSlug.$conversationId'
-import { Route as OrgSlugRepositoriesGithubSetupRouteImport } from './routes/$orgSlug.repositories.github.setup'
+import { Route as OrgSlugGithubSetupRouteImport } from './routes/$orgSlug.github.setup'
 
 const OnboardingRoute = OnboardingRouteImport.update({
   id: '/onboarding',
   path: '/onboarding',
-  getParentRoute: () => rootRouteImport,
-} as any)
-const DotworkspaceUiPrototypeRoute = DotworkspaceUiPrototypeRouteImport.update({
-  id: '/.workspace-ui-prototype',
-  path: '/.workspace-ui-prototype',
   getParentRoute: () => rootRouteImport,
 } as any)
 const OrgSlugRoute = OrgSlugRouteImport.update({
@@ -160,17 +154,16 @@ const OrgSlugWsWorkspaceSlugConversationIdRoute =
     path: '/$conversationId',
     getParentRoute: () => OrgSlugWsWorkspaceSlugRoute,
   } as any)
-const OrgSlugRepositoriesGithubSetupRoute =
-  OrgSlugRepositoriesGithubSetupRouteImport.update({
-    id: '/repositories/github/setup',
-    path: '/repositories/github/setup',
+const OrgSlugGithubSetupRoute =
+  OrgSlugGithubSetupRouteImport.update({
+    id: '/github/setup',
+    path: '/github/setup',
     getParentRoute: () => OrgSlugRoute,
   } as any)
 
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
   '/$orgSlug': typeof OrgSlugRouteWithChildren
-  '/.workspace-ui-prototype': typeof DotworkspaceUiPrototypeRoute
   '/onboarding': typeof OnboardingRoute
   '/$orgSlug/connectors': typeof OrgSlugConnectorsRoute
   '/$orgSlug/setup': typeof OrgSlugSetupRoute
@@ -190,13 +183,12 @@ export interface FileRoutesByFullPath {
   '/$orgSlug/ws/$workspaceSlug': typeof OrgSlugWsWorkspaceSlugRouteWithChildren
   '/.auth/account/$accountView': typeof DotauthAccountAccountViewRoute
   '/.auth/organization/$organizationView': typeof DotauthOrganizationOrganizationViewRoute
-  '/$orgSlug/repositories/github/setup': typeof OrgSlugRepositoriesGithubSetupRoute
+  '/$orgSlug/github/setup': typeof OrgSlugGithubSetupRoute
   '/$orgSlug/ws/$workspaceSlug/$conversationId': typeof OrgSlugWsWorkspaceSlugConversationIdRoute
   '/$orgSlug/ws/$workspaceSlug/': typeof OrgSlugWsWorkspaceSlugIndexRoute
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
-  '/.workspace-ui-prototype': typeof DotworkspaceUiPrototypeRoute
   '/onboarding': typeof OnboardingRoute
   '/$orgSlug/connectors': typeof OrgSlugConnectorsRoute
   '/$orgSlug/setup': typeof OrgSlugSetupRoute
@@ -215,7 +207,7 @@ export interface FileRoutesByTo {
   '/$orgSlug/workspaces/new': typeof OrgSlugWorkspacesNewRoute
   '/.auth/account/$accountView': typeof DotauthAccountAccountViewRoute
   '/.auth/organization/$organizationView': typeof DotauthOrganizationOrganizationViewRoute
-  '/$orgSlug/repositories/github/setup': typeof OrgSlugRepositoriesGithubSetupRoute
+  '/$orgSlug/github/setup': typeof OrgSlugGithubSetupRoute
   '/$orgSlug/ws/$workspaceSlug/$conversationId': typeof OrgSlugWsWorkspaceSlugConversationIdRoute
   '/$orgSlug/ws/$workspaceSlug': typeof OrgSlugWsWorkspaceSlugIndexRoute
 }
@@ -223,7 +215,6 @@ export interface FileRoutesById {
   __root__: typeof rootRouteImport
   '/': typeof IndexRoute
   '/$orgSlug': typeof OrgSlugRouteWithChildren
-  '/.workspace-ui-prototype': typeof DotworkspaceUiPrototypeRoute
   '/onboarding': typeof OnboardingRoute
   '/$orgSlug/connectors': typeof OrgSlugConnectorsRoute
   '/$orgSlug/setup': typeof OrgSlugSetupRoute
@@ -243,7 +234,7 @@ export interface FileRoutesById {
   '/$orgSlug/ws/$workspaceSlug': typeof OrgSlugWsWorkspaceSlugRouteWithChildren
   '/.auth/account/$accountView': typeof DotauthAccountAccountViewRoute
   '/.auth/organization/$organizationView': typeof DotauthOrganizationOrganizationViewRoute
-  '/$orgSlug/repositories/github/setup': typeof OrgSlugRepositoriesGithubSetupRoute
+  '/$orgSlug/github/setup': typeof OrgSlugGithubSetupRoute
   '/$orgSlug/ws/$workspaceSlug/$conversationId': typeof OrgSlugWsWorkspaceSlugConversationIdRoute
   '/$orgSlug/ws/$workspaceSlug/': typeof OrgSlugWsWorkspaceSlugIndexRoute
 }
@@ -252,7 +243,6 @@ export interface FileRouteTypes {
   fullPaths:
     | '/'
     | '/$orgSlug'
-    | '/.workspace-ui-prototype'
     | '/onboarding'
     | '/$orgSlug/connectors'
     | '/$orgSlug/setup'
@@ -272,13 +262,12 @@ export interface FileRouteTypes {
     | '/$orgSlug/ws/$workspaceSlug'
     | '/.auth/account/$accountView'
     | '/.auth/organization/$organizationView'
-    | '/$orgSlug/repositories/github/setup'
+    | '/$orgSlug/github/setup'
     | '/$orgSlug/ws/$workspaceSlug/$conversationId'
     | '/$orgSlug/ws/$workspaceSlug/'
   fileRoutesByTo: FileRoutesByTo
   to:
     | '/'
-    | '/.workspace-ui-prototype'
     | '/onboarding'
     | '/$orgSlug/connectors'
     | '/$orgSlug/setup'
@@ -297,14 +286,13 @@ export interface FileRouteTypes {
     | '/$orgSlug/workspaces/new'
     | '/.auth/account/$accountView'
     | '/.auth/organization/$organizationView'
-    | '/$orgSlug/repositories/github/setup'
+    | '/$orgSlug/github/setup'
     | '/$orgSlug/ws/$workspaceSlug/$conversationId'
     | '/$orgSlug/ws/$workspaceSlug'
   id:
     | '__root__'
     | '/'
     | '/$orgSlug'
-    | '/.workspace-ui-prototype'
     | '/onboarding'
     | '/$orgSlug/connectors'
     | '/$orgSlug/setup'
@@ -324,7 +312,7 @@ export interface FileRouteTypes {
     | '/$orgSlug/ws/$workspaceSlug'
     | '/.auth/account/$accountView'
     | '/.auth/organization/$organizationView'
-    | '/$orgSlug/repositories/github/setup'
+    | '/$orgSlug/github/setup'
     | '/$orgSlug/ws/$workspaceSlug/$conversationId'
     | '/$orgSlug/ws/$workspaceSlug/'
   fileRoutesById: FileRoutesById
@@ -332,7 +320,6 @@ export interface FileRouteTypes {
 export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
   OrgSlugRoute: typeof OrgSlugRouteWithChildren
-  DotworkspaceUiPrototypeRoute: typeof DotworkspaceUiPrototypeRoute
   OnboardingRoute: typeof OnboardingRoute
   DotampEventsRoute: typeof DotampEventsRoute
   DotauthAuthViewRoute: typeof DotauthAuthViewRoute
@@ -354,13 +341,6 @@ declare module '@tanstack/react-router' {
       path: '/onboarding'
       fullPath: '/onboarding'
       preLoaderRoute: typeof OnboardingRouteImport
-      parentRoute: typeof rootRouteImport
-    }
-    '/.workspace-ui-prototype': {
-      id: '/.workspace-ui-prototype'
-      path: '/.workspace-ui-prototype'
-      fullPath: '/.workspace-ui-prototype'
-      preLoaderRoute: typeof DotworkspaceUiPrototypeRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/$orgSlug': {
@@ -517,11 +497,11 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof OrgSlugWsWorkspaceSlugConversationIdRouteImport
       parentRoute: typeof OrgSlugWsWorkspaceSlugRoute
     }
-    '/$orgSlug/repositories/github/setup': {
-      id: '/$orgSlug/repositories/github/setup'
-      path: '/repositories/github/setup'
-      fullPath: '/$orgSlug/repositories/github/setup'
-      preLoaderRoute: typeof OrgSlugRepositoriesGithubSetupRouteImport
+    '/$orgSlug/github/setup': {
+      id: '/$orgSlug/github/setup'
+      path: '/github/setup'
+      fullPath: '/$orgSlug/github/setup'
+      preLoaderRoute: typeof OrgSlugGithubSetupRouteImport
       parentRoute: typeof OrgSlugRoute
     }
   }
@@ -551,7 +531,7 @@ interface OrgSlugRouteChildren {
   OrgSlugOrganizationOrganizationViewRoute: typeof OrgSlugOrganizationOrganizationViewRoute
   OrgSlugWorkspacesNewRoute: typeof OrgSlugWorkspacesNewRoute
   OrgSlugWsWorkspaceSlugRoute: typeof OrgSlugWsWorkspaceSlugRouteWithChildren
-  OrgSlugRepositoriesGithubSetupRoute: typeof OrgSlugRepositoriesGithubSetupRoute
+  OrgSlugGithubSetupRoute: typeof OrgSlugGithubSetupRoute
 }
 
 const OrgSlugRouteChildren: OrgSlugRouteChildren = {
@@ -562,7 +542,7 @@ const OrgSlugRouteChildren: OrgSlugRouteChildren = {
     OrgSlugOrganizationOrganizationViewRoute,
   OrgSlugWorkspacesNewRoute: OrgSlugWorkspacesNewRoute,
   OrgSlugWsWorkspaceSlugRoute: OrgSlugWsWorkspaceSlugRouteWithChildren,
-  OrgSlugRepositoriesGithubSetupRoute: OrgSlugRepositoriesGithubSetupRoute,
+  OrgSlugGithubSetupRoute: OrgSlugGithubSetupRoute,
 }
 
 const OrgSlugRouteWithChildren =
@@ -583,7 +563,6 @@ const DotauthAccountRouteWithChildren = DotauthAccountRoute._addFileChildren(
 const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
   OrgSlugRoute: OrgSlugRouteWithChildren,
-  DotworkspaceUiPrototypeRoute: DotworkspaceUiPrototypeRoute,
   OnboardingRoute: OnboardingRoute,
   DotampEventsRoute: DotampEventsRoute,
   DotauthAuthViewRoute: DotauthAuthViewRoute,

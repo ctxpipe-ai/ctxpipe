@@ -1,6 +1,6 @@
 import type { PermissionHandler } from "@tanstack/ai-opencode"
 
-import { firstConnectorTarget } from "./migration-cutover.js"
+import { firstConnectorTarget } from "./dest-workspace-first.js"
 
 export const CHAT_PERMISSION_MODE = "acceptEdits" as const
 
