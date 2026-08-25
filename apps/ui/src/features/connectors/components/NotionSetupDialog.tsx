@@ -139,7 +139,6 @@ export function NotionSetupDialog({
     configQuery.data,
     initialized,
     workspacesQuery.data?.items,
-    suggestedTargetQuery.data,
     suggestedTargetQuery.isPending,
   ])
 
