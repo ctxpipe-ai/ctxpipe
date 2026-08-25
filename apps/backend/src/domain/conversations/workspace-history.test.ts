@@ -47,10 +47,8 @@ describe("loadConversationUiMessages", () => {
     loadThreadMock.mockResolvedValueOnce([
       {
         role: "assistant",
-        content: [
-          { type: "reasoning", text: "think" },
-          { type: "text", text: "stored" },
-        ],
+        content: "stored",
+        thinking: [{ content: "think" }],
       },
     ])
     const messages = await loadConversationUiMessages({
@@ -60,7 +58,7 @@ describe("loadConversationUiMessages", () => {
     })
     expect(loadTurnsMock).not.toHaveBeenCalled()
     expect(messages.length).toBeGreaterThan(0)
-    expect(JSON.stringify(messages)).toMatch(/think|stored|reasoning/)
+    expect(JSON.stringify(messages)).toMatch(/think|stored|thinking/)
   })
 
   it("loads Workspace turns from Postgres instead of LangGraph", async () => {

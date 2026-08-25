@@ -104,8 +104,14 @@ const conversationHasStoredTurnsMock = vi.hoisted(() =>
   vi.fn(async () => true),
 )
 const reconstructChatMock = vi.hoisted(() =>
-  vi.fn(async () =>
-    Response.json({ messages: [], activeRun: null, interrupts: null }),
+  vi.fn(
+    async (
+      _persistence: unknown,
+      _request: Request,
+      _options?: {
+        authorize?: (threadId: string) => boolean | Promise<boolean>
+      },
+    ) => Response.json({ messages: [], activeRun: null, interrupts: null }),
   ),
 )
 vi.mock("../../domain/workspaces/tanstack-workspace-chat.js", () => ({
@@ -284,14 +290,16 @@ describe("conversations API", () => {
     const res = await app().request("/conversations/conv_1/chat?workspaceId=ws_abc")
     expect(res.status).toBe(200)
     expect(reconstructChatMock).toHaveBeenCalled()
-    const [persistence, request, options] = reconstructChatMock.mock.calls[0]
+    const call = reconstructChatMock.mock.calls[0]
+    expect(call).toBeDefined()
+    const [persistence, request, options] = call ?? []
     expect(persistence).toBeTruthy()
-    expect(new URL((request as Request).url).searchParams.get("threadId")).toBe(
-      "conv_1",
-    )
-    const authorize = (
-      options as { authorize: (threadId: string) => Promise<boolean> }
-    ).authorize
+    expect(request).toBeInstanceOf(Request)
+    if (!request) return
+    expect(new URL(request.url).searchParams.get("threadId")).toBe("conv_1")
+    const authorize = options?.authorize
+    expect(authorize).toBeDefined()
+    if (!authorize) return
     await expect(authorize("conv_1")).resolves.toBe(true)
     await expect(authorize("conv_other")).resolves.toBe(false)
   })

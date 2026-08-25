@@ -13,6 +13,7 @@ import { organizations } from "../../db/schema/auth.js"
 import { chatThreads } from "../../db/schema/chat-persistence.js"
 import { conversations } from "../../db/schema/conversations.js"
 import { workspaces } from "../../db/schema/workspaces.js"
+import type { ModelMessage } from "@tanstack/ai"
 import { workspaceChatPersistence } from "./workspace-chat-persistence.js"
 
 config({
@@ -75,13 +76,11 @@ afterAll(async () => {
 describe("workspaceChatPersistence", () => {
   it("saves and loads a thread with reasoning parts", async () => {
     const persistence = workspaceChatPersistence()
-    const messages = [
+    const messages: ModelMessage[] = [
       {
-        role: "assistant" as const,
-        content: [
-          { type: "reasoning" as const, text: "think" },
-          { type: "text" as const, text: "answer" },
-        ],
+        role: "assistant",
+        content: "answer",
+        thinking: [{ content: "think" }],
       },
     ]
     await withOrgIdContext({ id: org.id, slug: org.slug }, async () => {
