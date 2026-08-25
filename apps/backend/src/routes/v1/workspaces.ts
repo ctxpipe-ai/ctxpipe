@@ -1,6 +1,7 @@
 import { createRoute, OpenAPIHono, z } from "@hono/zod-openapi"
 import type { AppEnv } from "../../app/env.js"
 import { shouldHydrateBeforeMigrationExport } from "../../domain/workspaces/hydrate.js"
+import { WORKSPACE_WRITE_STATUSES } from "../../domain/workspaces/write-status.js"
 import { withDestroyedWorkspaceSandboxes } from "../../domain/workspaces/sandbox-registry.js"
 import {
   createWorkspaceLifecycle,
@@ -18,6 +19,7 @@ import {
   touchLastUsedWorkspace,
 } from "../../models/workspaces.js"
 import { enqueueWorkspaceHydrate } from "../../openworkflow/enqueue-workspace-hydrate.js"
+import { enqueueWorkspaceTipCheck } from "../../openworkflow/enqueue-workspace-tip-check.js"
 import { enqueueWorkspaceWriteCommit } from "../../openworkflow/enqueue-workspace-write-commit.js"
 import { workspaceFilesRoutes } from "./workspace-files-routes.js"
 import { workspaceGraphRoutes } from "./workspace-graph-routes.js"
@@ -353,6 +355,10 @@ export const workspaceRoutes = new OpenAPIHono<AppEnv>()
     const { workspaceSlug } = workspaceSlugParams(c)
     const workspace = await getWorkspaceBySlug(workspaceSlug)
     if (!workspace) return c.json({ error: "Not found" }, 404)
+    const orgId = c.get("orgId")
+    if (orgId && workspace.writeStatus === WORKSPACE_WRITE_STATUSES.read_only) {
+      void enqueueWorkspaceTipCheck(orgId, c.get("log"))
+    }
     const linked = await listLinkedRepositories(workspace.id)
     return c.json(
       {

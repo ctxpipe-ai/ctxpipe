@@ -261,6 +261,37 @@ describe("getGithubRepoWriteView", () => {
     ).resolves.toEqual({ defaultBranch: "develop", canPush: true })
   })
 
+  it("treats installation contents:write as writable when repos.get only reports pull", async () => {
+    getInstallationOctokitForOrgMock.mockResolvedValue({
+      installation: { installationId: 42 },
+      octokit: {
+        rest: {
+          repos: {
+            get: async () => ({
+              data: {
+                default_branch: "main",
+                permissions: { pull: true },
+              },
+            }),
+          },
+          apps: {
+            getInstallation: async () => ({
+              data: { permissions: { contents: "write" } },
+            }),
+          },
+        },
+      },
+    })
+    await expect(
+      getGithubRepoWriteView({
+        orgId: "org_1",
+        githubConnectionId: "con_gh",
+        repoFullName: "acme/docs",
+        env,
+      }),
+    ).resolves.toEqual({ defaultBranch: "main", canPush: true })
+  })
+
   it("denies pull-only permissions", async () => {
     getInstallationOctokitForOrgMock.mockResolvedValue({
       octokit: {
@@ -271,6 +302,11 @@ describe("getGithubRepoWriteView", () => {
                 default_branch: "main",
                 permissions: { pull: true },
               },
+            }),
+          },
+          apps: {
+            getInstallation: async () => ({
+              data: { permissions: { contents: "read" } },
             }),
           },
         },

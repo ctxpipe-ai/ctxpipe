@@ -444,6 +444,21 @@ describe("workspaces API", () => {
     )
     expect(body.hydrateError).toBeNull()
     expect(body.migrationExportSha).toBeNull()
+    expect(enqueueWorkspaceTipCheck).not.toHaveBeenCalled()
+  })
+
+  it("rechecks write access when opening a read-only workspace", async () => {
+    getWorkspaceBySlugMock.mockResolvedValue({
+      ...workspaceRow,
+      writeStatus: "read_only",
+    })
+    listLinkedRepositoriesMock.mockResolvedValue([])
+    const res = await app().request("/workspaces/knowledge")
+    expect(res.status).toBe(200)
+    expect(enqueueWorkspaceTipCheck).toHaveBeenCalledWith(
+      workspaceRow.orgId,
+      expect.anything(),
+    )
   })
 
   it("404s unknown slugs", async () => {

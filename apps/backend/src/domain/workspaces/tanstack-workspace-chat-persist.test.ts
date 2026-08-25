@@ -114,12 +114,17 @@ vi.mock("@tanstack/ai-sandbox-docker", () => ({
 vi.mock("@tanstack/ai-sandbox-local-process", () => ({
   localProcessSandbox: vi.fn(() => "local-provider"),
 }))
-vi.mock("./workspace-chat-model-proxy.js", () => ({
-  startWorkspaceChatModelProxy: vi.fn(async () => ({
-    baseUrl: "http://127.0.0.1:18789",
-    close: vi.fn(async () => {}),
-  })),
-}))
+vi.mock("./workspace-chat-model-proxy.js", async (importOriginal) => {
+  const actual =
+    await importOriginal<typeof import("./workspace-chat-model-proxy.js")>()
+  return {
+    ...actual,
+    startWorkspaceChatModelProxy: vi.fn(async () => ({
+      baseUrl: "http://127.0.0.1:18789",
+      close: vi.fn(async () => {}),
+    })),
+  }
+})
 vi.mock("./workspace-chat-persistence.js", () => ({
   workspaceChatPersistence: () => ({
     stores: {

@@ -122,9 +122,14 @@ const localProcessSandboxMock = vi.hoisted(() => vi.fn(() => "local-provider"))
 vi.mock("@tanstack/ai-sandbox-local-process", () => ({
   localProcessSandbox: localProcessSandboxMock,
 }))
-vi.mock("./workspace-chat-model-proxy.js", () => ({
-  startWorkspaceChatModelProxy: startWorkspaceChatModelProxyMock,
-}))
+vi.mock("./workspace-chat-model-proxy.js", async (importOriginal) => {
+  const actual =
+    await importOriginal<typeof import("./workspace-chat-model-proxy.js")>()
+  return {
+    ...actual,
+    startWorkspaceChatModelProxy: startWorkspaceChatModelProxyMock,
+  }
+})
 vi.mock("./workspace-chat-persistence.js", () => ({
   workspaceChatPersistence: () => ({
     stores: {
@@ -278,6 +283,17 @@ describe("runTanstackWorkspaceChat", () => {
     expect(localProcessSandboxMock).toHaveBeenCalled()
     expect(dockerSandboxMock).not.toHaveBeenCalled()
     expect(withSandboxMock).toHaveBeenCalled()
+    expect(startWorkspaceChatModelProxyMock).toHaveBeenCalledWith(
+      expect.objectContaining({ advertisedHost: "127.0.0.1" }),
+    )
+  })
+
+  it("advertises host.docker.internal only when chat isolation is docker", async () => {
+    const res = await runTanstackWorkspaceChat(baseInput)
+    expect(res.status).toBe(200)
+    expect(startWorkspaceChatModelProxyMock).toHaveBeenCalledWith(
+      expect.objectContaining({ advertisedHost: "host.docker.internal" }),
+    )
   })
 
   it("fails closed when a locked docker provider has no factory", async () => {

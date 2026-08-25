@@ -126,6 +126,24 @@ describe("startWorkspaceChatModelProxy", () => {
     expect(res.status).toBe(200)
   })
 
+  it("self-checks on loopback even when advertising host.docker.internal", async () => {
+    const proxy = await startWorkspaceChatModelProxy({
+      runToken: "run-token-docker-host",
+      upstreamBaseUrl: "http://127.0.0.1:9",
+      upstreamApiKey: "sk-unused",
+      modelBase: "openai/gpt-5.6-terra",
+      listenHost: "0.0.0.0",
+      advertisedHost: "host.docker.internal",
+    })
+    servers.push(proxy)
+    expect(proxy.baseUrl).toMatch(/^http:\/\/host\.docker\.internal:\d+$/)
+    const port = Number(new URL(proxy.baseUrl).port)
+    const res = await fetch(`http://127.0.0.1:${port}/v1/models`, {
+      headers: { authorization: "Bearer run-token-docker-host" },
+    })
+    expect(res.status).toBe(200)
+  })
+
   it("lists only the configured model", async () => {
     const proxy = await startWorkspaceChatModelProxy({
       runToken: "run-token-2",

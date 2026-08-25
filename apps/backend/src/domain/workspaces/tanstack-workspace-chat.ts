@@ -63,7 +63,10 @@ import {
   workspaceChatWireFormat,
 } from "./workspace-chat-agui.js"
 import { isOpenCodePlanningHold } from "./workspace-chat-assistant-text.js"
-import { startWorkspaceChatModelProxy } from "./workspace-chat-model-proxy.js"
+import {
+  startWorkspaceChatModelProxy,
+  workspaceChatModelProxyAdvertisedHost,
+} from "./workspace-chat-model-proxy.js"
 import {
   workspaceChatOpenCodeConfig,
   workspaceChatOpenCodeContract,
@@ -421,7 +424,9 @@ async function startWorkspaceChat(input: TanstackWorkspaceChatInput): Promise<
         modelBase: contract.modelBase,
         modelParams: contract.modelParams,
         listenHost: "0.0.0.0",
-        advertisedHost: "host.docker.internal",
+        advertisedHost: workspaceChatModelProxyAdvertisedHost(
+          built.spec.isolation,
+        ),
       }),
       loadWorkspaceChatTools(input),
     ])

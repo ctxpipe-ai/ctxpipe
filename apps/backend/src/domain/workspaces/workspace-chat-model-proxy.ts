@@ -17,6 +17,13 @@ export type WorkspaceChatModelProxy = {
   close: () => Promise<void>
 }
 
+/** Docker sandboxes reach the host via host.docker.internal; unsandboxed OpenCode is local. */
+export function workspaceChatModelProxyAdvertisedHost(
+  isolation: "docker" | "unsandboxed" | "railway" | string,
+): string {
+  return isolation === "docker" ? "host.docker.internal" : "127.0.0.1"
+}
+
 export async function startWorkspaceChatModelProxy(input: {
   runToken: string
   upstreamBaseUrl: string
@@ -44,18 +51,19 @@ export async function startWorkspaceChatModelProxy(input: {
     throw new Error("Workspace chat model proxy failed to bind")
   }
   const baseUrl = `http://${advertisedHost}:${address.port}`
-  const ready = await doFetch(`${baseUrl}/v1/models`, {
+  const readyUrl = `http://127.0.0.1:${address.port}/v1/models`
+  const ready = await doFetch(readyUrl, {
     headers: { authorization: `Bearer ${input.runToken}` },
   }).catch((error: unknown) => {
     throw new Error(
-      `Workspace chat model proxy bound ${listenHost}:${address.port} but is not reachable at ${baseUrl}: ${
+      `Workspace chat model proxy bound ${listenHost}:${address.port} but is not reachable at ${readyUrl}: ${
         error instanceof Error ? error.message : String(error)
       }`,
     )
   })
   if (!ready.ok) {
     throw new Error(
-      `Workspace chat model proxy self-check failed at ${baseUrl}/v1/models (${ready.status})`,
+      `Workspace chat model proxy self-check failed at ${readyUrl} (${ready.status})`,
     )
   }
   log.info({

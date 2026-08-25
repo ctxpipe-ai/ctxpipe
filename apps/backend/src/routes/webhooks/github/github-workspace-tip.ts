@@ -94,11 +94,42 @@ export async function getGithubRepoWriteView(input: {
   }
   const { data } = await ctx.octokit.rest.repos.get({ owner, repo })
   const permissions = data.permissions
+  const repoCanPush = permissions
+    ? githubInstallationCanPush(permissions as GithubRepoPermissionBits)
+    : true
+  if (repoCanPush) {
+    return {
+      defaultBranch: data.default_branch || "",
+      canPush: true,
+    }
+  }
+
+  const installationId = ctx.installation?.installationId
+  if (typeof installationId === "number") {
+    try {
+      const { data: installation } = await ctx.octokit.rest.apps.getInstallation(
+        {
+          installation_id: installationId,
+        },
+      )
+      if (
+        githubInstallationCanPush(
+          installation.permissions as GithubRepoPermissionBits,
+        )
+      ) {
+        return {
+          defaultBranch: data.default_branch || "",
+          canPush: true,
+        }
+      }
+    } catch {
+      /* keep the repos.get deny */
+    }
+  }
+
   return {
     defaultBranch: data.default_branch || "",
-    canPush: permissions
-      ? githubInstallationCanPush(permissions as GithubRepoPermissionBits)
-      : true,
+    canPush: false,
   }
 }
 
