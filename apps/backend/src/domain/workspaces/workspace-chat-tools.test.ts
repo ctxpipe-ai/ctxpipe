@@ -1,6 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from "vitest"
 import { graphFindSymbolTool } from "../../tools/codegraphTools.js"
-import { getFileTool } from "../../tools/getFile.js"
 import { workspaceCheckoutKey } from "./derived-stores.js"
 import {
   EXPLORER_INPUT_SCHEMAS,
@@ -217,8 +216,7 @@ describe("workspace chat tools", () => {
     invoke.mockRestore()
   })
 
-  it("injects workspaceId into get_file so agents read the workspace checkout", async () => {
-    const invoke = vi.spyOn(getFileTool, "invoke").mockResolvedValue("ok")
+  it("omits workspace-clone disk readers from chat tools", async () => {
     const tools = await workspaceChatTools({
       orgId: "org_1",
       workspaceId: "ws_1",
@@ -226,17 +224,8 @@ describe("workspace chat tools", () => {
       activeProjectionSha: "abc",
       loadUnits: async () => [],
     })
-    const getFile = tools.find((tool) => tool.name === "get_file")
-    await getFile?.execute({
-      repositoryId: DOCS_ID,
-      path: "src/a.ts",
-    })
-    expect(invoke).toHaveBeenCalledWith({
-      repositoryId: DOCS_ID,
-      path: "src/a.ts",
-      workspaceId: "ws_1",
-    })
-    invoke.mockRestore()
+    expect(tools.some((tool) => tool.name === "get_file")).toBe(false)
+    expect(tools.some((tool) => tool.name === "glob_files")).toBe(false)
   })
 
   it("scopes Falkor Cypher to org, workspace, and projection SHA on edges", () => {

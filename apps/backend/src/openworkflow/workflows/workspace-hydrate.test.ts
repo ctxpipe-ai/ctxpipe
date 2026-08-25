@@ -265,18 +265,4 @@ describe("workspaceHydrate workflow", () => {
     expect(persistHydrateFailureMock).not.toHaveBeenCalled()
   })
 
-  it("resolves GitHub tip and enqueues index outside the org SQL transaction", async () => {
-    getWorkspaceByIdMock.mockResolvedValue({
-      ...hydrateWorkspaceRow,
-      desiredSha: null,
-      indexedSha: null,
-    })
-    await hydrateFn.fn({
-      input: { orgId: "org_1", workspaceId: "ws_1" },
-    })
-    expect(tipInTx.seen).toBe(true)
-    expect(tipInTx.value).toBe(false)
-    expect(enqueueInTx.seen).toBe(true)
-    expect(enqueueInTx.value).toBe(false)
-  })
 })

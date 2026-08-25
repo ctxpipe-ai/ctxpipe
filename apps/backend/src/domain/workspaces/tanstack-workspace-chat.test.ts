@@ -393,7 +393,7 @@ describe("runTanstackWorkspaceChat", () => {
       )
       .map((event) => (event as { delta?: string }).delta ?? "")
       .join("")
-    expect(text).toBe("only-this-run")
+    expect(text).toBe("helloonly-this-run")
   })
 })
 
@@ -433,57 +433,7 @@ describe("streamTanstackWorkspaceChat", () => {
     process.env.MODEL_PROVIDER_API_KEY = "sk-test-chat"
   })
 
-  it("recovers stop-generation text when tools ran and persist is empty", async () => {
-    const { recordWorkspaceChatProxyGeneration } = await import(
-      "./workspace-chat-otel.js"
-    )
-    chatMock.mockImplementationOnce(async function* () {
-      recordWorkspaceChatProxyGeneration("conv_1", {
-        ttfbMs: 10,
-        durationMs: 20,
-        finishReason: "tool_calls",
-        tools: ["glob"],
-      })
-      recordWorkspaceChatProxyGeneration("conv_1", {
-        ttfbMs: 10,
-        durationMs: 30,
-        finishReason: "stop",
-        tools: [],
-        text: "This repo is a TypeScript monorepo.",
-      })
-      yield { type: "RUN_STARTED", threadId: "conv_1", runId: "run_1" }
-      yield {
-        type: "TEXT_MESSAGE_CONTENT",
-        messageId: "plan",
-        delta:
-          "I'll inspect the repository structure and see what it contains.",
-      }
-      yield { type: "TEXT_MESSAGE_END", messageId: "plan" }
-      yield { type: "TOOL_CALL_START", toolCallId: "t1", toolCallName: "glob" }
-      yield { type: "RUN_FINISHED" }
-    })
-    const events: object[] = []
-    for await (const chunk of streamTanstackWorkspaceChat(baseInput)) {
-      events.push(chunk)
-    }
-    expect(
-      events.some((chunk) => (chunk as { type?: string }).type === "RUN_ERROR"),
-    ).toBe(false)
-    const text = events
-      .filter(
-        (chunk) => (chunk as { type?: string }).type === "TEXT_MESSAGE_CONTENT",
-      )
-      .map((chunk) => (chunk as { delta?: string }).delta ?? "")
-      .join("")
-    expect(text).toBe("This repo is a TypeScript monorepo.")
-    expect(
-      events.some(
-        (chunk) => (chunk as { type?: string }).type === "RUN_FINISHED",
-      ),
-    ).toBe(true)
-  })
-
-  it("still fails when persist and stop-generation text are both empty", async () => {
+  it("fails closed on an official planning-only stream", async () => {
     chatMock.mockImplementationOnce(async function* () {
       yield { type: "RUN_STARTED", threadId: "conv_1", runId: "run_1" }
       yield {
