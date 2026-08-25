@@ -38,7 +38,7 @@ import {
   workspaceChatSandboxSpec,
 } from "./chat-runtime.js"
 import { originUrlWithoutCredentials } from "./clone-credentials.js"
-import { adaptTanstackHandle, type TanstackLikeHandle } from "./job-sandbox.js"
+import { type TanstackLikeHandle } from "./job-sandbox.js"
 import {
   emitOpencodeChatAttempt,
   opencodeChatStreamEvent,
@@ -525,7 +525,8 @@ async function buildWorkspaceChatSandbox(input: TanstackWorkspaceChatInput) {
     desiredSha: input.desiredSha ?? null,
     image: "chat:1",
   })
-  if (!snapshotId) {
+  const ref = input.desiredSha?.trim() || input.ref?.trim()
+  if (!snapshotId || !ref) {
     return {
       ok: false as const,
       status: 409,
@@ -536,7 +537,7 @@ async function buildWorkspaceChatSandbox(input: TanstackWorkspaceChatInput) {
     sandboxId: snapshotId,
     provider: runtime.provider,
     gitUrl: desiredUrl,
-    ref: input.desiredSha ?? input.ref,
+    ref,
   })
   if (!spec.ok) {
     return {

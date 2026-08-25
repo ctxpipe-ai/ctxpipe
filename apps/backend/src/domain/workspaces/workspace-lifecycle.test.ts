@@ -52,7 +52,19 @@ const workspace = {
   workspaceRepositoryUrl: "https://github.com/acme/docs",
   githubConnectionId: null,
   desiredGeneration: 1,
+  desiredSha: null,
+  activeProjectionUrl: null,
+  activeProjectionSha: null,
+  indexedSha: null,
+  writeStatus: "unknown",
+  hydrateStatus: "pending",
+  hydrateError: null,
+  lastJobAt: null,
+  hydratePhases: null,
+  readOnlyReason: null,
   autoLinkGitUrls: [] as string[],
+  createdAt: new Date("2026-08-25T00:00:00.000Z"),
+  updatedAt: new Date("2026-08-25T00:00:00.000Z"),
 }
 
 describe("workspace lifecycle", () => {

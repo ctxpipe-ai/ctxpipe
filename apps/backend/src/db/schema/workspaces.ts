@@ -44,8 +44,6 @@ export const workspaces = pgTable.withRLS(
       url: string
       sha: string
       embeddings: boolean
-      graph: boolean
-      remainders: boolean
     } | null>(),
     readOnlyReason: text("read_only_reason"),
     createdAt: timestamp("created_at", { withTimezone: true, mode: "date" })
