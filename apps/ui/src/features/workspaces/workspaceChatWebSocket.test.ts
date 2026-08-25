@@ -29,6 +29,7 @@ describe("workspaceChatWebSocket hydrate", () => {
     await expect(connection.hydrate("conv_1")).resolves.toEqual({
       messages: [{ id: "m1", role: "user" }],
       activeRun: { runId: "run_1" },
+      interrupts: null,
     })
     expect(fetchMock).toHaveBeenCalledWith(
       "/acme/api/v1/conversations/conv_1/chat?threadId=conv_1",
