@@ -9,6 +9,7 @@ import {
   workspaceChromeTabClassName,
   workspaceChromeTabStripClassName,
 } from "./workspaceChrome"
+import { writeStatusLabel } from "./writeStatusLabel"
 
 /**
  * Conversation column chrome: card surface with the conversation name as an
@@ -20,6 +21,8 @@ export function WorkspaceChatChrome(props: {
   headerExtra?: ReactNode
   children: ReactNode
 }) {
+  const write = writeStatusLabel(props.workspace.writeStatus)
+  const showWriteBadge = write.tone === "read_only" || write.tone === "pending"
   return (
     <div
       className={cn(
@@ -46,15 +49,19 @@ export function WorkspaceChatChrome(props: {
               props.title
             )}
           </div>
-          {props.headerExtra || props.workspace.readOnlyReason ? (
+          {props.headerExtra || showWriteBadge ? (
             <div className="ml-auto flex min-w-0 items-end gap-0.5">
-              {props.workspace.readOnlyReason ? (
+              {showWriteBadge ? (
                 <span className="inline-flex h-[37px] shrink-0 items-center">
                   <span
-                    title={props.workspace.readOnlyReason}
-                    className="rounded-lg border border-amber-500/80 bg-amber-950 px-2 py-0.5 text-xs font-medium text-amber-200"
+                    title={props.workspace.readOnlyReason ?? write.label}
+                    className={
+                      write.tone === "pending"
+                        ? "rounded-lg border border-border bg-zinc-800 px-2 py-0.5 text-xs font-medium text-muted-foreground"
+                        : "rounded-lg border border-amber-500/80 bg-amber-950 px-2 py-0.5 text-xs font-medium text-amber-200"
+                    }
                   >
-                    Read-only
+                    {write.label}
                   </span>
                 </span>
               ) : null}

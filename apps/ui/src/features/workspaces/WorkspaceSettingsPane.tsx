@@ -19,16 +19,24 @@ import type { WorkspaceDetail } from "./types"
 import { WorkspaceLinkedRepositories } from "./WorkspaceLinkedRepositories"
 import { WorkspaceRepositoryPicker } from "./WorkspaceRepositoryPicker"
 import { workspaceDeleteNameMatches } from "./workspaceDeleteNameMatches"
+import { writeStatusLabel } from "./writeStatusLabel"
 
 function writeTag(status: string): { label: string; className: string } {
-  if (status === "writable") {
+  const tagged = writeStatusLabel(status)
+  if (tagged.tone === "writable") {
     return {
-      label: "Writable",
+      label: tagged.label,
       className: "border-teal-400/30 bg-teal-400/10 text-teal-200",
     }
   }
+  if (tagged.tone === "pending") {
+    return {
+      label: tagged.label,
+      className: "border-border bg-zinc-800 text-muted-foreground",
+    }
+  }
   return {
-    label: "Read-only",
+    label: tagged.label,
     className: "border-amber-400/30 bg-amber-400/10 text-amber-200",
   }
 }
