@@ -444,7 +444,33 @@ describe("runTanstackWorkspaceChat", () => {
       )
       .map((event) => (event as { delta?: string }).delta ?? "")
       .join("")
-    expect(text).toBe("helloonly-this-run")
+    expect(text).toBe("only-this-run")
+    expect(text).not.toContain("hello")
+  })
+
+  it("does not stream a Previous conversation leftover", async () => {
+    const prompt = "Name one top-level folder you can see."
+    chatMock.mockImplementationOnce(async function* () {
+      yield { type: "RUN_STARTED", threadId: "conv_1", runId: "run_2" }
+      yield {
+        type: "TEXT_MESSAGE_CONTENT",
+        messageId: "dump",
+        delta: `Previous conversation:\nUser: What is this repository about in one sentence?\nAssistant: This is a context repository for ctx.\n\n${prompt}\n\nknowledge/`,
+      }
+      yield { type: "TEXT_MESSAGE_END", messageId: "dump" }
+      yield { type: "RUN_FINISHED" }
+    })
+    const res = await runTanstackWorkspaceChat({ ...baseInput, prompt })
+    const events = parseSseDataLines(await res.text())
+    const text = events
+      .filter(
+        (event) => (event as { type?: string }).type === "TEXT_MESSAGE_CONTENT",
+      )
+      .map((event) => (event as { delta?: string }).delta ?? "")
+      .join("")
+    expect(text).toBe("knowledge/")
+    expect(text).not.toContain("Previous conversation")
+    expect(text).not.toContain(prompt)
   })
 })
 

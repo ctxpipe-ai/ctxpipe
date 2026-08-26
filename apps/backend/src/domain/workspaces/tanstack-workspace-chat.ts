@@ -62,7 +62,10 @@ import {
   workspaceChatRunStarted,
   workspaceChatWireFormat,
 } from "./workspace-chat-agui.js"
-import { isOpenCodePlanningHold } from "./workspace-chat-assistant-text.js"
+import {
+  createWorkspaceChatAssistantGate,
+  isOpenCodePlanningHold,
+} from "./workspace-chat-assistant-text.js"
 import {
   startWorkspaceChatModelProxy,
   workspaceChatModelProxyAdvertisedHost,
@@ -253,8 +256,36 @@ async function* streamTanstackWorkspaceChatBody(
 
   let streamError: Error | null = null
   let assistant = ""
+  const gate = createWorkspaceChatAssistantGate(turn.prompt)
   try {
     let finished: StreamChunk | null = null
+    const release = function* (chunks: object[]): Generator<StreamChunk> {
+      for (const next of chunks) {
+        const typed = next as StreamChunk
+        if (typed.type === "RUN_ERROR") {
+          streamError = new Error(
+            "message" in typed && typeof typed.message === "string"
+              ? typed.message
+              : "OpenCode chat stream failed",
+          )
+          continue
+        }
+        if (typed.type === "RUN_FINISHED") {
+          finished = typed
+          continue
+        }
+        const delta = aguiTextDelta(typed)
+        if (delta) assistant += delta
+        if (
+          typed.type === "TEXT_MESSAGE_CONTENT" ||
+          typed.type === "REASONING_MESSAGE_CONTENT" ||
+          typed.type === "TOOL_CALL_START"
+        ) {
+          markWorkspaceChatFirstShownToken(turn.conversationId)
+        }
+        yield typed
+      }
+    }
     for await (const chunk of takeWorkspaceChatProducer(prepared.stream, {
       setupMs: turn.streamSetupMs,
       idleMs: turn.streamIdleMs,
@@ -268,21 +299,10 @@ async function* streamTanstackWorkspaceChatBody(
         )
         continue
       }
-      if (typed.type === "RUN_FINISHED") {
-        finished = typed
-        continue
-      }
-      const delta = aguiTextDelta(typed)
-      if (delta) assistant += delta
-      if (
-        typed.type === "TEXT_MESSAGE_CONTENT" ||
-        typed.type === "REASONING_MESSAGE_CONTENT" ||
-        typed.type === "TOOL_CALL_START"
-      ) {
-        markWorkspaceChatFirstShownToken(turn.conversationId)
-      }
-      yield typed
+      yield* release(gate.take(chunk))
     }
+    yield* release(gate.flush())
+    assistant = gate.assistant() || assistant
     const failed =
       streamError != null ||
       !assistant.trim() ||
