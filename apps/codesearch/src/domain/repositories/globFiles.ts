@@ -1,5 +1,5 @@
-import { lstat } from "node:fs/promises"
-import { basename, resolve, sep } from "node:path"
+import { lstat, readdir } from "node:fs/promises"
+import { basename, join } from "node:path"
 import { resolveSafePath } from "./paths.js"
 
 export class GlobPathNotFoundError extends Error {
@@ -98,7 +98,11 @@ export function resolveGlobLimit(limit: number | undefined): number {
  */
 export function assertSafeGlobPattern(pattern: string): void {
   const normalized = pattern.replace(/\\/g, "/")
-  if (!normalized || normalized.startsWith("/") || /^[A-Za-z]:/.test(normalized)) {
+  if (
+    !normalized ||
+    normalized.startsWith("/") ||
+    /^[A-Za-z]:/.test(normalized)
+  ) {
     throw new GlobInvalidRequestError("Invalid glob pattern")
   }
   for (const segment of normalized.split("/")) {
@@ -108,34 +112,33 @@ export function assertSafeGlobPattern(pattern: string): void {
   }
 }
 
-function assertAbsPathWithinCheckout(
-  checkoutRoot: string,
-  absPath: string,
-): void {
-  const base = resolve(checkoutRoot)
-  const full = resolve(absPath)
-  if (full !== base && !full.startsWith(`${base}${sep}`)) {
-    throw new GlobInvalidRequestError("Path traversal is not allowed")
+function errnoCode(error: unknown): string {
+  if (error && typeof error === "object" && "code" in error) {
+    return String((error as { code: unknown }).code)
+  }
+  return ""
+}
+
+async function assertCheckoutDirectory(absCwd: string): Promise<void> {
+  let cwdStat: Awaited<ReturnType<typeof lstat>>
+  try {
+    cwdStat = await lstat(absCwd)
+  } catch (error) {
+    if (errnoCode(error) === "ENOENT") {
+      throw new GlobPathNotFoundError()
+    }
+    throw error
+  }
+  if (!cwdStat.isDirectory()) {
+    throw new GlobPathNotFoundError("Path is not a directory")
   }
 }
 
-/**
- * Scan a checkout with Bun.Glob and return typed, repo-relative entries.
- */
-export async function globFilesInCheckout(
-  options: GlobFilesOptions,
-): Promise<GlobFilesResult> {
-  const onlyFiles = options.onlyFiles ?? false
-  const dot = options.dot ?? true
-  const limit = resolveGlobLimit(options.limit)
-  const relativeCwd = (options.path ?? "").replace(/\\/g, "/").replace(/^\//, "")
-  assertSafeGlobPattern(options.pattern)
-
-  let absCwd: string
+function resolveCheckoutCwd(checkoutRoot: string, relativeCwd: string): string {
   try {
-    absCwd = relativeCwd
-      ? resolveSafePath(options.checkoutRoot, relativeCwd)
-      : resolveSafePath(options.checkoutRoot, ".")
+    return relativeCwd
+      ? resolveSafePath(checkoutRoot, relativeCwd)
+      : resolveSafePath(checkoutRoot, ".")
   } catch (error) {
     if (
       error instanceof Error &&
@@ -145,91 +148,150 @@ export async function globFilesInCheckout(
     }
     throw error
   }
+}
 
-  // Ensure cwd exists and is a directory (not a file / missing path).
-  let cwdStat: Awaited<ReturnType<typeof lstat>>
-  try {
-    cwdStat = await lstat(absCwd)
-  } catch (error) {
-    const code =
-      error && typeof error === "object" && "code" in error
-        ? String((error as { code: unknown }).code)
-        : ""
-    if (code === "ENOENT") {
-      throw new GlobPathNotFoundError()
+/**
+ * Recursive checkout walk that never descends into skipped vendor / VCS / build
+ * directories. Uses dirent types (no per-file lstat).
+ */
+async function walkPrunedCheckout(input: {
+  absCwd: string
+  relativeCwd: string
+  onlyFiles: boolean
+  dot: boolean
+  visit: (entry: GlobFileEntry) => "continue" | "stop"
+}): Promise<void> {
+  const stack: Array<{ absDir: string; repoPrefix: string }> = [
+    { absDir: input.absCwd, repoPrefix: input.relativeCwd },
+  ]
+
+  while (stack.length > 0) {
+    const current = stack.pop()
+    if (!current) break
+    let dirents: Awaited<ReturnType<typeof readdir>>
+    try {
+      dirents = await readdir(current.absDir, { withFileTypes: true })
+    } catch (error) {
+      if (errnoCode(error) === "ENOENT") {
+        if (current.absDir === input.absCwd) {
+          throw new GlobPathNotFoundError()
+        }
+        continue
+      }
+      throw error
     }
-    throw error
+
+    for (const dirent of dirents) {
+      const name = dirent.name
+      if (!input.dot && name.startsWith(".")) continue
+      const repoPath = current.repoPrefix
+        ? `${current.repoPrefix}/${name}`
+        : name
+      if (isSkippedGlobPath(repoPath)) continue
+      if (dirent.isSymbolicLink()) continue
+      if (dirent.isDirectory()) {
+        if (!input.onlyFiles) {
+          if (input.visit({ name, path: repoPath, type: "dir" }) === "stop") {
+            return
+          }
+        }
+        stack.push({
+          absDir: join(current.absDir, name),
+          repoPrefix: repoPath,
+        })
+        continue
+      }
+      if (!dirent.isFile()) continue
+      if (input.visit({ name, path: repoPath, type: "file" }) === "stop") {
+        return
+      }
+    }
   }
-  if (!cwdStat.isDirectory()) {
-    throw new GlobPathNotFoundError("Path is not a directory")
-  }
+}
+
+/** File paths under a checkout, skipping vendor / VCS / build trees. */
+export async function listCheckoutFilePaths(
+  checkoutRoot: string,
+  options?: { limit?: number },
+): Promise<string[]> {
+  const limit = resolveGlobLimit(options?.limit)
+  const absCwd = resolveCheckoutCwd(checkoutRoot, "")
+  await assertCheckoutDirectory(absCwd)
+  const paths: string[] = []
+  await walkPrunedCheckout({
+    absCwd,
+    relativeCwd: "",
+    onlyFiles: true,
+    dot: true,
+    visit: (entry) => {
+      if (paths.length >= limit) return "stop"
+      paths.push(entry.path)
+      return "continue"
+    },
+  })
+  return paths
+}
+
+/**
+ * Scan a checkout and return typed, repo-relative entries.
+ * Walks the working tree and prunes skip dirs before matching the glob.
+ */
+export async function globFilesInCheckout(
+  options: GlobFilesOptions,
+): Promise<GlobFilesResult> {
+  const onlyFiles = options.onlyFiles ?? false
+  const dot = options.dot ?? true
+  const limit = resolveGlobLimit(options.limit)
+  const relativeCwd = (options.path ?? "")
+    .replace(/\\/g, "/")
+    .replace(/^\//, "")
+  assertSafeGlobPattern(options.pattern)
+  const absCwd = resolveCheckoutCwd(options.checkoutRoot, relativeCwd)
+  await assertCheckoutDirectory(absCwd)
 
   // Codesearch runs on Bun. Use the Bun global (not `import from "bun"`) so Node
   // vitest can still load this module for route/error-path tests.
   if (typeof Bun === "undefined" || typeof Bun.Glob !== "function") {
     throw new Error("Bun.Glob is required for repository glob scanning")
   }
-  const checkoutRootAbs = resolve(options.checkoutRoot)
   const glob = new Bun.Glob(options.pattern)
   const entries: GlobFileEntry[] = []
   let matched = 0
+  let truncated = false
 
-  for await (const rel of glob.scan({
-    cwd: absCwd,
+  await walkPrunedCheckout({
+    absCwd,
+    relativeCwd,
     onlyFiles,
     dot,
-    followSymlinks: false,
-  })) {
-    const normalizedRel = rel.replace(/\\/g, "/")
-    if (
-      normalizedRel.split("/").some((segment) => segment === "..") ||
-      normalizedRel.startsWith("/")
-    ) {
-      continue
-    }
-    const repoPath = relativeCwd
-      ? `${relativeCwd}/${normalizedRel}`
-      : normalizedRel
-
-    if (isSkippedGlobPath(repoPath)) continue
-
-    let absPath: string
-    try {
-      absPath = resolveSafePath(checkoutRootAbs, repoPath)
-    } catch {
-      continue
-    }
-    assertAbsPathWithinCheckout(checkoutRootAbs, absPath)
-
-    let type: "file" | "dir"
-    try {
-      const st = await lstat(absPath)
-      if (st.isSymbolicLink()) continue
-      if (st.isDirectory()) {
-        if (onlyFiles) continue
-        type = "dir"
-      } else if (st.isFile()) {
-        type = "file"
-      } else {
-        continue
+    visit: (entry) => {
+      const relForMatch = relativeCwd
+        ? entry.path.slice(relativeCwd.length + 1)
+        : entry.path
+      if (
+        relForMatch.split("/").some((segment) => segment === "..") ||
+        relForMatch.startsWith("/") ||
+        !glob.match(relForMatch)
+      ) {
+        return "continue"
       }
-    } catch {
-      continue
-    }
-
-    matched += 1
-    if (entries.length < limit) {
-      entries.push({
-        name: basename(normalizedRel),
-        path: repoPath,
-        type,
-      })
-    }
-  }
+      matched += 1
+      if (entries.length < limit) {
+        entries.push({
+          name: basename(relForMatch),
+          path: entry.path,
+          type: entry.type,
+        })
+        return "continue"
+      }
+      truncated = true
+      return "stop"
+    },
+  })
 
   return {
     entries,
-    truncated: matched > entries.length,
+    truncated,
     matched,
   }
 }

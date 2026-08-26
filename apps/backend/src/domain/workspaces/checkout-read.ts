@@ -3,7 +3,7 @@ import { findRepositoriesByNormalizedGitUrls } from "../../models/repositories.j
 import {
   CodesearchCheckoutError,
   fetchCheckoutFileBytes,
-  globCheckoutFiles,
+  listCheckoutTree,
 } from "../codeIngestion/codesearchClient.js"
 import type { ExplorerGitFile } from "./git-explorer.js"
 import { normalizeWorkspaceRepositoryUrl } from "./slug.js"
@@ -55,14 +55,11 @@ export async function listWorkspaceCheckoutPaths(input: {
     )
   }
   try {
-    const globbed = await globCheckoutFiles({
+    return await listCheckoutTree({
       repositoryId: repo.id,
       orgId: requireCurrentOrgId(),
       workspaceId: input.workspaceId,
     })
-    return globbed.entries
-      .filter((entry) => entry.type === "file")
-      .map((entry) => entry.path)
   } catch (error) {
     throw mapCodesearchError(error)
   }

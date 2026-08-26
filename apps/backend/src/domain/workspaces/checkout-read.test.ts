@@ -1,7 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from "vitest"
 
 const findRepositoriesByNormalizedGitUrls = vi.hoisted(() => vi.fn())
-const globCheckoutFiles = vi.hoisted(() => vi.fn())
+const listCheckoutTree = vi.hoisted(() => vi.fn())
 const fetchCheckoutFileBytes = vi.hoisted(() => vi.fn())
 const requireCurrentOrgId = vi.hoisted(() => vi.fn(() => "org_1"))
 
@@ -22,7 +22,7 @@ vi.mock("../codeIngestion/codesearchClient.js", () => ({
       this.status = status
     }
   },
-  globCheckoutFiles,
+  listCheckoutTree,
   fetchCheckoutFileBytes,
 }))
 
@@ -45,21 +45,14 @@ describe("workspace checkout reads", () => {
   })
 
   it("lists file paths from the workspace checkout", async () => {
-    globCheckoutFiles.mockResolvedValue({
-      entries: [
-        { name: "AGENTS.md", path: "AGENTS.md", type: "file" },
-        { name: "src", path: "src", type: "dir" },
-      ],
-      truncated: false,
-      matched: 2,
-    })
+    listCheckoutTree.mockResolvedValue(["AGENTS.md"])
     await expect(
       listWorkspaceCheckoutPaths({
         workspaceId: "ws_1",
         gitUrl: "https://github.com/acme/docs",
       }),
     ).resolves.toEqual(["AGENTS.md"])
-    expect(globCheckoutFiles).toHaveBeenCalledWith({
+    expect(listCheckoutTree).toHaveBeenCalledWith({
       repositoryId: "repo_aaaaaaaaaaaaaaaaaaaaaaaaaa",
       orgId: "org_1",
       workspaceId: "ws_1",
@@ -77,12 +70,12 @@ describe("workspace checkout reads", () => {
       name: "WorkspaceCheckoutReadError",
       status: 409,
     })
-    expect(globCheckoutFiles).not.toHaveBeenCalled()
+    expect(listCheckoutTree).not.toHaveBeenCalled()
   })
 
   it("maps a missing codesearch checkout to 409", async () => {
-    globCheckoutFiles.mockRejectedValue(
-      new CodesearchCheckoutError("globFiles failed: 404", 404),
+    listCheckoutTree.mockRejectedValue(
+      new CodesearchCheckoutError("listCheckoutTree failed: 404", 404),
     )
     await expect(
       listWorkspaceCheckoutPaths({

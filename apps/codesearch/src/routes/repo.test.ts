@@ -42,6 +42,22 @@ const MOCK_REPO = {
   gitUrl: "https://github.com/appear/ctxpipe.git",
 }
 
+function createTreeTestApp(workspaceId?: string) {
+  const app = new OpenAPIHono<AppEnv>()
+  app.use("*", async (c, next) => {
+    c.set("env", { NODE_ENV: "test", PORT: 3001 } as AppEnv["Variables"]["env"])
+    c.set("auth", {
+      sub: "repo:repo_abcdef27",
+      orgId: "org_mock123",
+      principal: "service",
+      ...(workspaceId ? { workspaceId } : {}),
+    } as AppEnv["Variables"]["auth"])
+    await next()
+  })
+  registerRepoRoutes(app)
+  return app
+}
+
 function createTestApp() {
   const app = new OpenAPIHono<AppEnv>()
   app.use("*", async (c, next) => {
@@ -350,6 +366,75 @@ describe("POST /{repoId}/resolve-ref", () => {
 const hasBunGlob = Boolean(
   (globalThis as { Bun?: { Glob?: unknown } }).Bun?.Glob,
 )
+
+describe("GET /{repoId}/tree", () => {
+  let tmpDir: string
+  let repoCacheDir: string
+  let checkoutDir: string
+
+  beforeEach(async () => {
+    vi.clearAllMocks()
+    tmpDir = await mkdtemp(join(tmpdir(), "list-tree-route-"))
+    repoCacheDir = join(tmpDir, "repo-cache")
+    checkoutDir = join(
+      repoCacheDir,
+      "org_mock123",
+      "repo_abcdef27",
+      "checkouts",
+      "default",
+    )
+    Object.defineProperty(paths, "REPO_CACHE_DIR", {
+      value: repoCacheDir,
+      writable: true,
+    })
+  })
+
+  afterEach(async () => {
+    await rm(tmpDir, { recursive: true, force: true })
+  })
+
+  it("lists disk files without querying Postgres", async () => {
+    await mkdir(join(checkoutDir, ".git", "objects"), { recursive: true })
+    await mkdir(join(checkoutDir, "src"), { recursive: true })
+    await writeFile(join(checkoutDir, "README.md"), "# root\n")
+    await writeFile(join(checkoutDir, "src", "a.ts"), "export {}\n")
+    await writeFile(join(checkoutDir, ".git", "objects", "pack.idx"), "idx\n")
+
+    const app = createTreeTestApp()
+    const res = await app.request("/repo_abcdef27/tree")
+    expect(res.status).toBe(200)
+    const body = (await res.json()) as { paths: string[] }
+    expect(body.paths.sort()).toEqual(["README.md", "src/a.ts"])
+    expect(getAccessibleRepositoryMock).not.toHaveBeenCalled()
+  })
+
+  it("uses the workspace checkout key from the JWT", async () => {
+    const workspaceCheckout = join(
+      repoCacheDir,
+      "org_mock123",
+      "repo_abcdef27",
+      "checkouts",
+      "ws:ws_alpha",
+    )
+    await mkdir(workspaceCheckout, { recursive: true })
+    await writeFile(join(workspaceCheckout, "AGENTS.md"), "# ws\n")
+
+    const app = createTreeTestApp("ws_alpha")
+    const res = await app.request("/repo_abcdef27/tree")
+    expect(res.status).toBe(200)
+    expect(await res.json()).toEqual({ paths: ["AGENTS.md"] })
+    expect(getAccessibleRepositoryMock).not.toHaveBeenCalled()
+  })
+
+  it("returns 404 immediately when the checkout is missing", async () => {
+    const app = createTreeTestApp()
+    const started = performance.now()
+    const res = await app.request("/repo_abcdef27/tree")
+    expect(res.status).toBe(404)
+    expect(performance.now() - started).toBeLessThan(200)
+    expect(getAccessibleRepositoryMock).not.toHaveBeenCalled()
+  })
+})
 
 describe("POST /{repoId}/glob", () => {
   let tmpDir: string

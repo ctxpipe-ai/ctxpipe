@@ -171,6 +171,39 @@ export async function globCheckoutFiles(input: {
   )
 }
 
+/** Fail-fast file-path listing of the codesearch checkout. No glob, no Postgres. */
+export async function listCheckoutTree(input: {
+  repositoryId: string
+  orgId: string
+  workspaceId?: string
+}): Promise<string[]> {
+  const res = await fetchWithAuth(
+    `${codesearchBaseUrl()}/${input.repositoryId}/tree`,
+    { method: "GET" },
+    input.repositoryId,
+    input.orgId,
+    { workspaceId: input.workspaceId, retries: 0 },
+  )
+  if (!res.ok) {
+    const bodyText = await res.text()
+    let detail = bodyText.trim()
+    try {
+      const parsed = JSON.parse(bodyText) as { error?: unknown }
+      if (typeof parsed.error === "string" && parsed.error.length > 0) {
+        detail = parsed.error
+      }
+    } catch {
+      // non-JSON body; use raw text
+    }
+    throw new CodesearchCheckoutError(
+      `listCheckoutTree failed: ${res.status}${detail ? `: ${detail}` : ""}`,
+      res.status,
+    )
+  }
+  const data = (await res.json()) as { paths: string[] }
+  return data.paths
+}
+
 /**
  * Fetches file contents by path. Returns map of path -> utf-8 content.
  */

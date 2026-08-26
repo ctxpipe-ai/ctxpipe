@@ -24,12 +24,65 @@ import {
   CodesearchCheckoutError,
   fetchCheckoutFileBytes,
   globCheckoutFiles,
+  listCheckoutTree,
 } from "./codesearchClient.js"
 
 describe("codesearch checkout reads", () => {
   beforeEach(() => {
     vi.clearAllMocks()
     vi.unstubAllGlobals()
+  })
+
+  it("lists checkout paths from GET /tree without retrying", async () => {
+    const fetchMock = vi.fn(
+      async () =>
+        new Response(JSON.stringify({ paths: ["AGENTS.md", "src/a.ts"] }), {
+          status: 200,
+          headers: { "Content-Type": "application/json" },
+        }),
+    )
+    vi.stubGlobal("fetch", fetchMock)
+
+    await expect(
+      listCheckoutTree({
+        repositoryId: "repo_aaaaaaaaaaaaaaaaaaaaaaaaaa",
+        orgId: "org_1",
+        workspaceId: "ws_1",
+      }),
+    ).resolves.toEqual(["AGENTS.md", "src/a.ts"])
+
+    expect(fetchMock).toHaveBeenCalledTimes(1)
+    const [url, init] = fetchMock.mock.calls[0] as [string, RequestInit]
+    expect(url).toContain("/repo_aaaaaaaaaaaaaaaaaaaaaaaaaa/tree")
+    expect(init.method).toBe("GET")
+    expect(init.signal).toBeInstanceOf(AbortSignal)
+    expect(signUpstreamJwtMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        claims: expect.objectContaining({
+          orgId: "org_1",
+          workspaceId: "ws_1",
+        }),
+      }),
+    )
+  })
+
+  it("does not retry tree listing on 404", async () => {
+    const fetchMock = vi.fn(
+      async () => new Response("Path not found", { status: 404 }),
+    )
+    vi.stubGlobal("fetch", fetchMock)
+
+    await expect(
+      listCheckoutTree({
+        repositoryId: "repo_aaaaaaaaaaaaaaaaaaaaaaaaaa",
+        orgId: "org_1",
+        workspaceId: "ws_1",
+      }),
+    ).rejects.toMatchObject({
+      name: "CodesearchCheckoutError",
+      status: 404,
+    })
+    expect(fetchMock).toHaveBeenCalledTimes(1)
   })
 
   it("signs a workspaceId JWT and does not retry glob on 404", async () => {

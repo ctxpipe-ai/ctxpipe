@@ -10,6 +10,7 @@ import {
   GlobInvalidRequestError,
   GlobPathNotFoundError,
   globFilesInCheckout,
+  listCheckoutFilePaths,
 } from "../domain/repositories/globFiles.js"
 import {
   repoCheckoutPath,
@@ -207,6 +208,29 @@ const globResponseSchema = z
     matched: z.number().int().nonnegative(),
   })
   .openapi("GlobFilesResponse")
+
+export const listTreeRoute = createRoute({
+  method: "get",
+  path: "/{repoId}/tree",
+  request: {
+    params: z.object({ repoId: repoIdParam }),
+  },
+  responses: {
+    200: {
+      content: {
+        "application/json": {
+          schema: z.object({
+            paths: z.array(z.string()),
+          }),
+        },
+      },
+      description: "File paths under the repository checkout on disk",
+    },
+    404: { description: "Checkout not found" },
+    403: { description: "Access denied" },
+    500: { description: "Tree listing failed" },
+  },
+})
 
 export const globFilesRoute = createRoute({
   method: "post",
@@ -518,6 +542,28 @@ export function registerRepoRoutes(app: OpenAPIHono<AppEnv>) {
       })
     }
     return c.json({ entries }, 200)
+  })
+
+  app.openapi(listTreeRoute, async (c) => {
+    const auth = c.get("auth")
+    if (!auth) throw new Error("Missing auth context")
+    const { repoId } = c.req.valid("param")
+    const checkoutRoot = repoCheckoutPath(
+      auth.orgId,
+      repoId,
+      checkoutKeyFromAuth(auth),
+    )
+    try {
+      const paths = await listCheckoutFilePaths(checkoutRoot)
+      return c.json({ paths }, 200)
+    } catch (error) {
+      if (error instanceof GlobPathNotFoundError) {
+        return c.json({ error: error.message }, 404)
+      }
+      const message =
+        error instanceof Error ? error.message : "Tree listing failed"
+      return c.json({ error: message }, 500)
+    }
   })
 
   app.openapi(globFilesRoute, async (c) => {
