@@ -7,7 +7,9 @@ import {
 } from "@/features/workspaces/queries"
 
 export function prefetchOrgHome(queryClient: QueryClient, orgSlug: string) {
-  void queryClient.prefetchQuery(workspaceListOptions(orgSlug)).then((list) => {
+  const listOptions = workspaceListOptions(orgSlug)
+  void queryClient.prefetchQuery(listOptions).then(() => {
+    const list = queryClient.getQueryData(listOptions.queryKey)
     const workspace = list ? landingWorkspace(list) : null
     if (!workspace) return
     void queryClient.prefetchQuery(

@@ -6,8 +6,8 @@ import {
   workspaceRepositoryCommits,
 } from "../db/schema/workspaces.js"
 import {
-  pruneCutoff,
   type ProjectedCommit,
+  pruneCutoff,
 } from "../domain/workspaces/commit-activity.js"
 import { orgSql } from "./workspace-sql.js"
 
@@ -84,7 +84,9 @@ export async function listWorkspaceCommitDayCounts(
         sql`to_char(timezone('UTC', ${workspaceRepositoryCommits.committedAt}), 'YYYY-MM-DD')`,
       )
     return new Map(
-      rows.map((row) => [row.day, Number(row.count)] satisfies [string, number]),
+      rows.map(
+        (row) => [row.day, Number(row.count)] satisfies [string, number],
+      ),
     )
   })
 }

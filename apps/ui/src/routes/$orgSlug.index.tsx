@@ -10,8 +10,8 @@ import {
   workspaceListOptions,
 } from "@/features/workspaces/queries"
 import { useSession } from "@/lib/auth-client"
-import { useUrgentValue } from "@/lib/useUrgentValue"
 import { useUserPreferences } from "@/lib/user-preferences"
+import { useUrgentValue } from "@/lib/useUrgentValue"
 
 export const Route = createFileRoute("/$orgSlug/")({
   component: OrgHomePage,
@@ -37,7 +37,10 @@ export function OrgHomePageContent({ orgSlug }: { orgSlug: string }) {
   const { data: session, isPending: sessionPending } = useSession()
   const listQuery = useQuery(workspaceListOptions(orgSlug))
   const landing = listQuery.data ? landingWorkspace(listQuery.data) : null
-  const [selectedId, setSelectedId] = useUrgentValue(landing?.id ?? null, orgSlug)
+  const [selectedId, setSelectedId] = useUrgentValue(
+    landing?.id ?? null,
+    orgSlug,
+  )
   const selected =
     listQuery.data?.items.find((item) => item.id === selectedId) ?? landing
   const workspaces = listQuery.data?.items ?? []

@@ -1,6 +1,7 @@
 import type { Meta, StoryObj } from "@storybook/react-vite"
 import { delay, HttpResponse, http } from "msw"
 import { expect, within } from "storybook/test"
+import { emptyWorkspaceActivity } from "@/features/workspaces/workspace-fixtures"
 import {
   workspaceActivityHandler,
   workspaceActivityLoadingHandler,
@@ -9,7 +10,6 @@ import {
 } from "@/mocks/workspace-handlers"
 import { orgPageDecorators } from "../../.storybook/decorators/entry-page-decorators"
 import type { StoryRouteParams } from "../../.storybook/decorators/with-story-route"
-import { emptyWorkspaceActivity } from "@/features/workspaces/workspace-fixtures"
 import { OrgHomePageContent } from "./$orgSlug.index"
 
 const meta = {
@@ -111,10 +111,7 @@ export const ActivityLoading: Story = {
     storyRoute: homeRoute,
     msw: {
       handlers: {
-        page: [
-          workspaceActivityLoadingHandler(),
-          ...workspaceShellHandlers(),
-        ],
+        page: [workspaceActivityLoadingHandler(), ...workspaceShellHandlers()],
       },
     },
   },

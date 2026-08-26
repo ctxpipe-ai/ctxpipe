@@ -208,6 +208,10 @@ export function WorkspaceChatSession(props: {
     })
   }
 
+  const sendMessageRef = useRef<(params: { text: string }) => Promise<void>>(
+    async () => undefined,
+  )
+
   const handleSendMessage = async (params: { text: string }) => {
     sendFailedRef.current = false
     setSandboxPhase("starting")
@@ -225,11 +229,12 @@ export function WorkspaceChatSession(props: {
     insertComposeRow()
     commitComposeRoute()
   }
+  sendMessageRef.current = handleSendMessage
 
   useEffect(() => {
     if (!autoSendDraft || !draftSeed?.trim()) return
     if (!takeHomeDraftSend(conversationId)) return
-    void handleSendMessage({ text: draftSeed })
+    void sendMessageRef.current({ text: draftSeed })
   }, [autoSendDraft, conversationId, draftSeed])
 
   return (
@@ -273,9 +278,7 @@ export function WorkspaceChatSession(props: {
             error={error ?? null}
             status={status}
             waitLabel={
-              sandboxPhase === "starting"
-                ? "Setting up sandbox"
-                : "Thinking…"
+              sandboxPhase === "starting" ? "Setting up sandbox" : "Thinking…"
             }
           />
           <MessageInputBox

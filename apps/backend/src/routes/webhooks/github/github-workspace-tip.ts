@@ -1,5 +1,8 @@
 import type { Env } from "../../../config/env.js"
-import { assertNotInOrgDbContext, withOrgDbContext } from "../../../db/client.js"
+import {
+  assertNotInOrgDbContext,
+  withOrgDbContext,
+} from "../../../db/client.js"
 import {
   applyResolvedTipsForMatchingLinked,
   applyResolvedTipsForMatchingWorkspaces,
@@ -108,11 +111,10 @@ export async function getGithubRepoWriteView(input: {
   const installationId = ctx.installation?.installationId
   if (typeof installationId === "number") {
     try {
-      const { data: installation } = await ctx.octokit.rest.apps.getInstallation(
-        {
+      const { data: installation } =
+        await ctx.octokit.rest.apps.getInstallation({
           installation_id: installationId,
-        },
-      )
+        })
       if (
         githubInstallationCanPush(
           installation.permissions as GithubRepoPermissionBits,

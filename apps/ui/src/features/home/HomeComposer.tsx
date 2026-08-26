@@ -9,8 +9,8 @@ import {
   workspaceDetailOptions,
 } from "@/features/workspaces/queries"
 import type { Workspace } from "@/features/workspaces/types"
-import { createObjectId } from "@/lib/id"
 import { focusVisibleClassName } from "@/lib/focus-styles"
+import { createObjectId } from "@/lib/id"
 import { cn } from "@/lib/utils"
 import { navigateWithComposerTransition } from "./navigate-with-composer-transition"
 import { setPendingWorkspaceCompose } from "./pending-workspace-compose"

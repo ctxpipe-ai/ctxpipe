@@ -1,14 +1,15 @@
 import { cell, defineChart } from "@tanstack/charts"
-import { Chart } from "@tanstack/charts/react"
+import { Chart } from "@tanstack/charts/react/tooltip"
 import { scaleBand } from "@tanstack/charts/scales/band"
+import { tooltip } from "@tanstack/charts/tooltip"
 import { useMemo } from "react"
 import { Skeleton } from "@/components/ui/Skeleton"
 import type { WorkspaceActivityDay } from "@/features/workspaces/types"
 import {
-  calendarAriaLabel,
-  calendarMonthTicks,
   CALENDAR_WEEKDAYS,
   COMMIT_LEVEL_COLORS,
+  calendarAriaLabel,
+  calendarMonthTicks,
   formatCommitTooltip,
   toCalendarCells,
 } from "./calendar-days"
@@ -28,67 +29,65 @@ export function WorkspaceActivityHeatmap(props: {
     [weekCount],
   )
   const monthTicks = useMemo(() => calendarMonthTicks(cells), [cells])
-  const byKey = useMemo(
-    () => new Map(cells.map((cell) => [cell.date, cell])),
-    [cells],
-  )
 
   const definition = useMemo(
     () =>
-      defineChart({
-        marks: [
-          cell(cells, {
-            x: "week",
-            y: "weekday",
-            color: (row) => COMMIT_LEVEL_COLORS[row.level],
-            key: "date",
-            inset: 1,
-            radius: 2,
-          }),
-        ],
-        x: {
-          scale: () => scaleBand<number>().domain(weekDomain).padding(0.12),
-          axis: {
-            line: false,
-            ticks: {
-              values: monthTicks.values,
-              size: 0,
-              padding: 4,
-              format: (week: number) => monthTicks.labels.get(week) ?? "",
+      defineChart(
+        {
+          marks: [
+            cell(cells, {
+              x: "week",
+              y: "weekday",
+              color: (row) => COMMIT_LEVEL_COLORS[row.level],
+              key: "date",
+              inset: 1,
+              radius: 2,
+            }),
+          ],
+          x: {
+            scale: () => scaleBand<number>().domain(weekDomain).padding(0.12),
+            axis: {
+              line: false,
+              ticks: {
+                values: monthTicks.values,
+                size: 0,
+                padding: 4,
+                format: (week: number) => monthTicks.labels.get(week) ?? "",
+              },
             },
           },
-        },
-        y: {
-          scale: () =>
-            scaleBand<string>()
-              .domain([...CALENDAR_WEEKDAYS])
-              .padding(0.12),
-          axis: {
-            line: false,
-            ticks: {
-              values: WEEKDAY_TICKS,
-              size: 0,
-              padding: 4,
+          y: {
+            scale: () =>
+              scaleBand<string>()
+                .domain([...CALENDAR_WEEKDAYS])
+                .padding(0.12),
+            axis: {
+              line: false,
+              ticks: {
+                values: WEEKDAY_TICKS,
+                size: 0,
+                padding: 4,
+              },
             },
           },
+          theme: {
+            foreground: "rgb(161, 161, 170)",
+            muted: "rgb(161, 161, 170)",
+            grid: "transparent",
+            background: "transparent",
+          },
+          focusRing: false,
+          margin: { top: 16, right: 0, bottom: 0, left: 28 },
         },
-        theme: {
-          foreground: "rgb(161, 161, 170)",
-          muted: "rgb(161, 161, 170)",
-          grid: "transparent",
-          background: "transparent",
-        },
-        focusRing: false,
-        tooltip: {
-          render: (datum: { date?: string; count?: number }) => {
-            const row = datum.date ? byKey.get(datum.date) : undefined
-            if (!row) return null
-            return formatCommitTooltip(row.count, row.date)
+        {
+          tooltip: {
+            use: tooltip,
+            format: (point) =>
+              formatCommitTooltip(point.datum.count, point.datum.date),
           },
         },
-        margin: { top: 16, right: 0, bottom: 0, left: 28 },
-      }),
-    [byKey, cells, monthTicks, weekDomain],
+      ),
+    [cells, monthTicks, weekDomain],
   )
 
   if (cells.length === 0) return null

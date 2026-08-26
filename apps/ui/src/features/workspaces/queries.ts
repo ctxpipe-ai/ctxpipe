@@ -4,6 +4,7 @@ import { getApiClient } from "@/lib/api"
 import { pollWhileOk, readApiJson } from "@/lib/api-result"
 import type {
   Workspace,
+  WorkspaceActivityResponse,
   WorkspaceDetail,
   WorkspaceFileJobRequest,
   WorkspaceFilesResponse,
@@ -12,7 +13,6 @@ import type {
   WorkspaceGitTreeResponse,
   WorkspaceGraphPayload,
   WorkspaceLinkedRepository,
-  WorkspaceActivityResponse,
   WorkspaceListResponse,
 } from "./types"
 

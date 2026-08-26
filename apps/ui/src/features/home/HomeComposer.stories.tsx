@@ -1,10 +1,10 @@
 import type { Meta, StoryObj } from "@storybook/react-vite"
-import { entryPageInnerDecorators } from "../../../.storybook/decorators/entry-page-decorators"
-import type { StoryRouteParams } from "../../../.storybook/decorators/with-story-route"
 import {
   docsWorkspace,
   readOnlyWorkspace,
 } from "@/features/workspaces/workspace-fixtures"
+import { entryPageInnerDecorators } from "../../../.storybook/decorators/entry-page-decorators"
+import type { StoryRouteParams } from "../../../.storybook/decorators/with-story-route"
 import { HomeComposer } from "./HomeComposer"
 
 const meta = {

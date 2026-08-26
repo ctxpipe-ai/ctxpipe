@@ -48,7 +48,11 @@ export function activityCalendarDays(input: {
   const today = startOfUtcDay(input.now ?? new Date())
   const start = activityCalendarStart(input.now ?? new Date())
   const days: ActivityDay[] = []
-  for (let time = start.getTime(); time <= today.getTime(); time += 86_400_000) {
+  for (
+    let time = start.getTime();
+    time <= today.getTime();
+    time += 86_400_000
+  ) {
     const date = utcDateKey(new Date(time))
     days.push({ date, count: input.countsByDate.get(date) ?? 0 })
   }

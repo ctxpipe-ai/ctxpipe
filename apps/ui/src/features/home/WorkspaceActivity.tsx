@@ -89,7 +89,11 @@ function WorkspaceActivityError(props: { onRetry: () => void }) {
       variant="error"
       title="Could not load activity"
       actions={
-        <Button variant="outline" className="rounded-lg" onPress={props.onRetry}>
+        <Button
+          variant="outline"
+          className="rounded-lg"
+          onPress={props.onRetry}
+        >
           Retry
         </Button>
       }

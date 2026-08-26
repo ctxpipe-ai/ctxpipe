@@ -7,7 +7,10 @@ import {
   upsertWorkspaceCommitProjection,
 } from "../../models/workspace-commits.js"
 import { getWorkspaceById } from "../../models/workspaces.js"
-import { activityCalendarStart, shouldSkipCommitProjection } from "./commit-activity.js"
+import {
+  activityCalendarStart,
+  shouldSkipCommitProjection,
+} from "./commit-activity.js"
 import { fetchGithubWorkspaceCommits } from "./fetch-github-commits.js"
 import { githubRepoFullNameFromWorkspaceUrl } from "./write-status.js"
 

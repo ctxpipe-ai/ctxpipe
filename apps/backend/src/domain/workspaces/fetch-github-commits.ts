@@ -1,10 +1,7 @@
+import type { Env } from "../../config/env.js"
 import { assertNotInOrgDbContext } from "../../db/client.js"
 import { getInstallationOctokitForOrg } from "../../models/github-installation.js"
-import type { Env } from "../../config/env.js"
-import {
-  firstLineSubject,
-  type ProjectedCommit,
-} from "./commit-activity.js"
+import { firstLineSubject, type ProjectedCommit } from "./commit-activity.js"
 import { githubRepoFullNameFromWorkspaceUrl } from "./write-status.js"
 
 const PAGE_SIZE = 100
@@ -50,7 +47,8 @@ export async function fetchGithubWorkspaceCommits(input: {
           hitKnown = true
           continue
         }
-        const committedAt = item.commit.committer?.date ?? item.commit.author?.date
+        const committedAt =
+          item.commit.committer?.date ?? item.commit.author?.date
         if (!committedAt) continue
         collected.push({
           sha: item.sha,

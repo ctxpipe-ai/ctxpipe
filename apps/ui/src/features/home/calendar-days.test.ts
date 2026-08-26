@@ -40,13 +40,13 @@ describe("calendar-days", () => {
   it("labels the first day of each month", () => {
     const ticks = calendarMonthTicks(
       toCalendarCells([
-        { date: "2026-07-26", count: 0 },
-        { date: "2026-08-01", count: 0 },
         { date: "2026-08-02", count: 0 },
+        { date: "2026-08-31", count: 0 },
+        { date: "2026-09-01", count: 0 },
       ]),
     )
-    expect(ticks.labels.get(0)).toBe("Jul")
-    expect(ticks.labels.get(1)).toBe("Aug")
+    expect(ticks.labels.get(0)).toBe("Aug")
+    expect(ticks.labels.get(4)).toBe("Sep")
   })
 
   it("formats compact tooltips", () => {
