@@ -1,5 +1,11 @@
 # @ctxpipe/aws-cdk
 
+## 3.1.3
+
+### Patch Changes
+
+- d93a844: Pass Notion connector credentials to the self-hosted backend and worker services.
+
 ## 3.1.2
 
 ### Patch Changes
