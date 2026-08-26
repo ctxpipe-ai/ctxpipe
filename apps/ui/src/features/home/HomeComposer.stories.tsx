@@ -1,4 +1,5 @@
 import type { Meta, StoryObj } from "@storybook/react-vite"
+import { expect, userEvent, within } from "storybook/test"
 import {
   docsWorkspace,
   readOnlyWorkspace,
@@ -30,7 +31,15 @@ export default meta
 
 type Story = StoryObj<typeof meta>
 
-export const WithWorkspaces: Story = {}
+export const WithWorkspaces: Story = {
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement)
+    await userEvent.click(canvas.getByLabelText("Select workspace"))
+    const page = within(canvasElement.ownerDocument.body)
+    const menu = await page.findByRole("menu", { name: "Workspaces" })
+    expect(menu.className).toMatch(/rounded-lg/)
+  },
+}
 
 export const NoWorkspaces: Story = {
   args: {

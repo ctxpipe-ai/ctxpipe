@@ -46,3 +46,7 @@ export function takeHomeDraftSend(conversationId: string): boolean {
   sentHomeDrafts.add(conversationId)
   return true
 }
+
+export function resetHomeDraftSends() {
+  sentHomeDrafts.clear()
+}

@@ -96,6 +96,8 @@ export function WorkspaceChatSession(props: {
   const [seenTitle, setSeenTitle] = useState(title)
   const [sandboxPhase, setSandboxPhase] = useState<SandboxPhase>("idle")
   const [phaseConversationId, setPhaseConversationId] = useState(conversationId)
+  const [draftConsumed, setDraftConsumed] = useState(false)
+  const activeDraft = draftConsumed ? null : (draftSeed ?? null)
   if (title !== seenTitle) {
     setSeenTitle(title)
     setHeaderTitle(title)
@@ -103,6 +105,7 @@ export function WorkspaceChatSession(props: {
   if (conversationId !== phaseConversationId) {
     setPhaseConversationId(conversationId)
     setSandboxPhase("idle")
+    setDraftConsumed(false)
   }
 
   const connection = useMemo(
@@ -213,6 +216,7 @@ export function WorkspaceChatSession(props: {
   )
 
   const handleSendMessage = async (params: { text: string }) => {
+    setDraftConsumed(true)
     sendFailedRef.current = false
     setSandboxPhase("starting")
     try {
@@ -233,7 +237,11 @@ export function WorkspaceChatSession(props: {
 
   useEffect(() => {
     if (!autoSendDraft || !draftSeed?.trim()) return
-    if (!takeHomeDraftSend(conversationId)) return
+    if (!takeHomeDraftSend(conversationId)) {
+      setDraftConsumed(true)
+      return
+    }
+    setDraftConsumed(true)
     void sendMessageRef.current({ text: draftSeed })
   }, [autoSendDraft, conversationId, draftSeed])
 
@@ -262,7 +270,7 @@ export function WorkspaceChatSession(props: {
               onStop={stop}
               isDisabled={isLoading}
               placeholder="Ask about this Workspace…"
-              draftSeed={draftSeed}
+              draftSeed={activeDraft}
             />
             {error ? (
               <InlineAlert variant="error" title="Could not send">
@@ -287,7 +295,7 @@ export function WorkspaceChatSession(props: {
             status={status}
             onStop={stop}
             isDisabled={isLoading}
-            draftSeed={draftSeed}
+            draftSeed={activeDraft}
           />
         </>
       )}

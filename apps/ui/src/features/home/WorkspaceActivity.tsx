@@ -11,6 +11,9 @@ import {
   WorkspaceRecentCommitsSkeleton,
 } from "./WorkspaceRecentCommits"
 
+const sectionHeadingClassName =
+  "text-xs font-medium uppercase tracking-normal text-teal-400"
+
 export function WorkspaceActivity(props: {
   orgSlug: string
   workspaceSlug: string
@@ -47,39 +50,39 @@ export function WorkspaceActivity(props: {
   }
 
   return (
-    <section className="space-y-10">
-      <div>
-        <p className="ctx-label text-teal-400">Activity</p>
+    <>
+      <section>
+        <p className={sectionHeadingClassName}>Activity</p>
         <div className="mt-3">
           <WorkspaceActivityHeatmap days={data.days} />
         </div>
-      </div>
-      <div>
-        <p className="ctx-label text-teal-400">Recent</p>
+      </section>
+      <section>
+        <p className={sectionHeadingClassName}>Recent</p>
         <div className="mt-3">
           <WorkspaceRecentCommits commits={data.recent} />
         </div>
-      </div>
-    </section>
+      </section>
+    </>
   )
 }
 
 function WorkspaceActivityLoading() {
   return (
-    <section className="space-y-10">
-      <div>
-        <p className="ctx-label text-teal-400">Activity</p>
+    <>
+      <section>
+        <p className={sectionHeadingClassName}>Activity</p>
         <div className="mt-3">
           <WorkspaceActivityHeatmapSkeleton />
         </div>
-      </div>
-      <div>
-        <p className="ctx-label text-teal-400">Recent</p>
+      </section>
+      <section>
+        <p className={sectionHeadingClassName}>Recent</p>
         <div className="mt-3">
           <WorkspaceRecentCommitsSkeleton />
         </div>
-      </div>
-    </section>
+      </section>
+    </>
   )
 }
 

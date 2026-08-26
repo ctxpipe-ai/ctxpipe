@@ -83,7 +83,11 @@ export const Populated: Story = {
       canvas.getByRole("navigation", { name: "Main navigation" }),
     ).toBeVisible()
     expect(canvas.getByLabelText("Select workspace")).toBeVisible()
-    expect(await canvas.findByText("Activity")).toBeVisible()
+    const activityHeading = await canvas.findByText("Activity")
+    expect(activityHeading).toBeVisible()
+    expect(activityHeading).toHaveClass("tracking-normal")
+    expect(activityHeading).not.toHaveClass("ctx-label")
+    expect(canvas.getByText("Recent")).toHaveClass("tracking-normal")
     expect(canvas.getByText("Document billing ledger rules")).toBeVisible()
   },
   parameters: {

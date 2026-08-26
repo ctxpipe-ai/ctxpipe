@@ -86,7 +86,7 @@ export function WorkspaceActivityHeatmap(props: {
             background: "transparent",
           },
           focusRing: false,
-          margin: { top: 16, right: 0, bottom: 0, left: 28 },
+          margin: { top: 0, right: 0, bottom: 0, left: 28 },
         },
         {
           tooltip: {

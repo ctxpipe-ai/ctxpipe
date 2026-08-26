@@ -1,7 +1,7 @@
 "use client"
 
 import { IconArrowUp } from "@tabler/icons-react"
-import { useEffect } from "react"
+import { useEffect, useRef } from "react"
 import {
   PromptInput,
   PromptInputBody,
@@ -27,7 +27,6 @@ export function MessageInputBox(props: {
   layout?: MessageInputLayout
   placeholder?: string
   draftSeed?: string | null
-  onDraftSeedConsumed?: () => void
   contentClassName?: string
 }) {
   const {
@@ -38,7 +37,6 @@ export function MessageInputBox(props: {
     layout = "thread",
     placeholder,
     draftSeed,
-    onDraftSeedConsumed,
     contentClassName,
   } = props
   const isGenerating = status === "submitted" || status === "streaming"
@@ -51,10 +49,7 @@ export function MessageInputBox(props: {
 
   const inputShell = (
     <PromptInputProvider initialInput={draftSeed ?? ""}>
-      <MessageInputDraftSeed
-        seed={draftSeed ?? null}
-        onConsumed={onDraftSeedConsumed}
-      />
+      <MessageInputDraftSeed seed={draftSeed ?? null} />
       <div
         className={cn(
           "workspace-composer-vt relative overflow-hidden rounded-lg bg-zinc-900/80",
@@ -121,17 +116,21 @@ export function MessageInputBox(props: {
   )
 }
 
-function MessageInputDraftSeed(props: {
-  seed: string | null
-  onConsumed?: () => void
-}) {
+function MessageInputDraftSeed(props: { seed: string | null }) {
   const controller = usePromptInputController()
+  const appliedRef = useRef<string | null>(null)
 
   useEffect(() => {
-    if (!props.seed) return
-    controller.textInput.setInput(props.seed)
-    props.onConsumed?.()
-  }, [props.seed, props.onConsumed, controller])
+    if (props.seed) {
+      if (appliedRef.current === props.seed) return
+      appliedRef.current = props.seed
+      controller.textInput.setInput(props.seed)
+      return
+    }
+    if (appliedRef.current == null) return
+    appliedRef.current = null
+    controller.textInput.clear()
+  }, [controller, props.seed])
 
   return null
 }
