@@ -1,7 +1,12 @@
 import type { Document, Initiative, Issue, Project, User } from "@linear/sdk"
 import type { Env } from "../../config/env.js"
 import type { LinearConnection } from "../../models/linear-connector.js"
-import { linearEntityMirrorFiles, linearIssueMirrorFiles } from "./assets.js"
+import { createConnectorAssetBytePool } from "../connectors/assets.js"
+import {
+  linearEntityMirrorFiles,
+  linearIssueMirrorFiles,
+  linearMatchingExistingAssetPaths,
+} from "./assets.js"
 import {
   collectLinearConnectionPages,
   type LinearTokenRefreshHandler,
@@ -13,6 +18,7 @@ import type { LinearMirrorFile } from "./converter.js"
 export type LinearMirrorBuildResult = {
   files: LinearMirrorFile[]
   failures: Array<{ type: string; id: string; message: string }>
+  preservePathPrefixes: string[]
 }
 
 function errorMessage(error: unknown): string {
@@ -53,10 +59,25 @@ export async function buildLinearMirror(input: {
   connection: LinearConnection
   config: ParsedLinearRepoConfig
   onTokenRefresh?: LinearTokenRefreshHandler
+  existingBlobs?: ReadonlyArray<{ path: string; sha: string }>
 }): Promise<LinearMirrorBuildResult> {
   return withLinearClient(input, async (client) => {
     const files = new Map<string, LinearMirrorFile>()
     const failures: LinearMirrorBuildResult["failures"] = []
+    const preservePathPrefixes = new Set<string>()
+    const assetBytePool = createConnectorAssetBytePool()
+    const existingShaByPath = new Map(
+      (input.existingBlobs ?? []).map((blob) => [blob.path, blob.sha]),
+    )
+    const onPreservePathPrefix = (prefix: string) => {
+      preservePathPrefixes.add(prefix)
+      for (const path of linearMatchingExistingAssetPaths(
+        existingShaByPath.keys(),
+        prefix,
+      )) {
+        preservePathPrefixes.add(path)
+      }
+    }
     const seen = {
       teams: new Set<string>(),
       projects: new Set<string>(),
@@ -88,6 +109,9 @@ export async function buildLinearMirror(input: {
         await linearEntityMirrorFiles({
           ...renderInput,
           accessToken: input.connection.accessToken,
+          onPreservePathPrefix,
+          bytePool: assetBytePool,
+          existingShaByPath,
         }),
       )
     }
@@ -213,6 +237,11 @@ export async function buildLinearMirror(input: {
               })),
             },
             input.connection.accessToken,
+            {
+              onPreservePathPrefix,
+              bytePool: assetBytePool,
+              existingShaByPath,
+            },
           ),
         )
         for (const need of needs) {
@@ -486,6 +515,7 @@ export async function buildLinearMirror(input: {
         left.path.localeCompare(right.path),
       ),
       failures,
+      preservePathPrefixes: [...preservePathPrefixes],
     }
   })
 }

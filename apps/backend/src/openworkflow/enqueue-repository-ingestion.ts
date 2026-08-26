@@ -1,5 +1,8 @@
 import { withOrgDbContext } from "../db/client.js"
-import { tryClaimRepositoryIndexingEnqueue } from "../models/repositories.js"
+import {
+  markRepositoryIndexingFailed,
+  tryClaimRepositoryIndexingEnqueue,
+} from "../models/repositories.js"
 import { runWorkflowWithWorkerWake } from "./client.js"
 import { repositoryIngestionOrchestrator } from "./workflows/repository-ingestion-orchestrator.js"
 
@@ -10,6 +13,25 @@ export type RepositoryIngestionEnqueueInput = {
   targetBranch?: string | null
   /** Shown in the repositories UI while ingestion runs; cleared on success. */
   indexingReason?: string | null
+}
+
+async function failRepositoryIngestionClaim(
+  input: RepositoryIngestionEnqueueInput,
+  error: Error,
+  log: { error: (err: Error) => void },
+): Promise<void> {
+  try {
+    await withOrgDbContext(input.orgId, () =>
+      markRepositoryIndexingFailed({
+        repositoryId: input.repositoryId,
+        error,
+      }),
+    )
+  } catch (claimError) {
+    log.error(
+      claimError instanceof Error ? claimError : new Error(String(claimError)),
+    )
+  }
 }
 
 /**
@@ -49,6 +71,7 @@ export async function enqueueRepositoryIngestionWorkflow(
       })
     } catch (err: unknown) {
       const normalized = err instanceof Error ? err : new Error(String(err))
+      await failRepositoryIngestionClaim(input, normalized, log)
       log.error(normalized)
     }
   })()
@@ -81,7 +104,9 @@ export async function runRepositoryIngestionWorkflow(
         : {}),
     })
   } catch (err: unknown) {
-    log.error(err instanceof Error ? err : new Error(String(err)))
+    const normalized = err instanceof Error ? err : new Error(String(err))
+    await failRepositoryIngestionClaim(input, normalized, log)
+    log.error(normalized)
     throw err
   }
 }

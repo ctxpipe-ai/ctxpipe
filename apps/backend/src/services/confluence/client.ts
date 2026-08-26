@@ -36,7 +36,6 @@ export type ConfluenceAttachment = {
   title: string
   fileSize: number | null
   mediaType: string | null
-  downloadLink: string
 }
 
 const CONFLUENCE_FETCH_MAX_ATTEMPTS = 4
@@ -57,6 +56,7 @@ function shouldRetryConfluenceStatus(status: number): boolean {
 async function fetchConfluence<T>(
   input: ConfluenceClientInput,
   path: string,
+  options?: { signal?: AbortSignal },
 ): Promise<T> {
   const base = resolveAtlassianConfluenceApiBaseUrl(input)
   for (let attempt = 0; attempt < CONFLUENCE_FETCH_MAX_ATTEMPTS; attempt += 1) {
@@ -65,6 +65,7 @@ async function fetchConfluence<T>(
         authorization: `Bearer ${input.appSystemToken}`,
         accept: "application/json",
       },
+      signal: options?.signal,
     })
     if (response.ok) {
       return (await response.json()) as T
@@ -74,7 +75,22 @@ async function fetchConfluence<T>(
       attempt < CONFLUENCE_FETCH_MAX_ATTEMPTS - 1
     ) {
       const delay = confluenceRetryDelayMs(attempt, response)
-      await new Promise((r) => setTimeout(r, delay))
+      await new Promise<void>((resolve, reject) => {
+        const signal = options?.signal
+        if (signal?.aborted) {
+          reject(signal.reason ?? new Error("Request aborted"))
+          return
+        }
+        const onAbort = () => {
+          clearTimeout(timeout)
+          reject(signal?.reason ?? new Error("Request aborted"))
+        }
+        const timeout = setTimeout(() => {
+          signal?.removeEventListener("abort", onAbort)
+          resolve()
+        }, delay)
+        signal?.addEventListener("abort", onAbort, { once: true })
+      })
       continue
     }
     const text = await response.text().catch(() => "")
@@ -201,11 +217,19 @@ function nextCursorFromLinks(next: string | undefined): string | undefined {
 export async function listConfluencePageAttachments(input: {
   client: ConfluenceClientInput
   pageId: string
+  maxAttachments?: number
+  signal?: AbortSignal
 }): Promise<ConfluenceAttachment[]> {
   const attachments: ConfluenceAttachment[] = []
+  const maxAttachments = Math.max(
+    1,
+    Math.floor(input.maxAttachments ?? Number.POSITIVE_INFINITY),
+  )
   let cursor: string | undefined
-  while (true) {
-    const params = new URLSearchParams({ limit: "250" })
+  while (attachments.length < maxAttachments) {
+    const params = new URLSearchParams({
+      limit: String(Math.min(250, maxAttachments - attachments.length)),
+    })
     if (cursor) params.set("cursor", cursor)
     const data = await fetchConfluence<{
       results: Array<{
@@ -213,15 +237,15 @@ export async function listConfluencePageAttachments(input: {
         title?: string
         fileSize?: number
         mediaType?: string
-        downloadLink?: string
       }>
       _links?: { next?: string }
     }>(
       input.client,
       `/wiki/api/v2/pages/${encodeURIComponent(input.pageId)}/attachments?${params.toString()}`,
+      { signal: input.signal },
     )
     for (const attachment of data.results ?? []) {
-      if (!attachment.id || !attachment.title || !attachment.downloadLink) {
+      if (!attachment.id || !attachment.title) {
         continue
       }
       attachments.push({
@@ -230,8 +254,8 @@ export async function listConfluencePageAttachments(input: {
         fileSize:
           typeof attachment.fileSize === "number" ? attachment.fileSize : null,
         mediaType: attachment.mediaType ?? null,
-        downloadLink: attachment.downloadLink,
       })
+      if (attachments.length >= maxAttachments) break
     }
     cursor = nextCursorFromLinks(data._links?.next)
     if (!cursor) break
@@ -239,24 +263,16 @@ export async function listConfluencePageAttachments(input: {
   return attachments
 }
 
-function resolveConfluenceDownloadUrl(
-  apiBase: string,
-  downloadLink: string,
-): string {
-  if (/^https?:\/\//i.test(downloadLink)) return downloadLink
-  const path = downloadLink.startsWith("/") ? downloadLink : `/${downloadLink}`
-  return `${apiBase}${path}`
-}
-
 export async function downloadConfluenceAttachment(input: {
   client: ConfluenceClientInput
-  downloadLink: string
+  pageId: string
+  attachmentId: string
   filename: string
   budget: ConnectorAssetBudget
 }): Promise<ConnectorAssetDownloadResult> {
   const apiBase = resolveAtlassianConfluenceApiBaseUrl(input.client)
   return downloadConnectorAsset({
-    url: resolveConfluenceDownloadUrl(apiBase, input.downloadLink),
+    url: `${apiBase}/wiki/rest/api/content/${encodeURIComponent(input.pageId)}/child/attachment/${encodeURIComponent(input.attachmentId)}/download`,
     budget: input.budget,
     filename: input.filename,
     headers: { authorization: `Bearer ${input.client.appSystemToken}` },

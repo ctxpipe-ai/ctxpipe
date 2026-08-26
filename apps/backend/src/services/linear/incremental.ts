@@ -1,10 +1,12 @@
 import type { CustomerNeed, Issue } from "@linear/sdk"
 import type { Env } from "../../config/env.js"
 import type { LinearConnection } from "../../models/linear-connector.js"
+import { connectorPathMatchesPreservation } from "../connectors/assets.js"
 import {
   linearEntityMirrorFiles,
   linearIssueMirrorFiles,
   linearManagedPathsForEntity,
+  linearMatchingExistingAssetPaths,
 } from "./assets.js"
 import {
   collectLinearConnectionPages,
@@ -69,6 +71,16 @@ export async function buildLinearIncrementalChanges(input: {
     const files = new Map<string, LinearMirrorFile>()
     const deletePaths = new Set<string>()
     const failures: LinearIncrementalChanges["failures"] = []
+    const preservePathPrefixes = new Set<string>()
+    const onPreservePathPrefix = (prefix: string) => {
+      preservePathPrefixes.add(prefix)
+      for (const path of linearMatchingExistingAssetPaths(
+        input.existingPaths,
+        prefix,
+      )) {
+        preservePathPrefixes.add(path)
+      }
+    }
     const selectedTeams = new Set(
       input.config.scopes
         .filter((scope) => scope.type === "team")
@@ -159,7 +171,14 @@ export async function buildLinearIncrementalChanges(input: {
 
     function pruneStaleManagedPaths(id: string) {
       for (const path of linearManagedPathsForEntity(input.existingPaths, id)) {
-        if (!files.has(path)) deletePaths.add(path)
+        if (
+          !files.has(path) &&
+          ![...preservePathPrefixes].some((prefix) =>
+            connectorPathMatchesPreservation(path, prefix),
+          )
+        ) {
+          deletePaths.add(path)
+        }
       }
     }
 
@@ -186,6 +205,7 @@ export async function buildLinearIncrementalChanges(input: {
           updatedAt: need.updatedAt.toISOString(),
         },
         accessToken: input.connection.accessToken,
+        onPreservePathPrefix,
       })
     }
 
@@ -267,6 +287,7 @@ export async function buildLinearIncrementalChanges(input: {
           })),
         },
         input.connection.accessToken,
+        { onPreservePathPrefix },
       )
     }
 
@@ -301,6 +322,7 @@ export async function buildLinearIncrementalChanges(input: {
                 updatedAt: team.updatedAt.toISOString(),
               },
               accessToken: input.connection.accessToken,
+              onPreservePathPrefix,
             })
             break
           }
@@ -369,6 +391,7 @@ export async function buildLinearIncrementalChanges(input: {
               },
               sections: renderLinearUpdateSections(updates),
               accessToken: input.connection.accessToken,
+              onPreservePathPrefix,
             })
             break
           }
@@ -400,6 +423,7 @@ export async function buildLinearIncrementalChanges(input: {
                 updatedAt: document.updatedAt.toISOString(),
               },
               accessToken: input.connection.accessToken,
+              onPreservePathPrefix,
             })
             break
           }
@@ -428,6 +452,7 @@ export async function buildLinearIncrementalChanges(input: {
               },
               sections: renderLinearUpdateSections(updates),
               accessToken: input.connection.accessToken,
+              onPreservePathPrefix,
             })
             break
           }
@@ -450,6 +475,7 @@ export async function buildLinearIncrementalChanges(input: {
                 completedAt: cycle.completedAt?.toISOString() ?? null,
               },
               accessToken: input.connection.accessToken,
+              onPreservePathPrefix,
             })
             break
           }
@@ -467,6 +493,7 @@ export async function buildLinearIncrementalChanges(input: {
               body: label.description,
               metadata: { teamId: label.teamId ?? null, color: label.color },
               accessToken: input.connection.accessToken,
+              onPreservePathPrefix,
             })
             break
           }
@@ -485,6 +512,7 @@ export async function buildLinearIncrementalChanges(input: {
                 avatarUrl: user.avatarUrl ?? null,
               },
               accessToken: input.connection.accessToken,
+              onPreservePathPrefix,
             })
             break
           }

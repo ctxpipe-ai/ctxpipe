@@ -146,7 +146,6 @@ describe("renderLinearIssue", () => {
             "linear/issues/eng-45--issue-4/assets/attachment-4--diagram.png",
           status: "downloaded",
           filename: "diagram.png",
-          bytes: new Uint8Array([1, 2, 3]),
         },
       ],
     )

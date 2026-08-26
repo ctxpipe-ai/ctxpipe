@@ -1,6 +1,6 @@
 import { extname } from "node:path"
 import slugify from "@sindresorhus/slugify"
-import { gitBlobSha } from "../connectors/assets.js"
+import { canonicalConnectorAssetUrl, gitBlobSha } from "../connectors/assets.js"
 
 const MANAGED_ROOT = "slack"
 
@@ -43,7 +43,11 @@ export type SlackMediaMessage = {
   blocks?: unknown[]
   attachments?: Array<{
     image_url?: string
+    thumb_url?: string
+    video_url?: string
     title?: string
+    is_app_unfurl?: boolean
+    is_msg_unfurl?: boolean
     files?: SlackMediaFile[]
   }>
 }
@@ -272,7 +276,10 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 }
 
 export function slackUrlSourceKey(url: string): string {
-  return `src-${gitBlobSha(Buffer.from(url)).slice(0, 12)}`
+  return `src-${gitBlobSha(Buffer.from(canonicalConnectorAssetUrl(url))).slice(
+    0,
+    12,
+  )}`
 }
 
 function filenameFromUrl(url: string, fallback: string): string {
@@ -286,7 +293,9 @@ function filenameFromUrl(url: string, fallback: string): string {
   }
 }
 
-function mediaFromFile(file: SlackMediaFile): SlackCollectedMedia | undefined {
+export function slackMediaFromFile(
+  file: SlackMediaFile,
+): SlackCollectedMedia | undefined {
   const downloadUrl =
     file.url_private_download?.trim() || file.url_private?.trim() || undefined
   const permalink = file.permalink?.trim() || undefined
@@ -370,6 +379,24 @@ function collectExplicitBlockMedia(blocks: unknown[]): SlackCollectedMedia[] {
   const collected: SlackCollectedMedia[] = []
   for (const block of blocks) {
     if (!isRecord(block)) continue
+    if (block.type === "video") {
+      const title =
+        typeof block.title === "string"
+          ? block.title
+          : isRecord(block.title) && typeof block.title.text === "string"
+            ? block.title.text
+            : undefined
+      for (const field of ["video_url", "thumbnail_url"] as const) {
+        const url = typeof block[field] === "string" ? block[field] : undefined
+        const media = mediaFromImageFields({
+          imageUrl: url,
+          filename:
+            field === "thumbnail_url" && title ? `${title}-thumbnail` : title,
+        })
+        if (media) collected.push(media)
+      }
+      continue
+    }
     if (block.type === "image") {
       const media = collectImageBlock(block)
       if (media) collected.push(media)
@@ -427,22 +454,28 @@ export function collectSlackMessageMedia(
   }
 
   for (const file of message.files ?? []) {
-    add(mediaFromFile(file))
+    add(slackMediaFromFile(file))
   }
   for (const media of collectExplicitBlockMedia(message.blocks ?? [])) {
     add(media)
   }
   for (const attachment of message.attachments ?? []) {
-    if (attachment.image_url) {
+    if (attachment.is_msg_unfurl || attachment.is_app_unfurl) continue
+    for (const url of [
+      attachment.image_url,
+      attachment.thumb_url,
+      attachment.video_url,
+    ]) {
+      if (!url) continue
       add(
         mediaFromImageFields({
-          imageUrl: attachment.image_url,
+          imageUrl: url,
           filename: attachment.title,
         }),
       )
     }
     for (const file of attachment.files ?? []) {
-      add(mediaFromFile(file))
+      add(slackMediaFromFile(file))
     }
   }
   return [...byKey.values()]

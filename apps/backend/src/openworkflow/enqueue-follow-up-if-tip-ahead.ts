@@ -1,6 +1,9 @@
 import { withOrgDbContext } from "../db/client.js"
 import { resolveRepositoryRef } from "../domain/codeIngestion/queue.js"
-import { tryClaimRepositoryIndexingEnqueue } from "../models/repositories.js"
+import {
+  markRepositoryIndexingFailed,
+  tryClaimRepositoryIndexingEnqueue,
+} from "../models/repositories.js"
 import { runWorkflowWithWorkerWake } from "./client.js"
 
 export type EnqueueFollowUpIfTipAheadInput = {
@@ -63,6 +66,20 @@ export async function enqueueFollowUpIfTipAhead(
         })
       } catch (err: unknown) {
         const normalized = err instanceof Error ? err : new Error(String(err))
+        try {
+          await withOrgDbContext(input.orgId, () =>
+            markRepositoryIndexingFailed({
+              repositoryId: input.repositoryId,
+              error: normalized,
+            }),
+          )
+        } catch (claimError) {
+          log.error(
+            claimError instanceof Error
+              ? claimError
+              : new Error(String(claimError)),
+          )
+        }
         log.error(normalized)
       }
     })()

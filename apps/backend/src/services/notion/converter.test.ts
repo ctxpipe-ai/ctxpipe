@@ -332,7 +332,7 @@ describe("Notion markdown conversion", () => {
               "files:Attachments:brief.pdf",
               {
                 status: "ok" as const,
-                relativePath: "./assets/attachments--brief.pdf",
+                relativePath: "./assets/properties/attachments--brief.pdf",
                 alt: "brief.pdf",
                 kind: "file" as const,
               },
@@ -368,7 +368,7 @@ describe("Notion markdown conversion", () => {
     })
     const row = files.find((file) => file.path.includes("/rows/"))
     expect(row?.content).toContain(
-      "[brief.pdf](./assets/attachments--brief.pdf)",
+      "[brief.pdf](./assets/properties/attachments--brief.pdf)",
     )
     expect(row?.content).not.toContain("temporary.notion.test")
   })
@@ -384,7 +384,7 @@ describe("Notion markdown conversion", () => {
               "files:prop-att:brief.pdf",
               {
                 status: "ok" as const,
-                relativePath: "./assets/prop-att--brief.pdf",
+                relativePath: "./assets/properties/prop-att--brief.pdf",
                 alt: "brief.pdf",
                 kind: "file" as const,
               },
@@ -419,7 +419,9 @@ describe("Notion markdown conversion", () => {
       ],
     })
     const row = files.find((file) => file.path.includes("/rows/"))
-    expect(row?.content).toContain("[brief.pdf](./assets/prop-att--brief.pdf)")
+    expect(row?.content).toContain(
+      "[brief.pdf](./assets/properties/prop-att--brief.pdf)",
+    )
     expect(row?.content).not.toContain("temporary.notion.test")
   })
 

@@ -7,6 +7,10 @@ import type {
   SlackSyncTarget,
 } from "../../models/slack-connector.js"
 import {
+  CONNECTOR_ENTITY_MAX_ASSETS,
+  createConnectorAssetBudget,
+} from "../connectors/assets.js"
+import {
   type CommitFile,
   commitFiles,
   listFilesInTree,
@@ -17,6 +21,7 @@ import {
 } from "./assets.js"
 import {
   botTokenFromConnection,
+  fetchSlackFileInfo,
   getSlackPermalink,
   listSlackConversationReplies,
   resolveSlackChannelInfo,
@@ -34,6 +39,7 @@ import {
   resolveSlackChannelPathSlug,
   type SlackCaptureAssetLink,
   type SlackCaptureMessage,
+  slackMediaFromFile,
   slackMentionUserIds,
   toSlackChannelIndexFile,
   toSlackThreadMarkdownFile,
@@ -130,14 +136,39 @@ async function buildThreadCommit(input: {
     ]),
   )
 
-  const media = input.messages.flatMap((message) =>
-    collectSlackMessageMedia(message),
+  const assetBudget = createConnectorAssetBudget()
+  const mediaBySourceKey = new Map(
+    input.messages
+      .flatMap((message) => collectSlackMessageMedia(message))
+      .map((media) => [media.sourceKey, media]),
   )
+  for (const [sourceKey, media] of [...mediaBySourceKey.entries()].slice(
+    0,
+    CONNECTOR_ENTITY_MAX_ASSETS,
+  )) {
+    if (media.downloadUrl || !/^F[A-Z0-9]+$/i.test(sourceKey)) continue
+    const remainingMs = assetBudget.deadlineAt - Date.now()
+    if (remainingMs <= 0) break
+    const file = await fetchSlackFileInfo({
+      botToken: input.botToken,
+      fileId: sourceKey,
+      signal: AbortSignal.timeout(remainingMs),
+    })
+    const resolved = file ? slackMediaFromFile(file) : undefined
+    if (resolved) {
+      mediaBySourceKey.set(sourceKey, {
+        ...media,
+        ...resolved,
+        sourceKey,
+      })
+    }
+  }
   const captured = await captureSlackThreadAssets({
     threadDir,
     botToken: input.botToken,
-    media,
+    media: [...mediaBySourceKey.values()],
     existing: input.existing,
+    budget: assetBudget,
   })
 
   const captureMessages: SlackCaptureMessage[] = []

@@ -24,7 +24,6 @@ export type LinearResolvedAsset =
       gitPath: string
       status: "downloaded"
       filename: string
-      bytes: Uint8Array
     }
   | {
       sourceUrl: string
@@ -209,9 +208,11 @@ export function isLinearGithubReferenceAttachment(
 
 function attachmentFrontmatter(
   attachment: LinearAttachmentMetadata,
+  assetsByKey: Map<string, LinearResolvedAsset>,
   assetsByUrl: Map<string, LinearResolvedAsset>,
 ): Record<string, unknown> {
-  const resolved = assetsByUrl.get(attachment.url)
+  const resolved =
+    assetsByKey.get(attachment.id) ?? assetsByUrl.get(attachment.url)
   if (resolved?.status === "downloaded") {
     return {
       id: attachment.id,
@@ -240,12 +241,15 @@ export function renderLinearIssue(
   assets: readonly LinearResolvedAsset[] = [],
 ): LinearMirrorFile {
   const assetsByUrl = new Map(assets.map((asset) => [asset.sourceUrl, asset]))
+  const assetsByKey = new Map(assets.map((asset) => [asset.sourceKey, asset]))
   const githubReferences = issue.attachments
     .map(githubReference)
     .filter((reference) => reference !== undefined)
   const attachmentMetadata = issue.attachments
     .filter((attachment) => !githubReference(attachment))
-    .map((attachment) => attachmentFrontmatter(attachment, assetsByUrl))
+    .map((attachment) =>
+      attachmentFrontmatter(attachment, assetsByKey, assetsByUrl),
+    )
   const sections = [
     frontmatter({
       source: "linear",

@@ -1,7 +1,10 @@
 import { createHash } from "node:crypto"
 import { posix as pathPosix } from "node:path"
 import slugify from "@sindresorhus/slugify"
-import { sanitizeConnectorAssetName } from "../connectors/assets.js"
+import {
+  canonicalConnectorAssetUrl,
+  sanitizeConnectorAssetName,
+} from "../connectors/assets.js"
 
 const MANAGED_ROOT = "confluence"
 
@@ -16,6 +19,14 @@ export type ConfluenceStorageMedia =
       kind: "external"
       url: string
       asImage: boolean
+      alt: string
+    }
+
+type ConfluenceStorageMatchMedia =
+  | ConfluenceStorageMedia
+  | {
+      kind: "link"
+      url: string
       alt: string
     }
 
@@ -57,7 +68,10 @@ export function relativeConfluenceAssetHref(
 }
 
 export function confluenceExternalSourceKey(url: string): string {
-  return createHash("sha1").update(url).digest("hex").slice(0, 12)
+  return createHash("sha1")
+    .update(canonicalConnectorAssetUrl(url))
+    .digest("hex")
+    .slice(0, 12)
 }
 
 export function confluenceMediaStub(input: {
@@ -83,11 +97,40 @@ export type ConfluencePageTreeNode = {
   parentId: string | null
 }
 
+function decodeXmlEntities(value: string): string {
+  return value.replace(
+    /&(#x[0-9a-f]+|#[0-9]+|amp|apos|gt|lt|quot);/gi,
+    (entity, encoded: string) => {
+      const named: Record<string, string> = {
+        amp: "&",
+        apos: "'",
+        gt: ">",
+        lt: "<",
+        quot: '"',
+      }
+      const normalised = encoded.toLowerCase()
+      if (normalised in named) return named[normalised] ?? entity
+      const radix = normalised.startsWith("#x") ? 16 : 10
+      const digits = normalised.slice(radix === 16 ? 2 : 1)
+      const codePoint = Number.parseInt(digits, radix)
+      if (
+        !Number.isFinite(codePoint) ||
+        codePoint < 0 ||
+        codePoint > 0x10ffff ||
+        (codePoint >= 0xd800 && codePoint <= 0xdfff)
+      ) {
+        return entity
+      }
+      return String.fromCodePoint(codePoint)
+    },
+  )
+}
+
 function attrValue(attrs: string, name: string): string | undefined {
   const match = attrs.match(
     new RegExp(`\\b${name}\\s*=\\s*["']([^"']*)["']`, "i"),
   )
-  return match?.[1]
+  return match?.[1] === undefined ? undefined : decodeXmlEntities(match[1])
 }
 
 function attachmentFilename(inner: string): string | undefined {
@@ -106,7 +149,8 @@ function linkBodyText(inner: string): string | undefined {
   )
   if (cdata?.[1] !== undefined) return cdata[1]
   const body = inner.match(/<ac:link-body>([\s\S]*?)<\/ac:link-body>/i)
-  return body?.[1]?.replace(/<[^>]+>/g, "").trim() || undefined
+  const text = body?.[1]?.replace(/<[^>]+>/g, "").trim()
+  return text ? decodeXmlEntities(text) : undefined
 }
 
 function mediaFromInner(
@@ -114,7 +158,8 @@ function mediaFromInner(
   attrs: string,
   asImage: boolean,
   fallbackAlt: string,
-): ConfluenceStorageMedia | undefined {
+  externalKind: "external" | "link",
+): ConfluenceStorageMatchMedia | undefined {
   const filename = attachmentFilename(inner)
   const alt =
     attrValue(attrs, "ac:alt") ||
@@ -127,7 +172,9 @@ function mediaFromInner(
   }
   const url = explicitExternalUrl(inner)
   if (url) {
-    return { kind: "external", url, asImage, alt }
+    return externalKind === "link"
+      ? { kind: "link", url, alt }
+      : { kind: "external", url, asImage, alt }
   }
   return undefined
 }
@@ -147,7 +194,7 @@ type StorageMediaMatch = {
   start: number
   end: number
   block: boolean
-  media: ConfluenceStorageMedia
+  media: ConfluenceStorageMatchMedia
 }
 
 function collectStorageMedia(bodyStorage: string): StorageMediaMatch[] {
@@ -157,6 +204,7 @@ function collectStorageMedia(bodyStorage: string): StorageMediaMatch[] {
     asImage: boolean
     block: boolean
     fallbackAlt: string
+    externalKind: "external" | "link"
     filter?: (attrs: string) => boolean
   }> = [
     {
@@ -164,12 +212,14 @@ function collectStorageMedia(bodyStorage: string): StorageMediaMatch[] {
       asImage: true,
       block: true,
       fallbackAlt: "image",
+      externalKind: "external",
     },
     {
       regex: /<ac:link\b([^>]*)>([\s\S]*?)<\/ac:link>/gi,
       asImage: false,
       block: false,
       fallbackAlt: "attachment",
+      externalKind: "link",
     },
     {
       regex:
@@ -177,6 +227,7 @@ function collectStorageMedia(bodyStorage: string): StorageMediaMatch[] {
       asImage: false,
       block: true,
       fallbackAlt: "attachment",
+      externalKind: "external",
       filter: (attrs) => /\bac:name\s*=\s*["']view-file["']/i.test(attrs),
     },
   ]
@@ -192,6 +243,7 @@ function collectStorageMedia(bodyStorage: string): StorageMediaMatch[] {
           attrs,
           pattern.asImage,
           pattern.fallbackAlt,
+          pattern.externalKind,
         )
         if (media) {
           matches.push({
@@ -227,9 +279,11 @@ function htmlToMarkdown(
   for (const [index, match] of mediaMatches.entries()) {
     withPlaceholders += input.slice(cursor, match.start)
     const rendered =
-      resolveMedia === undefined
-        ? ""
-        : renderResolvedMedia(match.media, resolveMedia(match.media))
+      match.media.kind === "link"
+        ? `[${match.media.alt}](${match.media.url})`
+        : resolveMedia === undefined
+          ? ""
+          : renderResolvedMedia(match.media, resolveMedia(match.media))
     replacements[index] = match.block ? `\n\n${rendered}\n\n` : rendered
     withPlaceholders += `${MEDIA_PLACEHOLDER_PREFIX}${index}@@`
     cursor = match.end
@@ -240,13 +294,7 @@ function htmlToMarkdown(
     .replace(/<br\s*\/?>/gi, "\n")
     .replace(/<\/(p|div|h1|h2|h3|h4|h5|h6|li|tr)>/gi, "\n")
   const withoutTags = withLineBreaks.replace(/<[^>]+>/g, "")
-  const decoded = withoutTags
-    .replaceAll("&nbsp;", " ")
-    .replaceAll("&amp;", "&")
-    .replaceAll("&lt;", "<")
-    .replaceAll("&gt;", ">")
-    .replaceAll("&#39;", "'")
-    .replaceAll("&quot;", '"')
+  const decoded = decodeXmlEntities(withoutTags).replaceAll("&nbsp;", " ")
   const restored = decoded.replace(
     new RegExp(`${MEDIA_PLACEHOLDER_PREFIX}(\\d+)@@`, "g"),
     (_full, index: string) => replacements[Number(index)] ?? "",
@@ -401,7 +449,9 @@ export function buildConfluenceMarkdownRelPath(input: {
 export function extractConfluenceStorageMedia(
   bodyStorage: string,
 ): ConfluenceStorageMedia[] {
-  return collectStorageMedia(bodyStorage).map((match) => match.media)
+  return collectStorageMedia(bodyStorage)
+    .map((match) => match.media)
+    .filter((media): media is ConfluenceStorageMedia => media.kind !== "link")
 }
 
 export function toConfluenceMarkdownFile(input: {
@@ -413,6 +463,10 @@ export function toConfluenceMarkdownFile(input: {
   selectedIds: Set<string>
   pathRootSkipPageIds?: Set<string>
   resolveMedia?: (media: ConfluenceStorageMedia) => ConfluenceMediaResolution
+  additionalAttachments?: Array<{
+    label: string
+    resolution: ConfluenceMediaResolution
+  }>
 }): { path: string; content: string } {
   const path = buildConfluenceMarkdownRelPath({
     spaceKey: input.spaceKey,
@@ -421,7 +475,28 @@ export function toConfluenceMarkdownFile(input: {
     selectedIds: input.selectedIds,
     pathRootSkipPageIds: input.pathRootSkipPageIds,
   })
-  const content = `# ${input.title}\n\n${htmlToMarkdown(input.bodyStorage, input.resolveMedia)}\n`
+  const body = htmlToMarkdown(input.bodyStorage, input.resolveMedia)
+  const additionalAttachments = (input.additionalAttachments ?? []).map(
+    ({ label, resolution }) =>
+      renderResolvedMedia(
+        {
+          kind: "attachment",
+          filename: label,
+          asImage: false,
+          alt: label,
+        },
+        resolution,
+      ),
+  )
+  const content = `${[
+    `# ${input.title}`,
+    body,
+    ...(additionalAttachments.length > 0
+      ? ["## Attachments", ...additionalAttachments]
+      : []),
+  ]
+    .filter(Boolean)
+    .join("\n\n")}\n`
   return { path, content }
 }
 

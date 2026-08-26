@@ -11,6 +11,7 @@ const sdk = vi.hoisted(() => ({
   issue: vi.fn(),
   team: vi.fn(),
 }))
+const downloadConnectorAsset = vi.hoisted(() => vi.fn())
 
 vi.mock("@linear/sdk", () => ({
   LinearClient: class {
@@ -18,6 +19,10 @@ vi.mock("@linear/sdk", () => ({
     issue = sdk.issue
     team = sdk.team
   },
+}))
+vi.mock("../connectors/assets.js", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("../connectors/assets.js")>()),
+  downloadConnectorAsset,
 }))
 
 function page<T>(nodes: T[]) {
@@ -242,6 +247,53 @@ describe("buildLinearIncrementalChanges", () => {
     expect(result.deletePaths).toEqual([
       "linear/issues/pro-1--issue-1/assets/stale--old.png",
     ])
+  })
+
+  it("preserves the prior binary when an incremental asset download fails", async () => {
+    downloadConnectorAsset.mockResolvedValue({
+      status: "stub",
+      reason: "download_failed",
+    })
+    sdk.issue.mockResolvedValue({
+      ...linearIssue,
+      identifier: "ENG-1",
+      attachments: vi.fn().mockResolvedValue(
+        page([
+          {
+            id: "attachment-4",
+            title: "diagram.png",
+            url: "https://uploads.linear.app/acme/diagram.png",
+            sourceType: "upload",
+            metadata: null,
+          },
+        ]),
+      ),
+    })
+    const preserved =
+      "linear/issues/pro-1--issue-1/assets/attachment-4--diagram.png"
+
+    const result = await buildLinearIncrementalChanges({
+      env: {} as Env,
+      connection,
+      config: selectedConfig,
+      entities: [issueChange],
+      existingPaths: [
+        "linear/issues/pro-1--issue-1.md",
+        preserved,
+        "linear/issues/pro-1--issue-1/assets/removed--old.png",
+      ],
+    })
+
+    expect(result.files).toEqual([
+      expect.objectContaining({
+        path: "linear/issues/eng-1--issue-1.md",
+      }),
+    ])
+    expect(result.deletePaths).not.toContain(preserved)
+    expect(result.deletePaths).toContain("linear/issues/pro-1--issue-1.md")
+    expect(result.deletePaths).toContain(
+      "linear/issues/pro-1--issue-1/assets/removed--old.png",
+    )
   })
 
   it("deletes a matching stable-id path without fetching Linear", async () => {

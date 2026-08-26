@@ -1,9 +1,14 @@
 import { posix } from "node:path"
 import { log } from "../../observability/logger.js"
 import {
+  CONNECTOR_ENTITY_MAX_ASSETS,
+  type ConnectorAssetBytePool,
   type ConnectorAssetDownloadResult,
   connectorAssetCommitFile,
+  connectorBlobUnchanged,
   connectorCommitFileUnchanged,
+  connectorPathMatchesPreservation,
+  consumeConnectorAssetBytePool,
   createConnectorAssetBudget,
   downloadConnectorAsset,
   gitBlobSha,
@@ -30,12 +35,15 @@ type DownloadAsset = (input: {
 type NotionMediaRef = {
   key: string
   pathKey: string
+  propertyIdentity?: string
+  propertyStem?: string
   assetLeaf?: string
   contentIdentity?: boolean
   kind: "image" | "file"
   url?: string
   name?: string
   caption: string
+  expiryTime?: string
 }
 
 function richTextPlainText(value: unknown): string {
@@ -63,10 +71,49 @@ function filenameFromUrl(url: string): string | undefined {
   }
 }
 
+export function notionMatchingExistingAssetPaths(
+  paths: Iterable<string>,
+  preservation: string,
+): string[] {
+  const marker = "/assets/"
+  const markerIndex = preservation.indexOf(marker)
+  if (markerIndex < 0) return []
+  const ownerSegment = preservation.slice(0, markerIndex).split("/").at(-1)
+  const ownerSeparator = ownerSegment?.lastIndexOf("--") ?? -1
+  if (!ownerSegment || ownerSeparator < 0) return []
+  const ownerId = ownerSegment.slice(ownerSeparator + 2).replaceAll("-", "")
+  const normalisePropertyCollisionSuffix = (suffix: string) =>
+    suffix.replace(/^(properties\/.+?)--p[0-9a-f]{8}(?=--)/, "$1")
+  const assetPreservation = normalisePropertyCollisionSuffix(
+    preservation.slice(markerIndex + marker.length),
+  )
+
+  return [...paths].filter((path) => {
+    const existingMarkerIndex = path.indexOf(marker)
+    if (!path.startsWith("notion/") || existingMarkerIndex < 0) return false
+    const existingOwner = path.slice(0, existingMarkerIndex).split("/").at(-1)
+    const existingSeparator = existingOwner?.lastIndexOf("--") ?? -1
+    if (!existingOwner || existingSeparator < 0) return false
+    const existingOwnerId = existingOwner
+      .slice(existingSeparator + 2)
+      .replaceAll("-", "")
+    return (
+      existingOwnerId.toLowerCase() === ownerId.toLowerCase() &&
+      connectorPathMatchesPreservation(
+        normalisePropertyCollisionSuffix(
+          path.slice(existingMarkerIndex + marker.length),
+        ),
+        assetPreservation,
+      )
+    )
+  })
+}
+
 function notionMediaSource(value: unknown): {
   url?: string
   name?: string
   caption: string
+  expiryTime?: string
 } {
   if (!value || typeof value !== "object") return { caption: "" }
   const data = value as Record<string, unknown>
@@ -78,7 +125,11 @@ function notionMediaSource(value: unknown): {
     typeof data.file === "object" &&
     "url" in data.file
   ) {
-    return { url: String(data.file.url), name, caption }
+    const expiryTime =
+      "expiry_time" in data.file && typeof data.file.expiry_time === "string"
+        ? data.file.expiry_time
+        : undefined
+    return { url: String(data.file.url), name, caption, expiryTime }
   }
   if (
     data.type === "external" &&
@@ -106,6 +157,7 @@ function collectBlockMedia(
         name:
           source.name ?? (source.url ? filenameFromUrl(source.url) : undefined),
         caption: source.caption,
+        expiryTime: source.expiryTime,
       })
     }
     if (block.children) collectBlockMedia(block.children, refs)
@@ -130,6 +182,7 @@ function collectPageChrome(page: NotionPage): NotionMediaRef[] {
       name:
         source.name ?? (source.url ? filenameFromUrl(source.url) : undefined),
       caption: label,
+      expiryTime: source.expiryTime,
     })
   }
   return refs
@@ -160,6 +213,8 @@ function collectFilesProperties(page: NotionPage): NotionMediaRef[] {
       refs.push({
         key: key.mapKey,
         pathKey: key.pathKey,
+        propertyIdentity: key.propertyIdentity,
+        propertyStem: key.propertyStem,
         assetLeaf: key.contentIdentity ? undefined : key.pathKey,
         contentIdentity: key.contentIdentity,
         kind: "file",
@@ -169,8 +224,30 @@ function collectFilesProperties(page: NotionPage): NotionMediaRef[] {
           source.name ||
           (source.url ? filenameFromUrl(source.url) : undefined),
         caption: itemName ?? "",
+        expiryTime: source.expiryTime,
       })
     })
+  }
+  const identitiesByStem = new Map<string, Set<string>>()
+  for (const ref of refs) {
+    if (!ref.propertyIdentity || !ref.propertyStem) continue
+    const identities =
+      identitiesByStem.get(ref.propertyStem) ?? new Set<string>()
+    identities.add(ref.propertyIdentity)
+    identitiesByStem.set(ref.propertyStem, identities)
+  }
+  for (const ref of refs) {
+    if (
+      !ref.propertyIdentity ||
+      !ref.propertyStem ||
+      (identitiesByStem.get(ref.propertyStem)?.size ?? 0) < 2
+    ) {
+      continue
+    }
+    const suffix = gitBlobSha(Buffer.from(ref.propertyIdentity)).slice(0, 8)
+    const disambiguatedStem = `${ref.propertyStem}--p${suffix}`
+    ref.pathKey = `${disambiguatedStem}${ref.pathKey.slice(ref.propertyStem.length)}`
+    if (ref.assetLeaf !== undefined) ref.assetLeaf = ref.pathKey
   }
   return refs
 }
@@ -180,19 +257,45 @@ export async function captureNotionEntityAssets(input: {
   page: NotionPage
   blocks: NotionBlock[]
   downloadAsset?: DownloadAsset
-}): Promise<{ assetMap: NotionAssetMap; files: CommitFile[] }> {
+  bytePool?: ConnectorAssetBytePool
+  existingShaByPath?: ReadonlyMap<string, string>
+}): Promise<{
+  assetMap: NotionAssetMap
+  files: CommitFile[]
+  preservePathPrefixes: string[]
+}> {
   const downloadAsset = input.downloadAsset ?? downloadConnectorAsset
   const refs: NotionMediaRef[] = [
     ...collectPageChrome(input.page),
     ...collectFilesProperties(input.page),
   ]
   collectBlockMedia(input.blocks, refs)
+  refs.sort((left, right) => {
+    const leftExpiry = left.expiryTime
+      ? Date.parse(left.expiryTime)
+      : Number.POSITIVE_INFINITY
+    const rightExpiry = right.expiryTime
+      ? Date.parse(right.expiryTime)
+      : Number.POSITIVE_INFINITY
+    return leftExpiry - rightExpiry
+  })
 
   const budget = createConnectorAssetBudget()
   const assetMap = new Map<string, NotionCapturedAsset>()
   const files: CommitFile[] = []
+  const preservePathPrefixes: string[] = []
+  let remainingDeclaredAssets = CONNECTOR_ENTITY_MAX_ASSETS
   const entityDir = posix.dirname(input.markdownPath)
   const permalink = input.page.url ?? null
+  const preservePrefixFor = (ref: NotionMediaRef) => {
+    if (ref.contentIdentity) {
+      const separator = ref.pathKey.lastIndexOf("--")
+      const stem =
+        separator === -1 ? ref.pathKey : ref.pathKey.slice(0, separator)
+      return posix.join(entityDir, "assets", `${stem}--`)
+    }
+    return posix.join(entityDir, "assets", ref.assetLeaf ?? `${ref.pathKey}--`)
+  }
 
   for (const ref of refs) {
     const alt = ref.caption || ref.name || ref.pathKey
@@ -202,7 +305,14 @@ export async function captureNotionEntityAssets(input: {
       permalink,
       kind: ref.kind,
     })
+    if (remainingDeclaredAssets <= 0) {
+      preservePathPrefixes.push(preservePrefixFor(ref))
+      assetMap.set(ref.key, stub())
+      continue
+    }
+    remainingDeclaredAssets -= 1
     if (!ref.url) {
+      preservePathPrefixes.push(preservePrefixFor(ref))
       assetMap.set(ref.key, stub())
       continue
     }
@@ -219,6 +329,12 @@ export async function captureNotionEntityAssets(input: {
         key: ref.key,
         pageId: input.page.id,
       })
+      if (
+        result.reason === "download_failed" ||
+        result.reason === "entity_limit"
+      ) {
+        preservePathPrefixes.push(preservePrefixFor(ref))
+      }
       assetMap.set(ref.key, stub())
       continue
     }
@@ -226,7 +342,25 @@ export async function captureNotionEntityAssets(input: {
       ? filesPropertyContentLeaf(ref.pathKey, result.bytes)
       : (ref.assetLeaf ?? `${ref.pathKey}--${result.filename}`)
     const path = posix.join(entityDir, "assets", leaf)
-    if (!files.some((file) => file.path === path)) {
+    const alreadyCaptured = files.some((file) => file.path === path)
+    const unchangedExisting =
+      !alreadyCaptured &&
+      input.existingShaByPath &&
+      connectorBlobUnchanged(path, result.bytes, input.existingShaByPath)
+    if (unchangedExisting) {
+      preservePathPrefixes.push(path)
+    }
+    if (
+      !alreadyCaptured &&
+      !unchangedExisting &&
+      input.bytePool &&
+      !consumeConnectorAssetBytePool(input.bytePool, result.bytes.byteLength)
+    ) {
+      preservePathPrefixes.push(preservePrefixFor(ref))
+      assetMap.set(ref.key, stub())
+      continue
+    }
+    if (!alreadyCaptured && !unchangedExisting) {
       files.push(connectorAssetCommitFile(path, result.bytes))
     }
     assetMap.set(ref.key, {
@@ -237,7 +371,7 @@ export async function captureNotionEntityAssets(input: {
     })
   }
 
-  return { assetMap, files }
+  return { assetMap, files, preservePathPrefixes }
 }
 
 export function notionCommitFilesExcludingUnchanged(input: {
@@ -260,6 +394,9 @@ export async function buildNotionPageMirrorFiles(input: {
   pathByNotionId?: ReadonlyMap<string, string>
   ancestors?: Array<{ id: string; title: string }>
   downloadAsset?: DownloadAsset
+  onPreservePathPrefix?: (prefix: string) => void
+  bytePool?: ConnectorAssetBytePool
+  existingShaByPath?: ReadonlyMap<string, string>
 }): Promise<CommitFile[]> {
   const markdownPath =
     input.path ??
@@ -269,7 +406,12 @@ export async function buildNotionPageMirrorFiles(input: {
     page: input.page,
     blocks: input.blocks,
     downloadAsset: input.downloadAsset,
+    bytePool: input.bytePool,
+    existingShaByPath: input.existingShaByPath,
   })
+  for (const prefix of captured.preservePathPrefixes) {
+    input.onPreservePathPrefix?.(prefix)
+  }
   const markdown = toNotionMarkdownFile({
     resource: input.resource,
     page: input.page,
@@ -286,6 +428,9 @@ export async function buildNotionDatabaseMirrorFiles(input: {
   rows: Array<{ page: NotionPage; blocks: NotionBlock[] }>
   pathByNotionId?: ReadonlyMap<string, string>
   downloadAsset?: DownloadAsset
+  onPreservePathPrefix?: (prefix: string) => void
+  bytePool?: ConnectorAssetBytePool
+  existingShaByPath?: ReadonlyMap<string, string>
 }): Promise<CommitFile[]> {
   const rowAssets = new Map<string, NotionAssetMap>()
   const assetFiles: CommitFile[] = []
@@ -298,7 +443,12 @@ export async function buildNotionDatabaseMirrorFiles(input: {
       page,
       blocks,
       downloadAsset: input.downloadAsset,
+      bytePool: input.bytePool,
+      existingShaByPath: input.existingShaByPath,
     })
+    for (const prefix of captured.preservePathPrefixes) {
+      input.onPreservePathPrefix?.(prefix)
+    }
     rowAssets.set(page.id, captured.assetMap)
     assetFiles.push(...captured.files)
   }

@@ -1,9 +1,14 @@
 import { describe, expect, it, vi } from "vitest"
-import { connectorAssetCommitFile, gitBlobSha } from "../connectors/assets.js"
+import {
+  connectorAssetCommitFile,
+  createConnectorAssetBytePool,
+  gitBlobSha,
+} from "../connectors/assets.js"
 import {
   buildNotionPageMirrorFiles,
   captureNotionEntityAssets,
   notionCommitFilesExcludingUnchanged,
+  notionMatchingExistingAssetPaths,
 } from "./assets.js"
 import type { NotionBlock, NotionPage } from "./client.js"
 
@@ -23,6 +28,32 @@ function downloaded(filename: string, body = "bytes") {
     contentType: "application/octet-stream",
   }
 }
+
+describe("notionMatchingExistingAssetPaths", () => {
+  it("retains the same source asset across a mutable page title rename", () => {
+    expect(
+      notionMatchingExistingAssetPaths(
+        [
+          "notion/pages/old-title--page-1/assets/image-1--diagram.png",
+          "notion/pages/other--page-2/assets/image-1--other.png",
+          "notion/pages/old-title--page-1/assets/image-2--stale.png",
+        ],
+        "notion/pages/new-title--page-1/assets/image-1--",
+      ),
+    ).toEqual(["notion/pages/old-title--page-1/assets/image-1--diagram.png"])
+    expect(
+      notionMatchingExistingAssetPaths(
+        [
+          "notion/pages/old-title--page-1/assets/properties/a-b--pdeadbeef--spec.pdf",
+          "notion/pages/other--page-2/assets/properties/a-b--pdeadbeef--spec.pdf",
+        ],
+        "notion/pages/new-title--page-1/assets/properties/a-b--spec.pdf",
+      ),
+    ).toEqual([
+      "notion/pages/old-title--page-1/assets/properties/a-b--pdeadbeef--spec.pdf",
+    ])
+  })
+})
 
 describe("captureNotionEntityAssets", () => {
   it("fetches hosted Notion files immediately without a bearer token", async () => {
@@ -204,8 +235,8 @@ describe("captureNotionEntityAssets", () => {
     expect(result.files.map((file) => file.path)).toEqual([
       "notion/databases/tasks--db-1/rows/row--row-1/assets/cover--banner.png",
       "notion/databases/tasks--db-1/rows/row--row-1/assets/icon--logo.png",
-      "notion/databases/tasks--db-1/rows/row--row-1/assets/attachments--spec.pdf",
-      "notion/databases/tasks--db-1/rows/row--row-1/assets/attachments--shot.png",
+      "notion/databases/tasks--db-1/rows/row--row-1/assets/properties/attachments--spec.pdf",
+      "notion/databases/tasks--db-1/rows/row--row-1/assets/properties/attachments--shot.png",
       "notion/databases/tasks--db-1/rows/row--row-1/assets/pdf-1--brief.pdf",
     ])
     expect(result.assetMap.get("cover")?.status).toBe("ok")
@@ -217,6 +248,84 @@ describe("captureNotionEntityAssets", () => {
       kind: "file",
       relativePath: "./assets/pdf-1--brief.pdf",
     })
+  })
+
+  it("disambiguates files properties whose provider IDs slugify alike", async () => {
+    const result = await captureNotionEntityAssets({
+      markdownPath: "notion/databases/tasks--db-1/rows/row--row-1/index.md",
+      page: {
+        ...page,
+        properties: {
+          Name: { type: "title", title: [{ plain_text: "Planning" }] },
+          First: {
+            id: "A:B",
+            type: "files",
+            files: [
+              {
+                name: "spec.pdf",
+                type: "file",
+                file: { url: "https://files.example.com/first.pdf" },
+              },
+            ],
+          },
+          Second: {
+            id: "A B",
+            type: "files",
+            files: [
+              {
+                name: "spec.pdf",
+                type: "file",
+                file: { url: "https://files.example.com/second.pdf" },
+              },
+            ],
+          },
+        },
+      },
+      blocks: [],
+      downloadAsset: vi.fn().mockResolvedValue(downloaded("spec.pdf")),
+    })
+
+    expect(result.files).toHaveLength(2)
+    expect(new Set(result.files.map((file) => file.path))).toHaveLength(2)
+    expect(
+      result.files.every((file) =>
+        file.path.includes("/assets/properties/a-b--p"),
+      ),
+    ).toBe(true)
+  })
+
+  it("namespaces files properties away from page chrome assets", async () => {
+    const result = await captureNotionEntityAssets({
+      markdownPath: "notion/pages/planning--page-1/index.md",
+      page: {
+        ...page,
+        cover: {
+          type: "external",
+          external: { url: "https://files.example.com/cover.png" },
+        },
+        properties: {
+          Name: { type: "title", title: [{ plain_text: "Planning" }] },
+          Cover: {
+            id: "cover",
+            type: "files",
+            files: [
+              {
+                name: "cover.png",
+                type: "external",
+                external: { url: "https://files.example.com/property.png" },
+              },
+            ],
+          },
+        },
+      },
+      blocks: [],
+      downloadAsset: vi.fn().mockResolvedValue(downloaded("cover.png")),
+    })
+
+    expect(result.files.map((file) => file.path)).toEqual([
+      "notion/pages/planning--page-1/assets/cover--cover.png",
+      "notion/pages/planning--page-1/assets/properties/cover--cover.png",
+    ])
   })
 
   it("keeps files-property asset paths when uniquely named files are reordered", async () => {
@@ -251,19 +360,19 @@ describe("captureNotionEntityAssets", () => {
     const second = await capture([shot, spec])
 
     expect(first.files.map((file) => file.path).sort()).toEqual([
-      "notion/databases/tasks--db-1/rows/row--row-1/assets/prop-att--shot.png",
-      "notion/databases/tasks--db-1/rows/row--row-1/assets/prop-att--spec.pdf",
+      "notion/databases/tasks--db-1/rows/row--row-1/assets/properties/prop-att--shot.png",
+      "notion/databases/tasks--db-1/rows/row--row-1/assets/properties/prop-att--spec.pdf",
     ])
     expect(second.files.map((file) => file.path).sort()).toEqual(
       first.files.map((file) => file.path).sort(),
     )
     expect(first.assetMap.get("files:prop-att:spec.pdf")).toMatchObject({
       status: "ok",
-      relativePath: "./assets/prop-att--spec.pdf",
+      relativePath: "./assets/properties/prop-att--spec.pdf",
     })
     expect(second.assetMap.get("files:prop-att:spec.pdf")).toMatchObject({
       status: "ok",
-      relativePath: "./assets/prop-att--spec.pdf",
+      relativePath: "./assets/properties/prop-att--spec.pdf",
     })
   })
 
@@ -294,7 +403,7 @@ describe("captureNotionEntityAssets", () => {
     const second = await capture("Evidence")
 
     expect(first.files.map((file) => file.path)).toEqual([
-      "notion/databases/tasks--db-1/rows/row--row-1/assets/prop-att--spec.pdf",
+      "notion/databases/tasks--db-1/rows/row--row-1/assets/properties/prop-att--spec.pdf",
     ])
     expect(second.files.map((file) => file.path)).toEqual(
       first.files.map((file) => file.path),
@@ -346,18 +455,18 @@ describe("captureNotionEntityAssets", () => {
 
     const sha = gitBlobSha(Buffer.from("bytes"))
     expect(result.files.map((file) => file.path)).toEqual([
-      `notion/databases/tasks--db-1/rows/row--row-1/assets/prop-att--${sha}--spec.pdf`,
+      `notion/databases/tasks--db-1/rows/row--row-1/assets/properties/prop-att--${sha}--spec.pdf`,
     ])
     expect(
       result.files.some((file) => file.path.includes("Amz-Signature")),
     ).toBe(false)
     expect(result.assetMap.get("files:prop-att:spec.pdf")).toMatchObject({
       status: "ok",
-      relativePath: `./assets/prop-att--${sha}--spec.pdf`,
+      relativePath: `./assets/properties/prop-att--${sha}--spec.pdf`,
     })
     expect(result.assetMap.get("files:prop-att:spec-2.pdf")).toMatchObject({
       status: "ok",
-      relativePath: `./assets/prop-att--${sha}--spec.pdf`,
+      relativePath: `./assets/properties/prop-att--${sha}--spec.pdf`,
     })
     expect(result.assetMap.get("files:prop-att:fu-stable")).toMatchObject({
       status: "stub",
@@ -402,8 +511,8 @@ describe("captureNotionEntityAssets", () => {
     const first = await capture([spec(alphaUrl), spec(betaUrl)])
     const second = await capture([spec(betaUrl), spec(alphaUrl)])
     const expectedPaths = [
-      `notion/databases/tasks--db-1/rows/row--row-1/assets/prop-att--${alphaSha}--spec.pdf`,
-      `notion/databases/tasks--db-1/rows/row--row-1/assets/prop-att--${betaSha}--spec.pdf`,
+      `notion/databases/tasks--db-1/rows/row--row-1/assets/properties/prop-att--${alphaSha}--spec.pdf`,
+      `notion/databases/tasks--db-1/rows/row--row-1/assets/properties/prop-att--${betaSha}--spec.pdf`,
     ]
 
     expect(first.files.map((file) => file.path).sort()).toEqual(
@@ -423,11 +532,11 @@ describe("captureNotionEntityAssets", () => {
     ).toBe(Buffer.from(alpha).toString("base64"))
     expect(first.assetMap.get("files:prop-att:spec.pdf")).toMatchObject({
       status: "ok",
-      relativePath: `./assets/prop-att--${alphaSha}--spec.pdf`,
+      relativePath: `./assets/properties/prop-att--${alphaSha}--spec.pdf`,
     })
     expect(second.assetMap.get("files:prop-att:spec.pdf")).toMatchObject({
       status: "ok",
-      relativePath: `./assets/prop-att--${betaSha}--spec.pdf`,
+      relativePath: `./assets/properties/prop-att--${betaSha}--spec.pdf`,
     })
   })
 
@@ -468,15 +577,15 @@ describe("captureNotionEntityAssets", () => {
     })
 
     expect(result.files.map((file) => file.path)).toEqual([
-      `notion/databases/tasks--db-1/rows/row--row-1/assets/prop-att--${sha}--spec.pdf`,
+      `notion/databases/tasks--db-1/rows/row--row-1/assets/properties/prop-att--${sha}--spec.pdf`,
     ])
     expect(result.assetMap.get("files:prop-att:spec.pdf")).toMatchObject({
       status: "ok",
-      relativePath: `./assets/prop-att--${sha}--spec.pdf`,
+      relativePath: `./assets/properties/prop-att--${sha}--spec.pdf`,
     })
     expect(result.assetMap.get("files:prop-att:spec-2.pdf")).toMatchObject({
       status: "ok",
-      relativePath: `./assets/prop-att--${sha}--spec.pdf`,
+      relativePath: `./assets/properties/prop-att--${sha}--spec.pdf`,
     })
   })
 
@@ -512,11 +621,11 @@ describe("captureNotionEntityAssets", () => {
     })
 
     expect(result.files.map((file) => file.path)).toEqual([
-      `notion/databases/tasks--db-1/rows/row--row-1/assets/prop-att--${sha}--spec.pdf`,
+      `notion/databases/tasks--db-1/rows/row--row-1/assets/properties/prop-att--${sha}--spec.pdf`,
     ])
     expect(result.assetMap.get("files:prop-att:spec.pdf")).toMatchObject({
       status: "ok",
-      relativePath: `./assets/prop-att--${sha}--spec.pdf`,
+      relativePath: `./assets/properties/prop-att--${sha}--spec.pdf`,
     })
     expect(result.assetMap.get("files:prop-att:spec-2.pdf")).toMatchObject({
       status: "stub",
@@ -582,6 +691,41 @@ describe("captureNotionEntityAssets", () => {
     expect(markdown?.content).not.toContain("file_uploads")
     expect(markdown?.content).not.toContain(hostedUrl)
     expect(markdown?.content).not.toContain("fu-1")
+  })
+
+  it("keeps unchanged media linked after the full-sync byte cap", async () => {
+    const bytes = Buffer.from("existing-image")
+    const path = "notion/pages/planning--page-1/assets/image-1--diagram.png"
+
+    const result = await captureNotionEntityAssets({
+      markdownPath: "notion/pages/planning--page-1/index.md",
+      page,
+      blocks: [
+        {
+          id: "image-1",
+          type: "image",
+          image: {
+            type: "file",
+            name: "diagram.png",
+            file: { url: "https://files.example.com/diagram.png" },
+            caption: [{ plain_text: "Diagram" }],
+          },
+        },
+      ],
+      downloadAsset: vi.fn().mockResolvedValue({
+        ...downloaded("diagram.png"),
+        bytes,
+      }),
+      bytePool: createConnectorAssetBytePool(0),
+      existingShaByPath: new Map([[path, gitBlobSha(bytes)]]),
+    })
+
+    expect(result.files).toEqual([])
+    expect(result.assetMap.get("image-1")).toMatchObject({
+      status: "ok",
+      relativePath: "./assets/image-1--diagram.png",
+    })
+    expect(result.preservePathPrefixes).toContain(path)
   })
 })
 

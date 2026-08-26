@@ -32,6 +32,8 @@ export function notionIdKey(id: string): string {
 export type NotionFilesPropertyAssetKey = {
   mapKey: string
   pathKey: string
+  propertyIdentity: string
+  propertyStem: string
   contentIdentity?: boolean
 }
 
@@ -101,7 +103,9 @@ export function notionFilesPropertyAssetKeys(
     return []
   }
   const propertyId = notionPropertyStableId(propertyName, property)
-  const propertyStem = slugify(propertyId, { lowercase: true }) || "files"
+  const propertyStem = `properties/${
+    slugify(propertyId, { lowercase: true }) || "files"
+  }`
   const nameCounts = new Map<string, number>()
   const sanitisedNames = files.map((item) => {
     if (notionFilesItemUploadId(item)) return undefined
@@ -116,6 +120,8 @@ export function notionFilesPropertyAssetKeys(
       return {
         mapKey: `files:${propertyId}:${uploadId}`,
         pathKey: `${propertyStem}--${uploadId}`,
+        propertyIdentity: propertyId,
+        propertyStem,
       }
     }
     const sanitised = sanitisedNames[index] ?? "attachment"
@@ -124,6 +130,8 @@ export function notionFilesPropertyAssetKeys(
     return {
       mapKey: `files:${propertyId}:${withDuplicateNameSuffix(sanitised, next)}`,
       pathKey: `${propertyStem}--${sanitised}`,
+      propertyIdentity: propertyId,
+      propertyStem,
       contentIdentity: (nameCounts.get(sanitised) ?? 0) > 1,
     }
   })

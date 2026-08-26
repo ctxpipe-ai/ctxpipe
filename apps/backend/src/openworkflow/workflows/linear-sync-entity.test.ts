@@ -128,6 +128,7 @@ describe("linearSyncEntity", () => {
         repositoryId: "repo_1",
         orgId: "org_1",
         indexingReason: "Applying Linear updates",
+        targetBranch: "main",
       },
       expect.any(Object),
     )

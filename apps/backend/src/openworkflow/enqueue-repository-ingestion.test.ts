@@ -5,12 +5,14 @@ const withOrgDbContextMock = vi.hoisted(() =>
   vi.fn((_orgId: string, fn: () => unknown) => Promise.resolve(fn())),
 )
 const tryClaimMock = vi.hoisted(() => vi.fn().mockResolvedValue(true))
+const markFailedMock = vi.hoisted(() => vi.fn().mockResolvedValue(undefined))
 
 vi.mock("../db/client.js", () => ({
   withOrgDbContext: withOrgDbContextMock,
 }))
 
 vi.mock("../models/repositories.js", () => ({
+  markRepositoryIndexingFailed: markFailedMock,
   tryClaimRepositoryIndexingEnqueue: tryClaimMock,
 }))
 
@@ -33,6 +35,7 @@ describe("enqueueRepositoryIngestionWorkflow", () => {
   beforeEach(() => {
     vi.clearAllMocks()
     tryClaimMock.mockResolvedValue(true)
+    markFailedMock.mockResolvedValue(undefined)
     withOrgDbContextMock.mockImplementation(
       (_orgId: string, fn: () => unknown) => Promise.resolve(fn()),
     )
@@ -71,12 +74,31 @@ describe("enqueueRepositoryIngestionWorkflow", () => {
     expect(runWorkflowWithWorkerWakeMock).not.toHaveBeenCalled()
     expect(log.error).not.toHaveBeenCalled()
   })
+
+  it("releases the queued claim when workflow enqueue fails", async () => {
+    const failure = new Error("enqueue failed")
+    runWorkflowWithWorkerWakeMock.mockRejectedValue(failure)
+    const log = { error: vi.fn() }
+
+    await enqueueRepositoryIngestionWorkflow(
+      { repositoryId: "repo_1", orgId: "org_1" },
+      log,
+    )
+    await vi.waitFor(() => {
+      expect(markFailedMock).toHaveBeenCalledWith({
+        repositoryId: "repo_1",
+        error: failure,
+      })
+      expect(log.error).toHaveBeenCalledWith(failure)
+    })
+  })
 })
 
 describe("runRepositoryIngestionWorkflow", () => {
   beforeEach(() => {
     vi.clearAllMocks()
     tryClaimMock.mockResolvedValue(true)
+    markFailedMock.mockResolvedValue(undefined)
     withOrgDbContextMock.mockImplementation(
       (_orgId: string, fn: () => unknown) => Promise.resolve(fn()),
     )
@@ -112,5 +134,23 @@ describe("runRepositoryIngestionWorkflow", () => {
 
     expect(runWorkflowWithWorkerWakeMock).not.toHaveBeenCalled()
     expect(log.error).not.toHaveBeenCalled()
+  })
+
+  it("releases the queued claim when awaited workflow enqueue fails", async () => {
+    const failure = new Error("enqueue failed")
+    runWorkflowWithWorkerWakeMock.mockRejectedValue(failure)
+    const log = { error: vi.fn() }
+
+    await expect(
+      runRepositoryIngestionWorkflow(
+        { repositoryId: "repo_1", orgId: "org_1" },
+        log,
+      ),
+    ).rejects.toThrow("enqueue failed")
+    expect(markFailedMock).toHaveBeenCalledWith({
+      repositoryId: "repo_1",
+      error: failure,
+    })
+    expect(log.error).toHaveBeenCalledWith(failure)
   })
 })

@@ -1,4 +1,6 @@
+import type { ConnectorAssetBudget } from "../connectors/assets.js"
 import {
+  CONNECTOR_ENTITY_MAX_ASSETS,
   connectorAssetCommitFile,
   connectorBlobUnchanged,
   createConnectorAssetBudget,
@@ -61,25 +63,44 @@ export async function captureSlackThreadAssets(input: {
   botToken: string
   media: SlackCollectedMedia[]
   existing?: Array<{ path: string; sha: string }>
+  budget?: ConnectorAssetBudget
 }): Promise<{
   files: CommitFile[]
   linksBySourceKey: Map<string, SlackCaptureAssetLink>
   keptPaths: string[]
 }> {
-  const budget = createConnectorAssetBudget()
+  const budget = input.budget ?? createConnectorAssetBudget()
   const existingByPath = new Map(
     (input.existing ?? []).map((file) => [file.path, file.sha]),
   )
   const files: CommitFile[] = []
   const keptPaths: string[] = []
   const linksBySourceKey = new Map<string, SlackCaptureAssetLink>()
+  let remainingDeclaredAssets = CONNECTOR_ENTITY_MAX_ASSETS
+  const preserveExistingAsset = (sourceKey: string) => {
+    const prefix = `${input.threadDir}/assets/${sourceKey}--`
+    for (const path of existingByPath.keys()) {
+      if (path.startsWith(prefix)) keptPaths.push(path)
+    }
+  }
 
   const seenKeys = new Set<string>()
   for (const media of input.media) {
     if (seenKeys.has(media.sourceKey)) continue
     seenKeys.add(media.sourceKey)
+    if (remainingDeclaredAssets <= 0) {
+      preserveExistingAsset(media.sourceKey)
+      linksBySourceKey.set(media.sourceKey, {
+        label: media.filename,
+        path: stubPath(media),
+        kind: slackAssetKind(media.filename, null, media.mimetype),
+      })
+      continue
+    }
+    remainingDeclaredAssets -= 1
     const downloadUrl = media.downloadUrl
     if (!downloadUrl) {
+      preserveExistingAsset(media.sourceKey)
       linksBySourceKey.set(media.sourceKey, {
         label: media.filename,
         path: stubPath(media),
@@ -101,6 +122,12 @@ export async function captureSlackThreadAssets(input: {
     })
 
     if (downloaded.status !== "downloaded") {
+      if (
+        downloaded.reason === "download_failed" ||
+        downloaded.reason === "entity_limit"
+      ) {
+        preserveExistingAsset(media.sourceKey)
+      }
       linksBySourceKey.set(media.sourceKey, {
         label: media.filename,
         path: stubPath(media),

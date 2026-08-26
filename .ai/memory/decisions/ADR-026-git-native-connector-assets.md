@@ -22,9 +22,14 @@ arbitrary URL from a worker introduces SSRF and credential-forwarding risk.
    successful copies are relative. Private, signed, expiring, bearer-bearing,
    and provider download URLs are never persisted.
 3. Downloads are limited to **25 MiB per asset** and **100 MiB per source
-   page/entity/thread**. An unavailable, unsafe, or oversized asset becomes a
-   stable provider permalink or textual stub; it does not fail the surrounding
-   content write.
+   page/entity/thread**, at most **100 declared asset candidates**, and a
+   **two-minute network window** per source entity. Transient requests receive
+   bounded retries inside that window. Full reconciliations retain at most
+   **64 MiB and 250 files of new binary payloads** before a Git write. The
+   lower byte ceiling accounts for base64 expansion and simultaneous provider
+   payloads in a 512 MiB worker. An unavailable, unsafe, oversized, or
+   aggregate-capped asset becomes a stable provider permalink or textual stub;
+   it does not fail the surrounding content write.
 4. Provider credentials are sent only to explicitly trusted provider hosts and
    are stripped on cross-origin redirects. Explicit external media is HTTPS-only,
    DNS-resolved and pinned for the request, and rejects credentials, non-default
@@ -45,8 +50,8 @@ arbitrary URL from a worker introduces SSRF and credential-forwarding risk.
 - Context repositories contain source attachment bytes and must be treated as
   carrying the same sensitivity as the provider content.
 - Git repository size, clone time, and GitHub API traffic increase. The fixed
-  limits and bounded blob writes constrain a single entity, but operators still
-  own repository retention.
+  byte/file limits and paced binary blob writes constrain a reconciliation, but
+  operators still own repository retention.
 - Codesearch does not make arbitrary binary formats semantically searchable.
   Relative links preserve fidelity for repository viewers and future multimodal
   ingestion; storing bytes is not a claim that screenshots or PDFs are parsed.

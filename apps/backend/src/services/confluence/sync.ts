@@ -8,11 +8,18 @@ import {
   updateConfluenceSpaceSyncState,
 } from "../../models/atlassian-connector.js"
 import type { ConfluenceSyncTarget } from "../../models/confluence-sync-target.js"
+import type { ConnectorAssetBytePool } from "../connectors/assets.js"
 import {
   CONNECTOR_ASSET_MAX_BYTES,
+  CONNECTOR_ENTITY_MAX_ASSETS,
+  canonicalConnectorAssetUrl,
   connectorAssetCommitFile,
+  connectorBlobUnchanged,
   connectorCommitFileUnchanged,
+  connectorPathMatchesPreservation,
+  consumeConnectorAssetBytePool,
   createConnectorAssetBudget,
+  createConnectorAssetBytePool,
   downloadConnectorAsset,
 } from "../connectors/assets.js"
 import type { CommitFile } from "../github/installation-write-client.js"
@@ -81,30 +88,72 @@ async function collectPageAssetFiles(input: {
   pageId: string
   markdownPath: string
   bodyStorage: string
+  bytePool: ConnectorAssetBytePool
+  existingShaByPath: ReadonlyMap<string, string>
 }): Promise<{
   assetFiles: CommitFile[]
   resolveMedia: (media: ConfluenceStorageMedia) => ConfluenceMediaResolution
   attachmentDiscoveryComplete: boolean
+  preserveAssetPrefixes: string[]
+  additionalAttachments: Array<{
+    label: string
+    resolution: ConfluenceMediaResolution
+  }>
 }> {
   const budget = createConnectorAssetBudget()
   const assetFiles: CommitFile[] = []
   const byFilename = new Map<string, ConfluenceAttachment>()
   let attachments: ConfluenceAttachment[] = []
   let attachmentDiscoveryComplete = true
+  let attachmentDiscoveryTruncated = false
+  const discoveryAbort = new AbortController()
+  const discoveryTimeout = setTimeout(
+    () => discoveryAbort.abort(new Error("Confluence attachment deadline")),
+    Math.max(0, budget.deadlineAt - Date.now()),
+  )
   try {
-    attachments = await listConfluencePageAttachments({
+    const maxDiscoveredAttachments = CONNECTOR_ENTITY_MAX_ASSETS * 10
+    const discovered = await listConfluencePageAttachments({
       client: input.client,
       pageId: input.pageId,
+      maxAttachments: maxDiscoveredAttachments + 1,
+      signal: discoveryAbort.signal,
     })
+    attachmentDiscoveryComplete = discovered.length <= maxDiscoveredAttachments
+    attachmentDiscoveryTruncated =
+      discovered.length > CONNECTOR_ENTITY_MAX_ASSETS
+    attachments = discovered.slice(0, maxDiscoveredAttachments)
   } catch {
     attachments = []
     attachmentDiscoveryComplete = false
+  } finally {
+    clearTimeout(discoveryTimeout)
   }
   for (const attachment of attachments) {
     byFilename.set(attachment.title, attachment)
   }
 
   const cached = new Map<string, ConfluenceMediaResolution>()
+  let remainingDeclaredAssets = CONNECTOR_ENTITY_MAX_ASSETS
+  const preserveAssetPrefixes: string[] = []
+  const additionalAttachments: Array<{
+    label: string
+    resolution: ConfluenceMediaResolution
+  }> = []
+  const preserveTransientFailure = (
+    sourceKey: string,
+    resolution: ConfluenceMediaResolution,
+  ) => {
+    if (
+      resolution.status === "stub" &&
+      (resolution.reason === "download_failed" ||
+        resolution.reason === "entity_limit")
+    ) {
+      preserveAssetPrefixes.push(
+        `${confluencePageAssetPrefix(input.spaceKey, input.pageId)}${sourceKey}--`,
+      )
+    }
+  }
 
   const storeAsset = (
     sourceKey: string,
@@ -117,7 +166,14 @@ async function collectPageAssetFiles(input: {
       sourceKey,
       filename,
     })
-    assetFiles.push(connectorAssetCommitFile(path, bytes))
+    if (connectorBlobUnchanged(path, bytes, input.existingShaByPath)) {
+      preserveAssetPrefixes.push(path)
+    } else {
+      if (!consumeConnectorAssetBytePool(input.bytePool, bytes.byteLength)) {
+        return undefined
+      }
+      assetFiles.push(connectorAssetCommitFile(path, bytes))
+    }
     return relativeConfluenceAssetHref(input.markdownPath, path)
   }
 
@@ -127,6 +183,13 @@ async function collectPageAssetFiles(input: {
     const cacheKey = `att:${attachment.id}`
     const hit = cached.get(cacheKey)
     if (hit) return hit
+    if (remainingDeclaredAssets <= 0) {
+      const resolution = { status: "stub", reason: "entity_limit" } as const
+      preserveTransientFailure(attachment.id, resolution)
+      cached.set(cacheKey, resolution)
+      return resolution
+    }
+    remainingDeclaredAssets -= 1
     const oversized = stubFromFileSize(
       attachment.fileSize,
       budget.remainingBytes,
@@ -139,20 +202,23 @@ async function collectPageAssetFiles(input: {
     try {
       const result = await downloadConfluenceAttachment({
         client: input.client,
-        downloadLink: attachment.downloadLink,
+        pageId: input.pageId,
+        attachmentId: attachment.id,
         filename: attachment.title,
         budget,
       })
-      resolution =
-        result.status === "downloaded"
-          ? {
-              status: "ok",
-              href: storeAsset(attachment.id, result.filename, result.bytes),
-            }
-          : { status: "stub", reason: result.reason }
+      if (result.status === "downloaded") {
+        const href = storeAsset(attachment.id, result.filename, result.bytes)
+        resolution = href
+          ? { status: "ok", href }
+          : { status: "stub", reason: "entity_limit" }
+      } else {
+        resolution = { status: "stub", reason: result.reason }
+      }
     } catch {
       resolution = { status: "stub", reason: "download_failed" }
     }
+    preserveTransientFailure(attachment.id, resolution)
     cached.set(cacheKey, resolution)
     return resolution
   }
@@ -160,26 +226,32 @@ async function collectPageAssetFiles(input: {
   const takeExternal = async (
     url: string,
   ): Promise<ConfluenceMediaResolution> => {
-    const cacheKey = `url:${url}`
+    const cacheKey = `url:${canonicalConnectorAssetUrl(url)}`
     const hit = cached.get(cacheKey)
     if (hit) return hit
+    const sourceKey = confluenceExternalSourceKey(url)
+    if (remainingDeclaredAssets <= 0) {
+      const resolution = { status: "stub", reason: "entity_limit" } as const
+      preserveTransientFailure(sourceKey, resolution)
+      cached.set(cacheKey, resolution)
+      return resolution
+    }
+    remainingDeclaredAssets -= 1
     let resolution: ConfluenceMediaResolution
     try {
       const result = await downloadConnectorAsset({ url, budget })
-      resolution =
-        result.status === "downloaded"
-          ? {
-              status: "ok",
-              href: storeAsset(
-                confluenceExternalSourceKey(url),
-                result.filename,
-                result.bytes,
-              ),
-            }
-          : { status: "stub", reason: result.reason }
+      if (result.status === "downloaded") {
+        const href = storeAsset(sourceKey, result.filename, result.bytes)
+        resolution = href
+          ? { status: "ok", href }
+          : { status: "stub", reason: "entity_limit" }
+      } else {
+        resolution = { status: "stub", reason: result.reason }
+      }
     } catch {
       resolution = { status: "stub", reason: "download_failed" }
     }
+    preserveTransientFailure(sourceKey, resolution)
     cached.set(cacheKey, resolution)
     return resolution
   }
@@ -191,28 +263,54 @@ async function collectPageAssetFiles(input: {
       referencedFilenames.add(media.filename)
       const attachment = byFilename.get(media.filename)
       if (attachment) await takeAttachment(attachment)
-      else
+      else {
+        const reason =
+          remainingDeclaredAssets > 0 ? "download_failed" : "entity_limit"
+        if (remainingDeclaredAssets > 0) remainingDeclaredAssets -= 1
         cached.set(`missing:${media.filename}`, {
           status: "stub",
-          reason: "download_failed",
+          reason,
         })
+      }
+      if (!attachment && !attachmentDiscoveryComplete) {
+        preserveAssetPrefixes.push(
+          confluencePageAssetPrefix(input.spaceKey, input.pageId),
+        )
+      }
     } else {
       await takeExternal(media.url)
     }
   }
   for (const attachment of attachments) {
     if (!referencedFilenames.has(attachment.title)) {
-      await takeAttachment(attachment)
+      if (remainingDeclaredAssets <= 0) {
+        preserveAssetPrefixes.push(
+          `${confluencePageAssetPrefix(input.spaceKey, input.pageId)}${attachment.id}--`,
+        )
+        continue
+      }
+      additionalAttachments.push({
+        label: attachment.title,
+        resolution: await takeAttachment(attachment),
+      })
     }
+  }
+  if (attachmentDiscoveryTruncated) {
+    additionalAttachments.push({
+      label: "Additional attachments",
+      resolution: { status: "stub", reason: "entity_limit" },
+    })
   }
 
   return {
     assetFiles,
     attachmentDiscoveryComplete,
+    preserveAssetPrefixes,
+    additionalAttachments,
     resolveMedia: (media) => {
       if (media.kind === "external") {
         return (
-          cached.get(`url:${media.url}`) ?? {
+          cached.get(`url:${canonicalConnectorAssetUrl(media.url)}`) ?? {
             status: "stub",
             reason: "download_failed",
           }
@@ -378,31 +476,35 @@ export async function syncConfluenceContent(input: {
     const matchingRow = spaceKey
       ? scopeRows.find((row) => row.spaceKey === spaceKey)
       : scopeRows[0]
-    const selected = matchingRow?.selectedPageIds ?? undefined
     const inScope =
       matchingRow !== undefined &&
-      (selected === null ||
-        (selected.length > 0 && selected.includes(singlePageId)))
+      (matchingRow.selectedPageIds === null ||
+        matchingRow.selectedPageIds.includes(singlePageId))
     if (!inScope) {
       return {
-        status: "failed",
+        status: "completed",
         spacesProcessed: 0,
         pagesProcessed: 0,
-        pagesFailed: 1,
-        errors: [
-          {
-            spaceKey: spaceKey ?? "",
-            pageId: singlePageId,
-            message: "Page is not in the repository Confluence scope",
-          },
-        ],
+        pagesFailed: 0,
+        errors: [],
       }
     }
   }
 
   const spaces = await listConfluenceSpaces(input.forgeInstallation)
   const spaceIdByKey = new Map(spaces.map((space) => [space.key, space.id]))
+  const allRepoFiles = await listFilesInTree({
+    orgId: input.orgId,
+    env: input.env,
+    repositoryName,
+    branch: input.target.branch,
+    githubConnectionId,
+  })
+  const existingShaByPath = new Map(
+    allRepoFiles.map((entry) => [entry.path, entry.sha]),
+  )
   const filesToWrite: CommitFile[] = []
+  const assetBytePool = createConnectorAssetBytePool()
   const preservedPageIds = new Set<string>()
   const preservedAssetPrefixes: string[] = []
   const preservedSpacePrefixes: string[] = []
@@ -476,14 +578,22 @@ export async function syncConfluenceContent(input: {
           client: input.forgeInstallation,
           pageId: page.id,
         })
-        const { assetFiles, resolveMedia, attachmentDiscoveryComplete } =
-          await collectPageAssetFiles({
-            client: input.forgeInstallation,
-            spaceKey: scopeRow.spaceKey,
-            pageId: page.id,
-            markdownPath,
-            bodyStorage: pageWithBody.bodyStorage,
-          })
+        const {
+          assetFiles,
+          resolveMedia,
+          attachmentDiscoveryComplete,
+          preserveAssetPrefixes: pagePreserveAssetPrefixes,
+          additionalAttachments,
+        } = await collectPageAssetFiles({
+          client: input.forgeInstallation,
+          spaceKey: scopeRow.spaceKey,
+          pageId: page.id,
+          markdownPath,
+          bodyStorage: pageWithBody.bodyStorage,
+          bytePool: assetBytePool,
+          existingShaByPath,
+        })
+        preservedAssetPrefixes.push(...pagePreserveAssetPrefixes)
         filesToWrite.push(
           toConfluenceMarkdownFile({
             spaceKey: scopeRow.spaceKey,
@@ -494,6 +604,7 @@ export async function syncConfluenceContent(input: {
             selectedIds: selectedSetForTree,
             pathRootSkipPageIds,
             resolveMedia,
+            additionalAttachments,
           }),
           ...assetFiles,
         )
@@ -532,20 +643,12 @@ export async function syncConfluenceContent(input: {
   }
 
   const managedRoot = getManagedConfluenceRootPath()
-  const allRepoFiles = await listFilesInTree({
-    orgId: input.orgId,
-    env: input.env,
-    repositoryName,
-    branch: input.target.branch,
-    githubConnectionId,
-  })
-  const existingShaByPath = new Map(
-    allRepoFiles.map((entry) => [entry.path, entry.sha]),
-  )
   const desiredPaths = new Set(filesToWrite.map((file) => file.path))
   const isPreservedPath = (path: string): boolean => {
     if (
-      preservedAssetPrefixes.some((prefix) => path.startsWith(prefix)) ||
+      preservedAssetPrefixes.some((prefix) =>
+        connectorPathMatchesPreservation(path, prefix),
+      ) ||
       preservedSpacePrefixes.some((prefix) => path.startsWith(prefix)) ||
       [...preservedPageIds].some((pageId) =>
         isManagedConfluenceMarkdownForPage(path, pageId),

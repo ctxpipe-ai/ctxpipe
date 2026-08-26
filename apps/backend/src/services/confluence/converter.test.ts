@@ -197,6 +197,31 @@ describe("Confluence storage media", () => {
     expect(file.content).toContain("See ")
   })
 
+  it("keeps ordinary Confluence links as links instead of media", () => {
+    const file = leafFile(
+      '<p>Read <ac:link><ri:url ri:value="https://example.com/guide" /><ac:plain-text-link-body><![CDATA[the guide]]></ac:plain-text-link-body></ac:link>.</p>',
+    )
+
+    expect(file.content).toContain(
+      "Read [the guide](https://example.com/guide).",
+    )
+    expect(file.content).not.toContain("_assets/")
+  })
+
+  it("decodes XML entities in attachment names and URLs", () => {
+    const file = leafFile(
+      '<p>Team &#x41;.</p><p><ac:link><ri:url ri:value="https://example.com/guide?x=1&amp;sig=abc" /><ac:link-body>R&amp;D guide</ac:link-body></ac:link></p><ac:image ac:alt="Team"><ri:attachment ri:filename="john&amp;mary.png" /></ac:image>',
+    )
+
+    expect(file.content).toContain("Team A.")
+    expect(file.content).toContain(
+      "[R&D guide](https://example.com/guide?x=1&sig=abc)",
+    )
+    expect(file.content).toContain(
+      "![Team](_assets/42/att100--john-and-mary.png)",
+    )
+  })
+
   it("downloads explicit external ri:url media via a resolved local href", () => {
     const file = leafFile(
       '<p>Logo:</p><ac:image ac:alt="Logo"><ri:url ri:value="https://cdn.example.com/logo.png" /></ac:image>',
@@ -239,5 +264,10 @@ describe("Confluence asset paths", () => {
     expect(
       confluenceExternalSourceKey("https://cdn.example.com/logo.png"),
     ).toBe("2443b42f4c45")
+    expect(
+      confluenceExternalSourceKey(
+        "https://cdn.example.com/logo.png?X-Amz-Credential=key&X-Amz-Signature=rotated",
+      ),
+    ).toBe(confluenceExternalSourceKey("https://cdn.example.com/logo.png"))
   })
 })

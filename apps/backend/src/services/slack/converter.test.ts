@@ -1,11 +1,11 @@
 import { describe, expect, it } from "vitest"
-import { gitBlobSha } from "../connectors/assets.js"
 import {
   collectSlackMessageMedia,
   getSlackChannelIndexPath,
   getSlackThreadPath,
   resolveSlackChannelPathSlug,
   slackMrkdwnToMarkdown,
+  slackUrlSourceKey,
   toSlackChannelIndexFile,
   toSlackThreadMarkdownFile,
 } from "./converter.js"
@@ -286,10 +286,17 @@ describe("collectSlackMessageMedia", () => {
             alt_text: "badge.png",
           },
         },
+        {
+          type: "video",
+          video_url: "https://cdn.example.com/demo.mp4",
+          thumbnail_url: "https://cdn.example.com/demo-thumb.jpg",
+          title: { type: "plain_text", text: "Demo" },
+        },
       ],
       attachments: [
         {
           image_url: "https://cdn.example.com/attach.jpg",
+          thumb_url: "https://cdn.example.com/attach-thumb.jpg",
           title: "attach.jpg",
         },
         {
@@ -334,18 +341,61 @@ describe("collectSlackMessageMedia", () => {
           filename: "attach.jpg",
           downloadUrl: "https://cdn.example.com/attach.jpg",
         }),
+        expect.objectContaining({
+          downloadUrl: "https://cdn.example.com/attach-thumb.jpg",
+        }),
+        expect.objectContaining({
+          downloadUrl: "https://cdn.example.com/demo.mp4",
+        }),
+        expect.objectContaining({
+          downloadUrl: "https://cdn.example.com/demo-thumb.jpg",
+        }),
       ]),
     )
     expect(media.map((item) => item.sourceKey)).toContain(
-      `src-${gitBlobSha(Buffer.from(external)).slice(0, 12)}`,
+      slackUrlSourceKey(external),
     )
     expect(JSON.stringify(media)).not.toContain("url_private")
+  })
+
+  it("ignores expiring query tokens in external media identity", () => {
+    expect(
+      slackUrlSourceKey(
+        "https://cdn.example.com/image.png?X-Amz-Credential=key&X-Amz-Signature=one",
+      ),
+    ).toBe(
+      slackUrlSourceKey(
+        "https://cdn.example.com/image.png?X-Amz-Credential=key&X-Amz-Signature=two",
+      ),
+    )
   })
 
   it("does not treat mrkdwn URLs as media", () => {
     expect(
       collectSlackMessageMedia({
         text: "see <https://cdn.example.com/not-an-attachment.png>",
+      }),
+    ).toEqual([])
+  })
+
+  it("does not capture generated link-unfurl previews as assets", () => {
+    expect(
+      collectSlackMessageMedia({
+        attachments: [
+          {
+            is_msg_unfurl: true,
+            title: "Linked article",
+            image_url: "https://cdn.example.com/article-preview.png",
+            thumb_url: "https://cdn.example.com/article-thumbnail.png",
+            files: [
+              {
+                id: "F-PREVIEW",
+                name: "linked-file.pdf",
+                url_private: "https://files.slack.com/linked-file.pdf",
+              },
+            ],
+          },
+        ],
       }),
     ).toEqual([])
   })

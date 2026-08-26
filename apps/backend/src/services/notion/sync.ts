@@ -9,6 +9,10 @@ import type {
 } from "../../models/notion-connector.js"
 import { updateNotionConnectionTokens } from "../../models/notion-connector.js"
 import {
+  connectorPathMatchesPreservation,
+  createConnectorAssetBytePool,
+} from "../connectors/assets.js"
+import {
   type CommitFile,
   closePullRequest,
   commitFiles,
@@ -21,6 +25,7 @@ import {
   buildNotionDatabaseMirrorFiles,
   buildNotionPageMirrorFiles,
   notionCommitFilesExcludingUnchanged,
+  notionMatchingExistingAssetPaths,
 } from "./assets.js"
 import type { NotionBlock, NotionPage } from "./client.js"
 import { queryNotionDatabase } from "./client.js"
@@ -100,9 +105,16 @@ export function getNotionDeletePaths(input: {
   managedRepoPaths: string[]
   desiredPaths: Set<string>
   resourcesFailed: number
+  preservePathPrefixes?: readonly string[]
 }): string[] {
   if (input.resourcesFailed > 0) return []
-  return input.managedRepoPaths.filter((path) => !input.desiredPaths.has(path))
+  return input.managedRepoPaths.filter(
+    (path) =>
+      !input.desiredPaths.has(path) &&
+      !(input.preservePathPrefixes ?? []).some((prefix) =>
+        connectorPathMatchesPreservation(path, prefix),
+      ),
+  )
 }
 
 export async function syncNotionConfigYaml(input: {
@@ -302,6 +314,27 @@ export async function syncNotionContent(input: {
   }
 
   const filesToWrite: CommitFile[] = []
+  const preservePathPrefixes = new Set<string>()
+  const onPreservePathPrefix = (prefix: string) => {
+    preservePathPrefixes.add(prefix)
+    for (const path of notionMatchingExistingAssetPaths(
+      existingShaByPath.keys(),
+      prefix,
+    )) {
+      preservePathPrefixes.add(path)
+    }
+  }
+  const allRepoFiles = await listFilesInTree({
+    orgId: input.orgId,
+    env: input.env,
+    repositoryName,
+    branch: input.binding.branch,
+    githubConnectionId,
+  })
+  const existingShaByPath = new Map(
+    allRepoFiles.map((entry) => [entry.path, entry.sha]),
+  )
+  const assetBytePool = createConnectorAssetBytePool()
   for (const { resource, entries } of collectedPages) {
     for (const entry of entries) {
       filesToWrite.push(
@@ -311,7 +344,10 @@ export async function syncNotionContent(input: {
           blocks: entry.blocks,
           path: pathByNotionId.get(notionIdKey(entry.page.id)),
           pathByNotionId,
+          bytePool: assetBytePool,
+          existingShaByPath,
           ancestors: entry.ancestors,
+          onPreservePathPrefix,
         })),
       )
     }
@@ -322,18 +358,14 @@ export async function syncNotionContent(input: {
         resource,
         rows,
         pathByNotionId,
+        bytePool: assetBytePool,
+        existingShaByPath,
+        onPreservePathPrefix,
       })),
     )
   }
 
   const managedRoot = getManagedNotionRootPath()
-  const allRepoFiles = await listFilesInTree({
-    orgId: input.orgId,
-    env: input.env,
-    repositoryName,
-    branch: input.binding.branch,
-    githubConnectionId,
-  })
   const managedRepoFiles = allRepoFiles
     .map((entry) => entry.path)
     .filter(
@@ -344,6 +376,7 @@ export async function syncNotionContent(input: {
     managedRepoPaths: managedRepoFiles,
     desiredPaths,
     resourcesFailed,
+    preservePathPrefixes: [...preservePathPrefixes],
   })
 
   const filesToCommit = notionCommitFilesExcludingUnchanged({

@@ -103,7 +103,11 @@ beforeEach(() => {
   })
   github.listFilesInTree.mockResolvedValue([])
   github.commitFiles.mockResolvedValue("commit-sha")
-  content.buildLinearMirror.mockResolvedValue({ files: [], failures: [] })
+  content.buildLinearMirror.mockResolvedValue({
+    files: [],
+    failures: [],
+    preservePathPrefixes: [],
+  })
   incremental.buildLinearIncrementalChanges.mockResolvedValue({
     files: [],
     deletePaths: [],
@@ -217,6 +221,45 @@ describe("syncLinearContentToGit", () => {
     )
     expect(github.commitFiles.mock.calls[0]?.[0].deletePaths).not.toContain(
       "linear/config.yaml",
+    )
+  })
+
+  it("preserves a prior asset when the current download is transiently unavailable", async () => {
+    const preserved =
+      "linear/issues/eng-1--issue-1/assets/attachment-4--diagram.png"
+    content.buildLinearMirror.mockResolvedValue({
+      files: [
+        {
+          path: "linear/issues/eng-1--issue-1.md",
+          content: "current with fallback stub",
+        },
+      ],
+      failures: [],
+      preservePathPrefixes: [
+        "linear/issues/eng-1--issue-1/assets/attachment-4--",
+      ],
+    })
+    github.listFilesInTree.mockResolvedValue([
+      { path: preserved, sha: "prior-good-asset" },
+      {
+        path: "linear/issues/eng-1--issue-1/assets/removed--old.png",
+        sha: "stale",
+      },
+    ])
+
+    await syncLinearContentToGit({
+      orgId: "org_1",
+      env: {} as Env,
+      connection,
+      target,
+      config,
+    })
+
+    const deletePaths = github.commitFiles.mock.calls[0]?.[0]
+      ?.deletePaths as string[]
+    expect(deletePaths).not.toContain(preserved)
+    expect(deletePaths).toContain(
+      "linear/issues/eng-1--issue-1/assets/removed--old.png",
     )
   })
 

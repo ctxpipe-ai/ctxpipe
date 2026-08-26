@@ -24,6 +24,10 @@ Limits are committed product policy, not environment variables:
 
 - 25 MiB per asset
 - 100 MiB per source page, entity, or captured thread
+- 100 declared asset candidates per source entity
+- two minutes of network work per source entity, including bounded retries
+- 64 MiB and 250 retained new binary files per full reconciliation; this
+  accounts for base64 expansion and provider buffers in a 512 MiB worker
 
 An unsafe, unavailable, or oversized asset produces a stable source permalink or
 textual stub. Continue the content write.
@@ -47,5 +51,17 @@ textual stub. Continue the content write.
 Done means tests cover: authenticated download, cross-origin credential
 stripping, external SSRF rejection, both byte limits, deterministic safe paths,
 relative Markdown, fallback stubs, unchanged blobs, and stale-asset deletion.
+Run `pnpm --filter @ctxpipe/backend verify-connector-assets-runtime` before a
+Railway acceptance test; it exercises the Bun TLS pinning path, authenticated
+download, and cross-host redirect credential stripping. It requires the repo's
+declared Bun 1.3.11+ runtime; older Bun versions do not honour the HTTPS lookup
+contract safely. When the host Bun is older, run the deploy-runtime gate
+directly:
+
+```bash
+docker run --rm -v "$PWD:/workspace" -w /workspace/apps/backend \
+  oven/bun:1.3.11-alpine bun run src/scripts/verifyConnectorAssetRuntime.ts
+```
+
 Document that copied binaries inherit provider-content sensitivity and are not
 automatically semantically searchable.

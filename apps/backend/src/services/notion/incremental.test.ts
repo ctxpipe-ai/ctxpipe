@@ -85,9 +85,13 @@ describe("Notion managed path helpers", () => {
       "notion/pages/root--page-root-1/index.md",
       "notion/pages/root--page-root-1/child--child-1/index.md",
       "notion/pages/other--page-2/index.md",
+      "notion/databases/tasks--ds-1/rows/task--child-1/index.md",
+      "notion/databases/tasks--ds-1/rows/task--child-1/assets/file.png",
     ]
     expect(managedNotionPagePathsForSubtree(paths, "child-1")).toEqual([
       "notion/pages/root--page-root-1/child--child-1/index.md",
+      "notion/databases/tasks--ds-1/rows/task--child-1/index.md",
+      "notion/databases/tasks--ds-1/rows/task--child-1/assets/file.png",
     ])
   })
 })
@@ -95,6 +99,7 @@ describe("Notion managed path helpers", () => {
 describe("buildNotionIncrementalChanges", () => {
   beforeEach(() => {
     vi.clearAllMocks()
+    titles["page-root-1"] = "Root"
     mocks.listNotionBlockChildren.mockResolvedValue([])
     mocks.retrieveNotionPage.mockImplementation(
       async ({ pageId }: { pageId: string }) => ({
@@ -211,6 +216,30 @@ describe("buildNotionIncrementalChanges", () => {
     ])
   })
 
+  it("deletes a database row and its assets on a page delete event", async () => {
+    const result = await buildNotionIncrementalChanges({
+      env,
+      connection,
+      config,
+      entity: {
+        entityType: "page",
+        externalId: "row-1",
+        action: "delete",
+      },
+      existingPaths: [
+        "notion/databases/tasks--ds-1/rows/task--row-1/index.md",
+        "notion/databases/tasks--ds-1/rows/task--row-1/assets/file.png",
+      ],
+    })
+
+    expect(mocks.retrieveNotionPage).not.toHaveBeenCalled()
+    expect(result.files).toEqual([])
+    expect(result.deletePaths).toEqual([
+      "notion/databases/tasks--ds-1/rows/task--row-1/index.md",
+      "notion/databases/tasks--ds-1/rows/task--row-1/assets/file.png",
+    ])
+  })
+
   it("drops a database out of scope by deleting its managed files", async () => {
     const result = await buildNotionIncrementalChanges({
       env,
@@ -290,7 +319,8 @@ describe("buildNotionIncrementalChanges", () => {
     ])
   })
 
-  it("keeps the resource when an asset download fails", async () => {
+  it("keeps the prior binary when an asset download fails", async () => {
+    titles["page-root-1"] = "Renamed"
     mocks.downloadConnectorAsset.mockResolvedValue({
       status: "stub",
       reason: "download_failed",
@@ -300,7 +330,7 @@ describe("buildNotionIncrementalChanges", () => {
       url: "https://www.notion.so/root",
       parent: { type: "workspace", workspace: true },
       properties: {
-        Name: { type: "title", title: [{ plain_text: "Root" }] },
+        Name: { type: "title", title: [{ plain_text: "Renamed" }] },
       },
     })
     mocks.listNotionBlockChildren.mockResolvedValue([
@@ -324,12 +354,16 @@ describe("buildNotionIncrementalChanges", () => {
         externalId: "page-root-1",
         action: "upsert",
       },
-      existingPaths: [],
+      existingPaths: [
+        "notion/pages/root--page-root-1/index.md",
+        "notion/pages/root--page-root-1/assets/image-1--prior.png",
+        "notion/pages/root--page-root-1/assets/removed--old.png",
+      ],
     })
 
     expect(result.failures).toEqual([])
     expect(result.files.map((file) => file.path)).toEqual([
-      "notion/pages/root--page-root-1/index.md",
+      "notion/pages/renamed--page-root-1/index.md",
     ])
     const markdown = result.files[0]
     expect(markdown && "content" in markdown ? markdown.content : "").toContain(
@@ -338,5 +372,9 @@ describe("buildNotionIncrementalChanges", () => {
     expect(
       markdown && "content" in markdown ? markdown.content : "",
     ).not.toContain("images.example")
+    expect(result.deletePaths).toEqual([
+      "notion/pages/root--page-root-1/index.md",
+      "notion/pages/root--page-root-1/assets/removed--old.png",
+    ])
   })
 })

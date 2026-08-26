@@ -5,6 +5,7 @@ const withOrgDbContextMock = vi.hoisted(() =>
   vi.fn((_orgId: string, fn: () => unknown) => Promise.resolve(fn())),
 )
 const tryClaimMock = vi.hoisted(() => vi.fn().mockResolvedValue(true))
+const markFailedMock = vi.hoisted(() => vi.fn().mockResolvedValue(undefined))
 const resolveRepositoryRefMock = vi.hoisted(() =>
   vi.fn().mockResolvedValue({ hash: "sha_tip", branch: "main" }),
 )
@@ -14,6 +15,7 @@ vi.mock("../db/client.js", () => ({
 }))
 
 vi.mock("../models/repositories.js", () => ({
+  markRepositoryIndexingFailed: markFailedMock,
   tryClaimRepositoryIndexingEnqueue: tryClaimMock,
 }))
 
@@ -38,6 +40,7 @@ describe("enqueueFollowUpIfTipAhead", () => {
   beforeEach(() => {
     vi.clearAllMocks()
     tryClaimMock.mockResolvedValue(true)
+    markFailedMock.mockResolvedValue(undefined)
     resolveRepositoryRefMock.mockResolvedValue({
       hash: "sha_tip",
       branch: "main",
@@ -142,5 +145,30 @@ describe("enqueueFollowUpIfTipAhead", () => {
     expect(result).toEqual({ enqueued: false })
     expect(log.error).toHaveBeenCalled()
     expect(runWorkflowWithWorkerWakeMock).not.toHaveBeenCalled()
+  })
+
+  it("releases the claim when follow-up workflow enqueue fails", async () => {
+    const failure = new Error("enqueue failed")
+    runWorkflowWithWorkerWakeMock.mockRejectedValue(failure)
+    const log = { error: vi.fn() }
+
+    await expect(
+      enqueueFollowUpIfTipAhead(
+        {
+          orgId: "org_1",
+          repositoryId: "repo_1",
+          ingestedHash: "sha_ingested",
+        },
+        log,
+      ),
+    ).resolves.toEqual({ enqueued: true, tipHash: "sha_tip" })
+
+    await vi.waitFor(() => {
+      expect(markFailedMock).toHaveBeenCalledWith({
+        repositoryId: "repo_1",
+        error: failure,
+      })
+    })
+    expect(log.error).toHaveBeenCalledWith(failure)
   })
 })

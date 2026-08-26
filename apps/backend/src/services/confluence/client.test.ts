@@ -75,14 +75,12 @@ describe("listConfluencePageAttachments", () => {
         title: "diagram.png",
         fileSize: 2048,
         mediaType: "image/png",
-        downloadLink: "/wiki/download/attachments/42/diagram.png?version=1",
       },
       {
         id: "att200",
         title: "spec.pdf",
         fileSize: 4096,
         mediaType: "application/pdf",
-        downloadLink: "/wiki/download/attachments/42/spec.pdf",
       },
     ])
 
@@ -98,6 +96,40 @@ describe("listConfluencePageAttachments", () => {
       }),
     )
   })
+
+  it("stops metadata discovery at the requested attachment cap", async () => {
+    const fetchMock = vi.fn<typeof fetch>().mockResolvedValue(
+      new Response(
+        JSON.stringify({
+          results: [
+            { id: "att100", title: "one.png" },
+            { id: "att200", title: "two.png" },
+          ],
+          _links: {
+            next: "/wiki/api/v2/pages/42/attachments?cursor=page-2",
+          },
+        }),
+        { status: 200 },
+      ),
+    )
+    vi.stubGlobal("fetch", fetchMock)
+
+    await expect(
+      listConfluencePageAttachments({
+        client,
+        pageId: "42",
+        maxAttachments: 1,
+      }),
+    ).resolves.toEqual([
+      {
+        id: "att100",
+        title: "one.png",
+        fileSize: null,
+        mediaType: null,
+      },
+    ])
+    expect(fetchMock).toHaveBeenCalledTimes(1)
+  })
 })
 
 describe("downloadConfluenceAttachment", () => {
@@ -112,14 +144,15 @@ describe("downloadConfluenceAttachment", () => {
     await expect(
       downloadConfluenceAttachment({
         client,
-        downloadLink: "/wiki/download/attachments/42/diagram.png",
+        pageId: "42",
+        attachmentId: "att100",
         filename: "diagram.png",
         budget: createConnectorAssetBudget(),
       }),
     ).resolves.toMatchObject({ status: "downloaded", filename: "diagram.png" })
 
     expect(downloadConnectorAsset).toHaveBeenCalledWith({
-      url: "https://api.atlassian.com/ex/confluence/cloud-1/wiki/download/attachments/42/diagram.png",
+      url: "https://api.atlassian.com/ex/confluence/cloud-1/wiki/rest/api/content/42/child/attachment/att100/download",
       budget: expect.any(Object),
       filename: "diagram.png",
       headers: { authorization: "Bearer forge-app-token" },
@@ -127,7 +160,7 @@ describe("downloadConfluenceAttachment", () => {
     })
   })
 
-  it("joins a relative downloadLink onto the Atlassian gateway base", async () => {
+  it("uses the authenticated v1 attachment download endpoint", async () => {
     downloadConnectorAsset.mockResolvedValue({
       status: "downloaded",
       bytes: Buffer.from("png-bytes"),
@@ -141,14 +174,15 @@ describe("downloadConfluenceAttachment", () => {
         atlassianApiBaseUrl: null,
         appSystemToken: "forge-app-token",
       },
-      downloadLink: "/wiki/download/attachments/42/diagram.png",
+      pageId: "page/42",
+      attachmentId: "attachment/100",
       filename: "diagram.png",
       budget: createConnectorAssetBudget(),
     })
 
     expect(downloadConnectorAsset).toHaveBeenCalledWith(
       expect.objectContaining({
-        url: "https://api.atlassian.com/ex/confluence/cloud-1/wiki/download/attachments/42/diagram.png",
+        url: "https://api.atlassian.com/ex/confluence/cloud-1/wiki/rest/api/content/page%2F42/child/attachment/attachment%2F100/download",
       }),
     )
   })

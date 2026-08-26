@@ -164,12 +164,34 @@ export async function exchangeSlackOAuthCode(input: {
 
 const SLACK_API_MAX_ATTEMPTS = 3
 
+async function waitForSlackApiRetry(
+  delayMs: number,
+  signal?: AbortSignal,
+): Promise<void> {
+  await new Promise<void>((resolve, reject) => {
+    if (signal?.aborted) {
+      reject(signal.reason ?? new Error("Slack API request aborted"))
+      return
+    }
+    const onAbort = () => {
+      clearTimeout(timeout)
+      reject(signal?.reason ?? new Error("Slack API request aborted"))
+    }
+    const timeout = setTimeout(() => {
+      signal?.removeEventListener("abort", onAbort)
+      resolve()
+    }, delayMs)
+    signal?.addEventListener("abort", onAbort, { once: true })
+  })
+}
+
 async function slackApiCall<T extends { ok: boolean; error?: string }>(input: {
   method: string
   botToken: string
   query?: Record<string, string | undefined>
   /** When set, send a JSON POST body (chat.postMessage / chat.update). */
   jsonBody?: Record<string, unknown>
+  signal?: AbortSignal
 }): Promise<T> {
   const url = new URL(`${SLACK_API}/${input.method}`)
   for (const [key, value] of Object.entries(input.query ?? {})) {
@@ -189,10 +211,11 @@ async function slackApiCall<T extends { ok: boolean; error?: string }>(input: {
             : {}),
         },
         body: input.jsonBody ? JSON.stringify(input.jsonBody) : undefined,
+        ...(input.signal ? { signal: input.signal } : {}),
       })
     } catch (error) {
       if (attempt >= SLACK_API_MAX_ATTEMPTS - 1) throw error
-      await new Promise((resolve) => setTimeout(resolve, 250 * 2 ** attempt))
+      await waitForSlackApiRetry(250 * 2 ** attempt, input.signal)
       continue
     }
 
@@ -216,7 +239,7 @@ async function slackApiCall<T extends { ok: boolean; error?: string }>(input: {
         status: res.status,
         retryAfterSeconds,
       })
-      await new Promise((resolve) => setTimeout(resolve, delayMs))
+      await waitForSlackApiRetry(delayMs, input.signal)
       continue
     }
 
@@ -270,6 +293,28 @@ export type SlackApiFile = {
   permalink_public?: string
   url_private?: string
   url_private_download?: string
+}
+
+export async function fetchSlackFileInfo(input: {
+  botToken: string
+  fileId: string
+  signal?: AbortSignal
+}): Promise<SlackApiFile | undefined> {
+  try {
+    const page = await slackApiCall<{
+      ok: boolean
+      error?: string
+      file?: SlackApiFile
+    }>({
+      method: "files.info",
+      botToken: input.botToken,
+      query: { file: input.fileId },
+      signal: input.signal,
+    })
+    return page.file
+  } catch {
+    return undefined
+  }
 }
 
 export type SlackApiMessage = {
@@ -432,7 +477,7 @@ export async function listSlackConversationReplies(input: {
         channel: input.channelId,
         ts: input.threadTs,
         cursor,
-        limit: "200",
+        limit: "100",
       },
     })
     messages.push(...(page.messages ?? []))

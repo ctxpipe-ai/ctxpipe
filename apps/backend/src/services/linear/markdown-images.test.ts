@@ -167,7 +167,6 @@ describe("applyLinearAssetRewrites", () => {
           gitPath: "linear/issues/stem/assets/src-1--ab.png",
           status: "downloaded",
           filename: "ab.png",
-          bytes: new Uint8Array([1]),
         },
         {
           sourceUrl: "https://cdn.example.com/a(b(c)).png",
@@ -176,7 +175,6 @@ describe("applyLinearAssetRewrites", () => {
           gitPath: "linear/issues/stem/assets/src-2--abc.png",
           status: "downloaded",
           filename: "abc.png",
-          bytes: new Uint8Array([2]),
         },
       ],
     )
@@ -229,7 +227,6 @@ describe("applyLinearAssetRewrites", () => {
           gitPath: "linear/issues/stem/assets/src-ref--ab.png",
           status: "downloaded",
           filename: "ab.png",
-          bytes: new Uint8Array([1]),
         },
       ],
     )
@@ -293,7 +290,6 @@ describe("applyLinearAssetRewrites", () => {
           gitPath: "linear/issues/stem/assets/src-shared--shared.png",
           status: "downloaded",
           filename: "shared.png",
-          bytes: new Uint8Array([1]),
         },
       ],
     )
@@ -322,7 +318,6 @@ describe("applyLinearAssetRewrites", () => {
           gitPath: "linear/issues/stem/assets/src-ref--ab.png",
           status: "downloaded",
           filename: "ab.png",
-          bytes: new Uint8Array([1]),
         },
       ],
     )
@@ -389,7 +384,6 @@ describe("applyLinearAssetRewrites", () => {
           gitPath: "linear/issues/stem/assets/src-ref--ab.png",
           status: "downloaded",
           filename: "ab.png",
-          bytes: new Uint8Array([1]),
         },
       ],
     )
@@ -436,7 +430,6 @@ describe("applyLinearAssetRewrites", () => {
           gitPath: "linear/issues/stem/assets/src-inline--inline.png",
           status: "downloaded",
           filename: "inline.png",
-          bytes: new Uint8Array([1]),
         },
       ]),
     ).toBe(markdown)

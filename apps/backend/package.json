@@ -4,7 +4,7 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "dev": "concurrently -n backend,worker \"ENABLE_LANGSMITH=true NODE_TLS_REJECT_UNAUTHORIZED=0 portless app.ctxpipe bun run --hot src/server.ts\" \"pnpm run openworkflow:worker\"",
+    "dev": "concurrently -n backend,worker \"ENABLE_LANGSMITH=true portless app.ctxpipe bun run --hot src/server.ts\" \"pnpm run openworkflow:worker\"",
     "build": "tsc",
     "start": "bun run dist/server.js",
     "test": "vitest run",
@@ -18,11 +18,12 @@
     "migrate": "pnpm run db:migrate",
     "db:studio": "drizzle-kit studio",
     "mcp:inspect": "pnpm dlx @modelcontextprotocol/inspector --config ../../.cursor/mcp.json --server ctxpipe",
-    "openworkflow:worker": "NODE_TLS_REJECT_UNAUTHORIZED=0 bunx @openworkflow/cli worker start",
+    "openworkflow:worker": "bunx @openworkflow/cli worker start",
     "openworkflow:dashboard": "pnpm dlx @openworkflow/cli dashboard --port 8000",
     "openworkflow:doctor": "pnpm dlx @openworkflow/cli doctor",
     "rerun-skill-derivation": "bun run src/scripts/rerunSkillDerivation.ts",
-    "verify-instruction-ingestion": "bun run src/scripts/verifyInstructionIngestion.ts"
+    "verify-instruction-ingestion": "bun run src/scripts/verifyInstructionIngestion.ts",
+    "verify-connector-assets-runtime": "bun run src/scripts/verifyConnectorAssetRuntime.ts"
   },
   "dependencies": {
     "@ai-sdk/langchain": "^3.0.11",

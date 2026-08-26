@@ -5,6 +5,7 @@ import {
   type LinearScope,
   withLinearBindingSnapshot,
 } from "../../models/linear-connector.js"
+import { connectorPathMatchesPreservation } from "../connectors/assets.js"
 import {
   closePullRequest,
   commitFiles,
@@ -14,7 +15,7 @@ import {
   listFilesInTree,
   parseGithubPullNumberFromUrl,
 } from "../github/installation-write-client.js"
-import { omitUnchangedLinearBinaryFiles } from "./assets.js"
+import { omitUnchangedLinearFiles } from "./assets.js"
 import type { LinearTokenRefreshHandler } from "./client.js"
 import { LINEAR_CONFIG_PATH } from "./config-from-repo.js"
 import type { ParsedLinearRepoConfig } from "./config-yaml.js"
@@ -135,11 +136,19 @@ export async function syncLinearContentToGit(input: {
       "linear/config.yaml workspace does not match the Linear connection",
     )
   }
+  const existing = await listFilesInTree({
+    orgId: input.orgId,
+    env: input.env,
+    repositoryName: input.target.repositoryName,
+    githubConnectionId,
+    branch: input.target.branch,
+  })
   const mirror = await buildLinearMirror({
     env: input.env,
     connection: input.connection,
     config: input.config,
     onTokenRefresh: input.onTokenRefresh,
+    existingBlobs: existing,
   })
   if (mirror.files.length === 0 && mirror.failures.length > 0) {
     return {
@@ -150,13 +159,6 @@ export async function syncLinearContentToGit(input: {
     }
   }
 
-  const existing = await listFilesInTree({
-    orgId: input.orgId,
-    env: input.env,
-    repositoryName: input.target.repositoryName,
-    githubConnectionId,
-    branch: input.target.branch,
-  })
   const nextPaths = new Set(mirror.files.map((file) => file.path))
   const deletePaths =
     mirror.failures.length === 0
@@ -166,10 +168,13 @@ export async function syncLinearContentToGit(input: {
             (path) =>
               path.startsWith("linear/") &&
               path !== LINEAR_CONFIG_PATH &&
-              !nextPaths.has(path),
+              !nextPaths.has(path) &&
+              !(mirror.preservePathPrefixes ?? []).some((prefix) =>
+                connectorPathMatchesPreservation(path, prefix),
+              ),
           )
       : []
-  const filesToWrite = omitUnchangedLinearBinaryFiles(mirror.files, existing)
+  const filesToWrite = omitUnchangedLinearFiles(mirror.files, existing)
 
   await withLinearBindingSnapshot(
     {
@@ -233,7 +238,7 @@ export async function syncLinearIncrementalContent(input: {
     existingPaths: existing.map((file) => file.path),
     onTokenRefresh: input.onTokenRefresh,
   })
-  const filesToWrite = omitUnchangedLinearBinaryFiles(changes.files, existing)
+  const filesToWrite = omitUnchangedLinearFiles(changes.files, existing)
   await withLinearBindingSnapshot(
     {
       connectionId: input.connection.id,

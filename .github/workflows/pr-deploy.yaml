@@ -422,7 +422,8 @@ jobs:
             upsert_preview_worker_idle_exit() {
               local service_id="$1"
               # Explicit OPENWORKFLOW_PR_IDLE_EXIT so supervisor idle-exits even if
-              # RAILWAY_ENVIRONMENT_NAME is missing. 180s idle; 1h stale window.
+              # RAILWAY_ENVIRONMENT_NAME is missing. 180s idle; 6h stale window
+              # so a long connector reconciliation is not killed as "idle".
               railway_graphql \
                 'mutation variableCollectionUpsert($input: VariableCollectionUpsertInput!) { variableCollectionUpsert(input: $input) }' \
                 "$(jq -nc --arg project "$RAILWAY_PROJECT_ID" --arg env "$ENV_ID" --arg service "$service_id" \
@@ -435,11 +436,11 @@ jobs:
                       variables: {
                         OPENWORKFLOW_PR_IDLE_EXIT: "true",
                         OPENWORKFLOW_IDLE_EXIT_SECONDS: "180",
-                        OPENWORKFLOW_IDLE_STALE_AFTER_HOURS: "1"
+                        OPENWORKFLOW_IDLE_STALE_AFTER_HOURS: "6"
                       }
                     }
                   }')"
-              echo "Set OPENWORKFLOW_PR_IDLE_EXIT + IDLE_EXIT=180 + STALE_AFTER_HOURS=1 for worker $service_id"
+              echo "Set OPENWORKFLOW_PR_IDLE_EXIT + IDLE_EXIT=180 + STALE_AFTER_HOURS=6 for worker $service_id"
             }
 
             update_source_image() {

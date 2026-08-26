@@ -18,7 +18,7 @@ export type LinearMarkdownLinkReference = {
   end: number
   source: string
   label: string
-  identifier: string
+  identifier?: string
   url: string
 }
 
@@ -200,6 +200,40 @@ function parseLinearMarkdownReferences(markdown: string): {
       return
     }
 
+    if (node.type === "html" && node.value && /^<img\b/i.test(node.value)) {
+      const sourceMatch = node.value.match(
+        /\bsrc\s*=\s*(?:"([^"]+)"|'([^']+)'|([^\s>]+))/i,
+      )
+      const url = normalizeHttpUrl(
+        sourceMatch?.[1] ?? sourceMatch?.[2] ?? sourceMatch?.[3] ?? "",
+      )
+      if (!url) return
+      const altMatch = node.value.match(
+        /\balt\s*=\s*(?:"([^"]*)"|'([^']*)'|([^\s>]+))/i,
+      )
+      images.push({
+        start: span.start,
+        end: span.end,
+        source: markdown.slice(span.start, span.end),
+        alt: altMatch?.[1] ?? altMatch?.[2] ?? altMatch?.[3] ?? "",
+        url,
+      })
+      return
+    }
+
+    if (node.type === "link") {
+      const url = normalizeHttpUrl(node.url ?? "")
+      if (!url) return
+      links.push({
+        start: span.start,
+        end: span.end,
+        source: markdown.slice(span.start, span.end),
+        label: phrasingText(node).trim() || "link",
+        url,
+      })
+      return
+    }
+
     if (node.type !== "linkReference" || !node.identifier) return
     const resolved = definitions.get(node.identifier)
     if (!resolved) return
@@ -238,10 +272,10 @@ export function rewriteLinearMarkdownImages(
   }
 
   for (const link of parsed.links) {
-    if (!capturedIdentifiers.has(link.identifier)) continue
     const next = replaceLink(link)
     if (next === link.source) continue
     edits.push({ start: link.start, end: link.end, text: next })
+    if (link.identifier) capturedIdentifiers.add(link.identifier)
   }
 
   for (const identifier of capturedIdentifiers) {
@@ -259,4 +293,10 @@ export function scanLinearMarkdownImages(
   markdown: string,
 ): LinearMarkdownImage[] {
   return parseLinearMarkdownReferences(markdown).images
+}
+
+export function scanLinearMarkdownLinks(
+  markdown: string,
+): LinearMarkdownLinkReference[] {
+  return parseLinearMarkdownReferences(markdown).links
 }

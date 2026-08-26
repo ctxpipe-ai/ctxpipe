@@ -3,6 +3,7 @@ import type { Env } from "../../config/env.js"
 import {
   capSlackThreadMessages,
   exchangeSlackOAuthCode,
+  fetchSlackFileInfo,
   getSlackOAuthAuthorizeUrl,
   type SlackOAuthMissingScopesError,
   verifySlackInstallation,
@@ -79,9 +80,7 @@ describe("Slack OAuth client", () => {
           JSON.stringify({
             ok: true,
             access_token: "xoxb-test",
-            scope: ["reactions:read", ...SLACK_BOT_SCOPES]
-              .reverse()
-              .join(","),
+            scope: ["reactions:read", ...SLACK_BOT_SCOPES].reverse().join(","),
           }),
           { status: 200 },
         ),
@@ -107,8 +106,7 @@ describe("Slack OAuth client", () => {
           {
             status: 200,
             headers: {
-              "x-oauth-scopes":
-                "chat:write,app_mentions:read,channels:history",
+              "x-oauth-scopes": "chat:write,app_mentions:read,channels:history",
             },
           },
         ),
@@ -144,11 +142,7 @@ describe("Slack OAuth client", () => {
       reportedTeamId: "T_TRU",
       reportedBotUserId: "U_BOT",
       botId: "B_BOT",
-      grantedScopes: [
-        "app_mentions:read",
-        "channels:history",
-        "chat:write",
-      ],
+      grantedScopes: ["app_mentions:read", "channels:history", "chat:write"],
       missingScopes: [
         "channels:read",
         "groups:history",
@@ -181,5 +175,28 @@ describe("capSlackThreadMessages", () => {
       messages: ["a", "b"],
       truncated: true,
     })
+  })
+})
+
+describe("fetchSlackFileInfo", () => {
+  it("does not wait or retry past an aborted asset deadline", async () => {
+    const fetchMock = vi.fn<typeof fetch>().mockResolvedValue(
+      new Response(JSON.stringify({ ok: false, error: "ratelimited" }), {
+        status: 429,
+        headers: { "Retry-After": "60" },
+      }),
+    )
+    vi.stubGlobal("fetch", fetchMock)
+    const controller = new AbortController()
+    controller.abort(new Error("asset deadline"))
+
+    await expect(
+      fetchSlackFileInfo({
+        botToken: "xoxb-test",
+        fileId: "F1",
+        signal: controller.signal,
+      }),
+    ).resolves.toBeUndefined()
+    expect(fetchMock).toHaveBeenCalledTimes(1)
   })
 })

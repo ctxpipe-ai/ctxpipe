@@ -54,6 +54,23 @@ describe("Notion stale file cleanup", () => {
     ).toEqual([])
   })
 
+  it("preserves only the transiently unavailable asset during a complete sync", () => {
+    const prior =
+      "notion/pages/root--page-1/assets/image-1--prior-screenshot.png"
+    expect(
+      getNotionDeletePaths({
+        managedRepoPaths: [
+          "notion/pages/root--page-1/index.md",
+          prior,
+          "notion/pages/root--page-1/assets/removed--old.png",
+        ],
+        desiredPaths: new Set(["notion/pages/root--page-1/index.md"]),
+        resourcesFailed: 0,
+        preservePathPrefixes: ["notion/pages/root--page-1/assets/image-1--"],
+      }),
+    ).toEqual(["notion/pages/root--page-1/assets/removed--old.png"])
+  })
+
   it("reconciles full-sync desired binaries, prunes stale assets, and skips unchanged blobs", async () => {
     const bytes = Buffer.from("png-bytes")
     const page: NotionPage = {

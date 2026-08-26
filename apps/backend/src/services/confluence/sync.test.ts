@@ -1,9 +1,11 @@
 import { beforeEach, describe, expect, it, vi } from "vitest"
 import type { Env } from "../../config/env.js"
 import type { ConfluenceSyncTarget } from "../../models/confluence-sync-target.js"
+import type { ConnectorAssetBudget } from "../connectors/assets.js"
 import {
   connectorAssetCommitFile,
   consumeConnectorAssetBudget,
+  gitBlobSha,
 } from "../connectors/assets.js"
 
 const limitMock = vi.hoisted(() => vi.fn())
@@ -235,7 +237,7 @@ describe("syncConfluenceContent safety", () => {
     expect(github.commitFiles).not.toHaveBeenCalled()
   })
 
-  it("does not reconcile git when single_upsert has no matching repo scope row", async () => {
+  it("ignores single-page events outside repository scope", async () => {
     github.listFilesInTree.mockResolvedValue([
       { path: "confluence/ENG/design--42.md", sha: "keep" },
       {
@@ -260,14 +262,10 @@ describe("syncConfluenceContent safety", () => {
         },
       }),
     ).resolves.toMatchObject({
-      status: "failed",
+      status: "completed",
       pagesProcessed: 0,
-      errors: [
-        expect.objectContaining({
-          spaceKey: "ENG",
-          pageId: "42",
-        }),
-      ],
+      pagesFailed: 0,
+      errors: [],
     })
 
     expect(github.listFilesInTree).not.toHaveBeenCalled()
@@ -566,6 +564,10 @@ describe("syncConfluenceContent assets", () => {
     )
     expect(markdown?.content).toContain("Before.")
     expect(markdown?.content).toContain("After.")
+    expect(markdown?.content).toContain("## Attachments")
+    expect(markdown?.content).toContain(
+      "[unused.pdf](_assets/42/att200--unused.pdf)",
+    )
     expect(files).toEqual(
       expect.arrayContaining([
         {
@@ -582,6 +584,96 @@ describe("syncConfluenceContent assets", () => {
         },
       ]),
     )
+  })
+
+  it("does not crawl ordinary Confluence links", async () => {
+    confluence.getConfluencePageWithBody.mockResolvedValue({
+      id: "42",
+      title: "Design",
+      spaceId: "space-1",
+      parentId: null,
+      bodyStorage:
+        '<p>Read <ac:link><ri:url ri:value="https://example.com/guide" /><ac:plain-text-link-body><![CDATA[the guide]]></ac:plain-text-link-body></ac:link>.</p>',
+    })
+    confluence.listConfluencePageAttachments.mockResolvedValue([])
+
+    await syncConfluenceContent({
+      orgId: "org_1",
+      env,
+      forgeInstallation,
+      target,
+      scopeFromRepo,
+    })
+
+    expect(downloadConnectorAsset).not.toHaveBeenCalled()
+    const markdown = committedFiles().find(
+      (file) => file.path === "confluence/ENG/design--42.md",
+    )
+    expect(markdown?.content).toContain(
+      "Read [the guide](https://example.com/guide).",
+    )
+  })
+
+  it("preserves a prior attachment when its recapture download fails", async () => {
+    const prior = "confluence/ENG/_assets/42/att100--diagram.png"
+    github.listFilesInTree.mockResolvedValue([
+      { path: "confluence/ENG/design--42.md", sha: "old-markdown" },
+      { path: prior, sha: "old-binary" },
+      { path: "confluence/ENG/_assets/42/removed--old.png", sha: "stale" },
+    ])
+    confluence.downloadConfluenceAttachment.mockImplementation(
+      async ({ filename }: { filename: string }) =>
+        filename === "diagram.png"
+          ? { status: "stub", reason: "download_failed" }
+          : {
+              status: "downloaded",
+              bytes: Buffer.from("pdf-bytes"),
+              filename: "unused.pdf",
+              contentType: "application/pdf",
+            },
+    )
+
+    await syncConfluenceContent({
+      orgId: "org_1",
+      env,
+      forgeInstallation,
+      target,
+      scopeFromRepo,
+    })
+
+    const deletePaths = github.commitFiles.mock.calls[0]?.[0]
+      ?.deletePaths as string[]
+    expect(deletePaths).not.toContain(prior)
+    expect(deletePaths).toContain("confluence/ENG/_assets/42/removed--old.png")
+  })
+
+  it("prunes a dangling attachment after complete metadata discovery", async () => {
+    const prior = "confluence/ENG/_assets/42/att-old--removed.png"
+    github.listFilesInTree.mockResolvedValue([
+      { path: "confluence/ENG/design--42.md", sha: "old-markdown" },
+      { path: prior, sha: "old-binary" },
+    ])
+    confluence.listConfluencePageAttachments.mockResolvedValue([])
+    confluence.getConfluencePageWithBody.mockResolvedValue({
+      id: "42",
+      title: "Design",
+      spaceId: "space-1",
+      parentId: null,
+      bodyStorage:
+        '<p><ac:image><ri:attachment ri:filename="removed.png" /></ac:image></p>',
+    })
+
+    await syncConfluenceContent({
+      orgId: "org_1",
+      env,
+      forgeInstallation,
+      target,
+      scopeFromRepo,
+    })
+
+    const deletePaths = github.commitFiles.mock.calls[0]?.[0]
+      ?.deletePaths as string[]
+    expect(deletePaths).toContain(prior)
   })
 
   it("prunes only the affected space during a space-scoped full reconcile", async () => {
@@ -687,7 +779,10 @@ describe("syncConfluenceContent assets", () => {
   it("keeps current assets in the full reconcile desired set", async () => {
     github.listFilesInTree.mockResolvedValue([
       { path: "confluence/config.yaml", sha: "config" },
-      { path: "confluence/ENG/_assets/42/att100--diagram.png", sha: "keep" },
+      {
+        path: "confluence/ENG/_assets/42/att100--diagram.png",
+        sha: gitBlobSha(diagramBytes),
+      },
       { path: "confluence/ENG/_assets/42/stale--old.png", sha: "stale" },
     ])
 
@@ -704,6 +799,16 @@ describe("syncConfluenceContent assets", () => {
         deletePaths: ["confluence/ENG/_assets/42/stale--old.png"],
       }),
     )
+    expect(
+      committedFiles().some(
+        (file) => file.path === "confluence/ENG/_assets/42/att100--diagram.png",
+      ),
+    ).toBe(false)
+    expect(
+      committedFiles().find(
+        (file) => file.path === "confluence/ENG/design--42.md",
+      )?.content,
+    ).toContain("![Architecture](_assets/42/att100--diagram.png)")
   })
 
   it("does not delete a failed page markdown or its asset prefix during full reconcile", async () => {
@@ -1044,6 +1149,51 @@ describe("syncConfluenceContent assets", () => {
     expect(confluence.downloadConfluenceAttachment).not.toHaveBeenCalled()
   })
 
+  it("renders an explicit stub when attachment discovery is truncated", async () => {
+    confluence.listConfluencePageAttachments.mockResolvedValue(
+      Array.from({ length: 101 }, (_, index) => ({
+        id: `att-${index}`,
+        title: `attachment-${index}.bin`,
+        fileSize: 26 * 1024 * 1024,
+        mediaType: "application/octet-stream",
+      })),
+    )
+    github.listFilesInTree.mockResolvedValue([
+      { path: "confluence/ENG/design--42.md", sha: "markdown" },
+      {
+        path: "confluence/ENG/_assets/42/att-100--attachment-100.bin",
+        sha: "current-over-cap",
+      },
+      {
+        path: "confluence/ENG/_assets/42/stale--removed.bin",
+        sha: "stale",
+      },
+    ])
+
+    await syncConfluenceContent({
+      orgId: "org_1",
+      env,
+      forgeInstallation,
+      target,
+      scopeFromRepo,
+    })
+
+    const markdown = committedFiles().find(
+      (file) => file.path === "confluence/ENG/design--42.md",
+    )
+    expect(markdown?.content).toContain(
+      "[omitted: Additional attachments (page exceeds 100 MiB of attachments)]",
+    )
+    expect(confluence.listConfluencePageAttachments).toHaveBeenCalledWith(
+      expect.objectContaining({ maxAttachments: 1_001 }),
+    )
+    expect(github.commitFiles).toHaveBeenCalledWith(
+      expect.objectContaining({
+        deletePaths: ["confluence/ENG/_assets/42/stale--removed.bin"],
+      }),
+    )
+  })
+
   it("stubs later attachments once the page exceeds 100 MiB without failing the page", async () => {
     const twentyFourMiB = 24 * 1024 * 1024
     confluence.getConfluencePageWithBody.mockResolvedValue({
@@ -1079,7 +1229,7 @@ describe("syncConfluenceContent assets", () => {
         budget,
       }: {
         filename: string
-        budget: { remainingBytes: number; maxAssetBytes: number }
+        budget: ConnectorAssetBudget
       }) => {
         const consumed = consumeConnectorAssetBudget(budget, twentyFourMiB)
         if (!consumed.ok) {

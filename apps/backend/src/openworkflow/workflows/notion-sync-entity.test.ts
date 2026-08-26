@@ -120,6 +120,7 @@ describe("notionSyncEntity", () => {
         repositoryId: "repo_1",
         orgId: "org_1",
         indexingReason: "Applying Notion updates",
+        targetBranch: "main",
       },
       expect.any(Object),
     )
