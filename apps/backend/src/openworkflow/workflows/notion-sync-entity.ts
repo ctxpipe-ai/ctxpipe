@@ -9,7 +9,7 @@ import {
 import { getLogger } from "../../observability/logger.js"
 import { loadNotionScopeFromRepo } from "../../services/notion/config-from-repo.js"
 import { syncNotionIncrementalContent } from "../../services/notion/sync.js"
-import { runRepositoryIngestionWorkflow } from "../enqueue-repository-ingestion.js"
+import { claimAndRunRepositoryIngestionChild } from "../enqueue-repository-ingestion.js"
 
 const notionSyncEntityInputSchema = z.object({
   orgId: z.string().min(1),
@@ -107,22 +107,21 @@ export const notionSyncEntity = defineWorkflow(
     )
 
     if (result.written > 0 || result.deleted > 0) {
-      await step.run({ name: "ingest-notion-entity" }, () =>
-        runRepositoryIngestionWorkflow(
-          {
-            repositoryId: context.binding.repositoryId,
-            orgId: input.orgId,
-            targetBranch: context.binding.branch,
-            indexingReason: "Applying Notion updates",
-          },
-          {
-            error: (error) =>
-              getLogger().error(error, {
-                step: "notion-sync-entity.ingestion",
-                connectionId: input.connectionId,
-              }),
-          },
-        ),
+      await claimAndRunRepositoryIngestionChild(
+        step,
+        {
+          repositoryId: context.binding.repositoryId,
+          orgId: input.orgId,
+          targetBranch: context.binding.branch,
+          indexingReason: "Applying Notion updates",
+        },
+        {
+          error: (error) =>
+            getLogger().error(error, {
+              step: "notion-sync-entity.ingestion",
+              connectionId: input.connectionId,
+            }),
+        },
       )
     }
 

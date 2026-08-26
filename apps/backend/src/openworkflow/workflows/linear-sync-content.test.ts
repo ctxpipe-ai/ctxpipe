@@ -32,7 +32,7 @@ vi.mock("../../services/linear/sync.js", () => ({
   syncLinearContentToGit: mocks.syncContent,
 }))
 vi.mock("../enqueue-repository-ingestion.js", () => ({
-  runRepositoryIngestionWorkflow: vi.fn(),
+  claimAndRunRepositoryIngestionChild: vi.fn(),
 }))
 
 import { linearSyncContent } from "./linear-sync-content.js"
