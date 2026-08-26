@@ -4,6 +4,7 @@ import {
   parseSseDataLines,
   takeWorkspaceChatProducer,
   workspaceChatRunStarted,
+  workspaceChatSandboxSetupChunk,
   withWorkspaceChatHeartbeats,
 } from "./workspace-chat-agui.js"
 
@@ -31,6 +32,19 @@ describe("workspace chat AG-UI", () => {
       "RUN_STARTED",
       "TEXT_MESSAGE_CONTENT",
     ])
+  })
+
+  it("builds a sandbox-setup CUSTOM chunk", () => {
+    expect(workspaceChatSandboxSetupChunk("starting")).toMatchObject({
+      type: "CUSTOM",
+      name: "sandbox-setup",
+      value: { phase: "starting" },
+    })
+    expect(workspaceChatSandboxSetupChunk("ready")).toMatchObject({
+      type: "CUSTOM",
+      name: "sandbox-setup",
+      value: { phase: "ready" },
+    })
   })
 
   it("keeps a heartbeat comment-equivalent CUSTOM event while the producer is idle", async () => {

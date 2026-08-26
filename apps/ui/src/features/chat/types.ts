@@ -17,6 +17,8 @@ export type ChatMessage = {
     name?: string
     id?: string
     data?: unknown
+    input?: unknown
+    arguments?: string
   }>
   createdAt?: Date
 }

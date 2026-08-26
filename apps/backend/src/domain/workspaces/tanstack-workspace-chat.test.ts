@@ -228,6 +228,29 @@ const baseInput = {
   writeStatus: "writable" as const,
 }
 
+async function pullUntilSandboxReady(
+  stream: AsyncGenerator<object, void>,
+): Promise<object[]> {
+  const seen: object[] = []
+  for (;;) {
+    const next = await stream.next()
+    if (next.done || next.value == null) return seen
+    seen.push(next.value)
+    const chunk = next.value as {
+      type?: string
+      name?: string
+      value?: { phase?: string }
+    }
+    if (
+      chunk.type === "CUSTOM" &&
+      chunk.name === "sandbox-setup" &&
+      chunk.value?.phase === "ready"
+    ) {
+      return seen
+    }
+  }
+}
+
 async function runTanstackWorkspaceChat(
   input: Parameters<typeof runTanstackWorkspaceChatHttp>[0],
 ) {
@@ -337,6 +360,8 @@ describe("runTanstackWorkspaceChat", () => {
     const secondStarted = await second.next()
     expect(firstStarted.value).toMatchObject({ type: "RUN_STARTED" })
     expect(secondStarted.value).toMatchObject({ type: "RUN_STARTED" })
+    await pullUntilSandboxReady(first)
+    await pullUntilSandboxReady(second)
     expect(startWorkspaceChatModelProxyMock).not.toHaveBeenCalled()
     const ports = opencodeTextMock.mock.calls.map((call) => call[1]?.port)
     expect(ports).toHaveLength(2)
@@ -669,6 +694,47 @@ describe("streamTanstackWorkspaceChat", () => {
       events.some((chunk) => (chunk as { type?: string }).type === "RUN_ERROR"),
     ).toBe(true)
     expect(invalidateChatSandboxMock).not.toHaveBeenCalled()
+  })
+
+  it("emits sandbox-setup starting before a delayed startWorkspaceChat resolves", async () => {
+    let releaseSetup: (() => void) | undefined
+    const setupHold = new Promise<void>((resolve) => {
+      releaseSetup = resolve
+    })
+    memorySandboxSnapshotsMock.mockImplementationOnce(async () => {
+      await setupHold
+      return {
+        persistence: { stores: {} },
+        checkpoints: {},
+      }
+    })
+    const stream = streamTanstackWorkspaceChat(baseInput)
+    const started = await stream.next()
+    const starting = await stream.next()
+    expect(started.value).toMatchObject({ type: "RUN_STARTED" })
+    expect(starting.value).toMatchObject({
+      type: "CUSTOM",
+      name: "sandbox-setup",
+      value: { phase: "starting" },
+    })
+    const readyPromise = stream.next()
+    await vi.waitFor(() => {
+      expect(memorySandboxSnapshotsMock).toHaveBeenCalled()
+    })
+    expect(chatMock).not.toHaveBeenCalled()
+    releaseSetup?.()
+    const ready = await readyPromise
+    expect(ready.value).toMatchObject({
+      type: "CUSTOM",
+      name: "sandbox-setup",
+      value: { phase: "ready" },
+    })
+    expect(chatMock).toHaveBeenCalled()
+    const types: string[] = []
+    for await (const chunk of stream) {
+      types.push((chunk as { type?: string }).type ?? "")
+    }
+    expect(types.filter((type) => type === "RUN_STARTED")).toEqual([])
   })
 
   it("touches lastMessageAt before chat() when onUserPersist is set", async () => {

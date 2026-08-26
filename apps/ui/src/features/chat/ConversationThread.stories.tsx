@@ -74,7 +74,9 @@ export const ToolUseExpanded: Story = {
   },
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement)
-    await userEvent.click(canvas.getByRole("button", { name: /used 3 tools/i }))
+    await userEvent.click(
+      canvas.getByRole("button", { name: /read 1 file, 2 searches/i }),
+    )
   },
 }
 
@@ -114,5 +116,19 @@ export const Waiting: Story = {
       } satisfies ChatMessage,
     ],
     status: "submitted",
+  },
+}
+
+export const SettingUpSandbox: Story = {
+  args: {
+    messages: [
+      {
+        id: "msg_setup_u1",
+        role: "user",
+        parts: [{ type: "text", content: "What's in this Workspace?" }],
+      } satisfies ChatMessage,
+    ],
+    status: "submitted",
+    waitLabel: "Setting up sandbox",
   },
 }

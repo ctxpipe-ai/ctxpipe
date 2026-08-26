@@ -352,6 +352,7 @@ export const oneToolMessages: ChatMessage[] = [
         type: "tool-call",
         id: "tc_hybrid_1",
         name: "hybrid_search",
+        input: { query: "where is login documented" },
       },
       {
         type: "text",
@@ -373,9 +374,24 @@ export const manyToolMessages: ChatMessage[] = [
     id: "msg_tools_a1",
     role: "assistant",
     parts: [
-      { type: "tool-call", id: "tc_1", name: "hybrid_search" },
-      { type: "tool-call", id: "tc_2", name: "get_file" },
-      { type: "tool-call", id: "tc_3", name: "glob_files" },
+      {
+        type: "tool-call",
+        id: "tc_1",
+        name: "hybrid_search",
+        input: { query: "billing ledger" },
+      },
+      {
+        type: "tool-call",
+        id: "tc_2",
+        name: "get_file",
+        input: { filePath: "knowledge/billing/ledger.md" },
+      },
+      {
+        type: "tool-call",
+        id: "tc_3",
+        name: "glob_files",
+        input: { pattern: "knowledge/billing/**/*.md" },
+      },
       {
         type: "text",
         content: "Billing is defined by knowledge/billing/ledger.md.",
@@ -396,8 +412,18 @@ export const streamingToolMessages: ChatMessage[] = [
     id: "msg_tools_live_a1",
     role: "assistant",
     parts: [
-      { type: "tool-call", id: "tc_live_1", name: "hybrid_search" },
-      { type: "tool-call", id: "tc_live_2", name: "get_file" },
+      {
+        type: "tool-call",
+        id: "tc_live_1",
+        name: "hybrid_search",
+        input: { query: "summarize the repo" },
+      },
+      {
+        type: "tool-call",
+        id: "tc_live_2",
+        name: "get_file",
+        input: { filePath: "README.md" },
+      },
     ],
     createdAt: new Date("2026-08-16T09:46:02.000Z"),
   },
@@ -419,9 +445,24 @@ export const reasoningAndToolsMessages: ChatMessage[] = [
         content:
           "The payments API claims DEPENDS_ON ledger.md. Invoice documents are generated from that file, so they are a derived view rather than the source of truth. I should confirm by searching the billing docs and then reading the ledger itself before answering.",
       },
-      { type: "tool-call", id: "tc_all_1", name: "hybrid_search" },
-      { type: "tool-call", id: "tc_all_2", name: "get_file" },
-      { type: "tool-call", id: "tc_all_3", name: "glob_files" },
+      {
+        type: "tool-call",
+        id: "tc_all_1",
+        name: "hybrid_search",
+        input: { query: "ledger vs invoices" },
+      },
+      {
+        type: "tool-call",
+        id: "tc_all_2",
+        name: "get_file",
+        input: { filePath: "knowledge/billing/ledger.md" },
+      },
+      {
+        type: "tool-call",
+        id: "tc_all_3",
+        name: "glob_files",
+        input: { pattern: "knowledge/billing/**/*.md" },
+      },
       {
         type: "text",
         content:
@@ -453,8 +494,18 @@ export const streamingReasoningAndToolsMessages: ChatMessage[] = [
         content:
           "The payments API claims DEPENDS_ON ledger.md. Invoice documents are generated from that file, so they are a derived view. Searching billing docs next.",
       },
-      { type: "tool-call", id: "tc_all_live_1", name: "hybrid_search" },
-      { type: "tool-call", id: "tc_all_live_2", name: "get_file" },
+      {
+        type: "tool-call",
+        id: "tc_all_live_1",
+        name: "hybrid_search",
+        input: { query: "ledger vs invoices" },
+      },
+      {
+        type: "tool-call",
+        id: "tc_all_live_2",
+        name: "get_file",
+        input: { filePath: "knowledge/billing/ledger.md" },
+      },
     ],
     createdAt: new Date("2026-08-16T09:47:21.000Z"),
   },

@@ -65,6 +65,7 @@ import {
   workspaceChatRunError,
   workspaceChatRunFinished,
   workspaceChatRunStarted,
+  workspaceChatSandboxSetupChunk,
   workspaceChatWireFormat,
 } from "./workspace-chat-agui.js"
 import {
@@ -213,16 +214,19 @@ async function* streamTanstackWorkspaceChatBody(
   const turn: TanstackWorkspaceChatInput = { ...input, ...resolved }
   await turn.onUserPersist?.()
 
+  yield workspaceChatRunStarted({
+    conversationId: turn.conversationId,
+    runId: turn.runId,
+  })
+  yield workspaceChatSandboxSetupChunk("starting")
+
   const prepared = await startWorkspaceChat(turn)
   if (!prepared.ok) {
     await turn.onError?.()
-    yield workspaceChatRunStarted({
-      conversationId: turn.conversationId,
-      runId: turn.runId,
-    })
     yield workspaceChatRunError(prepared.error)
     return
   }
+  yield workspaceChatSandboxSetupChunk("ready")
 
   let lastHeartbeatAt: Date | null = new Date()
   heartbeatChatSandboxes(turn.conversationId, lastHeartbeatAt)
@@ -280,6 +284,9 @@ async function* streamTanstackWorkspaceChatBody(
               ? typed.message
               : "OpenCode chat stream failed",
           )
+          continue
+        }
+        if (typed.type === "RUN_STARTED") {
           continue
         }
         if (typed.type === "RUN_FINISHED") {

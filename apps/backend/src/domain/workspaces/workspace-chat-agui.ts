@@ -8,6 +8,9 @@ import { generateObjectId } from "../../lib/id.js"
 export const WORKSPACE_CHAT_HEARTBEAT_MS = 10_000
 export const WORKSPACE_CHAT_RENAME_EVENT = "rename-conversation"
 export const WORKSPACE_CHAT_HEARTBEAT_EVENT = "heartbeat"
+export const WORKSPACE_CHAT_SANDBOX_SETUP_EVENT = "sandbox-setup"
+
+export type WorkspaceChatSandboxSetupPhase = "starting" | "ready"
 
 export type WorkspaceChatWireFormat = "sse" | "ndjson"
 
@@ -17,6 +20,17 @@ export function workspaceChatWireFormat(request: Request): WorkspaceChatWireForm
     return "ndjson"
   }
   return "sse"
+}
+
+export function workspaceChatSandboxSetupChunk(
+  phase: WorkspaceChatSandboxSetupPhase,
+): StreamChunk {
+  return {
+    type: "CUSTOM",
+    name: WORKSPACE_CHAT_SANDBOX_SETUP_EVENT,
+    value: { phase },
+    timestamp: Date.now(),
+  } as StreamChunk
 }
 
 export function conversationRenameChunk(name: string): StreamChunk {

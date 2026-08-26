@@ -1,4 +1,4 @@
-import { IconBrain, IconTool } from "@tabler/icons-react"
+import { IconBrain, IconFile, IconSearch, IconTool } from "@tabler/icons-react"
 import { type ReactElement, useState } from "react"
 import { Button as AriaButton } from "react-aria-components"
 import {
@@ -12,6 +12,13 @@ import {
   MessageResponse,
 } from "@/components/ai-elements/message"
 import { InlineAlert } from "@/components/ui/InlineAlert"
+import {
+  collapsedToolChips,
+  summarizeToolCalls,
+  toolBucketCounts,
+  type ToolBucket,
+  type ToolCallSummary,
+} from "@/features/chat/conversation-thread-utils"
 import type { ChatMessage, ChatStatus } from "@/features/chat/types"
 import { focusVisibleClassName } from "@/lib/focus-styles"
 import { cn } from "@/lib/utils"
@@ -24,20 +31,10 @@ function partText(part: ChatPart): string {
   return (part.content ?? part.text ?? "").trim()
 }
 
-function uniqueToolCalls(
-  parts: ChatPart[],
-): Array<{ id: string; name: string }> {
-  const seen = new Set<string>()
-  const tools: Array<{ id: string; name: string }> = []
-  for (const part of parts) {
-    if (part.type !== "tool-call") continue
-    const name = part.name?.trim() || "tool"
-    const id = part.id?.trim() || `${name}-${tools.length}`
-    if (seen.has(id)) continue
-    seen.add(id)
-    tools.push({ id, name })
-  }
-  return tools
+function bucketIcon(bucket: ToolBucket) {
+  if (bucket === "read") return <IconFile className="size-4" aria-hidden />
+  if (bucket === "search") return <IconSearch className="size-4" aria-hidden />
+  return <IconTool className="size-4" aria-hidden />
 }
 
 function isActivityMessagePart(part: ChatPart) {
@@ -123,20 +120,26 @@ function ReasoningBox(props: {
   )
 }
 
-function ToolUseRow(props: {
-  tools: Array<{ id: string; name: string }>
+function ToolChip(props: {
+  bucket: ToolBucket
+  label: string
   live: boolean
 }) {
+  return (
+    <span className="inline-flex min-w-0 items-center gap-1.5">
+      <ActivityIconSlot live={props.live}>
+        {bucketIcon(props.bucket)}
+      </ActivityIconSlot>
+      <span className="tabular-nums">{props.label}</span>
+    </span>
+  )
+}
+
+function ToolUseRow(props: { tools: ToolCallSummary[]; live: boolean }) {
   const { tools, live } = props
   const [expanded, setExpanded] = useState(false)
-  const count = tools.length
-  const label = count === 1 ? "Used 1 tool" : `Used ${count} tools`
-  const names = tools.map((tool, index) => (
-    <span key={tool.id}>
-      {index > 0 ? <span className="text-muted-foreground/40"> · </span> : null}
-      {tool.name}
-    </span>
-  ))
+  const chips = collapsedToolChips(toolBucketCounts(tools))
+  const label = chips.map((chip) => chip.label).join(", ")
 
   const button = (
     <AriaButton
@@ -149,15 +152,27 @@ function ToolUseRow(props: {
         "hover:text-foreground/80",
       )}
     >
-      <ActivityIconSlot live={live}>
-        <IconTool className="size-4" aria-hidden />
-      </ActivityIconSlot>
       {expanded ? (
-        <span className="min-w-0 flex-1 font-mono">{names}</span>
+        <span className="flex min-w-0 flex-1 flex-col gap-1">
+          {tools.map((tool) => (
+            <span key={tool.id} className="flex min-w-0 items-start gap-2">
+              <ActivityIconSlot live={live}>
+                {bucketIcon(tool.bucket)}
+              </ActivityIconSlot>
+              <span className="min-w-0 flex-1 font-mono">{tool.detail}</span>
+            </span>
+          ))}
+        </span>
       ) : (
-        <span className="min-w-0 flex-1">
-          Used <span className="tabular-nums">{count}</span>{" "}
-          {count === 1 ? "tool" : "tools"}
+        <span className="flex min-w-0 flex-1 flex-wrap items-center gap-x-3 gap-y-1">
+          {chips.map((chip) => (
+            <ToolChip
+              key={chip.bucket}
+              bucket={chip.bucket}
+              label={chip.label}
+              live={live}
+            />
+          ))}
         </span>
       )}
     </AriaButton>
@@ -188,7 +203,7 @@ function renderAssistantParts(
   message: ChatMessage,
   options: { streaming: boolean },
 ): ReactElement[] {
-  const tools = uniqueToolCalls(message.parts)
+  const tools = summarizeToolCalls(message.parts)
   const thinking = message.parts
     .filter((part) => part.type === "thinking")
     .map(partText)
@@ -270,9 +285,16 @@ export function ConversationThread(props: {
   messages: ChatMessage[]
   error: Error | null
   status?: ChatStatus
+  waitLabel?: string
   contentClassName?: string
 }) {
-  const { messages, error, status, contentClassName } = props
+  const {
+    messages,
+    error,
+    status,
+    waitLabel = "Thinking…",
+    contentClassName,
+  } = props
   const lastMessage = messages[messages.length - 1]
   const lastAssistantHasVisibleActivity =
     lastMessage?.role === "assistant"
@@ -328,11 +350,11 @@ export function ConversationThread(props: {
                 className="flex w-full justify-start"
                 role="status"
                 aria-live="polite"
-                aria-label="Waiting for response"
+                aria-label={waitLabel}
               >
                 <div className="flex items-center gap-2">
                   <span className="ctx-indexing-dot" aria-hidden />
-                  <p className="text-xs text-muted-foreground">Thinking…</p>
+                  <p className="text-xs text-muted-foreground">{waitLabel}</p>
                 </div>
               </div>
             )}

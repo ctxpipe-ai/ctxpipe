@@ -31,6 +31,23 @@ export function workspaceChatHasAssistantText(
   )
 }
 
+type SandboxPhase = "idle" | "starting" | "ready"
+
+function sandboxPhaseFromChunk(chunk: StreamChunk): SandboxPhase | null {
+  if (chunk.type !== "CUSTOM") return null
+  if (!("name" in chunk) || chunk.name !== "sandbox-setup") return null
+  const value = "value" in chunk ? chunk.value : null
+  if (
+    value &&
+    typeof value === "object" &&
+    "phase" in value &&
+    (value.phase === "starting" || value.phase === "ready")
+  ) {
+    return value.phase
+  }
+  return null
+}
+
 function renameFromChunk(chunk: StreamChunk): string | null {
   if (chunk.type !== "CUSTOM") return null
   if (!("name" in chunk) || chunk.name !== "rename-conversation") return null
@@ -69,9 +86,15 @@ export function WorkspaceChatSession(props: {
   const committedRef = useRef(false)
   const [headerTitle, setHeaderTitle] = useState(title)
   const [seenTitle, setSeenTitle] = useState(title)
+  const [sandboxPhase, setSandboxPhase] = useState<SandboxPhase>("idle")
+  const [phaseConversationId, setPhaseConversationId] = useState(conversationId)
   if (title !== seenTitle) {
     setSeenTitle(title)
     setHeaderTitle(title)
+  }
+  if (conversationId !== phaseConversationId) {
+    setPhaseConversationId(conversationId)
+    setSandboxPhase("idle")
   }
 
   const connection = useMemo(
@@ -129,13 +152,18 @@ export function WorkspaceChatSession(props: {
     onChunk: (chunk) => {
       const name = renameFromChunk(chunk)
       if (name) applyRename(name)
-      if (chunk.type === "RUN_FINISHED") {
-        void queryClient.invalidateQueries({
-          queryKey: workspaceKeys.conversations(orgSlug, workspace.id),
-        })
-        void queryClient.invalidateQueries({
-          queryKey: workspaceKeys.list(orgSlug),
-        })
+      const phase = sandboxPhaseFromChunk(chunk)
+      if (phase) setSandboxPhase(phase)
+      if (chunk.type === "RUN_FINISHED" || chunk.type === "RUN_ERROR") {
+        setSandboxPhase("idle")
+        if (chunk.type === "RUN_FINISHED") {
+          void queryClient.invalidateQueries({
+            queryKey: workspaceKeys.conversations(orgSlug, workspace.id),
+          })
+          void queryClient.invalidateQueries({
+            queryKey: workspaceKeys.list(orgSlug),
+          })
+        }
       }
     },
     onFinish: () => {
@@ -174,12 +202,17 @@ export function WorkspaceChatSession(props: {
 
   const handleSendMessage = async (params: { text: string }) => {
     sendFailedRef.current = false
+    setSandboxPhase("starting")
     try {
       await sendMessage(params.text)
     } catch {
+      setSandboxPhase("idle")
       return
     }
-    if (sendFailedRef.current) return
+    if (sendFailedRef.current) {
+      setSandboxPhase("idle")
+      return
+    }
     insertComposeRow()
     commitComposeRoute()
   }
@@ -223,6 +256,11 @@ export function WorkspaceChatSession(props: {
             messages={messages as ChatMessage[]}
             error={error ?? null}
             status={status}
+            waitLabel={
+              sandboxPhase === "starting"
+                ? "Setting up sandbox"
+                : "Thinking…"
+            }
           />
           <MessageInputBox
             layout="thread"

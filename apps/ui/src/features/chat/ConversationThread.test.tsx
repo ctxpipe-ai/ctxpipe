@@ -7,9 +7,15 @@ import { ConversationThread } from "./ConversationThread"
 function renderThread(
   messages: ChatMessage[],
   status?: "submitted" | "streaming" | "ready" | "error",
+  waitLabel?: string,
 ) {
   return renderToStaticMarkup(
-    <ConversationThread messages={messages} error={null} status={status} />,
+    <ConversationThread
+      messages={messages}
+      error={null}
+      status={status}
+      waitLabel={waitLabel}
+    />,
   )
 }
 
@@ -57,9 +63,8 @@ describe("ConversationThread activity chrome", () => {
       ],
       "streaming",
     )
-    expect(html).toContain("Used")
-    expect(html).toContain("2")
-    expect(html).toContain("tools")
+    expect(html).toContain("Read 1 file")
+    expect(html).toContain("1 search")
     expect(html).toContain('aria-expanded="false"')
     expect(html).not.toContain("hybrid_search")
     expect(html).not.toContain("get_file")
@@ -113,6 +118,30 @@ describe("ConversationThread activity chrome", () => {
   it("shows Thinking… only before activity arrives", () => {
     const html = renderThread([user], "submitted")
     expect(html).toContain("Thinking…")
+  })
+
+  it("shows Setting up sandbox before Thinking… while the sandbox starts", () => {
+    const html = renderThread([user], "submitted", "Setting up sandbox")
+    expect(html).toContain("Setting up sandbox")
+    expect(html).not.toContain("Thinking…")
+  })
+
+  it("hides setup and thinking wait copy once tools arrive", () => {
+    const html = renderThread(
+      [
+        user,
+        {
+          id: "a1",
+          role: "assistant",
+          parts: [{ type: "tool-call", id: "tc_1", name: "read" }],
+        },
+      ],
+      "streaming",
+      "Setting up sandbox",
+    )
+    expect(html).toContain("Read 1 file")
+    expect(html).not.toContain("Setting up sandbox")
+    expect(html).not.toContain("Thinking…")
   })
 
   it("hides Thinking… when activity exists while status is still submitted", () => {
@@ -177,7 +206,7 @@ describe("ConversationThread activity chrome", () => {
     )
     expect(html).toContain("Reasoning")
     expect(html).toContain("Inspecting repositories")
-    expect(html).toContain("Used")
+    expect(html).toContain("1 search")
     expect(html).not.toContain("hybrid_search")
     expect(html).not.toContain("Thinking…")
     expect(html).not.toContain("Auth0")
@@ -200,11 +229,14 @@ describe("ConversationThread activity chrome", () => {
     )
     expect(withReply).toContain("Sign-in is handled by Auth0.")
     expect(withReply).toContain("Reasoning")
-    expect(withReply).toContain("Used")
+    expect(withReply).toContain("1 search")
     expect(withReply).toContain('aria-expanded="false"')
   })
 
-  it("collapses tool names to a Used N tools summary after the reply", () => {
+  // Fast / reasoning.effort=low often emits no REASONING_MESSAGE_* and no
+  // planning-hold text. The UI only renders ReasoningBox when thinking parts
+  // have text; empty reasoning is expected, not a dropped-event bug.
+  it("collapses tool names to Read / search chips after the reply", () => {
     const html = renderThread(
       [
         user,
@@ -212,19 +244,30 @@ describe("ConversationThread activity chrome", () => {
           id: "a1",
           role: "assistant",
           parts: [
-            { type: "tool-call", id: "tc_1", name: "hybrid_search" },
-            { type: "tool-call", id: "tc_2", name: "get_file" },
+            {
+              type: "tool-call",
+              id: "tc_1",
+              name: "hybrid_search",
+              input: { query: "billing" },
+            },
+            {
+              type: "tool-call",
+              id: "tc_2",
+              name: "get_file",
+              input: { filePath: "knowledge/billing/ledger.md" },
+            },
             { type: "text", content: "Billing lives in the ledger." },
           ],
         },
       ],
       "ready",
     )
-    expect(html).toContain("Used")
-    expect(html).toContain("2")
-    expect(html).toContain("tools")
+    expect(html).toContain("Read 1 file")
+    expect(html).toContain("1 search")
     expect(html).toContain('aria-expanded="false"')
     expect(html).not.toContain("hybrid_search")
+    expect(html).not.toContain("get_file")
+    expect(html).not.toContain("knowledge/billing/ledger.md")
     expect(html).toContain("Billing lives in the ledger.")
   })
 })
