@@ -1,6 +1,7 @@
 import { cell, defineChart } from "@tanstack/charts"
 import { Chart } from "@tanstack/charts/react/tooltip"
 import { scaleBand } from "@tanstack/charts/scales/band"
+import { scaleOrdinal } from "@tanstack/charts/scales/ordinal"
 import { tooltip } from "@tanstack/charts/tooltip"
 import { useMemo } from "react"
 import { Skeleton } from "@/components/ui/Skeleton"
@@ -8,6 +9,7 @@ import type { WorkspaceActivityDay } from "@/features/workspaces/types"
 import {
   CALENDAR_WEEKDAYS,
   COMMIT_LEVEL_COLORS,
+  COMMIT_LEVELS,
   calendarAriaLabel,
   calendarMonthTicks,
   formatCommitTooltip,
@@ -38,12 +40,19 @@ export function WorkspaceActivityHeatmap(props: {
             cell(cells, {
               x: "week",
               y: "weekday",
-              color: (row) => COMMIT_LEVEL_COLORS[row.level],
+              color: "level",
               key: "date",
               inset: 1,
               radius: 2,
             }),
           ],
+          color: {
+            scale: () =>
+              scaleOrdinal(
+                [...COMMIT_LEVELS],
+                COMMIT_LEVELS.map((level) => COMMIT_LEVEL_COLORS[level]),
+              ),
+          },
           x: {
             scale: () => scaleBand<number>().domain(weekDomain).padding(0.12),
             axis: {
