@@ -1,7 +1,7 @@
 import { queryOptions } from "@tanstack/react-query"
 import type { ConversationDetail } from "@/features/chat/types"
 import { getApiClient } from "@/lib/api"
-import { readApiJson } from "@/lib/api-result"
+import { pollWhileOk, readApiJson } from "@/lib/api-result"
 import type {
   Workspace,
   WorkspaceDetail,
@@ -12,6 +12,7 @@ import type {
   WorkspaceGitTreeResponse,
   WorkspaceGraphPayload,
   WorkspaceLinkedRepository,
+  WorkspaceActivityResponse,
   WorkspaceListResponse,
 } from "./types"
 
@@ -38,6 +39,8 @@ export const workspaceKeys = {
     ["workspace-graph", orgSlug, slug] as const,
   chatPrepare: (orgSlug: string, conversationId: string, workspaceId: string) =>
     ["workspace-chat-prepare", orgSlug, conversationId, workspaceId] as const,
+  activity: (orgSlug: string, workspaceSlug: string) =>
+    ["workspace-activity", orgSlug, workspaceSlug] as const,
 }
 
 export async function fetchWorkspaces(
@@ -271,6 +274,33 @@ export function workspaceGraphOptions(orgSlug: string, workspaceSlug: string) {
   return queryOptions({
     queryKey: workspaceKeys.graph(orgSlug, workspaceSlug),
     queryFn: () => fetchWorkspaceGraph(orgSlug, workspaceSlug),
+  })
+}
+
+export async function fetchWorkspaceActivity(
+  orgSlug: string,
+  workspaceSlug: string,
+): Promise<WorkspaceActivityResponse> {
+  const client = await getApiClient()
+  const res = await client[":orgSlug"].api.v1.workspaces[
+    ":workspaceSlug"
+  ].activity.$get({
+    param: { orgSlug, workspaceSlug },
+  })
+  return readApiJson<WorkspaceActivityResponse>(res, {
+    message: "Failed to load workspace activity",
+  })
+}
+
+export function workspaceActivityOptions(
+  orgSlug: string,
+  workspaceSlug: string,
+) {
+  return queryOptions({
+    queryKey: workspaceKeys.activity(orgSlug, workspaceSlug),
+    queryFn: () => fetchWorkspaceActivity(orgSlug, workspaceSlug),
+    refetchInterval: (query) =>
+      query.state.data?.status === "pending" ? pollWhileOk(2000)(query) : false,
   })
 }
 

@@ -12,6 +12,10 @@ import type {
   ConversationDetail,
   ConversationListInfiniteData,
 } from "@/features/chat/types"
+import {
+  setPendingWorkspaceCompose,
+  takeHomeDraftSend,
+} from "@/features/home/pending-workspace-compose"
 import { prepareWorkspaceChat, workspaceKeys } from "./queries"
 import type { Workspace } from "./types"
 import { WorkspaceChatChrome } from "./WorkspaceChatChrome"
@@ -70,6 +74,8 @@ export function WorkspaceChatSession(props: {
   composing: boolean
   title: string
   initialMessages: ConversationDetail["messages"]
+  draftSeed?: string | null
+  autoSendDraft?: boolean
   headerExtra?: ReactNode
 }) {
   const {
@@ -79,6 +85,8 @@ export function WorkspaceChatSession(props: {
     composing,
     title,
     initialMessages,
+    draftSeed,
+    autoSendDraft,
   } = props
   const queryClient = useQueryClient()
   const navigate = useNavigate()
@@ -213,9 +221,16 @@ export function WorkspaceChatSession(props: {
       setSandboxPhase("idle")
       return
     }
+    setPendingWorkspaceCompose(null)
     insertComposeRow()
     commitComposeRoute()
   }
+
+  useEffect(() => {
+    if (!autoSendDraft || !draftSeed?.trim()) return
+    if (!takeHomeDraftSend(conversationId)) return
+    void handleSendMessage({ text: draftSeed })
+  }, [autoSendDraft, conversationId, draftSeed])
 
   return (
     <WorkspaceChatChrome
@@ -242,6 +257,7 @@ export function WorkspaceChatSession(props: {
               onStop={stop}
               isDisabled={isLoading}
               placeholder="Ask about this Workspace…"
+              draftSeed={draftSeed}
             />
             {error ? (
               <InlineAlert variant="error" title="Could not send">
@@ -268,6 +284,7 @@ export function WorkspaceChatSession(props: {
             status={status}
             onStop={stop}
             isDisabled={isLoading}
+            draftSeed={draftSeed}
           />
         </>
       )}

@@ -6,6 +6,7 @@ import type {
 } from "@/features/chat/types"
 import type {
   Workspace,
+  WorkspaceActivityResponse,
   WorkspaceDetail,
   WorkspaceFileJobRequest,
   WorkspaceFilesResponse,
@@ -17,6 +18,7 @@ import {
   docsConversationDetail,
   docsConversations,
   docsWorkspace,
+  docsWorkspaceActivity,
   docsWorkspaceDetail,
   docsWorkspaceFiles,
   docsWorkspaceGitBlobs,
@@ -187,6 +189,33 @@ export function workspaceGraphHandler(
   )
 }
 
+export function workspaceActivityHandler(
+  activity: WorkspaceActivityResponse = docsWorkspaceActivity,
+) {
+  return http.get(
+    ({ request }) =>
+      /\/api\/v1\/workspaces\/[^/]+\/activity$/.test(pathnameOf(request)),
+    () => HttpResponse.json(activity),
+  )
+}
+
+export function workspaceActivityLoadingHandler() {
+  return http.get(
+    ({ request }) =>
+      /\/api\/v1\/workspaces\/[^/]+\/activity$/.test(pathnameOf(request)),
+    async () => {
+      await delay("infinite")
+      return HttpResponse.json(docsWorkspaceActivity)
+    },
+  )
+}
+
+export const conversationPrepareHandler = http.post(
+  ({ request }) =>
+    /\/api\/v1\/conversations\/[^/]+\/prepare$/.test(pathnameOf(request)),
+  () => new HttpResponse(null, { status: 204 }),
+)
+
 export function workspaceGraphLoadingHandler() {
   return http.get(
     ({ request }) =>
@@ -314,5 +343,7 @@ export function workspaceShellHandlers(input?: {
     workspaceFileJobHandler(),
     workspaceFilesHandler(input?.files ?? docsWorkspaceFiles),
     workspaceGraphHandler(input?.graph ?? docsWorkspaceGraph),
+    workspaceActivityHandler(),
+    conversationPrepareHandler,
   ]
 }

@@ -1,11 +1,19 @@
 import type { QueryClient } from "@tanstack/react-query"
-import { githubInstallationOptions } from "@/features/connectors/queries/github-connector"
 import { orgConnectionsOptions } from "@/features/connectors/queries/org-connections"
-import { repositoriesListOptions } from "@/features/repositories"
+import {
+  landingWorkspace,
+  workspaceActivityOptions,
+  workspaceListOptions,
+} from "@/features/workspaces/queries"
 
 export function prefetchOrgHome(queryClient: QueryClient, orgSlug: string) {
-  void queryClient.prefetchQuery(githubInstallationOptions(orgSlug))
-  void queryClient.prefetchQuery(repositoriesListOptions(orgSlug))
+  void queryClient.prefetchQuery(workspaceListOptions(orgSlug)).then((list) => {
+    const workspace = list ? landingWorkspace(list) : null
+    if (!workspace) return
+    void queryClient.prefetchQuery(
+      workspaceActivityOptions(orgSlug, workspace.slug),
+    )
+  })
 }
 
 export function prefetchOrgConnectors(

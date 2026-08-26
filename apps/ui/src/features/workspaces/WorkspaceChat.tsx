@@ -8,6 +8,7 @@ import { type ReactNode, Suspense, useState } from "react"
 import { Button } from "@/components/ui/Button"
 import { Skeleton } from "@/components/ui/Skeleton"
 import { ConversationThreadSkeleton } from "@/features/chat/components/ConversationThreadSkeleton"
+import { usePendingWorkspaceCompose } from "@/features/home/pending-workspace-compose"
 import { createObjectId } from "@/lib/id"
 import { workspaceConversationOptions, workspaceKeys } from "./queries"
 import type { Workspace } from "./types"
@@ -33,7 +34,22 @@ export function WorkspaceChat(props: {
     }
   }
 
+  const pendingCompose = usePendingWorkspaceCompose()
+  if (
+    pendingCompose &&
+    routeConversationId === pendingCompose.conversationId &&
+    workspace.id === pendingCompose.workspaceId &&
+    composeId !== routeConversationId
+  ) {
+    setComposeId(pendingCompose.conversationId)
+  }
+
   const isOwnCompose = !routeConversationId || routeConversationId === composeId
+  const homeDraft =
+    pendingCompose?.conversationId === composeId &&
+    pendingCompose.workspaceId === workspace.id
+      ? pendingCompose.text
+      : null
 
   if (isOwnCompose) {
     return (
@@ -45,6 +61,8 @@ export function WorkspaceChat(props: {
         composing={!routeConversationId}
         title="New conversation"
         initialMessages={[]}
+        draftSeed={homeDraft}
+        autoSendDraft={homeDraft != null}
         headerExtra={props.headerExtra}
       />
     )

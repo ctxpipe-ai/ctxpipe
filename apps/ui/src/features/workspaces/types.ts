@@ -39,6 +39,25 @@ export type WorkspaceListResponse = {
   items: Workspace[]
 }
 
+export type WorkspaceActivityDay = {
+  date: string
+  count: number
+}
+
+export type WorkspaceActivityCommit = {
+  sha: string
+  subject: string
+  authorName: string
+  committedAt: string
+  htmlUrl: string | null
+}
+
+export type WorkspaceActivityResponse = {
+  status: "pending" | "ready" | "failed"
+  days: WorkspaceActivityDay[]
+  recent: WorkspaceActivityCommit[]
+}
+
 export type WorkspaceFile = {
   path: string
   body: string

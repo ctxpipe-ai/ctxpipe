@@ -1,0 +1,40 @@
+import type { Meta, StoryObj } from "@storybook/react-vite"
+import { entryPageInnerDecorators } from "../../../.storybook/decorators/entry-page-decorators"
+import type { StoryRouteParams } from "../../../.storybook/decorators/with-story-route"
+import {
+  docsWorkspace,
+  readOnlyWorkspace,
+} from "@/features/workspaces/workspace-fixtures"
+import { HomeComposer } from "./HomeComposer"
+
+const meta = {
+  title: "Components/Home/Composer",
+  component: HomeComposer,
+  decorators: entryPageInnerDecorators,
+  parameters: {
+    layout: "padded",
+    storyRoute: {
+      pattern: "orgIndex",
+      orgSlug: "acme",
+    } satisfies StoryRouteParams,
+  },
+  args: {
+    orgSlug: "acme",
+    workspaces: [docsWorkspace, readOnlyWorkspace],
+    selected: docsWorkspace,
+    onSelectWorkspace: () => undefined,
+  },
+} satisfies Meta<typeof HomeComposer>
+
+export default meta
+
+type Story = StoryObj<typeof meta>
+
+export const WithWorkspaces: Story = {}
+
+export const NoWorkspaces: Story = {
+  args: {
+    workspaces: [],
+    selected: null,
+  },
+}

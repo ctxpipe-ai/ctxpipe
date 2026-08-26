@@ -50,14 +50,14 @@ export function MessageInputBox(props: {
   }
 
   const inputShell = (
-    <PromptInputProvider>
+    <PromptInputProvider initialInput={draftSeed ?? ""}>
       <MessageInputDraftSeed
         seed={draftSeed ?? null}
         onConsumed={onDraftSeedConsumed}
       />
       <div
         className={cn(
-          "relative overflow-hidden rounded-lg bg-zinc-900/80",
+          "workspace-composer-vt relative overflow-hidden rounded-lg bg-zinc-900/80",
           "ring-1 ring-white/[0.08] transition-[box-shadow,background-color]",
           "focus-within:bg-zinc-900 focus-within:ring-teal-400/40",
         )}

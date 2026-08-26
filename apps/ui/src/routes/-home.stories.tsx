@@ -1,9 +1,15 @@
 import type { Meta, StoryObj } from "@storybook/react-vite"
 import { delay, HttpResponse, http } from "msw"
 import { expect, within } from "storybook/test"
-import { githubInstallationNoneHandler } from "@/mocks/handlers"
+import {
+  workspaceActivityHandler,
+  workspaceActivityLoadingHandler,
+  workspaceListHandler,
+  workspaceShellHandlers,
+} from "@/mocks/workspace-handlers"
 import { orgPageDecorators } from "../../.storybook/decorators/entry-page-decorators"
 import type { StoryRouteParams } from "../../.storybook/decorators/with-story-route"
+import { emptyWorkspaceActivity } from "@/features/workspaces/workspace-fixtures"
 import { OrgHomePageContent } from "./$orgSlug.index"
 
 const meta = {
@@ -18,6 +24,11 @@ export default meta
 
 type Story = StoryObj<typeof meta>
 
+const homeRoute = {
+  pattern: "orgIndex",
+  orgSlug: "acme",
+} satisfies StoryRouteParams
+
 export const Loading: Story = {
   render: () => <OrgHomePageContent orgSlug="acme" />,
   play: async ({ canvasElement }) => {
@@ -28,10 +39,7 @@ export const Loading: Story = {
     expect(canvas.getByText("Loading home")).toBeInTheDocument()
   },
   parameters: {
-    storyRoute: {
-      pattern: "orgIndex",
-      orgSlug: "acme",
-    } satisfies StoryRouteParams,
+    storyRoute: homeRoute,
     msw: {
       handlers: {
         page: [
@@ -45,135 +53,91 @@ export const Loading: Story = {
   },
 }
 
-export const Start: Story = {
+export const Empty: Story = {
   render: () => <OrgHomePageContent orgSlug="acme" />,
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement)
+    expect(
+      canvas.getByRole("navigation", { name: "Main navigation" }),
+    ).toBeVisible()
+    expect(
+      canvas.getByRole("button", { name: "Create a workspace" }),
+    ).toBeVisible()
+    expect(canvas.queryByText("Activity")).not.toBeInTheDocument()
+  },
   parameters: {
-    storyRoute: {
-      pattern: "orgIndex",
-      orgSlug: "acme",
-    } satisfies StoryRouteParams,
+    storyRoute: homeRoute,
     msw: {
       handlers: {
-        page: [githubInstallationNoneHandler],
+        page: [workspaceListHandler([])],
       },
     },
   },
 }
 
-export const IndexingRepositories: Story = {
+export const Populated: Story = {
   render: () => <OrgHomePageContent orgSlug="acme" />,
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement)
+    expect(
+      canvas.getByRole("navigation", { name: "Main navigation" }),
+    ).toBeVisible()
+    expect(canvas.getByLabelText("Select workspace")).toBeVisible()
+    expect(await canvas.findByText("Activity")).toBeVisible()
+    expect(canvas.getByText("Document billing ledger rules")).toBeVisible()
+  },
   parameters: {
-    storyRoute: {
-      pattern: "orgIndex",
-      orgSlug: "acme",
-    } satisfies StoryRouteParams,
+    storyRoute: homeRoute,
+    msw: {
+      handlers: {
+        page: workspaceShellHandlers(),
+      },
+    },
+  },
+}
+
+export const ActivityLoading: Story = {
+  render: () => <OrgHomePageContent orgSlug="acme" />,
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement)
+    expect(
+      canvas.getByRole("navigation", { name: "Main navigation" }),
+    ).toBeVisible()
+    expect(canvas.getByLabelText("Select workspace")).toBeVisible()
+    expect(await canvas.findByText("Loading activity")).toBeInTheDocument()
+    expect(canvas.queryByText("Loading…")).not.toBeInTheDocument()
+  },
+  parameters: {
+    storyRoute: homeRoute,
     msw: {
       handlers: {
         page: [
-          http.get(
-            ({ request }) =>
-              new URL(request.url).pathname ===
-              "/acme/api/v1/github/installation",
-            () =>
-              HttpResponse.json({
-                id: "github_connection_1",
-                appSlug: "ctxpipe",
-              }),
-          ),
-          http.get(
-            ({ request }) =>
-              new URL(request.url).pathname === "/acme/api/v1/repositories",
-            () =>
-              HttpResponse.json({
-                items: [
-                  {
-                    id: "repo_1",
-                    name: "acme/web",
-                    gitUrl: "https://github.com/acme/web.git",
-                    indexReady: false,
-                    indexingStatus: "running",
-                    indexingStep: null,
-                    indexingStepTotal: null,
-                    indexingStepKey: null,
-                  },
-                  {
-                    id: "repo_2",
-                    name: "acme/api",
-                    gitUrl: "https://github.com/acme/api.git",
-                    indexReady: false,
-                    indexingStatus: "queued",
-                    indexingStep: null,
-                    indexingStepTotal: null,
-                    indexingStepKey: null,
-                  },
-                  {
-                    id: "repo_3",
-                    name: "acme/docs",
-                    gitUrl: "https://github.com/acme/docs.git",
-                    indexReady: true,
-                    indexingStatus: "ready",
-                    indexingStep: null,
-                    indexingStepTotal: null,
-                    indexingStepKey: null,
-                  },
-                ],
-              }),
-          ),
+          workspaceActivityLoadingHandler(),
+          ...workspaceShellHandlers(),
         ],
       },
     },
   },
 }
 
-export const IndexingSingleRepoWithStepLabel: Story = {
+export const NoHistory: Story = {
   render: () => <OrgHomePageContent orgSlug="acme" />,
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement)
+    expect(
+      canvas.getByRole("navigation", { name: "Main navigation" }),
+    ).toBeVisible()
+    expect(
+      await canvas.findByText("No commits on the default branch yet."),
+    ).toBeVisible()
+  },
   parameters: {
-    storyRoute: {
-      pattern: "orgIndex",
-      orgSlug: "acme",
-    } satisfies StoryRouteParams,
+    storyRoute: homeRoute,
     msw: {
       handlers: {
         page: [
-          http.get(
-            ({ request }) =>
-              new URL(request.url).pathname ===
-              "/acme/api/v1/github/installation",
-            () =>
-              HttpResponse.json({
-                id: "github_connection_1",
-                appSlug: "ctxpipe",
-              }),
-          ),
-          http.get(
-            ({ request }) =>
-              new URL(request.url).pathname === "/acme/api/v1/repositories",
-            () =>
-              HttpResponse.json({
-                items: [
-                  {
-                    id: "repo_1",
-                    name: "acme/web",
-                    gitUrl: "https://github.com/acme/web.git",
-                    indexReady: false,
-                    indexingStatus: "running",
-                    indexingStep: 7,
-                    indexingStepTotal: 22,
-                    indexingStepKey: "embedding",
-                  },
-                  {
-                    id: "repo_2",
-                    name: "acme/docs",
-                    gitUrl: "https://github.com/acme/docs.git",
-                    indexReady: true,
-                    indexingStatus: "ready",
-                    indexingStep: null,
-                    indexingStepTotal: null,
-                    indexingStepKey: null,
-                  },
-                ],
-              }),
-          ),
+          workspaceActivityHandler(emptyWorkspaceActivity),
+          ...workspaceShellHandlers(),
         ],
       },
     },

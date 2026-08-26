@@ -5,6 +5,9 @@ import type {
 } from "@/features/chat/types"
 import type {
   Workspace,
+  WorkspaceActivityCommit,
+  WorkspaceActivityDay,
+  WorkspaceActivityResponse,
   WorkspaceDetail,
   WorkspaceFilesResponse,
   WorkspaceFileTreeNode,
@@ -12,6 +15,80 @@ import type {
   WorkspaceGitTreeResponse,
   WorkspaceGraphPayload,
 } from "./types"
+
+function activityDaysThrough(
+  endIso: string,
+  counts: Record<string, number> = {},
+): WorkspaceActivityDay[] {
+  const end = new Date(`${endIso}T00:00:00.000Z`)
+  const start = new Date(end)
+  start.setUTCDate(start.getUTCDate() - start.getUTCDay() - 52 * 7)
+  const days: WorkspaceActivityDay[] = []
+  for (let time = start.getTime(); time <= end.getTime(); time += 86_400_000) {
+    const date = new Date(time).toISOString().slice(0, 10)
+    days.push({ date, count: counts[date] ?? 0 })
+  }
+  return days
+}
+
+export const docsWorkspaceActivityRecent: WorkspaceActivityCommit[] = [
+  {
+    sha: "abc123def456",
+    subject: "Document billing ledger rules",
+    authorName: "Ada",
+    committedAt: "2026-08-26T10:00:00.000Z",
+    htmlUrl: "https://github.com/acme/docs/commit/abc123def456",
+  },
+  {
+    sha: "b7c91aa0123",
+    subject: "Clarify session cookie policy",
+    authorName: "Lin",
+    committedAt: "2026-08-25T16:12:00.000Z",
+    htmlUrl: "https://github.com/acme/docs/commit/b7c91aa0123",
+  },
+  {
+    sha: "c0ffee11111",
+    subject: "Add on-call severity notes",
+    authorName: "Sam",
+    committedAt: "2026-08-22T09:40:00.000Z",
+    htmlUrl: "https://github.com/acme/docs/commit/c0ffee11111",
+  },
+  {
+    sha: "d00dad22222",
+    subject: "Refresh payments API claims",
+    authorName: "Ada",
+    committedAt: "2026-08-18T14:05:00.000Z",
+    htmlUrl: null,
+  },
+  {
+    sha: "e111aaa3333",
+    subject: "Import handbook welcome page",
+    authorName: "Jules",
+    committedAt: "2026-08-12T11:20:00.000Z",
+    htmlUrl: "https://github.com/acme/docs/commit/e111aaa3333",
+  },
+]
+
+export const docsWorkspaceActivity: WorkspaceActivityResponse = {
+  status: "ready",
+  days: activityDaysThrough("2026-08-26", {
+    "2026-08-12": 1,
+    "2026-08-18": 2,
+    "2026-08-22": 4,
+    "2026-08-25": 1,
+    "2026-08-26": 3,
+    "2026-07-03": 6,
+    "2026-06-11": 8,
+    "2026-03-04": 2,
+  }),
+  recent: docsWorkspaceActivityRecent,
+}
+
+export const emptyWorkspaceActivity: WorkspaceActivityResponse = {
+  status: "ready",
+  days: activityDaysThrough("2026-08-26"),
+  recent: [],
+}
 
 export const docsWorkspace: Workspace = {
   id: "ws_docs",

@@ -755,3 +755,19 @@
     opacity: 0.4;
   }
 }
+
+.workspace-composer-vt {
+  view-transition-name: workspace-composer;
+}
+
+::view-transition-old(workspace-composer),
+::view-transition-new(workspace-composer) {
+  height: auto;
+  animation-duration: 280ms;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .workspace-composer-vt {
+    view-transition-name: none;
+  }
+}
