@@ -37,6 +37,7 @@ import {
   getGithubRepoWriteView,
   resolveWorkspaceRepositoryTip,
 } from "../../routes/webhooks/github/github-workspace-tip.js"
+import { enqueueWorkspaceCommitProjection } from "../enqueue-workspace-commit-projection.js"
 import { enqueueWorkspaceHydrate } from "../enqueue-workspace-hydrate.js"
 import { enqueueWorkspaceIndex } from "../enqueue-workspace-index.js"
 import {
@@ -188,6 +189,10 @@ export const workspaceTipCheck = defineWorkflow(
               jobGeneration: row.desiredGeneration,
               jobWorkspaceUrl: row.workspaceRepositoryUrl,
             },
+            { error: () => undefined },
+          )
+          void enqueueWorkspaceCommitProjection(
+            { orgId: input.orgId, workspaceId: row.id },
             { error: () => undefined },
           )
         }

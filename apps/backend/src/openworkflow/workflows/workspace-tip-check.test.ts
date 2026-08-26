@@ -104,6 +104,10 @@ vi.mock("../enqueue-workspace-index.js", () => ({
   enqueueWorkspaceIndex: enqueueWorkspaceIndexMock,
 }))
 
+vi.mock("../enqueue-workspace-commit-projection.js", () => ({
+  enqueueWorkspaceCommitProjection: vi.fn().mockResolvedValue(undefined),
+}))
+
 vi.mock("../enqueue-workspace-write-commit.js", () => ({
   enqueueWorkspaceWriteCommit: (...args: unknown[]) => {
     enqueueInTx.seen = true

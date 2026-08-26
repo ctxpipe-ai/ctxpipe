@@ -24,6 +24,12 @@ vi.mock("../../../models/github-installation.js", () => ({
   getInstallationOctokitForOrg: getInstallationOctokitForOrgMock,
 }))
 
+const enqueueWorkspaceCommitProjectionMock = vi.hoisted(() => vi.fn())
+
+vi.mock("../../../openworkflow/enqueue-workspace-commit-projection.js", () => ({
+  enqueueWorkspaceCommitProjection: enqueueWorkspaceCommitProjectionMock,
+}))
+
 import {
   getGithubRepoWriteView,
   persistWorkspaceTipsOnDefaultBranchPush,
@@ -70,6 +76,10 @@ describe("persistWorkspaceTipsOnDefaultBranchPush", () => {
     expect(
       persistResolvedDesiredShaMock.mock.calls[0]?.[0].resolvedTip,
     ).not.toBe("do-not-persist-me")
+    expect(enqueueWorkspaceCommitProjectionMock).toHaveBeenCalledWith(
+      { orgId: "org_1", workspaceId: "ws_1" },
+      expect.anything(),
+    )
   })
 
   it("lists in an org tx, resolves GitHub over HTTP, then persists in a new org tx", async () => {

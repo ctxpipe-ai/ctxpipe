@@ -252,6 +252,56 @@ export const workspaceSandboxInstances = pgTable.withRLS(
  * Durable first connector-target Workspace per org (source repo created_at, id).
  * Used by migration export assignment; not recomputed from random Workspace rows.
  */
+export const workspaceRepositoryCommits = pgTable.withRLS(
+  "workspace_repository_commits",
+  {
+    orgId: text("org_id").notNull(),
+    workspaceId: text("workspace_id")
+      .notNull()
+      .references(() => workspaces.id, { onDelete: "cascade" }),
+    sha: text("sha").notNull(),
+    committedAt: timestamp("committed_at", {
+      withTimezone: true,
+      mode: "date",
+    }).notNull(),
+    authorName: text("author_name").notNull(),
+    subject: text("subject").notNull(),
+    htmlUrl: text("html_url"),
+  },
+  (t) => [
+    primaryKey({ columns: [t.workspaceId, t.sha] }),
+    index("workspace_repository_commits_workspace_committed_at_idx").on(
+      t.workspaceId,
+      t.committedAt,
+    ),
+    index("workspace_repository_commits_org_id_idx").on(t.orgId),
+    orgIsolationPolicy(t.orgId),
+  ],
+)
+
+export const workspaceCommitProjections = pgTable.withRLS(
+  "workspace_commit_projections",
+  {
+    workspaceId: text("workspace_id")
+      .primaryKey()
+      .references(() => workspaces.id, { onDelete: "cascade" }),
+    orgId: text("org_id").notNull(),
+    headSha: text("head_sha"),
+    backfillStatus: text("backfill_status").notNull().default("pending"),
+    backfilledSince: timestamp("backfilled_since", {
+      withTimezone: true,
+      mode: "date",
+    }),
+    updatedAt: timestamp("updated_at", { withTimezone: true, mode: "date" })
+      .notNull()
+      .defaultNow(),
+  },
+  (t) => [
+    index("workspace_commit_projections_org_id_idx").on(t.orgId),
+    orgIsolationPolicy(t.orgId),
+  ],
+)
+
 export const orgFirstWorkspaces = pgTable.withRLS(
   "org_first_workspaces",
   {

@@ -17,6 +17,7 @@ import {
   persistLinkedDesiredSha,
   persistResolvedDesiredSha,
 } from "../../../models/workspaces.js"
+import { enqueueWorkspaceCommitProjection } from "../../../openworkflow/enqueue-workspace-commit-projection.js"
 
 export async function resolveGithubBranchTip(input: {
   orgId: string
@@ -199,8 +200,18 @@ export async function persistWorkspaceTipsOnDefaultBranchPush(input: {
     defaultBranch: input.defaultBranch,
     workspaces,
     resolveTip: input.resolveTip,
-    persist: (row) =>
-      withOrgDbContext(input.orgId, () => persistResolvedDesiredSha(row)),
+    persist: async (row) => {
+      const ok = await withOrgDbContext(input.orgId, () =>
+        persistResolvedDesiredSha(row),
+      )
+      if (ok) {
+        void enqueueWorkspaceCommitProjection(
+          { orgId: input.orgId, workspaceId: row.workspaceId },
+          { error: () => undefined },
+        )
+      }
+      return ok
+    },
   })
 }
 

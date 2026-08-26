@@ -36,8 +36,10 @@ import { repositories } from "./schema/repositories.js"
 import { repositoryCheckouts } from "./schema/repository_checkouts.js"
 import {
   orgMemberPreferences,
+  workspaceCommitProjections,
   workspaceKnowledgeUnits,
   workspaceLinkedRepositories,
+  workspaceRepositoryCommits,
   workspaceSandboxInstances,
   workspaces,
   workspaceWriteJobs,
@@ -83,6 +85,8 @@ const schema = {
   orgMemberPreferences,
   workspaceWriteJobs,
   workspaceSandboxInstances,
+  workspaceRepositoryCommits,
+  workspaceCommitProjections,
 } as const
 
 const relations = defineRelations(schema)

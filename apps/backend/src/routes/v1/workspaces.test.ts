@@ -48,6 +48,10 @@ vi.mock("../../openworkflow/enqueue-workspace-tip-check.js", () => ({
   enqueueWorkspaceTipCheck: vi.fn().mockResolvedValue(undefined),
 }))
 
+vi.mock("../../openworkflow/enqueue-workspace-commit-projection.js", () => ({
+  enqueueWorkspaceCommitProjection: vi.fn().mockResolvedValue(undefined),
+}))
+
 vi.mock("../../domain/workspaces/sandbox-registry.js", () => ({
   destroySandboxesForWorkspace: destroySandboxesForWorkspaceMock,
   withDestroyedWorkspaceSandboxes: withDestroyedWorkspaceSandboxesMock,
