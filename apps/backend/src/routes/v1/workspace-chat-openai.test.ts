@@ -1,5 +1,5 @@
 import { createServer, type Server } from "node:http"
-import { afterEach, beforeEach, describe, expect, it } from "vitest"
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 import { OpenAPIHono } from "@hono/zod-openapi"
 import type { AppEnv } from "../../app/env.js"
 import { mintWorkspaceChatToken } from "../../domain/workspaces/workspace-chat-token.js"
@@ -215,5 +215,41 @@ describe("workspace-chat openai completions", () => {
       },
     )
     expect(res.status).toBe(404)
+  })
+
+  it("forwards to OpenRouter when MODEL_PROVIDER_URL is unset", async () => {
+    const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
+      const url = typeof input === "string" ? input : String(input)
+      expect(url).toBe("https://openrouter.ai/api/v1/chat/completions")
+      return new Response(
+        JSON.stringify({
+          id: "chatcmpl_or",
+          choices: [{ message: { role: "assistant", content: "ok" } }],
+        }),
+        { status: 200, headers: { "content-type": "application/json" } },
+      )
+    })
+    vi.stubGlobal("fetch", fetchMock)
+    try {
+      const app = appWithRoutes({ apiKey: "sk-or-v1-test" })
+      const res = await app.request(
+        "/acme/api/v1/workspace-chat/openai/v1/chat/completions",
+        {
+          method: "POST",
+          headers: {
+            "content-type": "application/json",
+            authorization: `Bearer ${chatToken()}`,
+          },
+          body: JSON.stringify({
+            model: "openai/gpt-5.6-terra",
+            messages: [{ role: "user", content: "hi" }],
+          }),
+        },
+      )
+      expect(res.status).toBe(200)
+      expect(fetchMock).toHaveBeenCalledTimes(1)
+    } finally {
+      vi.unstubAllGlobals()
+    }
   })
 })

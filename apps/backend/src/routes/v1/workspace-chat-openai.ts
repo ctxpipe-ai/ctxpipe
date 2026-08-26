@@ -172,6 +172,7 @@ export const workspaceChatOpenaiRoutes = new OpenAPIHono<AppEnv>()
     return forwardToUpstream(c, "/v1/chat/completions", forwarded, {
       conversationId: token.conversationId,
       step: "workspace-chat-model-proxy",
+      origin: contract.upstreamBaseUrl,
       observe: (chunk) => {
         markTtfb()
         observer.push(chunk)

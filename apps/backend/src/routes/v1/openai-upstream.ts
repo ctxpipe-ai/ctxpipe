@@ -40,6 +40,7 @@ export async function fetchOpenAiCompatibleUpstream(input: {
   env: AppEnv["Variables"]["env"]
   path: string
   body: unknown
+  origin?: string
   fetch?: typeof fetch
 }): Promise<
   | { ok: true; upstream: Response; target: string; startedAt: number }
@@ -48,7 +49,9 @@ export async function fetchOpenAiCompatibleUpstream(input: {
   const authorization = await resolveUpstreamAuthorization(input.env)
   if (!authorization) return { ok: false, reason: "no-upstream-key" }
   const upstreamOrigin = (
-    input.env.MODEL_PROVIDER_URL ?? "https://api.openai.com"
+    input.origin?.trim() ||
+    input.env.MODEL_PROVIDER_URL?.trim() ||
+    "https://openrouter.ai/api/v1"
   ).replace(/\/+$/, "")
   const cleanOrigin = upstreamOrigin.replace(/\/v1$/, "")
   const target = `${cleanOrigin}${input.path}`
@@ -75,12 +78,18 @@ export async function forwardToUpstream(
   options?: {
     conversationId?: string
     step?: string
+    origin?: string
     observe?: (chunk: Uint8Array) => void
     onObservedComplete?: () => void
   },
 ) {
   const env = c.var.env
-  const fetched = await fetchOpenAiCompatibleUpstream({ env, path, body })
+  const fetched = await fetchOpenAiCompatibleUpstream({
+    env,
+    path,
+    body,
+    origin: options?.origin,
+  })
   if (!fetched.ok) {
     if (fetched.reason === "no-upstream-key") {
       return c.json(
