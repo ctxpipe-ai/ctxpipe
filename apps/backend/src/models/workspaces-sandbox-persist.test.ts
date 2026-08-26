@@ -85,7 +85,7 @@ async function liveChatRows() {
 }
 
 describe("persistSandboxInstance live chat identity", () => {
-  it("retains the live row when a different instance tries to upsert", async () => {
+  it("adopts the live chat row when the next turn upserts a new instance key", async () => {
     await persistSandboxInstance({
       id: leftoverId,
       kind: "chat",
@@ -110,32 +110,13 @@ describe("persistSandboxInstance live chat identity", () => {
         threadId: conversationId,
         updatedAt: Date.parse("2026-08-23T00:01:00.000Z"),
       }),
-    ).rejects.toThrow("Live chat sandbox row already exists for this conversation")
-
-    const afterConflict = await liveChatRows()
-    expect(afterConflict).toEqual([
-      {
-        id: leftoverId,
-        providerSandboxId: "ctr_old",
-        state: "live",
-      },
-    ])
-
-    await expect(
-      store.upsert({
-        key: "ffffffffffffffff",
-        provider: "docker",
-        providerSandboxId: "ctr_old",
-        threadId: conversationId,
-        updatedAt: Date.parse("2026-08-23T00:02:00.000Z"),
-      }),
     ).resolves.toBeUndefined()
 
-    const afterSameInstance = await liveChatRows()
-    expect(afterSameInstance).toEqual([
+    const afterAdopt = await liveChatRows()
+    expect(afterAdopt).toEqual([
       {
-        id: leftoverId,
-        providerSandboxId: "ctr_old",
+        id: "a1b2c3d4e5f60708",
+        providerSandboxId: "ctr_new",
         state: "live",
       },
     ])

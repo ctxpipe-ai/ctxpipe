@@ -93,27 +93,9 @@ export async function persistSandboxInstance(
           )
           .limit(1)
         if (existing && existing.id !== input.id) {
-          const sameInstance =
-            Boolean(existing.providerSandboxId) &&
-            existing.providerSandboxId === (input.providerSandboxId ?? null)
-          if (sameInstance) {
-            await tx
-              .update(workspaceSandboxInstances)
-              .set({
-                provider: input.provider ?? existing.provider,
-                latestSnapshotId:
-                  input.latestSnapshotId ?? existing.latestSnapshotId,
-                latestRunId: input.latestRunId ?? existing.latestRunId,
-                state: input.state,
-                lastHeartbeatAt: input.lastHeartbeatAt,
-                updatedAt: now,
-              })
-              .where(eq(workspaceSandboxInstances.id, existing.id))
-            return
-          }
-          throw new Error(
-            "Live chat sandbox row already exists for this conversation",
-          )
+          await tx
+            .delete(workspaceSandboxInstances)
+            .where(eq(workspaceSandboxInstances.id, existing.id))
         }
       }
       await tx
