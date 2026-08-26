@@ -17,9 +17,9 @@ export const WRITE_STATUS_REASONS = {
   notInInstallation:
     "This repository is not in the GitHub App installation. An installation owner or admin must add it, then refresh.",
   contentsWriteDenied:
-    "The GitHub App cannot write to this repository. Grant Contents: write, or check branch protection — ctxpipe does not open a pull request.",
+    "The GitHub App cannot write to this repository. Grant Contents: write so ctxpipe can push a conversation branch.",
   protectedBranch:
-    "The default branch is protected. ctxpipe commits directly and will not open a pull request. Relax protection for the App or relink.",
+    "The default branch is protected. Jobs cannot push it; conversation chat can still push a session branch and open a pull request.",
 } as const
 
 export type WorkspaceWriteProbe = {
@@ -70,27 +70,35 @@ export function writeStatusFromClassification(input: {
   }
 }
 
+export function isProtectedDefaultBranchGithubError(error: {
+  status?: number
+  message?: string
+}): boolean {
+  if (error.status !== 403) return false
+  const message = (error.message ?? "").toLowerCase()
+  return (
+    message.includes("protected") ||
+    message.includes("ruleset") ||
+    message.includes("required status")
+  )
+}
+
+/**
+ * Maps a live GitHub error to Workspace writeStatus.
+ * Protected default is not read-only: the App can still push a session branch.
+ */
 export function writeStatusFromGithubProbeError(error: {
   status?: number
   message?: string
 }): WorkspaceWriteProbe {
-  const message = (error.message ?? "").toLowerCase()
   if (error.status === 404) {
     return {
       writeStatus: WORKSPACE_WRITE_STATUSES.read_only,
       readOnlyReason: WRITE_STATUS_REASONS.notInInstallation,
     }
   }
-  if (
-    error.status === 403 &&
-    (message.includes("protected") ||
-      message.includes("ruleset") ||
-      message.includes("required status"))
-  ) {
-    return {
-      writeStatus: WORKSPACE_WRITE_STATUSES.read_only,
-      readOnlyReason: WRITE_STATUS_REASONS.protectedBranch,
-    }
+  if (isProtectedDefaultBranchGithubError(error)) {
+    return writableWorkspaceWriteProbe()
   }
   if (error.status === 403) {
     return {

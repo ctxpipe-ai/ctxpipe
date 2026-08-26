@@ -5,6 +5,7 @@ import {
   chatHeartbeatKeepsSandbox,
   chatMayPublishPullRequest,
   chatSessionBranchName,
+  conversationSessionBranch,
   JOB_SANDBOX_IDLE_MS,
   lastBranchExistsOnRemote,
   mayForcePushBranch,
@@ -23,6 +24,7 @@ import {
 describe("chat lifecycle", () => {
   it("names session branches and never force-pushes default", () => {
     expect(chatSessionBranchName("conv_1", 2)).toBe("ctxpipe/chat/conv_1/2")
+    expect(conversationSessionBranch("conv_1")).toBe("ctxpipe/chat/conv_1/1")
     expect(nextChatPrNumber(null)).toBe(1)
     expect(mayForcePushBranch("ctxpipe/chat/conv_1/1", "main")).toBe(true)
     expect(mayForcePushBranch("main", "main")).toBe(false)

@@ -459,6 +459,7 @@ function WorkspaceSurfaceColumns(props: {
         <WorkspacePane
           orgSlug={orgSlug}
           workspace={workspace}
+          conversationId={conversationId}
           pane={shownPane}
           fileTabs={fileTabs}
           previewPath={previewPath}

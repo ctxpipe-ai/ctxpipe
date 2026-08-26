@@ -532,3 +532,90 @@ export async function closePullRequest(
     )
   }
 }
+
+export type GithubPullRequestState = "open" | "closed" | "merged"
+
+export async function getPullRequestState(
+  input: BaseInput & { pullNumber: number },
+): Promise<{
+  prNumber: number
+  pullUrl: string
+  prState: GithubPullRequestState
+  branch: string
+} | null> {
+  try {
+    const context = await getInstallationContext(input)
+    const { data } = await withTransientGitHubRetry(() =>
+      context.octokit.rest.pulls.get({
+        owner: context.owner,
+        repo: context.repo,
+        pull_number: input.pullNumber,
+      }),
+    )
+    const prState: GithubPullRequestState = data.merged_at
+      ? "merged"
+      : data.state === "open"
+        ? "open"
+        : "closed"
+    return {
+      prNumber: data.number,
+      pullUrl: data.html_url,
+      prState,
+      branch: data.head.ref,
+    }
+  } catch (error) {
+    if ((error as { status?: number }).status === 404) return null
+    throw error
+  }
+}
+
+export async function createPullRequestFromBranch(
+  input: BaseInput & {
+    baseBranch: string
+    branch: string
+    title: string
+    body: string
+  },
+): Promise<{
+  pullNumber: number
+  pullUrl: string
+  branch: string
+  prState: GithubPullRequestState
+}> {
+  const context = await getInstallationContext(input)
+  try {
+    const { data: pull } = await withTransientGitHubRetry(() =>
+      context.octokit.rest.pulls.create({
+        owner: context.owner,
+        repo: context.repo,
+        head: input.branch,
+        base: input.baseBranch,
+        title: input.title,
+        body: input.body,
+      }),
+    )
+    return {
+      pullNumber: pull.number,
+      pullUrl: pull.html_url,
+      branch: input.branch,
+      prState: "open",
+    }
+  } catch (error) {
+    const status = (error as { status?: number }).status
+    if (status !== 422) throw error
+    const { data: existing } = await context.octokit.rest.pulls.list({
+      owner: context.owner,
+      repo: context.repo,
+      head: `${context.owner}:${input.branch}`,
+      state: "open",
+    })
+    const open = existing[0]
+    if (!open) throw error
+    return {
+      pullNumber: open.number,
+      pullUrl: open.html_url,
+      branch: input.branch,
+      prState: "open",
+    }
+  }
+}

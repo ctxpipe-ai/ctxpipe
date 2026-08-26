@@ -1,9 +1,10 @@
-export type PaneKind = "files" | "graph" | "settings" | "file" | "unknown"
+export type PaneKind = "files" | "graph" | "settings" | "file" | "diff" | "unknown"
 
 export type ParsedPane =
   | { kind: "files" }
   | { kind: "graph" }
   | { kind: "settings" }
+  | { kind: "diff" }
   | { kind: "file"; path: string }
   | { kind: "unknown"; id: string }
 
@@ -12,6 +13,7 @@ export function parsePane(raw: string | undefined): ParsedPane | null {
   if (raw === "files") return { kind: "files" }
   if (raw === "graph") return { kind: "graph" }
   if (raw === "settings") return { kind: "settings" }
+  if (raw === "diff") return { kind: "diff" }
   if (raw.startsWith("file:")) {
     const encoded = raw.slice("file:".length)
     let path = encoded

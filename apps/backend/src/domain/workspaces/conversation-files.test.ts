@@ -1,0 +1,114 @@
+import { describe, expect, it } from "vitest"
+import {
+  conversationSandboxStatus,
+  ensureConversationSessionBranch,
+  listConversationSandboxPaths,
+  renameConversationSandboxPath,
+  sanitizeGitRemoteError,
+  writeConversationSandboxFile,
+} from "./conversation-files.js"
+
+function fakeHandle(commands: string[], answers: Record<string, string>) {
+  return {
+    exec: async (command: string) => {
+      commands.push(command)
+      for (const [needle, stdout] of Object.entries(answers)) {
+        if (command.includes(needle)) {
+          return { stdout, stderr: "", exitCode: 0 }
+        }
+      }
+      return { stdout: "", stderr: "", exitCode: 0 }
+    },
+    fs: {
+      write: async () => undefined,
+      read: async () => "",
+      remove: async () => undefined,
+      mkdir: async () => undefined,
+    },
+  }
+}
+
+describe("conversation sandbox files", () => {
+  it("checks out the one session branch", async () => {
+    const commands: string[] = []
+    const branch = await ensureConversationSessionBranch({
+      conversationId: "conv_1",
+      defaultBranch: "main",
+      handle: fakeHandle(commands, {}),
+    })
+    expect(branch).toBe("ctxpipe/chat/conv_1/1")
+    expect(commands[0]).toBe("git checkout -B ctxpipe/chat/conv_1/1")
+  })
+
+  it("lists tracked and untracked paths", async () => {
+    const paths = await listConversationSandboxPaths(
+      fakeHandle([], {
+        "git ls-files -z": "AGENTS.md\0knowledge/a.md\0",
+        "git ls-files --others": "new.md\0",
+      }),
+    )
+    expect(paths).toEqual(["AGENTS.md", "knowledge/a.md", "new.md"])
+  })
+
+  it("marks dirty or ahead-of-default as differing", async () => {
+    const status = await conversationSandboxStatus({
+      defaultBranch: "main",
+      sessionBranch: "ctxpipe/chat/conv_1/1",
+      handle: fakeHandle([], {
+        "git status --porcelain": " M knowledge/a.md\n",
+        "git diff --numstat": "1\t0\tknowledge/a.md\n",
+        "git rev-list --left-right": "0\t1",
+        "origin/ctxpipe/chat/conv_1/1..HEAD": "1",
+      }),
+    })
+    expect(status.dirty).toBe(true)
+    expect(status.differsFromDefault).toBe(true)
+    expect(status.unpushed).toBe(true)
+    expect(status.published).toBe(true)
+    expect(status.items[0]?.path).toBe("knowledge/a.md")
+  })
+
+  it("writes and renames sandbox files", async () => {
+    const writes: Array<{ path: string; body: string }> = []
+    const removed: string[] = []
+    const handle = {
+      exec: async (command: string) => {
+        if (command.includes("git ls-files")) {
+          return { stdout: "knowledge/a.md\0", stderr: "", exitCode: 0 }
+        }
+        return { stdout: "", stderr: "", exitCode: 0 }
+      },
+      fs: {
+        write: async (path: string, body: string) => {
+          writes.push({ path, body })
+        },
+        read: async () => "hello",
+        remove: async (path: string) => {
+          removed.push(path)
+        },
+        mkdir: async () => undefined,
+      },
+    }
+    await writeConversationSandboxFile({
+      handle,
+      path: "knowledge/b.md",
+      body: "next",
+    })
+    await renameConversationSandboxPath({
+      handle,
+      from: "knowledge/a.md",
+      to: "knowledge/c.md",
+    })
+    expect(writes).toEqual([
+      { path: "knowledge/b.md", body: "next" },
+      { path: "knowledge/c.md", body: "hello" },
+    ])
+    expect(removed).toEqual(["knowledge/a.md"])
+  })
+
+  it("strips tokens from git remote errors", () => {
+    expect(
+      sanitizeGitRemoteError("fatal: token ghp_secret denied", "ghp_secret"),
+    ).toBe("fatal: token *** denied")
+  })
+})

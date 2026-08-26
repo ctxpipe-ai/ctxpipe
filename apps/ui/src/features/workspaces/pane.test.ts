@@ -6,6 +6,7 @@ describe("parsePane", () => {
     expect(parsePane("files")).toEqual({ kind: "files" })
     expect(parsePane("graph")).toEqual({ kind: "graph" })
     expect(parsePane("settings")).toEqual({ kind: "settings" })
+    expect(parsePane("diff")).toEqual({ kind: "diff" })
   })
 
   it("decodes file paths", () => {
@@ -34,6 +35,7 @@ describe("landingPane", () => {
   })
 
   it("keeps a visible URL pane", () => {
+    expect(landingPane("diff")).toEqual({ kind: "diff" })
     expect(landingPane("graph")).toEqual({ kind: "graph" })
     expect(landingPane("file:README.md")).toEqual({
       kind: "file",

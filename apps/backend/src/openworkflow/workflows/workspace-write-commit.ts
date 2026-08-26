@@ -47,6 +47,7 @@ import {
 } from "../../domain/workspaces/write-runner.js"
 import {
   githubRepoFullNameFromWorkspaceUrl,
+  isProtectedDefaultBranchGithubError,
   writeStatusFromGithubProbeError,
 } from "../../domain/workspaces/write-status.js"
 import { generateObjectId } from "../../lib/id.js"
@@ -580,6 +581,12 @@ export const workspaceWriteCommit = defineWorkflow(
                 error && typeof error === "object"
                   ? (error as { status?: number; message?: string })
                   : {}
+              if (isProtectedDefaultBranchGithubError(probe)) {
+                await orgSql(() =>
+                  persistWriteJobStatus(jobId, WRITE_JOB_STATUSES.paused),
+                )
+                return { committed: false, reason: "paused" as const }
+              }
               const mapped = writeStatusFromGithubProbeError(probe)
               if (mapped.writeStatus === "read_only") {
                 await orgSql(async () => {

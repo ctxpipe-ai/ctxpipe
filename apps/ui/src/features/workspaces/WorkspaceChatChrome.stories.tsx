@@ -3,7 +3,11 @@ import { InlineAlert } from "@/components/ui/InlineAlert"
 import { entryPageInnerDecorators } from "../../../.storybook/decorators/entry-page-decorators"
 import type { StoryRouteParams } from "../../../.storybook/decorators/with-story-route"
 import { WorkspaceChatChrome } from "./WorkspaceChatChrome"
-import { docsWorkspace, readOnlyWorkspace } from "./workspace-fixtures"
+import {
+  docsWorkspace,
+  pendingWriteWorkspace,
+  readOnlyWorkspace,
+} from "./workspace-fixtures"
 
 const meta = {
   title: "Components/Workspaces/ChatChrome",
@@ -46,6 +50,106 @@ export const ReadOnly: Story = {
   args: {
     workspace: readOnlyWorkspace,
     title: "Handbook",
+  },
+}
+
+export const PendingProbe: Story = {
+  args: {
+    workspace: pendingWriteWorkspace,
+    title: "Repo layout",
+  },
+}
+
+export const DirtyCommitPush: Story = {
+  args: {
+    title: "Repo layout",
+    branch: {
+      shortName: "chat/1",
+      fullRef: "ctxpipe/chat/conv_1/1",
+    },
+    publish: {
+      commitPush: {
+        enabled: true,
+        pending: false,
+        onPress: () => {},
+      },
+      pullRequest: {
+        action: "create",
+        pending: false,
+        onPress: () => {},
+      },
+    },
+  },
+}
+
+export const Pushing: Story = {
+  args: {
+    ...DirtyCommitPush.args,
+    publish: {
+      commitPush: {
+        enabled: true,
+        pending: true,
+        onPress: () => {},
+      },
+      pullRequest: {
+        action: "create",
+        pending: false,
+        onPress: () => {},
+      },
+    },
+  },
+}
+
+export const CreatingPr: Story = {
+  args: {
+    ...DirtyCommitPush.args,
+    publish: {
+      commitPush: {
+        enabled: true,
+        pending: false,
+        onPress: () => {},
+      },
+      pullRequest: {
+        action: "create",
+        pending: true,
+        onPress: () => {},
+      },
+    },
+  },
+}
+
+export const ShowPr: Story = {
+  args: {
+    title: "Repo layout",
+    branch: {
+      shortName: "chat/1",
+      fullRef: "ctxpipe/chat/conv_1/1",
+      href: "https://github.com/acme/docs/tree/ctxpipe/chat/conv_1/1",
+    },
+    publish: {
+      commitPush: {
+        enabled: true,
+        pending: false,
+        onPress: () => {},
+      },
+      pullRequest: {
+        action: "show",
+        pending: false,
+        href: "https://github.com/acme/docs/pull/41",
+        onPress: () => {},
+      },
+    },
+  },
+}
+
+export const MergedCreatePrAgain: Story = {
+  args: {
+    ...DirtyCommitPush.args,
+    branch: {
+      shortName: "chat/1",
+      fullRef: "ctxpipe/chat/conv_1/1",
+      href: "https://github.com/acme/docs/tree/ctxpipe/chat/conv_1/1",
+    },
   },
 }
 

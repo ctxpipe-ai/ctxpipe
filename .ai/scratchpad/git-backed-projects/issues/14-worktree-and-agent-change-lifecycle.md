@@ -57,7 +57,7 @@ Frontier: UI label; chat write disposition vs ticket 13 hard deny; idle/destroy/
 
 ## Answer
 
-Human lock, 2026-08-15. No host git worktree for chat isolation ([Backend, codesearch, and sandbox-runner topology](08-backend-codesearch-sandbox-topology.md)). File-edit panel remains out of scope.
+Human lock, 2026-08-15. No host git worktree for chat isolation ([Backend, codesearch, and sandbox-runner topology](08-backend-codesearch-sandbox-topology.md)). Conversation file-edit is in scope: Pierre + sandbox FS + explicit Commit+Push / Create PR (one branch `ctxpipe/chat/<conversationId>/1`).
 
 **Vocabulary:** **Job sandbox** (one per Workspace, jobs + in-sandbox worktrees) vs **chat sandbox** (`withSandbox` per `threadId`). Retired: “write sandbox.” Any sandbox may write; **who may push the default branch** is the restriction.
 
@@ -75,9 +75,9 @@ The human-facing name is the **conversation name** ([Workspace chat, conversatio
 
 This **narrows** [Workspace chat, conversation state, and sandbox security](13-project-chat-and-sandbox-security.md): the hard deny is **no push to the default branch** (and no Contents:write / App PEM in the sandbox). Branch+PR is allowed and **brokered** — `gh` in the sandbox stays read-only ([Backend, codesearch, and sandbox-runner topology](08-backend-codesearch-sandbox-topology.md)).
 
-Dirtiness alone **never** creates GitHub state. Only an **explicit** brokered request (agent/user: open or update a PR) creates a branch + PR.
+Dirtiness alone **never** creates GitHub state. Only an **explicit** brokered request creates GitHub state: **Commit+Push** (session branch) or **Create PR** (that push + `pulls.create`). The conversation file-edit panel is the other explicit publish path.
 
-A conversation may open **multiple** PRs (no one-PR cap, no “start a new conversation after merge”). Branch names are a code constant (`ctxpipe/chat/<conversationId>/<n>`). Runner pushes that **session** branch (force-with-lease on that branch only). **Never** force-push the default branch. Relink: do not push a PR to the old URL (generation recheck); the same conversation may publish to the new desired remote. Conversation delete destroys the sandbox and does **not** close or delete existing GitHub PRs/branches. Non-GitHub workspace remotes: chat stays dirty-tree only (v1 writes are GitHub-only).
+A conversation uses **one** working branch (`ctxpipe/chat/<conversationId>/1`). Merged/closed PRs return chrome to Create PR on that same branch. Runner pushes that **session** branch (force-with-lease on that branch only). **Never** force-push the default branch. Relink: do not push a PR to the old URL (generation recheck); the same conversation may publish to the new desired remote. Conversation delete destroys the sandbox and does **not** close or delete existing GitHub PRs/branches. Non-GitHub workspace remotes: chat stays dirty-tree only (v1 writes are GitHub-only).
 
 Uncommitted edits that never become a PR: **discard** when the chat sandbox is destroyed (idle/delete/crash-without-snapshot).
 

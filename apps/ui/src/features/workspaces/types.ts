@@ -88,6 +88,46 @@ export type WorkspaceGitStatusResponse = {
   items: WorkspaceGitStatusItem[]
 }
 
+export type ConversationGitStatusResponse = {
+  source: "sandbox"
+  dirty: boolean
+  differsFromDefault: boolean
+  unpushed: boolean
+  published: boolean
+  ahead: number
+  behind: number
+  items: WorkspaceGitStatusItem[]
+}
+
+export type ConversationGitDiffItem = {
+  path: string
+  oldBody: string | null
+  body: string | null
+}
+
+export type ConversationGitDiffResponse = {
+  items: ConversationGitDiffItem[]
+}
+
+export type ConversationFileMutation = {
+  path: string
+  body?: string
+  deletePath?: boolean
+  from?: string
+}
+
+export type ConversationPushResponse = {
+  branch: string
+  treeUrl: string
+}
+
+export type ConversationPullRequestResponse = {
+  branch: string
+  prNumber: number
+  pullUrl: string
+  prState: "open" | "closed" | "merged"
+}
+
 export type WorkspaceFileJobRequest =
   | { op: "save"; path: string; content: string }
   | { op: "create"; path: string; kind: "file" | "folder"; content?: string }

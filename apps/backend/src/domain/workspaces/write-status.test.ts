@@ -9,6 +9,7 @@ import {
   WRITE_STATUS_REASONS,
   writeStatusFromClassification,
   writeStatusFromGithubProbeError,
+  isProtectedDefaultBranchGithubError,
 } from "./write-status.js"
 
 describe("githubRepoFullNameFromWorkspaceUrl", () => {
@@ -76,22 +77,28 @@ describe("writeStatusFromGithubProbeError", () => {
     })
   })
 
-  it("maps protected-branch 403 separately from Contents:write", () => {
+  it("does not freeze the Workspace when only the default branch is protected", () => {
+    expect(
+      isProtectedDefaultBranchGithubError({
+        status: 403,
+        message: "Required status checks on protected branch",
+      }),
+    ).toBe(true)
     expect(
       writeStatusFromGithubProbeError({
         status: 403,
         message: "Required status checks on protected branch",
-      }).readOnlyReason,
-    ).toBe(WRITE_STATUS_REASONS.protectedBranch)
-    expect(
-      writeStatusFromGithubProbeError({ status: 403 }).readOnlyReason,
-    ).toBe(WRITE_STATUS_REASONS.contentsWriteDenied)
+      }),
+    ).toEqual({ writeStatus: "writable", readOnlyReason: null })
     expect(
       writeStatusFromGithubProbeError({
         status: 403,
         message: "Repository ruleset prevents this push",
-      }).readOnlyReason,
-    ).toBe(WRITE_STATUS_REASONS.protectedBranch)
+      }),
+    ).toEqual({ writeStatus: "writable", readOnlyReason: null })
+    expect(
+      writeStatusFromGithubProbeError({ status: 403 }).readOnlyReason,
+    ).toBe(WRITE_STATUS_REASONS.contentsWriteDenied)
   })
 })
 

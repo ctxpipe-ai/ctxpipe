@@ -5,9 +5,11 @@ import { log } from "../../observability/logger.js"
 import { resolveGithubDefaultBranch } from "../../routes/webhooks/github/github-workspace-tip.js"
 import { githubRefExists } from "../../services/github/installation-write-client.js"
 import {
+  conversationSessionBranch,
   lastBranchExistsOnRemote,
   restoreBranchAfterIdle,
 } from "./chat-lifecycle.js"
+import { workspaceAllowsConversationEdits } from "./chat-sandbox-policy.js"
 import { githubRepoFullNameFromWorkspaceUrl } from "./write-status.js"
 
 export type WorkspaceChatTurnConversation = {
@@ -33,6 +35,7 @@ export async function resolveWorkspaceChatTurnRuntime(input: {
   env: Env
 }): Promise<{
   lastBranch: string
+  cloneRef: string
   defaultBranch: string
   cloneToken: string | null
   writeStatus: string
@@ -79,7 +82,7 @@ export async function resolveWorkspaceChatTurnRuntime(input: {
     ms: Date.now() - githubStarted,
     conversationId: conversation.id,
   })
-  const lastBranch = restoreBranchAfterIdle({
+  const restored = restoreBranchAfterIdle({
     lastBranch: conversation.lastBranch,
     lastBranchExistsOnRemote: lastBranchExistsOnRemote({
       lastBranch: conversation.lastBranch,
@@ -90,6 +93,25 @@ export async function resolveWorkspaceChatTurnRuntime(input: {
     }),
     defaultBranch,
   })
+  const canEdit = workspaceAllowsConversationEdits(
+    workspace?.writeStatus ?? "read_only",
+  )
+  const sessionBranch = conversationSessionBranch(conversation.id)
+  const lastBranch = canEdit ? sessionBranch : restored
+  const cloneRef =
+    canEdit &&
+    conversation.lastBranch === sessionBranch &&
+    lastBranchExistsOnRemote({
+      lastBranch: conversation.lastBranch,
+      remoteBranches:
+        remoteHasLastBranch && conversation.lastBranch
+          ? [conversation.lastBranch]
+          : [],
+    })
+      ? sessionBranch
+      : restored === defaultBranch
+        ? (workspace?.desiredSha ?? defaultBranch)
+        : restored
   if (lastBranch.startsWith("ctxpipe/chat/")) {
     await persistConversationLastBranch({
       conversationId: conversation.id,
@@ -98,6 +120,7 @@ export async function resolveWorkspaceChatTurnRuntime(input: {
   }
   return {
     lastBranch,
+    cloneRef: cloneRef || workspace?.desiredSha || defaultBranch,
     defaultBranch,
     cloneToken,
     writeStatus: workspace?.writeStatus ?? "read_only",

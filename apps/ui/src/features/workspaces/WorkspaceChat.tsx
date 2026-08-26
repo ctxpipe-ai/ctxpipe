@@ -145,15 +145,16 @@ function WorkspaceChatResume(props: {
   }
 
   return (
-    <WorkspaceChatSession
-      key={conversationId}
-      orgSlug={orgSlug}
-      workspace={workspace}
-      conversationId={conversationId}
-      composing={false}
-      title={detail.conversation.name || "New conversation"}
-      initialMessages={detail.messages}
-      headerExtra={props.headerExtra}
-    />
+      <WorkspaceChatSession
+        key={conversationId}
+        orgSlug={orgSlug}
+        workspace={workspace}
+        conversationId={conversationId}
+        composing={false}
+        title={detail.conversation.name || "New conversation"}
+        initialMessages={detail.messages}
+        conversation={detail.conversation}
+        headerExtra={props.headerExtra}
+      />
   )
 }

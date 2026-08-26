@@ -5,6 +5,8 @@ import type {
   PageInfo,
 } from "@/features/chat/types"
 import type {
+  ConversationGitDiffResponse,
+  ConversationGitStatusResponse,
   Workspace,
   WorkspaceDetail,
   WorkspaceFileJobRequest,
@@ -229,6 +231,151 @@ export function conversationDetailHandler(detail: ConversationDetail | null) {
       return HttpResponse.json(detail)
     },
   )
+}
+
+export function conversationPrepareHandler() {
+  return http.post(
+    ({ request }) =>
+      /\/api\/v1\/conversations\/[^/]+\/prepare$/.test(pathnameOf(request)),
+    () => new HttpResponse(null, { status: 204 }),
+  )
+}
+
+export function conversationGitTreeHandler(
+  tree: WorkspaceGitTreeResponse & { branch?: string } = {
+    ...docsWorkspaceGitTree,
+    branch: "ctxpipe/chat/conv_1/1",
+  },
+) {
+  return http.get(
+    ({ request }) =>
+      /\/api\/v1\/conversations\/[^/]+\/files\/tree$/.test(pathnameOf(request)),
+    () => HttpResponse.json(tree),
+  )
+}
+
+export function conversationGitTreeMissingHandler() {
+  return http.get(
+    ({ request }) =>
+      /\/api\/v1\/conversations\/[^/]+\/files\/tree$/.test(pathnameOf(request)),
+    () => HttpResponse.json({ error: "missing_sandbox" }, { status: 409 }),
+  )
+}
+
+export function conversationGitBlobHandler(
+  blobs: Record<string, string> = docsWorkspaceGitBlobs,
+) {
+  return http.get(
+    ({ request }) =>
+      /\/api\/v1\/conversations\/[^/]+\/files\/blob$/.test(pathnameOf(request)),
+    ({ request }) => {
+      const path = new URL(request.url).searchParams.get("path") ?? ""
+      const body = blobs[path]
+      if (body === undefined) {
+        return HttpResponse.json({ error: "Not found" }, { status: 404 })
+      }
+      return HttpResponse.json({ path, body, binary: false })
+    },
+  )
+}
+
+export function conversationGitStatusHandler(
+  status: ConversationGitStatusResponse = {
+    source: "sandbox",
+    dirty: true,
+    differsFromDefault: true,
+    unpushed: true,
+    published: false,
+    ahead: 1,
+    behind: 0,
+    items: docsWorkspaceGitStatus.items,
+  },
+) {
+  return http.get(
+    ({ request }) =>
+      /\/api\/v1\/conversations\/[^/]+\/files\/status$/.test(pathnameOf(request)),
+    () => HttpResponse.json(status),
+  )
+}
+
+export function conversationGitDiffHandler(
+  items: ConversationGitDiffResponse["items"] = [
+    {
+      path: "knowledge/billing/ledger.md",
+      oldBody: docsWorkspaceGitBlobs["knowledge/billing/ledger.md"] ?? "",
+      body: `${docsWorkspaceGitBlobs["knowledge/billing/ledger.md"] ?? ""}\nQueued sandbox edit.\n`,
+    },
+  ],
+) {
+  return http.get(
+    ({ request }) =>
+      /\/api\/v1\/conversations\/[^/]+\/files\/diff$/.test(pathnameOf(request)),
+    () => HttpResponse.json({ items }),
+  )
+}
+
+export function conversationFilePutHandler() {
+  return http.put(
+    ({ request }) =>
+      /\/api\/v1\/conversations\/[^/]+\/files\/blob$/.test(pathnameOf(request)),
+    async ({ request }) => {
+      const body = (await request.json()) as {
+        path: string
+        body?: string | null
+      }
+      return HttpResponse.json({
+        path: body.path,
+        body: body.body ?? null,
+        binary: false,
+      })
+    },
+  )
+}
+
+export function conversationPushHandler() {
+  return http.post(
+    ({ request }) =>
+      /\/api\/v1\/conversations\/[^/]+\/push$/.test(pathnameOf(request)),
+    () =>
+      HttpResponse.json({
+        branch: "ctxpipe/chat/conv_1/1",
+        treeUrl: "https://github.com/acme/docs/tree/ctxpipe/chat/conv_1/1",
+      }),
+  )
+}
+
+export function conversationPullRequestHandler(input?: {
+  prState?: "open" | "closed" | "merged"
+  delayMs?: "infinite"
+}) {
+  const payload = {
+    branch: "ctxpipe/chat/conv_1/1",
+    prNumber: 41,
+    pullUrl: "https://github.com/acme/docs/pull/41",
+    prState: input?.prState ?? "open",
+  }
+  return [
+    http.get(
+      ({ request }) =>
+        /\/api\/v1\/conversations\/[^/]+\/pull-request$/.test(
+          pathnameOf(request),
+        ),
+      async () => {
+        if (input?.delayMs === "infinite") await delay("infinite")
+        return HttpResponse.json(payload)
+      },
+    ),
+    http.post(
+      ({ request }) =>
+        /\/api\/v1\/conversations\/[^/]+\/pull-request$/.test(
+          pathnameOf(request),
+        ),
+      async () => {
+        if (input?.delayMs === "infinite") await delay("infinite")
+        return HttpResponse.json(payload)
+      },
+    ),
+  ]
 }
 
 export function conversationDetailLoadingHandler() {

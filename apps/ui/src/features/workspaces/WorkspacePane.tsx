@@ -5,7 +5,9 @@ import {
   IconArrowForwardUp,
   IconArrowsDiagonal2,
   IconArrowsDiagonalMinimize,
+  IconDeviceFloppy,
   IconFolder,
+  IconGitCompare,
   IconLayoutSidebarLeftExpand,
   IconLayoutSidebarRightCollapse,
   IconLayoutSidebarRightExpand,
@@ -44,10 +46,16 @@ import {
 import { focusVisibleClassName } from "@/lib/focus-styles"
 import { useUrgentValue } from "@/lib/useUrgentValue"
 import { cn } from "@/lib/utils"
+import { conversationAllowsEdits } from "./conversationPublish"
 import { joinFileName, optimisticPathsAfterJob } from "./fileTreeMutations"
 import { filePaneId, type ParsedPane, parsePane, serializePane } from "./pane"
 import {
-  enqueueWorkspaceFileJob,
+  conversationGitBlobOptions,
+  conversationGitDiffOptions,
+  conversationGitStatusOptions,
+  conversationGitTreeOptions,
+  persistConversationFileMutation,
+  workspaceChatPrepareOptions,
   workspaceGitBlobOptions,
   workspaceGitStatusOptions,
   workspaceGitTreeOptions,
@@ -55,6 +63,7 @@ import {
   workspaceKeys,
 } from "./queries"
 import type {
+  ConversationGitDiffItem,
   WorkspaceDetail,
   WorkspaceFileJobRequest,
   WorkspaceGitStatusItem,
@@ -88,6 +97,7 @@ import {
 export function WorkspacePane(props: {
   orgSlug: string
   workspace: WorkspaceDetail
+  conversationId?: string
   pane: ParsedPane
   fileTabs: string[]
   previewPath: string | null
@@ -110,12 +120,18 @@ export function WorkspacePane(props: {
   const urlPaneKey = serializePane(props.pane)
   const [pane, setPane] = useUrgentValue(props.pane, urlPaneKey)
   const activeFile = pane.kind === "file" ? pane.path : null
-  const filesTabActive = pane.kind === "files"
+  const filesTabActive = pane.kind === "files" || pane.kind === "diff"
   const selectedKey = serializePane(pane)
   const paneWidthLocked = props.width != null
 
   const prefetchPane = (next: ParsedPane) => {
-    prefetchWorkspacePane(queryClient, props.orgSlug, props.workspace, next)
+    prefetchWorkspacePane(
+      queryClient,
+      props.orgSlug,
+      props.workspace,
+      next,
+      props.conversationId,
+    )
   }
 
   const selectPane = (next: ParsedPane) => {
@@ -243,6 +259,14 @@ export function WorkspacePane(props: {
                 icon={<IconFolder stroke={1.6} aria-hidden />}
                 onIntent={() => prefetchPane({ kind: "files" })}
               />
+              {props.conversationId ? (
+                <ConversationDiffTab
+                  orgSlug={props.orgSlug}
+                  conversationId={props.conversationId}
+                  workspaceId={props.workspace.id}
+                  onIntent={() => prefetchPane({ kind: "diff" })}
+                />
+              ) : null}
               <PaneIconTab
                 id="graph"
                 label="Graph"
@@ -338,6 +362,8 @@ export function WorkspacePane(props: {
                 <WorkspaceFilesPaneBody
                   orgSlug={props.orgSlug}
                   workspaceSlug={props.workspace.slug}
+                  workspaceId={props.workspace.id}
+                  conversationId={props.conversationId}
                   sha={
                     props.workspace.activeProjectionSha?.trim() ||
                     props.workspace.desiredSha?.trim() ||
@@ -356,6 +382,18 @@ export function WorkspacePane(props: {
                   }}
                   onToggleTree={props.onToggleTree}
                   onCloseActiveFile={props.onCloseActiveFile}
+                />
+              </Suspense>
+            ) : null}
+            {pane.kind === "diff" && props.conversationId ? (
+              <Suspense fallback={<WorkspaceFilesPaneSkeleton />}>
+                <WorkspaceConversationDiffPane
+                  orgSlug={props.orgSlug}
+                  conversationId={props.conversationId}
+                  onOpenFile={(path) => {
+                    setPane({ kind: "file", path })
+                    props.onPinFile(path)
+                  }}
                 />
               </Suspense>
             ) : null}
@@ -407,6 +445,8 @@ export function WorkspacePane(props: {
 function WorkspaceFilesPaneBody(props: {
   orgSlug: string
   workspaceSlug: string
+  workspaceId: string
+  conversationId?: string
   sha: string
   writeStatus: string
   activeFile: string | null
@@ -416,21 +456,48 @@ function WorkspaceFilesPaneBody(props: {
   onToggleTree: () => void
   onCloseActiveFile: () => void
 }) {
-  const { data } = useSuspenseQuery(
+  const prepareQuery = useQuery({
+    ...workspaceChatPrepareOptions(
+      props.orgSlug,
+      props.conversationId ?? "",
+      props.workspaceId,
+    ),
+    enabled: Boolean(props.conversationId),
+  })
+  const sandboxTreeQuery = useQuery({
+    ...conversationGitTreeOptions(props.orgSlug, props.conversationId ?? ""),
+    enabled: Boolean(props.conversationId) && prepareQuery.isSuccess,
+  })
+  const workspaceTree = useSuspenseQuery(
     workspaceGitTreeOptions(props.orgSlug, props.workspaceSlug, props.sha),
   )
-  const statusQuery = useQuery(
-    workspaceGitStatusOptions(props.orgSlug, props.workspaceSlug, props.sha),
-  )
+  const useSandbox = Boolean(props.conversationId) && sandboxTreeQuery.isSuccess
+  const sandboxStatusQuery = useQuery({
+    ...conversationGitStatusOptions(props.orgSlug, props.conversationId ?? ""),
+    enabled: useSandbox,
+  })
+  const workspaceStatusQuery = useQuery({
+    ...workspaceGitStatusOptions(props.orgSlug, props.workspaceSlug, props.sha),
+    enabled: !useSandbox,
+  })
+  const tree = useSandbox ? sandboxTreeQuery.data : workspaceTree.data
+  if (!tree) return null
   return (
     <div className="h-full min-h-0 min-w-0 flex-1">
       <WorkspaceFilesPaneContent
         orgSlug={props.orgSlug}
         workspaceSlug={props.workspaceSlug}
+        conversationId={useSandbox ? props.conversationId : undefined}
         sha={props.sha}
-        writeStatus={props.writeStatus}
-        tree={data}
-        gitStatus={statusQuery.data?.items ?? []}
+        tree={tree}
+        gitStatus={
+          (useSandbox
+            ? sandboxStatusQuery.data?.items
+            : workspaceStatusQuery.data?.items) ?? []
+        }
+        writable={
+          useSandbox && conversationAllowsEdits(props.writeStatus)
+        }
         activeFile={props.activeFile}
         treeCollapsed={props.treeCollapsed}
         onPreviewFile={props.onPreviewFile}
@@ -455,10 +522,11 @@ function clampTreeWidth(width: number): number {
 function WorkspaceFilesPaneContent(props: {
   orgSlug: string
   workspaceSlug: string
+  conversationId?: string
   sha: string
-  writeStatus: string
   tree: WorkspaceGitTreeResponse
   gitStatus: readonly WorkspaceGitStatusItem[]
+  writable: boolean
   activeFile: string | null
   treeCollapsed: boolean
   onPreviewFile: (path: string) => void
@@ -468,6 +536,16 @@ function WorkspaceFilesPaneContent(props: {
 }) {
   const queryClient = useQueryClient()
   const prefetchBlob = (path: string) => {
+    if (props.conversationId) {
+      void queryClient.prefetchQuery(
+        conversationGitBlobOptions(
+          props.orgSlug,
+          props.conversationId,
+          path,
+        ),
+      )
+      return
+    }
     void queryClient.prefetchQuery(
       workspaceGitBlobOptions(
         props.orgSlug,
@@ -477,7 +555,7 @@ function WorkspaceFilesPaneContent(props: {
       ),
     )
   }
-  const writable = false
+  const writable = props.writable
   const [treeWidth, setTreeWidth] = useState(TREE_WIDTH_DEFAULT)
   const [treeResizing, setTreeResizing] = useState(false)
   const [drafts, setDrafts] = useState<Record<string, string>>({})
@@ -530,6 +608,34 @@ function WorkspaceFilesPaneContent(props: {
   }, [drafts, props.gitStatus])
 
   const invalidateFiles = async () => {
+    if (props.conversationId) {
+      await queryClient.invalidateQueries({
+        queryKey: workspaceKeys.conversationGitTree(
+          props.orgSlug,
+          props.conversationId,
+        ),
+      })
+      await queryClient.invalidateQueries({
+        queryKey: workspaceKeys.conversationGitStatus(
+          props.orgSlug,
+          props.conversationId,
+        ),
+      })
+      await queryClient.invalidateQueries({
+        queryKey: workspaceKeys.conversationGitDiff(
+          props.orgSlug,
+          props.conversationId,
+        ),
+      })
+      await queryClient.invalidateQueries({
+        queryKey: [
+          "conversation-git-blob",
+          props.orgSlug,
+          props.conversationId,
+        ],
+      })
+      return
+    }
     await queryClient.invalidateQueries({
       queryKey: workspaceKeys.gitTree(
         props.orgSlug,
@@ -555,15 +661,28 @@ function WorkspaceFilesPaneContent(props: {
   }
 
   const jobMutation = useMutation({
-    mutationFn: (input: WorkspaceFileJobRequest) =>
-      enqueueWorkspaceFileJob(props.orgSlug, props.workspaceSlug, input),
+    mutationFn: (input: WorkspaceFileJobRequest) => {
+      if (!props.conversationId) {
+        throw new Error("Conversation sandbox is not ready")
+      }
+      return persistConversationFileMutation(
+        props.orgSlug,
+        props.conversationId,
+        input,
+      )
+    },
     onMutate: async (input) => {
       setJobError(null)
-      const key = workspaceKeys.gitTree(
-        props.orgSlug,
-        props.workspaceSlug,
-        props.sha,
-      )
+      const key = props.conversationId
+        ? workspaceKeys.conversationGitTree(
+            props.orgSlug,
+            props.conversationId,
+          )
+        : workspaceKeys.gitTree(
+            props.orgSlug,
+            props.workspaceSlug,
+            props.sha,
+          )
       await queryClient.cancelQueries({ queryKey: key })
       const previous = queryClient.getQueryData<WorkspaceGitTreeResponse>(key)
       if (!previous || input.op === "save") return { previous }
@@ -635,7 +754,16 @@ function WorkspaceFilesPaneContent(props: {
       )
       if (context?.previous) {
         queryClient.setQueryData(
-          workspaceKeys.gitTree(props.orgSlug, props.workspaceSlug, props.sha),
+          props.conversationId
+            ? workspaceKeys.conversationGitTree(
+                props.orgSlug,
+                props.conversationId,
+              )
+            : workspaceKeys.gitTree(
+                props.orgSlug,
+                props.workspaceSlug,
+                props.sha,
+              ),
           context.previous,
         )
       }
@@ -689,6 +817,22 @@ function WorkspaceFilesPaneContent(props: {
       if (saveTimerRef.current) clearTimeout(saveTimerRef.current)
     }
   }, [])
+
+  useEffect(() => {
+    if (!writable) return
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (!(event.metaKey || event.ctrlKey) || event.key.toLowerCase() !== "s") {
+        return
+      }
+      event.preventDefault()
+      const path = pendingSavePathRef.current ?? props.activeFile
+      clearAutosaveTimer()
+      pendingSavePathRef.current = null
+      flushSave(path)
+    }
+    window.addEventListener("keydown", onKeyDown)
+    return () => window.removeEventListener("keydown", onKeyDown)
+  }, [props.activeFile, writable])
 
   const submitCreate = () => {
     if (!createDialog) return
@@ -831,6 +975,22 @@ function WorkspaceFilesPaneContent(props: {
               <Button
                 variant="quiet"
                 size="icon-sm"
+                aria-label="Save"
+                isDisabled={!dirty || jobMutation.isPending}
+                preventFocusOnPress
+                onPress={() => {
+                  const path = pendingSavePathRef.current ?? props.activeFile
+                  clearAutosaveTimer()
+                  pendingSavePathRef.current = null
+                  flushSave(path)
+                }}
+                className={FILES_HEADER_ICON_BUTTON_CLASS}
+              >
+                <IconDeviceFloppy className="size-4" stroke={1.6} aria-hidden />
+              </Button>
+              <Button
+                variant="quiet"
+                size="icon-sm"
                 aria-label="Undo"
                 isDisabled={!editorHistory.canUndo}
                 preventFocusOnPress
@@ -870,12 +1030,13 @@ function WorkspaceFilesPaneContent(props: {
               <WorkspaceGitFilePreview
                 orgSlug={props.orgSlug}
                 workspaceSlug={props.workspaceSlug}
+                conversationId={props.conversationId}
                 path={props.activeFile}
                 sha={props.sha || props.tree.sha}
                 remoteBody={
                   gitStatus.find((item) => item.path === props.activeFile)?.body
                 }
-                editable={false}
+                editable={writable}
                 editorHandleRef={fileEditorRef}
                 onHistoryChange={setEditorHistory}
                 onBlur={saveOnBlur}
@@ -982,11 +1143,11 @@ function WorkspaceFilesPaneContent(props: {
                 <IconAlertCircle aria-hidden className="size-6 stroke-2" />
               </div>
               <p className="mt-3 text-sm text-zinc-400">
-                This queues a write job that removes{" "}
+                This removes{" "}
                 <code className="font-mono text-xs text-zinc-200">
                   {deleteItem?.path}
                 </code>{" "}
-                from the Workspace repository.
+                from the conversation sandbox. Commit+Push publishes it.
               </p>
               <div className="mt-6 flex justify-end gap-2">
                 <Button variant="ghost" onPress={close}>
@@ -1018,6 +1179,7 @@ function WorkspaceFilesPaneContent(props: {
 function WorkspaceGitFilePreview(props: {
   orgSlug: string
   workspaceSlug: string
+  conversationId?: string
   path: string
   sha: string
   remoteBody?: string | null
@@ -1027,6 +1189,31 @@ function WorkspaceGitFilePreview(props: {
   onBlur: () => void
   onChange: (body: string, headBody: string | null) => void
 }) {
+  if (props.conversationId) {
+    return (
+      <SandboxGitFilePreview
+        {...props}
+        conversationId={props.conversationId}
+      />
+    )
+  }
+  return <CodesearchGitFilePreview {...props} />
+}
+
+function SandboxGitFilePreview(
+  props: Omit<Parameters<typeof GitFilePreviewBody>[0], "data"> & {
+    conversationId: string
+  },
+) {
+  const { data } = useSuspenseQuery(
+    conversationGitBlobOptions(props.orgSlug, props.conversationId, props.path),
+  )
+  return <GitFilePreviewBody {...props} data={data} />
+}
+
+function CodesearchGitFilePreview(
+  props: Omit<Parameters<typeof GitFilePreviewBody>[0], "data">,
+) {
   const { data } = useSuspenseQuery(
     workspaceGitBlobOptions(
       props.orgSlug,
@@ -1035,6 +1222,38 @@ function WorkspaceGitFilePreview(props: {
       props.path,
     ),
   )
+  return <GitFilePreviewBody {...props} data={data} />
+}
+
+function GitFilePreviewBody(props: {
+  orgSlug: string
+  workspaceSlug: string
+  conversationId?: string
+  path: string
+  sha: string
+  remoteBody?: string | null
+  editable: boolean
+  editorHandleRef: { current: FileEditorHandle | null }
+  onHistoryChange: (history: FileEditorHistory) => void
+  onBlur: () => void
+  onChange: (body: string, headBody: string | null) => void
+  data: { path: string; body: string | null; binary: boolean }
+}) {
+  const { data } = props
+  const [seenBody, setSeenBody] = useState(data.body)
+  const [loadedBody, setLoadedBody] = useState(data.body)
+  const [agentUpdated, setAgentUpdated] = useState(false)
+  const dirtyVsLoaded =
+    props.remoteBody != null && props.remoteBody !== (loadedBody ?? "")
+  if (data.body !== seenBody) {
+    setSeenBody(data.body)
+    if (dirtyVsLoaded && data.body !== loadedBody) {
+      setAgentUpdated(true)
+    } else if (!dirtyVsLoaded) {
+      setLoadedBody(data.body)
+      setAgentUpdated(false)
+    }
+  }
   if (data.binary) {
     return (
       <div className="flex h-full min-h-0 items-center p-4">
@@ -1044,7 +1263,7 @@ function WorkspaceGitFilePreview(props: {
       </div>
     )
   }
-  const headBody = data.body
+  const headBody = agentUpdated ? loadedBody : data.body
   const workingBody = props.remoteBody ?? headBody
   if (workingBody == null && headBody == null) {
     return (
@@ -1056,18 +1275,36 @@ function WorkspaceGitFilePreview(props: {
     )
   }
   return (
-    <div className="h-full min-h-0 min-w-0">
-      <WorkspacePierreFile
-        path={props.path}
-        body={workingBody ?? ""}
-        oldBody={headBody}
-        cacheKey={`${props.sha}:${props.path}`}
-        editable={props.editable}
-        editorHandleRef={props.editorHandleRef}
-        onHistoryChange={props.onHistoryChange}
-        onBlur={props.onBlur}
-        onChange={(body) => props.onChange(body, headBody)}
-      />
+    <div className="flex h-full min-h-0 min-w-0 flex-col">
+      {agentUpdated ? (
+        <div className="flex items-center justify-between gap-2 px-3 py-2">
+          <p className="text-xs text-amber-200">Agent updated this file.</p>
+          <Button
+            variant="ghost"
+            className="h-7 px-2 text-xs"
+            onPress={() => {
+              setLoadedBody(data.body)
+              setAgentUpdated(false)
+              props.onChange(data.body ?? "", data.body)
+            }}
+          >
+            Reload
+          </Button>
+        </div>
+      ) : null}
+      <div className="min-h-0 min-w-0 flex-1">
+        <WorkspacePierreFile
+          path={props.path}
+          body={workingBody ?? ""}
+          oldBody={headBody}
+          cacheKey={`${props.conversationId ?? props.sha}:${props.path}:${agentUpdated ? "held" : "live"}`}
+          editable={props.editable}
+          editorHandleRef={props.editorHandleRef}
+          onHistoryChange={props.onHistoryChange}
+          onBlur={props.onBlur}
+          onChange={(body) => props.onChange(body, headBody)}
+        />
+      </div>
     </div>
   )
 }
@@ -1096,10 +1333,21 @@ function prefetchWorkspacePane(
   orgSlug: string,
   workspace: WorkspaceDetail,
   pane: ParsedPane,
+  conversationId?: string,
 ) {
   const sha =
     workspace.activeProjectionSha?.trim() || workspace.desiredSha?.trim() || ""
   if (pane.kind === "files" || pane.kind === "file") {
+    if (conversationId) {
+      void queryClient.prefetchQuery(
+        conversationGitTreeOptions(orgSlug, conversationId),
+      )
+      if (pane.kind === "file") {
+        void queryClient.prefetchQuery(
+          conversationGitBlobOptions(orgSlug, conversationId, pane.path),
+        )
+      }
+    }
     void queryClient.prefetchQuery(
       workspaceGitTreeOptions(orgSlug, workspace.slug, sha),
     )
@@ -1108,11 +1356,98 @@ function prefetchWorkspacePane(
         workspaceGitBlobOptions(orgSlug, workspace.slug, sha, pane.path),
       )
     }
+  } else if (pane.kind === "diff" && conversationId) {
+    void queryClient.prefetchQuery(
+      conversationGitDiffOptions(orgSlug, conversationId),
+    )
   } else if (pane.kind === "graph") {
     void queryClient.prefetchQuery(
       workspaceGraphOptions(orgSlug, workspace.slug),
     )
   }
+}
+
+function ConversationDiffTab(props: {
+  orgSlug: string
+  conversationId: string
+  workspaceId: string
+  onIntent?: () => void
+}) {
+  const prepareQuery = useQuery({
+    ...workspaceChatPrepareOptions(
+      props.orgSlug,
+      props.conversationId,
+      props.workspaceId,
+    ),
+  })
+  const statusQuery = useQuery({
+    ...conversationGitStatusOptions(props.orgSlug, props.conversationId),
+    enabled: prepareQuery.isSuccess,
+  })
+  if (!statusQuery.data?.differsFromDefault) return null
+  return (
+    <PaneIconTab
+      id="diff"
+      label="Diff"
+      icon={<IconGitCompare stroke={1.6} aria-hidden />}
+      onIntent={props.onIntent}
+    />
+  )
+}
+
+function WorkspaceConversationDiffPane(props: {
+  orgSlug: string
+  conversationId: string
+  onOpenFile: (path: string) => void
+}) {
+  const { data } = useSuspenseQuery(
+    conversationGitDiffOptions(props.orgSlug, props.conversationId),
+  )
+  if (data.items.length === 0) {
+    return (
+      <div className="flex flex-1 items-center justify-center p-6">
+        <p className="text-sm text-muted-foreground">
+          No changes vs the default branch.
+        </p>
+      </div>
+    )
+  }
+  return (
+    <div className="flex h-full min-h-0 min-w-0 flex-col overflow-auto">
+      {data.items.map((item) => (
+        <ConversationDiffFile
+          key={item.path}
+          item={item}
+          onOpen={() => props.onOpenFile(item.path)}
+        />
+      ))}
+    </div>
+  )
+}
+
+function ConversationDiffFile(props: {
+  item: ConversationGitDiffItem
+  onOpen: () => void
+}) {
+  return (
+    <div className="border-b border-white/[0.06]">
+      <Button
+        variant="ghost"
+        onPress={props.onOpen}
+        className="h-8 w-full justify-start rounded-none px-3 font-mono text-xs"
+      >
+        {props.item.path}
+      </Button>
+      <div className="h-64 min-h-0">
+        <WorkspacePierreFile
+          path={props.item.path}
+          body={props.item.body ?? ""}
+          oldBody={props.item.oldBody}
+          cacheKey={`diff:${props.item.path}:${props.item.body?.length ?? 0}`}
+        />
+      </div>
+    </div>
+  )
 }
 
 function PaneIconTab(props: {

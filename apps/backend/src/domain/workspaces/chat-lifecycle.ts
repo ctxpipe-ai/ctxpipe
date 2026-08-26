@@ -12,6 +12,11 @@ export function chatSessionBranchName(
   return `${CHAT_SESSION_BRANCH_PREFIX}/${conversationId}/${prNumber}`
 }
 
+/** One working branch per conversation. */
+export function conversationSessionBranch(conversationId: string): string {
+  return chatSessionBranchName(conversationId, 1)
+}
+
 export function nextChatPrNumber(lastChatPrNumber: number | null): number {
   return (lastChatPrNumber ?? 0) + 1
 }
