@@ -106,7 +106,7 @@ export function WorkspaceActivityHeatmap(props: {
       definition={definition}
       height={128}
       ariaLabel={calendarAriaLabel(cells)}
-      className="w-full min-w-0 text-xs text-muted-foreground"
+      className="-mt-4 w-full min-w-0 text-xs text-muted-foreground"
     />
   )
 }
