@@ -721,6 +721,12 @@ function defineConversationSandbox(input: {
     hooks: {
       onReady: async (ready: TanstackLikeHandle) => {
         handle.current = ready
+        log.info({
+          step: "workspace-chat-sandbox-ready",
+          message: `workspace chat sandbox ready ${ready.id ?? "unknown"}`,
+          conversationId: chatInput.conversationId,
+          sandboxId: ready.id ?? null,
+        })
       },
     },
   })
