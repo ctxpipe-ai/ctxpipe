@@ -168,9 +168,17 @@ function restoreHome(): void {
 }
 
 const source = makeGitRepo()
-const live = process.env.OPENCODE_LIVE === "1"
 
-describe.skipIf(!live)("live two-turn workspace chat", () => {
+function opencodeOnPath(): boolean {
+  try {
+    execSync("command -v opencode", { stdio: "ignore" })
+    return true
+  } catch {
+    return false
+  }
+}
+
+describe.skipIf(!opencodeOnPath())("live two-turn workspace chat", () => {
   beforeAll(async () => {
     server.listen({ onUnhandledRequest: "bypass" })
     initDb(databaseUrl)
@@ -262,6 +270,7 @@ describe.skipIf(!live)("live two-turn workspace chat", () => {
             threadId: conversationId,
             runId: extras?.runId,
             orgId: org.id,
+            orgSlug: org.slug,
             workspaceId,
             desiredUrl: source.url,
             desiredSha: source.ref,
@@ -295,11 +304,9 @@ describe.skipIf(!live)("live two-turn workspace chat", () => {
       const firstErrors = first
         .filter((chunk) => chunk.type === "RUN_ERROR")
         .map((chunk) => chunk.message ?? "")
-      expect(
-        firstErrors.filter((message) =>
-          /ServeError|EADDRINUSE|port \d+ still bound/i.test(message),
-        ),
-      ).toEqual([])
+      expect(firstErrors).toEqual([])
+      expect(first.some((chunk) => chunk.type === "RUN_FINISHED")).toBe(true)
+      expect(assistantText(first)).toBe("pong-1")
 
       const second = await collectTurn("ping-2", {
         messages: [
@@ -312,11 +319,9 @@ describe.skipIf(!live)("live two-turn workspace chat", () => {
       const secondErrors = second
         .filter((chunk) => chunk.type === "RUN_ERROR")
         .map((chunk) => chunk.message ?? "")
-      expect(
-        secondErrors.filter((message) =>
-          /ServeError|EADDRINUSE|port \d+ still bound/i.test(message),
-        ),
-      ).toEqual([])
+      expect(secondErrors).toEqual([])
+      expect(second.some((chunk) => chunk.type === "RUN_FINISHED")).toBe(true)
+      expect(assistantText(second)).toBe("pong-2")
 
       const rows = await withOrgDbContext(org.id, async (db) =>
         db
@@ -325,16 +330,6 @@ describe.skipIf(!live)("live two-turn workspace chat", () => {
           .where(eq(workspaceSandboxInstances.conversationId, conversationId)),
       )
       expect(rows).toHaveLength(1)
-
-      const firstText = assistantText(first)
-      const secondText = assistantText(second)
-      if (
-        first.some((chunk) => chunk.type === "RUN_FINISHED") &&
-        second.some((chunk) => chunk.type === "RUN_FINISHED")
-      ) {
-        expect(firstText).toBe("pong-1")
-        expect(secondText).toBe("pong-2")
-      }
     },
   )
 })

@@ -34,6 +34,7 @@ export type StreamInput = {
   lastBranch?: string | null
   workspaceId?: string | null
   orgId?: string | null
+  orgSlug?: string | null
   desiredUrl?: string | null
   desiredSha?: string | null
   desiredGeneration?: number
@@ -98,6 +99,7 @@ function toChatInput(input: StreamInput): TanstackWorkspaceChatInput | null {
     threadId: input.threadId,
     runId: input.runId,
     orgId,
+    orgSlug: input.orgSlug?.trim() || undefined,
     workspaceId,
     desiredUrl,
     desiredSha: input.desiredSha ?? null,

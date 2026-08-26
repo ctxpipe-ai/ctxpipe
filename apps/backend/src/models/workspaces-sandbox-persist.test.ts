@@ -85,7 +85,7 @@ async function liveChatRows() {
 }
 
 describe("persistSandboxInstance live chat identity", () => {
-  it("adopts the live chat row when the next turn upserts a new instance key", async () => {
+  it("keeps the live chat row id when the next turn upserts a new instance key", async () => {
     await persistSandboxInstance({
       id: leftoverId,
       kind: "chat",
@@ -112,10 +112,10 @@ describe("persistSandboxInstance live chat identity", () => {
       }),
     ).resolves.toBeUndefined()
 
-    const afterAdopt = await liveChatRows()
-    expect(afterAdopt).toEqual([
+    const afterResume = await liveChatRows()
+    expect(afterResume).toEqual([
       {
-        id: "a1b2c3d4e5f60708",
+        id: leftoverId,
         providerSandboxId: "ctr_new",
         state: "live",
       },

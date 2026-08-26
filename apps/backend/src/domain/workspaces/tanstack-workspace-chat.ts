@@ -1,4 +1,4 @@
-import { randomBytes } from "node:crypto"
+import { eq } from "drizzle-orm"
 import { trace } from "@opentelemetry/api"
 import {
   type ModelMessage,
@@ -8,7 +8,8 @@ import {
 } from "@tanstack/ai"
 import { otelMiddleware } from "@tanstack/ai/middlewares/otel"
 import { withPersistence } from "@tanstack/ai-persistence"
-import { withOrgDbContext } from "../../db/client.js"
+import { getSystemDb, withOrgDbContext } from "../../db/client.js"
+import { organizations } from "../../db/schema/auth.js"
 import { nameConversationIfUnnamed } from "../../graphs/conversationGraph/nodes/conversationNaming.js"
 import { loadConversationTurns } from "../../models/conversation-messages.js"
 import {
@@ -66,14 +67,15 @@ import {
   createWorkspaceChatAssistantGate,
   isOpenCodePlanningHold,
 } from "./workspace-chat-assistant-text.js"
+import { workspaceChatCompletionsBaseUrl } from "./workspace-chat-model-proxy.js"
 import {
-  startWorkspaceChatModelProxy,
-  workspaceChatModelProxyAdvertisedHost,
-} from "./workspace-chat-model-proxy.js"
-import {
+  WORKSPACE_CHAT_LOCAL_PROCESS_SCRUB_ENV,
   workspaceChatOpenCodeConfig,
   workspaceChatOpenCodeContract,
+  workspaceChatOpenCodeHomeEnv,
 } from "./workspace-chat-opencode-contract.js"
+import { leaseLocalProcessOpenCodePort } from "./workspace-chat-opencode-port.js"
+import { mintWorkspaceChatToken } from "./workspace-chat-token.js"
 import {
   messagesForOpenCodeChat,
   openCodeTrailingUserMiddleware,
@@ -101,6 +103,7 @@ export type TanstackWorkspaceChatInput = {
   runId?: string
   abortSignal?: AbortSignal
   orgId: string
+  orgSlug?: string
   workspaceId: string
   desiredUrl?: string
   desiredSha?: string | null
@@ -130,7 +133,9 @@ function providerFactoryForChat(
     return modules.dockerSandbox?.(WORKSPACE_CHAT_DOCKER_SANDBOX)
   }
   if (provider === "unsandboxed") {
-    return modules.localProcessSandbox?.()
+    return modules.localProcessSandbox?.({
+      scrubEnv: [...WORKSPACE_CHAT_LOCAL_PROCESS_SCRUB_ENV],
+    })
   }
   return undefined
 }
@@ -429,36 +434,49 @@ async function startWorkspaceChat(input: TanstackWorkspaceChatInput): Promise<
     return { ok: false, status: contract.status, error: contract.error }
   }
 
-  const runToken = randomBytes(32).toString("hex")
-  let proxy: Awaited<ReturnType<typeof startWorkspaceChatModelProxy>> | null =
-    null
+  const authSecret = process.env.AUTH_SECRET?.trim() ?? ""
+  if (authSecret.length < 32) {
+    return {
+      ok: false,
+      status: 503,
+      error: "Workspace chat needs AUTH_SECRET to mint a completions token.",
+    }
+  }
+  const orgSlug = await resolveWorkspaceChatOrgSlug(input)
+  if (!orgSlug) {
+    return {
+      ok: false,
+      status: 503,
+      error: "Workspace chat needs an organization slug.",
+    }
+  }
+  const runToken = mintWorkspaceChatToken({
+    authSecret,
+    orgId: input.orgId,
+    conversationId: input.conversationId,
+  })
+  const listenPort = Number(process.env.PORT) || 3000
+  const proxyUrl = workspaceChatCompletionsBaseUrl({
+    isolation: built.spec.isolation,
+    orgSlug,
+    port: listenPort,
+  })
+  const portLease =
+    built.spec.isolation === "unsandboxed"
+      ? await leaseLocalProcessOpenCodePort()
+      : null
   const handle = { current: null as TanstackLikeHandle | null }
   try {
-    const proxyAndToolsStarted = Date.now()
-    const [startedProxy, tools] = await Promise.all([
-      startWorkspaceChatModelProxy({
-        runToken,
-        conversationId: input.conversationId,
-        upstreamBaseUrl: contract.upstreamBaseUrl,
-        upstreamApiKey: contract.apiKey,
-        modelBase: contract.modelBase,
-        modelParams: contract.modelParams,
-        listenHost: "0.0.0.0",
-        advertisedHost: workspaceChatModelProxyAdvertisedHost(
-          built.spec.isolation,
-        ),
-      }),
-      loadWorkspaceChatTools(input),
-    ])
-    proxy = startedProxy
+    const toolsStarted = Date.now()
+    const tools = await loadWorkspaceChatTools(input)
     log.info({
       step: "workspace-chat-timing",
       phase: "proxy-and-tools",
-      message: `workspace chat timing proxy-and-tools ${Date.now() - proxyAndToolsStarted}ms`,
-      ms: Date.now() - proxyAndToolsStarted,
+      message: `workspace chat timing proxy-and-tools ${Date.now() - toolsStarted}ms`,
+      ms: Date.now() - toolsStarted,
       conversationId: input.conversationId,
     })
-    const servePort = WORKSPACE_CHAT_OPENCODE_PORT
+    const servePort = portLease?.port ?? WORKSPACE_CHAT_OPENCODE_PORT
     const modules = built.modules
     const definition = defineConversationSandbox({
       modules,
@@ -466,7 +484,7 @@ async function startWorkspaceChat(input: TanstackWorkspaceChatInput): Promise<
       input,
       provider: built.provider,
       runToken,
-      proxyUrl: proxy.baseUrl,
+      proxyUrl,
       modelBase: contract.modelBase,
       handle,
     })
@@ -519,13 +537,26 @@ async function startWorkspaceChat(input: TanstackWorkspaceChatInput): Promise<
       servePort,
       handle,
       dispose: async () => {
-        await proxy?.close().catch(() => undefined)
+        await portLease?.release().catch(() => undefined)
       },
     }
   } catch (error) {
-    await proxy?.close().catch(() => undefined)
+    await portLease?.release().catch(() => undefined)
     throw error
   }
+}
+
+async function resolveWorkspaceChatOrgSlug(
+  input: TanstackWorkspaceChatInput,
+): Promise<string | null> {
+  const fromInput = input.orgSlug?.trim()
+  if (fromInput) return fromInput
+  const [row] = await getSystemDb()
+    .select({ slug: organizations.slug })
+    .from(organizations)
+    .where(eq(organizations.id, input.orgId))
+    .limit(1)
+  return row?.slug ?? null
 }
 
 async function buildWorkspaceChatSandbox(input: TanstackWorkspaceChatInput) {
@@ -610,6 +641,7 @@ async function buildWorkspaceChatSandbox(input: TanstackWorkspaceChatInput) {
     instances: postgresSandboxInstanceStore({
       orgId: input.orgId,
       workspaceId: input.workspaceId,
+      conversationId: input.conversationId,
     }),
   }
 }
@@ -627,13 +659,16 @@ function defineConversationSandbox(input: {
   const { modules, spec, provider, input: chatInput, handle } = input
   const secrets = modules.createSecrets({
     CTXPIPE_OPENCODE_RUN_TOKEN: input.runToken,
-    CTXPIPE_MODEL_PROXY_URL: `${input.proxyUrl}/v1`,
+    CTXPIPE_MODEL_PROXY_URL: input.proxyUrl,
     [WORKSPACE_CHAT_CLONE_URL_SECRET]: originUrlWithoutCredentials(
       chatInput.desiredUrl ?? "",
     ),
     [WORKSPACE_CHAT_CLONE_BRANCH_SECRET]:
       chatInput.defaultBranch?.trim() || "main",
     [WORKSPACE_CHAT_CLONE_SHA_SECRET]: chatInput.desiredSha?.trim() ?? "",
+    ...(spec.isolation === "unsandboxed"
+      ? workspaceChatOpenCodeHomeEnv(chatInput.conversationId)
+      : {}),
     ...(chatInput.cloneToken
       ? { [WORKSPACE_CHAT_CLONE_TOKEN_SECRET]: chatInput.cloneToken }
       : {}),

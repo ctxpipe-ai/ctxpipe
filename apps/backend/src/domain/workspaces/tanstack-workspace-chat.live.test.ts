@@ -14,16 +14,22 @@ import {
   withSandbox,
 } from "@tanstack/ai-sandbox"
 import { localProcessSandbox } from "@tanstack/ai-sandbox-local-process"
+import { OpenAPIHono } from "@hono/zod-openapi"
 import { afterEach, describe, expect, it, vi } from "vitest"
+import type { AppEnv } from "../../app/env.js"
+import { contextStorage, withTestRequestLogger } from "../../test/hono-test-logger.js"
 import { withTestLogger } from "../../test/with-test-logger.js"
 import { createDataStreamConversationTransport } from "../conversations/transport.js"
+import { workspaceChatOpenaiRoutes } from "../../routes/v1/workspace-chat-openai.js"
 import { WORKSPACE_CHAT_SANDBOX_SETUP } from "./chat-runtime.js"
-import { startWorkspaceChatModelProxy } from "./workspace-chat-model-proxy.js"
 import {
   WORKSPACE_CHAT_LOCAL_PROCESS_SCRUB_ENV,
   workspaceChatOpenCodeConfig,
   workspaceChatOpenCodeContract,
 } from "./workspace-chat-opencode-contract.js"
+import { mintWorkspaceChatToken } from "./workspace-chat-token.js"
+
+const LIVE_AUTH_SECRET = "abcdefghijklmnopqrstuvwxyz123456"
 
 const live = process.env.OPENCODE_LIVE === "1"
 
@@ -176,14 +182,12 @@ describe.skipIf(!live)("workspace chat OpenCode fallback (live)", () => {
     expect(contract.ok).toBe(true)
     if (!contract.ok) return
 
-    const runToken = "live-run-token"
-    const proxy = await startWorkspaceChatModelProxy({
-      runToken,
-      upstreamBaseUrl: contract.upstreamBaseUrl,
-      upstreamApiKey: contract.apiKey,
-      modelBase: contract.modelBase,
-      modelParams: contract.modelParams,
+    const proxy = await listenWorkspaceChatOpenai({
+      upstreamUrl: contract.upstreamBaseUrl,
+      apiKey: contract.apiKey,
+      conversationId: "conv_live_fallback",
     })
+    const runToken = proxy.token
     const config = workspaceChatOpenCodeConfig({
       modelBase: contract.modelBase,
     })
@@ -211,7 +215,7 @@ describe.skipIf(!live)("workspace chat OpenCode fallback (live)", () => {
                 setup: [...WORKSPACE_CHAT_SANDBOX_SETUP],
                 secrets: createSecrets({
                   CTXPIPE_OPENCODE_RUN_TOKEN: runToken,
-                  CTXPIPE_MODEL_PROXY_URL: `${proxy.baseUrl}/v1`,
+                  CTXPIPE_MODEL_PROXY_URL: proxy.baseUrl,
                 }),
                 skills: [
                   fileSkill({
@@ -294,10 +298,18 @@ describe.skipIf(!live)("workspace chat OpenCode fallback (live)", () => {
       process.env.MODEL_PROVIDER_API_KEY = "sk-live-upstream"
       process.env.MODEL_PROVIDER_URL = `${upstream.baseUrl}/v1`
       process.env.MODEL_FAST_NAME = "openai/gpt-5.6-terra"
+      process.env.AUTH_SECRET = LIVE_AUTH_SECRET
       delete process.env.ANTHROPIC_API_KEY
       delete process.env.OPENAI_API_KEY
       delete process.env.OPENROUTER_API_KEY
       delete process.env.SANDBOX_PROVIDER
+
+      const completions = await listenWorkspaceChatOpenai({
+        upstreamUrl: `${upstream.baseUrl}/v1`,
+        apiKey: "sk-live-upstream",
+        conversationId: "conv_live_post",
+      })
+      process.env.PORT = String(completions.port)
 
       const source = makeGitRepo()
       const transport = createDataStreamConversationTransport()
@@ -308,6 +320,7 @@ describe.skipIf(!live)("workspace chat OpenCode fallback (live)", () => {
             checkpointNamespace: "",
             prompt: "say ok",
             orgId: "org_live",
+            orgSlug: "acme",
             workspaceId: "ws_live",
             desiredUrl: source.url,
             desiredSha: source.ref,
@@ -343,6 +356,7 @@ describe.skipIf(!live)("workspace chat OpenCode fallback (live)", () => {
           false,
         )
       } finally {
+        await completions.close()
         await upstream.close()
       }
     },
@@ -482,6 +496,83 @@ async function listenOpenAiStub(
   }
   return {
     baseUrl: `http://127.0.0.1:${address.port}`,
+    close: () =>
+      new Promise((resolve, reject) => {
+        server.close((error) => (error ? reject(error) : resolve()))
+      }),
+  }
+}
+
+async function listenWorkspaceChatOpenai(input: {
+  upstreamUrl: string
+  apiKey: string
+  conversationId: string
+}): Promise<{
+  baseUrl: string
+  port: number
+  token: string
+  close: () => Promise<void>
+}> {
+  const token = mintWorkspaceChatToken({
+    authSecret: LIVE_AUTH_SECRET,
+    orgId: "org_live",
+    conversationId: input.conversationId,
+  })
+  const env = {
+    AUTH_BASE_URL: "https://backend.example.com",
+    AUTH_SECRET: LIVE_AUTH_SECRET,
+    PORT: 3000,
+    MODEL_PROVIDER: "openai-like",
+    MODEL_PROVIDER_URL: input.upstreamUrl,
+    MODEL_PROVIDER_API_KEY: input.apiKey,
+    MODEL_FAST_NAME: "openai/gpt-5.6-terra",
+  } as AppEnv["Variables"]["env"]
+  const app = new OpenAPIHono<AppEnv>().basePath(
+    "/:orgSlug/api/v1/workspace-chat/openai",
+  )
+  app.use(contextStorage())
+  app.use(withTestRequestLogger)
+  app.use("*", async (c, next) => {
+    c.set("env", env)
+    c.set("user", null)
+    c.set("session", null)
+    c.set("orgSlug", c.req.param("orgSlug") ?? null)
+    c.set("orgId", "org_live")
+    await next()
+  })
+  app.route("/", workspaceChatOpenaiRoutes)
+  const server = createServer((req, res) => {
+    void (async () => {
+      const chunks: Buffer[] = []
+      for await (const chunk of req) chunks.push(chunk as Buffer)
+      const url = new URL(req.url ?? "/", "http://127.0.0.1")
+      const request = new Request(url, {
+        method: req.method,
+        headers: req.headers as HeadersInit,
+        body:
+          req.method === "GET" || req.method === "HEAD"
+            ? undefined
+            : Buffer.concat(chunks),
+      })
+      const response = await app.fetch(request)
+      res.statusCode = response.status
+      response.headers.forEach((value, key) => {
+        res.setHeader(key, value)
+      })
+      res.end(Buffer.from(await response.arrayBuffer()))
+    })()
+  })
+  await new Promise<void>((resolve) => {
+    server.listen(0, "127.0.0.1", resolve)
+  })
+  const listenAddress = server.address()
+  if (!listenAddress || typeof listenAddress === "string") {
+    throw new Error("expected tcp address")
+  }
+  return {
+    baseUrl: `http://127.0.0.1:${listenAddress.port}/acme/api/v1/workspace-chat/openai/v1`,
+    port: listenAddress.port,
+    token,
     close: () =>
       new Promise((resolve, reject) => {
         server.close((error) => (error ? reject(error) : resolve()))

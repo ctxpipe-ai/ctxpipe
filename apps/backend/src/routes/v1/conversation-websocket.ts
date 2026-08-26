@@ -268,6 +268,7 @@ async function* streamWorkspaceChatSocketTurn(input: {
       runId: parsed.runId ?? input.runId,
       abortSignal: input.signal,
       orgId: input.orgId,
+      orgSlug: input.orgSlug,
       workspaceId: parsed.workspaceId,
       writeStatus: "read_only",
       resolveRuntime: () =>

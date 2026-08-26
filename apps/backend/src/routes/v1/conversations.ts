@@ -588,6 +588,7 @@ export const conversationRoutes = new OpenAPIHono<AppEnv>()
         source: parsed.source ?? null,
         workspaceId: parsed.workspaceId,
         orgId: "",
+        orgSlug: c.get("orgSlug"),
         resolveRuntime: () =>
           resolveWorkspaceChatSendRuntime({
             conversationId,

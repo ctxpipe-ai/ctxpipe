@@ -1,21 +1,5 @@
-import { timingSafeEqual } from "node:crypto"
-import {
-  createServer,
-  type IncomingMessage,
-  type ServerResponse,
-} from "node:http"
 import { log } from "../../observability/logger.js"
-import type { ModelParams } from "../../retrieval/services/modelParams.js"
-import { lowerOpenAiChatCompletionsParams } from "../../retrieval/services/providers/openAILikeModelProvider.js"
-import {
-  beginWorkspaceChatProxyGeneration,
-  recordWorkspaceChatProxyGeneration,
-} from "./workspace-chat-otel.js"
-
-export type WorkspaceChatModelProxy = {
-  baseUrl: string
-  close: () => Promise<void>
-}
+import { recordWorkspaceChatProxyGeneration } from "./workspace-chat-otel.js"
 
 /** Docker sandboxes reach the host via host.docker.internal; unsandboxed OpenCode is local. */
 export function workspaceChatModelProxyAdvertisedHost(
@@ -24,230 +8,16 @@ export function workspaceChatModelProxyAdvertisedHost(
   return isolation === "docker" ? "host.docker.internal" : "127.0.0.1"
 }
 
-export async function startWorkspaceChatModelProxy(input: {
-  runToken: string
-  upstreamBaseUrl: string
-  upstreamApiKey: string
-  modelBase: string
-  conversationId?: string
-  modelParams?: ModelParams
-  listenHost?: string
-  advertisedHost?: string
-  port?: number
-  fetch?: typeof fetch
-}): Promise<WorkspaceChatModelProxy> {
-  const doFetch = input.fetch ?? fetch
-  const listenHost = input.listenHost ?? "0.0.0.0"
-  const advertisedHost = input.advertisedHost ?? "127.0.0.1"
-  const server = createServer((req, res) => {
-    void handleProxyRequest(req, res, input, doFetch)
-  })
-  await new Promise<void>((resolve, reject) => {
-    server.once("error", reject)
-    server.listen(input.port ?? 0, listenHost, () => resolve())
-  })
-  const address = server.address()
-  if (!address || typeof address === "string") {
-    throw new Error("Workspace chat model proxy failed to bind")
-  }
-  const baseUrl = `http://${advertisedHost}:${address.port}`
-  const readyUrl = `http://127.0.0.1:${address.port}/v1/models`
-  const ready = await doFetch(readyUrl, {
-    headers: { authorization: `Bearer ${input.runToken}` },
-  }).catch((error: unknown) => {
-    throw new Error(
-      `Workspace chat model proxy bound ${listenHost}:${address.port} but is not reachable at ${readyUrl}: ${
-        error instanceof Error ? error.message : String(error)
-      }`,
-    )
-  })
-  if (!ready.ok) {
-    throw new Error(
-      `Workspace chat model proxy self-check failed at ${readyUrl} (${ready.status})`,
-    )
-  }
-  log.info({
-    step: "workspace-chat-model-proxy.listen",
-    listenHost,
-    port: address.port,
-    advertisedHost,
-  })
-  return {
-    baseUrl,
-    close: () =>
-      new Promise((resolve, reject) => {
-        server.close((error) => (error ? reject(error) : resolve()))
-      }),
-  }
+export function workspaceChatCompletionsBaseUrl(input: {
+  isolation: string
+  orgSlug: string
+  port: number
+}): string {
+  const host = workspaceChatModelProxyAdvertisedHost(input.isolation)
+  return `http://${host}:${input.port}/${input.orgSlug}/api/v1/workspace-chat/openai/v1`
 }
 
-function bearerMatches(header: string | undefined, token: string): boolean {
-  const prefix = "Bearer "
-  if (!header?.startsWith(prefix)) return false
-  const presented = header.slice(prefix.length)
-  const expected = Buffer.from(token)
-  const actual = Buffer.from(presented)
-  if (expected.length !== actual.length) return false
-  return timingSafeEqual(expected, actual)
-}
-
-async function handleProxyRequest(
-  req: IncomingMessage,
-  res: ServerResponse,
-  input: {
-    runToken: string
-    upstreamBaseUrl: string
-    upstreamApiKey: string
-    modelBase: string
-    conversationId?: string
-    modelParams?: ModelParams
-  },
-  doFetch: typeof fetch,
-): Promise<void> {
-  if (!bearerMatches(headerValue(req.headers.authorization), input.runToken)) {
-    writeJson(res, 401, { error: "Unauthorized" })
-    return
-  }
-
-  const url = new URL(req.url ?? "/", "http://127.0.0.1")
-  log.info({
-    step: "workspace-chat-model-proxy.request",
-    method: req.method,
-    path: url.pathname,
-    message: `workspace chat proxy ${req.method} ${url.pathname}`,
-  })
-  if (req.method === "GET" && url.pathname === "/v1/models") {
-    writeJson(res, 200, {
-      object: "list",
-      data: [{ id: input.modelBase, object: "model" }],
-    })
-    return
-  }
-
-  if (req.method !== "POST" || url.pathname !== "/v1/chat/completions") {
-    writeJson(res, 404, { error: "Not found" })
-    return
-  }
-
-  const raw = await readBody(req)
-  let body: Record<string, unknown> = {}
-  try {
-    body = raw ? (JSON.parse(raw) as Record<string, unknown>) : {}
-  } catch {
-    writeJson(res, 400, { error: "invalid json" })
-    return
-  }
-
-  const extras = lowerOpenAiChatCompletionsParams(input.modelParams) ?? {}
-  const forwarded = {
-    ...body,
-    ...extras,
-    model: input.modelBase,
-  }
-  const origin = input.upstreamBaseUrl.replace(/\/+$/, "").replace(/\/v1$/, "")
-  const target = `${origin}/v1/chat/completions`
-  if (input.conversationId) {
-    beginWorkspaceChatProxyGeneration(input.conversationId)
-  }
-  const startedAt = Date.now()
-  let ttfbMs: number | null = null
-  let upstream: Response
-  try {
-    upstream = await doFetch(target, {
-      method: "POST",
-      headers: {
-        "content-type": "application/json",
-        authorization: `Bearer ${input.upstreamApiKey}`,
-      },
-      body: JSON.stringify(forwarded),
-    })
-    ttfbMs = Date.now() - startedAt
-  } catch {
-    log.error({
-      step: "workspace-chat-model-proxy",
-      path: url.pathname,
-      status: 502,
-      durationMs: Date.now() - startedAt,
-      message: "upstream unreachable",
-    })
-    writeJson(res, 502, { error: "upstream unreachable" })
-    return
-  }
-
-  const contentType = upstream.headers.get("content-type") ?? "application/json"
-  res.writeHead(upstream.status, { "content-type": contentType })
-  if (!upstream.body) {
-    recordProxyCompletion(input.conversationId, {
-      ttfbMs: ttfbMs ?? Date.now() - startedAt,
-      durationMs: Date.now() - startedAt,
-      finishReason: null,
-      tools: [],
-      status: upstream.status,
-      model: typeof forwarded.model === "string" ? forwarded.model : undefined,
-    })
-    res.end()
-    return
-  }
-  const observer = createCompletionObserver()
-  const reader = upstream.body.getReader()
-  try {
-    while (true) {
-      const { done, value } = await reader.read()
-      if (done) break
-      if (!value) continue
-      if (ttfbMs == null) ttfbMs = Date.now() - startedAt
-      observer.push(value)
-      res.write(Buffer.from(value))
-    }
-  } finally {
-    reader.releaseLock()
-    res.end()
-    recordProxyCompletion(input.conversationId, {
-      ttfbMs: ttfbMs ?? Date.now() - startedAt,
-      durationMs: Date.now() - startedAt,
-      finishReason: observer.finishReason,
-      tools: observer.tools,
-      text: observer.text,
-      status: upstream.status,
-      model: typeof forwarded.model === "string" ? forwarded.model : undefined,
-    })
-  }
-}
-
-function recordProxyCompletion(
-  conversationId: string | undefined,
-  input: {
-    ttfbMs: number
-    durationMs: number
-    finishReason: string | null
-    tools: string[]
-    text?: string
-    status: number
-    model?: string
-  },
-): void {
-  log.info({
-    step: "workspace-chat-model-proxy",
-    path: "/v1/chat/completions",
-    status: input.status,
-    durationMs: input.durationMs,
-    ttfbMs: input.ttfbMs,
-    finishReason: input.finishReason,
-    tools: input.tools,
-    model: input.model,
-    message: `workspace chat generation ttfbMs=${input.ttfbMs} durationMs=${input.durationMs} finishReason=${input.finishReason ?? "-"} tools=${input.tools.join(",") || "-"}`,
-  })
-  if (!conversationId) return
-  recordWorkspaceChatProxyGeneration(conversationId, {
-    ttfbMs: input.ttfbMs,
-    durationMs: input.durationMs,
-    finishReason: input.finishReason,
-    tools: input.tools,
-    ...(input.text?.trim() ? { text: input.text } : {}),
-  })
-}
-
-function createCompletionObserver(): {
+export function observeWorkspaceChatCompletionStream(): {
   push: (chunk: Uint8Array) => void
   finishReason: string | null
   tools: string[]
@@ -311,21 +81,35 @@ function createCompletionObserver(): {
   }
 }
 
-function headerValue(value: string | string[] | undefined): string | undefined {
-  return Array.isArray(value) ? value[0] : value
-}
-
-function writeJson(
-  res: ServerResponse,
-  status: number,
-  body: Record<string, unknown>,
+export function recordWorkspaceChatProxyCompletion(
+  conversationId: string | undefined,
+  input: {
+    ttfbMs: number
+    durationMs: number
+    finishReason: string | null
+    tools: string[]
+    text?: string
+    status: number
+    model?: string
+  },
 ): void {
-  res.writeHead(status, { "content-type": "application/json" })
-  res.end(JSON.stringify(body))
-}
-
-async function readBody(req: IncomingMessage): Promise<string> {
-  const chunks: Buffer[] = []
-  for await (const chunk of req) chunks.push(chunk as Buffer)
-  return Buffer.concat(chunks).toString("utf8")
+  log.info({
+    step: "workspace-chat-model-proxy",
+    path: "/v1/chat/completions",
+    status: input.status,
+    durationMs: input.durationMs,
+    ttfbMs: input.ttfbMs,
+    finishReason: input.finishReason,
+    tools: input.tools,
+    model: input.model,
+    message: `workspace chat generation ttfbMs=${input.ttfbMs} durationMs=${input.durationMs} finishReason=${input.finishReason ?? "-"} tools=${input.tools.join(",") || "-"}`,
+  })
+  if (!conversationId) return
+  recordWorkspaceChatProxyGeneration(conversationId, {
+    ttfbMs: input.ttfbMs,
+    durationMs: input.durationMs,
+    finishReason: input.finishReason,
+    tools: input.tools,
+    ...(input.text?.trim() ? { text: input.text } : {}),
+  })
 }

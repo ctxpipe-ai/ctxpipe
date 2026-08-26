@@ -32,6 +32,7 @@ import { knowledgeGraphRoutes } from "./knowledge-graph.js"
 import { meGithubInstallationsRoutes } from "./me-github-installations.js"
 import { orgOnboardingRoutes, userOnboardingRoutes } from "./onboarding.js"
 import { openaiRoutes } from "./openai.js"
+import { workspaceChatOpenaiRoutes } from "./workspace-chat-openai.js"
 import {
   orgAtlassianOauthAdminRoutes,
   orgAtlassianOauthReadRoutes,
@@ -87,6 +88,10 @@ export function registerV1Routes(app: OpenAPIHono<AppEnv>) {
     .route("/knowledge-graph", knowledgeGraphRoutes)
     .route("/openai", openaiRoutes)
 
+  const workspaceChatOpenai = new OpenAPIHono<AppEnv>()
+    .basePath("/:orgSlug/api/v1/workspace-chat/openai")
+    .route("/", workspaceChatOpenaiRoutes)
+
   const nonOrgScopedV1 = new OpenAPIHono<AppEnv>()
     .basePath("/api/v1")
     .use("*", withCookieAuth)
@@ -99,6 +104,7 @@ export function registerV1Routes(app: OpenAPIHono<AppEnv>) {
     .route("/connectors/notion", notionOAuthCallbackRoutes)
     .route("/onboarding", userOnboardingRoutes)
 
+  app.route("/", workspaceChatOpenai)
   app.route("/", orgScopedV1)
   app.route("/", nonOrgScopedV1)
   return orgScopedV1

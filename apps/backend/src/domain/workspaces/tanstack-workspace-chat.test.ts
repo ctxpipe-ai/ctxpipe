@@ -148,6 +148,9 @@ vi.mock("../../db/client.js", () => ({
   tryGetOrgDbOrgId: () => undefined,
   assertNotInOrgDbContext: () => undefined,
   withOrgDbContext: async (_orgId: string, fn: () => unknown) => fn(),
+  getSystemDb: () => {
+    throw new Error("getSystemDb should not run when orgSlug is provided")
+  },
 }))
 vi.mock("../../auth/withAuth.js", () => ({
   withOrgIdContext: (_org: unknown, fn: () => unknown) => fn(),
@@ -202,10 +205,13 @@ import {
 } from "./tanstack-workspace-chat.js"
 import { parseSseDataLines } from "./workspace-chat-agui.js"
 
+const AUTH_SECRET = "abcdefghijklmnopqrstuvwxyz123456"
+
 const baseInput = {
   conversationId: "conv_1",
   prompt: "hello",
   orgId: "org_1",
+  orgSlug: "acme",
   workspaceId: "ws_1",
   desiredUrl: "https://github.com/acme/docs",
   desiredSha: "abc",
@@ -229,6 +235,8 @@ describe("runTanstackWorkspaceChat", () => {
     process.env.SANDBOX_PROVIDER = "docker"
     process.env.MODEL_PROVIDER = "openai-like"
     process.env.MODEL_PROVIDER_API_KEY = "sk-test-chat"
+    process.env.AUTH_SECRET = AUTH_SECRET
+    process.env.PORT = "3000"
     delete process.env.MODEL_FAST_NAME
     delete process.env.MODEL_PROVIDER_URL
   })
@@ -280,19 +288,74 @@ describe("runTanstackWorkspaceChat", () => {
     expect(await res.text()).not.toContain(
       "Workspace chat requires an isolated TanStack sandbox provider. Host OpenCode is not a fallback.",
     )
-    expect(localProcessSandboxMock).toHaveBeenCalled()
+    expect(localProcessSandboxMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        scrubEnv: expect.arrayContaining(["AUTH_SECRET", "MODEL_PROVIDER_API_KEY"]),
+      }),
+    )
     expect(dockerSandboxMock).not.toHaveBeenCalled()
     expect(withSandboxMock).toHaveBeenCalled()
-    expect(startWorkspaceChatModelProxyMock).toHaveBeenCalledWith(
-      expect.objectContaining({ advertisedHost: "127.0.0.1" }),
+    expect(startWorkspaceChatModelProxyMock).not.toHaveBeenCalled()
+    expect(opencodeTextMock).toHaveBeenCalledWith(
+      "ctxpipe/openai/gpt-5.6-terra",
+      expect.objectContaining({
+        permissionMode: "acceptEdits",
+        port: expect.any(Number),
+      }),
+    )
+    const unsandboxedPort = opencodeTextMock.mock.calls[0]?.[1]?.port
+    expect(unsandboxedPort).toEqual(expect.any(Number))
+    expect(unsandboxedPort).not.toBe(4096)
+    expect(createSecretsMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        CTXPIPE_MODEL_PROXY_URL:
+          "http://127.0.0.1:3000/acme/api/v1/workspace-chat/openai/v1",
+        HOME: expect.stringContaining("ctxpipe-opencode-home"),
+      }),
     )
   })
 
-  it("advertises host.docker.internal only when chat isolation is docker", async () => {
+  it("leases distinct OpenCode ports for two unsandboxed conversations", async () => {
+    delete process.env.SANDBOX_PROVIDER
+    const first = streamTanstackWorkspaceChat(baseInput)
+    const second = streamTanstackWorkspaceChat({
+      ...baseInput,
+      conversationId: "conv_2",
+      threadId: "conv_2",
+    })
+    const firstStarted = await first.next()
+    const secondStarted = await second.next()
+    expect(firstStarted.value).toMatchObject({ type: "RUN_STARTED" })
+    expect(secondStarted.value).toMatchObject({ type: "RUN_STARTED" })
+    expect(startWorkspaceChatModelProxyMock).not.toHaveBeenCalled()
+    const ports = opencodeTextMock.mock.calls.map((call) => call[1]?.port)
+    expect(ports).toHaveLength(2)
+    expect(ports[0]).toEqual(expect.any(Number))
+    expect(ports[1]).toEqual(expect.any(Number))
+    expect(ports[0]).not.toBe(4096)
+    expect(ports[1]).not.toBe(4096)
+    expect(ports[0]).not.toBe(ports[1])
+    for await (const _chunk of first) {
+      void _chunk
+    }
+    for await (const _chunk of second) {
+      void _chunk
+    }
+  })
+
+  it("points docker OpenCode at the shared in-service completions URL", async () => {
     const res = await runTanstackWorkspaceChat(baseInput)
     expect(res.status).toBe(200)
-    expect(startWorkspaceChatModelProxyMock).toHaveBeenCalledWith(
-      expect.objectContaining({ advertisedHost: "host.docker.internal" }),
+    expect(startWorkspaceChatModelProxyMock).not.toHaveBeenCalled()
+    expect(opencodeTextMock).toHaveBeenCalledWith(
+      "ctxpipe/openai/gpt-5.6-terra",
+      expect.objectContaining({ permissionMode: "acceptEdits", port: 4096 }),
+    )
+    expect(createSecretsMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        CTXPIPE_MODEL_PROXY_URL:
+          "http://host.docker.internal:3000/acme/api/v1/workspace-chat/openai/v1",
+      }),
     )
   })
 
@@ -481,6 +544,8 @@ describe("warmTanstackWorkspaceChat", () => {
     process.env.SANDBOX_PROVIDER = "docker"
     process.env.MODEL_PROVIDER = "openai-like"
     process.env.MODEL_PROVIDER_API_KEY = "sk-test-chat"
+    process.env.AUTH_SECRET = AUTH_SECRET
+    process.env.PORT = "3000"
   })
 
   it("ensures the sandbox without starting opencodeText", async () => {
@@ -508,6 +573,8 @@ describe("streamTanstackWorkspaceChat", () => {
     process.env.SANDBOX_PROVIDER = "docker"
     process.env.MODEL_PROVIDER = "openai-like"
     process.env.MODEL_PROVIDER_API_KEY = "sk-test-chat"
+    process.env.AUTH_SECRET = AUTH_SECRET
+    process.env.PORT = "3000"
   })
 
   it("fails closed on an official planning-only stream", async () => {

@@ -200,6 +200,9 @@ beforeEach(async () => {
   process.env.MODEL_PROVIDER = "openai-like"
   process.env.MODEL_PROVIDER_API_KEY = "sk-test-chat-persist"
   process.env.SANDBOX_PROVIDER = "docker"
+  process.env.AUTH_SECRET =
+    process.env.AUTH_SECRET ?? "abcdefghijklmnopqrstuvwxyz123456"
+  process.env.PORT = process.env.PORT ?? "3000"
 })
 
 async function collectTurn(
@@ -218,6 +221,7 @@ async function collectTurn(
       threadId: conversationId,
       runId: extras?.runId,
       orgId: org.id,
+      orgSlug: org.slug,
       workspaceId,
       desiredUrl: `https://github.com/ctxpipe-ai/${runId}`,
       desiredSha,

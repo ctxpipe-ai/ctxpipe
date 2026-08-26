@@ -94,8 +94,23 @@ export async function persistSandboxInstance(
           .limit(1)
         if (existing && existing.id !== input.id) {
           await tx
-            .delete(workspaceSandboxInstances)
+            .update(workspaceSandboxInstances)
+            .set({
+              kind: input.kind,
+              conversationId: input.conversationId ?? null,
+              desiredUrl: input.desiredUrl ?? null,
+              desiredGeneration: input.desiredGeneration ?? null,
+              desiredSha: input.desiredSha ?? null,
+              provider: input.provider ?? null,
+              providerSandboxId: input.providerSandboxId ?? null,
+              latestSnapshotId: input.latestSnapshotId ?? null,
+              latestRunId: input.latestRunId ?? null,
+              state: input.state,
+              lastHeartbeatAt: input.lastHeartbeatAt,
+              updatedAt: now,
+            })
             .where(eq(workspaceSandboxInstances.id, existing.id))
+          return
         }
       }
       await tx
