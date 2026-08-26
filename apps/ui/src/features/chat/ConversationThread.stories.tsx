@@ -1,5 +1,5 @@
 import type { Meta, StoryObj } from "@storybook/react-vite"
-import { userEvent, within } from "storybook/test"
+import { expect, userEvent, within } from "storybook/test"
 import type { ChatMessage } from "@/features/chat/types"
 import {
   docsConversationDetail,
@@ -42,6 +42,13 @@ export const ReplyOnly: Story = {}
 export const ReasoningCollapsed: Story = {
   args: {
     messages: reasoningMessages,
+  },
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement)
+    const reasoning = canvas.getByRole("button", { name: /reasoning/i })
+    await expect(reasoning).toHaveAttribute("aria-expanded", "false")
+    await expect(reasoning).toHaveTextContent("Inspecting repository options")
+    await expect(reasoning.textContent ?? "").not.toMatch(/\*\*Inspecting/)
   },
 }
 

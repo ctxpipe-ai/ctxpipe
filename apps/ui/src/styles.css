@@ -631,6 +631,42 @@
   .ctx-streamdown > :last-child {
     margin-bottom: 0 !important;
   }
+
+  /*
+   * Reasoning is dense muted prose. Keep the title glued to the first
+   * sentence — Streamdown's house heading gap reads too open while tokens
+   * stream in.
+   */
+  .ctx-streamdown-reasoning > :not([hidden]) ~ :not([hidden]) {
+    margin-block-start: calc(var(--spacing) * 1);
+  }
+
+  .ctx-streamdown-reasoning [data-streamdown="heading-1"],
+  .ctx-streamdown-reasoning [data-streamdown="heading-2"],
+  .ctx-streamdown-reasoning [data-streamdown="heading-3"],
+  .ctx-streamdown-reasoning [data-streamdown="heading-4"],
+  .ctx-streamdown-reasoning [data-streamdown="heading-5"],
+  .ctx-streamdown-reasoning [data-streamdown="heading-6"] {
+    margin-top: calc(var(--spacing) * 1.5) !important;
+    margin-bottom: calc(var(--spacing) * 0.5) !important;
+  }
+
+  .ctx-streamdown-reasoning p {
+    margin-block: calc(var(--spacing) * 0.5);
+  }
+
+  .ctx-streamdown-reasoning > :first-child {
+    margin-top: 0 !important;
+  }
+
+  .ctx-streamdown-reasoning-collapsed {
+    height: auto;
+  }
+
+  .ctx-streamdown-reasoning-collapsed > * {
+    display: inline;
+    margin: 0 !important;
+  }
 }
 
 .ctx-status-pulse {

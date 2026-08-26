@@ -51,9 +51,13 @@ export function workspaceChatHasAssistantText(
   )
 }
 
-type SandboxPhase = "idle" | "starting" | "ready"
+export type SandboxPhase = "idle" | "starting" | "ready"
 
-function sandboxPhaseFromChunk(chunk: StreamChunk): SandboxPhase | null {
+export function workspaceChatWaitLabel(phase: SandboxPhase) {
+  return phase === "starting" ? "Setting up sandbox" : "Thinking…"
+}
+
+export function sandboxPhaseFromChunk(chunk: StreamChunk): SandboxPhase | null {
   if (chunk.type !== "CUSTOM") return null
   if (!("name" in chunk) || chunk.name !== "sandbox-setup") return null
   const value = "value" in chunk ? chunk.value : null
@@ -328,7 +332,7 @@ export function WorkspaceChatSession(props: {
   const handleSendMessage = async (params: { text: string }) => {
     setDraftConsumed(true)
     sendFailedRef.current = false
-    setSandboxPhase("starting")
+    setSandboxPhase("idle")
     try {
       await sendMessage(params.text)
     } catch {
@@ -442,9 +446,7 @@ export function WorkspaceChatSession(props: {
             messages={messages as ChatMessage[]}
             error={error ?? null}
             status={status}
-            waitLabel={
-              sandboxPhase === "starting" ? "Setting up sandbox" : "Thinking…"
-            }
+            waitLabel={workspaceChatWaitLabel(sandboxPhase)}
           />
           <MessageInputBox
             layout="thread"

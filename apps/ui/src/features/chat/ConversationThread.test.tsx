@@ -93,6 +93,32 @@ describe("ConversationThread activity chrome", () => {
     expect(html).not.toContain("Thinking…")
   })
 
+  it("renders markdown in collapsed reasoning instead of raw markers", () => {
+    const html = renderThread(
+      [
+        user,
+        {
+          id: "a1",
+          role: "assistant",
+          parts: [
+            {
+              type: "thinking",
+              content:
+                "**Inspecting repository options** I'm thinking we should look at the repo.",
+            },
+            { type: "text", content: "This is a TypeScript monorepo." },
+          ],
+        },
+      ],
+      "ready",
+    )
+    expect(html).toContain('aria-expanded="false"')
+    expect(html).toContain("Inspecting repository options")
+    expect(html).toContain('data-streamdown="strong"')
+    expect(html).toContain("ctx-streamdown-reasoning-collapsed")
+    expect(html).not.toContain("**Inspecting repository options**")
+  })
+
   it("omits sender marks and timestamps", () => {
     const html = renderThread(
       [

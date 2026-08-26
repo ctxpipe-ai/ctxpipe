@@ -1,12 +1,12 @@
 import type { Meta, StoryObj } from "@storybook/react-vite"
 import { delay, HttpResponse, http } from "msw"
 import { expect, userEvent, waitFor, within } from "storybook/test"
+import { resetHomeDraftSends } from "@/features/home/pending-workspace-compose"
 import {
   conversationAguiSseResponse,
   conversationAguiTextEvents,
   conversationPostPath,
 } from "@/mocks/conversation-agui"
-import { resetHomeDraftSends } from "@/features/home/pending-workspace-compose"
 import { workspaceShellHandlers } from "@/mocks/workspace-handlers"
 import { entryPageInnerDecorators } from "../../../.storybook/decorators/entry-page-decorators"
 import type { StoryRouteParams } from "../../../.storybook/decorators/with-story-route"
@@ -209,10 +209,9 @@ export const Waiting: Story = {
       "What about auth?",
     )
     await userEvent.click(canvas.getByRole("button", { name: /send/i }))
-    await waitFor(
-      () => canvas.getByRole("status", { name: /setting up sandbox/i }),
-      { timeout: SEND_WAIT_MS },
-    )
+    await waitFor(() => canvas.getByRole("status", { name: /thinking/i }), {
+      timeout: SEND_WAIT_MS,
+    })
   },
 }
 

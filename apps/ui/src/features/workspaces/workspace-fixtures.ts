@@ -395,7 +395,7 @@ export const reasoningMessages: ChatMessage[] = [
       {
         type: "thinking",
         content:
-          "The payments API claims DEPENDS_ON ledger.md. Invoice documents are generated from that file, so they are a derived view rather than the source of truth. I should confirm by searching the billing docs and then reading the ledger itself before answering.",
+          "**Inspecting repository options**\n\nThe payments API claims DEPENDS_ON ledger.md. Invoice documents are generated from that file, so they are a derived view rather than the source of truth. I should confirm by searching the billing docs and then reading the ledger itself before answering.",
       },
       {
         type: "text",
@@ -421,7 +421,7 @@ export const streamingReasoningMessages: ChatMessage[] = [
       {
         type: "thinking",
         content:
-          "I'll inspect the repository structure and its primary project metadata.",
+          "**Inspecting repository options**\n\nI'll inspect the repository structure and its primary project metadata.",
       },
     ],
     createdAt: new Date("2026-08-16T09:42:21.000Z"),
@@ -534,7 +534,7 @@ export const reasoningAndToolsMessages: ChatMessage[] = [
       {
         type: "thinking",
         content:
-          "The payments API claims DEPENDS_ON ledger.md. Invoice documents are generated from that file, so they are a derived view rather than the source of truth. I should confirm by searching the billing docs and then reading the ledger itself before answering.",
+          "**Inspecting repository options**\n\nThe payments API claims DEPENDS_ON ledger.md. Invoice documents are generated from that file, so they are a derived view rather than the source of truth. I should confirm by searching the billing docs and then reading the ledger itself before answering.",
       },
       {
         type: "tool-call",
@@ -583,7 +583,7 @@ export const streamingReasoningAndToolsMessages: ChatMessage[] = [
       {
         type: "thinking",
         content:
-          "The payments API claims DEPENDS_ON ledger.md. Invoice documents are generated from that file, so they are a derived view. Searching billing docs next.",
+          "**Inspecting repository options**\n\nThe payments API claims DEPENDS_ON ledger.md. Invoice documents are generated from that file, so they are a derived view. Searching billing docs next.",
       },
       {
         type: "tool-call",

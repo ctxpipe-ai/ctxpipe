@@ -66,8 +66,11 @@ function ActivityIconSlot(props: { live: boolean; children: ReactElement }) {
   )
 }
 
-function reasoningResponseClassName() {
-  return "text-xs leading-relaxed text-muted-foreground [&_blockquote]:text-muted-foreground [&_h1]:text-muted-foreground [&_h2]:text-muted-foreground [&_h3]:text-muted-foreground [&_h4]:text-muted-foreground [&_li]:text-muted-foreground [&_ol]:text-muted-foreground [&_p]:text-muted-foreground [&_strong]:text-muted-foreground [&_ul]:text-muted-foreground"
+function reasoningResponseClassName(collapsed: boolean) {
+  return cn(
+    "ctx-streamdown-reasoning h-auto space-y-1 text-xs leading-relaxed text-muted-foreground [&_blockquote]:text-muted-foreground [&_h1]:text-muted-foreground [&_h2]:text-muted-foreground [&_h3]:text-muted-foreground [&_h4]:text-muted-foreground [&_li]:text-muted-foreground [&_ol]:text-muted-foreground [&_p]:text-muted-foreground [&_strong]:text-muted-foreground [&_ul]:text-muted-foreground",
+    collapsed && "ctx-streamdown-reasoning-collapsed",
+  )
 }
 
 function ReasoningBox(props: {
@@ -78,6 +81,14 @@ function ReasoningBox(props: {
   const { text, live, collapsed } = props
   const [userExpanded, setUserExpanded] = useState<boolean | null>(null)
   const expanded = live || (userExpanded ?? !collapsed)
+  const body = (
+    <MessageResponse
+      className={reasoningResponseClassName(!expanded)}
+      isAnimating={live}
+    >
+      {text}
+    </MessageResponse>
+  )
 
   if (live) {
     return (
@@ -90,11 +101,7 @@ function ReasoningBox(props: {
         <ActivityIconSlot live>
           <IconBrain className="size-4" aria-hidden />
         </ActivityIconSlot>
-        <div className="min-w-0 flex-1">
-          <MessageResponse className={reasoningResponseClassName()} isAnimating>
-            {text}
-          </MessageResponse>
-        </div>
+        <div className="min-w-0 flex-1">{body}</div>
       </div>
     )
   }
@@ -114,7 +121,7 @@ function ReasoningBox(props: {
         <IconBrain className="size-4" aria-hidden />
       </ActivityIconSlot>
       <span className={cn("min-w-0 flex-1", !expanded && "line-clamp-1")}>
-        {text}
+        {body}
       </span>
     </AriaButton>
   )
