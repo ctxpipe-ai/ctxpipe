@@ -44,7 +44,6 @@ import {
   ensureConversation,
   getConversation,
   listConversationsPaginated,
-  persistConversationLastBranch,
   persistConversationLastChatPrNumber,
   updateConversation,
 } from "../../models/conversations.js"
@@ -743,12 +742,15 @@ export const conversationRoutes = new OpenAPIHono<AppEnv>()
       pullNumber: conversation.lastChatPrNumber,
     })
     if (!state) return c.json({ error: "Not found" }, 404)
-    return c.json({
-      branch: state.branch,
-      prNumber: state.prNumber,
-      pullUrl: state.pullUrl,
-      prState: state.prState,
-    })
+    return c.json(
+      {
+        branch: state.branch,
+        prNumber: state.prNumber,
+        pullUrl: state.pullUrl,
+        prState: state.prState,
+      },
+      200,
+    )
   })
   .openapi(postConversationPullRequestRoute, async (c) => {
     const user = c.get("user")
@@ -834,12 +836,15 @@ export const conversationRoutes = new OpenAPIHono<AppEnv>()
           lastChatPrNumber: existing.prNumber,
           lastBranch: pushed.branch,
         })
-        return c.json({
-          branch: pushed.branch,
-          prNumber: existing.prNumber,
-          pullUrl: existing.pullUrl,
-          prState: existing.prState,
-        })
+        return c.json(
+          {
+            branch: pushed.branch,
+            prNumber: existing.prNumber,
+            pullUrl: existing.pullUrl,
+            prState: existing.prState,
+          },
+          200,
+        )
       }
     }
     const created = await createPullRequestFromBranch({
@@ -857,10 +862,13 @@ export const conversationRoutes = new OpenAPIHono<AppEnv>()
       lastChatPrNumber: created.pullNumber,
       lastBranch: created.branch,
     })
-    return c.json({
-      branch: created.branch,
-      prNumber: created.pullNumber,
-      pullUrl: created.pullUrl,
-      prState: created.prState,
-    })
+    return c.json(
+      {
+        branch: created.branch,
+        prNumber: created.pullNumber,
+        pullUrl: created.pullUrl,
+        prState: created.prState,
+      },
+      200,
+    )
   })

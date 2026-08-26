@@ -212,12 +212,6 @@ export function workspaceActivityLoadingHandler() {
   )
 }
 
-export const conversationPrepareHandler = http.post(
-  ({ request }) =>
-    /\/api\/v1\/conversations\/[^/]+\/prepare$/.test(pathnameOf(request)),
-  () => new HttpResponse(null, { status: 204 }),
-)
-
 export function workspaceGraphLoadingHandler() {
   return http.get(
     ({ request }) =>
@@ -491,6 +485,6 @@ export function workspaceShellHandlers(input?: {
     workspaceFilesHandler(input?.files ?? docsWorkspaceFiles),
     workspaceGraphHandler(input?.graph ?? docsWorkspaceGraph),
     workspaceActivityHandler(),
-    conversationPrepareHandler,
+    conversationPrepareHandler(),
   ]
 }

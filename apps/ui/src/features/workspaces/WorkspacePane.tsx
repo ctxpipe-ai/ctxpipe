@@ -22,7 +22,14 @@ import {
   useSuspenseQuery,
 } from "@tanstack/react-query"
 import type { CSSProperties, ReactNode } from "react"
-import { Suspense, useEffect, useMemo, useRef, useState } from "react"
+import {
+  Suspense,
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from "react"
 import {
   Heading,
   type Key,
@@ -770,21 +777,21 @@ function WorkspaceFilesPaneContent(props: {
     },
   })
 
-  const flushSave = (path: string | null) => {
+  const flushSave = useCallback((path: string | null) => {
     if (!writableRef.current || !path) return
     const latest = latestDraftRef.current
     const content =
       latest?.path === path ? latest.body : draftsRef.current[path]
     if (content === undefined) return
     jobMutation.mutate({ op: "save", path, content })
-  }
+  }, [jobMutation])
 
-  const clearAutosaveTimer = () => {
+  const clearAutosaveTimer = useCallback(() => {
     if (saveTimerRef.current) {
       clearTimeout(saveTimerRef.current)
       saveTimerRef.current = null
     }
-  }
+  }, [])
 
   const scheduleAutosave = (path: string) => {
     if (!writableRef.current) return
@@ -832,7 +839,7 @@ function WorkspaceFilesPaneContent(props: {
     }
     window.addEventListener("keydown", onKeyDown)
     return () => window.removeEventListener("keydown", onKeyDown)
-  }, [props.activeFile, writable])
+  }, [props.activeFile, writable, clearAutosaveTimer, flushSave])
 
   const submitCreate = () => {
     if (!createDialog) return

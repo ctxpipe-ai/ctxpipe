@@ -246,7 +246,10 @@ export function WorkspaceChatSession(props: {
       if (name) applyRename(name)
       const phase = sandboxPhaseFromChunk(chunk)
       if (phase) setSandboxPhase(phase)
-      if (chunk.type === "TOOL_CALL" || chunk.type === "TOOL_CALL_DELTA") {
+      if (
+        chunk.type === "TOOL_CALL_END" ||
+        chunk.type === "TOOL_CALL_RESULT"
+      ) {
         void queryClient.invalidateQueries({
           queryKey: workspaceKeys.conversationGitStatus(orgSlug, conversationId),
         })
