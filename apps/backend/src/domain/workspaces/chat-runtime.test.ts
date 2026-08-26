@@ -135,7 +135,12 @@ describe("workspace chat runtime", () => {
       ok: true,
       isolation: "docker",
       source: { type: "git", url: "https://github.com/acme/docs", ref: "abc" },
-      lifecycle: { reuse: "thread", keepAlive: "30m" },
+      lifecycle: {
+        reuse: "thread",
+        snapshot: "after-setup",
+        keepAlive: "30m",
+        destroyOnComplete: false,
+      },
     })
     expect(
       workspaceChatSandboxSpec({
@@ -148,7 +153,12 @@ describe("workspace chat runtime", () => {
       ok: true,
       isolation: "unsandboxed",
       source: { type: "git", url: "https://github.com/acme/docs", ref: "abc" },
-      lifecycle: { reuse: "thread", keepAlive: "30m" },
+      lifecycle: {
+        reuse: "thread",
+        snapshot: "after-setup",
+        keepAlive: "30m",
+        destroyOnComplete: false,
+      },
     })
     expect(
       workspaceChatSandboxSpec({

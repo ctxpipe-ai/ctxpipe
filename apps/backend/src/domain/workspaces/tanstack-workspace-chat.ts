@@ -50,6 +50,10 @@ import {
   destroySandboxesForConversation,
   heartbeatChatSandboxes,
 } from "./sandbox-registry.js"
+import {
+  memoizedChatProvider,
+  memoizedConversationSandbox,
+} from "./workspace-chat-sandbox-memo.js"
 import { loadTanstackChatModules } from "./tanstack-runtime.js"
 import {
   aguiTextDelta,
@@ -86,7 +90,6 @@ import {
   markWorkspaceChatFirstShownToken,
 } from "./workspace-chat-otel.js"
 import { workspaceChatPersistence } from "./workspace-chat-persistence.js"
-import { invalidateChatSandbox } from "./workspace-chat-sandbox-health.js"
 import { workspaceChatTools } from "./workspace-chat-tools.js"
 
 export type TanstackWorkspaceChatMessage = {
@@ -130,12 +133,16 @@ function providerFactoryForChat(
   provider: string,
 ) {
   if (provider === "docker") {
-    return modules.dockerSandbox?.(WORKSPACE_CHAT_DOCKER_SANDBOX)
+    return memoizedChatProvider("docker", () =>
+      modules.dockerSandbox?.(WORKSPACE_CHAT_DOCKER_SANDBOX),
+    )
   }
   if (provider === "unsandboxed") {
-    return modules.localProcessSandbox?.({
-      scrubEnv: [...WORKSPACE_CHAT_LOCAL_PROCESS_SCRUB_ENV],
-    })
+    return memoizedChatProvider("unsandboxed", () =>
+      modules.localProcessSandbox?.({
+        scrubEnv: [...WORKSPACE_CHAT_LOCAL_PROCESS_SCRUB_ENV],
+      }),
+    )
   }
   return undefined
 }
@@ -316,11 +323,6 @@ async function* streamTanstackWorkspaceChatBody(
     if (failed) {
       const error =
         streamError ?? new Error("workspace chat produced no assistant reply")
-      await invalidateChatSandbox({
-        handle: prepared.handle.current,
-        orgId: turn.orgId,
-        conversationId: turn.conversationId,
-      })
       const message = recordChatAttempt(error)
       await turn.onError?.()
       yield workspaceChatRunError(message)
@@ -339,11 +341,6 @@ async function* streamTanstackWorkspaceChatBody(
         runId: turn.runId,
       })
   } catch (error) {
-    await invalidateChatSandbox({
-      handle: prepared.handle.current,
-      orgId: turn.orgId,
-      conversationId: turn.conversationId,
-    })
     const message = recordChatAttempt(error)
     await turn.onError?.()
     yield workspaceChatRunError(message)
@@ -368,15 +365,23 @@ export async function warmTanstackWorkspaceChat(
   const prepareStarted = Date.now()
   const built = await buildWorkspaceChatSandbox(input)
   if (!built.ok) return built
-  const definition = defineConversationSandbox({
-    modules: built.modules,
-    spec: built.spec,
-    input,
-    provider: built.provider,
-    runToken: "prepare",
-    proxyUrl: "http://127.0.0.1:0",
-    modelBase: built.contract.modelBase,
-    handle: { current: null },
+  const session = await resolveWorkspaceChatSession(input, built.spec.isolation)
+  if (!session.ok) return session
+  const { definition } = memoizedConversationSandbox({
+    conversationId: input.conversationId,
+    specId: built.spec.id,
+    isolation: built.spec.isolation,
+    create: (handle) =>
+      defineConversationSandbox({
+        modules: built.modules,
+        spec: built.spec,
+        input,
+        provider: built.provider,
+        runToken: session.runToken,
+        proxyUrl: session.proxyUrl,
+        modelBase: built.contract.modelBase,
+        handle,
+      }),
   })
   const ensureStarted = Date.now()
   try {
@@ -429,43 +434,28 @@ async function startWorkspaceChat(input: TanstackWorkspaceChatInput): Promise<
   const built = await buildWorkspaceChatSandbox(input)
   if (!built.ok) return built
   const runtime = workspaceChatRuntimeConfig({ writeStatus: input.writeStatus })
-  const contract = workspaceChatOpenCodeContract(process.env)
-  if (!contract.ok) {
-    return { ok: false, status: contract.status, error: contract.error }
-  }
-
-  const authSecret = process.env.AUTH_SECRET?.trim() ?? ""
-  if (authSecret.length < 32) {
-    return {
-      ok: false,
-      status: 503,
-      error: "Workspace chat needs AUTH_SECRET to mint a completions token.",
-    }
-  }
-  const orgSlug = await resolveWorkspaceChatOrgSlug(input)
-  if (!orgSlug) {
-    return {
-      ok: false,
-      status: 503,
-      error: "Workspace chat needs an organization slug.",
-    }
-  }
-  const runToken = mintWorkspaceChatToken({
-    authSecret,
-    orgId: input.orgId,
-    conversationId: input.conversationId,
-  })
-  const listenPort = Number(process.env.PORT) || 3000
-  const proxyUrl = workspaceChatCompletionsBaseUrl({
-    isolation: built.spec.isolation,
-    orgSlug,
-    port: listenPort,
-  })
+  const session = await resolveWorkspaceChatSession(input, built.spec.isolation)
+  if (!session.ok) return session
   const portLease =
     built.spec.isolation === "unsandboxed"
       ? await leaseLocalProcessOpenCodePort()
       : null
-  const handle = { current: null as TanstackLikeHandle | null }
+  const { definition, handle } = memoizedConversationSandbox({
+    conversationId: input.conversationId,
+    specId: built.spec.id,
+    isolation: built.spec.isolation,
+    create: (box) =>
+      defineConversationSandbox({
+        modules: built.modules,
+        spec: built.spec,
+        input,
+        provider: built.provider,
+        runToken: session.runToken,
+        proxyUrl: session.proxyUrl,
+        modelBase: built.contract.modelBase,
+        handle: box,
+      }),
+  })
   try {
     const toolsStarted = Date.now()
     const tools = await loadWorkspaceChatTools(input)
@@ -478,16 +468,6 @@ async function startWorkspaceChat(input: TanstackWorkspaceChatInput): Promise<
     })
     const servePort = portLease?.port ?? WORKSPACE_CHAT_OPENCODE_PORT
     const modules = built.modules
-    const definition = defineConversationSandbox({
-      modules,
-      spec: built.spec,
-      input,
-      provider: built.provider,
-      runToken,
-      proxyUrl,
-      modelBase: contract.modelBase,
-      handle,
-    })
     const instances = built.instances
     const persistence = workspaceChatPersistence()
     const snapshots = {
@@ -499,7 +479,7 @@ async function startWorkspaceChat(input: TanstackWorkspaceChatInput): Promise<
     }
     const chatStarted = Date.now()
     const stream = await modules.chat({
-      adapter: modules.opencodeText(contract.opencodeModel, {
+      adapter: modules.opencodeText(built.contract.opencodeModel, {
         port: servePort,
         permissionMode: runtime.permissionMode,
         onPermissionRequest: runtime.onPermissionRequest,
@@ -543,6 +523,44 @@ async function startWorkspaceChat(input: TanstackWorkspaceChatInput): Promise<
   } catch (error) {
     await portLease?.release().catch(() => undefined)
     throw error
+  }
+}
+
+async function resolveWorkspaceChatSession(
+  input: TanstackWorkspaceChatInput,
+  isolation: "docker" | "unsandboxed" | "railway",
+): Promise<
+  | { ok: true; runToken: string; proxyUrl: string }
+  | { ok: false; status: number; error: string }
+> {
+  const authSecret = process.env.AUTH_SECRET?.trim() ?? ""
+  if (authSecret.length < 32) {
+    return {
+      ok: false,
+      status: 503,
+      error: "Workspace chat needs AUTH_SECRET to mint a completions token.",
+    }
+  }
+  const orgSlug = await resolveWorkspaceChatOrgSlug(input)
+  if (!orgSlug) {
+    return {
+      ok: false,
+      status: 503,
+      error: "Workspace chat needs an organization slug.",
+    }
+  }
+  return {
+    ok: true,
+    runToken: mintWorkspaceChatToken({
+      authSecret,
+      orgId: input.orgId,
+      conversationId: input.conversationId,
+    }),
+    proxyUrl: workspaceChatCompletionsBaseUrl({
+      isolation,
+      orgSlug,
+      port: Number(process.env.PORT) || 3000,
+    }),
   }
 }
 

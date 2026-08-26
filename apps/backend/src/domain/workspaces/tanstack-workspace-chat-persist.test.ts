@@ -140,6 +140,7 @@ vi.mock("../../graphs/conversationGraph/nodes/conversationNaming.js", () => ({
 }))
 
 import { streamTanstackWorkspaceChat } from "./tanstack-workspace-chat.js"
+import { resetWorkspaceChatSandboxMemos } from "./workspace-chat-sandbox-memo.js"
 
 const runId = `chattx_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 8)}`
 const org = {
@@ -196,6 +197,7 @@ afterAll(async () => {
 })
 
 beforeEach(async () => {
+  resetWorkspaceChatSandboxMemos()
   captured.instances = null
   process.env.MODEL_PROVIDER = "openai-like"
   process.env.MODEL_PROVIDER_API_KEY = "sk-test-chat-persist"

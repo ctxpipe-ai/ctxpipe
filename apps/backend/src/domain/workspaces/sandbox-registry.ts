@@ -15,6 +15,7 @@ import {
 } from "./chat-lifecycle.js"
 import type { JobSandboxHandle } from "./job-worktree.js"
 import { destroyDetachedProviderSandbox } from "./sandbox-provider.js"
+import { forgetConversationSandboxDefinition } from "./workspace-chat-sandbox-memo.js"
 
 export type RegisteredSandbox = {
   id: string
@@ -208,6 +209,7 @@ async function destroyListedSandboxesForConversation(
   conversationId: string,
   options?: { orgId?: string; failClosed?: boolean },
 ): Promise<number> {
+  forgetConversationSandboxDefinition(conversationId)
   const list = () =>
     listSandboxInstances({
       conversationId,
@@ -343,6 +345,8 @@ export async function destroyWorkspaceSandbox(
     return null
   })
   const handleRow = existing ?? findHandleForStored(stored)
+  const conversationId = handleRow?.conversationId ?? stored?.conversationId
+  if (conversationId) forgetConversationSandboxDefinition(conversationId)
   if (handleRow?.destroy) {
     try {
       await handleRow.destroy()

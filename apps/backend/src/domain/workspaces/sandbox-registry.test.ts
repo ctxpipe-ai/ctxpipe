@@ -20,6 +20,10 @@ import {
   resetRegisteredSandboxes,
   withDestroyedWorkspaceSandboxes,
 } from "./sandbox-registry.js"
+import {
+  memoizedConversationSandbox,
+  resetWorkspaceChatSandboxMemos,
+} from "./workspace-chat-sandbox-memo.js"
 
 const destroyDetachedProviderSandbox = vi.hoisted(() => vi.fn(async () => {}))
 
@@ -110,6 +114,7 @@ describe("sandbox registry GC", () => {
       async (_orgId: string, fn: () => Promise<unknown>) => fn(),
     )
     resetRegisteredSandboxes()
+    resetWorkspaceChatSandboxMemos()
   })
 
   it("destroys idle chat after 30 minutes and jobs after 60", () => {
@@ -138,6 +143,24 @@ describe("sandbox registry GC", () => {
         now,
       }),
     ).toEqual(["ws_idle"])
+  })
+
+  it("drops the memoized chat definition when the conversation sandbox is destroyed", async () => {
+    const create = vi.fn(() => ({ id: "def_idle" }))
+    memoizedConversationSandbox({
+      conversationId: "conv_idle",
+      specId: "spec_a",
+      isolation: "unsandboxed",
+      create,
+    })
+    await destroySandboxesForConversation("conv_idle")
+    memoizedConversationSandbox({
+      conversationId: "conv_idle",
+      specId: "spec_a",
+      isolation: "unsandboxed",
+      create,
+    })
+    expect(create).toHaveBeenCalledTimes(2)
   })
 
   it("returns the attached job sandbox handle for a Workspace", async () => {

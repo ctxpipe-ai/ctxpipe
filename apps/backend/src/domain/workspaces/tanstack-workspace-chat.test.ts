@@ -24,8 +24,13 @@ const ensureSandboxMock = vi.hoisted(() =>
   })),
 )
 const defineSandboxMock = vi.hoisted(() =>
-  vi.fn((input) => ({ ...input, ensure: ensureSandboxMock })),
+  vi.fn((input: { hooks?: { onReady?: (handle: { id: string }) => unknown } }) => {
+    const definition = { ...input, ensure: ensureSandboxMock, id: "sbx_ready" }
+    void input.hooks?.onReady?.({ id: "sbx_ready" })
+    return definition
+  }),
 )
+const invalidateChatSandboxMock = vi.hoisted(() => vi.fn(async () => {}))
 const defineWorkspaceMock = vi.hoisted(() => vi.fn((input) => input))
 const gitSourceMock = vi.hoisted(() => vi.fn((input) => input))
 const withSandboxMock = vi.hoisted(() =>
@@ -163,6 +168,9 @@ vi.mock("./sandbox-registry.js", async (importOriginal) => {
     destroySandboxesForConversation: vi.fn(async () => {}),
   }
 })
+vi.mock("./workspace-chat-sandbox-health.js", () => ({
+  invalidateChatSandbox: invalidateChatSandboxMock,
+}))
 vi.mock("../../models/conversation-messages.js", () => ({
   loadConversationTurns: vi.fn(async () => []),
   appendConversationTurn: vi.fn(async () => {}),
@@ -204,6 +212,7 @@ import {
   warmTanstackWorkspaceChat,
 } from "./tanstack-workspace-chat.js"
 import { parseSseDataLines } from "./workspace-chat-agui.js"
+import { resetWorkspaceChatSandboxMemos } from "./workspace-chat-sandbox-memo.js"
 
 const AUTH_SECRET = "abcdefghijklmnopqrstuvwxyz123456"
 
@@ -230,6 +239,7 @@ async function runTanstackWorkspaceChat(
 describe("runTanstackWorkspaceChat", () => {
   beforeEach(() => {
     vi.clearAllMocks()
+    resetWorkspaceChatSandboxMemos()
     nameConversationIfUnnamedMock.mockResolvedValue(null)
     listSandboxInstancesMock.mockResolvedValue([])
     process.env.SANDBOX_PROVIDER = "docker"
@@ -335,6 +345,11 @@ describe("runTanstackWorkspaceChat", () => {
     expect(ports[0]).not.toBe(4096)
     expect(ports[1]).not.toBe(4096)
     expect(ports[0]).not.toBe(ports[1])
+    expect(defineSandboxMock).toHaveBeenCalledTimes(2)
+    expect(localProcessSandboxMock).toHaveBeenCalledTimes(1)
+    expect(withSandboxMock.mock.calls[0]?.[0]).not.toBe(
+      withSandboxMock.mock.calls[1]?.[0],
+    )
     for await (const _chunk of first) {
       void _chunk
     }
@@ -535,11 +550,50 @@ describe("runTanstackWorkspaceChat", () => {
     expect(text).not.toContain("Previous conversation")
     expect(text).not.toContain(prompt)
   })
+
+  it("reuses one defineSandbox object and provider for two turns on the same thread", async () => {
+    const first = await runTanstackWorkspaceChat({
+      ...baseInput,
+      runId: "run_a",
+    })
+    const second = await runTanstackWorkspaceChat({
+      ...baseInput,
+      prompt: "follow up",
+      runId: "run_b",
+    })
+    expect(first.status).toBe(200)
+    expect(second.status).toBe(200)
+    expect(defineSandboxMock).toHaveBeenCalledTimes(1)
+    expect(dockerSandboxMock).toHaveBeenCalledTimes(1)
+    expect(withSandboxMock).toHaveBeenCalledTimes(2)
+    expect(withSandboxMock.mock.calls[0]?.[0]).toBe(
+      withSandboxMock.mock.calls[1]?.[0],
+    )
+    expect(withSandboxMock.mock.calls[0]?.[0]).toMatchObject({ id: "sbx_ready" })
+    expect(chatMock).toHaveBeenCalledTimes(2)
+  })
+
+  it("keeps one definition across prepare ensure and the first chat turn", async () => {
+    await expect(warmTanstackWorkspaceChat(baseInput)).resolves.toEqual({
+      ok: true,
+    })
+    const res = await runTanstackWorkspaceChat({
+      ...baseInput,
+      runId: "run_after_prepare",
+    })
+    expect(res.status).toBe(200)
+    expect(defineSandboxMock).toHaveBeenCalledTimes(1)
+    expect(ensureSandboxMock).toHaveBeenCalledTimes(1)
+    expect(withSandboxMock.mock.calls[0]?.[0]).toBe(
+      defineSandboxMock.mock.results[0]?.value,
+    )
+  })
 })
 
 describe("warmTanstackWorkspaceChat", () => {
   beforeEach(() => {
     vi.clearAllMocks()
+    resetWorkspaceChatSandboxMemos()
     listSandboxInstancesMock.mockResolvedValue([])
     process.env.SANDBOX_PROVIDER = "docker"
     process.env.MODEL_PROVIDER = "openai-like"
@@ -569,6 +623,7 @@ describe("warmTanstackWorkspaceChat", () => {
 describe("streamTanstackWorkspaceChat", () => {
   beforeEach(() => {
     vi.clearAllMocks()
+    resetWorkspaceChatSandboxMemos()
     listSandboxInstancesMock.mockResolvedValue([])
     process.env.SANDBOX_PROVIDER = "docker"
     process.env.MODEL_PROVIDER = "openai-like"
@@ -598,6 +653,22 @@ describe("streamTanstackWorkspaceChat", () => {
       (chunk) => (chunk as { type?: string }).type === "RUN_ERROR",
     ) as { message?: string } | undefined
     expect(error?.message).toBe("workspace chat produced no assistant reply")
+    expect(invalidateChatSandboxMock).not.toHaveBeenCalled()
+  })
+
+  it("does not destroy the live sandbox on a model RUN_ERROR", async () => {
+    chatMock.mockImplementationOnce(async function* () {
+      yield { type: "RUN_STARTED", threadId: "conv_1", runId: "run_1" }
+      yield { type: "RUN_ERROR", message: "upstream key rejected" }
+    })
+    const events: object[] = []
+    for await (const chunk of streamTanstackWorkspaceChat(baseInput)) {
+      events.push(chunk)
+    }
+    expect(
+      events.some((chunk) => (chunk as { type?: string }).type === "RUN_ERROR"),
+    ).toBe(true)
+    expect(invalidateChatSandboxMock).not.toHaveBeenCalled()
   })
 
   it("touches lastMessageAt before chat() when onUserPersist is set", async () => {

@@ -143,6 +143,7 @@ export function workspaceChatSandboxSpec(input: {
         reuse: "thread"
         snapshot: "after-setup"
         keepAlive: typeof CHAT_SANDBOX_KEEP_ALIVE
+        destroyOnComplete: false
       }
     }
   | { ok: false; reason: "no_isolated_provider" } {
@@ -162,6 +163,7 @@ export function workspaceChatSandboxSpec(input: {
       reuse: "thread",
       snapshot: "after-setup",
       keepAlive: CHAT_SANDBOX_KEEP_ALIVE,
+      destroyOnComplete: false,
     },
   }
 }

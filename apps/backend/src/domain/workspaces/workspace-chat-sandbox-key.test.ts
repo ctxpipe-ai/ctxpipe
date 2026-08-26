@@ -147,6 +147,7 @@ function sandboxKey(input: {
       reuse: "thread",
       snapshot: "after-setup",
       keepAlive: CHAT_SANDBOX_KEEP_ALIVE,
+      destroyOnComplete: false,
     },
   }).key({
     threadId: input.conversationId,
@@ -256,6 +257,7 @@ describe("workspace chat sandbox opaque key", () => {
         reuse: "thread",
         snapshot: "after-setup",
         keepAlive: CHAT_SANDBOX_KEEP_ALIVE,
+        destroyOnComplete: false,
       },
     })
     const store = new Map<
@@ -309,6 +311,7 @@ describe("workspace chat sandbox opaque key", () => {
         reuse: "thread",
         snapshot: "after-setup",
         keepAlive: CHAT_SANDBOX_KEEP_ALIVE,
+        destroyOnComplete: false,
       },
     })
     const second = await secondDefinition.ensure({
