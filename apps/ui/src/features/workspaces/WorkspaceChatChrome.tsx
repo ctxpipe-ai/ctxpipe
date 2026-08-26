@@ -1,5 +1,7 @@
 import type { ReactNode } from "react"
+import { Link as AriaLink } from "react-aria-components"
 import { OverlayNavMenuButton } from "@/components/OverlayNavButton"
+import { Button } from "@/components/ui/Button"
 import { cn } from "@/lib/utils"
 import type { Workspace } from "./types"
 import {
@@ -11,6 +13,26 @@ import {
 } from "./workspaceChrome"
 import { writeStatusLabel } from "./writeStatusLabel"
 
+export type ConversationPublishChrome = {
+  commitPush: {
+    enabled: boolean
+    pending: boolean
+    onPress: () => void
+  }
+  pullRequest: {
+    action: "create" | "show"
+    pending: boolean
+    href?: string | null
+    onPress: () => void
+  }
+}
+
+export type ConversationBranchChrome = {
+  shortName: string
+  fullRef: string
+  href?: string | null
+}
+
 /**
  * Conversation column chrome: card surface with the conversation name as an
  * active tab (conversation is one pane; files/graph/settings are the other).
@@ -19,10 +41,14 @@ export function WorkspaceChatChrome(props: {
   workspace: Workspace
   title: ReactNode
   headerExtra?: ReactNode
+  branch?: ConversationBranchChrome | null
+  publish?: ConversationPublishChrome | null
   children: ReactNode
 }) {
   const write = writeStatusLabel(props.workspace.writeStatus)
-  const showWriteBadge = write.tone === "read_only" || write.tone === "pending"
+  const showWriteBadge =
+    !props.publish &&
+    (write.tone === "read_only" || write.tone === "pending")
   return (
     <div
       className={cn(
@@ -48,8 +74,28 @@ export function WorkspaceChatChrome(props: {
             ) : (
               props.title
             )}
+            {props.branch ? (
+              props.branch.href ? (
+                <AriaLink
+                  href={props.branch.href}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="ml-2 truncate font-mono text-xs text-muted-foreground hover:text-teal-400"
+                  aria-label={props.branch.fullRef}
+                >
+                  {props.branch.shortName}
+                </AriaLink>
+              ) : (
+                <span
+                  title={props.branch.fullRef}
+                  className="ml-2 truncate font-mono text-xs text-muted-foreground"
+                >
+                  {props.branch.shortName}
+                </span>
+              )
+            ) : null}
           </div>
-          {props.headerExtra || showWriteBadge ? (
+          {props.headerExtra || showWriteBadge || props.publish ? (
             <div className="ml-auto flex min-w-0 items-end gap-0.5">
               {showWriteBadge ? (
                 <span className="inline-flex h-[37px] shrink-0 items-center">
@@ -65,6 +111,9 @@ export function WorkspaceChatChrome(props: {
                   </span>
                 </span>
               ) : null}
+              {props.publish ? (
+                <ConversationPublishActions publish={props.publish} />
+              ) : null}
               {props.headerExtra}
             </div>
           ) : null}
@@ -72,6 +121,47 @@ export function WorkspaceChatChrome(props: {
 
         <div className={workspaceChromeCardClassName}>{props.children}</div>
       </div>
+    </div>
+  )
+}
+
+function ConversationPublishActions(props: {
+  publish: ConversationPublishChrome
+}) {
+  const { commitPush, pullRequest } = props.publish
+  return (
+    <div className="mb-px flex h-[37px] shrink-0 items-center gap-1">
+      <Button
+        variant="ghost"
+        size="default"
+        isDisabled={!commitPush.enabled || commitPush.pending}
+        isPending={commitPush.pending}
+        onPress={commitPush.onPress}
+        className="h-8 px-2 text-xs"
+      >
+        {commitPush.pending ? "Pushing…" : "Commit+Push"}
+      </Button>
+      {pullRequest.action === "show" && pullRequest.href ? (
+        <AriaLink
+          href={pullRequest.href}
+          target="_blank"
+          rel="noopener noreferrer"
+          className="inline-flex h-8 items-center rounded-lg px-2 text-xs text-muted-foreground hover:bg-foreground/[0.06] hover:text-foreground"
+        >
+          Show PR
+        </AriaLink>
+      ) : (
+        <Button
+          variant="ghost"
+          size="default"
+          isDisabled={pullRequest.pending}
+          isPending={pullRequest.pending}
+          onPress={pullRequest.onPress}
+          className="h-8 px-2 text-xs"
+        >
+          {pullRequest.pending ? "Creating PR…" : "Create PR"}
+        </Button>
+      )}
     </div>
   )
 }

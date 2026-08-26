@@ -121,6 +121,15 @@ export const readOnlyWorkspace: Workspace = {
   readOnlyReason: "The GitHub App cannot write to this repository.",
 }
 
+export const pendingWriteWorkspace: Workspace = {
+  ...docsWorkspace,
+  id: "ws_pending",
+  slug: "pending",
+  displayName: "Pending",
+  writeStatus: "unknown",
+  readOnlyReason: null,
+}
+
 export const hydratingWorkspace: Workspace = {
   ...docsWorkspace,
   id: "ws_hydrate",
@@ -226,6 +235,11 @@ export const docsConversationDetail: ConversationDetail = {
     orgId: "org_acme",
     userId: "user_storybook",
     workspaceId: docsWorkspace.id,
+    lastBranch: "ctxpipe/chat/conv_1/1",
+    lastChatPrNumber: 41,
+    lastChatPrUrl: "https://github.com/acme/docs/pull/41",
+    prState: "open",
+    branchTreeUrl: "https://github.com/acme/docs/tree/ctxpipe/chat/conv_1/1",
     createdAt: "2026-08-16T09:30:00.000Z",
     updatedAt: "2026-08-16T10:00:00.000Z",
   },

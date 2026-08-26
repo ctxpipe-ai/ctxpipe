@@ -1,6 +1,6 @@
 import type { StreamChunk, UIMessage } from "@tanstack/ai"
 import { useChat } from "@tanstack/ai-react"
-import { useQuery, useQueryClient } from "@tanstack/react-query"
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import { useNavigate } from "@tanstack/react-router"
 import { type ReactNode, useEffect, useMemo, useRef, useState } from "react"
 import { InlineAlert } from "@/components/ui/InlineAlert"
@@ -11,12 +11,28 @@ import type {
   ChatMessage,
   ConversationDetail,
   ConversationListInfiniteData,
+  ConversationListItem,
 } from "@/features/chat/types"
 import {
   setPendingWorkspaceCompose,
   takeHomeDraftSend,
 } from "@/features/home/pending-workspace-compose"
-import { prepareWorkspaceChat, workspaceKeys } from "./queries"
+import { conversationWriteToolSignature } from "./conversationFileLive"
+import {
+  conversationBranchShortName,
+  conversationCommitPushEnabled,
+  conversationGithubTreeHref,
+  conversationPullRequestAction,
+  conversationSessionBranch,
+} from "./conversationPublish"
+import {
+  conversationGitStatusOptions,
+  conversationPullRequestOptions,
+  createConversationPullRequest,
+  pushConversationBranch,
+  workspaceChatPrepareOptions,
+  workspaceKeys,
+} from "./queries"
 import type { Workspace } from "./types"
 import { WorkspaceChatChrome } from "./WorkspaceChatChrome"
 import { workspaceChatWebSocket } from "./workspaceChatWebSocket"
@@ -76,6 +92,7 @@ export function WorkspaceChatSession(props: {
   initialMessages: ConversationDetail["messages"]
   draftSeed?: string | null
   autoSendDraft?: boolean
+  conversation?: ConversationListItem
   headerExtra?: ReactNode
 }) {
   const {
@@ -141,11 +158,71 @@ export function WorkspaceChatSession(props: {
     )
   }
 
-  useQuery({
-    queryKey: workspaceKeys.chatPrepare(orgSlug, conversationId, workspace.id),
-    queryFn: () => prepareWorkspaceChat(orgSlug, conversationId, workspace.id),
-    staleTime: Number.POSITIVE_INFINITY,
-    retry: false,
+  const prepareQuery = useQuery(
+    workspaceChatPrepareOptions(orgSlug, conversationId, workspace.id),
+  )
+  const statusQuery = useQuery({
+    ...conversationGitStatusOptions(orgSlug, conversationId),
+    enabled: !composing && prepareQuery.isSuccess,
+  })
+  const pullQuery = useQuery(
+    conversationPullRequestOptions(
+      orgSlug,
+      conversationId,
+      !composing && (props.conversation?.lastChatPrNumber ?? null) != null,
+    ),
+  )
+  const pushMutation = useMutation({
+    mutationFn: () => pushConversationBranch(orgSlug, conversationId),
+    onSuccess: (result) => {
+      queryClient.setQueryData<ConversationDetail>(
+        workspaceKeys.conversation(orgSlug, conversationId, workspace.id),
+        (old) =>
+          old
+            ? {
+                ...old,
+                conversation: {
+                  ...old.conversation,
+                  lastBranch: result.branch,
+                  branchTreeUrl: result.treeUrl,
+                },
+              }
+            : old,
+      )
+      void queryClient.invalidateQueries({
+        queryKey: workspaceKeys.conversationGitStatus(orgSlug, conversationId),
+      })
+    },
+  })
+  const createPrMutation = useMutation({
+    mutationFn: () =>
+      createConversationPullRequest(orgSlug, conversationId, {
+        title: headerTitle,
+      }),
+    onSuccess: (result) => {
+      queryClient.setQueryData<ConversationDetail>(
+        workspaceKeys.conversation(orgSlug, conversationId, workspace.id),
+        (old) =>
+          old
+            ? {
+                ...old,
+                conversation: {
+                  ...old.conversation,
+                  lastBranch: result.branch,
+                  lastChatPrNumber: result.prNumber,
+                  lastChatPrUrl: result.pullUrl,
+                  prState: result.prState,
+                },
+              }
+            : old,
+      )
+      void queryClient.invalidateQueries({
+        queryKey: workspaceKeys.conversationPullRequest(orgSlug, conversationId),
+      })
+      void queryClient.invalidateQueries({
+        queryKey: workspaceKeys.conversationGitStatus(orgSlug, conversationId),
+      })
+    },
   })
 
   const { messages, sendMessage, status, error, isLoading, stop } = useChat({
@@ -165,6 +242,14 @@ export function WorkspaceChatSession(props: {
       if (name) applyRename(name)
       const phase = sandboxPhaseFromChunk(chunk)
       if (phase) setSandboxPhase(phase)
+      if (chunk.type === "TOOL_CALL" || chunk.type === "TOOL_CALL_DELTA") {
+        void queryClient.invalidateQueries({
+          queryKey: workspaceKeys.conversationGitStatus(orgSlug, conversationId),
+        })
+        void queryClient.invalidateQueries({
+          queryKey: workspaceKeys.conversationGitTree(orgSlug, conversationId),
+        })
+      }
       if (chunk.type === "RUN_FINISHED" || chunk.type === "RUN_ERROR") {
         setSandboxPhase("idle")
         if (chunk.type === "RUN_FINISHED") {
@@ -181,8 +266,33 @@ export function WorkspaceChatSession(props: {
       void queryClient.invalidateQueries({
         queryKey: workspaceKeys.conversations(orgSlug, workspace.id),
       })
+      void queryClient.invalidateQueries({
+        queryKey: workspaceKeys.conversationGitStatus(orgSlug, conversationId),
+      })
     },
   })
+
+  const writeSignature = conversationWriteToolSignature(
+    messages as ChatMessage[],
+  )
+  useEffect(() => {
+    if (!writeSignature) return
+    void queryClient.invalidateQueries({
+      queryKey: workspaceKeys.conversationGitStatus(orgSlug, conversationId),
+    })
+    void queryClient.invalidateQueries({
+      queryKey: workspaceKeys.conversationGitTree(orgSlug, conversationId),
+    })
+    for (const path of writeSignature.split("\0").filter(Boolean)) {
+      void queryClient.invalidateQueries({
+        queryKey: workspaceKeys.conversationGitBlob(
+          orgSlug,
+          conversationId,
+          path,
+        ),
+      })
+    }
+  }, [conversationId, orgSlug, queryClient, writeSignature])
 
   const insertComposeRow = () => {
     queryClient.setQueriesData<ConversationListInfiniteData>(
@@ -250,6 +360,53 @@ export function WorkspaceChatSession(props: {
       workspace={workspace}
       title={headerTitle}
       headerExtra={props.headerExtra}
+      branch={
+        !composing && prepareQuery.isSuccess
+          ? {
+              shortName: conversationBranchShortName(
+                props.conversation?.lastBranch ??
+                  conversationSessionBranch(conversationId),
+              ),
+              fullRef:
+                props.conversation?.lastBranch ??
+                conversationSessionBranch(conversationId),
+              href: statusQuery.data?.published
+                ? (props.conversation?.branchTreeUrl ??
+                    conversationGithubTreeHref(
+                      workspace.workspaceRepositoryUrl,
+                      props.conversation?.lastBranch ??
+                        conversationSessionBranch(conversationId),
+                    ))
+                : null,
+            }
+          : null
+      }
+      publish={
+        !composing &&
+        prepareQuery.isSuccess &&
+        workspace.writeStatus === "writable"
+          ? {
+              commitPush: {
+                enabled: conversationCommitPushEnabled(
+                  statusQuery.data ?? null,
+                ),
+                pending: pushMutation.isPending,
+                onPress: () => pushMutation.mutate(),
+              },
+              pullRequest: {
+                action: conversationPullRequestAction(
+                  pullQuery.data?.prState ?? props.conversation?.prState,
+                ),
+                pending: createPrMutation.isPending,
+                href:
+                  pullQuery.data?.pullUrl ??
+                  props.conversation?.lastChatPrUrl ??
+                  null,
+                onPress: () => createPrMutation.mutate(),
+              },
+            }
+          : null
+      }
     >
       {composing && messages.length === 0 ? (
         <div className="flex min-h-0 flex-1 flex-col items-center justify-center px-6 py-10">

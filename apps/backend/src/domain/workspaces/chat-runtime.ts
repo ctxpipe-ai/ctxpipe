@@ -173,6 +173,8 @@ export function workspaceChatRuntimeConfig(input?: {
   hasDocker?: boolean
   env?: Record<string, string | undefined>
   writeStatus?: string
+  currentBranch?: string | null
+  defaultBranch?: string | null
   judge?: (
     toolName: string,
     argsExcerpt: string,
@@ -188,6 +190,8 @@ export function workspaceChatRuntimeConfig(input?: {
     provider,
     onPermissionRequest: createWorkspaceChatPermissionHandler({
       writeStatus: input?.writeStatus ?? "read_only",
+      currentBranch: input?.currentBranch,
+      defaultBranch: input?.defaultBranch,
       judge: input?.judge ?? judgeChatToolWithFastModel,
     }),
   }

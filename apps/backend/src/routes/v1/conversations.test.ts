@@ -19,10 +19,12 @@ const loadConversationTurnsMock = vi.hoisted(() =>
 
 const getWorkspaceByIdMock = vi.hoisted(() => vi.fn())
 const getRegisteredChatSandboxMock = vi.hoisted(() => vi.fn())
-const collectChatPullRequestTreeMock = vi.hoisted(() => vi.fn())
+const resolveConversationSandboxHandleMock = vi.hoisted(() => vi.fn())
+const pushConversationSessionBranchMock = vi.hoisted(() => vi.fn())
+const createPullRequestFromBranchMock = vi.hoisted(() => vi.fn())
+const getPullRequestStateMock = vi.hoisted(() => vi.fn())
 const reserveConversationChatPrNumberMock = vi.hoisted(() => vi.fn())
 const persistConversationLastChatPrNumberMock = vi.hoisted(() => vi.fn())
-const createPullRequestWithFilesMock = vi.hoisted(() => vi.fn())
 
 vi.mock("../../models/workspaces.js", () => ({
   getWorkspaceById: getWorkspaceByIdMock,
@@ -38,12 +40,31 @@ vi.mock("../webhooks/github/github-workspace-tip.js", () => ({
 
 vi.mock("../../services/github/installation-write-client.js", () => ({
   githubRefExists: vi.fn().mockResolvedValue(false),
-  createPullRequestWithFiles: createPullRequestWithFilesMock,
+  createPullRequestFromBranch: createPullRequestFromBranchMock,
+  getPullRequestState: getPullRequestStateMock,
 }))
 
 vi.mock("../../models/github-installation.js", () => ({
   getRepoReadCloneToken: vi.fn().mockResolvedValue("tok"),
+  getInstallationToken: vi.fn().mockResolvedValue("install-tok"),
 }))
+
+vi.mock("../../domain/workspaces/conversation-files.js", () => ({
+  resolveConversationSandboxHandle: resolveConversationSandboxHandleMock,
+}))
+
+vi.mock("../../domain/workspaces/conversation-publish.js", () => ({
+  pushConversationSessionBranch: pushConversationSessionBranchMock,
+}))
+
+vi.mock("./conversation-files-routes.js", async (importOriginal) => {
+  const actual =
+    await importOriginal<typeof import("./conversation-files-routes.js")>()
+  return {
+    ...actual,
+    checkoutPreparedConversationBranch: vi.fn(async () => {}),
+  }
+})
 
 vi.mock("../../models/conversations.js", () => ({
   getConversation: getConversationMock,
@@ -66,11 +87,7 @@ vi.mock("../../domain/workspaces/sandbox-registry.js", () => ({
   ),
   getChatSandbox: vi.fn(() => null),
   getRegisteredChatSandbox: getRegisteredChatSandboxMock,
-}))
-
-vi.mock("../../domain/workspaces/chat-pull-request.js", () => ({
-  collectChatPullRequestTree: collectChatPullRequestTreeMock,
-  checkoutPublishedChatBranch: vi.fn(async () => {}),
+  attachChatSandboxHandle: vi.fn(),
 }))
 
 vi.mock("../../models/conversation-messages.js", () => ({
@@ -87,6 +104,7 @@ vi.mock("../../domain/conversations/transport.js", () => ({
 vi.mock("../../domain/workspaces/workspace-chat-turn-runtime.js", () => ({
   resolveWorkspaceChatTurnRuntime: vi.fn(async () => ({
     lastBranch: "main",
+    cloneRef: "abc",
     defaultBranch: "main",
     cloneToken: "tok",
     writeStatus: "writable",
@@ -193,16 +211,23 @@ describe("conversations API", () => {
       desiredGeneration: 1,
     })
     getRegisteredChatSandboxMock.mockReturnValue(null)
-    collectChatPullRequestTreeMock.mockResolvedValue({
-      files: [],
-      deletePaths: [],
+    resolveConversationSandboxHandleMock.mockReturnValue({
+      exec: vi.fn(),
+      fs: {},
+    })
+    pushConversationSessionBranchMock.mockResolvedValue({
+      ok: true,
+      branch: "ctxpipe/chat/conv_1/1",
+      pushed: true,
     })
     reserveConversationChatPrNumberMock.mockResolvedValue(3)
-    createPullRequestWithFilesMock.mockResolvedValue({
+    createPullRequestFromBranchMock.mockResolvedValue({
       pullNumber: 41,
       pullUrl: "https://github.com/acme/docs/pull/41",
-      branch: "ctxpipe/chat/conv_1/3",
+      branch: "ctxpipe/chat/conv_1/1",
+      prState: "open",
     })
+    getPullRequestStateMock.mockResolvedValue(null)
   })
 
   it("lists UI conversations for a Workspace and ignores source=all", async () => {
@@ -444,7 +469,7 @@ describe("conversations API", () => {
     expect(discardUnstartedConversationMock).not.toHaveBeenCalled()
   })
 
-  it("brokers a PR from the live sandbox tree and returns GitHub's pull number", async () => {
+  it("brokers a PR from the session branch and returns GitHub's pull number", async () => {
     getConversationMock.mockResolvedValue(conversationRow)
     getRegisteredChatSandboxMock.mockReturnValue({
       handle: { exec: vi.fn(), fs: {} },
@@ -453,44 +478,33 @@ describe("conversations API", () => {
       desiredSha: "abc",
       defaultBranch: "main",
     })
-    collectChatPullRequestTreeMock.mockResolvedValue({
-      files: [{ path: "knowledge/a.md", content: "hello" }],
-      deletePaths: ["knowledge/gone.md"],
-    })
 
     const res = await app().request("/conversations/conv_1/pull-request", {
       method: "POST",
       headers: { "content-type": "application/json" },
       body: JSON.stringify({
         title: "Chat changes",
-        files: [{ path: "client.md", content: "ignored" }],
       }),
     })
 
     expect(res.status).toBe(200)
     expect(await res.json()).toEqual({
-      branch: "ctxpipe/chat/conv_1/3",
+      branch: "ctxpipe/chat/conv_1/1",
       prNumber: 41,
       pullUrl: "https://github.com/acme/docs/pull/41",
+      prState: "open",
     })
-    expect(createPullRequestWithFilesMock).toHaveBeenCalledWith(
+    expect(createPullRequestFromBranchMock).toHaveBeenCalledWith(
       expect.objectContaining({
-        branch: "ctxpipe/chat/conv_1/3",
-        files: [{ path: "knowledge/a.md", content: "hello" }],
-        deletePaths: ["knowledge/gone.md"],
-        requireNewBranch: true,
+        branch: "ctxpipe/chat/conv_1/1",
+        title: "Chat changes",
       }),
     )
-    expect(createPullRequestWithFilesMock).not.toHaveBeenCalledWith(
-      expect.objectContaining({
-        files: [{ path: "client.md", content: "ignored" }],
-      }),
-    )
-    expect(persistConversationLastBranchMock).toHaveBeenCalledWith({
+    expect(persistConversationLastChatPrNumberMock).toHaveBeenCalledWith({
       conversationId: "conv_1",
-      lastBranch: "ctxpipe/chat/conv_1/3",
+      lastChatPrNumber: 41,
+      lastBranch: "ctxpipe/chat/conv_1/1",
     })
-    expect(persistConversationLastChatPrNumberMock).not.toHaveBeenCalled()
   })
 
   it("streams a second turn without a custom claim lock", async () => {
@@ -520,7 +534,7 @@ describe("conversations API", () => {
 
   it("refuses a PR when the chat sandbox is gone", async () => {
     getConversationMock.mockResolvedValue(conversationRow)
-    getRegisteredChatSandboxMock.mockReturnValue(null)
+    resolveConversationSandboxHandleMock.mockReturnValue(null)
     const res = await app().request("/conversations/conv_1/pull-request", {
       method: "POST",
       headers: { "content-type": "application/json" },
@@ -528,7 +542,7 @@ describe("conversations API", () => {
     })
     expect(res.status).toBe(409)
     expect(await res.json()).toEqual({ error: "missing_sandbox" })
-    expect(createPullRequestWithFilesMock).not.toHaveBeenCalled()
+    expect(createPullRequestFromBranchMock).not.toHaveBeenCalled()
   })
 
   it("refuses a PR when captured sandbox metadata is stale", async () => {
@@ -547,6 +561,6 @@ describe("conversations API", () => {
     })
     expect(res.status).toBe(400)
     expect(await res.json()).toEqual({ error: "stale_url" })
-    expect(collectChatPullRequestTreeMock).not.toHaveBeenCalled()
+    expect(createPullRequestFromBranchMock).not.toHaveBeenCalled()
   })
 })

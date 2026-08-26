@@ -30,11 +30,18 @@ export type PageInfo = {
   endCursor: string | null
 }
 
+export type ConversationPrState = "open" | "closed" | "merged"
+
 export type ConversationListItem = {
   id: string
   name: string
   source: string | null
   lastMessageAt: string | null
+  lastBranch?: string | null
+  lastChatPrNumber?: number | null
+  lastChatPrUrl?: string | null
+  prState?: ConversationPrState | null
+  branchTreeUrl?: string | null
 }
 
 export type ConversationDetail = {

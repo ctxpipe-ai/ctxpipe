@@ -17,7 +17,7 @@ A locked spec for ctxpipe as a **job engine over Context Workspaces**: an organi
 - **Vocabulary (2026-08-15):** [glossary](../../memory/glossary.md). **Workspace** (was Project / `proj_`). **Workspace repository** (was backing). **Linked repository** (was attached). **Job** = background write to the workspace repository. **Projection** = derived retrieval state. **Hydrate** refreshes the projection and does not edit git.
 - **Chat runtime (locked):** Client workspace chat is TanStack AI `chat()` + `withSandbox(defineSandbox(…))` + `opencodeText`. Isolation is a TanStack sandbox provider. Do **not** spawn `opencode serve`, `docker run` OpenCode, or host git worktrees as the chat isolation mechanism. See [Chat uses TanStack sandbox, not DIY OpenCode](issues/17-tanstack-sandbox-not-diy-opencode.md) and [Backend, codesearch, and sandbox-runner topology](issues/08-backend-codesearch-sandbox-topology.md). **Ops** is a **job** on the Workspace **job sandbox** — [Ingest-to-git write and concurrency protocol](issues/10-ingest-to-git-write-protocol.md). Chat may open a brokered branch+PR; only jobs push the default branch — [Worktree and agent-change lifecycle](issues/14-worktree-and-agent-change-lifecycle.md).
 - **Sandbox topology (locked):** backend ≠ codesearch (ADR-008). `SANDBOX_PROVIDER` locks a provider (fail closed); unset auto-detects `sbx` → Docker/DinD → unsandboxed `localProcessSandbox`. Compose template: DinD sidecar + `docker`. Railway: custom SandboxProvider + lock `railway`. CDK Fargate v1: unsandboxed. Chat workspace = shallow clone of the **workspace repository**; workspace-level snapshot/fork is application-owned; `gh` is read-only on that Workspace’s GitHub remotes for one installation.
-- **Writes vs editor UI:** a file-edit / diff *panel* is later. Agent writes live in the **TanStack sandbox working tree** (container clone), not a host git worktree. Disposition is locked on [Worktree and agent-change lifecycle](issues/14-worktree-and-agent-change-lifecycle.md): jobs push default; chat may only broker a branch+PR.
+- **Writes vs editor UI:** conversation Files persist on the chat sandbox; Commit+Push / Create PR are the explicit GitHub publish. Compose Files stay codesearch browse. Agent writes live in the **TanStack sandbox working tree** (container clone), not a host git worktree. Disposition is locked on [Worktree and agent-change lifecycle](issues/14-worktree-and-agent-change-lifecycle.md): jobs push default; chat may only broker a session branch + PR.
 - **Default branch** (never silent `main`) and the rest of the write protocol are locked on [Ingest-to-git write and concurrency protocol](issues/10-ingest-to-git-write-protocol.md).
 - **Existing ADRs to reopen explicitly if contradicted:** [ADR-008](../../memory/decisions/ADR-008-codesearch-zoekt-orchestration.md) (separate codesearch), [ADR-018](../../memory/decisions/ADR-018-unified-connections-table.md), [ADR-022](../../memory/decisions/ADR-022-linear-connector-git-native-mirror.md) / [ADR-023](../../memory/decisions/ADR-023-notion-connector-git-native-mirror.md) (git-native connector mirrors already exist; this effort extends git-canonical knowledge to *extracted* content).
 - **Language collisions to kill on sight:** product **Workspace** vs FalkorDB verb `project()` vs Linear **Project** vs prompt field `currentWorkspaceName`. Product **projection** (retrieval index) vs that `project()` verb. **Linked** repository (codesearch) vs “sub project” (not an aggregate). Retired: Project, backing, attached. Resolved terms go in `.ai/memory/glossary.md`.
@@ -48,12 +48,12 @@ A locked spec for ctxpipe as a **job engine over Context Workspaces**: an organi
 ## Not yet specified
 
 - Fine-grained MCP tools that replace deprecated `ctx_advisor` (shim is locked on [Workspace chat, conversation state, and sandbox security](issues/13-project-chat-and-sandbox-security.md)).
-- Production file-editor and diff-panel interaction (the *UI* for editing files — not whether agent writes must have a disposition).
+- Multi-PR `/n` session branches (conversation file-edit uses `/1`).
 
 ## Out of scope
 
 - Implementing the destination in this wayfinder effort — the map stops at a locked spec.
-- Building the production file-edit and diff-of-current-changes panels.
+- Host worktrees and auto-push of conversation sandboxes.
 - Manual per-tenant migrations — upgrade work is an OpenWorkflow job queued at version start, as with the SCIP migration.
 - Keeping top-level Chat and Knowledge graph as primary nav destinations — they move onto the workspace page.
 - The current UI/MCP conversation-source selector — it goes away.

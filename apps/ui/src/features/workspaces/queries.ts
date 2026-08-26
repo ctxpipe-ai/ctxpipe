@@ -2,7 +2,13 @@ import { queryOptions } from "@tanstack/react-query"
 import type { ConversationDetail } from "@/features/chat/types"
 import { getApiClient } from "@/lib/api"
 import { pollWhileOk, readApiJson } from "@/lib/api-result"
+import { destinationAfterMove } from "./fileTreeMutations"
 import type {
+  ConversationFileMutation,
+  ConversationGitDiffResponse,
+  ConversationGitStatusResponse,
+  ConversationPullRequestResponse,
+  ConversationPushResponse,
   Workspace,
   WorkspaceActivityResponse,
   WorkspaceDetail,
@@ -41,6 +47,19 @@ export const workspaceKeys = {
     ["workspace-chat-prepare", orgSlug, conversationId, workspaceId] as const,
   activity: (orgSlug: string, workspaceSlug: string) =>
     ["workspace-activity", orgSlug, workspaceSlug] as const,
+  conversationGitTree: (orgSlug: string, conversationId: string) =>
+    ["conversation-git-tree", orgSlug, conversationId] as const,
+  conversationGitBlob: (
+    orgSlug: string,
+    conversationId: string,
+    path: string,
+  ) => ["conversation-git-blob", orgSlug, conversationId, path] as const,
+  conversationGitStatus: (orgSlug: string, conversationId: string) =>
+    ["conversation-git-status", orgSlug, conversationId] as const,
+  conversationGitDiff: (orgSlug: string, conversationId: string) =>
+    ["conversation-git-diff", orgSlug, conversationId] as const,
+  conversationPullRequest: (orgSlug: string, conversationId: string) =>
+    ["conversation-pull-request", orgSlug, conversationId] as const,
 }
 
 export async function fetchWorkspaces(
@@ -71,6 +90,19 @@ export async function fetchConversation(
     emptyOn: [404],
     empty: null,
     message: "Failed to load conversation",
+  })
+}
+
+export function workspaceChatPrepareOptions(
+  orgSlug: string,
+  conversationId: string,
+  workspaceId: string,
+) {
+  return queryOptions({
+    queryKey: workspaceKeys.chatPrepare(orgSlug, conversationId, workspaceId),
+    queryFn: () => prepareWorkspaceChat(orgSlug, conversationId, workspaceId),
+    staleTime: Number.POSITIVE_INFINITY,
+    retry: false,
   })
 }
 
@@ -301,6 +333,224 @@ export function workspaceActivityOptions(
     queryFn: () => fetchWorkspaceActivity(orgSlug, workspaceSlug),
     refetchInterval: (query) =>
       query.state.data?.status === "pending" ? pollWhileOk(2000)(query) : false,
+  })
+}
+
+export async function fetchConversationGitTree(
+  orgSlug: string,
+  conversationId: string,
+): Promise<WorkspaceGitTreeResponse & { branch: string }> {
+  const client = await getApiClient()
+  const res = await client[":orgSlug"].api.v1.conversations[
+    ":conversationId"
+  ].files.tree.$get({
+    param: { orgSlug, conversationId },
+  })
+  return readApiJson(res, { message: "Failed to load conversation files" })
+}
+
+export async function fetchConversationGitBlob(
+  orgSlug: string,
+  conversationId: string,
+  path: string,
+): Promise<WorkspaceGitBlobResponse> {
+  const client = await getApiClient()
+  const res = await client[":orgSlug"].api.v1.conversations[
+    ":conversationId"
+  ].files.blob.$get({
+    param: { orgSlug, conversationId },
+    query: { path },
+  })
+  return readApiJson(res, {
+    emptyOn: [404],
+    empty: { path, body: null, binary: false },
+    message: "Failed to load conversation file",
+  })
+}
+
+export async function fetchConversationGitStatus(
+  orgSlug: string,
+  conversationId: string,
+): Promise<ConversationGitStatusResponse> {
+  const client = await getApiClient()
+  const res = await client[":orgSlug"].api.v1.conversations[
+    ":conversationId"
+  ].files.status.$get({
+    param: { orgSlug, conversationId },
+  })
+  return readApiJson(res, { message: "Failed to load conversation git status" })
+}
+
+export async function fetchConversationGitDiff(
+  orgSlug: string,
+  conversationId: string,
+): Promise<ConversationGitDiffResponse> {
+  const client = await getApiClient()
+  const res = await client[":orgSlug"].api.v1.conversations[
+    ":conversationId"
+  ].files.diff.$get({
+    param: { orgSlug, conversationId },
+  })
+  return readApiJson(res, { message: "Failed to load conversation diff" })
+}
+
+export async function putConversationFile(
+  orgSlug: string,
+  conversationId: string,
+  input: ConversationFileMutation,
+): Promise<WorkspaceGitBlobResponse> {
+  const client = await getApiClient()
+  const res = await client[":orgSlug"].api.v1.conversations[
+    ":conversationId"
+  ].files.blob.$put({
+    param: { orgSlug, conversationId },
+    json: input,
+  })
+  return readApiJson(res, { message: "Failed to save conversation file" })
+}
+
+export async function persistConversationFileMutation(
+  orgSlug: string,
+  conversationId: string,
+  input: WorkspaceFileJobRequest,
+): Promise<void> {
+  if (input.op === "save") {
+    await putConversationFile(orgSlug, conversationId, {
+      path: input.path,
+      body: input.content,
+    })
+    return
+  }
+  if (input.op === "create") {
+    const path =
+      input.kind === "folder" ? `${input.path}/.gitkeep` : input.path
+    await putConversationFile(orgSlug, conversationId, {
+      path,
+      body: input.content ?? "",
+    })
+    return
+  }
+  if (input.op === "delete") {
+    await putConversationFile(orgSlug, conversationId, {
+      path: input.path,
+      deletePath: true,
+    })
+    return
+  }
+  if (input.op === "rename") {
+    await putConversationFile(orgSlug, conversationId, {
+      path: input.to,
+      from: input.from,
+    })
+    return
+  }
+  const to = destinationAfterMove(input.from, input.toDirectory)
+  if (!to) throw new Error("Invalid move destination")
+  await putConversationFile(orgSlug, conversationId, {
+    path: to,
+    from: input.from,
+  })
+}
+
+export async function pushConversationBranch(
+  orgSlug: string,
+  conversationId: string,
+): Promise<ConversationPushResponse> {
+  const client = await getApiClient()
+  const res = await client[":orgSlug"].api.v1.conversations[
+    ":conversationId"
+  ].push.$post({
+    param: { orgSlug, conversationId },
+  })
+  return readApiJson(res, { message: "Failed to push conversation branch" })
+}
+
+export async function fetchConversationPullRequest(
+  orgSlug: string,
+  conversationId: string,
+): Promise<ConversationPullRequestResponse | null> {
+  const client = await getApiClient()
+  const res = await client[":orgSlug"].api.v1.conversations[
+    ":conversationId"
+  ]["pull-request"].$get({
+    param: { orgSlug, conversationId },
+  })
+  return readApiJson(res, {
+    emptyOn: [404],
+    empty: null,
+    message: "Failed to load pull request",
+  })
+}
+
+export async function createConversationPullRequest(
+  orgSlug: string,
+  conversationId: string,
+  input?: { title?: string; body?: string },
+): Promise<ConversationPullRequestResponse> {
+  const client = await getApiClient()
+  const res = await client[":orgSlug"].api.v1.conversations[
+    ":conversationId"
+  ]["pull-request"].$post({
+    param: { orgSlug, conversationId },
+    json: input ?? {},
+  })
+  return readApiJson(res, { message: "Failed to create pull request" })
+}
+
+export function conversationGitTreeOptions(
+  orgSlug: string,
+  conversationId: string,
+) {
+  return queryOptions({
+    queryKey: workspaceKeys.conversationGitTree(orgSlug, conversationId),
+    queryFn: () => fetchConversationGitTree(orgSlug, conversationId),
+    retry: false,
+  })
+}
+
+export function conversationGitBlobOptions(
+  orgSlug: string,
+  conversationId: string,
+  path: string,
+) {
+  return queryOptions({
+    queryKey: workspaceKeys.conversationGitBlob(orgSlug, conversationId, path),
+    queryFn: () => fetchConversationGitBlob(orgSlug, conversationId, path),
+  })
+}
+
+export function conversationGitStatusOptions(
+  orgSlug: string,
+  conversationId: string,
+) {
+  return queryOptions({
+    queryKey: workspaceKeys.conversationGitStatus(orgSlug, conversationId),
+    queryFn: () => fetchConversationGitStatus(orgSlug, conversationId),
+    retry: false,
+  })
+}
+
+export function conversationGitDiffOptions(
+  orgSlug: string,
+  conversationId: string,
+) {
+  return queryOptions({
+    queryKey: workspaceKeys.conversationGitDiff(orgSlug, conversationId),
+    queryFn: () => fetchConversationGitDiff(orgSlug, conversationId),
+    retry: false,
+  })
+}
+
+export function conversationPullRequestOptions(
+  orgSlug: string,
+  conversationId: string,
+  enabled: boolean,
+) {
+  return queryOptions({
+    queryKey: workspaceKeys.conversationPullRequest(orgSlug, conversationId),
+    queryFn: () => fetchConversationPullRequest(orgSlug, conversationId),
+    enabled,
+    retry: false,
   })
 }
 

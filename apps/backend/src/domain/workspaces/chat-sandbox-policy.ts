@@ -9,6 +9,8 @@ export const CHAT_HARD_DENY_REASONS = [
   "auth_secret",
   "contents_write",
   "commit_push",
+  "read_only_write",
+  "default_branch_commit",
   "cloud_metadata",
   "host_not_allowlisted",
   "printenv",
@@ -57,17 +59,35 @@ export function isMcpOriginConversation(
   return origin === "mcp"
 }
 
+export function workspaceAllowsConversationEdits(writeStatus: string): boolean {
+  return writeStatus === "writable"
+}
+
+function excerptLooksLikePush(name: string, excerpt: string): boolean {
+  return (
+    name.includes("git_push") ||
+    name === "push" ||
+    excerpt.includes("git push")
+  )
+}
+
+function excerptLooksLikeCommit(name: string, excerpt: string): boolean {
+  return name.includes("commit") || excerpt.includes("git commit")
+}
+
 export function classifyChatToolRequest(input: {
   toolName: string
   argsExcerpt?: string
   writeStatus: string
+  currentBranch?: string | null
+  defaultBranch?: string | null
 }): {
   hardDeny: ChatHardDenyReason | null
   acceptEditsWouldAllow: boolean
 } {
-  void input.writeStatus
   const name = input.toolName.toLowerCase()
   const excerpt = (input.argsExcerpt ?? "").toLowerCase()
+  const canEdit = workspaceAllowsConversationEdits(input.writeStatus)
   if (
     name.includes("app_pem") ||
     excerpt.includes("app.pem") ||
@@ -101,14 +121,22 @@ export function classifyChatToolRequest(input: {
   ) {
     return { hardDeny: "cloud_metadata", acceptEditsWouldAllow: false }
   }
-  if (
-    name.includes("commit") ||
-    name.includes("git_push") ||
-    name === "push" ||
-    excerpt.includes("git push") ||
-    excerpt.includes("git commit")
-  ) {
+  if (excerptLooksLikePush(name, excerpt)) {
     return { hardDeny: "commit_push", acceptEditsWouldAllow: false }
+  }
+  if (excerptLooksLikeCommit(name, excerpt)) {
+    if (!canEdit) {
+      return { hardDeny: "read_only_write", acceptEditsWouldAllow: false }
+    }
+    const branch = input.currentBranch?.trim() ?? ""
+    const defaultBranch = input.defaultBranch?.trim() ?? ""
+    if (
+      !branch.startsWith("ctxpipe/chat/") ||
+      (defaultBranch && branch === defaultBranch)
+    ) {
+      return { hardDeny: "default_branch_commit", acceptEditsWouldAllow: false }
+    }
+    return { hardDeny: null, acceptEditsWouldAllow: true }
   }
   if (name.includes("contents_write") || excerpt.includes("contents:write")) {
     return { hardDeny: "contents_write", acceptEditsWouldAllow: false }
@@ -124,6 +152,9 @@ export function classifyChatToolRequest(input: {
     name.includes("write") ||
     name.includes("apply_patch")
   ) {
+    if (!canEdit) {
+      return { hardDeny: "read_only_write", acceptEditsWouldAllow: false }
+    }
     return { hardDeny: null, acceptEditsWouldAllow: true }
   }
   if (isReadOnlySandboxTool(name, excerpt)) {
@@ -183,6 +214,8 @@ function isReadOnlySandboxTool(name: string, excerpt: string): boolean {
 
 export function createWorkspaceChatPermissionHandler(input: {
   writeStatus: string
+  currentBranch?: string | null
+  defaultBranch?: string | null
   judge?: (
     toolName: string,
     argsExcerpt: string,
@@ -197,6 +230,8 @@ export function createWorkspaceChatPermissionHandler(input: {
       toolName,
       argsExcerpt,
       writeStatus: input.writeStatus,
+      currentBranch: input.currentBranch,
+      defaultBranch: input.defaultBranch,
     })
     if (classified.hardDeny) return "reject"
     if (classified.acceptEditsWouldAllow) return "once"
@@ -213,6 +248,8 @@ export function decideChatToolPermission(input: {
   toolName: string
   argsExcerpt?: string
   writeStatus: string
+  currentBranch?: string | null
+  defaultBranch?: string | null
   judge?: "allow" | "deny" | "timeout" | "garbage"
 }): "allow" | "deny" {
   const classified = classifyChatToolRequest(input)

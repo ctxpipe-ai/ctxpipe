@@ -3,6 +3,13 @@ import { useNavigate, useSearch } from "@tanstack/react-router"
 import { type ComponentProps, useState } from "react"
 import { fn } from "storybook/test"
 import {
+  conversationFilePutHandler,
+  conversationGitBlobHandler,
+  conversationGitDiffHandler,
+  conversationGitStatusHandler,
+  conversationGitTreeHandler,
+  conversationGitTreeMissingHandler,
+  conversationPrepareHandler,
   workspaceFileJobHandler,
   workspaceGitBlobHandler,
   workspaceGitBlobLoadingHandler,
@@ -416,6 +423,85 @@ export const Maximized: Story = {
     msw: {
       handlers: {
         page: gitFilesHandlers,
+      },
+    },
+  },
+}
+
+const conversationFileHandlers = [
+  conversationPrepareHandler(),
+  conversationGitTreeHandler(),
+  conversationGitBlobHandler(),
+  conversationGitStatusHandler(),
+  conversationGitDiffHandler(),
+  conversationFilePutHandler(),
+  ...gitFilesHandlers,
+]
+
+export const ConversationWritable: Story = {
+  args: {
+    conversationId: "conv_1",
+    pane: { kind: "file", path: ledgerPath },
+    fileTabs: [ledgerPath],
+    previewPath: ledgerPath,
+  },
+  parameters: {
+    storyRoute: {
+      pattern: "orgWorkspace",
+      orgSlug: "acme",
+      workspaceSlug: "docs",
+      conversationId: "conv_1",
+      pane: serializePane({ kind: "file", path: ledgerPath }),
+    } satisfies StoryRouteParams,
+    msw: {
+      handlers: {
+        page: conversationFileHandlers,
+      },
+    },
+  },
+}
+
+export const DiffTab: Story = {
+  args: {
+    conversationId: "conv_1",
+    pane: { kind: "diff" },
+  },
+  parameters: {
+    storyRoute: {
+      pattern: "orgWorkspace",
+      orgSlug: "acme",
+      workspaceSlug: "docs",
+      conversationId: "conv_1",
+      pane: "diff",
+    } satisfies StoryRouteParams,
+    msw: {
+      handlers: {
+        page: conversationFileHandlers,
+      },
+    },
+  },
+}
+
+export const SandboxLoadingFallback: Story = {
+  args: {
+    conversationId: "conv_1",
+    pane: { kind: "files" },
+  },
+  parameters: {
+    storyRoute: {
+      pattern: "orgWorkspace",
+      orgSlug: "acme",
+      workspaceSlug: "docs",
+      conversationId: "conv_1",
+      pane: "files",
+    } satisfies StoryRouteParams,
+    msw: {
+      handlers: {
+        page: [
+          conversationPrepareHandler(),
+          conversationGitTreeMissingHandler(),
+          ...gitFilesHandlers,
+        ],
       },
     },
   },

@@ -58,6 +58,12 @@ export function memoizedConversationSandbox<T>(input: {
   return { definition, handle }
 }
 
+export function memoizedConversationSandboxHandle(
+  conversationId: string,
+): TanstackLikeHandle | null {
+  return definitions.get(conversationId)?.handle.current ?? null
+}
+
 export function forgetConversationSandboxDefinition(
   conversationId: string,
 ): void {

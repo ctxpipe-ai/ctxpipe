@@ -248,7 +248,11 @@ async function* streamTanstackWorkspaceChatBody(
   }, CHAT_HEARTBEAT_INTERVAL_MS)
 
   const startedAt = Date.now()
-  const runtime = workspaceChatRuntimeConfig({ writeStatus: turn.writeStatus })
+  const runtime = workspaceChatRuntimeConfig({
+    writeStatus: turn.writeStatus,
+    currentBranch: turn.ref,
+    defaultBranch: turn.defaultBranch,
+  })
   const recordChatAttempt = (error?: unknown) => {
     const fields = opencodeChatStreamEvent({
       conversationId: turn.conversationId,
@@ -440,7 +444,11 @@ async function startWorkspaceChat(input: TanstackWorkspaceChatInput): Promise<
 > {
   const built = await buildWorkspaceChatSandbox(input)
   if (!built.ok) return built
-  const runtime = workspaceChatRuntimeConfig({ writeStatus: input.writeStatus })
+  const runtime = workspaceChatRuntimeConfig({
+    writeStatus: input.writeStatus,
+    currentBranch: input.ref,
+    defaultBranch: input.defaultBranch,
+  })
   const session = await resolveWorkspaceChatSession(input, built.spec.isolation)
   if (!session.ok) return session
   const portLease =
@@ -593,7 +601,11 @@ async function buildWorkspaceChatSandbox(input: TanstackWorkspaceChatInput) {
       error: "workspace_required",
     }
   }
-  const runtime = workspaceChatRuntimeConfig({ writeStatus: input.writeStatus })
+  const runtime = workspaceChatRuntimeConfig({
+    writeStatus: input.writeStatus,
+    currentBranch: input.ref,
+    defaultBranch: input.defaultBranch,
+  })
   const contract = workspaceChatOpenCodeContract(process.env)
   if (!contract.ok) {
     return {

@@ -118,6 +118,20 @@ describe("createWorkspaceChatPermissionHandler", () => {
         title: "git commit -am leaked",
       }),
     ).resolves.toBe("reject")
+    const onSession = createWorkspaceChatPermissionHandler({
+      writeStatus: "writable",
+      currentBranch: "ctxpipe/chat/conv_1/1",
+      defaultBranch: "main",
+      judge,
+    })
+    await expect(
+      onSession({
+        id: "perm_commit_ok",
+        sessionID: "sess_1",
+        type: "bash",
+        title: "git commit -am save",
+      }),
+    ).resolves.toBe("once")
     await expect(
       handler({
         id: "perm_4",
@@ -165,11 +179,13 @@ describe("read-only sandbox tools skip the judge", () => {
 })
 
 describe("decideChatToolPermission", () => {
-  it("hard-denies commit/push even when the judge would allow", () => {
+  it("hard-denies push and read-only writes; allows commit on the session branch", () => {
     expect(
       decideChatToolPermission({
         toolName: "git_push",
         writeStatus: "writable",
+        currentBranch: "ctxpipe/chat/conv_1/1",
+        defaultBranch: "main",
         judge: "allow",
       }),
     ).toBe("deny")
@@ -185,7 +201,25 @@ describe("decideChatToolPermission", () => {
         toolName: "apply_patch",
         writeStatus: "read_only",
       }),
+    ).toBe("deny")
+    expect(
+      decideChatToolPermission({
+        toolName: "bash",
+        argsExcerpt: "git commit -am save",
+        writeStatus: "writable",
+        currentBranch: "ctxpipe/chat/conv_1/1",
+        defaultBranch: "main",
+      }),
     ).toBe("allow")
+    expect(
+      decideChatToolPermission({
+        toolName: "bash",
+        argsExcerpt: "git commit -am save",
+        writeStatus: "writable",
+        currentBranch: "main",
+        defaultBranch: "main",
+      }),
+    ).toBe("deny")
   })
 })
 
