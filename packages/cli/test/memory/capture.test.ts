@@ -588,6 +588,9 @@ describe("memory/capture", () => {
     const first = summarizeCapture({ cwd, host: "cursor" })
     expect(first.priority).not.toBe("low")
     expect(first.candidates.length).toBeGreaterThan(0)
+    expect(first.message).toContain(
+      "Reply to the user with one short sentence naming only what was learned; if nothing was promoted, say nothing about memory.",
+    )
     expect(
       formatStopHookOutput("cursor", first, {}).followup_message,
     ).toBeTruthy()
@@ -620,6 +623,9 @@ describe("memory/capture", () => {
 
     const followUpPrompt = String(injected.followup_message)
     expect(followUpPrompt).toContain("Memory candidates (")
+    expect(followUpPrompt).toContain(
+      "one short sentence naming only what was learned",
+    )
     expect(
       observeCapture({
         host: "cursor",

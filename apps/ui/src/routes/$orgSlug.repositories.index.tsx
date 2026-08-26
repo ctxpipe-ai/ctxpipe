@@ -27,6 +27,7 @@ import {
 } from "@/features/repositories/gitSourcesFilter"
 import { buildGitSourceListRows } from "@/features/repositories/gitSourcesListRows"
 import { derivePendingGithubRepos } from "@/features/repositories/pendingGithubRepos"
+import { getRepositoryIndexingSummary } from "@/features/repositories/useRepositoryIndexingSummary"
 import { client } from "@/lib/api"
 import { useSession } from "@/lib/auth-client"
 
@@ -121,27 +122,6 @@ export function RepositoriesPageContent({ orgSlug }: { orgSlug: string }) {
     queryFn: () => fetchGithubInstallationSummary(orgSlug),
   })
 
-  const { data, isPending, error, isRefetchError } = useQuery({
-    queryKey: ["repositories", orgSlug],
-    queryFn: async () => {
-      const res = await client[":orgSlug"].api.v1.repositories.$get({
-        param: { orgSlug },
-      })
-      if (!res.ok) throw new Error("Failed to fetch repositories")
-      const json = (await res.json()) as { items: Repository[] }
-      return json.items
-    },
-    refetchInterval: (query) => {
-      const items = (query.state.data as Repository[] | undefined) ?? []
-      const reposWithBackgrounJobs = items.some((repo) => {
-        const status = repo.indexingStatus
-        return (
-          status === "queued" || status === "running" || status === "unindexing"
-        )
-      })
-      return reposWithBackgrounJobs ? 3000 : false
-    },
-  })
   const { data: githubPreview } = useQuery({
     queryKey: ["github-installation-repos-preview", orgSlug],
     queryFn: async () => {
@@ -196,6 +176,38 @@ export function RepositoriesPageContent({ orgSlug }: { orgSlug: string }) {
       return (await res.json()) as GitHubSetupData
     },
     enabled: !!installation,
+  })
+  const { data, isPending, error, isRefetchError } = useQuery({
+    queryKey: ["repositories", orgSlug],
+    queryFn: async () => {
+      const res = await client[":orgSlug"].api.v1.repositories.$get({
+        param: { orgSlug },
+      })
+      if (!res.ok) throw new Error("Failed to fetch repositories")
+      const json = (await res.json()) as { items: Repository[] }
+      return json.items
+    },
+    refetchInterval: (query) => {
+      const items = (query.state.data as Repository[] | undefined) ?? []
+      const reposWithBackgroundJobs = items.some((repo) => {
+        const status = repo.indexingStatus
+        return (
+          status === "queued" || status === "running" || status === "unindexing"
+        )
+      })
+      const existingGitUrls = new Set(items.map((repo) => repo.gitUrl))
+      const pending = derivePendingGithubRepos({
+        connectedGithubRepos: githubPreview?.repositories ?? [],
+        savedSetupRepos: githubSetupData?.savedRepositories ?? [],
+        existingGitUrls,
+        setupData: githubSetupData,
+        setupPending: Boolean(installation) && githubSetupPending,
+      })
+      const hasPendingRepositories =
+        pending.pendingConnectedGithubRepos.length > 0 ||
+        pending.pendingSavedSetupRepos.length > 0
+      return reposWithBackgroundJobs || hasPendingRepositories ? 3000 : false
+    },
   })
 
   const createMutation = useMutation({
@@ -348,6 +360,7 @@ export function RepositoriesPageContent({ orgSlug }: { orgSlug: string }) {
   const pendingCount =
     pendingConnectedGithubRepos.length + pendingSavedSetupRepos.length
   const hasPendingGithubRepos = pendingCount > 0
+  const indexingSummary = getRepositoryIndexingSummary(repos)
 
   const filteredRepos = useMemo(
     () =>
@@ -570,6 +583,21 @@ export function RepositoriesPageContent({ orgSlug }: { orgSlug: string }) {
                     </Button>
                   ))}
                 </div>
+                {indexingSummary.activeCount > 0 ? (
+                  <p className="font-mono text-xs text-muted-foreground tabular-nums">
+                    {indexingSummary.runningCount > 0
+                      ? `${indexingSummary.runningCount} indexing`
+                      : null}
+                    {indexingSummary.runningCount > 0 &&
+                    indexingSummary.queuedCount > 0
+                      ? " · "
+                      : null}
+                    {indexingSummary.queuedCount > 0
+                      ? `${indexingSummary.queuedCount} queued`
+                      : null}
+                    {" · continues in the background"}
+                  </p>
+                ) : null}
               </div>
             ) : null}
 

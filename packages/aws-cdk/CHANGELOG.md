@@ -1,5 +1,18 @@
 # @ctxpipe/aws-cdk
 
+## 3.1.3
+
+### Patch Changes
+
+- d93a844: Pass Notion connector credentials to the self-hosted backend and worker services.
+
+## 3.1.2
+
+### Patch Changes
+
+- 049e626: Add GitHub repository sorting and distinguish queued repositories from active indexing.
+- 2456609: Ship explicit Slack app-mention permissions, installation diagnostics, and safe OAuth failure handling for hosted and self-hosted connectors.
+
 ## 3.1.1
 
 ### Patch Changes

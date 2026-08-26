@@ -155,7 +155,7 @@ cdk deploy
 
 `cdk deploy` runs Postgres migrations, then rolls the ECS services. You do not set image tags in `CtxPipe` props, and you should not retag tasks to `:latest` yourself.
 
-This is how codesearch memory bumps (4 / 8 / 12 GiB) and ingest behaviour land together. Updating only container images, or only task memory, leaves the stack split across releases.
+This is how codesearch memory bumps (4 / 8 / 12 GiB) and ingest behavior land together. Updating only container images, or only task memory, leaves the stack split across releases.
 
 ### Bonus: automate upgrades with CI/CD
 

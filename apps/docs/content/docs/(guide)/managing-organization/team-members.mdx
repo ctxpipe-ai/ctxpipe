@@ -13,14 +13,12 @@ Each member has exactly one role per organization:
 | **admin** | Manage members, repositories, and settings. |
 | **member** | Work with repositories and conversations within the org. |
 
-Roles are stored in the `members` table and enforced by the backend on org-scoped
-routes and MCP calls.
+Roles are enforced across organization pages and MCP access.
 
 ## Inviting by email
 
-From the dashboard (**Settings → Members**), send an invitation. That creates a
-pending **invitation** record; the invitee receives an email with an accept link
-(`/.auth/accept-invitation?invitationId=...` on your deployment).
+From the dashboard (**Settings → Members**), send an invitation. The invitee
+receives an email with an accept link.
 
 - If the invitee **already has an account**, accepting attaches them to the org
   with the invited role.
@@ -29,18 +27,9 @@ pending **invitation** record; the invitee receives an email with an accept link
 
 ## Switching organizations
 
-Users in multiple orgs switch via the **org switcher** in the UI (URL slug
-changes). The session also stores `activeOrganizationId` for flows that do not
-carry a slug.
-
-To set the active org via API:
-
-```http
-POST /.auth/api/v1/auth/organization/set-active
-Content-Type: application/json
-
-{ "organizationId": "org_..." }
-```
+Users in multiple organizations switch with the organization switcher. The URL
+updates so it is always clear which organization owns the current repository,
+conversation, connector, or graph context.
 
 ## MCP and membership
 

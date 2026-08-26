@@ -15,17 +15,17 @@ same OAuth credentials to refresh tokens during sync.
 - A ctx| GitHub App connection with write access to a destination repository.
 - The backend and worker able to reach `api.linear.app` over HTTPS.
 
-## Connector state model
+## Connector state and backups
 
-The connector keeps its control plane intentionally thin:
+Linear scope remains reviewable in Git:
 
 - Draft scope is `linear/config.yaml` on the generated configuration pull
   request branch.
 - Live scope is the same YAML on the configured target branch after merge.
-- The repository binding and setup phase live in the Linear connection's
-  `connections.config`.
-- Signed Linear webhooks enqueue OpenWorkflow entity-sync runs directly,
-  without a Linear-specific staging table.
+- The deployment stores encrypted credentials, repository binding, and setup
+  status.
+- Signed Linear events update in-scope generated files through durable worker
+  jobs.
 
 Back up PostgreSQL for connection credentials and binding state, and back up the
 target Git repository for both scope and mirrored content. PostgreSQL contains
@@ -49,10 +49,8 @@ Linear supports multiple registered redirect URIs. Add local, staging, or
 preview callbacks individually when those environments must run OAuth. The
 scheme, host, path, and trailing slash must match the URI sent by ctx|.
 
-For host development, the normal callback is
-`https://app.ctxpipe.localhost/api/v1/integrations/linear/callback`. Linear
-cannot deliver webhooks to localhost; incremental sync requires a public HTTPS
-tunnel or a deployed test environment.
+Linear cannot deliver webhooks to a private localhost address. End-to-end
+connector testing requires a public HTTPS deployment or tunnel.
 
 ## 2. Configure application webhooks
 
@@ -69,8 +67,8 @@ customer needs, and OAuth authorization events.
 
 Copy the webhook signing secret from Linear. ctx| verifies the
 `Linear-Signature` HMAC against the raw request body and rejects stale
-timestamps. Accepted in-scope events enqueue an OpenWorkflow run before the
-endpoint acknowledges delivery.
+timestamps. Accepted in-scope events start a durable update before the endpoint
+acknowledges delivery.
 
 <Callout title="One webhook URL per Linear application">
   A Linear application has one webhook destination. You can register several

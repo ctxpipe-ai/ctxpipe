@@ -11,9 +11,9 @@ Do not install marketing `frontend-design` on this surface. Do not invent a pale
 
 ## 1. Read identity
 
-Open [`apps/ui/DESIGN.md`](../../../apps/ui/DESIGN.md). Apply it on **new or touched** UI. Existing `rounded-none` overrides stay until a later pass — do not add more of them.
+Open [`apps/ui/DESIGN.md`](../../../apps/ui/DESIGN.md). Apply it on **new or touched** UI.
 
-**Done when:** you can name the radius (`rounded-lg`), primary (white/light), accent (teal), title scale (`text-lg` / `text-xl` on product screens), and which brand signatures you will reuse (crosses, `.ctx-label`, status pill + text, quiet glow).
+**Done when:** you can name the corner treatment (`rounded-none`), primary (white/light), accent (teal), title scale (`text-lg` / `text-xl` on product screens), and which brand signatures you will reuse (crosses, `.ctx-label`, status pill + text, quiet glow).
 
 ## 2. Feature, not shell
 
@@ -68,14 +68,14 @@ Error: [`InlineAlert`](../../../apps/ui/src/components/ui/InlineAlert.tsx) + a n
 ## 7. Build
 
 - Primitives from `src/components/ui/*`. Do not invent a new Button or checkbox.
-- New chrome: `rounded-lg` / `--radius`. Do not add `rounded-none`.
+- Product chrome: `rounded-none`.
 - Icons: `@tabler/icons-react` at ~16–20px, `text-muted-foreground`, `aria-hidden`. Lucide only if Tabler has no equivalent. Enclose in `.ctx-node` if the hit area must be large.
 - Destructive on the page: `outline` or `quiet`. Filled red only on [`AlertDialog`](../../../apps/ui/src/components/ui/AlertDialog.tsx).
 - Copy: UK English, plain, specific. Semantic `h1` at `text-lg` / `text-xl` on product screens.
 
 Then follow the [react](../react/SKILL.md) skill for data flow.
 
-**Done when:** the markup matches the named pattern, uses existing primitives, and the title/radius/icon rules above hold.
+**Done when:** the markup matches the named pattern, uses existing primitives, and the title/corner/icon rules above hold.
 
 ## 8. Scan
 

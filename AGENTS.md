@@ -61,6 +61,10 @@ Default role labels (`needs-triage`, `needs-info`, `ready-for-agent`, `ready-for
 
 Single-context via `.ai/memory/` (product context, glossary, ADRs). See [`.ai/agents/domain.md`](.ai/agents/domain.md).
 
+### Adversarial review
+
+Every adversarial review of a diff is three Sol axes — **Standards**, **Spec**, and **Simplicity** — via [`code-review`](.agents/skills/code-review/SKILL.md). Do not run Sol as spec-only. Simplicity names the job, the thinnest machine, and leftover machinery; spec-match is not a defense. See [`simplicity-audit`](.agents/skills/simplicity-audit/SKILL.md).
+
 ## Architecture decisions & ADRs
 
 - **Where ADRs live**: All ADRs are in `.ai/memory/decisions/`. Files are named `ADR-NNN-title-slug.md` (e.g. `ADR-001-frontend-ui-app-stack.md`). Start from [`decisions/index.md`](.ai/memory/decisions/index.md).
@@ -179,3 +183,29 @@ Durable agent memory is **Markdown-only** under **[.ai/memory/](.ai/memory/)**. 
 - `packages/aws-cdk/src/pinned-service-image-tag.ts` is generated during `@ctxpipe/aws-cdk` build by `scripts/release/stamp-aws-cdk-image-tag.mjs` (`IMAGE_TAG`/`GITHUB_SHA`, fallback to latest known `main` SHA via git refs, then `latest`).
 - Keep package changes buildable with `pnpm turbo build --filter @ctxpipe/aws-cdk`.
 
+<!-- BEGIN ctxpipe-memory-capture -->
+## Local memory (ctxpipe)
+
+Durable facts live in Markdown under `.ai/memory/` (see `index.md`). Candidates go to
+gitignored `.ai/memory/events/`; promote with capture skills — never auto-write ADRs
+from capture alone.
+
+On hosts without lifecycle hooks, after a meaningful edit or before ending a turn, pipe a
+JSON payload that includes `cwd` **and** fact-bearing text (`prompt`,
+`last_assistant_message`, and/or `edits`). `cwd` alone writes nothing:
+
+```bash
+printf '%s' '{"cwd":".","prompt":"We decided the billing service runs on port 4000"}' \
+  | npx -y ctxpipe memory capture observe --host opencode --event PostToolUse
+printf '%s' '{"cwd":".","last_assistant_message":"Prefer ADRs in .ai/memory/decisions/ as the canonical source of truth."}' \
+  | npx -y ctxpipe memory capture finalize --host opencode --event Stop
+```
+
+When candidates surface, write durable Markdown, update the matching `index.md`, then:
+
+```bash
+npx -y ctxpipe memory capture promote <candidateId>
+# or: npx -y ctxpipe memory capture dismiss <candidateId>
+npx -y ctxpipe memory capture summary
+```
+<!-- END ctxpipe-memory-capture -->

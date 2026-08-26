@@ -11,6 +11,26 @@ https://app.ctxpipe.ai/mcp?orgSlug=your-org
 
 For self-hosted deployments, keep the same `/mcp?orgSlug=...` path and swap in your own base URL.
 
+## What the MCP gives an agent
+
+The primary tool is **`ctx_advisor`**. It helps an agent discover organization
+standards, architecture decisions, connected systems, and likely source areas
+before the agent plans or edits code.
+
+It is strongest at questions such as:
+
+```text
+What standards and prior decisions apply before I change this authentication flow?
+```
+
+```text
+Which services depend on this API, and which source files should I verify?
+```
+
+`ctx_advisor` is not a code-review guarantee or a substitute for current source.
+Ask it to separate verified evidence from inference, then inspect critical files
+with the coding agent's repository tools.
+
 ## Choose Your Install Path
 
 There are three practical ways to install ctx| MCP:

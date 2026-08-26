@@ -6,6 +6,7 @@ import {
   describeSelectionDelta,
   githubCloneUrlKey,
   matchSavedRepoIds,
+  sortGithubRepos,
   unmatchedSavedRepos,
 } from "./githubRepoSelection"
 
@@ -16,6 +17,8 @@ const page1 = [
     html_url: "https://github.com/acme/alpha",
     clone_url: "https://github.com/acme/alpha.git",
     name: "alpha",
+    created_at: "2020-01-01T00:00:00Z",
+    pushed_at: "2026-08-20T00:00:00Z",
   },
   {
     id: 2,
@@ -23,6 +26,8 @@ const page1 = [
     html_url: "https://github.com/acme/beta",
     clone_url: "https://github.com/acme/beta.git",
     name: "beta",
+    created_at: "2024-01-01T00:00:00Z",
+    pushed_at: null,
   },
 ]
 
@@ -33,6 +38,8 @@ const page2 = [
     html_url: "https://github.com/acme/payments",
     clone_url: "https://github.com/acme/payments.git",
     name: "payments",
+    created_at: "2022-01-01T00:00:00Z",
+    pushed_at: "2026-08-23T00:00:00Z",
   },
 ]
 
@@ -41,6 +48,33 @@ describe("githubCloneUrlKey", () => {
     expect(githubCloneUrlKey("https://github.com/Acme/Web.GIT")).toBe(
       "https://github.com/acme/web",
     )
+  })
+})
+
+describe("sortGithubRepos", () => {
+  const repos = [...page1, ...page2]
+
+  it("sorts recent pushes first and keeps missing dates last", () => {
+    expect(
+      sortGithubRepos(repos, "pushed-desc").map((repo) => repo.id),
+    ).toEqual([31, 1, 2])
+  })
+
+  it("sorts repository creation in either direction", () => {
+    expect(
+      sortGithubRepos(repos, "created-desc").map((repo) => repo.id),
+    ).toEqual([2, 31, 1])
+    expect(
+      sortGithubRepos(repos, "created-asc").map((repo) => repo.id),
+    ).toEqual([1, 31, 2])
+  })
+
+  it("sorts names without mutating the source list", () => {
+    const originalIds = repos.map((repo) => repo.id)
+    expect(
+      sortGithubRepos([...repos].reverse(), "name-asc").map((repo) => repo.id),
+    ).toEqual([1, 2, 31])
+    expect(repos.map((repo) => repo.id)).toEqual(originalIds)
   })
 })
 

@@ -1,0 +1,13 @@
+{
+  "mcp": {
+    "ctxpipe": {
+      "type": "remote",
+      "url": "https://app.ctxpipe.ai/mcp?orgSlug=ctx-tev",
+      "enabled": true
+    }
+  },
+  "$schema": "https://opencode.ai/config.json",
+  "instructions": [
+    ".opencode/memory-capture.md"
+  ]
+}
