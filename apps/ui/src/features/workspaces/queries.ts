@@ -1,7 +1,7 @@
 import { queryOptions } from "@tanstack/react-query"
 import type { ConversationDetail } from "@/features/chat/types"
 import { getApiClient } from "@/lib/api"
-import { pollWhileOk, readApiJson } from "@/lib/api-result"
+import { ApiError, pollWhileOk, readApiJson } from "@/lib/api-result"
 import { destinationAfterMove } from "./fileTreeMutations"
 import type {
   ConversationFileMutation,
@@ -497,6 +497,10 @@ export async function createConversationPullRequest(
   return readApiJson(res, { message: "Failed to create pull request" })
 }
 
+function retrySandboxUntilReady(failureCount: number, error: Error) {
+  return error instanceof ApiError && error.status === 409 && failureCount < 8
+}
+
 export function conversationGitTreeOptions(
   orgSlug: string,
   conversationId: string,
@@ -504,7 +508,8 @@ export function conversationGitTreeOptions(
   return queryOptions({
     queryKey: workspaceKeys.conversationGitTree(orgSlug, conversationId),
     queryFn: () => fetchConversationGitTree(orgSlug, conversationId),
-    retry: false,
+    retry: retrySandboxUntilReady,
+    retryDelay: 1000,
   })
 }
 
@@ -526,7 +531,8 @@ export function conversationGitStatusOptions(
   return queryOptions({
     queryKey: workspaceKeys.conversationGitStatus(orgSlug, conversationId),
     queryFn: () => fetchConversationGitStatus(orgSlug, conversationId),
-    retry: false,
+    retry: retrySandboxUntilReady,
+    retryDelay: 1000,
   })
 }
 
@@ -537,7 +543,8 @@ export function conversationGitDiffOptions(
   return queryOptions({
     queryKey: workspaceKeys.conversationGitDiff(orgSlug, conversationId),
     queryFn: () => fetchConversationGitDiff(orgSlug, conversationId),
-    retry: false,
+    retry: retrySandboxUntilReady,
+    retryDelay: 1000,
   })
 }
 

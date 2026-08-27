@@ -478,6 +478,19 @@ describe("runTanstackWorkspaceChat", () => {
     expect(body).toContain("Billing ledger")
   })
 
+  it("injects the session branch so setup can check it out", async () => {
+    const res = await runTanstackWorkspaceChat({
+      ...baseInput,
+      lastBranch: "ctxpipe/chat/conv_1/1",
+    })
+    expect(res.status).toBe(200)
+    expect(createSecretsMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        CTXPIPE_SESSION_BRANCH: "ctxpipe/chat/conv_1/1",
+      }),
+    )
+  })
+
   it("passes a clone token to gitSource without putting it in the sandbox id", async () => {
     const res = await runTanstackWorkspaceChat({
       ...baseInput,

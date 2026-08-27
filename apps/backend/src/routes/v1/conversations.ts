@@ -698,6 +698,7 @@ export const conversationRoutes = new OpenAPIHono<AppEnv>()
       desiredSha: runtime.desiredSha,
       desiredGeneration: runtime.desiredGeneration,
       defaultBranch: runtime.defaultBranch,
+      lastBranch: runtime.lastBranch,
       ref: runtime.cloneRef || runtime.desiredSha || "HEAD",
       writeStatus: runtime.writeStatus,
       cloneToken: runtime.cloneToken,

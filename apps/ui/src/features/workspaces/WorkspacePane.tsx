@@ -474,6 +474,8 @@ function WorkspaceFilesPaneBody(props: {
   const sandboxTreeQuery = useQuery({
     ...conversationGitTreeOptions(props.orgSlug, props.conversationId ?? ""),
     enabled: Boolean(props.conversationId) && prepareQuery.isSuccess,
+    refetchInterval: (query) =>
+      prepareQuery.isSuccess && !query.state.data ? 2000 : false,
   })
   const workspaceTree = useSuspenseQuery(
     workspaceGitTreeOptions(props.orgSlug, props.workspaceSlug, props.sha),

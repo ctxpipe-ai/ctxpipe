@@ -44,6 +44,7 @@ export async function resolveWorkspaceChatSendRuntime(input: {
     desiredGeneration: runtime.desiredGeneration,
     writeStatus: runtime.writeStatus,
     defaultBranch: runtime.defaultBranch,
+    lastBranch: runtime.lastBranch,
     ref: runtime.cloneRef || runtime.desiredSha || "HEAD",
     cloneToken: runtime.cloneToken ?? null,
   }

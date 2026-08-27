@@ -63,6 +63,37 @@ describe("workspace chat runtime", () => {
     expect(out).toMatch(/__BSSH_0__ 0/)
   })
 
+  it("checks out the session branch when TanStack already cloned default", () => {
+    const cloneSetup = WORKSPACE_CHAT_SANDBOX_SETUP[1]
+    const home = mkdtempSync(join(tmpdir(), "ws-chat-session-branch-"))
+    execFileSync("git", ["init", "-b", "main"], { cwd: home })
+    writeFileSync(join(home, "README.md"), "already cloned\n")
+    execFileSync("git", ["add", "README.md"], { cwd: home })
+    execFileSync(
+      "git",
+      ["-c", "user.email=setup@ctxpipe.test", "-c", "user.name=setup", "commit", "-m", "init"],
+      { cwd: home },
+    )
+    const out = execFileSync(
+      "sh",
+      ["-c", `{ ${cloneSetup} ; } 2>&1; printf "\\n__BSSH_0__ $?\\n"`],
+      {
+        cwd: home,
+        encoding: "utf8",
+        env: {
+          ...process.env,
+          CTXPIPE_SESSION_BRANCH: "ctxpipe/chat/conv_1/1",
+        },
+      },
+    )
+    expect(out).toMatch(/__BSSH_0__ 0/)
+    const branch = execFileSync("git", ["branch", "--show-current"], {
+      cwd: home,
+      encoding: "utf8",
+    }).trim()
+    expect(branch).toBe("ctxpipe/chat/conv_1/1")
+  })
+
   it("puts opencode and GNU find on the backend image PATH", () => {
     const dockerfile = readFileSync(
       join(dirname(fileURLToPath(import.meta.url)), "../../../Dockerfile"),

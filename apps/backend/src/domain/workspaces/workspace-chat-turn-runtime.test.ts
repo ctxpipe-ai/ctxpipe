@@ -53,4 +53,25 @@ describe("resolveWorkspaceChatTurnRuntime", () => {
     expect(resolveGithubDefaultBranchMock).toHaveBeenCalled()
     expect(getRepoReadCloneTokenMock).toHaveBeenCalled()
   })
+
+  it("names the writable session branch even before it exists on GitHub", async () => {
+    const runtime = await resolveWorkspaceChatTurnRuntime({
+      conversation: {
+        id: "conv_1",
+        orgId: "org_1",
+        workspaceId: "ws_1",
+        lastBranch: null,
+      },
+      workspace: {
+        id: "ws_1",
+        orgId: "org_1",
+        workspaceRepositoryUrl: "https://github.com/acme/docs",
+        writeStatus: "writable",
+        desiredSha: "abc",
+      },
+      env: {} as Env,
+    })
+    expect(runtime.lastBranch).toBe("ctxpipe/chat/conv_1/1")
+    expect(runtime.cloneRef).toBe("abc")
+  })
 })

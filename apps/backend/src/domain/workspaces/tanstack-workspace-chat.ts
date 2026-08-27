@@ -29,6 +29,7 @@ import {
   WORKSPACE_CHAT_CLONE_SHA_SECRET,
   WORKSPACE_CHAT_CLONE_TOKEN_SECRET,
   WORKSPACE_CHAT_CLONE_URL_SECRET,
+  WORKSPACE_CHAT_SESSION_BRANCH_SECRET,
   WORKSPACE_CHAT_DOCKER_SANDBOX,
   WORKSPACE_CHAT_OPENCODE_PORT,
   WORKSPACE_CHAT_SANDBOX_SETUP,
@@ -113,6 +114,7 @@ export type TanstackWorkspaceChatInput = {
   desiredSha?: string | null
   desiredGeneration?: number
   defaultBranch?: string
+  lastBranch?: string | null
   ref?: string
   writeStatus: string
   cloneToken?: string | null
@@ -446,7 +448,7 @@ async function startWorkspaceChat(input: TanstackWorkspaceChatInput): Promise<
   if (!built.ok) return built
   const runtime = workspaceChatRuntimeConfig({
     writeStatus: input.writeStatus,
-    currentBranch: input.ref,
+    currentBranch: input.lastBranch ?? input.ref,
     defaultBranch: input.defaultBranch,
   })
   const session = await resolveWorkspaceChatSession(input, built.spec.isolation)
@@ -603,7 +605,7 @@ async function buildWorkspaceChatSandbox(input: TanstackWorkspaceChatInput) {
   }
   const runtime = workspaceChatRuntimeConfig({
     writeStatus: input.writeStatus,
-    currentBranch: input.ref,
+    currentBranch: input.lastBranch ?? input.ref,
     defaultBranch: input.defaultBranch,
   })
   const contract = workspaceChatOpenCodeContract(process.env)
@@ -703,6 +705,9 @@ function defineConversationSandbox(input: {
     [WORKSPACE_CHAT_CLONE_BRANCH_SECRET]:
       chatInput.defaultBranch?.trim() || "main",
     [WORKSPACE_CHAT_CLONE_SHA_SECRET]: chatInput.desiredSha?.trim() ?? "",
+    ...(chatInput.lastBranch?.startsWith("ctxpipe/chat/")
+      ? { [WORKSPACE_CHAT_SESSION_BRANCH_SECRET]: chatInput.lastBranch }
+      : {}),
     ...(spec.isolation === "unsandboxed"
       ? workspaceChatOpenCodeHomeEnv(chatInput.conversationId)
       : {}),
@@ -740,11 +745,18 @@ function defineConversationSandbox(input: {
     hooks: {
       onReady: async (ready: TanstackLikeHandle) => {
         handle.current = ready
+        const session = chatInput.lastBranch?.trim()
+        if (session?.startsWith("ctxpipe/chat/") && ready.process?.exec) {
+          await ready.process
+            .exec(`git checkout -B ${session}`, { env: {} })
+            .catch(() => undefined)
+        }
         log.info({
           step: "workspace-chat-sandbox-ready",
           message: `workspace chat sandbox ready ${ready.id ?? "unknown"}`,
           conversationId: chatInput.conversationId,
           sandboxId: ready.id ?? null,
+          lastBranch: session ?? null,
         })
       },
     },

@@ -44,7 +44,7 @@ describe("resolveWorkspaceChatSendRuntime", () => {
       desiredUrl: "https://github.com/acme/docs",
       desiredSha: "abc",
       writeStatus: "read_only",
-      lastBranch: "main",
+      lastBranch: "ctxpipe/chat/conv_cold/1",
       cloneToken: null,
     })
     const resolved = await resolveWorkspaceChatSendRuntime({
@@ -52,6 +52,7 @@ describe("resolveWorkspaceChatSendRuntime", () => {
       workspaceId: "ws_1",
     })
     expect(resolved.desiredUrl).toBe("https://github.com/acme/docs")
+    expect(resolved.lastBranch).toBe("ctxpipe/chat/conv_cold/1")
     expect(ensureConversationMock).toHaveBeenCalled()
     expect(getWorkspaceByIdMock).toHaveBeenCalled()
   })

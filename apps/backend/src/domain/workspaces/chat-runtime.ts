@@ -57,6 +57,9 @@ else
   fi
   git rev-parse --is-inside-work-tree >/dev/null
 fi
+if [ -n "\${CTXPIPE_SESSION_BRANCH:-}" ]; then
+  git checkout -B "\$CTXPIPE_SESSION_BRANCH" || true
+fi
 true`,
 ] as const
 
@@ -85,6 +88,8 @@ export const WORKSPACE_CHAT_CLONE_TOKEN_SECRET = "CTXPIPE_CLONE_TOKEN" as const
 export const WORKSPACE_CHAT_CLONE_URL_SECRET = "CTXPIPE_CLONE_URL" as const
 export const WORKSPACE_CHAT_CLONE_BRANCH_SECRET = "CTXPIPE_CLONE_BRANCH" as const
 export const WORKSPACE_CHAT_CLONE_SHA_SECRET = "CTXPIPE_CLONE_SHA" as const
+export const WORKSPACE_CHAT_SESSION_BRANCH_SECRET =
+  "CTXPIPE_SESSION_BRANCH" as const
 
 /**
  * Bind a TanStack SecretRef so JSON hashing sees only `{ __secretName }`,

@@ -246,7 +246,17 @@ export function WorkspaceChatSession(props: {
       if (name) applyRename(name)
       const phase = sandboxPhaseFromChunk(chunk)
       if (phase) setSandboxPhase(phase)
+      if (phase === "ready") {
+        void queryClient.invalidateQueries({
+          queryKey: workspaceKeys.conversationGitStatus(orgSlug, conversationId),
+        })
+        void queryClient.invalidateQueries({
+          queryKey: workspaceKeys.conversationGitTree(orgSlug, conversationId),
+        })
+      }
       if (
+        chunk.type === "TOOL_CALL" ||
+        chunk.type === "TOOL_CALL_DELTA" ||
         chunk.type === "TOOL_CALL_END" ||
         chunk.type === "TOOL_CALL_RESULT"
       ) {
@@ -266,6 +276,15 @@ export function WorkspaceChatSession(props: {
           void queryClient.invalidateQueries({
             queryKey: workspaceKeys.list(orgSlug),
           })
+          void queryClient.invalidateQueries({
+            queryKey: workspaceKeys.conversationGitStatus(
+              orgSlug,
+              conversationId,
+            ),
+          })
+          void queryClient.invalidateQueries({
+            queryKey: workspaceKeys.conversationGitTree(orgSlug, conversationId),
+          })
         }
       }
     },
@@ -275,6 +294,9 @@ export function WorkspaceChatSession(props: {
       })
       void queryClient.invalidateQueries({
         queryKey: workspaceKeys.conversationGitStatus(orgSlug, conversationId),
+      })
+      void queryClient.invalidateQueries({
+        queryKey: workspaceKeys.conversationGitTree(orgSlug, conversationId),
       })
     },
   })
