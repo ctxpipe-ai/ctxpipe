@@ -45,7 +45,23 @@ describe("conversation sandbox files", () => {
       handle: fakeHandle(commands, {}),
     })
     expect(branch).toBe("ctxpipe/chat/conv_1/1")
-    expect(commands[0]).toBe("git checkout -B ctxpipe/chat/conv_1/1")
+    expect(commands).toEqual([
+      "git branch --show-current",
+      "git checkout -B ctxpipe/chat/conv_1/1",
+    ])
+  })
+
+  it("skips checkout when HEAD is already the session branch", async () => {
+    const commands: string[] = []
+    const branch = await ensureConversationSessionBranch({
+      conversationId: "conv_1",
+      defaultBranch: "main",
+      handle: fakeHandle(commands, {
+        "git branch --show-current": "ctxpipe/chat/conv_1/1\n",
+      }),
+    })
+    expect(branch).toBe("ctxpipe/chat/conv_1/1")
+    expect(commands).toEqual(["git branch --show-current"])
   })
 
   it("does not wipe sandbox PATH with an empty exec env", async () => {
@@ -69,6 +85,18 @@ describe("conversation sandbox files", () => {
     expect(paths).toEqual(["AGENTS.md", "knowledge/a.md", "new.md"])
   })
 
+  it("omits OpenCode and TanStack harness paths from the listing", async () => {
+    const paths = await listConversationSandboxPaths(
+      fakeHandle([], {
+        "git ls-files -z":
+          "AGENTS.md\0opencode.json\0tm/tanstack-ai-sa/x/.tanstack-projected-foo\0",
+        "git ls-files --others":
+          "e2e.md\0.tanstack-projected-bar\0tmp/tanstack-ai-sandboxes/x\0",
+      }),
+    )
+    expect(paths).toEqual(["AGENTS.md", "e2e.md"])
+  })
+
   it("marks dirty or ahead-of-default as differing", async () => {
     const status = await conversationSandboxStatus({
       defaultBranch: "main",
@@ -85,6 +113,20 @@ describe("conversation sandbox files", () => {
     expect(status.unpushed).toBe(true)
     expect(status.published).toBe(true)
     expect(status.items[0]?.path).toBe("knowledge/a.md")
+  })
+
+  it("omits harness paths from sandbox status", async () => {
+    const status = await conversationSandboxStatus({
+      defaultBranch: "main",
+      sessionBranch: "ctxpipe/chat/conv_1/1",
+      handle: fakeHandle([], {
+        "git status --porcelain": "?? opencode.json\n M AGENTS.md\n?? tm/foo\n",
+        "git diff --numstat": "1\t0\tAGENTS.md\n",
+        "git rev-list --left-right": "0\t0",
+        "origin/ctxpipe/chat/conv_1/1..HEAD": "0",
+      }),
+    })
+    expect(status.items.map((item) => item.path)).toEqual(["AGENTS.md"])
   })
 
   it("writes and renames sandbox files", async () => {

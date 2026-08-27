@@ -72,9 +72,9 @@ import {
 import { workspaceChatCompletionsBaseUrl } from "./workspace-chat-model-proxy.js"
 import {
   WORKSPACE_CHAT_LOCAL_PROCESS_SCRUB_ENV,
-  workspaceChatOpenCodeConfig,
+  WORKSPACE_CHAT_OPENCODE_JSON_SECRET,
   workspaceChatOpenCodeContract,
-  workspaceChatOpenCodeHomeEnv,
+  writeWorkspaceChatOpenCodeConfig,
 } from "./workspace-chat-opencode-contract.js"
 import {
   messagesForOpenCodeChat,
@@ -706,6 +706,10 @@ function defineConversationSandbox(input: {
   handle: { current: TanstackLikeHandle | null }
 }) {
   const { modules, spec, provider, input: chatInput, handle } = input
+  const opencodeHome = writeWorkspaceChatOpenCodeConfig({
+    conversationId: chatInput.conversationId,
+    modelBase: input.modelBase,
+  })
   const secrets = modules.createSecrets({
     CTXPIPE_OPENCODE_RUN_TOKEN: input.runToken,
     CTXPIPE_MODEL_PROXY_URL: input.proxyUrl,
@@ -715,18 +719,14 @@ function defineConversationSandbox(input: {
     [WORKSPACE_CHAT_CLONE_BRANCH_SECRET]:
       chatInput.defaultBranch?.trim() || "main",
     [WORKSPACE_CHAT_CLONE_SHA_SECRET]: chatInput.desiredSha?.trim() ?? "",
+    [WORKSPACE_CHAT_OPENCODE_JSON_SECRET]: opencodeHome.configJson,
     ...(chatInput.lastBranch?.startsWith("ctxpipe/chat/")
       ? { [WORKSPACE_CHAT_SESSION_BRANCH_SECRET]: chatInput.lastBranch }
       : {}),
-    ...(spec.isolation === "unsandboxed"
-      ? workspaceChatOpenCodeHomeEnv(chatInput.conversationId)
-      : {}),
+    ...opencodeHome.homeEnv,
     ...(chatInput.cloneToken
       ? { [WORKSPACE_CHAT_CLONE_TOKEN_SECRET]: chatInput.cloneToken }
       : {}),
-  })
-  const opencodeConfig = workspaceChatOpenCodeConfig({
-    modelBase: input.modelBase,
   })
   return modules.defineSandbox({
     id: spec.id,
@@ -744,12 +744,6 @@ function defineConversationSandbox(input: {
       ),
       setup: [...WORKSPACE_CHAT_SANDBOX_SETUP],
       secrets,
-      skills: [
-        modules.fileSkill({
-          path: "opencode.json",
-          content: `${JSON.stringify(opencodeConfig, null, 2)}\n`,
-        }),
-      ],
     }),
     lifecycle: spec.lifecycle,
     hooks: {

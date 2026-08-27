@@ -320,6 +320,15 @@ describe("runTanstackWorkspaceChat", () => {
         ]),
       }),
     )
+    expect(fileSkillMock).not.toHaveBeenCalled()
+    expect(defineWorkspaceMock.mock.calls[0]?.[0]?.skills).toBeUndefined()
+    expect(createSecretsMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        CTXPIPE_OPENCODE_JSON: expect.stringContaining("enabled_providers"),
+        OPENCODE_CONFIG: expect.stringContaining("opencode.json"),
+        HOME: expect.stringContaining("ctxpipe-opencode-home"),
+      }),
+    )
   })
 
   it("starts chat on the unset hosted fallback instead of refusing host OpenCode", async () => {

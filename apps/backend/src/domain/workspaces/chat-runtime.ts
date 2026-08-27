@@ -3,6 +3,7 @@ import {
   createWorkspaceChatPermissionHandler,
   judgeChatToolWithFastModel,
 } from "./chat-sandbox-policy.js"
+import { CONVERSATION_SANDBOX_GIT_EXCLUDE_LINES } from "./conversation-files.js"
 import { sandboxSnapshotKey } from "./revision.js"
 import { detectSandboxProviderFromEnv } from "./sandbox-provider.js"
 import { WORKSPACE_CHAT_OPENCODE_CLI } from "./workspace-chat-opencode-contract.js"
@@ -59,6 +60,18 @@ else
 fi
 if [ -n "\${CTXPIPE_SESSION_BRANCH:-}" ]; then
   git checkout -B "\$CTXPIPE_SESSION_BRANCH" || true
+fi
+OPENCODE_HOME="\${HOME:-/tmp/ctxpipe-opencode-home}"
+mkdir -p "$OPENCODE_HOME"
+if [ -n "\${CTXPIPE_OPENCODE_JSON:-}" ]; then
+  printf '%s\\n' "\$CTXPIPE_OPENCODE_JSON" > "$OPENCODE_HOME/opencode.json"
+fi
+if git rev-parse --git-dir >/dev/null 2>&1; then
+  EXCLUDE="$(git rev-parse --git-dir)/info/exclude"
+  mkdir -p "$(dirname "$EXCLUDE")"
+  for line in ${CONVERSATION_SANDBOX_GIT_EXCLUDE_LINES.map((line) => JSON.stringify(line)).join(" ")}; do
+    grep -qxF "$line" "$EXCLUDE" 2>/dev/null || printf '%s\\n' "$line" >> "$EXCLUDE"
+  done
 fi
 true`,
 ] as const

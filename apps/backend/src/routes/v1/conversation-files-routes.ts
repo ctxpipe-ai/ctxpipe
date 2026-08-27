@@ -20,6 +20,8 @@ import {
 import { workspaceAllowsConversationEdits } from "../../domain/workspaces/chat-sandbox-policy.js"
 import { conversationSessionBranch as sessionBranchName } from "../../domain/workspaces/chat-lifecycle.js"
 import { attachChatSandboxHandle } from "../../domain/workspaces/sandbox-registry.js"
+import { warmTanstackWorkspaceChat } from "../../domain/workspaces/tanstack-workspace-chat.js"
+import { resolveWorkspaceChatTurnRuntime } from "../../domain/workspaces/workspace-chat-turn-runtime.js"
 import { getConversation, persistConversationLastBranch } from "../../models/conversations.js"
 import { getInstallationToken } from "../../models/github-installation.js"
 import { getWorkspaceById } from "../../models/workspaces.js"
@@ -290,18 +292,65 @@ function requireUser(c: { get: (key: "user" | "session") => unknown }) {
   return Boolean(c.get("user") && c.get("session"))
 }
 
-async function readySandboxHandle(
-  conversationId: string,
-  writeStatus: string,
-  defaultBranch = "main",
-) {
-  const handle = resolveConversationSandboxHandle(conversationId)
+async function attachConversationSandbox(input: {
+  conversation: { id: string; orgId: string; workspaceId: string | null; lastBranch: string | null }
+  workspace: {
+    id: string
+    orgId: string
+    workspaceRepositoryUrl: string
+    githubConnectionId?: string | null
+    writeStatus: string
+    desiredSha: string | null
+    desiredGeneration?: number
+  }
+}) {
+  const existing = resolveConversationSandboxHandle(input.conversation.id)
+  if (existing) return existing
+  const env = parseEnv(process.env as Record<string, string | undefined>)
+  const runtime = await resolveWorkspaceChatTurnRuntime({
+    conversation: input.conversation,
+    workspace: input.workspace,
+    env,
+  })
+  if (!runtime.desiredUrl) return null
+  const warmed = await warmTanstackWorkspaceChat({
+    conversationId: input.conversation.id,
+    prompt: "prepare",
+    orgId: runtime.orgId,
+    workspaceId: runtime.workspaceId ?? input.workspace.id,
+    desiredUrl: runtime.desiredUrl,
+    desiredSha: runtime.desiredSha,
+    desiredGeneration: runtime.desiredGeneration,
+    defaultBranch: runtime.defaultBranch,
+    lastBranch: runtime.lastBranch,
+    ref: runtime.cloneRef || runtime.desiredSha || "HEAD",
+    writeStatus: runtime.writeStatus,
+    cloneToken: runtime.cloneToken,
+  })
+  if (!warmed.ok) return null
+  return resolveConversationSandboxHandle(input.conversation.id)
+}
+
+async function readySandboxHandle(input: {
+  conversation: { id: string; orgId: string; workspaceId: string | null; lastBranch: string | null }
+  workspace: {
+    id: string
+    orgId: string
+    workspaceRepositoryUrl: string
+    githubConnectionId?: string | null
+    writeStatus: string
+    desiredSha: string | null
+    desiredGeneration?: number
+  }
+  defaultBranch?: string
+}) {
+  const handle = await attachConversationSandbox(input)
   if (!handle) return null
-  if (workspaceAllowsConversationEdits(writeStatus)) {
+  if (workspaceAllowsConversationEdits(input.workspace.writeStatus)) {
     await ensureConversationSessionBranch({
       handle,
-      conversationId,
-      defaultBranch,
+      conversationId: input.conversation.id,
+      defaultBranch: input.defaultBranch ?? "main",
     })
   }
   return handle
@@ -313,10 +362,7 @@ export const conversationFileRoutes = new OpenAPIHono<AppEnv>()
     const conversationId = c.req.param("conversationId")
     const loaded = await loadConversationWorkspace(conversationId)
     if (!loaded) return c.json({ error: "Not found" }, 404)
-    const handle = await readySandboxHandle(
-      conversationId,
-      loaded.workspace.writeStatus,
-    )
+    const handle = await readySandboxHandle(loaded)
     if (!handle) return c.json({ error: "missing_sandbox" }, 409)
     const paths = await listConversationSandboxPaths(handle)
     const branch = sessionBranchName(conversationId)
@@ -328,10 +374,7 @@ export const conversationFileRoutes = new OpenAPIHono<AppEnv>()
     const path = c.req.query("path") ?? ""
     const loaded = await loadConversationWorkspace(conversationId)
     if (!loaded) return c.json({ error: "Not found" }, 404)
-    const handle = await readySandboxHandle(
-      conversationId,
-      loaded.workspace.writeStatus,
-    )
+    const handle = await readySandboxHandle(loaded)
     if (!handle) return c.json({ error: "missing_sandbox" }, 409)
     const blob = await readConversationSandboxFile(handle, path)
     if (!blob) return c.json({ error: "Not found" }, 404)
@@ -354,11 +397,10 @@ export const conversationFileRoutes = new OpenAPIHono<AppEnv>()
           env,
         })) ?? "main")
       : "main"
-    const handle = await readySandboxHandle(
-      conversationId,
-      loaded.workspace.writeStatus,
+    const handle = await readySandboxHandle({
+      ...loaded,
       defaultBranch,
-    )
+    })
     if (!handle) return c.json({ error: "missing_sandbox" }, 409)
     const status = await conversationSandboxStatus({
       handle,
@@ -384,11 +426,10 @@ export const conversationFileRoutes = new OpenAPIHono<AppEnv>()
           env,
         })) ?? "main")
       : "main"
-    const handle = await readySandboxHandle(
-      conversationId,
-      loaded.workspace.writeStatus,
+    const handle = await readySandboxHandle({
+      ...loaded,
       defaultBranch,
-    )
+    })
     if (!handle) return c.json({ error: "missing_sandbox" }, 409)
     const items = await conversationSandboxDiff({ handle, defaultBranch })
     return c.json({ items })
@@ -401,10 +442,7 @@ export const conversationFileRoutes = new OpenAPIHono<AppEnv>()
     if (!workspaceAllowsConversationEdits(loaded.workspace.writeStatus)) {
       return c.json({ error: "read_only" }, 403)
     }
-    const handle = await readySandboxHandle(
-      conversationId,
-      loaded.workspace.writeStatus,
-    )
+    const handle = await readySandboxHandle(loaded)
     if (!handle) return c.json({ error: "missing_sandbox" }, 409)
     const body = PutConversationFileBodySchema.parse(await c.req.json())
     if (body.deletePath) {
@@ -439,10 +477,7 @@ export const conversationFileRoutes = new OpenAPIHono<AppEnv>()
     if (!workspaceAllowsConversationEdits(loaded.workspace.writeStatus)) {
       return c.json({ error: "read_only" }, 400)
     }
-    const handle = await readySandboxHandle(
-      conversationId,
-      loaded.workspace.writeStatus,
-    )
+    const handle = await readySandboxHandle(loaded)
     if (!handle) return c.json({ error: "missing_sandbox" }, 409)
     const env = parseEnv(process.env as Record<string, string | undefined>)
     const repoName = githubRepoFullNameFromWorkspaceUrl(

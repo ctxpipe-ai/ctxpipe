@@ -1,4 +1,4 @@
-import { mkdirSync } from "node:fs"
+import { mkdirSync, writeFileSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 import {
@@ -100,9 +100,15 @@ export const WORKSPACE_CHAT_OPENCODE_CLI = "opencode-ai@1.18.18" as const
 export const WORKSPACE_CHAT_OPENCODE_PROXY_URL_ENV =
   "{env:CTXPIPE_MODEL_PROXY_URL}" as const
 
+export const WORKSPACE_CHAT_OPENCODE_JSON_SECRET = "CTXPIPE_OPENCODE_JSON" as const
+
 export function workspaceChatOpenCodeHomeDir(conversationId: string): string {
   const slug = conversationId.replace(/[^a-zA-Z0-9_-]/g, "_") || "conversation"
   return join(tmpdir(), "ctxpipe-opencode-home", slug)
+}
+
+export function workspaceChatOpenCodeConfigPath(conversationId: string): string {
+  return join(workspaceChatOpenCodeHomeDir(conversationId), "opencode.json")
 }
 
 /** Isolate local-process OpenCode from the host ~/.config/opencode + shared db. */
@@ -121,8 +127,23 @@ export function workspaceChatOpenCodeHomeEnv(
     XDG_DATA_HOME: join(home, "data"),
     XDG_STATE_HOME: join(home, "state"),
     XDG_CACHE_HOME: join(home, "cache"),
+    OPENCODE_CONFIG: workspaceChatOpenCodeConfigPath(conversationId),
     PATH: unixLoginPath(),
   }
+}
+
+export function writeWorkspaceChatOpenCodeConfig(input: {
+  conversationId: string
+  modelBase: string
+}): { homeEnv: Record<string, string>; configJson: string } {
+  const homeEnv = workspaceChatOpenCodeHomeEnv(input.conversationId)
+  const configJson = `${JSON.stringify(
+    workspaceChatOpenCodeConfig({ modelBase: input.modelBase }),
+    null,
+    2,
+  )}\n`
+  writeFileSync(workspaceChatOpenCodeConfigPath(input.conversationId), configJson)
+  return { homeEnv, configJson }
 }
 
 function unixLoginPath(): string {

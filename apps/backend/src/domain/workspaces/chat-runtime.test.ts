@@ -1,9 +1,10 @@
 import { execFileSync } from "node:child_process"
-import { mkdtempSync, readFileSync, writeFileSync } from "node:fs"
+import { existsSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { dirname, join } from "node:path"
 import { fileURLToPath } from "node:url"
 import { describe, expect, it } from "vitest"
+import { CONVERSATION_SANDBOX_GIT_EXCLUDE_LINES } from "./conversation-files.js"
 import {
   WORKSPACE_CHAT_DOCKER_SANDBOX,
   WORKSPACE_CHAT_OPENCODE_PORT,
@@ -92,6 +93,42 @@ describe("workspace chat runtime", () => {
       encoding: "utf8",
     }).trim()
     expect(branch).toBe("ctxpipe/chat/conv_1/1")
+  })
+
+  it("writes OpenCode config under HOME and excludes harness paths from git", () => {
+    const cloneSetup = WORKSPACE_CHAT_SANDBOX_SETUP[1]
+    const repo = mkdtempSync(join(tmpdir(), "ws-chat-exclude-"))
+    const home = mkdtempSync(join(tmpdir(), "ws-chat-opencode-home-"))
+    execFileSync("git", ["init", "-b", "main"], { cwd: repo })
+    writeFileSync(join(repo, "README.md"), "already cloned\n")
+    execFileSync("git", ["add", "README.md"], { cwd: repo })
+    execFileSync(
+      "git",
+      ["-c", "user.email=setup@ctxpipe.test", "-c", "user.name=setup", "commit", "-m", "init"],
+      { cwd: repo },
+    )
+    const out = execFileSync(
+      "sh",
+      ["-c", `{ ${cloneSetup} ; } 2>&1; printf "\\n__BSSH_0__ $?\\n"`],
+      {
+        cwd: repo,
+        encoding: "utf8",
+        env: {
+          ...process.env,
+          HOME: home,
+          CTXPIPE_OPENCODE_JSON: '{"enabled_providers":["ctxpipe"]}',
+        },
+      },
+    )
+    expect(out).toMatch(/__BSSH_0__ 0/)
+    expect(existsSync(join(repo, "opencode.json"))).toBe(false)
+    expect(readFileSync(join(home, "opencode.json"), "utf8")).toContain(
+      "enabled_providers",
+    )
+    const exclude = readFileSync(join(repo, ".git/info/exclude"), "utf8")
+    for (const line of CONVERSATION_SANDBOX_GIT_EXCLUDE_LINES) {
+      expect(exclude).toContain(line)
+    }
   })
 
   it("puts opencode and GNU find on the backend image PATH", () => {

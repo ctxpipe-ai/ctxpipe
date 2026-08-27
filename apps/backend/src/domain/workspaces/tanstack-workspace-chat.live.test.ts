@@ -9,7 +9,6 @@ import {
   createSecrets,
   defineSandbox,
   defineWorkspace,
-  fileSkill,
   gitSource,
   withSandbox,
 } from "@tanstack/ai-sandbox"
@@ -24,8 +23,9 @@ import { workspaceChatOpenaiRoutes } from "../../routes/v1/workspace-chat-openai
 import { WORKSPACE_CHAT_SANDBOX_SETUP } from "./chat-runtime.js"
 import {
   WORKSPACE_CHAT_LOCAL_PROCESS_SCRUB_ENV,
-  workspaceChatOpenCodeConfig,
+  WORKSPACE_CHAT_OPENCODE_JSON_SECRET,
   workspaceChatOpenCodeContract,
+  writeWorkspaceChatOpenCodeConfig,
 } from "./workspace-chat-opencode-contract.js"
 import { mintWorkspaceChatToken } from "./workspace-chat-token.js"
 
@@ -188,11 +188,10 @@ describe.skipIf(!live)("workspace chat OpenCode fallback (live)", () => {
       conversationId: "conv_live_fallback",
     })
     const runToken = proxy.token
-    const config = workspaceChatOpenCodeConfig({
+    const openCode = writeWorkspaceChatOpenCodeConfig({
+      conversationId: "conv_live_fallback",
       modelBase: contract.modelBase,
     })
-    const configPath = join(tmpdir(), "ctxpipe-opencode-live.json")
-    writeFileSync(configPath, `${JSON.stringify(config, null, 2)}\n`)
     const source = makeGitRepo()
     const chunks: object[] = []
     try {
@@ -216,13 +215,9 @@ describe.skipIf(!live)("workspace chat OpenCode fallback (live)", () => {
                 secrets: createSecrets({
                   CTXPIPE_OPENCODE_RUN_TOKEN: runToken,
                   CTXPIPE_MODEL_PROXY_URL: proxy.baseUrl,
+                  [WORKSPACE_CHAT_OPENCODE_JSON_SECRET]: openCode.configJson,
+                  ...openCode.homeEnv,
                 }),
-                skills: [
-                  fileSkill({
-                    path: "opencode.json",
-                    content: `${JSON.stringify(config, null, 2)}\n`,
-                  }),
-                ],
               }),
               lifecycle: {
                 reuse: "thread",

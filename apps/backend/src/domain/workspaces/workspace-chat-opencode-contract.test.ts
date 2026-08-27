@@ -1,11 +1,14 @@
+import { readFileSync } from "node:fs"
 import { afterEach, describe, expect, it } from "vitest"
 import {
   WORKSPACE_CHAT_LOCAL_PROCESS_SCRUB_ENV,
   WORKSPACE_CHAT_OPENCODE_AGENT_PROMPT,
   WORKSPACE_CHAT_OPENCODE_CLI,
   workspaceChatOpenCodeConfig,
+  workspaceChatOpenCodeConfigPath,
   workspaceChatOpenCodeContract,
   workspaceChatOpenCodeHomeEnv,
+  writeWorkspaceChatOpenCodeConfig,
 } from "./workspace-chat-opencode-contract.js"
 
 describe("workspaceChatOpenCodeContract", () => {
@@ -170,9 +173,22 @@ describe("workspaceChatOpenCodeContract", () => {
     expect(env.HOME).toContain("conv_1")
     expect(env.HOME).not.toBe(process.env.HOME)
     expect(env.XDG_CONFIG_HOME).toBe(`${env.HOME}/config`)
+    expect(env.OPENCODE_CONFIG).toBe(`${env.HOME}/opencode.json`)
     expect((env.PATH ?? "").split(":")).toEqual(
       expect.arrayContaining(["/bin", "/usr/bin"]),
     )
+  })
+
+  it("writes OpenCode config next to that home, not as cwd opencode.json", () => {
+    const written = writeWorkspaceChatOpenCodeConfig({
+      conversationId: "conv_cfg",
+      modelBase: "openai/gpt-5.6-terra",
+    })
+    const configPath = workspaceChatOpenCodeConfigPath("conv_cfg")
+    expect(written.homeEnv.OPENCODE_CONFIG).toBe(configPath)
+    expect(readFileSync(configPath, "utf8")).toContain("enabled_providers")
+    expect(configPath).toContain("ctxpipe-opencode-home")
+    expect(configPath.endsWith("opencode.json")).toBe(true)
   })
 
   it("never returns a Claude or Anthropic model id", () => {

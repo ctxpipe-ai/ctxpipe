@@ -3,7 +3,6 @@ import {
   createSecrets,
   defineSandbox,
   defineWorkspace,
-  fileSkill,
   gitSource,
   type SandboxCapabilities,
   type SandboxCreateInput,
@@ -18,7 +17,11 @@ import {
   workspaceChatGitSource,
   workspaceChatSandboxId,
 } from "./chat-runtime.js"
-import { workspaceChatOpenCodeConfig } from "./workspace-chat-opencode-contract.js"
+import {
+  WORKSPACE_CHAT_OPENCODE_JSON_SECRET,
+  workspaceChatOpenCodeConfig,
+  workspaceChatOpenCodeHomeEnv,
+} from "./workspace-chat-opencode-contract.js"
 
 const fakeCapabilities: SandboxCapabilities = {
   fs: true,
@@ -82,6 +85,10 @@ function chatWorkspace(input: {
   const secrets = createSecrets({
     CTXPIPE_OPENCODE_RUN_TOKEN: input.runToken,
     CTXPIPE_MODEL_PROXY_URL: input.proxyUrl,
+    [WORKSPACE_CHAT_OPENCODE_JSON_SECRET]: JSON.stringify(
+      workspaceChatOpenCodeConfig({ modelBase: "openai/gpt-5.6-terra" }),
+    ),
+    ...workspaceChatOpenCodeHomeEnv("conv_key"),
     ...(input.cloneToken
       ? { [WORKSPACE_CHAT_CLONE_TOKEN_SECRET]: input.cloneToken }
       : {}),
@@ -96,16 +103,6 @@ function chatWorkspace(input: {
     ),
     setup: [...WORKSPACE_CHAT_SANDBOX_SETUP],
     secrets,
-    skills: [
-      fileSkill({
-        path: "opencode.json",
-        content: `${JSON.stringify(
-          workspaceChatOpenCodeConfig({ modelBase: "openai/gpt-5.6-terra" }),
-          null,
-          2,
-        )}\n`,
-      }),
-    ],
   })
 }
 

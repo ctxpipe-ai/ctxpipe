@@ -21,6 +21,27 @@ import { memoizedConversationSandboxHandle } from "./workspace-chat-sandbox-memo
 
 export { conversationSessionBranch }
 
+/** Harness writes that must stay out of the git workdir listing and publish. */
+export const CONVERSATION_SANDBOX_GIT_EXCLUDE_LINES = [
+  "opencode.json",
+  ".tanstack-projected-*",
+  "tm/",
+  "tmp/tanstack-ai-*",
+] as const
+
+export function isConversationSandboxHarnessPath(path: string): boolean {
+  if (path === "opencode.json" || path.startsWith("opencode.json/")) return true
+  if (path.startsWith(".tanstack-projected-")) return true
+  if (path.includes("/.tanstack-projected-")) return true
+  if (path === "tm" || path.startsWith("tm/")) return true
+  if (path.startsWith("tmp/tanstack-ai-")) return true
+  return false
+}
+
+function isConversationSandboxListedPath(path: string): boolean {
+  return chatPullRequestPathIsSafe(path) && !isConversationSandboxHarnessPath(path)
+}
+
 export function resolveConversationSandboxHandle(
   conversationId: string,
 ): JobSandboxHandle | null {
@@ -62,6 +83,10 @@ export async function ensureConversationSessionBranch(input: {
   if (!isChatSessionBranch(branch)) {
     throw new Error(`Refusing to check out ${branch}`)
   }
+  const current = await execGit(input.handle.exec, "git branch --show-current")
+  if (current.exitCode === 0 && current.stdout.trim() === branch) {
+    return branch
+  }
   await execGitOk(input.handle.exec, `git checkout -B ${branch}`)
   return branch
 }
@@ -78,7 +103,7 @@ export async function listConversationSandboxPaths(
     ...splitGitNulPaths(tracked),
     ...splitGitNulPaths(untracked),
   ]) {
-    if (chatPullRequestPathIsSafe(path)) paths.add(path)
+    if (isConversationSandboxListedPath(path)) paths.add(path)
   }
   return [...paths].sort()
 }
@@ -186,9 +211,9 @@ export async function conversationSandboxStatus(input: {
     ),
   ])
   const counts = explorerGitNumstatFromStdout(numstat)
-  const items = explorerGitStatusFromPorcelain(porcelain).map((item) =>
-    withExplorerGitLineCounts(item, counts),
-  )
+  const items = explorerGitStatusFromPorcelain(porcelain)
+    .filter((item) => isConversationSandboxListedPath(item.path))
+    .map((item) => withExplorerGitLineCounts(item, counts))
   const dirty = porcelain.trim().length > 0
   const [behindRaw, aheadRaw] = (revList.stdout.trim() || "0\t0").split(/\s+/)
   const ahead = Number.parseInt(aheadRaw || "0", 10) || 0
@@ -232,7 +257,7 @@ export async function conversationSandboxDiff(input: {
     ...splitGitNulPaths(unstaged),
     ...splitGitNulPaths(untracked),
   ]) {
-    if (chatPullRequestPathIsSafe(path)) paths.add(path)
+    if (isConversationSandboxListedPath(path)) paths.add(path)
   }
   const diffs: ConversationFileDiff[] = []
   for (const path of [...paths].sort()) {
