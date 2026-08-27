@@ -520,7 +520,7 @@ function ConversationSandboxFilesPane(props: {
     queryFn: () => false,
     staleTime: Number.POSITIVE_INFINITY,
     gcTime: Number.POSITIVE_INFINITY,
-    initialData: false,
+    enabled: false,
   })
   const chatLive = chatLiveQuery.data === true
   const sandboxTreeQuery = useQuery({
