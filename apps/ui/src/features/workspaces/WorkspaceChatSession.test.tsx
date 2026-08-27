@@ -19,7 +19,7 @@ const workspaceChatWebSocketMock = vi.hoisted(() =>
   vi.fn(() => ({ kind: "official-ws", warm: vi.fn() })),
 )
 const useChatMock = vi.hoisted(() =>
-  vi.fn(() => ({
+  vi.fn((_options?: Record<string, unknown>) => ({
     messages: useChatState.messages,
     sendMessage: vi.fn(),
     status: useChatState.status,
