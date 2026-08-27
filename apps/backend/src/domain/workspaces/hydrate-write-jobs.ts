@@ -208,6 +208,7 @@ export function stripImportKeyFromMarkdown(markdown: string): string | null {
   const match = markdown.match(/^---\r?\n([\s\S]*?)\r?\n---(\r?\n)?/)
   if (!match) return null
   const fm = match[1]
+  if (fm == null) return null
   if (!/^import_key\s*:/m.test(fm)) return null
   const nextFm = fm
     .replace(/^import_key\s*:[^\n]*\r?\n?/m, "")
