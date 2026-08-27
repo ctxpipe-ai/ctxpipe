@@ -24,11 +24,17 @@ const ensureSandboxMock = vi.hoisted(() =>
   })),
 )
 const defineSandboxMock = vi.hoisted(() =>
-  vi.fn((input: { hooks?: { onReady?: (handle: { id: string }) => unknown } }) => {
-    const definition = { ...input, ensure: ensureSandboxMock, id: "sbx_ready" }
-    void input.hooks?.onReady?.({ id: "sbx_ready" })
-    return definition
-  }),
+  vi.fn(
+    (input: { hooks?: { onReady?: (handle: { id: string }) => unknown } }) => {
+      const definition = {
+        ...input,
+        ensure: ensureSandboxMock,
+        id: "sbx_ready",
+      }
+      void input.hooks?.onReady?.({ id: "sbx_ready" })
+      return definition
+    },
+  ),
 )
 const invalidateChatSandboxMock = vi.hoisted(() => vi.fn(async () => {}))
 const defineWorkspaceMock = vi.hoisted(() => vi.fn((input) => input))
@@ -161,8 +167,7 @@ vi.mock("../../auth/withAuth.js", () => ({
   withOrgIdContext: (_org: unknown, fn: () => unknown) => fn(),
 }))
 vi.mock("./sandbox-registry.js", async (importOriginal) => {
-  const actual =
-    await importOriginal<typeof import("./sandbox-registry.js")>()
+  const actual = await importOriginal<typeof import("./sandbox-registry.js")>()
   return {
     ...actual,
     destroySandboxesForConversation: vi.fn(async () => {}),
@@ -212,7 +217,10 @@ import {
   warmTanstackWorkspaceChat,
 } from "./tanstack-workspace-chat.js"
 import { parseSseDataLines } from "./workspace-chat-agui.js"
-import { resetWorkspaceChatSandboxMemos } from "./workspace-chat-sandbox-memo.js"
+import {
+  memoizedConversationSandboxHandle,
+  resetWorkspaceChatSandboxMemos,
+} from "./workspace-chat-sandbox-memo.js"
 
 const AUTH_SECRET = "abcdefghijklmnopqrstuvwxyz123456"
 
@@ -323,7 +331,10 @@ describe("runTanstackWorkspaceChat", () => {
     )
     expect(localProcessSandboxMock).toHaveBeenCalledWith(
       expect.objectContaining({
-        scrubEnv: expect.arrayContaining(["AUTH_SECRET", "MODEL_PROVIDER_API_KEY"]),
+        scrubEnv: expect.arrayContaining([
+          "AUTH_SECRET",
+          "MODEL_PROVIDER_API_KEY",
+        ]),
       }),
     )
     expect(dockerSandboxMock).not.toHaveBeenCalled()
@@ -607,7 +618,9 @@ describe("runTanstackWorkspaceChat", () => {
     expect(withSandboxMock.mock.calls[0]?.[0]).toBe(
       withSandboxMock.mock.calls[1]?.[0],
     )
-    expect(withSandboxMock.mock.calls[0]?.[0]).toMatchObject({ id: "sbx_ready" })
+    expect(withSandboxMock.mock.calls[0]?.[0]).toMatchObject({
+      id: "sbx_ready",
+    })
     expect(chatMock).toHaveBeenCalledTimes(2)
   })
 
@@ -655,6 +668,23 @@ describe("warmTanstackWorkspaceChat", () => {
     expect(opencodeTextMock).not.toHaveBeenCalled()
     expect(chatMock).not.toHaveBeenCalled()
     expect(startWorkspaceChatModelProxyMock).not.toHaveBeenCalled()
+  })
+
+  it("keeps the ensure() handle when onReady does not run at define time", async () => {
+    defineSandboxMock.mockImplementationOnce((input) => ({
+      ...input,
+      ensure: ensureSandboxMock,
+      id: "sbx_ready",
+    }))
+    const warmed = await warmTanstackWorkspaceChat({
+      ...baseInput,
+      prompt: "prepare",
+    })
+    expect(warmed).toEqual({ ok: true })
+    expect(memoizedConversationSandboxHandle("conv_1")?.id).toBe("sbx_ready")
+    expect(
+      typeof memoizedConversationSandboxHandle("conv_1")?.process.exec,
+    ).toBe("function")
   })
 })
 

@@ -1,20 +1,23 @@
-import { adaptTanstackHandle } from "./job-sandbox.js"
-import { getRegisteredChatSandbox } from "./sandbox-registry.js"
-import { memoizedConversationSandboxHandle } from "./workspace-chat-sandbox-memo.js"
-import { conversationSessionBranch, mayForcePushBranch } from "./chat-lifecycle.js"
+import {
+  conversationSessionBranch,
+  mayForcePushBranch,
+} from "./chat-lifecycle.js"
 import {
   chatPullRequestPathIsSafe,
   isChatSessionBranch,
   splitGitNulPaths,
 } from "./chat-pull-request.js"
 import {
+  type ExplorerGitStatusEntry,
   explorerBlobFromContent,
+  explorerGitNumstatFromStdout,
   explorerGitStatusFromPorcelain,
   withExplorerGitLineCounts,
-  explorerGitNumstatFromStdout,
-  type ExplorerGitStatusEntry,
 } from "./git-explorer.js"
+import { adaptTanstackHandle } from "./job-sandbox.js"
 import type { JobSandboxHandle } from "./job-worktree.js"
+import { getRegisteredChatSandbox } from "./sandbox-registry.js"
+import { memoizedConversationSandboxHandle } from "./workspace-chat-sandbox-memo.js"
 
 export { conversationSessionBranch }
 
@@ -32,7 +35,7 @@ async function execGit(
   command: string,
   env?: Record<string, string>,
 ): Promise<{ stdout: string; stderr: string; exitCode: number }> {
-  return exec(command, { env: env ?? {} })
+  return env ? exec(command, { env }) : exec(command)
 }
 
 async function execGitOk(
@@ -237,8 +240,7 @@ export async function conversationSandboxDiff(input: {
       input.handle.exec,
       `git show ${input.defaultBranch}:${path}`,
     )
-    const oldBody =
-      oldResult.exitCode === 0 ? oldResult.stdout : null
+    const oldBody = oldResult.exitCode === 0 ? oldResult.stdout : null
     const current = await readConversationSandboxFile(input.handle, path)
     diffs.push({
       path,

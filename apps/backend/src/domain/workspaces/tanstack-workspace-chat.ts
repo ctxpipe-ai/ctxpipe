@@ -1,4 +1,3 @@
-import { eq } from "drizzle-orm"
 import { trace } from "@opentelemetry/api"
 import {
   type ModelMessage,
@@ -8,6 +7,7 @@ import {
 } from "@tanstack/ai"
 import { otelMiddleware } from "@tanstack/ai/middlewares/otel"
 import { withPersistence } from "@tanstack/ai-persistence"
+import { eq } from "drizzle-orm"
 import { getSystemDb, withOrgDbContext } from "../../db/client.js"
 import { organizations } from "../../db/schema/auth.js"
 import { nameConversationIfUnnamed } from "../../graphs/conversationGraph/nodes/conversationNaming.js"
@@ -29,10 +29,10 @@ import {
   WORKSPACE_CHAT_CLONE_SHA_SECRET,
   WORKSPACE_CHAT_CLONE_TOKEN_SECRET,
   WORKSPACE_CHAT_CLONE_URL_SECRET,
-  WORKSPACE_CHAT_SESSION_BRANCH_SECRET,
   WORKSPACE_CHAT_DOCKER_SANDBOX,
   WORKSPACE_CHAT_OPENCODE_PORT,
   WORKSPACE_CHAT_SANDBOX_SETUP,
+  WORKSPACE_CHAT_SESSION_BRANCH_SECRET,
   workspaceChatCloneTokenRef,
   workspaceChatGitSource,
   workspaceChatRuntimeConfig,
@@ -51,10 +51,6 @@ import {
   destroySandboxesForConversation,
   heartbeatChatSandboxes,
 } from "./sandbox-registry.js"
-import {
-  memoizedChatProvider,
-  memoizedConversationSandbox,
-} from "./workspace-chat-sandbox-memo.js"
 import { loadTanstackChatModules } from "./tanstack-runtime.js"
 import {
   aguiTextDelta,
@@ -80,18 +76,22 @@ import {
   workspaceChatOpenCodeContract,
   workspaceChatOpenCodeHomeEnv,
 } from "./workspace-chat-opencode-contract.js"
-import { leaseLocalProcessOpenCodePort } from "./workspace-chat-opencode-port.js"
-import { mintWorkspaceChatToken } from "./workspace-chat-token.js"
 import {
   messagesForOpenCodeChat,
   openCodeTrailingUserMiddleware,
 } from "./workspace-chat-opencode-messages.js"
+import { leaseLocalProcessOpenCodePort } from "./workspace-chat-opencode-port.js"
 import {
   beginWorkspaceChatTurn,
   finishWorkspaceChatTurn,
   markWorkspaceChatFirstShownToken,
 } from "./workspace-chat-otel.js"
 import { workspaceChatPersistence } from "./workspace-chat-persistence.js"
+import {
+  memoizedChatProvider,
+  memoizedConversationSandbox,
+} from "./workspace-chat-sandbox-memo.js"
+import { mintWorkspaceChatToken } from "./workspace-chat-token.js"
 import { workspaceChatTools } from "./workspace-chat-tools.js"
 
 export type TanstackWorkspaceChatMessage = {
@@ -155,6 +155,13 @@ function chatProviderMatchesEffective(
   effective: string,
 ): boolean {
   return storedProvider === effective
+}
+
+function asTanstackLikeHandle(value: unknown): TanstackLikeHandle | null {
+  if (!value || typeof value !== "object") return null
+  const exec = (value as { process?: { exec?: unknown } }).process?.exec
+  if (typeof exec !== "function") return null
+  return value as TanstackLikeHandle
 }
 
 function abortControllerFrom(signal?: AbortSignal): AbortController {
@@ -380,11 +387,11 @@ export async function warmTanstackWorkspaceChat(
   if (!built.ok) return built
   const session = await resolveWorkspaceChatSession(input, built.spec.isolation)
   if (!session.ok) return session
-  const { definition } = memoizedConversationSandbox({
+  const { definition, handle } = memoizedConversationSandbox({
     conversationId: input.conversationId,
     specId: built.spec.id,
     isolation: built.spec.isolation,
-    create: (handle) =>
+    create: (box) =>
       defineConversationSandbox({
         modules: built.modules,
         spec: built.spec,
@@ -393,7 +400,7 @@ export async function warmTanstackWorkspaceChat(
         runToken: session.runToken,
         proxyUrl: session.proxyUrl,
         modelBase: built.contract.modelBase,
-        handle,
+        handle: box,
       }),
   })
   const ensureStarted = Date.now()
@@ -401,13 +408,16 @@ export async function warmTanstackWorkspaceChat(
     if (typeof definition.ensure !== "function") {
       return { ok: false, status: 503, error: "sandbox ensure is unavailable" }
     }
-    await definition.ensure({
-      threadId: input.conversationId,
-      runId: input.runId ?? `prepare-${input.conversationId}`,
-      store: built.instances,
-      tenant: { orgId: input.orgId },
-      adapterName: "opencode",
-    })
+    const ready = asTanstackLikeHandle(
+      await definition.ensure({
+        threadId: input.conversationId,
+        runId: input.runId ?? `prepare-${input.conversationId}`,
+        store: built.instances,
+        tenant: { orgId: input.orgId },
+        adapterName: "opencode",
+      }),
+    )
+    if (ready) handle.current = ready
     log.info({
       step: "workspace-chat-timing",
       phase: "ensure",
@@ -748,7 +758,7 @@ function defineConversationSandbox(input: {
         const session = chatInput.lastBranch?.trim()
         if (session?.startsWith("ctxpipe/chat/") && ready.process?.exec) {
           await ready.process
-            .exec(`git checkout -B ${session}`, { env: {} })
+            .exec(`git checkout -B ${session}`)
             .catch(() => undefined)
         }
         log.info({

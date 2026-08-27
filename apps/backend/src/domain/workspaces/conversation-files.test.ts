@@ -8,10 +8,18 @@ import {
   writeConversationSandboxFile,
 } from "./conversation-files.js"
 
-function fakeHandle(commands: string[], answers: Record<string, string>) {
+function fakeHandle(
+  commands: string[],
+  answers: Record<string, string>,
+  optionsLog?: Array<{ env?: Record<string, string> }>,
+) {
   return {
-    exec: async (command: string) => {
+    exec: async (
+      command: string,
+      options?: { env?: Record<string, string> },
+    ) => {
       commands.push(command)
+      optionsLog?.push(options ?? {})
       for (const [needle, stdout] of Object.entries(answers)) {
         if (command.includes(needle)) {
           return { stdout, stderr: "", exitCode: 0 }
@@ -38,6 +46,17 @@ describe("conversation sandbox files", () => {
     })
     expect(branch).toBe("ctxpipe/chat/conv_1/1")
     expect(commands[0]).toBe("git checkout -B ctxpipe/chat/conv_1/1")
+  })
+
+  it("does not wipe sandbox PATH with an empty exec env", async () => {
+    const commands: string[] = []
+    const optionsLog: Array<{ env?: Record<string, string> }> = []
+    await ensureConversationSessionBranch({
+      conversationId: "conv_1",
+      defaultBranch: "main",
+      handle: fakeHandle(commands, {}, optionsLog),
+    })
+    expect(optionsLog[0]?.env).toBeUndefined()
   })
 
   it("lists tracked and untracked paths", async () => {
