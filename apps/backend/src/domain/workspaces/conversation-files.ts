@@ -51,6 +51,34 @@ export function resolveConversationSandboxHandle(
   return raw ? adaptTanstackHandle(raw) : null
 }
 
+const conversationSandboxTreeAttachFlights = new Map<
+  string,
+  Promise<JobSandboxHandle | null>
+>()
+
+export function resetConversationSandboxTreeAttachFlights(): void {
+  conversationSandboxTreeAttachFlights.clear()
+}
+
+export async function resolveConversationSandboxForTree(input: {
+  conversationId: string
+  attach: boolean
+  warm: () => Promise<JobSandboxHandle | null>
+  resolve?: (conversationId: string) => JobSandboxHandle | null
+}): Promise<JobSandboxHandle | null> {
+  const resolve = input.resolve ?? resolveConversationSandboxHandle
+  const existing = resolve(input.conversationId)
+  if (existing) return existing
+  if (!input.attach) return null
+  const inflight = conversationSandboxTreeAttachFlights.get(input.conversationId)
+  if (inflight) return inflight
+  const flight = input.warm().finally(() => {
+    conversationSandboxTreeAttachFlights.delete(input.conversationId)
+  })
+  conversationSandboxTreeAttachFlights.set(input.conversationId, flight)
+  return flight
+}
+
 async function execGit(
   exec: JobSandboxHandle["exec"],
   command: string,
