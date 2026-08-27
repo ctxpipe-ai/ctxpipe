@@ -1,6 +1,7 @@
 import { OpenAPIHono } from "@hono/zod-openapi"
 import { beforeEach, describe, expect, it, vi } from "vitest"
 import type { AppEnv } from "../../app/env.js"
+
 const getConversationMock = vi.hoisted(() => vi.fn())
 const listConversationsPaginatedMock = vi.hoisted(() => vi.fn())
 const ensureConversationMock = vi.hoisted(() => vi.fn())
@@ -133,9 +134,7 @@ vi.mock("../../domain/workspaces/workspace-chat-turn-runtime.js", () => ({
 const warmTanstackWorkspaceChatMock = vi.hoisted(() =>
   vi.fn(async () => ({ ok: true as const })),
 )
-const conversationHasStoredTurnsMock = vi.hoisted(() =>
-  vi.fn(async () => true),
-)
+const conversationHasStoredTurnsMock = vi.hoisted(() => vi.fn(async () => true))
 const reconstructChatMock = vi.hoisted(() =>
   vi.fn(
     async (
@@ -152,7 +151,8 @@ vi.mock("../../domain/workspaces/tanstack-workspace-chat.js", () => ({
   conversationHasStoredTurns: conversationHasStoredTurnsMock,
 }))
 vi.mock("@tanstack/ai-persistence", async (importOriginal) => {
-  const actual = await importOriginal<typeof import("@tanstack/ai-persistence")>()
+  const actual =
+    await importOriginal<typeof import("@tanstack/ai-persistence")>()
   return {
     ...actual,
     reconstructChat: reconstructChatMock,
@@ -327,7 +327,9 @@ describe("conversations API", () => {
         interrupts: null,
       }),
     )
-    const res = await app().request("/conversations/conv_1/chat?workspaceId=ws_abc")
+    const res = await app().request(
+      "/conversations/conv_1/chat?workspaceId=ws_abc",
+    )
     expect(res.status).toBe(200)
     expect(reconstructChatMock).toHaveBeenCalled()
     const call = reconstructChatMock.mock.calls[0]

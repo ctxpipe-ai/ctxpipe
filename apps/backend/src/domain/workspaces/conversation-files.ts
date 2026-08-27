@@ -39,7 +39,9 @@ export function isConversationSandboxHarnessPath(path: string): boolean {
 }
 
 function isConversationSandboxListedPath(path: string): boolean {
-  return chatPullRequestPathIsSafe(path) && !isConversationSandboxHarnessPath(path)
+  return (
+    chatPullRequestPathIsSafe(path) && !isConversationSandboxHarnessPath(path)
+  )
 }
 
 export function resolveConversationSandboxHandle(
@@ -70,7 +72,9 @@ export async function resolveConversationSandboxForTree(input: {
   const existing = resolve(input.conversationId)
   if (existing) return existing
   if (!input.attach) return null
-  const inflight = conversationSandboxTreeAttachFlights.get(input.conversationId)
+  const inflight = conversationSandboxTreeAttachFlights.get(
+    input.conversationId,
+  )
   if (inflight) return inflight
   const flight = input.warm().finally(() => {
     conversationSandboxTreeAttachFlights.delete(input.conversationId)

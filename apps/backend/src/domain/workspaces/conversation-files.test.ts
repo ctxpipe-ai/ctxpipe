@@ -209,7 +209,9 @@ describe("resolveConversationSandboxForTree", () => {
   })
 
   it("single-flights overlapping attach warms for one conversation", async () => {
-    let resolveWarm: ((handle: ReturnType<typeof fakeHandle>) => void) | undefined
+    let resolveWarm:
+      | ((handle: ReturnType<typeof fakeHandle>) => void)
+      | undefined
     const warm = vi.fn(
       () =>
         new Promise<ReturnType<typeof fakeHandle>>((resolve) => {

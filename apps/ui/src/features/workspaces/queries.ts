@@ -353,7 +353,7 @@ export async function fetchConversationGitTree(
     ":conversationId"
   ].files.tree.$get({
     param: { orgSlug, conversationId },
-    query: options?.attach === false ? { attach: "0" } : undefined,
+    ...(options?.attach === false ? { query: { attach: "0" as const } } : {}),
   })
   return readApiJson(res, { message: "Failed to load conversation files" })
 }
@@ -387,7 +387,7 @@ export async function fetchConversationGitStatus(
     ":conversationId"
   ].files.status.$get({
     param: { orgSlug, conversationId },
-    query: options?.attach === false ? { attach: "0" } : undefined,
+    ...(options?.attach === false ? { query: { attach: "0" as const } } : {}),
   })
   return readApiJson(res, { message: "Failed to load conversation git status" })
 }
@@ -433,8 +433,7 @@ export async function persistConversationFileMutation(
     return
   }
   if (input.op === "create") {
-    const path =
-      input.kind === "folder" ? `${input.path}/.gitkeep` : input.path
+    const path = input.kind === "folder" ? `${input.path}/.gitkeep` : input.path
     await putConversationFile(orgSlug, conversationId, {
       path,
       body: input.content ?? "",
@@ -481,9 +480,9 @@ export async function fetchConversationPullRequest(
   conversationId: string,
 ): Promise<ConversationPullRequestResponse | null> {
   const client = await getApiClient()
-  const res = await client[":orgSlug"].api.v1.conversations[
-    ":conversationId"
-  ]["pull-request"].$get({
+  const res = await client[":orgSlug"].api.v1.conversations[":conversationId"][
+    "pull-request"
+  ].$get({
     param: { orgSlug, conversationId },
   })
   return readApiJson(res, {
@@ -499,9 +498,9 @@ export async function createConversationPullRequest(
   input?: { title?: string; body?: string },
 ): Promise<ConversationPullRequestResponse> {
   const client = await getApiClient()
-  const res = await client[":orgSlug"].api.v1.conversations[
-    ":conversationId"
-  ]["pull-request"].$post({
+  const res = await client[":orgSlug"].api.v1.conversations[":conversationId"][
+    "pull-request"
+  ].$post({
     param: { orgSlug, conversationId },
     json: input ?? {},
   })
@@ -516,9 +515,14 @@ export function conversationGitTreeOptions(
   orgSlug: string,
   conversationId: string,
 ) {
-  return queryOptions({
+  return queryOptions<
+    ConversationGitTreeResponse,
+    Error,
+    ConversationGitTreeResponse,
+    ReturnType<typeof workspaceKeys.conversationGitTree>
+  >({
     queryKey: workspaceKeys.conversationGitTree(orgSlug, conversationId),
-    queryFn: async ({ client }) => {
+    queryFn: async ({ client }): Promise<ConversationGitTreeResponse> => {
       const live =
         client.getQueryData<boolean>(
           workspaceKeys.conversationChatLive(orgSlug, conversationId),
@@ -535,18 +539,15 @@ export function conversationGitTreeOptions(
         writeConversationGitTreeSnapshot(conversationId, tree)
         return tree
       } catch (error) {
-        if (
-          !attach &&
-          error instanceof ApiError &&
-          error.status === 409
-        ) {
+        if (!attach && error instanceof ApiError && error.status === 409) {
           if (cached) return cached
           if (snapshot) return snapshot
         }
         throw error
       }
     },
-    placeholderData: () => readConversationGitTreeSnapshot(conversationId),
+    placeholderData: (): ConversationGitTreeResponse | undefined =>
+      readConversationGitTreeSnapshot(conversationId),
     retry: retrySandboxUntilReady,
     retryDelay: 1000,
   })
@@ -567,9 +568,14 @@ export function conversationGitStatusOptions(
   orgSlug: string,
   conversationId: string,
 ) {
-  return queryOptions({
+  return queryOptions<
+    ConversationGitStatusResponse,
+    Error,
+    ConversationGitStatusResponse,
+    ReturnType<typeof workspaceKeys.conversationGitStatus>
+  >({
     queryKey: workspaceKeys.conversationGitStatus(orgSlug, conversationId),
-    queryFn: async ({ client }) => {
+    queryFn: async ({ client }): Promise<ConversationGitStatusResponse> => {
       const live =
         client.getQueryData<boolean>(
           workspaceKeys.conversationChatLive(orgSlug, conversationId),

@@ -17,7 +17,9 @@ export function conversationChatRunIsLive(status: string | undefined): boolean {
   return status === "submitted" || status === "streaming"
 }
 
-export function conversationToolLooksLikeWrite(toolName: string | undefined): boolean {
+export function conversationToolLooksLikeWrite(
+  toolName: string | undefined,
+): boolean {
   const name = (toolName ?? "").toLowerCase()
   return (
     WRITE_TOOL_NAMES.some((tool) => name === tool) ||
@@ -32,7 +34,9 @@ export function conversationTreeRefetchInterval(live: boolean) {
   }
 }
 
-export function sanitizeConversationWritePath(raw: string | undefined): string | null {
+export function sanitizeConversationWritePath(
+  raw: string | undefined,
+): string | null {
   const trimmed = raw?.trim()
   if (!trimmed) return null
   if (trimmed.startsWith("/") || trimmed.includes("..")) return null
@@ -41,7 +45,8 @@ export function sanitizeConversationWritePath(raw: string | undefined): string |
   if (posix.startsWith("/dev/") || posix === "/dev/null") return null
   if (
     HARNESS_WRITE_PREFIXES.some(
-      (prefix) => posix === prefix.replace(/\/$/, "") || posix.startsWith(prefix),
+      (prefix) =>
+        posix === prefix.replace(/\/$/, "") || posix.startsWith(prefix),
     )
   ) {
     return null
@@ -61,10 +66,13 @@ function unquoteBashToken(token: string): string {
 }
 
 /** Destination of `>`, `>>`, `tee`/`tee -a`, or `touch` in a bash command. */
-export function conversationWritePathFromBash(command: string | undefined): string | null {
+export function conversationWritePathFromBash(
+  command: string | undefined,
+): string | null {
   if (!command) return null
   const quotedRedirect = command.match(/(?:>>|>)\s*(['"])([^'"]+)\1/)
-  if (quotedRedirect?.[2]) return sanitizeConversationWritePath(quotedRedirect[2])
+  if (quotedRedirect?.[2])
+    return sanitizeConversationWritePath(quotedRedirect[2])
   const bareRedirect = command.match(/(?:>>|>)\s*([^\s;&|<>]+)/)
   if (bareRedirect?.[1]) {
     return sanitizeConversationWritePath(unquoteBashToken(bareRedirect[1]))
@@ -72,7 +80,8 @@ export function conversationWritePathFromBash(command: string | undefined): stri
   const tee = command.match(/\btee(?:\s+-a)?\s+((['"])([^'"]+)\2|[^\s;&|<>]+)/)
   if (tee?.[1]) return sanitizeConversationWritePath(unquoteBashToken(tee[1]))
   const touch = command.match(/\btouch\s+((['"])([^'"]+)\2|[^\s;&|<>]+)/)
-  if (touch?.[1]) return sanitizeConversationWritePath(unquoteBashToken(touch[1]))
+  if (touch?.[1])
+    return sanitizeConversationWritePath(unquoteBashToken(touch[1]))
   return null
 }
 
@@ -116,7 +125,11 @@ function toolInputOf(part: {
   input?: unknown
   data?: unknown
 }): Record<string, unknown> | undefined {
-  if (part.input && typeof part.input === "object" && !Array.isArray(part.input)) {
+  if (
+    part.input &&
+    typeof part.input === "object" &&
+    !Array.isArray(part.input)
+  ) {
     return part.input as Record<string, unknown>
   }
   if (part.data && typeof part.data === "object" && !Array.isArray(part.data)) {
@@ -133,7 +146,10 @@ export function conversationWriteToolPaths(
   for (const message of messages) {
     for (const part of message.parts) {
       if (!isToolPart(part)) continue
-      const path = conversationWritePathFromTool(toolNameOf(part), toolInputOf(part))
+      const path = conversationWritePathFromTool(
+        toolNameOf(part),
+        toolInputOf(part),
+      )
       if (path && !seen.has(path)) {
         seen.add(path)
         paths.push(path)
@@ -188,7 +204,9 @@ export function addOptimisticConversationTreePath(
   return {
     sha,
     branch,
-    paths: [...paths, nextPath].sort((left, right) => left.localeCompare(right)),
+    paths: [...paths, nextPath].sort((left, right) =>
+      left.localeCompare(right),
+    ),
   }
 }
 

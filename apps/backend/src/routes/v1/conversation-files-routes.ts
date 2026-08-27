@@ -1,6 +1,8 @@
 import { createRoute, OpenAPIHono, z } from "@hono/zod-openapi"
 import type { AppEnv } from "../../app/env.js"
 import { parseEnv } from "../../config/env.js"
+import { conversationSessionBranch as sessionBranchName } from "../../domain/workspaces/chat-lifecycle.js"
+import { workspaceAllowsConversationEdits } from "../../domain/workspaces/chat-sandbox-policy.js"
 import {
   conversationSandboxDiff,
   conversationSandboxStatus,
@@ -8,9 +10,9 @@ import {
   listConversationSandboxPaths,
   readConversationSandboxFile,
   removeConversationSandboxPath,
+  renameConversationSandboxPath,
   resolveConversationSandboxForTree,
   resolveConversationSandboxHandle,
-  renameConversationSandboxPath,
   writeConversationSandboxFile,
 } from "../../domain/workspaces/conversation-files.js"
 import {
@@ -18,15 +20,16 @@ import {
   conversationGithubTreeUrl,
   pushConversationSessionBranch,
 } from "../../domain/workspaces/conversation-publish.js"
-import { workspaceAllowsConversationEdits } from "../../domain/workspaces/chat-sandbox-policy.js"
-import { conversationSessionBranch as sessionBranchName } from "../../domain/workspaces/chat-lifecycle.js"
 import { attachChatSandboxHandle } from "../../domain/workspaces/sandbox-registry.js"
 import { warmTanstackWorkspaceChat } from "../../domain/workspaces/tanstack-workspace-chat.js"
 import { resolveWorkspaceChatTurnRuntime } from "../../domain/workspaces/workspace-chat-turn-runtime.js"
-import { getConversation, persistConversationLastBranch } from "../../models/conversations.js"
+import { githubRepoFullNameFromWorkspaceUrl } from "../../domain/workspaces/write-status.js"
+import {
+  getConversation,
+  persistConversationLastBranch,
+} from "../../models/conversations.js"
 import { getInstallationToken } from "../../models/github-installation.js"
 import { getWorkspaceById } from "../../models/workspaces.js"
-import { githubRepoFullNameFromWorkspaceUrl } from "../../domain/workspaces/write-status.js"
 import { resolveGithubDefaultBranch } from "../webhooks/github/github-workspace-tip.js"
 
 const ErrorResponseSchema = z
@@ -234,7 +237,9 @@ const putFileRoute = createRoute({
   request: {
     params: ConversationParamsSchema,
     body: {
-      content: { "application/json": { schema: PutConversationFileBodySchema } },
+      content: {
+        "application/json": { schema: PutConversationFileBodySchema },
+      },
     },
   },
   responses: {
@@ -349,7 +354,9 @@ async function warmConversationSandbox(input: ConversationSandboxAttachInput) {
   return resolveConversationSandboxHandle(input.conversation.id)
 }
 
-async function attachConversationSandbox(input: ConversationSandboxAttachInput) {
+async function attachConversationSandbox(
+  input: ConversationSandboxAttachInput,
+) {
   return resolveConversationSandboxForTree({
     conversationId: input.conversation.id,
     attach: true,
@@ -358,7 +365,12 @@ async function attachConversationSandbox(input: ConversationSandboxAttachInput) 
 }
 
 async function readySandboxHandle(input: {
-  conversation: { id: string; orgId: string; workspaceId: string | null; lastBranch: string | null }
+  conversation: {
+    id: string
+    orgId: string
+    workspaceId: string | null
+    lastBranch: string | null
+  }
   workspace: {
     id: string
     orgId: string

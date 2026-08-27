@@ -26,6 +26,10 @@ import {
 import { entryPageInnerDecorators } from "../../../.storybook/decorators/entry-page-decorators"
 import type { StoryRouteParams } from "../../../.storybook/decorators/with-story-route"
 import {
+  clearAllConversationGitTreeSnapshots,
+  writeConversationGitTreeSnapshot,
+} from "./conversation-git-tree-snapshot"
+import {
   closeFileTab,
   type FileTabSession,
   pinFile,
@@ -33,10 +37,6 @@ import {
   seedFileTabSession,
   tabsIncludingPanePath,
 } from "./fileTabs"
-import {
-  clearAllConversationGitTreeSnapshots,
-  writeConversationGitTreeSnapshot,
-} from "./conversation-git-tree-snapshot"
 import { type ParsedPane, parsePane, serializePane } from "./pane"
 import { workspaceKeys } from "./queries"
 import { WorkspacePane } from "./WorkspacePane"

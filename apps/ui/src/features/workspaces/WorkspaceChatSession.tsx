@@ -121,7 +121,9 @@ export function WorkspaceChatSession(props: {
   const navigate = useNavigate()
   const sendFailedRef = useRef(false)
   const committedRef = useRef(false)
-  const pendingToolCallsRef = useRef(new Map<string, PendingConversationToolCall>())
+  const pendingToolCallsRef = useRef(
+    new Map<string, PendingConversationToolCall>(),
+  )
   const [headerTitle, setHeaderTitle] = useState(title)
   const [seenTitle, setSeenTitle] = useState(title)
   const [sandboxPhase, setSandboxPhase] = useState<SandboxPhase>("idle")
@@ -226,7 +228,10 @@ export function WorkspaceChatSession(props: {
             : old,
       )
       void queryClient.invalidateQueries({
-        queryKey: workspaceKeys.conversationPullRequest(orgSlug, conversationId),
+        queryKey: workspaceKeys.conversationPullRequest(
+          orgSlug,
+          conversationId,
+        ),
       })
       void queryClient.invalidateQueries({
         queryKey: workspaceKeys.conversationGitStatus(orgSlug, conversationId),
@@ -253,7 +258,10 @@ export function WorkspaceChatSession(props: {
       if (phase) setSandboxPhase(phase)
       if (phase === "ready") {
         void queryClient.invalidateQueries({
-          queryKey: workspaceKeys.conversationGitStatus(orgSlug, conversationId),
+          queryKey: workspaceKeys.conversationGitStatus(
+            orgSlug,
+            conversationId,
+          ),
         })
         void queryClient.invalidateQueries({
           queryKey: workspaceKeys.conversationGitTree(orgSlug, conversationId),
@@ -300,7 +308,10 @@ export function WorkspaceChatSession(props: {
       }
       if (write.writeEnded) {
         void queryClient.invalidateQueries({
-          queryKey: workspaceKeys.conversationGitStatus(orgSlug, conversationId),
+          queryKey: workspaceKeys.conversationGitStatus(
+            orgSlug,
+            conversationId,
+          ),
         })
         void queryClient.invalidateQueries({
           queryKey: workspaceKeys.conversationGitTree(orgSlug, conversationId),
@@ -326,7 +337,10 @@ export function WorkspaceChatSession(props: {
             ),
           })
           void queryClient.invalidateQueries({
-            queryKey: workspaceKeys.conversationGitTree(orgSlug, conversationId),
+            queryKey: workspaceKeys.conversationGitTree(
+              orgSlug,
+              conversationId,
+            ),
           })
         }
       }
@@ -469,11 +483,11 @@ export function WorkspaceChatSession(props: {
                 conversationSessionBranch(conversationId),
               href: statusQuery.data?.published
                 ? (props.conversation?.branchTreeUrl ??
-                    conversationGithubTreeHref(
-                      workspace.workspaceRepositoryUrl,
-                      props.conversation?.lastBranch ??
-                        conversationSessionBranch(conversationId),
-                    ))
+                  conversationGithubTreeHref(
+                    workspace.workspaceRepositoryUrl,
+                    props.conversation?.lastBranch ??
+                      conversationSessionBranch(conversationId),
+                  ))
                 : null,
             }
           : null
