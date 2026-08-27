@@ -1,3 +1,4 @@
+import { QueryClient } from "@tanstack/react-query"
 import { HttpResponse, http } from "msw"
 import { setupServer } from "msw/node"
 import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest"
@@ -178,12 +179,18 @@ describe("workspace query HTTP helpers", () => {
           }),
       ),
     )
-    const tree = await conversationGitTreeOptions("acme", "conv_1").queryFn()
+    const options = conversationGitTreeOptions("acme", "conv_1")
+    const queryClient = new QueryClient({
+      defaultOptions: { queries: { retry: false } },
+    })
+    const tree = await queryClient.fetchQuery(options)
     expect(tree.paths).toEqual(["e2e-live-note.md"])
     expect(readConversationGitTreeSnapshot("conv_1")).toEqual(tree)
-    expect(conversationGitTreeOptions("acme", "conv_1").placeholderData?.()).toEqual(
-      tree,
-    )
+    const placeholder = options.placeholderData
+    expect(typeof placeholder).toBe("function")
+    if (typeof placeholder === "function") {
+      expect(placeholder(undefined, undefined)).toEqual(tree)
+    }
     clearAllConversationGitTreeSnapshots()
   })
 })
