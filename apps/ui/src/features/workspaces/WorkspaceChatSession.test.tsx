@@ -204,7 +204,6 @@ describe("WorkspaceChatSession compose failure", () => {
       expect.objectContaining({
         threadId: "conv_pending",
         persistence: true,
-        initialMessages: [],
         connection: { kind: "official-ws", warm: expect.any(Function) },
         forwardedProps: {
           workspaceId: readOnlyWorkspace.id,
@@ -212,7 +211,34 @@ describe("WorkspaceChatSession compose failure", () => {
         },
       }),
     )
+    expect(useChatMock.mock.calls[0]?.[0]).not.toHaveProperty("initialMessages")
     expect(navigateMock).not.toHaveBeenCalled()
+  })
+
+  it("hydrates a stored thread without seeding initialMessages", () => {
+    const queryClient = new QueryClient({
+      defaultOptions: { queries: { retry: false } },
+    })
+    renderToStaticMarkup(
+      <QueryClientProvider client={queryClient}>
+        <WorkspaceChatSession
+          orgSlug="acme"
+          workspace={readOnlyWorkspace}
+          conversationId="conv_1"
+          composing={false}
+          title="Ledger"
+        />
+      </QueryClientProvider>,
+    )
+    expect(useChatMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        threadId: "conv_1",
+        persistence: true,
+      }),
+    )
+    expect(useChatMock.mock.calls.at(-1)?.[0]).not.toHaveProperty(
+      "initialMessages",
+    )
   })
 
   it("paints one new assistant bubble on top of stored turns", () => {

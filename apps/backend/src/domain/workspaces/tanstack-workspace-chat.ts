@@ -86,7 +86,10 @@ import {
   finishWorkspaceChatTurn,
   markWorkspaceChatFirstShownToken,
 } from "./workspace-chat-otel.js"
-import { workspaceChatPersistence } from "./workspace-chat-persistence.js"
+import {
+  completePersistedWorkspaceChatRun,
+  workspaceChatPersistence,
+} from "./workspace-chat-persistence.js"
 import {
   memoizedChatProvider,
   memoizedConversationSandbox,
@@ -127,6 +130,7 @@ export type TanstackWorkspaceChatInput = {
   wireFormat?: WorkspaceChatWireFormat
   streamSetupMs?: number
   streamIdleMs?: number
+  streamDrainMs?: number
 }
 
 export { conversationRenameChunk } from "./workspace-chat-agui.js"
@@ -321,6 +325,13 @@ async function* streamTanstackWorkspaceChatBody(
     for await (const chunk of takeWorkspaceChatProducer(prepared.stream, {
       setupMs: turn.streamSetupMs,
       idleMs: turn.streamIdleMs,
+      drainMs: turn.streamDrainMs,
+      afterTerminal: (chunk) => {
+        if ((chunk as { type?: string }).type !== "RUN_FINISHED") return
+        return completePersistedWorkspaceChatRun(
+          turn.threadId ?? turn.conversationId,
+        ).catch(() => undefined)
+      },
     })) {
       const typed = chunk as StreamChunk
       if (typed.type === "RUN_ERROR") {
@@ -522,7 +533,7 @@ async function startWorkspaceChat(input: TanstackWorkspaceChatInput): Promise<
         otelMiddleware({
           tracer: trace.getTracer("ctxpipe-workspace-chat"),
         }),
-        withPersistence(persistence),
+        withPersistence(persistence, { snapshotStreaming: true }),
         modules.withSandbox(definition, {
           instances,
           snapshots,

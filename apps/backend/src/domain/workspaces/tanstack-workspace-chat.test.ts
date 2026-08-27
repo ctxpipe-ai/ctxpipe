@@ -150,6 +150,7 @@ vi.mock("./workspace-chat-persistence.js", () => ({
       },
     },
   }),
+  completePersistedWorkspaceChatRun: async () => {},
 }))
 vi.mock("../../graphs/conversationGraph/nodes/conversationNaming.js", () => ({
   nameConversationIfUnnamed: nameConversationIfUnnamedMock,
@@ -289,7 +290,9 @@ describe("runTanstackWorkspaceChat", () => {
       "ctxpipe/openai/gpt-5.6-terra",
       expect.objectContaining({ permissionMode: "acceptEdits", port: 4096 }),
     )
-    expect(withPersistenceMock).toHaveBeenCalled()
+    expect(withPersistenceMock).toHaveBeenCalledWith(expect.anything(), {
+      snapshotStreaming: true,
+    })
     expect(withSandboxMock).toHaveBeenCalledWith(
       expect.anything(),
       expect.objectContaining({

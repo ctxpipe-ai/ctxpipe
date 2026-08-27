@@ -101,7 +101,7 @@ export function WorkspaceChatSession(props: {
   conversationId: string
   composing: boolean
   title: string
-  initialMessages: ConversationDetail["messages"]
+  initialMessages?: ConversationDetail["messages"]
   draftSeed?: string | null
   autoSendDraft?: boolean
   conversation?: ConversationListItem
@@ -243,7 +243,9 @@ export function WorkspaceChatSession(props: {
     threadId: conversationId,
     connection,
     persistence: true,
-    initialMessages: initialMessages as UIMessage[],
+    ...(initialMessages && initialMessages.length > 0
+      ? { initialMessages: initialMessages as UIMessage[] }
+      : {}),
     forwardedProps: {
       workspaceId: workspace.id,
       source: "ui",

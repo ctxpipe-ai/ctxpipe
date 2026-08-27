@@ -134,6 +134,7 @@ vi.mock("./workspace-chat-persistence.js", () => ({
       },
     },
   }),
+  completePersistedWorkspaceChatRun: async () => {},
 }))
 vi.mock("../../graphs/conversationGraph/nodes/conversationNaming.js", () => ({
   nameConversationIfUnnamed: vi.fn().mockResolvedValue(null),

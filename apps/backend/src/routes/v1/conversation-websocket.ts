@@ -1,8 +1,3 @@
-import {
-  memoryStream,
-  toWebSocketStream,
-  type WebSocketLike,
-} from "@tanstack/ai"
 import { and, eq } from "drizzle-orm"
 import { getAuth } from "../../auth/config.js"
 import { withUserIdContext } from "../../auth/context.js"
@@ -24,32 +19,22 @@ import {
 } from "../../domain/workspaces/workspace-chat-send-runtime.js"
 import { discardUnstartedConversation } from "../../models/conversations.js"
 import { createLogger, log, loggerStorage } from "../../observability/logger.js"
+import {
+  type BunWebSocketLike,
+  bunSocketToWebSocketLike,
+  isWorkspaceChatWebSocketRequest,
+  parseConversationWebSocketUpgradeUrl,
+  startConversationChatSocket,
+} from "./conversation-websocket-stream.js"
 
-const WORKSPACE_CHAT_WS_PATH =
-  /^\/([^/]+)\/api\/v1\/conversations\/([^/]+)(?:\/stream)?$/
-
-export function parseConversationWebSocketUpgradeUrl(
-  url: string,
-): { orgSlug: string; conversationId: string } | null {
-  let parsed: URL
-  try {
-    parsed = new URL(url)
-  } catch {
-    return null
-  }
-  const match = parsed.pathname.match(WORKSPACE_CHAT_WS_PATH)
-  const orgSlug = match?.[1]
-  const conversationId = match?.[2]
-  if (!orgSlug || !conversationId) return null
-  return { orgSlug, conversationId }
-}
-
-export function isWorkspaceChatWebSocketRequest(request: Request): boolean {
-  if (request.headers.get("upgrade")?.toLowerCase() !== "websocket") {
-    return false
-  }
-  return WORKSPACE_CHAT_WS_PATH.test(new URL(request.url).pathname)
-}
+export {
+  type BunWebSocketLike,
+  bunSocketToWebSocketLike,
+  conversationWebSocketHasResumeOffset,
+  isWorkspaceChatWebSocketRequest,
+  parseConversationWebSocketUpgradeUrl,
+  startConversationChatSocket,
+} from "./conversation-websocket-stream.js"
 
 export type ConversationWebSocketData = {
   kind: "workspace-chat"
@@ -73,52 +58,6 @@ type ChatSocket = {
   readyState: number
   send: (data: string) => void
   close: (code?: number, reason?: string) => void
-}
-
-type MessageHandler = (ev: { data: unknown }) => void
-type CloseHandler = () => void
-
-export type BunWebSocketLike = WebSocketLike & {
-  dispatchMessage: (data: string) => void
-  dispatchClose: () => void
-  dispatchError: () => void
-}
-
-export function bunSocketToWebSocketLike(ws: {
-  send: (data: string) => void
-  close: (code?: number, reason?: string) => void
-}): BunWebSocketLike {
-  const messageHandlers: MessageHandler[] = []
-  const closeHandlers: CloseHandler[] = []
-  const errorHandlers: CloseHandler[] = []
-  return {
-    send: (data) => {
-      ws.send(data)
-    },
-    close: (code, reason) => {
-      ws.close(code, reason)
-    },
-    addEventListener(type, handler) {
-      if (type === "message") {
-        messageHandlers.push(handler as MessageHandler)
-        return
-      }
-      if (type === "close") {
-        closeHandlers.push(handler as CloseHandler)
-        return
-      }
-      errorHandlers.push(handler as CloseHandler)
-    },
-    dispatchMessage(data) {
-      for (const handler of messageHandlers) handler({ data })
-    },
-    dispatchClose() {
-      for (const handler of closeHandlers) handler()
-    },
-    dispatchError() {
-      for (const handler of errorHandlers) handler()
-    },
-  }
 }
 
 export async function handleConversationWebSocket(
@@ -190,21 +129,19 @@ export const conversationWebSocketHandlers = {
     like.close = (code, reason) => {
       ws.close(code, reason)
     }
-    toWebSocketStream(like, ws.data.request, {
-      durability: (ctx) => memoryStream(ctx.request),
-      onRun: (ctx) =>
-        streamWorkspaceChatSocketTurn({
-          conversationId: ws.data.conversationId,
-          orgId: ws.data.orgId,
-          orgSlug: ws.data.orgSlug,
-          userId: ws.data.userId,
-          messages: ctx.messages,
-          threadId: ctx.threadId,
-          runId: ctx.runId,
-          forwardedProps: ctx.forwardedProps,
-          signal: ctx.signal,
-        }),
-    })
+    startConversationChatSocket(like, ws.data.request, (ctx) =>
+      streamWorkspaceChatSocketTurn({
+        conversationId: ws.data.conversationId,
+        orgId: ws.data.orgId,
+        orgSlug: ws.data.orgSlug,
+        userId: ws.data.userId,
+        messages: ctx.messages,
+        threadId: ctx.threadId,
+        runId: ctx.runId,
+        forwardedProps: ctx.forwardedProps,
+        signal: ctx.signal,
+      }),
+    )
   },
 
   message(ws: ChatSocket, raw: string | ArrayBuffer | Uint8Array) {
@@ -246,8 +183,7 @@ async function* streamWorkspaceChatSocketTurn(input: {
   } catch (error) {
     log.error({
       step: "workspace-chat-ws-parse",
-      message:
-        error instanceof Error ? error.message : String(error),
+      message: error instanceof Error ? error.message : String(error),
     })
     yield workspaceChatRunError("Invalid AG-UI frame")
     return

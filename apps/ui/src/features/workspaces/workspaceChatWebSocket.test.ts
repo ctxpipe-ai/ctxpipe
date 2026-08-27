@@ -1,5 +1,7 @@
 import { afterEach, describe, expect, it, vi } from "vitest"
 import {
+  shouldReuseWarmedWorkspaceChatSocket,
+  workspaceChatSocketIsResume,
   workspaceChatSocketPath,
   workspaceChatWebSocket,
 } from "./workspaceChatWebSocket"
@@ -35,5 +37,17 @@ describe("workspaceChatWebSocket hydrate", () => {
       "/acme/api/v1/conversations/conv_1/chat?threadId=conv_1",
       expect.objectContaining({ credentials: "include" }),
     )
+  })
+})
+
+describe("workspace chat websocket reuse", () => {
+  it("does not reuse a warmed socket for a resume handshake", () => {
+    const warmed =
+      "wss://app.ctxpipe.localhost/acme/api/v1/conversations/conv_1"
+    const resume =
+      "wss://app.ctxpipe.localhost/acme/api/v1/conversations/conv_1?runId=run_1&offset=3"
+    expect(workspaceChatSocketIsResume(resume)).toBe(true)
+    expect(shouldReuseWarmedWorkspaceChatSocket(warmed, resume)).toBe(false)
+    expect(shouldReuseWarmedWorkspaceChatSocket(warmed, warmed)).toBe(true)
   })
 })

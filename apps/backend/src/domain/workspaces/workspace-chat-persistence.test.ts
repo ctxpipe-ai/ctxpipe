@@ -10,11 +10,14 @@ import {
   withOrgDbContext,
 } from "../../db/client.js"
 import { organizations } from "../../db/schema/auth.js"
-import { chatThreads } from "../../db/schema/chat-persistence.js"
+import { chatRuns, chatThreads } from "../../db/schema/chat-persistence.js"
 import { conversations } from "../../db/schema/conversations.js"
 import { workspaces } from "../../db/schema/workspaces.js"
 import type { ModelMessage } from "@tanstack/ai"
-import { workspaceChatPersistence } from "./workspace-chat-persistence.js"
+import {
+  completePersistedWorkspaceChatRun,
+  workspaceChatPersistence,
+} from "./workspace-chat-persistence.js"
 
 config({
   path: resolve(import.meta.dirname, "../../../.env.local"),
@@ -63,6 +66,7 @@ beforeAll(async () => {
 afterAll(async () => {
   try {
     await withOrgDbContext(org.id, async (db) => {
+      await db.delete(chatRuns).where(eq(chatRuns.threadId, conversationId))
       await db.delete(chatThreads).where(eq(chatThreads.threadId, conversationId))
       await db.delete(conversations).where(eq(conversations.id, conversationId))
       await db.delete(workspaces).where(eq(workspaces.id, workspaceId))
@@ -87,6 +91,28 @@ describe("workspaceChatPersistence", () => {
       await persistence.stores.messages.saveThread(conversationId, messages)
       const loaded = await persistence.stores.messages.loadThread(conversationId)
       expect(loaded).toEqual(messages)
+    })
+  })
+
+  it("marks the active run completed after the client saw RUN_FINISHED", async () => {
+    const persistence = workspaceChatPersistence()
+    const runId = `${conversationId}_run`
+    await withOrgIdContext({ id: org.id, slug: org.slug }, async () => {
+      await persistence.stores.runs.createOrResume({
+        runId,
+        threadId: conversationId,
+        startedAt: Date.now(),
+        status: "running",
+      })
+      expect(await persistence.stores.runs.findActiveRun(conversationId)).toMatchObject(
+        { runId, status: "running" },
+      )
+      await completePersistedWorkspaceChatRun(conversationId)
+      expect(await persistence.stores.runs.findActiveRun(conversationId)).toBeNull()
+      await expect(persistence.stores.runs.get(runId)).resolves.toMatchObject({
+        runId,
+        status: "completed",
+      })
     })
   })
 })

@@ -105,6 +105,8 @@ export function isWorkspaceChatRenameChunk(chunk: object): string | null {
 export const WORKSPACE_CHAT_STREAM_SETUP_MS = 180_000
 /** Reasoning + tool turns can sit silent longer than a short idle window. */
 export const WORKSPACE_CHAT_STREAM_IDLE_MS = 180_000
+/** Let chat() reach withPersistence onFinish after RUN_FINISHED, then abort. */
+export const WORKSPACE_CHAT_STREAM_DRAIN_MS = 2_000
 
 export function isWorkspaceChatTerminalChunk(chunk: object): boolean {
   const type = (chunk as { type?: string }).type
@@ -146,21 +148,44 @@ export async function* withWorkspaceChatHeartbeats(
   }
 }
 
+async function drainProducerAfterTerminal(
+  iterator: AsyncIterator<object>,
+  drainMs: number,
+): Promise<void> {
+  if (drainMs <= 0) return
+  let pending = iterator.next()
+  for (;;) {
+    let timeout: ReturnType<typeof setTimeout> | undefined
+    const raced = await Promise.race([
+      pending.then((result) => ({ kind: "chunk" as const, result })),
+      new Promise<{ kind: "timeout" }>((resolve) => {
+        timeout = setTimeout(() => resolve({ kind: "timeout" }), drainMs)
+      }),
+    ])
+    if (timeout) clearTimeout(timeout)
+    if (raced.kind === "timeout") return
+    if (raced.result.done) return
+    pending = iterator.next()
+  }
+}
+
 /**
  * Drive an OpenCode/TanStack producer until it finishes or goes silent.
  * Stock `@tanstack/ai-opencode` can keep `mergeChunkStreams` open after
- * `RUN_FINISHED`; stop there so the turn claim can release.
+ * `RUN_FINISHED`; drain briefly so withPersistence can commit, then stop.
  */
 export async function* takeWorkspaceChatProducer(
   stream: AsyncIterable<object>,
   input?: {
     setupMs?: number
     idleMs?: number
-    afterTerminal?: () => Promise<void> | void
+    drainMs?: number
+    afterTerminal?: (chunk: object) => Promise<void> | void
   },
 ): AsyncGenerator<object> {
   const setupMs = input?.setupMs ?? WORKSPACE_CHAT_STREAM_SETUP_MS
   const idleMs = input?.idleMs ?? WORKSPACE_CHAT_STREAM_IDLE_MS
+  const drainMs = input?.drainMs ?? WORKSPACE_CHAT_STREAM_DRAIN_MS
   const iterator = stream[Symbol.asyncIterator]()
   let stallMs = setupMs
   try {
@@ -181,8 +206,8 @@ export async function* takeWorkspaceChatProducer(
       const chunk = raced.result.value
       yield chunk
       if (isWorkspaceChatTerminalChunk(chunk)) {
-        // Keep the producer (and model proxy) open while OpenCode finishes.
-        await input?.afterTerminal?.()
+        await drainProducerAfterTerminal(iterator, drainMs)
+        await input?.afterTerminal?.(chunk)
         return
       }
       stallMs = idleMs

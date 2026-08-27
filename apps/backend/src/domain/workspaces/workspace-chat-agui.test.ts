@@ -98,6 +98,7 @@ describe("workspace chat AG-UI", () => {
         for await (const chunk of takeWorkspaceChatProducer(hangAfterFinish(), {
           setupMs: 200,
           idleMs: 200,
+          drainMs: 20,
         })) {
           types.push((chunk as { type: string }).type)
         }
@@ -107,6 +108,27 @@ describe("workspace chat AG-UI", () => {
       ),
     ])
     expect(types).toEqual(["TEXT_MESSAGE_CONTENT", "RUN_FINISHED"])
+  })
+
+  it("drains the producer after RUN_FINISHED so persistence can finish", async () => {
+    let completed = false
+    async function* finishCleanly(): AsyncGenerator<object> {
+      yield { type: "TEXT_MESSAGE_CONTENT", delta: "ok" }
+      yield { type: "RUN_FINISHED" }
+      completed = true
+    }
+    let afterTerminal = false
+    for await (const _chunk of takeWorkspaceChatProducer(finishCleanly(), {
+      drainMs: 200,
+      afterTerminal: () => {
+        afterTerminal = true
+        expect(completed).toBe(true)
+      },
+    })) {
+      /* drain */
+    }
+    expect(completed).toBe(true)
+    expect(afterTerminal).toBe(true)
   })
 
   it("errors when the producer goes silent after the first chunk", async () => {

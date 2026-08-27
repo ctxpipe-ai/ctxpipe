@@ -60,7 +60,6 @@ export function WorkspaceChat(props: {
         conversationId={composeId}
         composing={!routeConversationId}
         title="New conversation"
-        initialMessages={[]}
         draftSeed={homeDraft}
         autoSendDraft={homeDraft != null}
         headerExtra={props.headerExtra}
@@ -170,7 +169,6 @@ function WorkspaceChatResume(props: {
         conversationId={conversationId}
         composing={false}
         title={detail.conversation.name || "New conversation"}
-        initialMessages={detail.messages}
         conversation={detail.conversation}
         headerExtra={props.headerExtra}
       />

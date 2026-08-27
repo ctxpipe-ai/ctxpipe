@@ -371,3 +371,20 @@ export function workspaceChatPersistence() {
     },
   })
 }
+
+/** Mark a detachable run completed after the client already saw RUN_FINISHED. */
+export async function completePersistedWorkspaceChatRun(
+  threadId: string,
+  persistence: {
+    stores: {
+      runs: Pick<RunStore, "findActiveRun" | "update">
+    }
+  } = workspaceChatPersistence(),
+) {
+  const active = await persistence.stores.runs.findActiveRun(threadId)
+  if (!active) return
+  await persistence.stores.runs.update(active.runId, {
+    status: "completed",
+    finishedAt: Date.now(),
+  })
+}

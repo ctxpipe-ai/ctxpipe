@@ -41,7 +41,7 @@ export function workspaceChatWebSocket(
     if (
       warmed &&
       warmed.readyState <= WebSocket.OPEN &&
-      sameWebSocketPath(warmed.url, target)
+      shouldReuseWarmedWorkspaceChatSocket(warmed.url, target)
     ) {
       return warmed
     }
@@ -86,6 +86,27 @@ export function workspaceChatWebSocket(
       warmed = new WebSocket(absoluteWebSocketUrl(path))
     },
   }
+}
+
+export function workspaceChatSocketIsResume(url: string): boolean {
+  try {
+    const parsed = new URL(url, "http://localhost")
+    return (
+      parsed.searchParams.has("offset") || parsed.searchParams.has("runId")
+    )
+  } catch {
+    return false
+  }
+}
+
+export function shouldReuseWarmedWorkspaceChatSocket(
+  warmedUrl: string,
+  targetUrl: string,
+): boolean {
+  return (
+    sameWebSocketPath(warmedUrl, targetUrl) &&
+    !workspaceChatSocketIsResume(targetUrl)
+  )
 }
 
 function sameWebSocketPath(left: string, right: string): boolean {
