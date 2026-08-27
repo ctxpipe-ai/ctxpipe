@@ -255,8 +255,6 @@ export function WorkspaceChatSession(props: {
         })
       }
       if (
-        chunk.type === "TOOL_CALL" ||
-        chunk.type === "TOOL_CALL_DELTA" ||
         chunk.type === "TOOL_CALL_END" ||
         chunk.type === "TOOL_CALL_RESULT"
       ) {
