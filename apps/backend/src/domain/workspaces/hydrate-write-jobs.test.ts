@@ -5,6 +5,7 @@ import {
   claimsUpgradeRemainder,
   hydrateWriteJobRemainders,
   hydrateWriteJobsToEnqueue,
+  importKeyCleanupFiles,
   kindsToRetryAfterHydrate,
   opsFolderMapFiles,
   opsFolderMapRemainder,
@@ -190,6 +191,26 @@ describe("hydrate write files", () => {
       ],
     })
     expect(files[0]?.content).toContain("valid_from: 2026-08-16T12:00:00.000Z")
+  })
+
+  it("strips import_key and leaves claims and body intact", () => {
+    const files = importKeyCleanupFiles([
+      {
+        path: "knowledge/services/billing.md",
+        content:
+          "---\nimport_key: svc:repo_app:./\nkind: Service\nclaims:\n  - to: ../payments/api.md\n    predicate: DEPENDS_ON\n    confidence: 0.7\n---\n\n# Billing\n\nLedger lives here.\n",
+      },
+      {
+        path: "knowledge/services/other.md",
+        content: "---\nkind: Service\n---\n\n# Other\n",
+      },
+    ])
+    expect(files).toHaveLength(1)
+    expect(files[0]?.content).not.toContain("import_key:")
+    expect(files[0]?.content).toContain("kind: Service")
+    expect(files[0]?.content).toContain("predicate: DEPENDS_ON")
+    expect(files[0]?.content).toContain("# Billing")
+    expect(files[0]?.content).toContain("Ledger lives here.")
   })
 
   it("writes a folder-map section into AGENTS.md", () => {

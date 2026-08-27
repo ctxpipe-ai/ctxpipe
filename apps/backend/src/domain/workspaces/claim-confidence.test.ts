@@ -43,6 +43,12 @@ describe("decayWorkspaceSignal", () => {
       120 * 24 * 60 * 60 * 1000,
     )
     expect(
+      sourceHalfLifeMs("https://github.com/acme/billing.git#apps/api/src/ledger.ts"),
+    ).toBe(365 * 24 * 60 * 60 * 1000)
+    expect(sourceHalfLifeMs("../src/lib/auth.ts")).toBe(
+      365 * 24 * 60 * 60 * 1000,
+    )
+    expect(
       decayWorkspaceSignal({
         confidence: 0.8,
         validFrom: "2025-08-16T00:00:00.000Z",

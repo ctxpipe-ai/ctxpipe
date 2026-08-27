@@ -3,6 +3,7 @@ import { hydrateKnowledgeTree } from "./hydrate.js"
 import {
   claimsUpgradeFiles,
   extractIngestFiles,
+  importKeyCleanupFiles,
   opsFolderMapFiles,
   validFromPersistFiles,
 } from "./hydrate-write-jobs.js"
@@ -65,6 +66,11 @@ export function filesForWorkspaceWriteKind(input: {
       displayName: input.displayName,
       existing: input.existing,
     })
+  }
+  if (input.kind === "import_key_cleanup") {
+    return importKeyCleanupFiles(
+      [...input.existing].map(([path, content]) => ({ path, content })),
+    )
   }
   if (input.kind === "ops_folder_map") {
     return opsFolderMapFiles({
@@ -154,4 +160,21 @@ export function shouldEnqueueBootstrapAfterExport(input: {
   return (
     input.kind === "migration_export" && (input.committed || input.noOpExport)
   )
+}
+
+export function shouldEnqueueImportKeyCleanupAfterExport(input: {
+  kind: WorkspaceWriteKind
+  committed: boolean
+  noOpExport: boolean
+}): boolean {
+  return shouldEnqueueBootstrapAfterExport(input)
+}
+
+export function postExportFollowUpKinds(input: {
+  kind: WorkspaceWriteKind
+  committed: boolean
+  noOpExport: boolean
+}): Array<"bootstrap" | "import_key_cleanup"> {
+  if (!shouldEnqueueBootstrapAfterExport(input)) return []
+  return ["bootstrap", "import_key_cleanup"]
 }

@@ -2,7 +2,9 @@ import { describe, expect, it } from "vitest"
 import {
   deletePathsForWorkspaceWriteKind,
   filesForWorkspaceWriteKind,
+  postExportFollowUpKinds,
   shouldEnqueueBootstrapAfterExport,
+  shouldEnqueueImportKeyCleanupAfterExport,
 } from "./write-commit-files.js"
 
 describe("filesForWorkspaceWriteKind", () => {
@@ -153,6 +155,39 @@ describe("filesForWorkspaceWriteKind", () => {
 })
 
 describe("shouldEnqueueBootstrapAfterExport", () => {
+  it("strips import_key from knowledge files", () => {
+    const files = filesForWorkspaceWriteKind({
+      kind: "import_key_cleanup",
+      displayName: "Docs",
+      linkedUrls: [],
+      existing: new Map([
+        [
+          "knowledge/services/billing.md",
+          "---\nimport_key: svc:repo_app:./\nkind: Service\nclaims:\n  - to: ../payments/api.md\n    predicate: DEPENDS_ON\n    confidence: 0.7\n---\n\n# Billing\n\nLedger lives here.\n",
+        ],
+        ["AGENTS.md", "---\nname: Docs\n---\n"],
+      ]),
+    })
+    expect(files).toHaveLength(1)
+    expect(files[0]?.content).not.toContain("import_key:")
+    expect(files[0]?.content).toContain("kind: Service")
+    expect(files[0]?.content).toContain("predicate: DEPENDS_ON")
+    expect(files[0]?.content).toContain("Ledger lives here.")
+    expect(
+      filesForWorkspaceWriteKind({
+        kind: "import_key_cleanup",
+        displayName: "Docs",
+        linkedUrls: [],
+        existing: new Map([
+          [
+            "knowledge/services/billing.md",
+            "---\nkind: Service\n---\n\n# Billing\n",
+          ],
+        ]),
+      }),
+    ).toEqual([])
+  })
+
   it("enqueues bootstrap after a real or no-op export, not after bootstrap itself", () => {
     expect(
       shouldEnqueueBootstrapAfterExport({
@@ -175,5 +210,19 @@ describe("shouldEnqueueBootstrapAfterExport", () => {
         noOpExport: false,
       }),
     ).toBe(false)
+    expect(
+      shouldEnqueueImportKeyCleanupAfterExport({
+        kind: "migration_export",
+        committed: true,
+        noOpExport: false,
+      }),
+    ).toBe(true)
+    expect(
+      postExportFollowUpKinds({
+        kind: "migration_export",
+        committed: true,
+        noOpExport: false,
+      }),
+    ).toEqual(["bootstrap", "import_key_cleanup"])
   })
 })

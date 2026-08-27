@@ -22,6 +22,7 @@ import {
 import {
   deletePathsForWorkspaceWriteKind,
   filesForWorkspaceWriteKind,
+  postExportFollowUpKinds,
   shouldEnqueueBootstrapAfterExport,
 } from "../../domain/workspaces/write-commit-files.js"
 import {
@@ -53,6 +54,7 @@ import {
 import { generateObjectId } from "../../lib/id.js"
 import { getRepoReadCloneToken } from "../../models/github-installation.js"
 import { loadMigrationExportSource } from "../../models/workspace-export.js"
+import { getMigrationExportSha } from "../../models/workspace-write-jobs.js"
 import {
   getWorkspaceById,
   getWriteJobCommitSha,
@@ -260,6 +262,10 @@ export const workspaceWriteCommit = defineWorkflow(
                 knowledgeFiles.push({ path: entry.path, content })
                 existing.set(entry.path, content)
               }
+              const recordedExportSha =
+                input.kind === "extract_ingest"
+                  ? await orgSql(() => getMigrationExportSha(workspace.id))
+                  : null
               exportPlan = await planMigrationExport({
                 workspaceId: workspace.id,
                 firstWorkspaceId: source.firstWorkspaceId,
@@ -268,6 +274,10 @@ export const workspaceWriteCommit = defineWorkflow(
                 claims: source.claims,
                 existingKnowledge: knowledgeFiles,
                 linkedUrls,
+                workspaceRepositoryUrl: workspace.workspaceRepositoryUrl,
+                repositoryGitUrlById: source.repositoryGitUrlById,
+                stampImportKey:
+                  input.kind === "migration_export" || !recordedExportSha,
               })
             } else if (input.kind === "bootstrap") {
               for (const path of [
@@ -284,7 +294,8 @@ export const workspaceWriteCommit = defineWorkflow(
               input.kind === "claims_upgrade" ||
               input.kind === "valid_from_persist" ||
               input.kind === "rename_rewrite" ||
-              input.kind === "ops_folder_map"
+              input.kind === "ops_folder_map" ||
+              input.kind === "import_key_cleanup"
             ) {
               const tree = parentSha
                 ? await listFilesAtSha({ ...github, sha: parentSha })
@@ -488,23 +499,19 @@ export const workspaceWriteCommit = defineWorkflow(
                   { error: (err) => getLogger().error(err) },
                 )
               }
-              void (async () => {
-                const { enqueueWorkspaceWriteCommit } = await import(
-                  "../enqueue-workspace-write-commit.js"
-                )
-                await enqueueWorkspaceWriteCommit(
-                  {
-                    orgId: input.orgId,
-                    workspaceId: workspace.id,
-                    kind: "bootstrap",
-                    defaultBranch,
-                    jobGeneration,
-                    jobWorkspaceUrl,
-                    jobDesiredSha,
-                  },
-                  { error: () => undefined },
-                )
-              })().catch(() => undefined)
+              void enqueuePostExportWriteJobs({
+                orgId: input.orgId,
+                workspaceId: workspace.id,
+                defaultBranch,
+                jobGeneration,
+                jobWorkspaceUrl,
+                jobDesiredSha,
+                kinds: postExportFollowUpKinds({
+                  kind: input.kind,
+                  committed: false,
+                  noOpExport: true,
+                }),
+              }).catch(() => undefined)
               return {
                 committed: false,
                 reason: "no_changes" as const,
@@ -664,23 +671,21 @@ export const workspaceWriteCommit = defineWorkflow(
                   result.committed === false && result.reason === "no_changes",
               })
             ) {
-              void (async () => {
-                const { enqueueWorkspaceWriteCommit } = await import(
-                  "../enqueue-workspace-write-commit.js"
-                )
-                await enqueueWorkspaceWriteCommit(
-                  {
-                    orgId: input.orgId,
-                    workspaceId: workspace.id,
-                    kind: "bootstrap",
-                    defaultBranch,
-                    jobGeneration,
-                    jobWorkspaceUrl,
-                    jobDesiredSha,
-                  },
-                  { error: () => undefined },
-                )
-              })().catch(() => undefined)
+              void enqueuePostExportWriteJobs({
+                orgId: input.orgId,
+                workspaceId: workspace.id,
+                defaultBranch,
+                jobGeneration,
+                jobWorkspaceUrl,
+                jobDesiredSha,
+                kinds: postExportFollowUpKinds({
+                  kind: input.kind,
+                  committed: result.committed,
+                  noOpExport:
+                    result.committed === false &&
+                    result.reason === "no_changes",
+                }),
+              }).catch(() => undefined)
             }
             return result
           } catch (error) {
@@ -708,3 +713,32 @@ export const workspaceWriteCommit = defineWorkflow(
       },
     ),
 )
+
+async function enqueuePostExportWriteJobs(input: {
+  orgId: string
+  workspaceId: string
+  defaultBranch: string
+  jobGeneration: number
+  jobWorkspaceUrl: string
+  jobDesiredSha: string | null | undefined
+  kinds: ReadonlyArray<"bootstrap" | "import_key_cleanup">
+}): Promise<void> {
+  if (input.kinds.length === 0) return
+  const { enqueueWorkspaceWriteCommit } = await import(
+    "../enqueue-workspace-write-commit.js"
+  )
+  for (const kind of input.kinds) {
+    await enqueueWorkspaceWriteCommit(
+      {
+        orgId: input.orgId,
+        workspaceId: input.workspaceId,
+        kind,
+        defaultBranch: input.defaultBranch,
+        jobGeneration: input.jobGeneration,
+        jobWorkspaceUrl: input.jobWorkspaceUrl,
+        jobDesiredSha: input.jobDesiredSha,
+      },
+      { error: () => undefined },
+    )
+  }
+}

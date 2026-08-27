@@ -35,6 +35,8 @@ describe("migration export", () => {
       title: "Billing",
       body: "Ledger lives here.",
       importKey: "src:billing",
+      kind: "Service",
+      confidence: 0.62,
       claims: [
         {
           to: "../payments/api.md",
@@ -45,6 +47,9 @@ describe("migration export", () => {
       ],
     })
     expect(md).toContain("import_key: src:billing")
+    expect(md).toContain("kind: Service")
+    expect(md).toContain("confidence: 0.62")
+    expect(md).toContain("generated_by: ctxpipe")
     expect(md).toContain("valid_from: 2026-01-01")
     expect(md).not.toContain("obj_")
   })
@@ -152,15 +157,123 @@ describe("migration export", () => {
       "repositories/docs.md",
     ])
     expect(planned.files[0]?.content).toContain("import_key: svc:repo_app:./")
+    expect(planned.files[0]?.content).toContain("kind: Service")
+    expect(planned.files[0]?.content).toContain("generated_by: ctxpipe")
     expect(planned.files[0]?.content).not.toContain("DEPENDS_ON")
     expect(planned.files[0]?.content).not.toContain("obj_")
   })
 
-  it("merges into an existing import_key file and no-ops when unchanged", async () => {
+  it("serializes a same-workspace claim with confidence and a body link", async () => {
+    const planned = await planMigrationExport({
+      workspaceId: "ws_app",
+      firstWorkspaceId: "ws_app",
+      workspaceByRepositoryId: new Map([["repo_app", "ws_app"]]),
+      objects: [
+        {
+          id: "obj_svc",
+          kind: "Service",
+          deduplicationKey: "svc:repo_app:./",
+          payload: { name: "Billing", summary: "Ledger lives here." },
+        },
+        {
+          id: "obj_inu",
+          kind: "InstructionUnit",
+          deduplicationKey: "inu:repo_app:./:readme",
+          payload: {
+            title: "Local memory initialization",
+            summary: "Initialize a local ctxpipe-memory MCP server.",
+            intent: "enable local context storage without a hosted account",
+            path: "README.md",
+            sourceExcerpt: "Add a ctxpipe-memory MCP server backed by `.ai/memory`.",
+            confidence: 0.62,
+          },
+        },
+      ],
+      claims: [
+        {
+          subjectId: "obj_svc",
+          objectId: "obj_inu",
+          predicate: "HAS_INSTRUCTION",
+          aggregatedConfidence: 0.62,
+          validFrom: null,
+          validTo: null,
+          evidenceKey: "evd:repo_app:README.md",
+        },
+      ],
+      existingKnowledge: [],
+      linkedUrls: [],
+      workspaceRepositoryUrl: "https://github.com/acme/docs",
+      repositoryGitUrlById: new Map([
+        ["repo_app", "https://github.com/acme/app.git"],
+      ]),
+    })
+    const service = planned.files.find(
+      (file) => file.path === "knowledge/services/billing.md",
+    )
+    const instruction = planned.files.find(
+      (file) =>
+        file.path === "knowledge/instructions/local-memory-initialization.md",
+    )
+    expect(service?.content).toContain("claims:")
+    expect(service?.content).toContain("predicate: HAS_INSTRUCTION")
+    expect(service?.content).toContain("confidence: 0.62")
+    expect(service?.content).toContain(
+      "](../instructions/local-memory-initialization.md)",
+    )
+    expect(service?.content).toContain(
+      "source: \"https://github.com/acme/app.git#README.md\"",
+    )
+    expect(service?.content).not.toContain("evd:repo_app")
+    expect(instruction?.content).toContain("kind: InstructionUnit")
+    expect(instruction?.content).toContain("confidence: 0.62")
+    expect(instruction?.content).toContain("generated_by: ctxpipe")
+    expect(instruction?.content).toContain(
+      "Intent: enable local context storage without a hosted account",
+    )
+    expect(instruction?.content).toContain("Source: `README.md`")
+    expect(instruction?.content).toContain(
+      "> Add a ctxpipe-memory MCP server backed by `.ai/memory`.",
+    )
+    expect(instruction?.content).not.toMatch(/^claims:/m)
+  })
+
+  it("rewrites a thin import_key file and no-ops a content-complete one", async () => {
+    const thin = `---
+import_key: svc:repo_app:./
+---
+
+# Billing
+
+Ledger lives here.
+`
+    const thinPlan = await planMigrationExport({
+      workspaceId: "ws_app",
+      firstWorkspaceId: "ws_app",
+      workspaceByRepositoryId: new Map([["repo_app", "ws_app"]]),
+      objects: [
+        {
+          id: "obj_1",
+          kind: "Service",
+          deduplicationKey: "svc:repo_app:./",
+          payload: { name: "Billing", summary: "Ledger lives here." },
+        },
+      ],
+      claims: [],
+      existingKnowledge: [
+        { path: "knowledge/payments/billing.md", content: thin },
+      ],
+      linkedUrls: [],
+    })
+    expect(thinPlan.files[0]?.path).toBe("knowledge/payments/billing.md")
+    expect(thinPlan.wouldChange).toBe(true)
+    expect(thinPlan.files[0]?.content).toContain("kind: Service")
+    expect(thinPlan.files[0]?.content).toContain("generated_by: ctxpipe")
+
     const existing = importedObjectMarkdown({
       title: "Billing",
       body: "Ledger lives here.",
       importKey: "svc:repo_app:./",
+      kind: "Service",
     })
     const planned = await planMigrationExport({
       workspaceId: "ws_app",
@@ -189,6 +302,7 @@ describe("migration export", () => {
       title: "Billing",
       body: "Ledger lives here.",
       importKey: "svc:repo_app:./",
+      kind: "Service",
     })
     const planned = await planMigrationExport({
       workspaceId: "ws_app",
@@ -309,5 +423,73 @@ describe("migration export", () => {
       "knowledge/services/billing-2.md",
       "knowledge/services/billing.md",
     ])
+  })
+
+  it("writes a workspace-relative source for in-tree connector paths", async () => {
+    const planned = await planMigrationExport({
+      workspaceId: "ws_app",
+      firstWorkspaceId: "ws_app",
+      workspaceByRepositoryId: new Map([["repo_ws", "ws_app"]]),
+      objects: [
+        {
+          id: "obj_1",
+          kind: "Service",
+          deduplicationKey: "svc:repo_ws:./",
+          payload: {
+            name: "Billing",
+            summary: "Ledger lives here.",
+            path: "linear/issues/PAY-12.md",
+          },
+        },
+      ],
+      claims: [],
+      existingKnowledge: [
+        {
+          path: "linear/issues/PAY-12.md",
+          content: "Pay twelve",
+        },
+      ],
+      linkedUrls: [],
+      workspaceRepositoryUrl: "https://github.com/acme/docs.git",
+      repositoryGitUrlById: new Map([
+        ["repo_ws", "https://github.com/acme/docs"],
+      ]),
+    })
+    expect(planned.files[0]?.content).toContain(
+      "source: ../../linear/issues/PAY-12.md",
+    )
+    expect(planned.files[0]?.content).not.toContain("evd:")
+  })
+
+  it("omits import_key after a recorded export and does not restamp it", async () => {
+    const existing = importedObjectMarkdown({
+      title: "Billing",
+      body: "Ledger lives here.",
+      importKey: "svc:repo_app:./",
+      kind: "Service",
+    })
+    const planned = await planMigrationExport({
+      workspaceId: "ws_app",
+      firstWorkspaceId: "ws_app",
+      workspaceByRepositoryId: new Map([["repo_app", "ws_app"]]),
+      objects: [
+        {
+          id: "obj_1",
+          kind: "Service",
+          deduplicationKey: "svc:repo_app:./",
+          payload: { name: "Billing", summary: "Ledger lives here." },
+        },
+      ],
+      claims: [],
+      existingKnowledge: [
+        { path: "knowledge/services/billing.md", content: existing },
+      ],
+      linkedUrls: [],
+      stampImportKey: false,
+    })
+    expect(planned.files[0]?.path).toBe("knowledge/services/billing.md")
+    expect(planned.files[0]?.content).not.toContain("import_key:")
+    expect(planned.files[0]?.content).toContain("kind: Service")
+    expect(planned.wouldChange).toBe(true)
   })
 })

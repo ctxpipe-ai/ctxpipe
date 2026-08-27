@@ -10,6 +10,7 @@ export const WORKSPACE_WRITE_JOB_KINDS = [
   "bootstrap",
   "link_unlink",
   "ui_file_edit",
+  "import_key_cleanup",
 ] as const
 
 export type WorkspaceWriteJobKind = (typeof WORKSPACE_WRITE_JOB_KINDS)[number]

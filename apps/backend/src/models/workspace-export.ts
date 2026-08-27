@@ -24,6 +24,7 @@ function orgSql<T>(fn: () => Promise<T>): Promise<T> {
 export async function loadMigrationExportSource(): Promise<{
   firstWorkspaceId: string | null
   workspaceByRepositoryId: Map<string, string>
+  repositoryGitUrlById: Map<string, string>
   objects: ExportObjectRow[]
   claims: ExportClaimRow[]
 }> {
@@ -89,8 +90,8 @@ export async function loadMigrationExportSource(): Promise<{
     const sourceByClaim = new Map<string, string>()
     for (const row of evidenceRows) {
       if (sourceByClaim.has(row.claimId)) continue
-      const source = row.logicalSourceKey?.trim() || row.sourceType.trim()
-      if (source) sourceByClaim.set(row.claimId, source)
+      const key = row.logicalSourceKey?.trim()
+      if (key) sourceByClaim.set(row.claimId, key)
     }
 
     const evidenceKeyByObject = new Map<string, string>()
@@ -111,6 +112,9 @@ export async function loadMigrationExportSource(): Promise<{
         workspaces: workspaceRows,
         normalizeUrl: normalizeWorkspaceRepositoryUrl,
       }),
+      repositoryGitUrlById: new Map(
+        repoRows.map((row) => [row.id, row.gitUrl]),
+      ),
       objects: objectRows.map((row) => ({
         id: row.id,
         kind: row.kind,
@@ -127,7 +131,7 @@ export async function loadMigrationExportSource(): Promise<{
           aggregatedConfidence: row.aggregatedConfidence,
           validFrom: row.validFrom,
           validTo: row.validTo,
-          source: sourceByClaim.get(row.id) ?? null,
+          evidenceKey: sourceByClaim.get(row.id) ?? null,
         })),
     }
   })

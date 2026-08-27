@@ -7,8 +7,22 @@ export function sourceHalfLifeMs(source: string | null | undefined): number {
   if (key.includes("slack")) return 21 * DAY_MS
   if (key.includes("linear")) return 120 * DAY_MS
   if (key.includes("notion") || key.includes("confluence")) return 180 * DAY_MS
-  if (key.includes("git") || key.includes("manual")) return 365 * DAY_MS
+  if (
+    key.includes("git") ||
+    key.includes("manual") ||
+    key.includes("github.com") ||
+    key.includes("gitlab.") ||
+    isRelativeRepoPath(key)
+  ) {
+    return 365 * DAY_MS
+  }
   return DEFAULT_HALF_LIFE_MS
+}
+
+function isRelativeRepoPath(source: string): boolean {
+  if (!source) return false
+  if (source.includes("://") || source.startsWith("git@")) return false
+  return true
 }
 
 /** Query-time decay of one signal. Hydrate still stores c_max. */

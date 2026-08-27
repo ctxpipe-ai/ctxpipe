@@ -202,6 +202,49 @@ export function validFromPersistFiles(input: {
   return out
 }
 
+export function stripImportKeyFromMarkdown(markdown: string): string | null {
+  const parsed = parseSimpleFrontMatter(markdown)
+  if (parsed.malformed || parsed.attributes.import_key == null) return null
+  const match = markdown.match(/^---\r?\n([\s\S]*?)\r?\n---(\r?\n)?/)
+  if (!match) return null
+  const fm = match[1]
+  if (!/^import_key\s*:/m.test(fm)) return null
+  const nextFm = fm
+    .replace(/^import_key\s*:[^\n]*\r?\n?/m, "")
+    .replace(/^\r?\n/, "")
+    .replace(/\r?\n$/, "")
+  const closingNl = match[2] ?? "\n"
+  const header =
+    nextFm.length > 0 ? `---\n${nextFm}\n---${closingNl}` : `---\n---${closingNl}`
+  return (
+    markdown.slice(0, match.index) +
+    header +
+    markdown.slice((match.index ?? 0) + match[0].length)
+  )
+}
+
+export function importKeyCleanupFiles(
+  files: ReadonlyArray<{ path: string; content: string }>,
+): Array<{ path: string; content: string }> {
+  const out: Array<{ path: string; content: string }> = []
+  for (const file of files) {
+    if (!file.path.startsWith("knowledge/") || !file.path.endsWith(".md")) {
+      continue
+    }
+    const next = stripImportKeyFromMarkdown(file.content)
+    if (next != null && next !== file.content) {
+      out.push({ path: file.path, content: next })
+    }
+  }
+  return out
+}
+
+export function importKeyCleanupRemainder(
+  files: ReadonlyArray<{ path: string; content: string }>,
+): number {
+  return importKeyCleanupFiles(files).length
+}
+
 export function extractIngestFiles(input: {
   proposed: ReadonlyArray<{ path: string; content: string }>
   existing: ReadonlyMap<string, string>

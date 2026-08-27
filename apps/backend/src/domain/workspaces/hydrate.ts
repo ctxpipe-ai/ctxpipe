@@ -36,6 +36,7 @@ export type HydrateUnit = {
   body: string
   links: string[]
   claims: HydrateClaim[]
+  confidence?: number | null
 }
 
 export type HydrateSkip = {
@@ -90,6 +91,7 @@ export function hydrateKnowledgeTree(input: {
       body: parsed.body,
       links: markdownLinks(parsed.body),
       claims: parseClaims(parsed.attributes.claims),
+      confidence: parseOptionalNumber(parsed.attributes.confidence),
     })
   }
 
@@ -266,7 +268,7 @@ export function hydrateUnitsToProjectionClaims(
         objectKind: "KnowledgeUnit",
         predicate: claim.predicate,
         status: "active",
-        aggregatedConfidence: claim.confidence ?? 0.5,
+        aggregatedConfidence: claim.confidence ?? unit.confidence ?? 0.5,
         sourceCount: 1,
         lastObservedAt: validFrom ?? "1970-01-01T00:00:00.000Z",
         validFrom,
@@ -331,6 +333,15 @@ export function displayNameFromAgentsMarkdown(raw: string): string | null {
       ? parsed.attributes.name.trim()
       : ""
   return name || null
+}
+
+function parseOptionalNumber(raw: unknown): number | null {
+  if (typeof raw === "number" && Number.isFinite(raw)) return raw
+  if (typeof raw === "string" && raw.trim() !== "") {
+    const parsed = Number(raw)
+    if (Number.isFinite(parsed)) return parsed
+  }
+  return null
 }
 
 function parseClaims(raw: unknown): HydrateClaim[] {

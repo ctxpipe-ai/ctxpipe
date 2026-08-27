@@ -136,6 +136,10 @@ vi.mock("../../models/workspace-export.js", () => ({
   loadMigrationExportSource: loadMigrationExportSourceMock,
 }))
 
+vi.mock("../../models/workspace-write-jobs.js", () => ({
+  getMigrationExportSha: vi.fn().mockResolvedValue(null),
+}))
+
 vi.mock("../../models/github-installation.js", () => ({
   getRepoReadCloneToken: vi.fn().mockResolvedValue("tok"),
 }))
@@ -204,6 +208,7 @@ describe("workspaceWriteCommit workflow", () => {
     loadMigrationExportSourceMock.mockResolvedValue({
       firstWorkspaceId: null,
       workspaceByRepositoryId: new Map(),
+      repositoryGitUrlById: new Map(),
       objects: [],
       claims: [],
     })

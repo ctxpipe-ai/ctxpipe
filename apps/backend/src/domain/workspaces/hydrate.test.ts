@@ -53,6 +53,10 @@ describe("hydrateKnowledgeTree", () => {
       result.units.find((unit) => unit.path === "knowledge/payments/api.md")
         ?.claims[0]?.to,
     ).toBe("../billing/ledger.md")
+    expect(
+      result.units.find((unit) => unit.path === "knowledge/payments/api.md")
+        ?.confidence,
+    ).toBeNull()
     expect(result.skipped).toEqual([{ path: "broken.md", reason: "malformed" }])
     expect(result.linked).toEqual([
       {
@@ -261,6 +265,26 @@ describe("hydrateUnitsToProjectionClaims", () => {
         validFrom: "2026-08-16T12:00:00.000Z",
       }),
     ])
+  })
+
+  it("copies file-level confidence onto claims that omit it", () => {
+    const parsed = hydrateKnowledgeTree({
+      workspaceId: "ws_1",
+      files: [
+        {
+          path: "knowledge/instructions/local-memory.md",
+          content:
+            "---\nkind: InstructionUnit\nconfidence: 0.62\nclaims:\n  - to: ../skills/local-memory.md\n    predicate: MEMBER_OF_PRIMARY\n---\nBody\n",
+        },
+        {
+          path: "knowledge/skills/local-memory.md",
+          content: "---\nkind: Skill\n---\nSkill\n",
+        },
+      ],
+    })
+    expect(parsed.units[0]?.confidence).toBe(0.62)
+    const claims = hydrateUnitsToProjectionClaims(parsed.units)
+    expect(claims[0]?.aggregatedConfidence).toBe(0.62)
   })
 })
 
