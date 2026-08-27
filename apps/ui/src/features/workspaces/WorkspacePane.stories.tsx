@@ -1,4 +1,5 @@
 import type { Meta, StoryObj } from "@storybook/react-vite"
+import { useQueryClient } from "@tanstack/react-query"
 import { useNavigate, useSearch } from "@tanstack/react-router"
 import { type ComponentProps, useState } from "react"
 import { expect, fn, waitFor, within } from "storybook/test"
@@ -9,6 +10,7 @@ import {
   conversationGitStatusHandler,
   conversationGitTreeEventuallyHandler,
   conversationGitTreeHandler,
+  conversationGitTreeLivePollHandler,
   conversationGitTreeMissingHandler,
   conversationPrepareHandler,
   workspaceFileJobHandler,
@@ -36,6 +38,7 @@ import {
   writeConversationGitTreeSnapshot,
 } from "./conversation-git-tree-snapshot"
 import { type ParsedPane, parsePane, serializePane } from "./pane"
+import { workspaceKeys } from "./queries"
 import { WorkspacePane } from "./WorkspacePane"
 import {
   docsWorkspace,
@@ -76,6 +79,15 @@ const longAgentsBody = [
   ),
   `Wide row ${"column ".repeat(80)}`.trimEnd(),
 ].join("\n")
+
+function LiveChatFilesPlayground(props: ComponentProps<typeof WorkspacePane>) {
+  const queryClient = useQueryClient()
+  queryClient.setQueryData(
+    workspaceKeys.conversationChatLive("acme", "conv_1"),
+    true,
+  )
+  return <WorkspacePanePlayground {...props} />
+}
 
 function WorkspacePanePlayground(props: ComponentProps<typeof WorkspacePane>) {
   const navigate = useNavigate()
@@ -610,6 +622,67 @@ export const CachedSandboxWhile409: Story = {
     )
     expect(canvas.queryByText("cached-note.md")).not.toBeInTheDocument()
     expect(canvas.queryByText("Updating…")).not.toBeInTheDocument()
+    expect(canvas.queryByText("repositories")).not.toBeInTheDocument()
+  },
+}
+
+export const ConversationSandboxLivePoll: Story = {
+  args: {
+    conversationId: "conv_1",
+    pane: { kind: "files" },
+  },
+  render: (args) => <LiveChatFilesPlayground {...args} />,
+  beforeEach: () => {
+    writeConversationGitTreeSnapshot("conv_1", {
+      sha: "cachedsha",
+      paths: ["AGENTS.md"],
+      branch: "ctxpipe/chat/conv_1/1",
+    })
+  },
+  parameters: {
+    storyRoute: {
+      pattern: "orgWorkspace",
+      orgSlug: "acme",
+      workspaceSlug: "docs",
+      conversationId: "conv_1",
+      pane: "files",
+    } satisfies StoryRouteParams,
+    msw: {
+      handlers: {
+        page: [
+          conversationGitTreeLivePollHandler({
+            first: {
+              sha: "cachedsha",
+              paths: ["AGENTS.md"],
+              branch: "ctxpipe/chat/conv_1/1",
+            },
+            next: {
+              sha: "livesha",
+              paths: ["AGENTS.md", "e2e.md"],
+              branch: "ctxpipe/chat/conv_1/1",
+            },
+          }),
+          conversationGitStatusHandler(),
+          workspaceGitTreeHandler({
+            sha: "workspace-only",
+            paths: ["repositories/README.md"],
+          }),
+        ],
+      },
+    },
+  },
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement)
+    await waitFor(() => {
+      expect(canvas.getByText("AGENTS.md")).toBeVisible()
+    })
+    expect(canvas.queryByText("repositories")).not.toBeInTheDocument()
+    await waitFor(
+      () => {
+        expect(canvas.getByText("e2e.md")).toBeVisible()
+      },
+      { timeout: 3000 },
+    )
     expect(canvas.queryByText("repositories")).not.toBeInTheDocument()
   },
 }

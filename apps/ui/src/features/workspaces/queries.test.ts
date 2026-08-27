@@ -5,6 +5,7 @@ import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest"
 import {
   clearAllConversationGitTreeSnapshots,
   readConversationGitTreeSnapshot,
+  writeConversationGitTreeSnapshot,
 } from "./conversation-git-tree-snapshot"
 import { installMemorySessionStorage } from "./session-storage-test"
 import {
@@ -14,6 +15,7 @@ import {
   landingWorkspace,
   retryPrepareWorkspace,
   workspaceGitTreeOptions,
+  workspaceKeys,
 } from "./queries"
 import type { Workspace, WorkspaceListResponse } from "./types"
 import { failedHydrateWorkspace } from "./workspace-fixtures"
@@ -191,6 +193,100 @@ describe("workspace query HTTP helpers", () => {
     if (typeof placeholder === "function") {
       expect(placeholder(undefined, undefined)).toEqual(tree)
     }
+    clearAllConversationGitTreeSnapshots()
+  })
+
+  it("sends attach=0 while the chat run is live and a snapshot exists", async () => {
+    clearAllConversationGitTreeSnapshots()
+    writeConversationGitTreeSnapshot("conv_1", {
+      sha: "cachedsha",
+      paths: ["AGENTS.md"],
+      branch: "ctxpipe/chat/conv_1/1",
+    })
+    const seenAttach: Array<string | null> = []
+    server.use(
+      http.get(
+        "http://localhost:3000/:orgSlug/api/v1/conversations/:conversationId/files/tree",
+        ({ request }) => {
+          seenAttach.push(new URL(request.url).searchParams.get("attach"))
+          return HttpResponse.json({
+            sha: "livesha",
+            paths: ["AGENTS.md", "e2e.md"],
+            branch: "ctxpipe/chat/conv_1/1",
+          })
+        },
+      ),
+    )
+    const queryClient = new QueryClient({
+      defaultOptions: { queries: { retry: false } },
+    })
+    queryClient.setQueryData(workspaceKeys.conversationChatLive("acme", "conv_1"), true)
+    const tree = await queryClient.fetchQuery(
+      conversationGitTreeOptions("acme", "conv_1"),
+    )
+    expect(seenAttach).toEqual(["0"])
+    expect(tree.paths).toEqual(["AGENTS.md", "e2e.md"])
+    clearAllConversationGitTreeSnapshots()
+  })
+
+  it("keeps the optimistic tree when a live list-only GET returns 409", async () => {
+    clearAllConversationGitTreeSnapshots()
+    const optimistic = {
+      sha: "HEAD",
+      paths: ["AGENTS.md", "e2e.md"],
+      branch: "ctxpipe/chat/conv_1/1",
+    }
+    writeConversationGitTreeSnapshot("conv_1", optimistic)
+    server.use(
+      http.get(
+        "http://localhost:3000/:orgSlug/api/v1/conversations/:conversationId/files/tree",
+        () =>
+          HttpResponse.json({ error: "missing_sandbox" }, { status: 409 }),
+      ),
+    )
+    const queryClient = new QueryClient({
+      defaultOptions: { queries: { retry: false } },
+    })
+    queryClient.setQueryData(
+      workspaceKeys.conversationChatLive("acme", "conv_1"),
+      true,
+    )
+    queryClient.setQueryData(
+      workspaceKeys.conversationGitTree("acme", "conv_1"),
+      optimistic,
+    )
+    const tree = await queryClient.fetchQuery(
+      conversationGitTreeOptions("acme", "conv_1"),
+    )
+    expect(tree.paths).toEqual(["AGENTS.md", "e2e.md"])
+    clearAllConversationGitTreeSnapshots()
+  })
+
+  it("attaches on the first tree load when there is no snapshot", async () => {
+    clearAllConversationGitTreeSnapshots()
+    const seenAttach: Array<string | null> = []
+    server.use(
+      http.get(
+        "http://localhost:3000/:orgSlug/api/v1/conversations/:conversationId/files/tree",
+        ({ request }) => {
+          seenAttach.push(new URL(request.url).searchParams.get("attach"))
+          return HttpResponse.json({
+            sha: "livesha",
+            paths: ["AGENTS.md"],
+            branch: "ctxpipe/chat/conv_1/1",
+          })
+        },
+      ),
+    )
+    const queryClient = new QueryClient({
+      defaultOptions: { queries: { retry: false } },
+    })
+    queryClient.setQueryData(
+      workspaceKeys.conversationChatLive("acme", "conv_1"),
+      true,
+    )
+    await queryClient.fetchQuery(conversationGitTreeOptions("acme", "conv_1"))
+    expect(seenAttach).toEqual([null])
     clearAllConversationGitTreeSnapshots()
   })
 })

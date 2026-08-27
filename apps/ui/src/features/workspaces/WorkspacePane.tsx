@@ -54,6 +54,7 @@ import {
 import { focusVisibleClassName } from "@/lib/focus-styles"
 import { useUrgentValue } from "@/lib/useUrgentValue"
 import { cn } from "@/lib/utils"
+import { conversationTreeRefetchInterval } from "./conversationFileLive"
 import { conversationAllowsEdits } from "./conversationPublish"
 import { joinFileName, optimisticPathsAfterJob } from "./fileTreeMutations"
 import { filePaneId, type ParsedPane, parsePane, serializePane } from "./pane"
@@ -511,13 +512,25 @@ function ConversationSandboxFilesPane(props: {
   onToggleTree: () => void
   onCloseActiveFile: () => void
 }) {
+  const chatLiveQuery = useQuery({
+    queryKey: workspaceKeys.conversationChatLive(
+      props.orgSlug,
+      props.conversationId,
+    ),
+    queryFn: () => false,
+    staleTime: Number.POSITIVE_INFINITY,
+    gcTime: Number.POSITIVE_INFINITY,
+    initialData: false,
+  })
+  const chatLive = chatLiveQuery.data === true
   const sandboxTreeQuery = useQuery({
     ...conversationGitTreeOptions(props.orgSlug, props.conversationId),
-    refetchInterval: (query) => (query.state.data ? false : 2000),
+    refetchInterval: conversationTreeRefetchInterval(chatLive),
   })
   const sandboxStatusQuery = useQuery({
     ...conversationGitStatusOptions(props.orgSlug, props.conversationId),
     enabled: sandboxTreeQuery.isSuccess,
+    refetchInterval: conversationTreeRefetchInterval(chatLive),
   })
   const tree = sandboxTreeQuery.data
   if (!tree) {

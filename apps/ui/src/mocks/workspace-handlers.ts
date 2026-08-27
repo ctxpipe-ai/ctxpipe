@@ -285,6 +285,25 @@ export function conversationGitTreeMissingHandler() {
   )
 }
 
+export function conversationGitTreeLivePollHandler(input: {
+  first: WorkspaceGitTreeResponse & { branch?: string }
+  next: WorkspaceGitTreeResponse & { branch?: string }
+}) {
+  let liveHits = 0
+  return http.get(
+    ({ request }) =>
+      /\/api\/v1\/conversations\/[^/]+\/files\/tree$/.test(pathnameOf(request)),
+    ({ request }) => {
+      const attach = new URL(request.url).searchParams.get("attach")
+      if (attach !== "0") {
+        return HttpResponse.json({ error: "missing_sandbox" }, { status: 409 })
+      }
+      liveHits += 1
+      return HttpResponse.json(liveHits === 1 ? input.first : input.next)
+    },
+  )
+}
+
 export function conversationGitTreeEventuallyHandler(
   tree: WorkspaceGitTreeResponse & { branch?: string },
   missingHits = 2,

@@ -17,7 +17,15 @@ import {
   setPendingWorkspaceCompose,
   takeHomeDraftSend,
 } from "@/features/home/pending-workspace-compose"
-import { conversationWriteToolSignature } from "./conversationFileLive"
+import { writeConversationGitTreeSnapshot } from "./conversation-git-tree-snapshot"
+import {
+  addOptimisticConversationTreePath,
+  conversationChatRunIsLive,
+  conversationTreeRefetchInterval,
+  conversationWriteFromStreamChunk,
+  conversationWriteToolSignature,
+  type PendingConversationToolCall,
+} from "./conversationFileLive"
 import {
   conversationBranchShortName,
   conversationCommitPushEnabled,
@@ -33,7 +41,7 @@ import {
   workspaceChatPrepareOptions,
   workspaceKeys,
 } from "./queries"
-import type { Workspace } from "./types"
+import type { ConversationGitTreeResponse, Workspace } from "./types"
 import { WorkspaceChatChrome } from "./WorkspaceChatChrome"
 import { workspaceChatWebSocket } from "./workspaceChatWebSocket"
 
@@ -113,6 +121,7 @@ export function WorkspaceChatSession(props: {
   const navigate = useNavigate()
   const sendFailedRef = useRef(false)
   const committedRef = useRef(false)
+  const pendingToolCallsRef = useRef(new Map<string, PendingConversationToolCall>())
   const [headerTitle, setHeaderTitle] = useState(title)
   const [seenTitle, setSeenTitle] = useState(title)
   const [sandboxPhase, setSandboxPhase] = useState<SandboxPhase>("idle")
@@ -165,10 +174,6 @@ export function WorkspaceChatSession(props: {
   const prepareQuery = useQuery(
     workspaceChatPrepareOptions(orgSlug, conversationId, workspace.id),
   )
-  const statusQuery = useQuery({
-    ...conversationGitStatusOptions(orgSlug, conversationId),
-    enabled: !composing && prepareQuery.isSuccess,
-  })
   const pullQuery = useQuery(
     conversationPullRequestOptions(
       orgSlug,
@@ -254,10 +259,46 @@ export function WorkspaceChatSession(props: {
           queryKey: workspaceKeys.conversationGitTree(orgSlug, conversationId),
         })
       }
-      if (
-        chunk.type === "TOOL_CALL_END" ||
-        chunk.type === "TOOL_CALL_RESULT"
-      ) {
+      const write = conversationWriteFromStreamChunk(
+        pendingToolCallsRef.current,
+        chunk as {
+          type?: string
+          toolCallId?: string
+          toolCallName?: string
+          input?: Record<string, unknown>
+          delta?: string
+        },
+      )
+      if (write.path) {
+        const writtenPath = write.path
+        const treeKey = workspaceKeys.conversationGitTree(
+          orgSlug,
+          conversationId,
+        )
+        queryClient.setQueryData<ConversationGitTreeResponse>(
+          treeKey,
+          (current) => {
+            const next = addOptimisticConversationTreePath(
+              current,
+              writtenPath,
+              {
+                sha: "HEAD",
+                branch: conversationSessionBranch(conversationId),
+              },
+            )
+            writeConversationGitTreeSnapshot(conversationId, next)
+            return next
+          },
+        )
+        void queryClient.invalidateQueries({
+          queryKey: workspaceKeys.conversationGitBlob(
+            orgSlug,
+            conversationId,
+            writtenPath,
+          ),
+        })
+      }
+      if (write.writeEnded) {
         void queryClient.invalidateQueries({
           queryKey: workspaceKeys.conversationGitStatus(orgSlug, conversationId),
         })
@@ -267,6 +308,10 @@ export function WorkspaceChatSession(props: {
       }
       if (chunk.type === "RUN_FINISHED" || chunk.type === "RUN_ERROR") {
         setSandboxPhase("idle")
+        queryClient.setQueryData(
+          workspaceKeys.conversationChatLive(orgSlug, conversationId),
+          false,
+        )
         if (chunk.type === "RUN_FINISHED") {
           void queryClient.invalidateQueries({
             queryKey: workspaceKeys.conversations(orgSlug, workspace.id),
@@ -287,6 +332,10 @@ export function WorkspaceChatSession(props: {
       }
     },
     onFinish: () => {
+      queryClient.setQueryData(
+        workspaceKeys.conversationChatLive(orgSlug, conversationId),
+        false,
+      )
       void queryClient.invalidateQueries({
         queryKey: workspaceKeys.conversations(orgSlug, workspace.id),
       })
@@ -299,6 +348,21 @@ export function WorkspaceChatSession(props: {
     },
   })
 
+  const statusQuery = useQuery({
+    ...conversationGitStatusOptions(orgSlug, conversationId),
+    enabled: !composing && prepareQuery.isSuccess,
+    refetchInterval: conversationTreeRefetchInterval(
+      conversationChatRunIsLive(status),
+    ),
+  })
+
+  useEffect(() => {
+    queryClient.setQueryData(
+      workspaceKeys.conversationChatLive(orgSlug, conversationId),
+      conversationChatRunIsLive(status),
+    )
+  }, [conversationId, orgSlug, queryClient, status])
+
   const writeSignature = conversationWriteToolSignature(
     messages as ChatMessage[],
   )
@@ -310,7 +374,9 @@ export function WorkspaceChatSession(props: {
     void queryClient.invalidateQueries({
       queryKey: workspaceKeys.conversationGitTree(orgSlug, conversationId),
     })
-    for (const path of writeSignature.split("\0").filter(Boolean)) {
+    for (const path of writeSignature
+      .split("\0")
+      .filter((token) => token && !token.startsWith("bash:"))) {
       void queryClient.invalidateQueries({
         queryKey: workspaceKeys.conversationGitBlob(
           orgSlug,
@@ -356,6 +422,10 @@ export function WorkspaceChatSession(props: {
     setDraftConsumed(true)
     sendFailedRef.current = false
     setSandboxPhase("idle")
+    queryClient.setQueryData(
+      workspaceKeys.conversationChatLive(orgSlug, conversationId),
+      true,
+    )
     try {
       await sendMessage(params.text)
     } catch {

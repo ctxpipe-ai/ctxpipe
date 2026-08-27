@@ -65,6 +65,8 @@ export const workspaceKeys = {
     ["conversation-git-diff", orgSlug, conversationId] as const,
   conversationPullRequest: (orgSlug: string, conversationId: string) =>
     ["conversation-pull-request", orgSlug, conversationId] as const,
+  conversationChatLive: (orgSlug: string, conversationId: string) =>
+    ["conversation-chat-live", orgSlug, conversationId] as const,
 }
 
 export async function fetchWorkspaces(
@@ -344,12 +346,14 @@ export function workspaceActivityOptions(
 export async function fetchConversationGitTree(
   orgSlug: string,
   conversationId: string,
+  options?: { attach?: boolean },
 ): Promise<ConversationGitTreeResponse> {
   const client = await getApiClient()
   const res = await client[":orgSlug"].api.v1.conversations[
     ":conversationId"
   ].files.tree.$get({
     param: { orgSlug, conversationId },
+    query: options?.attach === false ? { attach: "0" } : undefined,
   })
   return readApiJson(res, { message: "Failed to load conversation files" })
 }
@@ -376,12 +380,14 @@ export async function fetchConversationGitBlob(
 export async function fetchConversationGitStatus(
   orgSlug: string,
   conversationId: string,
+  options?: { attach?: boolean },
 ): Promise<ConversationGitStatusResponse> {
   const client = await getApiClient()
   const res = await client[":orgSlug"].api.v1.conversations[
     ":conversationId"
   ].files.status.$get({
     param: { orgSlug, conversationId },
+    query: options?.attach === false ? { attach: "0" } : undefined,
   })
   return readApiJson(res, { message: "Failed to load conversation git status" })
 }
@@ -512,10 +518,33 @@ export function conversationGitTreeOptions(
 ) {
   return queryOptions({
     queryKey: workspaceKeys.conversationGitTree(orgSlug, conversationId),
-    queryFn: async () => {
-      const tree = await fetchConversationGitTree(orgSlug, conversationId)
-      writeConversationGitTreeSnapshot(conversationId, tree)
-      return tree
+    queryFn: async ({ client }) => {
+      const live =
+        client.getQueryData<boolean>(
+          workspaceKeys.conversationChatLive(orgSlug, conversationId),
+        ) === true
+      const snapshot = readConversationGitTreeSnapshot(conversationId)
+      const cached = client.getQueryData<ConversationGitTreeResponse>(
+        workspaceKeys.conversationGitTree(orgSlug, conversationId),
+      )
+      const attach = !(live && Boolean(snapshot || cached))
+      try {
+        const tree = await fetchConversationGitTree(orgSlug, conversationId, {
+          attach,
+        })
+        writeConversationGitTreeSnapshot(conversationId, tree)
+        return tree
+      } catch (error) {
+        if (
+          !attach &&
+          error instanceof ApiError &&
+          error.status === 409
+        ) {
+          if (cached) return cached
+          if (snapshot) return snapshot
+        }
+        throw error
+      }
     },
     placeholderData: () => readConversationGitTreeSnapshot(conversationId),
     retry: retrySandboxUntilReady,
@@ -540,7 +569,31 @@ export function conversationGitStatusOptions(
 ) {
   return queryOptions({
     queryKey: workspaceKeys.conversationGitStatus(orgSlug, conversationId),
-    queryFn: () => fetchConversationGitStatus(orgSlug, conversationId),
+    queryFn: async ({ client }) => {
+      const live =
+        client.getQueryData<boolean>(
+          workspaceKeys.conversationChatLive(orgSlug, conversationId),
+        ) === true
+      const cached = client.getQueryData<ConversationGitStatusResponse>(
+        workspaceKeys.conversationGitStatus(orgSlug, conversationId),
+      )
+      const attach = !(live && Boolean(cached))
+      try {
+        return await fetchConversationGitStatus(orgSlug, conversationId, {
+          attach,
+        })
+      } catch (error) {
+        if (
+          !attach &&
+          error instanceof ApiError &&
+          error.status === 409 &&
+          cached
+        ) {
+          return cached
+        }
+        throw error
+      }
+    },
     retry: retrySandboxUntilReady,
     retryDelay: 1000,
   })
