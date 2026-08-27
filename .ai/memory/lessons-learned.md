@@ -563,7 +563,7 @@ Highest-priority confirmed rules for agents. Migrated from former `patterns.md` 
 - **Source:** repo-page-ux
 
 ### Connector setup wizards
-- **Rule:** Linear, Notion, and Confluence share the same chrome: `ctx-node` mark in the header, semantic colour tokens, no nested zinc cards. Existing `rounded-none` on those wizards stays until a dedicated pass; **new or touched** chrome follows [apps/ui/DESIGN.md](../../apps/ui/DESIGN.md) (`rounded-lg` / `--radius`). Do not add more square overrides. Do not leave Atlassian/Confluence on `rounded-md` callback boxes or filled `bg-zinc-900` panels.
+- **Rule:** Linear, Notion, and Confluence share the same chrome: `ctx-node` mark in the header, semantic colour tokens, no nested zinc cards. Existing `rounded-none` on those wizards stays until a dedicated pass; **new or touched** chrome follows [apps/ui/DESIGN.md](../../apps/ui/DESIGN.md) (`rounded-md`). Do not add more square overrides. Do not leave Atlassian/Confluence on leftover `rounded-lg` callback boxes or filled `bg-zinc-900` panels.
 - **Category:** convention
 - **Date:** 2026-08-13
 - **Source:** repo-page-ux; updated 2026-08-15 for product-ui radius target

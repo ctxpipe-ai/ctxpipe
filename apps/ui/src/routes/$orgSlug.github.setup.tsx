@@ -113,7 +113,7 @@ function GitHubSetupPage() {
           actions={
             <Button
               variant="outline"
-              className="rounded-lg"
+              className="rounded-md"
               onPress={() => void installationQuery.refetch()}
             >
               Retry

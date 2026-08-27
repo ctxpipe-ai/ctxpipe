@@ -97,7 +97,7 @@ export function LinearTargetStep({
       />
       <div className="flex items-center justify-between border-t border-border pt-4">
         {onBack ? (
-          <Button variant="secondary" className="rounded-lg" onPress={onBack}>
+          <Button variant="secondary" className="rounded-md" onPress={onBack}>
             Back
           </Button>
         ) : (
@@ -105,7 +105,7 @@ export function LinearTargetStep({
         )}
         <Button
           variant="primary"
-          className="rounded-lg"
+          className="rounded-md"
           isPending={saveMutation.isPending}
           isDisabled={!destination}
           onPress={() => saveMutation.mutate()}

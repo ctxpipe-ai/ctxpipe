@@ -17,7 +17,7 @@ export function OverlayNavMenuButton(props: {
       aria-label="Open navigation"
       onClick={toggleNav}
       className={cn(
-        "inline-flex size-8 shrink-0 items-center justify-center rounded-lg md:hidden",
+        "inline-flex size-8 shrink-0 items-center justify-center rounded-md md:hidden",
         "border-0 bg-transparent text-zinc-400 transition-colors",
         "hover:bg-teal-900/30 hover:text-zinc-50",
         focusVisibleClassName,
@@ -41,7 +41,7 @@ export function OverlayNavCloseButton(props: {
       aria-label="Close navigation"
       onClick={() => setNavOpen(false)}
       className={cn(
-        "inline-flex size-8 shrink-0 cursor-pointer items-center justify-center rounded-lg md:hidden",
+        "inline-flex size-8 shrink-0 cursor-pointer items-center justify-center rounded-md md:hidden",
         "border-0 bg-transparent text-zinc-400 transition-colors",
         "hover:bg-teal-900/30 hover:text-zinc-50",
         focusVisibleClassName,

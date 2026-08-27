@@ -296,7 +296,7 @@ function SelectGitHubPanel(props: {
           repos={props.filteredRepos}
           selectedIds={props.selectedIds}
           onToggle={props.onToggle}
-          className="rounded-lg border-border bg-zinc-900/40"
+          className="rounded-md border-border bg-zinc-900/40"
         />
       )}
       <div className="flex flex-wrap items-baseline justify-between gap-x-3 gap-y-2">

@@ -15,7 +15,7 @@ export function FloatingPanel({
   return (
     <div
       className={cn(
-        "rounded-lg border border-border bg-zinc-900/95",
+        "rounded-md border border-border bg-zinc-900/95",
         className,
       )}
       {...(role ? { role } : {})}

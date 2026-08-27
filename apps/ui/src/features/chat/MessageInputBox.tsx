@@ -52,7 +52,7 @@ export function MessageInputBox(props: {
       <MessageInputDraftSeed seed={draftSeed ?? null} />
       <div
         className={cn(
-          "workspace-composer-vt relative overflow-hidden rounded-lg bg-zinc-900/80",
+          "workspace-composer-vt relative overflow-hidden rounded-md bg-zinc-900/80",
           "ring-1 ring-white/[0.08] transition-[box-shadow,background-color]",
           "focus-within:bg-zinc-900 focus-within:ring-teal-400/40",
         )}
@@ -88,7 +88,7 @@ export function MessageInputBox(props: {
               onStop={onStop}
               isDisabled={isDisabled}
               className={cn(
-                "size-8 shrink-0 rounded-lg border-0 bg-primary text-primary-foreground shadow-none",
+                "size-8 shrink-0 rounded-md border-0 bg-primary text-primary-foreground shadow-none",
                 "hover:bg-primary/90",
                 focusVisibleClassName,
               )}

@@ -84,7 +84,7 @@ function StatusTag({
   return (
     <span
       className={cn(
-        "inline-flex items-center gap-1.5 rounded-lg border px-2 py-0.5 text-xs",
+        "inline-flex items-center gap-1.5 rounded-md border px-2 py-0.5 text-xs",
         className,
       )}
     >
@@ -272,9 +272,9 @@ export function WorkspaceSettingsPane(props: {
         <h2 className="text-sm font-medium text-foreground">
           Workspace repository
         </h2>
-        <div className="mt-3 flex items-center gap-3 rounded-lg border border-border px-3 py-2">
+        <div className="mt-3 flex items-center gap-3 rounded-md border border-border px-3 py-2">
           <span
-            className="ctx-node size-8 shrink-0 rounded-lg text-muted-foreground"
+            className="ctx-node size-8 shrink-0 rounded-md text-muted-foreground"
             aria-hidden
           >
             <IconGitBranch className="size-4" />

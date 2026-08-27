@@ -222,7 +222,7 @@ export function SideNavOrganizationSwitcher({
           )}
         </DropdownMenuTrigger>
 
-        <DropdownMenuContent className="rounded-lg" align="end" side="right">
+        <DropdownMenuContent className="rounded-md" align="end" side="right">
           <div className="flex items-center justify-between gap-2 p-2">
             <OrganizationCellView
               classNames={sideNavAccountOrgViewClassNames}
@@ -235,7 +235,7 @@ export function SideNavOrganizationSwitcher({
                 <button
                   type="button"
                   aria-label="Organization settings"
-                  className="ml-auto inline-flex size-8 shrink-0 cursor-pointer items-center justify-center rounded-lg bg-transparent text-zinc-400 transition-colors hover:bg-zinc-800/60 hover:text-zinc-100"
+                  className="ml-auto inline-flex size-8 shrink-0 cursor-pointer items-center justify-center rounded-md bg-transparent text-zinc-400 transition-colors hover:bg-zinc-800/60 hover:text-zinc-100"
                   onClick={() => setDropdownOpen(false)}
                 >
                   <IconSettings className="size-4" stroke={1.4} aria-hidden />
@@ -251,7 +251,7 @@ export function SideNavOrganizationSwitcher({
               organization.id !== displayedOrganization?.id && (
                 <DropdownMenuItem
                   key={organization.id}
-                  className="rounded-lg"
+                  className="rounded-md"
                   onClick={() => {
                     void switchOrganization(organization)
                   }}
@@ -272,7 +272,7 @@ export function SideNavOrganizationSwitcher({
 
           {!isPending && sessionData ? (
             <DropdownMenuItem
-              className="rounded-lg"
+              className="rounded-md"
               onClick={() => setIsCreateOrgDialogOpen(true)}
             >
               <IconPlus className="size-4" stroke={1.4} aria-hidden />

@@ -19,13 +19,13 @@ export const workspaceChromeOuterClassName =
  */
 export const workspaceChromeTabClassName = [
   "relative z-10 box-border inline-flex h-[37px] shrink-0 items-center justify-center px-3",
-  "rounded-t-lg border border-b-0 border-white/[0.06] bg-card",
+  "rounded-t-md border border-b-0 border-white/[0.06] bg-card",
   "text-sm font-medium leading-none text-foreground",
 ].join(" ")
 
 export const workspaceChromeTabIdleClassName = [
   "box-border my-0.5 -translate-y-px inline-flex h-8 shrink-0 cursor-pointer items-center justify-center px-3",
-  "rounded-lg border-0 bg-transparent",
+  "rounded-md border-0 bg-transparent",
   "text-sm font-medium leading-none text-zinc-400",
   "transition-colors hover:bg-teal-900/30 hover:text-zinc-50",
 ].join(" ")
@@ -51,7 +51,7 @@ const workspaceChromeCardFlushClassName =
 
 export const workspaceChromeCardClassName = [
   "relative flex min-h-0 flex-1 flex-col overflow-hidden",
-  "rounded-lg rounded-tl-none border border-white/[0.06]",
+  "rounded-md rounded-tl-none border border-white/[0.06]",
   "bg-card text-card-foreground",
   workspaceChromeCardFlushClassName,
 ].join(" ")
@@ -59,7 +59,7 @@ export const workspaceChromeCardClassName = [
 /** Tools pane card. Top-left radius is restored unless Files leads the strip. */
 export const workspaceChromeCardPaneClassName = [
   "relative flex min-h-0 flex-1 flex-col overflow-hidden",
-  "rounded-lg border border-white/[0.06]",
+  "rounded-md border border-white/[0.06]",
   "bg-card text-card-foreground",
   workspaceChromeCardFlushClassName,
 ].join(" ")

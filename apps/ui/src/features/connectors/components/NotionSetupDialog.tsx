@@ -331,7 +331,7 @@ export function NotionSetupDialog({
           <div className="flex justify-end border-t border-border pt-4">
             <Button
               variant="primary"
-              className="rounded-lg"
+              className="rounded-md"
               isPending={saveTargetMutation.isPending}
               isDisabled={!selectedWorkspace}
               onPress={() => void saveTargetMutation.mutateAsync()}

@@ -129,7 +129,7 @@ export function WorkspaceNavRow(props: {
   const workspaceActive = current && !currentConversationId
   const showConversations = open
   const titleControlClassName = [
-    "flex min-w-0 flex-1 cursor-pointer items-center rounded-lg text-left",
+    "flex min-w-0 flex-1 cursor-pointer items-center rounded-md text-left",
     focusVisibleClassName,
   ].join(" ")
   const titleInner = (
@@ -217,7 +217,7 @@ export function WorkspaceNavRow(props: {
         aria-hidden={!navExpanded}
         isDisabled={!navExpanded}
         className={[
-          "inline-flex size-8 shrink-0 cursor-pointer items-center justify-center rounded-lg text-zinc-400 transition-[opacity,width] duration-200 ease-out motion-reduce:transition-none hover:bg-teal-900/30 hover:text-zinc-50",
+          "inline-flex size-8 shrink-0 cursor-pointer items-center justify-center rounded-md text-zinc-400 transition-[opacity,width] duration-200 ease-out motion-reduce:transition-none hover:bg-teal-900/30 hover:text-zinc-50",
           focusVisibleClassName,
           navExpanded
             ? "opacity-100"

@@ -103,8 +103,8 @@ export function WorkspaceChatChrome(props: {
                     title={props.workspace.readOnlyReason ?? write.label}
                     className={
                       write.tone === "pending"
-                        ? "rounded-lg border border-border bg-zinc-800 px-2 py-0.5 text-xs font-medium text-muted-foreground"
-                        : "rounded-lg border border-amber-500/80 bg-amber-950 px-2 py-0.5 text-xs font-medium text-amber-200"
+                        ? "rounded-md border border-border bg-zinc-800 px-2 py-0.5 text-xs font-medium text-muted-foreground"
+                        : "rounded-md border border-amber-500/80 bg-amber-950 px-2 py-0.5 text-xs font-medium text-amber-200"
                     }
                   >
                     {write.label}
@@ -146,7 +146,7 @@ function ConversationPublishActions(props: {
           href={pullRequest.href}
           target="_blank"
           rel="noopener noreferrer"
-          className="inline-flex h-8 items-center rounded-lg px-2 text-xs text-muted-foreground hover:bg-foreground/[0.06] hover:text-foreground"
+          className="inline-flex h-8 items-center rounded-md px-2 text-xs text-muted-foreground hover:bg-foreground/[0.06] hover:text-foreground"
         >
           Show PR
         </AriaLink>

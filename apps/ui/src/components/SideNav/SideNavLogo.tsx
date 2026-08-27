@@ -10,7 +10,7 @@ export function SideNavLogo({ className }: { className?: string }) {
       aria-label="Home"
       className={twMerge(
         // Padding traded for margin so the focus ring stays inside the rail/viewport.
-        "inline-flex items-center rounded-lg px-2.5 py-1.5 mx-1 my-1 text-white transition-all",
+        "inline-flex items-center rounded-md px-2.5 py-1.5 mx-1 my-1 text-white transition-all",
         focusVisibleClassName,
         className,
       )}

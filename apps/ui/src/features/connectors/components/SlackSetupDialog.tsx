@@ -448,7 +448,7 @@ export function SlackSetupDialog({
               {manualView === "target" && baseView === "live" ? (
                 <Button
                   variant="secondary"
-                  className="rounded-lg"
+                  className="rounded-md"
                   onPress={() => setManualView(null)}
                 >
                   Cancel
@@ -457,7 +457,7 @@ export function SlackSetupDialog({
                 <span />
               )}
               <Button
-                className="rounded-lg"
+                className="rounded-md"
                 isPending={saveMutation.isPending}
                 isDisabled={!selectedWorkspace || saveMutation.isPending}
                 onPress={() => saveMutation.mutate()}

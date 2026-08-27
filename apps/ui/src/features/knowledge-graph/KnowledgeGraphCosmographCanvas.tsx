@@ -757,7 +757,7 @@ export const KnowledgeGraphCosmographCanvas = forwardRef<
 
             <div className="pointer-events-auto absolute left-16 right-2 top-2 z-10 flex h-10 justify-center">
               <div className="flex h-10 w-full max-w-xl items-stretch gap-3">
-                <div className="min-w-0 flex-1 rounded-lg border border-border bg-zinc-900/95 px-3 py-1.5">
+                <div className="min-w-0 flex-1 rounded-md border border-border bg-zinc-900/95 px-3 py-1.5">
                   <FallbackGraphSearch
                     points={points}
                     onFocusIds={focusSearchIds}
@@ -851,13 +851,13 @@ function FallbackGraphSearch({
         className="h-7 w-full border-0 bg-transparent pr-2 text-sm leading-7 text-foreground outline-none placeholder:text-muted-foreground"
       />
       {trimmed ? (
-        <div className="absolute left-0 right-0 top-full z-50 mt-2 max-h-72 overflow-y-auto rounded-lg border border-border bg-zinc-900 p-1">
+        <div className="absolute left-0 right-0 top-full z-50 mt-2 max-h-72 overflow-y-auto rounded-md border border-border bg-zinc-900 p-1">
           {matches.length > 0 ? (
             <>
               <button
                 type="button"
                 onClick={focusMatches}
-                className="mb-1 w-full rounded-lg border border-teal-500/30 bg-teal-500/10 px-2 py-1.5 text-left text-sm text-teal-200 hover:bg-teal-500/15"
+                className="mb-1 w-full rounded-md border border-teal-500/30 bg-teal-500/10 px-2 py-1.5 text-left text-sm text-teal-200 hover:bg-teal-500/15"
               >
                 Focus {matches.length.toLocaleString()} result
                 {matches.length === 1 ? "" : "s"}
@@ -867,7 +867,7 @@ function FallbackGraphSearch({
                   key={point.id}
                   type="button"
                   onClick={() => onFocusIds([point.id])}
-                  className="block w-full rounded-lg px-2 py-1.5 text-left hover:bg-white/5"
+                  className="block w-full rounded-md px-2 py-1.5 text-left hover:bg-white/5"
                 >
                   <span className="block truncate text-sm text-foreground">
                     {point.label}
@@ -1012,7 +1012,7 @@ function StockPanel({
   return (
     <div
       className={cn(
-        "rounded-lg border border-border bg-zinc-900/95 p-3 text-foreground",
+        "rounded-md border border-border bg-zinc-900/95 p-3 text-foreground",
         className,
       )}
     >
@@ -1048,7 +1048,7 @@ function GraphControlButton({
 
 function ToolRail({ children }: { children: ReactNode }) {
   return (
-    <div className="flex flex-col items-center gap-0.5 rounded-lg border border-border bg-zinc-900/95 p-0.5 text-muted-foreground">
+    <div className="flex flex-col items-center gap-0.5 rounded-md border border-border bg-zinc-900/95 p-0.5 text-muted-foreground">
       {children}
     </div>
   )
@@ -1237,7 +1237,7 @@ function GraphWaitState({
       </div>
       <div
         aria-hidden
-        className="relative h-1 w-56 overflow-hidden rounded-lg bg-zinc-800"
+        className="relative h-1 w-56 overflow-hidden rounded-md bg-zinc-800"
       >
         {isDeterminate ? (
           <div
@@ -1262,7 +1262,7 @@ function GraphPrepFailed({ message }: { message: string | null }) {
       <span className="ctx-node text-red-300" aria-hidden>
         <IconAlertTriangle className="size-4" aria-hidden />
       </span>
-      <div className="w-full space-y-1 rounded-lg border border-red-500/40 bg-red-950/35 px-4 py-3 text-left">
+      <div className="w-full space-y-1 rounded-md border border-red-500/40 bg-red-950/35 px-4 py-3 text-left">
         <p className="text-sm font-medium text-red-50">Couldn’t prepare graph</p>
         {message ? (
           <p className="break-words text-sm text-red-200">{message}</p>

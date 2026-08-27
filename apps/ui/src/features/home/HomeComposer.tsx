@@ -59,11 +59,11 @@ export function HomeComposer(props: {
     <section>
       <MenuTrigger
         placement="bottom start"
-        popoverClassName="overflow-hidden rounded-lg border-zinc-800 bg-zinc-900"
+        popoverClassName="overflow-hidden rounded-md border-zinc-800 bg-zinc-900"
       >
         <RACButton
           className={cn(
-            "inline-flex items-center gap-1 rounded-lg bg-transparent px-0 py-1 text-sm text-muted-foreground",
+            "inline-flex items-center gap-1 rounded-md bg-transparent px-0 py-1 text-sm text-muted-foreground",
             "hover:text-foreground",
             focusVisibleClassName,
           )}
@@ -72,13 +72,13 @@ export function HomeComposer(props: {
           {selected?.displayName ?? "Workspace"}
           <IconChevronDown aria-hidden className="size-4" />
         </RACButton>
-        <Menu aria-label="Workspaces" className="rounded-lg">
+        <Menu aria-label="Workspaces" className="rounded-md">
           {workspaces.map((workspace) => (
             <MenuItem
               key={workspace.id}
               id={workspace.id}
               textValue={workspace.displayName}
-              className="rounded-lg"
+              className="rounded-md"
               onHoverStart={() => prefetchWorkspace(workspace)}
               onAction={() => onSelectWorkspace(workspace.id)}
             >

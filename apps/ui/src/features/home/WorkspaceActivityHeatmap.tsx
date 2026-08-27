@@ -115,7 +115,7 @@ export function WorkspaceActivityHeatmapSkeleton() {
   return (
     <div aria-busy className="w-full">
       <span className="sr-only">Loading activity</span>
-      <Skeleton className="h-32 w-full rounded-lg" />
+      <Skeleton className="h-32 w-full rounded-md" />
     </div>
   )
 }

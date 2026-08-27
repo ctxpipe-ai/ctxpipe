@@ -369,7 +369,7 @@ function WorkspaceFileTreeMenu(props: {
           if (!open) props.onClose()
         }}
         placement="bottom start"
-        popoverClassName="rounded-lg border-zinc-800 bg-zinc-900"
+        popoverClassName="rounded-md border-zinc-800 bg-zinc-900"
       >
         <Button
           variant="ghost"

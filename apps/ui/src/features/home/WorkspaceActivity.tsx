@@ -94,7 +94,7 @@ function WorkspaceActivityError(props: { onRetry: () => void }) {
       actions={
         <Button
           variant="outline"
-          className="rounded-lg"
+          className="rounded-md"
           onPress={props.onRetry}
         >
           Retry

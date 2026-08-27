@@ -34,7 +34,7 @@ export function sideNavRowClassName(options: {
   const { active = false, interactive = true, focusRing = true } = options
   return [
     // Always left-aligned icon gutter so collapse only clips labels, icons stay put.
-    "group relative mx-1.5 flex h-8 w-[calc(100%-0.75rem)] items-center rounded-lg text-sm font-normal transition-colors",
+    "group relative mx-1.5 flex h-8 w-[calc(100%-0.75rem)] items-center rounded-md text-sm font-normal transition-colors",
     interactive
       ? "cursor-pointer hover:bg-teal-900/30 hover:text-zinc-50"
       : "cursor-default",
@@ -71,11 +71,11 @@ export function sideNavAccountTriggerClassName(expanded: boolean): string {
 
 /** Dimmer avatar plate for org/user fallbacks (kept for real avatar images). */
 export const sideNavAccountAvatarClassNames = {
-  base: "size-8 !my-0 rounded-lg bg-zinc-900/60 text-zinc-500",
-  image: "rounded-lg",
-  fallback: "rounded-lg bg-zinc-900/60 text-xs font-normal text-zinc-500",
+  base: "size-8 !my-0 rounded-md bg-zinc-900/60 text-zinc-500",
+  image: "rounded-md",
+  fallback: "rounded-md bg-zinc-900/60 text-xs font-normal text-zinc-500",
   fallbackIcon: "size-4 stroke-[1.4] text-zinc-500",
-  skeleton: "size-8 rounded-lg bg-zinc-900/60",
+  skeleton: "size-8 rounded-md bg-zinc-900/60",
 }
 
 export const sideNavAccountOrgViewClassNames = {

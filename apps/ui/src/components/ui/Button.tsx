@@ -24,7 +24,7 @@ export interface ButtonProps extends Omit<RACButtonProps, "size"> {
 
 const button = tv({
   extend: focusRing,
-  base: "relative inline-flex items-center justify-center gap-2 border border-transparent dark:border-white/10 h-9 box-border px-3.5 py-0 font-sans text-sm text-center transition rounded-lg cursor-default [-webkit-tap-highlight-color:transparent]",
+  base: "relative inline-flex items-center justify-center gap-2 border border-transparent dark:border-white/10 h-9 box-border px-3.5 py-0 font-sans text-sm text-center transition rounded-md cursor-default [-webkit-tap-highlight-color:transparent]",
   variants: {
     variant: {
       primary:

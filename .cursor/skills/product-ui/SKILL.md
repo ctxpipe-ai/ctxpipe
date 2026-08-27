@@ -13,7 +13,7 @@ Do not install marketing `frontend-design` on this surface. Do not invent a pale
 
 Open [`apps/ui/DESIGN.md`](../../../apps/ui/DESIGN.md). Apply it on **new or touched** UI. Existing `rounded-none` overrides stay until a later pass — do not add more of them.
 
-**Done when:** you can name the radius (`rounded-lg`), primary (white/light), accent (teal), title scale (`text-lg` / `text-xl` on product screens), and which brand signatures you will reuse (crosses, `.ctx-label`, status pill + text, quiet glow).
+**Done when:** you can name the radius (`rounded-md`), primary (white/light), accent (teal), title scale (`text-lg` / `text-xl` on product screens), and which brand signatures you will reuse (crosses, `.ctx-label`, status pill + text, quiet glow).
 
 ## 2. Feature, not shell
 
@@ -80,7 +80,7 @@ Error: [`InlineAlert`](../../../apps/ui/src/components/ui/InlineAlert.tsx) + a n
 
 - Primitives from `src/components/ui/*` (React Aria). Do not invent a new Button or checkbox.
 - **React Aria first:** tabs, dialogs, menus, lists, links, and similar controls start from [React Aria Components](https://react-spectrum.adobe.com/react-aria/components.html). Use the house wrapper in `src/components/ui/*` when the visual matches; otherwise compose RAC primitives (`Tabs` / `TabList` / `Tab`, `Button`, `Link`, …) and style them. Hand-rolled `<button>` tablists are not a substitute for `Tabs`.
-- New chrome: `rounded-lg` / `--radius`. Do not add `rounded-none`.
+- New chrome: `rounded-md` (Tailwind default 0.375rem). Do not add `rounded-none`.
 - Icons: `@tabler/icons-react` at ~16–20px, `text-muted-foreground`, `aria-hidden`. Lucide only if Tabler has no equivalent. Enclose in `.ctx-node` if the hit area must be large.
 - Destructive on the page: `outline` or `quiet`. Filled red only on [`AlertDialog`](../../../apps/ui/src/components/ui/AlertDialog.tsx).
 - Copy: US English, plain, specific. Semantic `h1` at `text-lg` / `text-xl` on product screens.

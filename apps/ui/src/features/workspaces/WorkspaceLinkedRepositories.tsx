@@ -44,7 +44,7 @@ function linkedStatus(item: WorkspaceLinkedRepository): {
     return {
       label: "Indexed",
       className:
-        "inline-flex items-center gap-1.5 rounded-lg border border-teal-400/30 bg-teal-400/10 px-2 py-0.5 text-xs text-teal-200",
+        "inline-flex items-center gap-1.5 rounded-md border border-teal-400/30 bg-teal-400/10 px-2 py-0.5 text-xs text-teal-200",
       dotClassName: "size-1.5 rounded-full bg-teal-300",
     }
   }
@@ -52,14 +52,14 @@ function linkedStatus(item: WorkspaceLinkedRepository): {
     return {
       label: "Indexing",
       className:
-        "inline-flex items-center gap-1.5 rounded-lg border border-amber-400/30 bg-amber-400/10 px-2 py-0.5 text-xs text-amber-200",
+        "inline-flex items-center gap-1.5 rounded-md border border-amber-400/30 bg-amber-400/10 px-2 py-0.5 text-xs text-amber-200",
       dotClassName: "size-1.5 animate-pulse rounded-full bg-amber-300",
     }
   }
   return {
     label: "Pending",
     className:
-      "inline-flex items-center gap-1.5 rounded-lg border border-border bg-zinc-800 px-2 py-0.5 text-xs text-muted-foreground",
+      "inline-flex items-center gap-1.5 rounded-md border border-border bg-zinc-800 px-2 py-0.5 text-xs text-muted-foreground",
     dotClassName: "size-1.5 rounded-full bg-zinc-500",
   }
 }
@@ -145,9 +145,9 @@ export function WorkspaceLinkedRepositories(props: {
                 const status = linkedStatus(item)
                 return (
                   <li key={item.id}>
-                    <div className="flex items-center gap-3 rounded-lg px-2 py-2 hover:bg-foreground/[0.04]">
+                    <div className="flex items-center gap-3 rounded-md px-2 py-2 hover:bg-foreground/[0.04]">
                       <span
-                        className="ctx-node size-8 shrink-0 rounded-lg text-muted-foreground"
+                        className="ctx-node size-8 shrink-0 rounded-md text-muted-foreground"
                         aria-hidden
                       >
                         <IconGitBranch className="size-4" />
@@ -332,7 +332,7 @@ function AddLinkedReposModal(props: {
                   return next
                 })
               }}
-              className="rounded-lg border-border bg-zinc-900/40"
+              className="rounded-md border-border bg-zinc-900/40"
             />
           )}
           {selectedUrls.length > 0 ? (

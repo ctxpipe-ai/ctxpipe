@@ -37,7 +37,7 @@ export const WithWorkspaces: Story = {
     await userEvent.click(canvas.getByLabelText("Select workspace"))
     const page = within(canvasElement.ownerDocument.body)
     const menu = await page.findByRole("menu", { name: "Workspaces" })
-    expect(menu.className).toMatch(/rounded-lg/)
+    expect(menu.className).toMatch(/rounded-md/)
   },
 }
 

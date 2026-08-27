@@ -86,7 +86,7 @@ export function SideNavUserButton({ expanded }: SideNavUserButtonProps) {
         )}
       </DropdownMenuTrigger>
 
-      <DropdownMenuContent className="rounded-lg" align="end" side="right">
+      <DropdownMenuContent className="rounded-md" align="end" side="right">
         <div className="p-2">
           {(user && !user.isAnonymous) || isPending ? (
             <UserView
@@ -106,7 +106,7 @@ export function SideNavUserButton({ expanded }: SideNavUserButtonProps) {
         {settingsHref ? (
           <Link href={settingsHref}>
             <DropdownMenuItem
-              className="rounded-lg"
+              className="rounded-md"
               onClick={() => setDropdownOpen(false)}
             >
               <IconSettings className="size-4" stroke={1.4} aria-hidden />
@@ -117,7 +117,7 @@ export function SideNavUserButton({ expanded }: SideNavUserButtonProps) {
 
         <Link href={signOutHref}>
           <DropdownMenuItem
-            className="rounded-lg"
+            className="rounded-md"
             onClick={() => setDropdownOpen(false)}
           >
             <IconLogout className="size-4" stroke={1.4} aria-hidden />

@@ -87,7 +87,7 @@ export function GithubWorkspaceDestination({
               onRetry ? (
                 <Button
                   variant="outline"
-                  className="rounded-lg"
+                  className="rounded-md"
                   onPress={onRetry}
                 >
                   Retry
@@ -120,7 +120,7 @@ export function GithubWorkspaceDestination({
         <div className="mt-8 space-y-6">
           <Button
             variant="outline"
-            className="rounded-lg"
+            className="rounded-md"
             onPress={onCreateWorkspace}
           >
             <IconPlus className="size-4 text-current" aria-hidden />
@@ -132,7 +132,7 @@ export function GithubWorkspaceDestination({
               <li key={workspace.id}>
                 <RACButton
                   className={cn(
-                    "flex w-full items-start gap-3 rounded-lg border border-border bg-card/40 p-4 text-left transition-colors",
+                    "flex w-full items-start gap-3 rounded-md border border-border bg-card/40 p-4 text-left transition-colors",
                     "hover:border-teal-400/40 hover:bg-foreground/[0.03]",
                     focusVisibleClassName,
                   )}

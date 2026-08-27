@@ -95,7 +95,7 @@ export function WorkspaceCommandPalette(props: {
               <li key={item.id}>
                 <button
                   type="button"
-                  className="flex w-full items-center justify-between rounded-lg px-2 py-2 text-left text-sm hover:bg-zinc-900"
+                  className="flex w-full items-center justify-between rounded-md px-2 py-2 text-left text-sm hover:bg-zinc-900"
                   onClick={() => go(item.id)}
                 >
                   <span>{item.label}</span>

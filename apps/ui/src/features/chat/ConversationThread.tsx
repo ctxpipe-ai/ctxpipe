@@ -113,7 +113,7 @@ function ReasoningBox(props: {
       onPress={() => setUserExpanded(!expanded)}
       className={cn(
         focusVisibleClassName,
-        "flex w-full min-w-0 items-start gap-2 rounded-lg text-left text-xs leading-relaxed text-muted-foreground",
+        "flex w-full min-w-0 items-start gap-2 rounded-md text-left text-xs leading-relaxed text-muted-foreground",
         "hover:text-foreground/80",
       )}
     >
@@ -155,7 +155,7 @@ function ToolUseRow(props: { tools: ToolCallSummary[]; live: boolean }) {
       onPress={() => setExpanded(!expanded)}
       className={cn(
         focusVisibleClassName,
-        "flex w-full min-w-0 items-start gap-2 rounded-lg text-left text-xs leading-relaxed text-muted-foreground",
+        "flex w-full min-w-0 items-start gap-2 rounded-md text-left text-xs leading-relaxed text-muted-foreground",
         "hover:text-foreground/80",
       )}
     >

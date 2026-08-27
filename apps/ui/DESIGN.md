@@ -10,7 +10,7 @@ Implementation process: [`.agents/skills/product-ui/SKILL.md`](../../.agents/ski
 
 ## Personality (copy these)
 
-- **Radius:** unify on ~8–10px (`--radius: 0.625rem` / `rounded-lg`). One radius per surface. Do not mix `rounded-none` with `rounded-md` on the same screen. Do not add `rounded-none` on new product chrome.
+- **Radius:** unify on Tailwind `rounded-md` (0.375rem). One radius per surface. Do not mix `rounded-none` with `rounded-md` on the same screen. Do not add `rounded-none` on new product chrome.
 - **Primary actions:** white / light filled buttons (`bg-primary` / `text-primary-foreground`). Teal (`#40E0D0` / `teal-*`) is the **accent**, not the default filled CTA.
 - **Brand signatures (keep):**
   - Card corner crosses from [`Card.tsx`](src/components/ui/Card.tsx)
@@ -78,7 +78,7 @@ Operate UI is keyboard-heavy. Apply on **new or touched** interactive chrome:
 - **Focus ring:** `outline-2` + `outline-offset-1` + `outline-teal-400/60` (readable, not full-bright). Raise `z-index` on `focus-visible` so the ring paints over neighbors.
 - **Do not** use `outline-none` when you still need outline-based hover/focus — prefer `outline-0` + solid style, then grow width on focus.
 - **Hover vs focus:** a soft hover wash (fill and/or a wider transparent outline) is separate from the focus ring; changing focus must not remove the hover treatment.
-- **Clipping:** avoid parent `overflow-hidden` that cuts rings; give edge controls margin by reducing padding the same amount; match `rounded-lg` on the actual focusable control.
+- **Clipping:** avoid parent `overflow-hidden` that cuts rings; give edge controls margin by reducing padding the same amount; match `rounded-md` on the actual focusable control.
 - **Special affordances:** resize / splitter controls show the same line as hover on focus (no box outline) and move with arrow keys.
 
 Shared tokens: [`focus-styles.ts`](src/lib/focus-styles.ts) (`focusVisibleClassName`, `focusVisibleRingClassName`, RAC `focusRing`). Re-exported from [`react-aria-utils.ts`](src/lib/react-aria-utils.ts) for primitives.

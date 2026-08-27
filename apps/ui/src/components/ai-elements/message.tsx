@@ -57,10 +57,10 @@ export const MessageContent = ({
          block sticky copy/download controls (negative top offset) stay visible and clickable. */
       "group-[.is-user]:overflow-hidden",
       "group-[.is-assistant]:overflow-visible",
-      "group-[.is-user]:rounded-lg group-[.is-user]:bg-zinc-900 group-[.is-user]:px-3.5 group-[.is-user]:py-2.5 group-[.is-user]:text-foreground",
+      "group-[.is-user]:rounded-md group-[.is-user]:bg-zinc-900 group-[.is-user]:px-3.5 group-[.is-user]:py-2.5 group-[.is-user]:text-foreground",
       /* Assistant: do not set text colour on this wrapper — it flattens Streamdown/Shiki token
          spans that use color: var(--sdm-c, inherit). Body copy colour comes from Streamdown + CSS. */
-      "group-[.is-assistant]:rounded-lg group-[.is-assistant]:bg-transparent group-[.is-assistant]:p-0",
+      "group-[.is-assistant]:rounded-md group-[.is-assistant]:bg-transparent group-[.is-assistant]:p-0",
       className,
     )}
     {...props}

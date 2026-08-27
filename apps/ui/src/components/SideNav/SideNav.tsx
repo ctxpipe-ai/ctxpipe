@@ -142,7 +142,7 @@ export function SideNav() {
                 className={
                   expanded
                     ? [
-                        "mr-1.5 inline-flex size-8 shrink-0 cursor-pointer items-center justify-center rounded-lg text-zinc-400 transition-colors hover:bg-teal-900/30 hover:text-zinc-50",
+                        "mr-1.5 inline-flex size-8 shrink-0 cursor-pointer items-center justify-center rounded-md text-zinc-400 transition-colors hover:bg-teal-900/30 hover:text-zinc-50",
                         focusVisibleClassName,
                       ].join(" ")
                     : sideNavRowClassName({ active: false })

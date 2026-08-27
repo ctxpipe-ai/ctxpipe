@@ -56,7 +56,7 @@ These encode widely used interface tactics as **ctxpipe house rules**. They are 
 
 | Check | Yes looks like |
 |-------|----------------|
-| One radius | New chrome is `rounded-lg` / `--radius`. No new `rounded-none` mixed with `rounded-md` |
+| One radius | New chrome is `rounded-md` (0.375rem). No new `rounded-none` mixed with the house radius |
 | Elevation | Surface lightness (`bg-card` vs page); existing rings. No black `shadow-lg` slabs |
 | Overlap | Only if the nearby anchor screen already overlaps |
 | Icon size | Glyph stays ~16–20px; large hit area uses `.ctx-node` enclosure |

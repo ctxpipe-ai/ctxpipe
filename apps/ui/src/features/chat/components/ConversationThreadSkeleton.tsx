@@ -6,7 +6,7 @@ export function ConversationThreadSkeleton() {
       <div className="mx-auto w-full max-w-2xl flex-1 space-y-6 px-4 py-5">
         <div className="ml-auto flex w-full max-w-md flex-col items-end gap-2">
           <Skeleton className="h-3 w-10" />
-          <Skeleton className="h-16 w-full rounded-lg" />
+          <Skeleton className="h-16 w-full rounded-md" />
         </div>
         <div className="flex w-full max-w-prose flex-col items-start gap-2">
           <Skeleton className="h-3 w-12" />
