@@ -15,4 +15,18 @@ describe("WorkspaceFileTree SSR", () => {
     expect(markup).toContain("AGENTS.md")
     expect(markup).toContain("billing.md")
   })
+
+  it("shows a quiet updating status in the first HTML", () => {
+    const markup = renderToStaticMarkup(
+      <WorkspaceFileTree
+        paths={["cached-note.md"]}
+        selectedPath={null}
+        writable={false}
+        busyLabel="Updating…"
+        onSelect={() => {}}
+      />,
+    )
+    expect(markup).toContain("cached-note.md")
+    expect(markup).toContain("Updating…")
+  })
 })

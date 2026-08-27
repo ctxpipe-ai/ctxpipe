@@ -1,11 +1,15 @@
-import { afterEach, describe, expect, it } from "vitest"
+import { afterEach, beforeAll, describe, expect, it } from "vitest"
 import {
   clearAllConversationGitTreeSnapshots,
   readConversationGitTreeSnapshot,
   writeConversationGitTreeSnapshot,
 } from "./conversation-git-tree-snapshot"
+import { installMemorySessionStorage } from "./session-storage-test"
 
 describe("conversation git tree snapshot", () => {
+  beforeAll(() => {
+    installMemorySessionStorage()
+  })
   afterEach(() => {
     clearAllConversationGitTreeSnapshots()
   })

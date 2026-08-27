@@ -2,6 +2,12 @@ import { HttpResponse, http } from "msw"
 import { setupServer } from "msw/node"
 import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest"
 import {
+  clearAllConversationGitTreeSnapshots,
+  readConversationGitTreeSnapshot,
+} from "./conversation-git-tree-snapshot"
+import { installMemorySessionStorage } from "./session-storage-test"
+import {
+  conversationGitTreeOptions,
   deleteWorkspace,
   fetchWorkspaceGitTree,
   landingWorkspace,
@@ -64,6 +70,7 @@ const server = setupServer()
 
 describe("workspace query HTTP helpers", () => {
   beforeAll(() => {
+    installMemorySessionStorage()
     server.listen({ onUnhandledRequest: "error" })
     const intercepted = globalThis.fetch
     globalThis.fetch = ((input: RequestInfo | URL, init?: RequestInit) => {
@@ -156,5 +163,27 @@ describe("workspace query HTTP helpers", () => {
     expect(
       workspaceGitTreeOptions("acme", "knowledge", "").retry,
     ).toBeUndefined()
+  })
+
+  it("persists a successful conversation sandbox tree snapshot", async () => {
+    clearAllConversationGitTreeSnapshots()
+    server.use(
+      http.get(
+        "http://localhost:3000/:orgSlug/api/v1/conversations/:conversationId/files/tree",
+        () =>
+          HttpResponse.json({
+            sha: "sandboxsha",
+            paths: ["e2e-live-note.md"],
+            branch: "ctxpipe/chat/conv_1/1",
+          }),
+      ),
+    )
+    const tree = await conversationGitTreeOptions("acme", "conv_1").queryFn()
+    expect(tree.paths).toEqual(["e2e-live-note.md"])
+    expect(readConversationGitTreeSnapshot("conv_1")).toEqual(tree)
+    expect(conversationGitTreeOptions("acme", "conv_1").placeholderData?.()).toEqual(
+      tree,
+    )
+    clearAllConversationGitTreeSnapshots()
   })
 })
