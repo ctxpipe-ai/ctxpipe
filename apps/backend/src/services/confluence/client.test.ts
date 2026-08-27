@@ -97,6 +97,51 @@ describe("listConfluencePageAttachments", () => {
     )
   })
 
+  it("follows attachment pagination from the Link response header", async () => {
+    const fetchMock = vi
+      .fn<typeof fetch>()
+      .mockResolvedValueOnce(
+        new Response(
+          JSON.stringify({
+            results: [{ id: "att100", title: "diagram.png" }],
+          }),
+          {
+            status: 200,
+            headers: {
+              Link: '</wiki/api/v2/pages/42/attachments?cursor=page-2>; rel="next"',
+            },
+          },
+        ),
+      )
+      .mockResolvedValueOnce(
+        new Response(
+          JSON.stringify({
+            results: [{ id: "att200", title: "spec.pdf" }],
+          }),
+          { status: 200 },
+        ),
+      )
+    vi.stubGlobal("fetch", fetchMock)
+
+    await expect(
+      listConfluencePageAttachments({ client, pageId: "42" }),
+    ).resolves.toEqual([
+      {
+        id: "att100",
+        title: "diagram.png",
+        fileSize: null,
+        mediaType: null,
+      },
+      {
+        id: "att200",
+        title: "spec.pdf",
+        fileSize: null,
+        mediaType: null,
+      },
+    ])
+    expect(String(fetchMock.mock.calls[1]?.[0])).toContain("cursor=page-2")
+  })
+
   it("stops metadata discovery at the requested attachment cap", async () => {
     const fetchMock = vi.fn<typeof fetch>().mockResolvedValue(
       new Response(

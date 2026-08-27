@@ -1,6 +1,9 @@
 import { extname, posix } from "node:path"
 import slugify from "@sindresorhus/slugify"
-import { sanitizeConnectorAssetName } from "../connectors/assets.js"
+import {
+  isConnectorAssetCredentialUrl,
+  sanitizeConnectorAssetName,
+} from "../connectors/assets.js"
 import type { NotionBlock, NotionPage } from "./client.js"
 import { getNotionPageTitle } from "./client.js"
 
@@ -174,6 +177,16 @@ function richTextPlainText(value: unknown): string {
     .join("")
 }
 
+function safeExternalUrl(url: string | undefined): string | undefined {
+  if (
+    !url ||
+    isConnectorAssetCredentialUrl(url, { includeGenericCredentials: true })
+  ) {
+    return undefined
+  }
+  return url
+}
+
 function markdownLinkTarget(
   notionId: string | undefined,
   href: string | undefined,
@@ -185,7 +198,7 @@ function markdownLinkTarget(
   const localPath = context.pathByNotionId?.get(
     notionIdKey(notionId ?? idFromHref ?? ""),
   )
-  if (!localPath) return href
+  if (!localPath) return safeExternalUrl(href)
 
   const relative = posix.relative(posix.dirname(context.currentPath), localPath)
   return relative.startsWith(".") ? relative : `./${relative}`
@@ -230,7 +243,14 @@ function blockText(block: NotionBlock, context: NotionLinkContext): string {
 }
 
 function markdownLabel(value: string): string {
-  return value.replaceAll("]", "\\]")
+  return value
+    .replaceAll("\\", "\\\\")
+    .replaceAll("[", "\\[")
+    .replaceAll("]", "\\]")
+    .replaceAll("*", "\\*")
+    .replaceAll("_", "\\_")
+    .replaceAll("`", "\\`")
+    .replace(/[\r\n]+/g, " ")
 }
 
 function renderCapturedMedia(
@@ -310,6 +330,14 @@ function markdownForBlock(
     case "quote":
       line = text ? `> ${text}` : ""
       break
+    case "callout": {
+      const icon = context.assets?.get(`${block.id}:icon`)
+      const renderedIcon = icon
+        ? renderCapturedMedia("image", "Callout icon", icon, context.pageUrl)
+        : ""
+      line = [renderedIcon, text].filter(Boolean).join(" ")
+      break
+    }
     case "code": {
       const data = block.code
       const language =
@@ -352,6 +380,29 @@ function markdownForBlock(
     case "pdf":
     case "audio": {
       line = mediaBlockText(block, context)
+      break
+    }
+    case "embed": {
+      line = mediaBlockText(block, context)
+      break
+    }
+    case "bookmark": {
+      const data = block.bookmark
+      const url =
+        data &&
+        typeof data === "object" &&
+        "url" in data &&
+        typeof data.url === "string"
+          ? data.url
+          : ""
+      const caption =
+        data && typeof data === "object" && "caption" in data
+          ? richTextPlainText(data.caption)
+          : ""
+      const safeUrl = safeExternalUrl(url)
+      line = safeUrl
+        ? `[${markdownLabel(caption || "Bookmark")}](${safeUrl})`
+        : markdownLabel(caption || "Bookmark")
       break
     }
     default:
@@ -397,11 +448,10 @@ export function notionPropertyPlainText(value: unknown): string {
     if (!typedValue || typeof typedValue !== "object") return ""
     return "start" in typedValue ? String(typedValue.start) : ""
   }
-  if (
-    property.type === "url" ||
-    property.type === "email" ||
-    property.type === "phone_number"
-  ) {
+  if (property.type === "url") {
+    return typedValue == null ? "" : (safeExternalUrl(String(typedValue)) ?? "")
+  }
+  if (property.type === "email" || property.type === "phone_number") {
     return typedValue == null ? "" : String(typedValue)
   }
   if (property.type === "relation") {
@@ -552,10 +602,10 @@ function propertyMarkdownLine(
         captured?.status === "stub" ? captured.permalink : (pageUrl ?? null)
       return permalink ? `[${label}](${permalink})` : label
     })
-    return `- **${name}:** ${links.join(", ")}`
+    return `- **${markdownLabel(name)}:** ${links.join(", ")}`
   }
   const text = notionPropertyPlainText(value)
-  return text ? `- **${name}:** ${text}` : ""
+  return text ? `- **${markdownLabel(name)}:** ${text}` : ""
 }
 
 export function toNotionDatabaseRowMarkdownFile(input: {

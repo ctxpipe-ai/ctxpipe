@@ -18,6 +18,7 @@ import {
   type SlackMentionAgentResult,
 } from "../../services/slack/mention-agent.js"
 import { publishSlackMentionStatus } from "../../services/slack/mention-status.js"
+import { runConnectorRepositoryIngestionWorkflow } from "../enqueue-repository-ingestion.js"
 
 const slackMentionAgentInputSchema = z.object({
   orgId: z.string().min(1),
@@ -33,15 +34,23 @@ export const slackMentionAgent = defineWorkflow(
     name: "slack-mention-agent",
     schema: slackMentionAgentInputSchema,
   },
-  async ({ input }) => {
-    const target = await getSlackSyncTargetByConnectionId(input.connectionId)
-    if (!target) throw new Error("Slack sync target is not configured")
-    if (target.orgId !== input.orgId) {
-      throw new Error("Slack sync target does not belong to organization")
-    }
-    if (!target.enabled) {
-      throw new Error("Slack connector is not live for this connection")
-    }
+  async ({ input, step }) => {
+    const target = await step.run(
+      { name: "load-slack-capture-target" },
+      async () => {
+        const current = await getSlackSyncTargetByConnectionId(
+          input.connectionId,
+        )
+        if (!current) throw new Error("Slack sync target is not configured")
+        if (current.orgId !== input.orgId) {
+          throw new Error("Slack sync target does not belong to organization")
+        }
+        if (!current.enabled) {
+          throw new Error("Slack connector is not live for this connection")
+        }
+        return current
+      },
+    )
 
     const connection = await withOrgDbContext(input.orgId, () =>
       getSlackConnectionByConnectionId(input.orgId, input.connectionId),
@@ -50,30 +59,36 @@ export const slackMentionAgent = defineWorkflow(
 
     const env = parseEnv(process.env as Record<string, string | undefined>)
 
-    const statusMessage = await postSlackThreadMessage({
-      env,
-      connection,
-      channelId: input.channelId,
-      threadTs: input.threadTs,
-      text: SLACK_MENTION_STATUS_WORKING,
-    })
+    const statusMessage = await step.run(
+      { name: "post-slack-working-status" },
+      () =>
+        postSlackThreadMessage({
+          env,
+          connection,
+          channelId: input.channelId,
+          threadTs: input.threadTs,
+          text: SLACK_MENTION_STATUS_WORKING,
+        }),
+    )
 
     let outcome: SlackMentionAgentResult = {
       kind: "failed",
       error: SLACK_CAPTURE_STATUS_FAILED,
     }
     try {
-      outcome = await runSlackMentionAgent({
-        orgId: input.orgId,
-        env,
-        connection,
-        target,
-        channelId: input.channelId,
-        threadTs: input.threadTs,
-        mentionText: input.mentionText,
-        mentionUserId: input.mentionUserId,
-        excludeMessageTs: statusMessage?.ts,
-      })
+      outcome = await step.run({ name: "capture-slack-thread" }, () =>
+        runSlackMentionAgent({
+          orgId: input.orgId,
+          env,
+          connection,
+          target,
+          channelId: input.channelId,
+          threadTs: input.threadTs,
+          mentionText: input.mentionText,
+          mentionUserId: input.mentionUserId,
+          excludeMessageTs: statusMessage?.ts,
+        }),
+      )
     } catch (error) {
       outcome = {
         kind: "failed",
@@ -81,37 +96,38 @@ export const slackMentionAgent = defineWorkflow(
       }
       throw error
     } finally {
-      await publishSlackMentionStatus({
-        env,
-        connection,
-        channelId: input.channelId,
-        threadTs: input.threadTs,
-        text: formatSlackMentionStatusText(outcome),
-        messageTs: statusMessage?.ts,
-      })
+      await step.run({ name: "publish-slack-capture-status" }, () =>
+        publishSlackMentionStatus({
+          env,
+          connection,
+          channelId: input.channelId,
+          threadTs: input.threadTs,
+          text: formatSlackMentionStatusText(outcome),
+          messageTs: statusMessage?.ts,
+        }),
+      )
     }
 
     if (outcome.kind === "failed") {
       throw new Error(outcome.error ?? "Slack mention agent failed")
     }
     if (outcome.kind === "captured") {
-      const { runRepositoryIngestionWorkflow } = await import(
-        "../enqueue-repository-ingestion.js"
-      )
-      await runRepositoryIngestionWorkflow(
-        {
-          repositoryId: target.repositoryId,
-          orgId: input.orgId,
-          targetBranch: target.branch,
-          indexingReason: "Applying Slack capture",
-        },
-        {
-          error: (error) =>
-            getLogger().error(error, {
-              step: "slack-mention-agent.ingestion",
-              connectionId: input.connectionId,
-            }),
-        },
+      await step.run({ name: "ingest-slack-capture" }, () =>
+        runConnectorRepositoryIngestionWorkflow(
+          {
+            repositoryId: target.repositoryId,
+            orgId: input.orgId,
+            targetBranch: target.branch,
+            indexingReason: "Applying Slack capture",
+          },
+          {
+            error: (error) =>
+              getLogger().error(error, {
+                step: "slack-mention-agent.ingestion",
+                connectionId: input.connectionId,
+              }),
+          },
+        ),
       )
     }
     return outcome

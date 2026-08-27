@@ -30,7 +30,7 @@ vi.mock("../../services/confluence/sync.js", () => ({
   syncConfluenceContent: mocks.syncContent,
 }))
 vi.mock("../enqueue-repository-ingestion.js", () => ({
-  runRepositoryIngestionWorkflow: mocks.runIngestion,
+  runConnectorRepositoryIngestionWorkflow: mocks.runIngestion,
 }))
 
 import { confluenceSyncContent } from "./confluence-sync-content.js"
@@ -83,7 +83,7 @@ describe("confluenceSyncContent", () => {
     )
   })
 
-  it("does not ingest when Confluence writes did not change", async () => {
+  it("checks the branch tip when replaying unchanged Confluence writes", async () => {
     mocks.syncContent.mockResolvedValueOnce({
       status: "completed",
       spacesProcessed: 1,
@@ -97,6 +97,62 @@ describe("confluenceSyncContent", () => {
       step,
     } as never)
 
-    expect(mocks.runIngestion).not.toHaveBeenCalled()
+    expect(mocks.runIngestion).toHaveBeenCalledWith(
+      {
+        repositoryId: "repo_1",
+        orgId: "org_1",
+        targetBranch: "main",
+        indexingReason: "Syncing Confluence content",
+      },
+      expect.any(Object),
+    )
+  })
+
+  it("keeps the checkpointed repository target when a binding is rebound during replay", async () => {
+    const checkpointedTarget = {
+      repositoryId: "repo_original",
+      branch: "confluence-capture",
+      enabled: true,
+    }
+    mocks.getTarget.mockResolvedValueOnce({
+      repositoryId: "repo_rebound",
+      branch: "main",
+      enabled: true,
+    })
+    const replayStep = {
+      run: async (
+        options: { name: string },
+        operation: () => Promise<unknown>,
+      ) => {
+        if (options.name === "load-confluence-sync-context") {
+          return {
+            installation: {
+              id: "con_forge",
+              cloudId: "cloud-1",
+              atlassianApiBaseUrl: null,
+              appSystemToken: "token",
+            },
+            target: checkpointedTarget,
+          }
+        }
+        return operation()
+      },
+    }
+
+    await confluenceSyncContent.fn({
+      input: { orgId: "org_1", orgSlug: "acme", connectionId: "con_forge" },
+      step: replayStep,
+    } as never)
+
+    expect(mocks.syncContent).toHaveBeenCalledWith(
+      expect.objectContaining({ target: checkpointedTarget }),
+    )
+    expect(mocks.runIngestion).toHaveBeenCalledWith(
+      expect.objectContaining({
+        repositoryId: "repo_original",
+        targetBranch: "confluence-capture",
+      }),
+      expect.any(Object),
+    )
   })
 })

@@ -46,10 +46,13 @@ export type NotionTokenResponse = {
   owner?: { user?: { id?: string } }
 }
 
-type NotionTokenRefreshHandler = (tokens: {
+export type NotionTokenRefreshHandler = (
+  expectedRefreshToken: string,
+  expectedAccessToken: string,
+) => Promise<{
   accessToken: string
   refreshToken: string | null
-}) => Promise<void>
+}>
 
 function assertNotionOAuthConfigured(env: Env) {
   if (!env.NOTION_CLIENT_ID || !env.NOTION_CLIENT_SECRET) {
@@ -154,9 +157,11 @@ async function fetchNotion<T>(
       },
     })
   let res: Response
+  let requestedAccessToken = input.connection.accessToken
   for (let attempt = 0; ; attempt += 1) {
     try {
-      res = await request(input.connection.accessToken)
+      requestedAccessToken = input.connection.accessToken
+      res = await request(requestedAccessToken)
     } catch (error) {
       if (attempt >= 2) throw error
       await new Promise((resolve) => setTimeout(resolve, 250 * 2 ** attempt))
@@ -170,18 +175,25 @@ async function fetchNotion<T>(
       : 250 * 2 ** attempt
     await new Promise((resolve) => setTimeout(resolve, delayMs))
   }
-  if (res.status === 401 && input.connection.refreshToken) {
-    const tokens = await refreshNotionOAuthToken({
-      env: input.env,
-      refreshToken: input.connection.refreshToken,
-    })
-    input.connection.accessToken = tokens.access_token
-    input.connection.refreshToken =
-      tokens.refresh_token ?? input.connection.refreshToken
-    await input.onTokenRefresh?.({
-      accessToken: input.connection.accessToken,
-      refreshToken: input.connection.refreshToken,
-    })
+  if (
+    res.status === 401 &&
+    input.connection.accessToken !== requestedAccessToken
+  ) {
+    res = await request(input.connection.accessToken)
+  } else if (res.status === 401 && input.connection.refreshToken) {
+    const expectedRefreshToken = input.connection.refreshToken
+    const expectedAccessToken = input.connection.accessToken
+    const tokens = input.onTokenRefresh
+      ? await input.onTokenRefresh(expectedRefreshToken, expectedAccessToken)
+      : await refreshNotionOAuthToken({
+          env: input.env,
+          refreshToken: expectedRefreshToken,
+        }).then((refreshed) => ({
+          accessToken: refreshed.access_token,
+          refreshToken: refreshed.refresh_token ?? expectedRefreshToken,
+        }))
+    input.connection.accessToken = tokens.accessToken
+    input.connection.refreshToken = tokens.refreshToken
     res = await request(input.connection.accessToken)
   }
   if (!res.ok) {

@@ -313,10 +313,9 @@ describe("captureSlackThread", () => {
       threadTs: "1710000000.000100",
     })
 
-    expect(threadMarkdown()?.content).toContain("hey @unknown-user")
+    expect(threadMarkdown()?.content).toContain("hey @U9")
     expect(threadMarkdown()?.content).toContain("### Ada Lovelace (@ada)")
     expect(threadMarkdown()?.content).toContain('participant_ids: ["U1"]')
-    expect(threadMarkdown()?.content).not.toMatch(/@U9\b/)
   })
 
   it("recaptures into the existing channel root after a rename", async () => {
@@ -603,7 +602,71 @@ describe("captureSlackThread", () => {
       ),
     ).toBe(true)
     expect(threadMarkdown()?.content).toContain(
-      "![block-image.png](assets/F1--block-image.png)",
+      "![Block image](assets/F1--block-image.png)",
+    )
+  })
+
+  it("resolves Block Kit Slack permalinks instead of downloading their HTML", async () => {
+    fetchFileInfoMock.mockResolvedValue({
+      id: "F1",
+      name: "block-image.png",
+      mimetype: "image/png",
+      permalink: "https://acme.slack.com/files/U1/F1/block-image.png",
+      url_private: "https://files.slack.com/files-pri/T1-F1/block-image.png",
+    })
+    downloadAssetMock.mockResolvedValue({
+      status: "downloaded",
+      bytes: Buffer.from("block-image"),
+      filename: "block-image.png",
+      contentType: "image/png",
+    })
+    listRepliesMock.mockResolvedValue({
+      truncated: false,
+      messages: [
+        {
+          ts: "1710000000.000100",
+          user: "U1",
+          text: "block image",
+          blocks: [
+            {
+              type: "image",
+              alt_text: "Architecture overview",
+              slack_file: {
+                url: "https://acme.slack.com/files/U1/F1/block-image.png",
+              },
+            },
+          ],
+        },
+      ],
+    })
+
+    await captureSlackThread({
+      orgId: "org_1",
+      env: {} as never,
+      connection,
+      target,
+      channelId: "C1",
+      threadTs: "1710000000.000100",
+    })
+
+    expect(fetchFileInfoMock).toHaveBeenCalledWith({
+      botToken: "xoxb-test",
+      fileId: "F1",
+      signal: expect.any(AbortSignal),
+    })
+    expect(downloadAssetMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        url: "https://files.slack.com/files-pri/T1-F1/block-image.png",
+        headers: { Authorization: "Bearer xoxb-test" },
+      }),
+    )
+    expect(downloadAssetMock).not.toHaveBeenCalledWith(
+      expect.objectContaining({
+        url: "https://acme.slack.com/files/U1/F1/block-image.png",
+      }),
+    )
+    expect(threadMarkdown()?.content).toContain(
+      "![Architecture overview](assets/F1--block-image.png)",
     )
   })
 
@@ -754,6 +817,60 @@ describe("captureSlackThread", () => {
     ).toBe(false)
   })
 
+  it("recommits an attached file when its binary content changes", async () => {
+    const existingAsset =
+      "slack/channels/eng--C1/threads/2024/03/1710000000.000100/assets/F1--keep.png"
+    const nextBytes = Buffer.from("new-png")
+    listFilesInTreeMock.mockResolvedValue([
+      {
+        path: "slack/channels/eng--C1/threads/2024/03/1710000000.000100/thread.md",
+        sha: "old-thread",
+      },
+      { path: existingAsset, sha: gitBlobSha(Buffer.from("old-png")) },
+    ])
+    downloadAssetMock.mockResolvedValue({
+      status: "downloaded",
+      bytes: nextBytes,
+      filename: "keep.png",
+      contentType: "image/png",
+    })
+    listRepliesMock.mockResolvedValue({
+      truncated: false,
+      messages: [
+        {
+          ts: "1710000000.000100",
+          user: "U1",
+          text: "file",
+          files: [
+            {
+              id: "F1",
+              name: "keep.png",
+              url_private: "https://files.slack.com/files-pri/T1-F1/keep.png",
+            },
+          ],
+        },
+      ],
+    })
+
+    await captureSlackThread({
+      orgId: "org_1",
+      env: {} as never,
+      connection,
+      target,
+      channelId: "C1",
+      threadTs: "1710000000.000100",
+    })
+
+    expect(committedFiles()).toContainEqual({
+      path: existingAsset,
+      content: nextBytes.toString("base64"),
+      encoding: "base64",
+    })
+    expect(
+      commitFilesMock.mock.calls[0]?.[0]?.deletePaths as string[],
+    ).not.toContain(existingAsset)
+  })
+
   it("preserves a previously captured file when recapture download fails", async () => {
     const existingAsset =
       "slack/channels/eng--C1/threads/2024/03/1710000000.000100/assets/F1--keep.png"
@@ -800,7 +917,83 @@ describe("captureSlackThread", () => {
       ?.deletePaths as string[]
     expect(deletePaths).not.toContain(existingAsset)
     expect(threadMarkdown()?.content).toContain(
-      "[keep.png](https://acme.slack.com/files/U1/F1/keep.png)",
+      "[keep.png](assets/F1--keep.png)",
+    )
+  })
+
+  it("preserves external media when its access token rotates before a failed recapture", async () => {
+    let token = "old"
+    listRepliesMock.mockImplementation(async () => ({
+      truncated: false,
+      messages: [
+        {
+          ts: "1710000000.000100",
+          user: "U1",
+          text: "diagram",
+          attachments: [
+            {
+              title: "diagram.png",
+              image_url: `https://cdn.example.com/diagram.png?token=${token}`,
+            },
+          ],
+        },
+      ],
+    }))
+    const bytes = Buffer.from("external-png")
+    downloadAssetMock.mockResolvedValue({
+      status: "downloaded",
+      bytes,
+      filename: "diagram.png",
+      contentType: "image/png",
+    })
+
+    await captureSlackThread({
+      orgId: "org_1",
+      env: {} as never,
+      connection,
+      target,
+      channelId: "C1",
+      threadTs: "1710000000.000100",
+    })
+
+    const firstFiles = commitFilesMock.mock.calls[0]?.[0]?.files as Array<{
+      path: string
+      encoding?: string
+    }>
+    const existingAsset = firstFiles.find(
+      (file) => file.encoding === "base64",
+    )?.path
+    expect(existingAsset).toBeDefined()
+
+    token = "new"
+    listFilesInTreeMock.mockResolvedValue([
+      {
+        path: "slack/channels/eng--C1/threads/2024/03/1710000000.000100/thread.md",
+        sha: "old-thread",
+      },
+      { path: existingAsset as string, sha: gitBlobSha(bytes) },
+    ])
+    downloadAssetMock.mockResolvedValue({
+      status: "stub",
+      reason: "download_failed",
+    })
+
+    await captureSlackThread({
+      orgId: "org_1",
+      env: {} as never,
+      connection,
+      target,
+      channelId: "C1",
+      threadTs: "1710000000.000100",
+    })
+
+    const recapture = commitFilesMock.mock.calls[1]?.[0]
+    expect(recapture?.deletePaths as string[]).not.toContain(existingAsset)
+    const recapturedMarkdown = (
+      recapture?.files as Array<{ path: string; content: string }>
+    ).find((file) => file.path.endsWith("/thread.md"))
+    expect(recapturedMarkdown?.content).toContain(
+      `(${(existingAsset as string).split("/").slice(-2).join("/")})`,
     )
   })
 

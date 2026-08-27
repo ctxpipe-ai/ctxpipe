@@ -8,6 +8,7 @@
     "build": "tsc",
     "start": "bun run dist/server.js",
     "test": "vitest run",
+    "test:connector-assets": "vitest run --config vitest.connector-assets.config.ts",
     "test:watch": "vitest",
     "lint": "biome lint .",
     "format": "biome format --write .",
@@ -83,7 +84,7 @@
     "zod": "^4.3.6"
   },
   "devDependencies": {
-    "@forge/cli": "^12.0.0",
+    "@forge/cli": "^13.4.0",
     "@langchain/langgraph-checkpoint": "^1.1.3",
     "@modelcontextprotocol/conformance": "^0.1.15",
     "@types/bun": "^1.3.9",

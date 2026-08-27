@@ -82,10 +82,19 @@ export function notionMatchingExistingAssetPaths(
   const ownerSeparator = ownerSegment?.lastIndexOf("--") ?? -1
   if (!ownerSegment || ownerSeparator < 0) return []
   const ownerId = ownerSegment.slice(ownerSeparator + 2).replaceAll("-", "")
+  const propertyCollisionSuffix = (suffix: string) =>
+    suffix.match(/^properties\/.+?--p([0-9a-f]{8})(?=--)/)?.[1]
   const normalisePropertyCollisionSuffix = (suffix: string) =>
     suffix.replace(/^(properties\/.+?)--p[0-9a-f]{8}(?=--)/, "$1")
-  const assetPreservation = normalisePropertyCollisionSuffix(
-    preservation.slice(markerIndex + marker.length),
+  const contentIdentity = (suffix: string) =>
+    suffix.match(/^properties\/.+?--([0-9a-f]{40})(?=--)/)?.[1]
+  const normaliseContentIdentity = (suffix: string) =>
+    suffix.replace(/^(properties\/.+?)--[0-9a-f]{40}(?=--)/, "$1")
+  const preservationSuffix = preservation.slice(markerIndex + marker.length)
+  const preservationCollision = propertyCollisionSuffix(preservationSuffix)
+  const preservationContent = contentIdentity(preservationSuffix)
+  const assetPreservation = normaliseContentIdentity(
+    normalisePropertyCollisionSuffix(preservationSuffix),
   )
 
   return [...paths].filter((path) => {
@@ -97,11 +106,28 @@ export function notionMatchingExistingAssetPaths(
     const existingOwnerId = existingOwner
       .slice(existingSeparator + 2)
       .replaceAll("-", "")
+    const existingSuffix = path.slice(existingMarkerIndex + marker.length)
+    const existingCollision = propertyCollisionSuffix(existingSuffix)
+    const existingContent = contentIdentity(existingSuffix)
+    if (
+      preservationCollision &&
+      existingCollision &&
+      preservationCollision !== existingCollision
+    ) {
+      return false
+    }
+    if (
+      preservationContent &&
+      existingContent &&
+      preservationContent !== existingContent
+    ) {
+      return false
+    }
     return (
       existingOwnerId.toLowerCase() === ownerId.toLowerCase() &&
       connectorPathMatchesPreservation(
-        normalisePropertyCollisionSuffix(
-          path.slice(existingMarkerIndex + marker.length),
+        normaliseContentIdentity(
+          normalisePropertyCollisionSuffix(existingSuffix),
         ),
         assetPreservation,
       )
@@ -139,6 +165,17 @@ function notionMediaSource(value: unknown): {
   ) {
     return { url: String(data.external.url), name, caption }
   }
+  if (
+    data.type === "custom_emoji" &&
+    data.custom_emoji &&
+    typeof data.custom_emoji === "object" &&
+    "url" in data.custom_emoji
+  ) {
+    return { url: String(data.custom_emoji.url), name, caption }
+  }
+  if (typeof data.url === "string") {
+    return { url: data.url, name, caption }
+  }
   return { name, caption }
 }
 
@@ -147,7 +184,9 @@ function collectBlockMedia(
   refs: NotionMediaRef[],
 ): void {
   for (const block of blocks) {
-    if (["image", "file", "video", "pdf", "audio"].includes(block.type)) {
+    if (
+      ["image", "file", "video", "pdf", "audio", "embed"].includes(block.type)
+    ) {
       const source = notionMediaSource(block[block.type])
       refs.push({
         key: block.id,
@@ -159,6 +198,27 @@ function collectBlockMedia(
         caption: source.caption,
         expiryTime: source.expiryTime,
       })
+    }
+    if (block.type === "callout") {
+      const data = block.callout
+      const icon =
+        data && typeof data === "object" && "icon" in data
+          ? data.icon
+          : undefined
+      const source = notionMediaSource(icon)
+      if (source.url) {
+        refs.push({
+          key: `${block.id}:icon`,
+          pathKey: `${block.id}-icon`,
+          kind: "image",
+          url: source.url,
+          name:
+            source.name ??
+            (source.url ? filenameFromUrl(source.url) : undefined),
+          caption: "Callout icon",
+          expiryTime: source.expiryTime,
+        })
+      }
     }
     if (block.children) collectBlockMedia(block.children, refs)
   }
@@ -252,6 +312,12 @@ function collectFilesProperties(page: NotionPage): NotionMediaRef[] {
   return refs
 }
 
+export type NotionEntityAssetCapture = {
+  assetMap: NotionAssetMap
+  files: CommitFile[]
+  preservePathPrefixes: string[]
+}
+
 export async function captureNotionEntityAssets(input: {
   markdownPath: string
   page: NotionPage
@@ -259,11 +325,7 @@ export async function captureNotionEntityAssets(input: {
   downloadAsset?: DownloadAsset
   bytePool?: ConnectorAssetBytePool
   existingShaByPath?: ReadonlyMap<string, string>
-}): Promise<{
-  assetMap: NotionAssetMap
-  files: CommitFile[]
-  preservePathPrefixes: string[]
-}> {
+}): Promise<NotionEntityAssetCapture> {
   const downloadAsset = input.downloadAsset ?? downloadConnectorAsset
   const refs: NotionMediaRef[] = [
     ...collectPageChrome(input.page),
@@ -288,10 +350,17 @@ export async function captureNotionEntityAssets(input: {
   const entityDir = posix.dirname(input.markdownPath)
   const permalink = input.page.url ?? null
   const preservePrefixFor = (ref: NotionMediaRef) => {
-    if (ref.contentIdentity) {
-      const separator = ref.pathKey.lastIndexOf("--")
+    if (ref.propertyIdentity && ref.propertyStem) {
+      const identitySuffix = gitBlobSha(
+        Buffer.from(ref.propertyIdentity),
+      ).slice(0, 8)
+      const identityStem = `${ref.propertyStem}--p${identitySuffix}`
+      const identityPathKey = ref.pathKey.startsWith(`${ref.propertyStem}--p`)
+        ? ref.pathKey
+        : `${identityStem}${ref.pathKey.slice(ref.propertyStem.length)}`
+      const separator = identityPathKey.lastIndexOf("--")
       const stem =
-        separator === -1 ? ref.pathKey : ref.pathKey.slice(0, separator)
+        separator === -1 ? identityPathKey : identityPathKey.slice(0, separator)
       return posix.join(entityDir, "assets", `${stem}--`)
     }
     return posix.join(entityDir, "assets", ref.assetLeaf ?? `${ref.pathKey}--`)
@@ -397,18 +466,21 @@ export async function buildNotionPageMirrorFiles(input: {
   onPreservePathPrefix?: (prefix: string) => void
   bytePool?: ConnectorAssetBytePool
   existingShaByPath?: ReadonlyMap<string, string>
+  capturedAssets?: NotionEntityAssetCapture
 }): Promise<CommitFile[]> {
   const markdownPath =
     input.path ??
     getNotionPagePath({ page: input.page, ancestors: input.ancestors })
-  const captured = await captureNotionEntityAssets({
-    markdownPath,
-    page: input.page,
-    blocks: input.blocks,
-    downloadAsset: input.downloadAsset,
-    bytePool: input.bytePool,
-    existingShaByPath: input.existingShaByPath,
-  })
+  const captured =
+    input.capturedAssets ??
+    (await captureNotionEntityAssets({
+      markdownPath,
+      page: input.page,
+      blocks: input.blocks,
+      downloadAsset: input.downloadAsset,
+      bytePool: input.bytePool,
+      existingShaByPath: input.existingShaByPath,
+    }))
   for (const prefix of captured.preservePathPrefixes) {
     input.onPreservePathPrefix?.(prefix)
   }
@@ -431,21 +503,24 @@ export async function buildNotionDatabaseMirrorFiles(input: {
   onPreservePathPrefix?: (prefix: string) => void
   bytePool?: ConnectorAssetBytePool
   existingShaByPath?: ReadonlyMap<string, string>
+  capturedAssetsByPageId?: ReadonlyMap<string, NotionEntityAssetCapture>
 }): Promise<CommitFile[]> {
   const rowAssets = new Map<string, NotionAssetMap>()
   const assetFiles: CommitFile[] = []
   for (const { page, blocks } of input.rows) {
-    const captured = await captureNotionEntityAssets({
-      markdownPath: getNotionDatabaseRowPath({
-        resource: input.resource,
+    const captured =
+      input.capturedAssetsByPageId?.get(page.id) ??
+      (await captureNotionEntityAssets({
+        markdownPath: getNotionDatabaseRowPath({
+          resource: input.resource,
+          page,
+        }),
         page,
-      }),
-      page,
-      blocks,
-      downloadAsset: input.downloadAsset,
-      bytePool: input.bytePool,
-      existingShaByPath: input.existingShaByPath,
-    })
+        blocks,
+        downloadAsset: input.downloadAsset,
+        bytePool: input.bytePool,
+        existingShaByPath: input.existingShaByPath,
+      }))
     for (const prefix of captured.preservePathPrefixes) {
       input.onPreservePathPrefix?.(prefix)
     }

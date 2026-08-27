@@ -25,8 +25,8 @@ vi.mock("../../models/notion-connector.js", () => ({
   releaseNotionConfigPrCreationClaim: releaseNotionConfigPrCreationClaimMock,
   resolveNotionConnectionForOrgDetailed:
     resolveNotionConnectionForOrgDetailedMock,
+  refreshNotionConnectionTokensWithLock: vi.fn(),
   transitionNotionBindingState: transitionNotionBindingStateMock,
-  updateNotionConnectionTokens: vi.fn(),
   upsertNotionConnectionFromOAuth: vi.fn(),
 }))
 
@@ -52,6 +52,7 @@ vi.mock("../../openworkflow/workflows/notion-sync-content.js", () => ({
 vi.mock("../../services/notion/client.js", () => ({
   exchangeNotionOAuthCode: vi.fn(),
   getNotionOAuthAuthorizeUrl: vi.fn(),
+  refreshNotionOAuthToken: vi.fn(),
   searchNotionResources: vi.fn(),
 }))
 

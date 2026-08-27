@@ -17,6 +17,10 @@ export type LinearMarkdownLinkReference = {
   start: number
   end: number
   source: string
+  content?: string
+  contentStart?: number
+  contentEnd?: number
+  containsImage: boolean
   label: string
   identifier?: string
   url: string
@@ -50,16 +54,27 @@ type ResolvedDefinition = {
 
 function normalizeHttpUrl(raw: string): string | undefined {
   const trimmed = raw.trim()
+  const candidate = trimmed.startsWith("//") ? `https:${trimmed}` : trimmed
   let parsed: URL
   try {
-    parsed = new URL(trimmed)
+    parsed = new URL(candidate)
   } catch {
     return undefined
   }
   if (parsed.protocol !== "http:" && parsed.protocol !== "https:") {
     return undefined
   }
-  return trimmed
+  return candidate
+}
+
+function htmlAttribute(tag: string, name: string): string | undefined {
+  const match = tag.match(
+    new RegExp(
+      `(?:^|\\s)${name}\\s*=\\s*(?:"([^"]*)"|'([^']*)'|([^\\s>]+))`,
+      "i",
+    ),
+  )
+  return match?.[1] ?? match?.[2] ?? match?.[3]
 }
 
 function walkMdast(node: MdastNode, visit: (node: MdastNode) => void): void {
@@ -82,6 +97,21 @@ function phrasingText(node: MdastNode): string {
     return node.value
   }
   return (node.children ?? []).map(phrasingText).join("")
+}
+
+function childContentSpan(node: MdastNode): MarkdownSpan | undefined {
+  const spans = (node.children ?? [])
+    .map(sourceSpan)
+    .filter((span) => span !== undefined)
+  const first = spans[0]
+  const last = spans.at(-1)
+  return first && last ? { start: first.start, end: last.end } : undefined
+}
+
+function containsImage(node: MdastNode): boolean {
+  if (node.type === "image" || node.type === "imageReference") return true
+  if (node.type === "html" && /<img\b/i.test(node.value ?? "")) return true
+  return (node.children ?? []).some(containsImage)
 }
 
 function followingLineEnding(markdown: string, index: number): number {
@@ -200,34 +230,42 @@ function parseLinearMarkdownReferences(markdown: string): {
       return
     }
 
-    if (node.type === "html" && node.value && /^<img\b/i.test(node.value)) {
-      const sourceMatch = node.value.match(
-        /\bsrc\s*=\s*(?:"([^"]+)"|'([^']+)'|([^\s>]+))/i,
-      )
-      const url = normalizeHttpUrl(
-        sourceMatch?.[1] ?? sourceMatch?.[2] ?? sourceMatch?.[3] ?? "",
-      )
-      if (!url) return
-      const altMatch = node.value.match(
-        /\balt\s*=\s*(?:"([^"]*)"|'([^']*)'|([^\s>]+))/i,
-      )
-      images.push({
-        start: span.start,
-        end: span.end,
-        source: markdown.slice(span.start, span.end),
-        alt: altMatch?.[1] ?? altMatch?.[2] ?? altMatch?.[3] ?? "",
-        url,
-      })
+    if (node.type === "html" && node.value) {
+      for (const match of node.value.matchAll(
+        /<img\b(?:[^>"']|"[^"]*"|'[^']*')*>/gi,
+      )) {
+        if (match.index === undefined) continue
+        const url = normalizeHttpUrl(htmlAttribute(match[0], "src") ?? "")
+        if (!url) continue
+        const start = span.start + match.index
+        const end = start + match[0].length
+        images.push({
+          start,
+          end,
+          source: markdown.slice(start, end),
+          alt: htmlAttribute(match[0], "alt") ?? "",
+          url,
+        })
+      }
       return
     }
 
     if (node.type === "link") {
       const url = normalizeHttpUrl(node.url ?? "")
       if (!url) return
+      const contentSpan = childContentSpan(node)
       links.push({
         start: span.start,
         end: span.end,
         source: markdown.slice(span.start, span.end),
+        ...(contentSpan
+          ? {
+              content: markdown.slice(contentSpan.start, contentSpan.end),
+              contentStart: contentSpan.start,
+              contentEnd: contentSpan.end,
+            }
+          : {}),
+        containsImage: containsImage(node),
         label: phrasingText(node).trim() || "link",
         url,
       })
@@ -241,10 +279,19 @@ function parseLinearMarkdownReferences(markdown: string): {
     if (!url) return
     const label =
       phrasingText(node).trim() || node.label?.trim() || node.identifier
+    const contentSpan = childContentSpan(node)
     links.push({
       start: span.start,
       end: span.end,
       source: markdown.slice(span.start, span.end),
+      ...(contentSpan
+        ? {
+            content: markdown.slice(contentSpan.start, contentSpan.end),
+            contentStart: contentSpan.start,
+            contentEnd: contentSpan.end,
+          }
+        : {}),
+      containsImage: containsImage(node),
       label,
       identifier: node.identifier,
       url,
@@ -261,23 +308,64 @@ export function rewriteLinearMarkdownImages(
     link.source,
 ): string {
   const parsed = parseLinearMarkdownReferences(markdown)
-  const edits: MarkdownEdit[] = []
+  const imageEdits: MarkdownEdit[] = []
+  const linkEdits: MarkdownEdit[] = []
+  const suppressedImageEdits = new Set<MarkdownEdit>()
   const capturedIdentifiers = new Set<string>()
 
   for (const image of parsed.images) {
     const next = replaceImage(image)
     if (next === image.source) continue
-    edits.push({ start: image.start, end: image.end, text: next })
+    imageEdits.push({ start: image.start, end: image.end, text: next })
     if (image.identifier) capturedIdentifiers.add(image.identifier)
   }
 
   for (const link of parsed.links) {
-    const next = replaceLink(link)
-    if (next === link.source) continue
-    edits.push({ start: link.start, end: link.end, text: next })
+    const nestedImageEdits = imageEdits.filter(
+      (edit) => edit.start >= link.start && edit.end <= link.end,
+    )
+    const contentStart = link.contentStart
+    const contentEnd = link.contentEnd
+    const rewrittenContent =
+      link.content !== undefined &&
+      contentStart !== undefined &&
+      contentEnd !== undefined
+        ? applyMarkdownEdits(
+            link.content,
+            nestedImageEdits
+              .filter(
+                (edit) => edit.start >= contentStart && edit.end <= contentEnd,
+              )
+              .map((edit) => ({
+                ...edit,
+                start: edit.start - contentStart,
+                end: edit.end - contentStart,
+              })),
+          )
+        : undefined
+    const rewrittenLink = {
+      ...link,
+      source: applyMarkdownEdits(
+        link.source,
+        nestedImageEdits.map((edit) => ({
+          ...edit,
+          start: edit.start - link.start,
+          end: edit.end - link.start,
+        })),
+      ),
+      ...(rewrittenContent !== undefined ? { content: rewrittenContent } : {}),
+    }
+    const next = replaceLink(rewrittenLink)
+    if (next === rewrittenLink.source) continue
+    for (const edit of nestedImageEdits) suppressedImageEdits.add(edit)
+    linkEdits.push({ start: link.start, end: link.end, text: next })
     if (link.identifier) capturedIdentifiers.add(link.identifier)
   }
 
+  const edits = [
+    ...imageEdits.filter((edit) => !suppressedImageEdits.has(edit)),
+    ...linkEdits,
+  ]
   for (const identifier of capturedIdentifiers) {
     const resolved = parsed.definitions.get(identifier)
     if (!resolved) continue

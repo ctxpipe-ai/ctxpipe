@@ -44,6 +44,7 @@ vi.mock("../observability/logger.js", () => ({
 
 import { resolveIndexingStep } from "../domain/indexingSteps.js"
 import {
+  clearRepositoryIndexingFollowUpPending,
   deleteRepository,
   getRepositoryForOrg,
   INDEXING_QUEUED_STALE_MS,
@@ -61,16 +62,6 @@ const orgId = "org_1"
 const githubConnectionId = "con_github"
 const orgSlug = "acme"
 const repositoryId = "repo_AAAAAAAAAAAAAAAAAAAAAAAAAA"
-
-function mockLinkedRepos(rows: Array<{ id: string; gitUrl: string }>) {
-  getOrgDbMock.mockReturnValue({
-    select: vi.fn().mockReturnValue({
-      from: vi.fn().mockReturnValue({
-        where: vi.fn().mockResolvedValue(rows),
-      }),
-    }),
-  })
-}
 
 function mockRepositoriesWithZoekt(
   rows: Array<Record<string, unknown>>,
@@ -339,9 +330,17 @@ describe("deleteRepository", () => {
       repoName: "ctxpipe",
       zoektRepoId: 9,
     })
-    expect(withOrgDbContextMock.mock.invocationCallOrder[0]).toBeLessThan(
-      withGraphClientMock.mock.invocationCallOrder[0]!,
-    )
+    const orgContextCallOrder = withOrgDbContextMock.mock.invocationCallOrder[0]
+    const graphClientCallOrder = withGraphClientMock.mock.invocationCallOrder[0]
+    expect(orgContextCallOrder).toBeDefined()
+    expect(graphClientCallOrder).toBeDefined()
+    if (
+      orgContextCallOrder === undefined ||
+      graphClientCallOrder === undefined
+    ) {
+      throw new Error("Expected database and graph cleanup calls")
+    }
+    expect(orgContextCallOrder).toBeLessThan(graphClientCallOrder)
   })
 
   it("skips graph/codesearch when the repository is already gone", async () => {
@@ -465,6 +464,7 @@ describe("tryClaimRepositoryIndexingEnqueue", () => {
     expect(update).toHaveBeenCalled()
     expect(set).toHaveBeenCalledWith(
       expect.objectContaining({
+        indexingFollowUpPending: false,
         indexingStatus: "queued",
         indexingReason: "retry",
         indexReady: false,
@@ -476,10 +476,18 @@ describe("tryClaimRepositoryIndexingEnqueue", () => {
   })
 
   it("returns false when already queued or running and not stale", async () => {
-    const returning = vi.fn().mockResolvedValue([])
-    const where = vi.fn().mockReturnValue({ returning })
-    const set = vi.fn().mockReturnValue({ where })
-    const update = vi.fn().mockReturnValue({ set })
+    const claimReturning = vi.fn().mockResolvedValue([])
+    const pendingReturning = vi.fn().mockResolvedValue([{ id: repositoryId }])
+    const claimWhere = vi.fn().mockReturnValue({ returning: claimReturning })
+    const pendingWhere = vi.fn().mockReturnValue({
+      returning: pendingReturning,
+    })
+    const claimSet = vi.fn().mockReturnValue({ where: claimWhere })
+    const pendingSet = vi.fn().mockReturnValue({ where: pendingWhere })
+    const update = vi
+      .fn()
+      .mockReturnValueOnce({ set: claimSet })
+      .mockReturnValueOnce({ set: pendingSet })
     getOrgDbMock.mockReturnValue({ update })
 
     await expect(
@@ -488,6 +496,9 @@ describe("tryClaimRepositoryIndexingEnqueue", () => {
         reason: null,
       }),
     ).resolves.toBe(false)
+    expect(pendingSet).toHaveBeenCalledWith({
+      indexingFollowUpPending: true,
+    })
   })
 
   it("uses 30min queued and 6h running stale cutoffs", () => {
@@ -517,6 +528,31 @@ describe("tryClaimRepositoryIndexingEnqueue", () => {
       }),
     )
     expect(where).toHaveBeenCalled()
+  })
+})
+
+describe("clearRepositoryIndexingFollowUpPending", () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+  })
+
+  it("clears only the settled row for the ingested hash", async () => {
+    const returning = vi.fn().mockResolvedValue([{ id: repositoryId }])
+    const where = vi.fn().mockReturnValue({ returning })
+    const set = vi.fn().mockReturnValue({ where })
+    const update = vi.fn().mockReturnValue({ set })
+    getOrgDbMock.mockReturnValue({ update })
+
+    await expect(
+      clearRepositoryIndexingFollowUpPending({
+        repositoryId,
+        ingestedHash: "sha_ingested",
+      }),
+    ).resolves.toBe(true)
+
+    expect(set).toHaveBeenCalledWith({ indexingFollowUpPending: false })
+    expect(where).toHaveBeenCalled()
+    expect(returning).toHaveBeenCalledWith({ id: expect.anything() })
   })
 })
 

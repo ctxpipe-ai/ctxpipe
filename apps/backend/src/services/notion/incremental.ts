@@ -1,13 +1,16 @@
 import type { Env } from "../../config/env.js"
 import type { NotionConnection } from "../../models/notion-connector.js"
+import type { ConnectorAssetBytePool } from "../connectors/assets.js"
 import { connectorPathMatchesPreservation } from "../connectors/assets.js"
 import type { CommitFile } from "../github/installation-write-client.js"
 import {
   buildNotionDatabaseMirrorFiles,
   buildNotionPageMirrorFiles,
+  captureNotionEntityAssets,
+  type NotionEntityAssetCapture,
   notionMatchingExistingAssetPaths,
 } from "./assets.js"
-import type { NotionPage } from "./client.js"
+import type { NotionPage, NotionTokenRefreshHandler } from "./client.js"
 import { queryNotionDatabase, retrieveNotionPage } from "./client.js"
 import type { ParsedNotionRepoConfig } from "./config-yaml.js"
 import {
@@ -18,11 +21,6 @@ import {
   notionIdKey,
 } from "./converter.js"
 import { listBlocksDeep, listNotionPageTree } from "./page-tree.js"
-
-type NotionTokenRefresh = (tokens: {
-  accessToken: string
-  refreshToken: string | null
-}) => Promise<void>
 
 /** File the mirror wants to write, matching the shape `commitFiles` expects. */
 export type NotionMirrorFile = CommitFile
@@ -181,7 +179,7 @@ async function resolvePageTarget(input: {
   page: NotionPage
   pages: Map<string, NotionScopeResource>
   databases: Map<string, NotionScopeResource>
-  onTokenRefresh?: NotionTokenRefresh
+  onTokenRefresh?: NotionTokenRefreshHandler
 }): Promise<ResolvedTarget> {
   const selfPage = input.pages.get(notionIdKey(input.page.id))
   if (selfPage) return { kind: "page", resource: selfPage }
@@ -211,16 +209,37 @@ async function collectPageResourceFiles(input: {
   env: Env
   connection: NotionConnection
   resource: NotionScopeResource
-  onTokenRefresh?: NotionTokenRefresh
+  onTokenRefresh?: NotionTokenRefreshHandler
   onPreservePathPrefix?: (prefix: string) => void
+  bytePool?: ConnectorAssetBytePool
+  existingShaByPath?: ReadonlyMap<string, string>
+  selectedPageIds?: ReadonlySet<string>
+  selectedPagePaths?: ReadonlyMap<string, string>
 }): Promise<NotionMirrorFile[]> {
+  const capturedAssetsByPageId = new Map<string, NotionEntityAssetCapture>()
   const entries = await listNotionPageTree({
     env: input.env,
     connection: input.connection,
     rootPageId: input.resource.externalId,
+    skipPageIds: input.selectedPageIds,
     onTokenRefresh: input.onTokenRefresh,
+    onEntry: async (entry) => {
+      capturedAssetsByPageId.set(
+        entry.page.id,
+        await captureNotionEntityAssets({
+          markdownPath: getNotionPagePath({
+            page: entry.page,
+            ancestors: entry.ancestors,
+          }),
+          page: entry.page,
+          blocks: entry.blocks,
+          bytePool: input.bytePool,
+          existingShaByPath: input.existingShaByPath,
+        }),
+      )
+    },
   })
-  const pathByNotionId = new Map<string, string>()
+  const pathByNotionId = new Map(input.selectedPagePaths)
   for (const entry of entries) {
     pathByNotionId.set(
       notionIdKey(entry.page.id),
@@ -238,6 +257,9 @@ async function collectPageResourceFiles(input: {
         pathByNotionId,
         ancestors: entry.ancestors,
         onPreservePathPrefix: input.onPreservePathPrefix,
+        bytePool: input.bytePool,
+        existingShaByPath: input.existingShaByPath,
+        capturedAssets: capturedAssetsByPageId.get(entry.page.id),
       })),
     )
   }
@@ -248,8 +270,12 @@ async function collectDatabaseResourceFiles(input: {
   env: Env
   connection: NotionConnection
   resource: NotionScopeResource
-  onTokenRefresh?: NotionTokenRefresh
+  onTokenRefresh?: NotionTokenRefreshHandler
   onPreservePathPrefix?: (prefix: string) => void
+  bytePool?: ConnectorAssetBytePool
+  existingShaByPath?: ReadonlyMap<string, string>
+  selectedPageIds?: ReadonlySet<string>
+  selectedPagePaths?: ReadonlyMap<string, string>
 }): Promise<NotionMirrorFile[]> {
   const rows = await queryNotionDatabase({
     env: input.env,
@@ -258,18 +284,31 @@ async function collectDatabaseResourceFiles(input: {
     onTokenRefresh: input.onTokenRefresh,
   })
   const rowsWithBlocks = []
+  const capturedAssetsByPageId = new Map<string, NotionEntityAssetCapture>()
   for (const row of rows) {
-    rowsWithBlocks.push({
-      page: row,
-      blocks: await listBlocksDeep({
-        env: input.env,
-        connection: input.connection,
-        blockId: row.id,
-        onTokenRefresh: input.onTokenRefresh,
-      }),
+    if (input.selectedPageIds?.has(notionIdKey(row.id))) continue
+    const blocks = await listBlocksDeep({
+      env: input.env,
+      connection: input.connection,
+      blockId: row.id,
+      onTokenRefresh: input.onTokenRefresh,
     })
+    rowsWithBlocks.push({ page: row, blocks })
+    capturedAssetsByPageId.set(
+      row.id,
+      await captureNotionEntityAssets({
+        markdownPath: getNotionDatabaseRowPath({
+          resource: input.resource,
+          page: row,
+        }),
+        page: row,
+        blocks,
+        bytePool: input.bytePool,
+        existingShaByPath: input.existingShaByPath,
+      }),
+    )
   }
-  const pathByNotionId = new Map<string, string>()
+  const pathByNotionId = new Map(input.selectedPagePaths)
   pathByNotionId.set(
     notionIdKey(input.resource.externalId),
     getNotionDatabaseIndexPath(input.resource),
@@ -285,6 +324,9 @@ async function collectDatabaseResourceFiles(input: {
     rows: rowsWithBlocks,
     pathByNotionId,
     onPreservePathPrefix: input.onPreservePathPrefix,
+    bytePool: input.bytePool,
+    existingShaByPath: input.existingShaByPath,
+    capturedAssetsByPageId,
   })
 }
 
@@ -300,7 +342,9 @@ export async function buildNotionIncrementalChanges(input: {
   config: ParsedNotionRepoConfig
   entity: NotionEntityChange
   existingPaths: string[]
-  onTokenRefresh?: NotionTokenRefresh
+  existingBlobs?: ReadonlyArray<{ path: string; sha: string }>
+  bytePool?: ConnectorAssetBytePool
+  onTokenRefresh?: NotionTokenRefreshHandler
 }): Promise<NotionIncrementalChanges> {
   // Only ever look at files under the managed root so we never touch config.yaml
   // or unrelated repository content.
@@ -308,7 +352,20 @@ export async function buildNotionIncrementalChanges(input: {
   const existingPaths = input.existingPaths.filter((path) =>
     path.startsWith(managedRoot),
   )
+  const existingShaByPath = new Map(
+    (input.existingBlobs ?? [])
+      .filter((file) => file.path.startsWith(managedRoot))
+      .map((file) => [file.path, file.sha]),
+  )
   const { pages, databases } = resourceMaps(input.config)
+  const selectedPageIds = new Set(pages.keys())
+  const selectedPagePaths = new Map<string, string>()
+  for (const pageId of selectedPageIds) {
+    const rootIndex = managedNotionPagePathsForRoot(existingPaths, pageId).find(
+      (path) => path.endsWith("/index.md") && path.split("/").length === 4,
+    )
+    if (rootIndex) selectedPagePaths.set(pageId, rootIndex)
+  }
   const files: NotionMirrorFile[] = []
   const deletePaths = new Set<string>()
   const failures: NotionIncrementalChanges["failures"] = []
@@ -337,6 +394,10 @@ export async function buildNotionIncrementalChanges(input: {
       resource,
       onTokenRefresh: input.onTokenRefresh,
       onPreservePathPrefix,
+      bytePool: input.bytePool,
+      existingShaByPath,
+      selectedPageIds,
+      selectedPagePaths,
     })
     const desired = new Set(built.map((file) => file.path))
     for (const file of built) files.push(file)
@@ -345,6 +406,7 @@ export async function buildNotionIncrementalChanges(input: {
         deletePaths.add(path)
       }
     }
+    return desired
   }
 
   const applyPageResource = async (resource: NotionScopeResource) => {
@@ -354,6 +416,10 @@ export async function buildNotionIncrementalChanges(input: {
       resource,
       onTokenRefresh: input.onTokenRefresh,
       onPreservePathPrefix,
+      bytePool: input.bytePool,
+      existingShaByPath,
+      selectedPageIds,
+      selectedPagePaths,
     })
     const desired = new Set(built.map((file) => file.path))
     for (const file of built) files.push(file)
@@ -365,6 +431,7 @@ export async function buildNotionIncrementalChanges(input: {
         deletePaths.add(path)
       }
     }
+    return desired
   }
 
   try {
@@ -411,13 +478,22 @@ export async function buildNotionIncrementalChanges(input: {
           )) {
             deletePaths.add(path)
           }
-        } else if (target.kind === "database") {
-          await applyDatabaseResource(
-            target.resource,
-            target.resource.externalId,
-          )
         } else {
-          await applyPageResource(target.resource)
+          const desired =
+            target.kind === "database"
+              ? await applyDatabaseResource(
+                  target.resource,
+                  target.resource.externalId,
+                )
+              : await applyPageResource(target.resource)
+          for (const path of managedNotionPagePathsForSubtree(
+            existingPaths,
+            externalId,
+          )) {
+            if (!desired.has(path) && !shouldPreservePath(path)) {
+              deletePaths.add(path)
+            }
+          }
         }
       }
     }

@@ -12,7 +12,6 @@ import type { ConnectorAssetBytePool } from "../connectors/assets.js"
 import {
   CONNECTOR_ASSET_MAX_BYTES,
   CONNECTOR_ENTITY_MAX_ASSETS,
-  canonicalConnectorAssetUrl,
   connectorAssetCommitFile,
   connectorBlobUnchanged,
   connectorCommitFileUnchanged,
@@ -20,6 +19,7 @@ import {
   consumeConnectorAssetBytePool,
   createConnectorAssetBudget,
   createConnectorAssetBytePool,
+  createConnectorEntityAssetBytePool,
   downloadConnectorAsset,
 } from "../connectors/assets.js"
 import type { CommitFile } from "../github/installation-write-client.js"
@@ -195,6 +195,7 @@ async function collectPageAssetFiles(input: {
       budget.remainingBytes,
     )
     if (oversized) {
+      preserveTransientFailure(attachment.id, oversized)
       cached.set(cacheKey, oversized)
       return oversized
     }
@@ -226,10 +227,10 @@ async function collectPageAssetFiles(input: {
   const takeExternal = async (
     url: string,
   ): Promise<ConfluenceMediaResolution> => {
-    const cacheKey = `url:${canonicalConnectorAssetUrl(url)}`
+    const sourceKey = confluenceExternalSourceKey(url)
+    const cacheKey = `url:${sourceKey}`
     const hit = cached.get(cacheKey)
     if (hit) return hit
-    const sourceKey = confluenceExternalSourceKey(url)
     if (remainingDeclaredAssets <= 0) {
       const resolution = { status: "stub", reason: "entity_limit" } as const
       preserveTransientFailure(sourceKey, resolution)
@@ -310,7 +311,7 @@ async function collectPageAssetFiles(input: {
     resolveMedia: (media) => {
       if (media.kind === "external") {
         return (
-          cached.get(`url:${canonicalConnectorAssetUrl(media.url)}`) ?? {
+          cached.get(`url:${confluenceExternalSourceKey(media.url)}`) ?? {
             status: "stub",
             reason: "download_failed",
           }
@@ -351,7 +352,12 @@ export function getConfluenceSyncReconcileMode(
   mode?: SyncModeInput,
 ): ConfluenceSyncReconcileMode {
   if (!mode?.pageId) return "full"
-  if (mode.eventType === CONFLUENCE_DELETED_PAGE_EVENT) return "full"
+  if (
+    mode.eventType === CONFLUENCE_DELETED_PAGE_EVENT ||
+    mode.eventType === "avi:confluence:moved:page"
+  ) {
+    return "full"
+  }
   return "single_upsert"
 }
 
@@ -504,7 +510,10 @@ export async function syncConfluenceContent(input: {
     allRepoFiles.map((entry) => [entry.path, entry.sha]),
   )
   const filesToWrite: CommitFile[] = []
-  const assetBytePool = createConnectorAssetBytePool()
+  const assetBytePool =
+    reconcileMode === "full"
+      ? createConnectorAssetBytePool()
+      : createConnectorEntityAssetBytePool()
   const preservedPageIds = new Set<string>()
   const preservedAssetPrefixes: string[] = []
   const preservedSpacePrefixes: string[] = []

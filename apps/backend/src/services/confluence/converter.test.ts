@@ -188,6 +188,17 @@ describe("Confluence storage media", () => {
     )
   })
 
+  it("escapes provider-authored media labels before writing Markdown", () => {
+    const file = leafFile(
+      '<ac:image ac:alt="Diagram](https://evil.example)"><ri:attachment ri:filename="diagram.png" /></ac:image>',
+    )
+
+    expect(file.content).toContain(
+      "![Diagram\\](https://evil.example)](_assets/42/att100--diagram.png)",
+    )
+    expect(file.content).not.toContain("![Diagram](https://evil.example)")
+  })
+
   it("turns ac:link and view-file attachments into relative file links", () => {
     const file = leafFile(
       '<p>See <ac:link><ri:attachment ri:filename="spec.pdf" /><ac:plain-text-link-body><![CDATA[the spec]]></ac:plain-text-link-body></ac:link>.</p><ac:structured-macro ac:name="view-file"><ac:parameter ac:name="name"><ri:attachment ri:filename="deck.pptx" /></ac:parameter></ac:structured-macro>',
@@ -210,16 +221,36 @@ describe("Confluence storage media", () => {
 
   it("decodes XML entities in attachment names and URLs", () => {
     const file = leafFile(
-      '<p>Team &#x41;.</p><p><ac:link><ri:url ri:value="https://example.com/guide?x=1&amp;sig=abc" /><ac:link-body>R&amp;D guide</ac:link-body></ac:link></p><ac:image ac:alt="Team"><ri:attachment ri:filename="john&amp;mary.png" /></ac:image>',
+      '<p>Team &#x41;.</p><p><ac:link><ri:url ri:value="https://example.com/guide?x=1&amp;lang=en" /><ac:link-body>R&amp;D guide</ac:link-body></ac:link></p><ac:image ac:alt="Team"><ri:attachment ri:filename="john&amp;mary.png" /></ac:image>',
     )
 
     expect(file.content).toContain("Team A.")
     expect(file.content).toContain(
-      "[R&D guide](https://example.com/guide?x=1&sig=abc)",
+      "[R&D guide](https://example.com/guide?x=1&lang=en)",
     )
     expect(file.content).toContain(
       "![Team](_assets/42/att100--john-and-mary.png)",
     )
+  })
+
+  it("removes credentials from ordinary Confluence links", () => {
+    const file = leafFile(
+      '<p>Read <ac:link><ri:url ri:value="https://example.com/guide?token=private-secret" /><ac:plain-text-link-body><![CDATA[the private guide]]></ac:plain-text-link-body></ac:link>.</p>',
+    )
+
+    expect(file.content).toContain("Read the private guide.")
+    expect(file.content).not.toContain("private-secret")
+    expect(file.content).not.toContain("https://example.com")
+  })
+
+  it("removes credentials from bare Confluence URLs", () => {
+    const file = leafFile(
+      "<p>Public https://example.com/guide. Private https://example.com/export?access_token=bare-secret.</p>",
+    )
+
+    expect(file.content).toContain("Public https://example.com/guide.")
+    expect(file.content).toContain("Private [private link omitted].")
+    expect(file.content).not.toContain("bare-secret")
   })
 
   it("downloads explicit external ri:url media via a resolved local href", () => {
@@ -267,6 +298,11 @@ describe("Confluence asset paths", () => {
     expect(
       confluenceExternalSourceKey(
         "https://cdn.example.com/logo.png?X-Amz-Credential=key&X-Amz-Signature=rotated",
+      ),
+    ).toBe(confluenceExternalSourceKey("https://cdn.example.com/logo.png"))
+    expect(
+      confluenceExternalSourceKey(
+        "https://cdn.example.com/logo.png?token=rotated&access_token=secret&expires=123",
       ),
     ).toBe(confluenceExternalSourceKey("https://cdn.example.com/logo.png"))
   })

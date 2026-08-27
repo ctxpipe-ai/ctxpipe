@@ -79,9 +79,12 @@ export async function captureSlackThreadAssets(input: {
   let remainingDeclaredAssets = CONNECTOR_ENTITY_MAX_ASSETS
   const preserveExistingAsset = (sourceKey: string) => {
     const prefix = `${input.threadDir}/assets/${sourceKey}--`
-    for (const path of existingByPath.keys()) {
-      if (path.startsWith(prefix)) keptPaths.push(path)
-    }
+    const matching = [...existingByPath.keys()]
+      .filter((path) => path.startsWith(prefix))
+      .sort()
+    keptPaths.push(...matching)
+    const path = matching[0]
+    return path?.slice(input.threadDir.length + 1)
   }
 
   const seenKeys = new Set<string>()
@@ -89,10 +92,10 @@ export async function captureSlackThreadAssets(input: {
     if (seenKeys.has(media.sourceKey)) continue
     seenKeys.add(media.sourceKey)
     if (remainingDeclaredAssets <= 0) {
-      preserveExistingAsset(media.sourceKey)
+      const preservedPath = preserveExistingAsset(media.sourceKey)
       linksBySourceKey.set(media.sourceKey, {
-        label: media.filename,
-        path: stubPath(media),
+        label: media.label ?? media.filename,
+        path: preservedPath ?? stubPath(media),
         kind: slackAssetKind(media.filename, null, media.mimetype),
       })
       continue
@@ -100,10 +103,10 @@ export async function captureSlackThreadAssets(input: {
     remainingDeclaredAssets -= 1
     const downloadUrl = media.downloadUrl
     if (!downloadUrl) {
-      preserveExistingAsset(media.sourceKey)
+      const preservedPath = preserveExistingAsset(media.sourceKey)
       linksBySourceKey.set(media.sourceKey, {
-        label: media.filename,
-        path: stubPath(media),
+        label: media.label ?? media.filename,
+        path: preservedPath ?? stubPath(media),
         kind: slackAssetKind(media.filename, null, media.mimetype),
       })
       continue
@@ -122,16 +125,15 @@ export async function captureSlackThreadAssets(input: {
     })
 
     if (downloaded.status !== "downloaded") {
-      if (
+      const preservedPath =
         downloaded.reason === "download_failed" ||
         downloaded.reason === "entity_limit"
-      ) {
-        preserveExistingAsset(media.sourceKey)
-      }
+          ? preserveExistingAsset(media.sourceKey)
+          : undefined
       linksBySourceKey.set(media.sourceKey, {
-        label: media.filename,
-        path: stubPath(media),
-        kind: "file",
+        label: media.label ?? media.filename,
+        path: preservedPath ?? stubPath(media),
+        kind: slackAssetKind(media.filename, null, media.mimetype),
       })
       continue
     }
@@ -145,7 +147,7 @@ export async function captureSlackThreadAssets(input: {
       media.mimetype,
     )
     linksBySourceKey.set(media.sourceKey, {
-      label: filename,
+      label: media.label ?? filename,
       path: relativePath,
       kind,
     })

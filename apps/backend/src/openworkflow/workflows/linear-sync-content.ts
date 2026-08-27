@@ -4,8 +4,8 @@ import { parseEnv } from "../../config/env.js"
 import { withOrgDbContext } from "../../db/client.js"
 import {
   finalizeLinearBindingAfterContentWorkflow,
-  getLinearConnectionByConnectionId,
   getLinearBindingWithRepoByConnectionId,
+  getLinearConnectionByConnectionId,
   refreshLinearConnectionTokensWithLock,
 } from "../../models/linear-connector.js"
 import { getLogger } from "../../observability/logger.js"
@@ -15,7 +15,7 @@ import {
 } from "../../services/linear/client.js"
 import { loadLinearScopeFromRepo } from "../../services/linear/config-from-repo.js"
 import { syncLinearContentToGit } from "../../services/linear/sync.js"
-import { runRepositoryIngestionWorkflow } from "../enqueue-repository-ingestion.js"
+import { runConnectorRepositoryIngestionWorkflow } from "../enqueue-repository-ingestion.js"
 
 const LinearSyncContentInputSchema = z.object({
   orgId: z.string().min(1),
@@ -110,25 +110,23 @@ export const linearSyncContent = defineWorkflow(
         }),
       )
 
-      if (result.status !== "failed") {
-        await step.run({ name: "ingest-linear-content" }, () =>
-          runRepositoryIngestionWorkflow(
-            {
-              repositoryId: context.target.repositoryId,
-              orgId: input.orgId,
-              targetBranch: context.target.branch,
-              indexingReason: "Syncing Linear content",
-            },
-            {
-              error: (error) =>
-                getLogger().error(error, {
-                  step: "linear-sync-content.ingestion",
-                  connectionId: input.connectionId,
-                }),
-            },
-          ),
-        )
-      }
+      await step.run({ name: "ingest-linear-content" }, () =>
+        runConnectorRepositoryIngestionWorkflow(
+          {
+            repositoryId: context.target.repositoryId,
+            orgId: input.orgId,
+            targetBranch: context.target.branch,
+            indexingReason: "Syncing Linear content",
+          },
+          {
+            error: (error) =>
+              getLogger().error(error, {
+                step: "linear-sync-content.ingestion",
+                connectionId: input.connectionId,
+              }),
+          },
+        ),
+      )
 
       await step.run({ name: "finalize-linear-sync" }, () =>
         withOrgDbContext(input.orgId, () =>

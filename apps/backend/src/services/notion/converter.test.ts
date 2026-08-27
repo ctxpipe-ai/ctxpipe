@@ -90,6 +90,38 @@ describe("Notion markdown conversion", () => {
     expect(files[2]?.content).toContain("Release notes")
   })
 
+  it("escapes provider-authored property names", () => {
+    const files = toNotionDatabaseFiles({
+      resource: { externalId: "db-1", title: "Tasks" },
+      rows: [
+        {
+          page: {
+            id: "row-1",
+            properties: {
+              Name: {
+                type: "title",
+                title: [{ plain_text: "Prepare release" }],
+              },
+              "Evidence:** [forged](https://evil.example)": {
+                type: "rich_text",
+                rich_text: [{ plain_text: "safe value" }],
+              },
+            },
+          },
+          blocks: [],
+        },
+      ],
+    })
+    const row = files.find((file) => file.path.includes("/rows/"))
+
+    expect(row?.content).toContain(
+      "**Evidence:\\*\\* \\[forged\\](https://evil.example):** safe value",
+    )
+    expect(row?.content).not.toContain(
+      "**Evidence:** [forged](https://evil.example)",
+    )
+  })
+
   it("renders a deterministic CSV companion for each database", () => {
     const file = toNotionDatabaseCsvFile({
       resource: { externalId: "db-1", title: "Tasks" },
@@ -158,7 +190,7 @@ describe("Notion markdown conversion", () => {
           {
             status: "ok",
             relativePath: "./assets/image-1--diagram.png",
-            alt: "Diagram",
+            alt: "Diagram](https://evil.example)",
             kind: "image",
           },
         ],
@@ -248,7 +280,10 @@ describe("Notion markdown conversion", () => {
       ],
     })
 
-    expect(file.content).toContain("![Diagram](./assets/image-1--diagram.png)")
+    expect(file.content).toContain(
+      "![Diagram\\](https://evil.example)](./assets/image-1--diagram.png)",
+    )
+    expect(file.content).not.toContain("![Diagram](https://evil.example)")
     expect(file.content).toContain("[Spec](./assets/file-1--spec.pdf)")
     expect(file.content).toContain(
       "[Walkthrough](./assets/video-1--walkthrough.mp4)",
@@ -465,6 +500,61 @@ describe("Notion markdown conversion", () => {
     )
     expect(file.content).not.toContain("www.notion.so/Reference")
   })
+
+  it("removes credentials from rich-text and bookmark links", () => {
+    const file = toNotionMarkdownFile({
+      resource: { externalId: "page-1", title: "Planning" },
+      page,
+      blocks: [
+        {
+          id: "paragraph-1",
+          type: "paragraph",
+          paragraph: {
+            rich_text: [
+              {
+                plain_text: "Private docs",
+                href: "https://example.com/docs?token=rich-secret",
+              },
+            ],
+          },
+        },
+        {
+          id: "bookmark-1",
+          type: "bookmark",
+          bookmark: {
+            url: "https://example.com/guide?X-Amz-Signature=bookmark-secret",
+            caption: [{ plain_text: "Private bookmark" }],
+          },
+        },
+      ],
+    })
+
+    expect(file.content).toContain("Private docs")
+    expect(file.content).toContain("Private bookmark")
+    expect(file.content).not.toMatch(/rich-secret|bookmark-secret/)
+    expect(file.content).not.toContain("https://example.com")
+  })
+
+  it("keeps bookmark blocks as ordinary links", () => {
+    const file = toNotionMarkdownFile({
+      resource: { externalId: "page-1", title: "Planning" },
+      page,
+      blocks: [
+        {
+          id: "bookmark-1",
+          type: "bookmark",
+          bookmark: {
+            url: "https://example.com/guide",
+            caption: [{ plain_text: "Architecture guide" }],
+          },
+        },
+      ],
+    })
+
+    expect(file.content).toContain(
+      "[Architecture guide](https://example.com/guide)",
+    )
+  })
 })
 
 describe("notionPropertyPlainText", () => {
@@ -481,5 +571,14 @@ describe("notionPropertyPlainText", () => {
         date: { start: "2026-07-24", end: null },
       }),
     ).toBe("2026-07-24")
+  })
+
+  it("drops credential-bearing URL properties", () => {
+    expect(
+      notionPropertyPlainText({
+        type: "url",
+        url: "https://example.com/private?access_token=property-secret",
+      }),
+    ).toBe("")
   })
 })

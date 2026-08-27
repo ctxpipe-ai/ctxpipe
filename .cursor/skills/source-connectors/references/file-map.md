@@ -42,7 +42,7 @@ Partial unique indexes (e.g. one Slack `teamId` per org) belong on `connections`
 | Capture content | event/mention workflow that writes git then ingests |
 | Provider webhook | `apps/backend/src/routes/webhooks/<slug>/<slug>.ts` — register in `routes/webhooks.ts` |
 | GitHub config-merge | `routes/webhooks/github/github-<slug>-push.ts` wired from `github.ts` |
-| Enqueue | `runWorkflowWithWorkerWake`; after git write `runRepositoryIngestionWorkflow` |
+| Enqueue | `runWorkflowWithWorkerWake`; after every successful sync, including a Git no-op replay, `runConnectorRepositoryIngestionWorkflow` |
 
 Webhook: verify signature on the **raw** body; enqueue; ACK. Non-live phases skip. Do not parse-and-reserialise JSON before HMAC.
 

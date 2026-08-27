@@ -53,6 +53,34 @@ describe("notionMatchingExistingAssetPaths", () => {
       "notion/pages/old-title--page-1/assets/properties/a-b--pdeadbeef--spec.pdf",
     ])
   })
+
+  it("does not preserve a different colliding property identity", () => {
+    expect(
+      notionMatchingExistingAssetPaths(
+        [
+          "notion/pages/root--page-1/assets/properties/a-b--p11111111--spec.pdf",
+          "notion/pages/root--page-1/assets/properties/a-b--p22222222--spec.pdf",
+        ],
+        "notion/pages/root--page-1/assets/properties/a-b--p11111111--spec.pdf",
+      ),
+    ).toEqual([
+      "notion/pages/root--page-1/assets/properties/a-b--p11111111--spec.pdf",
+    ])
+  })
+
+  it("preserves prior content-addressed duplicates when one file remains", () => {
+    const first =
+      "notion/pages/root--page-1/assets/properties/attachments--1111111111111111111111111111111111111111--spec.pdf"
+    const second =
+      "notion/pages/root--page-1/assets/properties/attachments--2222222222222222222222222222222222222222--spec.pdf"
+
+    expect(
+      notionMatchingExistingAssetPaths(
+        [first, second],
+        "notion/pages/root--page-1/assets/properties/attachments--spec.pdf",
+      ),
+    ).toEqual([first, second])
+  })
 })
 
 describe("captureNotionEntityAssets", () => {
@@ -100,6 +128,75 @@ describe("captureNotionEntityAssets", () => {
       alt: "Diagram",
       kind: "image",
     })
+  })
+
+  it("captures explicit embed blocks as external media", async () => {
+    const downloadAsset = vi.fn().mockResolvedValue(downloaded("diagram.svg"))
+    const result = await captureNotionEntityAssets({
+      markdownPath: "notion/pages/planning--page-1/index.md",
+      page,
+      blocks: [
+        {
+          id: "embed-1",
+          type: "embed",
+          embed: {
+            url: "https://media.example.com/diagram.svg",
+            caption: [{ plain_text: "Architecture" }],
+          },
+        },
+      ],
+      downloadAsset,
+    })
+
+    expect(downloadAsset).toHaveBeenCalledWith(
+      expect.objectContaining({
+        url: "https://media.example.com/diagram.svg",
+      }),
+    )
+    expect(result.assetMap.get("embed-1")).toEqual({
+      status: "ok",
+      relativePath: "./assets/embed-1--diagram.svg",
+      alt: "Architecture",
+      kind: "file",
+    })
+  })
+
+  it("renders a page from assets captured during provider traversal", async () => {
+    const blocks: NotionBlock[] = [
+      {
+        id: "image-1",
+        type: "image",
+        image: {
+          type: "file",
+          name: "diagram.png",
+          file: {
+            url: "https://prod-files-secure.s3.amazonaws.com/diagram.png",
+          },
+          caption: [{ plain_text: "Diagram" }],
+        },
+      },
+    ]
+    const capturedAssets = await captureNotionEntityAssets({
+      markdownPath: "notion/pages/planning--page-1/index.md",
+      page,
+      blocks,
+      downloadAsset: vi.fn().mockResolvedValue(downloaded("diagram.png")),
+    })
+    const lateDownload = vi.fn()
+
+    const files = await buildNotionPageMirrorFiles({
+      resource: { externalId: "page-1", title: "Planning" },
+      page,
+      blocks,
+      capturedAssets,
+      downloadAsset: lateDownload,
+    })
+
+    expect(lateDownload).not.toHaveBeenCalled()
+    expect(files.map((file) => file.path)).toEqual([
+      "notion/pages/planning--page-1/index.md",
+      "notion/pages/planning--page-1/assets/image-1--diagram.png",
+    ])
   })
 
   it("downloads explicit external media through the shared downloader", async () => {
@@ -248,6 +345,54 @@ describe("captureNotionEntityAssets", () => {
       kind: "file",
       relativePath: "./assets/pdf-1--brief.pdf",
     })
+  })
+
+  it("captures custom emoji page and callout icons", async () => {
+    const files = await buildNotionPageMirrorFiles({
+      resource: { externalId: "page-1", title: "Planning" },
+      page: {
+        ...page,
+        icon: {
+          type: "custom_emoji",
+          custom_emoji: {
+            url: "https://emoji.example.com/page-icon.png",
+          },
+        },
+      },
+      blocks: [
+        {
+          id: "callout-1",
+          type: "callout",
+          callout: {
+            rich_text: [{ plain_text: "Heads up" }],
+            icon: {
+              type: "custom_emoji",
+              custom_emoji: {
+                url: "https://emoji.example.com/callout-icon.png",
+              },
+            },
+          },
+        },
+      ],
+      downloadAsset: vi.fn(async ({ url }: { url: string }) =>
+        downloaded(
+          url.includes("callout") ? "callout-icon.png" : "page-icon.png",
+        ),
+      ),
+    })
+
+    expect(files.map((file) => file.path)).toEqual([
+      "notion/pages/planning--page-1/index.md",
+      "notion/pages/planning--page-1/assets/icon--page-icon.png",
+      "notion/pages/planning--page-1/assets/callout-1-icon--callout-icon.png",
+    ])
+    const markdown = files[0]
+    expect(markdown && "content" in markdown ? markdown.content : "").toContain(
+      "![Icon](./assets/icon--page-icon.png)",
+    )
+    expect(markdown && "content" in markdown ? markdown.content : "").toContain(
+      "![Callout icon](./assets/callout-1-icon--callout-icon.png) Heads up",
+    )
   })
 
   it("disambiguates files properties whose provider IDs slugify alike", async () => {
@@ -410,6 +555,84 @@ describe("captureNotionEntityAssets", () => {
     )
     expect(first.assetMap.get("files:prop-att:spec.pdf")?.status).toBe("ok")
     expect(second.assetMap.get("files:prop-att:spec.pdf")?.status).toBe("ok")
+  })
+
+  it("preserves a renamed files-property binary when its download fails", async () => {
+    const result = await captureNotionEntityAssets({
+      markdownPath: "notion/databases/tasks--db-1/rows/row--row-1/index.md",
+      page: {
+        id: "row-1",
+        url: "https://www.notion.so/row-1",
+        properties: {
+          Attachments: {
+            id: "prop-att",
+            type: "files",
+            files: [
+              {
+                name: "renamed.pdf",
+                type: "file",
+                file: {
+                  url: "https://prod-files-secure.s3.amazonaws.com/renamed.pdf",
+                },
+              },
+            ],
+          },
+        },
+      },
+      blocks: [],
+      downloadAsset: vi.fn().mockResolvedValue({
+        status: "stub",
+        reason: "download_failed",
+      }),
+    })
+    const oldPath =
+      "notion/databases/tasks--db-1/rows/row--row-1/assets/properties/prop-att--original.pdf"
+
+    expect(
+      result.preservePathPrefixes.flatMap((prefix) =>
+        notionMatchingExistingAssetPaths([oldPath], prefix),
+      ),
+    ).toContain(oldPath)
+  })
+
+  it("does not preserve a removed colliding property when the survivor fails", async () => {
+    const survivingPropertyId = "A B"
+    const removedPropertyId = "A-B"
+    const result = await captureNotionEntityAssets({
+      markdownPath: "notion/pages/root--page-1/index.md",
+      page: {
+        id: "page-1",
+        properties: {
+          Evidence: {
+            id: survivingPropertyId,
+            type: "files",
+            files: [
+              {
+                name: "spec.pdf",
+                type: "file",
+                file: { url: "https://temporary.notion.test/spec.pdf" },
+              },
+            ],
+          },
+        },
+      },
+      blocks: [],
+      downloadAsset: vi.fn().mockResolvedValue({
+        status: "stub",
+        reason: "download_failed",
+      }),
+    })
+    const survivingPath = `notion/pages/root--page-1/assets/properties/a-b--p${gitBlobSha(
+      Buffer.from(survivingPropertyId),
+    ).slice(0, 8)}--spec.pdf`
+    const removedPath = `notion/pages/root--page-1/assets/properties/a-b--p${gitBlobSha(
+      Buffer.from(removedPropertyId),
+    ).slice(0, 8)}--spec.pdf`
+    const preserved = result.preservePathPrefixes.flatMap((prefix) =>
+      notionMatchingExistingAssetPaths([survivingPath, removedPath], prefix),
+    )
+
+    expect(preserved).toEqual([survivingPath])
   })
 
   it("suffixes duplicate files-property names and ignores signed file.url identity", async () => {

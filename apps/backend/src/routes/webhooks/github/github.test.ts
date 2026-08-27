@@ -67,6 +67,19 @@ const baseInstallationRow = {
   updatedAt: new Date(),
 }
 
+const baseRepositoryIndexingRow = {
+  indexReady: true,
+  indexingStatus: "ready" as const,
+  indexingFollowUpPending: false,
+  indexingError: null,
+  indexingFailedAt: null,
+  lastIngestedAt: null,
+  indexingReason: null,
+  indexingStep: null,
+  indexingStepTotal: null,
+  indexingStepKey: null,
+}
+
 describe("GitHub webhook HMAC", () => {
   it("matches GitHub documentation test vector", async () => {
     const secret = "It's a Secret to Everybody"
@@ -131,7 +144,7 @@ describe("POST /api/v1/webhook/github", () => {
     expect(res.status).toBe(401)
   })
 
-    it("rejects a connection-specific secret at the legacy webhook URL", async () => {
+  it("rejects a connection-specific secret at the legacy webhook URL", async () => {
     listInstallationsMock.mockResolvedValue([
       {
         id: "con_abc",
@@ -228,7 +241,7 @@ describe("POST /api/v1/webhook/github", () => {
     expect(res.status).toBe(503)
   })
 
-  it("on push to default branch enqueues repository ingestion", async () => {
+  it("enqueues repository ingestion for connector-generated default-branch commits", async () => {
     listInstallationsMock.mockResolvedValue([
       {
         id: "ghi_1",
@@ -241,8 +254,7 @@ describe("POST /api/v1/webhook/github", () => {
       orgId: "org_1",
       name: "acme/app",
       gitUrl: "https://github.com/acme/app.git",
-      indexReady: true,
-      indexingReason: null,
+      ...baseRepositoryIndexingRow,
       lastIngestedHash: "abc",
       githubConnectionId: "ghi_1",
       createdAt: new Date(),
@@ -252,6 +264,12 @@ describe("POST /api/v1/webhook/github", () => {
     const app = createTestApp()
     const payload = {
       ref: "refs/heads/main",
+      after: "connector-commit-sha",
+      commits: [
+        {
+          modified: ["linear/issues/pro-1--issue-1.md"],
+        },
+      ],
       repository: {
         full_name: "acme/app",
         default_branch: "main",
@@ -302,8 +320,7 @@ describe("POST /api/v1/webhook/github", () => {
         orgId: "org_1",
         name: "acme/app",
         gitUrl: "https://github.com/acme/app.git",
-        indexReady: true,
-        indexingReason: null,
+        ...baseRepositoryIndexingRow,
         lastIngestedHash: "a",
         githubConnectionId: "ghi_1",
         createdAt: new Date(),
@@ -314,8 +331,7 @@ describe("POST /api/v1/webhook/github", () => {
         orgId: "org_2",
         name: "acme/app",
         gitUrl: "https://github.com/acme/app.git",
-        indexReady: true,
-        indexingReason: null,
+        ...baseRepositoryIndexingRow,
         lastIngestedHash: "b",
         githubConnectionId: "ghi_2",
         createdAt: new Date(),
@@ -370,12 +386,9 @@ describe("POST /api/v1/webhook/github", () => {
       {
         id: "ghi_1",
         orgId: "org_1",
-        installationId: 999,
-        accountSlug: null,
+        ...baseInstallationRow,
         ingestAllRepositories: true,
         includeFutureRepos: false,
-        createdAt: new Date(),
-        updatedAt: new Date(),
       },
     ])
 
@@ -411,12 +424,9 @@ describe("POST /api/v1/webhook/github", () => {
       {
         id: "ghi_1",
         orgId: "org_1",
-        installationId: 999,
-        accountSlug: null,
+        ...baseInstallationRow,
         ingestAllRepositories: true,
         includeFutureRepos: true,
-        createdAt: new Date(),
-        updatedAt: new Date(),
       },
     ])
 
@@ -461,22 +471,16 @@ describe("POST /api/v1/webhook/github", () => {
       {
         id: "ghi_1",
         orgId: "org_1",
-        installationId: 999,
-        accountSlug: null,
+        ...baseInstallationRow,
         ingestAllRepositories: true,
         includeFutureRepos: true,
-        createdAt: new Date(),
-        updatedAt: new Date(),
       },
       {
         id: "ghi_2",
         orgId: "org_2",
-        installationId: 999,
-        accountSlug: null,
+        ...baseInstallationRow,
         ingestAllRepositories: true,
         includeFutureRepos: true,
-        createdAt: new Date(),
-        updatedAt: new Date(),
       },
     ])
 
@@ -572,14 +576,13 @@ describe("POST /api/v1/webhook/github/:connectionId", () => {
       id: "con_abc",
       orgId: "org_1",
       type: "github",
-      name: null,
       config: {
         ingestAllRepositories: false,
         includeFutureRepos: false,
       },
       createdAt: new Date(),
       updatedAt: new Date(),
-    } as Record<string, unknown>)
+    })
 
     registerInstallMock.mockResolvedValue(undefined)
 
@@ -618,14 +621,13 @@ describe("POST /api/v1/webhook/github/:connectionId", () => {
       id: "con_abc",
       orgId: "org_1",
       type: "github",
-      name: null,
       config: {
         ingestAllRepositories: false,
         includeFutureRepos: false,
       },
       createdAt: new Date(),
       updatedAt: new Date(),
-    } as Record<string, unknown>)
+    })
 
     registerInstallMock.mockResolvedValue(undefined)
 

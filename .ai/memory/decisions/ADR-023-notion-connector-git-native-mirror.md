@@ -1,6 +1,6 @@
 # ADR-023: Notion connector Git-native mirror
 
-**Status:** Accepted | **Date:** 2026-08-09 | **Updated:** 2026-08-21 | **Tags:** connectors, notion, oauth, webhooks, git, multi-tenant
+**Status:** Accepted | **Date:** 2026-08-09 | **Updated:** 2026-08-26 | **Tags:** connectors, notion, oauth, webhooks, git, multi-tenant
 
 ## Context
 
@@ -14,7 +14,7 @@ ctxpipe needs Notion pages and databases as reviewed context alongside code. An 
    - **Draft** = yaml on the configuration pull-request feature branch
    - **Activated** = yaml on the configured target branch after merge
    - Scope is never persisted in PostgreSQL (no `notion_resources`, no draft scope dual-write)
-4. Mirror selected pages and databases under the managed `notion/` root (Markdown pages, database `index.md` + `table.csv` + row files). Provider-hosted attachments and explicit embedded external media follow [ADR-026](ADR-026-git-native-connector-assets.md) under each page or row's `assets/` directory; temporary Notion URLs are fetched immediately and never persisted.
+4. Mirror selected pages and databases under the managed `notion/` root (Markdown pages, database `index.md` + `table.csv` + row files). Each Notion id has one canonical owner and path: an explicitly selected page wins over a selected database row, which wins over an ancestor selected-page tree. Full and incremental reconciliation must apply the same ownership rule so overlapping selections cannot fork content or consume asset budget twice. Provider-hosted attachments and explicit embedded external media follow [ADR-026](ADR-026-git-native-connector-assets.md) under each page or row's `assets/` directory; temporary Notion URLs are fetched immediately and never persisted.
 5. After a successful full reconcile on config merge (`notion-sync-content`), apply entity updates by enqueueing OpenWorkflow `notion-sync-entity` from signed Notion webhooks (ACK after enqueue). Non-live setup phases skip webhook events. Full content sync remains for initial sync and explicit retries.
 6. After successful git writes, hand off to `runRepositoryIngestionWorkflow` so codesearch indexes mirrored files.
 7. Webhook HMAC secret is deployment-owned env **`NOTION_WEBHOOK_SECRET`** (same role as Linear’s webhook secret). The one-time provisioning handshake is gated by a `provisioningToken` derived from `NOTION_CLIENT_SECRET`; it does not persist into a dedicated table. Single app webhook URL: `POST /api/v1/webhook/notion`.

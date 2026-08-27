@@ -62,6 +62,7 @@ describe("linearMatchingExistingAssetPaths", () => {
         [
           "linear/projects/old-title--project-1/assets/attachment-1--diagram.png",
           "linear/projects/old-title--project-1/assets/removed--old.png",
+          "linear/issues/old-title--project-1/assets/attachment-1--wrong-owner-type.png",
           "linear/projects/unrelated--project-2/assets/attachment-1--other.png",
         ],
         "linear/projects/new-title--project-1/assets/attachment-1--",
@@ -190,6 +191,37 @@ describe("captureLinearEntityAssets", () => {
     })
   })
 
+  it("charges retained bytes for every duplicate-path alias", async () => {
+    downloadConnectorAsset.mockResolvedValue({
+      status: "downloaded",
+      bytes: Buffer.from("x"),
+      filename: "diagram.png",
+      contentType: "image/png",
+    })
+
+    const captured = await captureLinearEntityAssets({
+      markdownPath: "linear/issues/eng-45--issue-4.md",
+      accessToken: "lin_oauth_token",
+      attachments: Array.from({ length: 5 }, (_, index) => ({
+        id: `attachment-${index}`,
+        title: "diagram.png",
+        url: "https://uploads.linear.app/org/shared.png",
+        sourceType: "upload",
+        metadata: null,
+      })),
+      markdownSources: [],
+      bytePool: createConnectorAssetBytePool(4),
+    })
+
+    expect(downloadConnectorAsset).toHaveBeenCalledTimes(1)
+    expect(captured.files).toHaveLength(4)
+    expect(captured.assets.at(-1)).toMatchObject({
+      sourceKey: "attachment-4",
+      status: "stub",
+      reason: "entity_limit",
+    })
+  })
+
   it("keeps an unchanged existing asset linked after the sync byte cap", async () => {
     downloadConnectorAsset.mockResolvedValue({
       status: "downloaded",
@@ -313,6 +345,47 @@ describe("captureLinearEntityAssets", () => {
     expect(first.files[0]?.path).toBe(second.files[0]?.path)
   })
 
+  it("keeps inline asset paths stable when generic access tokens rotate", async () => {
+    downloadConnectorAsset.mockResolvedValue({
+      status: "downloaded",
+      bytes: pngBytes,
+      filename: "diagram.png",
+      contentType: "image/png",
+    })
+    const capture = (token: string) =>
+      captureLinearEntityAssets({
+        markdownPath: "linear/issues/eng-45--issue-4.md",
+        accessToken: "lin_oauth_token",
+        attachments: [],
+        markdownSources: [
+          `![diagram](https://cdn.example.com/diagram.png?token=${token})`,
+        ],
+      })
+
+    const first = await capture("one")
+    const firstPath = first.files[0]?.path
+    if (!firstPath) throw new Error("first capture did not produce an asset")
+    downloadConnectorAsset.mockResolvedValueOnce({
+      status: "stub",
+      reason: "download_failed",
+    })
+    const rotatedSource =
+      "![diagram](https://cdn.example.com/diagram.png?token=two)"
+    const second = await captureLinearEntityAssets({
+      markdownPath: "linear/issues/eng-45--issue-4.md",
+      accessToken: "lin_oauth_token",
+      attachments: [],
+      markdownSources: [rotatedSource],
+      existingShaByPath: new Map([[firstPath, "existing-sha"]]),
+    })
+
+    expect(second.files).toEqual([])
+    expect(second.preservePathPrefixes).toContain(firstPath)
+    expect(second.rewriteMarkdown(rotatedSource)).toContain(
+      firstPath.replace("linear/issues/", ""),
+    )
+  })
+
   it("copies explicit HTML images and rewrites the source element", async () => {
     downloadConnectorAsset.mockResolvedValue({
       status: "downloaded",
@@ -369,7 +442,6 @@ describe("captureLinearEntityAssets", () => {
     expect(downloadedUrls).toEqual([
       "https://cdn.example.com/a(b).png?sig=1",
       "https://cdn.example.com/a(b(c)).png",
-      "https://cdn.example.com/a(b).png",
     ])
     expect(downloadedUrls).not.toContain("https://cdn.example.com/skip.png")
     expect(

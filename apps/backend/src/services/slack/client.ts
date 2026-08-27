@@ -224,25 +224,38 @@ async function slackApiCall<T extends { ok: boolean; error?: string }>(input: {
       retryAfterRaw && /^\d+$/.test(retryAfterRaw)
         ? Number(retryAfterRaw)
         : undefined
-    const json = (await res.json()) as T
-    const rateLimited = res.status === 429 || json.error === "ratelimited"
+    const statusRateLimited = res.status === 429
     const serverError = res.status >= 500
 
-    if ((rateLimited || serverError) && attempt < SLACK_API_MAX_ATTEMPTS - 1) {
-      const delayMs = rateLimited
-        ? Math.max(250, (retryAfterSeconds ?? 1) * 1000)
-        : 250 * 2 ** attempt
-      lastError = new SlackApiError({
-        slackError: rateLimited
-          ? "ratelimited"
-          : (json.error ?? `http_${res.status}`),
+    if (statusRateLimited || serverError) {
+      const statusError = new SlackApiError({
+        slackError: statusRateLimited ? "ratelimited" : `http_${res.status}`,
         status: res.status,
         retryAfterSeconds,
       })
+      if (attempt >= SLACK_API_MAX_ATTEMPTS - 1) throw statusError
+      const delayMs = statusRateLimited
+        ? Math.max(250, (retryAfterSeconds ?? 1) * 1000)
+        : 250 * 2 ** attempt
+      lastError = statusError
       await waitForSlackApiRetry(delayMs, input.signal)
       continue
     }
 
+    const json = (await res.json()) as T
+    const rateLimited = json.error === "ratelimited"
+    if (rateLimited && attempt < SLACK_API_MAX_ATTEMPTS - 1) {
+      lastError = new SlackApiError({
+        slackError: "ratelimited",
+        status: res.status,
+        retryAfterSeconds,
+      })
+      await waitForSlackApiRetry(
+        Math.max(250, (retryAfterSeconds ?? 1) * 1000),
+        input.signal,
+      )
+      continue
+    }
     if (rateLimited) {
       throw new SlackApiError({
         slackError: "ratelimited",
@@ -329,6 +342,10 @@ export type SlackApiMessage = {
   attachments?: Array<{
     image_url?: string
     title?: string
+    is_app_unfurl?: boolean
+    is_msg_unfurl?: boolean
+    is_reply_unfurl?: boolean
+    is_thread_root_unfurl?: boolean
     files?: SlackApiFile[]
   }>
 }

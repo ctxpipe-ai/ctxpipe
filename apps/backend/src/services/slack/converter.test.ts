@@ -35,6 +35,36 @@ describe("slack converter", () => {
     )
   })
 
+  it("removes credentials from labelled, angle-bracketed, and bare links", () => {
+    const markdown = slackMrkdwnToMarkdown(
+      "read <https://example.com/guide?token=label-secret|private docs>, <https://example.com/file?X-Amz-Credential=key&X-Amz-Signature=angle-secret>, and https://example.com/raw?access_token=bare-secret.",
+    )
+
+    expect(markdown).toBe(
+      "read private docs, [private link omitted], and [private link omitted].",
+    )
+    expect(markdown).not.toMatch(/label-secret|angle-secret|bare-secret/)
+  })
+
+  it("removes credentials from channel topics and purposes", () => {
+    const file = toSlackChannelIndexFile({
+      channelId: "C123",
+      channelName: "Engineering",
+      isPrivate: false,
+      topic: "Read <https://example.com/guide|the guide>",
+      purpose:
+        "Download https://example.com/export?token=channel-secret when needed.",
+    })
+
+    expect(file.content).toContain(
+      "**Topic:** Read [the guide](https://example.com/guide)",
+    )
+    expect(file.content).toContain(
+      "**Purpose:** Download [private link omitted] when needed.",
+    )
+    expect(file.content).not.toContain("channel-secret")
+  })
+
   it("resolves inline mentions to @handle when a profile map is provided", () => {
     const handles = new Map([
       ["U1", "ada"],
@@ -43,10 +73,8 @@ describe("slack converter", () => {
     expect(slackMrkdwnToMarkdown("hey <@U1> and <@U2|bobby>", handles)).toBe(
       "hey @ada and @bob",
     )
-    expect(slackMrkdwnToMarkdown("hey <@U9>")).toBe("hey @unknown-user")
-    expect(slackMrkdwnToMarkdown("hey <@U9|ghost>", handles)).toBe(
-      "hey @unknown-user",
-    )
+    expect(slackMrkdwnToMarkdown("hey <@U9>")).toBe("hey @U9")
+    expect(slackMrkdwnToMarkdown("hey <@U9|ghost>", handles)).toBe("hey @U9")
   })
 
   it("reuses a path slug without changing the rendered channel name", () => {
@@ -97,8 +125,7 @@ describe("slack converter", () => {
     expect(thread.content).toContain("# Thread in #Platform")
     expect(thread.content).toContain('participant_ids: ["U9"]')
     expect(thread.content).toContain("### unknown")
-    expect(thread.content).toContain("ping @unknown-user")
-    expect(thread.content).not.toMatch(/@U9\b/)
+    expect(thread.content).toContain("ping @U9")
   })
 
   it("picks a stable existing channel path slug from the git tree", () => {
@@ -178,7 +205,7 @@ describe("slack converter", () => {
           text: "see <@U2>",
           assetLinks: [
             {
-              label: "diagram.png",
+              label: "diagram](https://evil.example)",
               path: "assets/F1--diagram.png",
               kind: "image",
             },
@@ -202,7 +229,10 @@ describe("slack converter", () => {
       ],
     })
     expect(file.content).toContain("see @bob")
-    expect(file.content).toContain("![diagram.png](assets/F1--diagram.png)")
+    expect(file.content).toContain(
+      "![diagram\\](https://evil.example)](assets/F1--diagram.png)",
+    )
+    expect(file.content).not.toContain("![diagram](https://evil.example)")
     expect(file.content).toContain("[notes.pdf](assets/F2--notes.pdf)")
     expect(file.content).toContain(
       "[missing.png](https://acme.slack.com/files/U1/F3/missing.png)",
@@ -368,6 +398,15 @@ describe("collectSlackMessageMedia", () => {
         "https://cdn.example.com/image.png?X-Amz-Credential=key&X-Amz-Signature=two",
       ),
     )
+    expect(
+      slackUrlSourceKey(
+        "https://cdn.example.com/image.png?token=old&expires=100",
+      ),
+    ).toBe(
+      slackUrlSourceKey(
+        "https://cdn.example.com/image.png?token=new&expires=200",
+      ),
+    )
   })
 
   it("does not treat mrkdwn URLs as media", () => {
@@ -378,15 +417,40 @@ describe("collectSlackMessageMedia", () => {
     ).toEqual([])
   })
 
+  it("keeps explicit media identity stable when access tokens rotate", () => {
+    const collect = (token: string) =>
+      collectSlackMessageMedia({
+        ts: "1710000000.000100",
+        attachments: [
+          {
+            image_url: `https://cdn.example.com/diagram.png?token=${token}`,
+          },
+        ],
+      })[0]
+
+    expect(collect("old")?.sourceKey).toBe(collect("new")?.sourceKey)
+    expect(collect("old")?.downloadUrl).not.toBe(collect("new")?.downloadUrl)
+  })
+
   it("does not capture generated link-unfurl previews as assets", () => {
     expect(
       collectSlackMessageMedia({
         attachments: [
           {
             is_msg_unfurl: true,
-            title: "Linked article",
-            image_url: "https://cdn.example.com/article-preview.png",
-            thumb_url: "https://cdn.example.com/article-thumbnail.png",
+            image_url: "https://cdn.example.com/message-preview.png",
+          },
+          {
+            is_app_unfurl: true,
+            image_url: "https://cdn.example.com/app-preview.png",
+          },
+          {
+            is_reply_unfurl: true,
+            image_url: "https://cdn.example.com/reply-preview.png",
+          },
+          {
+            is_thread_root_unfurl: true,
+            image_url: "https://cdn.example.com/thread-root-preview.png",
             files: [
               {
                 id: "F-PREVIEW",
@@ -394,6 +458,20 @@ describe("collectSlackMessageMedia", () => {
                 url_private: "https://files.slack.com/linked-file.pdf",
               },
             ],
+          },
+        ],
+      }),
+    ).toEqual([])
+  })
+
+  it("does not capture automatic link previews without explicit unfurl flags", () => {
+    expect(
+      collectSlackMessageMedia({
+        attachments: [
+          {
+            from_url: "https://docs.example.com/architecture",
+            original_url: "https://docs.example.com/architecture",
+            image_url: "https://cdn.example.com/architecture-preview.png",
           },
         ],
       }),

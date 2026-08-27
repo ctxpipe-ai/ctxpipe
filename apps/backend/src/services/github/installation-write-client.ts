@@ -72,10 +72,7 @@ function githubRetryDelayMs(error: unknown, attempt: number): number {
   }
   const resetAtSeconds = Number(headers["x-ratelimit-reset"])
   if (Number.isFinite(resetAtSeconds) && resetAtSeconds > 0) {
-    return Math.min(
-      15 * 60_000,
-      Math.max(0, resetAtSeconds * 1000 - Date.now()),
-    )
+    return Math.max(0, resetAtSeconds * 1000 - Date.now())
   }
   const status = (error as { status?: number }).status
   if (status === 403 || status === 429) return 60_000

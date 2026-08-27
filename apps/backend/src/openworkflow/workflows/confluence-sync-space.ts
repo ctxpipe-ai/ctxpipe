@@ -6,7 +6,7 @@ import { getForgeInstallationByConnectionId } from "../../models/atlassian-conne
 import { getConfluenceSyncTargetByConnectionId } from "../../models/confluence-sync-target.js"
 import { getLogger } from "../../observability/logger.js"
 import { syncConfluenceContent } from "../../services/confluence/sync.js"
-import { runRepositoryIngestionWorkflow } from "../enqueue-repository-ingestion.js"
+import { runConnectorRepositoryIngestionWorkflow } from "../enqueue-repository-ingestion.js"
 
 const confluenceSyncSpaceInputSchema = z.object({
   orgId: z.string().min(1),
@@ -21,44 +21,50 @@ export const confluenceSyncSpace = defineWorkflow(
     name: "confluence-sync-space",
     schema: confluenceSyncSpaceInputSchema,
   },
-  async ({ input }) => {
+  async ({ input, step }) => {
     const forgeInstallation = await withOrgDbContext(input.orgId, (db) =>
       getForgeInstallationByConnectionId(input.orgId, input.connectionId, db),
     )
-    if (
-      !forgeInstallation ||
-      !forgeInstallation.cloudId ||
-      !forgeInstallation.appSystemToken
-    ) {
+    const cloudId = forgeInstallation?.cloudId
+    const appSystemToken = forgeInstallation?.appSystemToken
+    if (!forgeInstallation || !cloudId || !appSystemToken) {
       throw new Error("Forge installation is not ready for Confluence sync")
     }
 
-    const target = await getConfluenceSyncTargetByConnectionId(
-      input.connectionId,
+    const target = await step.run(
+      { name: "load-confluence-space-target" },
+      async () => {
+        const current = await getConfluenceSyncTargetByConnectionId(
+          input.connectionId,
+        )
+        if (!current) {
+          throw new Error("Confluence sync target is not configured")
+        }
+        return current
+      },
     )
-    if (!target) {
-      throw new Error("Confluence sync target is not configured")
-    }
 
-    const result = await syncConfluenceContent({
-      orgId: input.orgId,
-      env: parseEnv(process.env as Record<string, string | undefined>),
-      forgeInstallation: {
-        id: forgeInstallation.id,
-        cloudId: forgeInstallation.cloudId,
-        atlassianApiBaseUrl: forgeInstallation.atlassianApiBaseUrl,
-        appSystemToken: forgeInstallation.appSystemToken,
-      },
-      target,
-      mode: {
-        spaceKey: input.spaceKey,
-        pageId: input.pageId,
-        eventType: input.eventType,
-      },
-    })
+    const result = await step.run({ name: "sync-confluence-space" }, () =>
+      syncConfluenceContent({
+        orgId: input.orgId,
+        env: parseEnv(process.env as Record<string, string | undefined>),
+        forgeInstallation: {
+          id: forgeInstallation.id,
+          cloudId,
+          atlassianApiBaseUrl: forgeInstallation.atlassianApiBaseUrl,
+          appSystemToken,
+        },
+        target,
+        mode: {
+          spaceKey: input.spaceKey,
+          pageId: input.pageId,
+          eventType: input.eventType,
+        },
+      }),
+    )
 
-    if (result.commitSha) {
-      await runRepositoryIngestionWorkflow(
+    await step.run({ name: "ingest-confluence-space" }, () =>
+      runConnectorRepositoryIngestionWorkflow(
         {
           repositoryId: target.repositoryId,
           orgId: input.orgId,
@@ -72,8 +78,8 @@ export const confluenceSyncSpace = defineWorkflow(
               connectionId: input.connectionId,
             }),
         },
-      )
-    }
+      ),
+    )
 
     return {
       ...result,

@@ -125,6 +125,7 @@ export async function syncLinearContentToGit(input: {
   status: "completed" | "partial_failed" | "failed"
   written: number
   deleted: number
+  commitSha?: string
   failures: Array<{ type: string; id: string; message: string }>
 }> {
   const githubConnectionId = input.target.githubConnectionId
@@ -175,6 +176,7 @@ export async function syncLinearContentToGit(input: {
           )
       : []
   const filesToWrite = omitUnchangedLinearFiles(mirror.files, existing)
+  let commitSha: string | undefined
 
   await withLinearBindingSnapshot(
     {
@@ -185,7 +187,7 @@ export async function syncLinearContentToGit(input: {
     },
     async () => {
       if (filesToWrite.length > 0 || deletePaths.length > 0) {
-        await commitFiles({
+        const commit = await commitFiles({
           orgId: input.orgId,
           env: input.env,
           repositoryName: input.target.repositoryName,
@@ -195,6 +197,7 @@ export async function syncLinearContentToGit(input: {
           files: filesToWrite,
           deletePaths,
         })
+        commitSha = commit.commitSha
       }
     },
   )
@@ -202,6 +205,7 @@ export async function syncLinearContentToGit(input: {
     status: mirror.failures.length > 0 ? "partial_failed" : "completed",
     written: filesToWrite.length,
     deleted: deletePaths.length,
+    commitSha,
     failures: mirror.failures,
   }
 }
@@ -217,6 +221,7 @@ export async function syncLinearIncrementalContent(input: {
 }): Promise<{
   written: number
   deleted: number
+  commitSha?: string
   failures: Array<{ type: string; id: string; message: string }>
 }> {
   const githubConnectionId = input.target.githubConnectionId
@@ -236,9 +241,11 @@ export async function syncLinearIncrementalContent(input: {
     config: input.config,
     entities: [input.entity],
     existingPaths: existing.map((file) => file.path),
+    existingShaByPath: new Map(existing.map((file) => [file.path, file.sha])),
     onTokenRefresh: input.onTokenRefresh,
   })
   const filesToWrite = omitUnchangedLinearFiles(changes.files, existing)
+  let commitSha: string | undefined
   await withLinearBindingSnapshot(
     {
       connectionId: input.connection.id,
@@ -248,7 +255,7 @@ export async function syncLinearIncrementalContent(input: {
     },
     async () => {
       if (filesToWrite.length > 0 || changes.deletePaths.length > 0) {
-        await commitFiles({
+        const commit = await commitFiles({
           orgId: input.orgId,
           env: input.env,
           repositoryName: input.target.repositoryName,
@@ -258,12 +265,14 @@ export async function syncLinearIncrementalContent(input: {
           files: filesToWrite,
           deletePaths: changes.deletePaths,
         })
+        commitSha = commit.commitSha
       }
     },
   )
   return {
     written: filesToWrite.length,
     deleted: changes.deletePaths.length,
+    commitSha,
     failures: changes.failures,
   }
 }

@@ -3,8 +3,8 @@ import { z } from "zod"
 import { parseEnv } from "../../config/env.js"
 import { withOrgDbContext } from "../../db/client.js"
 import {
-  getLinearConnectionByConnectionId,
   getLinearBindingWithRepoByConnectionId,
+  getLinearConnectionByConnectionId,
   refreshLinearConnectionTokensWithLock,
 } from "../../models/linear-connector.js"
 import { getLogger } from "../../observability/logger.js"
@@ -14,7 +14,7 @@ import {
 } from "../../services/linear/client.js"
 import { loadLinearScopeFromRepo } from "../../services/linear/config-from-repo.js"
 import { syncLinearIncrementalContent } from "../../services/linear/sync.js"
-import { runRepositoryIngestionWorkflow } from "../enqueue-repository-ingestion.js"
+import { runConnectorRepositoryIngestionWorkflow } from "../enqueue-repository-ingestion.js"
 
 const LinearSyncEntityInputSchema = z.object({
   orgId: z.string().min(1),
@@ -148,25 +148,23 @@ export const linearSyncEntity = defineWorkflow(
       },
     )
 
-    if (result.written > 0 || result.deleted > 0) {
-      await step.run({ name: "ingest-linear-entity" }, () =>
-        runRepositoryIngestionWorkflow(
-          {
-            repositoryId: context.target.repositoryId,
-            orgId: input.orgId,
-            targetBranch: context.target.branch,
-            indexingReason: "Applying Linear updates",
-          },
-          {
-            error: (error) =>
-              getLogger().error(error, {
-                step: "linear-sync-entity.ingestion",
-                connectionId: input.connectionId,
-              }),
-          },
-        ),
-      )
-    }
+    await step.run({ name: "ingest-linear-entity" }, () =>
+      runConnectorRepositoryIngestionWorkflow(
+        {
+          repositoryId: context.target.repositoryId,
+          orgId: input.orgId,
+          targetBranch: context.target.branch,
+          indexingReason: "Applying Linear updates",
+        },
+        {
+          error: (error) =>
+            getLogger().error(error, {
+              step: "linear-sync-entity.ingestion",
+              connectionId: input.connectionId,
+            }),
+        },
+      ),
+    )
 
     return result
   },

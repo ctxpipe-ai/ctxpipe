@@ -10,7 +10,7 @@ Control-plane architecture is not retrofitted: maintain Confluence's legacy
 tables and Slack's thin intent-capture lifecycle unless that architecture is the
 assigned change.
 
-A **git-native** source connector authorises the provider on **this** deployment, writes selected content as files into a **context repository**, then `runRepositoryIngestionWorkflow` indexes that repo. Same code for hosted and self-host. The provider app and webhook endpoint terminate on this deployment; credentials are deployment-shared or connection-specific according to the provider’s tenant-isolation model.
+A **git-native** source connector authorises the provider on **this** deployment, writes selected content as files into a **context repository**, then `runConnectorRepositoryIngestionWorkflow` indexes that repo. Same code for hosted and self-host. The provider app and webhook endpoint terminate on this deployment; credentials are deployment-shared or connection-specific according to the provider’s tenant-isolation model.
 
 The store is **git**. Rich operations (open a config PR, `commitFiles`) are implemented today only for **GitHub**. Design against git paths; call the GitHub App for those operations. Do not invent a second git host’s PR API unless you are implementing it.
 
@@ -68,7 +68,7 @@ Write under a managed root `<slug>/` in the bound context repository (often `ctx
 - **Images and file attachments are files.** Copy provider-declared file attachments and explicit embedded external media through the shared asset boundary, commit them beside their owning content, and rewrite links to relative paths. Ordinary hyperlinks and link-only attachment records stay links and are never crawled. Never persist private or expiring URLs as file sources. Unsafe, unreadable, or oversized blobs leave a permalink/text stub and do not fail the whole write.
 - **Provenance.** YAML frontmatter: source, stable ids, canonical URL, timestamps. Connector uninstall does not purge git.
 
-Writes go through `commitFiles` in `installation-write-client.ts` (`encoding: "base64"` for binaries). After a successful write, enqueue `runRepositoryIngestionWorkflow`.
+Writes go through `commitFiles` in `installation-write-client.ts` (`encoding: "base64"` for binaries). Checkpoint the selected repository ID and branch in workflow state before the write; never reload a mutable binding between a checkpointed write and its ingestion hand-off. After the hand-off resolves the repository's GitHub connection, carry that connection through the ingestion child and failure recovery rather than reloading it mid-run. After every successful connector sync, invoke `runConnectorRepositoryIngestionWorkflow` inside a durable step. Do not skip the hand-off for a Git no-op: the shared helper resolves the current branch tip and compares it with `lastIngestedHash` so a replay can recover a write whose prior step result was lost without regressing to an older commit. Do not bypass the repository single-flight claim: overlapping hand-offs persist one coalesced follow-up marker, and both successful and failed ingestion paths drain it through retryable workflow steps. Clear that marker only with a compare-and-set against the terminal ingested hash; an unconditional clear can erase a newer overlap.
 
 **Done when:** a sample tree is specified (config yaml, content paths, attachment files); config is a PR; content commits to the target branch; the mirrored page is readable without a live provider API.
 

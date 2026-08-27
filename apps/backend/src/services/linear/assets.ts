@@ -2,17 +2,20 @@ import { createHash } from "node:crypto"
 import type { ConnectorAssetBytePool } from "../connectors/assets.js"
 import {
   CONNECTOR_ENTITY_MAX_ASSETS,
+  CONNECTOR_ENTITY_MAX_BYTES,
   canonicalConnectorAssetUrl,
   connectorAssetCommitFile,
   connectorBlobUnchanged,
   connectorCommitFileUnchanged,
   consumeConnectorAssetBytePool,
   createConnectorAssetBudget,
+  createConnectorAssetBytePool,
   downloadConnectorAsset,
 } from "../connectors/assets.js"
 import type { CommitFile } from "../github/installation-write-client.js"
 import {
   applyLinearAssetRewrites,
+  isLinearGithubPullOrCommitUrl,
   isLinearGithubReferenceAttachment,
   isLinearUploadUrl,
   type LinearAttachmentMetadata,
@@ -57,6 +60,10 @@ export function linearMatchingExistingAssetPaths(
   const markerIndex = preservation.indexOf(marker)
   if (!preservation.endsWith("--") || markerIndex < 0) return []
   const ownerSegment = preservation.slice(0, markerIndex).split("/").at(-1)
+  const ownerDirectory = preservation.slice(
+    0,
+    preservation.slice(0, markerIndex).lastIndexOf("/") + 1,
+  )
   const ownerSeparator = ownerSegment?.lastIndexOf("--") ?? -1
   if (!ownerSegment || ownerSeparator < 0) return []
   const ownerId = ownerSegment.slice(ownerSeparator + 2).toLowerCase()
@@ -65,13 +72,21 @@ export function linearMatchingExistingAssetPaths(
     const existingMarkerIndex = path.indexOf(marker)
     if (!path.startsWith("linear/") || existingMarkerIndex < 0) return false
     const existingOwner = path.slice(0, existingMarkerIndex).split("/").at(-1)
+    const existingOwnerDirectory = path.slice(
+      0,
+      path.slice(0, existingMarkerIndex).lastIndexOf("/") + 1,
+    )
     const existingSeparator = existingOwner?.lastIndexOf("--") ?? -1
     if (!existingOwner || existingSeparator < 0) return false
     const existingOwnerId = existingOwner
       .slice(existingSeparator + 2)
       .toLowerCase()
     const leaf = path.slice(existingMarkerIndex + marker.length)
-    return existingOwnerId === ownerId && leaf.startsWith(sourcePrefix)
+    return (
+      existingOwnerDirectory === ownerDirectory &&
+      existingOwnerId === ownerId &&
+      leaf.startsWith(sourcePrefix)
+    )
   })
 }
 
@@ -106,28 +121,23 @@ function shouldDownloadAttachment(
   attachment: LinearAttachmentMetadata,
 ): boolean {
   if (isLinearGithubReferenceAttachment(attachment)) return false
-  if (isGithubPullOrCommitUrl(attachment.url)) return false
+  if (isLinearGithubPullOrCommitUrl(attachment.url)) return false
   if (isLinearUploadUrl(attachment.url)) return true
   const kind = attachment.sourceType?.toLowerCase()
   return kind === "upload" || kind === "file"
 }
 
-function isGithubPullOrCommitUrl(url: string): boolean {
-  try {
-    const parsed = new URL(url)
-    if (parsed.hostname.toLowerCase() !== "github.com") return false
-    const parts = parsed.pathname.split("/").filter(Boolean)
-    return parts.indexOf("pull") >= 2 || parts.indexOf("commit") >= 2
-  } catch {
-    return false
-  }
-}
-
 function inlineSourceKey(url: string): string {
   return `src-${createHash("sha1")
-    .update(canonicalConnectorAssetUrl(url))
+    .update(canonicalLinearAssetUrl(url))
     .digest("hex")
     .slice(0, 12)}`
+}
+
+function canonicalLinearAssetUrl(url: string): string {
+  return canonicalConnectorAssetUrl(url, {
+    stripGenericCredentials: true,
+  })
 }
 
 function extractMarkdownAssetUrls(markdown: string): string[] {
@@ -167,6 +177,12 @@ export async function captureLinearEntityAssets(input: {
   rewriteMarkdown: (markdown: string | null | undefined) => string
 }> {
   const budget = createConnectorAssetBudget()
+  const bytePool =
+    input.bytePool ??
+    createConnectorAssetBytePool(
+      CONNECTOR_ENTITY_MAX_BYTES,
+      CONNECTOR_ENTITY_MAX_ASSETS,
+    )
   const { gitDir, relativeDir } = siblingAssetDir(input.markdownPath)
   const pending = new Map<
     string,
@@ -187,7 +203,7 @@ export async function captureLinearEntityAssets(input: {
       sourceKey: attachment.id,
       filename: attachment.title,
     })
-    const identity = canonicalConnectorAssetUrl(attachment.url)
+    const identity = canonicalLinearAssetUrl(attachment.url)
     if (!pendingKeyByUrlIdentity.has(identity)) {
       pendingKeyByUrlIdentity.set(identity, attachment.id)
     }
@@ -196,8 +212,8 @@ export async function captureLinearEntityAssets(input: {
   for (const source of input.markdownSources) {
     if (!source) continue
     for (const url of extractMarkdownAssetUrls(source)) {
-      if (isGithubPullOrCommitUrl(url)) continue
-      const identity = canonicalConnectorAssetUrl(url)
+      if (isLinearGithubPullOrCommitUrl(url)) continue
+      const identity = canonicalLinearAssetUrl(url)
       const existingKey = pendingKeyByUrlIdentity.get(identity)
       if (existingKey) {
         const existing = pending.get(existingKey)
@@ -219,6 +235,24 @@ export async function captureLinearEntityAssets(input: {
     string,
     Awaited<ReturnType<typeof downloadConnectorAsset>>
   >()
+  const markdownDirectory = input.markdownPath.slice(
+    0,
+    input.markdownPath.lastIndexOf("/") + 1,
+  )
+  const preservedAssetFor = (sourceKey: string) => {
+    if (!input.existingShaByPath) return undefined
+    const gitPath = linearMatchingExistingAssetPaths(
+      input.existingShaByPath.keys(),
+      `${gitDir}/${sourceKey}--`,
+    ).sort()[0]
+    if (!gitPath?.startsWith(markdownDirectory)) return undefined
+    const leaf = gitPath.slice(gitPath.lastIndexOf("/") + 1)
+    return {
+      filename: leaf.slice(`${sourceKey}--`.length) || "attachment",
+      gitPath,
+      relativePath: gitPath.slice(markdownDirectory.length),
+    }
+  }
   let remainingDeclaredAssets = CONNECTOR_ENTITY_MAX_ASSETS
 
   for (const pendingAsset of pending.values()) {
@@ -228,7 +262,7 @@ export async function captureLinearEntityAssets(input: {
       downloaded = { status: "stub", reason: "entity_limit" }
     } else {
       remainingDeclaredAssets -= 1
-      const urlIdentity = canonicalConnectorAssetUrl(url)
+      const urlIdentity = canonicalLinearAssetUrl(url)
       const cached = downloadedByUrl.get(urlIdentity)
       if (cached) {
         downloaded = cached
@@ -273,11 +307,7 @@ export async function captureLinearEntityAssets(input: {
     }
     if (
       downloaded.status === "downloaded" &&
-      input.bytePool &&
-      !consumeConnectorAssetBytePool(
-        input.bytePool,
-        downloaded.bytes.byteLength,
-      )
+      !consumeConnectorAssetBytePool(bytePool, downloaded.bytes.byteLength)
     ) {
       downloaded = { status: "stub", reason: "entity_limit" }
     }
@@ -293,6 +323,25 @@ export async function captureLinearEntityAssets(input: {
         })
       }
       files.push(connectorAssetCommitFile(gitPath, downloaded.bytes))
+      continue
+    }
+    const preserved =
+      downloaded.reason === "download_failed" ||
+      downloaded.reason === "entity_limit"
+        ? preservedAssetFor(pendingAsset.sourceKey)
+        : undefined
+    if (preserved) {
+      for (const sourceUrl of pendingAsset.sourceUrls) {
+        assets.push({
+          sourceUrl,
+          sourceKey: pendingAsset.sourceKey,
+          relativePath: preserved.relativePath,
+          gitPath: preserved.gitPath,
+          status: "downloaded",
+          filename: preserved.filename,
+        })
+      }
+      preservePathPrefixes.push(preserved.gitPath)
       continue
     }
     for (const sourceUrl of pendingAsset.sourceUrls) {

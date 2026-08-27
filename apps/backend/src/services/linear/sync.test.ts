@@ -25,6 +25,12 @@ const content = vi.hoisted(() => ({
 const incremental = vi.hoisted(() => ({
   buildLinearIncrementalChanges: vi.fn(),
 }))
+const linearClient = vi.hoisted(() => ({
+  withClient: vi.fn(),
+}))
+const assetBoundary = vi.hoisted(() => ({
+  download: vi.fn(),
+}))
 const model = vi.hoisted(() => ({
   withLinearBindingSnapshot: vi.fn(
     async (_input: unknown, operation: () => Promise<unknown>) => operation(),
@@ -32,12 +38,21 @@ const model = vi.hoisted(() => ({
 }))
 
 vi.mock("../../models/linear-connector.js", () => model)
+vi.mock("../connectors/assets.js", async (importOriginal) => {
+  const actual =
+    await importOriginal<typeof import("../connectors/assets.js")>()
+  return { ...actual, downloadConnectorAsset: assetBoundary.download }
+})
 vi.mock("../github/installation-write-client.js", async (importOriginal) => {
   const actual =
     await importOriginal<
       typeof import("../github/installation-write-client.js")
     >()
   return { ...actual, ...github }
+})
+vi.mock("./client.js", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("./client.js")>()
+  return { ...actual, withLinearClient: linearClient.withClient }
 })
 vi.mock("./content.js", () => content)
 vi.mock("./incremental.js", () => incremental)
@@ -102,7 +117,13 @@ beforeEach(() => {
     pullNumber: 4,
   })
   github.listFilesInTree.mockResolvedValue([])
-  github.commitFiles.mockResolvedValue("commit-sha")
+  github.commitFiles.mockResolvedValue({ commitSha: "commit-sha" })
+  assetBoundary.download.mockResolvedValue({
+    status: "downloaded",
+    bytes: Buffer.from("asset-bytes"),
+    filename: "diagram.png",
+    contentType: "image/png",
+  })
   content.buildLinearMirror.mockResolvedValue({
     files: [],
     failures: [],
@@ -125,6 +146,100 @@ describe("syncLinearContentToGit", () => {
     customerRequests: "limited" as const,
     scopes: [],
   }
+
+  it("returns no commit for a true Git no-op", async () => {
+    await expect(
+      syncLinearContentToGit({
+        orgId: "org_1",
+        env: {} as Env,
+        connection,
+        target,
+        config,
+      }),
+    ).resolves.toMatchObject({
+      written: 0,
+      deleted: 0,
+      commitSha: undefined,
+    })
+    expect(github.commitFiles).not.toHaveBeenCalled()
+  })
+
+  it("crosses provider traversal, asset capture, and Git reconciliation", async () => {
+    const actualContent =
+      await vi.importActual<typeof import("./content.js")>("./content.js")
+    content.buildLinearMirror.mockImplementationOnce(
+      actualContent.buildLinearMirror,
+    )
+    linearClient.withClient.mockImplementationOnce(
+      async (
+        _input: unknown,
+        run: (client: {
+          document: (id: string) => Promise<unknown>
+        }) => Promise<unknown>,
+      ) =>
+        run({
+          document: async (id: string) => {
+            expect(id).toBe("doc-1")
+            return {
+              id: "doc-1",
+              title: "Architecture",
+              url: "https://linear.app/acme/document/architecture-doc-1",
+              content:
+                "Current design\n\n![System diagram](https://uploads.linear.app/files/diagram.png?token=temporary-secret)",
+              projectId: null,
+              creatorId: null,
+              createdAt: new Date("2026-08-01T00:00:00.000Z"),
+              updatedAt: new Date("2026-08-25T00:00:00.000Z"),
+              creator: undefined,
+            }
+          },
+        }),
+    )
+
+    await syncLinearContentToGit({
+      orgId: "org_1",
+      env: {} as Env,
+      connection,
+      target,
+      config: {
+        ...config,
+        scopes: [
+          {
+            externalId: "doc-1",
+            type: "document",
+            title: "Architecture",
+            url: "https://linear.app/acme/document/architecture-doc-1",
+            parentExternalId: null,
+            teamId: null,
+            teamKey: null,
+          },
+        ],
+      },
+    })
+
+    expect(assetBoundary.download).toHaveBeenCalledWith(
+      expect.objectContaining({
+        url: "https://uploads.linear.app/files/diagram.png?token=temporary-secret",
+        headers: { Authorization: "Bearer secret" },
+      }),
+    )
+    const files = github.commitFiles.mock.calls[0]?.[0].files as Array<{
+      path: string
+      content: string
+      encoding?: string
+    }>
+    const markdown = files.find((file) => file.path.endsWith(".md"))
+    const binary = files.find((file) => file.encoding === "base64")
+    expect(markdown?.path).toBe("linear/documents/architecture--doc-1.md")
+    expect(binary?.path).toMatch(
+      /^linear\/documents\/architecture--doc-1\/assets\/src-[0-9a-f]{12}--diagram\.png$/,
+    )
+    expect(markdown?.content).toContain(
+      `](${binary?.path.slice("linear/documents/".length)})`,
+    )
+    expect(binary?.content).toBe(Buffer.from("asset-bytes").toString("base64"))
+    expect(JSON.stringify(files)).not.toContain("temporary-secret")
+  })
 
   it("deletes stale mirror files after a complete reconcile", async () => {
     content.buildLinearMirror.mockResolvedValue({
@@ -470,6 +585,7 @@ describe("syncLinearIncrementalContent", () => {
     ).resolves.toMatchObject({
       written: 1,
       deleted: 1,
+      commitSha: "commit-sha",
     })
     expect(github.commitFiles).toHaveBeenCalledWith(
       expect.objectContaining({

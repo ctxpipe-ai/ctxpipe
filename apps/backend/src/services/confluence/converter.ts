@@ -3,6 +3,7 @@ import { posix as pathPosix } from "node:path"
 import slugify from "@sindresorhus/slugify"
 import {
   canonicalConnectorAssetUrl,
+  isConnectorAssetCredentialUrl,
   sanitizeConnectorAssetName,
 } from "../connectors/assets.js"
 
@@ -43,6 +44,7 @@ export type ConfluenceMediaResolution =
     }
 
 const MEDIA_PLACEHOLDER_PREFIX = "@@CTXPIPE_MEDIA_"
+const CODE_PLACEHOLDER_PREFIX = "@@CTXPIPE_CODE_"
 
 export function confluencePageAssetPrefix(
   spaceKey: string,
@@ -69,25 +71,45 @@ export function relativeConfluenceAssetHref(
 
 export function confluenceExternalSourceKey(url: string): string {
   return createHash("sha1")
-    .update(canonicalConnectorAssetUrl(url))
+    .update(canonicalConnectorAssetUrl(url, { stripGenericCredentials: true }))
     .digest("hex")
     .slice(0, 12)
+}
+
+function markdownLabel(value: string): string {
+  return value
+    .replaceAll("\\", "\\\\")
+    .replaceAll("]", "\\]")
+    .replace(/[\r\n]+/g, " ")
+}
+
+function redactCredentialBearingBareUrls(value: string): string {
+  return value.replace(/https?:\/\/[^\s<>"')\]]+/gi, (rawUrl) => {
+    const trailing = rawUrl.match(/[.,;:!?]+$/)?.[0] ?? ""
+    const url = rawUrl.slice(0, rawUrl.length - trailing.length)
+    return isConnectorAssetCredentialUrl(url, {
+      includeGenericCredentials: true,
+    })
+      ? `[private link omitted]${trailing}`
+      : rawUrl
+  })
 }
 
 export function confluenceMediaStub(input: {
   label: string
   reason: Extract<ConfluenceMediaResolution, { status: "stub" }>["reason"]
 }): string {
+  const label = markdownLabel(input.label)
   switch (input.reason) {
     case "asset_limit":
-      return `[omitted: ${input.label} (exceeds 25 MiB)]`
+      return `[omitted: ${label} (exceeds 25 MiB)]`
     case "entity_limit":
-      return `[omitted: ${input.label} (page exceeds 100 MiB of attachments)]`
+      return `[omitted: ${label} (page exceeds 100 MiB of attachments)]`
     case "unsafe_url":
     case "invalid_url":
-      return `[omitted: ${input.label} (unsafe URL)]`
+      return `[omitted: ${label} (unsafe URL)]`
     default:
-      return `[omitted: ${input.label} (download failed)]`
+      return `[omitted: ${label} (download failed)]`
   }
 }
 
@@ -186,8 +208,9 @@ function renderResolvedMedia(
   if (resolved.status === "stub") {
     return confluenceMediaStub({ label: media.alt, reason: resolved.reason })
   }
-  if (media.asImage) return `![${media.alt}](${resolved.href})`
-  return `[${media.alt}](${resolved.href})`
+  const label = markdownLabel(media.alt)
+  if (media.asImage) return `![${label}](${resolved.href})`
+  return `[${label}](${resolved.href})`
 }
 
 type StorageMediaMatch = {
@@ -199,6 +222,12 @@ type StorageMediaMatch = {
 
 function collectStorageMedia(bodyStorage: string): StorageMediaMatch[] {
   const matches: StorageMediaMatch[] = []
+  const cdataRanges = [
+    ...bodyStorage.matchAll(/<!\[CDATA\[[\s\S]*?\]\]>/gi),
+  ].map((match) => ({
+    start: match.index,
+    end: match.index + match[0].length,
+  }))
   const patterns: Array<{
     regex: RegExp
     asImage: boolean
@@ -236,7 +265,12 @@ function collectStorageMedia(bodyStorage: string): StorageMediaMatch[] {
     let found = pattern.regex.exec(bodyStorage)
     while (found) {
       const attrs = found[1] ?? ""
-      if (!pattern.filter || pattern.filter(attrs)) {
+      const start = found.index
+      const end = found.index + found[0].length
+      const insideCdata = cdataRanges.some(
+        (range) => start >= range.start && start < range.end,
+      )
+      if (!insideCdata && (!pattern.filter || pattern.filter(attrs))) {
         const inner = found[2] ?? ""
         const media = mediaFromInner(
           inner,
@@ -247,8 +281,8 @@ function collectStorageMedia(bodyStorage: string): StorageMediaMatch[] {
         )
         if (media) {
           matches.push({
-            start: found.index,
-            end: found.index + found[0].length,
+            start,
+            end,
             block: pattern.block,
             media,
           })
@@ -272,15 +306,55 @@ function htmlToMarkdown(
   input: string,
   resolveMedia?: (media: ConfluenceStorageMedia) => ConfluenceMediaResolution,
 ): string {
-  const mediaMatches = collectStorageMedia(input)
+  const codeReplacements: string[] = []
+  const withoutCodeMacros = input.replace(
+    /<ac:structured-macro\b([^>]*)>([\s\S]*?)<\/ac:structured-macro>/gi,
+    (source, attrs: string, inner: string) => {
+      const macroName = attrValue(attrs, "ac:name")?.toLowerCase()
+      if (macroName !== "code" && macroName !== "noformat") return source
+      const cdata = inner.match(
+        /<ac:plain-text-body\b[^>]*><!\[CDATA\[([\s\S]*?)\]\]><\/ac:plain-text-body>/i,
+      )?.[1]
+      const code =
+        cdata ??
+        decodeXmlEntities(inner.replace(/<[^>]+>/g, "")).replaceAll(
+          "&nbsp;",
+          " ",
+        )
+      const language =
+        macroName === "code"
+          ? decodeXmlEntities(
+              inner.match(
+                /<ac:parameter\b[^>]*ac:name\s*=\s*["']language["'][^>]*>([\s\S]*?)<\/ac:parameter>/i,
+              )?.[1] ?? "",
+            )
+              .replace(/<[^>]+>/g, "")
+              .trim()
+          : ""
+      const longestFence = Math.max(
+        3,
+        ...[...code.matchAll(/`+/g)].map((match) => match[0].length + 1),
+      )
+      const fence = "`".repeat(longestFence)
+      const index = codeReplacements.push(
+        `\n\n${fence}${language}\n${code}\n${fence}\n\n`,
+      )
+      return `${CODE_PLACEHOLDER_PREFIX}${index - 1}@@`
+    },
+  )
+  const mediaMatches = collectStorageMedia(withoutCodeMacros)
   const replacements: string[] = []
   let withPlaceholders = ""
   let cursor = 0
   for (const [index, match] of mediaMatches.entries()) {
-    withPlaceholders += input.slice(cursor, match.start)
+    withPlaceholders += withoutCodeMacros.slice(cursor, match.start)
     const rendered =
       match.media.kind === "link"
-        ? `[${match.media.alt}](${match.media.url})`
+        ? isConnectorAssetCredentialUrl(match.media.url, {
+            includeGenericCredentials: true,
+          })
+          ? markdownLabel(match.media.alt)
+          : `[${markdownLabel(match.media.alt)}](${match.media.url})`
         : resolveMedia === undefined
           ? ""
           : renderResolvedMedia(match.media, resolveMedia(match.media))
@@ -288,18 +362,22 @@ function htmlToMarkdown(
     withPlaceholders += `${MEDIA_PLACEHOLDER_PREFIX}${index}@@`
     cursor = match.end
   }
-  withPlaceholders += input.slice(cursor)
+  withPlaceholders += withoutCodeMacros.slice(cursor)
 
   const withLineBreaks = withPlaceholders
     .replace(/<br\s*\/?>/gi, "\n")
     .replace(/<\/(p|div|h1|h2|h3|h4|h5|h6|li|tr)>/gi, "\n")
   const withoutTags = withLineBreaks.replace(/<[^>]+>/g, "")
   const decoded = decodeXmlEntities(withoutTags).replaceAll("&nbsp;", " ")
-  const restored = decoded.replace(
+  const withMedia = decoded.replace(
     new RegExp(`${MEDIA_PLACEHOLDER_PREFIX}(\\d+)@@`, "g"),
     (_full, index: string) => replacements[Number(index)] ?? "",
   )
-  return restored
+  const restored = withMedia.replace(
+    new RegExp(`${CODE_PLACEHOLDER_PREFIX}(\\d+)@@`, "g"),
+    (_full, index: string) => codeReplacements[Number(index)] ?? "",
+  )
+  return redactCredentialBearingBareUrls(restored)
     .split("\n")
     .map((line) => line.trimEnd())
     .join("\n")

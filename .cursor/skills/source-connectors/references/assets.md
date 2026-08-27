@@ -48,9 +48,40 @@ textual stub. Continue the content write.
 
 ## Review gate
 
-Done means tests cover: authenticated download, cross-origin credential
-stripping, external SSRF rejection, both byte limits, deterministic safe paths,
-relative Markdown, fallback stubs, unchanged blobs, and stale-asset deletion.
+Run `pnpm --filter @ctxpipe/backend test:connector-assets`. The gate discovers
+the standard connector `assets`, `client`, `converter`, `incremental`,
+`markdown-images`, `page-tree`, and `sync` test modules, plus Git writes and
+ingestion hand-offs. It also runs connector route/model lifecycle tests,
+repository single-flight tests, provider webhook ingress, and generated
+integration-manifest tests so event subscription and routing cannot drift away
+from reconciliation. New connectors should use those module names and add their
+route, model, and webhook seams to `vitest.connector-assets.config.ts`.
+
+Keep shared boundary cases in `services/connectors/assets.test.ts`: authenticated
+download, cross-origin credential stripping, redirect and DNS SSRF rejection,
+byte/time limits, canonical URL identity, and safe paths. Each provider suite
+must then prove its own lifecycle: new binary, unchanged binary no-op, changed
+binary replacement, transient download failure preserving the attached durable
+binary, true removal pruning it, relative Markdown, safe fallback, ordinary
+links not being crawled, provider labels escaped, and no private or signed URL
+persisted. At least one test must cross the connector's public sync seam from
+mocked provider payloads through asset capture to the asserted Git write; helper
+tests alone do not prove orchestration. Connectors with overlapping selectable
+roots must assign each provider identity one canonical owner and prove that full
+and incremental reconciliation neither writes a second location nor consumes
+the asset budget twice. Every full and incremental connector
+workflow must also prove that both a changed write and a successful Git no-op
+invoke the shared tip-aware helper, so a replay can recover an uncheckpointed
+write without regressing an already-ingested newer tip. Workflows that load a
+mutable repository binding must also simulate a replay after rebinding and prove
+that the checkpointed write target is the one handed to ingestion. The shared
+ingestion suite must prove that an overlapping hand-off is retained when the
+active run fails, and that tip-resolution or follow-up creation failure leaves a
+retryable coalesced request rather than silently clearing it. It must also prove
+that a terminal run clears only its own settled marker, and carries the
+checkpointed branch plus the hand-off's resolved GitHub connection into failure
+recovery.
+
 Run `pnpm --filter @ctxpipe/backend verify-connector-assets-runtime` before a
 Railway acceptance test; it exercises the Bun TLS pinning path, authenticated
 download, and cross-host redirect credential stripping. It requires the repo's
@@ -59,9 +90,16 @@ contract safely. When the host Bun is older, run the deploy-runtime gate
 directly:
 
 ```bash
-docker run --rm -v "$PWD:/workspace" -w /workspace/apps/backend \
+docker run --rm \
+  -e DATABASE_URL=postgresql://runtime-verifier.invalid/ctxpipe \
+  -e AUTH_SECRET=connector-assets-runtime-verifier-secret \
+  -v "$PWD:/workspace" -w /workspace/apps/backend \
   oven/bun:1.3.11-alpine bun run src/scripts/verifyConnectorAssetRuntime.ts
 ```
+
+Use only dedicated provider tenants and throwaway repositories for preview
+acceptance. A Neon preview branches production data, so the PR deployment must
+also use a preview-specific OpenWorkflow namespace before its worker starts.
 
 Document that copied binaries inherit provider-content sensitivity and are not
 automatically semantically searchable.

@@ -47,6 +47,11 @@ jobs:
           set -euo pipefail
           if [[ "${{ github.event_name }}" == "workflow_dispatch" ]]; then
             PR_NUMBER="${{ inputs.pr_number }}"
+            HEAD_REPO="$(gh api "repos/${{ github.repository }}/pulls/${PR_NUMBER}" --jq .head.repo.full_name)"
+            if [[ "$HEAD_REPO" != "${{ github.repository }}" ]]; then
+              echo "Refusing to build untrusted fork PR #${PR_NUMBER} (${HEAD_REPO})" >&2
+              exit 1
+            fi
             HEAD_SHA="$(gh api "repos/${{ github.repository }}/pulls/${PR_NUMBER}" --jq .head.sha)"
           else
             PR_NUMBER="${{ github.event.number }}"
@@ -102,9 +107,83 @@ jobs:
             ghcr.io/ctxpipe-ai/${{ matrix.image }}:pr-${{ needs.resolve_pr.outputs.pr_number }}-${{ needs.resolve_pr.outputs.head_sha }}
             ghcr.io/ctxpipe-ai/${{ matrix.image }}:${{ needs.resolve_pr.outputs.head_sha }}
 
+  verify_connector_assets:
+    name: Verify connector asset contracts
+    needs: [resolve_pr, build_pr_images]
+    runs-on: blacksmith-4vcpu-ubuntu-2404
+    timeout-minutes: 15
+    steps:
+      - name: Checkout repository
+        uses: useblacksmith/checkout@v1
+        with:
+          ref: ${{ needs.resolve_pr.outputs.head_sha }}
+
+      - name: Mount pnpm store sticky disk
+        uses: useblacksmith/stickydisk@v1
+        with:
+          key: ${{ github.repository }}-pnpm-store
+          path: ~/.pnpm-store
+
+      - uses: pnpm/action-setup@v4
+
+      - uses: useblacksmith/setup-node@v5
+        with:
+          node-version: "22"
+
+      - name: Force pnpm store path
+        run: pnpm config set store-dir ~/.pnpm-store
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Test connector asset contracts
+        run: pnpm --filter @ctxpipe/backend test:connector-assets
+
+      - name: Check whether the deploy runtime changed
+        id: runtime_changes
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          PR_NUMBER: ${{ needs.resolve_pr.outputs.pr_number }}
+        run: |
+          changed=false
+          while IFS= read -r file; do
+            case "$file" in
+              apps/backend/Dockerfile*|\
+              apps/backend/package.json|\
+              apps/backend/src/scripts/verifyConnectorAssetRuntime.ts|\
+              apps/backend/src/services/connectors/assets.ts|\
+              .github/workflows/pr-deploy.yaml|\
+              package.json|\
+              pnpm-lock.yaml)
+                changed=true
+                break
+                ;;
+            esac
+          done < <(gh api --paginate "repos/${{ github.repository }}/pulls/${PR_NUMBER}/files" --jq '.[].filename')
+          echo "changed=$changed" >> "$GITHUB_OUTPUT"
+
+      - name: Login to GHCR
+        if: steps.runtime_changes.outputs.changed == 'true'
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Verify connector assets in the deploy runtime
+        if: steps.runtime_changes.outputs.changed == 'true'
+        run: |
+          for image in backend worker; do
+            docker run --rm --entrypoint bun \
+              -e DATABASE_URL=postgresql://runtime-verifier.invalid/ctxpipe \
+              -e AUTH_SECRET=connector-assets-runtime-verifier-secret \
+              "ghcr.io/ctxpipe-ai/${image}:pr-${{ needs.resolve_pr.outputs.pr_number }}-${{ needs.resolve_pr.outputs.head_sha }}" \
+              run apps/backend/src/scripts/verifyConnectorAssetRuntime.ts
+          done
+
   deploy_pr_environment:
     name: Deploy PR environment (Railway + Neon)
-    needs: [resolve_pr, build_pr_images]
+    needs: [resolve_pr, build_pr_images, verify_connector_assets]
     runs-on: blacksmith-4vcpu-ubuntu-2404
     env:
       RAILWAY_API_TOKEN: ${{ secrets.RAILWAY_API_TOKEN }}
@@ -365,7 +444,7 @@ jobs:
               local service_id="$1"
               railway_graphql \
                 'mutation variableCollectionUpsert($input: VariableCollectionUpsertInput!) { variableCollectionUpsert(input: $input) }' \
-                "$(jq -nc --arg project "$RAILWAY_PROJECT_ID" --arg env "$ENV_ID" --arg service "$service_id" \
+                "$(jq -nc --arg project "$RAILWAY_PROJECT_ID" --arg env "$ENV_ID" --arg service "$service_id" --arg workflow_namespace "preview-$PR_ENV" \
                   '{
                     input: {
                       projectId: $project,
@@ -373,7 +452,8 @@ jobs:
                       serviceId: $service,
                       skipDeploys: true,
                       variables: {
-                        ENABLE_LANGSMITH: "false"
+                        ENABLE_LANGSMITH: "false",
+                        OPENWORKFLOW_NAMESPACE_ID: $workflow_namespace
                       }
                     }
                   }')"
@@ -381,7 +461,7 @@ jobs:
               delete_service_variable "$service_id" "OTEL_EXPORTER_OTLP_TRACES_ENDPOINT"
               delete_service_variable "$service_id" "OTEL_EXPORTER_OTLP_LOGS_ENDPOINT"
               delete_service_variable "$service_id" "OTEL_EXPORTER_OTLP_METRICS_ENDPOINT"
-              echo "Updated preview ENABLE_LANGSMITH=false and deleted OTEL exporters for service $service_id"
+              echo "Updated preview namespace/telemetry variables for service $service_id"
             }
 
             # Backend: allow waking the worker after enqueue (Railway GraphQL deploy).

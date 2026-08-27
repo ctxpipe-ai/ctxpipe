@@ -1,5 +1,6 @@
 import slugify from "@sindresorhus/slugify"
 import { stringify } from "yaml"
+import { isConnectorAssetCredentialUrl } from "../connectors/assets.js"
 import { rewriteLinearMarkdownImages } from "./markdown-images.js"
 
 export type LinearMirrorFile = {
@@ -95,17 +96,35 @@ function frontmatter(metadata: Record<string, unknown>): string {
 
 export function isLinearUploadUrl(url: string): boolean {
   try {
-    return LINEAR_UPLOAD_HOST.test(new URL(url).hostname)
+    const candidate = url.trim().startsWith("//") ? `https:${url.trim()}` : url
+    return LINEAR_UPLOAD_HOST.test(new URL(candidate).hostname)
   } catch {
     return false
   }
 }
 
+function isLinearPrivateAssetUrl(url: string): boolean {
+  return (
+    isLinearUploadUrl(url) ||
+    isConnectorAssetCredentialUrl(url, {
+      includeGenericCredentials: true,
+    })
+  )
+}
+
+function markdownLabel(value: string, fallback: string): string {
+  return (value.trim() || fallback)
+    .replaceAll("\\", "\\\\")
+    .replaceAll("[", "\\[")
+    .replaceAll("]", "\\]")
+    .replace(/[\r\n]+/g, " ")
+}
+
 function rewriteLinearUploadLinks(markdown: string): string {
   return markdown.replace(
-    /\[([^\]]+)\]\((https?:\/\/[^)\s]+)\)/g,
+    /\[([^\]]+)\]\(((?:https?:)?\/\/[^)\s]+)\)/g,
     (full, label: string, url: string) => {
-      if (!isLinearUploadUrl(url)) return full
+      if (!isLinearPrivateAssetUrl(url)) return full
       return `[${label} — view in Linear]`
     },
   )
@@ -119,15 +138,39 @@ export function rewriteLinearPrivateMedia(
   const withoutPrivateImages = rewriteLinearMarkdownImages(
     markdown,
     (image) =>
-      isLinearUploadUrl(image.url)
-        ? `[image: ${image.alt.trim() || "image"} — view in Linear]`
+      isLinearPrivateAssetUrl(image.url)
+        ? `[image: ${markdownLabel(image.alt, "image")} — view in Linear]`
         : image.source,
-    (link) =>
-      isLinearUploadUrl(link.url)
-        ? `[${link.label.trim() || "link"} — view in Linear]`
-        : link.source,
+    (link) => {
+      if (!isLinearPrivateAssetUrl(link.url)) return link.source
+      if (link.containsImage && link.content) return link.content
+      return `[${markdownLabel(link.label, "link")} — view in Linear]`
+    },
   )
-  return rewriteLinearUploadLinks(withoutPrivateImages)
+  return rewriteLinearUploadLinks(withoutPrivateImages).replace(
+    /(?:https?:)?\/\/[^\s<>"']+/gi,
+    (rawUrl) => {
+      const url = rawUrl.replace(/[\])},.;:!?]+$/, "")
+      if (!isLinearPrivateAssetUrl(url)) return rawUrl
+      return `[Linear attachment — view in Linear]${rawUrl.slice(url.length)}`
+    },
+  )
+}
+
+function linearAssetsByUrl(
+  assets: readonly LinearResolvedAsset[],
+): Map<string, LinearResolvedAsset> {
+  const byUrl = new Map<string, LinearResolvedAsset>()
+  for (const asset of assets) {
+    const existing = byUrl.get(asset.sourceUrl)
+    if (
+      !existing ||
+      (existing.status === "stub" && asset.status === "downloaded")
+    ) {
+      byUrl.set(asset.sourceUrl, asset)
+    }
+  }
+  return byUrl
 }
 
 export function applyLinearAssetRewrites(
@@ -135,35 +178,72 @@ export function applyLinearAssetRewrites(
   assets: readonly LinearResolvedAsset[] = [],
 ): string {
   if (!markdown) return ""
-  const assetsByUrl = new Map(assets.map((asset) => [asset.sourceUrl, asset]))
+  const assetsByUrl = linearAssetsByUrl(assets)
   const rewritten = rewriteLinearMarkdownImages(
     markdown,
     (image) => {
       const asset = assetsByUrl.get(image.url)
+      const label = markdownLabel(image.alt, "image")
       if (asset?.status === "downloaded") {
-        return `![${image.alt}](${asset.relativePath})`
+        return `![${label}](${asset.relativePath})`
       }
       if (asset?.status === "stub") {
         return isLinearUploadUrl(image.url)
-          ? `[image: ${image.alt.trim() || "image"} — view in Linear]`
-          : `[image: ${image.alt.trim() || "image"} — unavailable]`
+          ? `[image: ${label} — view in Linear]`
+          : `[image: ${label} — unavailable]`
       }
       return image.source
     },
     (link) => {
       const asset = assetsByUrl.get(link.url)
+      const label = markdownLabel(link.label, "link")
+      if (
+        link.containsImage &&
+        link.content &&
+        isLinearPrivateAssetUrl(link.url)
+      ) {
+        return link.content
+      }
       if (asset?.status === "downloaded") {
-        return `[${link.label}](${asset.relativePath})`
+        return `[${label}](${asset.relativePath})`
       }
       if (asset?.status === "stub") {
         return isLinearUploadUrl(link.url)
-          ? `[${link.label.trim() || "link"} — view in Linear]`
-          : `[${link.label.trim() || "link"} — unavailable]`
+          ? `[${label} — view in Linear]`
+          : `[${label} — unavailable]`
       }
       return link.source
     },
   )
   return rewriteLinearPrivateMedia(rewritten)
+}
+
+function linearGithubReferenceKind(
+  rawUrl: string,
+): "pull_request" | "commit" | undefined {
+  let url: URL
+  try {
+    url = new URL(rawUrl)
+  } catch {
+    return undefined
+  }
+  if (url.hostname.toLowerCase() !== "github.com") return undefined
+  const parts = url.pathname.split("/").filter(Boolean)
+  if (parts[2] === "pull" && parts[3] !== undefined && /^\d+$/.test(parts[3])) {
+    return "pull_request"
+  }
+  if (
+    parts[2] === "commit" &&
+    parts[3] !== undefined &&
+    /^[0-9a-f]{7,40}$/i.test(parts[3])
+  ) {
+    return "commit"
+  }
+  return undefined
+}
+
+export function isLinearGithubPullOrCommitUrl(url: string): boolean {
+  return linearGithubReferenceKind(url) !== undefined
 }
 
 function githubReference(attachment: LinearAttachmentMetadata):
@@ -174,22 +254,7 @@ function githubReference(attachment: LinearAttachmentMetadata):
       state?: string
     }
   | undefined {
-  let url: URL
-  try {
-    url = new URL(attachment.url)
-  } catch {
-    return undefined
-  }
-  if (url.hostname.toLowerCase() !== "github.com") return undefined
-  const parts = url.pathname.split("/").filter(Boolean)
-  const pullIndex = parts.indexOf("pull")
-  const commitIndex = parts.indexOf("commit")
-  const kind =
-    pullIndex >= 2
-      ? ("pull_request" as const)
-      : commitIndex >= 2
-        ? ("commit" as const)
-        : undefined
+  const kind = linearGithubReferenceKind(attachment.url)
   if (!kind) return undefined
   const state =
     attachment.metadata &&
@@ -222,7 +287,7 @@ function attachmentFrontmatter(
     }
   }
   const unavailableFile =
-    resolved?.status === "stub" || isLinearUploadUrl(attachment.url)
+    resolved?.status === "stub" || isLinearPrivateAssetUrl(attachment.url)
   return {
     id: attachment.id,
     title: attachment.title,
@@ -240,7 +305,7 @@ export function renderLinearIssue(
   issue: LinearIssueForMirror,
   assets: readonly LinearResolvedAsset[] = [],
 ): LinearMirrorFile {
-  const assetsByUrl = new Map(assets.map((asset) => [asset.sourceUrl, asset]))
+  const assetsByUrl = linearAssetsByUrl(assets)
   const assetsByKey = new Map(assets.map((asset) => [asset.sourceKey, asset]))
   const githubReferences = issue.attachments
     .map(githubReference)

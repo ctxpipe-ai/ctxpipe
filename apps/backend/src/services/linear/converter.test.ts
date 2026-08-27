@@ -1,5 +1,10 @@
 import { describe, expect, it } from "vitest"
-import { renderLinearIssue, rewriteLinearPrivateMedia } from "./converter.js"
+import {
+  applyLinearAssetRewrites,
+  isLinearGithubReferenceAttachment,
+  renderLinearIssue,
+  rewriteLinearPrivateMedia,
+} from "./converter.js"
 
 describe("renderLinearIssue", () => {
   it("keeps GitHub attachments as reference metadata without duplicating PR content", () => {
@@ -244,6 +249,38 @@ describe("renderLinearIssue", () => {
     expect(file.content).not.toContain(signedUrl)
     expect(file.content).not.toContain("token=expiring")
   })
+
+  it("does not persist an uncaptured attachment's signed URL", () => {
+    const signedUrl =
+      "https://cdn.example.com/spec.pdf?X-Amz-Credential=key&X-Amz-Signature=secret"
+    const file = renderLinearIssue({
+      id: "issue-6",
+      identifier: "ENG-47",
+      title: "External link attachment",
+      description: null,
+      url: "https://linear.app/acme/issue/ENG-47",
+      priorityLabel: "Low",
+      labels: [],
+      createdAt: new Date("2026-08-01T00:00:00.000Z"),
+      updatedAt: new Date("2026-08-02T00:00:00.000Z"),
+      comments: [],
+      attachments: [
+        {
+          id: "attachment-6",
+          title: "spec.pdf",
+          url: signedUrl,
+          sourceType: "link",
+          metadata: null,
+        },
+      ],
+    })
+
+    expect(file.content).toContain(
+      "File omitted; open the issue in Linear to view it.",
+    )
+    expect(file.content).not.toContain("cdn.example.com")
+    expect(file.content).not.toContain("secret")
+  })
 })
 
 describe("rewriteLinearPrivateMedia", () => {
@@ -253,5 +290,92 @@ describe("rewriteLinearPrivateMedia", () => {
         "![a](https://example.com/a.png) [b](https://example.com/b)",
       ),
     ).toBe("![a](https://example.com/a.png) [b](https://example.com/b)")
+  })
+
+  it("redacts private Linear URLs even when surrounding Markdown is malformed", () => {
+    const privateUrl =
+      "https://uploads.linear.app/acme/diagram.png?X-Amz-Signature=secret"
+    const rewritten = rewriteLinearPrivateMedia(
+      `Keep ![diagram](${privateUrl} please`,
+    )
+
+    expect(rewritten).toContain("Keep")
+    expect(rewritten).toContain("diagram")
+    expect(rewritten).not.toContain("uploads.linear.app")
+    expect(rewritten).not.toContain("secret")
+  })
+
+  it("redacts protocol-relative private Linear URLs", () => {
+    const rewritten = rewriteLinearPrivateMedia(
+      "![diagram](//uploads.linear.app/acme/diagram.png?X-Amz-Signature=secret)",
+    )
+
+    expect(rewritten).toContain("diagram")
+    expect(rewritten).not.toContain("uploads.linear.app")
+    expect(rewritten).not.toContain("secret")
+  })
+
+  it("redacts signed external links and bare URLs", () => {
+    const signedUrl =
+      "https://cdn.example.com/spec.pdf?X-Amz-Credential=key&X-Amz-Signature=secret"
+    const credentialedUrl =
+      "https://temporary-user:temporary-password@cdn.example.com/private.pdf"
+    const rewritten = rewriteLinearPrivateMedia(
+      `[download](${signedUrl}) or ${signedUrl} or ${credentialedUrl}`,
+    )
+
+    expect(rewritten).toContain("download")
+    expect(rewritten).not.toContain("cdn.example.com")
+    expect(rewritten).not.toContain("secret")
+    expect(rewritten).not.toContain("temporary-password")
+  })
+
+  it("only classifies canonical GitHub pull and commit paths as references", () => {
+    const attachment = {
+      id: "attachment-1",
+      title: "spec.pdf",
+      sourceType: "upload",
+      metadata: null,
+    }
+    expect(
+      isLinearGithubReferenceAttachment({
+        ...attachment,
+        url: "https://github.com/acme/product/releases/download/commit/spec.pdf",
+      }),
+    ).toBe(false)
+    expect(
+      isLinearGithubReferenceAttachment({
+        ...attachment,
+        url: "https://github.com/acme/product/pull/123/files",
+      }),
+    ).toBe(true)
+    expect(
+      isLinearGithubReferenceAttachment({
+        ...attachment,
+        url: "https://github.com/acme/product/commit/abcdef1234567",
+      }),
+    ).toBe(true)
+  })
+
+  it("escapes provider-authored media labels before writing Markdown", () => {
+    const sourceUrl = "https://uploads.linear.app/acme/diagram.png"
+    const rewritten = applyLinearAssetRewrites(
+      `<img alt="Diagram [draft]](https://evil.example)" src="${sourceUrl}">`,
+      [
+        {
+          status: "downloaded",
+          sourceUrl,
+          sourceKey: "diagram",
+          relativePath: "./assets/diagram.png",
+          gitPath: "linear/issues/ENG-42/assets/diagram.png",
+          filename: "diagram.png",
+        },
+      ],
+    )
+
+    expect(rewritten).toBe(
+      "![Diagram \\[draft\\]\\](https://evil.example)](./assets/diagram.png)",
+    )
+    expect(rewritten).not.toContain("![Diagram](https://evil.example)")
   })
 })

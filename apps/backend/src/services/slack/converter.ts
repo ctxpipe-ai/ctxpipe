@@ -1,6 +1,10 @@
 import { extname } from "node:path"
 import slugify from "@sindresorhus/slugify"
-import { canonicalConnectorAssetUrl, gitBlobSha } from "../connectors/assets.js"
+import {
+  canonicalConnectorAssetUrl,
+  gitBlobSha,
+  isConnectorAssetCredentialUrl,
+} from "../connectors/assets.js"
 
 const MANAGED_ROOT = "slack"
 
@@ -21,6 +25,7 @@ export type SlackCaptureMessage = {
 export type SlackCollectedMedia = {
   sourceKey: string
   filename: string
+  label?: string
   downloadUrl?: string
   permalink?: string
   mimetype?: string
@@ -38,6 +43,7 @@ export type SlackMediaFile = {
 }
 
 export type SlackMediaMessage = {
+  ts?: string
   text?: string
   files?: SlackMediaFile[]
   blocks?: unknown[]
@@ -45,9 +51,13 @@ export type SlackMediaMessage = {
     image_url?: string
     thumb_url?: string
     video_url?: string
+    from_url?: string
+    original_url?: string
     title?: string
     is_app_unfurl?: boolean
     is_msg_unfurl?: boolean
+    is_reply_unfurl?: boolean
+    is_thread_root_unfurl?: boolean
     files?: SlackMediaFile[]
   }>
 }
@@ -143,18 +153,33 @@ export function slackMrkdwnToMarkdown(
   text: string,
   mentionHandles?: ReadonlyMap<string, string>,
 ): string {
-  return text
-    .replace(/<(https?:[^|>]+)\|([^>]+)>/g, "[$2]($1)")
-    .replace(/<(https?:[^>]+)>/g, "$1")
+  const isCredentialUrl = (url: string) =>
+    isConnectorAssetCredentialUrl(url.replaceAll("&amp;", "&"), {
+      includeGenericCredentials: true,
+    })
+  const markdown = text
+    .replace(
+      /<(https?:[^|>]+)\|([^>]+)>/g,
+      (_full, url: string, label: string) =>
+        isCredentialUrl(url) ? label : `[${label}](${url})`,
+    )
+    .replace(/<(https?:[^>]+)>/g, (_full, url: string) =>
+      isCredentialUrl(url) ? "[private link omitted]" : url,
+    )
     .replace(/<#([A-Z0-9]+)\|([^>]+)>/g, "#$2")
     .replace(/<#([A-Z0-9]+)>/g, "#$1")
     .replace(/<@([A-Z0-9]+)(?:\|[^>]+)?>/gi, (_match, userId: string) => {
       const handle = mentionHandles?.get(userId)
-      return `@${handle ?? "unknown-user"}`
+      return `@${handle ?? userId}`
     })
     .replace(/&amp;/g, "&")
     .replace(/&lt;/g, "<")
     .replace(/&gt;/g, ">")
+  return markdown.replace(/https?:\/\/[^\s<>"']+/gi, (rawUrl) => {
+    const url = rawUrl.replace(/[\])},.;:!?]+$/, "")
+    if (!isCredentialUrl(url)) return rawUrl
+    return `[private link omitted]${rawUrl.slice(url.length)}`
+  })
 }
 
 export function toSlackChannelIndexFile(
@@ -181,8 +206,10 @@ export function toSlackChannelIndexFile(
     `# #${input.channelName}`,
     "",
     input.isPrivate ? "_Private channel._" : "_Public channel._",
-    input.topic ? `\n**Topic:** ${input.topic}` : null,
-    input.purpose ? `\n**Purpose:** ${input.purpose}` : null,
+    input.topic ? `\n**Topic:** ${slackMrkdwnToMarkdown(input.topic)}` : null,
+    input.purpose
+      ? `\n**Purpose:** ${slackMrkdwnToMarkdown(input.purpose)}`
+      : null,
     "",
   ]
     .filter((line) => line !== null)
@@ -191,11 +218,15 @@ export function toSlackChannelIndexFile(
 }
 
 function renderAssetLink(asset: SlackCaptureAssetLink): string {
-  if (!asset.path) return `[file: ${asset.label} unavailable]`
+  const label = asset.label
+    .replaceAll("\\", "\\\\")
+    .replaceAll("]", "\\]")
+    .replace(/[\r\n]+/g, " ")
+  if (!asset.path) return `[file: ${label} unavailable]`
   if (asset.kind === "image" && !/^(https?:|#)/i.test(asset.path)) {
-    return `![${asset.label}](${asset.path})`
+    return `![${label}](${asset.path})`
   }
-  return `[${asset.label}](${asset.path})`
+  return `[${label}](${asset.path})`
 }
 
 export function toSlackThreadMarkdownFile(
@@ -276,10 +307,20 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 }
 
 export function slackUrlSourceKey(url: string): string {
-  return `src-${gitBlobSha(Buffer.from(canonicalConnectorAssetUrl(url))).slice(
-    0,
-    12,
-  )}`
+  return `src-${gitBlobSha(
+    Buffer.from(
+      canonicalConnectorAssetUrl(url, { stripGenericCredentials: true }),
+    ),
+  ).slice(0, 12)}`
+}
+
+function slackMediaLocationSourceKey(
+  messageTs: string | undefined,
+  location: string,
+): string | undefined {
+  return messageTs
+    ? `loc-${gitBlobSha(Buffer.from(`${messageTs}:${location}`)).slice(0, 12)}`
+    : undefined
 }
 
 function filenameFromUrl(url: string, fallback: string): string {
@@ -295,12 +336,14 @@ function filenameFromUrl(url: string, fallback: string): string {
 
 export function slackMediaFromFile(
   file: SlackMediaFile,
+  locationSourceKey?: string,
 ): SlackCollectedMedia | undefined {
   const downloadUrl =
     file.url_private_download?.trim() || file.url_private?.trim() || undefined
   const permalink = file.permalink?.trim() || undefined
   const sourceKey =
     file.id?.trim() ||
+    locationSourceKey ||
     (downloadUrl
       ? slackUrlSourceKey(downloadUrl)
       : permalink
@@ -331,24 +374,47 @@ function mediaFromImageFields(input: {
   imageUrl?: string
   slackFile?: { id?: string; url?: string }
   filename?: string
+  locationSourceKey?: string
 }): SlackCollectedMedia | undefined {
   const slackFileUrl = input.slackFile?.url?.trim()
   const imageUrl = input.imageUrl?.trim()
-  const downloadUrl = slackFileUrl || imageUrl
-  if (!downloadUrl && !input.slackFile?.id) return undefined
+  let slackFileId = input.slackFile?.id?.trim()
+  let slackFileDownloadUrl: string | undefined
+  let slackFilePermalink: string | undefined
+  if (slackFileUrl) {
+    try {
+      const parsed = new URL(slackFileUrl)
+      if (parsed.hostname.toLowerCase() === "files.slack.com") {
+        slackFileDownloadUrl = slackFileUrl
+      } else if (parsed.hostname.toLowerCase().endsWith(".slack.com")) {
+        slackFilePermalink = slackFileUrl
+        slackFileId ??= parsed.pathname
+          .split("/")
+          .find((segment) => /^F[A-Z0-9]+$/.test(segment))
+      }
+    } catch {
+      // Invalid Slack file URLs are handled as missing media below.
+    }
+  }
+  const downloadUrl = slackFileDownloadUrl || imageUrl
+  if (!downloadUrl && !slackFileId) return undefined
   const sourceKey =
-    input.slackFile?.id?.trim() ||
+    slackFileId ||
+    input.locationSourceKey ||
     (downloadUrl ? slackUrlSourceKey(downloadUrl) : "")
   if (!sourceKey) return undefined
   return {
     sourceKey,
     filename: preferredFilename(downloadUrl, input.filename),
+    ...(input.filename?.trim() ? { label: input.filename.trim() } : {}),
     ...(downloadUrl ? { downloadUrl } : {}),
+    ...(slackFilePermalink ? { permalink: slackFilePermalink } : {}),
   }
 }
 
 function collectImageBlock(
   block: Record<string, unknown>,
+  locationSourceKey?: string,
 ): SlackCollectedMedia | undefined {
   const slackFile = isRecord(block.slack_file)
     ? {
@@ -372,13 +438,23 @@ function collectImageBlock(
         : isRecord(block.title) && typeof block.title.text === "string"
           ? block.title.text
           : undefined
-  return mediaFromImageFields({ imageUrl, slackFile, filename })
+  return mediaFromImageFields({
+    imageUrl,
+    slackFile,
+    filename,
+    locationSourceKey,
+  })
 }
 
-function collectExplicitBlockMedia(blocks: unknown[]): SlackCollectedMedia[] {
+function collectExplicitBlockMedia(
+  blocks: unknown[],
+  messageTs?: string,
+): SlackCollectedMedia[] {
   const collected: SlackCollectedMedia[] = []
-  for (const block of blocks) {
+  for (const [blockIndex, block] of blocks.entries()) {
     if (!isRecord(block)) continue
+    const locationSourceKey = (location: string) =>
+      slackMediaLocationSourceKey(messageTs, `block:${blockIndex}:${location}`)
     if (block.type === "video") {
       const title =
         typeof block.title === "string"
@@ -392,13 +468,14 @@ function collectExplicitBlockMedia(blocks: unknown[]): SlackCollectedMedia[] {
           imageUrl: url,
           filename:
             field === "thumbnail_url" && title ? `${title}-thumbnail` : title,
+          locationSourceKey: locationSourceKey(field),
         })
         if (media) collected.push(media)
       }
       continue
     }
     if (block.type === "image") {
-      const media = collectImageBlock(block)
+      const media = collectImageBlock(block, locationSourceKey("image"))
       if (media) collected.push(media)
       continue
     }
@@ -419,7 +496,10 @@ function collectExplicitBlockMedia(blocks: unknown[]): SlackCollectedMedia[] {
         : typeof block.file_id === "string"
           ? { id: block.file_id }
           : undefined
-      const media = mediaFromImageFields({ slackFile })
+      const media = mediaFromImageFields({
+        slackFile,
+        locationSourceKey: locationSourceKey("file"),
+      })
       if (media) collected.push(media)
       continue
     }
@@ -428,14 +508,20 @@ function collectExplicitBlockMedia(blocks: unknown[]): SlackCollectedMedia[] {
       isRecord(block.accessory) &&
       block.accessory.type === "image"
     ) {
-      const media = collectImageBlock(block.accessory)
+      const media = collectImageBlock(
+        block.accessory,
+        locationSourceKey("accessory"),
+      )
       if (media) collected.push(media)
       continue
     }
     if (block.type === "context" && Array.isArray(block.elements)) {
-      for (const element of block.elements) {
+      for (const [elementIndex, element] of block.elements.entries()) {
         if (isRecord(element) && element.type === "image") {
-          const media = collectImageBlock(element)
+          const media = collectImageBlock(
+            element,
+            locationSourceKey(`context:${elementIndex}`),
+          )
           if (media) collected.push(media)
         }
       }
@@ -453,29 +539,60 @@ export function collectSlackMessageMedia(
     byKey.set(media.sourceKey, media)
   }
 
-  for (const file of message.files ?? []) {
-    add(slackMediaFromFile(file))
+  for (const [fileIndex, file] of (message.files ?? []).entries()) {
+    add(
+      slackMediaFromFile(
+        file,
+        slackMediaLocationSourceKey(message.ts, `file:${fileIndex}`),
+      ),
+    )
   }
-  for (const media of collectExplicitBlockMedia(message.blocks ?? [])) {
+  for (const media of collectExplicitBlockMedia(
+    message.blocks ?? [],
+    message.ts,
+  )) {
     add(media)
   }
-  for (const attachment of message.attachments ?? []) {
-    if (attachment.is_msg_unfurl || attachment.is_app_unfurl) continue
-    for (const url of [
-      attachment.image_url,
-      attachment.thumb_url,
-      attachment.video_url,
-    ]) {
+  for (const [attachmentIndex, attachment] of (
+    message.attachments ?? []
+  ).entries()) {
+    if (
+      attachment.is_msg_unfurl ||
+      attachment.is_app_unfurl ||
+      attachment.is_reply_unfurl ||
+      attachment.is_thread_root_unfurl ||
+      attachment.from_url ||
+      attachment.original_url
+    ) {
+      continue
+    }
+    for (const [field, url] of [
+      ["image", attachment.image_url],
+      ["thumb", attachment.thumb_url],
+      ["video", attachment.video_url],
+    ] as const) {
       if (!url) continue
       add(
         mediaFromImageFields({
           imageUrl: url,
           filename: attachment.title,
+          locationSourceKey: slackMediaLocationSourceKey(
+            message.ts,
+            `attachment:${attachmentIndex}:${field}`,
+          ),
         }),
       )
     }
-    for (const file of attachment.files ?? []) {
-      add(slackMediaFromFile(file))
+    for (const [fileIndex, file] of (attachment.files ?? []).entries()) {
+      add(
+        slackMediaFromFile(
+          file,
+          slackMediaLocationSourceKey(
+            message.ts,
+            `attachment:${attachmentIndex}:file:${fileIndex}`,
+          ),
+        ),
+      )
     }
   }
   return [...byKey.values()]

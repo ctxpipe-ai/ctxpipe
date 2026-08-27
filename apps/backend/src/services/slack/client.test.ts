@@ -17,6 +17,7 @@ const env = {
 } as Env
 
 afterEach(() => {
+  vi.useRealTimers()
   vi.unstubAllGlobals()
 })
 
@@ -179,6 +180,37 @@ describe("capSlackThreadMessages", () => {
 })
 
 describe("fetchSlackFileInfo", () => {
+  it("retries non-JSON Slack server errors", async () => {
+    vi.useFakeTimers()
+    const fetchMock = vi
+      .fn<typeof fetch>()
+      .mockResolvedValueOnce(
+        new Response("upstream unavailable", { status: 503 }),
+      )
+      .mockResolvedValueOnce(
+        new Response("<html>bad gateway</html>", { status: 502 }),
+      )
+      .mockResolvedValueOnce(
+        new Response(
+          JSON.stringify({
+            ok: true,
+            file: { id: "F1", name: "diagram.png" },
+          }),
+          { status: 200 },
+        ),
+      )
+    vi.stubGlobal("fetch", fetchMock)
+
+    const result = fetchSlackFileInfo({
+      botToken: "xoxb-test",
+      fileId: "F1",
+    })
+    await vi.runAllTimersAsync()
+
+    await expect(result).resolves.toEqual({ id: "F1", name: "diagram.png" })
+    expect(fetchMock).toHaveBeenCalledTimes(3)
+  })
+
   it("does not wait or retry past an aborted asset deadline", async () => {
     const fetchMock = vi.fn<typeof fetch>().mockResolvedValue(
       new Response(JSON.stringify({ ok: false, error: "ratelimited" }), {

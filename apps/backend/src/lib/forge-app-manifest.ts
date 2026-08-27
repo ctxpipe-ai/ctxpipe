@@ -22,27 +22,6 @@ export type BuildForgeAppManifestInput = {
   remoteBaseUrl: string
 }
 
-const LIFECYCLE_EVENTS = [
-  "avi:forge:installed:app",
-  "avi:forge:upgraded:app",
-  "avi:confluence:created:page",
-  "avi:confluence:updated:page",
-  "avi:confluence:deleted:page",
-  "avi:confluence:updated:space:V2",
-  "avi:confluence:deleted:space:V2",
-] as const
-
-const PERMISSION_SCOPES = [
-  "read:app-system-token",
-  "read:space:confluence",
-  "read:page:confluence",
-  "read:attachment:confluence",
-  "read:confluence-content.summary",
-  "write:confluence-content",
-  "read:confluence-space.summary",
-  "write:confluence-space",
-] as const
-
 function buildManifestDocument(appIdAri: string | null, remoteBaseUrl: string) {
   const app: {
     runtime: { name: string; memoryMB: number; architecture: string }
@@ -64,7 +43,23 @@ function buildManifestDocument(appIdAri: string | null, remoteBaseUrl: string) {
         {
           key: "ctxpipe-remote-forge-lifecycle",
           endpoint: "ctxpipe-remote-events",
-          events: [...LIFECYCLE_EVENTS],
+          events: [
+            "avi:forge:installed:app",
+            "avi:forge:upgraded:app",
+            "avi:confluence:created:page",
+            "avi:confluence:updated:page",
+            "avi:confluence:moved:page",
+            "avi:confluence:deleted:page",
+            "avi:confluence:created:attachment",
+            "avi:confluence:updated:attachment",
+            "avi:confluence:archived:attachment",
+            "avi:confluence:unarchived:attachment",
+            "avi:confluence:trashed:attachment",
+            "avi:confluence:restored:attachment",
+            "avi:confluence:deleted:attachment",
+            "avi:confluence:updated:space:V2",
+            "avi:confluence:deleted:space:V2",
+          ],
         },
       ],
       scheduledTrigger: [
@@ -97,7 +92,16 @@ function buildManifestDocument(appIdAri: string | null, remoteBaseUrl: string) {
       },
     ],
     permissions: {
-      scopes: [...PERMISSION_SCOPES],
+      scopes: [
+        "read:app-system-token",
+        "read:space:confluence",
+        "read:page:confluence",
+        "read:attachment:confluence",
+        "read:confluence-content.summary",
+        "write:confluence-content",
+        "read:confluence-space.summary",
+        "write:confluence-space",
+      ],
     },
   }
 }

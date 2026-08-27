@@ -2,7 +2,13 @@ import { defineWorkflow } from "openworkflow"
 import { z } from "zod"
 import { withOrgDbContext } from "../../db/client.js"
 import { markRepositoryIndexingFailed } from "../../models/repositories.js"
-import { createLogger, flushWorkflowLog, getLogger, withLogger } from "../../observability/logger.js"
+import {
+  createLogger,
+  flushWorkflowLog,
+  getLogger,
+  withLogger,
+} from "../../observability/logger.js"
+import { enqueueFollowUpIfTipAhead } from "../enqueue-follow-up-if-tip-ahead.js"
 import { repositoryIngestion } from "./repository-ingestion.js"
 
 const repositoryIngestionOrchestratorInputSchema = z.object({
@@ -10,6 +16,7 @@ const repositoryIngestionOrchestratorInputSchema = z.object({
   orgId: z.string().min(1),
   targetBranch: z.string().nullable().optional(),
   indexingReason: z.string().nullable().optional(),
+  githubConnectionId: z.string().nullable().optional(),
 })
 
 function isSleepSignal(err: unknown): boolean {
@@ -41,6 +48,9 @@ export const repositoryIngestionOrchestrator = defineWorkflow(
               ...(input.indexingReason !== undefined
                 ? { indexingReason: input.indexingReason }
                 : {}),
+              ...(input.githubConnectionId !== undefined
+                ? { githubConnectionId: input.githubConnectionId }
+                : {}),
             },
             { name: "repository-ingestion-child" },
           )
@@ -61,25 +71,54 @@ export const repositoryIngestionOrchestrator = defineWorkflow(
           })
           flushWorkflowLog()
 
-          await step
-            .run({ name: "mark-failed" }, () =>
+          await step.run(
+            {
+              name: "mark-failed",
+              retryPolicy: {
+                maximumAttempts: 5,
+                initialInterval: "30s",
+                backoffCoefficient: 2,
+                maximumInterval: "5m",
+              },
+            },
+            () =>
               withOrgDbContext(input.orgId, () =>
                 markRepositoryIndexingFailed({
                   repositoryId: input.repositoryId,
                   error: normalized,
                 }),
               ),
-            )
-            .catch((markErr: unknown) => {
-              getLogger().error(
-                markErr instanceof Error ? markErr : new Error(String(markErr)),
+          )
+
+          await step.run(
+            {
+              name: "enqueue-pending-follow-up",
+              retryPolicy: {
+                maximumAttempts: 5,
+                initialInterval: "30s",
+                backoffCoefficient: 2,
+                maximumInterval: "5m",
+              },
+            },
+            () =>
+              enqueueFollowUpIfTipAhead(
                 {
-                  step: "repository-ingestion-orchestrator.mark-failed",
-                  repositoryId: input.repositoryId,
                   orgId: input.orgId,
+                  repositoryId: input.repositoryId,
+                  pendingOnly: true,
+                  targetBranch: input.targetBranch,
+                  githubConnectionId: input.githubConnectionId,
                 },
-              )
-            })
+                {
+                  error: (followUpError) =>
+                    getLogger().error(followUpError, {
+                      step: "repository-ingestion-orchestrator.follow-up",
+                      repositoryId: input.repositoryId,
+                      orgId: input.orgId,
+                    }),
+                },
+              ),
+          )
 
           throw normalized
         }

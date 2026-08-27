@@ -63,7 +63,15 @@ try {
     registerArgs.push("--verbose")
     forge(registerArgs)
   }
-  forge(["deploy", "-e", "production", "--non-interactive", "--verbose"])
+  forge([
+    "deploy",
+    "-e",
+    "production",
+    "--non-interactive",
+    "--approve",
+    "MAJOR_VERSION_RULE",
+    "--verbose",
+  ])
   const installArgs = [
     "install",
     "-e",

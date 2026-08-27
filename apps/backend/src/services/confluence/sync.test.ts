@@ -4,7 +4,7 @@ import type { ConfluenceSyncTarget } from "../../models/confluence-sync-target.j
 import type { ConnectorAssetBudget } from "../connectors/assets.js"
 import {
   connectorAssetCommitFile,
-  consumeConnectorAssetBudget,
+  consumeConnectorAssetTransferBytes,
   gitBlobSha,
 } from "../connectors/assets.js"
 
@@ -113,7 +113,17 @@ describe("getConfluenceSyncReconcileMode", () => {
     ).toBe("full")
   })
 
-  it("returns single_upsert for page create and update", () => {
+  it("returns full for page moves so old hierarchy paths are pruned", () => {
+    expect(
+      getConfluenceSyncReconcileMode({
+        spaceKey: "S",
+        pageId: "123",
+        eventType: "avi:confluence:moved:page",
+      }),
+    ).toBe("full")
+  })
+
+  it("returns single_upsert for page and attachment upserts", () => {
     expect(
       getConfluenceSyncReconcileMode({
         spaceKey: "S",
@@ -126,6 +136,13 @@ describe("getConfluenceSyncReconcileMode", () => {
         spaceKey: "S",
         pageId: "123",
         eventType: "avi:confluence:created:page",
+      }),
+    ).toBe("single_upsert")
+    expect(
+      getConfluenceSyncReconcileMode({
+        spaceKey: "S",
+        pageId: "123",
+        eventType: "avi:confluence:updated:attachment",
       }),
     ).toBe("single_upsert")
   })
@@ -614,6 +631,34 @@ describe("syncConfluenceContent assets", () => {
     )
   })
 
+  it("does not download media-looking markup inside CDATA code", async () => {
+    confluence.getConfluencePageWithBody.mockResolvedValue({
+      id: "42",
+      title: "Design",
+      spaceId: "space-1",
+      parentId: null,
+      bodyStorage:
+        '<ac:structured-macro ac:name="code"><ac:plain-text-body><![CDATA[<ac:image><ri:url ri:value="https://cdn.example.com/not-media.png" /></ac:image>]]></ac:plain-text-body></ac:structured-macro>',
+    })
+    confluence.listConfluencePageAttachments.mockResolvedValue([])
+
+    await syncConfluenceContent({
+      orgId: "org_1",
+      env,
+      forgeInstallation,
+      target,
+      scopeFromRepo,
+    })
+
+    expect(downloadConnectorAsset).not.toHaveBeenCalled()
+    const markdown = committedFiles().find(
+      (file) => file.path === "confluence/ENG/design--42.md",
+    )
+    expect(markdown?.content).toContain(
+      '```\n<ac:image><ri:url ri:value="https://cdn.example.com/not-media.png" /></ac:image>\n```',
+    )
+  })
+
   it("preserves a prior attachment when its recapture download fails", async () => {
     const prior = "confluence/ENG/_assets/42/att100--diagram.png"
     github.listFilesInTree.mockResolvedValue([
@@ -809,6 +854,26 @@ describe("syncConfluenceContent assets", () => {
         (file) => file.path === "confluence/ENG/design--42.md",
       )?.content,
     ).toContain("![Architecture](_assets/42/att100--diagram.png)")
+  })
+
+  it("recommits an attachment when its binary content changes", async () => {
+    const assetPath = "confluence/ENG/_assets/42/att100--diagram.png"
+    github.listFilesInTree.mockResolvedValue([
+      { path: "confluence/config.yaml", sha: "config" },
+      { path: assetPath, sha: gitBlobSha(Buffer.from("old-png")) },
+    ])
+
+    await syncConfluenceContent({
+      orgId: "org_1",
+      env,
+      forgeInstallation,
+      target,
+      scopeFromRepo,
+    })
+
+    expect(committedFiles()).toContainEqual(
+      connectorAssetCommitFile(assetPath, diagramBytes),
+    )
   })
 
   it("does not delete a failed page markdown or its asset prefix during full reconcile", async () => {
@@ -1196,6 +1261,15 @@ describe("syncConfluenceContent assets", () => {
 
   it("stubs later attachments once the page exceeds 100 MiB without failing the page", async () => {
     const twentyFourMiB = 24 * 1024 * 1024
+    const existingLater = "confluence/ENG/_assets/42/att-later--later.bin"
+    github.listFilesInTree.mockResolvedValue([
+      { path: "confluence/ENG/design--42.md", sha: "markdown" },
+      { path: existingLater, sha: "prior-later" },
+      {
+        path: "confluence/ENG/_assets/42/removed--old.bin",
+        sha: "removed",
+      },
+    ])
     confluence.getConfluencePageWithBody.mockResolvedValue({
       id: "42",
       title: "Design",
@@ -1231,9 +1305,8 @@ describe("syncConfluenceContent assets", () => {
         filename: string
         budget: ConnectorAssetBudget
       }) => {
-        const consumed = consumeConnectorAssetBudget(budget, twentyFourMiB)
-        if (!consumed.ok) {
-          return { status: "stub", reason: consumed.reason }
+        if (!consumeConnectorAssetTransferBytes(budget, twentyFourMiB)) {
+          return { status: "stub", reason: "entity_limit" }
         }
         return {
           status: "downloaded",
@@ -1274,6 +1347,58 @@ describe("syncConfluenceContent assets", () => {
         (call) => call[0].filename,
       ),
     ).toEqual(["a.bin", "b.bin", "c.bin", "d.bin"])
+    const deletePaths = github.commitFiles.mock.calls[0]?.[0]
+      ?.deletePaths as string[]
+    expect(deletePaths).not.toContain(existingLater)
+    expect(deletePaths).toContain("confluence/ENG/_assets/42/removed--old.bin")
+  })
+
+  it("does not apply the full-reconcile byte pool to a single-page upsert", async () => {
+    const bytes = Buffer.alloc(22 * 1024 * 1024, 1)
+    confluence.getConfluencePageWithBody.mockResolvedValue({
+      id: "42",
+      title: "Design",
+      spaceId: "space-1",
+      parentId: null,
+      bodyStorage: [
+        '<ac:link><ri:attachment ri:filename="a.bin" /></ac:link>',
+        '<ac:link><ri:attachment ri:filename="b.bin" /></ac:link>',
+        '<ac:link><ri:attachment ri:filename="c.bin" /></ac:link>',
+      ].join(""),
+    })
+    confluence.listConfluencePageAttachments.mockResolvedValue(
+      ["a.bin", "b.bin", "c.bin"].map((title, index) => ({
+        id: `att${index + 1}`,
+        title,
+        fileSize: bytes.byteLength,
+        mediaType: "application/octet-stream",
+      })),
+    )
+    confluence.downloadConfluenceAttachment.mockImplementation(
+      async ({ filename }: { filename: string }) => ({
+        status: "downloaded",
+        bytes,
+        filename,
+        contentType: "application/octet-stream",
+      }),
+    )
+
+    await syncConfluenceContent({
+      orgId: "org_1",
+      env,
+      forgeInstallation,
+      target,
+      scopeFromRepo,
+      mode: {
+        spaceKey: "ENG",
+        pageId: "42",
+        eventType: "avi:confluence:updated:page",
+      },
+    })
+
+    expect(
+      committedFiles().filter((file) => file.encoding === "base64"),
+    ).toHaveLength(3)
   })
 
   it("downloads explicit external ri:url media with the safe shared downloader", async () => {
@@ -1320,5 +1445,30 @@ describe("syncConfluenceContent assets", () => {
     expect(markdown?.content).toContain(
       "![Logo](_assets/42/2443b42f4c45--logo.png)",
     )
+  })
+
+  it("downloads token variants of the same external media only once", async () => {
+    confluence.getConfluencePageWithBody.mockResolvedValue({
+      id: "42",
+      title: "Design",
+      spaceId: "space-1",
+      parentId: null,
+      bodyStorage:
+        '<ac:image ac:alt="First"><ri:url ri:value="https://cdn.example.com/logo.png?token=old" /></ac:image><ac:image ac:alt="Second"><ri:url ri:value="https://cdn.example.com/logo.png?token=new" /></ac:image>',
+    })
+    confluence.listConfluencePageAttachments.mockResolvedValue([])
+
+    await syncConfluenceContent({
+      orgId: "org_1",
+      env,
+      forgeInstallation,
+      target,
+      scopeFromRepo,
+    })
+
+    expect(downloadConnectorAsset).toHaveBeenCalledTimes(1)
+    expect(
+      committedFiles().filter((file) => file.encoding === "base64"),
+    ).toHaveLength(1)
   })
 })

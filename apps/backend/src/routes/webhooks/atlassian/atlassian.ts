@@ -1,6 +1,7 @@
 import type { OpenAPIHono } from "@hono/zod-openapi"
 import type { Context } from "hono"
 import { createRemoteJWKSet, type JWTPayload, jwtVerify } from "jose"
+import { z } from "zod"
 import type { AppEnv } from "../../../app/env.js"
 import { parseAtlassianApiBaseUrlFromFitPayload } from "../../../lib/atlassian-api-base-url.js"
 import {
@@ -9,6 +10,7 @@ import {
   updateForgeAppSystemTokenByInstallationId,
   upsertForgeInstallationFromEvent,
 } from "../../../models/atlassian-connector.js"
+import { getLogger } from "../../../observability/logger.js"
 import { handleForgeConfluenceContentEvent } from "../../../services/confluence/forge-confluence-webhook.js"
 import { CONFLUENCE_DELETED_PAGE_EVENT } from "../../../services/confluence/sync.js"
 import type { InstallationEvent } from "./atlassian-events.js"
@@ -124,7 +126,15 @@ function isConfluenceHandledEventType(eventType: string): boolean {
   return (
     eventType === "avi:confluence:created:page" ||
     eventType === "avi:confluence:updated:page" ||
+    eventType === "avi:confluence:moved:page" ||
     eventType === CONFLUENCE_DELETED_PAGE_EVENT ||
+    eventType === "avi:confluence:created:attachment" ||
+    eventType === "avi:confluence:updated:attachment" ||
+    eventType === "avi:confluence:archived:attachment" ||
+    eventType === "avi:confluence:unarchived:attachment" ||
+    eventType === "avi:confluence:trashed:attachment" ||
+    eventType === "avi:confluence:restored:attachment" ||
+    eventType === "avi:confluence:deleted:attachment" ||
     eventType === "avi:confluence:updated:space:V2" ||
     eventType === "avi:confluence:deleted:space:V2"
   )
@@ -135,7 +145,7 @@ async function handleForgeLifecyclePost(
   fitPayload: ForgeInvocationTokenPayload,
   payload: InstallationEvent,
 ): Promise<Response> {
-  const log = c.get("log")
+  const log = getLogger()
   const cloudId = getCloudIdFromContext(payload)
   if (!cloudId) {
     return c.json({ error: "Missing cloudId in lifecycle payload" }, 400)
@@ -199,7 +209,7 @@ async function handleForgeLifecyclePost(
 
 export function registerAtlassianWebhookRoute(app: OpenAPIHono<AppEnv>) {
   app.post("/api/v1/webhook/atlassian/forge", async (c) => {
-    const log = c.get("log")
+    const log = getLogger()
     const invocationToken = getBearerToken(c.req.header("authorization"))
     if (!invocationToken) {
       return c.json({ error: "Missing Forge invocation token" }, 401)
@@ -211,7 +221,7 @@ export function registerAtlassianWebhookRoute(app: OpenAPIHono<AppEnv>) {
         token: invocationToken,
       })
     } catch (e) {
-      c.get("log").error(e instanceof Error ? e : new Error(String(e)), {
+      getLogger().error(e instanceof Error ? e : new Error(String(e)), {
         step: "atlassian.verify_forge_invocation_token",
       })
       return c.json({ error: "Invalid Forge invocation token" }, 401)
@@ -224,17 +234,59 @@ export function registerAtlassianWebhookRoute(app: OpenAPIHono<AppEnv>) {
       return c.json({ error: "Invalid JSON payload" }, 400)
     }
 
-    const eventType = (body as Record<string, unknown>).eventType
-    if (typeof eventType !== "string") {
+    const envelope = z
+      .object({ eventType: z.string().min(1) })
+      .passthrough()
+      .safeParse(body)
+    if (!envelope.success) {
       return c.json({ error: "Missing eventType" }, 400)
     }
+    const { eventType } = envelope.data
 
     if (isForgeLifecycleEventType(eventType)) {
       return handleForgeLifecyclePost(c, fitPayload, body as InstallationEvent)
     }
 
     if (isConfluenceHandledEventType(eventType)) {
-      const payload = body as Record<string, unknown>
+      const spaceSchema = z
+        .object({ key: z.string().min(1).optional() })
+        .passthrough()
+      const payloadResult = z
+        .object({
+          eventType: z.string(),
+          content: z
+            .object({
+              id: z.string().min(1).optional(),
+              space: spaceSchema.optional(),
+            })
+            .passthrough()
+            .optional(),
+          prevContent: z
+            .object({ space: spaceSchema.optional() })
+            .passthrough()
+            .optional(),
+          attachment: z
+            .object({
+              space: spaceSchema.optional(),
+              container: z
+                .object({
+                  id: z.string().min(1).optional(),
+                  type: z.string().min(1).optional(),
+                  space: spaceSchema.optional(),
+                })
+                .passthrough()
+                .optional(),
+            })
+            .passthrough()
+            .optional(),
+          space: spaceSchema.optional(),
+        })
+        .passthrough()
+        .safeParse(body)
+      if (!payloadResult.success) {
+        return c.json({ error: "Invalid Confluence event payload" }, 400)
+      }
+      const payload = payloadResult.data
       const cloudIdFromFit = fitPayload.app.apiBaseUrl.split("/").at(-1)
       if (!cloudIdFromFit) {
         log.warn("forge_confluence_webhook_missing_cloud_id", { eventType })
@@ -269,48 +321,91 @@ export function registerAtlassianWebhookRoute(app: OpenAPIHono<AppEnv>) {
         })
         return c.body(null, 202)
       }
-      const content = payload.content as
-        | { id?: string; space?: { key?: string } }
-        | undefined
-      const space = payload.space as { key?: string } | undefined
-      const spaceKey = content?.space?.key ?? space?.key
-      if (!spaceKey) {
+      const content = payload.content
+      const previousContent = payload.prevContent
+      const attachment = payload.attachment
+      const space = payload.space
+      if (
+        eventType.endsWith(":attachment") &&
+        attachment?.container?.type !== "page"
+      ) {
+        log.info("forge_confluence_webhook_unsupported_attachment_container", {
+          eventType,
+          containerType: attachment?.container?.type,
+        })
+        return c.body(null, 202)
+      }
+
+      const primarySpaceKey =
+        content?.space?.key ??
+        attachment?.space?.key ??
+        attachment?.container?.space?.key ??
+        space?.key
+      const targetBySpace = new Map<
+        string,
+        { spaceKey: string; pageId?: string }
+      >()
+      if (primarySpaceKey) {
+        targetBySpace.set(primarySpaceKey, {
+          spaceKey: primarySpaceKey,
+          pageId:
+            eventType === "avi:confluence:moved:page"
+              ? undefined
+              : (content?.id ?? attachment?.container?.id),
+        })
+      }
+      if (eventType === "avi:confluence:moved:page") {
+        const previousSpaceKey = previousContent?.space?.key
+        if (previousSpaceKey) {
+          targetBySpace.set(previousSpaceKey, {
+            spaceKey: previousSpaceKey,
+            pageId: undefined,
+          })
+        }
+      }
+      const targets = [...targetBySpace.values()]
+      if (targets.length === 0) {
         log.warn("forge_confluence_webhook_missing_space_key", { eventType })
         return c.body(null, 202)
       }
-      const pageId = content?.id
-      const outcome = await handleForgeConfluenceContentEvent({
-        orgId: installation.orgId,
-        connectionId: installation.id,
-        env: c.get("env"),
-        spaceKey,
-        pageId,
-        eventType,
-      })
-      if (outcome === "skipped") {
-        log.info("forge_confluence_webhook_skipped", {
-          eventType,
-          orgId: installation.orgId,
-          spaceKey,
-          pageId,
-        })
-        return c.body(null, 202)
-      }
-      if (outcome === "reset") {
-        log.warn("forge_confluence_webhook_reset_missing_git_config", {
-          eventType,
+      let enqueued = false
+      let reset = false
+      for (const target of targets) {
+        const outcome = await handleForgeConfluenceContentEvent({
           orgId: installation.orgId,
           connectionId: installation.id,
+          env: c.get("env"),
+          spaceKey: target.spaceKey,
+          pageId: target.pageId,
+          eventType,
         })
-        return c.body(null, 204)
+        if (outcome === "skipped") {
+          log.info("forge_confluence_webhook_skipped", {
+            eventType,
+            orgId: installation.orgId,
+            spaceKey: target.spaceKey,
+            pageId: target.pageId,
+          })
+          continue
+        }
+        if (outcome === "reset") {
+          reset = true
+          log.warn("forge_confluence_webhook_reset_missing_git_config", {
+            eventType,
+            orgId: installation.orgId,
+            connectionId: installation.id,
+          })
+          continue
+        }
+        enqueued = true
+        log.info("forge_confluence_webhook_enqueued", {
+          eventType,
+          orgId: installation.orgId,
+          spaceKey: target.spaceKey,
+          pageId: target.pageId,
+        })
       }
-      log.info("forge_confluence_webhook_enqueued", {
-        eventType,
-        orgId: installation.orgId,
-        spaceKey,
-        pageId,
-      })
-      return c.body(null, 204)
+      return c.body(null, enqueued || reset ? 204 : 202)
     }
 
     log.warn("unhandled_forge_event_type", { eventType })

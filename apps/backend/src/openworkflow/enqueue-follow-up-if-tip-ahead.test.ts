@@ -6,6 +6,9 @@ const withOrgDbContextMock = vi.hoisted(() =>
 )
 const tryClaimMock = vi.hoisted(() => vi.fn().mockResolvedValue(true))
 const markFailedMock = vi.hoisted(() => vi.fn().mockResolvedValue(undefined))
+const markPendingMock = vi.hoisted(() => vi.fn().mockResolvedValue(undefined))
+const clearPendingMock = vi.hoisted(() => vi.fn().mockResolvedValue(undefined))
+const hasPendingMock = vi.hoisted(() => vi.fn().mockResolvedValue(true))
 const resolveRepositoryRefMock = vi.hoisted(() =>
   vi.fn().mockResolvedValue({ hash: "sha_tip", branch: "main" }),
 )
@@ -15,7 +18,10 @@ vi.mock("../db/client.js", () => ({
 }))
 
 vi.mock("../models/repositories.js", () => ({
+  clearRepositoryIndexingFollowUpPending: clearPendingMock,
+  hasPendingRepositoryIndexingFollowUp: hasPendingMock,
   markRepositoryIndexingFailed: markFailedMock,
+  markRepositoryIndexingFollowUpPending: markPendingMock,
   tryClaimRepositoryIndexingEnqueue: tryClaimMock,
 }))
 
@@ -41,6 +47,9 @@ describe("enqueueFollowUpIfTipAhead", () => {
     vi.clearAllMocks()
     tryClaimMock.mockResolvedValue(true)
     markFailedMock.mockResolvedValue(undefined)
+    markPendingMock.mockResolvedValue(undefined)
+    clearPendingMock.mockResolvedValue(undefined)
+    hasPendingMock.mockResolvedValue(true)
     resolveRepositoryRefMock.mockResolvedValue({
       hash: "sha_tip",
       branch: "main",
@@ -49,6 +58,7 @@ describe("enqueueFollowUpIfTipAhead", () => {
       (_orgId: string, fn: () => unknown) => Promise.resolve(fn()),
     )
     runWorkflowWithWorkerWakeMock.mockResolvedValue({
+      workflowRun: { status: "pending" },
       result: vi.fn().mockResolvedValue(undefined),
     })
   })
@@ -81,13 +91,51 @@ describe("enqueueFollowUpIfTipAhead", () => {
     await vi.waitFor(() => {
       expect(runWorkflowWithWorkerWakeMock).toHaveBeenCalledWith(
         { name: "repository-ingestion-orchestrator" },
-        expect.objectContaining({
+        {
           repositoryId: "repo_1",
           orgId: "org_1",
           indexingReason: "follow-up",
           targetBranch: "main",
-        }),
+          githubConnectionId: "con_1",
+        },
+        { idempotencyKey: "follow-up-tip:repo_1:sha_tip" },
       )
+    })
+  })
+
+  it("does not report success before workflow creation is acknowledged", async () => {
+    let acknowledge: (() => void) | undefined
+    runWorkflowWithWorkerWakeMock.mockReturnValueOnce(
+      new Promise((resolve) => {
+        acknowledge = () =>
+          resolve({
+            workflowRun: { status: "pending" },
+            result: vi.fn(),
+          })
+      }),
+    )
+    let settled = false
+
+    const pending = enqueueFollowUpIfTipAhead(
+      {
+        orgId: "org_1",
+        repositoryId: "repo_1",
+        ingestedHash: "sha_ingested",
+      },
+      { error: vi.fn() },
+    ).finally(() => {
+      settled = true
+    })
+
+    await vi.waitFor(() => {
+      expect(runWorkflowWithWorkerWakeMock).toHaveBeenCalled()
+    })
+    expect(settled).toBe(false)
+
+    acknowledge?.()
+    await expect(pending).resolves.toEqual({
+      enqueued: true,
+      tipHash: "sha_tip",
     })
   })
 
@@ -108,6 +156,10 @@ describe("enqueueFollowUpIfTipAhead", () => {
     )
 
     expect(result).toEqual({ enqueued: false, tipHash: "sha_same" })
+    expect(clearPendingMock).toHaveBeenCalledWith({
+      repositoryId: "repo_1",
+      ingestedHash: "sha_same",
+    })
     expect(tryClaimMock).not.toHaveBeenCalled()
     expect(runWorkflowWithWorkerWakeMock).not.toHaveBeenCalled()
   })
@@ -129,25 +181,28 @@ describe("enqueueFollowUpIfTipAhead", () => {
     expect(runWorkflowWithWorkerWakeMock).not.toHaveBeenCalled()
   })
 
-  it("swallows resolve errors so successful ingest is not undone", async () => {
+  it("preserves and throws resolve errors for durable workflow retry", async () => {
     resolveRepositoryRefMock.mockRejectedValue(new Error("resolve failed"))
     const log = { error: vi.fn() }
 
-    const result = await enqueueFollowUpIfTipAhead(
-      {
-        orgId: "org_1",
-        repositoryId: "repo_1",
-        ingestedHash: "sha_ingested",
-      },
-      log,
-    )
-
-    expect(result).toEqual({ enqueued: false })
+    await expect(
+      enqueueFollowUpIfTipAhead(
+        {
+          orgId: "org_1",
+          repositoryId: "repo_1",
+          ingestedHash: "sha_ingested",
+        },
+        log,
+      ),
+    ).rejects.toThrow("resolve failed")
+    expect(markPendingMock).toHaveBeenCalledWith({
+      repositoryId: "repo_1",
+    })
     expect(log.error).toHaveBeenCalled()
     expect(runWorkflowWithWorkerWakeMock).not.toHaveBeenCalled()
   })
 
-  it("releases the claim when follow-up workflow enqueue fails", async () => {
+  it("preserves and throws when follow-up workflow enqueue fails", async () => {
     const failure = new Error("enqueue failed")
     runWorkflowWithWorkerWakeMock.mockRejectedValue(failure)
     const log = { error: vi.fn() }
@@ -161,14 +216,33 @@ describe("enqueueFollowUpIfTipAhead", () => {
         },
         log,
       ),
-    ).resolves.toEqual({ enqueued: true, tipHash: "sha_tip" })
+    ).rejects.toThrow("enqueue failed")
 
-    await vi.waitFor(() => {
-      expect(markFailedMock).toHaveBeenCalledWith({
-        repositoryId: "repo_1",
-        error: failure,
-      })
+    expect(markFailedMock).toHaveBeenCalledWith({
+      repositoryId: "repo_1",
+      error: failure,
+    })
+    expect(markPendingMock).toHaveBeenCalledWith({
+      repositoryId: "repo_1",
     })
     expect(log.error).toHaveBeenCalledWith(failure)
+  })
+
+  it("does not resolve a failure follow-up when no request is pending", async () => {
+    hasPendingMock.mockResolvedValue(false)
+
+    await expect(
+      enqueueFollowUpIfTipAhead(
+        {
+          orgId: "org_1",
+          repositoryId: "repo_1",
+          pendingOnly: true,
+        },
+        { error: vi.fn() },
+      ),
+    ).resolves.toEqual({ enqueued: false })
+
+    expect(resolveRepositoryRefMock).not.toHaveBeenCalled()
+    expect(runWorkflowWithWorkerWakeMock).not.toHaveBeenCalled()
   })
 })

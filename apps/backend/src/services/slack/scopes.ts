@@ -6,8 +6,8 @@
  * `channels:read` / `groups:read` are for `conversations.info` (human-readable
  * channel names in git paths), not for workspace channel catalogues.
  * `chat:write` powers the capturing → captured status reply in-thread.
- * `files:read` exposes file metadata (name/permalink) on thread messages; we
- * do not download binaries into git (ADR-025).
+ * `files:read` exposes file metadata and authenticated download URLs so
+ * provider-declared thread attachments can be copied into git (ADR-026).
  */
 export const SLACK_BOT_SCOPES = [
   "app_mentions:read",

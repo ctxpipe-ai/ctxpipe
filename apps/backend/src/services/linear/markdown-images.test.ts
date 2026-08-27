@@ -56,6 +56,36 @@ describe("scanLinearMarkdownImages", () => {
     ])
   })
 
+  it("finds nested HTML images and ignores data-src decoys", () => {
+    const image =
+      '<img data-src="https://cdn.example.com/decoy.png" src="https://cdn.example.com/real.png" alt="Diagram">'
+    const markdown = `<div>${image}</div>`
+
+    expect(scanLinearMarkdownImages(markdown)).toEqual([
+      {
+        start: markdown.indexOf(image),
+        end: markdown.indexOf(image) + image.length,
+        source: image,
+        alt: "Diagram",
+        url: "https://cdn.example.com/real.png",
+      },
+    ])
+  })
+
+  it("normalises protocol-relative HTTPS image destinations", () => {
+    const image =
+      "![shot](//uploads.linear.app/acme/file.png?X-Amz-Signature=secret)"
+    expect(scanLinearMarkdownImages(image)).toEqual([
+      {
+        start: 0,
+        end: image.length,
+        source: image,
+        alt: "shot",
+        url: "https://uploads.linear.app/acme/file.png?X-Amz-Signature=secret",
+      },
+    ])
+  })
+
   it("ignores image syntax inside inline, fenced, and indented code", () => {
     const real = "![keep](https://cdn.example.com/keep.png)"
     const markdown = [
@@ -184,6 +214,30 @@ describe("applyLinearAssetRewrites", () => {
     )
     expect(rewritten).not.toContain("cdn.example.com")
     expect(rewritten).not.toContain("sig=1")
+  })
+
+  it("keeps a captured image while removing its signed outer link", () => {
+    const imageUrl =
+      "https://cdn.example.com/diagram.png?token=image-credential"
+    const linkUrl =
+      "https://cdn.example.com/download?X-Amz-Credential=key&X-Amz-Signature=secret"
+    const rewritten = applyLinearAssetRewrites(
+      `[![diagram](${imageUrl})](${linkUrl})`,
+      [
+        {
+          sourceUrl: imageUrl,
+          sourceKey: "src-linked",
+          relativePath: "stem/assets/src-linked--diagram.png",
+          gitPath: "linear/issues/stem/assets/src-linked--diagram.png",
+          status: "downloaded",
+          filename: "diagram.png",
+        },
+      ],
+    )
+
+    expect(rewritten).toBe("![diagram](stem/assets/src-linked--diagram.png)")
+    expect(rewritten).not.toContain("cdn.example.com")
+    expect(rewritten).not.toContain("secret")
   })
 
   it("emits a URL-free stub for a failed nested-paren image", () => {
@@ -406,7 +460,7 @@ describe("applyLinearAssetRewrites", () => {
     const markdown = [
       "![missing][nope] and [notes][keep]",
       "",
-      "[nope]: https://cdn.example.com/unused-ref.png?sig=1",
+      "[nope]: https://cdn.example.com/unused-ref.png?version=1",
       "[keep]: https://docs.example.org/readme",
     ].join("\n")
 

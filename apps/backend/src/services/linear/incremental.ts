@@ -1,7 +1,11 @@
 import type { CustomerNeed, Issue } from "@linear/sdk"
 import type { Env } from "../../config/env.js"
 import type { LinearConnection } from "../../models/linear-connector.js"
-import { connectorPathMatchesPreservation } from "../connectors/assets.js"
+import {
+  type ConnectorAssetBytePool,
+  connectorPathMatchesPreservation,
+  createConnectorEntityAssetBytePool,
+} from "../connectors/assets.js"
 import {
   linearEntityMirrorFiles,
   linearIssueMirrorFiles,
@@ -65,6 +69,8 @@ export async function buildLinearIncrementalChanges(input: {
   config: ParsedLinearRepoConfig
   entities: LinearEntityChange[]
   existingPaths: string[]
+  bytePool?: ConnectorAssetBytePool
+  existingShaByPath?: ReadonlyMap<string, string>
   onTokenRefresh?: LinearTokenRefreshHandler
 }): Promise<LinearIncrementalChanges> {
   return withLinearClient(input, async (client) => {
@@ -80,6 +86,13 @@ export async function buildLinearIncrementalChanges(input: {
       )) {
         preservePathPrefixes.add(path)
       }
+    }
+    const assetOptions = {
+      bytePool: input.bytePool ?? createConnectorEntityAssetBytePool(),
+      existingShaByPath:
+        input.existingShaByPath ??
+        new Map(input.existingPaths.map((path) => [path, ""])),
+      onPreservePathPrefix,
     }
     const selectedTeams = new Set(
       input.config.scopes
@@ -205,7 +218,7 @@ export async function buildLinearIncrementalChanges(input: {
           updatedAt: need.updatedAt.toISOString(),
         },
         accessToken: input.connection.accessToken,
-        onPreservePathPrefix,
+        ...assetOptions,
       })
     }
 
@@ -287,7 +300,7 @@ export async function buildLinearIncrementalChanges(input: {
           })),
         },
         input.connection.accessToken,
-        { onPreservePathPrefix },
+        assetOptions,
       )
     }
 
@@ -322,7 +335,7 @@ export async function buildLinearIncrementalChanges(input: {
                 updatedAt: team.updatedAt.toISOString(),
               },
               accessToken: input.connection.accessToken,
-              onPreservePathPrefix,
+              ...assetOptions,
             })
             break
           }
@@ -343,6 +356,7 @@ export async function buildLinearIncrementalChanges(input: {
                 for (const needFile of await renderCustomerNeed(need)) {
                   files.set(needFile.path, needFile)
                 }
+                pruneStaleManagedPaths(need.id)
               }
             }
             mirrored = await renderIssue(issue)
@@ -371,6 +385,7 @@ export async function buildLinearIncrementalChanges(input: {
                 for (const needFile of await renderCustomerNeed(need)) {
                   files.set(needFile.path, needFile)
                 }
+                pruneStaleManagedPaths(need.id)
               }
             }
             mirrored = await linearEntityMirrorFiles({
@@ -391,7 +406,7 @@ export async function buildLinearIncrementalChanges(input: {
               },
               sections: renderLinearUpdateSections(updates),
               accessToken: input.connection.accessToken,
-              onPreservePathPrefix,
+              ...assetOptions,
             })
             break
           }
@@ -423,7 +438,7 @@ export async function buildLinearIncrementalChanges(input: {
                 updatedAt: document.updatedAt.toISOString(),
               },
               accessToken: input.connection.accessToken,
-              onPreservePathPrefix,
+              ...assetOptions,
             })
             break
           }
@@ -452,7 +467,7 @@ export async function buildLinearIncrementalChanges(input: {
               },
               sections: renderLinearUpdateSections(updates),
               accessToken: input.connection.accessToken,
-              onPreservePathPrefix,
+              ...assetOptions,
             })
             break
           }
@@ -475,7 +490,7 @@ export async function buildLinearIncrementalChanges(input: {
                 completedAt: cycle.completedAt?.toISOString() ?? null,
               },
               accessToken: input.connection.accessToken,
-              onPreservePathPrefix,
+              ...assetOptions,
             })
             break
           }
@@ -493,7 +508,7 @@ export async function buildLinearIncrementalChanges(input: {
               body: label.description,
               metadata: { teamId: label.teamId ?? null, color: label.color },
               accessToken: input.connection.accessToken,
-              onPreservePathPrefix,
+              ...assetOptions,
             })
             break
           }
@@ -512,7 +527,7 @@ export async function buildLinearIncrementalChanges(input: {
                 avatarUrl: user.avatarUrl ?? null,
               },
               accessToken: input.connection.accessToken,
-              onPreservePathPrefix,
+              ...assetOptions,
             })
             break
           }

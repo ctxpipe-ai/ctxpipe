@@ -28,7 +28,7 @@ vi.mock("../../services/confluence/sync.js", () => ({
   syncConfluenceContent: mocks.syncContent,
 }))
 vi.mock("../enqueue-repository-ingestion.js", () => ({
-  runRepositoryIngestionWorkflow: mocks.runIngestion,
+  runConnectorRepositoryIngestionWorkflow: mocks.runIngestion,
 }))
 
 import { confluenceSyncSpace } from "./confluence-sync-space.js"
@@ -59,6 +59,10 @@ describe("confluenceSyncSpace", () => {
   })
 
   it("ingests the bound repository after a changed page write", async () => {
+    const stepRun = vi.fn(
+      async (_options: { name: string }, operation: () => Promise<unknown>) =>
+        operation(),
+    )
     await confluenceSyncSpace.fn({
       input: {
         orgId: "org_1",
@@ -67,8 +71,14 @@ describe("confluenceSyncSpace", () => {
         pageId: "42",
         eventType: "avi:confluence:updated:page",
       },
+      step: { run: stepRun },
     } as never)
 
+    expect(stepRun.mock.calls.map(([options]) => options.name)).toEqual([
+      "load-confluence-space-target",
+      "sync-confluence-space",
+      "ingest-confluence-space",
+    ])
     expect(mocks.runIngestion).toHaveBeenCalledWith(
       {
         repositoryId: "repo_1",
@@ -80,7 +90,7 @@ describe("confluenceSyncSpace", () => {
     )
   })
 
-  it("does not ingest when the page write did not change", async () => {
+  it("checks the branch tip when replaying an unchanged page write", async () => {
     mocks.syncContent.mockResolvedValueOnce({
       status: "completed",
       spacesProcessed: 1,
@@ -96,8 +106,63 @@ describe("confluenceSyncSpace", () => {
         spaceKey: "ENG",
         pageId: "42",
       },
+      step: {
+        run: async (
+          _options: { name: string },
+          operation: () => Promise<unknown>,
+        ) => operation(),
+      },
     } as never)
 
-    expect(mocks.runIngestion).not.toHaveBeenCalled()
+    expect(mocks.runIngestion).toHaveBeenCalledWith(
+      {
+        repositoryId: "repo_1",
+        orgId: "org_1",
+        targetBranch: "main",
+        indexingReason: "Applying Confluence updates",
+      },
+      expect.any(Object),
+    )
+  })
+
+  it("keeps the checkpointed repository target when a binding is rebound during replay", async () => {
+    const checkpointedTarget = {
+      repositoryId: "repo_original",
+      branch: "confluence-capture",
+      enabled: true,
+    }
+    mocks.getTarget.mockResolvedValueOnce({
+      repositoryId: "repo_rebound",
+      branch: "main",
+      enabled: true,
+    })
+    const stepRun = vi.fn(
+      async (options: { name: string }, operation: () => Promise<unknown>) => {
+        if (options.name === "load-confluence-space-target") {
+          return checkpointedTarget
+        }
+        return operation()
+      },
+    )
+
+    await confluenceSyncSpace.fn({
+      input: {
+        orgId: "org_1",
+        connectionId: "con_forge",
+        spaceKey: "ENG",
+      },
+      step: { run: stepRun },
+    } as never)
+
+    expect(mocks.syncContent).toHaveBeenCalledWith(
+      expect.objectContaining({ target: checkpointedTarget }),
+    )
+    expect(mocks.runIngestion).toHaveBeenCalledWith(
+      expect.objectContaining({
+        repositoryId: "repo_original",
+        targetBranch: "confluence-capture",
+      }),
+      expect.any(Object),
+    )
   })
 })

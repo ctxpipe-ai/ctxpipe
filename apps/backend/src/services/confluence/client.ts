@@ -56,7 +56,10 @@ function shouldRetryConfluenceStatus(status: number): boolean {
 async function fetchConfluence<T>(
   input: ConfluenceClientInput,
   path: string,
-  options?: { signal?: AbortSignal },
+  options?: {
+    signal?: AbortSignal
+    onResponse?: (response: Response) => void
+  },
 ): Promise<T> {
   const base = resolveAtlassianConfluenceApiBaseUrl(input)
   for (let attempt = 0; attempt < CONFLUENCE_FETCH_MAX_ATTEMPTS; attempt += 1) {
@@ -68,6 +71,7 @@ async function fetchConfluence<T>(
       signal: options?.signal,
     })
     if (response.ok) {
+      options?.onResponse?.(response)
       return (await response.json()) as T
     }
     if (
@@ -214,6 +218,11 @@ function nextCursorFromLinks(next: string | undefined): string | undefined {
   )
 }
 
+function nextCursorFromLinkHeader(link: string | null): string | undefined {
+  const next = link?.match(/<([^>]+)>\s*;\s*rel\s*=\s*"?next"?/i)?.[1]
+  return nextCursorFromLinks(next)
+}
+
 export async function listConfluencePageAttachments(input: {
   client: ConfluenceClientInput
   pageId: string
@@ -231,6 +240,7 @@ export async function listConfluencePageAttachments(input: {
       limit: String(Math.min(250, maxAttachments - attachments.length)),
     })
     if (cursor) params.set("cursor", cursor)
+    let headerCursor: string | undefined
     const data = await fetchConfluence<{
       results: Array<{
         id?: string
@@ -242,7 +252,12 @@ export async function listConfluencePageAttachments(input: {
     }>(
       input.client,
       `/wiki/api/v2/pages/${encodeURIComponent(input.pageId)}/attachments?${params.toString()}`,
-      { signal: input.signal },
+      {
+        signal: input.signal,
+        onResponse: (response) => {
+          headerCursor = nextCursorFromLinkHeader(response.headers.get("Link"))
+        },
+      },
     )
     for (const attachment of data.results ?? []) {
       if (!attachment.id || !attachment.title) {
@@ -257,7 +272,7 @@ export async function listConfluencePageAttachments(input: {
       })
       if (attachments.length >= maxAttachments) break
     }
-    cursor = nextCursorFromLinks(data._links?.next)
+    cursor = nextCursorFromLinks(data._links?.next) ?? headerCursor
     if (!cursor) break
   }
   return attachments

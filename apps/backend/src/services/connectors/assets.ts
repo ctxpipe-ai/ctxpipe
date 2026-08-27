@@ -54,6 +54,13 @@ export function createConnectorAssetBytePool(
   return { remainingBytes: maxBytes, remainingAssets: maxAssets }
 }
 
+export function createConnectorEntityAssetBytePool(): ConnectorAssetBytePool {
+  return createConnectorAssetBytePool(
+    CONNECTOR_ENTITY_MAX_BYTES,
+    CONNECTOR_ENTITY_MAX_ASSETS,
+  )
+}
+
 export function consumeConnectorAssetBytePool(
   pool: ConnectorAssetBytePool,
   bytes: number,
@@ -64,6 +71,23 @@ export function consumeConnectorAssetBytePool(
   pool.remainingBytes -= bytes
   pool.remainingAssets -= 1
   return true
+}
+
+export async function withConnectorAssetBytePoolRollback<T>(
+  pool: ConnectorAssetBytePool,
+  action: () => Promise<T>,
+): Promise<T> {
+  const checkpoint = {
+    remainingBytes: pool.remainingBytes,
+    remainingAssets: pool.remainingAssets,
+  }
+  try {
+    return await action()
+  } catch (error) {
+    pool.remainingBytes = checkpoint.remainingBytes
+    pool.remainingAssets = checkpoint.remainingAssets
+    throw error
+  }
 }
 
 export function createConnectorAssetBudget(input?: {
@@ -81,32 +105,13 @@ export function createConnectorAssetBudget(input?: {
   }
 }
 
-export function consumeConnectorAssetBudget(
-  budget: ConnectorAssetBudget,
-  bytes: number,
-):
-  | { ok: true; remainingBytes: number }
-  | {
-      ok: false
-      reason: "asset_limit" | "entity_limit"
-      remainingBytes: number
-    } {
-  if (bytes > budget.maxAssetBytes) {
-    return {
-      ok: false,
-      reason: "asset_limit",
-      remainingBytes: budget.remainingBytes,
-    }
-  }
-  if (bytes > budget.remainingBytes) {
-    return {
-      ok: false,
-      reason: "entity_limit",
-      remainingBytes: budget.remainingBytes,
-    }
-  }
-  budget.remainingBytes -= bytes
-  return { ok: true, remainingBytes: budget.remainingBytes }
+export function connectorAssetDownloadLimit(budget: ConnectorAssetBudget): {
+  maxBytes: number
+  exceededReason: "asset_limit" | "entity_limit"
+} {
+  return budget.maxAssetBytes <= budget.remainingBytes
+    ? { maxBytes: budget.maxAssetBytes, exceededReason: "asset_limit" }
+    : { maxBytes: budget.remainingBytes, exceededReason: "entity_limit" }
 }
 
 export function consumeConnectorAssetTransferBytes(
@@ -141,66 +146,113 @@ export function sanitizeConnectorAssetName(filename: string): string {
   return `${safeStem || "attachment"}${extension.slice(0, 16)}`
 }
 
-export function canonicalConnectorAssetUrl(url: string): string {
+function connectorAssetCredentialQueryKeys(
+  parsed: URL,
+  includeGenericCredentials: boolean,
+): Set<string> {
+  const keys = new Set(
+    [...parsed.searchParams.keys()].map((key) => key.toLowerCase()),
+  )
+  const hasAwsSignature =
+    keys.has("x-amz-signature") ||
+    keys.has("x-amz-credential") ||
+    (keys.has("signature") &&
+      (keys.has("awsaccesskeyid") ||
+        keys.has("key-pair-id") ||
+        keys.has("policy")))
+  const hasGoogleSignature =
+    keys.has("x-goog-signature") || keys.has("x-goog-credential")
+  const hasGoogleV2Signature =
+    keys.has("signature") && keys.has("googleaccessid")
+  const hasAzureSignature =
+    keys.has("sig") &&
+    keys.has("sv") &&
+    ["se", "sp", "sr", "srt", "ss"].some((key) => keys.has(key))
+  const azureSasKeys = new Set([
+    "se",
+    "sig",
+    "si",
+    "sip",
+    "ske",
+    "skoid",
+    "sks",
+    "skt",
+    "sktid",
+    "skv",
+    "sp",
+    "spr",
+    "sr",
+    "srt",
+    "ss",
+    "st",
+    "sv",
+  ])
+  const genericCredentialKeys = new Set([
+    "access_token",
+    "expires",
+    "sig",
+    "signature",
+    "token",
+  ])
+  const credentials = new Set<string>()
+  for (const key of parsed.searchParams.keys()) {
+    const normalised = key.toLowerCase()
+    if (
+      (hasGoogleSignature && normalised.startsWith("x-goog-")) ||
+      (hasGoogleV2Signature &&
+        (normalised === "expires" ||
+          normalised === "googleaccessid" ||
+          normalised === "signature")) ||
+      (hasAwsSignature &&
+        (normalised.startsWith("x-amz-") ||
+          normalised === "awsaccesskeyid" ||
+          normalised === "expires" ||
+          normalised === "key-pair-id" ||
+          normalised === "policy" ||
+          normalised === "signature")) ||
+      (hasAzureSignature && azureSasKeys.has(normalised)) ||
+      (includeGenericCredentials && genericCredentialKeys.has(normalised))
+    ) {
+      credentials.add(key)
+    }
+  }
+  return credentials
+}
+
+export function isConnectorAssetCredentialUrl(
+  url: string,
+  options?: { includeGenericCredentials?: boolean },
+): boolean {
+  try {
+    const candidate = url.trim().startsWith("//") ? `https:${url.trim()}` : url
+    const parsed = new URL(candidate)
+    return (
+      parsed.username.length > 0 ||
+      parsed.password.length > 0 ||
+      connectorAssetCredentialQueryKeys(
+        parsed,
+        options?.includeGenericCredentials ?? false,
+      ).size > 0
+    )
+  } catch {
+    return false
+  }
+}
+
+export function canonicalConnectorAssetUrl(
+  url: string,
+  options?: { stripGenericCredentials?: boolean },
+): string {
   try {
     const parsed = new URL(url)
     parsed.hash = ""
-    const keys = new Set(
-      [...parsed.searchParams.keys()].map((key) => key.toLowerCase()),
-    )
-    const hasAwsSignature =
-      keys.has("x-amz-signature") ||
-      keys.has("x-amz-credential") ||
-      (keys.has("signature") &&
-        (keys.has("awsaccesskeyid") ||
-          keys.has("key-pair-id") ||
-          keys.has("policy")))
-    const hasGoogleSignature =
-      keys.has("x-goog-signature") || keys.has("x-goog-credential")
-    const hasGoogleV2Signature =
-      keys.has("signature") && keys.has("googleaccessid")
-    const hasAzureSignature =
-      keys.has("sig") &&
-      keys.has("sv") &&
-      ["se", "sp", "sr", "srt", "ss"].some((key) => keys.has(key))
-    const azureSasKeys = new Set([
-      "se",
-      "sig",
-      "si",
-      "sip",
-      "ske",
-      "skoid",
-      "sks",
-      "skt",
-      "sktid",
-      "skv",
-      "sp",
-      "spr",
-      "sr",
-      "srt",
-      "ss",
-      "st",
-      "sv",
-    ])
-    for (const key of [...parsed.searchParams.keys()]) {
-      const normalised = key.toLowerCase()
-      if (
-        (hasGoogleSignature && normalised.startsWith("x-goog-")) ||
-        (hasGoogleV2Signature &&
-          (normalised === "expires" ||
-            normalised === "googleaccessid" ||
-            normalised === "signature")) ||
-        (hasAwsSignature &&
-          (normalised.startsWith("x-amz-") ||
-            normalised === "awsaccesskeyid" ||
-            normalised === "expires" ||
-            normalised === "key-pair-id" ||
-            normalised === "policy" ||
-            normalised === "signature")) ||
-        (hasAzureSignature && azureSasKeys.has(normalised))
-      ) {
-        parsed.searchParams.delete(key)
-      }
+    parsed.username = ""
+    parsed.password = ""
+    for (const key of connectorAssetCredentialQueryKeys(
+      parsed,
+      options?.stripGenericCredentials ?? false,
+    )) {
+      parsed.searchParams.delete(key)
     }
     parsed.searchParams.sort()
     return parsed.toString()
@@ -386,17 +438,17 @@ async function requestConnectorAsset(input: {
         response.on("data", (chunk: Buffer | Uint8Array) => {
           const bytes = Buffer.from(chunk)
           total += bytes.byteLength
+          if (total > input.maxBytes) {
+            response.destroy(
+              new ConnectorAssetTooLargeError("Asset exceeds byte limit"),
+            )
+            return
+          }
           if (!input.consumeBytes(bytes.byteLength)) {
             response.destroy(
               new ConnectorAssetEntityLimitError(
                 "Entity asset byte limit exceeded",
               ),
-            )
-            return
-          }
-          if (total > input.maxBytes) {
-            response.destroy(
-              new ConnectorAssetTooLargeError("Asset exceeds byte limit"),
             )
             return
           }
@@ -650,16 +702,14 @@ export async function downloadConnectorAsset(input: {
       }
 
       let response: ConnectorAssetResponse
+      const byteLimit = connectorAssetDownloadLimit(input.budget)
       try {
         response = await requestConnectorAsset({
           url: current,
           address: selected.address,
           family: selected.family,
           headers,
-          maxBytes: Math.min(
-            input.budget.maxAssetBytes,
-            input.budget.remainingBytes,
-          ),
+          maxBytes: byteLimit.maxBytes,
           timeoutMs: Math.min(
             CONNECTOR_ASSET_REQUEST_TIMEOUT_MS,
             connectorAssetDeadlineRemainingMs(input.budget),
@@ -677,10 +727,7 @@ export async function downloadConnectorAsset(input: {
         if (error instanceof ConnectorAssetTooLargeError) {
           return {
             status: "stub",
-            reason:
-              input.budget.remainingBytes < input.budget.maxAssetBytes
-                ? "entity_limit"
-                : "asset_limit",
+            reason: byteLimit.exceededReason,
           }
         }
         if (
@@ -760,4 +807,3 @@ export function connectorAssetCommitFile(
     encoding: "base64",
   }
 }
-

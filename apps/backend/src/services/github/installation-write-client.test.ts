@@ -389,6 +389,64 @@ describe("commitFiles", () => {
     expect(createBlob).toHaveBeenCalledTimes(2)
   })
 
+  it("does not retry a primary rate limit before its reset time", async () => {
+    vi.useFakeTimers()
+    vi.setSystemTime(new Date("2026-08-26T00:00:00.000Z"))
+    const resetSeconds = Math.floor((Date.now() + 1_200_000) / 1000)
+    const createBlob = vi
+      .fn()
+      .mockRejectedValueOnce(
+        Object.assign(new Error("API rate limit exceeded"), {
+          status: 403,
+          response: {
+            headers: {
+              "x-ratelimit-remaining": "0",
+              "x-ratelimit-reset": String(resetSeconds),
+            },
+          },
+        }),
+      )
+      .mockResolvedValue({ data: { sha: "blob" } })
+    getInstallationOctokitForOrgMock.mockResolvedValue({
+      installation: { installationId: 123 },
+      octokit: {
+        rest: {
+          git: {
+            getRef: vi.fn(async () => ({
+              data: { object: { sha: "base" } },
+            })),
+            getCommit: vi.fn(async () => ({
+              data: { tree: { sha: "base-tree" } },
+            })),
+            createBlob,
+            createTree: vi.fn(async () => ({ data: { sha: "tree" } })),
+            createCommit: vi.fn(async () => ({
+              data: { sha: "asset-commit" },
+            })),
+            updateRef: vi.fn(async () => ({ data: {} })),
+          },
+        },
+      },
+    })
+
+    const pending = commitFiles({
+      orgId: "org_test",
+      repositoryName: "acme/docs",
+      env: {} as never,
+      branch: "main",
+      message: "Capture image",
+      files: [{ path: "asset.bin", content: "eA==", encoding: "base64" }],
+    })
+    const completion = expect(pending).resolves.toMatchObject({
+      commitSha: "asset-commit",
+    })
+    await vi.advanceTimersByTimeAsync(1_199_999)
+    expect(createBlob).toHaveBeenCalledTimes(1)
+    await vi.advanceTimersByTimeAsync(1)
+    await completion
+    expect(createBlob).toHaveBeenCalledTimes(2)
+  })
+
   it("rebuilds the commit on the latest head after a concurrent update", async () => {
     const getRef = vi
       .fn()

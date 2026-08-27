@@ -40,7 +40,7 @@ vi.mock("../../observability/logger.js", () => ({
   getLogger: () => ({ warn: vi.fn(), info: vi.fn(), error: vi.fn() }),
 }))
 vi.mock("../enqueue-repository-ingestion.js", () => ({
-  runRepositoryIngestionWorkflow: runIngestionMock,
+  runConnectorRepositoryIngestionWorkflow: runIngestionMock,
 }))
 
 import { slackMentionAgent } from "./slack-mention-agent.js"
@@ -55,6 +55,18 @@ const target = {
 
 const connection = { id: "con_1", orgId: "org_1", teamId: "T1" }
 
+function workflowContext(input: Record<string, unknown>) {
+  return {
+    input,
+    step: {
+      run: async (
+        _options: { name: string },
+        operation: () => Promise<unknown>,
+      ) => operation(),
+    },
+  } as never
+}
+
 describe("slackMentionAgent workflow", () => {
   beforeEach(() => {
     vi.clearAllMocks()
@@ -67,6 +79,7 @@ describe("slackMentionAgent workflow", () => {
       capture: {
         status: "completed",
         messageCount: 3,
+        commitSha: "sha-slack",
         githubUrl:
           "https://github.com/acme/context/blob/abc123/slack/channels/eng--C1/threads/2026/03/1710000000.000100/thread.md",
       },
@@ -75,6 +88,10 @@ describe("slackMentionAgent workflow", () => {
   })
 
   it("posts working status, runs the agent, then updates to captured", async () => {
+    const stepRun = vi.fn(
+      async (_options: { name: string }, operation: () => Promise<unknown>) =>
+        operation(),
+    )
     const result = await slackMentionAgent.fn({
       input: {
         orgId: "org_1",
@@ -84,8 +101,16 @@ describe("slackMentionAgent workflow", () => {
         mentionText: "<@U_BOT>",
         mentionUserId: "U1",
       },
+      step: { run: stepRun },
     } as never)
 
+    expect(stepRun.mock.calls.map(([options]) => options.name)).toEqual([
+      "load-slack-capture-target",
+      "post-slack-working-status",
+      "capture-slack-thread",
+      "publish-slack-capture-status",
+      "ingest-slack-capture",
+    ])
     expect(postStatusMock).toHaveBeenCalledWith(
       expect.objectContaining({
         text: "ctx| agent working…",
@@ -118,18 +143,91 @@ describe("slackMentionAgent workflow", () => {
     expect(result).toMatchObject({ kind: "captured" })
   })
 
-  it("settles status with a capability reply when the agent does not capture", async () => {
-    runAgentMock.mockResolvedValue({ kind: "capability" })
+  it("checks the branch tip when replaying a captured thread without a commit result", async () => {
+    runAgentMock.mockResolvedValueOnce({
+      kind: "captured",
+      capture: {
+        status: "completed",
+        messageCount: 3,
+        githubUrl:
+          "https://github.com/acme/context/blob/abc123/slack/channels/eng--C1/thread.md",
+      },
+    })
 
-    const result = await slackMentionAgent.fn({
+    await slackMentionAgent.fn(
+      workflowContext({
+        orgId: "org_1",
+        connectionId: "con_1",
+        channelId: "C1",
+        threadTs: "1710000000.000100",
+      }),
+    )
+
+    expect(runIngestionMock).toHaveBeenCalledWith(
+      {
+        repositoryId: "repo_1",
+        orgId: "org_1",
+        targetBranch: "main",
+        indexingReason: "Applying Slack capture",
+      },
+      expect.any(Object),
+    )
+  })
+
+  it("keeps the checkpointed repository target when a binding is rebound during replay", async () => {
+    const checkpointedTarget = {
+      ...target,
+      repositoryId: "repo_original",
+      branch: "capture-branch",
+    }
+    getTargetMock.mockResolvedValueOnce({
+      ...target,
+      repositoryId: "repo_rebound",
+      branch: "main",
+    })
+    const stepRun = vi.fn(
+      async (options: { name: string }, operation: () => Promise<unknown>) => {
+        if (options.name === "load-slack-capture-target") {
+          return checkpointedTarget
+        }
+        return operation()
+      },
+    )
+
+    await slackMentionAgent.fn({
       input: {
         orgId: "org_1",
         connectionId: "con_1",
         channelId: "C1",
         threadTs: "1710000000.000100",
-        mentionText: "<@U_BOT> what is this?",
       },
+      step: { run: stepRun },
     } as never)
+
+    expect(runAgentMock).toHaveBeenCalledWith(
+      expect.objectContaining({ target: checkpointedTarget }),
+    )
+    expect(runIngestionMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        repositoryId: "repo_original",
+        targetBranch: "capture-branch",
+      }),
+      expect.any(Object),
+    )
+  })
+
+  it("settles status with a capability reply when the agent does not capture", async () => {
+    runAgentMock.mockResolvedValue({ kind: "capability" })
+
+    const result = await slackMentionAgent.fn(
+      workflowContext({
+        orgId: "org_1",
+        connectionId: "con_1",
+        channelId: "C1",
+        threadTs: "1710000000.000100",
+        mentionText: "<@U_BOT> what is this?",
+      }),
+    )
 
     expect(updateStatusMock).toHaveBeenCalledWith(
       expect.objectContaining({
@@ -145,14 +243,14 @@ describe("slackMentionAgent workflow", () => {
       .mockResolvedValueOnce(null)
       .mockResolvedValueOnce({ ts: "1710000000.001000" })
 
-    await slackMentionAgent.fn({
-      input: {
+    await slackMentionAgent.fn(
+      workflowContext({
         orgId: "org_1",
         connectionId: "con_1",
         channelId: "C1",
         threadTs: "1710000000.000100",
-      },
-    } as never)
+      }),
+    )
 
     expect(runAgentMock).toHaveBeenCalledWith(
       expect.objectContaining({ excludeMessageTs: undefined }),
@@ -172,14 +270,14 @@ describe("slackMentionAgent workflow", () => {
       .mockResolvedValueOnce({ ts: "1710000000.000999" })
       .mockResolvedValueOnce({ ts: "1710000000.001000" })
 
-    await slackMentionAgent.fn({
-      input: {
+    await slackMentionAgent.fn(
+      workflowContext({
         orgId: "org_1",
         connectionId: "con_1",
         channelId: "C1",
         threadTs: "1710000000.000100",
-      },
-    } as never)
+      }),
+    )
 
     expect(updateStatusMock).toHaveBeenCalledWith(
       expect.objectContaining({ messageTs: "1710000000.000999" }),
@@ -196,14 +294,14 @@ describe("slackMentionAgent workflow", () => {
     runAgentMock.mockRejectedValue(new Error("boom"))
 
     await expect(
-      slackMentionAgent.fn({
-        input: {
+      slackMentionAgent.fn(
+        workflowContext({
           orgId: "org_1",
           connectionId: "con_1",
           channelId: "C1",
           threadTs: "1710000000.000100",
-        },
-      } as never),
+        }),
+      ),
     ).rejects.toThrow("boom")
 
     expect(updateStatusMock).toHaveBeenCalledWith(
@@ -218,14 +316,14 @@ describe("slackMentionAgent workflow", () => {
     getTargetMock.mockResolvedValue({ ...target, enabled: false })
 
     await expect(
-      slackMentionAgent.fn({
-        input: {
+      slackMentionAgent.fn(
+        workflowContext({
           orgId: "org_1",
           connectionId: "con_1",
           channelId: "C1",
           threadTs: "1710000000.000100",
-        },
-      } as never),
+        }),
+      ),
     ).rejects.toThrow("Slack connector is not live")
     expect(runAgentMock).not.toHaveBeenCalled()
   })
