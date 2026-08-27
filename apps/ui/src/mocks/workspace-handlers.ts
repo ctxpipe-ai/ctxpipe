@@ -293,9 +293,10 @@ export function conversationGitTreeEventuallyHandler(
   return http.get(
     ({ request }) =>
       /\/api\/v1\/conversations\/[^/]+\/files\/tree$/.test(pathnameOf(request)),
-    () => {
+    async () => {
       hits += 1
       if (hits <= missingHits) {
+        await delay(1500)
         return HttpResponse.json({ error: "missing_sandbox" }, { status: 409 })
       }
       return HttpResponse.json(tree)
