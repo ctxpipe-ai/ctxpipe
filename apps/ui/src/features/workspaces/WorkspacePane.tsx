@@ -21,6 +21,7 @@ import {
   useQueryClient,
   useSuspenseQuery,
 } from "@tanstack/react-query"
+import { useParams } from "@tanstack/react-router"
 import type { CSSProperties, ReactNode } from "react"
 import {
   Suspense,
@@ -369,7 +370,6 @@ export function WorkspacePane(props: {
                 <WorkspaceFilesPaneBody
                   orgSlug={props.orgSlug}
                   workspaceSlug={props.workspace.slug}
-                  workspaceId={props.workspace.id}
                   conversationId={props.conversationId}
                   sha={
                     props.workspace.activeProjectionSha?.trim() ||
@@ -452,7 +452,6 @@ export function WorkspacePane(props: {
 function WorkspaceFilesPaneBody(props: {
   orgSlug: string
   workspaceSlug: string
-  workspaceId: string
   conversationId?: string
   sha: string
   writeStatus: string
@@ -463,50 +462,122 @@ function WorkspaceFilesPaneBody(props: {
   onToggleTree: () => void
   onCloseActiveFile: () => void
 }) {
-  const prepareQuery = useQuery({
-    ...workspaceChatPrepareOptions(
-      props.orgSlug,
-      props.conversationId ?? "",
-      props.workspaceId,
-    ),
-    enabled: Boolean(props.conversationId),
-  })
-  const sandboxTreeQuery = useQuery({
-    ...conversationGitTreeOptions(props.orgSlug, props.conversationId ?? ""),
-    enabled: Boolean(props.conversationId) && prepareQuery.isSuccess,
-    refetchInterval: (query) =>
-      prepareQuery.isSuccess && !query.state.data ? 2000 : false,
-  })
-  const workspaceTree = useSuspenseQuery(
-    workspaceGitTreeOptions(props.orgSlug, props.workspaceSlug, props.sha),
+  const routeConversationId = useParams({ strict: false }).conversationId
+  const conversationId =
+    props.conversationId ??
+    (typeof routeConversationId === "string" ? routeConversationId : undefined)
+  if (conversationId) {
+    return (
+      <ConversationSandboxFilesPane
+        orgSlug={props.orgSlug}
+        workspaceSlug={props.workspaceSlug}
+        conversationId={conversationId}
+        sha={props.sha}
+        writeStatus={props.writeStatus}
+        activeFile={props.activeFile}
+        treeCollapsed={props.treeCollapsed}
+        onPreviewFile={props.onPreviewFile}
+        onPinFile={props.onPinFile}
+        onToggleTree={props.onToggleTree}
+        onCloseActiveFile={props.onCloseActiveFile}
+      />
+    )
+  }
+  return (
+    <WorkspaceProjectionFilesPane
+      orgSlug={props.orgSlug}
+      workspaceSlug={props.workspaceSlug}
+      sha={props.sha}
+      activeFile={props.activeFile}
+      treeCollapsed={props.treeCollapsed}
+      onPreviewFile={props.onPreviewFile}
+      onPinFile={props.onPinFile}
+      onToggleTree={props.onToggleTree}
+      onCloseActiveFile={props.onCloseActiveFile}
+    />
   )
-  const useSandbox = Boolean(props.conversationId) && sandboxTreeQuery.isSuccess
+}
+
+function ConversationSandboxFilesPane(props: {
+  orgSlug: string
+  workspaceSlug: string
+  conversationId: string
+  sha: string
+  writeStatus: string
+  activeFile: string | null
+  treeCollapsed: boolean
+  onPreviewFile: (path: string) => void
+  onPinFile: (path: string) => void
+  onToggleTree: () => void
+  onCloseActiveFile: () => void
+}) {
+  const sandboxTreeQuery = useQuery({
+    ...conversationGitTreeOptions(props.orgSlug, props.conversationId),
+    refetchInterval: (query) => (query.state.data ? false : 2000),
+  })
   const sandboxStatusQuery = useQuery({
-    ...conversationGitStatusOptions(props.orgSlug, props.conversationId ?? ""),
-    enabled: useSandbox,
+    ...conversationGitStatusOptions(props.orgSlug, props.conversationId),
+    enabled: sandboxTreeQuery.isSuccess,
   })
-  const workspaceStatusQuery = useQuery({
-    ...workspaceGitStatusOptions(props.orgSlug, props.workspaceSlug, props.sha),
-    enabled: !useSandbox,
-  })
-  const tree = useSandbox ? sandboxTreeQuery.data : workspaceTree.data
-  if (!tree) return null
+  if (!sandboxTreeQuery.data) {
+    if (sandboxTreeQuery.isError && !sandboxTreeQuery.isFetching) {
+      return (
+        <div className="flex flex-1 items-center justify-center p-6">
+          <InlineAlert variant="error" title="Could not load files">
+            The conversation sandbox is not ready. Try again in a moment.
+          </InlineAlert>
+        </div>
+      )
+    }
+    return <WorkspaceFilesPaneSkeleton />
+  }
   return (
     <div className="h-full min-h-0 min-w-0 flex-1">
       <WorkspaceFilesPaneContent
         orgSlug={props.orgSlug}
         workspaceSlug={props.workspaceSlug}
-        conversationId={useSandbox ? props.conversationId : undefined}
+        conversationId={props.conversationId}
         sha={props.sha}
-        tree={tree}
-        gitStatus={
-          (useSandbox
-            ? sandboxStatusQuery.data?.items
-            : workspaceStatusQuery.data?.items) ?? []
-        }
-        writable={
-          useSandbox && conversationAllowsEdits(props.writeStatus)
-        }
+        tree={sandboxTreeQuery.data}
+        gitStatus={sandboxStatusQuery.data?.items ?? []}
+        writable={conversationAllowsEdits(props.writeStatus)}
+        activeFile={props.activeFile}
+        treeCollapsed={props.treeCollapsed}
+        onPreviewFile={props.onPreviewFile}
+        onPinFile={props.onPinFile}
+        onToggleTree={props.onToggleTree}
+        onCloseActiveFile={props.onCloseActiveFile}
+      />
+    </div>
+  )
+}
+
+function WorkspaceProjectionFilesPane(props: {
+  orgSlug: string
+  workspaceSlug: string
+  sha: string
+  activeFile: string | null
+  treeCollapsed: boolean
+  onPreviewFile: (path: string) => void
+  onPinFile: (path: string) => void
+  onToggleTree: () => void
+  onCloseActiveFile: () => void
+}) {
+  const workspaceTree = useSuspenseQuery(
+    workspaceGitTreeOptions(props.orgSlug, props.workspaceSlug, props.sha),
+  )
+  const workspaceStatusQuery = useQuery(
+    workspaceGitStatusOptions(props.orgSlug, props.workspaceSlug, props.sha),
+  )
+  return (
+    <div className="h-full min-h-0 min-w-0 flex-1">
+      <WorkspaceFilesPaneContent
+        orgSlug={props.orgSlug}
+        workspaceSlug={props.workspaceSlug}
+        sha={props.sha}
+        tree={workspaceTree.data}
+        gitStatus={workspaceStatusQuery.data?.items ?? []}
+        writable={false}
         activeFile={props.activeFile}
         treeCollapsed={props.treeCollapsed}
         onPreviewFile={props.onPreviewFile}
@@ -547,11 +618,7 @@ function WorkspaceFilesPaneContent(props: {
   const prefetchBlob = (path: string) => {
     if (props.conversationId) {
       void queryClient.prefetchQuery(
-        conversationGitBlobOptions(
-          props.orgSlug,
-          props.conversationId,
-          path,
-        ),
+        conversationGitBlobOptions(props.orgSlug, props.conversationId, path),
       )
       return
     }
@@ -683,15 +750,8 @@ function WorkspaceFilesPaneContent(props: {
     onMutate: async (input) => {
       setJobError(null)
       const key = props.conversationId
-        ? workspaceKeys.conversationGitTree(
-            props.orgSlug,
-            props.conversationId,
-          )
-        : workspaceKeys.gitTree(
-            props.orgSlug,
-            props.workspaceSlug,
-            props.sha,
-          )
+        ? workspaceKeys.conversationGitTree(props.orgSlug, props.conversationId)
+        : workspaceKeys.gitTree(props.orgSlug, props.workspaceSlug, props.sha)
       await queryClient.cancelQueries({ queryKey: key })
       const previous = queryClient.getQueryData<WorkspaceGitTreeResponse>(key)
       if (!previous || input.op === "save") return { previous }
@@ -779,14 +839,17 @@ function WorkspaceFilesPaneContent(props: {
     },
   })
 
-  const flushSave = useCallback((path: string | null) => {
-    if (!writableRef.current || !path) return
-    const latest = latestDraftRef.current
-    const content =
-      latest?.path === path ? latest.body : draftsRef.current[path]
-    if (content === undefined) return
-    jobMutation.mutate({ op: "save", path, content })
-  }, [jobMutation])
+  const flushSave = useCallback(
+    (path: string | null) => {
+      if (!writableRef.current || !path) return
+      const latest = latestDraftRef.current
+      const content =
+        latest?.path === path ? latest.body : draftsRef.current[path]
+      if (content === undefined) return
+      jobMutation.mutate({ op: "save", path, content })
+    },
+    [jobMutation],
+  )
 
   const clearAutosaveTimer = useCallback(() => {
     if (saveTimerRef.current) {
@@ -830,7 +893,10 @@ function WorkspaceFilesPaneContent(props: {
   useEffect(() => {
     if (!writable) return
     const onKeyDown = (event: KeyboardEvent) => {
-      if (!(event.metaKey || event.ctrlKey) || event.key.toLowerCase() !== "s") {
+      if (
+        !(event.metaKey || event.ctrlKey) ||
+        event.key.toLowerCase() !== "s"
+      ) {
         return
       }
       event.preventDefault()
@@ -1200,10 +1266,7 @@ function WorkspaceGitFilePreview(props: {
 }) {
   if (props.conversationId) {
     return (
-      <SandboxGitFilePreview
-        {...props}
-        conversationId={props.conversationId}
-      />
+      <SandboxGitFilePreview {...props} conversationId={props.conversationId} />
     )
   }
   return <CodesearchGitFilePreview {...props} />

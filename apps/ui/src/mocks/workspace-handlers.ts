@@ -316,7 +316,9 @@ export function conversationGitStatusHandler(
 ) {
   return http.get(
     ({ request }) =>
-      /\/api\/v1\/conversations\/[^/]+\/files\/status$/.test(pathnameOf(request)),
+      /\/api\/v1\/conversations\/[^/]+\/files\/status$/.test(
+        pathnameOf(request),
+      ),
     () => HttpResponse.json(status),
   )
 }
@@ -486,5 +488,8 @@ export function workspaceShellHandlers(input?: {
     workspaceGraphHandler(input?.graph ?? docsWorkspaceGraph),
     workspaceActivityHandler(),
     conversationPrepareHandler(),
+    conversationGitTreeHandler(input?.gitTree ?? docsWorkspaceGitTree),
+    conversationGitBlobHandler(input?.gitBlobs ?? docsWorkspaceGitBlobs),
+    conversationGitStatusHandler(),
   ]
 }

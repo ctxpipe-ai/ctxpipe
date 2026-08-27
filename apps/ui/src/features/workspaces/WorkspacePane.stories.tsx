@@ -1,7 +1,7 @@
 import type { Meta, StoryObj } from "@storybook/react-vite"
 import { useNavigate, useSearch } from "@tanstack/react-router"
 import { type ComponentProps, useState } from "react"
-import { fn } from "storybook/test"
+import { expect, fn, waitFor, within } from "storybook/test"
 import {
   conversationFilePutHandler,
   conversationGitBlobHandler,
@@ -461,6 +461,45 @@ export const ConversationWritable: Story = {
   },
 }
 
+export const ConversationSandboxFiles: Story = {
+  args: {
+    conversationId: "conv_1",
+    pane: { kind: "files" },
+  },
+  parameters: {
+    storyRoute: {
+      pattern: "orgWorkspace",
+      orgSlug: "acme",
+      workspaceSlug: "docs",
+      conversationId: "conv_1",
+      pane: "files",
+    } satisfies StoryRouteParams,
+    msw: {
+      handlers: {
+        page: [
+          conversationGitTreeHandler({
+            sha: "sandboxsha",
+            paths: ["e2e-session-branch-note.md", "AGENTS.md"],
+            branch: "ctxpipe/chat/conv_1/1",
+          }),
+          conversationGitStatusHandler(),
+          workspaceGitTreeHandler({
+            sha: "workspace-only",
+            paths: ["repositories/README.md"],
+          }),
+        ],
+      },
+    },
+  },
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement)
+    await waitFor(() => {
+      expect(canvas.getByText("e2e-session-branch-note.md")).toBeVisible()
+    })
+    expect(canvas.queryByText("repositories")).not.toBeInTheDocument()
+  },
+}
+
 export const DiffTab: Story = {
   args: {
     conversationId: "conv_1",
@@ -482,7 +521,7 @@ export const DiffTab: Story = {
   },
 }
 
-export const SandboxLoadingFallback: Story = {
+export const SandboxLoading: Story = {
   args: {
     conversationId: "conv_1",
     pane: { kind: "files" },
@@ -497,12 +536,14 @@ export const SandboxLoadingFallback: Story = {
     } satisfies StoryRouteParams,
     msw: {
       handlers: {
-        page: [
-          conversationPrepareHandler(),
-          conversationGitTreeMissingHandler(),
-          ...gitFilesHandlers,
-        ],
+        page: [conversationGitTreeMissingHandler(), ...gitFilesHandlers],
       },
     },
+  },
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement)
+    expect(canvas.getByText("Loading files")).toBeInTheDocument()
+    expect(canvas.queryByText("knowledge")).not.toBeInTheDocument()
+    expect(canvas.queryByText("repositories")).not.toBeInTheDocument()
   },
 }
