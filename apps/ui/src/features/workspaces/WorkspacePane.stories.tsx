@@ -7,6 +7,7 @@ import {
   conversationGitBlobHandler,
   conversationGitDiffHandler,
   conversationGitStatusHandler,
+  conversationGitTreeEventuallyHandler,
   conversationGitTreeHandler,
   conversationGitTreeMissingHandler,
   conversationPrepareHandler,
@@ -30,6 +31,10 @@ import {
   seedFileTabSession,
   tabsIncludingPanePath,
 } from "./fileTabs"
+import {
+  clearAllConversationGitTreeSnapshots,
+  writeConversationGitTreeSnapshot,
+} from "./conversation-git-tree-snapshot"
 import { type ParsedPane, parsePane, serializePane } from "./pane"
 import { WorkspacePane } from "./WorkspacePane"
 import {
@@ -173,6 +178,9 @@ const meta = {
       workspaceSlug: "docs",
       pane: "files",
     } satisfies StoryRouteParams,
+  },
+  beforeEach: () => {
+    clearAllConversationGitTreeSnapshots()
   },
   args: {
     orgSlug: "acme",
@@ -544,6 +552,64 @@ export const SandboxLoading: Story = {
     const canvas = within(canvasElement)
     expect(canvas.getByText("Loading files")).toBeInTheDocument()
     expect(canvas.queryByText("knowledge")).not.toBeInTheDocument()
+    expect(canvas.queryByText("repositories")).not.toBeInTheDocument()
+  },
+}
+
+export const CachedSandboxWhile409: Story = {
+  args: {
+    conversationId: "conv_1",
+    pane: { kind: "files" },
+  },
+  beforeEach: () => {
+    writeConversationGitTreeSnapshot("conv_1", {
+      sha: "cachedsha",
+      paths: ["cached-note.md"],
+      branch: "ctxpipe/chat/conv_1/1",
+    })
+  },
+  parameters: {
+    storyRoute: {
+      pattern: "orgWorkspace",
+      orgSlug: "acme",
+      workspaceSlug: "docs",
+      conversationId: "conv_1",
+      pane: "files",
+    } satisfies StoryRouteParams,
+    msw: {
+      handlers: {
+        page: [
+          conversationGitTreeEventuallyHandler(
+            {
+              sha: "livesha",
+              paths: ["e2e-live-note.md"],
+              branch: "ctxpipe/chat/conv_1/1",
+            },
+            2,
+          ),
+          workspaceGitTreeHandler({
+            sha: "workspace-only",
+            paths: ["repositories/README.md"],
+          }),
+        ],
+      },
+    },
+  },
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement)
+    await waitFor(() => {
+      expect(canvas.getByText("cached-note.md")).toBeVisible()
+    })
+    expect(canvas.getByText("Updating…")).toBeVisible()
+    expect(canvas.queryByText("repositories")).not.toBeInTheDocument()
+    await waitFor(
+      () => {
+        expect(canvas.getByText("e2e-live-note.md")).toBeVisible()
+      },
+      { timeout: 8000 },
+    )
+    expect(canvas.queryByText("cached-note.md")).not.toBeInTheDocument()
+    expect(canvas.queryByText("Updating…")).not.toBeInTheDocument()
     expect(canvas.queryByText("repositories")).not.toBeInTheDocument()
   },
 }

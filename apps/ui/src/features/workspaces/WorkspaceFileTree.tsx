@@ -13,6 +13,21 @@ import {
 import type { WorkspaceGitStatusItem } from "./types"
 
 const TREE_HEADER_CLASS = "flex h-8 shrink-0 items-center gap-1 px-1"
+
+function TreeHeaderBusy(props: { label?: string }) {
+  if (!props.label) return <span className="min-w-0 flex-1" />
+  return (
+    <span className="min-w-0 flex-1">
+      <span className="flex items-center gap-1.5 px-1 font-mono text-[11px] uppercase tracking-[0.18em] text-zinc-500">
+        <span
+          aria-hidden
+          className="size-1.5 shrink-0 animate-pulse rounded-full bg-zinc-500"
+        />
+        {props.label}
+      </span>
+    </span>
+  )
+}
 const TREE_HEADER_ICON_CLASS =
   "size-6 min-h-6 min-w-6 p-0 leading-none [&_svg]:block"
 const ADDITIONS_COLOR = "#34d399"
@@ -88,6 +103,7 @@ export function WorkspaceFileTree(props: {
   selectedPath: string | null
   gitStatus?: readonly WorkspaceGitStatusItem[]
   writable: boolean
+  busyLabel?: string
   onSelect: (path: string) => void
   onPin?: (path: string) => void
   onRequestCreate?: (kind: "file" | "folder", parentPath: string | null) => void
@@ -107,13 +123,14 @@ export function WorkspaceFileTree(props: {
 function FileTreeSsrFallback(props: {
   paths: readonly string[]
   selectedPath: string | null
+  busyLabel?: string
   onHideTree?: () => void
   onHoverFile?: (path: string) => void
 }) {
   return (
     <div className="flex h-full min-h-0 min-w-0 flex-col">
       <div className={TREE_HEADER_CLASS}>
-        <span className="min-w-0 flex-1" />
+        <TreeHeaderBusy label={props.busyLabel} />
         {props.onHideTree ? (
           <Button
             variant="quiet"
@@ -160,6 +177,7 @@ function WorkspaceFileTreeClient(props: {
   selectedPath: string | null
   gitStatus?: readonly WorkspaceGitStatusItem[]
   writable: boolean
+  busyLabel?: string
   onSelect: (path: string) => void
   onPin?: (path: string) => void
   onRequestCreate?: (kind: "file" | "folder", parentPath: string | null) => void
@@ -265,7 +283,7 @@ function WorkspaceFileTreeClient(props: {
   return (
     <div className="flex h-full min-h-0 min-w-0 flex-col">
       <div className={TREE_HEADER_CLASS}>
-        <span className="min-w-0 flex-1" />
+        <TreeHeaderBusy label={props.busyLabel} />
         <Button
           variant="quiet"
           size="icon-sm"

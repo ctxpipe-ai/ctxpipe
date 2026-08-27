@@ -519,7 +519,8 @@ function ConversationSandboxFilesPane(props: {
     ...conversationGitStatusOptions(props.orgSlug, props.conversationId),
     enabled: sandboxTreeQuery.isSuccess,
   })
-  if (!sandboxTreeQuery.data) {
+  const tree = sandboxTreeQuery.data
+  if (!tree) {
     if (sandboxTreeQuery.isError && !sandboxTreeQuery.isFetching) {
       return (
         <div className="flex flex-1 items-center justify-center p-6">
@@ -538,9 +539,10 @@ function ConversationSandboxFilesPane(props: {
         workspaceSlug={props.workspaceSlug}
         conversationId={props.conversationId}
         sha={props.sha}
-        tree={sandboxTreeQuery.data}
+        tree={tree}
         gitStatus={sandboxStatusQuery.data?.items ?? []}
         writable={conversationAllowsEdits(props.writeStatus)}
+        updating={!sandboxTreeQuery.isSuccess}
         activeFile={props.activeFile}
         treeCollapsed={props.treeCollapsed}
         onPreviewFile={props.onPreviewFile}
@@ -607,6 +609,7 @@ function WorkspaceFilesPaneContent(props: {
   tree: WorkspaceGitTreeResponse
   gitStatus: readonly WorkspaceGitStatusItem[]
   writable: boolean
+  updating?: boolean
   activeFile: string | null
   treeCollapsed: boolean
   onPreviewFile: (path: string) => void
@@ -939,6 +942,7 @@ function WorkspaceFilesPaneContent(props: {
             selectedPath={props.activeFile}
             gitStatus={gitStatus}
             writable={writable}
+            busyLabel={props.updating ? "Updating…" : undefined}
             onHoverFile={prefetchBlob}
             onSelect={(path) => {
               prefetchBlob(path)
@@ -1419,14 +1423,15 @@ function prefetchWorkspacePane(
           conversationGitBlobOptions(orgSlug, conversationId, pane.path),
         )
       }
-    }
-    void queryClient.prefetchQuery(
-      workspaceGitTreeOptions(orgSlug, workspace.slug, sha),
-    )
-    if (pane.kind === "file") {
+    } else {
       void queryClient.prefetchQuery(
-        workspaceGitBlobOptions(orgSlug, workspace.slug, sha, pane.path),
+        workspaceGitTreeOptions(orgSlug, workspace.slug, sha),
       )
+      if (pane.kind === "file") {
+        void queryClient.prefetchQuery(
+          workspaceGitBlobOptions(orgSlug, workspace.slug, sha, pane.path),
+        )
+      }
     }
   } else if (pane.kind === "diff" && conversationId) {
     void queryClient.prefetchQuery(

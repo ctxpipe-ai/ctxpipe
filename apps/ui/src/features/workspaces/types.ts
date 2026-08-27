@@ -79,6 +79,10 @@ export type WorkspaceGitTreeResponse = {
   paths: string[]
 }
 
+export type ConversationGitTreeResponse = WorkspaceGitTreeResponse & {
+  branch: string
+}
+
 export type WorkspaceGitBlobResponse = {
   path: string
   body: string | null

@@ -2,11 +2,16 @@ import { queryOptions } from "@tanstack/react-query"
 import type { ConversationDetail } from "@/features/chat/types"
 import { getApiClient } from "@/lib/api"
 import { ApiError, pollWhileOk, readApiJson } from "@/lib/api-result"
+import {
+  readConversationGitTreeSnapshot,
+  writeConversationGitTreeSnapshot,
+} from "./conversation-git-tree-snapshot"
 import { destinationAfterMove } from "./fileTreeMutations"
 import type {
   ConversationFileMutation,
   ConversationGitDiffResponse,
   ConversationGitStatusResponse,
+  ConversationGitTreeResponse,
   ConversationPullRequestResponse,
   ConversationPushResponse,
   Workspace,
@@ -339,7 +344,7 @@ export function workspaceActivityOptions(
 export async function fetchConversationGitTree(
   orgSlug: string,
   conversationId: string,
-): Promise<WorkspaceGitTreeResponse & { branch: string }> {
+): Promise<ConversationGitTreeResponse> {
   const client = await getApiClient()
   const res = await client[":orgSlug"].api.v1.conversations[
     ":conversationId"
@@ -507,7 +512,12 @@ export function conversationGitTreeOptions(
 ) {
   return queryOptions({
     queryKey: workspaceKeys.conversationGitTree(orgSlug, conversationId),
-    queryFn: () => fetchConversationGitTree(orgSlug, conversationId),
+    queryFn: async () => {
+      const tree = await fetchConversationGitTree(orgSlug, conversationId)
+      writeConversationGitTreeSnapshot(conversationId, tree)
+      return tree
+    },
+    placeholderData: () => readConversationGitTreeSnapshot(conversationId),
     retry: retrySandboxUntilReady,
     retryDelay: 1000,
   })

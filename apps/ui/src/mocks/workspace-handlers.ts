@@ -285,6 +285,24 @@ export function conversationGitTreeMissingHandler() {
   )
 }
 
+export function conversationGitTreeEventuallyHandler(
+  tree: WorkspaceGitTreeResponse & { branch?: string },
+  missingHits = 2,
+) {
+  let hits = 0
+  return http.get(
+    ({ request }) =>
+      /\/api\/v1\/conversations\/[^/]+\/files\/tree$/.test(pathnameOf(request)),
+    () => {
+      hits += 1
+      if (hits <= missingHits) {
+        return HttpResponse.json({ error: "missing_sandbox" }, { status: 409 })
+      }
+      return HttpResponse.json(tree)
+    },
+  )
+}
+
 export function conversationGitBlobHandler(
   blobs: Record<string, string> = docsWorkspaceGitBlobs,
 ) {
