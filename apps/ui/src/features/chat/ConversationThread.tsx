@@ -139,10 +139,10 @@ function ReasoningBox(props: {
   )
 }
 
-function ToolChip(props: { bucket: ToolBucket; label: string; live: boolean }) {
+function ToolChip(props: { bucket: ToolBucket; label: string }) {
   return (
     <span className="inline-flex min-w-0 items-center gap-1.5">
-      <ActivityIconSlot live={props.live}>
+      <ActivityIconSlot live={false}>
         {bucketIcon(props.bucket)}
       </ActivityIconSlot>
       <span className="tabular-nums">{props.label}</span>
@@ -171,7 +171,7 @@ function ToolUseRow(props: { tools: ToolCallSummary[]; live: boolean }) {
         <span className="flex min-w-0 flex-1 flex-col gap-1">
           {tools.map((tool) => (
             <span key={tool.id} className="flex min-w-0 items-start gap-2">
-              <ActivityIconSlot live={live}>
+              <ActivityIconSlot live={false}>
                 {bucketIcon(tool.bucket)}
               </ActivityIconSlot>
               <span className="min-w-0 flex-1 font-mono">{tool.detail}</span>
@@ -185,7 +185,6 @@ function ToolUseRow(props: { tools: ToolCallSummary[]; live: boolean }) {
               key={chip.bucket}
               bucket={chip.bucket}
               label={chip.label}
-              live={live}
             />
           ))}
         </span>

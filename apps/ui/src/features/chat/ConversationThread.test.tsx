@@ -76,6 +76,33 @@ describe("ConversationThread activity chrome", () => {
     expect(html).not.toMatch(/data-reasoning-title="true"[^>]*>Thinking/)
   })
 
+  it("uses icons on live tool chips and a pulsing dot only on reasoning", () => {
+    const html = renderThread(
+      [
+        user,
+        {
+          id: "a1",
+          role: "assistant",
+          parts: [
+            {
+              type: "thinking",
+              content: "**Inspecting documentation steps**\n\nLooking next.",
+            },
+            { type: "tool-call", id: "tc_1", name: "hybrid_search" },
+            { type: "tool-call", id: "tc_2", name: "get_file" },
+          ],
+        },
+      ],
+      "streaming",
+    )
+    expect(html).toContain("Read 1 file")
+    expect(html).toContain("1 search")
+    expect(html).toContain("tabler-icon-file")
+    expect(html).toContain("tabler-icon-search")
+    expect(html.match(/ctx-indexing-dot/g)).toHaveLength(1)
+    expect(html).toContain("data-reasoning-title")
+  })
+
   it("shows a live tool counter and hides Thinking…", () => {
     const html = renderThread(
       [
