@@ -1,6 +1,8 @@
 import { describe, expect, it } from "vitest"
 import {
   collapsedToolSummary,
+  latestReasoningHeading,
+  normalizeReasoningMarkdown,
   summarizeToolCalls,
   toolBucket,
   toolBucketCounts,
@@ -87,5 +89,38 @@ describe("conversation thread tool summary", () => {
       "billing",
       "ls",
     ])
+  })
+})
+
+describe("reasoning markdown", () => {
+  it("puts a heading-only line on its own block", () => {
+    expect(
+      normalizeReasoningMarkdown(
+        "**Inspecting documentation steps**\n\nI should move forward carefully.\n**Implementing document updates**\n\nNext I will edit docker.md.",
+      ),
+    ).toBe(
+      "**Inspecting documentation steps**\n\nI should move forward carefully.\n\n**Implementing document updates**\n\nNext I will edit docker.md.",
+    )
+    expect(
+      normalizeReasoningMarkdown(
+        "I should move forward carefully.**Implementing document updates**\nNext I will edit docker.md.",
+      ),
+    ).toBe(
+      "I should move forward carefully.\n\n**Implementing document updates**\n\nNext I will edit docker.md.",
+    )
+  })
+
+  it("returns the latest bold or ATX heading", () => {
+    expect(latestReasoningHeading("I'll inspect the repository.")).toBeNull()
+    expect(
+      latestReasoningHeading(
+        "**Inspecting documentation steps**\n\nFirst.\n**Consolidating documents**\n\nSecond.",
+      ),
+    ).toBe("Consolidating documents")
+    expect(
+      latestReasoningHeading(
+        "# Inspecting\n\nBody\n## Consolidating documents",
+      ),
+    ).toBe("Consolidating documents")
   })
 })

@@ -659,6 +659,10 @@
     display: inline;
     margin: 0 !important;
   }
+
+  .ctx-streamdown-reasoning-collapsed > * + *::before {
+    content: " ";
+  }
 }
 
 .ctx-status-pulse {

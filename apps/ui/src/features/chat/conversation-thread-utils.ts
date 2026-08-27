@@ -93,7 +93,9 @@ export function toolCallDetail(part: {
 }): string {
   const name = part.name?.trim() || "tool"
   const input =
-    part.input && typeof part.input === "object" ? part.input : parseArguments(part.arguments)
+    part.input && typeof part.input === "object"
+      ? part.input
+      : parseArguments(part.arguments)
   if (input && typeof input === "object") {
     const record = input as Record<string, unknown>
     for (const key of DETAIL_KEYS) {
@@ -160,8 +162,7 @@ export function collapsedToolChips(
   if (counts.searches > 0) {
     chips.push({
       bucket: "search",
-      label:
-        counts.searches === 1 ? "1 search" : `${counts.searches} searches`,
+      label: counts.searches === 1 ? "1 search" : `${counts.searches} searches`,
     })
   }
   if (counts.tools > 0) {
@@ -175,4 +176,44 @@ export function collapsedToolChips(
 
 export function collapsedToolSummary(counts: ToolBucketCounts): string[] {
   return collapsedToolChips(counts).map((chip) => chip.label)
+}
+
+const BOLD_HEADING_LINE = /^\s*\*\*([^*]+)\*\*\s*$/
+const ATX_HEADING_LINE = /^\s{0,3}#{1,6}\s+(.+?)\s*#*\s*$/
+
+function reasoningHeadingTitle(line: string): string | null {
+  const bold = line.match(BOLD_HEADING_LINE)
+  if (bold?.[1]?.trim()) return bold[1].trim()
+  const atx = line.match(ATX_HEADING_LINE)
+  if (atx?.[1]?.trim()) return atx[1].trim()
+  return null
+}
+
+export function latestReasoningHeading(text: string): string | null {
+  let last: string | null = null
+  for (const line of text.replace(/\r\n/g, "\n").split("\n")) {
+    const title = reasoningHeadingTitle(line)
+    if (title) last = title
+  }
+  return last
+}
+
+export function normalizeReasoningMarkdown(text: string): string {
+  const prepared = text
+    .replace(/\r\n/g, "\n")
+    .replace(/([.!?])\s*(\*\*[^*]+\*\*)/g, "$1\n$2")
+  const out: string[] = []
+  for (const line of prepared.split("\n")) {
+    if (reasoningHeadingTitle(line)) {
+      if (out.length > 0 && out[out.length - 1] !== "") out.push("")
+      out.push(line.trim())
+      out.push("")
+      continue
+    }
+    out.push(line)
+  }
+  return out
+    .join("\n")
+    .replace(/\n{3,}/g, "\n\n")
+    .trim()
 }

@@ -14,10 +14,12 @@ import {
 import { InlineAlert } from "@/components/ui/InlineAlert"
 import {
   collapsedToolChips,
+  latestReasoningHeading,
+  normalizeReasoningMarkdown,
   summarizeToolCalls,
-  toolBucketCounts,
   type ToolBucket,
   type ToolCallSummary,
+  toolBucketCounts,
 } from "@/features/chat/conversation-thread-utils"
 import type { ChatMessage, ChatStatus } from "@/features/chat/types"
 import { focusVisibleClassName } from "@/lib/focus-styles"
@@ -81,12 +83,14 @@ function ReasoningBox(props: {
   const { text, live, collapsed } = props
   const [userExpanded, setUserExpanded] = useState<boolean | null>(null)
   const expanded = live || (userExpanded ?? !collapsed)
+  const markdown = normalizeReasoningMarkdown(text)
+  const liveTitle = latestReasoningHeading(text)
   const body = (
     <MessageResponse
       className={reasoningResponseClassName(!expanded)}
       isAnimating={live}
     >
-      {text}
+      {markdown}
     </MessageResponse>
   )
 
@@ -101,7 +105,15 @@ function ReasoningBox(props: {
         <ActivityIconSlot live>
           <IconBrain className="size-4" aria-hidden />
         </ActivityIconSlot>
-        <div className="min-w-0 flex-1">{body}</div>
+        <div className="min-w-0 flex-1 space-y-1">
+          <p
+            data-reasoning-title
+            className="text-xs font-medium text-muted-foreground"
+          >
+            {liveTitle ?? "Thinking…"}
+          </p>
+          {body}
+        </div>
       </div>
     )
   }
@@ -127,11 +139,7 @@ function ReasoningBox(props: {
   )
 }
 
-function ToolChip(props: {
-  bucket: ToolBucket
-  label: string
-  live: boolean
-}) {
+function ToolChip(props: { bucket: ToolBucket; label: string; live: boolean }) {
   return (
     <span className="inline-flex min-w-0 items-center gap-1.5">
       <ActivityIconSlot live={props.live}>

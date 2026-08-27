@@ -26,7 +26,7 @@ const user: ChatMessage = {
 }
 
 describe("ConversationThread activity chrome", () => {
-  it("hides Thinking… once a reasoning part exists", () => {
+  it("keeps Thinking… as the live title until a reasoning heading arrives", () => {
     const html = renderThread(
       [
         user,
@@ -44,8 +44,36 @@ describe("ConversationThread activity chrome", () => {
       "streaming",
     )
     expect(html).toContain("Reasoning")
+    expect(html).toContain("data-reasoning-title")
+    expect(html).toContain("Thinking…")
     expect(html).toContain("inspect the repository structure")
-    expect(html).not.toContain("Thinking…")
+  })
+
+  it("uses the latest reasoning heading as the live title", () => {
+    const html = renderThread(
+      [
+        user,
+        {
+          id: "a1",
+          role: "assistant",
+          parts: [
+            {
+              type: "thinking",
+              content:
+                "**Inspecting documentation steps**\n\nI should move forward carefully.\n**Consolidating documents**\n\nEditing docker.md next.",
+            },
+          ],
+        },
+      ],
+      "streaming",
+    )
+    expect(html).toContain('data-reasoning-title="true"')
+    expect(html).toMatch(
+      /data-reasoning-title="true"[^>]*>Consolidating documents</,
+    )
+    expect(html).toContain("Inspecting documentation steps")
+    expect(html).toContain("Editing docker.md next.")
+    expect(html).not.toMatch(/data-reasoning-title="true"[^>]*>Thinking/)
   })
 
   it("shows a live tool counter and hides Thinking…", () => {
@@ -216,7 +244,8 @@ describe("ConversationThread activity chrome", () => {
     processor.processChunk({
       type: "REASONING_MESSAGE_CONTENT",
       messageId: "reason_1",
-      delta: "Inspecting repositories for the sign-in path.",
+      delta:
+        "**Inspecting repositories**\n\nInspecting repositories for the sign-in path.",
       timestamp: Date.now(),
     })
     processor.processChunk({
@@ -234,7 +263,7 @@ describe("ConversationThread activity chrome", () => {
     expect(html).toContain("Inspecting repositories")
     expect(html).toContain("1 search")
     expect(html).not.toContain("hybrid_search")
-    expect(html).not.toContain("Thinking…")
+    expect(html).not.toMatch(/data-reasoning-title="true"[^>]*>Thinking/)
     expect(html).not.toContain("Auth0")
 
     processor.processChunk({

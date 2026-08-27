@@ -67,6 +67,12 @@ export const ReasoningLive: Story = {
     messages: streamingReasoningMessages,
     status: "streaming",
   },
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement)
+    const live = canvas.getByRole("status", { name: /reasoning/i })
+    await expect(live).toHaveTextContent("Consolidating documents")
+    await expect(live).toHaveTextContent("Implementing document updates")
+  },
 }
 
 export const ToolUse: Story = {

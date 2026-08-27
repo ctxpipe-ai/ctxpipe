@@ -421,7 +421,7 @@ export const streamingReasoningMessages: ChatMessage[] = [
       {
         type: "thinking",
         content:
-          "**Inspecting repository options**\n\nI'll inspect the repository structure and its primary project metadata.",
+          "**Inspecting documentation steps**\n\nI need to inspect further and possibly gather more docs before I move forward carefully.\n**Implementing document updates**\n\nI should consolidate the original documents so the docker guide is properly addressed.\n**Consolidating documents**\n\nEditing docker.md and updating root claims next.",
       },
     ],
     createdAt: new Date("2026-08-16T09:42:21.000Z"),
