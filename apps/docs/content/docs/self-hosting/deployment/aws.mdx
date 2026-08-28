@@ -270,9 +270,11 @@ Use `size` to tune compute and database capacity for your single-tenant workload
 
 - `small` (default): best for pilot/small-team deployments with moderate repository churn and cost sensitivity. Aurora and Neptune both use `db.t4g.medium` — AWS’s minimum supported burstable size for these engines (dev/test oriented). Codesearch is 4 GiB (ingest peak, not idle RSS).
 - `medium`: better for sustained ingestion/reindex workloads where worker and codesearch need more headroom. Codesearch is 8 GiB. Aurora uses `db.t4g.large`; Neptune uses memory-optimized `db.r6g.large`.
-- `large`: for high-ingestion and lower-latency expectations, with bigger tasks, scaled backend/worker replicas, and `db.r6g.xlarge` for both Aurora and Neptune. Codesearch is 12 GiB.
+- `large`: for high-ingestion and lower-latency expectations, with bigger tasks, scaled backend/worker replicas, and `db.r6g.xlarge` for both Aurora and Neptune. Codesearch is 12 GiB and still **one task**. The two workers each get `OPENWORKFLOW_CONCURRENCY=8` so the cluster cannot stampede codesearch. Extra workers help extract and connectors, not clone/SCIP parallelism.
 
 See the [package README sizing table](https://github.com/ctxpipe-ai/ctxpipe/blob/main/packages/aws-cdk/README.md#sizing-profiles) for the full preset matrix.
+
+Do **not** raise codesearch desired count. Ingest throughput grows with codesearch memory (4 / 8 / 12 GiB) and the env the construct injects (`OPENWORKFLOW_CONCURRENCY`, `CODESEARCH_INDEXER_CONCURRENCY`, `CODESEARCH_INDEX_PIPELINE_CONCURRENCY`).
 
 Signals that you should move up a size:
 
