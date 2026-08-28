@@ -54,7 +54,66 @@ function codesearchTaskCpuMemory(template: Template): {
       };
     }
   }
-  throw new Error("codesearch task definition not found");
+  throw new Error("codesearch task definition not found"  );
+}
+
+function containerEnvironment(
+  template: Template,
+  containerName: string,
+): Record<string, string> {
+  const resources = template.findResources("AWS::ECS::TaskDefinition");
+  for (const resource of Object.values(resources)) {
+    const properties = resource.Properties as {
+      ContainerDefinitions?: Array<{
+        Name?: string;
+        Environment?: Array<{ Name: string; Value: string }>;
+      }>;
+    };
+    const container = properties.ContainerDefinitions?.find(
+      (candidate) => candidate.Name === containerName,
+    );
+    if (container) {
+      return Object.fromEntries(
+        (container.Environment ?? []).map((entry) => [entry.Name, entry.Value]),
+      );
+    }
+  }
+  throw new Error(`${containerName} container not found`);
+}
+
+function desiredCountForContainer(
+  template: Template,
+  containerName: string,
+): number {
+  const taskDefs = template.findResources("AWS::ECS::TaskDefinition");
+  let taskDefLogicalId: string | undefined;
+  for (const [id, resource] of Object.entries(taskDefs)) {
+    const properties = resource.Properties as {
+      ContainerDefinitions?: Array<{ Name?: string }>;
+    };
+    if (
+      properties.ContainerDefinitions?.some(
+        (container) => container.Name === containerName,
+      )
+    ) {
+      taskDefLogicalId = id;
+      break;
+    }
+  }
+  if (!taskDefLogicalId) {
+    throw new Error(`${containerName} task definition not found`);
+  }
+  const services = template.findResources("AWS::ECS::Service");
+  for (const resource of Object.values(services)) {
+    const properties = resource.Properties as {
+      TaskDefinition?: { Ref?: string };
+      DesiredCount?: number;
+    };
+    if (properties.TaskDefinition?.Ref === taskDefLogicalId) {
+      return properties.DesiredCount ?? 0;
+    }
+  }
+  throw new Error(`${containerName} service not found`);
 }
 
 describe("SIZE_PROFILES database instance classes", () => {
@@ -97,6 +156,40 @@ describe("SIZE_PROFILES codesearch task size", () => {
         cpu,
         memory,
       });
+    },
+  );
+});
+
+describe("SIZE_PROFILES codesearch admission env", () => {
+  it.each([
+    ["small", "6", "1", "1", 1, 1],
+    ["medium", "10", "2", "2", 1, 1],
+    ["large", "8", "2", "2", 2, 1],
+  ] as const)(
+    "size %s injects worker concurrency %s indexer %s pipelines %s (workers %s, codesearch %s)",
+    (
+      size,
+      openWorkflowConcurrency,
+      indexerConcurrency,
+      pipelineConcurrency,
+      workerCount,
+      codesearchCount,
+    ) => {
+      const template = synthForSize(size);
+      const workerEnv = containerEnvironment(template, "worker");
+      const codesearchEnv = containerEnvironment(template, "codesearch");
+      expect(workerEnv.OPENWORKFLOW_CONCURRENCY).toBe(openWorkflowConcurrency);
+      expect(workerEnv.CODESEARCH_INDEXER_CONCURRENCY).toBe(indexerConcurrency);
+      expect(codesearchEnv.CODESEARCH_INDEXER_CONCURRENCY).toBe(
+        indexerConcurrency,
+      );
+      expect(codesearchEnv.CODESEARCH_INDEX_PIPELINE_CONCURRENCY).toBe(
+        pipelineConcurrency,
+      );
+      expect(desiredCountForContainer(template, "worker")).toBe(workerCount);
+      expect(desiredCountForContainer(template, "codesearch")).toBe(
+        codesearchCount,
+      );
     },
   );
 });
