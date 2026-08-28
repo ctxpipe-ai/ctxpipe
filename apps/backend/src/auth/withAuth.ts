@@ -471,19 +471,60 @@ export const requireOrgAdminOrOwner: MiddlewareHandler<AppEnv> = async (
   return c.json({ error: "Forbidden" }, 403)
 }
 
+function requestedOrgSlug(c: {
+  req: {
+    param: (name: string) => string | undefined
+    query: (name: string) => string | undefined
+    header: (name: string) => string | undefined
+  }
+}): string | undefined {
+  for (const value of [
+    c.req.param("orgSlug"),
+    c.req.query("orgSlug"),
+    c.req.header("x-ctxpipe-org"),
+  ]) {
+    const trimmed = value?.trim()
+    if (trimmed) return trimmed
+  }
+  return undefined
+}
+
 export const withNetworkOrgContext: MiddlewareHandler<AppEnv> = async (
   c,
   next,
 ) => {
-  const orgSlug = c.req.param("orgSlug") ?? c.req.query("orgSlug")
-  if (!orgSlug) return c.json({ error: "Not found" }, 404)
-
   const userId = c.get("user")?.id
   if (!userId) return c.json({ error: "Not found" }, 404)
 
+  const orgSlug = requestedOrgSlug(c)
   const systemDb = getSystemDb()
-  const orgRows = await systemDb
-    .select({ id: organizations.id })
+
+  if (orgSlug) {
+    const orgRows = await systemDb
+      .select({ id: organizations.id })
+      .from(organizations)
+      .innerJoin(
+        members,
+        and(
+          eq(members.organizationId, organizations.id),
+          eq(members.userId, userId),
+        ),
+      )
+      .where(eq(organizations.slug, orgSlug))
+      .limit(1)
+
+    const org = orgRows[0]
+    if (!org) return c.json({ error: "Not found" }, 404)
+
+    c.set("orgSlug", orgSlug)
+    c.set("orgId", org.id)
+    return withOrgIdContext({ id: org.id, slug: orgSlug }, async () =>
+      withOrgDbContext(org.id, async () => next()),
+    )
+  }
+
+  const memberships = await systemDb
+    .select({ id: organizations.id, slug: organizations.slug })
     .from(organizations)
     .innerJoin(
       members,
@@ -492,16 +533,30 @@ export const withNetworkOrgContext: MiddlewareHandler<AppEnv> = async (
         eq(members.userId, userId),
       ),
     )
-    .where(eq(organizations.slug, orgSlug))
-    .limit(1)
 
-  const org = orgRows[0]
-  if (!org) return c.json({ error: "Not found" }, 404)
+  if (memberships.length === 0) return c.json({ error: "Not found" }, 404)
 
-  c.set("orgSlug", orgSlug)
-  c.set("orgId", org.id)
-  return withOrgIdContext({ id: org.id, slug: orgSlug }, async () =>
-    withOrgDbContext(org.id, async () => next()),
+  const activeOrganizationId = c.get("session")?.activeOrganizationId
+  const resolved =
+    memberships.length === 1
+      ? memberships[0]
+      : memberships.find((org) => org.id === activeOrganizationId)
+
+  if (!resolved) {
+    return c.json(
+      {
+        error:
+          "orgSlug is required when the authenticated user belongs to multiple organizations. Use /mcp?orgSlug=<orgSlug>.",
+      },
+      400,
+    )
+  }
+
+  c.set("orgSlug", resolved.slug)
+  c.set("orgId", resolved.id)
+  return withOrgIdContext(
+    { id: resolved.id, slug: resolved.slug },
+    async () => withOrgDbContext(resolved.id, async () => next()),
   )
 }
 

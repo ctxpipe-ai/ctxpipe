@@ -96,12 +96,12 @@ describe("MCP route auth and org validation", () => {
     expect(registerMcpToolsMock).not.toHaveBeenCalled()
   })
 
-  it("returns 400 JSON-RPC error for missing orgSlug query", async () => {
+  it("reaches MCP handler when orgSlug is omitted", async () => {
     const app = createTestApp()
     const response = await app.request("/mcp", { method: "POST" })
-    expect(response.status).toBe(400)
-    const body = await response.json()
-    expect(body).toMatchObject({ jsonrpc: "2.0", error: { code: -32600 } })
+
+    expect(registerMcpToolsMock).toHaveBeenCalledTimes(1)
+    expect([200, 204, 400, 406]).toContain(response.status)
   })
 
   it("rejects an untrusted browser origin before authentication", async () => {

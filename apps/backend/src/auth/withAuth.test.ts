@@ -64,9 +64,10 @@ import {
 } from "./withAuth.js"
 
 function createMockDb(input: {
-  orgRows?: Array<{ id: string }>
+  orgRows?: Array<{ id: string; slug?: string }>
+  membershipRows?: Array<{ id: string; slug: string }>
   tokenSessionRows?: Array<{
-    session: { id: string; userId: string }
+    session: { id: string; userId: string; activeOrganizationId?: string }
     user: { id: string; name?: string | null; email?: string | null }
   }>
   /** When bearer JWT has no `sid`, `withBearerAuth` loads latest session by user id (`sub`). */
@@ -83,6 +84,7 @@ function createMockDb(input: {
   }>
 }) {
   const orgRows = input.orgRows ?? []
+  const membershipRows = input.membershipRows ?? []
   const tokenSessionRows = input.tokenSessionRows ?? []
   const bearerSubFallbackRows = input.bearerSubFallbackRows ?? tokenSessionRows
   const opaqueTokenRows = input.opaqueTokenRows ?? []
@@ -113,11 +115,13 @@ function createMockDb(input: {
         from: vi.fn((table: unknown) => {
           if (table === organizations) {
             return {
-              innerJoin: vi.fn(() => ({
-                where: vi.fn(() => ({
-                  limit: vi.fn(async () => orgRows),
-                })),
-              })),
+              innerJoin: vi.fn(() =>
+                Object.assign(Promise.resolve(membershipRows), {
+                  where: vi.fn(() => ({
+                    limit: vi.fn(async () => orgRows),
+                  })),
+                }),
+              ),
             }
           }
           const rows = table === oauthAccessTokens ? opaqueTokenRows : orgRows
@@ -484,6 +488,97 @@ describe("auth middleware composition", () => {
       orgId: "org_cookie",
     })
     expect(jwtVerifyMock).not.toHaveBeenCalled()
+  })
+
+  it("resolves a unique membership when /mcp has no orgSlug", async () => {
+    getSessionMock.mockResolvedValueOnce({
+      user: { id: "user_cookie", email: "cookie@example.com" },
+      session: { id: "sess_cookie", userId: "user_cookie" },
+    })
+    testState.db = createMockDb({
+      membershipRows: [{ id: "org_solo", slug: "solo" }],
+    })
+
+    const app = createComposedTestApp()
+    const response = await app.request("/mcp", { method: "POST" })
+
+    expect(response.status).toBe(200)
+    expect(await response.json()).toEqual({
+      user: { id: "user_cookie", email: "cookie@example.com" },
+      session: { id: "sess_cookie", userId: "user_cookie" },
+      orgSlug: "solo",
+      orgId: "org_solo",
+    })
+  })
+
+  it("resolves the active organization when /mcp has no orgSlug and the user has many orgs", async () => {
+    getSessionMock.mockResolvedValueOnce({
+      user: { id: "user_cookie", email: "cookie@example.com" },
+      session: {
+        id: "sess_cookie",
+        userId: "user_cookie",
+        activeOrganizationId: "org_beta",
+      },
+    })
+    testState.db = createMockDb({
+      membershipRows: [
+        { id: "org_alpha", slug: "alpha" },
+        { id: "org_beta", slug: "beta" },
+      ],
+    })
+
+    const app = createComposedTestApp()
+    const response = await app.request("/mcp", { method: "POST" })
+
+    expect(response.status).toBe(200)
+    expect(await response.json()).toMatchObject({
+      orgSlug: "beta",
+      orgId: "org_beta",
+    })
+  })
+
+  it("requires orgSlug when the user has many orgs and no active organization", async () => {
+    getSessionMock.mockResolvedValueOnce({
+      user: { id: "user_cookie", email: "cookie@example.com" },
+      session: { id: "sess_cookie", userId: "user_cookie" },
+    })
+    testState.db = createMockDb({
+      membershipRows: [
+        { id: "org_alpha", slug: "alpha" },
+        { id: "org_beta", slug: "beta" },
+      ],
+    })
+
+    const app = createComposedTestApp()
+    const response = await app.request("/mcp", { method: "POST" })
+
+    expect(response.status).toBe(400)
+    expect(await response.json()).toEqual({
+      error:
+        "orgSlug is required when the authenticated user belongs to multiple organizations. Use /mcp?orgSlug=<orgSlug>.",
+    })
+  })
+
+  it("accepts x-ctxpipe-org when the user is a member of that org", async () => {
+    getSessionMock.mockResolvedValueOnce({
+      user: { id: "user_cookie", email: "cookie@example.com" },
+      session: { id: "sess_cookie", userId: "user_cookie" },
+    })
+    testState.db = createMockDb({
+      orgRows: [{ id: "org_header" }],
+    })
+
+    const app = createComposedTestApp()
+    const response = await app.request("/mcp", {
+      method: "POST",
+      headers: { "x-ctxpipe-org": "acme" },
+    })
+
+    expect(response.status).toBe(200)
+    expect(await response.json()).toMatchObject({
+      orgSlug: "acme",
+      orgId: "org_header",
+    })
   })
 
   it("rejects an authenticated user who is not a member of the requested org", async () => {
