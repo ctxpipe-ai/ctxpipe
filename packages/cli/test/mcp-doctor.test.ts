@@ -11,7 +11,6 @@ function healthyFetch(
   appOrigin = "https://app.example.com",
   authOrigin = "https://auth.example.com",
 ): typeof fetch {
-  const targetUrl = `${appOrigin}/mcp?orgSlug=acme`
   return vi.fn(async (input: string | URL | Request) => {
     const url =
       input instanceof Request
@@ -22,7 +21,7 @@ function healthyFetch(
     if (url === `${appOrigin}/.status`) {
       return Response.json({ status: "ok" })
     }
-    if (url === targetUrl) {
+    if (url === `${appOrigin}/mcp` || url.startsWith(`${appOrigin}/mcp?`)) {
       return new Response(null, {
         status: 401,
         headers: {

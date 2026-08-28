@@ -180,7 +180,7 @@ export async function diagnoseMcpEndpoint(
     summary:
       target.protocol === "http:"
         ? "Loopback HTTP target is valid for local testing."
-        : "HTTPS target and organisation scope are valid.",
+        : "HTTPS target path is valid.",
   })
 
   const statusUrl = new URL("/.status", target)
