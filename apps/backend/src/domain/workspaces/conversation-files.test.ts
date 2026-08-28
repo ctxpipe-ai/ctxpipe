@@ -1,11 +1,9 @@
-import { beforeEach, describe, expect, it, vi } from "vitest"
+import { describe, expect, it } from "vitest"
 import {
   conversationSandboxStatus,
   ensureConversationSessionBranch,
   listConversationSandboxPaths,
   renameConversationSandboxPath,
-  resetConversationSandboxTreeAttachFlights,
-  resolveConversationSandboxForTree,
   sanitizeGitRemoteError,
   writeConversationSandboxFile,
 } from "./conversation-files.js"
@@ -173,69 +171,5 @@ describe("conversation sandbox files", () => {
     expect(
       sanitizeGitRemoteError("fatal: token ghp_secret denied", "ghp_secret"),
     ).toBe("fatal: token *** denied")
-  })
-})
-
-describe("resolveConversationSandboxForTree", () => {
-  beforeEach(() => {
-    resetConversationSandboxTreeAttachFlights()
-  })
-
-  it("lists from an existing handle without warming", async () => {
-    const handle = fakeHandle([], {})
-    const warm = vi.fn(async () => fakeHandle([], {}))
-    await expect(
-      resolveConversationSandboxForTree({
-        conversationId: "conv_1",
-        attach: true,
-        warm,
-        resolve: () => handle,
-      }),
-    ).resolves.toBe(handle)
-    expect(warm).not.toHaveBeenCalled()
-  })
-
-  it("does not start ensure when the handle is missing and attach is off", async () => {
-    const warm = vi.fn(async () => fakeHandle([], {}))
-    await expect(
-      resolveConversationSandboxForTree({
-        conversationId: "conv_1",
-        attach: false,
-        warm,
-        resolve: () => null,
-      }),
-    ).resolves.toBeNull()
-    expect(warm).not.toHaveBeenCalled()
-  })
-
-  it("single-flights overlapping attach warms for one conversation", async () => {
-    let resolveWarm:
-      | ((handle: ReturnType<typeof fakeHandle>) => void)
-      | undefined
-    const warm = vi.fn(
-      () =>
-        new Promise<ReturnType<typeof fakeHandle>>((resolve) => {
-          resolveWarm = resolve
-        }),
-    )
-    const first = resolveConversationSandboxForTree({
-      conversationId: "conv_1",
-      attach: true,
-      warm,
-      resolve: () => null,
-    })
-    const second = resolveConversationSandboxForTree({
-      conversationId: "conv_1",
-      attach: true,
-      warm,
-      resolve: () => null,
-    })
-    const handle = fakeHandle([], {})
-    resolveWarm?.(handle)
-    await expect(Promise.all([first, second])).resolves.toEqual([
-      handle,
-      handle,
-    ])
-    expect(warm).toHaveBeenCalledTimes(1)
   })
 })

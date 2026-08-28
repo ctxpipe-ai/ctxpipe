@@ -52,21 +52,6 @@ vi.mock("../../models/github-installation.js", () => ({
 
 vi.mock("../../domain/workspaces/conversation-files.js", () => ({
   resolveConversationSandboxHandle: resolveConversationSandboxHandleMock,
-  resolveConversationSandboxForTree: async ({
-    conversationId,
-    attach,
-    warm,
-  }: {
-    conversationId: string
-    attach: boolean
-    warm: () => Promise<unknown>
-  }) => {
-    const existing = resolveConversationSandboxHandleMock(conversationId)
-    if (existing) return existing
-    if (!attach) return null
-    return warm()
-  },
-  resetConversationSandboxTreeAttachFlights: () => undefined,
 }))
 
 vi.mock("../../domain/workspaces/conversation-publish.js", () => ({

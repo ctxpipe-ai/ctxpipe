@@ -11,7 +11,6 @@ import {
   readConversationSandboxFile,
   removeConversationSandboxPath,
   renameConversationSandboxPath,
-  resolveConversationSandboxForTree,
   resolveConversationSandboxHandle,
   writeConversationSandboxFile,
 } from "../../domain/workspaces/conversation-files.js"
@@ -49,12 +48,6 @@ const ConversationGitTreeResponseSchema = z
     branch: z.string(),
   })
   .openapi("ConversationGitTreeResponse")
-
-const ConversationGitListQuerySchema = z
-  .object({
-    attach: z.enum(["0", "1"]).optional(),
-  })
-  .openapi("ConversationGitListQuery")
 
 const ConversationGitBlobQuerySchema = z
   .object({
@@ -123,7 +116,6 @@ const listTreeRoute = createRoute({
   path: "/{conversationId}/files/tree",
   request: {
     params: ConversationParamsSchema,
-    query: ConversationGitListQuerySchema,
   },
   responses: {
     200: {
@@ -181,7 +173,6 @@ const getStatusRoute = createRoute({
   path: "/{conversationId}/files/status",
   request: {
     params: ConversationParamsSchema,
-    query: ConversationGitListQuerySchema,
   },
   responses: {
     200: {
@@ -357,11 +348,10 @@ async function warmConversationSandbox(input: ConversationSandboxAttachInput) {
 async function attachConversationSandbox(
   input: ConversationSandboxAttachInput,
 ) {
-  return resolveConversationSandboxForTree({
-    conversationId: input.conversation.id,
-    attach: true,
-    warm: () => warmConversationSandbox(input),
-  })
+  return (
+    resolveConversationSandboxHandle(input.conversation.id) ??
+    warmConversationSandbox(input)
+  )
 }
 
 async function readySandboxHandle(input: {
@@ -398,14 +388,9 @@ export const conversationFileRoutes = new OpenAPIHono<AppEnv>()
   .openapi(listTreeRoute, async (c) => {
     if (!requireUser(c)) return c.json({ error: "Unauthorized" }, 401)
     const conversationId = c.req.param("conversationId")
-    const attach = c.req.query("attach") !== "0"
     const loaded = await loadConversationWorkspace(conversationId)
     if (!loaded) return c.json({ error: "Not found" }, 404)
-    const handle = await resolveConversationSandboxForTree({
-      conversationId,
-      attach,
-      warm: () => warmConversationSandbox(loaded),
-    })
+    const handle = resolveConversationSandboxHandle(conversationId)
     if (!handle) return c.json({ error: "missing_sandbox" }, 409)
     const paths = await listConversationSandboxPaths(handle)
     const branch = sessionBranchName(conversationId)
@@ -426,7 +411,6 @@ export const conversationFileRoutes = new OpenAPIHono<AppEnv>()
   .openapi(getStatusRoute, async (c) => {
     if (!requireUser(c)) return c.json({ error: "Unauthorized" }, 401)
     const conversationId = c.req.param("conversationId")
-    const attach = c.req.query("attach") !== "0"
     const loaded = await loadConversationWorkspace(conversationId)
     if (!loaded) return c.json({ error: "Not found" }, 404)
     const env = parseEnv(process.env as Record<string, string | undefined>)
@@ -441,12 +425,7 @@ export const conversationFileRoutes = new OpenAPIHono<AppEnv>()
           env,
         })) ?? "main")
       : "main"
-    const handle = attach
-      ? await readySandboxHandle({
-          ...loaded,
-          defaultBranch,
-        })
-      : resolveConversationSandboxHandle(conversationId)
+    const handle = resolveConversationSandboxHandle(conversationId)
     if (!handle) return c.json({ error: "missing_sandbox" }, 409)
     const status = await conversationSandboxStatus({
       handle,
