@@ -1,7 +1,10 @@
 const MIN = 1
 const MAX = 16
 
-function parseBoundedInt(raw: string | undefined, defaultValue: number): number {
+function parseBoundedInt(
+  raw: string | undefined,
+  defaultValue: number,
+): number {
   if (raw == null || raw.trim() === "") return defaultValue
   const parsed = Number.parseInt(raw, 10)
   if (!Number.isFinite(parsed)) return defaultValue

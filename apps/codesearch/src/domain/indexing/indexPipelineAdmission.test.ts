@@ -1,8 +1,8 @@
 import { afterEach, describe, expect, it, vi } from "vitest"
 import {
+  releaseIndexPipeline,
   resetIndexPipelineAdmissionForTests,
   tryAcquireIndexPipeline,
-  releaseIndexPipeline,
 } from "./indexPipelineAdmission.js"
 
 describe("index pipeline admission", () => {

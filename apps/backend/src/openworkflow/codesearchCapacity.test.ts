@@ -6,8 +6,8 @@ import {
   DEFAULT_INDEXER_CONCURRENCY,
   DEFAULT_OPENWORKFLOW_CONCURRENCY,
   openworkflowWorkerStartArgs,
-  parseIndexPipelineConcurrency,
   parseIndexerConcurrency,
+  parseIndexPipelineConcurrency,
   parseOpenWorkflowConcurrency,
   workerConcurrencyFromBudget,
 } from "./codesearchCapacity.js"

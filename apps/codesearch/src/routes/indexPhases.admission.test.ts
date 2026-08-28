@@ -74,8 +74,8 @@ describe("index phase pipeline admission", () => {
   beforeEach(() => {
     vi.clearAllMocks()
     resetIndexPipelineAdmissionForTests()
-    getAccessibleRepositoryMock.mockImplementation(async (_db, repoId: string) =>
-      repo(repoId),
+    getAccessibleRepositoryMock.mockImplementation(
+      async (_db, repoId: string) => repo(repoId),
     )
     getIndexableRepositoryMock.mockImplementation(async (_db, repoId: string) =>
       repo(repoId),

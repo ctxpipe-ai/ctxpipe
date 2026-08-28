@@ -80,10 +80,13 @@ describe("codesearchIndexZoekt", () => {
     vi.stubGlobal(
       "fetch",
       vi.fn().mockResolvedValue(
-        new Response(JSON.stringify({ error: "Index pipeline capacity exceeded" }), {
-          status: 429,
-          headers: { "Retry-After": "30" },
-        }),
+        new Response(
+          JSON.stringify({ error: "Index pipeline capacity exceeded" }),
+          {
+            status: 429,
+            headers: { "Retry-After": "30" },
+          },
+        ),
       ),
     )
     await expect(

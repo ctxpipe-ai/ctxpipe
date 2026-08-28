@@ -18,6 +18,21 @@ const detectMock = vi.hoisted(() =>
 )
 const scipMock = vi.hoisted(() => vi.fn().mockResolvedValue(undefined))
 const mergeMock = vi.hoisted(() => vi.fn().mockResolvedValue(undefined))
+const admissionBusy = vi.hoisted(() => {
+  class CodesearchAdmissionBusyError extends Error {
+    override readonly name = "CodesearchAdmissionBusyError"
+    readonly retryAfterSeconds: number
+    constructor(message: string, retryAfterSeconds = 30) {
+      super(message)
+      this.retryAfterSeconds = retryAfterSeconds
+    }
+  }
+  return {
+    CodesearchAdmissionBusyError,
+    isCodesearchAdmissionBusyError: (error: unknown) =>
+      error instanceof CodesearchAdmissionBusyError,
+  }
+})
 
 vi.mock("../../domain/codeIngestion/codesearchIndexPhases.js", () => ({
   codesearchIndexCloneCheckout: cloneMock,
@@ -25,6 +40,8 @@ vi.mock("../../domain/codeIngestion/codesearchIndexPhases.js", () => ({
   codesearchIndexDetectLanguages: detectMock,
   codesearchIndexScipLang: scipMock,
   codesearchIndexMergeScip: mergeMock,
+  CodesearchAdmissionBusyError: admissionBusy.CodesearchAdmissionBusyError,
+  isCodesearchAdmissionBusyError: admissionBusy.isCodesearchAdmissionBusyError,
 }))
 
 vi.mock("../../config/env.js", () => ({
@@ -70,7 +87,6 @@ vi.mock("openworkflow", () => ({
   }),
 }))
 
-import { CodesearchAdmissionBusyError } from "../../domain/codeIngestion/codesearchIndexPhases.js"
 import { repositoryIndex } from "./repository-index.js"
 
 type Step = {
@@ -303,7 +319,9 @@ describe("repositoryIndex workflow", () => {
 
   it("sleeps and retries clone-checkout on 429 with a new step name", async () => {
     cloneMock
-      .mockRejectedValueOnce(new CodesearchAdmissionBusyError("busy", 30))
+      .mockRejectedValueOnce(
+        new admissionBusy.CodesearchAdmissionBusyError("busy", 30),
+      )
       .mockResolvedValueOnce({
         targetHash: "abc",
         ingestMode: "full",
@@ -350,7 +368,9 @@ describe("repositoryIndex workflow", () => {
 
   it("does not record Zoekt 429 as searchIndexOk false", async () => {
     zoektMock
-      .mockRejectedValueOnce(new CodesearchAdmissionBusyError("busy", 30))
+      .mockRejectedValueOnce(
+        new admissionBusy.CodesearchAdmissionBusyError("busy", 30),
+      )
       .mockResolvedValueOnce(undefined)
     const sleeps: Array<[string, string]> = []
     const step = passthroughStep({

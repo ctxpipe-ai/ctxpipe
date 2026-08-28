@@ -71,9 +71,7 @@ type IndexStep = {
   sleep: (name: string, duration: string) => Promise<void>
 }
 
-type AdmissionOutcome<T> =
-  | { admitted: true; value: T }
-  | { admitted: false }
+type AdmissionOutcome<T> = { admitted: true; value: T } | { admitted: false }
 
 async function runIndexPhaseWithAdmissionRetry<T>(
   step: IndexStep,
@@ -205,22 +203,27 @@ export const repositoryIndex = defineWorkflow(
         })
 
         const zoektResult = zoektStepResult(
-          await runIndexPhaseWithAdmissionRetry(indexStep, wls, "zoekt", async () => {
-            try {
-              await codesearchIndexZoekt(auth)
-              return { ok: true as const }
-            } catch (error) {
-              if (isCodesearchAdmissionBusyError(error)) throw error
-              const errorText = userFacingIndexingError(error)
-              if (isMemoryFitFailure(error)) {
-                logMilestone("repository-index.memory_exceeded", {
-                  repositoryId: input.repositoryId,
-                  error: errorText,
-                })
+          await runIndexPhaseWithAdmissionRetry(
+            indexStep,
+            wls,
+            "zoekt",
+            async () => {
+              try {
+                await codesearchIndexZoekt(auth)
+                return { ok: true as const }
+              } catch (error) {
+                if (isCodesearchAdmissionBusyError(error)) throw error
+                const errorText = userFacingIndexingError(error)
+                if (isMemoryFitFailure(error)) {
+                  logMilestone("repository-index.memory_exceeded", {
+                    repositoryId: input.repositoryId,
+                    error: errorText,
+                  })
+                }
+                return { ok: false as const, error: errorText }
               }
-              return { ok: false as const, error: errorText }
-            }
-          }),
+            },
+          ),
         )
         const searchIndexOk = zoektResult.ok
         const searchIndexError = zoektResult.ok ? undefined : zoektResult.error
@@ -258,22 +261,15 @@ export const repositoryIndex = defineWorkflow(
         const scipBatchSize = parseIndexerConcurrency(
           process.env.CODESEARCH_INDEXER_CONCURRENCY,
         )
-        await mapInBatches(
-          languages.languagesToIndex,
-          scipBatchSize,
-          (lang) =>
-            runIndexPhaseWithAdmissionRetry(
-              indexStep,
-              wls,
-              `scip:${lang}`,
-              () =>
-                codesearchIndexScipLang(
-                  auth,
-                  lang,
-                  languages.detectedLanguages,
-                ),
-              indexRetryPolicy,
-            ),
+        await mapInBatches(languages.languagesToIndex, scipBatchSize, (lang) =>
+          runIndexPhaseWithAdmissionRetry(
+            indexStep,
+            wls,
+            `scip:${lang}`,
+            () =>
+              codesearchIndexScipLang(auth, lang, languages.detectedLanguages),
+            indexRetryPolicy,
+          ),
         )
 
         await runIndexPhaseWithAdmissionRetry(

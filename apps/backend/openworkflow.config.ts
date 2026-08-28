@@ -11,7 +11,11 @@ import { defineConfig } from "@openworkflow/cli"
 import { BackendPostgres } from "openworkflow/postgres"
 import { parseEnv } from "./src/config/env.js"
 import { initDb } from "./src/db/client.js"
-import { createLogger, flushEvlog, initEvlog } from "./src/observability/logger.js"
+import {
+  createLogger,
+  flushEvlog,
+  initEvlog,
+} from "./src/observability/logger.js"
 import { initOtel, shutdownOtel } from "./src/observability/otel.js"
 import { parseOpenWorkflowConcurrency } from "./src/openworkflow/codesearchCapacity.js"
 import { backfillGithubAppSecretsFromEnv } from "./src/scripts/backfillGithubConnectionSecrets.js"
@@ -60,5 +64,5 @@ export default defineConfig({
   ignorePatterns: ["**/*.test.*", "**/*.spec.*"],
   worker: {
     concurrency: workerConcurrency,
-  }
+  },
 })

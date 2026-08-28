@@ -1,8 +1,8 @@
 import { OpenAPIHono } from "@hono/zod-openapi"
 import { beforeEach, describe, expect, it, vi } from "vitest"
 import type { AppEnv } from "../app/env.js"
-import { CODEBASE_DIDNT_FIT_AVAILABLE_MEMORY } from "../domain/indexing/memoryFitError.js"
 import { resetIndexPipelineAdmissionForTests } from "../domain/indexing/indexPipelineAdmission.js"
+import { CODEBASE_DIDNT_FIT_AVAILABLE_MEMORY } from "../domain/indexing/memoryFitError.js"
 
 const phaseZoektMock = vi.hoisted(() => vi.fn())
 const getAccessibleRepositoryMock = vi.hoisted(() => vi.fn())
