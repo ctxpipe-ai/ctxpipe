@@ -83,7 +83,7 @@ describe("diagnoseMcpEndpoint", () => {
     expect(fetchFn).not.toHaveBeenCalled()
   })
 
-  it("requires the ctxpipe MCP path and orgSlug", async () => {
+  it("requires the ctxpipe MCP path and accepts a missing orgSlug", async () => {
     const missingOrg = await diagnoseMcpEndpoint({
       url: "https://app.example.com/mcp",
       fetch: healthyFetch(),
@@ -93,7 +93,7 @@ describe("diagnoseMcpEndpoint", () => {
       fetch: healthyFetch(),
     })
 
-    expect(missingOrg.checks[0]?.summary).toContain("orgSlug")
+    expect(missingOrg.status).toBe("ready-for-oauth")
     expect(wrongPath.checks[0]?.summary).toContain('"/mcp"')
   })
 

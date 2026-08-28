@@ -1,0 +1,20 @@
+{
+  "$schema": "https://anthropic.com/claude-code/marketplace.schema.json",
+  "name": "ctxpipe",
+  "owner": {
+    "name": "ctxpipe",
+    "url": "https://ctxpipe.ai"
+  },
+  "metadata": {
+    "description": "Official ctx| plugins for Claude Code, Cowork, and Claude Tag.",
+    "version": "0.1.0"
+  },
+  "plugins": [
+    {
+      "name": "ctxpipe",
+      "source": "./plugins/ctxpipe",
+      "description": "Hosted ctx| MCP plus a ctx_advisor skill for organization engineering context.",
+      "homepage": "https://docs.ctxpipe.ai/docs/mcp/claude-plugin"
+    }
+  ]
+}
