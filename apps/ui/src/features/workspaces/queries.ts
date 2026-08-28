@@ -1,11 +1,12 @@
 import { queryOptions } from "@tanstack/react-query"
 import type { ConversationDetail } from "@/features/chat/types"
 import { getApiClient } from "@/lib/api"
-import { ApiError, pollWhileOk, readApiJson } from "@/lib/api-result"
+import { pollWhileOk, readApiJson } from "@/lib/api-result"
 import {
   readConversationGitTreeSnapshot,
   writeConversationGitTreeSnapshot,
 } from "./conversation-git-tree-snapshot"
+import { conversationSessionBranch } from "./conversationPublish"
 import { destinationAfterMove } from "./fileTreeMutations"
 import type {
   ConversationFileMutation,
@@ -65,8 +66,6 @@ export const workspaceKeys = {
     ["conversation-git-diff", orgSlug, conversationId] as const,
   conversationPullRequest: (orgSlug: string, conversationId: string) =>
     ["conversation-pull-request", orgSlug, conversationId] as const,
-  conversationChatLive: (orgSlug: string, conversationId: string) =>
-    ["conversation-chat-live", orgSlug, conversationId] as const,
 }
 
 export async function fetchWorkspaces(
@@ -346,16 +345,18 @@ export function workspaceActivityOptions(
 export async function fetchConversationGitTree(
   orgSlug: string,
   conversationId: string,
-  options?: { attach?: boolean },
-): Promise<ConversationGitTreeResponse> {
+): Promise<ConversationGitTreeResponse | null> {
   const client = await getApiClient()
   const res = await client[":orgSlug"].api.v1.conversations[
     ":conversationId"
   ].files.tree.$get({
     param: { orgSlug, conversationId },
-    ...(options?.attach === false ? { query: { attach: "0" as const } } : {}),
   })
-  return readApiJson(res, { message: "Failed to load conversation files" })
+  return readApiJson(res, {
+    emptyOn: [409],
+    empty: null,
+    message: "Failed to load conversation files",
+  })
 }
 
 export async function fetchConversationGitBlob(
@@ -380,16 +381,18 @@ export async function fetchConversationGitBlob(
 export async function fetchConversationGitStatus(
   orgSlug: string,
   conversationId: string,
-  options?: { attach?: boolean },
-): Promise<ConversationGitStatusResponse> {
+): Promise<ConversationGitStatusResponse | null> {
   const client = await getApiClient()
   const res = await client[":orgSlug"].api.v1.conversations[
     ":conversationId"
   ].files.status.$get({
     param: { orgSlug, conversationId },
-    ...(options?.attach === false ? { query: { attach: "0" as const } } : {}),
   })
-  return readApiJson(res, { message: "Failed to load conversation git status" })
+  return readApiJson(res, {
+    emptyOn: [409],
+    empty: null,
+    message: "Failed to load conversation git status",
+  })
 }
 
 export async function fetchConversationGitDiff(
@@ -507,10 +510,6 @@ export async function createConversationPullRequest(
   return readApiJson(res, { message: "Failed to create pull request" })
 }
 
-function retrySandboxUntilReady(failureCount: number, error: Error) {
-  return error instanceof ApiError && error.status === 409 && failureCount < 8
-}
-
 export function conversationGitTreeOptions(
   orgSlug: string,
   conversationId: string,
@@ -523,33 +522,27 @@ export function conversationGitTreeOptions(
   >({
     queryKey: workspaceKeys.conversationGitTree(orgSlug, conversationId),
     queryFn: async ({ client }): Promise<ConversationGitTreeResponse> => {
-      const live =
-        client.getQueryData<boolean>(
-          workspaceKeys.conversationChatLive(orgSlug, conversationId),
-        ) === true
-      const snapshot = readConversationGitTreeSnapshot(conversationId)
-      const cached = client.getQueryData<ConversationGitTreeResponse>(
-        workspaceKeys.conversationGitTree(orgSlug, conversationId),
-      )
-      const attach = !(live && Boolean(snapshot || cached))
-      try {
-        const tree = await fetchConversationGitTree(orgSlug, conversationId, {
-          attach,
-        })
-        writeConversationGitTreeSnapshot(conversationId, tree)
-        return tree
-      } catch (error) {
-        if (!attach && error instanceof ApiError && error.status === 409) {
-          if (cached) return cached
-          if (snapshot) return snapshot
+      const tree = await fetchConversationGitTree(orgSlug, conversationId)
+      if (!tree) {
+        const cached = client.getQueryData<ConversationGitTreeResponse>(
+          workspaceKeys.conversationGitTree(orgSlug, conversationId),
+        )
+        if (cached && cached.ready !== false) return cached
+        return {
+          sha: "HEAD",
+          paths: [],
+          branch: conversationSessionBranch(conversationId),
+          ready: false,
         }
-        throw error
       }
+      const listed = { ...tree, ready: true }
+      writeConversationGitTreeSnapshot(conversationId, listed)
+      return listed
     },
     placeholderData: (): ConversationGitTreeResponse | undefined =>
       readConversationGitTreeSnapshot(conversationId),
-    retry: retrySandboxUntilReady,
-    retryDelay: 1000,
+    initialData: (): ConversationGitTreeResponse | undefined =>
+      readConversationGitTreeSnapshot(conversationId),
   })
 }
 
@@ -576,32 +569,25 @@ export function conversationGitStatusOptions(
   >({
     queryKey: workspaceKeys.conversationGitStatus(orgSlug, conversationId),
     queryFn: async ({ client }): Promise<ConversationGitStatusResponse> => {
-      const live =
-        client.getQueryData<boolean>(
-          workspaceKeys.conversationChatLive(orgSlug, conversationId),
-        ) === true
-      const cached = client.getQueryData<ConversationGitStatusResponse>(
-        workspaceKeys.conversationGitStatus(orgSlug, conversationId),
-      )
-      const attach = !(live && Boolean(cached))
-      try {
-        return await fetchConversationGitStatus(orgSlug, conversationId, {
-          attach,
-        })
-      } catch (error) {
-        if (
-          !attach &&
-          error instanceof ApiError &&
-          error.status === 409 &&
-          cached
-        ) {
-          return cached
+      const status = await fetchConversationGitStatus(orgSlug, conversationId)
+      if (!status) {
+        const cached = client.getQueryData<ConversationGitStatusResponse>(
+          workspaceKeys.conversationGitStatus(orgSlug, conversationId),
+        )
+        if (cached) return cached
+        return {
+          source: "sandbox",
+          dirty: false,
+          differsFromDefault: false,
+          unpushed: false,
+          published: false,
+          ahead: 0,
+          behind: 0,
+          items: [],
         }
-        throw error
       }
+      return status
     },
-    retry: retrySandboxUntilReady,
-    retryDelay: 1000,
   })
 }
 
@@ -612,8 +598,6 @@ export function conversationGitDiffOptions(
   return queryOptions({
     queryKey: workspaceKeys.conversationGitDiff(orgSlug, conversationId),
     queryFn: () => fetchConversationGitDiff(orgSlug, conversationId),
-    retry: retrySandboxUntilReady,
-    retryDelay: 1000,
   })
 }
 

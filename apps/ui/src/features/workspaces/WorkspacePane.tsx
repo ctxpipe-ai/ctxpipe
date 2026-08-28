@@ -54,7 +54,7 @@ import {
 import { focusVisibleClassName } from "@/lib/focus-styles"
 import { useUrgentValue } from "@/lib/useUrgentValue"
 import { cn } from "@/lib/utils"
-import { conversationTreeRefetchInterval } from "./conversationFileLive"
+import { pollWhileOk } from "@/lib/api-result"
 import { conversationAllowsEdits } from "./conversationPublish"
 import { joinFileName, optimisticPathsAfterJob } from "./fileTreeMutations"
 import { filePaneId, type ParsedPane, parsePane, serializePane } from "./pane"
@@ -512,28 +512,18 @@ function ConversationSandboxFilesPane(props: {
   onToggleTree: () => void
   onCloseActiveFile: () => void
 }) {
-  const chatLiveQuery = useQuery({
-    queryKey: workspaceKeys.conversationChatLive(
-      props.orgSlug,
-      props.conversationId,
-    ),
-    queryFn: () => false,
-    staleTime: Number.POSITIVE_INFINITY,
-    gcTime: Number.POSITIVE_INFINITY,
-    enabled: false,
-  })
-  const chatLive = chatLiveQuery.data === true
   const sandboxTreeQuery = useQuery({
     ...conversationGitTreeOptions(props.orgSlug, props.conversationId),
-    refetchInterval: conversationTreeRefetchInterval(chatLive),
+    refetchInterval: pollWhileOk(400),
   })
   const sandboxStatusQuery = useQuery({
     ...conversationGitStatusOptions(props.orgSlug, props.conversationId),
     enabled: sandboxTreeQuery.isSuccess,
-    refetchInterval: conversationTreeRefetchInterval(chatLive),
+    refetchInterval: pollWhileOk(400),
   })
   const tree = sandboxTreeQuery.data
-  if (!tree) {
+  const awaitingFirstList = !tree || (tree.ready === false && !tree.paths.length)
+  if (awaitingFirstList) {
     if (sandboxTreeQuery.isError && !sandboxTreeQuery.isFetching) {
       return (
         <div className="flex flex-1 items-center justify-center p-6">
@@ -555,7 +545,7 @@ function ConversationSandboxFilesPane(props: {
         tree={tree}
         gitStatus={sandboxStatusQuery.data?.items ?? []}
         writable={conversationAllowsEdits(props.writeStatus)}
-        updating={!sandboxTreeQuery.isSuccess}
+        updating={false}
         activeFile={props.activeFile}
         treeCollapsed={props.treeCollapsed}
         onPreviewFile={props.onPreviewFile}

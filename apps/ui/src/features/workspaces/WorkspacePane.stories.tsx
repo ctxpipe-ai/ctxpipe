@@ -1,5 +1,4 @@
 import type { Meta, StoryObj } from "@storybook/react-vite"
-import { useQueryClient } from "@tanstack/react-query"
 import { useNavigate, useSearch } from "@tanstack/react-router"
 import { type ComponentProps, useState } from "react"
 import { expect, fn, waitFor, within } from "storybook/test"
@@ -38,7 +37,6 @@ import {
   tabsIncludingPanePath,
 } from "./fileTabs"
 import { type ParsedPane, parsePane, serializePane } from "./pane"
-import { workspaceKeys } from "./queries"
 import { WorkspacePane } from "./WorkspacePane"
 import {
   docsWorkspace,
@@ -79,15 +77,6 @@ const longAgentsBody = [
   ),
   `Wide row ${"column ".repeat(80)}`.trimEnd(),
 ].join("\n")
-
-function LiveChatFilesPlayground(props: ComponentProps<typeof WorkspacePane>) {
-  const queryClient = useQueryClient()
-  queryClient.setQueryData(
-    workspaceKeys.conversationChatLive("acme", "conv_1"),
-    true,
-  )
-  return <WorkspacePanePlayground {...props} />
-}
 
 function WorkspacePanePlayground(props: ComponentProps<typeof WorkspacePane>) {
   const navigate = useNavigate()
@@ -612,7 +601,7 @@ export const CachedSandboxWhile409: Story = {
     await waitFor(() => {
       expect(canvas.getByText("cached-note.md")).toBeVisible()
     })
-    expect(canvas.getByText("Updating…")).toBeVisible()
+    expect(canvas.queryByText("Updating…")).not.toBeInTheDocument()
     expect(canvas.queryByText("repositories")).not.toBeInTheDocument()
     await waitFor(
       () => {
@@ -631,7 +620,7 @@ export const ConversationSandboxLivePoll: Story = {
     conversationId: "conv_1",
     pane: { kind: "files" },
   },
-  render: (args) => <LiveChatFilesPlayground {...args} />,
+  render: (args) => <WorkspacePanePlayground {...args} />,
   beforeEach: () => {
     writeConversationGitTreeSnapshot("conv_1", {
       sha: "cachedsha",

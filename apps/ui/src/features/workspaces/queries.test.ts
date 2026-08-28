@@ -5,7 +5,6 @@ import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest"
 import {
   clearAllConversationGitTreeSnapshots,
   readConversationGitTreeSnapshot,
-  writeConversationGitTreeSnapshot,
 } from "./conversation-git-tree-snapshot"
 import { installMemorySessionStorage } from "./session-storage-test"
 import {
@@ -188,27 +187,30 @@ describe("workspace query HTTP helpers", () => {
     const tree = await queryClient.fetchQuery(options)
     expect(tree.paths).toEqual(["e2e-live-note.md"])
     expect(readConversationGitTreeSnapshot("conv_1")).toEqual(tree)
-    const placeholder = options.placeholderData
-    expect(typeof placeholder).toBe("function")
-    if (typeof placeholder === "function") {
-      expect(placeholder(undefined, undefined)).toEqual(tree)
-    }
     clearAllConversationGitTreeSnapshots()
   })
 
-  it("sends attach=0 while the chat run is live and a snapshot exists", async () => {
+  it("keeps the Query cache on 409 and replaces it on the next 200", async () => {
     clearAllConversationGitTreeSnapshots()
-    writeConversationGitTreeSnapshot("conv_1", {
-      sha: "cachedsha",
-      paths: ["AGENTS.md"],
-      branch: "ctxpipe/chat/conv_1/1",
-    })
-    const seenAttach: Array<string | null> = []
+    let hits = 0
     server.use(
       http.get(
         "http://localhost:3000/:orgSlug/api/v1/conversations/:conversationId/files/tree",
-        ({ request }) => {
-          seenAttach.push(new URL(request.url).searchParams.get("attach"))
+        () => {
+          hits += 1
+          if (hits === 2) {
+            return HttpResponse.json(
+              { error: "missing_sandbox" },
+              { status: 409 },
+            )
+          }
+          if (hits === 1) {
+            return HttpResponse.json({
+              sha: "HEAD",
+              paths: ["AGENTS.md"],
+              branch: "ctxpipe/chat/conv_1/1",
+            })
+          }
           return HttpResponse.json({
             sha: "livesha",
             paths: ["AGENTS.md", "e2e.md"],
@@ -220,23 +222,29 @@ describe("workspace query HTTP helpers", () => {
     const queryClient = new QueryClient({
       defaultOptions: { queries: { retry: false } },
     })
-    queryClient.setQueryData(workspaceKeys.conversationChatLive("acme", "conv_1"), true)
-    const tree = await queryClient.fetchQuery(
-      conversationGitTreeOptions("acme", "conv_1"),
-    )
-    expect(seenAttach).toEqual(["0"])
-    expect(tree.paths).toEqual(["AGENTS.md", "e2e.md"])
+    const options = conversationGitTreeOptions("acme", "conv_1")
+    await queryClient.fetchQuery(options)
+    const kept = await queryClient.fetchQuery(options)
+    expect(kept.paths).toEqual(["AGENTS.md"])
+    expect(
+      queryClient.getQueryState(
+        workspaceKeys.conversationGitTree("acme", "conv_1"),
+      )?.status,
+    ).toBe("success")
+    expect(readConversationGitTreeSnapshot("conv_1")?.paths).toEqual([
+      "AGENTS.md",
+    ])
+    const replaced = await queryClient.fetchQuery(options)
+    expect(replaced.paths).toEqual(["AGENTS.md", "e2e.md"])
+    expect(readConversationGitTreeSnapshot("conv_1")?.paths).toEqual([
+      "AGENTS.md",
+      "e2e.md",
+    ])
     clearAllConversationGitTreeSnapshots()
   })
 
-  it("keeps the optimistic tree when a live list-only GET returns 409", async () => {
+  it("returns an unreadied tree on 409 when Query cache is empty", async () => {
     clearAllConversationGitTreeSnapshots()
-    const optimistic = {
-      sha: "HEAD",
-      paths: ["AGENTS.md", "e2e.md"],
-      branch: "ctxpipe/chat/conv_1/1",
-    }
-    writeConversationGitTreeSnapshot("conv_1", optimistic)
     server.use(
       http.get(
         "http://localhost:3000/:orgSlug/api/v1/conversations/:conversationId/files/tree",
@@ -247,46 +255,16 @@ describe("workspace query HTTP helpers", () => {
     const queryClient = new QueryClient({
       defaultOptions: { queries: { retry: false } },
     })
-    queryClient.setQueryData(
-      workspaceKeys.conversationChatLive("acme", "conv_1"),
-      true,
-    )
-    queryClient.setQueryData(
-      workspaceKeys.conversationGitTree("acme", "conv_1"),
-      optimistic,
-    )
     const tree = await queryClient.fetchQuery(
       conversationGitTreeOptions("acme", "conv_1"),
     )
-    expect(tree.paths).toEqual(["AGENTS.md", "e2e.md"])
-    clearAllConversationGitTreeSnapshots()
-  })
-
-  it("attaches on the first tree load when there is no snapshot", async () => {
-    clearAllConversationGitTreeSnapshots()
-    const seenAttach: Array<string | null> = []
-    server.use(
-      http.get(
-        "http://localhost:3000/:orgSlug/api/v1/conversations/:conversationId/files/tree",
-        ({ request }) => {
-          seenAttach.push(new URL(request.url).searchParams.get("attach"))
-          return HttpResponse.json({
-            sha: "livesha",
-            paths: ["AGENTS.md"],
-            branch: "ctxpipe/chat/conv_1/1",
-          })
-        },
-      ),
-    )
-    const queryClient = new QueryClient({
-      defaultOptions: { queries: { retry: false } },
+    expect(tree).toEqual({
+      sha: "HEAD",
+      paths: [],
+      branch: "ctxpipe/chat/conv_1/1",
+      ready: false,
     })
-    queryClient.setQueryData(
-      workspaceKeys.conversationChatLive("acme", "conv_1"),
-      true,
-    )
-    await queryClient.fetchQuery(conversationGitTreeOptions("acme", "conv_1"))
-    expect(seenAttach).toEqual([null])
+    expect(readConversationGitTreeSnapshot("conv_1")).toBeUndefined()
     clearAllConversationGitTreeSnapshots()
   })
 })

@@ -81,6 +81,7 @@ export type WorkspaceGitTreeResponse = {
 
 export type ConversationGitTreeResponse = WorkspaceGitTreeResponse & {
   branch: string
+  ready?: boolean
 }
 
 export type WorkspaceGitBlobResponse = {
