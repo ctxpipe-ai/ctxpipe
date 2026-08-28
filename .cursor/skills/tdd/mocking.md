@@ -1,59 +1,17 @@
-# When to Mock
+# Proof
 
-Mock at **system boundaries** only:
+A test is **_proof_** only when the owned collaborator runs in this process and the assertion is an HTTP, status, or paths literal you wrote — not a value recomputed from the implementation.
 
-- External APIs (payment, email, etc.)
-- Databases (sometimes - prefer test DB)
-- Time/randomness
-- File system (sometimes)
+Run for real:
 
-Don't mock:
+- git workdirs (`localProcessSandbox`, tmp git)
+- Hono routes via `app.request`
+- domain listing on a real handle (`listConversationSandboxPaths`)
 
-- Your own classes/modules
-- Internal collaborators
-- Anything you control
+Substitute only what this process cannot run: paid or third-party network (GitHub, Stripe). Auth session and DB row fixtures so a route has a user or workspace are fixtures, not stubs of the listing.
 
-## Designing for Mockability
+`vi.mock` of `warmTanstackWorkspaceChat`, `exec`, or `conversation-files` is not _proof_. Green on that mock is not a passing product test.
 
-At system boundaries, design interfaces that are easy to mock:
+MSW in Storybook paints chrome. It is not _proof_ that a server listing is correct.
 
-**1. Use dependency injection**
-
-Pass external dependencies in rather than creating them internally:
-
-```typescript
-// Easy to mock
-function processPayment(order, paymentClient) {
-  return paymentClient.charge(order.total);
-}
-
-// Hard to mock
-function processPayment(order) {
-  const client = new StripeClient(process.env.STRIPE_KEY);
-  return client.charge(order.total);
-}
-```
-
-**2. Prefer SDK-style interfaces over generic fetchers**
-
-Create specific functions for each external operation instead of one generic function with conditional logic:
-
-```typescript
-// GOOD: Each function is independently mockable
-const api = {
-  getUser: (id) => fetch(`/users/${id}`),
-  getOrders: (userId) => fetch(`/users/${userId}/orders`),
-  createOrder: (data) => fetch('/orders', { method: 'POST', body: data }),
-};
-
-// BAD: Mocking requires conditional logic inside the mock
-const api = {
-  fetch: (endpoint, options) => fetch(endpoint, options),
-};
-```
-
-The SDK approach means:
-- Each mock returns one specific shape
-- No conditional logic in test setup
-- Easier to see which endpoints a test exercises
-- Type safety per endpoint
+See [`job-sandbox.live.test.ts`](../../../apps/backend/src/domain/workspaces/job-sandbox.live.test.ts) and [`conversation-files-routes.live.test.ts`](../../../apps/backend/src/routes/v1/conversation-files-routes.live.test.ts).

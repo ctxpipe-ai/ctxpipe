@@ -772,3 +772,9 @@ Highest-priority confirmed rules for agents. Migrated from former `patterns.md` 
 - **Date:** 2026-08-24
 - **Source:** user correction (workspace-chat latency)
 
+### Proof uses a real collaborator
+- **Rule:** A product test is _proof_ only when the owned collaborator runs in this process and the assertion is an HTTP, status, or paths literal. See [tdd/mocking.md](../../.agents/skills/tdd/mocking.md).
+- **Category:** convention
+- **Date:** 2026-08-28
+- **Source:** user correction (sandbox tree listed a fresh clone after a write)
+
