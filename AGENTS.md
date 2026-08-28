@@ -9,6 +9,7 @@ Agent instructions are **distributed**: this file covers repo-wide rules; apps a
 - **apps/ui**: [apps/ui/AGENTS.md](apps/ui/AGENTS.md) — TanStack Start frontend, React Aria, Tailwind, Storybook, Vitest; **[React skill](.agents/skills/react/)** when building or editing components; **[product-ui skill](.agents/skills/product-ui/)** and [DESIGN.md](apps/ui/DESIGN.md) when building or restyling product screens.
 - **apps/docs**: [apps/docs/AGENTS.md](apps/docs/AGENTS.md) — Fumadocs documentation site (Next.js 15, Shiki, forced-dark, deploys to docs.ctxpipe.ai).
 - **examples/**: runnable consumer examples for ctxpipe packages (manual e2e tests against real infra). See [examples/README.md](examples/README.md); first entry is [examples/aws-cdk-self-host](examples/aws-cdk-self-host) for `@ctxpipe-ai/aws-cdk` on AWS.
+- **plugins/ctxpipe**: Claude plugin that distributes the hosted product MCP (`type: "http"` → `https://app.ctxpipe.ai/mcp`) plus a `ctx_advisor` skill. Catalog is [`.claude-plugin/marketplace.json`](.claude-plugin/marketplace.json). See [ADR-026](.ai/memory/decisions/ADR-026-claude-plugin-mcp-distribution.md). Do not treat this as a Cursor/Codex marketplace listing.
 
 **MCP (project-scoped):** Config lives at [`.cursor/mcp.json`](.cursor/mcp.json) (same file as [`.agents/mcp.json`](.agents/mcp.json) via the `.agents` → `.cursor` symlink). Two kinds of servers:
 

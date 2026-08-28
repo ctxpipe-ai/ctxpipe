@@ -7,12 +7,14 @@ Self-hosted ctx| exposes the same organization-scoped Streamable HTTP endpoint a
 hosted ctx|:
 
 ```text
-{AUTH_BASE_URL}/mcp?orgSlug=<org-slug>
+{AUTH_BASE_URL}/mcp
 ```
 
-`orgSlug` is required. `AUTH_BASE_URL` must be the public origin clients use,
-including TLS. Client JSON shapes and OAuth install paths are unchanged from
-hosted ctx|; see [Remote MCP](/docs/mcp/mcp-docs) and
+`?orgSlug=<org-slug>` remains valid. It is required only when the signed-in
+user belongs to several organizations and has no active organization.
+`AUTH_BASE_URL` must be the public origin clients use, including TLS. Client
+JSON shapes and OAuth install paths are unchanged from hosted ctx|; see
+[Remote MCP](/docs/mcp/mcp-docs), [Claude plugin](/docs/mcp/claude-plugin), and
 [Authentication](/docs/self-hosting/authentication).
 
 This page is for operators: confirm the endpoint is reachable, then debug OAuth

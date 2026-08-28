@@ -65,7 +65,11 @@ CLI and Confluence Forge app declare their own licenses.
 - REST routes are organization-scoped under `/:orgSlug/api/v1`.
 - The product MCP is an OAuth-protected Streamable HTTP endpoint at `/mcp`.
   `ctx_advisor` is the product tool and runs the same conversation graph used by
-  Chat.
+  Chat. `orgSlug` is optional when the authenticated user has one membership or
+  an active organization.
+- Claude Code, Cowork, and Claude Tag install the hosted MCP through the plugin
+  at `plugins/ctxpipe` (marketplace `.claude-plugin/marketplace.json`). See
+  [ADR-026](decisions/ADR-026-claude-plugin-mcp-distribution.md).
 - Repository explorer tools such as search, file, symbol, structural, and graph
   operations are internal agent tools; they are not separate MCP tools.
 - The `ctxpipe` CLI writes MCP configuration for supported clients. Repository

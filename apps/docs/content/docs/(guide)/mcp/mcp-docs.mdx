@@ -6,10 +6,13 @@ description: Choose the right remote ctx| MCP install path for individuals, team
 ctx| exposes an organization-scoped remote MCP server at:
 
 ```text
-https://app.ctxpipe.ai/mcp?orgSlug=your-org
+https://app.ctxpipe.ai/mcp
 ```
 
-For self-hosted deployments, keep the same `/mcp?orgSlug=...` path and swap in your own base URL.
+`?orgSlug=your-org` is still valid and required only when the signed-in user
+belongs to several organizations and has no active organization. For
+self-hosted deployments, keep the same `/mcp` path and swap in your own base
+URL.
 
 ## What the MCP gives an agent
 
@@ -33,8 +36,9 @@ with the coding agent's repository tools.
 
 ## Choose Your Install Path
 
-There are three practical ways to install ctx| MCP:
+There are four practical ways to install ctx| MCP:
 
+- **Claude plugin** - best for Claude Code, Cowork, and Claude Tag in Slack. See [Claude plugin](/docs/mcp/claude-plugin).
 - **Individual install with the CLI** - best for a developer setting up their own agent clients on one machine.
 - **Raise pull requests** - best for enabling a team by committing MCP config files into shared repositories.
 - **Manual config** - useful when you need to paste JSON yourself or use a client the CLI does not fully automate.
@@ -247,12 +251,15 @@ If your client's docs only mention `http` or SSE, check the current client docum
 
 ## Notes
 
-- `orgSlug` is required. Replace `your-org` with your organization slug from ctx|.
+- `orgSlug` is optional when the signed-in user has one organization, or an
+  active organization on the session. Replace `your-org` with your organization
+  slug when you pass it explicitly.
 - Do not commit secrets into repository MCP config.
 - For team-wide repo config, prefer [Install MCPs via PR](/docs/git-repositories/install-mcps-via-pr) over asking every developer to copy JSON by hand.
 
 ## Related
 
+- [Claude plugin](/docs/mcp/claude-plugin) - Claude Code, Cowork, and Claude Tag in Slack
 - [Managing your organization](/docs/managing-organization) - org slug and membership
 - [Install MCPs via PR](/docs/git-repositories/install-mcps-via-pr) - team rollout through GitHub pull requests
 - [Local memory](/docs/mcp/local-memory) - repo-local Markdown memory with capture hooks
