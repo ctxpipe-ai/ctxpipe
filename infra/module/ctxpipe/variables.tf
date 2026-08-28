@@ -254,3 +254,21 @@ variable "neon_project" {
   })
   description = "Neon project configuration."
 }
+
+variable "openworkflow_concurrency" {
+  type        = string
+  description = "In-flight OpenWorkflow runs per worker process. Production default is the medium capacity pair (see ADR-026). Changing this requires redeploying the worker."
+  default     = "10"
+}
+
+variable "codesearch_indexer_concurrency" {
+  type        = string
+  description = "Max concurrent Zoekt/SCIP child processes on the single codesearch replica. Production default is the medium pair. Changing this requires redeploying codesearch (and the worker, which uses the same value to batch SCIP HTTP)."
+  default     = "2"
+}
+
+variable "codesearch_index_pipeline_concurrency" {
+  type        = string
+  description = "Max distinct repos with in-flight OpenWorkflow index-phase HTTP (clone included) on codesearch. Production default is the medium pair. Changing this requires redeploying codesearch."
+  default     = "2"
+}
