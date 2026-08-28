@@ -13,6 +13,7 @@ import { parseEnv } from "./src/config/env.js"
 import { initDb } from "./src/db/client.js"
 import { createLogger, flushEvlog, initEvlog } from "./src/observability/logger.js"
 import { initOtel, shutdownOtel } from "./src/observability/otel.js"
+import { parseOpenWorkflowConcurrency } from "./src/openworkflow/codesearchCapacity.js"
 import { backfillGithubAppSecretsFromEnv } from "./src/scripts/backfillGithubConnectionSecrets.js"
 
 const databaseUrl = process.env.DATABASE_URL
@@ -37,12 +38,17 @@ process.on("SIGTERM", () => {
   void shutdownWorkerObservability()
 })
 
+const workerConcurrency = parseOpenWorkflowConcurrency(
+  process.env.OPENWORKFLOW_CONCURRENCY,
+)
+
 const bootstrapLog = createLogger({
   component: "openworkflow-worker",
   step: "openworkflow.config-loaded",
   pid: process.pid,
   cwd: process.cwd(),
   nodeEnv: process.env.NODE_ENV,
+  concurrency: workerConcurrency,
 })
 bootstrapLog.info("openworkflow worker config loaded")
 bootstrapLog.emit()
@@ -53,6 +59,6 @@ export default defineConfig({
   // CLI imports every *.ts under dirs; skip Vitest files (dev-only deps).
   ignorePatterns: ["**/*.test.*", "**/*.spec.*"],
   worker: {
-    concurrency: 20
+    concurrency: workerConcurrency,
   }
 })
