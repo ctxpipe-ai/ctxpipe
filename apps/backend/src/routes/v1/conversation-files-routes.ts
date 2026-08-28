@@ -413,6 +413,8 @@ export const conversationFileRoutes = new OpenAPIHono<AppEnv>()
     const conversationId = c.req.param("conversationId")
     const loaded = await loadConversationWorkspace(conversationId)
     if (!loaded) return c.json({ error: "Not found" }, 404)
+    const handle = resolveConversationSandboxHandle(conversationId)
+    if (!handle) return c.json({ error: "missing_sandbox" }, 409)
     const env = parseEnv(process.env as Record<string, string | undefined>)
     const repoName = githubRepoFullNameFromWorkspaceUrl(
       loaded.workspace.workspaceRepositoryUrl,
@@ -425,8 +427,6 @@ export const conversationFileRoutes = new OpenAPIHono<AppEnv>()
           env,
         })) ?? "main")
       : "main"
-    const handle = resolveConversationSandboxHandle(conversationId)
-    if (!handle) return c.json({ error: "missing_sandbox" }, 409)
     const status = await conversationSandboxStatus({
       handle,
       defaultBranch,

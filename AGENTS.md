@@ -43,7 +43,7 @@ For Storybook conventions and tools, read [.agents/skills/storybook/SKILL.md](.a
 
 ## Agent skills
 
-Skills that say "commit your work" (or similar) are overridden: create a git commit only when the user explicitly asks to commit in the conversation. Proving a fix uses the [tdd](.agents/skills/tdd/SKILL.md) skill; _proof_ is a real collaborator.
+Skills that say "commit your work" (or similar) are overridden: create a git commit only when the user explicitly asks to commit in the conversation. Proving a fix uses the [tdd](.agents/skills/tdd/SKILL.md) skill; _proof_ is a real collaborator ([mocking.md](.agents/skills/tdd/mocking.md)).
 
 ### Cursor Task models
 

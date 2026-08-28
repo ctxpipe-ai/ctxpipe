@@ -186,7 +186,11 @@ describe("workspace query HTTP helpers", () => {
     })
     const tree = await queryClient.fetchQuery(options)
     expect(tree.paths).toEqual(["e2e-live-note.md"])
-    expect(readConversationGitTreeSnapshot("conv_1")).toEqual(tree)
+    expect(readConversationGitTreeSnapshot("conv_1")).toEqual({
+      sha: "sandboxsha",
+      paths: ["e2e-live-note.md"],
+      branch: "ctxpipe/chat/conv_1/1",
+    })
     clearAllConversationGitTreeSnapshots()
   })
 

@@ -17,7 +17,6 @@ import {
   setPendingWorkspaceCompose,
   takeHomeDraftSend,
 } from "@/features/home/pending-workspace-compose"
-import { pollWhileOk } from "@/lib/api-result"
 import {
   conversationBranchShortName,
   conversationCommitPushEnabled,
@@ -269,7 +268,6 @@ export function WorkspaceChatSession(props: {
   const statusQuery = useQuery({
     ...conversationGitStatusOptions(orgSlug, conversationId),
     enabled: !composing && prepareQuery.isSuccess,
-    refetchInterval: pollWhileOk(400),
   })
 
   const insertComposeRow = () => {
