@@ -3,7 +3,7 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query"
 import { renderToStaticMarkup } from "react-dom/server"
 import { beforeEach, describe, expect, it, vi } from "vitest"
 import type { ChatMessage, ChatStatus } from "@/features/chat/types"
-import { readOnlyWorkspace } from "./workspace-fixtures"
+import { docsWorkspace, readOnlyWorkspace } from "./workspace-fixtures"
 
 const useChatState = vi.hoisted(() => ({
   messages: [] as ChatMessage[],
@@ -64,7 +64,11 @@ import {
   workspaceChatWaitLabel,
 } from "./WorkspaceChatSession"
 
-function renderCompose(initialMessages: ChatMessage[] = []) {
+function renderSession(input: {
+  workspace?: typeof docsWorkspace
+  composing?: boolean
+  initialMessages?: ChatMessage[]
+}) {
   const queryClient = new QueryClient({
     defaultOptions: { queries: { retry: false } },
   })
@@ -72,14 +76,18 @@ function renderCompose(initialMessages: ChatMessage[] = []) {
     <QueryClientProvider client={queryClient}>
       <WorkspaceChatSession
         orgSlug="acme"
-        workspace={readOnlyWorkspace}
+        workspace={input.workspace ?? readOnlyWorkspace}
         conversationId="conv_pending"
-        composing
+        composing={input.composing ?? true}
         title="New conversation"
-        initialMessages={initialMessages}
+        initialMessages={input.initialMessages}
       />
     </QueryClientProvider>,
   )
+}
+
+function renderCompose(initialMessages: ChatMessage[] = []) {
+  return renderSession({ composing: true, initialMessages })
 }
 
 describe("workspace chat wait copy", () => {
@@ -270,5 +278,25 @@ describe("WorkspaceChatSession compose failure", () => {
     expect(markup.match(/stored user turn/g)).toHaveLength(1)
     expect(markup.match(/stored assistant turn/g)).toHaveLength(1)
     expect(markup.match(/this-run reply/g)).toHaveLength(1)
+  })
+})
+
+describe("WorkspaceChatSession publish chrome", () => {
+  it("shows Commit+Push and Create PR when writable without prepare", () => {
+    const markup = renderSession({
+      workspace: docsWorkspace,
+      composing: false,
+    })
+    expect(markup).toContain("Commit+Push")
+    expect(markup).toContain("Create PR")
+  })
+
+  it("hides publish actions on a read-only workspace", () => {
+    const markup = renderSession({
+      workspace: readOnlyWorkspace,
+      composing: false,
+    })
+    expect(markup).not.toContain("Commit+Push")
+    expect(markup).not.toContain("Create PR")
   })
 })
