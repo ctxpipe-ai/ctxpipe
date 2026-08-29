@@ -505,7 +505,50 @@ export const ConversationSandboxFiles: Story = {
     await waitFor(() => {
       expect(canvas.getByText("e2e-session-branch-note.md")).toBeVisible()
     })
+    expect(canvas.getByRole("button", { name: "Commit+Push" })).toBeVisible()
+    expect(canvas.getByRole("button", { name: "Create PR" })).toBeVisible()
     expect(canvas.queryByText("repositories")).not.toBeInTheDocument()
+  },
+}
+
+export const ConversationReadOnly: Story = {
+  args: {
+    workspace: readOnlyWorkspaceDetail,
+    conversationId: "conv_1",
+    pane: { kind: "files" },
+  },
+  parameters: {
+    storyRoute: {
+      pattern: "orgWorkspace",
+      orgSlug: "acme",
+      workspaceSlug: "handbook",
+      conversationId: "conv_1",
+      pane: "files",
+    } satisfies StoryRouteParams,
+    msw: {
+      handlers: {
+        page: [
+          conversationGitTreeHandler({
+            sha: "sandboxsha",
+            paths: ["AGENTS.md"],
+            branch: "ctxpipe/chat/conv_1/1",
+          }),
+          conversationGitStatusHandler(),
+        ],
+      },
+    },
+  },
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement)
+    await waitFor(() => {
+      expect(canvas.getByText("AGENTS.md")).toBeVisible()
+    })
+    expect(
+      canvas.queryByRole("button", { name: "Commit+Push" }),
+    ).not.toBeInTheDocument()
+    expect(
+      canvas.queryByRole("button", { name: "Create PR" }),
+    ).not.toBeInTheDocument()
   },
 }
 

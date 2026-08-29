@@ -55,7 +55,11 @@ import { focusVisibleClassName } from "@/lib/focus-styles"
 import { useUrgentValue } from "@/lib/useUrgentValue"
 import { cn } from "@/lib/utils"
 import { pollWhileOk } from "@/lib/api-result"
-import { conversationAllowsEdits } from "./conversationPublish"
+import {
+  conversationAllowsEdits,
+  conversationCommitPushEnabled,
+  conversationPullRequestAction,
+} from "./conversationPublish"
 import { joinFileName, optimisticPathsAfterJob } from "./fileTreeMutations"
 import { filePaneId, type ParsedPane, parsePane, serializePane } from "./pane"
 import {
@@ -63,7 +67,10 @@ import {
   conversationGitDiffOptions,
   conversationGitStatusOptions,
   conversationGitTreeOptions,
+  conversationPullRequestOptions,
+  createConversationPullRequest,
   persistConversationFileMutation,
+  pushConversationBranch,
   workspaceChatPrepareOptions,
   workspaceGitBlobOptions,
   workspaceGitStatusOptions,
@@ -88,6 +95,7 @@ import {
   type FileEditorHistory,
   WorkspacePierreFile,
 } from "./WorkspacePierreFile"
+import { ConversationPublishActions } from "./WorkspaceChatChrome"
 import { WorkspaceSettingsPane } from "./WorkspaceSettingsPane"
 import {
   workspaceChromeCardPaneClassName,
@@ -332,6 +340,14 @@ export function WorkspacePane(props: {
               })}
             </TabList>
             <div className="flex shrink-0 items-end gap-0.5">
+              {props.conversationId &&
+              props.workspace.writeStatus === "writable" ? (
+                <ConversationPanePublish
+                  orgSlug={props.orgSlug}
+                  conversationId={props.conversationId}
+                  title={props.conversationTitle}
+                />
+              ) : null}
               <HeaderIcon
                 label={props.maximized ? "Show conversation" : "Maximise pane"}
                 icon={
@@ -1445,6 +1461,70 @@ function prefetchWorkspacePane(
       workspaceGraphOptions(orgSlug, workspace.slug),
     )
   }
+}
+
+function ConversationPanePublish(props: {
+  orgSlug: string
+  conversationId: string
+  title: string
+}) {
+  const queryClient = useQueryClient()
+  const statusQuery = useQuery({
+    ...conversationGitStatusOptions(props.orgSlug, props.conversationId),
+    refetchInterval: pollWhileOk(400),
+  })
+  const pullQuery = useQuery(
+    conversationPullRequestOptions(props.orgSlug, props.conversationId, true),
+  )
+  const pushMutation = useMutation({
+    mutationFn: () =>
+      pushConversationBranch(props.orgSlug, props.conversationId),
+    onSuccess: () => {
+      void queryClient.invalidateQueries({
+        queryKey: workspaceKeys.conversationGitStatus(
+          props.orgSlug,
+          props.conversationId,
+        ),
+      })
+    },
+  })
+  const createPrMutation = useMutation({
+    mutationFn: () =>
+      createConversationPullRequest(props.orgSlug, props.conversationId, {
+        title: props.title,
+      }),
+    onSuccess: () => {
+      void queryClient.invalidateQueries({
+        queryKey: workspaceKeys.conversationPullRequest(
+          props.orgSlug,
+          props.conversationId,
+        ),
+      })
+      void queryClient.invalidateQueries({
+        queryKey: workspaceKeys.conversationGitStatus(
+          props.orgSlug,
+          props.conversationId,
+        ),
+      })
+    },
+  })
+  return (
+    <ConversationPublishActions
+      publish={{
+        commitPush: {
+          enabled: conversationCommitPushEnabled(statusQuery.data ?? null),
+          pending: pushMutation.isPending,
+          onPress: () => pushMutation.mutate(),
+        },
+        pullRequest: {
+          action: conversationPullRequestAction(pullQuery.data?.prState),
+          pending: createPrMutation.isPending,
+          href: pullQuery.data?.pullUrl ?? null,
+          onPress: () => createPrMutation.mutate(),
+        },
+      }}
+    />
+  )
 }
 
 function ConversationDiffTab(props: {

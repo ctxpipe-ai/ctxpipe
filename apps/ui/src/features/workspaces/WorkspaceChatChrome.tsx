@@ -125,7 +125,7 @@ export function WorkspaceChatChrome(props: {
   )
 }
 
-function ConversationPublishActions(props: {
+export function ConversationPublishActions(props: {
   publish: ConversationPublishChrome
 }) {
   const { commitPush, pullRequest } = props.publish

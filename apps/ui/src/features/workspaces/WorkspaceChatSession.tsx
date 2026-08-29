@@ -359,7 +359,6 @@ export function WorkspaceChatSession(props: {
       }
       publish={
         !composing &&
-        prepareQuery.isSuccess &&
         workspace.writeStatus === "writable"
           ? {
               commitPush: {
