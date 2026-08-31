@@ -1,6 +1,7 @@
 import { createFileRoute } from "@tanstack/react-router"
 import { useMemo, useState } from "react"
 import { authClient } from "@/lib/auth-client"
+import { getOAuthRedirectUri } from "@/lib/auth-continuation"
 
 export const Route = createFileRoute("/.auth/consent")({
   component: ConsentPage,
@@ -35,12 +36,7 @@ function ConsentPage() {
       return
     }
 
-    const redirectUri =
-      data?.redirect_uri ??
-      data?.redirectUri ??
-      data?.uri ??
-      data?.url ??
-      (typeof data === "string" ? data : undefined)
+    const redirectUri = getOAuthRedirectUri(data)
 
     if (redirectUri) {
       window.location.href = redirectUri

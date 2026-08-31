@@ -3,6 +3,7 @@ import {
   organizationListEmptyHandler,
   sessionSignedOutHandler,
 } from "@/mocks/handlers"
+import { OAuthOrganizationSelector } from "@/features/auth/OAuthOrganizationSelector"
 import { entryPageInnerDecorators } from "../../.storybook/decorators/entry-page-decorators"
 import type { StoryRouteParams } from "../../.storybook/decorators/with-story-route"
 import { SignInRoutePage } from "./[.]auth.sign-in"
@@ -32,5 +33,28 @@ export const SignIn: Story = {
         page: [sessionSignedOutHandler, organizationListEmptyHandler],
       },
     },
+  },
+}
+
+export const ChooseOAuthOrganization: Story = {
+  name: "Choose OAuth organization",
+  render: () => (
+    <OAuthOrganizationSelector
+      organizations={[
+        { id: "org_acme", name: "Acme Engineering", slug: "acme" },
+        {
+          id: "org_consulting",
+          name: "Peterson Advisory",
+          slug: "peterson-advisory",
+        },
+      ]}
+      onContinue={() => undefined}
+    />
+  ),
+  parameters: {
+    storyRoute: {
+      pattern: "flat",
+      path: "/.auth/select-organization",
+    } satisfies StoryRouteParams,
   },
 }
