@@ -6,15 +6,12 @@
     "url": "https://ctxpipe.ai"
   },
   "metadata": {
-    "description": "Official ctx| plugins for Claude Code, Cowork, and Claude Tag.",
-    "version": "0.1.0"
+    "description": "Official ctx| plugins for Claude Code, Cowork, and Claude Tag."
   },
   "plugins": [
     {
       "name": "ctxpipe",
-      "source": "./plugins/ctxpipe",
-      "description": "Hosted ctx| MCP plus a ctx_advisor skill for organization engineering context.",
-      "homepage": "https://docs.ctxpipe.ai/docs/mcp/claude-plugin"
+      "source": "./plugins/ctxpipe"
     }
   ]
 }

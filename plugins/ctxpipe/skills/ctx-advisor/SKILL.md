@@ -18,6 +18,11 @@ Call before you:
 
 Call again mid-plan when options change.
 
+Initial retrieval is complete when the answer names the applicable standards
+or decisions and labels anything that still needs source verification. A
+mid-plan check is complete when every newly introduced option has been checked
+against that context.
+
 ## How to prompt
 
 Include the task, any user preference, and the repo or subsystem involved. Ask the tool to separate verified evidence from inference.
@@ -31,3 +36,6 @@ Planning to change authentication. What standards, ADRs, and source areas apply?
 ## After the answer
 
 Inspect critical files with this client's own repository tools. `ctx_advisor` is organizational context, not a code-review guarantee. Do not cite line numbers or call graphs unless a later tool result in this conversation supports them.
+
+The task is grounded only when consequential claims are either supported by
+those repository tools or clearly marked as unverified.

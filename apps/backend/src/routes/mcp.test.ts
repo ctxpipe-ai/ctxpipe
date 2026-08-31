@@ -99,10 +99,26 @@ describe("MCP route auth and org validation", () => {
 
   it("reaches MCP handler when orgSlug is omitted", async () => {
     const app = createTestApp()
-    const response = await app.request("/mcp", { method: "POST" })
+    const response = await app.request("/mcp", {
+      method: "POST",
+      headers: {
+        accept: "application/json, text/event-stream",
+        "content-type": "application/json",
+      },
+      body: JSON.stringify({
+        jsonrpc: "2.0",
+        id: 1,
+        method: "initialize",
+        params: {
+          protocolVersion: "2025-11-25",
+          capabilities: {},
+          clientInfo: { name: "route-test", version: "1.0.0" },
+        },
+      }),
+    })
 
     expect(registerMcpToolsMock).toHaveBeenCalledTimes(1)
-    expect([200, 204, 400, 406]).toContain(response.status)
+    expect(response.status).toBe(200)
   })
 
   it("rejects an untrusted browser origin before authentication", async () => {

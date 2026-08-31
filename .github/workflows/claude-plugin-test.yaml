@@ -1,0 +1,65 @@
+name: Claude plugin
+
+on:
+  pull_request:
+    branches:
+      - main
+    types:
+      - opened
+      - reopened
+      - synchronize
+      - ready_for_review
+  push:
+    branches:
+      - main
+
+permissions:
+  contents: read
+
+jobs:
+  backend:
+    name: Backend tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - uses: pnpm/action-setup@v6
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 22
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm --filter @ctxpipe/backend test
+
+  ui:
+    name: UI tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - uses: pnpm/action-setup@v6
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 22
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm --filter @ctxpipe/ui test
+
+  package:
+    name: Validate and install package
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 22
+      - name: Validate plugin and marketplace
+        run: |
+          npx -y @anthropic-ai/claude-code@2.1.251 plugin validate ./plugins/ctxpipe --strict
+          npx -y @anthropic-ai/claude-code@2.1.251 plugin validate . --strict
+      - name: Install from the marketplace
+        run: |
+          config_dir="$(mktemp -d)"
+          export CLAUDE_CONFIG_DIR="$config_dir"
+          npx -y @anthropic-ai/claude-code@2.1.251 plugin marketplace add "$GITHUB_WORKSPACE" --scope user
+          npx -y @anthropic-ai/claude-code@2.1.251 plugin install ctxpipe@ctxpipe --scope user --yes
+          npx -y @anthropic-ai/claude-code@2.1.251 plugin list --json \
+            | jq -e 'any(.[]; .id == "ctxpipe@ctxpipe" and .enabled == true and .mcpServers.ctxpipe.url == "https://app.ctxpipe.ai/mcp")'

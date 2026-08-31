@@ -545,7 +545,7 @@ describe("auth middleware composition", () => {
     })
   })
 
-  it("requires orgSlug when the user has many orgs and no active organization", async () => {
+  it("rejects an unbound multi-organization session", async () => {
     getSessionMock.mockResolvedValueOnce({
       user: { id: "user_cookie", email: "cookie@example.com" },
       session: { id: "sess_cookie", userId: "user_cookie" },
