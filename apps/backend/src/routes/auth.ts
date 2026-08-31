@@ -127,10 +127,10 @@ export function registerAuthRoutes(app: Hono<AppEnv>) {
 
   app.on(["GET", "POST"], "/.auth/api/v1/auth/*", async (c) => {
     const prepared = await prepareBetterAuthRequest(c.req.raw, c.var.env)
-    const submittedOrganizationId = c.req.path.endsWith("/oauth2/consent")
-      ? c.req.header("x-ctxpipe-oauth-organization")?.trim()
-      : undefined
-    const response = submittedOrganizationId
+    const isOAuthConsent = c.req.path.endsWith("/oauth2/consent")
+    const submittedOrganizationId =
+      c.req.header("x-ctxpipe-oauth-organization")?.trim() || null
+    const response = isOAuthConsent
       ? await withOAuthConsentOrganizationId(submittedOrganizationId, () =>
           auth.handler(prepared.request),
         )

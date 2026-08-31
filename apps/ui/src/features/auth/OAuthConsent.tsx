@@ -57,7 +57,12 @@ export function OAuthConsent({
               </div>
             ) : null}
           </div>
-        ) : null}
+        ) : (
+          <InlineAlert variant="error" title="Organisation unavailable">
+            The organisation for this request could not be verified. Reload the
+            page before allowing access.
+          </InlineAlert>
+        )}
 
         <div className="space-y-2 text-sm">
           <p>
@@ -98,7 +103,7 @@ export function OAuthConsent({
           </Button>
           <Button
             className="rounded-none"
-            isDisabled={isSubmitting !== null}
+            isDisabled={isSubmitting !== null || !organization}
             isPending={isSubmitting === "allow"}
             onPress={onAllow}
           >

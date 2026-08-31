@@ -8,17 +8,17 @@ export type OAuthOrganizationBinding = {
   referenceId: string | null
 }
 
-const oauthConsentOrganizationStorage = new AsyncLocalStorage<string>()
+const oauthConsentOrganizationStorage = new AsyncLocalStorage<string | null>()
 
 export function withOAuthConsentOrganizationId<T>(
-  organizationId: string,
+  organizationId: string | null,
   handler: () => Promise<T>,
 ): Promise<T> {
   return oauthConsentOrganizationStorage.run(organizationId, handler)
 }
 
-export function getOAuthConsentOrganizationId(): string | null {
-  return oauthConsentOrganizationStorage.getStore() ?? null
+export function getOAuthConsentOrganizationId(): string | null | undefined {
+  return oauthConsentOrganizationStorage.getStore()
 }
 
 /**
@@ -59,8 +59,9 @@ export function resolveOAuthConsentReferenceId(
   activeOrganizationId: string | null | undefined,
   submittedOrganizationId: string | null | undefined,
 ): string | null {
-  if (submittedOrganizationId) {
-    return membershipIds.includes(submittedOrganizationId)
+  if (submittedOrganizationId !== undefined) {
+    return submittedOrganizationId &&
+      membershipIds.includes(submittedOrganizationId)
       ? submittedOrganizationId
       : null
   }
