@@ -1,5 +1,10 @@
 import { describe, expect, it } from "vitest"
-import { selectOAuthOrganizationBinding } from "./oauth-organization.js"
+import {
+  getOAuthConsentOrganizationId,
+  resolveOAuthConsentReferenceId,
+  selectOAuthOrganizationBinding,
+  withOAuthConsentOrganizationId,
+} from "./oauth-organization.js"
 
 describe("selectOAuthOrganizationBinding", () => {
   it("binds a single membership without another selection screen", () => {
@@ -53,5 +58,34 @@ describe("selectOAuthOrganizationBinding", () => {
       requiresSelection: true,
       referenceId: null,
     })
+  })
+})
+
+describe("OAuth consent organization", () => {
+  it("uses the organization submitted by consent instead of mutable active state", () => {
+    expect(
+      resolveOAuthConsentReferenceId(
+        ["org_acme", "org_consulting"],
+        "org_acme",
+        "org_consulting",
+      ),
+    ).toBe("org_consulting")
+  })
+
+  it("rejects a submitted organization that is not a membership", () => {
+    expect(
+      resolveOAuthConsentReferenceId(["org_acme"], "org_acme", "org_unrelated"),
+    ).toBeNull()
+  })
+
+  it("keeps the submitted organization isolated to one consent request", async () => {
+    expect(getOAuthConsentOrganizationId()).toBeNull()
+
+    await withOAuthConsentOrganizationId("org_acme", async () => {
+      await Promise.resolve()
+      expect(getOAuthConsentOrganizationId()).toBe("org_acme")
+    })
+
+    expect(getOAuthConsentOrganizationId()).toBeNull()
   })
 })
