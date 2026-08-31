@@ -351,7 +351,7 @@ describe("memory/capture", () => {
     expect(out.followup_message).toContain("Promote candidate abc")
   })
 
-  it("formats Claude Stop output with hookSpecificOutput.additionalContext", () => {
+  it("formats Claude Stop output with decision block + reason", () => {
     const out = formatStopHookOutput(
       "claude",
       {
@@ -364,10 +364,8 @@ describe("memory/capture", () => {
       {},
     )
     expect(out).toEqual({
-      hookSpecificOutput: {
-        hookEventName: "Stop",
-        additionalContext: "Promote candidate abc",
-      },
+      decision: "block",
+      reason: "Promote candidate abc",
     })
   })
 
@@ -543,6 +541,36 @@ describe("memory/capture", () => {
       .trim()
       .split("\n")
     expect(lines).toHaveLength(1)
+  })
+
+  it("does not emit a Claude follow-up for leftover PostToolUse candidates", () => {
+    const cwd = mkdtempSync(join(tmpdir(), "ctxpipe-capture-claude-tool-"))
+    mkdirSync(join(cwd, ".ai", "memory", "events"), { recursive: true })
+    writeFileSync(
+      join(cwd, ".ai", "memory", "events", "candidates.jsonl"),
+      `${JSON.stringify({
+        schemaVersion: 1,
+        candidateId: "claudetool0000001",
+        kind: "lesson",
+        destination: ".ai/memory/lessons-learned.md",
+        action: "Append a lesson",
+        excerpt: "From now on always use a fake Claude tool-sourced fact",
+        sourceEventType: "PostToolUse",
+        sourceHost: "claude",
+      })}\n`,
+      "utf8",
+    )
+    const summary = summarizeCapture({ cwd, host: "claude" })
+    expect(summary.priority).toBe("low")
+    expect(summary.candidates).toEqual([])
+    expect(formatStopHookOutput("claude", summary, {})).toEqual({})
+    const lifecycle = JSON.parse(
+      readFileSync(
+        join(cwd, ".ai", "memory", "events", "lifecycle.json"),
+        "utf8",
+      ),
+    ) as { dismissed?: string[] }
+    expect(lifecycle.dismissed).toContain("claudetool0000001")
   })
 
   it("does not emit a Cursor follow-up for tool-sourced pending candidates", () => {

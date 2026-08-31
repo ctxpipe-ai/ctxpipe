@@ -409,6 +409,12 @@ export function isUserPromptEvent(eventType: string): boolean {
   return /^(beforeSubmitPrompt|UserPromptSubmit)$/i.test(eventType.trim())
 }
 
+function isToolSourcedEvent(eventType: string): boolean {
+  return /^(PostToolUse|PostToolUseFailure|afterFileEdit|postToolUse)$/i.test(
+    eventType.trim(),
+  )
+}
+
 function isMemoryDurablePath(path: string): boolean {
   return MEMORY_PATH_RE.test(path.replace(/\\/g, "/"))
 }
@@ -670,17 +676,11 @@ export function formatStopHookOutput(
   ) {
     return {}
   }
-  if (host === "claude") {
-    // Claude: additionalContext continues the turn without a hook-error UX.
-    return {
-      hookSpecificOutput: {
-        hookEventName: "Stop",
-        additionalContext: result.message,
-      },
-    }
-  }
-  if (host === "codex") {
-    // Codex Stop continuation contract.
+  if (host === "claude" || host === "codex") {
+    // Portable Stop continuation: decision:block + reason.
+    // additionalContext is in the 2.1.163+ docs and the 2.1.251 binary schema, but
+    // older CLIs and stale long-lived sessions reject the whole object (non-blocking
+    // → turn ends, no follow-up). Codex uses the same contract.
     return {
       decision: "block",
       reason: result.message,
@@ -842,9 +842,13 @@ export function summarizeCapture(
     return id && !closed.has(id)
   })
 
-  if (host === "cursor") {
+  if (host === "cursor" || host === "claude") {
     const noiseIds = pending
-      .filter((c) => !isUserPromptEvent(String(c.sourceEventType ?? "")))
+      .filter((c) =>
+        host === "cursor"
+          ? !isUserPromptEvent(String(c.sourceEventType ?? ""))
+          : isToolSourcedEvent(String(c.sourceEventType ?? "")),
+      )
       .map((c) => String(c.candidateId ?? ""))
       .filter(Boolean)
     if (noiseIds.length > 0) {

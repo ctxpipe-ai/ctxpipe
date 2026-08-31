@@ -634,6 +634,12 @@ Highest-priority confirmed rules for agents. Migrated from former `patterns.md` 
 - **Date:** 2026-08-31
 - **Source:** PR-304 preview black-box `ctx_advisor` tools/call on a newly created empty org (`d242c36e`)
 
+### Claude Code Stop hooks cannot use additionalContext
+- **Rule:** Emit top-level `decision: "block"` + `reason` on Claude Code Stop (same as Codex). Do **not** emit `hookSpecificOutput.additionalContext` on Stop: older CLIs and stale long-lived sessions reject the whole object (non-blocking → turn ends). Fresh 2.1.163+ accepts `additionalContext`, but the portable contract must not require it. Claude capture is **UserPromptSubmit + Stop** only — do not install `PostToolUse` observe (tool dumps become fake lessons).
+- **Category:** convention
+- **Date:** 2026-08-31
+- **Source:** Claude Code 2.1.251 Stop hook validation failure after `npx ctxpipe init`; [anthropics/claude-code#50682](https://github.com/anthropics/claude-code/issues/50682)
+
 ### Distributed OAuth connectors require a clean external-workspace acceptance test
 - **Rule:** Never treat a provider workspace that already hosts the development app as proof that a new customer installation works. OAuth grants can be workspace-specific, additive, and contaminated by dashboard installs or earlier re-authorisations; Slack can also silently suppress Events API delivery when the installed token lacks an event scope. Before shipping a distributed connector, install it through the product OAuth flow into a fresh second workspace, inspect the returned and live token scopes, exercise the real webhook-to-durable-output path, and test re-authorisation after a required scope changes. Keep provider app configuration in a committed manifest and CI-check its scopes against the backend request.
 - **Category:** testing
