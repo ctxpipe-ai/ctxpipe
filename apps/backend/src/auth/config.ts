@@ -4,6 +4,7 @@ import { oauthProvider } from "@better-auth/oauth-provider"
 import { passkey } from "@better-auth/passkey"
 import { betterAuth } from "better-auth"
 import { drizzleAdapter } from "better-auth/adapters/drizzle"
+import { APIError } from "better-auth/api"
 import {
   bearer,
   deviceAuthorization,
@@ -11,10 +12,16 @@ import {
   organization,
   twoFactor,
 } from "better-auth/plugins"
+import { eq } from "drizzle-orm"
 import { parseEnv } from "../config/env.js"
 import { initDb } from "../db/client.js"
 import { schema } from "../db/schema.js"
+import { members } from "../db/schema/auth.js"
 import { generateObjectId } from "../lib/id.js"
+import {
+  OAUTH_ORGANIZATION_CLAIM,
+  selectOAuthOrganizationBinding,
+} from "./oauth-organization.js"
 
 export type BetterAuthInstance = ReturnType<typeof createBetterAuth>
 export type AuthUser = BetterAuthInstance["$Infer"]["Session"]["user"]
@@ -207,6 +214,42 @@ export function createBetterAuth() {
       oauthProvider({
         loginPage: "/.auth/sign-in",
         consentPage: "/.auth/consent",
+        postLogin: {
+          page: "/.auth/select-organization",
+          async shouldRedirect({ user, session }) {
+            const memberships = await db
+              .select({ id: members.organizationId })
+              .from(members)
+              .where(eq(members.userId, user.id))
+            return selectOAuthOrganizationBinding(
+              memberships.map(({ id }) => id),
+              session.activeOrganizationId,
+            ).requiresSelection
+          },
+          async consentReferenceId({ user, session }) {
+            const memberships = await db
+              .select({ id: members.organizationId })
+              .from(members)
+              .where(eq(members.userId, user.id))
+            const { referenceId } = selectOAuthOrganizationBinding(
+              memberships.map(({ id }) => id),
+              session.activeOrganizationId,
+            )
+            if (!referenceId) {
+              throw new APIError("BAD_REQUEST", {
+                error: "organization_required",
+                error_description:
+                  "Select a ctxpipe organization before authorizing this client.",
+              })
+            }
+            return referenceId
+          },
+        },
+        customAccessTokenClaims({ referenceId }) {
+          return referenceId
+            ? { [OAUTH_ORGANIZATION_CLAIM]: referenceId }
+            : {}
+        },
         issuer,
         allowDynamicClientRegistration: true,
         allowUnauthenticatedClientRegistration: true,
