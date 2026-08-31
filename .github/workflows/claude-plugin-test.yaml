@@ -28,7 +28,16 @@ jobs:
           node-version: 22
           cache: pnpm
       - run: pnpm install --frozen-lockfile
-      - run: pnpm --filter @ctxpipe/backend test
+      - name: Plugin auth, transport, and tool tests
+        run: >-
+          pnpm --filter @ctxpipe/backend test
+          src/auth/config.test.ts
+          src/auth/oauth-organization.test.ts
+          src/auth/withAuth.test.ts
+          src/routes/auth.test.ts
+          src/routes/mcp.test.ts
+          src/routes/mcp.conformance.test.ts
+          src/mcp/tools.test.ts
 
   ui:
     name: UI tests

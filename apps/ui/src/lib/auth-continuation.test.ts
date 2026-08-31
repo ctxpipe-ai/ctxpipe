@@ -27,9 +27,9 @@ describe("getAuthContinuationProps", () => {
 
 describe("getOAuthRedirectUri", () => {
   it("accepts Better Auth redirect response shapes", () => {
-    expect(getOAuthRedirectUri({ redirect_uri: "https://client.example/a" })).toBe(
-      "https://client.example/a",
-    )
+    expect(
+      getOAuthRedirectUri({ redirect_uri: "https://client.example/a" }),
+    ).toBe("https://client.example/a")
     expect(getOAuthRedirectUri({ url: "https://client.example/b" })).toBe(
       "https://client.example/b",
     )

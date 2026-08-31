@@ -1,9 +1,9 @@
 import type { Meta, StoryObj } from "@storybook/react-vite"
+import { OAuthOrganizationSelector } from "@/features/auth/OAuthOrganizationSelector"
 import {
   organizationListEmptyHandler,
   sessionSignedOutHandler,
 } from "@/mocks/handlers"
-import { OAuthOrganizationSelector } from "@/features/auth/OAuthOrganizationSelector"
 import { entryPageInnerDecorators } from "../../.storybook/decorators/entry-page-decorators"
 import type { StoryRouteParams } from "../../.storybook/decorators/with-story-route"
 import { SignInRoutePage } from "./[.]auth.sign-in"

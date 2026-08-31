@@ -222,8 +222,15 @@ describe("registerMcpTools", () => {
       string,
       unknown,
       (
-        input: { prompt: string; currentProjectName?: string; conversationId?: string },
-        extra: { _meta?: { progressToken?: string }; sendNotification: (n: unknown) => Promise<void> },
+        input: {
+          prompt: string
+          currentProjectName?: string
+          conversationId?: string
+        },
+        extra: {
+          _meta?: { progressToken?: string }
+          sendNotification: (n: unknown) => Promise<void>
+        },
       ) => Promise<{ content: Array<{ text: string }> }>,
     ]
 

@@ -8,7 +8,9 @@ export const Route = createFileRoute("/.auth/consent")({
 })
 
 function ConsentPage() {
-  const [isSubmitting, setIsSubmitting] = useState<"allow" | "deny" | null>(null)
+  const [isSubmitting, setIsSubmitting] = useState<"allow" | "deny" | null>(
+    null,
+  )
   const [error, setError] = useState<string | null>(null)
 
   const searchParams = useMemo(() => {

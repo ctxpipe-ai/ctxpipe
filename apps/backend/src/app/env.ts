@@ -1,6 +1,6 @@
+import type { EvlogVariables } from "evlog/hono"
 import type { AuthSession, AuthUser } from "../auth/config.js"
 import type { Env } from "../config/env.js"
-import type { EvlogVariables } from "evlog/hono"
 
 export type AppEnv = EvlogVariables & {
   Variables: {

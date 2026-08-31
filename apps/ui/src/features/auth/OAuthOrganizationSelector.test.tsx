@@ -18,13 +18,15 @@ vi.mock("@/components/ui/RadioGroup", () => ({
     return <div>{children}</div>
   },
   Radio: ({ children, value }: { children: ReactNode; value: string }) => (
-    <button
-      type="button"
-      role="radio"
-      onClick={() => radioGroupOnChange?.(value)}
-    >
+    <label>
+      <input
+        type="radio"
+        name="organization"
+        value={value}
+        onChange={() => radioGroupOnChange?.(value)}
+      />
       {children}
-    </button>
+    </label>
   ),
 }))
 
@@ -136,8 +138,6 @@ describe("OAuthOrganizationSelector", () => {
     })
 
     expect(container.textContent).toContain("No organizations available")
-    expect(
-      container.querySelector('a[href="/onboarding"]'),
-    ).not.toBeNull()
+    expect(container.querySelector('a[href="/onboarding"]')).not.toBeNull()
   })
 })

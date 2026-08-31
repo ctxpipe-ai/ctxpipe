@@ -54,6 +54,7 @@ vi.mock("../observability/logger.js", () => ({
   }),
 }))
 
+import { OAUTH_ORGANIZATION_CLAIM } from "./oauth-organization.js"
 import {
   mcpOAuthProtectedResourceMetadataUrl,
   requireAuth,
@@ -62,7 +63,6 @@ import {
   withCookieAuth,
   withNetworkOrgContext,
 } from "./withAuth.js"
-import { OAUTH_ORGANIZATION_CLAIM } from "./oauth-organization.js"
 
 function createMockDb(input: {
   orgRows?: Array<{ id: string; slug?: string }>

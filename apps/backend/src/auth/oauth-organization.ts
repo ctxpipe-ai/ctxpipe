@@ -25,8 +25,7 @@ export function selectOAuthOrganizationBinding(
   return {
     requiresSelection: true,
     referenceId:
-      activeOrganizationId &&
-      membershipIds.includes(activeOrganizationId)
+      activeOrganizationId && membershipIds.includes(activeOrganizationId)
         ? activeOrganizationId
         : null,
   }

@@ -11,8 +11,8 @@ import {
 import type { AppEnv } from "../app/env.js"
 import { getSystemDb, withOrgDbContext } from "../db/client.js"
 import {
-  oauthAccessTokens,
   members,
+  oauthAccessTokens,
   organizations,
   sessions,
   users,
@@ -90,7 +90,9 @@ function wwwAuthenticateInvalidTokenMcp(
  * (including remote MCP hosts) only start the authorization code flow when they
  * see a bare `Bearer` challenge plus `resource_metadata`.
  */
-function wwwAuthenticateMcpDiscovery(authBaseUrl: string): Record<string, string> {
+function wwwAuthenticateMcpDiscovery(
+  authBaseUrl: string,
+): Record<string, string> {
   const meta = mcpOAuthProtectedResourceMetadataUrl(authBaseUrl)
   const metaEsc = meta.replace(/\\/g, "\\\\").replace(/"/g, '\\"')
   return {
@@ -111,7 +113,10 @@ function wwwAuthenticateForMcpRoute(
   if (kind === "discovery") {
     return wwwAuthenticateMcpDiscovery(c.var.env.AUTH_BASE_URL)
   }
-  return wwwAuthenticateInvalidTokenMcp(errorDescription, c.var.env.AUTH_BASE_URL)
+  return wwwAuthenticateInvalidTokenMcp(
+    errorDescription,
+    c.var.env.AUTH_BASE_URL,
+  )
 }
 
 function requestHasBearerCredential(raw: Request): boolean {
@@ -179,9 +184,7 @@ function hashOpaqueAccessToken(token: string): string {
   return createHash("sha256").update(token).digest("base64url")
 }
 
-async function resolveOpaqueAccessToken(
-  token: string,
-): Promise<{
+async function resolveOpaqueAccessToken(token: string): Promise<{
   session: AuthSession
   user: AuthUser
   oauthOrganizationId: string | null
@@ -338,7 +341,10 @@ export const withBearerAuth: MiddlewareHandler<AppEnv> = async (c, next) => {
       return c.json(
         { error: "Unauthorized" },
         401,
-        wwwAuthenticateForMcpRoute(c, "The access token could not be validated"),
+        wwwAuthenticateForMcpRoute(
+          c,
+          "The access token could not be validated",
+        ),
       )
     }
     invalidateJwksCache()
@@ -350,7 +356,10 @@ export const withBearerAuth: MiddlewareHandler<AppEnv> = async (c, next) => {
       return c.json(
         { error: "Unauthorized" },
         401,
-        wwwAuthenticateForMcpRoute(c, "The access token could not be validated"),
+        wwwAuthenticateForMcpRoute(
+          c,
+          "The access token could not be validated",
+        ),
       )
     }
     ;[payload, verifyErr] = await jwtVerify(
@@ -365,7 +374,10 @@ export const withBearerAuth: MiddlewareHandler<AppEnv> = async (c, next) => {
       return c.json(
         { error: "Unauthorized" },
         401,
-        wwwAuthenticateForMcpRoute(c, "The access token could not be validated"),
+        wwwAuthenticateForMcpRoute(
+          c,
+          "The access token could not be validated",
+        ),
       )
     }
   }
@@ -394,10 +406,7 @@ export const withBearerAuth: MiddlewareHandler<AppEnv> = async (c, next) => {
     return c.json(
       { error: "Unauthorized" },
       401,
-      wwwAuthenticateForMcpRoute(
-        c,
-        "The access token organization is invalid",
-      ),
+      wwwAuthenticateForMcpRoute(c, "The access token organization is invalid"),
     )
   }
   tokenSessionId =
@@ -584,9 +593,8 @@ export const withNetworkOrgContext: MiddlewareHandler<AppEnv> = async (
   if (!resolved) return c.json({ error: "Not found" }, 404)
   c.set("orgSlug", resolved.slug)
   c.set("orgId", resolved.id)
-  return withOrgIdContext(
-    { id: resolved.id, slug: resolved.slug },
-    async () => withOrgDbContext(resolved.id, async () => next()),
+  return withOrgIdContext({ id: resolved.id, slug: resolved.slug }, async () =>
+    withOrgDbContext(resolved.id, async () => next()),
   )
 }
 
