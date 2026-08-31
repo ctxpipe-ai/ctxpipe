@@ -70,5 +70,13 @@ jobs:
           export CLAUDE_CONFIG_DIR="$config_dir"
           npx -y @anthropic-ai/claude-code@2.1.251 plugin marketplace add "$GITHUB_WORKSPACE" --scope user
           npx -y @anthropic-ai/claude-code@2.1.251 plugin install ctxpipe@ctxpipe --scope user --yes
-          npx -y @anthropic-ai/claude-code@2.1.251 plugin list --json \
-            | jq -e 'any(.[]; .id == "ctxpipe@ctxpipe" and .enabled == true and .mcpServers.ctxpipe.url == "https://app.ctxpipe.ai/mcp")'
+          plugin_list="$(npx -y @anthropic-ai/claude-code@2.1.251 plugin list --json)"
+          PLUGIN_LIST="$plugin_list" node -e '
+            const plugins = JSON.parse(process.env.PLUGIN_LIST);
+            const installed = plugins.some((plugin) =>
+              plugin.id === "ctxpipe@ctxpipe" &&
+              plugin.enabled === true &&
+              plugin.mcpServers?.ctxpipe?.url === "https://app.ctxpipe.ai/mcp"
+            );
+            if (!installed) process.exit(1);
+          '

@@ -112,9 +112,9 @@ describe("OAuthOrganizationSelector", () => {
     expect(continueButton).toBeDefined()
     expect(continueButton?.disabled).toBe(true)
 
-    const consultingChoice = Array.from(
-      container.querySelectorAll('[role="radio"]'),
-    ).find((radio) => radio.textContent?.includes("Consulting"))
+    const consultingChoice = Array.from(container.querySelectorAll("label"))
+      .find((label) => label.textContent?.includes("Consulting"))
+      ?.querySelector('input[type="radio"]')
     expect(consultingChoice).toBeDefined()
 
     act(() => {
