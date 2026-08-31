@@ -7,7 +7,7 @@ import {
 } from "../../models/github-installation.js"
 import { bulkCreateRepositoriesForOrg } from "../../models/repositories.js"
 import { createLogger, getLogger, withLogger } from "../../observability/logger.js"
-import { runRepositoryIngestionWorkflow } from "../enqueue-repository-ingestion.js"
+import { claimAndRunRepositoryIngestionChild } from "../enqueue-repository-ingestion.js"
 
 const reposToSyncItemSchema = z.object({
   name: z.string(),
@@ -71,17 +71,16 @@ export const syncGithubRepositories = defineWorkflow(
 
         await Promise.all(
           created.map((repo) =>
-            step.run({ name: `ingest-${repo.id}` }, () =>
-              runRepositoryIngestionWorkflow(
-                { repositoryId: repo.id, orgId: repo.orgId },
-                {
-                  error: (err) =>
-                    getLogger().error(err, {
-                      step: "sync-github-repositories.ingestion",
-                      repositoryId: repo.id,
-                    }),
-                },
-              ),
+            claimAndRunRepositoryIngestionChild(
+              step,
+              { repositoryId: repo.id, orgId: repo.orgId },
+              {
+                error: (err) =>
+                  getLogger().error(err, {
+                    step: "sync-github-repositories.ingestion",
+                    repositoryId: repo.id,
+                  }),
+              },
             ),
           ),
         )

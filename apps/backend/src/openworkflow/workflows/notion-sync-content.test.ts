@@ -27,7 +27,7 @@ vi.mock("../../services/notion/sync.js", () => ({
   syncNotionContent: mocks.syncContent,
 }))
 vi.mock("../enqueue-repository-ingestion.js", () => ({
-  runRepositoryIngestionWorkflow: vi.fn(),
+  claimAndRunRepositoryIngestionChild: vi.fn(),
 }))
 
 import { notionSyncContent } from "./notion-sync-content.js"
