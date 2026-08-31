@@ -1,5 +1,11 @@
 # @ctxpipe/aws-cdk
 
+## 3.1.4
+
+### Patch Changes
+
+- 6982d66: Fan out in-workflow repository ingestion with `step.runWorkflow` so parent workflows sleep and free concurrency slots while children run.
+
 ## 3.1.3
 
 ### Patch Changes
