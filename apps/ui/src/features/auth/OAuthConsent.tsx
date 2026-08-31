@@ -50,7 +50,7 @@ export function OAuthConsent({
                 <Button
                   href={changeOrganizationHref}
                   variant="quiet"
-                  className="rounded-none px-0"
+                  className="rounded-none px-0 text-zinc-300"
                 >
                   Change organization
                 </Button>
