@@ -1,8 +1,72 @@
 // @vitest-environment jsdom
 
-import { act } from "react"
+import { act, type ReactNode } from "react"
 import { createRoot, type Root } from "react-dom/client"
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
+
+let radioGroupOnChange: ((value: string) => void) | undefined
+
+vi.mock("@/components/ui/RadioGroup", () => ({
+  RadioGroup: ({
+    children,
+    onChange,
+  }: {
+    children: ReactNode
+    onChange?: (value: string) => void
+  }) => {
+    radioGroupOnChange = onChange
+    return <div>{children}</div>
+  },
+  Radio: ({ children, value }: { children: ReactNode; value: string }) => (
+    <button
+      type="button"
+      role="radio"
+      onClick={() => radioGroupOnChange?.(value)}
+    >
+      {children}
+    </button>
+  ),
+}))
+
+vi.mock("@/components/ui/Button", () => ({
+  Button: ({
+    children,
+    href,
+    isDisabled,
+    onPress,
+  }: {
+    children: ReactNode
+    href?: string
+    isDisabled?: boolean
+    onPress?: () => void
+  }) =>
+    href ? (
+      <a href={href}>{children}</a>
+    ) : (
+      <button type="button" disabled={isDisabled} onClick={onPress}>
+        {children}
+      </button>
+    ),
+}))
+
+vi.mock("@/components/ui/InlineAlert", () => ({
+  InlineAlert: ({
+    title,
+    children,
+    actions,
+  }: {
+    title?: string
+    children: ReactNode
+    actions?: ReactNode
+  }) => (
+    <div role="alert">
+      {title}
+      {children}
+      {actions}
+    </div>
+  ),
+}))
+
 import { OAuthOrganizationSelector } from "./OAuthOrganizationSelector"
 
 Object.assign(globalThis, { IS_REACT_ACT_ENVIRONMENT: true })
