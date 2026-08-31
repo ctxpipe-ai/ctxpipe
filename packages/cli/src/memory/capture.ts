@@ -823,10 +823,10 @@ export function markDismissed(ids: string[], opts: { cwd?: string } = {}): void 
  * Build a summary of pending candidates (batch of SUMMARY_BATCH).
  * Does **not** advance lifecycle — caller must acknowledgeSurfaced after delivery.
  *
- * Cursor Stop injects `followup_message` as a new user turn, so only never-shown
- * user-prompt candidates get a follow-up. Tool/edit-sourced items are dismissed
- * (they are MCP/grep/test dumps, not conventions). Claude/Codex may re-show
- * unresolved surfaced ids.
+ * Stop follow-ups are one-shot: only never-shown candidates inject a turn.
+ * Cursor additionally requires a user-prompt source. Tool/edit-sourced items
+ * are dismissed (MCP/grep/test dumps, not conventions). Already-surfaced ids
+ * stay pending for promote/dismiss but must not decision:block every later Stop.
  */
 export function summarizeCapture(
   opts: { cwd?: string; host?: CaptureHost } = {},
@@ -880,31 +880,22 @@ export function summarizeCapture(
   const neverShown = pending.filter(
     (c) => !surfaced.has(String(c.candidateId ?? "")),
   )
-  const previouslyShown = pending.filter((c) =>
-    surfaced.has(String(c.candidateId ?? "")),
-  )
-
-  const cursorFollowUp =
+  const pool =
     host === "cursor"
       ? neverShown.filter((c) =>
           isUserPromptEvent(String(c.sourceEventType ?? "")),
         )
-      : []
+      : neverShown
 
-  if (host === "cursor" && cursorFollowUp.length === 0) {
+  if (pool.length === 0) {
     return {
       priority: "low",
-      message: `${pending.length} memory candidate(s) pending (already shown or not from a user prompt). Not injecting a turn.${parseNote}`,
+      message: `${pending.length} memory candidate(s) pending (already shown or not eligible). Not injecting a turn.${parseNote}`,
       candidates: [],
       surfacedIds: [],
       parseErrors,
     }
   }
-
-  const pool =
-    host === "cursor"
-      ? cursorFollowUp
-      : [...neverShown, ...previouslyShown]
   const batch = pool.slice(0, SUMMARY_BATCH)
   const listed: SummaryCandidate[] = batch.map((c) => ({
     candidateId: String(c.candidateId ?? ""),

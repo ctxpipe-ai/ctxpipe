@@ -142,12 +142,12 @@ describe("memory/capture", () => {
         summarizeCapture({ cwd, host: "claude" }).candidates.length,
       ).toBeGreaterThan(0)
       acknowledgeSurfaced(first.surfacedIds, { cwd })
-      // Claude: surfaced-but-unresolved stay visible until promote/dismiss.
+      // Claude Stop is one-shot: already-shown ids stay pending but must not
+      // decision:block every later turn.
       const second = summarizeCapture({ cwd, host: "claude" })
-      expect(second.candidates.length).toBeGreaterThan(0)
-      expect(second.candidates[0]?.candidateId).toBe(
-        first.candidates[0]?.candidateId,
-      )
+      expect(second.candidates).toEqual([])
+      expect(second.priority).toBe("low")
+      expect(formatStopHookOutput("claude", second, {})).toEqual({})
       expect(
         existsSync(join(cwd, ".ai", "memory", "events", "lifecycle.json")),
       ).toBe(true)
@@ -187,9 +187,11 @@ describe("memory/capture", () => {
       const third = summarizeCapture({ cwd, host: "cursor" })
       expect(third.candidates).toEqual([])
       expect(third.priority).toBe("low")
-      // Claude may re-show unresolved surfaced ids.
+      // Claude must not re-block Stop for unresolved surfaced ids either.
       const claudeAgain = summarizeCapture({ cwd, host: "claude" })
-      expect(claudeAgain.candidates.length).toBeGreaterThan(0)
+      expect(claudeAgain.candidates).toEqual([])
+      expect(claudeAgain.priority).toBe("low")
+      expect(formatStopHookOutput("claude", claudeAgain, {})).toEqual({})
     },
   )
 

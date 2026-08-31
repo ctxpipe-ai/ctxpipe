@@ -635,7 +635,7 @@ Highest-priority confirmed rules for agents. Migrated from former `patterns.md` 
 - **Source:** PR-304 preview black-box `ctx_advisor` tools/call on a newly created empty org (`d242c36e`)
 
 ### Claude Code Stop hooks cannot use additionalContext
-- **Rule:** Emit top-level `decision: "block"` + `reason` on Claude Code Stop (same as Codex). Do **not** emit `hookSpecificOutput.additionalContext` on Stop: older CLIs and stale long-lived sessions reject the whole object (non-blocking → turn ends). Fresh 2.1.163+ accepts `additionalContext`, but the portable contract must not require it. Claude capture is **UserPromptSubmit + Stop** only — do not install `PostToolUse` observe (tool dumps become fake lessons).
+- **Rule:** Emit top-level `decision: "block"` + `reason` on Claude Code Stop (same as Codex). Do **not** emit `hookSpecificOutput.additionalContext` on Stop: older CLIs and stale long-lived sessions reject the whole object (non-blocking → turn ends). Fresh 2.1.163+ accepts `additionalContext`, but the portable contract must not require it. Claude capture is **UserPromptSubmit + Stop** only — do not install `PostToolUse` observe (tool dumps become fake lessons). Stop continuation is **one-shot**: already-surfaced ids must not `decision: block` again on later turns.
 - **Category:** convention
 - **Date:** 2026-08-31
 - **Source:** Claude Code 2.1.251 Stop hook validation failure after `npx ctxpipe init`; [anthropics/claude-code#50682](https://github.com/anthropics/claude-code/issues/50682)
