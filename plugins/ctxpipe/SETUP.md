@@ -26,3 +26,6 @@ The selected ctx| organization is bound to that OAuth grant. Switching
 organizations later in the admin's browser does not change what the Slack
 agent can access. To use another organization, reconnect the MCP Connector and
 select it during authorization.
+
+Signing out of the ctx| browser session does not revoke an `offline_access`
+grant. Disconnect the MCP Connector when its access should end.

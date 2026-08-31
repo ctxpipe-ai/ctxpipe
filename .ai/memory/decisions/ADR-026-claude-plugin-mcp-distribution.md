@@ -39,8 +39,8 @@ Research: [Claude plugins](../research/claude-plugins/index.md).
    `https://ctxpipe.ai/organization_id` claim.
 4. **Enforce that binding on `/mcp`:** bound JWT and opaque tokens resolve only
    their selected organization. A query slug cannot override a bound grant.
-   Legacy/manual clients may still use `?orgSlug=`; an unbound account with one
-   membership remains unambiguous.
+   Legacy/manual clients may still use `?orgSlug=`; a bare unbound request is
+   rejected rather than inferring tenant authority from current membership.
 5. **Defer** Connectors Directory submission, `custom_connection`, MCPB desktop
    extensions, and Cursor/Codex/CodeRabbit listings.
 6. **Claude Tag customers** attach the plugin on the Access bundle and add an
@@ -52,6 +52,8 @@ Research: [Claude plugins](../research/claude-plugins/index.md).
 - Slack Tag becomes a documented install path without a per-company MCP URL.
 - Multi-org users choose the grant organization during OAuth. Later browser
   organization switches do not retarget Claude.
+- `offline_access` refresh remains valid after browser sign-out; disconnecting
+  or revoking the Claude connection is the credential revocation boundary.
 - Self-host operators fork `.mcp.json` to their origin.
 - Directory listing and Anthropic review remain a later, out-of-band step.
 - The plugin is not a substitute for `npx ctxpipe init` on Cursor/Codex/VS Code.

@@ -14,6 +14,10 @@ Reconnect ctxpipe to choose another organization. `orgSlug` remains supported
 for manual and legacy client configurations; the community plugin does not
 need it. Do not put tokens in the query string.
 
+Claude requests `offline_access`, so browser sign-out does not disconnect the
+installed plugin. Revoke or disconnect the Claude MCP connection to remove its
+access.
+
 ## Claude Code
 
 ```text
