@@ -67,6 +67,11 @@ import {
 function createMockDb(input: {
   orgRows?: Array<{ id: string; slug?: string }>
   membershipRows?: Array<{ id: string; slug: string }>
+  userRows?: Array<{
+    id: string
+    name?: string | null
+    email?: string | null
+  }>
   tokenSessionRows?: Array<{
     session: { id: string; userId: string; activeOrganizationId?: string }
     user: { id: string; name?: string | null; email?: string | null }
@@ -87,6 +92,7 @@ function createMockDb(input: {
 }) {
   const orgRows = input.orgRows ?? []
   const membershipRows = input.membershipRows ?? []
+  const userRows = input.userRows ?? []
   const tokenSessionRows = input.tokenSessionRows ?? []
   const bearerSubFallbackRows = input.bearerSubFallbackRows ?? tokenSessionRows
   const opaqueTokenRows = input.opaqueTokenRows ?? []
@@ -127,6 +133,13 @@ function createMockDb(input: {
                   })),
                 }),
               ),
+            }
+          }
+          if (table === users) {
+            return {
+              where: vi.fn(() => ({
+                limit: vi.fn(async () => userRows),
+              })),
             }
           }
           const rows = table === oauthAccessTokens ? opaqueTokenRows : orgRows
@@ -513,7 +526,7 @@ describe("auth middleware composition", () => {
     expect(withOrgDbContextMock).not.toHaveBeenCalled()
   })
 
-  it("resolves a unique membership when /mcp has no orgSlug", async () => {
+  it("rejects an unbound bare MCP request even with one membership", async () => {
     getSessionMock.mockResolvedValueOnce({
       user: { id: "user_cookie", email: "cookie@example.com" },
       session: { id: "sess_cookie", userId: "user_cookie" },
@@ -525,12 +538,12 @@ describe("auth middleware composition", () => {
     const app = createComposedTestApp()
     const response = await app.request("/mcp", { method: "POST" })
 
-    expect(response.status).toBe(200)
-    expect(await response.json()).toEqual({
-      user: { id: "user_cookie", email: "cookie@example.com" },
-      session: { id: "sess_cookie", userId: "user_cookie" },
-      orgSlug: "solo",
-      orgId: "org_solo",
+    expect(response.status).toBe(400)
+    expect(await response.json()).toMatchObject({
+      jsonrpc: "2.0",
+      error: {
+        message: expect.stringContaining("not bound to an organization"),
+      },
     })
   })
 
@@ -739,6 +752,70 @@ describe("auth middleware composition", () => {
 
     expect(response.status).toBe(200)
     expect(await response.json()).toMatchObject({
+      orgSlug: "bound",
+      orgId: "org_bound",
+    })
+  })
+
+  it("accepts an organization-bound JWT after its browser session is deleted", async () => {
+    getSessionMock.mockResolvedValueOnce(null)
+    jwtVerifyMock.mockResolvedValueOnce({
+      payload: {
+        sub: "user_offline",
+        sid: "sess_deleted",
+        [OAUTH_ORGANIZATION_CLAIM]: "org_bound",
+      },
+    })
+    testState.db = createMockDb({
+      tokenSessionRows: [],
+      bearerSubFallbackRows: [],
+      userRows: [{ id: "user_offline", email: "offline@example.com" }],
+      orgRows: [{ id: "org_bound", slug: "bound" }],
+    })
+
+    const app = createComposedTestApp()
+    const response = await app.request("/mcp", {
+      method: "POST",
+      headers: { authorization: "Bearer header.payload.signature" },
+    })
+
+    expect(response.status).toBe(200)
+    expect(await response.json()).toMatchObject({
+      user: { id: "user_offline", email: "offline@example.com" },
+      session: null,
+      orgSlug: "bound",
+      orgId: "org_bound",
+    })
+  })
+
+  it("accepts an organization-bound opaque grant after its browser session is deleted", async () => {
+    getSessionMock.mockResolvedValueOnce(null)
+    testState.db = createMockDb({
+      opaqueTokenRows: [
+        {
+          token: "hashed-token",
+          userId: "user_offline",
+          sessionId: "sess_deleted",
+          referenceId: "org_bound",
+          expiresAt: new Date(Date.now() + 60_000),
+        },
+      ],
+      tokenSessionRows: [],
+      bearerSubFallbackRows: [],
+      userRows: [{ id: "user_offline", email: "offline@example.com" }],
+      orgRows: [{ id: "org_bound", slug: "bound" }],
+    })
+
+    const app = createComposedTestApp()
+    const response = await app.request("/mcp", {
+      method: "POST",
+      headers: { authorization: "Bearer opaque-random-32-chars" },
+    })
+
+    expect(response.status).toBe(200)
+    expect(await response.json()).toMatchObject({
+      user: { id: "user_offline", email: "offline@example.com" },
+      session: null,
       orgSlug: "bound",
       orgId: "org_bound",
     })

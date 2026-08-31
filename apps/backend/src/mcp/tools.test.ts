@@ -316,10 +316,10 @@ describe("registerMcpTools", () => {
       configurable?: { thread_id?: string }
     }
     expect(callConfig.configurable?.thread_id).toBe(
-      "user_test123_my-backend_conv-xyz",
+      "org_test_user_test123_my-backend_conv-xyz",
     )
     expect(ensureConversationMock).toHaveBeenCalledWith({
-      id: "user_test123_my-backend_conv-xyz",
+      id: "org_test_user_test123_my-backend_conv-xyz",
       source: "mcp",
     })
   })
