@@ -494,6 +494,23 @@ describe("auth middleware composition", () => {
       orgId: "org_cookie",
     })
     expect(jwtVerifyMock).not.toHaveBeenCalled()
+    expect(withOrgDbContextMock).not.toHaveBeenCalled()
+  })
+
+  it("does not hold a request-wide org transaction on /mcp", async () => {
+    getSessionMock.mockResolvedValueOnce({
+      user: { id: "user_cookie", email: "cookie@example.com" },
+      session: { id: "sess_cookie", userId: "user_cookie" },
+    })
+    testState.db = createMockDb({
+      orgRows: [{ id: "org_cookie" }],
+    })
+
+    const app = createComposedTestApp()
+    const response = await app.request("/mcp?orgSlug=acme", { method: "POST" })
+
+    expect(response.status).toBe(200)
+    expect(withOrgDbContextMock).not.toHaveBeenCalled()
   })
 
   it("resolves a unique membership when /mcp has no orgSlug", async () => {

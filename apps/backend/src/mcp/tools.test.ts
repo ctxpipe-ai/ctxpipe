@@ -10,6 +10,7 @@ const {
   requireCurrentUserIdMock,
   requireCurrentOrgIdMock,
   requireCurrentOrgSlugMock,
+  withOrgDbContextMock,
 } = vi.hoisted(() => ({
   generateObjectIdMock: vi.fn(() => "thr_test"),
   streamMock: vi.fn(),
@@ -19,6 +20,9 @@ const {
   requireCurrentUserIdMock: vi.fn(() => "user_test123"),
   requireCurrentOrgIdMock: vi.fn(() => "org_test"),
   requireCurrentOrgSlugMock: vi.fn(() => "test-org"),
+  withOrgDbContextMock: vi.fn(
+    async (_orgId: string, handler: () => Promise<unknown>) => handler(),
+  ),
 }))
 
 vi.mock("../graphs/index.js", () => ({
@@ -43,6 +47,10 @@ vi.mock("../auth/context.js", () => ({
   requireCurrentOrgSlug: requireCurrentOrgSlugMock,
 }))
 
+vi.mock("../db/client.js", () => ({
+  withOrgDbContext: withOrgDbContextMock,
+}))
+
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js"
 import { registerMcpTools } from "./tools.js"
 
@@ -54,6 +62,63 @@ describe("registerMcpTools", () => {
     generateObjectIdMock.mockReset().mockReturnValue("thr_test")
     ensureConversationMock.mockReset().mockResolvedValue({})
     touchConversationLastMessageMock.mockReset().mockResolvedValue(undefined)
+    withOrgDbContextMock
+      .mockReset()
+      .mockImplementation(
+        async (_orgId: string, handler: () => Promise<unknown>) => handler(),
+      )
+  })
+
+  it("does not hold an org transaction across the advisor graph", async () => {
+    const events: string[] = []
+    withOrgDbContextMock.mockImplementation(
+      async (_orgId: string, handler: () => Promise<unknown>) => {
+        events.push("txn-enter")
+        try {
+          return await handler()
+        } finally {
+          events.push("txn-exit")
+        }
+      },
+    )
+    streamMock.mockImplementation(async () => {
+      events.push("stream")
+      return (async function* () {
+        yield { messages: [{ content: "Org has no indexed context yet." }] }
+      })()
+    })
+
+    const registerToolMock = vi.fn()
+    const server = { registerTool: registerToolMock } as unknown as McpServer
+    registerMcpTools(server)
+    const [, , handler] = registerToolMock.mock.calls[0] as [
+      string,
+      unknown,
+      (
+        input: { prompt: string },
+        extra: { sendNotification: (n: unknown) => Promise<void> },
+      ) => Promise<{ content: Array<{ text: string }> }>,
+    ]
+
+    const result = await handler(
+      { prompt: "What standards apply?" },
+      { sendNotification: vi.fn(async () => {}) },
+    )
+
+    expect(result.content[0]?.text).toBe("Org has no indexed context yet.")
+    expect(withOrgDbContextMock).toHaveBeenCalledWith(
+      "org_test",
+      expect.any(Function),
+    )
+    expect(events).toContain("stream")
+    let depth = 0
+    let streamInsideTxn = false
+    for (const event of events) {
+      if (event === "txn-enter") depth += 1
+      if (event === "txn-exit") depth -= 1
+      if (event === "stream" && depth > 0) streamInsideTxn = true
+    }
+    expect(streamInsideTxn).toBe(false)
   })
 
   it("registers ctx advisor tool and streams progress", async () => {

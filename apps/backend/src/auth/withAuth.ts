@@ -593,8 +593,15 @@ export const withNetworkOrgContext: MiddlewareHandler<AppEnv> = async (
   if (!resolved) return c.json({ error: "Not found" }, 404)
   c.set("orgSlug", resolved.slug)
   c.set("orgId", resolved.id)
-  return withOrgIdContext({ id: resolved.id, slug: resolved.slug }, async () =>
-    withOrgDbContext(resolved.id, async () => next()),
+  return withOrgIdContext(
+    { id: resolved.id, slug: resolved.slug },
+    async () => {
+      // MCP tools/call can run the advisor graph for tens of seconds. Holding the
+      // request-wide org transaction across that wait lets Neon/Postgres kill the
+      // idle-in-transaction connection ("Connection terminated unexpectedly").
+      if (isMcpRequestPath(c.req.path)) return next()
+      return withOrgDbContext(resolved.id, async () => next())
+    },
   )
 }
 
