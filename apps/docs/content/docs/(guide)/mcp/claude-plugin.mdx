@@ -119,6 +119,16 @@ Listing the remote MCP in the separate Connectors Directory is still
 recommended so Claude presents ctx| as a named connector instead of **Custom**
 on connector-first surfaces.
 
+Submit the main-branch plugin directory after merge:
+
+```text
+https://github.com/ctxpipe-ai/ctxpipe/tree/main/plugins/ctxpipe
+```
+
+A dedicated repository is not required. Anthropic supports `git-subdir`
+sources for monorepos and sparsely fetches that directory. Do not submit a
+feature-branch URL.
+
 ## Self-host
 
 Copy `plugins/ctxpipe` and change `.mcp.json` to your public origin:

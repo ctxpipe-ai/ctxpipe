@@ -57,6 +57,14 @@ requires a separate submission to Anthropic's community Plugin Directory:
 - `https://claude.ai/admin-settings/directory/submissions/plugins/new`
 - `https://platform.claude.com/plugins/submit`
 
+After this change is merged, submit the plugin's **main-branch subdirectory**:
+
+`https://github.com/ctxpipe-ai/ctxpipe/tree/main/plugins/ctxpipe`
+
+A dedicated repository is not required. Anthropic's community catalogue
+supports `git-subdir` sources and sparsely fetches the plugin directory from a
+monorepo. Do not submit the feature-branch URL.
+
 The submission is an account-owner action, not something this repository can
 perform during build or deployment.
 
