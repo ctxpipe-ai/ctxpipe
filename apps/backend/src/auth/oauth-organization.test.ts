@@ -9,24 +9,24 @@ describe("selectOAuthOrganizationBinding", () => {
     })
   })
 
-  it("requires an explicit choice for every multi-organization authorization", () => {
+  it("binds the active membership and does not re-open selection", () => {
     expect(
       selectOAuthOrganizationBinding(
         ["org_acme", "org_consulting"],
-        "org_acme",
+        "org_consulting",
       ),
     ).toEqual({
-      requiresSelection: true,
-      referenceId: "org_acme",
+      requiresSelection: false,
+      referenceId: "org_consulting",
     })
   })
 
-  it("does not bind an active organization that is not a membership", () => {
+  it("requires selection when no valid organization can be resolved", () => {
     expect(
-      selectOAuthOrganizationBinding(["org_acme"], "org_unrelated"),
+      selectOAuthOrganizationBinding(["org_acme", "org_consulting"], undefined),
     ).toEqual({
-      requiresSelection: false,
-      referenceId: "org_acme",
+      requiresSelection: true,
+      referenceId: null,
     })
     expect(
       selectOAuthOrganizationBinding(
@@ -36,6 +36,15 @@ describe("selectOAuthOrganizationBinding", () => {
     ).toEqual({
       requiresSelection: true,
       referenceId: null,
+    })
+  })
+
+  it("does not bind an active organization that is not a membership", () => {
+    expect(
+      selectOAuthOrganizationBinding(["org_acme"], "org_unrelated"),
+    ).toEqual({
+      requiresSelection: false,
+      referenceId: "org_acme",
     })
   })
 

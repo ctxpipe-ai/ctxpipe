@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest"
 import {
   getAuthContinuationProps,
+  getOAuthOrganizationChangeHref,
   getOAuthRedirectUri,
 } from "./auth-continuation"
 
@@ -22,6 +23,24 @@ describe("getAuthContinuationProps", () => {
     expect(result).toEqual({
       redirectTo: undefined,
     })
+  })
+})
+
+describe("getOAuthOrganizationChangeHref", () => {
+  it("preserves the signed OAuth query on the selection route", () => {
+    expect(
+      getOAuthOrganizationChangeHref(
+        "?client_id=claude&scope=openid&sig=abc.def",
+      ),
+    ).toBe(
+      "/.auth/select-organization?client_id=claude&scope=openid&sig=abc.def",
+    )
+    expect(getOAuthOrganizationChangeHref("client_id=claude&sig=abc")).toBe(
+      "/.auth/select-organization?client_id=claude&sig=abc",
+    )
+    expect(getOAuthOrganizationChangeHref("")).toBe(
+      "/.auth/select-organization",
+    )
   })
 })
 

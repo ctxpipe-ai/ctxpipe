@@ -7,9 +7,13 @@ export type OAuthOrganizationBinding = {
 }
 
 /**
- * OAuth grants are tenant-bound at consent time. A sole membership is
- * unambiguous; users with multiple memberships must explicitly confirm one on
- * every new authorization, even when their browser session has an active org.
+ * OAuth grants are tenant-bound at consent time. Better Auth 1.6.23
+ * `/oauth2/continue` with `{ postLogin: true }` only selects that branch —
+ * it does not skip `shouldRedirect` unless a server-issued, session-bound
+ * marker (`ba_pl`) already exists. That marker is minted only when
+ * authorize redirects to consent, so `requiresSelection` must be false
+ * once a valid organization can be resolved. Multi-org users override on
+ * the consent page; later session org switches cannot retarget the grant.
  */
 export function selectOAuthOrganizationBinding(
   membershipIds: string[],
@@ -22,11 +26,15 @@ export function selectOAuthOrganizationBinding(
     }
   }
 
+  if (activeOrganizationId && membershipIds.includes(activeOrganizationId)) {
+    return {
+      requiresSelection: false,
+      referenceId: activeOrganizationId,
+    }
+  }
+
   return {
     requiresSelection: true,
-    referenceId:
-      activeOrganizationId && membershipIds.includes(activeOrganizationId)
-        ? activeOrganizationId
-        : null,
+    referenceId: null,
   }
 }

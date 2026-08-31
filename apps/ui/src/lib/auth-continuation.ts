@@ -13,6 +13,15 @@ export function getOAuthRedirectUri(data: unknown): string | undefined {
   return undefined
 }
 
+export function getOAuthOrganizationChangeHref(search: string): string {
+  const normalizedSearch = search.startsWith("?")
+    ? search
+    : search.length > 0
+      ? `?${search}`
+      : ""
+  return `/.auth/select-organization${normalizedSearch}`
+}
+
 export function getAuthContinuationProps(
   _pathname: string,
   search: string,
