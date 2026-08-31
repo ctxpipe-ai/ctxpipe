@@ -19,7 +19,7 @@ import {
   getLangfuseHandler,
   runWithLangfuseContext,
 } from "../observability/langfuse.js"
-import { log } from "../observability/logger.js"
+import { getLogger } from "../observability/logger.js"
 
 /**
  * Register MCP tools. Tools should call into domain/ services so REST and MCP
@@ -94,7 +94,6 @@ export function registerMcpTools(server: McpServer): void {
       }),
     },
     async ({ prompt, currentProjectName, conversationId }, extra) => {
-      const startedAt = performance.now()
       const userId = requireCurrentUserId()
       const orgId = requireCurrentOrgId()
       // No-op when `AMPLITUDE_API_KEY` unset (`observability/amplitude.ts`).
@@ -134,7 +133,7 @@ export function registerMcpTools(server: McpServer): void {
               ...invocationConfig,
               callbacks: [getLangfuseHandler()],
             })
-            void withOrgDbContext(orgId, () =>
+            await withOrgDbContext(orgId, () =>
               touchConversationLastMessage(threadId),
             )
             const progressToken = extra._meta?.progressToken
@@ -218,10 +217,8 @@ export function registerMcpTools(server: McpServer): void {
           },
         )
       } catch (error) {
-        log.error({
+        getLogger().error(error, {
           step: "conversation.mcp.ctx_advisor",
-          durationMs: Math.round(performance.now() - startedAt),
-          message: error instanceof Error ? error.message : String(error),
         })
         throw error
       }
