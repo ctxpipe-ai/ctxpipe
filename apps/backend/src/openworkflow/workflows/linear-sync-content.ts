@@ -15,7 +15,7 @@ import {
 } from "../../services/linear/client.js"
 import { loadLinearScopeFromRepo } from "../../services/linear/config-from-repo.js"
 import { syncLinearContentToGit } from "../../services/linear/sync.js"
-import { runRepositoryIngestionWorkflow } from "../enqueue-repository-ingestion.js"
+import { claimAndRunRepositoryIngestionChild } from "../enqueue-repository-ingestion.js"
 
 const LinearSyncContentInputSchema = z.object({
   orgId: z.string().min(1),
@@ -111,22 +111,21 @@ export const linearSyncContent = defineWorkflow(
       )
 
       if (result.status !== "failed") {
-        await step.run({ name: "ingest-linear-content" }, () =>
-          runRepositoryIngestionWorkflow(
-            {
-              repositoryId: context.target.repositoryId,
-              orgId: input.orgId,
-              targetBranch: context.target.branch,
-              indexingReason: "Syncing Linear content",
-            },
-            {
-              error: (error) =>
-                getLogger().error(error, {
-                  step: "linear-sync-content.ingestion",
-                  connectionId: input.connectionId,
-                }),
-            },
-          ),
+        await claimAndRunRepositoryIngestionChild(
+          step,
+          {
+            repositoryId: context.target.repositoryId,
+            orgId: input.orgId,
+            targetBranch: context.target.branch,
+            indexingReason: "Syncing Linear content",
+          },
+          {
+            error: (error) =>
+              getLogger().error(error, {
+                step: "linear-sync-content.ingestion",
+                connectionId: input.connectionId,
+              }),
+          },
         )
       }
 
