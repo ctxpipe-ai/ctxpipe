@@ -7,7 +7,7 @@ description: Source connectors. Use when designing, implementing, or reviewing a
 
 This skill is how to **build new** source connectors. Do not retrofit Linear, Notion, Slack, or Confluence to match it.
 
-A **git-native** source connector authorises the provider on **this** deployment, writes selected content as files into a **context repository**, then `runRepositoryIngestionWorkflow` indexes that repo. Same code for hosted and self-host. The provider app and webhook endpoint terminate on this deployment; credentials are deployment-shared or connection-specific according to the provider’s tenant-isolation model.
+A **git-native** source connector authorises the provider on **this** deployment, writes selected content as files into a **context repository**, then `claimAndRunRepositoryIngestionChild` (in-workflow) / `enqueueRepositoryIngestionWorkflow` (HTTP) indexes that repo. Same code for hosted and self-host. The provider app and webhook endpoint terminate on this deployment; credentials are deployment-shared or connection-specific according to the provider’s tenant-isolation model.
 
 The store is **git**. Rich operations (open a config PR, `commitFiles`) are implemented today only for **GitHub**. Design against git paths; call the GitHub App for those operations. Do not invent a second git host’s PR API unless you are implementing it.
 
@@ -62,7 +62,7 @@ Write under a managed root `<slug>/` in the bound context repository (often `ctx
 - **Images and attachments are files.** New connectors download bytes through the authorised client (not anonymous CDN), commit them next to the Markdown, and rewrite links to relative paths. That includes images (`png`/`jpg`/`webp`/`svg`) and other attachments the client can read (PDF, etc.). Never persist private or expiring URLs as file sources. If a blob exceeds the git host’s file-size limit, omit that file and leave a permalink stub — do not fail the whole write.
 - **Provenance.** YAML frontmatter: source, stable ids, canonical URL, timestamps. Connector uninstall does not purge git.
 
-Writes go through `commitFiles` in `installation-write-client.ts` (`encoding: "base64"` for binaries). After a successful write, enqueue `runRepositoryIngestionWorkflow`.
+Writes go through `commitFiles` in `installation-write-client.ts` (`encoding: "base64"` for binaries). After a successful write, hand off via `claimAndRunRepositoryIngestionChild` (from a parent workflow) or `enqueueRepositoryIngestionWorkflow` (from HTTP/webhooks).
 
 **Done when:** a sample tree is specified (config yaml, content paths, attachment files); config is a PR; content commits to the target branch; the mirrored page is readable without a live provider API.
 

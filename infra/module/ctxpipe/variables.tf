@@ -257,7 +257,7 @@ variable "neon_project" {
 
 variable "openworkflow_concurrency" {
   type        = string
-  description = "In-flight OpenWorkflow runs per worker process. Production default is the medium capacity pair (see ADR-026). Changing this requires redeploying the worker."
+  description = "In-flight OpenWorkflow runs per worker process. Production default is the medium capacity pair (see ADR-027). Changing this requires redeploying the worker."
   default     = "10"
 }
 

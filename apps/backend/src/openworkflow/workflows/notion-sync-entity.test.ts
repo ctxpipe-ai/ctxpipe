@@ -30,7 +30,7 @@ vi.mock("../../services/notion/sync.js", () => ({
   syncNotionIncrementalContent: mocks.syncIncremental,
 }))
 vi.mock("../enqueue-repository-ingestion.js", () => ({
-  runRepositoryIngestionWorkflow: mocks.runIngestion,
+  claimAndRunRepositoryIngestionChild: mocks.runIngestion,
 }))
 
 import { notionSyncEntity } from "./notion-sync-entity.js"
@@ -40,6 +40,7 @@ const step = {
     async (_options: { name: string }, operation: () => Promise<unknown>) =>
       operation(),
   ),
+  runWorkflow: vi.fn(),
 }
 
 const input = {
@@ -116,9 +117,11 @@ describe("notionSyncEntity", () => {
       }),
     )
     expect(mocks.runIngestion).toHaveBeenCalledWith(
+      step,
       {
         repositoryId: "repo_1",
         orgId: "org_1",
+        targetBranch: "main",
         indexingReason: "Applying Notion updates",
       },
       expect.any(Object),

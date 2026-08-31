@@ -171,7 +171,7 @@ Examples (non-interactive):
     )
     .requiredOption(
       "--url <url>",
-      "ctx| MCP URL, including /mcp?orgSlug=<slug>",
+      "ctx| MCP URL, including /mcp (optional ?orgSlug=<slug>)",
     )
     .option("--timeout <ms>", "Per-request timeout in milliseconds", "10000")
     .option("--json", "Print diagnostics as JSON", false)

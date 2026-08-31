@@ -1,4 +1,4 @@
-# ADR-026: Size-based OpenWorkflow concurrency for single-instance codesearch
+# ADR-027: Size-based OpenWorkflow concurrency for single-instance codesearch
 
 **Status:** Accepted | **Date:** 2026-08-28 | **Tags:** codesearch, openworkflow, ingestion, capacity
 

@@ -35,12 +35,8 @@ export const repositoryIngestionOrchestrator = defineWorkflow(
             {
               repositoryId: input.repositoryId,
               orgId: input.orgId,
-              ...(input.targetBranch !== undefined
-                ? { targetBranch: input.targetBranch }
-                : {}),
-              ...(input.indexingReason !== undefined
-                ? { indexingReason: input.indexingReason }
-                : {}),
+              targetBranch: input.targetBranch,
+              indexingReason: input.indexingReason,
             },
             { name: "repository-ingestion-child" },
           )

@@ -11,14 +11,15 @@ import {
 import type { AppEnv } from "../app/env.js"
 import { getSystemDb, withOrgDbContext } from "../db/client.js"
 import {
-  oauthAccessTokens,
   members,
+  oauthAccessTokens,
   organizations,
   sessions,
   users,
 } from "../db/schema/auth.js"
 import { getLogger } from "../observability/logger.js"
 import { type AuthSession, type AuthUser, getAuth } from "./config.js"
+import { OAUTH_ORGANIZATION_CLAIM } from "./oauth-organization.js"
 
 /** Seconds — small skew between issuers, clients, and this server (Better Auth / jose guidance). */
 const JWT_CLOCK_TOLERANCE_SECONDS = 60
@@ -89,7 +90,9 @@ function wwwAuthenticateInvalidTokenMcp(
  * (including remote MCP hosts) only start the authorization code flow when they
  * see a bare `Bearer` challenge plus `resource_metadata`.
  */
-function wwwAuthenticateMcpDiscovery(authBaseUrl: string): Record<string, string> {
+function wwwAuthenticateMcpDiscovery(
+  authBaseUrl: string,
+): Record<string, string> {
   const meta = mcpOAuthProtectedResourceMetadataUrl(authBaseUrl)
   const metaEsc = meta.replace(/\\/g, "\\\\").replace(/"/g, '\\"')
   return {
@@ -110,7 +113,10 @@ function wwwAuthenticateForMcpRoute(
   if (kind === "discovery") {
     return wwwAuthenticateMcpDiscovery(c.var.env.AUTH_BASE_URL)
   }
-  return wwwAuthenticateInvalidTokenMcp(errorDescription, c.var.env.AUTH_BASE_URL)
+  return wwwAuthenticateInvalidTokenMcp(
+    errorDescription,
+    c.var.env.AUTH_BASE_URL,
+  )
 }
 
 function requestHasBearerCredential(raw: Request): boolean {
@@ -178,9 +184,43 @@ function hashOpaqueAccessToken(token: string): string {
   return createHash("sha256").update(token).digest("base64url")
 }
 
-async function resolveOpaqueAccessToken(
-  token: string,
-): Promise<{ session: AuthSession; user: AuthUser } | null> {
+async function resolveBearerPrincipal(
+  userId: string,
+  sessionId: string | null | undefined,
+): Promise<{ session: AuthSession | null; user: AuthUser } | null> {
+  const db = getSystemDb()
+  if (sessionId) {
+    const rows = await db
+      .select({ session: sessions, user: users })
+      .from(sessions)
+      .innerJoin(users, eq(sessions.userId, users.id))
+      .where(eq(sessions.id, sessionId))
+      .limit(1)
+    if (rows[0]) return rows[0]
+  }
+
+  const sessionRows = await db
+    .select({ session: sessions, user: users })
+    .from(sessions)
+    .innerJoin(users, eq(sessions.userId, users.id))
+    .where(eq(users.id, userId))
+    .orderBy(desc(sessions.updatedAt))
+    .limit(1)
+  if (sessionRows[0]) return sessionRows[0]
+
+  const userRows = await db
+    .select()
+    .from(users)
+    .where(eq(users.id, userId))
+    .limit(1)
+  return userRows[0] ? { session: null, user: userRows[0] } : null
+}
+
+async function resolveOpaqueAccessToken(token: string): Promise<{
+  session: AuthSession | null
+  user: AuthUser
+  oauthOrganizationId: string | null
+} | null> {
   const db = getSystemDb()
   const hashed = hashOpaqueAccessToken(token)
   const tokenRows = await db
@@ -192,26 +232,16 @@ async function resolveOpaqueAccessToken(
   if (!record || !record.userId) return null
   if (!record.expiresAt || record.expiresAt.getTime() <= Date.now()) return null
 
-  if (record.sessionId) {
-    const rows = await db
-      .select({ session: sessions, user: users })
-      .from(sessions)
-      .innerJoin(users, eq(sessions.userId, users.id))
-      .where(eq(sessions.id, record.sessionId))
-      .limit(1)
-    if (rows[0]) return rows[0]
-  }
-
-  // Session was deleted or null on the row — fall back to the user's latest
-  // session so `/mcp` still has a context to operate under.
-  const rows = await db
-    .select({ session: sessions, user: users })
-    .from(sessions)
-    .innerJoin(users, eq(sessions.userId, users.id))
-    .where(eq(users.id, record.userId))
-    .orderBy(desc(sessions.updatedAt))
-    .limit(1)
-  return rows[0] ?? null
+  const principal = await resolveBearerPrincipal(
+    record.userId,
+    record.sessionId,
+  )
+  return principal
+    ? {
+        ...principal,
+        oauthOrganizationId: record.referenceId ?? null,
+      }
+    : null
 }
 
 export const withCookieAuth: MiddlewareHandler<AppEnv> = async (c, next) => {
@@ -251,6 +281,7 @@ export const withBearerAuth: MiddlewareHandler<AppEnv> = async (c, next) => {
     if (resolved) {
       c.set("session", resolved.session)
       c.set("user", resolved.user)
+      c.set("oauthOrganizationId", resolved.oauthOrganizationId)
       return next()
     }
     logBearerAuthFailure(new Error("Opaque access token not recognized"))
@@ -322,7 +353,10 @@ export const withBearerAuth: MiddlewareHandler<AppEnv> = async (c, next) => {
       return c.json(
         { error: "Unauthorized" },
         401,
-        wwwAuthenticateForMcpRoute(c, "The access token could not be validated"),
+        wwwAuthenticateForMcpRoute(
+          c,
+          "The access token could not be validated",
+        ),
       )
     }
     invalidateJwksCache()
@@ -334,7 +368,10 @@ export const withBearerAuth: MiddlewareHandler<AppEnv> = async (c, next) => {
       return c.json(
         { error: "Unauthorized" },
         401,
-        wwwAuthenticateForMcpRoute(c, "The access token could not be validated"),
+        wwwAuthenticateForMcpRoute(
+          c,
+          "The access token could not be validated",
+        ),
       )
     }
     ;[payload, verifyErr] = await jwtVerify(
@@ -349,7 +386,10 @@ export const withBearerAuth: MiddlewareHandler<AppEnv> = async (c, next) => {
       return c.json(
         { error: "Unauthorized" },
         401,
-        wwwAuthenticateForMcpRoute(c, "The access token could not be validated"),
+        wwwAuthenticateForMcpRoute(
+          c,
+          "The access token could not be validated",
+        ),
       )
     }
   }
@@ -369,38 +409,34 @@ export const withBearerAuth: MiddlewareHandler<AppEnv> = async (c, next) => {
       wwwAuthenticateForMcpRoute(c, "The access token subject is invalid"),
     )
   }
+  const oauthOrganizationClaim = payload[OAUTH_ORGANIZATION_CLAIM]
+  if (
+    oauthOrganizationClaim !== undefined &&
+    (typeof oauthOrganizationClaim !== "string" ||
+      oauthOrganizationClaim.length === 0)
+  ) {
+    return c.json(
+      { error: "Unauthorized" },
+      401,
+      wwwAuthenticateForMcpRoute(c, "The access token organization is invalid"),
+    )
+  }
   tokenSessionId =
     typeof payload.sid === "string" && payload.sid.length > 0
       ? payload.sid
       : null
 
-  const db = getSystemDb()
-  let tokenSessionContext: { session: AuthSession; user: AuthUser } | undefined
-
-  if (tokenSessionId) {
-    const tokenSessionRows = await db
-      .select({ session: sessions, user: users })
-      .from(sessions)
-      .innerJoin(users, eq(sessions.userId, users.id))
-      .where(eq(sessions.id, tokenSessionId))
-      .limit(1)
-    tokenSessionContext = tokenSessionRows[0]
-  } else {
-    // OAuth access tokens from some MCP clients omit `sid` but still carry `sub`
-    // (user id). Resolve the latest DB session for that user so `/mcp` can auth.
-    const rows = await db
-      .select({ session: sessions, user: users })
-      .from(sessions)
-      .innerJoin(users, eq(sessions.userId, users.id))
-      .where(eq(users.id, payload.sub))
-      .orderBy(desc(sessions.updatedAt))
-      .limit(1)
-    tokenSessionContext = rows[0]
-  }
+  // offline_access refresh grants may outlive the browser session. Resolve
+  // the still-active user even when the original session has been deleted.
+  const tokenSessionContext = await resolveBearerPrincipal(
+    payload.sub,
+    tokenSessionId,
+  )
 
   if (tokenSessionContext) {
     c.set("session", tokenSessionContext.session)
     c.set("user", tokenSessionContext.user)
+    c.set("oauthOrganizationId", oauthOrganizationClaim ?? null)
     return next()
   }
 
@@ -420,7 +456,11 @@ export const withBearerAuth: MiddlewareHandler<AppEnv> = async (c, next) => {
 }
 
 export const requireAuth: MiddlewareHandler<AppEnv> = async (c, next) => {
-  if (!c.get("user") || !c.get("session")) {
+  const hasValidOfflineMcpBearer =
+    Boolean(c.get("user")) &&
+    isMcpRequestPath(c.req.path) &&
+    requestHasBearerCredential(c.req.raw)
+  if (!c.get("user") || (!c.get("session") && !hasValidOfflineMcpBearer)) {
     getLogger().warn("Unauthorized because of no session")
     const mcpKind: WwwAuthMcpKind =
       isMcpRequestPath(c.req.path) && !requestHasBearerCredential(c.req.raw)
@@ -475,33 +515,76 @@ export const withNetworkOrgContext: MiddlewareHandler<AppEnv> = async (
   c,
   next,
 ) => {
-  const orgSlug = c.req.param("orgSlug") ?? c.req.query("orgSlug")
-  if (!orgSlug) return c.json({ error: "Not found" }, 404)
-
   const userId = c.get("user")?.id
   if (!userId) return c.json({ error: "Not found" }, 404)
 
+  const rawOrgSlug = c.req.param("orgSlug") ?? c.req.query("orgSlug")
+  const orgSlug = rawOrgSlug?.trim() || undefined
+  const oauthOrganizationId = c.get("oauthOrganizationId")
   const systemDb = getSystemDb()
-  const orgRows = await systemDb
-    .select({ id: organizations.id })
-    .from(organizations)
-    .innerJoin(
-      members,
-      and(
-        eq(members.organizationId, organizations.id),
-        eq(members.userId, userId),
-      ),
+  let resolved: { id: string; slug: string } | undefined
+
+  if (oauthOrganizationId) {
+    const orgRows = await systemDb
+      .select({ id: organizations.id, slug: organizations.slug })
+      .from(organizations)
+      .innerJoin(
+        members,
+        and(
+          eq(members.organizationId, organizations.id),
+          eq(members.userId, userId),
+        ),
+      )
+      .where(eq(organizations.id, oauthOrganizationId))
+      .limit(1)
+
+    resolved = orgRows[0]
+    if (!resolved || (orgSlug && resolved.slug !== orgSlug)) {
+      return c.json({ error: "Not found" }, 404)
+    }
+  } else if (orgSlug) {
+    const orgRows = await systemDb
+      .select({ id: organizations.id })
+      .from(organizations)
+      .innerJoin(
+        members,
+        and(
+          eq(members.organizationId, organizations.id),
+          eq(members.userId, userId),
+        ),
+      )
+      .where(eq(organizations.slug, orgSlug))
+      .limit(1)
+    const org = orgRows[0]
+    if (!org) return c.json({ error: "Not found" }, 404)
+    resolved = { id: org.id, slug: orgSlug }
+  } else {
+    return c.json(
+      {
+        jsonrpc: "2.0",
+        error: {
+          code: -32600,
+          message:
+            "This OAuth grant is not bound to an organization. Reconnect ctxpipe and select an organization, or use /mcp?orgSlug=<orgSlug> for a manual connection.",
+        },
+        id: null,
+      },
+      400,
     )
-    .where(eq(organizations.slug, orgSlug))
-    .limit(1)
+  }
 
-  const org = orgRows[0]
-  if (!org) return c.json({ error: "Not found" }, 404)
-
-  c.set("orgSlug", orgSlug)
-  c.set("orgId", org.id)
-  return withOrgIdContext({ id: org.id, slug: orgSlug }, async () =>
-    withOrgDbContext(org.id, async () => next()),
+  if (!resolved) return c.json({ error: "Not found" }, 404)
+  c.set("orgSlug", resolved.slug)
+  c.set("orgId", resolved.id)
+  return withOrgIdContext(
+    { id: resolved.id, slug: resolved.slug },
+    async () => {
+      // MCP tools/call can run the advisor graph for tens of seconds. Holding the
+      // request-wide org transaction across that wait lets Neon/Postgres kill the
+      // idle-in-transaction connection ("Connection terminated unexpectedly").
+      if (isMcpRequestPath(c.req.path)) return next()
+      return withOrgDbContext(resolved.id, async () => next())
+    },
   )
 }
 

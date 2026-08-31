@@ -656,24 +656,30 @@ jobs:
             echo "- To test Linear OAuth, add $BACKEND_URL/api/v1/integrations/linear/callback to the Linear application's redirect URIs. Linear applications have one webhook URL, so a shared production application will not deliver incremental events to this preview; use a dedicated preview application if webhook testing is required."
           } > pr-deploy-comment.md
 
-      - name: Find existing PR preview comment
-        if: always()
-        id: find-preview-comment
-        uses: peter-evans/find-comment@v3
-        with:
-          issue-number: ${{ needs.resolve_pr.outputs.pr_number }}
-          comment-author: "github-actions[bot]"
-          body-includes: "## PR Preview Environment"
-
       - name: Create or update PR preview comment
         if: always()
-        uses: peter-evans/create-or-update-comment@v5
-        with:
-          token: ${{ secrets.GITHUB_TOKEN }}
-          comment-id: ${{ steps.find-preview-comment.outputs.comment-id }}
-          issue-number: ${{ needs.resolve_pr.outputs.pr_number }}
-          body-path: pr-deploy-comment.md
-          edit-mode: replace
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          PR_NUMBER: ${{ needs.resolve_pr.outputs.pr_number }}
+        run: |
+          set -euo pipefail
+          COMMENT_ID="$(
+            gh api "repos/${{ github.repository }}/issues/${PR_NUMBER}/comments" \
+              --paginate \
+              --jq '.[] | select(.user.login == "github-actions[bot]" and (.body | contains("## PR Preview Environment"))) | .id' \
+              | awk 'NR == 1 { print; exit }'
+          )"
+          if [[ -n "$COMMENT_ID" ]]; then
+            gh api \
+              --method PATCH \
+              "repos/${{ github.repository }}/issues/comments/${COMMENT_ID}" \
+              -F body=@pr-deploy-comment.md
+          else
+            gh api \
+              --method POST \
+              "repos/${{ github.repository }}/issues/${PR_NUMBER}/comments" \
+              -F body=@pr-deploy-comment.md
+          fi
 
   cleanup_pr_environment:
     name: Cleanup Neon, Railway, and PR GHCR images

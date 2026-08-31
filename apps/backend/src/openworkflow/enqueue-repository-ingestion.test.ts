@@ -25,9 +25,20 @@ vi.mock("./workflows/repository-ingestion-orchestrator.js", () => ({
 }))
 
 import {
+  claimAndRunRepositoryIngestionChild,
   enqueueRepositoryIngestionWorkflow,
-  runRepositoryIngestionWorkflow,
+  type RepositoryIngestionChildStep,
 } from "./enqueue-repository-ingestion.js"
+
+function mockChildStep(overrides?: {
+  runWorkflow?: ReturnType<typeof vi.fn>
+}): RepositoryIngestionChildStep {
+  return {
+    run: vi.fn(async (_opts: { name: string }, fn: () => unknown) => fn()),
+    runWorkflow: overrides?.runWorkflow ?? vi.fn().mockResolvedValue(undefined),
+    sleep: vi.fn(),
+  } as unknown as RepositoryIngestionChildStep
+}
 
 describe("enqueueRepositoryIngestionWorkflow", () => {
   beforeEach(() => {
@@ -73,7 +84,7 @@ describe("enqueueRepositoryIngestionWorkflow", () => {
   })
 })
 
-describe("runRepositoryIngestionWorkflow", () => {
+describe("claimAndRunRepositoryIngestionChild", () => {
   beforeEach(() => {
     vi.clearAllMocks()
     tryClaimMock.mockResolvedValue(true)
@@ -82,35 +93,89 @@ describe("runRepositoryIngestionWorkflow", () => {
     )
   })
 
-  it("awaits workflow wake when claim succeeds", async () => {
-    runWorkflowWithWorkerWakeMock.mockResolvedValue({
-      result: vi.fn().mockRejectedValue(new Error("terminal failure")),
-    })
+  it("claims then runs the orchestrator as a child workflow", async () => {
+    const step = mockChildStep()
     const log = { error: vi.fn() }
 
-    await runRepositoryIngestionWorkflow(
-      { repositoryId: "repo_1", orgId: "org_1" },
+    await claimAndRunRepositoryIngestionChild(
+      step,
+      {
+        repositoryId: "repo_1",
+        orgId: "org_1",
+        targetBranch: "main",
+        indexingReason: "Syncing",
+      },
       log,
     )
 
+    expect(step.run).toHaveBeenCalledWith(
+      { name: "claim-ingest-repo_1" },
+      expect.any(Function),
+    )
     expect(tryClaimMock).toHaveBeenCalledWith({
       repositoryId: "repo_1",
-      reason: null,
+      reason: "Syncing",
     })
-    expect(runWorkflowWithWorkerWakeMock).toHaveBeenCalled()
+    expect(step.runWorkflow).toHaveBeenCalledWith(
+      { name: "repository-ingestion-orchestrator" },
+      {
+        repositoryId: "repo_1",
+        orgId: "org_1",
+        targetBranch: "main",
+        indexingReason: "Syncing",
+      },
+      { name: "ingest-repo_1" },
+    )
+    expect(runWorkflowWithWorkerWakeMock).not.toHaveBeenCalled()
     expect(log.error).not.toHaveBeenCalled()
   })
 
-  it("skips workflow when indexing is already queued or running", async () => {
+  it("skips child workflow when indexing is already queued or running", async () => {
     tryClaimMock.mockResolvedValue(false)
+    const step = mockChildStep()
     const log = { error: vi.fn() }
 
-    await runRepositoryIngestionWorkflow(
+    await claimAndRunRepositoryIngestionChild(
+      step,
       { repositoryId: "repo_1", orgId: "org_1" },
       log,
     )
 
-    expect(runWorkflowWithWorkerWakeMock).not.toHaveBeenCalled()
+    expect(step.runWorkflow).not.toHaveBeenCalled()
     expect(log.error).not.toHaveBeenCalled()
+  })
+
+  it("rethrows SleepSignal without logging", async () => {
+    const sleepSignal = new Error("sleep")
+    sleepSignal.name = "SleepSignal"
+    const step = mockChildStep({
+      runWorkflow: vi.fn().mockRejectedValue(sleepSignal),
+    })
+    const log = { error: vi.fn() }
+
+    await expect(
+      claimAndRunRepositoryIngestionChild(
+        step,
+        { repositoryId: "repo_1", orgId: "org_1" },
+        log,
+      ),
+    ).rejects.toMatchObject({ name: "SleepSignal" })
+    expect(log.error).not.toHaveBeenCalled()
+  })
+
+  it("logs and rethrows child failures", async () => {
+    const step = mockChildStep({
+      runWorkflow: vi.fn().mockRejectedValue(new Error("child failed")),
+    })
+    const log = { error: vi.fn() }
+
+    await expect(
+      claimAndRunRepositoryIngestionChild(
+        step,
+        { repositoryId: "repo_1", orgId: "org_1" },
+        log,
+      ),
+    ).rejects.toThrow("child failed")
+    expect(log.error).toHaveBeenCalledWith(expect.any(Error))
   })
 })

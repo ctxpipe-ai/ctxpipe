@@ -2,7 +2,7 @@
  * Codesearch is a single replica. OpenWorkflow worker concurrency, indexer
  * spawn slots, and in-flight index pipelines are derived from that instance's
  * memory. CDK size profiles and Railway/Compose env must stay aligned with
- * this table (see ADR-026).
+ * this table (see ADR-027).
  */
 
 export type CodesearchSizeClass = "small" | "medium" | "large"

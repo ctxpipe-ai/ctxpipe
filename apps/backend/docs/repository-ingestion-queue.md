@@ -13,7 +13,7 @@ Internal behaviour notes for engineers. Not public product documentation.
 
 [`tryClaimRepositoryIndexingEnqueue`](../src/models/repositories.ts) marks a repo `queued` and returns `true` only when status is not already `queued` or `running` (unless stale).
 
-Callers: [`enqueueRepositoryIngestionWorkflow`](../src/openworkflow/enqueue-repository-ingestion.ts) / `runRepositoryIngestionWorkflow` (webhooks, UI retry, sync).
+Callers: [`enqueueRepositoryIngestionWorkflow`](../src/openworkflow/enqueue-repository-ingestion.ts) (webhooks, UI retry) and `claimAndRunRepositoryIngestionChild` (in-workflow fan-out via `step.runWorkflow`).
 
 If claim returns `false`, no new orchestrator is started for that event.
 
