@@ -62,6 +62,7 @@ import {
   withCookieAuth,
   withNetworkOrgContext,
 } from "./withAuth.js"
+import { OAUTH_ORGANIZATION_CLAIM } from "./oauth-organization.js"
 
 function createMockDb(input: {
   orgRows?: Array<{ id: string; slug?: string }>
@@ -80,6 +81,7 @@ function createMockDb(input: {
     token: string
     userId: string | null
     sessionId: string | null
+    referenceId?: string | null
     expiresAt: Date | null
   }>
 }) {
@@ -625,6 +627,117 @@ describe("auth middleware composition", () => {
       session: { id: "sess_token", userId: "user_token" },
       orgSlug: "acme",
       orgId: "org_token",
+    })
+  })
+
+  it("uses the organization frozen into a JWT grant instead of mutable session state", async () => {
+    getSessionMock.mockResolvedValueOnce(null)
+    jwtVerifyMock.mockResolvedValueOnce({
+      payload: {
+        sub: "user_oauth",
+        sid: "sess_oauth",
+        [OAUTH_ORGANIZATION_CLAIM]: "org_bound",
+      },
+    })
+    testState.db = createMockDb({
+      tokenSessionRows: [
+        {
+          session: {
+            id: "sess_oauth",
+            userId: "user_oauth",
+            activeOrganizationId: "org_other",
+          },
+          user: { id: "user_oauth", email: "oauth@example.com" },
+        },
+      ],
+      orgRows: [{ id: "org_bound", slug: "bound" }],
+      membershipRows: [
+        { id: "org_bound", slug: "bound" },
+        { id: "org_other", slug: "other" },
+      ],
+    })
+
+    const app = createComposedTestApp()
+    const response = await app.request("/mcp", {
+      method: "POST",
+      headers: { authorization: "Bearer header.payload.signature" },
+    })
+
+    expect(response.status).toBe(200)
+    expect(await response.json()).toMatchObject({
+      orgSlug: "bound",
+      orgId: "org_bound",
+    })
+  })
+
+  it("rejects an explicit orgSlug that conflicts with the JWT grant", async () => {
+    getSessionMock.mockResolvedValueOnce(null)
+    jwtVerifyMock.mockResolvedValueOnce({
+      payload: {
+        sub: "user_oauth",
+        sid: "sess_oauth",
+        [OAUTH_ORGANIZATION_CLAIM]: "org_bound",
+      },
+    })
+    testState.db = createMockDb({
+      tokenSessionRows: [
+        {
+          session: { id: "sess_oauth", userId: "user_oauth" },
+          user: { id: "user_oauth", email: "oauth@example.com" },
+        },
+      ],
+      orgRows: [{ id: "org_bound", slug: "bound" }],
+    })
+
+    const app = createComposedTestApp()
+    const response = await app.request("/mcp?orgSlug=other", {
+      method: "POST",
+      headers: { authorization: "Bearer header.payload.signature" },
+    })
+
+    expect(response.status).toBe(404)
+    expect(withOrgDbContextMock).not.toHaveBeenCalled()
+  })
+
+  it("uses the organization frozen into an opaque OAuth grant", async () => {
+    getSessionMock.mockResolvedValueOnce(null)
+    testState.db = createMockDb({
+      opaqueTokenRows: [
+        {
+          token: "hashed-token",
+          userId: "user_opaque",
+          sessionId: "sess_opaque",
+          referenceId: "org_bound",
+          expiresAt: new Date(Date.now() + 60_000),
+        },
+      ],
+      tokenSessionRows: [
+        {
+          session: {
+            id: "sess_opaque",
+            userId: "user_opaque",
+            activeOrganizationId: "org_other",
+          },
+          user: { id: "user_opaque", email: "opaque@example.com" },
+        },
+      ],
+      orgRows: [{ id: "org_bound", slug: "bound" }],
+      membershipRows: [
+        { id: "org_bound", slug: "bound" },
+        { id: "org_other", slug: "other" },
+      ],
+    })
+
+    const app = createComposedTestApp()
+    const response = await app.request("/mcp", {
+      method: "POST",
+      headers: { authorization: "Bearer opaque-random-32-chars" },
+    })
+
+    expect(response.status).toBe(200)
+    expect(await response.json()).toMatchObject({
+      orgSlug: "bound",
+      orgId: "org_bound",
     })
   })
 
