@@ -38,6 +38,7 @@ jobs:
           src/routes/mcp.test.ts
           src/routes/mcp.conformance.test.ts
           src/mcp/tools.test.ts
+          src/graphs/conversationGraph/nodes/conversationNaming.test.ts
 
   ui:
     name: UI tests
