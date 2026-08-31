@@ -2,8 +2,9 @@
 
 1. Open Claude's MCP connections and connect **ctxpipe**.
 2. Complete ctx| sign-in in the browser.
-3. If the account belongs to more than one ctx| organization, choose the
-   organization this Claude connection should use.
+3. Confirm the organization shown on consent. For multi-organization accounts,
+   use **Change organization** if it is not the intended one; ctx| shows the
+   chooser first when no valid organization is active.
 4. Return to Claude and call `ctx_advisor` with:
 
    ```text
