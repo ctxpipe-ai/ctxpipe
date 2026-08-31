@@ -73,6 +73,12 @@ describe("registerMcpTools", () => {
       {
         title: string
         description: string
+        annotations: {
+          readOnlyHint: boolean
+          destructiveHint: boolean
+          idempotentHint: boolean
+          openWorldHint: boolean
+        }
         inputSchema: { shape: { prompt: { _def: { type: string } } } }
       },
       (
@@ -88,6 +94,12 @@ describe("registerMcpTools", () => {
     expect(config.description).toContain("ctx_advisor")
     expect(config.description).toContain("repository search")
     expect(config.description).toContain("grep")
+    expect(config.annotations).toEqual({
+      readOnlyHint: true,
+      destructiveHint: false,
+      idempotentHint: false,
+      openWorldHint: false,
+    })
     expect(config.inputSchema.shape.prompt._def.type).toBe("string")
     expect("currentProjectName" in config.inputSchema.shape).toBe(true)
     expect("conversationId" in config.inputSchema.shape).toBe(true)
