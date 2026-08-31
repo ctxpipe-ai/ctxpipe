@@ -34,8 +34,10 @@ Research: [Claude plugins](../research/claude-plugins/index.md).
 3. **Bind organization during OAuth:** Better Auth's post-login step requires
    selection when no valid active membership exists. Consent shows the bound
    organization and lets multi-org users change it while preserving the signed
-   OAuth query. The organization id is stored as the grant `referenceId`,
-   carried across refreshes, and added to JWT access tokens as the namespaced
+   OAuth query. The displayed id is submitted with consent, isolated to that
+   request, and membership-checked so another browser tab cannot retarget the
+   grant. The organization id is stored as the grant `referenceId`, carried
+   across refreshes, and added to JWT access tokens as the namespaced
    `https://ctxpipe.ai/organization_id` claim.
 4. **Enforce that binding on `/mcp`:** bound JWT and opaque tokens resolve only
    their selected organization. A query slug cannot override a bound grant.
