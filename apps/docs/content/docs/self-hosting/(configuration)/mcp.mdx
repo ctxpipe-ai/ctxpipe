@@ -7,12 +7,15 @@ Self-hosted ctx| exposes the same organization-scoped Streamable HTTP endpoint a
 hosted ctx|:
 
 ```text
-{AUTH_BASE_URL}/mcp?orgSlug=<org-slug>
+{AUTH_BASE_URL}/mcp
 ```
 
-`orgSlug` is required. `AUTH_BASE_URL` must be the public origin clients use,
-including TLS. Client JSON shapes and OAuth install paths are unchanged from
-hosted ctx|; see [Remote MCP](/docs/mcp/mcp-docs) and
+OAuth connections use the generic URL and bind an organization during
+authorization. `?orgSlug=<org-slug>` remains valid for legacy and manually
+configured clients.
+`AUTH_BASE_URL` must be the public origin clients use, including TLS. Client
+JSON shapes and OAuth install paths are unchanged from hosted ctx|; see
+[Remote MCP](/docs/mcp/mcp-docs), [Claude plugin](/docs/mcp/claude-plugin), and
 [Authentication](/docs/self-hosting/authentication).
 
 This page is for operators: confirm the endpoint is reachable, then debug OAuth
@@ -36,7 +39,7 @@ deployment origin:
   "mcpServers": {
     "ctxpipe": {
       "type": "streamable-http",
-      "url": "https://ctx.example.com/mcp?orgSlug=your-org-slug"
+      "url": "https://ctx.example.com/mcp"
     }
   }
 }
@@ -47,14 +50,14 @@ and MCP client OAuth are separate flows.
 
 ## Diagnose discovery
 
-Run the lightweight doctor against the exact organization-scoped URL:
+Run the lightweight doctor against the public MCP URL:
 
 ```bash
 npx ctxpipe doctor mcp \
-  --url "$AUTH_BASE_URL/mcp?orgSlug=<slug>"
+  --url "$AUTH_BASE_URL/mcp"
 
 npx ctxpipe doctor mcp \
-  --url "$AUTH_BASE_URL/mcp?orgSlug=<slug>" \
+  --url "$AUTH_BASE_URL/mcp" \
   --json
 ```
 
@@ -63,7 +66,7 @@ is allowed with a warning; remote endpoints must use HTTPS.
 
 | Check | Passes when |
 | --- | --- |
-| Target | Path is `/mcp` and `orgSlug` is present |
+| Target | Path is `/mcp`; remote origins use HTTPS |
 | Backend status | `GET /.status` returns JSON with `status: "ok"` |
 | OAuth challenge | Unauthenticated Streamable HTTP `initialize` returns `401` with a Bearer `WWW-Authenticate` challenge that includes `resource_metadata` |
 | Protected resource | RFC 9728 metadata matches the `/mcp` audience and names an authorization server |
@@ -82,18 +85,18 @@ organization, not a customer organization.
 
 ```bash
 npx @mcpjam/cli@3.24.0 oauth login \
-  --url "$AUTH_BASE_URL/mcp?orgSlug=<slug>" \
+  --url "$AUTH_BASE_URL/mcp" \
   --protocol-version 2025-11-25 \
   --registration dcr \
   --credentials-out .mcpjam/credentials.json \
   --debug-out .mcpjam/oauth-debug.json
 
 npx @mcpjam/cli@3.24.0 tools list \
-  --url "$AUTH_BASE_URL/mcp?orgSlug=<slug>" \
+  --url "$AUTH_BASE_URL/mcp" \
   --credentials-file .mcpjam/credentials.json
 
 npx @mcpjam/cli@3.24.0 tools call \
-  --url "$AUTH_BASE_URL/mcp?orgSlug=<slug>" \
+  --url "$AUTH_BASE_URL/mcp" \
   --credentials-file .mcpjam/credentials.json \
   --tool-name ctx_advisor \
   --tool-args '{"prompt":"Health check: confirm org MCP access."}'
@@ -103,7 +106,7 @@ For a visual OAuth and JSON-RPC timeline on a local origin:
 
 ```bash
 npx @mcpjam/inspector@2.40.0 \
-  --url "$AUTH_BASE_URL/mcp?orgSlug=<slug>" \
+  --url "$AUTH_BASE_URL/mcp" \
   --name "ctxpipe self-host" \
   --oauth \
   --tab servers
@@ -127,7 +130,9 @@ concurrent clients. Do not gate CI on interactive OAuth or LLM evals.
 
 ## Common failures
 
-- **Missing `orgSlug`** — use `/mcp?orgSlug=<slug>`, not `/mcp`.
+- **Grant is not bound to an organization** — disconnect and reconnect the MCP
+  client, then choose an organization during authorization. Old/manual clients
+  may use `/mcp?orgSlug=<slug>`.
 - **`AUTH_BASE_URL` mismatch** — issuer, callbacks, and MCP discovery must use
   the same public origin clients see.
 - **Remote HTTP** — production MCP must be HTTPS.

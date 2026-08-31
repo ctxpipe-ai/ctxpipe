@@ -51,6 +51,7 @@ function createTestApp(): Hono<AppEnv> {
     } as AppEnv["Variables"]["env"])
     c.set("user", null)
     c.set("session", null)
+    c.set("oauthOrganizationId", null)
     c.set("orgSlug", null)
     c.set("orgId", null)
     await next()
@@ -96,12 +97,28 @@ describe("MCP route auth and org validation", () => {
     expect(registerMcpToolsMock).not.toHaveBeenCalled()
   })
 
-  it("returns 400 JSON-RPC error for missing orgSlug query", async () => {
+  it("reaches MCP handler when orgSlug is omitted", async () => {
     const app = createTestApp()
-    const response = await app.request("/mcp", { method: "POST" })
-    expect(response.status).toBe(400)
-    const body = await response.json()
-    expect(body).toMatchObject({ jsonrpc: "2.0", error: { code: -32600 } })
+    const response = await app.request("/mcp", {
+      method: "POST",
+      headers: {
+        accept: "application/json, text/event-stream",
+        "content-type": "application/json",
+      },
+      body: JSON.stringify({
+        jsonrpc: "2.0",
+        id: 1,
+        method: "initialize",
+        params: {
+          protocolVersion: "2025-11-25",
+          capabilities: {},
+          clientInfo: { name: "route-test", version: "1.0.0" },
+        },
+      }),
+    })
+
+    expect(registerMcpToolsMock).toHaveBeenCalledTimes(1)
+    expect(response.status).toBe(200)
   })
 
   it("rejects an untrusted browser origin before authentication", async () => {

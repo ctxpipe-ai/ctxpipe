@@ -628,6 +628,12 @@ Highest-priority confirmed rules for agents. Migrated from former `patterns.md` 
 - **Date:** 2026-08-20
 - **Source:** production Railway incident diagnosis (GitHub quota exhaustion → idle transaction termination → pg-pool acquisition timeouts)
 
+### MCP must not hold a request-wide org transaction across ctx_advisor
+- **Rule:** `/mcp` must not wrap `tools/call` in a request-wide `withOrgDbContext`. `ctx_advisor` runs the conversation graph (embeddings, planner, retrieval, agent, title LLM) for tens of seconds; an idle-in-transaction Neon/Postgres connection is then killed with `Connection terminated unexpectedly` (reproduced at 48–60s on Railway `pr-N`). Keep org id in ALS, open short transactions only for conversation writes, and treat that pg message as a transaction-scope bug rather than empty-org or advisor-prompt failure. Do not swallow the error.
+- **Category:** reliability
+- **Date:** 2026-08-31
+- **Source:** PR-304 preview black-box `ctx_advisor` tools/call on a newly created empty org (`d242c36e`)
+
 ### Distributed OAuth connectors require a clean external-workspace acceptance test
 - **Rule:** Never treat a provider workspace that already hosts the development app as proof that a new customer installation works. OAuth grants can be workspace-specific, additive, and contaminated by dashboard installs or earlier re-authorisations; Slack can also silently suppress Events API delivery when the installed token lacks an event scope. Before shipping a distributed connector, install it through the product OAuth flow into a fresh second workspace, inspect the returned and live token scopes, exercise the real webhook-to-durable-output path, and test re-authorisation after a required scope changes. Keep provider app configuration in a committed manifest and CI-check its scopes against the backend request.
 - **Category:** testing

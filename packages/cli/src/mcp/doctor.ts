@@ -150,7 +150,6 @@ export async function diagnoseMcpEndpoint(
   }
 
   const targetDisplay = displayTarget(target)
-  const orgSlug = target.searchParams.get("orgSlug")?.trim()
   if (!["http:", "https:"].includes(target.protocol)) {
     checks.push({
       id: "target",
@@ -164,14 +163,6 @@ export async function diagnoseMcpEndpoint(
       id: "target",
       status: "fail",
       summary: 'Target path must be "/mcp".',
-    })
-    return resultFromChecks(targetDisplay, checks)
-  }
-  if (!orgSlug) {
-    checks.push({
-      id: "target",
-      status: "fail",
-      summary: "Target is missing the required orgSlug query parameter.",
     })
     return resultFromChecks(targetDisplay, checks)
   }
@@ -189,7 +180,7 @@ export async function diagnoseMcpEndpoint(
     summary:
       target.protocol === "http:"
         ? "Loopback HTTP target is valid for local testing."
-        : "HTTPS target and organisation scope are valid.",
+        : "HTTPS target path is valid.",
   })
 
   const statusUrl = new URL("/.status", target)
