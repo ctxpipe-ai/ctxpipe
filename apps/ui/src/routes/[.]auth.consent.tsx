@@ -36,7 +36,8 @@ export function ConsentPage() {
   const scopes = requestedScope?.split(" ").filter(Boolean) ?? []
   const activeOrganizationId = readActiveOrganizationId(sessionData?.session)
   const organization =
-    organizations?.find(({ id }) => id === activeOrganizationId) ?? null
+    organizations?.find(({ id }) => id === activeOrganizationId) ??
+    (organizations?.length === 1 ? organizations[0] : null)
   const changeOrganizationHref =
     (organizations?.length ?? 0) > 1
       ? getOAuthOrganizationChangeHref(
@@ -55,7 +56,7 @@ export function ConsentPage() {
     })
 
     if (requestError) {
-      setError(requestError.message ?? "Consent failed")
+      setError(requestError.message ?? "Authorisation failed")
       setIsSubmitting(null)
       return
     }
@@ -67,9 +68,7 @@ export function ConsentPage() {
       return
     }
 
-    setError(
-      `Missing redirect URI from consent response: ${JSON.stringify(data ?? null)}`,
-    )
+    setError("Authorisation did not return to the requesting client")
     setIsSubmitting(null)
   }
 
@@ -77,7 +76,7 @@ export function ConsentPage() {
     return (
       <main className="mx-auto max-w-xl px-6 py-16">
         <section
-          aria-label="Loading authorization"
+          aria-label="Loading authorisation"
           className="space-y-6 rounded-none border border-border bg-card/80 p-6"
         >
           <div className="h-4 w-32 animate-pulse bg-muted" />

@@ -27,19 +27,19 @@ export function OAuthOrganizationSelectionRoutePage() {
         fetchOptions: { throw: false },
       })
       if (continueError) {
-        throw new Error(continueError.message ?? "Authorization failed")
+        throw new Error(continueError.message ?? "Authorisation failed")
       }
 
       const redirectUri = getOAuthRedirectUri(data)
       if (!redirectUri) {
-        throw new Error("Authorization did not return a redirect URI")
+        throw new Error("Authorisation did not return a redirect URI")
       }
       window.location.href = redirectUri
     } catch (caught) {
       setError(
         caught instanceof Error
           ? caught.message
-          : "Could not select this organization",
+          : "Could not select this organisation",
       )
       setIsSubmitting(false)
     }
@@ -49,7 +49,7 @@ export function OAuthOrganizationSelectionRoutePage() {
     return (
       <main className="mx-auto max-w-xl px-6 py-16">
         <section
-          aria-label="Loading organizations"
+          aria-label="Loading organisations"
           className="space-y-6 rounded-none border border-border bg-card/80 p-6"
         >
           <div className="h-4 w-32 animate-pulse bg-muted" />

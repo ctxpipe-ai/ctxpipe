@@ -80,7 +80,7 @@ describe("OAuthConsent", () => {
     expect(container.textContent).toContain("consulting")
 
     const changeLink = Array.from(container.querySelectorAll("a")).find(
-      (anchor) => anchor.textContent?.includes("Change organization"),
+      (anchor) => anchor.textContent?.includes("Change organisation"),
     )
     expect(changeLink?.getAttribute("href")).toBe(
       "/.auth/select-organization?client_id=claude-plugin&sig=abc.def",
@@ -102,7 +102,7 @@ describe("OAuthConsent", () => {
 
     expect(
       Array.from(container.querySelectorAll("a")).some((anchor) =>
-        anchor.textContent?.includes("Change organization"),
+        anchor.textContent?.includes("Change organisation"),
       ),
     ).toBe(false)
   })

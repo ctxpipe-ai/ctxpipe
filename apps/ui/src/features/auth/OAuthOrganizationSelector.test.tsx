@@ -137,7 +137,7 @@ describe("OAuthOrganizationSelector", () => {
       )
     })
 
-    expect(container.textContent).toContain("No organizations available")
+    expect(container.textContent).toContain("No organisations available")
     expect(container.querySelector('a[href="/onboarding"]')).not.toBeNull()
   })
 })

@@ -1,6 +1,4 @@
 import type { Meta, StoryObj } from "@storybook/react-vite"
-import { OAuthConsent } from "@/features/auth/OAuthConsent"
-import { OAuthOrganizationSelector } from "@/features/auth/OAuthOrganizationSelector"
 import {
   organizationListEmptyHandler,
   sessionSignedOutHandler,
@@ -34,51 +32,5 @@ export const SignIn: Story = {
         page: [sessionSignedOutHandler, organizationListEmptyHandler],
       },
     },
-  },
-}
-
-export const ChooseOAuthOrganization: Story = {
-  name: "Choose OAuth organization",
-  render: () => (
-    <OAuthOrganizationSelector
-      organizations={[
-        { id: "org_acme", name: "Acme Engineering", slug: "acme" },
-        {
-          id: "org_consulting",
-          name: "Peterson Advisory",
-          slug: "peterson-advisory",
-        },
-      ]}
-      onContinue={() => undefined}
-    />
-  ),
-  parameters: {
-    storyRoute: {
-      pattern: "flat",
-      path: "/.auth/select-organization",
-    } satisfies StoryRouteParams,
-  },
-}
-
-export const AuthorizeOAuthClient: Story = {
-  name: "Authorize OAuth client",
-  render: () => (
-    <OAuthConsent
-      clientId="claude-plugin"
-      scopes={["openid", "offline_access"]}
-      organization={{
-        name: "Peterson Advisory",
-        slug: "peterson-advisory",
-      }}
-      changeOrganizationHref="/.auth/select-organization?client_id=claude-plugin&sig=abc.def"
-      onAllow={() => undefined}
-      onDeny={() => undefined}
-    />
-  ),
-  parameters: {
-    storyRoute: {
-      pattern: "flat",
-      path: "/.auth/consent",
-    } satisfies StoryRouteParams,
   },
 }

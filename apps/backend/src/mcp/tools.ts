@@ -105,7 +105,7 @@ export function registerMcpTools(server: McpServer): void {
       })
       const threadId =
         conversationId != null
-          ? `${userId}_${slugify(currentProjectName ?? "default")}_${conversationId}`
+          ? `${orgId}_${userId}_${slugify(currentProjectName ?? "default")}_${conversationId}`
           : generateObjectId("thr")
       await withOrgDbContext(orgId, () =>
         ensureConversation({ id: threadId, source: "mcp" }),

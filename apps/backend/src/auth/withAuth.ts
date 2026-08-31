@@ -185,7 +185,7 @@ function hashOpaqueAccessToken(token: string): string {
 }
 
 async function resolveOpaqueAccessToken(token: string): Promise<{
-  session: AuthSession
+  session: AuthSession | null
   user: AuthUser
   oauthOrganizationId: string | null
 } | null> {
@@ -215,8 +215,8 @@ async function resolveOpaqueAccessToken(token: string): Promise<{
     }
   }
 
-  // Session was deleted or null on the row — fall back to the user's latest
-  // session so `/mcp` still has a context to operate under.
+  // offline_access refresh grants may outlive the browser session. Prefer a
+  // current session when one exists, then fall back to the still-active user.
   const rows = await db
     .select({ session: sessions, user: users })
     .from(sessions)
@@ -224,9 +224,22 @@ async function resolveOpaqueAccessToken(token: string): Promise<{
     .where(eq(users.id, record.userId))
     .orderBy(desc(sessions.updatedAt))
     .limit(1)
-  return rows[0]
+  if (rows[0]) {
+    return {
+      ...rows[0],
+      oauthOrganizationId: record.referenceId ?? null,
+    }
+  }
+
+  const userRows = await db
+    .select()
+    .from(users)
+    .where(eq(users.id, record.userId))
+    .limit(1)
+  return userRows[0]
     ? {
-        ...rows[0],
+        session: null,
+        user: userRows[0],
         oauthOrganizationId: record.referenceId ?? null,
       }
     : null
@@ -415,7 +428,9 @@ export const withBearerAuth: MiddlewareHandler<AppEnv> = async (c, next) => {
       : null
 
   const db = getSystemDb()
-  let tokenSessionContext: { session: AuthSession; user: AuthUser } | undefined
+  let tokenSessionContext:
+    | { session: AuthSession | null; user: AuthUser }
+    | undefined
 
   if (tokenSessionId) {
     const tokenSessionRows = await db
@@ -425,9 +440,11 @@ export const withBearerAuth: MiddlewareHandler<AppEnv> = async (c, next) => {
       .where(eq(sessions.id, tokenSessionId))
       .limit(1)
     tokenSessionContext = tokenSessionRows[0]
-  } else {
+  }
+  if (!tokenSessionContext) {
     // OAuth access tokens from some MCP clients omit `sid` but still carry `sub`
-    // (user id). Resolve the latest DB session for that user so `/mcp` can auth.
+    // (user id), and offline_access refresh grants may outlive their browser
+    // session. Prefer a current session when one exists.
     const rows = await db
       .select({ session: sessions, user: users })
       .from(sessions)
@@ -436,6 +453,16 @@ export const withBearerAuth: MiddlewareHandler<AppEnv> = async (c, next) => {
       .orderBy(desc(sessions.updatedAt))
       .limit(1)
     tokenSessionContext = rows[0]
+  }
+  if (!tokenSessionContext) {
+    const userRows = await db
+      .select()
+      .from(users)
+      .where(eq(users.id, payload.sub))
+      .limit(1)
+    if (userRows[0]) {
+      tokenSessionContext = { session: null, user: userRows[0] }
+    }
   }
 
   if (tokenSessionContext) {
@@ -461,7 +488,11 @@ export const withBearerAuth: MiddlewareHandler<AppEnv> = async (c, next) => {
 }
 
 export const requireAuth: MiddlewareHandler<AppEnv> = async (c, next) => {
-  if (!c.get("user") || !c.get("session")) {
+  const hasValidOfflineMcpBearer =
+    Boolean(c.get("user")) &&
+    isMcpRequestPath(c.req.path) &&
+    requestHasBearerCredential(c.req.raw)
+  if (!c.get("user") || (!c.get("session") && !hasValidOfflineMcpBearer)) {
     getLogger().warn("Unauthorized because of no session")
     const mcpKind: WwwAuthMcpKind =
       isMcpRequestPath(c.req.path) && !requestHasBearerCredential(c.req.raw)
@@ -560,34 +591,18 @@ export const withNetworkOrgContext: MiddlewareHandler<AppEnv> = async (
     if (!org) return c.json({ error: "Not found" }, 404)
     resolved = { id: org.id, slug: orgSlug }
   } else {
-    const memberships = await systemDb
-      .select({ id: organizations.id, slug: organizations.slug })
-      .from(organizations)
-      .innerJoin(
-        members,
-        and(
-          eq(members.organizationId, organizations.id),
-          eq(members.userId, userId),
-        ),
-      )
-      .limit(2)
-
-    if (memberships.length === 0) return c.json({ error: "Not found" }, 404)
-    if (memberships.length > 1) {
-      return c.json(
-        {
-          jsonrpc: "2.0",
-          error: {
-            code: -32600,
-            message:
-              "This OAuth grant is not bound to an organization. Reconnect ctxpipe and select an organization, or use /mcp?orgSlug=<orgSlug> for a manual connection.",
-          },
-          id: null,
+    return c.json(
+      {
+        jsonrpc: "2.0",
+        error: {
+          code: -32600,
+          message:
+            "This OAuth grant is not bound to an organization. Reconnect ctxpipe and select an organization, or use /mcp?orgSlug=<orgSlug> for a manual connection.",
         },
-        400,
-      )
-    }
-    resolved = memberships[0]
+        id: null,
+      },
+      400,
+    )
   }
 
   if (!resolved) return c.json({ error: "Not found" }, 404)

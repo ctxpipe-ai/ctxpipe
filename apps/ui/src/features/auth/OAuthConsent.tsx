@@ -30,17 +30,17 @@ export function OAuthConsent({
       <section className="space-y-6 rounded-none border border-border bg-card/80 p-6">
         <div className="space-y-2">
           <p className="ctx-label">OAuth connection</p>
-          <h1 className="text-xl font-medium">Authorize client</h1>
+          <h1 className="text-xl font-medium">Authorise client</h1>
           <p className="text-sm text-muted-foreground">
             The client below is requesting access to ctx| data from this
-            organization. The choice is bound to this connection and will not
-            change when you switch organizations later.
+            organisation. The choice is bound to this connection and will not
+            change when you switch organisations later.
           </p>
         </div>
 
         {organization ? (
           <div className="space-y-1">
-            <p className="text-sm text-muted-foreground">Organization</p>
+            <p className="text-sm text-muted-foreground">Organisation</p>
             <p className="font-medium text-foreground">{organization.name}</p>
             <p className="font-mono text-xs text-muted-foreground">
               {organization.slug}
@@ -52,7 +52,7 @@ export function OAuthConsent({
                   variant="quiet"
                   className="rounded-none px-0 text-zinc-300"
                 >
-                  Change organization
+                  Change organisation
                 </Button>
               </div>
             ) : null}

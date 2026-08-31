@@ -27,17 +27,17 @@ export function OAuthOrganizationSelector({
       <section className="space-y-6 rounded-none border border-border bg-card/80 p-6">
         <div className="space-y-2">
           <p className="ctx-label">OAuth connection</p>
-          <h1 className="text-xl font-medium">Choose an organization</h1>
+          <h1 className="text-xl font-medium">Choose an organisation</h1>
           <p className="text-sm text-muted-foreground">
-            Claude will use ctx| data from this organization. The choice is
+            Claude will use ctx| data from this organisation. The choice is
             bound to this connection and will not change when you switch
-            organizations later.
+            organisations later.
           </p>
         </div>
 
         {organizations.length > 0 ? (
           <RadioGroup
-            aria-label="Organization"
+            aria-label="Organisation"
             value={selectedId ?? ""}
             onChange={(value) => setSelectedId(String(value))}
           >
@@ -61,7 +61,7 @@ export function OAuthOrganizationSelector({
         ) : (
           <InlineAlert
             variant="warning"
-            title="No organizations available"
+            title="No organisations available"
             actions={
               <Button
                 href="/onboarding"
@@ -72,7 +72,7 @@ export function OAuthOrganizationSelector({
               </Button>
             }
           >
-            Create or join an organization, then reconnect Claude.
+            Create or join an organisation, then reconnect Claude.
           </InlineAlert>
         )}
 

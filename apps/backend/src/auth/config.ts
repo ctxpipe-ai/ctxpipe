@@ -14,7 +14,7 @@ import {
 } from "better-auth/plugins"
 import { eq } from "drizzle-orm"
 import { parseEnv } from "../config/env.js"
-import { initDb } from "../db/client.js"
+import { type Db, initDb } from "../db/client.js"
 import { members } from "../db/schema/auth.js"
 import { schema } from "../db/schema.js"
 import { generateObjectId } from "../lib/id.js"
@@ -47,6 +47,21 @@ function toTypeSlug(model: string): string {
     .replace(/[^a-z0-9]+/g, "_")
     .replace(/^_+|_+$/g, "")
   return slug.length > 0 ? slug : "id"
+}
+
+async function getOAuthOrganizationBinding(
+  db: Db,
+  userId: string,
+  activeOrganizationId: unknown,
+) {
+  const memberships = await db
+    .select({ id: members.organizationId })
+    .from(members)
+    .where(eq(members.userId, userId))
+  return selectOAuthOrganizationBinding(
+    memberships.map(({ id }) => id),
+    typeof activeOrganizationId === "string" ? activeOrganizationId : null,
+  )
 }
 
 export function createBetterAuth() {
@@ -217,31 +232,19 @@ export function createBetterAuth() {
         postLogin: {
           page: "/.auth/select-organization",
           async shouldRedirect({ user, session }) {
-            const memberships = await db
-              .select({ id: members.organizationId })
-              .from(members)
-              .where(eq(members.userId, user.id))
-            const activeOrganizationId =
-              typeof session.activeOrganizationId === "string"
-                ? session.activeOrganizationId
-                : null
-            return selectOAuthOrganizationBinding(
-              memberships.map(({ id }) => id),
-              activeOrganizationId,
+            return (
+              await getOAuthOrganizationBinding(
+                db,
+                user.id,
+                session.activeOrganizationId,
+              )
             ).requiresSelection
           },
           async consentReferenceId({ user, session }) {
-            const memberships = await db
-              .select({ id: members.organizationId })
-              .from(members)
-              .where(eq(members.userId, user.id))
-            const activeOrganizationId =
-              typeof session.activeOrganizationId === "string"
-                ? session.activeOrganizationId
-                : null
-            const { referenceId } = selectOAuthOrganizationBinding(
-              memberships.map(({ id }) => id),
-              activeOrganizationId,
+            const { referenceId } = await getOAuthOrganizationBinding(
+              db,
+              user.id,
+              session.activeOrganizationId,
             )
             if (!referenceId) {
               throw new APIError("BAD_REQUEST", {
