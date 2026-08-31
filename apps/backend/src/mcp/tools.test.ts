@@ -1,5 +1,5 @@
 import { HumanMessage } from "@langchain/core/messages"
-import { describe, expect, it, vi } from "vitest"
+import { beforeEach, describe, expect, it, vi } from "vitest"
 
 const {
   generateObjectIdMock,
@@ -47,6 +47,15 @@ import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js"
 import { registerMcpTools } from "./tools.js"
 
 describe("registerMcpTools", () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+    streamMock.mockReset()
+    invokeMock.mockReset()
+    generateObjectIdMock.mockReset().mockReturnValue("thr_test")
+    ensureConversationMock.mockReset().mockResolvedValue({})
+    touchConversationLastMessageMock.mockReset().mockResolvedValue(undefined)
+  })
+
   it("registers ctx advisor tool and streams progress", async () => {
     const chunkOne = {
       messages: [{ content: "Plan the integration in phases" }],

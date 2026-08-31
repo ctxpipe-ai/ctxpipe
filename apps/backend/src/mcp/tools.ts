@@ -79,6 +79,12 @@ export function registerMcpTools(server: McpServer): void {
         "",
         "When in doubt, call. This tool is the single entrypoint to your org's knowledge graph — use it aggressively.",
       ].join("\n"),
+      annotations: {
+        readOnlyHint: true,
+        destructiveHint: false,
+        idempotentHint: false,
+        openWorldHint: false,
+      },
       inputSchema: z.object({
         prompt: z.string().min(1),
         currentProjectName: z.string().optional(),
