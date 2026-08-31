@@ -6,11 +6,12 @@ Primary-source survey of Anthropic's 2026 plugin, connector, and Slack surfaces,
 
 ## Executive summary
 
-Build **two complementary artifacts**, not one:
+Ship one generic remote MCP plugin, then submit it through two complementary
+catalog paths:
 
-1. **A Claude plugin** (the packaging layer). Smallest unit: a public Git repo with `.claude-plugin/plugin.json`, a root `.mcp.json` that points at the remote HTTP MCP, optional `userConfig` for org slug / self-host base URL, and a short skill that teaches Claude when to call `ctx_advisor`. Same layout is what Claude Tag, Cowork, and Claude Code all consume. ([Plugins overview](https://claude.com/docs/plugins/overview.md); [Plugins reference](https://code.claude.com/docs/en/plugins-reference); [Claude Tag custom MCP](https://claude.com/docs/claude-tag/admins/connections/custom))
+1. **Claude Plugin Directory** (packaging + discovery): a public plugin with `.claude-plugin/plugin.json`, a root `.mcp.json` pointing at `https://app.ctxpipe.ai/mcp`, and a short skill that teaches Claude when to call `ctx_advisor`. The server binds the selected ctx| organization into the OAuth grant, avoiding `userConfig` and per-tenant plugin copies. The same plugin layout is consumed by Claude Code, Cowork, and Claude Tag. ([Plugins overview](https://claude.com/docs/plugins/overview.md); [Plugins reference](https://code.claude.com/docs/en/plugins-reference); [Claude Tag custom MCP](https://claude.com/docs/claude-tag/admins/connections/custom); [Better Auth post-login organization selection](https://better-auth.com/docs/plugins/oauth-provider#post-login-screen))
 
-2. **A Connectors Directory listing** (the discovery layer for claude.ai / Desktop / mobile). Directory connectors and custom URL connectors share the same MCP runtime; the directory only adds review, browse, and Suggested Connectors. Per-tenant URLs are **not** templated in a single listing — request the partner-gated `custom_connection` auth type, or keep org slug as plugin `userConfig`. ([Directory vs custom](https://claude.com/docs/connectors/building/directory-vs-custom); [Authentication](https://claude.com/docs/connectors/building/authentication.md))
+2. **Connectors Directory** (connector-first discovery for claude.ai / Desktop / mobile): list the same generic MCP URL. Directory connectors and custom URL connectors share the same runtime; the directory adds review, browse, and Suggested Connectors. ctx| no longer needs partner-gated `custom_connection` solely for tenant routing because organization selection occurs during OAuth. ([Directory vs custom](https://claude.com/docs/connectors/building/directory-vs-custom); [Authentication](https://claude.com/docs/connectors/building/authentication.md))
 
 **Do not treat “Claude plugin” as one product.** In 2026 Anthropic uses the same word for three related but distinct things: Claude Code / Cowork plugin packages, Claude Desktop MCPB/DXT extensions, and the Claude plugin marketplace / directory. Slack `@Claude` (Claude Tag) is a fourth surface that **reuses the Claude Code plugin format** but **does not load a repo `.mcp.json` or a user's personal claude.ai connectors**. ([What to build](https://claude.com/docs/connectors/building/what-to-build.md); [Desktop extensions](https://claude.com/docs/connectors/custom/desktop-extensions); [Claude Tag settings map](https://claude.com/docs/claude-tag/concepts/settings-map.md); [Skills repo / MCP](https://claude.com/docs/claude-tag/admins/skills-repo))
 
@@ -222,13 +223,14 @@ Protected-resource `resource` must match the MCP URL **exactly as the user enter
 
 Official options:
 
-1. **Plugin `userConfig`** — user types org slug and optional base URL at enable (Claude Code). Substituted into the MCP URL. Not documented on Tag/claude.ai plugin UI. ([userConfig](https://code.claude.com/docs/en/plugins-reference))
-2. **Directory `custom_connection`** — users supply tenant URL at connect time. Partner-gated. Directory does not template `{tenant}.example.com` in one listing. Alternative: separate per-tenant directory entries. ([Per-tenant URLs](https://claude.com/docs/connectors/building/directory-vs-custom))
-3. **Custom connector URL** — Owner pastes `https://app.ctxpipe.ai/mcp?orgSlug=acme` (or a self-host origin) org-wide; members Connect. Install-link can prefill name + URL. ([Directory vs custom](https://claude.com/docs/connectors/building/directory-vs-custom); [Remote MCP](https://claude.com/docs/connectors/custom/remote-mcp))
-4. **Claude Tag** — one URL baked into the plugin the admin attached; tenancy is whichever org that URL (and the service credential) points at. Per-channel bundles can attach different plugins/URLs.
-5. **Supported dual path:** directory listing with safe defaults **plus** a separate custom-connector URL for elevated / tenant-specific config. ([Use both](https://claude.com/docs/connectors/building/directory-vs-custom))
+1. **OAuth grant reference (ctx| choice)** — after login and before consent, prompt multi-org users to select an organization; store that organization as the grant `referenceId` and expose a namespaced JWT claim. Refresh tokens retain the reference. This is Better Auth's documented organization-specific OAuth pattern and works behind one static MCP URL. ([Better Auth post-login organization selection](https://better-auth.com/docs/plugins/oauth-provider#post-login-screen))
+2. **Plugin `userConfig`** — user types org slug and optional base URL at enable (Claude Code). Substituted into the MCP URL. Not documented on Tag/claude.ai plugin UI, so ctx| does not use it for hosted tenant routing. ([userConfig](https://code.claude.com/docs/en/plugins-reference))
+3. **Directory `custom_connection`** — users supply a tenant URL at connect time. Partner-gated. Directory does not template `{tenant}.example.com` in one listing. This remains relevant for providers that cannot bind tenancy during OAuth, not hosted ctx|. ([Per-tenant URLs](https://claude.com/docs/connectors/building/directory-vs-custom))
+4. **Custom connector URL** — Owner pastes a generic or explicitly scoped URL org-wide; members Connect. Install links can prefill name + URL. ([Directory vs custom](https://claude.com/docs/connectors/building/directory-vs-custom); [Remote MCP](https://claude.com/docs/connectors/custom/remote-mcp))
+5. **Claude Tag** — one generic URL is baked into the attached plugin. An MCP Connector credential performs the one-time admin OAuth flow and binds the selected ctx| organization.
 
-Self-host base URL is the same problem as org slug: plugin `userConfig`, custom connector, or a customer-private marketplace fork.
+Self-host base URLs still require a customer-private plugin fork or manual
+connector because the host itself differs.
 
 ### User vs team vs workspace install
 
@@ -270,7 +272,7 @@ ctxpipe-claude-plugin/                 # public GitHub repo
 ├── .claude-plugin/
 │   ├── plugin.json                    # name, displayName, version, description, author, homepage
 │   └── marketplace.json               # so `/plugin marketplace add ctxpipe-ai/ctxpipe-claude-plugin` works
-├── .mcp.json                          # type:http + url (hosted default or ${user_config.*})
+├── .mcp.json                          # type:http + generic hosted /mcp URL
 ├── skills/ctx-advisor/SKILL.md        # when/how to call the MCP tool
 ├── SETUP.md                           # optional; plugin submit docs encourage a setup skill
 └── README.md                          # Code install, Tag attach, custom-connector link
@@ -284,14 +286,14 @@ Validate: `claude plugin validate ./` and `claude plugin validate ./ --strict`. 
 
 **v1.1 (no code change on our MCP):** publish an install link for custom connectors:
 
-`https://claude.ai/customize/connectors?modal=add-custom-connector&connectorName=ctxpipe&connectorUrl=https%3A%2F%2Fapp.ctxpipe.ai%2Fmcp%3ForgSlug%3DACME`
+`https://claude.ai/customize/connectors?modal=add-custom-connector&connectorName=ctxpipe&connectorUrl=https%3A%2F%2Fapp.ctxpipe.ai%2Fmcp`
 
 and the admin twin under `/admin-settings/connectors`. Prefills only; user still confirms. ([Install link](https://claude.com/docs/connectors/building/directory-vs-custom))
 
 **v1.2 (review queue):**
 
 1. Submit the plugin (public repo) to the plugin directory.
-2. Submit the remote MCP to the Connectors Directory (Team/Enterprise org, OAuth, tool annotations). Ask `mcp-review@anthropic.com` for `custom_connection` if we want users to type org slug / self-host URL at connect time.
+2. Submit the generic remote MCP to the Connectors Directory (Team/Enterprise org, OAuth, tool annotations).
 
 Do **not** build an MCPB desktop extension for hosted ctxpipe.
 
@@ -326,30 +328,31 @@ Do not expand ctxpipe v1 to those marketplaces unless a later ADR says so.
 Ship a **single public plugin repo** that is valid for Claude Code, Cowork, and Claude Tag:
 
 1. `.claude-plugin/plugin.json` — `name: ctxpipe`, `displayName: ctxpipe`, `version: 0.1.0`, description, author, homepage `https://docs.ctxpipe.ai`.
-2. `.mcp.json` — one server `ctxpipe`, `type: "http"`, URL `https://app.ctxpipe.ai/mcp?orgSlug=${user_config.org_slug}` (and optional `userConfig.base_url` if we support self-host in v1; otherwise document a fork).
-3. `userConfig.org_slug` (required string) + optional `base_url` for self-host.
+2. `.mcp.json` — one server `ctxpipe`, `type: "http"`, URL `https://app.ctxpipe.ai/mcp`.
+3. Better Auth post-login organization selection — store the selected organization in the OAuth grant `referenceId`, carry it through refresh, and expose it as a namespaced JWT claim.
 4. `skills/ctx-advisor/SKILL.md` — org-scoped engineering context; call the MCP tool instead of guessing the repo.
 5. Root `marketplace.json` listing `ctxpipe` with `"source": "./"` (or `./plugins/ctxpipe` if we keep the repo multi-plugin later).
 6. README with four install paths:
    - Claude Code: `/plugin marketplace add ctxpipe-ai/…` then `/plugin install ctxpipe@…`
    - Cowork / chat: Customize → Add marketplace, or org ZIP
-   - Claude Tag: Owner uploads/syncs plugin, toggles it on the bundle, adds Custom-tool credential for `app.ctxpipe.ai`
-   - claude.ai without plugin: custom-connector install link with `orgSlug` filled per tenant
-7. Keep using OAuth DCR/CIMD already on `/mcp`. Do not put tokens in the query string. Confirm PRM `resource` still matches the URL users enter (path `/mcp`; query ignored on audience as today).
-8. Defer Connectors Directory + `custom_connection` to a follow-up once tool annotations and review credentials are ready. Defer MCPB.
+   - Claude Tag: Owner uploads/syncs plugin, toggles it on the bundle, and completes an MCP Connector sign-in for `app.ctxpipe.ai`
+   - claude.ai without plugin: generic custom-connector install link
+7. Keep using OAuth DCR/CIMD on `/mcp`; verify the grant-bound organization on every tool request. Do not put tokens or tenant authority in a mutable browser session.
+8. Submit the same generic URL to the Connectors Directory after plugin validation. Defer MCPB.
 
-This unblocks the Slack customer **without** waiting on Anthropic review, and is the same tree we later submit to `claude-plugins-official`.
+This removes manual MCP URL entry for Slack customers. It does **not** remove
+Claude Tag's mandatory Access bundle and one-time admin MCP Connector sign-in.
 
 ## Open questions / risks
 
-1. **`userConfig` on Claude Tag / claude.ai.** Official Tag docs show a static URL in `.mcp.json`. If `${user_config.*}` is Code-only, Tag customers need either a per-tenant plugin copy or a credential that encodes the org (e.g. URL with slug baked in by the admin). **Unverified on Tag.** Confirm with a Tag workspace before promising one ZIP for all tenants.
+1. **End-to-end Tag proof.** The static generic URL and OAuth grant binding remove the `userConfig` dependency, but a real Access bundle must still be tested before claiming Slack Tag support.
 2. **Help Center vs Cowork guide on “plugins in Chat.”** Skills-in-chat is claimed by Help Center and org-admin docs; Cowork guide denies Chat. Do not market “works in claude.ai Chat” until someone installs the plugin on a Pro/Team web session.
-3. **OAuth as Tag service account.** MCP Connector credential is “sign in once as admin; agent acts as that account.” That is a **shared org identity**, not each Slack user's ctxpipe membership. Product/security need to decide whether that is acceptable vs a Bearer service token vs refusing Tag until per-user OAuth exists there.
+3. **OAuth as Tag service account.** MCP Connector credential is “sign in once as admin; agent acts as that account.” The grant is tenant-bound, but the identity is still shared and must be intentionally authorized for that organization's data.
 4. **`?orgSlug=` vs PRM exact-match.** Hosted Claude requires `resource` to match the entered URL including path. Query handling must stay consistent or Connect/OAuth will fail with “Couldn't reach the MCP server.”
 5. **Org marketplace cannot pull our public GitHub as a private-source shortcut** unless they vendor files. Document the copy step.
 6. **Failed GitHub sync deletes org plugins temporarily.** Warn enterprise customers.
 7. **Official mcp-integration skill is stale** (SSE vs HTTP). Do not copy it blindly.
-8. **Directory `custom_connection` is partner-gated** and may lag. Treat install links + plugin `userConfig` as the unblocking path.
+8. **Directory review is separate from plugin review.** The generic OAuth URL avoids a `custom_connection` dependency, but listing still requires a second submission.
 9. **Claude Tag is public beta**; behavior can change before GA. ([Beta note](https://claude.com/docs/claude-tag/admins/connections/custom))
 10. **Enterprise managed MCP** can ban user-added servers (plugin-only or managed-only). A directory/plugin listing still helps those orgs add us to the allowlist.
 

@@ -9,10 +9,10 @@ ctx| exposes an organization-scoped remote MCP server at:
 https://app.ctxpipe.ai/mcp
 ```
 
-`?orgSlug=your-org` is still valid and required only when the signed-in user
-belongs to several organizations and has no active organization. For
-self-hosted deployments, keep the same `/mcp` path and swap in your own base
-URL.
+The Claude plugin uses this generic URL and binds one organization during
+OAuth. `?orgSlug=your-org` remains valid for legacy and manually configured
+clients. For self-hosted deployments, keep the same `/mcp` path and swap in
+your own base URL.
 
 ## What the MCP gives an agent
 
@@ -251,9 +251,9 @@ If your client's docs only mention `http` or SSE, check the current client docum
 
 ## Notes
 
-- `orgSlug` is optional when the signed-in user has one organization, or an
-  active organization on the session. Replace `your-org` with your organization
-  slug when you pass it explicitly.
+- `orgSlug` is optional for OAuth grants that were bound to an organization
+  during authorization. Replace `your-org` with your organization slug when
+  configuring a legacy or manual connection explicitly.
 - Do not commit secrets into repository MCP config.
 - For team-wide repo config, prefer [Install MCPs via PR](/docs/git-repositories/install-mcps-via-pr) over asking every developer to copy JSON by hand.
 

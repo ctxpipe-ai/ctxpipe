@@ -13,11 +13,11 @@ The plugin lives in this repository at `plugins/ctxpipe`. It points Claude at:
 https://app.ctxpipe.ai/mcp
 ```
 
-That URL no longer requires `?orgSlug=` for most users. After OAuth, ctx|
-selects the organization from the signed-in account: the only membership, or
-the session's active organization. Pass `?orgSlug=your-org` or the
-`X-Ctxpipe-Org` header only when the user belongs to several organizations and
-the active organization is unset.
+That URL does not require `?orgSlug=`. During OAuth, ctx| automatically binds a
+single membership or asks the user to choose when the account belongs to
+multiple organizations. The selected organization is frozen into the OAuth
+grant; changing the active organization in the browser does not retarget
+Claude. Reconnect ctxpipe to choose another organization.
 
 <Callout type="info" title="Custom MCP is not being removed">
   Claude.ai still accepts a custom connector URL. What Slack Tag channels refuse
@@ -31,8 +31,8 @@ the active organization is unset.
 - The remote **ctxpipe** MCP server (`type: "http"`).
 - A **ctx-advisor** skill that tells Claude to call `ctx_advisor` before
   planning or choosing tools.
-- The same OAuth flow as any other ctx| MCP client. The plugin does not embed
-  secrets.
+- OAuth organization selection with no token or tenant identifier embedded in
+  the plugin.
 
 ## Claude Code
 
@@ -43,10 +43,16 @@ In a Claude Code session:
 /plugin install ctxpipe@ctxpipe
 ```
 
-Then run `/mcp` and complete the ctx| sign-in prompt.
+Then run `/mcp`, connect **ctxpipe**, complete sign-in, and choose the
+organization Claude may use. Verify setup by asking `ctx_advisor` for one
+organization standard; a completed redirect alone is not proof of tool access.
 
-Validate a local checkout with `claude plugin validate ./plugins/ctxpipe` when
-the Claude CLI is installed.
+The repository validates both package layers:
+
+```bash
+claude plugin validate ./plugins/ctxpipe --strict
+claude plugin validate . --strict
+```
 
 ## Cowork and claude.ai
 
@@ -68,8 +74,9 @@ In `@Claude` **channels**:
 1. An owner adds the plugin (ZIP upload, private marketplace sync, or a copy of
    `plugins/ctxpipe` in the org skills repo).
 2. The plugin is attached on the Access bundle that covers those channels.
-3. A **Custom-tool** credential allows `app.ctxpipe.ai` (or the self-host
-   host). Prefer **MCP Connector** so the admin signs in once.
+3. An **MCP Connector** credential allows `app.ctxpipe.ai` (or the self-host
+   host). The owner signs in once and selects the ctx| organization for this
+   Access bundle.
 4. Start a **new** thread. Existing threads keep the tool set they started
    with.
 
@@ -84,9 +91,28 @@ connectors.
 <Callout type="warn" title="The agent uses the admin identity">
   Claude Tag's MCP Connector credential is "sign in once as admin; the agent
   acts as that account." Channel members do not each complete ctx| OAuth. Treat
-  that as a shared organization identity and pick an admin who should see the
-  indexed context.
+  that as a shared organization identity. The selected ctx| organization is
+  bound to the grant, but the signing-in account must still be allowed to read
+  that organization's indexed context.
 </Callout>
+
+The plugin removes manual MCP URL entry. It cannot bypass Claude Tag's
+mandatory Access bundle and admin connection boundary.
+
+## Publish to the community
+
+The repository marketplace supports direct installation, but public discovery
+requires Anthropic review. An eligible owner submits the public GitHub plugin
+path through one of:
+
+- [Claude.ai plugin submission](https://claude.ai/admin-settings/directory/submissions/plugins/new)
+- [Console plugin submission](https://platform.claude.com/plugins/submit)
+
+Submission is an account action and is not performed by CI. After publication,
+Anthropic mirrors versioned GitHub updates and screens them automatically.
+Listing the remote MCP in the separate Connectors Directory is still
+recommended so Claude presents ctx| as a named connector instead of **Custom**
+on connector-first surfaces.
 
 ## Self-host
 
@@ -103,8 +129,10 @@ Copy `plugins/ctxpipe` and change `.mcp.json` to your public origin:
 }
 ```
 
-Keep `orgSlug` as a query parameter if operators in that deployment belong to
-several organizations and have no active organization on the session.
+The self-hosted deployment must include OAuth organization selection and
+grant-bound organization claims. An explicit `orgSlug` remains available for
+legacy or manually configured clients, but the published plugin uses the
+generic URL.
 
 ## Related
 
