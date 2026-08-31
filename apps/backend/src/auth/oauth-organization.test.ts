@@ -78,14 +78,23 @@ describe("OAuth consent organization", () => {
     ).toBeNull()
   })
 
+  it("rejects accepted consent when no organization was submitted", () => {
+    expect(
+      resolveOAuthConsentReferenceId(["org_acme"], "org_acme", null),
+    ).toBeNull()
+    expect(
+      resolveOAuthConsentReferenceId(["org_acme"], "org_acme", undefined),
+    ).toBe("org_acme")
+  })
+
   it("keeps the submitted organization isolated to one consent request", async () => {
-    expect(getOAuthConsentOrganizationId()).toBeNull()
+    expect(getOAuthConsentOrganizationId()).toBeUndefined()
 
     await withOAuthConsentOrganizationId("org_acme", async () => {
       await Promise.resolve()
       expect(getOAuthConsentOrganizationId()).toBe("org_acme")
     })
 
-    expect(getOAuthConsentOrganizationId()).toBeNull()
+    expect(getOAuthConsentOrganizationId()).toBeUndefined()
   })
 })

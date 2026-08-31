@@ -106,4 +106,29 @@ describe("OAuthConsent", () => {
       ),
     ).toBe(false)
   })
+
+  it("blocks approval when the bound organization cannot be displayed", () => {
+    const onAllow = vi.fn()
+    act(() => {
+      root.render(
+        <OAuthConsent
+          clientId="claude-plugin"
+          scopes={["openid"]}
+          organization={null}
+          onAllow={onAllow}
+          onDeny={vi.fn()}
+        />,
+      )
+    })
+
+    expect(container.textContent).toContain(
+      "The organisation for this request could not be verified",
+    )
+    const allowButton = Array.from(container.querySelectorAll("button")).find(
+      (button) => button.textContent?.includes("Allow"),
+    )
+    expect(allowButton?.disabled).toBe(true)
+    act(() => allowButton?.click())
+    expect(onAllow).not.toHaveBeenCalled()
+  })
 })
