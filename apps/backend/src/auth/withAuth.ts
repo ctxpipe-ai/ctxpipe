@@ -184,6 +184,38 @@ function hashOpaqueAccessToken(token: string): string {
   return createHash("sha256").update(token).digest("base64url")
 }
 
+async function resolveBearerPrincipal(
+  userId: string,
+  sessionId: string | null | undefined,
+): Promise<{ session: AuthSession | null; user: AuthUser } | null> {
+  const db = getSystemDb()
+  if (sessionId) {
+    const rows = await db
+      .select({ session: sessions, user: users })
+      .from(sessions)
+      .innerJoin(users, eq(sessions.userId, users.id))
+      .where(eq(sessions.id, sessionId))
+      .limit(1)
+    if (rows[0]) return rows[0]
+  }
+
+  const sessionRows = await db
+    .select({ session: sessions, user: users })
+    .from(sessions)
+    .innerJoin(users, eq(sessions.userId, users.id))
+    .where(eq(users.id, userId))
+    .orderBy(desc(sessions.updatedAt))
+    .limit(1)
+  if (sessionRows[0]) return sessionRows[0]
+
+  const userRows = await db
+    .select()
+    .from(users)
+    .where(eq(users.id, userId))
+    .limit(1)
+  return userRows[0] ? { session: null, user: userRows[0] } : null
+}
+
 async function resolveOpaqueAccessToken(token: string): Promise<{
   session: AuthSession | null
   user: AuthUser
@@ -200,46 +232,13 @@ async function resolveOpaqueAccessToken(token: string): Promise<{
   if (!record || !record.userId) return null
   if (!record.expiresAt || record.expiresAt.getTime() <= Date.now()) return null
 
-  if (record.sessionId) {
-    const rows = await db
-      .select({ session: sessions, user: users })
-      .from(sessions)
-      .innerJoin(users, eq(sessions.userId, users.id))
-      .where(eq(sessions.id, record.sessionId))
-      .limit(1)
-    if (rows[0]) {
-      return {
-        ...rows[0],
-        oauthOrganizationId: record.referenceId ?? null,
-      }
-    }
-  }
-
-  // offline_access refresh grants may outlive the browser session. Prefer a
-  // current session when one exists, then fall back to the still-active user.
-  const rows = await db
-    .select({ session: sessions, user: users })
-    .from(sessions)
-    .innerJoin(users, eq(sessions.userId, users.id))
-    .where(eq(users.id, record.userId))
-    .orderBy(desc(sessions.updatedAt))
-    .limit(1)
-  if (rows[0]) {
-    return {
-      ...rows[0],
-      oauthOrganizationId: record.referenceId ?? null,
-    }
-  }
-
-  const userRows = await db
-    .select()
-    .from(users)
-    .where(eq(users.id, record.userId))
-    .limit(1)
-  return userRows[0]
+  const principal = await resolveBearerPrincipal(
+    record.userId,
+    record.sessionId,
+  )
+  return principal
     ? {
-        session: null,
-        user: userRows[0],
+        ...principal,
         oauthOrganizationId: record.referenceId ?? null,
       }
     : null
@@ -427,43 +426,12 @@ export const withBearerAuth: MiddlewareHandler<AppEnv> = async (c, next) => {
       ? payload.sid
       : null
 
-  const db = getSystemDb()
-  let tokenSessionContext:
-    | { session: AuthSession | null; user: AuthUser }
-    | undefined
-
-  if (tokenSessionId) {
-    const tokenSessionRows = await db
-      .select({ session: sessions, user: users })
-      .from(sessions)
-      .innerJoin(users, eq(sessions.userId, users.id))
-      .where(eq(sessions.id, tokenSessionId))
-      .limit(1)
-    tokenSessionContext = tokenSessionRows[0]
-  }
-  if (!tokenSessionContext) {
-    // OAuth access tokens from some MCP clients omit `sid` but still carry `sub`
-    // (user id), and offline_access refresh grants may outlive their browser
-    // session. Prefer a current session when one exists.
-    const rows = await db
-      .select({ session: sessions, user: users })
-      .from(sessions)
-      .innerJoin(users, eq(sessions.userId, users.id))
-      .where(eq(users.id, payload.sub))
-      .orderBy(desc(sessions.updatedAt))
-      .limit(1)
-    tokenSessionContext = rows[0]
-  }
-  if (!tokenSessionContext) {
-    const userRows = await db
-      .select()
-      .from(users)
-      .where(eq(users.id, payload.sub))
-      .limit(1)
-    if (userRows[0]) {
-      tokenSessionContext = { session: null, user: userRows[0] }
-    }
-  }
+  // offline_access refresh grants may outlive the browser session. Resolve
+  // the still-active user even when the original session has been deleted.
+  const tokenSessionContext = await resolveBearerPrincipal(
+    payload.sub,
+    tokenSessionId,
+  )
 
   if (tokenSessionContext) {
     c.set("session", tokenSessionContext.session)

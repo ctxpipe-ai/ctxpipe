@@ -1,9 +1,24 @@
+import { AsyncLocalStorage } from "node:async_hooks"
+
 export const OAUTH_ORGANIZATION_CLAIM =
   "https://ctxpipe.ai/organization_id" as const
 
 export type OAuthOrganizationBinding = {
   requiresSelection: boolean
   referenceId: string | null
+}
+
+const oauthConsentOrganizationStorage = new AsyncLocalStorage<string>()
+
+export function withOAuthConsentOrganizationId<T>(
+  organizationId: string,
+  handler: () => Promise<T>,
+): Promise<T> {
+  return oauthConsentOrganizationStorage.run(organizationId, handler)
+}
+
+export function getOAuthConsentOrganizationId(): string | null {
+  return oauthConsentOrganizationStorage.getStore() ?? null
 }
 
 /**
@@ -37,4 +52,18 @@ export function selectOAuthOrganizationBinding(
     requiresSelection: true,
     referenceId: null,
   }
+}
+
+export function resolveOAuthConsentReferenceId(
+  membershipIds: string[],
+  activeOrganizationId: string | null | undefined,
+  submittedOrganizationId: string | null | undefined,
+): string | null {
+  if (submittedOrganizationId) {
+    return membershipIds.includes(submittedOrganizationId)
+      ? submittedOrganizationId
+      : null
+  }
+  return selectOAuthOrganizationBinding(membershipIds, activeOrganizationId)
+    .referenceId
 }

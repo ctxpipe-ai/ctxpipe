@@ -13,6 +13,7 @@ import {
   logOAuthError,
   prepareBetterAuthRequest,
 } from "../auth/oauth-gateway-request.js"
+import { withOAuthConsentOrganizationId } from "../auth/oauth-organization.js"
 import { getSystemDb } from "../db/client.js"
 import { invitations, organizations } from "../db/schema/auth.js"
 
@@ -126,7 +127,14 @@ export function registerAuthRoutes(app: Hono<AppEnv>) {
 
   app.on(["GET", "POST"], "/.auth/api/v1/auth/*", async (c) => {
     const prepared = await prepareBetterAuthRequest(c.req.raw, c.var.env)
-    const response = await auth.handler(prepared.request)
+    const submittedOrganizationId = c.req.path.endsWith("/oauth2/consent")
+      ? c.req.header("x-ctxpipe-oauth-organization")?.trim()
+      : undefined
+    const response = submittedOrganizationId
+      ? await withOAuthConsentOrganizationId(submittedOrganizationId, () =>
+          auth.handler(prepared.request),
+        )
+      : await auth.handler(prepared.request)
     if (response.status >= 400) {
       await logOAuthError(prepared.request, response, prepared.oauthTokenHints)
     }
@@ -151,14 +159,12 @@ export function registerAuthRoutes(app: Hono<AppEnv>) {
   )
 
   // RFC 8414 path-inserted discovery for issuer https://<host>/.auth/api/v1/auth
-  app.get(
-    "/.well-known/oauth-authorization-server/.auth/api/v1/auth",
-    (c) => oauthProviderAuthServerMetadata(auth)(c.req.raw),
+  app.get("/.well-known/oauth-authorization-server/.auth/api/v1/auth", (c) =>
+    oauthProviderAuthServerMetadata(auth)(c.req.raw),
   )
 
-  app.get(
-    "/.well-known/openid-configuration/.auth/api/v1/auth",
-    (c) => oauthProviderOpenIdConfigMetadata(auth)(c.req.raw),
+  app.get("/.well-known/openid-configuration/.auth/api/v1/auth", (c) =>
+    oauthProviderOpenIdConfigMetadata(auth)(c.req.raw),
   )
 
   app.get("/mcp/.well-known/openid-configuration", (c) =>

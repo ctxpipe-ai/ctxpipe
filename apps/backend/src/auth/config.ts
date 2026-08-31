@@ -19,7 +19,9 @@ import { members } from "../db/schema/auth.js"
 import { schema } from "../db/schema.js"
 import { generateObjectId } from "../lib/id.js"
 import {
+  getOAuthConsentOrganizationId,
   OAUTH_ORGANIZATION_CLAIM,
+  resolveOAuthConsentReferenceId,
   selectOAuthOrganizationBinding,
 } from "./oauth-organization.js"
 
@@ -49,19 +51,12 @@ function toTypeSlug(model: string): string {
   return slug.length > 0 ? slug : "id"
 }
 
-async function getOAuthOrganizationBinding(
-  db: Db,
-  userId: string,
-  activeOrganizationId: unknown,
-) {
+async function getOAuthOrganizationMembershipIds(db: Db, userId: string) {
   const memberships = await db
     .select({ id: members.organizationId })
     .from(members)
     .where(eq(members.userId, userId))
-  return selectOAuthOrganizationBinding(
-    memberships.map(({ id }) => id),
-    typeof activeOrganizationId === "string" ? activeOrganizationId : null,
-  )
+  return memberships.map(({ id }) => id)
 }
 
 export function createBetterAuth() {
@@ -232,19 +227,28 @@ export function createBetterAuth() {
         postLogin: {
           page: "/.auth/select-organization",
           async shouldRedirect({ user, session }) {
-            return (
-              await getOAuthOrganizationBinding(
-                db,
-                user.id,
-                session.activeOrganizationId,
-              )
+            const membershipIds = await getOAuthOrganizationMembershipIds(
+              db,
+              user.id,
+            )
+            return selectOAuthOrganizationBinding(
+              membershipIds,
+              typeof session.activeOrganizationId === "string"
+                ? session.activeOrganizationId
+                : null,
             ).requiresSelection
           },
           async consentReferenceId({ user, session }) {
-            const { referenceId } = await getOAuthOrganizationBinding(
+            const membershipIds = await getOAuthOrganizationMembershipIds(
               db,
               user.id,
-              session.activeOrganizationId,
+            )
+            const referenceId = resolveOAuthConsentReferenceId(
+              membershipIds,
+              typeof session.activeOrganizationId === "string"
+                ? session.activeOrganizationId
+                : null,
+              getOAuthConsentOrganizationId(),
             )
             if (!referenceId) {
               throw new APIError("BAD_REQUEST", {

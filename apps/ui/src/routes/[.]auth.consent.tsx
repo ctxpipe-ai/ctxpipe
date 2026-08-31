@@ -52,7 +52,13 @@ export function ConsentPage() {
     const { data, error: requestError } = await authClient.oauth2.consent({
       accept,
       scope: requestedScope,
-      fetchOptions: { throw: false },
+      fetchOptions: {
+        throw: false,
+        headers:
+          accept && organization
+            ? { "x-ctxpipe-oauth-organization": organization.id }
+            : undefined,
+      },
     })
 
     if (requestError) {
