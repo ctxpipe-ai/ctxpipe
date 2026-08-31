@@ -119,6 +119,9 @@ function createMockDb(input: {
             return {
               innerJoin: vi.fn(() =>
                 Object.assign(Promise.resolve(membershipRows), {
+                  limit: vi.fn(async (limit: number) =>
+                    membershipRows.slice(0, limit),
+                  ),
                   where: vi.fn(() => ({
                     limit: vi.fn(async () => orgRows),
                   })),
@@ -147,6 +150,7 @@ function createBaseApp(): Hono<AppEnv> {
     } as AppEnv["Variables"]["env"])
     c.set("user", null)
     c.set("session", null)
+    c.set("oauthOrganizationId", null)
     c.set("orgSlug", null)
     c.set("orgId", null)
     await next()
@@ -513,7 +517,7 @@ describe("auth middleware composition", () => {
     })
   })
 
-  it("resolves the active organization when /mcp has no orgSlug and the user has many orgs", async () => {
+  it("does not infer an unbound OAuth organization from mutable session state", async () => {
     getSessionMock.mockResolvedValueOnce({
       user: { id: "user_cookie", email: "cookie@example.com" },
       session: {
@@ -532,10 +536,12 @@ describe("auth middleware composition", () => {
     const app = createComposedTestApp()
     const response = await app.request("/mcp", { method: "POST" })
 
-    expect(response.status).toBe(200)
+    expect(response.status).toBe(400)
     expect(await response.json()).toMatchObject({
-      orgSlug: "beta",
-      orgId: "org_beta",
+      jsonrpc: "2.0",
+      error: {
+        message: expect.stringContaining("not bound to an organization"),
+      },
     })
   })
 
@@ -555,31 +561,11 @@ describe("auth middleware composition", () => {
     const response = await app.request("/mcp", { method: "POST" })
 
     expect(response.status).toBe(400)
-    expect(await response.json()).toEqual({
-      error:
-        "orgSlug is required when the authenticated user belongs to multiple organizations. Use /mcp?orgSlug=<orgSlug>.",
-    })
-  })
-
-  it("accepts x-ctxpipe-org when the user is a member of that org", async () => {
-    getSessionMock.mockResolvedValueOnce({
-      user: { id: "user_cookie", email: "cookie@example.com" },
-      session: { id: "sess_cookie", userId: "user_cookie" },
-    })
-    testState.db = createMockDb({
-      orgRows: [{ id: "org_header" }],
-    })
-
-    const app = createComposedTestApp()
-    const response = await app.request("/mcp", {
-      method: "POST",
-      headers: { "x-ctxpipe-org": "acme" },
-    })
-
-    expect(response.status).toBe(200)
     expect(await response.json()).toMatchObject({
-      orgSlug: "acme",
-      orgId: "org_header",
+      jsonrpc: "2.0",
+      error: {
+        message: expect.stringContaining("Reconnect ctxpipe"),
+      },
     })
   })
 

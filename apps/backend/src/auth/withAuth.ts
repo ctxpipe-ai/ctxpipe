@@ -19,6 +19,7 @@ import {
 } from "../db/schema/auth.js"
 import { getLogger } from "../observability/logger.js"
 import { type AuthSession, type AuthUser, getAuth } from "./config.js"
+import { OAUTH_ORGANIZATION_CLAIM } from "./oauth-organization.js"
 
 /** Seconds — small skew between issuers, clients, and this server (Better Auth / jose guidance). */
 const JWT_CLOCK_TOLERANCE_SECONDS = 60
@@ -180,7 +181,11 @@ function hashOpaqueAccessToken(token: string): string {
 
 async function resolveOpaqueAccessToken(
   token: string,
-): Promise<{ session: AuthSession; user: AuthUser } | null> {
+): Promise<{
+  session: AuthSession
+  user: AuthUser
+  oauthOrganizationId: string | null
+} | null> {
   const db = getSystemDb()
   const hashed = hashOpaqueAccessToken(token)
   const tokenRows = await db
@@ -199,7 +204,12 @@ async function resolveOpaqueAccessToken(
       .innerJoin(users, eq(sessions.userId, users.id))
       .where(eq(sessions.id, record.sessionId))
       .limit(1)
-    if (rows[0]) return rows[0]
+    if (rows[0]) {
+      return {
+        ...rows[0],
+        oauthOrganizationId: record.referenceId ?? null,
+      }
+    }
   }
 
   // Session was deleted or null on the row — fall back to the user's latest
@@ -211,7 +221,12 @@ async function resolveOpaqueAccessToken(
     .where(eq(users.id, record.userId))
     .orderBy(desc(sessions.updatedAt))
     .limit(1)
-  return rows[0] ?? null
+  return rows[0]
+    ? {
+        ...rows[0],
+        oauthOrganizationId: record.referenceId ?? null,
+      }
+    : null
 }
 
 export const withCookieAuth: MiddlewareHandler<AppEnv> = async (c, next) => {
@@ -251,6 +266,7 @@ export const withBearerAuth: MiddlewareHandler<AppEnv> = async (c, next) => {
     if (resolved) {
       c.set("session", resolved.session)
       c.set("user", resolved.user)
+      c.set("oauthOrganizationId", resolved.oauthOrganizationId)
       return next()
     }
     logBearerAuthFailure(new Error("Opaque access token not recognized"))
@@ -369,6 +385,21 @@ export const withBearerAuth: MiddlewareHandler<AppEnv> = async (c, next) => {
       wwwAuthenticateForMcpRoute(c, "The access token subject is invalid"),
     )
   }
+  const oauthOrganizationClaim = payload[OAUTH_ORGANIZATION_CLAIM]
+  if (
+    oauthOrganizationClaim !== undefined &&
+    (typeof oauthOrganizationClaim !== "string" ||
+      oauthOrganizationClaim.length === 0)
+  ) {
+    return c.json(
+      { error: "Unauthorized" },
+      401,
+      wwwAuthenticateForMcpRoute(
+        c,
+        "The access token organization is invalid",
+      ),
+    )
+  }
   tokenSessionId =
     typeof payload.sid === "string" && payload.sid.length > 0
       ? payload.sid
@@ -401,6 +432,7 @@ export const withBearerAuth: MiddlewareHandler<AppEnv> = async (c, next) => {
   if (tokenSessionContext) {
     c.set("session", tokenSessionContext.session)
     c.set("user", tokenSessionContext.user)
+    c.set("oauthOrganizationId", oauthOrganizationClaim ?? null)
     return next()
   }
 
@@ -471,24 +503,6 @@ export const requireOrgAdminOrOwner: MiddlewareHandler<AppEnv> = async (
   return c.json({ error: "Forbidden" }, 403)
 }
 
-function requestedOrgSlug(c: {
-  req: {
-    param: (name: string) => string | undefined
-    query: (name: string) => string | undefined
-    header: (name: string) => string | undefined
-  }
-}): string | undefined {
-  for (const value of [
-    c.req.param("orgSlug"),
-    c.req.query("orgSlug"),
-    c.req.header("x-ctxpipe-org"),
-  ]) {
-    const trimmed = value?.trim()
-    if (trimmed) return trimmed
-  }
-  return undefined
-}
-
 export const withNetworkOrgContext: MiddlewareHandler<AppEnv> = async (
   c,
   next,
@@ -496,10 +510,31 @@ export const withNetworkOrgContext: MiddlewareHandler<AppEnv> = async (
   const userId = c.get("user")?.id
   if (!userId) return c.json({ error: "Not found" }, 404)
 
-  const orgSlug = requestedOrgSlug(c)
+  const rawOrgSlug = c.req.param("orgSlug") ?? c.req.query("orgSlug")
+  const orgSlug = rawOrgSlug?.trim() || undefined
+  const oauthOrganizationId = c.get("oauthOrganizationId")
   const systemDb = getSystemDb()
+  let resolved: { id: string; slug: string } | undefined
 
-  if (orgSlug) {
+  if (oauthOrganizationId) {
+    const orgRows = await systemDb
+      .select({ id: organizations.id, slug: organizations.slug })
+      .from(organizations)
+      .innerJoin(
+        members,
+        and(
+          eq(members.organizationId, organizations.id),
+          eq(members.userId, userId),
+        ),
+      )
+      .where(eq(organizations.id, oauthOrganizationId))
+      .limit(1)
+
+    resolved = orgRows[0]
+    if (!resolved || (orgSlug && resolved.slug !== orgSlug)) {
+      return c.json({ error: "Not found" }, 404)
+    }
+  } else if (orgSlug) {
     const orgRows = await systemDb
       .select({ id: organizations.id })
       .from(organizations)
@@ -512,46 +547,41 @@ export const withNetworkOrgContext: MiddlewareHandler<AppEnv> = async (
       )
       .where(eq(organizations.slug, orgSlug))
       .limit(1)
-
     const org = orgRows[0]
     if (!org) return c.json({ error: "Not found" }, 404)
+    resolved = { id: org.id, slug: orgSlug }
+  } else {
+    const memberships = await systemDb
+      .select({ id: organizations.id, slug: organizations.slug })
+      .from(organizations)
+      .innerJoin(
+        members,
+        and(
+          eq(members.organizationId, organizations.id),
+          eq(members.userId, userId),
+        ),
+      )
+      .limit(2)
 
-    c.set("orgSlug", orgSlug)
-    c.set("orgId", org.id)
-    return withOrgIdContext({ id: org.id, slug: orgSlug }, async () =>
-      withOrgDbContext(org.id, async () => next()),
-    )
+    if (memberships.length === 0) return c.json({ error: "Not found" }, 404)
+    if (memberships.length > 1) {
+      return c.json(
+        {
+          jsonrpc: "2.0",
+          error: {
+            code: -32600,
+            message:
+              "This OAuth grant is not bound to an organization. Reconnect ctxpipe and select an organization, or use /mcp?orgSlug=<orgSlug> for a manual connection.",
+          },
+          id: null,
+        },
+        400,
+      )
+    }
+    resolved = memberships[0]
   }
 
-  const memberships = await systemDb
-    .select({ id: organizations.id, slug: organizations.slug })
-    .from(organizations)
-    .innerJoin(
-      members,
-      and(
-        eq(members.organizationId, organizations.id),
-        eq(members.userId, userId),
-      ),
-    )
-
-  if (memberships.length === 0) return c.json({ error: "Not found" }, 404)
-
-  const activeOrganizationId = c.get("session")?.activeOrganizationId
-  const resolved =
-    memberships.length === 1
-      ? memberships[0]
-      : memberships.find((org) => org.id === activeOrganizationId)
-
-  if (!resolved) {
-    return c.json(
-      {
-        error:
-          "orgSlug is required when the authenticated user belongs to multiple organizations. Use /mcp?orgSlug=<orgSlug>.",
-      },
-      400,
-    )
-  }
-
+  if (!resolved) return c.json({ error: "Not found" }, 404)
   c.set("orgSlug", resolved.slug)
   c.set("orgId", resolved.id)
   return withOrgIdContext(
