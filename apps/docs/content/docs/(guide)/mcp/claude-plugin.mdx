@@ -14,10 +14,11 @@ https://app.ctxpipe.ai/mcp
 ```
 
 That URL does not require `?orgSlug=`. During OAuth, ctx| automatically binds a
-single membership or asks the user to choose when the account belongs to
-multiple organizations. The selected organization is frozen into the OAuth
-grant; changing the active organization in the browser does not retarget
-Claude. Reconnect ctxpipe to choose another organization.
+single membership. For a multi-organization account, consent shows the active
+organization and offers **Change organization**; if none is active, ctx| asks
+for a selection first. The selected organization is frozen into the OAuth
+grant, so later browser changes do not retarget Claude. Reconnect ctxpipe to
+choose another organization after authorization.
 
 <Callout type="info" title="Custom MCP is not being removed">
   Claude.ai still accepts a custom connector URL. What Slack Tag channels refuse

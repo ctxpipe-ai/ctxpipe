@@ -31,10 +31,11 @@ Research: [Claude plugins](../research/claude-plugins/index.md).
 2. **Point the plugin at** `https://app.ctxpipe.ai/mcp` with `type: "http"`.
    No tokens and no `${user_config.*}` interpolation in the URL. OAuth stays
    DCR/CIMD as today.
-3. **Bind organization during OAuth:** Better Auth's post-login step prompts
-   users with multiple memberships to select an organization before consent.
-   The organization id is stored as the grant `referenceId`, carried across
-   refreshes, and added to JWT access tokens as the namespaced
+3. **Bind organization during OAuth:** Better Auth's post-login step requires
+   selection when no valid active membership exists. Consent shows the bound
+   organization and lets multi-org users change it while preserving the signed
+   OAuth query. The organization id is stored as the grant `referenceId`,
+   carried across refreshes, and added to JWT access tokens as the namespaced
    `https://ctxpipe.ai/organization_id` claim.
 4. **Enforce that binding on `/mcp`:** bound JWT and opaque tokens resolve only
    their selected organization. A query slug cannot override a bound grant.

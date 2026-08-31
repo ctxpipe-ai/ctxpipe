@@ -6,7 +6,8 @@ The plugin declares the remote server. It does **not** skip OAuth. The first use
 signs the caller into ctx| and binds the OAuth grant to one organization:
 
 - one membership → that organization
-- several memberships → an explicit organization selection before consent
+- several memberships → the active organization is shown at consent and can
+  be changed; if none is active, Claude asks for a selection first
 
 Changing the active organization in ctx| later does not retarget the grant.
 Reconnect ctxpipe to choose another organization. `orgSlug` remains supported
