@@ -479,12 +479,15 @@ export function registerIndexPhaseRoutes(app: OpenAPIHono<AppEnv>) {
               phase: "merge-scip",
             }),
             async () => {
-              const published = await phaseMergeScip(resolved.ctx, {
-                detectedLanguages: body.detectedLanguages,
-                languagesToMerge: body.languagesToMerge,
-              })
-              shardCount = published.shardCount
-              await phaseMarkCheckoutIndexed(resolved.ctx)
+              try {
+                const published = await phaseMergeScip(resolved.ctx, {
+                  detectedLanguages: body.detectedLanguages,
+                  languagesToMerge: body.languagesToMerge,
+                })
+                shardCount = published.shardCount
+              } finally {
+                await phaseMarkCheckoutIndexed(resolved.ctx)
+              }
             },
           )
           return c.json({ ok: true as const, shardCount }, 200)

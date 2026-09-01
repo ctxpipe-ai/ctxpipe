@@ -1,9 +1,12 @@
 import { OpenAPIHono } from "@hono/zod-openapi"
-import { beforeEach, describe, expect, it, vi } from "vitest"
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 import type { AppEnv } from "../app/env.js"
+import { resetIndexPipelineAdmissionForTests } from "../domain/indexing/indexPipelineAdmission.js"
 import { CODEBASE_DIDNT_FIT_AVAILABLE_MEMORY } from "../domain/indexing/memoryFitError.js"
 
 const phaseScipLanguageMock = vi.hoisted(() => vi.fn())
+const phaseMergeScipMock = vi.hoisted(() => vi.fn())
+const phaseMarkCheckoutIndexedMock = vi.hoisted(() => vi.fn())
 const getAccessibleRepositoryMock = vi.hoisted(() => vi.fn())
 const getIndexableRepositoryMock = vi.hoisted(() => vi.fn())
 
@@ -14,6 +17,8 @@ vi.mock("../domain/indexing/phases.js", async () => {
   return {
     ...actual,
     phaseScipLanguage: phaseScipLanguageMock,
+    phaseMergeScip: phaseMergeScipMock,
+    phaseMarkCheckoutIndexed: phaseMarkCheckoutIndexedMock,
   }
 })
 
@@ -49,8 +54,13 @@ function createTestApp() {
 }
 
 describe("POST /{repoId}/index/scip/{lang}", () => {
+  afterEach(() => {
+    resetIndexPipelineAdmissionForTests()
+  })
+
   beforeEach(() => {
     vi.clearAllMocks()
+    resetIndexPipelineAdmissionForTests()
     getAccessibleRepositoryMock.mockResolvedValue({
       id: "repo_aaaaaa",
       orgId: "org_mock123",
@@ -85,5 +95,45 @@ describe("POST /{repoId}/index/scip/{lang}", () => {
     await expect(res.json()).resolves.toEqual({
       error: CODEBASE_DIDNT_FIT_AVAILABLE_MEMORY,
     })
+  })
+})
+
+describe("POST /{repoId}/index/merge-scip", () => {
+  afterEach(() => {
+    resetIndexPipelineAdmissionForTests()
+  })
+
+  beforeEach(() => {
+    vi.clearAllMocks()
+    resetIndexPipelineAdmissionForTests()
+    phaseMarkCheckoutIndexedMock.mockResolvedValue(undefined)
+    getAccessibleRepositoryMock.mockResolvedValue({
+      id: "repo_aaaaaa",
+      orgId: "org_mock123",
+      name: "acme/web",
+      gitUrl: "https://github.com/acme/web.git",
+    })
+    getIndexableRepositoryMock.mockResolvedValue({
+      id: "repo_aaaaaa",
+      orgId: "org_mock123",
+      name: "acme/web",
+      gitUrl: "https://github.com/acme/web.git",
+      zoektRepoId: 1,
+    })
+  })
+
+  it("marks the checkout even when merge throws", async () => {
+    phaseMergeScipMock.mockRejectedValue(new Error("SCIP merge failed"))
+    const app = createTestApp()
+    const res = await app.request("/repo_aaaaaa/index/merge-scip", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ detectedLanguages: ["go"] }),
+    })
+    expect(res.status).toBe(500)
+    await expect(res.json()).resolves.toEqual({
+      error: "SCIP merge failed",
+    })
+    expect(phaseMarkCheckoutIndexedMock).toHaveBeenCalledOnce()
   })
 })

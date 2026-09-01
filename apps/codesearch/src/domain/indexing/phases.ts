@@ -713,27 +713,32 @@ export async function phaseMergeScip(
     params.languagesToMerge !== undefined
       ? [...params.languagesToMerge]
       : detected
-  await writeStep("merging_intelligence", detected)
-  return withPhase("scip_merge", async () => {
-    const shardPaths = languagesToMerge.map((indexerId) =>
-      scipLangShardPath(ctx.orgId, ctx.repoId, indexerId),
-    )
-    if (
-      params.languagesToMerge !== undefined &&
-      languagesToMerge.length === 0
-    ) {
-      await discardScipShardFiles(
-        detected.map((indexerId) =>
-          scipLangShardPath(ctx.orgId, ctx.repoId, indexerId),
-        ),
+  try {
+    await writeStep("merging_intelligence", detected)
+    return await withPhase("scip_merge", async () => {
+      const shardPaths = languagesToMerge.map((indexerId) =>
+        scipLangShardPath(ctx.orgId, ctx.repoId, indexerId),
       )
-    }
-    return publishMergedScipIndex({
-      detectedLanguages: detected,
-      shardPaths,
-      outputPath: ctx.scipIndexPath,
+      if (
+        params.languagesToMerge !== undefined &&
+        languagesToMerge.length === 0
+      ) {
+        await discardScipShardFiles(
+          detected.map((indexerId) =>
+            scipLangShardPath(ctx.orgId, ctx.repoId, indexerId),
+          ),
+        )
+      }
+      return publishMergedScipIndex({
+        detectedLanguages: detected,
+        shardPaths,
+        outputPath: ctx.scipIndexPath,
+      })
     })
-  })
+  } catch (error) {
+    await rm(ctx.scipIndexPath, { force: true })
+    throw error
+  }
 }
 
 export async function phaseMarkCheckoutIndexed(
