@@ -121,45 +121,57 @@ const ctx: IndexPhaseRepoContext = {
   repoUrl: "${KUBERNETES_REPOSITORY}",
 }
 
-const checkout = await phaseCloneCheckout(ctx, {
-  targetHash: "${KUBERNETES_SHA}",
-})
-await phaseZoekt(ctx)
-const languages = await phaseDetectLanguages(ctx, {
-  ingestMode: checkout.ingestMode,
-  changedPaths: checkout.changedPaths,
-  deletedPaths: checkout.deletedPaths,
-  renames: checkout.renames,
-})
-await Promise.all(
-  languages.languagesToIndex.map((language) =>
-    phaseScipLanguage(ctx, {
-      language,
-      detectedLanguages: languages.detectedLanguages,
-    }),
-  ),
-)
-await phaseMergeScip(ctx, {
-  detectedLanguages: languages.detectedLanguages,
-})
-await phaseMarkCheckoutIndexed(ctx)
-
-if (checkout.targetHash !== "${KUBERNETES_SHA}") {
-  throw new Error("Indexed unexpected commit: " + checkout.targetHash)
-}
-console.log(
-  JSON.stringify({
-    targetHash: checkout.targetHash,
+try {
+  const checkout = await phaseCloneCheckout(ctx, {
+    targetHash: "${KUBERNETES_SHA}",
+  })
+  await phaseZoekt(ctx)
+  const languages = await phaseDetectLanguages(ctx, {
     ingestMode: checkout.ingestMode,
+    changedPaths: checkout.changedPaths,
+    deletedPaths: checkout.deletedPaths,
+    renames: checkout.renames,
+  })
+  await Promise.all(
+    languages.languagesToIndex.map((language) =>
+      phaseScipLanguage(ctx, {
+        language,
+        detectedLanguages: languages.detectedLanguages,
+      }),
+    ),
+  )
+  await phaseMergeScip(ctx, {
     detectedLanguages: languages.detectedLanguages,
-    languagesToIndex: languages.languagesToIndex,
-  }),
-)
+  })
+  await phaseMarkCheckoutIndexed(ctx)
+
+  if (checkout.targetHash !== "${KUBERNETES_SHA}") {
+    throw new Error("Indexed unexpected commit: " + checkout.targetHash)
+  }
+  console.log(
+    JSON.stringify({
+      targetHash: checkout.targetHash,
+      ingestMode: checkout.ingestMode,
+      detectedLanguages: languages.detectedLanguages,
+      languagesToIndex: languages.languagesToIndex,
+    }),
+  )
+  // evlog / Bun handles otherwise keep the event loop alive after ingest.
+  process.exit(0)
+} catch (error) {
+  console.error(error)
+  process.exit(1)
+}
 EOF
 
 cat >"${WORK_DIR}/run-with-memory-sampler.sh" <<'EOF'
 #!/usr/bin/env bash
 set -uo pipefail
+
+# Host clone is bind-mounted into the container. Git 2.35+ refuses that
+# directory when the owner uid differs from the container user (root).
+git config --global --add safe.directory \
+  /gate/data/repo-cache/org_manual/repo_kubernetes/checkouts/default
 
 read_memory_bytes() {
   if [[ -r /sys/fs/cgroup/memory.current ]]; then
