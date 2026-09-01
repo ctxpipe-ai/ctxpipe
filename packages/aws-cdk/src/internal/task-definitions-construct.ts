@@ -125,6 +125,12 @@ export class TaskDefinitionsConstruct extends Construct {
         [`GRAPH_DB_URI_${props.orgSlug}`]: props.dataPlane.graphDbUri,
         UI_PROXY_URL: "http://ui.ctxpipe.local:3002",
         CODESEARCH_URL: "http://codesearch.ctxpipe.local:3001",
+        OPENWORKFLOW_CONCURRENCY: String(
+          props.sizeProfile.concurrency.openWorkflowConcurrency,
+        ),
+        CODESEARCH_INDEXER_CONCURRENCY: String(
+          props.sizeProfile.concurrency.codesearchIndexerConcurrency,
+        ),
         ...modelContainerConfig.environment,
       },
       secrets: {
@@ -172,6 +178,12 @@ export class TaskDefinitionsConstruct extends Construct {
         PORT: "3001",
         AUTH_TOKEN_AUDIENCE_CODESEARCH: "codesearch",
         ZOEKT_WEBSERVER_URL: "http://127.0.0.1:6070",
+        CODESEARCH_INDEXER_CONCURRENCY: String(
+          props.sizeProfile.concurrency.codesearchIndexerConcurrency,
+        ),
+        CODESEARCH_INDEX_PIPELINE_CONCURRENCY: String(
+          props.sizeProfile.concurrency.codesearchIndexPipelineConcurrency,
+        ),
       },
       secrets: {
         AUTH_SECRET: ecs.Secret.fromSecretsManager(props.secrets.authSecret, "AUTH_SECRET"),

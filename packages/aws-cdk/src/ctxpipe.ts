@@ -52,6 +52,11 @@ const SIZE_PROFILES: Record<CtxPipeSize, CtxPipeSizeProfile> = {
       uiDesiredCount: 1,
       codesearchDesiredCount: 1,
     },
+    concurrency: {
+      openWorkflowConcurrency: 6,
+      codesearchIndexerConcurrency: 1,
+      codesearchIndexPipelineConcurrency: 1,
+    },
     backupRetentionDays: DEFAULT_BACKUP_RETENTION_DAYS,
   },
   medium: {
@@ -78,6 +83,11 @@ const SIZE_PROFILES: Record<CtxPipeSize, CtxPipeSizeProfile> = {
       uiDesiredCount: 1,
       codesearchDesiredCount: 1,
     },
+    concurrency: {
+      openWorkflowConcurrency: 10,
+      codesearchIndexerConcurrency: 2,
+      codesearchIndexPipelineConcurrency: 2,
+    },
     backupRetentionDays: DEFAULT_BACKUP_RETENTION_DAYS,
   },
   large: {
@@ -103,6 +113,11 @@ const SIZE_PROFILES: Record<CtxPipeSize, CtxPipeSizeProfile> = {
       workerDesiredCount: 2,
       uiDesiredCount: 1,
       codesearchDesiredCount: 1,
+    },
+    concurrency: {
+      openWorkflowConcurrency: 8,
+      codesearchIndexerConcurrency: 2,
+      codesearchIndexPipelineConcurrency: 2,
     },
     backupRetentionDays: 14,
   },

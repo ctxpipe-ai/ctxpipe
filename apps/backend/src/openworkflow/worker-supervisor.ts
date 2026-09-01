@@ -7,6 +7,7 @@
  * OPENWORKFLOW_IDLE_STALE_AFTER_HOURS (default 3) — runs/steps older than this are ignored for idle detection.
  */
 
+import { openworkflowWorkerStartArgs } from "./codesearchCapacity.js"
 import { type ChildProcess, spawn } from "node:child_process"
 import { dirname, resolve } from "node:path"
 import process from "node:process"
@@ -97,7 +98,7 @@ function shouldIdleExitOnEmptyQueue(): boolean {
 }
 
 function runOpenworkflowWorkerDirect(backendRoot: string): ChildProcess {
-  return spawn("bunx", ["@openworkflow/cli", "worker", "start"], {
+  return spawn("bunx", openworkflowWorkerStartArgs(), {
     cwd: backendRoot,
     stdio: "inherit",
     env: process.env,
@@ -126,7 +127,7 @@ async function main() {
 
   const sql = postgres(databaseUrl, { max: 1 })
 
-  const child = spawn("bunx", ["@openworkflow/cli", "worker", "start"], {
+  const child = spawn("bunx", openworkflowWorkerStartArgs(), {
     cwd: backendRoot,
     stdio: "inherit",
     env: process.env,

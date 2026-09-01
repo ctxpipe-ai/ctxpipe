@@ -308,6 +308,14 @@ resource "railway_variable_collection" "code_search_env" {
     {
       name  = "ZOEKT_WEBSERVER_URL",
       value = "http://localhost:6070"
+    },
+    {
+      name  = "CODESEARCH_INDEXER_CONCURRENCY"
+      value = var.codesearch_indexer_concurrency
+    },
+    {
+      name  = "CODESEARCH_INDEX_PIPELINE_CONCURRENCY"
+      value = var.codesearch_index_pipeline_concurrency
     }
   ]
 }
@@ -339,6 +347,14 @@ resource "railway_variable_collection" "open_workflow_env" {
     {
       name  = "OTEL_SERVICE_NAME"
       value = "openworkflow"
+    },
+    {
+      name  = "OPENWORKFLOW_CONCURRENCY"
+      value = var.openworkflow_concurrency
+    },
+    {
+      name  = "CODESEARCH_INDEXER_CONCURRENCY"
+      value = var.codesearch_indexer_concurrency
     },
   ])
 }
