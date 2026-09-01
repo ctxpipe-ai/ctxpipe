@@ -12,6 +12,21 @@ import {
 } from "./service.js"
 
 describe("runOptionalIndexPhase", () => {
+  it("returns ok:false so callers can skip later optional work", async () => {
+    const result = await runOptionalIndexPhase(
+      "codesearch.index.zoekt.failed",
+      async () => {
+        throw new Error("Command failed with exit code 137")
+      },
+    )
+    expect(result).toEqual({
+      ok: false,
+      error: expect.objectContaining({
+        message: "Command failed with exit code 137",
+      }),
+    })
+  })
+
   it("runs Zoekt before SCIP (sequential) and continues after both failures", async () => {
     const order: string[] = []
     let scipStartedBeforeZoektFinished = false
