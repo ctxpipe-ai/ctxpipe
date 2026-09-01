@@ -10,9 +10,8 @@ const phaseMergeScipMock = vi.hoisted(() => vi.fn())
 const phaseMarkCheckoutIndexedMock = vi.hoisted(() => vi.fn())
 
 vi.mock("./phases.js", async () => {
-  const actual = await vi.importActual<typeof import("./phases.js")>(
-    "./phases.js",
-  )
+  const actual =
+    await vi.importActual<typeof import("./phases.js")>("./phases.js")
   return {
     ...actual,
     phaseCloneCheckout: phaseCloneCheckoutMock,

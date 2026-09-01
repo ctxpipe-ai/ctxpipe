@@ -124,8 +124,7 @@ async function cloneAndIndexRepositoryInner(
     "codesearch.index.zoekt.failed",
     () => phaseZoekt(ctx),
   )
-  const skipScipAfterZoektMemory =
-    !zoekt.ok && isMemoryFitFailure(zoekt.error)
+  const skipScipAfterZoektMemory = !zoekt.ok && isMemoryFitFailure(zoekt.error)
 
   const detectResult = await phaseDetectLanguages(ctx, {
     ingestMode: checkout.ingestMode,
@@ -156,12 +155,15 @@ async function cloneAndIndexRepositoryInner(
       ),
     ),
   )
-  await runOptionalIndexPhase("codesearch.index.scip.merge.failed", async () => {
-    await phaseMergeScip(ctx, {
-      detectedLanguages,
-      ...(skipScipAfterZoektMemory ? { languagesToMerge: [] } : {}),
-    })
-  })
+  await runOptionalIndexPhase(
+    "codesearch.index.scip.merge.failed",
+    async () => {
+      await phaseMergeScip(ctx, {
+        detectedLanguages,
+        ...(skipScipAfterZoektMemory ? { languagesToMerge: [] } : {}),
+      })
+    },
+  )
 
   await phaseMarkCheckoutIndexed(ctx)
 
