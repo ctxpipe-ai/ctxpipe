@@ -34,17 +34,8 @@ const CLAUDE_HOOK_BLOCK = {
       ],
     },
   ],
-  PostToolUse: [
-    {
-      hooks: [
-        {
-          type: "command",
-          command: OBSERVE("claude", "PostToolUse"),
-        },
-      ],
-    },
-  ],
   // Stop carries last_assistant_message; one sync finalize (observe + summary).
+  // PostToolUse classified tool dumps as lessons — same Cursor hole. Prompt + Stop only.
   Stop: [
     {
       hooks: [
@@ -172,6 +163,15 @@ function mergeClaudeHooks(existing: Record<string, unknown>): Record<string, unk
       ? ((existingHooks as Record<string, unknown[]>)[key] as unknown[])
       : []
     next[key] = dedupeHookEntries(prev, ours)
+  }
+  // Drop leftover Claude observe hooks that classified tool dumps as lessons.
+  for (const key of ["PostToolUse"]) {
+    const prev = Array.isArray(next[key]) ? (next[key] as unknown[]) : []
+    const kept = prev
+      .map((entry) => stripCtxpipeFromHookEntry(entry))
+      .filter((entry): entry is NonNullable<typeof entry> => entry != null)
+    if (kept.length === 0) delete next[key]
+    else next[key] = kept
   }
   return {
     ...existing,

@@ -142,12 +142,12 @@ describe("memory/capture", () => {
         summarizeCapture({ cwd, host: "claude" }).candidates.length,
       ).toBeGreaterThan(0)
       acknowledgeSurfaced(first.surfacedIds, { cwd })
-      // Claude: surfaced-but-unresolved stay visible until promote/dismiss.
+      // Claude Stop is one-shot: already-shown ids stay pending but must not
+      // decision:block every later turn.
       const second = summarizeCapture({ cwd, host: "claude" })
-      expect(second.candidates.length).toBeGreaterThan(0)
-      expect(second.candidates[0]?.candidateId).toBe(
-        first.candidates[0]?.candidateId,
-      )
+      expect(second.candidates).toEqual([])
+      expect(second.priority).toBe("low")
+      expect(formatStopHookOutput("claude", second, {})).toEqual({})
       expect(
         existsSync(join(cwd, ".ai", "memory", "events", "lifecycle.json")),
       ).toBe(true)
@@ -187,9 +187,11 @@ describe("memory/capture", () => {
       const third = summarizeCapture({ cwd, host: "cursor" })
       expect(third.candidates).toEqual([])
       expect(third.priority).toBe("low")
-      // Claude may re-show unresolved surfaced ids.
+      // Claude must not re-block Stop for unresolved surfaced ids either.
       const claudeAgain = summarizeCapture({ cwd, host: "claude" })
-      expect(claudeAgain.candidates.length).toBeGreaterThan(0)
+      expect(claudeAgain.candidates).toEqual([])
+      expect(claudeAgain.priority).toBe("low")
+      expect(formatStopHookOutput("claude", claudeAgain, {})).toEqual({})
     },
   )
 
@@ -351,7 +353,7 @@ describe("memory/capture", () => {
     expect(out.followup_message).toContain("Promote candidate abc")
   })
 
-  it("formats Claude Stop output with hookSpecificOutput.additionalContext", () => {
+  it("formats Claude Stop output with decision block + reason", () => {
     const out = formatStopHookOutput(
       "claude",
       {
@@ -364,10 +366,8 @@ describe("memory/capture", () => {
       {},
     )
     expect(out).toEqual({
-      hookSpecificOutput: {
-        hookEventName: "Stop",
-        additionalContext: "Promote candidate abc",
-      },
+      decision: "block",
+      reason: "Promote candidate abc",
     })
   })
 
@@ -543,6 +543,36 @@ describe("memory/capture", () => {
       .trim()
       .split("\n")
     expect(lines).toHaveLength(1)
+  })
+
+  it("does not emit a Claude follow-up for leftover PostToolUse candidates", () => {
+    const cwd = mkdtempSync(join(tmpdir(), "ctxpipe-capture-claude-tool-"))
+    mkdirSync(join(cwd, ".ai", "memory", "events"), { recursive: true })
+    writeFileSync(
+      join(cwd, ".ai", "memory", "events", "candidates.jsonl"),
+      `${JSON.stringify({
+        schemaVersion: 1,
+        candidateId: "claudetool0000001",
+        kind: "lesson",
+        destination: ".ai/memory/lessons-learned.md",
+        action: "Append a lesson",
+        excerpt: "From now on always use a fake Claude tool-sourced fact",
+        sourceEventType: "PostToolUse",
+        sourceHost: "claude",
+      })}\n`,
+      "utf8",
+    )
+    const summary = summarizeCapture({ cwd, host: "claude" })
+    expect(summary.priority).toBe("low")
+    expect(summary.candidates).toEqual([])
+    expect(formatStopHookOutput("claude", summary, {})).toEqual({})
+    const lifecycle = JSON.parse(
+      readFileSync(
+        join(cwd, ".ai", "memory", "events", "lifecycle.json"),
+        "utf8",
+      ),
+    ) as { dismissed?: string[] }
+    expect(lifecycle.dismissed).toContain("claudetool0000001")
   })
 
   it("does not emit a Cursor follow-up for tool-sourced pending candidates", () => {

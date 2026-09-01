@@ -110,6 +110,54 @@ describe("memory init (end-to-end)", () => {
     expect(stopHooks[0]?.command).toMatch(
       /memory capture finalize --host claude --event Stop/,
     )
+    expect(settings.hooks?.PostToolUse).toBeUndefined()
+  })
+
+  it("strips leftover Claude PostToolUse capture hooks on re-init", () => {
+    const cwd = mkdtempSync(join(tmpdir(), "ctxpipe-mem-init-claude-strip-"))
+    mkdirSync(join(cwd, ".claude"), { recursive: true })
+    writeFileSync(
+      join(cwd, ".claude", "settings.json"),
+      JSON.stringify(
+        {
+          hooks: {
+            PostToolUse: [
+              {
+                hooks: [
+                  {
+                    type: "command",
+                    command:
+                      "npx -y ctxpipe memory capture observe --host claude --event PostToolUse",
+                  },
+                  {
+                    type: "command",
+                    command: "echo sibling-post-tool",
+                  },
+                ],
+              },
+            ],
+          },
+        },
+        null,
+        2,
+      ),
+      "utf8",
+    )
+    runMemoryInit(cwd, ["--agents", "claude", "--non-interactive"])
+    const settings = JSON.parse(
+      readFileSync(join(cwd, ".claude", "settings.json"), "utf8"),
+    ) as {
+      hooks?: Record<
+        string,
+        Array<{ hooks: Array<{ type: string; command: string }> }>
+      >
+    }
+    const leftover = settings.hooks?.PostToolUse?.[0]?.hooks ?? []
+    expect(leftover).toHaveLength(1)
+    expect(leftover[0]?.command).toBe("echo sibling-post-tool")
+    expect(JSON.stringify(settings.hooks?.PostToolUse)).not.toContain(
+      "ctxpipe memory capture",
+    )
   })
 
   it("installs Claude user hooks under ~/.claude/settings.json for user scope", () => {
