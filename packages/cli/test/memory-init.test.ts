@@ -40,9 +40,15 @@ describe("memory init (end-to-end)", () => {
     expect(existsSync(join(cwd, ".cursor", "rules", "ai-memory.mdc"))).toBe(
       true,
     )
-    expect(
-      readFileSync(join(cwd, ".cursor", "rules", "ai-memory.mdc"), "utf8"),
-    ).toMatch(/rg -i/)
+    const memoryRule = readFileSync(
+      join(cwd, ".cursor", "rules", "ai-memory.mdc"),
+      "utf8",
+    )
+    expect(memoryRule).toMatch(/rg -i/)
+    expect(memoryRule).toContain("## User reply")
+    expect(memoryRule).toContain(
+      "one short sentence naming only what was learned",
+    )
     expect(
       existsSync(join(cwd, ".cursor", "skills", "capture-adr", "SKILL.md")),
     ).toBe(true)
@@ -59,13 +65,21 @@ describe("memory init (end-to-end)", () => {
 
     const hooks = JSON.parse(
       readFileSync(join(cwd, ".cursor", "hooks.json"), "utf8"),
-    ) as { hooks?: Record<string, Array<{ command: string }>> }
+    ) as {
+      hooks?: Record<
+        string,
+        Array<{ command: string; loop_limit?: number | null }>
+      >
+    }
     expect(hooks.hooks?.beforeSubmitPrompt?.[0]?.command).toMatch(
       /memory capture observe --host cursor/,
     )
     expect(hooks.hooks?.stop?.[0]?.command).toMatch(
       /memory capture finalize --host cursor --event stop/,
     )
+    expect(hooks.hooks?.stop?.[0]?.loop_limit).toBe(1)
+    expect(hooks.hooks?.afterFileEdit).toBeUndefined()
+    expect(hooks.hooks?.postToolUse).toBeUndefined()
 
     const gitignore = readFileSync(join(cwd, ".gitignore"), "utf8")
     expect(gitignore).toContain(".ai/memory/events/**")
@@ -95,6 +109,54 @@ describe("memory init (end-to-end)", () => {
     expect(stopHooks).toHaveLength(1)
     expect(stopHooks[0]?.command).toMatch(
       /memory capture finalize --host claude --event Stop/,
+    )
+    expect(settings.hooks?.PostToolUse).toBeUndefined()
+  })
+
+  it("strips leftover Claude PostToolUse capture hooks on re-init", () => {
+    const cwd = mkdtempSync(join(tmpdir(), "ctxpipe-mem-init-claude-strip-"))
+    mkdirSync(join(cwd, ".claude"), { recursive: true })
+    writeFileSync(
+      join(cwd, ".claude", "settings.json"),
+      JSON.stringify(
+        {
+          hooks: {
+            PostToolUse: [
+              {
+                hooks: [
+                  {
+                    type: "command",
+                    command:
+                      "npx -y ctxpipe memory capture observe --host claude --event PostToolUse",
+                  },
+                  {
+                    type: "command",
+                    command: "echo sibling-post-tool",
+                  },
+                ],
+              },
+            ],
+          },
+        },
+        null,
+        2,
+      ),
+      "utf8",
+    )
+    runMemoryInit(cwd, ["--agents", "claude", "--non-interactive"])
+    const settings = JSON.parse(
+      readFileSync(join(cwd, ".claude", "settings.json"), "utf8"),
+    ) as {
+      hooks?: Record<
+        string,
+        Array<{ hooks: Array<{ type: string; command: string }> }>
+      >
+    }
+    const leftover = settings.hooks?.PostToolUse?.[0]?.hooks ?? []
+    expect(leftover).toHaveLength(1)
+    expect(leftover[0]?.command).toBe("echo sibling-post-tool")
+    expect(JSON.stringify(settings.hooks?.PostToolUse)).not.toContain(
+      "ctxpipe memory capture",
     )
   })
 
@@ -425,6 +487,9 @@ enabled = true
       "utf8",
     )
     expect(captureLesson).toContain("memory capture promote")
+    expect(captureLesson).toContain(
+      "one short sentence naming only what was learned",
+    )
     const userCodexToml = readFileSync(
       join(home, ".codex", "config.toml"),
       "utf8",

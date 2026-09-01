@@ -1,12 +1,9 @@
 export type OrgConnectionListItem = {
   id: string
-  type: "github" | "forge" | "linear" | "notion"
+  type: "github" | "forge" | "slack" | "linear" | "notion"
   createdAt: string
   updatedAt: string
 }
-
-/** Refetch connector data on this interval while the org connectors page is open. */
-export const CONNECTORS_PAGE_POLL_INTERVAL_MS = 3000
 
 export const orgConnectionsKeys = {
   list: (orgSlug: string) => ["org-connections", orgSlug] as const,

@@ -19,6 +19,10 @@ import {
   notionConnectorRoutes,
   notionOAuthCallbackRoutes,
 } from "./connectors-notion.js"
+import {
+  slackConnectorRoutes,
+  slackOAuthCallbackRoutes,
+} from "./connectors-slack.js"
 import { conversationRoutes } from "./conversations.js"
 import {
   githubInstallationReadRoutes,
@@ -42,6 +46,10 @@ const githubInstallationAdminScoped = new OpenAPIHono<AppEnv>()
 const atlassianConnectorScoped = new OpenAPIHono<AppEnv>()
   .use("*", requireOrgAdminOrOwner)
   .route("/", atlassianConnectorRoutes)
+
+const slackConnectorScoped = new OpenAPIHono<AppEnv>()
+  .use("*", requireOrgAdminOrOwner)
+  .route("/", slackConnectorRoutes)
 
 const linearConnectorScoped = new OpenAPIHono<AppEnv>()
   .use("*", requireOrgAdminOrOwner)
@@ -68,6 +76,7 @@ export function registerV1Routes(app: OpenAPIHono<AppEnv>) {
     .route("/connectors/linear", linearConnectorScoped)
     .route("/connectors/notion", notionConnectorScoped)
     .route("/connectors/atlassian/pending-claim", pendingAtlassianClaimRoutes)
+    .route("/connectors/slack", slackConnectorScoped)
     .route("/org/atlassian-oauth", orgAtlassianOauthReadRoutes)
     .route("/org/atlassian-oauth", orgAtlassianOauthAdminRoutes)
     .route("/capabilities", orgCapabilitiesRoutes)
@@ -82,6 +91,7 @@ export function registerV1Routes(app: OpenAPIHono<AppEnv>) {
     .use("*", withBearerAuth)
     .use("*", requireAuth)
     .route("/integrations/atlassian", atlassianOauthCallbackRoutes)
+    .route("/connectors/slack", slackOAuthCallbackRoutes)
     .route("/integrations/linear", linearOauthCallbackRoutes)
     .route("/me/github/installations", meGithubInstallationsRoutes)
     .route("/connectors/notion", notionOAuthCallbackRoutes)

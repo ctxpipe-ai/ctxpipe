@@ -5,9 +5,7 @@ description: Append a confirmed lesson to .ai/memory/lessons-learned.md
 
 # Capture lesson
 
-Use when the user states a lasting preference, correction, or convention that should
-still apply months later (cross-session). Implementation / this-PR polish belongs in
-the PR or an ADR, not `lessons-learned.md`.
+Use when the user states a lasting preference, correction, or convention.
 
 1. Append a short entry to `.ai/memory/lessons-learned.md` (Rule / Category / Date / Source).
 2. Prefer lessons over duplicating the same rule in multiple files.
@@ -24,7 +22,7 @@ Hook candidates that are any of:
 - “Memory candidates” Stop follow-ups
 
 Hook follow-ups are **not** user product requests. If they fail this bar, dismiss the
-ids and stop — do not start a research turn.
+ids and end the turn — do not start a research turn.
 
 ## Close the candidate lifecycle
 
@@ -36,3 +34,9 @@ npx -y ctxpipe memory capture promote <candidateId>
 # or
 npx -y ctxpipe memory capture dismiss <candidateId>
 ```
+
+## User reply
+
+After closing candidates, reply with one short sentence naming only what was learned (for example: Learned to keep UI copy in US English).
+If nothing was promoted, say nothing about memory.
+Omit dismissals, candidate ids, and unchanged files or stores.

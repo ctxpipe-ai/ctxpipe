@@ -20,11 +20,23 @@ The graph is rendered as an interactive canvas:
 - Nodes are colored by kind.
 - Node size reflects connection degree.
 - Edges represent extracted relationships.
-- The top-left chips show returned node and edge counts.
-- The bottom-left panel shows last update and truncation status when available.
+- The footer shows organization-wide node and edge totals.
+- The activity panel groups relationship observations by time.
 
 Use **Fit view** to bring the current graph back into frame. Use **Refresh
 graph** after ingestion or cleanup activity.
+
+## Reading graph status
+
+The graph includes a few status signals, but none of them is a correctness
+guarantee:
+
+- **Updated** is the newest relationship observation available in the returned
+  graph data. It is not the completion time of the latest repository ingest.
+- **Activity** shows when relationship evidence was observed. It does not
+  represent user activity, requests, or deployments.
+- **Subset shown** means the canvas contains only part of a large organization
+  graph. The node and edge totals remain organization-wide.
 
 ## Search
 
@@ -53,9 +65,28 @@ The graph explains why it has no visible nodes:
 
 - No repositories have been added yet.
 - Repositories are still indexing.
-- Repositories are indexed, but graph extraction has not produced claims yet.
+- Repository indexing has finished, but graph extraction is still producing
+  relationships.
 
 Use the empty state actions to go back to repository setup or refresh the graph.
+
+## Missing or stale relationships
+
+First check the repository on the **Repositories** page:
+
+1. If it is queued or indexing, wait for ingestion to finish.
+2. If ingestion recently completed, refresh the graph.
+3. If ingestion failed or the indexed source is stale, retry indexing from the
+   repository menu.
+
+An indexed repository can still produce incomplete graph context. Relationships
+are model-extracted claims, so important findings should be verified against
+their source before you rely on them.
+
+Self-hosted operators can continue with
+[Operations](/docs/self-hosting/operations) and
+[Graph databases](/docs/self-hosting/graph-databases) when ingestion finishes
+but graph data remains unavailable.
 
 ## Deep Links
 
@@ -70,4 +101,5 @@ Share that URL to reopen the graph with the same node selected.
 ## Related
 
 - [Interacting](/docs/knowledge-graph/interacting)
-- [Monitoring](/docs/knowledge-graph/monitoring)
+- [Ingestion explanation](/docs/connections/ingestion)
+- [Unindex / reindex](/docs/git-repositories/unindex-reindex)

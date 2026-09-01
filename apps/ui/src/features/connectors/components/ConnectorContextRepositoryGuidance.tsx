@@ -27,7 +27,8 @@ export function ConnectorContextRepositoryGuidance({
       <p className="mt-2 text-sm text-muted-foreground">
         We recommend using one GitHub repository for all ctxpipe connector
         content. Connector files remain separated under paths such as{" "}
-        <code className="bg-muted px-1 py-0.5 text-[11px]">notion/</code> and{" "}
+        <code className="bg-muted px-1 py-0.5 text-[11px]">slack/</code>,{" "}
+        <code className="bg-muted px-1 py-0.5 text-[11px]">notion/</code>, and{" "}
         <code className="bg-muted px-1 py-0.5 text-[11px]">confluence/</code>.
       </p>
       {suggestedTarget ? (

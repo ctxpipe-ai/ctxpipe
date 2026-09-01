@@ -1,6 +1,11 @@
 "use client"
+import type { ComponentProps, ReactNode } from "react"
 import type { ButtonProps as RACButtonProps } from "react-aria-components"
-import { composeRenderProps, Button as RACButton } from "react-aria-components"
+import {
+  composeRenderProps,
+  Button as RACButton,
+  Link as RACLink,
+} from "react-aria-components"
 import { tv } from "tailwind-variants"
 import { focusRing } from "@/lib/react-aria-utils"
 
@@ -73,18 +78,57 @@ const button = tv({
 })
 
 export function Button(props: ButtonProps) {
-  const { variant, size, className, ...rest } = props
+  const {
+    variant,
+    size,
+    className,
+    href,
+    target,
+    rel,
+    download,
+    children,
+    isPending,
+    ...rest
+  } = props
+
+  if (href) {
+    const linkClassName: ComponentProps<typeof RACLink>["className"] =
+      typeof className === "function"
+        ? (renderProps) => className({ ...renderProps, isPending: false })
+        : className
+    const linkProps = rest as Omit<
+      ComponentProps<typeof RACLink>,
+      "children" | "className" | "href" | "target" | "rel" | "download"
+    >
+
+    return (
+      <RACLink
+        {...linkProps}
+        href={href}
+        target={target}
+        rel={rel}
+        download={download}
+        className={composeRenderProps(linkClassName, (cn, renderProps) =>
+          button({ ...renderProps, variant, size, className: cn }),
+        )}
+      >
+        {children as ReactNode}
+      </RACLink>
+    )
+  }
+
   return (
     <RACButton
       {...rest}
+      isPending={isPending}
       className={composeRenderProps(className, (cn, renderProps) =>
         button({ ...renderProps, variant, size, className: cn }),
       )}
     >
-      {composeRenderProps(props.children, (children, { isPending }) => (
+      {composeRenderProps(children, (renderedChildren, renderProps) => (
         <>
-          {children}
-          {isPending && (
+          {renderedChildren}
+          {renderProps.isPending && (
             <span
               aria-hidden
               className="flex absolute inset-0 justify-center items-center"

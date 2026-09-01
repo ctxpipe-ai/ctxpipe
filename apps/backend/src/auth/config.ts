@@ -1,9 +1,10 @@
-import { dash } from "@better-auth/infra"
 import { apiKey } from "@better-auth/api-key"
+import { dash } from "@better-auth/infra"
 import { oauthProvider } from "@better-auth/oauth-provider"
 import { passkey } from "@better-auth/passkey"
 import { betterAuth } from "better-auth"
 import { drizzleAdapter } from "better-auth/adapters/drizzle"
+import { APIError } from "better-auth/api"
 import {
   bearer,
   deviceAuthorization,
@@ -11,10 +12,18 @@ import {
   organization,
   twoFactor,
 } from "better-auth/plugins"
+import { eq } from "drizzle-orm"
 import { parseEnv } from "../config/env.js"
-import { initDb } from "../db/client.js"
+import { type Db, initDb } from "../db/client.js"
+import { members } from "../db/schema/auth.js"
 import { schema } from "../db/schema.js"
 import { generateObjectId } from "../lib/id.js"
+import {
+  getOAuthConsentOrganizationId,
+  OAUTH_ORGANIZATION_CLAIM,
+  resolveOAuthConsentReferenceId,
+  selectOAuthOrganizationBinding,
+} from "./oauth-organization.js"
 
 export type BetterAuthInstance = ReturnType<typeof createBetterAuth>
 export type AuthUser = BetterAuthInstance["$Infer"]["Session"]["user"]
@@ -40,6 +49,14 @@ function toTypeSlug(model: string): string {
     .replace(/[^a-z0-9]+/g, "_")
     .replace(/^_+|_+$/g, "")
   return slug.length > 0 ? slug : "id"
+}
+
+async function getOAuthOrganizationMembershipIds(db: Db, userId: string) {
+  const memberships = await db
+    .select({ id: members.organizationId })
+    .from(members)
+    .where(eq(members.userId, userId))
+  return memberships.map(({ id }) => id)
 }
 
 export function createBetterAuth() {
@@ -207,6 +224,45 @@ export function createBetterAuth() {
       oauthProvider({
         loginPage: "/.auth/sign-in",
         consentPage: "/.auth/consent",
+        postLogin: {
+          page: "/.auth/select-organization",
+          async shouldRedirect({ user, session }) {
+            const membershipIds = await getOAuthOrganizationMembershipIds(
+              db,
+              user.id,
+            )
+            return selectOAuthOrganizationBinding(
+              membershipIds,
+              typeof session.activeOrganizationId === "string"
+                ? session.activeOrganizationId
+                : null,
+            ).requiresSelection
+          },
+          async consentReferenceId({ user, session }) {
+            const membershipIds = await getOAuthOrganizationMembershipIds(
+              db,
+              user.id,
+            )
+            const referenceId = resolveOAuthConsentReferenceId(
+              membershipIds,
+              typeof session.activeOrganizationId === "string"
+                ? session.activeOrganizationId
+                : null,
+              getOAuthConsentOrganizationId(),
+            )
+            if (!referenceId) {
+              throw new APIError("BAD_REQUEST", {
+                error: "organization_required",
+                error_description:
+                  "Select a ctxpipe organization before authorizing this client.",
+              })
+            }
+            return referenceId
+          },
+        },
+        customAccessTokenClaims({ referenceId }) {
+          return referenceId ? { [OAUTH_ORGANIZATION_CLAIM]: referenceId } : {}
+        },
         issuer,
         allowDynamicClientRegistration: true,
         allowUnauthenticatedClientRegistration: true,

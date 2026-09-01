@@ -1,0 +1,155 @@
+---
+title: Notion
+description: Configure Notion OAuth and webhook delivery for self-hosted ctxpipe.
+---
+
+## Overview
+
+Self-hosted Notion uses the same connector flow as hosted ctxpipe, but your
+deployment owns one public Notion integration. Individual users authorize that
+integration with OAuth; they do not create integrations or configure webhooks.
+
+## 1. Create the public integration
+
+Create a public integration in the
+[Notion integrations portal](https://www.notion.so/profile/integrations) and
+enable the content capabilities needed by ctxpipe.
+
+Register this OAuth callback URL:
+
+```text
+{AUTH_BASE_URL}/api/v1/connectors/notion/oauth/callback
+```
+
+Set **`NOTION_CLIENT_ID`** and **`NOTION_CLIENT_SECRET`** on the backend. Set
+**`NOTION_REDIRECT_URI`** only when the public callback differs from the URL
+derived from `AUTH_BASE_URL`.
+
+The worker also needs the client ID and secret because connector jobs can
+refresh Notion access tokens.
+
+## 2. Register the webhook once
+
+Notion webhook subscriptions belong to the integration, not to each customer
+workspace. Configure one subscription for the deployment. ctxpipe then routes
+signed events to the matching Notion connection by workspace or integration.
+
+Notion's first verification request is unsigned. To prevent another caller from
+claiming the signing token, ctxpipe requires a provisioning token derived from
+your Notion client secret. Generate it from the repository root:
+
+```bash
+NOTION_CLIENT_SECRET='your-client-secret' bun -e 'import { createHmac } from "node:crypto"; process.stdout.write(createHmac("sha256", process.env.NOTION_CLIENT_SECRET ?? "").update("ctxpipe:notion-webhook-provisioning:v1").digest("base64url"))'
+```
+
+Use the result in the webhook URL:
+
+```text
+{AUTH_BASE_URL}/api/v1/webhook/notion?provisioningToken={generated-token}
+```
+
+Create the subscription in Notion. ctxpipe answers Notion's verification
+request with `200` so the subscription activates, but it does **not** store the
+signing token — the token is a deployment secret you set in the environment.
+Copy the **verification token** from Notion's developer UI (shown after the
+first delivery) and set it as **`NOTION_WEBHOOK_SECRET`** on the backend, then
+restart:
+
+```bash
+NOTION_WEBHOOK_SECRET={verification-token-from-notion}
+```
+
+Once set, ctxpipe validates every event's `X-Notion-Signature` against
+`NOTION_WEBHOOK_SECRET`. Until it is set, signed events are rejected with `503`
+(Notion retries), so configure it before relying on live sync. This mirrors
+`GITHUB_WEBHOOK_SECRET`.
+
+The webhook is operator-level setup. Do not ask each ctxpipe organization to
+repeat it, and do not put the OAuth client secret itself in the webhook URL.
+
+## 3. Supply secrets to the deployment
+
+### Docker Compose
+
+Add the values to the root `.env`, then restart backend and worker:
+
+```bash
+NOTION_CLIENT_ID=...
+NOTION_CLIENT_SECRET=...
+NOTION_WEBHOOK_SECRET=...
+pnpm start
+```
+
+### Terraform
+
+Pass the matching sensitive variables through your CI secret store:
+
+```bash
+TF_VAR_notion_client_id=...
+TF_VAR_notion_client_secret=...
+TF_VAR_notion_webhook_secret=...
+```
+
+### AWS CDK
+
+Pass `notionClientId`, `notionClientSecret`, and `notionWebhookSecret` through
+the construct's `connectorSecrets`. Keep the values in your CDK secret source;
+do not commit them in stack code.
+
+## 4. Complete connector setup
+
+After the deployment integration is ready, each organization can:
+
+1. Authorize its Notion workspace.
+2. Choose or reuse a shared connector context repository.
+3. Select the Notion pages and databases to mirror.
+4. Review and merge the generated `notion/config.yaml` pull request.
+
+Pages are written as Markdown under `notion/pages/`. Databases are written
+under `notion/databases/`, with one `table.csv` snapshot per database and one
+Markdown file per row for task- and knowledge-oriented retrieval.
+
+## Verify the complete flow
+
+1. Authorize a clean Notion workspace through the product flow.
+2. Share a page or database with the integration and confirm it appears.
+3. Select a context repository and merge `notion/config.yaml`.
+4. Confirm the initial mirror writes readable files under `notion/`.
+5. Edit an in-scope source and confirm the deployment webhook receives the
+   event.
+6. Confirm the generated Git file changes and repository ingestion runs again.
+
+## Troubleshooting
+
+### OAuth returns to the wrong deployment
+
+The integration callback must exactly match the public `AUTH_BASE_URL`, including
+scheme, host, and path. Set `NOTION_REDIRECT_URI` only when the external route
+really differs.
+
+### Signed events return `503`
+
+Set `NOTION_WEBHOOK_SECRET` to the verification token shown after Notion's first
+delivery, then restart the backend. The provisioning token in the webhook URL
+does not replace the signing secret.
+
+### Content sync cannot refresh authorization
+
+Confirm both backend and worker receive the same Notion client ID and secret and
+can reach `api.notion.com`.
+
+### No pages appear
+
+Notion only returns pages and databases shared with the integration. Share the
+resource in Notion, then refresh resources in the ctx| setup flow.
+
+## User guide
+
+See [Notion connector](/docs/connections/source-connectors/notion) for scope,
+repository layout, review workflow, and user-facing recovery steps.
+
+## Related pages
+
+- [Connector context repository](/docs/connections/context-repository)
+- [GitHub connector](/docs/connections/source-connectors/github)
+- [Ingestion](/docs/connections/ingestion)

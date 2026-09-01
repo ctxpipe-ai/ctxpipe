@@ -1,4 +1,4 @@
 {
   "title": "Source connectors",
-  "pages": ["github", "confluence", "linear"]
+  "pages": ["index", "github", "linear", "notion", "confluence", "slack"]
 }

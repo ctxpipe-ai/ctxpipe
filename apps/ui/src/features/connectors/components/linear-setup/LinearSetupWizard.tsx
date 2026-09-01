@@ -8,6 +8,7 @@ import { Modal } from "@/components/ui/Modal"
 import { Spinner } from "@/components/ui/spinner"
 import {
   getLinearSetupCurrentIndex,
+  getLinearStatusRefetchInterval,
   getLinearWizardBodyId,
   LINEAR_SETUP_STEPS,
 } from "../../linear-setup-model"
@@ -54,16 +55,8 @@ export function LinearSetupWizard({
     queryFn: () => fetchLinearConnectorStatus(orgSlug, connectionId),
     enabled: isOpen && Boolean(connectionId),
     refetchInterval: (query) => {
-      if (!isOpen) return false
-      const status = query.state.data as LinearConnectorStatus | undefined
-      if (
-        status?.pendingConfigPrCreating ||
-        status?.setupPhase === "awaiting_merge" ||
-        status?.setupPhase === "initial_sync"
-      ) {
-        return 2000
-      }
-      return false
+      if (!isOpen || query.state.status === "error") return false
+      return getLinearStatusRefetchInterval(query.state.data)
     },
   })
 

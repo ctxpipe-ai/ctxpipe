@@ -1,0 +1,24 @@
+{
+  "hooks": {
+    "UserPromptSubmit": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash .cursor/hooks/memory-capture.sh memory capture observe --host claude --event UserPromptSubmit"
+          }
+        ]
+      }
+    ],
+    "Stop": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash .cursor/hooks/memory-capture.sh memory capture finalize --host claude --event Stop"
+          }
+        ]
+      }
+    ]
+  }
+}

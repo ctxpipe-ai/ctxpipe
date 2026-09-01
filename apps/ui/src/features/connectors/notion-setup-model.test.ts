@@ -23,7 +23,7 @@ describe("Notion setup model", () => {
   it("shows completion when initial setup becomes live", () => {
     expect(
       shouldShowNotionSetupComplete(
-        { setupPhase: "live", selectedResourceCount: 2 },
+        { setupPhase: "live", selectedResourceCount: null },
         false,
       ),
     ).toBe(true)
@@ -36,6 +36,19 @@ describe("Notion setup model", () => {
         true,
       ),
     ).toBe(false)
+  })
+
+  it("uses lifecycle state when status omits the Git-backed count", () => {
+    const live = {
+      isGithubLinked: true,
+      syncTargetConfigured: true,
+      selectedResourceCount: null,
+      setupPhase: "live",
+      pendingConfigPullUrl: null,
+    }
+
+    expect(getNotionSetupCurrentIndex(live)).toBe(NOTION_SETUP_STEPS.length)
+    expect(getNotionCardCtaLabel(live)).toBe("Manage scope")
   })
 
   it("treats reordered scope as unchanged", () => {

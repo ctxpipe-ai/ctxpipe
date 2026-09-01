@@ -9,10 +9,7 @@ import { AlertDialog } from "@/components/ui/AlertDialog"
 import { Modal } from "@/components/ui/Modal"
 import { githubConnectorKeys } from "@/features/connectors/queries/github-connector"
 import { resolveConnectorHealth } from "../connectorHealth"
-import {
-  CONNECTORS_PAGE_POLL_INTERVAL_MS,
-  orgConnectionsKeys,
-} from "../queries/org-connections"
+import { orgConnectionsKeys } from "../queries/org-connections"
 import {
   ConnectorListItem,
   ConnectorRemoveMenu,
@@ -53,7 +50,6 @@ export function GithubConnectionCard({
     refetch,
   } = useQuery({
     queryKey: githubConnectorKeys.installation(orgSlug, connectionId),
-    refetchInterval: CONNECTORS_PAGE_POLL_INTERVAL_MS,
     queryFn: async () => {
       const qs = new URLSearchParams({ connectionId })
       const res = await fetch(

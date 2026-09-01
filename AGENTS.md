@@ -9,6 +9,7 @@ Agent instructions are **distributed**: this file covers repo-wide rules; apps a
 - **apps/ui**: [apps/ui/AGENTS.md](apps/ui/AGENTS.md) — TanStack Start frontend, React Aria, Tailwind, Storybook, Vitest; **[React skill](.agents/skills/react/)** when building or editing components; **[product-ui skill](.agents/skills/product-ui/)** and [DESIGN.md](apps/ui/DESIGN.md) when building or restyling product screens.
 - **apps/docs**: [apps/docs/AGENTS.md](apps/docs/AGENTS.md) — Fumadocs documentation site (Next.js 15, Shiki, forced-dark, deploys to docs.ctxpipe.ai).
 - **examples/**: runnable consumer examples for ctxpipe packages (manual e2e tests against real infra). See [examples/README.md](examples/README.md); first entry is [examples/aws-cdk-self-host](examples/aws-cdk-self-host) for `@ctxpipe-ai/aws-cdk` on AWS.
+- **plugins/ctxpipe**: Claude plugin for the hosted product MCP. See [ADR-026](.ai/memory/decisions/ADR-026-claude-plugin-mcp-distribution.md).
 
 **MCP (project-scoped):** Config lives at [`.cursor/mcp.json`](.cursor/mcp.json) (same file as [`.agents/mcp.json`](.agents/mcp.json) via the `.agents` → `.cursor` symlink). Two kinds of servers:
 
@@ -61,13 +62,17 @@ Default role labels (`needs-triage`, `needs-info`, `ready-for-agent`, `ready-for
 
 Single-context via `.ai/memory/` (product context, glossary, ADRs). See [`.ai/agents/domain.md`](.ai/agents/domain.md).
 
+### Adversarial review
+
+Every adversarial review of a diff is three Sol axes — **Standards**, **Spec**, and **Simplicity** — via [`code-review`](.agents/skills/code-review/SKILL.md). Do not run Sol as spec-only. Simplicity names the job, the thinnest machine, and leftover machinery; spec-match is not a defense. See [`simplicity-audit`](.agents/skills/simplicity-audit/SKILL.md).
+
 ## Architecture decisions & ADRs
 
 - **Where ADRs live**: All ADRs are in `.ai/memory/decisions/`. Files are named `ADR-NNN-title-slug.md` (e.g. `ADR-001-frontend-ui-app-stack.md`). Start from [`decisions/index.md`](.ai/memory/decisions/index.md).
 - **When you change architecture**: Before making structural or architectural changes (adding/changing apps, packages, tooling, or cross-cutting patterns), read the relevant ADRs in `.ai/memory/decisions/` first.
 - **Keeping ADRs up to date**: When you make a new architectural decision, use the `capture-adr` skill and update `decisions/index.md`.
 - **Agent workflow**: Treat ADRs as the source of truth for high-level decisions. If the code and ADRs disagree, prefer updating the ADRs (and then the code) so future agents can follow a consistent story.
-- **Connectors data model**: GitHub, Confluence/Forge, and Notion integrations live in **`connections`** (`con_*`, typed `github` \| `forge` \| `notion`); see [ADR-018](.ai/memory/decisions/ADR-018-unified-connections-table.md) and [ADR-023](.ai/memory/decisions/ADR-023-notion-connector-git-native-mirror.md). Prefer **`connectionId`** or repo-scoped resolution over “one install per org” assumptions.
+- **Connectors data model**: GitHub, Confluence/Forge, Slack, Linear, and Notion integrations live in **`connections`** (`con_*`, typed `github` \| `forge` \| `slack` \| `linear` \| `notion`); see [ADR-018](.ai/memory/decisions/ADR-018-unified-connections-table.md), [ADR-022](.ai/memory/decisions/ADR-022-linear-connector-git-native-mirror.md) (Linear), [ADR-023](.ai/memory/decisions/ADR-023-notion-connector-git-native-mirror.md) (Notion), and [ADR-025](.ai/memory/decisions/ADR-025-slack-connector-git-native-mirror.md) (Slack). Prefer **`connectionId`** or repo-scoped resolution over “one install per org” assumptions.
 
 ## Local development
 
@@ -179,3 +184,29 @@ Durable agent memory is **Markdown-only** under **[.ai/memory/](.ai/memory/)**. 
 - `packages/aws-cdk/src/pinned-service-image-tag.ts` is generated during `@ctxpipe/aws-cdk` build by `scripts/release/stamp-aws-cdk-image-tag.mjs` (`IMAGE_TAG`/`GITHUB_SHA`, fallback to latest known `main` SHA via git refs, then `latest`).
 - Keep package changes buildable with `pnpm turbo build --filter @ctxpipe/aws-cdk`.
 
+<!-- BEGIN ctxpipe-memory-capture -->
+## Local memory (ctxpipe)
+
+Durable facts live in Markdown under `.ai/memory/` (see `index.md`). Candidates go to
+gitignored `.ai/memory/events/`; promote with capture skills — never auto-write ADRs
+from capture alone.
+
+On hosts without lifecycle hooks, after a meaningful edit or before ending a turn, pipe a
+JSON payload that includes `cwd` **and** fact-bearing text (`prompt`,
+`last_assistant_message`, and/or `edits`). `cwd` alone writes nothing:
+
+```bash
+printf '%s' '{"cwd":".","prompt":"We decided the billing service runs on port 4000"}' \
+  | npx -y ctxpipe memory capture observe --host opencode --event PostToolUse
+printf '%s' '{"cwd":".","last_assistant_message":"Prefer ADRs in .ai/memory/decisions/ as the canonical source of truth."}' \
+  | npx -y ctxpipe memory capture finalize --host opencode --event Stop
+```
+
+When candidates surface, write durable Markdown, update the matching `index.md`, then:
+
+```bash
+npx -y ctxpipe memory capture promote <candidateId>
+# or: npx -y ctxpipe memory capture dismiss <candidateId>
+npx -y ctxpipe memory capture summary
+```
+<!-- END ctxpipe-memory-capture -->

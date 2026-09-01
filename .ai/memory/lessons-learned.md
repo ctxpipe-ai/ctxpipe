@@ -148,6 +148,12 @@ Highest-priority confirmed rules for agents. Migrated from former `patterns.md` 
 - **Date:** 2026-08-11
 - **Source:** ADR-024 migration
 
+### Memory hook candidates that are file-read telemetry
+- **Rule:** Dismiss observe candidates whose excerpt is only `{file_path, content_length}` (or a glob/plan dump) of files already under `.ai/memory/` or `/opt/cursor/artifacts/plans/`. Those are Read-tool telemetry, not lessons. Do not copy them into `lessons-learned.md` or auto-write ADRs from hooks ([ADR-024](decisions/ADR-024-markdown-only-local-memory-capture.md)). Promote only user-confirmed facts via capture skills.
+- **Category:** convention
+- **Date:** 2026-08-19
+- **Source:** PR #267 audit session (25 false-positive lesson candidates)
+
 ### `@ctxpipe/aws-cdk` self-host deploy ordering
 - **Rule:** run Postgres migrations as an internal CloudFormation custom resource that launches ECS `MigrateTask` (`RunTask` + `DescribeTasks` polling), then add explicit dependencies from ECS services to that custom resource so app rollout waits for schema readiness; keep migration task definition output internal-only.
 - **Category:** convention
@@ -201,6 +207,18 @@ Highest-priority confirmed rules for agents. Migrated from former `patterns.md` 
 - **Category:** convention
 - **Date:** 2026-08-19
 - **Source:** user direction after Linear, Notion, and Slack (PR #267)
+
+### New source connectors follow Linear/Notion, not Confluence
+- **Rule:** do **not** copy Confluence’s control plane (`*_sync_targets` tables, config-PR columns, channel/space catalogues in Postgres, dirty-entity flush tables) when adding or simplifying a connector. Linear and Notion are the aligned pattern: identity and repo binding on `connections.config` jsonb ([ADR-022](decisions/ADR-022-linear-connector-git-native-mirror.md), [ADR-023](decisions/ADR-023-notion-connector-git-native-mirror.md)). A connector that is thinner than a git-native mirror (e.g. Slack intent capture) should stay thinner — omit `pendingConfig*`, `*/config.yaml`, and GitHub config-push remirror unless the product actually has a reviewed scope file. Keep `confluence_sync_targets` as legacy Confluence only.
+- **Category:** convention
+- **Date:** 2026-08-19
+- **Source:** user correction during Slack `slack_sync_targets` unification (PR #267)
+
+### Connector product vs self-host docs
+- **Rule:** scoped-mirror connectors (Linear, Notion) need a **hosted product page** under `apps/docs/content/docs/(guide)/connections/source-connectors/<slug>.mdx` and a **self-host operator page** under `apps/docs/content/docs/self-hosting/<slug>.mdx`. Use Linear's hosted page as the structural template (managed-app callout, config-in-git, setup steps, layout, webhooks, troubleshooting). Copy Linear's headings, not Linear's provider-specific content. The hosted page describes user setup; it does not document creating the provider OAuth app — that stays on the self-host page, with a User guide pointer back. Add the slug to `source-connectors/meta.json` and cross-link connected-sources / context-repository.
+- **Category:** convention
+- **Date:** 2026-08-20
+- **Source:** notion-docs branch; Linear hosted guide as template
 
 ### Tool organization
 - **Rule:** reusable agent tools under `src/tools`; graph-specific instructions and nodes under `src/graphs/<graphName>/`
@@ -436,6 +454,12 @@ Highest-priority confirmed rules for agents. Migrated from former `patterns.md` 
 - **Date:** 2026-08-11
 - **Source:** migrated from patterns.md
 
+### Product UI corners
+- **Rule:** Product chrome is square. Use `rounded-none` for new or touched controls, menus, cards, dialogs, and data surfaces.
+- **Category:** convention
+- **Date:** 2026-08-24
+- **Source:** user correction on repository selector
+
 ### UI icon library
 - **Rule:** use `@tabler/icons-react` (not lucide-react); map Tabler `Icon*` names semantically from prior Lucide glyphs; keep size/class/ARIA props
 - **Category:** convention
@@ -527,10 +551,10 @@ Highest-priority confirmed rules for agents. Migrated from former `patterns.md` 
 - **Source:** repo-page-ux
 
 ### Connector setup wizards
-- **Rule:** Linear, Notion, and Confluence share the same chrome: `ctx-node` mark in the header, semantic colour tokens, no nested zinc cards. Existing `rounded-none` on those wizards stays until a dedicated pass; **new or touched** chrome follows [apps/ui/DESIGN.md](../../apps/ui/DESIGN.md) (`rounded-lg` / `--radius`). Do not add more square overrides. Do not leave Atlassian/Confluence on `rounded-md` callback boxes or filled `bg-zinc-900` panels.
+- **Rule:** Linear, Notion, and Confluence share the same chrome: `ctx-node` mark in the header, semantic colour tokens, no nested zinc cards. New or touched chrome follows [apps/ui/DESIGN.md](../../apps/ui/DESIGN.md) with square corners. Do not leave Atlassian/Confluence on rounded callback boxes or filled `bg-zinc-900` panels.
 - **Category:** convention
 - **Date:** 2026-08-13
-- **Source:** repo-page-ux; updated 2026-08-15 for product-ui radius target
+- **Source:** repo-page-ux; updated 2026-08-24 for square product chrome
 
 ### Product UI skills vs marketing frontend-design
 - **Rule:** Do not install Anthropic `frontend-design` (or similar marketing taste skills) as always-on for `apps/ui`. Use first-party [product-ui](../../.agents/skills/product-ui/SKILL.md) + [DESIGN.md](../../apps/ui/DESIGN.md). Do not paste copyrighted book prose or figures (including Refactoring UI) into skills or the repo; encode tactics as house yes/no rules in our own words.
@@ -543,4 +567,82 @@ Highest-priority confirmed rules for agents. Migrated from former `patterns.md` 
 - **Category:** convention
 - **Date:** 2026-08-17
 - **Source:** user preference (Grok for implementations, Sol for reviews)
+
+### Do not squash migrations already applied to PR Neon
+- **Rule:** PR preview DBs are reused (`preview/pr-N` from production, not reset each deploy). Deleting applied Drizzle folders and regenerating the same DDL under a new tag re-runs `CREATE UNIQUE INDEX` and fails with `42P07`. Keep the original folders, or make the replacement DDL idempotent (`IF NOT EXISTS`) like `clean_lyja` / `smart_nextwave`. Never squash unreleased history that a long-lived PR branch may already have applied.
+- **Category:** convention
+- **Date:** 2026-08-19
+- **Source:** slack-connector PR deploy (`connections_slack_team_id_uq` already exists)
+
+### Slack Events API bot green-dot is an app-settings toggle
+- **Rule:** HTTP Events API bots are grey until **Always Show My Bot as Online** is on in [api.slack.com/apps](https://api.slack.com/apps) → **App Home** / **Bot Users** (Marketplace apps: Live App Settings). Slack then sets `always_active: true`; clients show a green dot even though `presence` stays `away`. `users.setPresence` cannot force a bot online. Socket Mode does **not** restore RTM-style connected=green and is the wrong production delivery path (Marketplace requires HTTP). Leave Socket Mode **off** for ctxpipe (`POST /api/v1/webhook/slack`). The toggle is a liveness lie — same one Claude/Cursor use — not a second event-delivery protocol.
+- **Category:** convention
+- **Date:** 2026-08-20
+- **Source:** user feedback after first successful Slack capture (PR-267); Slack [presence docs](https://docs.slack.dev/apis/web-api/user-presence-and-status) Events API bots section
+
+### Slack mention “working…” latency is the worker, not the ACK
+- **Rule:** After ACK-first, Slack already has the mention. **ctx| agent working…** is posted by `slack-mention-agent`, not the webhook. On Railway `pr-N` the worker idle-exits (~180s) and wake is a full `serviceInstanceDeployV2`, so 10–20s to the first status is boot. A warm worker should be ~1–3s to that reply. Do not diagnose that delay as Slack Events slowness. To match Claude-like snappiness, post working from the webhook (bot token is already on that request) and let the job `chat.update` it.
+- **Category:** workflow
+- **Date:** 2026-08-20
+- **Source:** user feedback after first successful Slack capture (PR-267)
+
+### Slack Event Subscriptions URL is app-wide
+- **Rule:** Slack OAuth can succeed against a PR `AUTH_BASE_URL` while `app_mention` still POSTs to production (or nowhere). Event Subscriptions Request URL is one dashboard setting, not per-install. To test capture on a PR env, point it at that env’s `/api/v1/webhook/slack` and mention the bot via autocomplete. `status === installed` in Postgres is not proof events are reaching this deploy.
+- **Category:** convention
+- **Date:** 2026-08-19
+- **Source:** slack-connector live test (PR-267); zero webhook logs on mention
+
+### PR preview codesearch and worker sleep
+- **Rule:** Railway `pr-N` codesearch often SLEEPING minutes after boot; GitHub ingest then fails (connection refused / mid-job kill). Openworkflow idle-exits after `OPENWORKFLOW_IDLE_EXIT_SECONDS` (180 on previews) with a **clean shutdown**, so `environment_status` still shows SUCCESS. Proof of a restart is a **new deploy timestamp**, not the SUCCESS badge — do not wait 10 minutes, it will sleep again. Backend `RAILWAY_TOKEN` is supposed to `serviceInstanceDeployV2` after enqueue (`railway-wake.ts`); if no new worker deploy appears, the job did not run. Slack Events time out in ~3s; a sleeping PR backend can take ~12s to accept `POST /api/v1/webhook/slack`, so a real `app_mention` pill vanishes with **no 200** — wake backend (hit the app) and worker **before** mentioning. Do not treat a failed chip as a Slack-connector bug without checking sleep first.
+- **Category:** workflow
+- **Date:** 2026-08-19
+- **Source:** slack-connector PR-267 (codesearch stopped ~13:42 UTC; worker idle-exit 14:01 with no wake deploy)
+
+### Slack channel-top-level mention is not a channel capture
+- **Rule:** Capture requires `event.thread_ts` (a mention **inside** an existing thread). A channel-top-level `@bot capture` has no `thread_ts`; do **not** collapse to mention `ts` and snapshot the invocation. The webhook posts a refusal in-thread and does not enqueue `slack-mention-agent`. Mentioning on the channel-visible parent of a thread is the same signal (Slack omits `thread_ts`); tell the user to reply in the thread. Do not treat a success status on a channel-top-level mention as proof of engineering context.
+- **Category:** workflow
+- **Date:** 2026-08-20
+- **Source:** user correction after `@ctxpipe-dev capture` in-channel (PR-267); git wrote the invocation, not the discussion
+
+### Slack capture: webhook 200 and Connectors Connected are not capture
+- **Rule:** `POST /api/v1/webhook/slack` returns 200 for skipped events, a dead worker, and a successful enqueue. `GET …/connectors` 200 only means Postgres has `installed` + a bound repo. A working capture is all three: a **new** webhook POST after the mention, **ctx| agent working…** in-thread, and a git commit under `slack/`. After reconnect, no new webhook means the message was not an `app_mention` (need the autocomplete pill). `chat.postMessage` swallows `not_in_channel` — you get silence, not an error reply.
+- **Category:** workflow
+- **Date:** 2026-08-19
+- **Source:** slack-connector PR-267 live debug (webhooks 13:58/14:07; none after 14:10 rebind; last git capture 13 Aug)
+
+### GitHub App credential precedence and PEM validation
+- **Rule:** GitHub writes resolve complete encrypted credentials from the selected `connections.config` **before** falling back to `GITHUB_PRIVATE_KEY`. Changing the worker environment does not repair a malformed `privateKeyEnc`; the backfill intentionally only fills rows where it is absent. Validate both the environment key and the decrypted per-connection key with `crypto.createPrivateKey()` without printing either secret. Repair an existing bad row through explicit credential rotation, not a blanket backfill.
+- **Category:** convention
+- **Date:** 2026-08-19
+- **Source:** slack-connector PR-267 live diagnosis (`SlackTest` environment PEM valid; stored connection PEM failed with `ERR_OSSL_NO_START_LINE`)
+
+### Slack Events must ACK before durable enqueue
+- **Rule:** After signature, event-shape, and live-target validation, return Slack Events HTTP 200 before awaiting OpenWorkflow/Neon. Awaiting enqueue can exceed Slack's roughly three-second deadline and produce 499 retries; in Railway PR previews, each retry can trigger `serviceInstanceDeployV2` and replace the worker that is still booting. Enqueue asynchronously, publish a terminal status on enqueue failure, and debounce worker wakes beyond the retry burst.
+- **Category:** workflow
+- **Date:** 2026-08-19
+- **Source:** slack-connector PR-267 live diagnosis (499 webhook retries and three replacing worker deploys)
+
+### Connector status must not hold DB transactions across provider calls
+- **Rule:** Do not fetch GitHub/provider state from a frequently polled connector status endpoint while `withNetworkOrgContext` keeps the request-wide org transaction open. In production, 3-second status polling exhausted GitHub quota; Octokit back-off left Postgres transactions idle, `idle-in-transaction` termination destabilised the pool, and auth/MCP/connectors queued for 30–120 seconds. Status reads should use persisted or bounded-cache state, provider calls need short timeouts outside DB transactions, and stable connector screens must not poll every few seconds.
+- **Category:** reliability
+- **Date:** 2026-08-20
+- **Source:** production Railway incident diagnosis (GitHub quota exhaustion → idle transaction termination → pg-pool acquisition timeouts)
+
+### MCP must not hold a request-wide org transaction across ctx_advisor
+- **Rule:** `/mcp` must not wrap `tools/call` in a request-wide `withOrgDbContext`. `ctx_advisor` runs the conversation graph (embeddings, planner, retrieval, agent, title LLM) for tens of seconds; an idle-in-transaction Neon/Postgres connection is then killed with `Connection terminated unexpectedly` (reproduced at 48–60s on Railway `pr-N`). Keep org id in ALS, open short transactions only for conversation writes, and treat that pg message as a transaction-scope bug rather than empty-org or advisor-prompt failure. Do not swallow the error.
+- **Category:** reliability
+- **Date:** 2026-08-31
+- **Source:** PR-304 preview black-box `ctx_advisor` tools/call on a newly created empty org (`d242c36e`)
+
+### Claude Code Stop hooks cannot use additionalContext
+- **Rule:** Emit top-level `decision: "block"` + `reason` on Claude Code Stop (same as Codex). Do **not** emit `hookSpecificOutput.additionalContext` on Stop: older CLIs and stale long-lived sessions reject the whole object (non-blocking → turn ends). Fresh 2.1.163+ accepts `additionalContext`, but the portable contract must not require it. Claude capture is **UserPromptSubmit + Stop** only — do not install `PostToolUse` observe (tool dumps become fake lessons). Stop continuation is **one-shot**: already-surfaced ids must not `decision: block` again on later turns.
+- **Category:** convention
+- **Date:** 2026-08-31
+- **Source:** Claude Code 2.1.251 Stop hook validation failure after `npx ctxpipe init`; [anthropics/claude-code#50682](https://github.com/anthropics/claude-code/issues/50682)
+
+### Distributed OAuth connectors require a clean external-workspace acceptance test
+- **Rule:** Never treat a provider workspace that already hosts the development app as proof that a new customer installation works. OAuth grants can be workspace-specific, additive, and contaminated by dashboard installs or earlier re-authorisations; Slack can also silently suppress Events API delivery when the installed token lacks an event scope. Before shipping a distributed connector, install it through the product OAuth flow into a fresh second workspace, inspect the returned and live token scopes, exercise the real webhook-to-durable-output path, and test re-authorisation after a required scope changes. Keep provider app configuration in a committed manifest and CI-check its scopes against the backend request.
+- **Category:** testing
+- **Date:** 2026-08-21
+- **Source:** user-confirmed Slack connector production incident (ctxpipe workspace passed because its historical grant masked the fresh Tru Rec installation path)
 

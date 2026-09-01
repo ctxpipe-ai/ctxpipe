@@ -1,5 +1,37 @@
 # @ctxpipe/aws-cdk
 
+## 3.1.5
+
+### Patch Changes
+
+- 041401e: Inject size-derived OpenWorkflow and codesearch indexer concurrency so a single codesearch replica is not overloaded when worker count grows.
+
+## 3.1.4
+
+### Patch Changes
+
+- 6982d66: Fan out in-workflow repository ingestion with `step.runWorkflow` so parent workflows sleep and free concurrency slots while children run.
+
+## 3.1.3
+
+### Patch Changes
+
+- d93a844: Pass Notion connector credentials to the self-hosted backend and worker services.
+
+## 3.1.2
+
+### Patch Changes
+
+- 049e626: Add GitHub repository sorting and distinguish queued repositories from active indexing.
+- 2456609: Ship explicit Slack app-mention permissions, installation diagnostics, and safe OAuth failure handling for hosted and self-hosted connectors.
+
+## 3.1.1
+
+### Patch Changes
+
+- c7aef1e: Ship DB-only Linear and Notion status reads and stop stable connector-page polling to prevent GitHub throttling from exhausting PostgreSQL connections.
+- 34f8818: Allow optional Slack app credentials (`SLACK_CLIENT_*`, `SLACK_SIGNING_SECRET`) in connector secrets for self-hosted ECS.
+
 ## 3.1.0
 
 ### Minor Changes

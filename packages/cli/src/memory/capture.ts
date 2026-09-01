@@ -307,13 +307,29 @@ function extractPrompt(payload: Record<string, unknown>): string {
     "transcript",
   ]
   for (const k of keys) {
-    const v = payload[k]
-    if (typeof v === "string" && v.trim()) return v
+    const extracted = extractTextish(payload[k])
+    if (extracted) return extracted
   }
-  const prompt = payload.prompt
-  if (prompt && typeof prompt === "object" && prompt !== null) {
-    const p = prompt as Record<string, unknown>
-    if (typeof p.text === "string") return p.text
+  return ""
+}
+
+/** Pull user-visible text out of Cursor's string or nested { content: [{ text }] } shapes. */
+function extractTextish(value: unknown, depth = 0): string {
+  if (depth > 5 || value == null) return ""
+  if (typeof value === "string") return value.trim() ? value : ""
+  if (typeof value === "number" || typeof value === "boolean") return ""
+  if (Array.isArray(value)) {
+    return value
+      .map((item) => extractTextish(item, depth + 1))
+      .filter(Boolean)
+      .join("\n")
+  }
+  if (typeof value === "object") {
+    const obj = value as Record<string, unknown>
+    for (const key of ["text", "content", "prompt", "message"]) {
+      const nested = extractTextish(obj[key], depth + 1)
+      if (nested) return nested
+    }
   }
   return ""
 }
@@ -391,6 +407,12 @@ function isSelfCapture(payload: Record<string, unknown>, text: string): boolean 
 
 export function isUserPromptEvent(eventType: string): boolean {
   return /^(beforeSubmitPrompt|UserPromptSubmit)$/i.test(eventType.trim())
+}
+
+function isToolSourcedEvent(eventType: string): boolean {
+  return /^(PostToolUse|PostToolUseFailure|afterFileEdit|postToolUse)$/i.test(
+    eventType.trim(),
+  )
 }
 
 function isMemoryDurablePath(path: string): boolean {
@@ -471,9 +493,16 @@ export function observeCapture(opts: {
     ...(Array.isArray(opts.payload.file_paths) ? opts.payload.file_paths : []),
   ])
 
+  let payloadBlob = ""
+  try {
+    payloadBlob = JSON.stringify(opts.payload)
+  } catch {
+    payloadBlob = ""
+  }
   if (
     FOLLOWUP_PROMPT_RE.test(promptRaw) ||
-    FOLLOWUP_PROMPT_RE.test(assistantRaw)
+    FOLLOWUP_PROMPT_RE.test(assistantRaw) ||
+    FOLLOWUP_PROMPT_RE.test(payloadBlob)
   ) {
     return { ok: true, wrote: false, candidateCount: 0 }
   }
@@ -606,14 +635,31 @@ export type SummaryResult = {
   parseErrors: number
 }
 
+function stopHookLoopCount(payload: Record<string, unknown>): number {
+  const raw = payload.loop_count ?? payload.loopCount
+  if (typeof raw === "number" && Number.isFinite(raw)) return raw
+  if (typeof raw === "string" && raw.trim()) {
+    const n = Number(raw)
+    if (Number.isFinite(n)) return n
+  }
+  return 0
+}
+
+/** True when this Stop is already a hook-injected continuation (do not emit again). */
+function isStopHookContinuation(payload: Record<string, unknown>): boolean {
+  if (payload.stop_hook_active === true || payload.stopHookActive === true) {
+    return true
+  }
+  // Cursor 3.11+ sends loop_count on stop (starts at 0; increments after each follow-up).
+  return stopHookLoopCount(payload) >= 1
+}
+
 /** Host-specific Stop/summary stdout. Empty object = allow stop / no follow-up. */
 export function formatStopHookOutput(
   host: CaptureHost,
   result: SummaryResult,
   payload: Record<string, unknown> = {},
 ): Record<string, unknown> {
-  const stopActive =
-    payload.stop_hook_active === true || payload.stopHookActive === true
   const cursorStatus =
     typeof payload.status === "string" ? payload.status.toLowerCase() : ""
   // Cursor ignores follow-ups on aborted/error stops — do not emit or ack.
@@ -623,20 +669,18 @@ export function formatStopHookOutput(
   ) {
     return {}
   }
-  if (stopActive || result.priority === "low" || !result.message.trim()) {
+  if (
+    isStopHookContinuation(payload) ||
+    result.priority === "low" ||
+    !result.message.trim()
+  ) {
     return {}
   }
-  if (host === "claude") {
-    // Claude: additionalContext continues the turn without a hook-error UX.
-    return {
-      hookSpecificOutput: {
-        hookEventName: "Stop",
-        additionalContext: result.message,
-      },
-    }
-  }
-  if (host === "codex") {
-    // Codex Stop continuation contract.
+  if (host === "claude" || host === "codex") {
+    // Portable Stop continuation: decision:block + reason.
+    // additionalContext is in the 2.1.163+ docs and the 2.1.251 binary schema, but
+    // older CLIs and stale long-lived sessions reject the whole object (non-blocking
+    // → turn ends, no follow-up). Codex uses the same contract.
     return {
       decision: "block",
       reason: result.message,
@@ -779,9 +823,10 @@ export function markDismissed(ids: string[], opts: { cwd?: string } = {}): void 
  * Build a summary of pending candidates (batch of SUMMARY_BATCH).
  * Does **not** advance lifecycle — caller must acknowledgeSurfaced after delivery.
  *
- * Cursor Stop injects `followup_message` as a new user turn, so only never-shown
- * user-prompt candidates get a follow-up. Tool/edit-sourced items wait for the
- * next real user prompt. Claude/Codex may re-show unresolved surfaced ids.
+ * Stop follow-ups are one-shot: only never-shown candidates inject a turn.
+ * Cursor additionally requires a user-prompt source. Tool/edit-sourced items
+ * are dismissed (MCP/grep/test dumps, not conventions). Already-surfaced ids
+ * stay pending for promote/dismiss but must not decision:block every later Stop.
  */
 export function summarizeCapture(
   opts: { cwd?: string; host?: CaptureHost } = {},
@@ -792,10 +837,29 @@ export function summarizeCapture(
   const lifecycle = readLifecycle(repoRoot)
   const closed = closedIds(lifecycle)
   const surfaced = new Set(lifecycle.surfaced)
-  const pending = all.filter((c) => {
+  let pending = all.filter((c) => {
     const id = typeof c.candidateId === "string" ? c.candidateId : ""
     return id && !closed.has(id)
   })
+
+  if (host === "cursor" || host === "claude") {
+    const noiseIds = pending
+      .filter((c) =>
+        host === "cursor"
+          ? !isUserPromptEvent(String(c.sourceEventType ?? ""))
+          : isToolSourcedEvent(String(c.sourceEventType ?? "")),
+      )
+      .map((c) => String(c.candidateId ?? ""))
+      .filter(Boolean)
+    if (noiseIds.length > 0) {
+      markDismissed(noiseIds, { cwd: opts.cwd })
+      const nextClosed = closedIds(readLifecycle(repoRoot))
+      pending = all.filter((c) => {
+        const id = typeof c.candidateId === "string" ? c.candidateId : ""
+        return id && !nextClosed.has(id)
+      })
+    }
+  }
 
   const parseNote =
     parseErrors > 0
@@ -816,31 +880,22 @@ export function summarizeCapture(
   const neverShown = pending.filter(
     (c) => !surfaced.has(String(c.candidateId ?? "")),
   )
-  const previouslyShown = pending.filter((c) =>
-    surfaced.has(String(c.candidateId ?? "")),
-  )
-
-  const cursorFollowUp =
+  const pool =
     host === "cursor"
       ? neverShown.filter((c) =>
           isUserPromptEvent(String(c.sourceEventType ?? "")),
         )
-      : []
+      : neverShown
 
-  if (host === "cursor" && cursorFollowUp.length === 0) {
+  if (pool.length === 0) {
     return {
       priority: "low",
-      message: `${pending.length} memory candidate(s) pending (already shown or not from a user prompt). Not injecting a turn.${parseNote}`,
+      message: `${pending.length} memory candidate(s) pending (already shown or not eligible). Not injecting a turn.${parseNote}`,
       candidates: [],
       surfacedIds: [],
       parseErrors,
     }
   }
-
-  const pool =
-    host === "cursor"
-      ? cursorFollowUp
-      : [...neverShown, ...previouslyShown]
   const batch = pool.slice(0, SUMMARY_BATCH)
   const listed: SummaryCandidate[] = batch.map((c) => ({
     candidateId: String(c.candidateId ?? ""),
@@ -860,7 +915,7 @@ export function summarizeCapture(
     ...(remaining > 0
       ? [`${remaining} more pending — will surface on the next summary.`]
       : []),
-    "Update the matching index.md when you add durable entries. Then mark ids promoted/dismissed.",
+    "Update the matching index.md when you add durable entries. Then mark ids promoted/dismissed. Reply to the user with one short sentence naming only what was learned; if nothing was promoted, say nothing about memory.",
     ...(parseErrors > 0
       ? [`Warning: skipped ${parseErrors} malformed candidates.jsonl line(s).`]
       : []),

@@ -226,7 +226,7 @@ jobs:
           RAILWAY_API_TOKEN: ${{ secrets.RAILWAY_API_TOKEN }}
           RAILWAY_PROJECT_ID: ${{ vars.RAILWAY_PROJECT_ID }}
           ENV_ID: ${{ steps.railway_env.outputs.env_id }}
-          NEON_DB_URL: ${{ steps.neon_branch.outputs.db_url }}
+          NEON_DB_URL: ${{ steps.neon_branch.outputs.db_url_pooled }}
           BACKEND_SERVICE_ID: ${{ vars.RAILWAY_BACKEND_SERVICE_ID }}
           WORKER_SERVICE_ID: ${{ vars.RAILWAY_WORKER_SERVICE_ID }}
           UI_SERVICE_ID: ${{ vars.RAILWAY_UI_SERVICE_ID }}
@@ -435,11 +435,33 @@ jobs:
                       variables: {
                         OPENWORKFLOW_PR_IDLE_EXIT: "true",
                         OPENWORKFLOW_IDLE_EXIT_SECONDS: "180",
-                        OPENWORKFLOW_IDLE_STALE_AFTER_HOURS: "1"
+                        OPENWORKFLOW_IDLE_STALE_AFTER_HOURS: "1",
+                        OPENWORKFLOW_CONCURRENCY: "6",
+                        CODESEARCH_INDEXER_CONCURRENCY: "1"
                       }
                     }
                   }')"
-              echo "Set OPENWORKFLOW_PR_IDLE_EXIT + IDLE_EXIT=180 + STALE_AFTER_HOURS=1 for worker $service_id"
+              echo "Set OPENWORKFLOW_PR_IDLE_EXIT + IDLE_EXIT=180 + STALE_AFTER_HOURS=1 + small capacity pair for worker $service_id"
+            }
+
+            upsert_preview_codesearch_capacity() {
+              local service_id="$1"
+              railway_graphql \
+                'mutation variableCollectionUpsert($input: VariableCollectionUpsertInput!) { variableCollectionUpsert(input: $input) }' \
+                "$(jq -nc --arg project "$RAILWAY_PROJECT_ID" --arg env "$ENV_ID" --arg service "$service_id" \
+                  '{
+                    input: {
+                      projectId: $project,
+                      environmentId: $env,
+                      serviceId: $service,
+                      skipDeploys: true,
+                      variables: {
+                        CODESEARCH_INDEXER_CONCURRENCY: "1",
+                        CODESEARCH_INDEX_PIPELINE_CONCURRENCY: "1"
+                      }
+                    }
+                  }')"
+              echo "Set small codesearch indexer/pipeline concurrency for $service_id"
             }
 
             update_source_image() {
@@ -546,6 +568,7 @@ jobs:
             deploy_service "$UI_SERVICE_ID" >/dev/null
 
             upsert_database_url_without_deploy "$CODESEARCH_SERVICE_ID" >/dev/null
+            upsert_preview_codesearch_capacity "$CODESEARCH_SERVICE_ID" >/dev/null
             update_source_image "$CODESEARCH_SERVICE_ID" "$CODESEARCH_IMAGE" >/dev/null
             deploy_service "$CODESEARCH_SERVICE_ID" >/dev/null
 
@@ -633,24 +656,30 @@ jobs:
             echo "- To test Linear OAuth, add $BACKEND_URL/api/v1/integrations/linear/callback to the Linear application's redirect URIs. Linear applications have one webhook URL, so a shared production application will not deliver incremental events to this preview; use a dedicated preview application if webhook testing is required."
           } > pr-deploy-comment.md
 
-      - name: Find existing PR preview comment
-        if: always()
-        id: find-preview-comment
-        uses: peter-evans/find-comment@v3
-        with:
-          issue-number: ${{ needs.resolve_pr.outputs.pr_number }}
-          comment-author: "github-actions[bot]"
-          body-includes: "## PR Preview Environment"
-
       - name: Create or update PR preview comment
         if: always()
-        uses: peter-evans/create-or-update-comment@v5
-        with:
-          token: ${{ secrets.GITHUB_TOKEN }}
-          comment-id: ${{ steps.find-preview-comment.outputs.comment-id }}
-          issue-number: ${{ needs.resolve_pr.outputs.pr_number }}
-          body-path: pr-deploy-comment.md
-          edit-mode: replace
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          PR_NUMBER: ${{ needs.resolve_pr.outputs.pr_number }}
+        run: |
+          set -euo pipefail
+          COMMENT_ID="$(
+            gh api "repos/${{ github.repository }}/issues/${PR_NUMBER}/comments" \
+              --paginate \
+              --jq '.[] | select(.user.login == "github-actions[bot]" and (.body | contains("## PR Preview Environment"))) | .id' \
+              | awk 'NR == 1 { print; exit }'
+          )"
+          if [[ -n "$COMMENT_ID" ]]; then
+            gh api \
+              --method PATCH \
+              "repos/${{ github.repository }}/issues/comments/${COMMENT_ID}" \
+              -F body=@pr-deploy-comment.md
+          else
+            gh api \
+              --method POST \
+              "repos/${{ github.repository }}/issues/${PR_NUMBER}/comments" \
+              -F body=@pr-deploy-comment.md
+          fi
 
   cleanup_pr_environment:
     name: Cleanup Neon, Railway, and PR GHCR images

@@ -1,0 +1,89 @@
+---
+title: Authentication
+description: Establish the public auth origin, protect signing secrets, and choose sign-in methods for self-hosted ctx|.
+---
+
+ctx| uses [Better Auth](https://www.better-auth.com) for identity management.
+All browser sign-in, provider callbacks, sessions, and MCP OAuth flow through the
+same public backend origin.
+
+## Required auth boundary
+
+| Variable | Requirement |
+| --- | --- |
+| `AUTH_SECRET` | A stable random value of at least 32 characters. Generate with `openssl rand -hex 32`. |
+| `AUTH_BASE_URL` | The public HTTPS backend origin users and providers can reach. |
+| `AUTH_ALLOWED_ORIGINS` | Optional comma-separated extra browser origins. Keep this list narrow. |
+| `SMTP_CONNECTION_URL` | Required for password reset and invitation email delivery. |
+| `EMAIL_FROM_ADDRESS` | The sender address for transactional email. |
+
+`AUTH_SECRET` protects sessions and encrypted auth material. Do not generate a
+new value on every deploy. Rotating it can invalidate sessions and prevent
+existing encrypted signing keys from being read; treat rotation as a planned
+operational change.
+
+<Callout type="warn" title="One public origin">
+  Open the product through `AUTH_BASE_URL`. Do not send browser users directly
+  to the private UI service. Provider callbacks, MCP OAuth, cookies, and the API
+  rely on a consistent origin.
+</Callout>
+
+## Email and password
+
+Email/password sign-in is available by default. Configure SMTP before inviting a
+team so verification, invitation, and password-reset messages leave the
+deployment reliably.
+
+## Social providers (OAuth)
+
+ctx| supports GitHub, Google, and Microsoft social sign-in.
+Each provider is enabled conditionally - if the corresponding client ID and
+secret are set in the backend environment, the sign-in option appears.
+
+| Provider | Env vars required |
+|---|---|
+| GitHub | `GITHUB_CLIENT_ID`, `GITHUB_CLIENT_SECRET` |
+| Google | `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET` |
+| Microsoft | `MICROSOFT_CLIENT_ID`, `MICROSOFT_CLIENT_SECRET` |
+
+<Callout type="info">
+  GitHub social sign-in credentials are separate from the deployment-owned
+  [GitHub App](/docs/self-hosting/github) used for repositories and connector
+  writes.
+</Callout>
+
+Register each provider callback under `AUTH_BASE_URL`. Test sign-in through the
+same public origin users will use in production.
+
+## Passkeys and two-factor authentication
+
+Passkeys are available on compatible browsers and platforms. Users can also
+enable TOTP two-factor authentication with a standard authenticator app. Verify
+both through your production TLS domain; WebAuthn credentials are origin-bound.
+
+## MCP OAuth
+
+ctx| is an OAuth provider for downstream MCP clients. It supports discovery,
+dynamic client registration, and device authorization for compatible headless
+clients.
+
+Configure the client with:
+
+```text
+{AUTH_BASE_URL}/mcp?orgSlug=<organization-slug>
+```
+
+The user completes OAuth against this deployment and must be a member of the
+requested organization. ctx| does not require a dashboard API key for the
+normal MCP flow. See [MCP diagnostics](/docs/self-hosting/mcp) when discovery or
+authorization fails.
+
+## Production checks
+
+- `AUTH_SECRET` is stable across backend instances and deploys.
+- `AUTH_BASE_URL` exactly matches the browser origin.
+- Provider callbacks use HTTPS and the same host.
+- Extra trusted origins are explicit rather than wildcarded.
+- SMTP can deliver invitation and reset messages.
+- Passkey registration and TOTP sign-in work on the production domain.
+- An MCP client can discover OAuth and complete authorization.

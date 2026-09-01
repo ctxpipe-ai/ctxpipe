@@ -4,6 +4,7 @@ import { z } from "zod"
 import type { AppEnv } from "../../../app/env.js"
 import type { Env } from "../../../config/env.js"
 import { withOrgDbContext } from "../../../db/client.js"
+import { parseGithubConnectionStored } from "../../../lib/connection-config.js"
 import {
   getGithubConnectionRowByConnectionId,
   getWebhookSecretForGithubConnection,
@@ -53,8 +54,33 @@ type GithubWebhookContext = {
 }
 
 type ProcessGithubWebhookOpts = {
-  /** Present for `POST /api/v1/webhook/github/:connectionId` — used to link installs (`installation`, `installation_repositories`). */
+  /** Present when a connection-specific secret authenticated the request. */
   connectionId?: string
+}
+
+async function githubConnectionAllowsWebhookPayload(input: {
+  connectionId: string
+  eventName: string
+  payload: unknown
+}): Promise<boolean> {
+  const parsedInstallation = z
+    .object({ installation: z.object({ id: z.number() }) })
+    .safeParse(input.payload)
+  if (!parsedInstallation.success) return true
+
+  const row = await getGithubConnectionRowByConnectionId(input.connectionId)
+  if (!row) return false
+  const configuredInstallationId = parseGithubConnectionStored(
+    row.config as Record<string, unknown>,
+  ).installationId
+  if (configuredInstallationId !== undefined) {
+    return configuredInstallationId === parsedInstallation.data.installation.id
+  }
+
+  return (
+    input.eventName === "installation" ||
+    input.eventName === "installation_repositories"
+  )
 }
 
 async function registerInstallationFromConnectionWebhook(
@@ -82,10 +108,17 @@ async function enqueueIngestionForInstallationRepos(
   installationId: number,
   repoFullName: string,
   ctx: GithubWebhookContext,
-  opts?: { indexingReason: string | null },
+  opts?: {
+    indexingReason: string | null
+    githubConnectionId?: string
+  },
 ) {
-  const installationRows =
+  const installationRows = (
     await listInstallationsByGithubInstallationId(installationId)
+  ).filter(
+    (installation) =>
+      !opts?.githubConnectionId || installation.id === opts.githubConnectionId,
+  )
   if (installationRows.length === 0) {
     return
   }
@@ -137,6 +170,7 @@ async function processPushEvent(
 
   await maybeEnqueueConfluenceSyncOnConfigPush({
     installationId: installation.id,
+    githubConnectionId,
     repoFullName: repo.full_name,
     ref,
     repository: { full_name: repo.full_name, default_branch: defaultBranch },
@@ -148,6 +182,7 @@ async function processPushEvent(
 
   await maybeEnqueueNotionSyncOnConfigPush({
     installationId: installation.id,
+    githubConnectionId,
     repoFullName: repo.full_name,
     ref,
     repository: { full_name: repo.full_name, default_branch: defaultBranch },
@@ -175,13 +210,14 @@ async function processPushEvent(
     installation.id,
     repo.full_name,
     ctx,
-    { indexingReason: "push" },
+    { indexingReason: "push", githubConnectionId },
   )
 }
 
 async function processRepositoryEvent(
   payload: unknown,
   { log }: GithubWebhookContext,
+  githubConnectionId?: string,
 ) {
   const parsed = repositoryCreatedSchema.safeParse(payload)
   if (!parsed.success) {
@@ -189,8 +225,11 @@ async function processRepositoryEvent(
   }
   const { repository: repo, installation } = parsed.data
 
-  const installationRows = await listInstallationsByGithubInstallationId(
-    installation.id,
+  const installationRows = (
+    await listInstallationsByGithubInstallationId(installation.id)
+  ).filter(
+    (installationRow) =>
+      !githubConnectionId || installationRow.id === githubConnectionId,
   )
 
   for (const installationRow of installationRows) {
@@ -270,7 +309,7 @@ export async function processGithubWebhookPayload(
       await processPushEvent(payload, ctx, opts?.connectionId)
       return
     case "repository":
-      await processRepositoryEvent(payload, ctx)
+      await processRepositoryEvent(payload, ctx, opts?.connectionId)
       return
     case "installation":
       await processInstallationEvent(opts?.connectionId, payload, ctx)
@@ -316,6 +355,16 @@ export function registerGithubWebhookRoute(app: OpenAPIHono<AppEnv>) {
       return c.json({ error: "Bad request" }, 400)
     }
 
+    if (
+      !(await githubConnectionAllowsWebhookPayload({
+        connectionId,
+        eventName,
+        payload,
+      }))
+    ) {
+      return c.json({ error: "Unauthorized" }, 401)
+    }
+
     await processGithubWebhookPayload(
       eventName,
       payload,
@@ -341,15 +390,21 @@ export function registerGithubWebhookRoute(app: OpenAPIHono<AppEnv>) {
     const signature = c.req.header("x-hub-signature-256")
     const eventName = c.req.header("x-github-event") ?? ""
 
-    if (!signature || !(await webhooks.verify(rawBody, signature))) {
-      return c.json({ error: "Unauthorized" }, 401)
-    }
+    const verified = Boolean(
+      signature && (await webhooks.verify(rawBody, signature)),
+    )
 
     let payload: unknown
     try {
       payload = JSON.parse(rawBody) as unknown
     } catch {
-      return c.json({ error: "Bad request" }, 400)
+      return verified
+        ? c.json({ error: "Bad request" }, 400)
+        : c.json({ error: "Unauthorized" }, 401)
+    }
+
+    if (!verified) {
+      return c.json({ error: "Unauthorized" }, 401)
     }
 
     await processGithubWebhookPayload(eventName, payload, { log, env })

@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest"
 import {
   getLinearCardPrimaryCta,
   getLinearSetupCurrentIndex,
+  getLinearStatusRefetchInterval,
   getLinearWizardBodyId,
   LINEAR_SETUP_STEPS,
 } from "./linear-setup-model"
@@ -24,6 +25,43 @@ const liveStatus = {
   },
 } satisfies LinearConnectorStatus
 
+describe("Linear status polling", () => {
+  it("polls only while persisted setup is transitional", () => {
+    expect(
+      getLinearStatusRefetchInterval({
+        pendingConfigPrCreating: true,
+        setupPhase: "draft",
+      }),
+    ).toBe(2000)
+    expect(
+      getLinearStatusRefetchInterval({
+        pendingConfigPrCreating: false,
+        setupPhase: "awaiting_merge",
+      }),
+    ).toBe(2000)
+    expect(
+      getLinearStatusRefetchInterval({
+        pendingConfigPrCreating: false,
+        setupPhase: "initial_sync",
+      }),
+    ).toBe(2000)
+  })
+
+  it.each([
+    "draft",
+    "live",
+    "config_failed",
+    "sync_failed",
+  ] as const)("stops polling in %s", (setupPhase) => {
+    expect(
+      getLinearStatusRefetchInterval({
+        pendingConfigPrCreating: false,
+        setupPhase,
+      }),
+    ).toBe(false)
+  })
+})
+
 describe("Linear setup model", () => {
   it("routes each incomplete server state to the first unfinished step", () => {
     expect(
@@ -42,12 +80,19 @@ describe("Linear setup model", () => {
       "target",
     )
     expect(
-      getLinearWizardBodyId({ ...liveStatus, selectedScopeCount: 0 }),
+      getLinearWizardBodyId({
+        ...liveStatus,
+        selectedScopeCount: null,
+        setupPhase: "draft",
+      }),
     ).toBe("scope")
     expect(
       getLinearWizardBodyId({ ...liveStatus, setupPhase: "awaiting_merge" }),
     ).toBe("merge")
     expect(getLinearWizardBodyId(liveStatus)).toBe("complete")
+    expect(
+      getLinearWizardBodyId({ ...liveStatus, selectedScopeCount: null }),
+    ).toBe("complete")
     expect(getLinearCardPrimaryCta(liveStatus)).toEqual({
       kind: "manage_scope",
       label: "Manage scope",

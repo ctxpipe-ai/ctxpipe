@@ -155,7 +155,7 @@ cdk deploy
 
 `cdk deploy` runs Postgres migrations, then rolls the ECS services. You do not set image tags in `CtxPipe` props, and you should not retag tasks to `:latest` yourself.
 
-This is how codesearch memory bumps (4 / 8 / 12 GiB) and ingest behaviour land together. Updating only container images, or only task memory, leaves the stack split across releases.
+This is how codesearch memory bumps (4 / 8 / 12 GiB) and ingest behavior land together. Updating only container images, or only task memory, leaves the stack split across releases.
 
 ### Bonus: automate upgrades with CI/CD
 
@@ -232,6 +232,14 @@ Replace `defaultModel: "gpt-4.1-mini"` with `models: { fast: "gpt-4.1-mini" }`.
 | `customDomain.hostedZoneId` | Same as openai-like — DNS/TLS/SES records. |
 | `modelProvider.models.fast` | Bedrock model ID for the fast tier (`MODEL_FAST_NAME`). Enable it in the Bedrock console for the stack region. |
 
+### Optional connector secrets
+
+Pass deployment-wide connector credentials through `connectorSecrets`. For
+Slack, set `slackClientId`, `slackClientSecret`, and `slackSigningSecret`
+together. The construct stores them in Secrets Manager and injects them into
+the required ECS tasks. See [Self-host Slack](/docs/self-hosting/slack) for the
+Slack app callback, event, scope, and distribution settings.
+
 ## High-level architecture
 
 `CtxPipe` provisions a single AWS stack with these layers:
@@ -262,9 +270,11 @@ Use `size` to tune compute and database capacity for your single-tenant workload
 
 - `small` (default): best for pilot/small-team deployments with moderate repository churn and cost sensitivity. Aurora and Neptune both use `db.t4g.medium` — AWS’s minimum supported burstable size for these engines (dev/test oriented). Codesearch is 4 GiB (ingest peak, not idle RSS).
 - `medium`: better for sustained ingestion/reindex workloads where worker and codesearch need more headroom. Codesearch is 8 GiB. Aurora uses `db.t4g.large`; Neptune uses memory-optimized `db.r6g.large`.
-- `large`: for high-ingestion and lower-latency expectations, with bigger tasks, scaled backend/worker replicas, and `db.r6g.xlarge` for both Aurora and Neptune. Codesearch is 12 GiB.
+- `large`: for high-ingestion and lower-latency expectations, with bigger tasks, scaled backend/worker replicas, and `db.r6g.xlarge` for both Aurora and Neptune. Codesearch is 12 GiB and still **one task**. The two workers each get `OPENWORKFLOW_CONCURRENCY=8` so the cluster cannot stampede codesearch. Extra workers help extract and connectors, not clone/SCIP parallelism.
 
 See the [package README sizing table](https://github.com/ctxpipe-ai/ctxpipe/blob/main/packages/aws-cdk/README.md#sizing-profiles) for the full preset matrix.
+
+Do **not** raise codesearch desired count. Ingest throughput grows with codesearch memory (4 / 8 / 12 GiB) and the env the construct injects (`OPENWORKFLOW_CONCURRENCY`, `CODESEARCH_INDEXER_CONCURRENCY`, `CODESEARCH_INDEX_PIPELINE_CONCURRENCY`).
 
 Signals that you should move up a size:
 

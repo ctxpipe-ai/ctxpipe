@@ -29,6 +29,21 @@ locals {
       value = var.amplitude_region
     },
   ] : []
+  # Omit when unset so parseEnv does not see empty strings for optional min(1) secrets.
+  slack_shared_env = length(var.slack_client_id) > 0 && length(var.slack_client_secret) > 0 && length(var.slack_signing_secret) > 0 ? [
+    {
+      name  = "SLACK_CLIENT_ID"
+      value = var.slack_client_id
+    },
+    {
+      name  = "SLACK_CLIENT_SECRET"
+      value = var.slack_client_secret
+    },
+    {
+      name  = "SLACK_SIGNING_SECRET"
+      value = var.slack_signing_secret
+    },
+  ] : []
   linear_shared_env = concat(
     length(var.linear_client_id) > 0 ? [{
       name  = "LINEAR_CLIENT_ID"
@@ -148,7 +163,7 @@ locals {
       name  = "OTEL_EXPORTER_OTLP_METRICS_ENDPOINT"
       value = "http://$${{otelcollector.RAILWAY_PRIVATE_DOMAIN}}:4318/v1/metrics"
     }
-  ], local.amplitude_shared_env, local.linear_shared_env)
+  ], local.amplitude_shared_env, local.slack_shared_env, local.linear_shared_env)
 }
 
 resource "railway_service" "ui" {
@@ -293,6 +308,14 @@ resource "railway_variable_collection" "code_search_env" {
     {
       name  = "ZOEKT_WEBSERVER_URL",
       value = "http://localhost:6070"
+    },
+    {
+      name  = "CODESEARCH_INDEXER_CONCURRENCY"
+      value = var.codesearch_indexer_concurrency
+    },
+    {
+      name  = "CODESEARCH_INDEX_PIPELINE_CONCURRENCY"
+      value = var.codesearch_index_pipeline_concurrency
     }
   ]
 }
@@ -324,6 +347,14 @@ resource "railway_variable_collection" "open_workflow_env" {
     {
       name  = "OTEL_SERVICE_NAME"
       value = "openworkflow"
+    },
+    {
+      name  = "OPENWORKFLOW_CONCURRENCY"
+      value = var.openworkflow_concurrency
+    },
+    {
+      name  = "CODESEARCH_INDEXER_CONCURRENCY"
+      value = var.codesearch_indexer_concurrency
     },
   ])
 }

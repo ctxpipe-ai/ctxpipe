@@ -18,6 +18,15 @@ function makeGithubRepos(count: number) {
       html_url: `https://github.com/acme/${name}`,
       clone_url: `https://github.com/acme/${name}.git`,
       default_branch: "main",
+      created_at: new Date(
+        Date.UTC(2018 + (i % 8), i % 12, (i % 28) + 1),
+      ).toISOString(),
+      pushed_at:
+        i % 17 === 0
+          ? null
+          : new Date(
+              Date.UTC(2026, 7, 23) - (i % 90) * 24 * 60 * 60 * 1000,
+            ).toISOString(),
     }
   })
 }

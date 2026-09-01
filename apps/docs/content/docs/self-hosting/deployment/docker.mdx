@@ -17,7 +17,7 @@ The Compose `deploy` profile starts:
 | `backend` | Public API, auth, MCP endpoint, callbacks, and UI proxy |
 | `ui` | Product web app, proxied through the backend |
 | `worker` | Background workflows for ingestion and connector jobs |
-| `codesearch` | Repository clone cache and Zoekt indexes |
+| `codesearch` | Repository clone cache and Zoekt indexes. Stay at one replica. |
 | `postgres` | Primary application database |
 | `falkordb` | Default graph database |
 | `otel-collector` | Optional OpenTelemetry fan-out |
@@ -42,12 +42,20 @@ MODEL_PROVIDER_API_KEY=<model-provider-key>
 Then start the deploy profile:
 
 ```bash
-docker compose --profile deploy up -d
+pnpm start
 ```
+
+`pnpm start` is the repository shortcut for
+`docker compose --profile deploy up -d`.
 
 For a local evaluation, `AUTH_BASE_URL` and `CTXPIPE_PUBLIC_APP_URL` can point at
 `http://localhost:3000`. For team use, put a TLS-terminating proxy in front of
 the backend and use the public HTTPS origin.
+
+Optional connectors use additional values from the same `.env`. Slack requires
+`SLACK_CLIENT_ID`, `SLACK_CLIENT_SECRET`, and `SLACK_SIGNING_SECRET`; see
+[Self-host Slack](/docs/self-hosting/slack) before exposing its OAuth and Events
+API callbacks.
 
 ## Persistent state
 

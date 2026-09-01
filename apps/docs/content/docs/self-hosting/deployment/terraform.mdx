@@ -44,6 +44,11 @@ Apply only after the plan matches the intended environment:
 terraform -chdir=infra apply
 ```
 
+Optional provider connectors are enabled when their complete credential set is
+supplied. Keep GitHub, Slack, Linear, Notion, and Atlassian values in the CI
+secret store used for Terraform inputs; each provider still requires its
+operator-side App, OAuth, callback, and webhook configuration.
+
 ## Image rollout
 
 The deployment path expects CI to build and push app images, then pass the image

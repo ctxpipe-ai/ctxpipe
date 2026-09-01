@@ -37,6 +37,27 @@ const mergeScipResponseSchema = z.object({
   shardCount: z.number().int().nonnegative(),
 })
 
+export const INDEX_PIPELINE_RETRY_AFTER_SECONDS = 30
+
+export class CodesearchAdmissionBusyError extends Error {
+  override readonly name = "CodesearchAdmissionBusyError"
+  readonly retryAfterSeconds: number
+
+  constructor(
+    message: string,
+    retryAfterSeconds = INDEX_PIPELINE_RETRY_AFTER_SECONDS,
+  ) {
+    super(message)
+    this.retryAfterSeconds = retryAfterSeconds
+  }
+}
+
+export function isCodesearchAdmissionBusyError(
+  error: unknown,
+): error is CodesearchAdmissionBusyError {
+  return error instanceof CodesearchAdmissionBusyError
+}
+
 export type CodesearchIndexAuth = {
   repositoryId: string
   orgId: string
@@ -102,6 +123,16 @@ async function parseOrThrow<T>(
       // non-JSON
     }
     const combined = `${label} failed with status ${res.status}: ${detail}`
+    if (res.status === 429) {
+      const retryAfterRaw = res.headers.get("Retry-After")
+      const parsed = Number.parseInt(retryAfterRaw ?? "", 10)
+      throw new CodesearchAdmissionBusyError(
+        combined,
+        Number.isFinite(parsed) && parsed > 0
+          ? parsed
+          : INDEX_PIPELINE_RETRY_AFTER_SECONDS,
+      )
+    }
     throw new Error(
       isMemoryFitFailure(combined) || isMemoryFitFailure(detail)
         ? CODEBASE_DIDNT_FIT_AVAILABLE_MEMORY

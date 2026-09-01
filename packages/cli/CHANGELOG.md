@@ -1,5 +1,30 @@
 # ctxpipe
 
+## 0.3.4
+
+### Patch Changes
+
+- 19293bb: Support the generic tenant-bound MCP endpoint used by the ctx| Claude plugin.
+- 21a2182: Emit a Claude Code–valid Stop continuation (`decision: block` + `reason`) and stop observing PostToolUse, which minted tool dumps as memory candidates.
+
+## 0.3.3
+
+### Patch Changes
+
+- 9072089: Keep memory-capture follow-ups quiet: seed a one-sentence user reply, and stay silent when nothing was promoted.
+
+## 0.3.2
+
+### Patch Changes
+
+- e6085e2: Stop Cursor memory capture from recapturing Stop `followup_message` as a new lesson, and stop classifying MCP/grep/test dumps from afterFileEdit and postToolUse. Cursor hooks observe user prompts only; tool-sourced pending ids are dismissed.
+
+## 0.3.1
+
+### Patch Changes
+
+- 44dd8dc: Stop memory capture from looping on Cursor Stop follow-ups. Classify user/assistant speech only, raise the lesson bar, and emit a one-shot follow-up so promotion turns cannot recapture themselves.
+
 ## 0.3.0
 
 ### Minor Changes

@@ -2,7 +2,7 @@ import type { NotionResource } from "./types"
 
 type SetupStatus = {
   setupPhase: string
-  selectedResourceCount: number
+  selectedResourceCount: number | null
   pendingConfigPullUrl?: string | null
   pendingConfigPrCreating?: boolean
 }
@@ -44,8 +44,8 @@ export function getNotionSetupCurrentIndex(
   ) {
     return 2
   }
-  // Git-backed selectedResourceCount stays 0 while the config PR is creating
-  // and can stay 0 until the PR-head YAML is readable — do not bounce to scope.
+  // Git scope is loaded only inside setup. Status polling must stay DB-only, so
+  // the count is null and lifecycle state drives progress here.
   if (
     status.pendingConfigPrCreating ||
     status.pendingConfigPullUrl ||
@@ -56,14 +56,13 @@ export function getNotionSetupCurrentIndex(
   ) {
     return 3
   }
-  if (status.selectedResourceCount === 0) return 2
   if (status.setupPhase === "live") return NOTION_SETUP_STEPS.length
-  return 3
+  return 2
 }
 
 export function getNotionCardCtaLabel(status: SetupStatus): string {
   if (getNotionFailureAction(status)) return "Review failure"
-  if (status.setupPhase === "live" && status.selectedResourceCount > 0) {
+  if (status.setupPhase === "live") {
     return "Manage scope"
   }
   if (
@@ -96,9 +95,5 @@ export function shouldShowNotionSetupComplete(
   status: SetupStatus,
   manageScope: boolean,
 ): boolean {
-  return (
-    !manageScope &&
-    status.setupPhase === "live" &&
-    status.selectedResourceCount > 0
-  )
+  return !manageScope && status.setupPhase === "live"
 }

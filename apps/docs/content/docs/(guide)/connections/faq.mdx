@@ -3,14 +3,14 @@ title: Other connections FAQ
 description: Common questions about what ctx| connects today and what is on the roadmap.
 ---
 
-## Can I connect Confluence / Linear / Notion / Google Drive?
+## Which sources can I connect?
 
-We're gradually adding connectors for popular third-party engineering tools. Updates will be announced as new integrations become available.
-Currently, we support GitHub, Confluence, and Linear connectors. Confluence and
-Linear content is mirrored through a GitHub repository so scope and generated
-content remain reviewable. Linear's draft scope is the configuration pull
-request branch YAML; its live scope is the target branch YAML after merge.
-Notion and Google Drive are not currently available.
+ctx| currently supports GitHub, Confluence, Linear, Slack, and Notion. Confluence,
+Linear, and Notion content is mirrored through a GitHub repository so scope and
+generated content remain reviewable. Linear and Notion draft scope is the
+configuration pull request branch YAML; live scope is the target branch YAML
+after merge. Slack captures specific threads on mention rather than mirroring
+channels. Google Drive is not currently available.
 
 ## Does ctx| scan my laptop?
 
@@ -20,7 +20,11 @@ machines as part of the core stack described here.
 
 ## How do private repositories work?
 
-You connect ctx| to your GitHub account and organization to authorize all, or specific repositories to be indexed and stored in your Git account. 
+The GitHub App grants ctx| access to all or selected repositories. ctx| clones
+and indexes the repositories in its own deployment; it does not write source
+code back into your GitHub account. Connector-generated context is different:
+Linear, Notion, Confluence, and Slack write managed files into the context
+repository you select.
 
 ## Can one user belong to multiple organizations?
 

@@ -116,6 +116,27 @@ variable "atlassian_client_secret" {
   sensitive   = true
 }
 
+variable "slack_client_id" {
+  type        = string
+  description = "value for SLACK_CLIENT_ID (deployment Slack app OAuth)"
+  sensitive   = true
+  default     = ""
+}
+
+variable "slack_client_secret" {
+  type        = string
+  description = "value for SLACK_CLIENT_SECRET"
+  sensitive   = true
+  default     = ""
+}
+
+variable "slack_signing_secret" {
+  type        = string
+  description = "value for SLACK_SIGNING_SECRET (Events API verification)"
+  sensitive   = true
+  default     = ""
+}
+
 variable "linear_client_id" {
   type        = string
   description = "value for LINEAR_CLIENT_ID; leave empty to disable the Linear connector"
@@ -232,4 +253,22 @@ variable "neon_project" {
     }))
   })
   description = "Neon project configuration."
+}
+
+variable "openworkflow_concurrency" {
+  type        = string
+  description = "In-flight OpenWorkflow runs per worker process. Production default is the medium capacity pair (see ADR-027). Changing this requires redeploying the worker."
+  default     = "10"
+}
+
+variable "codesearch_indexer_concurrency" {
+  type        = string
+  description = "Max concurrent Zoekt/SCIP child processes on the single codesearch replica. Production default is the medium pair. Changing this requires redeploying codesearch (and the worker, which uses the same value to batch SCIP HTTP)."
+  default     = "2"
+}
+
+variable "codesearch_index_pipeline_concurrency" {
+  type        = string
+  description = "Max distinct repos with in-flight OpenWorkflow index-phase HTTP (clone included) on codesearch. Production default is the medium pair. Changing this requires redeploying codesearch."
+  default     = "2"
 }

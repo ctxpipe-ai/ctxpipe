@@ -1,6 +1,6 @@
 ---
-title: Unindex / reindex
-description: Remove repository context from ctx| and start ingestion again when source context needs a refresh.
+title: Retry indexing or unindex
+description: Recover an ingestion run without removing the repository, or deliberately remove its context from ctx|.
 ---
 
 Unindexing removes a repository from ctx| for the current organization. Use it
@@ -29,39 +29,44 @@ succeeds.
 DELETE /:orgSlug/api/v1/repositories/:id
 ```
 
-## Reindex a Repository
+## Retry indexing
 
-There is not a separate one-click **Reindex** action in the current UI. To
-reindex from the app:
+Use **Retry indexing** when the repository should remain connected but its
+latest ingestion run failed or completed with issues:
 
-1. Unindex the repository.
-2. Add it again through **Index now**, **Select repositories**, or **Add single
-   repository**.
+1. Open **Repositories**.
+2. Open the repository row menu.
+3. Choose **Retry indexing**.
+4. Follow the new run through the repository status.
 
-If the repository is still selected in the GitHub App setup, it may reappear as
-**pending indexing** after unindexing. Use **Index now** to create a fresh ctx|
-repository record and start ingestion again.
+Retrying keeps the repository record and starts a fresh ingestion attempt.
 
-## When to Reindex
+## When to retry
 
-Reindex when:
+Retry indexing when:
 
 - A repository was added before important docs or instruction files existed.
 - You need to rebuild graph claims after a major refactor.
 - Ingestion failed and operator logs show the source can now be cloned/indexed.
-- You removed stale context and want a clean graph/search rebuild.
+- A run completed with issues and you have resolved the cause.
 
 ## Operational Notes
 
 - Unindexing is organization-scoped. It does not change the GitHub repository or
   GitHub App installation.
-- Reindexing can take time because codesearch and graph extraction both need to
+- Retrying can take time because search and graph context both need to
   run again.
-- During reindexing, Chat and MCP answers may be incomplete for that repository
+- During a retry, Chat and MCP answers may be incomplete for that repository
   until indexing finishes.
+
+<Callout type="warn" title="Unindexing a context repository">
+  Unindexing stops all files in that repository from contributing to ctx|,
+  including generated Linear, Notion, Confluence, or Slack context. It does not
+  delete those files from Git and does not remove the upstream connector.
+</Callout>
 
 ## Related
 
 - [Manage repositories](/docs/git-repositories/manage-repositories)
 - [Ingestion explanation](/docs/connections/ingestion)
-- [Knowledge graph monitoring](/docs/knowledge-graph/monitoring)
+- [Explore the knowledge graph](/docs/knowledge-graph/exploring)

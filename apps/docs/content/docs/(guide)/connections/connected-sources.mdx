@@ -14,7 +14,9 @@ become visible, reviewable context.
 | --- | --- |
 | **GitHub** | Primary source connection for code search, file reads, cross-repo understanding, and knowledge graph ingestion. |
 | **Confluence** | Select spaces and pages, sync them into a chosen GitHub repository, then ingest that repo-backed content into ctx|. |
+| **Slack** | Mention the bot in a thread (`app_mention`) to capture that specific thread as Markdown into a chosen GitHub repository — intent-based capture, not a continuous channel mirror. |
 | **Linear** | Select workspace scope, review draft `linear/config.yaml` on a pull request branch, then make that YAML live on the target branch by merging it. The connection config keeps the repository binding. |
+| **Notion** | Select pages and databases, review draft `notion/config.yaml` on a pull request branch, then make that YAML live on the target branch by merging it. The connection config keeps the repository binding. |
 | **Repo-native docs** | README files, `docs/**`, ADRs, `AGENTS.md`, skills, and similar files are ingested with the repository. |
 
 ## What belongs in Git
@@ -45,17 +47,22 @@ that hold operational context. Examples include:
 
 - Additional issue and project tracking systems, such as Jira.
 - Incidents and on-call, such as PagerDuty.
-- Docs and wikis beyond repo-native docs, such as Notion.
 - Error tracking and observability, such as Sentry.
 
 Availability may differ between fully managed and self-hosted deployments.
 Self-hosted operators must configure provider-owned OAuth applications and
-webhooks before the corresponding connector is available.
+webhooks before the corresponding connector is available — see
+[Self-host Confluence & Atlassian](/docs/self-hosting/confluence-atlassian),
+[Self-host Slack](/docs/self-hosting/slack),
+[Self-host Linear](/docs/self-hosting/linear), and
+[Self-host Notion](/docs/self-hosting/notion).
 
 <Cards>
   <Card title="Connection overview" href="/docs/connections" description="How Git-backed source connections fit together." />
   <Card title="GitHub connector" href="/docs/connections/source-connectors/github" description="Why GitHub is the foundational source connector for ctx|." />
   <Card title="Confluence connector" href="/docs/connections/source-connectors/confluence" description="Sync selected Confluence spaces and pages into Git-backed context." />
+  <Card title="Slack connector" href="/docs/connections/source-connectors/slack" description="Capture specific Slack threads on demand into Git-backed Markdown." />
   <Card title="Linear connector" href="/docs/connections/source-connectors/linear" description="Mirror reviewable Linear workspace context into a GitHub repository." />
+  <Card title="Notion connector" href="/docs/connections/source-connectors/notion" description="Mirror reviewable Notion pages and databases into a GitHub repository." />
   <Card title="ctx| MCP" href="/docs/mcp/mcp-docs" description="How agents connect to ctx| after sources are ingested." />
 </Cards>

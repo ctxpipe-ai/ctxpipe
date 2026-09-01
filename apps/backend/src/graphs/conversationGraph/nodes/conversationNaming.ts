@@ -1,5 +1,7 @@
 import type { BaseMessageLike } from "@langchain/core/messages"
 import { getConfig, getWriter } from "@langchain/langgraph"
+import { requireCurrentOrgId } from "../../../auth/context.js"
+import { withOrgDbContext } from "../../../db/client.js"
 import {
   getConversation,
   updateConversation,
@@ -24,7 +26,10 @@ export async function conversationNaming(
 
   if (!conversationId) return {}
 
-  const conversation = await getConversation(conversationId)
+  const orgId = requireCurrentOrgId()
+  const conversation = await withOrgDbContext(orgId, () =>
+    getConversation(conversationId),
+  )
   if (!conversation) return {}
 
   const hasName = conversation.name && conversation.name !== "New Chat"
@@ -71,7 +76,9 @@ export async function conversationNaming(
         : ""
   const name = raw.trim().slice(0, 100) || "New Chat"
 
-  await updateConversation(conversationId, { name })
+  await withOrgDbContext(orgId, () =>
+    updateConversation(conversationId, { name }),
+  )
 
   if (source === "ui") {
     const writer = getWriter()

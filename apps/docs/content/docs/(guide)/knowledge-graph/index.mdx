@@ -33,7 +33,7 @@ The graph is populated during repository ingestion:
 
 1. A repository is registered under an organization.
 2. Codesearch clones and indexes the source tree.
-3. LangGraph ingestion extracts entities and claims.
+3. Model-assisted ingestion extracts entities and claims.
 4. The graph database stores those claims in an org-isolated graph.
 5. The UI reads a graph snapshot for exploration.
 
@@ -47,28 +47,26 @@ The graph powers three product surfaces:
 - **Chat**: natural-language questions over graph context and source code.
 - **MCP**: `ctx_advisor` uses graph and repository context for agent workflows.
 
-## API Shape
+## How to read graph claims
 
-The browser reads:
+The graph is a discovery aid, not an authoritative inventory. A relationship is
+an extracted claim supported by observations from connected sources. Confidence
+and freshness help you decide where to investigate, but they do not replace the
+source.
 
-```http
-GET /:orgSlug/api/v1/knowledge-graph
-```
+When a claim matters:
 
-Optional query parameters:
+- inspect its connected nodes and observations,
+- use **Ask ctx|** to request an explanation and supporting files,
+- distinguish what was found in source from what the model inferred,
+- and verify behavior in the current code before making a risky change.
 
-| Parameter | Meaning |
-| --- | --- |
-| `nodeLimit` | Maximum nodes returned. |
-| `edgeLimit` | Maximum edges returned. |
-
-The response includes `metrics`, `nodes`, and `edges`. Large graphs may be
-truncated; when that happens the response reports both returned counts and
-org-wide totals.
+Large organization graphs may be shown as a subset. Search and node-kind filters
+help narrow the view; the totals and **Subset shown** indicator make truncation
+explicit.
 
 ## Related
 
 - [Exploring](/docs/knowledge-graph/exploring)
 - [Interacting](/docs/knowledge-graph/interacting)
-- [Monitoring](/docs/knowledge-graph/monitoring)
 - [Chat](/docs/chat)

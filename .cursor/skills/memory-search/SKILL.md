@@ -1,6 +1,6 @@
 ---
 name: memory-search
-description: "Find facts in .ai/memory via index.md routers and rg (excludes events/). Use when recalling a convention, decision, glossary term, or PRD detail without loading the whole tree."
+description: Find facts in .ai/memory via index.md routers and rg (excludes events/). Use when recalling a convention, decision, glossary term, or PRD detail without loading the whole tree.
 ---
 
 # Memory search (Markdown recall)
@@ -30,4 +30,4 @@ Narrow when possible:
 
 - Spawn AgentMemory / hosted embedding search
 - Load the entire `.ai/memory/` tree into context
-- Search `events/` for “source of truth” facts
+- Search `events/` for "source of truth" facts

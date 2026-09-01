@@ -57,6 +57,11 @@ export interface CtxPipeSizeProfile {
     readonly migrate: CtxPipeTaskSize;
   };
   readonly services: CtxPipeServiceScaleProfile;
+  readonly concurrency: {
+    readonly openWorkflowConcurrency: number;
+    readonly codesearchIndexerConcurrency: number;
+    readonly codesearchIndexPipelineConcurrency: number;
+  };
   readonly backupRetentionDays: number;
 }
 

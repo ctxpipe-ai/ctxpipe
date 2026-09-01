@@ -18,10 +18,9 @@ const FINALIZE = (host: string, event: string) =>
 
 const CURSOR_HOOKS = {
   beforeSubmitPrompt: [{ command: OBSERVE("cursor", "beforeSubmitPrompt") }],
-  afterFileEdit: [{ command: OBSERVE("cursor", "afterFileEdit") }],
-  postToolUse: [{ command: OBSERVE("cursor", "postToolUse") }],
-  // finalize reads workspace_roots from stdin so user-scoped hooks hit the right repo.
-  stop: [{ command: FINALIZE("cursor", "stop") }],
+  // afterFileEdit / postToolUse mint tool dumps (MCP schemas, grep, test edits).
+  // Cursor capture is prompt + Stop only; those events are stripped on merge.
+  stop: [{ command: FINALIZE("cursor", "stop"), loop_limit: 1 }],
 }
 
 const CLAUDE_HOOK_BLOCK = {
@@ -35,17 +34,8 @@ const CLAUDE_HOOK_BLOCK = {
       ],
     },
   ],
-  PostToolUse: [
-    {
-      hooks: [
-        {
-          type: "command",
-          command: OBSERVE("claude", "PostToolUse"),
-        },
-      ],
-    },
-  ],
   // Stop carries last_assistant_message; one sync finalize (observe + summary).
+  // PostToolUse classified tool dumps as lessons — same Cursor hole. Prompt + Stop only.
   Stop: [
     {
       hooks: [
@@ -149,6 +139,15 @@ function mergeCursorHooks(existing: Record<string, unknown>): Record<string, unk
     const prev = Array.isArray(hooks[key]) ? (hooks[key] as unknown[]) : []
     hooks[key] = dedupeHookEntries(prev, ours)
   }
+  // Drop legacy Cursor observe hooks that classified MCP/grep/test dumps as lessons.
+  for (const key of ["afterFileEdit", "postToolUse"]) {
+    const prev = Array.isArray(hooks[key]) ? (hooks[key] as unknown[]) : []
+    const kept = prev
+      .map((entry) => stripCtxpipeFromHookEntry(entry))
+      .filter((entry): entry is NonNullable<typeof entry> => entry != null)
+    if (kept.length === 0) delete hooks[key]
+    else hooks[key] = kept
+  }
   return {
     ...existing,
     version: typeof existing.version === "number" ? existing.version : 1,
@@ -164,6 +163,15 @@ function mergeClaudeHooks(existing: Record<string, unknown>): Record<string, unk
       ? ((existingHooks as Record<string, unknown[]>)[key] as unknown[])
       : []
     next[key] = dedupeHookEntries(prev, ours)
+  }
+  // Drop leftover Claude observe hooks that classified tool dumps as lessons.
+  for (const key of ["PostToolUse"]) {
+    const prev = Array.isArray(next[key]) ? (next[key] as unknown[]) : []
+    const kept = prev
+      .map((entry) => stripCtxpipeFromHookEntry(entry))
+      .filter((entry): entry is NonNullable<typeof entry> => entry != null)
+    if (kept.length === 0) delete next[key]
+    else next[key] = kept
   }
   return {
     ...existing,

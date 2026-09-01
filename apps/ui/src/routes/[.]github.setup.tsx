@@ -365,7 +365,6 @@ function DirectSetupPage() {
       />
     )
   }
-
   if (organization.kind === "missing") return <MissingPreferredOrgView />
 
   return (

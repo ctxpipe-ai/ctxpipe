@@ -142,12 +142,12 @@ describe("memory/capture", () => {
         summarizeCapture({ cwd, host: "claude" }).candidates.length,
       ).toBeGreaterThan(0)
       acknowledgeSurfaced(first.surfacedIds, { cwd })
-      // Claude: surfaced-but-unresolved stay visible until promote/dismiss.
+      // Claude Stop is one-shot: already-shown ids stay pending but must not
+      // decision:block every later turn.
       const second = summarizeCapture({ cwd, host: "claude" })
-      expect(second.candidates.length).toBeGreaterThan(0)
-      expect(second.candidates[0]?.candidateId).toBe(
-        first.candidates[0]?.candidateId,
-      )
+      expect(second.candidates).toEqual([])
+      expect(second.priority).toBe("low")
+      expect(formatStopHookOutput("claude", second, {})).toEqual({})
       expect(
         existsSync(join(cwd, ".ai", "memory", "events", "lifecycle.json")),
       ).toBe(true)
@@ -187,9 +187,11 @@ describe("memory/capture", () => {
       const third = summarizeCapture({ cwd, host: "cursor" })
       expect(third.candidates).toEqual([])
       expect(third.priority).toBe("low")
-      // Claude may re-show unresolved surfaced ids.
+      // Claude must not re-block Stop for unresolved surfaced ids either.
       const claudeAgain = summarizeCapture({ cwd, host: "claude" })
-      expect(claudeAgain.candidates.length).toBeGreaterThan(0)
+      expect(claudeAgain.candidates).toEqual([])
+      expect(claudeAgain.priority).toBe("low")
+      expect(formatStopHookOutput("claude", claudeAgain, {})).toEqual({})
     },
   )
 
@@ -351,7 +353,7 @@ describe("memory/capture", () => {
     expect(out.followup_message).toContain("Promote candidate abc")
   })
 
-  it("formats Claude Stop output with hookSpecificOutput.additionalContext", () => {
+  it("formats Claude Stop output with decision block + reason", () => {
     const out = formatStopHookOutput(
       "claude",
       {
@@ -364,10 +366,8 @@ describe("memory/capture", () => {
       {},
     )
     expect(out).toEqual({
-      hookSpecificOutput: {
-        hookEventName: "Stop",
-        additionalContext: "Promote candidate abc",
-      },
+      decision: "block",
+      reason: "Promote candidate abc",
     })
   })
 
@@ -397,6 +397,22 @@ describe("memory/capture", () => {
         parseErrors: 0,
       },
       { status: "aborted" },
+    )
+    expect(out).toEqual({})
+  })
+
+  it("suppresses Cursor Stop follow-up when loop_count is already 1", () => {
+    const out = formatStopHookOutput(
+      "cursor",
+      {
+        priority: "high",
+        message:
+          "Memory candidates (2 pending). Promote via skills/rules — do not auto-write ADRs from hooks.",
+        candidates: [],
+        surfacedIds: ["abc"],
+        parseErrors: 0,
+      },
+      { status: "completed", loop_count: 1 },
     )
     expect(out).toEqual({})
   })
@@ -529,6 +545,36 @@ describe("memory/capture", () => {
     expect(lines).toHaveLength(1)
   })
 
+  it("does not emit a Claude follow-up for leftover PostToolUse candidates", () => {
+    const cwd = mkdtempSync(join(tmpdir(), "ctxpipe-capture-claude-tool-"))
+    mkdirSync(join(cwd, ".ai", "memory", "events"), { recursive: true })
+    writeFileSync(
+      join(cwd, ".ai", "memory", "events", "candidates.jsonl"),
+      `${JSON.stringify({
+        schemaVersion: 1,
+        candidateId: "claudetool0000001",
+        kind: "lesson",
+        destination: ".ai/memory/lessons-learned.md",
+        action: "Append a lesson",
+        excerpt: "From now on always use a fake Claude tool-sourced fact",
+        sourceEventType: "PostToolUse",
+        sourceHost: "claude",
+      })}\n`,
+      "utf8",
+    )
+    const summary = summarizeCapture({ cwd, host: "claude" })
+    expect(summary.priority).toBe("low")
+    expect(summary.candidates).toEqual([])
+    expect(formatStopHookOutput("claude", summary, {})).toEqual({})
+    const lifecycle = JSON.parse(
+      readFileSync(
+        join(cwd, ".ai", "memory", "events", "lifecycle.json"),
+        "utf8",
+      ),
+    ) as { dismissed?: string[] }
+    expect(lifecycle.dismissed).toContain("claudetool0000001")
+  })
+
   it("does not emit a Cursor follow-up for tool-sourced pending candidates", () => {
     const cwd = mkdtempSync(join(tmpdir(), "ctxpipe-capture-tool-src-"))
     mkdirSync(join(cwd, ".ai", "memory", "events"), { recursive: true })
@@ -552,6 +598,10 @@ describe("memory/capture", () => {
     expect(
       formatStopHookOutput("cursor", summary, {}),
     ).toEqual({})
+    const lifecycle = JSON.parse(
+      readFileSync(join(cwd, ".ai", "memory", "events", "lifecycle.json"), "utf8"),
+    ) as { dismissed?: string[] }
+    expect(lifecycle.dismissed).toContain("toolsrc000000001")
   })
 
   it("emits a Cursor follow-up once for a never-shown user-prompt candidate", () => {
@@ -568,6 +618,9 @@ describe("memory/capture", () => {
     const first = summarizeCapture({ cwd, host: "cursor" })
     expect(first.priority).not.toBe("low")
     expect(first.candidates.length).toBeGreaterThan(0)
+    expect(first.message).toContain(
+      "Reply to the user with one short sentence naming only what was learned; if nothing was promoted, say nothing about memory.",
+    )
     expect(
       formatStopHookOutput("cursor", first, {}).followup_message,
     ).toBeTruthy()
@@ -576,5 +629,62 @@ describe("memory/capture", () => {
     expect(second.priority).toBe("low")
     expect(second.candidates).toEqual([])
     expect(formatStopHookOutput("cursor", second, {})).toEqual({})
+  })
+
+  it("does not recapture an injected Cursor Stop follow-up as a new lesson", () => {
+    const cwd = mkdtempSync(join(tmpdir(), "ctxpipe-capture-recapture-"))
+    const firstObserve = observeCapture({
+      host: "cursor",
+      eventType: "beforeSubmitPrompt",
+      cwd,
+      payload: {
+        prompt: "From now on always colocate Zod with routes",
+        sessionId: "recapture",
+      },
+    })
+    expect(firstObserve.wrote).toBe(true)
+    const first = summarizeCapture({ cwd, host: "cursor" })
+    const injected = formatStopHookOutput("cursor", first, {
+      status: "completed",
+      loop_count: 0,
+    })
+    expect(injected.followup_message).toBeTruthy()
+    acknowledgeSurfaced(first.surfacedIds, { cwd })
+
+    const followUpPrompt = String(injected.followup_message)
+    expect(followUpPrompt).toContain("Memory candidates (")
+    expect(followUpPrompt).toContain(
+      "one short sentence naming only what was learned",
+    )
+    expect(
+      observeCapture({
+        host: "cursor",
+        eventType: "beforeSubmitPrompt",
+        cwd,
+        payload: { prompt: followUpPrompt, sessionId: "recapture" },
+      }).wrote,
+    ).toBe(false)
+
+    expect(
+      observeCapture({
+        host: "cursor",
+        eventType: "beforeSubmitPrompt",
+        cwd,
+        payload: {
+          prompt: {
+            content: [{ type: "text", text: followUpPrompt }],
+          },
+          sessionId: "recapture",
+        },
+      }).wrote,
+    ).toBe(false)
+
+    const second = summarizeCapture({ cwd, host: "cursor" })
+    expect(
+      formatStopHookOutput("cursor", second, {
+        status: "completed",
+        loop_count: 1,
+      }),
+    ).toEqual({})
   })
 })

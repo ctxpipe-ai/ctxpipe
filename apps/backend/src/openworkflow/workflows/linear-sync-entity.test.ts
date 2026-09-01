@@ -31,7 +31,7 @@ vi.mock("../../services/linear/sync.js", () => ({
   syncLinearIncrementalContent: mocks.syncIncremental,
 }))
 vi.mock("../enqueue-repository-ingestion.js", () => ({
-  runRepositoryIngestionWorkflow: mocks.runIngestion,
+  claimAndRunRepositoryIngestionChild: mocks.runIngestion,
 }))
 
 import { linearSyncEntity } from "./linear-sync-entity.js"
@@ -41,6 +41,7 @@ const step = {
     async (_options: { name: string }, operation: () => Promise<unknown>) =>
       operation(),
   ),
+  runWorkflow: vi.fn(),
 }
 
 const input = {
@@ -124,9 +125,11 @@ describe("linearSyncEntity", () => {
       }),
     )
     expect(mocks.runIngestion).toHaveBeenCalledWith(
+      step,
       {
         repositoryId: "repo_1",
         orgId: "org_1",
+        targetBranch: "main",
         indexingReason: "Applying Linear updates",
       },
       expect.any(Object),
