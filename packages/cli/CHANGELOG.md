@@ -1,5 +1,12 @@
 # ctxpipe
 
+## 0.3.4
+
+### Patch Changes
+
+- 19293bb: Support the generic tenant-bound MCP endpoint used by the ctx| Claude plugin.
+- 21a2182: Emit a Claude Code–valid Stop continuation (`decision: block` + `reason`) and stop observing PostToolUse, which minted tool dumps as memory candidates.
+
 ## 0.3.3
 
 ### Patch Changes
