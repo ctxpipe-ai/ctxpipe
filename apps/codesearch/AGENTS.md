@@ -31,7 +31,7 @@ These instructions supplement the repository-root `AGENTS.md`.
 - Look for `codesearch.index.phase.*` / `codesearch.index.queue.*` in codesearch logs and `repository-index.*` / `repository-ingestion.step.*` on the worker.
 - OpenWorkflow step failures are logged to evlog as `repository-ingestion.step.<name>.attempt_failed` (and orchestrator `…child-failed`) — do not rely on the OpenWorkflow dashboard.
 - Langfuse / LLM work starts at durable extract steps (`identify-roots`, `extract-kind:*`, `identify:*`) after retract (UI badge **`analyzing`** and later).
-- **Zoekt and SCIP optional:** the OW path continues extract after Zoekt and/or SCIP failure (`searchIndexOk: false` and/or `scipIndexOk: false` → `complete_with_issues`). Lexical search and/or graph tools may be empty; checkout and ast-grep still work. Clone failure remains fail-closed. Per-language SCIP failures merge surviving shards. Zoekt memory-fit failure skips SCIP langs to protect extract.
+- **Zoekt and SCIP optional:** the OW path continues extract after Zoekt and/or SCIP failure (`searchIndexOk: false` and/or `scipIndexOk: false` → `complete_with_issues`). Lexical search and/or graph tools may be empty; checkout and ast-grep still work. Clone failure remains fail-closed. Per-language SCIP failures merge surviving shards. Zoekt memory-fit failure skips SCIP langs (OW and legacy `POST /index`) to protect extract.
 
 ## Testing
 
