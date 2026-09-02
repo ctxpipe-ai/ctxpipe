@@ -239,29 +239,15 @@ jobs:
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
 
-      - name: Prepare Forge CLI for CI
-        env:
-          FORGE_EMAIL: ${{ secrets.FORGE_EMAIL }}
-          FORGE_API_TOKEN: ${{ secrets.FORGE_API_TOKEN }}
-          FORGE_DISABLE_ANALYTICS: "1"
-        run: pnpm --filter @ctxpipe/forge-ctxpipe-agent run prepare-forge-cli
-
-      # deploy:prod already runs `forge lint` and passes `--approve MAJOR_VERSION_RULE`.
-      # A standalone `forge lint -e production` exits 1 on that approval; @forge/cli 13.4
-      # has `--approve` on deploy only, not lint.
-      - name: Deploy to Forge production
+      # `forge deploy` runs pre-deployment lint and is the command that accepts
+      # MAJOR_VERSION_RULE approvals for scope changes. The package script also
+      # configures the CLI for non-interactive use.
+      - name: Validate and deploy Forge production
         env:
           FORGE_EMAIL: ${{ secrets.FORGE_EMAIL }}
           FORGE_API_TOKEN: ${{ secrets.FORGE_API_TOKEN }}
           FORGE_DISABLE_ANALYTICS: "1"
         run: pnpm --filter @ctxpipe/forge-ctxpipe-agent run deploy:prod
-
-      - name: Upgrade hosted Confluence install
-        env:
-          FORGE_EMAIL: ${{ secrets.FORGE_EMAIL }}
-          FORGE_API_TOKEN: ${{ secrets.FORGE_API_TOKEN }}
-          FORGE_DISABLE_ANALYTICS: "1"
-        run: pnpm --filter @ctxpipe/forge-ctxpipe-agent run install:prod
 
   prerelease:
     name: Prerelease
