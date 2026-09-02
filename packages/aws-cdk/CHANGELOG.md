@@ -1,5 +1,11 @@
 # @ctxpipe/aws-cdk
 
+## 3.1.6
+
+### Patch Changes
+
+- 5e29c73: Capture durable Slack, Linear, Notion, and Confluence assets in context repositories with bounded downloads and safe reconciliation.
+
 ## 3.1.5
 
 ### Patch Changes
