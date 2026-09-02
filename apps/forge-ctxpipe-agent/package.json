@@ -10,7 +10,6 @@
   "scripts": {
     "lint": "eslint src/**/*",
     "prepare-forge-cli": "forge settings set usage-analytics false",
-    "lint:forge": "forge lint --environment production",
     "dev": "pnpm run ngrok:tunnel",
     "dev:forge": "concurrently -n ngrok,forge \"pnpm run ngrok:tunnel\" \"forge tunnel\"",
     "ngrok:tunnel": "bash ./scripts/ngrok-tunnel.sh",
