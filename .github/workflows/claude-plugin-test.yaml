@@ -1,0 +1,83 @@
+name: Claude plugin
+
+on:
+  pull_request:
+    branches:
+      - main
+    types:
+      - opened
+      - reopened
+      - synchronize
+      - ready_for_review
+  push:
+    branches:
+      - main
+
+permissions:
+  contents: read
+
+jobs:
+  backend:
+    name: Backend tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - uses: pnpm/action-setup@v6
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 22
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - name: Plugin auth, transport, and tool tests
+        run: >-
+          pnpm --filter @ctxpipe/backend test
+          src/auth/config.test.ts
+          src/auth/oauth-organization.test.ts
+          src/auth/withAuth.test.ts
+          src/routes/auth.test.ts
+          src/routes/mcp.test.ts
+          src/routes/mcp.conformance.test.ts
+          src/mcp/tools.test.ts
+          src/graphs/conversationGraph/nodes/conversationNaming.test.ts
+
+  ui:
+    name: UI tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - uses: pnpm/action-setup@v6
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 22
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm --filter @ctxpipe/ui test
+
+  package:
+    name: Validate and install package
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 22
+      - name: Validate plugin and marketplace
+        run: |
+          npx -y @anthropic-ai/claude-code@2.1.251 plugin validate ./plugins/ctxpipe --strict
+          npx -y @anthropic-ai/claude-code@2.1.251 plugin validate . --strict
+      - name: Install from the marketplace
+        run: |
+          config_dir="$(mktemp -d)"
+          export CLAUDE_CONFIG_DIR="$config_dir"
+          npx -y @anthropic-ai/claude-code@2.1.251 plugin marketplace add "$GITHUB_WORKSPACE" --scope user
+          npx -y @anthropic-ai/claude-code@2.1.251 plugin install ctxpipe@ctxpipe --scope user --yes
+          plugin_list="$(npx -y @anthropic-ai/claude-code@2.1.251 plugin list --json)"
+          PLUGIN_LIST="$plugin_list" node -e '
+            const plugins = JSON.parse(process.env.PLUGIN_LIST);
+            const installed = plugins.some((plugin) =>
+              plugin.id === "ctxpipe@ctxpipe" &&
+              plugin.enabled === true &&
+              plugin.mcpServers?.ctxpipe?.url === "https://app.ctxpipe.ai/mcp"
+            );
+            if (!installed) process.exit(1);
+          '

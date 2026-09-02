@@ -2,11 +2,13 @@ import { defineWorkflow } from "openworkflow"
 import { z } from "zod"
 import { parseEnv } from "../../config/env.js"
 import {
+  CodesearchAdmissionBusyError,
   codesearchIndexCloneCheckout,
   codesearchIndexDetectLanguages,
   codesearchIndexMergeScip,
   codesearchIndexScipLang,
   codesearchIndexZoekt,
+  isCodesearchAdmissionBusyError,
 } from "../../domain/codeIngestion/codesearchIndexPhases.js"
 import {
   isMemoryFitFailure,
@@ -19,6 +21,7 @@ import {
   getLogger,
   withLogger,
 } from "../../observability/logger.js"
+import { parseIndexerConcurrency } from "../codesearchCapacity.js"
 import { withLoggedStepAttempt } from "../withLoggedStepAttempt.js"
 
 const repositoryIndexInputSchema = z.object({
@@ -55,6 +58,68 @@ function zoektStepResult(
     }
   }
   return { ok: true }
+}
+
+const ADMISSION_SLEEP_DURATION = "30s"
+const MAX_INDEX_ADMISSION_RETRIES = 20
+
+type IndexStep = {
+  run: (
+    opts: { name: string; retryPolicy?: typeof indexRetryPolicy },
+    fn: () => Promise<unknown>,
+  ) => Promise<unknown>
+  sleep: (name: string, duration: string) => Promise<void>
+}
+
+type AdmissionOutcome<T> = { admitted: true; value: T } | { admitted: false }
+
+async function runIndexPhaseWithAdmissionRetry<T>(
+  step: IndexStep,
+  wls: <U>(name: string, fn: () => Promise<U>) => Promise<U>,
+  baseName: string,
+  fn: () => Promise<T>,
+  retryPolicy?: typeof indexRetryPolicy,
+): Promise<T> {
+  for (let attempt = 0; attempt <= MAX_INDEX_ADMISSION_RETRIES; attempt += 1) {
+    const name = attempt === 0 ? baseName : `${baseName}:admit-${attempt}`
+    const outcome = (await step.run(
+      { name, ...(retryPolicy ? { retryPolicy } : {}) },
+      () =>
+        wls(name, async (): Promise<AdmissionOutcome<T>> => {
+          try {
+            return { admitted: true, value: await fn() }
+          } catch (error) {
+            if (isCodesearchAdmissionBusyError(error)) {
+              return { admitted: false }
+            }
+            throw error
+          }
+        }),
+    )) as AdmissionOutcome<T>
+    if (outcome.admitted) return outcome.value
+    if (attempt === MAX_INDEX_ADMISSION_RETRIES) {
+      throw new CodesearchAdmissionBusyError(
+        `${baseName} exceeded index pipeline admission retries`,
+      )
+    }
+    await step.sleep(
+      `${baseName}:admit-wait-${attempt}`,
+      ADMISSION_SLEEP_DURATION,
+    )
+  }
+  throw new CodesearchAdmissionBusyError(
+    `${baseName} exceeded index pipeline admission retries`,
+  )
+}
+
+async function mapInBatches<T>(
+  items: T[],
+  batchSize: number,
+  fn: (item: T) => Promise<void>,
+): Promise<void> {
+  for (let i = 0; i < items.length; i += batchSize) {
+    await Promise.all(items.slice(i, i + batchSize).map(fn))
+  }
 }
 
 function logMilestone(step: string, fields: Record<string, unknown>): void {
@@ -102,6 +167,7 @@ export const repositoryIndex = defineWorkflow(
             },
             fn,
           )
+        const indexStep = step as IndexStep
 
         logMilestone("repository-index.start", {
           repositoryId: input.repositoryId,
@@ -117,16 +183,17 @@ export const repositoryIndex = defineWorkflow(
             ),
         )
 
-        const checkout = await step.run(
-          { name: "clone-checkout", retryPolicy: indexRetryPolicy },
+        const checkout = await runIndexPhaseWithAdmissionRetry(
+          indexStep,
+          wls,
+          "clone-checkout",
           () =>
-            wls("clone-checkout", () =>
-              codesearchIndexCloneCheckout(auth, {
-                githubToken: githubToken ?? undefined,
-                targetHash: input.targetHash,
-                fromHash: input.fromHash,
-              }),
-            ),
+            codesearchIndexCloneCheckout(auth, {
+              githubToken: githubToken ?? undefined,
+              targetHash: input.targetHash,
+              fromHash: input.fromHash,
+            }),
+          indexRetryPolicy,
         )
 
         logMilestone("repository-index.clone-checkout.done", {
@@ -136,12 +203,16 @@ export const repositoryIndex = defineWorkflow(
         })
 
         const zoektResult = zoektStepResult(
-          await step.run({ name: "zoekt" }, () =>
-            wls("zoekt", async () => {
+          await runIndexPhaseWithAdmissionRetry(
+            indexStep,
+            wls,
+            "zoekt",
+            async () => {
               try {
                 await codesearchIndexZoekt(auth)
                 return { ok: true as const }
               } catch (error) {
+                if (isCodesearchAdmissionBusyError(error)) throw error
                 const errorText = userFacingIndexingError(error)
                 if (isMemoryFitFailure(error)) {
                   logMilestone("repository-index.memory_exceeded", {
@@ -151,7 +222,7 @@ export const repositoryIndex = defineWorkflow(
                 }
                 return { ok: false as const, error: errorText }
               }
-            }),
+            },
           ),
         )
         const searchIndexOk = zoektResult.ok
@@ -167,17 +238,18 @@ export const repositoryIndex = defineWorkflow(
           })
         }
 
-        const languages = await step.run(
-          { name: "detect-languages", retryPolicy: indexRetryPolicy },
+        const languages = await runIndexPhaseWithAdmissionRetry(
+          indexStep,
+          wls,
+          "detect-languages",
           () =>
-            wls("detect-languages", () =>
-              codesearchIndexDetectLanguages(auth, {
-                ingestMode: checkout.ingestMode,
-                changedPaths: checkout.changedPaths,
-                deletedPaths: checkout.deletedPaths,
-                renames: checkout.renames,
-              }),
-            ),
+            codesearchIndexDetectLanguages(auth, {
+              ingestMode: checkout.ingestMode,
+              changedPaths: checkout.changedPaths,
+              deletedPaths: checkout.deletedPaths,
+              renames: checkout.renames,
+            }),
+          indexRetryPolicy,
         )
 
         logMilestone("repository-index.detect-languages.done", {
@@ -186,31 +258,26 @@ export const repositoryIndex = defineWorkflow(
           toIndexCount: languages.languagesToIndex.length,
         })
 
-        await Promise.all(
-          languages.languagesToIndex.map((lang) =>
-            step.run(
-              {
-                name: `scip:${lang}`,
-                retryPolicy: indexRetryPolicy,
-              },
-              () =>
-                wls(`scip:${lang}`, () =>
-                  codesearchIndexScipLang(
-                    auth,
-                    lang,
-                    languages.detectedLanguages,
-                  ),
-                ),
-            ),
+        const scipBatchSize = parseIndexerConcurrency(
+          process.env.CODESEARCH_INDEXER_CONCURRENCY,
+        )
+        await mapInBatches(languages.languagesToIndex, scipBatchSize, (lang) =>
+          runIndexPhaseWithAdmissionRetry(
+            indexStep,
+            wls,
+            `scip:${lang}`,
+            () =>
+              codesearchIndexScipLang(auth, lang, languages.detectedLanguages),
+            indexRetryPolicy,
           ),
         )
 
-        await step.run(
-          { name: "merge-scip", retryPolicy: indexRetryPolicy },
-          () =>
-            wls("merge-scip", () =>
-              codesearchIndexMergeScip(auth, languages.detectedLanguages),
-            ),
+        await runIndexPhaseWithAdmissionRetry(
+          indexStep,
+          wls,
+          "merge-scip",
+          () => codesearchIndexMergeScip(auth, languages.detectedLanguages),
+          indexRetryPolicy,
         )
 
         logMilestone("repository-index.merge-scip.done", {

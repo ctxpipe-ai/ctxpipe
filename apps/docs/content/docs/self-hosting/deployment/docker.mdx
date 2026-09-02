@@ -17,7 +17,7 @@ The Compose `deploy` profile starts:
 | `backend` | Public API, auth, MCP endpoint, callbacks, and UI proxy |
 | `ui` | Product web app, proxied through the backend |
 | `worker` | Background workflows for ingestion and connector jobs |
-| `codesearch` | Repository clone cache and Zoekt indexes |
+| `codesearch` | Repository clone cache and Zoekt indexes. Stay at one replica. |
 | `postgres` | Primary application database |
 | `falkordb` | Default graph database |
 | `otel-collector` | Optional OpenTelemetry fan-out |

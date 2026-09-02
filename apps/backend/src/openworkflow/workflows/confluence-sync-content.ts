@@ -84,8 +84,9 @@ export const confluenceSyncContent = defineWorkflow(
 
     const status = contentResult.status
 
-    await step.run({ name: "ingest-confluence-content" }, () =>
-      runConnectorRepositoryIngestionWorkflow(
+    if (status !== "failed") {
+      await runConnectorRepositoryIngestionWorkflow(
+        step,
         {
           repositoryId: target.repositoryId,
           orgId: input.orgId,
@@ -99,8 +100,8 @@ export const confluenceSyncContent = defineWorkflow(
               connectionId: input.connectionId,
             }),
         },
-      ),
-    )
+      )
+    }
 
     await step.run({ name: "finalize-setup-phase" }, async () =>
       withOrgDbContext(input.orgId, () =>

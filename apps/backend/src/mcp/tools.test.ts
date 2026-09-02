@@ -1,5 +1,5 @@
 import { HumanMessage } from "@langchain/core/messages"
-import { describe, expect, it, vi } from "vitest"
+import { beforeEach, describe, expect, it, vi } from "vitest"
 
 const {
   generateObjectIdMock,
@@ -10,6 +10,7 @@ const {
   requireCurrentUserIdMock,
   requireCurrentOrgIdMock,
   requireCurrentOrgSlugMock,
+  withOrgDbContextMock,
 } = vi.hoisted(() => ({
   generateObjectIdMock: vi.fn(() => "thr_test"),
   streamMock: vi.fn(),
@@ -19,6 +20,9 @@ const {
   requireCurrentUserIdMock: vi.fn(() => "user_test123"),
   requireCurrentOrgIdMock: vi.fn(() => "org_test"),
   requireCurrentOrgSlugMock: vi.fn(() => "test-org"),
+  withOrgDbContextMock: vi.fn(
+    async (_orgId: string, handler: () => Promise<unknown>) => handler(),
+  ),
 }))
 
 vi.mock("../graphs/index.js", () => ({
@@ -43,10 +47,80 @@ vi.mock("../auth/context.js", () => ({
   requireCurrentOrgSlug: requireCurrentOrgSlugMock,
 }))
 
+vi.mock("../db/client.js", () => ({
+  withOrgDbContext: withOrgDbContextMock,
+}))
+
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js"
 import { registerMcpTools } from "./tools.js"
 
 describe("registerMcpTools", () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+    streamMock.mockReset()
+    invokeMock.mockReset()
+    generateObjectIdMock.mockReset().mockReturnValue("thr_test")
+    ensureConversationMock.mockReset().mockResolvedValue({})
+    touchConversationLastMessageMock.mockReset().mockResolvedValue(undefined)
+    withOrgDbContextMock
+      .mockReset()
+      .mockImplementation(
+        async (_orgId: string, handler: () => Promise<unknown>) => handler(),
+      )
+  })
+
+  it("does not hold an org transaction across the advisor graph", async () => {
+    const events: string[] = []
+    withOrgDbContextMock.mockImplementation(
+      async (_orgId: string, handler: () => Promise<unknown>) => {
+        events.push("txn-enter")
+        try {
+          return await handler()
+        } finally {
+          events.push("txn-exit")
+        }
+      },
+    )
+    streamMock.mockImplementation(async () => {
+      events.push("stream")
+      return (async function* () {
+        yield { messages: [{ content: "Org has no indexed context yet." }] }
+      })()
+    })
+
+    const registerToolMock = vi.fn()
+    const server = { registerTool: registerToolMock } as unknown as McpServer
+    registerMcpTools(server)
+    const [, , handler] = registerToolMock.mock.calls[0] as [
+      string,
+      unknown,
+      (
+        input: { prompt: string },
+        extra: { sendNotification: (n: unknown) => Promise<void> },
+      ) => Promise<{ content: Array<{ text: string }> }>,
+    ]
+
+    const result = await handler(
+      { prompt: "What standards apply?" },
+      { sendNotification: vi.fn(async () => {}) },
+    )
+
+    expect(result.content[0]?.text).toBe("Org has no indexed context yet.")
+    expect(withOrgDbContextMock).toHaveBeenCalledWith(
+      "org_test",
+      expect.any(Function),
+    )
+    expect(events).toContain("stream")
+    let depth = 0
+    let streamInsideTxn = false
+    for (const event of events) {
+      if (event === "txn-enter") depth += 1
+      if (event === "txn-exit") depth -= 1
+      if (event === "stream" && depth > 0) streamInsideTxn = true
+    }
+    expect(streamInsideTxn).toBe(false)
+  })
+
   it("registers ctx advisor tool and streams progress", async () => {
     const chunkOne = {
       messages: [{ content: "Plan the integration in phases" }],
@@ -73,6 +147,12 @@ describe("registerMcpTools", () => {
       {
         title: string
         description: string
+        annotations: {
+          readOnlyHint: boolean
+          destructiveHint: boolean
+          idempotentHint: boolean
+          openWorldHint: boolean
+        }
         inputSchema: { shape: { prompt: { _def: { type: string } } } }
       },
       (
@@ -88,6 +168,12 @@ describe("registerMcpTools", () => {
     expect(config.description).toContain("ctx_advisor")
     expect(config.description).toContain("repository search")
     expect(config.description).toContain("grep")
+    expect(config.annotations).toEqual({
+      readOnlyHint: true,
+      destructiveHint: false,
+      idempotentHint: false,
+      openWorldHint: false,
+    })
     expect(config.inputSchema.shape.prompt._def.type).toBe("string")
     expect("currentProjectName" in config.inputSchema.shape).toBe(true)
     expect("conversationId" in config.inputSchema.shape).toBe(true)
@@ -201,8 +287,15 @@ describe("registerMcpTools", () => {
       string,
       unknown,
       (
-        input: { prompt: string; currentProjectName?: string; conversationId?: string },
-        extra: { _meta?: { progressToken?: string }; sendNotification: (n: unknown) => Promise<void> },
+        input: {
+          prompt: string
+          currentProjectName?: string
+          conversationId?: string
+        },
+        extra: {
+          _meta?: { progressToken?: string }
+          sendNotification: (n: unknown) => Promise<void>
+        },
       ) => Promise<{ content: Array<{ text: string }> }>,
     ]
 
@@ -223,10 +316,10 @@ describe("registerMcpTools", () => {
       configurable?: { thread_id?: string }
     }
     expect(callConfig.configurable?.thread_id).toBe(
-      "user_test123_my-backend_conv-xyz",
+      "org_test_user_test123_my-backend_conv-xyz",
     )
     expect(ensureConversationMock).toHaveBeenCalledWith({
-      id: "user_test123_my-backend_conv-xyz",
+      id: "org_test_user_test123_my-backend_conv-xyz",
       source: "mcp",
     })
   })

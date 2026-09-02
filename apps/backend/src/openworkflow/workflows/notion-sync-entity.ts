@@ -106,22 +106,21 @@ export const notionSyncEntity = defineWorkflow(
       },
     )
 
-    await step.run({ name: "ingest-notion-entity" }, () =>
-      runConnectorRepositoryIngestionWorkflow(
-        {
-          repositoryId: context.binding.repositoryId,
-          orgId: input.orgId,
-          targetBranch: context.binding.branch,
-          indexingReason: "Applying Notion updates",
-        },
-        {
-          error: (error) =>
-            getLogger().error(error, {
-              step: "notion-sync-entity.ingestion",
-              connectionId: input.connectionId,
-            }),
-        },
-      ),
+    await runConnectorRepositoryIngestionWorkflow(
+      step,
+      {
+        repositoryId: context.binding.repositoryId,
+        orgId: input.orgId,
+        targetBranch: context.binding.branch,
+        indexingReason: "Applying Notion updates",
+      },
+      {
+        error: (error) =>
+          getLogger().error(error, {
+            step: "notion-sync-entity.ingestion",
+            connectionId: input.connectionId,
+          }),
+      },
     )
 
     return {

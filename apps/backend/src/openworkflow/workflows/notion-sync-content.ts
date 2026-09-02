@@ -77,8 +77,9 @@ export const notionSyncContent = defineWorkflow(
 
       // Git is the content SoT; hand off to repository ingestion so codesearch
       // indexes the mirrored notion/ files (Linear/PR-271 pattern).
-      await step.run({ name: "ingest-notion-content" }, () =>
-        runConnectorRepositoryIngestionWorkflow(
+      if (contentResult.status !== "failed") {
+        await runConnectorRepositoryIngestionWorkflow(
+          step,
           {
             repositoryId: binding.repositoryId,
             orgId: input.orgId,
@@ -92,8 +93,8 @@ export const notionSyncContent = defineWorkflow(
                 connectionId: input.connectionId,
               }),
           },
-        ),
-      )
+        )
+      }
 
       await step.run({ name: "finalize-setup-phase" }, () =>
         withOrgDbContext(input.orgId, () =>

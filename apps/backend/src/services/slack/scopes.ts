@@ -7,7 +7,7 @@
  * channel names in git paths), not for workspace channel catalogues.
  * `chat:write` powers the capturing → captured status reply in-thread.
  * `files:read` exposes file metadata and authenticated download URLs so
- * provider-declared thread attachments can be copied into git (ADR-026).
+ * provider-declared thread attachments can be copied into git (ADR-028).
  */
 export const SLACK_BOT_SCOPES = [
   "app_mentions:read",

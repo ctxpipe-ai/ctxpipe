@@ -40,6 +40,7 @@ const step = {
     async (_options: { name: string }, operation: () => Promise<unknown>) =>
       operation(),
   ),
+  runWorkflow: vi.fn(),
 }
 
 const input = {
@@ -117,11 +118,12 @@ describe("notionSyncEntity", () => {
       }),
     )
     expect(mocks.runIngestion).toHaveBeenCalledWith(
+      step,
       {
         repositoryId: "repo_1",
         orgId: "org_1",
-        indexingReason: "Applying Notion updates",
         targetBranch: "main",
+        indexingReason: "Applying Notion updates",
       },
       expect.any(Object),
     )
@@ -138,6 +140,7 @@ describe("notionSyncEntity", () => {
     await notionSyncEntity.fn({ input, step } as never)
 
     expect(mocks.runIngestion).toHaveBeenCalledWith(
+      expect.anything(),
       {
         repositoryId: "repo_1",
         orgId: "org_1",
@@ -188,6 +191,7 @@ describe("notionSyncEntity", () => {
       expect.objectContaining({ binding: checkpointedBinding }),
     )
     expect(mocks.runIngestion).toHaveBeenCalledWith(
+      expect.anything(),
       expect.objectContaining({
         repositoryId: "repo_original",
         targetBranch: "notion-capture",

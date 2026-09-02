@@ -110,8 +110,9 @@ export const linearSyncContent = defineWorkflow(
         }),
       )
 
-      await step.run({ name: "ingest-linear-content" }, () =>
-        runConnectorRepositoryIngestionWorkflow(
+      if (result.status !== "failed") {
+        await runConnectorRepositoryIngestionWorkflow(
+          step,
           {
             repositoryId: context.target.repositoryId,
             orgId: input.orgId,
@@ -125,8 +126,8 @@ export const linearSyncContent = defineWorkflow(
                 connectionId: input.connectionId,
               }),
           },
-        ),
-      )
+        )
+      }
 
       await step.run({ name: "finalize-linear-sync" }, () =>
         withOrgDbContext(input.orgId, () =>

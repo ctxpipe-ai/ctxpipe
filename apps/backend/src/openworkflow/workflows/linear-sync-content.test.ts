@@ -99,6 +99,7 @@ describe("linearSyncContent", () => {
       workflowStatus: "completed",
     })
     expect(mocks.runIngestion).toHaveBeenCalledWith(
+      expect.anything(),
       {
         repositoryId: "repo_1",
         orgId: "org_1",
@@ -140,6 +141,7 @@ describe("linearSyncContent", () => {
     } as never)
 
     expect(mocks.runIngestion).toHaveBeenCalledWith(
+      expect.anything(),
       {
         repositoryId: "repo_1",
         orgId: "org_1",
@@ -195,6 +197,7 @@ describe("linearSyncContent", () => {
       expect.objectContaining({ target: checkpointedTarget }),
     )
     expect(mocks.runIngestion).toHaveBeenCalledWith(
+      expect.anything(),
       expect.objectContaining({
         repositoryId: "repo_original",
         targetBranch: "linear-capture",

@@ -41,10 +41,22 @@ vi.mock("./workflows/repository-ingestion-orchestrator.js", () => ({
 }))
 
 import {
+  claimAndRunRepositoryIngestionChild,
   enqueueRepositoryIngestionWorkflow,
+  type RepositoryIngestionChildStep,
   runConnectorRepositoryIngestionWorkflow,
-  runRepositoryIngestionWorkflow,
+  startClaimedRepositoryIngestionWorkflow,
 } from "./enqueue-repository-ingestion.js"
+
+function mockChildStep(overrides?: {
+  runWorkflow?: ReturnType<typeof vi.fn>
+}): RepositoryIngestionChildStep {
+  return {
+    run: vi.fn(async (_opts: { name: string }, fn: () => unknown) => fn()),
+    runWorkflow: overrides?.runWorkflow ?? vi.fn().mockResolvedValue(undefined),
+    sleep: vi.fn(),
+  } as unknown as RepositoryIngestionChildStep
+}
 
 describe("enqueueRepositoryIngestionWorkflow", () => {
   beforeEach(() => {
@@ -153,7 +165,7 @@ describe("enqueueRepositoryIngestionWorkflow", () => {
   })
 })
 
-describe("runRepositoryIngestionWorkflow", () => {
+describe("startClaimedRepositoryIngestionWorkflow", () => {
   beforeEach(() => {
     vi.clearAllMocks()
     runWorkflowWithWorkerWakeMock.mockReset()
@@ -170,32 +182,12 @@ describe("runRepositoryIngestionWorkflow", () => {
     )
   })
 
-  it("awaits workflow wake when claim succeeds", async () => {
-    runWorkflowWithWorkerWakeMock.mockResolvedValue({
-      workflowRun: { id: "run_pending", status: "pending" },
-      result: vi.fn().mockRejectedValue(new Error("terminal failure")),
-    })
-    const log = { error: vi.fn() }
-
-    await runRepositoryIngestionWorkflow(
-      { repositoryId: "repo_1", orgId: "org_1" },
-      log,
-    )
-
-    expect(tryClaimMock).toHaveBeenCalledWith({
-      repositoryId: "repo_1",
-      reason: null,
-    })
-    expect(runWorkflowWithWorkerWakeMock).toHaveBeenCalled()
-    expect(log.error).not.toHaveBeenCalled()
-  })
-
   it("uses the source tip as an idempotency key", async () => {
     runWorkflowWithWorkerWakeMock.mockResolvedValue({
       workflowRun: { id: "run_pending", status: "pending" },
     })
 
-    await runRepositoryIngestionWorkflow(
+    await startClaimedRepositoryIngestionWorkflow(
       {
         repositoryId: "repo_1",
         orgId: "org_1",
@@ -223,7 +215,7 @@ describe("runRepositoryIngestionWorkflow", () => {
     })
     const log = { error: vi.fn() }
 
-    await runRepositoryIngestionWorkflow(
+    await startClaimedRepositoryIngestionWorkflow(
       {
         repositoryId: "repo_1",
         orgId: "org_1",
@@ -278,7 +270,7 @@ describe("runRepositoryIngestionWorkflow", () => {
       })
     const log = { error: vi.fn() }
 
-    await runRepositoryIngestionWorkflow(
+    await startClaimedRepositoryIngestionWorkflow(
       {
         repositoryId: "repo_1",
         orgId: "org_1",
@@ -334,7 +326,7 @@ describe("runRepositoryIngestionWorkflow", () => {
       },
     })
 
-    await runRepositoryIngestionWorkflow(
+    await startClaimedRepositoryIngestionWorkflow(
       {
         repositoryId: "repo_1",
         orgId: "org_1",
@@ -365,7 +357,7 @@ describe("runRepositoryIngestionWorkflow", () => {
     })
 
     await expect(
-      runRepositoryIngestionWorkflow(
+      startClaimedRepositoryIngestionWorkflow(
         {
           repositoryId: "repo_1",
           orgId: "org_1",
@@ -377,36 +369,113 @@ describe("runRepositoryIngestionWorkflow", () => {
 
     expect(runWorkflowWithWorkerWakeMock).toHaveBeenCalledTimes(2)
   })
+})
 
-  it("skips workflow when indexing is already queued or running", async () => {
-    tryClaimMock.mockResolvedValue(false)
+describe("claimAndRunRepositoryIngestionChild", () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+    runWorkflowWithWorkerWakeMock.mockReset()
+    tryClaimMock.mockResolvedValue(true)
+    markFailedMock.mockResolvedValue(undefined)
+    markReadyMock.mockResolvedValue(undefined)
+    enqueueFollowUpIfTipAheadMock.mockResolvedValue({
+      enqueued: false,
+      tipHash: "sha_already_ingested",
+    })
+    withOrgDbContextMock.mockImplementation(
+      (_orgId: string, fn: () => unknown) => Promise.resolve(fn()),
+    )
+  })
+
+  it("claims then runs the orchestrator as a child workflow", async () => {
+    const step = mockChildStep()
     const log = { error: vi.fn() }
 
-    await runRepositoryIngestionWorkflow(
-      { repositoryId: "repo_1", orgId: "org_1" },
+    await claimAndRunRepositoryIngestionChild(
+      step,
+      {
+        repositoryId: "repo_1",
+        orgId: "org_1",
+        targetBranch: "main",
+        indexingReason: "Syncing",
+      },
       log,
     )
 
+    expect(step.run).toHaveBeenCalledWith(
+      { name: "claim-ingest-repo_1" },
+      expect.any(Function),
+    )
+    expect(tryClaimMock).toHaveBeenCalledWith({
+      repositoryId: "repo_1",
+      reason: "Syncing",
+    })
+    expect(step.runWorkflow).toHaveBeenCalledWith(
+      { name: "repository-ingestion-orchestrator" },
+      {
+        repositoryId: "repo_1",
+        orgId: "org_1",
+        targetBranch: "main",
+        indexingReason: "Syncing",
+      },
+      { name: "ingest-repo_1" },
+    )
     expect(runWorkflowWithWorkerWakeMock).not.toHaveBeenCalled()
     expect(log.error).not.toHaveBeenCalled()
   })
 
-  it("releases the queued claim when awaited workflow enqueue fails", async () => {
-    const failure = new Error("enqueue failed")
-    runWorkflowWithWorkerWakeMock.mockRejectedValue(failure)
+  it("skips child workflow when indexing is already queued or running", async () => {
+    tryClaimMock.mockResolvedValue(false)
+    const step = mockChildStep()
+    const log = { error: vi.fn() }
+
+    await claimAndRunRepositoryIngestionChild(
+      step,
+      { repositoryId: "repo_1", orgId: "org_1" },
+      log,
+    )
+
+    expect(step.runWorkflow).not.toHaveBeenCalled()
+    expect(log.error).not.toHaveBeenCalled()
+  })
+
+  it("rethrows SleepSignal without logging", async () => {
+    const sleepSignal = new Error("sleep")
+    sleepSignal.name = "SleepSignal"
+    const step = mockChildStep({
+      runWorkflow: vi.fn().mockRejectedValue(sleepSignal),
+    })
     const log = { error: vi.fn() }
 
     await expect(
-      runRepositoryIngestionWorkflow(
+      claimAndRunRepositoryIngestionChild(
+        step,
         { repositoryId: "repo_1", orgId: "org_1" },
         log,
       ),
-    ).rejects.toThrow("enqueue failed")
+    ).rejects.toMatchObject({ name: "SleepSignal" })
+    expect(log.error).not.toHaveBeenCalled()
+    expect(markFailedMock).not.toHaveBeenCalled()
+  })
+
+  it("logs, releases the claim, and rethrows child failures", async () => {
+    const step = mockChildStep({
+      runWorkflow: vi.fn().mockRejectedValue(new Error("child failed")),
+    })
+    const log = { error: vi.fn() }
+
+    await expect(
+      claimAndRunRepositoryIngestionChild(
+        step,
+        { repositoryId: "repo_1", orgId: "org_1" },
+        log,
+      ),
+    ).rejects.toThrow("child failed")
+    expect(log.error).toHaveBeenCalledWith(expect.any(Error))
     expect(markFailedMock).toHaveBeenCalledWith({
       repositoryId: "repo_1",
-      error: failure,
+      error: expect.any(Error),
     })
-    expect(log.error).toHaveBeenCalledWith(failure)
   })
 })
 
@@ -426,16 +495,16 @@ describe("runConnectorRepositoryIngestionWorkflow", () => {
       hash: "sha_tip",
       branch: "main",
     })
-    runWorkflowWithWorkerWakeMock.mockResolvedValue({
-      workflowRun: { id: "run_tip", status: "pending" },
-    })
     withOrgDbContextMock.mockImplementation(
       (_orgId: string, fn: () => unknown) => Promise.resolve(fn()),
     )
   })
 
   it("recovers an uncheckpointed connector commit from the branch tip", async () => {
+    const step = mockChildStep()
+
     await runConnectorRepositoryIngestionWorkflow(
+      step,
       {
         repositoryId: "repo_1",
         orgId: "org_1",
@@ -451,7 +520,7 @@ describe("runConnectorRepositoryIngestionWorkflow", () => {
       branch: "main",
       githubConnectionId: "con_github",
     })
-    expect(runWorkflowWithWorkerWakeMock).toHaveBeenCalledWith(
+    expect(step.runWorkflow).toHaveBeenCalledWith(
       { name: "repository-ingestion-orchestrator" },
       {
         repositoryId: "repo_1",
@@ -460,17 +529,20 @@ describe("runConnectorRepositoryIngestionWorkflow", () => {
         indexingReason: "Syncing connector content",
         githubConnectionId: "con_github",
       },
-      { idempotencyKey: "connector-tip:repo_1:sha_tip" },
+      { name: "ingest-repo_1" },
     )
+    expect(runWorkflowWithWorkerWakeMock).not.toHaveBeenCalled()
   })
 
   it("does not regress an already-ingested branch tip", async () => {
+    const step = mockChildStep()
     resolveRepositoryRefMock.mockResolvedValueOnce({
       hash: "sha_ingested",
       branch: "main",
     })
 
     await runConnectorRepositoryIngestionWorkflow(
+      step,
       {
         repositoryId: "repo_1",
         orgId: "org_1",
@@ -481,6 +553,7 @@ describe("runConnectorRepositoryIngestionWorkflow", () => {
     )
 
     expect(tryClaimMock).not.toHaveBeenCalled()
+    expect(step.runWorkflow).not.toHaveBeenCalled()
     expect(runWorkflowWithWorkerWakeMock).not.toHaveBeenCalled()
   })
 })

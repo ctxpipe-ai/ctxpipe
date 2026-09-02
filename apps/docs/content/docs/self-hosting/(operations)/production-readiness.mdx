@@ -64,6 +64,16 @@ Do not treat the reference Compose volumes as disposable in production.
 | `zoekt_index_deploy` | Persistent volume if rebuilding indexes is expensive |
 | Secrets | Stored in a secret manager or platform secret store, not committed files |
 
+## Codesearch capacity
+
+Keep `codesearch` at **one replica**. Zoekt shards, git clone cache, and SCIP
+artifacts are process-local. Extra worker replicas do not raise ingest
+throughput unless codesearch memory and the injected
+`OPENWORKFLOW_CONCURRENCY` / `CODESEARCH_INDEXER_CONCURRENCY` /
+`CODESEARCH_INDEX_PIPELINE_CONCURRENCY` values also grow. Compose `deploy`
+uses the small pair (indexer 1, pipelines 1, worker concurrency 6). AWS CDK
+injects the matching pair for `small` / `medium` / `large`.
+
 ## Secret handling
 
 Protect and rotate:

@@ -1,7 +1,7 @@
 # Connector assets
 
 Use this reference whenever a connector reads images, files, attachments, media
-blocks, or external embeds. [ADR-026](../../../../.ai/memory/decisions/ADR-026-git-native-connector-assets.md)
+blocks, or external embeds. [ADR-028](../../../../.ai/memory/decisions/ADR-028-git-native-connector-assets.md)
 is the decision source of truth.
 
 ## Classify

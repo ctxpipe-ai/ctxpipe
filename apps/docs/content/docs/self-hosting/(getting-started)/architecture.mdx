@@ -16,7 +16,10 @@ backend origin.
 4. Auth sessions, repository records, connections, and workflow state live in
    Postgres.
 5. Repository ingestion calls `codesearch`, which clones repositories and
-   maintains Zoekt indexes.
+   maintains Zoekt indexes. Codesearch is a **single replica**: Zoekt shards,
+   git clone cache, and SCIP artifacts live on one process and one volume.
+   Extra worker replicas do not raise ingest throughput unless codesearch
+   memory (and `OPENWORKFLOW_CONCURRENCY` / indexer caps) also grow.
 6. The worker runs durable jobs for ingestion, connector setup, scoped source
    mirrors, Slack thread capture, and Forge provisioning.
 7. Extracted claims and relationships are projected into the configured graph
@@ -31,7 +34,7 @@ backend origin.
 | `backend` | `3000` | No | Public API, auth, MCP, callbacks, UI proxy |
 | `ui` | `3002` | No | Product web app, proxied by backend |
 | `worker` | internal | No | Background workflows and connector jobs |
-| `codesearch` | `3001` | Yes | Repository clone cache and Zoekt index |
+| `codesearch` | `3001` | Yes | Repository clone cache and Zoekt index. Stay at one replica. |
 | `postgres` | `5432` in container, `5433` on host by default | Yes | Primary relational state |
 | `falkordb` | `6379` Redis, `7687` Bolt | Yes | Default graph database |
 | `otel-collector` | `4318` | No | Optional OTLP collector for logs, traces, metrics |

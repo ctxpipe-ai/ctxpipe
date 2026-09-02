@@ -117,6 +117,7 @@ describe("notionSyncContent", () => {
     } as never)
 
     expect(mocks.runIngestion).toHaveBeenCalledWith(
+      expect.anything(),
       {
         repositoryId: "repo_1",
         orgId: "org_1",
@@ -145,6 +146,7 @@ describe("notionSyncContent", () => {
     } as never)
 
     expect(mocks.runIngestion).toHaveBeenCalledWith(
+      expect.anything(),
       {
         repositoryId: "repo_1",
         orgId: "org_1",
@@ -196,6 +198,7 @@ describe("notionSyncContent", () => {
       expect.objectContaining({ binding: checkpointedBinding }),
     )
     expect(mocks.runIngestion).toHaveBeenCalledWith(
+      expect.anything(),
       expect.objectContaining({
         repositoryId: "repo_original",
         targetBranch: "notion-capture",

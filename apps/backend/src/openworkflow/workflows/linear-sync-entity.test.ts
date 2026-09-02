@@ -41,6 +41,7 @@ const step = {
     async (_options: { name: string }, operation: () => Promise<unknown>) =>
       operation(),
   ),
+  runWorkflow: vi.fn(),
 }
 
 const input = {
@@ -125,11 +126,12 @@ describe("linearSyncEntity", () => {
       }),
     )
     expect(mocks.runIngestion).toHaveBeenCalledWith(
+      step,
       {
         repositoryId: "repo_1",
         orgId: "org_1",
-        indexingReason: "Applying Linear updates",
         targetBranch: "main",
+        indexingReason: "Applying Linear updates",
       },
       expect.any(Object),
     )
@@ -145,6 +147,7 @@ describe("linearSyncEntity", () => {
     await linearSyncEntity.fn({ input, step } as never)
 
     expect(mocks.runIngestion).toHaveBeenCalledWith(
+      expect.anything(),
       {
         repositoryId: "repo_1",
         orgId: "org_1",
@@ -199,6 +202,7 @@ describe("linearSyncEntity", () => {
       expect.objectContaining({ target: checkpointedTarget }),
     )
     expect(mocks.runIngestion).toHaveBeenCalledWith(
+      expect.anything(),
       expect.objectContaining({
         repositoryId: "repo_original",
         targetBranch: "linear-capture",

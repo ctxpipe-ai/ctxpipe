@@ -155,7 +155,8 @@ Sizing guidance:
 - Use `small` for pilots and cost-sensitive setups with moderate ingestion churn. Both Aurora and Neptune use burstable `db.t4g.medium` — the smallest AWS-supported combination for Aurora PostgreSQL 16.x and Neptune in most regions (dev/test oriented; not intended for production graph performance testing).
 - Use `medium` when ingestion/reindex bursts are frequent and you want more headroom. Neptune moves to memory-optimized `db.r6g.large`.
 - Use `large` for high-ingestion repositories with stricter latency requirements. Aurora and Neptune both use `db.r6g.xlarge`.
-- Scale worker first when queue pressure grows; codesearch replicas stay conservative.
+- Keep codesearch at **one replica** on every size. Zoekt shards, git clone cache, and SCIP artifacts live on one process and one EFS volume; a second replica splits that state.
+- Extra worker replicas on `large` help extract and connector jobs only. They do **not** raise ingest throughput unless codesearch memory (and the injected `OPENWORKFLOW_CONCURRENCY` / indexer caps) also grow. Each size injects per-worker concurrency so the cluster cannot stampede the single codesearch task (`small` 6, `medium` 10, `large` 8×2 workers with index pipelines capped at 2).
 - Codesearch memory is sized for **ingest peaks** (Zoekt/SCIP), not idle RSS. Fargate cannot grow a running task; `small` is 4 GiB, `medium` 8 GiB, `large` 12 GiB.
 
 Networking note:

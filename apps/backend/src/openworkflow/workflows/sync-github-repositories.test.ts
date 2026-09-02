@@ -3,7 +3,11 @@ import { beforeEach, describe, expect, it, vi } from "vitest"
 const getGithubInstallationByConnectionIdMock = vi.hoisted(() => vi.fn())
 const listAllReposForInstallationMock = vi.hoisted(() => vi.fn())
 const bulkCreateRepositoriesForOrgMock = vi.hoisted(() => vi.fn())
-const runRepositoryIngestionWorkflowMock = vi.hoisted(() => vi.fn())
+const claimAndRunRepositoryIngestionChildMock = vi.hoisted(() => vi.fn())
+
+vi.mock("../../config/env.js", () => ({
+  parseEnv: vi.fn(() => ({})),
+}))
 
 vi.mock("../../models/github-installation.js", () => ({
   getGithubInstallationByConnectionId: getGithubInstallationByConnectionIdMock,
@@ -15,7 +19,7 @@ vi.mock("../../models/repositories.js", () => ({
 }))
 
 vi.mock("../enqueue-repository-ingestion.js", () => ({
-  runRepositoryIngestionWorkflow: runRepositoryIngestionWorkflowMock,
+  claimAndRunRepositoryIngestionChild: claimAndRunRepositoryIngestionChildMock,
 }))
 
 vi.mock("../../observability/logger.js", () => ({
@@ -53,13 +57,14 @@ describe("syncGithubRepositories workflow", () => {
       },
     ])
     bulkCreateRepositoriesForOrgMock.mockResolvedValue([])
-    runRepositoryIngestionWorkflowMock.mockResolvedValue(undefined)
+    claimAndRunRepositoryIngestionChildMock.mockResolvedValue(undefined)
   })
 
   it("uses reposToSync when provided without listing all installation repos", async () => {
     const step = {
       run: async (_opts: { name: string }, fn: () => Promise<unknown>) =>
         fn(),
+      runWorkflow: vi.fn(),
     }
 
     await syncGithubRepositories.fn({
@@ -93,6 +98,7 @@ describe("syncGithubRepositories workflow", () => {
     const step = {
       run: async (_opts: { name: string }, fn: () => Promise<unknown>) =>
         fn(),
+      runWorkflow: vi.fn(),
     }
 
     await syncGithubRepositories.fn({

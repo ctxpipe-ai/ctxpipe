@@ -63,22 +63,21 @@ export const confluenceSyncSpace = defineWorkflow(
       }),
     )
 
-    await step.run({ name: "ingest-confluence-space" }, () =>
-      runConnectorRepositoryIngestionWorkflow(
-        {
-          repositoryId: target.repositoryId,
-          orgId: input.orgId,
-          targetBranch: target.branch,
-          indexingReason: "Applying Confluence updates",
-        },
-        {
-          error: (error) =>
-            getLogger().error(error, {
-              step: "confluence-sync-space.ingestion",
-              connectionId: input.connectionId,
-            }),
-        },
-      ),
+    await runConnectorRepositoryIngestionWorkflow(
+      step,
+      {
+        repositoryId: target.repositoryId,
+        orgId: input.orgId,
+        targetBranch: target.branch,
+        indexingReason: "Applying Confluence updates",
+      },
+      {
+        error: (error) =>
+          getLogger().error(error, {
+            step: "confluence-sync-space.ingestion",
+            connectionId: input.connectionId,
+          }),
+      },
     )
 
     return {

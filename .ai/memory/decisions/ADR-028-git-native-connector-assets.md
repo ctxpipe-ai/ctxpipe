@@ -1,4 +1,4 @@
-# ADR-026: Git-native connector assets
+# ADR-028: Git-native connector assets
 
 **Status:** Accepted | **Date:** 2026-08-21 | **Updated:** 2026-08-26 | **Tags:** connectors, assets, git, security, ingestion
 

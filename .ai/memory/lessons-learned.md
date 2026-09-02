@@ -209,7 +209,7 @@ Highest-priority confirmed rules for agents. Migrated from former `patterns.md` 
 - **Source:** user direction after Linear, Notion, and Slack (PR #267)
 
 ### Connector assets are durable git files
-- **Rule:** Across existing and new source connectors, copy provider-declared file attachments and explicit embedded external media into deterministic git paths and rewrite Markdown to relative links ([ADR-026](decisions/ADR-026-git-native-connector-assets.md)). Ordinary hyperlinks and link-only attachment records stay links; Linear GitHub PR/commit references remain reference-only. Use the shared connector asset boundary: HTTPS + DNS-pinned public addresses for external media, provider credentials only on trusted hosts and stripped on cross-host redirects, 25 MiB per asset / 100 MiB per entity, safe fallback stubs, binary git-SHA no-op checks, and stale-asset pruning.
+- **Rule:** Across existing and new source connectors, copy provider-declared file attachments and explicit embedded external media into deterministic git paths and rewrite Markdown to relative links ([ADR-028](decisions/ADR-028-git-native-connector-assets.md)). Ordinary hyperlinks and link-only attachment records stay links; Linear GitHub PR/commit references remain reference-only. Use the shared connector asset boundary: HTTPS + DNS-pinned public addresses for external media, provider credentials only on trusted hosts and stripped on cross-host redirects, 25 MiB per asset / 100 MiB per entity, safe fallback stubs, binary git-SHA no-op checks, and stale-asset pruning.
 - **Category:** convention
 - **Date:** 2026-08-21
 - **Source:** user-confirmed cross-connector image/file capture policy
@@ -287,7 +287,7 @@ Highest-priority confirmed rules for agents. Migrated from former `patterns.md` 
 - **Source:** migrated from patterns.md
 
 ### Notion database mirror contract
-- **Rule:** mirror each selected Notion data source as a database folder containing `index.md`, a generated `table.csv` aggregate, and canonical per-row `rows/<row>/index.md` files with row-local `assets/` ([ADR-026](decisions/ADR-026-git-native-connector-assets.md)). Keep row Markdown as the retrieval-friendly source of page properties, body content, and relative asset links; treat CSV as a human-readable tabular companion.
+- **Rule:** mirror each selected Notion data source as a database folder containing `index.md`, a generated `table.csv` aggregate, and canonical per-row `rows/<row>/index.md` files with row-local `assets/` ([ADR-028](decisions/ADR-028-git-native-connector-assets.md)). Keep row Markdown as the retrieval-friendly source of page properties, body content, and relative asset links; treat CSV as a human-readable tabular companion.
 - **Category:** convention
 - **Date:** 2026-08-11
 - **Source:** migrated from patterns.md
@@ -633,6 +633,18 @@ Highest-priority confirmed rules for agents. Migrated from former `patterns.md` 
 - **Category:** reliability
 - **Date:** 2026-08-20
 - **Source:** production Railway incident diagnosis (GitHub quota exhaustion → idle transaction termination → pg-pool acquisition timeouts)
+
+### MCP must not hold a request-wide org transaction across ctx_advisor
+- **Rule:** `/mcp` must not wrap `tools/call` in a request-wide `withOrgDbContext`. `ctx_advisor` runs the conversation graph (embeddings, planner, retrieval, agent, title LLM) for tens of seconds; an idle-in-transaction Neon/Postgres connection is then killed with `Connection terminated unexpectedly` (reproduced at 48–60s on Railway `pr-N`). Keep org id in ALS, open short transactions only for conversation writes, and treat that pg message as a transaction-scope bug rather than empty-org or advisor-prompt failure. Do not swallow the error.
+- **Category:** reliability
+- **Date:** 2026-08-31
+- **Source:** PR-304 preview black-box `ctx_advisor` tools/call on a newly created empty org (`d242c36e`)
+
+### Claude Code Stop hooks cannot use additionalContext
+- **Rule:** Emit top-level `decision: "block"` + `reason` on Claude Code Stop (same as Codex). Do **not** emit `hookSpecificOutput.additionalContext` on Stop: older CLIs and stale long-lived sessions reject the whole object (non-blocking → turn ends). Fresh 2.1.163+ accepts `additionalContext`, but the portable contract must not require it. Claude capture is **UserPromptSubmit + Stop** only — do not install `PostToolUse` observe (tool dumps become fake lessons). Stop continuation is **one-shot**: already-surfaced ids must not `decision: block` again on later turns.
+- **Category:** convention
+- **Date:** 2026-08-31
+- **Source:** Claude Code 2.1.251 Stop hook validation failure after `npx ctxpipe init`; [anthropics/claude-code#50682](https://github.com/anthropics/claude-code/issues/50682)
 
 ### Distributed OAuth connectors require a clean external-workspace acceptance test
 - **Rule:** Never treat a provider workspace that already hosts the development app as proof that a new customer installation works. OAuth grants can be workspace-specific, additive, and contaminated by dashboard installs or earlier re-authorisations; Slack can also silently suppress Events API delivery when the installed token lacks an event scope. Before shipping a distributed connector, install it through the product OAuth flow into a fresh second workspace, inspect the returned and live token scopes, exercise the real webhook-to-durable-output path, and test re-authorisation after a required scope changes. Keep provider app configuration in a committed manifest and CI-check its scopes against the backend request.

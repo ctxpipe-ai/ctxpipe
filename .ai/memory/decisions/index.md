@@ -34,4 +34,6 @@ Parent: [`.ai/memory/README.md`](../README.md).
 | [ADR-023](ADR-023-notion-connector-git-native-mirror.md) | Notion connector Git-native mirror | Accepted |
 | [ADR-024](ADR-024-markdown-only-local-memory-capture.md) | Markdown-only local memory with candidate-first capture | Accepted |
 | [ADR-025](ADR-025-slack-connector-git-native-mirror.md) | Slack connector as intent-based git-native capture | Accepted |
-| [ADR-026](ADR-026-git-native-connector-assets.md) | Git-native connector assets | Accepted |
+| [ADR-026](ADR-026-claude-plugin-mcp-distribution.md) | Claude plugin for hosted MCP distribution | Accepted |
+| [ADR-027](ADR-027-codesearch-openworkflow-concurrency.md) | Size-based OpenWorkflow concurrency for single-instance codesearch | Accepted |
+| [ADR-028](ADR-028-git-native-connector-assets.md) | Git-native connector assets | Accepted |

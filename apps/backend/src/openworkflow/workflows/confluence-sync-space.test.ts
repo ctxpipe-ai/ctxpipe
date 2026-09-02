@@ -77,9 +77,9 @@ describe("confluenceSyncSpace", () => {
     expect(stepRun.mock.calls.map(([options]) => options.name)).toEqual([
       "load-confluence-space-target",
       "sync-confluence-space",
-      "ingest-confluence-space",
     ])
     expect(mocks.runIngestion).toHaveBeenCalledWith(
+      expect.anything(),
       {
         repositoryId: "repo_1",
         orgId: "org_1",
@@ -115,6 +115,7 @@ describe("confluenceSyncSpace", () => {
     } as never)
 
     expect(mocks.runIngestion).toHaveBeenCalledWith(
+      expect.anything(),
       {
         repositoryId: "repo_1",
         orgId: "org_1",
@@ -158,6 +159,7 @@ describe("confluenceSyncSpace", () => {
       expect.objectContaining({ target: checkpointedTarget }),
     )
     expect(mocks.runIngestion).toHaveBeenCalledWith(
+      expect.anything(),
       expect.objectContaining({
         repositoryId: "repo_original",
         targetBranch: "confluence-capture",

@@ -109,7 +109,6 @@ describe("slackMentionAgent workflow", () => {
       "post-slack-working-status",
       "capture-slack-thread",
       "publish-slack-capture-status",
-      "ingest-slack-capture",
     ])
     expect(postStatusMock).toHaveBeenCalledWith(
       expect.objectContaining({
@@ -132,6 +131,7 @@ describe("slackMentionAgent workflow", () => {
       }),
     )
     expect(runIngestionMock).toHaveBeenCalledWith(
+      expect.anything(),
       {
         repositoryId: "repo_1",
         orgId: "org_1",
@@ -164,6 +164,7 @@ describe("slackMentionAgent workflow", () => {
     )
 
     expect(runIngestionMock).toHaveBeenCalledWith(
+      expect.anything(),
       {
         repositoryId: "repo_1",
         orgId: "org_1",
@@ -208,6 +209,7 @@ describe("slackMentionAgent workflow", () => {
       expect.objectContaining({ target: checkpointedTarget }),
     )
     expect(runIngestionMock).toHaveBeenCalledWith(
+      expect.anything(),
       expect.objectContaining({
         repositoryId: "repo_original",
         targetBranch: "capture-branch",

@@ -21,7 +21,10 @@ vi.mock("../../observability/logger.js", () => ({
 }))
 
 import { CODEBASE_DIDNT_FIT_AVAILABLE_MEMORY } from "../../lib/memoryFitError.js"
-import { codesearchIndexZoekt } from "./codesearchIndexPhases.js"
+import {
+  CodesearchAdmissionBusyError,
+  codesearchIndexZoekt,
+} from "./codesearchIndexPhases.js"
 
 describe("codesearchIndexZoekt", () => {
   beforeEach(() => {
@@ -70,6 +73,25 @@ describe("codesearchIndexZoekt", () => {
     await expect(
       codesearchIndexZoekt({ repositoryId: "repo_1", orgId: "org_1" }),
     ).rejects.toThrow(CODEBASE_DIDNT_FIT_AVAILABLE_MEMORY)
+    vi.unstubAllGlobals()
+  })
+
+  it("throws CodesearchAdmissionBusyError on HTTP 429 without mapping to memory-fit", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue(
+        new Response(
+          JSON.stringify({ error: "Index pipeline capacity exceeded" }),
+          {
+            status: 429,
+            headers: { "Retry-After": "30" },
+          },
+        ),
+      ),
+    )
+    await expect(
+      codesearchIndexZoekt({ repositoryId: "repo_1", orgId: "org_1" }),
+    ).rejects.toBeInstanceOf(CodesearchAdmissionBusyError)
     vi.unstubAllGlobals()
   })
 })

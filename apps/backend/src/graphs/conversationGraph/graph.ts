@@ -2,6 +2,7 @@ import { END, START, StateGraph } from "@langchain/langgraph"
 import { PostgresSaver } from "@langchain/langgraph-checkpoint-postgres"
 import "@langchain/langgraph/zod"
 import { Pool } from "pg"
+import { wrapPoolQueryWithTransientRetry } from "../../db/transientDbRetry.js"
 import { log } from "../../observability/logger.js"
 import { agentNode } from "./nodes/agent.js"
 import { assembleNode } from "./nodes/assemble.js"
@@ -64,6 +65,7 @@ if (process.env.DATABASE_URL) {
       error: err instanceof Error ? err.message : String(err),
     })
   })
+  wrapPoolQueryWithTransientRetry(checkpointPool)
   checkpointer = new PostgresSaver(checkpointPool)
   await checkpointer.setup()
 }

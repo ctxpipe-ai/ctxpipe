@@ -112,22 +112,21 @@ export const slackMentionAgent = defineWorkflow(
       throw new Error(outcome.error ?? "Slack mention agent failed")
     }
     if (outcome.kind === "captured") {
-      await step.run({ name: "ingest-slack-capture" }, () =>
-        runConnectorRepositoryIngestionWorkflow(
-          {
-            repositoryId: target.repositoryId,
-            orgId: input.orgId,
-            targetBranch: target.branch,
-            indexingReason: "Applying Slack capture",
-          },
-          {
-            error: (error) =>
-              getLogger().error(error, {
-                step: "slack-mention-agent.ingestion",
-                connectionId: input.connectionId,
-              }),
-          },
-        ),
+      await runConnectorRepositoryIngestionWorkflow(
+        step,
+        {
+          repositoryId: target.repositoryId,
+          orgId: input.orgId,
+          targetBranch: target.branch,
+          indexingReason: "Applying Slack capture",
+        },
+        {
+          error: (error) =>
+            getLogger().error(error, {
+              step: "slack-mention-agent.ingestion",
+              connectionId: input.connectionId,
+            }),
+        },
       )
     }
     return outcome

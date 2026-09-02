@@ -148,22 +148,21 @@ export const linearSyncEntity = defineWorkflow(
       },
     )
 
-    await step.run({ name: "ingest-linear-entity" }, () =>
-      runConnectorRepositoryIngestionWorkflow(
-        {
-          repositoryId: context.target.repositoryId,
-          orgId: input.orgId,
-          targetBranch: context.target.branch,
-          indexingReason: "Applying Linear updates",
-        },
-        {
-          error: (error) =>
-            getLogger().error(error, {
-              step: "linear-sync-entity.ingestion",
-              connectionId: input.connectionId,
-            }),
-        },
-      ),
+    await runConnectorRepositoryIngestionWorkflow(
+      step,
+      {
+        repositoryId: context.target.repositoryId,
+        orgId: input.orgId,
+        targetBranch: context.target.branch,
+        indexingReason: "Applying Linear updates",
+      },
+      {
+        error: (error) =>
+          getLogger().error(error, {
+            step: "linear-sync-entity.ingestion",
+            connectionId: input.connectionId,
+          }),
+      },
     )
 
     return result
