@@ -164,12 +164,34 @@ export async function exchangeSlackOAuthCode(input: {
 
 const SLACK_API_MAX_ATTEMPTS = 3
 
+async function waitForSlackApiRetry(
+  delayMs: number,
+  signal?: AbortSignal,
+): Promise<void> {
+  await new Promise<void>((resolve, reject) => {
+    if (signal?.aborted) {
+      reject(signal.reason ?? new Error("Slack API request aborted"))
+      return
+    }
+    const onAbort = () => {
+      clearTimeout(timeout)
+      reject(signal?.reason ?? new Error("Slack API request aborted"))
+    }
+    const timeout = setTimeout(() => {
+      signal?.removeEventListener("abort", onAbort)
+      resolve()
+    }, delayMs)
+    signal?.addEventListener("abort", onAbort, { once: true })
+  })
+}
+
 async function slackApiCall<T extends { ok: boolean; error?: string }>(input: {
   method: string
   botToken: string
   query?: Record<string, string | undefined>
   /** When set, send a JSON POST body (chat.postMessage / chat.update). */
   jsonBody?: Record<string, unknown>
+  signal?: AbortSignal
 }): Promise<T> {
   const url = new URL(`${SLACK_API}/${input.method}`)
   for (const [key, value] of Object.entries(input.query ?? {})) {
@@ -189,10 +211,11 @@ async function slackApiCall<T extends { ok: boolean; error?: string }>(input: {
             : {}),
         },
         body: input.jsonBody ? JSON.stringify(input.jsonBody) : undefined,
+        ...(input.signal ? { signal: input.signal } : {}),
       })
     } catch (error) {
       if (attempt >= SLACK_API_MAX_ATTEMPTS - 1) throw error
-      await new Promise((resolve) => setTimeout(resolve, 250 * 2 ** attempt))
+      await waitForSlackApiRetry(250 * 2 ** attempt, input.signal)
       continue
     }
 
@@ -201,25 +224,38 @@ async function slackApiCall<T extends { ok: boolean; error?: string }>(input: {
       retryAfterRaw && /^\d+$/.test(retryAfterRaw)
         ? Number(retryAfterRaw)
         : undefined
-    const json = (await res.json()) as T
-    const rateLimited = res.status === 429 || json.error === "ratelimited"
+    const statusRateLimited = res.status === 429
     const serverError = res.status >= 500
 
-    if ((rateLimited || serverError) && attempt < SLACK_API_MAX_ATTEMPTS - 1) {
-      const delayMs = rateLimited
-        ? Math.max(250, (retryAfterSeconds ?? 1) * 1000)
-        : 250 * 2 ** attempt
-      lastError = new SlackApiError({
-        slackError: rateLimited
-          ? "ratelimited"
-          : (json.error ?? `http_${res.status}`),
+    if (statusRateLimited || serverError) {
+      const statusError = new SlackApiError({
+        slackError: statusRateLimited ? "ratelimited" : `http_${res.status}`,
         status: res.status,
         retryAfterSeconds,
       })
-      await new Promise((resolve) => setTimeout(resolve, delayMs))
+      if (attempt >= SLACK_API_MAX_ATTEMPTS - 1) throw statusError
+      const delayMs = statusRateLimited
+        ? Math.max(250, (retryAfterSeconds ?? 1) * 1000)
+        : 250 * 2 ** attempt
+      lastError = statusError
+      await waitForSlackApiRetry(delayMs, input.signal)
       continue
     }
 
+    const json = (await res.json()) as T
+    const rateLimited = json.error === "ratelimited"
+    if (rateLimited && attempt < SLACK_API_MAX_ATTEMPTS - 1) {
+      lastError = new SlackApiError({
+        slackError: "ratelimited",
+        status: res.status,
+        retryAfterSeconds,
+      })
+      await waitForSlackApiRetry(
+        Math.max(250, (retryAfterSeconds ?? 1) * 1000),
+        input.signal,
+      )
+      continue
+    }
     if (rateLimited) {
       throw new SlackApiError({
         slackError: "ratelimited",
@@ -259,6 +295,41 @@ export function botTokenFromConnection(
   return token
 }
 
+export type SlackApiFile = {
+  id?: string
+  name?: string
+  title?: string
+  mimetype?: string
+  size?: number
+  /** Stable Slack UI link (preferred for git stubs). */
+  permalink?: string
+  permalink_public?: string
+  url_private?: string
+  url_private_download?: string
+}
+
+export async function fetchSlackFileInfo(input: {
+  botToken: string
+  fileId: string
+  signal?: AbortSignal
+}): Promise<SlackApiFile | undefined> {
+  try {
+    const page = await slackApiCall<{
+      ok: boolean
+      error?: string
+      file?: SlackApiFile
+    }>({
+      method: "files.info",
+      botToken: input.botToken,
+      query: { file: input.fileId },
+      signal: input.signal,
+    })
+    return page.file
+  } catch {
+    return undefined
+  }
+}
+
 export type SlackApiMessage = {
   ts: string
   user?: string
@@ -266,16 +337,16 @@ export type SlackApiMessage = {
   thread_ts?: string
   reply_count?: number
   subtype?: string
-  files?: Array<{
-    id: string
-    name?: string
-    mimetype?: string
-    size?: number
-    /** Stable Slack UI link (preferred for git stubs). */
-    permalink?: string
-    permalink_public?: string
-    url_private?: string
-    url_private_download?: string
+  files?: SlackApiFile[]
+  blocks?: unknown[]
+  attachments?: Array<{
+    image_url?: string
+    title?: string
+    is_app_unfurl?: boolean
+    is_msg_unfurl?: boolean
+    is_reply_unfurl?: boolean
+    is_thread_root_unfurl?: boolean
+    files?: SlackApiFile[]
   }>
 }
 
@@ -423,7 +494,7 @@ export async function listSlackConversationReplies(input: {
         channel: input.channelId,
         ts: input.threadTs,
         cursor,
-        limit: "200",
+        limit: "100",
       },
     })
     messages.push(...(page.messages ?? []))
@@ -505,18 +576,10 @@ export async function resolveSlackUserDisplayName(input: {
   env: Env
   connection: SlackConnectionShape
   userId: string
-  cache: Map<string, string>
+  cache: Map<string, SlackUserProfile>
 }): Promise<string> {
-  const cached = input.cache.get(input.userId)
-  if (cached) return cached
-  const profileCache = new Map<string, SlackUserProfile>()
-  const profile = await resolveSlackUserProfile({
-    ...input,
-    cache: profileCache,
-  })
-  const display = profile ? `${profile.name} (@${profile.handle})` : "unknown"
-  input.cache.set(input.userId, display)
-  return display
+  const profile = await resolveSlackUserProfile(input)
+  return profile ? `${profile.name} (@${profile.handle})` : "unknown"
 }
 
 export async function getSlackPermalink(input: {

@@ -31,7 +31,7 @@ vi.mock("../../services/linear/sync.js", () => ({
   syncLinearIncrementalContent: mocks.syncIncremental,
 }))
 vi.mock("../enqueue-repository-ingestion.js", () => ({
-  claimAndRunRepositoryIngestionChild: mocks.runIngestion,
+  runConnectorRepositoryIngestionWorkflow: mocks.runIngestion,
 }))
 
 import { linearSyncEntity } from "./linear-sync-entity.js"
@@ -76,6 +76,7 @@ describe("linearSyncEntity", () => {
     mocks.syncIncremental.mockResolvedValue({
       written: 1,
       deleted: 0,
+      commitSha: "sha-linear-entity",
       failures: [],
     })
     mocks.runIngestion.mockResolvedValue(undefined)
@@ -132,6 +133,80 @@ describe("linearSyncEntity", () => {
         targetBranch: "main",
         indexingReason: "Applying Linear updates",
       },
+      expect.any(Object),
+    )
+  })
+
+  it("checks the branch tip when replaying an unchanged entity", async () => {
+    mocks.syncIncremental.mockResolvedValueOnce({
+      written: 0,
+      deleted: 0,
+      failures: [],
+    })
+
+    await linearSyncEntity.fn({ input, step } as never)
+
+    expect(mocks.runIngestion).toHaveBeenCalledWith(
+      expect.anything(),
+      {
+        repositoryId: "repo_1",
+        orgId: "org_1",
+        indexingReason: "Applying Linear updates",
+        targetBranch: "main",
+      },
+      expect.any(Object),
+    )
+  })
+
+  it("keeps the checkpointed repository target when a binding is rebound during replay", async () => {
+    const checkpointedTarget = {
+      repositoryId: "repo_original",
+      repositoryName: "acme/context",
+      githubConnectionId: "con_github",
+      branch: "linear-capture",
+      enabled: true,
+      setupPhase: "live",
+    }
+    mocks.getTarget.mockResolvedValueOnce({
+      ...checkpointedTarget,
+      repositoryId: "repo_rebound",
+      branch: "main",
+    })
+    const replayStep = {
+      run: async (
+        options: { name: string },
+        operation: () => Promise<unknown>,
+      ) => {
+        if (options.name === "load-linear-entity-context") {
+          return {
+            connection: {
+              id: "con_linear",
+              workspaceId: "workspace_1",
+              status: "installed",
+            },
+            target: checkpointedTarget,
+            config: {
+              workspaceId: "workspace_1",
+              workspaceName: "Acme",
+              scopes: [],
+            },
+          }
+        }
+        return operation()
+      },
+    }
+
+    await linearSyncEntity.fn({ input, step: replayStep } as never)
+
+    expect(mocks.syncIncremental).toHaveBeenCalledWith(
+      expect.objectContaining({ target: checkpointedTarget }),
+    )
+    expect(mocks.runIngestion).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.objectContaining({
+        repositoryId: "repo_original",
+        targetBranch: "linear-capture",
+      }),
       expect.any(Object),
     )
   })

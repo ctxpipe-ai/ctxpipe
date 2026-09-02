@@ -30,7 +30,7 @@ vi.mock("../../services/notion/sync.js", () => ({
   syncNotionIncrementalContent: mocks.syncIncremental,
 }))
 vi.mock("../enqueue-repository-ingestion.js", () => ({
-  claimAndRunRepositoryIngestionChild: mocks.runIngestion,
+  runConnectorRepositoryIngestionWorkflow: mocks.runIngestion,
 }))
 
 import { notionSyncEntity } from "./notion-sync-entity.js"
@@ -72,6 +72,7 @@ describe("notionSyncEntity", () => {
       status: "completed",
       written: 1,
       deleted: 0,
+      commitSha: "sha-notion-entity",
       errors: [],
     })
     mocks.runIngestion.mockResolvedValue(undefined)
@@ -128,7 +129,7 @@ describe("notionSyncEntity", () => {
     )
   })
 
-  it("does not ingest when nothing changed", async () => {
+  it("checks the branch tip when replaying an unchanged entity", async () => {
     mocks.syncIncremental.mockResolvedValueOnce({
       status: "completed",
       written: 0,
@@ -138,7 +139,65 @@ describe("notionSyncEntity", () => {
 
     await notionSyncEntity.fn({ input, step } as never)
 
-    expect(mocks.runIngestion).not.toHaveBeenCalled()
+    expect(mocks.runIngestion).toHaveBeenCalledWith(
+      expect.anything(),
+      {
+        repositoryId: "repo_1",
+        orgId: "org_1",
+        indexingReason: "Applying Notion updates",
+        targetBranch: "main",
+      },
+      expect.any(Object),
+    )
+  })
+
+  it("keeps the checkpointed repository target when a binding is rebound during replay", async () => {
+    const checkpointedBinding = {
+      repositoryId: "repo_original",
+      repositoryName: "acme/context",
+      githubConnectionId: "con_github",
+      branch: "notion-capture",
+      enabled: true,
+      setupPhase: "live",
+    }
+    mocks.getBinding.mockResolvedValueOnce({
+      ...checkpointedBinding,
+      repositoryId: "repo_rebound",
+      branch: "main",
+    })
+    const replayStep = {
+      run: async (
+        options: { name: string },
+        operation: () => Promise<unknown>,
+      ) => {
+        if (options.name === "load-notion-entity-context") {
+          return {
+            connection: {
+              id: "con_notion",
+              status: "installed",
+              accessToken: "tok",
+            },
+            binding: checkpointedBinding,
+            config: { resources: [] },
+          }
+        }
+        return operation()
+      },
+    }
+
+    await notionSyncEntity.fn({ input, step: replayStep } as never)
+
+    expect(mocks.syncIncremental).toHaveBeenCalledWith(
+      expect.objectContaining({ binding: checkpointedBinding }),
+    )
+    expect(mocks.runIngestion).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.objectContaining({
+        repositoryId: "repo_original",
+        targetBranch: "notion-capture",
+      }),
+      expect.any(Object),
+    )
   })
 
   it("fails the retryable OpenWorkflow step when the entity cannot sync", async () => {

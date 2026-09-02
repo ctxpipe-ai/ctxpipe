@@ -14,9 +14,7 @@ export type InstallationEvent = {
     name?: string
     ownerAccountId?: string
   }
-  eventType:
-    | "avi:forge:installed:app"
-    | "avi:forge:upgraded:app"
+  eventType: "avi:forge:installed:app" | "avi:forge:upgraded:app"
   environment: {
     id: string
   }
@@ -67,6 +65,14 @@ export type ConfluencePageUpdatedForgeEvent = ConfluenceForgeEventBase & {
   }
 }
 
+export type ConfluencePageMovedForgeEvent = Omit<
+  ConfluencePageUpdatedForgeEvent,
+  "eventType"
+> & {
+  eventType: "avi:confluence:moved:page"
+  prevContent: ConfluencePageUpdatedForgeEvent["content"]
+}
+
 export type ConfluencePageDeletedForgeEvent = ConfluenceForgeEventBase & {
   eventType: "avi:confluence:deleted:page"
   content: {
@@ -82,6 +88,29 @@ export type ConfluencePageDeletedForgeEvent = ConfluenceForgeEventBase & {
       name: string
       type: "global" | "personal"
       status: "current" | "archived"
+    }
+  }
+}
+
+type ConfluenceAttachmentForgeEvent = ConfluenceForgeEventBase & {
+  eventType:
+    | "avi:confluence:created:attachment"
+    | "avi:confluence:updated:attachment"
+    | "avi:confluence:archived:attachment"
+    | "avi:confluence:unarchived:attachment"
+    | "avi:confluence:trashed:attachment"
+    | "avi:confluence:restored:attachment"
+    | "avi:confluence:deleted:attachment"
+  attachment: {
+    id: string
+    type: "attachment"
+    status: string
+    title: string
+    space: { id: number; key: string }
+    container: {
+      id: string
+      type: string
+      space: { id: number; key: string }
     }
   }
 }
@@ -113,8 +142,11 @@ export type ConfluenceSpaceDeletedForgeEvent = ConfluenceForgeEventBase & {
 export type ConfluenceHandledForgeEvent =
   | ConfluencePageCreatedForgeEvent
   | ConfluencePageUpdatedForgeEvent
+  | ConfluencePageMovedForgeEvent
   | ConfluencePageDeletedForgeEvent
+  | ConfluenceAttachmentForgeEvent
   | ConfluenceSpaceUpdatedForgeEvent
   | ConfluenceSpaceDeletedForgeEvent
 
-export type ConfluenceHandledEventType = ConfluenceHandledForgeEvent["eventType"]
+export type ConfluenceHandledEventType =
+  ConfluenceHandledForgeEvent["eventType"]

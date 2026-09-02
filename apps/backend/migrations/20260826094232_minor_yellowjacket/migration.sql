@@ -1,0 +1,1 @@
+ALTER TABLE "repositories" ADD COLUMN "indexing_follow_up_pending" boolean DEFAULT false NOT NULL;

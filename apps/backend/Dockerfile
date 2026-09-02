@@ -1,7 +1,9 @@
 # Build from monorepo root: docker build -f apps/backend/Dockerfile .
-FROM oven/bun:1.2-alpine AS deps
+FROM oven/bun:1.3.11-alpine AS deps
 WORKDIR /app
 ENV CI=true
+# pnpm is a Node CLI. Running it through Bun can stall during lifecycle scripts.
+RUN apk add --no-cache nodejs
 RUN bun install -g pnpm@10.12.1
 COPY package.json pnpm-workspace.yaml pnpm-lock.yaml* tsconfig.json ./
 COPY patches patches
@@ -9,7 +11,7 @@ COPY apps/backend/package.json apps/backend/package.json
 RUN pnpm install --frozen-lockfile --prod --config.confirmModulesPurge=false
 
 # Production stage — Bun runs TypeScript natively, no tsc compilation needed
-FROM oven/bun:1.2-alpine
+FROM oven/bun:1.3.11-alpine
 WORKDIR /app
 ENV CI=true
 ENV NODE_ENV=production

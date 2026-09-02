@@ -203,10 +203,16 @@ Highest-priority confirmed rules for agents. Migrated from former `patterns.md` 
 - **Source:** migrated from patterns.md
 
 ### New source connectors are git-native
-- **Rule:** this is how to **build new** connectors — do not retrofit Linear, Notion, Slack, or Confluence. Identity, encrypted secrets, and repo binding live on `connections.config` jsonb ([ADR-018](decisions/ADR-018-unified-connections-table.md)). No connector-specific tables (Confluence’s extra tables stay frozen). Connector **config** lives in `<slug>/config.yaml` and is created via PR; **content** may commit to the target branch. Prefer Markdown; copy images and other attachments as files. The store is git; GitHub is today’s rich PR/commit adapter. Same code for hosted and self-host; self-host traffic never transits ctxpipe SaaS (no proxy, relay, gateway, or hosted OAuth app). Process: [source-connectors skill](../../.agents/skills/source-connectors/SKILL.md).
+- **Rule:** this is how to **build new control planes** — do not retrofit Linear, Notion, Slack, or Confluence control-plane architecture. Identity, encrypted secrets, and repo binding live on `connections.config` jsonb ([ADR-018](decisions/ADR-018-unified-connections-table.md)). No connector-specific tables (Confluence’s extra tables stay frozen). Connector **config** lives in `<slug>/config.yaml` and is created via PR; **content** may commit to the target branch. Prefer Markdown. The store is git; GitHub is today’s rich PR/commit adapter. Same code for hosted and self-host; self-host traffic never transits ctxpipe SaaS (no proxy, relay, gateway, or hosted OAuth app). Process: [source-connectors skill](../../.agents/skills/source-connectors/SKILL.md).
 - **Category:** convention
 - **Date:** 2026-08-19
 - **Source:** user direction after Linear, Notion, and Slack (PR #267)
+
+### Connector assets are durable git files
+- **Rule:** Across existing and new source connectors, copy provider-declared file attachments and explicit embedded external media into deterministic git paths and rewrite Markdown to relative links ([ADR-028](decisions/ADR-028-git-native-connector-assets.md)). Ordinary hyperlinks and link-only attachment records stay links; Linear GitHub PR/commit references remain reference-only. Use the shared connector asset boundary: HTTPS + DNS-pinned public addresses for external media, provider credentials only on trusted hosts and stripped on cross-host redirects, 25 MiB per asset / 100 MiB per entity, safe fallback stubs, binary git-SHA no-op checks, and stale-asset pruning.
+- **Category:** convention
+- **Date:** 2026-08-21
+- **Source:** user-confirmed cross-connector image/file capture policy
 
 ### New source connectors follow Linear/Notion, not Confluence
 - **Rule:** do **not** copy Confluence’s control plane (`*_sync_targets` tables, config-PR columns, channel/space catalogues in Postgres, dirty-entity flush tables) when adding or simplifying a connector. Linear and Notion are the aligned pattern: identity and repo binding on `connections.config` jsonb ([ADR-022](decisions/ADR-022-linear-connector-git-native-mirror.md), [ADR-023](decisions/ADR-023-notion-connector-git-native-mirror.md)). A connector that is thinner than a git-native mirror (e.g. Slack intent capture) should stay thinner — omit `pendingConfig*`, `*/config.yaml`, and GitHub config-push remirror unless the product actually has a reviewed scope file. Keep `confluence_sync_targets` as legacy Confluence only.
@@ -281,7 +287,7 @@ Highest-priority confirmed rules for agents. Migrated from former `patterns.md` 
 - **Source:** migrated from patterns.md
 
 ### Notion database mirror contract
-- **Rule:** mirror each selected Notion data source as a database folder containing `index.md`, a generated `table.csv` aggregate, and canonical per-row `rows/<row>/index.md` files. Keep row Markdown as the retrieval-friendly source of page properties and body content; treat CSV as a human-readable tabular companion.
+- **Rule:** mirror each selected Notion data source as a database folder containing `index.md`, a generated `table.csv` aggregate, and canonical per-row `rows/<row>/index.md` files with row-local `assets/` ([ADR-028](decisions/ADR-028-git-native-connector-assets.md)). Keep row Markdown as the retrieval-friendly source of page properties, body content, and relative asset links; treat CSV as a human-readable tabular companion.
 - **Category:** convention
 - **Date:** 2026-08-11
 - **Source:** migrated from patterns.md

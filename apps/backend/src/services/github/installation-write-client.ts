@@ -21,7 +21,7 @@ type BaseInput = {
   githubConnectionId?: string
 }
 
-type CommitFile = {
+export type CommitFile = {
   path: string
   content: string
   /** Defaults to utf-8. Use base64 for binary connector assets. */
@@ -30,15 +30,53 @@ type CommitFile = {
 
 const GITHUB_API_MAX_ATTEMPTS = 3
 
+function githubErrorHeaders(
+  error: unknown,
+): Record<string, string | number | undefined> {
+  if (
+    !error ||
+    typeof error !== "object" ||
+    !("response" in error) ||
+    !error.response ||
+    typeof error.response !== "object" ||
+    !("headers" in error.response) ||
+    !error.response.headers ||
+    typeof error.response.headers !== "object"
+  ) {
+    return {}
+  }
+  return error.response.headers as Record<string, string | number | undefined>
+}
+
 function isTransientGithubError(error: unknown): boolean {
   const st = (error as { status?: number }).status
+  const headers = githubErrorHeaders(error)
+  const message = error instanceof Error ? error.message.toLowerCase() : ""
   return (
     st === 429 ||
-    (st === 422 &&
-      error instanceof Error &&
-      error.message.toLowerCase().includes("not a fast forward")) ||
+    (st === 403 &&
+      (headers["retry-after"] !== undefined ||
+        String(headers["x-ratelimit-remaining"]) === "0" ||
+        message.includes("secondary rate limit") ||
+        message.includes("abuse detection"))) ||
+    (st === 422 && message.includes("not a fast forward")) ||
     (st !== undefined && st >= 500 && st < 600)
   )
+}
+
+function githubRetryDelayMs(error: unknown, attempt: number): number {
+  const headers = githubErrorHeaders(error)
+  const retryAfter = Number(headers["retry-after"])
+  if (Number.isFinite(retryAfter) && retryAfter >= 0) {
+    return Math.min(15 * 60_000, retryAfter * 1000)
+  }
+  const resetAtSeconds = Number(headers["x-ratelimit-reset"])
+  if (Number.isFinite(resetAtSeconds) && resetAtSeconds > 0) {
+    return Math.max(0, resetAtSeconds * 1000 - Date.now())
+  }
+  const status = (error as { status?: number }).status
+  if (status === 403 || status === 429) return 60_000
+  return 300 * 2 ** attempt
 }
 
 async function withTransientGitHubRetry<T>(run: () => Promise<T>): Promise<T> {
@@ -49,7 +87,7 @@ async function withTransientGitHubRetry<T>(run: () => Promise<T>): Promise<T> {
     } catch (e) {
       last = e
       if (isTransientGithubError(e) && a < GITHUB_API_MAX_ATTEMPTS - 1) {
-        await new Promise((r) => setTimeout(r, 300 * 2 ** a))
+        await new Promise((r) => setTimeout(r, githubRetryDelayMs(e, a)))
         continue
       }
       throw e
@@ -155,7 +193,9 @@ async function getOrInitializeBaseBranch(input: {
   return getBranchHead(input)
 }
 
-export async function listFilesInTree(input: BaseInput & { branch: string }) {
+export async function listFilesInTreeWithMetadata(
+  input: BaseInput & { branch: string },
+) {
   return withTransientGitHubRetry(async () => {
     const context = await getInstallationContext(input)
     const head = await getOrInitializeBaseBranch({
@@ -170,10 +210,54 @@ export async function listFilesInTree(input: BaseInput & { branch: string }) {
       tree_sha: head.treeSha,
       recursive: "true",
     })
-    return (data.tree ?? [])
-      .filter((entry) => entry.type === "blob" && Boolean(entry.path))
-      .map((entry) => ({ path: entry.path ?? "", sha: entry.sha ?? "" }))
+    if (data.truncated) {
+      const files: Array<{ path: string; sha: string }> = []
+      const pendingTrees = [{ sha: head.treeSha, prefix: "" }]
+      let treeIndex = 0
+      while (treeIndex < pendingTrees.length) {
+        const current = pendingTrees[treeIndex]
+        treeIndex += 1
+        if (!current) break
+        const { data: subtree } = await context.octokit.rest.git.getTree({
+          owner: context.owner,
+          repo: context.repo,
+          tree_sha: current.sha,
+        })
+        if (subtree.truncated) return { files, truncated: true }
+        for (const entry of subtree.tree ?? []) {
+          if (!entry.path) continue
+          const path = current.prefix
+            ? `${current.prefix}/${entry.path}`
+            : entry.path
+          if (entry.type === "blob") {
+            files.push({ path, sha: entry.sha ?? "" })
+          } else if (entry.type === "tree" && entry.sha) {
+            pendingTrees.push({ sha: entry.sha, prefix: path })
+          }
+        }
+        if (pendingTrees.length > 10_000) {
+          return { files, truncated: true }
+        }
+      }
+      return { files, truncated: false }
+    }
+    return {
+      files: (data.tree ?? [])
+        .filter((entry) => entry.type === "blob" && Boolean(entry.path))
+        .map((entry) => ({ path: entry.path ?? "", sha: entry.sha ?? "" })),
+      truncated: Boolean(data.truncated),
+    }
   })
+}
+
+export async function listFilesInTree(input: BaseInput & { branch: string }) {
+  const tree = await listFilesInTreeWithMetadata(input)
+  if (tree.truncated) {
+    throw new Error(
+      "GitHub repository tree is truncated; refusing unsafe managed-file reconciliation",
+    )
+  }
+  return tree.files
 }
 
 export async function getFileContent(
@@ -198,7 +282,7 @@ export async function getFileContent(
         return undefined
       }
       if (isTransientGithubError(error) && a < GITHUB_API_MAX_ATTEMPTS - 1) {
-        await new Promise((r) => setTimeout(r, 300 * 2 ** a))
+        await new Promise((r) => setTimeout(r, githubRetryDelayMs(error, a)))
         continue
       }
       throw error
@@ -220,38 +304,65 @@ export async function commitFiles(
     deletePaths?: string[]
   },
 ) {
-  return withTransientGitHubRetry(async () => {
-    const context = await getInstallationContext(input)
-    const head = await getOrInitializeBaseBranch({
+  const context = await getInstallationContext(input)
+  let nextHead:
+    | Awaited<ReturnType<typeof getOrInitializeBaseBranch>>
+    | undefined = await withTransientGitHubRetry(() =>
+    getOrInitializeBaseBranch({
       octokit: context.octokit,
       owner: context.owner,
       repo: context.repo,
       branch: input.branch,
-    })
-
-    const fileEntries = await Promise.all(
-      input.files.map(async (file) => {
-        const blob = await context.octokit.rest.git.createBlob({
-          owner: context.owner,
-          repo: context.repo,
-          content: file.content,
-          encoding: file.encoding ?? "utf-8",
-        })
-        return {
-          path: file.path,
-          mode: "100644" as const,
-          type: "blob" as const,
-          sha: blob.data.sha,
-        }
+    }),
+  )
+  const fileEntries: Array<{
+    path: string
+    mode: "100644"
+    type: "blob"
+    sha: string
+  }> = []
+  let lastBinaryBlobStartedAt = 0
+  for (const file of input.files) {
+    if (file.encoding === "base64" && lastBinaryBlobStartedAt > 0) {
+      const remainingDelay = 1_000 - (Date.now() - lastBinaryBlobStartedAt)
+      if (remainingDelay > 0) {
+        await new Promise((resolve) => setTimeout(resolve, remainingDelay))
+      }
+    }
+    if (file.encoding === "base64") lastBinaryBlobStartedAt = Date.now()
+    const blob = await withTransientGitHubRetry(() =>
+      context.octokit.rest.git.createBlob({
+        owner: context.owner,
+        repo: context.repo,
+        content: file.content,
+        encoding: file.encoding ?? "utf-8",
       }),
     )
+    fileEntries.push({
+      path: file.path,
+      mode: "100644",
+      type: "blob",
+      sha: blob.data.sha,
+    })
+  }
 
-    const deleteEntries = (input.deletePaths ?? []).map((path) => ({
-      path,
-      mode: "100644" as const,
-      type: "blob" as const,
-      sha: null,
-    }))
+  const deleteEntries = (input.deletePaths ?? []).map((path) => ({
+    path,
+    mode: "100644" as const,
+    type: "blob" as const,
+    sha: null,
+  }))
+
+  return withTransientGitHubRetry(async () => {
+    const head =
+      nextHead ??
+      (await getOrInitializeBaseBranch({
+        octokit: context.octokit,
+        owner: context.owner,
+        repo: context.repo,
+        branch: input.branch,
+      }))
+    nextHead = undefined
 
     const { data: tree } = await context.octokit.rest.git.createTree({
       owner: context.owner,

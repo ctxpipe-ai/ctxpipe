@@ -1,4 +1,4 @@
-import { parseEnv } from "../../../config/env.js"
+import type { Env } from "../../../config/env.js"
 import { withOrgDbContext } from "../../../db/client.js"
 import { listConfluenceSyncTargetsWithRepoByRepositoryId } from "../../../models/confluence-sync-target.js"
 import { listInstallationsByGithubInstallationId } from "../../../models/github-installation.js"
@@ -35,6 +35,7 @@ export async function maybeEnqueueConfluenceSyncOnConfigPush(input: {
   /** Push payload SHAs — used when `commits[]` omits file paths */
   before?: string
   after?: string
+  env: Env
   log: GithubWebhookLog
   githubConnectionId?: string
 }): Promise<void> {
@@ -62,7 +63,6 @@ export async function maybeEnqueueConfluenceSyncOnConfigPush(input: {
     return
   }
 
-  const env = parseEnv(process.env as Record<string, string | undefined>)
   const compareConfigPathCache = new Map<string, Promise<boolean>>()
 
   const installationRows = (
@@ -91,7 +91,7 @@ export async function maybeEnqueueConfluenceSyncOnConfigPush(input: {
       if (cached) return cached
       const promise = compareCommitsTouchesPath({
         orgId: installationRow.orgId,
-        env,
+        env: input.env,
         repositoryName: repositoryRow.name,
         githubConnectionId: repositoryGithubConnectionId,
         baseSha: before,

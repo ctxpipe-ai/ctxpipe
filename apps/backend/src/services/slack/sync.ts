@@ -6,8 +6,22 @@ import type {
   SlackConnection,
   SlackSyncTarget,
 } from "../../models/slack-connector.js"
-import { commitFiles } from "../github/installation-write-client.js"
 import {
+  CONNECTOR_ENTITY_MAX_ASSETS,
+  createConnectorAssetBudget,
+} from "../connectors/assets.js"
+import {
+  type CommitFile,
+  commitFiles,
+  listFilesInTree,
+} from "../github/installation-write-client.js"
+import {
+  captureSlackThreadAssets,
+  slackManagedPathsForThread,
+} from "./assets.js"
+import {
+  botTokenFromConnection,
+  fetchSlackFileInfo,
   getSlackPermalink,
   listSlackConversationReplies,
   resolveSlackChannelInfo,
@@ -19,8 +33,14 @@ import {
   type SlackUserProfile,
 } from "./client.js"
 import {
+  collectSlackMessageMedia,
+  getSlackThreadDirPath,
   getSlackThreadPath,
+  resolveSlackChannelPathSlug,
+  type SlackCaptureAssetLink,
   type SlackCaptureMessage,
+  slackMediaFromFile,
+  slackMentionUserIds,
   toSlackChannelIndexFile,
   toSlackThreadMarkdownFile,
 } from "./converter.js"
@@ -59,20 +79,6 @@ async function resolveRepoContextForSyncTarget(
   })
 }
 
-/** Prefer durable Slack UI links; never persist auth-gated private download URLs. */
-function slackFileStubLink(file: {
-  id: string
-  name?: string
-  permalink?: string
-  permalink_public?: string
-}): string {
-  const permalink = file.permalink?.trim()
-  if (permalink) return permalink
-  const publicPermalink = file.permalink_public?.trim()
-  if (publicPermalink) return publicPermalink
-  return `#file-${file.id}`
-}
-
 function githubBlobUrl(input: {
   repositoryName: string
   ref: string
@@ -88,11 +94,12 @@ function githubBlobUrl(input: {
   return `https://github.com/${name}/blob/${encodeURIComponent(input.ref)}/${segments}`
 }
 
-async function buildThreadFiles(input: {
+async function buildThreadCommit(input: {
   env: Env
   connection: SlackConnection
   channelId: string
   channelName: string
+  pathSlug: string
   isPrivate: boolean
   teamId?: string | null
   threadTs: string
@@ -101,32 +108,90 @@ async function buildThreadFiles(input: {
   capturedBy?: SlackUserProfile | null
   messages: SlackApiMessage[]
   truncated?: boolean
-  userCache: Map<string, string>
-}): Promise<Array<{ path: string; content: string }>> {
-  const captureMessages: SlackCaptureMessage[] = []
-
+  profileCache: Map<string, SlackUserProfile>
+  botToken: string
+  existing: Array<{ path: string; sha: string }>
+}): Promise<{ files: CommitFile[]; keptPaths: string[]; threadDir: string }> {
+  const threadDir = getSlackThreadDirPath(input)
+  const mentionIds = new Set<string>()
   for (const message of input.messages) {
-    const userDisplay = message.user
-      ? await resolveSlackUserDisplayName({
-          env: input.env,
-          connection: input.connection,
-          userId: message.user,
-          cache: input.userCache,
-        })
-      : undefined
-    const assetLinks: Array<{ label: string; path: string }> = []
-    for (const file of message.files ?? []) {
-      if (!file.id) continue
-      const label = file.name?.trim() || file.id
-      assetLinks.push({
-        label,
-        path: slackFileStubLink(file),
+    if (message.user) mentionIds.add(message.user)
+    for (const id of slackMentionUserIds(message.text ?? "")) {
+      mentionIds.add(id)
+    }
+  }
+  for (const userId of mentionIds) {
+    await resolveSlackUserProfile({
+      env: input.env,
+      connection: input.connection,
+      userId,
+      cache: input.profileCache,
+    })
+  }
+
+  const mentionHandles = new Map(
+    [...input.profileCache.entries()].map(([userId, profile]) => [
+      userId,
+      profile.handle,
+    ]),
+  )
+
+  const assetBudget = createConnectorAssetBudget()
+  const mediaBySourceKey = new Map(
+    input.messages
+      .flatMap((message) => collectSlackMessageMedia(message))
+      .map((media) => [media.sourceKey, media]),
+  )
+  for (const [sourceKey, media] of [...mediaBySourceKey.entries()].slice(
+    0,
+    CONNECTOR_ENTITY_MAX_ASSETS,
+  )) {
+    if (media.downloadUrl || !/^F[A-Z0-9]+$/i.test(sourceKey)) continue
+    const remainingMs = assetBudget.deadlineAt - Date.now()
+    if (remainingMs <= 0) break
+    const file = await fetchSlackFileInfo({
+      botToken: input.botToken,
+      fileId: sourceKey,
+      signal: AbortSignal.timeout(remainingMs),
+    })
+    const resolved = file ? slackMediaFromFile(file) : undefined
+    if (resolved) {
+      mediaBySourceKey.set(sourceKey, {
+        ...media,
+        ...resolved,
+        sourceKey,
       })
+    }
+  }
+  const captured = await captureSlackThreadAssets({
+    threadDir,
+    botToken: input.botToken,
+    media: [...mediaBySourceKey.values()],
+    existing: input.existing,
+    budget: assetBudget,
+  })
+
+  const captureMessages: SlackCaptureMessage[] = []
+  for (const message of input.messages) {
+    const assetLinks: SlackCaptureAssetLink[] = []
+    const seen = new Set<string>()
+    for (const item of collectSlackMessageMedia(message)) {
+      if (seen.has(item.sourceKey)) continue
+      seen.add(item.sourceKey)
+      const link = captured.linksBySourceKey.get(item.sourceKey)
+      if (link) assetLinks.push(link)
     }
     captureMessages.push({
       ts: message.ts,
       userId: message.user,
-      userDisplay,
+      userDisplay: message.user
+        ? await resolveSlackUserDisplayName({
+            env: input.env,
+            connection: input.connection,
+            userId: message.user,
+            cache: input.profileCache,
+          })
+        : undefined,
       text: message.text ?? "",
       assetLinks,
     })
@@ -135,6 +200,7 @@ async function buildThreadFiles(input: {
   const md = toSlackThreadMarkdownFile({
     channelId: input.channelId,
     channelName: input.channelName,
+    pathSlug: input.pathSlug,
     isPrivate: input.isPrivate,
     teamId: input.teamId,
     threadTs: input.threadTs,
@@ -142,9 +208,14 @@ async function buildThreadFiles(input: {
     capturedAt: input.capturedAt,
     capturedBy: input.capturedBy,
     truncated: input.truncated,
+    mentionHandles,
     messages: captureMessages,
   })
-  return [{ path: md.path, content: md.content }]
+  return {
+    files: [{ path: md.path, content: md.content }, ...captured.files],
+    keptPaths: captured.keptPaths,
+    threadDir,
+  }
 }
 
 export type SlackCaptureErrorCode =
@@ -213,7 +284,7 @@ export function classifySlackCaptureError(
  *
  * `excludeMessageTs` omits the in-thread status reply from the snapshot so the
  * working → captured progress message is not ingested as engineering context.
- * Recapture always writes `slack/channels/.../threads/<yyyy>/<mm>/<threadTs>/index.md`
+ * Recapture always writes `slack/channels/.../threads/<yyyy>/<mm>/<threadTs>/thread.md`
  * keyed on the thread root `ts`, not the mention `ts`.
  */
 export async function captureSlackThread(input: {
@@ -273,7 +344,14 @@ export async function captureSlackThread(input: {
       }
     }
 
-    const userCache = new Map<string, string>()
+    const existing = await listFilesInTree({
+      orgId: input.orgId,
+      env: input.env,
+      repositoryName,
+      githubConnectionId,
+      branch: input.target.branch,
+    })
+
     const profileCache = new Map<string, SlackUserProfile>()
     const capturedBy = input.capturedByUserId
       ? await resolveSlackUserProfile({
@@ -290,18 +368,27 @@ export async function captureSlackThread(input: {
       messageTs: input.threadTs,
     })
     const capturedAt = new Date().toISOString()
+    const botToken = botTokenFromConnection(input.connection, input.env)
+    const pathSlug = resolveSlackChannelPathSlug({
+      existingPaths: existing.map((file) => file.path),
+      channelId: input.channelId,
+      threadTs: input.threadTs,
+      channelName,
+    })
 
     const channelIndex = toSlackChannelIndexFile({
       channelId: input.channelId,
       channelName,
+      pathSlug,
       isPrivate,
       teamId: input.connection.teamId,
     })
-    const threadFiles = await buildThreadFiles({
+    const threadCommit = await buildThreadCommit({
       env: input.env,
       connection: input.connection,
       channelId: input.channelId,
       channelName,
+      pathSlug,
       isPrivate,
       teamId: input.connection.teamId,
       threadTs: input.threadTs,
@@ -310,13 +397,25 @@ export async function captureSlackThread(input: {
       capturedBy,
       messages,
       truncated,
-      userCache,
+      profileCache,
+      botToken,
+      existing,
     })
     const threadPath = getSlackThreadPath({
       channelId: input.channelId,
       channelName,
+      pathSlug,
       threadTs: input.threadTs,
     })
+    const nextPaths = new Set([
+      channelIndex.path,
+      ...threadCommit.files.map((file) => file.path),
+      ...threadCommit.keptPaths,
+    ])
+    const deletePaths = slackManagedPathsForThread(
+      existing.map((file) => file.path),
+      threadCommit.threadDir,
+    ).filter((path) => !nextPaths.has(path))
 
     const commit = await commitFiles({
       orgId: input.orgId,
@@ -325,8 +424,8 @@ export async function captureSlackThread(input: {
       branch: input.target.branch,
       githubConnectionId,
       message: `chore(slack): capture thread ${input.threadTs} from #${channelName}`,
-      files: [channelIndex, ...threadFiles],
-      deletePaths: [],
+      files: [channelIndex, ...threadCommit.files],
+      deletePaths,
     })
 
     return {

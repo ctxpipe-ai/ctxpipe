@@ -4,8 +4,8 @@ import { parseEnv } from "../../config/env.js"
 import { withOrgDbContext } from "../../db/client.js"
 import {
   finalizeLinearBindingAfterContentWorkflow,
-  getLinearConnectionByConnectionId,
   getLinearBindingWithRepoByConnectionId,
+  getLinearConnectionByConnectionId,
   refreshLinearConnectionTokensWithLock,
 } from "../../models/linear-connector.js"
 import { getLogger } from "../../observability/logger.js"
@@ -15,7 +15,7 @@ import {
 } from "../../services/linear/client.js"
 import { loadLinearScopeFromRepo } from "../../services/linear/config-from-repo.js"
 import { syncLinearContentToGit } from "../../services/linear/sync.js"
-import { claimAndRunRepositoryIngestionChild } from "../enqueue-repository-ingestion.js"
+import { runConnectorRepositoryIngestionWorkflow } from "../enqueue-repository-ingestion.js"
 
 const LinearSyncContentInputSchema = z.object({
   orgId: z.string().min(1),
@@ -111,7 +111,7 @@ export const linearSyncContent = defineWorkflow(
       )
 
       if (result.status !== "failed") {
-        await claimAndRunRepositoryIngestionChild(
+        await runConnectorRepositoryIngestionWorkflow(
           step,
           {
             repositoryId: context.target.repositoryId,

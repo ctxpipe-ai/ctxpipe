@@ -1,11 +1,27 @@
-import { and, count, eq, isNull, lt, lte, notInArray, or } from "drizzle-orm"
-import { requireCurrentOrgId } from "../auth/context.js"
-import { type Db, getOrgDb, getSystemDb, withOrgDbContext } from "../db/client.js"
 import {
-  repositories,
-} from "../db/schema/repositories.js"
+  and,
+  count,
+  eq,
+  inArray,
+  isNull,
+  lt,
+  lte,
+  notInArray,
+  or,
+} from "drizzle-orm"
+import { requireCurrentOrgId } from "../auth/context.js"
+import {
+  type Db,
+  getOrgDb,
+  getSystemDb,
+  withOrgDbContext,
+} from "../db/client.js"
+import { repositories } from "../db/schema/repositories.js"
 import { repositoryCheckouts } from "../db/schema/repository_checkouts.js"
-import { type IndexingStepKey, resolveIndexingStep } from "../domain/indexingSteps.js"
+import {
+  type IndexingStepKey,
+  resolveIndexingStep,
+} from "../domain/indexingSteps.js"
 import {
   applyRepositoryDeletionGraphCleanup,
   notifyCodesearchRepositoryDeleted,
@@ -24,8 +40,17 @@ export type RepositoryIndexingStatus = NonNullable<
 >
 
 /** Repository row shape used by API and tools (includes primary Zoekt id from default checkout). */
-export type RepositoryWithSearch = typeof repositories.$inferSelect & {
-  zoektRepoId: number
+export type RepositoryWithSearch = Omit<
+  typeof repositories.$inferSelect,
+  "indexingFollowUpPending"
+> & { zoektRepoId: number }
+
+function withoutRepositoryControlState(
+  repository: typeof repositories.$inferSelect,
+): Omit<typeof repositories.$inferSelect, "indexingFollowUpPending"> {
+  const { indexingFollowUpPending: _indexingFollowUpPending, ...publicRow } =
+    repository
+  return publicRow
 }
 
 const repositoryWithZoektSelect = {
@@ -275,6 +300,46 @@ export const INDEXING_QUEUED_STALE_MS = 30 * 60 * 1000
  */
 export const INDEXING_RUNNING_STALE_MS = 6 * 60 * 60 * 1000
 
+export async function markRepositoryIndexingFollowUpPending(input: {
+  repositoryId: string
+}): Promise<void> {
+  await getOrgDb()
+    .update(repositories)
+    .set({ indexingFollowUpPending: true })
+    .where(eq(repositories.id, input.repositoryId))
+}
+
+export async function clearRepositoryIndexingFollowUpPending(input: {
+  repositoryId: string
+  ingestedHash: string
+}): Promise<boolean> {
+  const cleared = await getOrgDb()
+    .update(repositories)
+    .set({ indexingFollowUpPending: false })
+    .where(
+      and(
+        eq(repositories.id, input.repositoryId),
+        eq(repositories.lastIngestedHash, input.ingestedHash),
+        inArray(repositories.indexingStatus, ["ready", "complete_with_issues"]),
+      ),
+    )
+    .returning({ id: repositories.id })
+  return cleared.length > 0
+}
+
+export async function hasPendingRepositoryIndexingFollowUp(input: {
+  repositoryId: string
+}): Promise<boolean> {
+  const [row] = await getOrgDb()
+    .select({
+      indexingFollowUpPending: repositories.indexingFollowUpPending,
+    })
+    .from(repositories)
+    .where(eq(repositories.id, input.repositoryId))
+    .limit(1)
+  return row?.indexingFollowUpPending ?? false
+}
+
 /**
  * Marks a repository queued for a new ingestion orchestrator only when it is
  * not already `queued` or `running` (single-flight per repo), unless that
@@ -294,38 +359,61 @@ export async function tryClaimRepositoryIndexingEnqueue(input: {
   if (!queuedStep) throw new Error("Failed to resolve queued indexing step")
   const queuedStaleBefore = new Date(nowMs - INDEXING_QUEUED_STALE_MS)
   const runningStaleBefore = new Date(nowMs - INDEXING_RUNNING_STALE_MS)
-  const updated = await db
-    .update(repositories)
-    .set({
-      indexReady: false,
-      indexingStatus: "queued",
-      indexingError: null,
-      indexingFailedAt: null,
-      indexingReason: input.reason,
-      indexingStep: queuedStep.step,
-      indexingStepTotal: queuedStep.total,
-      indexingStepKey: queuedStep.key,
-      updatedAt: new Date(nowMs),
-    })
-    .where(
-      and(
-        eq(repositories.id, input.repositoryId),
-        or(
-          isNull(repositories.indexingStatus),
-          notInArray(repositories.indexingStatus, ["queued", "running"]),
-          and(
-            eq(repositories.indexingStatus, "queued"),
-            lt(repositories.updatedAt, queuedStaleBefore),
-          ),
-          and(
-            eq(repositories.indexingStatus, "running"),
-            lt(repositories.updatedAt, runningStaleBefore),
+  for (;;) {
+    const claimed = await db
+      .update(repositories)
+      .set({
+        indexReady: false,
+        indexingStatus: "queued",
+        indexingFollowUpPending: false,
+        indexingError: null,
+        indexingFailedAt: null,
+        indexingReason: input.reason,
+        indexingStep: queuedStep.step,
+        indexingStepTotal: queuedStep.total,
+        indexingStepKey: queuedStep.key,
+        updatedAt: new Date(nowMs),
+      })
+      .where(
+        and(
+          eq(repositories.id, input.repositoryId),
+          or(
+            isNull(repositories.indexingStatus),
+            notInArray(repositories.indexingStatus, ["queued", "running"]),
+            and(
+              eq(repositories.indexingStatus, "queued"),
+              lt(repositories.updatedAt, queuedStaleBefore),
+            ),
+            and(
+              eq(repositories.indexingStatus, "running"),
+              lt(repositories.updatedAt, runningStaleBefore),
+            ),
           ),
         ),
-      ),
-    )
-    .returning({ id: repositories.id })
-  return updated.length > 0
+      )
+      .returning({ id: repositories.id })
+    if (claimed.length > 0) return true
+
+    const markedPending = await db
+      .update(repositories)
+      .set({ indexingFollowUpPending: true })
+      .where(
+        and(
+          eq(repositories.id, input.repositoryId),
+          inArray(repositories.indexingStatus, ["queued", "running"]),
+        ),
+      )
+      .returning({ id: repositories.id })
+    if (markedPending.length > 0) return false
+
+    const [repository] = await db
+      .select({ id: repositories.id })
+      .from(repositories)
+      .where(eq(repositories.id, input.repositoryId))
+      .limit(1)
+    if (!repository) return false
+    // The status changed between compare-and-set attempts; retry against it.
+  }
 }
 
 /** Marks a repository as mid-unindex for UI before background cleanup runs. */
@@ -552,7 +640,7 @@ export const createRepository = async (input: {
     if (!checkout) return []
     return [
       {
-        ...repository,
+        ...withoutRepositoryControlState(repository),
         zoektRepoId: checkout.zoektRepoId,
       } satisfies RepositoryWithSearch,
     ]
@@ -600,7 +688,10 @@ async function bulkCreateRepositoriesWithDb(
         })
         .returning({ zoektRepoId: repositoryCheckouts.zoektRepoId })
       if (!checkout) continue
-      created.push({ ...repository, zoektRepoId: checkout.zoektRepoId })
+      created.push({
+        ...withoutRepositoryControlState(repository),
+        zoektRepoId: checkout.zoektRepoId,
+      })
     }
     return created
   })
@@ -641,13 +732,11 @@ export async function deleteRepository(params: {
   )
   if (pg.alreadyGone) return false
 
-  await withGraphClient(
-    { orgId: params.orgId, orgSlug: params.orgSlug },
-    () =>
-      applyRepositoryDeletionGraphCleanup({
-        repositoryId: params.repositoryId,
-        graphEffects: pg.graphEffects,
-      }),
+  await withGraphClient({ orgId: params.orgId, orgSlug: params.orgSlug }, () =>
+    applyRepositoryDeletionGraphCleanup({
+      repositoryId: params.repositoryId,
+      graphEffects: pg.graphEffects,
+    }),
   )
 
   if (pg.name != null && pg.zoektRepoId != null && pg.zoektRepoId > 0) {

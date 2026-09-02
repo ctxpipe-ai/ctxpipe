@@ -7,8 +7,15 @@ import type {
   NotionBindingWithRepo,
   NotionConnection,
 } from "../../models/notion-connector.js"
-import { updateNotionConnectionTokens } from "../../models/notion-connector.js"
+import { refreshNotionConnectionTokensWithLock } from "../../models/notion-connector.js"
 import {
+  connectorPathMatchesPreservation,
+  createConnectorAssetBytePool,
+  createConnectorEntityAssetBytePool,
+  withConnectorAssetBytePoolRollback,
+} from "../connectors/assets.js"
+import {
+  type CommitFile,
   closePullRequest,
   commitFiles,
   createPullRequestWithFiles,
@@ -16,8 +23,20 @@ import {
   listFilesInTree,
   parseGithubPullNumberFromUrl,
 } from "../github/installation-write-client.js"
-import type { NotionBlock, NotionPage } from "./client.js"
-import { queryNotionDatabase } from "./client.js"
+import {
+  buildNotionDatabaseMirrorFiles,
+  buildNotionPageMirrorFiles,
+  captureNotionEntityAssets,
+  type NotionEntityAssetCapture,
+  notionCommitFilesExcludingUnchanged,
+  notionMatchingExistingAssetPaths,
+} from "./assets.js"
+import type {
+  NotionBlock,
+  NotionPage,
+  NotionTokenRefreshHandler,
+} from "./client.js"
+import { queryNotionDatabase, refreshNotionOAuthToken } from "./client.js"
 import {
   loadNotionScopeFromRepo,
   NOTION_CONFIG_PATH,
@@ -34,8 +53,6 @@ import {
   getNotionDatabaseRowPath,
   getNotionPagePath,
   notionIdKey,
-  toNotionDatabaseFiles,
-  toNotionMarkdownFile,
 } from "./converter.js"
 import {
   buildNotionIncrementalChanges,
@@ -48,6 +65,31 @@ import {
 } from "./page-tree.js"
 
 export { getNotionChildPageIds } from "./page-tree.js"
+
+function createNotionTokenRefreshHandler(input: {
+  orgId: string
+  connectionId: string
+  env: Env
+}): NotionTokenRefreshHandler {
+  return (expectedRefreshToken, expectedAccessToken) =>
+    withOrgDbContext(input.orgId, () =>
+      refreshNotionConnectionTokensWithLock({
+        ...input,
+        expectedRefreshToken,
+        expectedAccessToken,
+        refresh: async (refreshToken) => {
+          const refreshed = await refreshNotionOAuthToken({
+            env: input.env,
+            refreshToken,
+          })
+          return {
+            accessToken: refreshed.access_token,
+            refreshToken: refreshed.refresh_token ?? refreshToken,
+          }
+        },
+      }),
+    )
+}
 
 export type NotionSyncResult = {
   status: "completed" | "partial_failed" | "failed"
@@ -96,9 +138,16 @@ export function getNotionDeletePaths(input: {
   managedRepoPaths: string[]
   desiredPaths: Set<string>
   resourcesFailed: number
+  preservePathPrefixes?: readonly string[]
 }): string[] {
   if (input.resourcesFailed > 0) return []
-  return input.managedRepoPaths.filter((path) => !input.desiredPaths.has(path))
+  return input.managedRepoPaths.filter(
+    (path) =>
+      !input.desiredPaths.has(path) &&
+      !(input.preservePathPrefixes ?? []).some((prefix) =>
+        connectorPathMatchesPreservation(path, prefix),
+      ),
+  )
 }
 
 export async function syncNotionConfigYaml(input: {
@@ -196,33 +245,63 @@ export async function syncNotionContent(input: {
     )
   }
 
-  const resources = repoScope.resources.map((resource) => ({
+  const uniqueResources = new Map<
+    string,
+    ParsedNotionRepoConfig["resources"][number]
+  >()
+  for (const resource of repoScope.resources) {
+    const identity = notionIdKey(resource.externalId)
+    const existing = uniqueResources.get(identity)
+    if (!existing || (resource.type === "page" && existing.type !== "page")) {
+      uniqueResources.set(identity, resource)
+    }
+  }
+  const resources = [...uniqueResources.values()].map((resource) => ({
     externalId: resource.externalId,
     type: resource.type,
     title: resource.title,
     url: null as string | null,
   }))
-  const onTokenRefresh = async (tokens: {
-    accessToken: string
-    refreshToken: string | null
-  }) => {
-    await withOrgDbContext(input.orgId, () =>
-      updateNotionConnectionTokens({
-        orgId: input.orgId,
-        connectionId: input.notionConnection.id,
-        accessToken: tokens.accessToken,
-        refreshToken: tokens.refreshToken,
-        env: input.env,
-      }),
-    )
+  const selectedPageIds = new Set(
+    resources
+      .filter((resource) => resource.type === "page")
+      .map((resource) => notionIdKey(resource.externalId)),
+  )
+  const onTokenRefresh = createNotionTokenRefreshHandler({
+    orgId: input.orgId,
+    connectionId: input.notionConnection.id,
+    env: input.env,
+  })
+  const allRepoFiles = await listFilesInTree({
+    orgId: input.orgId,
+    env: input.env,
+    repositoryName,
+    branch: input.binding.branch,
+    githubConnectionId,
+  })
+  const existingShaByPath = new Map(
+    allRepoFiles.map((entry) => [entry.path, entry.sha]),
+  )
+  const assetBytePool = createConnectorAssetBytePool()
+  const preservePathPrefixes = new Set<string>()
+  const onPreservePathPrefix = (prefix: string) => {
+    preservePathPrefixes.add(prefix)
+    for (const path of notionMatchingExistingAssetPaths(
+      existingShaByPath.keys(),
+      prefix,
+    )) {
+      preservePathPrefixes.add(path)
+    }
   }
   const collectedPages: Array<{
     resource: (typeof resources)[number]
     entries: NotionPageTreeEntry[]
+    capturedAssetsByPageId: Map<string, NotionEntityAssetCapture>
   }> = []
   const collectedDatabases: Array<{
     resource: (typeof resources)[number]
     rows: Array<{ page: NotionPage; blocks: NotionBlock[] }>
+    capturedAssetsByPageId: Map<string, NotionEntityAssetCapture>
   }> = []
   const errors: Array<{ externalId: string; message: string }> = []
   let resourcesProcessed = 0
@@ -230,38 +309,81 @@ export async function syncNotionContent(input: {
 
   for (const resource of resources) {
     try {
-      if (resource.type !== "page") {
-        const rows = await queryNotionDatabase({
-          env: input.env,
-          connection: input.notionConnection,
-          databaseId: resource.externalId,
-          onTokenRefresh,
-        })
-        const rowsWithBlocks = []
-        for (const row of rows) {
-          rowsWithBlocks.push({
-            page: row,
-            blocks: await listBlocksDeep({
+      await withConnectorAssetBytePoolRollback(assetBytePool, async () => {
+        if (resource.type !== "page") {
+          const rows = await queryNotionDatabase({
+            env: input.env,
+            connection: input.notionConnection,
+            databaseId: resource.externalId,
+            onTokenRefresh,
+          })
+          const rowsWithBlocks = []
+          const capturedAssetsByPageId = new Map<
+            string,
+            NotionEntityAssetCapture
+          >()
+          for (const row of rows) {
+            if (selectedPageIds.has(notionIdKey(row.id))) continue
+            const blocks = await listBlocksDeep({
               env: input.env,
               connection: input.notionConnection,
               blockId: row.id,
               onTokenRefresh,
-            }),
+            })
+            rowsWithBlocks.push({ page: row, blocks })
+            capturedAssetsByPageId.set(
+              row.id,
+              await captureNotionEntityAssets({
+                markdownPath: getNotionDatabaseRowPath({ resource, page: row }),
+                page: row,
+                blocks,
+                bytePool: assetBytePool,
+                existingShaByPath,
+              }),
+            )
+          }
+          collectedDatabases.push({
+            resource,
+            rows: rowsWithBlocks,
+            capturedAssetsByPageId,
           })
+          resourcesProcessed += 1
+          return
         }
-        collectedDatabases.push({ resource, rows: rowsWithBlocks })
-        resourcesProcessed += 1
-        continue
-      }
 
-      const pages = await listNotionPageTree({
-        env: input.env,
-        connection: input.notionConnection,
-        rootPageId: resource.externalId,
-        onTokenRefresh,
+        const capturedAssetsByPageId = new Map<
+          string,
+          NotionEntityAssetCapture
+        >()
+        const pages = await listNotionPageTree({
+          env: input.env,
+          connection: input.notionConnection,
+          rootPageId: resource.externalId,
+          skipPageIds: selectedPageIds,
+          onTokenRefresh,
+          onEntry: async (entry) => {
+            capturedAssetsByPageId.set(
+              entry.page.id,
+              await captureNotionEntityAssets({
+                markdownPath: getNotionPagePath({
+                  page: entry.page,
+                  ancestors: entry.ancestors,
+                }),
+                page: entry.page,
+                blocks: entry.blocks,
+                bytePool: assetBytePool,
+                existingShaByPath,
+              }),
+            )
+          },
+        })
+        collectedPages.push({
+          resource,
+          entries: pages,
+          capturedAssetsByPageId,
+        })
+        resourcesProcessed += pages.length
       })
-      collectedPages.push({ resource, entries: pages })
-      resourcesProcessed += pages.length
     } catch (error) {
       resourcesFailed += 1
       errors.push({
@@ -297,38 +419,40 @@ export async function syncNotionContent(input: {
     }
   }
 
-  const filesToWrite: Array<{ path: string; content: string }> = []
-  for (const { resource, entries } of collectedPages) {
+  const filesToWrite: CommitFile[] = []
+  for (const { resource, entries, capturedAssetsByPageId } of collectedPages) {
     for (const entry of entries) {
       filesToWrite.push(
-        toNotionMarkdownFile({
+        ...(await buildNotionPageMirrorFiles({
           resource,
           page: entry.page,
           blocks: entry.blocks,
           path: pathByNotionId.get(notionIdKey(entry.page.id)),
           pathByNotionId,
-        }),
+          bytePool: assetBytePool,
+          existingShaByPath,
+          ancestors: entry.ancestors,
+          onPreservePathPrefix,
+          capturedAssets: capturedAssetsByPageId.get(entry.page.id),
+        })),
       )
     }
   }
-  for (const { resource, rows } of collectedDatabases) {
+  for (const { resource, rows, capturedAssetsByPageId } of collectedDatabases) {
     filesToWrite.push(
-      ...toNotionDatabaseFiles({
+      ...(await buildNotionDatabaseMirrorFiles({
         resource,
         rows,
         pathByNotionId,
-      }),
+        bytePool: assetBytePool,
+        existingShaByPath,
+        onPreservePathPrefix,
+        capturedAssetsByPageId,
+      })),
     )
   }
 
   const managedRoot = getManagedNotionRootPath()
-  const allRepoFiles = await listFilesInTree({
-    orgId: input.orgId,
-    env: input.env,
-    repositoryName,
-    branch: input.binding.branch,
-    githubConnectionId,
-  })
   const managedRepoFiles = allRepoFiles
     .map((entry) => entry.path)
     .filter(
@@ -339,21 +463,13 @@ export async function syncNotionContent(input: {
     managedRepoPaths: managedRepoFiles,
     desiredPaths,
     resourcesFailed,
+    preservePathPrefixes: [...preservePathPrefixes],
   })
 
-  const filesToCommit: Array<{ path: string; content: string }> = []
-  for (const file of filesToWrite) {
-    const current = await getFileContent({
-      orgId: input.orgId,
-      env: input.env,
-      repositoryName,
-      branch: input.binding.branch,
-      path: file.path,
-      githubConnectionId,
-    })
-    if (current === file.content) continue
-    filesToCommit.push(file)
-  }
+  const filesToCommit = notionCommitFilesExcludingUnchanged({
+    files: filesToWrite,
+    existingBlobs: allRepoFiles,
+  })
 
   let commitSha: string | undefined
   if (filesToCommit.length > 0 || deletePaths.length > 0) {
@@ -414,20 +530,11 @@ export async function syncNotionIncrementalContent(input: {
     )
   }
 
-  const onTokenRefresh = async (tokens: {
-    accessToken: string
-    refreshToken: string | null
-  }) => {
-    await withOrgDbContext(input.orgId, () =>
-      updateNotionConnectionTokens({
-        orgId: input.orgId,
-        connectionId: input.notionConnection.id,
-        accessToken: tokens.accessToken,
-        refreshToken: tokens.refreshToken,
-        env: input.env,
-      }),
-    )
-  }
+  const onTokenRefresh = createNotionTokenRefreshHandler({
+    orgId: input.orgId,
+    connectionId: input.notionConnection.id,
+    env: input.env,
+  })
 
   const managedRoot = getManagedNotionRootPath()
   const allRepoFiles = await listFilesInTree({
@@ -449,24 +556,17 @@ export async function syncNotionIncrementalContent(input: {
     config: input.config,
     entity: input.entity,
     existingPaths: managedPaths,
+    existingBlobs: allRepoFiles,
+    bytePool: createConnectorEntityAssetBytePool(),
     onTokenRefresh,
   })
 
   // Skip re-committing files whose content already matches so repeated webhooks
   // (e.g. page.content_updated) do not produce empty commits.
-  const filesToCommit: Array<{ path: string; content: string }> = []
-  for (const file of changes.files) {
-    const current = await getFileContent({
-      orgId: input.orgId,
-      env: input.env,
-      repositoryName,
-      branch,
-      path: file.path,
-      githubConnectionId,
-    })
-    if (current === file.content) continue
-    filesToCommit.push(file)
-  }
+  const filesToCommit = notionCommitFilesExcludingUnchanged({
+    files: changes.files,
+    existingBlobs: allRepoFiles,
+  })
 
   let commitSha: string | undefined
   if (filesToCommit.length > 0 || changes.deletePaths.length > 0) {

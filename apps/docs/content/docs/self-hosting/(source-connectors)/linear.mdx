@@ -157,6 +157,14 @@ backend and worker task definitions.
    changes.
 10. Confirm repository ingestion completes.
 
+Linear file uploads and explicit embedded external media are copied into
+sibling `assets/` directories in the context repository. Ordinary link-only
+attachments stay links and are never crawled; GitHub pull requests and commits
+remain references. Downloads are limited to 25 MiB per asset and 100 MiB per
+Linear entity; unsafe, failed, or oversized assets leave a Linear link or
+textual stub. Treat the destination repository as carrying the same sensitivity
+as the selected Linear scope.
+
 Initial sync proves OAuth, worker, and GitHub access. Step 9 separately proves
 Linear webhook delivery and signature configuration.
 

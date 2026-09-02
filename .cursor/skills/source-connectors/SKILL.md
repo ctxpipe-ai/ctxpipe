@@ -1,13 +1,16 @@
 ---
 name: source-connectors
-description: Source connectors. Use when designing, implementing, or reviewing an integration that durably imports external provider content into a ctxpipe context repository.
+description: Source connectors. Use when designing, implementing, or reviewing an integration or attachment/media path that durably imports external provider content into a ctxpipe context repository.
 ---
 
 # Source connectors
 
-This skill is how to **build new** source connectors. Do not retrofit Linear, Notion, Slack, or Confluence to match it.
+This skill governs connector content for both new and existing connectors.
+Control-plane architecture is not retrofitted: maintain Confluence's legacy
+tables and Slack's thin intent-capture lifecycle unless that architecture is the
+assigned change.
 
-A **git-native** source connector authorises the provider on **this** deployment, writes selected content as files into a **context repository**, then `claimAndRunRepositoryIngestionChild` (in-workflow) / `enqueueRepositoryIngestionWorkflow` (HTTP) indexes that repo. Same code for hosted and self-host. The provider app and webhook endpoint terminate on this deployment; credentials are deployment-shared or connection-specific according to the provider’s tenant-isolation model.
+A **git-native** source connector authorises the provider on **this** deployment, writes selected content as files into a **context repository**, then `claimAndRunRepositoryIngestionChild` (in-workflow) / `enqueueRepositoryIngestionWorkflow` (HTTP) indexes that repo. Connector syncs recover an uncheckpointed Git write via `runConnectorRepositoryIngestionWorkflow`. Same code for hosted and self-host. The provider app and webhook endpoint terminate on this deployment; credentials are deployment-shared or connection-specific according to the provider’s tenant-isolation model.
 
 The store is **git**. Rich operations (open a config PR, `commitFiles`) are implemented today only for **GitHub**. Design against git paths; call the GitHub App for those operations. Do not invent a second git host’s PR API unless you are implementing it.
 
@@ -50,6 +53,9 @@ Encrypt tokens with `encryptConnectionSecret` (`*Enc` fields). Never log or retu
 ## 3. Pipe files into git
 
 Git is the durability and audit store.
+For images, files, attachments, and external embeds, read
+[connector assets](references/assets.md) before designing paths or download
+behaviour.
 
 - **Config** lives in the repo as `<slug>/config.yaml`. Create and change it with a **pull request** (today: GitHub). Draft = yaml on the PR branch; live = yaml on the configured target branch after merge.
 - **Content** (mirrors, entity updates, captures) may commit **directly to that target branch**. Content is not a second review PR.
@@ -58,11 +64,11 @@ Write under a managed root `<slug>/` in the bound context repository (often `ctx
 
 - **Plain text first.** Markdown for documents, issues, threads, comments. YAML for `config.yaml`. CSV only as a tabular companion beside canonical row Markdown (Notion databases).
 - **Deterministic conversion.** Convert provider-native blocks/markup into readable Markdown (or another agreed plain-text form), preserving all user-authored text, ordering, headings, lists, authors, timestamps, links, and code. No LLM rewrite, no API-JSON dumps, no retained HTML unless HTML is itself the source payload.
-- **Stable paths.** Include the provider id so renames do not duplicate. Match a nearby anchor: Linear uses flat `linear/issues/<slug>--<id>.md`; Notion pages and Slack threads use `<slug>--<id>/index.md` directories.
-- **Images and attachments are files.** New connectors download bytes through the authorised client (not anonymous CDN), commit them next to the Markdown, and rewrite links to relative paths. That includes images (`png`/`jpg`/`webp`/`svg`) and other attachments the client can read (PDF, etc.). Never persist private or expiring URLs as file sources. If a blob exceeds the git host’s file-size limit, omit that file and leave a permalink stub — do not fail the whole write.
+- **Stable paths.** Include the provider id so renames do not duplicate. Match a nearby anchor: Linear uses flat `linear/issues/<slug>--<id>.md`; Notion pages use `<slug>--<id>/index.md`; Slack thread directories use `thread.md`.
+- **Images and file attachments are files.** Copy provider-declared file attachments and explicit embedded external media through the shared asset boundary, commit them beside their owning content, and rewrite links to relative paths. Ordinary hyperlinks and link-only attachment records stay links and are never crawled. Never persist private or expiring URLs as file sources. Unsafe, unreadable, or oversized blobs leave a permalink/text stub and do not fail the whole write.
 - **Provenance.** YAML frontmatter: source, stable ids, canonical URL, timestamps. Connector uninstall does not purge git.
 
-Writes go through `commitFiles` in `installation-write-client.ts` (`encoding: "base64"` for binaries). After a successful write, hand off via `claimAndRunRepositoryIngestionChild` (from a parent workflow) or `enqueueRepositoryIngestionWorkflow` (from HTTP/webhooks).
+Writes go through `commitFiles` in `installation-write-client.ts` (`encoding: "base64"` for binaries). Checkpoint the selected repository ID and branch in workflow state before the write; never reload a mutable binding between a checkpointed write and its ingestion hand-off. After the hand-off resolves the repository's GitHub connection, carry that connection through the ingestion child and failure recovery rather than reloading it mid-run. After every successful connector sync, invoke `runConnectorRepositoryIngestionWorkflow` inside the parent workflow (it uses `claimAndRunRepositoryIngestionChild` so the parent sleeps and frees its concurrency slot). HTTP and webhook callers use `enqueueRepositoryIngestionWorkflow`. Do not skip the hand-off for a Git no-op: the shared helper resolves the current branch tip and compares it with `lastIngestedHash` so a replay can recover a write whose prior step result was lost without regressing to an older commit. Do not bypass the repository single-flight claim: overlapping hand-offs persist one coalesced follow-up marker, and both successful and failed ingestion paths drain it through retryable workflow steps. Clear that marker only with a compare-and-set against the terminal ingested hash; an unconditional clear can erase a newer overlap.
 
 **Done when:** a sample tree is specified (config yaml, content paths, attachment files); config is a PR; content commits to the target branch; the mirrored page is readable without a live provider API.
 
@@ -99,7 +105,7 @@ Follow [references/file-map.md](references/file-map.md). Inspect the named ancho
 
 If AWS CDK / deploy images change, add a changeset for `@ctxpipe/aws-cdk`.
 
-**Done when:** every file-map row for this kind is implemented or N/A; converter fixtures, binary/`base64` commits (including an attachment), raw-body signature tests, workflow discovery, empty optional env parsing, and focused UI tests pass. CDK edits: `pnpm --filter @ctxpipe/aws-cdk test`.
+**Done when:** every file-map row for this kind is implemented or N/A; converter fixtures, asset-boundary safety and reconciliation tests (`pnpm --filter @ctxpipe/backend test:connector-assets`, with the new slug added to `vitest.connector-assets.config.ts`), binary/`base64` commits (including an attachment), raw-body signature tests, workflow discovery, empty optional env parsing, and focused UI tests pass. CDK edits: `pnpm --filter @ctxpipe/aws-cdk test`.
 
 ## 7. Record the decision
 

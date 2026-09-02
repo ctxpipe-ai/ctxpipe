@@ -12,7 +12,7 @@ The doctrine is git. Other hosts are in scope later; do not stub a GitLab PR cli
 
 Operator (or hosted ctxpipe) owns one OAuth app for Linear/Notion. Atlassian sources use ADR-019 per-org credentials on the Forge connection. User authorises a workspace. Wizard selects scope + context repo; backend opens a PR containing `<slug>/config.yaml`. Draft = yaml on the PR branch; live = yaml on the target branch after merge. `connections.config` stores binding + `setupPhase` + pending PR URL — not the scope list.
 
-Linear: teams/projects/documents/initiatives + descendants under `linear/` as flat `…/<slug>--<id>.md` files. GitHub PRs/commits stay reference-only **in Linear as shipped**. Private Linear uploads are stubbed in the converter — leave that; new connectors copy attachment bytes.
+Linear: teams/projects/documents/initiatives + descendants under `linear/` as flat `…/<slug>--<id>.md` files. GitHub PRs/commits stay reference-only. File uploads and explicit embedded media follow [the shared asset contract](assets.md); link-only attachment records remain links.
 
 Notion: pages as Markdown; databases as `index.md` + `table.csv` + `rows/<row>/index.md` (lesson: Notion database mirror contract). Incremental sync remirrors the affected top-level scoped resource.
 
@@ -20,7 +20,7 @@ Live updates: signed provider webhook → `*-sync-entity` OpenWorkflow → `comm
 
 ## Intent capture — Slack (PR #267 / ADR-025)
 
-High-churn chat is the wrong category for a continuous mirror. Slack as shipped: OAuth → bind context repo; `setupPhase` derived; **no** `slack/config.yaml`; `app_mention` snapshots a thread to `slack/channels/…`; attachments are permalink stubs. **Do not retrofit Slack.**
+High-churn chat is the wrong category for a continuous mirror. Slack as shipped: OAuth → bind context repo; `setupPhase` derived; **no** `slack/config.yaml`; `app_mention` snapshots a thread to `slack/channels/…/thread.md` with copied assets. Keep that intent-capture lifecycle; content-fidelity improvements do not turn Slack into a channel mirror.
 
 New capture connectors still put **config in git via PR**, then commit snapshots to the target branch once live. Complementary: the provider’s own MCP for query-time access is not a ctxpipe ingest path.
 

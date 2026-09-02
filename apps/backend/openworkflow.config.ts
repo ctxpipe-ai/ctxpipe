@@ -18,6 +18,7 @@ import {
 } from "./src/observability/logger.js"
 import { initOtel, shutdownOtel } from "./src/observability/otel.js"
 import { parseOpenWorkflowConcurrency } from "./src/openworkflow/codesearchCapacity.js"
+import { openWorkflowNamespaceId } from "./src/openworkflow/namespace.js"
 import { backfillGithubAppSecretsFromEnv } from "./src/scripts/backfillGithubConnectionSecrets.js"
 
 const databaseUrl = process.env.DATABASE_URL
@@ -58,7 +59,9 @@ bootstrapLog.info("openworkflow worker config loaded")
 bootstrapLog.emit()
 
 export default defineConfig({
-  backend: await BackendPostgres.connect(databaseUrl),
+  backend: await BackendPostgres.connect(databaseUrl, {
+    namespaceId: openWorkflowNamespaceId(),
+  }),
   dirs: ["./src/openworkflow/workflows"],
   // CLI imports every *.ts under dirs; skip Vitest files (dev-only deps).
   ignorePatterns: ["**/*.test.*", "**/*.spec.*"],
