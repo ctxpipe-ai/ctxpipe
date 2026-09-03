@@ -32,6 +32,10 @@ const detectLanguagesResponseSchema = z.object({
 })
 
 const okResponseSchema = z.object({ ok: z.literal(true) })
+const mergeScipResponseSchema = z.object({
+  ok: z.literal(true),
+  shardCount: z.number().int().nonnegative(),
+})
 
 export const INDEX_PIPELINE_RETRY_AFTER_SECONDS = 30
 
@@ -233,10 +237,18 @@ export async function codesearchIndexScipLang(
 export async function codesearchIndexMergeScip(
   auth: CodesearchIndexAuth,
   detectedLanguages: string[],
-): Promise<void> {
+  languagesToMerge?: string[],
+): Promise<{ shardCount: number }> {
   const res = await codesearchPhaseFetch("/index/merge-scip", auth, {
     method: "POST",
-    body: JSON.stringify({ detectedLanguages }),
+    body: JSON.stringify({
+      detectedLanguages,
+      ...(languagesToMerge !== undefined ? { languagesToMerge } : {}),
+    }),
   })
-  await parseOrThrow(res, okResponseSchema, "codesearch index merge-scip")
+  return parseOrThrow(
+    res,
+    mergeScipResponseSchema,
+    "codesearch index merge-scip",
+  )
 }

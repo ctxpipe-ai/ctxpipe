@@ -39,8 +39,9 @@ const indexRetryPolicy = {
   maximumInterval: "2m" as const,
 }
 
-function zoektStepResult(
+function optionalIndexStepResult(
   value: unknown,
+  fallbackError: string,
 ): { ok: true } | { ok: false; error: string } {
   if (
     value &&
@@ -51,13 +52,34 @@ function zoektStepResult(
     const error = (value as { error?: unknown }).error
     return {
       ok: false,
-      error:
-        typeof error === "string" && error.trim()
-          ? error
-          : "Search index unavailable",
+      error: typeof error === "string" && error.trim() ? error : fallbackError,
     }
   }
   return { ok: true }
+}
+
+function mergeScipStepResult(
+  value: unknown,
+): { ok: true; shardCount?: number } | { ok: false; error: string } {
+  const result = optionalIndexStepResult(value, "SCIP index unavailable")
+  if (!result.ok) {
+    return result
+  }
+  const shardCount =
+    value &&
+    typeof value === "object" &&
+    "shardCount" in value &&
+    typeof (value as { shardCount: unknown }).shardCount === "number"
+      ? (value as { shardCount: number }).shardCount
+      : undefined
+  return { ok: true, shardCount }
+}
+
+function joinIndexErrors(errors: string[]): string | undefined {
+  const unique = [
+    ...new Set(errors.map((error) => error.trim()).filter(Boolean)),
+  ]
+  return unique.length > 0 ? unique.join("; ") : undefined
 }
 
 const ADMISSION_SLEEP_DURATION = "30s"
@@ -112,14 +134,17 @@ async function runIndexPhaseWithAdmissionRetry<T>(
   )
 }
 
-async function mapInBatches<T>(
+async function mapInBatches<T, R>(
   items: T[],
   batchSize: number,
-  fn: (item: T) => Promise<void>,
-): Promise<void> {
+  fn: (item: T) => Promise<R>,
+): Promise<R[]> {
+  const results: R[] = []
   for (let i = 0; i < items.length; i += batchSize) {
-    await Promise.all(items.slice(i, i + batchSize).map(fn))
+    const batch = await Promise.all(items.slice(i, i + batchSize).map(fn))
+    results.push(...batch)
   }
+  return results
 }
 
 function logMilestone(step: string, fields: Record<string, unknown>): void {
@@ -137,11 +162,12 @@ function logMilestone(step: string, fields: Record<string, unknown>): void {
 
 /**
  * Durable codesearch index pipeline: clone/checkout → zoekt (non-fatal) →
- * detect langs → parallel scip:lang → merge.
+ * detect langs → parallel scip:lang (non-fatal) → merge (non-fatal).
  *
- * Zoekt failure is recorded as `searchIndexOk: false` so SCIP and extract can
- * still complete (lexical search degrades; graph/ast-grep remain usable).
- * Clone or SCIP failure still fails the workflow.
+ * Zoekt or SCIP failure is recorded on the result so extract can still
+ * complete (lexical search and/or graph tools degrade). Clone failure
+ * still fails the workflow. Index-pipeline 429s retry with a fresh step
+ * name; SCIP langs are admitted in batches of indexer concurrency.
  */
 export const repositoryIndex = defineWorkflow(
   { name: "repository-index", schema: repositoryIndexInputSchema },
@@ -202,7 +228,7 @@ export const repositoryIndex = defineWorkflow(
           ingestMode: checkout.ingestMode,
         })
 
-        const zoektResult = zoektStepResult(
+        const zoektResult = optionalIndexStepResult(
           await runIndexPhaseWithAdmissionRetry(
             indexStep,
             wls,
@@ -224,6 +250,7 @@ export const repositoryIndex = defineWorkflow(
               }
             },
           ),
+          "Search index unavailable",
         )
         const searchIndexOk = zoektResult.ok
         const searchIndexError = zoektResult.ok ? undefined : zoektResult.error
@@ -258,31 +285,136 @@ export const repositoryIndex = defineWorkflow(
           toIndexCount: languages.languagesToIndex.length,
         })
 
+        const skipScipAfterZoektMemory =
+          !searchIndexOk && isMemoryFitFailure(searchIndexError ?? "")
+
+        let scipIndexOk = true
+        let scipIndexError: string | undefined
+        const languagesToIndex = skipScipAfterZoektMemory
+          ? []
+          : languages.languagesToIndex
+
+        if (skipScipAfterZoektMemory) {
+          scipIndexOk = false
+          scipIndexError = searchIndexError ?? "SCIP index unavailable"
+          logMilestone("repository-index.scip.skipped", {
+            repositoryId: input.repositoryId,
+            reason: "zoekt_memory_fit",
+            error: scipIndexError,
+          })
+        }
+
         const scipBatchSize = parseIndexerConcurrency(
           process.env.CODESEARCH_INDEXER_CONCURRENCY,
         )
-        await mapInBatches(languages.languagesToIndex, scipBatchSize, (lang) =>
-          runIndexPhaseWithAdmissionRetry(
+        const scipResults = await mapInBatches(
+          languagesToIndex,
+          scipBatchSize,
+          (lang) =>
+            runIndexPhaseWithAdmissionRetry(
+              indexStep,
+              wls,
+              `scip:${lang}`,
+              async () => {
+                try {
+                  await codesearchIndexScipLang(
+                    auth,
+                    lang,
+                    languages.detectedLanguages,
+                  )
+                  return { ok: true as const }
+                } catch (error) {
+                  if (isCodesearchAdmissionBusyError(error)) throw error
+                  const errorText = userFacingIndexingError(error)
+                  if (isMemoryFitFailure(error)) {
+                    logMilestone("repository-index.memory_exceeded", {
+                      repositoryId: input.repositoryId,
+                      phase: `scip:${lang}`,
+                      error: errorText,
+                    })
+                  }
+                  return { ok: false as const, error: errorText }
+                }
+              },
+            ),
+        )
+
+        const failedScip = scipResults
+          .map((value) =>
+            optionalIndexStepResult(value, "SCIP index unavailable"),
+          )
+          .filter((result) => !result.ok)
+        if (failedScip.length > 0) {
+          scipIndexOk = false
+          scipIndexError = joinIndexErrors(
+            failedScip.map((result) => result.error),
+          )
+          logMilestone("repository-index.scip.failed", {
+            repositoryId: input.repositoryId,
+            error: scipIndexError,
+            failedCount: failedScip.length,
+          })
+        }
+
+        const mergeResult = mergeScipStepResult(
+          await runIndexPhaseWithAdmissionRetry(
             indexStep,
             wls,
-            `scip:${lang}`,
-            () =>
-              codesearchIndexScipLang(auth, lang, languages.detectedLanguages),
-            indexRetryPolicy,
+            "merge-scip",
+            async () => {
+              try {
+                const merged = await codesearchIndexMergeScip(
+                  auth,
+                  languages.detectedLanguages,
+                  skipScipAfterZoektMemory ? [] : undefined,
+                )
+                return { ok: true as const, shardCount: merged.shardCount }
+              } catch (error) {
+                if (isCodesearchAdmissionBusyError(error)) throw error
+                const errorText = userFacingIndexingError(error)
+                if (isMemoryFitFailure(error)) {
+                  logMilestone("repository-index.memory_exceeded", {
+                    repositoryId: input.repositoryId,
+                    phase: "merge-scip",
+                    error: errorText,
+                  })
+                }
+                return { ok: false as const, error: errorText }
+              }
+            },
           ),
         )
-
-        await runIndexPhaseWithAdmissionRetry(
-          indexStep,
-          wls,
-          "merge-scip",
-          () => codesearchIndexMergeScip(auth, languages.detectedLanguages),
-          indexRetryPolicy,
-        )
-
-        logMilestone("repository-index.merge-scip.done", {
-          repositoryId: input.repositoryId,
-        })
+        if (mergeResult.ok) {
+          logMilestone("repository-index.merge-scip.done", {
+            repositoryId: input.repositoryId,
+            shardCount: mergeResult.shardCount,
+          })
+          if (
+            languages.detectedLanguages.length > 0 &&
+            mergeResult.shardCount === 0
+          ) {
+            scipIndexOk = false
+            scipIndexError = joinIndexErrors([
+              ...(scipIndexError ? [scipIndexError] : []),
+              "SCIP index unavailable",
+            ])
+            logMilestone("repository-index.scip.failed", {
+              repositoryId: input.repositoryId,
+              error: scipIndexError,
+              reason: "zero_valid_shards",
+            })
+          }
+        } else {
+          scipIndexOk = false
+          scipIndexError = joinIndexErrors([
+            ...(scipIndexError ? [scipIndexError] : []),
+            mergeResult.error,
+          ])
+          logMilestone("repository-index.merge-scip.failed", {
+            repositoryId: input.repositoryId,
+            error: mergeResult.error,
+          })
+        }
 
         return {
           indexedAt: new Date().toISOString(),
@@ -293,6 +425,8 @@ export const repositoryIndex = defineWorkflow(
           renames: checkout.renames,
           searchIndexOk,
           searchIndexError,
+          scipIndexOk,
+          scipIndexError,
         }
       },
     ),

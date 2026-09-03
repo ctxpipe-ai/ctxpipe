@@ -1,20 +1,24 @@
 import type { Db } from "../../db/client.js"
+import { log } from "../../observability/logger.js"
+import { trySetRepositoryIndexingStep } from "../indexingSteps.js"
+import { zoektRepositoryName } from "../zoekt/shardPrefix.js"
 import {
   withIndexConcurrency,
   withRepositoryIndexOperation,
 } from "./indexConcurrency.js"
+import { isMemoryFitFailure } from "./memoryFitError.js"
 import {
+  discardScipShardFiles,
+  type IndexPhaseRepoContext,
   phaseCloneCheckout,
   phaseDetectLanguages,
   phaseMarkCheckoutIndexed,
   phaseMergeScip,
   phaseScipLanguage,
   phaseZoekt,
+  publishMergedScipIndex,
   writeMergedScipIndex,
-  type IndexPhaseRepoContext,
 } from "./phases.js"
-import { trySetRepositoryIndexingStep } from "../indexingSteps.js"
-import { zoektRepositoryName } from "../zoekt/shardPrefix.js"
 
 export type IndexRepoResult = {
   targetHash: string
@@ -41,34 +45,33 @@ type IndexInput = {
   fromHash?: string
 }
 
-export { writeMergedScipIndex }
+export { discardScipShardFiles, publishMergedScipIndex, writeMergedScipIndex }
+
+export type OptionalIndexPhaseResult =
+  | { ok: true }
+  | { ok: false; error: unknown }
 
 /**
- * Run Zoekt then SCIP sequentially (reduces peak RSS vs parallel phases).
- * Still attempts SCIP after a Zoekt failure so both errors can be reported.
- * Prefer fail-fast (throw on Zoekt) for OpenWorkflow phased indexing.
+ * Run an optional index phase. Failures are warnings so non-OW callers get
+ * the same degradation as OpenWorkflow. Clone/detect stay fail-closed at
+ * their call sites. Callers inspect the result when a failure changes
+ * later steps (Zoekt memory-fit skips SCIP langs).
  */
-export async function settleIndexPhases(
-  zoektPhase: () => Promise<void>,
-  scipPhase: () => Promise<void>,
-): Promise<void> {
-  const failures: string[] = []
+export async function runOptionalIndexPhase(
+  step: string,
+  fn: () => Promise<void>,
+  extra?: Record<string, string>,
+): Promise<OptionalIndexPhaseResult> {
   try {
-    await zoektPhase()
+    await fn()
+    return { ok: true }
   } catch (reason) {
-    failures.push(
-      `Zoekt: ${reason instanceof Error ? reason.message : String(reason)}`,
-    )
-  }
-  try {
-    await scipPhase()
-  } catch (reason) {
-    failures.push(
-      `SCIP: ${reason instanceof Error ? reason.message : String(reason)}`,
-    )
-  }
-  if (failures.length > 0) {
-    throw new Error(`Repository indexing failed:\n${failures.join("\n")}`)
+    log.warn({
+      step,
+      ...extra,
+      error: reason instanceof Error ? reason.message : String(reason),
+    })
+    return { ok: false, error: reason }
   }
 }
 
@@ -93,7 +96,8 @@ function toPhaseContext(input: IndexInput): IndexPhaseRepoContext {
 
 /**
  * Legacy monolithic `POST /:repoId/index` composer.
- * Preserves settleIndexPhases (SCIP still attempted after Zoekt failure).
+ * Zoekt and SCIP indexer failures degrade; clone/detect stay fail-closed.
+ * Zoekt memory-fit skips SCIP langs and merges `[]`, matching OpenWorkflow.
  * Durable ingestion uses OpenWorkflow phase endpoints instead.
  */
 export async function cloneAndIndexRepository(
@@ -116,28 +120,47 @@ async function cloneAndIndexRepositoryInner(
     fromHash: input.fromHash,
   })
 
-  let detectResult: Awaited<ReturnType<typeof phaseDetectLanguages>> | undefined
-
-  await settleIndexPhases(
+  const zoekt = await runOptionalIndexPhase(
+    "codesearch.index.zoekt.failed",
     () => phaseZoekt(ctx),
-    async () => {
-      detectResult = await phaseDetectLanguages(ctx, {
-        ingestMode: checkout.ingestMode,
-        changedPaths: checkout.changedPaths,
-        deletedPaths: checkout.deletedPaths,
-        renames: checkout.renames,
-      })
-      const detectedLanguages = detectResult.detectedLanguages
-      await Promise.all(
-        detectResult.languagesToIndex.map((language) =>
+  )
+  const skipScipAfterZoektMemory = !zoekt.ok && isMemoryFitFailure(zoekt.error)
+
+  const detectResult = await phaseDetectLanguages(ctx, {
+    ingestMode: checkout.ingestMode,
+    changedPaths: checkout.changedPaths,
+    deletedPaths: checkout.deletedPaths,
+    renames: checkout.renames,
+  })
+  const detectedLanguages = detectResult.detectedLanguages
+  const languagesToIndex = skipScipAfterZoektMemory
+    ? []
+    : detectResult.languagesToIndex
+  if (skipScipAfterZoektMemory) {
+    log.warn({
+      step: "codesearch.index.scip.skipped",
+      reason: "zoekt_memory_fit",
+    })
+  }
+  await Promise.all(
+    languagesToIndex.map((language) =>
+      runOptionalIndexPhase(
+        "codesearch.index.scip.lang.failed",
+        () =>
           phaseScipLanguage(ctx, {
             language,
             detectedLanguages,
           }),
-        ),
-      )
+        { language },
+      ),
+    ),
+  )
+  await runOptionalIndexPhase(
+    "codesearch.index.scip.merge.failed",
+    async () => {
       await phaseMergeScip(ctx, {
         detectedLanguages,
+        ...(skipScipAfterZoektMemory ? { languagesToMerge: [] } : {}),
       })
     },
   )

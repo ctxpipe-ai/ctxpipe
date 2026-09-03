@@ -234,6 +234,7 @@ export const repositoryIngestion = defineWorkflow(
             targetHash: reindexState.targetHash ?? resolved.hash,
             ingestMode: reindexState.ingestMode,
             searchIndexOk: reindexState.searchIndexOk !== false,
+            scipIndexOk: reindexState.scipIndexOk !== false,
             changedPathsCount: reindexState.changedPaths?.length ?? 0,
             deletedPathsCount: reindexState.deletedPaths?.length ?? 0,
             renamesCount: reindexState.renames?.length ?? 0,
@@ -597,20 +598,34 @@ export const repositoryIngestion = defineWorkflow(
 
           await step.run({ name: "mark-success" }, () =>
             wls("mark-success", () =>
-              withOrgDbContext(input.orgId, () =>
-                reindexState.searchIndexOk === false
+              withOrgDbContext(input.orgId, () => {
+                const parts: string[] = []
+                if (reindexState.searchIndexOk === false) {
+                  parts.push(
+                    reindexState.searchIndexError?.trim() ||
+                      "Search index unavailable",
+                  )
+                }
+                if (reindexState.scipIndexOk === false) {
+                  parts.push(
+                    reindexState.scipIndexError?.trim() ||
+                      "SCIP index unavailable",
+                  )
+                }
+                const issueError = [...new Set(parts.filter(Boolean))].join(
+                  "; ",
+                )
+                return issueError
                   ? markRepositoryIndexingReadyWithIssues({
                       repositoryId: input.repositoryId,
                       targetHash: result.targetHash,
-                      error:
-                        reindexState.searchIndexError ??
-                        "Search index unavailable",
+                      error: issueError,
                     })
                   : markRepositoryIndexingReady({
                       repositoryId: input.repositoryId,
                       targetHash: result.targetHash,
-                    }),
-              ),
+                    })
+              }),
             ),
           )
 
