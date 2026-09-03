@@ -177,6 +177,7 @@ async function processPushEvent(
     commits,
     before,
     after,
+    env: ctx.env,
     log: ctx.log,
   })
 

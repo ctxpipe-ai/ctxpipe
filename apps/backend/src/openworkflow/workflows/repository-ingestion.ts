@@ -46,6 +46,8 @@ const repositoryIngestionInputSchema = z.object({
   targetBranch: z.string().nullable().optional(),
   /** Stored on the row while ingestion runs; cleared on success. */
   indexingReason: z.string().nullable().optional(),
+  /** Checkpointed with connector writes so replay cannot switch installations. */
+  githubConnectionId: z.string().nullable().optional(),
 })
 
 const extractRetryPolicy = {
@@ -159,7 +161,8 @@ export const repositoryIngestion = defineWorkflow(
             )
           }
 
-          const githubConnectionId = repository.githubConnectionId
+          const githubConnectionId =
+            input.githubConnectionId ?? repository.githubConnectionId
           logWorkflowMilestone("repository-ingestion.repository-loaded", {
             repositoryId: input.repositoryId,
             lastIngestedHash: repository.lastIngestedHash,
@@ -632,9 +635,17 @@ export const repositoryIngestion = defineWorkflow(
           })
 
           // Outside org tx: if tip moved while we were ingesting, start one
-          // follow-up for this repo only (no auto-chain on failure paths).
+          // coalesced follow-up for this repository.
           const followUp = await step.run(
-            { name: "enqueue-follow-up-if-tip-ahead" },
+            {
+              name: "enqueue-follow-up-if-tip-ahead",
+              retryPolicy: {
+                maximumAttempts: 5,
+                initialInterval: "30s",
+                backoffCoefficient: 2,
+                maximumInterval: "5m",
+              },
+            },
             () =>
               wls("enqueue-follow-up-if-tip-ahead", () =>
                 enqueueFollowUpIfTipAhead(

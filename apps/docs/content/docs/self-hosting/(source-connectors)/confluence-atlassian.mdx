@@ -51,6 +51,13 @@ Provisioning runs `forge register`, `forge deploy`, and `forge install` through
 a durable worker job. The generated Forge app uses your public API origin for
 its remote callback.
 
+The Forge app requires `read:attachment:confluence` to clone page attachments.
+After upgrading an existing app manifest, deploy the new Forge version and
+complete Atlassian's permission upgrade; refreshing the app-system token alone
+does not grant the new scope. Assets are stored in the context repository with
+25 MiB per-file and 100 MiB per-page limits. The worker strips credentials from
+media redirects and never persists Atlassian download URLs.
+
 ## 3. Finish the connector
 
 After Atlassian is linked and Forge is installed:

@@ -38,6 +38,9 @@ export const repositories = pgTable(
     gitUrl: text("git_url").notNull(),
     indexReady: boolean("index_ready").notNull().default(false),
     indexingStatus: repositoryIndexingStatusEnum("indexing_status"),
+    indexingFollowUpPending: boolean("indexing_follow_up_pending")
+      .notNull()
+      .default(false),
     indexingError: text("indexing_error"),
     indexingFailedAt: timestamp("indexing_failed_at", {
       withTimezone: true,

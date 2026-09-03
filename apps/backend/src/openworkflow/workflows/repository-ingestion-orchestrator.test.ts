@@ -8,6 +8,9 @@ const markRepositoryIndexingFailedMock = vi.hoisted(() =>
 )
 const getLoggerErrorMock = vi.hoisted(() => vi.fn())
 const flushWorkflowLogMock = vi.hoisted(() => vi.fn())
+const enqueueFollowUpIfTipAheadMock = vi.hoisted(() =>
+  vi.fn().mockResolvedValue({ enqueued: false }),
+)
 
 vi.mock("../../db/client.js", () => ({
   withOrgDbContext: withOrgDbContextMock,
@@ -24,6 +27,10 @@ vi.mock("../../observability/logger.js", () => ({
   flushWorkflowLog: flushWorkflowLogMock,
 }))
 
+vi.mock("../enqueue-follow-up-if-tip-ahead.js", () => ({
+  enqueueFollowUpIfTipAhead: enqueueFollowUpIfTipAheadMock,
+}))
+
 vi.mock("./repository-ingestion.js", () => ({
   repositoryIngestion: { spec: { name: "repository-ingestion" } },
 }))
@@ -37,6 +44,7 @@ describe("repositoryIngestionOrchestrator workflow", () => {
       (_orgId: string, fn: () => unknown) => Promise.resolve(fn()),
     )
     markRepositoryIndexingFailedMock.mockResolvedValue(undefined)
+    enqueueFollowUpIfTipAheadMock.mockResolvedValue({ enqueued: false })
   })
 
   it("returns child result on success", async () => {
@@ -54,6 +62,8 @@ describe("repositoryIngestionOrchestrator workflow", () => {
         repositoryId: "repo_1",
         orgId: "org_1",
         indexingReason: "manual",
+        targetBranch: "connector-assets",
+        githubConnectionId: "con_github",
       },
       step,
     } as never)
@@ -64,6 +74,8 @@ describe("repositoryIngestionOrchestrator workflow", () => {
         repositoryId: "repo_1",
         orgId: "org_1",
         indexingReason: "manual",
+        targetBranch: "connector-assets",
+        githubConnectionId: "con_github",
       },
       { name: "repository-ingestion-child" },
     )
@@ -87,22 +99,44 @@ describe("repositoryIngestionOrchestrator workflow", () => {
 
     await expect(
       repositoryIngestionOrchestrator.fn({
-        input: { repositoryId: "repo_1", orgId: "org_1" },
+        input: {
+          repositoryId: "repo_1",
+          orgId: "org_1",
+          targetBranch: "connector-assets",
+          githubConnectionId: "con_github",
+        },
         step,
       } as never),
     ).rejects.toThrow("child failed")
 
     expect(step.run).toHaveBeenCalledWith(
-      { name: "mark-failed" },
+      expect.objectContaining({
+        name: "mark-failed",
+        retryPolicy: expect.objectContaining({ maximumAttempts: 5 }),
+      }),
       expect.any(Function),
     )
     expect(markRepositoryIndexingFailedMock).toHaveBeenCalledWith({
       repositoryId: "repo_1",
       error: childError,
     })
-    // Failure must not tip-check / enqueue follow-up — only mark-failed.
-    expect(step.run).toHaveBeenCalledTimes(1)
-    expect(step.run.mock.calls[0]?.[0]).toEqual({ name: "mark-failed" })
+    expect(step.run).toHaveBeenCalledTimes(2)
+    expect(step.run.mock.calls[0]?.[0]).toEqual(
+      expect.objectContaining({ name: "mark-failed" }),
+    )
+    expect(step.run.mock.calls[1]?.[0]).toEqual(
+      expect.objectContaining({ name: "enqueue-pending-follow-up" }),
+    )
+    expect(enqueueFollowUpIfTipAheadMock).toHaveBeenCalledWith(
+      {
+        orgId: "org_1",
+        repositoryId: "repo_1",
+        pendingOnly: true,
+        targetBranch: "connector-assets",
+        githubConnectionId: "con_github",
+      },
+      expect.any(Object),
+    )
 
     // Must log via evlog, not console
     expect(getLoggerErrorMock).toHaveBeenCalledWith(
@@ -154,7 +188,10 @@ describe("repositoryIngestionOrchestrator workflow", () => {
     ).rejects.toMatchObject({ name: "CancelSignal" })
 
     expect(step.run).toHaveBeenCalledWith(
-      { name: "mark-failed" },
+      expect.objectContaining({
+        name: "mark-failed",
+        retryPolicy: expect.objectContaining({ maximumAttempts: 5 }),
+      }),
       expect.any(Function),
     )
     expect(markRepositoryIndexingFailedMock).toHaveBeenCalledWith({

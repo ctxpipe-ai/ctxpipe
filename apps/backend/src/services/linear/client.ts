@@ -176,14 +176,19 @@ export async function withLinearClient<T>(
     await refreshConnectionToken(input)
   }
 
+  const requestedAccessToken = input.connection.accessToken
   try {
-    return await run(
-      new LinearClient({ accessToken: input.connection.accessToken }),
-    )
+    return await run(new LinearClient({ accessToken: requestedAccessToken }))
   } catch (error) {
-    if (linearErrorStatus(error) !== 401 || !input.connection.refreshToken) {
+    if (linearErrorStatus(error) !== 401) {
       throw error
     }
+    if (input.connection.accessToken !== requestedAccessToken) {
+      return run(
+        new LinearClient({ accessToken: input.connection.accessToken }),
+      )
+    }
+    if (!input.connection.refreshToken) throw error
     await refreshConnectionToken(input)
     return run(new LinearClient({ accessToken: input.connection.accessToken }))
   }

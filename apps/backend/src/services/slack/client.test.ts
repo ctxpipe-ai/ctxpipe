@@ -3,6 +3,7 @@ import type { Env } from "../../config/env.js"
 import {
   capSlackThreadMessages,
   exchangeSlackOAuthCode,
+  fetchSlackFileInfo,
   getSlackOAuthAuthorizeUrl,
   type SlackOAuthMissingScopesError,
   verifySlackInstallation,
@@ -16,6 +17,7 @@ const env = {
 } as Env
 
 afterEach(() => {
+  vi.useRealTimers()
   vi.unstubAllGlobals()
 })
 
@@ -79,9 +81,7 @@ describe("Slack OAuth client", () => {
           JSON.stringify({
             ok: true,
             access_token: "xoxb-test",
-            scope: ["reactions:read", ...SLACK_BOT_SCOPES]
-              .reverse()
-              .join(","),
+            scope: ["reactions:read", ...SLACK_BOT_SCOPES].reverse().join(","),
           }),
           { status: 200 },
         ),
@@ -107,8 +107,7 @@ describe("Slack OAuth client", () => {
           {
             status: 200,
             headers: {
-              "x-oauth-scopes":
-                "chat:write,app_mentions:read,channels:history",
+              "x-oauth-scopes": "chat:write,app_mentions:read,channels:history",
             },
           },
         ),
@@ -144,11 +143,7 @@ describe("Slack OAuth client", () => {
       reportedTeamId: "T_TRU",
       reportedBotUserId: "U_BOT",
       botId: "B_BOT",
-      grantedScopes: [
-        "app_mentions:read",
-        "channels:history",
-        "chat:write",
-      ],
+      grantedScopes: ["app_mentions:read", "channels:history", "chat:write"],
       missingScopes: [
         "channels:read",
         "groups:history",
@@ -181,5 +176,59 @@ describe("capSlackThreadMessages", () => {
       messages: ["a", "b"],
       truncated: true,
     })
+  })
+})
+
+describe("fetchSlackFileInfo", () => {
+  it("retries non-JSON Slack server errors", async () => {
+    vi.useFakeTimers()
+    const fetchMock = vi
+      .fn<typeof fetch>()
+      .mockResolvedValueOnce(
+        new Response("upstream unavailable", { status: 503 }),
+      )
+      .mockResolvedValueOnce(
+        new Response("<html>bad gateway</html>", { status: 502 }),
+      )
+      .mockResolvedValueOnce(
+        new Response(
+          JSON.stringify({
+            ok: true,
+            file: { id: "F1", name: "diagram.png" },
+          }),
+          { status: 200 },
+        ),
+      )
+    vi.stubGlobal("fetch", fetchMock)
+
+    const result = fetchSlackFileInfo({
+      botToken: "xoxb-test",
+      fileId: "F1",
+    })
+    await vi.runAllTimersAsync()
+
+    await expect(result).resolves.toEqual({ id: "F1", name: "diagram.png" })
+    expect(fetchMock).toHaveBeenCalledTimes(3)
+  })
+
+  it("does not wait or retry past an aborted asset deadline", async () => {
+    const fetchMock = vi.fn<typeof fetch>().mockResolvedValue(
+      new Response(JSON.stringify({ ok: false, error: "ratelimited" }), {
+        status: 429,
+        headers: { "Retry-After": "60" },
+      }),
+    )
+    vi.stubGlobal("fetch", fetchMock)
+    const controller = new AbortController()
+    controller.abort(new Error("asset deadline"))
+
+    await expect(
+      fetchSlackFileInfo({
+        botToken: "xoxb-test",
+        fileId: "F1",
+        signal: controller.signal,
+      }),
+    ).resolves.toBeUndefined()
+    expect(fetchMock).toHaveBeenCalledTimes(1)
   })
 })

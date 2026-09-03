@@ -11,10 +11,10 @@ import {
   MULTIPLE_NOTION_CONNECTIONS_MESSAGE,
   type NotionBindingWithRepo,
   patchNotionConnectorConfig,
+  refreshNotionConnectionTokensWithLock,
   releaseNotionConfigPrCreationClaim,
   resolveNotionConnectionForOrgDetailed,
   transitionNotionBindingState,
-  updateNotionConnectionTokens,
   upsertNotionConnectionFromOAuth,
 } from "../../models/notion-connector.js"
 import { getLogger } from "../../observability/logger.js"
@@ -26,6 +26,7 @@ import { getPullRequestHeadBranch } from "../../services/github/installation-wri
 import {
   exchangeNotionOAuthCode,
   getNotionOAuthAuthorizeUrl,
+  refreshNotionOAuthToken,
   searchNotionResources,
 } from "../../services/notion/client.js"
 import { loadNotionScopeFromRepo } from "../../services/notion/config-from-repo.js"
@@ -800,17 +801,26 @@ notionConnectorRoutes
       env: c.var.env,
       connection: installed.connection,
       query: query.q,
-      onTokenRefresh: async ({ accessToken, refreshToken }) => {
-        await withOrgDbContext(orgId, () =>
-          updateNotionConnectionTokens({
+      onTokenRefresh: (expectedRefreshToken, expectedAccessToken) =>
+        withOrgDbContext(orgId, () =>
+          refreshNotionConnectionTokensWithLock({
             orgId,
             connectionId: installed.connection.id,
-            accessToken,
-            refreshToken,
             env: c.var.env,
+            expectedRefreshToken,
+            expectedAccessToken,
+            refresh: async (refreshToken) => {
+              const refreshed = await refreshNotionOAuthToken({
+                env: c.var.env,
+                refreshToken,
+              })
+              return {
+                accessToken: refreshed.access_token,
+                refreshToken: refreshed.refresh_token ?? refreshToken,
+              }
+            },
           }),
-        )
-      },
+        ),
     })
     return c.json(
       {

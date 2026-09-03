@@ -61,7 +61,9 @@ describe("maybeEnqueueConfluenceSyncOnConfigPush", () => {
       name: "acme/docs",
       githubConnectionId: "ghc_1",
     } as never)
-    vi.mocked(listConfluenceSyncTargetsWithRepoByRepositoryId).mockResolvedValue([
+    vi.mocked(
+      listConfluenceSyncTargetsWithRepoByRepositoryId,
+    ).mockResolvedValue([
       {
         orgId: "org_1",
         connectionId: "con_1",
@@ -79,6 +81,7 @@ describe("maybeEnqueueConfluenceSyncOnConfigPush", () => {
       commits: [{ modified: ["confluence/config.yaml"] }],
       before: "aaa",
       after: "bbb",
+      env: {} as never,
       log: { error: vi.fn() },
     })
 
@@ -101,7 +104,9 @@ describe("maybeEnqueueConfluenceSyncOnConfigPush", () => {
       githubConnectionId: "ghc_1",
     } as never)
     compareCommitsTouchesPathMock.mockResolvedValue(true)
-    vi.mocked(listConfluenceSyncTargetsWithRepoByRepositoryId).mockResolvedValue([
+    vi.mocked(
+      listConfluenceSyncTargetsWithRepoByRepositoryId,
+    ).mockResolvedValue([
       {
         orgId: "org_1",
         connectionId: "con_1",
@@ -119,6 +124,7 @@ describe("maybeEnqueueConfluenceSyncOnConfigPush", () => {
       commits: [{ modified: ["README.md"] }],
       before: "aaa",
       after: "bbb",
+      env: {} as never,
       log: { error: vi.fn() },
     })
 
@@ -139,7 +145,9 @@ describe("maybeEnqueueConfluenceSyncOnConfigPush", () => {
       name: "acme/docs",
       githubConnectionId: "ghc_1",
     } as never)
-    vi.mocked(listConfluenceSyncTargetsWithRepoByRepositoryId).mockResolvedValue([
+    vi.mocked(
+      listConfluenceSyncTargetsWithRepoByRepositoryId,
+    ).mockResolvedValue([
       {
         orgId: "org_1",
         connectionId: "con_1",
@@ -156,10 +164,13 @@ describe("maybeEnqueueConfluenceSyncOnConfigPush", () => {
       ref: "refs/heads/main",
       repository: { full_name: "acme/docs", default_branch: "main" },
       commits: [{ modified: ["confluence/config.yaml"] }],
+      env: {} as never,
       log: { error: vi.fn() },
     })
 
     expect(enqueueMock).toHaveBeenCalledTimes(1)
-    expect(enqueueMock.mock.calls[0]?.[0]?.scopeFromRepo).toEqual({ spaces: [] })
+    expect(enqueueMock.mock.calls[0]?.[0]?.scopeFromRepo).toEqual({
+      spaces: [],
+    })
   })
 })

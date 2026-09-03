@@ -122,4 +122,44 @@ describe("Linear API client", () => {
     expect(connection.accessToken).toBe("access-new")
     expect(connection.refreshToken).toBe("refresh-new")
   })
+
+  it("retries a stale 401 with a concurrently refreshed token", async () => {
+    const connection = {
+      id: "con_linear",
+      orgId: "org_1",
+      accessToken: "access-old",
+      refreshToken: "refresh-old",
+      accessTokenExpiresAt: null,
+      workspaceId: "workspace-1",
+      workspaceName: "Acme",
+      workspaceUrlKey: "acme",
+      actorUserId: "user-1",
+      ownerUserId: "owner-1",
+      status: "installed",
+      lastEventPayload: null,
+      repositoryId: null,
+      branch: null,
+      enabled: true,
+      setupPhase: "draft",
+      pendingConfigPullUrl: null,
+      pendingConfigPrCreating: false,
+      createdAt: new Date(),
+      updatedAt: new Date(),
+    } satisfies LinearConnection
+    const onTokenRefresh = vi.fn()
+    const run = vi
+      .fn()
+      .mockImplementationOnce(async () => {
+        connection.accessToken = "access-from-peer"
+        connection.refreshToken = "refresh-from-peer"
+        throw Object.assign(new Error("stale token"), { status: 401 })
+      })
+      .mockResolvedValueOnce("completed")
+
+    await expect(
+      withLinearClient({ env, connection, onTokenRefresh }, run),
+    ).resolves.toBe("completed")
+    expect(onTokenRefresh).not.toHaveBeenCalled()
+    expect(run).toHaveBeenCalledTimes(2)
+  })
 })

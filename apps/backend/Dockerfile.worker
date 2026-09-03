@@ -3,18 +3,20 @@
 # Install Forge CLI here so npm/layout matches official Node layout; copying/npm in the Bun
 # stage and then RUN npm caused "Cannot find module '../lib/cli.js'" when invoking /usr/local/bin/npm.
 FROM node:22-alpine AS nodeforge
-RUN npm install -g @forge/cli@12
+RUN npm install -g @forge/cli@13.4.0
 
-FROM oven/bun:1.2-alpine AS deps
+FROM oven/bun:1.3.11-alpine AS deps
 WORKDIR /app
 ENV CI=true
+# pnpm is a Node CLI. Running it through Bun can stall during lifecycle scripts.
+RUN apk add --no-cache nodejs
 RUN bun install -g pnpm@10.12.1
 COPY package.json pnpm-workspace.yaml pnpm-lock.yaml* tsconfig.json ./
 COPY patches patches
 COPY apps/backend/package.json apps/backend/package.json
 RUN pnpm install --frozen-lockfile --prod --config.confirmModulesPurge=false
 
-FROM oven/bun:1.2-alpine
+FROM oven/bun:1.3.11-alpine
 WORKDIR /app
 ENV CI=true
 ENV NODE_ENV=production

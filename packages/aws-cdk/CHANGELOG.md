@@ -1,5 +1,17 @@
 # @ctxpipe/aws-cdk
 
+## 3.1.7
+
+### Patch Changes
+
+- 272432c: Make Forge production deployment use its built-in pre-deployment lint so scope-driven major versions cannot be blocked by a divergent standalone check.
+
+## 3.1.6
+
+### Patch Changes
+
+- 5e29c73: Capture durable Slack, Linear, Notion, and Confluence assets in context repositories with bounded downloads and safe reconciliation.
+
 ## 3.1.5
 
 ### Patch Changes

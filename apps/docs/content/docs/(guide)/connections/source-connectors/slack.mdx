@@ -91,11 +91,16 @@ git-native, ingested context that the connector does.
 
 ## What is captured
 
-- Thread-first Markdown under `slack/channels/<slug>--<channelId>/threads/…`
+- Thread-first Markdown at
+  `slack/channels/<slug>--<channelId>/threads/<yyyy>/<mm>/<threadTs>/thread.md`
 - Frontmatter identity: `captured_at`, Slack permalink, channel and thread ids,
   and `captured_by` handle + name (never a Slack user id)
-- File and image attachments as Markdown links to the Slack permalink (no
-  binaries and no private download URLs in git)
+- Readable names for message authors and inline user mentions
+- Files and explicit embedded media copied into the thread's `assets/` directory
+  with relative Markdown links. Private, signed, and expiring download URLs are
+  never written to git.
+- Assets over 25 MiB, a thread over its 100 MiB asset budget, or unsafe/failed
+  downloads leave a source permalink or textual stub instead
 - The in-thread status reply is excluded from the snapshot
 - Threads longer than 500 messages are truncated (oldest kept); Slack status
   calls that out. Hosted deployments share one Slack app quota.
@@ -106,7 +111,6 @@ git-native, ingested context that the connector does.
 - Direct messages and multi-party DMs
 - Automatic refresh when someone replies after a capture
 - Slack Q&A / retrieval in-thread (future tool on the same agent)
-- Full video or file binary archival (attachments are permalink stubs)
 - Deleting git history when you uninstall Slack. Uninstall marks the connection
   revoked; captured files stay in the repository.
 

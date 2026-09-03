@@ -88,7 +88,11 @@ describe("runSlackMentionAgent", () => {
 
   it("captures when the agent calls capture_thread", async () => {
     createAgentMock.mockImplementation(
-      ({ tools }: { tools: Array<{ invoke: () => Promise<unknown> }> }) => ({
+      ({
+        tools,
+      }: {
+        tools: Array<{ invoke: (input: unknown) => Promise<unknown> }>
+      }) => ({
         invoke: async () => {
           await tools[0]?.invoke({})
           return { messages: [] }

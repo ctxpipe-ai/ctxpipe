@@ -1,4 +1,5 @@
 import { OpenAPIHono } from "@hono/zod-openapi"
+import { contextStorage } from "hono/context-storage"
 import { beforeEach, describe, expect, it, vi } from "vitest"
 import type { AppEnv } from "../../../app/env.js"
 import { parseEnv } from "../../../config/env.js"
@@ -219,6 +220,7 @@ describe("POST /api/v1/webhook/atlassian/forge", () => {
       child: vi.fn(),
     } as unknown as AppEnv["Variables"]["log"]
     const app = new OpenAPIHono<AppEnv>()
+    app.use(contextStorage())
     app.use("*", async (c, next) => {
       c.set("env", env)
       c.set("log", log)
@@ -460,6 +462,116 @@ describe("POST /api/v1/webhook/atlassian/forge", () => {
     })
   })
 
+  it.each([
+    "avi:confluence:created:attachment",
+    "avi:confluence:updated:attachment",
+    "avi:confluence:archived:attachment",
+    "avi:confluence:unarchived:attachment",
+    "avi:confluence:trashed:attachment",
+    "avi:confluence:restored:attachment",
+    "avi:confluence:deleted:attachment",
+  ])("routes %s through its parent page", async (eventType) => {
+    const { app } = createApp()
+    const res = await app.request("/api/v1/webhook/atlassian/forge", {
+      method: "POST",
+      headers: {
+        authorization: "Bearer fit_token",
+        "content-type": "application/json",
+      },
+      body: JSON.stringify({
+        eventType,
+        eventCreatedDate: "2021-01-20T06:29:21.907Z",
+        attachment: {
+          id: "838205455",
+          type: "attachment",
+          status: "current",
+          title: "logo.png",
+          space: { id: 827392002, key: "SP" },
+          container: {
+            id: "838205441",
+            type: "page",
+            space: { id: 827392002, key: "SP" },
+          },
+        },
+      }),
+    })
+
+    expect(res.status).toBe(204)
+    expect(runWorkflowMock).toHaveBeenCalledWith(confluenceSyncSpace.spec, {
+      orgId: "org_1",
+      connectionId: "fgi_1",
+      spaceKey: "SP",
+      pageId: "838205441",
+      eventType,
+    })
+  })
+
+  it("rejects a malformed supported Confluence payload", async () => {
+    const { app } = createApp()
+    const res = await app.request("/api/v1/webhook/atlassian/forge", {
+      method: "POST",
+      headers: {
+        authorization: "Bearer fit_token",
+        "content-type": "application/json",
+      },
+      body: JSON.stringify({
+        eventType: "avi:confluence:created:attachment",
+        attachment: "not-an-attachment",
+      }),
+    })
+
+    expect(res.status).toBe(400)
+    expect(runWorkflowMock).not.toHaveBeenCalled()
+  })
+
+  it("fully reconciles both spaces when a page moves across spaces", async () => {
+    loadConfluenceScopeFromRepoMock.mockResolvedValue({
+      spaces: [
+        { spaceKey: "NEW", selectedPageIds: null },
+        { spaceKey: "OLD", selectedPageIds: null },
+      ],
+    })
+    const { app } = createApp()
+    const res = await app.request("/api/v1/webhook/atlassian/forge", {
+      method: "POST",
+      headers: {
+        authorization: "Bearer fit_token",
+        "content-type": "application/json",
+      },
+      body: JSON.stringify({
+        eventType: "avi:confluence:moved:page",
+        eventCreatedDate: "2021-01-20T06:29:21.907Z",
+        content: {
+          id: "838205441",
+          type: "page",
+          space: { id: 2, key: "NEW" },
+        },
+        prevContent: {
+          id: "838205441",
+          type: "page",
+          space: { id: 1, key: "OLD" },
+        },
+      }),
+    })
+
+    expect(res.status).toBe(204)
+    expect(runWorkflowMock).toHaveBeenCalledTimes(2)
+    expect(runWorkflowMock).toHaveBeenCalledWith(confluenceSyncSpace.spec, {
+      orgId: "org_1",
+      connectionId: "fgi_1",
+      spaceKey: "NEW",
+      pageId: undefined,
+      eventType: "avi:confluence:moved:page",
+    })
+    expect(runWorkflowMock).toHaveBeenCalledWith(confluenceSyncSpace.spec, {
+      orgId: "org_1",
+      connectionId: "fgi_1",
+      spaceKey: "OLD",
+      pageId: undefined,
+      eventType: "avi:confluence:moved:page",
+    })
+  })
+
   it("returns 204 for Confluence space updated without upserting installation", async () => {
     const { app } = createApp()
     const res = await app.request("/api/v1/webhook/atlassian/forge", {
@@ -540,6 +652,7 @@ describe("POST /api/v1/webhook/atlassian/forge/token-refresh", () => {
 
   function createApp() {
     const app = new OpenAPIHono<AppEnv>()
+    app.use(contextStorage())
     app.use("*", async (c, next) => {
       c.set("env", env)
       c.set("log", {

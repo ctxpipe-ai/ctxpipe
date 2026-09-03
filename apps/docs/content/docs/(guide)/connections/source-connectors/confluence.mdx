@@ -21,6 +21,12 @@ path used for other repository-backed sources. When pages or spaces change in
 Confluence, the Forge app can notify ctx| so the GitHub-backed source can be
 updated and ingested again.
 
+Page attachments and explicit embedded external media are copied under
+`confluence/<spaceKey>/_assets/<pageId>/` and linked relatively from generated
+Markdown. Each asset is capped at 25 MiB and each page has a 100 MiB asset
+budget. Unsafe, unavailable, or oversized media leaves a page link or textual
+stub; Atlassian media and download URLs are never persisted.
+
 <ConfluenceDataFlowDiagram />
 
 ## Data flow

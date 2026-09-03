@@ -1,15 +1,27 @@
 import { beforeEach, describe, expect, it, vi } from "vitest"
 import type { Env } from "../../config/env.js"
 import type { LinearConnection } from "../../models/linear-connector.js"
+import { createConnectorAssetBytePool } from "../connectors/assets.js"
 import {
   buildLinearIncrementalChanges,
   type LinearEntityChange,
 } from "./incremental.js"
+import { syncLinearIncrementalContent } from "./sync.js"
 
 const sdk = vi.hoisted(() => ({
   initiative: vi.fn(),
   issue: vi.fn(),
   team: vi.fn(),
+}))
+const downloadConnectorAsset = vi.hoisted(() => vi.fn())
+const github = vi.hoisted(() => ({
+  commitFiles: vi.fn(),
+  listFilesInTree: vi.fn(),
+}))
+const model = vi.hoisted(() => ({
+  withLinearBindingSnapshot: vi.fn(
+    async (_input: unknown, operation: () => Promise<unknown>) => operation(),
+  ),
 }))
 
 vi.mock("@linear/sdk", () => ({
@@ -18,6 +30,17 @@ vi.mock("@linear/sdk", () => ({
     issue = sdk.issue
     team = sdk.team
   },
+}))
+vi.mock("../connectors/assets.js", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("../connectors/assets.js")>()),
+  downloadConnectorAsset,
+}))
+vi.mock("../../models/linear-connector.js", () => model)
+vi.mock("../github/installation-write-client.js", async (importOriginal) => ({
+  ...(await importOriginal<
+    typeof import("../github/installation-write-client.js")
+  >()),
+  ...github,
 }))
 
 function page<T>(nodes: T[]) {
@@ -107,9 +130,81 @@ const linearIssue = {
 beforeEach(() => {
   vi.clearAllMocks()
   sdk.issue.mockResolvedValue(linearIssue)
+  github.listFilesInTree.mockResolvedValue([])
+  github.commitFiles.mockResolvedValue({ commitSha: "commit-sha" })
+  model.withLinearBindingSnapshot.mockImplementation(
+    async (_input: unknown, operation: () => Promise<unknown>) => operation(),
+  )
 })
 
 describe("buildLinearIncrementalChanges", () => {
+  it("crosses provider traversal, asset capture, and Git reconciliation", async () => {
+    const sourceUrl = "https://uploads.linear.app/acme/diagram.png"
+    sdk.issue.mockResolvedValueOnce({
+      ...linearIssue,
+      description: `Current architecture: ![diagram](${sourceUrl})`,
+      attachments: vi.fn().mockResolvedValue(
+        page([
+          {
+            id: "attachment-1",
+            title: "diagram.png",
+            url: sourceUrl,
+            sourceType: "upload",
+            metadata: null,
+          },
+        ]),
+      ),
+    })
+    downloadConnectorAsset.mockResolvedValueOnce({
+      status: "downloaded",
+      bytes: Buffer.from("diagram-bytes"),
+      filename: "diagram.png",
+      contentType: "image/png",
+    })
+
+    const result = await syncLinearIncrementalContent({
+      orgId: "org_1",
+      env: {} as Env,
+      connection,
+      target: {
+        id: "con_linear",
+        orgId: "org_1",
+        connectionId: "con_linear",
+        repositoryId: "repo_1",
+        repositoryName: "acme/context",
+        githubConnectionId: "con_github",
+        branch: "main",
+        enabled: true,
+        setupPhase: "live",
+        pendingConfigPullUrl: null,
+        pendingConfigPrCreating: false,
+        createdAt: new Date(),
+        updatedAt: new Date(),
+      },
+      config: selectedConfig,
+      entity: issueChange,
+    })
+
+    expect(result.commitSha).toBe("commit-sha")
+    expect(github.commitFiles).toHaveBeenCalledWith(
+      expect.objectContaining({
+        files: expect.arrayContaining([
+          expect.objectContaining({
+            path: "linear/issues/pro-1--issue-1.md",
+            content: expect.stringContaining(
+              "![diagram](pro-1--issue-1/assets/attachment-1--diagram.png)",
+            ),
+          }),
+          {
+            path: "linear/issues/pro-1--issue-1/assets/attachment-1--diagram.png",
+            content: Buffer.from("diagram-bytes").toString("base64"),
+            encoding: "base64",
+          },
+        ]),
+      }),
+    )
+  })
+
   it("updates a selected team from a webhook event", async () => {
     sdk.team.mockResolvedValue({
       id: "team-1",
@@ -194,6 +289,178 @@ describe("buildLinearIncrementalChanges", () => {
     expect(result.deletePaths).toEqual(["linear/issues/pro-1--issue-1.md"])
   })
 
+  it("deletes sibling assets with the markdown file on rename", async () => {
+    sdk.issue.mockResolvedValue({
+      ...linearIssue,
+      identifier: "PRO-2",
+    })
+
+    const result = await buildLinearIncrementalChanges({
+      env: {} as Env,
+      connection,
+      config: selectedConfig,
+      entities: [issueChange],
+      existingPaths: [
+        "linear/issues/pro-1--issue-1.md",
+        "linear/issues/pro-1--issue-1/assets/attachment-4--diagram.png",
+      ],
+    })
+
+    expect(result.files).toEqual([
+      expect.objectContaining({
+        path: "linear/issues/pro-2--issue-1.md",
+      }),
+    ])
+    expect(result.deletePaths).toEqual([
+      "linear/issues/pro-1--issue-1.md",
+      "linear/issues/pro-1--issue-1/assets/attachment-4--diagram.png",
+    ])
+  })
+
+  it("prunes stale sibling assets that are no longer in the desired set", async () => {
+    const result = await buildLinearIncrementalChanges({
+      env: {} as Env,
+      connection,
+      config: selectedConfig,
+      entities: [issueChange],
+      existingPaths: [
+        "linear/issues/pro-1--issue-1.md",
+        "linear/issues/pro-1--issue-1/assets/stale--old.png",
+      ],
+    })
+
+    expect(result.files).toEqual([
+      expect.objectContaining({
+        path: "linear/issues/pro-1--issue-1.md",
+      }),
+    ])
+    expect(result.deletePaths).toEqual([
+      "linear/issues/pro-1--issue-1/assets/stale--old.png",
+    ])
+  })
+
+  it("enforces the retained-byte pool across duplicate attachment aliases", async () => {
+    const sharedUrl = "https://uploads.linear.app/acme/shared.png"
+    linearIssue.attachments.mockResolvedValueOnce(
+      page(
+        Array.from({ length: 5 }, (_, index) => ({
+          id: `attachment-${index}`,
+          title: "shared.png",
+          url: sharedUrl,
+          sourceType: "upload",
+          metadata: null,
+        })),
+      ),
+    )
+    downloadConnectorAsset.mockResolvedValue({
+      status: "downloaded",
+      bytes: Buffer.from("x"),
+      filename: "shared.png",
+      contentType: "image/png",
+    })
+
+    const result = await buildLinearIncrementalChanges({
+      env: {} as Env,
+      connection,
+      config: selectedConfig,
+      entities: [issueChange],
+      existingPaths: [],
+      bytePool: createConnectorAssetBytePool(4),
+    })
+
+    expect(downloadConnectorAsset).toHaveBeenCalledTimes(1)
+    expect(
+      result.files.filter((file) => file.encoding === "base64"),
+    ).toHaveLength(4)
+    expect(result.files[0]?.content).toContain(
+      "File omitted; open the issue in Linear to view it.",
+    )
+  })
+
+  it("prunes stale customer-request assets when its parent issue updates", async () => {
+    linearIssue.needs.mockResolvedValueOnce(
+      page([
+        {
+          id: "need-1",
+          url: "https://linear.app/acme/customer-request/need-1",
+          content: "Current request",
+          body: null,
+          customerId: "customer-1",
+          projectId: null,
+          issueId: "issue-1",
+          priority: 1,
+          createdAt: new Date("2026-08-01T00:00:00.000Z"),
+          updatedAt: new Date("2026-08-02T00:00:00.000Z"),
+        },
+      ]),
+    )
+
+    const result = await buildLinearIncrementalChanges({
+      env: {} as Env,
+      connection,
+      config: selectedConfig,
+      entities: [issueChange],
+      existingPaths: [
+        "linear/customer-requests/customer-request-need-1--need-1.md",
+        "linear/customer-requests/customer-request-need-1--need-1/assets/stale--old.png",
+      ],
+    })
+
+    expect(result.deletePaths).toEqual([
+      "linear/customer-requests/customer-request-need-1--need-1/assets/stale--old.png",
+    ])
+  })
+
+  it("preserves the prior binary when an incremental asset download fails", async () => {
+    downloadConnectorAsset.mockResolvedValue({
+      status: "stub",
+      reason: "download_failed",
+    })
+    sdk.issue.mockResolvedValue({
+      ...linearIssue,
+      identifier: "ENG-1",
+      attachments: vi.fn().mockResolvedValue(
+        page([
+          {
+            id: "attachment-4",
+            title: "diagram.png",
+            url: "https://uploads.linear.app/acme/diagram.png",
+            sourceType: "upload",
+            metadata: null,
+          },
+        ]),
+      ),
+    })
+    const preserved =
+      "linear/issues/pro-1--issue-1/assets/attachment-4--diagram.png"
+
+    const result = await buildLinearIncrementalChanges({
+      env: {} as Env,
+      connection,
+      config: selectedConfig,
+      entities: [issueChange],
+      existingPaths: [
+        "linear/issues/pro-1--issue-1.md",
+        preserved,
+        "linear/issues/pro-1--issue-1/assets/removed--old.png",
+      ],
+    })
+
+    expect(result.files).toEqual([
+      expect.objectContaining({
+        path: "linear/issues/eng-1--issue-1.md",
+        content: expect.stringContaining(
+          "path: pro-1--issue-1/assets/attachment-4--diagram.png",
+        ),
+      }),
+    ])
+    expect(result.deletePaths).not.toContain(preserved)
+    expect(result.deletePaths).toContain("linear/issues/pro-1--issue-1.md")
+    expect(result.deletePaths).toContain(
+      "linear/issues/pro-1--issue-1/assets/removed--old.png",
+    )
+  })
+
   it("deletes a matching stable-id path without fetching Linear", async () => {
     const result = await buildLinearIncrementalChanges({
       env: {} as Env,
@@ -207,6 +474,26 @@ describe("buildLinearIncrementalChanges", () => {
     })
 
     expect(result.deletePaths).toEqual(["linear/issues/old-title--issue-1.md"])
+    expect(sdk.issue).not.toHaveBeenCalled()
+  })
+
+  it("deletes sibling assets without fetching Linear", async () => {
+    const result = await buildLinearIncrementalChanges({
+      env: {} as Env,
+      connection,
+      config: selectedConfig,
+      entities: [{ ...issueChange, action: "delete" }],
+      existingPaths: [
+        "linear/config.yaml",
+        "linear/issues/old-title--issue-1.md",
+        "linear/issues/old-title--issue-1/assets/attachment-4--diagram.png",
+      ],
+    })
+
+    expect(result.deletePaths).toEqual([
+      "linear/issues/old-title--issue-1.md",
+      "linear/issues/old-title--issue-1/assets/attachment-4--diagram.png",
+    ])
     expect(sdk.issue).not.toHaveBeenCalled()
   })
 

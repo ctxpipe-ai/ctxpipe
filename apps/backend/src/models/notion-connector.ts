@@ -9,7 +9,6 @@ import {
 import { repositories } from "../db/schema/repositories.js"
 import { repositoryCheckouts } from "../db/schema/repository_checkouts.js"
 import {
-  encodeNotionTokensForDb,
   migrateLegacyNotionTokensForDb,
   type NotionSetupPhase,
   parseNotionConnectionConfig,
@@ -294,107 +293,163 @@ export async function upsertNotionConnectionFromOAuth(input: {
   workspaceIcon?: string | null
 }): Promise<NotionConnection> {
   const db = getOrgDb()
-  const [existing] = await db
-    .select()
-    .from(connections)
-    .where(
-      and(
-        eq(connections.orgId, input.orgId),
-        eq(connections.type, CONNECTION_TYPE_NOTION),
-        eq(notionConfigBotIdRef(), input.botId),
-      ),
+  return db.transaction(async (tx) => {
+    await tx.execute(
+      sql`select pg_advisory_xact_lock(hashtextextended(${`${input.orgId}:${input.botId}`}, 0))`,
     )
-    .orderBy(desc(connections.updatedAt))
-    .limit(1)
+    const [matched] = await tx
+      .select()
+      .from(connections)
+      .where(
+        and(
+          eq(connections.orgId, input.orgId),
+          eq(connections.type, CONNECTION_TYPE_NOTION),
+          eq(notionConfigBotIdRef(), input.botId),
+        ),
+      )
+      .orderBy(desc(connections.updatedAt))
+      .limit(1)
+    let existing = matched
+    if (existing) {
+      await tx.execute(
+        sql`select pg_advisory_xact_lock(hashtextextended(${existing.id}, 0))`,
+      )
+      const [latestExisting] = await tx
+        .select()
+        .from(connections)
+        .where(
+          and(
+            eq(connections.id, existing.id),
+            eq(connections.orgId, input.orgId),
+            eq(connections.type, CONNECTION_TYPE_NOTION),
+          ),
+        )
+        .limit(1)
+      existing = latestExisting
+    }
 
-  const existingShape = existing
-    ? notionConnectionToShape(existing, input.env)
-    : undefined
-  const config = notionShapeToConfig(
-    {
-      accessToken: input.accessToken,
-      refreshToken: input.refreshToken ?? null,
-      botId: input.botId,
-      workspaceId: input.workspaceId ?? null,
-      workspaceName: input.workspaceName ?? null,
-      workspaceIcon: input.workspaceIcon ?? null,
-      ownerUserId: input.ownerUserId,
-      status: "installed",
-      lastEventPayload: null,
-      // Preserve the sync binding when re-running OAuth for an existing connection.
-      repositoryId: existingShape?.repositoryId ?? null,
-      branch: existingShape?.branch ?? null,
-      enabled: existingShape?.enabled ?? true,
-      setupPhase: existingShape?.setupPhase ?? "draft",
-      pendingConfigPullUrl: existingShape?.pendingConfigPullUrl ?? null,
-      pendingConfigPrCreating: existingShape?.pendingConfigPrCreating ?? false,
-    },
-    input.env,
-  )
-
-  if (existing) {
-    const [row] = await db
-      .update(connections)
-      .set({ config, updatedAt: new Date() })
-      .where(eq(connections.id, existing.id))
-      .returning()
-    if (!row) throw new Error("Failed to update Notion connection")
-    return notionConnectionToShape(row, input.env)
-  }
-
-  const [row] = await db
-    .insert(connections)
-    .values({
-      id: generateObjectId("con"),
-      orgId: input.orgId,
-      type: CONNECTION_TYPE_NOTION,
-      config,
-    })
-    .returning()
-  if (!row) throw new Error("Failed to create Notion connection")
-  return notionConnectionToShape(row, input.env)
-}
-
-export async function updateNotionConnectionTokens(input: {
-  orgId: string
-  connectionId: string
-  accessToken: string
-  refreshToken: string | null
-  env: Env
-}): Promise<void> {
-  const db = getOrgDb()
-  const [current] = await db
-    .select({ config: connections.config })
-    .from(connections)
-    .where(
-      and(
-        eq(connections.id, input.connectionId),
-        eq(connections.orgId, input.orgId),
-        eq(connections.type, CONNECTION_TYPE_NOTION),
-      ),
-    )
-    .limit(1)
-  if (!current) throw new Error("Notion connection not found")
-  // Drop any legacy plaintext tokens; tokens are always persisted as ciphertext.
-  const {
-    accessToken: _legacyAccessToken,
-    refreshToken: _legacyRefreshToken,
-    ...rest
-  } = current.config as Record<string, unknown>
-  const config = serialiseNotionConnectionConfigForDb({
-    ...rest,
-    ...encodeNotionTokensForDb(
+    const existingShape = existing
+      ? notionConnectionToShape(existing, input.env)
+      : undefined
+    const config = notionShapeToConfig(
       {
         accessToken: input.accessToken,
-        refreshToken: input.refreshToken,
+        refreshToken: input.refreshToken ?? null,
+        botId: input.botId,
+        workspaceId: input.workspaceId ?? null,
+        workspaceName: input.workspaceName ?? null,
+        workspaceIcon: input.workspaceIcon ?? null,
+        ownerUserId: input.ownerUserId,
+        status: "installed",
+        lastEventPayload: existingShape?.lastEventPayload ?? null,
+        // Preserve the sync binding when re-running OAuth for an existing connection.
+        repositoryId: existingShape?.repositoryId ?? null,
+        branch: existingShape?.branch ?? null,
+        enabled: existingShape?.enabled ?? true,
+        setupPhase: existingShape?.setupPhase ?? "draft",
+        pendingConfigPullUrl: existingShape?.pendingConfigPullUrl ?? null,
+        pendingConfigPrCreating:
+          existingShape?.pendingConfigPrCreating ?? false,
       },
       input.env,
-    ),
+    )
+
+    if (existing) {
+      const [row] = await tx
+        .update(connections)
+        .set({ config, updatedAt: new Date() })
+        .where(eq(connections.id, existing.id))
+        .returning()
+      if (!row) throw new Error("Failed to update Notion connection")
+      return notionConnectionToShape(row, input.env)
+    }
+
+    const [row] = await tx
+      .insert(connections)
+      .values({
+        id: generateObjectId("con"),
+        orgId: input.orgId,
+        type: CONNECTION_TYPE_NOTION,
+        config,
+      })
+      .returning()
+    if (!row) throw new Error("Failed to create Notion connection")
+    return notionConnectionToShape(row, input.env)
   })
-  await db
-    .update(connections)
-    .set({ config, updatedAt: new Date() })
-    .where(eq(connections.id, input.connectionId))
+}
+
+export async function refreshNotionConnectionTokensWithLock(input: {
+  orgId: string
+  connectionId: string
+  env: Env
+  expectedRefreshToken: string
+  expectedAccessToken: string
+  refresh: (refreshToken: string) => Promise<{
+    accessToken: string
+    refreshToken: string | null
+  }>
+}): Promise<{ accessToken: string; refreshToken: string | null }> {
+  const db = getOrgDb()
+  return db.transaction(async (tx) => {
+    await tx.execute(
+      sql`select pg_advisory_xact_lock(hashtextextended(${input.connectionId}, 0))`,
+    )
+    const [row] = await tx
+      .select()
+      .from(connections)
+      .where(
+        and(
+          eq(connections.id, input.connectionId),
+          eq(connections.orgId, input.orgId),
+          eq(connections.type, CONNECTION_TYPE_NOTION),
+        ),
+      )
+      .limit(1)
+    if (!row) throw new Error("Notion connection not found")
+    const current = notionConnectionToShape(row, input.env)
+    if (!current.accessToken) {
+      throw new Error("Notion connection has no access token")
+    }
+    if (
+      current.accessToken !== input.expectedAccessToken ||
+      current.refreshToken !== input.expectedRefreshToken
+    ) {
+      return {
+        accessToken: current.accessToken,
+        refreshToken: current.refreshToken,
+      }
+    }
+    if (!current.refreshToken) {
+      throw new Error("Notion connection has no refresh token")
+    }
+    const refreshed = await input.refresh(current.refreshToken)
+    const tokens = {
+      accessToken: refreshed.accessToken,
+      refreshToken: refreshed.refreshToken ?? current.refreshToken,
+    }
+    const config = notionShapeToConfig(
+      {
+        ...current,
+        ...tokens,
+      },
+      input.env,
+    )
+    const [updated] = await tx
+      .update(connections)
+      .set({ config, updatedAt: new Date() })
+      .where(
+        and(
+          eq(connections.id, input.connectionId),
+          eq(connections.orgId, input.orgId),
+          eq(connections.type, CONNECTION_TYPE_NOTION),
+        ),
+      )
+      .returning({ id: connections.id })
+    if (!updated) {
+      throw new Error("Notion connection was removed during token refresh")
+    }
+    return tokens
+  })
 }
 
 export async function listNotionConnectionsForWebhook(input: {
