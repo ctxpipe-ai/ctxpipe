@@ -1,5 +1,11 @@
 # @ctxpipe/aws-cdk
 
+## 3.1.8
+
+### Patch Changes
+
+- 5d55a4b: Make SCIP ingest optional with graceful degradation so Zoekt OOM skips SCIP langs and extract can still complete.
+
 ## 3.1.7
 
 ### Patch Changes
