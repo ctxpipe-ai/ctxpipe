@@ -38,10 +38,13 @@ Singapore is the canonical production region:
 - Before cutover, all Railway services that can write PostgreSQL (`backend`,
   `openworkflow`, and `codesearch`) are scaled to zero. The operator waits for
   replication lag to reach zero, synchronises sequences, switches the database
-  target and migration secret, then restores the services.
-- Terraform consumes `railway_regions` instead of maintaining a hidden region
-  constant. The database target and source logical-replication state are
-  explicit Terraform inputs supplied by protected GitHub Actions variables.
+  target, migration secret, and CI preview-branch project ID, then restores the
+  services.
+- Terraform keeps the Railway region in one provider-compatible module-local
+  value. Railway provider 0.6.1 cannot convert a module-input region list, so
+  the misleading root `railway_regions` input is removed rather than duplicated.
+  The database target and source logical-replication state remain explicit
+  Terraform inputs supplied by protected GitHub Actions variables.
 - The US East project is retained through a validation window. It is not a safe
   rollback target after Singapore accepts writes unless changes are reconciled
   or reverse replication is established.

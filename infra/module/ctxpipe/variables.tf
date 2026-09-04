@@ -18,14 +18,6 @@ variable "railway_environment_name" {
   description = "Railway environment name (e.g., production)."
 }
 
-variable "railway_regions" {
-  type = list(object({
-    region       = string
-    num_replicas = number
-  }))
-  description = "Railway service regions."
-}
-
 variable "backend_source_image" {
   type        = string
   description = "Container image repository for the backend service."

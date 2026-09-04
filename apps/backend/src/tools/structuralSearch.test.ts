@@ -19,6 +19,8 @@ vi.mock("../config/env.js", () => ({
 }))
 vi.mock("../lib/withTransientHttpRetry.js", () => ({
   withTransientHttpRetry: withTransientHttpRetryMock,
+  isTransientHttpFailure: (error: unknown) => error instanceof TypeError,
+  transientHttpFailureStatus: () => 503,
   CODESEARCH_QUERY_RETRY: {
     retries: 2,
     baseDelayMs: 250,
@@ -112,5 +114,20 @@ describe("structuralSearchTool", () => {
       },
     )
     expect(result).toContain("src/example.ts")
+  })
+
+  it("returns a typed unavailable result after network retry exhaustion", async () => {
+    withTransientHttpRetryMock.mockRejectedValueOnce(
+      new TypeError("fetch failed"),
+    )
+
+    const result = await structuralSearchTool.invoke({
+      repositoryId: "repo_aaaaaaaaaaaaaaaaaaaaaaaaaa",
+      pattern: "$F($A)",
+      limit: 25,
+    })
+
+    expect(result).toContain("structural_search_unavailable")
+    expect(result).toContain("503")
   })
 })

@@ -1,3 +1,4 @@
+import { isTransientHttpFailure } from "../../../lib/withTransientHttpRetry.js"
 import { getLogger } from "../../../observability/logger.js"
 import {
   aggregateClaimsByPredicate,
@@ -354,6 +355,7 @@ async function runCodeSearch(
       codeResults: results,
     }
   } catch (error) {
+    if (!isTransientHttpFailure(error)) throw error
     getLogger().warn(
       "Code search unavailable; continuing with remaining retrieval channels",
       {

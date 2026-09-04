@@ -11,9 +11,10 @@ vi.mock("../observability/logger.js", () => ({
 import { log } from "../observability/logger.js"
 import {
   formatUnknownError,
+  isDbConnectionAcquisitionError,
   isTransientDbConnectionError,
-  withTransientDbQueryRetry,
-  wrapPoolQueryWithTransientRetry,
+  withDbConnectionAcquisitionRetry,
+  wrapPoolQueryWithConnectionAcquisitionRetry,
 } from "./transientDbRetry.js"
 
 describe("isTransientDbConnectionError", () => {
@@ -75,18 +76,60 @@ describe("formatUnknownError", () => {
   })
 })
 
-describe("withTransientDbQueryRetry", () => {
+describe("isDbConnectionAcquisitionError", () => {
+  it("accepts only failures that happen before a query is sent", () => {
+    expect(
+      isDbConnectionAcquisitionError(
+        new Error("timeout exceeded when trying to connect"),
+      ),
+    ).toBe(true)
+    expect(
+      isDbConnectionAcquisitionError(
+        new AggregateError([
+          Object.assign(new Error("connect ETIMEDOUT"), {
+            code: "ETIMEDOUT",
+            syscall: "connect",
+          }),
+        ]),
+      ),
+    ).toBe(true)
+  })
+
+  it("rejects ambiguous mid-query disconnects", () => {
+    expect(
+      isDbConnectionAcquisitionError(
+        new Error("Connection terminated unexpectedly"),
+      ),
+    ).toBe(false)
+    expect(
+      isDbConnectionAcquisitionError(
+        Object.assign(new Error("read ECONNRESET"), { code: "ECONNRESET" }),
+      ),
+    ).toBe(false)
+    expect(
+      isDbConnectionAcquisitionError(
+        Object.assign(new Error("timeout exceeded when trying to connect"), {
+          code: "57P03",
+          severity: "ERROR",
+          routine: "exec_stmt_raise",
+        }),
+      ),
+    ).toBe(false)
+  })
+})
+
+describe("withDbConnectionAcquisitionRetry", () => {
   beforeEach(() => {
     vi.clearAllMocks()
     vi.useRealTimers()
   })
 
-  it("retries once on connection terminated then succeeds", async () => {
+  it("retries once when pool connection acquisition fails then succeeds", async () => {
     let n = 0
-    const result = await withTransientDbQueryRetry(
+    const result = await withDbConnectionAcquisitionRetry(
       async () => {
         n += 1
-        if (n < 2) throw new Error("Connection terminated unexpectedly")
+        if (n < 2) throw new Error("timeout exceeded when trying to connect")
         return "ok"
       },
       { retries: 1, baseDelayMs: 1 },
@@ -96,37 +139,37 @@ describe("withTransientDbQueryRetry", () => {
     expect(log.info).toHaveBeenCalledTimes(1)
     expect(log.info).toHaveBeenCalledWith(
       expect.objectContaining({
-        step: "db.transient_connection_retry",
+        step: "db.connection_acquisition_retry",
         attempt: 1,
         maxAttempts: 2,
-        message: "Connection terminated unexpectedly",
+        message: "timeout exceeded when trying to connect",
       }),
     )
   })
 
-  it("defaults to a multi-attempt budget for Neon wake/reset", async () => {
+  it("defaults to one bounded retry", async () => {
     let n = 0
-    const result = await withTransientDbQueryRetry(
+    const result = await withDbConnectionAcquisitionRetry(
       async () => {
         n += 1
-        if (n < 4) throw new Error("Connection terminated unexpectedly")
+        if (n < 2) throw new Error("timeout exceeded when trying to connect")
         return "ok"
       },
       { baseDelayMs: 1 },
     )
     expect(result).toBe("ok")
-    expect(n).toBe(4)
-    expect(log.info).toHaveBeenCalledTimes(3)
+    expect(n).toBe(2)
+    expect(log.info).toHaveBeenCalledTimes(1)
   })
 
-  it("does not retry non-transient errors", async () => {
+  it("does not retry ambiguous disconnects", async () => {
     let n = 0
     await expect(
-      withTransientDbQueryRetry(async () => {
+      withDbConnectionAcquisitionRetry(async () => {
         n += 1
-        throw new Error("unique violation")
+        throw new Error("Connection terminated unexpectedly")
       }),
-    ).rejects.toThrow("unique violation")
+    ).rejects.toThrow("Connection terminated unexpectedly")
     expect(n).toBe(1)
     expect(log.info).not.toHaveBeenCalled()
   })
@@ -134,19 +177,22 @@ describe("withTransientDbQueryRetry", () => {
   it("rethrows after exhausting retries", async () => {
     let n = 0
     await expect(
-      withTransientDbQueryRetry(
+      withDbConnectionAcquisitionRetry(
         async () => {
           n += 1
-          throw Object.assign(new Error("ECONNRESET"), { code: "ECONNRESET" })
+          throw Object.assign(new Error("connect ETIMEDOUT"), {
+            code: "ETIMEDOUT",
+            syscall: "connect",
+          })
         },
         { retries: 1, baseDelayMs: 1 },
       ),
-    ).rejects.toMatchObject({ code: "ECONNRESET" })
+    ).rejects.toMatchObject({ code: "ETIMEDOUT" })
     expect(n).toBe(2)
   })
 })
 
-describe("wrapPoolQueryWithTransientRetry", () => {
+describe("wrapPoolQueryWithConnectionAcquisitionRetry", () => {
   beforeEach(() => {
     vi.clearAllMocks()
   })
@@ -156,12 +202,14 @@ describe("wrapPoolQueryWithTransientRetry", () => {
     const pool = {
       query: vi.fn(async () => {
         n += 1
-        if (n < 2) throw new Error("Connection terminated unexpectedly")
+        if (n < 2) throw new Error("timeout exceeded when trying to connect")
         return { rows: [{ ok: true }] }
       }),
     }
 
-    wrapPoolQueryWithTransientRetry(pool as unknown as import("pg").Pool)
+    wrapPoolQueryWithConnectionAcquisitionRetry(
+      pool as unknown as import("pg").Pool,
+    )
 
     const result = await (
       pool.query as unknown as (
@@ -171,7 +219,7 @@ describe("wrapPoolQueryWithTransientRetry", () => {
     expect(result).toEqual({ rows: [{ ok: true }] })
     expect(n).toBe(2)
     expect(log.info).toHaveBeenCalledWith(
-      expect.objectContaining({ step: "db.transient_connection_retry" }),
+      expect.objectContaining({ step: "db.connection_acquisition_retry" }),
     )
   })
 
@@ -183,7 +231,9 @@ describe("wrapPoolQueryWithTransientRetry", () => {
     )
     const pool = { query: underlying }
 
-    wrapPoolQueryWithTransientRetry(pool as unknown as import("pg").Pool)
+    wrapPoolQueryWithConnectionAcquisitionRetry(
+      pool as unknown as import("pg").Pool,
+    )
 
     const cb = vi.fn()
     ;(pool.query as typeof underlying)("select 1", cb)
@@ -198,7 +248,9 @@ describe("wrapPoolQueryWithTransientRetry", () => {
       .mockRejectedValue(new Error("Connection terminated unexpectedly"))
     const pool = { query: underlying }
 
-    wrapPoolQueryWithTransientRetry(pool as unknown as import("pg").Pool)
+    wrapPoolQueryWithConnectionAcquisitionRetry(
+      pool as unknown as import("pg").Pool,
+    )
 
     await expect(
       (pool.query as unknown as (sql: string) => Promise<{ rows: unknown[] }>)(
@@ -207,5 +259,50 @@ describe("wrapPoolQueryWithTransientRetry", () => {
     ).rejects.toThrow("Connection terminated unexpectedly")
     expect(underlying).toHaveBeenCalledTimes(1)
     expect(log.info).not.toHaveBeenCalled()
+  })
+
+  it.each([
+    "select nextval('device_codes_id_seq')",
+    "select set_config('app.org_id', 'org_1', false)",
+    "select pg_notify('events', 'payload')",
+    "select pg_try_advisory_lock_shared(42)",
+    "select * into temporary table copied_users from users",
+    "select * from users for update",
+  ])("does not retry side-effecting SELECT: %s", async (sql) => {
+    const underlying = vi
+      .fn()
+      .mockRejectedValue(new Error("Connection terminated unexpectedly"))
+    const pool = { query: underlying }
+
+    wrapPoolQueryWithConnectionAcquisitionRetry(
+      pool as unknown as import("pg").Pool,
+    )
+
+    await expect(
+      (pool.query as unknown as (query: string) => Promise<unknown>)(sql),
+    ).rejects.toThrow("Connection terminated unexpectedly")
+    expect(underlying).toHaveBeenCalledTimes(1)
+    expect(log.info).not.toHaveBeenCalled()
+  })
+
+  it("retries a write only when connection acquisition proves it was not sent", async () => {
+    const underlying = vi
+      .fn()
+      .mockRejectedValueOnce(
+        new Error("timeout exceeded when trying to connect"),
+      )
+      .mockResolvedValueOnce({ rowCount: 1 })
+    const pool = { query: underlying }
+
+    wrapPoolQueryWithConnectionAcquisitionRetry(
+      pool as unknown as import("pg").Pool,
+    )
+
+    await expect(
+      (pool.query as unknown as (query: string) => Promise<unknown>)(
+        "insert into device_codes (id) values ('code_1')",
+      ),
+    ).resolves.toEqual({ rowCount: 1 })
+    expect(underlying).toHaveBeenCalledTimes(2)
   })
 })

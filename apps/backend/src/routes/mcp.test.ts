@@ -1,6 +1,7 @@
 import { Hono } from "hono"
-import { beforeEach, describe, expect, it, vi } from "vitest"
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 import type { AppEnv } from "../app/env.js"
+import { recordAuthApiError } from "../auth/transient-api-error.js"
 import { MCP_SSE_OPEN_COMMENT } from "../mcp/transport.js"
 import { registerMcpRoutes } from "./mcp.js"
 
@@ -12,6 +13,7 @@ const {
   registerMcpToolsMock,
   loggerSetMock,
   loggerInfoMock,
+  rootLoggerInfoMock,
   loggerErrorMock,
 } = vi.hoisted(() => ({
   withCookieAuthMock: vi.fn(),
@@ -21,6 +23,7 @@ const {
   registerMcpToolsMock: vi.fn(),
   loggerSetMock: vi.fn(),
   loggerInfoMock: vi.fn(),
+  rootLoggerInfoMock: vi.fn(),
   loggerErrorMock: vi.fn(),
 }))
 
@@ -36,6 +39,9 @@ vi.mock("../mcp/tools.js", () => ({
 }))
 
 vi.mock("../observability/logger.js", () => ({
+  log: {
+    info: rootLoggerInfoMock,
+  },
   getLogger: () => ({
     set: loggerSetMock,
     info: loggerInfoMock,
@@ -115,6 +121,10 @@ describe("MCP route auth and org validation", () => {
     })
   })
 
+  afterEach(() => {
+    vi.useRealTimers()
+  })
+
   it("rejects unauthenticated requests", async () => {
     requireAuthMock.mockImplementationOnce(async (c) =>
       c.json({ error: "Unauthorized" }, 401),
@@ -125,6 +135,38 @@ describe("MCP route auth and org validation", () => {
 
     expect(response.status).toBe(401)
     expect(await response.json()).toEqual({ error: "Unauthorized" })
+    expect(registerMcpToolsMock).not.toHaveBeenCalled()
+  })
+
+  it("returns a retryable 503 when MCP auth records a transient database failure", async () => {
+    withBearerAuthMock.mockImplementationOnce(async (c) => {
+      recordAuthApiError(
+        Object.assign(new Error("Connection terminated unexpectedly"), {
+          code: "57P01",
+        }),
+      )
+      return c.json({ error: "Unauthorized" }, 401)
+    })
+
+    const app = createTestApp()
+    const response = await app.request("/mcp?orgSlug=acme", {
+      method: "POST",
+    })
+
+    expect(response.status).toBe(503)
+    expect(response.headers.get("retry-after")).toBe("3")
+    await expect(response.json()).resolves.toEqual({
+      error: "temporarily_unavailable",
+      message:
+        "ctx| authentication is temporarily unavailable. Try again shortly.",
+    })
+    expect(loggerErrorMock).toHaveBeenCalledWith(
+      expect.any(Error),
+      expect.objectContaining({
+        step: "mcp.auth.database_unavailable",
+        databaseError: "Connection terminated unexpectedly (57P01)",
+      }),
+    )
     expect(registerMcpToolsMock).not.toHaveBeenCalled()
   })
 
@@ -196,6 +238,7 @@ describe("MCP route auth and org validation", () => {
   })
 
   it("completes the CodeRabbit Streamable HTTP handshake over a GET listener", async () => {
+    vi.useFakeTimers()
     const app = createTestApp()
 
     const initialize = await app.request("/mcp?orgSlug=acme", {
@@ -250,6 +293,11 @@ describe("MCP route auth and org validation", () => {
     expect(registerMcpToolsMock).toHaveBeenCalled()
     const { reader, firstChunk } = await readSseOpenSignal(listener)
     expect(firstChunk).toBe(MCP_SSE_OPEN_COMMENT)
+    const keepaliveRead = reader.read()
+    await vi.advanceTimersByTimeAsync(15_000)
+    const keepalive = await keepaliveRead
+    expect(keepalive.done).toBe(false)
+    expect(new TextDecoder().decode(keepalive.value)).toBe(": keepalive\n\n")
 
     const toolsList = await app.request("/mcp?orgSlug=acme", {
       method: "POST",
@@ -298,20 +346,16 @@ describe("MCP route auth and org validation", () => {
 
     await reader.cancel()
     expect(loggerInfoMock).toHaveBeenCalledWith("MCP stream opened")
-    expect(loggerInfoMock).toHaveBeenCalledWith("MCP stream closed")
-    expect(loggerSetMock.mock.calls).toEqual(
-      expect.arrayContaining([
-        [
-          expect.objectContaining({
-            step: "mcp.request",
-            mcp: expect.objectContaining({
-              method: "GET",
-              stream: "closed",
-              closeReason: "cancelled",
-            }),
-          }),
-        ],
-      ]),
+    expect(rootLoggerInfoMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        step: "mcp.request",
+        message: "MCP stream closed",
+        mcp: expect.objectContaining({
+          method: "GET",
+          stream: "closed",
+          closeReason: "cancelled",
+        }),
+      }),
     )
   })
 
@@ -382,8 +426,20 @@ describe("MCP route auth and org validation", () => {
       },
     })
     expect(loggerInfoMock).toHaveBeenCalledWith("MCP stream opened")
-    expect(loggerInfoMock).toHaveBeenCalledWith("MCP stream closed")
+    expect(rootLoggerInfoMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        step: "mcp.request",
+        message: "MCP stream closed",
+        mcp: expect.objectContaining({
+          stream: "closed",
+          closeReason: "cancelled",
+        }),
+      }),
+    )
     expect(JSON.stringify(loggerSetMock.mock.calls)).not.toContain(
+      "sensitive-request-id",
+    )
+    expect(JSON.stringify(rootLoggerInfoMock.mock.calls)).not.toContain(
       "sensitive-request-id",
     )
     expect(JSON.stringify(loggerSetMock.mock.calls)).not.toContain(

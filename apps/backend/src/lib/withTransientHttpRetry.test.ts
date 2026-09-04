@@ -10,7 +10,9 @@ vi.mock("../observability/logger.js", () => ({
 
 import { log } from "../observability/logger.js"
 import {
+  isTransientHttpFailure,
   TransientHttpError,
+  transientHttpFailureStatus,
   withTransientHttpRetry,
 } from "./withTransientHttpRetry.js"
 
@@ -87,6 +89,8 @@ describe("withTransientHttpRetry", () => {
       }),
     ).rejects.toBe(err)
     expect(log.info).not.toHaveBeenCalled()
+    expect(isTransientHttpFailure(err)).toBe(true)
+    expect(transientHttpFailureStatus(err)).toBe(503)
   })
 
   it("retries on ECONNREFUSED then succeeds", async () => {

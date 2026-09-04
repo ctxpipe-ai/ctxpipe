@@ -39,16 +39,22 @@ function errnoCode(error: unknown): string | undefined {
   return undefined
 }
 
-function isRetryableFetchFailure(error: unknown): boolean {
+function errorName(error: unknown): string | undefined {
+  if (!error || typeof error !== "object" || !("name" in error)) {
+    return undefined
+  }
+  const name = (error as { name?: unknown }).name
+  return typeof name === "string" ? name : undefined
+}
+
+export function isTransientHttpFailure(error: unknown): boolean {
   if (error instanceof TransientHttpError) return true
   if (error instanceof TypeError) {
     const msg = String((error as Error).message).toLowerCase()
     if (msg.includes("fetch") || msg.includes("network")) return true
   }
-  if (error && typeof error === "object" && "name" in error) {
-    const name = (error as { name?: string }).name
-    if (name === "AbortError") return false
-  }
+  const name = errorName(error)
+  if (name === "AbortError" || name === "TimeoutError") return true
   const code = errnoCode(error)
   return (
     code === "ECONNRESET" ||
@@ -57,6 +63,18 @@ function isRetryableFetchFailure(error: unknown): boolean {
     code === "ENOTFOUND" ||
     code === "ECONNREFUSED"
   )
+}
+
+export function transientHttpFailureStatus(error: unknown): number {
+  return error instanceof TransientHttpError && error.status
+    ? error.status
+    : 503
+}
+
+function isRetryableFetchFailure(error: unknown): boolean {
+  const name = errorName(error)
+  if (name === "AbortError" || name === "TimeoutError") return false
+  return isTransientHttpFailure(error)
 }
 
 function isTransientGatewayResponse(value: unknown): value is Response {

@@ -7,10 +7,6 @@ resource "railway_project" "this" {
 
   lifecycle {
     prevent_destroy = true
-    precondition {
-      condition     = var.railway_regions == local.regions
-      error_message = "railway_regions must match the provider-compatible service region configuration."
-    }
   }
 }
 
@@ -21,9 +17,8 @@ locals {
     : neon_project.this.connection_uri_pooler
   )
   falkordb_port = 6379
-  # railway provider 0.6.1 cannot validate an unknown module-input list for
-  # service regions. Keep the concrete value here and enforce equality in the
-  # project precondition above so root/module declarations cannot drift.
+  # railway provider 0.6.1 cannot convert a module-input list here
+  # ("Received unknown value"). Keep one concrete provider-compatible source.
   regions = [
     {
       region       = "asia-southeast1-eqsg3a"

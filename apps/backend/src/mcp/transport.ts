@@ -2,7 +2,7 @@ import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js"
 import { WebStandardStreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/webStandardStreamableHttp.js"
 import type { Context } from "hono"
 import type { AppEnv } from "../app/env.js"
-import { getLogger } from "../observability/logger.js"
+import { getLogger, log } from "../observability/logger.js"
 import { getMcpServerImplementation } from "./mcp-server-info.js"
 
 /**
@@ -12,7 +12,6 @@ import { getMcpServerImplementation } from "./mcp-server-info.js"
  * features. Authenticated GET must open a real SSE listener: several clients,
  * including CodeRabbit, treat 405 on that GET as a failed session.
  */
-export const MCP_SSE_KEEP_ALIVE_MS = 15_000
 export const MCP_SSE_OPEN_COMMENT = ": connected\n\n"
 
 function isLoopbackHostname(hostname: string): boolean {
@@ -120,19 +119,12 @@ function mcpAuthType(c: Context<AppEnv>): "bearer" | "api-key" | "cookie" {
   return "cookie"
 }
 
-async function releaseMcpSession(
-  server: McpServer,
-  transport: WebStandardStreamableHTTPServerTransport,
-): Promise<void> {
+async function releaseMcpSession(server: McpServer): Promise<void> {
   try {
-    await transport.close()
-  } catch {
-    // Transport may already be closed by stream cancel.
-  }
-  try {
+    // McpServer owns and closes its connected transport.
     await server.close()
   } catch {
-    // Server may already be closed with the transport.
+    // Stream cancellation may already have closed the server.
   }
 }
 
@@ -192,7 +184,7 @@ export async function handleMcpTransportRequest(
   }
   const rpcMethods = extractRpcMethods(parsedBody)
   const clientInfo = extractClientInfo(parsedBody)
-  const log = getLogger()
+  const requestLog = getLogger()
   const authType = mcpAuthType(c)
   const protocolVersion = c.req.header("mcp-protocol-version") ?? null
   const baseMcpLog = {
@@ -209,11 +201,10 @@ export async function handleMcpTransportRequest(
   const logRequest = (
     response: Response,
     extras?: {
-      stream?: "opened" | "closed"
-      closeReason?: "cancelled" | "completed" | "error"
+      stream?: "opened"
     },
   ) => {
-    log.set({
+    requestLog.set({
       step: "mcp.request",
       mcp: {
         ...baseMcpLog,
@@ -223,11 +214,9 @@ export async function handleMcpTransportRequest(
       },
     })
     if (extras?.stream === "opened") {
-      log.info("MCP stream opened")
-    } else if (extras?.stream === "closed") {
-      log.info("MCP stream closed")
+      requestLog.info("MCP stream opened")
     } else {
-      log.info("MCP request completed")
+      requestLog.info("MCP request completed")
     }
     return response
   }
@@ -238,7 +227,7 @@ export async function handleMcpTransportRequest(
   registerTools(server)
   const transport = new WebStandardStreamableHTTPServerTransport({
     sessionIdGenerator: undefined,
-    keepAliveMs: MCP_SSE_KEEP_ALIVE_MS,
+    keepAliveMs: 15_000,
   })
 
   try {
@@ -248,7 +237,7 @@ export async function handleMcpTransportRequest(
     })
 
     if (!isSseResponse(res) || !res.body) {
-      await releaseMcpSession(server, transport)
+      await releaseMcpSession(server)
       return logRequest(res ?? new Response(null, { status: 204 }))
     }
 
@@ -259,22 +248,37 @@ export async function handleMcpTransportRequest(
           ? encoder.encode(MCP_SSE_OPEN_COMMENT)
           : undefined,
       onSettled: (closeReason) => {
-        logRequest(res, { stream: "closed", closeReason })
-        void releaseMcpSession(server, transport)
+        // Hono's request logger is emitted when the streaming Response returns.
+        // The close event happens later, so emit it directly instead of writing
+        // to the already-sealed request-wide event.
+        log.info({
+          step: "mcp.request",
+          message: "MCP stream closed",
+          mcp: {
+            ...baseMcpLog,
+            status: res.status,
+            durationMs: Math.round(performance.now() - startedAt),
+            stream: "closed",
+            closeReason,
+          },
+        })
+        void releaseMcpSession(server)
       },
     })
     logRequest(res, { stream: "opened" })
     return new Response(wrapped, { status: res.status, headers: res.headers })
   } catch (error) {
-    log.set({
+    requestLog.set({
       step: "mcp.request",
       mcp: {
         ...baseMcpLog,
         durationMs: Math.round(performance.now() - startedAt),
       },
     })
-    log.error(error instanceof Error ? error : new Error("MCP request failed"))
-    await releaseMcpSession(server, transport)
+    requestLog.error(
+      error instanceof Error ? error : new Error("MCP request failed"),
+    )
+    await releaseMcpSession(server)
     throw error
   }
 }

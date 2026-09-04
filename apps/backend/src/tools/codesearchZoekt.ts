@@ -4,7 +4,8 @@ import { codesearchBaseUrl } from "../lib/agentToolRuntime.js"
 import {
   CODESEARCH_QUERY_RETRY,
   CODESEARCH_QUERY_TIMEOUT_MS,
-  TransientHttpError,
+  isTransientHttpFailure,
+  transientHttpFailureStatus,
   withTransientHttpRetry,
 } from "../lib/withTransientHttpRetry.js"
 
@@ -73,10 +74,10 @@ export async function zoektSearchRepository(
       CODESEARCH_QUERY_RETRY,
     )
   } catch (error) {
-    if (error instanceof TransientHttpError) {
+    if (isTransientHttpFailure(error)) {
       return {
         ok: false,
-        status: error.status ?? 503,
+        status: transientHttpFailureStatus(error),
         error: "search_unavailable",
       }
     }

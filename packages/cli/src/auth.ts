@@ -219,14 +219,13 @@ export async function loginWithDeviceFlow({
   return auth
 }
 
-async function requestDeviceCode(
+export async function requestDeviceCode(
   baseUrl: string,
 ): Promise<Record<string, unknown>> {
   const response = await authFetch(baseUrl, "/device/code", {
     method: "POST",
-    // A lost response can leave one short-lived unused code, but repeating code
-    // issuance is otherwise safe and avoids failing setup on a transient 5xx.
-    retryTransient: true,
+    // Issuance creates a row. An ambiguous timeout may already have succeeded,
+    // so do not create a second code automatically.
     body: {
       client_id: AUTH_CLIENT_ID,
       scope: "openid profile email",
@@ -240,7 +239,7 @@ async function requestDeviceCode(
   return data
 }
 
-async function pollDeviceToken({
+export async function pollDeviceToken({
   baseUrl,
   deviceCode,
   interval,
@@ -253,20 +252,27 @@ async function pollDeviceToken({
   const startedAt = Date.now()
   while (Date.now() - startedAt < 30 * 60 * 1000) {
     await sleep(pollingInterval * 1000 + 250)
-    const response = await authFetch(baseUrl, "/device/token", {
-      method: "POST",
-      // OAuth device polling is explicitly repeatable; a temporary auth outage
-      // should not discard a browser approval already in progress.
-      retryTransient: true,
-      body: {
-        grant_type: DEVICE_GRANT_TYPE,
-        device_code: deviceCode,
-        client_id: AUTH_CLIENT_ID,
-      },
-    })
-    const json = await readAuthJson(response, "ctx| sign-in failed", {
-      allowErrorResponse: true,
-    })
+    let response: Response
+    let json: unknown
+    try {
+      response = await authFetch(baseUrl, "/device/token", {
+        method: "POST",
+        body: {
+          grant_type: DEVICE_GRANT_TYPE,
+          device_code: deviceCode,
+          client_id: AUTH_CLIENT_ID,
+        },
+      })
+      json = await readAuthJson(response, "ctx| sign-in failed", {
+        allowErrorResponse: true,
+      })
+    } catch (error) {
+      // Poll again after the normal interval. Do not hide a later invalid_grant:
+      // the server may have consumed an approved code before its response was
+      // lost, in which case the user must start a new login explicitly.
+      if (error instanceof AuthRequestError && error.temporary) continue
+      throw error
+    }
     const data = unwrapBetterAuthData(json)
     if (response.ok && isObject(data) && data.access_token) return data
 
@@ -282,21 +288,20 @@ async function pollDeviceToken({
     if (code === "expired_token") {
       throw new Error("The ctx| sign-in code expired")
     }
+    if (code === "invalid_grant") {
+      throw new Error(
+        "The ctx| sign-in approval could not be recovered. Run `ctxpipe auth login` again.",
+      )
+    }
     throw new Error(authErrorMessage(json, "ctx| sign-in failed"))
   }
   throw new Error("ctx| sign-in timed out")
 }
 
 /**
- * Refresh threshold: if the stored access token expires sooner than this,
- * try a refresh before handing it back to long-running consumers.
- */
-const REFRESH_LEEWAY_MS = 10 * 60 * 1000
-
-/**
- * Return a non-expired access token for `baseUrl`. Refreshes via the stored
- * `refresh_token` when possible; returns null if no auth is stored or refresh
- * fails (signed-out mode).
+ * Return the stored device-flow access token when it is still valid.
+ * Better Auth's device flow does not issue refresh tokens, so expiry means
+ * signed-out; do not call the unrelated JWT `/token` endpoint.
  */
 export async function ensureFreshAccessToken({
   baseUrl,
@@ -308,21 +313,7 @@ export async function ensureFreshAccessToken({
   const auth = await readStoredAuth(baseUrl)
   if (!auth) return null
   const clock = now ?? new Date()
-  // Device-flow sessions have no refresh token. An expired access token is
-  // signed-out, not something we can revive via jwt `/token`.
-  if (isAccessTokenExpired(auth, clock) && !auth.refreshToken) return null
-  if (!isExpiringSoon(auth, clock)) return auth
-  if (!auth.refreshToken) return auth
-  try {
-    const refreshed = await refreshAccessToken({
-      baseUrl,
-      refreshToken: auth.refreshToken,
-    })
-    await writeStoredAuth(refreshed)
-    return refreshed
-  } catch {
-    return isAccessTokenExpired(auth, clock) ? null : auth
-  }
+  return isAccessTokenExpired(auth, clock) ? null : auth
 }
 
 export function isAccessTokenExpired(
@@ -333,55 +324,6 @@ export function isAccessTokenExpired(
   const expires = Date.parse(auth.expiresAt)
   if (Number.isNaN(expires)) return false
   return expires <= now.getTime()
-}
-
-export function isExpiringSoon(
-  auth: StoredAuth,
-  now: Date = new Date(),
-): boolean {
-  if (!auth.expiresAt) return false
-  const expires = Date.parse(auth.expiresAt)
-  if (Number.isNaN(expires)) return false
-  return expires - now.getTime() < REFRESH_LEEWAY_MS
-}
-
-async function refreshAccessToken({
-  baseUrl,
-  refreshToken,
-}: {
-  baseUrl: string
-  refreshToken: string
-}): Promise<StoredAuth> {
-  const response = await authFetch(baseUrl, "/token", {
-    method: "POST",
-    body: {
-      grant_type: "refresh_token",
-      refresh_token: refreshToken,
-      client_id: AUTH_CLIENT_ID,
-    },
-  })
-  const json = await readAuthJson(
-    response,
-    "Could not refresh ctx| access token",
-  )
-  const data = unwrapBetterAuthData(json)
-  if (!isObject(data) || typeof data.access_token !== "string") {
-    throw new Error("Refresh response missing access_token")
-  }
-  return {
-    baseUrl: normalizeBaseUrl(baseUrl),
-    accessToken: data.access_token,
-    refreshToken:
-      typeof data.refresh_token === "string"
-        ? data.refresh_token
-        : refreshToken,
-    tokenType: typeof data.token_type === "string" ? data.token_type : "Bearer",
-    expiresAt:
-      typeof data.expires_in === "number"
-        ? new Date(Date.now() + data.expires_in * 1000).toISOString()
-        : null,
-    createdAt: new Date().toISOString(),
-  }
 }
 
 /** Read `.ctxpipe/config.json` from cwd or any ancestor; returns null if absent. */

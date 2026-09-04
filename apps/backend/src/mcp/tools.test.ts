@@ -373,15 +373,12 @@ describe("registerMcpTools", () => {
     vi.useRealTimers()
   })
 
-  it("passes checkpoint config to fallback invoke path", async () => {
+  it("returns an explicit error instead of rerunning an empty graph stream", async () => {
     streamMock.mockResolvedValueOnce(
       (async function* () {
-        // no chunks on stream, forcing fallback invoke path
+        // no chunks
       })(),
     )
-    invokeMock.mockResolvedValueOnce({
-      messages: [{ content: "Fallback response" }],
-    })
 
     const registerToolMock = vi.fn()
     const server = { registerTool: registerToolMock } as unknown as McpServer
@@ -405,19 +402,15 @@ describe("registerMcpTools", () => {
       { _meta: { progressToken: "progress_2" }, sendNotification },
     )
 
-    expect(result.content[0]?.text).toBe("Fallback response")
-    expect(invokeMock).toHaveBeenCalledTimes(1)
-
-    const invokeConfig = invokeMock.mock.calls[0]?.[1] as {
-      configurable?: {
-        checkpoint_ns?: string
-        thread_id?: string
-        source?: string
-      }
-    }
-    expect(invokeConfig.configurable?.checkpoint_ns).toBe("ctx_advisor")
-    expect(invokeConfig.configurable?.thread_id).toBe("thr_test")
-    expect(invokeConfig.configurable?.source).toBe("mcp")
+    expect(result).toMatchObject({
+      isError: true,
+      content: [
+        {
+          text: "ctx_advisor could not complete this request. Retry shortly.",
+        },
+      ],
+    })
+    expect(invokeMock).not.toHaveBeenCalled()
     expect(ensureConversationMock).toHaveBeenCalledWith({
       id: "thr_test",
       source: "mcp",
@@ -552,7 +545,12 @@ describe("registerMcpTools", () => {
     streamMock.mockResolvedValueOnce(
       (async function* () {
         yield {
-          messages: [{ content: "How should we structure this route?" }],
+          messages: [
+            {
+              type: "human",
+              content: "How should we structure this route?",
+            },
+          ],
         }
       })(),
     )
@@ -620,7 +618,11 @@ describe("registerMcpTools", () => {
       ),
     ).resolves.toMatchObject({
       isError: true,
-      content: [{ text: "codesearch failed with status 503" }],
+      content: [
+        {
+          text: "ctx_advisor could not complete this request. Retry shortly.",
+        },
+      ],
     })
   })
 })

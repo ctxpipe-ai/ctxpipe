@@ -6,7 +6,7 @@ import { log } from "../observability/logger.js"
 import { relations, schema } from "./schema.js"
 import {
   formatUnknownError,
-  wrapPoolQueryWithTransientRetry,
+  wrapPoolQueryWithConnectionAcquisitionRetry,
 } from "./transientDbRetry.js"
 
 function isRailwayPrPreview(): boolean {
@@ -40,7 +40,7 @@ function createDrizzleDb(connectionString: string) {
           : undefined,
     })
   })
-  wrapPoolQueryWithTransientRetry(client)
+  wrapPoolQueryWithConnectionAcquisitionRetry(client)
   return drizzle({ client, schema, relations })
 }
 

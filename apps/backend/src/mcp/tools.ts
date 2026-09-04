@@ -202,10 +202,9 @@ export function registerMcpTools(server: McpServer): void {
                     finalMessages = chunk.messages
 
                     if (progressToken == null) continue
-                    const currentText = extractFinalText(
-                      { messages: chunk.messages },
-                      prompt,
-                    )
+                    const currentText = extractFinalText({
+                      messages: chunk.messages,
+                    })
                     if (
                       currentText.length === 0 ||
                       currentText === "No answer could be produced."
@@ -225,7 +224,7 @@ export function registerMcpTools(server: McpServer): void {
                   const result = {
                     messages: finalMessages ?? [],
                   }
-                  const text = extractFinalText(result, prompt)
+                  const text = extractFinalText(result)
                   if (
                     progressToken != null &&
                     text.length > 0 &&
@@ -235,28 +234,9 @@ export function registerMcpTools(server: McpServer): void {
                   }
 
                   if (!finalMessages) {
-                    const fallbackState: {
-                      messages: HumanMessage[]
-                      currentProjectName: string | null
-                    } = {
-                      messages: [new HumanMessage(prompt)],
-                      currentProjectName: currentProjectName ?? null,
-                    }
-                    const fallback = await conversationGraph.invoke(
-                      fallbackState,
-                      {
-                        ...invocationConfig,
-                        callbacks: [getLangfuseHandler()],
-                      },
+                    throw new Error(
+                      "Conversation graph stream completed without state",
                     )
-                    return {
-                      content: [
-                        {
-                          type: "text",
-                          text: extractFinalText(fallback, prompt),
-                        },
-                      ],
-                    }
                   }
 
                   return {
@@ -279,10 +259,7 @@ export function registerMcpTools(server: McpServer): void {
               content: [
                 {
                   type: "text" as const,
-                  text:
-                    error instanceof Error
-                      ? error.message
-                      : "ctx_advisor failed",
+                  text: "ctx_advisor could not complete this request. Retry shortly.",
                 },
               ],
             }
@@ -293,7 +270,7 @@ export function registerMcpTools(server: McpServer): void {
   )
 }
 
-function extractFinalText(result: unknown, userPrompt?: string): string {
+function extractFinalText(result: unknown): string {
   if (
     typeof result !== "object" ||
     result === null ||
@@ -312,13 +289,18 @@ function extractFinalText(result: unknown, userPrompt?: string): string {
     return "No answer could be produced."
   }
 
+  const messageType =
+    "getType" in finalMessage && typeof finalMessage.getType === "function"
+      ? finalMessage.getType()
+      : "type" in finalMessage && typeof finalMessage.type === "string"
+        ? finalMessage.type
+        : undefined
+  if (messageType === "human") return "No answer could be produced."
+
   const content = finalMessage.content
   if (typeof content === "string") {
     const trimmed = content.trim()
     if (trimmed.length === 0) return "No answer could be produced."
-    if (userPrompt != null && trimmed === userPrompt.trim()) {
-      return "No answer could be produced."
-    }
     return trimmed
   }
 

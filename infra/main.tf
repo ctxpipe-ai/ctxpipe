@@ -19,13 +19,6 @@ module "ctxpipe" {
 
   railway_environment_name = "production"
 
-  railway_regions = [
-    {
-      region       = "asia-southeast1-eqsg3a"
-      num_replicas = 1
-    },
-  ]
-
   image_tag               = var.image_tag
   better_auth_secret      = var.better_auth_secret
   langsmith_api_key       = var.langsmith_api_key

@@ -28,6 +28,7 @@ vi.mock("../../../observability/logger.js", () => ({
   getLogger: () => ({ warn: loggerWarnMock }),
 }))
 
+import { TransientHttpError } from "../../../lib/withTransientHttpRetry.js"
 import type { ConversationGraphState } from "../state.js"
 import { retrievalChannelsNode } from "./retrievalChannels.js"
 
@@ -68,7 +69,9 @@ describe("retrievalChannelsNode", () => {
   })
 
   it("degrades an unavailable optional code-search channel", async () => {
-    codeSearchMock.mockRejectedValue(new Error("transient HTTP 503"))
+    codeSearchMock.mockRejectedValue(
+      new TransientHttpError("transient HTTP 503", 503),
+    )
 
     const result = await retrievalChannelsNode(codeSearchState())
 
@@ -100,6 +103,17 @@ describe("retrievalChannelsNode", () => {
 
     expect(result.codeResults).toHaveLength(1)
     expect(result.retrievalWarnings).toEqual([])
+    expect(loggerWarnMock).not.toHaveBeenCalled()
+  })
+
+  it("does not hide permanent code-search failures as degraded results", async () => {
+    codeSearchMock.mockRejectedValue(
+      new Error("codesearch failed with status 401"),
+    )
+
+    await expect(retrievalChannelsNode(codeSearchState())).rejects.toThrow(
+      "codesearch failed with status 401",
+    )
     expect(loggerWarnMock).not.toHaveBeenCalled()
   })
 })

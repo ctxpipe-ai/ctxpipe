@@ -11,6 +11,8 @@ import {
 import {
   CODESEARCH_QUERY_RETRY,
   CODESEARCH_QUERY_TIMEOUT_MS,
+  isTransientHttpFailure,
+  transientHttpFailureStatus,
   withTransientHttpRetry,
 } from "../lib/withTransientHttpRetry.js"
 import { getRepositoryForOrg } from "../models/repositories.js"
@@ -51,19 +53,32 @@ export const getFileTool = tool(
       },
     })
     const requestSignal = AbortSignal.timeout(CODESEARCH_QUERY_TIMEOUT_MS)
-    const res = await withTransientHttpRetry(
-      async () =>
-        fetch(`${codesearchBaseUrl()}/${repositoryId}/files-query`, {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-            Authorization: `Bearer ${token}`,
-          },
-          body: JSON.stringify({ paths: [path] }),
-          signal: requestSignal,
-        }),
-      CODESEARCH_QUERY_RETRY,
-    )
+    let res: Response
+    try {
+      res = await withTransientHttpRetry(
+        async () =>
+          fetch(`${codesearchBaseUrl()}/${repositoryId}/files-query`, {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+              Authorization: `Bearer ${token}`,
+            },
+            body: JSON.stringify({ paths: [path] }),
+            signal: requestSignal,
+          }),
+        CODESEARCH_QUERY_RETRY,
+      )
+    } catch (error) {
+      if (isTransientHttpFailure(error)) {
+        return toToon({
+          error: "get_file_unavailable",
+          repositoryId,
+          path,
+          status: transientHttpFailureStatus(error),
+        })
+      }
+      throw error
+    }
     if (!res.ok) {
       throw new Error(`get_file failed with status ${res.status}`)
     }

@@ -5,6 +5,8 @@ import {
   fetchSession,
   isAccessTokenExpired,
   isAuthReauthenticationRequired,
+  pollDeviceToken,
+  requestDeviceCode,
 } from "../src/auth.js"
 
 describe("CLI auth HTTP handling", () => {
@@ -76,6 +78,70 @@ describe("CLI auth HTTP handling", () => {
     await vi.runAllTimersAsync()
 
     await expect(resultPromise).resolves.toEqual([])
+    expect(fetchMock).toHaveBeenCalledTimes(2)
+  })
+
+  it("does not retry non-idempotent device-code issuance", async () => {
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValue(new Response(null, { status: 503 }))
+    vi.stubGlobal("fetch", fetchMock)
+
+    await expect(
+      requestDeviceCode("https://app.ctxpipe.ai"),
+    ).rejects.toMatchObject({
+      status: 503,
+      temporary: true,
+    })
+    expect(fetchMock).toHaveBeenCalledTimes(1)
+  })
+
+  it("keeps polling through a temporary device-token outage", async () => {
+    vi.useFakeTimers()
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(new Response(null, { status: 503 }))
+      .mockResolvedValueOnce(
+        Response.json({ error: "authorization_pending" }, { status: 400 }),
+      )
+      .mockResolvedValueOnce(
+        Response.json({ access_token: "approved", token_type: "Bearer" }),
+      )
+    vi.stubGlobal("fetch", fetchMock)
+
+    const resultPromise = pollDeviceToken({
+      baseUrl: "https://app.ctxpipe.ai",
+      deviceCode: "device-code",
+      interval: 1,
+    })
+    await vi.runAllTimersAsync()
+
+    await expect(resultPromise).resolves.toMatchObject({
+      access_token: "approved",
+    })
+    expect(fetchMock).toHaveBeenCalledTimes(3)
+  })
+
+  it("reports a consumed device code after an ambiguous lost response", async () => {
+    vi.useFakeTimers()
+    const fetchMock = vi
+      .fn()
+      .mockRejectedValueOnce(new TypeError("fetch failed"))
+      .mockResolvedValueOnce(
+        Response.json({ error: "invalid_grant" }, { status: 400 }),
+      )
+    vi.stubGlobal("fetch", fetchMock)
+
+    const resultPromise = pollDeviceToken({
+      baseUrl: "https://app.ctxpipe.ai",
+      deviceCode: "device-code",
+      interval: 1,
+    })
+    const rejection = expect(resultPromise).rejects.toThrow(
+      "sign-in approval could not be recovered",
+    )
+    await vi.runAllTimersAsync()
+    await rejection
     expect(fetchMock).toHaveBeenCalledTimes(2)
   })
 

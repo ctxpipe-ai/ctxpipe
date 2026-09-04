@@ -17,15 +17,21 @@ import {
   sessions,
   users,
 } from "../db/schema/auth.js"
+import { isTransientDbConnectionError } from "../db/transientDbRetry.js"
 import { getLogger } from "../observability/logger.js"
 import { type AuthSession, type AuthUser, getAuth } from "./config.js"
 import { OAUTH_ORGANIZATION_CLAIM } from "./oauth-organization.js"
+import { transientAuthUnavailableResponse } from "./transient-api-error.js"
 
 /** Seconds — small skew between issuers, clients, and this server (Better Auth / jose guidance). */
 const JWT_CLOCK_TOLERANCE_SECONDS = 60
 
 /** JWKS is stable; refetch periodically and on verification / kid mismatch. */
 const JWKS_TTL_MS = 10 * 60 * 1000
+
+class AuthDependencyUnavailableError extends Error {
+  override readonly name = "AuthDependencyUnavailableError"
+}
 
 let jwksCache: { jwks: JSONWebKeySet; fetchedAt: number } | null = null
 
@@ -156,9 +162,10 @@ async function resolveJwks(
     throw err instanceof Error ? err : new Error(String(err))
   }
 
-  if (!response.ok && response.status >= 500) {
-    await new Promise((r) => setTimeout(r, 50))
-    response = await auth.handler(new Request(jwksUrl))
+  if (response.status >= 500) {
+    throw new AuthDependencyUnavailableError(
+      `Unable to load JWKS: ${response.status}`,
+    )
   }
 
   if (!response.ok) {
@@ -176,6 +183,24 @@ function isLikelyJwksKeyProblem(err: unknown): boolean {
   if (code === "ERR_JWT_EXPIRED") return false
   if (code === "ERR_JWT_CLAIM_VALIDATION_FAILED") return false
   return true
+}
+
+function isAuthDependencyUnavailable(err: unknown): boolean {
+  return (
+    err instanceof AuthDependencyUnavailableError ||
+    isTransientDbConnectionError(err)
+  )
+}
+
+function transientDatabaseAuthResponse(
+  error: unknown,
+  reason: string,
+): Response | null {
+  if (!isTransientDbConnectionError(error)) return null
+  getLogger().error(error instanceof Error ? error : new Error(String(error)), {
+    reason,
+  })
+  return transientAuthUnavailableResponse()
 }
 
 /**
@@ -249,9 +274,19 @@ async function resolveOpaqueAccessToken(token: string): Promise<{
 
 export const withCookieAuth: MiddlewareHandler<AppEnv> = async (c, next) => {
   const auth = getAuth()
-  const authSession = await auth.api.getSession({
-    headers: c.req.raw.headers,
-  })
+  let authSession: Awaited<ReturnType<typeof auth.api.getSession>>
+  try {
+    authSession = await auth.api.getSession({
+      headers: c.req.raw.headers,
+    })
+  } catch (error) {
+    const unavailable = transientDatabaseAuthResponse(
+      error,
+      "cookie_session_database",
+    )
+    if (unavailable) return unavailable
+    throw error
+  }
 
   if (!authSession) return next()
   if (!authSession.user || !authSession.session) {
@@ -280,7 +315,17 @@ export const withBearerAuth: MiddlewareHandler<AppEnv> = async (c, next) => {
   // three `.`-separated base64url segments; anything else we treat as opaque
   // and validate via the `oauth_access_tokens` table.
   if (accessToken.split(".").length !== 3) {
-    const resolved = await resolveOpaqueAccessToken(accessToken)
+    let resolved: Awaited<ReturnType<typeof resolveOpaqueAccessToken>>
+    try {
+      resolved = await resolveOpaqueAccessToken(accessToken)
+    } catch (error) {
+      const unavailable = transientDatabaseAuthResponse(
+        error,
+        "opaque_token_database",
+      )
+      if (unavailable) return unavailable
+      throw error
+    }
     if (resolved) {
       c.set("session", resolved.session)
       c.set("user", resolved.user)
@@ -326,6 +371,9 @@ export const withBearerAuth: MiddlewareHandler<AppEnv> = async (c, next) => {
 
   if (jwksErr || !jwks) {
     logBearerAuthFailure(jwksErr, { kid })
+    if (isAuthDependencyUnavailable(jwksErr)) {
+      return transientAuthUnavailableResponse()
+    }
     return c.json(
       { error: "Unauthorized" },
       401,
@@ -368,6 +416,9 @@ export const withBearerAuth: MiddlewareHandler<AppEnv> = async (c, next) => {
       .catch((err: unknown) => [undefined, err] as const)
     if (jwks2Err || !jwks2) {
       logBearerAuthFailure(jwks2Err, { kid })
+      if (isAuthDependencyUnavailable(jwks2Err)) {
+        return transientAuthUnavailableResponse()
+      }
       return c.json(
         { error: "Unauthorized" },
         401,
@@ -431,10 +482,20 @@ export const withBearerAuth: MiddlewareHandler<AppEnv> = async (c, next) => {
 
   // offline_access refresh grants may outlive the browser session. Resolve
   // the still-active user even when the original session has been deleted.
-  const tokenSessionContext = await resolveBearerPrincipal(
-    payload.sub,
-    tokenSessionId,
-  )
+  let tokenSessionContext: Awaited<ReturnType<typeof resolveBearerPrincipal>>
+  try {
+    tokenSessionContext = await resolveBearerPrincipal(
+      payload.sub,
+      tokenSessionId,
+    )
+  } catch (error) {
+    const unavailable = transientDatabaseAuthResponse(
+      error,
+      "bearer_principal_database",
+    )
+    if (unavailable) return unavailable
+    throw error
+  }
 
   if (tokenSessionContext) {
     c.set("session", tokenSessionContext.session)
@@ -527,53 +588,62 @@ export const withNetworkOrgContext: MiddlewareHandler<AppEnv> = async (
   const systemDb = getSystemDb()
   let resolved: { id: string; slug: string } | undefined
 
-  if (oauthOrganizationId) {
-    const orgRows = await systemDb
-      .select({ id: organizations.id, slug: organizations.slug })
-      .from(organizations)
-      .innerJoin(
-        members,
-        and(
-          eq(members.organizationId, organizations.id),
-          eq(members.userId, userId),
-        ),
-      )
-      .where(eq(organizations.id, oauthOrganizationId))
-      .limit(1)
+  try {
+    if (oauthOrganizationId) {
+      const orgRows = await systemDb
+        .select({ id: organizations.id, slug: organizations.slug })
+        .from(organizations)
+        .innerJoin(
+          members,
+          and(
+            eq(members.organizationId, organizations.id),
+            eq(members.userId, userId),
+          ),
+        )
+        .where(eq(organizations.id, oauthOrganizationId))
+        .limit(1)
 
-    resolved = orgRows[0]
-    if (!resolved || (orgSlug && resolved.slug !== orgSlug)) {
-      return c.json({ error: "Not found" }, 404)
-    }
-  } else if (orgSlug) {
-    const orgRows = await systemDb
-      .select({ id: organizations.id })
-      .from(organizations)
-      .innerJoin(
-        members,
-        and(
-          eq(members.organizationId, organizations.id),
-          eq(members.userId, userId),
-        ),
-      )
-      .where(eq(organizations.slug, orgSlug))
-      .limit(1)
-    const org = orgRows[0]
-    if (!org) return c.json({ error: "Not found" }, 404)
-    resolved = { id: org.id, slug: orgSlug }
-  } else {
-    return c.json(
-      {
-        jsonrpc: "2.0",
-        error: {
-          code: -32600,
-          message:
-            "This OAuth grant is not bound to an organization. Reconnect ctxpipe and select an organization, or use /mcp?orgSlug=<orgSlug> for a manual connection.",
+      resolved = orgRows[0]
+      if (!resolved || (orgSlug && resolved.slug !== orgSlug)) {
+        return c.json({ error: "Not found" }, 404)
+      }
+    } else if (orgSlug) {
+      const orgRows = await systemDb
+        .select({ id: organizations.id })
+        .from(organizations)
+        .innerJoin(
+          members,
+          and(
+            eq(members.organizationId, organizations.id),
+            eq(members.userId, userId),
+          ),
+        )
+        .where(eq(organizations.slug, orgSlug))
+        .limit(1)
+      const org = orgRows[0]
+      if (!org) return c.json({ error: "Not found" }, 404)
+      resolved = { id: org.id, slug: orgSlug }
+    } else {
+      return c.json(
+        {
+          jsonrpc: "2.0",
+          error: {
+            code: -32600,
+            message:
+              "This OAuth grant is not bound to an organization. Reconnect ctxpipe and select an organization, or use /mcp?orgSlug=<orgSlug> for a manual connection.",
+          },
+          id: null,
         },
-        id: null,
-      },
-      400,
+        400,
+      )
+    }
+  } catch (error) {
+    const unavailable = transientDatabaseAuthResponse(
+      error,
+      "organization_resolution_database",
     )
+    if (unavailable) return unavailable
+    throw error
   }
 
   if (!resolved) return c.json({ error: "Not found" }, 404)
