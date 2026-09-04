@@ -14,6 +14,7 @@ import { CLIENT_COMMANDS, CLIENT_LABELS, CLIENTS } from "./constants.js"
 import type { ApplyOperationResult } from "./fs-operations.js"
 import { applyOperation, applyOperations } from "./fs-operations.js"
 import { diagnoseMcpEndpoint, formatMcpDoctorResult } from "./mcp/doctor.js"
+import { resolveMcpApiKey } from "./mcp/auth-mode.js"
 import {
   buildCtxpipeConfigOperation,
   buildMcpOperations,
@@ -53,6 +54,8 @@ export type InitRunOpts = {
   json: boolean
   nonInteractive: boolean
   mcp: boolean
+  auth?: string
+  apiKey?: string
   /** Tri-state: true = always enable, false = always skip, undefined = ask in interactive mode. */
   memory?: boolean
 }
@@ -65,6 +68,8 @@ export type McpAddRunOpts = {
   dryRun: boolean
   json: boolean
   nonInteractive: boolean
+  auth?: string
+  apiKey?: string
 }
 
 export async function runInit(opts: InitRunOpts): Promise<void> {
@@ -78,6 +83,8 @@ export async function runInit(opts: InitRunOpts): Promise<void> {
     dryRun: boolean
     json: boolean
     mcp: boolean
+    auth: string | null
+    apiKey: string | null
     memory: boolean | undefined
   } = {
     org: opts.org ?? null,
@@ -88,6 +95,8 @@ export async function runInit(opts: InitRunOpts): Promise<void> {
     dryRun: opts.dryRun,
     json: opts.json,
     mcp: opts.mcp,
+    auth: opts.auth ?? null,
+    apiKey: opts.apiKey ?? process.env.CTXPIPE_API_KEY ?? null,
     memory: opts.memory,
   }
 
@@ -114,6 +123,12 @@ export async function runInit(opts: InitRunOpts): Promise<void> {
   validateClients(agents)
   // In non-interactive mode an unspecified --memory means "do not enable".
   const memoryEnabled = answers.memory === true
+  const apiKey = answers.mcp
+    ? resolveMcpApiKey({
+        auth: answers.auth,
+        apiKey: answers.apiKey,
+      })
+    : undefined
 
   const context = createOperationContext({ commandExists })
   const ctxpipeConfig = buildCtxpipeConfigOperation({
@@ -128,6 +143,7 @@ export async function runInit(opts: InitRunOpts): Promise<void> {
         org,
         scope,
         memory: false,
+        apiKey,
         context,
       })
     : []
@@ -159,6 +175,7 @@ export async function runInit(opts: InitRunOpts): Promise<void> {
       `Organization ${org}`,
       `Scope ${scopeLabel(scope)}`,
       `Agents ${agentsLabel(agents, answers.mcp)}`,
+      `MCP auth ${apiKey ? "API key (user-level x-api-key)" : "OAuth"}`,
       `Memory ${memoryEnabled ? "enabled (Markdown .ai/memory + capture hooks)" : "disabled"}`,
     ],
   })
@@ -223,6 +240,8 @@ export async function runMcpAdd(opts: McpAddRunOpts): Promise<void> {
     baseUrl: opts.baseUrl,
     clients: [...opts.clients],
     scope: opts.scope ?? null,
+    auth: opts.auth ?? null,
+    apiKey: opts.apiKey ?? process.env.CTXPIPE_API_KEY ?? null,
     dryRun: opts.dryRun,
   }
 
@@ -245,12 +264,17 @@ export async function runMcpAdd(opts: McpAddRunOpts): Promise<void> {
   if (!scope) throw new Error("Missing --scope")
   validateScope(scope)
   validateClients(clients)
+  const apiKey = resolveMcpApiKey({
+    auth: values.auth,
+    apiKey: values.apiKey,
+  })
 
   const operations = buildMcpOperations({
     clients,
     baseUrl: values.baseUrl,
     org,
     scope,
+    apiKey,
     context: createOperationContext({ commandExists }),
   })
   // mcp add does not toggle memory; users opt-in through `ctxpipe memory init`.
@@ -266,6 +290,7 @@ export async function runMcpAdd(opts: McpAddRunOpts): Promise<void> {
       `Organization ${org}`,
       `Scope ${scopeLabel(scope)}`,
       `Agents ${agentsLabel(clients, true)}`,
+      `MCP auth ${apiKey ? "API key (user-level x-api-key)" : "OAuth"}`,
     ],
   })
 }

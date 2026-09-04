@@ -216,4 +216,168 @@ describe("MCP operation builders", () => {
       baseUrl: "https://custom.example",
     })
   })
+
+  it("adds x-api-key headers only on user-scope Cursor config", () => {
+    const [userOp] = buildClientOperations({
+      client: "cursor",
+      baseUrl: "https://app.ctxpipe.ai",
+      org: "acme",
+      scope: "user",
+      apiKey: "ctxp_secret",
+      context,
+    })
+    const [repoOp] = buildClientOperations({
+      client: "cursor",
+      baseUrl: "https://app.ctxpipe.ai",
+      org: "acme",
+      scope: "repo",
+      context,
+    })
+
+    expect(writeJson(userOp).content({})).toEqual({
+      mcpServers: {
+        ctxpipe: {
+          type: "streamable-http",
+          url: "https://app.ctxpipe.ai/mcp?orgSlug=acme",
+          headers: { "x-api-key": "ctxp_secret" },
+        },
+      },
+    })
+    expect(writeJson(repoOp).content({})).toEqual({
+      mcpServers: {
+        ctxpipe: {
+          type: "streamable-http",
+          url: "https://app.ctxpipe.ai/mcp?orgSlug=acme",
+        },
+      },
+    })
+  })
+
+  it("skips repo MCP writes when an API key is present", () => {
+    const operations = buildMcpOperations({
+      clients: ["cursor", "opencode"],
+      baseUrl: "https://app.ctxpipe.ai",
+      org: "acme",
+      scope: "repo",
+      apiKey: "ctxp_secret",
+      context,
+    })
+
+    expect(operations).toEqual([
+      {
+        type: "manual",
+        description: "skip repo MCP writes for API-key auth",
+        detail: expect.stringContaining("must not land in committed files"),
+      },
+    ])
+  })
+
+  it("writes OpenCode user config with headers and oauth disabled", () => {
+    const operations = buildMcpOperations({
+      clients: ["opencode"],
+      baseUrl: "https://app.ctxpipe.ai",
+      org: "acme",
+      scope: "both",
+      apiKey: "ctxp_secret",
+      context,
+    })
+
+    expect(operations[0]).toMatchObject({
+      type: "manual",
+      description: "skip repo MCP writes for API-key auth",
+    })
+    const write = writeJson(operations[1])
+    expect(write.path).toBe("/home/alex/.config/opencode/opencode.json")
+    expect(write.content({})).toEqual({
+      mcp: {
+        ctxpipe: {
+          type: "remote",
+          url: "https://app.ctxpipe.ai/mcp?orgSlug=acme",
+          enabled: true,
+          headers: { "x-api-key": "ctxp_secret" },
+          oauth: false,
+        },
+      },
+    })
+  })
+
+  it("passes x-api-key to Claude user CLI and does not write project .mcp.json", () => {
+    const [withCli] = buildClientOperations({
+      client: "claude",
+      baseUrl: "https://app.ctxpipe.ai",
+      org: "acme",
+      scope: "user",
+      apiKey: "ctxp_secret",
+      context,
+    })
+    const [withoutCli] = buildClientOperations({
+      client: "claude",
+      baseUrl: "https://app.ctxpipe.ai",
+      org: "acme",
+      scope: "user",
+      apiKey: "ctxp_secret",
+      context: createOperationContext({
+        cwd: "/repo",
+        homeDir: "/home/alex",
+        commandExists: () => false,
+      }),
+    })
+
+    expect(withCli).toMatchObject({
+      type: "run",
+      command: expect.arrayContaining([
+        "--header",
+        "x-api-key: ctxp_secret",
+      ]),
+    })
+    expect(withoutCli).toMatchObject({
+      type: "manual",
+      description: "show Claude Code user MCP add command",
+    })
+    expect(withoutCli?.type === "manual" ? withoutCli.detail : "").toContain(
+      '--header "x-api-key: ctxp_secret"',
+    )
+  })
+
+  it("includes headers in the VS Code user install payload", () => {
+    const [operation] = buildClientOperations({
+      client: "vscode",
+      baseUrl: "https://app.ctxpipe.ai",
+      org: "acme",
+      scope: "user",
+      apiKey: "ctxp_secret",
+      context,
+    })
+
+    expect(operation?.type).toBe("manual")
+    const detail = operation?.type === "manual" ? operation.detail : ""
+    const encoded = detail.split("vscode:mcp/install?")[1] ?? ""
+    const payload = JSON.parse(decodeURIComponent(encoded)) as {
+      headers?: { "x-api-key"?: string }
+    }
+    expect(payload.headers?.["x-api-key"]).toBe("ctxp_secret")
+  })
+
+  it("prints a Codex user-config snippet instead of running mcp add with an API key", () => {
+    const [operation] = buildClientOperations({
+      client: "codex",
+      baseUrl: "https://app.ctxpipe.ai",
+      org: "acme",
+      scope: "user",
+      apiKey: "ctxp_secret",
+      context: createOperationContext({
+        cwd: "/repo",
+        homeDir: "/home/alex",
+        commandExists: () => true,
+      }),
+    })
+
+    expect(operation).toMatchObject({
+      type: "manual",
+      description: "show Codex user MCP config snippet",
+    })
+    expect(operation?.type === "manual" ? operation.detail : "").toContain(
+      'http_headers = { "x-api-key" = "ctxp_secret" }',
+    )
+  })
 })
