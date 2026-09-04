@@ -544,10 +544,12 @@ describe("auth middleware composition", () => {
   })
 
   it("composed middleware accepts an API key sent as Bearer", async () => {
-    getSessionMock.mockResolvedValueOnce({
-      user: { id: "user_api_key", email: "api-key@example.com" },
-      session: { id: "sess_api_key", userId: "user_api_key" },
-    })
+    getSessionMock
+      .mockResolvedValueOnce(null)
+      .mockResolvedValueOnce({
+        user: { id: "user_api_key", email: "api-key@example.com" },
+        session: { id: "sess_api_key", userId: "user_api_key" },
+      })
     testState.db = createMockDb({
       opaqueTokenRows: [],
       orgRows: [{ id: "org_api_key" }],
@@ -567,6 +569,11 @@ describe("auth middleware composition", () => {
       orgId: "org_api_key",
     })
     expect(jwtVerifyMock).not.toHaveBeenCalled()
+    expect(getSessionMock).toHaveBeenCalledTimes(2)
+    const bearerFallbackHeaders = getSessionMock.mock.calls[1]?.[0]?.headers as
+      | Headers
+      | undefined
+    expect(bearerFallbackHeaders?.get("x-api-key")).toBe("ctxp_test_api_key")
   })
 
   it("composed middleware sets user, session, orgSlug and orgId for cookie auth", async () => {
