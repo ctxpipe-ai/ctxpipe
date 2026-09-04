@@ -81,6 +81,13 @@ const okResponseSchema = z
   .object({ ok: z.literal(true) })
   .openapi("IndexPhaseOkResponse")
 
+const mergeScipResponseSchema = z
+  .object({
+    ok: z.literal(true),
+    shardCount: z.number().int().nonnegative(),
+  })
+  .openapi("IndexMergeScipResponse")
+
 const detectLanguagesRequestSchema = z
   .object({
     ingestMode: z.enum(["full", "partial"]),
@@ -107,6 +114,7 @@ const scipLangRequestSchema = z
 const mergeScipRequestSchema = z
   .object({
     detectedLanguages: z.array(z.string()),
+    languagesToMerge: z.array(z.string()).optional(),
   })
   .openapi("IndexMergeScipRequest")
 
@@ -220,7 +228,7 @@ const mergeScipRoute = createRoute({
   },
   responses: {
     200: {
-      content: { "application/json": { schema: okResponseSchema } },
+      content: { "application/json": { schema: mergeScipResponseSchema } },
       description: "SCIP shards merged",
     },
     404: { description: "Repository not found" },
@@ -464,19 +472,25 @@ export function registerIndexPhaseRoutes(app: OpenAPIHono<AppEnv>) {
           return c.json({ error: resolved.error }, resolved.status)
         }
         try {
+          let shardCount = 0
           await withLogger(
             createLogger({
               repositoryId: resolved.ctx.repoId,
               phase: "merge-scip",
             }),
             async () => {
-              await phaseMergeScip(resolved.ctx, {
-                detectedLanguages: body.detectedLanguages,
-              })
-              await phaseMarkCheckoutIndexed(resolved.ctx)
+              try {
+                const published = await phaseMergeScip(resolved.ctx, {
+                  detectedLanguages: body.detectedLanguages,
+                  languagesToMerge: body.languagesToMerge,
+                })
+                shardCount = published.shardCount
+              } finally {
+                await phaseMarkCheckoutIndexed(resolved.ctx)
+              }
             },
           )
-          return c.json({ ok: true as const }, 200)
+          return c.json({ ok: true as const, shardCount }, 200)
         } catch (error) {
           const message = userFacingIndexingError(error, "SCIP merge failed")
           return c.json({ error: message }, 500)

@@ -10,9 +10,11 @@ Codesearch remains one service with one checkout:
 ```text
 POST /index
   → clone / checkout
-  → Zoekt indexing ───────────────┐
-  → language-specific SCIP indexers ─┤ run in parallel
-                                    └→ mark checkout indexed after both succeed
+  → Zoekt indexing (optional; memory-fit skip of SCIP langs)
+  → detect languages (fail-closed)
+  → language-specific SCIP indexers (optional per language)
+  → merge surviving SCIP shards
+  → mark checkout indexed after clone and detect succeed (Zoekt/SCIP may degrade)
 
 Queries
   → Zoekt       text, regex, and rough symbol discovery
@@ -24,7 +26,8 @@ Queries
 SCIP indexers are selected from the repository's detected languages. Their shards
 are merged into the checkout's published `.scip` index. Partial ingests reuse
 untouched language shards and regenerate only affected languages. An empty SCIP
-index is published when no supported language is present.
+index is published when no supported language is present. If every language
+indexer fails, the merged `.scip` is omitted so graph tools soft-miss.
 
 ## Agent tool contract
 
@@ -46,8 +49,7 @@ ast-grep.
 
 ## Reliability behavior
 
-- Zoekt and SCIP indexing run concurrently, but indexing fails closed if either
-  required phase fails.
+- Zoekt and SCIP indexing are optional at ingest: clone/checkout is fail-closed, but indexer OOM or language-indexer failure marks `complete_with_issues` so extract, checkout, and ast-grep still complete. Graph tools degrade when the merged SCIP index is missing.
 - Subprocess output is tailed with bounded memory rather than retained in full.
 - SCIP decoding and graph traversal run in process with bounded, weighted cache
   entries and concurrent-load de-duplication.
@@ -65,7 +67,7 @@ Coverage now includes:
 - SCIP protobuf decode, merge, definitions, references, callers, callees,
   implementations, type hierarchy, cache bounds, and concurrent loading.
 - Language detection, indexer argv generation, partial-ingest shard reuse, merged
-  index publication, and fail-closed phase handling.
+  index publication, and optional Zoekt/SCIP phase handling (clone remains fail-closed).
 - Structural-search request validation, safe process arguments, streamed output,
   and path traversal/symlink rejection.
 - Backend tool registration, authenticated codesearch requests, and planner/tool
