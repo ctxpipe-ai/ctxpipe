@@ -505,11 +505,59 @@ describe("MCP operation builders", () => {
 
     expect(operation).toMatchObject({
       type: "manual",
-      description: "show Codex MCP config snippet",
+      description: "show Codex repo MCP config snippet",
     })
     const detail = operation?.type === "manual" ? operation.detail : ""
+    expect(detail).toContain("Add to .codex/config.toml:")
+    expect(detail).not.toContain("Add to ~/.codex/config.toml:")
     expect(detail).toContain(
       'env_http_headers = { "x-api-key" = "CTXPIPE_API_KEY" }',
     )
+  })
+
+  it("prints Codex user env_http_headers against ~/.codex/config.toml", () => {
+    const [operation] = buildClientOperations({
+      client: "codex",
+      baseUrl: "https://app.ctxpipe.ai",
+      org: "acme",
+      scope: "user",
+      apiKeyEnvVariable: "CTXPIPE_API_KEY",
+      context,
+    })
+
+    expect(operation).toMatchObject({
+      type: "manual",
+      description: "show Codex user MCP config snippet",
+    })
+    const detail = operation?.type === "manual" ? operation.detail : ""
+    expect(detail).toContain("Add to ~/.codex/config.toml:")
+    expect(detail).not.toContain("Add to .codex/config.toml:")
+    expect(detail).toContain(
+      'env_http_headers = { "x-api-key" = "CTXPIPE_API_KEY" }',
+    )
+  })
+
+  it("emits distinct Codex repo and user env snippets for both scope", () => {
+    const operations = buildMcpOperations({
+      clients: ["codex"],
+      baseUrl: "https://app.ctxpipe.ai",
+      org: "acme",
+      scope: "both",
+      apiKeyEnvVariable: "CTXPIPE_API_KEY",
+      context,
+    })
+
+    expect(operations).toHaveLength(2)
+    const details = operations.map((operation) =>
+      operation.type === "manual" ? operation.detail : "",
+    )
+    expect(details[0]).toContain("Add to .codex/config.toml:")
+    expect(details[1]).toContain("Add to ~/.codex/config.toml:")
+    expect(details[0]).not.toEqual(details[1])
+    for (const detail of details) {
+      expect(detail).toContain(
+        'env_http_headers = { "x-api-key" = "CTXPIPE_API_KEY" }',
+      )
+    }
   })
 })

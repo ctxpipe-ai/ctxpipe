@@ -475,32 +475,22 @@ export function buildClientOperations({
         }),
       ]
     case "codex":
-      if (headerValue && apiKeyEnvVariable) {
-        return [
-          {
-            type: "manual",
-            description: "show Codex MCP config snippet",
-            detail: [
-              "Add to ~/.codex/config.toml:",
-              "",
-              "[mcp_servers.ctxpipe]",
-              `url = "${url}"`,
-              `env_http_headers = { "x-api-key" = "${headerValue}" }`,
-            ].join("\n"),
-          },
-        ]
-      }
       if (headerValue) {
+        const configPath =
+          scope === "user" ? "~/.codex/config.toml" : ".codex/config.toml"
+        const headerLine = apiKeyEnvVariable
+          ? `env_http_headers = { "x-api-key" = "${headerValue}" }`
+          : `http_headers = { "x-api-key" = "${headerValue}" }`
         return [
           {
             type: "manual",
-            description: "show Codex user MCP config snippet",
+            description: `show Codex ${scope} MCP config snippet`,
             detail: [
-              "Add to ~/.codex/config.toml:",
+              `Add to ${configPath}:`,
               "",
               "[mcp_servers.ctxpipe]",
               `url = "${url}"`,
-              `http_headers = { "x-api-key" = "${headerValue}" }`,
+              headerLine,
             ].join("\n"),
           },
         ]

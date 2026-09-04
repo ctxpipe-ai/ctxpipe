@@ -95,7 +95,7 @@ Supported CLI clients:
 - **Claude Code** - repo config in `.mcp.json`; user setup uses `claude mcp add` when the Claude CLI is available.
 - **OpenCode** - repo config in `opencode.json`, user config in `~/.config/opencode/opencode.json`.
 - **VS Code / Copilot** - repo config in `.vscode/mcp.json`; user setup provides the VS Code install link.
-- **Codex** - user setup uses `codex mcp add` when available; otherwise the CLI prints the command to run.
+- **Codex** - repo config in `.codex/config.toml`, user config in `~/.codex/config.toml`. Without an API-key header, user setup uses `codex mcp add` when available; otherwise the CLI prints the command to run.
 
 ## Local memory (Markdown)
 
@@ -251,7 +251,9 @@ Raw keys belong in the user-scope `vscode:mcp/install` payload, not in the repo.
 }
 ```
 
-### Codex (`~/.codex/config.toml`)
+### Codex (`.codex/config.toml` and `~/.codex/config.toml`)
+
+Codex loads MCP servers from both files in trusted projects: project `.codex/config.toml` overrides user `~/.codex/config.toml`. Env-variable references are safe in either file. Raw keys belong in user config only.
 
 Raw key (user config only):
 
