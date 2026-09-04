@@ -12,6 +12,10 @@ import { BackendPostgres } from "openworkflow/postgres"
 import { parseEnv } from "./src/config/env.js"
 import { initDb } from "./src/db/client.js"
 import {
+  DB_STARTUP_CONNECTION_RETRY,
+  withDbConnectionAcquisitionRetry,
+} from "./src/db/transientDbRetry.js"
+import {
   createLogger,
   flushEvlog,
   initEvlog,
@@ -23,7 +27,7 @@ import { backfillGithubAppSecretsFromEnv } from "./src/scripts/backfillGithubCon
 
 const databaseUrl = process.env.DATABASE_URL
 if (!databaseUrl) throw new Error("DATABASE_URL is required for the worker")
-initDb(databaseUrl)
+initDb(databaseUrl, DB_STARTUP_CONNECTION_RETRY)
 const env = parseEnv(process.env as Record<string, string | undefined>)
 initOtel(env)
 initEvlog()
@@ -58,10 +62,16 @@ const bootstrapLog = createLogger({
 bootstrapLog.info("openworkflow worker config loaded")
 bootstrapLog.emit()
 
+const backend = await withDbConnectionAcquisitionRetry(
+  () =>
+    BackendPostgres.connect(databaseUrl, {
+      namespaceId: openWorkflowNamespaceId(),
+    }),
+  DB_STARTUP_CONNECTION_RETRY,
+)
+
 export default defineConfig({
-  backend: await BackendPostgres.connect(databaseUrl, {
-    namespaceId: openWorkflowNamespaceId(),
-  }),
+  backend,
   dirs: ["./src/openworkflow/workflows"],
   // CLI imports every *.ts under dirs; skip Vitest files (dev-only deps).
   ignorePatterns: ["**/*.test.*", "**/*.spec.*"],

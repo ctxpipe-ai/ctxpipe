@@ -190,6 +190,27 @@ describe("withDbConnectionAcquisitionRetry", () => {
     ).rejects.toMatchObject({ code: "ETIMEDOUT" })
     expect(n).toBe(2)
   })
+
+  it("caps startup-style exponential delays", async () => {
+    const run = vi.fn().mockRejectedValue(
+      Object.assign(new Error("connect ETIMEDOUT"), {
+        code: "ETIMEDOUT",
+        syscall: "connect",
+      }),
+    )
+
+    await expect(
+      withDbConnectionAcquisitionRetry(run, {
+        retries: 2,
+        baseDelayMs: 10,
+        maxDelayMs: 10,
+      }),
+    ).rejects.toMatchObject({ code: "ETIMEDOUT" })
+    expect(log.info).toHaveBeenNthCalledWith(
+      2,
+      expect.objectContaining({ delayMs: 10 }),
+    )
+  })
 })
 
 describe("wrapPoolQueryWithConnectionAcquisitionRetry", () => {
@@ -221,6 +242,31 @@ describe("wrapPoolQueryWithConnectionAcquisitionRetry", () => {
     expect(log.info).toHaveBeenCalledWith(
       expect.objectContaining({ step: "db.connection_acquisition_retry" }),
     )
+  })
+
+  it("uses a caller-provided acquisition retry budget", async () => {
+    let n = 0
+    const pool = {
+      query: vi.fn(async () => {
+        n += 1
+        if (n < 3) throw new Error("timeout exceeded when trying to connect")
+        return { rows: [{ ok: true }] }
+      }),
+    }
+
+    wrapPoolQueryWithConnectionAcquisitionRetry(
+      pool as unknown as import("pg").Pool,
+      { retries: 2, baseDelayMs: 1 },
+    )
+
+    await expect(
+      (
+        pool.query as unknown as (
+          sql: string,
+        ) => Promise<{ rows: { ok: boolean }[] }>
+      )("select 1"),
+    ).resolves.toEqual({ rows: [{ ok: true }] })
+    expect(n).toBe(3)
   })
 
   it("leaves callback-style query unwrapped for retry", () => {

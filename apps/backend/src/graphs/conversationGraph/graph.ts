@@ -2,7 +2,11 @@ import { END, START, StateGraph } from "@langchain/langgraph"
 import { PostgresSaver } from "@langchain/langgraph-checkpoint-postgres"
 import "@langchain/langgraph/zod"
 import { Pool } from "pg"
-import { wrapPoolQueryWithConnectionAcquisitionRetry } from "../../db/transientDbRetry.js"
+import {
+  DB_STARTUP_CONNECTION_RETRY,
+  withDbConnectionAcquisitionRetry,
+  wrapPoolQueryWithConnectionAcquisitionRetry,
+} from "../../db/transientDbRetry.js"
 import { log } from "../../observability/logger.js"
 import { agentNode } from "./nodes/agent.js"
 import { assembleNode } from "./nodes/assemble.js"
@@ -66,8 +70,12 @@ if (process.env.DATABASE_URL) {
     })
   })
   wrapPoolQueryWithConnectionAcquisitionRetry(checkpointPool)
-  checkpointer = new PostgresSaver(checkpointPool)
-  await checkpointer.setup()
+  const postgresSaver = new PostgresSaver(checkpointPool)
+  await withDbConnectionAcquisitionRetry(
+    () => postgresSaver.setup(),
+    DB_STARTUP_CONNECTION_RETRY,
+  )
+  checkpointer = postgresSaver
 }
 
 const graph = checkpointer

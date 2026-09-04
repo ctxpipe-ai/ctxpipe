@@ -109,12 +109,20 @@ export type DbConnectionAcquisitionRetryOptions = {
   /** Retries after the first attempt (default 1 → 2 attempts total). */
   retries?: number
   baseDelayMs?: number
+  maxDelayMs?: number
 }
 
 /** Pool-connect budget: one retry before returning a retryable 503 upstream. */
 const POOL_CONNECTION_RETRY = {
   retries: 1,
   baseDelayMs: 250,
+} as const
+
+/** Startup can wait through a short database outage; request paths fail fast. */
+export const DB_STARTUP_CONNECTION_RETRY = {
+  retries: 12,
+  baseDelayMs: 500,
+  maxDelayMs: 5_000,
 } as const
 
 const CONNECTION_SYSCALL_CODES = new Set([
@@ -163,6 +171,7 @@ export async function withDbConnectionAcquisitionRetry<T>(
 ): Promise<T> {
   const retries = opts?.retries ?? POOL_CONNECTION_RETRY.retries
   const baseDelayMs = opts?.baseDelayMs ?? POOL_CONNECTION_RETRY.baseDelayMs
+  const maxDelayMs = opts?.maxDelayMs
   const maxAttempts = retries + 1
   let last: unknown
 
@@ -172,7 +181,9 @@ export async function withDbConnectionAcquisitionRetry<T>(
     } catch (e) {
       last = e
       if (isDbConnectionAcquisitionError(e) && attempt < maxAttempts - 1) {
-        const delayMs = baseDelayMs * 2 ** attempt
+        const rawDelayMs = baseDelayMs * 2 ** attempt
+        const delayMs =
+          maxDelayMs == null ? rawDelayMs : Math.min(rawDelayMs, maxDelayMs)
         log.info({
           step: "db.connection_acquisition_retry",
           attempt: attempt + 1,
@@ -195,15 +206,19 @@ export async function withDbConnectionAcquisitionRetry<T>(
  * acquisition failed before Postgres received the statement. Callback-style
  * queries are left unchanged.
  */
-export function wrapPoolQueryWithConnectionAcquisitionRetry(pool: Pool): void {
+export function wrapPoolQueryWithConnectionAcquisitionRetry(
+  pool: Pool,
+  opts?: DbConnectionAcquisitionRetryOptions,
+): void {
   const originalQuery = pool.query.bind(pool) as (...args: unknown[]) => unknown
 
   pool.query = ((...args: unknown[]) => {
     const maybeCallback = args.find((a) => typeof a === "function")
     if (maybeCallback) return originalQuery(...args)
 
-    return withDbConnectionAcquisitionRetry(() =>
-      Promise.resolve(originalQuery(...args)),
+    return withDbConnectionAcquisitionRetry(
+      () => Promise.resolve(originalQuery(...args)),
+      opts,
     )
   }) as typeof pool.query
 }

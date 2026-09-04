@@ -5,6 +5,7 @@ import { Pool } from "pg"
 import { log } from "../observability/logger.js"
 import { relations, schema } from "./schema.js"
 import {
+  type DbConnectionAcquisitionRetryOptions,
   formatUnknownError,
   wrapPoolQueryWithConnectionAcquisitionRetry,
 } from "./transientDbRetry.js"
@@ -13,7 +14,10 @@ function isRailwayPrPreview(): boolean {
   return Boolean(process.env.RAILWAY_ENVIRONMENT_NAME?.trim().startsWith("pr-"))
 }
 
-function createDrizzleDb(connectionString: string) {
+function createDrizzleDb(
+  connectionString: string,
+  retryOptions?: DbConnectionAcquisitionRetryOptions,
+) {
   // Railway Serverless sleeps after ~10m with no outbound. Long-lived idle
   // Neon connections (and TCP keepalives) prevent that window in PR previews.
   const client = new Pool({
@@ -40,7 +44,7 @@ function createDrizzleDb(connectionString: string) {
           : undefined,
     })
   })
-  wrapPoolQueryWithConnectionAcquisitionRetry(client)
+  wrapPoolQueryWithConnectionAcquisitionRetry(client, retryOptions)
   return drizzle({ client, schema, relations })
 }
 
@@ -51,9 +55,12 @@ const systemDbStorage = new AsyncLocalStorage<Db>()
 const orgDbStorage = new AsyncLocalStorage<Db>()
 let appDb: AppDb | null = null
 
-export function initDb(connectionString: string): Db {
+export function initDb(
+  connectionString: string,
+  retryOptions?: DbConnectionAcquisitionRetryOptions,
+): Db {
   if (appDb) return appDb
-  appDb = createDrizzleDb(connectionString)
+  appDb = createDrizzleDb(connectionString, retryOptions)
   return appDb
 }
 
