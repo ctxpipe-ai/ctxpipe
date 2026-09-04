@@ -32,7 +32,7 @@ const env = parseEnv(process.env as Record<string, string | undefined>)
 initOtel(env)
 initEvlog()
 await waitForDbConnection(databaseUrl, DB_STARTUP_CONNECTION_RETRY)
-await backfillGithubAppSecretsFromEnv(env)
+await backfillGithubAppSecretsFromEnv(env, DB_STARTUP_CONNECTION_RETRY)
 
 let shuttingDown = false
 async function shutdownWorkerObservability() {
