@@ -60,10 +60,14 @@ defects in the production path:
 3. Notification-only POSTs returned status 202 with a JSON `null` body instead
    of an empty body.
 
-The shared transport boundary now validates origins before authentication,
-returns 405 for stateless GET, and normalises notification responses to an empty
-202. The same MCPJam 3.24.0 suite then passed 15/15 applicable checks with a
-score of 100/100 against protocol version 2025-11-25.
+The shared transport boundary now validates origins before authentication and
+normalises notification responses to an empty 202. The August 2026 response of
+returning 405 for stateless `GET /mcp` made MCPJam 3.24.0 score 100/100, but
+that rejection is **superseded**. Hosted MCP must accept authenticated GET as a
+standalone SSE listener so clients that require the optional stream (notably
+CodeRabbit) can finish the handshake. See
+[ADR-029](../../decisions/ADR-029-hosted-mcp-client-interoperability.md).
+MCPJam remaining 100/100 is a CI baseline, not an interoperability claim.
 
 ## Primary sources
 

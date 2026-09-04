@@ -108,6 +108,22 @@ endpoint failures use `step=oauth.endpoint_error`. Files under `.mcpjam/` are
 gitignored, but they can still contain operational details: review them before
 sharing.
 
+## MCP client compatibility
+
+Hosted `/mcp` is the product integration surface. First-party plugins improve
+install UX; they are not a substitute for this handshake. Protocol conformance
+is a CI baseline, not an interoperability claim. After transport changes, smoke
+the sequence `initialize` → `notifications/initialized` → authenticated
+`GET /mcp` SSE → `tools/list` → a cheap tool call.
+
+| Client | How we check | Passes when |
+| --- | --- | --- |
+| CodeRabbit | In-repo handshake test plus a production re-auth after deploy | One initialize, GET returns SSE (not 405), `tools/list` succeeds, no reconnect loop |
+| Cursor | Manual against a test org after `npx ctxpipe init` | Tools appear; advisor can run |
+| Claude Code / claude.ai | Manual URL or Claude plugin | Same as Cursor |
+| MCPJam 3.24.0 | `mcp.conformance.test.ts` | Protocol suite passes; do not weaken GET SSE to chase the score |
+| Official Inspector | `pnpm mcp:inspect` | Independent protocol reference |
+
 ## Webhooks (GitHub App)
 
 - Endpoint: `POST /api/v1/webhook/github`

@@ -37,3 +37,4 @@ Parent: [`.ai/memory/README.md`](../README.md).
 | [ADR-026](ADR-026-claude-plugin-mcp-distribution.md) | Claude plugin for hosted MCP distribution | Accepted |
 | [ADR-027](ADR-027-codesearch-openworkflow-concurrency.md) | Size-based OpenWorkflow concurrency for single-instance codesearch | Accepted |
 | [ADR-028](ADR-028-git-native-connector-assets.md) | Git-native connector assets | Accepted |
+| [ADR-029](ADR-029-hosted-mcp-client-interoperability.md) | Hosted MCP is the cross-client integration surface | Accepted |

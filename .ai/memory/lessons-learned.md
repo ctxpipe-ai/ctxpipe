@@ -95,10 +95,10 @@ Highest-priority confirmed rules for agents. Migrated from former `patterns.md` 
 - **Source:** migrated from patterns.md
 
 ### Hono apps
-- **Rule:** for both backend and codesearch — REST via `@hono/zod-openapi`, MCP via `@hono/mcp`
+- **Rule:** for both backend and codesearch — REST via `@hono/zod-openapi`. Product MCP stays in-process on the backend via the official `@modelcontextprotocol/sdk` Streamable HTTP transport (not `@hono/mcp`); see [ADR-029](decisions/ADR-029-hosted-mcp-client-interoperability.md)
 - **Category:** convention
-- **Date:** 2026-08-11
-- **Source:** migrated from patterns.md
+- **Date:** 2026-09-04
+- **Source:** ADR-029 hosted MCP interoperability
 
 ### Domain services
 - **Rule:** shared between REST routes and MCP tools
@@ -652,3 +652,9 @@ Highest-priority confirmed rules for agents. Migrated from former `patterns.md` 
 - **Date:** 2026-08-21
 - **Source:** user-confirmed Slack connector production incident (ctxpipe workspace passed because its historical grant masked the fresh Tru Rec installation path)
 
+
+### Diagnose "MCP transport dropped" / CLI "Unexpected end of JSON input" via Railway logs first
+- **Rule:** when Claude Code or Cursor reports a ctxpipe MCP "transport drop" or `npx ctxpipe init` fails with "Unexpected end of JSON input", check the backend Railway http logs for 5xx on `/.auth/api/v1/auth/*` and deploy logs for "Connection terminated unexpectedly" / `ETIMEDOUT` before blaming the client, npm package, or Railway. Production Neon drops connections intermittently; Better Auth then returns a bodyless 500 (better-call fallback `new Response(null, {status: 500})`), and the CLI's `response.json()` runs before its `response.ok` check. The ctx_advisor cold path (8s Zoekt warmup, 11× 503 retry ≈ 111s, silent SSE, wide event flushed at stream open) is what makes the same root cause look like four different client failures.
+- **Category:** operations
+- **Date:** 2026-09-03
+- **Source:** Railway backend logs 2026-09-02 23:30–23:32 UTC; `packages/cli/src/auth.ts`, `apps/backend/src/db/transientDbRetry.ts`, `apps/backend/src/tools/codesearchZoekt.ts`
