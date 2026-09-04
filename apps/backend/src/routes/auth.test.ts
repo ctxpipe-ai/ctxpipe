@@ -163,4 +163,51 @@ describe("auth metadata routes", () => {
 
     expect(response.status).not.toBe(404)
   })
+
+  it("returns a retryable 503 when Better Auth records a transient database failure", async () => {
+    vi.doMock("../observability/logger.js", () => ({
+      getLogger: () => ({ error: vi.fn() }),
+    }))
+    vi.doMock("../auth/config.js", () => ({
+      getAuth: () => ({
+        handler: async () => {
+          const { recordAuthApiError } = await import(
+            "../auth/transient-api-error.js"
+          )
+          recordAuthApiError(
+            Object.assign(new Error("Connection terminated unexpectedly"), {
+              code: "57P01",
+            }),
+          )
+          return Response.json({ error: "internal_error" }, { status: 500 })
+        },
+        options: { socialProviders: {} },
+      }),
+    }))
+    vi.resetModules()
+
+    try {
+      const app = await createTestApp()
+      const response = await app.request("/.auth/api/v1/auth/device/code", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          client_id: "ctxpipe-cli",
+          scope: "openid profile email",
+        }),
+      })
+
+      expect(response.status).toBe(503)
+      expect(response.headers.get("retry-after")).toBe("3")
+      await expect(response.json()).resolves.toEqual({
+        error: "temporarily_unavailable",
+        message:
+          "ctx| authentication is temporarily unavailable. Try again shortly.",
+      })
+    } finally {
+      vi.doUnmock("../auth/config.js")
+      vi.doUnmock("../observability/logger.js")
+      vi.resetModules()
+    }
+  })
 })

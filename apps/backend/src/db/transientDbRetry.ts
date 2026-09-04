@@ -106,22 +106,28 @@ export function formatUnknownError(error: unknown): string {
 }
 
 export type WithTransientDbQueryRetryOptions = {
-  /** Retries after the first attempt (default 1 → 2 attempts total). */
+  /** Retries after the first attempt (default 3 → 4 attempts total). */
   retries?: number
   baseDelayMs?: number
 }
 
+/** Read-query budget: absorb a Neon wake or short reset without hanging a request. */
+export const POOL_READ_RETRY = {
+  retries: 3,
+  baseDelayMs: 400,
+} as const
+
 /**
- * Retries `run` once (by default) on transient Postgres connection failures
- * (Neon idle disconnect, reset, admin shutdown), with a short delay so compute
- * can finish waking.
+ * Retries `run` on transient Postgres connection failures (Neon idle
+ * disconnect, reset, admin shutdown). Default budget is a few seconds so a
+ * compute wake is absorbed without holding the caller for tens of seconds.
  */
 export async function withTransientDbQueryRetry<T>(
   run: () => Promise<T>,
   opts?: WithTransientDbQueryRetryOptions,
 ): Promise<T> {
-  const retries = opts?.retries ?? 1
-  const baseDelayMs = opts?.baseDelayMs ?? 100
+  const retries = opts?.retries ?? POOL_READ_RETRY.retries
+  const baseDelayMs = opts?.baseDelayMs ?? POOL_READ_RETRY.baseDelayMs
   const maxAttempts = retries + 1
   let last: unknown
 
@@ -149,23 +155,38 @@ export async function withTransientDbQueryRetry<T>(
   throw last
 }
 
+function isRetrySafePoolQuery(args: unknown[]): boolean {
+  const query = args[0]
+  const text =
+    typeof query === "string"
+      ? query
+      : query &&
+          typeof query === "object" &&
+          "text" in query &&
+          typeof query.text === "string"
+        ? query.text
+        : ""
+  return /^\s*(select|show)\b/i.test(text)
+}
+
 /**
- * Wrap `pool.query` so promise-based queries retry once on dead connections.
- * Callback-style `query` is left unchanged (Drizzle uses the promise API).
+ * Wrap `pool.query` so promise-based read queries retry on dead connections.
+ * Writes are deliberately not replayed: a disconnect after the server commits
+ * is ambiguous and transparent retry can duplicate mutations. Callback-style
+ * `query` is also left unchanged.
  */
 export function wrapPoolQueryWithTransientRetry(pool: Pool): void {
-  const originalQuery = pool.query.bind(pool) as (
-    ...args: unknown[]
-  ) => unknown
+  const originalQuery = pool.query.bind(pool) as (...args: unknown[]) => unknown
 
   pool.query = ((...args: unknown[]) => {
     const maybeCallback = args.find((a) => typeof a === "function")
-    if (maybeCallback) {
+    if (maybeCallback || !isRetrySafePoolQuery(args)) {
       return originalQuery(...args)
     }
 
-    return withTransientDbQueryRetry(() =>
-      Promise.resolve(originalQuery(...args)),
+    return withTransientDbQueryRetry(
+      () => Promise.resolve(originalQuery(...args)),
+      POOL_READ_RETRY,
     )
   }) as typeof pool.query
 }

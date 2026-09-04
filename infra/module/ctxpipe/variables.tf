@@ -255,6 +255,54 @@ variable "neon_project" {
   description = "Neon project configuration."
 }
 
+variable "neon_migration_target" {
+  type = object({
+    name                      = string
+    org_id                    = string
+    region_id                 = string
+    pg_version                = number
+    history_retention_seconds = optional(number)
+    compute_provisioner       = optional(string)
+    store_password            = optional(string)
+
+    maintenance_window = optional(object({
+      start_time = string
+      end_time   = string
+      weekdays   = list(number)
+    }))
+
+    branch = optional(object({
+      name          = string
+      database_name = string
+      role_name     = string
+    }))
+
+    default_endpoint_settings = optional(object({
+      autoscaling_limit_min_cu = number
+      autoscaling_limit_max_cu = number
+    }))
+  })
+  description = "Optional second Neon project provisioned as a logical-replication migration target."
+  default     = null
+}
+
+variable "neon_database_target" {
+  type        = string
+  description = "Neon project used by Railway services. Keep `source` until replication is caught up and writes are quiesced."
+  default     = "source"
+
+  validation {
+    condition     = contains(["source", "singapore"], var.neon_database_target)
+    error_message = "neon_database_target must be `source` or `singapore`."
+  }
+}
+
+variable "neon_source_logical_replication" {
+  type        = bool
+  description = "Record that irreversible logical replication has been enabled on the source Neon project."
+  default     = false
+}
+
 variable "openworkflow_concurrency" {
   type        = string
   description = "In-flight OpenWorkflow runs per worker process. Production default is the medium capacity pair (see ADR-027). Changing this requires redeploying the worker."

@@ -21,7 +21,7 @@ module "ctxpipe" {
 
   railway_regions = [
     {
-      region       = "us-east4-eqdc4a"
+      region       = "asia-southeast1-eqsg3a"
       num_replicas = 1
     },
   ]
@@ -77,4 +77,29 @@ module "ctxpipe" {
       autoscaling_limit_max_cu = 8
     }
   }
+  neon_migration_target = {
+    name                      = "ctxpipe-singapore"
+    org_id                    = "org-steep-pine-64462726"
+    region_id                 = "aws-ap-southeast-1"
+    pg_version                = 17
+    history_retention_seconds = 86400
+    compute_provisioner       = "k8s-neonvm"
+    store_password            = "yes"
+    maintenance_window = {
+      start_time = "09:00"
+      end_time   = "10:00"
+      weekdays   = [5]
+    }
+    branch = {
+      name          = "production"
+      database_name = "neondb"
+      role_name     = "neondb_owner"
+    }
+    default_endpoint_settings = {
+      autoscaling_limit_min_cu = 0.25
+      autoscaling_limit_max_cu = 8
+    }
+  }
+  neon_database_target            = var.neon_database_target
+  neon_source_logical_replication = var.neon_source_logical_replication
 }

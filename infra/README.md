@@ -12,9 +12,36 @@ Mirrors [ops/infra/index.ts](../ops/infra/index.ts):
   - Service variables: `FALKORDB_PORT`, `GRAPH_DB_URI`
   - App services pull public GHCR images (`ghcr.io/ctxpipe-ai/{backend,worker,ui,codesearch,otel-collector}`) tagged by Git commit SHA from GitHub Actions (no Railway registry credentials)
 - **Neon**
-  - Project `ctxpipe` in org `org-steep-pine-64462726`, region `aws-us-east-1`, pg 17
-  - Default branch `production` with db `neondb` and role `neondb_owner`
-  - Default endpoint autoscaling + maintenance window
+  - Active project `ctxpipe` in `aws-us-east-1` during the staged migration
+  - Migration target `ctxpipe-singapore` in `aws-ap-southeast-1`
+  - PostgreSQL 17, branch `production`, db `neondb`, role `neondb_owner`
+  - Default endpoint autoscaling + maintenance window on both projects
+
+## Production Neon migration to Singapore
+
+[ADR-030](../.ai/memory/decisions/ADR-030-singapore-production-database-colocation.md)
+defines the target and safety constraints. Applying this Terraform first only
+provisions the Singapore project; `neon_database_target` defaults to `source`,
+so it does **not** move application traffic.
+
+After the target exists, run the guarded cutover wizard from the repository
+root:
+
+```bash
+./scripts/neon-singapore-cutover.sh
+```
+
+The wizard checks PostgreSQL versions and replica identity, enables source
+logical replication behind an irreversible-action gate, copies schema, waits
+for and validates replication, quiesces all Railway database clients,
+synchronises sequences, switches production and CI connection settings, and
+restores the services. It requires authenticated `gh` and `railway` CLIs plus
+`psql` and `pg_dump`.
+
+Do not run it until the Terraform plan for the target project has been reviewed
+and applied. Do not destroy the US East project during the cutover; after
+Singapore accepts writes, rolling back to the one-way source without
+reconciliation would lose data.
 
 ## State backend (Cloudflare R2)
 

@@ -26,9 +26,29 @@ type ZoektListResponse = {
   }
 }
 
-/** Default under the backend codesearch tool's 10s AbortSignal.timeout. */
+/** Single-shard baseline; organisation-wide searches scale up to the bounded maximum. */
 export const ZOEKT_WARMUP_TIMEOUT_MS = 8_000
+export const ZOEKT_WARMUP_MAX_TIMEOUT_MS = 20_000
 const LIST_FETCH_TIMEOUT_MS = 2_000
+
+/**
+ * Loading one hot shard is normally quick, but Zoekt's directory watcher
+ * processes larger cold-pin sets progressively. Give each additional shard a
+ * bounded second instead of applying the single-repository timeout to every
+ * organisation-wide search.
+ */
+export function zoektWarmupTimeoutMs(
+  pinResults: ReadonlyArray<{ shardCount: number }>,
+): number {
+  const shardCount = pinResults.reduce(
+    (total, result) => total + Math.max(0, result.shardCount),
+    0,
+  )
+  return Math.min(
+    ZOEKT_WARMUP_MAX_TIMEOUT_MS,
+    ZOEKT_WARMUP_TIMEOUT_MS + Math.max(0, shardCount - 1) * 1_000,
+  )
+}
 
 export async function listLoadedZoektRepoIds(
   baseUrl: string = ZOEKT_WEBSERVER_URL,
@@ -74,7 +94,8 @@ export async function waitUntilZoektReposLoaded(params: {
   const pollIntervalMs = params.pollIntervalMs ?? 100
   const fetchFn = params.fetchFn ?? fetch
   const sleepFn =
-    params.sleepFn ?? ((ms) => new Promise((resolve) => setTimeout(resolve, ms)))
+    params.sleepFn ??
+    ((ms) => new Promise((resolve) => setTimeout(resolve, ms)))
 
   const deadline = Date.now() + timeoutMs
   let lastError: unknown

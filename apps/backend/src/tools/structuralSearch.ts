@@ -8,7 +8,11 @@ import {
   repositoryIdSchema,
   toToon,
 } from "../lib/agentToolRuntime.js"
-import { withTransientHttpRetry } from "../lib/withTransientHttpRetry.js"
+import {
+  CODESEARCH_QUERY_RETRY,
+  CODESEARCH_QUERY_TIMEOUT_MS,
+  withTransientHttpRetry,
+} from "../lib/withTransientHttpRetry.js"
 import { getRepositoryForOrg } from "../models/repositories.js"
 
 export const structuralSearchTool = tool(
@@ -34,6 +38,7 @@ export const structuralSearchTool = tool(
         principal: "service",
       },
     })
+    const requestSignal = AbortSignal.timeout(CODESEARCH_QUERY_TIMEOUT_MS)
     const res = await withTransientHttpRetry(
       async () =>
         fetch(`${codesearchBaseUrl()}/${repository.id}/structural-search`, {
@@ -43,8 +48,9 @@ export const structuralSearchTool = tool(
             Authorization: `Bearer ${token}`,
           },
           body: JSON.stringify({ pattern, lang, paths, globs, limit }),
+          signal: requestSignal,
         }),
-      { retries: 10, baseDelayMs: 200, maxDelayMs: 30_000 },
+      CODESEARCH_QUERY_RETRY,
     )
 
     if (res.status >= 400 && res.status < 500) {

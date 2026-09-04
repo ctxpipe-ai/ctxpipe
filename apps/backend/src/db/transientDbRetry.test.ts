@@ -89,7 +89,7 @@ describe("withTransientDbQueryRetry", () => {
         if (n < 2) throw new Error("Connection terminated unexpectedly")
         return "ok"
       },
-      { baseDelayMs: 1 },
+      { retries: 1, baseDelayMs: 1 },
     )
     expect(result).toBe("ok")
     expect(n).toBe(2)
@@ -102,6 +102,21 @@ describe("withTransientDbQueryRetry", () => {
         message: "Connection terminated unexpectedly",
       }),
     )
+  })
+
+  it("defaults to a multi-attempt budget for Neon wake/reset", async () => {
+    let n = 0
+    const result = await withTransientDbQueryRetry(
+      async () => {
+        n += 1
+        if (n < 4) throw new Error("Connection terminated unexpectedly")
+        return "ok"
+      },
+      { baseDelayMs: 1 },
+    )
+    expect(result).toBe("ok")
+    expect(n).toBe(4)
+    expect(log.info).toHaveBeenCalledTimes(3)
   })
 
   it("does not retry non-transient errors", async () => {
@@ -146,13 +161,13 @@ describe("wrapPoolQueryWithTransientRetry", () => {
       }),
     }
 
-    wrapPoolQueryWithTransientRetry(
-      pool as unknown as import("pg").Pool,
-    )
+    wrapPoolQueryWithTransientRetry(pool as unknown as import("pg").Pool)
 
     const result = await (
-      pool.query as unknown as () => Promise<{ rows: { ok: boolean }[] }>
-    )()
+      pool.query as unknown as (
+        sql: string,
+      ) => Promise<{ rows: { ok: boolean }[] }>
+    )("select 1")
     expect(result).toEqual({ rows: [{ ok: true }] })
     expect(n).toBe(2)
     expect(log.info).toHaveBeenCalledWith(
@@ -168,14 +183,29 @@ describe("wrapPoolQueryWithTransientRetry", () => {
     )
     const pool = { query: underlying }
 
-    wrapPoolQueryWithTransientRetry(
-      pool as unknown as import("pg").Pool,
-    )
+    wrapPoolQueryWithTransientRetry(pool as unknown as import("pg").Pool)
 
     const cb = vi.fn()
     ;(pool.query as typeof underlying)("select 1", cb)
     expect(underlying).toHaveBeenCalledTimes(1)
     expect(cb).toHaveBeenCalledTimes(1)
+    expect(log.info).not.toHaveBeenCalled()
+  })
+
+  it("does not retry writes after an ambiguous disconnect", async () => {
+    const underlying = vi
+      .fn()
+      .mockRejectedValue(new Error("Connection terminated unexpectedly"))
+    const pool = { query: underlying }
+
+    wrapPoolQueryWithTransientRetry(pool as unknown as import("pg").Pool)
+
+    await expect(
+      (pool.query as unknown as (sql: string) => Promise<{ rows: unknown[] }>)(
+        "insert into device_codes (id) values ('code_1')",
+      ),
+    ).rejects.toThrow("Connection terminated unexpectedly")
+    expect(underlying).toHaveBeenCalledTimes(1)
     expect(log.info).not.toHaveBeenCalled()
   })
 })

@@ -108,7 +108,7 @@ describe("POST /search", () => {
       },
     ])
     expect(waitUntilMock).toHaveBeenCalledWith(
-      expect.objectContaining({ repoIds: [1] }),
+      expect.objectContaining({ repoIds: [1], timeoutMs: 8_000 }),
     )
     expect(fetch).toHaveBeenCalledWith(
       "http://zoekt.test/api/search",
@@ -158,8 +158,11 @@ describe("POST /search", () => {
     })
 
     expect(res.status).toBe(503)
+    expect(res.headers.get("retry-after")).toBe("2")
     await expect(res.json()).resolves.toMatchObject({
       error: expect.stringContaining("did not load"),
+      code: "zoekt_warming",
+      retryAfterMs: 2_000,
     })
   })
 

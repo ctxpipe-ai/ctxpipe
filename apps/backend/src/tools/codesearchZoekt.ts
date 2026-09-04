@@ -1,7 +1,11 @@
 import { signUpstreamJwt } from "../auth/upstreamJwt.js"
 import { parseEnv } from "../config/env.js"
 import { codesearchBaseUrl } from "../lib/agentToolRuntime.js"
-import { withTransientHttpRetry } from "../lib/withTransientHttpRetry.js"
+import {
+  CODESEARCH_QUERY_RETRY,
+  CODESEARCH_QUERY_TIMEOUT_MS,
+  withTransientHttpRetry,
+} from "../lib/withTransientHttpRetry.js"
 
 export type ZoektRepositoryRow = {
   id: string
@@ -31,8 +35,6 @@ export function isZoektSearchClientFailure(
   )
 }
 
-const ZOEKT_FETCH_TIMEOUT_MS = 10_000
-
 export async function zoektSearchRepository(
   repository: ZoektRepositoryRow,
   Q: string,
@@ -49,6 +51,7 @@ export async function zoektSearchRepository(
     },
   })
 
+  const requestSignal = AbortSignal.timeout(CODESEARCH_QUERY_TIMEOUT_MS)
   const res = await withTransientHttpRetry(
     async () =>
       fetch(`${codesearchBaseUrl()}/search`, {
@@ -62,9 +65,9 @@ export async function zoektSearchRepository(
           RepoIDs: [repository.zoektRepoId],
           Opts: opts,
         }),
-        signal: AbortSignal.timeout(ZOEKT_FETCH_TIMEOUT_MS),
+        signal: requestSignal,
       }),
-    { retries: 10, baseDelayMs: 200, maxDelayMs: 30_000 },
+    CODESEARCH_QUERY_RETRY,
   )
 
   if (res.status >= 400 && res.status < 500) {

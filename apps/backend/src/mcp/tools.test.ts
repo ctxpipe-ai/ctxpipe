@@ -11,6 +11,10 @@ const {
   requireCurrentOrgIdMock,
   requireCurrentOrgSlugMock,
   withOrgDbContextMock,
+  createLoggerMock,
+  loggerErrorMock,
+  loggerWarnMock,
+  withLoggerMock,
 } = vi.hoisted(() => ({
   generateObjectIdMock: vi.fn(() => "thr_test"),
   streamMock: vi.fn(),
@@ -22,6 +26,12 @@ const {
   requireCurrentOrgSlugMock: vi.fn(() => "test-org"),
   withOrgDbContextMock: vi.fn(
     async (_orgId: string, handler: () => Promise<unknown>) => handler(),
+  ),
+  createLoggerMock: vi.fn(),
+  loggerErrorMock: vi.fn(),
+  loggerWarnMock: vi.fn(),
+  withLoggerMock: vi.fn(
+    async (_logger: unknown, handler: () => Promise<unknown>) => handler(),
   ),
 }))
 
@@ -51,8 +61,17 @@ vi.mock("../db/client.js", () => ({
   withOrgDbContext: withOrgDbContextMock,
 }))
 
+vi.mock("../observability/logger.js", () => ({
+  createLogger: createLoggerMock,
+  getLogger: () => ({
+    error: loggerErrorMock,
+    warn: loggerWarnMock,
+  }),
+  withLogger: withLoggerMock,
+}))
+
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js"
-import { registerMcpTools } from "./tools.js"
+import { MCP_PROGRESS_HEARTBEAT_MS, registerMcpTools } from "./tools.js"
 
 describe("registerMcpTools", () => {
   beforeEach(() => {
@@ -62,6 +81,14 @@ describe("registerMcpTools", () => {
     generateObjectIdMock.mockReset().mockReturnValue("thr_test")
     ensureConversationMock.mockReset().mockResolvedValue({})
     touchConversationLastMessageMock.mockReset().mockResolvedValue(undefined)
+    createLoggerMock.mockReset().mockReturnValue({})
+    loggerErrorMock.mockReset()
+    loggerWarnMock.mockReset()
+    withLoggerMock
+      .mockReset()
+      .mockImplementation(
+        async (_logger: unknown, handler: () => Promise<unknown>) => handler(),
+      )
     withOrgDbContextMock
       .mockReset()
       .mockImplementation(
@@ -187,7 +214,15 @@ describe("registerMcpTools", () => {
       "Plan the integration in phases with auth-first steps",
     )
     expect(streamMock).toHaveBeenCalledTimes(1)
-    expect(sendNotification).toHaveBeenCalledTimes(2)
+    expect(sendNotification).toHaveBeenCalledTimes(3)
+    expect(sendNotification).toHaveBeenNthCalledWith(1, {
+      method: "notifications/progress",
+      params: {
+        progressToken: "progress_1",
+        progress: 1,
+        message: "Searching organisation context…",
+      },
+    })
     expect(invokeMock).not.toHaveBeenCalled()
 
     const callArg = streamMock.mock.calls[0]?.[0] as {
@@ -215,6 +250,127 @@ describe("registerMcpTools", () => {
       source: "mcp",
     })
     expect(touchConversationLastMessageMock).toHaveBeenCalledWith("thr_test")
+  })
+
+  it("sends progress heartbeats while retrieval is quiet", async () => {
+    vi.useFakeTimers()
+    let finishStream!: () => void
+    const streamGate = new Promise<void>((resolve) => {
+      finishStream = resolve
+    })
+    streamMock.mockResolvedValueOnce(
+      (async function* () {
+        await streamGate
+        yield { messages: [{ content: "Grounded answer" }] }
+      })(),
+    )
+
+    const registerToolMock = vi.fn()
+    const server = { registerTool: registerToolMock } as unknown as McpServer
+    registerMcpTools(server)
+    const [, , handler] = registerToolMock.mock.calls[0] as [
+      string,
+      unknown,
+      (
+        input: { prompt: string },
+        extra: {
+          _meta?: { progressToken?: string | number }
+          sendNotification: (notification: unknown) => Promise<void>
+        },
+      ) => Promise<{ content: Array<{ text: string }> }>,
+    ]
+    const sendNotification = vi.fn(async () => {})
+
+    const resultPromise = handler(
+      { prompt: "Search everything" },
+      { _meta: { progressToken: 0 }, sendNotification },
+    )
+    await vi.advanceTimersByTimeAsync(0)
+    expect(sendNotification).toHaveBeenCalledWith({
+      method: "notifications/progress",
+      params: expect.objectContaining({
+        progressToken: 0,
+        message: "Searching organisation context…",
+      }),
+    })
+
+    await vi.advanceTimersByTimeAsync(MCP_PROGRESS_HEARTBEAT_MS)
+    expect(sendNotification).toHaveBeenCalledWith({
+      method: "notifications/progress",
+      params: expect.objectContaining({
+        progressToken: 0,
+        message: "Still searching organisation context…",
+      }),
+    })
+
+    finishStream()
+    await vi.advanceTimersByTimeAsync(0)
+    await expect(resultPromise).resolves.toMatchObject({
+      content: [{ text: "Grounded answer" }],
+    })
+    vi.useRealTimers()
+  })
+
+  it("sends progress heartbeats while conversation setup is blocked", async () => {
+    vi.useFakeTimers()
+    let finishSetup!: () => void
+    const setupGate = new Promise<void>((resolve) => {
+      finishSetup = resolve
+    })
+    ensureConversationMock.mockImplementationOnce(async () => {
+      await setupGate
+      return {}
+    })
+    streamMock.mockResolvedValueOnce(
+      (async function* () {
+        yield { messages: [{ content: "Grounded answer" }] }
+      })(),
+    )
+
+    const registerToolMock = vi.fn()
+    const server = { registerTool: registerToolMock } as unknown as McpServer
+    registerMcpTools(server)
+    const [, , handler] = registerToolMock.mock.calls[0] as [
+      string,
+      unknown,
+      (
+        input: { prompt: string },
+        extra: {
+          _meta?: { progressToken?: string | number }
+          sendNotification: (notification: unknown) => Promise<void>
+        },
+      ) => Promise<{ content: Array<{ text: string }> }>,
+    ]
+    const sendNotification = vi.fn(async () => {})
+
+    const resultPromise = handler(
+      { prompt: "Search everything" },
+      { _meta: { progressToken: 0 }, sendNotification },
+    )
+    await vi.advanceTimersByTimeAsync(0)
+    expect(sendNotification).toHaveBeenCalledWith({
+      method: "notifications/progress",
+      params: expect.objectContaining({
+        progressToken: 0,
+        message: "Searching organisation context…",
+      }),
+    })
+
+    await vi.advanceTimersByTimeAsync(MCP_PROGRESS_HEARTBEAT_MS)
+    expect(sendNotification).toHaveBeenCalledWith({
+      method: "notifications/progress",
+      params: expect.objectContaining({
+        progressToken: 0,
+        message: "Still searching organisation context…",
+      }),
+    })
+
+    finishSetup()
+    await vi.advanceTimersByTimeAsync(0)
+    await expect(resultPromise).resolves.toMatchObject({
+      content: [{ text: "Grounded answer" }],
+    })
+    vi.useRealTimers()
   })
 
   it("passes checkpoint config to fallback invoke path", async () => {

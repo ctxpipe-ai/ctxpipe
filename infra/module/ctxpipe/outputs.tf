@@ -25,3 +25,17 @@ output "neon_default_branch_id" {
   value = neon_project.this.default_branch_id
 }
 
+output "neon_migration_target_project_id" {
+  value = try(one(neon_project.migration_target[*].id), null)
+}
+
+output "neon_migration_target_connection_uri" {
+  value     = try(one(neon_project.migration_target[*].connection_uri), null)
+  sensitive = true
+}
+
+output "neon_migration_target_connection_uri_pooler" {
+  value     = try(one(neon_project.migration_target[*].connection_uri_pooler), null)
+  sensitive = true
+}
+

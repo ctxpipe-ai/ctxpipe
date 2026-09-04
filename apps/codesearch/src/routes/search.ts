@@ -3,13 +3,14 @@ import { createRoute, z } from "@hono/zod-openapi"
 import { and, eq } from "drizzle-orm"
 import type { AppEnv } from "../app/env.js"
 import { ZOEKT_WEBSERVER_URL } from "../config/paths.js"
-import { DEFAULT_CHECKOUT_KEY } from "../domain/repositories/paths.js"
 import { repositories, repositoryCheckouts } from "../db/schema.js"
+import { DEFAULT_CHECKOUT_KEY } from "../domain/repositories/paths.js"
 import { pinRepos } from "../domain/zoekt/pinManager.js"
 import { zoektRepositoryName } from "../domain/zoekt/shardPrefix.js"
 import {
   waitUntilZoektReposLoaded,
   ZoektWarmupTimeoutError,
+  zoektWarmupTimeoutMs,
 } from "../domain/zoekt/warmup.js"
 
 const SearchRequestSchema = z
@@ -46,7 +47,11 @@ export const searchRoute = createRoute({
     503: {
       content: {
         "application/json": {
-          schema: z.object({ error: z.string() }),
+          schema: z.object({
+            error: z.string(),
+            code: z.enum(["zoekt_warming", "zoekt_unavailable"]).optional(),
+            retryAfterMs: z.number().int().positive().optional(),
+          }),
         },
       },
       description: "Database or Zoekt not available",
@@ -105,13 +110,28 @@ export function registerSearchRoutes(app: OpenAPIHono<AppEnv>) {
         await waitUntilZoektReposLoaded({
           repoIds: waitForIds,
           baseUrl: ZOEKT_WEBSERVER_URL,
+          timeoutMs: zoektWarmupTimeoutMs(pinResults),
         })
       }
     } catch (error) {
       if (error instanceof ZoektWarmupTimeoutError) {
-        return c.json({ error: error.message }, 503)
+        return c.json(
+          {
+            error: error.message,
+            code: "zoekt_warming" as const,
+            retryAfterMs: 2_000,
+          },
+          503,
+          { "Retry-After": "2" },
+        )
       }
-      return c.json({ error: "Zoekt webserver is unavailable" }, 503)
+      return c.json(
+        {
+          error: "Zoekt webserver is unavailable",
+          code: "zoekt_unavailable" as const,
+        },
+        503,
+      )
     }
 
     const payload = {
@@ -126,12 +146,24 @@ export function registerSearchRoutes(app: OpenAPIHono<AppEnv>) {
         body: JSON.stringify(payload),
       })
       if (!res.ok) {
-        return c.json({ error: `Zoekt returned status ${res.status}` }, 503)
+        return c.json(
+          {
+            error: `Zoekt returned status ${res.status}`,
+            code: "zoekt_unavailable" as const,
+          },
+          503,
+        )
       }
       const data = await res.json().catch(() => ({}))
       return c.json(data, 200)
     } catch {
-      return c.json({ error: "Zoekt webserver is unavailable" }, 503)
+      return c.json(
+        {
+          error: "Zoekt webserver is unavailable",
+          code: "zoekt_unavailable" as const,
+        },
+        503,
+      )
     }
   })
 }

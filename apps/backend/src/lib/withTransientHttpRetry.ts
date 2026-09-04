@@ -22,6 +22,15 @@ export type WithTransientHttpRetryOptions = {
   maxDelayMs?: number
 }
 
+/** Advisor and interactive tool calls. Ingestion jobs keep the longer budget. */
+export const CODESEARCH_QUERY_RETRY = {
+  retries: 2,
+  baseDelayMs: 250,
+  maxDelayMs: 1_000,
+} as const
+
+export const CODESEARCH_QUERY_TIMEOUT_MS = 25_000
+
 function errnoCode(error: unknown): string | undefined {
   if (!error || typeof error !== "object") return undefined
   const code = (error as NodeJS.ErrnoException).code

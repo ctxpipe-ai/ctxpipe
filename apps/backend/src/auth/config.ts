@@ -24,6 +24,7 @@ import {
   resolveOAuthConsentReferenceId,
   selectOAuthOrganizationBinding,
 } from "./oauth-organization.js"
+import { recordAuthApiError } from "./transient-api-error.js"
 
 export type BetterAuthInstance = ReturnType<typeof createBetterAuth>
 export type AuthUser = BetterAuthInstance["$Infer"]["Session"]["user"]
@@ -79,6 +80,9 @@ export function createBetterAuth() {
       schema,
       usePlural: true,
     }),
+    onAPIError: {
+      onError: recordAuthApiError,
+    },
     user: {
       additionalFields: {
         onboardingCompletedAt: {

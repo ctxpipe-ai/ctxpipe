@@ -14,8 +14,13 @@ import {
   prepareBetterAuthRequest,
 } from "../auth/oauth-gateway-request.js"
 import { withOAuthConsentOrganizationId } from "../auth/oauth-organization.js"
+import {
+  captureAuthApiErrors,
+  transientAuthUnavailableResponse,
+} from "../auth/transient-api-error.js"
 import { getSystemDb } from "../db/client.js"
 import { invitations, organizations } from "../db/schema/auth.js"
+import { getLogger } from "../observability/logger.js"
 
 function isNonEmptyStringArray(value: unknown): value is string[] {
   return (
@@ -130,11 +135,35 @@ export function registerAuthRoutes(app: Hono<AppEnv>) {
     const isOAuthConsent = c.req.path.endsWith("/oauth2/consent")
     const submittedOrganizationId =
       c.req.header("x-ctxpipe-oauth-organization")?.trim() || null
-    const response = isOAuthConsent
-      ? await withOAuthConsentOrganizationId(submittedOrganizationId, () =>
-          auth.handler(prepared.request),
-        )
-      : await auth.handler(prepared.request)
+    const outcome = await captureAuthApiErrors(() =>
+      isOAuthConsent
+        ? withOAuthConsentOrganizationId(submittedOrganizationId, () =>
+            auth.handler(prepared.request),
+          )
+        : auth.handler(prepared.request),
+    )
+    if (outcome.transientDatabaseError) {
+      getLogger().error(
+        outcome.ok && outcome.value.status >= 500
+          ? new Error(
+              "Better Auth returned an error after a transient database failure",
+            )
+          : outcome.ok
+            ? new Error("Better Auth encountered a transient database failure")
+            : outcome.error instanceof Error
+              ? outcome.error
+              : new Error("Better Auth request failed"),
+        {
+          step: "auth.database_unavailable",
+          method: c.req.method,
+          path: c.req.path,
+          databaseError: outcome.transientDatabaseError,
+        },
+      )
+      return transientAuthUnavailableResponse()
+    }
+    if (!outcome.ok) throw outcome.error
+    const response = outcome.value
     if (response.status >= 400) {
       await logOAuthError(prepared.request, response, prepared.oauthTokenHints)
     }

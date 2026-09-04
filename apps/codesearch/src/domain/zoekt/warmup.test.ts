@@ -1,8 +1,31 @@
 import { describe, expect, it, vi } from "vitest"
 import {
   waitUntilZoektReposLoaded,
+  ZOEKT_WARMUP_MAX_TIMEOUT_MS,
+  ZOEKT_WARMUP_TIMEOUT_MS,
   ZoektWarmupTimeoutError,
+  zoektWarmupTimeoutMs,
 } from "./warmup.js"
+
+describe("zoektWarmupTimeoutMs", () => {
+  it("keeps the baseline for a single shard", () => {
+    expect(zoektWarmupTimeoutMs([{ shardCount: 1 }])).toBe(
+      ZOEKT_WARMUP_TIMEOUT_MS,
+    )
+  })
+
+  it("scales with the number of cold shards", () => {
+    expect(zoektWarmupTimeoutMs([{ shardCount: 4 }, { shardCount: 3 }])).toBe(
+      ZOEKT_WARMUP_TIMEOUT_MS + 6_000,
+    )
+  })
+
+  it("caps large organisation-wide warmups", () => {
+    expect(zoektWarmupTimeoutMs([{ shardCount: 100 }])).toBe(
+      ZOEKT_WARMUP_MAX_TIMEOUT_MS,
+    )
+  })
+})
 
 describe("waitUntilZoektReposLoaded", () => {
   it("resolves once /api/list includes every expected repo id", async () => {
@@ -60,9 +83,11 @@ describe("waitUntilZoektReposLoaded", () => {
   })
 
   it("times out when repos never appear", async () => {
-    const fetchFn = vi.fn().mockResolvedValue(
-      new Response(JSON.stringify({ List: { Repos: [] } }), { status: 200 }),
-    )
+    const fetchFn = vi
+      .fn()
+      .mockResolvedValue(
+        new Response(JSON.stringify({ List: { Repos: [] } }), { status: 200 }),
+      )
 
     await expect(
       waitUntilZoektReposLoaded({
