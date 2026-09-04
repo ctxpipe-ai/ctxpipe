@@ -112,7 +112,7 @@ export type DbConnectionAcquisitionRetryOptions = {
 }
 
 /** Pool-connect budget: one retry before returning a retryable 503 upstream. */
-export const POOL_CONNECTION_RETRY = {
+const POOL_CONNECTION_RETRY = {
   retries: 1,
   baseDelayMs: 250,
 } as const

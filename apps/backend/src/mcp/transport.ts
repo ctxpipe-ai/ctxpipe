@@ -132,15 +132,21 @@ function attachSseLifecycle(
   body: ReadableStream<Uint8Array>,
   options: {
     prefix?: Uint8Array
-    onSettled: (reason: "cancelled" | "completed" | "error") => void
+    onSettled: (
+      reason: "cancelled" | "completed" | "error",
+      error?: unknown,
+    ) => void
   },
 ): ReadableStream<Uint8Array> {
   const reader = body.getReader()
   let settled = false
-  const settle = (reason: "cancelled" | "completed" | "error") => {
+  const settle = (
+    reason: "cancelled" | "completed" | "error",
+    error?: unknown,
+  ) => {
     if (settled) return
     settled = true
-    options.onSettled(reason)
+    options.onSettled(reason, error)
   }
 
   return new ReadableStream<Uint8Array>({
@@ -159,7 +165,7 @@ function attachSseLifecycle(
         }
         controller.enqueue(value)
       } catch (error) {
-        settle("error")
+        settle("error", error)
         controller.error(error)
       }
     },
@@ -247,11 +253,11 @@ export async function handleMcpTransportRequest(
         c.req.method === "GET"
           ? encoder.encode(MCP_SSE_OPEN_COMMENT)
           : undefined,
-      onSettled: (closeReason) => {
+      onSettled: (closeReason, streamError) => {
         // Hono's request logger is emitted when the streaming Response returns.
         // The close event happens later, so emit it directly instead of writing
         // to the already-sealed request-wide event.
-        log.info({
+        const fields = {
           step: "mcp.request",
           message: "MCP stream closed",
           mcp: {
@@ -261,7 +267,18 @@ export async function handleMcpTransportRequest(
             stream: "closed",
             closeReason,
           },
-        })
+        }
+        if (closeReason === "error") {
+          log.error({
+            ...fields,
+            error:
+              streamError instanceof Error
+                ? streamError.message
+                : String(streamError ?? "MCP response stream failed"),
+          })
+        } else {
+          log.info(fields)
+        }
         void releaseMcpSession(server)
       },
     })

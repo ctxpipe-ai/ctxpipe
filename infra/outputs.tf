@@ -14,6 +14,11 @@ output "neon_project_id" {
   value = module.ctxpipe.neon_project_id
 }
 
+output "neon_connection_uri" {
+  value     = module.ctxpipe.neon_connection_uri
+  sensitive = true
+}
+
 output "neon_default_branch_id" {
   value = module.ctxpipe.neon_default_branch_id
 }

@@ -654,7 +654,7 @@ Highest-priority confirmed rules for agents. Migrated from former `patterns.md` 
 
 
 ### Diagnose MCP and CLI transport symptoms via Railway logs first
-- **Rule:** when an MCP client reports a transport drop or `npx ctxpipe init` reports an HTTP/auth failure, check Railway HTTP logs for 5xx on `/.auth/api/v1/auth/*` and runtime logs for "Connection terminated unexpectedly" / `ETIMEDOUT` before blaming the client or npm. The September 2026 incident combined bodyless Better Auth 500s, unsafe CLI JSON parsing, and an approximately 111-second Zoekt retry path; current code instead returns retryable JSON 503s, parses CLI error bodies defensively, bounds interactive codesearch, and emits early progress. Treat the old symptoms as incident history, not the current contract.
+- **Rule:** when an MCP client reports a transport drop or `npx ctxpipe init` reports an HTTP/auth failure, correlate the client timestamp with Railway HTTP status/duration and backend dependency errors before blaming the client or npm. A successful edge response can still contain a JSON-RPC tool error, while database and codesearch failures can surface as several different client messages. Verify the deployed contract rather than inferring the cause from client wording alone.
 - **Category:** operations
 - **Date:** 2026-09-03
 - **Source:** Railway backend logs 2026-09-02 23:30–23:32 UTC; `packages/cli/src/auth.ts`, `apps/backend/src/db/transientDbRetry.ts`, `apps/backend/src/tools/codesearchZoekt.ts`

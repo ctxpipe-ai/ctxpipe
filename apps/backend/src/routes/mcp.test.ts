@@ -11,9 +11,11 @@ const {
   requireAuthMock,
   withNetworkOrgContextMock,
   registerMcpToolsMock,
+  delayedToolMock,
   loggerSetMock,
   loggerInfoMock,
   rootLoggerInfoMock,
+  rootLoggerErrorMock,
   loggerErrorMock,
 } = vi.hoisted(() => ({
   withCookieAuthMock: vi.fn(),
@@ -21,9 +23,11 @@ const {
   requireAuthMock: vi.fn(),
   withNetworkOrgContextMock: vi.fn(),
   registerMcpToolsMock: vi.fn(),
+  delayedToolMock: vi.fn(),
   loggerSetMock: vi.fn(),
   loggerInfoMock: vi.fn(),
   rootLoggerInfoMock: vi.fn(),
+  rootLoggerErrorMock: vi.fn(),
   loggerErrorMock: vi.fn(),
 }))
 
@@ -41,6 +45,7 @@ vi.mock("../mcp/tools.js", () => ({
 vi.mock("../observability/logger.js", () => ({
   log: {
     info: rootLoggerInfoMock,
+    error: rootLoggerErrorMock,
   },
   getLogger: () => ({
     set: loggerSetMock,
@@ -107,6 +112,9 @@ describe("MCP route auth and org validation", () => {
     withBearerAuthMock.mockImplementation(async (_c, next) => next())
     requireAuthMock.mockImplementation(async (_c, next) => next())
     withNetworkOrgContextMock.mockImplementation(async (_c, next) => next())
+    delayedToolMock.mockResolvedValue({
+      content: [{ type: "text", text: "delayed pong" }],
+    })
     registerMcpToolsMock.mockImplementation((server) => {
       server.registerTool(
         "handshake_ping",
@@ -117,6 +125,14 @@ describe("MCP route auth and org validation", () => {
         async () => ({
           content: [{ type: "text", text: "pong" }],
         }),
+      )
+      server.registerTool(
+        "delayed_ping",
+        {
+          title: "Delayed ping",
+          description: "Controlled tool for POST keepalive tests.",
+        },
+        delayedToolMock,
       )
     })
   })
@@ -357,6 +373,50 @@ describe("MCP route auth and org validation", () => {
         }),
       }),
     )
+  })
+
+  it("keeps a quiet long-running POST response alive", async () => {
+    vi.useFakeTimers()
+    let finishTool!: () => void
+    const toolGate = new Promise<void>((resolve) => {
+      finishTool = resolve
+    })
+    delayedToolMock.mockImplementationOnce(async () => {
+      await toolGate
+      return {
+        content: [{ type: "text" as const, text: "delayed pong" }],
+      }
+    })
+    const app = createTestApp()
+
+    const response = await app.request("/mcp?orgSlug=acme", {
+      method: "POST",
+      headers: {
+        accept: MCP_ACCEPT,
+        "content-type": "application/json",
+        "mcp-protocol-version": "2025-11-25",
+      },
+      body: JSON.stringify({
+        jsonrpc: "2.0",
+        id: 4,
+        method: "tools/call",
+        params: { name: "delayed_ping", arguments: {} },
+      }),
+    })
+    expect(response.status).toBe(200)
+
+    const reader = response.body?.getReader()
+    if (!reader) throw new Error("Expected an SSE response body")
+    const keepaliveRead = reader.read()
+    await vi.advanceTimersByTimeAsync(15_000)
+    const keepalive = await keepaliveRead
+    expect(new TextDecoder().decode(keepalive.value)).toBe(": keepalive\n\n")
+
+    finishTool()
+    await vi.advanceTimersByTimeAsync(0)
+    const result = await reader.read()
+    expect(new TextDecoder().decode(result.value)).toContain("delayed pong")
+    await reader.cancel()
   })
 
   it("returns an empty 202 response for notification-only POSTs", async () => {

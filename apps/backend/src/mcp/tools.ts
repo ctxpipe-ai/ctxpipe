@@ -8,8 +8,10 @@ import {
   requireCurrentUserId,
 } from "../auth/context.js"
 import { withOrgDbContext } from "../db/client.js"
+import { isTransientDbConnectionError } from "../db/transientDbRetry.js"
 import { conversationGraph } from "../graphs/index.js"
 import { generateObjectId } from "../lib/id.js"
+import { isTransientHttpFailure } from "../lib/withTransientHttpRetry.js"
 import {
   ensureConversation,
   touchConversationLastMessage,
@@ -22,6 +24,10 @@ import {
 import { createLogger, getLogger, withLogger } from "../observability/logger.js"
 
 export const MCP_PROGRESS_HEARTBEAT_MS = 10_000
+
+class RetryableAdvisorError extends Error {
+  override readonly name = "RetryableAdvisorError"
+}
 
 /**
  * Register MCP tools. Tools should call into domain/ services so REST and MCP
@@ -184,9 +190,6 @@ export function registerMcpTools(server: McpServer): void {
                     ...invocationConfig,
                     callbacks: [getLangfuseHandler()],
                   })
-                  await withOrgDbContext(orgId, () =>
-                    touchConversationLastMessage(threadId),
-                  )
                   let streamedText = ""
                   let finalMessages: unknown[] | undefined
 
@@ -205,12 +208,7 @@ export function registerMcpTools(server: McpServer): void {
                     const currentText = extractFinalText({
                       messages: chunk.messages,
                     })
-                    if (
-                      currentText.length === 0 ||
-                      currentText === "No answer could be produced."
-                    ) {
-                      continue
-                    }
+                    if (currentText == null) continue
 
                     const delta = currentText.startsWith(streamedText)
                       ? currentText.slice(streamedText.length)
@@ -221,24 +219,28 @@ export function registerMcpTools(server: McpServer): void {
                     await sendProgress(delta)
                   }
 
-                  const result = {
-                    messages: finalMessages ?? [],
-                  }
-                  const text = extractFinalText(result)
-                  if (
-                    progressToken != null &&
-                    text.length > 0 &&
-                    text !== streamedText
-                  ) {
-                    await sendProgress(text)
-                  }
-
                   if (!finalMessages) {
-                    throw new Error(
+                    throw new RetryableAdvisorError(
                       "Conversation graph stream completed without state",
                     )
                   }
 
+                  const result = {
+                    messages: finalMessages,
+                  }
+                  const text = extractFinalText(result)
+                  if (text == null) {
+                    throw new RetryableAdvisorError(
+                      "Conversation graph completed without an answer",
+                    )
+                  }
+                  if (progressToken != null && text !== streamedText) {
+                    await sendProgress(text)
+                  }
+
+                  await withOrgDbContext(orgId, () =>
+                    touchConversationLastMessage(threadId),
+                  )
                   return {
                     content: [{ type: "text", text }],
                   }
@@ -254,12 +256,18 @@ export function registerMcpTools(server: McpServer): void {
                 step: "conversation.mcp.ctx_advisor",
               },
             )
+            const retryable =
+              error instanceof RetryableAdvisorError ||
+              isTransientHttpFailure(error) ||
+              isTransientDbConnectionError(error)
             return {
               isError: true,
               content: [
                 {
                   type: "text" as const,
-                  text: "ctx_advisor could not complete this request. Retry shortly.",
+                  text: retryable
+                    ? "ctx_advisor could not complete this request. Retry shortly."
+                    : "ctx_advisor failed with a non-transient error. Retrying is unlikely to help; contact your ctx| administrator.",
                 },
               ],
             }
@@ -270,14 +278,14 @@ export function registerMcpTools(server: McpServer): void {
   )
 }
 
-function extractFinalText(result: unknown): string {
+function extractFinalText(result: unknown): string | null {
   if (
     typeof result !== "object" ||
     result === null ||
     !("messages" in result) ||
     !Array.isArray(result.messages)
   ) {
-    return "No answer could be produced."
+    return null
   }
 
   const finalMessage = result.messages.at(-1)
@@ -286,7 +294,7 @@ function extractFinalText(result: unknown): string {
     finalMessage === null ||
     !("content" in finalMessage)
   ) {
-    return "No answer could be produced."
+    return null
   }
 
   const messageType =
@@ -295,12 +303,14 @@ function extractFinalText(result: unknown): string {
       : "type" in finalMessage && typeof finalMessage.type === "string"
         ? finalMessage.type
         : undefined
-  if (messageType === "human") return "No answer could be produced."
+  if (messageType === "human") return null
 
   const content = finalMessage.content
   if (typeof content === "string") {
     const trimmed = content.trim()
-    if (trimmed.length === 0) return "No answer could be produced."
+    if (trimmed.length === 0 || trimmed === "No answer could be produced.") {
+      return null
+    }
     return trimmed
   }
 
@@ -318,5 +328,5 @@ function extractFinalText(result: unknown): string {
     if (textParts.length > 0) return textParts.join("\n")
   }
 
-  return "No answer could be produced."
+  return null
 }

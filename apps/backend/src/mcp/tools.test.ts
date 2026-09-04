@@ -71,6 +71,7 @@ vi.mock("../observability/logger.js", () => ({
 }))
 
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js"
+import { TransientHttpError } from "../lib/withTransientHttpRetry.js"
 import { MCP_PROGRESS_HEARTBEAT_MS, registerMcpTools } from "./tools.js"
 
 describe("registerMcpTools", () => {
@@ -415,7 +416,7 @@ describe("registerMcpTools", () => {
       id: "thr_test",
       source: "mcp",
     })
-    expect(touchConversationLastMessageMock).toHaveBeenCalledWith("thr_test")
+    expect(touchConversationLastMessageMock).not.toHaveBeenCalled()
   })
 
   it("uses composite threadId when conversationId is provided", async () => {
@@ -576,7 +577,14 @@ describe("registerMcpTools", () => {
       { _meta: { progressToken: "progress_prompt" }, sendNotification },
     )
 
-    expect(result.content[0]?.text).toBe("No answer could be produced.")
+    expect(result).toMatchObject({
+      isError: true,
+      content: [
+        {
+          text: "ctx_advisor could not complete this request. Retry shortly.",
+        },
+      ],
+    })
     expect(sendNotification).toHaveBeenCalledWith({
       method: "notifications/progress",
       params: expect.objectContaining({
@@ -591,9 +599,82 @@ describe("registerMcpTools", () => {
     })
   })
 
-  it("returns a tool error instead of rejecting when the graph throws", async () => {
+  it("returns a retryable error for the graph's synthetic empty answer", async () => {
+    streamMock.mockResolvedValueOnce(
+      (async function* () {
+        yield { messages: [{ content: "No answer could be produced." }] }
+      })(),
+    )
+
+    const registerToolMock = vi.fn()
+    const server = { registerTool: registerToolMock } as unknown as McpServer
+    registerMcpTools(server)
+    const [, , handler] = registerToolMock.mock.calls[0] as [
+      string,
+      unknown,
+      (
+        input: { prompt: string },
+        extra: { sendNotification: (notification: unknown) => Promise<void> },
+      ) => Promise<{
+        isError?: boolean
+        content: Array<{ text: string }>
+      }>,
+    ]
+
+    await expect(
+      handler(
+        { prompt: "Search everything" },
+        { sendNotification: vi.fn(async () => {}) },
+      ),
+    ).resolves.toMatchObject({
+      isError: true,
+      content: [
+        {
+          text: "ctx_advisor could not complete this request. Retry shortly.",
+        },
+      ],
+    })
+    expect(touchConversationLastMessageMock).not.toHaveBeenCalled()
+  })
+
+  it("does not tell clients to retry a permanent graph failure", async () => {
     streamMock.mockRejectedValueOnce(
-      new Error("codesearch failed with status 503"),
+      new Error("codesearch failed with status 401"),
+    )
+
+    const registerToolMock = vi.fn()
+    const server = { registerTool: registerToolMock } as unknown as McpServer
+    registerMcpTools(server)
+    const [, , handler] = registerToolMock.mock.calls[0] as [
+      string,
+      unknown,
+      (
+        input: { prompt: string },
+        extra: { sendNotification: (notification: unknown) => Promise<void> },
+      ) => Promise<{
+        isError?: boolean
+        content: Array<{ text: string }>
+      }>,
+    ]
+
+    await expect(
+      handler(
+        { prompt: "Search everything" },
+        { sendNotification: vi.fn(async () => {}) },
+      ),
+    ).resolves.toMatchObject({
+      isError: true,
+      content: [
+        {
+          text: "ctx_advisor failed with a non-transient error. Retrying is unlikely to help; contact your ctx| administrator.",
+        },
+      ],
+    })
+  })
+
+  it("returns retry guidance for a classified transient graph failure", async () => {
+    streamMock.mockRejectedValueOnce(
+      new TransientHttpError("codesearch failed with status 503", 503),
     )
 
     const registerToolMock = vi.fn()

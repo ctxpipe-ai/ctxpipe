@@ -36,8 +36,10 @@ before its irreversible source-replication gate. It then waits for and
 validates replication, quiesces all Railway database clients, synchronises
 sequences, switches production and CI connection settings (including
 `NEON_PROJECT_ID`), and restores the services. It requires the Singapore Neon
-project ID, authenticated `gh` and `railway` CLIs, plus `psql`, `pg_dump`,
-`curl`, and `jq`.
+target to have been applied to the current Terraform state, authenticated `gh`
+and `railway` CLIs, plus `terraform`, `psql`, `pg_dump`, `curl`, and `jq`.
+Source and target project IDs and connection URLs are read together from
+Terraform outputs so manually mixed Neon projects cannot pass preflight.
 
 Do not run it until the Terraform plan for the target project has been reviewed
 and applied. Do not destroy the US East project during the cutover; after

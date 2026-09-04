@@ -79,24 +79,6 @@ confirm() {
   [[ "$reply" =~ ^[Yy] ]]
 }
 
-ask_value() {
-  local key="$1" prompt="$2" input
-  printf '  %s%s%s ' "$BOLD" "$prompt" "$RESET"
-  read -r input || true
-  [[ -n "$input" ]] || return 1
-  printf -v "$key" '%s' "$input"
-}
-
-# ask_secret KEY "Prompt" — read a hidden value into $KEY.
-ask_secret() {
-  local key="$1" prompt="$2" input
-  printf '  %s%s%s ' "$BOLD" "$prompt" "$RESET"
-  read -rs input || true
-  printf '\n'
-  [[ -n "$input" ]] || return 1
-  printf -v "$key" '%s' "$input"
-}
-
 finish() {
   _clear
   printf '\n%s%s  ✓ Setup complete%s\n' "$BOLD" "$GREEN" "$RESET"
@@ -116,6 +98,7 @@ RAILWAY_REGION="southeast-asia"
 PUBLICATION="ctxpipe_singapore_publication"
 SUBSCRIPTION="ctxpipe_singapore_subscription"
 WRITER_SERVICES=(backend openworkflow codesearch)
+REPO_ROOT=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)
 WORK_DIR=$(mktemp -d)
 trap 'rm -rf "$WORK_DIR"' EXIT
 
@@ -126,6 +109,18 @@ abort() {
 
 require_command() {
   command -v "$1" >/dev/null 2>&1 || abort "required command not found: $1"
+}
+
+terraform_output_required() {
+  local output_name="$1" destination="$2" value
+  if ! value=$(
+    terraform -chdir="$REPO_ROOT/infra" output -raw "$output_name"
+  ); then
+    abort "could not read Terraform output $output_name; apply the reviewed Singapore target first"
+  fi
+  [[ -n "$value" && "$value" != "null" ]] \
+    || abort "Terraform output $output_name is empty; apply the reviewed Singapore target first"
+  printf -v "$destination" '%s' "$value"
 }
 
 set_repo_secret_required() {
@@ -218,34 +213,42 @@ writer_status_json() {
 }
 
 wait_for_writers_to_stop() {
-  local deadline running_instances status
+  local deadline expected observed_services running_instances status
   deadline=$(( $(date +%s) + 300 ))
+  expected=${#WRITER_SERVICES[@]}
   while true; do
     status=$(writer_status_json)
+    observed_services=$(jq '[.[].serviceName] | unique | length' <<< "$status")
     running_instances=$(jq '[.[].instances] | add // 0' <<< "$status")
-    [[ "$running_instances" == "0" ]] && return
-    note "Waiting for $running_instances writer instance(s) to stop."
+    if [[ "$observed_services" == "$expected" && "$running_instances" == "0" ]]; then
+      return
+    fi
+    note "Waiting for writer services to stop ($observed_services/$expected observed, $running_instances instance(s) running)."
     (( $(date +%s) < deadline )) \
-      || abort "Railway writer instances did not stop within five minutes"
+      || abort "Railway did not report every writer stopped within five minutes"
     sleep 5
   done
 }
 
 wait_for_writers_to_start() {
-  local deadline expected running_services stable_checks status
+  local deadline expected observed_services running_services stable_checks status
   deadline=$(( $(date +%s) + 600 ))
   expected=${#WRITER_SERVICES[@]}
   stable_checks=0
   while true; do
     status=$(writer_status_json)
-    running_services=$(jq '[.[] | select(.instances > 0)] | length' <<< "$status")
-    if [[ "$running_services" == "$expected" ]]; then
+    observed_services=$(jq '[.[].serviceName] | unique | length' <<< "$status")
+    running_services=$(
+      jq '[.[] | select(.instances > 0) | .serviceName] | unique | length' \
+        <<< "$status"
+    )
+    if [[ "$observed_services" == "$expected" && "$running_services" == "$expected" ]]; then
       stable_checks=$((stable_checks + 1))
       [[ "$stable_checks" == "3" ]] && return
     else
       stable_checks=0
     fi
-    note "Waiting for writer services to stay running ($running_services/$expected)."
+    note "Waiting for writer services to stay running ($observed_services/$expected observed, $running_services/$expected running)."
     (( $(date +%s) < deadline )) \
       || abort "Railway writer services did not stay running within ten minutes"
     sleep 5
@@ -314,26 +317,25 @@ banner "Neon production cutover · US East → Singapore"
 stage "Preflight and connection details"
 say "This procedure causes a short production write outage. It does not claim zero downtime."
 warn "Pause production deploys and schema changes until the cutover finishes."
-for command in psql pg_dump railway gh curl diff jq awk; do
+for command in psql pg_dump railway gh curl diff jq awk terraform; do
   require_command "$command"
 done
 railway whoami >/dev/null
 gh auth status >/dev/null
-step "In each Neon project, choose branch production, database neondb, role neondb_owner."
-step "Copy the Singapore project ID, both direct URLs, and the Singapore pooled application URL."
-open_url "https://console.neon.tech/app/projects"
-ask_value TARGET_PROJECT_ID "Paste the Singapore Neon project ID:" \
-  || abort "target project ID is required"
-ask_secret SOURCE_DIRECT_URL "Paste the US East direct URL (hostname must not contain -pooler):" \
-  || abort "source direct URL is required"
-ask_secret TARGET_DIRECT_URL "Paste the Singapore direct URL (hostname must not contain -pooler):" \
-  || abort "target direct URL is required"
-ask_secret TARGET_POOLER_URL "Paste the Singapore pooled application URL:" \
-  || abort "target pooled URL is required"
+step "Loading source and target identities and URLs from the reviewed Terraform state."
+terraform_output_required "neon_project_id" SOURCE_PROJECT_ID
+terraform_output_required "neon_connection_uri" SOURCE_DIRECT_URL
+terraform_output_required "neon_migration_target_project_id" TARGET_PROJECT_ID
+terraform_output_required \
+  "neon_migration_target_connection_uri" TARGET_DIRECT_URL
+terraform_output_required \
+  "neon_migration_target_connection_uri_pooler" TARGET_POOLER_URL
 [[ "$SOURCE_DIRECT_URL" != *"-pooler"* ]] || abort "source replication URL is pooled"
 [[ "$TARGET_DIRECT_URL" != *"-pooler"* ]] || abort "target replication URL is pooled"
 [[ "$TARGET_POOLER_URL" == *"-pooler"* ]] || abort "application URL is not pooled"
 [[ "$SOURCE_DIRECT_URL" != "$TARGET_DIRECT_URL" ]] || abort "source and target URLs are identical"
+[[ "$SOURCE_PROJECT_ID" != "$TARGET_PROJECT_ID" ]] \
+  || abort "source and target Terraform project IDs are identical"
 [[ "$TARGET_PROJECT_ID" =~ ^[a-z][a-z0-9-]+$ ]] \
   || abort "target project ID has an unexpected format"
 SOURCE_VERSION=$(database_scalar "$SOURCE_DIRECT_URL" "SHOW server_version_num")
@@ -461,6 +463,18 @@ if [[ "$PUBLICATION_EXISTS" == "0" ]]; then
   psql "$SOURCE_DIRECT_URL" -X -v ON_ERROR_STOP=1 \
     -c "CREATE PUBLICATION $PUBLICATION FOR ALL TABLES"
 fi
+PUBLICATION_VALID=$(database_scalar "$SOURCE_DIRECT_URL" "
+  SELECT count(*)
+  FROM pg_publication
+  WHERE pubname = '$PUBLICATION'
+    AND puballtables
+    AND pubinsert
+    AND pubupdate
+    AND pubdelete
+    AND pubtruncate
+")
+[[ "$PUBLICATION_VALID" == "1" ]] \
+  || abort "existing publication does not publish all table changes"
 note "Source publication is ready."
 
 stage "Start replication and wait for the initial copy"
@@ -476,6 +490,16 @@ SELECT format(
 \gexec
 SQL
 fi
+SUBSCRIPTION_VALID=$(database_scalar "$TARGET_DIRECT_URL" "
+  SELECT count(*)
+  FROM pg_subscription
+  WHERE subname = '$SUBSCRIPTION'
+    AND subenabled
+    AND subslotname = '$SUBSCRIPTION'
+    AND subpublications = ARRAY['$PUBLICATION']::name[]
+")
+[[ "$SUBSCRIPTION_VALID" == "1" ]] \
+  || abort "existing subscription has the wrong publication, slot, or enabled state"
 DEADLINE=$(( $(date +%s) + 7200 ))
 while true; do
   REMAINING=$(database_scalar "$TARGET_DIRECT_URL" "
@@ -495,6 +519,23 @@ RECEIVER_PID=$(database_scalar "$TARGET_DIRECT_URL" "
   WHERE subname = '$SUBSCRIPTION'
 ")
 [[ "$RECEIVER_PID" != "0" ]] || abort "subscription receiver is not running"
+SOURCE_SLOT_ACTIVE=$(database_scalar "$SOURCE_DIRECT_URL" "
+  SELECT count(*)
+  FROM pg_replication_slots
+  WHERE slot_name = '$SUBSCRIPTION'
+    AND slot_type = 'logical'
+    AND active
+")
+[[ "$SOURCE_SLOT_ACTIVE" == "1" ]] \
+  || abort "source logical replication slot is missing or inactive"
+SOURCE_SENDER_ACTIVE=$(database_scalar "$SOURCE_DIRECT_URL" "
+  SELECT count(*)
+  FROM pg_stat_replication
+  WHERE application_name = '$SUBSCRIPTION'
+    AND state = 'streaming'
+")
+[[ "$SOURCE_SENDER_ACTIVE" == "1" ]] \
+  || abort "the target subscription is not streaming from the Terraform source"
 note "Initial copy is complete and the replication receiver is running."
 
 stage "Validate replicated data"
