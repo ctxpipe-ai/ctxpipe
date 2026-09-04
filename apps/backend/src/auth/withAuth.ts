@@ -284,6 +284,22 @@ export const withBearerAuth: MiddlewareHandler<AppEnv> = async (c, next) => {
       c.set("oauthOrganizationId", resolved.oauthOrganizationId)
       return next()
     }
+
+    // Some MCP clients only send `Authorization: Bearer`. Dashboard API keys
+    // authenticate via `x-api-key` on getSession(); retry that path before 401.
+    try {
+      const apiKeySession = await getAuth().api.getSession({
+        headers: new Headers({ "x-api-key": accessToken }),
+      })
+      if (apiKeySession?.user && apiKeySession.session) {
+        c.set("user", apiKeySession.user)
+        c.set("session", apiKeySession.session)
+        return next()
+      }
+    } catch (err) {
+      logBearerAuthFailure(err)
+    }
+
     logBearerAuthFailure(new Error("Opaque access token not recognized"))
     return c.json(
       { error: "Unauthorized" },

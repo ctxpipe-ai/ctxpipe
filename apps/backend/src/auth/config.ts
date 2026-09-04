@@ -25,6 +25,12 @@ import {
   selectOAuthOrganizationBinding,
 } from "./oauth-organization.js"
 
+export const API_KEY_RATE_LIMIT = {
+  enabled: true,
+  timeWindow: 60 * 60 * 1000,
+  maxRequests: 1000,
+} as const
+
 export type BetterAuthInstance = ReturnType<typeof createBetterAuth>
 export type AuthUser = BetterAuthInstance["$Infer"]["Session"]["user"]
 export type AuthSession = BetterAuthInstance["$Infer"]["Session"]["session"]
@@ -173,6 +179,7 @@ export function createBetterAuth() {
           // `expiresIn: null` on api-key create/update endpoints.
           disableCustomExpiresTime: false,
         },
+        rateLimit: API_KEY_RATE_LIMIT,
       }),
       bearer(),
       jwt(),
