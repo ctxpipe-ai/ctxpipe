@@ -20,7 +20,7 @@ import {
   SKILL_CAPTURE_LESSON,
   SKILL_MEMORY_SEARCH,
 } from "../memory/seed.js"
-import { REPO_API_KEY_SKIP_DETAIL } from "./auth-mode.js"
+import { REPO_API_KEY_SKIP_DETAIL, type McpAuthConfig } from "./auth-mode.js"
 import type { JsonObject } from "./json.js"
 import { isObject } from "./json.js"
 import { mcpUrl, normalizeBaseUrl, relativePath, scopesFor } from "./paths.js"
@@ -300,12 +300,13 @@ function interpolateApiKeyEnv(client: Client, envVariable: string): string {
 function mcpHeaderValue(
   client: Client,
   scope: "repo" | "user",
-  opts: { apiKey?: string; apiKeyEnvVariable?: string },
+  auth: McpAuthConfig,
 ): string | undefined {
-  if (opts.apiKeyEnvVariable) {
-    return interpolateApiKeyEnv(client, opts.apiKeyEnvVariable)
+  if (auth.mode === "oauth") return undefined
+  if (auth.placement === "env") {
+    return interpolateApiKeyEnv(client, auth.envVariable)
   }
-  if (opts.apiKey && scope === "user") return opts.apiKey
+  if (scope === "user") return auth.apiKey
   return undefined
 }
 
@@ -315,8 +316,7 @@ export function buildMcpOperations({
   org,
   scope,
   memory,
-  apiKey,
-  apiKeyEnvVariable,
+  auth = { mode: "oauth" },
   context = createOperationContext(),
 }: {
   clients: Client[]
@@ -324,13 +324,12 @@ export function buildMcpOperations({
   org: string
   scope: Scope
   memory?: boolean
-  apiKey?: string
-  apiKeyEnvVariable?: string
+  auth?: McpAuthConfig
   context?: OperationContext
 }): Operation[] {
   void memory
   const requested = scopesFor(scope)
-  const literalKey = Boolean(apiKey) && !apiKeyEnvVariable
+  const literalKey = auth.mode === "api-key" && auth.placement === "literal"
   const skippedRepo = Boolean(literalKey && requested.includes("repo"))
   const scopes = literalKey
     ? requested.filter((item) => item === "user")
@@ -342,8 +341,7 @@ export function buildMcpOperations({
         baseUrl,
         org,
         scope: singleScope,
-        apiKey,
-        apiKeyEnvVariable,
+        auth,
         context,
       }),
     ),
@@ -364,24 +362,20 @@ export function buildClientOperations({
   baseUrl,
   org,
   scope,
-  apiKey,
-  apiKeyEnvVariable,
+  auth = { mode: "oauth" },
   context = createOperationContext(),
 }: {
   client: Client
   baseUrl: string
   org: string
   scope: "repo" | "user"
-  apiKey?: string
-  apiKeyEnvVariable?: string
+  auth?: McpAuthConfig
   context?: OperationContext
 }): Operation[] {
-  if (apiKey && !apiKeyEnvVariable && scope === "repo") return []
+  if (auth.mode === "api-key" && auth.placement === "literal" && scope === "repo")
+    return []
   const url = mcpUrl({ baseUrl, org })
-  const headerValue = mcpHeaderValue(client, scope, {
-    apiKey,
-    apiKeyEnvVariable,
-  })
+  const headerValue = mcpHeaderValue(client, scope, auth)
   switch (client) {
     case "cursor":
       return [
@@ -478,9 +472,10 @@ export function buildClientOperations({
       if (headerValue) {
         const configPath =
           scope === "user" ? "~/.codex/config.toml" : ".codex/config.toml"
-        const headerLine = apiKeyEnvVariable
-          ? `env_http_headers = { "x-api-key" = "${headerValue}" }`
-          : `http_headers = { "x-api-key" = "${headerValue}" }`
+        const headerLine =
+          auth.mode === "api-key" && auth.placement === "env"
+            ? `env_http_headers = { "x-api-key" = "${headerValue}" }`
+            : `http_headers = { "x-api-key" = "${headerValue}" }`
         return [
           {
             type: "manual",

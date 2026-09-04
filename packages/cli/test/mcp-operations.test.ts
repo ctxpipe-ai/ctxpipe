@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest"
+import type { McpAuthConfig } from "../src/mcp/auth-mode.js"
 import {
   buildClientOperations,
   buildCtxpipeConfigOperation,
@@ -17,6 +18,16 @@ const context: OperationContext = createOperationContext({
   homeDir: "/home/alex",
   commandExists: (command) => command === "claude",
 })
+
+const literalApiKey = {
+  mode: "api-key",
+  placement: "literal",
+  apiKey: "ctxp_secret",
+} as const satisfies McpAuthConfig
+
+function envApiKey(envVariable = "CTXPIPE_API_KEY"): McpAuthConfig {
+  return { mode: "api-key", placement: "env", envVariable }
+}
 
 function writeJson(operation: unknown): WriteJsonOperation {
   expect(operation).toMatchObject({ type: "write-json" })
@@ -223,7 +234,7 @@ describe("MCP operation builders", () => {
       baseUrl: "https://app.ctxpipe.ai",
       org: "acme",
       scope: "user",
-      apiKey: "ctxp_secret",
+      auth: literalApiKey,
       context,
     })
     const [repoOp] = buildClientOperations({
@@ -259,7 +270,7 @@ describe("MCP operation builders", () => {
       baseUrl: "https://app.ctxpipe.ai",
       org: "acme",
       scope: "repo",
-      apiKey: "ctxp_secret",
+      auth: literalApiKey,
       context,
     })
 
@@ -278,7 +289,7 @@ describe("MCP operation builders", () => {
       baseUrl: "https://app.ctxpipe.ai",
       org: "acme",
       scope: "both",
-      apiKey: "ctxp_secret",
+      auth: literalApiKey,
       context,
     })
 
@@ -307,7 +318,7 @@ describe("MCP operation builders", () => {
       baseUrl: "https://app.ctxpipe.ai",
       org: "acme",
       scope: "user",
-      apiKey: "ctxp_secret",
+      auth: literalApiKey,
       context,
     })
     const [withoutCli] = buildClientOperations({
@@ -315,7 +326,7 @@ describe("MCP operation builders", () => {
       baseUrl: "https://app.ctxpipe.ai",
       org: "acme",
       scope: "user",
-      apiKey: "ctxp_secret",
+      auth: literalApiKey,
       context: createOperationContext({
         cwd: "/repo",
         homeDir: "/home/alex",
@@ -342,7 +353,7 @@ describe("MCP operation builders", () => {
       baseUrl: "https://app.ctxpipe.ai",
       org: "acme",
       scope: "user",
-      apiKeyEnvVariable: "CTXPIPE_API_KEY",
+      auth: envApiKey(),
       context: createOperationContext({
         cwd: "/repo",
         homeDir: "/home/alex",
@@ -365,7 +376,7 @@ describe("MCP operation builders", () => {
       baseUrl: "https://app.ctxpipe.ai",
       org: "acme",
       scope: "user",
-      apiKey: "ctxp_secret",
+      auth: literalApiKey,
       context,
     })
 
@@ -384,7 +395,7 @@ describe("MCP operation builders", () => {
       baseUrl: "https://app.ctxpipe.ai",
       org: "acme",
       scope: "user",
-      apiKey: "ctxp_secret",
+      auth: literalApiKey,
       context: createOperationContext({
         cwd: "/repo",
         homeDir: "/home/alex",
@@ -407,7 +418,7 @@ describe("MCP operation builders", () => {
       baseUrl: "https://app.ctxpipe.ai",
       org: "acme",
       scope: "both",
-      apiKeyEnvVariable: "CTXPIPE_API_KEY",
+      auth: envApiKey(),
       context,
     })
 
@@ -432,7 +443,7 @@ describe("MCP operation builders", () => {
       baseUrl: "https://app.ctxpipe.ai",
       org: "acme",
       scope: "repo",
-      apiKeyEnvVariable: "CTXPIPE_API_KEY",
+      auth: envApiKey(),
       context,
     })
 
@@ -455,7 +466,7 @@ describe("MCP operation builders", () => {
       baseUrl: "https://app.ctxpipe.ai",
       org: "acme",
       scope: "repo",
-      apiKeyEnvVariable: "CTXPIPE_API_KEY",
+      auth: envApiKey(),
       context,
     })
 
@@ -477,7 +488,7 @@ describe("MCP operation builders", () => {
       baseUrl: "https://app.ctxpipe.ai",
       org: "acme",
       scope: "repo",
-      apiKeyEnvVariable: "MY_KEY",
+      auth: envApiKey("MY_KEY"),
       context,
     })
 
@@ -499,7 +510,7 @@ describe("MCP operation builders", () => {
       baseUrl: "https://app.ctxpipe.ai",
       org: "acme",
       scope: "repo",
-      apiKeyEnvVariable: "CTXPIPE_API_KEY",
+      auth: envApiKey(),
       context,
     })
 
@@ -521,7 +532,7 @@ describe("MCP operation builders", () => {
       baseUrl: "https://app.ctxpipe.ai",
       org: "acme",
       scope: "user",
-      apiKeyEnvVariable: "CTXPIPE_API_KEY",
+      auth: envApiKey(),
       context,
     })
 
@@ -543,7 +554,7 @@ describe("MCP operation builders", () => {
       baseUrl: "https://app.ctxpipe.ai",
       org: "acme",
       scope: "both",
-      apiKeyEnvVariable: "CTXPIPE_API_KEY",
+      auth: envApiKey(),
       context,
     })
 
