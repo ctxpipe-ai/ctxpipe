@@ -1,6 +1,8 @@
 import { Hono } from "hono"
-import { beforeEach, describe, expect, it, vi } from "vitest"
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 import type { AppEnv } from "../app/env.js"
+import { recordAuthApiError } from "../auth/transient-api-error.js"
+import { MCP_SSE_OPEN_COMMENT } from "../mcp/transport.js"
 import { registerMcpRoutes } from "./mcp.js"
 
 const {
@@ -9,8 +11,11 @@ const {
   requireAuthMock,
   withNetworkOrgContextMock,
   registerMcpToolsMock,
+  delayedToolMock,
   loggerSetMock,
   loggerInfoMock,
+  rootLoggerInfoMock,
+  rootLoggerErrorMock,
   loggerErrorMock,
 } = vi.hoisted(() => ({
   withCookieAuthMock: vi.fn(),
@@ -18,8 +23,11 @@ const {
   requireAuthMock: vi.fn(),
   withNetworkOrgContextMock: vi.fn(),
   registerMcpToolsMock: vi.fn(),
+  delayedToolMock: vi.fn(),
   loggerSetMock: vi.fn(),
   loggerInfoMock: vi.fn(),
+  rootLoggerInfoMock: vi.fn(),
+  rootLoggerErrorMock: vi.fn(),
   loggerErrorMock: vi.fn(),
 }))
 
@@ -35,12 +43,49 @@ vi.mock("../mcp/tools.js", () => ({
 }))
 
 vi.mock("../observability/logger.js", () => ({
+  log: {
+    info: rootLoggerInfoMock,
+    error: rootLoggerErrorMock,
+  },
   getLogger: () => ({
     set: loggerSetMock,
     info: loggerInfoMock,
     error: loggerErrorMock,
   }),
 }))
+
+const MCP_ACCEPT = "application/json, text/event-stream"
+
+async function cancelBody(response: Response): Promise<void> {
+  await response.body?.cancel()
+}
+
+async function readSseOpenSignal(response: Response): Promise<{
+  reader: ReadableStreamDefaultReader<Uint8Array>
+  firstChunk: string
+}> {
+  const reader = response.body?.getReader()
+  if (!reader) {
+    throw new Error("Expected an SSE response body")
+  }
+  const first = await reader.read()
+  return {
+    reader,
+    firstChunk: new TextDecoder().decode(first.value),
+  }
+}
+
+async function readSseJsonResult(response: Response): Promise<unknown> {
+  const text = await response.text()
+  const dataLine = text
+    .split("\n")
+    .map((line) => line.trim())
+    .find((line) => line.startsWith("data:"))
+  if (!dataLine) {
+    throw new Error(`Expected SSE data in:\n${text}`)
+  }
+  return JSON.parse(dataLine.slice("data:".length).trim()) as unknown
+}
 
 function createTestApp(): Hono<AppEnv> {
   const app = new Hono<AppEnv>()
@@ -67,6 +112,33 @@ describe("MCP route auth and org validation", () => {
     withBearerAuthMock.mockImplementation(async (_c, next) => next())
     requireAuthMock.mockImplementation(async (_c, next) => next())
     withNetworkOrgContextMock.mockImplementation(async (_c, next) => next())
+    delayedToolMock.mockResolvedValue({
+      content: [{ type: "text", text: "delayed pong" }],
+    })
+    registerMcpToolsMock.mockImplementation((server) => {
+      server.registerTool(
+        "handshake_ping",
+        {
+          title: "Handshake ping",
+          description: "Deterministic tool for MCP handshake tests.",
+        },
+        async () => ({
+          content: [{ type: "text", text: "pong" }],
+        }),
+      )
+      server.registerTool(
+        "delayed_ping",
+        {
+          title: "Delayed ping",
+          description: "Controlled tool for POST keepalive tests.",
+        },
+        delayedToolMock,
+      )
+    })
+  })
+
+  afterEach(() => {
+    vi.useRealTimers()
   })
 
   it("rejects unauthenticated requests", async () => {
@@ -79,6 +151,38 @@ describe("MCP route auth and org validation", () => {
 
     expect(response.status).toBe(401)
     expect(await response.json()).toEqual({ error: "Unauthorized" })
+    expect(registerMcpToolsMock).not.toHaveBeenCalled()
+  })
+
+  it("returns a retryable 503 when MCP auth records a transient database failure", async () => {
+    withBearerAuthMock.mockImplementationOnce(async (c) => {
+      recordAuthApiError(
+        Object.assign(new Error("Connection terminated unexpectedly"), {
+          code: "57P01",
+        }),
+      )
+      return c.json({ error: "Unauthorized" }, 401)
+    })
+
+    const app = createTestApp()
+    const response = await app.request("/mcp?orgSlug=acme", {
+      method: "POST",
+    })
+
+    expect(response.status).toBe(503)
+    expect(response.headers.get("retry-after")).toBe("3")
+    await expect(response.json()).resolves.toEqual({
+      error: "temporarily_unavailable",
+      message:
+        "ctx| authentication is temporarily unavailable. Try again shortly.",
+    })
+    expect(loggerErrorMock).toHaveBeenCalledWith(
+      expect.any(Error),
+      expect.objectContaining({
+        step: "mcp.auth.database_unavailable",
+        databaseError: "Connection terminated unexpectedly (57P01)",
+      }),
+    )
     expect(registerMcpToolsMock).not.toHaveBeenCalled()
   })
 
@@ -119,6 +223,7 @@ describe("MCP route auth and org validation", () => {
 
     expect(registerMcpToolsMock).toHaveBeenCalledTimes(1)
     expect(response.status).toBe(200)
+    await cancelBody(response)
   })
 
   it("rejects an untrusted browser origin before authentication", async () => {
@@ -133,13 +238,185 @@ describe("MCP route auth and org validation", () => {
     expect(registerMcpToolsMock).not.toHaveBeenCalled()
   })
 
-  it("returns 405 instead of opening an SSE stream for stateless GET", async () => {
-    const app = createTestApp()
-    const response = await app.request("/mcp?orgSlug=acme")
+  it("rejects unauthenticated GET before opening an SSE listener", async () => {
+    requireAuthMock.mockImplementationOnce(async (c) =>
+      c.json({ error: "Unauthorized" }, 401),
+    )
 
-    expect(response.status).toBe(405)
-    expect(response.headers.get("allow")).toBe("POST, DELETE")
+    const app = createTestApp()
+    const response = await app.request("/mcp?orgSlug=acme", {
+      method: "GET",
+      headers: { accept: "text/event-stream" },
+    })
+
+    expect(response.status).toBe(401)
     expect(registerMcpToolsMock).not.toHaveBeenCalled()
+  })
+
+  it("completes the CodeRabbit Streamable HTTP handshake over a GET listener", async () => {
+    vi.useFakeTimers()
+    const app = createTestApp()
+
+    const initialize = await app.request("/mcp?orgSlug=acme", {
+      method: "POST",
+      headers: {
+        accept: MCP_ACCEPT,
+        "content-type": "application/json",
+      },
+      body: JSON.stringify({
+        jsonrpc: "2.0",
+        id: 1,
+        method: "initialize",
+        params: {
+          protocolVersion: "2025-11-25",
+          capabilities: {},
+          clientInfo: { name: "coderabbit", version: "1.0.0" },
+        },
+      }),
+    })
+    expect(initialize.status).toBe(200)
+    const initializeResult = await readSseJsonResult(initialize)
+    expect(initializeResult).toMatchObject({
+      jsonrpc: "2.0",
+      id: 1,
+      result: { protocolVersion: "2025-11-25" },
+    })
+
+    const initialized = await app.request("/mcp?orgSlug=acme", {
+      method: "POST",
+      headers: {
+        accept: MCP_ACCEPT,
+        "content-type": "application/json",
+        "mcp-protocol-version": "2025-11-25",
+      },
+      body: JSON.stringify({
+        jsonrpc: "2.0",
+        method: "notifications/initialized",
+      }),
+    })
+    expect(initialized.status).toBe(202)
+    expect(await initialized.text()).toBe("")
+
+    const listener = await app.request("/mcp?orgSlug=acme", {
+      method: "GET",
+      headers: {
+        accept: "text/event-stream",
+        "mcp-protocol-version": "2025-11-25",
+      },
+    })
+    expect(listener.status).toBe(200)
+    expect(listener.headers.get("content-type")).toContain("text/event-stream")
+    expect(registerMcpToolsMock).toHaveBeenCalled()
+    const { reader, firstChunk } = await readSseOpenSignal(listener)
+    expect(firstChunk).toBe(MCP_SSE_OPEN_COMMENT)
+    const keepaliveRead = reader.read()
+    await vi.advanceTimersByTimeAsync(15_000)
+    const keepalive = await keepaliveRead
+    expect(keepalive.done).toBe(false)
+    expect(new TextDecoder().decode(keepalive.value)).toBe(": keepalive\n\n")
+
+    const toolsList = await app.request("/mcp?orgSlug=acme", {
+      method: "POST",
+      headers: {
+        accept: MCP_ACCEPT,
+        "content-type": "application/json",
+        "mcp-protocol-version": "2025-11-25",
+      },
+      body: JSON.stringify({
+        jsonrpc: "2.0",
+        id: 2,
+        method: "tools/list",
+        params: {},
+      }),
+    })
+    expect(toolsList.status).toBe(200)
+    const toolsResult = await readSseJsonResult(toolsList)
+    expect(toolsResult).toMatchObject({
+      jsonrpc: "2.0",
+      id: 2,
+      result: { tools: expect.any(Array) },
+    })
+
+    const toolCall = await app.request("/mcp?orgSlug=acme", {
+      method: "POST",
+      headers: {
+        accept: MCP_ACCEPT,
+        "content-type": "application/json",
+        "mcp-protocol-version": "2025-11-25",
+      },
+      body: JSON.stringify({
+        jsonrpc: "2.0",
+        id: 3,
+        method: "tools/call",
+        params: { name: "handshake_ping", arguments: {} },
+      }),
+    })
+    expect(toolCall.status).toBe(200)
+    expect(await readSseJsonResult(toolCall)).toMatchObject({
+      jsonrpc: "2.0",
+      id: 3,
+      result: {
+        content: [{ type: "text", text: "pong" }],
+      },
+    })
+
+    await reader.cancel()
+    expect(loggerInfoMock).toHaveBeenCalledWith("MCP stream opened")
+    expect(rootLoggerInfoMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        step: "mcp.request",
+        message: "MCP stream closed",
+        mcp: expect.objectContaining({
+          method: "GET",
+          stream: "closed",
+          closeReason: "cancelled",
+        }),
+      }),
+    )
+  })
+
+  it("keeps a quiet long-running POST response alive", async () => {
+    vi.useFakeTimers()
+    let finishTool!: () => void
+    const toolGate = new Promise<void>((resolve) => {
+      finishTool = resolve
+    })
+    delayedToolMock.mockImplementationOnce(async () => {
+      await toolGate
+      return {
+        content: [{ type: "text" as const, text: "delayed pong" }],
+      }
+    })
+    const app = createTestApp()
+
+    const response = await app.request("/mcp?orgSlug=acme", {
+      method: "POST",
+      headers: {
+        accept: MCP_ACCEPT,
+        "content-type": "application/json",
+        "mcp-protocol-version": "2025-11-25",
+      },
+      body: JSON.stringify({
+        jsonrpc: "2.0",
+        id: 4,
+        method: "tools/call",
+        params: { name: "delayed_ping", arguments: {} },
+      }),
+    })
+    expect(response.status).toBe(200)
+
+    const reader = response.body?.getReader()
+    if (!reader) throw new Error("Expected an SSE response body")
+    const keepaliveRead = reader.read()
+    await vi.advanceTimersByTimeAsync(15_000)
+    const keepalive = await keepaliveRead
+    expect(new TextDecoder().decode(keepalive.value)).toBe(": keepalive\n\n")
+
+    finishTool()
+    await vi.advanceTimersByTimeAsync(0)
+    const result = await reader.read()
+    expect(new TextDecoder().decode(result.value)).toContain("delayed pong")
+    await reader.cancel()
   })
 
   it("returns an empty 202 response for notification-only POSTs", async () => {
@@ -167,6 +444,7 @@ describe("MCP route auth and org validation", () => {
 
     expect(registerMcpToolsMock).toHaveBeenCalledTimes(1)
     expect([200, 204, 400, 406]).toContain(response.status)
+    await cancelBody(response)
   })
 
   it("logs bounded MCP metadata without request payloads or JSON-RPC ids", async () => {
@@ -174,7 +452,7 @@ describe("MCP route auth and org validation", () => {
     const response = await app.request("/mcp?orgSlug=acme", {
       method: "POST",
       headers: {
-        accept: "application/json, text/event-stream",
+        accept: MCP_ACCEPT,
         "content-type": "application/json",
         "mcp-protocol-version": "2025-11-25",
       },
@@ -191,6 +469,7 @@ describe("MCP route auth and org validation", () => {
     })
 
     expect(response.status).toBe(200)
+    await cancelBody(response)
     expect(loggerSetMock).toHaveBeenCalledWith({
       step: "mcp.request",
       mcp: {
@@ -198,16 +477,33 @@ describe("MCP route auth and org validation", () => {
         protocolVersion: "2025-11-25",
         authType: "cookie",
         orgSlug: null,
+        method: "POST",
+        clientName: "secret-client",
+        clientVersion: "1.0.0",
         status: 200,
         durationMs: expect.any(Number),
+        stream: "opened",
       },
     })
-    expect(loggerInfoMock).toHaveBeenCalledWith("MCP request completed")
+    expect(loggerInfoMock).toHaveBeenCalledWith("MCP stream opened")
+    expect(rootLoggerInfoMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        step: "mcp.request",
+        message: "MCP stream closed",
+        mcp: expect.objectContaining({
+          stream: "closed",
+          closeReason: "cancelled",
+        }),
+      }),
+    )
     expect(JSON.stringify(loggerSetMock.mock.calls)).not.toContain(
       "sensitive-request-id",
     )
+    expect(JSON.stringify(rootLoggerInfoMock.mock.calls)).not.toContain(
+      "sensitive-request-id",
+    )
     expect(JSON.stringify(loggerSetMock.mock.calls)).not.toContain(
-      "secret-client",
+      "initialize-params-secret",
     )
   })
 })

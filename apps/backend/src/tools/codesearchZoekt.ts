@@ -1,7 +1,13 @@
 import { signUpstreamJwt } from "../auth/upstreamJwt.js"
 import { parseEnv } from "../config/env.js"
 import { codesearchBaseUrl } from "../lib/agentToolRuntime.js"
-import { withTransientHttpRetry } from "../lib/withTransientHttpRetry.js"
+import {
+  CODESEARCH_QUERY_RETRY,
+  CODESEARCH_QUERY_TIMEOUT_MS,
+  isTransientHttpFailure,
+  transientHttpFailureStatus,
+  withTransientHttpRetry,
+} from "../lib/withTransientHttpRetry.js"
 
 export type ZoektRepositoryRow = {
   id: string
@@ -31,8 +37,6 @@ export function isZoektSearchClientFailure(
   )
 }
 
-const ZOEKT_FETCH_TIMEOUT_MS = 10_000
-
 export async function zoektSearchRepository(
   repository: ZoektRepositoryRow,
   Q: string,
@@ -49,23 +53,36 @@ export async function zoektSearchRepository(
     },
   })
 
-  const res = await withTransientHttpRetry(
-    async () =>
-      fetch(`${codesearchBaseUrl()}/search`, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: `Bearer ${token}`,
-        },
-        body: JSON.stringify({
-          Q,
-          RepoIDs: [repository.zoektRepoId],
-          Opts: opts,
+  const requestSignal = AbortSignal.timeout(CODESEARCH_QUERY_TIMEOUT_MS)
+  let res: Response
+  try {
+    res = await withTransientHttpRetry(
+      async () =>
+        fetch(`${codesearchBaseUrl()}/search`, {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            Authorization: `Bearer ${token}`,
+          },
+          body: JSON.stringify({
+            Q,
+            RepoIDs: [repository.zoektRepoId],
+            Opts: opts,
+          }),
+          signal: requestSignal,
         }),
-        signal: AbortSignal.timeout(ZOEKT_FETCH_TIMEOUT_MS),
-      }),
-    { retries: 10, baseDelayMs: 200, maxDelayMs: 30_000 },
-  )
+      CODESEARCH_QUERY_RETRY,
+    )
+  } catch (error) {
+    if (isTransientHttpFailure(error)) {
+      return {
+        ok: false,
+        status: transientHttpFailureStatus(error),
+        error: "search_unavailable",
+      }
+    }
+    throw error
+  }
 
   if (res.status >= 400 && res.status < 500) {
     const body = await res.text().catch(() => "")

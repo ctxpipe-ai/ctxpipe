@@ -4,6 +4,23 @@ variable "image_tag" {
   default     = "latest"
 }
 
+variable "neon_database_target" {
+  type        = string
+  description = "Neon project used by production Railway services during the staged Singapore cutover."
+  default     = "source"
+
+  validation {
+    condition     = contains(["source", "singapore"], var.neon_database_target)
+    error_message = "neon_database_target must be `source` or `singapore`."
+  }
+}
+
+variable "neon_source_logical_replication" {
+  type        = bool
+  description = "Keep true after logical replication is irreversibly enabled on the source Neon project."
+  default     = false
+}
+
 variable "better_auth_secret" {
   type        = string
   description = "value for AUTH_SECRET used in better-auth"

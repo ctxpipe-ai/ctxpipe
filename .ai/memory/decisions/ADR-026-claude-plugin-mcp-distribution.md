@@ -1,6 +1,6 @@
 # ADR-026: Claude plugin for hosted MCP distribution
 
-**Status:** Accepted | **Date:** 2026-08-28 | **Tags:** mcp, claude, plugins, slack, distribution
+**Status:** Accepted | **Date:** 2026-08-28 | **Updated:** 2026-09-04 | **Tags:** mcp, claude, plugins, slack, distribution
 
 ## Context
 
@@ -13,7 +13,9 @@ attached to an Access bundle, plus a host credential.
 
 Custom connectors are **not** being removed from claude.ai. The Slack gap is
 Tag's admin-governed model, not a global MCP sunset. Cursor, Codex, and
-CodeRabbit marketplaces are separate formats and are out of scope.
+CodeRabbit **marketplace listings** are separate formats and stay out of this
+ADR's ship scope. Those clients must still work against hosted `/mcp` without
+a first-party plugin; see [ADR-029](ADR-029-hosted-mcp-client-interoperability.md).
 
 A marketplace plugin that still embeds `?orgSlug=acme` cannot be one artifact
 for every tenant. Claude Tag also does not document `userConfig` substitution,
@@ -58,7 +60,9 @@ Research: [Claude plugins](../research/claude-plugins/index.md).
   or revoking the Claude connection is the credential revocation boundary.
 - Self-host operators fork `.mcp.json` to their origin.
 - Directory listing and Anthropic review remain a later, out-of-band step.
-- The plugin is not a substitute for `npx ctxpipe init` on Cursor/Codex/VS Code.
+- The plugin is not a substitute for `npx ctxpipe init` on Cursor/Codex/VS Code,
+  and it is not the compatibility strategy for CodeRabbit or other review tools.
+  Hosted `/mcp` remains the vendor-neutral surface ([ADR-029](ADR-029-hosted-mcp-client-interoperability.md)).
 
 ## Alternatives considered
 

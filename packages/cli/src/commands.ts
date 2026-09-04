@@ -1,9 +1,9 @@
 import { stdin as input, stdout as output } from "node:process"
 import { intro, log, note, outro, tasks } from "@clack/prompts"
 import {
+  ensureFreshAccessToken,
   fetchSession,
   loginWithDeviceFlow,
-  readStoredAuth,
   removeStoredAuth,
   resolveCtxpipeBaseUrl,
   sessionUser,
@@ -179,7 +179,7 @@ export async function runAuthWhoami(opts: {
   json: boolean
 }): Promise<void> {
   const baseUrl = resolveCtxpipeBaseUrl(process.cwd(), opts.baseUrl)
-  const auth = await readStoredAuth(baseUrl)
+  const auth = await ensureFreshAccessToken({ baseUrl })
   if (!auth) {
     const result = { status: "signed-out", baseUrl: normalizeBaseUrl(baseUrl) }
     if (opts.json) {

@@ -8,16 +8,22 @@ import {
   spinner,
   text,
 } from "@clack/prompts"
-import { CLIENT_COMMANDS, CLIENT_LABELS, CLIENTS, type Client } from "./constants.js"
+import type { Organization } from "./auth.js"
 import {
+  ensureFreshAccessToken,
   fetchOrganizations,
   fetchSession,
+  isAuthReauthenticationRequired,
   loginWithDeviceFlow,
   orgLabel,
-  readStoredAuth,
   userLabel,
 } from "./auth.js"
-import type { Organization } from "./auth.js"
+import {
+  CLIENT_COMMANDS,
+  CLIENT_LABELS,
+  CLIENTS,
+  type Client,
+} from "./constants.js"
 import { readJsonObject } from "./fs-operations.js"
 import { commandExists } from "./system.js"
 import { muted, printWizardHeader } from "./ui.js"
@@ -117,7 +123,9 @@ export async function promptMemoryInitWizard(
 async function promptMemoryAgents(): Promise<Client[]> {
   const detectSpinner = spinner()
   detectSpinner.start("Detecting installed agents")
-  const detected = CLIENTS.filter((client) => commandExists(CLIENT_COMMANDS[client]))
+  const detected = CLIENTS.filter((client) =>
+    commandExists(CLIENT_COMMANDS[client]),
+  )
   detectSpinner.stop(
     detected.length > 0
       ? `Detected ${detected.length} agent${detected.length === 1 ? "" : "s"}`
@@ -139,9 +147,13 @@ async function promptMemoryAgents(): Promise<Client[]> {
 }
 
 async function promptMemoryAuthOrSkip(baseUrl: string): Promise<string | null> {
-  const auth = await readStoredAuth(baseUrl)
+  const auth = await ensureFreshAccessToken({ baseUrl })
   if (auth) {
-    return resolveOrgFromAuth(baseUrl, auth.accessToken)
+    try {
+      return await resolveOrgFromAuth(baseUrl, auth.accessToken)
+    } catch (error) {
+      if (!isAuthReauthenticationRequired(error)) throw error
+    }
   }
 
   const choice = await promptSelect<"sign-in" | "skip">({
@@ -162,7 +174,11 @@ async function promptMemoryAuthOrSkip(baseUrl: string): Promise<string | null> {
   })
 
   if (choice === "skip") {
-    log.message(muted("Local-only mode — Markdown memory and capture hooks need no account."))
+    log.message(
+      muted(
+        "Local-only mode — Markdown memory and capture hooks need no account.",
+      ),
+    )
     return null
   }
 
@@ -183,10 +199,12 @@ async function resolveOrgFromAuth(
   let session: Record<string, unknown> | null = null
   try {
     ;[orgs, session] = await Promise.all([
-      fetchOrganizations({ baseUrl, accessToken }).catch(() => []),
+      fetchOrganizations({ baseUrl, accessToken }),
       fetchSession({ baseUrl, accessToken }).catch(() => null),
     ])
-    orgSpinner.stop(orgs.length > 0 ? "Loaded ctx| organizations" : "No organizations found")
+    orgSpinner.stop(
+      orgs.length > 0 ? "Loaded ctx| organizations" : "No organizations found",
+    )
   } catch (error) {
     orgSpinner.stop("Could not load ctx| organizations")
     throw error
@@ -240,12 +258,14 @@ export async function promptInitWizard(
         {
           title: "This repo",
           value: "repo",
-          description: "Write project files such as .ctxpipe/config.json and MCP config.",
+          description:
+            "Write project files such as .ctxpipe/config.json and MCP config.",
         },
         {
           title: "Globally",
           value: "user",
-          description: "Configure supported clients for your whole machine when possible.",
+          description:
+            "Configure supported clients for your whole machine when possible.",
         },
         {
           title: "Both",
@@ -273,28 +293,38 @@ export async function promptInitWizard(
 
 async function promptSetupOrg(baseUrl: string): Promise<string> {
   const fallbackOrg = detectDefaultOrgSlug()
-  let auth = await readStoredAuth(baseUrl)
+  let auth = await ensureFreshAccessToken({ baseUrl })
   let orgs: Organization[] = []
   let session: Record<string, unknown> | null = null
+  let needsSignIn = auth == null
 
   if (auth) {
     const sessionSpinner = spinner()
     sessionSpinner.start("Checking existing ctx| session")
     try {
       ;[orgs, session] = await Promise.all([
-        fetchOrganizations({ baseUrl, accessToken: auth.accessToken }).catch(() => []),
-        fetchSession({ baseUrl, accessToken: auth.accessToken }).catch(() => null),
+        fetchOrganizations({ baseUrl, accessToken: auth.accessToken }),
+        fetchSession({ baseUrl, accessToken: auth.accessToken }).catch(
+          () => null,
+        ),
       ])
       sessionSpinner.stop(
-        orgs.length > 0 ? "Loaded ctx| organizations" : "Sign-in required",
+        orgs.length > 0
+          ? "Loaded ctx| organizations"
+          : "No organizations found",
       )
     } catch (error) {
-      sessionSpinner.stop("Could not check saved sign-in")
-      throw error
+      if (isAuthReauthenticationRequired(error)) {
+        sessionSpinner.stop("Sign-in required")
+        needsSignIn = true
+      } else {
+        sessionSpinner.stop("ctx| is temporarily unavailable")
+        throw error
+      }
     }
   }
 
-  if (orgs.length === 0) {
+  if (needsSignIn) {
     log.step("Sign in")
     log.message(muted("Sign in to ctx| so we can load your organizations."))
     auth = await loginWithDeviceFlow({ baseUrl })
@@ -303,7 +333,9 @@ async function promptSetupOrg(baseUrl: string): Promise<string> {
     try {
       ;[orgs, session] = await Promise.all([
         fetchOrganizations({ baseUrl, accessToken: auth.accessToken }),
-        fetchSession({ baseUrl, accessToken: auth.accessToken }).catch(() => null),
+        fetchSession({ baseUrl, accessToken: auth.accessToken }).catch(
+          () => null,
+        ),
       ])
       orgSpinner.stop("Loaded ctx| organizations")
     } catch (error) {
@@ -348,7 +380,11 @@ export async function promptMcpWizard(
 ): Promise<McpPromptAnswers> {
   printWizardHeader()
   log.step("MCP")
-  log.message(muted("Choose the clients ctxpipe should configure for this machine or repo."))
+  log.message(
+    muted(
+      "Choose the clients ctxpipe should configure for this machine or repo.",
+    ),
+  )
 
   const answers: McpPromptAnswers = {}
   if (!current.org) {
@@ -377,7 +413,9 @@ export async function promptMcpWizard(
 async function promptAgents(): Promise<Client[]> {
   const detectSpinner = spinner()
   detectSpinner.start("Detecting installed agents")
-  const detected = CLIENTS.filter((client) => commandExists(CLIENT_COMMANDS[client]))
+  const detected = CLIENTS.filter((client) =>
+    commandExists(CLIENT_COMMANDS[client]),
+  )
   detectSpinner.stop(
     detected.length > 0
       ? `Detected ${detected.length} agent${detected.length === 1 ? "" : "s"}`
@@ -414,7 +452,9 @@ async function promptText({
 }
 
 export function detectDefaultOrgSlug(): string | undefined {
-  const existing = readJsonObject(resolve(process.cwd(), ".ctxpipe", "config.json"))
+  const existing = readJsonObject(
+    resolve(process.cwd(), ".ctxpipe", "config.json"),
+  )
   if (typeof existing.orgSlug === "string" && existing.orgSlug.trim()) {
     return existing.orgSlug
   }

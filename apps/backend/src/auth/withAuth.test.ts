@@ -232,6 +232,26 @@ describe("auth middleware composition", () => {
     })
   })
 
+  it("withCookieAuth returns retryable 503 on a transient session database failure", async () => {
+    getSessionMock.mockRejectedValueOnce(
+      Object.assign(new Error("Connection terminated unexpectedly"), {
+        code: "08006",
+      }),
+    )
+
+    const app = createBaseApp()
+    app.use("/mcp", withCookieAuth)
+    app.post("/mcp", (c) => c.text("ok"))
+
+    const response = await app.request("/mcp", { method: "POST" })
+
+    expect(response.status).toBe(503)
+    expect(response.headers.get("retry-after")).toBe("3")
+    await expect(response.json()).resolves.toMatchObject({
+      error: "temporarily_unavailable",
+    })
+  })
+
   it("withCookieAuth resolves session via x-api-key header", async () => {
     getSessionMock.mockResolvedValueOnce({
       user: { id: "user_api_key", email: "api-key@example.com" },
@@ -291,6 +311,52 @@ describe("auth middleware composition", () => {
     })
     expect(jwtVerifyMock).toHaveBeenCalledTimes(1)
     expect(authHandlerMock).toHaveBeenCalledTimes(1)
+  })
+
+  it("withBearerAuth returns retryable 503 when JWKS loading is unavailable", async () => {
+    authHandlerMock.mockResolvedValueOnce(new Response(null, { status: 500 }))
+
+    const app = createBaseApp()
+    app.use("/mcp", withBearerAuth)
+    app.post("/mcp", (c) => c.text("ok"))
+
+    const response = await app.request("/mcp", {
+      method: "POST",
+      headers: { authorization: "Bearer header.payload.signature" },
+    })
+
+    expect(response.status).toBe(503)
+    expect(response.headers.get("retry-after")).toBe("3")
+    await expect(response.json()).resolves.toMatchObject({
+      error: "temporarily_unavailable",
+    })
+    expect(authHandlerMock).toHaveBeenCalledTimes(1)
+    expect(jwtVerifyMock).not.toHaveBeenCalled()
+  })
+
+  it("withBearerAuth returns retryable 503 when JWT principal lookup loses its connection", async () => {
+    jwtVerifyMock.mockResolvedValueOnce({
+      payload: { sub: "token_sub", sid: "sess_token" },
+    })
+    testState.db = {
+      select: vi.fn(() => {
+        throw Object.assign(new Error("Connection terminated unexpectedly"), {
+          code: "08006",
+        })
+      }),
+    }
+
+    const app = createBaseApp()
+    app.use("/mcp", withBearerAuth)
+    app.post("/mcp", (c) => c.text("ok"))
+
+    const response = await app.request("/mcp", {
+      method: "POST",
+      headers: { authorization: "Bearer header.payload.signature" },
+    })
+
+    expect(response.status).toBe(503)
+    expect(response.headers.get("retry-after")).toBe("3")
   })
 
   it("withBearerAuth resolves user from sub when JWT omits sid (MCP OAuth clients)", async () => {
@@ -382,6 +448,29 @@ describe("auth middleware composition", () => {
     })
     expect(jwtVerifyMock).not.toHaveBeenCalled()
     expect(authHandlerMock).not.toHaveBeenCalled()
+  })
+
+  it("withBearerAuth returns retryable 503 when opaque-token lookup loses its connection", async () => {
+    testState.db = {
+      select: vi.fn(() => {
+        throw Object.assign(new Error("Connection terminated unexpectedly"), {
+          code: "08006",
+        })
+      }),
+    }
+
+    const app = createBaseApp()
+    app.use("/mcp", withBearerAuth)
+    app.post("/mcp", (c) => c.text("ok"))
+
+    const response = await app.request("/mcp", {
+      method: "POST",
+      headers: { authorization: "Bearer opaque-random-32-chars" },
+    })
+
+    expect(response.status).toBe(503)
+    expect(response.headers.get("retry-after")).toBe("3")
+    expect(jwtVerifyMock).not.toHaveBeenCalled()
   })
 
   it("withBearerAuth returns 401 for an unknown opaque access token", async () => {
@@ -507,6 +596,30 @@ describe("auth middleware composition", () => {
       orgId: "org_cookie",
     })
     expect(jwtVerifyMock).not.toHaveBeenCalled()
+    expect(withOrgDbContextMock).not.toHaveBeenCalled()
+  })
+
+  it("returns retryable 503 when MCP organization resolution loses its connection", async () => {
+    getSessionMock.mockResolvedValueOnce({
+      user: { id: "user_cookie", email: "cookie@example.com" },
+      session: { id: "sess_cookie", userId: "user_cookie" },
+    })
+    testState.db = {
+      select: vi.fn(() => {
+        throw Object.assign(new Error("Connection terminated unexpectedly"), {
+          code: "08006",
+        })
+      }),
+    }
+
+    const app = createComposedTestApp()
+    const response = await app.request("/mcp?orgSlug=acme", { method: "POST" })
+
+    expect(response.status).toBe(503)
+    expect(response.headers.get("retry-after")).toBe("3")
+    await expect(response.json()).resolves.toMatchObject({
+      error: "temporarily_unavailable",
+    })
     expect(withOrgDbContextMock).not.toHaveBeenCalled()
   })
 

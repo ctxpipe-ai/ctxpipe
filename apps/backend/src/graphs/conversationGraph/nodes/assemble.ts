@@ -1,8 +1,8 @@
+import { toToon } from "../../../lib/agentToolRuntime.js"
 import {
   deriveRepositoryIndexingStatus,
   listRepositoriesForOrg,
 } from "../../../models/repositories.js"
-import { toToon } from "../../../lib/agentToolRuntime.js"
 import { hydrateClaimsWithEvidence } from "../../../retrieval/index.js"
 import type { ConversationGraphState } from "../state.js"
 
@@ -15,7 +15,7 @@ function claimIdsFromTopCandidates(
 ): string[] {
   const ids = new Set<string>()
   for (const c of (candidates ?? []).slice(0, limit)) {
-    const edgeClaimIds = (c.payload?.edgeClaimIds as string[] | undefined)
+    const edgeClaimIds = c.payload?.edgeClaimIds as string[] | undefined
     if (Array.isArray(edgeClaimIds)) {
       for (const id of edgeClaimIds) if (id) ids.add(id)
     }
@@ -44,6 +44,12 @@ export async function assembleNode(
   contextParts.push(
     "REASONING: Aggregate claims by predicate (e.g. WRITES_TO, USES_LIBRARY, DEPENDS_ON) to infer recommendations. Multiple services using the same tech = org pattern. Use fleet-wide patterns when available.",
   )
+
+  if (state.retrievalWarnings?.length) {
+    contextParts.push(
+      `Retrieval warnings:\n${state.retrievalWarnings.map((warning) => `- ${warning}`).join("\n")}`,
+    )
+  }
 
   if (state.claimAggregationResults?.length) {
     contextParts.push(
@@ -105,9 +111,7 @@ export async function assembleNode(
       : "No retrieval results."
 
   const repositories =
-    state.orgId != null
-      ? await listRepositoriesForOrg(state.orgId)
-      : []
+    state.orgId != null ? await listRepositoriesForOrg(state.orgId) : []
   const repoSnapshot = toToon({
     repositories: repositories.map((r) => ({
       id: r.id,

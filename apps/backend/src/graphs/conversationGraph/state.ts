@@ -15,6 +15,7 @@ export const ConversationGraphStateSchema = MessagesZodState.extend({
   claimIds: z.array(z.string()).default([]),
   hybridResults: z.array(z.record(z.unknown())).default([]),
   codeResults: z.array(z.record(z.unknown())).default([]),
+  retrievalWarnings: z.array(z.string()).default([]),
   graphNodes: z.array(z.record(z.unknown())).default([]),
   traversalResults: z.array(z.record(z.unknown())).default([]),
   candidates: z.array(CandidateSchema).default([]),
@@ -31,4 +32,6 @@ export const ConversationGraphStateSchema = MessagesZodState.extend({
   retrievalContext: z.string().optional(),
 })
 
-export type ConversationGraphState = z.infer<typeof ConversationGraphStateSchema>
+export type ConversationGraphState = z.infer<
+  typeof ConversationGraphStateSchema
+>

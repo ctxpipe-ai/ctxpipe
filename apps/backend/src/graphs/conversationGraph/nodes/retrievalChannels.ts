@@ -1,3 +1,5 @@
+import { isTransientHttpFailure } from "../../../lib/withTransientHttpRetry.js"
+import { getLogger } from "../../../observability/logger.js"
 import {
   aggregateClaimsByPredicate,
   codeSearch,
@@ -24,6 +26,7 @@ export async function retrievalChannelsNode(
   let traversalResults = state.traversalResults ?? []
   let claimIds = state.claimIds ?? []
   let codeResults = state.codeResults ?? []
+  let retrievalWarnings = state.retrievalWarnings ?? []
   let claimAggregationResults = state.claimAggregationResults ?? []
 
   // Phase 1: hybridSearch and codeSearch in parallel
@@ -57,6 +60,11 @@ export async function retrievalChannelsNode(
 
   if (codeOutput?.codeResults) {
     codeResults = [...codeResults, ...codeOutput.codeResults]
+  }
+  if (codeOutput?.retrievalWarnings) {
+    retrievalWarnings = [
+      ...new Set([...retrievalWarnings, ...codeOutput.retrievalWarnings]),
+    ]
   }
 
   // Phase 2: graphRetrieval (anchored from hybrid or code)
@@ -123,6 +131,14 @@ export async function retrievalChannelsNode(
     if (scopedCodeOutput?.codeResults?.length) {
       codeResults = [...codeResults, ...scopedCodeOutput.codeResults]
     }
+    if (scopedCodeOutput?.retrievalWarnings) {
+      retrievalWarnings = [
+        ...new Set([
+          ...retrievalWarnings,
+          ...scopedCodeOutput.retrievalWarnings,
+        ]),
+      ]
+    }
   }
 
   return {
@@ -132,6 +148,7 @@ export async function retrievalChannelsNode(
     traversalResults,
     claimIds,
     codeResults,
+    retrievalWarnings,
     claimAggregationResults,
   }
 }
@@ -328,12 +345,29 @@ async function runCodeSearch(
     }
   }
 
-  const results = await codeSearch(orgId, {
-    query: q,
-    repositoryIds: repoIds,
-  })
+  try {
+    const results = await codeSearch(orgId, {
+      query: q,
+      repositoryIds: repoIds,
+    })
 
-  return {
-    codeResults: results,
+    return {
+      codeResults: results,
+    }
+  } catch (error) {
+    if (!isTransientHttpFailure(error)) throw error
+    getLogger().warn(
+      "Code search unavailable; continuing with remaining retrieval channels",
+      {
+        step: "conversation.retrieval.code_search.degraded",
+        error: error instanceof Error ? error.message : String(error),
+      },
+    )
+    return {
+      codeResults: [],
+      retrievalWarnings: [
+        "Repository code search was temporarily unavailable; the answer uses the remaining organisation context.",
+      ],
+    }
   }
 }

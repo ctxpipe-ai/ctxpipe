@@ -8,22 +8,20 @@ import {
   repositoryIdSchema,
   toToon,
 } from "../lib/agentToolRuntime.js"
-import { withTransientHttpRetry } from "../lib/withTransientHttpRetry.js"
+import {
+  CODESEARCH_QUERY_RETRY,
+  CODESEARCH_QUERY_TIMEOUT_MS,
+  isTransientHttpFailure,
+  transientHttpFailureStatus,
+  withTransientHttpRetry,
+} from "../lib/withTransientHttpRetry.js"
 import { getRepositoryForOrg } from "../models/repositories.js"
 
 const MAX_GLOB_FILES_ENTRIES = 500
 const DEFAULT_GLOB_LIMIT = 100
 
 export const globFilesTool = tool(
-  async ({
-    repositoryId,
-    pattern,
-    path,
-    onlyFiles,
-    dot,
-    limit,
-    offset,
-  }) => {
+  async ({ repositoryId, pattern, path, onlyFiles, dot, limit, offset }) => {
     const repository = await getRepositoryForOrg(
       requireCurrentOrgId(),
       repositoryId,
@@ -46,24 +44,38 @@ export const globFilesTool = tool(
     })
     // Fetch up to the tool-wide cap, then page with offset/limit client-side
     // (codesearch /glob has no offset).
-    const res = await withTransientHttpRetry(
-      async () =>
-        fetch(`${codesearchBaseUrl()}/${repositoryId}/glob`, {
-          method: "POST",
-          headers: {
-            Authorization: `Bearer ${token}`,
-            "Content-Type": "application/json",
-          },
-          body: JSON.stringify({
-            pattern,
-            path: path ?? "",
-            onlyFiles: onlyFiles ?? false,
-            dot: dot ?? true,
-            limit: MAX_GLOB_FILES_ENTRIES,
+    const requestSignal = AbortSignal.timeout(CODESEARCH_QUERY_TIMEOUT_MS)
+    let res: Response
+    try {
+      res = await withTransientHttpRetry(
+        async () =>
+          fetch(`${codesearchBaseUrl()}/${repositoryId}/glob`, {
+            method: "POST",
+            headers: {
+              Authorization: `Bearer ${token}`,
+              "Content-Type": "application/json",
+            },
+            body: JSON.stringify({
+              pattern,
+              path: path ?? "",
+              onlyFiles: onlyFiles ?? false,
+              dot: dot ?? true,
+              limit: MAX_GLOB_FILES_ENTRIES,
+            }),
+            signal: requestSignal,
           }),
-        }),
-      { retries: 10, baseDelayMs: 200, maxDelayMs: 30_000 },
-    )
+        CODESEARCH_QUERY_RETRY,
+      )
+    } catch (error) {
+      if (isTransientHttpFailure(error)) {
+        return toToon({
+          error: "glob_unavailable",
+          repositoryId,
+          status: transientHttpFailureStatus(error),
+        })
+      }
+      throw error
+    }
     if (!res.ok) {
       if (res.status >= 400 && res.status < 500) {
         return toToon({

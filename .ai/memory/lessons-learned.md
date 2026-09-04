@@ -95,10 +95,10 @@ Highest-priority confirmed rules for agents. Migrated from former `patterns.md` 
 - **Source:** migrated from patterns.md
 
 ### Hono apps
-- **Rule:** for both backend and codesearch — REST via `@hono/zod-openapi`, MCP via `@hono/mcp`
+- **Rule:** for both backend and codesearch — REST via `@hono/zod-openapi`. Product MCP stays in-process on the backend via the official `@modelcontextprotocol/sdk` Streamable HTTP transport (not `@hono/mcp`); see [ADR-029](decisions/ADR-029-hosted-mcp-client-interoperability.md)
 - **Category:** convention
-- **Date:** 2026-08-11
-- **Source:** migrated from patterns.md
+- **Date:** 2026-09-04
+- **Source:** ADR-029 hosted MCP interoperability
 
 ### Domain services
 - **Rule:** shared between REST routes and MCP tools
@@ -652,3 +652,9 @@ Highest-priority confirmed rules for agents. Migrated from former `patterns.md` 
 - **Date:** 2026-08-21
 - **Source:** user-confirmed Slack connector production incident (ctxpipe workspace passed because its historical grant masked the fresh Tru Rec installation path)
 
+
+### Diagnose MCP and CLI transport symptoms via Railway logs first
+- **Rule:** when an MCP client reports a transport drop or `npx ctxpipe init` reports an HTTP/auth failure, correlate the client timestamp with Railway HTTP status/duration and backend dependency errors before blaming the client or npm. A successful edge response can still contain a JSON-RPC tool error, while database and codesearch failures can surface as several different client messages. Verify the deployed contract rather than inferring the cause from client wording alone.
+- **Category:** operations
+- **Date:** 2026-09-03
+- **Source:** Railway backend logs 2026-09-02 23:30–23:32 UTC; `packages/cli/src/auth.ts`, `apps/backend/src/db/transientDbRetry.ts`, `apps/backend/src/tools/codesearchZoekt.ts`

@@ -11,13 +11,19 @@ resource "railway_project" "this" {
 }
 
 locals {
-  database_url  = neon_project.this.connection_uri_pooler
+  database_url = (
+    var.neon_database_target == "singapore"
+    ? one(neon_project.migration_target[*].connection_uri_pooler)
+    : neon_project.this.connection_uri_pooler
+  )
   falkordb_port = 6379
+  # railway provider 0.6.1 cannot convert a module-input list here
+  # ("Received unknown value"). Keep one concrete provider-compatible source.
   regions = [
     {
-      num_replicas : 1,
-      region : "asia-southeast1-eqsg3a"
-    }
+      region       = "asia-southeast1-eqsg3a"
+      num_replicas = 1
+    },
   ]
   amplitude_shared_env = length(var.amplitude_api_key) > 0 ? [
     {

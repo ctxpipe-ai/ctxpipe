@@ -1,7 +1,13 @@
 import { signUpstreamJwt } from "../auth/upstreamJwt.js"
 import { parseEnv } from "../config/env.js"
 import { codesearchBaseUrl } from "../lib/agentToolRuntime.js"
-import { withTransientHttpRetry } from "../lib/withTransientHttpRetry.js"
+import {
+  CODESEARCH_QUERY_RETRY,
+  CODESEARCH_QUERY_TIMEOUT_MS,
+  isTransientHttpFailure,
+  transientHttpFailureStatus,
+  withTransientHttpRetry,
+} from "../lib/withTransientHttpRetry.js"
 import type { ZoektRepositoryRow } from "./codesearchZoekt.js"
 
 export type GraphPrimitive =
@@ -38,18 +44,31 @@ export async function codesearchGraphQuery(
       principal: "service",
     },
   })
-  const res = await withTransientHttpRetry(
-    async () =>
-      fetch(`${codesearchBaseUrl()}/${repository.id}/graph`, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: `Bearer ${token}`,
-        },
-        body: JSON.stringify(body),
-      }),
-    { retries: 10, baseDelayMs: 200, maxDelayMs: 30_000 },
-  )
+  const requestSignal = AbortSignal.timeout(CODESEARCH_QUERY_TIMEOUT_MS)
+  let res: Response
+  try {
+    res = await withTransientHttpRetry(
+      async () =>
+        fetch(`${codesearchBaseUrl()}/${repository.id}/graph`, {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            Authorization: `Bearer ${token}`,
+          },
+          body: JSON.stringify(body),
+          signal: requestSignal,
+        }),
+      CODESEARCH_QUERY_RETRY,
+    )
+  } catch (error) {
+    if (isTransientHttpFailure(error)) {
+      return {
+        error: "graph_unavailable",
+        status: transientHttpFailureStatus(error),
+      }
+    }
+    throw error
+  }
   if (!res.ok) {
     const errText = await res.text().catch(() => "")
     throw new Error(

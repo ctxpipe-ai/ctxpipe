@@ -1,10 +1,16 @@
 import { OpenWorkflow } from "openworkflow"
 import { BackendPostgres } from "openworkflow/postgres"
+import {
+  DB_STARTUP_CONNECTION_RETRY,
+  waitForDbConnection,
+} from "../db/transientDbRetry.js"
 import { openWorkflowNamespaceId } from "./namespace.js"
 import { scheduleEnsureWorkerRunning } from "./railway-wake.js"
 
 const databaseUrl = process.env.DATABASE_URL
-if (!databaseUrl) throw new Error("DATABASE_URL is required for OpenWorkflow client")
+if (!databaseUrl)
+  throw new Error("DATABASE_URL is required for OpenWorkflow client")
+await waitForDbConnection(databaseUrl, DB_STARTUP_CONNECTION_RETRY)
 const backend = await BackendPostgres.connect(databaseUrl, {
   namespaceId: openWorkflowNamespaceId(),
 })

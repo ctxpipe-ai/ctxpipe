@@ -19,6 +19,14 @@ vi.mock("../config/env.js", () => ({
 }))
 vi.mock("../lib/withTransientHttpRetry.js", () => ({
   withTransientHttpRetry: withTransientHttpRetryMock,
+  isTransientHttpFailure: (error: unknown) => error instanceof TypeError,
+  transientHttpFailureStatus: () => 503,
+  CODESEARCH_QUERY_RETRY: {
+    retries: 2,
+    baseDelayMs: 250,
+    maxDelayMs: 1_000,
+  },
+  CODESEARCH_QUERY_TIMEOUT_MS: 25_000,
 }))
 vi.mock("../models/repositories.js", () => ({
   getRepositoryForOrg: getRepositoryForOrgMock,
@@ -102,8 +110,24 @@ describe("structuralSearchTool", () => {
           globs: ["**/*.ts", "!**/*.test.ts"],
           limit: 25,
         }),
+        signal: expect.any(AbortSignal),
       },
     )
     expect(result).toContain("src/example.ts")
+  })
+
+  it("returns a typed unavailable result after network retry exhaustion", async () => {
+    withTransientHttpRetryMock.mockRejectedValueOnce(
+      new TypeError("fetch failed"),
+    )
+
+    const result = await structuralSearchTool.invoke({
+      repositoryId: "repo_aaaaaaaaaaaaaaaaaaaaaaaaaa",
+      pattern: "$F($A)",
+      limit: 25,
+    })
+
+    expect(result).toContain("structural_search_unavailable")
+    expect(result).toContain("503")
   })
 })

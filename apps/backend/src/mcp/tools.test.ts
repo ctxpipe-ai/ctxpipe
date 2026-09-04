@@ -11,6 +11,10 @@ const {
   requireCurrentOrgIdMock,
   requireCurrentOrgSlugMock,
   withOrgDbContextMock,
+  createLoggerMock,
+  loggerErrorMock,
+  loggerWarnMock,
+  withLoggerMock,
 } = vi.hoisted(() => ({
   generateObjectIdMock: vi.fn(() => "thr_test"),
   streamMock: vi.fn(),
@@ -22,6 +26,12 @@ const {
   requireCurrentOrgSlugMock: vi.fn(() => "test-org"),
   withOrgDbContextMock: vi.fn(
     async (_orgId: string, handler: () => Promise<unknown>) => handler(),
+  ),
+  createLoggerMock: vi.fn(),
+  loggerErrorMock: vi.fn(),
+  loggerWarnMock: vi.fn(),
+  withLoggerMock: vi.fn(
+    async (_logger: unknown, handler: () => Promise<unknown>) => handler(),
   ),
 }))
 
@@ -51,8 +61,18 @@ vi.mock("../db/client.js", () => ({
   withOrgDbContext: withOrgDbContextMock,
 }))
 
+vi.mock("../observability/logger.js", () => ({
+  createLogger: createLoggerMock,
+  getLogger: () => ({
+    error: loggerErrorMock,
+    warn: loggerWarnMock,
+  }),
+  withLogger: withLoggerMock,
+}))
+
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js"
-import { registerMcpTools } from "./tools.js"
+import { TransientHttpError } from "../lib/withTransientHttpRetry.js"
+import { MCP_PROGRESS_HEARTBEAT_MS, registerMcpTools } from "./tools.js"
 
 describe("registerMcpTools", () => {
   beforeEach(() => {
@@ -62,6 +82,14 @@ describe("registerMcpTools", () => {
     generateObjectIdMock.mockReset().mockReturnValue("thr_test")
     ensureConversationMock.mockReset().mockResolvedValue({})
     touchConversationLastMessageMock.mockReset().mockResolvedValue(undefined)
+    createLoggerMock.mockReset().mockReturnValue({})
+    loggerErrorMock.mockReset()
+    loggerWarnMock.mockReset()
+    withLoggerMock
+      .mockReset()
+      .mockImplementation(
+        async (_logger: unknown, handler: () => Promise<unknown>) => handler(),
+      )
     withOrgDbContextMock
       .mockReset()
       .mockImplementation(
@@ -187,7 +215,15 @@ describe("registerMcpTools", () => {
       "Plan the integration in phases with auth-first steps",
     )
     expect(streamMock).toHaveBeenCalledTimes(1)
-    expect(sendNotification).toHaveBeenCalledTimes(2)
+    expect(sendNotification).toHaveBeenCalledTimes(3)
+    expect(sendNotification).toHaveBeenNthCalledWith(1, {
+      method: "notifications/progress",
+      params: {
+        progressToken: "progress_1",
+        progress: 1,
+        message: "Searching organisation context…",
+      },
+    })
     expect(invokeMock).not.toHaveBeenCalled()
 
     const callArg = streamMock.mock.calls[0]?.[0] as {
@@ -217,15 +253,133 @@ describe("registerMcpTools", () => {
     expect(touchConversationLastMessageMock).toHaveBeenCalledWith("thr_test")
   })
 
-  it("passes checkpoint config to fallback invoke path", async () => {
+  it("sends progress heartbeats while retrieval is quiet", async () => {
+    vi.useFakeTimers()
+    let finishStream!: () => void
+    const streamGate = new Promise<void>((resolve) => {
+      finishStream = resolve
+    })
     streamMock.mockResolvedValueOnce(
       (async function* () {
-        // no chunks on stream, forcing fallback invoke path
+        await streamGate
+        yield { messages: [{ content: "Grounded answer" }] }
       })(),
     )
-    invokeMock.mockResolvedValueOnce({
-      messages: [{ content: "Fallback response" }],
+
+    const registerToolMock = vi.fn()
+    const server = { registerTool: registerToolMock } as unknown as McpServer
+    registerMcpTools(server)
+    const [, , handler] = registerToolMock.mock.calls[0] as [
+      string,
+      unknown,
+      (
+        input: { prompt: string },
+        extra: {
+          _meta?: { progressToken?: string | number }
+          sendNotification: (notification: unknown) => Promise<void>
+        },
+      ) => Promise<{ content: Array<{ text: string }> }>,
+    ]
+    const sendNotification = vi.fn(async () => {})
+
+    const resultPromise = handler(
+      { prompt: "Search everything" },
+      { _meta: { progressToken: 0 }, sendNotification },
+    )
+    await vi.advanceTimersByTimeAsync(0)
+    expect(sendNotification).toHaveBeenCalledWith({
+      method: "notifications/progress",
+      params: expect.objectContaining({
+        progressToken: 0,
+        message: "Searching organisation context…",
+      }),
     })
+
+    await vi.advanceTimersByTimeAsync(MCP_PROGRESS_HEARTBEAT_MS)
+    expect(sendNotification).toHaveBeenCalledWith({
+      method: "notifications/progress",
+      params: expect.objectContaining({
+        progressToken: 0,
+        message: "Still searching organisation context…",
+      }),
+    })
+
+    finishStream()
+    await vi.advanceTimersByTimeAsync(0)
+    await expect(resultPromise).resolves.toMatchObject({
+      content: [{ text: "Grounded answer" }],
+    })
+    vi.useRealTimers()
+  })
+
+  it("sends progress heartbeats while conversation setup is blocked", async () => {
+    vi.useFakeTimers()
+    let finishSetup!: () => void
+    const setupGate = new Promise<void>((resolve) => {
+      finishSetup = resolve
+    })
+    ensureConversationMock.mockImplementationOnce(async () => {
+      await setupGate
+      return {}
+    })
+    streamMock.mockResolvedValueOnce(
+      (async function* () {
+        yield { messages: [{ content: "Grounded answer" }] }
+      })(),
+    )
+
+    const registerToolMock = vi.fn()
+    const server = { registerTool: registerToolMock } as unknown as McpServer
+    registerMcpTools(server)
+    const [, , handler] = registerToolMock.mock.calls[0] as [
+      string,
+      unknown,
+      (
+        input: { prompt: string },
+        extra: {
+          _meta?: { progressToken?: string | number }
+          sendNotification: (notification: unknown) => Promise<void>
+        },
+      ) => Promise<{ content: Array<{ text: string }> }>,
+    ]
+    const sendNotification = vi.fn(async () => {})
+
+    const resultPromise = handler(
+      { prompt: "Search everything" },
+      { _meta: { progressToken: 0 }, sendNotification },
+    )
+    await vi.advanceTimersByTimeAsync(0)
+    expect(sendNotification).toHaveBeenCalledWith({
+      method: "notifications/progress",
+      params: expect.objectContaining({
+        progressToken: 0,
+        message: "Searching organisation context…",
+      }),
+    })
+
+    await vi.advanceTimersByTimeAsync(MCP_PROGRESS_HEARTBEAT_MS)
+    expect(sendNotification).toHaveBeenCalledWith({
+      method: "notifications/progress",
+      params: expect.objectContaining({
+        progressToken: 0,
+        message: "Still searching organisation context…",
+      }),
+    })
+
+    finishSetup()
+    await vi.advanceTimersByTimeAsync(0)
+    await expect(resultPromise).resolves.toMatchObject({
+      content: [{ text: "Grounded answer" }],
+    })
+    vi.useRealTimers()
+  })
+
+  it("returns an explicit error instead of rerunning an empty graph stream", async () => {
+    streamMock.mockResolvedValueOnce(
+      (async function* () {
+        // no chunks
+      })(),
+    )
 
     const registerToolMock = vi.fn()
     const server = { registerTool: registerToolMock } as unknown as McpServer
@@ -249,24 +403,20 @@ describe("registerMcpTools", () => {
       { _meta: { progressToken: "progress_2" }, sendNotification },
     )
 
-    expect(result.content[0]?.text).toBe("Fallback response")
-    expect(invokeMock).toHaveBeenCalledTimes(1)
-
-    const invokeConfig = invokeMock.mock.calls[0]?.[1] as {
-      configurable?: {
-        checkpoint_ns?: string
-        thread_id?: string
-        source?: string
-      }
-    }
-    expect(invokeConfig.configurable?.checkpoint_ns).toBe("ctx_advisor")
-    expect(invokeConfig.configurable?.thread_id).toBe("thr_test")
-    expect(invokeConfig.configurable?.source).toBe("mcp")
+    expect(result).toMatchObject({
+      isError: true,
+      content: [
+        {
+          text: "ctx_advisor could not complete this request. Retry shortly.",
+        },
+      ],
+    })
+    expect(invokeMock).not.toHaveBeenCalled()
     expect(ensureConversationMock).toHaveBeenCalledWith({
       id: "thr_test",
       source: "mcp",
     })
-    expect(touchConversationLastMessageMock).toHaveBeenCalledWith("thr_test")
+    expect(touchConversationLastMessageMock).not.toHaveBeenCalled()
   })
 
   it("uses composite threadId when conversationId is provided", async () => {
@@ -390,5 +540,170 @@ describe("registerMcpTools", () => {
       currentProjectName?: string | null
     }
     expect(callArg.currentProjectName).toBeNull()
+  })
+
+  it("does not treat the user prompt as advisor progress or the answer", async () => {
+    streamMock.mockResolvedValueOnce(
+      (async function* () {
+        yield {
+          messages: [
+            {
+              type: "human",
+              content: "How should we structure this route?",
+            },
+          ],
+        }
+      })(),
+    )
+
+    const registerToolMock = vi.fn()
+    const server = { registerTool: registerToolMock } as unknown as McpServer
+    registerMcpTools(server)
+    const [, , handler] = registerToolMock.mock.calls[0] as [
+      string,
+      unknown,
+      (
+        input: { prompt: string },
+        extra: {
+          _meta?: { progressToken?: string }
+          sendNotification: (notification: unknown) => Promise<void>
+        },
+      ) => Promise<{ content: Array<{ text: string }> }>,
+    ]
+    const sendNotification = vi.fn(async () => {})
+
+    const result = await handler(
+      { prompt: "How should we structure this route?" },
+      { _meta: { progressToken: "progress_prompt" }, sendNotification },
+    )
+
+    expect(result).toMatchObject({
+      isError: true,
+      content: [
+        {
+          text: "ctx_advisor could not complete this request. Retry shortly.",
+        },
+      ],
+    })
+    expect(sendNotification).toHaveBeenCalledWith({
+      method: "notifications/progress",
+      params: expect.objectContaining({
+        message: "Searching organisation context…",
+      }),
+    })
+    expect(sendNotification).not.toHaveBeenCalledWith({
+      method: "notifications/progress",
+      params: expect.objectContaining({
+        message: "How should we structure this route?",
+      }),
+    })
+  })
+
+  it("returns a retryable error for the graph's synthetic empty answer", async () => {
+    streamMock.mockResolvedValueOnce(
+      (async function* () {
+        yield { messages: [{ content: "No answer could be produced." }] }
+      })(),
+    )
+
+    const registerToolMock = vi.fn()
+    const server = { registerTool: registerToolMock } as unknown as McpServer
+    registerMcpTools(server)
+    const [, , handler] = registerToolMock.mock.calls[0] as [
+      string,
+      unknown,
+      (
+        input: { prompt: string },
+        extra: { sendNotification: (notification: unknown) => Promise<void> },
+      ) => Promise<{
+        isError?: boolean
+        content: Array<{ text: string }>
+      }>,
+    ]
+
+    await expect(
+      handler(
+        { prompt: "Search everything" },
+        { sendNotification: vi.fn(async () => {}) },
+      ),
+    ).resolves.toMatchObject({
+      isError: true,
+      content: [
+        {
+          text: "ctx_advisor could not complete this request. Retry shortly.",
+        },
+      ],
+    })
+    expect(touchConversationLastMessageMock).not.toHaveBeenCalled()
+  })
+
+  it("does not tell clients to retry a permanent graph failure", async () => {
+    streamMock.mockRejectedValueOnce(
+      new Error("codesearch failed with status 401"),
+    )
+
+    const registerToolMock = vi.fn()
+    const server = { registerTool: registerToolMock } as unknown as McpServer
+    registerMcpTools(server)
+    const [, , handler] = registerToolMock.mock.calls[0] as [
+      string,
+      unknown,
+      (
+        input: { prompt: string },
+        extra: { sendNotification: (notification: unknown) => Promise<void> },
+      ) => Promise<{
+        isError?: boolean
+        content: Array<{ text: string }>
+      }>,
+    ]
+
+    await expect(
+      handler(
+        { prompt: "Search everything" },
+        { sendNotification: vi.fn(async () => {}) },
+      ),
+    ).resolves.toMatchObject({
+      isError: true,
+      content: [
+        {
+          text: "ctx_advisor failed with a non-transient error. Retrying is unlikely to help; contact your ctx| administrator.",
+        },
+      ],
+    })
+  })
+
+  it("returns retry guidance for a classified transient graph failure", async () => {
+    streamMock.mockRejectedValueOnce(
+      new TransientHttpError("codesearch failed with status 503", 503),
+    )
+
+    const registerToolMock = vi.fn()
+    const server = { registerTool: registerToolMock } as unknown as McpServer
+    registerMcpTools(server)
+    const [, , handler] = registerToolMock.mock.calls[0] as [
+      string,
+      unknown,
+      (
+        input: { prompt: string },
+        extra: { sendNotification: (notification: unknown) => Promise<void> },
+      ) => Promise<{
+        isError?: boolean
+        content: Array<{ text: string }>
+      }>,
+    ]
+
+    await expect(
+      handler(
+        { prompt: "Search everything" },
+        { sendNotification: vi.fn(async () => {}) },
+      ),
+    ).resolves.toMatchObject({
+      isError: true,
+      content: [
+        {
+          text: "ctx_advisor could not complete this request. Retry shortly.",
+        },
+      ],
+    })
   })
 })

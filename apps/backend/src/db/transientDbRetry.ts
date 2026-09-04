@@ -1,4 +1,4 @@
-import type { Pool } from "pg"
+import { Pool } from "pg"
 import { log } from "../observability/logger.js"
 
 const TRANSIENT_CONNECTION_CODES = new Set([
@@ -105,23 +105,73 @@ export function formatUnknownError(error: unknown): string {
   return [...new Set(parts)].join("; ")
 }
 
-export type WithTransientDbQueryRetryOptions = {
+export type DbConnectionAcquisitionRetryOptions = {
   /** Retries after the first attempt (default 1 → 2 attempts total). */
   retries?: number
   baseDelayMs?: number
+  maxDelayMs?: number
+}
+
+/** Pool-connect budget: one retry before returning a retryable 503 upstream. */
+const POOL_CONNECTION_RETRY = {
+  retries: 1,
+  baseDelayMs: 250,
+} as const
+
+/** Startup can wait through a short database outage; request paths fail fast. */
+export const DB_STARTUP_CONNECTION_RETRY = {
+  retries: 12,
+  baseDelayMs: 500,
+  maxDelayMs: 5_000,
+} as const
+
+const CONNECTION_SYSCALL_CODES = new Set([
+  "ECONNREFUSED",
+  "ETIMEDOUT",
+  "ENETUNREACH",
+  "EHOSTUNREACH",
+])
+
+function stringProperty(error: unknown, property: string): string | undefined {
+  if (!error || typeof error !== "object" || !(property in error)) {
+    return undefined
+  }
+  const value = (error as Record<string, unknown>)[property]
+  return typeof value === "string" ? value : undefined
 }
 
 /**
- * Retries `run` once (by default) on transient Postgres connection failures
- * (Neon idle disconnect, reset, admin shutdown), with a short delay so compute
- * can finish waking.
+ * True only when Postgres could not establish a connection, before the query
+ * was sent. Mid-query disconnects are deliberately excluded because replay
+ * after an ambiguous commit can duplicate mutations, including mutations
+ * hidden inside SELECT functions.
  */
-export async function withTransientDbQueryRetry<T>(
+export function isDbConnectionAcquisitionError(error: unknown): boolean {
+  for (const err of collectErrors(error)) {
+    const code = errorCode(err)
+    const syscall = stringProperty(err, "syscall")
+    if (syscall === "connect" && code && CONNECTION_SYSCALL_CODES.has(code)) {
+      return true
+    }
+    if (
+      errorMessage(err) === "timeout exceeded when trying to connect" &&
+      stringProperty(err, "severity") === undefined &&
+      stringProperty(err, "routine") === undefined
+    ) {
+      return true
+    }
+  }
+  return false
+}
+
+/** Retries only failures that prove the query was never sent to Postgres. */
+export async function withDbConnectionAcquisitionRetry<T>(
   run: () => Promise<T>,
-  opts?: WithTransientDbQueryRetryOptions,
+  opts?: DbConnectionAcquisitionRetryOptions,
 ): Promise<T> {
-  const retries = opts?.retries ?? 1
-  const baseDelayMs = opts?.baseDelayMs ?? 100
+  const retries = opts?.retries ?? POOL_CONNECTION_RETRY.retries
+  const baseDelayMs = opts?.baseDelayMs ?? POOL_CONNECTION_RETRY.baseDelayMs
+  const maxDelayMs = opts?.maxDelayMs
   const maxAttempts = retries + 1
   let last: unknown
 
@@ -130,14 +180,16 @@ export async function withTransientDbQueryRetry<T>(
       return await run()
     } catch (e) {
       last = e
-      if (isTransientDbConnectionError(e) && attempt < maxAttempts - 1) {
-        const delayMs = baseDelayMs * 2 ** attempt
+      if (isDbConnectionAcquisitionError(e) && attempt < maxAttempts - 1) {
+        const rawDelayMs = baseDelayMs * 2 ** attempt
+        const delayMs =
+          maxDelayMs == null ? rawDelayMs : Math.min(rawDelayMs, maxDelayMs)
         log.info({
-          step: "db.transient_connection_retry",
+          step: "db.connection_acquisition_retry",
           attempt: attempt + 1,
           maxAttempts,
           delayMs,
-          message: errorMessage(e),
+          message: formatUnknownError(e),
         })
         await new Promise((r) => setTimeout(r, delayMs))
         continue
@@ -150,21 +202,44 @@ export async function withTransientDbQueryRetry<T>(
 }
 
 /**
- * Wrap `pool.query` so promise-based queries retry once on dead connections.
- * Callback-style `query` is left unchanged (Drizzle uses the promise API).
+ * Wait for a database handshake before starting a subsystem that owns an
+ * opaque connection pool. The probe pool is always closed between startup and
+ * the subsystem's one real initialisation attempt.
  */
-export function wrapPoolQueryWithTransientRetry(pool: Pool): void {
-  const originalQuery = pool.query.bind(pool) as (
-    ...args: unknown[]
-  ) => unknown
+export async function waitForDbConnection(
+  connectionString: string,
+  opts: DbConnectionAcquisitionRetryOptions,
+): Promise<void> {
+  const pool = new Pool({
+    connectionString,
+    max: 1,
+    allowExitOnIdle: true,
+    connectionTimeoutMillis: 5_000,
+    application_name: "ctxpipe-startup-probe",
+  })
+  try {
+    await withDbConnectionAcquisitionRetry(async () => {
+      const client = await pool.connect()
+      client.release()
+    }, opts)
+  } finally {
+    await pool.end()
+  }
+}
+
+/**
+ * Wrap `pool.query` so promise-based queries retry only when connection
+ * acquisition failed before Postgres received the statement. Callback-style
+ * queries are left unchanged.
+ */
+export function wrapPoolQueryWithConnectionAcquisitionRetry(pool: Pool): void {
+  const originalQuery = pool.query.bind(pool) as (...args: unknown[]) => unknown
 
   pool.query = ((...args: unknown[]) => {
     const maybeCallback = args.find((a) => typeof a === "function")
-    if (maybeCallback) {
-      return originalQuery(...args)
-    }
+    if (maybeCallback) return originalQuery(...args)
 
-    return withTransientDbQueryRetry(() =>
+    return withDbConnectionAcquisitionRetry(() =>
       Promise.resolve(originalQuery(...args)),
     )
   }) as typeof pool.query

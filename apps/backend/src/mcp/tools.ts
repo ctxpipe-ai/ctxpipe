@@ -8,8 +8,10 @@ import {
   requireCurrentUserId,
 } from "../auth/context.js"
 import { withOrgDbContext } from "../db/client.js"
+import { isTransientDbConnectionError } from "../db/transientDbRetry.js"
 import { conversationGraph } from "../graphs/index.js"
 import { generateObjectId } from "../lib/id.js"
+import { isTransientHttpFailure } from "../lib/withTransientHttpRetry.js"
 import {
   ensureConversation,
   touchConversationLastMessage,
@@ -19,7 +21,13 @@ import {
   getLangfuseHandler,
   runWithLangfuseContext,
 } from "../observability/langfuse.js"
-import { getLogger } from "../observability/logger.js"
+import { createLogger, getLogger, withLogger } from "../observability/logger.js"
+
+export const MCP_PROGRESS_HEARTBEAT_MS = 10_000
+
+class RetryableAdvisorError extends Error {
+  override readonly name = "RetryableAdvisorError"
+}
 
 /**
  * Register MCP tools. Tools should call into domain/ services so REST and MCP
@@ -96,144 +104,188 @@ export function registerMcpTools(server: McpServer): void {
     async ({ prompt, currentProjectName, conversationId }, extra) => {
       const userId = requireCurrentUserId()
       const orgId = requireCurrentOrgId()
-      // No-op when `AMPLITUDE_API_KEY` unset (`observability/amplitude.ts`).
-      trackMcpToolInvocation({
-        userId,
-        orgId,
-        orgSlug: requireCurrentOrgSlug(),
-        toolName: "ctx_advisor",
-      })
+      const orgSlug = requireCurrentOrgSlug()
       const threadId =
         conversationId != null
           ? `${orgId}_${userId}_${slugify(currentProjectName ?? "default")}_${conversationId}`
           : generateObjectId("thr")
-      await withOrgDbContext(orgId, () =>
-        ensureConversation({ id: threadId, source: "mcp" }),
-      )
-      const invocationConfig = {
-        configurable: {
-          thread_id: threadId,
-          checkpoint_ns: "ctx_advisor",
-          source: "mcp",
-        },
-      }
-      try {
-        return await runWithLangfuseContext(
-          { sessionId: threadId, tags: ["mcp"] },
-          async () => {
-            const initialState: {
-              messages: HumanMessage[]
-              currentProjectName: string | null
-            } = {
-              messages: [new HumanMessage(prompt)],
-              currentProjectName: currentProjectName ?? null,
-            }
-            const stream = await conversationGraph.stream(initialState, {
-              streamMode: "values",
-              ...invocationConfig,
-              callbacks: [getLangfuseHandler()],
+      return withLogger(
+        createLogger({
+          step: "conversation.mcp.ctx_advisor",
+          mcp: { toolName: "ctx_advisor", userId, orgId, orgSlug },
+        }),
+        async () => {
+          try {
+            // No-op when `AMPLITUDE_API_KEY` unset (`observability/amplitude.ts`).
+            trackMcpToolInvocation({
+              userId,
+              orgId,
+              orgSlug,
+              toolName: "ctx_advisor",
             })
-            await withOrgDbContext(orgId, () =>
-              touchConversationLastMessage(threadId),
-            )
+
             const progressToken = extra._meta?.progressToken
             let progress = 0
-            let streamedText = ""
-            let finalMessages: unknown[] | undefined
-
-            for await (const chunk of stream) {
-              if (
-                typeof chunk !== "object" ||
-                chunk === null ||
-                !("messages" in chunk) ||
-                !Array.isArray(chunk.messages)
-              ) {
-                continue
-              }
-              finalMessages = chunk.messages
-
-              if (!progressToken) continue
-              const currentText = extractFinalText({ messages: chunk.messages })
-              if (
-                currentText.length === 0 ||
-                currentText === "No answer could be produced."
-              ) {
-                continue
-              }
-
-              const delta = currentText.startsWith(streamedText)
-                ? currentText.slice(streamedText.length)
-                : currentText
-              if (delta.length === 0) continue
-
-              streamedText = currentText
+            let lastProgressAt = Date.now()
+            const sendProgress = async (message: string) => {
+              if (progressToken == null) return
               progress += 1
-              await extra.sendNotification({
-                method: "notifications/progress",
-                params: {
-                  progressToken,
-                  progress,
-                  message: delta,
-                },
-              })
-            }
-
-            const result = {
-              messages: finalMessages ?? [],
-            }
-            const text = extractFinalText(result)
-            if (progressToken && text.length > 0 && text !== streamedText) {
-              progress += 1
-              await extra.sendNotification({
-                method: "notifications/progress",
-                params: {
-                  progressToken,
-                  progress,
-                  message: text,
-                },
-              })
-            }
-
-            if (!finalMessages) {
-              const fallbackState: {
-                messages: HumanMessage[]
-                currentProjectName: string | null
-              } = {
-                messages: [new HumanMessage(prompt)],
-                currentProjectName: currentProjectName ?? null,
-              }
-              const fallback = await conversationGraph.invoke(fallbackState, {
-                ...invocationConfig,
-                callbacks: [getLangfuseHandler()],
-              })
-              return {
-                content: [{ type: "text", text: extractFinalText(fallback) }],
+              lastProgressAt = Date.now()
+              try {
+                await extra.sendNotification({
+                  method: "notifications/progress",
+                  params: { progressToken, progress, message },
+                })
+              } catch (error) {
+                getLogger().warn(
+                  "Could not deliver MCP progress notification",
+                  {
+                    step: "conversation.mcp.ctx_advisor.progress",
+                    error:
+                      error instanceof Error ? error.message : String(error),
+                  },
+                )
               }
             }
 
+            await sendProgress("Searching organisation context…")
+            const heartbeat =
+              progressToken == null
+                ? null
+                : setInterval(() => {
+                    if (
+                      Date.now() - lastProgressAt <
+                      MCP_PROGRESS_HEARTBEAT_MS
+                    ) {
+                      return
+                    }
+                    void sendProgress("Still searching organisation context…")
+                  }, MCP_PROGRESS_HEARTBEAT_MS)
+            heartbeat?.unref()
+
+            try {
+              await withOrgDbContext(orgId, () =>
+                ensureConversation({ id: threadId, source: "mcp" }),
+              )
+              const invocationConfig = {
+                configurable: {
+                  thread_id: threadId,
+                  checkpoint_ns: "ctx_advisor",
+                  source: "mcp",
+                },
+              }
+
+              return await runWithLangfuseContext(
+                { sessionId: threadId, tags: ["mcp"] },
+                async () => {
+                  const initialState: {
+                    messages: HumanMessage[]
+                    currentProjectName: string | null
+                  } = {
+                    messages: [new HumanMessage(prompt)],
+                    currentProjectName: currentProjectName ?? null,
+                  }
+                  const stream = await conversationGraph.stream(initialState, {
+                    streamMode: "values",
+                    ...invocationConfig,
+                    callbacks: [getLangfuseHandler()],
+                  })
+                  let streamedText = ""
+                  let finalMessages: unknown[] | undefined
+
+                  for await (const chunk of stream) {
+                    if (
+                      typeof chunk !== "object" ||
+                      chunk === null ||
+                      !("messages" in chunk) ||
+                      !Array.isArray(chunk.messages)
+                    ) {
+                      continue
+                    }
+                    finalMessages = chunk.messages
+
+                    if (progressToken == null) continue
+                    const currentText = extractFinalText({
+                      messages: chunk.messages,
+                    })
+                    if (currentText == null) continue
+
+                    const delta = currentText.startsWith(streamedText)
+                      ? currentText.slice(streamedText.length)
+                      : currentText
+                    if (delta.length === 0) continue
+
+                    streamedText = currentText
+                    await sendProgress(delta)
+                  }
+
+                  if (!finalMessages) {
+                    throw new RetryableAdvisorError(
+                      "Conversation graph stream completed without state",
+                    )
+                  }
+
+                  const result = {
+                    messages: finalMessages,
+                  }
+                  const text = extractFinalText(result)
+                  if (text == null) {
+                    throw new RetryableAdvisorError(
+                      "Conversation graph completed without an answer",
+                    )
+                  }
+                  if (progressToken != null && text !== streamedText) {
+                    await sendProgress(text)
+                  }
+
+                  await withOrgDbContext(orgId, () =>
+                    touchConversationLastMessage(threadId),
+                  )
+                  return {
+                    content: [{ type: "text", text }],
+                  }
+                },
+              )
+            } finally {
+              if (heartbeat) clearInterval(heartbeat)
+            }
+          } catch (error) {
+            getLogger().error(
+              error instanceof Error ? error : new Error(String(error)),
+              {
+                step: "conversation.mcp.ctx_advisor",
+              },
+            )
+            const retryable =
+              error instanceof RetryableAdvisorError ||
+              isTransientHttpFailure(error) ||
+              isTransientDbConnectionError(error)
             return {
-              content: [{ type: "text", text }],
+              isError: true,
+              content: [
+                {
+                  type: "text" as const,
+                  text: retryable
+                    ? "ctx_advisor could not complete this request. Retry shortly."
+                    : "ctx_advisor failed with a non-transient error. Retrying is unlikely to help; contact your ctx| administrator.",
+                },
+              ],
             }
-          },
-        )
-      } catch (error) {
-        getLogger().error(error, {
-          step: "conversation.mcp.ctx_advisor",
-        })
-        throw error
-      }
+          }
+        },
+      )
     },
   )
 }
 
-function extractFinalText(result: unknown): string {
+function extractFinalText(result: unknown): string | null {
   if (
     typeof result !== "object" ||
     result === null ||
     !("messages" in result) ||
     !Array.isArray(result.messages)
   ) {
-    return "No answer could be produced."
+    return null
   }
 
   const finalMessage = result.messages.at(-1)
@@ -242,13 +294,24 @@ function extractFinalText(result: unknown): string {
     finalMessage === null ||
     !("content" in finalMessage)
   ) {
-    return "No answer could be produced."
+    return null
   }
+
+  const messageType =
+    "getType" in finalMessage && typeof finalMessage.getType === "function"
+      ? finalMessage.getType()
+      : "type" in finalMessage && typeof finalMessage.type === "string"
+        ? finalMessage.type
+        : undefined
+  if (messageType === "human") return null
 
   const content = finalMessage.content
   if (typeof content === "string") {
     const trimmed = content.trim()
-    return trimmed.length > 0 ? trimmed : "No answer could be produced."
+    if (trimmed.length === 0 || trimmed === "No answer could be produced.") {
+      return null
+    }
+    return trimmed
   }
 
   if (Array.isArray(content)) {
@@ -265,5 +328,5 @@ function extractFinalText(result: unknown): string {
     if (textParts.length > 0) return textParts.join("\n")
   }
 
-  return "No answer could be produced."
+  return null
 }

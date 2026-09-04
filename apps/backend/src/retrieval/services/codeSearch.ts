@@ -5,7 +5,11 @@ import { getOrgDb, withOrgDbContext } from "../../db/client.js"
 import { repositories } from "../../db/schema/repositories.js"
 import { repositoryCheckouts } from "../../db/schema/repository_checkouts.js"
 import { codesearchBaseUrl } from "../../lib/agentToolRuntime.js"
-import { withTransientHttpRetry } from "../../lib/withTransientHttpRetry.js"
+import {
+  CODESEARCH_QUERY_RETRY,
+  CODESEARCH_QUERY_TIMEOUT_MS,
+  withTransientHttpRetry,
+} from "../../lib/withTransientHttpRetry.js"
 import { DEFAULT_CHECKOUT_KEY } from "../../models/repositories.js"
 
 export type CodeSearchResult = {
@@ -183,6 +187,10 @@ export async function codeSearch(
     },
   })
 
+  // One cold organisation-wide pin may legitimately take up to 20s. Bound the
+  // complete retry sequence so a degraded optional channel cannot hold the
+  // advisor silent for minutes.
+  const requestSignal = AbortSignal.timeout(CODESEARCH_QUERY_TIMEOUT_MS)
   const res = await withTransientHttpRetry(
     async () =>
       fetch(`${codesearchBaseUrl()}/search`, {
@@ -195,8 +203,9 @@ export async function codeSearch(
           Q: params.query,
           RepoIDs: repos.map((r) => r.zoektRepoId),
         }),
+        signal: requestSignal,
       }),
-    { retries: 10, baseDelayMs: 200, maxDelayMs: 30_000 },
+    CODESEARCH_QUERY_RETRY,
   )
 
   if (!res.ok) {

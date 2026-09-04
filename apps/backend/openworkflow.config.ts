@@ -12,6 +12,10 @@ import { BackendPostgres } from "openworkflow/postgres"
 import { parseEnv } from "./src/config/env.js"
 import { initDb } from "./src/db/client.js"
 import {
+  DB_STARTUP_CONNECTION_RETRY,
+  waitForDbConnection,
+} from "./src/db/transientDbRetry.js"
+import {
   createLogger,
   flushEvlog,
   initEvlog,
@@ -27,7 +31,8 @@ initDb(databaseUrl)
 const env = parseEnv(process.env as Record<string, string | undefined>)
 initOtel(env)
 initEvlog()
-await backfillGithubAppSecretsFromEnv(env)
+await waitForDbConnection(databaseUrl, DB_STARTUP_CONNECTION_RETRY)
+await backfillGithubAppSecretsFromEnv(env, DB_STARTUP_CONNECTION_RETRY)
 
 let shuttingDown = false
 async function shutdownWorkerObservability() {
@@ -58,10 +63,12 @@ const bootstrapLog = createLogger({
 bootstrapLog.info("openworkflow worker config loaded")
 bootstrapLog.emit()
 
+const backend = await BackendPostgres.connect(databaseUrl, {
+  namespaceId: openWorkflowNamespaceId(),
+})
+
 export default defineConfig({
-  backend: await BackendPostgres.connect(databaseUrl, {
-    namespaceId: openWorkflowNamespaceId(),
-  }),
+  backend,
   dirs: ["./src/openworkflow/workflows"],
   // CLI imports every *.ts under dirs; skip Vitest files (dev-only deps).
   ignorePatterns: ["**/*.test.*", "**/*.spec.*"],

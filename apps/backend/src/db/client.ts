@@ -6,7 +6,7 @@ import { log } from "../observability/logger.js"
 import { relations, schema } from "./schema.js"
 import {
   formatUnknownError,
-  wrapPoolQueryWithTransientRetry,
+  wrapPoolQueryWithConnectionAcquisitionRetry,
 } from "./transientDbRetry.js"
 
 function isRailwayPrPreview(): boolean {
@@ -21,7 +21,9 @@ function createDrizzleDb(connectionString: string) {
     allowExitOnIdle: isRailwayPrPreview(),
     keepAlive: true,
     idleTimeoutMillis: 30_000,
-    connectionTimeoutMillis: 30_000,
+    // Fail fast enough for routes to return a retryable 503 instead of holding
+    // CLI and MCP callers on an unavailable database socket for 30 seconds.
+    connectionTimeoutMillis: 5_000,
     application_name: "ctxpipe-backend",
   })
   // Idle clients can emit 'error' when Postgres closes them (e.g. 25P03
@@ -38,7 +40,7 @@ function createDrizzleDb(connectionString: string) {
           : undefined,
     })
   })
-  wrapPoolQueryWithTransientRetry(client)
+  wrapPoolQueryWithConnectionAcquisitionRetry(client)
   return drizzle({ client, schema, relations })
 }
 

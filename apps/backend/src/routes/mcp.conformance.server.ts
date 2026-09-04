@@ -79,8 +79,28 @@ const server = createServer(async (req, res) => {
     res.setHeader(key, value)
   })
 
-  const arrayBuffer = await response.arrayBuffer()
-  res.end(Buffer.from(arrayBuffer))
+  if (!response.body) {
+    res.end()
+    return
+  }
+
+  const reader = response.body.getReader()
+  const abortRead = () => {
+    void reader.cancel()
+  }
+  req.once("close", abortRead)
+  try {
+    while (true) {
+      const { done, value } = await reader.read()
+      if (done) break
+      res.write(Buffer.from(value))
+    }
+    res.end()
+  } catch {
+    res.end()
+  } finally {
+    req.off("close", abortRead)
+  }
 })
 
 server.listen(port, "127.0.0.1")
