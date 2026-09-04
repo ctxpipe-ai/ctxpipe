@@ -41,13 +41,16 @@ function addMcpAuthOptions(command: Command): Command {
     .addOption(
       new Option(
         "--auth <oauth|api-key>",
-        "MCP auth: oauth writes URL-only config for any scope (default); api-key writes x-api-key only to user-level client config, never repo files",
-      )
-        .choices(["oauth", "api-key"]),
+        "MCP auth: oauth writes URL-only config for any scope (default). api-key is implied by --api-key or --api-key-env-variable",
+      ).choices(["oauth", "api-key"]),
     )
     .option(
       "--api-key <key>",
-      "API key for --auth api-key (or set CTXPIPE_API_KEY). Written only to user-level client config",
+      "Write the raw API key into user-level client config only (never repo files). Implies --auth api-key",
+    )
+    .option(
+      "--api-key-env-variable <name>",
+      "Write an environment-variable reference (not the secret) into repo and/or user MCP config. Implies --auth api-key. The MCP client must see this variable in its process environment",
     )
 }
 
@@ -78,6 +81,7 @@ Examples (non-interactive):
   npx ctxpipe init --org acme --agents codex,claude --scope repo --non-interactive
   npx ctxpipe mcp add --org acme --client cursor --scope repo --non-interactive
   npx ctxpipe mcp add --org acme --client cursor --scope user --auth api-key --api-key "$CTXPIPE_API_KEY" --non-interactive
+  npx ctxpipe mcp add --org acme --client cursor --scope both --api-key-env-variable CTXPIPE_API_KEY --non-interactive
   npx ctxpipe doctor --json
   npx ctxpipe doctor mcp --url "https://app.example.com/mcp?orgSlug=acme"
 `,
@@ -121,7 +125,11 @@ Examples (non-interactive):
           collectList,
           [] as string[],
         )
-        .option("--dry-run", "Print planned changes without writing files", false)
+        .option(
+          "--dry-run",
+          "Print planned changes without writing files",
+          false,
+        )
         .option(
           "--json",
           "Print machine-readable JSON (use with --non-interactive to apply; init only for apply summary)",
@@ -144,8 +152,9 @@ Examples (non-interactive):
           `
 MCP auth:
   Default is OAuth: URL-only config for repo, user, or both. The client completes browser OAuth.
-  --auth api-key writes the x-api-key header only to user-level client config (never repository files).
-  --scope repo or both with an API key skips repo MCP writes.
+  --api-key writes the raw x-api-key header only to user-level client config (never repository files).
+  --api-key-env-variable writes a client-specific environment-variable reference in the requested scope (repo, user, or both).
+  --auth api-key still accepts CTXPIPE_API_KEY as a user-scope literal key.
 `,
         ),
     ),
@@ -163,6 +172,7 @@ MCP auth:
       memory?: boolean
       auth?: string
       apiKey?: string
+      apiKeyEnvVariable?: string
     }
     const agents = [
       ...(opts.agents ?? []),
@@ -181,6 +191,7 @@ MCP auth:
       memory: opts.memory,
       auth: opts.auth,
       apiKey: opts.apiKey,
+      apiKeyEnvVariable: opts.apiKeyEnvVariable,
     })
   })
 
@@ -266,7 +277,11 @@ result means the endpoint is ready for OAuth, not that authenticated tools work.
           collectList,
           [] as string[],
         )
-        .option("--dry-run", "Print planned changes without writing files", false)
+        .option(
+          "--dry-run",
+          "Print planned changes without writing files",
+          false,
+        )
         .option(
           "--json",
           "Print machine-readable JSON (use with --non-interactive to apply)",
@@ -277,8 +292,9 @@ result means the endpoint is ready for OAuth, not that authenticated tools work.
           `
 MCP auth:
   Default is OAuth: URL-only config for repo, user, or both. The client completes browser OAuth.
-  --auth api-key writes the x-api-key header only to user-level client config (never repository files).
-  --scope repo or both with an API key skips repo MCP writes.
+  --api-key writes the raw x-api-key header only to user-level client config (never repository files).
+  --api-key-env-variable writes a client-specific environment-variable reference in the requested scope (repo, user, or both).
+  --auth api-key still accepts CTXPIPE_API_KEY as a user-scope literal key.
 `,
         ),
     ),
@@ -293,6 +309,7 @@ MCP auth:
       json: boolean
       auth?: string
       apiKey?: string
+      apiKeyEnvVariable?: string
     }
     const clients = [...(opts.client ?? []), ...(opts.clients ?? [])]
     await runMcpAdd({
@@ -305,6 +322,7 @@ MCP auth:
       nonInteractive: resolveNonInteractive(rawOpts),
       auth: opts.auth,
       apiKey: opts.apiKey,
+      apiKeyEnvVariable: opts.apiKeyEnvVariable,
     })
   })
 
