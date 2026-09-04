@@ -113,10 +113,11 @@ OpenCode uses `mcp`:
 }
 ```
 
-Do not add API keys to repository config. The PR workflow is designed for MCP
+Do not add raw API keys to repository config. The PR workflow is designed for MCP
 clients that can complete OAuth authorization after the config is merged. For a
-machine that cannot complete OAuth, configure API-key auth in user-level client
-config instead. See [API-key auth](/docs/mcp/mcp-docs#api-key-auth-user-level).
+machine that cannot complete OAuth, paste a key into user-level client config or
+write an environment-variable reference with `--api-key-env-variable`. See
+[API-key auth](/docs/mcp/mcp-docs#api-key-auth-user-level).
 
 ## Merge Behavior
 

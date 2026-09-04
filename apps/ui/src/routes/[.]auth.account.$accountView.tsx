@@ -24,7 +24,7 @@ function AccountViewRoute() {
             LINK: "Link OAuth",
             UNLINK: "Unlink OAuth",
             API_KEYS_DESCRIPTION:
-              "Create keys to authenticate MCP from user-level client config with the x-api-key header. Keys expire in 30 days by default. Do not put keys in repository files.",
+              "Create keys to authenticate MCP with the x-api-key header. Paste a key into user-level client config, or point MCP config at an environment variable. Keys expire in 30 days by default. Do not put the key value in repository files.",
           }}
           classNames={betterAuthShellClassNames}
         />
