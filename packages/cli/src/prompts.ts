@@ -9,8 +9,7 @@ import {
   spinner,
   text,
 } from "@clack/prompts"
-import type { McpAuthMode } from "./mcp/auth-mode.js"
-import { CLIENT_COMMANDS, CLIENT_LABELS, CLIENTS, type Client } from "./constants.js"
+import type { Organization } from "./auth.js"
 import {
   fetchOrganizations,
   fetchSession,
@@ -19,8 +18,15 @@ import {
   readStoredAuth,
   userLabel,
 } from "./auth.js"
-import type { Organization } from "./auth.js"
+import {
+  CLIENT_COMMANDS,
+  CLIENT_LABELS,
+  CLIENTS,
+  type Client,
+} from "./constants.js"
 import { readJsonObject } from "./fs-operations.js"
+import type { McpAuthMode } from "./mcp/auth-mode.js"
+import { validateEnvVariableName } from "./mcp/auth-mode.js"
 import { commandExists } from "./system.js"
 import { muted, printWizardHeader } from "./ui.js"
 
@@ -38,6 +44,7 @@ export type InitPromptState = {
   mcp: boolean
   auth: string | null
   apiKey: string | null
+  apiKeyEnvVariable: string | null
   /** Tri-state from CLI flags. undefined means "ask". */
   memory?: boolean | undefined
 }
@@ -49,6 +56,7 @@ export type InitPromptAnswers = {
   memory?: boolean
   auth?: McpAuthMode
   apiKey?: string
+  apiKeyEnvVariable?: string
 }
 
 export type McpPromptState = {
@@ -57,6 +65,7 @@ export type McpPromptState = {
   scope: string | null
   auth: string | null
   apiKey: string | null
+  apiKeyEnvVariable: string | null
 }
 
 export type McpPromptAnswers = {
@@ -65,6 +74,7 @@ export type McpPromptAnswers = {
   clients?: Client[]
   auth?: McpAuthMode
   apiKey?: string
+  apiKeyEnvVariable?: string
 }
 
 export type MemoryInitPromptState = {
@@ -127,7 +137,9 @@ export async function promptMemoryInitWizard(
 async function promptMemoryAgents(): Promise<Client[]> {
   const detectSpinner = spinner()
   detectSpinner.start("Detecting installed agents")
-  const detected = CLIENTS.filter((client) => commandExists(CLIENT_COMMANDS[client]))
+  const detected = CLIENTS.filter((client) =>
+    commandExists(CLIENT_COMMANDS[client]),
+  )
   detectSpinner.stop(
     detected.length > 0
       ? `Detected ${detected.length} agent${detected.length === 1 ? "" : "s"}`
@@ -172,7 +184,11 @@ async function promptMemoryAuthOrSkip(baseUrl: string): Promise<string | null> {
   })
 
   if (choice === "skip") {
-    log.message(muted("Local-only mode — Markdown memory and capture hooks need no account."))
+    log.message(
+      muted(
+        "Local-only mode — Markdown memory and capture hooks need no account.",
+      ),
+    )
     return null
   }
 
@@ -196,7 +212,9 @@ async function resolveOrgFromAuth(
       fetchOrganizations({ baseUrl, accessToken }).catch(() => []),
       fetchSession({ baseUrl, accessToken }).catch(() => null),
     ])
-    orgSpinner.stop(orgs.length > 0 ? "Loaded ctx| organizations" : "No organizations found")
+    orgSpinner.stop(
+      orgs.length > 0 ? "Loaded ctx| organizations" : "No organizations found",
+    )
   } catch (error) {
     orgSpinner.stop("Could not load ctx| organizations")
     throw error
@@ -258,11 +276,11 @@ export async function promptInitWizard(
     Object.assign(answers, await promptMcpAuth(current))
   }
   if (!current.scope) {
-    if (answers.auth === "api-key" || current.auth === "api-key") {
+    if (usesLiteralApiKey(answers, current)) {
       answers.scope = "user"
       log.message(
         muted(
-          "API-key MCP is user-scope only. Keys are never written to repository files.",
+          "Pasted API keys are written only to user-level client config. Use an environment-variable reference to configure repo scope.",
         ),
       )
     } else {
@@ -273,12 +291,14 @@ export async function promptInitWizard(
           {
             title: "This repo",
             value: "repo",
-            description: "Write project files such as .ctxpipe/config.json and MCP config.",
+            description:
+              "Write project files such as .ctxpipe/config.json and MCP config.",
           },
           {
             title: "Globally",
             value: "user",
-            description: "Configure supported clients for your whole machine when possible.",
+            description:
+              "Configure supported clients for your whole machine when possible.",
           },
           {
             title: "Both",
@@ -304,8 +324,12 @@ async function promptSetupOrg(baseUrl: string): Promise<string> {
     sessionSpinner.start("Checking existing ctx| session")
     try {
       ;[orgs, session] = await Promise.all([
-        fetchOrganizations({ baseUrl, accessToken: auth.accessToken }).catch(() => []),
-        fetchSession({ baseUrl, accessToken: auth.accessToken }).catch(() => null),
+        fetchOrganizations({ baseUrl, accessToken: auth.accessToken }).catch(
+          () => [],
+        ),
+        fetchSession({ baseUrl, accessToken: auth.accessToken }).catch(
+          () => null,
+        ),
       ])
       sessionSpinner.stop(
         orgs.length > 0 ? "Loaded ctx| organizations" : "Sign-in required",
@@ -325,7 +349,9 @@ async function promptSetupOrg(baseUrl: string): Promise<string> {
     try {
       ;[orgs, session] = await Promise.all([
         fetchOrganizations({ baseUrl, accessToken: auth.accessToken }),
-        fetchSession({ baseUrl, accessToken: auth.accessToken }).catch(() => null),
+        fetchSession({ baseUrl, accessToken: auth.accessToken }).catch(
+          () => null,
+        ),
       ])
       orgSpinner.stop("Loaded ctx| organizations")
     } catch (error) {
@@ -370,7 +396,11 @@ export async function promptMcpWizard(
 ): Promise<McpPromptAnswers> {
   printWizardHeader()
   log.step("MCP")
-  log.message(muted("Choose the clients ctxpipe should configure for this machine or repo."))
+  log.message(
+    muted(
+      "Choose the clients ctxpipe should configure for this machine or repo.",
+    ),
+  )
 
   const answers: McpPromptAnswers = {}
   if (!current.org) {
@@ -384,11 +414,11 @@ export async function promptMcpWizard(
   }
   Object.assign(answers, await promptMcpAuth(current))
   if (!current.scope) {
-    if (answers.auth === "api-key" || current.auth === "api-key") {
+    if (usesLiteralApiKey(answers, current)) {
       answers.scope = "user"
       log.message(
         muted(
-          "API-key MCP is user-scope only. Keys are never written to repository files.",
+          "Pasted API keys are written only to user-level client config. Use an environment-variable reference to configure repo scope.",
         ),
       )
     } else {
@@ -409,9 +439,18 @@ export async function promptMcpWizard(
 async function promptMcpAuth(current: {
   auth: string | null
   apiKey: string | null
-}): Promise<{ auth?: McpAuthMode; apiKey?: string }> {
-  const answers: { auth?: McpAuthMode; apiKey?: string } = {}
-  if (!current.auth) {
+  apiKeyEnvVariable: string | null
+}): Promise<{
+  auth?: McpAuthMode
+  apiKey?: string
+  apiKeyEnvVariable?: string
+}> {
+  const answers: {
+    auth?: McpAuthMode
+    apiKey?: string
+    apiKeyEnvVariable?: string
+  } = {}
+  if (!current.auth && !current.apiKey && !current.apiKeyEnvVariable) {
     answers.auth = await promptSelect<McpAuthMode>({
       message: "How should this machine authenticate MCP?",
       initial: "oauth",
@@ -419,28 +458,62 @@ async function promptMcpAuth(current: {
         {
           title: "OAuth (recommended)",
           value: "oauth",
-          description: "URL-only config. The client opens a browser to sign in.",
+          description:
+            "URL-only config. The client opens a browser to sign in.",
         },
         {
           title: "API key",
           value: "api-key",
           description:
-            "Write x-api-key to user-level client config only. Never committed to the repo.",
+            "Use x-api-key. Paste a key into user config, or write an environment-variable reference.",
         },
       ],
     })
   }
-  const auth = answers.auth ?? current.auth
-  if (auth === "api-key" && !current.apiKey) {
-    answers.apiKey = await promptApiKey()
+  const auth =
+    answers.auth ??
+    current.auth ??
+    (current.apiKey || current.apiKeyEnvVariable ? "api-key" : null)
+  if (auth === "api-key" && !current.apiKey && !current.apiKeyEnvVariable) {
+    const placement = await promptSelect<"env" | "literal">({
+      message: "How should the API key be stored?",
+      initial: "env",
+      choices: [
+        {
+          title: "Environment variable",
+          value: "env",
+          description:
+            "Write a placeholder in repo or user MCP config. Set the variable in the client process.",
+        },
+        {
+          title: "Paste key (user config only)",
+          value: "literal",
+          description:
+            "Write the raw key into user-level client config. Never committed to the repo.",
+        },
+      ],
+    })
+    if (placement === "env") {
+      answers.apiKeyEnvVariable = await promptEnvVariableName()
+    } else {
+      answers.apiKey = await promptApiKey()
+    }
   }
   return answers
+}
+
+function usesLiteralApiKey(
+  answers: { apiKey?: string; apiKeyEnvVariable?: string },
+  current: { apiKey: string | null; apiKeyEnvVariable: string | null },
+): boolean {
+  if (answers.apiKeyEnvVariable ?? current.apiKeyEnvVariable) return false
+  return Boolean(answers.apiKey ?? current.apiKey)
 }
 
 async function promptApiKey(): Promise<string> {
   log.message(
     muted(
-      "Create a key under User account → API Keys, then paste it here. Keys are written only to user-level client config.",
+      "Create a key under User account → API Keys, then paste it here. The raw key is written only to user-level client config.",
     ),
   )
   const answer = await password({
@@ -450,10 +523,35 @@ async function promptApiKey(): Promise<string> {
   return String(promptValue(answer)).trim()
 }
 
+async function promptEnvVariableName(): Promise<string> {
+  log.message(
+    muted(
+      "The CLI writes the variable name, not the secret. Set this variable in the MCP client's process environment before connecting.",
+    ),
+  )
+  const answer = await text({
+    message: "Environment variable name",
+    initialValue: "CTXPIPE_API_KEY",
+    validate: (value) => {
+      const name = String(value ?? "").trim()
+      if (!name) return "Required"
+      try {
+        validateEnvVariableName(name)
+        return undefined
+      } catch {
+        return "Use a valid environment variable name (letters, digits, underscore)."
+      }
+    },
+  })
+  return String(promptValue(answer)).trim()
+}
+
 async function promptAgents(): Promise<Client[]> {
   const detectSpinner = spinner()
   detectSpinner.start("Detecting installed agents")
-  const detected = CLIENTS.filter((client) => commandExists(CLIENT_COMMANDS[client]))
+  const detected = CLIENTS.filter((client) =>
+    commandExists(CLIENT_COMMANDS[client]),
+  )
   detectSpinner.stop(
     detected.length > 0
       ? `Detected ${detected.length} agent${detected.length === 1 ? "" : "s"}`
@@ -490,7 +588,9 @@ async function promptText({
 }
 
 export function detectDefaultOrgSlug(): string | undefined {
-  const existing = readJsonObject(resolve(process.cwd(), ".ctxpipe", "config.json"))
+  const existing = readJsonObject(
+    resolve(process.cwd(), ".ctxpipe", "config.json"),
+  )
   if (typeof existing.orgSlug === "string" && existing.orgSlug.trim()) {
     return existing.orgSlug
   }

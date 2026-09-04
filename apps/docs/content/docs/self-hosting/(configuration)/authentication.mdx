@@ -75,8 +75,9 @@ Configure the client with:
 
 The user completes OAuth against this deployment and must be a member of the
 requested organization. OAuth is the normal MCP flow. Dashboard API keys are an
-optional header-based alternative for **user-level** client config (`x-api-key`);
-do not put keys in repository MCP files. See [Remote MCP](/docs/mcp/mcp-docs)
+optional header-based alternative (`x-api-key`): paste a key into user-level
+client config, or point MCP config at an environment variable. Do not put the
+key value in repository MCP files. See [Remote MCP](/docs/mcp/mcp-docs)
 for the API-key CLI path, and [MCP diagnostics](/docs/self-hosting/mcp) when
 discovery or authorization fails.
 

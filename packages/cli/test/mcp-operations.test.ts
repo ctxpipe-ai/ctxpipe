@@ -2,13 +2,13 @@ import { describe, expect, it } from "vitest"
 import {
   buildClientOperations,
   buildCtxpipeConfigOperation,
+  buildMcpOperations,
   buildMemoryConfigOperation,
   buildMemoryMcpOperations,
-  buildMcpOperations,
   createOperationContext,
+  type OperationContext,
   validateClients,
   validateScope,
-  type OperationContext,
   type WriteJsonOperation,
 } from "../src/mcp/mcp-operations.js"
 
@@ -325,10 +325,7 @@ describe("MCP operation builders", () => {
 
     expect(withCli).toMatchObject({
       type: "run",
-      command: expect.arrayContaining([
-        "--header",
-        "x-api-key: ctxp_secret",
-      ]),
+      command: expect.arrayContaining(["--header", "x-api-key: ctxp_secret"]),
     })
     expect(withoutCli).toMatchObject({
       type: "manual",
@@ -378,6 +375,118 @@ describe("MCP operation builders", () => {
     })
     expect(operation?.type === "manual" ? operation.detail : "").toContain(
       'http_headers = { "x-api-key" = "ctxp_secret" }',
+    )
+  })
+
+  it("writes env-variable API-key references to repo and user Cursor config", () => {
+    const operations = buildMcpOperations({
+      clients: ["cursor"],
+      baseUrl: "https://app.ctxpipe.ai",
+      org: "acme",
+      scope: "both",
+      apiKeyEnvVariable: "CTXPIPE_API_KEY",
+      context,
+    })
+
+    expect(operations.map((operation) => writeJson(operation).path)).toEqual([
+      "/repo/.cursor/mcp.json",
+      "/home/alex/.cursor/mcp.json",
+    ])
+    expect(writeJson(operations[0]).content({})).toEqual({
+      mcpServers: {
+        ctxpipe: {
+          type: "streamable-http",
+          url: "https://app.ctxpipe.ai/mcp?orgSlug=acme",
+          headers: { "x-api-key": `\${env:CTXPIPE_API_KEY}` },
+        },
+      },
+    })
+  })
+
+  it("writes OpenCode env interpolation and oauth disabled for repo scope", () => {
+    const [operation] = buildClientOperations({
+      client: "opencode",
+      baseUrl: "https://app.ctxpipe.ai",
+      org: "acme",
+      scope: "repo",
+      apiKeyEnvVariable: "CTXPIPE_API_KEY",
+      context,
+    })
+
+    expect(writeJson(operation).content({})).toEqual({
+      mcp: {
+        ctxpipe: {
+          type: "remote",
+          url: "https://app.ctxpipe.ai/mcp?orgSlug=acme",
+          enabled: true,
+          headers: { "x-api-key": "{env:CTXPIPE_API_KEY}" },
+          oauth: false,
+        },
+      },
+    })
+  })
+
+  it("writes Claude project config with env-var header interpolation", () => {
+    const [operation] = buildClientOperations({
+      client: "claude",
+      baseUrl: "https://app.ctxpipe.ai",
+      org: "acme",
+      scope: "repo",
+      apiKeyEnvVariable: "CTXPIPE_API_KEY",
+      context,
+    })
+
+    expect(writeJson(operation).path).toBe("/repo/.mcp.json")
+    expect(writeJson(operation).content({})).toEqual({
+      mcpServers: {
+        ctxpipe: {
+          type: "streamable-http",
+          url: "https://app.ctxpipe.ai/mcp?orgSlug=acme",
+          headers: { "x-api-key": `\${CTXPIPE_API_KEY}` },
+        },
+      },
+    })
+  })
+
+  it("writes VS Code repo config with env-var headers", () => {
+    const [operation] = buildClientOperations({
+      client: "vscode",
+      baseUrl: "https://app.ctxpipe.ai",
+      org: "acme",
+      scope: "repo",
+      apiKeyEnvVariable: "MY_KEY",
+      context,
+    })
+
+    expect(writeJson(operation).path).toBe("/repo/.vscode/mcp.json")
+    expect(writeJson(operation).content({})).toEqual({
+      servers: {
+        ctxpipe: {
+          type: "http",
+          url: "https://app.ctxpipe.ai/mcp?orgSlug=acme",
+          headers: { "x-api-key": `\${env:MY_KEY}` },
+        },
+      },
+    })
+  })
+
+  it("prints Codex env_http_headers with the variable name", () => {
+    const [operation] = buildClientOperations({
+      client: "codex",
+      baseUrl: "https://app.ctxpipe.ai",
+      org: "acme",
+      scope: "repo",
+      apiKeyEnvVariable: "CTXPIPE_API_KEY",
+      context,
+    })
+
+    expect(operation).toMatchObject({
+      type: "manual",
+      description: "show Codex MCP config snippet",
+    })
+    const detail = operation?.type === "manual" ? operation.detail : ""
+    expect(detail).toContain(
+      'env_http_headers = { "x-api-key" = "CTXPIPE_API_KEY" }',
     )
   })
 })

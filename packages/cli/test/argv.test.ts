@@ -1,5 +1,5 @@
 import { execFileSync } from "node:child_process"
-import { mkdtempSync, readFileSync, existsSync } from "node:fs"
+import { existsSync, mkdtempSync, readFileSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { dirname, join } from "node:path"
 import { fileURLToPath } from "node:url"
@@ -119,7 +119,7 @@ describe("CLI help and argv", () => {
     for (const out of [initHelp, addHelp]) {
       expect(out).toContain("--auth")
       expect(out).toContain("--api-key")
-      expect(out).toContain("user-level")
+      expect(out).toContain("--api-key-env-variable")
       expect(out).toContain("oauth")
       expect(out).toContain("api-key")
     }
@@ -229,5 +229,49 @@ describe("CLI help and argv", () => {
       "ctxp_secret",
     )
     expect(existsSync(join(cwd, ".cursor", "mcp.json"))).toBe(false)
+  })
+
+  it("mcp add --api-key-env-variable writes env references to repo and user Cursor config", () => {
+    const home = mkdtempSync(join(tmpdir(), "ctxpipe-mcp-env-home-"))
+    const cwd = mkdtempSync(join(tmpdir(), "ctxpipe-mcp-env-cwd-"))
+    execFileSync(
+      process.execPath,
+      [
+        bin,
+        "mcp",
+        "add",
+        "--org",
+        "acme",
+        "--client",
+        "cursor",
+        "--scope",
+        "both",
+        "--api-key-env-variable",
+        "CTXPIPE_API_KEY",
+        "--non-interactive",
+      ],
+      {
+        encoding: "utf8",
+        cwd,
+        env: {
+          ...process.env,
+          HOME: home,
+          CTXPIPE_API_KEY: "ctxp_must_not_be_written",
+        },
+      },
+    )
+    const header = { "x-api-key": `\${env:CTXPIPE_API_KEY}` }
+    const repoConfig = JSON.parse(
+      readFileSync(join(cwd, ".cursor", "mcp.json"), "utf8"),
+    ) as {
+      mcpServers: { ctxpipe?: { headers?: { "x-api-key"?: string } } }
+    }
+    const userConfig = JSON.parse(
+      readFileSync(join(home, ".cursor", "mcp.json"), "utf8"),
+    ) as {
+      mcpServers: { ctxpipe?: { headers?: { "x-api-key"?: string } } }
+    }
+    expect(repoConfig.mcpServers.ctxpipe?.headers).toEqual(header)
+    expect(userConfig.mcpServers.ctxpipe?.headers).toEqual(header)
   })
 })
