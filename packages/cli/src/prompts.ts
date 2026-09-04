@@ -4,10 +4,12 @@ import {
   isCancel,
   log,
   multiselect,
+  password,
   select,
   spinner,
   text,
 } from "@clack/prompts"
+import type { McpAuthMode } from "./mcp/auth-mode.js"
 import { CLIENT_COMMANDS, CLIENT_LABELS, CLIENTS, type Client } from "./constants.js"
 import {
   fetchOrganizations,
@@ -34,6 +36,8 @@ export type InitPromptState = {
   agents: string[]
   scope: string | null
   mcp: boolean
+  auth: string | null
+  apiKey: string | null
   /** Tri-state from CLI flags. undefined means "ask". */
   memory?: boolean | undefined
 }
@@ -43,18 +47,24 @@ export type InitPromptAnswers = {
   scope?: "repo" | "user" | "both"
   agents?: Client[]
   memory?: boolean
+  auth?: McpAuthMode
+  apiKey?: string
 }
 
 export type McpPromptState = {
   org: string | null
   clients: string[]
   scope: string | null
+  auth: string | null
+  apiKey: string | null
 }
 
 export type McpPromptAnswers = {
   org?: string
   scope?: "repo" | "user" | "both"
   clients?: Client[]
+  auth?: McpAuthMode
+  apiKey?: string
 }
 
 export type MemoryInitPromptState = {
@@ -232,29 +242,6 @@ export async function promptInitWizard(
   if (!current.org) {
     answers.org = await promptSetupOrg(current.baseUrl)
   }
-  if (!current.scope) {
-    answers.scope = await promptSelect<"repo" | "user" | "both">({
-      message: "Where should ctxpipe apply setup?",
-      initial: "repo",
-      choices: [
-        {
-          title: "This repo",
-          value: "repo",
-          description: "Write project files such as .ctxpipe/config.json and MCP config.",
-        },
-        {
-          title: "Globally",
-          value: "user",
-          description: "Configure supported clients for your whole machine when possible.",
-        },
-        {
-          title: "Both",
-          value: "both",
-          description: "Set up this repo and your user-level client config.",
-        },
-      ],
-    })
-  }
   if (current.memory === undefined) {
     answers.memory = await promptConfirm(
       "Enable local agent memory for this repo? (writes .ai/memory, capture skills/rule, and host hooks)",
@@ -266,6 +253,41 @@ export async function promptInitWizard(
     (current.mcp || current.memory === true || answers.memory === true)
   ) {
     answers.agents = await promptAgents()
+  }
+  if (current.mcp) {
+    Object.assign(answers, await promptMcpAuth(current))
+  }
+  if (!current.scope) {
+    if (answers.auth === "api-key" || current.auth === "api-key") {
+      answers.scope = "user"
+      log.message(
+        muted(
+          "API-key MCP is user-scope only. Keys are never written to repository files.",
+        ),
+      )
+    } else {
+      answers.scope = await promptSelect<"repo" | "user" | "both">({
+        message: "Where should ctxpipe apply setup?",
+        initial: "repo",
+        choices: [
+          {
+            title: "This repo",
+            value: "repo",
+            description: "Write project files such as .ctxpipe/config.json and MCP config.",
+          },
+          {
+            title: "Globally",
+            value: "user",
+            description: "Configure supported clients for your whole machine when possible.",
+          },
+          {
+            title: "Both",
+            value: "both",
+            description: "Set up this repo and your user-level client config.",
+          },
+        ],
+      })
+    }
   }
 
   return answers
@@ -357,21 +379,75 @@ export async function promptMcpWizard(
       initial: detectDefaultOrgSlug(),
     })
   }
-  if (!current.scope) {
-    answers.scope = await promptSelect<"repo" | "user" | "both">({
-      message: "Where should ctxpipe configure MCP?",
-      initial: "repo",
-      choices: [
-        { title: "This repo", value: "repo" },
-        { title: "Globally", value: "user" },
-        { title: "Both", value: "both" },
-      ],
-    })
-  }
   if (current.clients.length === 0) {
     answers.clients = await promptAgents()
   }
+  Object.assign(answers, await promptMcpAuth(current))
+  if (!current.scope) {
+    if (answers.auth === "api-key" || current.auth === "api-key") {
+      answers.scope = "user"
+      log.message(
+        muted(
+          "API-key MCP is user-scope only. Keys are never written to repository files.",
+        ),
+      )
+    } else {
+      answers.scope = await promptSelect<"repo" | "user" | "both">({
+        message: "Where should ctxpipe configure MCP?",
+        initial: "repo",
+        choices: [
+          { title: "This repo", value: "repo" },
+          { title: "Globally", value: "user" },
+          { title: "Both", value: "both" },
+        ],
+      })
+    }
+  }
   return answers
+}
+
+async function promptMcpAuth(current: {
+  auth: string | null
+  apiKey: string | null
+}): Promise<{ auth?: McpAuthMode; apiKey?: string }> {
+  const answers: { auth?: McpAuthMode; apiKey?: string } = {}
+  if (!current.auth) {
+    answers.auth = await promptSelect<McpAuthMode>({
+      message: "How should this machine authenticate MCP?",
+      initial: "oauth",
+      choices: [
+        {
+          title: "OAuth (recommended)",
+          value: "oauth",
+          description: "URL-only config. The client opens a browser to sign in.",
+        },
+        {
+          title: "API key",
+          value: "api-key",
+          description:
+            "Write x-api-key to user-level client config only. Never committed to the repo.",
+        },
+      ],
+    })
+  }
+  const auth = answers.auth ?? current.auth
+  if (auth === "api-key" && !current.apiKey) {
+    answers.apiKey = await promptApiKey()
+  }
+  return answers
+}
+
+async function promptApiKey(): Promise<string> {
+  log.message(
+    muted(
+      "Create a key under User account → API Keys, then paste it here. Keys are written only to user-level client config.",
+    ),
+  )
+  const answer = await password({
+    message: "API key",
+    validate: (value) => (value?.trim() ? undefined : "Required"),
+  })
+  return String(promptValue(answer)).trim()
 }
 
 async function promptAgents(): Promise<Client[]> {

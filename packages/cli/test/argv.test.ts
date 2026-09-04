@@ -1,4 +1,6 @@
 import { execFileSync } from "node:child_process"
+import { mkdtempSync, readFileSync, existsSync } from "node:fs"
+import { tmpdir } from "node:os"
 import { dirname, join } from "node:path"
 import { fileURLToPath } from "node:url"
 import { describe, expect, it } from "vitest"
@@ -109,5 +111,123 @@ describe("CLI help and argv", () => {
     const out = help(["init", "--help"])
     expect(out).toContain("--non-interactive")
     expect(out).toContain("-y")
+  })
+
+  it("init and mcp add --help document OAuth vs API-key auth", () => {
+    const initHelp = help(["init", "--help"])
+    const addHelp = help(["mcp", "add", "--help"])
+    for (const out of [initHelp, addHelp]) {
+      expect(out).toContain("--auth")
+      expect(out).toContain("--api-key")
+      expect(out).toContain("user-level")
+      expect(out).toContain("oauth")
+      expect(out).toContain("api-key")
+    }
+  })
+
+  it("mcp add --auth api-key without a key fails", () => {
+    try {
+      execFileSync(
+        process.execPath,
+        [
+          bin,
+          "mcp",
+          "add",
+          "--org",
+          "acme",
+          "--client",
+          "cursor",
+          "--scope",
+          "user",
+          "--auth",
+          "api-key",
+          "--non-interactive",
+          "--dry-run",
+          "--json",
+        ],
+        {
+          encoding: "utf8",
+          cwd: pkgRoot,
+          env: { ...process.env, CTXPIPE_API_KEY: "" },
+        },
+      )
+      throw new Error("expected mcp add to fail")
+    } catch (error) {
+      const err = error as { status?: number; stderr: string; stdout: string }
+      expect(err.status).not.toBe(0)
+      expect(`${err.stderr}${err.stdout}`).toContain("Missing API key")
+    }
+  })
+
+  it("mcp add --scope repo with an API key skips repo MCP writes", () => {
+    const out = execFileSync(
+      process.execPath,
+      [
+        bin,
+        "mcp",
+        "add",
+        "--org",
+        "acme",
+        "--client",
+        "cursor",
+        "--scope",
+        "repo",
+        "--auth",
+        "api-key",
+        "--api-key",
+        "ctxp_secret",
+        "--non-interactive",
+        "--dry-run",
+        "--json",
+      ],
+      {
+        encoding: "utf8",
+        cwd: pkgRoot,
+        env: { ...process.env, CTXPIPE_API_KEY: "" },
+      },
+    )
+    const data = JSON.parse(out) as { status: string; operations: string[] }
+    expect(data.status).toBe("dry-run")
+    expect(data.operations).toEqual([
+      expect.stringContaining("skip repo MCP writes"),
+    ])
+  })
+
+  it("mcp add --auth api-key writes x-api-key to user Cursor config only", () => {
+    const home = mkdtempSync(join(tmpdir(), "ctxpipe-mcp-home-"))
+    const cwd = mkdtempSync(join(tmpdir(), "ctxpipe-mcp-cwd-"))
+    execFileSync(
+      process.execPath,
+      [
+        bin,
+        "mcp",
+        "add",
+        "--org",
+        "acme",
+        "--client",
+        "cursor",
+        "--scope",
+        "user",
+        "--auth",
+        "api-key",
+        "--api-key",
+        "ctxp_secret",
+        "--non-interactive",
+      ],
+      {
+        encoding: "utf8",
+        cwd,
+        env: { ...process.env, HOME: home, CTXPIPE_API_KEY: "" },
+      },
+    )
+    const userConfig = JSON.parse(
+      readFileSync(join(home, ".cursor", "mcp.json"), "utf8"),
+    ) as {
+      mcpServers: { ctxpipe?: { headers?: { "x-api-key"?: string } } }
+    }
+    expect(userConfig.mcpServers.ctxpipe?.headers?.["x-api-key"]).toBe(
+      "ctxp_secret",
+    )
+    expect(existsSync(join(cwd, ".cursor", "mcp.json"))).toBe(false)
   })
 })
