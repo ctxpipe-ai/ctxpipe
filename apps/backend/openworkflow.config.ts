@@ -13,7 +13,7 @@ import { parseEnv } from "./src/config/env.js"
 import { initDb } from "./src/db/client.js"
 import {
   DB_STARTUP_CONNECTION_RETRY,
-  withDbConnectionAcquisitionRetry,
+  waitForDbConnection,
 } from "./src/db/transientDbRetry.js"
 import {
   createLogger,
@@ -27,10 +27,11 @@ import { backfillGithubAppSecretsFromEnv } from "./src/scripts/backfillGithubCon
 
 const databaseUrl = process.env.DATABASE_URL
 if (!databaseUrl) throw new Error("DATABASE_URL is required for the worker")
-initDb(databaseUrl, DB_STARTUP_CONNECTION_RETRY)
+initDb(databaseUrl)
 const env = parseEnv(process.env as Record<string, string | undefined>)
 initOtel(env)
 initEvlog()
+await waitForDbConnection(databaseUrl, DB_STARTUP_CONNECTION_RETRY)
 await backfillGithubAppSecretsFromEnv(env)
 
 let shuttingDown = false
@@ -62,13 +63,9 @@ const bootstrapLog = createLogger({
 bootstrapLog.info("openworkflow worker config loaded")
 bootstrapLog.emit()
 
-const backend = await withDbConnectionAcquisitionRetry(
-  () =>
-    BackendPostgres.connect(databaseUrl, {
-      namespaceId: openWorkflowNamespaceId(),
-    }),
-  DB_STARTUP_CONNECTION_RETRY,
-)
+const backend = await BackendPostgres.connect(databaseUrl, {
+  namespaceId: openWorkflowNamespaceId(),
+})
 
 export default defineConfig({
   backend,

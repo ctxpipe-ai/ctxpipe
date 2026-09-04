@@ -1,5 +1,13 @@
 import { beforeEach, describe, expect, it, vi } from "vitest"
 
+const { poolConstructorMock } = vi.hoisted(() => ({
+  poolConstructorMock: vi.fn(),
+}))
+
+vi.mock("pg", () => ({
+  Pool: poolConstructorMock,
+}))
+
 vi.mock("../observability/logger.js", () => ({
   log: {
     info: vi.fn(),
@@ -13,6 +21,7 @@ import {
   formatUnknownError,
   isDbConnectionAcquisitionError,
   isTransientDbConnectionError,
+  waitForDbConnection,
   withDbConnectionAcquisitionRetry,
   wrapPoolQueryWithConnectionAcquisitionRetry,
 } from "./transientDbRetry.js"
@@ -213,6 +222,61 @@ describe("withDbConnectionAcquisitionRetry", () => {
   })
 })
 
+describe("waitForDbConnection", () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+    poolConstructorMock.mockReset()
+  })
+
+  it("reuses and closes one probe pool across acquisition retries", async () => {
+    const release = vi.fn()
+    const connect = vi
+      .fn()
+      .mockRejectedValueOnce(
+        Object.assign(new Error("connect ETIMEDOUT"), {
+          code: "ETIMEDOUT",
+          syscall: "connect",
+        }),
+      )
+      .mockResolvedValueOnce({ release })
+    const end = vi.fn().mockResolvedValue(undefined)
+    poolConstructorMock.mockImplementation(function PoolMock() {
+      return { connect, end }
+    })
+
+    await waitForDbConnection("postgresql://example", {
+      retries: 1,
+      baseDelayMs: 1,
+    })
+
+    expect(poolConstructorMock).toHaveBeenCalledTimes(1)
+    expect(poolConstructorMock).toHaveBeenCalledWith(
+      expect.objectContaining({ max: 1, connectionTimeoutMillis: 5_000 }),
+    )
+    expect(connect).toHaveBeenCalledTimes(2)
+    expect(release).toHaveBeenCalledTimes(1)
+    expect(end).toHaveBeenCalledTimes(1)
+  })
+
+  it("closes the probe pool when acquisition fails permanently", async () => {
+    const connect = vi.fn().mockRejectedValue(new Error("password failed"))
+    const end = vi.fn().mockResolvedValue(undefined)
+    poolConstructorMock.mockImplementation(function PoolMock() {
+      return { connect, end }
+    })
+
+    await expect(
+      waitForDbConnection("postgresql://example", {
+        retries: 2,
+        baseDelayMs: 1,
+      }),
+    ).rejects.toThrow("password failed")
+
+    expect(connect).toHaveBeenCalledTimes(1)
+    expect(end).toHaveBeenCalledTimes(1)
+  })
+})
+
 describe("wrapPoolQueryWithConnectionAcquisitionRetry", () => {
   beforeEach(() => {
     vi.clearAllMocks()
@@ -242,31 +306,6 @@ describe("wrapPoolQueryWithConnectionAcquisitionRetry", () => {
     expect(log.info).toHaveBeenCalledWith(
       expect.objectContaining({ step: "db.connection_acquisition_retry" }),
     )
-  })
-
-  it("uses a caller-provided acquisition retry budget", async () => {
-    let n = 0
-    const pool = {
-      query: vi.fn(async () => {
-        n += 1
-        if (n < 3) throw new Error("timeout exceeded when trying to connect")
-        return { rows: [{ ok: true }] }
-      }),
-    }
-
-    wrapPoolQueryWithConnectionAcquisitionRetry(
-      pool as unknown as import("pg").Pool,
-      { retries: 2, baseDelayMs: 1 },
-    )
-
-    await expect(
-      (
-        pool.query as unknown as (
-          sql: string,
-        ) => Promise<{ rows: { ok: boolean }[] }>
-      )("select 1"),
-    ).resolves.toEqual({ rows: [{ ok: true }] })
-    expect(n).toBe(3)
   })
 
   it("leaves callback-style query unwrapped for retry", () => {

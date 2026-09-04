@@ -1,4 +1,4 @@
-import type { Pool } from "pg"
+import { Pool } from "pg"
 import { log } from "../observability/logger.js"
 
 const TRANSIENT_CONNECTION_CODES = new Set([
@@ -202,23 +202,45 @@ export async function withDbConnectionAcquisitionRetry<T>(
 }
 
 /**
+ * Wait for a database handshake before starting a subsystem that owns an
+ * opaque connection pool. The probe pool is always closed between startup and
+ * the subsystem's one real initialisation attempt.
+ */
+export async function waitForDbConnection(
+  connectionString: string,
+  opts: DbConnectionAcquisitionRetryOptions,
+): Promise<void> {
+  const pool = new Pool({
+    connectionString,
+    max: 1,
+    allowExitOnIdle: true,
+    connectionTimeoutMillis: 5_000,
+    application_name: "ctxpipe-startup-probe",
+  })
+  try {
+    await withDbConnectionAcquisitionRetry(async () => {
+      const client = await pool.connect()
+      client.release()
+    }, opts)
+  } finally {
+    await pool.end()
+  }
+}
+
+/**
  * Wrap `pool.query` so promise-based queries retry only when connection
  * acquisition failed before Postgres received the statement. Callback-style
  * queries are left unchanged.
  */
-export function wrapPoolQueryWithConnectionAcquisitionRetry(
-  pool: Pool,
-  opts?: DbConnectionAcquisitionRetryOptions,
-): void {
+export function wrapPoolQueryWithConnectionAcquisitionRetry(pool: Pool): void {
   const originalQuery = pool.query.bind(pool) as (...args: unknown[]) => unknown
 
   pool.query = ((...args: unknown[]) => {
     const maybeCallback = args.find((a) => typeof a === "function")
     if (maybeCallback) return originalQuery(...args)
 
-    return withDbConnectionAcquisitionRetry(
-      () => Promise.resolve(originalQuery(...args)),
-      opts,
+    return withDbConnectionAcquisitionRetry(() =>
+      Promise.resolve(originalQuery(...args)),
     )
   }) as typeof pool.query
 }
