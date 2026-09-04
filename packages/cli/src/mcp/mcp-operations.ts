@@ -422,7 +422,7 @@ export function buildClientOperations({
           {
             type: "manual",
             description: "show Claude Code user MCP add command",
-            detail: `Run: claude mcp add --transport http ctxpipe --scope user --header "x-api-key: ${headerValue}" ${url}`,
+            detail: `Run: claude mcp add --transport http ctxpipe --scope user --header 'x-api-key: ${headerValue}' ${url}`,
           },
         ]
       }

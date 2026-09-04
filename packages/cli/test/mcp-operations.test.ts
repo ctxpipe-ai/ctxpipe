@@ -332,8 +332,31 @@ describe("MCP operation builders", () => {
       description: "show Claude Code user MCP add command",
     })
     expect(withoutCli?.type === "manual" ? withoutCli.detail : "").toContain(
-      '--header "x-api-key: ctxp_secret"',
+      "--header 'x-api-key: ctxp_secret'",
     )
+  })
+
+  it("prints Claude user env-header commands with single-quoted interpolants", () => {
+    const [operation] = buildClientOperations({
+      client: "claude",
+      baseUrl: "https://app.ctxpipe.ai",
+      org: "acme",
+      scope: "user",
+      apiKeyEnvVariable: "CTXPIPE_API_KEY",
+      context: createOperationContext({
+        cwd: "/repo",
+        homeDir: "/home/alex",
+        commandExists: () => false,
+      }),
+    })
+
+    expect(operation).toMatchObject({
+      type: "manual",
+      description: "show Claude Code user MCP add command",
+    })
+    const detail = operation?.type === "manual" ? operation.detail : ""
+    expect(detail).toContain("--header 'x-api-key: ${CTXPIPE_API_KEY}'")
+    expect(detail).not.toContain('--header "x-api-key:')
   })
 
   it("includes headers in the VS Code user install payload", () => {
