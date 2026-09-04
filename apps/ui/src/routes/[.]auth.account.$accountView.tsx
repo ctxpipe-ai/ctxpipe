@@ -23,6 +23,8 @@ function AccountViewRoute() {
               "Connect your account with third-party OAuth services. GitHub App repository installation is managed in Repositories.",
             LINK: "Link OAuth",
             UNLINK: "Unlink OAuth",
+            API_KEYS_DESCRIPTION:
+              "Create keys to authenticate MCP from user-level client config with the x-api-key header. Keys expire in 30 days by default. Do not put keys in repository files.",
           }}
           classNames={betterAuthShellClassNames}
         />

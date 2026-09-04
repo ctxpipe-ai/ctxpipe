@@ -43,7 +43,7 @@ There are four practical ways to install ctx| MCP:
 - **Raise pull requests** - best for enabling a team by committing MCP config files into shared repositories.
 - **Manual config** - useful when you need to paste JSON yourself or use a client the CLI does not fully automate.
 
-The CLI and PR flow both write configuration. They do **not** remove the need for MCP authorization. When a client first uses ctx| MCP, it should still redirect you to ctx| so you can sign in and authorize access.
+The CLI and PR flow both write configuration. They do **not** remove the need for MCP authorization. When a client first uses ctx| MCP, it should still redirect you to ctx| so you can sign in and authorize access. If the client cannot complete OAuth, use [API-key auth](#api-key-auth-user-level) in user-level config instead.
 
 ## CLI installer (`npx ctxpipe`)
 
@@ -85,7 +85,7 @@ npx ctxpipe mcp add --org acme --client opencode --scope user --non-interactive
 npx ctxpipe doctor --json
 ```
 
-Use `npx ctxpipe init --help` and `npx ctxpipe mcp add --help` for the full flag list, including `--base-url`, `--org`, `--scope`, `--agents`, `--client`, `--non-interactive`, `--json`, and `--dry-run`.
+Use `npx ctxpipe init --help` and `npx ctxpipe mcp add --help` for the full flag list, including `--base-url`, `--org`, `--scope`, `--agents`, `--client`, `--auth`, `--api-key`, `--non-interactive`, `--json`, and `--dry-run`.
 
 Setup sign-in is separate from MCP authorization. The CLI signs you in so it can list organizations and write correct config. It stores setup credentials in the OS keychain when available, with a file fallback under `~/.config/ctxpipe/` when keyring access is not possible.
 
@@ -116,6 +116,76 @@ Use `npx ctxpipe memory init` when you want local memory only, or when remote
 ctx| MCP is already configured and you are adding memory later.
 
 Read the full guide: [Local memory](/docs/mcp/local-memory).
+
+## API-key auth (user-level)
+
+OAuth is the default. Use an API key only when a client cannot complete the browser OAuth flow. Keys authenticate MCP with the `x-api-key` header and belong in **user-level** client config only. Never put a key (or a headers block) in a repository file, onboarding paste, or an Install MCP via PRs change.
+
+Create a key in the product under **User account → API Keys**. New keys inherit a 30-day default expiry and a plugin limit of 1,000 requests per hour. Recreate a key after it expires; existing keys keep the limit stored when they were minted.
+
+The CLI never mints keys. Pass a key you already created:
+
+```bash
+npx ctxpipe mcp add --org acme --client cursor --scope user --auth api-key --api-key "$CTXPIPE_API_KEY" --non-interactive
+```
+
+`--auth api-key` requires `--api-key <key>` or `CTXPIPE_API_KEY`. `--scope repo` or `both` skips repository MCP writes and says so. The interactive wizard does not offer repo scope for API-key mode.
+
+### Cursor (`~/.cursor/mcp.json`)
+
+```json
+{
+  "mcpServers": {
+    "ctxpipe": {
+      "type": "streamable-http",
+      "url": "https://app.ctxpipe.ai/mcp?orgSlug=your-org",
+      "headers": {
+        "x-api-key": "<your-api-key>"
+      }
+    }
+  }
+}
+```
+
+### Claude Code (user scope)
+
+```bash
+claude mcp add --transport http ctxpipe --scope user --header "x-api-key: <your-api-key>" "https://app.ctxpipe.ai/mcp?orgSlug=your-org"
+```
+
+Do not add that header to project `.mcp.json`.
+
+### OpenCode (`~/.config/opencode/opencode.json`)
+
+```json
+{
+  "mcp": {
+    "ctxpipe": {
+      "type": "remote",
+      "url": "https://app.ctxpipe.ai/mcp?orgSlug=your-org",
+      "enabled": true,
+      "headers": {
+        "x-api-key": "<your-api-key>"
+      },
+      "oauth": false
+    }
+  }
+}
+```
+
+`oauth: false` stops OpenCode from starting a browser flow after a 401.
+
+### VS Code / Copilot
+
+Include `headers` in the user-scope `vscode:mcp/install` payload. Repo `.vscode/mcp.json` stays URL-only.
+
+### Codex (`~/.codex/config.toml`)
+
+```toml
+[mcp_servers.ctxpipe]
+url = "https://app.ctxpipe.ai/mcp?orgSlug=your-org"
+http_headers = { "x-api-key" = "<your-api-key>" }
+```
 
 ## Team Setup Via Pull Requests
 
@@ -155,7 +225,7 @@ Manual config is the fallback when you do not want to use the CLI, the client is
 Your MCP client should redirect you to ctx| to sign in and authorize access.
 After approval, it returns to the client and the server is ready to use.
 
-No bearer token setup is required when your client supports OAuth redirect for MCP.
+No bearer token setup is required when your client supports OAuth redirect for MCP. If it cannot complete OAuth, use [API-key auth](#api-key-auth-user-level) in user-level config.
 
 ## Client-Specific Configuration
 
@@ -247,7 +317,7 @@ If your client's docs only mention `http` or SSE, check the current client docum
 - **OpenCode shows the server but it never connects** - use the top-level `mcp.ctxpipe` shape with `type: "remote"` and `enabled: true`.
 - **`streamable-http` is not recognized** - upgrade the client, or check whether that client expects `http` for its config key while still using a Streamable HTTP remote server.
 - **Team PR flow is unavailable** - confirm GitHub is connected, the repositories are visible to the GitHub App installation, and your ctx| account is an organization admin or owner.
-- **Your client cannot complete OAuth** - use a client with remote MCP OAuth support. The hosted docs assume OAuth-based MCP access.
+- **Your client cannot complete OAuth** - use [API-key auth](#api-key-auth-user-level) in user-level client config. Do not put keys in repository files.
 
 ## Notes
 
