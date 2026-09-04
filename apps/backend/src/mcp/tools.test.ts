@@ -547,4 +547,80 @@ describe("registerMcpTools", () => {
     }
     expect(callArg.currentProjectName).toBeNull()
   })
+
+  it("does not treat the user prompt as advisor progress or the answer", async () => {
+    streamMock.mockResolvedValueOnce(
+      (async function* () {
+        yield {
+          messages: [{ content: "How should we structure this route?" }],
+        }
+      })(),
+    )
+
+    const registerToolMock = vi.fn()
+    const server = { registerTool: registerToolMock } as unknown as McpServer
+    registerMcpTools(server)
+    const [, , handler] = registerToolMock.mock.calls[0] as [
+      string,
+      unknown,
+      (
+        input: { prompt: string },
+        extra: {
+          _meta?: { progressToken?: string }
+          sendNotification: (notification: unknown) => Promise<void>
+        },
+      ) => Promise<{ content: Array<{ text: string }> }>,
+    ]
+    const sendNotification = vi.fn(async () => {})
+
+    const result = await handler(
+      { prompt: "How should we structure this route?" },
+      { _meta: { progressToken: "progress_prompt" }, sendNotification },
+    )
+
+    expect(result.content[0]?.text).toBe("No answer could be produced.")
+    expect(sendNotification).toHaveBeenCalledWith({
+      method: "notifications/progress",
+      params: expect.objectContaining({
+        message: "Searching organisation context…",
+      }),
+    })
+    expect(sendNotification).not.toHaveBeenCalledWith({
+      method: "notifications/progress",
+      params: expect.objectContaining({
+        message: "How should we structure this route?",
+      }),
+    })
+  })
+
+  it("returns a tool error instead of rejecting when the graph throws", async () => {
+    streamMock.mockRejectedValueOnce(
+      new Error("codesearch failed with status 503"),
+    )
+
+    const registerToolMock = vi.fn()
+    const server = { registerTool: registerToolMock } as unknown as McpServer
+    registerMcpTools(server)
+    const [, , handler] = registerToolMock.mock.calls[0] as [
+      string,
+      unknown,
+      (
+        input: { prompt: string },
+        extra: { sendNotification: (notification: unknown) => Promise<void> },
+      ) => Promise<{
+        isError?: boolean
+        content: Array<{ text: string }>
+      }>,
+    ]
+
+    await expect(
+      handler(
+        { prompt: "Search everything" },
+        { sendNotification: vi.fn(async () => {}) },
+      ),
+    ).resolves.toMatchObject({
+      isError: true,
+      content: [{ text: "codesearch failed with status 503" }],
+    })
+  })
 })

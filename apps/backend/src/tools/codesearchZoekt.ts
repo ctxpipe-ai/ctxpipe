@@ -4,6 +4,7 @@ import { codesearchBaseUrl } from "../lib/agentToolRuntime.js"
 import {
   CODESEARCH_QUERY_RETRY,
   CODESEARCH_QUERY_TIMEOUT_MS,
+  TransientHttpError,
   withTransientHttpRetry,
 } from "../lib/withTransientHttpRetry.js"
 
@@ -52,23 +53,35 @@ export async function zoektSearchRepository(
   })
 
   const requestSignal = AbortSignal.timeout(CODESEARCH_QUERY_TIMEOUT_MS)
-  const res = await withTransientHttpRetry(
-    async () =>
-      fetch(`${codesearchBaseUrl()}/search`, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: `Bearer ${token}`,
-        },
-        body: JSON.stringify({
-          Q,
-          RepoIDs: [repository.zoektRepoId],
-          Opts: opts,
+  let res: Response
+  try {
+    res = await withTransientHttpRetry(
+      async () =>
+        fetch(`${codesearchBaseUrl()}/search`, {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            Authorization: `Bearer ${token}`,
+          },
+          body: JSON.stringify({
+            Q,
+            RepoIDs: [repository.zoektRepoId],
+            Opts: opts,
+          }),
+          signal: requestSignal,
         }),
-        signal: requestSignal,
-      }),
-    CODESEARCH_QUERY_RETRY,
-  )
+      CODESEARCH_QUERY_RETRY,
+    )
+  } catch (error) {
+    if (error instanceof TransientHttpError) {
+      return {
+        ok: false,
+        status: error.status ?? 503,
+        error: "search_unavailable",
+      }
+    }
+    throw error
+  }
 
   if (res.status >= 400 && res.status < 500) {
     const body = await res.text().catch(() => "")

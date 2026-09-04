@@ -3,6 +3,7 @@ import {
   AuthRequestError,
   fetchOrganizations,
   fetchSession,
+  isAccessTokenExpired,
   isAuthReauthenticationRequired,
 } from "../src/auth.js"
 
@@ -98,6 +99,29 @@ describe("CLI auth HTTP handling", () => {
 
     expect(error).toBeInstanceOf(AuthRequestError)
     expect(isAuthReauthenticationRequired(error)).toBe(true)
+  })
+
+  it("treats an expired device-flow token as signed out", () => {
+    expect(
+      isAccessTokenExpired({
+        baseUrl: "https://app.ctxpipe.ai",
+        accessToken: "token",
+        refreshToken: null,
+        tokenType: "Bearer",
+        expiresAt: "2020-01-01T00:00:00.000Z",
+        createdAt: "2020-01-01T00:00:00.000Z",
+      }),
+    ).toBe(true)
+    expect(
+      isAccessTokenExpired({
+        baseUrl: "https://app.ctxpipe.ai",
+        accessToken: "token",
+        refreshToken: null,
+        tokenType: "Bearer",
+        expiresAt: null,
+        createdAt: "2020-01-01T00:00:00.000Z",
+      }),
+    ).toBe(false)
   })
 
   it("does not hide an invalid successful JSON response", async () => {

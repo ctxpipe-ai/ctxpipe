@@ -202,9 +202,10 @@ export function registerMcpTools(server: McpServer): void {
                     finalMessages = chunk.messages
 
                     if (progressToken == null) continue
-                    const currentText = extractFinalText({
-                      messages: chunk.messages,
-                    })
+                    const currentText = extractFinalText(
+                      { messages: chunk.messages },
+                      prompt,
+                    )
                     if (
                       currentText.length === 0 ||
                       currentText === "No answer could be produced."
@@ -224,7 +225,7 @@ export function registerMcpTools(server: McpServer): void {
                   const result = {
                     messages: finalMessages ?? [],
                   }
-                  const text = extractFinalText(result)
+                  const text = extractFinalText(result, prompt)
                   if (
                     progressToken != null &&
                     text.length > 0 &&
@@ -250,7 +251,10 @@ export function registerMcpTools(server: McpServer): void {
                     )
                     return {
                       content: [
-                        { type: "text", text: extractFinalText(fallback) },
+                        {
+                          type: "text",
+                          text: extractFinalText(fallback, prompt),
+                        },
                       ],
                     }
                   }
@@ -270,7 +274,18 @@ export function registerMcpTools(server: McpServer): void {
                 step: "conversation.mcp.ctx_advisor",
               },
             )
-            throw error
+            return {
+              isError: true,
+              content: [
+                {
+                  type: "text" as const,
+                  text:
+                    error instanceof Error
+                      ? error.message
+                      : "ctx_advisor failed",
+                },
+              ],
+            }
           }
         },
       )
@@ -278,7 +293,7 @@ export function registerMcpTools(server: McpServer): void {
   )
 }
 
-function extractFinalText(result: unknown): string {
+function extractFinalText(result: unknown, userPrompt?: string): string {
   if (
     typeof result !== "object" ||
     result === null ||
@@ -300,7 +315,11 @@ function extractFinalText(result: unknown): string {
   const content = finalMessage.content
   if (typeof content === "string") {
     const trimmed = content.trim()
-    return trimmed.length > 0 ? trimmed : "No answer could be produced."
+    if (trimmed.length === 0) return "No answer could be produced."
+    if (userPrompt != null && trimmed === userPrompt.trim()) {
+      return "No answer could be produced."
+    }
+    return trimmed
   }
 
   if (Array.isArray(content)) {

@@ -307,7 +307,11 @@ export async function ensureFreshAccessToken({
 }): Promise<StoredAuth | null> {
   const auth = await readStoredAuth(baseUrl)
   if (!auth) return null
-  if (!isExpiringSoon(auth, now)) return auth
+  const clock = now ?? new Date()
+  // Device-flow sessions have no refresh token. An expired access token is
+  // signed-out, not something we can revive via jwt `/token`.
+  if (isAccessTokenExpired(auth, clock) && !auth.refreshToken) return null
+  if (!isExpiringSoon(auth, clock)) return auth
   if (!auth.refreshToken) return auth
   try {
     const refreshed = await refreshAccessToken({
@@ -317,8 +321,18 @@ export async function ensureFreshAccessToken({
     await writeStoredAuth(refreshed)
     return refreshed
   } catch {
-    return auth
+    return isAccessTokenExpired(auth, clock) ? null : auth
   }
+}
+
+export function isAccessTokenExpired(
+  auth: StoredAuth,
+  now: Date = new Date(),
+): boolean {
+  if (!auth.expiresAt) return false
+  const expires = Date.parse(auth.expiresAt)
+  if (Number.isNaN(expires)) return false
+  return expires <= now.getTime()
 }
 
 export function isExpiringSoon(

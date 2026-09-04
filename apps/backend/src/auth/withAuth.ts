@@ -148,10 +148,13 @@ async function resolveJwks(
   }
 
   const jwksUrl = new URL("/.auth/api/v1/auth/jwks", authBaseUrl)
-  let response = await auth.handler(new Request(jwksUrl)).catch((err) => {
+  let response: Response
+  try {
+    response = await auth.handler(new Request(jwksUrl))
+  } catch (err) {
     getLogger().error("Error fetching JWKS", { error: err })
-    return new Response(null, { status: 500 })
-  })
+    throw err instanceof Error ? err : new Error(String(err))
+  }
 
   if (!response.ok && response.status >= 500) {
     await new Promise((r) => setTimeout(r, 50))

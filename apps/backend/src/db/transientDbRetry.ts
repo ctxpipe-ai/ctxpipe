@@ -143,7 +143,7 @@ export async function withTransientDbQueryRetry<T>(
           attempt: attempt + 1,
           maxAttempts,
           delayMs,
-          message: errorMessage(e),
+          message: formatUnknownError(e),
         })
         await new Promise((r) => setTimeout(r, delayMs))
         continue
