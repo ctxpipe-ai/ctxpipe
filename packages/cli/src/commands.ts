@@ -13,6 +13,7 @@ import type { Client } from "./constants.js"
 import { CLIENT_COMMANDS, CLIENT_LABELS, CLIENTS } from "./constants.js"
 import type { ApplyOperationResult } from "./fs-operations.js"
 import { applyOperation, applyOperations } from "./fs-operations.js"
+import { type McpAuthConfig, resolveMcpAuth } from "./mcp/auth-mode.js"
 import { diagnoseMcpEndpoint, formatMcpDoctorResult } from "./mcp/doctor.js"
 import {
   buildCtxpipeConfigOperation,
@@ -53,6 +54,9 @@ export type InitRunOpts = {
   json: boolean
   nonInteractive: boolean
   mcp: boolean
+  auth?: string
+  apiKey?: string
+  apiKeyEnvVariable?: string
   /** Tri-state: true = always enable, false = always skip, undefined = ask in interactive mode. */
   memory?: boolean
 }
@@ -65,6 +69,15 @@ export type McpAddRunOpts = {
   dryRun: boolean
   json: boolean
   nonInteractive: boolean
+  auth?: string
+  apiKey?: string
+  apiKeyEnvVariable?: string
+}
+
+function describeMcpAuth(auth: McpAuthConfig): string {
+  if (auth.mode === "oauth") return "OAuth"
+  if (auth.placement === "literal") return "API key (user-level x-api-key)"
+  return `API key (env ${auth.envVariable})`
 }
 
 export async function runInit(opts: InitRunOpts): Promise<void> {
@@ -78,6 +91,9 @@ export async function runInit(opts: InitRunOpts): Promise<void> {
     dryRun: boolean
     json: boolean
     mcp: boolean
+    auth: string | null
+    apiKey: string | null
+    apiKeyEnvVariable: string | null
     memory: boolean | undefined
   } = {
     org: opts.org ?? null,
@@ -88,6 +104,9 @@ export async function runInit(opts: InitRunOpts): Promise<void> {
     dryRun: opts.dryRun,
     json: opts.json,
     mcp: opts.mcp,
+    auth: opts.auth ?? null,
+    apiKey: opts.apiKey ?? null,
+    apiKeyEnvVariable: opts.apiKeyEnvVariable ?? null,
     memory: opts.memory,
   }
 
@@ -114,6 +133,13 @@ export async function runInit(opts: InitRunOpts): Promise<void> {
   validateClients(agents)
   // In non-interactive mode an unspecified --memory means "do not enable".
   const memoryEnabled = answers.memory === true
+  const mcpAuth: McpAuthConfig = answers.mcp
+    ? resolveMcpAuth({
+        auth: answers.auth,
+        apiKey: answers.apiKey,
+        apiKeyEnvVariable: answers.apiKeyEnvVariable,
+      })
+    : { mode: "oauth" }
 
   const context = createOperationContext({ commandExists })
   const ctxpipeConfig = buildCtxpipeConfigOperation({
@@ -128,6 +154,7 @@ export async function runInit(opts: InitRunOpts): Promise<void> {
         org,
         scope,
         memory: false,
+        auth: mcpAuth,
         context,
       })
     : []
@@ -159,6 +186,7 @@ export async function runInit(opts: InitRunOpts): Promise<void> {
       `Organization ${org}`,
       `Scope ${scopeLabel(scope)}`,
       `Agents ${agentsLabel(agents, answers.mcp)}`,
+      `MCP auth ${describeMcpAuth(mcpAuth)}`,
       `Memory ${memoryEnabled ? "enabled (Markdown .ai/memory + capture hooks)" : "disabled"}`,
     ],
   })
@@ -223,6 +251,9 @@ export async function runMcpAdd(opts: McpAddRunOpts): Promise<void> {
     baseUrl: opts.baseUrl,
     clients: [...opts.clients],
     scope: opts.scope ?? null,
+    auth: opts.auth ?? null,
+    apiKey: opts.apiKey ?? null,
+    apiKeyEnvVariable: opts.apiKeyEnvVariable ?? null,
     dryRun: opts.dryRun,
   }
 
@@ -245,12 +276,18 @@ export async function runMcpAdd(opts: McpAddRunOpts): Promise<void> {
   if (!scope) throw new Error("Missing --scope")
   validateScope(scope)
   validateClients(clients)
+  const mcpAuth = resolveMcpAuth({
+    auth: values.auth,
+    apiKey: values.apiKey,
+    apiKeyEnvVariable: values.apiKeyEnvVariable,
+  })
 
   const operations = buildMcpOperations({
     clients,
     baseUrl: values.baseUrl,
     org,
     scope,
+    auth: mcpAuth,
     context: createOperationContext({ commandExists }),
   })
   // mcp add does not toggle memory; users opt-in through `ctxpipe memory init`.
@@ -266,6 +303,7 @@ export async function runMcpAdd(opts: McpAddRunOpts): Promise<void> {
       `Organization ${org}`,
       `Scope ${scopeLabel(scope)}`,
       `Agents ${agentsLabel(clients, true)}`,
+      `MCP auth ${describeMcpAuth(mcpAuth)}`,
     ],
   })
 }

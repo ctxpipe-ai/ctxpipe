@@ -385,6 +385,7 @@ describe("auth middleware composition", () => {
   })
 
   it("withBearerAuth returns 401 for an unknown opaque access token", async () => {
+    getSessionMock.mockResolvedValueOnce(null)
     testState.db = createMockDb({ opaqueTokenRows: [] })
 
     const app = createBaseApp()
@@ -398,6 +399,61 @@ describe("auth middleware composition", () => {
 
     expect(response.status).toBe(401)
     expect(jwtVerifyMock).not.toHaveBeenCalled()
+    expect(getSessionMock).toHaveBeenCalledTimes(1)
+    const headers = getSessionMock.mock.calls[0]?.[0]?.headers as
+      | Headers
+      | undefined
+    expect(headers?.get("x-api-key")).toBe("does-not-exist")
+  })
+
+  it("withBearerAuth treats a non-OAuth opaque Bearer token as an API key", async () => {
+    getSessionMock.mockResolvedValueOnce({
+      user: { id: "user_api_key", email: "api-key@example.com" },
+      session: { id: "sess_api_key", userId: "user_api_key" },
+    })
+    testState.db = createMockDb({ opaqueTokenRows: [] })
+
+    const app = createBaseApp()
+    app.use("/mcp", withBearerAuth)
+    app.post("/mcp", (c) =>
+      c.json({ user: c.get("user"), session: c.get("session") }),
+    )
+
+    const response = await app.request("/mcp", {
+      method: "POST",
+      headers: { authorization: "Bearer ctxp_test_api_key" },
+    })
+
+    expect(response.status).toBe(200)
+    expect(await response.json()).toEqual({
+      user: { id: "user_api_key", email: "api-key@example.com" },
+      session: { id: "sess_api_key", userId: "user_api_key" },
+    })
+    expect(jwtVerifyMock).not.toHaveBeenCalled()
+    expect(getSessionMock).toHaveBeenCalledTimes(1)
+    const headers = getSessionMock.mock.calls[0]?.[0]?.headers as
+      | Headers
+      | undefined
+    expect(headers?.get("x-api-key")).toBe("ctxp_test_api_key")
+  })
+
+  it("withBearerAuth returns 401 when Bearer API-key session is missing a user", async () => {
+    getSessionMock.mockResolvedValueOnce({
+      user: null,
+      session: { id: "sess_api_key", userId: "user_api_key" },
+    })
+    testState.db = createMockDb({ opaqueTokenRows: [] })
+
+    const app = createBaseApp()
+    app.use("/mcp", withBearerAuth)
+    app.post("/mcp", (c) => c.text("ok"))
+
+    const response = await app.request("/mcp", {
+      method: "POST",
+      headers: { authorization: "Bearer ctxp_incomplete" },
+    })
+
+    expect(response.status).toBe(401)
   })
 
   it("withBearerAuth returns 401 for an expired opaque access token", async () => {
@@ -485,6 +541,39 @@ describe("auth middleware composition", () => {
     expect(response.status).toBe(200)
     expect(authHandlerMock).toHaveBeenCalledTimes(2)
     expect(jwtVerifyMock).toHaveBeenCalledTimes(2)
+  })
+
+  it("composed middleware accepts an API key sent as Bearer", async () => {
+    getSessionMock
+      .mockResolvedValueOnce(null)
+      .mockResolvedValueOnce({
+        user: { id: "user_api_key", email: "api-key@example.com" },
+        session: { id: "sess_api_key", userId: "user_api_key" },
+      })
+    testState.db = createMockDb({
+      opaqueTokenRows: [],
+      orgRows: [{ id: "org_api_key" }],
+    })
+
+    const app = createComposedTestApp()
+    const response = await app.request("/mcp?orgSlug=acme", {
+      method: "POST",
+      headers: { authorization: "Bearer ctxp_test_api_key" },
+    })
+
+    expect(response.status).toBe(200)
+    expect(await response.json()).toEqual({
+      user: { id: "user_api_key", email: "api-key@example.com" },
+      session: { id: "sess_api_key", userId: "user_api_key" },
+      orgSlug: "acme",
+      orgId: "org_api_key",
+    })
+    expect(jwtVerifyMock).not.toHaveBeenCalled()
+    expect(getSessionMock).toHaveBeenCalledTimes(2)
+    const bearerFallbackHeaders = getSessionMock.mock.calls[1]?.[0]?.headers as
+      | Headers
+      | undefined
+    expect(bearerFallbackHeaders?.get("x-api-key")).toBe("ctxp_test_api_key")
   })
 
   it("composed middleware sets user, session, orgSlug and orgId for cookie auth", async () => {
@@ -894,6 +983,7 @@ describe("auth middleware composition", () => {
   })
 
   it("withBearerAuth 401 on /mcp includes resource_metadata", async () => {
+    getSessionMock.mockResolvedValueOnce(null)
     testState.db = createMockDb({ opaqueTokenRows: [] })
     const app = createBaseApp()
     app.use("/mcp", withBearerAuth)

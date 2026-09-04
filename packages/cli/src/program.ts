@@ -36,6 +36,24 @@ function resolveNonInteractive(raw: Record<string, unknown>): boolean {
   return Boolean(raw.nonInteractive || raw.yes)
 }
 
+function addMcpAuthOptions(command: Command): Command {
+  return command
+    .addOption(
+      new Option(
+        "--auth <oauth|api-key>",
+        "MCP auth: oauth writes URL-only config for any scope (default). api-key is implied by --api-key or --api-key-env-variable",
+      ).choices(["oauth", "api-key"]),
+    )
+    .option(
+      "--api-key <key>",
+      "Write the raw API key into user-level client config only (never repo files). Implies --auth api-key",
+    )
+    .option(
+      "--api-key-env-variable <name>",
+      "Write an environment-variable reference (not the secret) into repo and/or user MCP config. Implies --auth api-key. The MCP client must see this variable in its process environment",
+    )
+}
+
 function addNonInteractiveOption(command: Command): Command {
   return command
     .option(
@@ -62,66 +80,84 @@ Human setup:
 Examples (non-interactive):
   npx ctxpipe init --org acme --agents codex,claude --scope repo --non-interactive
   npx ctxpipe mcp add --org acme --client cursor --scope repo --non-interactive
+  npx ctxpipe mcp add --org acme --client cursor --scope user --auth api-key --api-key "$CTXPIPE_API_KEY" --non-interactive
+  npx ctxpipe mcp add --org acme --client cursor --scope both --api-key-env-variable CTXPIPE_API_KEY --non-interactive
   npx ctxpipe doctor --json
   npx ctxpipe doctor mcp --url "https://app.example.com/mcp?orgSlug=acme"
 `,
     )
 
-  addNonInteractiveOption(
-    program
-      .command("init")
-      .description(
-        "Initialize the current repo (or user scope) for ctx|. Writes .ctxpipe/config.json and optional MCP client configs.",
-      )
-      .option(
-        "--org <slug>",
-        "ctx| organization slug (required when not interactive)",
-      )
-      .option(
-        "--base-url <url>",
-        `ctx| app origin for auth and MCP (default: ${DEFAULT_BASE_URL})`,
-        DEFAULT_BASE_URL,
-      )
-      .option(
-        "--scope <repo|user|both>",
-        "Where to apply setup: this repo, your user account, or both (required when not interactive)",
-      )
-      .option(
-        "--agents <names>",
-        "Comma-separated client ids (cursor, claude, codex, opencode, vscode). Repeatable; merged with --agent and --client.",
-        collectList,
-        [] as string[],
-      )
-      .option(
-        "--agent <names>",
-        "Alias for --agents (same comma-separated / repeatable rules).",
-        collectList,
-        [] as string[],
-      )
-      .option(
-        "--client <names>",
-        "Alias for --agents (same comma-separated / repeatable rules).",
-        collectList,
-        [] as string[],
-      )
-      .option("--dry-run", "Print planned changes without writing files", false)
-      .option(
-        "--json",
-        "Print machine-readable JSON (use with --non-interactive to apply; init only for apply summary)",
-        false,
-      )
-      .option(
-        "--no-mcp",
-        "Skip MCP client configuration (still writes .ctxpipe/config.json with org and MCP URL)",
-      )
-      .option(
-        "--memory",
-        "Enable Markdown .ai/memory layout, capture skills/rule, and host hooks for selected agents",
-      )
-      .option(
-        "--no-memory",
-        "Skip local memory setup even if interactive selection would suggest it",
-      ),
+  addMcpAuthOptions(
+    addNonInteractiveOption(
+      program
+        .command("init")
+        .description(
+          "Initialize the current repo (or user scope) for ctx|. Writes .ctxpipe/config.json and optional MCP client configs.",
+        )
+        .option(
+          "--org <slug>",
+          "ctx| organization slug (required when not interactive)",
+        )
+        .option(
+          "--base-url <url>",
+          `ctx| app origin for auth and MCP (default: ${DEFAULT_BASE_URL})`,
+          DEFAULT_BASE_URL,
+        )
+        .option(
+          "--scope <repo|user|both>",
+          "Where to apply setup: this repo, your user account, or both (required when not interactive)",
+        )
+        .option(
+          "--agents <names>",
+          "Comma-separated client ids (cursor, claude, codex, opencode, vscode). Repeatable; merged with --agent and --client.",
+          collectList,
+          [] as string[],
+        )
+        .option(
+          "--agent <names>",
+          "Alias for --agents (same comma-separated / repeatable rules).",
+          collectList,
+          [] as string[],
+        )
+        .option(
+          "--client <names>",
+          "Alias for --agents (same comma-separated / repeatable rules).",
+          collectList,
+          [] as string[],
+        )
+        .option(
+          "--dry-run",
+          "Print planned changes without writing files",
+          false,
+        )
+        .option(
+          "--json",
+          "Print machine-readable JSON (use with --non-interactive to apply; init only for apply summary)",
+          false,
+        )
+        .option(
+          "--no-mcp",
+          "Skip MCP client configuration (still writes .ctxpipe/config.json with org and MCP URL)",
+        )
+        .option(
+          "--memory",
+          "Enable Markdown .ai/memory layout, capture skills/rule, and host hooks for selected agents",
+        )
+        .option(
+          "--no-memory",
+          "Skip local memory setup even if interactive selection would suggest it",
+        )
+        .addHelpText(
+          "after",
+          `
+MCP auth:
+  Default is OAuth: URL-only config for repo, user, or both. The client completes browser OAuth.
+  --api-key writes the raw x-api-key header only to user-level client config (never repository files).
+  --api-key-env-variable writes a client-specific environment-variable reference in the requested scope (repo, user, or both).
+  --auth api-key still accepts CTXPIPE_API_KEY as a user-scope literal key.
+`,
+        ),
+    ),
   ).action(async (rawOpts: Record<string, unknown>) => {
     const opts = rawOpts as {
       org?: string
@@ -134,6 +170,9 @@ Examples (non-interactive):
       json: boolean
       mcp: boolean
       memory?: boolean
+      auth?: string
+      apiKey?: string
+      apiKeyEnvVariable?: string
     }
     const agents = [
       ...(opts.agents ?? []),
@@ -150,6 +189,9 @@ Examples (non-interactive):
       nonInteractive: resolveNonInteractive(rawOpts),
       mcp: opts.mcp,
       memory: opts.memory,
+      auth: opts.auth,
+      apiKey: opts.apiKey,
+      apiKeyEnvVariable: opts.apiKeyEnvVariable,
     })
   })
 
@@ -203,43 +245,59 @@ result means the endpoint is ready for OAuth, not that authenticated tools work.
 
   const mcp = program.command("mcp").description("MCP-only commands for ctx|.")
 
-  addNonInteractiveOption(
-    mcp
-      .command("add")
-      .description(
-        "Configure ctx| MCP for one or more clients without re-running full init.",
-      )
-      .option(
-        "--org <slug>",
-        "ctx| organization slug (required when not interactive)",
-      )
-      .option(
-        "--base-url <url>",
-        `ctx| app origin for MCP URL (default: ${DEFAULT_BASE_URL})`,
-        DEFAULT_BASE_URL,
-      )
-      .option(
-        "--scope <repo|user|both>",
-        "Where to write MCP config: repo, user, or both (required when not interactive)",
-      )
-      .option(
-        "--client <names>",
-        "Comma-separated client ids. Repeatable; merged with --clients.",
-        collectList,
-        [] as string[],
-      )
-      .option(
-        "--clients <names>",
-        "Alias for --client (same comma-separated / repeatable rules).",
-        collectList,
-        [] as string[],
-      )
-      .option("--dry-run", "Print planned changes without writing files", false)
-      .option(
-        "--json",
-        "Print machine-readable JSON (use with --non-interactive to apply)",
-        false,
-      ),
+  addMcpAuthOptions(
+    addNonInteractiveOption(
+      mcp
+        .command("add")
+        .description(
+          "Configure ctx| MCP for one or more clients without re-running full init.",
+        )
+        .option(
+          "--org <slug>",
+          "ctx| organization slug (required when not interactive)",
+        )
+        .option(
+          "--base-url <url>",
+          `ctx| app origin for MCP URL (default: ${DEFAULT_BASE_URL})`,
+          DEFAULT_BASE_URL,
+        )
+        .option(
+          "--scope <repo|user|both>",
+          "Where to write MCP config: repo, user, or both (required when not interactive)",
+        )
+        .option(
+          "--client <names>",
+          "Comma-separated client ids. Repeatable; merged with --clients.",
+          collectList,
+          [] as string[],
+        )
+        .option(
+          "--clients <names>",
+          "Alias for --client (same comma-separated / repeatable rules).",
+          collectList,
+          [] as string[],
+        )
+        .option(
+          "--dry-run",
+          "Print planned changes without writing files",
+          false,
+        )
+        .option(
+          "--json",
+          "Print machine-readable JSON (use with --non-interactive to apply)",
+          false,
+        )
+        .addHelpText(
+          "after",
+          `
+MCP auth:
+  Default is OAuth: URL-only config for repo, user, or both. The client completes browser OAuth.
+  --api-key writes the raw x-api-key header only to user-level client config (never repository files).
+  --api-key-env-variable writes a client-specific environment-variable reference in the requested scope (repo, user, or both).
+  --auth api-key still accepts CTXPIPE_API_KEY as a user-scope literal key.
+`,
+        ),
+    ),
   ).action(async (rawOpts: Record<string, unknown>) => {
     const opts = rawOpts as {
       org: string
@@ -249,6 +307,9 @@ result means the endpoint is ready for OAuth, not that authenticated tools work.
       clients: string[]
       dryRun: boolean
       json: boolean
+      auth?: string
+      apiKey?: string
+      apiKeyEnvVariable?: string
     }
     const clients = [...(opts.client ?? []), ...(opts.clients ?? [])]
     await runMcpAdd({
@@ -259,6 +320,9 @@ result means the endpoint is ready for OAuth, not that authenticated tools work.
       dryRun: opts.dryRun,
       json: opts.json,
       nonInteractive: resolveNonInteractive(rawOpts),
+      auth: opts.auth,
+      apiKey: opts.apiKey,
+      apiKeyEnvVariable: opts.apiKeyEnvVariable,
     })
   })
 

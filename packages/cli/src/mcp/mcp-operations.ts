@@ -1,8 +1,8 @@
 import { homedir } from "node:os"
 import { join, resolve } from "node:path"
-import { resolveRepoRoot } from "../memory/paths.js"
 import type { Client, Scope } from "../constants.js"
 import { CLIENTS, DEFAULT_BASE_URL } from "../constants.js"
+import { resolveRepoRoot } from "../memory/paths.js"
 import {
   AI_MEMORY_RULE,
   DECISIONS_INDEX_SEED,
@@ -10,6 +10,7 @@ import {
   LESSONS_SEED,
   MEMORY_INDEX_SEED,
   MEMORY_README_SEED,
+  mergeGitignoreForMemory,
   PRDS_INDEX_SEED,
   PRODUCT_CONTEXT_SEED,
   SESSIONS_INDEX_SEED,
@@ -18,8 +19,8 @@ import {
   SKILL_CAPTURE_GLOSSARY,
   SKILL_CAPTURE_LESSON,
   SKILL_MEMORY_SEARCH,
-  mergeGitignoreForMemory,
 } from "../memory/seed.js"
+import { REPO_API_KEY_SKIP_DETAIL, type McpAuthConfig } from "./auth-mode.js"
 import type { JsonObject } from "./json.js"
 import { isObject } from "./json.js"
 import { mcpUrl, normalizeBaseUrl, relativePath, scopesFor } from "./paths.js"
@@ -198,7 +199,11 @@ export function buildMemoryArtifactOperations({
     { type: "mkdir", path: events, description: "create events/" },
     seedText(resolve(memoryRoot, "README.md"), context.cwd, MEMORY_README_SEED),
     seedText(resolve(memoryRoot, "index.md"), context.cwd, MEMORY_INDEX_SEED),
-    seedText(resolve(memoryRoot, "lessons-learned.md"), context.cwd, LESSONS_SEED),
+    seedText(
+      resolve(memoryRoot, "lessons-learned.md"),
+      context.cwd,
+      LESSONS_SEED,
+    ),
     seedText(resolve(memoryRoot, "glossary.md"), context.cwd, GLOSSARY_SEED),
     seedText(
       resolve(memoryRoot, "product-context.md"),
@@ -278,12 +283,40 @@ export function buildMemoryMcpOperations(_opts: {
   return []
 }
 
+function interpolateApiKeyEnv(client: Client, envVariable: string): string {
+  switch (client) {
+    case "claude":
+      return `\${${envVariable}}`
+    case "opencode":
+      return `{env:${envVariable}}`
+    case "codex":
+      return envVariable
+    case "cursor":
+    case "vscode":
+      return `\${env:${envVariable}}`
+  }
+}
+
+function mcpHeaderValue(
+  client: Client,
+  scope: "repo" | "user",
+  auth: McpAuthConfig,
+): string | undefined {
+  if (auth.mode === "oauth") return undefined
+  if (auth.placement === "env") {
+    return interpolateApiKeyEnv(client, auth.envVariable)
+  }
+  if (scope === "user") return auth.apiKey
+  return undefined
+}
+
 export function buildMcpOperations({
   clients,
   baseUrl,
   org,
   scope,
   memory,
+  auth = { mode: "oauth" },
   context = createOperationContext(),
 }: {
   clients: Client[]
@@ -291,20 +324,37 @@ export function buildMcpOperations({
   org: string
   scope: Scope
   memory?: boolean
+  auth?: McpAuthConfig
   context?: OperationContext
 }): Operation[] {
   void memory
-  return clients.flatMap((client) =>
-    scopesFor(scope).flatMap((singleScope) =>
+  const requested = scopesFor(scope)
+  const literalKey = auth.mode === "api-key" && auth.placement === "literal"
+  const skippedRepo = Boolean(literalKey && requested.includes("repo"))
+  const scopes = literalKey
+    ? requested.filter((item) => item === "user")
+    : requested
+  const operations = clients.flatMap((client) =>
+    scopes.flatMap((singleScope) =>
       buildClientOperations({
         client,
         baseUrl,
         org,
         scope: singleScope,
+        auth,
         context,
       }),
     ),
   )
+  if (!skippedRepo) return operations
+  return [
+    {
+      type: "manual",
+      description: "skip repo MCP writes for API-key auth",
+      detail: REPO_API_KEY_SKIP_DETAIL,
+    },
+    ...operations,
+  ]
 }
 
 export function buildClientOperations({
@@ -312,15 +362,20 @@ export function buildClientOperations({
   baseUrl,
   org,
   scope,
+  auth = { mode: "oauth" },
   context = createOperationContext(),
 }: {
   client: Client
   baseUrl: string
   org: string
   scope: "repo" | "user"
+  auth?: McpAuthConfig
   context?: OperationContext
 }): Operation[] {
+  if (auth.mode === "api-key" && auth.placement === "literal" && scope === "repo")
+    return []
   const url = mcpUrl({ baseUrl, org })
+  const headerValue = mcpHeaderValue(client, scope, auth)
   switch (client) {
     case "cursor":
       return [
@@ -332,25 +387,38 @@ export function buildClientOperations({
           url,
           label: "Cursor",
           cwd: context.cwd,
+          apiKey: headerValue,
         }),
       ]
     case "claude":
       if (scope === "user" && context.commandExists("claude")) {
-        return [{
-          type: "run",
-          command: [
-            "claude",
-            "mcp",
-            "add",
-            "--transport",
-            "http",
-            "ctxpipe",
-            "--scope",
-            "user",
-            url,
-          ],
-          description: "run Claude Code MCP add command",
-        }]
+        return [
+          {
+            type: "run",
+            command: [
+              "claude",
+              "mcp",
+              "add",
+              "--transport",
+              "http",
+              "ctxpipe",
+              "--scope",
+              "user",
+              ...(headerValue ? ["--header", `x-api-key: ${headerValue}`] : []),
+              url,
+            ],
+            description: "run Claude Code MCP add command",
+          },
+        ]
+      }
+      if (scope === "user" && headerValue) {
+        return [
+          {
+            type: "manual",
+            description: "show Claude Code user MCP add command",
+            detail: `Run: claude mcp add --transport http ctxpipe --scope user --header 'x-api-key: ${headerValue}' ${url}`,
+          },
+        ]
       }
       return [
         writeMcpServersOperation({
@@ -358,6 +426,7 @@ export function buildClientOperations({
           url,
           label: "Claude Code project",
           cwd: context.cwd,
+          apiKey: headerValue,
         }),
       ]
     case "opencode":
@@ -369,38 +438,74 @@ export function buildClientOperations({
               : resolve(context.cwd, "opencode.json"),
           url,
           cwd: context.cwd,
+          apiKey: headerValue,
         }),
       ]
     case "vscode":
       if (scope === "user") {
-        return [{
-          type: "manual",
-          description: "open VS Code MCP install link",
-          detail: `Open vscode:mcp/install?${encodeURIComponent(
-            JSON.stringify({ name: "ctxpipe", type: "http", url }),
-          )}`,
-        }]
+        return [
+          {
+            type: "manual",
+            description: "open VS Code MCP install link",
+            detail: `Open vscode:mcp/install?${encodeURIComponent(
+              JSON.stringify({
+                name: "ctxpipe",
+                type: "http",
+                url,
+                ...(headerValue
+                  ? { headers: { "x-api-key": headerValue } }
+                  : {}),
+              }),
+            )}`,
+          },
+        ]
       }
       return [
         writeVsCodeOperation({
           path: resolve(context.cwd, ".vscode", "mcp.json"),
           url,
           cwd: context.cwd,
+          apiKey: headerValue,
         }),
       ]
     case "codex":
-      if (scope === "user" && context.commandExists("codex")) {
-        return [{
-          type: "run",
-          command: ["codex", "mcp", "add", "ctxpipe", "--url", url],
-          description: "run Codex MCP add command",
-        }]
+      if (headerValue) {
+        const configPath =
+          scope === "user" ? "~/.codex/config.toml" : ".codex/config.toml"
+        const headerLine =
+          auth.mode === "api-key" && auth.placement === "env"
+            ? `env_http_headers = { "x-api-key" = "${headerValue}" }`
+            : `http_headers = { "x-api-key" = "${headerValue}" }`
+        return [
+          {
+            type: "manual",
+            description: `show Codex ${scope} MCP config snippet`,
+            detail: [
+              `Add to ${configPath}:`,
+              "",
+              "[mcp_servers.ctxpipe]",
+              `url = "${url}"`,
+              headerLine,
+            ].join("\n"),
+          },
+        ]
       }
-      return [{
-        type: "manual",
-        description: "show Codex MCP add command",
-        detail: `Run: codex mcp add ctxpipe --url ${url}`,
-      }]
+      if (scope === "user" && context.commandExists("codex")) {
+        return [
+          {
+            type: "run",
+            command: ["codex", "mcp", "add", "ctxpipe", "--url", url],
+            description: "run Codex MCP add command",
+          },
+        ]
+      }
+      return [
+        {
+          type: "manual",
+          description: "show Codex MCP add command",
+          detail: `Run: codex mcp add ctxpipe --url ${url}`,
+        },
+      ]
   }
 }
 
@@ -409,11 +514,13 @@ export function writeMcpServersOperation({
   url,
   label,
   cwd,
+  apiKey,
 }: {
   path: string
   url: string
   label: string
   cwd: string
+  apiKey?: string
 }): WriteJsonOperation {
   return {
     type: "write-json",
@@ -426,6 +533,7 @@ export function writeMcpServersOperation({
       servers.ctxpipe = {
         type: "streamable-http",
         url,
+        ...(apiKey ? { headers: { "x-api-key": apiKey } } : {}),
       }
       return {
         ...existing,
@@ -439,10 +547,12 @@ export function writeOpenCodeOperation({
   path,
   url,
   cwd,
+  apiKey,
 }: {
   path: string
   url: string
   cwd: string
+  apiKey?: string
 }): WriteJsonOperation {
   return {
     type: "write-json",
@@ -456,6 +566,7 @@ export function writeOpenCodeOperation({
         type: "remote",
         url,
         enabled: true,
+        ...(apiKey ? { headers: { "x-api-key": apiKey }, oauth: false } : {}),
       }
       return {
         ...existing,
@@ -469,10 +580,12 @@ export function writeVsCodeOperation({
   path,
   url,
   cwd,
+  apiKey,
 }: {
   path: string
   url: string
   cwd: string
+  apiKey?: string
 }): WriteJsonOperation {
   return {
     type: "write-json",
@@ -485,6 +598,7 @@ export function writeVsCodeOperation({
       servers.ctxpipe = {
         type: "http",
         url,
+        ...(apiKey ? { headers: { "x-api-key": apiKey } } : {}),
       }
       return {
         ...existing,
@@ -500,10 +614,14 @@ export function validateScope(scope: string): asserts scope is Scope {
   }
 }
 
-export function validateClients(clients: string[]): asserts clients is Client[] {
+export function validateClients(
+  clients: string[],
+): asserts clients is Client[] {
   for (const client of clients) {
     if (!CLIENTS.includes(client as Client)) {
-      throw new Error(`Unsupported client "${client}". Use: ${CLIENTS.join(", ")}`)
+      throw new Error(
+        `Unsupported client "${client}". Use: ${CLIENTS.join(", ")}`,
+      )
     }
   }
 }
