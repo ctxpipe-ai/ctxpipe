@@ -1,0 +1,66 @@
+Command: ["pnpm", "--filter", "@ctxpipe/ui", "build-storybook"]
+
+> @ctxpipe/ui@0.2.0 build-storybook /Users/jakubriedl/Documents/Codex/2026-09-07/prior-conversation-with-codex-conversation-role-2/work/ctxpipe-recovery/apps/ui
+> storybook build
+
+
+┌  Building storybook v10.3.5
+│
+◇  Cleaning outputDir: storybook-static
+│
+■  [38;2;241;97;97mSB_CORE-SERVER_0007 (MainFileEvaluationError): Storybook couldn't
+│  evaluate your .storybook/main.ts file.
+
+│  Original error:
+│  TypeError: _gensync(...) is not a function
+│  at Object.<anonymous>
+│  (/Users/jakubriedl/Documents/Codex/2026-09-07/prior-conversation-with-codex-conversation-role-2/work/ctxpipe-recovery/node_modules/.pnpm/@babel+core@7.29.0/node_modules/@babel/core/lib/gensync-utils/async.js:20:32)
+│  at Module._compile (node:internal/modules/cjs/loader:1734:14)
+│  at Object..js (node:internal/modules/cjs/loader:1899:10)
+│  at Module.load (node:internal/modules/cjs/loader:1469:32)
+│  at Function._load (node:internal/modules/cjs/loader:1286:12)
+│  at TracingChannel.traceSync (node:diagnostics_channel:322:14)
+│  at wrapModuleLoad (node:internal/modules/cjs/loader:235:24)
+│  at Module.require (node:internal/modules/cjs/loader:1491:12)
+│  at require (node:internal/modules/helpers:135:16)
+│  at Object.<anonymous>
+│  (/Users/jakubriedl/Documents/Codex/2026-09-07/prior-conversation-with-codex-conversation-role-2/work/ctxpipe-recovery/node_modules/.pnpm/@babel+core@7.29.0/node_modules/@babel/core/lib/config/caching.js:18:14)[39m
+│  at loadMainConfig
+│  (file:///Users/jakubriedl/Documents/Codex/2026-09-07/prior-conversation-with-codex-conversation-role-2/work/ctxpipe-recovery/node_modules/.pnpm/storybook@10.3.5_@testing-library+dom@10.4.1_prettier@3.8.1_react-dom@19.2.4_react@19.2.4__react@19.2.4/node_modules/storybook/dist/_node-chunks/chunk-GOY6UMCB.js:11712:11)
+│  at async buildStaticStandalone
+│  (file:///Users/jakubriedl/Documents/Codex/2026-09-07/prior-conversation-with-codex-conversation-role-2/work/ctxpipe-recovery/node_modules/.pnpm/storybook@10.3.5_@testing-library+dom@10.4.1_prettier@3.8.1_react-dom@19.2.4_react@19.2.4__react@19.2.4/node_modules/storybook/dist/core-server/index.js:6436:16)
+│  at async withTelemetry
+│  (file:///Users/jakubriedl/Documents/Codex/2026-09-07/prior-conversation-with-codex-conversation-role-2/work/ctxpipe-recovery/node_modules/.pnpm/storybook@10.3.5_@testing-library+dom@10.4.1_prettier@3.8.1_react-dom@19.2.4_react@19.2.4__react@19.2.4/node_modules/storybook/dist/_node-chunks/chunk-FIR43JGQ.js:225:12)
+│  at async build
+│  (file:///Users/jakubriedl/Documents/Codex/2026-09-07/prior-conversation-with-codex-conversation-role-2/work/ctxpipe-recovery/node_modules/.pnpm/storybook@10.3.5_@testing-library+dom@10.4.1_prettier@3.8.1_react-dom@19.2.4_react@19.2.4__react@19.2.4/node_modules/storybook/dist/bin/core.js:2679:3)
+│  at async _Command.<anonymous>
+│  (file:///Users/jakubriedl/Documents/Codex/2026-09-07/prior-conversation-with-codex-conversation-role-2/work/ctxpipe-recovery/node_modules/.pnpm/storybook@10.3.5_@testing-library+dom@10.4.1_prettier@3.8.1_react-dom@19.2.4_react@19.2.4__react@19.2.4/node_modules/storybook/dist/bin/core.js:2824:7)
+(node:94829) ExperimentalWarning: Type Stripping is an experimental feature and might change at any time
+(Use `node --trace-warnings ...` to show where the warning was created)
+│
+▲  Failed to load preset:
+│  "/Users/jakubriedl/Documents/Codex/2026-09-07/prior-conversation-with-codex-conversation-role-2/work/ctxpipe-recovery/apps/ui/.storybook/main.ts"
+│
+■  [38;2;241;97;97mTypeError: _gensync(...) is not a function[39m
+│  at Object.<anonymous>
+│  (/Users/jakubriedl/Documents/Codex/2026-09-07/prior-conversation-with-codex-conversation-role-2/work/ctxpipe-recovery/node_modules/.pnpm/@babel+core@7.29.0/node_modules/@babel/core/lib/gensync-utils/async.js:20:32)
+│  at Module._compile (node:internal/modules/cjs/loader:1734:14)
+│  at Object..js (node:internal/modules/cjs/loader:1899:10)
+│  at Module.load (node:internal/modules/cjs/loader:1469:32)
+│  at Function._load (node:internal/modules/cjs/loader:1286:12)
+│  at TracingChannel.traceSync (node:diagnostics_channel:322:14)
+│  at wrapModuleLoad (node:internal/modules/cjs/loader:235:24)
+│  at Module.require (node:internal/modules/cjs/loader:1491:12)
+│  at require (node:internal/modules/helpers:135:16)
+│  at Object.<anonymous>
+│  (/Users/jakubriedl/Documents/Codex/2026-09-07/prior-conversation-with-codex-conversation-role-2/work/ctxpipe-recovery/node_modules/.pnpm/@babel+core@7.29.0/node_modules/@babel/core/lib/config/caching.js:18:14)
+│
+●  Storybook collects completely anonymous usage telemetry. We use it to
+│  shape Storybook's roadmap and prioritize features. You can learn more,
+│  including how to opt out, at ]8;;https://storybook.js.org/telemetryhttps://storybook.js.org/telemetry]8;;
+│
+└  Storybook exited with an error
+
+/Users/jakubriedl/Documents/Codex/2026-09-07/prior-conversation-with-codex-conversation-role-2/work/ctxpipe-recovery/apps/ui:
+ ERR_PNPM_RECURSIVE_RUN_FIRST_FAIL  @ctxpipe/ui@0.2.0 build-storybook: `storybook build`
+Exit status 1

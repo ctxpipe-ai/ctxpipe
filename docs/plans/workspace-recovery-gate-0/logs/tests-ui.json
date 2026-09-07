@@ -1,0 +1,13 @@
+{
+  "name": "tests-ui",
+  "command": [
+    "pnpm",
+    "--filter",
+    "@ctxpipe/ui",
+    "test"
+  ],
+  "exit_code": 1,
+  "duration_seconds": 32.65,
+  "started_utc": "2026-09-07T07:20:42Z",
+  "log": "logs/tests-ui.log"
+}

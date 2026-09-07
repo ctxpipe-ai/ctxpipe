@@ -2,29 +2,24 @@
 
 ## Correction and audit boundary
 
-The first version of this plan was based on `296c386..1fad841`. That was wrong.
-This checkout is shallow and marks `296c386` as a parentless, grafted commit even
-though its subject says it merged `cursor/git-backed-projects-3c79`. It is a
-snapshot from the middle of PR 280, not the PR merge base. Counting from it only
-measured the final 114 commits and 318 files.
+The first version used `296c386..1fad841`. The cloud checkout was shallow
+and treated `296c386` as a parentless graft from the middle of PR 280, producing
+only 114 commits and 318 files. Those figures never described the full PR.
 
-The authoritative PR scope supplied for PR 280 is **465 commits, 801 files,
-+148,441/−13,326**. The missing earlier objects and merge base are not present in
-this checkout, and GitHub is not accessible from this environment. This plan
-therefore does not infer whole-PR statistics from the shallow history. It uses:
+The local recovery fetched full history and reconciled GitHub metadata with
+native git: **465 commits, 801 files, +148,441/−13,326**, from merge base
+`9072089086f6fad87fbf05572b9f1ff5336e0520` to PR head
+`1fad8412525efdeefdfa4899fe9a2f41dfbbc1c8`.
+The [Gate 0 bundle](workspace-recovery-gate-0/baseline.md) contains the full file
+manifest and archived primary-source metadata. Its inventory is taken from
+tracked files at the PR head; dependency installations and generated output do
+not change the inventory.
 
-1. The authoritative PR totals above.
-2. The entire current repository tree, including code accumulated before the
-   graft point.
-3. All 19 resolved Git-backed Workspaces design tickets, their map, accepted
-   PRDs, and ADRs.
-4. Current runtime paths, tests, CI, migrations, routes, workflows, UI, and
-   deployment configuration—not merely files changed after `296c386`.
-
-Before implementation continues, a developer with GitHub access should fetch the
-full PR head and merge base and archive `git diff --stat <merge-base>...<head>` as
-the Gate 0 baseline. That may refine deletion estimates, but it does not block the
-current-tree findings below.
+The plan considers the entire repository tree, all 19 resolved Git-backed
+Workspaces design tickets, accepted PRDs and ADRs, and runtime, test, CI,
+migration, and deployment paths. Complete-history access is restored; Gate 0
+remains in progress until runtime evidence, test classification, and independent
+review are complete. See [current status](workspace-recovery-gate-0-status.md).
 
 ## Executive diagnosis
 
@@ -586,6 +581,9 @@ blocked rather than complete. Never report a local commit as a finished gate.
 
 ### Gate 0 — restore truthful scope and a reproducible baseline
 
+Live status and resume commands are recorded in
+[`workspace-recovery-gate-0-status.md`](workspace-recovery-gate-0-status.md).
+
 1. Fetch PR 280 full ancestry and exact merge base in an authenticated checkout.
 2. Record authoritative commit/file/line statistics and changed package list.
 3. Run install, full typecheck, all affected builds/tests, migrations, and one
@@ -594,7 +592,7 @@ blocked rather than complete. Never report a local commit as a finished gate.
 5. Classify tests as proof, characterization, or redundant.
 
 Exit: one baseline report covers all 465 commits / 801 files and can be reproduced
-from a named commit. The present shallow checkout cannot satisfy this gate alone.
+from a named commit. The scope has been reconciled; the remaining evidence and review still gate completion.
 
 Adversarial review focus: prove the merge base, head, 801-file manifest, affected
 packages, design decisions, migrations, deployment surfaces, and failing baseline

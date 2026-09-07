@@ -1,0 +1,26 @@
+Command: ["pnpm", "--filter", "@ctxpipe/ui", "test"]
+
+> @ctxpipe/ui@0.2.0 test /Users/jakubriedl/Documents/Codex/2026-09-07/prior-conversation-with-codex-conversation-role-2/work/ctxpipe-recovery/apps/ui
+> vitest run --passWithNoTests
+
+failed to load config from /Users/jakubriedl/Documents/Codex/2026-09-07/prior-conversation-with-codex-conversation-role-2/work/ctxpipe-recovery/apps/ui/vite.config.ts
+
+⎯⎯⎯⎯⎯⎯⎯ Startup Error ⎯⎯⎯⎯⎯⎯⎯⎯
+Error: Invalid package config /Users/jakubriedl/Documents/Codex/2026-09-07/prior-conversation-with-codex-conversation-role-2/work/ctxpipe-recovery/node_modules/.pnpm/@tanstack+nitro-v2-vite-plugin@1.154.7_@azure+identity@4.13.1_vite@7.3.1_@types+node@25_1c4fba9411c35c052ba3c390e4b36cad/node_modules/nitropack/package.json while importing "nitropack" from /Users/jakubriedl/Documents/Codex/2026-09-07/prior-conversation-with-codex-conversation-role-2/work/ctxpipe-recovery/node_modules/.pnpm/@tanstack+nitro-v2-vite-plugin@1.154.7_@azure+identity@4.13.1_vite@7.3.1_@types+node@25_1c4fba9411c35c052ba3c390e4b36cad/node_modules/@tanstack/nitro-v2-vite-plugin/dist/esm/index.js.
+    at Object.read (node:internal/modules/package_json_reader:110:33)
+    at packageResolve (node:internal/modules/esm/resolve:770:43)
+    at moduleResolve (node:internal/modules/esm/resolve:854:18)
+    at defaultResolve (node:internal/modules/esm/resolve:984:11)
+    at ModuleLoader.defaultResolve (node:internal/modules/esm/loader:780:12)
+    at #cachedDefaultResolve (node:internal/modules/esm/loader:704:25)
+    at ModuleLoader.resolve (node:internal/modules/esm/loader:687:38)
+    at ModuleLoader.getModuleJobForImport (node:internal/modules/esm/loader:305:38)
+    at ModuleJob._link (node:internal/modules/esm/module_job:137:49) {
+  code: 'ERR_INVALID_PACKAGE_CONFIG'
+}
+
+
+
+/Users/jakubriedl/Documents/Codex/2026-09-07/prior-conversation-with-codex-conversation-role-2/work/ctxpipe-recovery/apps/ui:
+ ERR_PNPM_RECURSIVE_RUN_FIRST_FAIL  @ctxpipe/ui@0.2.0 test: `vitest run --passWithNoTests`
+Exit status 1

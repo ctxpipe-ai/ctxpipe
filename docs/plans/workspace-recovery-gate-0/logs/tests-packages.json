@@ -1,0 +1,17 @@
+{
+  "name": "tests-packages",
+  "command": [
+    "pnpm",
+    "--filter",
+    "ctxpipe",
+    "--filter",
+    "@ctxpipe/aws-cdk",
+    "--workspace-concurrency=2",
+    "--no-bail",
+    "test"
+  ],
+  "exit_code": 1,
+  "duration_seconds": 25.6,
+  "started_utc": "2026-09-07T07:21:21Z",
+  "log": "logs/tests-packages.log"
+}

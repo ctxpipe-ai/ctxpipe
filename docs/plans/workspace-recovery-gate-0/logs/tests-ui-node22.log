@@ -1,0 +1,80 @@
+Command: ["volta", "run", "--node", "22.16.0", "pnpm", "--filter", "@ctxpipe/ui", "test"]
+
+> @ctxpipe/ui@0.2.0 test /private/tmp/ctxpipe-recovery-01a07aba/apps/ui
+> vitest run --passWithNoTests
+
+
+ RUN  v4.0.18 /private/tmp/ctxpipe-recovery-01a07aba/apps/ui
+
+ ✓ src/features/workspaces/projection.test.ts (7 tests) 3ms
+ ✓ src/features/connectors/linear-setup-model.test.ts (9 tests) 5ms
+ ✓ src/features/connectors/notion-setup-model.test.ts (10 tests) 7ms
+ ✓ src/features/repositories/githubRepoSelection.test.ts (7 tests) 5ms
+ ✓ src/features/connectors/githubConnectFlow.test.ts (14 tests) 8ms
+ ✓ src/features/chat/conversation-thread-utils.test.ts (5 tests) 5ms
+ ✓ src/features/repositories/types.test.ts (14 tests) 6ms
+ ✓ src/features/repositories/pendingGithubRepos.test.ts (4 tests) 3ms
+ ✓ src/features/repositories/useRepositoryIndexingSummary.test.ts (9 tests) 5ms
+ ✓ src/features/connectors/queries/slack-connector.test.ts (6 tests) 25ms
+ ✓ src/features/connectors/slack-setup-model.test.ts (9 tests) 4ms
+ ✓ src/features/connectors/queries/linear-connector.test.ts (5 tests) 40ms
+ ✓ src/features/workspaces/workspaceChatWebSocket.test.ts (8 tests) 27ms
+ ✓ src/features/workspaces/ensure-route-data.test.ts (5 tests) 212ms
+ ✓ src/features/workspaces/queries.test.ts (11 tests) 225ms
+[33m[motionwind][0m /private/tmp/ctxpipe-recovery-01a07aba/apps/ui/src/components/ui/Button.tsx:136:14 — className uses a dynamic expression that may contain animate-* classes. These won't be compiled. Use template literals or the <mw.svg> runtime component instead.
+ ✓ src/lib/api-result.test.ts (9 tests) 68ms
+ ✓ src/features/repositories/gitSourcesFilter.test.ts (5 tests) 2ms
+ ✓ src/features/connectors/connectorHealth.test.ts (5 tests) 2ms
+ ✓ src/features/connectors/confluence-setup-model.forge-wait.test.ts (4 tests) 4ms
+ ✓ src/features/knowledge-graph/knowledgeGraphFocusFit.test.ts (7 tests) 6ms
+ ✓ src/features/repositories/repositoryCardPresentation.test.ts (4 tests) 3ms
+ ✓ src/features/workspaces/fileTabs.test.ts (7 tests) 4ms
+ ✓ src/features/connectors/queries/notion-connector.test.ts (3 tests) 22ms
+ ✓ src/features/repositories/components/RepositoryStatus.test.tsx (7 tests) 63ms
+ ✓ src/features/connectors/queries/forge-provision-api.test.ts (2 tests) 23ms
+[33m[motionwind][0m /private/tmp/ctxpipe-recovery-01a07aba/apps/ui/src/components/ui/Button.tsx:136:14 — className uses a dynamic expression that may contain animate-* classes. These won't be compiled. Use template literals or the <mw.svg> runtime component instead.
+ ✓ src/features/home/calendar-days.test.ts (5 tests) 15ms
+ ✓ src/features/workspaces/WorkspaceChatChrome.test.tsx (2 tests) 34ms
+ ✓ src/features/workspaces/fileTreeMutations.test.ts (3 tests) 3ms
+ ✓ src/features/repositories/gitSourcesListRows.test.ts (2 tests) 2ms
+ ✓ src/features/workspaces/WorkspaceHydrateProgress.test.tsx (3 tests) 36ms
+ ✓ src/features/workspaces/conversationPublish.test.ts (5 tests) 2ms
+ ✓ src/lib/auth-client.test.ts (1 test) 30ms
+ ✓ src/features/knowledge-graph/knowledgeGraphIntroStorage.test.ts (3 tests) 4ms
+ ✓ src/features/workspaces/pane.test.ts (7 tests) 6ms
+ ✓ src/features/workspaces/gitUrl.test.ts (4 tests) 4ms
+ ✓ src/features/connectors/components/SlackSetupDialog.test.tsx (3 tests) 73ms
+ ✓ src/features/chat/insertConversationListItem.test.ts (2 tests) 3ms
+ ✓ src/lib/org-gate.test.ts (3 tests) 4ms
+ ✓ src/features/connectors/queries/github-connector.test.ts (4 tests) 2ms
+ ✓ src/features/workspaces/nav.test.ts (5 tests) 3ms
+ ✓ src/features/workspaces/conversation-git-tree-snapshot.test.ts (2 tests) 2ms
+ ✓ src/providers/AuthProvider.test.tsx (1 test) 942ms
+     ✓ enables built-in API key UI in provider config  941ms
+ ✓ src/features/repositories/components/RepositoryCard.test.tsx (2 tests) 13ms
+ ✓ src/features/workspaces/github-workspace-destination-nav.test.ts (4 tests) 2ms
+ ✓ src/features/connectors/components/ConnectorSetupStepper.test.tsx (2 tests) 13ms
+ ✓ src/features/chat/ConversationThread.test.tsx (13 tests) 145ms
+ ✓ src/features/auth/accept-invitation.test.ts (2 tests) 2ms
+ ✓ src/components/ui/Button.test.tsx (1 test) 38ms
+ ✓ src/features/workspaces/WorkspaceChatSession.test.tsx (11 tests) 109ms
+ ✓ src/components/SideNav/sideNavLocation.test.ts (2 tests) 2ms
+ ✓ src/features/workspaces/writeStatusLabel.test.ts (2 tests) 2ms
+ ✓ src/lib/atlassian-oauth-messages.test.ts (3 tests) 1ms
+ ✓ src/features/connectors/components/ConnectorContextRepositoryGuidance.test.ts (2 tests) 8ms
+ ✓ src/features/connectors/queries/org-connections.test.ts (1 test) 3ms
+ ✓ src/lib/auth-continuation.test.ts (2 tests) 3ms
+ ✓ src/routes/-$orgSlug.test.ts (2 tests) 2ms
+ ✓ src/features/workspaces/workspaceDeleteNameMatches.test.ts (1 test) 1ms
+ ✓ src/features/connectors/components/ConnectorWorkspaceDestinationPicker.test.ts (4 tests) 2ms
+ ✓ src/features/workspaces/WorkspaceFileTree.hover.test.ts (3 tests) 2ms
+ ✓ src/features/workspaces/WorkspaceFileTree.ssr.test.tsx (2 tests) 9ms
+[33m[motionwind][0m /private/tmp/ctxpipe-recovery-01a07aba/apps/ui/src/components/ui/dropdown-menu.tsx:146:4 — className uses a dynamic expression that may contain animate-* classes. These won't be compiled. Use template literals or the <mw.DropdownMenuContent> runtime component instead.
+[33m[motionwind][0m /private/tmp/ctxpipe-recovery-01a07aba/apps/ui/src/components/ui/spinner.tsx:6:4 — className uses a dynamic expression that may contain animate-* classes. These won't be compiled. Use template literals or the <mw.IconLoader> runtime component instead.
+ ✓ src/router.test.ts (1 test) 3ms
+
+ Test Files  61 passed (61)
+      Tests  291 passed (291)
+   Start at  21:07:46
+   Duration  4.40s (transform 5.23s, setup 0ms, import 16.77s, tests 2.30s, environment 1.34s)
+

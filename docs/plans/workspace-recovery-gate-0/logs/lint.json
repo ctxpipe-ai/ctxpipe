@@ -1,0 +1,11 @@
+{
+  "name": "lint",
+  "command": [
+    "pnpm",
+    "lint"
+  ],
+  "exit_code": 0,
+  "duration_seconds": 4.24,
+  "started_utc": "2026-09-07T07:20:12Z",
+  "log": "logs/lint.log"
+}

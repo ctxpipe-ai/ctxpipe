@@ -1,0 +1,13 @@
+area	command	exit_code	artifact	environment	repetitions	status
+install	pnpm install --frozen-lockfile	0	logs/install-initial.log	see ../workspace-recovery-gate-0-local-evidence.md	1	PASS
+typecheck	pnpm --filter @ctxpipe/backend typecheck; pnpm --filter @ctxpipe/ui typecheck	2	logs/typecheck-backend.log; logs/typecheck-ui.log	see ../workspace-recovery-gate-0-local-evidence.md	1	RECORDED_FAILURE
+builds	pnpm -r --workspace-concurrency=2 --no-bail --if-present build	1	logs/builds.log	see ../workspace-recovery-gate-0-local-evidence.md	1	RECORDED_FAILURE
+tests	see command JSON files	1	logs/tests-backend.log; logs/tests-ui.log; logs/tests-packages.log	see ../workspace-recovery-gate-0-local-evidence.md	1	DIAGNOSTIC_RERUN_REQUIRED
+storybook_interactions	UNRECORDED					MISSING
+migrate_fresh	pnpm db:migrate	0	logs/migrate-fresh.log	see ../workspace-recovery-gate-0-local-evidence.md	1	PASS
+migrate_upgrade	python3 migrate-upgrade.py	0	logs/migrate-upgrade.log	see ../workspace-recovery-gate-0-local-evidence.md	1	PASS
+golden_journey	UNRECORDED					MISSING
+latency	UNRECORDED					MISSING
+flake_rate	UNRECORDED					MISSING
+adversarial_review	UNRECORDED					MISSING
+remote_checkpoint	UNRECORDED					MISSING

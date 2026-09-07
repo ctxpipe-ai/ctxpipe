@@ -1,0 +1,20 @@
+{
+  "name": "tests-rls-node22",
+  "command": [
+    "volta",
+    "run",
+    "--node",
+    "22.16.0",
+    "pnpm",
+    "--filter",
+    "@ctxpipe/backend",
+    "exec",
+    "vitest",
+    "run",
+    "src/db/rls-isolation.test.ts"
+  ],
+  "exit_code": -15,
+  "duration_seconds": 96.6,
+  "started_utc": "2026-09-07T11:01:48Z",
+  "log": "logs/tests-rls-node22.log"
+}

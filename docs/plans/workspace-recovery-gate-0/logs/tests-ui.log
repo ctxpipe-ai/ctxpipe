@@ -1,0 +1,349 @@
+Command: ["pnpm", "--filter", "@ctxpipe/ui", "test"]
+
+> @ctxpipe/ui@0.2.0 test /Users/jakubriedl/Documents/Codex/2026-09-07/prior-conversation-with-codex-conversation-role-2/work/ctxpipe-recovery/apps/ui
+> vitest run --passWithNoTests
+
+
+ RUN  v4.0.18 /Users/jakubriedl/Documents/Codex/2026-09-07/prior-conversation-with-codex-conversation-role-2/work/ctxpipe-recovery/apps/ui
+
+ ✓ src/features/connectors/linear-setup-model.test.ts (9 tests) 13ms
+ ✓ src/features/workspaces/projection.test.ts (7 tests) 4ms
+ ✓ src/features/connectors/notion-setup-model.test.ts (10 tests) 4ms
+ ✓ src/features/repositories/githubRepoSelection.test.ts (7 tests) 4ms
+ ✓ src/features/connectors/githubConnectFlow.test.ts (14 tests) 10ms
+ ✓ src/features/repositories/types.test.ts (14 tests) 6ms
+ ✓ src/features/chat/conversation-thread-utils.test.ts (5 tests) 7ms
+ ✓ src/features/repositories/useRepositoryIndexingSummary.test.ts (9 tests) 10ms
+ ✓ src/features/repositories/pendingGithubRepos.test.ts (4 tests) 2ms
+ ✓ src/features/connectors/queries/slack-connector.test.ts (6 tests) 113ms
+ ✓ src/features/connectors/queries/linear-connector.test.ts (5 tests) 170ms
+stderr | src/features/workspaces/queries.test.ts > workspace query HTTP helpers > returns pending after a successful retry
+[MSW] Error: intercepted a request without a matching request handler:
+
+  • POST http://localhost:3010/acme/api/v1/workspaces/knowledge-failed/retry-prepare
+
+If you still wish to intercept this unhandled request, please create a request handler for it.
+Read more: https://mswjs.io/docs/http/intercepting-requests
+
+stderr | src/features/workspaces/ensure-route-data.test.ts > ensureWorkspaceRouteData > does not fetch files/tree when the workspace is not projection-ready
+[MSW] Error: intercepted a request without a matching request handler:
+
+  • GET http://localhost:3010/acme/api/v1/workspaces/knowledge
+
+If you still wish to intercept this unhandled request, please create a request handler for it.
+Read more: https://mswjs.io/docs/http/intercepting-requests
+
+stderr | src/features/workspaces/ensure-route-data.test.ts > ensureWorkspaceRouteData > fetches files/tree for a writable workspace with a SHA and no export
+[MSW] Error: intercepted a request without a matching request handler:
+
+  • GET http://localhost:3010/acme/api/v1/workspaces/docs
+
+If you still wish to intercept this unhandled request, please create a request handler for it.
+Read more: https://mswjs.io/docs/http/intercepting-requests
+
+stderr | src/features/workspaces/ensure-route-data.test.ts > ensureWorkspaceRouteData > fetches files/tree when the workspace is projection-ready
+[MSW] Error: intercepted a request without a matching request handler:
+
+  • GET http://localhost:3010/acme/api/v1/workspaces/docs
+
+If you still wish to intercept this unhandled request, please create a request handler for it.
+Read more: https://mswjs.io/docs/http/intercepting-requests
+
+stderr | src/features/workspaces/ensure-route-data.test.ts > ensureWorkspaceRouteData > loads stored conversation turns without files or git on the document
+[MSW] Error: intercepted a request without a matching request handler:
+
+  • GET http://localhost:3010/acme/api/v1/workspaces/docs
+
+If you still wish to intercept this unhandled request, please create a request handler for it.
+Read more: https://mswjs.io/docs/http/intercepting-requests
+
+stderr | src/features/workspaces/ensure-route-data.test.ts > ensureWorkspaceRouteData > does not fetch files/tree or blob when pane warmup is skipped
+[MSW] Error: intercepted a request without a matching request handler:
+
+  • GET http://localhost:3010/acme/api/v1/workspaces/docs
+
+If you still wish to intercept this unhandled request, please create a request handler for it.
+Read more: https://mswjs.io/docs/http/intercepting-requests
+
+stderr | src/features/workspaces/queries.test.ts > workspace query HTTP helpers > surfaces evlog { message } when { error } is absent
+[MSW] Error: intercepted a request without a matching request handler:
+
+  • DELETE http://localhost:3010/acme/api/v1/workspaces/docs
+
+  • Request body: {"confirmName":"Docs"}
+
+If you still wish to intercept this unhandled request, please create a request handler for it.
+Read more: https://mswjs.io/docs/http/intercepting-requests
+
+stderr | src/features/workspaces/queries.test.ts > workspace query HTTP helpers > prefers { error } over { message } for delete failures
+[MSW] Error: intercepted a request without a matching request handler:
+
+  • DELETE http://localhost:3010/acme/api/v1/workspaces/docs
+
+  • Request body: {"confirmName":"wrong"}
+
+If you still wish to intercept this unhandled request, please create a request handler for it.
+Read more: https://mswjs.io/docs/http/intercepting-requests
+
+stderr | src/features/workspaces/queries.test.ts > workspace query HTTP helpers > returns an empty tree when files/tree is not ready to browse
+[MSW] Error: intercepted a request without a matching request handler:
+
+  • GET http://localhost:3010/acme/api/v1/workspaces/knowledge/files/tree
+
+If you still wish to intercept this unhandled request, please create a request handler for it.
+Read more: https://mswjs.io/docs/http/intercepting-requests
+
+stderr | src/features/workspaces/queries.test.ts > workspace query HTTP helpers > persists a successful conversation sandbox tree snapshot
+[MSW] Error: intercepted a request without a matching request handler:
+
+  • GET http://localhost:3010/acme/api/v1/conversations/conv_1/files/tree
+
+If you still wish to intercept this unhandled request, please create a request handler for it.
+Read more: https://mswjs.io/docs/http/intercepting-requests
+
+stderr | src/features/workspaces/queries.test.ts > workspace query HTTP helpers > keeps the Query cache on 409 and replaces it on the next 200
+[MSW] Error: intercepted a request without a matching request handler:
+
+  • GET http://localhost:3010/acme/api/v1/conversations/conv_1/files/tree
+
+If you still wish to intercept this unhandled request, please create a request handler for it.
+Read more: https://mswjs.io/docs/http/intercepting-requests
+
+stderr | src/features/workspaces/queries.test.ts > workspace query HTTP helpers > returns an unreadied tree on 409 when Query cache is empty
+[MSW] Error: intercepted a request without a matching request handler:
+
+  • GET http://localhost:3010/acme/api/v1/conversations/conv_1/files/tree
+
+If you still wish to intercept this unhandled request, please create a request handler for it.
+Read more: https://mswjs.io/docs/http/intercepting-requests
+
+ ❯ src/features/workspaces/ensure-route-data.test.ts (5 tests | 5 failed) 838ms
+     × does not fetch files/tree when the workspace is not projection-ready 733ms
+     × fetches files/tree for a writable workspace with a SHA and no export 6ms
+     × fetches files/tree when the workspace is projection-ready 83ms
+     × loads stored conversation turns without files or git on the document 4ms
+     × does not fetch files/tree or blob when pane warmup is skipped 4ms
+ ❯ src/features/workspaces/queries.test.ts (11 tests | 7 failed) 838ms
+     ✓ returns null when the org has none 2ms
+     ✓ prefers last-used when it still exists 0ms
+     ✓ falls back to the first Workspace when last-used is gone 0ms
+     × returns pending after a successful retry 600ms
+     × surfaces evlog { message } when { error } is absent 168ms
+     × prefers { error } over { message } for delete failures 31ms
+     × returns an empty tree when files/tree is not ready to browse 9ms
+     ✓ uses the shared query retry policy for files/tree 1ms
+     × persists a successful conversation sandbox tree snapshot 12ms
+     × keeps the Query cache on 409 and replaces it on the next 200 5ms
+     × returns an unreadied tree on 409 when Query cache is empty 3ms
+ ✓ src/features/workspaces/workspaceChatWebSocket.test.ts (8 tests) 27ms
+ ✓ src/features/connectors/slack-setup-model.test.ts (9 tests) 8ms
+[33m[motionwind][0m /Users/jakubriedl/Documents/Codex/2026-09-07/prior-conversation-with-codex-conversation-role-2/work/ctxpipe-recovery/apps/ui/src/components/ui/Button.tsx:136:14 — className uses a dynamic expression that may contain animate-* classes. These won't be compiled. Use template literals or the <mw.svg> runtime component instead.
+ ✓ src/lib/api-result.test.ts (9 tests) 25ms
+ ✓ src/features/repositories/gitSourcesFilter.test.ts (5 tests) 4ms
+ ✓ src/features/connectors/confluence-setup-model.forge-wait.test.ts (4 tests) 3ms
+ ✓ src/features/knowledge-graph/knowledgeGraphFocusFit.test.ts (7 tests) 4ms
+ ✓ src/features/connectors/connectorHealth.test.ts (5 tests) 5ms
+ ✓ src/features/repositories/repositoryCardPresentation.test.ts (4 tests) 8ms
+[33m[motionwind][0m /Users/jakubriedl/Documents/Codex/2026-09-07/prior-conversation-with-codex-conversation-role-2/work/ctxpipe-recovery/apps/ui/src/components/ui/Button.tsx:136:14 — className uses a dynamic expression that may contain animate-* classes. These won't be compiled. Use template literals or the <mw.svg> runtime component instead.
+ ✓ src/features/workspaces/fileTabs.test.ts (7 tests) 5ms
+ ✓ src/features/connectors/queries/notion-connector.test.ts (3 tests) 32ms
+ ✓ src/features/connectors/queries/forge-provision-api.test.ts (2 tests) 38ms
+ ✓ src/features/repositories/components/RepositoryStatus.test.tsx (7 tests) 133ms
+ ✓ src/features/home/calendar-days.test.ts (5 tests) 159ms
+ ✓ src/features/workspaces/fileTreeMutations.test.ts (3 tests) 6ms
+ ✓ src/features/repositories/gitSourcesListRows.test.ts (2 tests) 3ms
+ ✓ src/features/connectors/components/SlackSetupDialog.test.tsx (3 tests) 365ms
+ ✓ src/features/workspaces/WorkspaceHydrateProgress.test.tsx (3 tests) 58ms
+ ✓ src/lib/auth-client.test.ts (1 test) 259ms
+ ✓ src/features/workspaces/conversationPublish.test.ts (5 tests) 5ms
+ ✓ src/features/workspaces/WorkspaceChatChrome.test.tsx (2 tests) 180ms
+ ✓ src/features/knowledge-graph/knowledgeGraphIntroStorage.test.ts (3 tests) 3ms
+ ✓ src/features/chat/insertConversationListItem.test.ts (2 tests) 5ms
+ ✓ src/features/workspaces/pane.test.ts (7 tests) 59ms
+ ✓ src/features/workspaces/gitUrl.test.ts (4 tests) 33ms
+ ✓ src/providers/AuthProvider.test.tsx (1 test) 4779ms
+     ✓ enables built-in API key UI in provider config  4778ms
+ ✓ src/features/repositories/components/RepositoryCard.test.tsx (2 tests) 24ms
+ ✓ src/lib/org-gate.test.ts (3 tests) 11ms
+ ✓ src/features/connectors/queries/github-connector.test.ts (4 tests) 52ms
+ ✓ src/features/workspaces/conversation-git-tree-snapshot.test.ts (2 tests) 5ms
+ ✓ src/features/workspaces/nav.test.ts (5 tests) 8ms
+ ✓ src/components/ui/Button.test.tsx (1 test) 207ms
+ ✓ src/features/workspaces/WorkspaceChatSession.test.tsx (11 tests) 476ms
+ ✓ src/features/chat/ConversationThread.test.tsx (13 tests) 993ms
+     ✓ keeps Thinking… as the live title until a reasoning heading arrives  368ms
+ ✓ src/features/auth/accept-invitation.test.ts (2 tests) 2ms
+ ✓ src/features/workspaces/github-workspace-destination-nav.test.ts (4 tests) 11ms
+ ✓ src/components/SideNav/sideNavLocation.test.ts (2 tests) 7ms
+ ✓ src/features/connectors/components/ConnectorSetupStepper.test.tsx (2 tests) 73ms
+ ✓ src/lib/atlassian-oauth-messages.test.ts (3 tests) 3ms
+ ✓ src/features/workspaces/writeStatusLabel.test.ts (2 tests) 3ms
+ ✓ src/features/connectors/queries/org-connections.test.ts (1 test) 3ms
+ ✓ src/features/workspaces/workspaceDeleteNameMatches.test.ts (1 test) 2ms
+ ✓ src/features/connectors/components/ConnectorContextRepositoryGuidance.test.ts (2 tests) 9ms
+ ✓ src/lib/auth-continuation.test.ts (2 tests) 25ms
+ ✓ src/routes/-$orgSlug.test.ts (2 tests) 4ms
+ ✓ src/features/connectors/components/ConnectorWorkspaceDestinationPicker.test.ts (4 tests) 4ms
+ ✓ src/features/workspaces/WorkspaceFileTree.ssr.test.tsx (2 tests) 216ms
+ ✓ src/features/workspaces/WorkspaceFileTree.hover.test.ts (3 tests) 13ms
+[33m[motionwind][0m /Users/jakubriedl/Documents/Codex/2026-09-07/prior-conversation-with-codex-conversation-role-2/work/ctxpipe-recovery/apps/ui/src/components/ui/dropdown-menu.tsx:146:4 — className uses a dynamic expression that may contain animate-* classes. These won't be compiled. Use template literals or the <mw.DropdownMenuContent> runtime component instead.
+[33m[motionwind][0m /Users/jakubriedl/Documents/Codex/2026-09-07/prior-conversation-with-codex-conversation-role-2/work/ctxpipe-recovery/apps/ui/src/components/ui/spinner.tsx:6:4 — className uses a dynamic expression that may contain animate-* classes. These won't be compiled. Use template literals or the <mw.IconLoader> runtime component instead.
+ ✓ src/router.test.ts (1 test) 5ms
+
+⎯⎯⎯⎯⎯⎯ Failed Tests 12 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  src/features/workspaces/ensure-route-data.test.ts > ensureWorkspaceRouteData > does not fetch files/tree when the workspace is not projection-ready
+ FAIL  src/features/workspaces/ensure-route-data.test.ts > ensureWorkspaceRouteData > fetches files/tree for a writable workspace with a SHA and no export
+ FAIL  src/features/workspaces/ensure-route-data.test.ts > ensureWorkspaceRouteData > fetches files/tree when the workspace is projection-ready
+ FAIL  src/features/workspaces/ensure-route-data.test.ts > ensureWorkspaceRouteData > loads stored conversation turns without files or git on the document
+ FAIL  src/features/workspaces/ensure-route-data.test.ts > ensureWorkspaceRouteData > does not fetch files/tree or blob when pane warmup is skipped
+ApiError: [MSW] Cannot bypass a request when using the "error" strategy for the "onUnhandledRequest" option.
+ ❯ apiFetch src/lib/api-result.ts:54:11
+     52|     return await fetch(input, { ...init, signal })
+     53|   } catch (error) {
+     54|     throw new ApiError(
+       |           ^
+     55|       error instanceof Error ? error.message : "Network request failed…
+     56|       0,
+ ❯ fetchWorkspace src/features/workspaces/queries.ts:233:15
+
+Caused by: InternalError: [MSW] Cannot bypass a request when using the "error" strategy for the "onUnhandledRequest" option.
+ ❯ applyStrategy ../../node_modules/.pnpm/msw@2.13.6_@types+node@25.3.0_typescript@5.9.3/node_modules/msw/lib/core/experimental/on-unhandled-frame.mjs:40:9
+ ❯ InterceptorHttpNetworkFrame.resolve ../../node_modules/.pnpm/msw@2.13.6_@types+node@25.3.0_typescript@5.9.3/node_modules/msw/lib/core/experimental/frames/http-frame.mjs:117:7
+ ❯ Emitter.<anonymous> ../../node_modules/.pnpm/msw@2.13.6_@types+node@25.3.0_typescript@5.9.3/node_modules/msw/lib/core/experimental/define-network.mjs:70:11
+ ❯ Emitter.emitAsPromise ../../node_modules/.pnpm/rettime@0.11.8/node_modules/rettime/build/index.mjs:171:24
+ ❯ InterceptorSource.queue ../../node_modules/.pnpm/msw@2.13.6_@types+node@25.3.0_typescript@5.9.3/node_modules/msw/lib/core/experimental/sources/network-source.mjs:17:5
+ ❯ InterceptorSource.#handleRequest ../../node_modules/.pnpm/msw@2.13.6_@types+node@25.3.0_typescript@5.9.3/node_modules/msw/lib/core/experimental/sources/interceptor-source.mjs:38:5
+ ❯ emitAsync ../../node_modules/.pnpm/@mswjs+interceptors@0.41.3/node_modules/@mswjs/interceptors/lib/node/handleRequest-Y97UwBbF.mjs:33:36
+ ❯ ../../node_modules/.pnpm/@mswjs+interceptors@0.41.3/node_modules/@mswjs/interceptors/lib/node/handleRequest-Y97UwBbF.mjs:144:3
+ ❯ until ../../node_modules/.pnpm/@open-draft+until@2.1.0/node_modules/@open-draft/until/lib/index.mjs:4:18
+ ❯ handleRequest ../../node_modules/.pnpm/@mswjs+interceptors@0.41.3/node_modules/@mswjs/interceptors/lib/node/handleRequest-Y97UwBbF.mjs:138:17
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/12]⎯
+
+ FAIL  src/features/workspaces/queries.test.ts > workspace query HTTP helpers > returns pending after a successful retry
+ApiError: [MSW] Cannot bypass a request when using the "error" strategy for the "onUnhandledRequest" option.
+ ❯ apiFetch src/lib/api-result.ts:54:11
+     52|     return await fetch(input, { ...init, signal })
+     53|   } catch (error) {
+     54|     throw new ApiError(
+       |           ^
+     55|       error instanceof Error ? error.message : "Network request failed…
+     56|       0,
+ ❯ retryPrepareWorkspace src/features/workspaces/queries.ts:691:15
+ ❯ src/features/workspaces/queries.test.ts:103:20
+
+Caused by: InternalError: [MSW] Cannot bypass a request when using the "error" strategy for the "onUnhandledRequest" option.
+ ❯ applyStrategy ../../node_modules/.pnpm/msw@2.13.6_@types+node@25.3.0_typescript@5.9.3/node_modules/msw/lib/core/experimental/on-unhandled-frame.mjs:40:9
+ ❯ InterceptorHttpNetworkFrame.resolve ../../node_modules/.pnpm/msw@2.13.6_@types+node@25.3.0_typescript@5.9.3/node_modules/msw/lib/core/experimental/frames/http-frame.mjs:117:7
+ ❯ Emitter.<anonymous> ../../node_modules/.pnpm/msw@2.13.6_@types+node@25.3.0_typescript@5.9.3/node_modules/msw/lib/core/experimental/define-network.mjs:70:11
+ ❯ Emitter.emitAsPromise ../../node_modules/.pnpm/rettime@0.11.8/node_modules/rettime/build/index.mjs:171:24
+ ❯ InterceptorSource.queue ../../node_modules/.pnpm/msw@2.13.6_@types+node@25.3.0_typescript@5.9.3/node_modules/msw/lib/core/experimental/sources/network-source.mjs:17:5
+ ❯ InterceptorSource.#handleRequest ../../node_modules/.pnpm/msw@2.13.6_@types+node@25.3.0_typescript@5.9.3/node_modules/msw/lib/core/experimental/sources/interceptor-source.mjs:38:5
+ ❯ emitAsync ../../node_modules/.pnpm/@mswjs+interceptors@0.41.3/node_modules/@mswjs/interceptors/lib/node/handleRequest-Y97UwBbF.mjs:33:36
+ ❯ ../../node_modules/.pnpm/@mswjs+interceptors@0.41.3/node_modules/@mswjs/interceptors/lib/node/handleRequest-Y97UwBbF.mjs:144:3
+ ❯ until ../../node_modules/.pnpm/@open-draft+until@2.1.0/node_modules/@open-draft/until/lib/index.mjs:4:18
+ ❯ handleRequest ../../node_modules/.pnpm/@mswjs+interceptors@0.41.3/node_modules/@mswjs/interceptors/lib/node/handleRequest-Y97UwBbF.mjs:138:17
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[2/12]⎯
+
+ FAIL  src/features/workspaces/queries.test.ts > workspace query HTTP helpers > surfaces evlog { message } when { error } is absent
+AssertionError: expected [Function] to throw error including 'Connection terminated unexpectedly' but got '[MSW] Cannot bypass a request when us…'
+
+Expected: "Connection terminated unexpectedly"
+Received: "[MSW] Cannot bypass a request when using the "error" strategy for the "onUnhandledRequest" option."
+
+ ❯ src/features/workspaces/queries.test.ts:119:5
+    117|       ),
+    118|     )
+    119|     await expect(deleteWorkspace("acme", "docs", "Docs")).rejects.toTh…
+       |     ^
+    120|       "Connection terminated unexpectedly",
+    121|     )
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[3/12]⎯
+
+ FAIL  src/features/workspaces/queries.test.ts > workspace query HTTP helpers > prefers { error } over { message } for delete failures
+AssertionError: expected [Function] to throw error including 'Type the Workspace display name to co…' but got '[MSW] Cannot bypass a request when us…'
+
+Expected: "Type the Workspace display name to confirm delete"
+Received: "[MSW] Cannot bypass a request when using the "error" strategy for the "onUnhandledRequest" option."
+
+ ❯ src/features/workspaces/queries.test.ts:138:5
+    136|       ),
+    137|     )
+    138|     await expect(deleteWorkspace("acme", "docs", "wrong")).rejects.toT…
+       |     ^
+    139|       "Type the Workspace display name to confirm delete",
+    140|     )
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[4/12]⎯
+
+ FAIL  src/features/workspaces/queries.test.ts > workspace query HTTP helpers > returns an empty tree when files/tree is not ready to browse
+AssertionError: promise rejected "ApiError: [MSW] Cannot bypass a request w… { …(2) }" instead of resolving
+ ❯ src/features/workspaces/queries.test.ts:157:60
+    155|       ),
+    156|     )
+    157|     await expect(fetchWorkspaceGitTree("acme", "knowledge")).resolves.…
+       |                                                            ^
+    158|       sha: "",
+    159|       paths: [],
+
+Caused by: ApiError: [MSW] Cannot bypass a request when using the "error" strategy for the "onUnhandledRequest" option.
+ ❯ apiFetch src/lib/api-result.ts:54:11
+ ❯ fetchWorkspaceGitTree src/features/workspaces/queries.ts:152:15
+ ❯ src/features/workspaces/queries.test.ts:157:5
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯
+Serialized Error: { status: +0, body: {} }
+Caused by: InternalError: [MSW] Cannot bypass a request when using the "error" strategy for the "onUnhandledRequest" option.
+ ❯ applyStrategy ../../node_modules/.pnpm/msw@2.13.6_@types+node@25.3.0_typescript@5.9.3/node_modules/msw/lib/core/experimental/on-unhandled-frame.mjs:40:9
+ ❯ InterceptorHttpNetworkFrame.resolve ../../node_modules/.pnpm/msw@2.13.6_@types+node@25.3.0_typescript@5.9.3/node_modules/msw/lib/core/experimental/frames/http-frame.mjs:117:7
+ ❯ Emitter.<anonymous> ../../node_modules/.pnpm/msw@2.13.6_@types+node@25.3.0_typescript@5.9.3/node_modules/msw/lib/core/experimental/define-network.mjs:70:11
+ ❯ Emitter.emitAsPromise ../../node_modules/.pnpm/rettime@0.11.8/node_modules/rettime/build/index.mjs:171:24
+ ❯ InterceptorSource.queue ../../node_modules/.pnpm/msw@2.13.6_@types+node@25.3.0_typescript@5.9.3/node_modules/msw/lib/core/experimental/sources/network-source.mjs:17:5
+ ❯ InterceptorSource.#handleRequest ../../node_modules/.pnpm/msw@2.13.6_@types+node@25.3.0_typescript@5.9.3/node_modules/msw/lib/core/experimental/sources/interceptor-source.mjs:38:5
+ ❯ emitAsync ../../node_modules/.pnpm/@mswjs+interceptors@0.41.3/node_modules/@mswjs/interceptors/lib/node/handleRequest-Y97UwBbF.mjs:33:36
+ ❯ ../../node_modules/.pnpm/@mswjs+interceptors@0.41.3/node_modules/@mswjs/interceptors/lib/node/handleRequest-Y97UwBbF.mjs:144:3
+ ❯ until ../../node_modules/.pnpm/@open-draft+until@2.1.0/node_modules/@open-draft/until/lib/index.mjs:4:18
+ ❯ handleRequest ../../node_modules/.pnpm/@mswjs+interceptors@0.41.3/node_modules/@mswjs/interceptors/lib/node/handleRequest-Y97UwBbF.mjs:138:17
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[5/12]⎯
+
+ FAIL  src/features/workspaces/queries.test.ts > workspace query HTTP helpers > persists a successful conversation sandbox tree snapshot
+ FAIL  src/features/workspaces/queries.test.ts > workspace query HTTP helpers > keeps the Query cache on 409 and replaces it on the next 200
+ FAIL  src/features/workspaces/queries.test.ts > workspace query HTTP helpers > returns an unreadied tree on 409 when Query cache is empty
+ApiError: [MSW] Cannot bypass a request when using the "error" strategy for the "onUnhandledRequest" option.
+ ❯ apiFetch src/lib/api-result.ts:54:11
+     52|     return await fetch(input, { ...init, signal })
+     53|   } catch (error) {
+     54|     throw new ApiError(
+       |           ^
+     55|       error instanceof Error ? error.message : "Network request failed…
+     56|       0,
+ ❯ fetchConversationGitTree src/features/workspaces/queries.ts:350:15
+ ❯ queryFn src/features/workspaces/queries.ts:525:20
+
+Caused by: InternalError: [MSW] Cannot bypass a request when using the "error" strategy for the "onUnhandledRequest" option.
+ ❯ applyStrategy ../../node_modules/.pnpm/msw@2.13.6_@types+node@25.3.0_typescript@5.9.3/node_modules/msw/lib/core/experimental/on-unhandled-frame.mjs:40:9
+ ❯ InterceptorHttpNetworkFrame.resolve ../../node_modules/.pnpm/msw@2.13.6_@types+node@25.3.0_typescript@5.9.3/node_modules/msw/lib/core/experimental/frames/http-frame.mjs:117:7
+ ❯ Emitter.<anonymous> ../../node_modules/.pnpm/msw@2.13.6_@types+node@25.3.0_typescript@5.9.3/node_modules/msw/lib/core/experimental/define-network.mjs:70:11
+ ❯ Emitter.emitAsPromise ../../node_modules/.pnpm/rettime@0.11.8/node_modules/rettime/build/index.mjs:171:24
+ ❯ InterceptorSource.queue ../../node_modules/.pnpm/msw@2.13.6_@types+node@25.3.0_typescript@5.9.3/node_modules/msw/lib/core/experimental/sources/network-source.mjs:17:5
+ ❯ InterceptorSource.#handleRequest ../../node_modules/.pnpm/msw@2.13.6_@types+node@25.3.0_typescript@5.9.3/node_modules/msw/lib/core/experimental/sources/interceptor-source.mjs:38:5
+ ❯ emitAsync ../../node_modules/.pnpm/@mswjs+interceptors@0.41.3/node_modules/@mswjs/interceptors/lib/node/handleRequest-Y97UwBbF.mjs:33:36
+ ❯ ../../node_modules/.pnpm/@mswjs+interceptors@0.41.3/node_modules/@mswjs/interceptors/lib/node/handleRequest-Y97UwBbF.mjs:144:3
+ ❯ until ../../node_modules/.pnpm/@open-draft+until@2.1.0/node_modules/@open-draft/until/lib/index.mjs:4:18
+ ❯ handleRequest ../../node_modules/.pnpm/@mswjs+interceptors@0.41.3/node_modules/@mswjs/interceptors/lib/node/handleRequest-Y97UwBbF.mjs:138:17
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[6/12]⎯
+
+
+ Test Files  2 failed | 59 passed (61)
+      Tests  12 failed | 279 passed (291)
+   Start at  17:20:51
+   Duration  23.85s (transform 23.73s, setup 0ms, import 80.76s, tests 10.38s, environment 4.73s)
+
+/Users/jakubriedl/Documents/Codex/2026-09-07/prior-conversation-with-codex-conversation-role-2/work/ctxpipe-recovery/apps/ui:
+ ERR_PNPM_RECURSIVE_RUN_FIRST_FAIL  @ctxpipe/ui@0.2.0 test: `vitest run --passWithNoTests`
+Exit status 1

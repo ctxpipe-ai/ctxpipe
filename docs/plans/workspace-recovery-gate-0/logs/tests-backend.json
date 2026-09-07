@@ -1,0 +1,13 @@
+{
+  "name": "tests-backend",
+  "command": [
+    "pnpm",
+    "--filter",
+    "@ctxpipe/backend",
+    "test"
+  ],
+  "exit_code": 1,
+  "duration_seconds": 209.68,
+  "started_utc": "2026-09-07T07:20:43Z",
+  "log": "logs/tests-backend.log"
+}

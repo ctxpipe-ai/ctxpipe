@@ -1,0 +1,7 @@
+Recovery starting SHA: f632772cb10e4a220923acf4278b47e2295a5e94
+PR baseRefOid: 95201c3d210775f9350f63595dc6d13d64d2eb6c
+PR headRefOid: 1fad8412525efdeefdfa4899fe9a2f41dfbbc1c8
+Command: git merge-base 95201c3d210775f9350f63595dc6d13d64d2eb6c origin/pr-280
+Result: 9072089086f6fad87fbf05572b9f1ff5336e0520
+Inventory: 343 tests + 78 stories = 421 unique tracked files.
+Classification review signals are navigation aids, not completed classifications.

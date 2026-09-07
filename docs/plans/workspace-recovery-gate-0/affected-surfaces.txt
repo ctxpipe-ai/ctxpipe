@@ -1,0 +1,16 @@
+.
+.ai
+.changeset
+.cursor
+.github
+apps/backend
+apps/codesearch
+apps/docs
+apps/forge-ctxpipe-agent
+apps/otel-collector
+apps/ui
+examples/aws-cdk-self-host
+infra
+packages/aws-cdk
+packages/cli
+scripts

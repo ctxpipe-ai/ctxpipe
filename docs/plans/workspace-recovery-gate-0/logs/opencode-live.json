@@ -1,0 +1,16 @@
+{
+  "name": "opencode-live",
+  "command": [
+    "pnpm",
+    "--filter",
+    "@ctxpipe/backend",
+    "exec",
+    "vitest",
+    "run",
+    "src/domain/workspaces/tanstack-workspace-chat.live.test.ts"
+  ],
+  "exit_code": 1,
+  "duration_seconds": 3.78,
+  "started_utc": "2026-09-07T10:56:35Z",
+  "log": "logs/opencode-live.log"
+}
