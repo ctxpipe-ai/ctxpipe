@@ -38,6 +38,54 @@ describe("workspaceChatWebSocket hydrate", () => {
       expect.objectContaining({ credentials: "include" }),
     )
   })
+
+  it.each([
+    401, 403, 500,
+  ])("records that a %i hydration response currently becomes an empty thread", async (status) => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => new Response(null, { status })),
+    )
+
+    const connection = workspaceChatWebSocket("acme", "conv_1")
+
+    await expect(connection.hydrate("conv_1")).resolves.toEqual({
+      messages: [],
+      activeRun: null,
+      interrupts: null,
+    })
+  })
+
+  it("surfaces malformed hydration JSON", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(
+        async () =>
+          new Response("not-json", {
+            headers: { "content-type": "application/json" },
+          }),
+      ),
+    )
+
+    const connection = workspaceChatWebSocket("acme", "conv_1")
+
+    await expect(connection.hydrate("conv_1")).rejects.toThrow()
+  })
+
+  it("accepts a valid empty hydration response", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => Response.json({ messages: [], activeRun: null })),
+    )
+
+    const connection = workspaceChatWebSocket("acme", "conv_1")
+
+    await expect(connection.hydrate("conv_1")).resolves.toEqual({
+      messages: [],
+      activeRun: null,
+      interrupts: null,
+    })
+  })
 })
 
 describe("workspace chat websocket reuse", () => {

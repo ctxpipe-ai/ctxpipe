@@ -51,7 +51,26 @@ When you add a **reusable component** or a **new page/screen** (a route that rep
 
 ## Testing in Storybook
 
-Vitest and Testing Library are used for **unit/component tests** (`*.test.tsx`). This app does not currently add **@storybook/addon-vitest**; the MCP’s **`run-story-tests`** tool applies when that integration exists. Until then, rely on Vitest in CI and a11y via **`@storybook/addon-a11y`** in Storybook.
+Storybook interaction tests in its Playwright-powered browser are the primary UI
+component and page behavior tests. Put scenarios in colocated stories and drive
+the real production surface through the story `play` function. Use Storybook's
+portable/browser test facilities and `run-story-tests` when available.
+
+- Mock only external network boundaries with MSW. Render the real component,
+  router, Query client, hooks, transport binding, and user controls.
+- Prefer accessible queries and real user interactions. Assert visible behavior,
+  focus, navigation, streaming transitions, cleanup, and request counts rather
+  than implementation calls.
+- Do not add jsdom or happy-dom Vitest component tests. Keep Vitest for pure,
+  non-DOM functions and state invariants.
+- Use direct Playwright for integrated product journeys that need the running
+  backend, database, sandbox/OpenCode, or native git outside a Storybook story.
+- A story that only paints a state is visual coverage, not an interaction test;
+  critical behavior needs a `play` function with assertions.
+
+The repository may need additional Storybook Test wiring before all interaction
+tests can run in CI. Add that wiring as infrastructure for the Storybook strategy,
+not as a parallel DOM-test stack.
 
 ## Quick reference (commands)
 
