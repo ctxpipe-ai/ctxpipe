@@ -4,7 +4,6 @@ import { fileURLToPath } from "node:url"
 import { describe, expect, it } from "vitest"
 import { classifyText } from "../../../src/memory/capture.js"
 
-const enabled = process.env.CTXPIPE_MEMORY_LIVE_EVAL === "1"
 const here = dirname(fileURLToPath(import.meta.url))
 
 describe("memory live evals (Layer B)", () => {
@@ -34,14 +33,4 @@ describe("memory live evals (Layer B)", () => {
     // Seed (not prompt) must ground the port fact.
     expect(scenario).toMatch(/listens on port 4000/)
   })
-
-  // Runner not wired yet — always skip. Do not fail when CTXPIPE_MEMORY_LIVE_EVAL=1;
-  // that would imply a live path exists. See README.md.
-  it.skipIf(true || !enabled)(
-    "golden path: sandbox agent produces candidates and durable Markdown (pending TanStack runner)",
-    async () => {
-      // When wired: materialize scenario.seed, run TanStack AI Sandbox + claudeCodeText,
-      // assert expect.* against the sandbox filesystem.
-    },
-  )
 })

@@ -41,16 +41,23 @@ let pool: Pool
 let db: ReturnType<typeof drizzle>
 
 beforeAll(() => {
-  pool = new Pool({ connectionString })
+  // Every connection in this dedicated fixture pool uses the same tenant.
+  // Keep the application role and its RLS policies active during the proof.
+  pool = new Pool({
+    connectionString,
+    options: `-c app.organization_id=${ORG_ID}`,
+  })
   db = drizzle({ client: pool, schema, relations })
 })
 
 afterAll(async () => {
-  // Clean up seeded data
-  await db.delete(repositories).where(eq(repositories.orgId, ORG_ID))
-  await db.delete(claims).where(eq(claims.orgId, ORG_ID))
-  await db.delete(objects).where(eq(objects.orgId, ORG_ID))
-  await pool.end()
+  try {
+    await db.delete(repositories).where(eq(repositories.orgId, ORG_ID))
+    await db.delete(claims).where(eq(claims.orgId, ORG_ID))
+    await db.delete(objects).where(eq(objects.orgId, ORG_ID))
+  } finally {
+    await pool.end()
+  }
 })
 
 const objA = generateObjectId("obj")

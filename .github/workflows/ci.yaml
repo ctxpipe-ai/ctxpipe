@@ -35,6 +35,8 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
       - uses: pnpm/action-setup@v6
       - uses: actions/setup-node@v6
         with:
@@ -42,6 +44,10 @@ jobs:
           cache: pnpm
       - run: pnpm install --frozen-lockfile
       - run: pnpm lint
+      - name: Reject skipped proof and owned mocks
+        run: node scripts/ci/check-test-policy.mjs
+      - name: CI command regression tests
+        run: node --test scripts/tests/ci-*.test.mjs
 
   typecheck:
     name: Typecheck
@@ -51,16 +57,16 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
       - uses: pnpm/action-setup@v6
       - uses: actions/setup-node@v6
         with:
           node-version: 22
           cache: pnpm
       - run: pnpm install --frozen-lockfile
-      - name: Backend Workspace typecheck
-        run: bash scripts/typecheck-workspaces.sh
-      - name: UI Workspace typecheck
-        run: bash scripts/typecheck-ui-workspaces.sh
+      - name: Full projects with shrinking diagnostic allowances
+        run: pnpm typecheck
 
   test:
     name: Tests
@@ -86,12 +92,19 @@ jobs:
           --health-retries 5
     steps:
       - uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
       - uses: pnpm/action-setup@v6
       - uses: actions/setup-node@v6
         with:
           node-version: 22
           cache: pnpm
       - run: pnpm install --frozen-lockfile
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.3.11
+      - name: Required chat engine binary
+        run: npm install --global opencode-ai@1.18.18
       - name: Migrate backend schema
         env:
           DATABASE_URL: postgresql://ctxpipe:ctxpipe@localhost:5432/ctxpipe
@@ -99,14 +112,94 @@ jobs:
         working-directory: apps/backend
         run: |
           pnpm exec drizzle-kit migrate
+          pnpm exec tsx src/db/migrate-openworkflow.ts
+          pnpm exec tsx src/db/migrate-checkpoints.ts
           pnpm exec tsx src/db/provision-app-role-cli.ts
       - name: Backend tests
         env:
           AUTH_SECRET: ci-auth-secret-must-be-at-least-32-chars
           DATABASE_URL: postgresql://ctxpipe_app:ctxpipe@localhost:5432/ctxpipe
         run: pnpm --filter @ctxpipe/backend test
+      - name: Required deterministic contracts
+        env:
+          AUTH_SECRET: ci-auth-secret-must-be-at-least-32-chars
+          DATABASE_URL: postgresql://ctxpipe_app:ctxpipe@localhost:5432/ctxpipe
+        run: pnpm test:contracts
       - name: UI tests
         run: pnpm --filter @ctxpipe/ui test
+      - name: CDK tests
+        run: node scripts/ci/test-suite.mjs aws-cdk
+      - name: Preserve executed test inventories and results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: required-test-results
+          path: .ci-results/
+          include-hidden-files: true
+          if-no-files-found: error
+
+  production-builds:
+    name: Production build (${{ matrix.name }})
+    if: |
+      (github.event_name == 'pull_request') !=
+      (github.actor == 'cursor[bot]' || github.actor == 'cursoragent')
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: backend
+            dockerfile: apps/backend/Dockerfile
+          - name: worker
+            dockerfile: apps/backend/Dockerfile.worker
+          - name: ui
+            dockerfile: apps/ui/Dockerfile
+          - name: codesearch
+            dockerfile: apps/codesearch/Dockerfile
+          - name: docs
+            dockerfile: apps/docs/Dockerfile
+          - name: otel-collector
+            dockerfile: apps/otel-collector/Dockerfile
+    steps:
+      - uses: actions/checkout@v6
+      - run: docker build --progress=plain -f '${{ matrix.dockerfile }}' .
+
+  packages:
+    name: Runnable packages and examples
+    if: |
+      (github.event_name == 'pull_request') !=
+      (github.actor == 'cursor[bot]' || github.actor == 'cursoragent')
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - uses: pnpm/action-setup@v6
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 22
+          cache: pnpm
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.3.11
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm --filter @ctxpipe/backend build
+      - run: pnpm --filter @ctxpipe/codesearch build
+      - run: pnpm --filter @ctxpipe/aws-cdk build
+      - run: pnpm --filter ctxpipe build
+      - run: pnpm --filter @ctxpipe/aws-cdk-self-host typecheck
+
+  codesearch:
+    name: Codesearch real toolchain contracts
+    if: |
+      (github.event_name == 'pull_request') !=
+      (github.actor == 'cursor[bot]' || github.actor == 'cursoragent')
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - uses: pnpm/action-setup@v6
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 22
+      - run: pnpm --filter @ctxpipe/codesearch test
 
   migrate:
     name: Migrations (fresh and previous schema)

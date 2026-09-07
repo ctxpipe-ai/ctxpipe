@@ -1,0 +1,14 @@
+{
+  "postgres": [
+    "src/db/rls-isolation.test.ts",
+    "src/models/workspaces-sandbox-persist.test.ts"
+  ],
+  "git": ["src/services/git/clone-tree.test.ts"],
+  "local sandbox and job worktree runner": [
+    "src/domain/workspaces/job-sandbox.live.test.ts"
+  ],
+  "hydrate": ["src/domain/workspaces/hydration.contract.test.ts"],
+  "chat engine": [
+    "src/domain/workspaces/tanstack-workspace-chat.multiturn.test.ts"
+  ]
+}

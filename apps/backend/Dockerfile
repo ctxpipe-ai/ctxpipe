@@ -2,7 +2,7 @@
 FROM node:22-alpine AS opencode
 RUN npm install -g opencode-ai@1.18.18
 
-FROM oven/bun:1.2-alpine AS deps
+FROM oven/bun:1.3.11-alpine AS deps
 WORKDIR /app
 ENV CI=true
 RUN bun install -g pnpm@10.12.1
@@ -12,7 +12,7 @@ COPY apps/backend/package.json apps/backend/package.json
 RUN pnpm install --frozen-lockfile --prod --config.confirmModulesPurge=false
 
 # Production stage — Bun runs TypeScript natively, no tsc compilation needed
-FROM oven/bun:1.2-alpine
+FROM oven/bun:1.3.11-alpine
 WORKDIR /app
 ENV CI=true
 ENV NODE_ENV=production

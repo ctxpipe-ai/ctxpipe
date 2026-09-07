@@ -1,8 +1,10 @@
 import { execSync } from "node:child_process"
 import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs"
+import { createServer } from "node:http"
 import { tmpdir } from "node:os"
 import { join, resolve } from "node:path"
 import { config } from "dotenv"
+import { OpenAPIHono } from "@hono/zod-openapi"
 import { eq } from "drizzle-orm"
 import { HttpResponse, http } from "msw"
 import { setupServer } from "msw/node"
@@ -16,6 +18,8 @@ import {
   it,
 } from "vitest"
 import { withUserIdContext } from "../../auth/context.js"
+import type { AppEnv } from "../../app/env.js"
+import { parseEnv } from "../../config/env.js"
 import { withOrgIdContext } from "../../auth/withAuth.js"
 import {
   closeDb,
@@ -30,6 +34,12 @@ import {
   workspaces,
 } from "../../db/schema/workspaces.js"
 import { withTestLogger } from "../../test/with-test-logger.js"
+import {
+  contextStorage,
+  withTestRequestLogger,
+} from "../../test/hono-test-logger.js"
+import { workspaceChatOpenaiRoutes } from "../../routes/v1/workspace-chat-openai.js"
+import { destroySandboxesForConversation } from "./sandbox-registry.js"
 import { streamTanstackWorkspaceChat } from "./tanstack-workspace-chat.js"
 
 config({
@@ -168,19 +178,49 @@ function restoreHome(): void {
 }
 
 const source = makeGitRepo()
+const savedPort = process.env.PORT
+const proxyApp = new OpenAPIHono<AppEnv>()
+proxyApp.use(contextStorage())
+proxyApp.use(withTestRequestLogger)
+proxyApp.use("*", async (c, next) => {
+  c.set("env", parseEnv(process.env))
+  await next()
+})
+proxyApp.route(
+  `/${org.slug}/api/v1/workspace-chat/openai`,
+  workspaceChatOpenaiRoutes,
+)
+const proxy = createServer((request, response) => {
+  void (async () => {
+    const chunks: Buffer[] = []
+    for await (const chunk of request) chunks.push(Buffer.from(chunk))
+    const result = await proxyApp.request(
+      new URL(request.url ?? "/", "http://127.0.0.1"),
+      {
+        method: request.method,
+        headers: request.headers as HeadersInit,
+        body:
+          request.method === "GET" || request.method === "HEAD"
+            ? undefined
+            : Buffer.concat(chunks),
+      },
+    )
+    response.writeHead(result.status, Object.fromEntries(result.headers))
+    if (result.body) {
+      for await (const chunk of result.body) response.write(chunk)
+    }
+    response.end()
+  })().catch((error) => response.destroy(error))
+})
 
-function opencodeOnPath(): boolean {
-  try {
-    execSync("command -v opencode", { stdio: "ignore" })
-    return true
-  } catch {
-    return false
-  }
-}
-
-describe.skipIf(!opencodeOnPath())("live two-turn workspace chat", () => {
+describe("live two-turn workspace chat", () => {
   beforeAll(async () => {
     server.listen({ onUnhandledRequest: "bypass" })
+    await new Promise<void>((resolve) => proxy.listen(0, "127.0.0.1", resolve))
+    const address = proxy.address()
+    if (!address || typeof address === "string")
+      throw new Error("Expected TCP proxy listener")
+    process.env.PORT = String(address.port)
     initDb(databaseUrl)
     const now = new Date()
     const db = getSystemDb()
@@ -215,8 +255,12 @@ describe.skipIf(!opencodeOnPath())("live two-turn workspace chat", () => {
   })
 
   afterAll(async () => {
-    server.close()
     try {
+      await withTestLogger(() =>
+        withOrgIdContext(org, () =>
+          destroySandboxesForConversation(conversationId),
+        ),
+      )
       await withOrgDbContext(org.id, async (db) => {
         await db
           .delete(workspaceSandboxInstances)
@@ -230,6 +274,13 @@ describe.skipIf(!opencodeOnPath())("live two-turn workspace chat", () => {
       await system.delete(organizations).where(eq(organizations.id, org.id))
       await system.delete(users).where(eq(users.id, userId))
     } finally {
+      proxy.closeAllConnections()
+      await new Promise<void>((resolve, reject) =>
+        proxy.close((error) => (error ? reject(error) : resolve())),
+      )
+      server.close()
+      if (savedPort === undefined) delete process.env.PORT
+      else process.env.PORT = savedPort
       await closeDb()
     }
   })

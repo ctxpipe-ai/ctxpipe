@@ -31,8 +31,6 @@ import { mintWorkspaceChatToken } from "./workspace-chat-token.js"
 
 const LIVE_AUTH_SECRET = "abcdefghijklmnopqrstuvwxyz123456"
 
-const live = process.env.OPENCODE_LIVE === "1"
-
 vi.mock("../../auth/config.js", () => ({
   getAuth: () => ({
     api: { getSession: async () => null },
@@ -115,7 +113,7 @@ const savedHome = {
   XDG_CACHE_HOME: process.env.XDG_CACHE_HOME,
 }
 
-describe.skipIf(!live)("workspace chat OpenCode fallback (live)", () => {
+describe("workspace chat OpenCode fallback (live)", () => {
   it("scrubs host provider keys from the local-process env", async () => {
     process.env.MODEL_PROVIDER_API_KEY = "sk-must-not-leak"
     process.env.ANTHROPIC_API_KEY = "sk-anthropic-must-not-leak"

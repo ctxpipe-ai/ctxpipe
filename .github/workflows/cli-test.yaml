@@ -30,6 +30,8 @@ jobs:
     steps:
       - name: Checkout repository
         uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
 
       - uses: pnpm/action-setup@v6
 
@@ -43,4 +45,4 @@ jobs:
         run: pnpm install --frozen-lockfile
 
       - name: CLI tests
-        run: pnpm --filter ctxpipe test
+        run: node scripts/ci/test-suite.mjs cli

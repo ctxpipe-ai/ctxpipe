@@ -11,8 +11,9 @@ merge gate.
 
 The **scenario YAML + prompt/classifier contract tests are live in CI**. The
 TanStack AI Sandbox + `claudeCodeText` **runner is not wired yet**. Setting
-`CTXPIPE_MEMORY_LIVE_EVAL=1` does **not** claim a green agent golden path — the
-live runner test stays skipped until that integration lands.
+`CTXPIPE_MEMORY_LIVE_EVAL=1` does **not** run an agent golden path. The empty,
+always-skipped placeholder was removed in recovery Gate 1. This documented
+backlog remains unimplemented and is not counted as executed proof.
 
 ## Scenario contract (CI)
 

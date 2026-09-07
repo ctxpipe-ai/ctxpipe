@@ -103,7 +103,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
   && chmod +x /out/*
 
 # ── Stage 7: Install application dependencies ────────────────────────────────
-FROM oven/bun:1.2-slim AS deps
+FROM oven/bun:1.3.11-slim AS deps
 WORKDIR /app
 ENV CI=true
 RUN bun install -g pnpm@10.12.1
@@ -113,7 +113,7 @@ COPY apps/codesearch/package.json apps/codesearch/package.json
 RUN pnpm install --frozen-lockfile --prod --config.confirmModulesPurge=false
 
 # ── Stage 8: Production runtime ──────────────────────────────────────────────
-FROM oven/bun:1.2-slim AS runtime
+FROM oven/bun:1.3.11-slim AS runtime
 
 # Runtime build tools let indexers resolve and compile real-world projects.
 # universal-ctags lets zoekt-index record symbol metadata for sym: queries.

@@ -1,0 +1,53 @@
+{
+  "version": 1,
+  "diagnostics": [
+    {
+      "file": "src/db/client.ts",
+      "code": 2769,
+      "message": "No overload matches this call.\n  Overload 1 of 2, '(store: OrgDbStore, callback: () => Promise<T>): Promise<T>', gave the following error.\n    Type 'PgAsyncTransaction<NodePgQueryResultHKT, typeof import(\"<repo>/apps/codesearch/src/db/schema\"), EmptyRelations, ExtractTablesWithRelations<typeof import(\"<repo>/apps/codesearch/src/db/schema\")>>' is not assignable to type 'NodePgDatabase<typeof import(\"<repo>/apps/codesearch/src/db/schema\"), EmptyRelations> & { $client: Pool; }'.\n      Property '$client' is missing in type 'PgAsyncTransaction<NodePgQueryResultHKT, typeof import(\"<repo>/apps/codesearch/src/db/schema\"), EmptyRelations, ExtractTablesWithRelations<typeof import(\"<repo>/apps/codesearch/src/db/schema\")>>' but required in type '{ $client: Pool; }'.\n  Overload 2 of 2, '(store: OrgDbStore, callback: () => Promise<T>): Promise<T>', gave the following error.\n    Type 'PgAsyncTransaction<NodePgQueryResultHKT, typeof import(\"<repo>/apps/codesearch/src/db/schema\"), EmptyRelations, ExtractTablesWithRelations<typeof import(\"<repo>/apps/codesearch/src/db/schema\")>>' is not assignable to type 'NodePgDatabase<typeof import(\"<repo>/apps/codesearch/src/db/schema\"), EmptyRelations> & { $client: Pool; }'.\n      Property '$client' is missing in type 'PgAsyncTransaction<NodePgQueryResultHKT, typeof import(\"<repo>/apps/codesearch/src/db/schema\"), EmptyRelations, ExtractTablesWithRelations<typeof import(\"<repo>/apps/codesearch/src/db/schema\")>>' but required in type '{ $client: Pool; }'.",
+      "count": 1
+    },
+    {
+      "file": "src/db/client.ts",
+      "code": 2345,
+      "message": "Argument of type 'PgAsyncTransaction<NodePgQueryResultHKT, typeof import(\"<repo>/apps/codesearch/src/db/schema\"), EmptyRelations, ExtractTablesWithRelations<typeof import(\"<repo>/apps/codesearch/src/db/schema\")>>' is not assignable to parameter of type 'NodePgDatabase<typeof import(\"<repo>/apps/codesearch/src/db/schema\"), EmptyRelations> & { $client: Pool; }'.\n  Property '$client' is missing in type 'PgAsyncTransaction<NodePgQueryResultHKT, typeof import(\"<repo>/apps/codesearch/src/db/schema\"), EmptyRelations, ExtractTablesWithRelations<typeof import(\"<repo>/apps/codesearch/src/db/schema\")>>' but required in type '{ $client: Pool; }'.",
+      "count": 1
+    },
+    {
+      "file": "src/domain/repositories/globFiles.ts",
+      "code": 2322,
+      "message": "Type 'Dirent<string>[]' is not assignable to type 'Dirent<NonSharedBuffer>[]'.\n  Type 'Dirent<string>' is not assignable to type 'Dirent<NonSharedBuffer>'.\n    Type 'string' is not assignable to type 'NonSharedBuffer'.",
+      "count": 1
+    },
+    {
+      "file": "src/domain/repositories/globFiles.ts",
+      "code": 2339,
+      "message": "Property 'startsWith' does not exist on type 'NonSharedBuffer'.",
+      "count": 1
+    },
+    {
+      "file": "src/domain/repositories/globFiles.ts",
+      "code": 2345,
+      "message": "Argument of type 'string | NonSharedBuffer' is not assignable to parameter of type 'string'.\n  Type 'NonSharedBuffer' is not assignable to type 'string'.",
+      "count": 1
+    },
+    {
+      "file": "src/domain/repositories/globFiles.ts",
+      "code": 2322,
+      "message": "Type 'NonSharedBuffer' is not assignable to type 'string'.",
+      "count": 2
+    },
+    {
+      "file": "src/domain/repositories/globFiles.ts",
+      "code": 2322,
+      "message": "Type 'string | NonSharedBuffer' is not assignable to type 'string'.\n  Type 'NonSharedBuffer' is not assignable to type 'string'.",
+      "count": 3
+    },
+    {
+      "file": "src/domain/repositories/globFiles.ts",
+      "code": 2345,
+      "message": "Argument of type 'NonSharedBuffer' is not assignable to parameter of type 'string'.",
+      "count": 1
+    }
+  ]
+}
