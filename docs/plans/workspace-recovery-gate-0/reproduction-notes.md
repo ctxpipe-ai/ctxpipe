@@ -140,3 +140,14 @@ Each measurement series deletes only its own generated conversations through the
 production API. The final diagnostic cleans up the two manually used conversations
 and checks sandbox rows, directory existence, leases, processes and sockets.
 The task's database/container and servers are isolated from the original checkout.
+
+
+The final review identified two files excluded by the default backend Vitest
+config. `vitest-excluded-baseline.config.mjs` inherits that config/setup, sets the
+backend root, and removes excludes. The exact named-file invocation in
+`logs/tests-backend-excluded.json` runs both with the real application DB role.
+MCP conformance passes both checks. Ingestion retraction's four cases fail their
+seed inserts under RLS; no owner-role rerun is presented as application-role proof.
+CLI full `check` and self-host example `typecheck` both pass in separately named
+metadata. `surface-coverage.md` distinguishes declared build scripts from external
+deploy-only surfaces.

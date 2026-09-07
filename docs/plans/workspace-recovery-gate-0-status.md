@@ -32,7 +32,7 @@ See the [scope bundle](workspace-recovery-gate-0/baseline.md),
   Spec adversarial review of the exact remote SHA; resolve every blocker.
 - Record that final verified SHA and review artifacts before starting Gate 1.
 
-All 421 test/story classifications are now reviewed (212 proof, 209
+All 421 test/story classifications are now reviewed (207 proof, 214
 characterization). The full Storybook run records 347 pass / 24 fail / 0 pending;
 the required Docker lane records 219 pass / 2 skipped plus a passing OOM simulation.
 The real manual journey fails; diagnostic continuations, two separately reported

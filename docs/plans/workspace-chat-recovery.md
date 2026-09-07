@@ -15,7 +15,7 @@ manifest and archived primary-source metadata. Its inventory is taken from
 tracked files at the PR head; dependency installations and generated output do
 not change the inventory.
 
-The plan considers the entire repository tree, all 19 resolved Git-backed
+The plan considers the entire repository tree, all 19 Git-backed
 Workspaces design tickets, accepted PRDs and ADRs, and runtime, test, CI,
 migration, and deployment paths. Complete-history access is restored; Gate 0
 remains in progress until runtime evidence, test classification, and independent

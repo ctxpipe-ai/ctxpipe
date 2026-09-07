@@ -35,3 +35,9 @@ Classification is about oracle quality, not execution status. A proof row can st
 - Output inventory: 108 unique rows plus one header.
 - Every output row uses `kind=test`, `has_play=n/a`, an explicit classification, an owner gate, and source-specific evidence.
 - Every row in this review slice is fully classified and assigned.
+
+
+Final adversarial review conservatively reclassifies workspaceChatWebSocket.test.ts
+as characterization because the current checkpoint adds explicitly named
+characterization cases alongside its narrow URL/fetch proof. Non-backend test
+counts therefore become 81 proof / 27 characterization.

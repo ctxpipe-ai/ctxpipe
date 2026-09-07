@@ -1,0 +1,4 @@
+{"name": "typecheck-extra-surfaces", "cwd": "/private/tmp/ctxpipe-recovery-01a07aba", "command": ["volta", "run", "--node", "22.16.0", "pnpm", "--filter", "ctxpipe", "--filter", "@ctxpipe/aws-cdk-self-host", "--workspace-concurrency=2", "--no-bail", "--if-present", "run", "typecheck"], "environment": {"AUTH_SECRET": "gate0-local-disposable-test-secret-20260907", "DATABASE_URL": "postgresql://ctxpipe:ctxpipe@127.0.0.1:51498/ctxpipe_gate0_fresh", "GRAPH_DB_URI": "redis://127.0.0.1:6399", "CI": "true", "NO_COLOR": "1", "TURBO_TELEMETRY_DISABLED": "1", "STORYBOOK_DISABLE_TELEMETRY": "1"}, "timeout_seconds": 600, "started_utc": "2026-09-07T12:22:48Z", "log": "logs/typecheck-extra-surfaces.log"}
+Scope: 2 of 10 workspace projects
+examples/aws-cdk-self-host typecheck$ tsc --noEmit
+examples/aws-cdk-self-host typecheck: Done

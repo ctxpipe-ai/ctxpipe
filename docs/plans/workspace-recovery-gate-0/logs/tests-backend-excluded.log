@@ -1,0 +1,53 @@
+{"name": "tests-backend-excluded", "cwd": "/private/tmp/ctxpipe-recovery-01a07aba", "command": ["volta", "run", "--node", "22.16.0", "pnpm", "--filter", "@ctxpipe/backend", "exec", "vitest", "run", "--config", "../../docs/plans/workspace-recovery-gate-0/vitest-excluded-baseline.config.mjs", "src/retrieval/services/ingestionRetraction.integration.test.ts", "src/routes/mcp.conformance.test.ts"], "environment": {"AUTH_SECRET": "gate0-local-disposable-test-secret-20260907", "DATABASE_URL": "postgresql://ctxpipe_app:ctxpipe@127.0.0.1:51498/ctxpipe_gate0_fresh", "GRAPH_DB_URI": "redis://127.0.0.1:6399", "CI": "true", "NO_COLOR": "1", "TURBO_TELEMETRY_DISABLED": "1", "STORYBOOK_DISABLE_TELEMETRY": "1"}, "timeout_seconds": 600, "started_utc": "2026-09-07T12:25:17Z", "log": "logs/tests-backend-excluded.log"}
+
+ RUN  v4.0.18 /private/tmp/ctxpipe-recovery-01a07aba/apps/backend
+
+stdout | src/retrieval/services/ingestionRetraction.integration.test.ts
+[dotenv@17.3.1] injecting env (0) from .env.local -- tip: ⚡️ secrets for agents: https://dotenvx.com/as2
+
+ ❯ src/retrieval/services/ingestionRetraction.integration.test.ts (4 tests | 4 failed) 106ms
+     × removes repo-A evidence, keeps repo-B evidence, recomputes multi-source claim 62ms
+     × is a no-op for a repository with no evidence 13ms
+     × bulk-deletes all fully-owned claims when purging the last remaining source 11ms
+     × cascade deletes evidence when claims are deleted directly 9ms
+ ✓ src/routes/mcp.conformance.test.ts (2 tests) 9369ms
+     ✓ passes server conformance against in-test MCP endpoint  880ms
+     ✓ passes MCPJam protocol conformance against the production transport  7415ms
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 4 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  src/retrieval/services/ingestionRetraction.integration.test.ts > purgeRepositoryEvidencePg (integration) > removes repo-A evidence, keeps repo-B evidence, recomputes multi-source claim
+ FAIL  src/retrieval/services/ingestionRetraction.integration.test.ts > purgeRepositoryEvidencePg (integration) > is a no-op for a repository with no evidence
+ FAIL  src/retrieval/services/ingestionRetraction.integration.test.ts > purgeRepositoryEvidencePg (integration) > bulk-deletes all fully-owned claims when purging the last remaining source
+ FAIL  src/retrieval/services/ingestionRetraction.integration.test.ts > purgeRepositoryEvidencePg (integration) > cascade deletes evidence when claims are deleted directly
+Error: Failed query: insert into "repositories" ("id", "org_id", "name", "git_url", "repository_key", "index_ready", "indexing_status", "indexing_error", "indexing_failed_at", "last_ingested_hash", "last_ingested_at", "indexing_reason", "indexing_step", "indexing_step_total", "indexing_step_key", "github_connection_id", "created_at", "updated_at") values ($1, $2, $3, $4, default, default, default, default, default, default, default, default, default, default, default, default, default, default), ($5, $6, $7, $8, default, default, default, default, default, default, default, default, default, default, default, default, default, default)
+params: repo_agqhxvedbrzh5dqlfgplf6tf54,org_test_retraction_1788783919884,owner/repo-a,https://github.com/owner/repo-a.git,repo_agqhxvedbrzh5dqlfsci4fzwhu,org_test_retraction_1788783919884,owner/repo-b,https://github.com/owner/repo-b.git
+ ❯ ../../node_modules/.pnpm/drizzle-orm@1.0.0-beta.22_@opentelemetry+api@1.9.0_@types+mssql@9.1.9_@azure+core-clien_187cb3c43007455e384d88e6e878f2d4/node_modules/drizzle-orm/pg-core/async/session.js:37:10
+ ❯ seed src/retrieval/services/ingestionRetraction.integration.test.ts:64:3
+     62| 
+     63| async function seed() {
+     64|   await db.insert(repositories).values([
+       |   ^
+     65|     {
+     66|       id: REPO_A,
+ ❯ src/retrieval/services/ingestionRetraction.integration.test.ts:190:5
+
+Caused by: error: new row violates row-level security policy for table "repositories"
+ ❯ ../../node_modules/.pnpm/pg-pool@3.11.0_pg@8.18.0/node_modules/pg-pool/index.js:45:11
+ ❯ ../../node_modules/.pnpm/drizzle-orm@1.0.0-beta.22_@opentelemetry+api@1.9.0_@types+mssql@9.1.9_@azure+core-clien_187cb3c43007455e384d88e6e878f2d4/node_modules/drizzle-orm/node-postgres/session.js:49:13
+ ❯ seed src/retrieval/services/ingestionRetraction.integration.test.ts:64:3
+ ❯ src/retrieval/services/ingestionRetraction.integration.test.ts:190:5
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯
+Serialized Error: { length: 135, severity: 'ERROR', code: '42501', detail: undefined, hint: undefined, position: undefined, internalPosition: undefined, internalQuery: undefined, where: undefined, schema: undefined, table: undefined, dataType: undefined, constraint: undefined, file: 'execMain.c', routine: 'ExecWithCheckOptions' }
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/4]⎯
+
+
+ Test Files  1 failed | 1 passed (2)
+      Tests  4 failed | 2 passed (6)
+   Start at  22:25:18
+   Duration  9.49s (transform 245ms, setup 43ms, import 1.51s, tests 9.47s, environment 0ms)
+
+undefined
+/private/tmp/ctxpipe-recovery-01a07aba/apps/backend:
+ ERR_PNPM_RECURSIVE_EXEC_FIRST_FAIL  Command failed with exit code 1: vitest run --config ../../docs/plans/workspace-recovery-gate-0/vitest-excluded-baseline.config.mjs src/retrieval/services/ingestionRetraction.integration.test.ts src/routes/mcp.conformance.test.ts

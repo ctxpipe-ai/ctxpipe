@@ -364,7 +364,7 @@ pnpm-lock.yaml
 ## Completed local baseline evidence
 
 The canonical command ledger records all runs, including failures. All 421 tracked
-test/story files have reviewed classifications: **212 proof, 209 characterization,
+test/story files have reviewed classifications: **207 proof, 214 characterization,
 0 redundant, 0 unclassified**. Classification describes the oracle, not whether a
 particular execution passed. Per-file reasons and owners are in the TSV and three
 classification-review notes. Full browser results, Docker lane, manual failing
