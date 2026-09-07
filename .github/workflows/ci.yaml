@@ -210,6 +210,24 @@ jobs:
           node-version: 22
       - run: pnpm --filter @ctxpipe/codesearch test
 
+  terraform-validate:
+    name: Terraform configuration
+    if: |
+      github.event_name == 'workflow_dispatch' ||
+      ((github.event_name == 'pull_request') !=
+      (github.actor == 'cursor[bot]' || github.actor == 'cursoragent'))
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: 1.14.7
+      - name: Validate without remote state or account credentials
+        working-directory: infra
+        run: |
+          terraform init -backend=false -input=false
+          terraform validate -no-color
+
   migrate:
     name: Migrations (fresh and previous schema)
     if: |

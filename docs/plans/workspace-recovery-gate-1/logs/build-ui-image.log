@@ -1,0 +1,152 @@
+{"name": "build-ui-image", "cwd": "/private/tmp/ctxpipe-recovery-01a07aba", "command": ["docker", "build", "--progress=plain", "-f", "apps/ui/Dockerfile", "-t", "ctxpipe-recovery-gate1-ui:local", "."], "environment": {"AUTH_SECRET": "gate0-local-disposable-test-secret-20260907", "DATABASE_URL": "postgresql://ctxpipe_app:ctxpipe@127.0.0.1:51498/ctxpipe_gate0_fresh", "GRAPH_DB_URI": "redis://127.0.0.1:6399", "CI": "true", "NO_COLOR": "1", "TURBO_TELEMETRY_DISABLED": "1", "STORYBOOK_DISABLE_TELEMETRY": "1", "PATH": "/private/tmp/ctxpipe-recovery-runtime/node_modules/.bin:/usr/local/bin:/System/Cryptexes/App/usr/bin:/usr/bin:/bin:/usr/sbin:/sbin:/var/run/com.apple.security.cryptexd/codex.system/bootstrap/usr/local/bin:/var/run/com.apple.security.cryptexd/codex.system/bootstrap/usr/bin:/var/run/com.apple.security.cryptexd/codex.system/bootstrap/usr/appleinternal/bin:/pkg/env/global/bin:/Users/jakubriedl/.codex/tmp/arg0/codex-arg0BW5Gt3:/Users/jakubriedl/.cache/codex-runtimes/codex-primary-runtime/dependencies/bin/override:/Users/jakubriedl/.local/bin:/Users/jakubriedl/.bun/bin:/Users/jakubriedl/.opencode/bin:/Users/jakubriedl/.volta/bin:/opt/homebrew/bin:/opt/homebrew/sbin:/Users/jakubriedl/.cache/codex-runtimes/codex-primary-runtime/dependencies/bin/fallback:/Applications/ChatGPT.app/Contents/Resources"}, "timeout_seconds": 600, "started_utc": "2026-09-07T23:23:51Z", "log": "logs/build-ui-image.log"}
+#0 building with "desktop-linux" instance using docker driver
+
+#1 [internal] load build definition from Dockerfile
+#1 transferring dockerfile: 1.31kB done
+#1 DONE 0.0s
+
+#2 [internal] load metadata for docker.io/oven/bun:1.3.11-alpine
+#2 DONE 2.7s
+
+#3 [internal] load .dockerignore
+#3 transferring context: 2B done
+#3 DONE 0.0s
+
+#4 [deps 1/8] FROM docker.io/oven/bun:1.3.11-alpine@sha256:7ed9f74c326d1c260abe247ac423ccbf5ac92af62bb442d515d1f92f21e8ea9b
+#4 resolve docker.io/oven/bun:1.3.11-alpine@sha256:7ed9f74c326d1c260abe247ac423ccbf5ac92af62bb442d515d1f92f21e8ea9b done
+#4 sha256:7ed9f74c326d1c260abe247ac423ccbf5ac92af62bb442d515d1f92f21e8ea9b 1.61kB / 1.61kB done
+#4 sha256:27c33913f6f966cd9a2aeecbe95ad54d2a73e3aa5a553f831b94d88866a88df2 4.05kB / 4.05kB done
+#4 sha256:dad5f1a4694c80f997f7a310e2cb1163a97b0752126fe7bd5ab18ee4d630ba16 0B / 297B 0.1s
+#4 sha256:3885ef8337c9a4f4f2a425c609351ac0d5bd42ed5b97b1ded7fc31ee6a81ca04 1.43kB / 1.43kB done
+#4 sha256:d741ee1608f399e21c72d05f0f818c348c6801af33aeb83523893d09dc153957 0B / 4.14MB 0.1s
+#4 sha256:6356cf2ec8b37034e76fe6e838444e1fdc961008703ad8955e0a26ab46d511de 0B / 37.67MB 0.1s
+#4 sha256:d741ee1608f399e21c72d05f0f818c348c6801af33aeb83523893d09dc153957 4.14MB / 4.14MB 0.4s done
+#4 extracting sha256:d741ee1608f399e21c72d05f0f818c348c6801af33aeb83523893d09dc153957
+#4 sha256:8b4f8ceea3665ae19a6a549917f33111ae5630f641ef175acf910c80b7648b5e 0B / 186B 0.5s
+#4 sha256:6356cf2ec8b37034e76fe6e838444e1fdc961008703ad8955e0a26ab46d511de 2.10MB / 37.67MB 0.6s
+#4 extracting sha256:d741ee1608f399e21c72d05f0f818c348c6801af33aeb83523893d09dc153957 0.2s done
+#4 sha256:6356cf2ec8b37034e76fe6e838444e1fdc961008703ad8955e0a26ab46d511de 8.39MB / 37.67MB 0.7s
+#4 sha256:6356cf2ec8b37034e76fe6e838444e1fdc961008703ad8955e0a26ab46d511de 13.63MB / 37.67MB 0.8s
+#4 sha256:dad5f1a4694c80f997f7a310e2cb1163a97b0752126fe7bd5ab18ee4d630ba16 297B / 297B 0.8s done
+#4 sha256:6356cf2ec8b37034e76fe6e838444e1fdc961008703ad8955e0a26ab46d511de 24.76MB / 37.67MB 1.0s
+#4 sha256:8b4f8ceea3665ae19a6a549917f33111ae5630f641ef175acf910c80b7648b5e 186B / 186B 0.8s done
+#4 sha256:9b91c11aebe52e4476f39cf53da7cc8a6211b4cab56e31550a9a3e0f9e9f03a3 0B / 3.60MB 1.0s
+#4 sha256:0478dceb9ab5dc021a7137843062075cba0cd781741422578ad129269713c02c 0B / 142B 1.0s
+#4 sha256:6356cf2ec8b37034e76fe6e838444e1fdc961008703ad8955e0a26ab46d511de 30.41MB / 37.67MB 1.1s
+#4 sha256:6356cf2ec8b37034e76fe6e838444e1fdc961008703ad8955e0a26ab46d511de 35.65MB / 37.67MB 1.2s
+#4 sha256:0478dceb9ab5dc021a7137843062075cba0cd781741422578ad129269713c02c 142B / 142B 1.1s done
+#4 sha256:6356cf2ec8b37034e76fe6e838444e1fdc961008703ad8955e0a26ab46d511de 37.67MB / 37.67MB 1.3s done
+#4 sha256:9b91c11aebe52e4476f39cf53da7cc8a6211b4cab56e31550a9a3e0f9e9f03a3 3.60MB / 3.60MB 1.3s
+#4 extracting sha256:6356cf2ec8b37034e76fe6e838444e1fdc961008703ad8955e0a26ab46d511de
+#4 sha256:9b91c11aebe52e4476f39cf53da7cc8a6211b4cab56e31550a9a3e0f9e9f03a3 3.60MB / 3.60MB 1.3s done
+#4 extracting sha256:6356cf2ec8b37034e76fe6e838444e1fdc961008703ad8955e0a26ab46d511de 0.6s done
+#4 extracting sha256:dad5f1a4694c80f997f7a310e2cb1163a97b0752126fe7bd5ab18ee4d630ba16 done
+#4 extracting sha256:8b4f8ceea3665ae19a6a549917f33111ae5630f641ef175acf910c80b7648b5e done
+#4 extracting sha256:9b91c11aebe52e4476f39cf53da7cc8a6211b4cab56e31550a9a3e0f9e9f03a3 0.0s done
+#4 extracting sha256:0478dceb9ab5dc021a7137843062075cba0cd781741422578ad129269713c02c
+#4 extracting sha256:0478dceb9ab5dc021a7137843062075cba0cd781741422578ad129269713c02c done
+#4 DONE 2.1s
+
+#5 [internal] load build context
+#5 ...
+
+#6 [deps 2/8] WORKDIR /app
+#6 DONE 0.2s
+
+#7 [deps 3/8] RUN bun install -g pnpm@10.12.1
+#7 0.283 bun add v1.3.11 (af24e281)
+#7 0.285 Resolving dependencies
+#7 1.195 Resolved, downloaded and extracted [4]
+#7 1.292 Saved lockfile
+#7 1.292 
+#7 1.292 installed pnpm@10.12.1 with binaries:
+#7 1.292  - pnpm
+#7 1.292  - pnpx
+#7 1.292 
+#7 1.292 1 package installed [1010.00ms]
+#7 DONE 1.4s
+
+#5 [internal] load build context
+#5 transferring context: 138.85MB 10.2s
+#5 transferring context: 140.03MB 10.3s done
+#5 DONE 10.3s
+
+#8 [deps 4/8] COPY package.json pnpm-workspace.yaml pnpm-lock.yaml* ./
+#8 DONE 0.2s
+
+#9 [deps 5/8] COPY patches patches
+#9 DONE 0.0s
+
+#10 [deps 6/8] COPY apps/ui/package.json apps/ui/package.json
+#10 DONE 0.0s
+
+#11 [deps 7/8] COPY apps/backend/package.json apps/backend/package.json
+#11 DONE 0.0s
+
+#12 [deps 8/8] RUN pnpm install --frozen-lockfile
+#12 3.192 Scope: all 3 workspace projects
+#12 3.356 Lockfile is up to date, resolution step is skipped
+#12 3.534 Progress: resolved 1, reused 0, downloaded 0, added 0
+#12 3.996 Packages: +2522
+#12 3.996 ++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
+#12 4.577 Progress: resolved 2522, reused 0, downloaded 15, added 2
+#12 5.579 Progress: resolved 2522, reused 0, downloaded 49, added 49
+#12 6.580 Progress: resolved 2522, reused 0, downloaded 104, added 105
+#12 7.584 Progress: resolved 2522, reused 0, downloaded 147, added 148
+#12 8.584 Progress: resolved 2522, reused 0, downloaded 188, added 189
+#12 9.587 Progress: resolved 2522, reused 0, downloaded 230, added 234
+#12 10.59 Progress: resolved 2522, reused 0, downloaded 288, added 295
+#12 11.59 Progress: resolved 2522, reused 0, downloaded 349, added 362
+#12 12.59 Progress: resolved 2522, reused 0, downloaded 403, added 417
+#12 13.59 Progress: resolved 2522, reused 0, downloaded 453, added 469
+#12 14.59 Progress: resolved 2522, reused 0, downloaded 510, added 527
+#12 15.60 Progress: resolved 2522, reused 0, downloaded 544, added 561
+#12 16.60 Progress: resolved 2522, reused 0, downloaded 588, added 605
+#12 17.61 Progress: resolved 2522, reused 0, downloaded 631, added 650
+#12 18.61 Progress: resolved 2522, reused 0, downloaded 687, added 707
+#12 19.61 Progress: resolved 2522, reused 0, downloaded 716, added 735
+#12 20.62 Progress: resolved 2522, reused 0, downloaded 737, added 750
+#12 21.62 Progress: resolved 2522, reused 0, downloaded 785, added 806
+#12 22.63 Progress: resolved 2522, reused 0, downloaded 814, added 835
+#12 23.63 Progress: resolved 2522, reused 0, downloaded 848, added 869
+#12 24.63 Progress: resolved 2522, reused 0, downloaded 894, added 914
+#12 25.63 Progress: resolved 2522, reused 0, downloaded 920, added 941
+#12 26.63 Progress: resolved 2522, reused 0, downloaded 957, added 979
+#12 27.65 Progress: resolved 2522, reused 0, downloaded 997, added 1023
+#12 28.65 Progress: resolved 2522, reused 0, downloaded 1026, added 1053
+#12 29.65 Progress: resolved 2522, reused 0, downloaded 1064, added 1090
+#12 30.66 Progress: resolved 2522, reused 0, downloaded 1151, added 1178
+#12 31.67 Progress: resolved 2522, reused 0, downloaded 1204, added 1232
+#12 32.67 Progress: resolved 2522, reused 0, downloaded 1258, added 1288
+#12 33.67 Progress: resolved 2522, reused 0, downloaded 1310, added 1340
+#12 34.67 Progress: resolved 2522, reused 0, downloaded 1358, added 1386
+#12 35.68 Progress: resolved 2522, reused 0, downloaded 1414, added 1444
+#12 36.67 Progress: resolved 2522, reused 0, downloaded 1469, added 1498
+#12 37.67 Progress: resolved 2522, reused 0, downloaded 1514, added 1544
+#12 38.68 Progress: resolved 2522, reused 0, downloaded 1555, added 1585
+#12 40.03 Progress: resolved 2522, reused 0, downloaded 1582, added 1608
+#12 41.04 Progress: resolved 2522, reused 0, downloaded 1613, added 1643
+#12 42.04 Progress: resolved 2522, reused 0, downloaded 1664, added 1694
+#12 43.05 Progress: resolved 2522, reused 0, downloaded 1714, added 1744
+#12 44.05 Progress: resolved 2522, reused 0, downloaded 1764, added 1794
+#12 45.05 Progress: resolved 2522, reused 0, downloaded 1812, added 1842
+#12 46.05 Progress: resolved 2522, reused 0, downloaded 1861, added 1891
+#12 47.07 Progress: resolved 2522, reused 0, downloaded 1894, added 1924
+#12 48.07 Progress: resolved 2522, reused 0, downloaded 1951, added 1981
+#12 49.08 Progress: resolved 2522, reused 0, downloaded 1996, added 2024
+#12 50.08 Progress: resolved 2522, reused 0, downloaded 2019, added 2049
+#12 51.08 Progress: resolved 2522, reused 0, downloaded 2056, added 2086
+#12 52.08 Progress: resolved 2522, reused 0, downloaded 2076, added 2106
+#12 53.09 Progress: resolved 2522, reused 0, downloaded 2095, added 2125
+#12 54.09 Progress: resolved 2522, reused 0, downloaded 2119, added 2149
+#12 55.09 Progress: resolved 2522, reused 0, downloaded 2132, added 2162
+#12 56.09 Progress: resolved 2522, reused 0, downloaded 2164, added 2194
+#12 57.10 Progress: resolved 2522, reused 0, downloaded 2223, added 2253
+#12 58.10 Progress: resolved 2522, reused 0, downloaded 2281, added 2310
+#12 59.10 Progress: resolved 2522, reused 0, downloaded 2321, added 2351
+#12 60.10 Progress: resolved 2522, reused 0, downloaded 2384, added 2414
+#12 61.11 Progress: resolved 2522, reused 0, downloaded 2432, added 2463
+#12 62.12 Progress: resolved 2522, reused 0, downloaded 2478, added 2509
+#12 63.13 Progress: resolved 2522, reused 0, downloaded 2489, added 2520
+#12 CANCELED
+ERROR: failed to build: failed to solve: Canceled: context canceled

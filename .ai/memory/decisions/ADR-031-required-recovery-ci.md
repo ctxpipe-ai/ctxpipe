@@ -23,8 +23,11 @@ truthful before Gates 2–6 change product behavior.
 - Require the declared Bun and OpenCode binaries and migrated PostgreSQL using
   an application role without table ownership or RLS bypass. Scripted model
   upstreams exercise the real proxy and OpenCode process without paid requests.
-- Keep named PostgreSQL, native git, local sandbox/job worktree, hydration, and
-  chat-engine contract lanes. Their assertions use real owned collaborators.
+- Keep named PostgreSQL, native git, local sandbox/job worktree, OpenWorkflow,
+  hydration, and chat-engine contract lanes. Their assertions use real owned collaborators.
+  Hydration runs its workflow for 0/1/100 files. Every write kind runs through
+  OpenWorkflow and records its current pre-write failure as an explicit
+  characterization; Gate 3 replaces it with successful commit/CAS/push proof.
   Gate 0's characterization classification remains explicit pending replacement
   and deletion; it does not count as proof of the replaced collaborators.
 - Reject test selection modifiers, expected-failure tests, blind test retries,
@@ -33,7 +36,8 @@ truthful before Gates 2–6 change product behavior.
   their existing roles.
 - Build every production image without publishing it. Build backend/codesearch
   package entrypoints with Bun and check types separately. Build distributable
-  CDK/CLI packages and typecheck the self-host consumer.
+  CDK/CLI packages and typecheck the self-host consumer. Validate Terraform with
+  its remote backend disabled and without account credentials.
 
 ## Consequences
 

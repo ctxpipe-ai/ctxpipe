@@ -1,8 +1,9 @@
 import { execSync } from "node:child_process"
-import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs"
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs"
 import { createServer, type IncomingMessage } from "node:http"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
+import { OpenAPIHono } from "@hono/zod-openapi"
 import { chat } from "@tanstack/ai"
 import { opencodeText } from "@tanstack/ai-opencode"
 import {
@@ -13,13 +14,15 @@ import {
   withSandbox,
 } from "@tanstack/ai-sandbox"
 import { localProcessSandbox } from "@tanstack/ai-sandbox-local-process"
-import { OpenAPIHono } from "@hono/zod-openapi"
 import { afterEach, describe, expect, it, vi } from "vitest"
 import type { AppEnv } from "../../app/env.js"
-import { contextStorage, withTestRequestLogger } from "../../test/hono-test-logger.js"
+import { workspaceChatOpenaiRoutes } from "../../routes/v1/workspace-chat-openai.js"
+import {
+  contextStorage,
+  withTestRequestLogger,
+} from "../../test/hono-test-logger.js"
 import { withTestLogger } from "../../test/with-test-logger.js"
 import { createDataStreamConversationTransport } from "../conversations/transport.js"
-import { workspaceChatOpenaiRoutes } from "../../routes/v1/workspace-chat-openai.js"
 import { WORKSPACE_CHAT_SANDBOX_SETUP } from "./chat-runtime.js"
 import {
   WORKSPACE_CHAT_LOCAL_PROCESS_SCRUB_ENV,
@@ -111,7 +114,19 @@ const savedHome = {
   XDG_DATA_HOME: process.env.XDG_DATA_HOME,
   XDG_STATE_HOME: process.env.XDG_STATE_HOME,
   XDG_CACHE_HOME: process.env.XDG_CACHE_HOME,
+  MODEL_PROVIDER: process.env.MODEL_PROVIDER,
+  MODEL_PROVIDER_API_KEY: process.env.MODEL_PROVIDER_API_KEY,
+  MODEL_PROVIDER_URL: process.env.MODEL_PROVIDER_URL,
+  MODEL_FAST_NAME: process.env.MODEL_FAST_NAME,
+  ANTHROPIC_API_KEY: process.env.ANTHROPIC_API_KEY,
+  OPENAI_API_KEY: process.env.OPENAI_API_KEY,
+  OPENROUTER_API_KEY: process.env.OPENROUTER_API_KEY,
+  SANDBOX_PROVIDER: process.env.SANDBOX_PROVIDER,
+  OPENCODE_AUTH_CONTENT: process.env.OPENCODE_AUTH_CONTENT,
+  AUTH_SECRET: process.env.AUTH_SECRET,
+  PORT: process.env.PORT,
 }
+const temporaryDirectories: string[] = []
 
 describe("workspace chat OpenCode fallback (live)", () => {
   it("scrubs host provider keys from the local-process env", async () => {
@@ -136,134 +151,138 @@ describe("workspace chat OpenCode fallback (live)", () => {
     "streams a stub completion through the ctxpipe proxy on local_process",
     { timeout: 180_000 },
     async () => {
-    isolateHome()
-    const upstreamHits: Array<{
-      host: string
-      model: string
-      path: string
-      stream: boolean
-      authorization: string | null
-      messageCount: number
-      keys: string[]
-      max_tokens?: unknown
-      stream_options?: unknown
-      preview?: string
-    }> = []
-    const upstream = await listenOpenAiStub((req, url, body) => {
-      const messages = Array.isArray(body.messages) ? body.messages : []
-      upstreamHits.push({
-        host: url.host,
-        model: body.model ?? "",
-        path: url.pathname,
-        stream: body.stream === true,
-        authorization: req.headers.authorization ?? null,
-        messageCount: messages.length,
-        keys: Object.keys(body).sort(),
-        max_tokens: body.max_tokens,
-        stream_options: body.stream_options,
-        preview: JSON.stringify(messages).slice(0, 400),
+      isolateHome()
+      const upstreamHits: Array<{
+        host: string
+        model: string
+        path: string
+        stream: boolean
+        authorization: string | null
+        messageCount: number
+        keys: string[]
+        max_tokens?: unknown
+        stream_options?: unknown
+        preview?: string
+      }> = []
+      const upstream = await listenOpenAiStub((req, url, body) => {
+        const messages = Array.isArray(body.messages) ? body.messages : []
+        upstreamHits.push({
+          host: url.host,
+          model: body.model ?? "",
+          path: url.pathname,
+          stream: body.stream === true,
+          authorization: req.headers.authorization ?? null,
+          messageCount: messages.length,
+          keys: Object.keys(body).sort(),
+          max_tokens: body.max_tokens,
+          stream_options: body.stream_options,
+          preview: JSON.stringify(messages).slice(0, 400),
+        })
+        return Array.isArray(body.tools)
+          ? "I read the workspace README. fallback-stub-ok"
+          : "Live Stub Title"
       })
-      return Array.isArray(body.tools)
-        ? "I read the workspace README. fallback-stub-ok"
-        : "Live Stub Title"
-    })
-    process.env.MODEL_PROVIDER = "openai-like"
-    process.env.MODEL_PROVIDER_API_KEY = "sk-live-upstream"
-    process.env.MODEL_PROVIDER_URL = `${upstream.baseUrl}/v1`
-    process.env.MODEL_FAST_NAME = "openai/gpt-5.6-terra"
-    delete process.env.ANTHROPIC_API_KEY
-    delete process.env.OPENAI_API_KEY
-    delete process.env.OPENROUTER_API_KEY
-    delete process.env.SANDBOX_PROVIDER
+      process.env.MODEL_PROVIDER = "openai-like"
+      process.env.MODEL_PROVIDER_API_KEY = "sk-live-upstream"
+      process.env.MODEL_PROVIDER_URL = `${upstream.baseUrl}/v1`
+      process.env.MODEL_FAST_NAME = "openai/gpt-5.6-terra"
+      delete process.env.ANTHROPIC_API_KEY
+      delete process.env.OPENAI_API_KEY
+      delete process.env.OPENROUTER_API_KEY
+      delete process.env.SANDBOX_PROVIDER
 
-    const contract = workspaceChatOpenCodeContract(process.env)
-    expect(contract.ok).toBe(true)
-    if (!contract.ok) return
+      const contract = workspaceChatOpenCodeContract(process.env)
+      expect(contract.ok).toBe(true)
+      if (!contract.ok) return
 
-    const proxy = await listenWorkspaceChatOpenai({
-      upstreamUrl: contract.upstreamBaseUrl,
-      apiKey: contract.apiKey,
-      conversationId: "conv_live_fallback",
-    })
-    const runToken = proxy.token
-    const openCode = writeWorkspaceChatOpenCodeConfig({
-      conversationId: "conv_live_fallback",
-      modelBase: contract.modelBase,
-    })
-    const source = makeGitRepo()
-    const chunks: object[] = []
-    try {
-      const stream = chat({
-        adapter: opencodeText(contract.opencodeModel, {
-          port: 4096,
-          permissionMode: "acceptEdits",
-        }),
-        threadId: "conv_live_fallback",
-        messages: [{ role: "user", content: "say ok" }],
-        middleware: [
-          withSandbox(
-            defineSandbox({
-              id: `live:${source.ref}`,
-              provider: localProcessSandbox({
-                scrubEnv: [...WORKSPACE_CHAT_LOCAL_PROCESS_SCRUB_ENV],
-              }),
-              workspace: defineWorkspace({
-                source: gitSource({ url: source.url, ref: source.ref }),
-                setup: [...WORKSPACE_CHAT_SANDBOX_SETUP],
-                secrets: createSecrets({
-                  CTXPIPE_OPENCODE_RUN_TOKEN: runToken,
-                  CTXPIPE_MODEL_PROXY_URL: proxy.baseUrl,
-                  [WORKSPACE_CHAT_OPENCODE_JSON_SECRET]: openCode.configJson,
-                  ...openCode.homeEnv,
+      const proxy = await listenWorkspaceChatOpenai({
+        upstreamUrl: contract.upstreamBaseUrl,
+        apiKey: contract.apiKey,
+        conversationId: "conv_live_fallback",
+      })
+      const runToken = proxy.token
+      const openCode = writeWorkspaceChatOpenCodeConfig({
+        conversationId: "conv_live_fallback",
+        modelBase: contract.modelBase,
+      })
+      const source = makeGitRepo()
+      const chunks: object[] = []
+      try {
+        const stream = chat({
+          adapter: opencodeText(contract.opencodeModel, {
+            port: 4096,
+            permissionMode: "acceptEdits",
+          }),
+          threadId: "conv_live_fallback",
+          messages: [{ role: "user", content: "say ok" }],
+          middleware: [
+            withSandbox(
+              defineSandbox({
+                id: `live:${source.ref}`,
+                provider: localProcessSandbox({
+                  scrubEnv: [...WORKSPACE_CHAT_LOCAL_PROCESS_SCRUB_ENV],
                 }),
+                workspace: defineWorkspace({
+                  source: gitSource({ url: source.url, ref: source.ref }),
+                  setup: [...WORKSPACE_CHAT_SANDBOX_SETUP],
+                  secrets: createSecrets({
+                    CTXPIPE_OPENCODE_RUN_TOKEN: runToken,
+                    CTXPIPE_MODEL_PROXY_URL: proxy.baseUrl,
+                    [WORKSPACE_CHAT_OPENCODE_JSON_SECRET]: openCode.configJson,
+                    ...openCode.homeEnv,
+                  }),
+                }),
+                lifecycle: {
+                  reuse: "thread",
+                  snapshot: "after-setup",
+                  destroyOnComplete: true,
+                },
               }),
-              lifecycle: {
-                reuse: "thread",
-                snapshot: "after-setup",
-                keepAlive: "5m",
-              },
-            }),
-          ),
-        ],
-      })
-      for await (const chunk of stream as AsyncIterable<object>) {
-        chunks.push(chunk)
+            ),
+          ],
+        })
+        for await (const chunk of stream as AsyncIterable<object>) {
+          chunks.push(chunk)
+        }
+      } finally {
+        await proxy.close()
+        await upstream.close()
       }
-    } finally {
-      await proxy.close()
-      await upstream.close()
-    }
 
-    const text = chunks
-      .map((chunk) => {
-        const record = chunk as { type?: string; delta?: string }
-        return record.type === "TEXT_MESSAGE_CONTENT"
-          ? (record.delta ?? "")
-          : ""
+      const text = chunks
+        .map((chunk) => {
+          const record = chunk as { type?: string; delta?: string }
+          return record.type === "TEXT_MESSAGE_CONTENT"
+            ? (record.delta ?? "")
+            : ""
+        })
+        .join("")
+      const fatal = chunks.find((chunk) => {
+        const record = chunk as { type?: string }
+        return record.type === "RUN_ERROR"
       })
-      .join("")
-    const fatal = chunks.find((chunk) => {
-      const record = chunk as { type?: string }
-      return record.type === "RUN_ERROR"
-    })
-    expect(fatal).toBeUndefined()
-    expect(chunks.some((chunk) => (chunk as { type?: string }).type === "RUN_FINISHED")).toBe(
-      true,
-    )
-    expect(text.length).toBeGreaterThan(0)
-    expect(upstreamHits.length).toBeGreaterThan(0)
-    expect(
-      upstreamHits.every((hit) => hit.model === "openai/gpt-5.6-terra"),
-    ).toBe(true)
-    expect(upstreamHits.some((hit) => hit.host.includes("anthropic"))).toBe(
-      false,
-    )
-    expect(upstreamHits.some((hit) => hit.host.includes("openai.com"))).toBe(
-      false,
-    )
-    expect(
-      upstreamHits.every((hit) => hit.authorization === "Bearer sk-live-upstream"),
-    ).toBe(true)
+      expect(fatal).toBeUndefined()
+      expect(
+        chunks.some(
+          (chunk) => (chunk as { type?: string }).type === "RUN_FINISHED",
+        ),
+      ).toBe(true)
+      expect(text.length).toBeGreaterThan(0)
+      expect(upstreamHits.length).toBeGreaterThan(0)
+      expect(
+        upstreamHits.every((hit) => hit.model === "openai/gpt-5.6-terra"),
+      ).toBe(true)
+      expect(upstreamHits.some((hit) => hit.host.includes("anthropic"))).toBe(
+        false,
+      )
+      expect(upstreamHits.some((hit) => hit.host.includes("openai.com"))).toBe(
+        false,
+      )
+      expect(
+        upstreamHits.every(
+          (hit) => hit.authorization === "Bearer sk-live-upstream",
+        ),
+      ).toBe(true)
     },
   )
 
@@ -345,9 +364,9 @@ describe("workspace chat OpenCode fallback (live)", () => {
         expect(upstreamHits.some((hit) => hit.host.includes("anthropic"))).toBe(
           false,
         )
-        expect(upstreamHits.some((hit) => hit.host.includes("openai.com"))).toBe(
-          false,
-        )
+        expect(
+          upstreamHits.some((hit) => hit.host.includes("openai.com")),
+        ).toBe(false)
       } finally {
         await completions.close()
         await upstream.close()
@@ -357,11 +376,14 @@ describe("workspace chat OpenCode fallback (live)", () => {
 
   afterEach(() => {
     restoreHome()
+    for (const directory of temporaryDirectories.splice(0))
+      rmSync(directory, { recursive: true, force: true })
   })
 })
 
 function isolateHome(): void {
   const home = mkdtempSync(join(tmpdir(), "opencode-home-"))
+  temporaryDirectories.push(home)
   process.env.HOME = home
   process.env.XDG_CONFIG_HOME = join(home, "config")
   process.env.XDG_DATA_HOME = join(home, "data")
@@ -380,6 +402,7 @@ function restoreHome(): void {
 
 function makeGitRepo(): { url: string; ref: string } {
   const dir = mkdtempSync(join(tmpdir(), "ws-live-"))
+  temporaryDirectories.push(dir)
   execSync("git init -b main", { cwd: dir })
   writeFileSync(join(dir, "README.md"), "live workspace\n")
   execSync(

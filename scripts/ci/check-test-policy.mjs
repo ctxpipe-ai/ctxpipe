@@ -7,12 +7,13 @@ import ts from "typescript"
 try {
   const root = fileURLToPath(new URL("../../", import.meta.url))
   const classification = new Map(
-    readFileSync(
-      resolve(
-        root,
-        "docs/plans/workspace-recovery-gate-0/test-classification.tsv",
-      ),
-      "utf8",
+    execFileSync(
+      "git",
+      [
+        "show",
+        "7dfa6b93a5baedc3eb2c86dd1056662e89cace00:docs/plans/workspace-recovery-gate-0/test-classification.tsv",
+      ],
+      { cwd: root, encoding: "utf8" },
     )
       .trim()
       .split("\n")
@@ -61,6 +62,8 @@ try {
         )
       ) {
         const bindings = statement.importClause?.namedBindings
+        if (bindings && ts.isNamespaceImport(bindings))
+          mocks.add(bindings.name.text)
         if (bindings && ts.isNamedImports(bindings)) {
           for (const binding of bindings.elements) {
             const imported = binding.propertyName?.text ?? binding.name.text
@@ -107,10 +110,11 @@ try {
         if (
           proof &&
           mocks.has(owner) &&
-          ["mock", "doMock", "spyOn"].includes(property) &&
-          ts.isCallExpression(node.parent)
+          ["mock", "doMock", "spyOn"].includes(property)
         ) {
-          const target = node.parent.arguments[0]
+          const target = ts.isCallExpression(node.parent)
+            ? node.parent.arguments[0]
+            : undefined
           // Network edges may use MSW. Module replacement cannot prove execution
           // of the application or its runtime collaborators.
           const networkSdk =

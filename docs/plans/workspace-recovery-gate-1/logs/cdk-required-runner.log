@@ -1,0 +1,20 @@
+{"name": "cdk-required-runner", "cwd": "/private/tmp/ctxpipe-recovery-01a07aba", "command": ["volta", "run", "--node", "22.16.0", "node", "scripts/ci/test-suite.mjs", "aws-cdk"], "environment": {"AUTH_SECRET": "gate0-local-disposable-test-secret-20260907", "DATABASE_URL": "postgresql://ctxpipe_app:ctxpipe@127.0.0.1:51498/ctxpipe_gate0_fresh", "GRAPH_DB_URI": "redis://127.0.0.1:6399", "CI": "true", "NO_COLOR": "1", "TURBO_TELEMETRY_DISABLED": "1", "STORYBOOK_DISABLE_TELEMETRY": "1", "PATH": "/private/tmp/ctxpipe-recovery-runtime/node_modules/.bin:/usr/local/bin:/System/Cryptexes/App/usr/bin:/usr/bin:/bin:/usr/sbin:/sbin:/var/run/com.apple.security.cryptexd/codex.system/bootstrap/usr/local/bin:/var/run/com.apple.security.cryptexd/codex.system/bootstrap/usr/bin:/var/run/com.apple.security.cryptexd/codex.system/bootstrap/usr/appleinternal/bin:/pkg/env/global/bin:/Users/jakubriedl/.codex/tmp/arg0/codex-arg0BW5Gt3:/Users/jakubriedl/.cache/codex-runtimes/codex-primary-runtime/dependencies/bin/override:/Users/jakubriedl/.local/bin:/Users/jakubriedl/.bun/bin:/Users/jakubriedl/.opencode/bin:/Users/jakubriedl/.volta/bin:/opt/homebrew/bin:/opt/homebrew/sbin:/Users/jakubriedl/.cache/codex-runtimes/codex-primary-runtime/dependencies/bin/fallback:/Applications/ChatGPT.app/Contents/Resources"}, "timeout_seconds": 600, "started_utc": "2026-09-07T23:28:47Z", "log": "logs/cdk-required-runner.log"}
+scripts/ci/failures/aws-cdk.json: allowance history only shrinks
+
+ RUN  v4.0.18 /private/tmp/ctxpipe-recovery-01a07aba/packages/aws-cdk
+
+ ✓ src/model-provider.test.ts (12 tests) 89ms
+ ✓ src/efs-mount.test.ts (5 tests) 931ms
+     ✓ creates an EFS access point with explicit root directory ACL  396ms
+ ✓ src/secrets-construct.test.ts (8 tests) 1299ms
+     ✓ does not synthesize DATABASE_URL from the RDS credentials SecretValue  429ms
+ ✓ src/size-profiles.test.ts (7 tests) 1454ms
+     ✓ size small uses Aurora db.t4g.medium and Neptune db.t4g.medium  405ms
+
+ Test Files  4 passed (4)
+      Tests  32 passed (32)
+   Start at  09:28:48
+   Duration  2.71s (transform 543ms, setup 0ms, import 4.14s, tests 3.77s, environment 0ms)
+
+JSON report written to /private/tmp/ctxpipe-recovery-01a07aba/.ci-results/aws-cdk/results.json
+EXECUTED 32 tests in 4 files: 32 passed, 0 acknowledged failures, zero skipped

@@ -4,6 +4,8 @@ import { createServer } from "node:http"
 import { tmpdir } from "node:os"
 import { join, resolve } from "node:path"
 import { OpenAPIHono } from "@hono/zod-openapi"
+import type { ModelMessage } from "@tanstack/ai"
+import { reconstructChat } from "@tanstack/ai-persistence"
 import { config } from "dotenv"
 import { eq } from "drizzle-orm"
 import { HttpResponse, http } from "msw"
@@ -41,6 +43,7 @@ import {
 import { withTestLogger } from "../../test/with-test-logger.js"
 import { destroySandboxesForConversation } from "./sandbox-registry.js"
 import { streamTanstackWorkspaceChat } from "./tanstack-workspace-chat.js"
+import { workspaceChatPersistence } from "./workspace-chat-persistence.js"
 
 config({
   path: resolve(import.meta.dirname, "../../../.env.local"),
@@ -319,7 +322,7 @@ describe("live two-turn workspace chat", () => {
   async function collectTurn(
     prompt: string,
     extras?: {
-      messages?: Array<{ role: string; content: string }>
+      messages?: ModelMessage[]
       runId?: string
     },
   ) {
@@ -373,12 +376,22 @@ describe("live two-turn workspace chat", () => {
       expect(first.some((chunk) => chunk.type === "RUN_FINISHED")).toBe(true)
       expect(assistantText(first)).toBe("pong-1")
 
+      const persisted = await withOrgIdContext(org, () =>
+        workspaceChatPersistence().stores.messages.loadThread(conversationId),
+      )
+      expect(JSON.stringify(persisted)).toContain("pong-1")
+      const reconstructed = await withOrgIdContext(org, () =>
+        reconstructChat(
+          workspaceChatPersistence(),
+          new Request(`http://127.0.0.1/chat?threadId=${conversationId}`),
+          { authorize: async (threadId) => threadId === conversationId },
+        ),
+      )
+      expect(reconstructed.status).toBe(200)
+      expect(await reconstructed.text()).toContain("pong-1")
+
       const second = await collectTurn("ping-2", {
-        messages: [
-          { role: "user", content: "ping-1" },
-          { role: "assistant", content: "pong-1" },
-          { role: "user", content: "ping-2" },
-        ],
+        messages: [...persisted, { role: "user", content: "ping-2" }],
         runId: "run_second",
       })
       const secondErrors = second
@@ -395,6 +408,18 @@ describe("live two-turn workspace chat", () => {
           .where(eq(workspaceSandboxInstances.conversationId, conversationId)),
       )
       expect(rows).toHaveLength(1)
+      await withTestLogger(() =>
+        withOrgIdContext(org, () =>
+          destroySandboxesForConversation(conversationId),
+        ),
+      )
+      const remaining = await withOrgDbContext(org.id, (db) =>
+        db
+          .select()
+          .from(workspaceSandboxInstances)
+          .where(eq(workspaceSandboxInstances.conversationId, conversationId)),
+      )
+      expect(remaining).toEqual([])
     },
   )
 })

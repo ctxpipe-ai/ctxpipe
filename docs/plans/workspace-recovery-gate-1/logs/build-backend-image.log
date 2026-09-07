@@ -1,0 +1,217 @@
+{"name": "build-backend-image", "cwd": "/private/tmp/ctxpipe-recovery-01a07aba", "command": ["docker", "build", "--progress=plain", "-f", "apps/backend/Dockerfile", "-t", "ctxpipe-recovery-gate1-backend:local", "."], "environment": {"AUTH_SECRET": "gate0-local-disposable-test-secret-20260907", "DATABASE_URL": "postgresql://ctxpipe_app:ctxpipe@127.0.0.1:51498/ctxpipe_gate0_fresh", "GRAPH_DB_URI": "redis://127.0.0.1:6399", "CI": "true", "NO_COLOR": "1", "TURBO_TELEMETRY_DISABLED": "1", "STORYBOOK_DISABLE_TELEMETRY": "1", "PATH": "/private/tmp/ctxpipe-recovery-runtime/node_modules/.bin:/usr/local/bin:/System/Cryptexes/App/usr/bin:/usr/bin:/bin:/usr/sbin:/sbin:/var/run/com.apple.security.cryptexd/codex.system/bootstrap/usr/local/bin:/var/run/com.apple.security.cryptexd/codex.system/bootstrap/usr/bin:/var/run/com.apple.security.cryptexd/codex.system/bootstrap/usr/appleinternal/bin:/pkg/env/global/bin:/Users/jakubriedl/.codex/tmp/arg0/codex-arg0BW5Gt3:/Users/jakubriedl/.cache/codex-runtimes/codex-primary-runtime/dependencies/bin/override:/Users/jakubriedl/.local/bin:/Users/jakubriedl/.bun/bin:/Users/jakubriedl/.opencode/bin:/Users/jakubriedl/.volta/bin:/opt/homebrew/bin:/opt/homebrew/sbin:/Users/jakubriedl/.cache/codex-runtimes/codex-primary-runtime/dependencies/bin/fallback:/Applications/ChatGPT.app/Contents/Resources"}, "timeout_seconds": 600, "started_utc": "2026-09-07T23:23:53Z", "log": "logs/build-backend-image.log"}
+#0 building with "desktop-linux" instance using docker driver
+
+#1 [internal] load build definition from Dockerfile
+#1 transferring dockerfile: 1.64kB done
+#1 DONE 0.0s
+
+#2 [internal] load metadata for docker.io/library/node:22-alpine
+#2 DONE 0.0s
+
+#3 [internal] load metadata for docker.io/oven/bun:1.3.11-alpine
+#3 DONE 0.9s
+
+#4 [internal] load .dockerignore
+#4 transferring context: 2B done
+#4 DONE 0.0s
+
+#5 [opencode 1/2] FROM docker.io/library/node:22-alpine
+#5 CACHED
+
+#6 [deps 1/8] FROM docker.io/oven/bun:1.3.11-alpine@sha256:7ed9f74c326d1c260abe247ac423ccbf5ac92af62bb442d515d1f92f21e8ea9b
+#6 resolve docker.io/oven/bun:1.3.11-alpine@sha256:7ed9f74c326d1c260abe247ac423ccbf5ac92af62bb442d515d1f92f21e8ea9b done
+#6 sha256:7ed9f74c326d1c260abe247ac423ccbf5ac92af62bb442d515d1f92f21e8ea9b 1.61kB / 1.61kB done
+#6 sha256:27c33913f6f966cd9a2aeecbe95ad54d2a73e3aa5a553f831b94d88866a88df2 4.05kB / 4.05kB done
+#6 sha256:dad5f1a4694c80f997f7a310e2cb1163a97b0752126fe7bd5ab18ee4d630ba16 0B / 297B 0.1s
+#6 sha256:3885ef8337c9a4f4f2a425c609351ac0d5bd42ed5b97b1ded7fc31ee6a81ca04 1.43kB / 1.43kB done
+#6 sha256:d741ee1608f399e21c72d05f0f818c348c6801af33aeb83523893d09dc153957 0B / 4.14MB 0.1s
+#6 sha256:6356cf2ec8b37034e76fe6e838444e1fdc961008703ad8955e0a26ab46d511de 0B / 37.67MB 0.1s
+#6 sha256:d741ee1608f399e21c72d05f0f818c348c6801af33aeb83523893d09dc153957 3.15MB / 4.14MB 0.4s
+#6 sha256:d741ee1608f399e21c72d05f0f818c348c6801af33aeb83523893d09dc153957 4.14MB / 4.14MB 0.4s done
+#6 extracting sha256:d741ee1608f399e21c72d05f0f818c348c6801af33aeb83523893d09dc153957
+#6 sha256:8b4f8ceea3665ae19a6a549917f33111ae5630f641ef175acf910c80b7648b5e 0B / 186B 0.5s
+#6 sha256:6356cf2ec8b37034e76fe6e838444e1fdc961008703ad8955e0a26ab46d511de 8.39MB / 37.67MB 0.7s
+#6 extracting sha256:d741ee1608f399e21c72d05f0f818c348c6801af33aeb83523893d09dc153957 0.2s done
+#6 sha256:6356cf2ec8b37034e76fe6e838444e1fdc961008703ad8955e0a26ab46d511de 13.63MB / 37.67MB 0.8s
+#6 sha256:dad5f1a4694c80f997f7a310e2cb1163a97b0752126fe7bd5ab18ee4d630ba16 297B / 297B 0.8s done
+#6 sha256:6356cf2ec8b37034e76fe6e838444e1fdc961008703ad8955e0a26ab46d511de 24.76MB / 37.67MB 1.0s
+#6 sha256:8b4f8ceea3665ae19a6a549917f33111ae5630f641ef175acf910c80b7648b5e 186B / 186B 0.8s done
+#6 sha256:9b91c11aebe52e4476f39cf53da7cc8a6211b4cab56e31550a9a3e0f9e9f03a3 0B / 3.60MB 1.0s
+#6 sha256:0478dceb9ab5dc021a7137843062075cba0cd781741422578ad129269713c02c 0B / 142B 1.0s
+#6 sha256:6356cf2ec8b37034e76fe6e838444e1fdc961008703ad8955e0a26ab46d511de 30.41MB / 37.67MB 1.1s
+#6 sha256:6356cf2ec8b37034e76fe6e838444e1fdc961008703ad8955e0a26ab46d511de 37.67MB / 37.67MB 1.3s done
+#6 sha256:9b91c11aebe52e4476f39cf53da7cc8a6211b4cab56e31550a9a3e0f9e9f03a3 3.60MB / 3.60MB 1.3s
+#6 sha256:0478dceb9ab5dc021a7137843062075cba0cd781741422578ad129269713c02c 142B / 142B 1.1s done
+#6 sha256:9b91c11aebe52e4476f39cf53da7cc8a6211b4cab56e31550a9a3e0f9e9f03a3 3.60MB / 3.60MB 1.3s done
+#6 extracting sha256:6356cf2ec8b37034e76fe6e838444e1fdc961008703ad8955e0a26ab46d511de
+#6 extracting sha256:6356cf2ec8b37034e76fe6e838444e1fdc961008703ad8955e0a26ab46d511de 0.6s done
+#6 extracting sha256:dad5f1a4694c80f997f7a310e2cb1163a97b0752126fe7bd5ab18ee4d630ba16 done
+#6 extracting sha256:8b4f8ceea3665ae19a6a549917f33111ae5630f641ef175acf910c80b7648b5e done
+#6 extracting sha256:9b91c11aebe52e4476f39cf53da7cc8a6211b4cab56e31550a9a3e0f9e9f03a3 0.0s done
+#6 extracting sha256:0478dceb9ab5dc021a7137843062075cba0cd781741422578ad129269713c02c
+#6 extracting sha256:0478dceb9ab5dc021a7137843062075cba0cd781741422578ad129269713c02c done
+#6 DONE 2.1s
+
+#7 [deps 2/8] WORKDIR /app
+#7 DONE 0.2s
+
+#8 [internal] load build context
+#8 ...
+
+#9 [deps 3/8] RUN bun install -g pnpm@10.12.1
+#9 0.283 bun add v1.3.11 (af24e281)
+#9 0.285 Resolving dependencies
+#9 1.195 Resolved, downloaded and extracted [4]
+#9 1.292 Saved lockfile
+#9 1.292 
+#9 1.292 installed pnpm@10.12.1 with binaries:
+#9 1.292  - pnpm
+#9 1.292  - pnpx
+#9 1.292 
+#9 1.292 1 package installed [1010.00ms]
+#9 DONE 1.4s
+
+#10 [stage-2  3/14] RUN apk add --no-cache findutils git
+#10 0.247 fetch https://dl-cdn.alpinelinux.org/alpine/v3.22/main/aarch64/APKINDEX.tar.gz
+#10 0.753 fetch https://dl-cdn.alpinelinux.org/alpine/v3.22/community/aarch64/APKINDEX.tar.gz
+#10 1.737 (1/13) Installing findutils (4.10.0-r0)
+#10 1.776 (2/13) Installing brotli-libs (1.1.0-r2)
+#10 1.835 (3/13) Installing c-ares (1.34.8-r0)
+#10 1.881 (4/13) Installing libunistring (1.3-r0)
+#10 1.958 (5/13) Installing libidn2 (2.3.7-r0)
+#10 1.985 (6/13) Installing nghttp2-libs (1.69.0-r0)
+#10 2.005 (7/13) Installing libpsl (0.21.5-r3)
+#10 2.039 (8/13) Installing zstd-libs (1.5.7-r0)
+#10 2.084 (9/13) Installing libcurl (8.14.1-r3)
+#10 2.112 (10/13) Installing libexpat (2.8.4-r0)
+#10 2.132 (11/13) Installing pcre2 (10.46-r0)
+#10 2.171 (12/13) Installing git (2.49.1-r0)
+#10 2.283 (13/13) Installing git-init-template (2.49.1-r0)
+#10 2.303 Executing busybox-1.37.0-r20.trigger
+#10 2.315 OK: 23 MiB in 31 packages
+#10 DONE 2.4s
+
+#11 [opencode 2/2] RUN npm install -g opencode-ai@1.18.18
+#11 ...
+
+#8 [internal] load build context
+#8 transferring context: 8.12MB 10.2s
+#8 transferring context: 8.12MB 10.3s done
+#8 DONE 10.3s
+
+#12 [deps 4/7] COPY package.json pnpm-workspace.yaml pnpm-lock.yaml* tsconfig.json ./
+#12 DONE 0.2s
+
+#11 [opencode 2/2] RUN npm install -g opencode-ai@1.18.18
+#11 ...
+
+#13 [deps 5/7] COPY patches patches
+#13 DONE 0.0s
+
+#14 [deps 6/7] COPY apps/backend/package.json apps/backend/package.json
+#14 DONE 0.0s
+
+#15 [deps 7/7] RUN pnpm install --frozen-lockfile --prod --config.confirmModulesPurge=false
+#15 ...
+
+#11 [opencode 2/2] RUN npm install -g opencode-ai@1.18.18
+#11 11.29 
+#11 11.29 added 3 packages in 10s
+#11 11.29 npm notice
+#11 11.29 npm notice New major version of npm available! 10.9.7 -> 12.0.2
+#11 11.29 npm notice Changelog: https://github.com/npm/cli/releases/tag/v12.0.2
+#11 11.29 npm notice To update run: npm install -g npm@12.0.2
+#11 11.29 npm notice
+#11 DONE 11.4s
+
+#15 [deps 7/7] RUN pnpm install --frozen-lockfile --prod --config.confirmModulesPurge=false
+#15 ...
+
+#16 [stage-2  4/14] COPY --from=opencode /usr/local/bin/ /usr/local/bin/
+#16 DONE 0.2s
+
+#15 [deps 7/7] RUN pnpm install --frozen-lockfile --prod --config.confirmModulesPurge=false
+#15 3.231 Scope: all 2 workspace projects
+#15 3.407 Lockfile is up to date, resolution step is skipped
+#15 3.518 Progress: resolved 1, reused 0, downloaded 0, added 0
+#15 3.848 Packages: +1014
+#15 3.848 ++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
+#15 ...
+
+#17 [stage-2  5/14] COPY --from=opencode /usr/local/lib/node_modules/ /usr/local/lib/node_modules/
+#17 DONE 2.1s
+
+#15 [deps 7/7] RUN pnpm install --frozen-lockfile --prod --config.confirmModulesPurge=false
+#15 4.537 Progress: resolved 1014, reused 0, downloaded 9, added 9
+#15 5.545 Progress: resolved 1014, reused 0, downloaded 46, added 46
+#15 6.540 Progress: resolved 1014, reused 0, downloaded 82, added 81
+#15 7.548 Progress: resolved 1014, reused 0, downloaded 113, added 112
+#15 8.557 Progress: resolved 1014, reused 0, downloaded 150, added 151
+#15 9.558 Progress: resolved 1014, reused 0, downloaded 192, added 194
+#15 10.56 Progress: resolved 1014, reused 0, downloaded 225, added 227
+#15 11.56 Progress: resolved 1014, reused 0, downloaded 272, added 274
+#15 12.56 Progress: resolved 1014, reused 0, downloaded 321, added 323
+#15 13.56 Progress: resolved 1014, reused 0, downloaded 377, added 377
+#15 14.57 Progress: resolved 1014, reused 0, downloaded 416, added 418
+#15 15.58 Progress: resolved 1014, reused 0, downloaded 453, added 451
+#15 16.58 Progress: resolved 1014, reused 0, downloaded 507, added 509
+#15 17.58 Progress: resolved 1014, reused 0, downloaded 543, added 545
+#15 18.58 Progress: resolved 1014, reused 0, downloaded 597, added 599
+#15 19.59 Progress: resolved 1014, reused 0, downloaded 632, added 633
+#15 20.59 Progress: resolved 1014, reused 0, downloaded 645, added 644
+#15 21.59 Progress: resolved 1014, reused 0, downloaded 703, added 705
+#15 22.59 Progress: resolved 1014, reused 0, downloaded 730, added 732
+#15 23.59 Progress: resolved 1014, reused 0, downloaded 761, added 763
+#15 24.60 Progress: resolved 1014, reused 0, downloaded 805, added 807
+#15 25.60 Progress: resolved 1014, reused 0, downloaded 835, added 837
+#15 26.60 Progress: resolved 1014, reused 0, downloaded 871, added 873
+#15 27.60 Progress: resolved 1014, reused 0, downloaded 909, added 910
+#15 28.60 Progress: resolved 1014, reused 0, downloaded 948, added 949
+#15 29.60 Progress: resolved 1014, reused 0, downloaded 1010, added 1012
+#15 29.98 Progress: resolved 1014, reused 0, downloaded 1012, added 1014, done
+#15 30.96 
+#15 30.96 devDependencies: skipped
+#15 30.96 
+#15 30.96 ╭ Warning ─────────────────────────────────────────────────────────────────────╮
+#15 30.96 │                                                                              │
+#15 30.96 │   Ignored build scripts: cpu-features, esbuild, msw, protobufjs, ssh2.       │
+#15 30.96 │   Run "pnpm approve-builds" to pick which dependencies should be allowed     │
+#15 30.96 │   to run scripts.                                                            │
+#15 30.96 │                                                                              │
+#15 30.96 ╰──────────────────────────────────────────────────────────────────────────────╯
+#15 30.96 
+#15 DONE 33.3s
+
+#18 [stage-2  6/14] COPY --from=deps /app/node_modules ./node_modules
+#18 DONE 31.2s
+
+#19 [stage-2  7/14] COPY --from=deps /app/apps/backend/node_modules ./apps/backend/node_modules
+#19 DONE 0.1s
+
+#20 [stage-2  8/14] COPY tsconfig.json ./
+#20 DONE 0.0s
+
+#21 [stage-2  9/14] COPY apps/backend/src ./apps/backend/src
+#21 DONE 0.2s
+
+#22 [stage-2 10/14] COPY apps/backend/public ./apps/backend/public
+#22 DONE 0.0s
+
+#23 [stage-2 11/14] COPY apps/backend/migrations ./apps/backend/migrations
+#23 DONE 0.1s
+
+#24 [stage-2 12/14] COPY apps/backend/openworkflow.config.ts ./apps/backend/openworkflow.config.ts
+#24 DONE 0.0s
+
+#25 [stage-2 13/14] COPY apps/backend/package.json ./apps/backend/package.json
+#25 DONE 0.0s
+
+#26 [stage-2 14/14] COPY apps/backend/tsconfig.json ./apps/backend/tsconfig.json
+#26 DONE 0.0s
+
+#27 exporting to image
+#27 exporting layers
+#27 exporting layers 11.0s done
+#27 writing image sha256:54d4c30b33a76013d11f0947747a14f7d2561c77d8e5b030e9c828745b715be0 done
+#27 naming to docker.io/library/ctxpipe-recovery-gate1-backend:local done
+#27 DONE 11.0s

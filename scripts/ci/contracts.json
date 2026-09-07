@@ -7,6 +7,9 @@
   "local sandbox and job worktree runner": [
     "src/domain/workspaces/job-sandbox.live.test.ts"
   ],
+  "OpenWorkflow write jobs (current failure characterization; Gate 3 replacement)": [
+    "src/domain/workspaces/write-workflow.contract.test.ts"
+  ],
   "hydrate": ["src/domain/workspaces/hydration.contract.test.ts"],
   "chat engine": [
     "src/domain/workspaces/tanstack-workspace-chat.multiturn.test.ts"

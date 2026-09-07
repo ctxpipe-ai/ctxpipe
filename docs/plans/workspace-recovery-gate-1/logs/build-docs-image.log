@@ -1,0 +1,115 @@
+{"name": "build-docs-image", "cwd": "/private/tmp/ctxpipe-recovery-01a07aba", "command": ["docker", "build", "--progress=plain", "-f", "apps/docs/Dockerfile", "-t", "ctxpipe-recovery-gate1-docs:local", "."], "environment": {"AUTH_SECRET": "gate0-local-disposable-test-secret-20260907", "DATABASE_URL": "postgresql://ctxpipe_app:ctxpipe@127.0.0.1:51498/ctxpipe_gate0_fresh", "GRAPH_DB_URI": "redis://127.0.0.1:6399", "CI": "true", "NO_COLOR": "1", "TURBO_TELEMETRY_DISABLED": "1", "STORYBOOK_DISABLE_TELEMETRY": "1", "PATH": "/private/tmp/ctxpipe-recovery-runtime/node_modules/.bin:/usr/local/bin:/System/Cryptexes/App/usr/bin:/usr/bin:/bin:/usr/sbin:/sbin:/var/run/com.apple.security.cryptexd/codex.system/bootstrap/usr/local/bin:/var/run/com.apple.security.cryptexd/codex.system/bootstrap/usr/bin:/var/run/com.apple.security.cryptexd/codex.system/bootstrap/usr/appleinternal/bin:/pkg/env/global/bin:/Users/jakubriedl/.codex/tmp/arg0/codex-arg0BW5Gt3:/Users/jakubriedl/.cache/codex-runtimes/codex-primary-runtime/dependencies/bin/override:/Users/jakubriedl/.local/bin:/Users/jakubriedl/.bun/bin:/Users/jakubriedl/.opencode/bin:/Users/jakubriedl/.volta/bin:/opt/homebrew/bin:/opt/homebrew/sbin:/Users/jakubriedl/.cache/codex-runtimes/codex-primary-runtime/dependencies/bin/fallback:/Applications/ChatGPT.app/Contents/Resources"}, "timeout_seconds": 600, "started_utc": "2026-09-07T23:27:29Z", "log": "logs/build-docs-image.log"}
+#0 building with "desktop-linux" instance using docker driver
+
+#1 [internal] load build definition from Dockerfile
+#1 transferring dockerfile: 1.00kB done
+#1 DONE 0.0s
+
+#2 [internal] load metadata for docker.io/oven/bun:1.3.11-alpine
+#2 DONE 0.9s
+
+#3 [deps 1/8] FROM docker.io/oven/bun:1.3.11-alpine@sha256:7ed9f74c326d1c260abe247ac423ccbf5ac92af62bb442d515d1f92f21e8ea9b
+#3 resolve docker.io/oven/bun:1.3.11-alpine@sha256:7ed9f74c326d1c260abe247ac423ccbf5ac92af62bb442d515d1f92f21e8ea9b done
+#3 sha256:7ed9f74c326d1c260abe247ac423ccbf5ac92af62bb442d515d1f92f21e8ea9b 1.61kB / 1.61kB done
+#3 sha256:27c33913f6f966cd9a2aeecbe95ad54d2a73e3aa5a553f831b94d88866a88df2 4.05kB / 4.05kB done
+#3 sha256:3885ef8337c9a4f4f2a425c609351ac0d5bd42ed5b97b1ded7fc31ee6a81ca04 1.43kB / 1.43kB done
+#3 sha256:d741ee1608f399e21c72d05f0f818c348c6801af33aeb83523893d09dc153957 4.14MB / 4.14MB 0.4s done
+#3 extracting sha256:d741ee1608f399e21c72d05f0f818c348c6801af33aeb83523893d09dc153957 0.2s done
+#3 sha256:dad5f1a4694c80f997f7a310e2cb1163a97b0752126fe7bd5ab18ee4d630ba16 297B / 297B 0.8s done
+#3 sha256:8b4f8ceea3665ae19a6a549917f33111ae5630f641ef175acf910c80b7648b5e 186B / 186B 0.8s done
+#3 sha256:0478dceb9ab5dc021a7137843062075cba0cd781741422578ad129269713c02c 142B / 142B 1.1s done
+#3 sha256:6356cf2ec8b37034e76fe6e838444e1fdc961008703ad8955e0a26ab46d511de 37.67MB / 37.67MB 1.3s done
+#3 sha256:9b91c11aebe52e4476f39cf53da7cc8a6211b4cab56e31550a9a3e0f9e9f03a3 3.60MB / 3.60MB 1.3s done
+#3 extracting sha256:6356cf2ec8b37034e76fe6e838444e1fdc961008703ad8955e0a26ab46d511de 0.6s done
+#3 extracting sha256:dad5f1a4694c80f997f7a310e2cb1163a97b0752126fe7bd5ab18ee4d630ba16 done
+#3 extracting sha256:8b4f8ceea3665ae19a6a549917f33111ae5630f641ef175acf910c80b7648b5e done
+#3 extracting sha256:9b91c11aebe52e4476f39cf53da7cc8a6211b4cab56e31550a9a3e0f9e9f03a3 0.0s done
+#3 extracting sha256:0478dceb9ab5dc021a7137843062075cba0cd781741422578ad129269713c02c done
+#3 DONE 2.1s
+
+#4 [deps 2/8] WORKDIR /app
+#4 DONE 0.2s
+
+#5 [deps 3/8] RUN bun install -g pnpm@10.12.1
+#5 0.283 bun add v1.3.11 (af24e281)
+#5 0.285 Resolving dependencies
+#5 1.195 Resolved, downloaded and extracted [4]
+#5 1.292 Saved lockfile
+#5 1.292 
+#5 1.292 installed pnpm@10.12.1 with binaries:
+#5 1.292  - pnpm
+#5 1.292  - pnpx
+#5 1.292 
+#5 1.292 1 package installed [1010.00ms]
+#5 DONE 1.4s
+
+#6 [internal] load .dockerignore
+#6 transferring context: 2B done
+#6 DONE 0.0s
+
+#7 [internal] load build context
+#7 transferring context: 6.61MB 7.8s
+#7 transferring context: 6.61MB 7.8s done
+#7 DONE 7.8s
+
+#8 [deps 4/7] COPY package.json pnpm-workspace.yaml pnpm-lock.yaml* ./
+#8 DONE 0.1s
+
+#9 [deps 5/7] COPY patches patches
+#9 DONE 0.0s
+
+#10 [deps 6/7] COPY apps/docs/package.json apps/docs/package.json
+#10 DONE 0.0s
+
+#11 [deps 7/7] RUN pnpm install --frozen-lockfile --filter @ctxpipe/docs...
+#11 2.323 Lockfile is up to date, resolution step is skipped
+#11 2.390 Progress: resolved 1, reused 0, downloaded 0, added 0
+#11 2.461 .                                        | +427 ++++++++++++++++++++++++++++++++
+#11 3.394 Progress: resolved 427, reused 0, downloaded 66, added 64
+#11 4.395 Progress: resolved 427, reused 0, downloaded 149, added 148
+#11 5.395 Progress: resolved 427, reused 0, downloaded 191, added 190
+#11 6.396 Progress: resolved 427, reused 0, downloaded 226, added 226
+#11 7.402 Progress: resolved 427, reused 0, downloaded 268, added 268
+#11 8.418 Progress: resolved 427, reused 0, downloaded 303, added 302
+#11 9.428 Progress: resolved 427, reused 0, downloaded 355, added 353
+#11 10.16  WARN  GET https://registry.npmjs.org/yargs/-/yargs-17.7.2.tgz error (ERR_PNPM_ENOSPC). Will retry in 10 seconds. 2 retries left.
+#11 10.16  WARN  GET https://registry.npmjs.org/require-directory/-/require-directory-2.1.1.tgz error (ERR_PNPM_ENOSPC). Will retry in 10 seconds. 2 retries left.
+#11 10.16  WARN  GET https://registry.npmjs.org/shell-quote/-/shell-quote-1.8.3.tgz error (ERR_PNPM_ENOSPC). Will retry in 10 seconds. 2 retries left.
+#11 10.44 Progress: resolved 427, reused 0, downloaded 393, added 389
+#11 10.84  WARN  GET https://registry.npmjs.org/micromark-util-encode/-/micromark-util-encode-2.0.1.tgz error (ERR_PNPM_ENOSPC). Will retry in 10 seconds. 2 retries left.
+#11 10.84  WARN  GET https://registry.npmjs.org/@shikijs/transformers/-/transformers-3.23.0.tgz error (ERR_PNPM_ENOSPC). Will retry in 10 seconds. 2 retries left.
+#11 10.84  WARN  GET https://registry.npmjs.org/devlop/-/devlop-1.1.0.tgz error (ERR_PNPM_ENOSPC). Will retry in 10 seconds. 2 retries left.
+#11 10.84  WARN  GET https://registry.npmjs.org/get-caller-file/-/get-caller-file-2.0.5.tgz error (ERR_PNPM_ENOSPC). Will retry in 10 seconds. 2 retries left.
+#11 10.84  WARN  GET https://registry.npmjs.org/color-name/-/color-name-1.1.4.tgz error (ERR_PNPM_ENOSPC). Will retry in 10 seconds. 2 retries left.
+#11 10.84  WARN  GET https://registry.npmjs.org/rxjs/-/rxjs-7.8.2.tgz error (ERR_PNPM_ENOSPC). Will retry in 10 seconds. 2 retries left.
+#11 10.84  WARN  GET https://registry.npmjs.org/ms/-/ms-2.1.3.tgz error (ERR_PNPM_ENOSPC). Will retry in 10 seconds. 2 retries left.
+#11 10.85  WARN  GET https://registry.npmjs.org/character-entities-legacy/-/character-entities-legacy-3.0.0.tgz error (ERR_PNPM_ENOSPC). Will retry in 10 seconds. 2 retries left.
+#11 10.85  WARN  GET https://registry.npmjs.org/yargs-parser/-/yargs-parser-21.1.1.tgz error (ERR_PNPM_ENOSPC). Will retry in 10 seconds. 2 retries left.
+#11 10.85  WARN  GET https://registry.npmjs.org/mdast-util-gfm-strikethrough/-/mdast-util-gfm-strikethrough-2.0.0.tgz error (ERR_PNPM_ENOSPC). Will retry in 10 seconds. 2 retries left.
+#11 10.87  WARN  GET https://registry.npmjs.org/longest-streak/-/longest-streak-3.1.0.tgz error (ERR_PNPM_ENOSPC). Will retry in 10 seconds. 2 retries left.
+#11 11.50  WARN  GET https://registry.npmjs.org/@turbo/linux-arm64/-/linux-arm64-2.10.11.tgz error (ERR_PNPM_ENOSPC). Will retry in 10 seconds. 2 retries left.
+#11 12.06  WARN  GET https://registry.npmjs.org/@types/node/-/node-25.6.0.tgz error (ERR_PNPM_ENOSPC). Will retry in 10 seconds. 2 retries left.
+#11 12.07  ERR_PNPM_ENOSPC  ENOSPC: no space left on device, mkdir '/app/node_modules/.pnpm/next@15.5.12_@opentelemetry+api@1.9.0_react-dom@19.2.4_react@19.2.4__react@19.2.4/node_modules/next_tmp_1/dist/server/api-utils/node'
+#11 ERROR: process "/bin/sh -c pnpm install --frozen-lockfile --filter @ctxpipe/docs..." did not complete successfully: exit code: 1
+------
+ > [deps 7/7] RUN pnpm install --frozen-lockfile --filter @ctxpipe/docs...:
+10.84  WARN  GET https://registry.npmjs.org/color-name/-/color-name-1.1.4.tgz error (ERR_PNPM_ENOSPC). Will retry in 10 seconds. 2 retries left.
+10.84  WARN  GET https://registry.npmjs.org/rxjs/-/rxjs-7.8.2.tgz error (ERR_PNPM_ENOSPC). Will retry in 10 seconds. 2 retries left.
+10.84  WARN  GET https://registry.npmjs.org/ms/-/ms-2.1.3.tgz error (ERR_PNPM_ENOSPC). Will retry in 10 seconds. 2 retries left.
+10.85  WARN  GET https://registry.npmjs.org/character-entities-legacy/-/character-entities-legacy-3.0.0.tgz error (ERR_PNPM_ENOSPC). Will retry in 10 seconds. 2 retries left.
+10.85  WARN  GET https://registry.npmjs.org/yargs-parser/-/yargs-parser-21.1.1.tgz error (ERR_PNPM_ENOSPC). Will retry in 10 seconds. 2 retries left.
+10.85  WARN  GET https://registry.npmjs.org/mdast-util-gfm-strikethrough/-/mdast-util-gfm-strikethrough-2.0.0.tgz error (ERR_PNPM_ENOSPC). Will retry in 10 seconds. 2 retries left.
+10.87  WARN  GET https://registry.npmjs.org/longest-streak/-/longest-streak-3.1.0.tgz error (ERR_PNPM_ENOSPC). Will retry in 10 seconds. 2 retries left.
+11.50  WARN  GET https://registry.npmjs.org/@turbo/linux-arm64/-/linux-arm64-2.10.11.tgz error (ERR_PNPM_ENOSPC). Will retry in 10 seconds. 2 retries left.
+12.06  WARN  GET https://registry.npmjs.org/@types/node/-/node-25.6.0.tgz error (ERR_PNPM_ENOSPC). Will retry in 10 seconds. 2 retries left.
+12.07  ERR_PNPM_ENOSPC  ENOSPC: no space left on device, mkdir '/app/node_modules/.pnpm/next@15.5.12_@opentelemetry+api@1.9.0_react-dom@19.2.4_react@19.2.4__react@19.2.4/node_modules/next_tmp_1/dist/server/api-utils/node'
+------
+Dockerfile:9
+--------------------
+   7 |     COPY patches patches
+   8 |     COPY apps/docs/package.json apps/docs/package.json
+   9 | >>> RUN pnpm install --frozen-lockfile --filter @ctxpipe/docs...
+  10 |     
+  11 |     FROM oven/bun:1.3.11-alpine AS builder
+--------------------
+ERROR: failed to build: failed to solve: process "/bin/sh -c pnpm install --frozen-lockfile --filter @ctxpipe/docs..." did not complete successfully: exit code: 1

@@ -1,0 +1,3 @@
+lib/source.ts(1,22): error TS2307: Cannot find module '@/.source' or its corresponding type declarations.
+UNEXPECTED lib/source.ts TS2307: observed 1, allowed 0
+ACKNOWLEDGED 0 existing diagnostic(s); 1 total; full project apps/docs/tsconfig.json

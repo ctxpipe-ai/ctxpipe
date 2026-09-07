@@ -1,0 +1,32 @@
+{
+  "name": "chat-reconstruction-cleanup",
+  "cwd": "/private/tmp/ctxpipe-recovery-01a07aba",
+  "command": [
+    "volta",
+    "run",
+    "--node",
+    "22.16.0",
+    "pnpm",
+    "--filter",
+    "@ctxpipe/backend",
+    "exec",
+    "vitest",
+    "run",
+    "src/domain/workspaces/tanstack-workspace-chat.multiturn.test.ts"
+  ],
+  "environment": {
+    "AUTH_SECRET": "gate0-local-disposable-test-secret-20260907",
+    "DATABASE_URL": "postgresql://ctxpipe_app:ctxpipe@127.0.0.1:61314/ctxpipe_gate0_fresh",
+    "GRAPH_DB_URI": "redis://127.0.0.1:6399",
+    "CI": "true",
+    "NO_COLOR": "1",
+    "TURBO_TELEMETRY_DISABLED": "1",
+    "STORYBOOK_DISABLE_TELEMETRY": "1",
+    "PATH": "/private/tmp/ctxpipe-recovery-runtime/node_modules/.bin:/usr/local/bin:/System/Cryptexes/App/usr/bin:/usr/bin:/bin:/usr/sbin:/sbin:/var/run/com.apple.security.cryptexd/codex.system/bootstrap/usr/local/bin:/var/run/com.apple.security.cryptexd/codex.system/bootstrap/usr/bin:/var/run/com.apple.security.cryptexd/codex.system/bootstrap/usr/appleinternal/bin:/pkg/env/global/bin:/Users/jakubriedl/.codex/tmp/arg0/codex-arg0BW5Gt3:/Users/jakubriedl/.cache/codex-runtimes/codex-primary-runtime/dependencies/bin/override:/Users/jakubriedl/.local/bin:/Users/jakubriedl/.bun/bin:/Users/jakubriedl/.opencode/bin:/Users/jakubriedl/.volta/bin:/opt/homebrew/bin:/opt/homebrew/sbin:/Users/jakubriedl/.cache/codex-runtimes/codex-primary-runtime/dependencies/bin/fallback:/Applications/ChatGPT.app/Contents/Resources"
+  },
+  "timeout_seconds": 600,
+  "started_utc": "2026-09-07T23:48:12Z",
+  "log": "logs/chat-reconstruction-cleanup.log",
+  "exit_code": 0,
+  "duration_seconds": 8.18
+}

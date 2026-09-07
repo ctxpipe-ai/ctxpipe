@@ -1,0 +1,12 @@
+scripts/ci/diagnostics/aws-cdk.json: allowance history only shrinks
+scripts/ci/diagnostics/backend.json: allowance history only shrinks
+scripts/ci/diagnostics/cli.json: allowance history only shrinks
+scripts/ci/diagnostics/codesearch.json: allowance history only shrinks
+scripts/ci/diagnostics/docs.json: allowance history only shrinks
+scripts/ci/diagnostics/self-host.json: allowance history only shrinks
+scripts/ci/diagnostics/ui.json: allowance history only shrinks
+scripts/ci/failures/aws-cdk.json: allowance history only shrinks
+scripts/ci/failures/backend.json: allowance history only shrinks
+scripts/ci/failures/cli.json: allowance history only shrinks
+scripts/ci/failures/contracts.json: allowance history only shrinks
+scripts/ci/failures/ui.json: allowance history only shrinks

@@ -31,6 +31,13 @@ try {
       throw new Error(
         `Suite did not execute cleanly: ${file} ${suite.message ?? ""}`,
       )
+    const expectedStatus = suite.assertionResults.some(
+      (assertion) => assertion.status === "failed",
+    )
+      ? "failed"
+      : "passed"
+    if (suite.status !== expectedStatus)
+      throw new Error(`Suite status differs from executed cases: ${file}`)
     for (const assertion of suite.assertionResults) {
       if (assertion.status === "passed") {
         passed += 1

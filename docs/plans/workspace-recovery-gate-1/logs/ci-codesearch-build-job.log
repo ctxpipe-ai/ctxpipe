@@ -1,0 +1,566 @@
+﻿2026-09-07T23:37:34.4963448Z Current runner version: '2.337.0'
+2026-09-07T23:37:34.4983073Z ##[group]Runner Image Provisioner
+2026-09-07T23:37:34.4983756Z Hosted Compute Agent
+2026-09-07T23:37:34.4984252Z Version: 20260828.587
+2026-09-07T23:37:34.4984763Z Commit: abac92662cab4cc7352de4f9f9d2e2419aad9c29
+2026-09-07T23:37:34.4985311Z Build Date: 2026-08-28T16:44:25Z
+2026-09-07T23:37:34.4985867Z Worker ID: {baca278a-1424-4ed8-b4a2-dd75ee03f3ff}
+2026-09-07T23:37:34.4986406Z Azure Region: centralus
+2026-09-07T23:37:34.4986838Z ##[endgroup]
+2026-09-07T23:37:34.4987866Z ##[group]Operating System
+2026-09-07T23:37:34.4988335Z Ubuntu
+2026-09-07T23:37:34.4988753Z 24.04.4
+2026-09-07T23:37:34.4989135Z LTS
+2026-09-07T23:37:34.4989743Z ##[endgroup]
+2026-09-07T23:37:34.4990261Z ##[group]Runner Image
+2026-09-07T23:37:34.4990706Z Image: ubuntu-24.04
+2026-09-07T23:37:34.4991143Z Version: 20260831.293.1
+2026-09-07T23:37:34.4992091Z Included Software: https://github.com/actions/runner-images/blob/ubuntu24/20260831.293/images/ubuntu/Ubuntu2404-Readme.md
+2026-09-07T23:37:34.4993250Z Image Release: https://github.com/actions/runner-images/releases/tag/ubuntu24%2F20260831.293
+2026-09-07T23:37:34.4993957Z ##[endgroup]
+2026-09-07T23:37:34.4994798Z ##[group]GITHUB_TOKEN Permissions
+2026-09-07T23:37:34.4996402Z Contents: read
+2026-09-07T23:37:34.4996871Z Metadata: read
+2026-09-07T23:37:34.4997290Z ##[endgroup]
+2026-09-07T23:37:34.4998777Z Secret source: Actions
+2026-09-07T23:37:34.4999883Z Prepare workflow directory
+2026-09-07T23:37:34.5282168Z Prepare all required actions
+2026-09-07T23:37:34.5321397Z Getting action download info
+2026-09-07T23:37:34.7706980Z Download action repository 'actions/checkout@v6' (SHA:d23441a48e516b6c34aea4fa41551a30e30af803)
+2026-09-07T23:37:35.1400672Z Complete job name: Production build (codesearch)
+2026-09-07T23:37:35.1923881Z ##[group]Run actions/checkout@v6
+2026-09-07T23:37:35.1924577Z with:
+2026-09-07T23:37:35.1925036Z   repository: ctxpipe-ai/ctxpipe
+2026-09-07T23:37:35.1928499Z   token: ***
+2026-09-07T23:37:35.1928915Z   ssh-strict: true
+2026-09-07T23:37:35.1929421Z   ssh-user: git
+2026-09-07T23:37:35.1930147Z   persist-credentials: true
+2026-09-07T23:37:35.1930601Z   clean: true
+2026-09-07T23:37:35.1931064Z   sparse-checkout-cone-mode: true
+2026-09-07T23:37:35.1931581Z   fetch-depth: 1
+2026-09-07T23:37:35.1932033Z   fetch-tags: false
+2026-09-07T23:37:35.1932467Z   show-progress: true
+2026-09-07T23:37:35.1932886Z   lfs: false
+2026-09-07T23:37:35.1933319Z   submodules: false
+2026-09-07T23:37:35.1933741Z   set-safe-directory: true
+2026-09-07T23:37:35.1934226Z   allow-unsafe-pr-checkout: false
+2026-09-07T23:37:35.1934875Z ##[endgroup]
+2026-09-07T23:37:35.2781559Z Syncing repository: ctxpipe-ai/ctxpipe
+2026-09-07T23:37:35.2783404Z ##[group]Getting Git version info
+2026-09-07T23:37:35.2784187Z Working directory is '/home/runner/work/ctxpipe/ctxpipe'
+2026-09-07T23:37:35.2785066Z [command]/usr/bin/git version
+2026-09-07T23:37:35.3132983Z git version 2.55.0
+2026-09-07T23:37:35.3159098Z ##[endgroup]
+2026-09-07T23:37:35.3168487Z Temporarily overriding HOME='/home/runner/work/_temp/fae58705-9ff1-4469-8f14-83bec98bd629' before making global git config changes
+2026-09-07T23:37:35.3170491Z Adding repository directory to the temporary git global config as a safe directory
+2026-09-07T23:37:35.3171992Z [command]/usr/bin/git config --global --add safe.directory /home/runner/work/ctxpipe/ctxpipe
+2026-09-07T23:37:35.3213798Z Deleting the contents of '/home/runner/work/ctxpipe/ctxpipe'
+2026-09-07T23:37:35.3219032Z ##[group]Determining repository object format
+2026-09-07T23:37:35.3221000Z ##[endgroup]
+2026-09-07T23:37:35.3222009Z ##[group]Initializing the repository
+2026-09-07T23:37:35.3226260Z [command]/usr/bin/git init /home/runner/work/ctxpipe/ctxpipe
+2026-09-07T23:37:35.4121147Z hint: Using 'master' as the name for the initial branch. This default branch name
+2026-09-07T23:37:35.4123084Z hint: will change to "main" in Git 3.0. To configure the initial branch name
+2026-09-07T23:37:35.4124441Z hint: to use in all of your new repositories, which will suppress this warning,
+2026-09-07T23:37:35.4125975Z hint: call:
+2026-09-07T23:37:35.4126663Z hint:
+2026-09-07T23:37:35.4127565Z hint: 	git config --global init.defaultBranch <name>
+2026-09-07T23:37:35.4128348Z hint:
+2026-09-07T23:37:35.4130367Z hint: Names commonly chosen instead of 'master' are 'main', 'trunk' and
+2026-09-07T23:37:35.4131416Z hint: 'development'. The just-created branch can be renamed via this command:
+2026-09-07T23:37:35.4132194Z hint:
+2026-09-07T23:37:35.4132621Z hint: 	git branch -m <name>
+2026-09-07T23:37:35.4133059Z hint:
+2026-09-07T23:37:35.4133646Z hint: Disable this message with "git config set advice.defaultBranchName false"
+2026-09-07T23:37:35.4134538Z Initialized empty Git repository in /home/runner/work/ctxpipe/ctxpipe/.git/
+2026-09-07T23:37:35.4136485Z [command]/usr/bin/git remote add origin https://github.com/ctxpipe-ai/ctxpipe
+2026-09-07T23:37:35.4214652Z ##[endgroup]
+2026-09-07T23:37:35.4215427Z ##[group]Disabling automatic garbage collection
+2026-09-07T23:37:35.4218458Z [command]/usr/bin/git config --local gc.auto 0
+2026-09-07T23:37:35.4244001Z ##[endgroup]
+2026-09-07T23:37:35.4245359Z ##[group]Setting up auth
+2026-09-07T23:37:35.4246426Z Removing SSH command configuration
+2026-09-07T23:37:35.4250727Z [command]/usr/bin/git config --local --name-only --get-regexp core\.sshCommand
+2026-09-07T23:37:35.4276378Z [command]/usr/bin/git submodule foreach --recursive sh -c "git config --local --name-only --get-regexp 'core\.sshCommand' && git config --local --unset-all 'core.sshCommand' || :"
+2026-09-07T23:37:35.4560504Z Removing HTTP extra header
+2026-09-07T23:37:35.4564914Z [command]/usr/bin/git config --local --name-only --get-regexp http\.https\:\/\/github\.com\/\.extraheader
+2026-09-07T23:37:35.4591059Z [command]/usr/bin/git submodule foreach --recursive sh -c "git config --local --name-only --get-regexp 'http\.https\:\/\/github\.com\/\.extraheader' && git config --local --unset-all 'http.https://github.com/.extraheader' || :"
+2026-09-07T23:37:35.4790418Z Removing includeIf entries pointing to credentials config files
+2026-09-07T23:37:35.4791822Z [command]/usr/bin/git config --local --name-only --get-regexp ^includeIf\.gitdir:
+2026-09-07T23:37:35.4822805Z [command]/usr/bin/git submodule foreach --recursive git config --local --show-origin --name-only --get-regexp remote.origin.url
+2026-09-07T23:37:35.4987883Z [command]/usr/bin/git config --file /home/runner/work/_temp/git-credentials-84f9af54-ee13-4d9e-85b5-4b201ac83049.config http.https://github.com/.extraheader AUTHORIZATION: basic ***
+2026-09-07T23:37:35.5018292Z [command]/usr/bin/git config --local includeIf.gitdir:/home/runner/work/ctxpipe/ctxpipe/.git.path /home/runner/work/_temp/git-credentials-84f9af54-ee13-4d9e-85b5-4b201ac83049.config
+2026-09-07T23:37:35.5042115Z [command]/usr/bin/git config --local includeIf.gitdir:/home/runner/work/ctxpipe/ctxpipe/.git/worktrees/*.path /home/runner/work/_temp/git-credentials-84f9af54-ee13-4d9e-85b5-4b201ac83049.config
+2026-09-07T23:37:35.5066593Z [command]/usr/bin/git config --local includeIf.gitdir:/github/workspace/.git.path /github/runner_temp/git-credentials-84f9af54-ee13-4d9e-85b5-4b201ac83049.config
+2026-09-07T23:37:35.5088462Z [command]/usr/bin/git config --local includeIf.gitdir:/github/workspace/.git/worktrees/*.path /github/runner_temp/git-credentials-84f9af54-ee13-4d9e-85b5-4b201ac83049.config
+2026-09-07T23:37:35.5111646Z ##[endgroup]
+2026-09-07T23:37:35.5112242Z ##[group]Fetching the repository
+2026-09-07T23:37:35.5117592Z [command]/usr/bin/git -c protocol.version=2 fetch --no-tags --prune --no-recurse-submodules --depth=1 origin +ee6aeab5c0f1e26f4bd480d9fe6891a03fb6d796:refs/remotes/origin/codex/develop-plan-to-refocus-branch-direction
+2026-09-07T23:37:37.2613711Z From https://github.com/ctxpipe-ai/ctxpipe
+2026-09-07T23:37:37.2615608Z  * [new ref]         ee6aeab5c0f1e26f4bd480d9fe6891a03fb6d796 -> origin/codex/develop-plan-to-refocus-branch-direction
+2026-09-07T23:37:37.2623382Z [command]/usr/bin/git branch --list --remote origin/codex/develop-plan-to-refocus-branch-direction
+2026-09-07T23:37:37.2644699Z   origin/codex/develop-plan-to-refocus-branch-direction
+2026-09-07T23:37:37.2651376Z [command]/usr/bin/git rev-parse refs/remotes/origin/codex/develop-plan-to-refocus-branch-direction
+2026-09-07T23:37:37.2670966Z ee6aeab5c0f1e26f4bd480d9fe6891a03fb6d796
+2026-09-07T23:37:37.2673347Z ##[endgroup]
+2026-09-07T23:37:37.2674293Z ##[group]Determining the checkout info
+2026-09-07T23:37:37.2675165Z ##[endgroup]
+2026-09-07T23:37:37.2676975Z [command]/usr/bin/git sparse-checkout disable
+2026-09-07T23:37:37.2714997Z [command]/usr/bin/git config --local --unset-all extensions.worktreeConfig
+2026-09-07T23:37:37.2737637Z ##[group]Checking out the ref
+2026-09-07T23:37:37.2739229Z [command]/usr/bin/git checkout --progress --force -B codex/develop-plan-to-refocus-branch-direction refs/remotes/origin/codex/develop-plan-to-refocus-branch-direction
+2026-09-07T23:37:37.4029325Z Switched to a new branch 'codex/develop-plan-to-refocus-branch-direction'
+2026-09-07T23:37:37.4035796Z branch 'codex/develop-plan-to-refocus-branch-direction' set up to track 'origin/codex/develop-plan-to-refocus-branch-direction'.
+2026-09-07T23:37:37.4038704Z ##[endgroup]
+2026-09-07T23:37:37.4071186Z [command]/usr/bin/git log -1 --format=%H
+2026-09-07T23:37:37.4089968Z ee6aeab5c0f1e26f4bd480d9fe6891a03fb6d796
+2026-09-07T23:37:37.4262201Z ##[group]Run docker build --progress=plain -f 'apps/codesearch/Dockerfile' .
+2026-09-07T23:37:37.4263176Z [36;1mdocker build --progress=plain -f 'apps/codesearch/Dockerfile' .[0m
+2026-09-07T23:37:37.4287909Z shell: /usr/bin/bash -e {0}
+2026-09-07T23:37:37.4288425Z ##[endgroup]
+2026-09-07T23:37:38.9255156Z #0 building with "default" instance using docker driver
+2026-09-07T23:37:38.9256567Z 
+2026-09-07T23:37:38.9257060Z #1 [internal] load build definition from Dockerfile
+2026-09-07T23:37:38.9257587Z #1 transferring dockerfile: 30B
+2026-09-07T23:37:38.9258015Z #1 transferring dockerfile: 10.50kB 0.2s done
+2026-09-07T23:37:39.0278133Z #1 DONE 0.2s
+2026-09-07T23:37:39.0278928Z 
+2026-09-07T23:37:39.0279408Z #2 [auth] library/debian:pull token for registry-1.docker.io
+2026-09-07T23:37:39.1447646Z #2 DONE 0.0s
+2026-09-07T23:37:39.1448149Z 
+2026-09-07T23:37:39.1448403Z #3 [auth] library/golang:pull token for registry-1.docker.io
+2026-09-07T23:37:39.1448789Z #3 DONE 0.0s
+2026-09-07T23:37:39.1449078Z 
+2026-09-07T23:37:39.1449256Z #4 [auth] library/dart:pull token for registry-1.docker.io
+2026-09-07T23:37:39.1449759Z #4 DONE 0.0s
+2026-09-07T23:37:39.1449947Z 
+2026-09-07T23:37:39.1450136Z #5 [auth] library/rust:pull token for registry-1.docker.io
+2026-09-07T23:37:39.1450520Z #5 DONE 0.0s
+2026-09-07T23:37:39.1450647Z 
+2026-09-07T23:37:39.1450821Z #6 [auth] oven/bun:pull token for registry-1.docker.io
+2026-09-07T23:37:39.1451210Z #6 DONE 0.0s
+2026-09-07T23:37:39.1451351Z 
+2026-09-07T23:37:39.1451522Z #7 [auth] library/node:pull token for registry-1.docker.io
+2026-09-07T23:37:39.1451832Z #7 DONE 0.0s
+2026-09-07T23:37:39.1452096Z 
+2026-09-07T23:37:39.1452340Z #8 [internal] load metadata for mcr.microsoft.com/dotnet/sdk:8.0-bookworm-slim
+2026-09-07T23:37:39.1452728Z #8 DONE 0.2s
+2026-09-07T23:37:39.1452832Z 
+2026-09-07T23:37:39.1453057Z #9 [internal] load metadata for docker.io/oven/bun:1.3.11-slim
+2026-09-07T23:37:39.5379192Z #9 ...
+2026-09-07T23:37:39.5379964Z 
+2026-09-07T23:37:39.5380405Z #10 [internal] load metadata for docker.io/library/debian:bookworm-slim
+2026-09-07T23:37:39.5380855Z #10 DONE 0.6s
+2026-09-07T23:37:39.6881990Z 
+2026-09-07T23:37:39.6883086Z #11 [internal] load metadata for docker.io/library/golang:1.24-bookworm
+2026-09-07T23:37:39.7606627Z #11 ...
+2026-09-07T23:37:39.7606837Z 
+2026-09-07T23:37:39.7607287Z #12 [internal] load metadata for docker.io/library/rust:1-bookworm
+2026-09-07T23:37:39.7607665Z #12 DONE 0.8s
+2026-09-07T23:37:39.8850693Z 
+2026-09-07T23:37:39.8852055Z #13 [internal] load metadata for docker.io/library/node:22-bookworm-slim
+2026-09-07T23:37:39.8852499Z #13 DONE 0.8s
+2026-09-07T23:37:39.8852610Z 
+2026-09-07T23:37:39.8852778Z #14 [internal] load metadata for docker.io/library/dart:stable
+2026-09-07T23:37:39.8853528Z #14 DONE 0.8s
+2026-09-07T23:37:39.8853664Z 
+2026-09-07T23:37:39.8853814Z #11 [internal] load metadata for docker.io/library/golang:1.24-bookworm
+2026-09-07T23:37:39.8854140Z #11 DONE 0.8s
+2026-09-07T23:37:39.8854336Z 
+2026-09-07T23:37:39.8854492Z #9 [internal] load metadata for docker.io/oven/bun:1.3.11-slim
+2026-09-07T23:37:39.8854776Z #9 DONE 0.8s
+2026-09-07T23:37:39.8854892Z 
+2026-09-07T23:37:39.8855060Z #15 [internal] load .dockerignore
+2026-09-07T23:37:39.8855345Z #15 transferring context: 215B done
+2026-09-07T23:37:39.8855632Z #15 DONE 0.0s
+2026-09-07T23:37:39.8856258Z 
+2026-09-07T23:37:39.8856393Z #16 [internal] load build context
+2026-09-07T23:37:39.8856631Z #16 DONE 0.0s
+2026-09-07T23:37:39.8856764Z 
+2026-09-07T23:37:39.8857093Z #17 [go-tools 1/2] FROM docker.io/library/golang:1.24-bookworm@sha256:1a6d4452c65dea36aac2e2d606b01b4a029ec90cc1ae53890540ce6173ea77ac
+2026-09-07T23:37:39.8857880Z #17 resolve docker.io/library/golang:1.24-bookworm@sha256:1a6d4452c65dea36aac2e2d606b01b4a029ec90cc1ae53890540ce6173ea77ac
+2026-09-07T23:37:39.9952122Z #17 ...
+2026-09-07T23:37:39.9952434Z 
+2026-09-07T23:37:39.9952659Z #16 [internal] load build context
+2026-09-07T23:37:39.9953294Z #16 transferring context: 1.55MB 0.0s done
+2026-09-07T23:37:39.9954086Z #16 DONE 0.0s
+2026-09-07T23:37:39.9954340Z 
+2026-09-07T23:37:39.9954956Z #17 [go-tools 1/2] FROM docker.io/library/golang:1.24-bookworm@sha256:1a6d4452c65dea36aac2e2d606b01b4a029ec90cc1ae53890540ce6173ea77ac
+2026-09-07T23:37:39.9956192Z #17 resolve docker.io/library/golang:1.24-bookworm@sha256:1a6d4452c65dea36aac2e2d606b01b4a029ec90cc1ae53890540ce6173ea77ac 0.1s done
+2026-09-07T23:37:40.0973376Z #17 sha256:1a6d4452c65dea36aac2e2d606b01b4a029ec90cc1ae53890540ce6173ea77ac 9.10kB / 9.10kB done
+2026-09-07T23:37:40.0974267Z #17 sha256:98d673f18a1aac43da744209873cb79323e11706f909251bcfb131828b95559d 2.32kB / 2.32kB done
+2026-09-07T23:37:40.0974764Z #17 sha256:e0cffc405270b9114fac7706d07c373727d1b42b0e47c525b9cd1ab1097779ff 3.06kB / 3.06kB done
+2026-09-07T23:37:44.3988270Z #17 sha256:6bc9f599b3efabc64230fd3b969d7654fcd6c6c98ad7cf7470093fe85274a7fc 0B / 48.48MB 4.5s
+2026-09-07T23:37:44.5044505Z #17 sha256:6bc9f599b3efabc64230fd3b969d7654fcd6c6c98ad7cf7470093fe85274a7fc 3.15MB / 48.48MB 4.6s
+2026-09-07T23:37:44.6991474Z #17 sha256:6bc9f599b3efabc64230fd3b969d7654fcd6c6c98ad7cf7470093fe85274a7fc 18.87MB / 48.48MB 4.8s
+2026-09-07T23:37:44.6992098Z #17 sha256:89edcaae7ec479668d9bf0891145726173a305c809a8c4165723ceaf15b5a05f 0B / 24.04MB 4.8s
+2026-09-07T23:37:44.9002992Z #17 sha256:6bc9f599b3efabc64230fd3b969d7654fcd6c6c98ad7cf7470093fe85274a7fc 48.48MB / 48.48MB 5.0s
+2026-09-07T23:37:44.9003609Z #17 sha256:89edcaae7ec479668d9bf0891145726173a305c809a8c4165723ceaf15b5a05f 20.97MB / 24.04MB 5.0s
+2026-09-07T23:37:45.0985964Z #17 sha256:89edcaae7ec479668d9bf0891145726173a305c809a8c4165723ceaf15b5a05f 24.04MB / 24.04MB 5.2s
+2026-09-07T23:37:45.7377079Z #17 ...
+2026-09-07T23:37:45.7377390Z 
+2026-09-07T23:37:45.7377932Z #18 [release-tools 1/3] FROM docker.io/library/debian:bookworm-slim@sha256:88200866dfff7ea7f5cbcb6ec7c8a701889efe6fe859fe64d6990e4b07ea4171
+2026-09-07T23:37:45.7379204Z #18 resolve docker.io/library/debian:bookworm-slim@sha256:88200866dfff7ea7f5cbcb6ec7c8a701889efe6fe859fe64d6990e4b07ea4171 0.1s done
+2026-09-07T23:37:45.7380282Z #18 sha256:5ae3c39ebd15e229dcedd5cee596b2497182493d41ff162e824ba13fc1b2b867 1.02kB / 1.02kB done
+2026-09-07T23:37:45.7381000Z #18 sha256:160466e67bb85a4099d9d9c2356b4a6a64747b281a22c142efbd4539db1b8525 453B / 453B done
+2026-09-07T23:37:45.7381757Z #18 sha256:a8ac7f6c67abc236e4c745052c404112b8fab6fe8ac3a329d1ef3b867ad67c71 28.23MB / 28.23MB 0.5s done
+2026-09-07T23:37:45.7382506Z #18 sha256:88200866dfff7ea7f5cbcb6ec7c8a701889efe6fe859fe64d6990e4b07ea4171 5.65kB / 5.65kB done
+2026-09-07T23:37:45.7383334Z #18 extracting sha256:a8ac7f6c67abc236e4c745052c404112b8fab6fe8ac3a329d1ef3b867ad67c71 1.1s
+2026-09-07T23:37:45.7383905Z #18 ...
+2026-09-07T23:37:45.7384024Z 
+2026-09-07T23:37:45.7384587Z #17 [go-tools 1/2] FROM docker.io/library/golang:1.24-bookworm@sha256:1a6d4452c65dea36aac2e2d606b01b4a029ec90cc1ae53890540ce6173ea77ac
+2026-09-07T23:37:45.7385825Z #17 sha256:bbceb003542957cee7df7b79249eaf0a71d21c5203d086969b565fb6dec85d86 0B / 64.40MB 5.8s
+2026-09-07T23:37:45.7386313Z #17 ...
+2026-09-07T23:37:45.7386463Z 
+2026-09-07T23:37:45.7386840Z #19 [dotnet-tools 1/2] FROM mcr.microsoft.com/dotnet/sdk:8.0-bookworm-slim@sha256:bb32ba3ba3ea36e38572d9d8db76fa15f7cbf722f3f886e06bca6d528bd4fba8
+2026-09-07T23:37:45.7387655Z #19 resolve mcr.microsoft.com/dotnet/sdk:8.0-bookworm-slim@sha256:bb32ba3ba3ea36e38572d9d8db76fa15f7cbf722f3f886e06bca6d528bd4fba8 0.1s done
+2026-09-07T23:37:45.7388420Z #19 sha256:9c4c20904c9ea8fc8c00e6e50cbb0ad8c0c87793317fb0fc6de6bb8945e4c388 5.29kB / 5.29kB done
+2026-09-07T23:37:45.7389094Z #19 sha256:a8ac7f6c67abc236e4c745052c404112b8fab6fe8ac3a329d1ef3b867ad67c71 28.23MB / 28.23MB 0.5s done
+2026-09-07T23:37:45.7389886Z #19 sha256:7b80194f63c035b4edd5b4c27099bd45bd8ffd8d160fe232f60a168c35b69d87 32.26MB / 32.26MB 0.5s done
+2026-09-07T23:37:45.7390594Z #19 sha256:bb32ba3ba3ea36e38572d9d8db76fa15f7cbf722f3f886e06bca6d528bd4fba8 1.08kB / 1.08kB done
+2026-09-07T23:37:45.7391224Z #19 sha256:237133a0ea20cffcfaa92588e1c8a56d58fe99f44da72dcff35aeb017119abcf 2.42kB / 2.42kB done
+2026-09-07T23:37:45.7392175Z #19 sha256:de2662b086556c8b67db5858cb8a7ba0ec8141bc23773ce5b55868e4aa878c0d 18.74MB / 18.74MB 0.5s done
+2026-09-07T23:37:45.7392825Z #19 sha256:241824c35c3fd308c89de22df72bc5c829022499abc318ceacfc8d8105467cd1 3.34kB / 3.34kB 0.1s done
+2026-09-07T23:37:45.7393466Z #19 sha256:95f74afdb0f5ca9cd3c0cd4542c068b7c3dd2f882375c23d2eb54806163c1b8d 165B / 165B 0.6s done
+2026-09-07T23:37:45.7394126Z #19 sha256:6a13df20059f818fcba73629156686d32c95417bdb08e508ffe6023df42ae174 11.10MB / 11.10MB 0.9s done
+2026-09-07T23:37:45.7394756Z #19 sha256:e99f716dfd91b19b6b3256c18d2ecd63e62a9e9584bbf2dbba6b87e0a06a073a 31.09MB / 31.09MB 0.9s done
+2026-09-07T23:37:45.7395410Z #19 extracting sha256:a8ac7f6c67abc236e4c745052c404112b8fab6fe8ac3a329d1ef3b867ad67c71 1.3s done
+2026-09-07T23:37:45.7396080Z #19 sha256:40790fa57b9b922de75261a1a7b47a37525a2e606d06ea5487672b113906a295 177.90MB / 177.90MB 3.6s done
+2026-09-07T23:37:45.7396755Z #19 sha256:a5731be9f2ef507f77c1ee99f904922c863db51aff682e67e94eef2c58af6a78 17.05MB / 17.05MB 1.1s done
+2026-09-07T23:37:45.7397484Z #19 sha256:28ad44209b7dbe064a7b0b9a37d2714f941d93e1aeeea24d3fa6eea98d34442e 2.68kB / 2.68kB 0.9s done
+2026-09-07T23:37:45.7398137Z #19 extracting sha256:de2662b086556c8b67db5858cb8a7ba0ec8141bc23773ce5b55868e4aa878c0d 0.8s done
+2026-09-07T23:37:46.2990785Z #19 ...
+2026-09-07T23:37:46.2991035Z 
+2026-09-07T23:37:46.2991821Z #17 [go-tools 1/2] FROM docker.io/library/golang:1.24-bookworm@sha256:1a6d4452c65dea36aac2e2d606b01b4a029ec90cc1ae53890540ce6173ea77ac
+2026-09-07T23:37:46.6990515Z #17 sha256:6bc9f599b3efabc64230fd3b969d7654fcd6c6c98ad7cf7470093fe85274a7fc 48.48MB / 48.48MB 5.9s done
+2026-09-07T23:37:46.6991344Z #17 sha256:bbceb003542957cee7df7b79249eaf0a71d21c5203d086969b565fb6dec85d86 64.40MB / 64.40MB 6.4s
+2026-09-07T23:37:46.6991980Z #17 extracting sha256:6bc9f599b3efabc64230fd3b969d7654fcd6c6c98ad7cf7470093fe85274a7fc
+2026-09-07T23:37:46.8847461Z #17 sha256:f7bdfd728ac2ad72d43b82689890dc698260d3a1049845f48fb3fb942df6c581 0B / 79.13MB 6.9s
+2026-09-07T23:37:46.9990971Z #17 sha256:bbceb003542957cee7df7b79249eaf0a71d21c5203d086969b565fb6dec85d86 64.40MB / 64.40MB 6.9s done
+2026-09-07T23:37:46.9992795Z #17 sha256:f7bdfd728ac2ad72d43b82689890dc698260d3a1049845f48fb3fb942df6c581 23.07MB / 79.13MB 7.0s
+2026-09-07T23:37:47.0983320Z #17 sha256:f7bdfd728ac2ad72d43b82689890dc698260d3a1049845f48fb3fb942df6c581 79.13MB / 79.13MB 7.2s
+2026-09-07T23:37:47.0984139Z #17 sha256:ee9e6246b78f3a784fefa655e89ccdf2271e396000b7624d6a785cb2c2580001 0B / 125B 7.2s
+2026-09-07T23:37:47.0984630Z #17 sha256:d1ae0a59862a60fde488eccaa7f764b5f5cb60746b7adf2335f9cc05ce1ed745 9.44MB / 92.43MB 7.2s
+2026-09-07T23:37:47.2984697Z #17 sha256:ee9e6246b78f3a784fefa655e89ccdf2271e396000b7624d6a785cb2c2580001 125B / 125B 7.4s
+2026-09-07T23:37:47.2985522Z #17 sha256:d1ae0a59862a60fde488eccaa7f764b5f5cb60746b7adf2335f9cc05ce1ed745 56.62MB / 92.43MB 7.4s
+2026-09-07T23:37:47.4226290Z #17 sha256:d1ae0a59862a60fde488eccaa7f764b5f5cb60746b7adf2335f9cc05ce1ed745 92.43MB / 92.43MB 7.5s
+2026-09-07T23:37:47.8993714Z #17 sha256:ee9e6246b78f3a784fefa655e89ccdf2271e396000b7624d6a785cb2c2580001 125B / 125B 7.4s done
+2026-09-07T23:37:48.4037436Z #17 extracting sha256:6bc9f599b3efabc64230fd3b969d7654fcd6c6c98ad7cf7470093fe85274a7fc 1.8s done
+2026-09-07T23:37:48.6041070Z #17 sha256:4f4fb700ef54461cfa02571ae0db9a0dc1e0cdb5577484a6d75e68dc38e8acc1 0B / 32B 8.7s
+2026-09-07T23:37:48.7990302Z #17 sha256:f7bdfd728ac2ad72d43b82689890dc698260d3a1049845f48fb3fb942df6c581 79.13MB / 79.13MB 8.7s done
+2026-09-07T23:37:48.7990928Z #17 sha256:d1ae0a59862a60fde488eccaa7f764b5f5cb60746b7adf2335f9cc05ce1ed745 92.43MB / 92.43MB 8.8s done
+2026-09-07T23:37:48.7991637Z #17 sha256:4f4fb700ef54461cfa02571ae0db9a0dc1e0cdb5577484a6d75e68dc38e8acc1 32B / 32B 8.8s done
+2026-09-07T23:37:49.1787531Z #17 extracting sha256:89edcaae7ec479668d9bf0891145726173a305c809a8c4165723ceaf15b5a05f 0.1s
+2026-09-07T23:37:49.8998920Z #17 ...
+2026-09-07T23:37:49.8999145Z 
+2026-09-07T23:37:49.9048359Z #20 [deps 1/7] FROM docker.io/oven/bun:1.3.11-slim@sha256:478281fdd196871c7e51ba6a820b7803a8ae97042ec86cdbc2e1c6b6626442d9
+2026-09-07T23:37:49.9050204Z #20 resolve docker.io/oven/bun:1.3.11-slim@sha256:478281fdd196871c7e51ba6a820b7803a8ae97042ec86cdbc2e1c6b6626442d9 0.1s done
+2026-09-07T23:37:49.9050977Z #20 sha256:478281fdd196871c7e51ba6a820b7803a8ae97042ec86cdbc2e1c6b6626442d9 1.61kB / 1.61kB done
+2026-09-07T23:37:49.9051748Z #20 sha256:49a1dfafe49d774e0b75a17bd596d5a8e49231c1fab76d9a30b6fc690c30f30e 1.43kB / 1.43kB done
+2026-09-07T23:37:49.9052485Z #20 sha256:287f39d1be80099129bb282dda3c031d34bde2f0e60c3d139950e8981fd13022 3.91kB / 3.91kB done
+2026-09-07T23:37:49.9053234Z #20 sha256:ec781dee3f4719c2ca0dd9e73cb1d4ed834ed1a406495eb6e44b6dfaad5d1f8f 29.78MB / 29.78MB 2.1s done
+2026-09-07T23:37:49.9053933Z #20 sha256:7121a318badd7246578c0f648517fb8a5b903df105e638bef590df5b1bfd541a 296B / 296B 1.2s done
+2026-09-07T23:37:49.9054648Z #20 sha256:ee21e31559f8ae2bd42ae0b4ffc6e583b9d2e952115fdcc00ead7a655dbbd35d 39.09MB / 39.09MB 3.1s done
+2026-09-07T23:37:49.9055386Z #20 extracting sha256:ec781dee3f4719c2ca0dd9e73cb1d4ed834ed1a406495eb6e44b6dfaad5d1f8f 1.3s done
+2026-09-07T23:37:49.9055925Z #20 sha256:ce5883da6fa02306fd819610aa37a9c00235b196dc376ab963f515afbfb8038a 184B / 184B 3.7s done
+2026-09-07T23:37:49.9056399Z #20 sha256:fd77b601fa04a6b78941ab21aed5de5de08506942846d124919d07531b58783c 3.39kB / 3.39kB 3.8s done
+2026-09-07T23:37:49.9056934Z #20 sha256:9c0c2b5a8c358da9206fcb4cd20f9d9824a1eacad378f9cb131633c886cef1c2 138B / 138B 4.5s done
+2026-09-07T23:37:49.9057405Z #20 extracting sha256:7121a318badd7246578c0f648517fb8a5b903df105e638bef590df5b1bfd541a done
+2026-09-07T23:37:50.0994781Z #20 ...
+2026-09-07T23:37:50.0995016Z 
+2026-09-07T23:37:50.0995596Z #21 [dart-tools 1/2] FROM docker.io/library/dart:stable@sha256:7e57e61d97813dc57dd0801656ff4d5c5efafa47bae563a681571543ad30f199
+2026-09-07T23:37:50.0996506Z #21 resolve docker.io/library/dart:stable@sha256:7e57e61d97813dc57dd0801656ff4d5c5efafa47bae563a681571543ad30f199 0.1s done
+2026-09-07T23:37:50.0997375Z #21 sha256:ed2fa787d8f7dabbbfcaa960b29976cb15c8ab670f47fd84578ae1dcdd2e21ee 4.32kB / 4.32kB done
+2026-09-07T23:37:50.0998105Z #21 sha256:7e57e61d97813dc57dd0801656ff4d5c5efafa47bae563a681571543ad30f199 5.19kB / 5.19kB done
+2026-09-07T23:37:50.0998694Z #21 sha256:4027705fb598ee07b016e17a06786e56c399f95308a54f7171fcc60871eb1738 1.93kB / 1.93kB done
+2026-09-07T23:37:50.0999260Z #21 sha256:4f4fb700ef54461cfa02571ae0db9a0dc1e0cdb5577484a6d75e68dc38e8acc1 32B / 32B 8.8s done
+2026-09-07T23:37:50.1000002Z #21 sha256:4a397c61dbce3928f5c63712e290ff60a3af1f5e8595da889598a2ae21d72f78 45.49MB / 45.49MB 10.1s done
+2026-09-07T23:37:50.1000528Z #21 sha256:bc121b89c734799435428154af26a448a63016ad243d3ed2716eb19fe3b4e973 1.87MB / 1.87MB 9.9s done
+2026-09-07T23:37:50.1001549Z #21 sha256:6310eb16bf4251731feab01e8f633bf5e2d75a657ccad97f420b1f83cce457be 29.79MB / 29.79MB 10.0s done
+2026-09-07T23:37:50.1004404Z #21 sha256:431513af58c917f1541acbba3a95ac36c571e50a4397936232c156a2157acf5b 24.12MB / 242.36MB 10.2s
+2026-09-07T23:37:50.2973668Z #21 sha256:431513af58c917f1541acbba3a95ac36c571e50a4397936232c156a2157acf5b 36.70MB / 242.36MB 10.3s
+2026-09-07T23:37:50.2976920Z #21 extracting sha256:6310eb16bf4251731feab01e8f633bf5e2d75a657ccad97f420b1f83cce457be 0.2s
+2026-09-07T23:37:50.2977538Z #21 ...
+2026-09-07T23:37:50.2977765Z 
+2026-09-07T23:37:50.2978233Z #22 [rust-tools 1/2] FROM docker.io/library/rust:1-bookworm@sha256:82150a52ec202c1b14d7817e14516c392bb7f5cfebd88f1ed531cb37ebd39922
+2026-09-07T23:37:50.2979152Z #22 resolve docker.io/library/rust:1-bookworm@sha256:82150a52ec202c1b14d7817e14516c392bb7f5cfebd88f1ed531cb37ebd39922 0.1s done
+2026-09-07T23:37:50.2980046Z #22 sha256:82150a52ec202c1b14d7817e14516c392bb7f5cfebd88f1ed531cb37ebd39922 6.48kB / 6.48kB done
+2026-09-07T23:37:50.2980749Z #22 sha256:4e4a7e7939c17991ab35f2b8c2e67593980f771d28f6b1254b1850f860fd0c7f 1.94kB / 1.94kB done
+2026-09-07T23:37:50.2981488Z #22 sha256:a3535ab419a167bf1c5acc0ea5d536c358152a9fb8dd8504068ef24bb0f4a1f1 4.54kB / 4.54kB done
+2026-09-07T23:37:50.3994676Z #22 ...
+2026-09-07T23:37:50.3994936Z 
+2026-09-07T23:37:50.5850277Z #23 [node-tools 1/2] FROM docker.io/library/node:22-bookworm-slim@sha256:83f487e0a63425e5b4d146fb5e5be574bcbe1b7b843d3ebafdd95eaf7767a7e5
+2026-09-07T23:37:50.5851705Z #23 resolve docker.io/library/node:22-bookworm-slim@sha256:83f487e0a63425e5b4d146fb5e5be574bcbe1b7b843d3ebafdd95eaf7767a7e5 0.1s done
+2026-09-07T23:37:50.5852665Z #23 sha256:4d676821dff059fd00d277ee4261ef34ea712317fed0737c03941481b5760c96 1.93kB / 1.93kB done
+2026-09-07T23:37:50.5853155Z #23 sha256:6e6261159fd399ebe5a3d556b7d89da9c85c873f3f270918aad6c8107da8b411 6.87kB / 6.87kB done
+2026-09-07T23:37:50.5853631Z #23 sha256:a8ac7f6c67abc236e4c745052c404112b8fab6fe8ac3a329d1ef3b867ad67c71 28.23MB / 28.23MB 0.5s done
+2026-09-07T23:37:50.5854176Z #23 sha256:83f487e0a63425e5b4d146fb5e5be574bcbe1b7b843d3ebafdd95eaf7767a7e5 5.22kB / 5.22kB done
+2026-09-07T23:37:50.5854657Z #23 sha256:cea7eb9bbe80eabf8356efb28b3796ab904f36a32049aeb6b435920ca93f9285 0B / 3.31kB 10.5s
+2026-09-07T23:37:50.5855135Z #23 sha256:51c53f95c2cae3d00dfc0350297c92dea913fe129ec38b8deb8313e5f3e0297d 0B / 49.94MB 10.5s
+2026-09-07T23:37:50.5855529Z #23 ...
+2026-09-07T23:37:50.5855631Z 
+2026-09-07T23:37:50.5855908Z #21 [dart-tools 1/2] FROM docker.io/library/dart:stable@sha256:7e57e61d97813dc57dd0801656ff4d5c5efafa47bae563a681571543ad30f199
+2026-09-07T23:37:50.5856497Z #21 sha256:431513af58c917f1541acbba3a95ac36c571e50a4397936232c156a2157acf5b 96.47MB / 242.36MB 10.6s
+2026-09-07T23:37:50.7009922Z #21 sha256:431513af58c917f1541acbba3a95ac36c571e50a4397936232c156a2157acf5b 147.85MB / 242.36MB 10.8s
+2026-09-07T23:37:50.8670340Z #21 sha256:431513af58c917f1541acbba3a95ac36c571e50a4397936232c156a2157acf5b 177.21MB / 242.36MB 10.9s
+2026-09-07T23:37:51.0004018Z #21 sha256:431513af58c917f1541acbba3a95ac36c571e50a4397936232c156a2157acf5b 219.15MB / 242.36MB 11.1s
+2026-09-07T23:37:51.2471503Z #21 sha256:431513af58c917f1541acbba3a95ac36c571e50a4397936232c156a2157acf5b 242.36MB / 242.36MB 11.3s
+2026-09-07T23:37:52.7014523Z #21 extracting sha256:6310eb16bf4251731feab01e8f633bf5e2d75a657ccad97f420b1f83cce457be 2.5s done
+2026-09-07T23:37:54.3503010Z #21 sha256:431513af58c917f1541acbba3a95ac36c571e50a4397936232c156a2157acf5b 242.36MB / 242.36MB 14.1s done
+2026-09-07T23:37:56.2685212Z #21 extracting sha256:4a397c61dbce3928f5c63712e290ff60a3af1f5e8595da889598a2ae21d72f78
+2026-09-07T23:37:56.2685961Z #21 ...
+2026-09-07T23:37:56.2686133Z 
+2026-09-07T23:37:56.2686554Z #24 [release-tools 2/3] RUN test "amd64" = "amd64" ||     (echo "The full SCIP matrix requires linux/amd64 (scip-clang/scip-ruby upstream limitation)." >&2; exit 1)
+2026-09-07T23:37:56.3859166Z #24 ...
+2026-09-07T23:37:56.3860016Z 
+2026-09-07T23:37:56.3860721Z #21 [dart-tools 1/2] FROM docker.io/library/dart:stable@sha256:7e57e61d97813dc57dd0801656ff4d5c5efafa47bae563a681571543ad30f199
+2026-09-07T23:38:00.0049149Z #21 ...
+2026-09-07T23:38:00.0049392Z 
+2026-09-07T23:38:00.0050279Z #17 [go-tools 1/2] FROM docker.io/library/golang:1.24-bookworm@sha256:1a6d4452c65dea36aac2e2d606b01b4a029ec90cc1ae53890540ce6173ea77ac
+2026-09-07T23:38:00.0051249Z #17 extracting sha256:89edcaae7ec479668d9bf0891145726173a305c809a8c4165723ceaf15b5a05f 10.9s
+2026-09-07T23:38:00.1884988Z #17 ...
+2026-09-07T23:38:00.1885620Z 
+2026-09-07T23:38:00.1886187Z #22 [rust-tools 1/2] FROM docker.io/library/rust:1-bookworm@sha256:82150a52ec202c1b14d7817e14516c392bb7f5cfebd88f1ed531cb37ebd39922
+2026-09-07T23:38:00.1891311Z #22 sha256:08457856946d74c8aede7d750e185d1e479a79b8123d1b805182a580d224a6e2 24.06MB / 24.06MB 16.5s done
+2026-09-07T23:38:00.1893181Z #22 sha256:8cab6ce149c24516f80b26a762b6b9aaebcaf4fbe51d4c6844af7d7dbc372f2d 64.41MB / 64.41MB 17.3s done
+2026-09-07T23:38:00.1893907Z #22 sha256:abf56b2f87242de589f03ea56779358079c07c4c099bd1e454d083538eb6666d 48.50MB / 48.50MB 17.3s done
+2026-09-07T23:38:00.1896155Z #22 sha256:01a6a9ffe665b63ea18491fedb646423413ae3fdefcf7776ee25a2eaff8a673e 211.66MB / 211.66MB 19.2s done
+2026-09-07T23:38:00.1896936Z #22 extracting sha256:abf56b2f87242de589f03ea56779358079c07c4c099bd1e454d083538eb6666d 2.8s
+2026-09-07T23:38:00.1898577Z #22 sha256:c2248155a6ec096914b7fe17a070ba983f14c36b6daf03981645b219ad639321 213.84MB / 213.84MB 20.2s
+2026-09-07T23:38:00.4042195Z #22 sha256:c2248155a6ec096914b7fe17a070ba983f14c36b6daf03981645b219ad639321 213.84MB / 213.84MB 20.4s done
+2026-09-07T23:38:00.5278320Z #22 ...
+2026-09-07T23:38:00.5278661Z 
+2026-09-07T23:38:00.5279251Z #23 [node-tools 1/2] FROM docker.io/library/node:22-bookworm-slim@sha256:83f487e0a63425e5b4d146fb5e5be574bcbe1b7b843d3ebafdd95eaf7767a7e5
+2026-09-07T23:38:00.5280377Z #23 sha256:cea7eb9bbe80eabf8356efb28b3796ab904f36a32049aeb6b435920ca93f9285 3.31kB / 3.31kB 11.0s done
+2026-09-07T23:38:00.5281156Z #23 sha256:51c53f95c2cae3d00dfc0350297c92dea913fe129ec38b8deb8313e5f3e0297d 49.94MB / 49.94MB 12.8s done
+2026-09-07T23:38:00.5281899Z #23 extracting sha256:cea7eb9bbe80eabf8356efb28b3796ab904f36a32049aeb6b435920ca93f9285 done
+2026-09-07T23:38:00.5282723Z #23 sha256:3cddab114edadc7cf5a7b0b591e59f6312aade3dc4fb68e88aacca5eb1cc1c03 1.71MB / 1.71MB 13.8s done
+2026-09-07T23:38:00.5283393Z #23 sha256:0282d618b52cd2eb8fcf041e780cd66b15e7ebae519a4054c5d293eae6b6d34f 447B / 447B 14.2s done
+2026-09-07T23:38:00.6940493Z #23 ...
+2026-09-07T23:38:00.6940728Z 
+2026-09-07T23:38:00.6941116Z #22 [rust-tools 1/2] FROM docker.io/library/rust:1-bookworm@sha256:82150a52ec202c1b14d7817e14516c392bb7f5cfebd88f1ed531cb37ebd39922
+2026-09-07T23:38:01.2274168Z #22 extracting sha256:abf56b2f87242de589f03ea56779358079c07c4c099bd1e454d083538eb6666d 3.9s done
+2026-09-07T23:38:01.9058234Z #22 extracting sha256:08457856946d74c8aede7d750e185d1e479a79b8123d1b805182a580d224a6e2 0.1s
+2026-09-07T23:38:02.4472160Z #22 ...
+2026-09-07T23:38:02.4475441Z 
+2026-09-07T23:38:02.4476155Z #24 [release-tools 2/3] RUN test "amd64" = "amd64" ||     (echo "The full SCIP matrix requires linux/amd64 (scip-clang/scip-ruby upstream limitation)." >&2; exit 1)
+2026-09-07T23:38:02.4476930Z #24 DONE 16.3s
+2026-09-07T23:38:02.5988834Z 
+2026-09-07T23:38:02.5990205Z #22 [rust-tools 1/2] FROM docker.io/library/rust:1-bookworm@sha256:82150a52ec202c1b14d7817e14516c392bb7f5cfebd88f1ed531cb37ebd39922
+2026-09-07T23:38:04.6944132Z #22 ...
+2026-09-07T23:38:04.6944381Z 
+2026-09-07T23:38:04.6944754Z #20 [deps 1/7] FROM docker.io/oven/bun:1.3.11-slim@sha256:478281fdd196871c7e51ba6a820b7803a8ae97042ec86cdbc2e1c6b6626442d9
+2026-09-07T23:38:04.6947096Z #20 extracting sha256:ee21e31559f8ae2bd42ae0b4ffc6e583b9d2e952115fdcc00ead7a655dbbd35d 1.3s done
+2026-09-07T23:38:04.6948065Z #20 extracting sha256:ce5883da6fa02306fd819610aa37a9c00235b196dc376ab963f515afbfb8038a done
+2026-09-07T23:38:04.6948728Z #20 extracting sha256:fd77b601fa04a6b78941ab21aed5de5de08506942846d124919d07531b58783c done
+2026-09-07T23:38:04.6949408Z #20 extracting sha256:9c0c2b5a8c358da9206fcb4cd20f9d9824a1eacad378f9cb131633c886cef1c2 done
+2026-09-07T23:38:04.6951167Z #20 DONE 24.8s
+2026-09-07T23:38:04.6951336Z 
+2026-09-07T23:38:04.6951733Z #22 [rust-tools 1/2] FROM docker.io/library/rust:1-bookworm@sha256:82150a52ec202c1b14d7817e14516c392bb7f5cfebd88f1ed531cb37ebd39922
+2026-09-07T23:38:05.0264192Z #22 extracting sha256:08457856946d74c8aede7d750e185d1e479a79b8123d1b805182a580d224a6e2 3.2s done
+2026-09-07T23:38:05.3341653Z #22 ...
+2026-09-07T23:38:05.3342253Z 
+2026-09-07T23:38:05.3442677Z #25 [deps 2/7] WORKDIR /app
+2026-09-07T23:38:05.3450250Z #25 DONE 0.6s
+2026-09-07T23:38:05.4660511Z 
+2026-09-07T23:38:05.4662253Z #23 [node-tools 1/2] FROM docker.io/library/node:22-bookworm-slim@sha256:83f487e0a63425e5b4d146fb5e5be574bcbe1b7b843d3ebafdd95eaf7767a7e5
+2026-09-07T23:38:05.4663391Z #23 extracting sha256:51c53f95c2cae3d00dfc0350297c92dea913fe129ec38b8deb8313e5f3e0297d 2.6s
+2026-09-07T23:38:05.9672527Z #23 extracting sha256:51c53f95c2cae3d00dfc0350297c92dea913fe129ec38b8deb8313e5f3e0297d 3.1s done
+2026-09-07T23:38:06.8148735Z #23 extracting sha256:3cddab114edadc7cf5a7b0b591e59f6312aade3dc4fb68e88aacca5eb1cc1c03
+2026-09-07T23:38:07.4968605Z #23 extracting sha256:3cddab114edadc7cf5a7b0b591e59f6312aade3dc4fb68e88aacca5eb1cc1c03 0.8s done
+2026-09-07T23:38:08.0740382Z #23 ...
+2026-09-07T23:38:08.0740924Z 
+2026-09-07T23:38:08.0746393Z #26 [deps 3/7] RUN bun install -g pnpm@10.12.1
+2026-09-07T23:38:08.0750162Z #26 1.146 bun add v1.3.11 (af24e281)
+2026-09-07T23:38:08.0761894Z #26 1.247 Resolving dependencies
+2026-09-07T23:38:08.0763884Z #26 1.737 Resolved, downloaded and extracted [4]
+2026-09-07T23:38:08.0764989Z #26 1.812 Saved lockfile
+2026-09-07T23:38:08.0766074Z #26 1.817 
+2026-09-07T23:38:08.0766449Z #26 1.817 installed pnpm@10.12.1 with binaries:
+2026-09-07T23:38:08.0767459Z #26 1.817  - pnpm
+2026-09-07T23:38:08.0767900Z #26 1.817  - pnpx
+2026-09-07T23:38:08.0769166Z #26 1.817 
+2026-09-07T23:38:08.0769762Z #26 1.817 1 package installed [757.00ms]
+2026-09-07T23:38:08.0770314Z #26 DONE 2.7s
+2026-09-07T23:38:08.0771088Z 
+2026-09-07T23:38:08.0771486Z #27 [deps 4/7] COPY package.json pnpm-workspace.yaml pnpm-lock.yaml* tsconfig.json ./
+2026-09-07T23:38:09.4970725Z #27 ...
+2026-09-07T23:38:09.4970991Z 
+2026-09-07T23:38:09.4972625Z #28 [runtime  2/26] RUN apt-get update && apt-get install -y --no-install-recommends     build-essential     ca-certificates     clang     cmake     composer     git     llvm     maven     ninja-build     openjdk-17-jdk-headless     php-cli     python3     python3-dev     python3-pip     python3-venv     ruby     ruby-dev     ruby-bundler     universal-ctags   && rm -rf /var/lib/apt/lists/*
+2026-09-07T23:38:09.4974560Z #28 0.713 Get:1 http://deb.debian.org/debian trixie InRelease [140 kB]
+2026-09-07T23:38:09.4975012Z #28 0.816 Get:2 http://deb.debian.org/debian trixie-updates InRelease [47.3 kB]
+2026-09-07T23:38:09.4975526Z #28 0.836 Get:3 http://deb.debian.org/debian-security trixie-security InRelease [43.4 kB]
+2026-09-07T23:38:09.4976082Z #28 0.940 Get:4 http://deb.debian.org/debian trixie/main amd64 Packages [9673 kB]
+2026-09-07T23:38:09.4976607Z #28 1.317 Get:5 http://deb.debian.org/debian trixie-updates/main amd64 Packages [4412 B]
+2026-09-07T23:38:09.4977204Z #28 1.347 Get:6 http://deb.debian.org/debian-security trixie-security/main amd64 Packages [252 kB]
+2026-09-07T23:38:09.4977720Z #28 2.779 Fetched 10.2 MB in 2s (4904 kB/s)
+2026-09-07T23:38:09.4978127Z #28 2.779 Reading package lists...
+2026-09-07T23:38:09.4978385Z #28 3.328 Reading package lists...
+2026-09-07T23:38:09.4978701Z #28 3.878 Building dependency tree...
+2026-09-07T23:38:09.4979127Z #28 3.970 Reading state information...
+2026-09-07T23:38:09.4979814Z #28 3.986 E: Unable to locate package openjdk-17-jdk-headless
+2026-09-07T23:38:09.4981236Z #28 ERROR: process "/bin/sh -c apt-get update && apt-get install -y --no-install-recommends     build-essential     ca-certificates     clang     cmake     composer     git     llvm     maven     ninja-build     openjdk-17-jdk-headless     php-cli     python3     python3-dev     python3-pip     python3-venv     ruby     ruby-dev     ruby-bundler     universal-ctags   && rm -rf /var/lib/apt/lists/*" did not complete successfully: exit code: 100
+2026-09-07T23:38:09.5972172Z 
+2026-09-07T23:38:09.5982007Z #17 [go-tools 1/2] FROM docker.io/library/golang:1.24-bookworm@sha256:1a6d4452c65dea36aac2e2d606b01b4a029ec90cc1ae53890540ce6173ea77ac
+2026-09-07T23:38:09.5983391Z #17 extracting sha256:89edcaae7ec479668d9bf0891145726173a305c809a8c4165723ceaf15b5a05f 12.5s done
+2026-09-07T23:38:09.5984297Z #17 extracting sha256:bbceb003542957cee7df7b79249eaf0a71d21c5203d086969b565fb6dec85d86 5.5s
+2026-09-07T23:38:09.5984959Z #17 ...
+2026-09-07T23:38:09.5985211Z 
+2026-09-07T23:38:09.5985668Z #22 [rust-tools 1/2] FROM docker.io/library/rust:1-bookworm@sha256:82150a52ec202c1b14d7817e14516c392bb7f5cfebd88f1ed531cb37ebd39922
+2026-09-07T23:38:09.5986420Z #22 extracting sha256:8cab6ce149c24516f80b26a762b6b9aaebcaf4fbe51d4c6844af7d7dbc372f2d 2.5s
+2026-09-07T23:38:09.7075259Z #22 ...
+2026-09-07T23:38:09.7075554Z 
+2026-09-07T23:38:09.7076148Z #23 [node-tools 1/2] FROM docker.io/library/node:22-bookworm-slim@sha256:83f487e0a63425e5b4d146fb5e5be574bcbe1b7b843d3ebafdd95eaf7767a7e5
+2026-09-07T23:38:09.7077126Z #23 extracting sha256:0282d618b52cd2eb8fcf041e780cd66b15e7ebae519a4054c5d293eae6b6d34f done
+2026-09-07T23:38:09.7077707Z #23 CANCELED
+2026-09-07T23:38:09.7078115Z 
+2026-09-07T23:38:09.7078626Z #22 [rust-tools 1/2] FROM docker.io/library/rust:1-bookworm@sha256:82150a52ec202c1b14d7817e14516c392bb7f5cfebd88f1ed531cb37ebd39922
+2026-09-07T23:38:09.9266260Z #22 CANCELED
+2026-09-07T23:38:09.9266982Z 
+2026-09-07T23:38:09.9268601Z #21 [dart-tools 1/2] FROM docker.io/library/dart:stable@sha256:7e57e61d97813dc57dd0801656ff4d5c5efafa47bae563a681571543ad30f199
+2026-09-07T23:38:09.9270870Z #21 extracting sha256:4a397c61dbce3928f5c63712e290ff60a3af1f5e8595da889598a2ae21d72f78 6.2s done
+2026-09-07T23:38:09.9271574Z #21 extracting sha256:bc121b89c734799435428154af26a448a63016ad243d3ed2716eb19fe3b4e973 0.2s done
+2026-09-07T23:38:09.9272302Z #21 extracting sha256:4f4fb700ef54461cfa02571ae0db9a0dc1e0cdb5577484a6d75e68dc38e8acc1 done
+2026-09-07T23:38:09.9272932Z #21 extracting sha256:431513af58c917f1541acbba3a95ac36c571e50a4397936232c156a2157acf5b 5.2s
+2026-09-07T23:38:10.0328487Z #21 ...
+2026-09-07T23:38:10.0328815Z 
+2026-09-07T23:38:10.0330876Z #19 [dotnet-tools 1/2] FROM mcr.microsoft.com/dotnet/sdk:8.0-bookworm-slim@sha256:bb32ba3ba3ea36e38572d9d8db76fa15f7cbf722f3f886e06bca6d528bd4fba8
+2026-09-07T23:38:10.0337365Z #19 extracting sha256:241824c35c3fd308c89de22df72bc5c829022499abc318ceacfc8d8105467cd1 done
+2026-09-07T23:38:10.0338439Z #19 extracting sha256:7b80194f63c035b4edd5b4c27099bd45bd8ffd8d160fe232f60a168c35b69d87 0.7s done
+2026-09-07T23:38:10.0339227Z #19 extracting sha256:95f74afdb0f5ca9cd3c0cd4542c068b7c3dd2f882375c23d2eb54806163c1b8d done
+2026-09-07T23:38:10.0340141Z #19 extracting sha256:6a13df20059f818fcba73629156686d32c95417bdb08e508ffe6023df42ae174 0.4s done
+2026-09-07T23:38:10.0340948Z #19 extracting sha256:e99f716dfd91b19b6b3256c18d2ecd63e62a9e9584bbf2dbba6b87e0a06a073a 2.9s
+2026-09-07T23:38:10.0341464Z #19 ...
+2026-09-07T23:38:10.0341663Z 
+2026-09-07T23:38:10.0343425Z #21 [dart-tools 1/2] FROM docker.io/library/dart:stable@sha256:7e57e61d97813dc57dd0801656ff4d5c5efafa47bae563a681571543ad30f199
+2026-09-07T23:38:10.0350322Z #21 ...
+2026-09-07T23:38:10.0350635Z 
+2026-09-07T23:38:10.0359181Z #29 [release-tools 3/3] RUN apt-get update && apt-get install -y --no-install-recommends     ca-certificates     curl   && rm -rf /var/lib/apt/lists/*   && mkdir -p /out /tmp/releases   && cd /tmp/releases   && download() { curl -fsSL --retry 3 --retry-delay 2 --retry-all-errors --connect-timeout 15 --max-time 600 "$@"; }   && download -O "https://github.com/sourcegraph/scip-go/releases/download/v0.2.7/scip-go-linux-amd64.tar.gz"   && download -O "https://github.com/sourcegraph/scip-go/releases/download/v0.2.7/scip-go-linux-amd64.tar.gz.sha256"   && sha256sum -c scip-go-linux-amd64.tar.gz.sha256   && tar -xzf scip-go-linux-amd64.tar.gz -C /out scip-go   && download -O "https://github.com/scip-code/scip/releases/download/v0.9.0/scip-linux-amd64.tar.gz"   && download -O "https://github.com/scip-code/scip/releases/download/v0.9.0/scip-linux-amd64.tar.gz.sha256"   && sha256sum -c scip-linux-amd64.tar.gz.sha256   && tar -xzf scip-linux-amd64.tar.gz -C /out scip   && download -O     "https://github.com/scip-code/scip-java/releases/download/v0.13.1/scip-java-v0.13.1"   && download -O     "https://github.com/scip-code/scip-java/releases/download/v0.13.1/scip-java-v0.13.1.sha256"   && sha256sum -c "scip-java-v0.13.1.sha256"   && mv "scip-java-v0.13.1" /out/scip-java   && download     "https://github.com/sourcegraph/scip-clang/releases/download/v0.4.0/scip-clang-x86_64-linux"     -o scip-clang   && echo "06fd18c576f979a726c651594644ec4a35db4f471f2160b3f72eb89fa6001784  scip-clang" | sha256sum -c -   && mv scip-clang /out/scip-clang   && download     "https://github.com/sourcegraph/scip-ruby/releases/download/scip-ruby-v0.4.7/scip-ruby-x86_64-linux"     -o scip-ruby   && echo "a068c7c3b2042b9eac563ce77ce35dcaca666b418530b1db9f932a3dbc7175dd  scip-ruby" | sha256sum -c -   && mv scip-ruby /out/scip-ruby   && download     "https://github.com/rust-lang/rust-analyzer/releases/download/2026-07-27/rust-analyzer-x86_64-unknown-linux-gnu.gz"     -o rust-analyzer.gz   && echo "ac4f42ddbbd040d75d847e991894776485783e28beb744b9719a660a99abe115  rust-analyzer.gz" | sha256sum -c -   && gzip -dc rust-analyzer.gz > /out/rust-analyzer   && chmod +x /out/*
+2026-09-07T23:38:10.0366196Z #29 1.418 Get:1 http://deb.debian.org/debian bookworm InRelease [151 kB]
+2026-09-07T23:38:10.0366908Z #29 1.605 Get:2 http://deb.debian.org/debian bookworm-updates InRelease [55.4 kB]
+2026-09-07T23:38:10.0367558Z #29 1.618 Get:3 http://deb.debian.org/debian-security bookworm-security InRelease [34.8 kB]
+2026-09-07T23:38:10.0368081Z #29 1.862 Get:4 http://deb.debian.org/debian bookworm/main amd64 Packages [8790 kB]
+2026-09-07T23:38:10.0368563Z #29 2.819 Get:5 http://deb.debian.org/debian bookworm-updates/main amd64 Packages [6924 B]
+2026-09-07T23:38:10.0369122Z #29 2.821 Get:6 http://deb.debian.org/debian-security bookworm-security/main amd64 Packages [337 kB]
+2026-09-07T23:38:10.0369675Z #29 4.452 Fetched 9375 kB in 3s (3020 kB/s)
+2026-09-07T23:38:10.0370001Z #29 4.452 Reading package lists...
+2026-09-07T23:38:10.0370379Z #29 5.209 Reading package lists...
+2026-09-07T23:38:10.0370653Z #29 5.675 Building dependency tree...
+2026-09-07T23:38:10.0370948Z #29 5.763 Reading state information...
+2026-09-07T23:38:10.0371270Z #29 5.923 The following additional packages will be installed:
+2026-09-07T23:38:10.0371716Z #29 5.923   libbrotli1 libcurl4 libgssapi-krb5-2 libk5crypto3 libkeyutils1 libkrb5-3
+2026-09-07T23:38:10.0372303Z #29 5.923   libkrb5support0 libldap-2.5-0 libnghttp2-14 libpsl5 librtmp1 libsasl2-2
+2026-09-07T23:38:10.0372783Z #29 5.924   libsasl2-modules-db libssh2-1 libssl3 openssl
+2026-09-07T23:38:10.0373129Z #29 5.925 Suggested packages:
+2026-09-07T23:38:10.0373409Z #29 5.925   krb5-doc krb5-user
+2026-09-07T23:38:10.0373678Z #29 5.925 Recommended packages:
+2026-09-07T23:38:10.0373982Z #29 5.925   krb5-locales libldap-common publicsuffix libsasl2-modules
+2026-09-07T23:38:10.0374304Z #29 6.271 The following NEW packages will be installed:
+2026-09-07T23:38:10.0374702Z #29 6.271   ca-certificates curl libbrotli1 libcurl4 libgssapi-krb5-2 libk5crypto3
+2026-09-07T23:38:10.0375124Z #29 6.272   libkeyutils1 libkrb5-3 libkrb5support0 libldap-2.5-0 libnghttp2-14 libpsl5
+2026-09-07T23:38:10.0375536Z #29 6.272   librtmp1 libsasl2-2 libsasl2-modules-db libssh2-1 libssl3 openssl
+2026-09-07T23:38:10.0375944Z #29 6.330 0 upgraded, 18 newly installed, 0 to remove and 1 not upgraded.
+2026-09-07T23:38:10.0376277Z #29 6.330 Need to get 5840 kB of archives.
+2026-09-07T23:38:10.0376620Z #29 6.330 After this operation, 14.7 MB of additional disk space will be used.
+2026-09-07T23:38:10.0377065Z #29 6.330 Get:1 http://deb.debian.org/debian bookworm/main amd64 libssl3 amd64 3.0.20-1~deb12u2 [2036 kB]
+2026-09-07T23:38:10.0377550Z #29 6.885 Get:2 http://deb.debian.org/debian bookworm/main amd64 openssl amd64 3.0.20-1~deb12u2 [1439 kB]
+2026-09-07T23:38:10.0378361Z #29 7.057 Get:3 http://deb.debian.org/debian-security bookworm-security/main amd64 ca-certificates all 20250419~deb12u1 [162 kB]
+2026-09-07T23:38:10.0378963Z #29 7.057 Get:4 http://deb.debian.org/debian bookworm/main amd64 libbrotli1 amd64 1.0.9-2+b6 [275 kB]
+2026-09-07T23:38:10.0379465Z #29 7.057 Get:5 http://deb.debian.org/debian bookworm/main amd64 libkrb5support0 amd64 1.20.1-2+deb12u5 [33.2 kB]
+2026-09-07T23:38:10.0380160Z #29 7.057 Get:6 http://deb.debian.org/debian bookworm/main amd64 libk5crypto3 amd64 1.20.1-2+deb12u5 [79.7 kB]
+2026-09-07T23:38:10.0380670Z #29 7.057 Get:7 http://deb.debian.org/debian bookworm/main amd64 libkeyutils1 amd64 1.6.3-2 [8808 B]
+2026-09-07T23:38:10.0381153Z #29 7.100 Get:8 http://deb.debian.org/debian bookworm/main amd64 libkrb5-3 amd64 1.20.1-2+deb12u5 [332 kB]
+2026-09-07T23:38:10.0381652Z #29 7.150 Get:9 http://deb.debian.org/debian bookworm/main amd64 libgssapi-krb5-2 amd64 1.20.1-2+deb12u5 [135 kB]
+2026-09-07T23:38:10.0382205Z #29 7.151 Get:10 http://deb.debian.org/debian bookworm/main amd64 libsasl2-modules-db amd64 2.1.28+dfsg-10 [20.3 kB]
+2026-09-07T23:38:10.0382705Z #29 7.151 Get:11 http://deb.debian.org/debian bookworm/main amd64 libsasl2-2 amd64 2.1.28+dfsg-10 [59.7 kB]
+2026-09-07T23:38:10.0383324Z #29 7.151 Get:12 http://deb.debian.org/debian bookworm/main amd64 libldap-2.5-0 amd64 2.5.13+dfsg-5 [183 kB]
+2026-09-07T23:38:10.0383827Z #29 7.264 Get:13 http://deb.debian.org/debian bookworm/main amd64 libnghttp2-14 amd64 1.52.0-1+deb12u3 [72.4 kB]
+2026-09-07T23:38:10.0384302Z #29 7.264 Get:14 http://deb.debian.org/debian bookworm/main amd64 libpsl5 amd64 0.21.2-1 [58.7 kB]
+2026-09-07T23:38:10.0384806Z #29 7.264 Get:15 http://deb.debian.org/debian bookworm/main amd64 librtmp1 amd64 2.4+20151223.gitfa8646d.1-2+b2 [60.8 kB]
+2026-09-07T23:38:10.0385355Z #29 7.356 Get:16 http://deb.debian.org/debian-security bookworm-security/main amd64 libssh2-1 amd64 1.10.0-3+deb12u1 [176 kB]
+2026-09-07T23:38:10.0385888Z #29 7.384 Get:17 http://deb.debian.org/debian bookworm/main amd64 libcurl4 amd64 7.88.1-10+deb12u15 [392 kB]
+2026-09-07T23:38:10.0386419Z #29 7.585 Get:18 http://deb.debian.org/debian bookworm/main amd64 curl amd64 7.88.1-10+deb12u15 [316 kB]
+2026-09-07T23:38:10.1571088Z #29 ...
+2026-09-07T23:38:10.1571321Z 
+2026-09-07T23:38:10.1571974Z #21 [dart-tools 1/2] FROM docker.io/library/dart:stable@sha256:7e57e61d97813dc57dd0801656ff4d5c5efafa47bae563a681571543ad30f199
+2026-09-07T23:38:10.1572496Z #21 CANCELED
+2026-09-07T23:38:10.3075690Z 
+2026-09-07T23:38:10.3083476Z #29 [release-tools 3/3] RUN apt-get update && apt-get install -y --no-install-recommends     ca-certificates     curl   && rm -rf /var/lib/apt/lists/*   && mkdir -p /out /tmp/releases   && cd /tmp/releases   && download() { curl -fsSL --retry 3 --retry-delay 2 --retry-all-errors --connect-timeout 15 --max-time 600 "$@"; }   && download -O "https://github.com/sourcegraph/scip-go/releases/download/v0.2.7/scip-go-linux-amd64.tar.gz"   && download -O "https://github.com/sourcegraph/scip-go/releases/download/v0.2.7/scip-go-linux-amd64.tar.gz.sha256"   && sha256sum -c scip-go-linux-amd64.tar.gz.sha256   && tar -xzf scip-go-linux-amd64.tar.gz -C /out scip-go   && download -O "https://github.com/scip-code/scip/releases/download/v0.9.0/scip-linux-amd64.tar.gz"   && download -O "https://github.com/scip-code/scip/releases/download/v0.9.0/scip-linux-amd64.tar.gz.sha256"   && sha256sum -c scip-linux-amd64.tar.gz.sha256   && tar -xzf scip-linux-amd64.tar.gz -C /out scip   && download -O     "https://github.com/scip-code/scip-java/releases/download/v0.13.1/scip-java-v0.13.1"   && download -O     "https://github.com/scip-code/scip-java/releases/download/v0.13.1/scip-java-v0.13.1.sha256"   && sha256sum -c "scip-java-v0.13.1.sha256"   && mv "scip-java-v0.13.1" /out/scip-java   && download     "https://github.com/sourcegraph/scip-clang/releases/download/v0.4.0/scip-clang-x86_64-linux"     -o scip-clang   && echo "06fd18c576f979a726c651594644ec4a35db4f471f2160b3f72eb89fa6001784  scip-clang" | sha256sum -c -   && mv scip-clang /out/scip-clang   && download     "https://github.com/sourcegraph/scip-ruby/releases/download/scip-ruby-v0.4.7/scip-ruby-x86_64-linux"     -o scip-ruby   && echo "a068c7c3b2042b9eac563ce77ce35dcaca666b418530b1db9f932a3dbc7175dd  scip-ruby" | sha256sum -c -   && mv scip-ruby /out/scip-ruby   && download     "https://github.com/rust-lang/rust-analyzer/releases/download/2026-07-27/rust-analyzer-x86_64-unknown-linux-gnu.gz"     -o rust-analyzer.gz   && echo "ac4f42ddbbd040d75d847e991894776485783e28beb744b9719a660a99abe115  rust-analyzer.gz" | sha256sum -c -   && gzip -dc rust-analyzer.gz > /out/rust-analyzer   && chmod +x /out/*
+2026-09-07T23:38:10.6563046Z #29 CANCELED
+2026-09-07T23:38:10.6570606Z 
+2026-09-07T23:38:10.6584340Z #27 [deps 4/7] COPY package.json pnpm-workspace.yaml pnpm-lock.yaml* tsconfig.json ./
+2026-09-07T23:38:10.7329753Z #27 DONE 2.7s
+2026-09-07T23:38:10.7330403Z ------
+2026-09-07T23:38:10.7332250Z  > [runtime  2/26] RUN apt-get update && apt-get install -y --no-install-recommends     build-essential     ca-certificates     clang     cmake     composer     git     llvm     maven     ninja-build     openjdk-17-jdk-headless     php-cli     python3     python3-dev     python3-pip     python3-venv     ruby     ruby-dev     ruby-bundler     universal-ctags   && rm -rf /var/lib/apt/lists/*:
+2026-09-07T23:38:10.7333870Z 0.836 Get:3 http://deb.debian.org/debian-security trixie-security InRelease [43.4 kB]
+2026-09-07T23:38:10.7334514Z 0.940 Get:4 http://deb.debian.org/debian trixie/main amd64 Packages [9673 kB]
+2026-09-07T23:38:10.7335039Z 1.317 Get:5 http://deb.debian.org/debian trixie-updates/main amd64 Packages [4412 B]
+2026-09-07T23:38:10.7335597Z 1.347 Get:6 http://deb.debian.org/debian-security trixie-security/main amd64 Packages [252 kB]
+2026-09-07T23:38:10.7336049Z 2.779 Fetched 10.2 MB in 2s (4904 kB/s)
+2026-09-07T23:38:10.7336410Z 2.779 Reading package lists...
+2026-09-07T23:38:10.7336744Z 3.328 Reading package lists...
+2026-09-07T23:38:10.7337061Z 3.878 Building dependency tree...
+2026-09-07T23:38:10.7337398Z 3.970 Reading state information...
+2026-09-07T23:38:10.7337769Z 3.986 E: Unable to locate package openjdk-17-jdk-headless
+2026-09-07T23:38:10.7338182Z ------
+2026-09-07T23:38:10.7411962Z Dockerfile:120
+2026-09-07T23:38:10.7412320Z --------------------
+2026-09-07T23:38:10.7412740Z  119 |     # universal-ctags lets zoekt-index record symbol metadata for sym: queries.
+2026-09-07T23:38:10.7413319Z  120 | >>> RUN apt-get update && apt-get install -y --no-install-recommends \
+2026-09-07T23:38:10.7413747Z  121 | >>>     build-essential \
+2026-09-07T23:38:10.7414046Z  122 | >>>     ca-certificates \
+2026-09-07T23:38:10.7414329Z  123 | >>>     clang \
+2026-09-07T23:38:10.7414529Z  124 | >>>     cmake \
+2026-09-07T23:38:10.7414818Z  125 | >>>     composer \
+2026-09-07T23:38:10.7415040Z  126 | >>>     git \
+2026-09-07T23:38:10.7415277Z  127 | >>>     llvm \
+2026-09-07T23:38:10.7415501Z  128 | >>>     maven \
+2026-09-07T23:38:10.7415757Z  129 | >>>     ninja-build \
+2026-09-07T23:38:10.7416063Z  130 | >>>     openjdk-17-jdk-headless \
+2026-09-07T23:38:10.7416318Z  131 | >>>     php-cli \
+2026-09-07T23:38:10.7416547Z  132 | >>>     python3 \
+2026-09-07T23:38:10.7416825Z  133 | >>>     python3-dev \
+2026-09-07T23:38:10.7417061Z  134 | >>>     python3-pip \
+2026-09-07T23:38:10.7417309Z  135 | >>>     python3-venv \
+2026-09-07T23:38:10.7417531Z  136 | >>>     ruby \
+2026-09-07T23:38:10.7417750Z  137 | >>>     ruby-dev \
+2026-09-07T23:38:10.7417998Z  138 | >>>     ruby-bundler \
+2026-09-07T23:38:10.7418267Z  139 | >>>     universal-ctags \
+2026-09-07T23:38:10.7418527Z  140 | >>>   && rm -rf /var/lib/apt/lists/*
+2026-09-07T23:38:10.7418794Z  141 |     
+2026-09-07T23:38:10.7419012Z --------------------
+2026-09-07T23:38:10.7420319Z ERROR: failed to build: failed to solve: process "/bin/sh -c apt-get update && apt-get install -y --no-install-recommends     build-essential     ca-certificates     clang     cmake     composer     git     llvm     maven     ninja-build     openjdk-17-jdk-headless     php-cli     python3     python3-dev     python3-pip     python3-venv     ruby     ruby-dev     ruby-bundler     universal-ctags   && rm -rf /var/lib/apt/lists/*" did not complete successfully: exit code: 100
+2026-09-07T23:38:10.7466864Z ##[error]Process completed with exit code 1.
+2026-09-07T23:38:10.7612358Z Post job cleanup.
+2026-09-07T23:38:10.8340476Z [command]/usr/bin/git version
+2026-09-07T23:38:10.8360308Z git version 2.55.0
+2026-09-07T23:38:10.8404939Z Temporarily overriding HOME='/home/runner/work/_temp/c8eb8b32-a263-4edd-bbf0-369d796acc76' before making global git config changes
+2026-09-07T23:38:10.8405878Z Adding repository directory to the temporary git global config as a safe directory
+2026-09-07T23:38:10.8406872Z [command]/usr/bin/git config --global --add safe.directory /home/runner/work/ctxpipe/ctxpipe
+2026-09-07T23:38:10.8452384Z Removing SSH command configuration
+2026-09-07T23:38:10.8453432Z [command]/usr/bin/git config --local --name-only --get-regexp core\.sshCommand
+2026-09-07T23:38:10.8474556Z [command]/usr/bin/git submodule foreach --recursive sh -c "git config --local --name-only --get-regexp 'core\.sshCommand' && git config --local --unset-all 'core.sshCommand' || :"
+2026-09-07T23:38:10.8719259Z Removing HTTP extra header
+2026-09-07T23:38:10.8723907Z [command]/usr/bin/git config --local --name-only --get-regexp http\.https\:\/\/github\.com\/\.extraheader
+2026-09-07T23:38:10.8764599Z [command]/usr/bin/git submodule foreach --recursive sh -c "git config --local --name-only --get-regexp 'http\.https\:\/\/github\.com\/\.extraheader' && git config --local --unset-all 'http.https://github.com/.extraheader' || :"
+2026-09-07T23:38:10.8975341Z Removing includeIf entries pointing to credentials config files
+2026-09-07T23:38:10.8984733Z [command]/usr/bin/git config --local --name-only --get-regexp ^includeIf\.gitdir:
+2026-09-07T23:38:10.9012675Z includeif.gitdir:/home/runner/work/ctxpipe/ctxpipe/.git.path
+2026-09-07T23:38:10.9018632Z includeif.gitdir:/home/runner/work/ctxpipe/ctxpipe/.git/worktrees/*.path
+2026-09-07T23:38:10.9019308Z includeif.gitdir:/github/workspace/.git.path
+2026-09-07T23:38:10.9020045Z includeif.gitdir:/github/workspace/.git/worktrees/*.path
+2026-09-07T23:38:10.9021308Z [command]/usr/bin/git config --local --get-all includeif.gitdir:/home/runner/work/ctxpipe/ctxpipe/.git.path
+2026-09-07T23:38:10.9041289Z /home/runner/work/_temp/git-credentials-84f9af54-ee13-4d9e-85b5-4b201ac83049.config
+2026-09-07T23:38:10.9053925Z [command]/usr/bin/git config --local --unset includeif.gitdir:/home/runner/work/ctxpipe/ctxpipe/.git.path /home/runner/work/_temp/git-credentials-84f9af54-ee13-4d9e-85b5-4b201ac83049.config
+2026-09-07T23:38:10.9110677Z [command]/usr/bin/git config --local --get-all includeif.gitdir:/home/runner/work/ctxpipe/ctxpipe/.git/worktrees/*.path
+2026-09-07T23:38:10.9115004Z /home/runner/work/_temp/git-credentials-84f9af54-ee13-4d9e-85b5-4b201ac83049.config
+2026-09-07T23:38:10.9122249Z [command]/usr/bin/git config --local --unset includeif.gitdir:/home/runner/work/ctxpipe/ctxpipe/.git/worktrees/*.path /home/runner/work/_temp/git-credentials-84f9af54-ee13-4d9e-85b5-4b201ac83049.config
+2026-09-07T23:38:10.9161146Z [command]/usr/bin/git config --local --get-all includeif.gitdir:/github/workspace/.git.path
+2026-09-07T23:38:10.9174069Z /github/runner_temp/git-credentials-84f9af54-ee13-4d9e-85b5-4b201ac83049.config
+2026-09-07T23:38:10.9185074Z [command]/usr/bin/git config --local --unset includeif.gitdir:/github/workspace/.git.path /github/runner_temp/git-credentials-84f9af54-ee13-4d9e-85b5-4b201ac83049.config
+2026-09-07T23:38:10.9207952Z [command]/usr/bin/git config --local --get-all includeif.gitdir:/github/workspace/.git/worktrees/*.path
+2026-09-07T23:38:10.9223446Z /github/runner_temp/git-credentials-84f9af54-ee13-4d9e-85b5-4b201ac83049.config
+2026-09-07T23:38:10.9231501Z [command]/usr/bin/git config --local --unset includeif.gitdir:/github/workspace/.git/worktrees/*.path /github/runner_temp/git-credentials-84f9af54-ee13-4d9e-85b5-4b201ac83049.config
+2026-09-07T23:38:10.9254562Z [command]/usr/bin/git submodule foreach --recursive git config --local --show-origin --name-only --get-regexp remote.origin.url
+2026-09-07T23:38:10.9425272Z Removing credentials config '/home/runner/work/_temp/git-credentials-84f9af54-ee13-4d9e-85b5-4b201ac83049.config'
+2026-09-07T23:38:10.9581818Z Cleaning up orphan processes
