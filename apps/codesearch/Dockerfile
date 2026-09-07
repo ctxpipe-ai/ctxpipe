@@ -219,6 +219,7 @@ COPY patches patches
 COPY apps/codesearch/package.json apps/codesearch/package.json
 RUN pnpm install --frozen-lockfile --config.confirmModulesPurge=false
 COPY apps/codesearch ./apps/codesearch
+COPY scripts/ci/check-test-report.mjs ./scripts/ci/check-test-report.mjs
 WORKDIR /app/apps/codesearch
 CMD ["pnpm", "run", "test:vitest"]
 

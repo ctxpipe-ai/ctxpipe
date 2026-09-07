@@ -14,7 +14,7 @@ ENV CI=true
 COPY --from=deps /app/node_modules ./node_modules
 COPY --from=deps /app/apps/docs/node_modules ./apps/docs/node_modules
 COPY apps/docs ./apps/docs
-RUN cd apps/docs && ../node_modules/.bin/next build
+RUN cd apps/docs && bun run build
 
 # Production stage
 FROM oven/bun:1.3.11-alpine
@@ -26,4 +26,4 @@ COPY --from=builder /app/apps/docs/.next/static ./apps/docs/.next/static
 COPY --from=builder /app/apps/docs/public ./apps/docs/public
 EXPOSE 3003
 ENV PORT=3003
-CMD ["node", "apps/docs/server.js"]
+CMD ["bun", "run", "apps/docs/server.js"]

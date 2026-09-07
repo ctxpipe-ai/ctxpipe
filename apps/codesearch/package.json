@@ -9,7 +9,7 @@
     "start": "bun run dist/server.js",
     "test": "bash scripts/run-vitest-docker.sh",
     "test:manual:kubernetes-memory": "bash scripts/manual-kubernetes-ingest-memory.sh",
-    "test:vitest": "vitest run --exclude src/domain/repositories/globFiles.test.ts --exclude src/routes/repo.test.ts && bun --bun vitest run src/domain/repositories/globFiles.test.ts src/routes/repo.test.ts",
+    "test:vitest": "node scripts/run-vitest-contracts.mjs",
     "lint": "biome lint .",
     "format": "biome format --write ."
   },

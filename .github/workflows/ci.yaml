@@ -1,6 +1,7 @@
 name: CI
 
 on:
+  workflow_dispatch:
   pull_request:
     branches:
       - main
@@ -30,8 +31,9 @@ jobs:
   lint:
     name: Biome
     if: |
-      (github.event_name == 'pull_request') !=
-      (github.actor == 'cursor[bot]' || github.actor == 'cursoragent')
+      github.event_name == 'workflow_dispatch' ||
+      ((github.event_name == 'pull_request') !=
+      (github.actor == 'cursor[bot]' || github.actor == 'cursoragent'))
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v6
@@ -52,8 +54,9 @@ jobs:
   typecheck:
     name: Typecheck
     if: |
-      (github.event_name == 'pull_request') !=
-      (github.actor == 'cursor[bot]' || github.actor == 'cursoragent')
+      github.event_name == 'workflow_dispatch' ||
+      ((github.event_name == 'pull_request') !=
+      (github.actor == 'cursor[bot]' || github.actor == 'cursoragent'))
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v6
@@ -71,8 +74,9 @@ jobs:
   test:
     name: Tests
     if: |
-      (github.event_name == 'pull_request') !=
-      (github.actor == 'cursor[bot]' || github.actor == 'cursoragent')
+      github.event_name == 'workflow_dispatch' ||
+      ((github.event_name == 'pull_request') !=
+      (github.actor == 'cursor[bot]' || github.actor == 'cursoragent'))
     runs-on: ubuntu-latest
     services:
       postgres:
@@ -127,6 +131,8 @@ jobs:
         run: pnpm test:contracts
       - name: UI tests
         run: pnpm --filter @ctxpipe/ui test
+      - name: CLI tests
+        run: node scripts/ci/test-suite.mjs cli
       - name: CDK tests
         run: node scripts/ci/test-suite.mjs aws-cdk
       - name: Preserve executed test inventories and results
@@ -141,8 +147,9 @@ jobs:
   production-builds:
     name: Production build (${{ matrix.name }})
     if: |
-      (github.event_name == 'pull_request') !=
-      (github.actor == 'cursor[bot]' || github.actor == 'cursoragent')
+      github.event_name == 'workflow_dispatch' ||
+      ((github.event_name == 'pull_request') !=
+      (github.actor == 'cursor[bot]' || github.actor == 'cursoragent'))
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
@@ -167,8 +174,9 @@ jobs:
   packages:
     name: Runnable packages and examples
     if: |
-      (github.event_name == 'pull_request') !=
-      (github.actor == 'cursor[bot]' || github.actor == 'cursoragent')
+      github.event_name == 'workflow_dispatch' ||
+      ((github.event_name == 'pull_request') !=
+      (github.actor == 'cursor[bot]' || github.actor == 'cursoragent'))
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v6
@@ -190,8 +198,9 @@ jobs:
   codesearch:
     name: Codesearch real toolchain contracts
     if: |
-      (github.event_name == 'pull_request') !=
-      (github.actor == 'cursor[bot]' || github.actor == 'cursoragent')
+      github.event_name == 'workflow_dispatch' ||
+      ((github.event_name == 'pull_request') !=
+      (github.actor == 'cursor[bot]' || github.actor == 'cursoragent'))
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v6
@@ -204,8 +213,9 @@ jobs:
   migrate:
     name: Migrations (fresh and previous schema)
     if: |
-      (github.event_name == 'pull_request') !=
-      (github.actor == 'cursor[bot]' || github.actor == 'cursoragent')
+      github.event_name == 'workflow_dispatch' ||
+      ((github.event_name == 'pull_request') !=
+      (github.actor == 'cursor[bot]' || github.actor == 'cursoragent'))
     runs-on: ubuntu-latest
     services:
       postgres:
