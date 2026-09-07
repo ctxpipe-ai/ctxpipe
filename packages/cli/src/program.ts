@@ -37,21 +37,12 @@ function resolveNonInteractive(raw: Record<string, unknown>): boolean {
 }
 
 function addMcpAuthOptions(command: Command): Command {
-  return command
-    .addOption(
-      new Option(
-        "--auth <oauth|api-key>",
-        "MCP auth: oauth writes URL-only config for any scope (default). api-key is implied by --api-key or --api-key-env-variable",
-      ).choices(["oauth", "api-key"]),
-    )
-    .option(
-      "--api-key <key>",
-      "Write the raw API key into user-level client config only (never repo files). Implies --auth api-key",
-    )
-    .option(
-      "--api-key-env-variable <name>",
-      "Write an environment-variable reference (not the secret) into repo and/or user MCP config. Implies --auth api-key. The MCP client must see this variable in its process environment",
-    )
+  return command.addOption(
+    new Option(
+      "--auth <oauth|api-key>",
+      "MCP auth: oauth writes URL-only config (default). api-key writes a CTXPIPE_API_KEY interpolation in the requested scope; set CTXPIPE_API_KEY in the MCP client environment",
+    ).choices(["oauth", "api-key"]),
+  )
 }
 
 function addNonInteractiveOption(command: Command): Command {
@@ -80,8 +71,7 @@ Human setup:
 Examples (non-interactive):
   npx ctxpipe init --org acme --agents codex,claude --scope repo --non-interactive
   npx ctxpipe mcp add --org acme --client cursor --scope repo --non-interactive
-  npx ctxpipe mcp add --org acme --client cursor --scope user --auth api-key --api-key "$CTXPIPE_API_KEY" --non-interactive
-  npx ctxpipe mcp add --org acme --client cursor --scope both --api-key-env-variable CTXPIPE_API_KEY --non-interactive
+  npx ctxpipe mcp add --org acme --client cursor --scope both --auth api-key --non-interactive
   npx ctxpipe doctor --json
   npx ctxpipe doctor mcp --url "https://app.example.com/mcp?orgSlug=acme"
 `,
@@ -152,9 +142,8 @@ Examples (non-interactive):
           `
 MCP auth:
   Default is OAuth: URL-only config for repo, user, or both. The client completes browser OAuth.
-  --api-key writes the raw x-api-key header only to user-level client config (never repository files).
-  --api-key-env-variable writes a client-specific environment-variable reference in the requested scope (repo, user, or both).
-  --auth api-key still accepts CTXPIPE_API_KEY as a user-scope literal key.
+  --auth api-key writes a client-specific interpolation of CTXPIPE_API_KEY (not the secret) in the requested scope.
+  Set CTXPIPE_API_KEY in the MCP client process; the CLI does not consume that variable.
 `,
         ),
     ),
@@ -171,8 +160,6 @@ MCP auth:
       mcp: boolean
       memory?: boolean
       auth?: string
-      apiKey?: string
-      apiKeyEnvVariable?: string
     }
     const agents = [
       ...(opts.agents ?? []),
@@ -190,8 +177,6 @@ MCP auth:
       mcp: opts.mcp,
       memory: opts.memory,
       auth: opts.auth,
-      apiKey: opts.apiKey,
-      apiKeyEnvVariable: opts.apiKeyEnvVariable,
     })
   })
 
@@ -292,9 +277,8 @@ result means the endpoint is ready for OAuth, not that authenticated tools work.
           `
 MCP auth:
   Default is OAuth: URL-only config for repo, user, or both. The client completes browser OAuth.
-  --api-key writes the raw x-api-key header only to user-level client config (never repository files).
-  --api-key-env-variable writes a client-specific environment-variable reference in the requested scope (repo, user, or both).
-  --auth api-key still accepts CTXPIPE_API_KEY as a user-scope literal key.
+  --auth api-key writes a client-specific interpolation of CTXPIPE_API_KEY (not the secret) in the requested scope.
+  Set CTXPIPE_API_KEY in the MCP client process; the CLI does not consume that variable.
 `,
         ),
     ),
@@ -308,8 +292,6 @@ MCP auth:
       dryRun: boolean
       json: boolean
       auth?: string
-      apiKey?: string
-      apiKeyEnvVariable?: string
     }
     const clients = [...(opts.client ?? []), ...(opts.clients ?? [])]
     await runMcpAdd({
@@ -321,8 +303,6 @@ MCP auth:
       json: opts.json,
       nonInteractive: resolveNonInteractive(rawOpts),
       auth: opts.auth,
-      apiKey: opts.apiKey,
-      apiKeyEnvVariable: opts.apiKeyEnvVariable,
     })
   })
 

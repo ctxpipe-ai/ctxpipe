@@ -55,8 +55,6 @@ export type InitRunOpts = {
   nonInteractive: boolean
   mcp: boolean
   auth?: string
-  apiKey?: string
-  apiKeyEnvVariable?: string
   /** Tri-state: true = always enable, false = always skip, undefined = ask in interactive mode. */
   memory?: boolean
 }
@@ -70,14 +68,11 @@ export type McpAddRunOpts = {
   json: boolean
   nonInteractive: boolean
   auth?: string
-  apiKey?: string
-  apiKeyEnvVariable?: string
 }
 
 function describeMcpAuth(auth: McpAuthConfig): string {
   if (auth.mode === "oauth") return "OAuth"
-  if (auth.placement === "literal") return "API key (user-level x-api-key)"
-  return `API key (env ${auth.envVariable})`
+  return "API key (env CTXPIPE_API_KEY)"
 }
 
 export async function runInit(opts: InitRunOpts): Promise<void> {
@@ -92,8 +87,6 @@ export async function runInit(opts: InitRunOpts): Promise<void> {
     json: boolean
     mcp: boolean
     auth: string | null
-    apiKey: string | null
-    apiKeyEnvVariable: string | null
     memory: boolean | undefined
   } = {
     org: opts.org ?? null,
@@ -105,8 +98,6 @@ export async function runInit(opts: InitRunOpts): Promise<void> {
     json: opts.json,
     mcp: opts.mcp,
     auth: opts.auth ?? null,
-    apiKey: opts.apiKey ?? null,
-    apiKeyEnvVariable: opts.apiKeyEnvVariable ?? null,
     memory: opts.memory,
   }
 
@@ -134,11 +125,7 @@ export async function runInit(opts: InitRunOpts): Promise<void> {
   // In non-interactive mode an unspecified --memory means "do not enable".
   const memoryEnabled = answers.memory === true
   const mcpAuth: McpAuthConfig = answers.mcp
-    ? resolveMcpAuth({
-        auth: answers.auth,
-        apiKey: answers.apiKey,
-        apiKeyEnvVariable: answers.apiKeyEnvVariable,
-      })
+    ? resolveMcpAuth({ auth: answers.auth })
     : { mode: "oauth" }
 
   const context = createOperationContext({ commandExists })
@@ -252,8 +239,6 @@ export async function runMcpAdd(opts: McpAddRunOpts): Promise<void> {
     clients: [...opts.clients],
     scope: opts.scope ?? null,
     auth: opts.auth ?? null,
-    apiKey: opts.apiKey ?? null,
-    apiKeyEnvVariable: opts.apiKeyEnvVariable ?? null,
     dryRun: opts.dryRun,
   }
 
@@ -276,11 +261,7 @@ export async function runMcpAdd(opts: McpAddRunOpts): Promise<void> {
   if (!scope) throw new Error("Missing --scope")
   validateScope(scope)
   validateClients(clients)
-  const mcpAuth = resolveMcpAuth({
-    auth: values.auth,
-    apiKey: values.apiKey,
-    apiKeyEnvVariable: values.apiKeyEnvVariable,
-  })
+  const mcpAuth = resolveMcpAuth({ auth: values.auth })
 
   const operations = buildMcpOperations({
     clients,

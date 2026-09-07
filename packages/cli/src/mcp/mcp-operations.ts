@@ -20,7 +20,7 @@ import {
   SKILL_CAPTURE_LESSON,
   SKILL_MEMORY_SEARCH,
 } from "../memory/seed.js"
-import { REPO_API_KEY_SKIP_DETAIL, type McpAuthConfig } from "./auth-mode.js"
+import type { McpAuthConfig } from "./auth-mode.js"
 import type { JsonObject } from "./json.js"
 import { isObject } from "./json.js"
 import { mcpUrl, normalizeBaseUrl, relativePath, scopesFor } from "./paths.js"
@@ -283,31 +283,28 @@ export function buildMemoryMcpOperations(_opts: {
   return []
 }
 
-function interpolateApiKeyEnv(client: Client, envVariable: string): string {
+const API_KEY_ENV = "CTXPIPE_API_KEY"
+
+function interpolateApiKeyEnv(client: Client): string {
   switch (client) {
     case "claude":
-      return `\${${envVariable}}`
+      return `\${${API_KEY_ENV}}`
     case "opencode":
-      return `{env:${envVariable}}`
+      return `{env:${API_KEY_ENV}}`
     case "codex":
-      return envVariable
+      return API_KEY_ENV
     case "cursor":
     case "vscode":
-      return `\${env:${envVariable}}`
+      return `\${env:${API_KEY_ENV}}`
   }
 }
 
 function mcpHeaderValue(
   client: Client,
-  scope: "repo" | "user",
   auth: McpAuthConfig,
 ): string | undefined {
   if (auth.mode === "oauth") return undefined
-  if (auth.placement === "env") {
-    return interpolateApiKeyEnv(client, auth.envVariable)
-  }
-  if (scope === "user") return auth.apiKey
-  return undefined
+  return interpolateApiKeyEnv(client)
 }
 
 export function buildMcpOperations({
@@ -328,14 +325,8 @@ export function buildMcpOperations({
   context?: OperationContext
 }): Operation[] {
   void memory
-  const requested = scopesFor(scope)
-  const literalKey = auth.mode === "api-key" && auth.placement === "literal"
-  const skippedRepo = Boolean(literalKey && requested.includes("repo"))
-  const scopes = literalKey
-    ? requested.filter((item) => item === "user")
-    : requested
-  const operations = clients.flatMap((client) =>
-    scopes.flatMap((singleScope) =>
+  return clients.flatMap((client) =>
+    scopesFor(scope).flatMap((singleScope) =>
       buildClientOperations({
         client,
         baseUrl,
@@ -346,15 +337,6 @@ export function buildMcpOperations({
       }),
     ),
   )
-  if (!skippedRepo) return operations
-  return [
-    {
-      type: "manual",
-      description: "skip repo MCP writes for API-key auth",
-      detail: REPO_API_KEY_SKIP_DETAIL,
-    },
-    ...operations,
-  ]
 }
 
 export function buildClientOperations({
@@ -372,10 +354,8 @@ export function buildClientOperations({
   auth?: McpAuthConfig
   context?: OperationContext
 }): Operation[] {
-  if (auth.mode === "api-key" && auth.placement === "literal" && scope === "repo")
-    return []
   const url = mcpUrl({ baseUrl, org })
-  const headerValue = mcpHeaderValue(client, scope, auth)
+  const headerValue = mcpHeaderValue(client, auth)
   switch (client) {
     case "cursor":
       return [
@@ -472,10 +452,7 @@ export function buildClientOperations({
       if (headerValue) {
         const configPath =
           scope === "user" ? "~/.codex/config.toml" : ".codex/config.toml"
-        const headerLine =
-          auth.mode === "api-key" && auth.placement === "env"
-            ? `env_http_headers = { "x-api-key" = "${headerValue}" }`
-            : `http_headers = { "x-api-key" = "${headerValue}" }`
+        const headerLine = `env_http_headers = { "x-api-key" = "${headerValue}" }`
         return [
           {
             type: "manual",
