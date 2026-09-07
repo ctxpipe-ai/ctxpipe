@@ -1,0 +1,47 @@
+{"name": "write-workflow-all-refs", "cwd": "/private/tmp/ctxpipe-recovery-01a07aba", "command": ["volta", "run", "--node", "22.16.0", "pnpm", "--filter", "@ctxpipe/backend", "exec", "vitest", "run", "src/domain/workspaces/write-workflow.contract.test.ts"], "environment": {"AUTH_SECRET": "gate0-local-disposable-test-secret-20260907", "DATABASE_URL": "postgresql://ctxpipe_app:ctxpipe@127.0.0.1:61314/ctxpipe_gate0_fresh", "GRAPH_DB_URI": "redis://127.0.0.1:6399", "CI": "true", "NO_COLOR": "1", "TURBO_TELEMETRY_DISABLED": "1", "STORYBOOK_DISABLE_TELEMETRY": "1", "PATH": "/private/tmp/ctxpipe-recovery-runtime/node_modules/.bin:/usr/local/bin:/System/Cryptexes/App/usr/bin:/usr/bin:/bin:/usr/sbin:/sbin:/var/run/com.apple.security.cryptexd/codex.system/bootstrap/usr/local/bin:/var/run/com.apple.security.cryptexd/codex.system/bootstrap/usr/bin:/var/run/com.apple.security.cryptexd/codex.system/bootstrap/usr/appleinternal/bin:/pkg/env/global/bin:/Users/jakubriedl/.codex/tmp/arg0/codex-arg0BW5Gt3:/Users/jakubriedl/.cache/codex-runtimes/codex-primary-runtime/dependencies/bin/override:/Users/jakubriedl/.local/bin:/Users/jakubriedl/.bun/bin:/Users/jakubriedl/.opencode/bin:/Users/jakubriedl/.volta/bin:/opt/homebrew/bin:/opt/homebrew/sbin:/Users/jakubriedl/.cache/codex-runtimes/codex-primary-runtime/dependencies/bin/fallback:/Applications/ChatGPT.app/Contents/Resources"}, "timeout_seconds": 600, "started_utc": "2026-09-07T23:57:57Z", "log": "logs/write-workflow-all-refs.log"}
+
+ RUN  v4.0.18 /private/tmp/ctxpipe-recovery-01a07aba/apps/backend
+
+Cloning into bare repository '/var/folders/9t/jj9rnpps7_ddb72c1mq2k13w0000gn/T/ctxpipe-write-workflow-HGiVNE/remote.git'...
+done.
+Cloning into bare repository '/var/folders/9t/jj9rnpps7_ddb72c1mq2k13w0000gn/T/ctxpipe-write-workflow-au37GC/remote.git'...
+done.
+Cloning into bare repository '/var/folders/9t/jj9rnpps7_ddb72c1mq2k13w0000gn/T/ctxpipe-write-workflow-x9jFMk/remote.git'...
+done.
+Cloning into bare repository '/var/folders/9t/jj9rnpps7_ddb72c1mq2k13w0000gn/T/ctxpipe-write-workflow-1YGxSb/remote.git'...
+done.
+Cloning into bare repository '/var/folders/9t/jj9rnpps7_ddb72c1mq2k13w0000gn/T/ctxpipe-write-workflow-RrxgSb/remote.git'...
+done.
+Cloning into bare repository '/var/folders/9t/jj9rnpps7_ddb72c1mq2k13w0000gn/T/ctxpipe-write-workflow-zROFh7/remote.git'...
+done.
+Cloning into bare repository '/var/folders/9t/jj9rnpps7_ddb72c1mq2k13w0000gn/T/ctxpipe-write-workflow-SmszGT/remote.git'...
+done.
+Cloning into bare repository '/var/folders/9t/jj9rnpps7_ddb72c1mq2k13w0000gn/T/ctxpipe-write-workflow-v0u2cj/remote.git'...
+done.
+Cloning into bare repository '/var/folders/9t/jj9rnpps7_ddb72c1mq2k13w0000gn/T/ctxpipe-write-workflow-5Nrxzw/remote.git'...
+done.
+Cloning into bare repository '/var/folders/9t/jj9rnpps7_ddb72c1mq2k13w0000gn/T/ctxpipe-write-workflow-SAtbd9/remote.git'...
+done.
+Cloning into bare repository '/var/folders/9t/jj9rnpps7_ddb72c1mq2k13w0000gn/T/ctxpipe-write-workflow-wDSHZ1/remote.git'...
+done.
+Cloning into bare repository '/var/folders/9t/jj9rnpps7_ddb72c1mq2k13w0000gn/T/ctxpipe-write-workflow-YpGyZ9/remote.git'...
+done.
+ ✓ src/domain/workspaces/write-workflow.contract.test.ts (12 tests) 17605ms
+   ✓ records the existing migration_export workflow failure in real PostgreSQL  1481ms
+   ✓ records the existing extract_ingest workflow failure in real PostgreSQL  1523ms
+   ✓ records the existing connector_mirror workflow failure in real PostgreSQL  1717ms
+   ✓ records the existing claims_upgrade workflow failure in real PostgreSQL  1273ms
+   ✓ records the existing rename_rewrite workflow failure in real PostgreSQL  1490ms
+   ✓ records the existing valid_from_persist workflow failure in real PostgreSQL  1303ms
+   ✓ records the existing semantic_merge workflow failure in real PostgreSQL  1357ms
+   ✓ records the existing ops_folder_map workflow failure in real PostgreSQL  1265ms
+   ✓ records the existing bootstrap workflow failure in real PostgreSQL  1523ms
+   ✓ records the existing link_unlink workflow failure in real PostgreSQL  2084ms
+   ✓ records the existing ui_file_edit workflow failure in real PostgreSQL  1358ms
+   ✓ records the existing import_key_cleanup workflow failure in real PostgreSQL  1227ms
+
+ Test Files  1 passed (1)
+      Tests  12 passed (12)
+   Start at  09:57:58
+   Duration  19.40s (transform 412ms, setup 32ms, import 1.68s, tests 17.61s, environment 0ms)
+

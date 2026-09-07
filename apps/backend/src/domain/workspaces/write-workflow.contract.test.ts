@@ -46,6 +46,12 @@ it.each(workspaceWriteJobInputSchema.shape.kind.options)(
     const sha = git("rev-parse", "HEAD")
     const remote = join(directory, "remote.git")
     git("clone", "--bare", directory, remote)
+    const originalRefs = git(
+      "--git-dir",
+      remote,
+      "for-each-ref",
+      "--format=%(refname) %(objectname)",
+    )
     initDb(databaseUrl)
     const backend = await BackendPostgres.connect(databaseUrl, {
       runMigrations: false,
@@ -111,7 +117,14 @@ it.each(workspaceWriteJobInputSchema.shape.kind.options)(
           .where(eq(workspaceWriteJobs.workspaceId, workspaceId)),
       )
       expect(jobs).toEqual([])
-      expect(git("--git-dir", remote, "rev-parse", "main")).toBe(sha)
+      expect(
+        git(
+          "--git-dir",
+          remote,
+          "for-each-ref",
+          "--format=%(refname) %(objectname)",
+        ),
+      ).toBe(originalRefs)
     } finally {
       await worker.stop()
       await backend.stop()

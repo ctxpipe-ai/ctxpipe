@@ -20,7 +20,7 @@ Branch: `codex/develop-plan-to-refocus-branch-direction`; existing PR 319.
   images; builds distributable CLI/CDK and backend/codesearch entrypoints;
   typechecks self-host; validates Terraform without remote state credentials.
 - Test policy parses syntax, including chained/aliased selection modifiers and
-  test configuration retries. The accepted Gate 0 characterization inventory is
+  test configuration retries, destructuring aliases, and Playwright fail/fixme. The accepted Gate 0 characterization inventory is
   read from its immutable commit, so editing a TSV cannot bypass proof policy.
 - Codesearch runs every discovered test, routing its two Bun.Glob-dependent
   files through Bun and the remaining tests through Node. Both reports must
@@ -36,7 +36,8 @@ Branch: `codex/develop-plan-to-refocus-branch-direction`; existing PR 319.
 | `ui-required-runner` | 291 cases in 61 files pass |
 | `cli-build-prerequisite` | 93 cases in 10 files pass, with the CLI built by its runner |
 | `cdk-required-runner` | 32 cases in 4 files pass |
-| `report-suite-status-green` | Five public CI-script regression tests pass |
+| `policy-all-aliases-green` | Five public CI-script regression tests pass |
+| `terraform-validate` | Configuration valid with backend disabled and no credentials |
 | `codesearch-route-bun-inline` | 37 Bun route/glob cases pass |
 
 Each named local check has raw output in `logs/`; the recorder's JSON files
@@ -82,7 +83,7 @@ repositories, and the direct SDK sandbox are now cleaned up.
 - Run 34170657662 at `ee6aeab5` exposed missing CLI/CDK build prerequisites and
   the Bun slim image's Debian Trixie/JDK17 mismatch. Raw failed logs are retained.
 - Run 34171137539 at `20ff56b6` has passed full typecheck, tests, migrations,
-  script/policy checks, package builds, and OpenTelemetry. Remaining production
+  script/policy checks, package builds, codesearch image, and OpenTelemetry. Remaining production
   builds and complete codesearch tooling are still running at this checkpoint.
 - A final run on the reviewed checkpoint is required before Gate 1 closes.
 

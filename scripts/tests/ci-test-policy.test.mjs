@@ -31,6 +31,14 @@ test("proof policy rejects aliased skips, retries and owned module mocks without
       'import { test } from "vitest"; test.skip.each([1])("proof", () => {})',
       'import { test } from "vitest"; const omit = test.skip; omit("proof", () => {})',
       'import * as v from "vitest"; v.test.skip.each([1])("proof", () => {})',
+      'import { test } from "vitest"; const { skip } = test; skip("proof", () => {})',
+      'import * as v from "vitest"; const { skip: omit } = v.test; omit("proof", () => {})',
+      'import { vi } from "vitest"; const { mock } = vi; mock("./owned.js", () => ({}))',
+      'import * as v from "vitest"; const { mock } = v.vi; mock("./owned.js", () => ({}))',
+      'import { test } from "@playwright/test"; test.fail();',
+      'import { test } from "@playwright/test"; test.fixme();',
+      'import { vi } from "vitest"; const fake = vi; const { mock } = fake; mock("./owned.js", () => ({}))',
+      'import * as v from "vitest"; const { vi: fake } = v; fake.mock("./owned.js", () => ({}))',
       'import { defineConfig } from "vitest/config"; export default defineConfig({ test: { retry: 2 } })',
     ]) {
       const rejected = check(source)
@@ -40,6 +48,10 @@ test("proof policy rejects aliased skips, retries and owned module mocks without
       'test("retry policy", () => withTransientHttpRetry(operation, { retries: 2 }))',
     )
     assert.equal(domainRetry.status, 0, domainRetry.stderr)
+    const observedStub = check(
+      'import { vi } from "vitest"; const stub = vi.fn(); test("observes output", () => expect(stub.mock.calls).toEqual([]))',
+    )
+    assert.equal(observedStub.status, 0, observedStub.stderr)
     assert.equal(
       check(
         'import { it as scenario } from "vitest"; scenario.skipIf(false)("proof", () => {})',

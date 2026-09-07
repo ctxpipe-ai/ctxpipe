@@ -83,11 +83,80 @@ try {
         return rootName(expression.expression)
       return ""
     }
+    // Follow ordinary local aliases of the test framework before checking uses.
+    let previousSize = -1
+    while (previousSize !== mocks.size) {
+      previousSize = mocks.size
+      const collectAliases = (node) => {
+        if (
+          ts.isVariableDeclaration(node) &&
+          ts.isObjectBindingPattern(node.name) &&
+          node.initializer &&
+          mocks.has(rootName(node.initializer))
+        ) {
+          for (const binding of node.name.elements) {
+            if (
+              ts.isIdentifier(binding.name) &&
+              ["vi", "vitest", "jest"].includes(
+                (binding.propertyName ?? binding.name).getText(source),
+              )
+            )
+              mocks.add(binding.name.text)
+          }
+        }
+        if (
+          ts.isVariableDeclaration(node) &&
+          ts.isIdentifier(node.name) &&
+          node.initializer &&
+          (ts.isIdentifier(node.initializer) ||
+            (ts.isPropertyAccessExpression(node.initializer) &&
+              ["vi", "vitest", "jest"].includes(node.initializer.name.text))) &&
+          mocks.has(rootName(node.initializer))
+        )
+          mocks.add(node.name.text)
+        ts.forEachChild(node, collectAliases)
+      }
+      collectAliases(source)
+    }
     const complain = (node, message) =>
       errors.push(
         `${path}:${source.getLineAndCharacterOfPosition(node.getStart()).line + 1} ${message}`,
       )
     const visit = (node) => {
+      if (ts.isBindingElement(node)) {
+        const property = (node.propertyName ?? node.name)
+          .getText(source)
+          .replaceAll(/["']/g, "")
+        if (
+          [
+            "skip",
+            "skipIf",
+            "runIf",
+            "fails",
+            "fail",
+            "fixme",
+            "todo",
+            "only",
+          ].includes(property)
+        )
+          complain(
+            node,
+            `Test selection/expected failure is forbidden: ${property}`,
+          )
+        let declaration = node.parent
+        while (declaration && !ts.isVariableDeclaration(declaration))
+          declaration = declaration.parent
+        if (
+          proof &&
+          ["mock", "doMock", "spyOn"].includes(property) &&
+          declaration?.initializer &&
+          mocks.has(rootName(declaration.initializer))
+        )
+          complain(
+            node,
+            `Proof cannot alias collaborator substitution (${property})`,
+          )
+      }
       if (
         ts.isPropertyAccessExpression(node) ||
         ts.isElementAccessExpression(node)
@@ -99,9 +168,16 @@ try {
             : ""
         const owner = rootName(node.expression)
         if (
-          ["skip", "skipIf", "runIf", "fails", "todo", "only"].includes(
-            property,
-          )
+          [
+            "skip",
+            "skipIf",
+            "runIf",
+            "fails",
+            "fail",
+            "fixme",
+            "todo",
+            "only",
+          ].includes(property)
         )
           complain(
             node,
