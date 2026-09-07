@@ -31,7 +31,13 @@ try {
           { cwd: root, encoding: "utf8" },
         )
           .split("\0")
-          .filter((file) => /\.(test|stories)\.[cm]?[jt]sx?$/.test(file))
+          .filter(
+            (file) =>
+              /\.(test|stories)\.[cm]?[jt]sx?$/.test(file) ||
+              /(?:^|\/)(?:vitest|vite|playwright)\.config\.[cm]?[jt]s$/.test(
+                file,
+              ),
+          )
           .map((file) => resolve(root, file))
   const errors = []
   const acceptedFixtures = new Map()
@@ -92,8 +98,7 @@ try {
         if (
           ["skip", "skipIf", "runIf", "fails", "todo", "only"].includes(
             property,
-          ) &&
-          ts.isCallExpression(node.parent)
+          )
         )
           complain(
             node,
@@ -155,8 +160,21 @@ try {
           node.name.getText(source).replaceAll(/["']/g, ""),
         ) &&
         !["0", "false"].includes(node.initializer.getText(source)) &&
-        ts.isCallExpression(node.parent.parent) &&
-        tests.has(rootName(node.parent.parent.expression))
+        ((ts.isCallExpression(node.parent.parent) &&
+          tests.has(rootName(node.parent.parent.expression))) ||
+          /(?:^|\/)(?:vitest|vite|playwright)\.config\.[cm]?[jt]s$/.test(
+            path,
+          ) ||
+          (() => {
+            for (let parent = node.parent; parent; parent = parent.parent) {
+              if (
+                ts.isCallExpression(parent) &&
+                rootName(parent.expression) === "defineConfig"
+              )
+                return true
+            }
+            return false
+          })())
       )
         complain(node, "Blind test retries are forbidden")
       ts.forEachChild(node, visit)
@@ -165,7 +183,7 @@ try {
   }
   if (errors.length) throw new Error(errors.join("\n"))
   process.stdout.write(
-    `Proof policy checked ${files.length} test/story files\n`,
+    `Proof policy checked ${files.length} test/story/config files\n`,
   )
 } catch (error) {
   process.stderr.write(`${error.message}\n`)

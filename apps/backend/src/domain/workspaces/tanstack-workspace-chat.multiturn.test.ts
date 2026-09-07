@@ -1,10 +1,10 @@
 import { execSync } from "node:child_process"
-import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs"
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs"
 import { createServer } from "node:http"
 import { tmpdir } from "node:os"
 import { join, resolve } from "node:path"
-import { config } from "dotenv"
 import { OpenAPIHono } from "@hono/zod-openapi"
+import { config } from "dotenv"
 import { eq } from "drizzle-orm"
 import { HttpResponse, http } from "msw"
 import { setupServer } from "msw/node"
@@ -17,10 +17,10 @@ import {
   expect,
   it,
 } from "vitest"
-import { withUserIdContext } from "../../auth/context.js"
 import type { AppEnv } from "../../app/env.js"
-import { parseEnv } from "../../config/env.js"
+import { withUserIdContext } from "../../auth/context.js"
 import { withOrgIdContext } from "../../auth/withAuth.js"
+import { parseEnv } from "../../config/env.js"
 import {
   closeDb,
   getSystemDb,
@@ -33,12 +33,12 @@ import {
   workspaceSandboxInstances,
   workspaces,
 } from "../../db/schema/workspaces.js"
-import { withTestLogger } from "../../test/with-test-logger.js"
+import { workspaceChatOpenaiRoutes } from "../../routes/v1/workspace-chat-openai.js"
 import {
   contextStorage,
   withTestRequestLogger,
 } from "../../test/hono-test-logger.js"
-import { workspaceChatOpenaiRoutes } from "../../routes/v1/workspace-chat-openai.js"
+import { withTestLogger } from "../../test/with-test-logger.js"
 import { destroySandboxesForConversation } from "./sandbox-registry.js"
 import { streamTanstackWorkspaceChat } from "./tanstack-workspace-chat.js"
 
@@ -71,7 +71,17 @@ const savedHome = {
   XDG_DATA_HOME: process.env.XDG_DATA_HOME,
   XDG_STATE_HOME: process.env.XDG_STATE_HOME,
   XDG_CACHE_HOME: process.env.XDG_CACHE_HOME,
+  OPENCODE_AUTH_CONTENT: process.env.OPENCODE_AUTH_CONTENT,
+  MODEL_PROVIDER: process.env.MODEL_PROVIDER,
+  MODEL_PROVIDER_API_KEY: process.env.MODEL_PROVIDER_API_KEY,
+  MODEL_PROVIDER_URL: process.env.MODEL_PROVIDER_URL,
+  MODEL_FAST_NAME: process.env.MODEL_FAST_NAME,
+  ANTHROPIC_API_KEY: process.env.ANTHROPIC_API_KEY,
+  OPENAI_API_KEY: process.env.OPENAI_API_KEY,
+  OPENROUTER_API_KEY: process.env.OPENROUTER_API_KEY,
+  SANDBOX_PROVIDER: process.env.SANDBOX_PROVIDER,
 }
+const temporaryHomes: string[] = []
 
 function lastUserText(body: {
   messages?: Array<{ role?: string; content?: unknown }>
@@ -161,6 +171,7 @@ function makeGitRepo(): { url: string; ref: string } {
 
 function isolateHome(): void {
   const home = mkdtempSync(join(tmpdir(), "opencode-home-"))
+  temporaryHomes.push(home)
   process.env.HOME = home
   process.env.XDG_CONFIG_HOME = join(home, "config")
   process.env.XDG_DATA_HOME = join(home, "data")
@@ -282,6 +293,9 @@ describe("live two-turn workspace chat", () => {
       if (savedPort === undefined) delete process.env.PORT
       else process.env.PORT = savedPort
       await closeDb()
+      rmSync(source.url, { recursive: true, force: true })
+      for (const home of temporaryHomes)
+        rmSync(home, { recursive: true, force: true })
     }
   })
 

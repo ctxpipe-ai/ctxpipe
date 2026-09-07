@@ -61,6 +61,15 @@ try {
   rmSync(report, { force: true })
   writeFileSync(inventory, JSON.stringify(files, null, 2) + "\n")
   const require = createRequire(join(cwd, "package.json"))
+  if (name === "cli") {
+    const built = spawnSync(
+      process.execPath,
+      [require.resolve("typescript/bin/tsc"), "-p", "tsconfig.build.json"],
+      { cwd, stdio: "inherit" },
+    )
+    if (built.status !== 0) throw new Error("Required CLI build failed")
+  }
+  if (name === "aws-cdk") run("packages/aws-cdk/scripts/stamp-image-tag.mjs")
   const vitest = join(
     dirname(require.resolve("vitest/package.json")),
     "vitest.mjs",

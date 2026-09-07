@@ -15,6 +15,20 @@ const history = spawnSync(
 )
 if (history.status !== 0) failed = true
 for (const { name, project } of projects) {
+  if (name === "aws-cdk") {
+    const generated = spawnSync(
+      process.execPath,
+      ["packages/aws-cdk/scripts/stamp-image-tag.mjs"],
+      { stdio: "inherit" },
+    )
+    if (generated.status !== 0) failed = true
+  }
+  if (name === "self-host") {
+    const built = spawnSync("pnpm", ["--filter", "@ctxpipe/aws-cdk", "build"], {
+      stdio: "inherit",
+    })
+    if (built.status !== 0) failed = true
+  }
   if (name === "docs") {
     const generated = spawnSync(
       "pnpm",
