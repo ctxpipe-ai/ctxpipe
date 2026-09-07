@@ -552,6 +552,38 @@ agent re-reviews the final commit with no blockers. “Not found” is not suffi
 the reviewer records where and how it searched. Non-blocking follow-ups need an
 owner and a later gate; they cannot silently disappear from the plan.
 
+### Gate checkpoint commits and pushes
+
+Every gate produces a durable checkpoint on the same GitHub branch:
+`codex/develop-plan-to-refocus-branch-direction`. Do not create a new recovery
+branch per gate and do not leave a completed gate only in a local worktree.
+
+Use this completion sequence for Gate 0 through Gate 6:
+
+1. Start from the previous gate's verified remote SHA and record it as the fixed
+   review point.
+2. Complete the gate implementation and required proof, then commit it with a
+   subject beginning `Gate N:`.
+3. Push the candidate commit to
+   `origin/codex/develop-plan-to-refocus-branch-direction` so the independent
+   adversarial agent reviews the exact GitHub commit, not uncommitted state.
+4. Resolve every blocker in follow-up commits on that branch and push after each
+   correction. Do not force-push while the review is active.
+5. Ask the adversarial agent to re-review the final pushed SHA. The gate is not
+   complete until it reports no blockers.
+6. Record the final local SHA, verified remote SHA, review artifact, proof results,
+   measurements, and any owned follow-ups in the gate report. Verify the remote
+   branch resolves to the same SHA before beginning the next gate.
+
+The required push command from the recovery worktree is:
+
+```bash
+git push origin HEAD:codex/develop-plan-to-refocus-branch-direction
+```
+
+If authentication, branch protection, or the remote is unavailable, the gate is
+blocked rather than complete. Never report a local commit as a finished gate.
+
 ### Gate 0 — restore truthful scope and a reproducible baseline
 
 1. Fetch PR 280 full ancestry and exact merge base in an authenticated checkout.
@@ -762,6 +794,8 @@ Every recovery PR answers:
 7. Does the deterministic golden journey still pass?
 8. Did the independent adversarial agent search the full affected codebase and
    re-review the resolved findings with no blockers?
+9. Does `codex/develop-plan-to-refocus-branch-direction` resolve to the reviewed
+   gate commit on GitHub?
 
 Reject changes that add another cache, poller, retry, timeout, compatibility
 wrapper, environment toggle, process global, or lifecycle owner without removing
