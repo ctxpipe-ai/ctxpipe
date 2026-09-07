@@ -1,74 +1,59 @@
-# Gate 0 status — full scope restored, validation in progress
+# Gate 0 — accepted evidence checkpoint and handoff
 
-The GitHub and npm 403 blockers are resolved. Gate 0 is **not complete** and Gate 1 has not started.
+Evidence checkpoint **`cd45f59881b70b8612b498993a518f49425482c4`** is pushed to
+`codex/develop-plan-to-refocus-branch-direction`. Both independent reviewers
+verified exact equality with the live GitHub branch and returned **PASS, zero
+blockers**. Their complete matrices, coverage maps, searches and later-gate
+owners are in [Standards](workspace-recovery-gate-0/reviews/standards.md) and
+[Spec](workspace-recovery-gate-0/reviews/spec.md).
 
-## Fixed points
+This report commit records that accepted checkpoint. The protocol additionally
+requires a narrow review of this report commit's exact pushed SHA before Gate 1
+starts. The terminal SHA and reviewer verdicts are recorded in the task's final
+Gate 0 handoff report; adding a self-referential SHA to this file would create a
+new unreviewed commit. The accepted baseline is not a claim of working product
+behavior; its failures remain requirements for subsequent gates.
 
-- Starting recovery checkpoint: `f632772cb10e4a220923acf4278b47e2295a5e94`.
-- Required branch: `codex/develop-plan-to-refocus-branch-direction`.
+## Scope and proof
+
+- Fixed recovery start: `f632772cb10e4a220923acf4278b47e2295a5e94`.
 - PR 280 head: `1fad8412525efdeefdfa4899fe9a2f41dfbbc1c8`.
-- PR merge base: `9072089086f6fad87fbf05572b9f1ff5336e0520`.
-- Verified totals: **465 commits, 801 files, +148,441/−13,326**.
-- Source inventory: **421 unique tracked test/story files** at the PR head.
+- Exact merge base: `9072089086f6fad87fbf05572b9f1ff5336e0520`.
+- Reconciled scope: **465 commits, 801 files, +148441 / -13326**.
+- All **421** tracked tests/stories classified: **207 proof, 214 characterization**.
+- All **343** tracked test files have execution lanes, including default exclusions.
+- **121** artifact checksums verified; exact commands, exits and environment retained.
 
-See the [scope bundle](workspace-recovery-gate-0/baseline.md),
-[command ledger](workspace-recovery-gate-0/evidence.tsv), and
-[local validation notes](workspace-recovery-gate-0-local-evidence.md).
+See the [ledger](workspace-recovery-gate-0/evidence.tsv),
+[surface coverage](workspace-recovery-gate-0/surface-coverage.md),
+[journey](workspace-recovery-gate-0/golden-journey.md),
+[measurements](workspace-recovery-gate-0/measurements.md), and
+[reproduction](workspace-recovery-gate-0/reproduction-notes.md).
 
-## Completed since the cloud checkpoint
+## Owned follow-ups
 
-- Fetched full ancestry and reconciled all four totals against GitHub metadata.
-- Restored the transferred baseline collector and regression fixtures.
-- Fixed BSD awk compatibility and duplicate test paths. The inventory now reads
-  tracked files at the named PR head, excluding untracked/generated output.
-- Ran a successful frozen install; both fresh migrations and upgrade from the
-  exact PR merge-base schema pass against disposable pgvector/Postgres 17.
-- Ran unfiltered backend/UI typechecks, all declared workspace builds, backend/UI
-  tests, and CLI/CDK tests. Logs retain failures and environment qualifications.
+Gate 1 owns truthful full diagnostics/builds, excluded/optional tests, prerequisite
+versions, deterministic lanes and test-policy enforcement. Gate 2 owns revision,
+projection and hydrate consistency. Gate 3 owns transactional default-branch
+writes. Gate 4 owns session/worktree reuse, transcript and restart durability,
+shutdown and cleanup. Gate 5 owns first-message acceptance, editor state and UI
+request budgets. Gate 6 owns complete product acceptance and deletion proof.
 
-## Remaining gate requirements
+The baseline records failed tip resolution, a hydrate ReferenceError, lost Home
+first message, new sandboxes on every warm turn, history that fails to accumulate,
+file edits lost after restart, a listener remaining after SIGTERM, and one leaked
+navigation sandbox directory. Narrow per-turn success does not erase these.
 
-- Push the complete baseline candidate and obtain fresh independent Standards and
-  Spec adversarial review of the exact remote SHA; resolve every blocker.
-- Record that final verified SHA and review artifacts before starting Gate 1.
+## Authorization and environment
 
-All 421 test/story classifications are now reviewed (207 proof, 214
-characterization). The full Storybook run records 347 pass / 24 fail / 0 pending;
-the required Docker lane records 219 pass / 2 skipped plus a passing OOM simulation.
-The real manual journey fails; diagnostic continuations, two separately reported
-5-cold/20-warm series, resource cleanup, query counts and restart behavior are
-archived in the canonical bundle. Failing product behavior is baseline evidence,
-not a reason to disguise failure or claim product acceptance.
+On 2026-09-08 the user explicitly approved **all pushes** to
+`codex/develop-plan-to-refocus-branch-direction`, including the public evidence
+bundle, and requested that this approval not be asked again. The earlier automatic
+publication rejection is resolved. Model-key use was separately authorized.
+Credential scans passed; public fixture and local host metadata publication is
+covered by the explicit branch-push approval.
 
-## Environment recovery
-
-The initial isolated clone lived in Documents and later exhibited filesystem
-read stalls (`pread`, including a native `fsevents.node`) and stalled native git
-reads. A fresh clone and a separate dependency store in `/private/tmp` avoid
-reusing those dependency files. The original developer checkout and its local
-changes were preserved. Node 22.16.0 is selected explicitly for resumed checks;
-initial pnpm subprocesses used Node 23.10.0 despite the shell reporting Node 24.
-
-Do not treat interrupted/stalled commands, API-origin mismatch tests, or tests
-run concurrently with prebuild generation as product-failure counts. Their logs
-remain for diagnosis; qualifying reruns must be separately named.
-
-## Latest findings and review
-
-See the [journey](workspace-recovery-gate-0/golden-journey.md) and
-[measurements](workspace-recovery-gate-0/measurements.md). Native fixture tip
-resolution fails; a seeded-SHA diagnostic hydrate reaches a missing-import
-ReferenceError. Home first-message handoff loses the message. Warm HTTP turns
-create new sandboxes/sessions and retain only three history records. File API
-editing/diff works, but the edit is lost across backend restart. SIGTERM leaves a
-listener using a closed DB pool. All are owned follow-ups for Gates 1–5; none is
-claimed fixed in Gate 0.
-
-The user explicitly authorized the existing model key and the model runs have
-completed. The earlier credential-review rejection is resolved. Full ancestry,
-npm installation, Docker build, and branch push are available locally.
-
-Previous checkpoint `23ccd60c496ef6f9453a64c5afefe25c3b0378b1` was pushed,
-remotely verified, and cleared by both reviewers for its correction scope only.
-It was not full Gate 0 approval. The completed evidence bundle now awaits a fresh
-exact-SHA review. Gate 0 remains open and Gate 1 has not started.
+The active isolated checkout is `/private/tmp/ctxpipe-recovery-01a07aba`.
+The original developer checkout is untouched. Task backend/UI/Storybook/worker
+processes are stopped and temporary SQL logging overrides reset. Disposable
+pgvector/Postgres on port 51498 is retained for the next gates.

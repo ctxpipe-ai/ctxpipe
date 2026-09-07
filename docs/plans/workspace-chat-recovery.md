@@ -550,7 +550,8 @@ owner and a later gate; they cannot silently disappear from the plan.
 ### Gate checkpoint commits and pushes
 
 Every gate produces a durable checkpoint on the same GitHub branch:
-`codex/develop-plan-to-refocus-branch-direction`. Do not create a new recovery
+`codex/develop-plan-to-refocus-branch-direction`. The user explicitly approved all pushes to this branch on 2026-09-08; do not
+request publication approval again for recovery checkpoints. Do not create a new recovery
 branch per gate and do not leave a completed gate only in a local worktree.
 
 Use this completion sequence for Gate 0 through Gate 6:
@@ -592,7 +593,7 @@ Live status and resume commands are recorded in
 5. Classify tests as proof, characterization, or redundant.
 
 Exit: one baseline report covers all 465 commits / 801 files and can be reproduced
-from a named commit. The scope has been reconciled; the remaining evidence and review still gate completion.
+from a named commit. The evidence checkpoint cd45f598 has passed both exact-remote reviews; see the Gate 0 status report for the terminal handoff.
 
 Adversarial review focus: prove the merge base, head, 801-file manifest, affected
 packages, design decisions, migrations, deployment surfaces, and failing baseline

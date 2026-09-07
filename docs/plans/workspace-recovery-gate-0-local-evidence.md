@@ -36,8 +36,8 @@ and removes its database in `finally`.
 
 ## Interpretation
 
-Scope and baseline execution are established. Full-gate independent review is
-still required; this report does not declare Gate 0 complete. Product failures
+Scope and baseline execution are established. Both independent reviews passed the exact pushed evidence checkpoint cd45f598.
+The status report documents the final report-commit handoff protocol. Product failures
 are preserved in the canonical ledger and the journey/measurement reports.
 
 ## Clean temporary checkout
