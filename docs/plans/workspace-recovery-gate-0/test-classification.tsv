@@ -11,7 +11,7 @@ apps/backend/src/db/migrate-checkpoints.test.ts	test	n/a	UNCLASSIFIED	UNASSIGNED
 apps/backend/src/db/migrate-openworkflow.test.ts	test	n/a	UNCLASSIFIED	UNASSIGNED	
 apps/backend/src/db/owner-migrate-url.test.ts	test	n/a	UNCLASSIFIED	UNASSIGNED	
 apps/backend/src/db/provision-app-role.test.ts	test	n/a	UNCLASSIFIED	UNASSIGNED	
-apps/backend/src/db/rls-isolation.test.ts	test	n/a	UNCLASSIFIED	UNASSIGNED	
+apps/backend/src/db/rls-isolation.test.ts	test	n/a	proof	Gate 1 backend	Application-role Postgres; two isolation tests pass in logs/tests-rls-clean.log.
 apps/backend/src/db/transientDbRetry.test.ts	test	n/a	UNCLASSIFIED	UNASSIGNED	
 apps/backend/src/domain/codeIngestion/codesearchClient.test.ts	test	n/a	UNCLASSIFIED	UNASSIGNED	
 apps/backend/src/domain/codeIngestion/codesearchIndexPhases.test.ts	test	n/a	UNCLASSIFIED	UNASSIGNED	
@@ -43,7 +43,7 @@ apps/backend/src/domain/workspaces/git-file-jobs.test.ts	test	n/a	UNCLASSIFIED	U
 apps/backend/src/domain/workspaces/hydrate-phases.test.ts	test	n/a	UNCLASSIFIED	UNASSIGNED	
 apps/backend/src/domain/workspaces/hydrate-write-jobs.test.ts	test	n/a	UNCLASSIFIED	UNASSIGNED	
 apps/backend/src/domain/workspaces/hydrate.test.ts	test	n/a	UNCLASSIFIED	UNASSIGNED	
-apps/backend/src/domain/workspaces/job-sandbox.live.test.ts	test	n/a	UNCLASSIFIED	UNASSIGNED	
+apps/backend/src/domain/workspaces/job-sandbox.live.test.ts	test	n/a	proof	Gate 4 backend	Inspected: real TanStack local-process handle and native git worktree; passed in logs/tests-backend-node22.log.
 apps/backend/src/domain/workspaces/job-sandbox.test.ts	test	n/a	UNCLASSIFIED	UNASSIGNED	
 apps/backend/src/domain/workspaces/job-worktree.test.ts	test	n/a	UNCLASSIFIED	UNASSIGNED	
 apps/backend/src/domain/workspaces/layout.test.ts	test	n/a	UNCLASSIFIED	UNASSIGNED	
@@ -58,8 +58,8 @@ apps/backend/src/domain/workspaces/sandbox-provider.test.ts	test	n/a	UNCLASSIFIE
 apps/backend/src/domain/workspaces/sandbox-registry.test.ts	test	n/a	UNCLASSIFIED	UNASSIGNED	
 apps/backend/src/domain/workspaces/slug.test.ts	test	n/a	UNCLASSIFIED	UNASSIGNED	
 apps/backend/src/domain/workspaces/tanstack-workspace-chat-persist.test.ts	test	n/a	UNCLASSIFIED	UNASSIGNED	
-apps/backend/src/domain/workspaces/tanstack-workspace-chat.live.test.ts	test	n/a	UNCLASSIFIED	UNASSIGNED	
-apps/backend/src/domain/workspaces/tanstack-workspace-chat.multiturn.test.ts	test	n/a	UNCLASSIFIED	UNASSIGNED	
+apps/backend/src/domain/workspaces/tanstack-workspace-chat.live.test.ts	test	n/a	proof	Gate 4 backend	Real OpenCode and HTTP/local model stub; two pass, conversation POST fails. logs/opencode-live-clean.log. Proof classification is not passing evidence.
+apps/backend/src/domain/workspaces/tanstack-workspace-chat.multiturn.test.ts	test	n/a	proof	Gate 4 backend	Real DB, git, TanStack/OpenCode with external model stub; currently FAILS at 180s. logs/tests-backend-node22.log.
 apps/backend/src/domain/workspaces/tanstack-workspace-chat.test.ts	test	n/a	UNCLASSIFIED	UNASSIGNED	
 apps/backend/src/domain/workspaces/tip-resolve.test.ts	test	n/a	UNCLASSIFIED	UNASSIGNED	
 apps/backend/src/domain/workspaces/workspace-chat-agui.test.ts	test	n/a	UNCLASSIFIED	UNASSIGNED	
@@ -187,7 +187,7 @@ apps/backend/src/routes/v1/connectors-linear.test.ts	test	n/a	UNCLASSIFIED	UNASS
 apps/backend/src/routes/v1/connectors-list.test.ts	test	n/a	UNCLASSIFIED	UNASSIGNED	
 apps/backend/src/routes/v1/connectors-notion.test.ts	test	n/a	UNCLASSIFIED	UNASSIGNED	
 apps/backend/src/routes/v1/connectors-slack.test.ts	test	n/a	UNCLASSIFIED	UNASSIGNED	
-apps/backend/src/routes/v1/conversation-files-routes.live.test.ts	test	n/a	UNCLASSIFIED	UNASSIGNED	
+apps/backend/src/routes/v1/conversation-files-routes.live.test.ts	test	n/a	proof	Gate 4 backend	Inspected: real sandbox filesystem through Hono; auth/row fixtures only; passed in logs/tests-backend-node22.log.
 apps/backend/src/routes/v1/conversation-websocket.test.ts	test	n/a	UNCLASSIFIED	UNASSIGNED	
 apps/backend/src/routes/v1/conversations.test.ts	test	n/a	UNCLASSIFIED	UNASSIGNED	
 apps/backend/src/routes/v1/github-installation.test.ts	test	n/a	UNCLASSIFIED	UNASSIGNED	
@@ -378,7 +378,7 @@ apps/ui/src/features/workspaces/WorkspacePane.stories.tsx	story	yes	UNCLASSIFIED
 apps/ui/src/features/workspaces/WorkspacePierreFile.stories.tsx	story	no	UNCLASSIFIED	UNASSIGNED	
 apps/ui/src/features/workspaces/WorkspaceRepositoryPicker.stories.tsx	story	yes	UNCLASSIFIED	UNASSIGNED	
 apps/ui/src/features/workspaces/WorkspaceSettingsPane.stories.tsx	story	yes	UNCLASSIFIED	UNASSIGNED	
-apps/ui/src/features/workspaces/WorkspaceSurface.stories.tsx	story	yes	UNCLASSIFIED	UNASSIGNED	
+apps/ui/src/features/workspaces/WorkspaceSurface.stories.tsx	story	yes	characterization	Gate 5 UI	Compose renders; conversation navigation play fails on stale text before navigation. See browser-observations.md.
 apps/ui/src/features/workspaces/conversation-git-tree-snapshot.test.ts	test	n/a	UNCLASSIFIED	UNASSIGNED	
 apps/ui/src/features/workspaces/conversationPublish.test.ts	test	n/a	UNCLASSIFIED	UNASSIGNED	
 apps/ui/src/features/workspaces/ensure-route-data.test.ts	test	n/a	UNCLASSIFIED	UNASSIGNED	
@@ -390,7 +390,7 @@ apps/ui/src/features/workspaces/nav.test.ts	test	n/a	UNCLASSIFIED	UNASSIGNED
 apps/ui/src/features/workspaces/pane.test.ts	test	n/a	UNCLASSIFIED	UNASSIGNED	
 apps/ui/src/features/workspaces/projection.test.ts	test	n/a	UNCLASSIFIED	UNASSIGNED	
 apps/ui/src/features/workspaces/queries.test.ts	test	n/a	UNCLASSIFIED	UNASSIGNED	
-apps/ui/src/features/workspaces/workspaceChatWebSocket.test.ts	test	n/a	UNCLASSIFIED	UNASSIGNED	
+apps/ui/src/features/workspaces/workspaceChatWebSocket.test.ts	test	n/a	characterization	Gate 4 backend/UI	Hydration fetch boundary records current error-to-empty behavior; all UI tests pass. logs/tests-ui-node22.log.
 apps/ui/src/features/workspaces/workspaceDeleteNameMatches.test.ts	test	n/a	UNCLASSIFIED	UNASSIGNED	
 apps/ui/src/features/workspaces/writeStatusLabel.test.ts	test	n/a	UNCLASSIFIED	UNASSIGNED	
 apps/ui/src/lib/api-result.test.ts	test	n/a	UNCLASSIFIED	UNASSIGNED	

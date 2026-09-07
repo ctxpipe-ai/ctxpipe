@@ -1,0 +1,12 @@
+{"name": "migrate-upgrade-reviewed", "cwd": "/private/tmp/ctxpipe-recovery-01a07aba", "command": ["python3", "docs/plans/workspace-recovery-gate-0/migrate-upgrade.py"], "environment": {"AUTH_SECRET": "gate0-local-disposable-test-secret-20260907", "DATABASE_URL": "postgresql://ctxpipe:ctxpipe@127.0.0.1:51498/ctxpipe_gate0_fresh", "GRAPH_DB_URI": "redis://127.0.0.1:6399", "CI": "true", "NO_COLOR": "1", "TURBO_TELEMETRY_DISABLED": "1", "STORYBOOK_DISABLE_TELEMETRY": "1"}, "timeout_seconds": 600, "started_utc": "2026-09-07T11:15:31Z", "log": "logs/migrate-upgrade-reviewed.log"}
+Creating disposable database: ctxpipe_gate0_upgrade_e67713d7e22b
+CREATE DATABASE
+Migrating folder: /var/folders/9t/jj9rnpps7_ddb72c1mq2k13w0000gn/T/gate0-previous-9819_q4q/apps/backend/migrations
+Command: ["volta", "run", "--node", "22.16.0", "pnpm", "--filter", "@ctxpipe/backend", "exec", "drizzle-kit", "migrate", "--config", "/private/tmp/ctxpipe-recovery-01a07aba/apps/backend/.gate0-upgrade-bay3nrob/drizzle.config.ts"]
+Reading config file '/private/tmp/ctxpipe-recovery-01a07aba/apps/backend/.gate0-upgrade-bay3nrob/drizzle.config.ts'
+Using 'pg' driver for database querying
+[⣷] applying migrations...[2K[1G[⣯] applying migrations...[2K[1G[⣟] applying migrations...[2K[1G[✓] migrations applied successfully!Migrating folder: /private/tmp/ctxpipe-recovery-01a07aba/apps/backend/migrations
+Command: ["volta", "run", "--node", "22.16.0", "pnpm", "--filter", "@ctxpipe/backend", "exec", "drizzle-kit", "migrate", "--config", "/private/tmp/ctxpipe-recovery-01a07aba/apps/backend/.gate0-upgrade-bay3nrob/drizzle.config.ts"]
+Reading config file '/private/tmp/ctxpipe-recovery-01a07aba/apps/backend/.gate0-upgrade-bay3nrob/drizzle.config.ts'
+Using 'pg' driver for database querying
+[⣷] applying migrations...[2K[1G[⣯] applying migrations...[2K[1G[✓] migrations applied successfully!Upgrade passed on database: ctxpipe_gate0_upgrade_e67713d7e22b

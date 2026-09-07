@@ -1,0 +1,49 @@
+Command: ["volta", "run", "--node", "22.16.0", "pnpm", "--filter", "ctxpipe", "--filter", "@ctxpipe/aws-cdk", "--workspace-concurrency=2", "--no-bail", "test"]
+Scope: 2 of 10 workspace projects
+packages/cli pretest$ pnpm run build
+packages/aws-cdk test$ vitest run
+packages/cli pretest: > ctxpipe@0.3.2 build /private/tmp/ctxpipe-recovery-01a07aba/packages/cli
+packages/cli pretest: > tsc -p tsconfig.build.json
+packages/aws-cdk test:  RUN  v4.0.18 /private/tmp/ctxpipe-recovery-01a07aba/packages/aws-cdk
+packages/aws-cdk test:  ✓ src/model-provider.test.ts (12 tests) 85ms
+packages/cli pretest: Done
+packages/cli test$ vitest run
+packages/cli test:  RUN  v4.0.18 /private/tmp/ctxpipe-recovery-01a07aba/packages/cli
+packages/cli test:  ✓ test/memory/evals/live-eval.test.ts (2 tests | 1 skipped) 13ms
+packages/cli test:  ✓ test/mcp-operations.test.ts (13 tests) 9ms
+packages/aws-cdk test:  ✓ src/efs-mount.test.ts (5 tests) 1139ms
+packages/aws-cdk test:      ✓ creates an EFS access point with explicit root directory ACL  366ms
+packages/aws-cdk test:  ✓ src/secrets-construct.test.ts (8 tests) 1375ms
+packages/aws-cdk test:      ✓ does not synthesize DATABASE_URL from the RDS credentials SecretValue  354ms
+packages/aws-cdk test:      ✓ writes owner and runtime DATABASE_URL at deploy time via custom resources  386ms
+packages/cli test:  ✓ test/ctxpipe-config.test.ts (3 tests) 7ms
+packages/aws-cdk test:  ✓ src/size-profiles.test.ts (7 tests) 1446ms
+packages/aws-cdk test:      ✓ size small uses Aurora db.t4g.medium and Neptune db.t4g.medium  364ms
+packages/aws-cdk test:      ✓ does not synthesize unsupported Neptune db.t4g.large or db.t4g.xlarge  330ms
+packages/aws-cdk test:  Test Files  4 passed (4)
+packages/aws-cdk test:       Tests  32 passed (32)
+packages/aws-cdk test:    Start at  21:14:52
+packages/aws-cdk test:    Duration  2.51s (transform 567ms, setup 0ms, import 3.40s, tests 4.04s, environment 0ms)
+packages/aws-cdk test: Done
+packages/cli test:  ✓ test/mcp-doctor.test.ts (12 tests) 49ms
+packages/cli test:  ✓ test/memory/harness/memory-harness.e2e.test.ts (1 test) 1132ms
+packages/cli test:      ✓ init → observe fixtures → summary → promote → recall → upgrade cleanup  1131ms
+packages/cli test:  ✓ test/init-memory.test.ts (6 tests) 1247ms
+packages/cli test:      ✓ writes remote ctxpipe MCP and Markdown memory without ctxpipe-memory MCP  643ms
+packages/cli test:  ✓ test/memory/memory-capture-sh.test.ts (4 tests) 1343ms
+packages/cli test:      ✓ runs bun from source without invoking turbo  417ms
+packages/cli test:      ✓ refreshes dist with turbo then runs node when bun is missing  537ms
+packages/cli test:      ✓ fail-opens instead of running stale dist when turbo fails  377ms
+packages/cli test:  ✓ test/memory/capture.test.ts (28 tests) 1273ms
+packages/cli test:      ✓ second summary still surfaces candidates beyond the first batch of 8  378ms
+packages/cli test: ctxpipe: Missing --agents for non-interactive memory init
+packages/cli test:  ✓ test/memory-init.test.ts (11 tests) 1653ms
+packages/cli test:      ✓ seeds Markdown layout, rule, skills, and Cursor hooks without MCP  599ms
+packages/cli test:  ✓ test/argv.test.ts (14 tests) 2879ms
+packages/cli test:      ✓ init --help documents --base-url and --no-mcp  524ms
+packages/cli test:      ✓ doctor --json still prints environment diagnostics  1602ms
+packages/cli test:  Test Files  10 passed (10)
+packages/cli test:       Tests  93 passed | 1 skipped (94)
+packages/cli test:    Start at  21:14:53
+packages/cli test:    Duration  3.26s (transform 1.19s, setup 0ms, import 2.52s, tests 9.61s, environment 1ms)
+packages/cli test: Done

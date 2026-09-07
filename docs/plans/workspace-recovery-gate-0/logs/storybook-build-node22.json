@@ -1,0 +1,17 @@
+{
+  "name": "storybook-build-node22",
+  "command": [
+    "volta",
+    "run",
+    "--node",
+    "22.16.0",
+    "pnpm",
+    "--filter",
+    "@ctxpipe/ui",
+    "build-storybook"
+  ],
+  "exit_code": 0,
+  "duration_seconds": 32.61,
+  "started_utc": "2026-09-07T11:09:56Z",
+  "log": "logs/storybook-build-node22.log"
+}

@@ -88,10 +88,10 @@ else
   exit 2
 fi
 gh pr view "$pr_url" \
-  --json additions,deletions,changedFiles,headRefOid,url \
+  --json additions,deletions,changedFiles,headRefOid,baseRefOid,url \
   >"$staging/github-pr.json"
-read -r gh_url gh_head gh_files gh_additions gh_deletions < <(
-  jq -r '[.url, .headRefOid, .changedFiles, .additions, .deletions] | @tsv' \
+read -r gh_url gh_head gh_base gh_files gh_additions gh_deletions < <(
+  jq -r '[.url, .headRefOid, .baseRefOid, .changedFiles, .additions, .deletions] | @tsv' \
     "$staging/github-pr.json"
 )
 gh api graphql \
@@ -106,6 +106,17 @@ gh_commits="$(
 )"
 [[ "$gh_url" == "$pr_url" ]] || { printf 'GitHub returned a different PR URL: %s\n' "$gh_url" >&2; exit 5; }
 [[ "$gh_head" == "$head_sha" ]] || { printf 'PR head mismatch: local %s, GitHub %s\n' "$head_sha" "$gh_head" >&2; exit 5; }
+[[ "$gh_base" =~ ^[0-9a-f]{40}$ ]] || { printf 'GitHub base ref SHA is missing or invalid.\n' >&2; exit 4; }
+git cat-file -e "${gh_base}^{commit}" 2>/dev/null || {
+  printf 'GitHub base object %s is missing; fetch the complete base branch.\n' "$gh_base" >&2
+  exit 4
+}
+merge_base="$(git merge-base "$gh_base" "$head_sha")"
+[[ "$base_sha" == "$merge_base" ]] || {
+  printf 'Gate 0 baseline refused: --base must match the GitHub base/head merge base.\nProvided: %s\nActual:   %s\n' "$base_sha" "$merge_base" >&2
+  exit 4
+}
+
 
 git diff --name-only -z "$base_sha...$head_sha" \
   | while IFS= read -r -d '' path; do
@@ -214,6 +225,7 @@ EVIDENCE
   printf -- '- PR: <%s>\n' "$pr_url"
   printf -- '- Base: `%s` (`%s`)\n' "$base" "$base_sha"
   printf -- '- Head: `%s` (`%s`)\n' "$head" "$head_sha"
+  printf -- '- GitHub base ref: `%s`\n' "$gh_base"
   printf -- '- Merge base: `%s`\n\n' "$merge_base"
   printf '## Reconciled authoritative scope\n\n'
   printf '| Measure | Calculated | Expected |\n| --- | ---: | ---: |\n'

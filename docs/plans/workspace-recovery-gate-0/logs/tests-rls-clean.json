@@ -1,0 +1,20 @@
+{
+  "name": "tests-rls-clean",
+  "command": [
+    "volta",
+    "run",
+    "--node",
+    "22.16.0",
+    "pnpm",
+    "--filter",
+    "@ctxpipe/backend",
+    "exec",
+    "vitest",
+    "run",
+    "src/db/rls-isolation.test.ts"
+  ],
+  "exit_code": 0,
+  "duration_seconds": 1.24,
+  "started_utc": "2026-09-07T11:10:50Z",
+  "log": "logs/tests-rls-clean.log"
+}

@@ -1,0 +1,20 @@
+{
+  "name": "install-node22",
+  "command": [
+    "volta",
+    "run",
+    "--node",
+    "22.16.0",
+    "pnpm",
+    "install",
+    "--frozen-lockfile",
+    "--store-dir",
+    "/private/tmp/ctxpipe-gate0-pnpm-store",
+    "--package-import-method=copy"
+  ],
+  "cwd": "/private/tmp/ctxpipe-recovery-01a07aba",
+  "exit_code": 0,
+  "duration_seconds": 74.3,
+  "log": "logs/install-node22.log",
+  "environment_note": "Node 22.16.0; pnpm 10.12.1; isolated package store. Duration reported by pnpm. No start timestamp was captured."
+}

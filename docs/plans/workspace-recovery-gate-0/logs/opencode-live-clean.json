@@ -1,0 +1,20 @@
+{
+  "name": "opencode-live-clean",
+  "command": [
+    "volta",
+    "run",
+    "--node",
+    "22.16.0",
+    "pnpm",
+    "--filter",
+    "@ctxpipe/backend",
+    "exec",
+    "vitest",
+    "run",
+    "src/domain/workspaces/tanstack-workspace-chat.live.test.ts"
+  ],
+  "exit_code": 126,
+  "duration_seconds": 5.15,
+  "started_utc": "2026-09-07T11:12:09Z",
+  "log": "logs/opencode-live-clean.log"
+}

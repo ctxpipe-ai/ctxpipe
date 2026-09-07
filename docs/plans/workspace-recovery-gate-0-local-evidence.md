@@ -26,19 +26,12 @@ wall times, not application latency. A single pass is not a flake measurement.
 
 ## Reproduction
 
-Use the committed collector command in `baseline.md` and a complete frozen
-install before runtime checks. `run-check.py` records bounded commands (600-second
-limit), removes unrelated inherited service credentials, selects Node 22 via
-Volta, and supplies only disposable test credentials. Its database port refers
-to this local run and must be adjusted for a new disposable container. The
-`migrate-upgrade.py` helper uses the installed Homebrew psql and a new database;
-it does not connect to the developer's main database.
-
-Initial disposable container: `ctxpipe-recovery-gate0-vector-20260907`, image
-`pgvector/pgvector:pg17`, localhost port 51498. Fresh database:
-`ctxpipe_gate0_fresh`; upgrade database: `ctxpipe_gate0_upgrade`. Password values
-in the runner are public test fixture values and must never be reused for a
-shared deployment.
+The canonical [command ledger](workspace-recovery-gate-0/evidence.tsv) selects
+clean runs where available. See [reproduction notes](workspace-recovery-gate-0/reproduction-notes.md)
+for exact cwd, runtime and fixture environments, and qualifications for older
+logs. The committed runner executes supplied argv verbatim and records new
+metadata without overwriting evidence. The upgrade helper now creates a unique
+local database and unique temporary config directory.
 
 ## Interpretation
 
@@ -50,3 +43,30 @@ reported as started or complete on the basis of this checkpoint.
 
 - Frozen install with Node 22.16.0 and a fresh package store passed in 74.3 seconds.
 - UI: **61 files, 291 tests passed** in Vitest (4.40 seconds), with no API-origin override. This supersedes the initial 12 MSW failures. See `logs/tests-ui-node22.log`.
+
+## Completed clean reruns
+
+- Backend: **1453 passed, 1 failed, 3 skipped**. The live two-turn OpenCode test
+  times out after 180 seconds; the other four initial timeout failures pass.
+- Explicit OpenCode fallback: **2 passed, 1 failed**. The conversation POST
+  streaming-order assertion reports `expected -1 to be greater than 15`.
+- RLS isolation: **2 passed** as `ctxpipe_app`.
+- CDK: **32 passed** after required prebuild generation. CLI: **93 passed,
+  1 skipped**. Neither initial package failure reproduces in the ordered clean run.
+- Storybook build: passed. The selected conversation-navigation play fails on
+  stale expected text; see `browser-observations.md` for the exact step. This is
+  one selected interaction, not a full browser suite.
+- Codesearch host diagnostic: **203 passed, 1 failed, 3 skipped**. The
+  serialized-indexer test times out at five seconds; failure prevents the
+  subsequent Bun globFiles lane. The full Docker/indexer lane remains unrun.
+- Reviewed upgrade helper: passes again against a uniquely named disposable
+  database; its exact argv and cwd are in `logs/migrate-upgrade-reviewed.json`.
+
+## Integrated journey blocker
+
+The isolated UI starts, but backend startup refuses missing
+`MODEL_PROVIDER_API_KEY`; browser connection to localhost:3010 is refused.
+Automatic approval review rejected reading the existing key from the developer
+checkout because reuse and possible external model calls were not explicitly
+authorized. The key has not been loaded. User approval is pending. No golden
+journey, chat latency, provider/request budget or full cleanup proof is claimed.

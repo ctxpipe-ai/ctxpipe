@@ -1,23 +1,57 @@
-import json, os, pathlib, signal, subprocess, sys, time
-root=pathlib.Path(__file__).resolve().parents[3]
-out=root/'docs/plans/workspace-recovery-gate-0/logs'
-out.mkdir(exist_ok=True)
-name=sys.argv[1]; cmd=sys.argv[2:]
-if cmd[0]=='pnpm': cmd=['volta','run','--node','22.16.0',*cmd]
-env={k:v for k,v in os.environ.items() if k in ('PATH','HOME','USER','TMPDIR','SHELL','LANG','VOLTA_HOME','PNPM_HOME')}
-env.update({'AUTH_SECRET':'gate0-local-disposable-test-secret-20260907','DATABASE_URL':'postgresql://ctxpipe:ctxpipe@127.0.0.1:51498/ctxpipe_gate0_fresh','GRAPH_DB_URI':'redis://127.0.0.1:6399','CI':'true','NO_COLOR':'1','TURBO_TELEMETRY_DISABLED':'1','STORYBOOK_DISABLE_TELEMETRY':'1'})
-if name.startswith('tests'):
- env['DATABASE_URL']=env['DATABASE_URL'].replace('ctxpipe:ctxpipe@','ctxpipe_app:ctxpipe@')
-if name.startswith('opencode-live'): env['OPENCODE_LIVE']='1'
-start=time.time()
-with (out/(name+'.log')).open('w') as f:
- f.write('Command: '+json.dumps(cmd)+'\n'); f.flush()
- p=subprocess.Popen(cmd,cwd=root,env=env,stdout=f,stderr=subprocess.STDOUT,start_new_session=True)
- try: code=p.wait(timeout=600)
- except subprocess.TimeoutExpired:
-  os.killpg(p.pid,signal.SIGTERM)
-  try: p.wait(timeout=10)
-  except subprocess.TimeoutExpired: os.killpg(p.pid,signal.SIGKILL);p.wait()
-  code=124
-result={'name':name,'command':cmd,'exit_code':code,'duration_seconds':round(time.time()-start,2),'started_utc':time.strftime('%Y-%m-%dT%H:%M:%SZ',time.gmtime(start)),'log':'logs/'+name+'.log'}
-(out/(name+'.json')).write_text(json.dumps(result,indent=2)+'\n');print(json.dumps(result))
+"""Run one named baseline check; argv is executed verbatim from the repository root."""
+import json
+import os
+import pathlib
+import re
+import signal
+import subprocess
+import sys
+import time
+
+root = pathlib.Path(__file__).resolve().parents[3]
+out = root / 'docs/plans/workspace-recovery-gate-0/logs'
+name, *command = sys.argv[1:]
+if not re.fullmatch(r'[a-z0-9][a-z0-9-]*', name) or not command:
+    raise SystemExit('Usage: run-check.py unique-check-name command [args...]')
+log_path, metadata_path = out / (name + '.log'), out / (name + '.json')
+if log_path.exists() or metadata_path.exists():
+    raise SystemExit('Choose a new check name; existing evidence is never overwritten.')
+env = {key: value for key, value in os.environ.items() if key in (
+    'PATH', 'HOME', 'USER', 'TMPDIR', 'SHELL', 'LANG', 'VOLTA_HOME', 'PNPM_HOME')}
+fixture_env = {
+    'AUTH_SECRET': 'gate0-local-disposable-test-secret-20260907',
+    'DATABASE_URL': 'postgresql://ctxpipe:ctxpipe@127.0.0.1:51498/ctxpipe_gate0_fresh',
+    'GRAPH_DB_URI': 'redis://127.0.0.1:6399',
+    'CI': 'true', 'NO_COLOR': '1', 'TURBO_TELEMETRY_DISABLED': '1',
+    'STORYBOOK_DISABLE_TELEMETRY': '1',
+}
+if name.startswith(('tests', 'opencode-live')):
+    fixture_env['DATABASE_URL'] = fixture_env['DATABASE_URL'].replace(
+        'ctxpipe:ctxpipe@', 'ctxpipe_app:ctxpipe@')
+if name.startswith('opencode-live'):
+    fixture_env['OPENCODE_LIVE'] = '1'
+env.update(fixture_env)
+start = time.time()
+result = {'name': name, 'cwd': str(root), 'command': command,
+          'environment': fixture_env, 'timeout_seconds': 600,
+          'started_utc': time.strftime('%Y-%m-%dT%H:%M:%SZ', time.gmtime(start)),
+          'log': 'logs/' + name + '.log'}
+with log_path.open('x') as log:
+    log.write(json.dumps(result) + '\n')
+    log.flush()
+    process = subprocess.Popen(command, cwd=root, env=env, stdout=log,
+                               stderr=subprocess.STDOUT, start_new_session=True)
+    try:
+        code = process.wait(timeout=600)
+    except subprocess.TimeoutExpired:
+        os.killpg(process.pid, signal.SIGTERM)
+        try:
+            process.wait(timeout=10)
+        except subprocess.TimeoutExpired:
+            os.killpg(process.pid, signal.SIGKILL)
+            process.wait()
+        code = 124
+result.update(exit_code=code, duration_seconds=round(time.time() - start, 2))
+metadata_path.write_text(json.dumps(result, indent=2) + '\n')
+print(json.dumps(result))
+raise SystemExit(code if code >= 0 else 128 - code)

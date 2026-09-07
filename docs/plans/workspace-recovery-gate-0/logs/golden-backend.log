@@ -1,0 +1,10 @@
+Command: ['volta', 'run', '--node', '22.16.0', 'pnpm', '--filter', '@ctxpipe/backend', 'exec', 'bun', 'run', 'src/server.ts']
+[31merror[39m:   [31m▪ [31mZodError: [[39m
+[31m  {[39m
+[31m    "code": "custom",[39m
+[31m    "message": "MODEL_PROVIDER_API_KEY is required for LLM operations",[39m
+[31m    "path": [[39m
+[31m      "MODEL_PROVIDER_API_KEY"[39m
+[31m    ][39m
+[31m  }[39m
+[31m][39m

@@ -13,7 +13,9 @@ mkdir -p "$repo/apps/ui/src" "$repo/apps/backend/src"
 printf 'export const backend = true\n' >"$repo/apps/backend/src/unmodified.test.ts"
 printf 'base\n' >"$repo/apps/ui/src/file.ts"
 git -C "$repo" add .
-git -C "$repo" commit -qm base
+git -C "$repo" commit -qm ancestor
+older_base="$(git -C "$repo" rev-parse HEAD)"
+git -C "$repo" commit --allow-empty -qm base
 base="$(git -C "$repo" rev-parse HEAD)"
 git -C "$repo" switch -qc feature
 printf 'root\n' >"$repo/README.md"
@@ -43,11 +45,11 @@ if [[ "\${1:-}" == "--version" ]]; then
 elif [[ "\${1:-}" == "api" ]]; then
   [[ " \$* " == *" graphql "* ]]
   [[ " \$* " == *"commits{totalCount}"* ]]
-  if [[ " \$* " == *" --jq "* ]]; then printf '465\n'; else printf '{"data":{"repository":{"pullRequest":{"commits":{"totalCount":465}}}}}\n'; fi
+  if [[ " \$* " == *" --jq "* ]]; then printf '465\n'; else printf '{"data":{"repository":{"pullRequest":{"commits":{"totalCount":%s}}}}}\n' "\${GH_FIXTURE_COMMITS:-465}"; fi
 elif [[ " \$* " == *" --jq "* ]]; then
   printf 'https://github.com/acme/repo/pull/1\\t$head\\t2\\t466\\t0\\n'
 else
-  printf '{"url":"https://github.com/acme/repo/pull/1","headRefOid":"$head","changedFiles":2,"additions":466,"deletions":0}\n'
+  printf '{"url":"https://github.com/acme/repo/pull/1","headRefOid":"$head","baseRefOid":"$base","changedFiles":2,"additions":466,"deletions":0}\n'
 fi
 GH
 chmod +x "$tmp/bin/gh"
@@ -98,6 +100,23 @@ test "$status" -eq 5
 test ! -e "$repo/mismatch"
 rg -q 'GitHub commits' "$tmp/mismatch.err"
 
+# An older same-tree ancestor must be rejected even if all supplied totals agree.
+set +e
+(
+  cd "$repo"
+  GH_FIXTURE_COMMITS=466 PATH="$tmp/bin:$PATH" "$script" \
+    --base "$older_base" --head HEAD \
+    --pr-url https://github.com/acme/repo/pull/1 \
+    --expect-commits 466 --expect-files 2 \
+    --expect-additions 466 --expect-deletions 0 \
+    --output wrong-base
+) >"$tmp/wrong-base.out" 2>"$tmp/wrong-base.err"
+status=$?
+set -e
+test "$status" -eq 4
+test ! -e "$repo/wrong-base"
+rg -q 'GitHub base' "$tmp/wrong-base.err"
+
 newline_repo="$tmp/newline-repo"
 mkdir -p "$newline_repo"
 git -C "$newline_repo" init -q -b main
@@ -110,7 +129,7 @@ break.ts"
 git -C "$newline_repo" add .
 git -C "$newline_repo" commit -qm change
 newline_head="$(git -C "$newline_repo" rev-parse HEAD)"
-sed "s/$head/$newline_head/g; s/\\\\t2\\\\t466/\\\\t1\\\\t1/g; s/\"changedFiles\":2/\"changedFiles\":1/; s/\"additions\":466/\"additions\":1/" "$tmp/bin/gh" >"$tmp/bin/gh-newline"
+sed "s/$head/$newline_head/g; s/$base/$newline_base/g; s/\\\\t2\\\\t466/\\\\t1\\\\t1/g; s/\"changedFiles\":2/\"changedFiles\":1/; s/\"additions\":466/\"additions\":1/" "$tmp/bin/gh" >"$tmp/bin/gh-newline"
 chmod +x "$tmp/bin/gh-newline"
 mv "$tmp/bin/gh" "$tmp/bin/gh-main"
 ln -s gh-newline "$tmp/bin/gh"

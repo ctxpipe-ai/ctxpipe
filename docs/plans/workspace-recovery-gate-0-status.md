@@ -28,9 +28,11 @@ See the [scope bundle](workspace-recovery-gate-0/baseline.md),
 
 ## Remaining gate requirements
 
-- Finish clean-environment test reruns, including application-role database
-  isolation, live OpenCode, Storybook interactions and affected codesearch tests.
-- Complete and review test classifications; the inventory is not a proof claim.
+- Complete the full Storybook interaction and codesearch Docker lanes. Clean UI,
+  backend, application-role isolation, explicit OpenCode and package runs are
+  recorded; failures remain visible in the ledger.
+- Complete and review the 414 remaining test/story classifications. Seven rows
+  were reviewed; proof classifications with failing runs are not passing proof.
 - Record a manual integrated golden journey, product latency, provider/request
   counts, resource cleanup, and repeated flake measurements.
 - Push the candidate checkpoint and obtain independent adversarial review of the
@@ -48,3 +50,18 @@ initial pnpm subprocesses used Node 23.10.0 despite the shell reporting Node 24.
 Do not treat interrupted/stalled commands, API-origin mismatch tests, or tests
 run concurrently with prebuild generation as product-failure counts. Their logs
 remain for diagnosis; qualifying reruns must be separately named.
+
+## Latest findings and review
+
+Clean UI (291), RLS (2), CDK (32), and CLI (93 plus one skip) tests pass.
+Backend has one live two-turn timeout; the explicit OpenCode route stream test
+also fails. Storybook builds but its selected navigation play fails on stale
+text. The codesearch host diagnostic has one timeout and does not replace the
+required Docker lane. See the canonical ledger for per-run commands and limits.
+
+The first checkpoint `0971c6314f858a8d516d8a616088facb1579e164` was pushed and
+verified. Independent standards/specification review requested automated GitHub
+base-ref verification, a synchronized evidence ledger, and safe/reproducible
+migration tooling. Those corrections are implemented and are being re-reviewed.
+The integrated journey additionally awaits approval to reuse the local model key;
+automatic approval review rejected that credential-read action. Gate 0 stays open.

@@ -1,0 +1,11 @@
+Command: ["volta", "run", "--node", "22.16.0", "pnpm", "--filter", "@ctxpipe/backend", "exec", "vitest", "run", "src/db/rls-isolation.test.ts"]
+
+ RUN  v4.0.18 /private/tmp/ctxpipe-recovery-01a07aba/apps/backend
+
+ ✓ src/db/rls-isolation.test.ts (2 tests) 90ms
+
+ Test Files  1 passed (1)
+      Tests  2 passed (2)
+   Start at  21:10:50
+   Duration  685ms (transform 108ms, setup 20ms, import 501ms, tests 90ms, environment 0ms)
+

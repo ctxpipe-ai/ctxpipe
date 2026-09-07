@@ -1,13 +1,21 @@
 area	command	exit_code	artifact	environment	repetitions	status
-install	pnpm install --frozen-lockfile	0	logs/install-initial.log	see ../workspace-recovery-gate-0-local-evidence.md	1	PASS
-typecheck	pnpm --filter @ctxpipe/backend typecheck; pnpm --filter @ctxpipe/ui typecheck	2	logs/typecheck-backend.log; logs/typecheck-ui.log	see ../workspace-recovery-gate-0-local-evidence.md	1	RECORDED_FAILURE
-builds	pnpm -r --workspace-concurrency=2 --no-bail --if-present build	1	logs/builds.log	see ../workspace-recovery-gate-0-local-evidence.md	1	RECORDED_FAILURE
-tests	see command JSON files	1	logs/tests-backend.log; logs/tests-ui.log; logs/tests-packages.log	see ../workspace-recovery-gate-0-local-evidence.md	1	DIAGNOSTIC_RERUN_REQUIRED
-storybook_interactions	UNRECORDED					MISSING
-migrate_fresh	pnpm db:migrate	0	logs/migrate-fresh.log	see ../workspace-recovery-gate-0-local-evidence.md	1	PASS
-migrate_upgrade	python3 migrate-upgrade.py	0	logs/migrate-upgrade.log	see ../workspace-recovery-gate-0-local-evidence.md	1	PASS
-golden_journey	UNRECORDED					MISSING
-latency	UNRECORDED					MISSING
-flake_rate	UNRECORDED					MISSING
-adversarial_review	UNRECORDED					MISSING
-remote_checkpoint	UNRECORDED					MISSING
+install	volta run --node 22.16.0 pnpm install --frozen-lockfile --store-dir /private/tmp/ctxpipe-gate0-pnpm-store --package-import-method=copy	0	logs/install-node22.json; logs/install-node22.log	See command metadata and reproduction-notes.md	1	PASS
+typecheck_backend	pnpm --filter @ctxpipe/backend typecheck	2	logs/typecheck-backend.json; logs/typecheck-backend.log	See command metadata and reproduction-notes.md	1	RECORDED_FAILURE
+typecheck_ui	pnpm --filter @ctxpipe/ui typecheck	2	logs/typecheck-ui.json; logs/typecheck-ui.log	See command metadata and reproduction-notes.md	1	RECORDED_FAILURE
+builds	pnpm -r --workspace-concurrency=2 --no-bail --if-present build	1	logs/builds.json; logs/builds.log	See command metadata and reproduction-notes.md	1	RECORDED_FAILURE
+tests	volta run --node 22.16.0 pnpm --filter @ctxpipe/backend test	126	logs/tests-backend-node22.json; logs/tests-backend-node22.log	See command metadata and reproduction-notes.md	1	RECORDED_FAILURE
+tests_ui	volta run --node 22.16.0 pnpm --filter @ctxpipe/ui test	0	logs/tests-ui-node22.json; logs/tests-ui-node22.log	See command metadata and reproduction-notes.md	1	PASS
+tests_packages	volta run --node 22.16.0 pnpm --filter ctxpipe --filter @ctxpipe/aws-cdk --workspace-concurrency=2 --no-bail test	0	logs/tests-packages-node22.json; logs/tests-packages-node22.log	See command metadata and reproduction-notes.md	1	PASS_WITH_SKIP
+tests_codesearch_host	volta run --node 22.16.0 pnpm --filter @ctxpipe/codesearch run test:vitest	126	logs/tests-codesearch-host.json; logs/tests-codesearch-host.log	See command metadata and reproduction-notes.md	1	DIAGNOSTIC_FAILURE
+tests_rls	volta run --node 22.16.0 pnpm --filter @ctxpipe/backend exec vitest run src/db/rls-isolation.test.ts	0	logs/tests-rls-clean.json; logs/tests-rls-clean.log	See command metadata and reproduction-notes.md	1	PASS
+tests_opencode_live	volta run --node 22.16.0 pnpm --filter @ctxpipe/backend exec vitest run src/domain/workspaces/tanstack-workspace-chat.live.test.ts	126	logs/opencode-live-clean.json; logs/opencode-live-clean.log	See command metadata and reproduction-notes.md	1	RECORDED_FAILURE
+storybook_build	volta run --node 22.16.0 pnpm --filter @ctxpipe/ui build-storybook	0	logs/storybook-build-node22.json; logs/storybook-build-node22.log	See command metadata and reproduction-notes.md	1	PASS
+migrate_fresh	pnpm db:migrate	0	logs/migrate-fresh.json; logs/migrate-fresh.log	See command metadata and reproduction-notes.md	1	PASS
+migrate_upgrade	python3 docs/plans/workspace-recovery-gate-0/migrate-upgrade.py	0	logs/migrate-upgrade-reviewed.json; logs/migrate-upgrade-reviewed.log	See command metadata and reproduction-notes.md	1	PASS
+storybook_interactions	CUA: open pages-workspaces--conversation-nav-is-chat-only; inspect Interactions	n/a (browser observation)	browser-observations.md	Built Storybook; in-app browser; localhost:6016	1 selected story; suite incomplete	PARTIAL_FAILURE
+golden_journey	Backend bootstrap requires model configuration; credential reuse awaiting user approval.		See ../workspace-recovery-gate-0-status.md	local		MISSING
+latency	No completed integrated journey; five-second objective unmeasured.		See ../workspace-recovery-gate-0-status.md	local		MISSING
+flake_rate	No controlled repetition series completed.		See ../workspace-recovery-gate-0-status.md	local		MISSING
+tests_codesearch_docker	Required default lane uses the full linux/amd64 indexer image; host diagnostic does not replace it.		See ../workspace-recovery-gate-0-status.md	local		MISSING
+adversarial_review	Re-review pending after fixes.		See ../workspace-recovery-gate-0-status.md	local		MISSING
+remote_checkpoint	0971c6314f858a8d516d8a616088facb1579e164 verified remotely; correction checkpoint pending.		See ../workspace-recovery-gate-0-status.md	local		IN_PROGRESS

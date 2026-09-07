@@ -1,0 +1,17 @@
+{
+  "name": "tests-backend-node22",
+  "command": [
+    "volta",
+    "run",
+    "--node",
+    "22.16.0",
+    "pnpm",
+    "--filter",
+    "@ctxpipe/backend",
+    "test"
+  ],
+  "exit_code": 126,
+  "duration_seconds": 190.08,
+  "started_utc": "2026-09-07T11:08:33Z",
+  "log": "logs/tests-backend-node22.log"
+}
