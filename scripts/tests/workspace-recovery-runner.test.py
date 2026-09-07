@@ -7,8 +7,6 @@ import sys
 import tempfile
 import unittest
 
-SOURCE = pathlib.Path(__file__).resolve().parents[2] / 'docs/plans/workspace-recovery-gate-0/run-check.py'
-
 class RunnerCLI(unittest.TestCase):
     def setUp(self):
         self.temp = tempfile.TemporaryDirectory()
@@ -18,7 +16,8 @@ class RunnerCLI(unittest.TestCase):
         self.logs = folder / 'logs'
         self.logs.mkdir(parents=True)
         self.runner = folder / 'run-check.py'
-        shutil.copyfile(SOURCE, self.runner)
+        shutil.copyfile(pathlib.Path(__file__).resolve().parents[2] /
+                        'docs/plans/workspace-recovery-gate-0/run-check.py', self.runner)
 
     def run_cli(self, *args):
         return subprocess.run([sys.executable, str(self.runner), *args], capture_output=True, text=True)
