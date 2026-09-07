@@ -30,10 +30,29 @@ The final runner also uses the application role for OpenCode checks.
 
 The initial migration-upgrade log records an external scratch helper path that
 is not a command to copy from this checkout. It is superseded in the ledger by
-`migrate-upgrade-reviewed`: the committed helper is invoked by its repository
+`migrate-upgrade-pinned-local`: the committed helper is invoked by its repository
 relative path, creates a uniquely named database, and places its config in a
-unique temporary directory without replacing developer files.
+unique temporary directory without replacing developer files. Both migration trees
+come from archived fixed Git revisions; the new database is dropped in `finally`.
+The first pinned attempt was blocked by sandbox TCP access before database creation;
+the explicitly allowed local rerun passed and recorded `DROP DATABASE`.
 
 Durations of concurrent checks are not product latency. Skipped tests and missing
 Docker/browser/journey evidence do not count as passes. Classification review
 signals are search aids; only explicitly reviewed rows have been classified.
+
+## Exit status provenance
+
+The ledger records the outer process status captured by Python, not a status
+parsed from pnpm text. Backend, codesearch-host and explicit OpenCode runs have
+outer status **126**, while their pnpm output reports inner status **1**. A local
+probe of `volta run --node 22.16.0 node -e 'process.exit(1)'` reproduces 126 both
+inside and outside the sandbox (`volta-exit-status-probe` and
+`volta-exit-status-local-probe`). Invoking the exact Node binary directly returns
+1 (`node-direct-exit-status-probe`). These are wrapper diagnostics, not product
+test failures. Original captured metadata is preserved.
+
+The runner CLI regression fixture exercises missing arguments, literal argv and
+cwd, overwrite refusal for both artifacts, and failing-child exit propagation.
+`runner-cli-red.log` records the missing-argument failure before the fix;
+`runner-cli-green.json` and `.log` record all four tests passing afterward.

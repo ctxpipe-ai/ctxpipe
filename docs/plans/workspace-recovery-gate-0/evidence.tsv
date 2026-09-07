@@ -11,11 +11,11 @@ tests_rls	volta run --node 22.16.0 pnpm --filter @ctxpipe/backend exec vitest ru
 tests_opencode_live	volta run --node 22.16.0 pnpm --filter @ctxpipe/backend exec vitest run src/domain/workspaces/tanstack-workspace-chat.live.test.ts	126	logs/opencode-live-clean.json; logs/opencode-live-clean.log	See command metadata and reproduction-notes.md	1	RECORDED_FAILURE
 storybook_build	volta run --node 22.16.0 pnpm --filter @ctxpipe/ui build-storybook	0	logs/storybook-build-node22.json; logs/storybook-build-node22.log	See command metadata and reproduction-notes.md	1	PASS
 migrate_fresh	pnpm db:migrate	0	logs/migrate-fresh.json; logs/migrate-fresh.log	See command metadata and reproduction-notes.md	1	PASS
-migrate_upgrade	python3 docs/plans/workspace-recovery-gate-0/migrate-upgrade.py	0	logs/migrate-upgrade-reviewed.json; logs/migrate-upgrade-reviewed.log	See command metadata and reproduction-notes.md	1	PASS
+migrate_upgrade	python3 docs/plans/workspace-recovery-gate-0/migrate-upgrade.py	0	logs/migrate-upgrade-pinned-local.json; logs/migrate-upgrade-pinned-local.log	See command metadata and reproduction-notes.md	1	PASS
 storybook_interactions	CUA: open pages-workspaces--conversation-nav-is-chat-only; inspect Interactions	n/a (browser observation)	browser-observations.md	Built Storybook; in-app browser; localhost:6016	1 selected story; suite incomplete	PARTIAL_FAILURE
 golden_journey	Backend bootstrap requires model configuration; credential reuse awaiting user approval.		See ../workspace-recovery-gate-0-status.md	local		MISSING
 latency	No completed integrated journey; five-second objective unmeasured.		See ../workspace-recovery-gate-0-status.md	local		MISSING
 flake_rate	No controlled repetition series completed.		See ../workspace-recovery-gate-0-status.md	local		MISSING
 tests_codesearch_docker	Required default lane uses the full linux/amd64 indexer image; host diagnostic does not replace it.		See ../workspace-recovery-gate-0-status.md	local		MISSING
 adversarial_review	Re-review pending after fixes.		See ../workspace-recovery-gate-0-status.md	local		MISSING
-remote_checkpoint	0971c6314f858a8d516d8a616088facb1579e164 verified remotely; correction checkpoint pending.		See ../workspace-recovery-gate-0-status.md	local		IN_PROGRESS
+remote_checkpoint	a1615027311fd3e8723d5ba94d46cfe15a2bb22b verified remotely; final review corrections pending.		See ../workspace-recovery-gate-0-status.md	local		IN_PROGRESS

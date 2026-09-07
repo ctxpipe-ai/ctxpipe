@@ -1,0 +1,10 @@
+{"name": "migrate-upgrade-pinned", "cwd": "/private/tmp/ctxpipe-recovery-01a07aba", "command": ["python3", "docs/plans/workspace-recovery-gate-0/migrate-upgrade.py"], "environment": {"AUTH_SECRET": "gate0-local-disposable-test-secret-20260907", "DATABASE_URL": "postgresql://ctxpipe:ctxpipe@127.0.0.1:51498/ctxpipe_gate0_fresh", "GRAPH_DB_URI": "redis://127.0.0.1:6399", "CI": "true", "NO_COLOR": "1", "TURBO_TELEMETRY_DISABLED": "1", "STORYBOOK_DISABLE_TELEMETRY": "1"}, "timeout_seconds": 600, "started_utc": "2026-09-07T11:26:21Z", "log": "logs/migrate-upgrade-pinned.log"}
+Creating disposable database: ctxpipe_gate0_upgrade_43670b20aed1
+psql: error: connection to server at "127.0.0.1", port 51498 failed: Operation not permitted
+	Is the server running on that host and accepting TCP/IP connections?
+Traceback (most recent call last):
+  File "/private/tmp/ctxpipe-recovery-01a07aba/docs/plans/workspace-recovery-gate-0/migrate-upgrade.py", line 21, in <module>
+    subprocess.run([psql, admin_url, '-v', 'ON_ERROR_STOP=1', '-c',
+  File "/Library/Developer/CommandLineTools/Library/Frameworks/Python3.framework/Versions/3.9/lib/python3.9/subprocess.py", line 528, in run
+    raise CalledProcessError(retcode, process.args,
+subprocess.CalledProcessError: Command '['/opt/homebrew/opt/libpq/bin/psql', 'postgresql://ctxpipe:ctxpipe@127.0.0.1:51498/ctxpipe_gate0_fresh', '-v', 'ON_ERROR_STOP=1', '-c', 'CREATE DATABASE ctxpipe_gate0_upgrade_43670b20aed1']' returned non-zero exit status 2.

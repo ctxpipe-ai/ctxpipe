@@ -14,7 +14,7 @@ UI testing instructions, and hydration characterization tests.
 | UI full typecheck | Failed: 391 diagnostics | Includes imported backend types; counts must not be added as independent unique defects. |
 | Workspace builds | Backend and codesearch failed | UI, docs, CLI and CDK builds passed; no early bailout between workspaces. |
 | Fresh migration | Passed | Full Drizzle, OpenWorkflow, checkpoint, secret-backfill and role-provisioning command. |
-| Upgrade from PR merge base | Passed | Drizzle from exact base then current migrations on a second disposable database. |
+| Upgrade from PR merge base | Passed | Drizzle from exact base then exact PR-head migrations on a separate disposable database. |
 | Backend tests | 1449 passed, 5 failed, 3 skipped | Initial run used owner DB role and concurrent checks; five failures were timeouts. Not final runtime or flake proof. |
 | UI tests | 279 passed, 12 failed | Superseded: temporary AUTH_BASE_URL=localhost:3010 conflicted with MSW handlers fixed at localhost:3000. |
 | CLI/CDK tests | Initial failures | CDK tests preceded prebuild image-tag generation; CLI doctor timed out. Require ordered rerun. |
@@ -31,7 +31,8 @@ clean runs where available. See [reproduction notes](workspace-recovery-gate-0/r
 for exact cwd, runtime and fixture environments, and qualifications for older
 logs. The committed runner executes supplied argv verbatim and records new
 metadata without overwriting evidence. The upgrade helper now creates a unique
-local database and unique temporary config directory.
+local database and unique temporary config directory, archives both fixed revisions,
+and removes its database in `finally`.
 
 ## Interpretation
 
@@ -60,7 +61,8 @@ reported as started or complete on the basis of this checkpoint.
   serialized-indexer test times out at five seconds; failure prevents the
   subsequent Bun globFiles lane. The full Docker/indexer lane remains unrun.
 - Reviewed upgrade helper: passes again against a uniquely named disposable
-  database; its exact argv and cwd are in `logs/migrate-upgrade-reviewed.json`.
+  database, then drops that database. Exact argv and cwd are in
+  `logs/migrate-upgrade-pinned-local.json`; both migration trees use fixed SHAs.
 
 ## Integrated journey blocker
 

@@ -10,6 +10,8 @@ import time
 
 root = pathlib.Path(__file__).resolve().parents[3]
 out = root / 'docs/plans/workspace-recovery-gate-0/logs'
+if len(sys.argv) < 3:
+    raise SystemExit('Usage: run-check.py unique-check-name command [args...]')
 name, *command = sys.argv[1:]
 if not re.fullmatch(r'[a-z0-9][a-z0-9-]*', name) or not command:
     raise SystemExit('Usage: run-check.py unique-check-name command [args...]')

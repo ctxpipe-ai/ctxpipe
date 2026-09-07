@@ -62,6 +62,10 @@ required Docker lane. See the canonical ledger for per-run commands and limits.
 The first checkpoint `0971c6314f858a8d516d8a616088facb1579e164` was pushed and
 verified. Independent standards/specification review requested automated GitHub
 base-ref verification, a synchronized evidence ledger, and safe/reproducible
-migration tooling. Those corrections are implemented and are being re-reviewed.
+migration tooling. Those corrections were pushed as `a1615027311fd3e8723d5ba94d46cfe15a2bb22b`.
+Follow-up review corrections add CLI regression coverage, pin both migration
+schema revisions, clean up the invocation-owned database, and explain captured
+Volta wrapper exit statuses. The pinned upgrade and four CLI tests pass.
+The final correction checkpoint is awaiting exact-SHA re-review.
 The integrated journey additionally awaits approval to reuse the local model key;
 automatic approval review rejected that credential-read action. Gate 0 stays open.

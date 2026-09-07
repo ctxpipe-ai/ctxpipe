@@ -1,0 +1,14 @@
+{"name": "migrate-upgrade-pinned-local", "cwd": "/private/tmp/ctxpipe-recovery-01a07aba", "command": ["python3", "docs/plans/workspace-recovery-gate-0/migrate-upgrade.py"], "environment": {"AUTH_SECRET": "gate0-local-disposable-test-secret-20260907", "DATABASE_URL": "postgresql://ctxpipe:ctxpipe@127.0.0.1:51498/ctxpipe_gate0_fresh", "GRAPH_DB_URI": "redis://127.0.0.1:6399", "CI": "true", "NO_COLOR": "1", "TURBO_TELEMETRY_DISABLED": "1", "STORYBOOK_DISABLE_TELEMETRY": "1"}, "timeout_seconds": 600, "started_utc": "2026-09-07T11:26:37Z", "log": "logs/migrate-upgrade-pinned-local.log"}
+Creating disposable database: ctxpipe_gate0_upgrade_598c8a2aebba
+CREATE DATABASE
+Migrating revision: 9072089086f6fad87fbf05572b9f1ff5336e0520 folder: /var/folders/9t/jj9rnpps7_ddb72c1mq2k13w0000gn/T/gate0-schemas-knsf7adz/base/apps/backend/migrations
+Command: ["volta", "run", "--node", "22.16.0", "pnpm", "--filter", "@ctxpipe/backend", "exec", "drizzle-kit", "migrate", "--config", "/private/tmp/ctxpipe-recovery-01a07aba/apps/backend/.gate0-upgrade-9h4lwq1w/drizzle.config.ts"]
+Reading config file '/private/tmp/ctxpipe-recovery-01a07aba/apps/backend/.gate0-upgrade-9h4lwq1w/drizzle.config.ts'
+Using 'pg' driver for database querying
+[⣷] applying migrations...[2K[1G[⣯] applying migrations...[2K[1G[⣟] applying migrations...[2K[1G[✓] migrations applied successfully!Migrating revision: 1fad8412525efdeefdfa4899fe9a2f41dfbbc1c8 folder: /var/folders/9t/jj9rnpps7_ddb72c1mq2k13w0000gn/T/gate0-schemas-knsf7adz/head/apps/backend/migrations
+Command: ["volta", "run", "--node", "22.16.0", "pnpm", "--filter", "@ctxpipe/backend", "exec", "drizzle-kit", "migrate", "--config", "/private/tmp/ctxpipe-recovery-01a07aba/apps/backend/.gate0-upgrade-9h4lwq1w/drizzle.config.ts"]
+Reading config file '/private/tmp/ctxpipe-recovery-01a07aba/apps/backend/.gate0-upgrade-9h4lwq1w/drizzle.config.ts'
+Using 'pg' driver for database querying
+[⣷] applying migrations...[2K[1G[⣯] applying migrations...[2K[1G[✓] migrations applied successfully!Upgrade passed on database: ctxpipe_gate0_upgrade_598c8a2aebba
+Dropping this invocation’s disposable database: ctxpipe_gate0_upgrade_598c8a2aebba
+DROP DATABASE
