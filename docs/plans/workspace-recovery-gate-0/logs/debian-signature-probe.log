@@ -1,0 +1,18 @@
+Unable to find image 'debian:bookworm-slim' locally
+bookworm-slim: Pulling from library/debian
+a8ac7f6c67ab: Pulling fs layer
+a8ac7f6c67ab: Verifying Checksum
+a8ac7f6c67ab: Download complete
+a8ac7f6c67ab: Pull complete
+Digest: sha256:88200866dfff7ea7f5cbcb6ec7c8a701889efe6fe859fe64d6990e4b07ea4171
+Status: Downloaded newer image for debian:bookworm-slim
+Filesystem      Size  Used Avail Use% Mounted on
+overlay          59G   56G  293M 100% /
+Get:1 http://deb.debian.org/debian bookworm InRelease [151 kB]
+Get:2 http://deb.debian.org/debian bookworm-updates InRelease [55.4 kB]
+Get:3 http://deb.debian.org/debian-security bookworm-security InRelease [34.8 kB]
+Get:4 http://deb.debian.org/debian bookworm/main amd64 Packages [8790 kB]
+Get:5 http://deb.debian.org/debian bookworm-updates/main amd64 Packages [6924 B]
+Get:6 http://deb.debian.org/debian-security bookworm-security/main amd64 Packages [337 kB]
+Fetched 9375 kB in 2s (3869 kB/s)
+Reading package lists...

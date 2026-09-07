@@ -28,15 +28,17 @@ See the [scope bundle](workspace-recovery-gate-0/baseline.md),
 
 ## Remaining gate requirements
 
-- Complete the full Storybook interaction and codesearch Docker lanes. Clean UI,
-  backend, application-role isolation, explicit OpenCode and package runs are
-  recorded; failures remain visible in the ledger.
-- Complete and review the 414 remaining test/story classifications. Seven rows
-  were reviewed; proof classifications with failing runs are not passing proof.
-- Record a manual integrated golden journey, product latency, provider/request
-  counts, resource cleanup, and repeated flake measurements.
-- Push the candidate checkpoint and obtain independent adversarial review of the
-  exact remote SHA. An in-progress checkpoint does not mean Gate 0 has passed.
+- Push the complete baseline candidate and obtain fresh independent Standards and
+  Spec adversarial review of the exact remote SHA; resolve every blocker.
+- Record that final verified SHA and review artifacts before starting Gate 1.
+
+All 421 test/story classifications are now reviewed (212 proof, 209
+characterization). The full Storybook run records 347 pass / 24 fail / 0 pending;
+the required Docker lane records 219 pass / 2 skipped plus a passing OOM simulation.
+The real manual journey fails; diagnostic continuations, two separately reported
+5-cold/20-warm series, resource cleanup, query counts and restart behavior are
+archived in the canonical bundle. Failing product behavior is baseline evidence,
+not a reason to disguise failure or claim product acceptance.
 
 ## Environment recovery
 
@@ -53,19 +55,20 @@ remain for diagnosis; qualifying reruns must be separately named.
 
 ## Latest findings and review
 
-Clean UI (291), RLS (2), CDK (32), and CLI (93 plus one skip) tests pass.
-Backend has one live two-turn timeout; the explicit OpenCode route stream test
-also fails. Storybook builds but its selected navigation play fails on stale
-text. The codesearch host diagnostic has one timeout and does not replace the
-required Docker lane. See the canonical ledger for per-run commands and limits.
+See the [journey](workspace-recovery-gate-0/golden-journey.md) and
+[measurements](workspace-recovery-gate-0/measurements.md). Native fixture tip
+resolution fails; a seeded-SHA diagnostic hydrate reaches a missing-import
+ReferenceError. Home first-message handoff loses the message. Warm HTTP turns
+create new sandboxes/sessions and retain only three history records. File API
+editing/diff works, but the edit is lost across backend restart. SIGTERM leaves a
+listener using a closed DB pool. All are owned follow-ups for Gates 1–5; none is
+claimed fixed in Gate 0.
 
-The first checkpoint `0971c6314f858a8d516d8a616088facb1579e164` was pushed and
-verified. Independent standards/specification review requested automated GitHub
-base-ref verification, a synchronized evidence ledger, and safe/reproducible
-migration tooling. Those corrections were pushed as `a1615027311fd3e8723d5ba94d46cfe15a2bb22b`.
-Follow-up review corrections add CLI regression coverage, pin both migration
-schema revisions, clean up the invocation-owned database, and explain captured
-Volta wrapper exit statuses. The pinned upgrade and four CLI tests pass.
-The final correction checkpoint is awaiting exact-SHA re-review.
-The integrated journey additionally awaits approval to reuse the local model key;
-automatic approval review rejected that credential-read action. Gate 0 stays open.
+The user explicitly authorized the existing model key and the model runs have
+completed. The earlier credential-review rejection is resolved. Full ancestry,
+npm installation, Docker build, and branch push are available locally.
+
+Previous checkpoint `23ccd60c496ef6f9453a64c5afefe25c3b0378b1` was pushed,
+remotely verified, and cleared by both reviewers for its correction scope only.
+It was not full Gate 0 approval. The completed evidence bundle now awaits a fresh
+exact-SHA review. Gate 0 remains open and Gate 1 has not started.

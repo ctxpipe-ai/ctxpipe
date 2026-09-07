@@ -1,0 +1,208 @@
+{"name": "tests-codesearch-docker-local", "cwd": "/private/tmp/ctxpipe-recovery-01a07aba", "command": ["volta", "run", "--node", "22.16.0", "pnpm", "--filter", "@ctxpipe/codesearch", "test"], "environment": {"AUTH_SECRET": "gate0-local-disposable-test-secret-20260907", "DATABASE_URL": "postgresql://ctxpipe_app:ctxpipe@127.0.0.1:51498/ctxpipe_gate0_fresh", "GRAPH_DB_URI": "redis://127.0.0.1:6399", "CI": "true", "NO_COLOR": "1", "TURBO_TELEMETRY_DISABLED": "1", "STORYBOOK_DISABLE_TELEMETRY": "1"}, "timeout_seconds": 600, "started_utc": "2026-09-07T11:50:08Z", "log": "logs/tests-codesearch-docker-local.log"}
+
+> @ctxpipe/codesearch@0.1.0 test /private/tmp/ctxpipe-recovery-01a07aba/apps/codesearch
+> bash scripts/run-vitest-docker.sh
+
+#0 building with "desktop-linux" instance using docker driver
+
+#1 [internal] load build definition from Dockerfile
+#1 transferring dockerfile: 10.42kB done
+#1 DONE 0.0s
+
+#2 [internal] load metadata for docker.io/oven/bun:1.2-slim
+#2 ...
+
+#3 [internal] load metadata for mcr.microsoft.com/dotnet/sdk:8.0-bookworm-slim
+#3 DONE 1.1s
+
+#4 [internal] load metadata for docker.io/library/golang:1.24-bookworm
+#4 ...
+
+#2 [internal] load metadata for docker.io/oven/bun:1.2-slim
+#2 DONE 2.1s
+
+#4 [internal] load metadata for docker.io/library/golang:1.24-bookworm
+#4 DONE 2.1s
+
+#5 [internal] load metadata for docker.io/library/debian:bookworm-slim
+#5 DONE 2.2s
+
+#6 [internal] load metadata for docker.io/library/rust:1-bookworm
+#6 DONE 3.0s
+
+#7 [internal] load metadata for docker.io/library/node:22-bookworm-slim
+#7 DONE 3.0s
+
+#8 [internal] load metadata for docker.io/library/dart:stable
+#8 DONE 3.0s
+
+#9 [internal] load .dockerignore
+#9 transferring context: 2B done
+#9 DONE 0.0s
+
+#10 [deps 1/7] FROM docker.io/oven/bun:1.2-slim@sha256:9654aa08d4b7e778b84148921bab8edc1409c8d0a85707b8c801dd7cf1878971
+#10 DONE 0.0s
+
+#11 [go-tools 1/2] FROM docker.io/library/golang:1.24-bookworm@sha256:1a6d4452c65dea36aac2e2d606b01b4a029ec90cc1ae53890540ce6173ea77ac
+#11 DONE 0.0s
+
+#12 [rust-tools 1/2] FROM docker.io/library/rust:1-bookworm@sha256:82150a52ec202c1b14d7817e14516c392bb7f5cfebd88f1ed531cb37ebd39922
+#12 resolve docker.io/library/rust:1-bookworm@sha256:82150a52ec202c1b14d7817e14516c392bb7f5cfebd88f1ed531cb37ebd39922 0.0s done
+#12 sha256:56bfc6a715db852bdafd5e4bdf68ef7abceb791e77c47e5d87c7e861702a9ca6 1.94kB / 1.94kB done
+#12 sha256:85d3116eeb31c371bc51214ee0d7f4c5655d5b6f903d448fff4d1ed8af272fd2 4.56kB / 4.56kB done
+#12 sha256:82150a52ec202c1b14d7817e14516c392bb7f5cfebd88f1ed531cb37ebd39922 6.48kB / 6.48kB done
+#12 ...
+
+#13 [dart-tools 1/2] FROM docker.io/library/dart:stable@sha256:7e57e61d97813dc57dd0801656ff4d5c5efafa47bae563a681571543ad30f199
+#13 resolve docker.io/library/dart:stable@sha256:7e57e61d97813dc57dd0801656ff4d5c5efafa47bae563a681571543ad30f199 0.0s done
+#13 sha256:7e57e61d97813dc57dd0801656ff4d5c5efafa47bae563a681571543ad30f199 5.19kB / 5.19kB done
+#13 sha256:ee7d33f0f58832b33f5a090b4f5614011f9700b33382a24745f69d069939daac 1.93kB / 1.93kB done
+#13 sha256:3f5177dd984f6b6ac61917808c10812bb383c68c43e5eb87afa4aadbd262db70 4.33kB / 4.33kB done
+#13 sha256:bf7af0229701decd1b9f42143504fc8f69e5664c37e57001d198e731e4f86c2e 30.16MB / 30.16MB 2.1s done
+#13 sha256:f7a2be4797f5f71bcc30808030b272a452acfdae746b7b2ea41c88a8feadee51 45.64MB / 45.64MB 1.7s done
+#13 sha256:507038d91bb14d3d082379d9022cf77b49eaba63a0c7381c9806559f0c19c2c2 1.56MB / 1.56MB 0.8s done
+#13 sha256:4f4fb700ef54461cfa02571ae0db9a0dc1e0cdb5577484a6d75e68dc38e8acc1 32B / 32B 1.3s done
+#13 sha256:ef58e5c30a490a95039afc871ff9fcc2e4e436ba23f9a7c6187e563f1b68c7b6 92.27MB / 241.21MB 5.2s
+#13 extracting sha256:bf7af0229701decd1b9f42143504fc8f69e5664c37e57001d198e731e4f86c2e 1.7s done
+#13 extracting sha256:f7a2be4797f5f71bcc30808030b272a452acfdae746b7b2ea41c88a8feadee51 1.1s
+#13 sha256:ef58e5c30a490a95039afc871ff9fcc2e4e436ba23f9a7c6187e563f1b68c7b6 106.95MB / 241.21MB 5.6s
+#13 extracting sha256:f7a2be4797f5f71bcc30808030b272a452acfdae746b7b2ea41c88a8feadee51 1.7s done
+#13 extracting sha256:507038d91bb14d3d082379d9022cf77b49eaba63a0c7381c9806559f0c19c2c2
+#13 extracting sha256:507038d91bb14d3d082379d9022cf77b49eaba63a0c7381c9806559f0c19c2c2 0.1s done
+#13 extracting sha256:4f4fb700ef54461cfa02571ae0db9a0dc1e0cdb5577484a6d75e68dc38e8acc1 done
+#13 sha256:ef58e5c30a490a95039afc871ff9fcc2e4e436ba23f9a7c6187e563f1b68c7b6 122.68MB / 241.21MB 6.1s
+#13 sha256:ef58e5c30a490a95039afc871ff9fcc2e4e436ba23f9a7c6187e563f1b68c7b6 141.56MB / 241.21MB 6.6s
+#13 ...
+
+#14 [release-tools 1/3] FROM docker.io/library/debian:bookworm-slim@sha256:88200866dfff7ea7f5cbcb6ec7c8a701889efe6fe859fe64d6990e4b07ea4171
+#14 resolve docker.io/library/debian:bookworm-slim@sha256:88200866dfff7ea7f5cbcb6ec7c8a701889efe6fe859fe64d6990e4b07ea4171 0.0s done
+#14 sha256:32d322b19846336d25f755f73618a448e3621982d52c48064e95af8b3dcbc2d9 468B / 468B done
+#14 sha256:88200866dfff7ea7f5cbcb6ec7c8a701889efe6fe859fe64d6990e4b07ea4171 5.65kB / 5.65kB done
+#14 sha256:6bd27d44e6c32a66bbd72d7cb2b76a8ae3497ec2e5274a81abd1b37f6013fa1f 1.04kB / 1.04kB done
+#14 sha256:75782e20ea1f4a9d9259bc20a5ecbbea8d5943bf5370bf0f5727900728f1cc9a 28.12MB / 28.12MB 5.3s done
+#14 extracting sha256:75782e20ea1f4a9d9259bc20a5ecbbea8d5943bf5370bf0f5727900728f1cc9a 0.8s
+#14 ...
+
+#13 [dart-tools 1/2] FROM docker.io/library/dart:stable@sha256:7e57e61d97813dc57dd0801656ff4d5c5efafa47bae563a681571543ad30f199
+#13 ...
+
+#15 [release-tools 2/3] RUN test "amd64" = "amd64" ||     (echo "The full SCIP matrix requires linux/amd64 (scip-clang/scip-ruby upstream limitation)." >&2; exit 1)
+#15 DONE 0.9s
+
+#16 [release-tools 3/3] RUN apt-get update && apt-get install -y --no-install-recommends     ca-certificates     curl   && rm -rf /var/lib/apt/lists/*   && mkdir -p /out /tmp/releases   && cd /tmp/releases   && download() { curl -fsSL --retry 3 --retry-delay 2 --retry-all-errors --connect-timeout 15 --max-time 600 "$@"; }   && download -O "https://github.com/sourcegraph/scip-go/releases/download/v0.2.7/scip-go-linux-amd64.tar.gz"   && download -O "https://github.com/sourcegraph/scip-go/releases/download/v0.2.7/scip-go-linux-amd64.tar.gz.sha256"   && sha256sum -c scip-go-linux-amd64.tar.gz.sha256   && tar -xzf scip-go-linux-amd64.tar.gz -C /out scip-go   && download -O "https://github.com/scip-code/scip/releases/download/v0.9.0/scip-linux-amd64.tar.gz"   && download -O "https://github.com/scip-code/scip/releases/download/v0.9.0/scip-linux-amd64.tar.gz.sha256"   && sha256sum -c scip-linux-amd64.tar.gz.sha256   && tar -xzf scip-linux-amd64.tar.gz -C /out scip   && download -O     "https://github.com/scip-code/scip-java/releases/download/v0.13.1/scip-java-v0.13.1"   && download -O     "https://github.com/scip-code/scip-java/releases/download/v0.13.1/scip-java-v0.13.1.sha256"   && sha256sum -c "scip-java-v0.13.1.sha256"   && mv "scip-java-v0.13.1" /out/scip-java   && download     "https://github.com/sourcegraph/scip-clang/releases/download/v0.4.0/scip-clang-x86_64-linux"     -o scip-clang   && echo "06fd18c576f979a726c651594644ec4a35db4f471f2160b3f72eb89fa6001784  scip-clang" | sha256sum -c -   && mv scip-clang /out/scip-clang   && download     "https://github.com/sourcegraph/scip-ruby/releases/download/scip-ruby-v0.4.7/scip-ruby-x86_64-linux"     -o scip-ruby   && echo "a068c7c3b2042b9eac563ce77ce35dcaca666b418530b1db9f932a3dbc7175dd  scip-ruby" | sha256sum -c -   && mv scip-ruby /out/scip-ruby   && download     "https://github.com/rust-lang/rust-analyzer/releases/download/2026-07-27/rust-analyzer-x86_64-unknown-linux-gnu.gz"     -o rust-analyzer.gz   && echo "ac4f42ddbbd040d75d847e991894776485783e28beb744b9719a660a99abe115  rust-analyzer.gz" | sha256sum -c -   && gzip -dc rust-analyzer.gz > /out/rust-analyzer   && chmod +x /out/*
+#16 0.315 Get:1 http://deb.debian.org/debian bookworm InRelease [151 kB]
+#16 0.382 Get:2 http://deb.debian.org/debian bookworm-updates InRelease [55.4 kB]
+#16 0.383 Err:1 http://deb.debian.org/debian bookworm InRelease
+#16 0.383   At least one invalid signature was encountered.
+#16 0.403 Err:2 http://deb.debian.org/debian bookworm-updates InRelease
+#16 0.403   At least one invalid signature was encountered.
+#16 0.405 Get:3 http://deb.debian.org/debian-security bookworm-security InRelease [34.8 kB]
+#16 0.421 Err:3 http://deb.debian.org/debian-security bookworm-security InRelease
+#16 0.421   At least one invalid signature was encountered.
+#16 0.423 Reading package lists...
+#16 0.427 W: GPG error: http://deb.debian.org/debian bookworm InRelease: At least one invalid signature was encountered.
+#16 0.427 E: The repository 'http://deb.debian.org/debian bookworm InRelease' is not signed.
+#16 0.427 W: GPG error: http://deb.debian.org/debian bookworm-updates InRelease: At least one invalid signature was encountered.
+#16 0.427 E: The repository 'http://deb.debian.org/debian bookworm-updates InRelease' is not signed.
+#16 0.427 W: GPG error: http://deb.debian.org/debian-security bookworm-security InRelease: At least one invalid signature was encountered.
+#16 0.427 E: The repository 'http://deb.debian.org/debian-security bookworm-security InRelease' is not signed.
+#16 ERROR: process "/bin/sh -c apt-get update && apt-get install -y --no-install-recommends     ca-certificates     curl   && rm -rf /var/lib/apt/lists/*   && mkdir -p /out /tmp/releases   && cd /tmp/releases   && download() { curl -fsSL --retry 3 --retry-delay 2 --retry-all-errors --connect-timeout 15 --max-time 600 \"$@\"; }   && download -O \"https://github.com/sourcegraph/scip-go/releases/download/v${SCIP_GO_VERSION}/scip-go-linux-amd64.tar.gz\"   && download -O \"https://github.com/sourcegraph/scip-go/releases/download/v${SCIP_GO_VERSION}/scip-go-linux-amd64.tar.gz.sha256\"   && sha256sum -c scip-go-linux-amd64.tar.gz.sha256   && tar -xzf scip-go-linux-amd64.tar.gz -C /out scip-go   && download -O \"https://github.com/scip-code/scip/releases/download/v${SCIP_VERSION}/scip-linux-amd64.tar.gz\"   && download -O \"https://github.com/scip-code/scip/releases/download/v${SCIP_VERSION}/scip-linux-amd64.tar.gz.sha256\"   && sha256sum -c scip-linux-amd64.tar.gz.sha256   && tar -xzf scip-linux-amd64.tar.gz -C /out scip   && download -O     \"https://github.com/scip-code/scip-java/releases/download/v${SCIP_JAVA_VERSION}/scip-java-v${SCIP_JAVA_VERSION}\"   && download -O     \"https://github.com/scip-code/scip-java/releases/download/v${SCIP_JAVA_VERSION}/scip-java-v${SCIP_JAVA_VERSION}.sha256\"   && sha256sum -c \"scip-java-v${SCIP_JAVA_VERSION}.sha256\"   && mv \"scip-java-v${SCIP_JAVA_VERSION}\" /out/scip-java   && download     \"https://github.com/sourcegraph/scip-clang/releases/download/v${SCIP_CLANG_VERSION}/scip-clang-x86_64-linux\"     -o scip-clang   && echo \"${SCIP_CLANG_SHA256}  scip-clang\" | sha256sum -c -   && mv scip-clang /out/scip-clang   && download     \"https://github.com/sourcegraph/scip-ruby/releases/download/scip-ruby-v${SCIP_RUBY_VERSION}/scip-ruby-x86_64-linux\"     -o scip-ruby   && echo \"${SCIP_RUBY_SHA256}  scip-ruby\" | sha256sum -c -   && mv scip-ruby /out/scip-ruby   && download     \"https://github.com/rust-lang/rust-analyzer/releases/download/${RUST_ANALYZER_VERSION}/rust-analyzer-x86_64-unknown-linux-gnu.gz\"     -o rust-analyzer.gz   && echo \"${RUST_ANALYZER_SHA256}  rust-analyzer.gz\" | sha256sum -c -   && gzip -dc rust-analyzer.gz > /out/rust-analyzer   && chmod +x /out/*" did not complete successfully: exit code: 100
+
+#17 [node-tools 1/2] FROM docker.io/library/node:22-bookworm-slim@sha256:83f487e0a63425e5b4d146fb5e5be574bcbe1b7b843d3ebafdd95eaf7767a7e5
+#17 resolve docker.io/library/node:22-bookworm-slim@sha256:83f487e0a63425e5b4d146fb5e5be574bcbe1b7b843d3ebafdd95eaf7767a7e5 0.0s done
+#17 sha256:83f487e0a63425e5b4d146fb5e5be574bcbe1b7b843d3ebafdd95eaf7767a7e5 5.22kB / 5.22kB done
+#17 sha256:8d342e46d3b2883df69f797cb60fc71d8a0b65de65ddfbf4bf63fdc02049615f 1.93kB / 1.93kB done
+#17 sha256:97aaa653fb55806b0d7acc6c93dd4f3f06b373a286c988bd68c0527d4310bb05 6.89kB / 6.89kB done
+#17 sha256:75782e20ea1f4a9d9259bc20a5ecbbea8d5943bf5370bf0f5727900728f1cc9a 28.12MB / 28.12MB 5.3s done
+#17 CANCELED
+
+#13 [dart-tools 1/2] FROM docker.io/library/dart:stable@sha256:7e57e61d97813dc57dd0801656ff4d5c5efafa47bae563a681571543ad30f199
+#13 sha256:ef58e5c30a490a95039afc871ff9fcc2e4e436ba23f9a7c6187e563f1b68c7b6 204.47MB / 241.21MB 8.1s
+#13 ...
+
+#18 [dotnet-tools 1/2] FROM mcr.microsoft.com/dotnet/sdk:8.0-bookworm-slim@sha256:bb32ba3ba3ea36e38572d9d8db76fa15f7cbf722f3f886e06bca6d528bd4fba8
+#18 resolve mcr.microsoft.com/dotnet/sdk:8.0-bookworm-slim@sha256:bb32ba3ba3ea36e38572d9d8db76fa15f7cbf722f3f886e06bca6d528bd4fba8 0.0s done
+#18 sha256:18c7ca6159998f2f7b6cfa601b60d7aabbcb013ce394d5f0512ac31f7c032f88 5.32kB / 5.32kB done
+#18 sha256:bb32ba3ba3ea36e38572d9d8db76fa15f7cbf722f3f886e06bca6d528bd4fba8 1.08kB / 1.08kB done
+#18 sha256:00c73d766c2c8fea23a9214954a5dec33c022c1a530c09e0f2a5e333fa4578ed 2.42kB / 2.42kB done
+#18 sha256:75782e20ea1f4a9d9259bc20a5ecbbea8d5943bf5370bf0f5727900728f1cc9a 28.12MB / 28.12MB 5.3s done
+#18 sha256:24f1df2e3b200330e42781f276564df35634bc1d7700493beb885cdfa80e2e6b 18.54MB / 18.54MB 4.2s done
+#18 sha256:bababd67c690f9ea285f846a54fb832b9fd44f726a2ec02b3e00644b09228105 3.33kB / 3.33kB 4.5s done
+#18 sha256:679ddf4b8794167d219265a3119842b705820c120603251fef387fc902b29112 30.84MB / 30.84MB 7.1s done
+#18 sha256:923e332db9161d26f770029592c81d4697293e581dbc1289ae77043267bf6e55 165B / 165B 5.5s done
+#18 sha256:7a19990ca97f812dfc8128004c8e3276363e5a99ef71f60e79d28bf770bab134 10.77MB / 10.77MB 7.5s done
+#18 extracting sha256:75782e20ea1f4a9d9259bc20a5ecbbea8d5943bf5370bf0f5727900728f1cc9a 1.4s done
+#18 extracting sha256:24f1df2e3b200330e42781f276564df35634bc1d7700493beb885cdfa80e2e6b 0.3s done
+#18 extracting sha256:bababd67c690f9ea285f846a54fb832b9fd44f726a2ec02b3e00644b09228105 done
+#18 extracting sha256:679ddf4b8794167d219265a3119842b705820c120603251fef387fc902b29112 0.5s done
+#18 sha256:a6ba343248ae371c22758c3d2ae45abe679e8bee2501058ab91671bc8c6a75a7 8.39MB / 31.37MB 8.1s
+#18 sha256:1072b4743a407e74c6a66cbeef09ac0666c0144cd90a87bfb50e012dbe1f2a7e 0B / 174.56MB 8.1s
+#18 extracting sha256:923e332db9161d26f770029592c81d4697293e581dbc1289ae77043267bf6e55 done
+#18 extracting sha256:7a19990ca97f812dfc8128004c8e3276363e5a99ef71f60e79d28bf770bab134 0.1s done
+#18 ...
+
+#12 [rust-tools 1/2] FROM docker.io/library/rust:1-bookworm@sha256:82150a52ec202c1b14d7817e14516c392bb7f5cfebd88f1ed531cb37ebd39922
+#12 CANCELED
+
+#19 [internal] load build context
+#19 transferring context: 386.69kB 8.2s done
+#19 CANCELED
+------
+ > [release-tools 3/3] RUN apt-get update && apt-get install -y --no-install-recommends     ca-certificates     curl   && rm -rf /var/lib/apt/lists/*   && mkdir -p /out /tmp/releases   && cd /tmp/releases   && download() { curl -fsSL --retry 3 --retry-delay 2 --retry-all-errors --connect-timeout 15 --max-time 600 "$@"; }   && download -O "https://github.com/sourcegraph/scip-go/releases/download/v0.2.7/scip-go-linux-amd64.tar.gz"   && download -O "https://github.com/sourcegraph/scip-go/releases/download/v0.2.7/scip-go-linux-amd64.tar.gz.sha256"   && sha256sum -c scip-go-linux-amd64.tar.gz.sha256   && tar -xzf scip-go-linux-amd64.tar.gz -C /out scip-go   && download -O "https://github.com/scip-code/scip/releases/download/v0.9.0/scip-linux-amd64.tar.gz"   && download -O "https://github.com/scip-code/scip/releases/download/v0.9.0/scip-linux-amd64.tar.gz.sha256"   && sha256sum -c scip-linux-amd64.tar.gz.sha256   && tar -xzf scip-linux-amd64.tar.gz -C /out scip   && download -O     "https://github.com/scip-code/scip-java/releases/download/v0.13.1/scip-java-v0.13.1"   && download -O     "https://github.com/scip-code/scip-java/releases/download/v0.13.1/scip-java-v0.13.1.sha256"   && sha256sum -c "scip-java-v0.13.1.sha256"   && mv "scip-java-v0.13.1" /out/scip-java   && download     "https://github.com/sourcegraph/scip-clang/releases/download/v0.4.0/scip-clang-x86_64-linux"     -o scip-clang   && echo "06fd18c576f979a726c651594644ec4a35db4f471f2160b3f72eb89fa6001784  scip-clang" | sha256sum -c -   && mv scip-clang /out/scip-clang   && download     "https://github.com/sourcegraph/scip-ruby/releases/download/scip-ruby-v0.4.7/scip-ruby-x86_64-linux"     -o scip-ruby   && echo "a068c7c3b2042b9eac563ce77ce35dcaca666b418530b1db9f932a3dbc7175dd  scip-ruby" | sha256sum -c -   && mv scip-ruby /out/scip-ruby   && download     "https://github.com/rust-lang/rust-analyzer/releases/download/2026-07-27/rust-analyzer-x86_64-unknown-linux-gnu.gz"     -o rust-analyzer.gz   && echo "ac4f42ddbbd040d75d847e991894776485783e28beb744b9719a660a99abe115  rust-analyzer.gz" | sha256sum -c -   && gzip -dc rust-analyzer.gz > /out/rust-analyzer   && chmod +x /out/*:
+0.405 Get:3 http://deb.debian.org/debian-security bookworm-security InRelease [34.8 kB]
+0.421 Err:3 http://deb.debian.org/debian-security bookworm-security InRelease
+0.421   At least one invalid signature was encountered.
+0.423 Reading package lists...
+0.427 W: GPG error: http://deb.debian.org/debian bookworm InRelease: At least one invalid signature was encountered.
+0.427 E: The repository 'http://deb.debian.org/debian bookworm InRelease' is not signed.
+0.427 W: GPG error: http://deb.debian.org/debian bookworm-updates InRelease: At least one invalid signature was encountered.
+0.427 E: The repository 'http://deb.debian.org/debian bookworm-updates InRelease' is not signed.
+0.427 W: GPG error: http://deb.debian.org/debian-security bookworm-security InRelease: At least one invalid signature was encountered.
+0.427 E: The repository 'http://deb.debian.org/debian-security bookworm-security InRelease' is not signed.
+------
+Dockerfile:67
+--------------------
+  66 |         (echo "The full SCIP matrix requires linux/amd64 (scip-clang/scip-ruby upstream limitation)." >&2; exit 1)
+  67 | >>> RUN apt-get update && apt-get install -y --no-install-recommends \
+  68 | >>>     ca-certificates \
+  69 | >>>     curl \
+  70 | >>>   && rm -rf /var/lib/apt/lists/* \
+  71 | >>>   && mkdir -p /out /tmp/releases \
+  72 | >>>   && cd /tmp/releases \
+  73 | >>>   && download() { curl -fsSL --retry 3 --retry-delay 2 --retry-all-errors --connect-timeout 15 --max-time 600 "$@"; } \
+  74 | >>>   && download -O "https://github.com/sourcegraph/scip-go/releases/download/v${SCIP_GO_VERSION}/scip-go-linux-amd64.tar.gz" \
+  75 | >>>   && download -O "https://github.com/sourcegraph/scip-go/releases/download/v${SCIP_GO_VERSION}/scip-go-linux-amd64.tar.gz.sha256" \
+  76 | >>>   && sha256sum -c scip-go-linux-amd64.tar.gz.sha256 \
+  77 | >>>   && tar -xzf scip-go-linux-amd64.tar.gz -C /out scip-go \
+  78 | >>>   && download -O "https://github.com/scip-code/scip/releases/download/v${SCIP_VERSION}/scip-linux-amd64.tar.gz" \
+  79 | >>>   && download -O "https://github.com/scip-code/scip/releases/download/v${SCIP_VERSION}/scip-linux-amd64.tar.gz.sha256" \
+  80 | >>>   && sha256sum -c scip-linux-amd64.tar.gz.sha256 \
+  81 | >>>   && tar -xzf scip-linux-amd64.tar.gz -C /out scip \
+  82 | >>>   && download -O \
+  83 | >>>     "https://github.com/scip-code/scip-java/releases/download/v${SCIP_JAVA_VERSION}/scip-java-v${SCIP_JAVA_VERSION}" \
+  84 | >>>   && download -O \
+  85 | >>>     "https://github.com/scip-code/scip-java/releases/download/v${SCIP_JAVA_VERSION}/scip-java-v${SCIP_JAVA_VERSION}.sha256" \
+  86 | >>>   && sha256sum -c "scip-java-v${SCIP_JAVA_VERSION}.sha256" \
+  87 | >>>   && mv "scip-java-v${SCIP_JAVA_VERSION}" /out/scip-java \
+  88 | >>>   && download \
+  89 | >>>     "https://github.com/sourcegraph/scip-clang/releases/download/v${SCIP_CLANG_VERSION}/scip-clang-x86_64-linux" \
+  90 | >>>     -o scip-clang \
+  91 | >>>   && echo "${SCIP_CLANG_SHA256}  scip-clang" | sha256sum -c - \
+  92 | >>>   && mv scip-clang /out/scip-clang \
+  93 | >>>   && download \
+  94 | >>>     "https://github.com/sourcegraph/scip-ruby/releases/download/scip-ruby-v${SCIP_RUBY_VERSION}/scip-ruby-x86_64-linux" \
+  95 | >>>     -o scip-ruby \
+  96 | >>>   && echo "${SCIP_RUBY_SHA256}  scip-ruby" | sha256sum -c - \
+  97 | >>>   && mv scip-ruby /out/scip-ruby \
+  98 | >>>   && download \
+  99 | >>>     "https://github.com/rust-lang/rust-analyzer/releases/download/${RUST_ANALYZER_VERSION}/rust-analyzer-x86_64-unknown-linux-gnu.gz" \
+ 100 | >>>     -o rust-analyzer.gz \
+ 101 | >>>   && echo "${RUST_ANALYZER_SHA256}  rust-analyzer.gz" | sha256sum -c - \
+ 102 | >>>   && gzip -dc rust-analyzer.gz > /out/rust-analyzer \
+ 103 | >>>   && chmod +x /out/*
+ 104 |     
+--------------------
+ERROR: failed to build: failed to solve: process "/bin/sh -c apt-get update && apt-get install -y --no-install-recommends     ca-certificates     curl   && rm -rf /var/lib/apt/lists/*   && mkdir -p /out /tmp/releases   && cd /tmp/releases   && download() { curl -fsSL --retry 3 --retry-delay 2 --retry-all-errors --connect-timeout 15 --max-time 600 \"$@\"; }   && download -O \"https://github.com/sourcegraph/scip-go/releases/download/v${SCIP_GO_VERSION}/scip-go-linux-amd64.tar.gz\"   && download -O \"https://github.com/sourcegraph/scip-go/releases/download/v${SCIP_GO_VERSION}/scip-go-linux-amd64.tar.gz.sha256\"   && sha256sum -c scip-go-linux-amd64.tar.gz.sha256   && tar -xzf scip-go-linux-amd64.tar.gz -C /out scip-go   && download -O \"https://github.com/scip-code/scip/releases/download/v${SCIP_VERSION}/scip-linux-amd64.tar.gz\"   && download -O \"https://github.com/scip-code/scip/releases/download/v${SCIP_VERSION}/scip-linux-amd64.tar.gz.sha256\"   && sha256sum -c scip-linux-amd64.tar.gz.sha256   && tar -xzf scip-linux-amd64.tar.gz -C /out scip   && download -O     \"https://github.com/scip-code/scip-java/releases/download/v${SCIP_JAVA_VERSION}/scip-java-v${SCIP_JAVA_VERSION}\"   && download -O     \"https://github.com/scip-code/scip-java/releases/download/v${SCIP_JAVA_VERSION}/scip-java-v${SCIP_JAVA_VERSION}.sha256\"   && sha256sum -c \"scip-java-v${SCIP_JAVA_VERSION}.sha256\"   && mv \"scip-java-v${SCIP_JAVA_VERSION}\" /out/scip-java   && download     \"https://github.com/sourcegraph/scip-clang/releases/download/v${SCIP_CLANG_VERSION}/scip-clang-x86_64-linux\"     -o scip-clang   && echo \"${SCIP_CLANG_SHA256}  scip-clang\" | sha256sum -c -   && mv scip-clang /out/scip-clang   && download     \"https://github.com/sourcegraph/scip-ruby/releases/download/scip-ruby-v${SCIP_RUBY_VERSION}/scip-ruby-x86_64-linux\"     -o scip-ruby   && echo \"${SCIP_RUBY_SHA256}  scip-ruby\" | sha256sum -c -   && mv scip-ruby /out/scip-ruby   && download     \"https://github.com/rust-lang/rust-analyzer/releases/download/${RUST_ANALYZER_VERSION}/rust-analyzer-x86_64-unknown-linux-gnu.gz\"     -o rust-analyzer.gz   && echo \"${RUST_ANALYZER_SHA256}  rust-analyzer.gz\" | sha256sum -c -   && gzip -dc rust-analyzer.gz > /out/rust-analyzer   && chmod +x /out/*" did not complete successfully: exit code: 100
+/private/tmp/ctxpipe-recovery-01a07aba/apps/codesearch:
+ ERR_PNPM_RECURSIVE_RUN_FIRST_FAIL  @ctxpipe/codesearch@0.1.0 test: `bash scripts/run-vitest-docker.sh`
+Exit status 1

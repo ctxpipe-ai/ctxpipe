@@ -359,3 +359,15 @@ pnpm-lock.yaml
 - Every `UNCLASSIFIED` and `UNASSIGNED` test row must be resolved.
 - Every evidence row must contain an exact command, exit code, artifact/log, environment/tool versions, repetitions where applicable, and final status.
 - The adversarial review and verified GitHub checkpoint are mandatory evidence rows.
+
+
+## Completed local baseline evidence
+
+The canonical command ledger records all runs, including failures. All 421 tracked
+test/story files have reviewed classifications: **212 proof, 209 characterization,
+0 redundant, 0 unclassified**. Classification describes the oracle, not whether a
+particular execution passed. Per-file reasons and owners are in the TSV and three
+classification-review notes. Full browser results, Docker lane, manual failing
+journey, measured latency/query/provider counts, and cleanup are now recorded.
+See `golden-journey.md`, `measurements.md`, and `reproduction-notes.md`. Final
+exact-pushed-SHA adversarial review still controls gate completion.

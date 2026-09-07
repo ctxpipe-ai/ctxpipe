@@ -1,0 +1,11 @@
+        id        | kind |         conversation_id         |                                             provider_sandbox_id                                             | state 
+------------------+------+---------------------------------+-------------------------------------------------------------------------------------------------------------+-------
+ d07c09f815af3555 | chat | conv_agqhxr5i6f3fjhyq6kek5d53ha | /var/folders/9t/jj9rnpps7_ddb72c1mq2k13w0000gn/T/tanstack-ai-sandboxes/c5380fc5-d7c0-40ec-b8fa-758cb9dad954 | live
+(1 row)
+
+               id                
+---------------------------------
+ conv_agqhxo7jeb3k5dyol3i2kvh7va
+ conv_agqhxr5i6f3fjhyq6kek5d53ha
+(2 rows)
+

@@ -1,0 +1,135 @@
+{
+  "source": "docs/plans/workspace-recovery-gate-0/logs/http-measurements-instrumented.jsonl",
+  "quantile_method": "nearest rank; milliseconds",
+  "groups": {
+    "cold": {
+      "metrics": {
+        "workspace": {
+          "n": 5,
+          "p50": 22.5,
+          "p95": 25.55,
+          "max": 25.55
+        },
+        "prepare": {
+          "n": 5,
+          "p50": 221.78,
+          "p95": 230.33,
+          "max": 230.33
+        },
+        "first_event": {
+          "n": 5,
+          "p50": 31.96,
+          "p95": 37.07,
+          "max": 37.07
+        },
+        "first_text": {
+          "n": 5,
+          "p50": 5548.85,
+          "p95": 6797.22,
+          "max": 6797.22
+        },
+        "terminal": {
+          "n": 5,
+          "p50": 8265.71,
+          "p95": 10546.06,
+          "max": 10546.06
+        },
+        "send_completion": {
+          "n": 5,
+          "p50": 8267.92,
+          "p95": 10550.75,
+          "max": 10550.75
+        },
+        "history_read": {
+          "n": 5,
+          "p50": 38.06,
+          "p95": 39.42,
+          "max": 39.42
+        }
+      },
+      "turn_oracle_passed": 5,
+      "turn_oracle_failed": 0,
+      "distinct_opencode_sessions": 5,
+      "distinct_sandbox_directories": 5,
+      "history_message_counts": [
+        3,
+        3,
+        3,
+        3,
+        3
+      ]
+    },
+    "warm": {
+      "metrics": {
+        "workspace": {
+          "n": 20,
+          "p50": 28.2,
+          "p95": 33.19,
+          "max": 35.76
+        },
+        "prepare": {
+          "n": 20,
+          "p50": 218.32,
+          "p95": 237.7,
+          "max": 253.22
+        },
+        "first_event": {
+          "n": 20,
+          "p50": 29.6,
+          "p95": 32.78,
+          "max": 35.84
+        },
+        "first_text": {
+          "n": 20,
+          "p50": 5642.64,
+          "p95": 6779.12,
+          "max": 6861.28
+        },
+        "terminal": {
+          "n": 20,
+          "p50": 5774.39,
+          "p95": 6954.43,
+          "max": 6995.28
+        },
+        "send_completion": {
+          "n": 20,
+          "p50": 5776.03,
+          "p95": 6955.97,
+          "max": 6996.88
+        },
+        "history_read": {
+          "n": 20,
+          "p50": 26.62,
+          "p95": 30.92,
+          "max": 35.11
+        }
+      },
+      "turn_oracle_passed": 20,
+      "turn_oracle_failed": 0,
+      "distinct_opencode_sessions": 20,
+      "distinct_sandbox_directories": 20,
+      "history_message_counts": [
+        3,
+        3,
+        3,
+        3,
+        3,
+        3,
+        3,
+        3,
+        3,
+        3,
+        3,
+        3,
+        3,
+        3,
+        3,
+        3,
+        3,
+        3,
+        3,
+        3
+      ]
+    }
+  }
+}

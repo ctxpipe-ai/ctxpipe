@@ -1,422 +1,422 @@
 path	kind	has_play	classification	owner	evidence
-apps/backend/src/app/app.test.ts	test	n/a	UNCLASSIFIED	UNASSIGNED	
-apps/backend/src/auth/config.test.ts	test	n/a	UNCLASSIFIED	UNASSIGNED	
-apps/backend/src/auth/oauth-gateway-request.test.ts	test	n/a	UNCLASSIFIED	UNASSIGNED	
-apps/backend/src/auth/verification-email-url.test.ts	test	n/a	UNCLASSIFIED	UNASSIGNED	
-apps/backend/src/auth/withAuth.test.ts	test	n/a	UNCLASSIFIED	UNASSIGNED	
-apps/backend/src/db/client.org-context.test.ts	test	n/a	UNCLASSIFIED	UNASSIGNED	
-apps/backend/src/db/gateway-guards.test.ts	test	n/a	UNCLASSIFIED	UNASSIGNED	
-apps/backend/src/db/get-org-db-audit.test.ts	test	n/a	UNCLASSIFIED	UNASSIGNED	
-apps/backend/src/db/migrate-checkpoints.test.ts	test	n/a	UNCLASSIFIED	UNASSIGNED	
-apps/backend/src/db/migrate-openworkflow.test.ts	test	n/a	UNCLASSIFIED	UNASSIGNED	
-apps/backend/src/db/owner-migrate-url.test.ts	test	n/a	UNCLASSIFIED	UNASSIGNED	
-apps/backend/src/db/provision-app-role.test.ts	test	n/a	UNCLASSIFIED	UNASSIGNED	
-apps/backend/src/db/rls-isolation.test.ts	test	n/a	proof	Gate 1 backend	Application-role Postgres; two isolation tests pass in logs/tests-rls-clean.log.
-apps/backend/src/db/transientDbRetry.test.ts	test	n/a	UNCLASSIFIED	UNASSIGNED	
-apps/backend/src/domain/codeIngestion/codesearchClient.test.ts	test	n/a	UNCLASSIFIED	UNASSIGNED	
-apps/backend/src/domain/codeIngestion/codesearchIndexPhases.test.ts	test	n/a	UNCLASSIFIED	UNASSIGNED	
-apps/backend/src/domain/codeIngestion/dependencyVendorPaths.test.ts	test	n/a	UNCLASSIFIED	UNASSIGNED	
-apps/backend/src/domain/conversations/workspace-history.test.ts	test	n/a	UNCLASSIFIED	UNASSIGNED	
-apps/backend/src/domain/indexingSteps.test.ts	test	n/a	UNCLASSIFIED	UNASSIGNED	
-apps/backend/src/domain/workspaces/bind-github-connection.test.ts	test	n/a	UNCLASSIFIED	UNASSIGNED	
-apps/backend/src/domain/workspaces/bootstrap.test.ts	test	n/a	UNCLASSIFIED	UNASSIGNED	
-apps/backend/src/domain/workspaces/chat-lifecycle.test.ts	test	n/a	UNCLASSIFIED	UNASSIGNED	
-apps/backend/src/domain/workspaces/chat-pull-request.test.ts	test	n/a	UNCLASSIFIED	UNASSIGNED	
-apps/backend/src/domain/workspaces/chat-runtime.test.ts	test	n/a	UNCLASSIFIED	UNASSIGNED	
-apps/backend/src/domain/workspaces/chat-sandbox-policy.test.ts	test	n/a	UNCLASSIFIED	UNASSIGNED	
-apps/backend/src/domain/workspaces/checkout-read.test.ts	test	n/a	UNCLASSIFIED	UNASSIGNED	
-apps/backend/src/domain/workspaces/claim-confidence.test.ts	test	n/a	UNCLASSIFIED	UNASSIGNED	
-apps/backend/src/domain/workspaces/clone-credentials.test.ts	test	n/a	UNCLASSIFIED	UNASSIGNED	
-apps/backend/src/domain/workspaces/commit-activity.test.ts	test	n/a	UNCLASSIFIED	UNASSIGNED	
-apps/backend/src/domain/workspaces/commit-subject.test.ts	test	n/a	UNCLASSIFIED	UNASSIGNED	
-apps/backend/src/domain/workspaces/complete-persisted-workspace-chat-run.test.ts	test	n/a	UNCLASSIFIED	UNASSIGNED	
-apps/backend/src/domain/workspaces/conversation-files.test.ts	test	n/a	UNCLASSIFIED	UNASSIGNED	
-apps/backend/src/domain/workspaces/conversation-publish.test.ts	test	n/a	UNCLASSIFIED	UNASSIGNED	
-apps/backend/src/domain/workspaces/derived-stores.test.ts	test	n/a	UNCLASSIFIED	UNASSIGNED	
-apps/backend/src/domain/workspaces/dest-workspace-assignment.test.ts	test	n/a	UNCLASSIFIED	UNASSIGNED	
-apps/backend/src/domain/workspaces/dest-workspace-backfill.migration.test.ts	test	n/a	UNCLASSIFIED	UNASSIGNED	
-apps/backend/src/domain/workspaces/dest-workspace-first.test.ts	test	n/a	UNCLASSIFIED	UNASSIGNED	
-apps/backend/src/domain/workspaces/ensure-org-repository.test.ts	test	n/a	UNCLASSIFIED	UNASSIGNED	
-apps/backend/src/domain/workspaces/file-tree.test.ts	test	n/a	UNCLASSIFIED	UNASSIGNED	
-apps/backend/src/domain/workspaces/git-explorer.test.ts	test	n/a	UNCLASSIFIED	UNASSIGNED	
-apps/backend/src/domain/workspaces/git-file-jobs.test.ts	test	n/a	UNCLASSIFIED	UNASSIGNED	
-apps/backend/src/domain/workspaces/hydrate-phases.test.ts	test	n/a	UNCLASSIFIED	UNASSIGNED	
-apps/backend/src/domain/workspaces/hydrate-write-jobs.test.ts	test	n/a	UNCLASSIFIED	UNASSIGNED	
-apps/backend/src/domain/workspaces/hydrate.test.ts	test	n/a	UNCLASSIFIED	UNASSIGNED	
-apps/backend/src/domain/workspaces/job-sandbox.live.test.ts	test	n/a	proof	Gate 4 backend	Inspected: real TanStack local-process handle and native git worktree; passed in logs/tests-backend-node22.log.
-apps/backend/src/domain/workspaces/job-sandbox.test.ts	test	n/a	UNCLASSIFIED	UNASSIGNED	
-apps/backend/src/domain/workspaces/job-worktree.test.ts	test	n/a	UNCLASSIFIED	UNASSIGNED	
-apps/backend/src/domain/workspaces/layout.test.ts	test	n/a	UNCLASSIFIED	UNASSIGNED	
-apps/backend/src/domain/workspaces/migration-export.test.ts	test	n/a	UNCLASSIFIED	UNASSIGNED	
-apps/backend/src/domain/workspaces/opencode-chat-stream.test.ts	test	n/a	UNCLASSIFIED	UNASSIGNED	
-apps/backend/src/domain/workspaces/project-workspace-commits.test.ts	test	n/a	UNCLASSIFIED	UNASSIGNED	
-apps/backend/src/domain/workspaces/relink.test.ts	test	n/a	UNCLASSIFIED	UNASSIGNED	
-apps/backend/src/domain/workspaces/rename-rewrite.test.ts	test	n/a	UNCLASSIFIED	UNASSIGNED	
-apps/backend/src/domain/workspaces/revision.test.ts	test	n/a	UNCLASSIFIED	UNASSIGNED	
-apps/backend/src/domain/workspaces/sandbox-instance-store.test.ts	test	n/a	UNCLASSIFIED	UNASSIGNED	
-apps/backend/src/domain/workspaces/sandbox-provider.test.ts	test	n/a	UNCLASSIFIED	UNASSIGNED	
-apps/backend/src/domain/workspaces/sandbox-registry.test.ts	test	n/a	UNCLASSIFIED	UNASSIGNED	
-apps/backend/src/domain/workspaces/slug.test.ts	test	n/a	UNCLASSIFIED	UNASSIGNED	
-apps/backend/src/domain/workspaces/tanstack-workspace-chat-persist.test.ts	test	n/a	UNCLASSIFIED	UNASSIGNED	
-apps/backend/src/domain/workspaces/tanstack-workspace-chat.live.test.ts	test	n/a	proof	Gate 4 backend	Real OpenCode and HTTP/local model stub; two pass, conversation POST fails. logs/opencode-live-clean.log. Proof classification is not passing evidence.
-apps/backend/src/domain/workspaces/tanstack-workspace-chat.multiturn.test.ts	test	n/a	proof	Gate 4 backend	Real DB, git, TanStack/OpenCode with external model stub; currently FAILS at 180s. logs/tests-backend-node22.log.
-apps/backend/src/domain/workspaces/tanstack-workspace-chat.test.ts	test	n/a	UNCLASSIFIED	UNASSIGNED	
-apps/backend/src/domain/workspaces/tip-resolve.test.ts	test	n/a	UNCLASSIFIED	UNASSIGNED	
-apps/backend/src/domain/workspaces/workspace-chat-agui.test.ts	test	n/a	UNCLASSIFIED	UNASSIGNED	
-apps/backend/src/domain/workspaces/workspace-chat-assistant-text.test.ts	test	n/a	UNCLASSIFIED	UNASSIGNED	
-apps/backend/src/domain/workspaces/workspace-chat-model-proxy.test.ts	test	n/a	UNCLASSIFIED	UNASSIGNED	
-apps/backend/src/domain/workspaces/workspace-chat-opencode-contract.test.ts	test	n/a	UNCLASSIFIED	UNASSIGNED	
-apps/backend/src/domain/workspaces/workspace-chat-opencode-messages.test.ts	test	n/a	UNCLASSIFIED	UNASSIGNED	
-apps/backend/src/domain/workspaces/workspace-chat-opencode-port.test.ts	test	n/a	UNCLASSIFIED	UNASSIGNED	
-apps/backend/src/domain/workspaces/workspace-chat-otel.test.ts	test	n/a	UNCLASSIFIED	UNASSIGNED	
-apps/backend/src/domain/workspaces/workspace-chat-persistence.test.ts	test	n/a	UNCLASSIFIED	UNASSIGNED	
-apps/backend/src/domain/workspaces/workspace-chat-retrieval.test.ts	test	n/a	UNCLASSIFIED	UNASSIGNED	
-apps/backend/src/domain/workspaces/workspace-chat-sandbox-health.test.ts	test	n/a	UNCLASSIFIED	UNASSIGNED	
-apps/backend/src/domain/workspaces/workspace-chat-sandbox-key.test.ts	test	n/a	UNCLASSIFIED	UNASSIGNED	
-apps/backend/src/domain/workspaces/workspace-chat-sandbox-memo.test.ts	test	n/a	UNCLASSIFIED	UNASSIGNED	
-apps/backend/src/domain/workspaces/workspace-chat-send-runtime.test.ts	test	n/a	UNCLASSIFIED	UNASSIGNED	
-apps/backend/src/domain/workspaces/workspace-chat-tools.test.ts	test	n/a	UNCLASSIFIED	UNASSIGNED	
-apps/backend/src/domain/workspaces/workspace-chat-turn-runtime.test.ts	test	n/a	UNCLASSIFIED	UNASSIGNED	
-apps/backend/src/domain/workspaces/workspace-graph.test.ts	test	n/a	UNCLASSIFIED	UNASSIGNED	
-apps/backend/src/domain/workspaces/workspace-lifecycle.test.ts	test	n/a	UNCLASSIFIED	UNASSIGNED	
-apps/backend/src/domain/workspaces/write-commit-files.test.ts	test	n/a	UNCLASSIFIED	UNASSIGNED	
-apps/backend/src/domain/workspaces/write-job-agent.test.ts	test	n/a	UNCLASSIFIED	UNASSIGNED	
-apps/backend/src/domain/workspaces/write-job-intent.test.ts	test	n/a	UNCLASSIFIED	UNASSIGNED	
-apps/backend/src/domain/workspaces/write-job-resume.test.ts	test	n/a	UNCLASSIFIED	UNASSIGNED	
-apps/backend/src/domain/workspaces/write-jobs.test.ts	test	n/a	UNCLASSIFIED	UNASSIGNED	
-apps/backend/src/domain/workspaces/write-runner.test.ts	test	n/a	UNCLASSIFIED	UNASSIGNED	
-apps/backend/src/domain/workspaces/write-status.test.ts	test	n/a	UNCLASSIFIED	UNASSIGNED	
-apps/backend/src/graphs/codeIngestionGraph/extractionSubgraph.test.ts	test	n/a	UNCLASSIFIED	UNASSIGNED	
-apps/backend/src/graphs/codeIngestionGraph/nodes/deduplicateAndStore.test.ts	test	n/a	UNCLASSIFIED	UNASSIGNED	
-apps/backend/src/graphs/codeIngestionGraph/nodes/embed.test.ts	test	n/a	UNCLASSIFIED	UNASSIGNED	
-apps/backend/src/graphs/codeIngestionGraph/nodes/extractInstructionUnits.test.ts	test	n/a	UNCLASSIFIED	UNASSIGNED	
-apps/backend/src/graphs/codeIngestionGraph/nodes/extractKind.test.ts	test	n/a	UNCLASSIFIED	UNASSIGNED	
-apps/backend/src/graphs/codeIngestionGraph/nodes/extractionSubmissionRoot.test.ts	test	n/a	UNCLASSIFIED	UNASSIGNED	
-apps/backend/src/graphs/codeIngestionGraph/nodes/identifyAPIClients.test.ts	test	n/a	UNCLASSIFIED	UNASSIGNED	
-apps/backend/src/graphs/codeIngestionGraph/nodes/identifyApiClaims.test.ts	test	n/a	UNCLASSIFIED	UNASSIGNED	
-apps/backend/src/graphs/codeIngestionGraph/nodes/identifyInfrastructure.test.ts	test	n/a	UNCLASSIFIED	UNASSIGNED	
-apps/backend/src/graphs/codeIngestionGraph/nodes/identifyLibraries.test.ts	test	n/a	UNCLASSIFIED	UNASSIGNED	
-apps/backend/src/graphs/codeIngestionGraph/nodes/identifyPatterns.test.ts	test	n/a	UNCLASSIFIED	UNASSIGNED	
-apps/backend/src/graphs/codeIngestionGraph/nodes/identifyRootsDeterministic.test.ts	test	n/a	UNCLASSIFIED	UNASSIGNED	
-apps/backend/src/graphs/codeIngestionGraph/nodes/identifyServiceDependencies.test.ts	test	n/a	UNCLASSIFIED	UNASSIGNED	
-apps/backend/src/graphs/codeIngestionGraph/nodes/identifyStreams.test.ts	test	n/a	UNCLASSIFIED	UNASSIGNED	
-apps/backend/src/graphs/codeIngestionGraph/nodes/narrowRootsForPartialDiff.test.ts	test	n/a	UNCLASSIFIED	UNASSIGNED	
-apps/backend/src/graphs/codeIngestionGraph/nodes/openApiSpecDiscovery.test.ts	test	n/a	UNCLASSIFIED	UNASSIGNED	
-apps/backend/src/graphs/codeIngestionGraph/nodes/partialIngestionScope.test.ts	test	n/a	UNCLASSIFIED	UNASSIGNED	
-apps/backend/src/graphs/codeIngestionGraph/nodes/reindex.test.ts	test	n/a	UNCLASSIFIED	UNASSIGNED	
-apps/backend/src/graphs/codeIngestionGraph/runExtractRoot.test.ts	test	n/a	UNCLASSIFIED	UNASSIGNED	
-apps/backend/src/graphs/codeIngestionGraph/schemas.test.ts	test	n/a	UNCLASSIFIED	UNASSIGNED	
-apps/backend/src/graphs/codeIngestionGraph/setIngestionIndexingStep.test.ts	test	n/a	UNCLASSIFIED	UNASSIGNED	
-apps/backend/src/graphs/codeIngestionGraph/withIngestAgentContext.test.ts	test	n/a	UNCLASSIFIED	UNASSIGNED	
-apps/backend/src/graphs/conversationGraph/nodes/conversationNaming.test.ts	test	n/a	UNCLASSIFIED	UNASSIGNED	
-apps/backend/src/graphs/conversationGraph/nodes/knowledgeGraphFocus.test.ts	test	n/a	UNCLASSIFIED	UNASSIGNED	
-apps/backend/src/lib/agentToolRuntime.test.ts	test	n/a	UNCLASSIFIED	UNASSIGNED	
-apps/backend/src/lib/atlassian-api-base-url.test.ts	test	n/a	UNCLASSIFIED	UNASSIGNED	
-apps/backend/src/lib/buildSourceLink.test.ts	test	n/a	UNCLASSIFIED	UNASSIGNED	
-apps/backend/src/lib/connection-config-slack.test.ts	test	n/a	UNCLASSIFIED	UNASSIGNED	
-apps/backend/src/lib/connection-config.test.ts	test	n/a	UNCLASSIFIED	UNASSIGNED	
-apps/backend/src/lib/forge-app-manifest.test.ts	test	n/a	UNCLASSIFIED	UNASSIGNED	
-apps/backend/src/lib/forge-provision-error-map.test.ts	test	n/a	UNCLASSIFIED	UNASSIGNED	
-apps/backend/src/lib/id.test.ts	test	n/a	UNCLASSIFIED	UNASSIGNED	
-apps/backend/src/lib/memoryFitError.test.ts	test	n/a	UNCLASSIFIED	UNASSIGNED	
-apps/backend/src/lib/withTransientHttpRetry.test.ts	test	n/a	UNCLASSIFIED	UNASSIGNED	
-apps/backend/src/mcp/tools.test.ts	test	n/a	UNCLASSIFIED	UNASSIGNED	
-apps/backend/src/models/atlassian-connector.org-tx.test.ts	test	n/a	UNCLASSIFIED	UNASSIGNED	
-apps/backend/src/models/connector-sync-target.test.ts	test	n/a	UNCLASSIFIED	UNASSIGNED	
-apps/backend/src/models/github-installation-token.test.ts	test	n/a	UNCLASSIFIED	UNASSIGNED	
-apps/backend/src/models/github-mcp-config-pr.test.ts	test	n/a	UNCLASSIFIED	UNASSIGNED	
-apps/backend/src/models/linear-connector.test.ts	test	n/a	UNCLASSIFIED	UNASSIGNED	
-apps/backend/src/models/linear-token-refresh.org-tx.test.ts	test	n/a	UNCLASSIFIED	UNASSIGNED	
-apps/backend/src/models/notion-connector.test.ts	test	n/a	UNCLASSIFIED	UNASSIGNED	
-apps/backend/src/models/repositories.test.ts	test	n/a	UNCLASSIFIED	UNASSIGNED	
-apps/backend/src/models/slack-connector.test.ts	test	n/a	UNCLASSIFIED	UNASSIGNED	
-apps/backend/src/models/workspaces-create.test.ts	test	n/a	UNCLASSIFIED	UNASSIGNED	
-apps/backend/src/models/workspaces-sandbox-instances.test.ts	test	n/a	UNCLASSIFIED	UNASSIGNED	
-apps/backend/src/models/workspaces-sandbox-persist.test.ts	test	n/a	UNCLASSIFIED	UNASSIGNED	
-apps/backend/src/observability/workflow-log.test.ts	test	n/a	UNCLASSIFIED	UNASSIGNED	
-apps/backend/src/openworkflow/enqueue-follow-up-if-tip-ahead.test.ts	test	n/a	UNCLASSIFIED	UNASSIGNED	
-apps/backend/src/openworkflow/enqueue-notion-push-sync.test.ts	test	n/a	UNCLASSIFIED	UNASSIGNED	
-apps/backend/src/openworkflow/enqueue-repository-deletion.test.ts	test	n/a	UNCLASSIFIED	UNASSIGNED	
-apps/backend/src/openworkflow/enqueue-repository-ingestion.test.ts	test	n/a	UNCLASSIFIED	UNASSIGNED	
-apps/backend/src/openworkflow/enqueue-workspace-commit-projection.test.ts	test	n/a	UNCLASSIFIED	UNASSIGNED	
-apps/backend/src/openworkflow/enqueue-workspace-hydrate.test.ts	test	n/a	UNCLASSIFIED	UNASSIGNED	
-apps/backend/src/openworkflow/enqueue-workspace-index.test.ts	test	n/a	UNCLASSIFIED	UNASSIGNED	
-apps/backend/src/openworkflow/enqueue-workspace-tip-check.test.ts	test	n/a	UNCLASSIFIED	UNASSIGNED	
-apps/backend/src/openworkflow/enqueue-workspace-write-commit.test.ts	test	n/a	UNCLASSIFIED	UNASSIGNED	
-apps/backend/src/openworkflow/withLoggedStepAttempt.test.ts	test	n/a	UNCLASSIFIED	UNASSIGNED	
-apps/backend/src/openworkflow/workflows/forge-provision.devspace.test.ts	test	n/a	UNCLASSIFIED	UNASSIGNED	
-apps/backend/src/openworkflow/workflows/linear-sync-config.test.ts	test	n/a	UNCLASSIFIED	UNASSIGNED	
-apps/backend/src/openworkflow/workflows/linear-sync-content.test.ts	test	n/a	UNCLASSIFIED	UNASSIGNED	
-apps/backend/src/openworkflow/workflows/linear-sync-entity.test.ts	test	n/a	UNCLASSIFIED	UNASSIGNED	
-apps/backend/src/openworkflow/workflows/notion-sync-config.test.ts	test	n/a	UNCLASSIFIED	UNASSIGNED	
-apps/backend/src/openworkflow/workflows/notion-sync-content.test.ts	test	n/a	UNCLASSIFIED	UNASSIGNED	
-apps/backend/src/openworkflow/workflows/notion-sync-entity.test.ts	test	n/a	UNCLASSIFIED	UNASSIGNED	
-apps/backend/src/openworkflow/workflows/notion-workflow-discovery.test.ts	test	n/a	UNCLASSIFIED	UNASSIGNED	
-apps/backend/src/openworkflow/workflows/repository-index.test.ts	test	n/a	UNCLASSIFIED	UNASSIGNED	
-apps/backend/src/openworkflow/workflows/repository-ingestion-orchestrator.test.ts	test	n/a	UNCLASSIFIED	UNASSIGNED	
-apps/backend/src/openworkflow/workflows/repository-ingestion.reindex-tx.test.ts	test	n/a	UNCLASSIFIED	UNASSIGNED	
-apps/backend/src/openworkflow/workflows/slack-mention-agent.test.ts	test	n/a	UNCLASSIFIED	UNASSIGNED	
-apps/backend/src/openworkflow/workflows/slack-workflow-discovery.test.ts	test	n/a	UNCLASSIFIED	UNASSIGNED	
-apps/backend/src/openworkflow/workflows/workspace-hydrate.test.ts	test	n/a	UNCLASSIFIED	UNASSIGNED	
-apps/backend/src/openworkflow/workflows/workspace-index.test.ts	test	n/a	UNCLASSIFIED	UNASSIGNED	
-apps/backend/src/openworkflow/workflows/workspace-tip-check.test.ts	test	n/a	UNCLASSIFIED	UNASSIGNED	
-apps/backend/src/openworkflow/workflows/workspace-write-commit.test.ts	test	n/a	UNCLASSIFIED	UNASSIGNED	
-apps/backend/src/retrieval/schema/llm-prompt.test.ts	test	n/a	UNCLASSIFIED	UNASSIGNED	
-apps/backend/src/retrieval/schema/predicateValidation.test.ts	test	n/a	UNCLASSIFIED	UNASSIGNED	
-apps/backend/src/retrieval/services/claimWrite.test.ts	test	n/a	UNCLASSIFIED	UNASSIGNED	
-apps/backend/src/retrieval/services/confidenceAggregation.test.ts	test	n/a	UNCLASSIFIED	UNASSIGNED	
-apps/backend/src/retrieval/services/graphProjection.test.ts	test	n/a	UNCLASSIFIED	UNASSIGNED	
-apps/backend/src/retrieval/services/ingestionPathMatching.test.ts	test	n/a	UNCLASSIFIED	UNASSIGNED	
-apps/backend/src/retrieval/services/ingestionRetraction.integration.test.ts	test	n/a	UNCLASSIFIED	UNASSIGNED	
-apps/backend/src/retrieval/services/ingestionRetraction.test.ts	test	n/a	UNCLASSIFIED	UNASSIGNED	
-apps/backend/src/retrieval/services/langchainReasoningParams.test.ts	test	n/a	UNCLASSIFIED	UNASSIGNED	
-apps/backend/src/retrieval/services/logicalSourceKey.test.ts	test	n/a	UNCLASSIFIED	UNASSIGNED	
-apps/backend/src/retrieval/services/modelProvider.test.ts	test	n/a	UNCLASSIFIED	UNASSIGNED	
-apps/backend/src/retrieval/services/parseModelSpec.test.ts	test	n/a	UNCLASSIFIED	UNASSIGNED	
-apps/backend/src/retrieval/services/providers/openAILikeModelProvider.test.ts	test	n/a	UNCLASSIFIED	UNASSIGNED	
-apps/backend/src/retrieval/services/providers/openrouterModelProvider.test.ts	test	n/a	UNCLASSIFIED	UNASSIGNED	
-apps/backend/src/retrieval/services/retrievalObjectWrite.test.ts	test	n/a	UNCLASSIFIED	UNASSIGNED	
-apps/backend/src/routes/auth.test.ts	test	n/a	UNCLASSIFIED	UNASSIGNED	
-apps/backend/src/routes/langsmith.test.ts	test	n/a	UNCLASSIFIED	UNASSIGNED	
-apps/backend/src/routes/mcp-brand-asset.test.ts	test	n/a	UNCLASSIFIED	UNASSIGNED	
-apps/backend/src/routes/mcp.conformance.test.ts	test	n/a	UNCLASSIFIED	UNASSIGNED	
-apps/backend/src/routes/mcp.test.ts	test	n/a	UNCLASSIFIED	UNASSIGNED	
-apps/backend/src/routes/ui.test.ts	test	n/a	UNCLASSIFIED	UNASSIGNED	
-apps/backend/src/routes/v1/connectors-atlassian.test.ts	test	n/a	UNCLASSIFIED	UNASSIGNED	
-apps/backend/src/routes/v1/connectors-linear.test.ts	test	n/a	UNCLASSIFIED	UNASSIGNED	
-apps/backend/src/routes/v1/connectors-list.test.ts	test	n/a	UNCLASSIFIED	UNASSIGNED	
-apps/backend/src/routes/v1/connectors-notion.test.ts	test	n/a	UNCLASSIFIED	UNASSIGNED	
-apps/backend/src/routes/v1/connectors-slack.test.ts	test	n/a	UNCLASSIFIED	UNASSIGNED	
-apps/backend/src/routes/v1/conversation-files-routes.live.test.ts	test	n/a	proof	Gate 4 backend	Inspected: real sandbox filesystem through Hono; auth/row fixtures only; passed in logs/tests-backend-node22.log.
-apps/backend/src/routes/v1/conversation-websocket.test.ts	test	n/a	UNCLASSIFIED	UNASSIGNED	
-apps/backend/src/routes/v1/conversations.test.ts	test	n/a	UNCLASSIFIED	UNASSIGNED	
-apps/backend/src/routes/v1/github-installation.test.ts	test	n/a	UNCLASSIFIED	UNASSIGNED	
-apps/backend/src/routes/v1/health.test.ts	test	n/a	UNCLASSIFIED	UNASSIGNED	
-apps/backend/src/routes/v1/index.test.ts	test	n/a	UNCLASSIFIED	UNASSIGNED	
-apps/backend/src/routes/v1/openai.test.ts	test	n/a	UNCLASSIFIED	UNASSIGNED	
-apps/backend/src/routes/v1/org-atlassian-oauth.test.ts	test	n/a	UNCLASSIFIED	UNASSIGNED	
-apps/backend/src/routes/v1/repositories.test.ts	test	n/a	UNCLASSIFIED	UNASSIGNED	
-apps/backend/src/routes/v1/workspace-activity-routes.test.ts	test	n/a	UNCLASSIFIED	UNASSIGNED	
-apps/backend/src/routes/v1/workspace-chat-openai.test.ts	test	n/a	UNCLASSIFIED	UNASSIGNED	
-apps/backend/src/routes/v1/workspaces.test.ts	test	n/a	UNCLASSIFIED	UNASSIGNED	
-apps/backend/src/routes/webhooks/atlassian/atlassian.test.ts	test	n/a	UNCLASSIFIED	UNASSIGNED	
-apps/backend/src/routes/webhooks/github/github-confluence-push.test.ts	test	n/a	UNCLASSIFIED	UNASSIGNED	
-apps/backend/src/routes/webhooks/github/github-linear-push.test.ts	test	n/a	UNCLASSIFIED	UNASSIGNED	
-apps/backend/src/routes/webhooks/github/github-notion-push.test.ts	test	n/a	UNCLASSIFIED	UNASSIGNED	
-apps/backend/src/routes/webhooks/github/github-workspace-tip.test.ts	test	n/a	UNCLASSIFIED	UNASSIGNED	
-apps/backend/src/routes/webhooks/github/github.test.ts	test	n/a	UNCLASSIFIED	UNASSIGNED	
-apps/backend/src/routes/webhooks/linear/linear.test.ts	test	n/a	UNCLASSIFIED	UNASSIGNED	
-apps/backend/src/routes/webhooks/notion/notion.test.ts	test	n/a	UNCLASSIFIED	UNASSIGNED	
-apps/backend/src/routes/webhooks/slack/slack.test.ts	test	n/a	UNCLASSIFIED	UNASSIGNED	
-apps/backend/src/services/confluence/config-yaml.test.ts	test	n/a	UNCLASSIFIED	UNASSIGNED	
-apps/backend/src/services/confluence/forge-confluence-webhook.test.ts	test	n/a	UNCLASSIFIED	UNASSIGNED	
-apps/backend/src/services/confluence/github-push-config-sync.test.ts	test	n/a	UNCLASSIFIED	UNASSIGNED	
-apps/backend/src/services/confluence/sync.test.ts	test	n/a	UNCLASSIFIED	UNASSIGNED	
-apps/backend/src/services/git/clone-tree.test.ts	test	n/a	UNCLASSIFIED	UNASSIGNED	
-apps/backend/src/services/github/installation-write-client.test.ts	test	n/a	UNCLASSIFIED	UNASSIGNED	
-apps/backend/src/services/linear/client-discovery.test.ts	test	n/a	UNCLASSIFIED	UNASSIGNED	
-apps/backend/src/services/linear/client.test.ts	test	n/a	UNCLASSIFIED	UNASSIGNED	
-apps/backend/src/services/linear/config-yaml.test.ts	test	n/a	UNCLASSIFIED	UNASSIGNED	
-apps/backend/src/services/linear/converter.test.ts	test	n/a	UNCLASSIFIED	UNASSIGNED	
-apps/backend/src/services/linear/incremental.test.ts	test	n/a	UNCLASSIFIED	UNASSIGNED	
-apps/backend/src/services/linear/oauth-state.test.ts	test	n/a	UNCLASSIFIED	UNASSIGNED	
-apps/backend/src/services/linear/sync.test.ts	test	n/a	UNCLASSIFIED	UNASSIGNED	
-apps/backend/src/services/notion/client.test.ts	test	n/a	UNCLASSIFIED	UNASSIGNED	
-apps/backend/src/services/notion/config-yaml.test.ts	test	n/a	UNCLASSIFIED	UNASSIGNED	
-apps/backend/src/services/notion/converter.test.ts	test	n/a	UNCLASSIFIED	UNASSIGNED	
-apps/backend/src/services/notion/incremental.test.ts	test	n/a	UNCLASSIFIED	UNASSIGNED	
-apps/backend/src/services/notion/sync.test.ts	test	n/a	UNCLASSIFIED	UNASSIGNED	
-apps/backend/src/services/slack/client.test.ts	test	n/a	UNCLASSIFIED	UNASSIGNED	
-apps/backend/src/services/slack/converter.test.ts	test	n/a	UNCLASSIFIED	UNASSIGNED	
-apps/backend/src/services/slack/mention-agent.test.ts	test	n/a	UNCLASSIFIED	UNASSIGNED	
-apps/backend/src/services/slack/sync.test.ts	test	n/a	UNCLASSIFIED	UNASSIGNED	
-apps/backend/src/services/slack/verify-signature.test.ts	test	n/a	UNCLASSIFIED	UNASSIGNED	
-apps/backend/src/tools/getFile.test.ts	test	n/a	UNCLASSIFIED	UNASSIGNED	
-apps/backend/src/tools/structuralSearch.test.ts	test	n/a	UNCLASSIFIED	UNASSIGNED	
-apps/backend/src/tools/zoektSymbolQuery.test.ts	test	n/a	UNCLASSIFIED	UNASSIGNED	
-apps/codesearch/src/auth/jwt.test.ts	test	n/a	UNCLASSIFIED	UNASSIGNED	
-apps/codesearch/src/config/paths.test.ts	test	n/a	UNCLASSIFIED	UNASSIGNED	
-apps/codesearch/src/db/client.org-context.test.ts	test	n/a	UNCLASSIFIED	UNASSIGNED	
-apps/codesearch/src/db/transient.test.ts	test	n/a	UNCLASSIFIED	UNASSIGNED	
-apps/codesearch/src/domain/graph/executeGraphPrimitive.test.ts	test	n/a	UNCLASSIFIED	UNASSIGNED	
-apps/codesearch/src/domain/graph/scipProto.test.ts	test	n/a	UNCLASSIFIED	UNASSIGNED	
-apps/codesearch/src/domain/indexing/detectLanguages.test.ts	test	n/a	UNCLASSIFIED	UNASSIGNED	
-apps/codesearch/src/domain/indexing/heartbeat.test.ts	test	n/a	UNCLASSIFIED	UNASSIGNED	
-apps/codesearch/src/domain/indexing/indexConcurrency.test.ts	test	n/a	UNCLASSIFIED	UNASSIGNED	
-apps/codesearch/src/domain/indexing/indexerChildEnv.test.ts	test	n/a	UNCLASSIFIED	UNASSIGNED	
-apps/codesearch/src/domain/indexing/memoryFitError.test.ts	test	n/a	UNCLASSIFIED	UNASSIGNED	
-apps/codesearch/src/domain/indexing/scipIndexers.test.ts	test	n/a	UNCLASSIFIED	UNASSIGNED	
-apps/codesearch/src/domain/indexing/scipTouchedLanguages.test.ts	test	n/a	UNCLASSIFIED	UNASSIGNED	
-apps/codesearch/src/domain/indexing/service.test.ts	test	n/a	UNCLASSIFIED	UNASSIGNED	
-apps/codesearch/src/domain/indexing/streamTail.test.ts	test	n/a	UNCLASSIFIED	UNASSIGNED	
-apps/codesearch/src/domain/indexingSteps.test.ts	test	n/a	UNCLASSIFIED	UNASSIGNED	
-apps/codesearch/src/domain/repositories/globFiles.test.ts	test	n/a	UNCLASSIFIED	UNASSIGNED	
-apps/codesearch/src/domain/repositories/paths.test.ts	test	n/a	UNCLASSIFIED	UNASSIGNED	
-apps/codesearch/src/domain/repositories/purge.test.ts	test	n/a	UNCLASSIFIED	UNASSIGNED	
-apps/codesearch/src/domain/repositories/resolveRef.test.ts	test	n/a	UNCLASSIFIED	UNASSIGNED	
-apps/codesearch/src/domain/repositories/service.test.ts	test	n/a	UNCLASSIFIED	UNASSIGNED	
-apps/codesearch/src/domain/search/structuralSearch.test.ts	test	n/a	UNCLASSIFIED	UNASSIGNED	
-apps/codesearch/src/domain/zoekt/pinManager.test.ts	test	n/a	UNCLASSIFIED	UNASSIGNED	
-apps/codesearch/src/domain/zoekt/shardPrefix.test.ts	test	n/a	UNCLASSIFIED	UNASSIGNED	
-apps/codesearch/src/domain/zoekt/warmup.integration.test.ts	test	n/a	UNCLASSIFIED	UNASSIGNED	
-apps/codesearch/src/domain/zoekt/warmup.test.ts	test	n/a	UNCLASSIFIED	UNASSIGNED	
-apps/codesearch/src/observability/http-wide-event-message.test.ts	test	n/a	UNCLASSIFIED	UNASSIGNED	
-apps/codesearch/src/routes/graph.test.ts	test	n/a	UNCLASSIFIED	UNASSIGNED	
-apps/codesearch/src/routes/indexPhases.test.ts	test	n/a	UNCLASSIFIED	UNASSIGNED	
-apps/codesearch/src/routes/indexPhases.zoekt.test.ts	test	n/a	UNCLASSIFIED	UNASSIGNED	
-apps/codesearch/src/routes/repo.test.ts	test	n/a	UNCLASSIFIED	UNASSIGNED	
-apps/codesearch/src/routes/search.test.ts	test	n/a	UNCLASSIFIED	UNASSIGNED	
-apps/codesearch/src/routes/structuralSearch.test.ts	test	n/a	UNCLASSIFIED	UNASSIGNED	
-apps/ui/src/components/SideNav/SideNav.stories.tsx	story	yes	UNCLASSIFIED	UNASSIGNED	
-apps/ui/src/components/SideNav/sideNavLocation.test.ts	test	n/a	UNCLASSIFIED	UNASSIGNED	
-apps/ui/src/components/onboarding/McpConfigPrWizard.stories.tsx	story	yes	UNCLASSIFIED	UNASSIGNED	
-apps/ui/src/components/onboarding/McpConfigPreviewDiff.stories.tsx	story	no	UNCLASSIFIED	UNASSIGNED	
-apps/ui/src/components/onboarding/McpOnboardingSlide.stories.tsx	story	yes	UNCLASSIFIED	UNASSIGNED	
-apps/ui/src/components/onboarding/OnboardingCreateOrgSlide.stories.tsx	story	yes	UNCLASSIFIED	UNASSIGNED	
-apps/ui/src/components/onboarding/OnboardingExternalInviteModal.stories.tsx	story	no	UNCLASSIFIED	UNASSIGNED	
-apps/ui/src/components/onboarding/OnboardingGithubSlide.stories.tsx	story	no	UNCLASSIFIED	UNASSIGNED	
-apps/ui/src/components/onboarding/OnboardingInviteSlide.stories.tsx	story	yes	UNCLASSIFIED	UNASSIGNED	
-apps/ui/src/components/onboarding/OnboardingJoinerDoneSlide.stories.tsx	story	no	UNCLASSIFIED	UNASSIGNED	
-apps/ui/src/components/onboarding/OnboardingOverviewSlide.stories.tsx	story	no	UNCLASSIFIED	UNASSIGNED	
-apps/ui/src/components/onboarding/OnboardingPageShell.stories.tsx	story	yes	UNCLASSIFIED	UNASSIGNED	
-apps/ui/src/components/onboarding/OnboardingWelcomeSlide.stories.tsx	story	yes	UNCLASSIFIED	UNASSIGNED	
-apps/ui/src/components/ui/Button.test.tsx	test	n/a	UNCLASSIFIED	UNASSIGNED	
-apps/ui/src/components/ui/InlineLoader.stories.tsx	story	no	UNCLASSIFIED	UNASSIGNED	
-apps/ui/src/components/ui/Skeleton.stories.tsx	story	no	UNCLASSIFIED	UNASSIGNED	
-apps/ui/src/features/auth/accept-invitation.test.ts	test	n/a	UNCLASSIFIED	UNASSIGNED	
-apps/ui/src/features/chat/ConversationThread.stories.tsx	story	yes	UNCLASSIFIED	UNASSIGNED	
-apps/ui/src/features/chat/ConversationThread.test.tsx	test	n/a	UNCLASSIFIED	UNASSIGNED	
-apps/ui/src/features/chat/conversation-thread-utils.test.ts	test	n/a	UNCLASSIFIED	UNASSIGNED	
-apps/ui/src/features/chat/insertConversationListItem.test.ts	test	n/a	UNCLASSIFIED	UNASSIGNED	
-apps/ui/src/features/connectors/EditScopeModal.stories.tsx	story	no	UNCLASSIFIED	UNASSIGNED	
-apps/ui/src/features/connectors/SpacePageTree.stories.tsx	story	no	UNCLASSIFIED	UNASSIGNED	
-apps/ui/src/features/connectors/components/AddConfluenceConnectorButton.stories.tsx	story	no	UNCLASSIFIED	UNASSIGNED	
-apps/ui/src/features/connectors/components/AddConnectorCatalogDialog.stories.tsx	story	no	UNCLASSIFIED	UNASSIGNED	
-apps/ui/src/features/connectors/components/AddGithubConnectorButton.stories.tsx	story	no	UNCLASSIFIED	UNASSIGNED	
-apps/ui/src/features/connectors/components/AddLinearConnectorButton.stories.tsx	story	no	UNCLASSIFIED	UNASSIGNED	
-apps/ui/src/features/connectors/components/AddNotionConnectorButton.stories.tsx	story	no	UNCLASSIFIED	UNASSIGNED	
-apps/ui/src/features/connectors/components/AddSlackConnectorButton.stories.tsx	story	no	UNCLASSIFIED	UNASSIGNED	
-apps/ui/src/features/connectors/components/AtlassianAccountClaimModalContent.stories.tsx	story	no	UNCLASSIFIED	UNASSIGNED	
-apps/ui/src/features/connectors/components/ConfluenceConnectionCard.stories.tsx	story	no	UNCLASSIFIED	UNASSIGNED	
-apps/ui/src/features/connectors/components/ConfluenceMark.stories.tsx	story	no	UNCLASSIFIED	UNASSIGNED	
-apps/ui/src/features/connectors/components/ConnectorContextRepositoryGuidance.test.ts	test	n/a	UNCLASSIFIED	UNASSIGNED	
-apps/ui/src/features/connectors/components/ConnectorListItem.stories.tsx	story	no	UNCLASSIFIED	UNASSIGNED	
-apps/ui/src/features/connectors/components/ConnectorSetupStepper.stories.tsx	story	no	UNCLASSIFIED	UNASSIGNED	
-apps/ui/src/features/connectors/components/ConnectorSetupStepper.test.tsx	test	n/a	UNCLASSIFIED	UNASSIGNED	
-apps/ui/src/features/connectors/components/ConnectorWorkspaceDestinationPicker.test.ts	test	n/a	UNCLASSIFIED	UNASSIGNED	
-apps/ui/src/features/connectors/components/ConnectorsEmptyState.stories.tsx	story	no	UNCLASSIFIED	UNASSIGNED	
-apps/ui/src/features/connectors/components/ConnectorsOAuthErrorBanner.stories.tsx	story	no	UNCLASSIFIED	UNASSIGNED	
-apps/ui/src/features/connectors/components/GitHubPrerequisiteStep.stories.tsx	story	no	UNCLASSIFIED	UNASSIGNED	
-apps/ui/src/features/connectors/components/GithubConnectionCard.stories.tsx	story	no	UNCLASSIFIED	UNASSIGNED	
-apps/ui/src/features/connectors/components/LinearConnectionCard.stories.tsx	story	no	UNCLASSIFIED	UNASSIGNED	
-apps/ui/src/features/connectors/components/LinearMark.stories.tsx	story	no	UNCLASSIFIED	UNASSIGNED	
-apps/ui/src/features/connectors/components/NotionConnectionCard.stories.tsx	story	no	UNCLASSIFIED	UNASSIGNED	
-apps/ui/src/features/connectors/components/NotionSetupDialog.stories.tsx	story	no	UNCLASSIFIED	UNASSIGNED	
-apps/ui/src/features/connectors/components/OrgAtlassianOauthPanel.stories.tsx	story	no	UNCLASSIFIED	UNASSIGNED	
-apps/ui/src/features/connectors/components/SlackConnectionCard.stories.tsx	story	no	UNCLASSIFIED	UNASSIGNED	
-apps/ui/src/features/connectors/components/SlackSetupDialog.stories.tsx	story	no	UNCLASSIFIED	UNASSIGNED	
-apps/ui/src/features/connectors/components/SlackSetupDialog.test.tsx	test	n/a	UNCLASSIFIED	UNASSIGNED	
-apps/ui/src/features/connectors/components/confluence-setup/ConfluenceSetupWizard.stories.tsx	story	no	UNCLASSIFIED	UNASSIGNED	
-apps/ui/src/features/connectors/components/confluence-setup/steps/InstallForgeStep.stories.tsx	story	no	UNCLASSIFIED	UNASSIGNED	
-apps/ui/src/features/connectors/components/confluence-setup/steps/LinkAtlassianStep.stories.tsx	story	no	UNCLASSIFIED	UNASSIGNED	
-apps/ui/src/features/connectors/components/confluence-setup/steps/LinkGitHubStep.stories.tsx	story	no	UNCLASSIFIED	UNASSIGNED	
-apps/ui/src/features/connectors/components/confluence-setup/steps/MergeConfigStep.stories.tsx	story	no	UNCLASSIFIED	UNASSIGNED	
-apps/ui/src/features/connectors/components/confluence-setup/steps/RegisterAtlassianOauthStep.stories.tsx	story	no	UNCLASSIFIED	UNASSIGNED	
-apps/ui/src/features/connectors/components/confluence-setup/steps/SelectSyncTargetStep.stories.tsx	story	no	UNCLASSIFIED	UNASSIGNED	
-apps/ui/src/features/connectors/components/confluence-setup/steps/SetupCompleteStep.stories.tsx	story	no	UNCLASSIFIED	UNASSIGNED	
-apps/ui/src/features/connectors/components/confluence-setup/steps/WaitForInstallStep.stories.tsx	story	no	UNCLASSIFIED	UNASSIGNED	
-apps/ui/src/features/connectors/components/github-setup/steps/GithubSelfHostedCredentialsStep.stories.tsx	story	no	UNCLASSIFIED	UNASSIGNED	
-apps/ui/src/features/connectors/components/linear-setup/LinearSetupWizard.stories.tsx	story	no	UNCLASSIFIED	UNASSIGNED	
-apps/ui/src/features/connectors/confluence-setup-model.forge-wait.test.ts	test	n/a	UNCLASSIFIED	UNASSIGNED	
-apps/ui/src/features/connectors/connectorHealth.test.ts	test	n/a	UNCLASSIFIED	UNASSIGNED	
-apps/ui/src/features/connectors/githubConnectFlow.test.ts	test	n/a	UNCLASSIFIED	UNASSIGNED	
-apps/ui/src/features/connectors/linear-setup-model.test.ts	test	n/a	UNCLASSIFIED	UNASSIGNED	
-apps/ui/src/features/connectors/notion-setup-model.test.ts	test	n/a	UNCLASSIFIED	UNASSIGNED	
-apps/ui/src/features/connectors/queries/forge-provision-api.test.ts	test	n/a	UNCLASSIFIED	UNASSIGNED	
-apps/ui/src/features/connectors/queries/github-connector.test.ts	test	n/a	UNCLASSIFIED	UNASSIGNED	
-apps/ui/src/features/connectors/queries/linear-connector.test.ts	test	n/a	UNCLASSIFIED	UNASSIGNED	
-apps/ui/src/features/connectors/queries/notion-connector.test.ts	test	n/a	UNCLASSIFIED	UNASSIGNED	
-apps/ui/src/features/connectors/queries/org-connections.test.ts	test	n/a	UNCLASSIFIED	UNASSIGNED	
-apps/ui/src/features/connectors/queries/slack-connector.test.ts	test	n/a	UNCLASSIFIED	UNASSIGNED	
-apps/ui/src/features/connectors/slack-setup-model.test.ts	test	n/a	UNCLASSIFIED	UNASSIGNED	
-apps/ui/src/features/home/HomeComposer.stories.tsx	story	yes	UNCLASSIFIED	UNASSIGNED	
-apps/ui/src/features/home/WorkspaceActivityHeatmap.stories.tsx	story	no	UNCLASSIFIED	UNASSIGNED	
-apps/ui/src/features/home/WorkspaceRecentCommits.stories.tsx	story	no	UNCLASSIFIED	UNASSIGNED	
-apps/ui/src/features/home/calendar-days.test.ts	test	n/a	UNCLASSIFIED	UNASSIGNED	
-apps/ui/src/features/knowledge-graph/KnowledgeGraphCosmographCanvas.stories.tsx	story	no	UNCLASSIFIED	UNASSIGNED	
-apps/ui/src/features/knowledge-graph/NodeDetailDrawer.stories.tsx	story	no	UNCLASSIFIED	UNASSIGNED	
-apps/ui/src/features/knowledge-graph/knowledgeGraphFocusFit.test.ts	test	n/a	UNCLASSIFIED	UNASSIGNED	
-apps/ui/src/features/knowledge-graph/knowledgeGraphIntroStorage.test.ts	test	n/a	UNCLASSIFIED	UNASSIGNED	
-apps/ui/src/features/repositories/components/RepositoryCard.stories.tsx	story	yes	UNCLASSIFIED	UNASSIGNED	
-apps/ui/src/features/repositories/components/RepositoryCard.test.tsx	test	n/a	UNCLASSIFIED	UNASSIGNED	
-apps/ui/src/features/repositories/components/RepositoryStatus.test.tsx	test	n/a	UNCLASSIFIED	UNASSIGNED	
-apps/ui/src/features/repositories/gitSourcesFilter.test.ts	test	n/a	UNCLASSIFIED	UNASSIGNED	
-apps/ui/src/features/repositories/gitSourcesListRows.test.ts	test	n/a	UNCLASSIFIED	UNASSIGNED	
-apps/ui/src/features/repositories/githubRepoSelection.test.ts	test	n/a	UNCLASSIFIED	UNASSIGNED	
-apps/ui/src/features/repositories/pendingGithubRepos.test.ts	test	n/a	UNCLASSIFIED	UNASSIGNED	
-apps/ui/src/features/repositories/repositoryCardPresentation.test.ts	test	n/a	UNCLASSIFIED	UNASSIGNED	
-apps/ui/src/features/repositories/types.test.ts	test	n/a	UNCLASSIFIED	UNASSIGNED	
-apps/ui/src/features/repositories/useRepositoryIndexingSummary.test.ts	test	n/a	UNCLASSIFIED	UNASSIGNED	
-apps/ui/src/features/workspaces/GithubWorkspaceDestination.stories.tsx	story	no	UNCLASSIFIED	UNASSIGNED	
-apps/ui/src/features/workspaces/WorkspaceChat.stories.tsx	story	no	UNCLASSIFIED	UNASSIGNED	
-apps/ui/src/features/workspaces/WorkspaceChatChrome.stories.tsx	story	no	UNCLASSIFIED	UNASSIGNED	
-apps/ui/src/features/workspaces/WorkspaceChatChrome.test.tsx	test	n/a	UNCLASSIFIED	UNASSIGNED	
-apps/ui/src/features/workspaces/WorkspaceChatSession.stories.tsx	story	yes	UNCLASSIFIED	UNASSIGNED	
-apps/ui/src/features/workspaces/WorkspaceChatSession.test.tsx	test	n/a	UNCLASSIFIED	UNASSIGNED	
-apps/ui/src/features/workspaces/WorkspaceCommandPalette.stories.tsx	story	yes	UNCLASSIFIED	UNASSIGNED	
-apps/ui/src/features/workspaces/WorkspaceConversationList.stories.tsx	story	no	UNCLASSIFIED	UNASSIGNED	
-apps/ui/src/features/workspaces/WorkspaceCreateForm.stories.tsx	story	yes	UNCLASSIFIED	UNASSIGNED	
-apps/ui/src/features/workspaces/WorkspaceFileTree.hover.test.ts	test	n/a	UNCLASSIFIED	UNASSIGNED	
-apps/ui/src/features/workspaces/WorkspaceFileTree.ssr.test.tsx	test	n/a	UNCLASSIFIED	UNASSIGNED	
-apps/ui/src/features/workspaces/WorkspaceFileTree.stories.tsx	story	yes	UNCLASSIFIED	UNASSIGNED	
-apps/ui/src/features/workspaces/WorkspaceGraphPane.stories.tsx	story	no	UNCLASSIFIED	UNASSIGNED	
-apps/ui/src/features/workspaces/WorkspaceHydrateProgress.stories.tsx	story	no	UNCLASSIFIED	UNASSIGNED	
-apps/ui/src/features/workspaces/WorkspaceHydrateProgress.test.tsx	test	n/a	UNCLASSIFIED	UNASSIGNED	
-apps/ui/src/features/workspaces/WorkspaceNavList.stories.tsx	story	no	UNCLASSIFIED	UNASSIGNED	
-apps/ui/src/features/workspaces/WorkspaceNavRow.stories.tsx	story	no	UNCLASSIFIED	UNASSIGNED	
-apps/ui/src/features/workspaces/WorkspacePane.stories.tsx	story	yes	UNCLASSIFIED	UNASSIGNED	
-apps/ui/src/features/workspaces/WorkspacePierreFile.stories.tsx	story	no	UNCLASSIFIED	UNASSIGNED	
-apps/ui/src/features/workspaces/WorkspaceRepositoryPicker.stories.tsx	story	yes	UNCLASSIFIED	UNASSIGNED	
-apps/ui/src/features/workspaces/WorkspaceSettingsPane.stories.tsx	story	yes	UNCLASSIFIED	UNASSIGNED	
-apps/ui/src/features/workspaces/WorkspaceSurface.stories.tsx	story	yes	characterization	Gate 5 UI	Compose renders; conversation navigation play fails on stale text before navigation. See browser-observations.md.
-apps/ui/src/features/workspaces/conversation-git-tree-snapshot.test.ts	test	n/a	UNCLASSIFIED	UNASSIGNED	
-apps/ui/src/features/workspaces/conversationPublish.test.ts	test	n/a	UNCLASSIFIED	UNASSIGNED	
-apps/ui/src/features/workspaces/ensure-route-data.test.ts	test	n/a	UNCLASSIFIED	UNASSIGNED	
-apps/ui/src/features/workspaces/fileTabs.test.ts	test	n/a	UNCLASSIFIED	UNASSIGNED	
-apps/ui/src/features/workspaces/fileTreeMutations.test.ts	test	n/a	UNCLASSIFIED	UNASSIGNED	
-apps/ui/src/features/workspaces/gitUrl.test.ts	test	n/a	UNCLASSIFIED	UNASSIGNED	
-apps/ui/src/features/workspaces/github-workspace-destination-nav.test.ts	test	n/a	UNCLASSIFIED	UNASSIGNED	
-apps/ui/src/features/workspaces/nav.test.ts	test	n/a	UNCLASSIFIED	UNASSIGNED	
-apps/ui/src/features/workspaces/pane.test.ts	test	n/a	UNCLASSIFIED	UNASSIGNED	
-apps/ui/src/features/workspaces/projection.test.ts	test	n/a	UNCLASSIFIED	UNASSIGNED	
-apps/ui/src/features/workspaces/queries.test.ts	test	n/a	UNCLASSIFIED	UNASSIGNED	
-apps/ui/src/features/workspaces/workspaceChatWebSocket.test.ts	test	n/a	characterization	Gate 4 backend/UI	Hydration fetch boundary records current error-to-empty behavior; all UI tests pass. logs/tests-ui-node22.log.
-apps/ui/src/features/workspaces/workspaceDeleteNameMatches.test.ts	test	n/a	UNCLASSIFIED	UNASSIGNED	
-apps/ui/src/features/workspaces/writeStatusLabel.test.ts	test	n/a	UNCLASSIFIED	UNASSIGNED	
-apps/ui/src/lib/api-result.test.ts	test	n/a	UNCLASSIFIED	UNASSIGNED	
-apps/ui/src/lib/atlassian-oauth-messages.test.ts	test	n/a	UNCLASSIFIED	UNASSIGNED	
-apps/ui/src/lib/auth-client.test.ts	test	n/a	UNCLASSIFIED	UNASSIGNED	
-apps/ui/src/lib/auth-continuation.test.ts	test	n/a	UNCLASSIFIED	UNASSIGNED	
-apps/ui/src/lib/org-gate.test.ts	test	n/a	UNCLASSIFIED	UNASSIGNED	
-apps/ui/src/providers/AuthProvider.test.tsx	test	n/a	UNCLASSIFIED	UNASSIGNED	
-apps/ui/src/router.test.ts	test	n/a	UNCLASSIFIED	UNASSIGNED	
-apps/ui/src/routes/-$orgSlug.test.ts	test	n/a	UNCLASSIFIED	UNASSIGNED	
-apps/ui/src/routes/-auth.stories.tsx	story	no	UNCLASSIFIED	UNASSIGNED	
-apps/ui/src/routes/-connectors.stories.tsx	story	yes	UNCLASSIFIED	UNASSIGNED	
-apps/ui/src/routes/-home.stories.tsx	story	yes	UNCLASSIFIED	UNASSIGNED	
-apps/ui/src/routes/-onboarding.stories.tsx	story	no	UNCLASSIFIED	UNASSIGNED	
-apps/ui/src/routes/-workspaces.new.stories.tsx	story	yes	UNCLASSIFIED	UNASSIGNED	
-packages/aws-cdk/src/efs-mount.test.ts	test	n/a	UNCLASSIFIED	UNASSIGNED	
-packages/aws-cdk/src/model-provider.test.ts	test	n/a	UNCLASSIFIED	UNASSIGNED	
-packages/aws-cdk/src/secrets-construct.test.ts	test	n/a	UNCLASSIFIED	UNASSIGNED	
-packages/aws-cdk/src/size-profiles.test.ts	test	n/a	UNCLASSIFIED	UNASSIGNED	
-packages/cli/test/argv.test.ts	test	n/a	UNCLASSIFIED	UNASSIGNED	
-packages/cli/test/ctxpipe-config.test.ts	test	n/a	UNCLASSIFIED	UNASSIGNED	
-packages/cli/test/init-memory.test.ts	test	n/a	UNCLASSIFIED	UNASSIGNED	
-packages/cli/test/mcp-doctor.test.ts	test	n/a	UNCLASSIFIED	UNASSIGNED	
-packages/cli/test/mcp-operations.test.ts	test	n/a	UNCLASSIFIED	UNASSIGNED	
-packages/cli/test/memory-init.test.ts	test	n/a	UNCLASSIFIED	UNASSIGNED	
-packages/cli/test/memory/capture.test.ts	test	n/a	UNCLASSIFIED	UNASSIGNED	
-packages/cli/test/memory/evals/live-eval.test.ts	test	n/a	UNCLASSIFIED	UNASSIGNED	
-packages/cli/test/memory/harness/memory-harness.e2e.test.ts	test	n/a	UNCLASSIFIED	UNASSIGNED	
-packages/cli/test/memory/memory-capture-sh.test.ts	test	n/a	UNCLASSIFIED	UNASSIGNED	
+apps/backend/src/app/app.test.ts	test	n/a	characterization	Gate 1 backend	Cases “keeps known backend routes local and protected by auth”; “proxies unknown routes to UI without requiring backend auth”. Boundary: Repository-owned models, workflows, stores, or runtime are mocked; records orchestration and call shape.
+apps/backend/src/auth/config.test.ts	test	n/a	proof	Gate 1 backend	Cases “allows emailed invitations with opaque custom IDs to be accepted”; “createBetterAuth”. Boundary: Pure/public owned logic; literal input-output or error oracle; no owned runtime substituted.
+apps/backend/src/auth/oauth-gateway-request.test.ts	test	n/a	proof	Gate 1 backend	Cases “maps MCP URL with query to canonical audience string”; “returns AUTH_BASE_URL when path matches base URL path”. Boundary: Pure/public owned logic; literal input-output or error oracle; no owned runtime substituted.
+apps/backend/src/auth/verification-email-url.test.ts	test	n/a	proof	Gate 1 backend	Cases “rewrites Better Auth verify-email URL to mounted auth basePath”; “resolveEmailVerificationUrl”. Boundary: Pure/public owned logic; literal input-output or error oracle; no owned runtime substituted.
+apps/backend/src/auth/withAuth.test.ts	test	n/a	characterization	Gate 1 backend	Cases “withCookieAuth sets user and session from cookie session”; “withCookieAuth resolves session via x-api-key header”. Boundary: Repository-owned models, workflows, stores, or runtime are mocked; records orchestration and call shape.
+apps/backend/src/db/client.org-context.test.ts	test	n/a	characterization	Gate 1 backend	Cases “opens one transaction for nested same-org calls”; “throws when nested withOrgDbContext uses a different org”. Boundary: Postgres/Drizzle/checkpoint collaborator is faked; records SQL or transaction choreography.
+apps/backend/src/db/gateway-guards.test.ts	test	n/a	characterization	Gate 1 backend	Cases “enqueueWorkspaceIndex throws inside withOrgDbContext”; “outbound I/O gateway guards”. Boundary: Repository-owned models, workflows, stores, or runtime are mocked; records orchestration and call shape.
+apps/backend/src/db/get-org-db-audit.test.ts	test	n/a	characterization	Gate 1 backend	Cases “every production getOrgDb() site is wrapped or allowlisted”; “getSystemDb does not query tenant tables except the migrate-role allowlist”. Boundary: Reads source, tree, migration, or config shape; structural guard rather than executed behavior.
+apps/backend/src/db/migrate-checkpoints.test.ts	test	n/a	characterization	Gate 1 backend	Cases “runs PostgresSaver.setup on DATABASE_URL and closes the pool”; “requires DATABASE_URL”. Boundary: Postgres/Drizzle/checkpoint collaborator is faked; records SQL or transaction choreography.
+apps/backend/src/db/migrate-openworkflow.test.ts	test	n/a	characterization	Gate 1 backend	Cases “migrates with DATABASE_URL and no AUTH_SECRET”; “requires DATABASE_URL”. Boundary: Postgres/Drizzle/checkpoint collaborator is faked; records SQL or transaction choreography.
+apps/backend/src/db/owner-migrate-url.test.ts	test	n/a	proof	Gate 1 backend	Cases “rewrites local ctxpipe_app URLs to the Compose owner”; “rewrites the Compose service hostname”. Boundary: Pure/public owned logic; literal input-output or error oracle; no owned runtime substituted.
+apps/backend/src/db/provision-app-role.test.ts	test	n/a	characterization	Gate 1 backend	Cases “creates the app role, quotes the password via format(), and grants public DML”; “fails closed when an existing app role has BYPASSRLS”. Boundary: Postgres/Drizzle/checkpoint collaborator is faked; records SQL or transaction choreography.
+apps/backend/src/db/rls-isolation.test.ts	test	n/a	proof	Gate 1 backend	Cases “hides workspace rows without app.organization_id”; “hides the other org workspace and UPDATE/DELETE 0”. Boundary: Real migrated Postgres seam; literal row, isolation, or persistence oracle.
+apps/backend/src/db/transientDbRetry.test.ts	test	n/a	proof	Gate 1 backend	Cases “matches Connection terminated unexpectedly”; “matches errno codes”. Boundary: Pure/public owned logic; literal input-output or error oracle; no owned runtime substituted.
+apps/backend/src/domain/codeIngestion/codesearchClient.test.ts	test	n/a	characterization	Gate 2 backend	Cases “lists checkout paths from GET /tree without retrying”; “does not retry tree listing on 404”. Boundary: Repository-owned models, workflows, stores, or runtime are mocked; records orchestration and call shape.
+apps/backend/src/domain/codeIngestion/codesearchIndexPhases.test.ts	test	n/a	characterization	Gate 2 backend	Cases “rewrites exhausted fetch failed to the memory-fit message”; “rewrites exhausted ECONNRESET to the memory-fit message”. Boundary: Repository-owned models, workflows, stores, or runtime are mocked; records orchestration and call shape.
+apps/backend/src/domain/codeIngestion/dependencyVendorPaths.test.ts	test	n/a	proof	Gate 2 backend	Cases “returns true for paths under known dependency directory segments”; “returns false for owned project paths and ambiguous segment names”. Boundary: Pure/public owned logic; literal input-output or error oracle; no owned runtime substituted.
+apps/backend/src/domain/conversations/workspace-history.test.ts	test	n/a	characterization	Gate 4 backend	Cases “prefers persisted TanStack messages over text-only turns”; “loads Workspace turns from Postgres instead of LangGraph”. Boundary: Repository-owned models, workflows, stores, or runtime are mocked; records orchestration and call shape.
+apps/backend/src/domain/indexingSteps.test.ts	test	n/a	proof	Gate 2 backend	Cases “returns the base checklist when no SCIP languages are supplied”; “inserts scip:<lang> keys after detecting_languages”. Boundary: Pure/public owned logic; literal input-output or error oracle; no owned runtime substituted.
+apps/backend/src/domain/workspaces/bind-github-connection.test.ts	test	n/a	characterization	Gate 2 backend	Cases “keeps a connection that belongs to the org”; “drops a connection that is not in the org”. Boundary: Repository-owned models, workflows, stores, or runtime are mocked; records orchestration and call shape.
+apps/backend/src/domain/workspaces/bootstrap.test.ts	test	n/a	proof	Gate 2 backend	Cases “writes AGENTS.md and the knowledge skill on an empty tree”; “keeps unrelated AGENTS.md instructions and only fills name + folder map”. Boundary: Pure/public owned logic; literal input-output or error oracle; no owned runtime substituted.
+apps/backend/src/domain/workspaces/chat-lifecycle.test.ts	test	n/a	proof	Gate 4 backend	Cases “names session branches and never force-pushes default”; “publishes a PR only on an explicit GitHub request while writable”. Boundary: Pure/public owned logic; literal input-output or error oracle; no owned runtime substituted.
+apps/backend/src/domain/workspaces/chat-pull-request.test.ts	test	n/a	characterization	Gate 4 backend	Cases “splits NUL-delimited git paths including names with spaces”; “refuses path traversal”. Boundary: Injected exec, filesystem, persistence, or queue fake replaces an owned runtime boundary.
+apps/backend/src/domain/workspaces/chat-runtime.test.ts	test	n/a	characterization	Gate 4 backend	Cases “locks TanStack chat + withSandbox + opencodeText”; “installs opencode in the sandbox and publishes the serve port”. Boundary: Reads source, tree, migration, or config shape; structural guard rather than executed behavior.
+apps/backend/src/domain/workspaces/chat-sandbox-policy.test.ts	test	n/a	characterization	Gate 4 backend	Cases “does not use bypassPermissions”; “never offers commit/push while the Workspace is read-only”. Boundary: Repository-owned models, workflows, stores, or runtime are mocked; records orchestration and call shape.
+apps/backend/src/domain/workspaces/checkout-read.test.ts	test	n/a	proof	Gate 2 backend	Cases “lists file paths from the workspace checkout”; “returns 409 when the workspace repository is not attached yet”. Boundary: Pure/public owned logic; literal input-output or error oracle; no owned runtime substituted.
+apps/backend/src/domain/workspaces/claim-confidence.test.ts	test	n/a	proof	Gate 2 backend	Cases “is zero outside the half-open window and c_max at valid_from”; “decays evergreen git signals with a 365-day half-life”. Boundary: Pure/public owned logic; literal input-output or error oracle; no owned runtime substituted.
+apps/backend/src/domain/workspaces/clone-credentials.test.ts	test	n/a	proof	Gate 2 backend	Cases “mints a repository-scoped contents:read installation token request”; “scrubs credentials from the origin URL after clone”. Boundary: Pure/public owned logic; literal input-output or error oracle; no owned runtime substituted.
+apps/backend/src/domain/workspaces/commit-activity.test.ts	test	n/a	proof	Gate 3 backend	Cases “builds a Sunday-aligned UTC calendar through today”; “starts the week on Sunday”. Boundary: Pure/public owned logic; literal input-output or error oracle; no owned runtime substituted.
+apps/backend/src/domain/workspaces/commit-subject.test.ts	test	n/a	proof	Gate 3 backend	Cases “uses a small in-code model and tiny file-name context”; “keeps a clean LLM line and falls back on garbage or failure”. Boundary: Pure/public owned logic; literal input-output or error oracle; no owned runtime substituted.
+apps/backend/src/domain/workspaces/complete-persisted-workspace-chat-run.test.ts	test	n/a	characterization	Gate 4 backend	Cases “marks the active run completed after the client saw RUN_FINISHED”; “does nothing when no run is active”. Boundary: Injected exec, filesystem, persistence, or queue fake replaces an owned runtime boundary.
+apps/backend/src/domain/workspaces/conversation-files.test.ts	test	n/a	characterization	Gate 4 backend	Cases “checks out the one session branch”; “skips checkout when HEAD is already the session branch”. Boundary: Injected exec, filesystem, persistence, or queue fake replaces an owned runtime boundary.
+apps/backend/src/domain/workspaces/conversation-publish.test.ts	test	n/a	characterization	Gate 4 backend	Cases “quotes commit messages for the leftover commit”; “builds a tokenized push remote without leaving the token in chrome URLs”. Boundary: Injected exec, filesystem, persistence, or queue fake replaces an owned runtime boundary.
+apps/backend/src/domain/workspaces/derived-stores.test.ts	test	n/a	proof	Gate 2 backend	Cases “does not swallow embedder failures so hydrate can retry the phase”; “pairs vectors to serving ids”. Boundary: Pure/public owned logic; literal input-output or error oracle; no owned runtime substituted.
+apps/backend/src/domain/workspaces/dest-workspace-assignment.test.ts	test	n/a	proof	Gate 2 backend	Cases “links only non-target repos to the first connector-target Workspace”; “inserts the missing first-target link and ignores later targets”. Boundary: Pure/public owned logic; literal input-output or error oracle; no owned runtime substituted.
+apps/backend/src/domain/workspaces/dest-workspace-backfill.migration.test.ts	test	n/a	characterization	Gate 2 backend	Cases “inserts workspaces without starting jobs; cardinality is corrected in TypeScript”; “keeps the exact-row assignment fixture next to the applied SQL”. Boundary: Reads source, tree, migration, or config shape; structural guard rather than executed behavior.
+apps/backend/src/domain/workspaces/dest-workspace-first.test.ts	test	n/a	proof	Gate 2 backend	Cases “picks created_at then id”; “assigns a workspace-repository row to that Workspace”. Boundary: Pure/public owned logic; literal input-output or error oracle; no owned runtime substituted.
+apps/backend/src/domain/workspaces/ensure-org-repository.test.ts	test	n/a	characterization	Gate 2 backend	Cases “uses owner/repo for GitHub URLs”; “uses host plus path for other hosts so names stay unique per org”. Boundary: Repository-owned models, workflows, stores, or runtime are mocked; records orchestration and call shape.
+apps/backend/src/domain/workspaces/file-tree.test.ts	test	n/a	proof	Gate 5 backend	Cases “nests knowledge files under folders”; “fileTreeFromPaths”. Boundary: Pure/public owned logic; literal input-output or error oracle; no owned runtime substituted.
+apps/backend/src/domain/workspaces/git-explorer.test.ts	test	n/a	proof	Gate 5 backend	Cases “prefers the active projection SHA over desired”; “reads the active SHA from the active projection remote during relink”. Boundary: Pure/public owned logic; literal input-output or error oracle; no owned runtime substituted.
+apps/backend/src/domain/workspaces/git-file-jobs.test.ts	test	n/a	proof	Gate 5 backend	Cases “joins a name under a directory and rejects traversal”; “returns a file itself or every blob under a directory”. Boundary: Pure/public owned logic; literal input-output or error oracle; no owned runtime substituted.
+apps/backend/src/domain/workspaces/hydrate-phases.test.ts	test	n/a	proof	Gate 2 backend	Cases “treats hex SHAs as missing valid_from and keeps timestamps”; “compares projection completeness by URL and SHA”. Boundary: Pure/public owned logic; literal input-output or error oracle; no owned runtime substituted.
+apps/backend/src/domain/workspaces/hydrate-write-jobs.test.ts	test	n/a	proof	Gate 2 backend	Cases “counts markdown links that are not yet claims”; “counts claims missing valid_from”. Boundary: Pure/public owned logic; literal input-output or error oracle; no owned runtime substituted.
+apps/backend/src/domain/workspaces/hydrate.test.ts	test	n/a	proof	Gate 2 backend	Cases “uses a stable serving id per Workspace + path and skips malformed files”; “keeps the first linked remote and skips duplicate git URLs”. Boundary: Pure/public owned logic; literal input-output or error oracle; no owned runtime substituted.
+apps/backend/src/domain/workspaces/job-sandbox.live.test.ts	test	n/a	proof	Gate 4 backend	Cases “adds a worktree, writes files, and reads them out for the runner”; “in-process job sandbox”. Boundary: Real local-process/TanStack/git seam; literal sandbox, path, or stream oracle.
+apps/backend/src/domain/workspaces/job-sandbox.test.ts	test	n/a	characterization	Gate 4 backend	Cases “uses Docker when present and fails closed when Docker is locked but missing”; “reuses an attached handle and otherwise creates one”. Boundary: Repository-owned models, workflows, stores, or runtime are mocked; records orchestration and call shape.
+apps/backend/src/domain/workspaces/job-worktree.test.ts	test	n/a	characterization	Gate 3 backend	Cases “refuses write credentials in the sandbox env”; “refuses paths that escape the worktree, including resolved .. segments”. Boundary: Injected exec, filesystem, persistence, or queue fake replaces an owned runtime boundary.
+apps/backend/src/domain/workspaces/layout.test.ts	test	n/a	proof	Gate 2 backend	Cases “prefers knowledge/<area>/<unit>.md on a greenfield tree”; “maps object kinds to knowledge area folders”. Boundary: Pure/public owned logic; literal input-output or error oracle; no owned runtime substituted.
+apps/backend/src/domain/workspaces/migration-export.test.ts	test	n/a	characterization	Gate 3 backend	Cases “writes knowledge/<area>/<unit>.md and repositories/*.md”; “writes import_key and claim temporality without obj_ jargon”. Boundary: Mixed literal pure cases with owned persistence/runtime fakes; file does not prove the integrated seam.
+apps/backend/src/domain/workspaces/opencode-chat-stream.test.ts	test	n/a	proof	Gate 4 backend	Cases “builds the chat-attempt wide event from an OpenCode 500”; “strips ANSI and treats an empty assistant plus fatal as a failed turn”. Boundary: Real logging/telemetry surface; literal event or context oracle.
+apps/backend/src/domain/workspaces/project-workspace-commits.test.ts	test	n/a	characterization	Gate 2 backend	Cases “skips when the projection already matches the tip”; “marks non-GitHub remotes ready without fetching”. Boundary: Repository-owned models, workflows, stores, or runtime are mocked; records orchestration and call shape.
+apps/backend/src/domain/workspaces/relink.test.ts	test	n/a	proof	Gate 2 backend	Cases “bumps generation and resets write/hydrate, not the slug”; “stores the classified write probe on relink”. Boundary: Pure/public owned logic; literal input-output or error oracle; no owned runtime substituted.
+apps/backend/src/domain/workspaces/rename-rewrite.test.ts	test	n/a	proof	Gate 2 backend	Cases “pairs a 50% similar path-id change and skips many-to-one”; “rewrites relative links to the new path”. Boundary: Pure/public owned logic; literal input-output or error oracle; no owned runtime substituted.
+apps/backend/src/domain/workspaces/revision.test.ts	test	n/a	proof	Gate 2 backend	Cases “follows the resolved tip, including rewind”; “keys the sandbox snapshot by URL plus SHA, not a branch name”. Boundary: Pure/public owned logic; literal input-output or error oracle; no owned runtime substituted.
+apps/backend/src/domain/workspaces/sandbox-instance-store.test.ts	test	n/a	characterization	Gate 4 backend	Cases “returns null when the key is missing or has no provider id”; “maps a live row onto the TanStack instance record”. Boundary: Repository-owned models, workflows, stores, or runtime are mocked; records orchestration and call shape.
+apps/backend/src/domain/workspaces/sandbox-provider.test.ts	test	n/a	characterization	Gate 4 backend	Cases “locks a known provider and fail-closes on an unknown lock”; “refuses railway, unsandboxed, and missing providers instead of routing to local-process”. Boundary: Repository-owned models, workflows, stores, or runtime are mocked; records orchestration and call shape.
+apps/backend/src/domain/workspaces/sandbox-registry.test.ts	test	n/a	characterization	Gate 4 backend	Cases “destroys idle chat after 30 minutes and jobs after 60”; “drops the memoized chat definition when the conversation sandbox is destroyed”. Boundary: Repository-owned models, workflows, stores, or runtime are mocked; records orchestration and call shape.
+apps/backend/src/domain/workspaces/slug.test.ts	test	n/a	proof	Gate 2 backend	Cases “lowercases and hyphenates”; “falls back when empty”. Boundary: Pure/public owned logic; literal input-output or error oracle; no owned runtime substituted.
+apps/backend/src/domain/workspaces/tanstack-workspace-chat-persist.test.ts	test	n/a	characterization	Gate 4 backend	Cases “keeps one live sandbox and persists both turns on real Postgres”; “two-turn workspace chat persist”. Boundary: Mixed literal pure cases with owned persistence/runtime fakes; file does not prove the integrated seam.
+apps/backend/src/domain/workspaces/tanstack-workspace-chat.live.test.ts	test	n/a	proof	Gate 4 backend	Cases “scrubs host provider keys from the local-process env”; “streams a stub completion through the ctxpipe proxy on local_process”. Boundary: Real local-process/TanStack/git seam; literal sandbox, path, or stream oracle.
+apps/backend/src/domain/workspaces/tanstack-workspace-chat.multiturn.test.ts	test	n/a	proof	Gate 4 backend	Cases “streams exact mocked replies across two live OpenCode turns”. Boundary: Real local-process/TanStack/git seam; literal sandbox, path, or stream oracle.
+apps/backend/src/domain/workspaces/tanstack-workspace-chat.test.ts	test	n/a	characterization	Gate 4 backend	Cases “calls chat() with withPersistence, withSandbox, and opencodeText”; “starts chat on the unset hosted fallback instead of refusing host OpenCode”. Boundary: Repository-owned models, workflows, stores, or runtime are mocked; records orchestration and call shape.
+apps/backend/src/domain/workspaces/tip-resolve.test.ts	test	n/a	characterization	Gate 2 backend	Cases “ignores webhook after and persists the resolved tip”; “matches workspaces by GitHub full name”. Boundary: Injected exec, filesystem, persistence, or queue fake replaces an owned runtime boundary.
+apps/backend/src/domain/workspaces/workspace-chat-agui.test.ts	test	n/a	proof	Gate 4 backend	Cases “emits RUN_STARTED before a slow producer yields OpenCode chunks”; “builds a sandbox-setup CUSTOM chunk”. Boundary: Pure/public owned logic; literal input-output or error oracle; no owned runtime substituted.
+apps/backend/src/domain/workspaces/workspace-chat-assistant-text.test.ts	test	n/a	proof	Gate 4 backend	Cases “treats echo-only text as an empty persist reply”; “drops a leading prompt echo when a later text message exists”. Boundary: Pure/public owned logic; literal input-output or error oracle; no owned runtime substituted.
+apps/backend/src/domain/workspaces/workspace-chat-model-proxy.test.ts	test	n/a	proof	Gate 4 backend	Cases “advertises loopback for unsandboxed OpenCode”; “advertises host.docker.internal for docker isolation”. Boundary: Pure/public owned logic; literal input-output or error oracle; no owned runtime substituted.
+apps/backend/src/domain/workspaces/workspace-chat-opencode-contract.test.ts	test	n/a	proof	Gate 4 backend	Cases “defaults chat to the LangChain fast spec and addresses OpenCode as ctxpipe/<base>”; “uses MODEL_FAST_NAME when set and keeps query params on the proxy, not the OpenCode id”. Boundary: Pure/public owned logic; literal input-output or error oracle; no owned runtime substituted.
+apps/backend/src/domain/workspaces/workspace-chat-opencode-messages.test.ts	test	n/a	proof	Gate 4 backend	Cases “leaves a trailing user string message unchanged”; “rewrites a trailing user whose text is only in parts”. Boundary: Pure/public owned logic; literal input-output or error oracle; no owned runtime substituted.
+apps/backend/src/domain/workspaces/workspace-chat-opencode-port.test.ts	test	n/a	proof	Gate 4 backend	Cases “resolves when the port is free”; “waits until a bound port is released”. Boundary: Real local-process/TanStack/git seam; literal sandbox, path, or stream oracle.
+apps/backend/src/domain/workspaces/workspace-chat-otel.test.ts	test	n/a	proof	Gate 4 backend	Cases “records generation loops and the tool gap before the next completion”; “workspace chat otel turn summary”. Boundary: Real logging/telemetry surface; literal event or context oracle.
+apps/backend/src/domain/workspaces/workspace-chat-persistence.test.ts	test	n/a	proof	Gate 4 backend	Cases “saves and loads a thread with reasoning parts”; “marks the active run completed after the client saw RUN_FINISHED”. Boundary: Real migrated Postgres seam; literal row, isolation, or persistence oracle.
+apps/backend/src/domain/workspaces/workspace-chat-retrieval.test.ts	test	n/a	proof	Gate 4 backend	Cases “ranks matching knowledge units for the chat prompt”; “requires an active projection SHA and fuses lexical plus vector hits”. Boundary: Pure/public owned logic; literal input-output or error oracle; no owned runtime substituted.
+apps/backend/src/domain/workspaces/workspace-chat-sandbox-health.test.ts	test	n/a	characterization	Gate 4 backend	Cases “destroys the handle and deletes instance rows”; “invalidateChatSandbox”. Boundary: Repository-owned models, workflows, stores, or runtime are mocked; records orchestration and call shape.
+apps/backend/src/domain/workspaces/workspace-chat-sandbox-key.test.ts	test	n/a	proof	Gate 4 backend	Cases “stays the same when proxy URL, run token, runId, and clone token rotate”; “changes when conversation, provider, or desiredSha change”. Boundary: Pure/public owned logic; literal input-output or error oracle; no owned runtime substituted.
+apps/backend/src/domain/workspaces/workspace-chat-sandbox-memo.test.ts	test	n/a	proof	Gate 4 backend	Cases “reuses one provider and does not cache a missing factory”; “reuses one definition object per conversation until spec or isolation changes”. Boundary: Pure/public owned logic; literal input-output or error oracle; no owned runtime substituted.
+apps/backend/src/domain/workspaces/workspace-chat-send-runtime.test.ts	test	n/a	characterization	Gate 4 backend	Cases “loads workspace identity from the conversation row”; “resolveWorkspaceChatSendRuntime”. Boundary: Repository-owned models, workflows, stores, or runtime are mocked; records orchestration and call shape.
+apps/backend/src/domain/workspaces/workspace-chat-tools.test.ts	test	n/a	characterization	Gate 4 backend	Cases “scopes explorer tools to the Workspace repository allowlist”; “returns no retrieval tools without an active projection SHA”. Boundary: Repository-owned models, workflows, stores, or runtime are mocked; records orchestration and call shape.
+apps/backend/src/domain/workspaces/workspace-chat-turn-runtime.test.ts	test	n/a	characterization	Gate 4 backend	Cases “resolves GitHub for every send instead of a process-global sandbox”; “names the writable session branch even before it exists on GitHub”. Boundary: Repository-owned models, workflows, stores, or runtime are mocked; records orchestration and call shape.
+apps/backend/src/domain/workspaces/workspace-graph.test.ts	test	n/a	proof	Gate 2 backend	Cases “builds this Workspace’s projection from hydrate units”; “omits claims whose query-time energy has decayed to zero”. Boundary: Pure/public owned logic; literal input-output or error oracle; no owned runtime substituted.
+apps/backend/src/domain/workspaces/workspace-lifecycle.test.ts	test	n/a	characterization	Gate 2 backend	Cases “creates without org repository-ingestion”; “enqueues relink jobs only when the canonical URL changes”. Boundary: Repository-owned models, workflows, stores, or runtime are mocked; records orchestration and call shape.
+apps/backend/src/domain/workspaces/write-commit-files.test.ts	test	n/a	proof	Gate 3 backend	Cases “writes only allowlisted bootstrap files”; “writes and deletes repositories/*.md for link_unlink”. Boundary: Pure/public owned logic; literal input-output or error oracle; no owned runtime substituted.
+apps/backend/src/domain/workspaces/write-job-agent.test.ts	test	n/a	characterization	Gate 3 backend	Cases “attaches to the existing job sandbox instead of calling withSandbox”; “writes generated files into the worktree and never calls withSandbox”. Boundary: Injected exec, filesystem, persistence, or queue fake replaces an owned runtime boundary.
+apps/backend/src/domain/workspaces/write-job-intent.test.ts	test	n/a	proof	Gate 3 backend	Cases “stores first-create link fields so a paused job can resume”; “pauses when write status is unknown or read-only”. Boundary: Pure/public owned logic; literal input-output or error oracle; no owned runtime substituted.
+apps/backend/src/domain/workspaces/write-job-resume.test.ts	test	n/a	characterization	Gate 3 backend	Cases “claims and re-enqueues current-generation paused links when writable”; “skips a job another replica already claimed”. Boundary: Injected exec, filesystem, persistence, or queue fake replaces an owned runtime boundary.
+apps/backend/src/domain/workspaces/write-jobs.test.ts	test	n/a	proof	Gate 3 backend	Cases “lists one kind per locked concern”; “allows only bootstrap AGENTS.md and the knowledge skill”. Boundary: Pure/public owned logic; literal input-output or error oracle; no owned runtime substituted.
+apps/backend/src/domain/workspaces/write-runner.test.ts	test	n/a	characterization	Gate 3 backend	Cases “uses the LLM subject when it is a single clean line”; “refuses a live push when generation or URL moved”. Boundary: Mixed literal pure cases with owned persistence/runtime fakes; file does not prove the integrated seam.
+apps/backend/src/domain/workspaces/write-status.test.ts	test	n/a	proof	Gate 3 backend	Cases “parses https and ssh GitHub URLs”; “returns null for other hosts”. Boundary: Owned external-service adapter; only third-party HTTP/SDK substituted; literal request-response oracle.
+apps/backend/src/graphs/codeIngestionGraph/extractionSubgraph.test.ts	test	n/a	characterization	Gate 2 backend	Cases “exports extractedObjects and extractedClaims to the parent graph”; “extractionSubgraph”. Boundary: Reads source, tree, migration, or config shape; structural guard rather than executed behavior.
+apps/backend/src/graphs/codeIngestionGraph/nodes/deduplicateAndStore.test.ts	test	n/a	proof	Gate 2 backend	Cases “emits on positive multiples of the interval”; “returns deduplication key hits from keyToId without querying”. Boundary: Pure/public owned logic; literal input-output or error oracle; no owned runtime substituted.
+apps/backend/src/graphs/codeIngestionGraph/nodes/embed.test.ts	test	n/a	characterization	Gate 2 backend	Cases “uses objectIds in full mode”; “prefers touchedObjectIds in partial mode”. Boundary: Repository-owned models, workflows, stores, or runtime are mocked; records orchestration and call shape.
+apps/backend/src/graphs/codeIngestionGraph/nodes/extractInstructionUnits.test.ts	test	n/a	proof	Gate 2 backend	Cases “isRepoRootInstructionPath marks root-level and root .cursor/docs trees”; “isInstructionCandidatePath includes .agents rules, .mdc, and skills/SKILL.md”. Boundary: Pure/public owned logic; literal input-output or error oracle; no owned runtime substituted.
+apps/backend/src/graphs/codeIngestionGraph/nodes/extractKind.test.ts	test	n/a	proof	Gate 2 backend	Cases “returns all paths for repo root ./”; “returns only paths at or under the workspace root”. Boundary: Pure/public owned logic; literal input-output or error oracle; no owned runtime substituted.
+apps/backend/src/graphs/codeIngestionGraph/nodes/extractionSubmissionRoot.test.ts	test	n/a	proof	Gate 2 backend	Cases “findMatchingRoot picks the longest matching root”; “resolveSubmissionRoot returns null when only ./ matches but other roots exist”. Boundary: Pure/public owned logic; literal input-output or error oracle; no owned runtime substituted.
+apps/backend/src/graphs/codeIngestionGraph/nodes/identifyAPIClients.test.ts	test	n/a	proof	Gate 2 backend	Cases “emits stub API object and CONSUMES_API claim for internal API”; “creates API object and CONSUMES_API claim for external API”. Boundary: Pure/public owned logic; literal input-output or error oracle; no owned runtime substituted.
+apps/backend/src/graphs/codeIngestionGraph/nodes/identifyApiClaims.test.ts	test	n/a	proof	Gate 2 backend	Cases “extracts methods from openapi 3 paths”; “extractOperationsFromOpenApiSpec”. Boundary: Pure/public owned logic; literal input-output or error oracle; no owned runtime substituted.
+apps/backend/src/graphs/codeIngestionGraph/nodes/identifyInfrastructure.test.ts	test	n/a	proof	Gate 2 backend	Cases “normalizes Docker variants”; “normalizes Docker Compose before Docker”. Boundary: Pure/public owned logic; literal input-output or error oracle; no owned runtime substituted.
+apps/backend/src/graphs/codeIngestionGraph/nodes/identifyLibraries.test.ts	test	n/a	proof	Gate 2 backend	Cases “produces Library objects and USES_LIBRARY claims”; “deduplicates by library name per root”. Boundary: Pure/public owned logic; literal input-output or error oracle; no owned runtime substituted.
+apps/backend/src/graphs/codeIngestionGraph/nodes/identifyPatterns.test.ts	test	n/a	proof	Gate 2 backend	Cases “produces Pattern objects and IMPLEMENTS_PATTERN claims”; “deduplicates by pattern name per root”. Boundary: Pure/public owned logic; literal input-output or error oracle; no owned runtime substituted.
+apps/backend/src/graphs/codeIngestionGraph/nodes/identifyRootsDeterministic.test.ts	test	n/a	characterization	Gate 2 backend	Cases “resolves pnpm workspace roots without LLM fallback”; “returns ambiguous with partial roots when some workspace globs do not resolve”. Boundary: Repository-owned models, workflows, stores, or runtime are mocked; records orchestration and call shape.
+apps/backend/src/graphs/codeIngestionGraph/nodes/identifyServiceDependencies.test.ts	test	n/a	proof	Gate 2 backend	Cases “produces DEPENDS_ON Service→Service claims only”; “deduplicates claims by consumer→provider pair”. Boundary: Pure/public owned logic; literal input-output or error oracle; no owned runtime substituted.
+apps/backend/src/graphs/codeIngestionGraph/nodes/identifyStreams.test.ts	test	n/a	proof	Gate 2 backend	Cases “produces Stream objects with correct deduplication keys”; “deduplicates streams by repositoryId:root:streamType”. Boundary: Pure/public owned logic; literal input-output or error oracle; no owned runtime substituted.
+apps/backend/src/graphs/codeIngestionGraph/nodes/narrowRootsForPartialDiff.test.ts	test	n/a	proof	Gate 2 backend	Cases “returns roots unchanged when diff paths are empty”; “narrows to roots that prefix-match changed paths”. Boundary: Pure/public owned logic; literal input-output or error oracle; no owned runtime substituted.
+apps/backend/src/graphs/codeIngestionGraph/nodes/openApiSpecDiscovery.test.ts	test	n/a	proof	Gate 2 backend	Cases “returns ./ for root-level spec”; “returns parent directory for nested spec”. Boundary: Pure/public owned logic; literal input-output or error oracle; no owned runtime substituted.
+apps/backend/src/graphs/codeIngestionGraph/nodes/partialIngestionScope.test.ts	test	n/a	proof	Gate 2 backend	Cases “treats empty scanPaths as full-repo (all paths match)”; “matches exact path and child paths under a scan prefix”. Boundary: Pure/public owned logic; literal input-output or error oracle; no owned runtime substituted.
+apps/backend/src/graphs/codeIngestionGraph/nodes/reindex.test.ts	test	n/a	characterization	Gate 2 backend	Cases “mints a fresh Codesearch JWT for each retry attempt”; “returns path counts from a successful codesearch response”. Boundary: Repository-owned models, workflows, stores, or runtime are mocked; records orchestration and call shape.
+apps/backend/src/graphs/codeIngestionGraph/runExtractRoot.test.ts	test	n/a	proof	Gate 2 backend	Cases “maps repo root aliases to repo-root”; “sanitizes nested paths for OW step names”. Boundary: Pure/public owned logic; literal input-output or error oracle; no owned runtime substituted.
+apps/backend/src/graphs/codeIngestionGraph/schemas.test.ts	test	n/a	proof	Gate 2 backend	Cases “concat-merges extractedObjects across parallel branch updates”; “concat-merges extractedClaims across parallel branch updates”. Boundary: Pure/public owned logic; literal input-output or error oracle; no owned runtime substituted.
+apps/backend/src/graphs/codeIngestionGraph/setIngestionIndexingStep.test.ts	test	n/a	characterization	Gate 2 backend	Cases “calls setRepositoryIndexingStep with the key and monotonic: true”; “reuses the current org DB context without opening a nested transaction”. Boundary: Repository-owned models, workflows, stores, or runtime are mocked; records orchestration and call shape.
+apps/backend/src/graphs/codeIngestionGraph/withIngestAgentContext.test.ts	test	n/a	proof	Gate 2 backend	Cases “reuses the active Langfuse handler and parents agent callbacks”; “withIngestAgentContext”. Boundary: Owned external-service adapter; only third-party HTTP/SDK substituted; literal request-response oracle.
+apps/backend/src/graphs/conversationGraph/nodes/conversationNaming.test.ts	test	n/a	characterization	Gate 4 backend	Cases “treats empty and default labels as unnamed”; “joins text parts”. Boundary: Repository-owned models, workflows, stores, or runtime are mocked; records orchestration and call shape.
+apps/backend/src/graphs/conversationGraph/nodes/knowledgeGraphFocus.test.ts	test	n/a	proof	Gate 2 backend	Cases “collects candidate, payload, graph, and traversal node ids in order”; “collectKnowledgeGraphFocusNodeIds”. Boundary: Pure/public owned logic; literal input-output or error oracle; no owned runtime substituted.
+apps/backend/src/lib/agentToolRuntime.test.ts	test	n/a	characterization	Gate 2 backend	Cases “accepts repository ids with repo_ prefix and fixed payload length”; “rejects repository ids without repo_ prefix”. Boundary: Repository-owned models, workflows, stores, or runtime are mocked; records orchestration and call shape.
+apps/backend/src/lib/atlassian-api-base-url.test.ts	test	n/a	proof	Gate 1 backend	Cases “accepts https api.atlassian.com with path”; “strips trailing slashes”. Boundary: Pure/public owned logic; literal input-output or error oracle; no owned runtime substituted.
+apps/backend/src/lib/buildSourceLink.test.ts	test	n/a	proof	Gate 1 backend	Cases “uses sourceUrl when provided”; “builds link from orgSlug, sourceType, sourceId when sourceUrl absent”. Boundary: Pure/public owned logic; literal input-output or error oracle; no owned runtime substituted.
+apps/backend/src/lib/connection-config-slack.test.ts	test	n/a	proof	Gate 1 backend	Cases “encrypts and decrypts bot tokens round-trip”; “defaults status to pending”. Boundary: Pure/public owned logic; literal input-output or error oracle; no owned runtime substituted.
+apps/backend/src/lib/connection-config.test.ts	test	n/a	proof	Gate 1 backend	Cases “stores access and refresh tokens as ciphertext, not plaintext”; “omits refresh ciphertext when there is no refresh token”. Boundary: Pure/public owned logic; literal input-output or error oracle; no owned runtime substituted.
+apps/backend/src/lib/forge-app-manifest.test.ts	test	n/a	proof	Gate 1 backend	Cases “includes app id ARI when redeploying”; “omits app id for first register”. Boundary: Pure/public owned logic; literal input-output or error oracle; no owned runtime substituted.
+apps/backend/src/lib/forge-provision-error-map.test.ts	test	n/a	proof	Gate 1 backend	Cases “maps 401 to forge_auth_failed”; “does not classify Forge remediation text alone as forge_auth_failed”. Boundary: Pure/public owned logic; literal input-output or error oracle; no owned runtime substituted.
+apps/backend/src/lib/id.test.ts	test	n/a	proof	Gate 1 backend	Cases “embeds UUIDv7 bytes in generated IDs”; “generates object IDs as <prefix>_<base32(uuidv7-bytes)>”. Boundary: Pure/public owned logic; literal input-output or error oracle; no owned runtime substituted.
+apps/backend/src/lib/memoryFitError.test.ts	test	n/a	proof	Gate 1 backend	Cases “detects indexer SIGKILL exit 137”; “does not treat undici fetch failed as memory-fit outside codesearch phases”. Boundary: Pure/public owned logic; literal input-output or error oracle; no owned runtime substituted.
+apps/backend/src/lib/withTransientHttpRetry.test.ts	test	n/a	characterization	Gate 1 backend	Cases “retries on TransientHttpError then succeeds”; “retries on TypeError fetch failed then succeeds”. Boundary: Repository-owned models, workflows, stores, or runtime are mocked; records orchestration and call shape.
+apps/backend/src/mcp/tools.test.ts	test	n/a	characterization	Gate 4 backend	Cases “registers ctx advisor and runs the first-Workspace TanStack chat runtime”; “starts a new MCP conversation even when conversationId is provided”. Boundary: Repository-owned models, workflows, stores, or runtime are mocked; records orchestration and call shape.
+apps/backend/src/models/atlassian-connector.org-tx.test.ts	test	n/a	characterization	Gate 1 backend	Cases “opens withOrgDbContext when the status probe passes connectionId”; “uses the passed org db instead of opening another transaction”. Boundary: Postgres/Drizzle/checkpoint collaborator is faked; records SQL or transaction choreography.
+apps/backend/src/models/connector-sync-target.test.ts	test	n/a	proof	Gate 3 backend	Cases “recommends the single repository shared by existing connectors”; “does not guess when connectors use different repositories”. Boundary: Pure/public owned logic; literal input-output or error oracle; no owned runtime substituted.
+apps/backend/src/models/github-installation-token.test.ts	test	n/a	proof	Gate 1 backend	Cases “matches 404 mint failures without treating other errors as token drift”; “isGithubInstallationTokenError”. Boundary: Pure/public owned logic; literal input-output or error oracle; no owned runtime substituted.
+apps/backend/src/models/github-mcp-config-pr.test.ts	test	n/a	proof	Gate 1 backend	Cases “detects Octokit 422 reference update failed”; “rejects non-422 or other messages”. Boundary: Pure/public owned logic; literal input-output or error oracle; no owned runtime substituted.
+apps/backend/src/models/linear-connector.test.ts	test	n/a	characterization	Gate 3 backend	Cases “encrypts OAuth tokens before serialising connection config”; “claims config PR creation only when the compare-and-set update wins”. Boundary: Repository-owned models, workflows, stores, or runtime are mocked; records orchestration and call shape.
+apps/backend/src/models/linear-token-refresh.org-tx.test.ts	test	n/a	characterization	Gate 3 backend	Cases “runs Linear HTTP refresh outside the org SQL transaction”; “throws when invoked inside an outer org transaction”. Boundary: Repository-owned models, workflows, stores, or runtime are mocked; records orchestration and call shape.
+apps/backend/src/models/notion-connector.test.ts	test	n/a	characterization	Gate 3 backend	Cases “does not claim a disabled or rebound binding”; “finalizes completed content sync as live”. Boundary: Repository-owned models, workflows, stores, or runtime are mocked; records orchestration and call shape.
+apps/backend/src/models/repositories.test.ts	test	n/a	characterization	Gate 2 backend	Cases “returns repositories for the current org and GitHub connection”; “queries org db with org and repository id filters”. Boundary: Repository-owned models, workflows, stores, or runtime are mocked; records orchestration and call shape.
+apps/backend/src/models/slack-connector.test.ts	test	n/a	characterization	Gate 3 backend	Cases “is live only when a repository is bound and capture is enabled”; “throws when the repository is not found for the org”. Boundary: Repository-owned models, workflows, stores, or runtime are mocked; records orchestration and call shape.
+apps/backend/src/models/workspaces-create.test.ts	test	n/a	characterization	Gate 2 backend	Cases “returns the existing workspace when the git URL already backs one”; “returns the raced workspace when insert hits the URL unique index”. Boundary: Repository-owned models, workflows, stores, or runtime are mocked; records orchestration and call shape.
+apps/backend/src/models/workspaces-sandbox-instances.test.ts	test	n/a	characterization	Gate 4 backend	Cases “inserts when no live row exists without taking an advisory lock”; “returns the existing live row instead of inserting a second job sandbox”. Boundary: Repository-owned models, workflows, stores, or runtime are mocked; records orchestration and call shape.
+apps/backend/src/models/workspaces-sandbox-persist.test.ts	test	n/a	proof	Gate 4 backend	Cases “keeps the live chat row id when the next turn upserts a new instance key”; “persistSandboxInstance live chat identity”. Boundary: Real migrated Postgres seam; literal row, isolation, or persistence oracle.
+apps/backend/src/observability/workflow-log.test.ts	test	n/a	proof	Gate 1 backend	Cases “rotates so later set/info are not late writes”; “flushWorkflowLog”. Boundary: Real logging/telemetry surface; literal event or context oracle.
+apps/backend/src/openworkflow/enqueue-follow-up-if-tip-ahead.test.ts	test	n/a	characterization	Gate 2 backend	Cases “enqueues when tip is ahead of ingested hash”; “does not enqueue when tip equals ingested hash”. Boundary: Repository-owned models, workflows, stores, or runtime are mocked; records orchestration and call shape.
+apps/backend/src/openworkflow/enqueue-notion-push-sync.test.ts	test	n/a	characterization	Gate 3 backend	Cases “waits for the initial content workflow to be accepted”; “propagates enqueue failures so GitHub retries the webhook”. Boundary: Repository-owned models, workflows, stores, or runtime are mocked; records orchestration and call shape.
+apps/backend/src/openworkflow/enqueue-repository-deletion.test.ts	test	n/a	characterization	Gate 2 backend	Cases “marks unindexing and enqueues with attempt-scoped idempotency key”; “returns null when the repository row is already gone”. Boundary: Repository-owned models, workflows, stores, or runtime are mocked; records orchestration and call shape.
+apps/backend/src/openworkflow/enqueue-repository-ingestion.test.ts	test	n/a	characterization	Gate 2 backend	Cases “does not await workflow result”; “skips orchestrator when indexing is already queued or running”. Boundary: Repository-owned models, workflows, stores, or runtime are mocked; records orchestration and call shape.
+apps/backend/src/openworkflow/enqueue-workspace-commit-projection.test.ts	test	n/a	characterization	Gate 2 backend	Cases “enqueues a workspace commit projection job”; “enqueueWorkspaceCommitProjection”. Boundary: Repository-owned models, workflows, stores, or runtime are mocked; records orchestration and call shape.
+apps/backend/src/openworkflow/enqueue-workspace-hydrate.test.ts	test	n/a	characterization	Gate 2 backend	Cases “enqueues hydrate for a Workspace”; “persists hydrate failure when enqueue throws”. Boundary: Repository-owned models, workflows, stores, or runtime are mocked; records orchestration and call shape.
+apps/backend/src/openworkflow/enqueue-workspace-index.test.ts	test	n/a	characterization	Gate 2 backend	Cases “enqueues a Workspace-scoped index job”; “enqueueWorkspaceIndex”. Boundary: Repository-owned models, workflows, stores, or runtime are mocked; records orchestration and call shape.
+apps/backend/src/openworkflow/enqueue-workspace-tip-check.test.ts	test	n/a	characterization	Gate 2 backend	Cases “enqueues the org tip-check workflow”; “enqueueWorkspaceTipCheck”. Boundary: Repository-owned models, workflows, stores, or runtime are mocked; records orchestration and call shape.
+apps/backend/src/openworkflow/enqueue-workspace-write-commit.test.ts	test	n/a	characterization	Gate 3 backend	Cases “enqueues a migration export write with a stable job id”; “reuses a caller-supplied job id on retry”. Boundary: Repository-owned models, workflows, stores, or runtime are mocked; records orchestration and call shape.
+apps/backend/src/openworkflow/withLoggedStepAttempt.test.ts	test	n/a	proof	Gate 1 backend	Cases “returns the result when fn succeeds”; “rethrows on non-SleepSignal throw”. Boundary: Real logging/telemetry surface; literal event or context oracle.
+apps/backend/src/openworkflow/workflows/forge-provision.devspace.test.ts	test	n/a	proof	Gate 3 backend	Cases “creates developer space when no matching listed space exists”; “returns existing id when listed space matches by name”. Boundary: Owned external-service adapter; only third-party HTTP/SDK substituted; literal request-response oracle.
+apps/backend/src/openworkflow/workflows/linear-sync-config.test.ts	test	n/a	characterization	Gate 3 backend	Cases “does not run a stale configuration workflow”; “starts initial content sync when the repository config already matches”. Boundary: Repository-owned models, workflows, stores, or runtime are mocked; records orchestration and call shape.
+apps/backend/src/openworkflow/workflows/linear-sync-content.test.ts	test	n/a	characterization	Gate 3 backend	Cases “marks setup failed when loading sync context fails”; “marks the target live after initial sync without draining events”. Boundary: Repository-owned models, workflows, stores, or runtime are mocked; records orchestration and call shape.
+apps/backend/src/openworkflow/workflows/linear-sync-entity.test.ts	test	n/a	characterization	Gate 3 backend	Cases “rejects repository config from another Linear workspace”; “skips an entity when the connector is no longer live”. Boundary: Repository-owned models, workflows, stores, or runtime are mocked; records orchestration and call shape.
+apps/backend/src/openworkflow/workflows/notion-sync-config.test.ts	test	n/a	characterization	Gate 3 backend	Cases “starts initial content sync when the repository config is unchanged”; “records config_failed when configuration sync throws”. Boundary: Repository-owned models, workflows, stores, or runtime are mocked; records orchestration and call shape.
+apps/backend/src/openworkflow/workflows/notion-sync-content.test.ts	test	n/a	characterization	Gate 3 backend	Cases “marks sync_failed when loading context throws”; “finalizes partial content failures as failed lifecycle”. Boundary: Repository-owned models, workflows, stores, or runtime are mocked; records orchestration and call shape.
+apps/backend/src/openworkflow/workflows/notion-sync-entity.test.ts	test	n/a	characterization	Gate 3 backend	Cases “skips an entity when the connector is no longer live”; “throws when the repository scope config is missing”. Boundary: Repository-owned models, workflows, stores, or runtime are mocked; records orchestration and call shape.
+apps/backend/src/openworkflow/workflows/notion-workflow-discovery.test.ts	test	n/a	characterization	Gate 3 backend	Cases “keeps Notion workflows in the OpenWorkflow CLI discovery directory”; “Notion workflow discovery”. Boundary: Repository-owned models, workflows, stores, or runtime are mocked; records orchestration and call shape.
+apps/backend/src/openworkflow/workflows/repository-index.test.ts	test	n/a	characterization	Gate 2 backend	Cases “runs phases in order and parallelizes SCIP langs”; “records Zoekt failure as a successful step result so OpenWorkflow does not retry”. Boundary: Repository-owned models, workflows, stores, or runtime are mocked; records orchestration and call shape.
+apps/backend/src/openworkflow/workflows/repository-ingestion-orchestrator.test.ts	test	n/a	characterization	Gate 2 backend	Cases “returns child result on success”; “marks failed and rethrows when child fails”. Boundary: Repository-owned models, workflows, stores, or runtime are mocked; records orchestration and call shape.
+apps/backend/src/openworkflow/workflows/repository-ingestion.reindex-tx.test.ts	test	n/a	characterization	Gate 2 backend	Cases “runs repository-index via runWorkflow outside withOrgDbContext”; “marks complete with issues when search index failed but SCIP ran”. Boundary: Repository-owned models, workflows, stores, or runtime are mocked; records orchestration and call shape.
+apps/backend/src/openworkflow/workflows/slack-mention-agent.test.ts	test	n/a	characterization	Gate 3 backend	Cases “posts working status, runs the agent, then updates to captured”; “settles status with a capability reply when the agent does not capture”. Boundary: Repository-owned models, workflows, stores, or runtime are mocked; records orchestration and call shape.
+apps/backend/src/openworkflow/workflows/slack-workflow-discovery.test.ts	test	n/a	characterization	Gate 3 backend	Cases “keeps Slack workflows in the OpenWorkflow CLI discovery directory”; “Slack workflow discovery”. Boundary: Reads source, tree, migration, or config shape; structural guard rather than executed behavior.
+apps/backend/src/openworkflow/workflows/workspace-hydrate.test.ts	test	n/a	characterization	Gate 2 backend	Cases “does not throw getLogger when only index is lagging”; “fails when desiredSha is missing instead of resolving a tip”. Boundary: Repository-owned models, workflows, stores, or runtime are mocked; records orchestration and call shape.
+apps/backend/src/openworkflow/workflows/workspace-index.test.ts	test	n/a	characterization	Gate 2 backend	Cases “persists a friendly hydrate error when clone-checkout 404s before the first projection”; “persists a friendly hydrate error when clone-checkout 500s before the first projection”. Boundary: Repository-owned models, workflows, stores, or runtime are mocked; records orchestration and call shape.
+apps/backend/src/openworkflow/workflows/workspace-tip-check.test.ts	test	n/a	characterization	Gate 2 backend	Cases “completes sandbox GC without a Hono request”; “enqueues write-commit outside the org SQL transaction”. Boundary: Repository-owned models, workflows, stores, or runtime are mocked; records orchestration and call shape.
+apps/backend/src/openworkflow/workflows/workspace-write-commit.test.ts	test	n/a	characterization	Gate 3 backend	Cases “records the GitHub tip on a first-create no-op export”; “persists hydrate failure then rethrows when the job dies after start”. Boundary: Repository-owned models, workflows, stores, or runtime are mocked; records orchestration and call shape.
+apps/backend/src/retrieval/schema/llm-prompt.test.ts	test	n/a	proof	Gate 2 backend	Cases “ClaimSchema parses valid claim”; “ClaimEvidenceSchema parses valid evidence”. Boundary: Pure/public owned logic; literal input-output or error oracle; no owned runtime substituted.
+apps/backend/src/retrieval/schema/predicateValidation.test.ts	test	n/a	proof	Gate 2 backend	Cases “accepts core predicates”; “accepts extension predicates”. Boundary: Pure/public owned logic; literal input-output or error oracle; no owned runtime substituted.
+apps/backend/src/retrieval/services/claimWrite.test.ts	test	n/a	characterization	Gate 2 backend	Cases “validates then batch-inserts claims and evidence once per chunk”; “no-ops on empty input”. Boundary: Repository-owned models, workflows, stores, or runtime are mocked; records orchestration and call shape.
+apps/backend/src/retrieval/services/confidenceAggregation.test.ts	test	n/a	proof	Gate 2 backend	Cases “returns 0 for empty evidence”; “aggregates single evidence”. Boundary: Pure/public owned logic; literal input-output or error oracle; no owned runtime substituted.
+apps/backend/src/retrieval/services/graphProjection.test.ts	test	n/a	characterization	Gate 2 backend	Cases “groups by subjectKind, objectKind, and predicate”; “issues far fewer graph queries than claims via UNWIND batches”. Boundary: Repository-owned models, workflows, stores, or runtime are mocked; records orchestration and call shape.
+apps/backend/src/retrieval/services/ingestionPathMatching.test.ts	test	n/a	proof	Gate 2 backend	Cases “uses forward slashes and strips ./”; “matches a full colon segment and avoids partial collisions”. Boundary: Pure/public owned logic; literal input-output or error oracle; no owned runtime substituted.
+apps/backend/src/retrieval/services/ingestionRetraction.integration.test.ts	test	n/a	proof	Gate 2 backend	Cases “removes repo-A evidence, keeps repo-B evidence, recomputes multi-source claim”; “is a no-op for a repository with no evidence”. Boundary: Real migrated Postgres seam; literal row, isolation, or persistence oracle.
+apps/backend/src/retrieval/services/ingestionRetraction.test.ts	test	n/a	characterization	Gate 2 backend	Cases “batches retract, refresh, and delete instead of per-id loops”; “no-ops on full ingest mode”. Boundary: Repository-owned models, workflows, stores, or runtime are mocked; records orchestration and call shape.
+apps/backend/src/retrieval/services/langchainReasoningParams.test.ts	test	n/a	proof	Gate 1 backend	Cases “passes explicit reasoning_effort through for provider-prefixed Chat Completions models”; “does not translate nested reasoning from modelKwargs”. Boundary: Pure/public owned logic; literal input-output or error oracle; no owned runtime substituted.
+apps/backend/src/retrieval/services/logicalSourceKey.test.ts	test	n/a	proof	Gate 2 backend	Cases “strips trailing :targetHash when present”; “returns sourceId unchanged when suffix does not match targetHash”. Boundary: Pure/public owned logic; literal input-output or error oracle; no owned runtime substituted.
+apps/backend/src/retrieval/services/modelProvider.test.ts	test	n/a	proof	Gate 1 backend	Cases “getModel uses OpenRouter extras only when MODEL_PROVIDER=openrouter”; “getModel passes tier fallback order to OpenRouter (fast: med then high)”. Boundary: Owned external-service adapter; only third-party HTTP/SDK substituted; literal request-response oracle.
+apps/backend/src/retrieval/services/parseModelSpec.test.ts	test	n/a	proof	Gate 1 backend	Cases “parses model id without query”; “parses Bedrock dot id with reasoning.effort”. Boundary: Pure/public owned logic; literal input-output or error oracle; no owned runtime substituted.
+apps/backend/src/retrieval/services/providers/openAILikeModelProvider.test.ts	test	n/a	proof	Gate 1 backend	Cases “maps reasoning.effort to reasoning_effort”; “maps text.verbosity to verbosity”. Boundary: Pure/public owned logic; literal input-output or error oracle; no owned runtime substituted.
+apps/backend/src/retrieval/services/providers/openrouterModelProvider.test.ts	test	n/a	proof	Gate 1 backend	Cases “keeps reasoning nested”; “maps text.verbosity to top-level verbosity”. Boundary: Pure/public owned logic; literal input-output or error oracle; no owned runtime substituted.
+apps/backend/src/retrieval/services/retrievalObjectWrite.test.ts	test	n/a	characterization	Gate 2 backend	Cases “keeps rich fields when incoming is consumer stub”; “replaces stub when incoming is full extraction”. Boundary: Repository-owned models, workflows, stores, or runtime are mocked; records orchestration and call shape.
+apps/backend/src/routes/auth.test.ts	test	n/a	proof	Gate 1 backend	Cases “returns protected resource metadata for MCP endpoint”; “aligns PRM authorization_servers with AS issuer when AUTH_ISSUER is unset”. Boundary: Real Hono/protocol seam; literal HTTP, stream, status, or asset oracle.
+apps/backend/src/routes/langsmith.test.ts	test	n/a	characterization	Gate 1 backend	Cases “does not mount routes when ENABLE_LANGSMITH is disabled”; “registerLangsmithRoutes”. Boundary: Repository-owned models, workflows, stores, or runtime are mocked; records orchestration and call shape.
+apps/backend/src/routes/mcp-brand-asset.test.ts	test	n/a	proof	Gate 1 backend	Cases “serves SVG at the well-known path”; “MCP brand logo asset”. Boundary: Pure/public owned logic; literal input-output or error oracle; no owned runtime substituted.
+apps/backend/src/routes/mcp.conformance.test.ts	test	n/a	proof	Gate 1 backend	Cases “passes server conformance against in-test MCP endpoint”; “passes MCPJam protocol conformance against the production transport”. Boundary: Real Hono/protocol seam; literal HTTP, stream, status, or asset oracle.
+apps/backend/src/routes/mcp.test.ts	test	n/a	characterization	Gate 4 backend	Cases “rejects unauthenticated requests”; “rejects unknown orgSlug with not found”. Boundary: Repository-owned models, workflows, stores, or runtime are mocked; records orchestration and call shape.
+apps/backend/src/routes/ui.test.ts	test	n/a	proof	Gate 1 backend	Cases “detects vite websocket upgrades in development”; “detects vite ping websocket upgrades in development”. Boundary: Real Hono/protocol seam; literal HTTP, stream, status, or asset oracle.
+apps/backend/src/routes/v1/connectors-atlassian.test.ts	test	n/a	characterization	Gate 3 backend	Cases “GET /status returns connector state”; “registers pending install when Atlassian account is not yet linked”. Boundary: Repository-owned models, workflows, stores, or runtime are mocked; records orchestration and call shape.
+apps/backend/src/routes/v1/connectors-linear.test.ts	test	n/a	characterization	Gate 3 backend	Cases “returns a signed read-only authorization URL”; “exchanges the callback and relays the connection id”. Boundary: Repository-owned models, workflows, stores, or runtime are mocked; records orchestration and call shape.
+apps/backend/src/routes/v1/connectors-list.test.ts	test	n/a	characterization	Gate 3 backend	Cases “returns the repository already shared by connector targets”; “connector routes”. Boundary: Repository-owned models, workflows, stores, or runtime are mocked; records orchestration and call shape.
+apps/backend/src/routes/v1/connectors-notion.test.ts	test	n/a	characterization	Gate 3 backend	Cases “returns live status without reading GitHub scope config”; “enqueues the config workflow with the requested resources when the git scope differs”. Boundary: Repository-owned models, workflows, stores, or runtime are mocked; records orchestration and call shape.
+apps/backend/src/routes/v1/connectors-slack.test.ts	test	n/a	characterization	Gate 3 backend	Cases “returns phase-aware status for an installed connection”; “rejects ambiguous status requests without connectionId”. Boundary: Repository-owned models, workflows, stores, or runtime are mocked; records orchestration and call shape.
+apps/backend/src/routes/v1/conversation-files-routes.live.test.ts	test	n/a	proof	Gate 4 backend	Cases “lists a write from the live handle and 409s without inventing a fresh clone”; “conversation files tree against a live sandbox workdir”. Boundary: Real local-process/TanStack/git seam; literal sandbox, path, or stream oracle.
+apps/backend/src/routes/v1/conversation-websocket.test.ts	test	n/a	proof	Gate 4 backend	Cases “matches the conversation upgrade path and ignores Vite HMR”; “adapts a Bun-style socket to WebSocketLike”. Boundary: Real Hono/protocol seam; literal HTTP, stream, status, or asset oracle.
+apps/backend/src/routes/v1/conversations.test.ts	test	n/a	characterization	Gate 4 backend	Cases “lists UI conversations for a Workspace and ignores source=all”; “refuses to list conversations without a Workspace id”. Boundary: Repository-owned models, workflows, stores, or runtime are mocked; records orchestration and call shape.
+apps/backend/src/routes/v1/github-installation.test.ts	test	n/a	characterization	Gate 2 backend	Cases “returns 403 when user is not org admin/owner”; “allows installation registration when GitHub account is not linked”. Boundary: Repository-owned models, workflows, stores, or runtime are mocked; records orchestration and call shape.
+apps/backend/src/routes/v1/health.test.ts	test	n/a	characterization	Gate 1 backend	Cases “returns 200 and status ok”; “GET /.status”. Boundary: Repository-owned models, workflows, stores, or runtime are mocked; records orchestration and call shape.
+apps/backend/src/routes/v1/index.test.ts	test	n/a	characterization	Gate 1 backend	Cases “runs cookie + bearer + requireAuth + org middleware for v1 paths”; “registerV1Routes auth middleware chain”. Boundary: Repository-owned models, workflows, stores, or runtime are mocked; records orchestration and call shape.
+apps/backend/src/routes/v1/openai.test.ts	test	n/a	proof	Gate 1 backend	Cases “returns 401 when no user/session is set (signed-out)”; “returns 404 when the org slug isn't bound (withNetworkOrgContext upstream sets orgId=null)”. Boundary: Owned external-service adapter; only third-party HTTP/SDK substituted; literal request-response oracle.
+apps/backend/src/routes/v1/org-atlassian-oauth.test.ts	test	n/a	characterization	Gate 1 backend	Cases “returns metadata without any secret fields”; “returns 404 when connection is missing”. Boundary: Repository-owned models, workflows, stores, or runtime are mocked; records orchestration and call shape.
+apps/backend/src/routes/v1/repositories.test.ts	test	n/a	characterization	Gate 2 backend	Cases “creates repository and triggers ingestion workflow”; “returns indexingStep fields when set”. Boundary: Repository-owned models, workflows, stores, or runtime are mocked; records orchestration and call shape.
+apps/backend/src/routes/v1/workspace-activity-routes.test.ts	test	n/a	characterization	Gate 2 backend	Cases “returns pending zeros and enqueues a backfill”; “returns ready recent commits without enqueue when the tip matches”. Boundary: Repository-owned models, workflows, stores, or runtime are mocked; records orchestration and call shape.
+apps/backend/src/routes/v1/workspace-chat-openai.test.ts	test	n/a	proof	Gate 4 backend	Cases “returns 401 without a chat token”; “rejects a user session token”. Boundary: Real Hono/protocol seam; literal HTTP, stream, status, or asset oracle.
+apps/backend/src/routes/v1/workspaces.test.ts	test	n/a	characterization	Gate 2 backend	Cases “lists workspaces and last-used id”; “creates a workspace from a git URL”. Boundary: Repository-owned models, workflows, stores, or runtime are mocked; records orchestration and call shape.
+apps/backend/src/routes/webhooks/atlassian/atlassian.test.ts	test	n/a	characterization	Gate 3 backend	Cases “strips ari:cloud:ecosystem::installation/ prefix and trims”; “returns bare id when already without ARI prefix”. Boundary: Repository-owned models, workflows, stores, or runtime are mocked; records orchestration and call shape.
+apps/backend/src/routes/webhooks/github/github-confluence-push.test.ts	test	n/a	characterization	Gate 3 backend	Cases “enqueues when commits list includes confluence/config.yaml”; “uses compareCommits fallback when commits omit file paths but before/after exist”. Boundary: Repository-owned models, workflows, stores, or runtime are mocked; records orchestration and call shape.
+apps/backend/src/routes/webhooks/github/github-linear-push.test.ts	test	n/a	characterization	Gate 3 backend	Cases “starts initial sync from merged config on the selected branch”; “rejects config copied from another Linear workspace”. Boundary: Repository-owned models, workflows, stores, or runtime are mocked; records orchestration and call shape.
+apps/backend/src/routes/webhooks/github/github-notion-push.test.ts	test	n/a	characterization	Gate 3 backend	Cases “starts the first content sync when notion/config.yaml is merged”; “returns the connector to draft when the config is removed”. Boundary: Repository-owned models, workflows, stores, or runtime are mocked; records orchestration and call shape.
+apps/backend/src/routes/webhooks/github/github-workspace-tip.test.ts	test	n/a	characterization	Gate 2 backend	Cases “persists the resolved tip and ignores payload after”; “lists in an org tx, resolves GitHub over HTTP, then persists in a new org tx”. Boundary: Repository-owned models, workflows, stores, or runtime are mocked; records orchestration and call shape.
+apps/backend/src/routes/webhooks/github/github.test.ts	test	n/a	characterization	Gate 2 backend	Cases “matches GitHub documentation test vector”; “returns 401 when signature is invalid”. Boundary: Repository-owned models, workflows, stores, or runtime are mocked; records orchestration and call shape.
+apps/backend/src/routes/webhooks/linear/linear.test.ts	test	n/a	characterization	Gate 3 backend	Cases “verifies the raw body and enqueues a comment event for its issue”; “rejects a correctly signed but stale event”. Boundary: Repository-owned models, workflows, stores, or runtime are mocked; records orchestration and call shape.
+apps/backend/src/routes/webhooks/notion/notion.test.ts	test	n/a	characterization	Gate 3 backend	Cases “acknowledges provisioning verification without persisting”; “accepts a verification token that matches the configured secret”. Boundary: Repository-owned models, workflows, stores, or runtime are mocked; records orchestration and call shape.
+apps/backend/src/routes/webhooks/slack/slack.test.ts	test	n/a	characterization	Gate 3 backend	Cases “enqueues a mention agent for an app_mention on a live connector”; “posts a terminal failure after 200 when enqueue fails”. Boundary: Repository-owned models, workflows, stores, or runtime are mocked; records orchestration and call shape.
+apps/backend/src/services/confluence/config-yaml.test.ts	test	n/a	proof	Gate 3 backend	Cases “parses round-tripped YAML”; “returns undefined for invalid YAML content”. Boundary: Pure/public owned logic; literal input-output or error oracle; no owned runtime substituted.
+apps/backend/src/services/confluence/forge-confluence-webhook.test.ts	test	n/a	characterization	Gate 3 backend	Cases “resets when Git config is missing or unparsable”; “does not reset when YAML has empty spaces (valid “sync nothing”)”. Boundary: Repository-owned models, workflows, stores, or runtime are mocked; records orchestration and call shape.
+apps/backend/src/services/confluence/github-push-config-sync.test.ts	test	n/a	proof	Gate 3 backend	Cases “returns true when modified includes path”; “returns false when commits omit path”. Boundary: Pure/public owned logic; literal input-output or error oracle; no owned runtime substituted.
+apps/backend/src/services/confluence/sync.test.ts	test	n/a	proof	Gate 3 backend	Cases “returns full when there is no page scoping”; “returns full for page delete events so orphans are pruned in one space run”. Boundary: Pure/public owned logic; literal input-output or error oracle; no owned runtime substituted.
+apps/backend/src/services/git/clone-tree.test.ts	test	n/a	proof	Gate 2 backend	Cases “lists paths and reads a blob at a stored SHA”; “does not follow a repo symlink out of the checkout”. Boundary: Real temporary git/filesystem seam; literal path and content oracle.
+apps/backend/src/services/github/installation-write-client.test.ts	test	n/a	characterization	Gate 3 backend	Cases “initializes an empty repository before creating the config pull request”; “passes separate base and head refs to Octokit”. Boundary: Repository-owned models, workflows, stores, or runtime are mocked; records orchestration and call shape.
+apps/backend/src/services/linear/client-discovery.test.ts	test	n/a	proof	Gate 3 backend	Cases “normalises selectable entities and their parent team context”; “discoverLinearScopes”. Boundary: Owned external-service adapter; only third-party HTTP/SDK substituted; literal request-response oracle.
+apps/backend/src/services/linear/client.test.ts	test	n/a	proof	Gate 3 backend	Cases “requests only read access through the fixed callback URL”; “uses form encoding for code exchange and refresh-token rotation”. Boundary: Owned external-service adapter; only third-party HTTP/SDK substituted; literal request-response oracle.
+apps/backend/src/services/linear/config-yaml.test.ts	test	n/a	proof	Gate 3 backend	Cases “round-trips stable scope identity and privacy policy”; “compares semantic content rather than YAML formatting or ordering”. Boundary: Pure/public owned logic; literal input-output or error oracle; no owned runtime substituted.
+apps/backend/src/services/linear/converter.test.ts	test	n/a	proof	Gate 3 backend	Cases “keeps GitHub attachments as reference metadata without duplicating PR content”; “keeps native comments and non-GitHub attachment metadata”. Boundary: Pure/public owned logic; literal input-output or error oracle; no owned runtime substituted.
+apps/backend/src/services/linear/incremental.test.ts	test	n/a	proof	Gate 3 backend	Cases “updates a selected team from a webhook event”; “upserts only an entity that belongs to configured scope”. Boundary: Owned external-service adapter; only third-party HTTP/SDK substituted; literal request-response oracle.
+apps/backend/src/services/linear/oauth-state.test.ts	test	n/a	proof	Gate 3 backend	Cases “round-trips signed state”; “rejects tampered and expired state”. Boundary: Pure/public owned logic; literal input-output or error oracle; no owned runtime substituted.
+apps/backend/src/services/linear/sync.test.ts	test	n/a	characterization	Gate 3 backend	Cases “deletes stale mirror files after a complete reconcile”; “preserves possible orphans when any entity fetch fails”. Boundary: Repository-owned models, workflows, stores, or runtime are mocked; records orchestration and call shape.
+apps/backend/src/services/notion/client.test.ts	test	n/a	proof	Gate 3 backend	Cases “refreshes an expired token and persists the rotated token”; “follows all resource pages instead of truncating the result set”. Boundary: Owned external-service adapter; only third-party HTTP/SDK substituted; literal request-response oracle.
+apps/backend/src/services/notion/config-yaml.test.ts	test	n/a	proof	Gate 3 backend	Cases “renders resources in a stable order”; “does not treat resource ordering as a scope change”. Boundary: Pure/public owned logic; literal input-output or error oracle; no owned runtime substituted.
+apps/backend/src/services/notion/converter.test.ts	test	n/a	proof	Gate 3 backend	Cases “preserves checked tasks and nested blocks”; “renders database rows with properties and page content”. Boundary: Pure/public owned logic; literal input-output or error oracle; no owned runtime substituted.
+apps/backend/src/services/notion/incremental.test.ts	test	n/a	characterization	Gate 3 backend	Cases “extracts the trailing id from a slug--id segment”; “selects database files by the first database segment id”. Boundary: Repository-owned models, workflows, stores, or runtime are mocked; records orchestration and call shape.
+apps/backend/src/services/notion/sync.test.ts	test	n/a	proof	Gate 3 backend	Cases “finds child pages at every nested block level”; “deletes files that are no longer in a complete sync”. Boundary: Pure/public owned logic; literal input-output or error oracle; no owned runtime substituted.
+apps/backend/src/services/slack/client.test.ts	test	n/a	proof	Gate 3 backend	Cases “requests every required bot scope, including app mentions”; “rejects a token missing a required bot scope”. Boundary: Owned external-service adapter; only third-party HTTP/SDK substituted; literal request-response oracle.
+apps/backend/src/services/slack/converter.test.ts	test	n/a	proof	Gate 3 backend	Cases “builds stable thread paths”; “converts common mrkdwn”. Boundary: Pure/public owned logic; literal input-output or error oracle; no owned runtime substituted.
+apps/backend/src/services/slack/mention-agent.test.ts	test	n/a	characterization	Gate 3 backend	Cases “treats a bare mention as empty remainder”; “keeps intent text after the mention”. Boundary: Repository-owned models, workflows, stores, or runtime are mocked; records orchestration and call shape.
+apps/backend/src/services/slack/sync.test.ts	test	n/a	characterization	Gate 3 backend	Cases “commits the channel index and thread markdown for a captured thread”; “omits the in-thread status message from the snapshot”. Boundary: Repository-owned models, workflows, stores, or runtime are mocked; records orchestration and call shape.
+apps/backend/src/services/slack/verify-signature.test.ts	test	n/a	proof	Gate 3 backend	Cases “accepts a valid signature within skew”; “rejects bad signature”. Boundary: Pure/public owned logic; literal input-output or error oracle; no owned runtime substituted.
+apps/backend/src/tools/getFile.test.ts	test	n/a	characterization	Gate 2 backend	Cases “reads the workspace checkout through the shared helper”; “throws when the checkout file is missing”. Boundary: Repository-owned models, workflows, stores, or runtime are mocked; records orchestration and call shape.
+apps/backend/src/tools/structuralSearch.test.ts	test	n/a	characterization	Gate 2 backend	Cases “posts an authenticated ast-grep query to codesearch”; “structuralSearchTool”. Boundary: Repository-owned models, workflows, stores, or runtime are mocked; records orchestration and call shape.
+apps/backend/src/tools/zoektSymbolQuery.test.ts	test	n/a	proof	Gate 2 backend	Cases “escapes backslashes and double quotes”; “escapes regex metacharacters”. Boundary: Pure/public owned logic; literal input-output or error oracle; no owned runtime substituted.
+apps/codesearch/src/auth/jwt.test.ts	test	n/a	proof	Gate 2 codesearch	Signs real JOSE tokens and asserts auth rejection plus workspace checkout-key derivation without owned mocks.
+apps/codesearch/src/config/paths.test.ts	test	n/a	proof	Gate 2 codesearch	Direct deterministic assertions pin cold-index to sibling hot-directory path policy.
+apps/codesearch/src/db/client.org-context.test.ts	test	n/a	characterization	Gate 1 codesearch	Exercises nested org-context control flow, but replaces the transaction and SQL execute collaborator with vi.fn doubles.
+apps/codesearch/src/db/transient.test.ts	test	n/a	proof	Gate 1 codesearch	Directly proves transient-error recognition, pool error handling, and one-retry semantics through an injected pool boundary.
+apps/codesearch/src/domain/graph/executeGraphPrimitive.test.ts	test	n/a	proof	Gate 2 codesearch	Builds real SCIP protobuf fixtures on disk and asserts graph answers, cache invalidation, single-flight loading, and byte-budget behavior; fs wrappers only observe native reads.
+apps/codesearch/src/domain/graph/scipProto.test.ts	test	n/a	proof	Gate 2 codesearch	Round-trips real protobuf encoding and proves multi-shard document and external-symbol merging.
+apps/codesearch/src/domain/indexing/detectLanguages.test.ts	test	n/a	proof	Gate 2 codesearch	Creates real temporary repository trees and asserts language detection, marker, exclusion, ordering, and missing-tree invariants.
+apps/codesearch/src/domain/indexing/heartbeat.test.ts	test	n/a	characterization	Gate 2 codesearch	Asserts heartbeat registration and cleanup while replacing Bun.spawn, timers, and logging with test doubles.
+apps/codesearch/src/domain/indexing/indexConcurrency.test.ts	test	n/a	proof	Gate 2 codesearch	Runs the real in-memory exclusion primitive and proves overlap, serialization, and purge ordering from observed events.
+apps/codesearch/src/domain/indexing/indexerChildEnv.test.ts	test	n/a	proof	Gate 2 codesearch	Directly asserts child environment defaults, precedence, toolchain allowlist, cache derivation, and secret exclusion.
+apps/codesearch/src/domain/indexing/memoryFitError.test.ts	test	n/a	proof	Gate 2 codesearch	Directly pins exit-137 normalization and preserves unrelated failure headlines.
+apps/codesearch/src/domain/indexing/scipIndexers.test.ts	test	n/a	characterization	Gate 2 codesearch	Checks argv, concurrency, shard publication, and failure mapping against temporary files, but replaces every real SCIP process with mocked Bun.spawn handles.
+apps/codesearch/src/domain/indexing/scipTouchedLanguages.test.ts	test	n/a	proof	Gate 2 codesearch	Pure table assertions prove touched-path language selection, uncertainty fallback, deletion, and reuse behavior.
+apps/codesearch/src/domain/indexing/service.test.ts	test	n/a	proof	Gate 2 codesearch	Proves phase sequencing with injected tasks and validates atomic SCIP shard handling against real filesystem and protobuf data.
+apps/codesearch/src/domain/indexing/streamTail.test.ts	test	n/a	proof	Gate 2 codesearch	Uses real streams to prove null, under-limit, and byte-bounded tail behavior.
+apps/codesearch/src/domain/indexingSteps.test.ts	test	n/a	characterization	Gate 2 codesearch	Pure checklist assertions are strong, but persistence and monotonic-write claims stop at a mocked Drizzle transaction/update chain.
+apps/codesearch/src/domain/repositories/globFiles.test.ts	test	n/a	proof	Gate 2 codesearch	Uses real temporary trees to prove glob safety, dependency and .git exclusion, truncation, traversal rejection, and bounded listing.
+apps/codesearch/src/domain/repositories/paths.test.ts	test	n/a	proof	Gate 2 codesearch	Direct deterministic assertions pin merged and per-language SCIP paths for default and named checkouts.
+apps/codesearch/src/domain/repositories/purge.test.ts	test	n/a	proof	Gate 2 codesearch	Uses real directories, shards, symlinks, and pin state to prove exact-identity deletion and fail-closed legacy behavior; path config is redirected only to temp storage.
+apps/codesearch/src/domain/repositories/resolveRef.test.ts	test	n/a	characterization	Gate 2 codesearch	Asserts ls-remote argv and parser/error wiring while replacing native git execution with a Bun.spawn mock.
+apps/codesearch/src/domain/repositories/service.test.ts	test	n/a	characterization	Gate 2 codesearch	Asserts application org checks and row return through a fully mocked Drizzle select/transaction collaborator.
+apps/codesearch/src/domain/search/structuralSearch.test.ts	test	n/a	proof	Gate 2 codesearch	Direct argv assertions and real symlinked temp trees prove shell-free invocation and checkout containment; only external ast-grep output is injected.
+apps/codesearch/src/domain/zoekt/pinManager.test.ts	test	n/a	proof	Gate 2 codesearch	Exercises real cold and hot filesystem state plus timers to prove exact pin identity, TTL, races, refresh, and regular-file safety.
+apps/codesearch/src/domain/zoekt/shardPrefix.test.ts	test	n/a	proof	Gate 2 codesearch	Pure assertions pin stable org/repository naming and exact shard and sidecar matching without prefix collisions.
+apps/codesearch/src/domain/zoekt/warmup.integration.test.ts	test	n/a	proof	Gate 2 codesearch	Starts real Zoekt index and webserver binaries, pins real shards, and verifies HTTP search transition; proof status still depends on the prerequisite lane actually running.
+apps/codesearch/src/domain/zoekt/warmup.test.ts	test	n/a	proof	Gate 2 codesearch	Injected external fetch and sleep boundaries directly prove retry, availability, timeout, and empty-input polling policy.
+apps/codesearch/src/observability/http-wide-event-message.test.ts	test	n/a	proof	Gate 1 codesearch	Direct deterministic assertion pins the HTTP wide-event message fields.
+apps/codesearch/src/routes/graph.test.ts	test	n/a	characterization	Gate 2 codesearch	Runs the real Hono route and auth branch but mocks repository lookup and the owned graph executor, so it characterizes checkout-isolation wiring.
+apps/codesearch/src/routes/indexPhases.test.ts	test	n/a	characterization	Gate 2 codesearch	Runs Hono status and auth branches while mocking owned repository and indexing-phase modules; proves neither checkout nor phase execution.
+apps/codesearch/src/routes/indexPhases.zoekt.test.ts	test	n/a	characterization	Gate 2 codesearch	Checks HTTP mapping of the memory-fit error with owned phase, repository, and logger modules replaced.
+apps/codesearch/src/routes/repo.test.ts	test	n/a	characterization	Gate 2 codesearch	Some file/tree/glob branches use real disk, but repository, ref-resolution, and purge owners are mocked, so the file remains route-wiring characterization.
+apps/codesearch/src/routes/search.test.ts	test	n/a	characterization	Gate 2 codesearch	Asserts route orchestration and workspace identity with mocked DB, pin manager, warmup, and Zoekt fetch collaborators.
+apps/codesearch/src/routes/structuralSearch.test.ts	test	n/a	characterization	Gate 2 codesearch	Asserts request validation and OpenAPI wiring while replacing owned repository and structural-search implementations.
+apps/ui/src/components/SideNav/SideNav.stories.tsx	story	yes	characterization	Gate5 UI / Gate6 coverage	L95 clicks collapse; no assertion of resulting navigation state
+apps/ui/src/components/SideNav/sideNavLocation.test.ts	test	n/a	proof	Gate 6 UI	Pure route parsing and keying assertions prove org and workspace navigation identity.
+apps/ui/src/components/onboarding/McpConfigPrWizard.stories.tsx	story	yes	proof	Gate5 UI / Gate6 coverage	L162-350 real wizard validates loading, empty/error, preview and returned PR-link UI with network MSW; backend publishing is outside this oracle
+apps/ui/src/components/onboarding/McpConfigPreviewDiff.stories.tsx	story	no	characterization	Gate5 UI / Gate6 coverage	Reviewed McpConfigPreviewDiff component/render imports and exports: fixture visual states with no play assertions; retain as visual coverage until Gate6 coverage review
+apps/ui/src/components/onboarding/McpOnboardingSlide.stories.tsx	story	yes	proof	Gate5 UI / Gate6 coverage	L122,147 real controls reveal manual configuration and PR wizard with visible assertions
+apps/ui/src/components/onboarding/OnboardingCreateOrgSlide.stories.tsx	story	yes	proof	Gate5 UI / Gate6 coverage	L63,82 validate empty input and network error in real form; success callback case is weaker
+apps/ui/src/components/onboarding/OnboardingExternalInviteModal.stories.tsx	story	no	characterization	Gate5 UI / Gate6 coverage	Reviewed OnboardingExternalInviteModal component/render imports and exports: fixture visual states with no play assertions; retain as visual coverage until Gate6 coverage review
+apps/ui/src/components/onboarding/OnboardingGithubSlide.stories.tsx	story	no	characterization	Gate5 UI / Gate6 coverage	Reviewed OnboardingGithubSlide component/render imports and exports: fixture visual states with no play assertions; retain as visual coverage until Gate6 coverage review
+apps/ui/src/components/onboarding/OnboardingInviteSlide.stories.tsx	story	yes	proof	Gate5 UI / Gate6 coverage	L71-199 real invite form asserts validation, pending, success/error and external-domain modal with MSW only
+apps/ui/src/components/onboarding/OnboardingJoinerDoneSlide.stories.tsx	story	no	characterization	Gate5 UI / Gate6 coverage	Reviewed OnboardingJoinerDoneSlide component/render imports and exports: fixture visual states with no play assertions; retain as visual coverage until Gate6 coverage review
+apps/ui/src/components/onboarding/OnboardingOverviewSlide.stories.tsx	story	no	characterization	Gate5 UI / Gate6 coverage	Reviewed OnboardingOverviewSlide component/render imports and exports: fixture visual states with no play assertions; retain as visual coverage until Gate6 coverage review
+apps/ui/src/components/onboarding/OnboardingPageShell.stories.tsx	story	yes	characterization	Gate5 UI / Gate6 coverage	L105 asserts mocked slide callback only; no owning onboarding transition result
+apps/ui/src/components/onboarding/OnboardingWelcomeSlide.stories.tsx	story	yes	characterization	Gate5 UI / Gate6 coverage	L33 visible button and mocked timing callback; no completed onboarding behavior
+apps/ui/src/components/ui/Button.test.tsx	test	n/a	characterization	Gate 6 UI	Static DOM assertion covers anchor selection, but react-aria-components is replaced and no browser interaction runs.
+apps/ui/src/components/ui/InlineLoader.stories.tsx	story	no	characterization	Gate5 UI / Gate6 coverage	Reviewed InlineLoader component/render imports and exports: fixture visual states with no play assertions; retain as visual coverage until Gate6 coverage review
+apps/ui/src/components/ui/Skeleton.stories.tsx	story	no	characterization	Gate5 UI / Gate6 coverage	Reviewed Skeleton component/render imports and exports: fixture visual states with no play assertions; retain as visual coverage until Gate6 coverage review
+apps/ui/src/features/auth/accept-invitation.test.ts	test	n/a	proof	Gate 6 UI	Injected external callbacks prove redirect occurs only after successful acceptance and failure propagates without redirect.
+apps/ui/src/features/chat/ConversationThread.stories.tsx	story	yes	proof	Gate5 UI / Gate6 coverage	L46,70 real renderer asserts collapsed accessibility state and live reasoning text; other variants are visual/action-only
+apps/ui/src/features/chat/ConversationThread.test.tsx	test	n/a	characterization	Gate 4 UI	Real component static markup characterizes reasoning, tool-chip, and reply presentation but does not exercise browser interaction or streaming.
+apps/ui/src/features/chat/conversation-thread-utils.test.ts	test	n/a	proof	Gate 4 UI	Pure assertions prove tool bucketing, details, deduped summaries, markdown splitting, and latest-heading selection.
+apps/ui/src/features/chat/insertConversationListItem.test.ts	test	n/a	proof	Gate 4 UI	Pure immutable page-data assertions prove optimistic insertion and duplicate suppression.
+apps/ui/src/features/connectors/EditScopeModal.stories.tsx	story	no	characterization	Gate5 UI / Gate6 coverage	Reviewed EditScopeModal component/render imports and exports: fixture visual states with no play assertions; retain as visual coverage until Gate6 coverage review
+apps/ui/src/features/connectors/SpacePageTree.stories.tsx	story	no	characterization	Gate5 UI / Gate6 coverage	Reviewed SpacePageTree component/render imports and exports: fixture visual states with no play assertions; retain as visual coverage until Gate6 coverage review
+apps/ui/src/features/connectors/components/AddConfluenceConnectorButton.stories.tsx	story	no	characterization	Gate5 UI / Gate6 coverage	Reviewed AddConfluenceConnectorButton component/render imports and exports: fixture visual states with no play assertions; retain as visual coverage until Gate6 coverage review
+apps/ui/src/features/connectors/components/AddConnectorCatalogDialog.stories.tsx	story	no	characterization	Gate5 UI / Gate6 coverage	Reviewed AddConnectorCatalogDialog component/render imports and exports: fixture visual states with no play assertions; retain as visual coverage until Gate6 coverage review
+apps/ui/src/features/connectors/components/AddGithubConnectorButton.stories.tsx	story	no	characterization	Gate5 UI / Gate6 coverage	Reviewed AddGithubConnectorButton component/render imports and exports: fixture visual states with no play assertions; retain as visual coverage until Gate6 coverage review
+apps/ui/src/features/connectors/components/AddLinearConnectorButton.stories.tsx	story	no	characterization	Gate5 UI / Gate6 coverage	Reviewed AddLinearConnectorButton component/render imports and exports: fixture visual states with no play assertions; retain as visual coverage until Gate6 coverage review
+apps/ui/src/features/connectors/components/AddNotionConnectorButton.stories.tsx	story	no	characterization	Gate5 UI / Gate6 coverage	Reviewed AddNotionConnectorButton component/render imports and exports: fixture visual states with no play assertions; retain as visual coverage until Gate6 coverage review
+apps/ui/src/features/connectors/components/AddSlackConnectorButton.stories.tsx	story	no	characterization	Gate5 UI / Gate6 coverage	Reviewed AddSlackConnectorButton component/render imports and exports: fixture visual states with no play assertions; retain as visual coverage until Gate6 coverage review
+apps/ui/src/features/connectors/components/AtlassianAccountClaimModalContent.stories.tsx	story	no	characterization	Gate5 UI / Gate6 coverage	Reviewed AtlassianAccountClaimModalContent component/render imports and exports: fixture visual states with no play assertions; retain as visual coverage until Gate6 coverage review
+apps/ui/src/features/connectors/components/ConfluenceConnectionCard.stories.tsx	story	no	characterization	Gate5 UI / Gate6 coverage	Reviewed ConfluenceConnectionCard component/render imports and exports: fixture visual states with no play assertions; retain as visual coverage until Gate6 coverage review
+apps/ui/src/features/connectors/components/ConfluenceMark.stories.tsx	story	no	characterization	Gate5 UI / Gate6 coverage	Reviewed ConfluenceMark component/render imports and exports: fixture visual states with no play assertions; retain as visual coverage until Gate6 coverage review
+apps/ui/src/features/connectors/components/ConnectorContextRepositoryGuidance.test.ts	test	n/a	proof	Gate 3 UI	Direct URL assertions prove repository prefill, encoding, and optional owner behavior.
+apps/ui/src/features/connectors/components/ConnectorListItem.stories.tsx	story	no	characterization	Gate5 UI / Gate6 coverage	Reviewed ConnectorListItem component/render imports and exports: fixture visual states with no play assertions; retain as visual coverage until Gate6 coverage review
+apps/ui/src/features/connectors/components/ConnectorSetupStepper.stories.tsx	story	no	characterization	Gate5 UI / Gate6 coverage	Reviewed ConnectorSetupStepper component/render imports and exports: fixture visual states with no play assertions; retain as visual coverage until Gate6 coverage review
+apps/ui/src/features/connectors/components/ConnectorSetupStepper.test.tsx	test	n/a	characterization	Gate 6 UI	Static rendered markup characterizes current and completed step attributes without browser semantics.
+apps/ui/src/features/connectors/components/ConnectorWorkspaceDestinationPicker.test.ts	test	n/a	proof	Gate 3 UI	Pure assertions prove destination extraction, canonical remote matching, and URL normalization.
+apps/ui/src/features/connectors/components/ConnectorsEmptyState.stories.tsx	story	no	characterization	Gate5 UI / Gate6 coverage	Reviewed ConnectorsEmptyState component/render imports and exports: fixture visual states with no play assertions; retain as visual coverage until Gate6 coverage review
+apps/ui/src/features/connectors/components/ConnectorsOAuthErrorBanner.stories.tsx	story	no	characterization	Gate5 UI / Gate6 coverage	Reviewed ConnectorsOAuthErrorBanner component/render imports and exports: fixture visual states with no play assertions; retain as visual coverage until Gate6 coverage review
+apps/ui/src/features/connectors/components/GitHubPrerequisiteStep.stories.tsx	story	no	characterization	Gate5 UI / Gate6 coverage	Reviewed GitHubPrerequisiteStep component/render imports and exports: fixture visual states with no play assertions; retain as visual coverage until Gate6 coverage review
+apps/ui/src/features/connectors/components/GithubConnectionCard.stories.tsx	story	no	characterization	Gate5 UI / Gate6 coverage	Reviewed GithubConnectionCard component/render imports and exports: fixture visual states with no play assertions; retain as visual coverage until Gate6 coverage review
+apps/ui/src/features/connectors/components/LinearConnectionCard.stories.tsx	story	no	characterization	Gate5 UI / Gate6 coverage	Reviewed LinearConnectionCard component/render imports and exports: fixture visual states with no play assertions; retain as visual coverage until Gate6 coverage review
+apps/ui/src/features/connectors/components/LinearMark.stories.tsx	story	no	characterization	Gate5 UI / Gate6 coverage	Reviewed LinearMark component/render imports and exports: fixture visual states with no play assertions; retain as visual coverage until Gate6 coverage review
+apps/ui/src/features/connectors/components/NotionConnectionCard.stories.tsx	story	no	characterization	Gate5 UI / Gate6 coverage	Reviewed NotionConnectionCard component/render imports and exports: fixture visual states with no play assertions; retain as visual coverage until Gate6 coverage review
+apps/ui/src/features/connectors/components/NotionSetupDialog.stories.tsx	story	no	characterization	Gate5 UI / Gate6 coverage	Reviewed NotionSetupDialog component/render imports and exports: fixture visual states with no play assertions; retain as visual coverage until Gate6 coverage review
+apps/ui/src/features/connectors/components/OrgAtlassianOauthPanel.stories.tsx	story	no	characterization	Gate5 UI / Gate6 coverage	Reviewed OrgAtlassianOauthPanel component/render imports and exports: fixture visual states with no play assertions; retain as visual coverage until Gate6 coverage review
+apps/ui/src/features/connectors/components/SlackConnectionCard.stories.tsx	story	no	characterization	Gate5 UI / Gate6 coverage	Reviewed SlackConnectionCard component/render imports and exports: fixture visual states with no play assertions; retain as visual coverage until Gate6 coverage review
+apps/ui/src/features/connectors/components/SlackSetupDialog.stories.tsx	story	no	characterization	Gate5 UI / Gate6 coverage	Reviewed SlackSetupDialog component/render imports and exports: fixture visual states with no play assertions; retain as visual coverage until Gate6 coverage review
+apps/ui/src/features/connectors/components/SlackSetupDialog.test.tsx	test	n/a	characterization	Gate 3 UI	Dialog states are asserted through extensive mocks of router, query, API, UI primitives, and owned connector helpers.
+apps/ui/src/features/connectors/components/confluence-setup/ConfluenceSetupWizard.stories.tsx	story	no	characterization	Gate5 UI / Gate6 coverage	Reviewed ConfluenceSetupWizard component/render imports and exports: fixture visual states with no play assertions; retain as visual coverage until Gate6 coverage review
+apps/ui/src/features/connectors/components/confluence-setup/steps/InstallForgeStep.stories.tsx	story	no	characterization	Gate5 UI / Gate6 coverage	Reviewed InstallForgeStep component/render imports and exports: fixture visual states with no play assertions; retain as visual coverage until Gate6 coverage review
+apps/ui/src/features/connectors/components/confluence-setup/steps/LinkAtlassianStep.stories.tsx	story	no	characterization	Gate5 UI / Gate6 coverage	Reviewed LinkAtlassianStep component/render imports and exports: fixture visual states with no play assertions; retain as visual coverage until Gate6 coverage review
+apps/ui/src/features/connectors/components/confluence-setup/steps/LinkGitHubStep.stories.tsx	story	no	characterization	Gate5 UI / Gate6 coverage	Reviewed LinkGitHubStep component/render imports and exports: fixture visual states with no play assertions; retain as visual coverage until Gate6 coverage review
+apps/ui/src/features/connectors/components/confluence-setup/steps/MergeConfigStep.stories.tsx	story	no	characterization	Gate5 UI / Gate6 coverage	Reviewed MergeConfigStep component/render imports and exports: fixture visual states with no play assertions; retain as visual coverage until Gate6 coverage review
+apps/ui/src/features/connectors/components/confluence-setup/steps/RegisterAtlassianOauthStep.stories.tsx	story	no	characterization	Gate5 UI / Gate6 coverage	Reviewed RegisterAtlassianOauthStep component/render imports and exports: fixture visual states with no play assertions; retain as visual coverage until Gate6 coverage review
+apps/ui/src/features/connectors/components/confluence-setup/steps/SelectSyncTargetStep.stories.tsx	story	no	characterization	Gate5 UI / Gate6 coverage	Reviewed SelectSyncTargetStep component/render imports and exports: fixture visual states with no play assertions; retain as visual coverage until Gate6 coverage review
+apps/ui/src/features/connectors/components/confluence-setup/steps/SetupCompleteStep.stories.tsx	story	no	characterization	Gate5 UI / Gate6 coverage	Reviewed SetupCompleteStep component/render imports and exports: fixture visual states with no play assertions; retain as visual coverage until Gate6 coverage review
+apps/ui/src/features/connectors/components/confluence-setup/steps/WaitForInstallStep.stories.tsx	story	no	characterization	Gate5 UI / Gate6 coverage	Reviewed WaitForInstallStep component/render imports and exports: fixture visual states with no play assertions; retain as visual coverage until Gate6 coverage review
+apps/ui/src/features/connectors/components/github-setup/steps/GithubSelfHostedCredentialsStep.stories.tsx	story	no	characterization	Gate5 UI / Gate6 coverage	Reviewed GithubSelfHostedCredentialsStep component/render imports and exports: fixture visual states with no play assertions; retain as visual coverage until Gate6 coverage review
+apps/ui/src/features/connectors/components/linear-setup/LinearSetupWizard.stories.tsx	story	no	characterization	Gate5 UI / Gate6 coverage	Reviewed LinearSetupWizard component/render imports and exports: fixture visual states with no play assertions; retain as visual coverage until Gate6 coverage review
+apps/ui/src/features/connectors/confluence-setup-model.forge-wait.test.ts	test	n/a	proof	Gate 3 UI	Pure state-table assertions prove Forge wait/install coherence and connector CTA transitions.
+apps/ui/src/features/connectors/connectorHealth.test.ts	test	n/a	proof	Gate 3 UI	Pure assertions pin health labels, counts, failure precedence, and live-state mapping.
+apps/ui/src/features/connectors/githubConnectFlow.test.ts	test	n/a	proof	Gate 3 UI	Pure decision-table assertions prove installation validity, setup branch precedence, and organization resolution.
+apps/ui/src/features/connectors/linear-setup-model.test.ts	test	n/a	proof	Gate 3 UI	Pure state-machine assertions prove polling, setup steps, merge state, failures, and recovery CTAs.
+apps/ui/src/features/connectors/notion-setup-model.test.ts	test	n/a	proof	Gate 3 UI	Pure state-machine and set-comparison assertions prove scope and failure transitions.
+apps/ui/src/features/connectors/queries/forge-provision-api.test.ts	test	n/a	proof	Gate 3 UI	Injected external fetch responses prove HTTP method/body construction and response parsing for provision APIs.
+apps/ui/src/features/connectors/queries/github-connector.test.ts	test	n/a	proof	Gate 3 UI	Pure assertions prove ambiguous-error recognition and linked-installation derivation.
+apps/ui/src/features/connectors/queries/linear-connector.test.ts	test	n/a	proof	Gate 3 UI	External fetch stubs prove connection scoping, config parsing, retry endpoints, payloads, and error propagation.
+apps/ui/src/features/connectors/queries/notion-connector.test.ts	test	n/a	proof	Gate 3 UI	External fetch stubs prove unconfigured OAuth errors and selected-connection retry payloads.
+apps/ui/src/features/connectors/queries/org-connections.test.ts	test	n/a	proof	Gate 3 UI	Pure ordering assertion proves GitHub-first display independent of creation order.
+apps/ui/src/features/connectors/queries/slack-connector.test.ts	test	n/a	characterization	Gate 3 UI	Status and patch behavior are asserted after replacing the owned shared API client module.
+apps/ui/src/features/connectors/slack-setup-model.test.ts	test	n/a	proof	Gate 3 UI	Pure state-table assertions prove prerequisite gating, live state, loading precedence, labels, and mention formatting.
+apps/ui/src/features/home/HomeComposer.stories.tsx	story	yes	characterization	Gate5 UI / Gate6 coverage	L35 opens menu then asserts rounded-md class; no submit or selected-workspace state proof
+apps/ui/src/features/home/WorkspaceActivityHeatmap.stories.tsx	story	no	characterization	Gate5 UI / Gate6 coverage	Reviewed WorkspaceActivityHeatmap component/render imports and exports: fixture visual states with no play assertions; retain as visual coverage until Gate6 coverage review
+apps/ui/src/features/home/WorkspaceRecentCommits.stories.tsx	story	no	characterization	Gate5 UI / Gate6 coverage	Reviewed WorkspaceRecentCommits component/render imports and exports: fixture visual states with no play assertions; retain as visual coverage until Gate6 coverage review
+apps/ui/src/features/home/calendar-days.test.ts	test	n/a	proof	Gate 6 UI	Pure UTC calendar assertions prove week placement, month labels, tooltips, and contribution levels.
+apps/ui/src/features/knowledge-graph/KnowledgeGraphCosmographCanvas.stories.tsx	story	no	characterization	Gate5 UI / Gate6 coverage	Reviewed KnowledgeGraphCosmographCanvas component/render imports and exports: fixture visual states with no play assertions; retain as visual coverage until Gate6 coverage review
+apps/ui/src/features/knowledge-graph/NodeDetailDrawer.stories.tsx	story	no	characterization	Gate5 UI / Gate6 coverage	Reviewed NodeDetailDrawer component/render imports and exports: fixture visual states with no play assertions; retain as visual coverage until Gate6 coverage review
+apps/ui/src/features/knowledge-graph/knowledgeGraphFocusFit.test.ts	test	n/a	proof	Gate 6 UI	Pure numeric assertions prove focus retention, outlier trimming, fallback, and coordinate generation.
+apps/ui/src/features/knowledge-graph/knowledgeGraphIntroStorage.test.ts	test	n/a	proof	Gate 6 UI	Exercises real storage helper behavior to prove per-org dismissal, visibility, and server safety.
+apps/ui/src/features/repositories/components/RepositoryCard.stories.tsx	story	yes	characterization	Gate5 UI / Gate6 coverage	L157 checks mocked onRetry call; no retry state or indexing result
+apps/ui/src/features/repositories/components/RepositoryCard.test.tsx	test	n/a	characterization	Gate 6 UI	Static component markup characterizes issue and out-of-date presentation without browser behavior.
+apps/ui/src/features/repositories/components/RepositoryStatus.test.tsx	test	n/a	characterization	Gate 6 UI	Static markup characterizes status labels, relative time, accessible issue text, and prior-success OOM presentation.
+apps/ui/src/features/repositories/gitSourcesFilter.test.ts	test	n/a	proof	Gate 6 UI	Pure predicates prove query, status-filter, complete-with-issues, and chip-count behavior.
+apps/ui/src/features/repositories/gitSourcesListRows.test.ts	test	n/a	proof	Gate 6 UI	Pure list assembly assertions prove pending and indexed row ordering and empty behavior.
+apps/ui/src/features/repositories/githubRepoSelection.test.ts	test	n/a	proof	Gate 3 UI	Pure selection logic plus an injected page fetcher prove canonical matching, preservation across pages, deltas, and pagination.
+apps/ui/src/features/repositories/pendingGithubRepos.test.ts	test	n/a	proof	Gate 3 UI	Pure fixture assertions prove select/all modes, pending row derivation, and loading suppression.
+apps/ui/src/features/repositories/repositoryCardPresentation.test.ts	test	n/a	proof	Gate 6 UI	Pure presentation-model assertions prove issue, retry, queryability, OOM, and ready-state decisions.
+apps/ui/src/features/repositories/types.test.ts	test	n/a	proof	Gate 6 UI	Pure assertions pin repository status derivation, commit shortening, badge words, and step labels.
+apps/ui/src/features/repositories/useRepositoryIndexingSummary.test.ts	test	n/a	proof	Gate 6 UI	Pure aggregate assertions prove active, failed, legacy-ready, issue, and single-step summaries.
+apps/ui/src/features/workspaces/GithubWorkspaceDestination.stories.tsx	story	no	characterization	Gate5 UI / Gate6 coverage	Reviewed GithubWorkspaceDestination component/render imports and exports: fixture visual states with no play assertions; retain as visual coverage until Gate6 coverage review
+apps/ui/src/features/workspaces/WorkspaceChat.stories.tsx	story	no	characterization	Gate5 UI / Gate6 coverage	Reviewed WorkspaceChat component/render imports and exports: fixture visual states with no play assertions; retain as visual coverage until Gate6 coverage review
+apps/ui/src/features/workspaces/WorkspaceChatChrome.stories.tsx	story	no	characterization	Gate5 UI / Gate6 coverage	Reviewed WorkspaceChatChrome component/render imports and exports: fixture visual states with no play assertions; retain as visual coverage until Gate6 coverage review
+apps/ui/src/features/workspaces/WorkspaceChatChrome.test.tsx	test	n/a	characterization	Gate 5 UI	Static publish/read-only markup is checked with an owned navigation component mocked and no interaction.
+apps/ui/src/features/workspaces/WorkspaceChatSession.stories.tsx	story	yes	characterization	Gate5 UI / Gate6 coverage	L205-399 real input but fabricated HTTP/SSE fixtures and seeded pending-draft globals; does not prove production WebSocket ownership, persistence or request budget
+apps/ui/src/features/workspaces/WorkspaceChatSession.test.tsx	test	n/a	characterization	Gate 4 UI	The session composition, transport, router, queries, input, and navigation are mocked, so assertions characterize wiring and static fallback chrome.
+apps/ui/src/features/workspaces/WorkspaceCommandPalette.stories.tsx	story	yes	characterization	Gate5 UI / Gate6 coverage	L39 types query without asserting results or navigation
+apps/ui/src/features/workspaces/WorkspaceConversationList.stories.tsx	story	no	characterization	Gate5 UI / Gate6 coverage	Reviewed WorkspaceConversationList component/render imports and exports: fixture visual states with no play assertions; retain as visual coverage until Gate6 coverage review
+apps/ui/src/features/workspaces/WorkspaceCreateForm.stories.tsx	story	yes	proof	Gate5 UI / Gate6 coverage	L85 submits real form against network409 and asserts visible save error; other exports only paint/select tabs
+apps/ui/src/features/workspaces/WorkspaceFileTree.hover.test.ts	test	n/a	proof	Gate 5 UI	Direct composed-path fixtures prove Pierre item resolution, directory rejection, and prefetch handoff.
+apps/ui/src/features/workspaces/WorkspaceFileTree.ssr.test.tsx	test	n/a	characterization	Gate 5 UI	Static SSR markup characterizes first-HTML file names and updating state without browser tree behavior.
+apps/ui/src/features/workspaces/WorkspaceFileTree.stories.tsx	story	yes	characterization	Gate5 UI / Gate6 coverage	L63 clicks search without asserting resulting filter/focus behavior
+apps/ui/src/features/workspaces/WorkspaceGraphPane.stories.tsx	story	no	characterization	Gate5 UI / Gate6 coverage	Reviewed WorkspaceGraphPane component/render imports and exports: fixture visual states with no play assertions; retain as visual coverage until Gate6 coverage review
+apps/ui/src/features/workspaces/WorkspaceHydrateProgress.stories.tsx	story	no	characterization	Gate5 UI / Gate6 coverage	Reviewed WorkspaceHydrateProgress component/render imports and exports: fixture visual states with no play assertions; retain as visual coverage until Gate6 coverage review
+apps/ui/src/features/workspaces/WorkspaceHydrateProgress.test.tsx	test	n/a	characterization	Gate 2 UI	Static SSR markup characterizes failed, pending-with-error, and waiting views without retry interaction.
+apps/ui/src/features/workspaces/WorkspaceNavList.stories.tsx	story	no	characterization	Gate5 UI / Gate6 coverage	Reviewed WorkspaceNavList component/render imports and exports: fixture visual states with no play assertions; retain as visual coverage until Gate6 coverage review
+apps/ui/src/features/workspaces/WorkspaceNavRow.stories.tsx	story	no	characterization	Gate5 UI / Gate6 coverage	Reviewed WorkspaceNavRow component/render imports and exports: fixture visual states with no play assertions; retain as visual coverage until Gate6 coverage review
+apps/ui/src/features/workspaces/WorkspacePane.stories.tsx	story	yes	characterization	Gate5 UI / Gate6 coverage	L85 playground reimplements navigation/file-tab state and seeds snapshot globals; visible polling assertions cannot prove production ownership
+apps/ui/src/features/workspaces/WorkspacePierreFile.stories.tsx	story	no	characterization	Gate5 UI / Gate6 coverage	Reviewed WorkspacePierreFile component/render imports and exports: fixture visual states with no play assertions; retain as visual coverage until Gate6 coverage review
+apps/ui/src/features/workspaces/WorkspaceRepositoryPicker.stories.tsx	story	yes	proof	Gate5 UI / Gate6 coverage	L76-129 real picker asserts repository/access-link states and GitHub action with network fixtures; paste-url case action-only
+apps/ui/src/features/workspaces/WorkspaceSettingsPane.stories.tsx	story	yes	proof	Gate5 UI / Gate6 coverage	L125,161 real dialogs validate save conflict and name-gated delete; MSW backend response does not prove persistence
+apps/ui/src/features/workspaces/WorkspaceSurface.stories.tsx	story	yes	characterization	Gate5 UI / Gate6 coverage	L220,249 navigation asserts stale exact compose copy and canned conversation fixtures; known browser failure retained; no request budget or lifecycle proof
+apps/ui/src/features/workspaces/conversation-git-tree-snapshot.test.ts	test	n/a	proof	Gate 5 UI	Real session-storage round trips prove conversation namespacing and corrupt-entry rejection.
+apps/ui/src/features/workspaces/conversationPublish.test.ts	test	n/a	proof	Gate 5 UI	Pure assertions prove editability, session branch naming, PR actions, push eligibility, and GitHub tree URLs.
+apps/ui/src/features/workspaces/ensure-route-data.test.ts	test	n/a	proof	Gate 4 UI	Real QueryClient behavior with MSW at the external HTTP boundary proves readiness fetch budgets and stored-conversation loading.
+apps/ui/src/features/workspaces/fileTabs.test.ts	test	n/a	proof	Gate 5 UI	Pure state-transition assertions prove preview replacement, pinning, URL seeding, and close behavior.
+apps/ui/src/features/workspaces/fileTreeMutations.test.ts	test	n/a	proof	Gate 5 UI	Pure path assertions prove traversal rejection and create, rename, move, and delete tree updates.
+apps/ui/src/features/workspaces/gitUrl.test.ts	test	n/a	proof	Gate 2 UI	Pure canonicalization and filtering assertions prove workspace repository eligibility.
+apps/ui/src/features/workspaces/github-workspace-destination-nav.test.ts	test	n/a	proof	Gate 6 UI	Pure search parsing and serialization assertions prove post-create Settings landing behavior.
+apps/ui/src/features/workspaces/nav.test.ts	test	n/a	proof	Gate 6 UI	Pure decision-table assertions prove compose, toggle, resume, and expansion behavior.
+apps/ui/src/features/workspaces/pane.test.ts	test	n/a	proof	Gate 6 UI	Pure parser/serializer assertions prove built-in, file, unknown, missing, and landing pane semantics.
+apps/ui/src/features/workspaces/projection.test.ts	test	n/a	proof	Gate 2 UI	Pure state-machine assertions prove projection readiness, hydration view, error precedence, and polling policy.
+apps/ui/src/features/workspaces/queries.test.ts	test	n/a	proof	Gate 2 UI	Pure landing selection and real QueryClient logic with MSW prove retry/error/tree cache and snapshot behavior at the HTTP boundary.
+apps/ui/src/features/workspaces/workspaceChatWebSocket.test.ts	test	n/a	proof	Gate 4 UI	Direct URL and reuse assertions plus an external fetch stub prove hydrate request and response handling.
+apps/ui/src/features/workspaces/workspaceDeleteNameMatches.test.ts	test	n/a	proof	Gate 6 UI	Pure assertions prove trimmed, case-sensitive destructive-name confirmation.
+apps/ui/src/features/workspaces/writeStatusLabel.test.ts	test	n/a	proof	Gate 5 UI	Pure assertions prove honest unknown, writable, and read-only labels.
+apps/ui/src/lib/api-result.test.ts	test	n/a	proof	Gate 1 UI	Direct Response and external fetch fixtures prove retry, JSON/error, abort, and polling policy.
+apps/ui/src/lib/atlassian-oauth-messages.test.ts	test	n/a	proof	Gate 3 UI	Pure mapping assertions prove known, described, and unknown OAuth error presentation.
+apps/ui/src/lib/auth-client.test.ts	test	n/a	characterization	Gate 6 UI	Plugin composition is asserted by replacing Better Auth client and plugin packages with call-recording mocks.
+apps/ui/src/lib/auth-continuation.test.ts	test	n/a	proof	Gate 6 UI	Pure assertions prove redirectTo extraction and omission.
+apps/ui/src/lib/org-gate.test.ts	test	n/a	proof	Gate 6 UI	Uses a real QueryClient to prove org-keyed cache reads, misses, and invalidation.
+apps/ui/src/providers/AuthProvider.test.tsx	test	n/a	characterization	Gate 6 UI	Provider configuration is asserted with router, auth hooks, and both owned/provider components mocked.
+apps/ui/src/router.test.ts	test	n/a	proof	Gate 1 UI	Constructs the real router and proves its QueryClient default uses the shared retry policy.
+apps/ui/src/routes/-$orgSlug.test.ts	test	n/a	proof	Gate 4 UI	Pure pathname assertions prove stored-conversation document recognition and compose/page exclusion.
+apps/ui/src/routes/-auth.stories.tsx	story	no	characterization	Gate5 UI / Gate6 coverage	Reviewed -auth component/render imports and exports: fixture visual states with no play assertions; retain as visual coverage until Gate6 coverage review
+apps/ui/src/routes/-connectors.stories.tsx	story	yes	proof	Gate5 UI / Gate6 coverage	L47 real page keeps Main navigation while loading connectors; remaining states are visual fixtures
+apps/ui/src/routes/-home.stories.tsx	story	yes	proof	Gate5 UI / Gate6 coverage	L34-136 real home shell asserts loading/empty/activity regions; no first-message submission coverage
+apps/ui/src/routes/-onboarding.stories.tsx	story	no	characterization	Gate5 UI / Gate6 coverage	Reviewed -onboarding component/render imports and exports: fixture visual states with no play assertions; retain as visual coverage until Gate6 coverage review
+apps/ui/src/routes/-workspaces.new.stories.tsx	story	yes	proof	Gate5 UI / Gate6 coverage	L39 real new-workspace fallback retains navigation and loading region; remaining plays select tabs/list only
+packages/aws-cdk/src/efs-mount.test.ts	test	n/a	proof	Gate 1 deployment	Synthesizes the real CDK stack and asserts EFS access point, IAM, UID, mount, and dependency resources.
+packages/aws-cdk/src/model-provider.test.ts	test	n/a	proof	Gate 1 deployment	Direct model resolution/validation assertions and real CDK token construction prove tier fallback, Bedrock defaults, and container config.
+packages/aws-cdk/src/secrets-construct.test.ts	test	n/a	proof	Gate 1 deployment	Synthesizes the real stack and asserts secret generation, deploy-time URL writers, ordering, least-secret injection, and connector secrets.
+packages/aws-cdk/src/size-profiles.test.ts	test	n/a	proof	Gate 1 deployment	Synthesizes each real size profile and proves supported database classes and codesearch task sizing.
+packages/cli/test/argv.test.ts	test	n/a	proof	Gate 1 CLI	Executes the real built CLI and proves command availability, documented flags, and doctor JSON shape.
+packages/cli/test/ctxpipe-config.test.ts	test	n/a	proof	Gate 1 CLI	Uses real temporary config files to prove CLI override, stored fallback, and allowed config fields.
+packages/cli/test/init-memory.test.ts	test	n/a	proof	Gate 1 CLI	Executes the real CLI against temporary homes and repositories and asserts memory/MCP creation, preservation, opt-out, and alias behavior.
+packages/cli/test/mcp-doctor.test.ts	test	n/a	proof	Gate 1 CLI	Injected external HTTP responses prove URL safety, OAuth discovery, metadata consistency, timeout, redaction, JSON, and exit policy.
+packages/cli/test/mcp-operations.test.ts	test	n/a	proof	Gate 1 CLI	Pure operation-builder assertions prove paths, scopes, clients, validation, preservation, and memory exclusions.
+packages/cli/test/memory-init.test.ts	test	n/a	proof	Gate 1 CLI	Executes memory init against temporary homes/repos and asserts generated hooks, rules, configs, upgrades, preservation, and retired-path deletion.
+packages/cli/test/memory/capture.test.ts	test	n/a	proof	Gate 1 CLI	Exercises real capture logic and temporary event stores to prove redaction, denied paths, classification, batching, lifecycle, deduplication, and loop suppression.
+packages/cli/test/memory/evals/live-eval.test.ts	test	n/a	characterization	Gate 1 CLI	Validates the checked-in scenario shape and prompt non-self-satisfaction, but the actual Layer B runner is unconditionally skipped.
+packages/cli/test/memory/harness/memory-harness.e2e.test.ts	test	n/a	proof	Gate 1 CLI	Runs the real CLI end to end across temporary repo/home state and proves observe, finalize, promote, search, lifecycle, and legacy cleanup behavior.
+packages/cli/test/memory/memory-capture-sh.test.ts	test	n/a	proof	Gate 1 CLI	Executes the real shell wrapper with controlled external executables and proves Bun source, Turbo/Node fallback, and stale-dist fail-open paths.

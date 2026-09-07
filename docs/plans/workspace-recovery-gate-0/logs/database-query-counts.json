@@ -1,0 +1,180 @@
+{
+  "definition": "PostgreSQL statement/execute records, including transactions; all task DB traffic within sample boundaries; UI navigated away and worker stopped; no bound parameter values",
+  "samples": [
+    {
+      "temperature": "cold",
+      "conversation_id": "conv_gate0_measure_a097c8fdb85e49fa",
+      "started_at": "2026-09-07T12:12:00.287328+00:00",
+      "finished_at": "2026-09-07T12:12:10.250380+00:00",
+      "statements": 215
+    },
+    {
+      "temperature": "warm",
+      "conversation_id": "conv_gate0_measure_a097c8fdb85e49fa",
+      "started_at": "2026-09-07T12:12:10.312473+00:00",
+      "finished_at": "2026-09-07T12:12:16.074490+00:00",
+      "statements": 221
+    },
+    {
+      "temperature": "warm",
+      "conversation_id": "conv_gate0_measure_a097c8fdb85e49fa",
+      "started_at": "2026-09-07T12:12:16.122033+00:00",
+      "finished_at": "2026-09-07T12:12:22.092724+00:00",
+      "statements": 221
+    },
+    {
+      "temperature": "warm",
+      "conversation_id": "conv_gate0_measure_a097c8fdb85e49fa",
+      "started_at": "2026-09-07T12:12:22.142582+00:00",
+      "finished_at": "2026-09-07T12:12:28.215694+00:00",
+      "statements": 221
+    },
+    {
+      "temperature": "warm",
+      "conversation_id": "conv_gate0_measure_a097c8fdb85e49fa",
+      "started_at": "2026-09-07T12:12:28.261236+00:00",
+      "finished_at": "2026-09-07T12:12:35.479331+00:00",
+      "statements": 221
+    },
+    {
+      "temperature": "warm",
+      "conversation_id": "conv_gate0_measure_a097c8fdb85e49fa",
+      "started_at": "2026-09-07T12:12:35.526777+00:00",
+      "finished_at": "2026-09-07T12:12:42.831512+00:00",
+      "statements": 221
+    },
+    {
+      "temperature": "warm",
+      "conversation_id": "conv_gate0_measure_a097c8fdb85e49fa",
+      "started_at": "2026-09-07T12:12:42.877395+00:00",
+      "finished_at": "2026-09-07T12:12:48.640929+00:00",
+      "statements": 220
+    },
+    {
+      "temperature": "warm",
+      "conversation_id": "conv_gate0_measure_a097c8fdb85e49fa",
+      "started_at": "2026-09-07T12:12:48.689479+00:00",
+      "finished_at": "2026-09-07T12:12:54.808261+00:00",
+      "statements": 221
+    },
+    {
+      "temperature": "warm",
+      "conversation_id": "conv_gate0_measure_a097c8fdb85e49fa",
+      "started_at": "2026-09-07T12:12:54.855875+00:00",
+      "finished_at": "2026-09-07T12:13:00.951788+00:00",
+      "statements": 221
+    },
+    {
+      "temperature": "warm",
+      "conversation_id": "conv_gate0_measure_a097c8fdb85e49fa",
+      "started_at": "2026-09-07T12:13:01.000725+00:00",
+      "finished_at": "2026-09-07T12:13:06.978442+00:00",
+      "statements": 221
+    },
+    {
+      "temperature": "warm",
+      "conversation_id": "conv_gate0_measure_a097c8fdb85e49fa",
+      "started_at": "2026-09-07T12:13:07.024730+00:00",
+      "finished_at": "2026-09-07T12:13:13.085045+00:00",
+      "statements": 221
+    },
+    {
+      "temperature": "warm",
+      "conversation_id": "conv_gate0_measure_a097c8fdb85e49fa",
+      "started_at": "2026-09-07T12:13:13.132461+00:00",
+      "finished_at": "2026-09-07T12:13:19.552620+00:00",
+      "statements": 221
+    },
+    {
+      "temperature": "warm",
+      "conversation_id": "conv_gate0_measure_a097c8fdb85e49fa",
+      "started_at": "2026-09-07T12:13:19.599819+00:00",
+      "finished_at": "2026-09-07T12:13:25.822332+00:00",
+      "statements": 221
+    },
+    {
+      "temperature": "warm",
+      "conversation_id": "conv_gate0_measure_a097c8fdb85e49fa",
+      "started_at": "2026-09-07T12:13:25.869157+00:00",
+      "finished_at": "2026-09-07T12:13:31.739586+00:00",
+      "statements": 221
+    },
+    {
+      "temperature": "warm",
+      "conversation_id": "conv_gate0_measure_a097c8fdb85e49fa",
+      "started_at": "2026-09-07T12:13:31.786599+00:00",
+      "finished_at": "2026-09-07T12:13:37.830970+00:00",
+      "statements": 221
+    },
+    {
+      "temperature": "warm",
+      "conversation_id": "conv_gate0_measure_a097c8fdb85e49fa",
+      "started_at": "2026-09-07T12:13:37.874485+00:00",
+      "finished_at": "2026-09-07T12:13:43.459998+00:00",
+      "statements": 221
+    },
+    {
+      "temperature": "warm",
+      "conversation_id": "conv_gate0_measure_a097c8fdb85e49fa",
+      "started_at": "2026-09-07T12:13:43.507897+00:00",
+      "finished_at": "2026-09-07T12:13:49.782572+00:00",
+      "statements": 221
+    },
+    {
+      "temperature": "warm",
+      "conversation_id": "conv_gate0_measure_a097c8fdb85e49fa",
+      "started_at": "2026-09-07T12:13:49.829907+00:00",
+      "finished_at": "2026-09-07T12:13:56.190458+00:00",
+      "statements": 221
+    },
+    {
+      "temperature": "warm",
+      "conversation_id": "conv_gate0_measure_a097c8fdb85e49fa",
+      "started_at": "2026-09-07T12:13:56.238169+00:00",
+      "finished_at": "2026-09-07T12:14:02.829521+00:00",
+      "statements": 221
+    },
+    {
+      "temperature": "warm",
+      "conversation_id": "conv_gate0_measure_a097c8fdb85e49fa",
+      "started_at": "2026-09-07T12:14:02.877328+00:00",
+      "finished_at": "2026-09-07T12:14:08.573208+00:00",
+      "statements": 220
+    },
+    {
+      "temperature": "warm",
+      "conversation_id": "conv_gate0_measure_a097c8fdb85e49fa",
+      "started_at": "2026-09-07T12:14:08.623219+00:00",
+      "finished_at": "2026-09-07T12:14:14.604489+00:00",
+      "statements": 221
+    },
+    {
+      "temperature": "cold",
+      "conversation_id": "conv_gate0_measure_35b41fe3a9164b30",
+      "started_at": "2026-09-07T12:14:14.687935+00:00",
+      "finished_at": "2026-09-07T12:14:23.207814+00:00",
+      "statements": 215
+    },
+    {
+      "temperature": "cold",
+      "conversation_id": "conv_gate0_measure_a2e1a62407524983",
+      "started_at": "2026-09-07T12:14:23.303263+00:00",
+      "finished_at": "2026-09-07T12:14:34.105902+00:00",
+      "statements": 212
+    },
+    {
+      "temperature": "cold",
+      "conversation_id": "conv_gate0_measure_a94d2201dc5c4c14",
+      "started_at": "2026-09-07T12:14:34.205015+00:00",
+      "finished_at": "2026-09-07T12:14:41.529420+00:00",
+      "statements": 214
+    },
+    {
+      "temperature": "cold",
+      "conversation_id": "conv_gate0_measure_83eccb452a114ff3",
+      "started_at": "2026-09-07T12:14:41.626836+00:00",
+      "finished_at": "2026-09-07T12:14:48.931685+00:00",
+      "statements": 215
+    }
+  ]
+}

@@ -1,0 +1,38 @@
+{
+  "timestamp": "2026-09-07T12:09:49.981888+00:00",
+  "checks": [
+    {
+      "argv": [
+        "ps",
+        "-p",
+        "2482,87933,25692",
+        "-o",
+        "pid,ppid,pgid,lstart,command"
+      ],
+      "output": "  PID  PPID  PGID STARTED                      COMMAND\n 2482     1  2482 Mon Sep  7 21:08:44 2026     opencode serve --hostname=0.0.0.0 --port=64920\n25692 25649 25554 Mon Sep  7 21:49:41 2026     bun run src/server.ts\n87933     1 87933 Mon Sep  7 17:21:14 2026     opencode serve --hostname=0.0.0.0 --port=53473\n"
+    },
+    {
+      "argv": [
+        "lsof",
+        "-nP",
+        "-a",
+        "-p",
+        "2482,87933",
+        "-d",
+        "cwd"
+      ],
+      "output": "COMMAND    PID       USER   FD   TYPE DEVICE SIZE/OFF      NODE NAME\nopencode  2482 jakubriedl  cwd    DIR   1,16      160 145444405 /private/var/folders/9t/jj9rnpps7_ddb72c1mq2k13w0000gn/T/tanstack-ai-sandboxes/8b8823b1-50c7-4e02-a668-593e4661e2f5\nopencode 87933 jakubriedl  cwd    DIR   1,16      160 144459101 /private/var/folders/9t/jj9rnpps7_ddb72c1mq2k13w0000gn/T/tanstack-ai-sandboxes/af930132-c485-4192-b817-f8c9974309d3\n"
+    },
+    {
+      "argv": [
+        "lsof",
+        "-nP",
+        "-a",
+        "-p",
+        "25692",
+        "-iTCP"
+      ],
+      "output": "COMMAND   PID       USER   FD   TYPE             DEVICE SIZE/OFF NODE NAME\nbun     25692 jakubriedl    7u  IPv6 0xe97f0927a76e8508      0t0  TCP *:3010 (LISTEN)\nbun     25692 jakubriedl    8u  IPv4 0x3f2b4a569c7eb0a7      0t0  TCP 127.0.0.1:59953->127.0.0.1:51498 (ESTABLISHED)\nbun     25692 jakubriedl   10u  IPv4 0x468f1e5af6d72154      0t0  TCP 127.0.0.1:58152->127.0.0.1:51498 (ESTABLISHED)\nbun     25692 jakubriedl   12u  IPv6 0xaa5083ecd4a59775      0t0  TCP [::1]:3010->[::1]:60093 (ESTABLISHED)\nbun     25692 jakubriedl   14u  IPv4 0x1f90ec3c332034be      0t0  TCP 127.0.0.1:58153->127.0.0.1:51498 (ESTABLISHED)\nbun     25692 jakubriedl   15u  IPv6 0xc0f113294b7b558b      0t0  TCP [::1]:3010->[::1]:60094 (ESTABLISHED)\nbun     25692 jakubriedl   20u  IPv6 0x3663b17d85bbbe53      0t0  TCP [::1]:3010->[::1]:53030 (ESTABLISHED)\nbun     25692 jakubriedl   22u  IPv6 0xe5b9d70a1a04e475      0t0  TCP [::1]:3010->[::1]:53035 (ESTABLISHED)\nbun     25692 jakubriedl   23u  IPv6 0x3e41a20bfe1ecf56      0t0  TCP [::1]:3010->[::1]:60095 (ESTABLISHED)\nbun     25692 jakubriedl   24u  IPv4 0x83961a43d2cffb08      0t0  TCP 127.0.0.1:58677->127.0.0.1:51498 (ESTABLISHED)\nbun     25692 jakubriedl   25u  IPv4 0x2400c28045f91d2f      0t0  TCP 127.0.0.1:58165->127.0.0.1:51498 (ESTABLISHED)\nbun     25692 jakubriedl   32u  IPv6 0xd23e668cf7174028      0t0  TCP [::1]:3010->[::1]:60105 (ESTABLISHED)\nbun     25692 jakubriedl   34u  IPv4 0x4a572ca28163743f      0t0  TCP 192.168.86.198:60075->216.150.1.1:443 (ESTABLISHED)\nbun     25692 jakubriedl   36u  IPv4 0xc879b0f09ca32c44      0t0  TCP 127.0.0.1:60081->127.0.0.1:51498 (ESTABLISHED)\nbun     25692 jakubriedl   38u  IPv4 0x533ed0bd6d692fec      0t0  TCP 127.0.0.1:60129->127.0.0.1:3012 (ESTABLISHED)\nbun     25692 jakubriedl   53u  IPv4 0x50826e93356ba3f7      0t0  TCP 192.168.86.198:60077->216.150.1.1:443 (ESTABLISHED)\nbun     25692 jakubriedl   61u  IPv6 0x6515f1a4f8e0bc01      0t0  TCP [::1]:3010->[::1]:60108 (ESTABLISHED)\nbun     25692 jakubriedl   62u  IPv4 0x398e35720918e632      0t0  TCP 127.0.0.1:60107->127.0.0.1:3012 (ESTABLISHED)\nbun     25692 jakubriedl   63u  IPv4 0x2d07c23531b4a408      0t0  TCP 127.0.0.1:60109->127.0.0.1:51498 (ESTABLISHED)\nbun     25692 jakubriedl   64u  IPv4 0x45e2b1dabed6a5c8      0t0  TCP 127.0.0.1:60110->127.0.0.1:51498 (ESTABLISHED)\nbun     25692 jakubriedl   65u  IPv4 0x3a866134b078d1fa      0t0  TCP 127.0.0.1:60111->127.0.0.1:51498 (ESTABLISHED)\n"
+    }
+  ]
+}

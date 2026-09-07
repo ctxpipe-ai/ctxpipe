@@ -1,0 +1,7 @@
+{
+  "timestamp": "2026-09-07T12:17:10.010335+00:00",
+  "navigation_sandbox_path": "/var/folders/9t/jj9rnpps7_ddb72c1mq2k13w0000gn/T/tanstack-ai-sandboxes/c5380fc5-d7c0-40ec-b8fa-758cb9dad954",
+  "exists": true,
+  "opencode_processes": "2482 opencode serve --hostname=0.0.0.0 --port=64920\n87933 opencode serve --hostname=0.0.0.0 --port=53473\n",
+  "port_3010": "COMMAND     PID       USER   FD   TYPE             DEVICE SIZE/OFF NODE NAME\nbun       39655 jakubriedl    7u  IPv6 0xd23e668cf7174028      0t0  TCP *:3010 (LISTEN)\nCodex\\x20 82422 jakubriedl   41u  IPv6 0x8400ff5c37c636d6      0t0  TCP [::1]:60246->[::1]:3010 (CLOSED)\nCodex\\x20 82422 jakubriedl   49u  IPv6 0xc879b0f09ca32c44      0t0  TCP [::1]:60253->[::1]:3010 (CLOSED)\nCodex\\x20 82422 jakubriedl   51u  IPv6 0xe58824ba0c7f1970      0t0  TCP [::1]:60254->[::1]:3010 (CLOSED)\nCodex\\x20 82422 jakubriedl   67u  IPv6 0xaa5083ecd4a59775      0t0  TCP [::1]:60318->[::1]:3010 (CLOSED)\nCodex\\x20 82422 jakubriedl   74u  IPv6 0xba0c9dbd78210323      0t0  TCP [::1]:60263->[::1]:3010 (CLOSED)\n"
+}

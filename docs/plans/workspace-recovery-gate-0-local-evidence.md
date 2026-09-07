@@ -36,9 +36,9 @@ and removes its database in `finally`.
 
 ## Interpretation
 
-Scope restoration and migration success are established. Runtime evidence,
-classification and independent review remain incomplete. Gate 1 must not be
-reported as started or complete on the basis of this checkpoint.
+Scope and baseline execution are established. Full-gate independent review is
+still required; this report does not declare Gate 0 complete. Product failures
+are preserved in the canonical ledger and the journey/measurement reports.
 
 ## Clean temporary checkout
 
@@ -54,21 +54,22 @@ reported as started or complete on the basis of this checkpoint.
 - RLS isolation: **2 passed** as `ctxpipe_app`.
 - CDK: **32 passed** after required prebuild generation. CLI: **93 passed,
   1 skipped**. Neither initial package failure reproduces in the ordered clean run.
-- Storybook build: passed. The selected conversation-navigation play fails on
-  stale expected text; see `browser-observations.md` for the exact step. This is
-  one selected interaction, not a full browser suite.
-- Codesearch host diagnostic: **203 passed, 1 failed, 3 skipped**. The
-  serialized-indexer test times out at five seconds; failure prevents the
-  subsequent Bun globFiles lane. The full Docker/indexer lane remains unrun.
+- Storybook build passes; full browser suite: **347 passed, 24 failed, 0 pending**
+  across 78 suites. Raw JSON and every failure name are archived.
+- Codesearch default Docker lane: **219 passed, 2 skipped**, with a passing
+  exit-137/OOMKilled simulation. The initial host diagnostic timeout and first
+  disk-full Docker failure are preserved as superseded diagnostics.
 - Reviewed upgrade helper: passes again against a uniquely named disposable
   database, then drops that database. Exact argv and cwd are in
   `logs/migrate-upgrade-pinned-local.json`; both migration trees use fixed SHAs.
 
-## Integrated journey blocker
+## Integrated journey and repeated measurements
 
-The isolated UI starts, but backend startup refuses missing
-`MODEL_PROVIDER_API_KEY`; browser connection to localhost:3010 is refused.
-Automatic approval review rejected reading the existing key from the developer
-checkout because reuse and possible external model calls were not explicitly
-authorized. The key has not been loaded. User approval is pending. No golden
-journey, chat latency, provider/request budget or full cleanup proof is claimed.
+The user authorized the existing model key. The real clean journey fails at
+native remote tip resolution. Explicitly documented fixture bypasses allow
+additional HTTP/WebSocket/file/restart diagnostics without claiming a successful
+clean journey. See [journey](workspace-recovery-gate-0/golden-journey.md) and
+[measurements](workspace-recovery-gate-0/measurements.md) for exact scope, raw
+artifacts and reproduction. Two separate 5-cold/20-warm series completed; failures
+of session reuse, transcript continuity, latency and file persistence remain
+visible despite single-turn successful model answers.
