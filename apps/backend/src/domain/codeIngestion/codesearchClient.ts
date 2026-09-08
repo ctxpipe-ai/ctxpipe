@@ -31,7 +31,9 @@ export class CodesearchCheckoutError extends Error {
   }
 }
 
-type CodesearchAuthExtras = {
+export type CodesearchAuthExtras = {
+  sha?: string
+  legacy?: true
   workspaceId?: string
   retries?: number
 }
@@ -53,6 +55,10 @@ async function fetchWithAuth(
       orgId,
       principal: "service",
       ...(extras?.workspaceId ? { workspaceId: extras.workspaceId } : {}),
+      ...(extras?.sha
+        ? { workspaceRevisions: [{ repositoryId, sha: extras.sha }] }
+        : {}),
+      ...(extras?.legacy ? { legacyWorkspace: true as const } : {}),
     },
   })
   const retries = extras?.retries ?? 10
@@ -161,13 +167,20 @@ export async function globCheckoutFiles(input: {
   repositoryId: string
   orgId: string
   workspaceId?: string
+  sha?: string
+  legacy?: true
   request?: GlobFilesRequest
 }): Promise<GlobFilesResponse> {
   return globFiles(
     input.repositoryId,
     input.orgId,
     input.request ?? { pattern: "**/*", onlyFiles: true, dot: true },
-    { workspaceId: input.workspaceId, retries: 0 },
+    {
+      workspaceId: input.workspaceId,
+      sha: input.sha,
+      legacy: input.legacy,
+      retries: 0,
+    },
   )
 }
 
@@ -176,13 +189,20 @@ export async function listCheckoutTree(input: {
   repositoryId: string
   orgId: string
   workspaceId?: string
+  sha?: string
+  legacy?: true
 }): Promise<string[]> {
   const res = await fetchWithAuth(
     `${codesearchBaseUrl()}/${input.repositoryId}/tree`,
     { method: "GET" },
     input.repositoryId,
     input.orgId,
-    { workspaceId: input.workspaceId, retries: 0 },
+    {
+      workspaceId: input.workspaceId,
+      sha: input.sha,
+      legacy: input.legacy,
+      retries: 0,
+    },
   )
   if (!res.ok) {
     const bodyText = await res.text()
@@ -244,6 +264,8 @@ export async function fetchCheckoutFileBytes(input: {
   repositoryId: string
   orgId: string
   workspaceId?: string
+  sha?: string
+  legacy?: true
   path: string
 }): Promise<Uint8Array | null> {
   const res = await fetchWithAuth(
@@ -255,7 +277,12 @@ export async function fetchCheckoutFileBytes(input: {
     },
     input.repositoryId,
     input.orgId,
-    { workspaceId: input.workspaceId, retries: 0 },
+    {
+      workspaceId: input.workspaceId,
+      sha: input.sha,
+      legacy: input.legacy,
+      retries: 0,
+    },
   )
   if (!res.ok) {
     throw new CodesearchCheckoutError(
@@ -265,6 +292,6 @@ export async function fetchCheckoutFileBytes(input: {
   }
   const encoded = (await res.json()) as Record<string, string>
   const b64 = encoded[input.path]
-  if (!b64) return null
+  if (b64 === undefined) return null
   return Buffer.from(b64, "base64")
 }

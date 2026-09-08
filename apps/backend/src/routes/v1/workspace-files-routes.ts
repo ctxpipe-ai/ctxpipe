@@ -1,15 +1,13 @@
+import { CodesearchCheckoutError } from "../../domain/codeIngestion/codesearchClient.js"
+import { normalizeWorkspaceRepositoryUrl } from "../../domain/workspaces/slug.js"
 import { createRoute, OpenAPIHono, z } from "@hono/zod-openapi"
 import type { Context } from "hono"
 import type { AppEnv } from "../../app/env.js"
 import {
   listWorkspaceCheckoutPaths,
   readWorkspaceCheckoutFile,
-  WorkspaceCheckoutReadError,
 } from "../../domain/workspaces/checkout-read.js"
-import {
-  publishedProjection,
-  type WorkspaceRevision,
-} from "../../domain/workspaces/revision.js"
+import { publishedProjection } from "../../domain/workspaces/revision.js"
 import { fileTreeFromPaths } from "../../domain/workspaces/file-tree.js"
 import {
   explorerBlobFromContent,
@@ -27,7 +25,7 @@ import { getJobSandbox } from "../../domain/workspaces/sandbox-registry.js"
 import { writeJobQueueHttpDecision } from "../../domain/workspaces/write-jobs.js"
 import {
   getWorkspaceBySlug,
-  getWorkspaceProjection,
+  getWorkspaceSearchProjection,
   listWorkspaceKnowledgeFiles,
 } from "../../models/workspaces.js"
 import { getLogger } from "../../observability/logger.js"
@@ -282,17 +280,6 @@ const enqueueWorkspaceFileJobRoute = createRoute({
   },
 })
 
-async function readExplorerTree(input: { revision: WorkspaceRevision }) {
-  return listWorkspaceCheckoutPaths(input)
-}
-
-async function readExplorerBlob(input: {
-  revision: WorkspaceRevision
-  path: string
-}) {
-  return readWorkspaceCheckoutFile(input)
-}
-
 async function loadWorkspaceGitExplorer(c: Context<AppEnv>) {
   if (!c.get("user") || !c.get("session")) {
     return { ok: false as const, status: 401 as const, error: "Unauthorized" }
@@ -302,20 +289,33 @@ async function loadWorkspaceGitExplorer(c: Context<AppEnv>) {
   if (!workspace) {
     return { ok: false as const, status: 404 as const, error: "Not found" }
   }
-  const projection = publishedProjection(
-    await getWorkspaceProjection(workspace.id),
-  )
-  if (projection?.kind !== "active")
+  const snapshot = await getWorkspaceSearchProjection(workspace.id)
+  const projection = publishedProjection(snapshot.projection)
+  const published =
+    projection?.kind === "active" ? projection.stores.index.published : null
+  const repository = published
+    ? snapshot.repositories.find(
+        (repo) =>
+          repo.sha === published.sha &&
+          normalizeWorkspaceRepositoryUrl(repo.gitUrl) ===
+            normalizeWorkspaceRepositoryUrl(published.remote.url),
+      )
+    : null
+  if (!published || !repository)
     return {
       ok: false as const,
       status: 409 as const,
       error:
-        "This Workspace must finish hydration before its published files can be browsed.",
+        "This Workspace must finish indexing before its published files can be browsed.",
     }
   return {
     ok: true as const,
     workspace,
-    input: { revision: projection.revision, sha: projection.revision.sha },
+    input: {
+      workspaceId: workspace.id,
+      repositoryId: repository.id,
+      sha: published.sha,
+    },
   }
 }
 
@@ -326,8 +326,13 @@ function gitExplorerUpstreamError(error: unknown, step: string) {
 }
 
 function gitExplorerReadFailure(error: unknown, step: string) {
-  if (error instanceof WorkspaceCheckoutReadError) {
-    return { error: error.message, status: error.status }
+  if (error instanceof CodesearchCheckoutError) {
+    return {
+      error: error.message,
+      status: (error.status === 404 || error.status === 409
+        ? error.status
+        : 502) as 404 | 409 | 502,
+    }
   }
   gitExplorerUpstreamError(error, step)
   return {
@@ -341,7 +346,7 @@ export const workspaceFilesRoutes = new OpenAPIHono<AppEnv>()
     const loaded = await loadWorkspaceGitExplorer(c)
     if (!loaded.ok) return c.json({ error: loaded.error }, loaded.status)
     try {
-      const paths = await readExplorerTree(loaded.input)
+      const paths = await listWorkspaceCheckoutPaths(loaded.input)
       return c.json(
         {
           sha: loaded.input.sha,
@@ -363,7 +368,7 @@ export const workspaceFilesRoutes = new OpenAPIHono<AppEnv>()
     const loaded = await loadWorkspaceGitExplorer(c)
     if (!loaded.ok) return c.json({ error: loaded.error }, loaded.status)
     try {
-      const file = await readExplorerBlob({
+      const file = await readWorkspaceCheckoutFile({
         ...loaded.input,
         path,
       })
@@ -446,12 +451,12 @@ export const workspaceFilesRoutes = new OpenAPIHono<AppEnv>()
     const gate = writeJobQueueHttpDecision(loaded.workspace.writeStatus)
     if (!gate.enqueue) return c.json({ error: gate.error }, gate.status)
     try {
-      const treePaths = await readExplorerTree(loaded.input)
+      const treePaths = await listWorkspaceCheckoutPaths(loaded.input)
       const planned = await planWorkspaceFileJob({
         request,
         treePaths,
         readBlob: async (path) => {
-          const file = await readExplorerBlob({
+          const file = await readWorkspaceCheckoutFile({
             ...loaded.input,
             path,
           })

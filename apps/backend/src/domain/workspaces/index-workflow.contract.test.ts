@@ -1,40 +1,26 @@
+import {
+  withNativeIndexFixture,
+  type NativeIndexFixture,
+} from "../../test/native-index-fixture.js"
 import { signUpstreamJwt } from "../../auth/upstreamJwt.js"
 import { encodeScipIndex } from "../../../../codesearch/src/domain/graph/scipProto.js"
-import { execFileSync, spawn, type ChildProcess } from "node:child_process"
-import { once } from "node:events"
-import {
-  mkdir,
-  mkdtemp,
-  readFile,
-  rename,
-  rm,
-  writeFile,
-} from "node:fs/promises"
-import { createServer } from "node:net"
-import { tmpdir } from "node:os"
+import { rename, rm, writeFile } from "node:fs/promises"
 import { join } from "node:path"
-import { fileURLToPath } from "node:url"
 import { eq, sql } from "drizzle-orm"
-import { OpenWorkflow } from "openworkflow"
-import { BackendPostgres } from "openworkflow/postgres"
-import { expect, it, onTestFinished } from "vitest"
+import { expect, it } from "vitest"
 import { withOrgIdContext } from "../../auth/withAuth.js"
-import {
-  closeDb,
-  getSystemDb,
-  initDb,
-  withOrgDbContext,
-} from "../../db/client.js"
-import { organizations } from "../../db/schema/auth.js"
+import { getSystemDb, withOrgDbContext } from "../../db/client.js"
 import { repositories } from "../../db/schema/repositories.js"
 import { repositoryCheckouts } from "../../db/schema/repository_checkouts.js"
 import {
-  orgFirstWorkspaces,
   workspaceLinkedRepositories,
   workspaces,
 } from "../../db/schema/workspaces.js"
 import { generateObjectId } from "../../lib/id.js"
 import {
+  captureWorkspaceRevision,
+  commitHydrateProjection,
+  persistWorkspaceIndexResult,
   getWorkspaceById,
   persistLinkedIndexedSha,
   getWorkspaceProjection,
@@ -50,271 +36,6 @@ import { parseEnv } from "../../config/env.js"
 import { resolveWorkspaceReadRevision } from "./resolve-revision.js"
 import { workspaceChatTools } from "./workspace-chat-tools.js"
 import type { WorkspaceRevision } from "./revision.js"
-
-async function availablePort() {
-  const server = createServer()
-  server.listen(0, "127.0.0.1")
-  await once(server, "listening")
-  const address = server.address()
-  if (!address || typeof address === "string")
-    throw new Error("No fixture port")
-  await new Promise<void>((resolve) => server.close(() => resolve()))
-  return address.port
-}
-
-async function stop(child: ChildProcess | undefined) {
-  if (!child || child.exitCode !== null || child.signalCode) return
-  const closed = once(child, "close")
-  child.kill("SIGTERM")
-  const timer = setTimeout(() => child.kill("SIGKILL"), 5_000)
-  try {
-    await closed
-  } finally {
-    clearTimeout(timer)
-  }
-}
-
-async function createNativeIndexFixture() {
-  const databaseUrl = process.env.DATABASE_URL
-  if (!databaseUrl)
-    throw new Error("DATABASE_URL is required for native index proof")
-  const directory = await mkdtemp(join(tmpdir(), "ctxpipe-index-workflow-"))
-  const namespace = `index_${Date.now()}_${Math.random().toString(36).slice(2)}`
-  const org = {
-    id: generateObjectId("org"),
-    slug: namespace,
-    name: "Native index contract",
-  }
-  const workspaceId = generateObjectId("ws")
-  const repositoryId = generateObjectId("repo")
-  const savedUrl = process.env.CODESEARCH_URL
-  let codesearch: ChildProcess | undefined
-  let zoekt: ChildProcess | undefined
-  let backend: BackendPostgres | undefined
-  let worker: ReturnType<OpenWorkflow["newWorker"]> | undefined
-  initDb(databaseUrl)
-  let cleanupPromise: Promise<void> | undefined
-  const cleanup = () => {
-    cleanupPromise ??= (async () => {
-      await worker?.stop()
-      await backend?.stop()
-      await stop(codesearch)
-      await stop(zoekt)
-      try {
-        await getSystemDb().execute(
-          sql`delete from openworkflow.workflow_runs where namespace_id = ${namespace} or input->>'orgId' = ${org.id}`,
-        )
-        await withOrgDbContext(org.id, async (db) => {
-          await db
-            .delete(orgFirstWorkspaces)
-            .where(eq(orgFirstWorkspaces.orgId, org.id))
-          await db.delete(workspaces).where(eq(workspaces.id, workspaceId))
-          await db.delete(repositories).where(eq(repositories.id, repositoryId))
-        })
-        await getSystemDb()
-          .delete(organizations)
-          .where(eq(organizations.id, org.id))
-      } finally {
-        await closeDb()
-        await rm(directory, { recursive: true, force: true })
-        if (savedUrl === undefined) delete process.env.CODESEARCH_URL
-        else process.env.CODESEARCH_URL = savedUrl
-      }
-    })()
-    return cleanupPromise
-  }
-  onTestFinished(cleanup)
-
-  try {
-    const remote = join(directory, "remote")
-    await mkdir(remote)
-    const git = (...args: string[]) =>
-      execFileSync("git", args, { cwd: remote, encoding: "utf8" }).trim()
-    git("init", "-b", "trunk")
-    await writeFile(
-      join(remote, "AGENTS.md"),
-      "# Revision search contract\nUse amberquartz instructions.\n",
-    )
-    await writeFile(
-      join(remote, "sample.js"),
-      "function publishedHelper() { return 7; }\npublishedHelper();\n",
-    )
-    git("add", ".")
-    git(
-      "-c",
-      "user.name=Contract",
-      "-c",
-      "user.email=contract@example.test",
-      "commit",
-      "-m",
-      "Published search",
-    )
-    const sha = git("rev-parse", "HEAD")
-    const revision: WorkspaceRevision = {
-      workspaceId,
-      generation: 1,
-      remote: { url: remote, connectionId: null },
-      defaultBranch: "trunk",
-      sha,
-      access: "read",
-    }
-    await getSystemDb()
-      .insert(organizations)
-      .values({ ...org, createdAt: new Date() })
-    await withOrgDbContext(org.id, async (db) => {
-      await db.insert(workspaces).values({
-        id: workspaceId,
-        orgId: org.id,
-        slug: "knowledge",
-        displayName: org.name,
-        workspaceRepositoryUrl: remote,
-        desiredGeneration: 1,
-        desiredSha: sha,
-        desiredDefaultBranch: "trunk",
-        activeRevision: revision,
-        activeProjectionUrl: remote,
-        activeProjectionSha: sha,
-        hydrateStatus: "ready",
-      })
-      await db.insert(repositories).values({
-        id: repositoryId,
-        orgId: org.id,
-        name: "Native index",
-        gitUrl: remote,
-      })
-    })
-    const cold = join(directory, "zoekt-index")
-    const hot = join(directory, "zoekt-hot")
-    await mkdir(cold)
-    await mkdir(hot)
-    const port = await availablePort()
-    zoekt = spawn(
-      "zoekt-webserver",
-      ["-rpc", "-listen", `127.0.0.1:${port}`, "-index", hot],
-      { stdio: "ignore" },
-    )
-    let zoektError: Error | undefined
-    zoekt.on("error", (error) => {
-      zoektError = error
-    })
-    await expect
-      .poll(
-        async () => {
-          if (zoektError) throw zoektError
-          return fetch(`http://127.0.0.1:${port}/`, {
-            signal: AbortSignal.timeout(1_000),
-          })
-            .then((res) => res.status)
-            .catch(() => 0)
-        },
-        { timeout: 10_000 },
-      )
-      .toBe(200)
-    const ready = join(directory, "codesearch-ready.json")
-    codesearch = spawn(
-      "bun",
-      [
-        fileURLToPath(
-          new URL("../../test/codesearch-contract-server.ts", import.meta.url),
-        ),
-        ready,
-      ],
-      {
-        env: {
-          ...process.env,
-          REPO_CACHE_DIR: join(directory, "repos"),
-          ZOEKT_INDEX_DIR: cold,
-          ZOEKT_WEBSERVER_URL: `http://127.0.0.1:${port}`,
-        },
-        stdio: ["ignore", "ignore", "pipe"],
-      },
-    )
-    let serviceError = ""
-    codesearch.stderr?.on("data", (chunk) => {
-      serviceError = (serviceError + chunk.toString()).slice(-8000)
-    })
-    await expect
-      .poll(
-        async () => {
-          if (codesearch?.exitCode !== null)
-            throw new Error(serviceError || "Codesearch exited before ready")
-          return readFile(ready, "utf8").catch(() => "")
-        },
-        { timeout: 10_000 },
-      )
-      .not.toBe("")
-    const service = JSON.parse(await readFile(ready, "utf8")) as {
-      port: number
-    }
-    process.env.CODESEARCH_URL = `http://127.0.0.1:${service.port}`
-    backend = await BackendPostgres.connect(databaseUrl, {
-      runMigrations: false,
-      namespaceId: namespace,
-    })
-    const runner = new OpenWorkflow({ backend })
-    runner.implementWorkflow(repositoryIndex.spec, repositoryIndex.fn)
-    runner.implementWorkflow(workspaceIndex.spec, workspaceIndex.fn)
-    runner.implementWorkflow(workspaceTipCheck.spec, workspaceTipCheck.fn)
-    worker = runner.newWorker({ concurrency: 2 })
-    await worker.start()
-    const indexInput = { orgId: org.id, revision }
-    return {
-      databaseUrl,
-      directory,
-      namespace,
-      org,
-      workspaceId,
-      repositoryId,
-      remote,
-      git,
-      sha,
-      revision,
-      cold,
-      hot,
-      runner,
-      indexInput,
-      cleanup,
-      index: async () => {
-        const handle = await runner.runWorkflow(workspaceIndex.spec, indexInput)
-        expect(await handle.result({ timeoutMs: 30_000 })).toEqual({
-          published: true,
-          role: "workspace",
-        })
-        await withOrgIdContext(org, async () => {
-          await expect
-            .poll(
-              async () => {
-                const result = await codeSearch(org.id, {
-                  workspaceId,
-                  query: "amberquartz",
-                })
-                return result[0]?.response.Files
-              },
-              { timeout: 10_000 },
-            )
-            .toMatchObject([{ FileName: "AGENTS.md", Version: sha }])
-        })
-      },
-    }
-  } catch (error) {
-    await cleanup()
-    throw error
-  }
-}
-
-type NativeIndexFixture = Awaited<ReturnType<typeof createNativeIndexFixture>>
-async function withNativeIndexFixture(
-  run: (fixture: NativeIndexFixture) => Promise<void>,
-  indexed = true,
-) {
-  const fixture = await createNativeIndexFixture()
-  try {
-    if (indexed) await fixture.index()
-    await run(fixture)
-  } finally {
-    await fixture.cleanup()
-  }
-}
 
 async function prepareUnpublishedIndex(f: NativeIndexFixture) {
   const { remote, git, org, repositoryId, workspaceId, runner, revision } = f
@@ -743,7 +464,7 @@ it(
 )
 
 it(
-  "search-index failure preserves publication and a retry restores search freshness",
+  "an initial search-index failure preserves Postgres and a retry publishes search",
   { timeout: 60_000 },
   async () =>
     withNativeIndexFixture(async (f) => {
@@ -779,7 +500,7 @@ it(
           stores: { index: { kind: "ready" } },
         })
       })
-    }, true),
+    }, false),
 )
 
 it(
@@ -989,4 +710,152 @@ it(
         expect((await getWorkspaceById(workspaceId))?.indexedSha).toBeNull()
       })
     }, false),
+)
+
+it.each(["pending", "failed"])(
+  "serves the last complete index while the active replacement index is %s",
+  { timeout: 60_000 },
+  async (state) =>
+    withNativeIndexFixture(async (f) => {
+      const { org, workspaceId, revision } = f
+      const nextSha = await prepareUnpublishedIndex(f)
+      await withOrgIdContext(org, async () => {
+        const next = await captureWorkspaceRevision({
+          workspaceId,
+          expected: {
+            generation: revision.generation,
+            url: revision.remote.url,
+            sha: revision.sha,
+            defaultBranch: revision.defaultBranch,
+            githubConnectionId: revision.remote.connectionId,
+          },
+          tip: { sha: nextSha, branch: revision.defaultBranch },
+        })
+        if (!next) throw new Error("Replacement revision was not captured")
+        expect(
+          await commitHydrateProjection({
+            orgId: org.id,
+            revision: next,
+            displayName: null,
+            remotes: [],
+            units: [],
+          }),
+        ).toBe(true)
+        if (state === "failed") {
+          expect(
+            await persistWorkspaceIndexResult({
+              revision: next,
+              result: { kind: "failed", message: "Replacement index failed" },
+            }),
+          ).toBe(true)
+        }
+        expect(await getWorkspaceProjection(workspaceId)).toMatchObject({
+          kind: "active",
+          revision: next,
+          stores: { index: { kind: state } },
+        })
+        const matches = await codeSearch(org.id, {
+          workspaceId,
+          query: "amberquartz",
+        })
+        expect(matches[0]?.response.Files).toMatchObject([
+          { FileName: "AGENTS.md" },
+        ])
+        expect(await getWorkspaceSearchProjection(workspaceId)).toMatchObject({
+          repositories: [{ sha: revision.sha }],
+        })
+      })
+    }, true),
+)
+
+it(
+  "cron retries an unactivated full revision even after its same-SHA tip was captured",
+  { timeout: 60_000 },
+  async () =>
+    withNativeIndexFixture(async (f) => {
+      const { git, runner, org, workspaceId } = f
+      git("branch", "-m", "trunk", "renamed")
+      for (const updated of [1, 0]) {
+        const handle = await runner.runWorkflow(workspaceTipCheck.spec, {
+          orgId: org.id,
+        })
+        expect(await handle.result({ timeoutMs: 30_000 })).toEqual({
+          updated,
+          linkedUpdated: 0,
+        })
+      }
+      const queued = await getSystemDb().execute<{
+        input: { revision: WorkspaceRevision }
+      }>(sql`
+      select input from openworkflow.workflow_runs
+      where workflow_name = 'workspace-hydrate' and input->>'workspaceId' = ${workspaceId}
+    `)
+      expect(
+        queued.rows.map((row) => row.input.revision.defaultBranch),
+      ).toEqual(["renamed", "renamed"])
+    }, true),
+)
+
+it(
+  "chat get_file reads its captured index after membership and remote removal",
+  { timeout: 60_000 },
+  async () => {
+    await withNativeIndexFixture(async (f) => {
+      const snapshot = await withOrgIdContext(f.org, () =>
+        getWorkspaceProjectionSnapshot(f.workspaceId),
+      )
+      const tools = await workspaceChatTools({
+        orgId: f.org.id,
+        workspaceId: f.workspaceId,
+        snapshot,
+      })
+      await withOrgDbContext(f.org.id, (db) =>
+        db
+          .delete(repositoryCheckouts)
+          .where(eq(repositoryCheckouts.repositoryId, f.repositoryId)),
+      )
+      await rename(f.remote, `${f.remote}-unavailable`)
+      const result = await tools
+        .find((tool) => tool.name === "get_file")
+        ?.execute({
+          repositoryId: f.repositoryId,
+          path: "AGENTS.md",
+          mode: "full",
+          sha: "b".repeat(40),
+        })
+      expect(String(result)).toContain("Use amberquartz instructions.")
+    })
+  },
+)
+
+it(
+  "chat glob_files keeps its captured checkout after membership and remote removal",
+  { timeout: 60_000 },
+  async () => {
+    await withNativeIndexFixture(async (f) => {
+      const snapshot = await withOrgIdContext(f.org, () =>
+        getWorkspaceProjectionSnapshot(f.workspaceId),
+      )
+      const tools = await workspaceChatTools({
+        orgId: f.org.id,
+        workspaceId: f.workspaceId,
+        snapshot,
+      })
+      await withOrgDbContext(f.org.id, (db) =>
+        db
+          .delete(repositoryCheckouts)
+          .where(eq(repositoryCheckouts.repositoryId, f.repositoryId)),
+      )
+      await rename(f.remote, `${f.remote}-unavailable`)
+      const result = await tools
+        .find((tool) => tool.name === "glob_files")
+        ?.execute({
+          repositoryId: f.repositoryId,
+          pattern: "*.js",
+          onlyFiles: true,
+          sha: "b".repeat(40),
+        })
+      expect(String(result)).toContain("sample.js")
+    })
+  },
 )

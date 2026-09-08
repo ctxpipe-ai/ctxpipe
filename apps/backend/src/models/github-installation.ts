@@ -1,4 +1,9 @@
 import { and, eq, inArray, sql } from "drizzle-orm"
+import { repositories } from "../db/schema/repositories.js"
+import {
+  detachWorkspaceConnection,
+  invalidateLinkedReadBindings,
+} from "./workspaces.js"
 import { App, Octokit } from "octokit"
 import type { Env } from "../config/env.js"
 import { getOrgDb, getSystemDb, withOrgDbContext } from "../db/client.js"
@@ -419,7 +424,28 @@ export async function deleteGithubConnectionById(
   connectionId: string,
 ): Promise<boolean> {
   const row = await withOrgDbContext(orgId, async () => {
-    const [removed] = await getOrgDb()
+    const db = getOrgDb()
+    const [connection] = await db
+      .select({ id: connections.id })
+      .from(connections)
+      .where(
+        and(
+          eq(connections.id, connectionId),
+          eq(connections.orgId, orgId),
+          eq(connections.type, CONNECTION_TYPE_GITHUB),
+        ),
+      )
+      .for("update")
+    if (!connection) return undefined
+    const linkedRepositories = await db
+      .select({ gitUrl: repositories.gitUrl })
+      .from(repositories)
+      .where(eq(repositories.githubConnectionId, connectionId))
+    await detachWorkspaceConnection(connectionId)
+    await invalidateLinkedReadBindings(
+      linkedRepositories.map((row) => row.gitUrl),
+    )
+    const [removed] = await db
       .delete(connections)
       .where(
         and(
@@ -502,10 +528,7 @@ export async function listInstallationsByGithubInstallationId(
     ),
   )
   return rows
-    .filter(
-      (row): row is ConnectionRow =>
-        row?.type === CONNECTION_TYPE_GITHUB,
-    )
+    .filter((row): row is ConnectionRow => row?.type === CONNECTION_TYPE_GITHUB)
     .map(githubConnectionToShape)
 }
 
@@ -521,15 +544,9 @@ export async function getOrganizationSlugForInstallationByUser(
   const [row] = await db
     .select({ orgSlug: organizations.slug })
     .from(members)
-    .innerJoin(
-      organizations,
-      eq(organizations.id, members.organizationId),
-    )
+    .innerJoin(organizations, eq(organizations.id, members.organizationId))
     .where(
-      and(
-        eq(members.userId, userId),
-        inArray(members.organizationId, orgIds),
-      ),
+      and(eq(members.userId, userId), inArray(members.organizationId, orgIds)),
     )
     .limit(1)
   return row?.orgSlug
@@ -684,7 +701,8 @@ export async function refreshGithubConnectionAccountSlug(
       .returning()
     return result
   })
-  if (!updated) throw new Error("GitHub connection was removed during account refresh")
+  if (!updated)
+    throw new Error("GitHub connection was removed during account refresh")
   await upsertConnectionDirectory(updated)
   invalidateGithubAppCacheForConnection(connectionId)
   return githubConnectionToShape(updated)
@@ -757,7 +775,9 @@ export async function getInstallationToken(
   if (!row) return undefined
   try {
     const app = buildAppForConnection(row, env)
-    const octokit = await app.getInstallationOctokit(installation.installationId)
+    const octokit = await app.getInstallationOctokit(
+      installation.installationId,
+    )
     const { token } = (await octokit.auth({ type: "installation" })) as {
       token: string
     }

@@ -20,6 +20,7 @@ import {
 } from "../domain/workspaces/slug.js"
 import { generateObjectId } from "../lib/id.js"
 import { userFacingIndexingError } from "../lib/memoryFitError.js"
+import { invalidateLinkedReadBindings } from "./workspaces.js"
 import { log } from "../observability/logger.js"
 import { withGraphClient } from "../platform/graph/client.js"
 
@@ -258,15 +259,27 @@ export async function setRepositoryGithubConnectionId(input: {
   githubConnectionId: string
 }): Promise<void> {
   return orgSql(async () => {
-    await getOrgDb()
-      .update(repositories)
-      .set({ githubConnectionId: input.githubConnectionId })
+    const db = getOrgDb()
+    const [repository] = await db
+      .select()
+      .from(repositories)
       .where(
         and(
           eq(repositories.id, input.repositoryId),
           eq(repositories.orgId, requireCurrentOrgId()),
         ),
       )
+      .for("update")
+    if (
+      !repository ||
+      repository.githubConnectionId === input.githubConnectionId
+    )
+      return
+    await db
+      .update(repositories)
+      .set({ githubConnectionId: input.githubConnectionId })
+      .where(eq(repositories.id, repository.id))
+    await invalidateLinkedReadBindings([repository.gitUrl])
   })
 }
 

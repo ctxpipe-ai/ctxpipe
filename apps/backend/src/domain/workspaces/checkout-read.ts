@@ -1,54 +1,30 @@
 import { requireCurrentOrgId } from "../../auth/context.js"
-import { parseEnv } from "../../config/env.js"
 import {
-  listPathsAtGitSha,
-  readFileAtGitSha,
-} from "../../services/git/clone-tree.js"
+  fetchCheckoutFileBytes,
+  listCheckoutTree,
+} from "../codeIngestion/codesearchClient.js"
 import type { ExplorerGitFile } from "./git-explorer.js"
-import { resolveRepositoryReadCredential } from "./resolve-revision.js"
-import { type WorkspaceRevision, workspaceRevisionSchema } from "./revision.js"
 
-export class WorkspaceCheckoutReadError extends Error {
-  override readonly name = "WorkspaceCheckoutReadError"
-
-  constructor(
-    message: string,
-    readonly status: 404 | 409 | 502,
-  ) {
-    super(message)
-  }
+export type WorkspaceCheckoutRead = {
+  workspaceId: string
+  repositoryId: string
+  sha: string
 }
 
-async function repositoryReadInput(revision: WorkspaceRevision) {
-  workspaceRevisionSchema.parse(revision)
-  if (revision.access !== "read")
-    throw new WorkspaceCheckoutReadError(
-      "A published read revision is required",
-      409,
-    )
-  return {
-    url: revision.remote.url,
-    sha: revision.sha,
-    token: await resolveRepositoryReadCredential({
-      orgId: requireCurrentOrgId(),
-      env: parseEnv(process.env),
-      remote: revision.remote,
-    }),
-  }
+export async function listWorkspaceCheckoutPaths(
+  input: WorkspaceCheckoutRead,
+): Promise<string[]> {
+  return (
+    await listCheckoutTree({ ...input, orgId: requireCurrentOrgId() })
+  ).sort()
 }
 
-export async function listWorkspaceCheckoutPaths(input: {
-  revision: WorkspaceRevision
-}): Promise<string[]> {
-  return listPathsAtGitSha(await repositoryReadInput(input.revision))
-}
-
-export async function readWorkspaceCheckoutFile(input: {
-  revision: WorkspaceRevision
-  path: string
-}): Promise<ExplorerGitFile> {
-  return readFileAtGitSha({
-    ...(await repositoryReadInput(input.revision)),
-    path: input.path,
+export async function readWorkspaceCheckoutFile(
+  input: WorkspaceCheckoutRead & { path: string },
+): Promise<ExplorerGitFile> {
+  const bytes = await fetchCheckoutFileBytes({
+    ...input,
+    orgId: requireCurrentOrgId(),
   })
+  return bytes === null ? { kind: "missing" } : { kind: "bytes", bytes }
 }

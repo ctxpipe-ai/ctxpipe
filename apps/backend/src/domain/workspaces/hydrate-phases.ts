@@ -6,13 +6,8 @@ export type HydratePhaseRecord = {
   embeddings: boolean
   embeddingError?: string
   revision?: WorkspaceRevision
+  publishedIndex?: WorkspaceRevision | null
   index?: { revision: WorkspaceRevision; result: DerivedStoreResult }
-}
-
-export type PendingHydratePhases = {
-  postgres: boolean
-  embeddings: boolean
-  index: boolean
 }
 
 /** Git SHAs are hex; ISO timestamps and calendar dates are not. */
@@ -29,41 +24,6 @@ export function effectiveValidFrom(input: {
   return input.introducingCommitTimestamp
 }
 
-export function hydratePostgresIsComplete(input: {
-  activeProjectionUrl: string | null
-  activeProjectionSha: string | null
-  desiredUrl: string
-  desiredSha: string
-}): boolean {
-  return (
-    input.activeProjectionUrl === input.desiredUrl &&
-    input.activeProjectionSha === input.desiredSha
-  )
-}
-
-export function pendingHydratePhases(input: {
-  desiredUrl: string
-  desiredSha: string
-  activeProjectionUrl: string | null
-  activeProjectionSha: string | null
-  indexedSha: string | null
-  phases: HydratePhaseRecord | null
-}): PendingHydratePhases {
-  const postgres = !hydratePostgresIsComplete(input)
-  const phaseMatches =
-    input.phases?.url === input.desiredUrl &&
-    input.phases?.sha === input.desiredSha
-  return {
-    postgres,
-    embeddings: postgres || !phaseMatches || !input.phases?.embeddings,
-    index: input.indexedSha !== input.desiredSha,
-  }
-}
-
-export function hydrateHasPendingWork(pending: PendingHydratePhases): boolean {
-  return pending.postgres || pending.embeddings || pending.index
-}
-
 export function initialHydratePhases(input: {
   url: string
   sha: string
@@ -75,11 +35,4 @@ export function initialHydratePhases(input: {
     embeddings: false,
     ...(input.revision ? { revision: input.revision } : {}),
   }
-}
-
-export function markHydratePhase(
-  phases: HydratePhaseRecord,
-  phase: "embeddings",
-): HydratePhaseRecord {
-  return { ...phases, [phase]: true }
 }

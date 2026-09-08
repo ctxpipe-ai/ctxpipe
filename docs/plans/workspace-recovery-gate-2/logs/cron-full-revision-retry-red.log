@@ -1,0 +1,55 @@
+{"name": "cron-full-revision-retry-red", "cwd": "/private/tmp/ctxpipe-recovery-01a07aba", "command": ["/Users/jakubriedl/.volta/tools/image/node/22.16.0/bin/node", "apps/backend/node_modules/vitest/vitest.mjs", "run", "--root", "apps/backend", "src/domain/workspaces/index-workflow.contract.test.ts", "-t", "cron retries an unactivated"], "environment": {"AUTH_SECRET": "gate0-local-disposable-test-secret-20260907", "DATABASE_URL": "postgresql://ctxpipe_app:ctxpipe@127.0.0.1:61314/ctxpipe_gate0_fresh", "GRAPH_DB_URI": "redis://127.0.0.1:6399", "CI": "true", "NO_COLOR": "1", "TURBO_TELEMETRY_DISABLED": "1", "STORYBOOK_DISABLE_TELEMETRY": "1", "PATH": "/Users/jakubriedl/.volta/tools/image/node/22.16.0/bin:/private/tmp/ctxpipe-recovery-runtime/ast-grep/node_modules/.bin:/private/tmp/ctxpipe-recovery-runtime/node_modules/.bin:/private/tmp/ctxpipe-recovery-runtime/zoekt:/usr/local/bin:/System/Cryptexes/App/usr/bin:/usr/bin:/bin:/usr/sbin:/sbin:/var/run/com.apple.security.cryptexd/codex.system/bootstrap/usr/local/bin:/var/run/com.apple.security.cryptexd/codex.system/bootstrap/usr/bin:/var/run/com.apple.security.cryptexd/codex.system/bootstrap/usr/appleinternal/bin:/pkg/env/global/bin:/Users/jakubriedl/.codex/tmp/arg0/codex-arg0BW5Gt3:/Users/jakubriedl/.cache/codex-runtimes/codex-primary-runtime/dependencies/bin/override:/Users/jakubriedl/.local/bin:/Users/jakubriedl/.bun/bin:/Users/jakubriedl/.opencode/bin:/Users/jakubriedl/.volta/bin:/opt/homebrew/bin:/opt/homebrew/sbin:/Users/jakubriedl/.cache/codex-runtimes/codex-primary-runtime/dependencies/bin/fallback:/Applications/ChatGPT.app/Contents/Resources"}, "timeout_seconds": 600, "started_utc": "2026-09-08T05:59:08Z", "log": "logs/cron-full-revision-retry-red.log"}
+
+ RUN  v4.0.18 /private/tmp/ctxpipe-recovery-01a07aba/apps/backend
+
+ ❯ src/domain/workspaces/index-workflow.contract.test.ts (19 tests | 1 failed | 18 skipped) 4350ms
+   ↓ rejects contradictory and unbound queued index revisions
+   ↓ returns no revision for a missing workspace
+   ↓ publishes a native searchable index with the captured commit identity
+   ↓ chat search retains the captured revision across a later branch metadata change
+   ↓ an unpublished index cannot replace the published searchable checkout
+   ↓ chat SCIP queries resolve symbols from the published checkout
+   ↓ chat structural search runs ast-grep against the published checkout
+   ↓ a request body cannot override the signed search checkout
+   ↓ an explicit legacy workspace with no checkout returns no search matches
+   ↓ both clone and index reject a target that contradicts the signed revision
+   ↓ search-index failure preserves publication and a retry restores search freshness
+   ↓ linked index publication rejects a changed owner identity
+   ↓ linked index publication rejects a changed linked ref
+   ↓ cron refresh captures a default-branch rename once at the same SHA
+   ↓ index admission rejects a repository bound to another remote
+   ↓ unbound default indexing cannot mark a workspace index ready
+   ↓ serves the last complete index while the active replacement index is pending
+   ↓ serves the last complete index while the active replacement index is failed
+   × cron retries an unactivated full revision even after its same-SHA tip was captured 4350ms
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 1 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  src/domain/workspaces/index-workflow.contract.test.ts > cron retries an unactivated full revision even after its same-SHA tip was captured
+AssertionError: expected [ 'renamed' ] to deeply equal [ 'renamed', 'renamed' ]
+
+- Expected
++ Received
+
+  [
+    "renamed",
+-   "renamed",
+  ]
+
+ ❯ src/domain/workspaces/index-workflow.contract.test.ts:1075:9
+    1073|       expect(
+    1074|         queued.rows.map((row) => row.input.revision.defaultBranch),
+    1075|       ).toEqual(["renamed", "renamed"])
+       |         ^
+    1076|     }, true),
+    1077| )
+ ❯ withNativeIndexFixture src/domain/workspaces/index-workflow.contract.test.ts:316:5
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/1]⎯
+
+
+ Test Files  1 failed (1)
+      Tests  1 failed | 18 skipped (19)
+   Start at  15:59:09
+   Duration  6.55s (transform 637ms, setup 20ms, import 2.10s, tests 4.35s, environment 0ms)
+

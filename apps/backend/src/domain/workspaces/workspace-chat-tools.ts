@@ -1,3 +1,11 @@
+import {
+  globCheckoutPaths,
+  type CheckoutGlobRequest,
+} from "../../tools/globFiles.js"
+import {
+  readCheckoutFile,
+  type CheckoutFileRequest,
+} from "../../tools/getFile.js"
 import { codesearchStructuralSearch } from "../../tools/structuralSearch.js"
 import { z } from "zod"
 import { assertStructuralGraphAnchor } from "../../lib/repoExplorerPlanner.js"
@@ -204,18 +212,16 @@ export async function workspaceChatTools(input: {
     listRepositoriesTool as unknown as ExplorerTool,
     ...(standardRepoExplorerTools as unknown as ExplorerTool[]),
   ]
-  const tools: WorkspaceChatTanstackTool[] = explorer
-    .filter((tool) => !DISK_READ_TOOL_NAMES.has(tool.name))
-    .map((tool) =>
-      wrapExplorerTool({
-        tool,
-        orgId: input.orgId,
-        allowedRepositoryIds: allowed,
-        boundRepositories,
-        workspaceId: input.workspaceId,
-        projection,
-      }),
-    )
+  const tools: WorkspaceChatTanstackTool[] = explorer.map((tool) =>
+    wrapExplorerTool({
+      tool,
+      orgId: input.orgId,
+      allowedRepositoryIds: allowed,
+      boundRepositories,
+      workspaceId: input.workspaceId,
+      projection,
+    }),
+  )
   tools.unshift(
     hybridSearchTool({
       ...input,
@@ -288,8 +294,6 @@ function hybridSearchTool(input: {
     },
   }
 }
-
-const DISK_READ_TOOL_NAMES = new Set(["get_file", "glob_files"])
 
 function wrapExplorerTool(input: {
   tool: ExplorerTool
@@ -365,6 +369,59 @@ function wrapExplorerTool(input: {
           ...(stringArg(args, "detail") === "full"
             ? { response }
             : compactSearchResponse(response)),
+        })
+      }
+      if (input.tool.name === "glob_files") {
+        const parsed = z
+          .fromJSONSchema(schema)
+          .parse(args) as CheckoutGlobRequest & { repositoryId: string }
+        const repository = input.boundRepositories.find(
+          (repo) => repo.id === parsed.repositoryId,
+        )
+        if (!repository)
+          return toToon({
+            error: "repository_not_in_workspace",
+            repositoryId: parsed.repositoryId,
+          })
+        return globCheckoutPaths({
+          pattern: parsed.pattern,
+          path: parsed.path,
+          onlyFiles: parsed.onlyFiles,
+          dot: parsed.dot,
+          limit: parsed.limit,
+          offset: parsed.offset,
+          repositoryId: repository.id,
+          orgId: input.orgId,
+          workspaceId: input.workspaceId,
+          ...(input.projection.kind === "active"
+            ? { sha: repository.sha }
+            : { legacy: true as const }),
+        })
+      }
+      if (input.tool.name === "get_file") {
+        const parsed = z
+          .fromJSONSchema(schema)
+          .parse(args) as CheckoutFileRequest & { repositoryId: string }
+        const repository = input.boundRepositories.find(
+          (repo) => repo.id === parsed.repositoryId,
+        )
+        if (!repository)
+          return toToon({
+            error: "repository_not_in_workspace",
+            repositoryId: parsed.repositoryId,
+          })
+        return readCheckoutFile({
+          path: parsed.path,
+          startLine: parsed.startLine,
+          endLine: parsed.endLine,
+          maxChars: parsed.maxChars,
+          mode: parsed.mode,
+          repositoryId: repository.id,
+          orgId: input.orgId,
+          workspaceId: input.workspaceId,
+          ...(input.projection.kind === "active"
+            ? { sha: repository.sha }
+            : { legacy: true as const }),
         })
       }
       if (input.tool.name === "structural_search") {

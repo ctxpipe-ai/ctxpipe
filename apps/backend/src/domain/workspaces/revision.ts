@@ -44,7 +44,7 @@ export type DerivedStoreResult =
 export type StoreFreshness = {
   embeddings: DerivedStoreResult
   graph: { kind: "postgres" }
-  index: DerivedStoreResult
+  index: DerivedStoreResult & { published?: WorkspaceRevision | null }
 }
 
 export type PublishedProjection =

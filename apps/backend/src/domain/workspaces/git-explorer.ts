@@ -1,75 +1,7 @@
-import { githubRepoFullNameFromWorkspaceUrl } from "./write-status.js"
-
-export type WorkspaceGitExplorerTarget = {
-  sha: string
-  url: string
-  repositoryName: string | null
-  githubConnectionId: string | null
-}
-
-export type WorkspaceGitExplorerResult =
-  | { ok: true; target: WorkspaceGitExplorerTarget }
-  | { ok: false; status: 409; error: string }
-
 export type ExplorerGitFile =
   | { kind: "missing" }
   | { kind: "omitted" }
   | { kind: "bytes"; bytes: Uint8Array }
-
-function workspaceExplorerRemote(input: {
-  workspaceRepositoryUrl: string
-  activeProjectionUrl: string | null
-  activeProjectionSha: string | null
-  desiredSha: string | null
-}): { url: string; sha: string } | null {
-  const activeSha = input.activeProjectionSha?.trim()
-  if (activeSha) {
-    const activeUrl = input.activeProjectionUrl?.trim()
-    return {
-      url: activeUrl || input.workspaceRepositoryUrl,
-      sha: activeSha,
-    }
-  }
-  const desiredSha = input.desiredSha?.trim()
-  if (!desiredSha) return null
-  return { url: input.workspaceRepositoryUrl, sha: desiredSha }
-}
-
-export function workspaceExplorerSha(input: {
-  activeProjectionSha: string | null
-  desiredSha: string | null
-}): string | null {
-  const active = input.activeProjectionSha?.trim()
-  if (active) return active
-  const desired = input.desiredSha?.trim()
-  return desired || null
-}
-
-export function workspaceGitExplorerTarget(input: {
-  workspaceRepositoryUrl: string
-  activeProjectionUrl: string | null
-  githubConnectionId: string | null
-  activeProjectionSha: string | null
-  desiredSha: string | null
-}): WorkspaceGitExplorerResult {
-  const remote = workspaceExplorerRemote(input)
-  if (!remote) {
-    return {
-      ok: false,
-      status: 409,
-      error: "This Workspace has no git SHA to browse yet.",
-    }
-  }
-  return {
-    ok: true,
-    target: {
-      sha: remote.sha,
-      url: remote.url,
-      repositoryName: githubRepoFullNameFromWorkspaceUrl(remote.url),
-      githubConnectionId: input.githubConnectionId,
-    },
-  }
-}
 
 export function explorerBlobPath(raw: string): string | null {
   const path = raw.trim()

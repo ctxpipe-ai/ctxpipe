@@ -22,6 +22,7 @@ import {
 } from "../../domain/workspaces/write-status.js"
 import { listOrgConversationsForSandboxGc } from "../../models/conversations.js"
 import {
+  getWorkspaceProjection,
   claimPausedWriteJob,
   listMigrationExportJobWorkspaceIds,
   listMigrationExportShas,
@@ -130,12 +131,6 @@ export const workspaceTipCheck = defineWorkflow(
             revision: resolved.revision,
           })
       }
-      const desiredById = new Map(
-        workspaces.map((row) => [row.id, row.desiredSha]),
-      )
-      for (const item of updated) {
-        desiredById.set(item.workspaceId, item.resolvedTip)
-      }
       const [exportShas, exportJobWorkspaceIds] = await withOrgDbContext(
         input.orgId,
         () =>
@@ -164,8 +159,7 @@ export const workspaceTipCheck = defineWorkflow(
           updated.some((item) => item.workspaceId === workspace.id) ||
           shouldEnqueueCronHydrate({
             migrationExportSha: exportShas.get(workspace.id) ?? null,
-            desiredSha: desiredById.get(workspace.id) ?? null,
-            activeProjectionSha: workspace.activeProjectionSha,
+            projection: await getWorkspaceProjection(workspace.id),
             writeStatus: writeStatusById.get(workspace.id),
           })
         ) {

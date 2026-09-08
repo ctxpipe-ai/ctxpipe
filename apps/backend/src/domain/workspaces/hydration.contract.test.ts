@@ -39,10 +39,6 @@ import { enqueueWorkspaceHydrate } from "../../openworkflow/enqueue-workspace-hy
 import { repositoryIndex } from "../../openworkflow/workflows/repository-index.js"
 import { workspaceHydrate } from "../../openworkflow/workflows/workspace-hydrate.js"
 import { workspaceIndex } from "../../openworkflow/workflows/workspace-index.js"
-import {
-  listWorkspaceCheckoutPaths,
-  readWorkspaceCheckoutFile,
-} from "./checkout-read.js"
 import { resolveWorkspaceRepositoryTip } from "../../routes/webhooks/github/github-workspace-tip.js"
 
 type NativeHydrationOptions = {
@@ -414,25 +410,42 @@ it(
     }),
 )
 
-it(
-  "records missing desired tip without publishing any units",
+it.each([1, 2])(
+  "resolves a missing tip and hydrates generation %s without a separate tip-check job",
   { timeout: 60_000 },
-  async () =>
+  async (generation) =>
     withNativeHydrationFixture({ missingTip: true }, async (f) => {
-      const { worker, handle, org, workspaceId } = f
+      const { worker, org, workspaceId, runner, workspaceUrl, sha } = f
+      if (generation === 2) {
+        await withOrgDbContext(org.id, (db) =>
+          db
+            .update(workspaces)
+            .set({ desiredGeneration: 2 })
+            .where(eq(workspaces.id, workspaceId)),
+        )
+      }
+      const handle =
+        generation === 1
+          ? f.handle
+          : await runner.runWorkflow(workspaceHydrate.spec, {
+              orgId: org.id,
+              workspaceId,
+              generation,
+              url: workspaceUrl,
+            })
       await worker.start()
-      await expect(handle.result({ timeoutMs: 30_000 })).rejects.toThrow(
-        "Could not resolve the git tip",
-      )
+      expect(await handle.result({ timeoutMs: 30_000 })).toMatchObject({
+        hydrated: true,
+        units: 1,
+      })
       await withOrgIdContext(org, async () => {
         expect(await getWorkspaceProjectionSnapshot(workspaceId)).toMatchObject(
           {
-            projection: { kind: "failed", desired: null, previous: null },
-            units: [],
+            projection: { kind: "active", revision: { generation, sha } },
+            units: [{ body: expect.any(String) }],
           },
         )
       })
-      return
     }),
 )
 
@@ -590,51 +603,6 @@ it(
           kind: "active",
           stores: { embeddings: { kind: "failed" } },
         })
-      })
-    }),
-)
-
-it(
-  "reads published Files while a replacement remote is unavailable",
-  { timeout: 60_000 },
-  async () =>
-    withNativeHydrationFixture({}, async (f) => {
-      const { org, workspaceId, workspaceUrl } = f
-      await f.publish()
-      const active = await withOrgIdContext(org, () =>
-        getWorkspaceProjection(workspaceId),
-      )
-      if (active.kind !== "active") throw new Error("Expected active revision")
-      await withOrgDbContext(org.id, (db) =>
-        db
-          .update(workspaces)
-          .set({
-            desiredGeneration: 2,
-            workspaceRepositoryUrl: "file:///unavailable-replacement.git",
-          })
-          .where(eq(workspaces.id, workspaceId)),
-      )
-      const read = {
-        workspaceId,
-        gitUrl: workspaceUrl,
-        revision: active.revision,
-      }
-      await withOrgIdContext(org, async () => {
-        expect(await listWorkspaceCheckoutPaths(read)).toEqual([
-          "document-000.md",
-        ])
-        const file = await readWorkspaceCheckoutFile({
-          ...read,
-          path: "document-000.md",
-        })
-        expect(
-          await readWorkspaceCheckoutFile({ ...read, path: "missing.md" }),
-        ).toEqual({ kind: "missing" })
-        expect(file.kind).toBe("bytes")
-        if (file.kind === "bytes")
-          expect(Buffer.from(file.bytes).toString("utf8")).toBe(
-            "# Document 0\nCommitted body 0.\n",
-          )
       })
     }),
 )

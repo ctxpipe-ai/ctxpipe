@@ -81,11 +81,8 @@ export async function resolveWorkspaceReadRevision(input: {
   )
     return null
   try {
-    if (!workspace.desiredSha && !input.refresh)
-      throw new Error(
-        "Could not resolve the git tip for this workspace repository.",
-      )
-    const needsTip = input.refresh || !workspace.desiredDefaultBranch
+    const refresh = input.refresh || !workspace.desiredSha
+    const needsTip = refresh || !workspace.desiredDefaultBranch
     const token = needsTip
       ? await resolveRepositoryReadCredential({
           orgId: input.orgId,
@@ -103,7 +100,7 @@ export async function resolveWorkspaceReadRevision(input: {
         })
       : null
     const tip = {
-      sha: input.refresh ? resolved?.sha : workspace.desiredSha,
+      sha: refresh ? resolved?.sha : workspace.desiredSha,
       branch: resolved?.branch ?? workspace.desiredDefaultBranch,
     }
     if (!tip.sha || !tip.branch)

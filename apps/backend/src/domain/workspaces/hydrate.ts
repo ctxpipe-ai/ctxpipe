@@ -97,94 +97,10 @@ export function hydrateKnowledgeTree(input: {
   return { units, skipped, linked }
 }
 
-/** Hydrate reads this SHA. Never the moving default-branch tip. */
-export function hydrateReadsStoredDesiredSha(
-  desiredSha: string | null,
-): string | null {
-  const sha = desiredSha?.trim() ?? ""
-  return sha || null
-}
-
-export function hydrateIsNoop(input: {
-  activeProjectionUrl: string | null
-  activeProjectionSha: string | null
-  desiredUrl: string
-  desiredSha: string
-}): boolean {
-  return (
-    input.activeProjectionUrl === input.desiredUrl &&
-    input.activeProjectionSha === input.desiredSha
-  )
-}
-
-export function shouldReplaceKnowledgeProjection(input: {
-  activeProjectionUrl: string | null
-  activeProjectionSha: string | null
-  desiredUrl: string
-  desiredSha: string
-}): boolean {
-  return !hydrateIsNoop(input)
-}
-
-/** Serving stores go live at the first successful hydrate SHA and stay on that projection during relink. */
-export function workspaceProjectionReady(input: {
-  hydrateStatus: string
-  activeProjectionSha: string | null
-  migrationExportSha?: string | null
-  writeStatus?: string | null
-}): boolean {
-  void input.hydrateStatus
-  void input.migrationExportSha
-  void input.writeStatus
-  return Boolean(input.activeProjectionSha)
-}
-
 export function shouldHydrateBeforeMigrationExport(
   migrationExportSha: string | null | undefined,
 ): boolean {
   return !migrationExportSha
-}
-
-export const HYDRATE_INDEX_UNAVAILABLE_MESSAGE =
-  "We could not open this repository for indexing."
-
-export type WorkspaceHydrateView =
-  | "waiting_for_tip"
-  | "hydrating"
-  | "failed"
-  | "ready"
-
-export function workspaceHydrateView(input: {
-  hydrateStatus: string
-  desiredSha?: string | null
-  hydrateError?: string | null
-  activeProjectionSha?: string | null
-}): WorkspaceHydrateView {
-  if (input.hydrateStatus === "failed") return "failed"
-  if (input.hydrateStatus !== "ready" && input.hydrateError) return "failed"
-  if (input.hydrateStatus === "ready") {
-    if (
-      input.desiredSha &&
-      input.activeProjectionSha &&
-      input.desiredSha !== input.activeProjectionSha
-    ) {
-      return "hydrating"
-    }
-    return "ready"
-  }
-  if (!input.desiredSha) return "waiting_for_tip"
-  return "hydrating"
-}
-
-/** Relink hydrates B in the background; keep polling until desired matches the active SHA. */
-export function workspaceHydrateInFlight(input: {
-  hydrateStatus: string
-  desiredSha?: string | null
-  hydrateError?: string | null
-  activeProjectionSha?: string | null
-}): boolean {
-  const view = workspaceHydrateView(input)
-  return view === "waiting_for_tip" || view === "hydrating"
 }
 
 export function applyEffectiveValidFromToUnits(

@@ -2,16 +2,10 @@ import { describe, expect, it } from "vitest"
 import {
   applyEffectiveValidFromToUnits,
   displayNameFromAgentsMarkdown,
-  hydrateIsNoop,
   hydrateKnowledgeTree,
-  hydrateReadsStoredDesiredSha,
   hydrateUnitsToProjectionClaims,
   servingIdForKnowledgePath,
   shouldHydrateBeforeMigrationExport,
-  shouldReplaceKnowledgeProjection,
-  workspaceHydrateInFlight,
-  workspaceHydrateView,
-  workspaceProjectionReady,
 } from "./hydrate.js"
 
 describe("hydrateKnowledgeTree", () => {
@@ -85,111 +79,11 @@ describe("hydrateKnowledgeTree", () => {
       { path: "repositories/billing-dup.md", reason: "malformed" },
     ])
   })
-
-  it("is a no-op only when URL and SHA already match the desired projection", () => {
-    expect(
-      hydrateIsNoop({
-        activeProjectionUrl: "https://github.com/acme/docs",
-        activeProjectionSha: "abc",
-        desiredUrl: "https://github.com/acme/docs",
-        desiredSha: "abc",
-      }),
-    ).toBe(true)
-    expect(
-      hydrateIsNoop({
-        activeProjectionUrl: "https://github.com/acme/old",
-        activeProjectionSha: "abc",
-        desiredUrl: "https://github.com/acme/docs",
-        desiredSha: "abc",
-      }),
-    ).toBe(false)
-    expect(
-      shouldReplaceKnowledgeProjection({
-        activeProjectionUrl: "https://github.com/acme/docs",
-        activeProjectionSha: "abc",
-        desiredUrl: "https://github.com/acme/docs",
-        desiredSha: "abc",
-      }),
-    ).toBe(false)
-    expect(
-      shouldReplaceKnowledgeProjection({
-        activeProjectionUrl: "https://github.com/acme/docs",
-        activeProjectionSha: "abc",
-        desiredUrl: "https://github.com/acme/docs",
-        desiredSha: "def",
-      }),
-    ).toBe(true)
-  })
 })
 
-describe("workspaceProjectionReady", () => {
-  it("serves the last activated SHA even while relink hydrate is pending", () => {
-    expect(
-      workspaceProjectionReady({
-        hydrateStatus: "pending",
-        activeProjectionSha: null,
-      }),
-    ).toBe(false)
-    expect(
-      workspaceProjectionReady({
-        hydrateStatus: "ready",
-        activeProjectionSha: null,
-      }),
-    ).toBe(false)
-    expect(
-      workspaceProjectionReady({
-        hydrateStatus: "ready",
-        activeProjectionSha: "abc",
-        migrationExportSha: "abc",
-      }),
-    ).toBe(true)
-    expect(
-      workspaceProjectionReady({
-        hydrateStatus: "pending",
-        activeProjectionSha: "aaa",
-        migrationExportSha: "aaa",
-      }),
-    ).toBe(true)
-    expect(
-      workspaceProjectionReady({
-        hydrateStatus: "pending",
-        activeProjectionSha: "aaa",
-      }),
-    ).toBe(true)
-    expect(
-      workspaceProjectionReady({
-        hydrateStatus: "ready",
-        activeProjectionSha: "aaa",
-        migrationExportSha: "export",
-      }),
-    ).toBe(true)
-    expect(
-      workspaceProjectionReady({
-        hydrateStatus: "ready",
-        activeProjectionSha: "aaa",
-        writeStatus: "writable",
-      }),
-    ).toBe(true)
-    expect(
-      workspaceProjectionReady({
-        hydrateStatus: "ready",
-        activeProjectionSha: "aaa",
-        writeStatus: "read_only",
-      }),
-    ).toBe(true)
-    expect(
-      workspaceProjectionReady({
-        hydrateStatus: "pending",
-        activeProjectionSha: "aaa",
-        writeStatus: "unknown",
-      }),
-    ).toBe(true)
-  })
-
-  it("does not treat a missing export SHA as a hydrate blocker", () => {
-    expect(shouldHydrateBeforeMigrationExport(null)).toBe(true)
-    expect(shouldHydrateBeforeMigrationExport("export")).toBe(false)
-  })
+it("does not treat a missing export SHA as a hydrate blocker", () => {
+  expect(shouldHydrateBeforeMigrationExport(null)).toBe(true)
+  expect(shouldHydrateBeforeMigrationExport("export")).toBe(false)
 })
 
 describe("applyEffectiveValidFromToUnits", () => {
@@ -284,113 +178,6 @@ describe("hydrateUnitsToProjectionClaims", () => {
     expect(parsed.units[0]?.confidence).toBe(0.62)
     const claims = hydrateUnitsToProjectionClaims(parsed.units)
     expect(claims[0]?.aggregatedConfidence).toBe(0.62)
-  })
-})
-
-describe("workspaceHydrateView", () => {
-  it("is waiting for a tip while pending with no desired SHA", () => {
-    expect(
-      workspaceHydrateView({
-        hydrateStatus: "pending",
-        desiredSha: null,
-        hydrateError: null,
-      }),
-    ).toBe("waiting_for_tip")
-    expect(
-      workspaceHydrateInFlight({
-        hydrateStatus: "pending",
-        desiredSha: null,
-        hydrateError: null,
-      }),
-    ).toBe(true)
-  })
-
-  it("is hydrating when a desired SHA is not the active projection", () => {
-    expect(
-      workspaceHydrateView({
-        hydrateStatus: "pending",
-        desiredSha: "abc123def456",
-        activeProjectionSha: null,
-        hydrateError: null,
-      }),
-    ).toBe("hydrating")
-    expect(
-      workspaceHydrateInFlight({
-        hydrateStatus: "pending",
-        desiredSha: "abc123def456",
-        activeProjectionSha: null,
-      }),
-    ).toBe(true)
-    expect(
-      workspaceHydrateView({
-        hydrateStatus: "ready",
-        desiredSha: "bbb",
-        activeProjectionSha: "aaa",
-        hydrateError: null,
-      }),
-    ).toBe("hydrating")
-    expect(
-      workspaceHydrateInFlight({
-        hydrateStatus: "ready",
-        desiredSha: "bbb",
-        activeProjectionSha: "aaa",
-      }),
-    ).toBe(true)
-  })
-
-  it("is failed when pending still carries a hydrateError", () => {
-    expect(
-      workspaceHydrateView({
-        hydrateStatus: "pending",
-        desiredSha: "87797371c413",
-        activeProjectionSha: null,
-        hydrateError:
-          "Could not resolve the git tip for this workspace repository.",
-      }),
-    ).toBe("failed")
-  })
-
-  it("is failed when hydrateStatus is failed", () => {
-    expect(
-      workspaceHydrateView({
-        hydrateStatus: "failed",
-        desiredSha: null,
-        hydrateError: "getLogger: no logger in context.",
-      }),
-    ).toBe("failed")
-    expect(
-      workspaceHydrateInFlight({
-        hydrateStatus: "failed",
-        desiredSha: null,
-        hydrateError: "getLogger: no logger in context.",
-      }),
-    ).toBe(false)
-  })
-
-  it("is ready when status is ready and SHAs match", () => {
-    expect(
-      workspaceHydrateView({
-        hydrateStatus: "ready",
-        desiredSha: "abc123def456",
-        activeProjectionSha: "abc123def456",
-        hydrateError: null,
-      }),
-    ).toBe("ready")
-    expect(
-      workspaceHydrateInFlight({
-        hydrateStatus: "ready",
-        desiredSha: "abc123def456",
-        activeProjectionSha: "abc123def456",
-      }),
-    ).toBe(false)
-  })
-})
-
-describe("hydrateReadsStoredDesiredSha", () => {
-  it("reads the stored desired SHA, not a moving default branch", () => {
-    expect(hydrateReadsStoredDesiredSha("abc123")).toBe("abc123")
-    expect(hydrateReadsStoredDesiredSha("  ")).toBeNull()
-    expect(hydrateReadsStoredDesiredSha(null)).toBeNull()
   })
 })
 

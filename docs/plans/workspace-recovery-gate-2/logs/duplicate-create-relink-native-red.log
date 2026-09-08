@@ -1,0 +1,72 @@
+{"name": "duplicate-create-relink-native-red", "cwd": "/private/tmp/ctxpipe-recovery-01a07aba", "command": ["/Users/jakubriedl/.volta/tools/image/node/22.16.0/bin/node", "apps/backend/node_modules/vitest/vitest.mjs", "run", "--root", "apps/backend", "src/domain/workspaces/relink.contract.test.ts"], "environment": {"AUTH_SECRET": "gate0-local-disposable-test-secret-20260907", "DATABASE_URL": "postgresql://ctxpipe_app:ctxpipe@127.0.0.1:61314/ctxpipe_gate0_fresh", "GRAPH_DB_URI": "redis://127.0.0.1:6399", "CI": "true", "NO_COLOR": "1", "TURBO_TELEMETRY_DISABLED": "1", "STORYBOOK_DISABLE_TELEMETRY": "1", "PATH": "/Users/jakubriedl/.volta/tools/image/node/22.16.0/bin:/private/tmp/ctxpipe-recovery-runtime/ast-grep/node_modules/.bin:/private/tmp/ctxpipe-recovery-runtime/node_modules/.bin:/private/tmp/ctxpipe-recovery-runtime/zoekt:/usr/local/bin:/System/Cryptexes/App/usr/bin:/usr/bin:/bin:/usr/sbin:/sbin:/var/run/com.apple.security.cryptexd/codex.system/bootstrap/usr/local/bin:/var/run/com.apple.security.cryptexd/codex.system/bootstrap/usr/bin:/var/run/com.apple.security.cryptexd/codex.system/bootstrap/usr/appleinternal/bin:/pkg/env/global/bin:/Users/jakubriedl/.codex/tmp/arg0/codex-arg0BW5Gt3:/Users/jakubriedl/.cache/codex-runtimes/codex-primary-runtime/dependencies/bin/override:/Users/jakubriedl/.local/bin:/Users/jakubriedl/.bun/bin:/Users/jakubriedl/.opencode/bin:/Users/jakubriedl/.volta/bin:/opt/homebrew/bin:/opt/homebrew/sbin:/Users/jakubriedl/.cache/codex-runtimes/codex-primary-runtime/dependencies/bin/fallback:/Applications/ChatGPT.app/Contents/Resources"}, "timeout_seconds": 600, "started_utc": "2026-09-08T05:51:55Z", "log": "logs/duplicate-create-relink-native-red.log"}
+
+ RUN  v4.0.18 /private/tmp/ctxpipe-recovery-01a07aba/apps/backend
+
+ ❯ src/domain/workspaces/relink.contract.test.ts (3 tests | 2 failed) 185ms
+   ✓ a connection-only relink creates a new desired generation and preserves the published revision 95ms
+   × existing URL creates a new revision when duplicate create selects another connection 42ms
+   × concurrent unique-index loser creates a new revision when duplicate create selects another connection 47ms
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 2 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  src/domain/workspaces/relink.contract.test.ts > existing URL creates a new revision when duplicate create selects another connection
+AssertionError: expected { …(22) } to match object { …(6) }
+(16 matching properties omitted from actual)
+
+- Expected
++ Received
+
+  {
+    "desiredDefaultBranch": null,
+-   "desiredGeneration": 4,
++   "desiredGeneration": 1,
+    "desiredSha": null,
+    "githubConnectionId": "con_agqh7evz65yhzn7ddlndlb7hd4",
+    "hydrateStatus": "pending",
+-   "id": "ws_agqh7evz65yhzn7ddqtvn4gcy4",
++   "id": "ws_agqh7ev2bzzzxekzp3ijtypfkq",
+  }
+
+ ❯ src/domain/workspaces/relink.contract.test.ts:202:27
+    200|               write: { writeStatus: "writable", readOnlyReason: null },
+    201|             }))
+    202|           expect(updated).toMatchObject({
+       |                           ^
+    203|             id: revision.workspaceId,
+    204|             desiredGeneration: 4,
+ ❯ src/domain/workspaces/relink.contract.test.ts:152:7
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/2]⎯
+
+ FAIL  src/domain/workspaces/relink.contract.test.ts > concurrent unique-index loser creates a new revision when duplicate create selects another connection
+Error: Failed query: 
+              select pid from pg_stat_activity where $1 = any(pg_blocking_pids(pid))
+            
+params: NaN
+ ❯ ../../node_modules/.pnpm/drizzle-orm@1.0.0-beta.22_@opentelemetry+api@1.9.0_@types+mssql@9.1.9_@azure+core-clien_187cb3c43007455e384d88e6e878f2d4/node_modules/drizzle-orm/pg-core/async/session.js:37:10
+ ❯ src/domain/workspaces/relink.contract.test.ts:183:31
+    181|             let blocked = false
+    182|             while (Date.now() < deadline) {
+    183|               const waiting = await getSystemDb().execute(sql`
+       |                               ^
+    184|               select pid from pg_stat_activity where ${blocker} = any(…
+    185|             `)
+ ❯ src/domain/workspaces/relink.contract.test.ts:152:7
+
+Caused by: error: invalid input syntax for type integer: "NaN"
+ ❯ ../../node_modules/.pnpm/pg-pool@3.11.0_pg@8.18.0/node_modules/pg-pool/index.js:45:11
+ ❯ withTransientDbQueryRetry src/db/transientDbRetry.ts:130:14
+ ❯ ../../node_modules/.pnpm/drizzle-orm@1.0.0-beta.22_@opentelemetry+api@1.9.0_@types+mssql@9.1.9_@azure+core-clien_187cb3c43007455e384d88e6e878f2d4/node_modules/drizzle-orm/node-postgres/session.js:49:13
+ ❯ src/domain/workspaces/relink.contract.test.ts:183:31
+ ❯ src/domain/workspaces/relink.contract.test.ts:152:7
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯
+Serialized Error: { length: 146, severity: 'ERROR', code: '22P02', detail: undefined, hint: undefined, position: undefined, internalPosition: undefined, internalQuery: undefined, where: 'unnamed portal parameter $1 = \'...\'', schema: undefined, table: undefined, dataType: undefined, constraint: undefined, file: 'numutils.c', routine: 'pg_strtoint32_safe' }
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[2/2]⎯
+
+
+ Test Files  1 failed (1)
+      Tests  2 failed | 1 passed (3)
+   Start at  15:51:55
+   Duration  2.06s (transform 601ms, setup 30ms, import 1.76s, tests 185ms, environment 0ms)
+

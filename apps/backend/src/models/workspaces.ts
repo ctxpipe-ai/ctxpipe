@@ -229,10 +229,14 @@ function projectionFromWorkspace(row: WorkspaceRecord): ProjectionState {
                 : { kind: "pending" }
             : { kind: "pending" },
           graph: { kind: "postgres" },
-          index:
-            index && sameWorkspaceRevision(index.revision, active)
+          index: {
+            ...(index && sameWorkspaceRevision(index.revision, active)
               ? index.result
-              : { kind: "pending" },
+              : { kind: "pending" as const }),
+            published:
+              row.hydratePhases?.publishedIndex ??
+              (index?.result.kind === "ready" ? index.revision : null),
+          },
         },
       }
     : row.activeProjectionSha
@@ -407,8 +411,9 @@ async function readWorkspaceProjectionSnapshot(
       revisions.add(sha)
       allowed.set(key, revisions)
     }
-    if (active?.kind === "active" && active.stores.index.kind === "ready") {
-      allow(active.revision.remote.url, active.revision.sha)
+    if (active?.kind === "active" && active.stores.index.published) {
+      const indexed = active.stores.index.published
+      allow(indexed.remote.url, indexed.sha)
     } else if (active?.kind === "legacy" && active.url) {
       allow(active.url, active.sha)
     }
@@ -549,14 +554,27 @@ export async function createWorkspace(input: {
               ),
             )
             .limit(1)
+            .for("update")
           if (existingUrl[0]) {
             let row = existingUrl[0]
-            if (input.write) {
+            const connectionChanged =
+              input.githubConnectionId !== undefined &&
+              input.githubConnectionId !== row.githubConnectionId
+            if (input.write || connectionChanged) {
+              const write =
+                input.write ??
+                writeStatusFromClassification({
+                  workspaceRepositoryUrl,
+                  githubConnectionId:
+                    input.githubConnectionId ?? row.githubConnectionId,
+                })
               const [updated] = await tx
                 .update(workspaces)
                 .set({
-                  writeStatus: input.write.writeStatus,
-                  readOnlyReason: input.write.readOnlyReason,
+                  ...write,
+                  ...(connectionChanged
+                    ? nextRelinkFields(row.desiredGeneration, write)
+                    : {}),
                   ...(input.githubConnectionId !== undefined
                     ? { githubConnectionId: input.githubConnectionId }
                     : {}),
@@ -636,35 +654,8 @@ export async function createWorkspace(input: {
         })
       } catch (error) {
         if (isUniqueViolation(error, "workspaces_org_id_repository_url_uidx")) {
-          const raced = await db
-            .select()
-            .from(workspaces)
-            .where(
-              and(
-                eq(workspaces.orgId, orgId),
-                eq(workspaces.workspaceRepositoryUrl, workspaceRepositoryUrl),
-              ),
-            )
-            .limit(1)
-          if (raced[0]) {
-            let row = raced[0]
-            if (input.write) {
-              const [updated] = await db
-                .update(workspaces)
-                .set({
-                  writeStatus: input.write.writeStatus,
-                  readOnlyReason: input.write.readOnlyReason,
-                  ...(input.githubConnectionId !== undefined
-                    ? { githubConnectionId: input.githubConnectionId }
-                    : {}),
-                  updatedAt: new Date(),
-                })
-                .where(eq(workspaces.id, row.id))
-                .returning()
-              if (updated) row = updated
-            }
-            return { ...row, autoLinkGitUrls: [] }
-          }
+          // Re-enter the same locked existing-URL path after an insert race.
+          if (attempt < maxAttempts - 1) continue
           throw urlConflict()
         }
         if (
@@ -1088,11 +1079,17 @@ export async function commitHydrateProjection(input: {
           activeProjectionSha: input.revision.sha,
           hydrateStatus: "ready",
           hydrateError: null,
-          hydratePhases: initialHydratePhases({
-            url: input.revision.remote.url,
-            sha: input.revision.sha,
-            revision: input.revision,
-          }),
+          hydratePhases: sql`${JSON.stringify(
+            initialHydratePhases({
+              url: input.revision.remote.url,
+              sha: input.revision.sha,
+              revision: input.revision,
+            }),
+          )}::jsonb || jsonb_build_object('publishedIndex', coalesce(
+            ${workspaces.hydratePhases}->'publishedIndex',
+            case when ${workspaces.hydratePhases}->'index'->'result'->>'kind' = 'ready'
+              then ${workspaces.hydratePhases}->'index'->'revision' end
+          ))`,
           ...(input.displayName ? { displayName: input.displayName } : {}),
           updatedAt: new Date(),
         })
@@ -1189,6 +1186,48 @@ export async function commitHydrateProjection(input: {
       }
       return true
     })
+  })
+}
+
+/** Invalidate linked tips in the same transaction as their repository connection changes. */
+export async function invalidateLinkedReadBindings(
+  gitUrls: readonly string[],
+): Promise<void> {
+  const urls = new Set(gitUrls.map(normalizeWorkspaceRepositoryUrl))
+  if (urls.size === 0) return
+  await orgSql(async () => {
+    const db = getOrgDb()
+    const linked = await db
+      .select({
+        id: workspaceLinkedRepositories.id,
+        gitUrl: workspaceLinkedRepositories.gitUrl,
+      })
+      .from(workspaceLinkedRepositories)
+    const ids = linked
+      .filter((row) => urls.has(normalizeWorkspaceRepositoryUrl(row.gitUrl)))
+      .map((row) => row.id)
+    if (ids.length > 0)
+      await db
+        .update(workspaceLinkedRepositories)
+        .set({ desiredSha: null, indexedSha: null })
+        .where(inArray(workspaceLinkedRepositories.id, ids))
+  })
+}
+
+/** Connection deletion is a relink, not an implicit foreign-key metadata edit. */
+export async function detachWorkspaceConnection(
+  connectionId: string,
+): Promise<void> {
+  await orgSql(async () => {
+    await getOrgDb()
+      .update(workspaces)
+      .set({
+        ...nextRelinkFields(0),
+        desiredGeneration: sql`${workspaces.desiredGeneration} + 1`,
+        githubConnectionId: null,
+        updatedAt: new Date(),
+      })
+      .where(eq(workspaces.githubConnectionId, connectionId))
   })
 }
 
@@ -1542,8 +1581,17 @@ export async function persistWorkspaceIndexResult(input: {
     const [updated] = await getOrgDb()
       .update(workspaces)
       .set({
-        indexedSha: input.result.kind === "ready" ? input.revision.sha : null,
-        hydratePhases: sql`coalesce(${workspaces.hydratePhases}, '{}'::jsonb) || ${JSON.stringify({ index: input })}::jsonb`,
+        ...(input.result.kind === "ready"
+          ? { indexedSha: input.revision.sha }
+          : {}),
+        hydratePhases: sql`coalesce(${workspaces.hydratePhases}, '{}'::jsonb) || ${JSON.stringify(
+          {
+            index: input,
+            ...(input.result.kind === "ready"
+              ? { publishedIndex: input.revision }
+              : {}),
+          },
+        )}::jsonb`,
         updatedAt: new Date(),
       })
       .where(

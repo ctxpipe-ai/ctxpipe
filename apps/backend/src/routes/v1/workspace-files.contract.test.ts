@@ -1,13 +1,11 @@
+import { withNativeIndexFixture } from "../../test/native-index-fixture.js"
 import { generateKeyPairSync } from "node:crypto"
 import { HttpResponse, http } from "msw"
 import { setupServer } from "msw/node"
 import { BackendPostgres } from "openworkflow/postgres"
 import { connections } from "../../db/schema/connections.js"
-import { execFileSync } from "node:child_process"
-import { mkdtemp, rm, writeFile } from "node:fs/promises"
-import { tmpdir } from "node:os"
+import { rename, writeFile } from "node:fs/promises"
 import { join } from "node:path"
-import { pathToFileURL } from "node:url"
 import { localProcessSandbox } from "@tanstack/ai-sandbox-local-process"
 import { adaptTanstackHandle } from "../../domain/workspaces/job-sandbox.js"
 import {
@@ -15,18 +13,12 @@ import {
   destroyWorkspaceSandbox,
 } from "../../domain/workspaces/sandbox-registry.js"
 import { OpenAPIHono } from "@hono/zod-openapi"
-import { eq, sql } from "drizzle-orm"
+import { eq } from "drizzle-orm"
 import { expect, it } from "vitest"
 import type { AppEnv } from "../../app/env.js"
 import { withOrgIdContext } from "../../auth/withAuth.js"
 import { parseEnv } from "../../config/env.js"
-import {
-  closeDb,
-  getSystemDb,
-  initDb,
-  withOrgDbContext,
-} from "../../db/client.js"
-import { organizations } from "../../db/schema/auth.js"
+import { withOrgDbContext } from "../../db/client.js"
 import { workspaces } from "../../db/schema/workspaces.js"
 import type { WorkspaceRevision } from "../../domain/workspaces/revision.js"
 import {
@@ -34,6 +26,39 @@ import {
   withTestRequestLogger,
 } from "../../test/hono-test-logger.js"
 import { workspaceFilesRoutes } from "./workspace-files-routes.js"
+
+function filesApp(org: { id: string; slug: string; name: string }) {
+  const env = parseEnv(process.env)
+  const id = org.slug
+  const app = new OpenAPIHono<AppEnv>()
+  app.use("*", contextStorage(), withTestRequestLogger)
+  // The seam starts after authentication; models and org/RLS contexts run for real.
+  app.use("*", async (c, next) => {
+    c.set("env", env)
+    c.set("orgId", org.id)
+    c.set("orgSlug", org.slug)
+    c.set("user", {
+      id: `user_${id}`,
+      name: "Contract",
+      email: "contract@example.test",
+      emailVerified: true,
+      twoFactorEnabled: false,
+      createdAt: new Date(),
+      updatedAt: new Date(),
+    })
+    c.set("session", {
+      id: `sess_${id}`,
+      userId: `user_${id}`,
+      token: id,
+      expiresAt: new Date(Date.now() + 60_000),
+      createdAt: new Date(),
+      updatedAt: new Date(),
+    })
+    await withOrgIdContext(org, next)
+  })
+  app.route("/workspaces", workspaceFilesRoutes)
+  return app
+}
 
 async function withFilesWorkspace(
   run: (fixture: {
@@ -44,168 +69,121 @@ async function withFilesWorkspace(
     directory: string
   }) => Promise<void>,
 ) {
-  const env = parseEnv(process.env)
-  const directory = await mkdtemp(join(tmpdir(), "ctxpipe-files-http-"))
-  const id = `files_${Date.now()}_${Math.random().toString(36).slice(2)}`
-  const org = { id: `org_${id}`, slug: id, name: "Files HTTP contract" }
-  const workspaceId = `ws_${id}`
-  initDb(env.DATABASE_URL)
-  try {
-    const git = (...args: string[]) =>
-      execFileSync("git", args, { cwd: directory, encoding: "utf8" }).trim()
-    git("init", "-b", "main")
-    await writeFile(join(directory, "AGENTS.md"), "# Published instructions\n")
-    await writeFile(join(directory, "logo.png"), Buffer.from("png\0bytes"))
-    git("add", ".")
-    git(
-      "-c",
-      "user.name=Contract",
-      "-c",
-      "user.email=contract@example.test",
-      "commit",
-      "-m",
-      "Published files",
-    )
-    const sha = git("rev-parse", "HEAD")
-    const revision: WorkspaceRevision = {
-      workspaceId,
-      generation: 1,
-      remote: { url: pathToFileURL(directory).href, connectionId: null },
-      defaultBranch: "main",
-      sha,
-      access: "read",
-    }
-    // The remote has advanced; HTTP must still return the published commit.
-    await writeFile(join(directory, "AGENTS.md"), "# Future instructions\n")
-    git("add", ".")
-    git(
-      "-c",
-      "user.name=Contract",
-      "-c",
-      "user.email=contract@example.test",
-      "commit",
-      "-m",
-      "Future files",
-    )
-    await getSystemDb()
-      .insert(organizations)
-      .values({ ...org, createdAt: new Date() })
-    await withOrgDbContext(org.id, (db) =>
-      db.insert(workspaces).values({
-        id: workspaceId,
-        orgId: org.id,
-        slug: "knowledge",
-        displayName: org.name,
-        workspaceRepositoryUrl: "file:///unavailable-replacement.git",
-        desiredGeneration: 2,
-        desiredSha: git("rev-parse", "HEAD"),
-        desiredDefaultBranch: "main",
-        activeRevision: revision,
-        activeProjectionUrl: revision.remote.url,
-        activeProjectionSha: sha,
-        hydrateStatus: "pending",
-        writeStatus: "writable",
-      }),
-    )
-    const app = new OpenAPIHono<AppEnv>()
-    app.use("*", contextStorage(), withTestRequestLogger)
-    // The seam starts after authentication; models and org/RLS contexts run for real.
-    app.use("*", async (c, next) => {
-      c.set("env", env)
-      c.set("orgId", org.id)
-      c.set("orgSlug", org.slug)
-      c.set("user", {
-        id: `user_${id}`,
-        name: "Contract",
-        email: "contract@example.test",
-        emailVerified: true,
-        twoFactorEnabled: false,
-        createdAt: new Date(),
-        updatedAt: new Date(),
-      })
-      c.set("session", {
-        id: `sess_${id}`,
-        userId: `user_${id}`,
-        token: id,
-        expiresAt: new Date(Date.now() + 60_000),
-        createdAt: new Date(),
-        updatedAt: new Date(),
-      })
-      await withOrgIdContext(org, next)
-    })
-    app.route("/workspaces", workspaceFilesRoutes)
-    await run({ app, orgId: org.id, workspaceId, revision, directory })
-  } finally {
-    try {
-      await getSystemDb().execute(
-        sql`delete from openworkflow.workflow_runs where input->>'workspaceId' = ${workspaceId}`,
+  await withNativeIndexFixture(
+    async (f) => {
+      await writeFile(join(f.remote, "AGENTS.md"), "# Future instructions\n")
+      f.git("add", ".")
+      f.git(
+        "-c",
+        "user.name=Contract",
+        "-c",
+        "user.email=contract@example.test",
+        "commit",
+        "-m",
+        "Future files",
       )
-      await withOrgDbContext(org.id, (db) =>
-        db.delete(workspaces).where(eq(workspaces.id, workspaceId)),
+      await withOrgDbContext(f.org.id, (db) =>
+        db
+          .update(workspaces)
+          .set({
+            workspaceRepositoryUrl: "file:///unavailable-replacement.git",
+            desiredGeneration: 2,
+            desiredSha: f.git("rev-parse", "HEAD"),
+            desiredDefaultBranch: "main",
+            hydrateStatus: "pending",
+            writeStatus: "writable",
+          })
+          .where(eq(workspaces.id, f.workspaceId)),
       )
-      await getSystemDb()
-        .delete(organizations)
-        .where(eq(organizations.id, org.id))
-    } finally {
-      await closeDb()
-      await rm(directory, { recursive: true, force: true })
-    }
-  }
+      await run({
+        app: filesApp(f.org),
+        orgId: f.org.id,
+        workspaceId: f.workspaceId,
+        revision: f.revision,
+        directory: f.directory,
+      })
+    },
+    true,
+    { "logo.png": Buffer.from("png\0bytes") },
+  )
 }
 
 it(
-  "serves the published tree and bytes over HTTP while its remote advances and the Workspace relinks",
+  "serves the last indexed tree while the Workspace relinks",
   { timeout: 30_000 },
   async () => {
     await withFilesWorkspace(async ({ app, revision }) => {
-      const tree = await app.request("/workspaces/knowledge/files/tree")
-      expect(tree.status).toBe(200)
-      expect(await tree.json()).toEqual({
-        sha: revision.sha,
-        paths: ["AGENTS.md", "logo.png"],
+      const response = await app.request("/workspaces/knowledge/files/tree")
+      expect({ status: response.status, body: await response.json() }).toEqual({
+        status: 200,
+        body: {
+          sha: revision.sha,
+          paths: ["AGENTS.md", "logo.png", "sample.js"],
+        },
       })
-      const blob = await app.request(
-        "/workspaces/knowledge/files/blob?path=AGENTS.md",
+    })
+  },
+)
+
+it.each([
+  [
+    "published text",
+    "AGENTS.md",
+    200,
+    {
+      path: "AGENTS.md",
+      body: "# Revision search contract\nUse amberquartz instructions.\n",
+      binary: false,
+    },
+  ],
+  [
+    "binary files",
+    "logo.png",
+    200,
+    { path: "logo.png", body: null, binary: true },
+  ],
+  ["missing files", "missing.md", 404, { error: "Not found" }],
+  [
+    "path traversal",
+    "../secret",
+    400,
+    { error: "A valid file path is required" },
+  ],
+])(
+  "serves the indexed Files HTTP contract for %s",
+  { timeout: 30_000 },
+  async (_name, path, status, body) => {
+    await withFilesWorkspace(async ({ app }) => {
+      const response = await app.request(
+        `/workspaces/knowledge/files/blob?path=${path}`,
       )
-      expect(blob.status).toBe(200)
-      expect(await blob.json()).toEqual({
-        path: "AGENTS.md",
-        body: "# Published instructions\n",
-        binary: false,
+      expect({ status: response.status, body: await response.json() }).toEqual({
+        status,
+        body,
       })
-      const binary = await app.request(
-        "/workspaces/knowledge/files/blob?path=logo.png",
-      )
-      expect(binary.status).toBe(200)
-      expect(await binary.json()).toEqual({
-        path: "logo.png",
-        body: null,
-        binary: true,
-      })
-      expect(
-        (await app.request("/workspaces/knowledge/files/blob?path=missing.md"))
-          .status,
-      ).toBe(404)
-      expect(
-        (await app.request("/workspaces/knowledge/files/blob?path=../secret"))
-          .status,
-      ).toBe(400)
     })
   },
 )
 
 it(
-  "reports real sandbox edits and a clean status when no sandbox is attached",
+  "reports clean Files status when no sandbox is attached",
+  { timeout: 30_000 },
+  async () => {
+    await withFilesWorkspace(async ({ app, revision }) => {
+      const response = await app.request("/workspaces/knowledge/files/status")
+      expect({ status: response.status, body: await response.json() }).toEqual({
+        status: 200,
+        body: { sha: revision.sha, source: "clean", items: [] },
+      })
+    })
+  },
+)
+
+it(
+  "reports real sandbox edits in Files status",
   { timeout: 30_000 },
   async () => {
     await withFilesWorkspace(async ({ app, orgId, workspaceId, revision }) => {
-      const clean = await app.request("/workspaces/knowledge/files/status")
-      expect(clean.status).toBe(200)
-      expect(await clean.json()).toEqual({
-        sha: revision.sha,
-        source: "clean",
-        items: [],
-      })
       const raw = await localProcessSandbox().create({ id: workspaceId })
       attachWorkspaceSandbox({
         id: workspaceId,
@@ -253,63 +231,78 @@ it(
 )
 
 it(
-  "rejects unpublished revisions, read-only edits, and paths outside the repository over HTTP",
+  "rejects Files write paths outside the repository",
   { timeout: 30_000 },
   async () => {
-    await withFilesWorkspace(async ({ app, orgId, workspaceId }) => {
-      const post = (body: object) =>
-        app.request("/workspaces/knowledge/files/jobs", {
-          method: "POST",
-          headers: { "content-type": "application/json" },
-          body: JSON.stringify(body),
-        })
-      expect((await post({ op: "delete", path: "../secret" })).status).toBe(400)
-      await withOrgDbContext(orgId, (db) =>
-        db
-          .update(workspaces)
-          .set({ writeStatus: "read_only" })
-          .where(eq(workspaces.id, workspaceId)),
-      )
-      const readonly = await post({
+    await withFilesWorkspace(async ({ app }) => {
+      const response = await app.request("/workspaces/knowledge/files/jobs", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ op: "delete", path: "../secret" }),
+      })
+      expect(response.status).toBe(400)
+    })
+  },
+)
+
+it("rejects edits to a read-only Workspace", { timeout: 30_000 }, async () => {
+  await withFilesWorkspace(async ({ app, orgId, workspaceId }) => {
+    await withOrgDbContext(orgId, (db) =>
+      db
+        .update(workspaces)
+        .set({ writeStatus: "read_only" })
+        .where(eq(workspaces.id, workspaceId)),
+    )
+    const response = await app.request("/workspaces/knowledge/files/jobs", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
         op: "save",
         path: "AGENTS.md",
         content: "# saved\n",
+      }),
+    })
+    expect({ status: response.status, body: await response.json() }).toEqual({
+      status: 400,
+      body: { error: "Workspace is read-only" },
+    })
+  })
+})
+
+it.each(["tree", "blob?path=AGENTS.md"])(
+  "requires a published index for Files %s",
+  { timeout: 30_000 },
+  async (endpoint) => {
+    await withNativeIndexFixture(async (f) => {
+      const response = await filesApp(f.org).request(
+        `/workspaces/knowledge/files/${endpoint}`,
+      )
+      expect({ status: response.status, body: await response.json() }).toEqual({
+        status: 409,
+        body: {
+          error:
+            "This Workspace must finish indexing before its published files can be browsed.",
+        },
       })
-      expect(readonly.status).toBe(400)
-      expect(await readonly.json()).toEqual({ error: "Workspace is read-only" })
+    }, false)
+  },
+)
+
+it.each(["tree", "blob?path=AGENTS.md"])(
+  "requires reindexing legacy Files %s",
+  { timeout: 30_000 },
+  async (endpoint) => {
+    await withFilesWorkspace(async ({ app, orgId, workspaceId }) => {
       await withOrgDbContext(orgId, (db) =>
         db
           .update(workspaces)
           .set({ activeRevision: null })
           .where(eq(workspaces.id, workspaceId)),
       )
-      for (const endpoint of ["tree", "blob?path=AGENTS.md"]) {
-        const legacy = await app.request(
-          `/workspaces/knowledge/files/${endpoint}`,
-        )
-        expect(legacy.status).toBe(409)
-        expect(await legacy.json()).toEqual({
-          error:
-            "This Workspace must finish hydration before its published files can be browsed.",
-        })
-      }
-      await withOrgDbContext(orgId, (db) =>
-        db
-          .update(workspaces)
-          .set({
-            activeProjectionSha: null,
-            activeProjectionUrl: null,
-            desiredSha: null,
-          })
-          .where(eq(workspaces.id, workspaceId)),
+      const response = await app.request(
+        `/workspaces/knowledge/files/${endpoint}`,
       )
-      expect(
-        (await app.request("/workspaces/knowledge/files/tree")).status,
-      ).toBe(409)
-      expect(
-        (await app.request("/workspaces/knowledge/files/blob?path=AGENTS.md"))
-          .status,
-      ).toBe(409)
+      expect(response.status).toBe(409)
     })
   },
 )
@@ -342,7 +335,11 @@ it(
         }),
       ),
     )
-    server.listen({ onUnhandledRequest: "error" })
+    server.listen({
+      onUnhandledRequest(request, print) {
+        if (new URL(request.url).hostname !== "127.0.0.1") print.error()
+      },
+    })
     try {
       process.env.GITHUB_APP_ID = "12346"
       process.env.GITHUB_PRIVATE_KEY = generateKeyPairSync("rsa", {
@@ -434,5 +431,49 @@ it(
         else process.env[key] = value
       }
     }
+  },
+)
+
+it(
+  "serves indexed Files bytes after the remote disappears",
+  { timeout: 60_000 },
+  async () => {
+    await withNativeIndexFixture(async (f) => {
+      await rename(f.remote, `${f.remote}-unavailable`)
+      const response = await filesApp(f.org).request(
+        "/workspaces/knowledge/files/blob?path=AGENTS.md",
+      )
+      expect({ status: response.status, body: await response.json() }).toEqual({
+        status: 200,
+        body: {
+          path: "AGENTS.md",
+          body: "# Revision search contract\nUse amberquartz instructions.\n",
+          binary: false,
+        },
+      })
+    })
+  },
+)
+
+it(
+  "serves an empty indexed file as an empty body",
+  { timeout: 30_000 },
+  async () => {
+    await withNativeIndexFixture(
+      async (f) => {
+        const response = await filesApp(f.org).request(
+          "/workspaces/knowledge/files/blob?path=empty.txt",
+        )
+        expect({
+          status: response.status,
+          body: await response.json(),
+        }).toEqual({
+          status: 200,
+          body: { path: "empty.txt", body: "", binary: false },
+        })
+      },
+      true,
+      { "empty.txt": "" },
+    )
   },
 )

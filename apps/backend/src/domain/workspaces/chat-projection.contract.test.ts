@@ -142,6 +142,8 @@ it(
           expect.arrayContaining([
             "hybrid_search",
             "search",
+            "get_file",
+            "glob_files",
             "list_repositories",
             "graph_find_symbol",
             "graph_lookup",
@@ -152,9 +154,6 @@ it(
           expect(tool.inputSchema.type).toBe("object")
           expect(tool.inputSchema.properties).not.toHaveProperty("checkoutKey")
         }
-        expect(
-          tools.some((tool) => ["get_file", "glob_files"].includes(tool.name)),
-        ).toBe(false)
         const listed = String(
           await tools
             .find((tool) => tool.name === "list_repositories")
