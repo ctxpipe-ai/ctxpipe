@@ -15,6 +15,12 @@ export async function backfillKnowledgePathState(pool: Pool): Promise<void> {
       from (
         select distinct on (entry.key) entry.key, entry.value
         from workspace_write_jobs j
+        left join openworkflow.workflow_runs owner
+          on owner.id::text = j.payload->>'workflowRunId'
+          and owner.input->>'orgId' = j.org_id
+          and owner.input->>'workspaceId' = j.workspace_id
+          and owner.input->>'jobId' = j.id
+          and owner.status in ('completed', 'succeeded')
         cross join lateral jsonb_each_text(
           case when jsonb_typeof(j.payload->'knowledgePaths') = 'object'
             then j.payload->'knowledgePaths' else '{}'::jsonb end
@@ -24,7 +30,7 @@ export async function backfillKnowledgePathState(pool: Pool): Promise<void> {
           and j.payload->>'jobWorkspaceUrl' = w.workspace_repository_url
           and j.payload->'revision'->>'defaultBranch' = w.desired_default_branch
           and (j.payload->'revision'->'remote'->>'connectionId') is not distinct from w.github_connection_id
-        order by entry.key, j.updated_at desc, j.id desc
+        order by entry.key, coalesce(owner.finished_at, j.created_at) desc, j.id desc
       ) latest
     ) assignments
     where w.desired_sha is not null and w.desired_default_branch is not null

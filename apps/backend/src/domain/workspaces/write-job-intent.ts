@@ -18,16 +18,18 @@ export const WRITE_JOB_STATUSES = {
 export type WriteJobStatus =
   (typeof WRITE_JOB_STATUSES)[keyof typeof WRITE_JOB_STATUSES]
 
+export type WorkspaceSemanticHandoff = {
+  ownerRunId: string
+  candidateSha: string
+  revision: WorkspaceRevision
+  files: GitFileChange[]
+  deletePaths: string[]
+}
+
 export type WorkspaceWriteJobPayload = {
   revision?: WorkspaceRevision
   workflowRunId?: string
-  semanticHandoff?: {
-    ownerRunId: string
-    candidateSha: string
-    revision: WorkspaceRevision
-    files: GitFileChange[]
-    deletePaths: string[]
-  }
+  semanticHandoff?: WorkspaceSemanticHandoff
   exportTipSha?: string
   knowledgePaths?: Record<string, string>
   previousSha?: string

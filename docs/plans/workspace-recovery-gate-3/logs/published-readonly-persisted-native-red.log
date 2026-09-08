@@ -1,0 +1,50 @@
+{"name": "published-readonly-persisted-native-red", "cwd": "/private/tmp/ctxpipe-recovery-01a07aba", "command": ["/Users/jakubriedl/.volta/tools/image/node/22.16.0/bin/node", "apps/backend/node_modules/vitest/vitest.mjs", "run", "--root", "apps/backend", "src/domain/workspaces/write-workflow-native.contract.test.ts", "-t", "readOnly.*true"], "environment": {"AUTH_SECRET": "gate0-local-disposable-test-secret-20260907", "DATABASE_URL": "postgresql://ctxpipe_app:ctxpipe@127.0.0.1:61314/ctxpipe_gate0_fresh", "GRAPH_DB_URI": "redis://127.0.0.1:6398", "CI": "true", "NO_COLOR": "1", "TURBO_TELEMETRY_DISABLED": "1", "STORYBOOK_DISABLE_TELEMETRY": "1", "PATH": "/Users/jakubriedl/.volta/tools/image/node/22.16.0/bin:/private/tmp/ctxpipe-recovery-runtime/ast-grep/node_modules/.bin:/private/tmp/ctxpipe-recovery-runtime/node_modules/.bin:/private/tmp/ctxpipe-recovery-runtime/zoekt:/usr/local/bin:/System/Cryptexes/App/usr/bin:/usr/bin:/bin:/usr/sbin:/sbin:/var/run/com.apple.security.cryptexd/codex.system/bootstrap/usr/local/bin:/var/run/com.apple.security.cryptexd/codex.system/bootstrap/usr/bin:/var/run/com.apple.security.cryptexd/codex.system/bootstrap/usr/appleinternal/bin:/pkg/env/global/bin:/Users/jakubriedl/.codex/tmp/arg0/codex-arg0BW5Gt3:/Users/jakubriedl/.cache/codex-runtimes/codex-primary-runtime/dependencies/bin/override:/Users/jakubriedl/.local/bin:/Users/jakubriedl/.bun/bin:/Users/jakubriedl/.opencode/bin:/Users/jakubriedl/.volta/bin:/opt/homebrew/bin:/opt/homebrew/sbin:/Users/jakubriedl/.cache/codex-runtimes/codex-primary-runtime/dependencies/bin/fallback:/Applications/ChatGPT.app/Contents/Resources"}, "timeout_seconds": 600, "started_utc": "2026-09-08T12:32:08Z", "log": "logs/published-readonly-persisted-native-red.log"}
+
+ RUN  v4.0.18 /private/tmp/ctxpipe-recovery-01a07aba/apps/backend
+
+Cloning into bare repository '/var/folders/9t/jj9rnpps7_ddb72c1mq2k13w0000gn/T/ctxpipe-hydration-contract-fvPoqR/remote.git'...
+done.
+Cloning into bare repository '/var/folders/9t/jj9rnpps7_ddb72c1mq2k13w0000gn/T/ctxpipe-hydration-contract-trofK3/remote.git'...
+done.
+ ❯ src/domain/workspaces/write-workflow-native.contract.test.ts (16 tests | 2 failed | 14 skipped) 17480ms
+   ↓ bootstraps a workspace in one native commit with a durable job result
+   ↓ replays an already published bootstrap job without a second commit
+   ↓ replays a completed no-op without creating a commit
+   ↓ admits bootstrap through the production queue as a bound typed workflow
+   ↓ rejects an unavailable workspace without queuing an unbound write
+   ↓ does not push after its connection is detached during credential issuance
+   ↓ recovers a lost push acknowledgement across tip and access changes: {"advanceTip":false,"readOnly":false}
+   ↓ recovers a lost push acknowledgement across tip and access changes: {"advanceTip":true,"readOnly":false}
+   × recovers a lost push acknowledgement across tip and access changes: {"advanceTip":false,"readOnly":true} 8430ms
+   × recovers a lost push acknowledgement across tip and access changes: {"advanceTip":true,"readOnly":true} 9048ms
+   ↓ publishes Markdown hard breaks and a deletion through one typed native workflow
+   ↓ does not write the former default branch when the remote changes during credential issuance
+   ↓ gives concurrent deliveries of one job a single workflow owner and commit
+   ↓ preserves executable and symlink modes when editing their native Git blobs
+   ↓ rechecks an apparent no-op against the current default and applies the requested edit
+   ↓ can retry an identical command after native workflow admission fails
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 2 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  src/domain/workspaces/write-workflow-native.contract.test.ts > recovers a lost push acknowledgement across tip and access changes: {"advanceTip":false,"readOnly":true}
+ FAIL  src/domain/workspaces/write-workflow-native.contract.test.ts > recovers a lost push acknowledgement across tip and access changes: {"advanceTip":true,"readOnly":true}
+Error: Workflow workspace-write-bootstrap failed: {"name":"Error","stack":"Error: Workspace write binding changed before push\n    at pushWorkspaceCommit (/private/tmp/ctxpipe-recovery-01a07aba/apps/backend/src/domain/workspaces/write-broker.ts:55:11)\n    at processTicksAndRejections (node:internal/process/task_queues:105:5)\n    at attemptWorkspaceCommit (/private/tmp/ctxpipe-recovery-01a07aba/apps/backend/src/domain/workspaces/write-broker.ts:231:5)\n    at StepExecutor.run (file:///private/tmp/ctxpipe-recovery-01a07aba/node_modules/.pnpm/openworkflow@0.8.0_postgres@3.4.8/node_modules/openworkflow/dist/worker/execution.js:433:28)\n    at /private/tmp/ctxpipe-recovery-01a07aba/apps/backend/src/openworkflow/workflows/workspace-bootstrap.ts:173:26\n    at /private/tmp/ctxpipe-recovery-01a07aba/apps/backend/src/observability/logger.ts:131:16\n    at executeWorkflow (file:///private/tmp/ctxpipe-recovery-01a07aba/node_modules/.pnpm/openworkflow@0.8.0_postgres@3.4.8/node_modules/openworkflow/dist/worker/execution.js:759:24)\n    at Worker.processExecutionInBackground (file:///private/tmp/ctxpipe-recovery-01a07aba/node_modules/.pnpm/openworkflow@0.8.0_postgres@3.4.8/node_modules/openworkflow/dist/worker/worker.js:176:13)","message":"Workspace write binding changed before push"}
+ ❯ WorkflowRunHandle.result ../../node_modules/.pnpm/openworkflow@0.8.0_postgres@3.4.8/node_modules/openworkflow/dist/client/client.js:194:23
+ ❯ src/domain/workspaces/write-workflow-native.contract.test.ts:505:26
+    504|           expect(refreshed?.revision.sha).not.toBe(f.sha)
+    505|           if (readOnly)
+    506|             await withOrgIdContext(f.org, () =>
+       |  ^
+    507|               persistWriteStatus(
+    508|                 f.workspaceId,
+ ❯ withNativeHydrationFixture src/test/native-hydration-fixture.ts:439:5
+ ❯ src/domain/workspaces/write-workflow-native.contract.test.ts:405:5
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/2]⎯
+
+
+ Test Files  1 failed (1)
+      Tests  2 failed | 14 skipped (16)
+   Start at  22:32:08
+   Duration  20.10s (transform 851ms, setup 20ms, import 2.52s, tests 17.48s, environment 0ms)
+

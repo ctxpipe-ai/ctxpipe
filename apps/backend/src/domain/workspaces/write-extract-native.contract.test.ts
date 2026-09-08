@@ -443,13 +443,12 @@ it(
 )
 
 it(
-  "backfills completed path maps on upgrade without replacing newer results",
-  { timeout: 20_000 },
+  "backfills completed path maps by native completion order despite an old completion replay",
+  { timeout: 30_000 },
   async () => {
     await withNativeHydrationFixture({ github: true }, async (f) => {
       const { Pool } = await import("pg")
-      const { randomUUID } = await import("node:crypto")
-      const { workspaceKnowledgePathState } = await import(
+      const { workspaceKnowledgePathState, workspaceWriteJobs } = await import(
         "../../db/schema/workspaces.js"
       )
       const {
@@ -460,25 +459,41 @@ it(
       const { backfillKnowledgePathState } = await import(
         "../../db/backfill-knowledge-path-state.js"
       )
-      const complete = async (suffix: string, paths: Record<string, string>) =>
+      const command = f.runner.defineWorkflow<
+        {
+          orgId: string
+          workspaceId: string
+          jobId: string
+          paths: Record<string, string>
+        },
+        void
+      >({ name: "native-path-assignment" }, async ({ input, run }) =>
         withOrgIdContext(f.org, async () => {
-          const id = `wjob_${f.id}_${suffix}`
+          const id = input.jobId
           await persistBoundWriteJob({
             id,
             kind: "extract_ingest",
             revision: { ...f.revision, access: "write-default" },
-            workflowRunId: randomUUID(),
+            workflowRunId: run.id,
           })
-          await persistWriteJobKnowledgePaths(id, paths)
+          await persistWriteJobKnowledgePaths(id, input.paths)
           await persistWriteJobStatus(id, "completed")
-        })
-      await complete("older", { "legacy:first": "knowledge/first.md" })
-      await complete("newer", { "legacy:second": "knowledge/second.md" })
-      await withOrgDbContext(f.org.id, (db) =>
-        db
-          .delete(workspaceKnowledgePathState)
-          .where(eq(workspaceKnowledgePathState.workspaceId, f.workspaceId)),
+        }),
       )
+      await f.runner.cancelWorkflowRun(f.handle.workflowRun.id)
+      const worker = f.runner.newWorker({ concurrency: 1 })
+      const complete = async (
+        suffix: string,
+        paths: Record<string, string>,
+      ) => {
+        const handle = await command.run({
+          orgId: f.org.id,
+          workspaceId: f.workspaceId,
+          jobId: `wjob_${f.id}_${suffix}`,
+          paths,
+        })
+        await handle.result({ timeoutMs: 5_000 })
+      }
       const { ownerUrlForMigrate } = await import(
         "../../db/owner-migrate-url.js"
       )
@@ -486,13 +501,30 @@ it(
         connectionString: ownerUrlForMigrate(f.databaseUrl),
       })
       try {
+        await worker.start()
+        await complete("older", { "legacy:first": "knowledge/first.md" })
+        await complete("newer", {
+          "legacy:first": "knowledge/reassigned.md",
+          "legacy:second": "knowledge/second.md",
+        })
+        // Fixture of the pre-upgrade helpers: replay refreshed a completed row's
+        // updatedAt, but its original native execution finished before the newer job.
+        await withOrgDbContext(f.org.id, async (db) => {
+          await db
+            .update(workspaceWriteJobs)
+            .set({ updatedAt: new Date(Date.now() + 60_000) })
+            .where(eq(workspaceWriteJobs.id, `wjob_${f.id}_older`))
+          await db
+            .delete(workspaceKnowledgePathState)
+            .where(eq(workspaceKnowledgePathState.workspaceId, f.workspaceId))
+        })
         await backfillKnowledgePathState(pool)
         expect(
           await withOrgIdContext(f.org, () =>
             getCompletedKnowledgePaths(f.revision),
           ),
         ).toEqual({
-          "legacy:first": "knowledge/first.md",
+          "legacy:first": "knowledge/reassigned.md",
           "legacy:second": "knowledge/second.md",
         })
         await complete("after_upgrade", {
@@ -513,6 +545,7 @@ it(
           ),
         ).toEqual({})
       } finally {
+        await worker.stop()
         await pool.end()
       }
     })

@@ -35,6 +35,7 @@ export type NativeHydrationOptions = {
   semanticMergeResolution?: {
     files: Array<{ path: string; content: string | null }>
   }
+  semanticMergeDelayMs?: number
   count?: number
   github?: boolean
   githubWriteView?: "writable" | "missing"
@@ -132,6 +133,10 @@ async function createNativeHydrationFixture(
         }
         const tool = body.tools?.[0]?.function.name
         if (tool) semanticRequests.push(body)
+        if (tool && options.semanticMergeDelayMs)
+          await new Promise((resolve) =>
+            setTimeout(resolve, options.semanticMergeDelayMs),
+          )
         return HttpResponse.json({
           id: "fixture-model",
           object: "chat.completion",

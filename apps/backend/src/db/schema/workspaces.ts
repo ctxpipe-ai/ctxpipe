@@ -13,6 +13,7 @@ import {
 import type { ConnectorMirrorSource } from "../../domain/workspaces/connector-mirror.js"
 import type { HydratePhaseRecord } from "../../domain/workspaces/hydrate-phases.js"
 import type { WorkspaceRevision } from "../../domain/workspaces/revision.js"
+import type { WorkspaceSemanticHandoff } from "../../domain/workspaces/write-job-intent.js"
 import type { GitFileChange } from "../../services/git/file-change.js"
 import { connections } from "./connections.js"
 import { orgIsolationPolicy } from "./org-rls.js"
@@ -176,13 +177,7 @@ export const workspaceWriteJobs = pgTable.withRLS(
     payload: jsonb("payload").$type<{
       revision?: WorkspaceRevision
       workflowRunId?: string
-      semanticHandoff?: {
-        ownerRunId: string
-        candidateSha: string
-        revision: WorkspaceRevision
-        files: GitFileChange[]
-        deletePaths: string[]
-      }
+      semanticHandoff?: WorkspaceSemanticHandoff
       exportTipSha?: string
       knowledgePaths?: Record<string, string>
       previousSha?: string

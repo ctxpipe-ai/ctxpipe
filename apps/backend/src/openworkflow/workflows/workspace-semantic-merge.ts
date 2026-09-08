@@ -17,8 +17,8 @@ import {
   resolveSemanticConflicts,
 } from "../../domain/workspaces/semantic-merge.js"
 import {
+  attemptWorkspaceCommit,
   publishWorkspaceWriteRevision,
-  pushWorkspaceCommit,
   refreshWorkspaceWriteRevision,
 } from "../../domain/workspaces/write-broker.js"
 import {
@@ -28,6 +28,7 @@ import {
 } from "../../domain/workspaces/write-command.js"
 import { githubRepoFullNameFromWorkspaceUrl } from "../../domain/workspaces/write-status.js"
 import {
+  discardWriteJobPreparedCommit,
   persistBoundWriteJob,
   persistWriteJobPreparedCommit,
   validateSemanticHandoff,
@@ -50,6 +51,7 @@ import {
 } from "../../services/git/write-tree.js"
 import { runWorkflowWithWorkerWake } from "../client.js"
 import { workspaceHydrate } from "./workspace-hydrate.js"
+import { workspaceSemanticCleanup } from "./workspace-semantic-cleanup.js"
 
 export const semanticMergeContentSchema = z
   .object({
@@ -187,9 +189,38 @@ export const workspaceSemanticMerge = defineWorkflow(
           }
           const resolved = merged.conflicts.length
             ? await (async () => {
-                const locator = await step.run(
+                const planned = await step.run(
                   { name: "plan-merge-sandbox" },
                   () => planMergeSandbox(`${run.id}:${refreshAttempt}`),
+                )
+                const locator = await step.run(
+                  { name: "bound-resource-deadline" },
+                  () => ({
+                    ...planned,
+                    // An in-flight pre-upgrade plan has no deadline yet.
+                    expiresAt:
+                      planned.expiresAt ??
+                      new Date(
+                        new Date(run.createdAt).getTime() + 120_000,
+                      ).toISOString(),
+                  }),
+                )
+                await step.run(
+                  { name: "schedule-resource-cleanup" },
+                  async () => {
+                    await runWorkflowWithWorkerWake(
+                      workspaceSemanticCleanup.spec,
+                      {
+                        orgId: input.orgId,
+                        workspaceId: input.workspaceId,
+                        locator,
+                      },
+                      {
+                        availableAt: new Date(locator.expiresAt),
+                        idempotencyKey: `${run.id}:${refreshAttempt}:cleanup`,
+                      },
+                    )
+                  },
                 )
                 const sandbox = await step.run(
                   { name: "create-merge-sandbox" },
@@ -262,10 +293,19 @@ export const workspaceSemanticMerge = defineWorkflow(
             else await persistWriteJobPreparedCommit(input.jobId, pack.sha)
             return pack
           })
-          await step.run(
+          const pushed = await step.run(
             { name: "broker-push", retryPolicy: { maximumAttempts: 3 } },
-            () => pushWorkspaceCommit(input, revision, committed, env),
+            () => attemptWorkspaceCommit(input, revision, committed, env),
           )
+          if (!pushed.pushed) {
+            await step.run({ name: "discard-unpublished-candidate" }, () =>
+              discardWriteJobPreparedCommit(input.jobId, committed.sha),
+            )
+            revision = await step.run({ name: "refresh-raced-revision" }, () =>
+              refreshWorkspaceWriteRevision(input, revision, env),
+            )
+            continue
+          }
           const published = await step.run({ name: "publish-result" }, () =>
             publishWorkspaceWriteRevision(input, revision, committed, env),
           )
@@ -286,7 +326,7 @@ export const workspaceSemanticMerge = defineWorkflow(
             )
           return { committed: true as const, commitSha: committed.sha }
         }
-        throw new Error("Default branch kept changing during no-op validation")
+        throw new Error("Default branch kept changing during semantic merge")
       },
     )
   },

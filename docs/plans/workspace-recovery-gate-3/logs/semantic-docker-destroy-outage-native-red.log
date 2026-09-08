@@ -1,0 +1,48 @@
+{"name": "semantic-docker-destroy-outage-native-red", "cwd": "/private/tmp/ctxpipe-recovery-01a07aba", "command": ["/Users/jakubriedl/.volta/tools/image/node/22.16.0/bin/node", "apps/backend/node_modules/vitest/vitest.mjs", "run", "--root", "apps/backend", "src/domain/workspaces/write-merge-native.contract.test.ts", "-t", "recovers the same Docker resource"], "environment": {"AUTH_SECRET": "gate0-local-disposable-test-secret-20260907", "DATABASE_URL": "postgresql://ctxpipe_app:ctxpipe@127.0.0.1:61314/ctxpipe_gate0_fresh", "GRAPH_DB_URI": "redis://127.0.0.1:6398", "CI": "true", "NO_COLOR": "1", "TURBO_TELEMETRY_DISABLED": "1", "STORYBOOK_DISABLE_TELEMETRY": "1", "PATH": "/Users/jakubriedl/.volta/tools/image/node/22.16.0/bin:/private/tmp/ctxpipe-recovery-runtime/ast-grep/node_modules/.bin:/private/tmp/ctxpipe-recovery-runtime/node_modules/.bin:/private/tmp/ctxpipe-recovery-runtime/zoekt:/usr/local/bin:/System/Cryptexes/App/usr/bin:/usr/bin:/bin:/usr/sbin:/sbin:/var/run/com.apple.security.cryptexd/codex.system/bootstrap/usr/local/bin:/var/run/com.apple.security.cryptexd/codex.system/bootstrap/usr/bin:/var/run/com.apple.security.cryptexd/codex.system/bootstrap/usr/appleinternal/bin:/pkg/env/global/bin:/Users/jakubriedl/.codex/tmp/arg0/codex-arg0BW5Gt3:/Users/jakubriedl/.cache/codex-runtimes/codex-primary-runtime/dependencies/bin/override:/Users/jakubriedl/.local/bin:/Users/jakubriedl/.bun/bin:/Users/jakubriedl/.opencode/bin:/Users/jakubriedl/.volta/bin:/opt/homebrew/bin:/opt/homebrew/sbin:/Users/jakubriedl/.cache/codex-runtimes/codex-primary-runtime/dependencies/bin/fallback:/Applications/ChatGPT.app/Contents/Resources"}, "timeout_seconds": 600, "started_utc": "2026-09-08T12:25:50Z", "log": "logs/semantic-docker-destroy-outage-native-red.log"}
+
+ RUN  v4.0.18 /private/tmp/ctxpipe-recovery-01a07aba/apps/backend
+
+ ❯ src/domain/workspaces/write-merge-native.contract.test.ts (13 tests | 1 failed | 12 skipped) 5837ms
+   ↓ rebases an unpushed knowledge change onto a human update and publishes one replayable commit
+   ↓ resolves overlapping knowledge with valid model output and cleans up its provider resource
+   ↓ resolves overlapping knowledge with out-of-scope model output and cleans up its provider resource
+   ↓ rejects reuse of a paused command ID with a different captured payload
+   ↓ rejects reuse of a running command ID with a different captured payload
+   ↓ rejects invalid semantic content before persisting a paused command
+   × recovers the same Docker resource when sandbox creation is replayed before acknowledgement 5836ms
+   ↓ hands a raced Files write to one native semantic child and returns the published result
+   ↓ resolves a modify/delete conflict: {"currentDeletes":false,"keepFile":false,"committed":true}
+   ↓ resolves a modify/delete conflict: {"currentDeletes":true,"keepFile":true,"committed":true}
+   ↓ resolves a modify/delete conflict: {"currentDeletes":false,"keepFile":true,"committed":false}
+   ↓ resolves a modify/delete conflict: {"currentDeletes":true,"keepFile":false,"committed":false}
+   ↓ uses the native local provider when no Docker API is reachable and keeps an explicit lock
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 1 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  src/domain/workspaces/write-merge-native.contract.test.ts > recovers the same Docker resource when sandbox creation is replayed before acknowledgement
+AssertionError: promise resolved "undefined" instead of rejecting
+
+- Expected: 
+Error {
+  "message": "rejected promise",
+}
+
++ Received: 
+undefined
+
+ ❯ src/domain/workspaces/write-merge-native.contract.test.ts:465:48
+    463|       process.env.DOCKER_HOST = `unix:///private/tmp/ctxpipe-missing-d…
+    464|       await expect(createMergeSandbox(planned)).rejects.toThrow()
+    465|       await expect(destroyMergeSandbox(planned)).rejects.toThrow()
+       |                                                ^
+    466|       if (savedDockerHost === undefined) delete process.env.DOCKER_HOST
+    467|       else process.env.DOCKER_HOST = savedDockerHost
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/1]⎯
+
+
+ Test Files  1 failed (1)
+      Tests  1 failed | 12 skipped (13)
+   Start at  22:25:50
+   Duration  8.18s (transform 737ms, setup 28ms, import 2.24s, tests 5.84s, environment 0ms)
+

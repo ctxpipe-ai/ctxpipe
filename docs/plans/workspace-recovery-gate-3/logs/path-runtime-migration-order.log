@@ -1,0 +1,48 @@
+{"name": "path-runtime-migration-order", "cwd": "/private/tmp/ctxpipe-recovery-01a07aba", "command": ["python3", "/Users/jakubriedl/Documents/Codex/2026-09-07/prior-conversation-with-codex-conversation-role-2/work/gate3-path-runtime-migrations.py"], "environment": {"AUTH_SECRET": "gate0-local-disposable-test-secret-20260907", "DATABASE_URL": "postgresql://ctxpipe_app:ctxpipe@127.0.0.1:61314/ctxpipe_gate0_fresh", "GRAPH_DB_URI": "redis://127.0.0.1:6398", "CI": "true", "NO_COLOR": "1", "TURBO_TELEMETRY_DISABLED": "1", "STORYBOOK_DISABLE_TELEMETRY": "1", "PATH": "/Users/jakubriedl/.volta/tools/image/node/22.16.0/bin:/private/tmp/ctxpipe-recovery-runtime/ast-grep/node_modules/.bin:/private/tmp/ctxpipe-recovery-runtime/node_modules/.bin:/private/tmp/ctxpipe-recovery-runtime/zoekt:/usr/local/bin:/System/Cryptexes/App/usr/bin:/usr/bin:/bin:/usr/sbin:/sbin:/var/run/com.apple.security.cryptexd/codex.system/bootstrap/usr/local/bin:/var/run/com.apple.security.cryptexd/codex.system/bootstrap/usr/bin:/var/run/com.apple.security.cryptexd/codex.system/bootstrap/usr/appleinternal/bin:/pkg/env/global/bin:/Users/jakubriedl/.codex/tmp/arg0/codex-arg0BW5Gt3:/Users/jakubriedl/.cache/codex-runtimes/codex-primary-runtime/dependencies/bin/override:/Users/jakubriedl/.local/bin:/Users/jakubriedl/.bun/bin:/Users/jakubriedl/.opencode/bin:/Users/jakubriedl/.volta/bin:/opt/homebrew/bin:/opt/homebrew/sbin:/Users/jakubriedl/.cache/codex-runtimes/codex-primary-runtime/dependencies/bin/fallback:/Applications/ChatGPT.app/Contents/Resources"}, "timeout_seconds": 600, "started_utc": "2026-09-08T12:36:47Z", "log": "logs/path-runtime-migration-order.log"}
+Creating ctxpipe_gate3_paths_fresh_16fbca04
+Migrating fresh current
+Reading config file '/private/tmp/ctxpipe-recovery-01a07aba/apps/backend/.gate3_paths-migrations-n3h8hz92/drizzle.config.ts'
+Using 'pg' driver for database querying
+[⣷] applying migrations...[2K[1G[⣯] applying migrations...[2K[1G[⣟] applying migrations...[2K[1G[⡿] applying migrations...[2K[1G[✓] migrations applied successfully!Running application migration entrypoint fresh
+[2m12:36:51.458[0m [36mINFO[0m [36m[ctxpipe-backend][0m
+  [2m├─[0m [36mstep:[0m migrate
+  [2m└─[0m [36mmessage:[0m [migrate] running migrations…
+[2m12:36:51.505[0m [36mINFO[0m [36m[ctxpipe-backend][0m
+  [2m├─[0m [36mstep:[0m migrate
+  [2m└─[0m [36mmessage:[0m [migrate] running OpenWorkflow schema migrations
+[2m12:36:51.554[0m [36mINFO[0m [36m[ctxpipe-backend][0m
+  [2m├─[0m [36mstep:[0m migrate
+  [2m└─[0m [36mmessage:[0m [migrate] running LangGraph checkpoint schema
+[2m12:36:51.582[0m [36mINFO[0m [36m[ctxpipe-backend][0m
+  [2m├─[0m [36mstep:[0m backfill.github_connection_secrets
+  [2m└─[0m [36mmessage:[0m skip: GITHUB_APP_ID, GITHUB_PRIVATE_KEY, or GITHUB_WEBHOOK_SECRET not all set
+[2m12:36:51.582[0m [36mINFO[0m [36m[ctxpipe-backend][0m
+  [2m├─[0m [36mstep:[0m migrate
+  [2m└─[0m [36mmessage:[0m [migrate] done
+PASS fresh dedicated metadata table; no metadata on hot workspace row
+Dropping ctxpipe_gate3_paths_fresh_16fbca04
+Creating ctxpipe_gate3_paths_upgrade_b86b1a35
+Migrating upgrade previous
+Reading config file '/private/tmp/ctxpipe-recovery-01a07aba/apps/backend/.gate3_paths-migrations-42fzus5p/drizzle.config.ts'
+Using 'pg' driver for database querying
+[⣷] applying migrations...[2K[1G[⣯] applying migrations...[2K[1G[⣟] applying migrations...[2K[1G[✓] migrations applied successfully!Migrating upgrade current
+Reading config file '/private/tmp/ctxpipe-recovery-01a07aba/apps/backend/.gate3_paths-migrations-42fzus5p/drizzle.config.ts'
+Using 'pg' driver for database querying
+[⣷] applying migrations...[2K[1G[✓] migrations applied successfully!Running application migration entrypoint upgrade
+[2m12:36:57.571[0m [36mINFO[0m [36m[ctxpipe-backend][0m
+  [2m├─[0m [36mstep:[0m migrate
+  [2m└─[0m [36mmessage:[0m [migrate] running migrations…
+[2m12:36:57.620[0m [36mINFO[0m [36m[ctxpipe-backend][0m
+  [2m├─[0m [36mstep:[0m migrate
+  [2m└─[0m [36mmessage:[0m [migrate] running OpenWorkflow schema migrations
+[2m12:36:57.660[0m [36mINFO[0m [36m[ctxpipe-backend][0m
+  [2m├─[0m [36mstep:[0m migrate
+  [2m└─[0m [36mmessage:[0m [migrate] running LangGraph checkpoint schema
+[2m12:36:57.680[0m [36mINFO[0m [36m[ctxpipe-backend][0m
+  [2m├─[0m [36mstep:[0m backfill.github_connection_secrets
+  [2m└─[0m [36mmessage:[0m skip: GITHUB_APP_ID, GITHUB_PRIVATE_KEY, or GITHUB_WEBHOOK_SECRET not all set
+[2m12:36:57.680[0m [36mINFO[0m [36m[ctxpipe-backend][0m
+  [2m├─[0m [36mstep:[0m migrate
+  [2m└─[0m [36mmessage:[0m [migrate] done
+PASS upgrade dedicated metadata table; no metadata on hot workspace row
+Dropping ctxpipe_gate3_paths_upgrade_b86b1a35

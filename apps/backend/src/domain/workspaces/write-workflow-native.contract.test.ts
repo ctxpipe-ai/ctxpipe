@@ -8,7 +8,9 @@ import { reconcileWorkspaceWriteJob } from "../../models/workspace-write-jobs.js
 import {
   detachWorkspaceConnection,
   getDesiredWorkspaceRevision,
+  getWorkspaceById,
   getWriteJobCommitSha,
+  persistWriteStatus,
 } from "../../models/workspaces.js"
 import { workspaceBootstrap } from "../../openworkflow/workflows/workspace-bootstrap.js"
 import { withNativeHydrationFixture } from "../../test/native-hydration-fixture.js"
@@ -396,10 +398,15 @@ it(
   },
 )
 
-it.each([false, true])(
-  "recovers a lost push acknowledgement when the observed tip has a later commit: %s",
+it.each([
+  { advanceTip: false, readOnly: false },
+  { advanceTip: true, readOnly: false },
+  { advanceTip: false, readOnly: true },
+  { advanceTip: true, readOnly: true },
+])(
+  "recovers a lost push acknowledgement across tip and access changes: %j",
   { timeout: 60_000 },
-  async (advanceTip) => {
+  async ({ advanceTip, readOnly }) => {
     await withNativeHydrationFixture(
       { github: true, githubWriteView: "writable", writeStatus: "writable" },
       async (f) => {
@@ -495,6 +502,23 @@ process.exit(result.status ?? 1);
             }),
           )
           expect(refreshed?.revision.sha).not.toBe(f.sha)
+          if (readOnly)
+            await withOrgIdContext(f.org, () =>
+              persistWriteStatus(
+                f.workspaceId,
+                {
+                  writeStatus: "read_only",
+                  readOnlyReason: "Default branch is protected",
+                },
+                f.org.id,
+              ),
+            )
+          if (readOnly)
+            expect(
+              await withOrgIdContext(f.org, () =>
+                getWorkspaceById(f.workspaceId),
+              ),
+            ).toMatchObject({ writeStatus: "read_only" })
           writeFileSync(observed, "observed")
           const result = await handle.result({ timeoutMs: 20_000 })
           expect(result).toMatchObject({

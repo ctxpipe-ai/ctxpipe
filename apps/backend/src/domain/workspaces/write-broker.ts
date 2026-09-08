@@ -47,11 +47,7 @@ export async function pushWorkspaceCommit(
     "write-default",
   )
   const workspace = await getWorkspaceById(input.workspaceId)
-  if (
-    !workspace ||
-    !sameWriteBinding(current, revision) ||
-    workspace.writeStatus !== "writable"
-  )
+  if (!workspace || !sameWriteBinding(current, revision))
     throw new Error("Workspace write binding changed before push")
   const readToken = await resolveRepositoryReadCredential({
     orgId: input.orgId,
@@ -66,6 +62,8 @@ export async function pushWorkspaceCommit(
     throw new Error("Default branch changed before push")
   if (await remoteContainsCommit(revision, committed, tip.sha, readToken))
     return
+  if (workspace.writeStatus !== "writable")
+    throw new Error("Workspace is not writable before push")
   if (tip.sha !== revision.sha || !sameWorkspaceRevision(current, revision))
     throw new WorkspaceTipAdvancedError()
   if (input.mirror)

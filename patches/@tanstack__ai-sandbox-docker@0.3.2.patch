@@ -12,51 +12,336 @@ index b8e7f9a0d2aa3ddcde6c46e787ed646b5252f05f..9d46ec3a7c757d888b8377dc9c45bc45
      workdir?: string;
      /** Options forwarded to `new Dockerode(...)` (socketPath, host, port, …). */
 diff --git a/dist/esm/provider.js b/dist/esm/provider.js
-index 6bc1a9d6355d8e62488c5c1b555133460e96ce19..42438251b234a98b029db92807475ac3b2387af0 100644
+index 6bc1a9d6355d8e62488c5c1b555133460e96ce19..c25e7eaceec43d67a04604ec2cd4cc86f39a7823 100644
 --- a/dist/esm/provider.js
 +++ b/dist/esm/provider.js
-@@ -34,7 +34,7 @@ var DockerProvider = class {
- 		const imageRef = typeof image.Id === "string" ? image.Id : `tanstack-ai-sandbox-fork:latest`;
- 		return this.startContainer(imageRef);
- 	};
+@@ -1,135 +1,190 @@
+-import { DOCKER_CAPS, DockerHandle } from "./handle.js";
+-import Dockerode from "dockerode";
+-//#region src/provider.ts
+-var DEFAULT_WORKDIR = "/workspace";
+-var DockerProvider = class {
+-	config;
+-	name = "docker";
+-	docker;
+-	constructor(config) {
+-		this.config = config;
+-		this.docker = new Dockerode(config.dockerodeOptions);
+-	}
+-	capabilities() {
+-		return DOCKER_CAPS;
+-	}
+-	get workdir() {
+-		return this.config.workdir ?? DEFAULT_WORKDIR;
+-	}
+-	async ensureImage(image) {
+-		try {
+-			await this.docker.getImage(image).inspect();
+-			return;
+-		} catch {}
+-		const stream = await this.docker.pull(image);
+-		await new Promise((resolve, reject) => {
+-			this.docker.modem.followProgress(stream, (err) => err ? reject(err) : resolve());
+-		});
+-	}
+-	forkFactory = async (sourceContainerId) => {
+-		const image = await this.docker.getContainer(sourceContainerId).commit({
+-			repo: "tanstack-ai-sandbox-fork",
+-			tag: `${sourceContainerId.slice(0, 12)}-${Date.now()}`
+-		});
+-		const imageRef = typeof image.Id === "string" ? image.Id : `tanstack-ai-sandbox-fork:latest`;
+-		return this.startContainer(imageRef);
+-	};
 -	async startContainer(image, env) {
-+	async startContainer(image, env, name) {
- 		const exposed = {};
- 		const bindings = {};
- 		for (const port of this.config.publishPorts ?? []) {
-@@ -43,6 +43,7 @@ var DockerProvider = class {
- 		}
- 		const container = await this.docker.createContainer({
- 			Image: image,
-+			...(name ? { name } : {}),
- 			Cmd: this.config.keepAliveCommand ?? [
- 				"sh",
- 				"-c",
-@@ -80,8 +81,20 @@ var DockerProvider = class {
- 		}
- 	}
- 	async create(input) {
+-		const exposed = {};
+-		const bindings = {};
+-		for (const port of this.config.publishPorts ?? []) {
+-			exposed[`${port}/tcp`] = {};
+-			bindings[`${port}/tcp`] = [{ HostPort: "" }];
+-		}
+-		const container = await this.docker.createContainer({
+-			Image: image,
+-			Cmd: this.config.keepAliveCommand ?? [
+-				"sh",
+-				"-c",
+-				"tail -f /dev/null"
+-			],
+-			Tty: false,
+-			WorkingDir: this.workdir,
+-			Env: env ? Object.entries(env).map(([k, v]) => `${k}=${v}`) : void 0,
+-			ExposedPorts: Object.keys(exposed).length ? exposed : void 0,
+-			HostConfig: {
+-				...Object.keys(bindings).length ? { PortBindings: bindings } : {},
+-				...this.config.hostGateway !== false ? { ExtraHosts: ["host.docker.internal:host-gateway"] } : {}
+-			}
+-		});
+-		try {
+-			await container.start();
+-			const handle = new DockerHandle({
+-				docker: this.docker,
+-				container,
+-				workdir: this.workdir,
+-				forkFactory: this.forkFactory,
+-				removeOnDestroy: this.config.removeOnDestroy ?? true,
+-				logger: this.config.logger
+-			});
+-			await handle.fs.mkdir(this.workdir);
+-			return handle;
+-		} catch (error) {
+-			try {
+-				await container.remove({
+-					force: true,
+-					v: true
+-				});
+-			} catch {}
+-			throw error;
+-		}
+-	}
+-	async create(input) {
 -		await this.ensureImage(this.config.image);
 -		return this.startContainer(this.config.image, input.env);
-+        const name = this.config.containerName;
-+        if (name) {
-+            const existing = await this.resume({ id: name });
-+            if (existing) { await existing.fs.mkdir(this.workdir); return existing; }
+-	}
+-	async resume(input) {
+-		const container = this.docker.getContainer(input.id);
+-		let info;
+-		try {
+-			info = await container.inspect();
+-		} catch {
+-			return null;
+-		}
+-		if (!info.State.Running) try {
+-			await container.start();
+-		} catch {
+-			return null;
+-		}
+-		return new DockerHandle({
+-			docker: this.docker,
+-			container,
+-			workdir: this.workdir,
+-			forkFactory: this.forkFactory,
+-			removeOnDestroy: this.config.removeOnDestroy ?? true,
+-			logger: this.config.logger
+-		});
+-	}
+-	async restoreSnapshot(input) {
+-		return this.startContainer(input.snapshotId, input.env);
+-	}
+-	async destroy(input) {
+-		const container = this.docker.getContainer(input.id);
+-		try {
+-			await container.stop({ t: 5 });
+-		} catch {}
+-		if (this.config.removeOnDestroy ?? true) try {
+-			await container.remove({
+-				force: true,
+-				v: true
+-			});
+-		} catch {}
+-	}
+-};
++import Dockerode from 'dockerode';
++import { DOCKER_CAPS, DockerHandle } from './handle.js';
++const DEFAULT_WORKDIR = '/workspace';
++class DockerProvider {
++    config;
++    name = 'docker';
++    docker;
++    constructor(config) {
++        this.config = config;
++        this.docker = new Dockerode(config.dockerodeOptions);
++    }
++    capabilities() {
++        return DOCKER_CAPS;
++    }
++    get workdir() {
++        return this.config.workdir ?? DEFAULT_WORKDIR;
++    }
++    async ensureImage(image, signal) {
++        signal?.throwIfAborted();
++        const options = { abortSignal: signal };
++        try {
++            await this.docker.getImage(image).inspect(options);
++            signal?.throwIfAborted();
++            return;
 +        }
-+        await this.ensureImage(this.config.image);
-+        try { return await this.startContainer(this.config.image, input.env, name); }
++        catch {
++            signal?.throwIfAborted();
++            // not present locally — pull it
++        }
++        const stream = await this.docker.pull(image, options);
++        await new Promise((resolve, reject) => {
++            this.docker.modem.followProgress(stream, (err) => err ? reject(err) : resolve());
++        });
++    }
++    forkFactory = async (sourceContainerId) => {
++        const source = this.docker.getContainer(sourceContainerId);
++        const image = await source.commit({
++            repo: 'tanstack-ai-sandbox-fork',
++            tag: `${sourceContainerId.slice(0, 12)}-${Date.now()}`,
++        });
++        const imageRef = typeof image.Id === 'string'
++            ? image.Id
++            : `tanstack-ai-sandbox-fork:latest`;
++        return this.startContainer(imageRef);
++    };
++    async startContainer(image, env, name, signal) {
++        signal?.throwIfAborted();
++        const exposed = {};
++        const bindings = {};
++        for (const port of this.config.publishPorts ?? []) {
++            exposed[`${port}/tcp`] = {};
++            bindings[`${port}/tcp`] = [{ HostPort: '' }]; // let Docker pick a free host port
++        }
++        const createOptions = {
++            abortSignal: signal,
++            Image: image,
++            ...(name ? { name } : {}),
++            Cmd: this.config.keepAliveCommand ?? ['sh', '-c', 'tail -f /dev/null'],
++            Tty: false,
++            WorkingDir: this.workdir,
++            Env: env ? Object.entries(env).map(([k, v]) => `${k}=${v}`) : undefined,
++            ExposedPorts: Object.keys(exposed).length ? exposed : undefined,
++            HostConfig: {
++                ...(Object.keys(bindings).length ? { PortBindings: bindings } : {}),
++                ...(this.config.hostGateway !== false
++                    ? { ExtraHosts: ['host.docker.internal:host-gateway'] }
++                    : {}),
++            },
++        };
++        const container = await this.docker.createContainer(createOptions);
++        // If anything after createContainer fails (start, or the first exec to
++        // create the workspace dir), the container already exists and would leak as
++        // a stopped container — these accumulate and strain the daemon. Tear it down
++        // on any instantiation failure before propagating the error.
++        try {
++            signal?.throwIfAborted();
++            const startOptions = { abortSignal: signal };
++            await container.start(startOptions);
++            signal?.throwIfAborted();
++            const handle = new DockerHandle({
++                docker: this.docker,
++                container,
++                workdir: this.workdir,
++                forkFactory: this.forkFactory,
++                removeOnDestroy: this.config.removeOnDestroy ?? true,
++                logger: this.config.logger,
++            });
++            // Ensure the workspace dir exists.
++            await handle.fs.mkdir(this.workdir);
++            signal?.throwIfAborted();
++            return handle;
++        }
 +        catch (error) {
-+            if (name && typeof error === "object" && error !== null && "statusCode" in error && error.statusCode === 409) {
-+                const existing = await this.resume({ id: name });
-+                if (existing) { await existing.fs.mkdir(this.workdir); return existing; }
++            try {
++                await container.remove({ force: true, v: true });
++            }
++            catch {
++                // best-effort cleanup — container may not have started / already gone
 +            }
 +            throw error;
 +        }
- 	}
- 	async resume(input) {
- 		const container = this.docker.getContainer(input.id);
++    }
++    async create(input) {
++        input.signal?.throwIfAborted();
++        const name = this.config.containerName;
++        if (name) {
++            const existing = await this.resume({ id: name, signal: input.signal });
++            if (existing) {
++                await existing.fs.mkdir(this.workdir);
++                return existing;
++            }
++        }
++        await this.ensureImage(this.config.image, input.signal);
++        input.signal?.throwIfAborted();
++        try {
++            return await this.startContainer(this.config.image, input.env, name, input.signal);
++        }
++        catch (error) {
++            if (name && typeof error === 'object' && error !== null && 'statusCode' in error && error.statusCode === 409) {
++                const existing = await this.resume({ id: name, signal: input.signal });
++                if (existing) {
++                    await existing.fs.mkdir(this.workdir);
++                    return existing;
++                }
++            }
++            throw error;
++        }
++    }
++    async resume(input) {
++        input.signal?.throwIfAborted();
++        const options = { abortSignal: input.signal };
++        const container = this.docker.getContainer(input.id);
++        let info;
++        try {
++            info = await container.inspect(options);
++            input.signal?.throwIfAborted();
++        }
++        catch {
++            input.signal?.throwIfAborted();
++            return null;
++        }
++        if (!info.State.Running) {
++            try {
++                const options = { abortSignal: input.signal };
++                await container.start(options);
++                input.signal?.throwIfAborted();
++            }
++            catch {
++                input.signal?.throwIfAborted();
++                return null;
++            }
++        }
++        return new DockerHandle({
++            docker: this.docker,
++            container,
++            workdir: this.workdir,
++            forkFactory: this.forkFactory,
++            removeOnDestroy: this.config.removeOnDestroy ?? true,
++            logger: this.config.logger,
++        });
++    }
++    async restoreSnapshot(input) {
++        return this.startContainer(input.snapshotId, input.env, undefined, input.signal);
++    }
++    async destroy(input) {
++        const container = this.docker.getContainer(input.id);
++        try {
++            await container.stop({ t: 5 });
++        }
++        catch {
++            // already stopped / gone
++        }
++        if (this.config.removeOnDestroy ?? true) {
++            try {
++                await container.remove({ force: true, v: true });
++            }
++            catch {
++                // already removed
++            }
++        }
++    }
++}
+ /**
+-* Docker sandbox provider — runs harness adapters inside isolated containers.
+-* Requires a reachable Docker daemon (local socket by default; override via
+-* `dockerodeOptions`).
+-*/
+-function dockerSandbox(config) {
+-	return new DockerProvider(config);
++ * Docker sandbox provider — runs harness adapters inside isolated containers.
++ * Requires a reachable Docker daemon (local socket by default; override via
++ * `dockerodeOptions`).
++ */
++export function dockerSandbox(config) {
++    return new DockerProvider(config);
+ }
+-//#endregion
+-export { dockerSandbox };
+-
+-//# sourceMappingURL=provider.js.map
+\ No newline at end of file
 diff --git a/src/provider.ts b/src/provider.ts
-index 2eba55337bedb778404a042347c0b7811f91c595..475d4b918d6396234784bc791e65fdb81101ea63 100644
+index 2eba55337bedb778404a042347c0b7811f91c595..4c89e47b2f9272c4eed7ba006199c7bdf8ecffe7 100644
 --- a/src/provider.ts
 +++ b/src/provider.ts
 @@ -14,6 +14,8 @@ import type {
@@ -68,41 +353,102 @@ index 2eba55337bedb778404a042347c0b7811f91c595..475d4b918d6396234784bc791e65fdb8
    /** Working directory inside the container. Defaults to `/workspace`. */
    workdir?: string
    /** Options forwarded to `new Dockerode(...)` (socketPath, host, port, …). */
-@@ -90,6 +92,7 @@ class DockerProvider implements SandboxProvider {
+@@ -57,14 +59,18 @@ class DockerProvider implements SandboxProvider {
+     return this.config.workdir ?? DEFAULT_WORKDIR
+   }
+ 
+-  private async ensureImage(image: string): Promise<void> {
++  private async ensureImage(image: string, signal?: AbortSignal): Promise<void> {
++    signal?.throwIfAborted()
++    const options: Dockerode.ImageInspectOptions & { abortSignal?: AbortSignal } = { abortSignal: signal }
+     try {
+-      await this.docker.getImage(image).inspect()
++      await this.docker.getImage(image).inspect(options)
++      signal?.throwIfAborted()
+       return
+     } catch {
++      signal?.throwIfAborted()
+       // not present locally — pull it
+     }
+-    const stream = await this.docker.pull(image)
++    const stream = await this.docker.pull(image, options)
+     await new Promise<void>((resolve, reject) => {
+       this.docker.modem.followProgress(stream, (err) =>
+         err ? reject(err) : resolve(),
+@@ -90,7 +96,10 @@ class DockerProvider implements SandboxProvider {
    private async startContainer(
      image: string,
      env?: Record<string, string>,
 +    name?: string,
++    signal?: AbortSignal,
    ): Promise<SandboxHandle> {
++    signal?.throwIfAborted()
      const exposed: Record<string, Record<string, never>> = {}
      const bindings: Record<string, Array<{ HostPort: string }>> = {}
-@@ -100,6 +103,7 @@ class DockerProvider implements SandboxProvider {
+     for (const port of this.config.publishPorts ?? []) {
+@@ -98,8 +107,10 @@ class DockerProvider implements SandboxProvider {
+       bindings[`${port}/tcp`] = [{ HostPort: '' }] // let Docker pick a free host port
+     }
  
-     const container = await this.docker.createContainer({
+-    const container = await this.docker.createContainer({
++    const createOptions = {
++      abortSignal: signal,
        Image: image,
 +      ...(name ? { name } : {}),
        Cmd: this.config.keepAliveCommand ?? ['sh', '-c', 'tail -f /dev/null'],
        Tty: false,
        WorkingDir: this.workdir,
-@@ -141,8 +145,27 @@ class DockerProvider implements SandboxProvider {
+@@ -111,14 +122,18 @@ class DockerProvider implements SandboxProvider {
+           ? { ExtraHosts: ['host.docker.internal:host-gateway'] }
+           : {}),
+       },
+-    })
++    }
++    const container = await this.docker.createContainer(createOptions)
+ 
+     // If anything after createContainer fails (start, or the first exec to
+     // create the workspace dir), the container already exists and would leak as
+     // a stopped container — these accumulate and strain the daemon. Tear it down
+     // on any instantiation failure before propagating the error.
+     try {
+-      await container.start()
++      signal?.throwIfAborted()
++      const startOptions: Dockerode.ContainerStartOptions & { abortSignal?: AbortSignal } = { abortSignal: signal }
++      await container.start(startOptions)
++      signal?.throwIfAborted()
+       const handle = new DockerHandle({
+         docker: this.docker,
+         container,
+@@ -129,6 +144,7 @@ class DockerProvider implements SandboxProvider {
+       })
+       // Ensure the workspace dir exists.
+       await handle.fs.mkdir(this.workdir)
++      signal?.throwIfAborted()
+       return handle
+     } catch (error) {
+       try {
+@@ -141,22 +157,50 @@ class DockerProvider implements SandboxProvider {
    }
  
    async create(input: SandboxCreateInput): Promise<SandboxHandle> {
+-    await this.ensureImage(this.config.image)
+-    return this.startContainer(this.config.image, input.env)
++    input.signal?.throwIfAborted()
 +    const name = this.config.containerName
 +    if (name) {
-+      const existing = await this.resume({ id: name })
++      const existing = await this.resume({ id: name, signal: input.signal })
 +      if (existing) {
 +        await existing.fs.mkdir(this.workdir)
 +        return existing
 +      }
 +    }
-     await this.ensureImage(this.config.image)
--    return this.startContainer(this.config.image, input.env)
++    await this.ensureImage(this.config.image, input.signal)
++    input.signal?.throwIfAborted()
 +    try {
-+      return await this.startContainer(this.config.image, input.env, name)
++      return await this.startContainer(this.config.image, input.env, name, input.signal)
 +    } catch (error) {
 +      if (name && typeof error === 'object' && error !== null && 'statusCode' in error && error.statusCode === 409) {
-+        const existing = await this.resume({ id: name })
++        const existing = await this.resume({ id: name, signal: input.signal })
 +        if (existing) {
 +          await existing.fs.mkdir(this.workdir)
 +          return existing
@@ -113,3 +459,35 @@ index 2eba55337bedb778404a042347c0b7811f91c595..475d4b918d6396234784bc791e65fdb8
    }
  
    async resume(input: SandboxResumeInput): Promise<SandboxHandle | null> {
++    input.signal?.throwIfAborted()
++    const options: Dockerode.ContainerInspectOptions & { abortSignal?: AbortSignal } = { abortSignal: input.signal }
+     const container = this.docker.getContainer(input.id)
+     let info: Dockerode.ContainerInspectInfo
+     try {
+-      info = await container.inspect()
++      info = await container.inspect(options)
++      input.signal?.throwIfAborted()
+     } catch {
++      input.signal?.throwIfAborted()
+       return null
+     }
+     if (!info.State.Running) {
+       try {
+-        await container.start()
++        const options: Dockerode.ContainerStartOptions & { abortSignal?: AbortSignal } = { abortSignal: input.signal }
++        await container.start(options)
++        input.signal?.throwIfAborted()
+       } catch {
++        input.signal?.throwIfAborted()
+         return null
+       }
+     }
+@@ -171,7 +215,7 @@ class DockerProvider implements SandboxProvider {
+   }
+ 
+   async restoreSnapshot(input: SandboxRestoreInput): Promise<SandboxHandle> {
+-    return this.startContainer(input.snapshotId, input.env)
++    return this.startContainer(input.snapshotId, input.env, undefined, input.signal)
+   }
+ 
+   async destroy(input: SandboxDestroyInput): Promise<void> {

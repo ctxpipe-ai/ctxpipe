@@ -279,6 +279,33 @@ it.each(["valid", "out-of-scope"] as const)(
             status: "completed",
             output: { provider: "unsandboxed" },
           })
+          const scheduled = attempts.find(
+            (step) => step.stepName === "schedule-resource-cleanup",
+          )
+          expect(scheduled?.status).toBe("completed")
+          expect(scheduled?.finishedAt?.getTime()).toBeLessThanOrEqual(
+            created?.startedAt?.getTime() ?? 0,
+          )
+          const { BackendPostgres } = await import("openworkflow/postgres")
+          const cleanupBackend = await BackendPostgres.connect(f.databaseUrl, {
+            runMigrations: false,
+          })
+          try {
+            const cleanup = (
+              await cleanupBackend.listWorkflowRuns({ limit: 100 })
+            ).data.filter(
+              (run) =>
+                run.workflowName === "workspace-semantic-cleanup" &&
+                (run.input as { workspaceId?: string })?.workspaceId ===
+                  f.workspaceId,
+            )
+            expect(cleanup).toHaveLength(1)
+            expect(cleanup[0]?.input).toMatchObject({
+              locator: created?.output,
+            })
+          } finally {
+            await cleanupBackend.stop()
+          }
           const locator = created?.output as { id: string }
           const { localProcessSandbox } = await import(
             "@tanstack/ai-sandbox-local-process"
@@ -462,6 +489,7 @@ it(
       delete process.env.SANDBOX_PROVIDER
       process.env.DOCKER_HOST = `unix:///private/tmp/ctxpipe-missing-docker-${Date.now()}.sock`
       await expect(createMergeSandbox(planned)).rejects.toThrow()
+      await expect(destroyMergeSandbox(planned)).rejects.toThrow()
       if (savedDockerHost === undefined) delete process.env.DOCKER_HOST
       else process.env.DOCKER_HOST = savedDockerHost
       const replay = await createMergeSandbox(planned)
@@ -481,10 +509,15 @@ it(
   },
 )
 
-it(
-  "hands a raced Files write to one native semantic child and returns the published result",
+it.each([
+  "credential",
+  "native-push",
+  "repeated-native-push",
+  "continuous-native-push",
+] as const)(
+  "hands a raced Files write to one native semantic child and returns the published result: %s",
   { timeout: 60_000 },
-  async () => {
+  async (raceBoundary) => {
     const path = "knowledge/race.md"
     const original =
       "# Race\n\nHuman: original\n\nOne\nTwo\nThree\nFour\nFive\n\nJob: original\n"
@@ -518,8 +551,46 @@ it(
           )
           f.git("add", path)
           f.git("commit", "-m", "Concurrent human update")
-          f.git("push", f.remote, "HEAD:main")
           humanSha = f.git("rev-parse", "HEAD")
+          if (raceBoundary === "credential") {
+            f.git("push", f.remote, "HEAD:main")
+          } else {
+            // Materialize the human commit without advancing main. Git's native
+            // update hook advances it only after the broker's final tip check.
+            const humanTips = [humanSha]
+            const additionalHumans =
+              raceBoundary === "continuous-native-push"
+                ? 3
+                : raceBoundary === "repeated-native-push"
+                  ? 1
+                  : 0
+            for (let index = 0; index < additionalHumans; index++) {
+              const path = `knowledge/human-${index}.md`
+              writeFileSync(join(f.directory, path), "# Another human update\n")
+              f.git("add", path)
+              f.git("commit", "-m", "Another concurrent human update")
+              humanSha = f.git("rev-parse", "HEAD")
+              humanTips.push(humanSha)
+            }
+            f.git(
+              "--git-dir",
+              f.remote,
+              "fetch",
+              f.directory,
+              `${humanSha}:refs/heads/fixture-human`,
+            )
+            const cases = humanTips
+              .map(
+                (sha, index) =>
+                  `${index ? humanTips[index - 1] : f.sha}) git update-ref "$1" ${sha} "$2" ;;`,
+              )
+              .join("\n")
+            writeFileSync(
+              join(f.remote, "hooks/update"),
+              `#!/bin/sh\nset -e\ncase "$2" in\n${cases}\n*) rm -- "$0" ;;\nesac\n`,
+              { mode: 0o755 },
+            )
+          }
         })
         const command = {
           orgId: f.org.id,
@@ -540,6 +611,30 @@ it(
             workspaceFileEdit.spec,
             command,
           )
+          if (raceBoundary === "continuous-native-push") {
+            await expect(handle.result({ timeoutMs: 30_000 })).rejects.toThrow(
+              "Default branch kept changing during semantic merge",
+            )
+            expect(
+              (
+                await f.backend.getWorkflowRun({
+                  workflowRunId: handle.workflowRun.id,
+                })
+              )?.status,
+            ).toBe("failed")
+            expect(f.git("--git-dir", f.remote, "rev-parse", "main")).toBe(
+              humanSha,
+            )
+            expect(f.git("--git-dir", f.remote, "show", `main:${path}`)).toBe(
+              original.replace("Human: original", "Human: updated").trim(),
+            )
+            expect(
+              await withOrgIdContext(f.org, () =>
+                reconcileWorkspaceWriteJob(command.jobId),
+              ),
+            ).toMatchObject({ commitSha: null })
+            return
+          }
           const result = await handle.result({ timeoutMs: 30_000 })
           expect(result).toMatchObject({ committed: true })
           expect(f.git("--git-dir", f.remote, "show", `main:${path}`)).toBe(
@@ -763,5 +858,155 @@ it(
         else process.env[key] = value
       }
     }
+  },
+)
+
+it(
+  "aborts a slow semantic model at the resource deadline and removes native files",
+  { timeout: 15_000 },
+  async () => {
+    const path = "knowledge/deadline.md"
+    await withNativeHydrationFixture(
+      {
+        semanticMergeResolution: { files: [{ path, content: "# Resolved\n" }] },
+        semanticMergeDelayMs: 3_000,
+      },
+      async (f) => {
+        const {
+          planMergeSandbox,
+          createMergeSandbox,
+          resolveSemanticConflicts,
+          destroyMergeSandbox,
+        } = await import("./semantic-merge.js")
+        const { localProcessSandbox } = await import(
+          "@tanstack/ai-sandbox-local-process"
+        )
+        const locator = {
+          ...(await planMergeSandbox(`deadline-${f.id}`)),
+          expiresAt: new Date(Date.now() + 1_000).toISOString(),
+        }
+        await createMergeSandbox(locator)
+        try {
+          await expect(
+            resolveSemanticConflicts(locator, [
+              {
+                path,
+                base: "# Base\n",
+                current: "# Current\n",
+                incoming: "# Incoming\n",
+              },
+            ]),
+          ).rejects.toThrow()
+          expect(f.semanticRequests).toHaveLength(1)
+          expect(
+            await localProcessSandbox({ dir: locator.id }).resume({
+              id: locator.id,
+            }),
+          ).toBeNull()
+        } finally {
+          await destroyMergeSandbox(locator)
+        }
+      },
+    )
+  },
+)
+
+it(
+  "does not allocate a native Docker sandbox after its abort signal has fired",
+  { timeout: 15_000 },
+  async () => {
+    const { dockerSandbox } = await import("@tanstack/ai-sandbox-docker")
+    const id = `ctxpipe-semantic-merge-abort-${Date.now()}`
+    const provider = dockerSandbox({ image: "node:22", containerName: id })
+    try {
+      await expect(
+        provider.create({
+          id,
+          signal: AbortSignal.abort(new Error("Resource deadline expired")),
+        }),
+      ).rejects.toThrow("Resource deadline expired")
+      expect(await provider.resume({ id })).toBeNull()
+    } finally {
+      await provider.destroy({ id })
+    }
+  },
+)
+
+it(
+  "a replacement native worker cleans a canceled merge resource and prevents resurrection",
+  { timeout: 50_000 },
+  async () => {
+    await withNativeHydrationFixture(
+      { semanticMergeResolution: { files: [] } },
+      async (f) => {
+        const { planMergeSandbox, createMergeSandbox, destroyMergeSandbox } =
+          await import("./semantic-merge.js")
+        const { workspaceSemanticCleanup } = await import(
+          "../../openworkflow/workflows/workspace-semantic-cleanup.js"
+        )
+        const { localProcessSandbox } = await import(
+          "@tanstack/ai-sandbox-local-process"
+        )
+        const locator = {
+          ...(await planMergeSandbox(`canceled-${f.id}`)),
+          expiresAt: new Date(Date.now() + 3_000).toISOString(),
+        }
+        const provider = localProcessSandbox({ dir: locator.id })
+        await f.runner.cancelWorkflowRun(f.handle.workflowRun.id)
+        f.runner.implementWorkflow(
+          workspaceSemanticCleanup.spec,
+          workspaceSemanticCleanup.fn,
+        )
+        const owner = f.runner.defineWorkflow(
+          { name: "native-canceled-merge-owner" },
+          async ({ step }) => {
+            await step.run({ name: "create" }, () =>
+              createMergeSandbox(locator),
+            )
+            await step.sleep("await-model", "1 minute")
+          },
+        )
+        const cleanup = await f.runner.runWorkflow(
+          workspaceSemanticCleanup.spec,
+          {
+            orgId: f.org.id,
+            workspaceId: f.workspaceId,
+            locator,
+          },
+          {
+            availableAt: new Date(locator.expiresAt),
+            idempotencyKey: `${f.id}:cleanup`,
+          },
+        )
+        const original = f.runner.newWorker({ concurrency: 1 })
+        let replacement: ReturnType<typeof f.runner.newWorker> | undefined
+        try {
+          await original.start()
+          const run = await owner.run()
+          await expect
+            .poll(
+              async () => Boolean(await provider.resume({ id: locator.id })),
+              { timeout: 2_000 },
+            )
+            .toBe(true)
+          await f.runner.cancelWorkflowRun(run.workflowRun.id)
+          await original.stop()
+          replacement = f.runner.newWorker({ concurrency: 1 })
+          await replacement.start()
+          expect(await cleanup.result({ timeoutMs: 40_000 })).toEqual({
+            destroyed: true,
+          })
+          expect(await provider.resume({ id: locator.id })).toBeNull()
+          await expect(createMergeSandbox(locator)).rejects.toThrow(
+            "deadline exceeded",
+          )
+          expect(await provider.resume({ id: locator.id })).toBeNull()
+        } finally {
+          await original.stop()
+          await replacement?.stop()
+          await destroyMergeSandbox(locator)
+        }
+      },
+    )
   },
 )

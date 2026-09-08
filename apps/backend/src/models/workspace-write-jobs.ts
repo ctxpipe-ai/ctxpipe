@@ -467,6 +467,7 @@ export async function validateSemanticHandoff(
       throw new Error("Semantic parent is not running")
     if (preparedSha) {
       if (
+        row.commitSha !== null &&
         row.commitSha !== input.handoff.candidateSha &&
         row.commitSha !== preparedSha
       )
@@ -492,6 +493,7 @@ export async function persistWriteJobPreparedCommit(
       .where(
         and(
           eq(workspaceWriteJobs.id, jobId),
+          ne(workspaceWriteJobs.status, WRITE_JOB_STATUSES.completed),
           sql`(${workspaceWriteJobs.commitSha} is null or ${workspaceWriteJobs.commitSha} = ${commitSha})`,
         ),
       )
@@ -500,6 +502,28 @@ export async function persistWriteJobPreparedCommit(
       throw new Error(
         "Write job already has a different commit or no longer exists",
       )
+  })
+}
+
+/** Only a durably rejected push may release its exact unpublished candidate. */
+export async function discardWriteJobPreparedCommit(
+  jobId: string,
+  candidateSha: string,
+): Promise<void> {
+  await orgSql(async () => {
+    const [row] = await getOrgDb()
+      .update(workspaceWriteJobs)
+      .set({ commitSha: null, updatedAt: new Date() })
+      .where(
+        and(
+          eq(workspaceWriteJobs.id, jobId),
+          eq(workspaceWriteJobs.status, WRITE_JOB_STATUSES.running),
+          sql`(${workspaceWriteJobs.commitSha} = ${candidateSha} or ${workspaceWriteJobs.commitSha} is null)`,
+        ),
+      )
+      .returning({ id: workspaceWriteJobs.id })
+    if (!row)
+      throw new Error("Unpublished candidate changed before semantic retry")
   })
 }
 

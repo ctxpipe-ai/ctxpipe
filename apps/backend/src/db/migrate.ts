@@ -33,8 +33,8 @@ if (appRolePassword) {
 
 log.info({ step: "migrate", message: "[migrate] running migrations…" })
 await migrate(db, { migrationsFolder: "./apps/backend/migrations" })
-await backfillKnowledgePathState(pool)
 await migrateOpenWorkflow(connectionString)
+await backfillKnowledgePathState(pool)
 await migrateLanggraphCheckpoints(connectionString)
 
 let env: ReturnType<typeof parseEnv> | undefined
