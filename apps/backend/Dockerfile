@@ -12,7 +12,7 @@ COPY apps/backend/package.json apps/backend/package.json
 RUN pnpm install --frozen-lockfile --prod --config.confirmModulesPurge=false
 
 # Production stage — Bun runs TypeScript natively, no tsc compilation needed
-FROM oven/bun:1.3.11-alpine
+FROM oven/bun:1.4.2-alpine
 WORKDIR /app
 ENV CI=true
 ENV NODE_ENV=production

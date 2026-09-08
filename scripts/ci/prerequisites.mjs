@@ -26,10 +26,10 @@ try {
     parts.length !== 3 ||
     parts.some(Number.isNaN) ||
     parts[0] !== 1 ||
-    parts[1] < 3 ||
-    (parts[1] === 3 && parts[2] < 11)
+    parts[1] < 4 ||
+    (parts[1] === 4 && parts[2] < 2)
   ) {
-    throw new Error(`Bun must satisfy package.json ^1.3.11; found ${bun}`)
+    throw new Error(`Bun must satisfy package.json ^1.4.2; found ${bun}`)
   }
   const expected = readFileSync(
     new URL(

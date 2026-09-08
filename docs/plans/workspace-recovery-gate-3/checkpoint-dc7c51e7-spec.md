@@ -1,0 +1,9 @@
+# Spec review — G3-C correction and G3-D (`dc7c51e7`)
+
+## Finding
+
+**[P1] An adopted, already-satisfied human root is never hydrated.** After `adoptInitializedBootstrapRevision`, the workflow continues with the human commit as its real revision. If that commit already contains the required bootstrap files, `apps/backend/src/openworkflow/workflows/workspace-bootstrap.ts:329-343` marks the job completed and returns `no_changes` without enqueueing `workspaceHydrate`. The create/select hydrate may already have returned while the remote was unborn, so no later action necessarily activates this first real SHA; replay now exits even earlier at lines 112-123. The new satisfied-first-writer test checks only the result, commit count, and README (`workspace-unborn-bootstrap-native.contract.test.ts:235-257`), leaving the projection gap unobserved. Ticket 09 requires “Hydrate the workspace tree **as-is**” and says serving stores go live at “the **first successful hydrate SHA**” (`09-project-repository-lifecycle.md:89-93`); ticket 10 specifies `push … → hydrate` (`10-ingest-to-git-write-protocol.md:66-68`). Durably enqueue hydration immediately after adopting the human revision (idempotently, before normal continuation), and assert `activeProjectionSha` reaches that SHA on first execution and replay.
+
+The prior commit-subject blocker is closed: `commit-subject-unborn` durably calls `generateCommitSubject`, and its saved output feeds the parentless commit (`workspace-bootstrap.ts:148-168`). No G3-D blocker found: the current native owner/request fences the index, root/model extraction, typed write child, broker publication, and final source status; immutable SHA-specific checkouts keep an older in-flight clone from replacing the published source.
+
+G3-E–G remain excluded; this is not Gate 3 acceptance.

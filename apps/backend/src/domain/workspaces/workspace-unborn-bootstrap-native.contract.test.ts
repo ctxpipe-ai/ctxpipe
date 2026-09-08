@@ -16,6 +16,7 @@ import {
 import { enqueueWorkspaceHydrate } from "../../openworkflow/enqueue-workspace-hydrate.js"
 import { enqueueWriteJob } from "../../openworkflow/enqueue-workspace-write-commit.js"
 import { workspaceBootstrap } from "../../openworkflow/workflows/workspace-bootstrap.js"
+import { workspaceHydrate } from "../../openworkflow/workflows/workspace-hydrate.js"
 import { withNativeHydrationFixture } from "../../test/native-hydration-fixture.js"
 import { createWorkspaceLifecycle } from "./workspace-lifecycle.js"
 
@@ -185,6 +186,7 @@ it.each([
         })
         const runner = new OpenWorkflow({ backend })
         runner.implementWorkflow(workspaceBootstrap.spec, workspaceBootstrap.fn)
+        runner.implementWorkflow(workspaceHydrate.spec, workspaceHydrate.fn)
         const worker = runner.newWorker({ concurrency: 1 })
         try {
           await worker.start()
@@ -233,6 +235,18 @@ it.each([
               f.git("--git-dir", f.remote, "log", "-1", "--format=%s", "trunk"),
             ).toBe("ctxpipe - Bootstrap workspace knowledge")
           if (mode === "satisfied first writer") {
+            await expect
+              .poll(
+                () =>
+                  withOrgIdContext(
+                    f.org,
+                    async () =>
+                      (await getWorkspaceById(f.workspaceId))
+                        ?.activeProjectionSha,
+                  ),
+                { timeout: 15_000 },
+              )
+              .toBe(tip)
             const replay = await runner.runWorkflow(workspaceBootstrap.spec, {
               orgId: f.org.id,
               workspaceId: f.workspaceId,

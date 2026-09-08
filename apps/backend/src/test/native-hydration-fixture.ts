@@ -5,7 +5,7 @@ import { tmpdir } from "node:os"
 import { dirname, join } from "node:path"
 import { eq, sql } from "drizzle-orm"
 import { FalkorDB } from "falkordb"
-import { HttpResponse, http } from "msw"
+import { HttpResponse, http, passthrough } from "msw"
 import { setupServer } from "msw/node"
 import { OpenWorkflow } from "openworkflow"
 import { BackendPostgres } from "openworkflow/postgres"
@@ -31,6 +31,7 @@ import { workspaceTipCheck } from "../openworkflow/workflows/workspace-tip-check
 import { closeGraphDb } from "../platform/graph/client.js"
 
 export type NativeHydrationOptions = {
+  nativeDocker?: boolean
   namespaceId?: string
   files?: Array<{ path: string; body: string; mode?: "100755" | "120000" }>
   initialCommitDate?: string
@@ -111,6 +112,13 @@ async function createNativeHydrationFixture(
   let beforeWriteProbe: (() => Promise<void>) | undefined
   let beforeWriteCredential: (() => Promise<void>) | undefined
   const server = setupServer(
+    ...(options.nativeDocker
+      ? [
+          http.all(/^http:\/\/localhost\/(?:v[\d.]+\/)?containers\//, () =>
+            passthrough(),
+          ),
+        ]
+      : []),
     http.get(
       "https://api.github.com/repos/fixture/hydration-contract/pulls/:number",
       async () => {
@@ -549,9 +557,10 @@ async function createNativeHydrationFixture(
         writeStatus: writeStatus ?? "unknown",
       }),
     )
-    const resolveRevision = async () => {
+    const resolveRevision = async (refresh = false) => {
       const resolved = await withOrgIdContext(org, () =>
         resolveWorkspaceReadRevision({
+          refresh,
           orgId: org.id,
           workspaceId,
           env: parseEnv(process.env),

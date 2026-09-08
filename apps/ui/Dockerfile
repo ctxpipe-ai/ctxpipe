@@ -23,7 +23,7 @@ ENV VITE_PUBLIC_API_URL=$VITE_PUBLIC_API_URL
 RUN pnpm --filter @ctxpipe/ui build
 
 # Production stage — Nitro/Vinxi outputs a self-contained server bundle to .output/
-FROM oven/bun:1.3.11-alpine
+FROM oven/bun:1.4.2-alpine
 WORKDIR /app
 ENV CI=true
 ENV NODE_ENV=production

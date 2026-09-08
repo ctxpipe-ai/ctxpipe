@@ -11,6 +11,7 @@ import { createRequire } from "node:module"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { pathToFileURL } from "node:url"
+import Docker from "dockerode"
 import { eq } from "drizzle-orm"
 import { expect, it } from "vitest"
 import { withOrgIdContext } from "../../auth/withAuth.js"
@@ -18,17 +19,58 @@ import { withOrgDbContext } from "../../db/client.js"
 import { workspaces } from "../../db/schema/workspaces.js"
 import { getWriteJobCommitSha } from "../../models/workspace-write-jobs.js"
 import { workspaceBootstrap } from "../../openworkflow/workflows/workspace-bootstrap.js"
+import { workspaceSemanticMerge } from "../../openworkflow/workflows/workspace-semantic-merge.js"
+import { holdDockerAllocationReply } from "../../test/native-docker-ack-loss.js"
 import { withNativeHydrationFixture } from "../../test/native-hydration-fixture.js"
 import { withHeldSemanticHandoffCommit } from "../../test/native-workflow-ack-loss.js"
 
-it.each(["Git staging", "semantic handoff", "unborn push"] as const)(
+it.each([
+  "Git staging",
+  "semantic handoff",
+  "unborn push",
+  "sandbox allocation",
+  "semantic model",
+] as const)(
   "two replacement processes recover a writer killed after %s",
-  { timeout: 120_000 },
+  { timeout: 210_000 },
   async (boundary) => {
+    const resourceBoundary =
+      boundary === "sandbox allocation" || boundary === "semantic model"
     await withNativeHydrationFixture(
-      { github: true, githubWriteView: "writable", writeStatus: "writable" },
+      {
+        github: true,
+        githubWriteView: "writable",
+        writeStatus: "writable",
+        ...(resourceBoundary
+          ? {
+              namespaceId: "default",
+              nativeDocker: true,
+              files: [{ path: "notes.md", body: "# Owners\nAlice\n" }],
+            }
+          : {}),
+      },
       async (f) => {
         let writeCredentials = 0
+        let semanticCalls = 0
+        let releaseOriginalModel!: () => void
+        const originalModelReleased = new Promise<void>((resolve) => {
+          releaseOriginalModel = resolve
+        })
+        let releaseReplacementModel!: () => void
+        const replacementModelReleased = new Promise<void>((resolve) => {
+          releaseReplacementModel = resolve
+        })
+        const dockerFault =
+          boundary === "sandbox allocation"
+            ? await holdDockerAllocationReply(join(f.directory, "docker.sock"))
+            : null
+        let allocation: { id: string; name: string } | undefined
+        if (dockerFault)
+          void dockerFault.allocation.then((value) => {
+            allocation = value
+          })
+        const docker = new Docker()
+        let resourceId: string | undefined
         const unexpectedRequests: string[] = []
         // Only paid/third-party HTTP is substituted. Both child processes execute
         // the real workflow, database, model client, credential broker and Git.
@@ -63,6 +105,16 @@ it.each(["Git staging", "semantic handoff", "unborn push"] as const)(
             request.method === "POST" &&
             request.url === "/v1/chat/completions"
           ) {
+            const semantic = body.tools?.some(
+              (tool: { function: { name: string } }) =>
+                tool.function.name === "workspace_semantic_merge",
+            )
+            if (semantic && resourceBoundary) {
+              semanticCalls++
+              if (boundary === "semantic model" && semanticCalls === 1)
+                await originalModelReleased
+              else await replacementModelReleased
+            }
             value = {
               id: "fixture-worker-loss",
               object: "chat.completion",
@@ -71,11 +123,33 @@ it.each(["Git staging", "semantic handoff", "unborn push"] as const)(
               choices: [
                 {
                   index: 0,
-                  message: {
-                    role: "assistant",
-                    content: "ctxpipe - Recover native workspace bootstrap",
-                  },
-                  finish_reason: "stop",
+                  message: semantic
+                    ? {
+                        role: "assistant",
+                        content: null,
+                        tool_calls: [
+                          {
+                            id: "merge-resolution",
+                            type: "function",
+                            function: {
+                              name: "workspace_semantic_merge",
+                              arguments: JSON.stringify({
+                                files: [
+                                  {
+                                    path: "notes.md",
+                                    content: "# Owners\nAlice, Bob, Carol\n",
+                                  },
+                                ],
+                              }),
+                            },
+                          },
+                        ],
+                      }
+                    : {
+                        role: "assistant",
+                        content: "ctxpipe - Recover native workspace bootstrap",
+                      },
+                  finish_reason: semantic ? "tool_calls" : "stop",
                 },
               ],
             }
@@ -112,11 +186,13 @@ const { BackendPostgres } = await import(${JSON.stringify(pathToFileURL(require.
 const { initDb } = await import(${JSON.stringify(new URL("../../db/client.ts", import.meta.url).href)});
 const { workspaceBootstrap } = await import(${JSON.stringify(new URL("../../openworkflow/workflows/workspace-bootstrap.ts", import.meta.url).href)});
 const { workspaceSemanticMerge } = await import(${JSON.stringify(new URL("../../openworkflow/workflows/workspace-semantic-merge.ts", import.meta.url).href)});
+const { workspaceSemanticCleanup } = await import(${JSON.stringify(new URL("../../openworkflow/workflows/workspace-semantic-cleanup.ts", import.meta.url).href)});
 initDb(process.env.DATABASE_URL);
-const backend = await BackendPostgres.connect(process.env.DATABASE_URL, { namespaceId: ${JSON.stringify(f.id)}, runMigrations: false });
+const backend = await BackendPostgres.connect(process.env.DATABASE_URL, { namespaceId: ${JSON.stringify(resourceBoundary ? "default" : f.id)}, runMigrations: false });
 const runner = new OpenWorkflow({ backend });
 runner.implementWorkflow(workspaceBootstrap.spec, workspaceBootstrap.fn);
 runner.implementWorkflow(workspaceSemanticMerge.spec, workspaceSemanticMerge.fn);
+runner.implementWorkflow(workspaceSemanticCleanup.spec, workspaceSemanticCleanup.fn);
 const worker = runner.newWorker({ concurrency: 1 });
 await worker.start();
 await new Promise(() => {});
@@ -154,7 +230,13 @@ process.exit(result.status ?? 1);
             env: {
               ...process.env,
               DATABASE_URL: databaseUrl,
-              ...(crash ? { PATH: `${bin}:${process.env.PATH}` } : {}),
+              ...(crash && !resourceBoundary
+                ? { PATH: `${bin}:${process.env.PATH}` }
+                : {}),
+              ...(resourceBoundary ? { SANDBOX_PROVIDER: "docker" } : {}),
+              ...(crash && dockerFault
+                ? { DOCKER_HOST: `unix://${dockerFault.socketPath}` }
+                : {}),
             },
             stdio: ["ignore", "ignore", "pipe"],
           })
@@ -194,28 +276,133 @@ process.exit(result.status ?? 1);
                 .where(eq(workspaces.id, f.workspaceId)),
             )
           }
-          const handle = await f.runner.runWorkflow(workspaceBootstrap.spec, {
-            orgId: f.org.id,
-            workspaceId: f.workspaceId,
-            jobId,
-            ...(boundary === "unborn push"
-              ? {
-                  bootstrapBinding: {
-                    workspaceId: f.workspaceId,
-                    generation: 1,
-                    remote: f.revision.remote,
-                    defaultBranch: "main",
-                  },
-                }
-              : {
-                  revision: { ...f.revision, access: "write-default" as const },
-                }),
-          })
+          if (resourceBoundary) {
+            writeFileSync(
+              join(f.directory, "notes.md"),
+              "# Owners\nAlice, Carol\n",
+            )
+            f.git("add", "notes.md")
+            f.git(
+              "-c",
+              "user.name=Human",
+              "-c",
+              "user.email=human@example.test",
+              "commit",
+              "-m",
+              "Human adds Carol",
+            )
+            f.git("push", f.remote, "HEAD:refs/heads/main")
+          }
+          const handle = resourceBoundary
+            ? await f.runner.runWorkflow(workspaceSemanticMerge.spec, {
+                orgId: f.org.id,
+                workspaceId: f.workspaceId,
+                jobId,
+                revision: {
+                  ...(await f.resolveRevision(true)),
+                  access: "write-default",
+                },
+                previousSha: f.sha,
+                files: [
+                  { path: "notes.md", content: "# Owners\nAlice, Bob\n" },
+                ],
+                deletePaths: [],
+              })
+            : await f.runner.runWorkflow(workspaceBootstrap.spec, {
+                orgId: f.org.id,
+                workspaceId: f.workspaceId,
+                jobId,
+                ...(boundary === "unborn push"
+                  ? {
+                      bootstrapBinding: {
+                        workspaceId: f.workspaceId,
+                        generation: 1,
+                        remote: f.revision.remote,
+                        defaultBranch: "main",
+                      },
+                    }
+                  : {
+                      revision: {
+                        ...f.revision,
+                        access: "write-default" as const,
+                      },
+                    }),
+              })
           const exercise = async (
             databaseUrl: string,
             committed?: Promise<void>,
           ) => {
             const original = launch(true, databaseUrl)
+            if (resourceBoundary) {
+              await expect
+                .poll(
+                  () =>
+                    boundary === "sandbox allocation"
+                      ? Boolean(allocation)
+                      : semanticCalls === 1,
+                  { timeout: 30_000 },
+                )
+                .toBe(true)
+              const steps = (
+                await f.backend.listStepAttempts({
+                  workflowRunId: handle.workflowRun.id,
+                  limit: 100,
+                })
+              ).data
+              const locator = steps.find(
+                (step) => step.stepName === "plan-merge-sandbox",
+              )?.output as { id: string; expiresAt: string }
+              expect(locator.id).toContain("ctxpipe-semantic-merge-")
+              resourceId = (await docker.getContainer(locator.id).inspect()).Id
+              if (allocation) expect(resourceId).toBe(allocation.id)
+              await kill(original)
+              dockerFault?.release()
+              releaseOriginalModel()
+              launch(false)
+              launch(false)
+              await expect
+                .poll(() => semanticCalls, { timeout: 55_000 })
+                .toBe(boundary === "semantic model" ? 2 : 1)
+              expect((await docker.getContainer(locator.id).inspect()).Id).toBe(
+                resourceId,
+              )
+              releaseReplacementModel()
+              const result = await handle.result({ timeoutMs: 25_000 })
+              const tip = f.git("--git-dir", f.remote, "rev-parse", "main")
+              expect(result).toEqual({ committed: true, commitSha: tip })
+              expect(
+                f.git("--git-dir", f.remote, "show", "main:notes.md"),
+              ).toBe("# Owners\nAlice, Bob, Carol")
+              expect(
+                f.git(
+                  "--git-dir",
+                  f.remote,
+                  "rev-list",
+                  "--count",
+                  `${f.sha}..main`,
+                ),
+              ).toBe("2")
+              await expect(
+                docker.getContainer(resourceId).inspect(),
+              ).rejects.toMatchObject({ statusCode: 404 })
+              await expect
+                .poll(
+                  async () =>
+                    (
+                      await f.backend.listWorkflowRuns({ limit: 100 })
+                    ).data.find(
+                      (run) =>
+                        run.workflowName === "workspace-semantic-cleanup" &&
+                        (run.input as { workspaceId?: string })?.workspaceId ===
+                          f.workspaceId,
+                    )?.status,
+                  { timeout: 150_000 },
+                )
+                .toBe("completed")
+              expect(writeCredentials).toBe(1)
+              expect(unexpectedRequests).toEqual([])
+              return
+            }
             await expect
               .poll(() => existsSync(ready), {
                 timeout: 20_000,
@@ -359,7 +546,19 @@ process.exit(result.status ?? 1);
             { cause: error },
           )
         } finally {
+          releaseOriginalModel()
+          releaseReplacementModel()
+          dockerFault?.release()
           for (const child of children) await kill(child)
+          await dockerFault?.close()
+          const ownedResourceId = resourceId ?? allocation?.id
+          if (ownedResourceId)
+            await docker
+              .getContainer(ownedResourceId)
+              .remove({ force: true, v: true })
+              .catch((error) => {
+                if (error.statusCode !== 404) throw error
+              })
           await new Promise<void>((resolve, reject) =>
             server.close((error) => (error ? reject(error) : resolve())),
           )

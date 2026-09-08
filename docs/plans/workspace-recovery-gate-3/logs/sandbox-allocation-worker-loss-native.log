@@ -1,0 +1,53 @@
+{"name": "sandbox-allocation-worker-loss-native", "cwd": "/private/tmp/ctxpipe-recovery-01a07aba", "command": ["/Users/jakubriedl/.volta/tools/image/node/22.16.0/bin/node", "apps/backend/node_modules/vitest/vitest.mjs", "run", "--root", "apps/backend", "src/domain/workspaces/write-worker-loss-native.contract.test.ts", "-t", "sandbox allocation"], "environment": {"AUTH_SECRET": "gate0-local-disposable-test-secret-20260907", "DATABASE_URL": "postgresql://ctxpipe_app:ctxpipe@127.0.0.1:61314/ctxpipe_gate0_fresh", "GRAPH_DB_URI": "redis://127.0.0.1:6398", "CI": "true", "NO_COLOR": "1", "TURBO_TELEMETRY_DISABLED": "1", "STORYBOOK_DISABLE_TELEMETRY": "1", "PATH": "/Users/jakubriedl/.volta/tools/image/node/22.16.0/bin:/private/tmp/ctxpipe-recovery-runtime/ast-grep/node_modules/.bin:/private/tmp/ctxpipe-recovery-runtime/node_modules/.bin:/private/tmp/ctxpipe-recovery-runtime/zoekt:/usr/local/bin:/System/Cryptexes/App/usr/bin:/usr/bin:/bin:/usr/sbin:/sbin:/var/run/com.apple.security.cryptexd/codex.system/bootstrap/usr/local/bin:/var/run/com.apple.security.cryptexd/codex.system/bootstrap/usr/bin:/var/run/com.apple.security.cryptexd/codex.system/bootstrap/usr/appleinternal/bin:/pkg/env/global/bin:/Users/jakubriedl/.codex/tmp/arg0/codex-arg0BW5Gt3:/Users/jakubriedl/.cache/codex-runtimes/codex-primary-runtime/dependencies/bin/override:/Users/jakubriedl/.local/bin:/Users/jakubriedl/.bun/bin:/Users/jakubriedl/.opencode/bin:/Users/jakubriedl/.volta/bin:/opt/homebrew/bin:/opt/homebrew/sbin:/Users/jakubriedl/.cache/codex-runtimes/codex-primary-runtime/dependencies/bin/fallback:/Applications/ChatGPT.app/Contents/Resources"}, "timeout_seconds": 600, "started_utc": "2026-09-08T23:40:55Z", "log": "logs/sandbox-allocation-worker-loss-native.log"}
+
+ RUN  v4.0.18 /private/tmp/ctxpipe-recovery-01a07aba/apps/backend
+
+Cloning into bare repository '/var/folders/9t/jj9rnpps7_ddb72c1mq2k13w0000gn/T/ctxpipe-hydration-contract-yWxCiJ/remote.git'...
+done.
+To /var/folders/9t/jj9rnpps7_ddb72c1mq2k13w0000gn/T/ctxpipe-hydration-contract-yWxCiJ/remote.git
+   d183902..792f80e  HEAD -> main
+stderr | src/domain/workspaces/write-worker-loss-native.contract.test.ts > two replacement processes recover a writer killed after sandbox allocation
+[MSW] Error: intercepted a request without a matching request handler:
+
+  • GET http://localhost/containers/ctxpipe-semantic-merge-5af9cad0483232f58e0a588a9590c0b098607042cc095e32bb8b91a24b42915f/json
+
+If you still wish to intercept this unhandled request, please create a request handler for it.
+Read more: https://mswjs.io/docs/http/intercepting-requests
+
+stderr | src/domain/workspaces/write-worker-loss-native.contract.test.ts > two replacement processes recover a writer killed after sandbox allocation
+[MSW] Error: intercepted a request without a matching request handler:
+
+  • DELETE http://localhost/containers/0bf3524660def29ceb2aad4989d13749d7ec769566eb2e390e74adcbfcaafda8?force=true&v=true
+
+If you still wish to intercept this unhandled request, please create a request handler for it.
+Read more: https://mswjs.io/docs/http/intercepting-requests
+
+ ❯ src/domain/workspaces/write-worker-loss-native.contract.test.ts (5 tests | 1 failed | 4 skipped) 4368ms
+   ↓ two replacement processes recover a writer killed after Git staging
+   ↓ two replacement processes recover a writer killed after semantic handoff
+   ↓ two replacement processes recover a writer killed after unborn push
+   × two replacement processes recover a writer killed after sandbox allocation 4367ms
+   ↓ two replacement processes recover a writer killed after semantic model
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 1 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  src/domain/workspaces/write-worker-loss-native.contract.test.ts > two replacement processes recover a writer killed after sandbox allocation
+InternalError: [MSW] Cannot bypass a request when using the "error" strategy for the "onUnhandledRequest" option.
+ ❯ applyStrategy ../../node_modules/.pnpm/msw@2.13.6_@types+node@25.3.0_typescript@5.9.3/node_modules/msw/lib/core/experimental/on-unhandled-frame.mjs:40:9
+ ❯ InterceptorHttpNetworkFrame.resolve ../../node_modules/.pnpm/msw@2.13.6_@types+node@25.3.0_typescript@5.9.3/node_modules/msw/lib/core/experimental/frames/http-frame.mjs:117:7
+ ❯ Emitter.<anonymous> ../../node_modules/.pnpm/msw@2.13.6_@types+node@25.3.0_typescript@5.9.3/node_modules/msw/lib/core/experimental/define-network.mjs:70:11
+ ❯ Emitter.emitAsPromise ../../node_modules/.pnpm/rettime@0.11.8/node_modules/rettime/build/index.mjs:171:24
+ ❯ InterceptorSource.queue ../../node_modules/.pnpm/msw@2.13.6_@types+node@25.3.0_typescript@5.9.3/node_modules/msw/lib/core/experimental/sources/network-source.mjs:17:5
+ ❯ InterceptorSource.#handleRequest ../../node_modules/.pnpm/msw@2.13.6_@types+node@25.3.0_typescript@5.9.3/node_modules/msw/lib/core/experimental/sources/interceptor-source.mjs:38:5
+ ❯ emitAsync ../../node_modules/.pnpm/@mswjs+interceptors@0.41.3/node_modules/@mswjs/interceptors/lib/node/handleRequest-Y97UwBbF.mjs:33:36
+ ❯ ../../node_modules/.pnpm/@mswjs+interceptors@0.41.3/node_modules/@mswjs/interceptors/lib/node/handleRequest-Y97UwBbF.mjs:144:3
+ ❯ until ../../node_modules/.pnpm/@open-draft+until@2.1.0/node_modules/@open-draft/until/lib/index.mjs:4:18
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/1]⎯
+
+
+ Test Files  1 failed (1)
+      Tests  1 failed | 4 skipped (5)
+   Start at  09:40:55
+   Duration  7.53s (transform 982ms, setup 27ms, import 3.04s, tests 4.37s, environment 0ms)
+

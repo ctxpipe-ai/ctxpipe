@@ -17,7 +17,7 @@ COPY apps/docs ./apps/docs
 RUN cd apps/docs && npm run build
 
 # Production stage
-FROM oven/bun:1.3.11-alpine
+FROM oven/bun:1.4.2-alpine
 WORKDIR /app
 ENV CI=true
 ENV NODE_ENV=production

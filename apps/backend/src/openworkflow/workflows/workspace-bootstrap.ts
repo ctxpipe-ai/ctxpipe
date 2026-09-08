@@ -187,6 +187,17 @@ export const workspaceBootstrap = defineWorkflow(
                   candidateSha: committed.sha,
                 }),
               )
+              await step.run({ name: "hydrate-initialized-revision" }, () =>
+                runWorkflowWithWorkerWake(
+                  workspaceHydrate.spec,
+                  {
+                    orgId: queued.orgId,
+                    workspaceId: queued.workspaceId,
+                    revision: { ...pushed.revision, access: "read" },
+                  },
+                  { idempotencyKey: `${queued.jobId}:initialized-hydrate` },
+                ),
+              )
               return { kind: "initialized" as const, revision: pushed.revision }
             }
             await step.run({ name: "pause-unborn" }, () =>

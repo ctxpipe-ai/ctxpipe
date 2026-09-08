@@ -103,7 +103,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
   && chmod +x /out/*
 
 # ── Stage 7: Install application dependencies ────────────────────────────────
-FROM oven/bun:1.3.11-slim AS bun-runtime
+FROM oven/bun:1.4.2-slim AS bun-runtime
 
 FROM node:22-bookworm-slim AS deps
 WORKDIR /app
