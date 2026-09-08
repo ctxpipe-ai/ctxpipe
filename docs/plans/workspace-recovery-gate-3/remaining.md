@@ -9,9 +9,9 @@ This is the current ledger. status.md is historical evidence, not a work queue.
 | --- | --- | --- | --- |
 | G3-A | Native workflow ownership: connector wrong-version recovery; audit matching repository paths; finish retirement of test-only activation helpers | Public native admission rejects wrong identity; existing finalization and ingestion contracts pass | Reviewed: zero blockers; milestone CI pending |
 | G3-B | Retry / resume idempotency: persisted semantic handoff after lost reply and a second tip advance; legacy paused binding | Native replay retains exact persisted handoff and publishes at most one commit | Reviewed: zero blockers; milestone CI pending |
-| G3-C | Empty repository lifecycle / bootstrap | Empty hydrate remains empty; allowed bootstrap creates first real commit; concurrent first writer handled without fabricated read SHA | Locally verified: 55 affected cases plus root-push SIGKILL; milestone review pending |
-| G3-D | Extraction producer and source isolation | Integrated producer through captured extraction and typed Git publication; in-flight older source cannot replace newer published source | Active |
-| G3-E | Worker / allocation crash ownership | Process-kill proof at model/sandbox allocation boundary; replacement resumes and cleanup completes | Open |
+| G3-C | Empty repository lifecycle / bootstrap | Empty hydrate remains empty; allowed bootstrap creates first real commit; concurrent first writer handled without fabricated read SHA | Locally verified: 55 affected cases; two reviewed defects fixed with 8 native cases; re-review pending |
+| G3-D | Extraction producer and source isolation | Integrated producer through captured extraction and typed Git publication; in-flight older source cannot replace newer published source | Locally verified: real producer and held older clone; milestone review pending |
+| G3-E | Worker / allocation crash ownership | Process-kill proof at model/sandbox allocation boundary; replacement resumes and cleanup completes | Active |
 | G3-F | Required retirement and policy audit | Every default-branch push has one typed owner; superseded lifecycle removed; config ordering and linked declaration behavior match locked specs | Open |
 | G3-G | Gate closure | Affected checks, full CI on closure candidate, two pinned reviews with no blocking findings, authorized push verified | Open |
 

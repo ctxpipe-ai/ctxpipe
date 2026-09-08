@@ -102,18 +102,24 @@ export const workspaceBootstrap = defineWorkflow(
                 binding: queued.bootstrapBinding,
                 workflowRunId: run.id,
               })
-              return { status: job.status, commitSha: job.commitSha }
+              return {
+                status: job.status,
+                commitSha: job.commitSha,
+                initialized: Boolean(job.payload?.revision),
+              }
             },
           )
           if (claimed.status === "completed") {
-            if (!claimed.commitSha)
+            if (!claimed.commitSha && !claimed.initialized)
               throw new Error("Completed root bootstrap has no commit")
             return {
               kind: "completed" as const,
-              result: {
-                committed: true as const,
-                commitSha: claimed.commitSha,
-              },
+              result: claimed.commitSha
+                ? {
+                    committed: true as const,
+                    commitSha: claimed.commitSha,
+                  }
+                : { committed: false as const, reason: "no_changes" as const },
             }
           }
           const files = await step.run(
@@ -139,11 +145,23 @@ export const workspaceBootstrap = defineWorkflow(
                 .map((file) => file.path),
             ),
           )
+          const subject = await step.run(
+            { name: "commit-subject-unborn" },
+            () =>
+              generateCommitSubject({
+                repoName:
+                  githubRepoFullNameFromWorkspaceUrl(
+                    queued.bootstrapBinding.remote.url,
+                  )?.split("/")[1] ?? queued.bootstrapBinding.remote.url,
+                trigger: "bootstrap",
+                fileNames: files.map((file) => file.path),
+              }),
+          )
           const committed = await step.run(
             { name: "commit-unborn" },
             async () => {
               const pack = await commitUnbornGitTree(staged, {
-                subject: "ctxpipe - Bootstrap workspace",
+                subject,
                 createdAt: run.createdAt,
               })
               await persistWriteJobPreparedCommit(queued.jobId, pack.sha)

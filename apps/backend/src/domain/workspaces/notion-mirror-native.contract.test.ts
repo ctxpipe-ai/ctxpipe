@@ -23,6 +23,7 @@ it.each(["entity", "full", "rebind"] as const)(
     const config = "version: 1\nsource: notion\nresources: []\n"
     await withNativeHydrationFixture(
       {
+        namespaceId: "default",
         github: true,
         githubWriteView: "writable",
         writeStatus: "writable",

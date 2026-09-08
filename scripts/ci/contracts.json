@@ -58,6 +58,7 @@
     "src/openworkflow/workflows/repository-index-source-native.contract.test.ts",
     "src/openworkflow/workflows/repository-extraction-native.contract.test.ts",
     "src/routes/v1/repository-admission-native.contract.test.ts",
-    "src/openworkflow/repository-admission-ack-native.contract.test.ts"
+    "src/openworkflow/repository-admission-ack-native.contract.test.ts",
+    "src/openworkflow/workflows/repository-producer-native.contract.test.ts"
   ]
 }

@@ -1,4 +1,5 @@
 import { chmod, writeFile } from "node:fs/promises"
+import { createServer } from "node:http"
 import { join } from "node:path"
 import { eq } from "drizzle-orm"
 import { OpenWorkflow } from "openworkflow"
@@ -65,14 +66,66 @@ it(
         "Publish newer source",
       )
       const newer = f.git("rev-parse", "HEAD")
-      await index(newer)
-      await withOrgDbContext(f.org.id, () =>
-        markRepositoryIndexingReady({
-          repositoryId: f.repositoryId,
-          targetHash: newer,
-        }),
+      const upstream = process.env.CODESEARCH_URL
+      if (!upstream) throw new Error("Native codesearch URL missing")
+      let release!: () => void
+      const released = new Promise<void>((resolve) => {
+        release = resolve
+      })
+      let holding = false
+      const proxy = createServer(async (request, response) => {
+        const chunks: Buffer[] = []
+        for await (const chunk of request) chunks.push(Buffer.from(chunk))
+        const body = Buffer.concat(chunks)
+        if (
+          request.url?.endsWith("/index/clone-checkout") &&
+          JSON.parse(body.toString()).targetHash === f.sha
+        ) {
+          holding = true
+          await released
+        }
+        const result = await fetch(`${upstream}${request.url}`, {
+          method: request.method,
+          headers: {
+            authorization: String(request.headers.authorization ?? ""),
+            "content-type": "application/json",
+          },
+          ...(body.length ? { body } : {}),
+        })
+        response.writeHead(result.status, {
+          "content-type":
+            result.headers.get("content-type") ?? "application/json",
+        })
+        response.end(Buffer.from(await result.arrayBuffer()))
+      })
+      await new Promise<void>((resolve) =>
+        proxy.listen(0, "127.0.0.1", resolve),
       )
-      await index(f.sha)
+      const address = proxy.address()
+      if (!address || typeof address === "string")
+        throw new Error("Clone proxy missing")
+      process.env.CODESEARCH_URL = `http://127.0.0.1:${address.port}`
+      const older = index(f.sha)
+      void older.catch(() => undefined)
+      try {
+        await expect.poll(() => holding, { timeout: 15_000 }).toBe(true)
+        await index(newer)
+        await withOrgDbContext(f.org.id, () =>
+          markRepositoryIndexingReady({
+            repositoryId: f.repositoryId,
+            targetHash: newer,
+          }),
+        )
+        release()
+        await older
+      } finally {
+        release()
+        await older.catch(() => undefined)
+        process.env.CODESEARCH_URL = upstream
+        await new Promise<void>((resolve, reject) =>
+          proxy.close((error) => (error ? reject(error) : resolve())),
+        )
+      }
       expect(await getRepositoryForOrg(f.org.id, f.repositoryId)).toMatchObject(
         { indexingStatus: "ready", indexingStepKey: null },
       )

@@ -23,6 +23,7 @@ it.each([
   "empty",
   "select-existing",
   "first writer",
+  "satisfied first writer",
   "read-only",
   "relink",
   "default changed",
@@ -115,7 +116,7 @@ it.each([
           expect(await admit()).toEqual({ started: true })
           expect(errors).toEqual([])
         }
-        if (mode === "first writer") {
+        if (mode === "first writer" || mode === "satisfied first writer") {
           let initialized = false
           f.onWriteCredentialRequest(async () => {
             if (initialized) return
@@ -124,7 +125,20 @@ it.each([
             mkdirSync(human)
             f.git("init", "--initial-branch=trunk", human)
             writeFileSync(join(human, "README.md"), "# Human first commit\n")
-            f.git("-C", human, "add", "README.md")
+            if (mode === "satisfied first writer") {
+              writeFileSync(
+                join(human, "AGENTS.md"),
+                "---\nname: Hydration contract\n---\n\n<!-- ctxpipe:folder-map -->\n## Folder Structure\n\nUse knowledge/ and repositories/.\n<!-- /ctxpipe:folder-map -->\n",
+              )
+              mkdirSync(join(human, ".agents/skills/ctxpipe-knowledge"), {
+                recursive: true,
+              })
+              writeFileSync(
+                join(human, ".agents/skills/ctxpipe-knowledge/SKILL.md"),
+                "---\nname: ctxpipe-knowledge\n---\n\nWrite knowledge/ files with confidence 0.5 or 0.7. Avoid obj_ jargon.\n",
+              )
+            }
+            f.git("-C", human, "add", ".")
             f.git(
               "-C",
               human,
@@ -214,6 +228,34 @@ it.each([
             )
             .toBe("completed")
           const tip = f.git("--git-dir", f.remote, "rev-parse", "trunk")
+          if (mode === "empty")
+            expect(
+              f.git("--git-dir", f.remote, "log", "-1", "--format=%s", "trunk"),
+            ).toBe("ctxpipe - Bootstrap workspace knowledge")
+          if (mode === "satisfied first writer") {
+            const replay = await runner.runWorkflow(workspaceBootstrap.spec, {
+              orgId: f.org.id,
+              workspaceId: f.workspaceId,
+              jobId,
+              bootstrapBinding: {
+                workspaceId: f.workspaceId,
+                generation: 1,
+                remote: f.revision.remote,
+                defaultBranch: "trunk",
+              },
+            })
+            expect(await replay.result({ timeoutMs: 15_000 })).toEqual({
+              committed: false,
+              reason: "no_changes",
+            })
+            expect(
+              f.git("--git-dir", f.remote, "rev-list", "--count", "trunk"),
+            ).toBe("1")
+            expect(
+              f.git("--git-dir", f.remote, "show", "trunk:README.md"),
+            ).toBe("# Human first commit")
+            return
+          }
           expect(
             f.git("--git-dir", f.remote, "rev-list", "--count", "trunk"),
           ).toBe(mode === "first writer" ? "2" : "1")

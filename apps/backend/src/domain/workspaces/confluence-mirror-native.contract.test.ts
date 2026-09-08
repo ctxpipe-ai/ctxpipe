@@ -25,6 +25,7 @@ it.each(["full", "space", "failed", "rebind"] as const)(
         : "version: 1\nsource: confluence\nspaces: []\n"
     await withNativeHydrationFixture(
       {
+        namespaceId: "default",
         github: true,
         githubWriteView: "writable",
         writeStatus: "writable",

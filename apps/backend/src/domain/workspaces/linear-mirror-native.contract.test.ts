@@ -24,6 +24,7 @@ it.each(["entity", "full", "rebind"] as const)(
       "version: 1\nsource: linear\nworkspace:\n  id: provider-workspace\n  name: Fixture\nscope: {}\n"
     await withNativeHydrationFixture(
       {
+        namespaceId: "default",
         github: true,
         githubWriteView: "writable",
         writeStatus: "writable",
