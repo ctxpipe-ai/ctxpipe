@@ -10,6 +10,14 @@ import { parseSimpleFrontMatter } from "./layout.js"
 import type { ExistingKnowledgeFile } from "./migration-export.js"
 import { normalizeWorkspaceRepositoryUrl } from "./slug.js"
 
+function canonicalEvidencePath(value: string): string | null {
+  const path = posix.normalize(value)
+  if (path === ".." || path.startsWith("../") || path.startsWith("/"))
+    return null
+  const relative = path.replace(/\/$/, "")
+  return relative === "." ? "" : relative
+}
+
 /** Source paths belong to the captured repository, including files deleted since capture. */
 export function extractionEvidencePath(
   source: unknown,
@@ -32,11 +40,7 @@ export function extractionEvidencePath(
     } catch {
       // Older canonical files may contain a literal, unescaped percent sign.
     }
-    if (!fragment) return ""
-    const path = posix.normalize(fragment)
-    return path === ".." || path.startsWith("../") || path.startsWith("/")
-      ? null
-      : path
+    return canonicalEvidencePath(fragment)
   }
   if (
     normalizeWorkspaceRepositoryUrl(repositoryUrl) !==
@@ -44,10 +48,7 @@ export function extractionEvidencePath(
   )
     return null
   if (!source.startsWith(".") && !source.includes("/")) return null
-  const path = posix.normalize(posix.join(posix.dirname(fromPath), source))
-  return path === ".." || path.startsWith("../") || path.startsWith("/")
-    ? null
-    : path
+  return canonicalEvidencePath(posix.join(posix.dirname(fromPath), source))
 }
 
 /** Expire only evidence inspected by this capture; preserve unknown metadata and prose. */

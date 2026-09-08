@@ -4,6 +4,7 @@ import { parseEnv } from "../../config/env.js"
 import { withOrgDbContext } from "../../db/client.js"
 import {
   activateConnectorSync,
+  assertConnectorContentSyncBinding,
   captureConnectorConfigSyncBinding,
   connectorContentBindingSchema,
 } from "../../models/connector-content-sync.js"
@@ -70,15 +71,17 @@ export const linearSyncConfig = defineWorkflow(
       ))
     )
       throw new Error("Connector configuration activation was superseded")
-    if (
-      !(await step.run({ name: "capture-config-binding" }, () =>
+    const capturedBinding = await step.run(
+      { name: "capture-config-binding" },
+      () =>
         captureConnectorConfigSyncBinding({
           orgId: input.orgId,
           connectionId: input.connectionId,
           contentSyncGeneration: input.contentSyncGeneration ?? 0,
+          contentSyncBinding: input.contentSyncBinding,
         }),
-      ))
     )
+    if (!capturedBinding)
       throw new Error("Connector configuration activation was superseded")
     const target = await step.run({ name: "load-linear-binding" }, () =>
       getLinearBindingWithRepoByConnectionId(input.orgId, input.connectionId),
@@ -89,7 +92,16 @@ export const linearSyncConfig = defineWorkflow(
       !target.pendingConfigPrCreating
     )
       throw new Error("Linear sync target is not ready for configuration sync")
+    if (
+      target.repositoryId !== capturedBinding.repositoryId ||
+      target.branch !== capturedBinding.branch
+    )
+      throw new Error("Connector configuration target was superseded")
     const result = await step.run({ name: "sync-config" }, async () => {
+      await assertConnectorContentSyncBinding({
+        ...input,
+        contentSyncBinding: input.contentSyncBinding ?? capturedBinding,
+      })
       const env = parseEnv(process.env)
       const connection = await withOrgDbContext(input.orgId, () =>
         getLinearConnectionByConnectionId(input.orgId, input.connectionId, env),

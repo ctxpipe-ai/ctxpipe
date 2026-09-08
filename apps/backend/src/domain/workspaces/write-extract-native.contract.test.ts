@@ -1,3 +1,4 @@
+import { execFileSync } from "node:child_process"
 import { eq } from "drizzle-orm"
 import { expect, it } from "vitest"
 import { withOrgIdContext } from "../../auth/withAuth.js"
@@ -628,6 +629,8 @@ it.each([
   "publishes claims from existing $path without replacing its owner prose",
   { timeout: 30_000 },
   async ({ path, to, repositorySubject }) => {
+    const instructions =
+      "\n\n    Owner's indented instruction.  \n\n# Billing\nOwner prose.  \n\n\n"
     await withNativeHydrationFixture(
       {
         github: true,
@@ -636,7 +639,7 @@ it.each([
         files: [
           {
             path,
-            body: "---\ncustom: Owner metadata\n---\n\n# Billing\nOwner prose.\n",
+            body: `---\ncustom: Owner metadata\n---${instructions}`,
           },
         ],
       },
@@ -691,7 +694,11 @@ it.each([
           expect(await handle.result({ timeoutMs: 15_000 })).toMatchObject({
             committed: true,
           })
-          const content = f.git("--git-dir", f.remote, "show", `main:${path}`)
+          const content = execFileSync(
+            "git",
+            ["--git-dir", f.remote, "show", `main:${path}`],
+            { encoding: "utf8" },
+          )
           expect(parseSimpleFrontMatter(content).attributes).toEqual({
             custom: "Owner metadata",
             claims: [
@@ -704,7 +711,9 @@ it.each([
               },
             ],
           })
-          expect(content).toContain("# Billing\nOwner prose.")
+          expect(content.slice(content.indexOf("\n---", 4) + 4)).toBe(
+            instructions,
+          )
           expect(content).not.toContain("generated_by")
         } finally {
           await worker.stop()

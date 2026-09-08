@@ -1,13 +1,14 @@
 import { execFile } from "node:child_process"
 import { fileURLToPath } from "node:url"
 import { promisify } from "node:util"
-import { OpenWorkflow } from "openworkflow"
+import { defineWorkflow, OpenWorkflow } from "openworkflow"
 import { BackendPostgres } from "openworkflow/postgres"
 import { expect, it } from "vitest"
 import { withOrgIdContext } from "../auth/withAuth.js"
 import { reconcileWorkspaceWriteJob } from "../models/workspace-write-jobs.js"
 import { withNativeHydrationFixture } from "../test/native-hydration-fixture.js"
 import { withLostNativeWorkflowInsertAck } from "../test/native-workflow-ack-loss.js"
+import { withCanceledNativeInsert } from "../test/native-workflow-insert-failure.js"
 import { enqueueWriteJob } from "./enqueue-workspace-write-commit.js"
 import { workspaceFileEdit } from "./workflows/workspace-file-edit.js"
 
@@ -144,6 +145,94 @@ it.each([
           ).toHaveLength(1)
         } finally {
           await worker.stop()
+          await backend.stop()
+        }
+      },
+    )
+  },
+)
+
+it.each(["wrong workflow", "wrong version"] as const)(
+  "does not recover a same-key %s as the typed write owner",
+  { timeout: 30_000 },
+  async (collision) => {
+    await withNativeHydrationFixture(
+      { github: true, githubWriteView: "writable", writeStatus: "writable" },
+      async (f) => {
+        const jobId = `wjob_${f.id}_identity`
+        const backend = await BackendPostgres.connect(f.databaseUrl, {
+          runMigrations: false,
+        })
+        const runner = new OpenWorkflow({ backend })
+        const unrelated = defineWorkflow(
+          {
+            ...workspaceFileEdit.spec,
+            name:
+              collision === "wrong workflow"
+                ? "workspace-write-bootstrap"
+                : workspaceFileEdit.spec.name,
+            ...(collision === "wrong version"
+              ? { version: "unrelated-version" }
+              : {}),
+          },
+          workspaceFileEdit.fn,
+        )
+        runner.implementWorkflow(unrelated.spec, unrelated.fn)
+        try {
+          const wrongOwner = await runner.runWorkflow(
+            unrelated.spec,
+            {
+              orgId: f.org.id,
+              workspaceId: f.workspaceId,
+              jobId,
+              revision: { ...f.revision, access: "write-default" },
+              files: [
+                {
+                  path: "knowledge/accepted.md",
+                  content: "# Intended write\n",
+                },
+              ],
+              deletePaths: [],
+            },
+            { idempotencyKey: jobId },
+          )
+          await wrongOwner.cancel()
+          const errors: string[] = []
+          const admit = () =>
+            withOrgIdContext(f.org, () =>
+              enqueueWriteJob(
+                {
+                  orgId: f.org.id,
+                  workspaceId: f.workspaceId,
+                  jobId,
+                  kind: "ui_file_edit",
+                  mergeFiles: [
+                    {
+                      path: "knowledge/accepted.md",
+                      content: "# Intended write\n",
+                    },
+                  ],
+                },
+                {
+                  error: (error) => {
+                    errors.push(error.message)
+                  },
+                },
+              ),
+            )
+          const admitted =
+            collision === "wrong workflow"
+              ? await withCanceledNativeInsert(f.databaseUrl, admit)
+              : await admit()
+          expect(admitted).toEqual({ started: false })
+          expect(errors).toHaveLength(1)
+          const job = await withOrgIdContext(f.org, () =>
+            reconcileWorkspaceWriteJob(jobId),
+          )
+          expect(job?.status).toBe("failed")
+          expect(job?.payload?.workflowRunId).toBeUndefined()
+          expect(f.git("--git-dir", f.remote, "rev-parse", "main")).toBe(f.sha)
+        } finally {
           await backend.stop()
         }
       },

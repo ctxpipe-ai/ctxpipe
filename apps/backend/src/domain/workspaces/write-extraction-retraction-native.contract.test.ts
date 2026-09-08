@@ -168,6 +168,15 @@ it.each([
       "https://github.com/fixture/hydration-contract.git#./src/../src/billing.ts",
     source: "https://github.com/fixture/hydration-contract.git#src/billing.ts",
   },
+  ...["./", "src/..", "relative"].map((root) => ({
+    mode: `repository root ${root}`,
+    sourcePath: undefined,
+    existingSource:
+      root === "relative"
+        ? "../.."
+        : `https://github.com/fixture/hydration-contract.git#${root}`,
+    source: "https://github.com/fixture/hydration-contract.git",
+  })),
   {
     mode: "normalized URL evidence",
     sourcePath: "src/billing.ts",
@@ -283,7 +292,10 @@ Owner notes.
               source:
                 "https://github.com/fixture/hydration-contract.git#src/retired.ts",
               valid_from: "2026-08-01T00:00:00.000Z",
-              valid_to: "2026-09-02T00:00:00.000Z",
+              // A repository-wide assertion does not disprove specific-file evidence.
+              ...(sourcePath === undefined
+                ? {}
+                : { valid_to: "2026-09-02T00:00:00.000Z" }),
               note: "Retired source annotation",
             },
             {

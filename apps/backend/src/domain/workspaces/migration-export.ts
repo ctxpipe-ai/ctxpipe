@@ -96,17 +96,24 @@ export function importedObjectMarkdown(input: {
 
 function mergeExistingImportedMarkdown(
   original: string,
-  input: Parameters<typeof importedFrontMatter>[0],
+  input: Omit<Parameters<typeof importedFrontMatter>[0], "body"> & {
+    body?: string
+  },
   claimIdentity?: (claim: ImportedMarkdownClaim) => string,
 ): string {
-  const metadata = parseSimpleFrontMatter(importedFrontMatter(input)).attributes
+  const metadata = parseSimpleFrontMatter(
+    importedFrontMatter({ ...input, body: input.body ?? "" }),
+  ).attributes
   const header = original.match(
     /^(\uFEFF?---[ \t]*\r?\n(?:[\s\S]*?\r?\n)?---[ \t]*)(?=\r?\n|$)/,
   )?.[0]
   const newline = original.includes("\r\n") ? "\r\n" : "\n"
-  const withBody = header
-    ? `${header}${newline}${newline}${input.body.trim()}${newline}`
-    : input.body
+  const withBody =
+    input.body === undefined
+      ? original
+      : header
+        ? `${header}${newline}${newline}${input.body.trim()}${newline}`
+        : input.body
   return updateKnowledgeMetadata(withBody, (document) => {
     if (input.importKey === null) removeMetadataKey(document, "import_key")
     for (const [key, value] of Object.entries(metadata)) {
@@ -680,7 +687,6 @@ export async function planKnowledgeProjection(input: {
       content: mergeExistingImportedMarkdown(
         existing.content,
         {
-          body: parsed.body,
           claims: claimsByPath.get(path),
         },
         claimIdentity ? (claim) => claimIdentity(path, claim) : undefined,

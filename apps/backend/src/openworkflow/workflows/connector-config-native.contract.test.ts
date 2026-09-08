@@ -1,5 +1,5 @@
 import { eq, sql } from "drizzle-orm"
-import { defineWorkflow } from "openworkflow"
+import { defineWorkflow, OpenWorkflow } from "openworkflow"
 import { BackendPostgres } from "openworkflow/postgres"
 import { Pool } from "pg"
 import { expect, it } from "vitest"
@@ -17,18 +17,32 @@ import {
 } from "../../lib/connection-config.js"
 import { getConfluenceSyncTargetWithRepoByConnectionId } from "../../models/confluence-sync-target.js"
 import { upsertConnectionDirectory } from "../../models/connection-directory.js"
-import { activateConnectorSync } from "../../models/connector-content-sync.js"
+import {
+  activateConnectorSync,
+  captureConnectorConfigSyncBinding,
+} from "../../models/connector-content-sync.js"
 import { getLinearBindingWithRepoByConnectionId } from "../../models/linear-connector.js"
 import { getNotionBindingWithRepoByConnectionId } from "../../models/notion-connector.js"
 import { withNativeHydrationFixture } from "../../test/native-hydration-fixture.js"
 import { confluenceSyncConfig } from "./confluence-sync-config.js"
-import { linearSyncConfig } from "./linear-sync-config.js"
+import {
+  type LinearConfigSyncInput,
+  linearSyncConfig,
+} from "./linear-sync-config.js"
 import { notionSyncConfig } from "./notion-sync-config.js"
 
 it.each(
   (["linear", "notion", "confluence"] as const).flatMap((provider) => [
     { provider, failure: false, stale: false, close: false, ownerFirst: false },
     { provider, failure: false, stale: false, close: false, ownerFirst: true },
+    {
+      provider,
+      failure: false,
+      stale: false,
+      close: false,
+      ownerFirst: true,
+      captureRestart: true,
+    },
     {
       provider,
       failure: false,
@@ -74,12 +88,14 @@ it.each(
     ],
   ]),
 )(
-  "native $provider config admission (failure=$failure; stale=$stale; close=$close; ownerFirst=$ownerFirst; upgrade=$upgrade; generationSwap=$generationSwap; replay=$replay; cancel=$cancel)",
+  "native $provider config admission (failure=$failure; stale=$stale; close=$close; ownerFirst=$ownerFirst; upgrade=$upgrade; generationSwap=$generationSwap; replay=$replay; cancel=$cancel; captureRestart=$captureRestart)",
   { timeout: 30_000 },
   async (scenario) => {
     const { provider, failure, stale, close, ownerFirst } = scenario
     const upgrade = "upgrade" in scenario && scenario.upgrade
     const replay = "replay" in scenario && scenario.replay
+    const captureRestart =
+      "captureRestart" in scenario && scenario.captureRestart
 
     const config =
       provider === "linear"
@@ -283,12 +299,46 @@ it.each(
           }
           return
         }
-        f.runner.implementWorkflow(linearSyncConfig.spec, linearSyncConfig.fn)
-        f.runner.implementWorkflow(notionSyncConfig.spec, notionSyncConfig.fn)
-        f.runner.implementWorkflow(
-          confluenceSyncConfig.spec,
-          confluenceSyncConfig.fn,
-        )
+        let captured!: () => void
+        const captureReady = new Promise<void>((resolve) => {
+          captured = resolve
+        })
+        if (captureRestart) {
+          const prior = defineWorkflow<
+            LinearConfigSyncInput,
+            { changed: boolean }
+          >(
+            { name: `${provider}-sync-config` },
+            async ({ input, step, run }) => {
+              await step.run({ name: "activate-config-sync" }, () =>
+                activateConnectorSync({
+                  purpose: "config",
+                  orgId: input.orgId,
+                  connectionId: input.connectionId,
+                  workflowRunId: run.id,
+                }),
+              )
+              await step.run({ name: "capture-config-binding" }, () =>
+                captureConnectorConfigSyncBinding({
+                  orgId: input.orgId,
+                  connectionId: input.connectionId,
+                  contentSyncGeneration: input.contentSyncGeneration ?? 0,
+                }),
+              )
+              captured()
+              await step.sleep("fixture-restart-boundary", "5 seconds")
+              return { changed: false }
+            },
+          )
+          f.runner.implementWorkflow(prior.spec, prior.fn)
+        } else {
+          f.runner.implementWorkflow(linearSyncConfig.spec, linearSyncConfig.fn)
+          f.runner.implementWorkflow(notionSyncConfig.spec, notionSyncConfig.fn)
+          f.runner.implementWorkflow(
+            confluenceSyncConfig.spec,
+            confluenceSyncConfig.fn,
+          )
+        }
         const command = {
           orgId: f.org.id,
           orgSlug: f.org.slug,
@@ -313,14 +363,20 @@ it.each(
         const handle =
           provider === "linear"
             ? await f.runner.runWorkflow(linearSyncConfig.spec, command, {
-                deadlineAt: new Date(Date.now() + 5000),
+                deadlineAt: new Date(
+                  Date.now() + (captureRestart ? 15_000 : 5000),
+                ),
               })
             : provider === "notion"
               ? await f.runner.runWorkflow(notionSyncConfig.spec, command, {
-                  deadlineAt: new Date(Date.now() + 5000),
+                  deadlineAt: new Date(
+                    Date.now() + (captureRestart ? 15_000 : 5000),
+                  ),
                 })
               : await f.runner.runWorkflow(confluenceSyncConfig.spec, command, {
-                  deadlineAt: new Date(Date.now() + 5000),
+                  deadlineAt: new Date(
+                    Date.now() + (captureRestart ? 15_000 : 5000),
+                  ),
                 })
         if ("cancel" in scenario) {
           try {
@@ -398,16 +454,45 @@ it.each(
               .where(eq(connections.id, connectionId)),
           )
         }
-        const worker = f.runner.newWorker({ concurrency: 1 })
+        let worker = f.runner.newWorker({ concurrency: 1 })
         try {
           await worker.start()
-          if (failure || stale || close)
-            await expect(handle.result({ timeoutMs: 12_000 })).rejects.toThrow()
+          if (captureRestart) {
+            await Promise.race([
+              captureReady,
+              handle.result({ timeoutMs: 10_000 }).then(() => {
+                throw new Error(
+                  "Historical configuration completed before restart",
+                )
+              }),
+            ])
+            await worker.stop()
+            await rebind()
+            const resumed = new OpenWorkflow({ backend: f.backend })
+            resumed.implementWorkflow(
+              linearSyncConfig.spec,
+              linearSyncConfig.fn,
+            )
+            resumed.implementWorkflow(
+              notionSyncConfig.spec,
+              notionSyncConfig.fn,
+            )
+            resumed.implementWorkflow(
+              confluenceSyncConfig.spec,
+              confluenceSyncConfig.fn,
+            )
+            worker = resumed.newWorker({ concurrency: 1 })
+            await worker.start()
+          }
+          if (failure || stale || close || captureRestart)
+            await expect(
+              handle.result({ timeoutMs: captureRestart ? 18_000 : 12_000 }),
+            ).rejects.toThrow()
           else
             expect(await handle.result({ timeoutMs: 12_000 })).toEqual({
               changed: false,
             })
-          if (ownerFirst)
+          if (ownerFirst && !captureRestart)
             expect(
               await activateConnectorSync({
                 purpose: "config",
@@ -424,7 +509,7 @@ it.each(
           expect(await read(f.org.id, connectionId)).toMatchObject({
             setupPhase: failure
               ? "config_failed"
-              : stale || close
+              : stale || close || captureRestart
                 ? "awaiting_merge"
                 : "initial_sync",
           })
@@ -435,7 +520,7 @@ it.each(
         `),
           )
           expect(owners.rows).toEqual(
-            failure || stale || close
+            failure || stale || close || captureRestart
               ? []
               : [{ status: "pending", generation: ownerFirst ? "2" : "1" }],
           )

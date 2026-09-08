@@ -1,0 +1,48 @@
+{"name": "admission-native-owner-identity-red-native-version", "cwd": "/private/tmp/ctxpipe-recovery-01a07aba", "command": ["/Users/jakubriedl/.volta/tools/image/node/22.16.0/bin/node", "apps/backend/node_modules/vitest/vitest.mjs", "run", "--root", "apps/backend", "src/openworkflow/workspace-admission-ack-native.contract.test.ts", "-t", "same-key"], "environment": {"AUTH_SECRET": "gate0-local-disposable-test-secret-20260907", "DATABASE_URL": "postgresql://ctxpipe_app:ctxpipe@127.0.0.1:61314/ctxpipe_gate0_fresh", "GRAPH_DB_URI": "redis://127.0.0.1:6398", "CI": "true", "NO_COLOR": "1", "TURBO_TELEMETRY_DISABLED": "1", "STORYBOOK_DISABLE_TELEMETRY": "1", "PATH": "/Users/jakubriedl/.volta/tools/image/node/22.16.0/bin:/private/tmp/ctxpipe-recovery-runtime/ast-grep/node_modules/.bin:/private/tmp/ctxpipe-recovery-runtime/node_modules/.bin:/private/tmp/ctxpipe-recovery-runtime/zoekt:/usr/local/bin:/System/Cryptexes/App/usr/bin:/usr/bin:/bin:/usr/sbin:/sbin:/var/run/com.apple.security.cryptexd/codex.system/bootstrap/usr/local/bin:/var/run/com.apple.security.cryptexd/codex.system/bootstrap/usr/bin:/var/run/com.apple.security.cryptexd/codex.system/bootstrap/usr/appleinternal/bin:/pkg/env/global/bin:/Users/jakubriedl/.codex/tmp/arg0/codex-arg0BW5Gt3:/Users/jakubriedl/.cache/codex-runtimes/codex-primary-runtime/dependencies/bin/override:/Users/jakubriedl/.local/bin:/Users/jakubriedl/.bun/bin:/Users/jakubriedl/.opencode/bin:/Users/jakubriedl/.volta/bin:/opt/homebrew/bin:/opt/homebrew/sbin:/Users/jakubriedl/.cache/codex-runtimes/codex-primary-runtime/dependencies/bin/fallback:/Applications/ChatGPT.app/Contents/Resources"}, "timeout_seconds": 600, "started_utc": "2026-09-08T22:22:43Z", "log": "logs/admission-native-owner-identity-red-native-version.log"}
+
+ RUN  v4.0.18 /private/tmp/ctxpipe-recovery-01a07aba/apps/backend
+
+Cloning into bare repository '/var/folders/9t/jj9rnpps7_ddb72c1mq2k13w0000gn/T/ctxpipe-hydration-contract-GD8FCO/remote.git'...
+done.
+Cloning into bare repository '/var/folders/9t/jj9rnpps7_ddb72c1mq2k13w0000gn/T/ctxpipe-hydration-contract-tWi3EY/remote.git'...
+done.
+ ❯ src/openworkflow/workspace-admission-ack-native.contract.test.ts (6 tests | 2 failed | 4 skipped) 1024ms
+   ↓ projects native 'returned-row' acknowledgement loss through 'commit'
+   ↓ projects native 'disconnect' acknowledgement loss through 'commit'
+   ↓ projects native 'returned-row' acknowledgement loss through 'cancel'
+   ↓ projects native 'disconnect' acknowledgement loss through 'cancel'
+   × does not recover a same-key wrong workflow as the typed write owner 670ms
+   × does not recover a same-key wrong version as the typed write owner 354ms
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 2 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  src/openworkflow/workspace-admission-ack-native.contract.test.ts > does not recover a same-key wrong workflow as the typed write owner
+ FAIL  src/openworkflow/workspace-admission-ack-native.contract.test.ts > does not recover a same-key wrong version as the typed write owner
+AssertionError: expected { started: true } to deeply equal { started: false }
+
+- Expected
++ Received
+
+  {
+-   "started": false,
++   "started": true,
+  }
+
+ ❯ src/openworkflow/workspace-admission-ack-native.contract.test.ts:227:28
+    225|               ? await withCanceledNativeInsert(f.databaseUrl, admit)
+    226|               : await admit()
+    227|           expect(admitted).toEqual({ started: false })
+       |                            ^
+    228|           expect(errors).toHaveLength(1)
+    229|           const job = await withOrgIdContext(f.org, () =>
+ ❯ withNativeHydrationFixture src/test/native-hydration-fixture.ts:647:5
+ ❯ src/openworkflow/workspace-admission-ack-native.contract.test.ts:159:5
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/2]⎯
+
+
+ Test Files  1 failed (1)
+      Tests  2 failed | 4 skipped (6)
+   Start at  08:22:43
+   Duration  3.43s (transform 776ms, setup 19ms, import 2.31s, tests 1.02s, environment 0ms)
+

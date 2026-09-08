@@ -574,6 +574,8 @@ function nativeWriteJobOwnerId() {
     where scheduled.input->>'orgId' = workspace_write_jobs.org_id
       and scheduled.input->>'workspaceId' = workspace_write_jobs.workspace_id
       and scheduled.input->>'jobId' = workspace_write_jobs.id
+      and scheduled.workflow_name = 'workspace-write-' || replace(workspace_write_jobs.kind, '_', '-')
+      and scheduled.version is null
       and (scheduled.id = workspace_write_jobs.payload->>'workflowRunId'
         or (workspace_write_jobs.payload->>'workflowRunId' is null
           and scheduled.namespace_id = 'default' and scheduled.idempotency_key = workspace_write_jobs.id

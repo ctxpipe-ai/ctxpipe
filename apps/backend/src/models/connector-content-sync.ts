@@ -382,6 +382,7 @@ export async function captureConnectorConfigSyncBinding(input: {
   orgId: string
   connectionId: string
   contentSyncGeneration: number
+  contentSyncBinding?: ContentBinding
 }) {
   return withOrgDbContext(input.orgId, async (db) => {
     const [connection] = await db
@@ -398,7 +399,9 @@ export async function captureConnectorConfigSyncBinding(input: {
       !current?.enabled ||
       !current.installed ||
       current.setupPhase !== "awaiting_merge" ||
-      !current.pendingConfigPrCreating
+      !current.pendingConfigPrCreating ||
+      (input.contentSyncBinding &&
+        !sameBinding(input.contentSyncBinding, current.binding))
     )
       return null
     return current.binding

@@ -8,6 +8,7 @@ import {
 } from "../../models/confluence-sync-target.js"
 import {
   activateConnectorSync,
+  assertConnectorContentSyncBinding,
   captureConnectorConfigSyncBinding,
   connectorContentBindingSchema,
 } from "../../models/connector-content-sync.js"
@@ -71,15 +72,17 @@ export const confluenceSyncConfig = defineWorkflow(
       ))
     )
       throw new Error("Connector configuration activation was superseded")
-    if (
-      !(await step.run({ name: "capture-config-binding" }, () =>
+    const capturedBinding = await step.run(
+      { name: "capture-config-binding" },
+      () =>
         captureConnectorConfigSyncBinding({
           orgId: input.orgId,
           connectionId: input.connectionId,
           contentSyncGeneration: input.contentSyncGeneration ?? 0,
+          contentSyncBinding: input.contentSyncBinding,
         }),
-      ))
     )
+    if (!capturedBinding)
       throw new Error("Connector configuration activation was superseded")
     const target = await step.run({ name: "load-confluence-binding" }, () =>
       getConfluenceSyncTargetWithRepoByConnectionId(
@@ -97,16 +100,25 @@ export const confluenceSyncConfig = defineWorkflow(
       throw new Error(
         "Confluence sync target is not ready for configuration sync",
       )
-    const result = await step.run({ name: "sync-config" }, () =>
-      syncConfluenceConfigYaml({
+    if (
+      target.repositoryId !== capturedBinding.repositoryId ||
+      target.branch !== capturedBinding.branch
+    )
+      throw new Error("Connector configuration target was superseded")
+    const result = await step.run({ name: "sync-config" }, async () => {
+      await assertConnectorContentSyncBinding({
+        ...input,
+        contentSyncBinding: input.contentSyncBinding ?? capturedBinding,
+      })
+      return syncConfluenceConfigYaml({
         orgId: input.orgId,
         orgSlug: input.orgSlug,
         env: parseEnv(process.env),
         connectionId: input.connectionId,
         target,
         spaces: input.spaces,
-      }),
-    )
+      })
+    })
     if (result.changed) {
       const transitioned = await step.run(
         { name: "persist-config-pr-state" },

@@ -4,6 +4,7 @@ import { parseEnv } from "../../config/env.js"
 import { withOrgDbContext } from "../../db/client.js"
 import {
   activateConnectorSync,
+  assertConnectorContentSyncBinding,
   captureConnectorConfigSyncBinding,
   connectorContentBindingSchema,
 } from "../../models/connector-content-sync.js"
@@ -67,15 +68,17 @@ export const notionSyncConfig = defineWorkflow(
       ))
     )
       throw new Error("Connector configuration activation was superseded")
-    if (
-      !(await step.run({ name: "capture-config-binding" }, () =>
+    const capturedBinding = await step.run(
+      { name: "capture-config-binding" },
+      () =>
         captureConnectorConfigSyncBinding({
           orgId: input.orgId,
           connectionId: input.connectionId,
           contentSyncGeneration: input.contentSyncGeneration ?? 0,
+          contentSyncBinding: input.contentSyncBinding,
         }),
-      ))
     )
+    if (!capturedBinding)
       throw new Error("Connector configuration activation was superseded")
     const binding = await step.run({ name: "load-notion-binding" }, () =>
       getNotionBindingWithRepoByConnectionId(input.orgId, input.connectionId),
@@ -92,16 +95,25 @@ export const notionSyncConfig = defineWorkflow(
       throw new Error("Notion binding is not ready for configuration sync")
     }
 
-    const result = await step.run({ name: "sync-config" }, () =>
-      syncNotionConfigYaml({
+    if (
+      binding.repositoryId !== capturedBinding.repositoryId ||
+      binding.branch !== capturedBinding.branch
+    )
+      throw new Error("Connector configuration target was superseded")
+    const result = await step.run({ name: "sync-config" }, async () => {
+      await assertConnectorContentSyncBinding({
+        ...input,
+        contentSyncBinding: input.contentSyncBinding ?? capturedBinding,
+      })
+      return syncNotionConfigYaml({
         orgId: input.orgId,
         orgSlug: input.orgSlug,
         env: parseEnv(process.env),
         connectionId: input.connectionId,
         binding,
         resources: input.resources,
-      }),
-    )
+      })
+    })
     if (result.changed) {
       const transitioned = await step.run(
         { name: "persist-config-pr-state" },
