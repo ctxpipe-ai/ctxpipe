@@ -407,100 +407,6 @@ describe("Linear connector routes", () => {
     expect(mocks.runWorkflow).not.toHaveBeenCalled()
   })
 
-  it("retries failed configuration pull request creation", async () => {
-    mocks.getTarget.mockResolvedValueOnce({
-      repositoryId: "repo_1",
-      repositoryName: "acme/context",
-      githubConnectionId: "con_github",
-      branch: "main",
-      setupPhase: "config_failed",
-      pendingConfigPullUrl: "https://github.com/acme/context/pull/42",
-    })
-    mocks.patchConfig.mockResolvedValueOnce({
-      scopes: [{ externalId: "team-1" }],
-      configPrClaimed: true,
-      previousConfigPrState: {
-        pendingConfigPullUrl: null,
-        setupPhase: "config_failed",
-      },
-    })
-    const app = appWithVariables().route(
-      "/acme/api/v1/connectors/linear",
-      linearConnectorRoutes,
-    )
-    const response = await app.request(
-      "/acme/api/v1/connectors/linear/retry-config?connectionId=con_linear",
-      { method: "POST" },
-    )
-
-    expect(response.status).toBe(202)
-    expect(mocks.runWorkflow).toHaveBeenCalledWith(
-      { name: "linear-sync-config" },
-      {
-        orgId: "org_1",
-        orgSlug: "acme",
-        connectionId: "con_linear",
-        scopes,
-      },
-    )
-    expect(mocks.patchConfig).toHaveBeenCalledWith({
-      orgId: "org_1",
-      connectionId: "con_linear",
-      scopes,
-      claimConfigPrCreation: true,
-    })
-  })
-
-  it("retries config with submitted scopes when no git draft exists", async () => {
-    mocks.getTarget.mockResolvedValueOnce({
-      repositoryId: "repo_1",
-      repositoryName: "acme/context",
-      githubConnectionId: "con_github",
-      branch: "main",
-      setupPhase: "config_failed",
-      pendingConfigPullUrl: null,
-    })
-    mocks.loadConfig.mockResolvedValueOnce(null)
-    mocks.patchConfig.mockResolvedValueOnce({
-      scopes,
-      configPrClaimed: true,
-      previousConfigPrState: {
-        pendingConfigPullUrl: null,
-        setupPhase: "config_failed",
-      },
-    })
-    const app = appWithVariables().route(
-      "/acme/api/v1/connectors/linear",
-      linearConnectorRoutes,
-    )
-
-    const response = await app.request(
-      "/acme/api/v1/connectors/linear/retry-config?connectionId=con_linear",
-      {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify({ scopes }),
-      },
-    )
-
-    expect(response.status).toBe(202)
-    expect(mocks.patchConfig).toHaveBeenCalledWith({
-      orgId: "org_1",
-      connectionId: "con_linear",
-      scopes,
-      claimConfigPrCreation: true,
-    })
-    expect(mocks.runWorkflow).toHaveBeenCalledWith(
-      { name: "linear-sync-config" },
-      {
-        orgId: "org_1",
-        orgSlug: "acme",
-        connectionId: "con_linear",
-        scopes,
-      },
-    )
-  })
-
   it("restores the prior phase when configuration enqueue fails", async () => {
     mocks.patchConfig.mockResolvedValueOnce({
       scopes: [],
@@ -552,22 +458,6 @@ describe("Linear connector routes", () => {
 
     expect(response.status).toBe(400)
     expect(mocks.claimContentRetry).not.toHaveBeenCalled()
-    expect(mocks.runWorkflow).not.toHaveBeenCalled()
-  })
-
-  it("does not enqueue a content retry when another request claimed it", async () => {
-    mocks.claimContentRetry.mockResolvedValueOnce(false)
-    const app = appWithVariables().route(
-      "/acme/api/v1/connectors/linear",
-      linearConnectorRoutes,
-    )
-
-    const response = await app.request(
-      "/acme/api/v1/connectors/linear/retry?connectionId=con_linear",
-      { method: "POST" },
-    )
-
-    expect(response.status).toBe(409)
     expect(mocks.runWorkflow).not.toHaveBeenCalled()
   })
 })

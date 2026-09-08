@@ -2,13 +2,9 @@ import { createRoute, OpenAPIHono, z } from "@hono/zod-openapi"
 import type { AppEnv } from "../../app/env.js"
 import { hasOrgAdminOrOwnerRole } from "../../auth/withAuth.js"
 import { withOrgDbContext } from "../../db/client.js"
-import {
-  getConnectorContentSyncGeneration,
-  reconcileConnectorContentSync,
-} from "../../models/connector-content-sync.js"
+import { getConnectorContentSyncGeneration } from "../../models/connector-content-sync.js"
 import { orgHasAnyGithubConnection } from "../../models/github-installation.js"
 import {
-  claimLinearContentSyncRetry,
   deleteLinearConnectionById,
   getLinearBindingWithRepoByConnectionId,
   type LinearBindingWithRepo,
@@ -26,9 +22,9 @@ import {
 import { getRepositoryForOrg } from "../../models/repositories.js"
 import { getLogger } from "../../observability/logger.js"
 import { runWorkflowWithWorkerWake } from "../../openworkflow/client.js"
+import { enqueueConnectorContentSync } from "../../openworkflow/enqueue-connector-content-sync.js"
 import { enqueueRepositoryIngestionWorkflow } from "../../openworkflow/enqueue-repository-ingestion.js"
 import { linearSyncConfig } from "../../openworkflow/workflows/linear-sync-config.js"
-import { linearSyncContent } from "../../openworkflow/workflows/linear-sync-content.js"
 import {
   closePullRequest,
   getPullRequestHeadBranch,
@@ -795,6 +791,10 @@ export const linearConnectorRoutes = new OpenAPIHono<AppEnv>()
     if (saved.configPrClaimed && body.scopes !== undefined) {
       try {
         await runWorkflowWithWorkerWake(linearSyncConfig.spec, {
+          contentSyncGeneration: await getConnectorContentSyncGeneration(
+            orgId,
+            installed.connection.id,
+          ),
           orgId,
           orgSlug,
           connectionId: installed.connection.id,
@@ -897,6 +897,10 @@ export const linearConnectorRoutes = new OpenAPIHono<AppEnv>()
     }
     try {
       await runWorkflowWithWorkerWake(linearSyncConfig.spec, {
+        contentSyncGeneration: await getConnectorContentSyncGeneration(
+          orgId,
+          installed.connection.id,
+        ),
         orgId,
         orgSlug,
         connectionId: installed.connection.id,
@@ -954,39 +958,19 @@ export const linearConnectorRoutes = new OpenAPIHono<AppEnv>()
         400,
       )
     }
-    if (!(await claimLinearContentSyncRetry(installed.connection.id))) {
+    const accepted = await enqueueConnectorContentSync({
+      orgId,
+      orgSlug: c.req.param("orgSlug"),
+      connectionId: installed.connection.id,
+      provider: "linear",
+      repositoryId: binding.repositoryId,
+      branch: binding.branch,
+    })
+    if (!accepted)
       return c.json(
         { error: "Linear content sync is already being retried" },
         409,
       )
-    }
-    const contentSyncGeneration = await getConnectorContentSyncGeneration(
-      orgId,
-      installed.connection.id,
-    )
-    try {
-      await runWorkflowWithWorkerWake(
-        linearSyncContent.spec,
-        {
-          contentSyncGeneration,
-          orgId,
-          connectionId: installed.connection.id,
-        },
-        {
-          idempotencyKey: `connector-content:${installed.connection.id}:${contentSyncGeneration}`,
-        },
-      )
-    } catch (error) {
-      if (
-        await reconcileConnectorContentSync({
-          orgId,
-          connectionId: installed.connection.id,
-          admissionFailedGeneration: contentSyncGeneration,
-        })
-      )
-        return c.json({ accepted: true as const }, 202)
-      throw error
-    }
     return c.json({ accepted: true as const }, 202)
   })
   .openapi(deleteLinearConnectorRoute, async (c) => {

@@ -2,14 +2,10 @@ import { createHmac, timingSafeEqual } from "node:crypto"
 import { createRoute, OpenAPIHono, z } from "@hono/zod-openapi"
 import type { AppEnv } from "../../app/env.js"
 import { withOrgDbContext } from "../../db/client.js"
-import {
-  getConnectorContentSyncGeneration,
-  reconcileConnectorContentSync,
-} from "../../models/connector-content-sync.js"
+import { getConnectorContentSyncGeneration } from "../../models/connector-content-sync.js"
 import { orgHasAnyGithubConnection } from "../../models/github-installation.js"
 import {
   claimNotionConfigPrCreation,
-  claimNotionContentSyncRetry,
   deleteNotionConnectionById,
   getNotionBindingWithRepoByConnectionId,
   MULTIPLE_NOTION_CONNECTIONS_MESSAGE,
@@ -22,9 +18,9 @@ import {
 } from "../../models/notion-connector.js"
 import { getLogger } from "../../observability/logger.js"
 import { runWorkflowWithWorkerWake } from "../../openworkflow/client.js"
+import { enqueueConnectorContentSync } from "../../openworkflow/enqueue-connector-content-sync.js"
 import { enqueueRepositoryIngestionWorkflow } from "../../openworkflow/enqueue-repository-ingestion.js"
 import { notionSyncConfig } from "../../openworkflow/workflows/notion-sync-config.js"
-import { notionSyncContent } from "../../openworkflow/workflows/notion-sync-content.js"
 import { getPullRequestHeadBranch } from "../../services/github/installation-write-client.js"
 import {
   exchangeNotionOAuthCode,
@@ -888,6 +884,8 @@ export const notionConnectorRoutes = notionOAuthStartRoutes
     }
     const orgId = c.get("orgId")
     if (!orgId) return c.json({ error: "Unauthorized" }, 401)
+    const orgSlug = c.get("orgSlug") ?? c.req.param("orgSlug")
+    if (!orgSlug) return c.json({ error: "Missing org slug" }, 400)
     const { connectionId } = ConnectionIdQuerySchema.parse({
       connectionId: c.req.query("connectionId") ?? undefined,
     })
@@ -947,8 +945,12 @@ export const notionConnectorRoutes = notionOAuthStartRoutes
     if (previousConfigPrState && body.resources !== undefined) {
       try {
         await runWorkflowWithWorkerWake(notionSyncConfig.spec, {
+          contentSyncGeneration: await getConnectorContentSyncGeneration(
+            orgId,
+            installed.connection.id,
+          ),
           orgId,
-          orgSlug: c.req.param("orgSlug"),
+          orgSlug,
           connectionId: installed.connection.id,
           resources: body.resources,
         })
@@ -1042,6 +1044,10 @@ export const notionConnectorRoutes = notionOAuthStartRoutes
     }
     try {
       await runWorkflowWithWorkerWake(notionSyncConfig.spec, {
+        contentSyncGeneration: await getConnectorContentSyncGeneration(
+          orgId,
+          installed.connection.id,
+        ),
         orgId,
         orgSlug,
         connectionId: installed.connection.id,
@@ -1099,40 +1105,19 @@ export const notionConnectorRoutes = notionOAuthStartRoutes
         400,
       )
     }
-    if (!(await claimNotionContentSyncRetry(installed.connection.id))) {
+    const accepted = await enqueueConnectorContentSync({
+      orgId,
+      orgSlug: c.req.param("orgSlug"),
+      connectionId: installed.connection.id,
+      provider: "notion",
+      repositoryId: binding.repositoryId,
+      branch: binding.branch,
+    })
+    if (!accepted)
       return c.json(
         { error: "Notion content sync is already being retried" },
         409,
       )
-    }
-    const contentSyncGeneration = await getConnectorContentSyncGeneration(
-      orgId,
-      installed.connection.id,
-    )
-    try {
-      await runWorkflowWithWorkerWake(
-        notionSyncContent.spec,
-        {
-          contentSyncGeneration,
-          orgId,
-          orgSlug: c.req.param("orgSlug"),
-          connectionId: installed.connection.id,
-        },
-        {
-          idempotencyKey: `connector-content:${installed.connection.id}:${contentSyncGeneration}`,
-        },
-      )
-    } catch (error) {
-      if (
-        await reconcileConnectorContentSync({
-          orgId,
-          connectionId: installed.connection.id,
-          admissionFailedGeneration: contentSyncGeneration,
-        })
-      )
-        return c.json({ accepted: true as const }, 202)
-      throw error
-    }
     return c.json({ accepted: true as const }, 202)
   })
   .openapi(deleteNotionConnectorRoute, async (c) => {

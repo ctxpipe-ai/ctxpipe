@@ -50,6 +50,7 @@ export type NativeHydrationOptions = {
     state: string
     html_url: string
   }
+  onGithubPullRequestUpdate?: (body: unknown) => void | Promise<void>
   onGithubPullRequestRead?: () => void | Promise<void>
   onGithubPrCredential?: () => void | Promise<void>
   onGithubPullRequest?: (body: unknown) => void | Promise<void>
@@ -153,6 +154,27 @@ async function createNativeHydrationFixture(
           ),
         ]
       : []),
+    http.patch(
+      "https://api.github.com/repos/fixture/hydration-contract/pulls/:number",
+      async ({ request }) => {
+        if (!options.onGithubPullRequestUpdate)
+          return HttpResponse.json(
+            { message: "Unexpected pull update" },
+            { status: 400 },
+          )
+        const body = await request.json()
+        await options.onGithubPullRequestUpdate(body)
+        return HttpResponse.json({ number: 41, ...(body as object) })
+      },
+    ),
+    http.post(
+      "https://api.github.com/repos/fixture/hydration-contract/issues/:number/comments",
+      () =>
+        HttpResponse.json(
+          {},
+          { status: options.onGithubPullRequestUpdate ? 201 : 400 },
+        ),
+    ),
     http.post(
       "https://api.github.com/repos/fixture/hydration-contract/pulls",
       async ({ request }) => {

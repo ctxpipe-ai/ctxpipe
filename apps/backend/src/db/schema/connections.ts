@@ -36,6 +36,7 @@ export const connections = pgTable.withRLS(
     contentSyncGeneration: integer("content_sync_generation")
       .notNull()
       .default(0),
+    contentSyncWorkflowRunId: text("content_sync_workflow_run_id"),
     config: jsonb("config").notNull().$type<Record<string, unknown>>(),
     createdAt: timestamp("created_at", { withTimezone: true, mode: "date" })
       .notNull()

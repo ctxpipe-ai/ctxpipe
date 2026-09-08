@@ -1,5 +1,5 @@
 import { and, eq } from "drizzle-orm"
-import { getOrgDb } from "../db/client.js"
+import type { Db } from "../db/client.js"
 import { connections } from "../db/schema/connections.js"
 import { repositories } from "../db/schema/repositories.js"
 import { workspaces } from "../db/schema/workspaces.js"
@@ -21,11 +21,12 @@ export type CapturedConnectorBinding = {
 
 /** Hold the captured target stable only for the final SQL projection. */
 export async function lockConnectorFinalizationBinding(
+  db: Db,
   binding: CapturedConnectorBinding,
   connectionId: string,
 ): Promise<boolean> {
   const { revision } = binding
-  const [row] = await getOrgDb()
+  const [row] = await db
     .select({
       workspace: workspaces,
       repository: repositories,

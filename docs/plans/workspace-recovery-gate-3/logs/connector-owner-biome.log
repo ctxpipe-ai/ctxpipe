@@ -1,0 +1,39 @@
+{"name": "connector-owner-biome", "cwd": "/private/tmp/ctxpipe-recovery-01a07aba", "command": ["/Users/jakubriedl/.volta/tools/image/node/22.16.0/bin/node", "node_modules/@biomejs/biome/bin/biome", "check", "apps/backend/src/db/schema/connections.ts", "apps/backend/src/domain/workspaces/connector-finalization-native.contract.test.ts", "apps/backend/src/models/atlassian-connector.ts", "apps/backend/src/models/confluence-sync-target.ts", "apps/backend/src/models/connector-content-sync.ts", "apps/backend/src/models/connector-finalization.ts", "apps/backend/src/models/linear-connector.ts", "apps/backend/src/models/notion-connector.ts", "apps/backend/src/openworkflow/client.ts", "apps/backend/src/openworkflow/enqueue-confluence-push-sync.ts", "apps/backend/src/openworkflow/enqueue-connector-content-sync.ts", "apps/backend/src/openworkflow/enqueue-notion-push-sync.test.ts", "apps/backend/src/openworkflow/enqueue-notion-push-sync.ts", "apps/backend/src/openworkflow/workflows/confluence-sync-config.ts", "apps/backend/src/openworkflow/workflows/confluence-sync-content.ts", "apps/backend/src/openworkflow/workflows/connector-config-native.contract.test.ts", "apps/backend/src/openworkflow/workflows/linear-sync-config.ts", "apps/backend/src/openworkflow/workflows/linear-sync-content.ts", "apps/backend/src/openworkflow/workflows/notion-sync-config.ts", "apps/backend/src/openworkflow/workflows/notion-sync-content.ts", "apps/backend/src/routes/v1/connector-content-admission-native.contract.test.ts", "apps/backend/src/routes/v1/connectors-atlassian.ts", "apps/backend/src/routes/v1/connectors-linear.test.ts", "apps/backend/src/routes/v1/connectors-linear.ts", "apps/backend/src/routes/v1/connectors-notion.test.ts", "apps/backend/src/routes/v1/connectors-notion.ts", "apps/backend/src/routes/webhooks/github/github-linear-push.test.ts", "apps/backend/src/routes/webhooks/github/github-linear-push.ts", "apps/backend/src/routes/webhooks/github/github.test.ts", "apps/backend/src/test/native-hydration-fixture.ts"], "environment": {"AUTH_SECRET": "gate0-local-disposable-test-secret-20260907", "DATABASE_URL": "postgresql://ctxpipe_app:ctxpipe@127.0.0.1:61314/ctxpipe_gate0_fresh", "GRAPH_DB_URI": "redis://127.0.0.1:6398", "CI": "true", "NO_COLOR": "1", "TURBO_TELEMETRY_DISABLED": "1", "STORYBOOK_DISABLE_TELEMETRY": "1", "PATH": "/Users/jakubriedl/.volta/tools/image/node/22.16.0/bin:/private/tmp/ctxpipe-recovery-runtime/ast-grep/node_modules/.bin:/private/tmp/ctxpipe-recovery-runtime/node_modules/.bin:/private/tmp/ctxpipe-recovery-runtime/zoekt:/usr/local/bin:/System/Cryptexes/App/usr/bin:/usr/bin:/bin:/usr/sbin:/sbin:/var/run/com.apple.security.cryptexd/codex.system/bootstrap/usr/local/bin:/var/run/com.apple.security.cryptexd/codex.system/bootstrap/usr/bin:/var/run/com.apple.security.cryptexd/codex.system/bootstrap/usr/appleinternal/bin:/pkg/env/global/bin:/Users/jakubriedl/.codex/tmp/arg0/codex-arg0BW5Gt3:/Users/jakubriedl/.cache/codex-runtimes/codex-primary-runtime/dependencies/bin/override:/Users/jakubriedl/.local/bin:/Users/jakubriedl/.bun/bin:/Users/jakubriedl/.opencode/bin:/Users/jakubriedl/.volta/bin:/opt/homebrew/bin:/opt/homebrew/sbin:/Users/jakubriedl/.cache/codex-runtimes/codex-primary-runtime/dependencies/bin/fallback:/Applications/ChatGPT.app/Contents/Resources"}, "timeout_seconds": 600, "started_utc": "2026-09-08T18:59:36Z", "log": "logs/connector-owner-biome.log"}
+apps/backend/src/models/atlassian-connector.ts:173:63 lint/style/noNonNullAssertion ━━━━━━━━━━━━━━━━
+
+  ! Forbidden non-null assertion.
+  
+    171 │   const list = await listForgeConnectionsForOrg(orgId)
+    172 │   if (list.length === 0) return { status: "none" }
+  > 173 │   if (list.length === 1) return { status: "ok", installation: list[0]! }
+        │                                                               ^^^^^^^^
+    174 │   return { status: "ambiguous" }
+    175 │ }
+  
+
+apps/backend/src/models/linear-connector.ts:852:39 lint/style/noNonNullAssertion ━━━━━━━━━━━━━━━━━━━
+
+  ! Forbidden non-null assertion.
+  
+    850 │     .set({
+    851 │       contentSyncGeneration: sql`${connections.contentSyncGeneration} + 1`,
+  > 852 │       config: mergeLinearStoredConfig(row!, {
+        │                                       ^^^^
+    853 │         setupPhase: "awaiting_merge",
+    854 │         pendingConfigPrCreating: true,
+  
+
+apps/backend/src/routes/v1/connectors-linear.ts:806:26 lint/style/noNonNullAssertion ━━━━━━━━━━━━━━━
+
+  ! Forbidden non-null assertion.
+  
+    804 │         await releaseLinearConfigPrCreationClaim({
+    805 │           connectionId: installed.connection.id,
+  > 806 │           previousState: saved.previousConfigPrState!,
+        │                          ^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    807 │         })
+    808 │         getLogger().error(
+  
+
+Checked 30 files in 63ms. No fixes applied.
+Found 3 warnings.

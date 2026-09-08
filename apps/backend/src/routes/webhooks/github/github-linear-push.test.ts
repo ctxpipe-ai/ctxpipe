@@ -113,26 +113,6 @@ describe("Linear config push activation", () => {
     expect(error).toHaveBeenCalled()
   })
 
-  it("does not enqueue when another delivery already activated initial sync", async () => {
-    mocks.markInitialSync.mockResolvedValueOnce(false)
-
-    await maybeActivateLinearSyncOnConfigPush({
-      installationId: 42,
-      githubConnectionId: "con_github",
-      repoFullName: "acme/context",
-      ref: "refs/heads/main",
-      commits: [{ modified: ["linear/config.yaml"] }],
-      log: { error: vi.fn() },
-    })
-
-    expect(mocks.markInitialSync).toHaveBeenCalledWith({
-      connectionId: "con_linear",
-      repositoryId: "repo_1",
-      branch: "main",
-    })
-    expect(mocks.runWorkflow).not.toHaveBeenCalled()
-  })
-
   it("propagates compare failures so GitHub can retry the delivery", async () => {
     mocks.compareCommits.mockRejectedValueOnce(new Error("GitHub unavailable"))
 

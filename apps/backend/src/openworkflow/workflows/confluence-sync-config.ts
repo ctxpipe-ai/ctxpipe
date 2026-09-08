@@ -4,12 +4,14 @@ import { parseEnv } from "../../config/env.js"
 import { withOrgDbContext } from "../../db/client.js"
 import {
   getConfluenceSyncTargetByConnectionId,
-  markConfluenceSyncTargetLive,
   updateConfluenceSyncTargetPrState,
 } from "../../models/confluence-sync-target.js"
+import { captureConnectorConfigSyncBinding } from "../../models/connector-content-sync.js"
 import { syncConfluenceConfigYaml } from "../../services/confluence/sync.js"
+import { enqueueConnectorContentSync } from "../enqueue-connector-content-sync.js"
 
 const confluenceSyncConfigInputSchema = z.object({
+  contentSyncGeneration: z.number().int().nonnegative().default(0),
   orgId: z.string().min(1),
   orgSlug: z.string().min(1),
   connectionId: z.string().min(1),
@@ -20,52 +22,72 @@ export const confluenceSyncConfig = defineWorkflow(
     name: "confluence-sync-config",
     schema: confluenceSyncConfigInputSchema,
   },
-  async ({ input }) => {
-    const target = await getConfluenceSyncTargetByConnectionId(
-      input.connectionId,
+  async ({ input, step, run }) => {
+    if (
+      !(await step.run({ name: "capture-config-binding" }, () =>
+        captureConnectorConfigSyncBinding({
+          orgId: input.orgId,
+          connectionId: input.connectionId,
+          contentSyncGeneration: input.contentSyncGeneration ?? 0,
+        }),
+      ))
     )
-    if (!target) {
-      throw new Error("Confluence sync target is not configured")
-    }
-    if (target.orgId !== input.orgId) {
-      throw new Error("Confluence sync target does not belong to organization")
-    }
-
-    try {
-      const result = await syncConfluenceConfigYaml({
+      throw new Error("Connector configuration activation was superseded")
+    const target = await step.run({ name: "load-confluence-binding" }, () =>
+      getConfluenceSyncTargetByConnectionId(input.connectionId),
+    )
+    if (
+      !target ||
+      target.orgId !== input.orgId ||
+      !target.enabled ||
+      target.setupPhase !== "awaiting_merge" ||
+      !target.pendingConfigPrCreating
+    )
+      throw new Error(
+        "Confluence sync target is not ready for configuration sync",
+      )
+    const result = await step.run({ name: "sync-config" }, () =>
+      syncConfluenceConfigYaml({
         orgId: input.orgId,
         orgSlug: input.orgSlug,
-        env: parseEnv(process.env as Record<string, string | undefined>),
+        env: parseEnv(process.env),
         connectionId: input.connectionId,
         target,
-      })
-      if (!result.changed) {
-        await withOrgDbContext(input.orgId, () =>
-          markConfluenceSyncTargetLive({
-            connectionId: input.connectionId,
-          }),
-        )
-      } else {
-        await withOrgDbContext(input.orgId, () =>
+      }),
+    )
+    if (result.changed) {
+      await step.run({ name: "persist-config-pr-state" }, () =>
+        withOrgDbContext(input.orgId, () =>
           updateConfluenceSyncTargetPrState({
             connectionId: input.connectionId,
             pendingConfigPullUrl: result.pullUrl ?? null,
             pendingConfigPrCreating: false,
             setupPhase: "awaiting_merge",
+            expectedBinding: {
+              repositoryId: target.repositoryId,
+              branch: target.branch,
+            },
           }),
-        )
-      }
-      return result
-    } catch (e) {
-      await withOrgDbContext(input.orgId, () =>
-        updateConfluenceSyncTargetPrState({
-          connectionId: input.connectionId,
-          pendingConfigPullUrl: target.pendingConfigPullUrl ?? null,
-          pendingConfigPrCreating: false,
-          setupPhase: target.setupPhase,
-        }),
+        ),
       )
-      throw e
+    } else {
+      await step.run({ name: "enqueue-initial-content-sync" }, async () => {
+        if (
+          !(await enqueueConnectorContentSync({
+            orgId: input.orgId,
+            orgSlug: input.orgSlug,
+            connectionId: input.connectionId,
+            provider: "confluence",
+            repositoryId: target.repositoryId,
+            branch: target.branch,
+            configKey: `config-workflow:${run.id}`,
+          }))
+        )
+          throw new Error(
+            "Confluence sync target changed during configuration sync",
+          )
+      })
     }
+    return result
   },
 )

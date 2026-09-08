@@ -1,19 +1,16 @@
 import { parseEnv } from "../../../config/env.js"
 import { withOrgDbContext } from "../../../db/client.js"
-import {
-  getConnectorContentSyncGeneration,
-  reconcileConnectorContentSync,
-} from "../../../models/connector-content-sync.js"
 import { listInstallationsByGithubInstallationId } from "../../../models/github-installation.js"
 import {
-  claimLinearBindingInitialSync,
   getLinearConnectionByConnectionId,
   listLinearBindingsWithRepoByRepositoryId,
   resetLinearConnectorAfterMissingConfig,
 } from "../../../models/linear-connector.js"
 import { findRepositoryByGithubInstallation } from "../../../models/repositories.js"
-import { runWorkflowWithWorkerWake } from "../../../openworkflow/client.js"
-import { linearSyncContent } from "../../../openworkflow/workflows/linear-sync-content.js"
+import {
+  connectorConfigKey,
+  enqueueConnectorContentSync,
+} from "../../../openworkflow/enqueue-connector-content-sync.js"
 import {
   githubCommitsMissingPathEntirely,
   githubPushTouchesPath,
@@ -143,40 +140,16 @@ export async function maybeActivateLinearSyncOnConfigPush(input: {
         continue
       }
 
-      if (
-        !(await claimLinearBindingInitialSync({
+      try {
+        await enqueueConnectorContentSync({
+          orgId: target.orgId,
           connectionId: target.connectionId,
+          provider: "linear",
           repositoryId: target.repositoryId,
           branch: target.branch,
-        }))
-      ) {
-        continue
-      }
-      const contentSyncGeneration = await getConnectorContentSyncGeneration(
-        target.orgId,
-        target.connectionId,
-      )
-      try {
-        await runWorkflowWithWorkerWake(
-          linearSyncContent.spec,
-          {
-            contentSyncGeneration,
-            orgId: target.orgId,
-            connectionId: target.connectionId,
-          },
-          {
-            idempotencyKey: `connector-content:${target.connectionId}:${contentSyncGeneration}`,
-          },
-        )
+          configKey: connectorConfigKey(config),
+        })
       } catch (error) {
-        if (
-          await reconcileConnectorContentSync({
-            orgId: target.orgId,
-            connectionId: target.connectionId,
-            admissionFailedGeneration: contentSyncGeneration,
-          })
-        )
-          continue
         input.log.error(
           error instanceof Error ? error : new Error(String(error)),
         )

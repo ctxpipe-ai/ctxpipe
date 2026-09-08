@@ -582,7 +582,13 @@ export async function upsertForgeInstallationFromEvent(input: {
     if (existing) {
       const [row] = await db
         .update(connections)
-        .set({ config: mergedConfig, updatedAt: new Date() })
+        .set({
+          config: mergedConfig,
+          updatedAt: new Date(),
+          contentSyncGeneration: sql`case when ${connections.config}->>'cloudId' is distinct from ${mergedConfig.cloudId ?? null}::text
+            or ${connections.config}->>'atlassianApiBaseUrl' is distinct from ${mergedConfig.atlassianApiBaseUrl ?? null}::text
+            then ${connections.contentSyncGeneration} + 1 else ${connections.contentSyncGeneration} end`,
+        })
         .where(eq(connections.id, existing.id))
         .returning()
       if (!row) throw new Error("Failed to upsert forge installation")

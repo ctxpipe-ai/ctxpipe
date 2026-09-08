@@ -22,6 +22,7 @@ import {
   getConfluenceSyncTargetWithRepoByOrgId,
   markAwaitingConfigMergeSetup,
 } from "../../models/confluence-sync-target.js"
+import { getConnectorContentSyncGeneration } from "../../models/connector-content-sync.js"
 import { orgHasAnyGithubConnection } from "../../models/github-installation.js"
 import { getLogger } from "../../observability/logger.js"
 import { runWorkflowWithWorkerWake } from "../../openworkflow/client.js"
@@ -940,6 +941,8 @@ export const atlassianConnectorRoutes = new OpenAPIHono<AppEnv>()
     }
     const orgId = c.get("orgId")
     if (!orgId) return c.json({ error: "Unauthorized" }, 401)
+    const orgSlug = c.get("orgSlug") ?? c.req.param("orgSlug")
+    if (!orgSlug) return c.json({ error: "Missing org slug" }, 400)
     const connectionId = ConnectionIdQuerySchema.parse({
       connectionId: c.req.query("connectionId") ?? undefined,
     }).connectionId
@@ -990,9 +993,13 @@ export const atlassianConnectorRoutes = new OpenAPIHono<AppEnv>()
       (syncTarget !== undefined && saved.spaces.length > 0)
     if (shouldOpenConfigPr) {
       await markAwaitingConfigMergeSetup({ connectionId: installation.id })
-      void runWorkflowWithWorkerWake(confluenceSyncConfig.spec, {
+      await runWorkflowWithWorkerWake(confluenceSyncConfig.spec, {
+        contentSyncGeneration: await getConnectorContentSyncGeneration(
+          orgId,
+          installation.id,
+        ),
         orgId,
-        orgSlug: c.req.param("orgSlug"),
+        orgSlug,
         connectionId: installation.id,
       }).catch((err: unknown) => {
         getLogger().error(err instanceof Error ? err : new Error(String(err)), {

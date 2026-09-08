@@ -84,6 +84,36 @@ it(
               input: { orgId: f.org.id, orgSlug: f.org.slug, connectionId },
             },
           ])
+          const other = {
+            ...input,
+            scopeFromRepo: {
+              resources: [
+                { externalId: "page-b", type: "page" as const, title: "B" },
+              ],
+            },
+          }
+          await enqueueNotionFullSyncAfterConfigPush(other)
+          await Promise.all([
+            enqueueNotionFullSyncAfterConfigPush(input),
+            enqueueNotionFullSyncAfterConfigPush(input),
+          ])
+          const repeated = (
+            await backend.listWorkflowRuns({ limit: 100 })
+          ).data.filter(
+            (run) =>
+              (run.input as { connectionId?: string })?.connectionId ===
+              connectionId,
+          )
+          expect(repeated).toHaveLength(3)
+          expect(
+            repeated
+              .map(
+                (run) =>
+                  (run.input as { contentSyncGeneration: number })
+                    .contentSyncGeneration,
+              )
+              .sort(),
+          ).toEqual([1, 2, 3])
         } finally {
           await backend.stop()
         }

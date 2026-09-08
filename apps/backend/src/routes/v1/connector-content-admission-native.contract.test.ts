@@ -23,18 +23,43 @@ import { maybeActivateLinearSyncOnConfigPush } from "../webhooks/github/github-l
 import { linearConnectorRoutes } from "./connectors-linear.js"
 import { notionConnectorRoutes } from "./connectors-notion.js"
 
-it.each(["linear-retry", "notion-retry", "linear-config"] as const)(
+it.each([
+  "linear-retry",
+  "notion-retry",
+  "linear-config",
+  "linear-config-body",
+  "linear-config-draft",
+  "notion-config-body",
+  "notion-config-draft",
+  "notion-config-save",
+] as const)(
   "admits a durable content owner through the native %s boundary",
   { timeout: 30_000 },
   async (mode) => {
-    const provider = mode === "notion-retry" ? "notion" : "linear"
+    const provider = mode.startsWith("notion") ? "notion" : "linear"
+    const proposal = mode.includes("config-")
+    const save = mode === "notion-config-save"
+    const draft = mode.endsWith("draft")
     const config =
       "version: 1\nsource: linear\nworkspace:\n  id: provider-workspace\n  name: Fixture\nscope: {}\n"
     await withNativeHydrationFixture(
       {
         github: true,
         githubWriteView: "writable",
-        githubContentFiles: { "linear/config.yaml": config },
+        githubContentFiles: {
+          "linear/config.yaml": draft
+            ? "version: 1\nsource: linear\nworkspace:\n  id: provider-workspace\n  name: Fixture\nscope:\n  teams:\n    - id: team-a\n      name: A\n      key: A\n"
+            : config,
+          "notion/config.yaml": draft
+            ? "version: 1\nsource: notion\nresources:\n  - id: page-a\n    type: page\n    title: A\n"
+            : "version: 1\nsource: notion\nresources: []\n",
+        },
+        githubPullRequest: {
+          number: 41,
+          head: { ref: "ctxpipe/config-draft" },
+          state: "open",
+          html_url: "https://github.com/fixture/hydration-contract/pull/41",
+        },
       },
       async (f) => {
         const env = parseEnv(process.env)
@@ -74,7 +99,16 @@ it.each(["linear-retry", "notion-retry", "linear-config"] as const)(
                 branch: "main",
                 enabled: true,
                 setupPhase:
-                  mode === "linear-config" ? "awaiting_merge" : "sync_failed",
+                  mode === "linear-config"
+                    ? "awaiting_merge"
+                    : proposal
+                      ? save
+                        ? "live"
+                        : "config_failed"
+                      : "sync_failed",
+                pendingConfigPullUrl: draft
+                  ? "https://github.com/fixture/hydration-contract/pull/41"
+                  : null,
               },
             })
             .returning(),
@@ -90,18 +124,19 @@ it.each(["linear-retry", "notion-retry", "linear-config"] as const)(
           )
           if (!github) throw new Error("Fixture GitHub connection missing")
           await upsertConnectionDirectory(github)
-          await maybeActivateLinearSyncOnConfigPush({
-            installationId: 123456789,
-            githubConnectionId: f.connectionId,
-            repoFullName: "fixture/hydration-contract",
-            ref: "refs/heads/main",
-            commits: [{ modified: ["linear/config.yaml"] }],
-            log: {
-              error: (error) => {
-                throw error
+          for (let delivery = 0; delivery < 2; delivery++)
+            await maybeActivateLinearSyncOnConfigPush({
+              installationId: 123456789,
+              githubConnectionId: f.connectionId,
+              repoFullName: "fixture/hydration-contract",
+              ref: "refs/heads/main",
+              commits: [{ modified: ["linear/config.yaml"] }],
+              log: {
+                error: (error) => {
+                  throw error
+                },
               },
-            },
-          })
+            })
         } else {
           const app = new OpenAPIHono<AppEnv>()
           app.use(contextStorage())
@@ -121,21 +156,75 @@ it.each(["linear-retry", "notion-retry", "linear-config"] as const)(
               ? linearConnectorRoutes
               : notionConnectorRoutes,
           )
-          const response = await app.request(
-            `/${f.org.slug}/connectors/retry?connectionId=${connectionId}`,
-            { method: "POST" },
-          )
+          const request = () =>
+            app.request(
+              `/${f.org.slug}/connectors/${save ? "config" : proposal ? "retry-config" : "retry"}?connectionId=${connectionId}`,
+              {
+                method: save ? "PATCH" : "POST",
+                ...(!draft && proposal
+                  ? {
+                      headers: { "content-type": "application/json" },
+                      body: JSON.stringify(
+                        provider === "linear"
+                          ? {
+                              scopes: [
+                                {
+                                  externalId: "team-b",
+                                  type: "team",
+                                  title: "B",
+                                  url: null,
+                                  parentExternalId: null,
+                                  teamId: "team-b",
+                                  teamKey: "B",
+                                },
+                              ],
+                            }
+                          : {
+                              resources: [
+                                {
+                                  externalId: "page-b",
+                                  type: "page",
+                                  title: "B",
+                                },
+                              ],
+                            },
+                      ),
+                    }
+                  : {}),
+              },
+            )
+          const responses = proposal
+            ? [await request()]
+            : await Promise.all([request(), request()])
+          const response =
+            responses.find((r) => r.status === (save ? 200 : 202)) ??
+            responses[0]
+          if (!response) throw new Error("Native HTTP response missing")
           expect({
             status: response.status,
             body: await response.json(),
-          }).toEqual({ status: 202, body: { accepted: true } })
+          }).toMatchObject({
+            status: save ? 200 : 202,
+            body: save ? { configPrEnqueued: true } : { accepted: true },
+          })
+          if (!proposal)
+            expect(
+              responses.every((r) => [202, 400, 409].includes(r.status)),
+            ).toBe(true)
+          if (save) {
+            const repeated = await request()
+            expect(repeated.status).toBe(200)
+            expect(await repeated.json()).toMatchObject({
+              configPrEnqueued: false,
+            })
+          }
         }
         const read =
           provider === "linear"
             ? getLinearBindingWithRepoByConnectionId
             : getNotionBindingWithRepoByConnectionId
         expect(await read(f.org.id, connectionId)).toMatchObject({
-          setupPhase: "initial_sync",
+          setupPhase: proposal ? "awaiting_merge" : "initial_sync",
         })
         const owners = await withOrgDbContext(f.org.id, (db) =>
           db.execute(sql`
@@ -145,7 +234,7 @@ it.each(["linear-retry", "notion-retry", "linear-config"] as const)(
         )
         expect(owners.rows).toEqual([
           {
-            workflow_name: `${provider}-sync-content`,
+            workflow_name: `${provider}-sync-${proposal ? "config" : "content"}`,
             status: "pending",
             generation: "1",
           },

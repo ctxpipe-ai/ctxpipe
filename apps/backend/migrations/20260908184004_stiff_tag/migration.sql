@@ -1,0 +1,1 @@
+ALTER TABLE "connections" ADD COLUMN "content_sync_workflow_run_id" text;

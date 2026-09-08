@@ -1,0 +1,229 @@
+{"name": "connector-owner-final-native", "cwd": "/private/tmp/ctxpipe-recovery-01a07aba", "command": ["/Users/jakubriedl/.volta/tools/image/node/22.16.0/bin/node", "apps/backend/node_modules/vitest/vitest.mjs", "run", "--root", "apps/backend", "src/domain/workspaces/connector-finalization-native.contract.test.ts", "src/domain/workspaces/linear-mirror-native.contract.test.ts", "src/domain/workspaces/notion-mirror-native.contract.test.ts", "src/domain/workspaces/confluence-mirror-native.contract.test.ts", "src/routes/v1/connector-content-admission-native.contract.test.ts", "src/openworkflow/enqueue-notion-push-sync.test.ts", "src/openworkflow/workflows/connector-config-native.contract.test.ts", "src/db/get-org-db-audit.test.ts", "src/models/linear-connector.test.ts", "src/models/notion-connector.test.ts", "src/routes/v1/connectors-linear.test.ts", "src/routes/v1/connectors-notion.test.ts", "src/routes/webhooks/github/github-linear-push.test.ts"], "environment": {"AUTH_SECRET": "gate0-local-disposable-test-secret-20260907", "DATABASE_URL": "postgresql://ctxpipe_app:ctxpipe@127.0.0.1:61314/ctxpipe_gate0_fresh", "GRAPH_DB_URI": "redis://127.0.0.1:6398", "CI": "true", "NO_COLOR": "1", "TURBO_TELEMETRY_DISABLED": "1", "STORYBOOK_DISABLE_TELEMETRY": "1", "PATH": "/Users/jakubriedl/.volta/tools/image/node/22.16.0/bin:/private/tmp/ctxpipe-recovery-runtime/ast-grep/node_modules/.bin:/private/tmp/ctxpipe-recovery-runtime/node_modules/.bin:/private/tmp/ctxpipe-recovery-runtime/zoekt:/usr/local/bin:/System/Cryptexes/App/usr/bin:/usr/bin:/bin:/usr/sbin:/sbin:/var/run/com.apple.security.cryptexd/codex.system/bootstrap/usr/local/bin:/var/run/com.apple.security.cryptexd/codex.system/bootstrap/usr/bin:/var/run/com.apple.security.cryptexd/codex.system/bootstrap/usr/appleinternal/bin:/pkg/env/global/bin:/Users/jakubriedl/.codex/tmp/arg0/codex-arg0BW5Gt3:/Users/jakubriedl/.cache/codex-runtimes/codex-primary-runtime/dependencies/bin/override:/Users/jakubriedl/.local/bin:/Users/jakubriedl/.bun/bin:/Users/jakubriedl/.opencode/bin:/Users/jakubriedl/.volta/bin:/opt/homebrew/bin:/opt/homebrew/sbin:/Users/jakubriedl/.cache/codex-runtimes/codex-primary-runtime/dependencies/bin/fallback:/Applications/ChatGPT.app/Contents/Resources"}, "timeout_seconds": 600, "started_utc": "2026-09-08T18:58:22Z", "log": "logs/connector-owner-final-native.log"}
+
+ RUN  v4.0.18 /private/tmp/ctxpipe-recovery-01a07aba/apps/backend
+
+ ✓ src/routes/v1/connectors-linear.test.ts (11 tests) 43ms
+ ✓ src/routes/v1/connectors-notion.test.ts (5 tests) 15ms
+ ✓ src/routes/webhooks/github/github-linear-push.test.ts (2 tests) 3ms
+Cloning into bare repository '/var/folders/9t/jj9rnpps7_ddb72c1mq2k13w0000gn/T/ctxpipe-hydration-contract-7yE4lK/remote.git'...
+done.
+Cloning into bare repository '/var/folders/9t/jj9rnpps7_ddb72c1mq2k13w0000gn/T/ctxpipe-hydration-contract-IAuoMA/remote.git'...
+done.
+Cloning into bare repository '/var/folders/9t/jj9rnpps7_ddb72c1mq2k13w0000gn/T/ctxpipe-hydration-contract-qmPAFp/remote.git'...
+done.
+Cloning into bare repository '/var/folders/9t/jj9rnpps7_ddb72c1mq2k13w0000gn/T/ctxpipe-hydration-contract-SjgkAF/remote.git'...
+done.
+Cloning into bare repository '/var/folders/9t/jj9rnpps7_ddb72c1mq2k13w0000gn/T/ctxpipe-hydration-contract-L4d2ob/remote.git'...
+done.
+Cloning into bare repository '/var/folders/9t/jj9rnpps7_ddb72c1mq2k13w0000gn/T/ctxpipe-hydration-contract-I6Bqh5/remote.git'...
+done.
+Cloning into bare repository '/var/folders/9t/jj9rnpps7_ddb72c1mq2k13w0000gn/T/ctxpipe-hydration-contract-TQHKuQ/remote.git'...
+done.
+Cloning into bare repository '/var/folders/9t/jj9rnpps7_ddb72c1mq2k13w0000gn/T/ctxpipe-hydration-contract-BMSKxN/remote.git'...
+done.
+Cloning into bare repository '/var/folders/9t/jj9rnpps7_ddb72c1mq2k13w0000gn/T/ctxpipe-hydration-contract-jf9Mra/remote.git'...
+done.
+Cloning into bare repository '/var/folders/9t/jj9rnpps7_ddb72c1mq2k13w0000gn/T/ctxpipe-hydration-contract-IDXSPu/remote.git'...
+done.
+Cloning into bare repository '/var/folders/9t/jj9rnpps7_ddb72c1mq2k13w0000gn/T/ctxpipe-hydration-contract-PhjyXP/remote.git'...
+done.
+Cloning into bare repository '/var/folders/9t/jj9rnpps7_ddb72c1mq2k13w0000gn/T/ctxpipe-hydration-contract-eaZhvb/remote.git'...
+done.
+Cloning into bare repository '/var/folders/9t/jj9rnpps7_ddb72c1mq2k13w0000gn/T/ctxpipe-hydration-contract-pe0alb/remote.git'...
+done.
+Cloning into bare repository '/var/folders/9t/jj9rnpps7_ddb72c1mq2k13w0000gn/T/ctxpipe-hydration-contract-o6DtNq/remote.git'...
+done.
+Cloning into bare repository '/var/folders/9t/jj9rnpps7_ddb72c1mq2k13w0000gn/T/ctxpipe-hydration-contract-iuUUTW/remote.git'...
+done.
+Cloning into bare repository '/var/folders/9t/jj9rnpps7_ddb72c1mq2k13w0000gn/T/ctxpipe-hydration-contract-juqnQi/remote.git'...
+done.
+Cloning into bare repository '/var/folders/9t/jj9rnpps7_ddb72c1mq2k13w0000gn/T/ctxpipe-hydration-contract-XwYcjx/remote.git'...
+done.
+Cloning into bare repository '/var/folders/9t/jj9rnpps7_ddb72c1mq2k13w0000gn/T/ctxpipe-hydration-contract-EOLZ0a/remote.git'...
+done.
+Cloning into bare repository '/var/folders/9t/jj9rnpps7_ddb72c1mq2k13w0000gn/T/ctxpipe-hydration-contract-splv4D/remote.git'...
+done.
+Cloning into bare repository '/var/folders/9t/jj9rnpps7_ddb72c1mq2k13w0000gn/T/ctxpipe-hydration-contract-2RruQl/remote.git'...
+done.
+Cloning into bare repository '/var/folders/9t/jj9rnpps7_ddb72c1mq2k13w0000gn/T/ctxpipe-hydration-contract-ajeqZA/remote.git'...
+done.
+Cloning into bare repository '/var/folders/9t/jj9rnpps7_ddb72c1mq2k13w0000gn/T/ctxpipe-hydration-contract-wRFGWm/remote.git'...
+done.
+Cloning into bare repository '/var/folders/9t/jj9rnpps7_ddb72c1mq2k13w0000gn/T/ctxpipe-hydration-contract-1JWkUz/remote.git'...
+done.
+Cloning into bare repository '/var/folders/9t/jj9rnpps7_ddb72c1mq2k13w0000gn/T/ctxpipe-hydration-contract-kNnXJb/remote.git'...
+done.
+Cloning into bare repository '/var/folders/9t/jj9rnpps7_ddb72c1mq2k13w0000gn/T/ctxpipe-hydration-contract-3Dw9hD/remote.git'...
+done.
+Cloning into bare repository '/var/folders/9t/jj9rnpps7_ddb72c1mq2k13w0000gn/T/ctxpipe-hydration-contract-CIICAx/remote.git'...
+done.
+Cloning into bare repository '/var/folders/9t/jj9rnpps7_ddb72c1mq2k13w0000gn/T/ctxpipe-hydration-contract-GsEEDI/remote.git'...
+done.
+Cloning into bare repository '/var/folders/9t/jj9rnpps7_ddb72c1mq2k13w0000gn/T/ctxpipe-hydration-contract-ydbdSQ/remote.git'...
+done.
+Cloning into bare repository '/var/folders/9t/jj9rnpps7_ddb72c1mq2k13w0000gn/T/ctxpipe-hydration-contract-EymdiW/remote.git'...
+done.
+Cloning into bare repository '/var/folders/9t/jj9rnpps7_ddb72c1mq2k13w0000gn/T/ctxpipe-hydration-contract-oLVJcD/remote.git'...
+done.
+Cloning into bare repository '/var/folders/9t/jj9rnpps7_ddb72c1mq2k13w0000gn/T/ctxpipe-hydration-contract-Oa4YpB/remote.git'...
+done.
+Cloning into bare repository '/var/folders/9t/jj9rnpps7_ddb72c1mq2k13w0000gn/T/ctxpipe-hydration-contract-C3olr7/remote.git'...
+done.
+Cloning into bare repository '/var/folders/9t/jj9rnpps7_ddb72c1mq2k13w0000gn/T/ctxpipe-hydration-contract-MSL984/remote.git'...
+done.
+Cloning into bare repository '/var/folders/9t/jj9rnpps7_ddb72c1mq2k13w0000gn/T/ctxpipe-hydration-contract-kvQOfq/remote.git'...
+done.
+Cloning into bare repository '/var/folders/9t/jj9rnpps7_ddb72c1mq2k13w0000gn/T/ctxpipe-hydration-contract-4WQ8xh/remote.git'...
+done.
+Cloning into bare repository '/var/folders/9t/jj9rnpps7_ddb72c1mq2k13w0000gn/T/ctxpipe-hydration-contract-vXAX0F/remote.git'...
+done.
+Cloning into bare repository '/var/folders/9t/jj9rnpps7_ddb72c1mq2k13w0000gn/T/ctxpipe-hydration-contract-m3PMAm/remote.git'...
+done.
+Cloning into bare repository '/var/folders/9t/jj9rnpps7_ddb72c1mq2k13w0000gn/T/ctxpipe-hydration-contract-dxR3Ue/remote.git'...
+done.
+Cloning into bare repository '/var/folders/9t/jj9rnpps7_ddb72c1mq2k13w0000gn/T/ctxpipe-hydration-contract-VZJmVv/remote.git'...
+done.
+Cloning into bare repository '/var/folders/9t/jj9rnpps7_ddb72c1mq2k13w0000gn/T/ctxpipe-hydration-contract-dgUno9/remote.git'...
+done.
+ ✓ src/domain/workspaces/connector-finalization-native.contract.test.ts (40 tests) 51755ms
+   ✓ projects 'confluence' 'failed' onto the same initial binding as 'initial_sync'; providerChanged=undefined; activationChanged=undefined; terminalOwner=true; reactivated=undefined; pendingOwner=undefined; missingOwner=undefined; legacyOwner=true; legacyProviderChanged=true  1999ms
+   ✓ projects 'linear' 'failed' onto the same initial binding as 'sync_failed'; providerChanged=undefined; activationChanged=undefined; terminalOwner=true; reactivated=undefined; pendingOwner=undefined; missingOwner=undefined; legacyOwner=undefined; legacyProviderChanged=undefined  3230ms
+   ✓ projects 'linear' 'failed' onto the same initial binding as 'initial_sync'; providerChanged=undefined; activationChanged=undefined; terminalOwner=true; reactivated=undefined; pendingOwner=undefined; missingOwner=undefined; legacyOwner=undefined; legacyProviderChanged=undefined  2650ms
+   ✓ projects 'notion' 'failed' onto the same initial binding as 'sync_failed'; providerChanged=undefined; activationChanged=undefined; terminalOwner=true; reactivated=undefined; pendingOwner=undefined; missingOwner=undefined; legacyOwner=undefined; legacyProviderChanged=undefined  2725ms
+   ✓ projects 'notion' 'failed' onto the same initial binding as 'initial_sync'; providerChanged=undefined; activationChanged=undefined; terminalOwner=true; reactivated=undefined; pendingOwner=undefined; missingOwner=undefined; legacyOwner=undefined; legacyProviderChanged=undefined  2861ms
+   ✓ projects 'confluence' 'failed' onto the same initial binding as 'sync_failed'; providerChanged=undefined; activationChanged=undefined; terminalOwner=true; reactivated=undefined; pendingOwner=undefined; missingOwner=undefined; legacyOwner=undefined; legacyProviderChanged=undefined  3031ms
+   ✓ projects 'confluence' 'failed' onto the same initial binding as 'initial_sync'; providerChanged=undefined; activationChanged=undefined; terminalOwner=true; reactivated=undefined; pendingOwner=undefined; missingOwner=undefined; legacyOwner=undefined; legacyProviderChanged=undefined  2786ms
+   ✓ projects 'linear' 'completed' onto the same initial binding as 'live'; providerChanged=undefined; activationChanged=undefined; terminalOwner=undefined; reactivated=undefined; pendingOwner=undefined; missingOwner=undefined; legacyOwner=undefined; legacyProviderChanged=undefined  570ms
+   ✓ projects 'linear' 'partial_failed' onto the same initial binding as 'sync_failed'; providerChanged=undefined; activationChanged=undefined; terminalOwner=undefined; reactivated=undefined; pendingOwner=undefined; missingOwner=undefined; legacyOwner=undefined; legacyProviderChanged=undefined  422ms
+   ✓ projects 'linear' 'failed' onto the same initial binding as 'sync_failed'; providerChanged=undefined; activationChanged=undefined; terminalOwner=undefined; reactivated=undefined; pendingOwner=undefined; missingOwner=undefined; legacyOwner=undefined; legacyProviderChanged=undefined  457ms
+   ✓ projects 'notion' 'completed' onto the same initial binding as 'live'; providerChanged=undefined; activationChanged=undefined; terminalOwner=undefined; reactivated=undefined; pendingOwner=undefined; missingOwner=undefined; legacyOwner=undefined; legacyProviderChanged=undefined  747ms
+   ✓ projects 'notion' 'partial_failed' onto the same initial binding as 'sync_failed'; providerChanged=undefined; activationChanged=undefined; terminalOwner=undefined; reactivated=undefined; pendingOwner=undefined; missingOwner=undefined; legacyOwner=undefined; legacyProviderChanged=undefined  309ms
+   ✓ projects 'notion' 'failed' onto the same initial binding as 'sync_failed'; providerChanged=undefined; activationChanged=undefined; terminalOwner=undefined; reactivated=undefined; pendingOwner=undefined; missingOwner=undefined; legacyOwner=undefined; legacyProviderChanged=undefined  406ms
+   ✓ projects 'confluence' 'completed' onto the same initial binding as 'live'; providerChanged=undefined; activationChanged=undefined; terminalOwner=undefined; reactivated=undefined; pendingOwner=undefined; missingOwner=undefined; legacyOwner=undefined; legacyProviderChanged=undefined  356ms
+   ✓ projects 'confluence' 'partial_failed' onto the same initial binding as 'sync_failed'; providerChanged=undefined; activationChanged=undefined; terminalOwner=undefined; reactivated=undefined; pendingOwner=undefined; missingOwner=undefined; legacyOwner=undefined; legacyProviderChanged=undefined  317ms
+   ✓ projects 'confluence' 'failed' onto the same initial binding as 'sync_failed'; providerChanged=undefined; activationChanged=undefined; terminalOwner=undefined; reactivated=undefined; pendingOwner=undefined; missingOwner=undefined; legacyOwner=undefined; legacyProviderChanged=undefined  387ms
+   ✓ projects 'linear' 'completed' onto the same initial binding as 'initial_sync'; providerChanged=undefined; activationChanged=undefined; terminalOwner=undefined; reactivated=undefined; pendingOwner=undefined; missingOwner=undefined; legacyOwner=undefined; legacyProviderChanged=undefined  455ms
+   ✓ projects 'notion' 'completed' onto the same initial binding as 'initial_sync'; providerChanged=undefined; activationChanged=undefined; terminalOwner=undefined; reactivated=undefined; pendingOwner=undefined; missingOwner=undefined; legacyOwner=undefined; legacyProviderChanged=undefined  473ms
+   ✓ projects 'confluence' 'completed' onto the same initial binding as 'initial_sync'; providerChanged=undefined; activationChanged=undefined; terminalOwner=undefined; reactivated=undefined; pendingOwner=undefined; missingOwner=undefined; legacyOwner=undefined; legacyProviderChanged=undefined  368ms
+   ✓ projects 'linear' 'completed' onto the same initial binding as 'initial_sync'; providerChanged=true; activationChanged=undefined; terminalOwner=undefined; reactivated=undefined; pendingOwner=undefined; missingOwner=undefined; legacyOwner=undefined; legacyProviderChanged=undefined  496ms
+   ✓ projects 'notion' 'completed' onto the same initial binding as 'initial_sync'; providerChanged=true; activationChanged=undefined; terminalOwner=undefined; reactivated=undefined; pendingOwner=undefined; missingOwner=undefined; legacyOwner=undefined; legacyProviderChanged=undefined  502ms
+   ✓ projects 'confluence' 'completed' onto the same initial binding as 'initial_sync'; providerChanged=true; activationChanged=undefined; terminalOwner=undefined; reactivated=undefined; pendingOwner=undefined; missingOwner=undefined; legacyOwner=undefined; legacyProviderChanged=undefined  475ms
+   ✓ projects 'linear' 'completed' onto the same initial binding as 'initial_sync'; providerChanged=undefined; activationChanged=true; terminalOwner=undefined; reactivated=undefined; pendingOwner=undefined; missingOwner=undefined; legacyOwner=undefined; legacyProviderChanged=undefined  389ms
+   ✓ projects 'notion' 'completed' onto the same initial binding as 'initial_sync'; providerChanged=undefined; activationChanged=true; terminalOwner=undefined; reactivated=undefined; pendingOwner=undefined; missingOwner=undefined; legacyOwner=undefined; legacyProviderChanged=undefined  414ms
+   ✓ projects 'confluence' 'completed' onto the same initial binding as 'initial_sync'; providerChanged=undefined; activationChanged=true; terminalOwner=undefined; reactivated=undefined; pendingOwner=undefined; missingOwner=undefined; legacyOwner=undefined; legacyProviderChanged=undefined  357ms
+   ✓ projects 'linear' 'failed' onto the same initial binding as 'sync_failed'; providerChanged=undefined; activationChanged=undefined; terminalOwner=true; reactivated=undefined; pendingOwner=undefined; missingOwner=undefined; legacyOwner=undefined; legacyProviderChanged=undefined  2747ms
+   ✓ projects 'notion' 'failed' onto the same initial binding as 'sync_failed'; providerChanged=undefined; activationChanged=undefined; terminalOwner=true; reactivated=undefined; pendingOwner=undefined; missingOwner=undefined; legacyOwner=undefined; legacyProviderChanged=undefined  3123ms
+   ✓ projects 'confluence' 'failed' onto the same initial binding as 'sync_failed'; providerChanged=undefined; activationChanged=undefined; terminalOwner=true; reactivated=undefined; pendingOwner=undefined; missingOwner=undefined; legacyOwner=undefined; legacyProviderChanged=undefined  2820ms
+   ✓ projects 'linear' 'failed' onto the same initial binding as 'initial_sync'; providerChanged=undefined; activationChanged=undefined; terminalOwner=true; reactivated=true; pendingOwner=undefined; missingOwner=undefined; legacyOwner=undefined; legacyProviderChanged=undefined  2951ms
+   ✓ projects 'notion' 'failed' onto the same initial binding as 'initial_sync'; providerChanged=undefined; activationChanged=undefined; terminalOwner=true; reactivated=true; pendingOwner=undefined; missingOwner=undefined; legacyOwner=undefined; legacyProviderChanged=undefined  2426ms
+   ✓ projects 'confluence' 'failed' onto the same initial binding as 'initial_sync'; providerChanged=undefined; activationChanged=undefined; terminalOwner=true; reactivated=true; pendingOwner=undefined; missingOwner=undefined; legacyOwner=undefined; legacyProviderChanged=undefined  2546ms
+   ✓ projects 'linear' 'completed' onto the same initial binding as 'initial_sync'; providerChanged=undefined; activationChanged=undefined; terminalOwner=undefined; reactivated=undefined; pendingOwner=true; missingOwner=undefined; legacyOwner=undefined; legacyProviderChanged=undefined  429ms
+   ✓ projects 'notion' 'completed' onto the same initial binding as 'initial_sync'; providerChanged=undefined; activationChanged=undefined; terminalOwner=undefined; reactivated=undefined; pendingOwner=true; missingOwner=undefined; legacyOwner=undefined; legacyProviderChanged=undefined  550ms
+   ✓ projects 'confluence' 'completed' onto the same initial binding as 'initial_sync'; providerChanged=undefined; activationChanged=undefined; terminalOwner=undefined; reactivated=undefined; pendingOwner=true; missingOwner=undefined; legacyOwner=undefined; legacyProviderChanged=undefined  540ms
+   ✓ projects 'linear' 'failed' onto the same initial binding as 'sync_failed'; providerChanged=undefined; activationChanged=undefined; terminalOwner=undefined; reactivated=undefined; pendingOwner=undefined; missingOwner=true; legacyOwner=undefined; legacyProviderChanged=undefined  343ms
+   ✓ projects 'notion' 'failed' onto the same initial binding as 'sync_failed'; providerChanged=undefined; activationChanged=undefined; terminalOwner=undefined; reactivated=undefined; pendingOwner=undefined; missingOwner=true; legacyOwner=undefined; legacyProviderChanged=undefined  348ms
+   ✓ projects 'linear' 'failed' onto the same initial binding as 'sync_failed'; providerChanged=undefined; activationChanged=undefined; terminalOwner=true; reactivated=undefined; pendingOwner=undefined; missingOwner=undefined; legacyOwner=true; legacyProviderChanged=undefined  1644ms
+   ✓ projects 'notion' 'failed' onto the same initial binding as 'sync_failed'; providerChanged=undefined; activationChanged=undefined; terminalOwner=true; reactivated=undefined; pendingOwner=undefined; missingOwner=undefined; legacyOwner=true; legacyProviderChanged=undefined  1857ms
+   ✓ projects 'confluence' 'failed' onto the same initial binding as 'sync_failed'; providerChanged=undefined; activationChanged=undefined; terminalOwner=true; reactivated=undefined; pendingOwner=undefined; missingOwner=undefined; legacyOwner=true; legacyProviderChanged=undefined  1956ms
+Cloning into bare repository '/var/folders/9t/jj9rnpps7_ddb72c1mq2k13w0000gn/T/ctxpipe-hydration-contract-6w5Hn3/remote.git'...
+done.
+Cloning into bare repository '/var/folders/9t/jj9rnpps7_ddb72c1mq2k13w0000gn/T/ctxpipe-hydration-contract-qnhvgd/remote.git'...
+done.
+Cloning into bare repository '/var/folders/9t/jj9rnpps7_ddb72c1mq2k13w0000gn/T/ctxpipe-hydration-contract-GrTFJ1/remote.git'...
+done.
+Cloning into bare repository '/var/folders/9t/jj9rnpps7_ddb72c1mq2k13w0000gn/T/ctxpipe-hydration-contract-n75UVN/remote.git'...
+done.
+Cloning into bare repository '/var/folders/9t/jj9rnpps7_ddb72c1mq2k13w0000gn/T/ctxpipe-hydration-contract-wz2btI/remote.git'...
+done.
+Cloning into bare repository '/var/folders/9t/jj9rnpps7_ddb72c1mq2k13w0000gn/T/ctxpipe-hydration-contract-Wl2VDk/remote.git'...
+done.
+Cloning into bare repository '/var/folders/9t/jj9rnpps7_ddb72c1mq2k13w0000gn/T/ctxpipe-hydration-contract-vnAZfI/remote.git'...
+done.
+Cloning into bare repository '/var/folders/9t/jj9rnpps7_ddb72c1mq2k13w0000gn/T/ctxpipe-hydration-contract-jGerp7/remote.git'...
+done.
+Cloning into bare repository '/var/folders/9t/jj9rnpps7_ddb72c1mq2k13w0000gn/T/ctxpipe-hydration-contract-O1Fd2o/remote.git'...
+done.
+Cloning into bare repository '/var/folders/9t/jj9rnpps7_ddb72c1mq2k13w0000gn/T/ctxpipe-hydration-contract-SD8oRh/remote.git'...
+done.
+ ✓ src/openworkflow/workflows/connector-config-native.contract.test.ts (10 tests) 37960ms
+   ✓ native 'linear' config admission (failure=false; stale=false; close=false)  2196ms
+   ✓ native 'linear' config admission (failure=true; stale=false; close=false)  5654ms
+   ✓ native 'linear' config admission (failure=false; stale=true; close=false)  1723ms
+   ✓ native 'linear' config admission (failure=false; stale=false; close=true)  9887ms
+   ✓ native 'notion' config admission (failure=false; stale=false; close=false)  1519ms
+   ✓ native 'notion' config admission (failure=true; stale=false; close=false)  5593ms
+   ✓ native 'notion' config admission (failure=false; stale=true; close=false)  1520ms
+   ✓ native 'confluence' config admission (failure=false; stale=false; close=false)  1482ms
+   ✓ native 'confluence' config admission (failure=true; stale=false; close=false)  6505ms
+   ✓ native 'confluence' config admission (failure=false; stale=true; close=false)  1879ms
+Cloning into bare repository '/var/folders/9t/jj9rnpps7_ddb72c1mq2k13w0000gn/T/ctxpipe-hydration-contract-fMQsVN/remote.git'...
+done.
+Cloning into bare repository '/var/folders/9t/jj9rnpps7_ddb72c1mq2k13w0000gn/T/ctxpipe-hydration-contract-CnJGc1/remote.git'...
+done.
+Cloning into bare repository '/var/folders/9t/jj9rnpps7_ddb72c1mq2k13w0000gn/T/ctxpipe-hydration-contract-7wRlsl/remote.git'...
+done.
+Cloning into bare repository '/var/folders/9t/jj9rnpps7_ddb72c1mq2k13w0000gn/T/ctxpipe-hydration-contract-CiCpj4/remote.git'...
+done.
+ ✓ src/domain/workspaces/confluence-mirror-native.contract.test.ts (4 tests) 13219ms
+   ✓ captures Confluence full with scoped deletion and transient credentials  3071ms
+   ✓ captures Confluence space with scoped deletion and transient credentials  3042ms
+   ✓ captures Confluence failed with scoped deletion and transient credentials  1509ms
+   ✓ captures Confluence rebind with scoped deletion and transient credentials  5596ms
+Cloning into bare repository '/var/folders/9t/jj9rnpps7_ddb72c1mq2k13w0000gn/T/ctxpipe-hydration-contract-OCC7Qv/remote.git'...
+done.
+Cloning into bare repository '/var/folders/9t/jj9rnpps7_ddb72c1mq2k13w0000gn/T/ctxpipe-hydration-contract-IaWWOs/remote.git'...
+done.
+Cloning into bare repository '/var/folders/9t/jj9rnpps7_ddb72c1mq2k13w0000gn/T/ctxpipe-hydration-contract-l8QGRb/remote.git'...
+done.
+ ✓ src/domain/workspaces/linear-mirror-native.contract.test.ts (3 tests) 12237ms
+   ✓ captures a Linear entity deletion without persisting its credential and runs one native mirror child  3672ms
+   ✓ captures a Linear full deletion without persisting its credential and runs one native mirror child  4060ms
+   ✓ captures a Linear rebind deletion without persisting its credential and runs one native mirror child  4504ms
+Cloning into bare repository '/var/folders/9t/jj9rnpps7_ddb72c1mq2k13w0000gn/T/ctxpipe-hydration-contract-DqXCCi/remote.git'...
+done.
+Cloning into bare repository '/var/folders/9t/jj9rnpps7_ddb72c1mq2k13w0000gn/T/ctxpipe-hydration-contract-7DiDC7/remote.git'...
+done.
+Cloning into bare repository '/var/folders/9t/jj9rnpps7_ddb72c1mq2k13w0000gn/T/ctxpipe-hydration-contract-lMobQ1/remote.git'...
+done.
+ ✓ src/domain/workspaces/notion-mirror-native.contract.test.ts (3 tests) 11302ms
+   ✓ captures a Notion entity deletion without persisting its credential and runs one native mirror child  3355ms
+   ✓ captures a Notion full deletion without persisting its credential and runs one native mirror child  2983ms
+   ✓ captures a Notion rebind deletion without persisting its credential and runs one native mirror child  4963ms
+Cloning into bare repository '/var/folders/9t/jj9rnpps7_ddb72c1mq2k13w0000gn/T/ctxpipe-hydration-contract-CzzFmc/remote.git'...
+done.
+Cloning into bare repository '/var/folders/9t/jj9rnpps7_ddb72c1mq2k13w0000gn/T/ctxpipe-hydration-contract-gD3l2I/remote.git'...
+done.
+Cloning into bare repository '/var/folders/9t/jj9rnpps7_ddb72c1mq2k13w0000gn/T/ctxpipe-hydration-contract-trpCUJ/remote.git'...
+done.
+Cloning into bare repository '/var/folders/9t/jj9rnpps7_ddb72c1mq2k13w0000gn/T/ctxpipe-hydration-contract-kwBXUo/remote.git'...
+done.
+Cloning into bare repository '/var/folders/9t/jj9rnpps7_ddb72c1mq2k13w0000gn/T/ctxpipe-hydration-contract-3eetUD/remote.git'...
+done.
+Cloning into bare repository '/var/folders/9t/jj9rnpps7_ddb72c1mq2k13w0000gn/T/ctxpipe-hydration-contract-2APxUB/remote.git'...
+done.
+Cloning into bare repository '/var/folders/9t/jj9rnpps7_ddb72c1mq2k13w0000gn/T/ctxpipe-hydration-contract-SkuGjk/remote.git'...
+done.
+Cloning into bare repository '/var/folders/9t/jj9rnpps7_ddb72c1mq2k13w0000gn/T/ctxpipe-hydration-contract-K4P8ue/remote.git'...
+done.
+ ✓ src/routes/v1/connector-content-admission-native.contract.test.ts (8 tests) 4010ms
+   ✓ admits a durable content owner through the native linear-retry boundary  500ms
+   ✓ admits a durable content owner through the native notion-retry boundary  579ms
+   ✓ admits a durable content owner through the native linear-config boundary  524ms
+   ✓ admits a durable content owner through the native linear-config-body boundary  482ms
+   ✓ admits a durable content owner through the native linear-config-draft boundary  489ms
+   ✓ admits a durable content owner through the native notion-config-body boundary  376ms
+   ✓ admits a durable content owner through the native notion-config-draft boundary  494ms
+   ✓ admits a durable content owner through the native notion-config-save boundary  566ms
+Cloning into bare repository '/var/folders/9t/jj9rnpps7_ddb72c1mq2k13w0000gn/T/ctxpipe-hydration-contract-HDfzMa/remote.git'...
+done.
+ ✓ src/openworkflow/enqueue-notion-push-sync.test.ts (1 test) 432ms
+   ✓ accepts one native Notion activation and deduplicates a repeated config push  431ms
+ ✓ src/models/linear-connector.test.ts (14 tests) 102ms
+ ✓ src/db/get-org-db-audit.test.ts (3 tests) 70ms
+ ✓ src/models/notion-connector.test.ts (9 tests) 55ms
+
+ Test Files  13 passed (13)
+      Tests  113 passed (113)
+   Start at  04:58:22
+   Duration  150.42s (transform 1.35s, setup 68ms, import 18.03s, tests 131.20s, environment 1ms)
+

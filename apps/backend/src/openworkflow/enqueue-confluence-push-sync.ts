@@ -1,16 +1,11 @@
 import { parseEnv } from "../config/env.js"
-import {
-  getOrganizationSlugByOrgId,
-  markConfluenceSyncTargetInitialSync,
-} from "../models/confluence-sync-target.js"
-import {
-  getConnectorContentSyncGeneration,
-  reconcileConnectorContentSync,
-} from "../models/connector-content-sync.js"
+import { getOrganizationSlugByOrgId } from "../models/confluence-sync-target.js"
 import { loadConfluenceScopeFromRepo } from "../services/confluence/config-from-repo.js"
 import type { ParsedConfluenceRepoConfig } from "../services/confluence/config-yaml.js"
-import { runWorkflowWithWorkerWake } from "./client.js"
-import { confluenceSyncContent } from "./workflows/confluence-sync-content.js"
+import {
+  connectorConfigKey,
+  enqueueConnectorContentSync,
+} from "./enqueue-connector-content-sync.js"
 
 export async function enqueueConfluenceFullSyncAfterConfigPush(input: {
   orgId: string
@@ -29,44 +24,14 @@ export async function enqueueConfluenceFullSyncAfterConfigPush(input: {
     return
   }
 
-  await markConfluenceSyncTargetInitialSync({
+  await enqueueConnectorContentSync({
+    orgId: input.orgId,
+    orgSlug,
     connectionId: input.connectionId,
+    provider: "confluence",
+    branch: input.branch,
+    configKey: connectorConfigKey(input.scopeFromRepo),
   })
-
-  const contentSyncGeneration = await getConnectorContentSyncGeneration(
-    input.orgId,
-    input.connectionId,
-  )
-  try {
-    await runWorkflowWithWorkerWake(
-      confluenceSyncContent.spec,
-      {
-        orgId: input.orgId,
-        orgSlug,
-        connectionId: input.connectionId,
-        contentSyncGeneration,
-        scopeFromRepo: {
-          spaces: input.scopeFromRepo.spaces.map((s) => ({
-            spaceKey: s.spaceKey,
-            selectedPageIds: s.selectedPageIds,
-          })),
-        },
-      },
-      {
-        idempotencyKey: `connector-content:${input.connectionId}:${contentSyncGeneration}`,
-      },
-    )
-  } catch (error) {
-    if (
-      await reconcileConnectorContentSync({
-        orgId: input.orgId,
-        connectionId: input.connectionId,
-        admissionFailedGeneration: contentSyncGeneration,
-      })
-    )
-      return
-    throw error
-  }
 }
 
 export async function loadScopeForGithubPush(input: {

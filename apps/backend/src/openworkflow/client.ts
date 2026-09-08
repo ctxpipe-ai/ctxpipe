@@ -11,9 +11,7 @@ const backend = await BackendPostgres.connect(databaseUrl, {
 export const ow = new OpenWorkflow({ backend })
 
 /** Prefer this over `ow.runWorkflow` so PR workers are woken on Railway after enqueue. */
-export function runWorkflowWithWorkerWake(
-  ...args: Parameters<typeof ow.runWorkflow>
-): ReturnType<typeof ow.runWorkflow> {
+export const runWorkflowWithWorkerWake: typeof ow.runWorkflow = (...args) => {
   const p = ow.runWorkflow(...args)
   void p.then(
     () => scheduleEnsureWorkerRunning(),

@@ -4,6 +4,11 @@ import { parseEnv } from "../../config/env.js"
 import { withOrgDbContext } from "../../db/client.js"
 import { captureConnectorMirrorTarget } from "../../domain/workspaces/capture-connector-mirror.js"
 import {
+  activateConnectorContentSync,
+  assertConnectorContentSyncBinding,
+  connectorContentBindingSchema,
+} from "../../models/connector-content-sync.js"
+import {
   finalizeNotionBindingAfterContentWorkflow,
   getNotionBindingWithRepoByConnectionId,
   getNotionConnectionByConnectionId,
@@ -20,9 +25,11 @@ import { parsedNotionRepoScopeSchema } from "../notion-scope-repo-schema.js"
 import { workspaceConnectorMirror } from "./workspace-connector-mirror.js"
 
 const inputSchema = z.object({
+  contentSyncBinding: connectorContentBindingSchema.optional(),
+  configKey: z.string().optional(),
   orgId: z.string().min(1),
   connectionId: z.string().min(1),
-  contentSyncGeneration: z.number().int().nonnegative(),
+  contentSyncGeneration: z.number().int().nonnegative().default(0),
   orgSlug: z.string().min(1),
   scopeFromRepo: parsedNotionRepoScopeSchema.optional(),
 })
@@ -37,6 +44,21 @@ export const notionSyncContent = defineWorkflow(
         connectionId: input.connectionId,
       }),
       async () => {
+        if (
+          !(await step.run({ name: "activate-content-sync" }, () =>
+            activateConnectorContentSync({
+              orgId: input.orgId,
+              connectionId: input.connectionId,
+              workflowRunId: run.id,
+            }),
+          ))
+        )
+          return {
+            status: "superseded" as const,
+            written: 0,
+            deleted: 0,
+            failures: [],
+          }
         const env = parseEnv(process.env)
         const context = await step.run(
           { name: "capture-notion-target" },
@@ -63,8 +85,16 @@ export const notionSyncContent = defineWorkflow(
             ) {
               throw new Error("Notion binding is not ready for initial sync")
             }
+            if (
+              input.contentSyncBinding &&
+              (binding.repositoryId !== input.contentSyncBinding.repositoryId ||
+                binding.branch !== input.contentSyncBinding.branch ||
+                connection.workspaceId !== input.contentSyncBinding.workspaceId)
+            )
+              throw new Error("Connector content target was superseded")
+            await assertConnectorContentSyncBinding(input)
             const captured = await captureConnectorMirrorTarget({
-              contentSyncGeneration: input.contentSyncGeneration,
+              contentSyncGeneration: input.contentSyncGeneration ?? 0,
               orgId: input.orgId,
               env,
               repositoryGitUrl: binding.repositoryGitUrl,
@@ -156,7 +186,10 @@ export const notionSyncContent = defineWorkflow(
             connectionId: input.connectionId,
             workflowStatus: captured.status,
             binding: {
-              contentSyncGeneration: context.captured.contentSyncGeneration,
+              contentSyncGeneration:
+                context.captured.contentSyncGeneration ??
+                input.contentSyncGeneration ??
+                0,
               repositoryId: context.binding.repositoryId,
               revision: context.captured.revision,
               provider: {

@@ -189,7 +189,11 @@ async function migrateLegacyNotionTokensOnRead(
     if (!config) return
     await db
       .update(connections)
-      .set({ config, updatedAt: new Date() })
+      .set({
+        config,
+        updatedAt: new Date(),
+        contentSyncGeneration: sql`case when ${connections.config}->>'workspaceId' is distinct from ${config.workspaceId}::text then ${connections.contentSyncGeneration} + 1 else ${connections.contentSyncGeneration} end`,
+      })
       .where(
         and(
           eq(connections.id, row.id),
@@ -607,6 +611,7 @@ export async function claimNotionConfigPrCreation(input: {
     const [updated] = await tx
       .update(connections)
       .set({
+        contentSyncGeneration: sql`${connections.contentSyncGeneration} + 1`,
         config: mergeNotionStoredConfig(row, {
           setupPhase: "awaiting_merge",
           pendingConfigPrCreating: true,
@@ -990,6 +995,7 @@ export async function finalizeNotionBindingAfterContentWorkflow(input: {
       return
     if (
       !(await lockConnectorFinalizationBinding(
+        tx,
         input.binding,
         input.connectionId,
       ))

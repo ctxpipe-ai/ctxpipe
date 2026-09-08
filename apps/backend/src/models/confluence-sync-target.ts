@@ -63,37 +63,10 @@ export async function getConfluenceSyncTargetByOrgId(
 export async function getConfluenceSyncTargetWithRepoByOrgId(
   orgId: string,
 ): Promise<ConfluenceSyncTargetWithRepo | undefined> {
-  return withOrgDbContext(orgId, async () => {
-    const [row] = await getOrgDb()
-      .select({
-        id: confluenceSyncTargets.id,
-        orgId: confluenceSyncTargets.orgId,
-        connectionId: confluenceSyncTargets.connectionId,
-        repositoryId: confluenceSyncTargets.repositoryId,
-        branch: confluenceSyncTargets.branch,
-        enabled: confluenceSyncTargets.enabled,
-        setupPhase: confluenceSyncTargets.setupPhase,
-        pendingConfigPullUrl: confluenceSyncTargets.pendingConfigPullUrl,
-        pendingConfigPrCreating: confluenceSyncTargets.pendingConfigPrCreating,
-        createdAt: confluenceSyncTargets.createdAt,
-        updatedAt: confluenceSyncTargets.updatedAt,
-        repositoryName: repositories.name,
-        githubConnectionId: repositories.githubConnectionId,
-      })
-      .from(confluenceSyncTargets)
-      .innerJoin(
-        repositories,
-        eq(confluenceSyncTargets.repositoryId, repositories.id),
-      )
-      .where(
-        and(
-          eq(confluenceSyncTargets.orgId, orgId),
-          eq(repositories.orgId, orgId),
-        ),
-      )
-      .limit(1)
-    return row
-  })
+  const target = await getConfluenceSyncTargetByOrgId(orgId)
+  return target
+    ? getConfluenceSyncTargetWithRepoByConnectionId(orgId, target.connectionId)
+    : undefined
 }
 
 export async function getConfluenceSyncTargetWithRepoByConnectionId(
@@ -223,6 +196,7 @@ export async function setPendingConfigPrCreating(input: {
 }
 
 export async function updateConfluenceSyncTargetPrState(input: {
+  expectedBinding?: { repositoryId: string; branch: string }
   connectionId: string
   pendingConfigPullUrl: string | null
   pendingConfigPrCreating: boolean
@@ -237,7 +211,22 @@ export async function updateConfluenceSyncTargetPrState(input: {
         setupPhase: input.setupPhase,
         updatedAt: new Date(),
       })
-      .where(eq(confluenceSyncTargets.connectionId, input.connectionId))
+      .where(
+        and(
+          eq(confluenceSyncTargets.connectionId, input.connectionId),
+          input.expectedBinding
+            ? and(
+                eq(
+                  confluenceSyncTargets.repositoryId,
+                  input.expectedBinding.repositoryId,
+                ),
+                eq(confluenceSyncTargets.branch, input.expectedBinding.branch),
+                eq(confluenceSyncTargets.setupPhase, "awaiting_merge"),
+                eq(confluenceSyncTargets.pendingConfigPrCreating, true),
+              )
+            : undefined,
+        ),
+      )
       .returning({ id: confluenceSyncTargets.id })
     return row
   })
@@ -248,6 +237,12 @@ export async function markAwaitingConfigMergeSetup(input: {
   connectionId: string
 }): Promise<void> {
   await requireConfluenceSyncTargetWrite(input.connectionId, async (db) => {
+    await db
+      .update(connections)
+      .set({
+        contentSyncGeneration: sql`${connections.contentSyncGeneration} + 1`,
+      })
+      .where(eq(connections.id, input.connectionId))
     const [row] = await db
       .update(confluenceSyncTargets)
       .set({
@@ -287,29 +282,6 @@ export async function markConfluenceSyncTargetInitialSync(input: {
   })
 }
 
-export async function markConfluenceSyncTargetLive(input: {
-  connectionId: string
-}): Promise<void> {
-  await requireConfluenceSyncTargetWrite(input.connectionId, async (db) => {
-    const [row] = await db
-      .update(confluenceSyncTargets)
-      .set({
-        setupPhase: "live",
-        pendingConfigPullUrl: null,
-        pendingConfigPrCreating: false,
-        enabled: true,
-        updatedAt: new Date(),
-      })
-      .where(eq(confluenceSyncTargets.connectionId, input.connectionId))
-      .returning({ id: confluenceSyncTargets.id })
-    return row
-  })
-}
-
-/**
- * When `confluence-sync-content` finishes: move from `initial_sync` to `live` if the run
- * did not fully fail (allows `partial_failed` so the connector is not stuck).
- */
 export async function finalizeConfluenceSyncTargetAfterContentWorkflow(input: {
   connectionId: string
   binding: CapturedConnectorBinding
@@ -320,6 +292,7 @@ export async function finalizeConfluenceSyncTargetAfterContentWorkflow(input: {
     async (db) => {
       if (
         !(await lockConnectorFinalizationBinding(
+          db,
           input.binding,
           input.connectionId,
         ))

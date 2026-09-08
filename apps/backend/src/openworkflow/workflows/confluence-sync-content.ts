@@ -12,6 +12,11 @@ import {
   getConfluenceSyncTargetWithRepoByConnectionId,
 } from "../../models/confluence-sync-target.js"
 import {
+  activateConnectorContentSync,
+  assertConnectorContentSyncBinding,
+  connectorContentBindingSchema,
+} from "../../models/connector-content-sync.js"
+import {
   type CapturedConnectorBinding,
   lockConnectorFinalizationBinding,
 } from "../../models/connector-finalization.js"
@@ -21,9 +26,11 @@ import { parsedRepoScopeSchema } from "../confluence-scope-repo-schema.js"
 import { workspaceConnectorMirror } from "./workspace-connector-mirror.js"
 
 const inputSchema = z.object({
+  contentSyncBinding: connectorContentBindingSchema.optional(),
+  configKey: z.string().optional(),
   orgId: z.string().min(1),
   connectionId: z.string().min(1),
-  contentSyncGeneration: z.number().int().nonnegative(),
+  contentSyncGeneration: z.number().int().nonnegative().default(0),
   orgSlug: z.string().min(1),
   scopeFromRepo: parsedRepoScopeSchema.optional(),
 })
@@ -31,6 +38,21 @@ const inputSchema = z.object({
 export const confluenceSyncContent = defineWorkflow(
   { name: "confluence-sync-content", schema: inputSchema },
   async ({ input, step, run }) => {
+    if (
+      !(await step.run({ name: "activate-content-sync" }, () =>
+        activateConnectorContentSync({
+          orgId: input.orgId,
+          connectionId: input.connectionId,
+          workflowRunId: run.id,
+        }),
+      ))
+    )
+      return {
+        status: "superseded" as const,
+        written: 0,
+        deleted: 0,
+        failures: [],
+      }
     const env = parseEnv(process.env)
     const context = await step.run(
       { name: "capture-confluence-target" },
@@ -54,8 +76,18 @@ export const confluenceSyncContent = defineWorkflow(
           !["initial_sync", "live"].includes(target.setupPhase)
         )
           throw new Error("Confluence sync target is not live")
+        if (
+          input.contentSyncBinding &&
+          (target.repositoryId !== input.contentSyncBinding.repositoryId ||
+            target.branch !== input.contentSyncBinding.branch ||
+            installation.cloudId !== input.contentSyncBinding.cloudId ||
+            installation.atlassianApiBaseUrl !==
+              input.contentSyncBinding.atlassianApiBaseUrl)
+        )
+          throw new Error("Connector content target was superseded")
+        await assertConnectorContentSyncBinding(input)
         const captured = await captureConnectorMirrorTarget({
-          contentSyncGeneration: input.contentSyncGeneration,
+          contentSyncGeneration: input.contentSyncGeneration ?? 0,
           orgId: input.orgId,
           env,
           repositoryGitUrl: target.repositoryGitUrl,
@@ -77,7 +109,10 @@ export const confluenceSyncContent = defineWorkflow(
       },
     )
     const binding: CapturedConnectorBinding = {
-      contentSyncGeneration: context.captured.contentSyncGeneration,
+      contentSyncGeneration:
+        context.captured.contentSyncGeneration ??
+        input.contentSyncGeneration ??
+        0,
       repositoryId: context.target.repositoryId,
       revision: context.captured.revision,
       provider: {
@@ -130,9 +165,13 @@ export const confluenceSyncContent = defineWorkflow(
           )
         : null
     await step.run({ name: "record-synced-spaces" }, () =>
-      withOrgDbContext(input.orgId, async () => {
+      withOrgDbContext(input.orgId, async (db) => {
         if (
-          !(await lockConnectorFinalizationBinding(binding, input.connectionId))
+          !(await lockConnectorFinalizationBinding(
+            db,
+            binding,
+            input.connectionId,
+          ))
         )
           return
         for (const space of captured.syncedSpaces)

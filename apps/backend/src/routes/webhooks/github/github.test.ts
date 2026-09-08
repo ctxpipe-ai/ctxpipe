@@ -509,6 +509,7 @@ describe("POST /api/v1/webhook/github/:connectionId", () => {
       orgId: "org_1",
       type: "github",
       contentSyncGeneration: 0,
+      contentSyncWorkflowRunId: null,
       config: {
         ingestAllRepositories: false,
         includeFutureRepos: false,
@@ -555,6 +556,7 @@ describe("POST /api/v1/webhook/github/:connectionId", () => {
       orgId: "org_1",
       type: "github",
       contentSyncGeneration: 0,
+      contentSyncWorkflowRunId: null,
       config: {
         ingestAllRepositories: false,
         includeFutureRepos: false,
@@ -603,6 +605,7 @@ describe("POST /api/v1/webhook/github/:connectionId", () => {
       orgId: "org_1",
       type: "github",
       contentSyncGeneration: 0,
+      contentSyncWorkflowRunId: null,
       config: {
         installationId: 999,
         ingestAllRepositories: false,
@@ -646,6 +649,7 @@ describe("POST /api/v1/webhook/github/:connectionId", () => {
       orgId: "org_1",
       type: "github",
       contentSyncGeneration: 0,
+      contentSyncWorkflowRunId: null,
       config: {
         installationId: 999,
         ingestAllRepositories: false,

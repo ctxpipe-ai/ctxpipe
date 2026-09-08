@@ -2,17 +2,18 @@ import { defineWorkflow } from "openworkflow"
 import { z } from "zod"
 import { parseEnv } from "../../config/env.js"
 import { withOrgDbContext } from "../../db/client.js"
+import { captureConnectorConfigSyncBinding } from "../../models/connector-content-sync.js"
 import {
-  getLinearConnectionByConnectionId,
   getLinearBindingWithRepoByConnectionId,
+  getLinearConnectionByConnectionId,
   transitionLinearBindingState,
 } from "../../models/linear-connector.js"
 import { closePullRequest } from "../../services/github/installation-write-client.js"
 import { syncLinearConfigYaml } from "../../services/linear/sync.js"
-import { runWorkflowWithWorkerWake } from "../client.js"
-import { linearSyncContent } from "./linear-sync-content.js"
+import { enqueueConnectorContentSync } from "../enqueue-connector-content-sync.js"
 
 const LinearSyncConfigInputSchema = z.object({
+  contentSyncGeneration: z.number().int().nonnegative().default(0),
   orgId: z.string().min(1),
   orgSlug: z.string().min(1),
   connectionId: z.string().min(1),
@@ -34,33 +35,34 @@ export const linearSyncConfig = defineWorkflow(
     name: "linear-sync-config",
     schema: LinearSyncConfigInputSchema,
   },
-  async ({ input }) => {
-    const target = await getLinearBindingWithRepoByConnectionId(
-      input.orgId,
-      input.connectionId,
-    )
-    if (!target) throw new Error("Linear sync target is not configured")
+  async ({ input, step, run }) => {
     if (
-      !target.enabled ||
+      !(await step.run({ name: "capture-config-binding" }, () =>
+        captureConnectorConfigSyncBinding({
+          orgId: input.orgId,
+          connectionId: input.connectionId,
+          contentSyncGeneration: input.contentSyncGeneration ?? 0,
+        }),
+      ))
+    )
+      throw new Error("Connector configuration activation was superseded")
+    const target = await step.run({ name: "load-linear-binding" }, () =>
+      getLinearBindingWithRepoByConnectionId(input.orgId, input.connectionId),
+    )
+    if (
+      !target?.enabled ||
       target.setupPhase !== "awaiting_merge" ||
       !target.pendingConfigPrCreating
-    ) {
+    )
       throw new Error("Linear sync target is not ready for configuration sync")
-    }
-
-    let failurePhase: "config_failed" | "sync_failed" = "config_failed"
-    let expectedPhase: "awaiting_merge" | "initial_sync" = "awaiting_merge"
-    let expectedPendingConfigPrCreating = true
-    try {
-      const env = parseEnv(process.env as Record<string, string | undefined>)
+    const result = await step.run({ name: "sync-config" }, async () => {
+      const env = parseEnv(process.env)
       const connection = await withOrgDbContext(input.orgId, () =>
         getLinearConnectionByConnectionId(input.orgId, input.connectionId, env),
       )
-      if (!connection) throw new Error("Linear connection not found")
-      if (connection.status !== "installed") {
+      if (!connection || connection.status !== "installed")
         throw new Error("Linear authorization is revoked")
-      }
-      const result = await syncLinearConfigYaml({
+      return syncLinearConfigYaml({
         orgId: input.orgId,
         orgSlug: input.orgSlug,
         env,
@@ -68,7 +70,9 @@ export const linearSyncConfig = defineWorkflow(
         target,
         scopes: input.scopes,
       })
-      if (result.changed) {
+    })
+    if (result.changed) {
+      await step.run({ name: "persist-config-pr-state" }, async () => {
         const updated = await withOrgDbContext(input.orgId, () =>
           transitionLinearBindingState({
             connectionId: input.connectionId,
@@ -82,62 +86,38 @@ export const linearSyncConfig = defineWorkflow(
           }),
         )
         if (!updated) {
-          if (result.pullNumber && target.githubConnectionId) {
+          if (result.pullNumber && target.githubConnectionId)
             await closePullRequest({
               orgId: input.orgId,
-              env,
+              env: parseEnv(process.env),
               repositoryName: target.repositoryName,
               githubConnectionId: target.githubConnectionId,
               pullNumber: result.pullNumber,
               comment:
                 "Closed because the Linear connector target changed during configuration sync.",
             })
-          }
           throw new Error(
             "Linear sync target changed during configuration sync",
           )
         }
-      } else {
-        failurePhase = "sync_failed"
-        const updated = await withOrgDbContext(input.orgId, () =>
-          transitionLinearBindingState({
+      })
+    } else {
+      await step.run({ name: "enqueue-initial-content-sync" }, async () => {
+        if (
+          !(await enqueueConnectorContentSync({
+            orgId: input.orgId,
             connectionId: input.connectionId,
-            expectedSetupPhase: "awaiting_merge",
-            expectedPendingConfigPrCreating: true,
+            provider: "linear",
             repositoryId: target.repositoryId,
             branch: target.branch,
-            pendingConfigPullUrl: null,
-            pendingConfigPrCreating: false,
-            setupPhase: "initial_sync",
-          }),
+            configKey: `config-workflow:${run.id}`,
+          }))
         )
-        if (!updated) {
           throw new Error(
             "Linear sync target changed during configuration sync",
           )
-        }
-        expectedPhase = "initial_sync"
-        expectedPendingConfigPrCreating = false
-        await runWorkflowWithWorkerWake(linearSyncContent.spec, {
-          orgId: input.orgId,
-          connectionId: input.connectionId,
-        })
-      }
-      return result
-    } catch (error) {
-      await withOrgDbContext(input.orgId, () =>
-        transitionLinearBindingState({
-          connectionId: input.connectionId,
-          expectedSetupPhase: expectedPhase,
-          expectedPendingConfigPrCreating,
-          repositoryId: target.repositoryId,
-          branch: target.branch,
-          pendingConfigPullUrl: null,
-          pendingConfigPrCreating: false,
-          setupPhase: failurePhase,
-        }),
-      )
-      throw error
+      })
     }
+    return result
   },
 )

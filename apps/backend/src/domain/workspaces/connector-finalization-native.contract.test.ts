@@ -6,6 +6,7 @@ import { withOrgDbContext } from "../../db/client.js"
 import { confluenceSyncTargets } from "../../db/schema/confluenceSyncTargets.js"
 import { connections } from "../../db/schema/connections.js"
 import { workspaces } from "../../db/schema/workspaces.js"
+import { upsertForgeInstallationFromEvent } from "../../models/atlassian-connector.js"
 import {
   finalizeConfluenceSyncTargetAfterContentWorkflow,
   getConfluenceSyncTargetWithRepoByConnectionId,
@@ -35,6 +36,80 @@ import { withNativeHydrationFixture } from "../../test/native-hydration-fixture.
 import { ensureOrgRepositoryForGitUrl } from "./ensure-org-repository.js"
 
 it.each([
+  {
+    provider: "linear",
+    status: "failed",
+    phase: "draft",
+    terminalOwner: true,
+    staleLegacy: true,
+  },
+  {
+    provider: "notion",
+    status: "failed",
+    phase: "draft",
+    terminalOwner: true,
+    staleLegacy: true,
+  },
+  {
+    provider: "confluence",
+    status: "failed",
+    phase: "draft",
+    terminalOwner: true,
+    staleLegacy: true,
+  },
+  {
+    provider: "confluence",
+    status: "failed",
+    phase: "initial_sync",
+    terminalOwner: true,
+    legacyOwner: true,
+    legacyProviderChanged: true,
+  },
+  {
+    provider: "linear",
+    status: "failed",
+    phase: "sync_failed",
+    terminalOwner: true,
+    ownerFirst: true,
+  },
+  {
+    provider: "linear",
+    status: "failed",
+    phase: "initial_sync",
+    terminalOwner: true,
+    ownerFirst: true,
+    terminalProviderChanged: true,
+  },
+  {
+    provider: "notion",
+    status: "failed",
+    phase: "sync_failed",
+    terminalOwner: true,
+    ownerFirst: true,
+  },
+  {
+    provider: "notion",
+    status: "failed",
+    phase: "initial_sync",
+    terminalOwner: true,
+    ownerFirst: true,
+    terminalProviderChanged: true,
+  },
+  {
+    provider: "confluence",
+    status: "failed",
+    phase: "sync_failed",
+    terminalOwner: true,
+    ownerFirst: true,
+  },
+  {
+    provider: "confluence",
+    status: "failed",
+    phase: "initial_sync",
+    terminalOwner: true,
+    ownerFirst: true,
+    terminalProviderChanged: true,
+  },
   { provider: "linear", status: "completed", phase: "live" },
   { provider: "linear", status: "partial_failed", phase: "sync_failed" },
   { provider: "linear", status: "failed", phase: "sync_failed" },
@@ -158,8 +233,29 @@ it.each([
     phase: "sync_failed",
     missingOwner: true,
   },
+  {
+    provider: "linear",
+    status: "failed",
+    phase: "sync_failed",
+    terminalOwner: true,
+    legacyOwner: true,
+  },
+  {
+    provider: "notion",
+    status: "failed",
+    phase: "sync_failed",
+    terminalOwner: true,
+    legacyOwner: true,
+  },
+  {
+    provider: "confluence",
+    status: "failed",
+    phase: "sync_failed",
+    terminalOwner: true,
+    legacyOwner: true,
+  },
 ] as const)(
-  "projects $provider $status onto the same initial binding as $phase; providerChanged=$providerChanged; activationChanged=$activationChanged; terminalOwner=$terminalOwner; reactivated=$reactivated; pendingOwner=$pendingOwner; missingOwner=$missingOwner",
+  "projects $provider $status onto the same initial binding as $phase; providerChanged=$providerChanged; activationChanged=$activationChanged; terminalOwner=$terminalOwner; reactivated=$reactivated; pendingOwner=$pendingOwner; missingOwner=$missingOwner; legacyOwner=$legacyOwner; legacyProviderChanged=$legacyProviderChanged; staleLegacy=$staleLegacy",
   { timeout: 30_000 },
   async (scenario) => {
     const { provider, status, phase } = scenario
@@ -192,7 +288,12 @@ it.each([
                 repositoryId: repository.id,
                 branch: "main",
                 enabled: true,
-                setupPhase: "initial_sync",
+                setupPhase:
+                  "staleLegacy" in scenario
+                    ? "draft"
+                    : "ownerFirst" in scenario
+                      ? "awaiting_merge"
+                      : "initial_sync",
                 pendingConfigPrCreating: false,
               },
             })
@@ -209,7 +310,12 @@ it.each([
               repositoryId: repository.id,
               branch: "main",
               enabled: true,
-              setupPhase: "initial_sync",
+              setupPhase:
+                "staleLegacy" in scenario
+                  ? "draft"
+                  : "ownerFirst" in scenario
+                    ? "awaiting_merge"
+                    : "initial_sync",
             }),
           )
         try {
@@ -310,63 +416,138 @@ it.each([
               orgId: f.org.id,
               orgSlug: f.org.slug,
               connectionId,
-              contentSyncGeneration: 0,
+              contentSyncGeneration: "ownerFirst" in scenario ? 1 : 0,
+              ...("ownerFirst" in scenario
+                ? {
+                    contentSyncBinding: {
+                      provider,
+                      repositoryId: repository.id,
+                      branch: "main",
+                      workspaceId:
+                        provider === "confluence" ? null : "provider-workspace",
+                      cloudId:
+                        provider === "confluence" ? "fixture-cloud" : null,
+                      atlassianApiBaseUrl: null,
+                    },
+                  }
+                : {}),
             }
             const options =
               "pendingOwner" in scenario
                 ? { availableAt: new Date(Date.now() + 60_000) }
                 : { deadlineAt: new Date(Date.now() + 1500) }
-            const handle =
-              provider === "linear"
-                ? await f.runner.runWorkflow(
-                    linearSyncContent.spec,
-                    command,
-                    options,
-                  )
-                : provider === "notion"
-                  ? await f.runner.runWorkflow(
-                      notionSyncContent.spec,
-                      command,
-                      options,
-                    )
-                  : await f.runner.runWorkflow(
-                      confluenceSyncContent.spec,
-                      command,
-                      options,
-                    )
-            if ("pendingOwner" in scenario) {
-              expect(
-                await reconcileConnectorContentSync({
-                  orgId: f.org.id,
-                  connectionId,
-                  admissionFailedGeneration: 0,
-                }),
-              ).toBe(true)
-              const pending = await f.backend.getWorkflowRun({
-                workflowRunId: handle.workflowRun.id,
+            if ("legacyOwner" in scenario) {
+              const legacy = await f.backend.createWorkflowRun({
+                workflowName: `${provider}-sync-content`,
+                version: null,
+                idempotencyKey: null,
+                config: {},
+                context: null,
+                input: { orgId: f.org.id, orgSlug: f.org.slug, connectionId },
+                parentStepAttemptNamespaceId: null,
+                parentStepAttemptId: null,
+                availableAt: null,
+                deadlineAt: new Date(Date.now() + 1500),
               })
-              expect(pending?.status).toBe("pending")
-            } else {
               const worker = f.runner.newWorker({ concurrency: 1 })
               try {
                 await worker.start()
-                await expect(
-                  handle.result({ timeoutMs: 10_000 }),
-                ).rejects.toThrow()
+                await expect
+                  .poll(
+                    async () =>
+                      (
+                        await f.backend.getWorkflowRun({
+                          workflowRunId: legacy.id,
+                        })
+                      )?.status,
+                    { timeout: 10_000 },
+                  )
+                  .toBe("failed")
+                expect(
+                  (
+                    await f.backend.listStepAttempts({
+                      workflowRunId: legacy.id,
+                    })
+                  ).data.length,
+                ).toBeGreaterThan(0)
               } finally {
                 await worker.stop()
               }
-              if ("reactivated" in scenario) {
-                const activate = {
-                  linear: claimLinearBindingInitialSync,
-                  notion: claimNotionBindingInitialSync,
-                  confluence: markConfluenceSyncTargetInitialSync,
-                }[provider]
-                await activate({
+              if ("legacyProviderChanged" in scenario)
+                await upsertForgeInstallationFromEvent({
+                  orgId: f.org.id,
                   connectionId,
-                  repositoryId: repository.id,
-                  branch: "main",
+                  cloudId: "new-cloud",
+                  status: "installed",
                 })
+            } else {
+              const handle =
+                provider === "linear"
+                  ? await f.runner.runWorkflow(
+                      linearSyncContent.spec,
+                      command,
+                      options,
+                    )
+                  : provider === "notion"
+                    ? await f.runner.runWorkflow(
+                        notionSyncContent.spec,
+                        command,
+                        options,
+                      )
+                    : await f.runner.runWorkflow(
+                        confluenceSyncContent.spec,
+                        command,
+                        options,
+                      )
+              if ("pendingOwner" in scenario) {
+                expect(
+                  await reconcileConnectorContentSync({
+                    orgId: f.org.id,
+                    connectionId,
+                    admissionFailedGeneration: 0,
+                  }),
+                ).toBe(true)
+                const pending = await f.backend.getWorkflowRun({
+                  workflowRunId: handle.workflowRun.id,
+                })
+                expect(pending?.status).toBe("pending")
+              } else {
+                const worker = f.runner.newWorker({ concurrency: 1 })
+                try {
+                  await worker.start()
+                  if ("staleLegacy" in scenario)
+                    expect(
+                      await handle.result({ timeoutMs: 10_000 }),
+                    ).toMatchObject({ status: "superseded" })
+                  else
+                    await expect(
+                      handle.result({ timeoutMs: 10_000 }),
+                    ).rejects.toThrow()
+                } finally {
+                  await worker.stop()
+                }
+                if ("terminalProviderChanged" in scenario) {
+                  await withOrgDbContext(f.org.id, (db) =>
+                    db
+                      .update(connections)
+                      .set({
+                        config: sql`${connections.config} || ${JSON.stringify({ workspaceId: "new-provider", cloudId: "new-cloud" })}::jsonb`,
+                      })
+                      .where(eq(connections.id, connectionId)),
+                  )
+                }
+                if ("reactivated" in scenario) {
+                  const activate = {
+                    linear: claimLinearBindingInitialSync,
+                    notion: claimNotionBindingInitialSync,
+                    confluence: markConfluenceSyncTargetInitialSync,
+                  }[provider]
+                  await activate({
+                    connectionId,
+                    repositoryId: repository.id,
+                    branch: "main",
+                  })
+                }
               }
             }
           } else {

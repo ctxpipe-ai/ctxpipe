@@ -1,16 +1,11 @@
 import { parseEnv } from "../config/env.js"
-import {
-  getConnectorContentSyncGeneration,
-  reconcileConnectorContentSync,
-} from "../models/connector-content-sync.js"
-import {
-  claimNotionBindingInitialSync,
-  getOrganizationSlugForNotionOrgId,
-} from "../models/notion-connector.js"
+import { getOrganizationSlugForNotionOrgId } from "../models/notion-connector.js"
 import { loadNotionScopeFromRepo } from "../services/notion/config-from-repo.js"
 import type { ParsedNotionRepoConfig } from "../services/notion/config-yaml.js"
-import { runWorkflowWithWorkerWake } from "./client.js"
-import { notionSyncContent } from "./workflows/notion-sync-content.js"
+import {
+  connectorConfigKey,
+  enqueueConnectorContentSync,
+} from "./enqueue-connector-content-sync.js"
 
 export async function enqueueNotionFullSyncAfterConfigPush(input: {
   orgId: string
@@ -24,48 +19,12 @@ export async function enqueueNotionFullSyncAfterConfigPush(input: {
     throw new Error("Organization slug missing for Notion push sync")
   }
 
-  const claimed = await claimNotionBindingInitialSync({
-    connectionId: input.connectionId,
-    repositoryId: input.repositoryId,
-    branch: input.branch,
+  await enqueueConnectorContentSync({
+    ...input,
+    orgSlug,
+    provider: "notion",
+    configKey: connectorConfigKey(input.scopeFromRepo),
   })
-  if (!claimed) return
-
-  const contentSyncGeneration = await getConnectorContentSyncGeneration(
-    input.orgId,
-    input.connectionId,
-  )
-  try {
-    await runWorkflowWithWorkerWake(
-      notionSyncContent.spec,
-      {
-        contentSyncGeneration,
-        orgId: input.orgId,
-        orgSlug,
-        connectionId: input.connectionId,
-        scopeFromRepo: {
-          resources: input.scopeFromRepo.resources.map((resource) => ({
-            externalId: resource.externalId,
-            type: resource.type,
-            title: resource.title,
-          })),
-        },
-      },
-      {
-        idempotencyKey: `connector-content:${input.connectionId}:${contentSyncGeneration}`,
-      },
-    )
-  } catch (error) {
-    if (
-      await reconcileConnectorContentSync({
-        orgId: input.orgId,
-        connectionId: input.connectionId,
-        admissionFailedGeneration: contentSyncGeneration,
-      })
-    )
-      return
-    throw error
-  }
 }
 
 export async function loadNotionScopeForGithubPush(input: {

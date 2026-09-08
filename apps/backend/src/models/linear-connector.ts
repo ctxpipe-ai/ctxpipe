@@ -345,7 +345,11 @@ export async function upsertLinearConnectionFromOAuth(input: {
 
       const [row] = await tx
         .update(connections)
-        .set({ config, updatedAt: new Date() })
+        .set({
+          config,
+          updatedAt: new Date(),
+          contentSyncGeneration: sql`case when ${connections.config}->>'workspaceId' is distinct from ${config.workspaceId}::text then ${connections.contentSyncGeneration} + 1 else ${connections.contentSyncGeneration} end`,
+        })
         .where(eq(connections.id, existing.id))
         .returning()
       if (!row) throw new Error("Failed to update Linear connection")
@@ -844,6 +848,7 @@ export async function claimLinearConfigPrCreation(
   const claimed = await tx
     .update(connections)
     .set({
+      contentSyncGeneration: sql`${connections.contentSyncGeneration} + 1`,
       config: mergeLinearStoredConfig(row!, {
         setupPhase: "awaiting_merge",
         pendingConfigPrCreating: true,
@@ -894,8 +899,7 @@ export async function patchLinearConnectorConfig(input: {
   const defaultGithubConnectionId = (
     await listGithubConnectionsForOrg(input.orgId)
   )[0]?.id
-  const db = getOrgDb()
-  return db.transaction(async (tx) => {
+  return withOrgDbContext(input.orgId, async (tx) => {
     const [connection] = await tx
       .select({ id: connections.id })
       .from(connections)
@@ -960,6 +964,11 @@ export async function patchLinearConnectorConfig(input: {
       await tx
         .update(connections)
         .set({
+          ...(plan.resetLifecycle
+            ? {
+                contentSyncGeneration: sql`${connections.contentSyncGeneration} + 1`,
+              }
+            : {}),
           config: mergeLinearStoredConfig(connectionRow, {
             repositoryId,
             branch: input.binding.branch,
@@ -1296,6 +1305,7 @@ export async function finalizeLinearBindingAfterContentWorkflow(input: {
       return
     if (
       !(await lockConnectorFinalizationBinding(
+        tx,
         input.binding,
         input.connectionId,
       ))

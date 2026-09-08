@@ -1,0 +1,88 @@
+{"name": "connector-config-owner-red", "cwd": "/private/tmp/ctxpipe-recovery-01a07aba", "command": ["/Users/jakubriedl/.volta/tools/image/node/22.16.0/bin/node", "apps/backend/node_modules/vitest/vitest.mjs", "run", "--root", "apps/backend", "src/openworkflow/workflows/connector-config-native.contract.test.ts"], "environment": {"AUTH_SECRET": "gate0-local-disposable-test-secret-20260907", "DATABASE_URL": "postgresql://ctxpipe_app:ctxpipe@127.0.0.1:61314/ctxpipe_gate0_fresh", "GRAPH_DB_URI": "redis://127.0.0.1:6398", "CI": "true", "NO_COLOR": "1", "TURBO_TELEMETRY_DISABLED": "1", "STORYBOOK_DISABLE_TELEMETRY": "1", "PATH": "/Users/jakubriedl/.volta/tools/image/node/22.16.0/bin:/private/tmp/ctxpipe-recovery-runtime/ast-grep/node_modules/.bin:/private/tmp/ctxpipe-recovery-runtime/node_modules/.bin:/private/tmp/ctxpipe-recovery-runtime/zoekt:/usr/local/bin:/System/Cryptexes/App/usr/bin:/usr/bin:/bin:/usr/sbin:/sbin:/var/run/com.apple.security.cryptexd/codex.system/bootstrap/usr/local/bin:/var/run/com.apple.security.cryptexd/codex.system/bootstrap/usr/bin:/var/run/com.apple.security.cryptexd/codex.system/bootstrap/usr/appleinternal/bin:/pkg/env/global/bin:/Users/jakubriedl/.codex/tmp/arg0/codex-arg0BW5Gt3:/Users/jakubriedl/.cache/codex-runtimes/codex-primary-runtime/dependencies/bin/override:/Users/jakubriedl/.local/bin:/Users/jakubriedl/.bun/bin:/Users/jakubriedl/.opencode/bin:/Users/jakubriedl/.volta/bin:/opt/homebrew/bin:/opt/homebrew/sbin:/Users/jakubriedl/.cache/codex-runtimes/codex-primary-runtime/dependencies/bin/fallback:/Applications/ChatGPT.app/Contents/Resources"}, "timeout_seconds": 600, "started_utc": "2026-09-08T18:43:03Z", "log": "logs/connector-config-owner-red.log"}
+
+ RUN  v4.0.18 /private/tmp/ctxpipe-recovery-01a07aba/apps/backend
+
+Cloning into bare repository '/var/folders/9t/jj9rnpps7_ddb72c1mq2k13w0000gn/T/ctxpipe-hydration-contract-EjaInh/remote.git'...
+done.
+Cloning into bare repository '/var/folders/9t/jj9rnpps7_ddb72c1mq2k13w0000gn/T/ctxpipe-hydration-contract-c6jagb/remote.git'...
+done.
+Cloning into bare repository '/var/folders/9t/jj9rnpps7_ddb72c1mq2k13w0000gn/T/ctxpipe-hydration-contract-j0Qde8/remote.git'...
+done.
+ ❯ src/openworkflow/workflows/connector-config-native.contract.test.ts (3 tests | 3 failed) 5119ms
+   × unchanged linear config admits content before projecting initial sync 1550ms
+   × unchanged notion config admits content before projecting initial sync 2017ms
+   × unchanged confluence config admits content before projecting initial sync 1551ms
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 3 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  src/openworkflow/workflows/connector-config-native.contract.test.ts > unchanged linear config admits content before projecting initial sync
+Error: Workflow linear-sync-config failed: {"name":"ZodError","stack":"ZodError: [\n  {\n    \"expected\": \"string\",\n    \"code\": \"invalid_type\",\n    \"path\": [\n      \"ownerUserId\"\n    ],\n    \"message\": \"Invalid input: expected string, received undefined\"\n  }\n]\n    at parseLinearConnectionStored (/private/tmp/ctxpipe-recovery-01a07aba/apps/backend/src/lib/connection-config.ts:171:45)\n    at bindingFromConnectionRow (/private/tmp/ctxpipe-recovery-01a07aba/apps/backend/src/models/linear-connector.ts:81:18)\n    at /private/tmp/ctxpipe-recovery-01a07aba/apps/backend/src/models/linear-connector.ts:595:20\n    at processTicksAndRejections (node:internal/process/task_queues:105:5)\n    at db.transaction.options.isolationLevel.isolationLevel (/private/tmp/ctxpipe-recovery-01a07aba/apps/backend/src/db/client.ts:150:16)\n    at NodePgSession.transaction (file:///private/tmp/ctxpipe-recovery-01a07aba/node_modules/.pnpm/drizzle-orm@1.0.0-beta.22_@opentelemetry+api@1.9.0_@types+mssql@9.1.9_@azure+core-clien_187cb3c43007455e384d88e6e878f2d4/node_modules/drizzle-orm/node-postgres/session.js:148:19)\n    at /private/tmp/ctxpipe-recovery-01a07aba/apps/backend/src/openworkflow/workflows/linear-sync-config.ts:38:20\n    at executeWorkflow (file:///private/tmp/ctxpipe-recovery-01a07aba/node_modules/.pnpm/openworkflow@0.8.0_postgres@3.4.8/node_modules/openworkflow/dist/worker/execution.js:759:24)\n    at Worker.processExecutionInBackground (file:///private/tmp/ctxpipe-recovery-01a07aba/node_modules/.pnpm/openworkflow@0.8.0_postgres@3.4.8/node_modules/openworkflow/dist/worker/worker.js:176:13)","message":"[\n  {\n    \"expected\": \"string\",\n    \"code\": \"invalid_type\",\n    \"path\": [\n      \"ownerUserId\"\n    ],\n    \"message\": \"Invalid input: expected string, received undefined\"\n  }\n]"}
+ ❯ WorkflowRunHandle.result ../../node_modules/.pnpm/openworkflow@0.8.0_postgres@3.4.8/node_modules/openworkflow/dist/client/client.js:194:23
+ ❯ src/openworkflow/workflows/connector-config-native.contract.test.ts:51:16
+     49|       try {
+     50|         await worker.start()
+     51|         expect(await handle.result({timeoutMs: 12_000})).toEqual({ cha…
+       |                ^
+     52|         const read = {linear: getLinearBindingWithRepoByConnectionId, …
+     53|         expect(await read(f.org.id, connectionId)).toMatchObject({setu…
+ ❯ withNativeHydrationFixture src/test/native-hydration-fixture.ts:625:5
+ ❯ src/openworkflow/workflows/connector-config-native.contract.test.ts:26:5
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/3]⎯
+
+ FAIL  src/openworkflow/workflows/connector-config-native.contract.test.ts > unchanged notion config admits content before projecting initial sync
+AssertionError: expected [ { status: 'pending', …(1) } ] to deeply equal [ { status: 'pending', …(1) } ]
+
+- Expected
++ Received
+
+  [
+    {
+-     "generation": "1",
++     "generation": "0",
+      "status": "pending",
+    },
+  ]
+
+ ❯ src/openworkflow/workflows/connector-config-native.contract.test.ts:58:29
+     56|           where workflow_name = ${`${provider}-sync-content`} and inpu…
+     57|         `))
+     58|         expect(owners.rows).toEqual([{status: "pending", generation: "…
+       |                             ^
+     59|       } finally {
+     60|         await worker.stop()
+ ❯ withNativeHydrationFixture src/test/native-hydration-fixture.ts:625:5
+ ❯ src/openworkflow/workflows/connector-config-native.contract.test.ts:26:5
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[2/3]⎯
+
+ FAIL  src/openworkflow/workflows/connector-config-native.contract.test.ts > unchanged confluence config admits content before projecting initial sync
+AssertionError: expected { …(14) } to match object { setupPhase: 'initial_sync' }
+(13 matching properties omitted from actual)
+
+- Expected
++ Received
+
+  {
+-   "setupPhase": "initial_sync",
++   "setupPhase": "live",
+  }
+
+ ❯ src/openworkflow/workflows/connector-config-native.contract.test.ts:53:52
+     51|         expect(await handle.result({timeoutMs: 12_000})).toEqual({ cha…
+     52|         const read = {linear: getLinearBindingWithRepoByConnectionId, …
+     53|         expect(await read(f.org.id, connectionId)).toMatchObject({setu…
+       |                                                    ^
+     54|         const owners = await withOrgDbContext(f.org.id, db => db.execu…
+     55|           select status, input->>'contentSyncGeneration' as generation…
+ ❯ withNativeHydrationFixture src/test/native-hydration-fixture.ts:625:5
+ ❯ src/openworkflow/workflows/connector-config-native.contract.test.ts:26:5
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[3/3]⎯
+
+
+ Test Files  1 failed (1)
+      Tests  3 failed (3)
+   Start at  04:43:03
+   Duration  7.81s (transform 1.06s, setup 18ms, import 2.60s, tests 5.12s, environment 0ms)
+
