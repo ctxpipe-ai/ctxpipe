@@ -21,6 +21,7 @@ import {
   persistResolvedDesiredSha,
 } from "../../../models/workspaces.js"
 import { enqueueWorkspaceCommitProjection } from "../../../openworkflow/enqueue-workspace-commit-projection.js"
+import { resolveGitRemoteTip } from "../../../services/git/clone-tree.js"
 
 export async function resolveGithubBranchTip(input: {
   orgId: string
@@ -146,7 +147,17 @@ export async function resolveWorkspaceRepositoryTip(input: {
   const fullName = githubRepoFullNameFromWorkspaceUrl(
     input.workspaceRepositoryUrl,
   )
-  if (!fullName) return null
+  if (!fullName) {
+    assertNotInOrgDbContext()
+    return (
+      (
+        await resolveGitRemoteTip({
+          url: input.workspaceRepositoryUrl,
+          branch: input.branch,
+        })
+      )?.sha ?? null
+    )
+  }
   try {
     const requested = input.branch?.trim()
     if (requested) {

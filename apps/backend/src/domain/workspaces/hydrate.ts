@@ -7,7 +7,6 @@ import {
   parseSimpleFrontMatter,
 } from "./layout.js"
 import { normalizeWorkspaceRepositoryUrl } from "./slug.js"
-import { githubRepoFullNameFromWorkspaceUrl } from "./write-status.js"
 
 export function servingIdForKnowledgePath(
   workspaceId: string,
@@ -104,17 +103,6 @@ export function hydrateReadsStoredDesiredSha(
 ): string | null {
   const sha = desiredSha?.trim() ?? ""
   return sha || null
-}
-
-/** GitHub + a connection uses the installation API; paste/other hosts clone. */
-export function hydrateReadPlan(
-  workspaceRepositoryUrl: string,
-  githubConnectionId?: string | null,
-): { via: "github" } | { via: "git_clone" } {
-  return githubRepoFullNameFromWorkspaceUrl(workspaceRepositoryUrl) &&
-    githubConnectionId
-    ? { via: "github" }
-    : { via: "git_clone" }
 }
 
 export function hydrateIsNoop(input: {

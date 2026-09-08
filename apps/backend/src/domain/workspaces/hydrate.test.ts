@@ -4,7 +4,6 @@ import {
   displayNameFromAgentsMarkdown,
   hydrateIsNoop,
   hydrateKnowledgeTree,
-  hydrateReadPlan,
   hydrateReadsStoredDesiredSha,
   hydrateUnitsToProjectionClaims,
   servingIdForKnowledgePath,
@@ -345,7 +344,8 @@ describe("workspaceHydrateView", () => {
         hydrateStatus: "pending",
         desiredSha: "87797371c413",
         activeProjectionSha: null,
-        hydrateError: "Could not resolve the git tip for this workspace repository.",
+        hydrateError:
+          "Could not resolve the git tip for this workspace repository.",
       }),
     ).toBe("failed")
   })
@@ -391,22 +391,6 @@ describe("hydrateReadsStoredDesiredSha", () => {
     expect(hydrateReadsStoredDesiredSha("abc123")).toBe("abc123")
     expect(hydrateReadsStoredDesiredSha("  ")).toBeNull()
     expect(hydrateReadsStoredDesiredSha(null)).toBeNull()
-  })
-
-  it("clones paste and non-GitHub remotes; GitHub with a connection uses the App", () => {
-    expect(
-      hydrateReadPlan("https://github.com/acme/docs.git", "con_gh"),
-    ).toEqual({
-      via: "github",
-    })
-    expect(hydrateReadPlan("https://github.com/acme/docs.git", null)).toEqual({
-      via: "git_clone",
-    })
-    expect(hydrateReadPlan("https://gitlab.com/acme/docs.git", "con_gh")).toEqual(
-      {
-        via: "git_clone",
-      },
-    )
   })
 })
 

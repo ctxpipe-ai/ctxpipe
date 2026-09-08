@@ -1,0 +1,104 @@
+{"name": "native-path-contract-lane", "cwd": "/private/tmp/ctxpipe-recovery-01a07aba", "command": ["/Users/jakubriedl/.volta/tools/image/node/22.16.0/bin/node", "scripts/ci/test-suite.mjs", "contracts"], "environment": {"AUTH_SECRET": "gate0-local-disposable-test-secret-20260907", "DATABASE_URL": "postgresql://ctxpipe_app:ctxpipe@127.0.0.1:61314/ctxpipe_gate0_fresh", "GRAPH_DB_URI": "redis://127.0.0.1:6399", "CI": "true", "NO_COLOR": "1", "TURBO_TELEMETRY_DISABLED": "1", "STORYBOOK_DISABLE_TELEMETRY": "1", "PATH": "/private/tmp/ctxpipe-recovery-runtime/node_modules/.bin:/usr/local/bin:/System/Cryptexes/App/usr/bin:/usr/bin:/bin:/usr/sbin:/sbin:/var/run/com.apple.security.cryptexd/codex.system/bootstrap/usr/local/bin:/var/run/com.apple.security.cryptexd/codex.system/bootstrap/usr/bin:/var/run/com.apple.security.cryptexd/codex.system/bootstrap/usr/appleinternal/bin:/pkg/env/global/bin:/Users/jakubriedl/.codex/tmp/arg0/codex-arg0BW5Gt3:/Users/jakubriedl/.cache/codex-runtimes/codex-primary-runtime/dependencies/bin/override:/Users/jakubriedl/.local/bin:/Users/jakubriedl/.bun/bin:/Users/jakubriedl/.opencode/bin:/Users/jakubriedl/.volta/bin:/opt/homebrew/bin:/opt/homebrew/sbin:/Users/jakubriedl/.cache/codex-runtimes/codex-primary-runtime/dependencies/bin/fallback:/Applications/ChatGPT.app/Contents/Resources"}, "timeout_seconds": 600, "started_utc": "2026-09-08T01:16:05Z", "log": "logs/native-path-contract-lane.log"}
+git version 2.50.1 (Apple Git-155)
+Prerequisites ready: Bun 1.3.11, OpenCode 1.18.18, migrated PostgreSQL role ctxpipe_app
+scripts/ci/failures/contracts.json: allowance history only shrinks
+CONTRACT postgres: src/db/rls-isolation.test.ts, src/models/workspaces-sandbox-persist.test.ts
+CONTRACT git: src/services/git/clone-tree.test.ts
+CONTRACT local sandbox and job worktree runner: src/domain/workspaces/job-sandbox.live.test.ts
+CONTRACT OpenWorkflow write jobs (current failure characterization; Gate 3 replacement): src/domain/workspaces/write-workflow.contract.test.ts
+CONTRACT hydrate: src/domain/workspaces/hydration.contract.test.ts
+CONTRACT chat engine: src/domain/workspaces/tanstack-workspace-chat.multiturn.test.ts
+
+ RUN  v4.0.18 /private/tmp/ctxpipe-recovery-01a07aba/apps/backend
+
+ ✓ src/db/rls-isolation.test.ts (2 tests) 780ms
+ ✓ src/models/workspaces-sandbox-persist.test.ts (1 test) 621ms
+ ✓ src/domain/workspaces/job-sandbox.live.test.ts (1 test) 1872ms
+     ✓ adds a worktree, writes files, and reads them out for the runner  1865ms
+Cloning into bare repository '/var/folders/9t/jj9rnpps7_ddb72c1mq2k13w0000gn/T/ctxpipe-write-workflow-t3V32S/remote.git'...
+done.
+Cloning into bare repository '/var/folders/9t/jj9rnpps7_ddb72c1mq2k13w0000gn/T/ctxpipe-hydration-contract-cqIbSt/remote.git'...
+done.
+Cloning into bare repository '/var/folders/9t/jj9rnpps7_ddb72c1mq2k13w0000gn/T/ctxpipe-write-workflow-WPVezW/remote.git'...
+done.
+Cloning into bare repository '/var/folders/9t/jj9rnpps7_ddb72c1mq2k13w0000gn/T/ctxpipe-hydration-contract-9HmJX7/remote.git'...
+done.
+ ❯ src/services/git/clone-tree.test.ts (5 tests | 1 failed) 13334ms
+     ✓ reads an authenticated Git remote without putting the token in Git arguments or origin  3701ms
+     ✓ resolves the native remote default branch, an explicit branch, and a rewind  2137ms
+     × lists paths and reads a blob at a stored SHA 5242ms
+     ✓ does not follow a repo symlink out of the checkout  2213ms
+     ✓ fails clearly when git is not on PATH 27ms
+Cloning into bare repository '/var/folders/9t/jj9rnpps7_ddb72c1mq2k13w0000gn/T/ctxpipe-write-workflow-2BtZZD/remote.git'...
+done.
+Cloning into bare repository '/var/folders/9t/jj9rnpps7_ddb72c1mq2k13w0000gn/T/ctxpipe-write-workflow-6kD7TI/remote.git'...
+done.
+Cloning into bare repository '/var/folders/9t/jj9rnpps7_ddb72c1mq2k13w0000gn/T/ctxpipe-hydration-contract-0Bccir/remote.git'...
+done.
+Cloning into bare repository '/var/folders/9t/jj9rnpps7_ddb72c1mq2k13w0000gn/T/ctxpipe-write-workflow-5UCys9/remote.git'...
+done.
+Cloning into bare repository '/var/folders/9t/jj9rnpps7_ddb72c1mq2k13w0000gn/T/ctxpipe-write-workflow-NMOGoK/remote.git'...
+done.
+Cloning into bare repository '/var/folders/9t/jj9rnpps7_ddb72c1mq2k13w0000gn/T/ctxpipe-hydration-contract-tXBFXL/remote.git'...
+done.
+Cloning into bare repository '/var/folders/9t/jj9rnpps7_ddb72c1mq2k13w0000gn/T/ctxpipe-write-workflow-GEEP25/remote.git'...
+done.
+Cloning into bare repository '/var/folders/9t/jj9rnpps7_ddb72c1mq2k13w0000gn/T/ctxpipe-hydration-contract-hDIRo8/remote.git'...
+done.
+Cloning into bare repository '/var/folders/9t/jj9rnpps7_ddb72c1mq2k13w0000gn/T/ctxpipe-write-workflow-muDhpQ/remote.git'...
+done.
+Cloning into bare repository '/var/folders/9t/jj9rnpps7_ddb72c1mq2k13w0000gn/T/ctxpipe-write-workflow-o9bEne/remote.git'...
+done.
+ ✓ src/domain/workspaces/hydration.contract.test.ts (5 tests) 29765ms
+   ✓ executes the hydrate workflow for +0 native-git files (relink before execution: false, GitHub: undefined)  4454ms
+   ✓ executes the hydrate workflow for 1 native-git files (relink before execution: false, GitHub: undefined)  4079ms
+   ✓ executes the hydrate workflow for 100 native-git files (relink before execution: false, GitHub: undefined)  6730ms
+   ✓ executes the hydrate workflow for 1 native-git files (relink before execution: true, GitHub: undefined)  3120ms
+   ✓ executes the hydrate workflow for 100 native-git files (relink before execution: false, GitHub: true)  11331ms
+Cloning into bare repository '/var/folders/9t/jj9rnpps7_ddb72c1mq2k13w0000gn/T/ctxpipe-write-workflow-dPw0on/remote.git'...
+done.
+Cloning into bare repository '/var/folders/9t/jj9rnpps7_ddb72c1mq2k13w0000gn/T/ctxpipe-write-workflow-5QZED3/remote.git'...
+done.
+Cloning into bare repository '/var/folders/9t/jj9rnpps7_ddb72c1mq2k13w0000gn/T/ctxpipe-write-workflow-V5A20k/remote.git'...
+done.
+ ✓ src/domain/workspaces/write-workflow.contract.test.ts (12 tests) 46928ms
+   ✓ records the existing migration_export workflow failure in real PostgreSQL  2825ms
+   ✓ records the existing extract_ingest workflow failure in real PostgreSQL  3549ms
+   ✓ records the existing connector_mirror workflow failure in real PostgreSQL  2452ms
+   ✓ records the existing claims_upgrade workflow failure in real PostgreSQL  3151ms
+   ✓ records the existing rename_rewrite workflow failure in real PostgreSQL  3071ms
+   ✓ records the existing valid_from_persist workflow failure in real PostgreSQL  3498ms
+   ✓ records the existing semantic_merge workflow failure in real PostgreSQL  4233ms
+   ✓ records the existing ops_folder_map workflow failure in real PostgreSQL  3853ms
+   ✓ records the existing bootstrap workflow failure in real PostgreSQL  5136ms
+   ✓ records the existing link_unlink workflow failure in real PostgreSQL  3130ms
+   ✓ records the existing ui_file_edit workflow failure in real PostgreSQL  4592ms
+   ✓ records the existing import_key_cleanup workflow failure in real PostgreSQL  7364ms
+ ✓ src/domain/workspaces/tanstack-workspace-chat.multiturn.test.ts (1 test) 77152ms
+     ✓ streams exact mocked replies across two live OpenCode turns  76610ms
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 1 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  src/services/git/clone-tree.test.ts > clone-tree > lists paths and reads a blob at a stored SHA
+Error: Test timed out in 5000ms.
+If this is a long-running test, pass a timeout value as the last argument or configure it globally with "testTimeout".
+ ❯ src/services/git/clone-tree.test.ts:162:3
+    160|   })
+    161| 
+    162|   it("lists paths and reads a blob at a stored SHA", async () => {
+       |   ^
+    163|     dir = await mkdtemp(join(tmpdir(), "ctxpipe-clone-tree-"))
+    164|     await execFileAsync("git", ["init", dir])
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/1]⎯
+
+
+ Test Files  1 failed | 6 passed (7)
+      Tests  1 failed | 26 passed (27)
+   Start at  11:16:10
+   Duration  106.69s (transform 12.23s, setup 1.28s, import 142.29s, tests 170.45s, environment 7ms)
+
+JSON report written to /private/tmp/ctxpipe-recovery-01a07aba/.ci-results/contracts/results.json
+Unexpected failure: src/services/git/clone-tree.test.ts clone-tree lists paths and reads a blob at a stored SHA
+Error: STACK_TRACE_ERROR
+scripts/ci/check-test-report.mjs failed

@@ -9,9 +9,15 @@ const execFileAsync = promisify(execFile)
 async function gitExec(
   args: string[],
   options: Parameters<typeof execFileAsync>[2] = {},
+  input?: string,
 ) {
   try {
-    return await execFileAsync("git", args, options)
+    const execution = execFileAsync("git", args, {
+      ...options,
+      encoding: "buffer",
+    })
+    if (input !== undefined) execution.child.stdin?.end(input)
+    return await execution
   } catch (error) {
     const err = error as NodeJS.ErrnoException & { message?: string }
     if (
@@ -30,15 +36,59 @@ export type GitShaFile =
   | { kind: "missing" }
   | { kind: "bytes"; bytes: Uint8Array }
 
-function authenticatedGitUrl(url: string, token?: string): string {
-  if (!token) return url
-  try {
-    const parsed = new URL(url)
-    parsed.username = "x-access-token"
-    parsed.password = token
-    return parsed.toString()
-  } catch {
-    return url
+/** Resolve a branch once; subsequent reads fetch the returned immutable SHA. */
+export async function resolveGitRemoteTip(input: {
+  url: string
+  branch?: string | null
+  token?: string
+}): Promise<{ sha: string; branch: string } | null> {
+  const requested = input.branch?.trim()
+  const ref = requested ? `refs/heads/${requested}` : "HEAD"
+  const { stdout } = await gitExec(
+    ["ls-remote", "--symref", "--", input.url, ref],
+    { timeout: 60_000, env: gitReadEnvironment(input) },
+  )
+  const lines = stdout.toString("utf8").trim().split("\n")
+  const sha = lines
+    .map((line) => line.split("\t"))
+    .find(
+      ([value, name]) => name === ref && /^[0-9a-f]{40,64}$/.test(value ?? ""),
+    )?.[0]
+  const branch =
+    requested ??
+    lines
+      .find(
+        (line) =>
+          line.startsWith("ref: refs/heads/") && line.endsWith("\tHEAD"),
+      )
+      ?.slice("ref: refs/heads/".length, -"\tHEAD".length)
+  return sha && branch ? { sha, branch } : null
+}
+
+function gitReadEnvironment(input: {
+  url: string
+  token?: string
+}): NodeJS.ProcessEnv {
+  const env = { ...process.env, GIT_TERMINAL_PROMPT: "0" }
+  if (!input.token) return env
+  const remote = new URL(input.url)
+  if (
+    !["https:", "http:"].includes(remote.protocol) ||
+    remote.username ||
+    remote.password
+  )
+    throw new Error(
+      "Token-authenticated Git reads require a credential-free HTTP remote",
+    )
+  return {
+    ...env,
+    GIT_CONFIG_COUNT: "3",
+    GIT_CONFIG_KEY_0: `http.${remote.toString()}.extraHeader`,
+    GIT_CONFIG_VALUE_0: `Authorization: Basic ${Buffer.from(`x-access-token:${input.token}`).toString("base64")}`,
+    GIT_CONFIG_KEY_1: "credential.helper",
+    GIT_CONFIG_VALUE_1: "",
+    GIT_CONFIG_KEY_2: "http.followRedirects",
+    GIT_CONFIG_VALUE_2: "false",
   }
 }
 
@@ -52,16 +102,16 @@ async function withFetchedGitSha<T>(
   input: { url: string; sha: string; token?: string },
   read: (dir: string) => Promise<T>,
 ): Promise<T> {
+  const env = gitReadEnvironment(input)
   const dir = await mkdtemp(join(tmpdir(), "ctxpipe-hydrate-"))
-  const remote = authenticatedGitUrl(input.url, input.token)
   try {
     await gitExec(["init", dir], { timeout: 15_000 })
-    await gitExec(["-C", dir, "remote", "add", "origin", remote], {
+    await gitExec(["-C", dir, "remote", "add", "origin", input.url], {
       timeout: 15_000,
     })
     await gitExec(["-C", dir, "fetch", "--depth", "1", "origin", input.sha], {
       timeout: 60_000,
-      env: { ...process.env, GIT_TERMINAL_PROMPT: "0" },
+      env,
     })
     return await read(dir)
   } finally {
@@ -69,25 +119,36 @@ async function withFetchedGitSha<T>(
   }
 }
 
-async function listTreePaths(dir: string): Promise<string[]> {
+async function listTreeEntries(
+  dir: string,
+): Promise<Array<{ kind: string; sha: string; path: string }>> {
   const { stdout } = await gitExec(
-    ["-C", dir, "ls-tree", "-r", "--name-only", "FETCH_HEAD"],
+    ["-C", dir, "ls-tree", "-rz", "--full-tree", "FETCH_HEAD"],
     { timeout: 15_000, maxBuffer: 10 * 1024 * 1024 },
   )
   return stdout
-    .split("\n")
-    .map((line) => line.trim())
-    .filter((path) => path.length > 0 && isSafeGitPath(path))
+    .toString("utf8")
+    .split("\0")
+    .filter(Boolean)
+    .map((record) => {
+      const entry = /^\d+ (\w+) ([0-9a-f]+)\t([\s\S]+)$/.exec(record)
+      if (!entry?.[1] || !entry[2] || !entry[3] || !isSafeGitPath(entry[3]))
+        throw new Error("Invalid path in immutable Git tree")
+      return { kind: entry[1], sha: entry[2], path: entry[3] }
+    })
 }
 
 async function gitShowBytes(dir: string, path: string): Promise<GitShaFile> {
   if (!isSafeGitPath(path)) return { kind: "missing" }
   try {
-    const { stdout } = await gitExec(["-C", dir, "show", `FETCH_HEAD:${path}`], {
-      encoding: "buffer",
-      timeout: 15_000,
-      maxBuffer: 10 * 1024 * 1024,
-    })
+    const { stdout } = await gitExec(
+      ["-C", dir, "show", `FETCH_HEAD:${path}`],
+      {
+        encoding: "buffer",
+        timeout: 15_000,
+        maxBuffer: 10 * 1024 * 1024,
+      },
+    )
     return { kind: "bytes", bytes: stdout }
   } catch {
     return { kind: "missing" }
@@ -101,14 +162,41 @@ export async function listMarkdownFilesAtGitSha(input: {
   token?: string
 }): Promise<Array<{ path: string; content: string }>> {
   return withFetchedGitSha(input, async (dir) => {
-    const files: Array<{ path: string; content: string }> = []
-    for (const path of await listTreePaths(dir)) {
-      if (!path.endsWith(".md")) continue
-      const file = await gitShowBytes(dir, path)
-      if (file.kind !== "bytes") continue
-      files.push({ path, content: file.bytes.toString("utf8") })
-    }
-    return files
+    const entries = (await listTreeEntries(dir)).filter(
+      (entry) => entry.kind === "blob" && entry.path.endsWith(".md"),
+    )
+    if (entries.length === 0) return []
+    const { stdout } = await gitExec(
+      ["-C", dir, "cat-file", "--batch"],
+      { timeout: 30_000, maxBuffer: 64 * 1024 * 1024 },
+      `${entries.map((entry) => entry.sha).join("\n")}\n`,
+    )
+    let offset = 0
+    return entries.map((entry) => {
+      const newline = stdout.indexOf(10, offset)
+      if (newline < 0) throw new Error("Incomplete Git batch response")
+      const [sha, kind, sizeText] = stdout
+        .subarray(offset, newline)
+        .toString("ascii")
+        .split(" ")
+      const size = Number(sizeText)
+      const start = newline + 1
+      const end = start + size
+      if (
+        sha !== entry.sha ||
+        kind !== "blob" ||
+        !Number.isSafeInteger(size) ||
+        size < 0 ||
+        end >= stdout.length ||
+        stdout[end] !== 10
+      )
+        throw new Error("Invalid blob in immutable Git batch")
+      offset = end + 1
+      return {
+        path: entry.path,
+        content: stdout.subarray(start, end).toString("utf8"),
+      }
+    })
   })
 }
 
@@ -118,7 +206,9 @@ export async function listPathsAtGitSha(input: {
   sha: string
   token?: string
 }): Promise<string[]> {
-  return withFetchedGitSha(input, (dir) => listTreePaths(dir))
+  return withFetchedGitSha(input, async (dir) =>
+    (await listTreeEntries(dir)).map((entry) => entry.path),
+  )
 }
 
 /** Read one file at a stored SHA. Token never logged. */

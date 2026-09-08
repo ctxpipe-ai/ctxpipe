@@ -8,7 +8,6 @@ import {
   applyEffectiveValidFromToUnits,
   displayNameFromAgentsMarkdown,
   hydrateKnowledgeTree,
-  hydrateReadPlan,
   hydrateReadsStoredDesiredSha,
 } from "../../domain/workspaces/hydrate.js"
 import {
@@ -20,6 +19,7 @@ import {
 } from "../../domain/workspaces/hydrate-phases.js"
 import { workspaceIndexJobs } from "../../domain/workspaces/revision.js"
 import { githubRepoFullNameFromWorkspaceUrl } from "../../domain/workspaces/write-status.js"
+import { getRepoReadCloneToken } from "../../models/github-installation.js"
 import {
   commitHydrateProjection,
   getWorkspaceById,
@@ -35,10 +35,6 @@ import {
 } from "../../observability/logger.js"
 import { generateEmbeddings } from "../../retrieval/services/modelProvider.js"
 import { listMarkdownFilesAtGitSha } from "../../services/git/clone-tree.js"
-import {
-  getFileContent,
-  listFilesAtSha,
-} from "../../services/github/installation-write-client.js"
 import { enqueueWorkspaceIndex } from "../enqueue-workspace-index.js"
 
 const workspaceHydrateInputSchema = z.object({
@@ -106,6 +102,15 @@ export const workspaceHydrate = defineWorkflow(
             )
             if (!loaded) throw new Error("Workspace not found")
             const workspace = loaded
+            if (
+              (input.generation !== undefined &&
+                input.generation !== workspace.desiredGeneration) ||
+              (input.url !== undefined &&
+                input.url !== workspace.workspaceRepositoryUrl) ||
+              (input.sha !== undefined && input.sha !== workspace.desiredSha)
+            ) {
+              return { hydrated: false, reason: "cas_discarded" as const }
+            }
             void input.defaultBranch
             const desiredSha = input.sha ?? workspace.desiredSha
             if (!desiredSha) {
@@ -145,42 +150,18 @@ export const workspaceHydrate = defineWorkflow(
                 "Could not resolve the git tip for this workspace repository.",
               )
             }
-            const files: Array<{ path: string; content: string }> = []
-            if (
-              hydrateReadPlan(
-                workspace.workspaceRepositoryUrl,
-                workspace.githubConnectionId,
-              ).via === "github" &&
-              repoName
-            ) {
-              const tree = await listFilesAtSha({
-                orgId: input.orgId,
-                repositoryName: repoName,
-                env,
-                githubConnectionId: workspace.githubConnectionId ?? undefined,
-                sha: treeSha,
-              })
-              for (const entry of tree) {
-                if (!entry.path.endsWith(".md")) continue
-                const content = await getFileContent({
-                  orgId: input.orgId,
-                  repositoryName: repoName,
-                  env,
-                  githubConnectionId: workspace.githubConnectionId ?? undefined,
-                  branch: treeSha,
-                  path: entry.path,
-                })
-                if (content == null) continue
-                files.push({ path: entry.path, content })
-              }
-            } else {
-              files.push(
-                ...(await listMarkdownFilesAtGitSha({
-                  url: workspace.workspaceRepositoryUrl,
-                  sha: treeSha,
-                })),
-              )
-            }
+            const token =
+              repoName && workspace.githubConnectionId
+                ? await getRepoReadCloneToken(input.orgId, env, {
+                    repoFullName: repoName,
+                    githubConnectionId: workspace.githubConnectionId,
+                  })
+                : undefined
+            const files = await listMarkdownFilesAtGitSha({
+              url: workspace.workspaceRepositoryUrl,
+              sha: treeSha,
+              token,
+            })
 
             const parsed = hydrateKnowledgeTree({
               workspaceId: workspace.id,

@@ -1,0 +1,36 @@
+{"name": "private-native-read-red", "cwd": "/private/tmp/ctxpipe-recovery-01a07aba", "command": ["/Users/jakubriedl/.volta/tools/image/node/22.16.0/bin/node", "apps/backend/node_modules/vitest/vitest.mjs", "run", "--root", "apps/backend", "src/services/git/clone-tree.test.ts", "-t", "authenticated Git remote"], "environment": {"AUTH_SECRET": "gate0-local-disposable-test-secret-20260907", "DATABASE_URL": "postgresql://ctxpipe_app:ctxpipe@127.0.0.1:61314/ctxpipe_gate0_fresh", "GRAPH_DB_URI": "redis://127.0.0.1:6399", "CI": "true", "NO_COLOR": "1", "TURBO_TELEMETRY_DISABLED": "1", "STORYBOOK_DISABLE_TELEMETRY": "1", "PATH": "/private/tmp/ctxpipe-recovery-runtime/node_modules/.bin:/usr/local/bin:/System/Cryptexes/App/usr/bin:/usr/bin:/bin:/usr/sbin:/sbin:/var/run/com.apple.security.cryptexd/codex.system/bootstrap/usr/local/bin:/var/run/com.apple.security.cryptexd/codex.system/bootstrap/usr/bin:/var/run/com.apple.security.cryptexd/codex.system/bootstrap/usr/appleinternal/bin:/pkg/env/global/bin:/Users/jakubriedl/.codex/tmp/arg0/codex-arg0BW5Gt3:/Users/jakubriedl/.cache/codex-runtimes/codex-primary-runtime/dependencies/bin/override:/Users/jakubriedl/.local/bin:/Users/jakubriedl/.bun/bin:/Users/jakubriedl/.opencode/bin:/Users/jakubriedl/.volta/bin:/opt/homebrew/bin:/opt/homebrew/sbin:/Users/jakubriedl/.cache/codex-runtimes/codex-primary-runtime/dependencies/bin/fallback:/Applications/ChatGPT.app/Contents/Resources"}, "timeout_seconds": 600, "started_utc": "2026-09-08T01:07:28Z", "log": "logs/private-native-read-red.log"}
+
+ RUN  v4.0.18 /private/tmp/ctxpipe-recovery-01a07aba/apps/backend
+
+ ❯ src/services/git/clone-tree.test.ts (5 tests | 1 failed | 4 skipped) 1630ms
+     × reads an authenticated Git remote without putting the token in Git arguments or origin 1626ms
+     ↓ resolves the native remote default branch, an explicit branch, and a rewind
+     ↓ lists paths and reads a blob at a stored SHA
+     ↓ does not follow a repo symlink out of the checkout
+     ↓ fails clearly when git is not on PATH
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 1 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  src/services/git/clone-tree.test.ts > clone-tree > reads an authenticated Git remote without putting the token in Git arguments or origin
+AssertionError: promise rejected "Error: Command failed: git -C /var/folder… { …(6) }" instead of resolving
+ ❯ src/services/git/clone-tree.test.ts:71:9
+     69|         sha,
+     70|         token,
+     71|       })).resolves.toEqual([{ path: "private.md", content: "# Private …
+       |         ^
+     72|       expect(authenticatedRequests).toBeGreaterThan(0)
+     73|       const trace = await readFile(tracePath, "utf8")
+
+Caused by: Error: Command failed: git -C /var/folders/9t/jj9rnpps7_ddb72c1mq2k13w0000gn/T/ctxpipe-hydrate-94w5Qo fetch --depth 1 origin df95c96f5ed2dd2174d9c84f16a21018a6be9c9e
+fatal: dumb http transport does not support shallow capabilities
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯
+Serialized Error: { code: 128, killed: false, signal: null, cmd: 'git -C /var/folders/9t/jj9rnpps7_ddb72c1mq2k13w0000gn/T/ctxpipe-hydrate-94w5Qo fetch --depth 1 origin df95c96f5ed2dd2174d9c84f16a21018a6be9c9e', stdout: '<Buffer(0) ...>', stderr: '<Buffer(65) ...>' }
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/1]⎯
+
+
+ Test Files  1 failed (1)
+      Tests  1 failed | 4 skipped (5)
+   Start at  11:07:30
+   Duration  9.73s (transform 1.77s, setup 112ms, import 7.46s, tests 1.63s, environment 0ms)
+
