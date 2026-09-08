@@ -68,18 +68,41 @@ export async function persistWriteJobIntent(input: {
         createdAt: now,
         updatedAt: now,
       })
-      .onConflictDoUpdate({
-        target: workspaceWriteJobs.id,
-        set: {
-          kind: input.kind,
-          generation: input.generation,
-          desiredSha: input.desiredSha ?? null,
-          status: input.status,
-          payload: input.payload,
-          updatedAt: now,
-        },
-        setWhere: sql`${workspaceWriteJobs.commitSha} is null`,
-      })
+      .onConflictDoNothing()
+    const [row] = await getOrgDb()
+      .select()
+      .from(workspaceWriteJobs)
+      .where(eq(workspaceWriteJobs.id, input.id))
+      .limit(1)
+    if (
+      !row ||
+      row.workspaceId !== input.workspaceId ||
+      row.kind !== input.kind ||
+      row.generation !== input.generation ||
+      row.desiredSha !== (input.desiredSha ?? null)
+    )
+      throw new Error("Write job id belongs to a different command")
+    for (const key of [
+      "jobWorkspaceUrl",
+      "previousSha",
+      "displayName",
+      "linkAction",
+      "linkGitUrl",
+      "mirror",
+      "mergeFiles",
+      "mergeDeletePaths",
+      "conflictParentSha",
+      "remoteTipSha",
+    ] as const) {
+      if (!isDeepStrictEqual(row.payload?.[key], input.payload[key]))
+        throw new Error("Write job id belongs to a different captured payload")
+    }
+    if (
+      input.payload.defaultBranch !== undefined &&
+      row.payload?.defaultBranch !== input.payload.defaultBranch
+    )
+      throw new Error("Write job id belongs to a different default branch")
+    // Re-admission is a read: a paused fallback never changes an existing native owner or status.
   })
 }
 
@@ -496,7 +519,7 @@ export async function getCompletedKnowledgePaths(
   revision: WorkspaceRevision,
 ): Promise<Record<string, string>> {
   return orgSql(async () => {
-    const [row] = await getOrgDb()
+    const rows = await getOrgDb()
       .select({ payload: workspaceWriteJobs.payload })
       .from(workspaceWriteJobs)
       .where(
@@ -511,8 +534,10 @@ export async function getCompletedKnowledgePaths(
         ),
       )
       .orderBy(desc(workspaceWriteJobs.updatedAt), desc(workspaceWriteJobs.id))
-      .limit(1)
-    return row?.payload?.knowledgePaths ?? {}
+    return Object.assign(
+      {},
+      ...rows.reverse().map((row) => row.payload?.knowledgePaths ?? {}),
+    )
   })
 }
 

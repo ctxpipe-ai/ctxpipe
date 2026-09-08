@@ -7,6 +7,11 @@ import {
   workspaceRevisionSchema,
 } from "../../domain/workspaces/revision.js"
 import {
+  createMergeSandbox,
+  destroyMergeSandbox,
+  resolveSemanticConflicts,
+} from "../../domain/workspaces/semantic-merge.js"
+import {
   publishWorkspaceWriteRevision,
   pushWorkspaceCommit,
   refreshWorkspaceWriteRevision,
@@ -29,7 +34,10 @@ import {
   gitFileChangeSchema,
   repositoryFilePathSchema,
 } from "../../services/git/file-change.js"
-import { mergeGitFiles } from "../../services/git/merge-tree.js"
+import {
+  mergeGitFiles,
+  resolveGitMergeTree,
+} from "../../services/git/merge-tree.js"
 import {
   commitGitTree,
   validateGitTree,
@@ -37,17 +45,28 @@ import {
 import { runWorkflowWithWorkerWake } from "../client.js"
 import { workspaceHydrate } from "./workspace-hydrate.js"
 
-export const workspaceSemanticMergeInputSchema = z
+export const semanticMergeContentSchema = z
   .object({
-    orgId: z.string().min(1),
-    workspaceId: z.string().min(1),
-    jobId: z.string().min(1),
-    revision: workspaceRevisionSchema,
     previousSha: z.string().regex(/^(?:[0-9a-f]{40}|[0-9a-f]{64})$/),
     files: z.array(gitFileChangeSchema),
     deletePaths: z.array(repositoryFilePathSchema),
   })
   .strict()
+  .refine((input) => {
+    const paths = [
+      ...input.files.map((file) => file.path),
+      ...input.deletePaths,
+    ]
+    return new Set(paths).size === paths.length
+  }, "Each path must have exactly one operation")
+
+export const workspaceSemanticMergeInputSchema = semanticMergeContentSchema
+  .safeExtend({
+    orgId: z.string().min(1),
+    workspaceId: z.string().min(1),
+    jobId: z.string().min(1),
+    revision: workspaceRevisionSchema,
+  })
   .refine(
     (input) =>
       input.workspaceId === input.revision.workspaceId &&
@@ -128,7 +147,30 @@ export const workspaceSemanticMerge = defineWorkflow(
               reason: "no_changes" as const,
             }
           }
-          const staged = await step.run({ name: "stage" }, () => merged.staged)
+          const resolved = merged.conflicts.length
+            ? await (async () => {
+                const sandbox = await step.run(
+                  { name: "create-merge-sandbox" },
+                  () => createMergeSandbox(`${run.id}:${refreshAttempt}`),
+                )
+                try {
+                  return await step.run(
+                    {
+                      name: "resolve-semantic-conflicts",
+                      retryPolicy: { maximumAttempts: 3 },
+                    },
+                    () => resolveSemanticConflicts(sandbox, merged.conflicts),
+                  )
+                } finally {
+                  await step.run({ name: "destroy-merge-sandbox" }, () =>
+                    destroyMergeSandbox(sandbox),
+                  )
+                }
+              })()
+            : null
+          const staged = await step.run({ name: "stage" }, () =>
+            resolved ? resolveGitMergeTree(merged, resolved) : merged.staged,
+          )
           await step.run({ name: "validate" }, () =>
             validateGitTree(staged, merged.paths),
           )

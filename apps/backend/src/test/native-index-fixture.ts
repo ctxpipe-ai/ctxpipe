@@ -1,4 +1,4 @@
-import { execFileSync, spawn, type ChildProcess } from "node:child_process"
+import { type ChildProcess, execFileSync, spawn } from "node:child_process"
 import { once } from "node:events"
 import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises"
 import { createServer } from "node:net"
@@ -14,12 +14,12 @@ import { closeDb, getSystemDb, initDb, withOrgDbContext } from "../db/client.js"
 import { organizations } from "../db/schema/auth.js"
 import { repositories } from "../db/schema/repositories.js"
 import { orgFirstWorkspaces, workspaces } from "../db/schema/workspaces.js"
+import type { WorkspaceRevision } from "../domain/workspaces/revision.js"
 import { generateObjectId } from "../lib/id.js"
 import { repositoryIndex } from "../openworkflow/workflows/repository-index.js"
-import { workspaceTipCheck } from "../openworkflow/workflows/workspace-tip-check.js"
 import { workspaceIndex } from "../openworkflow/workflows/workspace-index.js"
+import { workspaceTipCheck } from "../openworkflow/workflows/workspace-tip-check.js"
 import { codeSearch } from "../retrieval/services/codeSearch.js"
-import type { WorkspaceRevision } from "../domain/workspaces/revision.js"
 
 async function availablePort() {
   const server = createServer()
@@ -177,11 +177,19 @@ export async function createNativeIndexFixture(
       .poll(
         async () => {
           if (zoektError) throw zoektError
-          return fetch(`http://127.0.0.1:${port}/`, {
-            signal: AbortSignal.timeout(1_000),
-          })
-            .then((res) => res.status)
-            .catch(() => 0)
+          const controller = new AbortController()
+          const timer = setTimeout(() => controller.abort(), 1_000)
+          try {
+            const response = await fetch(`http://127.0.0.1:${port}/`, {
+              signal: controller.signal,
+            })
+            await response.arrayBuffer()
+            return response.status
+          } catch {
+            return 0
+          } finally {
+            clearTimeout(timer)
+          }
         },
         { timeout: 10_000 },
       )

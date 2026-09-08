@@ -48,6 +48,7 @@ import {
   workspaceRenameRewriteInputSchema,
 } from "./workflows/workspace-rename-rewrite.js"
 import {
+  semanticMergeContentSchema,
   workspaceSemanticMerge,
   workspaceSemanticMergeInputSchema,
 } from "./workflows/workspace-semantic-merge.js"
@@ -126,6 +127,19 @@ export async function enqueueWriteJob(
   let writeStatus: string | null = null
   let desiredGeneration = jobGeneration
   try {
+    if (input.kind === "semantic_merge") {
+      const content = semanticMergeContentSchema.parse({
+        previousSha: input.previousSha,
+        files: input.mergeFiles ?? [],
+        deletePaths: input.mergeDeletePaths ?? [],
+      })
+      input = {
+        ...input,
+        previousSha: content.previousSha,
+        mergeFiles: content.files,
+        mergeDeletePaths: content.deletePaths,
+      }
+    }
     if (input.kind === "connector_mirror")
       connectorMirrorContentSchema.parse({
         mirror: input.mirror,
@@ -382,7 +396,7 @@ export async function enqueueWriteJob(
   } catch (err: unknown) {
     const error = err instanceof Error ? err : new Error(String(err))
     log.error(error)
-    if (status !== WRITE_JOB_STATUSES.queued) return { started: false }
+    return { started: false }
   }
   if (status !== WRITE_JOB_STATUSES.queued) {
     return { started: false }

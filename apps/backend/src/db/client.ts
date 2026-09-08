@@ -102,6 +102,7 @@ export function assertNotInOrgDbContext(): void {
 }
 
 export type OrgDbContextOptions = {
+  isolationLevel?: "repeatable read"
   idleInTransactionSessionTimeout?: string
 }
 
@@ -123,6 +124,8 @@ export async function withOrgDbContext<T>(
         `withOrgDbContext nested org mismatch: open=${existing.orgId} requested=${orgId}`,
       )
     }
+    if (options?.isolationLevel)
+      throw new Error("Snapshot isolation requires a new org transaction")
     if (options?.idleInTransactionSessionTimeout) {
       throw new Error(
         "idleInTransactionSessionTimeout cannot be applied to a nested withOrgDbContext",
@@ -131,30 +134,37 @@ export async function withOrgDbContext<T>(
     return handler(existing.db)
   }
   const db = getSystemDb()
-  return db.transaction(async (tx) => {
-    await tx.execute(
-      sql`select set_config('app.organization_id', ${orgId}, true)`,
-    )
-    if (options?.idleInTransactionSessionTimeout) {
+  return db.transaction(
+    async (tx) => {
       await tx.execute(
-        sql`select set_config('idle_in_transaction_session_timeout', ${options.idleInTransactionSessionTimeout}, true)`,
+        sql`select set_config('app.organization_id', ${orgId}, true)`,
       )
-    }
-    try {
-      // Explicit `async` wrapper: some runtimes (e.g. Bun inside OpenWorkflow steps)
-      // drop AsyncLocalStorage across `() => handler(tx)` when `handler` is async.
-      return await orgDbStorage.run({ db: tx, orgId }, async () => handler(tx))
-    } catch (err) {
-      log.error({
-        step: "withOrgDbContext.rollback",
-        message: "withOrgDbContext: transaction rollback",
-        orgId,
-        error: formatUnknownError(err),
-        cause: err instanceof Error ? err.cause : undefined,
-      })
-      throw err
-    }
-  })
+      if (options?.idleInTransactionSessionTimeout) {
+        await tx.execute(
+          sql`select set_config('idle_in_transaction_session_timeout', ${options.idleInTransactionSessionTimeout}, true)`,
+        )
+      }
+      try {
+        // Explicit `async` wrapper: some runtimes (e.g. Bun inside OpenWorkflow steps)
+        // drop AsyncLocalStorage across `() => handler(tx)` when `handler` is async.
+        return await orgDbStorage.run({ db: tx, orgId }, async () =>
+          handler(tx),
+        )
+      } catch (err) {
+        log.error({
+          step: "withOrgDbContext.rollback",
+          message: "withOrgDbContext: transaction rollback",
+          orgId,
+          error: formatUnknownError(err),
+          cause: err instanceof Error ? err.cause : undefined,
+        })
+        throw err
+      }
+    },
+    options?.isolationLevel
+      ? { isolationLevel: options.isolationLevel }
+      : undefined,
+  )
 }
 
 export async function closeDb(): Promise<void> {

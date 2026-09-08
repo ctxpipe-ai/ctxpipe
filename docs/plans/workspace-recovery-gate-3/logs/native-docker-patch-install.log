@@ -1,0 +1,9 @@
+Scope: all 10 workspace projects
+Lockfile is up to date, resolution step is skipped
+Progress: resolved 1, reused 0, downloaded 0, added 0
+Packages: +22 -11
+++++++++++++++++++++++-----------
+Progress: resolved 22, reused 15, downloaded 0, added 0, done
+ WARN  Failed to create bin at /private/tmp/ctxpipe-recovery-01a07aba/node_modules/.pnpm/node_modules/.bin/arrow2csv. ENOENT: no such file or directory, open '/private/tmp/ctxpipe-recovery-01a07aba/node_modules/.pnpm/node_modules/apache-arrow/bin/arrow2csv.cjs'
+
+Done in 1s using pnpm v10.12.1

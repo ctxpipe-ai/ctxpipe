@@ -1,6 +1,10 @@
 import { eq } from "drizzle-orm"
 import { requireCurrentOrgId } from "../auth/context.js"
-import { getOrgDb } from "../db/client.js"
+import {
+  assertNotInOrgDbContext,
+  getOrgDb,
+  withOrgDbContext,
+} from "../db/client.js"
 import { withAmbientOrgDb } from "../db/org-sql.js"
 import { claimEvidence } from "../db/schema/claim_evidence.js"
 import { claims } from "../db/schema/claims.js"
@@ -135,4 +139,23 @@ export async function loadKnowledgeProjectionSource(): Promise<{
         })),
     }
   })
+}
+
+/** Durable extraction input must pair source data with its migration cutover state. */
+export async function loadExtractionProjectionSource(
+  revision: import("../domain/workspaces/revision.js").WorkspaceRevision,
+) {
+  assertNotInOrgDbContext()
+  return withOrgDbContext(
+    requireCurrentOrgId(),
+    async () => {
+      const { getCompletedKnowledgePaths, getMigrationExportSha } =
+        await import("./workspace-write-jobs.js")
+      const source = await loadKnowledgeProjectionSource()
+      const knownKnowledgePaths = await getCompletedKnowledgePaths(revision)
+      const exportSha = await getMigrationExportSha(revision.workspaceId)
+      return { ...source, knownKnowledgePaths, stampImportKey: !exportSha }
+    },
+    { isolationLevel: "repeatable read" },
+  )
 }

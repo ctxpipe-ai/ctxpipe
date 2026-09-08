@@ -1,0 +1,115 @@
+diff --git a/dist/esm/provider.d.ts b/dist/esm/provider.d.ts
+index b8e7f9a0d2aa3ddcde6c46e787ed646b5252f05f..9d46ec3a7c757d888b8377dc9c45bc4593f020eb 100644
+--- a/dist/esm/provider.d.ts
++++ b/dist/esm/provider.d.ts
+@@ -4,6 +4,8 @@ import { SandboxProvider } from '@tanstack/ai-sandbox';
+ export interface DockerSandboxConfig {
+     /** Image to run, e.g. `node:22`. Pulled automatically if absent locally. */
+     image: string;
++    /** Stable native container name for replayable create calls. Forks remain independent. */
++    containerName?: string;
+     /** Working directory inside the container. Defaults to `/workspace`. */
+     workdir?: string;
+     /** Options forwarded to `new Dockerode(...)` (socketPath, host, port, …). */
+diff --git a/dist/esm/provider.js b/dist/esm/provider.js
+index 6bc1a9d6355d8e62488c5c1b555133460e96ce19..42438251b234a98b029db92807475ac3b2387af0 100644
+--- a/dist/esm/provider.js
++++ b/dist/esm/provider.js
+@@ -34,7 +34,7 @@ var DockerProvider = class {
+ 		const imageRef = typeof image.Id === "string" ? image.Id : `tanstack-ai-sandbox-fork:latest`;
+ 		return this.startContainer(imageRef);
+ 	};
+-	async startContainer(image, env) {
++	async startContainer(image, env, name) {
+ 		const exposed = {};
+ 		const bindings = {};
+ 		for (const port of this.config.publishPorts ?? []) {
+@@ -43,6 +43,7 @@ var DockerProvider = class {
+ 		}
+ 		const container = await this.docker.createContainer({
+ 			Image: image,
++			...(name ? { name } : {}),
+ 			Cmd: this.config.keepAliveCommand ?? [
+ 				"sh",
+ 				"-c",
+@@ -80,8 +81,20 @@ var DockerProvider = class {
+ 		}
+ 	}
+ 	async create(input) {
+-		await this.ensureImage(this.config.image);
+-		return this.startContainer(this.config.image, input.env);
++        const name = this.config.containerName;
++        if (name) {
++            const existing = await this.resume({ id: name });
++            if (existing) { await existing.fs.mkdir(this.workdir); return existing; }
++        }
++        await this.ensureImage(this.config.image);
++        try { return await this.startContainer(this.config.image, input.env, name); }
++        catch (error) {
++            if (name && typeof error === "object" && error !== null && "statusCode" in error && error.statusCode === 409) {
++                const existing = await this.resume({ id: name });
++                if (existing) { await existing.fs.mkdir(this.workdir); return existing; }
++            }
++            throw error;
++        }
+ 	}
+ 	async resume(input) {
+ 		const container = this.docker.getContainer(input.id);
+diff --git a/src/provider.ts b/src/provider.ts
+index 2eba55337bedb778404a042347c0b7811f91c595..475d4b918d6396234784bc791e65fdb81101ea63 100644
+--- a/src/provider.ts
++++ b/src/provider.ts
+@@ -14,6 +14,8 @@ import type {
+ export interface DockerSandboxConfig {
+   /** Image to run, e.g. `node:22`. Pulled automatically if absent locally. */
+   image: string
++  /** Stable native container name for replayable create calls. Forks remain independent. */
++  containerName?: string
+   /** Working directory inside the container. Defaults to `/workspace`. */
+   workdir?: string
+   /** Options forwarded to `new Dockerode(...)` (socketPath, host, port, …). */
+@@ -90,6 +92,7 @@ class DockerProvider implements SandboxProvider {
+   private async startContainer(
+     image: string,
+     env?: Record<string, string>,
++    name?: string,
+   ): Promise<SandboxHandle> {
+     const exposed: Record<string, Record<string, never>> = {}
+     const bindings: Record<string, Array<{ HostPort: string }>> = {}
+@@ -100,6 +103,7 @@ class DockerProvider implements SandboxProvider {
+ 
+     const container = await this.docker.createContainer({
+       Image: image,
++      ...(name ? { name } : {}),
+       Cmd: this.config.keepAliveCommand ?? ['sh', '-c', 'tail -f /dev/null'],
+       Tty: false,
+       WorkingDir: this.workdir,
+@@ -141,8 +145,27 @@ class DockerProvider implements SandboxProvider {
+   }
+ 
+   async create(input: SandboxCreateInput): Promise<SandboxHandle> {
++    const name = this.config.containerName
++    if (name) {
++      const existing = await this.resume({ id: name })
++      if (existing) {
++        await existing.fs.mkdir(this.workdir)
++        return existing
++      }
++    }
+     await this.ensureImage(this.config.image)
+-    return this.startContainer(this.config.image, input.env)
++    try {
++      return await this.startContainer(this.config.image, input.env, name)
++    } catch (error) {
++      if (name && typeof error === 'object' && error !== null && 'statusCode' in error && error.statusCode === 409) {
++        const existing = await this.resume({ id: name })
++        if (existing) {
++          await existing.fs.mkdir(this.workdir)
++          return existing
++        }
++      }
++      throw error
++    }
+   }
+ 
+   async resume(input: SandboxResumeInput): Promise<SandboxHandle | null> {

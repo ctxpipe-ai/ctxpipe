@@ -32,6 +32,9 @@ import { closeGraphDb } from "../platform/graph/client.js"
 export type NativeHydrationOptions = {
   files?: Array<{ path: string; body: string; mode?: "100755" | "120000" }>
   initialCommitDate?: string
+  semanticMergeResolution?: {
+    files: Array<{ path: string; content: string | null }>
+  }
   count?: number
   github?: boolean
   githubWriteView?: "writable" | "missing"
@@ -62,15 +65,20 @@ async function createNativeHydrationFixture(
     GIT_CONFIG_GLOBAL: process.env.GIT_CONFIG_GLOBAL,
     GITHUB_APP_ID: process.env.GITHUB_APP_ID,
     GITHUB_PRIVATE_KEY: process.env.GITHUB_PRIVATE_KEY,
+    SANDBOX_PROVIDER: process.env.SANDBOX_PROVIDER,
     MODEL_PROVIDER: process.env.MODEL_PROVIDER,
     MODEL_PROVIDER_API_KEY: process.env.MODEL_PROVIDER_API_KEY,
     MODEL_PROVIDER_URL: process.env.MODEL_PROVIDER_URL,
   }
   Object.assign(process.env, {
+    ...(options.semanticMergeResolution
+      ? { SANDBOX_PROVIDER: "unsandboxed" }
+      : {}),
     MODEL_PROVIDER: "openai-like",
     MODEL_PROVIDER_API_KEY: "fixture-only",
     MODEL_PROVIDER_URL: "https://hydrate-model.test/v1",
   })
+  const semanticRequests: unknown[] = []
   const tokenRequests: unknown[] = []
   let failEmbeddings = embeddingFailure === true
   let failGithubTokens = false
@@ -116,24 +124,50 @@ async function createNativeHydrationFixture(
       "https://api.github.com/repos/fixture/hydration-contract/git/trees/:sha",
       () => HttpResponse.json({ message: "Use native Git" }, { status: 404 }),
     ),
-    http.post("https://hydrate-model.test/v1/chat/completions", () =>
-      HttpResponse.json({
-        id: "fixture-subject",
-        object: "chat.completion",
-        created: 1,
-        model: "fixture",
-        choices: [
-          {
-            index: 0,
-            message: {
-              role: "assistant",
-              content: "ctxpipe - Bootstrap workspace knowledge",
+    http.post(
+      "https://hydrate-model.test/v1/chat/completions",
+      async ({ request }) => {
+        const body = (await request.json()) as {
+          tools?: Array<{ function: { name: string } }>
+        }
+        const tool = body.tools?.[0]?.function.name
+        if (tool) semanticRequests.push(body)
+        return HttpResponse.json({
+          id: "fixture-model",
+          object: "chat.completion",
+          created: 1,
+          model: "fixture",
+          choices: [
+            {
+              index: 0,
+              message:
+                tool && options.semanticMergeResolution
+                  ? {
+                      role: "assistant",
+                      content: null,
+                      tool_calls: [
+                        {
+                          id: "fixture-merge",
+                          type: "function",
+                          function: {
+                            name: tool,
+                            arguments: JSON.stringify(
+                              options.semanticMergeResolution,
+                            ),
+                          },
+                        },
+                      ],
+                    }
+                  : {
+                      role: "assistant",
+                      content: "ctxpipe - Bootstrap workspace knowledge",
+                    },
+              finish_reason: tool ? "tool_calls" : "stop",
             },
-            finish_reason: "stop",
-          },
-        ],
-        usage: { prompt_tokens: 1, completion_tokens: 1, total_tokens: 2 },
-      }),
+          ],
+          usage: { prompt_tokens: 1, completion_tokens: 1, total_tokens: 2 },
+        })
+      },
     ),
     http.post(
       "https://hydrate-model.test/v1/embeddings",
@@ -343,6 +377,7 @@ async function createNativeHydrationFixture(
       connectionId,
       git,
       tokenRequests,
+      semanticRequests,
       backend,
       runner,
       worker,

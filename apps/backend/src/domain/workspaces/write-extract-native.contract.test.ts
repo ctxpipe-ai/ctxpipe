@@ -1,6 +1,8 @@
+import { eq } from "drizzle-orm"
 import { expect, it } from "vitest"
 import { withOrgIdContext } from "../../auth/withAuth.js"
 import { withOrgDbContext } from "../../db/client.js"
+import { objects } from "../../db/schema/objects.js"
 import {
   persistBoundWriteJob,
   persistMigrationExportNoOp,
@@ -194,6 +196,53 @@ it.each(["knowledge/services/billing.md", "knowledge/imported/billing.md"])(
             committed: false,
             reason: "no_changes",
           })
+          await withOrgDbContext(f.org.id, async (db) => {
+            await db
+              .delete(objects)
+              .where(eq(objects.deduplicationKey, "legacy:billing-two"))
+          })
+          const omitted = await runner.runWorkflow(
+            workspaceExtractIngest.spec,
+            {
+              orgId: f.org.id,
+              workspaceId: f.workspaceId,
+              jobId: `${jobId}_omitted`,
+              revision: {
+                ...(await f.resolveRevision()),
+                access: "write-default",
+              },
+            },
+          )
+          expect(await omitted.result({ timeoutMs: 15_000 })).toEqual({
+            committed: false,
+            reason: "no_changes",
+          })
+          await withOrgDbContext(f.org.id, () =>
+            upsertRetrievalObjectByDeduplicationKey(f.org.id, {
+              kind: "Service",
+              deduplicationKey: "legacy:billing-two",
+              payload: {
+                name: "Billing",
+                summary: "The second ledger has separate knowledge.",
+              },
+            }),
+          )
+          const reappeared = await runner.runWorkflow(
+            workspaceExtractIngest.spec,
+            {
+              orgId: f.org.id,
+              workspaceId: f.workspaceId,
+              jobId: `${jobId}_reappeared`,
+              revision: {
+                ...(await f.resolveRevision()),
+                access: "write-default",
+              },
+            },
+          )
+          expect(await reappeared.result({ timeoutMs: 15_000 })).toEqual({
+            committed: false,
+            reason: "no_changes",
+          })
           expect(
             f.git(
               "--git-dir",
@@ -253,5 +302,76 @@ it.each(["migration_export", "extract_ingest"] as const)(
         expect(f.git("--git-dir", f.remote, "rev-parse", "main")).toBe(f.sha)
       },
     )
+  },
+)
+
+it(
+  "captures extraction objects and export cutover in one PostgreSQL snapshot",
+  { timeout: 30_000 },
+  async () => {
+    await withNativeHydrationFixture({ github: true }, async (f) => {
+      const { Client } = await import("pg")
+      const { loadExtractionProjectionSource } = await import(
+        "../../models/workspace-export.js"
+      )
+      const { persistWriteJobKnowledgePaths } = await import(
+        "../../models/workspace-write-jobs.js"
+      )
+      const blocker = new Client({ connectionString: f.databaseUrl })
+      await blocker.connect()
+      let pending: ReturnType<typeof loadExtractionProjectionSource> | undefined
+      try {
+        await blocker.query("BEGIN")
+        await blocker.query("LOCK TABLE claims IN ACCESS EXCLUSIVE MODE")
+        pending = withOrgIdContext(f.org, () =>
+          loadExtractionProjectionSource(f.revision),
+        )
+        // The source read has consumed objects and is blocked on claims before the export commits.
+        await expect
+          .poll(
+            async () => {
+              const result = await blocker.query(
+                "select count(*)::int as count from pg_locks where relation='claims'::regclass and mode='AccessShareLock' and not granted",
+              )
+              return result.rows[0].count
+            },
+            { timeout: 5_000 },
+          )
+          .toBeGreaterThan(0)
+        await withOrgIdContext(f.org, async () => {
+          const id = `wjob_${f.id}_interleaved_export`
+          await persistBoundWriteJob({
+            id,
+            kind: "migration_export",
+            revision: { ...f.revision, access: "write-default" },
+            workflowRunId: `fixture_${f.id}`,
+          })
+          await persistWriteJobKnowledgePaths(id, {
+            "legacy:billing": "knowledge/imported/billing.md",
+          })
+          await persistMigrationExportNoOp(id, f.sha)
+        })
+        await blocker.query("COMMIT")
+        expect(await pending).toMatchObject({
+          stampImportKey: true,
+          knownKnowledgePaths: {},
+        })
+        // A subsequent snapshot sees both parts of the completed export together.
+        expect(
+          await withOrgIdContext(f.org, () =>
+            loadExtractionProjectionSource(f.revision),
+          ),
+        ).toMatchObject({
+          stampImportKey: false,
+          knownKnowledgePaths: {
+            "legacy:billing": "knowledge/imported/billing.md",
+          },
+        })
+      } finally {
+        await blocker.query("ROLLBACK")
+        await blocker.end()
+        await pending?.catch(() => undefined)
+      }
+    })
   },
 )

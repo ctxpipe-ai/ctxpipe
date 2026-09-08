@@ -20,10 +20,8 @@ import {
   withWorkspaceWriteContext,
 } from "../../domain/workspaces/write-command.js"
 import { githubRepoFullNameFromWorkspaceUrl } from "../../domain/workspaces/write-status.js"
-import { loadKnowledgeProjectionSource } from "../../models/workspace-export.js"
+import { loadExtractionProjectionSource } from "../../models/workspace-export.js"
 import {
-  getCompletedKnowledgePaths,
-  getMigrationExportSha,
   persistBoundWriteJob,
   persistWriteJobKnowledgePaths,
   persistWriteJobPreparedCommit,
@@ -94,14 +92,9 @@ export const workspaceExtractIngest = defineWorkflow(
         const source = await step.run(
           { name: "load-extracted-knowledge" },
           async () => {
-            const source = await loadKnowledgeProjectionSource()
-            const knownKnowledgePaths = await getCompletedKnowledgePaths(
-              input.revision,
-            )
-            const exportSha = await getMigrationExportSha(input.workspaceId)
+            const source = await loadExtractionProjectionSource(input.revision)
             return {
               ...source,
-              knownKnowledgePaths,
               workspaceByRepositoryId: [...source.workspaceByRepositoryId],
               repositoryGitUrlById: [...source.repositoryGitUrlById].flatMap(
                 ([id, url]) => {
@@ -111,7 +104,6 @@ export const workspaceExtractIngest = defineWorkflow(
                     : []
                 },
               ),
-              stampImportKey: !exportSha,
               linkedUrls: [],
             }
           },
