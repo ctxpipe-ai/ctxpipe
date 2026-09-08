@@ -155,8 +155,13 @@ export function hydrateUnitsToProjectionClaims(
   }> = []
   for (const unit of units) {
     const dir = unit.path.split("/").slice(0, -1).join("/")
+    const bodyTargets = new Set(
+      unit.links.map((href) => resolveHydrateLink(dir, href)),
+    )
     for (const [index, claim] of unit.claims.entries()) {
       const target = resolveHydrateLink(dir, claim.to)
+      // A predicate-less claim adds no second layer over the permanent body link.
+      if (!claim.predicate && bodyTargets.has(target)) continue
       const object = byPath.get(target)
       if (!object) continue
       const validFrom = effectiveValidFrom({
@@ -179,17 +184,13 @@ export function hydrateUnitsToProjectionClaims(
         source: claim.source,
       })
     }
+    const emittedBodyTargets = new Set<string>()
     for (const [index, href] of unit.links.entries()) {
       const target = resolveHydrateLink(dir, href)
       const object = byPath.get(target)
       if (!object) continue
-      if (
-        unit.claims.some(
-          (claim) => resolveHydrateLink(dir, claim.to) === target,
-        )
-      ) {
-        continue
-      }
+      if (emittedBodyTargets.has(target)) continue
+      emittedBodyTargets.add(target)
       claims.push({
         id: `${unit.servingId}:link:${index}`,
         subjectId: unit.servingId,

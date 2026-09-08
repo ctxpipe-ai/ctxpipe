@@ -176,6 +176,7 @@ export const workspaceWriteJobs = pgTable.withRLS(
       workflowRunId?: string
       linkAction?: "link" | "unlink"
       linkGitUrl?: string
+      displayName?: string
       defaultBranch?: string
       jobWorkspaceUrl?: string
       conflictParentSha?: string | null

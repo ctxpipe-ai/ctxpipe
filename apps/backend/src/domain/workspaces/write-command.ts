@@ -25,6 +25,9 @@ export type WorkspaceWriteCommand = {
   revision: WorkspaceRevision
   files?: Array<{ path: string; content: string }>
   deletePaths?: string[]
+  linkAction?: "link" | "unlink"
+  linkGitUrl?: string
+  displayName?: string
 }
 
 /** Org and log scope only; the calling workflow owns all durable execution steps. */
@@ -61,7 +64,10 @@ export async function completedWorkspaceWrite(
     recorded.kind !== kind ||
     !sameWorkspaceRevision(recorded.payload?.revision, input.revision) ||
     !isDeepStrictEqual(recorded.payload?.mergeFiles, input.files) ||
-    !isDeepStrictEqual(recorded.payload?.mergeDeletePaths, input.deletePaths)
+    !isDeepStrictEqual(recorded.payload?.mergeDeletePaths, input.deletePaths) ||
+    recorded.payload?.linkAction !== input.linkAction ||
+    recorded.payload?.linkGitUrl !== input.linkGitUrl ||
+    recorded.payload?.displayName !== input.displayName
   )
     throw new Error("Write job id is already bound to a different command")
   if (recorded.status === "completed")

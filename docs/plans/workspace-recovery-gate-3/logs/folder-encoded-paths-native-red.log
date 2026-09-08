@@ -1,0 +1,60 @@
+{"name": "folder-encoded-paths-native-red", "cwd": "/private/tmp/ctxpipe-recovery-01a07aba", "command": ["/Users/jakubriedl/.volta/tools/image/node/22.16.0/bin/node", "apps/backend/node_modules/vitest/vitest.mjs", "run", "--root", "apps/backend", "src/domain/workspaces/write-maintenance-native.contract.test.ts", "-t", "folder-map section"], "environment": {"AUTH_SECRET": "gate0-local-disposable-test-secret-20260907", "DATABASE_URL": "postgresql://ctxpipe_app:ctxpipe@127.0.0.1:61314/ctxpipe_gate0_fresh", "GRAPH_DB_URI": "redis://127.0.0.1:6398", "CI": "true", "NO_COLOR": "1", "TURBO_TELEMETRY_DISABLED": "1", "STORYBOOK_DISABLE_TELEMETRY": "1", "PATH": "/Users/jakubriedl/.volta/tools/image/node/22.16.0/bin:/private/tmp/ctxpipe-recovery-runtime/ast-grep/node_modules/.bin:/private/tmp/ctxpipe-recovery-runtime/node_modules/.bin:/private/tmp/ctxpipe-recovery-runtime/zoekt:/Users/jakubriedl/.local/bin:/Users/jakubriedl/.bun/bin:/Users/jakubriedl/.opencode/bin:/Users/jakubriedl/.volta/bin:/opt/homebrew/bin:/opt/homebrew/sbin:/usr/local/bin:/System/Cryptexes/App/usr/bin:/usr/bin:/bin:/usr/sbin:/sbin:/var/run/com.apple.security.cryptexd/codex.system/bootstrap/usr/local/bin:/var/run/com.apple.security.cryptexd/codex.system/bootstrap/usr/bin:/var/run/com.apple.security.cryptexd/codex.system/bootstrap/usr/appleinternal/bin:/pkg/env/global/bin:/Users/jakubriedl/.codex/tmp/arg0/codex-arg0BW5Gt3:/Users/jakubriedl/.cache/codex-runtimes/codex-primary-runtime/dependencies/bin/override:/Users/jakubriedl/.local/bin:/Users/jakubriedl/.bun/bin:/Users/jakubriedl/.opencode/bin:/Users/jakubriedl/.volta/bin:/Users/jakubriedl/.cache/codex-runtimes/codex-primary-runtime/dependencies/bin/fallback:/Applications/ChatGPT.app/Contents/Resources"}, "timeout_seconds": 600, "started_utc": "2026-09-08T09:34:21Z", "log": "logs/folder-encoded-paths-native-red.log"}
+
+ RUN  v4.0.18 /private/tmp/ctxpipe-recovery-01a07aba/apps/backend
+
+Cloning into bare repository '/var/folders/9t/jj9rnpps7_ddb72c1mq2k13w0000gn/T/ctxpipe-hydration-contract-fzeFHs/remote.git'...
+done.
+ ❯ src/domain/workspaces/write-maintenance-native.contract.test.ts (4 tests | 1 failed | 3 skipped) 1451ms
+   ↓ removes import keys through one typed native maintenance commit
+   ↓ upgrades Markdown links to claims while preserving other metadata and body
+   ↓ persists each file's introducing timestamp while retaining explicit claim dates
+   × maintains the user's folder-map section from actual Git paths and converges 1450ms
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 1 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  src/domain/workspaces/write-maintenance-native.contract.test.ts > maintains the user's folder-map section from actual Git paths and converges
+AssertionError: expected '---\nname: "Docs: beta"\n---\n\n# Wor…' to contain '- [a#b(c)?d:e/](a%23b%28c%29%3Fd%3Ae/)'
+
+- Expected
++ Received
+
+- - [a#b(c)?d:e/](a%23b%28c%29%3Fd%3Ae/)
++ ---
++ name: "Docs: beta"
++ ---
++
++ # Working notes
++ Keep this introduction.
++
++ ## Directory traversal
++ - Never write [temporary output](tmp/)
++
++ <!-- ctxpipe:folder-map -->
++ ### Our layout
++ - [Guides](guides/) — keep owner label
++ - [Runtime](code-only/) — keep code folder
++ - [a#b(c)?d:e/](a%23b(c)%3Fd%3Ae/)
++ - [reference/](reference/)
++ <!-- /ctxpipe:folder-map -->
++
++ ### Style
++ Keep this style instruction.
+
+ ❯ src/domain/workspaces/write-maintenance-native.contract.test.ts:596:28
+    594|           )
+    595|           expect(markdown).toContain("- [reference/](reference/)")
+    596|           expect(markdown).toContain("- [a#b(c)?d:e/](a%23b%28c%29%3Fd…
+       |                            ^
+    597|           expect(markdown).not.toContain("removed/")
+    598|           expect(markdown).toContain("# Working notes\nKeep this intro…
+ ❯ withNativeHydrationFixture src/test/native-hydration-fixture.ts:399:5
+ ❯ src/domain/workspaces/write-maintenance-native.contract.test.ts:512:5
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/1]⎯
+
+
+ Test Files  1 failed (1)
+      Tests  1 failed | 3 skipped (4)
+   Start at  19:34:21
+   Duration  3.38s (transform 624ms, setup 17ms, import 1.84s, tests 1.45s, environment 0ms)
+

@@ -1,3 +1,13 @@
+import { generateObjectId } from "../../lib/id.js"
+import { reconcileWorkspaceWriteJob } from "../../models/workspace-write-jobs.js"
+import {
+  createWorkspace,
+  updateWorkspace,
+  type WorkspaceRecord,
+} from "../../models/workspaces.js"
+import { enqueueWorkspaceHydrate } from "../../openworkflow/enqueue-workspace-hydrate.js"
+import { enqueueWorkspaceTipCheck } from "../../openworkflow/enqueue-workspace-tip-check.js"
+import { enqueueWorkspaceWriteCommit } from "../../openworkflow/enqueue-workspace-write-commit.js"
 import {
   resolveWorkspaceGithubConnectionId,
   type WorkspaceAddSource,
@@ -9,14 +19,6 @@ import {
   githubConnectionIdForWriteProbe,
   writeStatusFromClassification,
 } from "./write-status.js"
-import {
-  createWorkspace,
-  updateWorkspace,
-  type WorkspaceRecord,
-} from "../../models/workspaces.js"
-import { enqueueWorkspaceHydrate } from "../../openworkflow/enqueue-workspace-hydrate.js"
-import { enqueueWorkspaceTipCheck } from "../../openworkflow/enqueue-workspace-tip-check.js"
-import { enqueueWorkspaceWriteCommit } from "../../openworkflow/enqueue-workspace-write-commit.js"
 
 type WorkspaceLog = { error: (err: Error) => void }
 
@@ -95,16 +97,25 @@ export async function createWorkspaceLifecycle(input: {
 export async function renameWorkspaceLifecycle(input: {
   orgId: string
   workspaceId: string
+  displayName: string
   log: WorkspaceLog
 }): Promise<void> {
-  void enqueueWorkspaceWriteCommit(
+  const jobId = generateObjectId("wjob")
+  const result = await enqueueWorkspaceWriteCommit(
     {
       orgId: input.orgId,
       workspaceId: input.workspaceId,
+      jobId,
       kind: "ops_folder_map",
+      displayName: input.displayName,
     },
     input.log,
   )
+  if (
+    !result.started &&
+    (await reconcileWorkspaceWriteJob(jobId))?.status !== "paused"
+  )
+    throw new Error("Unable to schedule the workspace rename")
 }
 
 export async function relinkWorkspaceLifecycle(input: {

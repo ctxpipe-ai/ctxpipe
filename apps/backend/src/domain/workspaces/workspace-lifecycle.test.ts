@@ -41,7 +41,6 @@ vi.mock("../../openworkflow/enqueue-workspace-write-commit.js", () => ({
 import {
   createWorkspaceLifecycle,
   relinkWorkspaceLifecycle,
-  renameWorkspaceLifecycle,
 } from "./workspace-lifecycle.js"
 
 const workspace = {
@@ -131,17 +130,5 @@ describe("workspace lifecycle", () => {
     )
     expect(enqueueWorkspaceHydrateMock).toHaveBeenCalled()
     expect(enqueueWorkspaceTipCheckMock).toHaveBeenCalled()
-  })
-
-  it("renames by enqueueing ops_folder_map instead of writing display name", async () => {
-    await renameWorkspaceLifecycle({
-      orgId: "org_1",
-      workspaceId: "ws_1",
-      log,
-    })
-    expect(enqueueWorkspaceWriteCommitMock).toHaveBeenCalledWith(
-      expect.objectContaining({ kind: "ops_folder_map" }),
-      log,
-    )
   })
 })

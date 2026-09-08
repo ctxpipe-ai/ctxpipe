@@ -35,11 +35,12 @@ import {
 import { runWorkflowWithWorkerWake } from "../client.js"
 import { workspaceHydrate } from "./workspace-hydrate.js"
 
-const inputSchema = z
+export const workspaceOpsFolderMapInputSchema = z
   .object({
     orgId: z.string().min(1),
     workspaceId: z.string().min(1),
     jobId: z.string().min(1),
+    displayName: z.string().trim().min(1).optional(),
     revision: workspaceRevisionSchema,
   })
   .strict()
@@ -51,9 +52,12 @@ const inputSchema = z
   )
 
 export const workspaceOpsFolderMap = defineWorkflow(
-  { name: "workspace-write-ops-folder-map", schema: inputSchema },
+  {
+    name: "workspace-write-ops-folder-map",
+    schema: workspaceOpsFolderMapInputSchema,
+  },
   async ({ input: queuedInput, step, run }) => {
-    const input = inputSchema.parse(queuedInput)
+    const input = workspaceOpsFolderMapInputSchema.parse(queuedInput)
     return withWorkspaceWriteContext(
       input,
       "workspace-write-ops-folder-map",
@@ -79,6 +83,7 @@ export const workspaceOpsFolderMap = defineWorkflow(
             id: input.jobId,
             kind: "ops_folder_map",
             revision: input.revision,
+            displayName: input.displayName,
             workflowRunId: run.id,
           }),
         )
@@ -87,7 +92,10 @@ export const workspaceOpsFolderMap = defineWorkflow(
             acquireWorkspaceWriteRevision(input, revision, env),
           )
           const files = await step.run(
-            { name: "transform-ops-folder-map" },
+            {
+              name: "transform-ops-folder-map",
+              retryPolicy: { maximumAttempts: 1 },
+            },
             () =>
               withGitDirectory(
                 revision.sha,
@@ -113,6 +121,7 @@ export const workspaceOpsFolderMap = defineWorkflow(
                     : null
                   return opsFolderMapFiles({
                     displayName: acquired.displayName,
+                    requestedDisplayName: input.displayName,
                     existingAgentsMd,
                     paths,
                   })

@@ -17,6 +17,7 @@ export type WriteJobStatus =
 export type WorkspaceWriteJobPayload = {
   revision?: WorkspaceRevision
   workflowRunId?: string
+  displayName?: string
   linkAction?: "link" | "unlink"
   linkGitUrl?: string
   defaultBranch?: string
@@ -60,6 +61,7 @@ const writeJobKindSchema = z.enum([
 /** Shared enqueue + workflow input. Kind-specific fields stay on the payload. */
 export const workspaceWriteJobInputSchema = writeJobBaseSchema.extend({
   kind: writeJobKindSchema,
+  displayName: z.string().trim().min(1).optional(),
   linkAction: z.enum(["link", "unlink"]).optional(),
   linkGitUrl: z.string().min(1).optional(),
   conflictParentSha: z.string().nullable().optional(),
@@ -73,6 +75,7 @@ export type EnqueueWriteJobInput = z.infer<typeof workspaceWriteJobInputSchema>
 export type WriteJobEnqueueFields = Pick<
   EnqueueWriteJobInput,
   | "kind"
+  | "displayName"
   | "defaultBranch"
   | "linkAction"
   | "linkGitUrl"
@@ -87,6 +90,7 @@ export function writeJobIntentPayload(
   input: WriteJobEnqueueFields,
 ): WorkspaceWriteJobPayload {
   const payload: WorkspaceWriteJobPayload = {}
+  if (input.displayName !== undefined) payload.displayName = input.displayName
   if (input.linkAction) payload.linkAction = input.linkAction
   if (input.linkGitUrl) payload.linkGitUrl = input.linkGitUrl
   if (input.defaultBranch) payload.defaultBranch = input.defaultBranch
@@ -160,6 +164,9 @@ export function enqueueInputFromPausedJob(input: {
       ? { jobWorkspaceUrl: payload.jobWorkspaceUrl }
       : {}),
     ...(payload.defaultBranch ? { defaultBranch: payload.defaultBranch } : {}),
+    ...(payload.displayName !== undefined
+      ? { displayName: payload.displayName }
+      : {}),
     ...(payload.linkAction ? { linkAction: payload.linkAction } : {}),
     ...(payload.linkGitUrl ? { linkGitUrl: payload.linkGitUrl } : {}),
     ...(payload.conflictParentSha !== undefined

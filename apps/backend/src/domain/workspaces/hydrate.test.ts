@@ -157,6 +157,14 @@ describe("hydrateUnitsToProjectionClaims", () => {
         aggregatedConfidence: 0.8,
         validFrom: "2026-08-16T12:00:00.000Z",
       }),
+      expect.objectContaining({
+        subjectId: api,
+        objectId: ledger,
+        predicate: "LINKS_TO",
+        aggregatedConfidence: 1,
+        validFrom: null,
+        validTo: null,
+      }),
     ])
   })
 

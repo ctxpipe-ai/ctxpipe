@@ -1,13 +1,13 @@
 import { createRoute, OpenAPIHono, z } from "@hono/zod-openapi"
 import type { AppEnv } from "../../app/env.js"
 import { shouldHydrateBeforeMigrationExport } from "../../domain/workspaces/hydrate.js"
-import { WORKSPACE_WRITE_STATUSES } from "../../domain/workspaces/write-status.js"
 import { withDestroyedWorkspaceSandboxes } from "../../domain/workspaces/sandbox-registry.js"
 import {
   createWorkspaceLifecycle,
   relinkWorkspaceLifecycle,
   renameWorkspaceLifecycle,
 } from "../../domain/workspaces/workspace-lifecycle.js"
+import { WORKSPACE_WRITE_STATUSES } from "../../domain/workspaces/write-status.js"
 import {
   deleteWorkspace,
   getMigrationExportSha,
@@ -406,6 +406,7 @@ export const workspaceRoutes = new OpenAPIHono<AppEnv>()
       await renameWorkspaceLifecycle({
         orgId: updated.orgId,
         workspaceId: updated.id,
+        displayName: body.displayName,
         log: c.get("log"),
       })
     }

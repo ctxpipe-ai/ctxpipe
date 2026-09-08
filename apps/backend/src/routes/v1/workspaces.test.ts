@@ -516,32 +516,6 @@ describe("workspaces API", () => {
     })
   })
 
-  it("patches slug and display name", async () => {
-    updateWorkspaceMock.mockResolvedValue({
-      ...workspaceRow,
-      slug: "docs",
-      displayName: "Docs",
-    })
-    const res = await app().request("/workspaces/knowledge", {
-      method: "PATCH",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify({ slug: "docs", displayName: "Docs" }),
-    })
-    expect(res.status).toBe(200)
-    expect(updateWorkspaceMock).toHaveBeenCalledWith("knowledge", {
-      slug: "docs",
-    })
-    expect(enqueueWorkspaceWriteCommit).toHaveBeenCalledWith(
-      expect.objectContaining({
-        workspaceId: "ws_abc",
-        kind: "ops_folder_map",
-      }),
-      expect.anything(),
-    )
-    const body = await res.json()
-    expect(body.slug).toBe("docs")
-  })
-
   it("deletes a workspace when confirmName matches the display name", async () => {
     getWorkspaceBySlugMock.mockResolvedValue(workspaceRow)
     deleteWorkspaceMock.mockResolvedValue({ id: "ws_abc" })

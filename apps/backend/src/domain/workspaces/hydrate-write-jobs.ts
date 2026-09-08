@@ -1,8 +1,8 @@
-import { isAlias, isMap, isSeq, parseDocument } from "yaml"
-import { FOLDER_MAP_START } from "./bootstrap.js"
-import { maintainFolderMap } from "./folder-map.js"
+import { isAlias, isMap, isSeq } from "yaml"
+import { folderMapMarkerState, maintainFolderMap } from "./folder-map.js"
 import { type HydrateUnit, resolveHydrateLink } from "./hydrate.js"
 import { looksLikeGitSha } from "./hydrate-phases.js"
+import { updateKnowledgeMetadata } from "./knowledge-metadata.js"
 import { parseSimpleFrontMatter } from "./layout.js"
 import { renameRewriteRemainder } from "./rename-rewrite.js"
 import {
@@ -40,7 +40,7 @@ export function validFromPersistRemainder(
 
 export function opsFolderMapRemainder(agentsMd: string | null): number {
   if (!agentsMd?.trim()) return 1
-  return agentsMd.includes(FOLDER_MAP_START) ? 0 : 1
+  return folderMapMarkerState(agentsMd) === "valid" ? 0 : 1
 }
 
 export function hydrateWriteJobsToEnqueue(input: {
@@ -105,26 +105,6 @@ export function kindsToRetryAfterHydrate(input: {
       remainderAfter: input.remainderAfter[kind] ?? 0,
     }),
   )
-}
-
-/** Mutate selected YAML nodes while preserving other metadata and body bytes. */
-function updateKnowledgeMetadata(
-  raw: string,
-  edit: (document: ReturnType<typeof parseDocument>) => void,
-): string {
-  const frontMatter = /^(\uFEFF?---\r?\n)([\s\S]*?)(\r?\n---)([\s\S]*)$/.exec(
-    raw,
-  )
-  const document = parseDocument(frontMatter?.[2] ?? "")
-  if (document.errors.length)
-    throw new Error("Cannot rewrite malformed knowledge metadata")
-  edit(document)
-  if (frontMatter) {
-    const newline = frontMatter[1]?.endsWith("\r\n") ? "\r\n" : "\n"
-    const metadata = document.toString().trimEnd().replace(/\r?\n/g, newline)
-    return `${frontMatter[1]}${metadata}${frontMatter[3]}${frontMatter[4]}`
-  }
-  return `---\n${document.toString()}---\n\n${raw}`
 }
 
 export function claimsUpgradeFiles(input: {
@@ -256,11 +236,13 @@ export function extractIngestRemainder(input: {
 export function opsFolderMapFiles(input: {
   displayName: string
   existingAgentsMd: string | null
+  requestedDisplayName?: string
   paths: readonly string[]
 }): Array<{ path: string; content: string }> {
   const content = maintainFolderMap({
     displayName: input.displayName,
     existing: input.existingAgentsMd,
+    requestedDisplayName: input.requestedDisplayName,
     paths: input.paths,
   })
   if (input.existingAgentsMd === content) return []

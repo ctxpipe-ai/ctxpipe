@@ -1,30 +1,30 @@
-import { sql } from "drizzle-orm"
-import { getSystemDb } from "../../db/client.js"
-import { workspaceTipCheck } from "../../openworkflow/workflows/workspace-tip-check.js"
 import { rename, unlink, writeFile } from "node:fs/promises"
+import { sql } from "drizzle-orm"
+import { FalkorDB } from "falkordb"
+import { expect, it } from "vitest"
+import { withOrgIdContext } from "../../auth/withAuth.js"
+import { getSystemDb } from "../../db/client.js"
+import {
+  captureWorkspaceRevision,
+  getWorkspaceProjection,
+  getWorkspaceProjectionSnapshot,
+  persistWorkspaceGraphResult,
+} from "../../models/workspaces.js"
+import { workspaceHydrate } from "../../openworkflow/workflows/workspace-hydrate.js"
+import { workspaceTipCheck } from "../../openworkflow/workflows/workspace-tip-check.js"
 import {
   closeGraphDb,
   getGraphClient,
   withGraphClient,
 } from "../../platform/graph/client.js"
-import { workspaceHydrate } from "../../openworkflow/workflows/workspace-hydrate.js"
-import { workspaceChatTools } from "./workspace-chat-tools.js"
 import { workspaceGraphRoutes } from "../../routes/v1/workspace-graph-routes.js"
-import { workspaceHttpApp } from "../../test/workspace-http-fixture.js"
-import { FalkorDB } from "falkordb"
-import { expect, it } from "vitest"
-import { withOrgIdContext } from "../../auth/withAuth.js"
 import {
-  captureWorkspaceRevision,
-  persistWorkspaceGraphResult,
-  getWorkspaceProjection,
-  getWorkspaceProjectionSnapshot,
-} from "../../models/workspaces.js"
-import {
-  withNativeHydrationFixture,
-  type NativeHydrationOptions,
   type NativeHydrationFixture,
+  type NativeHydrationOptions,
+  withNativeHydrationFixture,
 } from "../../test/native-hydration-fixture.js"
+import { workspaceHttpApp } from "../../test/workspace-http-fixture.js"
+import { workspaceChatTools } from "./workspace-chat-tools.js"
 
 async function withGraphHydration(
   options: NativeHydrationOptions,
@@ -99,7 +99,7 @@ it(
 )
 
 it(
-  "hydrate preserves declared claim confidence and validity in FalkorDB",
+  "hydrate preserves declared claims alongside permanent body links in FalkorDB",
   { timeout: 60_000 },
   async () => {
     await withGraphHydration(
@@ -107,7 +107,7 @@ it(
         files: [
           {
             path: "first.md",
-            body: "---\nclaims:\n  - to: second.md\n    predicate: DEPENDS_ON\n    confidence: 0.7\n    valid_from: '2020-01-01T00:00:00.000Z'\n    valid_to: '2030-01-01T00:00:00.000Z'\n---\n# First\n",
+            body: "---\nclaims:\n  - to: second.md\n    predicate: DEPENDS_ON\n    confidence: 0.7\n    valid_from: '2020-01-01T00:00:00.000Z'\n    valid_to: '2030-01-01T00:00:00.000Z'\n---\n# First\nSee [Second](second.md).\n",
           },
           { path: "second.md", body: "# Second\n" },
         ],
@@ -115,7 +115,7 @@ it(
       async (f, graph) => {
         await f.publish()
         const edges = await graph.query(
-          "MATCH (:WorkspaceKnowledgeUnit)-[r:WorkspaceSignal]->(:WorkspaceKnowledgeUnit) RETURN r.predicate AS predicate, r.confidence AS confidence, r.validFrom AS validFrom, r.validTo AS validTo",
+          "MATCH (:WorkspaceKnowledgeUnit)-[r:WorkspaceSignal]->(:WorkspaceKnowledgeUnit) RETURN r.predicate AS predicate, r.confidence AS confidence, r.validFrom AS validFrom, r.validTo AS validTo ORDER BY predicate",
         )
         expect(edges.data).toEqual([
           {
@@ -123,6 +123,12 @@ it(
             confidence: 0.7,
             validFrom: "2020-01-01T00:00:00.000Z",
             validTo: "2030-01-01T00:00:00.000Z",
+          },
+          {
+            predicate: "LINKS_TO",
+            confidence: 1,
+            validFrom: null,
+            validTo: null,
           },
         ])
       },

@@ -331,11 +331,20 @@ export async function persistBoundWriteJob(input: {
   files?: Array<{ path: string; content: string }>
   deletePaths?: string[]
   workflowRunId?: string
+  linkAction?: "link" | "unlink"
+  linkGitUrl?: string
+  displayName?: string
 }) {
   return orgSql(async () => {
     const payload: WorkspaceWriteJobPayload = {
       revision: input.revision,
+      ...(input.displayName !== undefined
+        ? { displayName: input.displayName }
+        : {}),
       ...(input.files ? { mergeFiles: input.files } : {}),
+      ...(input.linkAction
+        ? { linkAction: input.linkAction, linkGitUrl: input.linkGitUrl }
+        : {}),
       ...(input.deletePaths ? { mergeDeletePaths: input.deletePaths } : {}),
       jobWorkspaceUrl: input.revision.remote.url,
       defaultBranch: input.revision.defaultBranch,
@@ -375,7 +384,10 @@ export async function persistBoundWriteJob(input: {
       throw new Error("Write job id belongs to a different revision")
     if (
       !isDeepStrictEqual(row.payload?.mergeFiles, input.files) ||
-      !isDeepStrictEqual(row.payload?.mergeDeletePaths, input.deletePaths)
+      !isDeepStrictEqual(row.payload?.mergeDeletePaths, input.deletePaths) ||
+      row.payload?.linkAction !== input.linkAction ||
+      row.payload?.linkGitUrl !== input.linkGitUrl ||
+      row.payload?.displayName !== input.displayName
     )
       throw new Error("Write job id belongs to a different file command")
     if (!input.workflowRunId && row.payload?.revision) {

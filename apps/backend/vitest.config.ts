@@ -3,6 +3,9 @@ import { defineConfig } from "vitest/config"
 export default defineConfig({
   test: {
     environment: "node",
+    // Native admission contracts share the production OpenWorkflow namespace.
+    // Keep file-owned workers from claiming another fixture's commands.
+    fileParallelism: false,
     include: ["src/**/*.test.ts"],
     setupFiles: ["src/test/setup-evlog.ts"],
     server: { deps: { inline: ["zod"] } },

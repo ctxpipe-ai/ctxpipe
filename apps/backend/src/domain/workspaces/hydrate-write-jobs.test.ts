@@ -66,7 +66,7 @@ describe("hydrate write remainders", () => {
   it("counts a missing folder-map marker", () => {
     expect(opsFolderMapRemainder(null)).toBe(1)
     expect(opsFolderMapRemainder("# Notes\n")).toBe(1)
-    expect(opsFolderMapRemainder("<!-- ctxpipe:folder-map -->")).toBe(0)
+    expect(opsFolderMapRemainder("<!-- ctxpipe:folder-map -->")).toBe(1)
   })
 
   it("enqueues remaining kinds when writable or paused, not after relink", () => {
@@ -92,7 +92,8 @@ describe("hydrate write remainders", () => {
             body: "Ledger",
           }),
         ],
-        agentsMd: "<!-- ctxpipe:folder-map -->",
+        agentsMd:
+          "<!-- ctxpipe:folder-map -->\n## Folders\n<!-- /ctxpipe:folder-map -->",
         writeStatus: "writable",
         jobGeneration: 1,
         desiredGeneration: 1,
@@ -126,7 +127,8 @@ describe("hydrate write remainders", () => {
   it("retries a kind only when that remainder shrank", () => {
     const after = hydrateWriteJobRemainders({
       units: [unit({})],
-      agentsMd: "<!-- ctxpipe:folder-map -->",
+      agentsMd:
+        "<!-- ctxpipe:folder-map -->\n## Folders\n<!-- /ctxpipe:folder-map -->",
     })
     expect(after.claims_upgrade).toBe(1)
     expect(after.ops_folder_map).toBe(0)

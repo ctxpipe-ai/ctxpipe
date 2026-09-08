@@ -517,10 +517,11 @@ it(
         files: [
           {
             path: "AGENTS.md",
-            body: '---\nname: "Docs: beta"\n---\n\n# Working notes\nKeep this introduction.\n\n### Our layout\n- [Guides](guides/) — keep owner label\n- [Runtime](code-only/) — keep code folder\n- [Gone](removed/) — obsolete\n\n### Style\nKeep this style instruction.\n',
+            body: '---\nname: "Docs: beta"\n---\n\n# Working notes\nKeep this introduction.\n\n## Directory traversal\n- Never write [temporary output](tmp/)\n\n### Our layout\n- [Guides](guides/) — keep owner label\n- [Runtime](code-only/) — keep code folder\n- [Gone](removed/) — obsolete\n\n### Style\nKeep this style instruction.\n',
           },
           { path: "guides/intro.md", body: "# Introduction\n" },
           { path: "reference/api.md", body: "# Reference\n" },
+          { path: "a#b(c)?d:e/file.md", body: "# Special folder\n" },
           { path: "code-only/main.ts", body: "export const value = 1\n" },
         ],
       },
@@ -592,9 +593,13 @@ it(
             "- [Runtime](code-only/) — keep code folder",
           )
           expect(markdown).toContain("- [reference/](reference/)")
+          expect(markdown).toContain("- [a#b(c)?d:e/](a%23b%28c%29%3Fd%3Ae/)")
           expect(markdown).not.toContain("removed/")
           expect(markdown).toContain("# Working notes\nKeep this introduction.")
           expect(markdown).toContain("### Style\nKeep this style instruction.")
+          expect(markdown).toContain(
+            "## Directory traversal\n- Never write [temporary output](tmp/)",
+          )
           expect(markdown.indexOf("<!-- /ctxpipe:folder-map -->")).toBeLessThan(
             markdown.indexOf("### Style"),
           )

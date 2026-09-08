@@ -30,6 +30,10 @@ import {
   workspaceFileEditInputSchema,
 } from "./workflows/workspace-file-edit.js"
 import { workspaceImportKeyCleanup } from "./workflows/workspace-import-key-cleanup.js"
+import {
+  workspaceLinkUnlink,
+  workspaceLinkUnlinkInputSchema,
+} from "./workflows/workspace-link-unlink.js"
 import { workspaceOpsFolderMap } from "./workflows/workspace-ops-folder-map.js"
 import { workspaceValidFromPersist } from "./workflows/workspace-valid-from-persist.js"
 import { workspaceWriteCommit } from "./workflows/workspace-write-commit.js"
@@ -129,7 +133,9 @@ export async function enqueueWriteJob(
   }
   const snapshotWorkflow = snapshotWriteWorkflows[input.kind]
   if (
-    (snapshotWorkflow || input.kind === "ui_file_edit") &&
+    (snapshotWorkflow ||
+      input.kind === "ui_file_edit" ||
+      input.kind === "link_unlink") &&
     writeStatus === "writable"
   ) {
     let bound = false
@@ -151,6 +157,28 @@ export async function enqueueWriteJob(
         (input.defaultBranch && revision.defaultBranch !== input.defaultBranch)
       )
         throw new Error("Write command binding changed during admission")
+      if (input.kind === "link_unlink") {
+        const command = workspaceLinkUnlinkInputSchema.parse({
+          orgId: input.orgId,
+          workspaceId: input.workspaceId,
+          jobId,
+          revision,
+          linkAction: input.linkAction,
+          linkGitUrl: input.linkGitUrl,
+        })
+        await persistBoundWriteJob({
+          id: jobId,
+          kind: input.kind,
+          revision,
+          linkAction: command.linkAction,
+          linkGitUrl: command.linkGitUrl,
+        })
+        bound = true
+        await runWorkflowWithWorkerWake(workspaceLinkUnlink.spec, command, {
+          idempotencyKey: jobId,
+        })
+        return { started: true }
+      }
       if (input.kind === "ui_file_edit") {
         const command = workspaceFileEditInputSchema.parse({
           orgId: input.orgId,
@@ -175,13 +203,25 @@ export async function enqueueWriteJob(
       }
       if (!snapshotWorkflow)
         throw new Error("No typed workflow for this write kind")
-      await persistBoundWriteJob({ id: jobId, kind: input.kind, revision })
+      const command = {
+        orgId: input.orgId,
+        workspaceId: input.workspaceId,
+        jobId,
+        revision,
+        ...(input.kind === "ops_folder_map" && input.displayName !== undefined
+          ? { displayName: input.displayName.trim() }
+          : {}),
+      }
+      await persistBoundWriteJob({
+        id: jobId,
+        kind: input.kind,
+        revision,
+        displayName: command.displayName,
+      })
       bound = true
-      await runWorkflowWithWorkerWake(
-        snapshotWorkflow.spec,
-        { orgId: input.orgId, workspaceId: input.workspaceId, jobId, revision },
-        { idempotencyKey: jobId },
-      )
+      await runWorkflowWithWorkerWake(snapshotWorkflow.spec, command, {
+        idempotencyKey: jobId,
+      })
       return { started: true }
     } catch (error) {
       if (bound) {
@@ -222,6 +262,7 @@ export async function enqueueWriteJob(
         status,
         payload: writeJobIntentPayload({
           kind: input.kind,
+          displayName: input.displayName,
           defaultBranch: input.defaultBranch,
           linkAction: input.linkAction,
           linkGitUrl: input.linkGitUrl,
