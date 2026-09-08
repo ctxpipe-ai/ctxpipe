@@ -1,7 +1,10 @@
 # Gate 1 — required execution and truthful CI
 
-Status: all 13 CI jobs passed at `05a3c6e4`, `6d180ca8` and `bec0c492`; final policy corrections, exact-commit
-CI and independent review closure are pending. This is not a Gate 1 completion claim.
+Status: COMPLETE at `d87858354a783a9fd95c46785208c9b699a45e3b`.
+Both terminal reviewers report zero blockers. Final run 34174216707 completed
+all 13 jobs successfully at that exact SHA; local and remote SHAs match.
+See `reviews/spec-terminal.md`, `reviews/standards-terminal.md` and
+`logs/ci-d8785835-complete.json`.
 
 Starting point: `7dfa6b93a5baedc3eb2c86dd1056662e89cace00` (approved Gate 0).
 Branch: `codex/develop-plan-to-refocus-branch-direction`; existing PR 319.
@@ -43,7 +46,7 @@ Branch: `codex/develop-plan-to-refocus-branch-direction`; existing PR 319.
 | `ui-required-runner` | 291 cases in 61 files pass |
 | `cli-build-prerequisite` | 93 cases in 10 files pass, with the CLI built by its runner |
 | `cdk-required-runner` | 32 cases in 4 files pass |
-| `policy-config-final-tests` | Five public CI-script regression tests pass; mutable settings and expected-failure options covered |
+| `policy-forwarded-options-tests` | Five public CI-script regression tests pass; mutable settings and expected-failure options covered |
 | `terraform-validate` | Configuration valid with backend disabled and no credentials |
 | `ci-05a3c6e4-codesearch-contracts` | All 221 cases in 33 files pass: 184 Node and 37 Bun, zero skipped |
 
@@ -92,7 +95,7 @@ repositories, and the direct SDK sandbox are now cleaned up.
 - Run 34171137539 at `20ff56b6` has passed full typecheck, tests, migrations,
   script/policy checks, package builds, codesearch image, and OpenTelemetry.
   The other five jobs were later cancelled as described below.
-- A final run on the reviewed checkpoint is required before Gate 1 closes.
+- Final run 34174216707 at `d8785835` passed every required job and closed Gate 1.
 - The five remaining jobs in run 34171137539 stopped reporting progress in
   pnpm installation within their first minute and were cancelled after about
   20 minutes to collect their logs. The `ci-20ff56b6-stalled-*` logs retain this
@@ -118,3 +121,5 @@ Gate 5 replaces UI hook/transport simulation with browser interaction proof.
 Gate 6 removes the temporary diagnostic/failure allowances, obsolete
 characterization, compatibility mappings, and this recovery-only scaffolding
 where it no longer serves ongoing CI.
+
+Gate 2 starts from the verified terminal SHA above. This completion evidence is recorded in the Gate 2 starting commit; it does not change the Gate 1 reviewed code checkpoint.
