@@ -12,7 +12,7 @@ import {
   persistOrgFirstWorkspace,
 } from "../../models/workspaces.js"
 import { enqueueWriteJob } from "../../openworkflow/enqueue-workspace-write-commit.js"
-import { upsertRetrievalObjectByDeduplicationKey } from "../../retrieval/services/retrievalObjectWrite.js"
+import { seedLegacyExtractionObject } from "../../test/legacy-extraction-fixture.js"
 import { withNativeHydrationFixture } from "../../test/native-hydration-fixture.js"
 import { ensureOrgRepositoryForGitUrl } from "./ensure-org-repository.js"
 
@@ -69,7 +69,7 @@ it(
             sourceRepositoryId: repository.id,
           })
           await withOrgDbContext(f.org.id, () =>
-            upsertRetrievalObjectByDeduplicationKey(f.org.id, {
+            seedLegacyExtractionObject(f.org.id, {
               kind: "Service",
               deduplicationKey: "legacy:billing",
               payload: { name: "Billing", summary: "Ledger lives here." },
@@ -460,7 +460,7 @@ it(
             sourceRepositoryId: source.id,
           })
           await withOrgDbContext(f.org.id, () =>
-            upsertRetrievalObjectByDeduplicationKey(f.org.id, {
+            seedLegacyExtractionObject(f.org.id, {
               kind: "Service",
               deduplicationKey: `svc:${source.id}:src/billing.ts`,
               payload: {

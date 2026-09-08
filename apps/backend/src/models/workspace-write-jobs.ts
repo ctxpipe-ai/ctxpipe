@@ -416,6 +416,7 @@ export async function persistSemanticHandoff(input: {
   files: GitFileChange[]
   deletePaths: string[]
   mirror?: ConnectorMirrorSource
+  extraction?: WorkspaceExtraction
 }) {
   return orgSql(async () => {
     const [row] = await getOrgDb()
@@ -429,6 +430,7 @@ export async function persistSemanticHandoff(input: {
       !row.payload?.workflowRunId ||
       !sameWorkspaceRevision(row.payload.revision, input.revision) ||
       !isDeepStrictEqual(row.payload.mirror, input.mirror) ||
+      !isDeepStrictEqual(row.payload.extraction, input.extraction) ||
       row.commitSha !== input.candidateSha
     )
       throw new Error(
@@ -470,6 +472,7 @@ export async function validateSemanticHandoff(
     files: GitFileChange[]
     deletePaths: string[]
     mirror?: ConnectorMirrorSource
+    extraction?: WorkspaceExtraction
     handoff: { ownerRunId: string; candidateSha: string }
   },
   preparedSha?: string,
@@ -486,6 +489,7 @@ export async function validateSemanticHandoff(
       row.payload?.workflowRunId !== input.handoff.ownerRunId ||
       row.payload?.revision?.sha !== input.previousSha ||
       !isDeepStrictEqual(row.payload?.mirror, input.mirror) ||
+      !isDeepStrictEqual(row.payload?.extraction, input.extraction) ||
       !isDeepStrictEqual(row.payload?.semanticHandoff, {
         ...input.handoff,
         revision: input.revision,

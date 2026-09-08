@@ -13,6 +13,7 @@ import {
   assertConnectorMirrorScope,
 } from "./connector-mirror.js"
 import type { WorkspaceExtraction } from "./extraction.js"
+import { assertExtractionSource } from "./extraction-source.js"
 import { resolveRepositoryReadCredential } from "./resolve-revision.js"
 import { sameWorkspaceRevision, type WorkspaceRevision } from "./revision.js"
 import type { WorkspaceWriteKind } from "./write-jobs.js"
@@ -117,5 +118,7 @@ export async function acquireWorkspaceWriteRevision(
     token,
   })
   if (input.mirror) await assertConnectorMirrorScope(input.mirror, pack)
+  if (input.extraction)
+    await assertExtractionSource(input.extraction, revision, pack)
   return { pack, displayName: workspace.displayName }
 }

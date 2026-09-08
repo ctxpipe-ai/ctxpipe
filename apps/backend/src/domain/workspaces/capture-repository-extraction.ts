@@ -3,11 +3,9 @@ import {
   getOrgFirstWorkspace,
   listOrgWorkspaces,
 } from "../../models/workspaces.js"
-import { readGitFiles, readGitPackFromRemote } from "../../services/git/pack.js"
-import {
-  isLinkedRepositoryDeclaration,
-  parseLinkedRepositoryMarkdown,
-} from "./layout.js"
+import { readGitPackFromRemote } from "../../services/git/pack.js"
+import type { WorkspaceExtraction } from "./extraction.js"
+import { captureExtractionSourceDeclaration } from "./extraction-source.js"
 import { resolveWorkspaceReadRevision } from "./resolve-revision.js"
 import { normalizeWorkspaceRepositoryUrl } from "./slug.js"
 
@@ -35,26 +33,23 @@ export async function captureRepositoryExtractionTarget(input: {
   })
   if (!resolved)
     throw new Error("Extraction destination has no committed revision")
+  let sourceDeclaration: WorkspaceExtraction["sourceDeclaration"]
   if (!own) {
     const pack = await readGitPackFromRemote({
       url: resolved.revision.remote.url,
       sha: resolved.revision.sha,
       token: resolved.token,
     })
-    const declarations = await readGitFiles(pack, isLinkedRepositoryDeclaration)
-    if (
-      !declarations.some((file) => {
-        const declaration = parseLinkedRepositoryMarkdown(file.content)
-        return (
-          !declaration.malformed &&
-          normalizeWorkspaceRepositoryUrl(declaration.git) === sourceUrl
-        )
-      })
+    const declaration = await captureExtractionSourceDeclaration(
+      pack,
+      sourceUrl,
     )
-      return null
+    if (!declaration) return null
+    sourceDeclaration = declaration
   }
   return {
     workspaceId: workspace.id,
+    sourceDeclaration,
     revision: { ...resolved.revision, access: "write-default" as const },
   }
 }

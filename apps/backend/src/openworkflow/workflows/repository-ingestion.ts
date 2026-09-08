@@ -271,9 +271,6 @@ export const repositoryIngestion = defineWorkflow(
               roots: [],
               extractedObjects: [],
               extractedClaims: [],
-              objectIds: [],
-              touchedObjectIds: [],
-              claimsForProjection: [],
             }
 
             const workflowRunId = run?.id ?? "unknown"
@@ -449,6 +446,7 @@ export const repositoryIngestion = defineWorkflow(
                 repositoryId: input.repositoryId,
                 repositoryUrl: repository.gitUrl,
                 sourceSha: reindexState.targetHash ?? resolved.hash,
+                sourceDeclaration: destination.sourceDeclaration,
                 objects: extractedObjects,
                 claims: extractedClaims.map((claim) => ({
                   subjectRef: claim.subjectRef,
@@ -462,7 +460,8 @@ export const repositoryIngestion = defineWorkflow(
                 workspaceExtractIngest.spec,
                 {
                   orgId: input.orgId,
-                  ...destination,
+                  workspaceId: destination.workspaceId,
+                  revision: destination.revision,
                   jobId: `wjob_${run.id}_extract`,
                   extraction,
                 },

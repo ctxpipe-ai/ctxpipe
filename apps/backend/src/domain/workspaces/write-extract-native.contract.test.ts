@@ -13,7 +13,7 @@ import {
   persistOrgFirstWorkspace,
 } from "../../models/workspaces.js"
 import { enqueueWriteJob } from "../../openworkflow/enqueue-workspace-write-commit.js"
-import { upsertRetrievalObjectByDeduplicationKey } from "../../retrieval/services/retrievalObjectWrite.js"
+import { seedLegacyExtractionObject } from "../../test/legacy-extraction-fixture.js"
 import { withNativeHydrationFixture } from "../../test/native-hydration-fixture.js"
 import { ensureOrgRepositoryForGitUrl } from "./ensure-org-repository.js"
 import type { WorkspaceExtraction } from "./extraction.js"
@@ -102,7 +102,7 @@ it.each(["knowledge/services/billing.md", "knowledge/imported/billing.md"])(
           })
           await persistMigrationExportNoOp(`wjob_${f.id}_cutover`, f.sha)
           await withOrgDbContext(f.org.id, () =>
-            upsertRetrievalObjectByDeduplicationKey(f.org.id, {
+            seedLegacyExtractionObject(f.org.id, {
               kind: "Service",
               deduplicationKey: "legacy:billing",
               payload: {
@@ -112,7 +112,7 @@ it.each(["knowledge/services/billing.md", "knowledge/imported/billing.md"])(
             }),
           )
           await withOrgDbContext(f.org.id, () =>
-            upsertRetrievalObjectByDeduplicationKey(f.org.id, {
+            seedLegacyExtractionObject(f.org.id, {
               kind: "Service",
               deduplicationKey: "legacy:billing-two",
               payload: {
@@ -278,7 +278,7 @@ it.each(["knowledge/services/billing.md", "knowledge/imported/billing.md"])(
             reason: "no_changes",
           })
           await withOrgDbContext(f.org.id, () =>
-            upsertRetrievalObjectByDeduplicationKey(f.org.id, {
+            seedLegacyExtractionObject(f.org.id, {
               kind: "Service",
               deduplicationKey: "legacy:billing-two",
               payload: {

@@ -1,53 +1,18 @@
-import { z } from "zod"
 import { getConfluenceSyncTargetWithRepoByConnectionId } from "../../models/confluence-sync-target.js"
 import { getLinearBindingWithRepoByConnectionId } from "../../models/linear-connector.js"
 import { getNotionBindingWithRepoByConnectionId } from "../../models/notion-connector.js"
 import { getSlackBindingWithRepoByConnectionId } from "../../models/slack-connector.js"
 import {
-  gitFileChangeSchema,
-  repositoryFilePathSchema,
-} from "../../services/git/file-change.js"
-import {
   type GitPack,
   nativeGit,
   withGitDirectory,
 } from "../../services/git/pack.js"
-import { gitObjectIdSchema, type WorkspaceRevision } from "./revision.js"
+import type { ConnectorMirrorSource } from "./connector-mirror-input.js"
+import type { WorkspaceRevision } from "./revision.js"
+
+export type { ConnectorMirrorSource } from "./connector-mirror-input.js"
+
 import { normalizeWorkspaceRepositoryUrl } from "./slug.js"
-
-export const connectorMirrorSourceSchema = z
-  .object({
-    provider: z.enum(["linear", "notion", "slack", "confluence"]),
-    connectionId: z.string().min(1),
-    repositoryId: z.string().min(1),
-    configBlobSha: gitObjectIdSchema.nullable(),
-  })
-  .strict()
-export type ConnectorMirrorSource = z.infer<typeof connectorMirrorSourceSchema>
-
-export const connectorMirrorContentSchema = z
-  .object({
-    mirror: connectorMirrorSourceSchema,
-    files: z.array(gitFileChangeSchema),
-    deletePaths: z.array(repositoryFilePathSchema),
-  })
-  .strict()
-  .refine(
-    (input) =>
-      [...input.files.map((file) => file.path), ...input.deletePaths].every(
-        (path) =>
-          path.startsWith(`${input.mirror.provider}/`) &&
-          path !== `${input.mirror.provider}/config.yaml`,
-      ),
-    "A mirror may only change content under its managed provider root",
-  )
-  .refine(
-    (input) =>
-      new Set([...input.files.map((file) => file.path), ...input.deletePaths])
-        .size ===
-      input.files.length + input.deletePaths.length,
-    "Each mirror path must have exactly one operation",
-  )
 
 /** Read existing connector control-plane bindings; never resolve provider credentials here. */
 export async function assertConnectorMirrorBinding(

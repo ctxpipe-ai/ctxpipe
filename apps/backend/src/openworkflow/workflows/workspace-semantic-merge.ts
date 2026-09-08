@@ -5,7 +5,8 @@ import { generateCommitSubject } from "../../domain/workspaces/commit-subject.js
 import {
   connectorMirrorContentSchema,
   connectorMirrorSourceSchema,
-} from "../../domain/workspaces/connector-mirror.js"
+} from "../../domain/workspaces/connector-mirror-input.js"
+import { workspaceExtractionSchema } from "../../domain/workspaces/extraction.js"
 import {
   sameWorkspaceRevision,
   workspaceRevisionSchema,
@@ -57,6 +58,7 @@ import { workspaceSemanticCleanup } from "./workspace-semantic-cleanup.js"
 export const semanticMergeContentSchema = z
   .object({
     mirror: connectorMirrorSourceSchema.optional(),
+    extraction: workspaceExtractionSchema.optional(),
     previousSha: z.string().regex(/^(?:[0-9a-f]{40}|[0-9a-f]{64})$/),
     files: z.array(gitFileChangeSchema),
     deletePaths: z.array(repositoryFilePathSchema),
@@ -137,6 +139,7 @@ export const workspaceSemanticMerge = defineWorkflow(
               id: input.jobId,
               kind: "semantic_merge",
               mirror: input.mirror,
+              extraction: input.extraction,
               revision: input.revision,
               workflowRunId: run.id,
               previousSha: input.previousSha,

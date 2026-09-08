@@ -20,9 +20,6 @@ function baseState(): CodeIngestionState {
     targetHash: "abc123",
     extractedObjects: [],
     extractedClaims: [],
-    objectIds: [],
-    touchedObjectIds: [],
-    claimsForProjection: [],
   }
 }
 
@@ -44,7 +41,11 @@ describe("deterministicDetectRoots", () => {
 
   it("resolves pnpm workspace roots without LLM fallback", async () => {
     listFilesMock.mockResolvedValue([
-      { name: "pnpm-workspace.yaml", path: "pnpm-workspace.yaml", type: "file" },
+      {
+        name: "pnpm-workspace.yaml",
+        path: "pnpm-workspace.yaml",
+        type: "file",
+      },
       { name: "apps", path: "apps", type: "dir" },
       { name: "packages", path: "packages", type: "dir" },
     ])
@@ -53,10 +54,22 @@ describe("deterministicDetectRoots", () => {
     })
     globFilesMock.mockResolvedValue({
       entries: [
-      { name: "package.json", path: "apps/backend/package.json", type: "file" as const },
-      { name: "package.json", path: "apps/ui/package.json", type: "file" as const },
-      { name: "package.json", path: "packages/sdk/package.json", type: "file" as const },
-      { name: "README.md", path: "README.md", type: "file" as const }
+        {
+          name: "package.json",
+          path: "apps/backend/package.json",
+          type: "file" as const,
+        },
+        {
+          name: "package.json",
+          path: "apps/ui/package.json",
+          type: "file" as const,
+        },
+        {
+          name: "package.json",
+          path: "packages/sdk/package.json",
+          type: "file" as const,
+        },
+        { name: "README.md", path: "README.md", type: "file" as const },
       ],
       truncated: false,
       matched: 4,
@@ -66,7 +79,10 @@ describe("deterministicDetectRoots", () => {
     expect(result).toEqual({
       decision: "confident",
       roots: ["apps/backend", "apps/ui", "packages/sdk"],
-      evidence: ["pnpm-workspace.yaml:packages", "workspace globs resolved from package markers"],
+      evidence: [
+        "pnpm-workspace.yaml:packages",
+        "workspace globs resolved from package markers",
+      ],
     })
   })
 
@@ -83,8 +99,12 @@ describe("deterministicDetectRoots", () => {
     })
     globFilesMock.mockResolvedValue({
       entries: [
-      { name: "package.json", path: "apps/api/package.json", type: "file" as const },
-      { name: "README.md", path: "README.md", type: "file" as const }
+        {
+          name: "package.json",
+          path: "apps/api/package.json",
+          type: "file" as const,
+        },
+        { name: "README.md", path: "README.md", type: "file" as const },
       ],
       truncated: false,
       matched: 2,
@@ -145,9 +165,17 @@ describe("deterministicDetectRoots", () => {
     })
     globFilesMock.mockResolvedValue({
       entries: [
-      { name: "package.json", path: "apps/web/package.json", type: "file" as const },
-      { name: "package.json", path: "packages/core/package.json", type: "file" as const },
-      { name: "README.md", path: "README.md", type: "file" as const }
+        {
+          name: "package.json",
+          path: "apps/web/package.json",
+          type: "file" as const,
+        },
+        {
+          name: "package.json",
+          path: "packages/core/package.json",
+          type: "file" as const,
+        },
+        { name: "README.md", path: "README.md", type: "file" as const },
       ],
       truncated: false,
       matched: 3,
@@ -157,7 +185,10 @@ describe("deterministicDetectRoots", () => {
     expect(result).toEqual({
       decision: "confident",
       roots: ["apps/web", "packages/core"],
-      evidence: ["package.json:workspaces", "workspace globs resolved from package markers"],
+      evidence: [
+        "package.json:workspaces",
+        "workspace globs resolved from package markers",
+      ],
     })
   })
 
@@ -170,9 +201,17 @@ describe("deterministicDetectRoots", () => {
     })
     globFilesMock.mockResolvedValue({
       entries: [
-      { name: "package.json", path: "services/api/package.json", type: "file" as const },
-      { name: "package.json", path: "libs/utils/package.json", type: "file" as const },
-      { name: "README.md", path: "README.md", type: "file" as const }
+        {
+          name: "package.json",
+          path: "services/api/package.json",
+          type: "file" as const,
+        },
+        {
+          name: "package.json",
+          path: "libs/utils/package.json",
+          type: "file" as const,
+        },
+        { name: "README.md", path: "README.md", type: "file" as const },
       ],
       truncated: false,
       matched: 3,
@@ -182,7 +221,10 @@ describe("deterministicDetectRoots", () => {
     expect(result).toEqual({
       decision: "confident",
       roots: ["libs/utils", "services/api"],
-      evidence: ["lerna.json:packages", "workspace globs resolved from package markers"],
+      evidence: [
+        "lerna.json:packages",
+        "workspace globs resolved from package markers",
+      ],
     })
   })
 
@@ -232,9 +274,17 @@ members = ["crates/*", "tools/*"]
     })
     globFilesMock.mockResolvedValue({
       entries: [
-      { name: "Cargo.toml", path: "crates/engine/Cargo.toml", type: "file" as const },
-      { name: "Cargo.toml", path: "tools/codegen/Cargo.toml", type: "file" as const },
-      { name: "README.md", path: "README.md", type: "file" as const }
+        {
+          name: "Cargo.toml",
+          path: "crates/engine/Cargo.toml",
+          type: "file" as const,
+        },
+        {
+          name: "Cargo.toml",
+          path: "tools/codegen/Cargo.toml",
+          type: "file" as const,
+        },
+        { name: "README.md", path: "README.md", type: "file" as const },
       ],
       truncated: false,
       matched: 3,
@@ -258,9 +308,17 @@ members = ["services/*", "packages/*"]
     })
     globFilesMock.mockResolvedValue({
       entries: [
-      { name: "pyproject.toml", path: "services/api/pyproject.toml", type: "file" as const },
-      { name: "pyproject.toml", path: "packages/cli/pyproject.toml", type: "file" as const },
-      { name: "README.md", path: "README.md", type: "file" as const }
+        {
+          name: "pyproject.toml",
+          path: "services/api/pyproject.toml",
+          type: "file" as const,
+        },
+        {
+          name: "pyproject.toml",
+          path: "packages/cli/pyproject.toml",
+          type: "file" as const,
+        },
+        { name: "README.md", path: "README.md", type: "file" as const },
       ],
       truncated: false,
       matched: 3,

@@ -1,18 +1,29 @@
+import { writeFileSync } from "node:fs"
+import { join } from "node:path"
 import { defineWorkflow, OpenWorkflow } from "openworkflow"
 import { BackendPostgres } from "openworkflow/postgres"
 import { expect, it } from "vitest"
 import { withOrgIdContext } from "../../auth/withAuth.js"
+import { parseEnv } from "../../config/env.js"
 import { withOrgDbContext } from "../../db/client.js"
+import { captureRepositoryExtractionTarget } from "../../domain/workspaces/capture-repository-extraction.js"
 import { ensureOrgRepositoryForGitUrl } from "../../domain/workspaces/ensure-org-repository.js"
+import { persistOrgFirstWorkspace } from "../../models/workspaces.js"
 import { withNativeHydrationFixture } from "../../test/native-hydration-fixture.js"
 import { repositoryIndex } from "./repository-index.js"
 import { repositoryIngestion } from "./repository-ingestion.js"
 import { workspaceExtractIngest } from "./workspace-extract-ingest.js"
+import { workspaceSemanticMerge } from "./workspace-semantic-merge.js"
 
-it(
-  "publishes a captured repository extraction after a native worker restart",
+it.each([
+  "workspace",
+  "linked",
+  "unlinked-before-resume",
+  "edited-before-resume",
+] as const)(
+  "resumes captured repository extraction against canonical source ownership (%s)",
   { timeout: 45_000 },
-  async () => {
+  async (mode) => {
     await withNativeHydrationFixture(
       {
         github: true,
@@ -23,6 +34,10 @@ it(
             path: "AGENTS.md",
             body: "# Workspace repository\nOwner instructions.\n",
           },
+          {
+            path: "repositories/source.md",
+            body: "---\ngit: https://github.com/fixture/extraction-source\n---\n",
+          },
         ],
       },
       async (f) => {
@@ -30,7 +45,10 @@ it(
         const repository = await withOrgIdContext(f.org, async () => {
           const created = await ensureOrgRepositoryForGitUrl({
             orgId: f.org.id,
-            gitUrl: f.workspaceUrl,
+            gitUrl:
+              mode === "workspace"
+                ? f.workspaceUrl
+                : "https://github.com/fixture/extraction-source",
             githubConnectionId: f.connectionId,
           })
           if (!created) throw new Error("Fixture repository missing")
@@ -41,6 +59,14 @@ it(
           )
         })
         if (!repository) throw new Error("Fixture repository missing")
+        if (mode !== "workspace")
+          await withOrgIdContext(f.org, () =>
+            persistOrgFirstWorkspace({
+              orgId: f.org.id,
+              workspaceId: f.workspaceId,
+              sourceRepositoryId: repository.id,
+            }),
+          )
         const extracted = {
           extractedObjects: [
             {
@@ -48,6 +74,18 @@ it(
               deduplicationKey: `svc:${repository.id}:billing`,
               name: "Billing",
               summary: "Captured billing service.",
+            },
+            {
+              kind: "API",
+              deduplicationKey: `api:${repository.id}:billing`,
+              name: "Billing API",
+              summary: "Captured billing API.",
+              payload: {
+                framework: undefined,
+                openApiSpec: undefined,
+                routePaths: undefined,
+                openApiPath: undefined,
+              },
             },
           ],
           extractedClaims: [
@@ -83,6 +121,15 @@ it(
           async ({ step }) => {
             await step.run({ name: "mark-running" }, () => undefined)
             await step.run({ name: "get-repository" }, () => repository)
+            await step.run({ name: "capture-extraction-destination" }, () =>
+              withOrgIdContext(f.org, () =>
+                captureRepositoryExtractionTarget({
+                  orgId: f.org.id,
+                  repositoryUrl: repository.gitUrl,
+                  env: parseEnv(process.env),
+                }),
+              ),
+            )
             await step.run({ name: "set-step-resolving-ref" }, () => undefined)
             await step.run({ name: "resolve-ref" }, () => ({
               hash: f.sha,
@@ -153,6 +200,20 @@ it(
             }),
           ])
           await worker.stop()
+          if (mode === "unlinked-before-resume") {
+            f.git("rm", "-f", "repositories/source.md")
+            f.git("commit", "-m", "Unlink source repository")
+            f.git("push", f.remote, "main")
+          }
+          if (mode === "edited-before-resume") {
+            writeFileSync(
+              join(f.directory, "repositories/source.md"),
+              "---\ngit: https://github.com/fixture/extraction-source\nbranch: replacement\n---\n",
+            )
+            f.git("add", "repositories/source.md")
+            f.git("commit", "-m", "Select a different source branch")
+            f.git("push", f.remote, "main")
+          }
           resumed.implementWorkflow(repositoryIndex.spec, repositoryIndex.fn)
           resumed.implementWorkflow(
             repositoryIngestion.spec,
@@ -162,12 +223,62 @@ it(
             workspaceExtractIngest.spec,
             workspaceExtractIngest.fn,
           )
+          resumed.implementWorkflow(
+            workspaceSemanticMerge.spec,
+            workspaceSemanticMerge.fn,
+          )
           worker = resumed.newWorker({ concurrency: 1 })
           await worker.start()
+          if (
+            mode === "unlinked-before-resume" ||
+            mode === "edited-before-resume"
+          ) {
+            await expect(handle.result({ timeoutMs: 15_000 })).rejects.toThrow()
+            const owner = (
+              await backend.listWorkflowRuns({ limit: 100 })
+            ).data.find(
+              (run) => run.workflowName === "workspace-write-extract-ingest",
+            )
+            if (!owner) throw new Error("Captured extraction owner missing")
+            const attempts = await backend.listStepAttempts({
+              workflowRunId: owner.id,
+              limit: 100,
+            })
+            expect(attempts.data).toEqual(
+              expect.arrayContaining([
+                expect.objectContaining({
+                  status: "failed",
+                  error: expect.objectContaining({
+                    message: "Extraction source declaration changed",
+                  }),
+                }),
+              ]),
+            )
+            expect(
+              f.git(
+                "--git-dir",
+                f.remote,
+                "diff",
+                "--name-only",
+                f.sha,
+                "main",
+              ),
+            ).toBe("repositories/source.md")
+            expect(
+              f.git(
+                "--git-dir",
+                f.remote,
+                "rev-list",
+                "--count",
+                `${f.sha}..main`,
+              ),
+            ).toBe("1")
+            return
+          }
           await handle.result({ timeoutMs: 25_000 })
           expect(
             f.git("--git-dir", f.remote, "diff", "--name-only", f.sha, "main"),
-          ).toBe("knowledge/services/billing.md")
+          ).toBe("knowledge/apis/billing-api.md\nknowledge/services/billing.md")
           expect(
             f.git(
               "--git-dir",
@@ -182,8 +293,20 @@ it(
             "show",
             "main:knowledge/services/billing.md",
           )
-          expect(markdown).toContain("to: ../../AGENTS.md")
+          expect(markdown).toContain(
+            mode === "workspace"
+              ? "to: ../../AGENTS.md"
+              : "to: ../../repositories/source.md",
+          )
           expect(markdown).toContain("predicate: IMPLEMENTED_IN")
+          expect(
+            f.git(
+              "--git-dir",
+              f.remote,
+              "show",
+              "main:knowledge/apis/billing-api.md",
+            ),
+          ).toContain("Captured billing API.")
           expect(
             f.git(
               "--git-dir",

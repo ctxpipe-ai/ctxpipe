@@ -1,0 +1,55 @@
+{"name": "extraction-capture-budget-green", "cwd": "/private/tmp/ctxpipe-recovery-01a07aba", "command": ["/Users/jakubriedl/.volta/tools/image/node/22.16.0/bin/node", "/private/tmp/ctxpipe-recovery-01a07aba/apps/backend/node_modules/vitest/vitest.mjs", "run", "--root", "apps/backend", "src/domain/workspaces/write-extraction-admission-native.contract.test.ts", "src/domain/workspaces/write-extract-native.contract.test.ts", "src/domain/workspaces/write-export-native.contract.test.ts"], "environment": {"AUTH_SECRET": "gate0-local-disposable-test-secret-20260907", "DATABASE_URL": "postgresql://ctxpipe_app:ctxpipe@127.0.0.1:61314/ctxpipe_gate0_fresh", "GRAPH_DB_URI": "redis://127.0.0.1:6398", "CI": "true", "NO_COLOR": "1", "TURBO_TELEMETRY_DISABLED": "1", "STORYBOOK_DISABLE_TELEMETRY": "1", "PATH": "/Users/jakubriedl/.volta/tools/image/node/22.16.0/bin:/private/tmp/ctxpipe-recovery-runtime/ast-grep/node_modules/.bin:/private/tmp/ctxpipe-recovery-runtime/node_modules/.bin:/private/tmp/ctxpipe-recovery-runtime/zoekt:/Users/jakubriedl/.local/bin:/Users/jakubriedl/.bun/bin:/Users/jakubriedl/.opencode/bin:/Users/jakubriedl/.volta/bin:/opt/homebrew/bin:/opt/homebrew/sbin:/usr/local/bin:/System/Cryptexes/App/usr/bin:/usr/bin:/bin:/usr/sbin:/sbin:/var/run/com.apple.security.cryptexd/codex.system/bootstrap/usr/local/bin:/var/run/com.apple.security.cryptexd/codex.system/bootstrap/usr/bin:/var/run/com.apple.security.cryptexd/codex.system/bootstrap/usr/appleinternal/bin:/pkg/env/global/bin:/Users/jakubriedl/.codex/tmp/arg0/codex-arg0BW5Gt3:/Users/jakubriedl/.cache/codex-runtimes/codex-primary-runtime/dependencies/bin/override:/Users/jakubriedl/.local/bin:/Users/jakubriedl/.bun/bin:/Users/jakubriedl/.opencode/bin:/Users/jakubriedl/.volta/bin:/Users/jakubriedl/.cache/codex-runtimes/codex-primary-runtime/dependencies/bin/fallback:/Applications/ChatGPT.app/Contents/Resources"}, "timeout_seconds": 600, "started_utc": "2026-09-08T20:18:13Z", "log": "logs/extraction-capture-budget-green.log"}
+
+ RUN  v4.0.18 /private/tmp/ctxpipe-recovery-01a07aba/apps/backend
+
+Cloning into bare repository '/var/folders/9t/jj9rnpps7_ddb72c1mq2k13w0000gn/T/ctxpipe-hydration-contract-pP1uVL/remote.git'...
+done.
+Cloning into bare repository '/var/folders/9t/jj9rnpps7_ddb72c1mq2k13w0000gn/T/ctxpipe-hydration-contract-l19a13/remote.git'...
+done.
+ ✓ src/domain/workspaces/write-extraction-admission-native.contract.test.ts (2 tests) 961ms
+   ✓ rejects oversized extraction bytes before native admission  576ms
+   ✓ rejects oversized extraction objects before native admission  385ms
+Cloning into bare repository '/var/folders/9t/jj9rnpps7_ddb72c1mq2k13w0000gn/T/ctxpipe-hydration-contract-8TnaSd/remote.git'...
+done.
+Cloning into bare repository '/var/folders/9t/jj9rnpps7_ddb72c1mq2k13w0000gn/T/ctxpipe-hydration-contract-mkk6Rj/remote.git'...
+done.
+Cloning into bare repository '/var/folders/9t/jj9rnpps7_ddb72c1mq2k13w0000gn/T/ctxpipe-hydration-contract-yPBr0S/remote.git'...
+done.
+Cloning into bare repository '/var/folders/9t/jj9rnpps7_ddb72c1mq2k13w0000gn/T/ctxpipe-hydration-contract-asZbiF/remote.git'...
+done.
+Cloning into bare repository '/var/folders/9t/jj9rnpps7_ddb72c1mq2k13w0000gn/T/ctxpipe-hydration-contract-nvNBVl/remote.git'...
+done.
+ ✓ src/domain/workspaces/write-export-native.contract.test.ts (5 tests) 35800ms
+   ✓ exports legacy knowledge through one typed native commit and replays its durable result  21734ms
+   ✓ records the resolved tip for an empty migration without claiming a new commit  2976ms
+   ✓ omits credential-bearing legacy repository source URLs from exported knowledge  3219ms
+   ✓ records export cutover when a raced native child finds the export already present  4388ms
+   ✓ recovers hydration after export metadata completed before enqueue acknowledgement  3481ms
+Cloning into bare repository '/var/folders/9t/jj9rnpps7_ddb72c1mq2k13w0000gn/T/ctxpipe-hydration-contract-Y6GyGJ/remote.git'...
+done.
+Cloning into bare repository '/var/folders/9t/jj9rnpps7_ddb72c1mq2k13w0000gn/T/ctxpipe-hydration-contract-etBvx6/remote.git'...
+done.
+Cloning into bare repository '/var/folders/9t/jj9rnpps7_ddb72c1mq2k13w0000gn/T/ctxpipe-hydration-contract-FmUTmT/remote.git'...
+done.
+Cloning into bare repository '/var/folders/9t/jj9rnpps7_ddb72c1mq2k13w0000gn/T/ctxpipe-hydration-contract-asAxUc/remote.git'...
+done.
+Cloning into bare repository '/var/folders/9t/jj9rnpps7_ddb72c1mq2k13w0000gn/T/ctxpipe-hydration-contract-oU3ONX/remote.git'...
+done.
+Cloning into bare repository '/var/folders/9t/jj9rnpps7_ddb72c1mq2k13w0000gn/T/ctxpipe-hydration-contract-ej5ixu/remote.git'...
+done.
+Cloning into bare repository '/var/folders/9t/jj9rnpps7_ddb72c1mq2k13w0000gn/T/ctxpipe-hydration-contract-camNDZ/remote.git'...
+done.
+ ✓ src/domain/workspaces/write-extract-native.contract.test.ts (7 tests) 19936ms
+   ✓ preserves extraction identity at knowledge/services/billing.md and a same-name collision after migration cutover  7009ms
+   ✓ preserves extraction identity at knowledge/imported/billing.md and a same-name collision after migration cutover  7515ms
+   ✓ durably queues an unwritable migration_export command to its typed workflow  354ms
+   ✓ durably queues an unwritable extract_ingest command to its typed workflow  362ms
+   ✓ reads completed path identity without waiting for historical job storage  409ms
+   ✓ backfills completed path maps by native completion order despite an old completion replay  3859ms
+   ✓ does not reuse migration cutover after the workspace binding generation changes  427ms
+
+ Test Files  3 passed (3)
+      Tests  14 passed (14)
+   Start at  06:18:14
+   Duration  62.87s (transform 1.07s, setup 28ms, import 5.92s, tests 56.70s, environment 0ms)
+

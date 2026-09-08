@@ -1,8 +1,8 @@
 import { z } from "zod"
 import type { GitFileChange } from "../../services/git/file-change.js"
 import { gitFileChangeSchema } from "../../services/git/file-change.js"
-import type { ConnectorMirrorSource } from "./connector-mirror.js"
-import { connectorMirrorSourceSchema } from "./connector-mirror.js"
+import type { ConnectorMirrorSource } from "./connector-mirror-input.js"
+import { connectorMirrorSourceSchema } from "./connector-mirror-input.js"
 import {
   type WorkspaceExtraction,
   workspaceExtractionSchema,

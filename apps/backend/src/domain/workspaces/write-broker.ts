@@ -20,6 +20,8 @@ import {
   assertConnectorMirrorScope,
   type ConnectorMirrorSource,
 } from "./connector-mirror.js"
+import type { WorkspaceExtraction } from "./extraction.js"
+import { assertExtractionSource } from "./extraction-source.js"
 import {
   resolveRepositoryReadCredential,
   resolveWorkspaceReadRevision,
@@ -67,7 +69,12 @@ function writeAccessDenialReason(error: unknown): string | null {
 
 /** Called inside the workflow's durable broker-push step. Credentials never leave it. */
 export async function pushWorkspaceCommit(
-  input: { orgId: string; workspaceId: string; mirror?: ConnectorMirrorSource },
+  input: {
+    orgId: string
+    workspaceId: string
+    mirror?: ConnectorMirrorSource
+    extraction?: WorkspaceExtraction
+  },
   revision: WorkspaceRevision,
   committed: GitPack,
   env: Env,
@@ -101,6 +108,8 @@ export async function pushWorkspaceCommit(
     await assertConnectorMirrorBinding(input.orgId, input.mirror, revision)
     await assertConnectorMirrorScope(input.mirror, committed)
   }
+  if (input.extraction)
+    await assertExtractionSource(input.extraction, revision, committed)
   const token = await getRepoWriteCloneToken(input.orgId, env, {
     githubConnectionId: connectionId,
     repoFullName: repositoryName,
@@ -206,7 +215,12 @@ async function remoteContainsCommit(
 }
 
 export async function publishWorkspaceWriteRevision(
-  input: { orgId: string; workspaceId: string; mirror?: ConnectorMirrorSource },
+  input: {
+    orgId: string
+    workspaceId: string
+    mirror?: ConnectorMirrorSource
+    extraction?: WorkspaceExtraction
+  },
   revision: WorkspaceRevision,
   committed: GitPack,
   env: Env,
@@ -238,7 +252,12 @@ export async function publishWorkspaceWriteRevision(
 
 /** Revalidate a no-op against the actual default, outside any SQL transaction. */
 export async function refreshWorkspaceWriteRevision(
-  input: { orgId: string; workspaceId: string; mirror?: ConnectorMirrorSource },
+  input: {
+    orgId: string
+    workspaceId: string
+    mirror?: ConnectorMirrorSource
+    extraction?: WorkspaceExtraction
+  },
   revision: WorkspaceRevision,
   env: Env,
 ): Promise<WorkspaceRevision> {
@@ -272,6 +291,16 @@ export async function refreshWorkspaceWriteRevision(
       }),
     )
   }
+  if (input.extraction)
+    await assertExtractionSource(
+      input.extraction,
+      resolved.revision,
+      await readGitPackFromRemote({
+        url: resolved.revision.remote.url,
+        sha: resolved.revision.sha,
+        token: resolved.token,
+      }),
+    )
   return { ...resolved.revision, access: "write-default" }
 }
 
@@ -316,6 +345,7 @@ export async function captureSemanticHandoff(
     workspaceId: string
     jobId: string
     mirror?: ConnectorMirrorSource
+    extraction?: WorkspaceExtraction
   },
   revision: WorkspaceRevision,
   committed: GitPack,
@@ -333,6 +363,7 @@ export async function captureSemanticHandoff(
     candidateSha: committed.sha,
     ...changes,
     mirror: input.mirror,
+    extraction: input.extraction,
   })
   return {
     orgId: input.orgId,
@@ -343,5 +374,6 @@ export async function captureSemanticHandoff(
     previousSha: revision.sha,
     ...changes,
     ...(input.mirror ? { mirror: input.mirror } : {}),
+    ...(input.extraction ? { extraction: input.extraction } : {}),
   }
 }

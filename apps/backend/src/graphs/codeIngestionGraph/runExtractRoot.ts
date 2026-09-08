@@ -1,3 +1,4 @@
+import { extractionCaptureBudgetSchema } from "../../domain/workspaces/extraction.js"
 import { extractInstructionUnits } from "./nodes/extractInstructionUnits.js"
 import { extractKind } from "./nodes/extractKind.js"
 import { identifyAPIClients } from "./nodes/identifyAPIClients.js"
@@ -38,6 +39,10 @@ function concatExtracted(parts: Array<Partial<CodeIngestionState>>): {
       extractedClaims.push(...part.extractedClaims)
     }
   }
+  extractionCaptureBudgetSchema.parse({
+    objects: extractedObjects,
+    claims: extractedClaims,
+  })
   return { extractedObjects, extractedClaims }
 }
 
@@ -52,7 +57,12 @@ export async function runExtractKindForRoot(
   state: CodeIngestionState,
   root: string,
 ): Promise<Partial<CodeIngestionState>> {
-  return extractKind({ ...state, roots: [root] })
+  const result = await extractKind({ ...state, roots: [root] })
+  extractionCaptureBudgetSchema.parse({
+    objects: result.extractedObjects ?? [],
+    claims: result.extractedClaims ?? [],
+  })
+  return result
 }
 
 export async function runIdentifyPhaseForRoot(
@@ -84,20 +94,4 @@ export async function runIdentifyPhaseForRoot(
   ])
 
   return concatExtracted([kindPartial, ...parts])
-}
-
-/**
- * Full per-root extract (kind → parallel identify). Prefer splitting across OW
- * steps via {@link runExtractKindForRoot} + {@link runIdentifyPhaseForRoot}
- * when durability at the kind boundary is needed.
- */
-export async function runExtractForRoot(
-  state: CodeIngestionState,
-  root: string,
-): Promise<{
-  extractedObjects: ExtractedObject[]
-  extractedClaims: ExtractedClaim[]
-}> {
-  const kindPartial = await runExtractKindForRoot(state, root)
-  return runIdentifyPhaseForRoot(state, root, kindPartial)
 }

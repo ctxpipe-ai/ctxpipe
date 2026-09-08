@@ -1,6 +1,6 @@
 import { parseEnv } from "../config/env.js"
 import { assertNotInOrgDbContext, withOrgDbContext } from "../db/client.js"
-import { connectorMirrorContentSchema } from "../domain/workspaces/connector-mirror.js"
+import { connectorMirrorContentSchema } from "../domain/workspaces/connector-mirror-input.js"
 import { linkedRepositoryUrlSchema } from "../domain/workspaces/linked-repository-url.js"
 import { resolveWorkspaceReadRevision } from "../domain/workspaces/resolve-revision.js"
 import { sameWorkspaceRevision } from "../domain/workspaces/revision.js"
