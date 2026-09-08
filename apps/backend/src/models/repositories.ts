@@ -1,4 +1,5 @@
-import { and, count, eq, isNull, lte, or } from "drizzle-orm"
+import { and, count, eq, isNull, lte, or, sql } from "drizzle-orm"
+import { repositoryRevisionCheckoutKey } from "../../../../shared/workspace-checkout.js"
 import { requireCurrentOrgId } from "../auth/context.js"
 import { type Db, getOrgDb, withOrgDbContext } from "../db/client.js"
 import { withAmbientOrgDb } from "../db/org-sql.js"
@@ -50,6 +51,33 @@ export async function ensureWorkspaceCheckout(input: {
       .onConflictDoNothing()
   })
 }
+/** Select only the successfully published immutable source, falling back to pre-upgrade artifacts. */
+export function publishedRepositoryCheckoutKey() {
+  return sql<string>`coalesce((select published.checkout_key from repository_checkouts published
+    where published.repository_id = repositories.id and published.org_id = repositories.org_id
+      and published.checkout_key = 'rev:' || repositories.last_ingested_hash
+      and published.commit_sha = repositories.last_ingested_hash), 'default')`
+}
+
+export async function ensureRepositoryRevisionCheckout(input: {
+  orgId: string
+  repositoryId: string
+  sha: string
+}) {
+  await withOrgDbContext(input.orgId, (db) =>
+    db
+      .insert(repositoryCheckouts)
+      .values({
+        id: generateObjectId("co"),
+        orgId: input.orgId,
+        repositoryId: input.repositoryId,
+        ref: input.sha,
+        checkoutKey: repositoryRevisionCheckoutKey(input.sha),
+      })
+      .onConflictDoNothing(),
+  )
+}
+
 const MAX_INDEXING_ERROR_CHARS = 500
 
 export type RepositoryIndexingStatus = NonNullable<
@@ -94,7 +122,7 @@ function sanitizeIndexingError(input: unknown): string {
   return userFacingIndexingError(input).slice(0, MAX_INDEXING_ERROR_CHARS)
 }
 
-function repositoryWithZoektJoin(db: Db) {
+function repositoryWithZoektJoin(db: Pick<Db, "select">) {
   return db
     .select(repositoryWithZoektSelect)
     .from(repositories)
@@ -102,7 +130,7 @@ function repositoryWithZoektJoin(db: Db) {
       repositoryCheckouts,
       and(
         eq(repositoryCheckouts.repositoryId, repositories.id),
-        eq(repositoryCheckouts.checkoutKey, DEFAULT_CHECKOUT_KEY),
+        eq(repositoryCheckouts.checkoutKey, publishedRepositoryCheckoutKey()),
       ),
     )
 }
@@ -585,8 +613,15 @@ export const createRepository = async (input: {
           gitUrl: input.gitUrl,
           repositoryKey: repositoryKeyFromGitUrl(input.gitUrl),
         })
+        .onConflictDoNothing()
         .returning()
-      if (!repository) return []
+      if (!repository)
+        return repositoryWithZoektJoin(tx).where(
+          and(
+            eq(repositories.orgId, orgId),
+            eq(repositories.gitUrl, input.gitUrl),
+          ),
+        )
       const [checkout] = await tx
         .insert(repositoryCheckouts)
         .values({

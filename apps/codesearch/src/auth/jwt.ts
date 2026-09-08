@@ -1,6 +1,7 @@
-import { z } from "zod"
 import { HTTPException } from "hono/http-exception"
 import { jwtVerify } from "jose"
+import { z } from "zod"
+import { repositoryRevisionCheckoutKey } from "../../../../shared/workspace-checkout.js"
 import type { Env } from "../config/env.js"
 import {
   DEFAULT_CHECKOUT_KEY,
@@ -11,6 +12,7 @@ export type VerifiedToken = {
   sub: string
   orgId: string
   principal: "user" | "service"
+  repositoryRevisions?: Array<{ repositoryId: string; sha: string }>
   workspaceId?: string
   legacyWorkspace?: true
   workspaceRevisions?: Array<{ repositoryId: string; sha: string }>
@@ -19,11 +21,25 @@ export type VerifiedToken = {
 export function checkoutKeyFromAuth(
   auth: Pick<
     VerifiedToken,
-    "workspaceId" | "workspaceRevisions" | "legacyWorkspace"
+    | "workspaceId"
+    | "workspaceRevisions"
+    | "legacyWorkspace"
+    | "repositoryRevisions"
   >,
   repositoryId?: string,
+  publishedCheckoutKey = DEFAULT_CHECKOUT_KEY,
 ): string {
-  if (!auth.workspaceId) return DEFAULT_CHECKOUT_KEY
+  if (auth.repositoryRevisions) {
+    const revisions = auth.repositoryRevisions.filter(
+      (item) => item.repositoryId === repositoryId,
+    )
+    if (revisions.length !== 1 || !revisions[0])
+      throw new HTTPException(403, {
+        message: "Repository revision is not authorized",
+      })
+    return repositoryRevisionCheckoutKey(revisions[0].sha)
+  }
+  if (!auth.workspaceId) return publishedCheckoutKey
   if (auth.legacyWorkspace && !auth.workspaceRevisions)
     return workspaceCheckoutKey(auth.workspaceId)
   if (!auth.workspaceRevisions)
@@ -41,6 +57,10 @@ export function checkoutKeyFromAuth(
 }
 
 export function checkoutKeysFromAuth(auth: VerifiedToken): string[] {
+  if (auth.repositoryRevisions)
+    return auth.repositoryRevisions.map((item) =>
+      repositoryRevisionCheckoutKey(item.sha),
+    )
   return auth.workspaceRevisions && auth.workspaceId
     ? auth.workspaceRevisions.map((revision) =>
         workspaceCheckoutKey(auth.workspaceId as string, revision.sha),
@@ -87,6 +107,15 @@ export async function verifyCodesearchJwt(input: {
 
   const scope = z
     .object({
+      repositoryRevisions: z
+        .array(
+          z.object({
+            repositoryId: z.string().min(1),
+            sha: z.string().regex(/^(?:[a-f0-9]{40}|[a-f0-9]{64})$/),
+          }),
+        )
+        .min(1)
+        .optional(),
       workspaceId: z
         .string()
         .regex(/^[a-zA-Z0-9_-]+$/)
@@ -105,6 +134,12 @@ export async function verifyCodesearchJwt(input: {
     .safeParse(payload)
   if (
     !scope.success ||
+    (scope.data.repositoryRevisions &&
+      Boolean(
+        scope.data.workspaceId ||
+          scope.data.workspaceRevisions ||
+          scope.data.legacyWorkspace,
+      )) ||
     ((scope.data.workspaceRevisions || scope.data.legacyWorkspace) &&
       !scope.data.workspaceId) ||
     (Boolean(scope.data.workspaceId) &&
@@ -116,6 +151,9 @@ export async function verifyCodesearchJwt(input: {
 
   return {
     sub: subject,
+    ...(scope.data.repositoryRevisions
+      ? { repositoryRevisions: scope.data.repositoryRevisions }
+      : {}),
     orgId,
     principal,
     ...(workspaceId ? { workspaceId } : {}),
@@ -135,7 +173,7 @@ export function indexCheckoutFromAuth(
     throw new HTTPException(403, {
       message: "Legacy workspace scope is read-only",
     })
-  const revision = auth.workspaceRevisions?.find(
+  const revision = (auth.repositoryRevisions ?? auth.workspaceRevisions)?.find(
     (item) => item.repositoryId === repositoryId,
   )
   if (revision && targetHash !== revision.sha)

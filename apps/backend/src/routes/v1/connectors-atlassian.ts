@@ -383,7 +383,7 @@ const patchConfigRoute = createRoute({
   responses: {
     503: {
       content: { "application/json": { schema: ErrorResponseSchema } },
-      description: "Native configuration workflow admission unavailable",
+      description: "Native workflow admission unavailable",
     },
     200: {
       content: {
@@ -990,13 +990,19 @@ export const atlassianConnectorRoutes = new OpenAPIHono<AppEnv>()
     }
 
     if (saved.repositoryIngestion) {
-      void enqueueRepositoryIngestionWorkflow(
-        {
-          repositoryId: saved.repositoryIngestion.repositoryId,
-          orgId: saved.repositoryIngestion.orgId,
-        },
-        { error: (err) => getLogger().error(err) },
-      )
+      try {
+        await enqueueRepositoryIngestionWorkflow(saved.repositoryIngestion, {
+          error: (error) => getLogger().error(error),
+        })
+      } catch {
+        return c.json(
+          {
+            error:
+              "Repository ingestion admission unavailable; retry this request",
+          },
+          503,
+        )
+      }
     }
 
     const shouldOpenConfigPr =

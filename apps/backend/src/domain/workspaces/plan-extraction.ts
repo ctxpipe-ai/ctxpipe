@@ -9,7 +9,10 @@ import {
   type ExistingKnowledgeFile,
   planKnowledgeProjection,
 } from "./migration-export.js"
-import { retractExtractionClaims } from "./retract-extraction.js"
+import {
+  extractionEvidencePath,
+  retractExtractionClaims,
+} from "./retract-extraction.js"
 import { normalizeWorkspaceRepositoryUrl } from "./slug.js"
 
 /** Convert captured extractor references to paths already owned by the Git tree. */
@@ -62,8 +65,19 @@ export async function planCapturedExtraction(input: {
     knownKnowledgePaths: input.knownKnowledgePaths,
     stampImportKey: input.stampImportKey,
     referencePaths,
-    claimIdentity: (_fromPath, claim) =>
-      JSON.stringify([claim.to, claim.predicate, claim.source ?? null]),
+    claimIdentity: (fromPath, claim) =>
+      JSON.stringify([
+        claim.to,
+        claim.predicate,
+        extractionEvidencePath(
+          claim.source,
+          fromPath,
+          batch.repositoryUrl,
+          input.workspaceRepositoryUrl,
+        ) ??
+          claim.source ??
+          null,
+      ]),
     objects: batch.objects.map((object) => ({
       id: object.deduplicationKey,
       kind: object.kind,

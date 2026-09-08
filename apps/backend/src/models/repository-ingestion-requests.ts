@@ -205,14 +205,20 @@ export async function captureRepositoryIngestionRequest(
     }
     let requestId = input.requestId
     if (!requestId) {
-      const parent = await db.execute<{ id: string }>(sql`
-        select attempt.workflow_run_id as id from openworkflow.workflow_runs child
-        join openworkflow.step_attempts attempt on attempt.id = child.parent_step_attempt_id
-        where child.id = ${workflowRunId} and child.input->>'orgId' = ${input.orgId}
-          and child.input->>'repositoryId' = ${input.repositoryId}
+      const ancestors = await db.execute<{ id: string }>(sql`
+        with recursive ancestry as (
+          select id, parent_step_attempt_id, 0 as depth from openworkflow.workflow_runs
+          where id = ${workflowRunId} and input->>'orgId' = ${input.orgId}
+            and input->>'repositoryId' = ${input.repositoryId}
+          union all
+          select parent.id, parent.parent_step_attempt_id, child.depth + 1 from ancestry child
+          join openworkflow.step_attempts attempt on attempt.id = child.parent_step_attempt_id
+          join openworkflow.workflow_runs parent on parent.id = attempt.workflow_run_id
+          where child.depth < 8 and parent.input->>'orgId' = ${input.orgId}
+            and parent.input->>'repositoryId' = ${input.repositoryId}
+        ) select id from ancestry where id = ${request.workflowRunId}
       `)
-      if (parent.rows[0]?.id === request.workflowRunId)
-        requestId = request.requestId
+      if (ancestors.rows.length > 0) requestId = request.requestId
     }
     await assertRepositoryIngestionRequest({ ...input, requestId })
     return request.requestId

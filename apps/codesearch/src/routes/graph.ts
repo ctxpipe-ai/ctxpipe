@@ -81,7 +81,14 @@ export function registerGraphRoutes(app: OpenAPIHono<AppEnv>) {
     if (!auth) throw new Error("Missing auth context")
     const { repoId } = c.req.valid("param")
     const body = c.req.valid("json")
-    const checkoutKey = checkoutKeyFromAuth(auth, repoId)
+    const repo = await getAccessibleRepository(db, repoId, auth.orgId)
+    if (!repo)
+      return c.json({ error: "Repository not found or access denied" }, 404)
+    const checkoutKey = checkoutKeyFromAuth(
+      auth,
+      repoId,
+      repo.publishedCheckoutKey,
+    )
     if (body.checkoutKey && body.checkoutKey !== checkoutKey) {
       return c.json(
         { error: "Checkout does not match authenticated workspace" },
@@ -127,10 +134,6 @@ export function registerGraphRoutes(app: OpenAPIHono<AppEnv>) {
         400,
       )
     }
-
-    const repo = await getAccessibleRepository(db, repoId, auth.orgId)
-    if (!repo)
-      return c.json({ error: "Repository not found or access denied" }, 404)
 
     const [checkout] = await withOrgDbContext(db, auth.orgId, async (tx) =>
       tx

@@ -246,6 +246,7 @@ export const repositoryIngestion = defineWorkflow(
             const reindexState = await step.runWorkflow(
               repositoryIndex.spec,
               {
+                ...(requestId ? { requestId } : {}),
                 repositoryId: input.repositoryId,
                 orgId: input.orgId,
                 targetHash: resolved.hash,
@@ -333,6 +334,11 @@ export const repositoryIngestion = defineWorkflow(
                             withIngestAgentContext(
                               {
                                 ...langfuseAttrs,
+                                source: {
+                                  orgId: input.orgId,
+                                  repositoryId: input.repositoryId,
+                                  sha: resolved.hash,
+                                },
                                 runName: "repository-ingestion.identify-roots",
                                 metadata: {
                                   workflowStepName: "identify-roots",
@@ -387,6 +393,11 @@ export const repositoryIngestion = defineWorkflow(
                                   withIngestAgentContext(
                                     {
                                       ...langfuseAttrs,
+                                      source: {
+                                        orgId: input.orgId,
+                                        repositoryId: input.repositoryId,
+                                        sha: resolved.hash,
+                                      },
                                       runName:
                                         "repository-ingestion.extract-kind",
                                       metadata: {
@@ -431,6 +442,11 @@ export const repositoryIngestion = defineWorkflow(
                                   withIngestAgentContext(
                                     {
                                       ...langfuseAttrs,
+                                      source: {
+                                        orgId: input.orgId,
+                                        repositoryId: input.repositoryId,
+                                        sha: resolved.hash,
+                                      },
                                       runName: "repository-ingestion.identify",
                                       metadata: {
                                         workflowStepName: `identify:${rootId}`,
@@ -602,7 +618,7 @@ export const repositoryIngestion = defineWorkflow(
                       ingestedHash: result.targetHash,
                       requestId: requestId ?? `legacy:${run.id}`,
                       githubConnectionId,
-                      targetBranch: input.targetBranch ?? result.sourceBranch,
+                      targetBranch: input.targetBranch,
                     },
                     {
                       error: (err) =>

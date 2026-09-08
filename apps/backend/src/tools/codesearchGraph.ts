@@ -1,5 +1,6 @@
 import { signUpstreamJwt } from "../auth/upstreamJwt.js"
 import { parseEnv } from "../config/env.js"
+import { capturedSourceRevision } from "../domain/codeIngestion/source-revision-context.js"
 import { codesearchBaseUrl } from "../lib/agentToolRuntime.js"
 import { withTransientHttpRetry } from "../lib/withTransientHttpRetry.js"
 import type { ZoektRepositoryRow } from "./codesearchZoekt.js"
@@ -29,6 +30,9 @@ export async function codesearchGraphQuery(
   body: GraphRequestBody,
   workspace?: { workspaceId: string } & ({ sha: string } | { legacy: true }),
 ): Promise<Record<string, unknown>> {
+  const source = capturedSourceRevision(repository.orgId, repository.id)
+  if (source && workspace)
+    throw new Error("Extraction tool cannot select a workspace projection")
   const env = parseEnv(process.env as Record<string, string | undefined>)
   const token = await signUpstreamJwt({
     env,
@@ -37,6 +41,13 @@ export async function codesearchGraphQuery(
       sub: `repo:${repository.id}`,
       orgId: repository.orgId,
       principal: "service",
+      ...(source
+        ? {
+            repositoryRevisions: [
+              { repositoryId: source.repositoryId, sha: source.sha },
+            ],
+          }
+        : {}),
       ...(workspace ? { workspaceId: workspace.workspaceId } : {}),
       ...(workspace && "legacy" in workspace
         ? { legacyWorkspace: true as const }

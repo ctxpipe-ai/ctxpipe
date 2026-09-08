@@ -4,10 +4,10 @@ import { parseEnv } from "../../config/env.js"
 import { assertNotInOrgDbContext, withOrgDbContext } from "../../db/client.js"
 import { repositories } from "../../db/schema/repositories.js"
 import { repositoryCheckouts } from "../../db/schema/repository_checkouts.js"
+import { publishedProjection } from "../../domain/workspaces/revision.js"
 import { codesearchBaseUrl } from "../../lib/agentToolRuntime.js"
 import { withTransientHttpRetry } from "../../lib/withTransientHttpRetry.js"
-import { DEFAULT_CHECKOUT_KEY } from "../../models/repositories.js"
-import { publishedProjection } from "../../domain/workspaces/revision.js"
+import { publishedRepositoryCheckoutKey } from "../../models/repositories.js"
 import { getWorkspaceSearchProjection } from "../../models/workspaces.js"
 
 export type CodeSearchResult = {
@@ -161,7 +161,10 @@ export async function codeSearch(
             repositoryCheckouts,
             and(
               eq(repositoryCheckouts.repositoryId, repositories.id),
-              eq(repositoryCheckouts.checkoutKey, DEFAULT_CHECKOUT_KEY),
+              eq(
+                repositoryCheckouts.checkoutKey,
+                publishedRepositoryCheckoutKey(),
+              ),
             ),
           )
           .where(where),

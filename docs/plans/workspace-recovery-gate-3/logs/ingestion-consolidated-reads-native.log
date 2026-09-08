@@ -1,0 +1,34 @@
+{"name": "ingestion-consolidated-reads-native", "cwd": "/private/tmp/ctxpipe-recovery-01a07aba", "command": ["/Users/jakubriedl/.volta/tools/image/node/22.16.0/bin/node", "apps/backend/node_modules/vitest/vitest.mjs", "run", "--root", "apps/backend", "src/openworkflow/workflows/repository-index-source-native.contract.test.ts", "src/domain/workspaces/index-workflow.contract.test.ts"], "environment": {"AUTH_SECRET": "gate0-local-disposable-test-secret-20260907", "DATABASE_URL": "postgresql://ctxpipe_app:ctxpipe@127.0.0.1:61314/ctxpipe_gate0_fresh", "GRAPH_DB_URI": "redis://127.0.0.1:6398", "CI": "true", "NO_COLOR": "1", "TURBO_TELEMETRY_DISABLED": "1", "STORYBOOK_DISABLE_TELEMETRY": "1", "PATH": "/Users/jakubriedl/.volta/tools/image/node/22.16.0/bin:/private/tmp/ctxpipe-recovery-runtime/ast-grep/node_modules/.bin:/private/tmp/ctxpipe-recovery-runtime/node_modules/.bin:/private/tmp/ctxpipe-recovery-runtime/zoekt:/usr/local/bin:/System/Cryptexes/App/usr/bin:/usr/bin:/bin:/usr/sbin:/sbin:/var/run/com.apple.security.cryptexd/codex.system/bootstrap/usr/local/bin:/var/run/com.apple.security.cryptexd/codex.system/bootstrap/usr/bin:/var/run/com.apple.security.cryptexd/codex.system/bootstrap/usr/appleinternal/bin:/pkg/env/global/bin:/Users/jakubriedl/.codex/tmp/arg0/codex-arg0BW5Gt3:/Users/jakubriedl/.cache/codex-runtimes/codex-primary-runtime/dependencies/bin/override:/Users/jakubriedl/.local/bin:/Users/jakubriedl/.bun/bin:/Users/jakubriedl/.opencode/bin:/Users/jakubriedl/.volta/bin:/opt/homebrew/bin:/opt/homebrew/sbin:/Users/jakubriedl/.cache/codex-runtimes/codex-primary-runtime/dependencies/bin/fallback:/Applications/ChatGPT.app/Contents/Resources"}, "timeout_seconds": 600, "started_utc": "2026-09-08T21:31:03Z", "log": "logs/ingestion-consolidated-reads-native.log"}
+
+ RUN  v4.0.18 /private/tmp/ctxpipe-recovery-01a07aba/apps/backend
+
+ ✓ src/domain/workspaces/index-workflow.contract.test.ts (21 tests) 48950ms
+   ✓ rejects contradictory and unbound queued index revisions  942ms
+   ✓ returns no revision for a missing workspace  534ms
+   ✓ publishes a native searchable index with the captured commit identity  2914ms
+   ✓ chat search retains the captured revision across a later branch metadata change  1819ms
+   ✓ an unpublished index cannot replace the published searchable checkout  3140ms
+   ✓ chat SCIP queries resolve symbols from the published checkout  3500ms
+   ✓ chat structural search runs ast-grep against the published checkout  2782ms
+   ✓ a request body cannot override the signed search checkout  2956ms
+   ✓ an explicit legacy workspace with no checkout returns no search matches  1629ms
+   ✓ both clone and index reject a target that contradicts the signed revision  1628ms
+   ✓ an initial search-index failure preserves Postgres and a retry publishes search  2869ms
+   ✓ linked index publication rejects a changed owner identity  1741ms
+   ✓ linked index publication rejects a changed linked ref  2155ms
+   ✓ cron refresh captures a default-branch rename once at the same SHA  3855ms
+   ✓ index admission rejects a repository bound to another remote  2952ms
+   ✓ unbound default indexing cannot mark a workspace index ready  545ms
+   ✓ serves the last complete index while the active replacement index is pending  2857ms
+   ✓ serves the last complete index while the active replacement index is failed  2817ms
+   ✓ cron retries an unactivated full revision even after its same-SHA tip was captured  4003ms
+   ✓ chat get_file reads its captured index after membership and remote removal  1718ms
+   ✓ chat glob_files keeps its captured checkout after membership and remote removal  1591ms
+ ✓ src/openworkflow/workflows/repository-index-source-native.contract.test.ts (1 test) 3950ms
+   ✓ keeps the published source files and search when an older index finishes last  3949ms
+
+ Test Files  2 passed (2)
+      Tests  22 passed (22)
+   Start at  07:31:03
+   Duration  57.38s (transform 907ms, setup 27ms, import 4.30s, tests 52.90s, environment 0ms)
+

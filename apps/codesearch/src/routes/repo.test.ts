@@ -42,7 +42,7 @@ const MOCK_REPO = {
   gitUrl: "https://github.com/appear/ctxpipe.git",
 }
 
-function createTreeTestApp(workspaceId?: string) {
+function createTreeTestApp() {
   const app = new OpenAPIHono<AppEnv>()
   app.use("*", async (c, next) => {
     c.set("env", { NODE_ENV: "test", PORT: 3001 } as AppEnv["Variables"]["env"])
@@ -50,7 +50,9 @@ function createTreeTestApp(workspaceId?: string) {
       sub: "repo:repo_abcdef27",
       orgId: "org_mock123",
       principal: "service",
-      ...(workspaceId ? { workspaceId } : {}),
+      repositoryRevisions: [
+        { repositoryId: "repo_abcdef27", sha: "a".repeat(40) },
+      ],
     } as AppEnv["Variables"]["auth"])
     await next()
   })
@@ -393,7 +395,7 @@ describe("GET /{repoId}/tree", () => {
       "org_mock123",
       "repo_abcdef27",
       "checkouts",
-      "default",
+      `rev:${"a".repeat(40)}`,
     )
     Object.defineProperty(paths, "REPO_CACHE_DIR", {
       value: repoCacheDir,
@@ -405,7 +407,7 @@ describe("GET /{repoId}/tree", () => {
     await rm(tmpDir, { recursive: true, force: true })
   })
 
-  it("lists disk files without querying Postgres", async () => {
+  it("lists captured revision files without querying Postgres", async () => {
     await mkdir(join(checkoutDir, ".git", "objects"), { recursive: true })
     await mkdir(join(checkoutDir, "src"), { recursive: true })
     await writeFile(join(checkoutDir, "README.md"), "# root\n")

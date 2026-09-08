@@ -11,7 +11,7 @@ import type { ExistingKnowledgeFile } from "./migration-export.js"
 import { normalizeWorkspaceRepositoryUrl } from "./slug.js"
 
 /** Source paths belong to the captured repository, including files deleted since capture. */
-function sourcePath(
+export function extractionEvidencePath(
   source: unknown,
   fromPath: string,
   repositoryUrl: string,
@@ -77,7 +77,7 @@ export function retractExtractionClaims(input: {
           Date.parse(row.valid_from) > Date.parse(scope.observedAt)
         )
           return null
-        const path = sourcePath(
+        const path = extractionEvidencePath(
           row.source,
           file.path,
           input.extraction.repositoryUrl,

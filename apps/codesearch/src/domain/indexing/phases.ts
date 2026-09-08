@@ -470,7 +470,11 @@ export async function writeMergedScipIndex(
   }
 }
 
-function monotonicWriteStep(db: Db, orgId: string, repoId: string): WriteStep {
+function monotonicWriteStep(ctx: IndexPhaseRepoContext): WriteStep {
+  // Immutable index artifacts have no authority to change canonical repository progress.
+  // Their owning ingestion workflow publishes progress under its current request fence.
+  if (ctx.checkoutKey !== "default") return async () => undefined
+  const { db, orgId, repoId } = ctx
   return (key, scipLanguages) =>
     trySetRepositoryIndexingStep(db, orgId, repoId, key, scipLanguages, {
       monotonic: true,
@@ -481,7 +485,7 @@ export async function phaseCloneCheckout(
   ctx: IndexPhaseRepoContext,
   params: { targetHash?: string; fromHash?: string },
 ): Promise<CloneCheckoutResult> {
-  const writeStep = monotonicWriteStep(ctx.db, ctx.orgId, ctx.repoId)
+  const writeStep = monotonicWriteStep(ctx)
 
   await writeStep("cloning")
   await withPhase("clone", () =>
@@ -564,7 +568,7 @@ export async function phaseCloneCheckout(
 }
 
 export async function phaseZoekt(ctx: IndexPhaseRepoContext): Promise<void> {
-  const writeStep = monotonicWriteStep(ctx.db, ctx.orgId, ctx.repoId)
+  const writeStep = monotonicWriteStep(ctx)
   await writeStep("indexing_search")
   await withPhase("zoekt", () =>
     indexRepository({
@@ -585,7 +589,7 @@ export async function phaseDetectLanguages(
     renames: readonly { from: string; to: string }[]
   },
 ): Promise<DetectLanguagesResult> {
-  const writeStep = monotonicWriteStep(ctx.db, ctx.orgId, ctx.repoId)
+  const writeStep = monotonicWriteStep(ctx)
   await writeStep("detecting_languages")
 
   return withPhase("detect_languages", async () => {
@@ -631,7 +635,7 @@ export async function phaseScipLanguage(
     detectedLanguages: readonly string[]
   },
 ): Promise<void> {
-  const writeStep = monotonicWriteStep(ctx.db, ctx.orgId, ctx.repoId)
+  const writeStep = monotonicWriteStep(ctx)
   const shardPath = scipLangShardPath(
     ctx.orgId,
     ctx.repoId,
@@ -654,7 +658,7 @@ export async function phaseMergeScip(
   ctx: IndexPhaseRepoContext,
   params: { detectedLanguages: readonly string[] },
 ): Promise<void> {
-  const writeStep = monotonicWriteStep(ctx.db, ctx.orgId, ctx.repoId)
+  const writeStep = monotonicWriteStep(ctx)
   const detected = [...params.detectedLanguages]
   await writeStep("merging_intelligence", detected)
   await withPhase("scip_merge", () =>

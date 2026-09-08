@@ -717,10 +717,13 @@ async function resolveRepositoryIdForConfluenceSync(
   orgId: string,
   sync: SyncTargetPatchInput,
   defaultGithubConnectionId: string | undefined,
-): Promise<{ repositoryId: string; didCreate: boolean }> {
+): Promise<{ repositoryId: string; needsIngestion: boolean }> {
   if (sync.repositoryId) {
     const [byId] = await tx
-      .select({ id: repositories.id })
+      .select({
+        id: repositories.id,
+        lastIngestedHash: repositories.lastIngestedHash,
+      })
       .from(repositories)
       .where(
         and(
@@ -729,7 +732,11 @@ async function resolveRepositoryIdForConfluenceSync(
         ),
       )
       .limit(1)
-    if (byId) return { repositoryId: byId.id, didCreate: false }
+    if (byId)
+      return {
+        repositoryId: byId.id,
+        needsIngestion: byId.lastIngestedHash === null,
+      }
   }
   const gitUrl = sync.gitUrl
   const name = sync.repositoryName
@@ -738,11 +745,18 @@ async function resolveRepositoryIdForConfluenceSync(
   }
 
   const [byUrl] = await tx
-    .select({ id: repositories.id })
+    .select({
+      id: repositories.id,
+      lastIngestedHash: repositories.lastIngestedHash,
+    })
     .from(repositories)
     .where(and(eq(repositories.orgId, orgId), eq(repositories.gitUrl, gitUrl)))
     .limit(1)
-  if (byUrl) return { repositoryId: byUrl.id, didCreate: false }
+  if (byUrl)
+    return {
+      repositoryId: byUrl.id,
+      needsIngestion: byUrl.lastIngestedHash === null,
+    }
 
   const id = generateObjectId("repo")
   const checkoutId = generateObjectId("co")
@@ -772,7 +786,7 @@ async function resolveRepositoryIdForConfluenceSync(
     throw new Error("Failed to create repository checkout")
   }
 
-  return { repositoryId: id, didCreate: true }
+  return { repositoryId: id, needsIngestion: true }
 }
 
 export class ConfluenceConfigProposalInProgressError extends Error {
@@ -796,7 +810,7 @@ export async function patchAtlassianConnectorConfig(input: {
 }): Promise<{
   configProposalEnabled: boolean
   spaces: ConfluenceSpaceSelection[]
-  /** When a new `repositories` row was inserted for the sync target, enqueue ingestion from the route. */
+  /** Recover initial ingestion until a repository has a successfully ingested revision. */
   repositoryIngestion?: { orgId: string; repositoryId: string }
 }> {
   const defaultGithubConnectionId = (
@@ -822,14 +836,14 @@ export async function patchAtlassianConnectorConfig(input: {
       .where(eq(confluenceSyncTargets.connectionId, input.connectionId))
     let repositoryIngestion: { orgId: string; repositoryId: string } | undefined
     if (input.syncTarget !== undefined) {
-      const { repositoryId, didCreate } =
+      const { repositoryId, needsIngestion } =
         await resolveRepositoryIdForConfluenceSync(
           tx,
           input.orgId,
           input.syncTarget,
           defaultGithubConnectionId,
         )
-      if (didCreate) {
+      if (input.syncTarget.enabled && needsIngestion) {
         repositoryIngestion = {
           orgId: input.orgId,
           repositoryId,

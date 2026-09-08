@@ -6,6 +6,7 @@ import { checkoutKeysFromAuth } from "../auth/jwt.js"
 import { ZOEKT_WEBSERVER_URL } from "../config/paths.js"
 import { assertNotInOrgDbContext, withOrgDbContext } from "../db/client.js"
 import { repositories, repositoryCheckouts } from "../db/schema.js"
+import { publishedRepositoryCheckoutKey } from "../domain/repositories/service.js"
 import { pinRepos } from "../domain/zoekt/pinManager.js"
 import { zoektRepositoryName } from "../domain/zoekt/shardPrefix.js"
 import {
@@ -64,7 +65,8 @@ export function registerSearchRoutes(app: OpenAPIHono<AppEnv>) {
     const auth = c.get("auth")
     if (!auth) throw new Error("Missing auth context")
     const body = c.req.valid("json")
-    const checkoutKeys = checkoutKeysFromAuth(auth)
+    const scoped = Boolean(auth.workspaceId || auth.repositoryRevisions)
+    const checkoutKeys = scoped ? checkoutKeysFromAuth(auth) : []
     const rows = await withOrgDbContext(db, auth.orgId, async (tx) =>
       tx
         .select({
@@ -80,7 +82,12 @@ export function registerSearchRoutes(app: OpenAPIHono<AppEnv>) {
           and(
             eq(repositoryCheckouts.repositoryId, repositories.id),
             eq(repositoryCheckouts.orgId, auth.orgId),
-            inArray(repositoryCheckouts.checkoutKey, checkoutKeys),
+            scoped
+              ? inArray(repositoryCheckouts.checkoutKey, checkoutKeys)
+              : eq(
+                  repositoryCheckouts.checkoutKey,
+                  publishedRepositoryCheckoutKey(),
+                ),
           ),
         )
         .where(eq(repositories.orgId, auth.orgId)),
@@ -90,8 +97,8 @@ export function registerSearchRoutes(app: OpenAPIHono<AppEnv>) {
       rows
         .filter(
           (r) =>
-            !auth.workspaceRevisions ||
-            auth.workspaceRevisions.some(
+            !(auth.repositoryRevisions ?? auth.workspaceRevisions) ||
+            (auth.repositoryRevisions ?? auth.workspaceRevisions)?.some(
               (revision) =>
                 revision.repositoryId === r.repoId && revision.sha === r.sha,
             ),

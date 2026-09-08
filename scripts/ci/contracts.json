@@ -4,9 +4,6 @@
     "src/models/workspaces-sandbox-persist.test.ts"
   ],
   "git": ["src/services/git/clone-tree.test.ts"],
-  "local sandbox and job worktree runner": [
-    "src/domain/workspaces/job-sandbox.live.test.ts"
-  ],
   "OpenWorkflow native write jobs": [
     "src/domain/workspaces/write-workflow-native.contract.test.ts",
     "src/domain/workspaces/write-maintenance-native.contract.test.ts",
@@ -51,5 +48,12 @@
   ],
   "native cron scheduling": [
     "src/openworkflow/workflows/workspace-tip-check.contract.test.ts"
+  ],
+  "native ingestion admission and source ownership": [
+    "src/openworkflow/workflows/repository-ingestion-owner-native.contract.test.ts",
+    "src/openworkflow/workflows/repository-follow-up-default-native.contract.test.ts",
+    "src/openworkflow/workflows/repository-index-source-native.contract.test.ts",
+    "src/openworkflow/workflows/repository-extraction-native.contract.test.ts",
+    "src/routes/v1/repository-admission-native.contract.test.ts"
   ]
 }

@@ -139,17 +139,39 @@ Owner prose must survive unchanged.
 
 it.each([
   {
+    mode: "canonical",
     sourcePath: "src/billing.ts",
     source: "https://github.com/fixture/hydration-contract.git#src/billing.ts",
   },
   {
+    mode: "encoded",
     sourcePath: "src/a#b.ts",
     source: "https://github.com/fixture/hydration-contract.git#src/a%23b.ts",
   },
+  {
+    mode: "legacy unescaped fragment",
+    sourcePath: "src/a#b.ts",
+    existingSource:
+      "https://github.com/fixture/hydration-contract.git#src/a#b.ts",
+    source: "https://github.com/fixture/hydration-contract.git#src/a%23b.ts",
+  },
+  {
+    mode: "relative evidence",
+    sourcePath: "src/billing.ts",
+    existingSource: "../../src/billing.ts",
+    source: "https://github.com/fixture/hydration-contract.git#src/billing.ts",
+  },
+  {
+    mode: "normalized URL evidence",
+    sourcePath: "src/billing.ts",
+    existingSource:
+      "https://github.com/fixture/hydration-contract#src/billing.ts",
+    source: "https://github.com/fixture/hydration-contract.git#src/billing.ts",
+  },
 ])(
-  "reasserts an expired captured claim from $sourcePath and preserves source history",
+  "reasserts an expired captured claim from $sourcePath ($mode) and preserves source history",
   { timeout: 40_000 },
-  async ({ sourcePath, source }) => {
+  async ({ sourcePath, source, existingSource }) => {
     await withNativeHydrationFixture(
       {
         github: true,
@@ -168,7 +190,7 @@ claims:
     note: Retired source annotation
   - to: ../targets/ledger.md
     predicate: CALLS
-    source: ${source}
+    source: ${existingSource ?? source}
     valid_from: '2026-08-01T00:00:00.000Z'
     valid_to: '2026-09-01T00:00:00.000Z'
     note: Owner annotation

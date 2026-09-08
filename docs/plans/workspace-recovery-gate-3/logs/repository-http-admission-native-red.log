@@ -1,0 +1,115 @@
+{"name": "repository-http-admission-native-red", "cwd": "/private/tmp/ctxpipe-recovery-01a07aba", "command": ["/Users/jakubriedl/.volta/tools/image/node/22.16.0/bin/node", "apps/backend/node_modules/vitest/vitest.mjs", "run", "--root", "apps/backend", "src/routes/v1/repository-admission-native.contract.test.ts"], "environment": {"AUTH_SECRET": "gate0-local-disposable-test-secret-20260907", "DATABASE_URL": "postgresql://ctxpipe_app:ctxpipe@127.0.0.1:61314/ctxpipe_gate0_fresh", "GRAPH_DB_URI": "redis://127.0.0.1:6398", "CI": "true", "NO_COLOR": "1", "TURBO_TELEMETRY_DISABLED": "1", "STORYBOOK_DISABLE_TELEMETRY": "1", "PATH": "/Users/jakubriedl/.volta/tools/image/node/22.16.0/bin:/private/tmp/ctxpipe-recovery-runtime/ast-grep/node_modules/.bin:/private/tmp/ctxpipe-recovery-runtime/node_modules/.bin:/private/tmp/ctxpipe-recovery-runtime/zoekt:/usr/local/bin:/System/Cryptexes/App/usr/bin:/usr/bin:/bin:/usr/sbin:/sbin:/var/run/com.apple.security.cryptexd/codex.system/bootstrap/usr/local/bin:/var/run/com.apple.security.cryptexd/codex.system/bootstrap/usr/bin:/var/run/com.apple.security.cryptexd/codex.system/bootstrap/usr/appleinternal/bin:/pkg/env/global/bin:/Users/jakubriedl/.codex/tmp/arg0/codex-arg0BW5Gt3:/Users/jakubriedl/.cache/codex-runtimes/codex-primary-runtime/dependencies/bin/override:/Users/jakubriedl/.local/bin:/Users/jakubriedl/.bun/bin:/Users/jakubriedl/.opencode/bin:/Users/jakubriedl/.volta/bin:/opt/homebrew/bin:/opt/homebrew/sbin:/Users/jakubriedl/.cache/codex-runtimes/codex-primary-runtime/dependencies/bin/fallback:/Applications/ChatGPT.app/Contents/Resources"}, "timeout_seconds": 600, "started_utc": "2026-09-08T21:08:11Z", "log": "logs/repository-http-admission-native-red.log"}
+
+ RUN  v4.0.18 /private/tmp/ctxpipe-recovery-01a07aba/apps/backend
+
+Cloning into bare repository '/var/folders/9t/jj9rnpps7_ddb72c1mq2k13w0000gn/T/ctxpipe-hydration-contract-TQZjAd/remote.git'...
+done.
+Cloning into bare repository '/var/folders/9t/jj9rnpps7_ddb72c1mq2k13w0000gn/T/ctxpipe-hydration-contract-pQLczr/remote.git'...
+done.
+ ❯ src/routes/v1/repository-admission-native.contract.test.ts (2 tests | 2 failed) 1628ms
+   × awaits repository repository ingestion admission and retries the same saved repository 854ms
+   × awaits confluence repository ingestion admission and retries the same saved repository 773ms
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 2 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  src/routes/v1/repository-admission-native.contract.test.ts > awaits repository repository ingestion admission and retries the same saved repository
+AssertionError: expected 201 to be 503 // Object.is equality
+
+- Expected
++ Received
+
+- 503
++ 201
+
+ ❯ src/routes/v1/repository-admission-native.contract.test.ts:44:29
+     42|     try {
+     43|       const failed = await withCanceledNativeInsert(f.databaseUrl, req…
+     44|       expect(failed.status).toBe(503)
+       |                             ^
+     45|       const before = await listRepositoriesForOrg(f.org.id)
+     46|       expect(before).toHaveLength(1)
+ ❯ withNativeHydrationFixture src/test/native-hydration-fixture.ts:647:5
+ ❯ src/routes/v1/repository-admission-native.contract.test.ts:19:3
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/2]⎯
+
+ FAIL  src/routes/v1/repository-admission-native.contract.test.ts > awaits confluence repository ingestion admission and retries the same saved repository
+AssertionError: expected 200 to be 503 // Object.is equality
+
+- Expected
++ Received
+
+- 503
++ 200
+
+ ❯ src/routes/v1/repository-admission-native.contract.test.ts:44:29
+     42|     try {
+     43|       const failed = await withCanceledNativeInsert(f.databaseUrl, req…
+     44|       expect(failed.status).toBe(503)
+       |                             ^
+     45|       const before = await listRepositoriesForOrg(f.org.id)
+     46|       expect(before).toHaveLength(1)
+ ❯ withNativeHydrationFixture src/test/native-hydration-fixture.ts:647:5
+ ❯ src/routes/v1/repository-admission-native.contract.test.ts:19:3
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[2/2]⎯
+
+⎯⎯⎯⎯⎯⎯ Unhandled Errors ⎯⎯⎯⎯⎯⎯
+
+Vitest caught 2 unhandled errors during the test run.
+This might cause false positive tests. Resolve unhandled errors to make sure your tests are not affected.
+
+⎯⎯⎯⎯ Unhandled Rejection ⎯⎯⎯⎯⎯
+PostgresError: canceling statement due to user request
+ ❯ ErrorResponse ../../node_modules/.pnpm/postgres@3.4.8/node_modules/postgres/src/connection.js:815:30
+ ❯ handle ../../node_modules/.pnpm/postgres@3.4.8/node_modules/postgres/src/connection.js:489:6
+ ❯ Socket.data ../../node_modules/.pnpm/postgres@3.4.8/node_modules/postgres/src/connection.js:324:9
+ ❯ Socket.emit ../../node:events:518:28
+ ❯ addChunk ../../node:internal/streams/readable:561:12
+ ❯ readableAddChunkPushByteMode ../../node:internal/streams/readable:512:3
+ ❯ Socket.Readable.push ../../node:internal/streams/readable:392:5
+ ❯ TCP.onStreamRead ../../node:internal/stream_base_commons:189:23
+ ❯ TCP.callbackTrampoline ../../node:internal/async_hooks:130:17
+ ❯ cachedError ../../node_modules/.pnpm/postgres@3.4.8/node_modules/postgres/src/query.js:170:23
+ ❯ new Query ../../node_modules/.pnpm/postgres@3.4.8/node_modules/postgres/src/query.js:36:24
+ ❯ sql ../../node_modules/.pnpm/postgres@3.4.8/node_modules/postgres/src/index.js:112:11
+ ❯ BackendPostgres.insertWorkflowRun ../../node_modules/.pnpm/openworkflow@0.8.0_postgres@3.4.8/node_modules/openworkflow/dist/postgres/backend.js:91:40
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯
+Serialized Error: { severity_local: 'ERROR', severity: 'ERROR', code: '57014', file: 'postgres.c', routine: 'ProcessInterrupts', query: '\n      INSERT INTO "openworkflow"."workflow_runs" (\n        "namespace_id",\n        "id",\n        "workflow_name",\n        "version",\n        "status",\n        "idempotency_key",\n        "config",\n        "context",\n        "input",\n        "attempts",\n        "parent_step_attempt_namespace_id",\n        "parent_step_attempt_id",\n        "available_at",\n        "deadline_at",\n        "created_at",\n        "updated_at"\n      )\n      VALUES (\n        $1,\n        gen_random_uuid(),\n        $2,\n        $3,\n        \'pending\',\n        $4,\n        $5,\n        $6,\n        $7,\n        0,\n        $8,\n        $9,\n        NOW(),\n        $10,\n        date_trunc(\'milliseconds\', NOW()),\n        NOW()\n      )\n      RETURNING *\n    ', parameters: [ 'default', 'repository-ingestion-orchestrator', null, '6ce3a5bb-06d2-40ec-a6e2-a0d6939ad58d', {}, null, { repositoryId: 'repo_agqifwm6unybxot4ne7bi3ubee', orgId: 'org_hydrate_1788901694404_iil4kii1z2', targetBranch: null, indexingReason: null, requestId: '6ce3a5bb-06d2-40ec-a6e2-a0d6939ad58d' }, null, null, null ], args: [ 'Promise', 'default', 'repository-ingestion-orchestrator', null, '6ce3a5bb-06d2-40ec-a6e2-a0d6939ad58d', { value: {}, type: 3802, array: undefined, constructor: 'Function<Parameter>', then: 'Function<then>', catch: 'Function<catch>', finally: 'Function<finally>' }, { value: null, type: 3802, array: undefined, constructor: 'Function<Parameter>', then: 'Function<then>', catch: 'Function<catch>', finally: 'Function<finally>' }, { value: { repositoryId: 'repo_agqifwm6unybxot4ne7bi3ubee', orgId: 'org_hydrate_1788901694404_iil4kii1z2', targetBranch: null, indexingReason: null, requestId: '6ce3a5bb-06d2-40ec-a6e2-a0d6939ad58d' }, type: 3802, array: undefined, constructor: 'Function<Parameter>', then: 'Function<then>', catch: 'Function<catch>', finally: 'Function<finally>' }, null, null, 'Promise', null ], types: [ +0, +0, +0, +0, 3802, 3802, 3802, +0, +0, +0 ] }
+This error originated in "src/routes/v1/repository-admission-native.contract.test.ts" test file. It doesn't mean the error was thrown inside the file itself, but while it was running.
+The latest test that might've caused the error is "awaits repository repository ingestion admission and retries the same saved repository". It might mean one of the following:
+- The error was thrown, while Vitest was running this test.
+- If the error occurred after the test had been completed, this was the last documented test before it was thrown.
+
+⎯⎯⎯⎯ Unhandled Rejection ⎯⎯⎯⎯⎯
+PostgresError: canceling statement due to user request
+ ❯ ErrorResponse ../../node_modules/.pnpm/postgres@3.4.8/node_modules/postgres/src/connection.js:815:30
+ ❯ handle ../../node_modules/.pnpm/postgres@3.4.8/node_modules/postgres/src/connection.js:489:6
+ ❯ Socket.data ../../node_modules/.pnpm/postgres@3.4.8/node_modules/postgres/src/connection.js:324:9
+ ❯ Socket.emit ../../node:events:518:28
+ ❯ addChunk ../../node:internal/streams/readable:561:12
+ ❯ readableAddChunkPushByteMode ../../node:internal/streams/readable:512:3
+ ❯ Socket.Readable.push ../../node:internal/streams/readable:392:5
+ ❯ TCP.onStreamRead ../../node:internal/stream_base_commons:189:23
+ ❯ TCP.callbackTrampoline ../../node:internal/async_hooks:130:17
+ ❯ cachedError ../../node_modules/.pnpm/postgres@3.4.8/node_modules/postgres/src/query.js:170:23
+ ❯ new Query ../../node_modules/.pnpm/postgres@3.4.8/node_modules/postgres/src/query.js:36:24
+ ❯ sql ../../node_modules/.pnpm/postgres@3.4.8/node_modules/postgres/src/index.js:112:11
+ ❯ BackendPostgres.insertWorkflowRun ../../node_modules/.pnpm/openworkflow@0.8.0_postgres@3.4.8/node_modules/openworkflow/dist/postgres/backend.js:91:40
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯
+Serialized Error: { severity_local: 'ERROR', severity: 'ERROR', code: '57014', file: 'postgres.c', routine: 'ProcessInterrupts', query: '\n      INSERT INTO "openworkflow"."workflow_runs" (\n        "namespace_id",\n        "id",\n        "workflow_name",\n        "version",\n        "status",\n        "idempotency_key",\n        "config",\n        "context",\n        "input",\n        "attempts",\n        "parent_step_attempt_namespace_id",\n        "parent_step_attempt_id",\n        "available_at",\n        "deadline_at",\n        "created_at",\n        "updated_at"\n      )\n      VALUES (\n        $1,\n        gen_random_uuid(),\n        $2,\n        $3,\n        \'pending\',\n        $4,\n        $5,\n        $6,\n        $7,\n        0,\n        $8,\n        $9,\n        NOW(),\n        $10,\n        date_trunc(\'milliseconds\', NOW()),\n        NOW()\n      )\n      RETURNING *\n    ', parameters: [ 'default', 'repository-ingestion-orchestrator', null, '5e9548b1-ebba-4812-84de-41efe19e9438', {}, null, { repositoryId: 'repo_agqifwnbzj3hzpxhs7jjmjizle', orgId: 'org_hydrate_1788901695258_sbyoiw5ey2a', targetBranch: null, indexingReason: null, requestId: '5e9548b1-ebba-4812-84de-41efe19e9438' }, null, null, null ], args: [ 'Promise', 'default', 'repository-ingestion-orchestrator', null, '5e9548b1-ebba-4812-84de-41efe19e9438', { value: {}, type: 3802, array: undefined, constructor: 'Function<Parameter>', then: 'Function<then>', catch: 'Function<catch>', finally: 'Function<finally>' }, { value: null, type: 3802, array: undefined, constructor: 'Function<Parameter>', then: 'Function<then>', catch: 'Function<catch>', finally: 'Function<finally>' }, { value: { repositoryId: 'repo_agqifwnbzj3hzpxhs7jjmjizle', orgId: 'org_hydrate_1788901695258_sbyoiw5ey2a', targetBranch: null, indexingReason: null, requestId: '5e9548b1-ebba-4812-84de-41efe19e9438' }, type: 3802, array: undefined, constructor: 'Function<Parameter>', then: 'Function<then>', catch: 'Function<catch>', finally: 'Function<finally>' }, null, null, 'Promise', null ], types: [ +0, +0, +0, +0, 3802, 3802, 3802, +0, +0, +0 ] }
+This error originated in "src/routes/v1/repository-admission-native.contract.test.ts" test file. It doesn't mean the error was thrown inside the file itself, but while it was running.
+The latest test that might've caused the error is "awaits confluence repository ingestion admission and retries the same saved repository". It might mean one of the following:
+- The error was thrown, while Vitest was running this test.
+- If the error occurred after the test had been completed, this was the last documented test before it was thrown.
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯
+
+
+ Test Files  1 failed (1)
+      Tests  2 failed (2)
+     Errors  2 errors
+   Start at  07:08:11
+   Duration  4.46s (transform 987ms, setup 22ms, import 2.73s, tests 1.63s, environment 0ms)
+

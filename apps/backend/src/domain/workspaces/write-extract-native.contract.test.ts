@@ -612,3 +612,99 @@ it(
     })
   },
 )
+
+it(
+  "publishes claims from an existing Git subject absent from the captured object batch",
+  { timeout: 30_000 },
+  async () => {
+    await withNativeHydrationFixture(
+      {
+        github: true,
+        githubWriteView: "writable",
+        writeStatus: "writable",
+        files: [
+          {
+            path: "handbook/billing.md",
+            body: "---\ncustom: Owner metadata\n---\n\n# Billing\nOwner prose.\n",
+          },
+        ],
+      },
+      async (f) => {
+        await f.handle.cancel()
+        const { servingIdForKnowledgePath } = await import("./hydrate.js")
+        const { parseSimpleFrontMatter } = await import("./layout.js")
+        const { workspaceExtractIngest } = await import(
+          "../../openworkflow/workflows/workspace-extract-ingest.js"
+        )
+        f.runner.implementWorkflow(
+          workspaceExtractIngest.spec,
+          workspaceExtractIngest.fn,
+        )
+        const worker = f.runner.newWorker({ concurrency: 1 })
+        try {
+          await worker.start()
+          const handle = await f.runner.runWorkflow(
+            workspaceExtractIngest.spec,
+            {
+              orgId: f.org.id,
+              workspaceId: f.workspaceId,
+              jobId: `wjob_${f.id}_existing_subject`,
+              revision: { ...f.revision, access: "write-default" },
+              extraction: {
+                repositoryId: "repo_captured",
+                repositoryUrl: f.workspaceUrl,
+                sourceSha: f.sha,
+                objects: [
+                  {
+                    kind: "Service",
+                    deduplicationKey: "svc:ledger",
+                    name: "Ledger",
+                    summary: "Captured ledger",
+                  },
+                ],
+                claims: [
+                  {
+                    subjectRef: servingIdForKnowledgePath(
+                      f.workspaceId,
+                      "handbook/billing.md",
+                    ),
+                    objectRef: "svc:ledger",
+                    predicate: "CALLS",
+                    confidence: 0.9,
+                    sourceId: "evidence:billing",
+                    sourcePath: "src/billing.ts",
+                  },
+                ],
+              },
+            },
+          )
+          expect(await handle.result({ timeoutMs: 15_000 })).toMatchObject({
+            committed: true,
+          })
+          const content = f.git(
+            "--git-dir",
+            f.remote,
+            "show",
+            "main:handbook/billing.md",
+          )
+          expect(parseSimpleFrontMatter(content).attributes).toEqual({
+            custom: "Owner metadata",
+            claims: [
+              {
+                to: "../knowledge/services/ledger.md",
+                predicate: "CALLS",
+                confidence: 0.9,
+                source:
+                  "https://github.com/fixture/hydration-contract.git#src/billing.ts",
+              },
+            ],
+          })
+          expect(content).toContain("# Billing\nOwner prose.")
+          expect(content).not.toContain("generated_by")
+        } finally {
+          await worker.stop()
+        }
+      },
+    )
+  },
+)

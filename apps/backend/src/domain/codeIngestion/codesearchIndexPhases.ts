@@ -36,6 +36,7 @@ const okResponseSchema = z.object({ ok: z.literal(true) })
 export type CodesearchIndexAuth = {
   repositoryId: string
   orgId: string
+  repositoryRevisions?: Array<{ repositoryId: string; sha: string }>
   workspaceId?: string
   workspaceRevisions?: Array<{ repositoryId: string; sha: string }>
 }
@@ -56,6 +57,9 @@ async function codesearchPhaseFetch(
             sub: `repo:${auth.repositoryId}`,
             orgId: auth.orgId,
             principal: "service",
+            ...(auth.repositoryRevisions
+              ? { repositoryRevisions: auth.repositoryRevisions }
+              : {}),
             ...(auth.workspaceRevisions
               ? { workspaceRevisions: auth.workspaceRevisions }
               : {}),

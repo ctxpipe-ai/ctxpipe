@@ -9,18 +9,27 @@ import {
   codesearchIndexScipLang,
   codesearchIndexZoekt,
 } from "../../domain/codeIngestion/codesearchIndexPhases.js"
+import type { IndexingStepKey } from "../../domain/indexingSteps.js"
 import { resolveRepositoryReadCredential } from "../../domain/workspaces/resolve-revision.js"
 import {
   linkedRevisionSchema,
   sameLinkedReadBinding,
   workspaceRevisionSchema,
 } from "../../domain/workspaces/revision.js"
+import { normalizeWorkspaceRepositoryUrl } from "../../domain/workspaces/slug.js"
 import {
   isMemoryFitFailure,
   userFacingIndexingError,
 } from "../../lib/memoryFitError.js"
-import { getRepositoryReadBinding } from "../../models/repositories.js"
-import { normalizeWorkspaceRepositoryUrl } from "../../domain/workspaces/slug.js"
+import {
+  ensureRepositoryRevisionCheckout,
+  getRepositoryReadBinding,
+  setRepositoryIndexingStep,
+} from "../../models/repositories.js"
+import {
+  assertRepositoryIngestionRequest,
+  captureRepositoryIngestionRequest,
+} from "../../models/repository-ingestion-requests.js"
 import {
   getLinkedReadBinding,
   persistWorkspaceIndexResult,
@@ -37,7 +46,8 @@ const repositoryIndexInputSchema = z
   .object({
     repositoryId: z.string().min(1),
     orgId: z.string().min(1),
-    targetHash: z.string().min(1),
+    targetHash: z.string().regex(/^(?:[a-f0-9]{40}|[a-f0-9]{64})$/),
+    requestId: z.string().min(1).optional(),
     fromHash: z.string().optional(),
     githubConnectionId: z.string().optional(),
     workspaceId: z.string().min(1).optional(),
@@ -136,7 +146,7 @@ function logMilestone(step: string, fields: Record<string, unknown>): void {
  */
 export const repositoryIndex = defineWorkflow(
   { name: "repository-index", schema: repositoryIndexInputSchema },
-  async ({ input, step }) =>
+  async ({ input, step, run }) =>
     withLogger(
       createLogger({
         workflow: "repository-index",
@@ -148,13 +158,18 @@ export const repositoryIndex = defineWorkflow(
           input.orgId,
           input.repositoryId,
         )
+        const requestId = input.workspaceId
+          ? undefined
+          : ((await captureRepositoryIngestionRequest(input, run.id)) ??
+            undefined)
         const targetRevision = input.linkedRevision ?? input.revision
+        const linkedRevision = input.linkedRevision
         if (
-          input.linkedRevision &&
+          linkedRevision &&
           !(await withOrgDbContext(input.orgId, async () =>
             sameLinkedReadBinding(
-              await getLinkedReadBinding(input.linkedRevision!.linkId),
-              input.linkedRevision!,
+              await getLinkedReadBinding(linkedRevision.linkId),
+              linkedRevision,
             ),
           ))
         )
@@ -168,6 +183,12 @@ export const repositoryIndex = defineWorkflow(
           throw new Error(
             "Index repository does not match the captured revision",
           )
+        if (!input.workspaceId)
+          await ensureRepositoryRevisionCheckout({
+            orgId: input.orgId,
+            repositoryId: input.repositoryId,
+            sha: input.targetHash,
+          })
         const auth = {
           repositoryId: input.repositoryId,
           orgId: input.orgId,
@@ -178,7 +199,11 @@ export const repositoryIndex = defineWorkflow(
                   { repositoryId: input.repositoryId, sha: input.targetHash },
                 ],
               }
-            : {}),
+            : {
+                repositoryRevisions: [
+                  { repositoryId: input.repositoryId, sha: input.targetHash },
+                ],
+              }),
         }
         const wls = <T>(name: string, fn: () => Promise<T>): Promise<T> =>
           withLoggedStepAttempt(
@@ -189,6 +214,36 @@ export const repositoryIndex = defineWorkflow(
               orgId: input.orgId,
             },
             async () => {
+              if (requestId) {
+                await assertRepositoryIngestionRequest({
+                  orgId: input.orgId,
+                  repositoryId: input.repositoryId,
+                  requestId,
+                  repositoryUrl: repository.gitUrl,
+                  githubConnectionId: repository.githubConnectionId,
+                })
+                const key: IndexingStepKey | undefined =
+                  name === "clone-checkout"
+                    ? "cloning"
+                    : name === "zoekt"
+                      ? "indexing_search"
+                      : name === "detect-languages"
+                        ? "detecting_languages"
+                        : name === "merge-scip"
+                          ? "merging_intelligence"
+                          : name.startsWith("scip:")
+                            ? (name as `scip:${string}`)
+                            : undefined
+                if (key)
+                  await withOrgDbContext(input.orgId, () =>
+                    setRepositoryIndexingStep({
+                      requestId,
+                      repositoryId: input.repositoryId,
+                      key,
+                      monotonic: true,
+                    }),
+                  )
+              }
               try {
                 return await fn()
               } catch (error) {

@@ -97,7 +97,7 @@ export function registerStructuralSearchRoutes(app: OpenAPIHono<AppEnv>) {
     const checkoutPath = repoCheckoutPath(
       repo.orgId,
       repo.id,
-      checkoutKeyFromAuth(auth, repoId),
+      checkoutKeyFromAuth(auth, repoId, repo.publishedCheckoutKey),
     )
     let resolvedSearchPaths: { checkoutPath: string; paths: string[] }
     try {

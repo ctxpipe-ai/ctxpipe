@@ -3,6 +3,7 @@ import { z } from "zod/v3"
 import { requireCurrentOrgId } from "../auth/context.js"
 import { signUpstreamJwt } from "../auth/upstreamJwt.js"
 import { parseEnv } from "../config/env.js"
+import { capturedSourceRevision } from "../domain/codeIngestion/source-revision-context.js"
 import {
   codesearchBaseUrl,
   repositoryIdSchema,
@@ -24,6 +25,9 @@ export async function codesearchStructuralSearch(
 ): Promise<string> {
   const repositoryId = repository.id
   const { pattern, lang, paths, globs, limit } = body
+  const source = capturedSourceRevision(repository.orgId, repository.id)
+  if (source && workspace)
+    throw new Error("Extraction tool cannot select a workspace projection")
   const env = parseEnv(process.env as Record<string, string | undefined>)
   const token = await signUpstreamJwt({
     env,
@@ -32,6 +36,13 @@ export async function codesearchStructuralSearch(
       sub: `repo:${repository.id}`,
       orgId: repository.orgId,
       principal: "service",
+      ...(source
+        ? {
+            repositoryRevisions: [
+              { repositoryId: source.repositoryId, sha: source.sha },
+            ],
+          }
+        : {}),
       ...(workspace ? { workspaceId: workspace.workspaceId } : {}),
       ...(workspace && "legacy" in workspace
         ? { legacyWorkspace: true as const }

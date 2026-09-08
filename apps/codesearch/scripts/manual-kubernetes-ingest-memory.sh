@@ -37,7 +37,7 @@ WORK_DIR="$(mktemp -d "${TMPDIR:-/tmp}/ctxpipe-kubernetes-memory.XXXXXX")"
 CONTAINER_NAME="ctxpipe-kubernetes-memory-$$"
 GO_CACHE_DIR="${KUBERNETES_MEMORY_GO_CACHE:-${WORK_DIR}}"
 mkdir -p "${GO_CACHE_DIR}/go-cache" "${GO_CACHE_DIR}/go-mod"
-CHECKOUT_DIR="${WORK_DIR}/data/repo-cache/${GATE_ORG_ID}/${GATE_ORG_ID}_repo/checkouts/default"
+CHECKOUT_DIR="${WORK_DIR}/data/repo-cache/${GATE_ORG_ID}/${GATE_ORG_ID}_repo/checkouts/rev:${KUBERNETES_SHA}"
 SCIP_DIR="$(dirname "${CHECKOUT_DIR}")"
 # Cold durable shards (zoekt-index writes here). Hot is a sibling directory of
 # symlinks only — same derivation as apps/codesearch/src/config/paths.ts.
@@ -92,6 +92,9 @@ import {
   type IndexPhaseRepoContext,
 } from "/app/apps/codesearch/src/domain/indexing/phases.ts"
 import { zoektRepositoryName } from "/app/apps/codesearch/src/domain/zoekt/shardPrefix.ts"
+import { repositoryRevisionCheckoutKey } from "/app/shared/workspace-checkout.ts"
+import { repoCheckoutPath, scipIndexPath } from "/app/apps/codesearch/src/domain/repositories/paths.ts"
+const checkoutKey = repositoryRevisionCheckoutKey("${KUBERNETES_SHA}")
 
 import { createDb, withOrgDbContext } from "/app/apps/codesearch/src/db/client.ts"
 import { parseEnv } from "/app/apps/codesearch/src/config/env.ts"
@@ -109,7 +112,7 @@ const indexedCheckout = await withOrgDbContext(db, orgId, async (tx) => {
     id: orgId + "_repo", orgId, name: "Kubernetes memory gate", gitUrl: "${KUBERNETES_REPOSITORY}",
   })
   const [checkout] = await tx.insert(repositoryCheckouts).values({
-    id: orgId + "_checkout", orgId, repositoryId: orgId + "_repo", checkoutKey: "default", ref: "${KUBERNETES_SHA}",
+    id: orgId + "_checkout", orgId, repositoryId: orgId + "_repo", checkoutKey, ref: "${KUBERNETES_SHA}",
   }).returning()
   if (!checkout) throw new Error("Missing memory gate checkout")
   return checkout
@@ -134,14 +137,15 @@ if (goEnv.GOMAXPROCS !== "2" || goEnv.GOGC !== "50") {
 
 const ctx: IndexPhaseRepoContext = {
   db,
-  checkoutKey: "default",
+  checkoutKey,
   orgId: "${GATE_ORG_ID}",
   repoId: orgId + "_repo",
   repoGitUrl: "${KUBERNETES_REPOSITORY}",
-  clonePath: "/gate/data/repo-cache/${GATE_ORG_ID}/${GATE_ORG_ID}_repo/checkouts/default",
-  scipIndexPath: "/gate/data/repo-cache/${GATE_ORG_ID}/${GATE_ORG_ID}_repo/checkouts/default.scip",
+  clonePath: repoCheckoutPath(orgId, orgId + "_repo", checkoutKey),
+  scipIndexPath: scipIndexPath(orgId, orgId + "_repo", checkoutKey),
   zoektRepoId: indexedCheckout.zoektRepoId,
   zoektName: zoektRepositoryName({
+    checkoutKey,
     orgId: "${GATE_ORG_ID}",
     repoId: orgId + "_repo",
   }),
@@ -282,19 +286,19 @@ if [[ "${status}" -ne 0 ]]; then
   exit "${status}"
 fi
 
-merged_scip="${SCIP_DIR}/default.scip"
+merged_scip="${CHECKOUT_DIR}.scip"
 if [[ ! -s "${merged_scip}" ]]; then
   echo "manual-kubernetes-memory: FAIL: missing non-empty ${merged_scip}" >&2
   exit 1
 fi
 
 shopt -s nullglob
-scip_shards=("${SCIP_DIR}"/default.*.scip)
+scip_shards=("${CHECKOUT_DIR}".*.scip)
 if (( ${#scip_shards[@]} == 0 )); then
   echo "manual-kubernetes-memory: FAIL: no language SCIP shards under ${SCIP_DIR}" >&2
   exit 1
 fi
-go_shard="${SCIP_DIR}/default.go.scip"
+go_shard="${CHECKOUT_DIR}.go.scip"
 if [[ ! -s "${go_shard}" ]]; then
   echo "manual-kubernetes-memory: FAIL: expected non-empty Go shard ${go_shard}" >&2
   exit 1

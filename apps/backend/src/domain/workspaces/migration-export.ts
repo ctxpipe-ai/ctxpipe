@@ -510,7 +510,7 @@ export async function planKnowledgeProjection(input: {
   const titleByObjectId = new Map<string, string>()
   const bodyByObjectId = new Map<string, string>()
   const mergeFromByObjectId = new Map<string, ExistingKnowledgeFile>()
-  const claimsByObjectId = new Map<
+  const claimsByPath = new Map<
     string,
     Array<{
       to: string
@@ -569,13 +569,19 @@ export async function planKnowledgeProjection(input: {
         object.id,
         appendImportedBody(existingBody, importedBody),
       )
-      claimsByObjectId.set(object.id, claimsFromExisting(occupant.content))
+      claimsByPath.set(path, claimsFromExisting(occupant.content))
     } else {
       bodyByObjectId.set(object.id, importedBody)
-      claimsByObjectId.set(object.id, [])
+      claimsByPath.set(path, [])
     }
   }
 
+  for (const path of input.referencePaths?.values() ?? []) {
+    const existing = existingByPath.get(path)
+    if (existing && !claimsByPath.has(path))
+      claimsByPath.set(path, claimsFromExisting(existing.content))
+  }
+  const claimSubjectPaths = new Set<string>()
   for (const claim of input.claims) {
     if (objectWorkspace.get(claim.subjectId) !== input.workspaceId) continue
     if (
@@ -589,8 +595,9 @@ export async function planKnowledgeProjection(input: {
     const fromPath = pathByObjectId.get(claim.subjectId)
     const toPath = pathByObjectId.get(claim.objectId)
     if (!fromPath || !toPath) continue
+    claimSubjectPaths.add(fromPath)
     const subject = assigned.find((object) => object.id === claim.subjectId)
-    const current = claimsByObjectId.get(claim.subjectId) ?? []
+    const current = claimsByPath.get(fromPath) ?? []
     const incoming = {
       to: relativeKnowledgeLink(fromPath, toPath),
       predicate: claim.predicate,
@@ -607,8 +614,8 @@ export async function planKnowledgeProjection(input: {
       }),
       body: bodyByObjectId.get(claim.subjectId),
     }
-    claimsByObjectId.set(
-      claim.subjectId,
+    claimsByPath.set(
+      fromPath,
       mergeImportedClaims(
         current,
         [incoming],
@@ -623,7 +630,7 @@ export async function planKnowledgeProjection(input: {
     if (!path) continue
     const importKey = stampImportKey ? importKeyForExportedObject(object) : null
     const title = titleByObjectId.get(object.id) ?? "Imported"
-    const claims = claimsByObjectId.get(object.id) ?? []
+    const claims = claimsByPath.get(path) ?? []
     const body = appendClaimSeeAlsoLinks(
       bodyByObjectId.get(object.id) ?? "",
       path,
@@ -659,6 +666,25 @@ export async function planKnowledgeProjection(input: {
             title,
             body,
           }),
+    })
+  }
+  const renderedPaths = new Set(files.map((file) => file.path))
+  for (const path of claimSubjectPaths) {
+    if (renderedPaths.has(path)) continue
+    const existing = existingByPath.get(path)
+    if (!existing) continue
+    const parsed = parseSimpleFrontMatter(existing.content)
+    if (parsed.malformed) continue
+    files.push({
+      path,
+      content: mergeExistingImportedMarkdown(
+        existing.content,
+        {
+          body: parsed.body,
+          claims: claimsByPath.get(path),
+        },
+        claimIdentity ? (claim) => claimIdentity(path, claim) : undefined,
+      ),
     })
   }
   files.push(

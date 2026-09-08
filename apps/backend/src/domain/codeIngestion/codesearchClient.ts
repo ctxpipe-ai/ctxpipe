@@ -3,6 +3,7 @@ import { parseEnv } from "../../config/env.js"
 import { assertNotInOrgDbContext } from "../../db/client.js"
 import { codesearchBaseUrl } from "../../lib/agentToolRuntime.js"
 import { withTransientHttpRetry } from "../../lib/withTransientHttpRetry.js"
+import { capturedSourceRevision } from "./source-revision-context.js"
 
 export type FileEntry = { name: string; path: string; type: "file" | "dir" }
 
@@ -46,6 +47,15 @@ async function fetchWithAuth(
   extras?: CodesearchAuthExtras,
 ): Promise<Response> {
   assertNotInOrgDbContext()
+  const source = capturedSourceRevision(orgId, repositoryId)
+  if (
+    source &&
+    (extras?.workspaceId || (extras?.sha && extras.sha !== source.sha))
+  )
+    throw new Error("Extraction read differs from its captured source revision")
+  const sourceSha = extras?.workspaceId
+    ? undefined
+    : (extras?.sha ?? source?.sha)
   const env = parseEnv(process.env as Record<string, string | undefined>)
   const token = await signUpstreamJwt({
     env,
@@ -54,8 +64,11 @@ async function fetchWithAuth(
       sub: `repo:${repositoryId}`,
       orgId,
       principal: "service",
+      ...(sourceSha
+        ? { repositoryRevisions: [{ repositoryId, sha: sourceSha }] }
+        : {}),
       ...(extras?.workspaceId ? { workspaceId: extras.workspaceId } : {}),
-      ...(extras?.sha
+      ...(extras?.sha && extras.workspaceId
         ? { workspaceRevisions: [{ repositoryId, sha: extras.sha }] }
         : {}),
       ...(extras?.legacy ? { legacyWorkspace: true as const } : {}),
