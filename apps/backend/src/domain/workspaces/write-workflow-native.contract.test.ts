@@ -4,7 +4,7 @@ import { join } from "node:path"
 import { expect, it } from "vitest"
 import { withOrgIdContext } from "../../auth/withAuth.js"
 import { parseEnv } from "../../config/env.js"
-import { getWorkspaceWriteJob } from "../../models/workspace-write-jobs.js"
+import { reconcileWorkspaceWriteJob } from "../../models/workspace-write-jobs.js"
 import {
   detachWorkspaceConnection,
   getDesiredWorkspaceRevision,
@@ -272,7 +272,7 @@ it(
               async () =>
                 withOrgIdContext(
                   f.org,
-                  async () => (await getWorkspaceWriteJob(jobId))?.status,
+                  async () => (await reconcileWorkspaceWriteJob(jobId))?.status,
                 ),
               { timeout: 30_000 },
             )
@@ -385,7 +385,7 @@ it(
           expect(run?.error?.message).toContain("binding changed")
           expect(
             await withOrgIdContext(f.org, () =>
-              getWorkspaceWriteJob(`wjob_${f.id}_detach`),
+              reconcileWorkspaceWriteJob(`wjob_${f.id}_detach`),
             ),
           ).toMatchObject({ status: "failed" })
         } finally {
@@ -511,7 +511,9 @@ process.exit(result.status ?? 1);
             ),
           ).toBe(advanceTip ? "2" : "1")
           expect(
-            await withOrgIdContext(f.org, () => getWorkspaceWriteJob(jobId)),
+            await withOrgIdContext(f.org, () =>
+              reconcileWorkspaceWriteJob(jobId),
+            ),
           ).toMatchObject({
             status: "completed",
             commitSha: publishedSha,
@@ -557,7 +559,7 @@ process.exit(result.status ?? 1);
 )
 
 it(
-  "publishes a file edit and deletion through one typed native workflow",
+  "publishes Markdown hard breaks and a deletion through one typed native workflow",
   { timeout: 60_000 },
   async () => {
     await withNativeHydrationFixture(
@@ -593,7 +595,10 @@ it(
                 jobId,
                 kind: "ui_file_edit",
                 mergeFiles: [
-                  { path: "knowledge/new.md", content: "# New knowledge\n" },
+                  {
+                    path: "knowledge/new.md",
+                    content: "# New knowledge\nFirst line  \nSecond line\n",
+                  },
                 ],
                 mergeDeletePaths: ["document-001.md"],
               },
@@ -614,7 +619,10 @@ it(
             input: {
               revision: { sha: f.sha, access: "write-default" },
               files: [
-                { path: "knowledge/new.md", content: "# New knowledge\n" },
+                {
+                  path: "knowledge/new.md",
+                  content: "# New knowledge\nFirst line  \nSecond line\n",
+                },
               ],
               deletePaths: ["document-001.md"],
             },
@@ -625,7 +633,7 @@ it(
               () =>
                 withOrgIdContext(
                   f.org,
-                  async () => (await getWorkspaceWriteJob(jobId))?.status,
+                  async () => (await reconcileWorkspaceWriteJob(jobId))?.status,
                 ),
               { timeout: 30_000 },
             )
@@ -658,7 +666,7 @@ it(
               "show",
               "refs/heads/main:knowledge/new.md",
             ),
-          ).toBe("# New knowledge")
+          ).toBe("# New knowledge\nFirst line  \nSecond line")
         } finally {
           await worker.stop()
           await backend.stop()
@@ -781,7 +789,7 @@ it(
             ),
           ).toBe("1")
           const job = await withOrgIdContext(f.org, () =>
-            getWorkspaceWriteJob(input.jobId),
+            reconcileWorkspaceWriteJob(input.jobId),
           )
           expect(job?.status).toBe("completed")
           const owner = runs.find(
@@ -992,7 +1000,9 @@ it(
             ),
           ).toEqual([])
           expect(
-            await withOrgIdContext(f.org, () => getWorkspaceWriteJob(jobId)),
+            await withOrgIdContext(f.org, () =>
+              reconcileWorkspaceWriteJob(jobId),
+            ),
           ).toMatchObject({ status: "failed" })
           await owner.unsafe(
             `DROP TRIGGER ${fixtureName} ON openworkflow.workflow_runs`,
@@ -1006,7 +1016,9 @@ it(
           )
           expect(accepted).toEqual({ started: true })
           expect(
-            await withOrgIdContext(f.org, () => getWorkspaceWriteJob(jobId)),
+            await withOrgIdContext(f.org, () =>
+              reconcileWorkspaceWriteJob(jobId),
+            ),
           ).toMatchObject({ status: "queued" })
           expect(
             (await backend.listWorkflowRuns({ limit: 100 })).data.filter(
@@ -1019,7 +1031,7 @@ it(
               () =>
                 withOrgIdContext(
                   f.org,
-                  async () => (await getWorkspaceWriteJob(jobId))?.status,
+                  async () => (await reconcileWorkspaceWriteJob(jobId))?.status,
                 ),
               { timeout: 30_000 },
             )

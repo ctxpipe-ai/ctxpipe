@@ -77,3 +77,37 @@ export async function withGitDirectory<T>(
     await rm(directory, { recursive: true, force: true })
   }
 }
+
+/** Read selected immutable blobs; the workflow owns the surrounding durable step. */
+export async function readGitFiles(
+  pack: GitPack,
+  include: (path: string) => boolean,
+): Promise<Array<{ path: string; content: string }>> {
+  return withGitDirectory(
+    pack.sha,
+    async (directory) => {
+      const paths = (
+        await nativeGit(directory, [
+          "ls-tree",
+          "-r",
+          "--name-only",
+          "-z",
+          pack.sha,
+        ])
+      )
+        .toString()
+        .split("\0")
+        .filter((path) => path && include(path))
+      const files: Array<{ path: string; content: string }> = []
+      for (const path of paths)
+        files.push({
+          path,
+          content: (
+            await nativeGit(directory, ["show", `${pack.sha}:${path}`])
+          ).toString(),
+        })
+      return files
+    },
+    pack,
+  )
+}

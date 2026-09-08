@@ -71,3 +71,25 @@ CI `34206178681` at checkpoint `09e34dc6` completed 12/13 jobs successfully. The
 
 
 Five-kind checkpoint validation: `completed-subject-deadline-green` passes all 18 model and Files HTTP tests after clearing completed-request timers. `five-kind-types` passes the full backend project with exactly 143 acknowledged diagnostics and no new/stale allowances (30 seconds). Scoped Biome passes 17 changed/new implementation and contract files. Seven typed kinds, automatic post-hydrate maintenance planning, remainder/attempt guards, paused/protected resume, semantic conflict/rebase, full restart/replica proof, all alternate writers/credentials, and legacy deletion remain Gate 3 work.
+
+## Six-kind checkpoint work after f7119635
+
+Checkpoint `f7119635da09e39f853e9b6c64770924538a3006` is pushed and verified. Its required exact-SHA CI run `34208298126` passed all 13 checks, including the required backend contracts without the previous unhandled timeout. Saved CI and two independent pinned reviews are `checkpoint-f7119635-*`. Reviews found four blocking correctness issues and two refactoring suggestions; this is not terminal Gate 3 acceptance.
+
+`folder-map-native-red/green` migrates `ops_folder_map` as the sixth typed workflow. It reads all native Git paths, preserves live user folder labels and code-only folders, removes a dead folder reference, adds the missing reference folder, preserves quoted metadata and unrelated instructions, and converges to a second-run no-op. The new helper keeps the owner's semantic heading and only rewrites its folder section.
+
+Review corrections have native red/green evidence:
+
+- `claims-post-write-graph-*`: after a real upgrade commit and native hydrate, predicate-less claims retain the specified Layer-1 `LINKS_TO` relationship in FalkorDB.
+- `claims-metadata-native-*` and `valid-from-metadata-native-*`: mutate YAML nodes in place, preserving `generated_by`, custom fields, anchors, and claim comments; explicit dates remain unchanged.
+- `claims-relative-targets-native-*`: reuse hydration's relative target resolution, deduplicate equivalent links, preserve existing equivalent claims, and complete a second run without a commit.
+- `import-key-yaml-native-*`: remove complete YAML nodes, including block scalars, while preserving BOM, CRLF, other metadata, and exact body bytes.
+- `markdown-hard-break-native-*`: Files writes preserve valid Markdown hard breaks; Git whitespace lint is not a content-validation gate.
+
+The status-reconciling model operation is explicitly named `reconcileWorkspaceWriteJob`. Three maintenance workflows share the ordinary immutable Git blob reader; each keeps its durable steps explicit. Proof policy passes 433 test/story/config files and 27 command files.
+
+Six kinds still require migration: migration export, extract ingest, connector mirror, rename rewrite, semantic merge, and link/unlink. Automatic post-hydrate maintenance planning, per-kind remainder/cap enforcement, protected/read-only pause/resume, semantic conflict recovery, alternate writer/credential removal, and legacy deletion remain outstanding. Gates 4–6 have not started.
+
+`six-kind-review-regression` passes all 55 tests across six suites (65.8 seconds). Initial full typecheck retained all 143 known diagnostics and exposed one new test-only narrowing error: the graph proof passed a general projection state to a published-projection reader. The proof now explicitly requires an active projection before reading it; the corrected full typecheck and focused proof are recorded separately.
+
+`six-kind-types-green` passes the full backend typecheck with exactly 143 acknowledged diagnostics and no new or stale allowances (36.7 seconds). `claims-active-projection-green` passes the strengthened native post-write graph proof. Scoped Biome and whitespace checks pass. This checkpoint is ready for another exact-SHA CI/review cycle; Gate 3 remains in progress.

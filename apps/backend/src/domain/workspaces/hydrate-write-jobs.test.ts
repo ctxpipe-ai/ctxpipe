@@ -216,6 +216,7 @@ describe("hydrate write files", () => {
   it("writes a folder-map section into AGENTS.md", () => {
     const files = opsFolderMapFiles({
       displayName: "Docs",
+      paths: ["guides/intro.md"],
       existingAgentsMd: "---\nname: Docs\n---\n\nHello.\n",
     })
     expect(files[0]?.content).toContain("<!-- ctxpipe:folder-map -->")

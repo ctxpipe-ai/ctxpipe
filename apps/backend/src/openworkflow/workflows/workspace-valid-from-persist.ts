@@ -29,7 +29,7 @@ import {
   persistWriteJobStatus,
 } from "../../models/workspaces.js"
 import { listMarkdownFilesAtGitSha } from "../../services/git/clone-tree.js"
-import { nativeGit, withGitDirectory } from "../../services/git/pack.js"
+import { readGitFiles } from "../../services/git/pack.js"
 import {
   commitGitTree,
   stageGitFiles,
@@ -112,58 +112,28 @@ export const workspaceValidFromPersist = defineWorkflow(
           )
           const files = await step.run(
             { name: "transform-valid-from-persist" },
-            () =>
-              withGitDirectory(
-                revision.sha,
-                async (directory) => {
-                  const paths = (
-                    await nativeGit(directory, [
-                      "ls-tree",
-                      "-r",
-                      "--name-only",
-                      "-z",
-                      revision.sha,
-                    ])
+            async () => {
+              const sourceFiles = await readGitFiles(acquired.pack, (path) =>
+                path.endsWith(".md"),
+              )
+              const parsed = hydrateKnowledgeTree({
+                workspaceId: input.workspaceId,
+                files: sourceFiles,
+              })
+              return sourceFiles.flatMap((file) => {
+                const timestamp = introduced[file.path]
+                const changes = validFromPersistFiles({
+                  files: [file],
+                  units: parsed.units,
+                  introducingCommitTimestamp: timestamp ?? "",
+                })
+                if (changes.length && !timestamp)
+                  throw new Error(
+                    "Missing native introducing timestamp for a claim repair",
                   )
-                    .toString()
-                    .split("\0")
-                  const existing = new Map<string, string>()
-                  for (const path of paths) {
-                    if (path.endsWith(".md"))
-                      existing.set(
-                        path,
-                        (
-                          await nativeGit(directory, [
-                            "show",
-                            `${revision.sha}:${path}`,
-                          ])
-                        ).toString(),
-                      )
-                  }
-                  const sourceFiles = [...existing].map(([path, content]) => ({
-                    path,
-                    content,
-                  }))
-                  const parsed = hydrateKnowledgeTree({
-                    workspaceId: input.workspaceId,
-                    files: sourceFiles,
-                  })
-                  return sourceFiles.flatMap((file) => {
-                    const timestamp = introduced[file.path]
-                    const changes = validFromPersistFiles({
-                      files: [file],
-                      units: parsed.units,
-                      introducingCommitTimestamp: timestamp ?? "",
-                    })
-                    if (changes.length && !timestamp)
-                      throw new Error(
-                        "Missing native introducing timestamp for a claim repair",
-                      )
-                    return changes
-                  })
-                },
-                acquired.pack,
-              ),
+                return changes
+              })
+            },
           )
           if (!files.length) {
             const refreshed = await step.run({ name: "confirm-no-op" }, () =>

@@ -51,6 +51,7 @@ it(
         "workspace-write-import-key-cleanup",
         "workspace-write-claims-upgrade",
         "workspace-write-valid-from-persist",
+        "workspace-write-ops-folder-map",
       ]),
     )
   },

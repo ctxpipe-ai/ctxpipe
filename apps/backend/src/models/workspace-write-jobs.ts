@@ -295,7 +295,7 @@ export async function persistWriteJobPreparedCommit(
   })
 }
 
-export async function getWorkspaceWriteJob(jobId: string) {
+export async function reconcileWorkspaceWriteJob(jobId: string) {
   return orgSql(async () => {
     // OpenWorkflow is the retry authority. Reconcile only a terminal owning run;
     // a failed step whose native retries are still pending must remain running.

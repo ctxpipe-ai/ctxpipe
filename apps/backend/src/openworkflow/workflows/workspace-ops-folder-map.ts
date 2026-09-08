@@ -2,8 +2,7 @@ import { defineWorkflow } from "openworkflow"
 import { z } from "zod"
 import { parseEnv } from "../../config/env.js"
 import { generateCommitSubject } from "../../domain/workspaces/commit-subject.js"
-import { hydrateKnowledgeTree } from "../../domain/workspaces/hydrate.js"
-import { claimsUpgradeFiles } from "../../domain/workspaces/hydrate-write-jobs.js"
+import { opsFolderMapFiles } from "../../domain/workspaces/hydrate-write-jobs.js"
 import {
   sameWorkspaceRevision,
   workspaceRevisionSchema,
@@ -27,7 +26,7 @@ import {
   persistWriteJobCommitSha,
   persistWriteJobStatus,
 } from "../../models/workspaces.js"
-import { readGitFiles } from "../../services/git/pack.js"
+import { nativeGit, withGitDirectory } from "../../services/git/pack.js"
 import {
   commitGitTree,
   stageGitFiles,
@@ -51,13 +50,13 @@ const inputSchema = z
     "A write-default revision for the matching workspace is required",
   )
 
-export const workspaceClaimsUpgrade = defineWorkflow(
-  { name: "workspace-write-claims-upgrade", schema: inputSchema },
+export const workspaceOpsFolderMap = defineWorkflow(
+  { name: "workspace-write-ops-folder-map", schema: inputSchema },
   async ({ input: queuedInput, step, run }) => {
     const input = inputSchema.parse(queuedInput)
     return withWorkspaceWriteContext(
       input,
-      "workspace-write-claims-upgrade",
+      "workspace-write-ops-folder-map",
       async () => {
         const env = parseEnv(process.env)
         let revision = input.revision
@@ -71,14 +70,14 @@ export const workspaceClaimsUpgrade = defineWorkflow(
           )
         const completed = await completedWorkspaceWrite(
           input,
-          "claims_upgrade",
+          "ops_folder_map",
           run.id,
         )
         if (completed) return completed
         await step.run({ name: "claim-command" }, () =>
           persistBoundWriteJob({
             id: input.jobId,
-            kind: "claims_upgrade",
+            kind: "ops_folder_map",
             revision: input.revision,
             workflowRunId: run.id,
           }),
@@ -88,20 +87,38 @@ export const workspaceClaimsUpgrade = defineWorkflow(
             acquireWorkspaceWriteRevision(input, revision, env),
           )
           const files = await step.run(
-            { name: "transform-claims-upgrade" },
-            async () => {
-              const sourceFiles = await readGitFiles(acquired.pack, (path) =>
-                path.endsWith(".md"),
-              )
-              const parsed = hydrateKnowledgeTree({
-                workspaceId: input.workspaceId,
-                files: sourceFiles,
-              })
-              return claimsUpgradeFiles({
-                files: sourceFiles,
-                units: parsed.units,
-              })
-            },
+            { name: "transform-ops-folder-map" },
+            () =>
+              withGitDirectory(
+                revision.sha,
+                async (directory) => {
+                  const paths = (
+                    await nativeGit(directory, [
+                      "ls-tree",
+                      "-r",
+                      "--name-only",
+                      "-z",
+                      revision.sha,
+                    ])
+                  )
+                    .toString()
+                    .split("\0")
+                  const existingAgentsMd = paths.includes("AGENTS.md")
+                    ? (
+                        await nativeGit(directory, [
+                          "show",
+                          `${revision.sha}:AGENTS.md`,
+                        ])
+                      ).toString()
+                    : null
+                  return opsFolderMapFiles({
+                    displayName: acquired.displayName,
+                    existingAgentsMd,
+                    paths,
+                  })
+                },
+                acquired.pack,
+              ),
           )
           if (!files.length) {
             const refreshed = await step.run({ name: "confirm-no-op" }, () =>
@@ -120,8 +137,8 @@ export const workspaceClaimsUpgrade = defineWorkflow(
             }
           }
           const staged = await step.run({ name: "stage" }, () => {
-            if (files.some((file) => !file.path.endsWith(".md")))
-              throw new Error("Claims upgrade may only edit Markdown")
+            if (files.some((file) => file.path !== "AGENTS.md"))
+              throw new Error("Folder map maintenance may only edit AGENTS.md")
             return stageGitFiles(acquired.pack, files)
           })
           await step.run({ name: "validate" }, () =>
@@ -133,7 +150,7 @@ export const workspaceClaimsUpgrade = defineWorkflow(
           const subject = await step.run({ name: "commit-subject" }, () =>
             generateCommitSubject({
               repoName: repositoryName.split("/")[1] ?? repositoryName,
-              trigger: "claims_upgrade",
+              trigger: "ops_folder_map",
               fileNames: files.map((file) => file.path),
             }),
           )

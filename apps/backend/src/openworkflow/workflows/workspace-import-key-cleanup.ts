@@ -26,7 +26,7 @@ import {
   persistWriteJobCommitSha,
   persistWriteJobStatus,
 } from "../../models/workspaces.js"
-import { nativeGit, withGitDirectory } from "../../services/git/pack.js"
+import { readGitFiles } from "../../services/git/pack.js"
 import {
   commitGitTree,
   stageGitFiles,
@@ -88,42 +88,13 @@ export const workspaceImportKeyCleanup = defineWorkflow(
           )
           const files = await step.run(
             { name: "transform-import-key-cleanup" },
-            () =>
-              withGitDirectory(
-                revision.sha,
-                async (directory) => {
-                  const paths = (
-                    await nativeGit(directory, [
-                      "ls-tree",
-                      "-r",
-                      "--name-only",
-                      "-z",
-                      revision.sha,
-                    ])
-                  )
-                    .toString()
-                    .split("\0")
-                  const existing = new Map<string, string>()
-                  for (const path of paths) {
-                    if (path.startsWith("knowledge/") && path.endsWith(".md"))
-                      existing.set(
-                        path,
-                        (
-                          await nativeGit(directory, [
-                            "show",
-                            `${revision.sha}:${path}`,
-                          ])
-                        ).toString(),
-                      )
-                  }
-                  return importKeyCleanupFiles(
-                    [...existing].map(([path, content]) => ({
-                      path,
-                      content,
-                    })),
-                  )
-                },
-                acquired.pack,
+            async () =>
+              importKeyCleanupFiles(
+                await readGitFiles(
+                  acquired.pack,
+                  (path) =>
+                    path.startsWith("knowledge/") && path.endsWith(".md"),
+                ),
               ),
           )
           if (!files.length) {

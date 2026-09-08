@@ -76,6 +76,7 @@ export function filesForWorkspaceWriteKind(input: {
     return opsFolderMapFiles({
       displayName: input.displayName,
       existingAgentsMd: input.existing.get("AGENTS.md") ?? null,
+      paths: [...input.existing.keys()],
     })
   }
   if (input.kind === "extract_ingest" && input.exportPlan) {

@@ -2,7 +2,7 @@ import { isDeepStrictEqual } from "node:util"
 import { withOrgIdContext } from "../../auth/withAuth.js"
 import type { Env } from "../../config/env.js"
 import { getSystemDb } from "../../db/client.js"
-import { getWorkspaceWriteJob } from "../../models/workspace-write-jobs.js"
+import { reconcileWorkspaceWriteJob } from "../../models/workspace-write-jobs.js"
 import {
   getDesiredWorkspaceRevision,
   getWorkspaceById,
@@ -54,7 +54,7 @@ export async function completedWorkspaceWrite(
   kind: WorkspaceWriteKind,
   workflowRunId: string,
 ) {
-  const recorded = await getWorkspaceWriteJob(input.jobId)
+  const recorded = await reconcileWorkspaceWriteJob(input.jobId)
   if (!recorded) return null
   if (
     recorded.workspaceId !== input.workspaceId ||

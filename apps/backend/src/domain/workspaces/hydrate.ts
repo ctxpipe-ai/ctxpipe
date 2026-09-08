@@ -156,7 +156,6 @@ export function hydrateUnitsToProjectionClaims(
   for (const unit of units) {
     const dir = unit.path.split("/").slice(0, -1).join("/")
     for (const [index, claim] of unit.claims.entries()) {
-      if (!claim.predicate) continue
       const target = resolveHydrateLink(dir, claim.to)
       const object = byPath.get(target)
       if (!object) continue
@@ -170,7 +169,7 @@ export function hydrateUnitsToProjectionClaims(
         objectId: object.servingId,
         subjectKind: "KnowledgeUnit",
         objectKind: "KnowledgeUnit",
-        predicate: claim.predicate,
+        predicate: claim.predicate || "LINKS_TO",
         status: "active",
         aggregatedConfidence: claim.confidence ?? unit.confidence ?? 0.5,
         sourceCount: 1,
@@ -211,7 +210,7 @@ export function hydrateUnitsToProjectionClaims(
   return claims
 }
 
-function resolveHydrateLink(fromDir: string, href: string): string {
+export function resolveHydrateLink(fromDir: string, href: string): string {
   const cleaned = href.split("#")[0] ?? href
   if (!cleaned || cleaned.startsWith("http:") || cleaned.startsWith("https:")) {
     return ""

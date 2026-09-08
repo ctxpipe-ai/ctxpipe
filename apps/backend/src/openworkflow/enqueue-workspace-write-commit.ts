@@ -30,6 +30,7 @@ import {
   workspaceFileEditInputSchema,
 } from "./workflows/workspace-file-edit.js"
 import { workspaceImportKeyCleanup } from "./workflows/workspace-import-key-cleanup.js"
+import { workspaceOpsFolderMap } from "./workflows/workspace-ops-folder-map.js"
 import { workspaceValidFromPersist } from "./workflows/workspace-valid-from-persist.js"
 import { workspaceWriteCommit } from "./workflows/workspace-write-commit.js"
 
@@ -41,6 +42,7 @@ const snapshotWriteWorkflows: Partial<
   claims_upgrade: workspaceClaimsUpgrade,
   valid_from_persist: workspaceValidFromPersist,
   import_key_cleanup: workspaceImportKeyCleanup,
+  ops_folder_map: workspaceOpsFolderMap,
 }
 
 type WorkspaceWriteSnapshot = {

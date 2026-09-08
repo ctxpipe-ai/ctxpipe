@@ -94,12 +94,6 @@ export async function validateGitTree(
         changed.some((path) => !allowedPaths.includes(path))
       )
         throw new Error("Invalid write tree")
-      await nativeGit(directory, [
-        "diff-tree",
-        "--check",
-        staged.pack.sha,
-        staged.tree,
-      ])
     },
     staged.pack,
   )
