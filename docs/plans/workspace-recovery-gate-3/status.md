@@ -1,5 +1,7 @@
 # Gate 3 — transactional write workflows
 
+Current work queue: [remaining acceptance](remaining.md). The sections below retain historical checkpoint evidence.
+
 Status: in progress. Fixed starting/verified remote SHA: `bb24210c01e0dc1bcbc2d4fdf197d07a7a17035d` (Gate 2 terminal, all 13 CI jobs and both terminal reviews passed).
 
 The accepted native Git, public PostgreSQL models, OpenWorkflow, HTTP, local sandbox, subprocess/files, and third-party API fixture seams remain authorized. First vertical slice: successful bootstrap through a real workflow and bare remote, with one-commit and durable result proof. Subsequent slices cover each typed job, concurrency, replay/push uncertainty, binding/default/protection, connector writes and broker-only credentials.
@@ -598,3 +600,12 @@ The connector restart proof reproduced all three configuration workflows using a
 The claims-only metadata merge reproduced indentation/trailing-whitespace loss and now preserves the complete original body bytes; all nine extraction cases pass. Repository-root evidence normalization reproduced duplicate claims for URL dot-root, parent-root and relative-root forms; all 12 retraction cases pass. A repository-wide assertion retains specific-file evidence under the existing conservative retraction rule. The first expanded green fixture expected that separate evidence to expire; its expectation diagnostic is archived locally.
 
 Native admission reproduced false success from both a different workflow and a different version using the same idempotency key. Recovery now matches the job kind's workflow name and null version, including explicit owner pointers. The enqueue wrapper checks returned native workflow identity because OpenWorkflow intentionally reuses name/key across versions. All six admission cases and five migration-export cases pass (11 total). Backend types remain 132 acknowledged diagnostics with no new/stale entries; scoped Biome checks 12 files. Gate 3 and later gates remain open.
+
+
+## Ownership family closure after ec6d5340
+
+Both pinned reviewers reported the same connector wrong-version recovery defect. The native reproduction covers config/content admission with a same-key owner from another version or namespace; all four incorrectly activated setup. Repository activation/recovery reproduced the analogous three identity failures. Identity fences now apply consistently to key lookup, explicit pointers, activation, terminal status/progress, and legacy adoption. Superseded connector activation/retry helpers and their implementation-only tests are removed.
+
+Final connector regression: 94/94 across admission, finalization and config restart. Repository ownership: 9/9 in ownership-family-native-green. That combined run had one separate legacy fixture expire before its expected successful result; the corrected fixture cancels unrelated hydration and leaves success bounded by handle.result rather than a 1.5-second failure deadline. Backend types: 132 acknowledged, zero new/stale. Scoped Biome: 18 files. Proof policy: 440 test/story/config files, 27 command files.
+
+User-approved execution update: current scope is remaining.md; broad reviews and CI are batched at coherent milestones, with comprehensive gate closure retained. G3-A is locally verified, G3-B is next. This is not Gate 3 completion. CI 34284724229 remains running on fd7f8817 (12 jobs succeeded, Tests pending at the latest observation).

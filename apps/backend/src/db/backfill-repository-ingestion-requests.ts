@@ -15,7 +15,7 @@ export async function backfillRepositoryIngestionRequests(
     from repositories repository
     cross join lateral (
       select id, input, created_at from openworkflow.workflow_runs
-      where workflow_name = 'repository-ingestion-orchestrator'
+      where namespace_id = 'default' and version is null and workflow_name = 'repository-ingestion-orchestrator'
         and input->>'orgId' = repository.org_id
         and input->>'repositoryId' = repository.id
       order by created_at desc, id desc limit 1

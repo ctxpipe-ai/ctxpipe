@@ -41,14 +41,16 @@ export async function previewConnectorContentAdmissions(
     `
     select distinct on (owner.input->>'connectionId') owner.id, owner.workflow_name, owner.input
     from openworkflow.workflow_runs owner
-    where owner.input->>'orgId' = $1 and owner.input->>'connectionId' = any($2::text[])
+    where owner.namespace_id = 'default' and owner.version is null
+      and owner.input->>'orgId' = $1 and owner.input->>'connectionId' = any($2::text[])
       and owner.workflow_name in ('linear-sync-config', 'notion-sync-config', 'confluence-sync-config')
       and not (owner.input ? 'contentSyncBinding')
       and coalesce(owner.input->>'contentSyncGeneration', '0') = '0'
       and (owner.status <> 'completed' or owner.output->>'changed' = 'false')
       and not exists (
         select 1 from openworkflow.workflow_runs later
-        where later.input->>'orgId' = owner.input->>'orgId'
+        where later.namespace_id = owner.namespace_id and later.version is null
+          and later.input->>'orgId' = owner.input->>'orgId'
           and later.input->>'connectionId' = owner.input->>'connectionId'
           and ((later.workflow_name = owner.workflow_name and (later.created_at, later.id) > (owner.created_at, owner.id))
             or (later.workflow_name = replace(owner.workflow_name, '-config', '-content') and later.created_at >= owner.created_at))

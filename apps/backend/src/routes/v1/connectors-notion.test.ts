@@ -6,8 +6,6 @@ import {
   withTestRequestLogger,
 } from "../../test/hono-test-logger.js"
 
-const claimNotionConfigPrCreationMock = vi.hoisted(() => vi.fn())
-const claimNotionContentSyncRetryMock = vi.hoisted(() => vi.fn())
 const patchNotionConnectorConfigMock = vi.hoisted(() => vi.fn())
 const resolveNotionConnectionForOrgDetailedMock = vi.hoisted(() => vi.fn())
 const getNotionBindingWithRepoByConnectionIdMock = vi.hoisted(() => vi.fn())
@@ -16,8 +14,6 @@ const getPullRequestHeadBranchMock = vi.hoisted(() => vi.fn())
 const runWorkflowMock = vi.hoisted(() => vi.fn())
 
 vi.mock("../../models/notion-connector.js", () => ({
-  claimNotionContentSyncRetry: claimNotionContentSyncRetryMock,
-  claimNotionConfigPrCreation: claimNotionConfigPrCreationMock,
   deleteNotionConnectionById: vi.fn(),
   getNotionBindingWithRepoByConnectionId:
     getNotionBindingWithRepoByConnectionIdMock,
@@ -136,11 +132,6 @@ describe("Notion connector config", () => {
     patchNotionConnectorConfigMock.mockResolvedValue({
       bindingChanged: false,
     })
-    claimNotionConfigPrCreationMock.mockResolvedValue({
-      pendingConfigPullUrl: null,
-      setupPhase: "live",
-    })
-    claimNotionContentSyncRetryMock.mockResolvedValue(true)
     runWorkflowMock.mockResolvedValue({ status: "running" })
   })
 
@@ -164,7 +155,6 @@ describe("Notion connector config", () => {
 
     expect(response.status).toBe(200)
     expect(await response.json()).toMatchObject({ configPrEnqueued: false })
-    expect(claimNotionConfigPrCreationMock).not.toHaveBeenCalled()
     expect(runWorkflowMock).not.toHaveBeenCalled()
   })
 
@@ -190,7 +180,6 @@ describe("Notion connector config", () => {
 
     expect(response.status).toBe(200)
     expect(await response.json()).toMatchObject({ configPrEnqueued: false })
-    expect(claimNotionConfigPrCreationMock).not.toHaveBeenCalled()
     expect(runWorkflowMock).not.toHaveBeenCalled()
   })
 
@@ -201,7 +190,6 @@ describe("Notion connector config", () => {
     )
 
     expect(response.status).toBe(400)
-    expect(claimNotionContentSyncRetryMock).not.toHaveBeenCalled()
     expect(runWorkflowMock).not.toHaveBeenCalled()
   })
 })

@@ -10,7 +10,6 @@ import { upsertForgeInstallationFromEvent } from "../../models/atlassian-connect
 import {
   finalizeConfluenceSyncTargetAfterContentWorkflow,
   getConfluenceSyncTargetWithRepoByConnectionId,
-  markConfluenceSyncTargetInitialSync,
 } from "../../models/confluence-sync-target.js"
 import {
   getConnectionDirectoryByConnectionId,
@@ -18,17 +17,16 @@ import {
 } from "../../models/connection-directory.js"
 import { reconcileConnectorContentSync } from "../../models/connector-content-sync.js"
 import {
-  claimLinearBindingInitialSync,
   finalizeLinearBindingAfterContentWorkflow,
   getLinearBindingWithRepoByConnectionId,
 } from "../../models/linear-connector.js"
 import {
-  claimNotionBindingInitialSync,
   finalizeNotionBindingAfterContentWorkflow,
   getNotionBindingWithRepoByConnectionId,
   getNotionConnectionByConnectionId,
   updateNotionConnectionTokens,
 } from "../../models/notion-connector.js"
+import { enqueueConnectorContentSync } from "../../openworkflow/enqueue-connector-content-sync.js"
 import { confluenceSyncContent } from "../../openworkflow/workflows/confluence-sync-content.js"
 import { linearSyncContent } from "../../openworkflow/workflows/linear-sync-content.js"
 import { notionSyncContent } from "../../openworkflow/workflows/notion-sync-content.js"
@@ -260,8 +258,9 @@ it.each([
   async (scenario) => {
     const { provider, status, phase } = scenario
     await withNativeHydrationFixture(
-      { github: true, githubWriteView: "writable" },
+      { namespaceId: "default", github: true, githubWriteView: "writable" },
       async (f) => {
+        await f.handle.cancel()
         await f.runner.cancelWorkflowRun(f.handle.workflowRun.id)
         const repository = await withOrgIdContext(f.org, () =>
           ensureOrgRepositoryForGitUrl({
@@ -346,16 +345,17 @@ it.each([
             confluence: finalizeConfluenceSyncTargetAfterContentWorkflow,
           }[provider]
           if ("activationChanged" in scenario) {
-            const activate = {
-              linear: claimLinearBindingInitialSync,
-              notion: claimNotionBindingInitialSync,
-              confluence: markConfluenceSyncTargetInitialSync,
-            }[provider]
-            await activate({
-              connectionId,
-              repositoryId: repository.id,
-              branch: "main",
-            })
+            expect(
+              await enqueueConnectorContentSync({
+                orgId: f.org.id,
+                orgSlug: f.org.slug,
+                connectionId,
+                provider,
+                repositoryId: repository.id,
+                branch: "main",
+                configKey: `native-reactivation:${f.id}`,
+              }),
+            ).toBe(true)
           } else if ("providerChanged" in scenario)
             await withOrgDbContext(f.org.id, (db) =>
               db
@@ -435,7 +435,9 @@ it.each([
             const options =
               "pendingOwner" in scenario
                 ? { availableAt: new Date(Date.now() + 60_000) }
-                : { deadlineAt: new Date(Date.now() + 1500) }
+                : "staleLegacy" in scenario
+                  ? {}
+                  : { deadlineAt: new Date(Date.now() + 1500) }
             if ("legacyOwner" in scenario) {
               const legacy = await f.backend.createWorkflowRun({
                 workflowName: `${provider}-sync-content`,
@@ -537,16 +539,17 @@ it.each([
                   )
                 }
                 if ("reactivated" in scenario) {
-                  const activate = {
-                    linear: claimLinearBindingInitialSync,
-                    notion: claimNotionBindingInitialSync,
-                    confluence: markConfluenceSyncTargetInitialSync,
-                  }[provider]
-                  await activate({
-                    connectionId,
-                    repositoryId: repository.id,
-                    branch: "main",
-                  })
+                  expect(
+                    await enqueueConnectorContentSync({
+                      orgId: f.org.id,
+                      orgSlug: f.org.slug,
+                      connectionId,
+                      provider,
+                      repositoryId: repository.id,
+                      branch: "main",
+                      configKey: `native-reactivation:${f.id}`,
+                    }),
+                  ).toBe(true)
                 }
               }
             }

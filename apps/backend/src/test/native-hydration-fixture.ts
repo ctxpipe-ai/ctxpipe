@@ -31,6 +31,7 @@ import { workspaceTipCheck } from "../openworkflow/workflows/workspace-tip-check
 import { closeGraphDb } from "../platform/graph/client.js"
 
 export type NativeHydrationOptions = {
+  namespaceId?: string
   files?: Array<{ path: string; body: string; mode?: "100755" | "120000" }>
   initialCommitDate?: string
   semanticMergeResolution?: {
@@ -389,7 +390,7 @@ async function createNativeHydrationFixture(
   initDb(databaseUrl)
   const backend = await BackendPostgres.connect(databaseUrl, {
     runMigrations: false,
-    namespaceId: id,
+    namespaceId: options.namespaceId ?? id,
   })
   const runner = new OpenWorkflow({ backend })
   runner.implementWorkflow(workspaceTipCheck.spec, workspaceTipCheck.fn)

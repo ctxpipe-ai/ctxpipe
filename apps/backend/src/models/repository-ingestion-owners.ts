@@ -23,7 +23,9 @@ export async function projectRepositoryIngestionOwners(
       and repository.github_connection_id is not distinct from request.github_connection_id
     join openworkflow.workflow_runs owner on owner.id = coalesce(request.workflow_run_id,
       (select id from openworkflow.workflow_runs where namespace_id = 'default' and workflow_name = 'repository-ingestion-orchestrator' and version is null and idempotency_key = request.request_id limit 1))
-    where request.org_id = ${orgId} and owner.input->>'orgId' = ${orgId}
+    where owner.namespace_id = 'default' and owner.version is null
+      and owner.workflow_name = 'repository-ingestion-orchestrator'
+      and request.org_id = ${orgId} and owner.input->>'orgId' = ${orgId}
       and owner.input->>'repositoryId' = request.repository_id
       and request.repository_id in (${sql.join(
         repositories.map((row) => sql`${row.id}`),

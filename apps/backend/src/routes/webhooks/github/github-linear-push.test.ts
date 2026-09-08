@@ -8,7 +8,6 @@ const mocks = vi.hoisted(() => ({
   listInstallations: vi.fn(),
   listTargets: vi.fn(),
   loadConfig: vi.fn(),
-  markInitialSync: vi.fn(),
   reset: vi.fn(),
   runWorkflow: vi.fn(),
   transitionState: vi.fn(),
@@ -35,7 +34,6 @@ vi.mock("../../../models/repositories.js", () => ({
 vi.mock("../../../models/linear-connector.js", () => ({
   getLinearConnectionByConnectionId: mocks.getConnection,
   listLinearBindingsWithRepoByRepositoryId: mocks.listTargets,
-  claimLinearBindingInitialSync: mocks.markInitialSync,
   resetLinearConnectorAfterMissingConfig: mocks.reset,
   transitionLinearBindingState: mocks.transitionState,
 }))
@@ -84,7 +82,6 @@ beforeEach(() => {
     workspaceId: "workspace-1",
   })
   mocks.compareCommits.mockResolvedValue(false)
-  mocks.markInitialSync.mockResolvedValue(true)
   mocks.transitionState.mockResolvedValue(true)
 })
 

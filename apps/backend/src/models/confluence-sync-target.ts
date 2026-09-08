@@ -1,4 +1,4 @@
-import { and, eq, sql } from "drizzle-orm"
+import { and, eq } from "drizzle-orm"
 import {
   type Db,
   getOrgDb,
@@ -7,9 +7,8 @@ import {
 } from "../db/client.js"
 import { organizations } from "../db/schema/auth.js"
 import { confluenceSyncTargets } from "../db/schema/confluenceSyncTargets.js"
-import { CONNECTION_TYPE_FORGE, connections } from "../db/schema/connections.js"
+import { connections } from "../db/schema/connections.js"
 import { repositories } from "../db/schema/repositories.js"
-import { generateObjectId } from "../lib/id.js"
 import { getConnectionDirectoryByConnectionId } from "./connection-directory.js"
 import { reconcileConnectorContentSync } from "./connector-content-sync.js"
 import {
@@ -253,32 +252,6 @@ export async function updateConfluenceSyncTargetPrState(input: {
   })
 }
 
-/** After config push webhook: first full reconcile from Git before flipping to `live`. */
-export async function markConfluenceSyncTargetInitialSync(input: {
-  connectionId: string
-}): Promise<void> {
-  await requireConfluenceSyncTargetWrite(input.connectionId, async (db) => {
-    await db
-      .update(connections)
-      .set({
-        contentSyncGeneration: sql`${connections.contentSyncGeneration} + 1`,
-      })
-      .where(eq(connections.id, input.connectionId))
-    const [row] = await db
-      .update(confluenceSyncTargets)
-      .set({
-        setupPhase: "initial_sync",
-        pendingConfigPullUrl: null,
-        pendingConfigPrCreating: false,
-        enabled: true,
-        updatedAt: new Date(),
-      })
-      .where(eq(confluenceSyncTargets.connectionId, input.connectionId))
-      .returning({ id: confluenceSyncTargets.id })
-    return row
-  })
-}
-
 export async function finalizeConfluenceSyncTargetAfterContentWorkflow(input: {
   connectionId: string
   binding: CapturedConnectorBinding
@@ -321,59 +294,4 @@ export async function finalizeConfluenceSyncTargetAfterContentWorkflow(input: {
     },
   )
   if (!updated) return
-}
-
-export async function upsertConfluenceSyncTargetForOrg(input: {
-  orgId: string
-  connectionId: string
-  repositoryId: string
-  branch: string
-  enabled: boolean
-}): Promise<ConfluenceSyncTarget> {
-  return withOrgDbContext(input.orgId, async (tx) => {
-    const [conn] = await tx
-      .select({ id: connections.id })
-      .from(connections)
-      .where(
-        and(
-          eq(connections.id, input.connectionId),
-          eq(connections.orgId, input.orgId),
-          eq(connections.type, CONNECTION_TYPE_FORGE),
-        ),
-      )
-      .limit(1)
-
-    if (!conn) {
-      throw new Error("Forge connection does not belong to organization")
-    }
-
-    const [row] = await tx
-      .insert(confluenceSyncTargets)
-      .values({
-        id: generateObjectId("cst"),
-        orgId: input.orgId,
-        connectionId: input.connectionId,
-        repositoryId: input.repositoryId,
-        branch: input.branch,
-        enabled: input.enabled,
-        setupPhase: "draft",
-        pendingConfigPullUrl: null,
-        pendingConfigPrCreating: false,
-      })
-      .onConflictDoUpdate({
-        target: confluenceSyncTargets.connectionId,
-        set: {
-          repositoryId: input.repositoryId,
-          branch: input.branch,
-          enabled: input.enabled,
-          updatedAt: new Date(),
-        },
-      })
-      .returning()
-
-    if (!row) {
-      throw new Error("Failed to upsert Confluence sync target")
-    }
-    return row
-  })
 }

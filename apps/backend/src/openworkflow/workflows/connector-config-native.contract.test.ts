@@ -118,6 +118,7 @@ it.each(
     const pullUpdates: unknown[] = []
     await withNativeHydrationFixture(
       {
+        namespaceId: "default",
         github: true,
         githubWriteView: "writable",
         githubContentFiles: close
@@ -153,6 +154,7 @@ it.each(
           : {}),
       },
       async (f) => {
+        await f.handle.cancel()
         const repository = await withOrgIdContext(f.org, () =>
           ensureOrgRepositoryForGitUrl({
             orgId: f.org.id,

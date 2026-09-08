@@ -164,6 +164,7 @@ export async function prepareConnectorSync(input: {
         input: Record<string, unknown>
       }>(sql`
         select id, status, input from openworkflow.workflow_runs where id = ${connection.contentSyncWorkflowRunId}
+          and namespace_id = 'default' and version is null
           and workflow_name = ${`${input.provider}-sync-${input.purpose}`}
           and input->>'orgId' = ${input.orgId} and input->>'connectionId' = ${input.connectionId}
       `)
@@ -217,6 +218,7 @@ export async function activateConnectorSync(input: {
       input: Record<string, unknown>
     }>(sql`
       select status, input from openworkflow.workflow_runs where id = ${input.workflowRunId}
+        and namespace_id = 'default' and version is null
         and workflow_name = ${`${current.binding.provider}-sync-${input.purpose}`}
         and input->>'orgId' = ${input.orgId} and input->>'connectionId' = ${input.connectionId}
     `)
@@ -264,7 +266,7 @@ export async function activateConnectorSync(input: {
       connection.contentSyncWorkflowRunId
     ) {
       const previous = await db.execute<{ generation: string }>(
-        sql`select coalesce(input->>'contentSyncGeneration','0') as generation from openworkflow.workflow_runs where id = ${connection.contentSyncWorkflowRunId}`,
+        sql`select coalesce(input->>'contentSyncGeneration','0') as generation from openworkflow.workflow_runs where id = ${connection.contentSyncWorkflowRunId} and namespace_id = 'default' and version is null and workflow_name in (${`${current.binding.provider}-sync-config`}, ${`${current.binding.provider}-sync-content`}) and input->>'orgId' = ${input.orgId} and input->>'connectionId' = ${input.connectionId}`,
       )
       legacy =
         Number(previous.rows[0]?.generation ?? -1) <
@@ -341,7 +343,7 @@ export async function findConnectorSyncOwner(input: {
 }): Promise<string | null> {
   return withOrgDbContext(input.orgId, async (db) => {
     const result = await db.execute<{ id: string }>(sql`
-      select id from openworkflow.workflow_runs where workflow_name = ${`${input.provider}-sync-${input.purpose}`}
+      select id from openworkflow.workflow_runs where namespace_id = 'default' and version is null and workflow_name = ${`${input.provider}-sync-${input.purpose}`}
         and input->>'orgId' = ${input.orgId} and input->>'connectionId' = ${input.connectionId}
         and idempotency_key = ${input.idempotencyKey} order by created_at desc limit 1
     `)
@@ -408,20 +410,6 @@ export async function captureConnectorConfigSyncBinding(input: {
   })
 }
 
-export async function getConnectorContentSyncGeneration(
-  orgId: string,
-  connectionId: string,
-): Promise<number> {
-  return withOrgDbContext(orgId, async (db) => {
-    const [row] = await db
-      .select({ generation: connections.contentSyncGeneration })
-      .from(connections)
-      .where(eq(connections.id, connectionId))
-    if (!row) throw new Error("Connector connection is missing")
-    return row.generation
-  })
-}
-
 /** Project only the current native owner's terminal state; this never schedules or retries work. */
 export async function reconcileConnectorContentSync(input: {
   orgId: string
@@ -457,7 +445,8 @@ export async function reconcileConnectorContentSync(input: {
             and step_name = 'capture-config-binding' and status = 'completed'
           order by created_at desc limit 1
         ) attempt on true
-        where owner.workflow_name = ${`${provider}-sync-config`}
+        where owner.namespace_id = 'default' and owner.version is null
+          and owner.workflow_name = ${`${provider}-sync-config`}
           and owner.input->>'orgId' = ${input.orgId} and owner.input->>'connectionId' = ${input.connectionId}
           and coalesce(owner.input->>'contentSyncGeneration','0') = ${String(connection.contentSyncGeneration)}
           and (owner.id = ${connection.contentSyncWorkflowRunId} or not (owner.input ? 'contentSyncBinding'))
@@ -497,7 +486,7 @@ export async function reconcileConnectorContentSync(input: {
       input: Record<string, unknown>
     }>(sql`
       select status, input from openworkflow.workflow_runs
-      where workflow_name = ${`${provider}-sync-content`}
+      where namespace_id = 'default' and version is null and workflow_name = ${`${provider}-sync-content`}
         and input->>'orgId' = ${input.orgId}
         and input->>'connectionId' = ${input.connectionId}
         and coalesce(input->>'contentSyncGeneration', '0') = ${String(connection.contentSyncGeneration)}

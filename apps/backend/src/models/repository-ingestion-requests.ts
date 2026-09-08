@@ -18,7 +18,8 @@ type Owner = { id: string; status: string; input: Record<string, unknown> }
 async function nativeOwner(db: Db, request: Request): Promise<Owner | null> {
   const result = await db.execute<Owner>(sql`
     select id, status, input from openworkflow.workflow_runs
-    where ${request.workflowRunId ? sql`id = ${request.workflowRunId}` : sql`namespace_id = 'default' and workflow_name = 'repository-ingestion-orchestrator' and version is null and idempotency_key = ${request.requestId}`}
+    where namespace_id = 'default' and workflow_name = 'repository-ingestion-orchestrator' and version is null
+      and ${request.workflowRunId ? sql`id = ${request.workflowRunId}` : sql`idempotency_key = ${request.requestId}`}
       and input->>'orgId' = ${request.orgId} and input->>'repositoryId' = ${request.repositoryId}
     limit 1
   `)
@@ -124,7 +125,7 @@ export async function activateRepositoryIngestionRequest(
     )
       throw new Error("Repository ingestion binding changed")
     const result = await db.execute<Owner>(
-      sql`select id, status, input from openworkflow.workflow_runs where id = ${workflowRunId} and input->>'orgId' = ${input.orgId} and input->>'repositoryId' = ${input.repositoryId} and workflow_name = 'repository-ingestion-orchestrator'`,
+      sql`select id, status, input from openworkflow.workflow_runs where id = ${workflowRunId} and input->>'orgId' = ${input.orgId} and input->>'repositoryId' = ${input.repositoryId} and workflow_name = 'repository-ingestion-orchestrator' and namespace_id = 'default' and version is null`,
     )
     const owner = result.rows[0]
     if (
@@ -181,6 +182,8 @@ export function repositoryIngestionWriteCondition(requestId?: string | null) {
           and request.github_connection_id is not distinct from ${repositories.githubConnectionId}
           and exists (select 1 from openworkflow.workflow_runs owner
             where owner.id = request.workflow_run_id
+              and owner.namespace_id = 'default' and owner.version is null
+              and owner.workflow_name = 'repository-ingestion-orchestrator'
               and owner.input->>'orgId' = request.org_id
               and owner.input->>'repositoryId' = request.repository_id
               and owner.status in ('pending', 'running', 'sleeping')))`

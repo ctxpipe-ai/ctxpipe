@@ -14,8 +14,22 @@ import {
   encodeNotionTokensForDb,
 } from "../../lib/connection-config.js"
 import { upsertConnectionDirectory } from "../../models/connection-directory.js"
+import {
+  activateConnectorSync,
+  prepareConnectorSync,
+  reconcileConnectorContentSync,
+} from "../../models/connector-content-sync.js"
 import { getLinearBindingWithRepoByConnectionId } from "../../models/linear-connector.js"
 import { getNotionBindingWithRepoByConnectionId } from "../../models/notion-connector.js"
+import { ow } from "../../openworkflow/client.js"
+import { enqueueConnectorConfigSync } from "../../openworkflow/enqueue-connector-config-sync.js"
+import {
+  connectorConfigKey,
+  enqueueConnectorContentSync,
+} from "../../openworkflow/enqueue-connector-content-sync.js"
+import { linearSyncConfig } from "../../openworkflow/workflows/linear-sync-config.js"
+import { linearSyncContent } from "../../openworkflow/workflows/linear-sync-content.js"
+import { linearScopeSelection } from "../../services/linear/config-yaml.js"
 import {
   contextStorage,
   withTestRequestLogger,
@@ -473,5 +487,162 @@ it.each([
         }
       },
     )
+  },
+)
+
+it.each(
+  (["config", "content"] as const).flatMap((purpose) =>
+    (["version", "namespace"] as const).map((collision) => ({
+      purpose,
+      collision,
+    })),
+  ),
+)(
+  "rejects a connector $purpose owner from another $collision at admission and recovery",
+  { timeout: 30_000 },
+  async ({ purpose, collision }) => {
+    await withNativeHydrationFixture({ github: true }, async (f) => {
+      const repository = await withOrgIdContext(f.org, () =>
+        ensureOrgRepositoryForGitUrl({
+          orgId: f.org.id,
+          gitUrl: f.workspaceUrl,
+          githubConnectionId: f.connectionId,
+        }),
+      )
+      if (!repository) throw new Error("Fixture repository missing")
+      const connectionId = `con_${f.id}_owner_identity`
+      const config = {
+        ...encodeLinearTokensForDb(
+          { accessToken: "fixture-owner-identity", refreshToken: null },
+          parseEnv(process.env),
+        ),
+        ownerUserId: `user_${f.id}`,
+        workspaceId: "provider-workspace",
+        workspaceName: "Fixture",
+        status: "installed",
+        repositoryId: repository.id,
+        branch: "main",
+        enabled: true,
+        setupPhase: purpose === "config" ? "config_failed" : "sync_failed",
+      }
+      await withOrgDbContext(f.org.id, (db) =>
+        db.insert(connections).values({
+          id: connectionId,
+          orgId: f.org.id,
+          type: "linear",
+          config,
+        }),
+      )
+      const configKey =
+        purpose === "config"
+          ? `proposal:${connectorConfigKey(linearScopeSelection([]))}`
+          : "fixture-config"
+      const binding = {
+        provider: "linear" as const,
+        repositoryId: repository.id,
+        branch: "main",
+        workspaceId: "provider-workspace",
+        cloudId: null,
+        atlassianApiBaseUrl: null,
+      }
+      const input = {
+        orgId: f.org.id,
+        orgSlug: f.org.slug,
+        connectionId,
+        configKey,
+        contentSyncGeneration: 1,
+        contentSyncBinding: binding,
+        scopes: [],
+      }
+      const runner = collision === "namespace" ? f.runner : ow
+      const version =
+        collision === "version" ? { version: "unrelated-version" } : {}
+      const options = {
+        idempotencyKey: `connector-${purpose}:${connectionId}:1:${configKey}`,
+      }
+      const wrongOwner =
+        purpose === "config"
+          ? await runner.runWorkflow(
+              { ...linearSyncConfig.spec, ...version },
+              input,
+              options,
+            )
+          : await runner.runWorkflow(
+              { ...linearSyncContent.spec, ...version },
+              input,
+              options,
+            )
+      const admit = async () =>
+        purpose === "config"
+          ? enqueueConnectorConfigSync({
+              orgId: f.org.id,
+              orgSlug: f.org.slug,
+              connectionId,
+              provider: "linear",
+              scopes: [],
+            })
+          : enqueueConnectorContentSync({
+              orgId: f.org.id,
+              connectionId,
+              provider: "linear",
+              branch: "main",
+              configKey,
+            })
+      await expect(
+        collision === "namespace"
+          ? withCanceledNativeInsert(f.databaseUrl, admit)
+          : admit(),
+      ).rejects.toThrow()
+      expect(
+        await getLinearBindingWithRepoByConnectionId(f.org.id, connectionId),
+      ).toMatchObject({ setupPhase: config.setupPhase })
+
+      // A pre-existing pointer must not bypass the same identity checks.
+      await withOrgDbContext(f.org.id, (db) =>
+        db
+          .update(connections)
+          .set({
+            contentSyncWorkflowRunId: wrongOwner.workflowRun.id,
+            contentSyncGeneration: 1,
+          })
+          .where(eq(connections.id, connectionId)),
+      )
+      expect(
+        await prepareConnectorSync({
+          purpose,
+          orgId: f.org.id,
+          connectionId,
+          provider: "linear",
+          configKey,
+        }),
+      ).toMatchObject({ existingRunId: null })
+      expect(
+        await activateConnectorSync({
+          purpose,
+          orgId: f.org.id,
+          connectionId,
+          workflowRunId: wrongOwner.workflowRun.id,
+        }),
+      ).toBe(false)
+      await wrongOwner.cancel()
+      const activePhase =
+        purpose === "config" ? "awaiting_merge" : "initial_sync"
+      await withOrgDbContext(f.org.id, (db) =>
+        db
+          .update(connections)
+          .set({
+            config: {
+              ...config,
+              setupPhase: activePhase,
+              pendingConfigPrCreating: purpose === "config",
+            },
+          })
+          .where(eq(connections.id, connectionId)),
+      )
+      await reconcileConnectorContentSync({ orgId: f.org.id, connectionId })
+      expect(
+        await getLinearBindingWithRepoByConnectionId(f.org.id, connectionId),
+      ).toMatchObject({ setupPhase: activePhase })
+    })
   },
 )

@@ -8,7 +8,6 @@ import {
   serialiseLinearConnectionConfigForDb,
 } from "../lib/connection-config.js"
 import {
-  claimLinearBindingInitialSync,
   type LinearBinding,
   LinearSyncBindingBusyError,
   planLinearSyncBindingUpdate,
@@ -214,76 +213,6 @@ describe("Linear connector model", () => {
       enabled: true,
     })
     expect(plan.resetLifecycle).toBe(true)
-  })
-
-  it.each([
-    "awaiting_merge",
-    "sync_failed",
-    "live",
-    "initial_sync",
-  ] as const)("claims initial sync from %s", async (setupPhase) => {
-    dbMocks.getSystemDb.mockReturnValue(systemDb(setupPhase))
-
-    await expect(
-      claimLinearBindingInitialSync({
-        connectionId: "con_linear",
-        repositoryId: "repo_1",
-        branch: "main",
-      }),
-    ).resolves.toBe(true)
-  })
-
-  it.each([
-    "draft",
-    "config_failed",
-  ] as const)("does not claim initial sync from %s", async (setupPhase) => {
-    const db = systemDb(setupPhase)
-    dbMocks.getSystemDb.mockReturnValue(db)
-
-    await expect(
-      claimLinearBindingInitialSync({
-        connectionId: "con_linear",
-        repositoryId: "repo_1",
-        branch: "main",
-      }),
-    ).resolves.toBe(false)
-  })
-
-  it("does not claim initial sync when binding is disabled or rebound", async () => {
-    const disabled = linearConnectionRow("awaiting_merge")
-    disabled.config.enabled = false
-    dbMocks.getSystemDb.mockReturnValue({
-      transaction: vi.fn(async (operation: (tx: Db) => Promise<unknown>) =>
-        operation({
-          execute: vi.fn(),
-          select: vi.fn(() => ({
-            from: vi.fn(() => ({
-              where: vi.fn(() => ({
-                limit: vi.fn().mockResolvedValue([disabled]),
-              })),
-            })),
-          })),
-          update: vi.fn(),
-        } as unknown as Db),
-      ),
-    } as unknown as Db)
-
-    await expect(
-      claimLinearBindingInitialSync({
-        connectionId: "con_linear",
-        repositoryId: "repo_1",
-        branch: "main",
-      }),
-    ).resolves.toBe(false)
-
-    dbMocks.getSystemDb.mockReturnValue(systemDb("awaiting_merge"))
-    await expect(
-      claimLinearBindingInitialSync({
-        connectionId: "con_linear",
-        repositoryId: "repo_other",
-        branch: "main",
-      }),
-    ).resolves.toBe(false)
   })
 
   it("releases the verification transaction before running sync I/O", async () => {

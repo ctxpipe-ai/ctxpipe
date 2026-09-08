@@ -14,7 +14,6 @@ import {
 
 const mocks = vi.hoisted(() => ({
   exchangeCode: vi.fn(),
-  claimContentRetry: vi.fn(),
   getPullHead: vi.fn(),
   getWorkspace: vi.fn(),
   hasAdminRole: vi.fn(),
@@ -43,7 +42,6 @@ vi.mock("../../models/github-installation.js", () => ({
   orgHasAnyGithubConnection: vi.fn().mockResolvedValue(true),
 }))
 vi.mock("../../models/linear-connector.js", () => ({
-  claimLinearContentSyncRetry: mocks.claimContentRetry,
   deleteLinearConnectionById: vi.fn(),
   getLinearBindingWithRepoByConnectionId: mocks.getTarget,
   MULTIPLE_LINEAR_CONNECTIONS_MESSAGE: "multiple",
@@ -150,7 +148,6 @@ beforeEach(() => {
     customerRequests: "limited",
     scopes,
   })
-  mocks.claimContentRetry.mockResolvedValue(true)
   mocks.runWorkflow.mockResolvedValue({ workflowRun: { id: "run_1" } })
 })
 
@@ -417,7 +414,6 @@ describe("Linear connector routes", () => {
     )
 
     expect(response.status).toBe(400)
-    expect(mocks.claimContentRetry).not.toHaveBeenCalled()
     expect(mocks.runWorkflow).not.toHaveBeenCalled()
   })
 })

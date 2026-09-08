@@ -798,6 +798,11 @@ Every recovery PR answers:
 
 Reject changes that add another cache, poller, retry, timeout, compatibility
 wrapper, environment toggle, process global, or lifecycle owner without removing
-the one it replaces in the same slice. Review each vertical slice before starting
-the next. This is how the branch returns to forward iteration instead of another
-465-commit repair loop.
+the one it replaces in the same slice. Following the user-approved execution update
+on 2026-09-09, maintain one bounded remaining-acceptance ledger, group corrections
+for the same invariant, and use focused checks between coherent milestones. Batch
+the two independent reviews at those milestones; review corrections and affected
+interactions incrementally, and retain the comprehensive review at gate closure.
+Nonblocking style heuristics do not prevent gate closure. Reuse passing evidence
+for unchanged behavior and reassess any investigation without measurable progress
+for 30 minutes. Routine decisions and already-authorized pushes remain autonomous.

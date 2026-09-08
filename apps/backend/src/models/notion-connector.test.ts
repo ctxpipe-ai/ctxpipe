@@ -3,7 +3,6 @@ import type { Env } from "../config/env.js"
 import type { Db } from "../db/client.js"
 import type { NotionSetupPhase } from "../lib/connection-config.js"
 import {
-  claimNotionBindingInitialSync,
   clearNotionSyncBindingsForRepository,
   getNotionConnectionByConnectionId,
 } from "./notion-connector.js"
@@ -68,103 +67,6 @@ function notionConnectionRow(
     updatedAt: new Date(),
   }
 }
-
-function systemDb(
-  setupPhase: NotionSetupPhase,
-  overrides?: { enabled?: boolean; repositoryId?: string; branch?: string },
-) {
-  const row = notionConnectionRow(setupPhase, overrides)
-  const set = vi.fn((_value: { config: Record<string, unknown> }) => ({
-    where: vi.fn(() => ({
-      returning: vi.fn().mockResolvedValue([{ id: row.id }]),
-    })),
-  }))
-  const tx = {
-    execute: vi.fn(),
-    select: vi.fn(() => ({
-      from: vi.fn(() => ({
-        where: vi.fn(() => ({
-          limit: vi.fn().mockResolvedValue([row]),
-        })),
-      })),
-    })),
-    update: vi.fn(() => ({ set })),
-  }
-  const db = {
-    transaction: vi.fn((operation: (transaction: Db) => Promise<unknown>) =>
-      operation(tx as unknown as Db),
-    ),
-  } as unknown as Db
-  return { db, set }
-}
-
-describe("Notion connector lifecycle", () => {
-  beforeEach(() => {
-    vi.clearAllMocks()
-    dbMocks.getConnectionDirectoryByConnectionId.mockResolvedValue({
-      connectionId: "con_notion",
-      orgId: "org_1",
-      type: "notion",
-    })
-    dbMocks.upsertConnectionDirectory.mockResolvedValue(undefined)
-  })
-
-  it.each([
-    "awaiting_merge",
-    "sync_failed",
-    "live",
-    "initial_sync",
-  ] as const)("claims initial sync from %s", async (setupPhase) => {
-    const { db } = systemDb(setupPhase)
-    dbMocks.getSystemDb.mockReturnValue(db)
-
-    await expect(
-      claimNotionBindingInitialSync({
-        connectionId: "con_notion",
-        repositoryId: "repo_1",
-        branch: "main",
-      }),
-    ).resolves.toBe(true)
-  })
-
-  it.each([
-    "draft",
-    "config_failed",
-  ] as const)("does not claim initial sync from %s", async (setupPhase) => {
-    const { db } = systemDb(setupPhase)
-    dbMocks.getSystemDb.mockReturnValue(db)
-
-    await expect(
-      claimNotionBindingInitialSync({
-        connectionId: "con_notion",
-        repositoryId: "repo_1",
-        branch: "main",
-      }),
-    ).resolves.toBe(false)
-  })
-
-  it("does not claim a disabled or rebound binding", async () => {
-    const disabled = systemDb("awaiting_merge", { enabled: false })
-    dbMocks.getSystemDb.mockReturnValue(disabled.db)
-    await expect(
-      claimNotionBindingInitialSync({
-        connectionId: "con_notion",
-        repositoryId: "repo_1",
-        branch: "main",
-      }),
-    ).resolves.toBe(false)
-
-    const rebound = systemDb("awaiting_merge")
-    dbMocks.getSystemDb.mockReturnValue(rebound.db)
-    await expect(
-      claimNotionBindingInitialSync({
-        connectionId: "con_notion",
-        repositoryId: "repo_other",
-        branch: "main",
-      }),
-    ).resolves.toBe(false)
-  })
-})
 
 describe("Notion connection storage maintenance", () => {
   beforeEach(() => {
