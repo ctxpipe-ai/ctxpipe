@@ -1,0 +1,46 @@
+{"name": "nested-claim-alias-native-red", "cwd": "/private/tmp/ctxpipe-recovery-01a07aba", "command": ["/Users/jakubriedl/.volta/tools/image/node/22.16.0/bin/node", "apps/backend/node_modules/vitest/vitest.mjs", "run", "--root", "apps/backend", "src/domain/workspaces/write-maintenance-native.contract.test.ts", "-t", "persists each"], "environment": {"AUTH_SECRET": "gate0-local-disposable-test-secret-20260907", "DATABASE_URL": "postgresql://ctxpipe_app:ctxpipe@127.0.0.1:61314/ctxpipe_gate0_fresh", "GRAPH_DB_URI": "redis://127.0.0.1:6398", "CI": "true", "NO_COLOR": "1", "TURBO_TELEMETRY_DISABLED": "1", "STORYBOOK_DISABLE_TELEMETRY": "1", "PATH": "/Users/jakubriedl/.volta/tools/image/node/22.16.0/bin:/private/tmp/ctxpipe-recovery-runtime/ast-grep/node_modules/.bin:/private/tmp/ctxpipe-recovery-runtime/node_modules/.bin:/private/tmp/ctxpipe-recovery-runtime/zoekt:/usr/local/bin:/System/Cryptexes/App/usr/bin:/usr/bin:/bin:/usr/sbin:/sbin:/var/run/com.apple.security.cryptexd/codex.system/bootstrap/usr/local/bin:/var/run/com.apple.security.cryptexd/codex.system/bootstrap/usr/bin:/var/run/com.apple.security.cryptexd/codex.system/bootstrap/usr/appleinternal/bin:/pkg/env/global/bin:/Users/jakubriedl/.codex/tmp/arg0/codex-arg0BW5Gt3:/Users/jakubriedl/.cache/codex-runtimes/codex-primary-runtime/dependencies/bin/override:/Users/jakubriedl/.local/bin:/Users/jakubriedl/.bun/bin:/Users/jakubriedl/.opencode/bin:/Users/jakubriedl/.volta/bin:/opt/homebrew/bin:/opt/homebrew/sbin:/Users/jakubriedl/.cache/codex-runtimes/codex-primary-runtime/dependencies/bin/fallback:/Applications/ChatGPT.app/Contents/Resources"}, "timeout_seconds": 600, "started_utc": "2026-09-08T10:29:45Z", "log": "logs/nested-claim-alias-native-red.log"}
+
+ RUN  v4.0.18 /private/tmp/ctxpipe-recovery-01a07aba/apps/backend
+
+Cloning into bare repository '/var/folders/9t/jj9rnpps7_ddb72c1mq2k13w0000gn/T/ctxpipe-hydration-contract-smiLuE/remote.git'...
+done.
+To /var/folders/9t/jj9rnpps7_ddb72c1mq2k13w0000gn/T/ctxpipe-hydration-contract-smiLuE/remote.git
+   737b7e8..34fc24c  HEAD -> main
+ ❯ src/domain/workspaces/write-maintenance-native.contract.test.ts (4 tests | 1 failed | 3 skipped) 1818ms
+   ↓ removes import keys through one typed native maintenance commit
+   ↓ upgrades Markdown links to claims while preserving other metadata and body
+   × persists each file's introducing timestamp while retaining explicit claim dates 1817ms
+   ↓ maintains the user's folder-map section from actual Git paths and converges
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 1 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  src/domain/workspaces/write-maintenance-native.contract.test.ts > persists each file's introducing timestamp while retaining explicit claim dates
+AssertionError: expected { to: 'b.md', custom: 'keep', …(1) } to deeply equal { to: 'b.md', custom: 'keep' }
+
+- Expected
++ Received
+
+  {
+    "custom": "keep",
+    "to": "b.md",
++   "valid_from": "2024-01-02T03:04:05.000Z",
+  }
+
+ ❯ src/domain/workspaces/write-maintenance-native.contract.test.ts:564:36
+    562|           expect(firstMarkdown).toContain("# Preserve observation")
+    563|           const aliased = parse(f.git("--git-dir", f.remote, "show", "…
+    564|           expect(aliased.template).toEqual({ to: "b.md", custom: "keep…
+       |                                    ^
+    565|           expect(aliased.claims).toEqual([{ to: "b.md", custom: "keep"…
+    566|           expect(second.claims).toEqual([
+ ❯ withNativeHydrationFixture src/test/native-hydration-fixture.ts:402:5
+ ❯ src/domain/workspaces/write-maintenance-native.contract.test.ts:407:5
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/1]⎯
+
+
+ Test Files  1 failed (1)
+      Tests  1 failed | 3 skipped (4)
+   Start at  20:29:45
+   Duration  3.99s (transform 647ms, setup 17ms, import 2.09s, tests 1.82s, environment 0ms)
+

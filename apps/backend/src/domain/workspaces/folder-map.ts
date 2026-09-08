@@ -88,14 +88,18 @@ export function maintainFolderMap(input: {
         .slice(index + 1, limit)
         .filter((entry) => /^\s*[-*+]\s/.test(entry))
       const folderHeading =
-        /\b(folders?|director(?:y|ies)|layout|structure)\b/i.test(line)
+        /^#{1,6}\s+(?:(?:our|workspace|repository|repo|project)\s+)?(?:folders?|director(?:y|ies)|layout|structure)(?:\s+(?:map|layout|structure))?[:.]?\s*$/i.test(
+          line,
+        )
       const hasFolderList =
         entries.length >= (folderHeading ? 1 : 2) &&
         entries.every(
           (entry) =>
             /^\s*[-*+]\s+(?:\[[^\]]+\]\([^)]*\)|`[^`]+`)\s*(?:[—–:-]\s+.*)?$/.test(
               entry,
-            ) && folderReferences(entry).length > 0,
+            ) &&
+            folderReferences(entry).length > 0 &&
+            (folderHeading || /[—–:-]\s+\S/.test(entry)),
         )
       return hasFolderList ? [index] : []
     })

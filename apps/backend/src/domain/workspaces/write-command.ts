@@ -28,6 +28,7 @@ export type WorkspaceWriteCommand = {
   linkAction?: "link" | "unlink"
   linkGitUrl?: string
   displayName?: string
+  previousSha?: string
 }
 
 /** Org and log scope only; the calling workflow owns all durable execution steps. */
@@ -67,6 +68,7 @@ export async function completedWorkspaceWrite(
     !isDeepStrictEqual(recorded.payload?.mergeDeletePaths, input.deletePaths) ||
     recorded.payload?.linkAction !== input.linkAction ||
     recorded.payload?.linkGitUrl !== input.linkGitUrl ||
+    recorded.payload?.previousSha !== input.previousSha ||
     recorded.payload?.displayName !== input.displayName
   )
     throw new Error("Write job id is already bound to a different command")
@@ -87,6 +89,7 @@ export async function acquireWorkspaceWriteRevision(
   input: WorkspaceWriteCommand,
   revision: WorkspaceRevision,
   env: Env,
+  previousSha?: string,
 ) {
   const workspace = await getWorkspaceById(input.workspaceId)
   const current = await getDesiredWorkspaceRevision(
@@ -105,11 +108,23 @@ export async function acquireWorkspaceWriteRevision(
   const pack = await withGitDirectory(revision.sha, async (directory) => {
     await nativeGit(
       directory,
-      ["fetch", "--depth", "1", "--", revision.remote.url, revision.sha],
+      [
+        "fetch",
+        "--depth",
+        "1",
+        "--",
+        revision.remote.url,
+        revision.sha,
+        ...(previousSha ? [previousSha] : []),
+      ],
       undefined,
       gitRemoteEnvironment({ url: revision.remote.url, token }),
     )
-    return captureGitPack(directory, revision.sha)
+    return captureGitPack(
+      directory,
+      revision.sha,
+      previousSha ? [previousSha] : [],
+    )
   })
   return { pack, displayName: workspace.displayName }
 }

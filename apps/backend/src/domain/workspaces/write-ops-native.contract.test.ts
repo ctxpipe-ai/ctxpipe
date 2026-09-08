@@ -65,7 +65,7 @@ it(
   { timeout: 30_000 },
   async () => {
     const instructions =
-      "# Working instructions\n\n## Cleanup rules\n- `tmp/` must never be committed\n\n## Review\nRead the changes carefully.\n"
+      "# Working instructions\n\n## Cleanup rules\n- `tmp/` must never be committed\n\n## Folders to clean\n- `tmp/`\n\n## Review\nRead the changes carefully.\n"
     await withNativeHydrationFixture(
       {
         github: true,

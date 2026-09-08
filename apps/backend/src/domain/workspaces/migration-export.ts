@@ -1,9 +1,5 @@
 import { createHash } from "node:crypto"
-import {
-  greenfieldKnowledgePath,
-  knowledgeAreaFromObjectKind,
-  parseSimpleFrontMatter,
-} from "./layout.js"
+import { isAlias, isMap, isSeq } from "yaml"
 import {
   assignImportedRepository,
   classifyUnkeyedKnowledgeCollision,
@@ -12,6 +8,18 @@ import {
   shouldExportClaim,
   unkeyedCollisionExcerpt,
 } from "./dest-workspace-first.js"
+import {
+  editableMetadataNode,
+  removeMetadataKey,
+  updateKnowledgeMetadata,
+} from "./knowledge-metadata.js"
+import {
+  greenfieldKnowledgePath,
+  knowledgeAreaFromObjectKind,
+  parseSimpleFrontMatter,
+} from "./layout.js"
+import { changeLinkedRepository } from "./link-declarations.js"
+import { linkedRepositoryUrlSchema } from "./linked-repository-url.js"
 import { normalizeSlug, normalizeWorkspaceRepositoryUrl } from "./slug.js"
 
 export const MIGRATION_EXPORT_KIND = "migration_export"
@@ -19,6 +27,7 @@ export const MIGRATION_EXPORT_KIND = "migration_export"
 export function migrationExportFiles(input: {
   imported: ReadonlyArray<{ slug: string; body: string; area?: string }>
   takenPaths: Iterable<string>
+  existingFiles?: ReadonlyArray<{ path: string; content: string }>
   linkedUrls: Iterable<string>
 }): Array<{ path: string; content: string }> {
   const taken = new Set(input.takenPaths)
@@ -28,20 +37,20 @@ export function migrationExportFiles(input: {
     taken.add(path)
     files.push({ path, content: item.body })
   }
+  const occupied = new Map(
+    [...taken].map((path) => [path, { path, content: "" }]),
+  )
+  for (const file of input.existingFiles ?? []) occupied.set(file.path, file)
   for (const url of input.linkedUrls) {
-    const name = url
-      .replace(/\.git$/i, "")
-      .split("/")
-      .filter(Boolean)
-      .pop()
-    if (!name) continue
-    const path = `repositories/${name}.md`
-    if (taken.has(path)) continue
-    taken.add(path)
-    files.push({
-      path,
-      content: `---\ngit: ${url}\n---\n`,
+    const linked = changeLinkedRepository({
+      files: [...occupied.values()],
+      action: "link",
+      gitUrl: url,
     })
+    for (const file of linked.files) {
+      occupied.set(file.path, file)
+      files.push(file)
+    }
   }
   return files
 }
@@ -76,30 +85,68 @@ export function importedObjectMarkdown(input: {
     importKey: input.importKey,
     kind: input.kind,
     confidence: input.confidence,
-    generatedBy: input.generatedBy === undefined ? "ctxpipe" : input.generatedBy,
+    generatedBy:
+      input.generatedBy === undefined ? "ctxpipe" : input.generatedBy,
     source: input.source,
     claims: input.claims,
     body: `# ${input.title}\n\n${input.body.trim()}`,
   })
 }
 
-function rewriteImportedMarkdown(input: {
-  importKey?: string | null
-  kind?: string | null
-  confidence?: number | null
-  generatedBy?: string | null
-  source?: string | null
-  body: string
-  claims: ReadonlyArray<ImportedMarkdownClaim>
-}): string {
-  return importedFrontMatter({
-    importKey: input.importKey,
-    kind: input.kind,
-    confidence: input.confidence,
-    generatedBy: input.generatedBy === undefined ? "ctxpipe" : input.generatedBy,
-    source: input.source,
-    claims: input.claims,
-    body: input.body,
+function mergeExistingImportedMarkdown(
+  original: string,
+  input: Parameters<typeof importedFrontMatter>[0],
+): string {
+  const metadata = parseSimpleFrontMatter(importedFrontMatter(input)).attributes
+  const header = original.match(
+    /^(\uFEFF?---[ \t]*\r?\n(?:[\s\S]*?\r?\n)?---[ \t]*)(?=\r?\n|$)/,
+  )?.[0]
+  const newline = original.includes("\r\n") ? "\r\n" : "\n"
+  const withBody = header
+    ? `${header}${newline}${newline}${input.body.trim()}${newline}`
+    : input.body
+  return updateKnowledgeMetadata(withBody, (document) => {
+    if (input.importKey === null) removeMetadataKey(document, "import_key")
+    for (const [key, value] of Object.entries(metadata)) {
+      if (key !== "claims") {
+        document.set(key, value)
+        continue
+      }
+      if (!Array.isArray(value)) continue
+      let claims = editableMetadataNode(document, "claims")
+      if (!isSeq(claims)) {
+        if (claims != null)
+          throw new Error("Cannot merge malformed knowledge claims")
+        document.set("claims", document.createNode([]))
+        claims = document.get("claims", true)
+      }
+      if (!isSeq(claims)) throw new Error("Knowledge claims must be a sequence")
+      for (const incoming of value) {
+        const index = claims.items.findIndex((node) => {
+          const candidate = isAlias(node) ? node.resolve(document) : node
+          return (
+            isMap(candidate) &&
+            candidate.get("to") === incoming.to &&
+            candidate.get("predicate") === incoming.predicate
+          )
+        })
+        if (index < 0) {
+          claims.add(document.createNode(incoming))
+          continue
+        }
+        let claim = claims.items[index]
+        if (isAlias(claim)) {
+          const detached = document.createNode(claim.toJS(document))
+          detached.comment = claim.comment
+          detached.commentBefore = claim.commentBefore
+          claims.items[index] = detached
+          claim = detached
+        }
+        if (isMap(claim))
+          for (const [field, next] of Object.entries(incoming))
+            claim.set(field, next)
+      }
+    }
   })
 }
 
@@ -133,7 +180,8 @@ function importedFrontMatter(input: {
       if (claim.validFrom) {
         lines.push(`    valid_from: ${yamlScalar(claim.validFrom)}`)
       }
-      if (claim.validTo) lines.push(`    valid_to: ${yamlScalar(claim.validTo)}`)
+      if (claim.validTo)
+        lines.push(`    valid_to: ${yamlScalar(claim.validTo)}`)
       if (claim.source) lines.push(`    source: ${yamlScalar(claim.source)}`)
     }
   }
@@ -432,7 +480,9 @@ export async function planMigrationExport(input: {
   }
 
   const stampImportKey = input.stampImportKey !== false
-  const existingPaths = new Set(input.existingKnowledge.map((file) => file.path))
+  const existingPaths = new Set(
+    input.existingKnowledge.map((file) => file.path),
+  )
   const sourceContext = {
     workspaceRepositoryUrl: input.workspaceRepositoryUrl ?? null,
     repositoryGitUrlById: input.repositoryGitUrlById ?? new Map(),
@@ -442,7 +492,6 @@ export async function planMigrationExport(input: {
   const titleByObjectId = new Map<string, string>()
   const bodyByObjectId = new Map<string, string>()
   const mergeFromByObjectId = new Map<string, ExistingKnowledgeFile>()
-  const keyedRewriteByObjectId = new Set<string>()
   const claimsByObjectId = new Map<
     string,
     Array<{
@@ -495,17 +544,13 @@ export async function planMigrationExport(input: {
     titleByObjectId.set(object.id, title)
     const occupant = allocated.mergeFrom
     if (occupant) mergeFromByObjectId.set(object.id, occupant)
-    if (allocated.keyed) keyedRewriteByObjectId.add(object.id)
-    if (occupant && !allocated.keyed) {
+    if (occupant) {
       const parsed = parseSimpleFrontMatter(occupant.content)
       const existingBody = parsed.malformed ? occupant.content : parsed.body
       bodyByObjectId.set(
         object.id,
         appendImportedBody(existingBody, importedBody),
       )
-      claimsByObjectId.set(object.id, claimsFromExisting(occupant.content))
-    } else if (occupant && allocated.keyed) {
-      bodyByObjectId.set(object.id, importedBody)
       claimsByObjectId.set(object.id, claimsFromExisting(occupant.content))
     } else {
       bodyByObjectId.set(object.id, importedBody)
@@ -554,9 +599,7 @@ export async function planMigrationExport(input: {
   for (const object of assigned) {
     const path = pathByObjectId.get(object.id)
     if (!path) continue
-    const importKey = stampImportKey
-      ? importKeyForExportedObject(object)
-      : null
+    const importKey = stampImportKey ? importKeyForExportedObject(object) : null
     const title = titleByObjectId.get(object.id) ?? "Imported"
     const claims = (claimsByObjectId.get(object.id) ?? []).map((claim) => ({
       ...claim,
@@ -586,17 +629,13 @@ export async function planMigrationExport(input: {
     const occupant = mergeFromByObjectId.get(object.id)
     files.push({
       path,
-      content:
-        occupant && !keyedRewriteByObjectId.has(object.id)
-          ? rewriteImportedMarkdown({
-              ...front,
-              body,
-            })
-          : importedObjectMarkdown({
-              ...front,
-              title,
-              body,
-            }),
+      content: occupant
+        ? mergeExistingImportedMarkdown(occupant.content, { ...front, body })
+        : importedObjectMarkdown({
+            ...front,
+            title,
+            body,
+          }),
     })
   }
   files.push(
@@ -604,6 +643,7 @@ export async function planMigrationExport(input: {
       imported: [],
       takenPaths: taken,
       linkedUrls: input.linkedUrls,
+      existingFiles: input.existingKnowledge,
     }),
   )
 
@@ -767,19 +807,24 @@ export function resolveImportedSource(input: {
     repositoryIdFromDedup(input.objectDedupKey) ??
     repositoryIdFromDedup(input.evidenceKey)
   if (!repoId || !repoPath) return null
-  const gitUrl = input.repositoryGitUrlById.get(repoId)
-  if (!gitUrl) return null
-  const posix = repoPath.replace(/\\/g, "/").replace(/^\.\//, "").replace(/^\/+/, "")
+  const gitUrl = linkedRepositoryUrlSchema.safeParse(
+    input.repositoryGitUrlById.get(repoId),
+  )
+  if (!gitUrl.success) return null
+  const posix = repoPath
+    .replace(/\\/g, "/")
+    .replace(/^\.\//, "")
+    .replace(/^\/+/, "")
   if (!posix) return null
   const workspaceUrl = input.workspaceRepositoryUrl
     ? normalizeWorkspaceRepositoryUrl(input.workspaceRepositoryUrl)
     : ""
-  const repoUrl = normalizeWorkspaceRepositoryUrl(gitUrl)
+  const repoUrl = normalizeWorkspaceRepositoryUrl(gitUrl.data)
   if (workspaceUrl && repoUrl && workspaceUrl === repoUrl) {
     if (!isWorkspaceTreePath(posix, input.existingPaths)) return null
     return relativeKnowledgeLink(input.knowledgePath, posix)
   }
-  return `${checkoutableGitUrl(gitUrl)}#${posix}`
+  return `${checkoutableGitUrl(gitUrl.data)}#${posix}`
 }
 
 function canonicalRecordedSource(
@@ -789,7 +834,10 @@ function canonicalRecordedSource(
 ): string | null {
   const source = raw?.trim() ?? ""
   if (!source || isDatabaseSourceKey(source)) return null
-  if (/^https?:\/\//i.test(source) || source.startsWith("git@")) return source
+  if (/^(?:https?|ssh|git):\/\//i.test(source) || source.startsWith("git@"))
+    return linkedRepositoryUrlSchema.safeParse(source.split("#")[0]).success
+      ? source
+      : null
   if (source.startsWith(".")) return source
   if (isWorkspaceTreePath(source, existingPaths)) {
     return relativeKnowledgeLink(knowledgePath, source)
@@ -818,7 +866,9 @@ export function checkoutableGitUrl(gitUrl: string): string {
   return trimmed
 }
 
-function pathFromLogicalSourceKey(key: string | null | undefined): string | null {
+function pathFromLogicalSourceKey(
+  key: string | null | undefined,
+): string | null {
   const trimmed = key?.trim() ?? ""
   if (!trimmed) return null
   const match = trimmed.match(/^[^:]+:(repo_[^:]+):(.+)$/)

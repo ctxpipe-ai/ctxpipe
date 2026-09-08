@@ -37,6 +37,10 @@ import {
 } from "./workflows/workspace-link-unlink.js"
 import { workspaceMigrationExport } from "./workflows/workspace-migration-export.js"
 import { workspaceOpsFolderMap } from "./workflows/workspace-ops-folder-map.js"
+import {
+  workspaceRenameRewrite,
+  workspaceRenameRewriteInputSchema,
+} from "./workflows/workspace-rename-rewrite.js"
 import { workspaceValidFromPersist } from "./workflows/workspace-valid-from-persist.js"
 import { workspaceWriteCommit } from "./workflows/workspace-write-commit.js"
 
@@ -143,7 +147,8 @@ export async function enqueueWriteJob(
   if (
     (snapshotWorkflow ||
       input.kind === "ui_file_edit" ||
-      input.kind === "link_unlink") &&
+      input.kind === "link_unlink" ||
+      input.kind === "rename_rewrite") &&
     writeStatus === "writable"
   ) {
     let bound = false
@@ -165,6 +170,26 @@ export async function enqueueWriteJob(
         (input.defaultBranch && revision.defaultBranch !== input.defaultBranch)
       )
         throw new Error("Write command binding changed during admission")
+      if (input.kind === "rename_rewrite") {
+        const command = workspaceRenameRewriteInputSchema.parse({
+          orgId: input.orgId,
+          workspaceId: input.workspaceId,
+          jobId,
+          revision,
+          previousSha: input.previousSha,
+        })
+        await persistBoundWriteJob({
+          id: jobId,
+          kind: input.kind,
+          revision,
+          previousSha: command.previousSha,
+        })
+        bound = true
+        await runWorkflowWithWorkerWake(workspaceRenameRewrite.spec, command, {
+          idempotencyKey: jobId,
+        })
+        return { started: true }
+      }
       if (input.kind === "link_unlink") {
         const command = workspaceLinkUnlinkInputSchema.parse({
           orgId: input.orgId,
@@ -270,6 +295,7 @@ export async function enqueueWriteJob(
         status,
         payload: writeJobIntentPayload({
           kind: input.kind,
+          previousSha: input.previousSha,
           displayName: input.displayName,
           defaultBranch: input.defaultBranch,
           linkAction: input.linkAction,

@@ -373,10 +373,12 @@ export async function persistBoundWriteJob(input: {
   linkAction?: "link" | "unlink"
   linkGitUrl?: string
   displayName?: string
+  previousSha?: string
 }) {
   return orgSql(async () => {
     const payload: WorkspaceWriteJobPayload = {
       revision: input.revision,
+      ...(input.previousSha ? { previousSha: input.previousSha } : {}),
       ...(input.displayName !== undefined
         ? { displayName: input.displayName }
         : {}),
@@ -426,6 +428,7 @@ export async function persistBoundWriteJob(input: {
       !isDeepStrictEqual(row.payload?.mergeDeletePaths, input.deletePaths) ||
       row.payload?.linkAction !== input.linkAction ||
       row.payload?.linkGitUrl !== input.linkGitUrl ||
+      row.payload?.previousSha !== input.previousSha ||
       row.payload?.displayName !== input.displayName
     )
       throw new Error("Write job id belongs to a different file command")
@@ -455,7 +458,7 @@ export async function persistBoundWriteJob(input: {
           eq(workspaceWriteJobs.id, input.id),
           sql`${workspaceWriteJobs.commitSha} is null`,
           sql`(${workspaceWriteJobs.payload}->>'workflowRunId' is null or ${workspaceWriteJobs.payload}->>'workflowRunId' = ${input.workflowRunId ?? null})`,
-          sql`(${workspaceWriteJobs.payload}->'revision' = ${JSON.stringify(input.revision)}::jsonb or (${workspaceWriteJobs.status} = 'paused' and ${workspaceWriteJobs.payload}->'revision' is null))`,
+          sql`(${workspaceWriteJobs.payload}->'revision' = ${JSON.stringify(input.revision)}::jsonb or (${workspaceWriteJobs.status} in ('paused', 'queued') and ${workspaceWriteJobs.payload}->'revision' is null))`,
         ),
       )
       .returning({ id: workspaceWriteJobs.id })

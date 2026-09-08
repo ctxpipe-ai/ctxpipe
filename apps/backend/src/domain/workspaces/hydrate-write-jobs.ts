@@ -169,8 +169,15 @@ export function validFromPersistFiles(input: {
         const claims = editableMetadataNode(document, "claims")
         if (!isSeq(claims))
           throw new Error("Knowledge claims must be a sequence")
-        for (const node of claims.items) {
-          const claim = isAlias(node) ? node.resolve(document) : node
+        for (let index = 0; index < claims.items.length; index++) {
+          let claim = claims.items[index]
+          if (isAlias(claim)) {
+            const detached = document.createNode(claim.toJS(document))
+            detached.comment = claim.comment
+            detached.commentBefore = claim.commentBefore
+            claims.items[index] = detached
+            claim = detached
+          }
           if (!isMap(claim)) continue
           const to = claim.get("to")
           if (typeof to !== "string" || !to.trim()) continue
@@ -191,7 +198,8 @@ export function validFromPersistFiles(input: {
 
 export function stripImportKeyFromMarkdown(markdown: string): string | null {
   const parsed = parseSimpleFrontMatter(markdown)
-  if (parsed.malformed || parsed.attributes.import_key == null) return null
+  if (parsed.malformed || !Object.hasOwn(parsed.attributes, "import_key"))
+    return null
   return updateKnowledgeMetadata(markdown, (document) => {
     removeMetadataKey(document, "import_key")
   })

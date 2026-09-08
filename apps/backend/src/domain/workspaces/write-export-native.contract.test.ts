@@ -7,7 +7,10 @@ import {
   listMigrationExportShas,
   reconcileWorkspaceWriteJob,
 } from "../../models/workspace-write-jobs.js"
-import { persistOrgFirstWorkspace } from "../../models/workspaces.js"
+import {
+  applyDestWorkspaceLinkPlan,
+  persistOrgFirstWorkspace,
+} from "../../models/workspaces.js"
 import { enqueueWriteJob } from "../../openworkflow/enqueue-workspace-write-commit.js"
 import { upsertRetrievalObjectByDeduplicationKey } from "../../retrieval/services/retrievalObjectWrite.js"
 import { withNativeHydrationFixture } from "../../test/native-hydration-fixture.js"
@@ -24,6 +27,14 @@ it(
         writeStatus: "writable",
         files: [
           {
+            path: "repositories/api.md",
+            body: "---\ngit: https://github.com/existing/api.git\ncustom: keep\n---\n",
+          },
+          {
+            path: "knowledge/services/billing.md",
+            body: '---\nimport_key: legacy:billing\nname: "Owner: billing"\ncustom: {owner: Finance}\nclaims:\n  - to: api.md\n    predicate: USES\n    confidence: 0.9\n    custom: preserve\n---\n\n# Billing\nOwner-authored ledger notes.\n',
+          },
+          {
             path: "AGENTS.md",
             body: "# Workspace instructions\nKeep this text.\n",
           },
@@ -36,6 +47,21 @@ it(
             gitUrl: f.workspaceUrl,
           })
           if (!repository) throw new Error("Source repository was not created")
+          await applyDestWorkspaceLinkPlan({
+            firstWorkspaceId: f.workspaceId,
+            firstSourceRepositoryId: repository.id,
+            deleteLinkIds: [],
+            insertLinks: [
+              {
+                workspaceId: f.workspaceId,
+                gitUrl: "https://github.com/Team-A/API.git",
+              },
+              {
+                workspaceId: f.workspaceId,
+                gitUrl: "git@github.com:team-b/api.git",
+              },
+            ],
+          })
           await persistOrgFirstWorkspace({
             orgId: f.org.id,
             workspaceId: f.workspaceId,
@@ -122,8 +148,31 @@ it(
             "refs/heads/main:knowledge/services/billing.md",
           )
           expect(markdown).toContain("# Billing")
+          expect(markdown).toContain("Owner-authored ledger notes.")
+          const { parse } = await import("yaml")
+          expect(parse(markdown.split("---")[1] ?? "")).toMatchObject({
+            name: "Owner: billing",
+            custom: { owner: "Finance" },
+            claims: [
+              {
+                to: "api.md",
+                predicate: "USES",
+                confidence: 0.9,
+                custom: "preserve",
+              },
+            ],
+          })
           expect(markdown).toContain("Ledger lives here.")
           expect(markdown).toContain("import_key: legacy:billing")
+          expect(
+            f.git("--git-dir", f.remote, "show", "main:repositories/api-2.md"),
+          ).toContain("https://github.com/team-a/api")
+          expect(
+            f.git("--git-dir", f.remote, "show", "main:repositories/api-3.md"),
+          ).toContain("https://github.com/team-b/api")
+          expect(
+            f.git("--git-dir", f.remote, "show", "main:repositories/api.md"),
+          ).toContain("custom: keep")
           expect(publicationChecks).toEqual([
             { job: null, export: null, listed: [] },
           ])
@@ -228,6 +277,84 @@ it(
           expect(
             f.git("--git-dir", f.remote, "rev-parse", "refs/heads/main"),
           ).toBe(f.sha)
+        } finally {
+          await worker.stop()
+        }
+      },
+    )
+  },
+)
+
+it(
+  "omits credential-bearing legacy repository source URLs from exported knowledge",
+  { timeout: 30_000 },
+  async () => {
+    await withNativeHydrationFixture(
+      {
+        github: true,
+        githubWriteView: "writable",
+        writeStatus: "writable",
+        files: [{ path: "AGENTS.md", body: "# Keep\n" }],
+      },
+      async (f) => {
+        await withOrgIdContext(f.org, async () => {
+          const { createRepository } = await import(
+            "../../models/repositories.js"
+          )
+          const source = await createRepository({
+            name: "Legacy source",
+            gitUrl:
+              "https://fixture-user:fixture-password@github.com/source/code.git",
+          })
+          await persistOrgFirstWorkspace({
+            orgId: f.org.id,
+            workspaceId: f.workspaceId,
+            sourceRepositoryId: source.id,
+          })
+          await withOrgDbContext(f.org.id, () =>
+            upsertRetrievalObjectByDeduplicationKey(f.org.id, {
+              kind: "Service",
+              deduplicationKey: `svc:${source.id}:src/billing.ts`,
+              payload: {
+                name: "Billing",
+                summary: "Keep the exported knowledge.",
+                path: "src/billing.ts",
+              },
+            }),
+          )
+        })
+        const { workspaceMigrationExport } = await import(
+          "../../openworkflow/workflows/workspace-migration-export.js"
+        )
+        f.runner.implementWorkflow(
+          workspaceMigrationExport.spec,
+          workspaceMigrationExport.fn,
+        )
+        const worker = f.runner.newWorker({ concurrency: 1 })
+        try {
+          const handle = await f.runner.runWorkflow(
+            workspaceMigrationExport.spec,
+            {
+              orgId: f.org.id,
+              workspaceId: f.workspaceId,
+              jobId: `wjob_${f.id}_unsafe_source`,
+              revision: { ...f.revision, access: "write-default" },
+            },
+          )
+          await worker.start()
+          expect(await handle.result({ timeoutMs: 20_000 })).toMatchObject({
+            committed: true,
+          })
+          const markdown = f.git(
+            "--git-dir",
+            f.remote,
+            "show",
+            "main:knowledge/services/billing.md",
+          )
+          expect(markdown).toContain("Keep the exported knowledge.")
+          expect(markdown).not.toContain("fixture-password")
+          expect(markdown).not.toContain("fixture-user")
+          expect(markdown).not.toContain("source:")
         } finally {
           await worker.stop()
         }

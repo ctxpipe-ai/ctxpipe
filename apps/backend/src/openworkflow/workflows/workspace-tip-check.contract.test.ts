@@ -1,6 +1,7 @@
-import { eq, sql } from "drizzle-orm"
+import { eq } from "drizzle-orm"
+import { BackendPostgres } from "openworkflow/postgres"
 import { expect, it } from "vitest"
-import { getSystemDb, withOrgDbContext } from "../../db/client.js"
+import { withOrgDbContext } from "../../db/client.js"
 import { workspaces, workspaceWriteJobs } from "../../db/schema/workspaces.js"
 import { withNativeHydrationFixture } from "../../test/native-hydration-fixture.js"
 import { workspaceTipCheck } from "./workspace-tip-check.js"
@@ -20,17 +21,32 @@ it(
           updated: 0,
           linkedUpdated: 0,
         })
-        const queued = await getSystemDb().execute<{
-          input: { kind: string; workspaceId: string }
-        }>(
-          sql`select input from openworkflow.workflow_runs where workflow_name = 'workspace-write-commit' and input->>'workspaceId' = ${f.workspaceId}`,
-        )
-        expect(
-          queued.rows.map((row) => ({
-            kind: row.input.kind,
-            workspaceId: row.input.workspaceId,
-          })),
-        ).toEqual([{ kind: "migration_export", workspaceId: f.workspaceId }])
+        const backend = await BackendPostgres.connect(f.databaseUrl, {
+          runMigrations: false,
+        })
+        try {
+          const queued = (
+            await backend.listWorkflowRuns({ limit: 100 })
+          ).data.filter(
+            (run) =>
+              (run.input as { workspaceId?: string })?.workspaceId ===
+              f.workspaceId,
+          )
+          expect(queued).toEqual([
+            expect.objectContaining({
+              workflowName: "workspace-write-migration-export",
+              input: expect.objectContaining({
+                workspaceId: f.workspaceId,
+                revision: expect.objectContaining({
+                  sha: f.sha,
+                  access: "write-default",
+                }),
+              }),
+            }),
+          ])
+        } finally {
+          await backend.stop()
+        }
       },
     )
   },
@@ -61,17 +77,30 @@ it(
           orgId: f.org.id,
         })
         await handle.result({ timeoutMs: 30_000 })
-        const queued = await getSystemDb().execute<{
-          input: { jobId: string; kind: string }
-        }>(
-          sql`select input from openworkflow.workflow_runs where workflow_name = 'workspace-write-commit' and input->>'jobId' = ${jobId}`,
-        )
-        expect(
-          queued.rows.map((row) => ({
-            jobId: row.input.jobId,
-            kind: row.input.kind,
-          })),
-        ).toEqual([{ jobId, kind: "migration_export" }])
+        const backend = await BackendPostgres.connect(f.databaseUrl, {
+          runMigrations: false,
+        })
+        try {
+          const queued = (
+            await backend.listWorkflowRuns({ limit: 100 })
+          ).data.filter(
+            (run) => (run.input as { jobId?: string })?.jobId === jobId,
+          )
+          expect(queued).toEqual([
+            expect.objectContaining({
+              workflowName: "workspace-write-migration-export",
+              input: expect.objectContaining({
+                jobId,
+                revision: expect.objectContaining({
+                  sha: f.sha,
+                  access: "write-default",
+                }),
+              }),
+            }),
+          ])
+        } finally {
+          await backend.stop()
+        }
       },
     )
   },

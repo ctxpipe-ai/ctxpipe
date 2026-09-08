@@ -32,11 +32,12 @@ export async function nativeGit(
 export async function captureGitPack(
   directory: string,
   sha: string,
+  additionalShas: readonly string[] = [],
 ): Promise<GitPack> {
   const objects = await nativeGit(
     directory,
     ["pack-objects", "--stdout", "--revs"],
-    `${sha}\n`,
+    `${[sha, ...additionalShas].join("\n")}\n`,
   )
   const shallow = await readFile(join(directory, ".git/shallow"), "utf8").catch(
     (error: NodeJS.ErrnoException) => {

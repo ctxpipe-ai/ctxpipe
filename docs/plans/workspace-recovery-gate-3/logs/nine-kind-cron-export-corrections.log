@@ -1,0 +1,67 @@
+{"name": "nine-kind-cron-export-corrections", "cwd": "/private/tmp/ctxpipe-recovery-01a07aba", "command": ["/Users/jakubriedl/.volta/tools/image/node/22.16.0/bin/node", "apps/backend/node_modules/vitest/vitest.mjs", "run", "--root", "apps/backend", "src/domain/workspaces/write-export-native.contract.test.ts", "src/domain/workspaces/migration-export.test.ts", "src/openworkflow/workflows/workspace-tip-check.contract.test.ts", "src/openworkflow/enqueue-workspace-write-commit.test.ts"], "environment": {"AUTH_SECRET": "gate0-local-disposable-test-secret-20260907", "DATABASE_URL": "postgresql://ctxpipe_app:ctxpipe@127.0.0.1:61314/ctxpipe_gate0_fresh", "GRAPH_DB_URI": "redis://127.0.0.1:6398", "CI": "true", "NO_COLOR": "1", "TURBO_TELEMETRY_DISABLED": "1", "STORYBOOK_DISABLE_TELEMETRY": "1", "PATH": "/Users/jakubriedl/.volta/tools/image/node/22.16.0/bin:/private/tmp/ctxpipe-recovery-runtime/ast-grep/node_modules/.bin:/private/tmp/ctxpipe-recovery-runtime/node_modules/.bin:/private/tmp/ctxpipe-recovery-runtime/zoekt:/usr/local/bin:/System/Cryptexes/App/usr/bin:/usr/bin:/bin:/usr/sbin:/sbin:/var/run/com.apple.security.cryptexd/codex.system/bootstrap/usr/local/bin:/var/run/com.apple.security.cryptexd/codex.system/bootstrap/usr/bin:/var/run/com.apple.security.cryptexd/codex.system/bootstrap/usr/appleinternal/bin:/pkg/env/global/bin:/Users/jakubriedl/.codex/tmp/arg0/codex-arg0BW5Gt3:/Users/jakubriedl/.cache/codex-runtimes/codex-primary-runtime/dependencies/bin/override:/Users/jakubriedl/.local/bin:/Users/jakubriedl/.bun/bin:/Users/jakubriedl/.opencode/bin:/Users/jakubriedl/.volta/bin:/opt/homebrew/bin:/opt/homebrew/sbin:/Users/jakubriedl/.cache/codex-runtimes/codex-primary-runtime/dependencies/bin/fallback:/Applications/ChatGPT.app/Contents/Resources"}, "timeout_seconds": 600, "started_utc": "2026-09-08T10:40:01Z", "log": "logs/nine-kind-cron-export-corrections.log"}
+
+ RUN  v4.0.18 /private/tmp/ctxpipe-recovery-01a07aba/apps/backend
+
+ ✓ src/domain/workspaces/migration-export.test.ts (15 tests) 17ms
+Cloning into bare repository '/var/folders/9t/jj9rnpps7_ddb72c1mq2k13w0000gn/T/ctxpipe-hydration-contract-fmXNvM/remote.git'...
+done.
+Cloning into bare repository '/var/folders/9t/jj9rnpps7_ddb72c1mq2k13w0000gn/T/ctxpipe-hydration-contract-EyA4dt/remote.git'...
+done.
+Cloning into bare repository '/var/folders/9t/jj9rnpps7_ddb72c1mq2k13w0000gn/T/ctxpipe-hydration-contract-hwdNMX/remote.git'...
+done.
+ ❯ src/openworkflow/workflows/workspace-tip-check.contract.test.ts (3 tests | 1 failed) 9803ms
+   ✓ cron queues a missing migration export through real OpenWorkflow outside SQL  2835ms
+   × cron resumes a paused write job through the native workflow queue 4243ms
+   ✓ cron records an unknown permission after a writable repository lookup misses  2724ms
+Cloning into bare repository '/var/folders/9t/jj9rnpps7_ddb72c1mq2k13w0000gn/T/ctxpipe-hydration-contract-pE3iBT/remote.git'...
+done.
+Cloning into bare repository '/var/folders/9t/jj9rnpps7_ddb72c1mq2k13w0000gn/T/ctxpipe-hydration-contract-fgGYn8/remote.git'...
+done.
+Cloning into bare repository '/var/folders/9t/jj9rnpps7_ddb72c1mq2k13w0000gn/T/ctxpipe-hydration-contract-pXV34l/remote.git'...
+done.
+ ✓ src/domain/workspaces/write-export-native.contract.test.ts (3 tests) 9300ms
+   ✓ exports legacy knowledge through one typed native commit and replays its durable result  4063ms
+   ✓ records the resolved tip for an empty migration without claiming a new commit  2562ms
+   ✓ omits credential-bearing legacy repository source URLs from exported knowledge  2675ms
+ ✓ src/openworkflow/enqueue-workspace-write-commit.test.ts (2 tests) 5ms
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 1 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  src/openworkflow/workflows/workspace-tip-check.contract.test.ts > cron resumes a paused write job through the native workflow queue
+AssertionError: expected [] to deeply equal [ ObjectContaining{…} ]
+
+- Expected
++ Received
+
+- [
+-   ObjectContaining {
+-     "input": ObjectContaining {
+-       "jobId": "wjob_hydrate_1788864007329_vij8fe06tmf",
+-       "revision": ObjectContaining {
+-         "access": "write-default",
+-         "sha": "dfb01918551e06a2205ea52bbc053e67ee5c5f5d",
+-       },
+-     },
+-     "workflowName": "workspace-write-migration-export",
+-   },
+- ]
++ []
+
+ ❯ src/openworkflow/workflows/workspace-tip-check.contract.test.ts:89:26
+     87|             (run) => (run.input as { jobId?: string })?.jobId === jobI…
+     88|           )
+     89|           expect(queued).toEqual([
+       |                          ^
+     90|             expect.objectContaining({
+     91|               workflowName: "workspace-write-migration-export",
+ ❯ withNativeHydrationFixture src/test/native-hydration-fixture.ts:402:5
+ ❯ src/openworkflow/workflows/workspace-tip-check.contract.test.ts:59:5
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/1]⎯
+
+
+ Test Files  1 failed | 3 passed (4)
+      Tests  1 failed | 22 passed (23)
+   Start at  20:40:01
+   Duration  25.74s (transform 1.07s, setup 35ms, import 6.26s, tests 19.13s, environment 0ms)
+

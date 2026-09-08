@@ -40,6 +40,14 @@ it(
             body: "---\nimport_key: legacy:trailing\nnote: |+\n  line\n\n\n---\n\nKeep this body.\n",
           },
           {
+            path: "knowledge/null-key.md",
+            body: "---\nimport_key: null\nname: Null\n---\nBody.\n",
+          },
+          {
+            path: "knowledge/empty-key.md",
+            body: "---\nimport_key:\nname: Empty\n---\nBody.\n",
+          },
+          {
             path: "notion/source.md",
             body: "---\nimport_key: external:page\n---\n\nKeep source untouched.\n",
           },
@@ -120,6 +128,13 @@ it(
             custom: "legacy:billing",
           })
           expect(anchored).toContain("Keep this aliased value.")
+          for (const path of [
+            "knowledge/null-key.md",
+            "knowledge/empty-key.md",
+          ])
+            expect(
+              f.git("--git-dir", f.remote, "show", `main:${path}`),
+            ).not.toContain("import_key")
           const trailing = f.git(
             "--git-dir",
             f.remote,
@@ -412,6 +427,10 @@ it(
             path: "knowledge/a.md",
             body: "---\ndefaults: &claim_list\n  - &observed\n    to: b.md # Preserve observation\n    generated_by: ctxpipe\n    review: {owner: Billing}\n  - to: stable.md\n    valid_from: 2020-05-06T07:08:09.000Z\n    custom: untouched\nclaims: *claim_list\n---\n\n# A\n",
           },
+          {
+            path: "knowledge/alias.md",
+            body: "---\ntemplate: &claim {to: b.md, custom: keep}\nclaims: [*claim]\n---\nAlias claim.\n",
+          },
         ],
       },
       async (f) => {
@@ -556,6 +575,19 @@ it(
           )
           expect(firstMarkdown).toContain("&observed")
           expect(firstMarkdown).toContain("# Preserve observation")
+          const aliased = parse(
+            f
+              .git("--git-dir", f.remote, "show", "main:knowledge/alias.md")
+              .split("---")[1] ?? "",
+          )
+          expect(aliased.template).toEqual({ to: "b.md", custom: "keep" })
+          expect(aliased.claims).toEqual([
+            {
+              to: "b.md",
+              custom: "keep",
+              valid_from: "2024-01-02T03:04:05.000Z",
+            },
+          ])
           expect(second.claims).toEqual([
             { to: "a.md", valid_from: "2024-02-03T04:05:06.000Z" },
           ])

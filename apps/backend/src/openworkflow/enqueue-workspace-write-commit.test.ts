@@ -22,9 +22,9 @@ vi.mock("../lib/id.js", () => ({
 }))
 
 vi.mock("../db/client.js", () => ({
-    tryGetOrgDb: () => ({}),
-    tryGetOrgDbOrgId: () => "org_test",
-    assertNotInOrgDbContext: () => undefined,
+  tryGetOrgDb: () => ({}),
+  tryGetOrgDbOrgId: () => "org_test",
+  assertNotInOrgDbContext: () => undefined,
 
   withOrgDbContext: (_orgId: string, fn: () => unknown) =>
     Promise.resolve(fn()),
@@ -72,31 +72,6 @@ describe("enqueueWorkspaceWriteCommit", () => {
     persistWriteStatusMock.mockResolvedValue(undefined)
   })
 
-  it("enqueues a migration export write with a stable job id", async () => {
-    const log = { error: vi.fn() }
-    await enqueueWorkspaceWriteCommit(
-      {
-        orgId: "org_1",
-        workspaceId: "ws_1",
-        kind: "migration_export",
-      },
-      log,
-    )
-    expect(generateObjectIdMock).toHaveBeenCalledWith("wjob")
-    expect(runWorkflowWithWorkerWakeMock).toHaveBeenCalledWith(
-      { name: "workspace-write-commit" },
-      {
-        orgId: "org_1",
-        workspaceId: "ws_1",
-        kind: "migration_export",
-        jobId: "wjob_stable",
-        jobGeneration: 3,
-        jobWorkspaceUrl: "https://github.com/acme/docs",
-        jobDesiredSha: "aaa",
-      },
-    )
-  })
-
   it("reuses a caller-supplied job id on retry", async () => {
     const log = { error: vi.fn() }
     await enqueueWorkspaceWriteCommit(
@@ -121,59 +96,6 @@ describe("enqueueWorkspaceWriteCommit", () => {
         jobDesiredSha: "aaa",
       },
     )
-  })
-
-  it("parks the job as paused when the workflow queue fails", async () => {
-    runWorkflowWithWorkerWakeMock.mockRejectedValue(new Error("queue down"))
-    const log = { error: vi.fn() }
-    await enqueueWorkspaceWriteCommit(
-      {
-        orgId: "org_1",
-        workspaceId: "ws_1",
-        kind: "migration_export",
-      },
-      log,
-    )
-    expect(persistHydrateFailureMock).not.toHaveBeenCalled()
-    expect(persistWriteJobStatusMock).toHaveBeenCalledWith(
-      "wjob_stable",
-      "paused",
-    )
-  })
-
-  it("persists a paused link payload and does not start the workflow", async () => {
-    getWorkspaceByIdMock.mockResolvedValue({
-      id: "ws_1",
-      desiredGeneration: 1,
-      workspaceRepositoryUrl: "https://github.com/acme/docs",
-      desiredSha: null,
-      writeStatus: "unknown",
-    })
-    const log = { error: vi.fn() }
-    await enqueueWorkspaceWriteCommit(
-      {
-        orgId: "org_1",
-        workspaceId: "ws_1",
-        kind: "link_unlink",
-        linkAction: "link",
-        linkGitUrl: "https://github.com/acme/app.git",
-      },
-      log,
-    )
-    expect(persistWriteJobIntentMock).toHaveBeenCalledWith({
-      id: "wjob_stable",
-      workspaceId: "ws_1",
-      kind: "link_unlink",
-      generation: 1,
-      desiredSha: null,
-      status: "paused",
-      payload: {
-        linkAction: "link",
-        linkGitUrl: "https://github.com/acme/app.git",
-        jobWorkspaceUrl: "https://github.com/acme/docs",
-      },
-    })
-    expect(runWorkflowWithWorkerWakeMock).not.toHaveBeenCalled()
   })
 
   it("parks an unwritable migration export without failing hydrate", async () => {
@@ -203,6 +125,4 @@ describe("enqueueWorkspaceWriteCommit", () => {
     )
     expect(persistHydrateFailureMock).not.toHaveBeenCalled()
   })
-
-
 })

@@ -381,3 +381,62 @@ it(
     )
   },
 )
+
+it(
+  "persists a canonical paused link command without starting a write workflow",
+  { timeout: 30_000 },
+  async () => {
+    await withNativeHydrationFixture(
+      { github: true, githubWriteView: "missing", writeStatus: "read_only" },
+      async (f) => {
+        const jobId = `wjob_${f.id}_paused_link`
+        expect(
+          await withOrgIdContext(f.org, () =>
+            enqueueWriteJob(
+              {
+                orgId: f.org.id,
+                workspaceId: f.workspaceId,
+                jobId,
+                kind: "link_unlink",
+                linkAction: "link",
+                linkGitUrl: "git@github.com:Acme/API.git",
+              },
+              {
+                error: (error) => {
+                  throw error
+                },
+              },
+            ),
+          ),
+        ).toEqual({ started: false })
+        expect(
+          await withOrgIdContext(f.org, () =>
+            reconcileWorkspaceWriteJob(jobId),
+          ),
+        ).toMatchObject({
+          status: "paused",
+          commitSha: null,
+          payload: {
+            linkAction: "link",
+            linkGitUrl: "https://github.com/acme/api",
+            jobWorkspaceUrl: f.workspaceUrl,
+          },
+        })
+        const { BackendPostgres } = await import("openworkflow/postgres")
+        const backend = await BackendPostgres.connect(f.databaseUrl, {
+          runMigrations: false,
+        })
+        try {
+          expect(
+            (await backend.listWorkflowRuns({ limit: 100 })).data.filter(
+              (run) => (run.input as { jobId?: string })?.jobId === jobId,
+            ),
+          ).toEqual([])
+        } finally {
+          await backend.stop()
+        }
+        expect(f.git("--git-dir", f.remote, "rev-parse", "main")).toBe(f.sha)
+      },
+    )
+  },
+)

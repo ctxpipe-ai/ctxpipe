@@ -3,6 +3,7 @@ import { z } from "zod"
 import { parseEnv } from "../../config/env.js"
 import { generateCommitSubject } from "../../domain/workspaces/commit-subject.js"
 import { isConnectorMirrorPath } from "../../domain/workspaces/layout.js"
+import { linkedRepositoryUrlSchema } from "../../domain/workspaces/linked-repository-url.js"
 import { planMigrationExport } from "../../domain/workspaces/migration-export.js"
 import {
   sameWorkspaceRevision,
@@ -96,8 +97,17 @@ export const workspaceMigrationExport = defineWorkflow(
             return {
               ...source,
               workspaceByRepositoryId: [...source.workspaceByRepositoryId],
-              repositoryGitUrlById: [...source.repositoryGitUrlById],
-              linkedUrls: linked.map((row) => row.gitUrl),
+              repositoryGitUrlById: [...source.repositoryGitUrlById].flatMap(
+                ([id, url]) => {
+                  const safe = linkedRepositoryUrlSchema.safeParse(url)
+                  return safe.success
+                    ? [[id, safe.data] as [string, string]]
+                    : []
+                },
+              ),
+              linkedUrls: linked.map((row) =>
+                linkedRepositoryUrlSchema.parse(row.gitUrl),
+              ),
             }
           },
         )

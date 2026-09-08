@@ -54,6 +54,7 @@ it(
         "workspace-write-ops-folder-map",
         "workspace-write-link-unlink",
         "workspace-write-migration-export",
+        "workspace-write-rename-rewrite",
       ]),
     )
   },
