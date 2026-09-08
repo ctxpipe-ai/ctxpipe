@@ -31,7 +31,7 @@ it(
             body: "---\ngit: https://github.com/existing/api.git\ncustom: keep\n---\n",
           },
           {
-            path: "knowledge/services/billing.md",
+            path: "knowledge/imported/billing.md",
             body: '---\nimport_key: legacy:billing\nname: "Owner: billing"\ncustom: {owner: Finance}\nclaims:\n  - to: api.md\n    predicate: USES\n    confidence: 0.9\n    custom: preserve\n  - to: optional.md\n    predicate: USES\n---\n\n# Billing\nOwner-authored ledger notes.\n',
           },
           {
@@ -131,6 +131,20 @@ it(
             workspaceMigrationExport.spec,
             workspaceMigrationExport.fn,
           )
+          const { workspaceImportKeyCleanup } = await import(
+            "../../openworkflow/workflows/workspace-import-key-cleanup.js"
+          )
+          const { workspaceExtractIngest } = await import(
+            "../../openworkflow/workflows/workspace-extract-ingest.js"
+          )
+          runner.implementWorkflow(
+            workspaceImportKeyCleanup.spec,
+            workspaceImportKeyCleanup.fn,
+          )
+          runner.implementWorkflow(
+            workspaceExtractIngest.spec,
+            workspaceExtractIngest.fn,
+          )
           worker = runner.newWorker({ concurrency: 1 })
           await worker.start()
           await expect
@@ -146,7 +160,7 @@ it(
             "--git-dir",
             f.remote,
             "show",
-            "refs/heads/main:knowledge/services/billing.md",
+            "refs/heads/main:knowledge/imported/billing.md",
           )
           expect(markdown).toContain("# Billing")
           expect(markdown).toContain("Owner-authored ledger notes.")
@@ -237,6 +251,54 @@ it(
               `${f.sha}..refs/heads/main`,
             ),
           ).toBe("1")
+          const cleanup = await runner.runWorkflow(
+            workspaceImportKeyCleanup.spec,
+            {
+              orgId: f.org.id,
+              workspaceId: f.workspaceId,
+              jobId: `${jobId}_cleanup`,
+              revision: {
+                ...(await f.resolveRevision()),
+                access: "write-default",
+              },
+            },
+          )
+          expect(await cleanup.result({ timeoutMs: 15_000 })).toMatchObject({
+            committed: true,
+          })
+          expect(
+            f.git(
+              "--git-dir",
+              f.remote,
+              "show",
+              "main:knowledge/imported/billing.md",
+            ),
+          ).not.toContain("import_key")
+          const extract = await runner.runWorkflow(
+            workspaceExtractIngest.spec,
+            {
+              orgId: f.org.id,
+              workspaceId: f.workspaceId,
+              jobId: `${jobId}_extract`,
+              revision: {
+                ...(await f.resolveRevision()),
+                access: "write-default",
+              },
+            },
+          )
+          expect(await extract.result({ timeoutMs: 15_000 })).toEqual({
+            committed: false,
+            reason: "no_changes",
+          })
+          expect(
+            f.git(
+              "--git-dir",
+              f.remote,
+              "rev-list",
+              "--count",
+              `${f.sha}..main`,
+            ),
+          ).toBe("2")
         } finally {
           await worker?.stop()
           await backend.stop()

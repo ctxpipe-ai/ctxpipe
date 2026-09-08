@@ -11,7 +11,7 @@ import { isConnectorMirrorPath } from "../../domain/workspaces/layout.js"
 import {
   completedNoOpExportSha,
   noOpExportUsesResolvedTip,
-  planMigrationExport,
+  planKnowledgeProjection,
 } from "../../domain/workspaces/migration-export.js"
 import { detectSandboxProviderFromEnv } from "../../domain/workspaces/sandbox-provider.js"
 import {
@@ -53,7 +53,7 @@ import {
 } from "../../domain/workspaces/write-status.js"
 import { generateObjectId } from "../../lib/id.js"
 import { getRepoReadCloneToken } from "../../models/github-installation.js"
-import { loadMigrationExportSource } from "../../models/workspace-export.js"
+import { loadKnowledgeProjectionSource } from "../../models/workspace-export.js"
 import { getMigrationExportSha } from "../../models/workspace-write-jobs.js"
 import {
   captureWorkspaceRevision,
@@ -232,13 +232,13 @@ export const workspaceWriteCommit = defineWorkflow(
             const existing = new Map<string, string>()
 
             let exportPlan:
-              | Awaited<ReturnType<typeof planMigrationExport>>
+              | Awaited<ReturnType<typeof planKnowledgeProjection>>
               | undefined
             if (
               input.kind === "migration_export" ||
               input.kind === "extract_ingest"
             ) {
-              const source = await orgSql(() => loadMigrationExportSource())
+              const source = await orgSql(() => loadKnowledgeProjectionSource())
               const tree = parentSha
                 ? await listFilesAtSha({ ...github, sha: parentSha })
                 : await listFilesInTree(github)
@@ -265,7 +265,7 @@ export const workspaceWriteCommit = defineWorkflow(
                 input.kind === "extract_ingest"
                   ? await orgSql(() => getMigrationExportSha(workspace.id))
                   : null
-              exportPlan = await planMigrationExport({
+              exportPlan = await planKnowledgeProjection({
                 workspaceId: workspace.id,
                 firstWorkspaceId: source.firstWorkspaceId,
                 workspaceByRepositoryId: source.workspaceByRepositoryId,

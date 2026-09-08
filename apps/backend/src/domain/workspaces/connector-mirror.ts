@@ -2,7 +2,6 @@ import { z } from "zod"
 import { getConfluenceSyncTargetWithRepoByConnectionId } from "../../models/confluence-sync-target.js"
 import { getLinearBindingWithRepoByConnectionId } from "../../models/linear-connector.js"
 import { getNotionBindingWithRepoByConnectionId } from "../../models/notion-connector.js"
-import { getRepositoryReadBinding } from "../../models/repositories.js"
 import { getSlackBindingWithRepoByConnectionId } from "../../models/slack-connector.js"
 import type { WorkspaceRevision } from "./revision.js"
 import { normalizeWorkspaceRepositoryUrl } from "./slug.js"
@@ -29,16 +28,14 @@ export async function assertConnectorMirrorBinding(
     confluence: getConfluenceSyncTargetWithRepoByConnectionId,
   }
   const binding = await readers[source.provider](orgId, source.connectionId)
-  const repository = await getRepositoryReadBinding(orgId, source.repositoryId)
   if (
     !binding ||
-    !repository ||
     binding.orgId !== orgId ||
     !binding.enabled ||
     binding.repositoryId !== source.repositoryId ||
     binding.branch !== revision.defaultBranch ||
-    repository.githubConnectionId !== revision.remote.connectionId ||
-    normalizeWorkspaceRepositoryUrl(repository.gitUrl) !==
+    binding.githubConnectionId !== revision.remote.connectionId ||
+    normalizeWorkspaceRepositoryUrl(binding.repositoryGitUrl) !==
       normalizeWorkspaceRepositoryUrl(revision.remote.url) ||
     ("setupPhase" in binding &&
       binding.setupPhase !== "live" &&

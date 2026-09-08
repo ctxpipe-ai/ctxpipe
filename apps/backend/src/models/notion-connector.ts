@@ -489,12 +489,13 @@ export async function getNotionBindingByConnectionId(
 export async function getNotionBindingWithRepoByConnectionId(
   orgId: string,
   connectionId: string,
-): Promise<NotionBindingWithRepo | undefined> {
+): Promise<(NotionBindingWithRepo & { repositoryGitUrl: string }) | undefined> {
   return withOrgDbContext(orgId, async () => {
     const [row] = await getOrgDb()
       .select({
         connection: connections,
         repositoryName: repositories.name,
+        repositoryGitUrl: repositories.gitUrl,
         githubConnectionId: repositories.githubConnectionId,
       })
       .from(connections)
@@ -520,6 +521,7 @@ export async function getNotionBindingWithRepoByConnectionId(
     return {
       ...binding,
       repositoryName: row.repositoryName,
+      repositoryGitUrl: row.repositoryGitUrl,
       githubConnectionId: row.githubConnectionId,
     }
   })

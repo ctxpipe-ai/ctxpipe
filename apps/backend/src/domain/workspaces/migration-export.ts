@@ -437,7 +437,7 @@ function claimsFromExisting(content: string): Array<{
   return claims
 }
 
-export async function planMigrationExport(input: {
+export async function planKnowledgeProjection(input: {
   workspaceId: string
   firstWorkspaceId: string | null
   workspaceByRepositoryId: ReadonlyMap<string, string>
@@ -447,11 +447,13 @@ export async function planMigrationExport(input: {
   linkedUrls: Iterable<string>
   workspaceRepositoryUrl?: string | null
   repositoryGitUrlById?: ReadonlyMap<string, string>
+  knownKnowledgePaths?: Readonly<Record<string, string>>
   stampImportKey?: boolean
   classifyUnkeyed?: (prompt: string) => Promise<string>
 }): Promise<{
   files: Array<{ path: string; content: string }>
   wouldChange: boolean
+  knowledgePaths: Record<string, string>
 }> {
   const objectWorkspace = new Map<string, string>()
   const assigned: ExportObjectRow[] = []
@@ -516,7 +518,7 @@ export async function planMigrationExport(input: {
     const pathIdentity =
       !keyed && !stampImportKey
         ? pathIdentityOccupant({
-            preferred,
+            preferred: input.knownKnowledgePaths?.[importKey] ?? preferred,
             existingByPath,
             claimedUnkeyed,
           })
@@ -648,6 +650,12 @@ export async function planMigrationExport(input: {
   )
   return {
     files,
+    knowledgePaths: Object.fromEntries(
+      assigned.flatMap((object) => {
+        const path = pathByObjectId.get(object.id)
+        return path ? [[importKeyForExportedObject(object), path]] : []
+      }),
+    ),
     wouldChange: files.some(
       (file) => contentByPath.get(file.path) !== file.content,
     ),

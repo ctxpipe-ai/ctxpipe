@@ -2,9 +2,6 @@ import { defineWorkflow } from "openworkflow"
 import { z } from "zod"
 import { parseEnv } from "../../config/env.js"
 import { generateCommitSubject } from "../../domain/workspaces/commit-subject.js"
-import { isConnectorMirrorPath } from "../../domain/workspaces/layout.js"
-import { linkedRepositoryUrlSchema } from "../../domain/workspaces/linked-repository-url.js"
-import { planKnowledgeProjection } from "../../domain/workspaces/migration-export.js"
 import {
   sameWorkspaceRevision,
   workspaceRevisionSchema,
@@ -20,33 +17,35 @@ import {
   withWorkspaceWriteContext,
 } from "../../domain/workspaces/write-command.js"
 import { githubRepoFullNameFromWorkspaceUrl } from "../../domain/workspaces/write-status.js"
-import { loadKnowledgeProjectionSource } from "../../models/workspace-export.js"
 import {
-  getCompletedKnowledgePaths,
-  getMigrationExportSha,
   persistBoundWriteJob,
-  persistWriteJobKnowledgePaths,
   persistWriteJobPreparedCommit,
 } from "../../models/workspace-write-jobs.js"
 import {
   persistWriteJobCommitSha,
   persistWriteJobStatus,
 } from "../../models/workspaces.js"
-import { readGitFiles } from "../../services/git/pack.js"
+import {
+  gitFileChangeSchema,
+  repositoryFilePathSchema,
+} from "../../services/git/file-change.js"
+import { mergeGitFiles } from "../../services/git/merge-tree.js"
 import {
   commitGitTree,
-  stageGitFiles,
   validateGitTree,
 } from "../../services/git/write-tree.js"
 import { runWorkflowWithWorkerWake } from "../client.js"
 import { workspaceHydrate } from "./workspace-hydrate.js"
 
-export const workspaceExtractIngestInputSchema = z
+export const workspaceSemanticMergeInputSchema = z
   .object({
     orgId: z.string().min(1),
     workspaceId: z.string().min(1),
     jobId: z.string().min(1),
     revision: workspaceRevisionSchema,
+    previousSha: z.string().regex(/^(?:[0-9a-f]{40}|[0-9a-f]{64})$/),
+    files: z.array(gitFileChangeSchema),
+    deletePaths: z.array(repositoryFilePathSchema),
   })
   .strict()
   .refine(
@@ -56,16 +55,16 @@ export const workspaceExtractIngestInputSchema = z
     "A write-default revision for the matching workspace is required",
   )
 
-export const workspaceExtractIngest = defineWorkflow(
+export const workspaceSemanticMerge = defineWorkflow(
   {
-    name: "workspace-write-extract-ingest",
-    schema: workspaceExtractIngestInputSchema,
+    name: "workspace-write-semantic-merge",
+    schema: workspaceSemanticMergeInputSchema,
   },
   async ({ input: queuedInput, step, run }) => {
-    const input = workspaceExtractIngestInputSchema.parse(queuedInput)
+    const input = workspaceSemanticMergeInputSchema.parse(queuedInput)
     return withWorkspaceWriteContext(
       input,
-      "workspace-write-extract-ingest",
+      "workspace-write-semantic-merge",
       async () => {
         const env = parseEnv(process.env)
         let revision = input.revision
@@ -79,88 +78,41 @@ export const workspaceExtractIngest = defineWorkflow(
           )
         const completed = await completedWorkspaceWrite(
           input,
-          "extract_ingest",
+          "semantic_merge",
           run.id,
         )
         if (completed) return completed
         await step.run({ name: "claim-command" }, () =>
           persistBoundWriteJob({
             id: input.jobId,
-            kind: "extract_ingest",
+            kind: "semantic_merge",
             revision: input.revision,
             workflowRunId: run.id,
+            previousSha: input.previousSha,
+            files: input.files,
+            deletePaths: input.deletePaths,
           }),
-        )
-        const source = await step.run(
-          { name: "load-extracted-knowledge" },
-          async () => {
-            const source = await loadKnowledgeProjectionSource()
-            const knownKnowledgePaths = await getCompletedKnowledgePaths(
-              input.revision,
-            )
-            const exportSha = await getMigrationExportSha(input.workspaceId)
-            return {
-              ...source,
-              knownKnowledgePaths,
-              workspaceByRepositoryId: [...source.workspaceByRepositoryId],
-              repositoryGitUrlById: [...source.repositoryGitUrlById].flatMap(
-                ([id, url]) => {
-                  const safe = linkedRepositoryUrlSchema.safeParse(url)
-                  return safe.success
-                    ? [[id, safe.data] as [string, string]]
-                    : []
-                },
-              ),
-              stampImportKey: !exportSha,
-              linkedUrls: [],
-            }
-          },
         )
         for (let refreshAttempt = 0; refreshAttempt < 3; refreshAttempt++) {
           const acquired = await step.run({ name: "acquire-revision" }, () =>
-            acquireWorkspaceWriteRevision(input, revision, env),
-          )
-          const transformed = await step.run(
-            { name: "transform-extract-ingest" },
-            async () => {
-              const existingKnowledge = await readGitFiles(
-                acquired.pack,
-                (path) =>
-                  path.endsWith(".md") &&
-                  !isConnectorMirrorPath(path) &&
-                  (path.startsWith("knowledge/") ||
-                    path.startsWith("repositories/")),
-              )
-              const plan = await planKnowledgeProjection({
-                ...source,
-                workspaceId: input.workspaceId,
-                workspaceRepositoryUrl: revision.remote.url,
-                workspaceByRepositoryId: new Map(
-                  source.workspaceByRepositoryId,
-                ),
-                repositoryGitUrlById: new Map(source.repositoryGitUrlById),
-                existingKnowledge,
-                stampImportKey: source.stampImportKey,
-              })
-              const existing = new Map(
-                existingKnowledge.map((file) => [file.path, file.content]),
-              )
-              const files = plan.files.filter(
-                (file) =>
-                  file.path.startsWith("knowledge/") &&
-                  existing.get(file.path) !== file.content,
-              )
-              return { files, knowledgePaths: plan.knowledgePaths }
-            },
-          )
-          await step.run({ name: "record-knowledge-paths" }, () =>
-            persistWriteJobKnowledgePaths(
-              input.jobId,
-              transformed.knowledgePaths,
+            acquireWorkspaceWriteRevision(
+              input,
+              revision,
+              env,
+              input.previousSha,
             ),
           )
-          const files = transformed.files
-          if (!files.length) {
+          const merged = await step.run(
+            { name: "transform-semantic-merge" },
+            () =>
+              mergeGitFiles({
+                pack: acquired.pack,
+                previousSha: input.previousSha,
+                files: input.files,
+                deletePaths: input.deletePaths,
+              }),
+          )
+          if (!merged) {
             const refreshed = await step.run({ name: "confirm-no-op" }, () =>
               refreshWorkspaceWriteRevision(input, revision, env),
             )
@@ -176,20 +128,15 @@ export const workspaceExtractIngest = defineWorkflow(
               reason: "no_changes" as const,
             }
           }
-          const staged = await step.run({ name: "stage" }, () =>
-            stageGitFiles(acquired.pack, files),
-          )
+          const staged = await step.run({ name: "stage" }, () => merged.staged)
           await step.run({ name: "validate" }, () =>
-            validateGitTree(
-              staged,
-              files.map((file) => file.path),
-            ),
+            validateGitTree(staged, merged.paths),
           )
           const subject = await step.run({ name: "commit-subject" }, () =>
             generateCommitSubject({
               repoName: repositoryName.split("/")[1] ?? repositoryName,
-              trigger: "extract_ingest",
-              fileNames: files.map((file) => file.path),
+              trigger: "semantic_merge",
+              fileNames: merged.paths,
             }),
           )
           const committed = await step.run({ name: "commit" }, async () => {

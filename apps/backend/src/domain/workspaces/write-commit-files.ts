@@ -9,7 +9,7 @@ import {
 } from "./hydrate-write-jobs.js"
 import {
   migrationExportFiles,
-  type planMigrationExport,
+  type planKnowledgeProjection,
 } from "./migration-export.js"
 import { renameRewriteFiles } from "./rename-rewrite.js"
 import type { WorkspaceWriteJobKind } from "./write-jobs.js"
@@ -54,7 +54,10 @@ export function filesForWorkspaceWriteKind(input: {
   displayName: string
   linkedUrls: Iterable<string>
   existing: ReadonlyMap<string, string>
-  exportPlan?: Awaited<ReturnType<typeof planMigrationExport>>
+  exportPlan?: Pick<
+    Awaited<ReturnType<typeof planKnowledgeProjection>>,
+    "files" | "wouldChange"
+  >
   linkChange?: WorkspaceLinkChange
   workspaceId?: string
   introducingCommitTimestamp?: string

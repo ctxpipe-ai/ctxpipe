@@ -94,7 +94,9 @@ export async function getConfluenceSyncTargetWithRepoByOrgId(
 export async function getConfluenceSyncTargetWithRepoByConnectionId(
   orgId: string,
   connectionId: string,
-): Promise<ConfluenceSyncTargetWithRepo | undefined> {
+): Promise<
+  (ConfluenceSyncTargetWithRepo & { repositoryGitUrl: string }) | undefined
+> {
   return withOrgDbContext(orgId, async () => {
     const [row] = await getOrgDb()
       .select({
@@ -110,6 +112,7 @@ export async function getConfluenceSyncTargetWithRepoByConnectionId(
         createdAt: confluenceSyncTargets.createdAt,
         updatedAt: confluenceSyncTargets.updatedAt,
         repositoryName: repositories.name,
+        repositoryGitUrl: repositories.gitUrl,
         githubConnectionId: repositories.githubConnectionId,
       })
       .from(confluenceSyncTargets)

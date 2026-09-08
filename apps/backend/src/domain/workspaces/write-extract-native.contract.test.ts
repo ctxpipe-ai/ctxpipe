@@ -15,10 +15,11 @@ import { upsertRetrievalObjectByDeduplicationKey } from "../../retrieval/service
 import { withNativeHydrationFixture } from "../../test/native-hydration-fixture.js"
 import { ensureOrgRepositoryForGitUrl } from "./ensure-org-repository.js"
 
-it(
-  "publishes extracted knowledge through one typed native commit after migration cutover",
+it.each(["knowledge/services/billing.md", "knowledge/imported/billing.md"])(
+  "preserves extraction identity at %s and a same-name collision after migration cutover",
   { timeout: 60_000 },
-  async () => {
+  async (knowledgePath) => {
+    const secondPath = knowledgePath.replace(/\.md$/, "-2.md")
     await withNativeHydrationFixture(
       {
         github: true,
@@ -26,8 +27,12 @@ it(
         writeStatus: "writable",
         files: [
           {
-            path: "knowledge/services/billing.md",
+            path: knowledgePath,
             body: "---\nimport_key: legacy:billing\ncustom: Finance\n---\n\n# Billing\nOwner notes.\n",
+          },
+          {
+            path: secondPath,
+            body: "---\nimport_key: legacy:billing-two\n---\n\n# Billing\nSecond owner notes.\n",
           },
           {
             path: "notion/source.md",
@@ -71,6 +76,16 @@ it(
               payload: {
                 name: "Billing",
                 summary: "New extraction describes the ledger.",
+              },
+            }),
+          )
+          await withOrgDbContext(f.org.id, () =>
+            upsertRetrievalObjectByDeduplicationKey(f.org.id, {
+              kind: "Service",
+              deduplicationKey: "legacy:billing-two",
+              payload: {
+                name: "Billing",
+                summary: "The second ledger has separate knowledge.",
               },
             }),
           )
@@ -133,7 +148,7 @@ it(
             "--git-dir",
             f.remote,
             "show",
-            "main:knowledge/services/billing.md",
+            `main:${knowledgePath}`,
           )
           expect(content).toContain("Owner notes.")
           expect(content).toContain("New extraction describes the ledger.")
@@ -141,7 +156,21 @@ it(
           expect(content).not.toContain("import_key")
           expect(
             f.git("--git-dir", f.remote, "diff", "--name-only", f.sha, "main"),
-          ).toBe("knowledge/services/billing.md")
+          ).toBe([knowledgePath, secondPath].sort().join("\n"))
+          const secondContent = f.git(
+            "--git-dir",
+            f.remote,
+            "show",
+            `main:${secondPath}`,
+          )
+          expect(secondContent).toContain("Second owner notes.")
+          expect(secondContent).toContain(
+            "The second ledger has separate knowledge.",
+          )
+          expect(secondContent).not.toContain("import_key")
+          expect(secondContent).not.toContain(
+            "New extraction describes the ledger.",
+          )
           const replay = await runner.runWorkflow(
             workspaceExtractIngest.spec,
             workspaceExtractIngestInputSchema.parse(queued?.input),

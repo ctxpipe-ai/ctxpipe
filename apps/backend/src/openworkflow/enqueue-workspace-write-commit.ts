@@ -27,6 +27,7 @@ import { runWorkflowWithWorkerWake } from "./client.js"
 import { workspaceBootstrap } from "./workflows/workspace-bootstrap.js"
 import { workspaceClaimsUpgrade } from "./workflows/workspace-claims-upgrade.js"
 import {
+  connectorMirrorContentSchema,
   workspaceConnectorMirror,
   workspaceConnectorMirrorInputSchema,
 } from "./workflows/workspace-connector-mirror.js"
@@ -46,6 +47,10 @@ import {
   workspaceRenameRewrite,
   workspaceRenameRewriteInputSchema,
 } from "./workflows/workspace-rename-rewrite.js"
+import {
+  workspaceSemanticMerge,
+  workspaceSemanticMergeInputSchema,
+} from "./workflows/workspace-semantic-merge.js"
 import { workspaceValidFromPersist } from "./workflows/workspace-valid-from-persist.js"
 import { workspaceWriteCommit } from "./workflows/workspace-write-commit.js"
 
@@ -121,6 +126,13 @@ export async function enqueueWriteJob(
   let writeStatus: string | null = null
   let desiredGeneration = jobGeneration
   try {
+    if (input.kind === "connector_mirror")
+      connectorMirrorContentSchema.parse({
+        mirror: input.mirror,
+        files: input.mergeFiles ?? [],
+        deletePaths: input.mergeDeletePaths ?? [],
+      })
+
     const workspace = await withOrgDbContext(input.orgId, () =>
       getWorkspaceById(input.workspaceId),
     )
@@ -155,7 +167,8 @@ export async function enqueueWriteJob(
       input.kind === "ui_file_edit" ||
       input.kind === "link_unlink" ||
       input.kind === "rename_rewrite" ||
-      input.kind === "connector_mirror") &&
+      input.kind === "connector_mirror" ||
+      input.kind === "semantic_merge") &&
     writeStatus === "writable"
   ) {
     let bound = false
@@ -177,6 +190,30 @@ export async function enqueueWriteJob(
         (input.defaultBranch && revision.defaultBranch !== input.defaultBranch)
       )
         throw new Error("Write command binding changed during admission")
+      if (input.kind === "semantic_merge") {
+        const command = workspaceSemanticMergeInputSchema.parse({
+          orgId: input.orgId,
+          workspaceId: input.workspaceId,
+          jobId,
+          revision,
+          previousSha: input.previousSha,
+          files: input.mergeFiles ?? [],
+          deletePaths: input.mergeDeletePaths ?? [],
+        })
+        await persistBoundWriteJob({
+          id: jobId,
+          kind: input.kind,
+          revision,
+          previousSha: command.previousSha,
+          files: command.files,
+          deletePaths: command.deletePaths,
+        })
+        bound = true
+        await runWorkflowWithWorkerWake(workspaceSemanticMerge.spec, command, {
+          idempotencyKey: jobId,
+        })
+        return { started: true }
+      }
       if (input.kind === "connector_mirror") {
         const command = workspaceConnectorMirrorInputSchema.parse({
           orgId: input.orgId,
@@ -328,6 +365,7 @@ export async function enqueueWriteJob(
         status,
         payload: writeJobIntentPayload({
           kind: input.kind,
+          mirror: input.mirror,
           previousSha: input.previousSha,
           displayName: input.displayName,
           defaultBranch: input.defaultBranch,

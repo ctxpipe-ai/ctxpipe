@@ -57,6 +57,7 @@ it(
         "workspace-write-rename-rewrite",
         "workspace-write-extract-ingest",
         "workspace-write-connector-mirror",
+        "workspace-write-semantic-merge",
       ]),
     )
   },

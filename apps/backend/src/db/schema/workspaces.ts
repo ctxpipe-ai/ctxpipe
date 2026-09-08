@@ -177,6 +177,7 @@ export const workspaceWriteJobs = pgTable.withRLS(
       revision?: WorkspaceRevision
       workflowRunId?: string
       exportTipSha?: string
+      knowledgePaths?: Record<string, string>
       previousSha?: string
       mirror?: ConnectorMirrorSource
       linkAction?: "link" | "unlink"

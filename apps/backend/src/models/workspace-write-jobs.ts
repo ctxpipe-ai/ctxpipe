@@ -1,5 +1,5 @@
 import { isDeepStrictEqual } from "node:util"
-import { and, asc, eq, isNotNull, notInArray, sql } from "drizzle-orm"
+import { and, asc, desc, eq, isNotNull, notInArray, sql } from "drizzle-orm"
 import { requireCurrentOrgId } from "../auth/context.js"
 import { getOrgDb } from "../db/client.js"
 import { workspaces, workspaceWriteJobs } from "../db/schema/workspaces.js"
@@ -487,6 +487,56 @@ export async function failUnscheduledWriteJob(jobId: string): Promise<void> {
           and scheduled.input->>'workspaceId' = ${workspaceWriteJobs.workspaceId}
           and scheduled.input->>'jobId' = ${workspaceWriteJobs.id})`,
         ),
+      )
+  })
+}
+
+/** Completed commands retain import path identity; Git remains the content authority. */
+export async function getCompletedKnowledgePaths(
+  revision: WorkspaceRevision,
+): Promise<Record<string, string>> {
+  return orgSql(async () => {
+    const [row] = await getOrgDb()
+      .select({ payload: workspaceWriteJobs.payload })
+      .from(workspaceWriteJobs)
+      .where(
+        and(
+          eq(workspaceWriteJobs.workspaceId, revision.workspaceId),
+          eq(workspaceWriteJobs.generation, revision.generation),
+          eq(workspaceWriteJobs.status, WRITE_JOB_STATUSES.completed),
+          sql`${workspaceWriteJobs.payload}->>'jobWorkspaceUrl' = ${revision.remote.url}`,
+          sql`${workspaceWriteJobs.payload}->'revision'->>'defaultBranch' = ${revision.defaultBranch}`,
+          sql`${workspaceWriteJobs.payload}->'revision'->'remote'->>'connectionId' = ${revision.remote.connectionId}`,
+          sql`${workspaceWriteJobs.payload}->'knowledgePaths' is not null`,
+        ),
+      )
+      .orderBy(desc(workspaceWriteJobs.updatedAt), desc(workspaceWriteJobs.id))
+      .limit(1)
+    return row?.payload?.knowledgePaths ?? {}
+  })
+}
+
+export async function persistWriteJobKnowledgePaths(
+  jobId: string,
+  paths: Record<string, string>,
+): Promise<void> {
+  await orgSql(async () => {
+    const [row] = await getOrgDb()
+      .update(workspaceWriteJobs)
+      .set({
+        payload: sql`coalesce(${workspaceWriteJobs.payload}, '{}'::jsonb) || jsonb_build_object('knowledgePaths', ${JSON.stringify(paths)}::jsonb)`,
+        updatedAt: new Date(),
+      })
+      .where(
+        and(
+          eq(workspaceWriteJobs.id, jobId),
+          eq(workspaceWriteJobs.status, WRITE_JOB_STATUSES.running),
+        ),
+      )
+      .returning({ id: workspaceWriteJobs.id })
+    if (!row)
+      throw new Error(
+        "Knowledge path assignments require a running write command",
       )
   })
 }

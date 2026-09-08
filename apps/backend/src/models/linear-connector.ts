@@ -559,12 +559,13 @@ export async function deleteLinearConnectionById(
 export async function getLinearBindingWithRepoByConnectionId(
   orgId: string,
   connectionId: string,
-): Promise<LinearBindingWithRepo | undefined> {
+): Promise<(LinearBindingWithRepo & { repositoryGitUrl: string }) | undefined> {
   return withOrgDbContext(orgId, async () => {
     const [row] = await getOrgDb()
       .select({
         connection: connections,
         repositoryName: repositories.name,
+        repositoryGitUrl: repositories.gitUrl,
         githubConnectionId: repositories.githubConnectionId,
       })
       .from(connections)
@@ -590,6 +591,7 @@ export async function getLinearBindingWithRepoByConnectionId(
     return {
       ...target,
       repositoryName: row.repositoryName,
+      repositoryGitUrl: row.repositoryGitUrl,
       githubConnectionId: row.githubConnectionId,
     }
   })

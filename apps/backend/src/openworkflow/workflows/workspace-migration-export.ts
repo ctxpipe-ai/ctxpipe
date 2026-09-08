@@ -4,7 +4,7 @@ import { parseEnv } from "../../config/env.js"
 import { generateCommitSubject } from "../../domain/workspaces/commit-subject.js"
 import { isConnectorMirrorPath } from "../../domain/workspaces/layout.js"
 import { linkedRepositoryUrlSchema } from "../../domain/workspaces/linked-repository-url.js"
-import { planMigrationExport } from "../../domain/workspaces/migration-export.js"
+import { planKnowledgeProjection } from "../../domain/workspaces/migration-export.js"
 import {
   sameWorkspaceRevision,
   workspaceRevisionSchema,
@@ -20,10 +20,11 @@ import {
   withWorkspaceWriteContext,
 } from "../../domain/workspaces/write-command.js"
 import { githubRepoFullNameFromWorkspaceUrl } from "../../domain/workspaces/write-status.js"
-import { loadMigrationExportSource } from "../../models/workspace-export.js"
+import { loadKnowledgeProjectionSource } from "../../models/workspace-export.js"
 import {
   persistBoundWriteJob,
   persistMigrationExportNoOp,
+  persistWriteJobKnowledgePaths,
   persistWriteJobPreparedCommit,
 } from "../../models/workspace-write-jobs.js"
 import {
@@ -92,7 +93,7 @@ export const workspaceMigrationExport = defineWorkflow(
         const source = await step.run(
           { name: "load-legacy-source" },
           async () => {
-            const source = await loadMigrationExportSource()
+            const source = await loadKnowledgeProjectionSource()
             const linked = await listLinkedRepositories(input.workspaceId)
             return {
               ...source,
@@ -116,7 +117,7 @@ export const workspaceMigrationExport = defineWorkflow(
           const acquired = await step.run({ name: "acquire-revision" }, () =>
             acquireWorkspaceWriteRevision(input, revision, env),
           )
-          const files = await step.run(
+          const transformed = await step.run(
             { name: "transform-migration-export" },
             async () => {
               const existingKnowledge = await readGitFiles(
@@ -127,7 +128,7 @@ export const workspaceMigrationExport = defineWorkflow(
                   (path.startsWith("knowledge/") ||
                     path.startsWith("repositories/")),
               )
-              const plan = await planMigrationExport({
+              const plan = await planKnowledgeProjection({
                 ...source,
                 workspaceId: input.workspaceId,
                 workspaceRepositoryUrl: revision.remote.url,
@@ -138,9 +139,19 @@ export const workspaceMigrationExport = defineWorkflow(
                 existingKnowledge,
                 stampImportKey: true,
               })
-              return plan.wouldChange ? plan.files : []
+              return {
+                files: plan.wouldChange ? plan.files : [],
+                knowledgePaths: plan.knowledgePaths,
+              }
             },
           )
+          await step.run({ name: "record-knowledge-paths" }, () =>
+            persistWriteJobKnowledgePaths(
+              input.jobId,
+              transformed.knowledgePaths,
+            ),
+          )
+          const files = transformed.files
           if (!files.length) {
             const refreshed = await step.run({ name: "confirm-no-op" }, () =>
               refreshWorkspaceWriteRevision(input, revision, env),

@@ -22,6 +22,7 @@ export type WorkspaceWriteJobPayload = {
   revision?: WorkspaceRevision
   workflowRunId?: string
   exportTipSha?: string
+  knowledgePaths?: Record<string, string>
   previousSha?: string
   mirror?: ConnectorMirrorSource
   displayName?: string

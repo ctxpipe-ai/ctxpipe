@@ -40,12 +40,8 @@ import {
 import { runWorkflowWithWorkerWake } from "../client.js"
 import { workspaceHydrate } from "./workspace-hydrate.js"
 
-export const workspaceConnectorMirrorInputSchema = z
+export const connectorMirrorContentSchema = z
   .object({
-    orgId: z.string().min(1),
-    workspaceId: z.string().min(1),
-    jobId: z.string().min(1),
-    revision: workspaceRevisionSchema,
     mirror: connectorMirrorSourceSchema,
     files: z.array(gitFileChangeSchema),
     deletePaths: z.array(repositoryFilePathSchema),
@@ -67,6 +63,14 @@ export const workspaceConnectorMirrorInputSchema = z
       input.files.length + input.deletePaths.length,
     "Each mirror path must have exactly one operation",
   )
+
+export const workspaceConnectorMirrorInputSchema = connectorMirrorContentSchema
+  .safeExtend({
+    orgId: z.string().min(1),
+    workspaceId: z.string().min(1),
+    jobId: z.string().min(1),
+    revision: workspaceRevisionSchema,
+  })
   .refine(
     (input) =>
       input.workspaceId === input.revision.workspaceId &&

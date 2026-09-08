@@ -9,7 +9,7 @@ import {
   migrationExportFiles,
   noOpExportUsesResolvedTip,
   objectTitleFromPayload,
-  planMigrationExport,
+  planKnowledgeProjection,
   repositoryIdFromDedup,
   workspaceByRepositoryUrl,
 } from "./migration-export.js"
@@ -117,7 +117,7 @@ describe("migration export", () => {
   })
 
   it("exports assigned objects and skips a cross-workspace claim", async () => {
-    const planned = await planMigrationExport({
+    const planned = await planKnowledgeProjection({
       workspaceId: "ws_app",
       firstWorkspaceId: "ws_app",
       workspaceByRepositoryId: new Map([
@@ -164,7 +164,7 @@ describe("migration export", () => {
   })
 
   it("serializes a same-workspace claim with confidence and a body link", async () => {
-    const planned = await planMigrationExport({
+    const planned = await planKnowledgeProjection({
       workspaceId: "ws_app",
       firstWorkspaceId: "ws_app",
       workspaceByRepositoryId: new Map([["repo_app", "ws_app"]]),
@@ -184,7 +184,8 @@ describe("migration export", () => {
             summary: "Initialize a local ctxpipe-memory MCP server.",
             intent: "enable local context storage without a hosted account",
             path: "README.md",
-            sourceExcerpt: "Add a ctxpipe-memory MCP server backed by `.ai/memory`.",
+            sourceExcerpt:
+              "Add a ctxpipe-memory MCP server backed by `.ai/memory`.",
             confidence: 0.62,
           },
         },
@@ -221,7 +222,7 @@ describe("migration export", () => {
       "](../instructions/local-memory-initialization.md)",
     )
     expect(service?.content).toContain(
-      "source: \"https://github.com/acme/app.git#README.md\"",
+      'source: "https://github.com/acme/app.git#README.md"',
     )
     expect(service?.content).not.toContain("evd:repo_app")
     expect(instruction?.content).toContain("kind: InstructionUnit")
@@ -246,7 +247,7 @@ import_key: svc:repo_app:./
 
 Ledger lives here.
 `
-    const thinPlan = await planMigrationExport({
+    const thinPlan = await planKnowledgeProjection({
       workspaceId: "ws_app",
       firstWorkspaceId: "ws_app",
       workspaceByRepositoryId: new Map([["repo_app", "ws_app"]]),
@@ -275,7 +276,7 @@ Ledger lives here.
       importKey: "svc:repo_app:./",
       kind: "Service",
     })
-    const planned = await planMigrationExport({
+    const planned = await planKnowledgeProjection({
       workspaceId: "ws_app",
       firstWorkspaceId: "ws_app",
       workspaceByRepositoryId: new Map([["repo_app", "ws_app"]]),
@@ -304,7 +305,7 @@ Ledger lives here.
       importKey: "svc:repo_app:./",
       kind: "Service",
     })
-    const planned = await planMigrationExport({
+    const planned = await planKnowledgeProjection({
       workspaceId: "ws_app",
       firstWorkspaceId: "ws_app",
       workspaceByRepositoryId: new Map([["repo_app", "ws_app"]]),
@@ -327,7 +328,7 @@ Ledger lives here.
   })
 
   it("appends into an unkeyed occupant instead of replacing it", async () => {
-    const planned = await planMigrationExport({
+    const planned = await planKnowledgeProjection({
       workspaceId: "ws_app",
       firstWorkspaceId: "ws_app",
       workspaceByRepositoryId: new Map([["repo_app", "ws_app"]]),
@@ -359,7 +360,7 @@ Ledger lives here.
   })
 
   it("uses a new filename when the unkeyed classifier returns new_name", async () => {
-    const planned = await planMigrationExport({
+    const planned = await planKnowledgeProjection({
       workspaceId: "ws_app",
       firstWorkspaceId: "ws_app",
       workspaceByRepositoryId: new Map([["repo_app", "ws_app"]]),
@@ -391,7 +392,7 @@ Ledger lives here.
   })
 
   it("claims an unkeyed occupant after the first merge", async () => {
-    const planned = await planMigrationExport({
+    const planned = await planKnowledgeProjection({
       workspaceId: "ws_app",
       firstWorkspaceId: "ws_app",
       workspaceByRepositoryId: new Map([["repo_app", "ws_app"]]),
@@ -426,7 +427,7 @@ Ledger lives here.
   })
 
   it("writes a workspace-relative source for in-tree connector paths", async () => {
-    const planned = await planMigrationExport({
+    const planned = await planKnowledgeProjection({
       workspaceId: "ws_app",
       firstWorkspaceId: "ws_app",
       workspaceByRepositoryId: new Map([["repo_ws", "ws_app"]]),
@@ -468,7 +469,7 @@ Ledger lives here.
       importKey: "svc:repo_app:./",
       kind: "Service",
     })
-    const planned = await planMigrationExport({
+    const planned = await planKnowledgeProjection({
       workspaceId: "ws_app",
       firstWorkspaceId: "ws_app",
       workspaceByRepositoryId: new Map([["repo_app", "ws_app"]]),

@@ -28,6 +28,19 @@ it(
       },
       async (f) => {
         const mirror = await createNotionMirrorBinding(f)
+        const { getNotionBindingWithRepoByConnectionId } = await import(
+          "../../models/notion-connector.js"
+        )
+        expect(
+          await getNotionBindingWithRepoByConnectionId(
+            f.org.id,
+            mirror.connectionId,
+          ),
+        ).toMatchObject({
+          repositoryId: mirror.repositoryId,
+          repositoryGitUrl: "https://github.com/fixture/hydration-contract",
+          githubConnectionId: f.connectionId,
+        })
         const jobId = `wjob_${f.id}_mirror`
         const command = {
           orgId: f.org.id,
@@ -272,6 +285,94 @@ it(
           expect(f.git("--git-dir", f.remote, "rev-parse", "main")).toBe(f.sha)
         } finally {
           await worker.stop()
+        }
+      },
+    )
+  },
+)
+
+it(
+  "retains a paused mirror's source, binary files and deletions and rejects invalid managed paths",
+  { timeout: 30_000 },
+  async () => {
+    await withNativeHydrationFixture(
+      { github: true, githubWriteView: "missing", writeStatus: "read_only" },
+      async (f) => {
+        const mirror = await createNotionMirrorBinding(f)
+        const jobId = `wjob_${f.id}_paused_mirror`
+        const command = {
+          orgId: f.org.id,
+          workspaceId: f.workspaceId,
+          jobId,
+          kind: "connector_mirror" as const,
+          mirror,
+          mergeFiles: [
+            {
+              path: "notion/asset.png",
+              content: "iVBORw0KGgoA/w==",
+              encoding: "base64" as const,
+            },
+          ],
+          mergeDeletePaths: ["notion/old.md"],
+        }
+        expect(
+          await withOrgIdContext(f.org, () =>
+            enqueueWriteJob(command, {
+              error: (error) => {
+                throw error
+              },
+            }),
+          ),
+        ).toEqual({ started: false })
+        expect(
+          await withOrgIdContext(f.org, () =>
+            reconcileWorkspaceWriteJob(jobId),
+          ),
+        ).toMatchObject({
+          status: "paused",
+          payload: {
+            mirror,
+            mergeFiles: command.mergeFiles,
+            mergeDeletePaths: command.mergeDeletePaths,
+          },
+        })
+        const invalidId = `${jobId}_invalid`
+        const errors: Error[] = []
+        expect(
+          await withOrgIdContext(f.org, () =>
+            enqueueWriteJob(
+              {
+                ...command,
+                jobId: invalidId,
+                mergeFiles: [
+                  { path: "notion/config.yaml", content: "replace" },
+                ],
+              },
+              { error: (error) => errors.push(error) },
+            ),
+          ),
+        ).toEqual({ started: false })
+        expect(errors).toHaveLength(1)
+        expect(
+          await withOrgIdContext(f.org, () =>
+            reconcileWorkspaceWriteJob(invalidId),
+          ),
+        ).toBeNull()
+        const { BackendPostgres } = await import("openworkflow/postgres")
+        const backend = await BackendPostgres.connect(f.databaseUrl, {
+          runMigrations: false,
+        })
+        try {
+          expect(
+            (await backend.listWorkflowRuns({ limit: 100 })).data.filter(
+              (run) =>
+                [jobId, invalidId].includes(
+                  (run.input as { jobId?: string })?.jobId ?? "",
+                ),
+            ),
+          ).toEqual([])
+        } finally {
+          await backend.stop()
         }
       },
     )
