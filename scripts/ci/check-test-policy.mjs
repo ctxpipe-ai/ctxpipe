@@ -54,8 +54,10 @@ try {
   )
   const checker = program.getTypeChecker()
   const initializerOf = (identifier) => {
-    const declaration =
-      checker.getSymbolAtLocation(identifier)?.valueDeclaration
+    const symbol = ts.isShorthandPropertyAssignment(identifier.parent)
+      ? checker.getShorthandAssignmentValueSymbol(identifier.parent)
+      : checker.getSymbolAtLocation(identifier)
+    const declaration = symbol?.valueDeclaration
     return declaration && ts.isVariableDeclaration(declaration)
       ? declaration.initializer
       : undefined
@@ -155,7 +157,7 @@ try {
           (ts.isIdentifier(unwrap(node.initializer)) ||
             (ts.isPropertyAccessExpression(unwrap(node.initializer)) &&
               ["vi", "vitest", "jest", "mock"].includes(
-                node.initializer.name.text,
+                unwrap(node.initializer).name.text,
               ))) &&
           mocks.has(rootName(node.initializer))
         )
