@@ -26,8 +26,15 @@ export type WorkspaceSemanticHandoff = {
   deletePaths: string[]
 }
 
+export type WorkspaceWritePlanning = {
+  rootSha: string
+  attempt: number
+  remainder: number
+}
+
 export type WorkspaceWriteJobPayload = {
   revision?: WorkspaceRevision
+  planning?: WorkspaceWritePlanning
   workflowRunId?: string
   semanticHandoff?: WorkspaceSemanticHandoff
   exportTipSha?: string

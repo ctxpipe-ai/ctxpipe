@@ -284,6 +284,19 @@ export async function getDesiredWorkspaceRevision(
   return revision ? { ...revision, access } : null
 }
 
+/** Revision and write access must come from the same PostgreSQL row version. */
+export async function getWorkspaceWriteAdmission(workspaceId: string) {
+  const row = await getWorkspaceById(workspaceId)
+  const revision = row ? desiredWorkspaceRevision(row) : null
+  return row && revision
+    ? {
+        revision: { ...revision, access: "write-default" as const },
+        writeStatus: row.writeStatus,
+        displayName: row.displayName,
+      }
+    : null
+}
+
 /** Failed discovery has no invented SHA; fence the exact database target that was observed. */
 export async function persistRevisionResolutionFailure(input: {
   expected: DesiredWorkspaceRecord

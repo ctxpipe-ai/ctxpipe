@@ -10,6 +10,7 @@ import {
   displayNameFromAgentsMarkdown,
   hydrateKnowledgeTree,
 } from "../../domain/workspaces/hydrate.js"
+import { planHydrateWrites } from "../../domain/workspaces/hydrate-write-planner.js"
 import {
   resolveRepositoryReadCredential,
   resolveWorkspaceReadRevision,
@@ -21,6 +22,7 @@ import {
   type WorkspaceRevision,
   workspaceRevisionSchema,
 } from "../../domain/workspaces/revision.js"
+import { reserveHydrateWrites } from "../../models/workspace-write-planning.js"
 import {
   commitHydrateProjection,
   getLinkedReadBinding,
@@ -83,7 +85,7 @@ async function enqueueLaggingIndex(input: {
 
 export const workspaceHydrate = defineWorkflow(
   { name: "workspace-hydrate", schema: workspaceHydrateInputSchema },
-  async ({ input: queuedInput }) => {
+  async ({ input: queuedInput, step }) => {
     // OpenWorkflow validates enqueue, but persisted pre-upgrade runs reach the worker directly.
     const input = workspaceHydrateInputSchema.parse(queuedInput)
     return withLogger(
@@ -128,13 +130,82 @@ export const workspaceHydrate = defineWorkflow(
               index: !active || active.stores.index.kind !== "ready",
               graph: !active || active.stores.graph.kind !== "ready",
             }
+            const planning = await step.run(
+              { name: "capture-planning-target" },
+              () => ({
+                needed: pending.postgres,
+                previousSha:
+                  projection?.kind === "active"
+                    ? projection.revision.sha
+                    : null,
+              }),
+            )
+            const files = planning.needed
+              ? await step.run({ name: "read-planning-revision" }, async () =>
+                  listMarkdownFilesAtGitSha({
+                    includeIntroducingCommits: true,
+                    url: revision.remote.url,
+                    sha: revision.sha,
+                    token:
+                      token ??
+                      (await resolveRepositoryReadCredential({
+                        orgId: input.orgId,
+                        env,
+                        remote: revision.remote,
+                      })),
+                  }),
+                )
+              : []
+            const enqueueRemainingWrites = async () => {
+              if (!planning.needed) return
+              const plan = await step.run(
+                { name: "plan-remaining-writes" },
+                () =>
+                  planHydrateWrites({
+                    revision,
+                    displayName: workspace.displayName,
+                    files,
+                  }),
+              )
+              // Import at the admission boundary: typed writers themselves enqueue hydrate.
+              const { enqueueWriteJob } = await import(
+                "../enqueue-workspace-write-commit.js"
+              )
+              const reserved = await step.run(
+                { name: "reserve-remaining-writes" },
+                () => reserveHydrateWrites({ revision, remaining: plan }),
+              )
+              for (const command of reserved) {
+                await step.run({ name: `admit-${command.kind}` }, async () => {
+                  await enqueueWriteJob(
+                    {
+                      orgId: input.orgId,
+                      workspaceId: revision.workspaceId,
+                      jobId: command.jobId,
+                      kind: command.kind,
+                      jobGeneration: revision.generation,
+                      jobWorkspaceUrl: revision.remote.url,
+                      jobDesiredSha: revision.sha,
+                      defaultBranch: revision.defaultBranch,
+                    },
+                    {
+                      error: (error) => {
+                        throw error
+                      },
+                    },
+                  )
+                })
+              }
+            }
             if (
               !pending.postgres &&
               !pending.embeddings &&
               !pending.index &&
               !pending.graph
-            )
+            ) {
+              await enqueueRemainingWrites()
               return { hydrated: false, reason: "noop" as const }
+            }
             if (
               pending.index &&
               !pending.postgres &&
@@ -145,23 +216,9 @@ export const workspaceHydrate = defineWorkflow(
                 orgId: input.orgId,
                 revision,
               })
+              await enqueueRemainingWrites()
               return { hydrated: false, reason: "index_lag" as const }
             }
-
-            const files = pending.postgres
-              ? await listMarkdownFilesAtGitSha({
-                  includeIntroducingCommits: true,
-                  url: revision.remote.url,
-                  sha: revision.sha,
-                  token:
-                    token ??
-                    (await resolveRepositoryReadCredential({
-                      orgId: input.orgId,
-                      env,
-                      remote: revision.remote,
-                    })),
-                })
-              : []
 
             const parsed = pending.postgres
               ? hydrateKnowledgeTree({
@@ -252,6 +309,7 @@ export const workspaceHydrate = defineWorkflow(
               })
             }
 
+            await enqueueRemainingWrites()
             return {
               hydrated: activated,
               units: parsed.units.length,

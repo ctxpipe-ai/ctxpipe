@@ -235,6 +235,13 @@ it(
         })
         const runner = new OpenWorkflow({ backend })
         runner.implementWorkflow(workspaceBootstrap.spec, workspaceBootstrap.fn)
+        const { workspaceSemanticMerge } = await import(
+          "../../openworkflow/workflows/workspace-semantic-merge.js"
+        )
+        runner.implementWorkflow(
+          workspaceSemanticMerge.spec,
+          workspaceSemanticMerge.fn,
+        )
         const worker = runner.newWorker({ concurrency: 1 })
         try {
           const jobId = `wjob_${f.id}_admitted`

@@ -6,7 +6,10 @@ import {
   type GithubRepoWriteView,
   githubInstallationCanPush,
 } from "../../../domain/workspaces/write-status.js"
-import { getInstallationOctokitForOrg } from "../../../models/github-installation.js"
+import {
+  getGithubAppInstallationPermissions,
+  getRepoReadOctokit,
+} from "../../../models/github-installation.js"
 export async function resolveGithubBranchTip(input: {
   orgId: string
   githubConnectionId?: string | null
@@ -66,12 +69,11 @@ export async function getGithubRepoWriteView(input: {
   env: Env
 }): Promise<GithubRepoWriteView> {
   assertNotInOrgDbContext()
-  const ctx = await getInstallationOctokitForOrg(
-    input.orgId,
-    input.env,
-    input.githubConnectionId ?? undefined,
-  )
-  if (!ctx) {
+  const octokit = await getRepoReadOctokit(input.orgId, input.env, {
+    githubConnectionId: input.githubConnectionId ?? undefined,
+    repoFullName: input.repoFullName,
+  })
+  if (!octokit) {
     throw new Error("GitHub installation not found")
   }
   const [owner, repo] = input.repoFullName.split("/")
@@ -82,7 +84,7 @@ export async function getGithubRepoWriteView(input: {
     error.status = 404
     throw error
   }
-  const { data } = await ctx.octokit.rest.repos.get({ owner, repo })
+  const { data } = await octokit.rest.repos.get({ owner, repo })
   const permissions = data.permissions
   const repoCanPush = permissions
     ? githubInstallationCanPush(permissions as GithubRepoPermissionBits)
@@ -94,26 +96,21 @@ export async function getGithubRepoWriteView(input: {
     }
   }
 
-  const installationId = ctx.installation?.installationId
-  if (typeof installationId === "number") {
-    try {
-      const { data: installation } =
-        await ctx.octokit.rest.apps.getInstallation({
-          installation_id: installationId,
-        })
-      if (
-        githubInstallationCanPush(
-          installation.permissions as GithubRepoPermissionBits,
-        )
-      ) {
-        return {
-          defaultBranch: data.default_branch || "",
-          canPush: true,
-        }
-      }
-    } catch {
-      /* keep the repos.get deny */
-    }
+  try {
+    const installationPermissions = await getGithubAppInstallationPermissions(
+      input.orgId,
+      input.env,
+      input.githubConnectionId ?? undefined,
+    )
+    if (
+      installationPermissions &&
+      githubInstallationCanPush(
+        installationPermissions as GithubRepoPermissionBits,
+      )
+    )
+      return { defaultBranch: data.default_branch || "", canPush: true }
+  } catch {
+    // Keep the repository's deny when the app cannot inspect its installation.
   }
 
   return {

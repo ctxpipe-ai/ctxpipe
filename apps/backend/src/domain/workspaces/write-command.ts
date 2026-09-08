@@ -3,10 +3,7 @@ import { withOrgIdContext } from "../../auth/withAuth.js"
 import type { Env } from "../../config/env.js"
 import { getSystemDb } from "../../db/client.js"
 import { reconcileWorkspaceWriteJob } from "../../models/workspace-write-jobs.js"
-import {
-  getDesiredWorkspaceRevision,
-  getWorkspaceById,
-} from "../../models/workspaces.js"
+import { getWorkspaceWriteAdmission } from "../../models/workspaces.js"
 import { createLogger, withLogger } from "../../observability/logger.js"
 import { gitRemoteEnvironment } from "../../services/git/clone-tree.js"
 import type { GitFileChange } from "../../services/git/file-change.js"
@@ -98,12 +95,13 @@ export async function acquireWorkspaceWriteRevision(
 ) {
   if (input.mirror)
     await assertConnectorMirrorBinding(input.orgId, input.mirror, revision)
-  const workspace = await getWorkspaceById(input.workspaceId)
-  const current = await getDesiredWorkspaceRevision(
-    input.workspaceId,
-    "write-default",
+  const workspace = await getWorkspaceWriteAdmission(input.workspaceId)
+  const current = workspace?.revision
+  if (
+    !workspace ||
+    !current ||
+    !sameWorkspaceRevision(current, { ...revision, sha: current.sha })
   )
-  if (!workspace || !sameWorkspaceRevision(current, revision))
     throw new Error("Workspace write binding changed")
   if (workspace.writeStatus !== "writable")
     throw new Error("Workspace is not writable")

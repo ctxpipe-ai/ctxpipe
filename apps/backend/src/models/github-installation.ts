@@ -798,6 +798,38 @@ export async function getInstallationToken(
   }
 }
 
+/** Read metadata with the same repository-scoped credential used for native Git. */
+export async function getRepoReadOctokit(
+  orgId: string,
+  env: Env,
+  input: { githubConnectionId?: string; repoFullName: string },
+) {
+  const token = await getRepoReadCloneToken(orgId, env, input)
+  return token ? new Octokit({ auth: token }) : undefined
+}
+
+/** App-authenticated permission inspection issues no installation write credential. */
+export async function getGithubAppInstallationPermissions(
+  orgId: string,
+  env: Env,
+  githubConnectionId?: string,
+) {
+  const installation = githubConnectionId
+    ? await getGithubInstallationByConnectionId(orgId, githubConnectionId)
+    : await resolveGithubInstallationForOrg(orgId, null)
+  if (!installation?.installationId) return null
+  const row = await loadGithubConnectionRow(orgId, installation.id)
+  if (!row) return null
+  const app = buildAppForConnection(row, env)
+  const { data } = await app.octokit.request(
+    "GET /app/installations/{installation_id}",
+    {
+      installation_id: installation.installationId,
+    },
+  )
+  return data.permissions
+}
+
 export async function getRepoReadCloneToken(
   orgId: string,
   env: Env,

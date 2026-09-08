@@ -1,10 +1,7 @@
 import type { Env } from "../../config/env.js"
 import { getRepoWriteCloneToken } from "../../models/github-installation.js"
 import { persistSemanticHandoff } from "../../models/workspace-write-jobs.js"
-import {
-  getDesiredWorkspaceRevision,
-  getWorkspaceById,
-} from "../../models/workspaces.js"
+import { getWorkspaceWriteAdmission } from "../../models/workspaces.js"
 import {
   gitRemoteEnvironment,
   resolveGitRemoteTip,
@@ -42,11 +39,8 @@ export async function pushWorkspaceCommit(
   const connectionId = revision.remote.connectionId
   if (!repositoryName || !connectionId)
     throw new Error("Workspace writes require a connected GitHub repository")
-  const current = await getDesiredWorkspaceRevision(
-    input.workspaceId,
-    "write-default",
-  )
-  const workspace = await getWorkspaceById(input.workspaceId)
+  const workspace = await getWorkspaceWriteAdmission(input.workspaceId)
+  const current = workspace?.revision ?? null
   if (!workspace || !sameWriteBinding(current, revision))
     throw new Error("Workspace write binding changed before push")
   const readToken = await resolveRepositoryReadCredential({
@@ -86,13 +80,9 @@ export async function pushWorkspaceCommit(
       if (pushTip.sha !== revision.sha && pushTip.sha !== committed.sha)
         throw new WorkspaceTipAdvancedError()
       // Credential acquisition and pack restoration may outlive a relink.
-      const admitted = await getDesiredWorkspaceRevision(
-        input.workspaceId,
-        "write-default",
-      )
-      const live = await getWorkspaceById(input.workspaceId)
+      const live = await getWorkspaceWriteAdmission(input.workspaceId)
       if (
-        !sameWorkspaceRevision(admitted, revision) ||
+        !sameWorkspaceRevision(live?.revision, revision) ||
         live?.writeStatus !== "writable"
       )
         throw new Error(
@@ -208,15 +198,19 @@ export async function refreshWorkspaceWriteRevision(
     env,
     refresh: true,
   })
-  const live = await getWorkspaceById(input.workspaceId)
+  const live = await getWorkspaceWriteAdmission(input.workspaceId)
   if (
     !resolved ||
     !sameWriteBinding(resolved.revision, revision) ||
     live?.writeStatus !== "writable"
   )
     throw new Error("Workspace write binding changed during no-op validation")
-  const current = await getDesiredWorkspaceRevision(input.workspaceId)
-  if (!sameWorkspaceRevision(current, resolved.revision))
+  if (
+    !sameWorkspaceRevision(live?.revision, {
+      ...resolved.revision,
+      access: "write-default",
+    })
+  )
     throw new Error("Workspace revision changed during no-op validation")
   return { ...resolved.revision, access: "write-default" }
 }

@@ -1,0 +1,146 @@
+{"name": "hydrate-planner-replay-native-final", "cwd": "/private/tmp/ctxpipe-recovery-01a07aba", "command": ["/Users/jakubriedl/.volta/tools/image/node/22.16.0/bin/node", "apps/backend/node_modules/vitest/vitest.mjs", "run", "--root", "apps/backend", "src/domain/workspaces/hydration.contract.test.ts", "src/domain/workspaces/hydrate-planner-native.contract.test.ts", "src/domain/workspaces/write-workflow-native.contract.test.ts", "-t", "^(?!.*(?:owns bootstrap|does not push|does not write|lost|read-only|unavailable workspace|no-op against|unknown|repeated|completed command)).*"], "environment": {"AUTH_SECRET": "gate0-local-disposable-test-secret-20260907", "DATABASE_URL": "postgresql://ctxpipe_app:ctxpipe@127.0.0.1:61314/ctxpipe_gate0_fresh", "GRAPH_DB_URI": "redis://127.0.0.1:6398", "CI": "true", "NO_COLOR": "1", "TURBO_TELEMETRY_DISABLED": "1", "STORYBOOK_DISABLE_TELEMETRY": "1", "PATH": "/Users/jakubriedl/.volta/tools/image/node/22.16.0/bin:/private/tmp/ctxpipe-recovery-runtime/ast-grep/node_modules/.bin:/private/tmp/ctxpipe-recovery-runtime/node_modules/.bin:/private/tmp/ctxpipe-recovery-runtime/zoekt:/usr/local/bin:/System/Cryptexes/App/usr/bin:/usr/bin:/bin:/usr/sbin:/sbin:/var/run/com.apple.security.cryptexd/codex.system/bootstrap/usr/local/bin:/var/run/com.apple.security.cryptexd/codex.system/bootstrap/usr/bin:/var/run/com.apple.security.cryptexd/codex.system/bootstrap/usr/appleinternal/bin:/pkg/env/global/bin:/Users/jakubriedl/.codex/tmp/arg0/codex-arg0BW5Gt3:/Users/jakubriedl/.cache/codex-runtimes/codex-primary-runtime/dependencies/bin/override:/Users/jakubriedl/.local/bin:/Users/jakubriedl/.bun/bin:/Users/jakubriedl/.opencode/bin:/Users/jakubriedl/.volta/bin:/opt/homebrew/bin:/opt/homebrew/sbin:/Users/jakubriedl/.cache/codex-runtimes/codex-primary-runtime/dependencies/bin/fallback:/Applications/ChatGPT.app/Contents/Resources"}, "timeout_seconds": 600, "started_utc": "2026-09-08T13:21:58Z", "log": "logs/hydrate-planner-replay-native-final.log"}
+
+ RUN  v4.0.18 /private/tmp/ctxpipe-recovery-01a07aba/apps/backend
+
+Cloning into bare repository '/var/folders/9t/jj9rnpps7_ddb72c1mq2k13w0000gn/T/ctxpipe-hydration-contract-CwAFOo/remote.git'...
+done.
+Cloning into bare repository '/var/folders/9t/jj9rnpps7_ddb72c1mq2k13w0000gn/T/ctxpipe-hydration-contract-cvwI1D/remote.git'...
+done.
+Cloning into bare repository '/var/folders/9t/jj9rnpps7_ddb72c1mq2k13w0000gn/T/ctxpipe-hydration-contract-qw6Bob/remote.git'...
+done.
+Cloning into bare repository '/var/folders/9t/jj9rnpps7_ddb72c1mq2k13w0000gn/T/ctxpipe-hydration-contract-cwKLZW/remote.git'...
+done.
+Cloning into bare repository '/var/folders/9t/jj9rnpps7_ddb72c1mq2k13w0000gn/T/ctxpipe-hydration-contract-oVEVqb/remote.git'...
+done.
+Cloning into bare repository '/var/folders/9t/jj9rnpps7_ddb72c1mq2k13w0000gn/T/ctxpipe-hydration-contract-pU8OnJ/remote.git'...
+done.
+Cloning into bare repository '/var/folders/9t/jj9rnpps7_ddb72c1mq2k13w0000gn/T/ctxpipe-hydration-contract-wmPq60/remote.git'...
+done.
+Cloning into bare repository '/var/folders/9t/jj9rnpps7_ddb72c1mq2k13w0000gn/T/ctxpipe-hydration-contract-plwumz/remote.git'...
+done.
+stdout | src/domain/workspaces/write-workflow-native.contract.test.ts > can retry an identical command after native workflow admission fails
+{
+  severity_local: 'NOTICE',
+  severity: 'NOTICE',
+  code: '00000',
+  message: 'trigger "fixture_enqueue_hydrate_1788873771868_xdhfjmm6yv9" for relation "openworkflow.workflow_runs" does not exist, skipping',
+  file: 'dropcmds.c',
+  line: '523',
+  routine: 'does_not_exist_skipping'
+}
+
+ ✓ src/domain/workspaces/write-workflow-native.contract.test.ts (16 tests | 8 skipped) 51988ms
+   ✓ bootstraps a workspace in one native commit with a durable job result  4535ms
+   ✓ replays an already published bootstrap job without a second commit  5004ms
+   ✓ replays a completed no-op without creating a commit  6104ms
+   ✓ admits bootstrap through the production queue as a bound typed workflow  25540ms
+   ✓ publishes Markdown hard breaks and a deletion through one typed native workflow  3641ms
+   ✓ gives concurrent deliveries of one job a single workflow owner and commit  3169ms
+   ✓ preserves executable and symlink modes when editing their native Git blobs  2552ms
+   ✓ can retry an identical command after native workflow admission fails  1441ms
+Cloning into bare repository '/var/folders/9t/jj9rnpps7_ddb72c1mq2k13w0000gn/T/ctxpipe-hydration-contract-b13m5Z/remote.git'...
+done.
+Cloning into bare repository '/var/folders/9t/jj9rnpps7_ddb72c1mq2k13w0000gn/T/ctxpipe-hydration-contract-SkK5CB/remote.git'...
+done.
+Cloning into bare repository '/var/folders/9t/jj9rnpps7_ddb72c1mq2k13w0000gn/T/ctxpipe-hydration-contract-oVwGgl/remote.git'...
+done.
+Cloning into bare repository '/var/folders/9t/jj9rnpps7_ddb72c1mq2k13w0000gn/T/ctxpipe-hydration-contract-DymMBr/remote.git'...
+done.
+Cloning into bare repository '/var/folders/9t/jj9rnpps7_ddb72c1mq2k13w0000gn/T/ctxpipe-hydration-contract-rFcDTH/remote.git'...
+done.
+Cloning into bare repository '/var/folders/9t/jj9rnpps7_ddb72c1mq2k13w0000gn/T/ctxpipe-hydration-contract-rPEycI/remote.git'...
+done.
+Cloning into bare repository '/var/folders/9t/jj9rnpps7_ddb72c1mq2k13w0000gn/T/ctxpipe-hydration-contract-Hcg86w/remote.git'...
+done.
+Cloning into bare repository '/var/folders/9t/jj9rnpps7_ddb72c1mq2k13w0000gn/T/ctxpipe-hydration-contract-zauIQh/remote.git'...
+done.
+Cloning into bare repository '/var/folders/9t/jj9rnpps7_ddb72c1mq2k13w0000gn/T/ctxpipe-hydration-contract-3WIDlp/remote.git'...
+done.
+Cloning into bare repository '/var/folders/9t/jj9rnpps7_ddb72c1mq2k13w0000gn/T/ctxpipe-hydration-contract-3ivhkF/remote.git'...
+done.
+Cloning into bare repository '/var/folders/9t/jj9rnpps7_ddb72c1mq2k13w0000gn/T/ctxpipe-hydration-contract-rhXmMk/remote.git'...
+done.
+Cloning into bare repository '/var/folders/9t/jj9rnpps7_ddb72c1mq2k13w0000gn/T/ctxpipe-hydration-contract-qpodmV/remote.git'...
+done.
+Cloning into bare repository '/var/folders/9t/jj9rnpps7_ddb72c1mq2k13w0000gn/T/ctxpipe-hydration-contract-s4J53W/remote.git'...
+done.
+Cloning into bare repository '/var/folders/9t/jj9rnpps7_ddb72c1mq2k13w0000gn/T/ctxpipe-hydration-contract-YcVBo0/remote.git'...
+done.
+Cloning into bare repository '/var/folders/9t/jj9rnpps7_ddb72c1mq2k13w0000gn/T/ctxpipe-hydration-contract-wD6t15/remote.git'...
+done.
+Cloning into bare repository '/var/folders/9t/jj9rnpps7_ddb72c1mq2k13w0000gn/T/ctxpipe-hydration-contract-QcjLrm/remote.git'...
+done.
+Cloning into bare repository '/var/folders/9t/jj9rnpps7_ddb72c1mq2k13w0000gn/T/ctxpipe-hydration-contract-GQCM2S/remote.git'...
+done.
+To /var/folders/9t/jj9rnpps7_ddb72c1mq2k13w0000gn/T/ctxpipe-hydration-contract-GQCM2S/remote.git
+   549f19b..c08dcc1  HEAD -> main
+Cloning into bare repository '/var/folders/9t/jj9rnpps7_ddb72c1mq2k13w0000gn/T/ctxpipe-hydration-contract-N8MzoU/remote.git'...
+done.
+To /var/folders/9t/jj9rnpps7_ddb72c1mq2k13w0000gn/T/ctxpipe-hydration-contract-N8MzoU/remote.git
+   ebfd9fd..bbf67c1  HEAD -> main
+Cloning into bare repository '/var/folders/9t/jj9rnpps7_ddb72c1mq2k13w0000gn/T/ctxpipe-hydration-contract-L4nuMl/remote.git'...
+done.
+To /var/folders/9t/jj9rnpps7_ddb72c1mq2k13w0000gn/T/ctxpipe-hydration-contract-L4nuMl/remote.git
+   7fe3f80..41e2841  HEAD -> main
+Cloning into bare repository '/var/folders/9t/jj9rnpps7_ddb72c1mq2k13w0000gn/T/ctxpipe-hydration-contract-GyxSeK/remote.git'...
+done.
+Cloning into bare repository '/var/folders/9t/jj9rnpps7_ddb72c1mq2k13w0000gn/T/ctxpipe-hydration-contract-SjWOLg/remote.git'...
+done.
+Cloning into bare repository '/var/folders/9t/jj9rnpps7_ddb72c1mq2k13w0000gn/T/ctxpipe-hydration-contract-JcTdSC/remote.git'...
+done.
+Cloning into bare repository '/var/folders/9t/jj9rnpps7_ddb72c1mq2k13w0000gn/T/ctxpipe-hydration-contract-UjtSHB/remote.git'...
+done.
+Cloning into bare repository '/var/folders/9t/jj9rnpps7_ddb72c1mq2k13w0000gn/T/ctxpipe-hydration-contract-I2I6Fa/remote.git'...
+done.
+To /var/folders/9t/jj9rnpps7_ddb72c1mq2k13w0000gn/T/ctxpipe-hydration-contract-I2I6Fa/remote.git
+   29b5f90..b21f349  HEAD -> main
+Cloning into bare repository '/var/folders/9t/jj9rnpps7_ddb72c1mq2k13w0000gn/T/ctxpipe-hydration-contract-zQzjEN/remote.git'...
+done.
+ ✓ src/domain/workspaces/hydration.contract.test.ts (25 tests) 55654ms
+   ✓ hydrates 0 committed native Git files without reading uncommitted replacements  2240ms
+   ✓ hydrates 1 committed native Git files without reading uncommitted replacements  1441ms
+   ✓ hydrates a 100-file immutable tree within eight native Git commands  1476ms
+   ✓ rejects a hydrate queued before its workspace is relinked  1385ms
+   ✓ resolves a missing tip before queuing generation 1 without a separate tip-check job  1352ms
+   ✓ resolves a missing tip before queuing generation 2 without a separate tip-check job  1350ms
+   ✓ hydrates native Git content with read_only write access  1491ms
+   ✓ hydrates native Git content with writable write access  1478ms
+   ✓ uses repository-scoped read credentials for GitHub trees  1652ms
+   ✓ a completed immutable hydrate does not request credentials again  2542ms
+   ✓ records an index credential failure independently of published knowledge  2441ms
+   ✓ marks an incomplete embedding response failed without losing the projection  1628ms
+   ✓ rejects an index queued under another default branch at the same SHA  2410ms
+   ✓ persists the full hydrate revision before a later generation change  1893ms
+   ✓ preserves independent store failure and retry results  2437ms
+   ✓ retries embeddings from PostgreSQL after the Git remote disappears  2621ms
+   ✓ atomically replaces published units while reporting a malformed sibling  2566ms
+   ✓ publishes a resolved Git rewind and restores the previous files  4022ms
+   ✓ rolls back unit replacement when PostgreSQL rejects duplicate serving ids  2305ms
+   ✓ same-SHA relink publishes a new generation with pending search freshness  3781ms
+   ✓ queues indexing with the newly published generation identity  2475ms
+   ✓ discards embedding results from a superseded generation  2471ms
+   ✓ discards hydrate failures from a superseded generation  2732ms
+   ✓ derives missing claim dates from each file's introducing commit, not the hydrated tip  3805ms
+   ✓ rejects persisted legacy hydrate input instead of rebinding its branch  1658ms
+Cloning into bare repository '/var/folders/9t/jj9rnpps7_ddb72c1mq2k13w0000gn/T/ctxpipe-hydration-contract-OeBvIA/remote.git'...
+done.
+Cloning into bare repository '/var/folders/9t/jj9rnpps7_ddb72c1mq2k13w0000gn/T/ctxpipe-hydration-contract-SJOu2o/remote.git'...
+done.
+Cloning into bare repository '/var/folders/9t/jj9rnpps7_ddb72c1mq2k13w0000gn/T/ctxpipe-hydration-contract-ao7nSB/remote.git'...
+done.
+Cloning into bare repository '/var/folders/9t/jj9rnpps7_ddb72c1mq2k13w0000gn/T/ctxpipe-hydration-contract-Xef9jk/remote.git'...
+done.
+Cloning into bare repository '/var/folders/9t/jj9rnpps7_ddb72c1mq2k13w0000gn/T/ctxpipe-hydration-contract-nPNsGS/remote.git'...
+done.
+ ✓ src/domain/workspaces/hydrate-planner-native.contract.test.ts (5 tests) 15371ms
+   ✓ hydration durably admits each remaining maintenance concern once  2589ms
+   ✓ queued maintenance jobs retain their work when an earlier job advances default  7841ms
+   ✓ hydrate stops 'capped' concerns without blocking another kind  1814ms
+   ✓ hydrate stops 'non-shrinking' concerns without blocking another kind  1462ms
+   ✓ a failed admission probe leaves planned jobs paused and resumable  1663ms
+
+ Test Files  3 passed (3)
+      Tests  38 passed | 8 skipped (46)
+   Start at  23:21:58
+   Duration  129.11s (transform 1.05s, setup 27ms, import 5.84s, tests 123.01s, environment 0ms)
+

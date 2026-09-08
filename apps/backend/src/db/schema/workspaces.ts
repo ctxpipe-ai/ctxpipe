@@ -13,7 +13,10 @@ import {
 import type { ConnectorMirrorSource } from "../../domain/workspaces/connector-mirror.js"
 import type { HydratePhaseRecord } from "../../domain/workspaces/hydrate-phases.js"
 import type { WorkspaceRevision } from "../../domain/workspaces/revision.js"
-import type { WorkspaceSemanticHandoff } from "../../domain/workspaces/write-job-intent.js"
+import type {
+  WorkspaceSemanticHandoff,
+  WorkspaceWritePlanning,
+} from "../../domain/workspaces/write-job-intent.js"
 import type { GitFileChange } from "../../services/git/file-change.js"
 import { connections } from "./connections.js"
 import { orgIsolationPolicy } from "./org-rls.js"
@@ -176,6 +179,7 @@ export const workspaceWriteJobs = pgTable.withRLS(
     status: text("status").notNull().default("queued"),
     payload: jsonb("payload").$type<{
       revision?: WorkspaceRevision
+      planning?: WorkspaceWritePlanning
       workflowRunId?: string
       semanticHandoff?: WorkspaceSemanticHandoff
       exportTipSha?: string

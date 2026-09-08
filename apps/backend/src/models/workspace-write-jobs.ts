@@ -631,7 +631,8 @@ export async function persistBoundWriteJob(input: {
     if (!input.workflowRunId && row.payload?.revision) {
       if (
         !row.payload.workflowRunId &&
-        row.status === WRITE_JOB_STATUSES.failed
+        (row.status === WRITE_JOB_STATUSES.failed ||
+          row.status === WRITE_JOB_STATUSES.paused)
       ) {
         await getOrgDb()
           .update(workspaceWriteJobs)
@@ -639,13 +640,14 @@ export async function persistBoundWriteJob(input: {
           .where(
             and(
               eq(workspaceWriteJobs.id, input.id),
-              eq(workspaceWriteJobs.status, WRITE_JOB_STATUSES.failed),
+              sql`${workspaceWriteJobs.status} in ('failed', 'paused')`,
               sql`${workspaceWriteJobs.payload}->>'workflowRunId' is null`,
             ),
           )
       }
       return
     }
+    if (row.payload?.planning) payload.planning = row.payload.planning
     const [claimed] = await getOrgDb()
       .update(workspaceWriteJobs)
       .set({ payload, status: values.status, updatedAt: new Date() })
