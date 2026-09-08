@@ -1,4 +1,11 @@
-import { readFileSync, rmSync, writeFileSync } from "node:fs"
+import { execFileSync } from "node:child_process"
+import {
+  existsSync,
+  mkdirSync,
+  readFileSync,
+  rmSync,
+  writeFileSync,
+} from "node:fs"
 import { join } from "node:path"
 import { OpenWorkflow } from "openworkflow"
 import { BackendPostgres } from "openworkflow/postgres"
@@ -9,7 +16,10 @@ import {
   listPausedWriteJobs,
   reconcileWorkspaceWriteJob,
 } from "../../models/workspace-write-jobs.js"
-import { getWorkspaceById } from "../../models/workspaces.js"
+import {
+  getWorkspaceById,
+  persistWriteStatus,
+} from "../../models/workspaces.js"
 import { enqueueWriteJob } from "../../openworkflow/enqueue-workspace-write-commit.js"
 import { workspaceBootstrap } from "../../openworkflow/workflows/workspace-bootstrap.js"
 import { workspaceFileEdit } from "../../openworkflow/workflows/workspace-file-edit.js"
@@ -18,6 +28,125 @@ import { withNativeHydrationFixture } from "../../test/native-hydration-fixture.
 import { resolveWorkspaceReadRevision } from "./resolve-revision.js"
 import { enqueueInputFromPausedJob } from "./write-job-intent.js"
 import { WRITE_STATUS_REASONS } from "./write-status.js"
+
+it(
+  "completes an already-satisfied edit when write access is revoked after acquisition",
+  { timeout: 45_000 },
+  async () => {
+    await withNativeHydrationFixture(
+      {
+        github: true,
+        githubWriteView: "writable",
+        writeStatus: "writable",
+        files: [{ path: "notes.md", body: "# Already saved\n" }],
+      },
+      async (f) => {
+        await f.runner.cancelWorkflowRun(f.handle.workflowRun.id)
+        f.runner.implementWorkflow(workspaceFileEdit.spec, workspaceFileEdit.fn)
+        const realGit = execFileSync("/bin/sh", ["-c", "command -v git"], {
+          encoding: "utf8",
+        }).trim()
+        const bin = join(f.directory, "pause-bin")
+        mkdirSync(bin)
+        const read = join(f.directory, "file-read")
+        const release = join(f.directory, "permission-revoked")
+        // Run native Git, holding its successful file read across the permission change.
+        writeFileSync(
+          join(bin, "git"),
+          `#!${process.execPath}
+const { spawnSync } = require("node:child_process");
+const { existsSync, writeFileSync } = require("node:fs");
+const args = process.argv.slice(2);
+const result = spawnSync(${JSON.stringify(realGit)}, args, { stdio: "inherit" });
+if (result.status === 0 && args.includes("show") && args.includes(${JSON.stringify(`${f.sha}:notes.md`)})) {
+  writeFileSync(${JSON.stringify(read)}, "read");
+  const deadline = Date.now() + 15000;
+  while (!existsSync(${JSON.stringify(release)}) && Date.now() < deadline) Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 20);
+}
+process.exit(result.status ?? 1);
+`,
+          { mode: 0o700 },
+        )
+        const priorPath = process.env.PATH
+        process.env.PATH = `${bin}:${priorPath}`
+        const worker = f.runner.newWorker({ concurrency: 1 })
+        const jobId = `wjob_${f.id}_read_only_noop`
+        const handle = await f.runner.runWorkflow(workspaceFileEdit.spec, {
+          orgId: f.org.id,
+          workspaceId: f.workspaceId,
+          jobId,
+          revision: { ...f.revision, access: "write-default" },
+          files: [{ path: "notes.md", content: "# Already saved\n" }],
+          deletePaths: [],
+        })
+        try {
+          await worker.start()
+          await expect
+            .poll(() => existsSync(read), { timeout: 15_000 })
+            .toBe(true)
+          await withOrgIdContext(f.org, async () => {
+            const binding = await getWorkspaceById(f.workspaceId)
+            if (!binding) throw new Error("Fixture workspace missing")
+            await persistWriteStatus(
+              binding,
+              {
+                writeStatus: "read_only",
+                readOnlyReason: WRITE_STATUS_REASONS.contentsWriteDenied,
+              },
+              f.org.id,
+            )
+          })
+          writeFileSync(release, "release")
+          const result = await handle
+            .result({ timeoutMs: 8_000 })
+            .catch(async (error) => {
+              const steps = await f.backend.listStepAttempts({
+                workflowRunId: handle.workflowRun.id,
+              })
+              throw new Error(
+                JSON.stringify({
+                  error: String(error),
+                  steps: steps.data.map((attempt) => ({
+                    name: attempt.stepName,
+                    status: attempt.status,
+                    error: attempt.error,
+                  })),
+                }),
+              )
+            })
+          expect(result).toEqual({
+            committed: false,
+            reason: "no_changes",
+          })
+          expect(
+            await withOrgIdContext(
+              f.org,
+              async () => (await reconcileWorkspaceWriteJob(jobId))?.status,
+            ),
+          ).toBe("completed")
+          expect(f.git("--git-dir", f.remote, "rev-parse", "main")).toBe(f.sha)
+          expect(
+            f.tokenRequests.filter(
+              (request) =>
+                (request as { permissions?: { contents?: string } }).permissions
+                  ?.contents === "write",
+            ),
+          ).toHaveLength(0)
+        } finally {
+          writeFileSync(release, "release")
+          const run = await f.backend.getWorkflowRun({
+            workflowRunId: handle.workflowRun.id,
+          })
+          if (run && !["completed", "failed", "canceled"].includes(run.status))
+            await f.runner.cancelWorkflowRun(run.id)
+          await worker.stop()
+          if (priorPath === undefined) delete process.env.PATH
+          else process.env.PATH = priorPath
+        }
+      },
+    )
+  },
+)
 
 it(
   "resumes a paused captured command after a human advances the same repository",
@@ -230,11 +359,6 @@ it.each(["bootstrap", "ui_file_edit"] as const)(
         } finally {
           for (const run of (await backend.listWorkflowRuns({ limit: 100 }))
             .data) {
-            if (
-              (run.input as { jobId?: string }).jobId === command.jobId &&
-              run.error
-            )
-              console.info("Native wait failure", run.status, run.error.message)
             if (
               (run.input as { workspaceId?: string }).workspaceId ===
                 f.workspaceId &&
@@ -457,12 +581,6 @@ it(
           const finalRun = await backend.getWorkflowRun({
             workflowRunId: handle.workflowRun.id,
           })
-          if (finalRun?.error)
-            console.info(
-              "Protected write native failure",
-              finalRun.status,
-              finalRun.error.message,
-            )
           if (
             finalRun &&
             !["completed", "failed", "canceled"].includes(finalRun.status)

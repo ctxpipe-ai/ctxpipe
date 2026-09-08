@@ -3,15 +3,15 @@ import { and, desc, eq, sql } from "drizzle-orm"
 import { requireCurrentOrgId } from "../auth/context.js"
 import { getOrgDb } from "../db/client.js"
 import { workspaces, workspaceWriteJobs } from "../db/schema/workspaces.js"
+import type { HydrateWriteRequirement } from "../domain/workspaces/hydrate-write-planner.js"
 import type { WorkspaceRevision } from "../domain/workspaces/revision.js"
-import type { WorkspaceWriteKind } from "../domain/workspaces/write-commit-files.js"
 import { WRITE_JOB_RETRY_CAP_PER_SHA } from "../domain/workspaces/write-jobs.js"
 import { orgSql } from "./workspace-sql.js"
 
 /** Reserve intents only; native typed workflows own execution, retry and completion. */
 export async function reserveHydrateWrites(input: {
   revision: WorkspaceRevision
-  remaining: Array<{ kind: WorkspaceWriteKind; remainder: number }>
+  remaining: HydrateWriteRequirement[]
 }) {
   return orgSql(async () => {
     const db = getOrgDb()
@@ -43,8 +43,13 @@ export async function reserveHydrateWrites(input: {
       .orderBy(desc(workspaceWriteJobs.createdAt))
       .limit(1)
     const rootSha = publisher?.payload?.planning?.rootSha ?? revision.sha
-    const reserved: Array<{ kind: WorkspaceWriteKind; jobId: string }> = []
-    for (const { kind, remainder } of input.remaining) {
+    const reserved: Array<{
+      kind: HydrateWriteRequirement["kind"]
+      jobId: string
+      previousSha?: string
+    }> = []
+    for (const requirement of input.remaining) {
+      const { kind, remainder } = requirement
       if (remainder <= 0) continue
       const [previous] = await db
         .select()
@@ -66,7 +71,13 @@ export async function reserveHydrateWrites(input: {
         previous?.desiredSha === revision.sha &&
         ["queued", "paused"].includes(previous.status)
       ) {
-        reserved.push({ kind, jobId: previous.id })
+        reserved.push({
+          kind,
+          jobId: previous.id,
+          ...(previous.payload?.previousSha
+            ? { previousSha: previous.payload.previousSha }
+            : {}),
+        })
         continue
       }
       const prior = previous?.payload?.planning
@@ -106,9 +117,18 @@ export async function reserveHydrateWrites(input: {
           jobWorkspaceUrl: revision.remote.url,
           defaultBranch: revision.defaultBranch,
           planning,
+          ...(requirement.kind === "rename_rewrite"
+            ? { previousSha: requirement.previousSha }
+            : {}),
         },
       })
-      reserved.push({ kind, jobId })
+      reserved.push({
+        kind,
+        jobId,
+        ...(requirement.kind === "rename_rewrite"
+          ? { previousSha: requirement.previousSha }
+          : {}),
+      })
     }
     return reserved
   })

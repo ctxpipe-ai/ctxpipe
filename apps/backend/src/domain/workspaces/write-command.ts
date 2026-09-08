@@ -5,13 +5,8 @@ import { getSystemDb } from "../../db/client.js"
 import { reconcileWorkspaceWriteJob } from "../../models/workspace-write-jobs.js"
 import { getWorkspaceWriteAdmission } from "../../models/workspaces.js"
 import { createLogger, withLogger } from "../../observability/logger.js"
-import { gitRemoteEnvironment } from "../../services/git/clone-tree.js"
 import type { GitFileChange } from "../../services/git/file-change.js"
-import {
-  captureGitPack,
-  nativeGit,
-  withGitDirectory,
-} from "../../services/git/pack.js"
+import { readGitPackFromRemote } from "../../services/git/pack.js"
 import type { ConnectorMirrorSource } from "./connector-mirror.js"
 import { assertConnectorMirrorBinding } from "./connector-mirror.js"
 import { resolveRepositoryReadCredential } from "./resolve-revision.js"
@@ -109,26 +104,11 @@ export async function acquireWorkspaceWriteRevision(
     env,
     remote: revision.remote,
   })
-  const pack = await withGitDirectory(revision.sha, async (directory) => {
-    await nativeGit(
-      directory,
-      [
-        "fetch",
-        "--depth",
-        "1",
-        "--",
-        revision.remote.url,
-        revision.sha,
-        ...(previousSha ? [previousSha] : []),
-      ],
-      undefined,
-      gitRemoteEnvironment({ url: revision.remote.url, token }),
-    )
-    return captureGitPack(
-      directory,
-      revision.sha,
-      previousSha ? [previousSha] : [],
-    )
+  const pack = await readGitPackFromRemote({
+    url: revision.remote.url,
+    sha: revision.sha,
+    additionalShas: previousSha ? [previousSha] : [],
+    token,
   })
   return { pack, displayName: workspace.displayName }
 }

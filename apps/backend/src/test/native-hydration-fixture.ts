@@ -42,6 +42,7 @@ export type NativeHydrationOptions = {
   githubWriteView?: "writable" | "missing"
   githubRepoPermissions?: GithubRepoPermissionBits | null
   githubInstallationPermissions?: GithubRepoPermissionBits
+  githubContentFiles?: Record<string, string>
   embeddings?: "ready" | "failed" | "empty"
   missingTip?: boolean
   writeStatus?: "read_only" | "writable"
@@ -155,6 +156,19 @@ async function createNativeHydrationFixture(
     http.get(
       "https://api.github.com/repos/fixture/hydration-contract/git/trees/:sha",
       () => HttpResponse.json({ message: "Use native Git" }, { status: 404 }),
+    ),
+    http.get(
+      "https://api.github.com/repos/fixture/hydration-contract/contents/*",
+      ({ params }) => {
+        const content = options.githubContentFiles?.[String(params[0])]
+        return content === undefined
+          ? HttpResponse.json({ message: "Not found" }, { status: 404 })
+          : HttpResponse.json({
+              type: "file",
+              encoding: "base64",
+              content: Buffer.from(content).toString("base64"),
+            })
+      },
     ),
     http.post(
       "https://hydrate-model.test/v1/chat/completions",

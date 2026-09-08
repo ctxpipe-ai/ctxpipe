@@ -11,6 +11,7 @@ import {
   hydrateKnowledgeTree,
 } from "../../domain/workspaces/hydrate.js"
 import { planHydrateWrites } from "../../domain/workspaces/hydrate-write-planner.js"
+import { nativeRenameRewriteFiles } from "../../domain/workspaces/native-rename-rewrite.js"
 import {
   resolveRepositoryReadCredential,
   resolveWorkspaceReadRevision,
@@ -39,6 +40,7 @@ import {
 } from "../../observability/logger.js"
 import { generateEmbeddings } from "../../retrieval/services/modelProvider.js"
 import { listMarkdownFilesAtGitSha } from "../../services/git/clone-tree.js"
+import { readGitPackFromRemote } from "../../services/git/pack.js"
 import { enqueueWorkspaceIndex } from "../enqueue-workspace-index.js"
 
 const workspaceHydrateInputSchema = z
@@ -135,7 +137,11 @@ export const workspaceHydrate = defineWorkflow(
               () => ({
                 needed: pending.postgres,
                 previousSha:
-                  projection?.kind === "active"
+                  projection?.kind === "active" &&
+                  sameWorkspaceRevision(
+                    { ...projection.revision, sha: revision.sha },
+                    revision,
+                  )
                     ? projection.revision.sha
                     : null,
               }),
@@ -160,12 +166,41 @@ export const workspaceHydrate = defineWorkflow(
               if (!planning.needed) return
               const plan = await step.run(
                 { name: "plan-remaining-writes" },
-                () =>
-                  planHydrateWrites({
+                async () => {
+                  const remaining = planHydrateWrites({
                     revision,
                     displayName: workspace.displayName,
                     files,
-                  }),
+                  })
+                  if (
+                    planning.previousSha &&
+                    planning.previousSha !== revision.sha
+                  ) {
+                    const pack = await readGitPackFromRemote({
+                      url: revision.remote.url,
+                      sha: revision.sha,
+                      additionalShas: [planning.previousSha],
+                      token:
+                        token ??
+                        (await resolveRepositoryReadCredential({
+                          orgId: input.orgId,
+                          env,
+                          remote: revision.remote,
+                        })),
+                    })
+                    const changes = await nativeRenameRewriteFiles(
+                      pack,
+                      planning.previousSha,
+                    )
+                    if (changes.length)
+                      remaining.push({
+                        kind: "rename_rewrite",
+                        previousSha: planning.previousSha,
+                        remainder: changes.length,
+                      })
+                  }
+                  return remaining
+                },
               )
               // Import at the admission boundary: typed writers themselves enqueue hydrate.
               const { enqueueWriteJob } = await import(
@@ -183,6 +218,7 @@ export const workspaceHydrate = defineWorkflow(
                       workspaceId: revision.workspaceId,
                       jobId: command.jobId,
                       kind: command.kind,
+                      previousSha: command.previousSha,
                       jobGeneration: revision.generation,
                       jobWorkspaceUrl: revision.remote.url,
                       jobDesiredSha: revision.sha,

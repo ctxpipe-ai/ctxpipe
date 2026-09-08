@@ -3,6 +3,7 @@ import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { promisify } from "node:util"
+import { gitRemoteEnvironment } from "./clone-tree.js"
 
 const execute = promisify(execFile)
 
@@ -111,4 +112,30 @@ export async function readGitFiles(
     },
     pack,
   )
+}
+
+/** Capture immutable remote trees with a transient caller-owned read credential. */
+export async function readGitPackFromRemote(input: {
+  url: string
+  sha: string
+  additionalShas?: readonly string[]
+  token?: string
+}): Promise<GitPack> {
+  return withGitDirectory(input.sha, async (directory) => {
+    await nativeGit(
+      directory,
+      [
+        "fetch",
+        "--depth",
+        "1",
+        "--",
+        input.url,
+        input.sha,
+        ...(input.additionalShas ?? []),
+      ],
+      undefined,
+      gitRemoteEnvironment({ url: input.url, token: input.token }),
+    )
+    return captureGitPack(directory, input.sha, input.additionalShas)
+  })
 }

@@ -8,7 +8,7 @@ All twelve typed workspace workflows call `domain/workspaces/write-broker.ts`. I
 
 ## Remaining alternate writers
 
-- Linear `services/linear/sync.ts`: full and incremental content both call `commitFiles`. The full/partial parent workflows must capture third-party results without credentials, then use a native typed connector child. Full sync currently persists decrypted connection data in a durable step; eliminate that output.
+- Linear full and incremental parents now capture files without durable credentials and use `step.runWorkflow` for the typed native connector child. Config-PR behavior remains. Complete connector setup failure projection/finalization and binding-race audit before acceptance.
 - Notion `services/notion/sync.ts`: full and incremental content call `commitFiles`.
 - Confluence `services/confluence/sync.ts`: captured content calls `commitFiles`.
 - Slack `services/slack/sync.ts`: mention capture calls `commitFiles`.
@@ -26,4 +26,4 @@ The native broker exposes a default-branch protection denial as binding-fenced r
 
 ## Remaining automatic planning
 
-Four typed kinds are durably planned after hydrate with independent caps and shrinking-remainder checks. Rename planning still needs the previous immutable tree and actual Git similarity result, extraction needs current source/path-assignment inputs, and migration export needs ordered bootstrap/import-key follow-up. Existing obsolete path heuristics and generic runner follow-ups must be removed when the native replacements are wired.
+Five typed kinds are durably planned after hydrate with independent caps and shrinking-remainder checks. Rename planning uses the previous immutable tree and actual Git similarity result. Extraction needs current source/path-assignment inputs, and migration export needs ordered bootstrap/import-key follow-up. Existing obsolete path heuristics and generic runner follow-ups must be removed when the native replacements are wired.

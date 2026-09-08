@@ -19,6 +19,13 @@ export const connectorMirrorSourceSchema = z
   .strict()
 export type ConnectorMirrorSource = z.infer<typeof connectorMirrorSourceSchema>
 
+const bindingReaders = {
+  linear: getLinearBindingWithRepoByConnectionId,
+  notion: getNotionBindingWithRepoByConnectionId,
+  slack: getSlackBindingWithRepoByConnectionId,
+  confluence: getConfluenceSyncTargetWithRepoByConnectionId,
+}
+
 export const connectorMirrorContentSchema = z
   .object({
     mirror: connectorMirrorSourceSchema,
@@ -49,13 +56,10 @@ export async function assertConnectorMirrorBinding(
   source: ConnectorMirrorSource,
   revision: WorkspaceRevision,
 ): Promise<void> {
-  const readers = {
-    linear: getLinearBindingWithRepoByConnectionId,
-    notion: getNotionBindingWithRepoByConnectionId,
-    slack: getSlackBindingWithRepoByConnectionId,
-    confluence: getConfluenceSyncTargetWithRepoByConnectionId,
-  }
-  const binding = await readers[source.provider](orgId, source.connectionId)
+  const binding = await bindingReaders[source.provider](
+    orgId,
+    source.connectionId,
+  )
   if (
     !binding ||
     binding.orgId !== orgId ||

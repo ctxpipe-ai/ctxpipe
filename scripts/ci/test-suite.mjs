@@ -87,7 +87,8 @@ try {
     {
       cwd,
       stdio: "inherit",
-      timeout: 600_000,
+      // Native backend proofs include real lease expiry and durable one-minute waits.
+      timeout: name === "backend" ? 1_200_000 : 600_000,
     },
   )
   if (result.error || result.signal)

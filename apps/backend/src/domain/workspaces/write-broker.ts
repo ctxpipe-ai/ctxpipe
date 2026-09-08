@@ -244,11 +244,7 @@ export async function refreshWorkspaceWriteRevision(
     refresh: true,
   })
   const live = await getWorkspaceWriteAdmission(input.workspaceId)
-  if (
-    !resolved ||
-    !sameWriteBinding(resolved.revision, revision) ||
-    live?.writeStatus !== "writable"
-  )
+  if (!resolved || !sameWriteBinding(resolved.revision, revision))
     throw new Error("Workspace write binding changed during no-op validation")
   if (
     !sameWorkspaceRevision(live?.revision, {

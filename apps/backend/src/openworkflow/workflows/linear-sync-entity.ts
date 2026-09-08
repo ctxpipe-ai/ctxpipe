@@ -2,19 +2,25 @@ import { defineWorkflow } from "openworkflow"
 import { z } from "zod"
 import { parseEnv } from "../../config/env.js"
 import { withOrgDbContext } from "../../db/client.js"
+import { captureConnectorMirrorTarget } from "../../domain/workspaces/capture-connector-mirror.js"
 import {
-  getLinearConnectionByConnectionId,
   getLinearBindingWithRepoByConnectionId,
+  getLinearConnectionByConnectionId,
   refreshLinearConnectionTokensWithLock,
 } from "../../models/linear-connector.js"
-import { getLogger, createLogger, withLogger } from "../../observability/logger.js"
+import {
+  createLogger,
+  getLogger,
+  withLogger,
+} from "../../observability/logger.js"
 import {
   linearTokenExpiresAt,
   refreshLinearOAuthToken,
 } from "../../services/linear/client.js"
-import { loadLinearScopeFromRepo } from "../../services/linear/config-from-repo.js"
-import { syncLinearIncrementalContent } from "../../services/linear/sync.js"
+import { parseLinearConfigYamlContent } from "../../services/linear/config-yaml.js"
+import { captureLinearIncrementalContent } from "../../services/linear/sync.js"
 import { runRepositoryIngestionWorkflow } from "../enqueue-repository-ingestion.js"
+import { workspaceConnectorMirror } from "./workspace-connector-mirror.js"
 
 const LinearSyncEntityInputSchema = z.object({
   orgId: z.string().min(1),
@@ -39,7 +45,7 @@ export const linearSyncEntity = defineWorkflow(
     name: "linear-sync-entity",
     schema: LinearSyncEntityInputSchema,
   },
-  async ({ input, step }) =>
+  async ({ input, step, run }) =>
     withLogger(
       createLogger({
         workflow: "linear-sync-entity",
@@ -47,135 +53,167 @@ export const linearSyncEntity = defineWorkflow(
         connectionId: input.connectionId,
       }),
       async () => {
-    const env = parseEnv(process.env as Record<string, string | undefined>)
-    const context = await step.run(
-      { name: "load-linear-entity-context" },
-      async () => {
-        const [connection, target] = await Promise.all([
-          withOrgDbContext(input.orgId, () =>
-            getLinearConnectionByConnectionId(
+        const env = parseEnv(process.env as Record<string, string | undefined>)
+        const context = await step.run(
+          { name: "load-linear-entity-context" },
+          async () => {
+            const target = await getLinearBindingWithRepoByConnectionId(
               input.orgId,
               input.connectionId,
-              env,
-            ),
-          ),
-          getLinearBindingWithRepoByConnectionId(
-            input.orgId,
-            input.connectionId,
-          ),
-        ])
-        if (!connection) throw new Error("Linear connection not found")
-        if (!target?.githubConnectionId) {
-          throw new Error("Linear sync target is not configured")
-        }
-        if (
-          connection.status !== "installed" ||
-          !target.enabled ||
-          target.setupPhase !== "live"
-        ) {
-          return null
-        }
-        const config = await loadLinearScopeFromRepo({
-          orgId: input.orgId,
-          env,
-          repositoryName: target.repositoryName,
-          githubConnectionId: target.githubConnectionId,
-          branch: target.branch,
-        })
-        if (!config) throw new Error("linear/config.yaml was not found")
-        if (config.workspaceId !== connection.workspaceId) {
-          throw new Error(
-            "linear/config.yaml workspace does not match the Linear connection",
-          )
-        }
-        return { connection, target, config }
-      },
-    )
-    if (!context) {
-      return { written: 0, deleted: 0, failures: [] }
-    }
-
-    const result = await step.run(
-      {
-        name: "apply-linear-entity",
-        retryPolicy: {
-          maximumAttempts: 5,
-          initialInterval: "1m",
-          backoffCoefficient: 3,
-          maximumInterval: "4h",
-        },
-      },
-      async () => {
-        const syncResult = await syncLinearIncrementalContent({
-          orgId: input.orgId,
-          env,
-          connection: context.connection,
-          target: context.target,
-          config: context.config,
-          entity: {
-            entityType: input.entityType,
-            externalId: input.externalId,
-            action: input.action,
-          },
-          onTokenRefresh: (expectedRefreshToken, expectedAccessToken) =>
-            withOrgDbContext(input.orgId, () =>
-              refreshLinearConnectionTokensWithLock({
-                orgId: input.orgId,
-                connectionId: input.connectionId,
+            )
+            if (!target?.githubConnectionId)
+              throw new Error("Linear sync target is not configured")
+            const connection = await withOrgDbContext(input.orgId, () =>
+              getLinearConnectionByConnectionId(
+                input.orgId,
+                input.connectionId,
                 env,
-                expectedRefreshToken,
-                expectedAccessToken,
-                refresh: async (refreshToken) => {
-                  const token = await refreshLinearOAuthToken({
-                    env,
-                    refreshToken,
-                  })
-                  return {
-                    accessToken: token.access_token,
-                    refreshToken: token.refresh_token ?? refreshToken,
-                    accessTokenExpiresAt: linearTokenExpiresAt(
-                      token.expires_in,
-                    ),
-                  }
-                },
-              }),
-            ),
-        })
-        if (syncResult.failures.length > 0) {
-          throw new Error(
-            `Linear entity sync failed: ${syncResult.failures
-              .map(
-                (failure) =>
-                  `${failure.type}:${failure.id}: ${failure.message}`,
+              ),
+            )
+            if (!connection) throw new Error("Linear connection not found")
+            if (
+              connection.status !== "installed" ||
+              !target.enabled ||
+              target.setupPhase !== "live"
+            ) {
+              return null
+            }
+            const captured = await captureConnectorMirrorTarget({
+              repositoryGitUrl: target.repositoryGitUrl,
+              orgId: input.orgId,
+              env,
+              mirror: {
+                provider: "linear",
+                connectionId: input.connectionId,
+                repositoryId: target.repositoryId,
+              },
+            })
+            const config = parseLinearConfigYamlContent(captured.config)
+            if (!config) throw new Error("linear/config.yaml was not found")
+            if (config.workspaceId !== connection.workspaceId)
+              throw new Error(
+                "linear/config.yaml workspace does not match the Linear connection",
               )
-              .join("; ")}`,
+            return { target, captured, config }
+          },
+        )
+
+        if (!context) {
+          return { written: 0, deleted: 0, failures: [] }
+        }
+
+        const captured = await step.run(
+          {
+            name: "apply-linear-entity",
+            retryPolicy: {
+              maximumAttempts: 5,
+              initialInterval: "1m",
+              backoffCoefficient: 3,
+              maximumInterval: "4h",
+            },
+          },
+          async () => {
+            const connection = await withOrgDbContext(input.orgId, () =>
+              getLinearConnectionByConnectionId(
+                input.orgId,
+                input.connectionId,
+                env,
+              ),
+            )
+            if (
+              !connection ||
+              connection.status !== "installed" ||
+              connection.workspaceId !== context.config.workspaceId
+            )
+              throw new Error("Linear authorization changed")
+            const syncResult = await captureLinearIncrementalContent({
+              env,
+              connection,
+              existingPaths: context.captured.paths,
+              config: context.config,
+              entity: {
+                entityType: input.entityType,
+                externalId: input.externalId,
+                action: input.action,
+              },
+              onTokenRefresh: (expectedRefreshToken, expectedAccessToken) =>
+                refreshLinearConnectionTokensWithLock({
+                  orgId: input.orgId,
+                  connectionId: input.connectionId,
+                  env,
+                  expectedRefreshToken,
+                  expectedAccessToken,
+                  refresh: async (refreshToken) => {
+                    const token = await refreshLinearOAuthToken({
+                      env,
+                      refreshToken,
+                    })
+                    return {
+                      accessToken: token.access_token,
+                      refreshToken: token.refresh_token ?? refreshToken,
+                      accessTokenExpiresAt: linearTokenExpiresAt(
+                        token.expires_in,
+                      ),
+                    }
+                  },
+                }),
+            })
+            if (syncResult.failures.length > 0) {
+              throw new Error(
+                `Linear entity sync failed: ${syncResult.failures
+                  .map(
+                    (failure) =>
+                      `${failure.type}:${failure.id}: ${failure.message}`,
+                  )
+                  .join("; ")}`,
+              )
+            }
+            return syncResult
+          },
+        )
+
+        if (captured.files.length || captured.deletePaths.length) {
+          await step.runWorkflow(
+            workspaceConnectorMirror.spec,
+            {
+              orgId: input.orgId,
+              workspaceId: context.captured.workspaceId,
+              revision: context.captured.revision,
+              mirror: context.captured.mirror,
+              jobId: `wjob_${run.id}_mirror`,
+              files: captured.files,
+              deletePaths: captured.deletePaths,
+            },
+            { name: "commit-linear-mirror" },
           )
         }
-        return syncResult
-      },
-    )
+        const result = {
+          written: captured.files.length,
+          deleted: captured.deletePaths.length,
+          failures: captured.failures,
+        }
 
-    if (result.written > 0 || result.deleted > 0) {
-      await step.run({ name: "ingest-linear-entity" }, () =>
-        runRepositoryIngestionWorkflow(
-          {
-            repositoryId: context.target.repositoryId,
-            orgId: input.orgId,
-            targetBranch: context.target.branch,
-            indexingReason: "Applying Linear updates",
-          },
-          {
-            error: (error) =>
-              getLogger().error(error, {
-                step: "linear-sync-entity.ingestion",
-                connectionId: input.connectionId,
-              }),
-          },
-        ),
-      )
-    }
+        if (result.written > 0 || result.deleted > 0) {
+          await step.run({ name: "ingest-linear-entity" }, () =>
+            runRepositoryIngestionWorkflow(
+              {
+                repositoryId: context.target.repositoryId,
+                orgId: input.orgId,
+                targetBranch: context.target.branch,
+                indexingReason: "Applying Linear updates",
+              },
+              {
+                error: (error) =>
+                  getLogger().error(error, {
+                    step: "linear-sync-entity.ingestion",
+                    connectionId: input.connectionId,
+                  }),
+              },
+            ),
+          )
+        }
 
-    return result
+        return result
       },
     ),
 )

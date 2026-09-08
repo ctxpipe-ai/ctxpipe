@@ -1,9 +1,12 @@
 import { OpenWorkflow } from "openworkflow"
 import { BackendPostgres } from "openworkflow/postgres"
 import { expect, it } from "vitest"
+import { withOrgIdContext } from "../../auth/withAuth.js"
+import { parseEnv } from "../../config/env.js"
 import { workspaceHydrate } from "../../openworkflow/workflows/workspace-hydrate.js"
 import { withNativeHydrationFixture } from "../../test/native-hydration-fixture.js"
 import { bootstrapWorkspaceFiles } from "./bootstrap.js"
+import { resolveWorkspaceReadRevision } from "./resolve-revision.js"
 
 it(
   "hydration durably admits each remaining maintenance concern once",
@@ -286,6 +289,87 @@ it(
               job.payload?.jobWorkspaceUrl === f.workspaceUrl,
           ),
         ).toBe(true)
+      },
+    )
+  },
+)
+
+it(
+  "hydration plans one rename repair bound to both immutable trees",
+  { timeout: 60_000 },
+  async () => {
+    await withNativeHydrationFixture(
+      {
+        github: true,
+        githubWriteView: "writable",
+        writeStatus: "writable",
+        files: [
+          { path: "knowledge/source.md", body: "# Source\n[Target](old.md)\n" },
+          {
+            path: "knowledge/old.md",
+            body: "# Target\nIdentical committed content.\n",
+          },
+        ],
+      },
+      async (f) => {
+        const backend = await BackendPostgres.connect(f.databaseUrl, {
+          runMigrations: false,
+        })
+        try {
+          await f.publish()
+          f.git("reset", "--hard", f.sha)
+          f.git("mv", "knowledge/old.md", "knowledge/new.md")
+          f.git("commit", "-m", "Human rename")
+          f.git("push", f.remote, "HEAD:main")
+          const resolved = await withOrgIdContext(f.org, () =>
+            resolveWorkspaceReadRevision({
+              orgId: f.org.id,
+              workspaceId: f.workspaceId,
+              env: parseEnv(process.env),
+              refresh: true,
+            }),
+          )
+          if (!resolved) throw new Error("Renamed revision is unavailable")
+          const next = await f.runner.runWorkflow(workspaceHydrate.spec, {
+            orgId: f.org.id,
+            workspaceId: f.workspaceId,
+            revision: resolved.revision,
+          })
+          expect(await next.result({ timeoutMs: 30_000 })).toMatchObject({
+            hydrated: true,
+          })
+          const repairs = async () =>
+            (await backend.listWorkflowRuns({ limit: 100 })).data.filter(
+              (run) =>
+                run.workflowName === "workspace-write-rename-rewrite" &&
+                (run.input as { workspaceId?: string }).workspaceId ===
+                  f.workspaceId,
+            )
+          expect(await repairs()).toHaveLength(1)
+          expect((await repairs())[0]?.input).toMatchObject({
+            previousSha: f.sha,
+            revision: { sha: resolved.revision.sha, access: "write-default" },
+          })
+          const replay = await f.runner.runWorkflow(workspaceHydrate.spec, {
+            orgId: f.org.id,
+            workspaceId: f.workspaceId,
+            revision: resolved.revision,
+          })
+          await replay.result({ timeoutMs: 30_000 })
+          expect(await repairs()).toHaveLength(1)
+          expect(
+            f.git("--git-dir", f.remote, "show", "main:knowledge/source.md"),
+          ).toBe("# Source\n[Target](old.md)")
+          expect(
+            f.tokenRequests.filter(
+              (request) =>
+                (request as { permissions?: { contents?: string } }).permissions
+                  ?.contents === "write",
+            ),
+          ).toHaveLength(0)
+        } finally {
+          await backend.stop()
+        }
       },
     )
   },

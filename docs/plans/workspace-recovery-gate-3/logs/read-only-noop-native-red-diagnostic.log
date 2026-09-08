@@ -1,0 +1,37 @@
+{"name": "read-only-noop-native-red-diagnostic", "cwd": "/private/tmp/ctxpipe-recovery-01a07aba", "command": ["/Users/jakubriedl/.volta/tools/image/node/22.16.0/bin/node", "apps/backend/node_modules/vitest/vitest.mjs", "run", "--root", "apps/backend", "src/domain/workspaces/write-pause-native.contract.test.ts", "-t", "already-satisfied"], "environment": {"AUTH_SECRET": "gate0-local-disposable-test-secret-20260907", "DATABASE_URL": "postgresql://ctxpipe_app:ctxpipe@127.0.0.1:61314/ctxpipe_gate0_fresh", "GRAPH_DB_URI": "redis://127.0.0.1:6398", "CI": "true", "NO_COLOR": "1", "TURBO_TELEMETRY_DISABLED": "1", "STORYBOOK_DISABLE_TELEMETRY": "1", "PATH": "/Users/jakubriedl/.volta/tools/image/node/22.16.0/bin:/private/tmp/ctxpipe-recovery-runtime/ast-grep/node_modules/.bin:/private/tmp/ctxpipe-recovery-runtime/node_modules/.bin:/private/tmp/ctxpipe-recovery-runtime/zoekt:/usr/local/bin:/System/Cryptexes/App/usr/bin:/usr/bin:/bin:/usr/sbin:/sbin:/var/run/com.apple.security.cryptexd/codex.system/bootstrap/usr/local/bin:/var/run/com.apple.security.cryptexd/codex.system/bootstrap/usr/bin:/var/run/com.apple.security.cryptexd/codex.system/bootstrap/usr/appleinternal/bin:/pkg/env/global/bin:/Users/jakubriedl/.codex/tmp/arg0/codex-arg0BW5Gt3:/Users/jakubriedl/.cache/codex-runtimes/codex-primary-runtime/dependencies/bin/override:/Users/jakubriedl/.local/bin:/Users/jakubriedl/.bun/bin:/Users/jakubriedl/.opencode/bin:/Users/jakubriedl/.volta/bin:/opt/homebrew/bin:/opt/homebrew/sbin:/Users/jakubriedl/.cache/codex-runtimes/codex-primary-runtime/dependencies/bin/fallback:/Applications/ChatGPT.app/Contents/Resources"}, "timeout_seconds": 600, "started_utc": "2026-09-08T15:49:52Z", "log": "logs/read-only-noop-native-red-diagnostic.log"}
+
+ RUN  v4.0.18 /private/tmp/ctxpipe-recovery-01a07aba/apps/backend
+
+Cloning into bare repository '/var/folders/9t/jj9rnpps7_ddb72c1mq2k13w0000gn/T/ctxpipe-hydration-contract-20PJrd/remote.git'...
+done.
+ ❯ src/domain/workspaces/write-pause-native.contract.test.ts (6 tests | 1 failed | 5 skipped) 10051ms
+   × completes an already-satisfied edit when write access is revoked after acquisition 10051ms
+   ↓ resumes a paused captured command after a human advances the same repository
+   ↓ bootstrap keeps its native owner while waiting for write access before acquisition
+   ↓ ui_file_edit keeps its native owner while waiting for write access before acquisition
+   ↓ does not apply a permission probe from before a relink to the new binding
+   ↓ retains one prepared commit and native owner through default-branch protection
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 1 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  src/domain/workspaces/write-pause-native.contract.test.ts > completes an already-satisfied edit when write access is revoked after acquisition
+Error: {"error":"Error: Timed out waiting for workflow run de55b85e-c8c7-47c1-a2c8-6ad417ea73f5 to finish","steps":[{"name":"claim-command","status":"completed","error":null},{"name":"acquire-revision","status":"completed","error":null},{"name":"transform-file-edit","status":"completed","error":null},{"name":"confirm-no-op","status":"failed","error":{"name":"Error","stack":"Error: Workspace write binding changed during no-op validation\n    at refreshWorkspaceWriteRevision (/private/tmp/ctxpipe-recovery-01a07aba/apps/backend/src/domain/workspaces/write-broker.ts:252:11)\n    at processTicksAndRejections (node:internal/process/task_queues:105:5)\n    at StepExecutor.run (file:///private/tmp/ctxpipe-recovery-01a07aba/node_modules/.pnpm/openworkflow@0.8.0_postgres@3.4.8/node_modules/openworkflow/dist/worker/execution.js:433:28)\n    at /private/tmp/ctxpipe-recovery-01a07aba/apps/backend/src/openworkflow/workflows/workspace-file-edit.ts:157:31\n    at /private/tmp/ctxpipe-recovery-01a07aba/apps/backend/src/observability/logger.ts:131:16\n    at executeWorkflow (file:///private/tmp/ctxpipe-recovery-01a07aba/node_modules/.pnpm/openworkflow@0.8.0_postgres@3.4.8/node_modules/openworkflow/dist/worker/execution.js:759:24)\n    at Worker.processExecutionInBackground (file:///private/tmp/ctxpipe-recovery-01a07aba/node_modules/.pnpm/openworkflow@0.8.0_postgres@3.4.8/node_modules/openworkflow/dist/worker/worker.js:176:13)","message":"Workspace write binding changed during no-op validation"}},{"name":"confirm-no-op","status":"failed","error":{"name":"Error","stack":"Error: Workspace write binding changed during no-op validation\n    at refreshWorkspaceWriteRevision (/private/tmp/ctxpipe-recovery-01a07aba/apps/backend/src/domain/workspaces/write-broker.ts:252:11)\n    at processTicksAndRejections (node:internal/process/task_queues:105:5)\n    at StepExecutor.run (file:///private/tmp/ctxpipe-recovery-01a07aba/node_modules/.pnpm/openworkflow@0.8.0_postgres@3.4.8/node_modules/openworkflow/dist/worker/execution.js:433:28)\n    at /private/tmp/ctxpipe-recovery-01a07aba/apps/backend/src/openworkflow/workflows/workspace-file-edit.ts:157:31\n    at /private/tmp/ctxpipe-recovery-01a07aba/apps/backend/src/observability/logger.ts:131:16\n    at executeWorkflow (file:///private/tmp/ctxpipe-recovery-01a07aba/node_modules/.pnpm/openworkflow@0.8.0_postgres@3.4.8/node_modules/openworkflow/dist/worker/execution.js:759:24)\n    at Worker.processExecutionInBackground (file:///private/tmp/ctxpipe-recovery-01a07aba/node_modules/.pnpm/openworkflow@0.8.0_postgres@3.4.8/node_modules/openworkflow/dist/worker/worker.js:176:13)","message":"Workspace write binding changed during no-op validation"}},{"name":"confirm-no-op","status":"failed","error":{"name":"Error","stack":"Error: Workspace write binding changed during no-op validation\n    at refreshWorkspaceWriteRevision (/private/tmp/ctxpipe-recovery-01a07aba/apps/backend/src/domain/workspaces/write-broker.ts:252:11)\n    at processTicksAndRejections (node:internal/process/task_queues:105:5)\n    at StepExecutor.run (file:///private/tmp/ctxpipe-recovery-01a07aba/node_modules/.pnpm/openworkflow@0.8.0_postgres@3.4.8/node_modules/openworkflow/dist/worker/execution.js:433:28)\n    at /private/tmp/ctxpipe-recovery-01a07aba/apps/backend/src/openworkflow/workflows/workspace-file-edit.ts:157:31\n    at /private/tmp/ctxpipe-recovery-01a07aba/apps/backend/src/observability/logger.ts:131:16\n    at executeWorkflow (file:///private/tmp/ctxpipe-recovery-01a07aba/node_modules/.pnpm/openworkflow@0.8.0_postgres@3.4.8/node_modules/openworkflow/dist/worker/execution.js:759:24)\n    at Worker.processExecutionInBackground (file:///private/tmp/ctxpipe-recovery-01a07aba/node_modules/.pnpm/openworkflow@0.8.0_postgres@3.4.8/node_modules/openworkflow/dist/worker/worker.js:176:13)","message":"Workspace write binding changed during no-op validation"}}]}
+ ❯ src/domain/workspaces/write-pause-native.contract.test.ts:87:19
+     85|           const result = await handle.result({ timeoutMs: 8_000 }).cat…
+     86|             const steps = await f.backend.listStepAttempts({ workflowR…
+     87|             throw new Error(JSON.stringify({ error: String(error), ste…
+       |                   ^
+     88|           })
+     89|           expect(result).toEqual({
+ ❯ src/domain/workspaces/write-pause-native.contract.test.ts:85:26
+ ❯ withNativeHydrationFixture src/test/native-hydration-fixture.ts:482:5
+ ❯ src/domain/workspaces/write-pause-native.contract.test.ts:27:5
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/1]⎯
+
+
+ Test Files  1 failed (1)
+      Tests  1 failed | 5 skipped (6)
+   Start at  01:49:52
+   Duration  12.44s (transform 740ms, setup 20ms, import 2.29s, tests 10.05s, environment 0ms)
+
