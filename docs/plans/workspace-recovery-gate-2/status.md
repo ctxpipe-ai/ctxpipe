@@ -494,3 +494,8 @@ Native `native-sha256-acquisition-red/green` reproduces and fixes fetching a rea
 `third-review-backend-types` passes with the unchanged finite allowance of 146. `third-review-linux-codesearch` passes both native runtime suites on packaged shared source, image `sha256:1b1c5bfce0b24846f7e630f88e9ba04400452301d0e95a1ef0e91be784551ca1`. `graph-review-kubernetes-memory` completes successfully including cleanup: cold Zoekt and merged/Go SCIP are present, hot storage stays empty, and peak memory is 5,230,137,344 bytes below 5,670 MiB. The subsequent shared prefix extraction preserves the same key format and ingest pipeline. Both third reviewers report no remaining code blocker in the correction diff; exact-pushed-SHA reviews and CI remain required.
 
 `third-review-required-contracts` passes all 130 required cases in 18 files with zero skips or allowances; its discovered inventory and raw result are archived.
+
+
+## Terminal Gate 2 acceptance
+
+Gate 2 is complete at `bb24210c01e0dc1bcbc2d4fdf197d07a7a17035d`, independently verified as both local HEAD and remote recovery branch after exact-SHA CI `34198604206` passed all 13 jobs. Terminal Standards and Spec reports under `reviews/` both have zero blockers. The first test attempt failed only in disposable Git clone setup plus the known Gate 0 chat failure; the same-SHA retry passed without code/allowance changes (backend 1472 pass/one pre-existing allowed chat failure; native contracts 130/130; UI291; CLI93; CDK32). The first-attempt failure is retained externally with the completed job logs. Gate 3 begins from this verified SHA; Gates 3–6 retain their documented ownership.

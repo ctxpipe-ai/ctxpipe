@@ -73,12 +73,16 @@ async function createNativeHydrationFixture(
   const tokenRequests: unknown[] = []
   let failEmbeddings = embeddingFailure === true
   let failGithubTokens = false
+  let beforeWriteCredential: (() => Promise<void>) | undefined
   const server = setupServer(
     http.post(
       "https://api.github.com/app/installations/123456789/access_tokens",
       async ({ request }) => {
         const body = await request.text()
-        tokenRequests.push(body ? JSON.parse(body) : {})
+        const requestBody = body ? JSON.parse(body) : {}
+        tokenRequests.push(requestBody)
+        const writing = requestBody.permissions?.contents === "write"
+        if (writing) await beforeWriteCredential?.()
         if (failGithubTokens)
           return HttpResponse.json(
             { message: "Credential provider unavailable" },
@@ -86,9 +90,14 @@ async function createNativeHydrationFixture(
           )
         return HttpResponse.json(
           {
-            token: "fixture-only-github-read-token",
+            token: writing
+              ? "fixture-only-github-write-token"
+              : "fixture-only-github-read-token",
             expires_at: new Date(Date.now() + 60 * 60 * 1000).toISOString(),
-            permissions: { contents: "read", metadata: "read" },
+            permissions: {
+              contents: writing ? "write" : "read",
+              metadata: "read",
+            },
           },
           { status: 201 },
         )
@@ -105,6 +114,25 @@ async function createNativeHydrationFixture(
     http.get(
       "https://api.github.com/repos/fixture/hydration-contract/git/trees/:sha",
       () => HttpResponse.json({ message: "Use native Git" }, { status: 404 }),
+    ),
+    http.post("https://hydrate-model.test/v1/chat/completions", () =>
+      HttpResponse.json({
+        id: "fixture-subject",
+        object: "chat.completion",
+        created: 1,
+        model: "fixture",
+        choices: [
+          {
+            index: 0,
+            message: {
+              role: "assistant",
+              content: "ctxpipe - Bootstrap workspace knowledge",
+            },
+            finish_reason: "stop",
+          },
+        ],
+        usage: { prompt_tokens: 1, completion_tokens: 1, total_tokens: 2 },
+      }),
     ),
     http.post(
       "https://hydrate-model.test/v1/embeddings",
@@ -296,6 +324,9 @@ async function createNativeHydrationFixture(
       gitTrace,
       count,
       cleanup,
+      onWriteCredentialRequest: (callback: () => Promise<void>) => {
+        beforeWriteCredential = callback
+      },
       failTokens: () => {
         invalidateGithubAppCacheForConnection(connectionId)
         failGithubTokens = true

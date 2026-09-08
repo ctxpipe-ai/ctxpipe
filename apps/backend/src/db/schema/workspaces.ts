@@ -172,6 +172,8 @@ export const workspaceWriteJobs = pgTable.withRLS(
     generation: integer("generation").notNull(),
     status: text("status").notNull().default("queued"),
     payload: jsonb("payload").$type<{
+      revision?: WorkspaceRevision
+      workflowRunId?: string
       linkAction?: "link" | "unlink"
       linkGitUrl?: string
       defaultBranch?: string

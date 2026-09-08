@@ -1,0 +1,57 @@
+{"name": "bootstrap-production-admission-red", "cwd": "/private/tmp/ctxpipe-recovery-01a07aba", "command": ["/Users/jakubriedl/.volta/tools/image/node/22.16.0/bin/node", "apps/backend/node_modules/vitest/vitest.mjs", "run", "--root", "apps/backend", "src/domain/workspaces/write-workflow-native.contract.test.ts", "-t", "production queue"], "environment": {"AUTH_SECRET": "gate0-local-disposable-test-secret-20260907", "DATABASE_URL": "postgresql://ctxpipe_app:ctxpipe@127.0.0.1:61314/ctxpipe_gate0_fresh", "GRAPH_DB_URI": "redis://127.0.0.1:6398", "CI": "true", "NO_COLOR": "1", "TURBO_TELEMETRY_DISABLED": "1", "STORYBOOK_DISABLE_TELEMETRY": "1", "PATH": "/Users/jakubriedl/.volta/tools/image/node/22.16.0/bin:/private/tmp/ctxpipe-recovery-runtime/ast-grep/node_modules/.bin:/private/tmp/ctxpipe-recovery-runtime/node_modules/.bin:/private/tmp/ctxpipe-recovery-runtime/zoekt:/Users/jakubriedl/.local/bin:/Users/jakubriedl/.bun/bin:/Users/jakubriedl/.opencode/bin:/Users/jakubriedl/.volta/bin:/opt/homebrew/bin:/opt/homebrew/sbin:/usr/local/bin:/System/Cryptexes/App/usr/bin:/usr/bin:/bin:/usr/sbin:/sbin:/var/run/com.apple.security.cryptexd/codex.system/bootstrap/usr/local/bin:/var/run/com.apple.security.cryptexd/codex.system/bootstrap/usr/bin:/var/run/com.apple.security.cryptexd/codex.system/bootstrap/usr/appleinternal/bin:/pkg/env/global/bin:/Users/jakubriedl/.codex/tmp/arg0/codex-arg0BW5Gt3:/Users/jakubriedl/.cache/codex-runtimes/codex-primary-runtime/dependencies/bin/override:/Users/jakubriedl/.local/bin:/Users/jakubriedl/.bun/bin:/Users/jakubriedl/.opencode/bin:/Users/jakubriedl/.volta/bin:/Users/jakubriedl/.cache/codex-runtimes/codex-primary-runtime/dependencies/bin/fallback:/Applications/ChatGPT.app/Contents/Resources"}, "timeout_seconds": 600, "started_utc": "2026-09-08T07:52:46Z", "log": "logs/bootstrap-production-admission-red.log"}
+
+ RUN  v4.0.18 /private/tmp/ctxpipe-recovery-01a07aba/apps/backend
+
+Cloning into bare repository '/var/folders/9t/jj9rnpps7_ddb72c1mq2k13w0000gn/T/ctxpipe-hydration-contract-ddTheB/remote.git'...
+done.
+ ❯ src/domain/workspaces/write-workflow-native.contract.test.ts (4 tests | 1 failed | 3 skipped) 4316ms
+   ↓ bootstraps a workspace in one native commit with a durable job result
+   ↓ replays an already published bootstrap job without a second commit
+   ↓ replays a completed no-op without creating a commit
+   × admits bootstrap through the production queue as a bound typed workflow 4313ms
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 1 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  src/domain/workspaces/write-workflow-native.contract.test.ts > admits bootstrap through the production queue as a bound typed workflow
+AssertionError: expected { namespaceId: 'default', …(20) } to match object { …(2) }
+(26 matching properties omitted from actual)
+
+- Expected
++ Received
+
+  {
+    "input": {
+-     "revision": {
+-       "access": "write-default",
+-       "sha": "56ee5fae59fe32fea09a6a404e27db115b3ec7b6",
++     "jobDesiredSha": "56ee5fae59fe32fea09a6a404e27db115b3ec7b6",
++     "jobGeneration": 1,
++     "jobId": "wjob_hydrate_1788853980934_2kcwu6bhpsu_admitted",
++     "jobWorkspaceUrl": "https://github.com/fixture/hydration-contract.git",
++     "kind": "bootstrap",
++     "orgId": "org_hydrate_1788853980934_2kcwu6bhpsu",
+      "workspaceId": "ws_hydrate_1788853980934_2kcwu6bhpsu",
+    },
+-   },
+-   "workflowName": "workspace-write-bootstrap",
++   "workflowName": "workspace-write-commit",
+  }
+
+ ❯ src/domain/workspaces/write-workflow-native.contract.test.ts:252:26
+    250|             (row) => (row.input as { jobId?: string })?.jobId === jobI…
+    251|           )
+    252|           expect(queued).toMatchObject({
+       |                          ^
+    253|             workflowName: "workspace-write-bootstrap",
+    254|             input: {
+ ❯ withNativeHydrationFixture src/test/native-hydration-fixture.ts:362:5
+ ❯ src/domain/workspaces/write-workflow-native.contract.test.ts:215:5
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/1]⎯
+
+
+ Test Files  1 failed (1)
+      Tests  1 failed | 3 skipped (4)
+   Start at  17:52:47
+   Duration  17.58s (transform 3.48s, setup 96ms, import 12.72s, tests 4.32s, environment 0ms)
+

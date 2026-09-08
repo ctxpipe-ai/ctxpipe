@@ -1,4 +1,5 @@
 import { z } from "zod"
+import type { WorkspaceRevision } from "./revision.js"
 import type { WorkspaceWriteKind } from "./write-commit-files.js"
 import { shouldEnqueueWorkspaceWriteJob } from "./write-jobs.js"
 
@@ -14,6 +15,8 @@ export type WriteJobStatus =
   (typeof WRITE_JOB_STATUSES)[keyof typeof WRITE_JOB_STATUSES]
 
 export type WorkspaceWriteJobPayload = {
+  revision?: WorkspaceRevision
+  workflowRunId?: string
   linkAction?: "link" | "unlink"
   linkGitUrl?: string
   defaultBranch?: string

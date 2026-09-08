@@ -277,9 +277,11 @@ export async function getWorkspaceProjection(
 
 export async function getDesiredWorkspaceRevision(
   workspaceId: string,
+  access: WorkspaceRevision["access"] = "read",
 ): Promise<WorkspaceRevision | null> {
   const row = await getWorkspaceById(workspaceId)
-  return row ? desiredWorkspaceRevision(row) : null
+  const revision = row ? desiredWorkspaceRevision(row) : null
+  return revision ? { ...revision, access } : null
 }
 
 /** Failed discovery has no invented SHA; fence the exact database target that was observed. */

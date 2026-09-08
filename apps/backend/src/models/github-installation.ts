@@ -1,9 +1,4 @@
 import { and, eq, inArray, sql } from "drizzle-orm"
-import { repositories } from "../db/schema/repositories.js"
-import {
-  detachWorkspaceConnection,
-  invalidateLinkedReadBindings,
-} from "./workspaces.js"
 import { App, Octokit } from "octokit"
 import type { Env } from "../config/env.js"
 import { getOrgDb, getSystemDb, withOrgDbContext } from "../db/client.js"
@@ -12,6 +7,7 @@ import {
   CONNECTION_TYPE_GITHUB,
   connections,
 } from "../db/schema/connections.js"
+import { repositories } from "../db/schema/repositories.js"
 import { repoReadCloneTokenRequest } from "../domain/workspaces/clone-credentials.js"
 import {
   decodeGithubAppCredentials,
@@ -22,6 +18,12 @@ import {
 import { generateObjectId } from "../lib/id.js"
 import { log } from "../observability/logger.js"
 import {
+  deleteConnectionDirectory,
+  listConnectionDirectoryByGithubInstallationId,
+  loadConnectionViaDirectory,
+  upsertConnectionDirectory,
+} from "./connection-directory.js"
+import {
   type ConnectionRow,
   type GitHubInstallationShape,
   githubConnectionToShape,
@@ -29,11 +31,9 @@ import {
   mergeGithubConnectionConfig,
 } from "./connection-rows.js"
 import {
-  deleteConnectionDirectory,
-  listConnectionDirectoryByGithubInstallationId,
-  loadConnectionViaDirectory,
-  upsertConnectionDirectory,
-} from "./connection-directory.js"
+  detachWorkspaceConnection,
+  invalidateLinkedReadBindings,
+} from "./workspaces.js"
 
 /** @deprecated Alias for callers importing `GitHubInstallation`. */
 export type GitHubInstallation = GitHubInstallationShape
@@ -817,6 +817,30 @@ export async function getRepoReadCloneToken(
     type: "installation",
     repositoryNames: request.repositoryNames,
     permissions: request.permissions,
+  })) as { token: string }
+  return token
+}
+
+/** Called by the admitted workflow broker, never by a sandbox or read path. */
+export async function getRepoWriteCloneToken(
+  orgId: string,
+  env: Env,
+  input: { githubConnectionId: string; repoFullName: string },
+): Promise<string | undefined> {
+  const installation = await getGithubInstallationByConnectionId(
+    orgId,
+    input.githubConnectionId,
+  )
+  if (!installation || installation.installationId == null) return undefined
+  const row = await loadGithubConnectionRow(orgId, input.githubConnectionId)
+  if (!row) return undefined
+  const app = buildAppForConnection(row, env)
+  const octokit = await app.getInstallationOctokit(installation.installationId)
+  const request = repoReadCloneTokenRequest(input.repoFullName)
+  const { token } = (await octokit.auth({
+    type: "installation",
+    repositoryNames: request.repositoryNames,
+    permissions: { contents: "write", metadata: "read" },
   })) as { token: string }
   return token
 }

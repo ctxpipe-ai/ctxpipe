@@ -46,7 +46,7 @@ export async function resolveGitRemoteTip(input: {
   const ref = requested ? `refs/heads/${requested}` : "HEAD"
   const { stdout } = await gitExec(
     ["ls-remote", "--symref", "--", input.url, ref],
-    { timeout: 60_000, env: gitReadEnvironment(input) },
+    { timeout: 60_000, env: gitRemoteEnvironment(input) },
   )
   const lines = stdout.toString("utf8").trim().split("\n")
   const sha = lines
@@ -66,7 +66,7 @@ export async function resolveGitRemoteTip(input: {
   return sha && branch ? { sha, branch } : null
 }
 
-function gitReadEnvironment(input: {
+export function gitRemoteEnvironment(input: {
   url: string
   token?: string
 }): NodeJS.ProcessEnv {
@@ -111,7 +111,7 @@ async function withFetchedGitSha<T>(
 ): Promise<T> {
   if (!/^(?:[0-9a-f]{40}|[0-9a-f]{64})$/.test(input.sha))
     throw new Error("A full immutable Git commit SHA is required")
-  const env = gitReadEnvironment(input)
+  const env = gitRemoteEnvironment(input)
   const dir = await mkdtemp(join(tmpdir(), "ctxpipe-hydrate-"))
   try {
     await gitExec(

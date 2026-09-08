@@ -1,6 +1,12 @@
-import { and, asc, eq, isNotNull, sql } from "drizzle-orm"
+import { isDeepStrictEqual } from "node:util"
+import { and, asc, eq, isNotNull, notInArray, sql } from "drizzle-orm"
+import { requireCurrentOrgId } from "../auth/context.js"
 import { getOrgDb } from "../db/client.js"
 import { workspaces, workspaceWriteJobs } from "../db/schema/workspaces.js"
+import {
+  sameWorkspaceRevision,
+  type WorkspaceRevision,
+} from "../domain/workspaces/revision.js"
 import type { WorkspaceWriteKind } from "../domain/workspaces/write-commit-files.js"
 import {
   type WorkspaceWriteJobPayload,
@@ -266,3 +272,108 @@ export async function getMigrationExportSha(
   })
 }
 
+/** Record the immutable candidate before remote I/O, without claiming publication. */
+export async function persistWriteJobPreparedCommit(
+  jobId: string,
+  commitSha: string,
+): Promise<void> {
+  await orgSql(async () => {
+    const [row] = await getOrgDb()
+      .update(workspaceWriteJobs)
+      .set({ commitSha, updatedAt: new Date() })
+      .where(
+        and(
+          eq(workspaceWriteJobs.id, jobId),
+          sql`(${workspaceWriteJobs.commitSha} is null or ${workspaceWriteJobs.commitSha} = ${commitSha})`,
+        ),
+      )
+      .returning({ id: workspaceWriteJobs.id })
+    if (!row)
+      throw new Error(
+        "Write job already has a different commit or no longer exists",
+      )
+  })
+}
+
+export async function getWorkspaceWriteJob(jobId: string) {
+  return orgSql(async () => {
+    const [row] = await getOrgDb()
+      .select()
+      .from(workspaceWriteJobs)
+      .where(eq(workspaceWriteJobs.id, jobId))
+      .limit(1)
+    return row ?? null
+  })
+}
+
+/** Immutable command admission and atomic ownership by one native workflow run. */
+export async function persistBoundWriteJob(input: {
+  id: string
+  kind: WorkspaceWriteKind
+  revision: WorkspaceRevision
+  files?: Array<{ path: string; content: string }>
+  deletePaths?: string[]
+  workflowRunId?: string
+}) {
+  return orgSql(async () => {
+    const payload: WorkspaceWriteJobPayload = {
+      revision: input.revision,
+      ...(input.files ? { mergeFiles: input.files } : {}),
+      ...(input.deletePaths ? { mergeDeletePaths: input.deletePaths } : {}),
+      jobWorkspaceUrl: input.revision.remote.url,
+      defaultBranch: input.revision.defaultBranch,
+      ...(input.workflowRunId ? { workflowRunId: input.workflowRunId } : {}),
+    }
+    const values = {
+      id: input.id,
+      orgId: requireCurrentOrgId(),
+      workspaceId: input.revision.workspaceId,
+      kind: input.kind,
+      generation: input.revision.generation,
+      desiredSha: input.revision.sha,
+      status: input.workflowRunId ? "running" : "queued",
+      payload,
+    }
+    await getOrgDb()
+      .insert(workspaceWriteJobs)
+      .values(values)
+      .onConflictDoNothing()
+    const [row] = await getOrgDb()
+      .select()
+      .from(workspaceWriteJobs)
+      .where(eq(workspaceWriteJobs.id, input.id))
+      .limit(1)
+    if (
+      !row ||
+      row.workspaceId !== input.revision.workspaceId ||
+      row.kind !== input.kind ||
+      row.generation !== input.revision.generation ||
+      row.payload?.jobWorkspaceUrl !== input.revision.remote.url
+    )
+      throw new Error("Write job id belongs to a different command")
+    if (
+      row.payload?.revision &&
+      !sameWorkspaceRevision(row.payload.revision, input.revision)
+    )
+      throw new Error("Write job id belongs to a different revision")
+    if (
+      !isDeepStrictEqual(row.payload?.mergeFiles, input.files) ||
+      !isDeepStrictEqual(row.payload?.mergeDeletePaths, input.deletePaths)
+    )
+      throw new Error("Write job id belongs to a different file command")
+    if (!input.workflowRunId && row.payload?.revision) return
+    const [claimed] = await getOrgDb()
+      .update(workspaceWriteJobs)
+      .set({ payload, status: values.status, updatedAt: new Date() })
+      .where(
+        and(
+          eq(workspaceWriteJobs.id, input.id),
+          sql`${workspaceWriteJobs.commitSha} is null`,
+          sql`(${workspaceWriteJobs.payload}->>'workflowRunId' is null or ${workspaceWriteJobs.payload}->>'workflowRunId' = ${input.workflowRunId ?? null})`,
+          sql`(${workspaceWriteJobs.payload}->'revision' = ${JSON.stringify(input.revision)}::jsonb or (${workspaceWriteJobs.status} = 'paused' and ${workspaceWriteJobs.payload}->'revision' is null))`,
+        ),
+      )
+      .returning({ id: workspaceWriteJobs.id })
+    if (!claimed) throw new Error("Write job already has a workflow owner")
+  })
+}

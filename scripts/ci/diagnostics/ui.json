@@ -86,18 +86,6 @@
       "count": 2
     },
     {
-      "file": "../backend/src/models/workspace-write-jobs.ts",
-      "code": 2304,
-      "message": "Cannot find name 'requireCurrentOrgId'.",
-      "count": 2
-    },
-    {
-      "file": "../backend/src/models/workspace-write-jobs.ts",
-      "code": 2304,
-      "message": "Cannot find name 'notInArray'.",
-      "count": 1
-    },
-    {
       "file": "../backend/src/retrieval/services/providers/bedrockModelProvider.ts",
       "code": 2769,
       "message": "No overload matches this call.\n  Overload 1 of 2, '(model: string, params?: Omit<ChatBedrockConverseInput, \"model\"> | undefined): ChatBedrockConverse', gave the following error.\n    Argument of type '{ additionalModelRequestFields?: Record<string, unknown> | undefined; topP?: number | undefined; maxTokens?: number | undefined; model: string; region: string; temperature: number | undefined; streaming: boolean; }' is not assignable to parameter of type 'string'.\n  Overload 2 of 2, '(fields?: ChatBedrockConverseInput | undefined): ChatBedrockConverse', gave the following error.\n    Argument of type '{ additionalModelRequestFields?: Record<string, unknown> | undefined; topP?: number | undefined; maxTokens?: number | undefined; model: string; region: string; temperature: number | undefined; streaming: boolean; }' is not assignable to parameter of type 'ChatBedrockConverseInput'.\n      Types of property 'additionalModelRequestFields' are incompatible.\n        Type 'Record<string, unknown> | undefined' is not assignable to type 'DocumentType | undefined'.\n          Type 'Record<string, unknown>' is not assignable to type 'DocumentType | undefined'.\n            Type 'Record<string, unknown>' is missing the following properties from type 'DocumentType[]': length, pop, push, concat, and 29 more.",

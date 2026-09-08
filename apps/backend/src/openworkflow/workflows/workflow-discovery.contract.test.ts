@@ -46,6 +46,8 @@ it(
         "workspace-hydrate",
         "workspace-index",
         "repository-index",
+        "workspace-write-bootstrap",
+        "workspace-write-ui-file-edit",
       ]),
     )
   },

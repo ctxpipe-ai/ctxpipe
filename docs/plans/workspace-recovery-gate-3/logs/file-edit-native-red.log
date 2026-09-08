@@ -1,0 +1,73 @@
+{"name": "file-edit-native-red", "cwd": "/private/tmp/ctxpipe-recovery-01a07aba", "command": ["/Users/jakubriedl/.volta/tools/image/node/22.16.0/bin/node", "apps/backend/node_modules/vitest/vitest.mjs", "run", "--root", "apps/backend", "src/domain/workspaces/write-workflow-native.contract.test.ts", "-t", "publishes a file edit and deletion"], "environment": {"AUTH_SECRET": "gate0-local-disposable-test-secret-20260907", "DATABASE_URL": "postgresql://ctxpipe_app:ctxpipe@127.0.0.1:61314/ctxpipe_gate0_fresh", "GRAPH_DB_URI": "redis://127.0.0.1:6398", "CI": "true", "NO_COLOR": "1", "TURBO_TELEMETRY_DISABLED": "1", "STORYBOOK_DISABLE_TELEMETRY": "1", "PATH": "/Users/jakubriedl/.volta/tools/image/node/22.16.0/bin:/private/tmp/ctxpipe-recovery-runtime/ast-grep/node_modules/.bin:/private/tmp/ctxpipe-recovery-runtime/node_modules/.bin:/private/tmp/ctxpipe-recovery-runtime/zoekt:/Users/jakubriedl/.local/bin:/Users/jakubriedl/.bun/bin:/Users/jakubriedl/.opencode/bin:/Users/jakubriedl/.volta/bin:/opt/homebrew/bin:/opt/homebrew/sbin:/usr/local/bin:/System/Cryptexes/App/usr/bin:/usr/bin:/bin:/usr/sbin:/sbin:/var/run/com.apple.security.cryptexd/codex.system/bootstrap/usr/local/bin:/var/run/com.apple.security.cryptexd/codex.system/bootstrap/usr/bin:/var/run/com.apple.security.cryptexd/codex.system/bootstrap/usr/appleinternal/bin:/pkg/env/global/bin:/Users/jakubriedl/.codex/tmp/arg0/codex-arg0BW5Gt3:/Users/jakubriedl/.cache/codex-runtimes/codex-primary-runtime/dependencies/bin/override:/Users/jakubriedl/.local/bin:/Users/jakubriedl/.bun/bin:/Users/jakubriedl/.opencode/bin:/Users/jakubriedl/.volta/bin:/Users/jakubriedl/.cache/codex-runtimes/codex-primary-runtime/dependencies/bin/fallback:/Applications/ChatGPT.app/Contents/Resources"}, "timeout_seconds": 600, "started_utc": "2026-09-08T08:04:22Z", "log": "logs/file-edit-native-red.log"}
+
+ RUN  v4.0.18 /private/tmp/ctxpipe-recovery-01a07aba/apps/backend
+
+Cloning into bare repository '/var/folders/9t/jj9rnpps7_ddb72c1mq2k13w0000gn/T/ctxpipe-hydration-contract-XW1PvT/remote.git'...
+done.
+ ❯ src/domain/workspaces/write-workflow-native.contract.test.ts (8 tests | 1 failed | 7 skipped) 5516ms
+   ↓ bootstraps a workspace in one native commit with a durable job result
+   ↓ replays an already published bootstrap job without a second commit
+   ↓ replays a completed no-op without creating a commit
+   ↓ admits bootstrap through the production queue as a bound typed workflow
+   ↓ rejects an unavailable workspace without queuing an unbound write
+   ↓ does not push after its connection is detached during credential issuance
+   ↓ recovers a lost push acknowledgement after the desired revision observes its commit
+   × publishes a file edit and deletion through one typed native workflow 5509ms
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 1 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  src/domain/workspaces/write-workflow-native.contract.test.ts > publishes a file edit and deletion through one typed native workflow
+AssertionError: expected { namespaceId: 'default', …(20) } to match object { …(2) }
+(28 matching properties omitted from actual)
+
+- Expected
++ Received
+
+  {
+    "input": {
+-     "deletePaths": [
++     "jobDesiredSha": "fbf81aafdf2c0a7cff53503cdf3855a4ce4533cc",
++     "jobGeneration": 1,
++     "jobId": "wjob_hydrate_1788854677743_eqqjqlumifh_edit",
++     "jobWorkspaceUrl": "https://github.com/fixture/hydration-contract.git",
++     "kind": "ui_file_edit",
++     "mergeDeletePaths": [
+        "document-001.md",
+      ],
+-     "files": [
++     "mergeFiles": [
+        {
+          "content": "# New knowledge
+  ",
+          "path": "knowledge/new.md",
+        },
+      ],
+-     "revision": {
+-       "access": "write-default",
+-       "sha": "fbf81aafdf2c0a7cff53503cdf3855a4ce4533cc",
++     "orgId": "org_hydrate_1788854677743_eqqjqlumifh",
++     "workspaceId": "ws_hydrate_1788854677743_eqqjqlumifh",
+    },
+-   },
+-   "workflowName": "workspace-write-ui-file-edit",
++   "workflowName": "workspace-write-commit",
+  }
+
+ ❯ src/domain/workspaces/write-workflow-native.contract.test.ts:574:26
+    572|             (row) => (row.input as { jobId?: string })?.jobId === jobI…
+    573|           )
+    574|           expect(queued).toMatchObject({
+       |                          ^
+    575|             workflowName: "workspace-write-ui-file-edit",
+    576|             input: {
+ ❯ withNativeHydrationFixture src/test/native-hydration-fixture.ts:374:5
+ ❯ src/domain/workspaces/write-workflow-native.contract.test.ts:522:5
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/1]⎯
+
+
+ Test Files  1 failed (1)
+      Tests  1 failed | 7 skipped (8)
+   Start at  18:04:23
+   Duration  19.97s (transform 3.75s, setup 116ms, import 13.89s, tests 5.52s, environment 0ms)
+

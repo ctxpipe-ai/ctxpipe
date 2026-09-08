@@ -1,5 +1,6 @@
 import { parseEnv } from "../config/env.js"
 import { assertNotInOrgDbContext, withOrgDbContext } from "../db/client.js"
+import { resolveWorkspaceReadRevision } from "../domain/workspaces/resolve-revision.js"
 import {
   type EnqueueWriteJobInput,
   WRITE_JOB_STATUSES,
@@ -11,6 +12,7 @@ import {
   probeWorkspaceWriteAccess,
 } from "../domain/workspaces/write-status.js"
 import { generateObjectId } from "../lib/id.js"
+import { persistBoundWriteJob } from "../models/workspace-write-jobs.js"
 import {
   getWorkspaceById,
   persistWriteJobIntent,
@@ -18,6 +20,11 @@ import {
   persistWriteStatus,
 } from "../models/workspaces.js"
 import { runWorkflowWithWorkerWake } from "./client.js"
+import { workspaceBootstrap } from "./workflows/workspace-bootstrap.js"
+import {
+  workspaceFileEdit,
+  workspaceFileEditInputSchema,
+} from "./workflows/workspace-file-edit.js"
 import { workspaceWriteCommit } from "./workflows/workspace-write-commit.js"
 
 type WorkspaceWriteSnapshot = {
@@ -94,24 +101,68 @@ export async function enqueueWriteJob(
         },
       })
     }
-  } catch {
-    // Workflow loads live state if enqueue cannot snapshot the Workspace.
+  } catch (error) {
+    log.error(error instanceof Error ? error : new Error(String(error)))
+    return { started: false }
   }
   if (writeStatus == null) {
+    log.error(new Error("Workspace write binding is unavailable"))
+    return { started: false }
+  }
+  if (
+    (input.kind === "bootstrap" || input.kind === "ui_file_edit") &&
+    writeStatus === "writable"
+  ) {
     try {
-      await runWorkflowWithWorkerWake(workspaceWriteCommit.spec, {
-        ...input,
-        jobId,
-        ...(jobGeneration != null ? { jobGeneration } : {}),
-        ...(jobWorkspaceUrl ? { jobWorkspaceUrl } : {}),
-        ...(jobDesiredSha !== undefined ? { jobDesiredSha } : {}),
+      const resolved = await resolveWorkspaceReadRevision({
+        orgId: input.orgId,
+        workspaceId: input.workspaceId,
+        env: parseEnv(process.env),
       })
-    } catch (err: unknown) {
-      const error = err instanceof Error ? err : new Error(String(err))
-      log.error(error)
+      if (!resolved) throw new Error("Workspace revision is unavailable")
+      const revision = {
+        ...resolved.revision,
+        access: "write-default" as const,
+      }
+      if (
+        (jobGeneration != null && revision.generation !== jobGeneration) ||
+        (jobWorkspaceUrl && revision.remote.url !== jobWorkspaceUrl) ||
+        (jobDesiredSha && revision.sha !== jobDesiredSha) ||
+        (input.defaultBranch && revision.defaultBranch !== input.defaultBranch)
+      )
+        throw new Error("Write command binding changed during admission")
+      if (input.kind === "ui_file_edit") {
+        const command = workspaceFileEditInputSchema.parse({
+          orgId: input.orgId,
+          workspaceId: input.workspaceId,
+          jobId,
+          revision,
+          files: input.mergeFiles ?? [],
+          deletePaths: input.mergeDeletePaths ?? [],
+        })
+        await persistBoundWriteJob({
+          id: jobId,
+          kind: input.kind,
+          revision,
+          files: command.files,
+          deletePaths: command.deletePaths,
+        })
+        await runWorkflowWithWorkerWake(workspaceFileEdit.spec, command, {
+          idempotencyKey: jobId,
+        })
+        return { started: true }
+      }
+      await persistBoundWriteJob({ id: jobId, kind: "bootstrap", revision })
+      await runWorkflowWithWorkerWake(
+        workspaceBootstrap.spec,
+        { orgId: input.orgId, workspaceId: input.workspaceId, jobId, revision },
+        { idempotencyKey: jobId },
+      )
+      return { started: true }
+    } catch (error) {
+      log.error(error instanceof Error ? error : new Error(String(error)))
       return { started: false }
     }
-    return { started: true }
   }
   const generation = jobGeneration ?? desiredGeneration ?? 1
   const intent = writeJobIntentStatus({
