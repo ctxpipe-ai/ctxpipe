@@ -1,0 +1,85 @@
+{"name": "connector-legacy-config-replay-red", "cwd": "/private/tmp/ctxpipe-recovery-01a07aba", "command": ["/Users/jakubriedl/.volta/tools/image/node/22.16.0/bin/node", "apps/backend/node_modules/vitest/vitest.mjs", "run", "--root", "apps/backend", "src/openworkflow/workflows/connector-config-native.contract.test.ts", "-t", "replay=true"], "environment": {"AUTH_SECRET": "gate0-local-disposable-test-secret-20260907", "DATABASE_URL": "postgresql://ctxpipe_app:ctxpipe@127.0.0.1:61314/ctxpipe_gate0_fresh", "GRAPH_DB_URI": "redis://127.0.0.1:6398", "CI": "true", "NO_COLOR": "1", "TURBO_TELEMETRY_DISABLED": "1", "STORYBOOK_DISABLE_TELEMETRY": "1", "PATH": "/Users/jakubriedl/.volta/tools/image/node/22.16.0/bin:/private/tmp/ctxpipe-recovery-runtime/ast-grep/node_modules/.bin:/private/tmp/ctxpipe-recovery-runtime/node_modules/.bin:/private/tmp/ctxpipe-recovery-runtime/zoekt:/usr/local/bin:/System/Cryptexes/App/usr/bin:/usr/bin:/bin:/usr/sbin:/sbin:/var/run/com.apple.security.cryptexd/codex.system/bootstrap/usr/local/bin:/var/run/com.apple.security.cryptexd/codex.system/bootstrap/usr/bin:/var/run/com.apple.security.cryptexd/codex.system/bootstrap/usr/appleinternal/bin:/pkg/env/global/bin:/Users/jakubriedl/.codex/tmp/arg0/codex-arg0BW5Gt3:/Users/jakubriedl/.cache/codex-runtimes/codex-primary-runtime/dependencies/bin/override:/Users/jakubriedl/.local/bin:/Users/jakubriedl/.bun/bin:/Users/jakubriedl/.opencode/bin:/Users/jakubriedl/.volta/bin:/opt/homebrew/bin:/opt/homebrew/sbin:/Users/jakubriedl/.cache/codex-runtimes/codex-primary-runtime/dependencies/bin/fallback:/Applications/ChatGPT.app/Contents/Resources"}, "timeout_seconds": 600, "started_utc": "2026-09-08T19:23:18Z", "log": "logs/connector-legacy-config-replay-red.log"}
+
+ RUN  v4.0.18 /private/tmp/ctxpipe-recovery-01a07aba/apps/backend
+
+Cloning into bare repository '/var/folders/9t/jj9rnpps7_ddb72c1mq2k13w0000gn/T/ctxpipe-hydration-contract-KuXgSc/remote.git'...
+done.
+Cloning into bare repository '/var/folders/9t/jj9rnpps7_ddb72c1mq2k13w0000gn/T/ctxpipe-hydration-contract-RRN1Oz/remote.git'...
+done.
+Cloning into bare repository '/var/folders/9t/jj9rnpps7_ddb72c1mq2k13w0000gn/T/ctxpipe-hydration-contract-ueDtp5/remote.git'...
+done.
+ ❯ src/openworkflow/workflows/connector-config-native.contract.test.ts (20 tests | 3 failed | 17 skipped) 5004ms
+   ↓ native 'linear' config admission (failure=false; stale=false; close=false; ownerFirst=false; upgrade=undefined; generationSwap=undefined; replay=undefined)
+   ↓ native 'linear' config admission (failure=false; stale=false; close=false; ownerFirst=true; upgrade=undefined; generationSwap=undefined; replay=undefined)
+   × native 'linear' config admission (failure=false; stale=false; close=false; ownerFirst=false; upgrade=undefined; generationSwap=undefined; replay=true) 1551ms
+   ↓ native 'linear' config admission (failure=false; stale=false; close=false; ownerFirst=false; upgrade=true; generationSwap=undefined; replay=undefined)
+   ↓ native 'linear' config admission (failure=true; stale=false; close=false; ownerFirst=false; upgrade=undefined; generationSwap=undefined; replay=undefined)
+   ↓ native 'linear' config admission (failure=false; stale=true; close=false; ownerFirst=false; upgrade=undefined; generationSwap=undefined; replay=undefined)
+   ↓ native 'linear' config admission (failure=false; stale=false; close=true; ownerFirst=false; upgrade=undefined; generationSwap=undefined; replay=undefined)
+   ↓ native 'linear' config admission (failure=false; stale=false; close=true; ownerFirst=false; upgrade=undefined; generationSwap=true; replay=undefined)
+   ↓ native 'notion' config admission (failure=false; stale=false; close=false; ownerFirst=false; upgrade=undefined; generationSwap=undefined; replay=undefined)
+   ↓ native 'notion' config admission (failure=false; stale=false; close=false; ownerFirst=true; upgrade=undefined; generationSwap=undefined; replay=undefined)
+   × native 'notion' config admission (failure=false; stale=false; close=false; ownerFirst=false; upgrade=undefined; generationSwap=undefined; replay=true) 1958ms
+   ↓ native 'notion' config admission (failure=false; stale=false; close=false; ownerFirst=false; upgrade=true; generationSwap=undefined; replay=undefined)
+   ↓ native 'notion' config admission (failure=true; stale=false; close=false; ownerFirst=false; upgrade=undefined; generationSwap=undefined; replay=undefined)
+   ↓ native 'notion' config admission (failure=false; stale=true; close=false; ownerFirst=false; upgrade=undefined; generationSwap=undefined; replay=undefined)
+   ↓ native 'confluence' config admission (failure=false; stale=false; close=false; ownerFirst=false; upgrade=undefined; generationSwap=undefined; replay=undefined)
+   ↓ native 'confluence' config admission (failure=false; stale=false; close=false; ownerFirst=true; upgrade=undefined; generationSwap=undefined; replay=undefined)
+   × native 'confluence' config admission (failure=false; stale=false; close=false; ownerFirst=false; upgrade=undefined; generationSwap=undefined; replay=true) 1494ms
+   ↓ native 'confluence' config admission (failure=false; stale=false; close=false; ownerFirst=false; upgrade=true; generationSwap=undefined; replay=undefined)
+   ↓ native 'confluence' config admission (failure=true; stale=false; close=false; ownerFirst=false; upgrade=undefined; generationSwap=undefined; replay=undefined)
+   ↓ native 'confluence' config admission (failure=false; stale=true; close=false; ownerFirst=false; upgrade=undefined; generationSwap=undefined; replay=undefined)
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 3 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  src/openworkflow/workflows/connector-config-native.contract.test.ts > native 'linear' config admission (failure=false; stale=false; close=false; ownerFirst=false; upgrade=undefined; generationSwap=undefined; replay=true)
+Error: Workflow linear-sync-config failed: {"name":"Error","stack":"Error: Connector configuration activation was superseded\n    at /private/tmp/ctxpipe-recovery-01a07aba/apps/backend/src/openworkflow/workflows/linear-sync-config.ts:57:13\n    at processTicksAndRejections (node:internal/process/task_queues:105:5)\n    at executeWorkflow (file:///private/tmp/ctxpipe-recovery-01a07aba/node_modules/.pnpm/openworkflow@0.8.0_postgres@3.4.8/node_modules/openworkflow/dist/worker/execution.js:759:24)\n    at Worker.processExecutionInBackground (file:///private/tmp/ctxpipe-recovery-01a07aba/node_modules/.pnpm/openworkflow@0.8.0_postgres@3.4.8/node_modules/openworkflow/dist/worker/worker.js:176:13)","message":"Connector configuration activation was superseded"}
+ ❯ WorkflowRunHandle.result ../../node_modules/.pnpm/openworkflow@0.8.0_postgres@3.4.8/node_modules/openworkflow/dist/client/client.js:194:23
+ ❯ src/openworkflow/workflows/connector-config-native.contract.test.ts:283:20
+    281|             await expect(handle.result({ timeoutMs: 12_000 })).rejects…
+    282|           else
+    283|             expect(await handle.result({ timeoutMs: 12_000 })).toEqual…
+       |                    ^
+    284|               changed: false,
+    285|             })
+ ❯ withNativeHydrationFixture src/test/native-hydration-fixture.ts:647:5
+ ❯ src/openworkflow/workflows/connector-config-native.contract.test.ts:76:5
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/3]⎯
+
+ FAIL  src/openworkflow/workflows/connector-config-native.contract.test.ts > native 'notion' config admission (failure=false; stale=false; close=false; ownerFirst=false; upgrade=undefined; generationSwap=undefined; replay=true)
+Error: Workflow notion-sync-config failed: {"name":"Error","stack":"Error: Connector configuration activation was superseded\n    at /private/tmp/ctxpipe-recovery-01a07aba/apps/backend/src/openworkflow/workflows/notion-sync-config.ts:50:13\n    at processTicksAndRejections (node:internal/process/task_queues:105:5)\n    at executeWorkflow (file:///private/tmp/ctxpipe-recovery-01a07aba/node_modules/.pnpm/openworkflow@0.8.0_postgres@3.4.8/node_modules/openworkflow/dist/worker/execution.js:759:24)\n    at Worker.processExecutionInBackground (file:///private/tmp/ctxpipe-recovery-01a07aba/node_modules/.pnpm/openworkflow@0.8.0_postgres@3.4.8/node_modules/openworkflow/dist/worker/worker.js:176:13)","message":"Connector configuration activation was superseded"}
+ ❯ WorkflowRunHandle.result ../../node_modules/.pnpm/openworkflow@0.8.0_postgres@3.4.8/node_modules/openworkflow/dist/client/client.js:194:23
+ ❯ src/openworkflow/workflows/connector-config-native.contract.test.ts:283:20
+    281|             await expect(handle.result({ timeoutMs: 12_000 })).rejects…
+    282|           else
+    283|             expect(await handle.result({ timeoutMs: 12_000 })).toEqual…
+       |                    ^
+    284|               changed: false,
+    285|             })
+ ❯ withNativeHydrationFixture src/test/native-hydration-fixture.ts:647:5
+ ❯ src/openworkflow/workflows/connector-config-native.contract.test.ts:76:5
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[2/3]⎯
+
+ FAIL  src/openworkflow/workflows/connector-config-native.contract.test.ts > native 'confluence' config admission (failure=false; stale=false; close=false; ownerFirst=false; upgrade=undefined; generationSwap=undefined; replay=true)
+Error: Workflow confluence-sync-config failed: {"name":"Error","stack":"Error: Connector configuration activation was superseded\n    at /private/tmp/ctxpipe-recovery-01a07aba/apps/backend/src/openworkflow/workflows/confluence-sync-config.ts:54:13\n    at processTicksAndRejections (node:internal/process/task_queues:105:5)\n    at executeWorkflow (file:///private/tmp/ctxpipe-recovery-01a07aba/node_modules/.pnpm/openworkflow@0.8.0_postgres@3.4.8/node_modules/openworkflow/dist/worker/execution.js:759:24)\n    at Worker.processExecutionInBackground (file:///private/tmp/ctxpipe-recovery-01a07aba/node_modules/.pnpm/openworkflow@0.8.0_postgres@3.4.8/node_modules/openworkflow/dist/worker/worker.js:176:13)","message":"Connector configuration activation was superseded"}
+ ❯ WorkflowRunHandle.result ../../node_modules/.pnpm/openworkflow@0.8.0_postgres@3.4.8/node_modules/openworkflow/dist/client/client.js:194:23
+ ❯ src/openworkflow/workflows/connector-config-native.contract.test.ts:283:20
+    281|             await expect(handle.result({ timeoutMs: 12_000 })).rejects…
+    282|           else
+    283|             expect(await handle.result({ timeoutMs: 12_000 })).toEqual…
+       |                    ^
+    284|               changed: false,
+    285|             })
+ ❯ withNativeHydrationFixture src/test/native-hydration-fixture.ts:647:5
+ ❯ src/openworkflow/workflows/connector-config-native.contract.test.ts:76:5
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[3/3]⎯
+
+
+ Test Files  1 failed (1)
+      Tests  3 failed | 17 skipped (20)
+   Start at  05:23:19
+   Duration  7.74s (transform 974ms, setup 17ms, import 2.65s, tests 5.00s, environment 0ms)
+

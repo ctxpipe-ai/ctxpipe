@@ -578,124 +578,9 @@ export async function listNotionBindingsWithRepoByRepositoryId(
   })
 }
 
-export async function claimNotionConfigPrCreation(input: {
-  connectionId: string
-}): Promise<
-  | {
-      pendingConfigPullUrl: string | null
-      setupPhase: NotionSetupPhase
-    }
-  | undefined
-> {
-  const directoryRow = await getConnectionDirectoryByConnectionId(
-    input.connectionId,
-  )
-  if (!directoryRow) return undefined
-  const claimed = await withOrgDbContext(directoryRow.orgId, async (tx) => {
-    await tx.execute(
-      sql`select pg_advisory_xact_lock(hashtextextended(${input.connectionId}, 0))`,
-    )
-    const [row] = await tx
-      .select()
-      .from(connections)
-      .where(
-        and(
-          eq(connections.id, input.connectionId),
-          eq(connections.type, CONNECTION_TYPE_NOTION),
-        ),
-      )
-      .limit(1)
-    if (!row) return
-    const binding = bindingFromConnectionRow(row)
-    if (!binding) return
-    const [updated] = await tx
-      .update(connections)
-      .set({
-        contentSyncGeneration: sql`${connections.contentSyncGeneration} + 1`,
-        config: mergeNotionStoredConfig(row, {
-          setupPhase: "awaiting_merge",
-          pendingConfigPrCreating: true,
-        }),
-        updatedAt: new Date(),
-      })
-      .where(
-        and(
-          eq(connections.id, input.connectionId),
-          eq(connections.type, CONNECTION_TYPE_NOTION),
-          sql`coalesce((${connections.config}->>'pendingConfigPrCreating')::boolean, false) = false`,
-        ),
-      )
-      .returning()
-    if (!updated) return
-    return {
-      row: updated,
-      pendingConfigPullUrl: binding.pendingConfigPullUrl,
-      setupPhase: binding.setupPhase,
-    }
-  })
-  if (!claimed) return undefined
-  await upsertConnectionDirectory(claimed.row)
-  return {
-    pendingConfigPullUrl: claimed.pendingConfigPullUrl,
-    setupPhase: claimed.setupPhase,
-  }
-}
-
-export async function releaseNotionConfigPrCreationClaim(input: {
-  connectionId: string
-  previousState: {
-    pendingConfigPullUrl: string | null
-    setupPhase: NotionSetupPhase
-  }
-}): Promise<void> {
-  const directoryRow = await getConnectionDirectoryByConnectionId(
-    input.connectionId,
-  )
-  if (!directoryRow) return
-  const updated = await withOrgDbContext(directoryRow.orgId, async (tx) => {
-    await tx.execute(
-      sql`select pg_advisory_xact_lock(hashtextextended(${input.connectionId}, 0))`,
-    )
-    const [row] = await tx
-      .select()
-      .from(connections)
-      .where(
-        and(
-          eq(connections.id, input.connectionId),
-          eq(connections.type, CONNECTION_TYPE_NOTION),
-        ),
-      )
-      .limit(1)
-    const binding = row ? bindingFromConnectionRow(row) : undefined
-    if (
-      !row ||
-      !binding ||
-      binding.setupPhase !== "awaiting_merge" ||
-      !binding.pendingConfigPrCreating
-    ) {
-      return
-    }
-    const [result] = await tx
-      .update(connections)
-      .set({
-        config: mergeNotionStoredConfig(row, {
-          pendingConfigPullUrl: input.previousState.pendingConfigPullUrl,
-          pendingConfigPrCreating: false,
-          setupPhase: input.previousState.setupPhase,
-        }),
-        updatedAt: new Date(),
-      })
-      .where(eq(connections.id, input.connectionId))
-      .returning()
-    if (!result)
-      throw new Error("Notion connection was removed during claim release")
-    return result
-  })
-  if (updated) await upsertConnectionDirectory(updated)
-}
-
 export async function transitionNotionBindingState(input: {
   connectionId: string
+  expectedContentSyncGeneration?: number
   expectedSetupPhase: NotionSetupPhase
   expectedPendingConfigPrCreating: boolean
   repositoryId: string
@@ -722,9 +607,12 @@ export async function transitionNotionBindingState(input: {
         ),
       )
       .limit(1)
+      .for("update")
     const binding = row ? bindingFromConnectionRow(row) : undefined
     if (
       !row ||
+      (input.expectedContentSyncGeneration != null &&
+        row.contentSyncGeneration !== input.expectedContentSyncGeneration) ||
       !binding ||
       !binding.enabled ||
       binding.repositoryId !== input.repositoryId ||
@@ -1183,6 +1071,11 @@ export async function patchNotionConnectorConfig(input: {
       const [row] = await tx
         .update(connections)
         .set({
+          ...(plan.resetLifecycle
+            ? {
+                contentSyncGeneration: sql`${connections.contentSyncGeneration} + 1`,
+              }
+            : {}),
           config: mergeNotionStoredConfig(connectionRow, {
             repositoryId,
             branch: syncTarget.branch,

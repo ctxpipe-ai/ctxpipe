@@ -9,9 +9,7 @@ import {
 } from "../lib/connection-config.js"
 import {
   claimLinearBindingInitialSync,
-  claimLinearConfigPrCreation,
   type LinearBinding,
-  LinearConfigPrCreationInProgressError,
   LinearSyncBindingBusyError,
   planLinearSyncBindingUpdate,
   withLinearBindingSnapshot,
@@ -64,43 +62,6 @@ function binding(overrides: Partial<LinearBinding> = {}): LinearBinding {
     updatedAt: new Date(),
     ...overrides,
   }
-}
-
-function claimDb(claimedIds: string[]): Db {
-  const limit = vi.fn().mockResolvedValue([
-    {
-      id: "connection-1",
-      orgId: "org_1",
-      type: "linear",
-      config: {
-        accessTokenEnc: "enc",
-        workspaceId: "workspace-1",
-        workspaceName: "Acme",
-        ownerUserId: "user-1",
-        repositoryId: "repo_1",
-        branch: "main",
-        enabled: true,
-        setupPhase: "draft",
-        pendingConfigPullUrl: "https://github.com/example/context/pull/12",
-        pendingConfigPrCreating: false,
-      },
-      createdAt: new Date(),
-      updatedAt: new Date(),
-    },
-  ])
-  const returning = vi.fn().mockResolvedValue(claimedIds.map((id) => ({ id })))
-  return {
-    select: vi.fn(() => ({
-      from: vi.fn(() => ({
-        where: vi.fn(() => ({ limit })),
-      })),
-    })),
-    update: vi.fn(() => ({
-      set: vi.fn(() => ({
-        where: vi.fn(() => ({ returning })),
-      })),
-    })),
-  } as unknown as Db
 }
 
 function linearConnectionRow(setupPhase: LinearBinding["setupPhase"]) {
@@ -196,19 +157,6 @@ describe("Linear connector model", () => {
     ).toEqual({
       accessToken: "access-token",
       refreshToken: "refresh-token",
-    })
-  })
-
-  it("claims config PR creation only when the compare-and-set update wins", async () => {
-    await expect(
-      claimLinearConfigPrCreation(claimDb([]), "connection-1"),
-    ).rejects.toBeInstanceOf(LinearConfigPrCreationInProgressError)
-
-    await expect(
-      claimLinearConfigPrCreation(claimDb(["target-1"]), "connection-1"),
-    ).resolves.toEqual({
-      pendingConfigPullUrl: "https://github.com/example/context/pull/12",
-      setupPhase: "draft",
     })
   })
 

@@ -1,8 +1,8 @@
 import { createHash } from "node:crypto"
 import {
-  activateConnectorContentSync,
-  findConnectorContentSyncOwner,
-  prepareConnectorContentSync,
+  activateConnectorSync,
+  findConnectorSyncOwner,
+  prepareConnectorSync,
 } from "../models/connector-content-sync.js"
 import { runWorkflowWithWorkerWake } from "./client.js"
 import { confluenceSyncContent } from "./workflows/confluence-sync-content.js"
@@ -14,16 +14,20 @@ export function connectorConfigKey(config: unknown): string {
   return createHash("sha256").update(JSON.stringify(config)).digest("hex")
 }
 
-export async function enqueueConnectorContentSync(input: {
-  orgId: string
-  orgSlug?: string
-  connectionId: string
-  provider: "linear" | "notion" | "confluence"
-  repositoryId?: string
-  branch: string
-  configKey?: string
-}): Promise<boolean> {
-  const intent = await prepareConnectorContentSync(input)
+export async function enqueueConnectorContentSync(
+  input: {
+    orgId: string
+    orgSlug?: string
+    connectionId: string
+    provider: "linear" | "notion" | "confluence"
+    repositoryId?: string
+    configKey?: string
+  } & (
+    | { legacyConfigRecovery: true; branch?: string }
+    | { legacyConfigRecovery?: false; branch: string }
+  ),
+): Promise<boolean> {
+  const intent = await prepareConnectorSync({ ...input, purpose: "content" })
   if (!intent) return false
   if (intent.existingRunId) return true
   const idempotencyKey = `connector-content:${input.connectionId}:${intent.contentSyncGeneration}:${input.configKey ?? "retry"}`
@@ -61,17 +65,18 @@ export async function enqueueConnectorContentSync(input: {
       workflowRunId = handle.workflowRun.id
     }
   } catch (error) {
-    const owner = await findConnectorContentSyncOwner({
+    const owner = await findConnectorSyncOwner({
+      purpose: "content",
       ...input,
       idempotencyKey,
     })
     if (!owner) throw error
     workflowRunId = owner
   }
-  await activateConnectorContentSync({
+  return activateConnectorSync({
+    purpose: "content",
     orgId: input.orgId,
     connectionId: input.connectionId,
     workflowRunId,
   })
-  return true
 }

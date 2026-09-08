@@ -1,0 +1,42 @@
+{"name": "connector-canceled-admission-red", "cwd": "/private/tmp/ctxpipe-recovery-01a07aba", "command": ["/Users/jakubriedl/.volta/tools/image/node/22.16.0/bin/node", "apps/backend/node_modules/vitest/vitest.mjs", "run", "--root", "apps/backend", "src/openworkflow/enqueue-notion-push-sync.test.ts", "-t", "true"], "environment": {"AUTH_SECRET": "gate0-local-disposable-test-secret-20260907", "DATABASE_URL": "postgresql://ctxpipe_app:ctxpipe@127.0.0.1:61314/ctxpipe_gate0_fresh", "GRAPH_DB_URI": "redis://127.0.0.1:6398", "CI": "true", "NO_COLOR": "1", "TURBO_TELEMETRY_DISABLED": "1", "STORYBOOK_DISABLE_TELEMETRY": "1", "PATH": "/Users/jakubriedl/.volta/tools/image/node/22.16.0/bin:/private/tmp/ctxpipe-recovery-runtime/ast-grep/node_modules/.bin:/private/tmp/ctxpipe-recovery-runtime/node_modules/.bin:/private/tmp/ctxpipe-recovery-runtime/zoekt:/usr/local/bin:/System/Cryptexes/App/usr/bin:/usr/bin:/bin:/usr/sbin:/sbin:/var/run/com.apple.security.cryptexd/codex.system/bootstrap/usr/local/bin:/var/run/com.apple.security.cryptexd/codex.system/bootstrap/usr/bin:/var/run/com.apple.security.cryptexd/codex.system/bootstrap/usr/appleinternal/bin:/pkg/env/global/bin:/Users/jakubriedl/.codex/tmp/arg0/codex-arg0BW5Gt3:/Users/jakubriedl/.cache/codex-runtimes/codex-primary-runtime/dependencies/bin/override:/Users/jakubriedl/.local/bin:/Users/jakubriedl/.bun/bin:/Users/jakubriedl/.opencode/bin:/Users/jakubriedl/.volta/bin:/opt/homebrew/bin:/opt/homebrew/sbin:/Users/jakubriedl/.cache/codex-runtimes/codex-primary-runtime/dependencies/bin/fallback:/Applications/ChatGPT.app/Contents/Resources"}, "timeout_seconds": 600, "started_utc": "2026-09-08T19:11:26Z", "log": "logs/connector-canceled-admission-red.log"}
+
+ RUN  v4.0.18 /private/tmp/ctxpipe-recovery-01a07aba/apps/backend
+
+Cloning into bare repository '/var/folders/9t/jj9rnpps7_ddb72c1mq2k13w0000gn/T/ctxpipe-hydration-contract-Vj5wZ3/remote.git'...
+done.
+ ❯ src/openworkflow/enqueue-notion-push-sync.test.ts (2 tests | 1 failed | 1 skipped) 404ms
+   ↓ accepts a durable Notion activation (canceled before activation: false)
+   × accepts a durable Notion activation (canceled before activation: true) 404ms
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 1 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  src/openworkflow/enqueue-notion-push-sync.test.ts > accepts a durable Notion activation (canceled before activation: true)
+AssertionError: expected { …(14) } to match object { setupPhase: 'sync_failed' }
+(13 matching properties omitted from actual)
+
+- Expected
++ Received
+
+  {
+-   "setupPhase": "sync_failed",
++   "setupPhase": "awaiting_merge",
+  }
+
+ ❯ src/openworkflow/enqueue-notion-push-sync.test.ts:80:16
+     78|             await enqueueNotionFullSyncAfterConfigPush(input)
+     79|             expect(await getNotionBindingWithRepoByConnectionId(f.org.…
+     80|               .toMatchObject({ setupPhase: "sync_failed" })
+       |                ^
+     81|             expect(await enqueueConnectorContentSync({
+     82|               orgId: f.org.id, orgSlug: f.org.slug, connectionId,
+ ❯ withNativeHydrationFixture src/test/native-hydration-fixture.ts:647:5
+ ❯ src/openworkflow/enqueue-notion-push-sync.test.ts:18:5
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/1]⎯
+
+
+ Test Files  1 failed (1)
+      Tests  1 failed | 1 skipped (2)
+   Start at  05:11:26
+   Duration  3.20s (transform 1.01s, setup 21ms, import 2.70s, tests 404ms, environment 0ms)
+

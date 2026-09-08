@@ -6,16 +6,34 @@ import {
   getConfluenceSyncTargetByConnectionId,
   updateConfluenceSyncTargetPrState,
 } from "../../models/confluence-sync-target.js"
-import { captureConnectorConfigSyncBinding } from "../../models/connector-content-sync.js"
+import {
+  activateConnectorSync,
+  captureConnectorConfigSyncBinding,
+  connectorContentBindingSchema,
+} from "../../models/connector-content-sync.js"
 import { syncConfluenceConfigYaml } from "../../services/confluence/sync.js"
 import { enqueueConnectorContentSync } from "../enqueue-connector-content-sync.js"
 
 const confluenceSyncConfigInputSchema = z.object({
+  spaces: z
+    .array(
+      z.object({
+        spaceKey: z.string().min(1),
+        selectedPageIds: z.array(z.string()).nullable(),
+      }),
+    )
+    .optional(),
+  contentSyncBinding: connectorContentBindingSchema.optional(),
+  configKey: z.string().optional(),
   contentSyncGeneration: z.number().int().nonnegative().default(0),
   orgId: z.string().min(1),
   orgSlug: z.string().min(1),
   connectionId: z.string().min(1),
 })
+
+export type ConfluenceConfigSyncInput = z.input<
+  typeof confluenceSyncConfigInputSchema
+>
 
 export const confluenceSyncConfig = defineWorkflow(
   {
@@ -23,6 +41,32 @@ export const confluenceSyncConfig = defineWorkflow(
     schema: confluenceSyncConfigInputSchema,
   },
   async ({ input, step, run }) => {
+    if (
+      !input.contentSyncBinding &&
+      (input.contentSyncGeneration ?? 0) === 0 &&
+      (await step.run({ name: "recover-legacy-config-content" }, () =>
+        enqueueConnectorContentSync({
+          provider: "confluence",
+          orgId: input.orgId,
+          orgSlug: input.orgSlug,
+          connectionId: input.connectionId,
+          legacyConfigRecovery: true,
+          configKey: `legacy-config:${run.id}`,
+        }),
+      ))
+    )
+      return { changed: false }
+    if (
+      !(await step.run({ name: "activate-config-sync" }, () =>
+        activateConnectorSync({
+          purpose: "config",
+          orgId: input.orgId,
+          connectionId: input.connectionId,
+          workflowRunId: run.id,
+        }),
+      ))
+    )
+      throw new Error("Connector configuration activation was superseded")
     if (
       !(await step.run({ name: "capture-config-binding" }, () =>
         captureConnectorConfigSyncBinding({
@@ -53,6 +97,7 @@ export const confluenceSyncConfig = defineWorkflow(
         env: parseEnv(process.env),
         connectionId: input.connectionId,
         target,
+        spaces: input.spaces,
       }),
     )
     if (result.changed) {
@@ -64,6 +109,7 @@ export const confluenceSyncConfig = defineWorkflow(
             pendingConfigPrCreating: false,
             setupPhase: "awaiting_merge",
             expectedBinding: {
+              contentSyncGeneration: input.contentSyncGeneration ?? 0,
               repositoryId: target.repositoryId,
               branch: target.branch,
             },

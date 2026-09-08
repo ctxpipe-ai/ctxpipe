@@ -117,13 +117,6 @@ function mergeLinearStoredConfig(
   })
 }
 
-export class LinearConfigPrCreationInProgressError extends Error {
-  constructor() {
-    super("A Linear configuration pull request is already being created")
-    this.name = "LinearConfigPrCreationInProgressError"
-  }
-}
-
 export class LinearSyncBindingBusyError extends Error {
   constructor(message: string) {
     super(message)
@@ -825,68 +818,15 @@ async function resolveRepositoryIdForLinearSync(
   return { repositoryId, didCreate: true }
 }
 
-export async function claimLinearConfigPrCreation(
-  tx: Db,
-  connectionId: string,
-): Promise<{
-  pendingConfigPullUrl: string | null
-  setupPhase: LinearSetupPhase
-}> {
-  const [row] = await tx
-    .select()
-    .from(connections)
-    .where(
-      and(
-        eq(connections.id, connectionId),
-        eq(connections.type, CONNECTION_TYPE_LINEAR),
-      ),
-    )
-    .limit(1)
-  const target = row ? bindingFromConnectionRow(row) : undefined
-  if (!target) throw new Error("Linear sync target not found")
-
-  const claimed = await tx
-    .update(connections)
-    .set({
-      contentSyncGeneration: sql`${connections.contentSyncGeneration} + 1`,
-      config: mergeLinearStoredConfig(row!, {
-        setupPhase: "awaiting_merge",
-        pendingConfigPrCreating: true,
-      }),
-      updatedAt: new Date(),
-    })
-    .where(
-      and(
-        eq(connections.id, connectionId),
-        eq(connections.type, CONNECTION_TYPE_LINEAR),
-        sql`coalesce((${connections.config}->>'pendingConfigPrCreating')::boolean, false) = false`,
-      ),
-    )
-    .returning({ id: connections.id })
-  if (claimed.length === 0) {
-    throw new LinearConfigPrCreationInProgressError()
-  }
-  return {
-    pendingConfigPullUrl: target.pendingConfigPullUrl,
-    setupPhase: target.setupPhase,
-  }
-}
-
 export async function patchLinearConnectorConfig(input: {
   orgId: string
   connectionId: string
   /** Scopes for config-PR workflow input only — not stored in Postgres. */
   scopes?: LinearScope[]
   binding?: LinearBindingPatchInput
-  claimConfigPrCreation?: boolean
 }): Promise<{
   /** Scopes submitted for workflow enqueue only (not persisted as draft). */
   scopes: LinearScope[]
-  configPrClaimed: boolean
-  previousConfigPrState?: {
-    pendingConfigPullUrl: string | null
-    setupPhase: LinearSetupPhase
-  }
   /** Stale config PR on the previous repo/branch; caller should close best-effort. */
   supersededConfigPullUrl?: string | null
   supersededConfigRepositoryId?: string | null
@@ -986,23 +926,8 @@ export async function patchLinearConnectorConfig(input: {
         .where(eq(connections.id, input.connectionId))
     }
 
-    let previousConfigPrState:
-      | {
-          pendingConfigPullUrl: string | null
-          setupPhase: LinearSetupPhase
-        }
-      | undefined
-    if (input.claimConfigPrCreation && input.scopes !== undefined) {
-      previousConfigPrState = await claimLinearConfigPrCreation(
-        tx,
-        input.connectionId,
-      )
-    }
-
     return {
       scopes: input.scopes ?? [],
-      configPrClaimed: Boolean(previousConfigPrState),
-      previousConfigPrState,
       supersededConfigPullUrl,
       supersededConfigRepositoryId,
       repositoryIngestion,
@@ -1056,6 +981,7 @@ export async function updateLinearBindingPrState(input: {
 
 export async function transitionLinearBindingState(input: {
   connectionId: string
+  expectedContentSyncGeneration?: number
   expectedSetupPhase: LinearSetupPhase
   expectedPendingConfigPrCreating: boolean
   repositoryId: string
@@ -1082,9 +1008,12 @@ export async function transitionLinearBindingState(input: {
         ),
       )
       .limit(1)
+      .for("update")
     const target = row ? bindingFromConnectionRow(row) : undefined
     if (
       !row ||
+      (input.expectedContentSyncGeneration != null &&
+        row.contentSyncGeneration !== input.expectedContentSyncGeneration) ||
       !target ||
       target.repositoryId !== input.repositoryId ||
       target.branch !== input.branch ||
@@ -1111,60 +1040,6 @@ export async function transitionLinearBindingState(input: {
   if (!updated) return false
   await upsertConnectionDirectory(updated)
   return true
-}
-
-export async function releaseLinearConfigPrCreationClaim(input: {
-  connectionId: string
-  previousState: {
-    pendingConfigPullUrl: string | null
-    setupPhase: LinearSetupPhase
-  }
-}): Promise<void> {
-  const directoryRow = await getConnectionDirectoryByConnectionId(
-    input.connectionId,
-  )
-  if (!directoryRow) return
-  const updated = await withOrgDbContext(directoryRow.orgId, async (tx) => {
-    await tx.execute(
-      sql`select pg_advisory_xact_lock(hashtextextended(${input.connectionId}, 0))`,
-    )
-    const [row] = await tx
-      .select()
-      .from(connections)
-      .where(
-        and(
-          eq(connections.id, input.connectionId),
-          eq(connections.type, CONNECTION_TYPE_LINEAR),
-        ),
-      )
-      .limit(1)
-    const target = row ? bindingFromConnectionRow(row) : undefined
-    // Only restore if we still own the in-progress claim; skip if rebound.
-    if (
-      !row ||
-      !target ||
-      target.setupPhase !== "awaiting_merge" ||
-      !target.pendingConfigPrCreating
-    ) {
-      return
-    }
-    const [result] = await tx
-      .update(connections)
-      .set({
-        config: mergeLinearStoredConfig(row, {
-          pendingConfigPullUrl: input.previousState.pendingConfigPullUrl,
-          pendingConfigPrCreating: false,
-          setupPhase: input.previousState.setupPhase,
-        }),
-        updatedAt: new Date(),
-      })
-      .where(eq(connections.id, input.connectionId))
-      .returning()
-    if (!result)
-      throw new Error("Linear connection was removed during claim release")
-    return result
-  })
-  if (updated) await upsertConnectionDirectory(updated)
 }
 
 /** CAS into initial_sync only when binding still matches the activating push. */

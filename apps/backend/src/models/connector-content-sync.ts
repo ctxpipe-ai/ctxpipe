@@ -56,12 +56,14 @@ function sameBinding(a: unknown, b: ContentBinding): boolean {
 }
 
 /** Read intent only. Initial-sync state is published after native admission. */
-export async function prepareConnectorContentSync(input: {
+export async function prepareConnectorSync(input: {
+  purpose: "config" | "content"
+  legacyConfigRecovery?: boolean
   orgId: string
   connectionId: string
   provider: ContentBinding["provider"]
   repositoryId?: string
-  branch: string
+  branch?: string
   configKey?: string
 }) {
   return withOrgDbContext(input.orgId, async (db) => {
@@ -77,24 +79,55 @@ export async function prepareConnectorContentSync(input: {
       current.binding.provider !== input.provider ||
       (input.repositoryId != null &&
         current.binding.repositoryId !== input.repositoryId) ||
-      current.binding.branch !== input.branch ||
-      !["awaiting_merge", "initial_sync", "sync_failed", "live"].includes(
-        String(current.setupPhase),
-      )
+      (input.branch != null && current.binding.branch !== input.branch) ||
+      !(
+        input.purpose === "config"
+          ? [
+              "draft",
+              "config_failed",
+              "awaiting_merge",
+              "initial_sync",
+              "live",
+              "sync_failed",
+            ]
+          : ["awaiting_merge", "initial_sync", "sync_failed", "live"]
+      ).includes(String(current.setupPhase))
     )
       return null
-    if (!input.configKey && current.setupPhase !== "sync_failed") return null
+    if (
+      input.legacyConfigRecovery &&
+      (connection.contentSyncGeneration !== 0 ||
+        connection.contentSyncWorkflowRunId != null ||
+        current.pendingConfigPrCreating ||
+        !(
+          current.setupPhase === "initial_sync" ||
+          (input.provider === "confluence" && current.setupPhase === "live")
+        ))
+    )
+      return null
+    if (
+      input.purpose === "content" &&
+      !input.configKey &&
+      current.setupPhase !== "sync_failed"
+    )
+      return null
     if (input.configKey && connection.contentSyncWorkflowRunId) {
       const result = await db.execute<{
         id: string
+        status: string
         input: Record<string, unknown>
       }>(sql`
-        select id, input from openworkflow.workflow_runs where id = ${connection.contentSyncWorkflowRunId}
+        select id, status, input from openworkflow.workflow_runs where id = ${connection.contentSyncWorkflowRunId}
+          and workflow_name = ${`${input.provider}-sync-${input.purpose}`}
           and input->>'orgId' = ${input.orgId} and input->>'connectionId' = ${input.connectionId}
       `)
       const owner = result.rows[0]
       if (
         owner?.input.configKey === input.configKey &&
+        !(
+          input.purpose === "config" &&
+          ["failed", "canceled"].includes(owner.status)
+        ) &&
         sameBinding(owner.input.contentSyncBinding, current.binding)
       )
         return {
@@ -103,6 +136,12 @@ export async function prepareConnectorContentSync(input: {
           contentSyncGeneration: connection.contentSyncGeneration,
         }
     }
+    if (
+      input.purpose === "config" &&
+      current.setupPhase === "awaiting_merge" &&
+      current.pendingConfigPrCreating
+    )
+      return null
     return {
       existingRunId: null,
       contentSyncBinding: current.binding,
@@ -112,7 +151,8 @@ export async function prepareConnectorContentSync(input: {
 }
 
 /** Native owner first; the workflow repeats this step after an admission-process crash. */
-export async function activateConnectorContentSync(input: {
+export async function activateConnectorSync(input: {
+  purpose: "config" | "content"
   orgId: string
   connectionId: string
   workflowRunId: string
@@ -131,7 +171,7 @@ export async function activateConnectorContentSync(input: {
       input: Record<string, unknown>
     }>(sql`
       select status, input from openworkflow.workflow_runs where id = ${input.workflowRunId}
-        and workflow_name = ${`${current.binding.provider}-sync-content`}
+        and workflow_name = ${`${current.binding.provider}-sync-${input.purpose}`}
         and input->>'orgId' = ${input.orgId} and input->>'connectionId' = ${input.connectionId}
     `)
     const owner = result.rows[0]
@@ -144,22 +184,69 @@ export async function activateConnectorContentSync(input: {
       return false
     if (connection.contentSyncWorkflowRunId === input.workflowRunId)
       return generation === connection.contentSyncGeneration
-    if (["failed", "canceled", "completed"].includes(owner.status)) return false
+    // The API can observe the owner only after its child has advanced setup.
+    // A completed proposal is already accepted; do not rewind that newer state.
+    if (owner.status === "completed")
+      return (
+        input.purpose === "config" &&
+        Boolean(owner.input.contentSyncBinding) &&
+        typeof generation === "number" &&
+        generation <= connection.contentSyncGeneration
+      )
+    const terminal = ["failed", "canceled"].includes(owner.status)
+    const setupPhase = terminal
+      ? input.purpose === "config"
+        ? "config_failed"
+        : "sync_failed"
+      : input.purpose === "config"
+        ? "awaiting_merge"
+        : "initial_sync"
     // Existing persisted generation-zero runs retain their pre-upgrade activation.
-    const legacy =
+    let legacy =
       !owner.input.contentSyncBinding &&
       generation === connection.contentSyncGeneration &&
-      !connection.contentSyncWorkflowRunId &&
-      (current.setupPhase === "initial_sync" ||
-        (current.binding.provider === "confluence" &&
-          current.setupPhase === "live"))
+      (input.purpose === "content"
+        ? !connection.contentSyncWorkflowRunId &&
+          (current.setupPhase === "initial_sync" ||
+            (current.binding.provider === "confluence" &&
+              current.setupPhase === "live"))
+        : current.setupPhase === "awaiting_merge" &&
+          current.pendingConfigPrCreating)
+    if (
+      legacy &&
+      input.purpose === "config" &&
+      connection.contentSyncWorkflowRunId
+    ) {
+      const previous = await db.execute<{ generation: string }>(
+        sql`select coalesce(input->>'contentSyncGeneration','0') as generation from openworkflow.workflow_runs where id = ${connection.contentSyncWorkflowRunId}`,
+      )
+      legacy =
+        Number(previous.rows[0]?.generation ?? -1) <
+        connection.contentSyncGeneration
+    }
     if (!legacy && generation !== connection.contentSyncGeneration + 1)
       return false
     if (
       !legacy &&
-      !["awaiting_merge", "initial_sync", "sync_failed", "live"].includes(
-        String(current.setupPhase),
-      )
+      input.purpose === "config" &&
+      current.setupPhase === "awaiting_merge" &&
+      current.pendingConfigPrCreating
+    )
+      return false
+    if (
+      !legacy &&
+      !(
+        input.purpose === "config"
+          ? [
+              "draft",
+              "config_failed",
+              "awaiting_merge",
+              "initial_sync",
+              "live",
+              "sync_failed",
+            ]
+          : ["awaiting_merge", "initial_sync", "sync_failed", "live"]
+      ).includes(String(current.setupPhase))
     )
       return false
     if (typeof generation !== "number") return false
@@ -173,9 +260,12 @@ export async function activateConnectorContentSync(input: {
           : {
               config: {
                 ...connection.config,
-                setupPhase: "initial_sync",
-                pendingConfigPullUrl: null,
-                pendingConfigPrCreating: false,
+                setupPhase,
+                ...(input.purpose === "content"
+                  ? { pendingConfigPullUrl: null }
+                  : {}),
+                pendingConfigPrCreating:
+                  input.purpose === "config" && !terminal,
               },
             }),
         updatedAt: new Date(),
@@ -185,9 +275,11 @@ export async function activateConnectorContentSync(input: {
       await db
         .update(confluenceSyncTargets)
         .set({
-          setupPhase: "initial_sync",
-          pendingConfigPullUrl: null,
-          pendingConfigPrCreating: false,
+          setupPhase,
+          ...(input.purpose === "content"
+            ? { pendingConfigPullUrl: null }
+            : {}),
+          pendingConfigPrCreating: input.purpose === "config" && !terminal,
           updatedAt: new Date(),
         })
         .where(eq(confluenceSyncTargets.connectionId, input.connectionId))
@@ -195,7 +287,8 @@ export async function activateConnectorContentSync(input: {
   })
 }
 
-export async function findConnectorContentSyncOwner(input: {
+export async function findConnectorSyncOwner(input: {
+  purpose: "config" | "content"
   orgId: string
   connectionId: string
   provider: ContentBinding["provider"]
@@ -203,7 +296,7 @@ export async function findConnectorContentSyncOwner(input: {
 }): Promise<string | null> {
   return withOrgDbContext(input.orgId, async (db) => {
     const result = await db.execute<{ id: string }>(sql`
-      select id from openworkflow.workflow_runs where workflow_name = ${`${input.provider}-sync-content`}
+      select id from openworkflow.workflow_runs where workflow_name = ${`${input.provider}-sync-${input.purpose}`}
         and input->>'orgId' = ${input.orgId} and input->>'connectionId' = ${input.connectionId}
         and idempotency_key = ${input.idempotencyKey} order by created_at desc limit 1
     `)
@@ -308,13 +401,19 @@ export async function reconcileConnectorContentSync(input: {
       current.pendingConfigPrCreating
     ) {
       const result = await db.execute<{ status: string; binding: unknown }>(sql`
-        select owner.status, attempt.output as binding from openworkflow.workflow_runs owner
-        join openworkflow.step_attempts attempt on attempt.namespace_id = owner.namespace_id and attempt.workflow_run_id = owner.id
+        select owner.status, coalesce(owner.input->'contentSyncBinding', attempt.output) as binding
+        from openworkflow.workflow_runs owner
+        left join lateral (
+          select output from openworkflow.step_attempts
+          where namespace_id = owner.namespace_id and workflow_run_id = owner.id
+            and step_name = 'capture-config-binding' and status = 'completed'
+          order by created_at desc limit 1
+        ) attempt on true
         where owner.workflow_name = ${`${provider}-sync-config`}
           and owner.input->>'orgId' = ${input.orgId} and owner.input->>'connectionId' = ${input.connectionId}
           and coalesce(owner.input->>'contentSyncGeneration','0') = ${String(connection.contentSyncGeneration)}
-          and attempt.step_name = 'capture-config-binding' and attempt.status = 'completed'
-        order by owner.created_at desc, attempt.created_at desc limit 1
+          and (owner.id = ${connection.contentSyncWorkflowRunId} or not (owner.input ? 'contentSyncBinding'))
+        order by owner.created_at desc limit 1
       `)
       const configOwner = result.rows[0]
       if (

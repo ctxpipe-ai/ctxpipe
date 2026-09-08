@@ -9,7 +9,6 @@ import {
 const claimNotionConfigPrCreationMock = vi.hoisted(() => vi.fn())
 const claimNotionContentSyncRetryMock = vi.hoisted(() => vi.fn())
 const patchNotionConnectorConfigMock = vi.hoisted(() => vi.fn())
-const releaseNotionConfigPrCreationClaimMock = vi.hoisted(() => vi.fn())
 const resolveNotionConnectionForOrgDetailedMock = vi.hoisted(() => vi.fn())
 const getNotionBindingWithRepoByConnectionIdMock = vi.hoisted(() => vi.fn())
 const loadNotionScopeFromRepoMock = vi.hoisted(() => vi.fn())
@@ -25,7 +24,6 @@ vi.mock("../../models/notion-connector.js", () => ({
   MULTIPLE_NOTION_CONNECTIONS_MESSAGE:
     "Multiple Notion connections for this organization; specify connectionId query parameter",
   patchNotionConnectorConfig: patchNotionConnectorConfigMock,
-  releaseNotionConfigPrCreationClaim: releaseNotionConfigPrCreationClaimMock,
   resolveNotionConnectionForOrgDetailed:
     resolveNotionConnectionForOrgDetailedMock,
   updateNotionConnectionTokens: vi.fn(),
@@ -144,7 +142,6 @@ describe("Notion connector config", () => {
     })
     claimNotionContentSyncRetryMock.mockResolvedValue(true)
     runWorkflowMock.mockResolvedValue({ status: "running" })
-    releaseNotionConfigPrCreationClaimMock.mockResolvedValue(undefined)
   })
 
   it("returns live status without reading GitHub scope config", async () => {
@@ -195,21 +192,6 @@ describe("Notion connector config", () => {
     expect(await response.json()).toMatchObject({ configPrEnqueued: false })
     expect(claimNotionConfigPrCreationMock).not.toHaveBeenCalled()
     expect(runWorkflowMock).not.toHaveBeenCalled()
-  })
-
-  it("releases the PR claim when workflow enqueue fails", async () => {
-    runWorkflowMock.mockRejectedValueOnce(new Error("worker unavailable"))
-
-    const response = await patchResources()
-
-    expect(response.status).toBe(503)
-    expect(releaseNotionConfigPrCreationClaimMock).toHaveBeenCalledWith({
-      connectionId: "con_1",
-      previousState: {
-        pendingConfigPullUrl: null,
-        setupPhase: "live",
-      },
-    })
   })
 
   it("does not retry content outside sync_failed", async () => {

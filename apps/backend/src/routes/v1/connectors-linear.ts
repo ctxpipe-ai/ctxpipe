@@ -2,26 +2,23 @@ import { createRoute, OpenAPIHono, z } from "@hono/zod-openapi"
 import type { AppEnv } from "../../app/env.js"
 import { hasOrgAdminOrOwnerRole } from "../../auth/withAuth.js"
 import { withOrgDbContext } from "../../db/client.js"
-import { getConnectorContentSyncGeneration } from "../../models/connector-content-sync.js"
 import { orgHasAnyGithubConnection } from "../../models/github-installation.js"
 import {
   deleteLinearConnectionById,
   getLinearBindingWithRepoByConnectionId,
   type LinearBindingWithRepo,
-  LinearConfigPrCreationInProgressError,
   type LinearConnection,
   type LinearScope,
   LinearSyncBindingBusyError,
   MULTIPLE_LINEAR_CONNECTIONS_MESSAGE,
   patchLinearConnectorConfig,
   refreshLinearConnectionTokensWithLock,
-  releaseLinearConfigPrCreationClaim,
   resolveLinearConnectionForOrgDetailed,
   upsertLinearConnectionFromOAuth,
 } from "../../models/linear-connector.js"
 import { getRepositoryForOrg } from "../../models/repositories.js"
 import { getLogger } from "../../observability/logger.js"
-import { runWorkflowWithWorkerWake } from "../../openworkflow/client.js"
+import { enqueueConnectorConfigSync } from "../../openworkflow/enqueue-connector-config-sync.js"
 import { enqueueConnectorContentSync } from "../../openworkflow/enqueue-connector-content-sync.js"
 import { enqueueRepositoryIngestionWorkflow } from "../../openworkflow/enqueue-repository-ingestion.js"
 import { linearSyncConfig } from "../../openworkflow/workflows/linear-sync-config.js"
@@ -729,15 +726,11 @@ export const linearConnectorRoutes = new OpenAPIHono<AppEnv>()
       saved = await patchLinearConnectorConfig({
         orgId,
         connectionId: installed.connection.id,
-        claimConfigPrCreation: shouldEnqueueConfigPr,
         ...(body.scopes !== undefined ? { scopes: body.scopes } : {}),
         ...(body.syncTarget !== undefined ? { binding: body.syncTarget } : {}),
       })
     } catch (error) {
-      if (
-        error instanceof LinearConfigPrCreationInProgressError ||
-        error instanceof LinearSyncBindingBusyError
-      ) {
+      if (error instanceof LinearSyncBindingBusyError) {
         return c.json({ error: error.message }, 409)
       }
       throw error
@@ -788,23 +781,26 @@ export const linearConnectorRoutes = new OpenAPIHono<AppEnv>()
         }
       }
     }
-    if (saved.configPrClaimed && body.scopes !== undefined) {
+    let configPrEnqueued = false
+    if (shouldEnqueueConfigPr && body.scopes !== undefined) {
       try {
-        await runWorkflowWithWorkerWake(linearSyncConfig.spec, {
-          contentSyncGeneration: await getConnectorContentSyncGeneration(
-            orgId,
-            installed.connection.id,
-          ),
+        const admission = await enqueueConnectorConfigSync({
+          provider: "linear",
           orgId,
           orgSlug,
           connectionId: installed.connection.id,
           scopes: body.scopes,
         })
+        if (!admission.accepted)
+          return c.json(
+            {
+              error:
+                "Linear configuration changed or a proposal is already in progress",
+            },
+            409,
+          )
+        configPrEnqueued = admission.started
       } catch (error) {
-        await releaseLinearConfigPrCreationClaim({
-          connectionId: installed.connection.id,
-          previousState: saved.previousConfigPrState!,
-        })
         getLogger().error(
           error instanceof Error ? error : new Error(String(error)),
           {
@@ -822,8 +818,8 @@ export const linearConnectorRoutes = new OpenAPIHono<AppEnv>()
       {
         accepted: true as const,
         savedCount: saved.scopes.length,
-        configPrEnqueued: saved.configPrClaimed,
-        ...(saved.configPrClaimed
+        configPrEnqueued,
+        ...(configPrEnqueued
           ? { workflowName: linearSyncConfig.spec.name }
           : {}),
       },
@@ -852,7 +848,10 @@ export const linearConnectorRoutes = new OpenAPIHono<AppEnv>()
       orgId,
       installed.connection.id,
     )
-    if (binding?.setupPhase !== "config_failed") {
+    if (
+      !binding ||
+      !["config_failed", "awaiting_merge"].includes(binding.setupPhase)
+    ) {
       return c.json(
         { error: "Linear configuration pull request is not in a failed state" },
         400,
@@ -878,39 +877,25 @@ export const linearConnectorRoutes = new OpenAPIHono<AppEnv>()
         400,
       )
     }
-    let saved: Awaited<ReturnType<typeof patchLinearConnectorConfig>>
     try {
-      saved = await patchLinearConnectorConfig({
-        orgId,
-        connectionId: installed.connection.id,
-        scopes,
-        claimConfigPrCreation: true,
-      })
-    } catch (error) {
-      if (error instanceof LinearConfigPrCreationInProgressError) {
-        return c.json({ error: error.message }, 409)
-      }
-      throw error
-    }
-    if (!saved.configPrClaimed || !saved.previousConfigPrState) {
-      return c.json({ error: "Linear scope is not configured" }, 400)
-    }
-    try {
-      await runWorkflowWithWorkerWake(linearSyncConfig.spec, {
-        contentSyncGeneration: await getConnectorContentSyncGeneration(
-          orgId,
-          installed.connection.id,
-        ),
+      const admission = await enqueueConnectorConfigSync({
+        provider: "linear",
         orgId,
         orgSlug,
         connectionId: installed.connection.id,
+        repositoryId: binding.repositoryId,
+        branch: binding.branch,
         scopes,
       })
+      if (!admission.accepted)
+        return c.json(
+          {
+            error:
+              "Linear configuration changed or a proposal is already in progress",
+          },
+          409,
+        )
     } catch (error) {
-      await releaseLinearConfigPrCreationClaim({
-        connectionId: installed.connection.id,
-        previousState: saved.previousConfigPrState,
-      })
       getLogger().error(
         error instanceof Error ? error : new Error(String(error)),
         {

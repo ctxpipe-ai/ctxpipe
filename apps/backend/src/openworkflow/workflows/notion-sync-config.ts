@@ -2,7 +2,11 @@ import { defineWorkflow } from "openworkflow"
 import { z } from "zod"
 import { parseEnv } from "../../config/env.js"
 import { withOrgDbContext } from "../../db/client.js"
-import { captureConnectorConfigSyncBinding } from "../../models/connector-content-sync.js"
+import {
+  activateConnectorSync,
+  captureConnectorConfigSyncBinding,
+  connectorContentBindingSchema,
+} from "../../models/connector-content-sync.js"
 import {
   getNotionBindingByConnectionId,
   transitionNotionBindingState,
@@ -11,6 +15,8 @@ import { syncNotionConfigYaml } from "../../services/notion/sync.js"
 import { enqueueConnectorContentSync } from "../enqueue-connector-content-sync.js"
 
 const notionSyncConfigInputSchema = z.object({
+  contentSyncBinding: connectorContentBindingSchema.optional(),
+  configKey: z.string().optional(),
   contentSyncGeneration: z.number().int().nonnegative().default(0),
   orgId: z.string().min(1),
   orgSlug: z.string().min(1),
@@ -26,9 +32,37 @@ const notionSyncConfigInputSchema = z.object({
   ),
 })
 
+export type NotionConfigSyncInput = z.input<typeof notionSyncConfigInputSchema>
+
 export const notionSyncConfig = defineWorkflow(
   { name: "notion-sync-config", schema: notionSyncConfigInputSchema },
   async ({ input, step, run }) => {
+    if (
+      !input.contentSyncBinding &&
+      (input.contentSyncGeneration ?? 0) === 0 &&
+      (await step.run({ name: "recover-legacy-config-content" }, () =>
+        enqueueConnectorContentSync({
+          provider: "notion",
+          orgId: input.orgId,
+          orgSlug: input.orgSlug,
+          connectionId: input.connectionId,
+          legacyConfigRecovery: true,
+          configKey: `legacy-config:${run.id}`,
+        }),
+      ))
+    )
+      return { changed: false }
+    if (
+      !(await step.run({ name: "activate-config-sync" }, () =>
+        activateConnectorSync({
+          purpose: "config",
+          orgId: input.orgId,
+          connectionId: input.connectionId,
+          workflowRunId: run.id,
+        }),
+      ))
+    )
+      throw new Error("Connector configuration activation was superseded")
     if (
       !(await step.run({ name: "capture-config-binding" }, () =>
         captureConnectorConfigSyncBinding({
@@ -69,6 +103,7 @@ export const notionSyncConfig = defineWorkflow(
         const transitioned = await withOrgDbContext(input.orgId, () =>
           transitionNotionBindingState({
             connectionId: input.connectionId,
+            expectedContentSyncGeneration: input.contentSyncGeneration ?? 0,
             expectedSetupPhase: "awaiting_merge",
             expectedPendingConfigPrCreating: true,
             repositoryId: binding.repositoryId,

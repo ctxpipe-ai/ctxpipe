@@ -774,6 +774,14 @@ async function resolveRepositoryIdForConfluenceSync(
   return { repositoryId: id, didCreate: true }
 }
 
+export class ConfluenceConfigProposalInProgressError extends Error {
+  constructor() {
+    super(
+      "A different Confluence configuration proposal is already in progress",
+    )
+  }
+}
+
 /** PATCH semantics: omit `spaces` or `syncTarget` to leave that part unchanged. */
 export async function patchAtlassianConnectorConfig(input: {
   orgId: string
@@ -793,81 +801,133 @@ export async function patchAtlassianConnectorConfig(input: {
     await listGithubConnectionsForOrg(input.orgId)
   )[0]?.id
 
-  return withOrgDbContext(input.orgId, async () => {
-    const db = getOrgDb()
-    return db.transaction(async (tx) => {
-      let repositoryIngestion:
-        | { orgId: string; repositoryId: string }
-        | undefined
-      if (input.spaces !== undefined) {
-        await tx
-          .delete(confluenceSpaces)
-          .where(eq(confluenceSpaces.connectionId, input.connectionId))
-
-        if (input.spaces.length > 0) {
-          await tx.insert(confluenceSpaces).values(
-            input.spaces.map((space) => ({
-              id: generateObjectId("csp"),
-              orgId: input.orgId,
-              connectionId: input.connectionId,
-              spaceKey: space.spaceKey,
-              spaceName: space.spaceName ?? null,
-              selectedPageIds: space.selectedPageIds ?? null,
-            })),
-          )
+  return withOrgDbContext(input.orgId, async (tx) => {
+    const [connection] = await tx
+      .select()
+      .from(connections)
+      .where(
+        and(
+          eq(connections.id, input.connectionId),
+          eq(connections.type, CONNECTION_TYPE_FORGE),
+        ),
+      )
+      .for("update")
+    if (!connection)
+      throw new Error("Forge connection does not belong to organization")
+    let [currentTarget] = await tx
+      .select()
+      .from(confluenceSyncTargets)
+      .where(eq(confluenceSyncTargets.connectionId, input.connectionId))
+    let repositoryIngestion: { orgId: string; repositoryId: string } | undefined
+    if (input.syncTarget !== undefined) {
+      const { repositoryId, didCreate } =
+        await resolveRepositoryIdForConfluenceSync(
+          tx,
+          input.orgId,
+          input.syncTarget,
+          defaultGithubConnectionId,
+        )
+      if (didCreate) {
+        repositoryIngestion = {
+          orgId: input.orgId,
+          repositoryId,
         }
       }
 
-      if (input.syncTarget !== undefined) {
-        const { repositoryId, didCreate } =
-          await resolveRepositoryIdForConfluenceSync(
-            tx,
-            input.orgId,
-            input.syncTarget,
-            defaultGithubConnectionId,
-          )
-        if (didCreate) {
-          repositoryIngestion = {
-            orgId: input.orgId,
-            repositoryId,
-          }
-        }
-
-        const [row] = await tx
-          .insert(confluenceSyncTargets)
-          .values({
-            id: generateObjectId("cst"),
-            orgId: input.orgId,
-            connectionId: input.connectionId,
+      const bindingChanged =
+        !currentTarget ||
+        currentTarget.repositoryId !== repositoryId ||
+        currentTarget.branch !== input.syncTarget.branch ||
+        currentTarget.enabled !== input.syncTarget.enabled
+      if (bindingChanged && currentTarget)
+        await tx
+          .update(connections)
+          .set({
+            contentSyncGeneration: sql`${connections.contentSyncGeneration} + 1`,
+          })
+          .where(eq(connections.id, input.connectionId))
+      const [row] = await tx
+        .insert(confluenceSyncTargets)
+        .values({
+          id: generateObjectId("cst"),
+          orgId: input.orgId,
+          connectionId: input.connectionId,
+          repositoryId,
+          branch: input.syncTarget.branch,
+          enabled: input.syncTarget.enabled,
+          setupPhase: "draft",
+          pendingConfigPullUrl: null,
+          pendingConfigPrCreating: false,
+        })
+        .onConflictDoUpdate({
+          target: confluenceSyncTargets.connectionId,
+          set: {
             repositoryId,
             branch: input.syncTarget.branch,
             enabled: input.syncTarget.enabled,
-            setupPhase: "draft",
-            pendingConfigPullUrl: null,
-            pendingConfigPrCreating: false,
-          })
-          .onConflictDoUpdate({
-            target: confluenceSyncTargets.connectionId,
-            set: {
-              repositoryId,
-              branch: input.syncTarget.branch,
-              enabled: input.syncTarget.enabled,
-              updatedAt: new Date(),
-            },
-          })
-          .returning()
+            ...(bindingChanged
+              ? {
+                  setupPhase: "draft",
+                  pendingConfigPullUrl: null,
+                  pendingConfigPrCreating: false,
+                }
+              : {}),
+            updatedAt: new Date(),
+          },
+        })
+        .returning()
 
-        if (!row) {
-          throw new Error("Failed to save Confluence sync target")
-        }
+      if (!row) {
+        throw new Error("Failed to save Confluence sync target")
       }
+      currentTarget = row
+    }
 
-      const spaces = await tx
-        .select()
-        .from(confluenceSpaces)
+    if (input.spaces !== undefined) {
+      if (currentTarget?.pendingConfigPrCreating) {
+        const existing = await tx
+          .select()
+          .from(confluenceSpaces)
+          .where(eq(confluenceSpaces.connectionId, input.connectionId))
+        const selection = (
+          rows: Array<{ spaceKey: string; selectedPageIds?: unknown }>,
+        ) =>
+          JSON.stringify(
+            rows
+              .map((row) => ({
+                spaceKey: row.spaceKey,
+                selectedPageIds: Array.isArray(row.selectedPageIds)
+                  ? [...row.selectedPageIds].sort()
+                  : null,
+              }))
+              .sort((a, b) => a.spaceKey.localeCompare(b.spaceKey)),
+          )
+        if (selection(existing) !== selection(input.spaces))
+          throw new ConfluenceConfigProposalInProgressError()
+      }
+      await tx
+        .delete(confluenceSpaces)
         .where(eq(confluenceSpaces.connectionId, input.connectionId))
 
-      return { spaces, repositoryIngestion }
-    })
+      if (input.spaces.length > 0) {
+        await tx.insert(confluenceSpaces).values(
+          input.spaces.map((space) => ({
+            id: generateObjectId("csp"),
+            orgId: input.orgId,
+            connectionId: input.connectionId,
+            spaceKey: space.spaceKey,
+            spaceName: space.spaceName ?? null,
+            selectedPageIds: space.selectedPageIds ?? null,
+          })),
+        )
+      }
+    }
+
+    const spaces = await tx
+      .select()
+      .from(confluenceSpaces)
+      .where(eq(confluenceSpaces.connectionId, input.connectionId))
+
+    return { spaces, repositoryIngestion }
   })
 }

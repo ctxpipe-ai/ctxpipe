@@ -153,6 +153,7 @@ export async function maybeActivateLinearSyncOnConfigPush(input: {
         input.log.error(
           error instanceof Error ? error : new Error(String(error)),
         )
+        throw error
       }
     }
   }

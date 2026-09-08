@@ -2,7 +2,11 @@ import { defineWorkflow } from "openworkflow"
 import { z } from "zod"
 import { parseEnv } from "../../config/env.js"
 import { withOrgDbContext } from "../../db/client.js"
-import { captureConnectorConfigSyncBinding } from "../../models/connector-content-sync.js"
+import {
+  activateConnectorSync,
+  captureConnectorConfigSyncBinding,
+  connectorContentBindingSchema,
+} from "../../models/connector-content-sync.js"
 import {
   getLinearBindingWithRepoByConnectionId,
   getLinearConnectionByConnectionId,
@@ -13,6 +17,8 @@ import { syncLinearConfigYaml } from "../../services/linear/sync.js"
 import { enqueueConnectorContentSync } from "../enqueue-connector-content-sync.js"
 
 const LinearSyncConfigInputSchema = z.object({
+  contentSyncBinding: connectorContentBindingSchema.optional(),
+  configKey: z.string().optional(),
   contentSyncGeneration: z.number().int().nonnegative().default(0),
   orgId: z.string().min(1),
   orgSlug: z.string().min(1),
@@ -30,12 +36,40 @@ const LinearSyncConfigInputSchema = z.object({
   ),
 })
 
+export type LinearConfigSyncInput = z.input<typeof LinearSyncConfigInputSchema>
+
 export const linearSyncConfig = defineWorkflow(
   {
     name: "linear-sync-config",
     schema: LinearSyncConfigInputSchema,
   },
   async ({ input, step, run }) => {
+    if (
+      !input.contentSyncBinding &&
+      (input.contentSyncGeneration ?? 0) === 0 &&
+      (await step.run({ name: "recover-legacy-config-content" }, () =>
+        enqueueConnectorContentSync({
+          provider: "linear",
+          orgId: input.orgId,
+          orgSlug: input.orgSlug,
+          connectionId: input.connectionId,
+          legacyConfigRecovery: true,
+          configKey: `legacy-config:${run.id}`,
+        }),
+      ))
+    )
+      return { changed: false }
+    if (
+      !(await step.run({ name: "activate-config-sync" }, () =>
+        activateConnectorSync({
+          purpose: "config",
+          orgId: input.orgId,
+          connectionId: input.connectionId,
+          workflowRunId: run.id,
+        }),
+      ))
+    )
+      throw new Error("Connector configuration activation was superseded")
     if (
       !(await step.run({ name: "capture-config-binding" }, () =>
         captureConnectorConfigSyncBinding({
@@ -76,6 +110,7 @@ export const linearSyncConfig = defineWorkflow(
         const updated = await withOrgDbContext(input.orgId, () =>
           transitionLinearBindingState({
             connectionId: input.connectionId,
+            expectedContentSyncGeneration: input.contentSyncGeneration ?? 0,
             expectedSetupPhase: "awaiting_merge",
             expectedPendingConfigPrCreating: true,
             repositoryId: target.repositoryId,

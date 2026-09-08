@@ -196,13 +196,29 @@ export async function setPendingConfigPrCreating(input: {
 }
 
 export async function updateConfluenceSyncTargetPrState(input: {
-  expectedBinding?: { repositoryId: string; branch: string }
+  expectedBinding?: {
+    repositoryId: string
+    branch: string
+    contentSyncGeneration?: number
+  }
   connectionId: string
   pendingConfigPullUrl: string | null
   pendingConfigPrCreating: boolean
   setupPhase: string
 }): Promise<void> {
   await requireConfluenceSyncTargetWrite(input.connectionId, async (db) => {
+    const [connection] = await db
+      .select()
+      .from(connections)
+      .where(eq(connections.id, input.connectionId))
+      .for("update")
+    if (
+      !connection ||
+      (input.expectedBinding?.contentSyncGeneration != null &&
+        connection.contentSyncGeneration !==
+          input.expectedBinding.contentSyncGeneration)
+    )
+      return
     const [row] = await db
       .update(confluenceSyncTargets)
       .set({
@@ -227,30 +243,6 @@ export async function updateConfluenceSyncTargetPrState(input: {
             : undefined,
         ),
       )
-      .returning({ id: confluenceSyncTargets.id })
-    return row
-  })
-}
-
-/** Before enqueueing config PR workflow — shows loading / awaiting-merge in UI */
-export async function markAwaitingConfigMergeSetup(input: {
-  connectionId: string
-}): Promise<void> {
-  await requireConfluenceSyncTargetWrite(input.connectionId, async (db) => {
-    await db
-      .update(connections)
-      .set({
-        contentSyncGeneration: sql`${connections.contentSyncGeneration} + 1`,
-      })
-      .where(eq(connections.id, input.connectionId))
-    const [row] = await db
-      .update(confluenceSyncTargets)
-      .set({
-        setupPhase: "awaiting_merge",
-        pendingConfigPrCreating: true,
-        updatedAt: new Date(),
-      })
-      .where(eq(confluenceSyncTargets.connectionId, input.connectionId))
       .returning({ id: confluenceSyncTargets.id })
     return row
   })

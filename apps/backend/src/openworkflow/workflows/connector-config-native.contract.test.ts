@@ -1,7 +1,11 @@
 import { eq, sql } from "drizzle-orm"
+import { defineWorkflow } from "openworkflow"
+import { BackendPostgres } from "openworkflow/postgres"
+import { Pool } from "pg"
 import { expect, it } from "vitest"
 import { withOrgIdContext } from "../../auth/withAuth.js"
 import { parseEnv } from "../../config/env.js"
+import { backfillConnectorContentAdmissions } from "../../db/backfill-connector-content-admissions.js"
 import { withOrgDbContext } from "../../db/client.js"
 import { confluenceSyncTargets } from "../../db/schema/confluenceSyncTargets.js"
 import { connections } from "../../db/schema/connections.js"
@@ -13,6 +17,7 @@ import {
 } from "../../lib/connection-config.js"
 import { getConfluenceSyncTargetWithRepoByConnectionId } from "../../models/confluence-sync-target.js"
 import { upsertConnectionDirectory } from "../../models/connection-directory.js"
+import { activateConnectorSync } from "../../models/connector-content-sync.js"
 import { getLinearBindingWithRepoByConnectionId } from "../../models/linear-connector.js"
 import { getNotionBindingWithRepoByConnectionId } from "../../models/notion-connector.js"
 import { withNativeHydrationFixture } from "../../test/native-hydration-fixture.js"
@@ -22,17 +27,62 @@ import { notionSyncConfig } from "./notion-sync-config.js"
 
 it.each(
   (["linear", "notion", "confluence"] as const).flatMap((provider) => [
-    { provider, failure: false, stale: false, close: false },
-    { provider, failure: true, stale: false, close: false },
-    { provider, failure: false, stale: true, close: false },
+    { provider, failure: false, stale: false, close: false, ownerFirst: false },
+    { provider, failure: false, stale: false, close: false, ownerFirst: true },
+    {
+      provider,
+      failure: false,
+      stale: false,
+      close: false,
+      ownerFirst: false,
+      replay: true,
+    },
+    {
+      provider,
+      failure: false,
+      stale: false,
+      close: false,
+      ownerFirst: false,
+      upgrade: true,
+    },
+    {
+      provider,
+      failure: false,
+      stale: false,
+      close: false,
+      ownerFirst: true,
+      cancel: true,
+    },
+    { provider, failure: true, stale: false, close: false, ownerFirst: false },
+    { provider, failure: false, stale: true, close: false, ownerFirst: false },
     ...(provider === "linear"
-      ? [{ provider, failure: false, stale: false, close: true }]
+      ? [
+          {
+            provider,
+            failure: false,
+            stale: false,
+            close: true,
+            ownerFirst: false,
+          },
+          {
+            provider,
+            failure: false,
+            stale: false,
+            close: true,
+            ownerFirst: false,
+            generationSwap: true,
+          },
+        ]
       : []),
   ]),
 )(
-  "native $provider config admission (failure=$failure; stale=$stale; close=$close)",
+  "native $provider config admission (failure=$failure; stale=$stale; close=$close; ownerFirst=$ownerFirst; upgrade=$upgrade; generationSwap=$generationSwap; replay=$replay; cancel=$cancel)",
   { timeout: 30_000 },
-  async ({ provider, failure, stale, close }) => {
+  async (scenario) => {
+    const { provider, failure, stale, close, ownerFirst } = scenario
+    const upgrade = "upgrade" in scenario && scenario.upgrade
+    const replay = "replay" in scenario && scenario.replay
+
     const config =
       provider === "linear"
         ? "version: 1\nsource: linear\nworkspace:\n  id: provider-workspace\n  name: Fixture\nscope: {}\n"
@@ -124,8 +174,12 @@ it.each(
                 repositoryId: repository.id,
                 branch: "main",
                 enabled: true,
-                setupPhase: "awaiting_merge",
-                pendingConfigPrCreating: true,
+                setupPhase: ownerFirst
+                  ? "config_failed"
+                  : replay
+                    ? "initial_sync"
+                    : "awaiting_merge",
+                pendingConfigPrCreating: !replay,
               },
             })
             .returning(),
@@ -141,10 +195,96 @@ it.each(
               repositoryId: repository.id,
               branch: "main",
               enabled: true,
-              setupPhase: "awaiting_merge",
-              pendingConfigPrCreating: true,
+              setupPhase: ownerFirst
+                ? "config_failed"
+                : replay
+                  ? "live"
+                  : "awaiting_merge",
+              pendingConfigPrCreating: !replay,
             }),
           )
+        if (upgrade) {
+          await withOrgDbContext(f.org.id, (db) =>
+            provider === "confluence"
+              ? db
+                  .update(confluenceSyncTargets)
+                  .set({ setupPhase: "live", pendingConfigPrCreating: false })
+                  .where(eq(confluenceSyncTargets.connectionId, connectionId))
+              : db
+                  .update(connections)
+                  .set({
+                    config: sql`${connections.config} || '{"setupPhase":"initial_sync","pendingConfigPrCreating":false}'::jsonb`,
+                  })
+                  .where(eq(connections.id, connectionId)),
+          )
+          const old = defineWorkflow<
+            { orgId: string; orgSlug: string; connectionId: string },
+            { changed: boolean }
+          >({ name: `${provider}-sync-config` }, async () => ({
+            changed: false,
+          }))
+          f.runner.implementWorkflow(old.spec, old.fn)
+          const legacy = await f.runner.runWorkflow(
+            old.spec,
+            { orgId: f.org.id, orgSlug: f.org.slug, connectionId },
+            provider === "confluence"
+              ? {}
+              : { availableAt: new Date(Date.now() + 60_000) },
+          )
+          if (provider === "confluence") {
+            const oldWorker = f.runner.newWorker({ concurrency: 1 })
+            try {
+              await oldWorker.start()
+              await legacy.result({ timeoutMs: 10_000 })
+            } finally {
+              await oldWorker.stop()
+            }
+          }
+          const pool = new Pool({ connectionString: f.databaseUrl })
+          const backend = await BackendPostgres.connect(f.databaseUrl, {
+            runMigrations: false,
+          })
+          try {
+            await backfillConnectorContentAdmissions(pool, backend, {
+              orgId: f.org.id,
+              connectionIds: [connectionId],
+            })
+            await backfillConnectorContentAdmissions(pool, backend, {
+              orgId: f.org.id,
+              connectionIds: [connectionId],
+            })
+            const read = {
+              linear: getLinearBindingWithRepoByConnectionId,
+              notion: getNotionBindingWithRepoByConnectionId,
+              confluence: getConfluenceSyncTargetWithRepoByConnectionId,
+            }[provider]
+            expect(await read(f.org.id, connectionId)).toMatchObject({
+              setupPhase: "initial_sync",
+            })
+            const children = (
+              await backend.listWorkflowRuns({ limit: 100 })
+            ).data.filter(
+              (row) =>
+                (row.input as { connectionId?: string })?.connectionId ===
+                  connectionId &&
+                row.workflowName === `${provider}-sync-content`,
+            )
+            expect(children).toMatchObject([
+              { status: "pending", input: { contentSyncGeneration: 1 } },
+            ])
+            expect(children).toHaveLength(1)
+          } finally {
+            await backend.stop()
+            await pool.end()
+            if (provider === "confluence")
+              await withOrgDbContext(f.org.id, (db) =>
+                db
+                  .delete(confluenceSyncTargets)
+                  .where(eq(confluenceSyncTargets.connectionId, connectionId)),
+              )
+          }
+          return
+        }
         f.runner.implementWorkflow(linearSyncConfig.spec, linearSyncConfig.fn)
         f.runner.implementWorkflow(notionSyncConfig.spec, notionSyncConfig.fn)
         f.runner.implementWorkflow(
@@ -157,6 +297,20 @@ it.each(
           connectionId,
           scopes: [],
           resources: [],
+          contentSyncGeneration: ownerFirst ? 1 : 0,
+          ...(ownerFirst
+            ? {
+                contentSyncBinding: {
+                  provider,
+                  repositoryId: repository.id,
+                  branch: "main",
+                  workspaceId:
+                    provider === "confluence" ? null : "provider-workspace",
+                  cloudId: provider === "confluence" ? "fixture-cloud" : null,
+                  atlassianApiBaseUrl: null,
+                },
+              }
+            : {}),
         }
         const handle =
           provider === "linear"
@@ -170,6 +324,36 @@ it.each(
               : await f.runner.runWorkflow(confluenceSyncConfig.spec, command, {
                   deadlineAt: new Date(Date.now() + 5000),
                 })
+        if ("cancel" in scenario) {
+          try {
+            expect(
+              await activateConnectorSync({
+                purpose: "config",
+                orgId: f.org.id,
+                connectionId,
+                workflowRunId: handle.workflowRun.id,
+              }),
+            ).toBe(true)
+            await handle.cancel()
+            const read = {
+              linear: getLinearBindingWithRepoByConnectionId,
+              notion: getNotionBindingWithRepoByConnectionId,
+              confluence: getConfluenceSyncTargetWithRepoByConnectionId,
+            }[provider]
+            expect(await read(f.org.id, connectionId)).toMatchObject({
+              setupPhase: "config_failed",
+              pendingConfigPrCreating: false,
+            })
+          } finally {
+            if (provider === "confluence")
+              await withOrgDbContext(f.org.id, (db) =>
+                db
+                  .delete(confluenceSyncTargets)
+                  .where(eq(confluenceSyncTargets.connectionId, connectionId)),
+              )
+          }
+          return
+        }
         if (failure)
           await withOrgDbContext(f.org.id, (db) =>
             db
@@ -196,7 +380,13 @@ it.each(
             db
               .update(connections)
               .set({
-                config: sql`${connections.config} || '{"branch":"another"}'::jsonb`,
+                ...("generationSwap" in scenario
+                  ? {
+                      contentSyncGeneration: sql`${connections.contentSyncGeneration} + 1`,
+                    }
+                  : {
+                      config: sql`${connections.config} || '{"branch":"another"}'::jsonb`,
+                    }),
               })
               .where(eq(connections.id, connectionId)),
           )
@@ -210,6 +400,15 @@ it.each(
             expect(await handle.result({ timeoutMs: 12_000 })).toEqual({
               changed: false,
             })
+          if (ownerFirst)
+            expect(
+              await activateConnectorSync({
+                purpose: "config",
+                orgId: f.org.id,
+                connectionId,
+                workflowRunId: handle.workflowRun.id,
+              }),
+            ).toBe(true)
           const read = {
             linear: getLinearBindingWithRepoByConnectionId,
             notion: getNotionBindingWithRepoByConnectionId,
@@ -231,7 +430,7 @@ it.each(
           expect(owners.rows).toEqual(
             failure || stale || close
               ? []
-              : [{ status: "pending", generation: "1" }],
+              : [{ status: "pending", generation: ownerFirst ? "2" : "1" }],
           )
           if (close) {
             expect(pullsCreated).toBe(1)

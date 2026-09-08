@@ -12,7 +12,7 @@ import {
   getConfluenceSyncTargetWithRepoByConnectionId,
 } from "../../models/confluence-sync-target.js"
 import {
-  activateConnectorContentSync,
+  activateConnectorSync,
   assertConnectorContentSyncBinding,
   connectorContentBindingSchema,
 } from "../../models/connector-content-sync.js"
@@ -40,7 +40,8 @@ export const confluenceSyncContent = defineWorkflow(
   async ({ input, step, run }) => {
     if (
       !(await step.run({ name: "activate-content-sync" }, () =>
-        activateConnectorContentSync({
+        activateConnectorSync({
+          purpose: "content",
           orgId: input.orgId,
           connectionId: input.connectionId,
           workflowRunId: run.id,

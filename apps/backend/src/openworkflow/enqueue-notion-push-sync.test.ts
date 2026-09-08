@@ -1,3 +1,4 @@
+import { OpenWorkflow } from "openworkflow"
 import { BackendPostgres } from "openworkflow/postgres"
 import { expect, it } from "vitest"
 import { withOrgIdContext } from "../auth/withAuth.js"
@@ -7,12 +8,16 @@ import { ensureOrgRepositoryForGitUrl } from "../domain/workspaces/ensure-org-re
 import { upsertConnectionDirectory } from "../models/connection-directory.js"
 import { getNotionBindingWithRepoByConnectionId } from "../models/notion-connector.js"
 import { withNativeHydrationFixture } from "../test/native-hydration-fixture.js"
+import {
+  connectorConfigKey,
+  enqueueConnectorContentSync,
+} from "./enqueue-connector-content-sync.js"
 import { enqueueNotionFullSyncAfterConfigPush } from "./enqueue-notion-push-sync.js"
 
-it(
-  "accepts one native Notion activation and deduplicates a repeated config push",
+it.each([false, true])(
+  "accepts a durable Notion activation (canceled before activation: %s)",
   { timeout: 30_000 },
-  async () => {
+  async (canceled) => {
     await withNativeHydrationFixture(
       { github: true, githubWriteView: "writable", writeStatus: "writable" },
       async (f) => {
@@ -57,6 +62,70 @@ it(
             repositoryId: repository.id,
             branch: "main",
             scopeFromRepo: { resources: [] },
+          }
+          if (canceled) {
+            const owner = await backend.createWorkflowRun({
+              workflowName: "notion-sync-content",
+              version: null,
+              idempotencyKey: `connector-content:${connectionId}:1:${connectorConfigKey(input.scopeFromRepo)}`,
+              config: {},
+              context: null,
+              input: {
+                orgId: f.org.id,
+                orgSlug: f.org.slug,
+                connectionId,
+                contentSyncGeneration: 1,
+                configKey: connectorConfigKey(input.scopeFromRepo),
+                contentSyncBinding: {
+                  provider: "notion",
+                  repositoryId: repository.id,
+                  branch: "main",
+                  workspaceId: "provider-workspace",
+                  cloudId: null,
+                  atlassianApiBaseUrl: null,
+                },
+              },
+              parentStepAttemptNamespaceId: null,
+              parentStepAttemptId: null,
+              availableAt: null,
+              deadlineAt: null,
+            })
+            await new OpenWorkflow({ backend }).cancelWorkflowRun(owner.id)
+            await enqueueNotionFullSyncAfterConfigPush(input)
+            expect(
+              await getNotionBindingWithRepoByConnectionId(
+                f.org.id,
+                connectionId,
+              ),
+            ).toMatchObject({ setupPhase: "sync_failed" })
+            expect(
+              await enqueueConnectorContentSync({
+                orgId: f.org.id,
+                orgSlug: f.org.slug,
+                connectionId,
+                provider: "notion",
+                repositoryId: repository.id,
+                branch: "main",
+              }),
+            ).toBe(true)
+            expect(
+              await getNotionBindingWithRepoByConnectionId(
+                f.org.id,
+                connectionId,
+              ),
+            ).toMatchObject({ setupPhase: "initial_sync" })
+            const retryOwners = (
+              await backend.listWorkflowRuns({ limit: 100 })
+            ).data.filter(
+              (run) =>
+                (run.input as { connectionId?: string })?.connectionId ===
+                connectionId,
+            )
+            expect(retryOwners).toHaveLength(2)
+            expect(
+              retryOwners.find((run) => run.status === "pending")?.input,
+            ).toMatchObject({ contentSyncGeneration: 2 })
+            return
           }
           await enqueueNotionFullSyncAfterConfigPush(input)
           await enqueueNotionFullSyncAfterConfigPush(input)

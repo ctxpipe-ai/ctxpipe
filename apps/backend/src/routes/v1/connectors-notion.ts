@@ -2,22 +2,19 @@ import { createHmac, timingSafeEqual } from "node:crypto"
 import { createRoute, OpenAPIHono, z } from "@hono/zod-openapi"
 import type { AppEnv } from "../../app/env.js"
 import { withOrgDbContext } from "../../db/client.js"
-import { getConnectorContentSyncGeneration } from "../../models/connector-content-sync.js"
 import { orgHasAnyGithubConnection } from "../../models/github-installation.js"
 import {
-  claimNotionConfigPrCreation,
   deleteNotionConnectionById,
   getNotionBindingWithRepoByConnectionId,
   MULTIPLE_NOTION_CONNECTIONS_MESSAGE,
   type NotionBindingWithRepo,
   patchNotionConnectorConfig,
-  releaseNotionConfigPrCreationClaim,
   resolveNotionConnectionForOrgDetailed,
   updateNotionConnectionTokens,
   upsertNotionConnectionFromOAuth,
 } from "../../models/notion-connector.js"
 import { getLogger } from "../../observability/logger.js"
-import { runWorkflowWithWorkerWake } from "../../openworkflow/client.js"
+import { enqueueConnectorConfigSync } from "../../openworkflow/enqueue-connector-config-sync.js"
 import { enqueueConnectorContentSync } from "../../openworkflow/enqueue-connector-content-sync.js"
 import { enqueueRepositoryIngestionWorkflow } from "../../openworkflow/enqueue-repository-ingestion.js"
 import { notionSyncConfig } from "../../openworkflow/workflows/notion-sync-config.js"
@@ -936,29 +933,26 @@ export const notionConnectorRoutes = notionOAuthStartRoutes
       )
     }
 
-    const previousConfigPrState = resourcesChanged
-      ? await claimNotionConfigPrCreation({
-          connectionId: installed.connection.id,
-        })
-      : undefined
-    const configPrEnqueued = Boolean(previousConfigPrState)
-    if (previousConfigPrState && body.resources !== undefined) {
+    let configPrEnqueued = false
+    if (resourcesChanged && body.resources !== undefined) {
       try {
-        await runWorkflowWithWorkerWake(notionSyncConfig.spec, {
-          contentSyncGeneration: await getConnectorContentSyncGeneration(
-            orgId,
-            installed.connection.id,
-          ),
+        const admission = await enqueueConnectorConfigSync({
+          provider: "notion",
           orgId,
           orgSlug,
           connectionId: installed.connection.id,
           resources: body.resources,
         })
+        if (!admission.accepted)
+          return c.json(
+            {
+              error:
+                "Notion configuration changed or a proposal is already in progress",
+            },
+            409,
+          )
+        configPrEnqueued = admission.started
       } catch (err) {
-        await releaseNotionConfigPrCreationClaim({
-          connectionId: installed.connection.id,
-          previousState: previousConfigPrState,
-        })
         getLogger().error(err instanceof Error ? err : new Error(String(err)), {
           step: "notionSyncConfig.enqueue",
           connectionId: installed.connection.id,
@@ -1004,7 +998,10 @@ export const notionConnectorRoutes = notionOAuthStartRoutes
       orgId,
       installed.connection.id,
     )
-    if (binding?.setupPhase !== "config_failed") {
+    if (
+      !binding ||
+      !["config_failed", "awaiting_merge"].includes(binding.setupPhase)
+    ) {
       return c.json(
         { error: "Notion configuration pull request is not in a failed state" },
         400,
@@ -1030,34 +1027,25 @@ export const notionConnectorRoutes = notionOAuthStartRoutes
         400,
       )
     }
-    const previousState = await claimNotionConfigPrCreation({
-      connectionId: installed.connection.id,
-    })
-    if (!previousState) {
-      return c.json(
-        {
-          error:
-            "Notion configuration pull request creation is already in progress",
-        },
-        409,
-      )
-    }
     try {
-      await runWorkflowWithWorkerWake(notionSyncConfig.spec, {
-        contentSyncGeneration: await getConnectorContentSyncGeneration(
-          orgId,
-          installed.connection.id,
-        ),
+      const admission = await enqueueConnectorConfigSync({
+        provider: "notion",
         orgId,
         orgSlug,
         connectionId: installed.connection.id,
+        repositoryId: binding.repositoryId,
+        branch: binding.branch,
         resources,
       })
+      if (!admission.accepted)
+        return c.json(
+          {
+            error:
+              "Notion configuration changed or a proposal is already in progress",
+          },
+          409,
+        )
     } catch (error) {
-      await releaseNotionConfigPrCreationClaim({
-        connectionId: installed.connection.id,
-        previousState,
-      })
       getLogger().error(
         error instanceof Error ? error : new Error(String(error)),
         {

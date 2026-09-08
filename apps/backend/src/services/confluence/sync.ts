@@ -285,10 +285,13 @@ export async function syncConfluenceConfigYaml(input: {
   env: Env
   connectionId: string
   target: ConfluenceSyncTarget
+  spaces?: Array<{ spaceKey: string; selectedPageIds: string[] | null }>
 }): Promise<{ pullUrl?: string; changed: boolean }> {
-  const scopeRows = await withOrgDbContext(input.orgId, () =>
-    listConfluenceSpacesByConnectionId(input.connectionId),
-  )
+  const scopeRows =
+    input.spaces ??
+    (await withOrgDbContext(input.orgId, () =>
+      listConfluenceSpacesByConnectionId(input.connectionId),
+    ))
   const { repositoryName, githubConnectionId } =
     await resolveRepoContextForSyncTarget(input.orgId, input.target)
 
