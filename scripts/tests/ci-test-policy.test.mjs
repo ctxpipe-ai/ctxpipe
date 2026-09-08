@@ -47,6 +47,12 @@ test("proof policy rejects aliased skips, retries and owned module mocks without
       'import { defineConfig } from "vitest/config"; const retry = 2; export default defineConfig({ test: { retry } })',
       'import { test } from "vitest"; const key = "retry"; test("proof", { [key]: 2 }, () => {})',
       'import { test } from "vitest"; test("proof", { get retry() { return 2 } }, () => {})',
+      'import { test } from "vitest"; const key = `retry`; test("proof", { [key]: 2 }, () => {})',
+      'import { test } from "vitest"; const retry = 2; test("proof", { retry }, () => {}); function unrelated() { const retry = 0 }',
+      'import { mock } from "node:test"; mock.module("./owned.js")',
+      'import { mock as substitute } from "bun:test"; substitute.module("./owned.js")',
+      'import { vi } from "vitest"; const fake = (vi); fake[`mock`]("./owned.js", () => ({}))',
+      'import { test } from "vitest"; const selector = `skip`; test[selector]("proof", () => {})',
       'import { defineConfig } from "vitest/config"; export default defineConfig({ test: { retry: 2 } })',
     ]) {
       const rejected = check(source)
@@ -64,6 +70,10 @@ test("proof policy rejects aliased skips, retries and owned module mocks without
       'import { test } from "vitest"; const retry = 0; const options = { retry }; test("proof", { ...options }, () => {})',
     )
     assert.equal(zeroRetry.status, 0, zeroRetry.stderr)
+    const scopedZero = check(
+      'import { test } from "vitest"; const retry = 0; test("proof", { retry }, () => {}); function unrelated() { const retry = 2 }',
+    )
+    assert.equal(scopedZero.status, 0, scopedZero.stderr)
     assert.equal(
       check(
         'import { it as scenario } from "vitest"; scenario.skipIf(false)("proof", () => {})',

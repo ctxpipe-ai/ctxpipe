@@ -1,5 +1,4 @@
 import { execFileSync } from "node:child_process"
-import { readFileSync } from "node:fs"
 import { relative, resolve } from "node:path"
 import { fileURLToPath } from "node:url"
 import ts from "typescript"
@@ -40,24 +39,52 @@ try {
               ),
           )
           .map((file) => resolve(root, file))
+  const compilerOptions = {
+    allowJs: true,
+    noResolve: true,
+    noLib: true,
+    types: [],
+    target: ts.ScriptTarget.Latest,
+    jsx: ts.JsxEmit.Preserve,
+  }
+  const program = ts.createProgram(
+    files,
+    compilerOptions,
+    ts.createCompilerHost(compilerOptions, true),
+  )
+  const checker = program.getTypeChecker()
+  const initializerOf = (identifier) => {
+    const declaration =
+      checker.getSymbolAtLocation(identifier)?.valueDeclaration
+    return declaration && ts.isVariableDeclaration(declaration)
+      ? declaration.initializer
+      : undefined
+  }
+  const unwrap = (expression) => {
+    while (
+      ts.isParenthesizedExpression(expression) ||
+      ts.isAsExpression(expression) ||
+      ts.isSatisfiesExpression(expression) ||
+      ts.isTypeAssertionExpression(expression) ||
+      ts.isNonNullExpression(expression)
+    )
+      expression = expression.expression
+    return expression
+  }
   const errors = []
   const acceptedFixtures = new Map()
   for (const file of files) {
-    const source = ts.createSourceFile(
-      file,
-      readFileSync(file, "utf8"),
-      ts.ScriptTarget.Latest,
-      true,
-    )
+    const source = program.getSourceFile(file)
+    if (!source) throw new Error(`Cannot parse required policy source: ${file}`)
     const path = relative(root, file).replaceAll("\\", "/")
     const proof = classification.get(path) !== "characterization"
     const tests = new Set(["it", "test", "describe", "suite"])
-    const mocks = new Set(["vi", "vitest", "jest"])
+    const mocks = new Set(["vi", "vitest", "jest", "mock"])
     for (const statement of source.statements) {
       if (
         ts.isImportDeclaration(statement) &&
         ts.isStringLiteral(statement.moduleSpecifier) &&
-        ["vitest", "node:test", "@playwright/test"].includes(
+        ["vitest", "node:test", "bun:test", "@playwright/test"].includes(
           statement.moduleSpecifier.text,
         )
       ) {
@@ -76,6 +103,7 @@ try {
       }
     }
     const rootName = (expression) => {
+      expression = unwrap(expression)
       if (ts.isIdentifier(expression)) return expression.text
       if (
         ts.isPropertyAccessExpression(expression) ||
@@ -86,7 +114,6 @@ try {
       return ""
     }
     // Follow ordinary local aliases of the test framework before checking uses.
-    const values = new Map()
     let previousSize = -1
     while (previousSize !== mocks.size + tests.size) {
       previousSize = mocks.size + tests.size
@@ -96,7 +123,6 @@ try {
           ts.isIdentifier(node.name) &&
           node.initializer
         ) {
-          values.set(node.name.text, node.initializer)
           if (tests.has(rootName(node.initializer))) tests.add(node.name.text)
         }
         if (
@@ -108,7 +134,7 @@ try {
           for (const binding of node.name.elements) {
             if (
               ts.isIdentifier(binding.name) &&
-              ["vi", "vitest", "jest"].includes(
+              ["vi", "vitest", "jest", "mock"].includes(
                 (binding.propertyName ?? binding.name).getText(source),
               )
             )
@@ -126,9 +152,11 @@ try {
           ts.isVariableDeclaration(node) &&
           ts.isIdentifier(node.name) &&
           node.initializer &&
-          (ts.isIdentifier(node.initializer) ||
-            (ts.isPropertyAccessExpression(node.initializer) &&
-              ["vi", "vitest", "jest"].includes(node.initializer.name.text))) &&
+          (ts.isIdentifier(unwrap(node.initializer)) ||
+            (ts.isPropertyAccessExpression(unwrap(node.initializer)) &&
+              ["vi", "vitest", "jest", "mock"].includes(
+                node.initializer.name.text,
+              ))) &&
           mocks.has(rootName(node.initializer))
         )
           mocks.add(node.name.text)
@@ -138,13 +166,13 @@ try {
     }
     const testOptions = new Set()
     const markOptions = (expression, seen = new Set()) => {
-      if (
-        ts.isIdentifier(expression) &&
-        values.has(expression.text) &&
-        !seen.has(expression.text)
-      ) {
-        seen.add(expression.text)
-        markOptions(values.get(expression.text), seen)
+      expression = unwrap(expression)
+      const initializer = ts.isIdentifier(expression)
+        ? initializerOf(expression)
+        : undefined
+      if (initializer && !seen.has(initializer)) {
+        seen.add(initializer)
+        markOptions(initializer, seen)
       } else if (ts.isObjectLiteralExpression(expression)) {
         testOptions.add(expression)
         for (const property of expression.properties)
@@ -159,14 +187,19 @@ try {
     }
     collectOptions(source)
     const constantValue = (expression, seen = new Set()) => {
-      if (
-        ts.isIdentifier(expression) &&
-        values.has(expression.text) &&
-        !seen.has(expression.text)
-      ) {
-        seen.add(expression.text)
-        return constantValue(values.get(expression.text), seen)
+      expression = unwrap(expression)
+      const initializer = ts.isIdentifier(expression)
+        ? initializerOf(expression)
+        : undefined
+      if (initializer && !seen.has(initializer)) {
+        seen.add(initializer)
+        return constantValue(initializer, seen)
       }
+      if (
+        ts.isStringLiteral(expression) ||
+        ts.isNoSubstitutionTemplateLiteral(expression)
+      )
+        return JSON.stringify(expression.text)
       return expression.getText(source)
     }
     const complain = (node, message) =>
@@ -199,7 +232,7 @@ try {
           declaration = declaration.parent
         if (
           proof &&
-          ["mock", "doMock", "spyOn"].includes(property) &&
+          ["mock", "doMock", "spyOn", "module"].includes(property) &&
           declaration?.initializer &&
           mocks.has(rootName(declaration.initializer))
         )
@@ -214,9 +247,7 @@ try {
       ) {
         const property = ts.isPropertyAccessExpression(node)
           ? node.name.text
-          : ts.isStringLiteral(node.argumentExpression)
-            ? node.argumentExpression.text
-            : ""
+          : constantValue(node.argumentExpression).replaceAll(/["']/g, "")
         const owner = rootName(node.expression)
         if (
           [
@@ -237,7 +268,7 @@ try {
         if (
           proof &&
           mocks.has(owner) &&
-          ["mock", "doMock", "spyOn"].includes(property)
+          ["mock", "doMock", "spyOn", "module"].includes(property)
         ) {
           const target = ts.isCallExpression(node.parent)
             ? node.parent.arguments[0]
