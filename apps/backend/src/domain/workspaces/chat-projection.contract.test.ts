@@ -10,10 +10,14 @@ import {
 import { organizations } from "../../db/schema/auth.js"
 import { repositories } from "../../db/schema/repositories.js"
 import { repositoryCheckouts } from "../../db/schema/repository_checkouts.js"
-import { workspaces } from "../../db/schema/workspaces.js"
+import {
+  workspaces,
+  workspaceLinkedRepositories,
+} from "../../db/schema/workspaces.js"
 import { generateObjectId } from "../../lib/id.js"
 import {
   captureWorkspaceRevision,
+  listOrgLinkedRepositories,
   commitHydrateProjection,
   persistWorkspaceIndexResult,
   getWorkspaceProjectionSnapshot,
@@ -107,7 +111,7 @@ it(
             id: generateObjectId("co"),
             orgId: org.id,
             repositoryId,
-            checkoutKey: "ws:" + workspaceId,
+            checkoutKey: `ws:${workspaceId}:${revision.sha}`,
             ref: revision.sha,
             commitSha: revision.sha,
           })
@@ -190,6 +194,18 @@ it(
         expect(
           String(await neighbors?.execute({ nodeId: "kn_foreign" })),
         ).not.toContain(first.servingId)
+        const linkedId = generateObjectId("wlr")
+        await withOrgDbContext(org.id, (db) =>
+          db.insert(workspaceLinkedRepositories).values({
+            id: linkedId,
+            orgId: org.id,
+            workspaceId,
+            gitUrl: "https://example.test/other",
+            desiredRef: "main",
+            desiredSha: "c".repeat(40),
+            indexedSha: "c".repeat(40),
+          }),
+        )
         const nextRevision = { ...revision, sha: "b".repeat(40) }
         expect(
           await captureWorkspaceRevision({
@@ -213,7 +229,9 @@ it(
             orgId: org.id,
             revision: nextRevision,
             units: nextUnits,
-            remotes: [],
+            remotes: [
+              { git: "https://example.test/other.git", branch: "release" },
+            ],
             displayName: null,
           }),
         ).toBe(true)
@@ -223,6 +241,14 @@ it(
         expect(
           String(await neighbors?.execute({ nodeId: first.servingId })),
         ).toContain(second.servingId)
+        expect(await listOrgLinkedRepositories(org.id)).toMatchObject([
+          {
+            id: linkedId,
+            desiredRef: "release",
+            desiredSha: null,
+            indexedSha: null,
+          },
+        ])
         const nextTools = await workspaceChatTools({
           orgId: org.id,
           workspaceId,

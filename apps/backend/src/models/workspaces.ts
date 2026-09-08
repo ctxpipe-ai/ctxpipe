@@ -1,4 +1,5 @@
-import { and, desc, eq, exists, inArray, isNotNull, sql } from "drizzle-orm"
+import { workspaceCheckoutKey } from "../domain/workspaces/derived-stores.js"
+import { and, desc, eq, exists, inArray, isNotNull, or, sql } from "drizzle-orm"
 import { createError } from "evlog"
 import { requireCurrentOrgId, requireCurrentUserId } from "../auth/context.js"
 import { getOrgDb } from "../db/client.js"
@@ -316,6 +317,7 @@ export async function getWorkspaceSearchProjection(workspaceId: string) {
         checkout: {
           zoektRepoId: repositoryCheckouts.zoektRepoId,
           sha: repositoryCheckouts.commitSha,
+          checkoutKey: repositoryCheckouts.checkoutKey,
         },
       })
       .from(workspaces)
@@ -324,7 +326,13 @@ export async function getWorkspaceSearchProjection(workspaceId: string) {
         repositoryCheckouts,
         and(
           eq(repositoryCheckouts.repositoryId, repositories.id),
-          eq(repositoryCheckouts.checkoutKey, sql`'ws:' || ${workspaces.id}`),
+          or(
+            eq(repositoryCheckouts.checkoutKey, sql`'ws:' || ${workspaces.id}`),
+            eq(
+              repositoryCheckouts.checkoutKey,
+              sql`'ws:' || ${workspaces.id} || ':' || ${repositoryCheckouts.commitSha}`,
+            ),
+          ),
         ),
       )
       .where(eq(workspaces.id, workspaceId))
@@ -333,32 +341,47 @@ export async function getWorkspaceSearchProjection(workspaceId: string) {
       ? projectionFromWorkspace(first.workspace)
       : { kind: "absent" }
     const active = publishedProjection(projection)
-    const allowed = new Map<string, string>()
+    const allowed = new Map<string, Set<string>>()
+    const allow = (url: string, sha: string) => {
+      const key = normalizeWorkspaceRepositoryUrl(url)
+      const revisions = allowed.get(key) ?? new Set<string>()
+      revisions.add(sha)
+      allowed.set(key, revisions)
+    }
     if (active?.kind === "active" && active.stores.index.kind === "ready") {
-      allowed.set(
-        normalizeWorkspaceRepositoryUrl(active.revision.remote.url),
-        active.revision.sha,
-      )
+      allow(active.revision.remote.url, active.revision.sha)
     } else if (active?.kind === "legacy" && active.url) {
-      allowed.set(normalizeWorkspaceRepositoryUrl(active.url), active.sha)
+      allow(active.url, active.sha)
     }
     if (active)
       for (const linked of first?.linked ?? []) {
-        if (linked.indexedSha)
-          allowed.set(
-            normalizeWorkspaceRepositoryUrl(linked.gitUrl),
-            linked.indexedSha,
-          )
+        if (linked.indexedSha) allow(linked.gitUrl, linked.indexedSha)
       }
     return {
       projection,
       repositories: rows.flatMap(({ repository, checkout }) => {
         if (!repository || !checkout) return []
-        const sha = allowed.get(
-          normalizeWorkspaceRepositoryUrl(repository.gitUrl),
+        const sha = checkout.sha
+        if (
+          !sha ||
+          !allowed
+            .get(normalizeWorkspaceRepositoryUrl(repository.gitUrl))
+            ?.has(sha)
         )
-        if (!sha || checkout.sha !== sha) return []
-        return [{ ...repository, zoektRepoId: checkout.zoektRepoId, sha }]
+          return []
+        const checkoutKey = workspaceCheckoutKey(
+          workspaceId,
+          active?.kind === "active" ? sha : undefined,
+        )
+        if (checkout.checkoutKey !== checkoutKey) return []
+        return [
+          {
+            ...repository,
+            zoektRepoId: checkout.zoektRepoId,
+            sha,
+            checkoutKey,
+          },
+        ]
       }),
     }
   })
@@ -1203,6 +1226,7 @@ export async function commitHydrateProjection(input: {
           .set({
             desiredRef: branch,
             desiredSha: null,
+            indexedSha: null,
           })
           .where(eq(workspaceLinkedRepositories.id, current.id))
       }

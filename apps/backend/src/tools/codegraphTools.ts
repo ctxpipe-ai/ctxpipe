@@ -26,8 +26,6 @@ export const graphFindSymbolTool = tool(
       {
         id: repository.id,
         orgId: repository.orgId,
-        zoektRepoId: repository.zoektRepoId,
-        name: repository.name,
       },
       {
         primitive: "find_symbol",
@@ -67,8 +65,6 @@ export const graphCallersTool = tool(
       {
         id: repository.id,
         orgId: repository.orgId,
-        zoektRepoId: repository.zoektRepoId,
-        name: repository.name,
       },
       {
         primitive: "get_callers",
@@ -106,8 +102,6 @@ export const graphCalleesTool = tool(
       {
         id: repository.id,
         orgId: repository.orgId,
-        zoektRepoId: repository.zoektRepoId,
-        name: repository.name,
       },
       {
         primitive: "get_callees",

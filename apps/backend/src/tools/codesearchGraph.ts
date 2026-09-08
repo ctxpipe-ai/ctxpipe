@@ -25,8 +25,9 @@ export type GraphRequestBody = {
 }
 
 export async function codesearchGraphQuery(
-  repository: ZoektRepositoryRow,
+  repository: Pick<ZoektRepositoryRow, "id" | "orgId">,
   body: GraphRequestBody,
+  workspace?: { workspaceId: string; sha?: string },
 ): Promise<Record<string, unknown>> {
   const env = parseEnv(process.env as Record<string, string | undefined>)
   const token = await signUpstreamJwt({
@@ -36,6 +37,14 @@ export async function codesearchGraphQuery(
       sub: `repo:${repository.id}`,
       orgId: repository.orgId,
       principal: "service",
+      ...(workspace ? { workspaceId: workspace.workspaceId } : {}),
+      ...(workspace?.sha
+        ? {
+            workspaceRevisions: [
+              { repositoryId: repository.id, sha: workspace.sha },
+            ],
+          }
+        : {}),
     },
   })
   const res = await withTransientHttpRetry(

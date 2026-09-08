@@ -8,6 +8,7 @@ export type UpstreamClaims = {
   orgId: string
   principal: UpstreamPrincipal
   workspaceId?: string
+  workspaceRevisions?: Array<{ repositoryId: string; sha: string }>
 }
 
 function getSigningSecret(env: Env): Uint8Array {
@@ -27,6 +28,9 @@ export async function signUpstreamJwt(input: {
   return new SignJWT({
     orgId: input.claims.orgId,
     principal: input.claims.principal,
+    ...(input.claims.workspaceRevisions
+      ? { workspaceRevisions: input.claims.workspaceRevisions }
+      : {}),
     ...(input.claims.workspaceId
       ? { workspaceId: input.claims.workspaceId }
       : {}),

@@ -19,13 +19,14 @@ export async function embedHydrateUnits(input: {
   return out
 }
 
-export function workspaceCheckoutKey(workspaceId: string): string {
-  return `ws:${workspaceId}`
-}
-
-export function codesearchSelectsWorkspaceCheckout(input: {
-  checkoutKey: string
-  workspaceId: string
-}): boolean {
-  return input.checkoutKey === workspaceCheckoutKey(input.workspaceId)
+/** Omitted SHA denotes only the temporary legacy checkout. */
+export function workspaceCheckoutKey(
+  workspaceId: string,
+  sha?: string,
+): string {
+  if (!/^[a-zA-Z0-9_-]+$/.test(workspaceId))
+    throw new Error("Invalid workspace id")
+  if (sha !== undefined && !/^(?:[a-f0-9]{40}|[a-f0-9]{64})$/.test(sha))
+    throw new Error("Workspace checkout requires an immutable commit SHA")
+  return sha ? `ws:${workspaceId}:${sha}` : `ws:${workspaceId}`
 }

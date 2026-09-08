@@ -1,0 +1,89 @@
+{"name": "native-revision-checkout-linux-fixed", "cwd": "/private/tmp/ctxpipe-recovery-01a07aba", "command": ["docker", "run", "--pull=never", "--platform", "linux/arm64", "--rm", "--name", "ctxpipe-gate2-revision-contracts-fixed", "--mount", "type=bind,src=/private/tmp/ctxpipe-recovery-01a07aba/apps/codesearch/src,dst=/app/apps/codesearch/src,readonly", "--mount", "type=bind,src=/private/tmp/ctxpipe-recovery-01a07aba/apps/codesearch/scripts,dst=/app/apps/codesearch/scripts,readonly", "--mount", "type=bind,src=/private/tmp/ctxpipe-recovery-01a07aba/apps/codesearch/vitest.config.ts,dst=/app/apps/codesearch/vitest.config.ts,readonly", "--mount", "type=bind,src=/private/tmp/ctxpipe-recovery-01a07aba/scripts/ci,dst=/app/scripts/ci,readonly", "--mount", "type=bind,src=/private/tmp/ctxpipe-gate2-revision-checkout-fixed-results,dst=/app/.ci-results", "ctxpipe-codesearch:gate2-revision-proof", "node", "scripts/run-vitest-contracts.mjs"], "environment": {"AUTH_SECRET": "gate0-local-disposable-test-secret-20260907", "DATABASE_URL": "postgresql://ctxpipe_app:ctxpipe@127.0.0.1:61314/ctxpipe_gate0_fresh", "GRAPH_DB_URI": "redis://127.0.0.1:6399", "CI": "true", "NO_COLOR": "1", "TURBO_TELEMETRY_DISABLED": "1", "STORYBOOK_DISABLE_TELEMETRY": "1", "PATH": "/private/tmp/ctxpipe-recovery-runtime/node_modules/.bin:/private/tmp/ctxpipe-recovery-runtime/zoekt:/usr/local/bin:/System/Cryptexes/App/usr/bin:/usr/bin:/bin:/usr/sbin:/sbin:/var/run/com.apple.security.cryptexd/codex.system/bootstrap/usr/local/bin:/var/run/com.apple.security.cryptexd/codex.system/bootstrap/usr/bin:/var/run/com.apple.security.cryptexd/codex.system/bootstrap/usr/appleinternal/bin:/pkg/env/global/bin:/Users/jakubriedl/.codex/tmp/arg0/codex-arg0BW5Gt3:/Users/jakubriedl/.cache/codex-runtimes/codex-primary-runtime/dependencies/bin/override:/Users/jakubriedl/.local/bin:/Users/jakubriedl/.bun/bin:/Users/jakubriedl/.opencode/bin:/Users/jakubriedl/.volta/bin:/opt/homebrew/bin:/opt/homebrew/sbin:/Users/jakubriedl/.cache/codex-runtimes/codex-primary-runtime/dependencies/bin/fallback:/Applications/ChatGPT.app/Contents/Resources"}, "timeout_seconds": 600, "started_utc": "2026-09-08T04:37:01Z", "log": "logs/native-revision-checkout-linux-fixed.log"}
+node: v22.23.2
+bun: 1.2.23
+git: git version 2.39.5
+
+[1m[46m RUN [49m[22m [36mv4.0.18 [39m[90m/app/apps/codesearch[39m
+
+ [32m✓[39m src/domain/search/structuralSearch.test.ts [2m([22m[2m3 tests[22m[2m)[22m[33m 690[2mms[22m[39m
+     [33m[2m✓[22m[39m rejects an ast-grep result whose file resolves outside the checkout [33m 530[2mms[22m[39m
+ [32m✓[39m src/domain/indexing/detectLanguages.test.ts [2m([22m[2m37 tests[22m[2m)[22m[33m 885[2mms[22m[39m
+ [32m✓[39m src/domain/graph/executeGraphPrimitive.test.ts [2m([22m[2m11 tests[22m[2m)[22m[33m 1301[2mms[22m[39m
+     [33m[2m✓[22m[39m finds symbol definitions from legacy and typed SCIP ranges [33m 445[2mms[22m[39m
+     [33m[2m✓[22m[39m does not retain an index that exceeds the cache byte budget [33m 423[2mms[22m[39m
+ [32m✓[39m src/domain/indexing/indexConcurrency.test.ts [2m([22m[2m3 tests[22m[2m)[22m[33m 309[2mms[22m[39m
+ [32m✓[39m src/db/transient.test.ts [2m([22m[2m5 tests[22m[2m)[22m[33m 396[2mms[22m[39m
+ [32m✓[39m src/domain/repositories/purge.test.ts [2m([22m[2m6 tests[22m[2m)[22m[33m 1759[2mms[22m[39m
+     [33m[2m✓[22m[39m handles missing zoekt index directory gracefully [33m 505[2mms[22m[39m
+     [33m[2m✓[22m[39m removes hot symlinks and pin state for the repo [33m 557[2mms[22m[39m
+ [32m✓[39m src/domain/zoekt/pinManager.test.ts [2m([22m[2m12 tests[22m[2m)[22m[33m 5215[2mms[22m[39m
+     [33m[2m✓[22m[39m creates hot symlinks to cold shards [33m 334[2mms[22m[39m
+     [33m[2m✓[22m[39m resets idle TTL on a second pin so unload is deferred [33m 576[2mms[22m[39m
+     [33m[2m✓[22m[39m does not pin adjacent repo ids that share a prefix [33m 403[2mms[22m[39m
+     [33m[2m✓[22m[39m keeps shards when concurrent pins race on the same repo [33m 523[2mms[22m[39m
+     [33m[2m✓[22m[39m does not unload after a re-pin that races an expiring TTL [33m 870[2mms[22m[39m
+     [33m[2m✓[22m[39m refreshPinnedRepo links newly written cold shards when pinned [33m 841[2mms[22m[39m
+     [33m[2m✓[22m[39m refreshPinnedRepo drops stale hot shards and recreates links [33m 347[2mms[22m[39m
+     [33m[2m✓[22m[39m refreshPinnedRepo is a no-op when the repo is not pinned [33m 310[2mms[22m[39m
+ [32m✓[39m src/domain/indexing/heartbeat.test.ts [2m([22m[2m2 tests[22m[2m)[22m[33m 1109[2mms[22m[39m
+     [33m[2m✓[22m[39m registers a heartbeat callback and emits ≥1 event when triggered [33m 406[2mms[22m[39m
+     [33m[2m✓[22m[39m clears the heartbeat interval once the subprocess exits [33m 582[2mms[22m[39m
+ [32m✓[39m src/domain/indexing/scipIndexers.test.ts [2m([22m[2m13 tests[22m[2m)[22m[33m 429[2mms[22m[39m
+ [32m✓[39m src/routes/structuralSearch.test.ts [2m([22m[2m4 tests[22m[2m)[22m[33m 3142[2mms[22m[39m
+     [33m[2m✓[22m[39m resolves path arguments inside the checkout and runs ast-grep [33m 2274[2mms[22m[39m
+     [33m[2m✓[22m[39m publishes the route in the generated OpenAPI document [33m 334[2mms[22m[39m
+ [32m✓[39m src/domain/zoekt/warmup.test.ts [2m([22m[2m4 tests[22m[2m)[22m[33m 1820[2mms[22m[39m
+     [33m[2m✓[22m[39m resolves once /api/list includes every expected repo id [33m 1573[2mms[22m[39m
+ [32m✓[39m src/routes/indexPhases.test.ts [2m([22m[2m4 tests[22m[2m)[22m[33m 3079[2mms[22m[39m
+     [33m[2m✓[22m[39m rejects a checkoutKey that differs from the JWT workspace [33m 1551[2mms[22m[39m
+     [33m[2m✓[22m[39m derives the checkout from JWT auth when the request omits checkoutKey [33m 731[2mms[22m[39m
+     [33m[2m✓[22m[39m returns 503 when the repository lookup loses its database connection [33m 500[2mms[22m[39m
+ [32m✓[39m src/domain/graph/scipProto.test.ts [2m([22m[2m2 tests[22m[2m)[22m[33m 736[2mms[22m[39m
+     [33m[2m✓[22m[39m merges documents and external symbols from language shards [33m 345[2mms[22m[39m
+ [32m✓[39m src/domain/indexing/streamTail.test.ts [2m([22m[2m3 tests[22m[2m)[22m[32m 277[2mms[22m[39m
+ [32m✓[39m src/domain/indexing/scipTouchedLanguages.test.ts [2m([22m[2m5 tests[22m[2m)[22m[32m 152[2mms[22m[39m
+ [32m✓[39m src/domain/indexing/service.test.ts [2m([22m[2m4 tests[22m[2m)[22m[33m 794[2mms[22m[39m
+     [33m[2m✓[22m[39m validates and preserves a valid single shard [33m 480[2mms[22m[39m
+ [32m✓[39m src/domain/indexing/indexerChildEnv.test.ts [2m([22m[2m6 tests[22m[2m)[22m[32m 161[2mms[22m[39m
+ [32m✓[39m src/domain/repositories/resolveRef.test.ts [2m([22m[2m3 tests[22m[2m)[22m[33m 1084[2mms[22m[39m
+     [33m[2m✓[22m[39m resolves a provided branch to hash [33m 996[2mms[22m[39m
+ [32m✓[39m src/auth/jwt.test.ts [2m([22m[2m3 tests[22m[2m)[22m[33m 550[2mms[22m[39m
+     [33m[2m✓[22m[39m uses the default checkout for a verified legacy JWT without workspaceId [33m 368[2mms[22m[39m
+ [32m✓[39m src/domain/repositories/paths.test.ts [2m([22m[2m2 tests[22m[2m)[22m[32m 74[2mms[22m[39m
+ [32m✓[39m src/routes/search.test.ts [2m([22m[2m4 tests[22m[2m)[22m[33m 1096[2mms[22m[39m
+     [33m[2m✓[22m[39m pins repos and waits for Zoekt warmup before searching [33m 905[2mms[22m[39m
+ [32m✓[39m src/config/paths.test.ts [2m([22m[2m2 tests[22m[2m)[22m[32m 69[2mms[22m[39m
+ [32m✓[39m src/domain/zoekt/shardPrefix.test.ts [2m([22m[2m5 tests[22m[2m)[22m[32m 86[2mms[22m[39m
+ [32m✓[39m src/domain/indexing/memoryFitError.test.ts [2m([22m[2m4 tests[22m[2m)[22m[32m 78[2mms[22m[39m
+ [32m✓[39m src/observability/http-wide-event-message.test.ts [2m([22m[2m1 test[22m[2m)[22m[32m 65[2mms[22m[39m
+ [32m✓[39m src/domain/indexingSteps.test.ts [2m([22m[2m17 tests[22m[2m)[22m[33m 333[2mms[22m[39m
+ [32m✓[39m src/routes/graph.test.ts [2m([22m[2m2 tests[22m[2m)[22m[33m 1019[2mms[22m[39m
+     [33m[2m✓[22m[39m rejects a checkoutKey that differs from the JWT workspace [33m 776[2mms[22m[39m
+ [32m✓[39m src/domain/zoekt/warmup.integration.test.ts [2m([22m[2m1 test[22m[2m)[22m[33m 9153[2mms[22m[39m
+     [33m[2m✓[22m[39m search stays empty until pin; warmup wait succeeds after pin [33m 1349[2mms[22m[39m
+ [32m✓[39m src/routes/indexPhases.zoekt.test.ts [2m([22m[2m1 test[22m[2m)[22m[32m 278[2mms[22m[39m
+ [32m✓[39m src/db/client.org-context.test.ts [2m([22m[2m5 tests[22m[2m)[22m[32m 77[2mms[22m[39m
+ [32m✓[39m src/domain/repositories/service.test.ts [2m([22m[2m2 tests[22m[2m)[22m[32m 30[2mms[22m[39m
+
+[2m Test Files [22m [1m[32m31 passed[39m[22m[90m (31)[39m
+[2m      Tests [22m [1m[32m176 passed[39m[22m[90m (176)[39m
+[2m   Start at [22m 04:37:08
+[2m   Duration [22m 67.38s[2m (transform 119.26s, setup 17.65s, import 403.10s, tests 36.25s, environment 130ms)[22m
+
+JSON report written to /app/.ci-results/codesearch/node.json
+EXECUTED 176 tests in 31 files: 176 passed, 0 acknowledged failures, zero skipped
+
+[1m[46m RUN [49m[22m [36mv4.0.18 [39m[90m/app/apps/codesearch[39m
+
+ [32m✓[39m src/domain/repositories/globFiles.test.ts [2m([22m[2m14 tests[22m[2m)[22m[33m 960[2mms[22m[39m
+     [33m[2m✓[22m[39m stays cheap when .git is large [33m 497[2mms[22m[39m
+ [32m✓[39m src/domain/indexing/scipIndexers.native.test.ts [2m([22m[2m6 tests[22m[2m)[22m[33m 802[2mms[22m[39m
+ [32m✓[39m src/routes/repo.test.ts [2m([22m[2m23 tests[22m[2m)[22m[33m 484[2mms[22m[39m
+
+[2m Test Files [22m [1m[32m3 passed[39m[22m[90m (3)[39m
+[2m      Tests [22m [1m[32m43 passed[39m[22m[90m (43)[39m
+[2m   Start at [22m 04:38:18
+[2m   Duration [22m 8.56s[2m (transform 8.85s, setup 704ms, import 12.35s, tests 2.25s, environment 8ms)[22m
+
+JSON report written to /app/.ci-results/codesearch/bun.json
+EXECUTED 43 tests in 3 files: 43 passed, 0 acknowledged failures, zero skipped

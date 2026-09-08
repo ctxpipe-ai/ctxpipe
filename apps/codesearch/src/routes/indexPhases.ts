@@ -296,7 +296,16 @@ export function registerIndexPhaseRoutes(app: OpenAPIHono<AppEnv>) {
     if (!auth) throw new Error("Missing auth context")
     const { repoId } = c.req.valid("param")
     const body = c.req.valid("json")
-    const checkoutKey = checkoutKeyFromAuth(auth)
+    const checkoutKey = checkoutKeyFromAuth(auth, repoId)
+    const signedRevision = auth.workspaceRevisions?.find(
+      (revision) => revision.repositoryId === repoId,
+    )
+    if (signedRevision && body.targetHash !== signedRevision.sha) {
+      return c.json(
+        { error: "Target commit does not match authenticated revision" },
+        403,
+      )
+    }
     if (body.checkoutKey && body.checkoutKey !== checkoutKey) {
       return c.json(
         { error: "Checkout does not match authenticated workspace" },
@@ -349,7 +358,7 @@ export function registerIndexPhaseRoutes(app: OpenAPIHono<AppEnv>) {
     const { repoId } = c.req.valid("param")
     return withRepositoryIndexOperation(repoId, async () => {
       const resolved = await resolvePhaseContext(db, auth.orgId, repoId, {
-        checkoutKey: checkoutKeyFromAuth(auth),
+        checkoutKey: checkoutKeyFromAuth(auth, repoId),
       })
       if (!resolved.ok) {
         return c.json({ error: resolved.error }, resolved.status)
@@ -387,7 +396,7 @@ export function registerIndexPhaseRoutes(app: OpenAPIHono<AppEnv>) {
     const body = c.req.valid("json")
     return withRepositoryIndexOperation(repoId, async () => {
       const resolved = await resolvePhaseContext(db, auth.orgId, repoId, {
-        checkoutKey: checkoutKeyFromAuth(auth),
+        checkoutKey: checkoutKeyFromAuth(auth, repoId),
       })
       if (!resolved.ok) {
         return c.json({ error: resolved.error }, resolved.status)
@@ -429,7 +438,7 @@ export function registerIndexPhaseRoutes(app: OpenAPIHono<AppEnv>) {
     const body = c.req.valid("json")
     return withRepositoryIndexOperation(repoId, async () => {
       const resolved = await resolvePhaseContext(db, auth.orgId, repoId, {
-        checkoutKey: checkoutKeyFromAuth(auth),
+        checkoutKey: checkoutKeyFromAuth(auth, repoId),
       })
       if (!resolved.ok) {
         return c.json({ error: resolved.error }, resolved.status)
@@ -466,7 +475,7 @@ export function registerIndexPhaseRoutes(app: OpenAPIHono<AppEnv>) {
     const body = c.req.valid("json")
     return withRepositoryIndexOperation(repoId, async () => {
       const resolved = await resolvePhaseContext(db, auth.orgId, repoId, {
-        checkoutKey: checkoutKeyFromAuth(auth),
+        checkoutKey: checkoutKeyFromAuth(auth, repoId),
       })
       if (!resolved.ok) {
         return c.json({ error: resolved.error }, resolved.status)

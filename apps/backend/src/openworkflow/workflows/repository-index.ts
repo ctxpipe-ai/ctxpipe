@@ -51,6 +51,12 @@ const repositoryIndexInputSchema = z
             input.revision.remote.githubConnectionId)),
     "Repository index input must describe one workspace revision",
   )
+  .refine(
+    (input) =>
+      !input.workspaceId ||
+      /^(?:[a-f0-9]{40}|[a-f0-9]{64})$/.test(input.targetHash),
+    "Workspace indexing requires an immutable commit SHA",
+  )
 
 const indexRetryPolicy = {
   maximumAttempts: 2,
@@ -127,7 +133,14 @@ export const repositoryIndex = defineWorkflow(
         const auth = {
           repositoryId: input.repositoryId,
           orgId: input.orgId,
-          ...(input.workspaceId ? { workspaceId: input.workspaceId } : {}),
+          ...(input.workspaceId
+            ? {
+                workspaceId: input.workspaceId,
+                workspaceRevisions: [
+                  { repositoryId: input.repositoryId, sha: input.targetHash },
+                ],
+              }
+            : {}),
         }
         const wls = <T>(name: string, fn: () => Promise<T>): Promise<T> =>
           withLoggedStepAttempt(

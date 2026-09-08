@@ -1,9 +1,5 @@
 import { describe, expect, it, vi } from "vitest"
-import {
-  codesearchSelectsWorkspaceCheckout,
-  embedHydrateUnits,
-  workspaceCheckoutKey,
-} from "./derived-stores.js"
+import { embedHydrateUnits } from "./derived-stores.js"
 
 describe("embedHydrateUnits", () => {
   it("does not swallow embedder failures so hydrate can retry the phase", async () => {
@@ -41,23 +37,5 @@ describe("embedHydrateUnits", () => {
         embed,
       }),
     ).resolves.toEqual([{ servingId: "kn_a", embedding: [0.1, 0.2] }])
-  })
-})
-
-describe("workspace derived-store scope", () => {
-  it("scopes codesearch checkout to its Workspace", () => {
-    expect(workspaceCheckoutKey("ws_1")).toBe("ws:ws_1")
-    expect(
-      codesearchSelectsWorkspaceCheckout({
-        checkoutKey: "ws:ws_1",
-        workspaceId: "ws_1",
-      }),
-    ).toBe(true)
-    expect(
-      codesearchSelectsWorkspaceCheckout({
-        checkoutKey: "default",
-        workspaceId: "ws_1",
-      }),
-    ).toBe(false)
   })
 })

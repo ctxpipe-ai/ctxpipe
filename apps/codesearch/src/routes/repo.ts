@@ -411,7 +411,16 @@ export function registerRepoRoutes(app: OpenAPIHono<AppEnv>) {
     if (!auth) throw new Error("Missing auth context")
     const { repoId } = c.req.valid("param")
     const body = c.req.valid("json")
-    const checkoutKey = checkoutKeyFromAuth(auth)
+    const checkoutKey = checkoutKeyFromAuth(auth, repoId)
+    const signedRevision = auth.workspaceRevisions?.find(
+      (revision) => revision.repositoryId === repoId,
+    )
+    if (signedRevision && body.targetHash !== signedRevision.sha) {
+      return c.json(
+        { error: "Target commit does not match authenticated revision" },
+        403,
+      )
+    }
     const repo = await getAccessibleRepository(db, repoId, auth.orgId)
     if (!repo)
       return c.json({ error: "Repository not found or access denied" }, 404)
@@ -519,7 +528,7 @@ export function registerRepoRoutes(app: OpenAPIHono<AppEnv>) {
     const basePath = repoCheckoutPath(
       repo.orgId,
       repo.id,
-      checkoutKeyFromAuth(auth),
+      checkoutKeyFromAuth(auth, repoId),
     )
     let dirPath: string
     let names: string[]
@@ -551,7 +560,7 @@ export function registerRepoRoutes(app: OpenAPIHono<AppEnv>) {
     const checkoutRoot = repoCheckoutPath(
       auth.orgId,
       repoId,
-      checkoutKeyFromAuth(auth),
+      checkoutKeyFromAuth(auth, repoId),
     )
     try {
       const paths = await listCheckoutFilePaths(checkoutRoot)
@@ -580,7 +589,7 @@ export function registerRepoRoutes(app: OpenAPIHono<AppEnv>) {
     const checkoutRoot = repoCheckoutPath(
       repo.orgId,
       repo.id,
-      checkoutKeyFromAuth(auth),
+      checkoutKeyFromAuth(auth, repoId),
     )
     try {
       const result = await globFilesInCheckout({
@@ -641,7 +650,7 @@ export function registerRepoRoutes(app: OpenAPIHono<AppEnv>) {
     const basePath = repoCheckoutPath(
       repo.orgId,
       repo.id,
-      checkoutKeyFromAuth(auth),
+      checkoutKeyFromAuth(auth, repoId),
     )
     let fullPath: string
     try {
@@ -678,7 +687,7 @@ export function registerRepoRoutes(app: OpenAPIHono<AppEnv>) {
     const basePath = repoCheckoutPath(
       repo.orgId,
       repo.id,
-      checkoutKeyFromAuth(auth),
+      checkoutKeyFromAuth(auth, repoId),
     )
     const result: Record<string, string> = {}
     for (const p of paths) {

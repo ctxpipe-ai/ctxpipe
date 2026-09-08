@@ -37,6 +37,7 @@ export type CodesearchIndexAuth = {
   repositoryId: string
   orgId: string
   workspaceId?: string
+  workspaceRevisions?: Array<{ repositoryId: string; sha: string }>
 }
 
 async function codesearchPhaseFetch(
@@ -55,6 +56,9 @@ async function codesearchPhaseFetch(
             sub: `repo:${auth.repositoryId}`,
             orgId: auth.orgId,
             principal: "service",
+            ...(auth.workspaceRevisions
+              ? { workspaceRevisions: auth.workspaceRevisions }
+              : {}),
             ...(auth.workspaceId ? { workspaceId: auth.workspaceId } : {}),
           },
         })

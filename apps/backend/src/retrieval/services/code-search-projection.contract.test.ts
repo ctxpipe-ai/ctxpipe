@@ -100,7 +100,7 @@ it(
               {
                 RepositoryID: linkedZoektRepoId,
                 FileName: "OTHER.md",
-                Version: revision.sha,
+                Version: "cccccccccccccccccccccccccccccccccccccccc",
               },
               {
                 RepositoryID: zoektRepoId,
@@ -157,7 +157,7 @@ it(
             orgId: org.id,
             repositoryId,
             ref: revision.sha,
-            checkoutKey: `ws:${workspaceId}`,
+            checkoutKey: `ws:${workspaceId}:${revision.sha}`,
             commitSha: revision.sha,
           })
           .returning()
@@ -175,8 +175,8 @@ it(
           orgId: org.id,
           workspaceId,
           gitUrl: url + "-linked",
-          desiredSha: revision.sha,
-          indexedSha: revision.sha,
+          desiredSha: "cccccccccccccccccccccccccccccccccccccccc",
+          indexedSha: "cccccccccccccccccccccccccccccccccccccccc",
         })
         const [linkedCheckout] = await db
           .insert(repositoryCheckouts)
@@ -184,9 +184,9 @@ it(
             id: "co_linked_" + id,
             orgId: org.id,
             repositoryId: linkedRepoId,
-            ref: revision.sha,
-            commitSha: revision.sha,
-            checkoutKey: "ws:" + workspaceId,
+            ref: "cccccccccccccccccccccccccccccccccccccccc",
+            commitSha: "cccccccccccccccccccccccccccccccccccccccc",
+            checkoutKey: `ws:${workspaceId}:cccccccccccccccccccccccccccccccccccccccc`,
           })
           .returning()
         if (!linkedCheckout) throw new Error("Missing linked checkout")
@@ -212,6 +212,23 @@ it(
         })
         expect(matches[0]?.response.Files).toHaveLength(1)
         expect(codesearchRequests).toBe(2)
+        const allMatches = await codeSearch(org.id, {
+          query: "instructions",
+          workspaceId,
+        })
+        expect(allMatches).toHaveLength(2)
+        expect(allMatches[0]?.response.Files).toEqual(
+          expect.arrayContaining([
+            expect.objectContaining({
+              FileName: "OTHER.md",
+              Version: "cccccccccccccccccccccccccccccccccccccccc",
+            }),
+            expect.objectContaining({
+              FileName: "AGENTS.md",
+              Version: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+            }),
+          ]),
+        )
       })
     } finally {
       await unpinRepo({
@@ -219,7 +236,15 @@ it(
         zoektName: zoektRepositoryName({
           orgId: org.id,
           repoId: repositoryId,
-          checkoutKey: `ws:${workspaceId}`,
+          checkoutKey: `ws:${workspaceId}:${revision.sha}`,
+        }),
+      })
+      await unpinRepo({
+        zoektRepoId: linkedZoektRepoId,
+        zoektName: zoektRepositoryName({
+          orgId: org.id,
+          repoId: repositoryId + "_linked",
+          checkoutKey: `ws:${workspaceId}:cccccccccccccccccccccccccccccccccccccccc`,
         }),
       })
       await withOrgDbContext(org.id, async (db) => {

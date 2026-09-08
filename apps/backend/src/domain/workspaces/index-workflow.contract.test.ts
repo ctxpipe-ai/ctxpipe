@@ -1,3 +1,5 @@
+import { signUpstreamJwt } from "../../auth/upstreamJwt.js"
+import { encodeScipIndex } from "../../../../codesearch/src/domain/graph/scipProto.js"
 import { execFileSync, spawn, type ChildProcess } from "node:child_process"
 import { once } from "node:events"
 import {
@@ -39,6 +41,7 @@ import {
   getWorkspaceProjectionSnapshot,
   getWorkspaceSearchProjection,
 } from "../../models/workspaces.js"
+import { ensureWorkspaceCheckout } from "../../models/repositories.js"
 import { repositoryIndex } from "../../openworkflow/workflows/repository-index.js"
 import { workspaceTipCheck } from "../../openworkflow/workflows/workspace-tip-check.js"
 import { workspaceIndex } from "../../openworkflow/workflows/workspace-index.js"
@@ -135,6 +138,10 @@ it(
       await writeFile(
         join(remote, "AGENTS.md"),
         "# Revision search contract\nUse amberquartz instructions.\n",
+      )
+      await writeFile(
+        join(remote, "sample.js"),
+        "function publishedHelper() { return 7; }\npublishedHelper();\n",
       )
       git("add", ".")
       git(
@@ -383,6 +390,167 @@ it(
             .where(eq(workspaces.id, workspaceId)),
         )
       })
+      await writeFile(
+        join(remote, "AGENTS.md"),
+        "# Next revision\nUse cobaltmeadow instructions.\n",
+      )
+      await writeFile(
+        join(remote, "sample.js"),
+        "function unpublishedHelper() { return 99; }\n",
+      )
+      git("add", ".")
+      git(
+        "-c",
+        "user.name=Contract",
+        "-c",
+        "user.email=contract@example.test",
+        "commit",
+        "-m",
+        "Unpublished index",
+      )
+      const nextSha = git("rev-parse", "HEAD")
+      await withOrgIdContext(org, () =>
+        ensureWorkspaceCheckout({ repositoryId, workspaceId, ref: nextSha }),
+      )
+      const unpublishedIndex = await runner.runWorkflow(repositoryIndex.spec, {
+        repositoryId,
+        orgId: org.id,
+        workspaceId,
+        targetHash: nextSha,
+        jobGeneration: 1,
+        jobWorkspaceUrl: remote,
+        revision: { ...revision, sha: nextSha },
+      })
+      expect(
+        await unpublishedIndex.result({ timeoutMs: 30_000 }),
+      ).toMatchObject({ searchIndexOk: true, targetHash: nextSha })
+      const symbol =
+        "scip-typescript npm fixture 1.0.0 sample.js/publishedHelper()."
+      await writeFile(
+        join(
+          directory,
+          "repos",
+          org.id,
+          repositoryId,
+          "checkouts",
+          `ws:${workspaceId}:${sha}.scip`,
+        ),
+        encodeScipIndex({
+          documents: [
+            {
+              relativePath: "sample.js",
+              symbols: [{ symbol, displayName: "publishedHelper", kind: 17 }],
+              occurrences: [{ symbol, symbolRoles: 1, range: [0, 9, 24] }],
+            },
+          ],
+        }),
+      )
+      await withOrgIdContext(org, async () => {
+        const publishedMatches = await codeSearch(org.id, {
+          workspaceId,
+          query: "amberquartz",
+        })
+        expect(publishedMatches[0]?.response.Files).toMatchObject([
+          { FileName: "AGENTS.md", Version: sha },
+        ])
+        expect(
+          await codeSearch(org.id, { workspaceId, query: "cobaltmeadow" }),
+        ).toEqual([])
+        const capturedTools = await workspaceChatTools({
+          orgId: org.id,
+          workspaceId,
+          snapshot: await getWorkspaceProjectionSnapshot(workspaceId),
+        })
+        const graphTool = capturedTools.find(
+          (tool) => tool.name === "graph_find_symbol",
+        )
+        const symbols = String(
+          await graphTool?.execute({ repositoryId, symbol: "publishedHelper" }),
+        )
+        expect(symbols).toContain("publishedHelper")
+        expect(symbols).toContain("sample.js")
+        const structural = capturedTools.find(
+          (tool) => tool.name === "structural_search",
+        )
+        const syntax = String(
+          await structural?.execute({
+            repositoryId,
+            pattern: "function $NAME() { $$$BODY }",
+            lang: "javascript",
+            paths: ["sample.js"],
+          }),
+        )
+        expect(syntax).toContain("publishedHelper")
+        expect(syntax).toContain("sample.js")
+        expect(syntax).not.toContain("unpublishedHelper")
+      })
+      const boundToken = await signUpstreamJwt({
+        env: parseEnv(process.env),
+        audience: "codesearch",
+        claims: {
+          sub: `repo:${repositoryId}`,
+          orgId: org.id,
+          principal: "service",
+          workspaceId,
+          workspaceRevisions: [{ repositoryId, sha }],
+        },
+      })
+      const forgedCheckoutSearch = await fetch(
+        `${process.env.CODESEARCH_URL}/search`,
+        {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            Authorization: `Bearer ${boundToken}`,
+          },
+          body: JSON.stringify({
+            Q: "amberquartz",
+            checkoutKey: `ws:${workspaceId}:${nextSha}`,
+          }),
+        },
+      )
+      expect(forgedCheckoutSearch.status).toBe(200)
+      expect(JSON.stringify(await forgedCheckoutSearch.json())).toContain(
+        "AGENTS.md",
+      )
+      const missingCheckoutToken = await signUpstreamJwt({
+        env: parseEnv(process.env),
+        audience: "codesearch",
+        claims: {
+          sub: `repo:${repositoryId}`,
+          orgId: org.id,
+          principal: "service",
+          workspaceId: generateObjectId("ws"),
+        },
+      })
+      const missingCheckoutSearch = await fetch(
+        `${process.env.CODESEARCH_URL}/search`,
+        {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            Authorization: `Bearer ${missingCheckoutToken}`,
+          },
+          body: JSON.stringify({ Q: "amberquartz" }),
+        },
+      )
+      expect(missingCheckoutSearch.status).toBe(200)
+      expect(await missingCheckoutSearch.json()).toEqual({ Files: [] })
+      for (const path of ["index/clone-checkout", "index"]) {
+        const contradictory = await fetch(
+          `${process.env.CODESEARCH_URL}/${repositoryId}/${path}`,
+          {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+              Authorization: `Bearer ${boundToken}`,
+            },
+            body: JSON.stringify({ targetHash: nextSha }),
+          },
+        )
+        expect(contradictory.status).toBe(403)
+      }
+      git("reset", "--hard", sha)
       await rename(cold, `${cold}-previous`)
       await writeFile(cold, "This fixture prevents search index output")
       const failed = await runner.runWorkflow(workspaceIndex.spec, indexInput)

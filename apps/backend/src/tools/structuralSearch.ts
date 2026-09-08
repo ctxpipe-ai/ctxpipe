@@ -11,6 +11,69 @@ import {
 import { withTransientHttpRetry } from "../lib/withTransientHttpRetry.js"
 import { getRepositoryForOrg } from "../models/repositories.js"
 
+export async function codesearchStructuralSearch(
+  repository: { id: string; orgId: string },
+  body: {
+    pattern: string
+    lang?: string
+    paths?: string[]
+    globs?: string[]
+    limit?: number
+  },
+  workspace?: { workspaceId: string; sha?: string },
+): Promise<string> {
+  const repositoryId = repository.id
+  const { pattern, lang, paths, globs, limit } = body
+  const env = parseEnv(process.env as Record<string, string | undefined>)
+  const token = await signUpstreamJwt({
+    env,
+    audience: env.AUTH_TOKEN_AUDIENCE_CODESEARCH ?? "codesearch",
+    claims: {
+      sub: `repo:${repository.id}`,
+      orgId: repository.orgId,
+      principal: "service",
+      ...(workspace ? { workspaceId: workspace.workspaceId } : {}),
+      ...(workspace?.sha
+        ? {
+            workspaceRevisions: [
+              { repositoryId: repository.id, sha: workspace.sha },
+            ],
+          }
+        : {}),
+    },
+  })
+  const res = await withTransientHttpRetry(
+    async () =>
+      fetch(`${codesearchBaseUrl()}/${repository.id}/structural-search`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${token}`,
+        },
+        body: JSON.stringify({ pattern, lang, paths, globs, limit }),
+      }),
+    { retries: 10, baseDelayMs: 200, maxDelayMs: 30_000 },
+  )
+
+  if (res.status >= 400 && res.status < 500) {
+    const detail = await res.text().catch(() => "")
+    return toToon({
+      error: "structural_search_client_error",
+      repositoryId,
+      status: res.status,
+      detail: detail.trim() || `client_error_${res.status}`,
+    })
+  }
+  if (!res.ok) {
+    const detail = await res.text().catch(() => "")
+    throw new Error(
+      `structural_search failed with status ${res.status}${detail ? `: ${detail}` : ""}`,
+    )
+  }
+
+  return toToon(await res.json())
+}
+
 export const structuralSearchTool = tool(
   async ({ repositoryId, pattern, lang, paths, globs, limit }) => {
     const repository = await getRepositoryForOrg(
@@ -24,46 +87,13 @@ export const structuralSearchTool = tool(
       })
     }
 
-    const env = parseEnv(process.env as Record<string, string | undefined>)
-    const token = await signUpstreamJwt({
-      env,
-      audience: env.AUTH_TOKEN_AUDIENCE_CODESEARCH ?? "codesearch",
-      claims: {
-        sub: `repo:${repository.id}`,
-        orgId: repository.orgId,
-        principal: "service",
-      },
+    return codesearchStructuralSearch(repository, {
+      pattern,
+      lang,
+      paths,
+      globs,
+      limit,
     })
-    const res = await withTransientHttpRetry(
-      async () =>
-        fetch(`${codesearchBaseUrl()}/${repository.id}/structural-search`, {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-            Authorization: `Bearer ${token}`,
-          },
-          body: JSON.stringify({ pattern, lang, paths, globs, limit }),
-        }),
-      { retries: 10, baseDelayMs: 200, maxDelayMs: 30_000 },
-    )
-
-    if (res.status >= 400 && res.status < 500) {
-      const detail = await res.text().catch(() => "")
-      return toToon({
-        error: "structural_search_client_error",
-        repositoryId,
-        status: res.status,
-        detail: detail.trim() || `client_error_${res.status}`,
-      })
-    }
-    if (!res.ok) {
-      const detail = await res.text().catch(() => "")
-      throw new Error(
-        `structural_search failed with status ${res.status}${detail ? `: ${detail}` : ""}`,
-      )
-    }
-
-    return toToon(await res.json())
   },
   {
     name: "structural_search",

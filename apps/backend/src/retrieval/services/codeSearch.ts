@@ -191,6 +191,18 @@ export async function codeSearch(
       orgId,
       principal: "service",
       ...(params.workspaceId ? { workspaceId: params.workspaceId } : {}),
+      ...(workspace &&
+      publishedProjection(workspace.projection)?.kind === "active"
+        ? {
+            workspaceRevisions: workspace.repositories
+              .filter((repo) =>
+                repos.some(
+                  (selected) => selected.zoektRepoId === repo.zoektRepoId,
+                ),
+              )
+              .map((repo) => ({ repositoryId: repo.id, sha: repo.sha })),
+          }
+        : {}),
     },
   })
 

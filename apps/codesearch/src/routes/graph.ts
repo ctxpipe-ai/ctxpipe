@@ -81,7 +81,7 @@ export function registerGraphRoutes(app: OpenAPIHono<AppEnv>) {
     if (!auth) throw new Error("Missing auth context")
     const { repoId } = c.req.valid("param")
     const body = c.req.valid("json")
-    const checkoutKey = checkoutKeyFromAuth(auth)
+    const checkoutKey = checkoutKeyFromAuth(auth, repoId)
     if (body.checkoutKey && body.checkoutKey !== checkoutKey) {
       return c.json(
         { error: "Checkout does not match authenticated workspace" },

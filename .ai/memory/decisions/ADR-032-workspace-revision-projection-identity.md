@@ -14,6 +14,8 @@ Persist the complete active revision in the same PostgreSQL transaction that rep
 
 Expose a discriminated `ProjectionState` from the model boundary. A building or failed replacement retains its previous published projection. Embedding and search freshness describe derived results; they never replace the PostgreSQL authority. Readers that need metadata, units, or membership together consume a single database snapshot.
 
+Codesearch artifacts use immutable `ws:<workspaceId>:<sha>` checkout keys. A replacement index is built beside the published checkout; its checkout row and files cannot advance the published revision in place. Backend-signed codesearch claims bind repository ids to immutable SHAs, and index admission rejects a contradictory target. Search, SCIP, and structural readers use the captured published membership and revision. The legacy `ws:<workspaceId>` key is used only for explicit legacy projections during migration.
+
 Existing columns are temporary migration mappings, owned by the database model. Historical active URL/SHA values do not prove a generation, connection, or branch. Represent those explicitly as legacy projections until successful rehydration; never label them with the current desired identity. Gate 6 removes superseded mappings after upgrade proof.
 
 ## Consequences

@@ -346,3 +346,73 @@ final full-identity audit. Gates 3–6 remain outstanding.
 155 diagnostics. `native-chat-projection-backend` passes its gate with 1442 cases,
 1441 passing and only the unchanged Gate 0 live-chat failure. Raw suite results
 and proof inventories are retained alongside each invocation.
+
+### Immutable codesearch checkouts (in progress)
+
+Chat projection checkpoint `d150b03a767a959f75c4b7a54ac30d082ff01e97` was pushed
+and verified on the authorized recovery branch. `native-index-previous-revision-red`
+reproduces loss of published search after indexing a newer commit. Immutable
+checkout keys and signed repository/SHA claims fix it; `native-index-previous-revision-fixed`
+passes the actual Git, OpenWorkflow, Postgres, Bun HTTP, and Zoekt journey.
+
+`native-chat-scip-revision-red` and `native-chat-structural-revision-red` reproduce
+Workspace tools incorrectly requiring a repository default checkout. Both now
+use the captured published membership with signed revision requests through the
+shared codesearch gateway. `native-chat-scip-revision-green` and
+`native-chat-structural-revision-fixed` pass. SCIP proof uses a real wire-format
+SCIP fixture and production query engine; structural proof runs native ast-grep
+against JavaScript files that differ between the published and unpublished
+commits. The first structural rerun used `.txt`, which ast-grep correctly ignored;
+that was a fixture correction, independently of the reproduced product failure.
+
+Signed target admission, linked-ref freshness, remaining producer audit, full
+regressions, the manual memory rerun, and terminal reviews remain outstanding.
+
+`native-revision-authorization-and-link-red` reproduces HTTP 200 when a signed
+published SHA is paired with a different requested target. Both native phase
+admission and the monolithic compatibility route now reject that contradiction
+with 403 before mutation. `native-linked-ref-index-freshness-red` reproduces an
+existing normalized link retaining its old indexed SHA after a branch change;
+the green contract verifies the same link id retains its membership but clears
+both desired/indexed SHAs. `native-revision-authorization-and-link-green` passes
+both native contracts.
+
+`native-revision-checkout-linux-fixed` passes all 219 Linux codesearch cases
+(176 Node plus 43 Bun, 34 files, zero skipped). The first Linux run retained two
+obsolete checkout-row mock assertions and hit a timing-sensitive existing pin TTL
+assertion under host load. The rerun passes; the two mutable-checkout mock cases
+were replaced by native signed HTTP/Zoekt assertions. Dead checkout-injection and
+membership-check helpers and their obsolete unit cases were removed.
+
+The initial backend type run found five errors: two JSON Schema adapter types
+and three now-unneeded repository metadata fields passed to the graph gateway.
+Those are corrected. A superseded recursive public-schema type check was stopped
+for the narrower adapter rerun; no diagnostic allowance was expanded.
+
+Reader audit: the Files listing and Graph pane each select published knowledge
+units in one statement and derive their response from that result; the earlier
+Workspace lookup contributes only identity/authorization. The retry endpoint is
+an explicit request to retry the current Workspace and captures the updated row
+returned by its UPDATE, rather than publishing a queued revision. Remaining
+producer work includes eliminating duplicate webhook tip persistence in favor of
+the existing durable tip-check workflow and fencing linked-tip updates to their
+captured link/owner/connection identity. Gates 3–6 still own write-command,
+conversation lifecycle, UI, and final cleanup acceptance.
+
+`native-revision-checkout-required-fixed` passes all 49 mandatory native
+contracts across 12 files. The previous run exposed one older native fixture
+using mutable checkout keys; it now also proves multi-repository search with
+different published SHAs. `native-revision-checkout-backend-types-adapter`
+passes with exactly 155 acknowledged diagnostics and no additions. It took
+450 seconds under current host load; the process completed before attempted
+profiling, so no inspector was enabled. Full backend regression and the new
+image memory rerun remain before this checkpoint is verified.
+
+The first complete backend regression run executed 1440 cases: 1427 passed,
+13 failed, zero skipped. Twelve failures were timeout-related (5-second
+health/auth/model-provider cases, the native index deadline, and OpenCode
+readiness); the thirteenth is the unchanged Gate 0 chat failure. The entire
+backend suite is rerunning with `--maxWorkers=2` to reduce local contention.
+The same required inventory and existing failure checker will verify that run;
+no deadlines, test selection, or failure allowances were expanded. This is a
+reviewable implementation checkpoint, not terminal Gate 2 completion.

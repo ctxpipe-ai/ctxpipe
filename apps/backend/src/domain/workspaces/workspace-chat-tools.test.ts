@@ -1,7 +1,6 @@
 import { describe, expect, it } from "vitest"
 import {
   EXPLORER_INPUT_SCHEMAS,
-  forcedWorkspaceCheckoutArgs,
   repositoryIdFromToolArgs,
   SCIP_GRAPH_TOOL_NAMES,
   workspaceChatToolAllowed,
@@ -40,15 +39,6 @@ describe("workspace explorer input policy", () => {
       }),
     ).toBe(false)
     expect(repositoryIdFromToolArgs({ repositoryId })).toBe(repositoryId)
-  })
-
-  it("overrides a caller checkout key with the workspace checkout", () => {
-    expect(
-      forcedWorkspaceCheckoutArgs(
-        { checkoutKey: "default", symbol: "Ledger" },
-        "ws:ws_1",
-      ),
-    ).toEqual({ checkoutKey: "ws:ws_1", symbol: "Ledger" })
   })
 
   it("keeps checkout selection out of model-facing SCIP schemas", () => {

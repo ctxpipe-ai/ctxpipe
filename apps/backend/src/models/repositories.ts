@@ -42,7 +42,7 @@ export async function ensureWorkspaceCheckout(input: {
         orgId: requireCurrentOrgId(),
         repositoryId: input.repositoryId,
         ref: input.ref,
-        checkoutKey: workspaceCheckoutKey(input.workspaceId),
+        checkoutKey: workspaceCheckoutKey(input.workspaceId, input.ref),
       })
       .onConflictDoNothing()
   })
