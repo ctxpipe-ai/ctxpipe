@@ -105,10 +105,10 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 # ── Stage 7: Install application dependencies ────────────────────────────────
 FROM oven/bun:1.3.11-slim AS bun-runtime
 
-FROM bun-runtime AS deps
+FROM node:22-bookworm-slim AS deps
 WORKDIR /app
 ENV CI=true
-RUN bun install -g pnpm@10.12.1
+RUN npm install -g pnpm@10.12.1
 COPY package.json pnpm-workspace.yaml pnpm-lock.yaml* tsconfig.json ./
 COPY patches patches
 COPY apps/codesearch/package.json apps/codesearch/package.json
@@ -218,7 +218,7 @@ CMD ["/start.sh"]
 # Run:   docker run --rm ctxpipe-codesearch:test
 FROM runtime AS test
 ENV NODE_ENV=development
-RUN bun install -g pnpm@10.12.1
+RUN npm install -g pnpm@10.12.1
 WORKDIR /app
 COPY package.json pnpm-workspace.yaml pnpm-lock.yaml* tsconfig.json ./
 COPY patches patches

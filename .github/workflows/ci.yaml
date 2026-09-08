@@ -145,6 +145,7 @@ jobs:
           if-no-files-found: error
 
   production-builds:
+    timeout-minutes: 30
     name: Production build (${{ matrix.name }})
     if: |
       github.event_name == 'workflow_dispatch' ||
@@ -196,6 +197,7 @@ jobs:
       - run: pnpm --filter @ctxpipe/aws-cdk-self-host typecheck
 
   codesearch:
+    timeout-minutes: 30
     name: Codesearch real toolchain contracts
     if: |
       github.event_name == 'workflow_dispatch' ||

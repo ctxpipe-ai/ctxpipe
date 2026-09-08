@@ -158,6 +158,17 @@ try {
       ts.forEachChild(node, collectOptions)
     }
     collectOptions(source)
+    const constantValue = (expression, seen = new Set()) => {
+      if (
+        ts.isIdentifier(expression) &&
+        values.has(expression.text) &&
+        !seen.has(expression.text)
+      ) {
+        seen.add(expression.text)
+        return constantValue(values.get(expression.text), seen)
+      }
+      return expression.getText(source)
+    }
     const complain = (node, message) =>
       errors.push(
         `${path}:${source.getLineAndCharacterOfPosition(node.getStart()).line + 1} ${message}`,
@@ -275,11 +286,24 @@ try {
         }
       }
       if (
-        ts.isPropertyAssignment(node) &&
+        (ts.isPropertyAssignment(node) ||
+          ts.isShorthandPropertyAssignment(node) ||
+          ts.isGetAccessorDeclaration(node)) &&
         ["retry", "retries"].includes(
-          node.name.getText(source).replaceAll(/["']/g, ""),
+          (ts.isComputedPropertyName(node.name)
+            ? constantValue(node.name.expression)
+            : node.name.getText(source)
+          ).replaceAll(/["']/g, ""),
         ) &&
-        !["0", "false"].includes(node.initializer.getText(source)) &&
+        !["0", "false"].includes(
+          ts.isGetAccessorDeclaration(node)
+            ? "dynamic"
+            : constantValue(
+                ts.isShorthandPropertyAssignment(node)
+                  ? node.name
+                  : node.initializer,
+              ),
+        ) &&
         (testOptions.has(node.parent) ||
           /(?:^|\/)(?:vitest|vite|playwright)\.config\.[cm]?[jt]s$/.test(
             path,

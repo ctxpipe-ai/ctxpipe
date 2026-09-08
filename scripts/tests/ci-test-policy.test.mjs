@@ -42,6 +42,11 @@ test("proof policy rejects aliased skips, retries and owned module mocks without
       'import { test } from "vitest"; const scenario = test; scenario("proof", { retry: 2 }, () => {})',
       'import * as v from "vitest"; const scenario = v.test; scenario("proof", { retry: 2 }, () => {})',
       'import { test } from "vitest"; const options = { retry: 2 }; test("proof", options, () => {})',
+      'import { test } from "vitest"; const retry = 2; test("proof", { retry }, () => {})',
+      'import { test } from "vitest"; const retries = 2; const options = { retries }; test("proof", { ...options }, () => {})',
+      'import { defineConfig } from "vitest/config"; const retry = 2; export default defineConfig({ test: { retry } })',
+      'import { test } from "vitest"; const key = "retry"; test("proof", { [key]: 2 }, () => {})',
+      'import { test } from "vitest"; test("proof", { get retry() { return 2 } }, () => {})',
       'import { defineConfig } from "vitest/config"; export default defineConfig({ test: { retry: 2 } })',
     ]) {
       const rejected = check(source)
@@ -55,6 +60,10 @@ test("proof policy rejects aliased skips, retries and owned module mocks without
       'import { vi } from "vitest"; const stub = vi.fn(); test("observes output", () => expect(stub.mock.calls).toEqual([]))',
     )
     assert.equal(observedStub.status, 0, observedStub.stderr)
+    const zeroRetry = check(
+      'import { test } from "vitest"; const retry = 0; const options = { retry }; test("proof", { ...options }, () => {})',
+    )
+    assert.equal(zeroRetry.status, 0, zeroRetry.stderr)
     assert.equal(
       check(
         'import { it as scenario } from "vitest"; scenario.skipIf(false)("proof", () => {})',

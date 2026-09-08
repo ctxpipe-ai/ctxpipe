@@ -1,0 +1,308 @@
+﻿2026-09-07T23:46:33.7321101Z Current runner version: '2.337.0'
+2026-09-07T23:46:33.7347033Z ##[group]Runner Image Provisioner
+2026-09-07T23:46:33.7348028Z Hosted Compute Agent
+2026-09-07T23:46:33.7348807Z Version: 20260828.587
+2026-09-07T23:46:33.7349464Z Commit: abac92662cab4cc7352de4f9f9d2e2419aad9c29
+2026-09-07T23:46:33.7350325Z Build Date: 2026-08-28T16:44:25Z
+2026-09-07T23:46:33.7351046Z Worker ID: {949eab8e-f625-4475-8a1e-0e4b9a24af35}
+2026-09-07T23:46:33.7351943Z Azure Region: northcentralus
+2026-09-07T23:46:33.7352598Z ##[endgroup]
+2026-09-07T23:46:33.7354204Z ##[group]Operating System
+2026-09-07T23:46:33.7354987Z Ubuntu
+2026-09-07T23:46:33.7355548Z 24.04.4
+2026-09-07T23:46:33.7356166Z LTS
+2026-09-07T23:46:33.7356735Z ##[endgroup]
+2026-09-07T23:46:33.7357321Z ##[group]Runner Image
+2026-09-07T23:46:33.7358011Z Image: ubuntu-24.04
+2026-09-07T23:46:33.7358933Z Version: 20260831.293.1
+2026-09-07T23:46:33.7360351Z Included Software: https://github.com/actions/runner-images/blob/ubuntu24/20260831.293/images/ubuntu/Ubuntu2404-Readme.md
+2026-09-07T23:46:33.7361959Z Image Release: https://github.com/actions/runner-images/releases/tag/ubuntu24%2F20260831.293
+2026-09-07T23:46:33.7363008Z ##[endgroup]
+2026-09-07T23:46:33.7364208Z ##[group]GITHUB_TOKEN Permissions
+2026-09-07T23:46:33.7366143Z Contents: read
+2026-09-07T23:46:33.7366806Z Metadata: read
+2026-09-07T23:46:33.7367471Z ##[endgroup]
+2026-09-07T23:46:33.7370302Z Secret source: Actions
+2026-09-07T23:46:33.7371956Z Prepare workflow directory
+2026-09-07T23:46:33.7711397Z Prepare all required actions
+2026-09-07T23:46:33.7759491Z Getting action download info
+2026-09-07T23:46:34.0008212Z Download action repository 'actions/checkout@v6' (SHA:d23441a48e516b6c34aea4fa41551a30e30af803)
+2026-09-07T23:46:34.2012124Z Complete job name: Production build (backend)
+2026-09-07T23:46:34.2869301Z ##[group]Run actions/checkout@v6
+2026-09-07T23:46:34.2870511Z with:
+2026-09-07T23:46:34.2870980Z   repository: ctxpipe-ai/ctxpipe
+2026-09-07T23:46:34.2874889Z   token: ***
+2026-09-07T23:46:34.2875345Z   ssh-strict: true
+2026-09-07T23:46:34.2875824Z   ssh-user: git
+2026-09-07T23:46:34.2876284Z   persist-credentials: true
+2026-09-07T23:46:34.2876780Z   clean: true
+2026-09-07T23:46:34.2877233Z   sparse-checkout-cone-mode: true
+2026-09-07T23:46:34.2877761Z   fetch-depth: 1
+2026-09-07T23:46:34.2878212Z   fetch-tags: false
+2026-09-07T23:46:34.2878860Z   show-progress: true
+2026-09-07T23:46:34.2879325Z   lfs: false
+2026-09-07T23:46:34.2879750Z   submodules: false
+2026-09-07T23:46:34.2880219Z   set-safe-directory: true
+2026-09-07T23:46:34.2880736Z   allow-unsafe-pr-checkout: false
+2026-09-07T23:46:34.2881506Z ##[endgroup]
+2026-09-07T23:46:34.3960410Z Syncing repository: ctxpipe-ai/ctxpipe
+2026-09-07T23:46:34.3962877Z ##[group]Getting Git version info
+2026-09-07T23:46:34.3964050Z Working directory is '/home/runner/work/ctxpipe/ctxpipe'
+2026-09-07T23:46:34.3965645Z [command]/usr/bin/git version
+2026-09-07T23:46:34.4014683Z git version 2.55.0
+2026-09-07T23:46:34.4036994Z ##[endgroup]
+2026-09-07T23:46:34.4051180Z Temporarily overriding HOME='/home/runner/work/_temp/ab862820-bc12-4efd-a1fd-c196bbe41111' before making global git config changes
+2026-09-07T23:46:34.4053539Z Adding repository directory to the temporary git global config as a safe directory
+2026-09-07T23:46:34.4055894Z [command]/usr/bin/git config --global --add safe.directory /home/runner/work/ctxpipe/ctxpipe
+2026-09-07T23:46:34.4109272Z Deleting the contents of '/home/runner/work/ctxpipe/ctxpipe'
+2026-09-07T23:46:34.4113702Z ##[group]Determining repository object format
+2026-09-07T23:46:34.4115571Z ##[endgroup]
+2026-09-07T23:46:34.4117347Z ##[group]Initializing the repository
+2026-09-07T23:46:34.4121175Z [command]/usr/bin/git init /home/runner/work/ctxpipe/ctxpipe
+2026-09-07T23:46:34.4209273Z hint: Using 'master' as the name for the initial branch. This default branch name
+2026-09-07T23:46:34.4211145Z hint: will change to "main" in Git 3.0. To configure the initial branch name
+2026-09-07T23:46:34.4212859Z hint: to use in all of your new repositories, which will suppress this warning,
+2026-09-07T23:46:34.4214373Z hint: call:
+2026-09-07T23:46:34.4215630Z hint:
+2026-09-07T23:46:34.4216960Z hint: 	git config --global init.defaultBranch <name>
+2026-09-07T23:46:34.4218157Z hint:
+2026-09-07T23:46:34.4219476Z hint: Names commonly chosen instead of 'master' are 'main', 'trunk' and
+2026-09-07T23:46:34.4221179Z hint: 'development'. The just-created branch can be renamed via this command:
+2026-09-07T23:46:34.4223467Z hint:
+2026-09-07T23:46:34.4224345Z hint: 	git branch -m <name>
+2026-09-07T23:46:34.4225385Z hint:
+2026-09-07T23:46:34.4226578Z hint: Disable this message with "git config set advice.defaultBranchName false"
+2026-09-07T23:46:34.4227810Z Initialized empty Git repository in /home/runner/work/ctxpipe/ctxpipe/.git/
+2026-09-07T23:46:34.4231378Z [command]/usr/bin/git remote add origin https://github.com/ctxpipe-ai/ctxpipe
+2026-09-07T23:46:34.4267573Z ##[endgroup]
+2026-09-07T23:46:34.4269271Z ##[group]Disabling automatic garbage collection
+2026-09-07T23:46:34.4274201Z [command]/usr/bin/git config --local gc.auto 0
+2026-09-07T23:46:34.4306328Z ##[endgroup]
+2026-09-07T23:46:34.4307476Z ##[group]Setting up auth
+2026-09-07T23:46:34.4308404Z Removing SSH command configuration
+2026-09-07T23:46:34.4314673Z [command]/usr/bin/git config --local --name-only --get-regexp core\.sshCommand
+2026-09-07T23:46:34.4347832Z [command]/usr/bin/git submodule foreach --recursive sh -c "git config --local --name-only --get-regexp 'core\.sshCommand' && git config --local --unset-all 'core.sshCommand' || :"
+2026-09-07T23:46:34.4714716Z Removing HTTP extra header
+2026-09-07T23:46:34.4722821Z [command]/usr/bin/git config --local --name-only --get-regexp http\.https\:\/\/github\.com\/\.extraheader
+2026-09-07T23:46:34.4767225Z [command]/usr/bin/git submodule foreach --recursive sh -c "git config --local --name-only --get-regexp 'http\.https\:\/\/github\.com\/\.extraheader' && git config --local --unset-all 'http.https://github.com/.extraheader' || :"
+2026-09-07T23:46:34.5017786Z Removing includeIf entries pointing to credentials config files
+2026-09-07T23:46:34.5025135Z [command]/usr/bin/git config --local --name-only --get-regexp ^includeIf\.gitdir:
+2026-09-07T23:46:34.5064445Z [command]/usr/bin/git submodule foreach --recursive git config --local --show-origin --name-only --get-regexp remote.origin.url
+2026-09-07T23:46:34.5310501Z [command]/usr/bin/git config --file /home/runner/work/_temp/git-credentials-1b2fa512-f4c0-4bfb-87a9-3bd2f7a93340.config http.https://github.com/.extraheader AUTHORIZATION: basic ***
+2026-09-07T23:46:34.5353229Z [command]/usr/bin/git config --local includeIf.gitdir:/home/runner/work/ctxpipe/ctxpipe/.git.path /home/runner/work/_temp/git-credentials-1b2fa512-f4c0-4bfb-87a9-3bd2f7a93340.config
+2026-09-07T23:46:34.5389552Z [command]/usr/bin/git config --local includeIf.gitdir:/home/runner/work/ctxpipe/ctxpipe/.git/worktrees/*.path /home/runner/work/_temp/git-credentials-1b2fa512-f4c0-4bfb-87a9-3bd2f7a93340.config
+2026-09-07T23:46:34.5429926Z [command]/usr/bin/git config --local includeIf.gitdir:/github/workspace/.git.path /github/runner_temp/git-credentials-1b2fa512-f4c0-4bfb-87a9-3bd2f7a93340.config
+2026-09-07T23:46:34.5466150Z [command]/usr/bin/git config --local includeIf.gitdir:/github/workspace/.git/worktrees/*.path /github/runner_temp/git-credentials-1b2fa512-f4c0-4bfb-87a9-3bd2f7a93340.config
+2026-09-07T23:46:34.5505150Z ##[endgroup]
+2026-09-07T23:46:34.5505905Z ##[group]Fetching the repository
+2026-09-07T23:46:34.5513803Z [command]/usr/bin/git -c protocol.version=2 fetch --no-tags --prune --no-recurse-submodules --depth=1 origin +20ff56b6efef7b76f37385b7660edfd81f795eab:refs/remotes/origin/codex/develop-plan-to-refocus-branch-direction
+2026-09-07T23:46:35.7901169Z From https://github.com/ctxpipe-ai/ctxpipe
+2026-09-07T23:46:35.7903986Z  * [new ref]         20ff56b6efef7b76f37385b7660edfd81f795eab -> origin/codex/develop-plan-to-refocus-branch-direction
+2026-09-07T23:46:35.7911291Z [command]/usr/bin/git branch --list --remote origin/codex/develop-plan-to-refocus-branch-direction
+2026-09-07T23:46:35.7941384Z   origin/codex/develop-plan-to-refocus-branch-direction
+2026-09-07T23:46:35.7951311Z [command]/usr/bin/git rev-parse refs/remotes/origin/codex/develop-plan-to-refocus-branch-direction
+2026-09-07T23:46:35.7977760Z 20ff56b6efef7b76f37385b7660edfd81f795eab
+2026-09-07T23:46:35.7982918Z ##[endgroup]
+2026-09-07T23:46:35.7984756Z ##[group]Determining the checkout info
+2026-09-07T23:46:35.7986873Z ##[endgroup]
+2026-09-07T23:46:35.7987988Z [command]/usr/bin/git sparse-checkout disable
+2026-09-07T23:46:35.8042622Z [command]/usr/bin/git config --local --unset-all extensions.worktreeConfig
+2026-09-07T23:46:35.8078403Z ##[group]Checking out the ref
+2026-09-07T23:46:35.8081181Z [command]/usr/bin/git checkout --progress --force -B codex/develop-plan-to-refocus-branch-direction refs/remotes/origin/codex/develop-plan-to-refocus-branch-direction
+2026-09-07T23:46:36.0052021Z Switched to a new branch 'codex/develop-plan-to-refocus-branch-direction'
+2026-09-07T23:46:36.0067107Z branch 'codex/develop-plan-to-refocus-branch-direction' set up to track 'origin/codex/develop-plan-to-refocus-branch-direction'.
+2026-09-07T23:46:36.0072088Z ##[endgroup]
+2026-09-07T23:46:36.0126460Z [command]/usr/bin/git log -1 --format=%H
+2026-09-07T23:46:36.0158096Z 20ff56b6efef7b76f37385b7660edfd81f795eab
+2026-09-07T23:46:36.0387570Z ##[group]Run docker build --progress=plain -f 'apps/backend/Dockerfile' .
+2026-09-07T23:46:36.0388308Z [36;1mdocker build --progress=plain -f 'apps/backend/Dockerfile' .[0m
+2026-09-07T23:46:36.0433869Z shell: /usr/bin/bash -e {0}
+2026-09-07T23:46:36.0434219Z ##[endgroup]
+2026-09-07T23:46:36.5071311Z #0 building with "default" instance using docker driver
+2026-09-07T23:46:36.5071858Z 
+2026-09-07T23:46:36.5072102Z #1 [internal] load build definition from Dockerfile
+2026-09-07T23:46:36.5072602Z #1 transferring dockerfile: 1.64kB 0.0s done
+2026-09-07T23:46:36.5072992Z #1 DONE 0.0s
+2026-09-07T23:46:36.5073212Z 
+2026-09-07T23:46:36.5073490Z #2 [auth] library/node:pull token for registry-1.docker.io
+2026-09-07T23:46:36.6581947Z #2 DONE 0.0s
+2026-09-07T23:46:36.6582256Z 
+2026-09-07T23:46:36.6582476Z #3 [auth] oven/bun:pull token for registry-1.docker.io
+2026-09-07T23:46:36.6582876Z #3 DONE 0.0s
+2026-09-07T23:46:36.6583060Z 
+2026-09-07T23:46:36.6583561Z #4 [internal] load metadata for docker.io/oven/bun:1.3.11-alpine
+2026-09-07T23:46:36.8526975Z #4 ...
+2026-09-07T23:46:36.8527407Z 
+2026-09-07T23:46:36.8527734Z #5 [internal] load metadata for docker.io/library/node:22-alpine
+2026-09-07T23:46:36.8528208Z #5 DONE 0.4s
+2026-09-07T23:46:36.9840832Z 
+2026-09-07T23:46:36.9863259Z #4 [internal] load metadata for docker.io/oven/bun:1.3.11-alpine
+2026-09-07T23:46:36.9864514Z #4 DONE 0.4s
+2026-09-07T23:46:36.9865030Z 
+2026-09-07T23:46:36.9869717Z #6 [internal] load .dockerignore
+2026-09-07T23:46:36.9889102Z #6 transferring context: 215B done
+2026-09-07T23:46:36.9903446Z #6 DONE 0.0s
+2026-09-07T23:46:36.9919891Z 
+2026-09-07T23:46:36.9929890Z #7 [opencode 1/2] FROM docker.io/library/node:22-alpine@sha256:c610fcdfb1d5b4740dd70c284ed3cb16bb857e0f7166196e36a5501df7a3aa32
+2026-09-07T23:46:36.9954647Z #7 resolve docker.io/library/node:22-alpine@sha256:c610fcdfb1d5b4740dd70c284ed3cb16bb857e0f7166196e36a5501df7a3aa32 done
+2026-09-07T23:46:36.9962673Z #7 sha256:c610fcdfb1d5b4740dd70c284ed3cb16bb857e0f7166196e36a5501df7a3aa32 6.41kB / 6.41kB done
+2026-09-07T23:46:37.0025085Z #7 sha256:76789712cd1ae89a1225eac9077010d68987a423588042dac30446f502f1858c 1.72kB / 1.72kB done
+2026-09-07T23:46:37.0026379Z #7 sha256:395425e54d98ebbd748d388685a0c2de151a30fa92fffc10ba30fa63f3db64d6 6.56kB / 6.56kB done
+2026-09-07T23:46:37.0027253Z #7 DONE 0.0s
+2026-09-07T23:46:37.0027630Z 
+2026-09-07T23:46:37.0028345Z #8 [deps 1/7] FROM docker.io/oven/bun:1.3.11-alpine@sha256:7ed9f74c326d1c260abe247ac423ccbf5ac92af62bb442d515d1f92f21e8ea9b
+2026-09-07T23:46:37.0030313Z #8 resolve docker.io/oven/bun:1.3.11-alpine@sha256:7ed9f74c326d1c260abe247ac423ccbf5ac92af62bb442d515d1f92f21e8ea9b done
+2026-09-07T23:46:37.0032426Z #8 sha256:d49a2dee86fb12766dd648402d010ca105846a41bd58738454e53780d4bb8e97 3.80MB / 3.80MB 0.1s done
+2026-09-07T23:46:37.0034647Z #8 sha256:4a2349bcba98355777f3f6035465426b5ff0b349ec1c5d45de062e4d4c4c8218 297B / 297B 0.1s done
+2026-09-07T23:46:37.0036192Z #8 sha256:d5033b198b338c67e514f404e777ee818e18d1b031b0c4ac0eb1112032ae7bf7 1.43kB / 1.43kB done
+2026-09-07T23:46:37.0037470Z #8 sha256:549c2fa69d031858929eebaaf955672716861034b8a5ae5447cde28ceabdb6d4 4.05kB / 4.05kB done
+2026-09-07T23:46:37.0039832Z #8 sha256:7ed9f74c326d1c260abe247ac423ccbf5ac92af62bb442d515d1f92f21e8ea9b 1.61kB / 1.61kB done
+2026-09-07T23:46:37.0041358Z #8 sha256:fc0ec1f5bd58cb7474b531945e8f18695f08edf439528c3c2a45e1bab5b6c08e 0B / 37.27MB 0.1s
+2026-09-07T23:46:37.0860738Z #8 sha256:fc0ec1f5bd58cb7474b531945e8f18695f08edf439528c3c2a45e1bab5b6c08e 11.53MB / 37.27MB 0.2s
+2026-09-07T23:46:37.0861915Z #8 extracting sha256:d49a2dee86fb12766dd648402d010ca105846a41bd58738454e53780d4bb8e97
+2026-09-07T23:46:37.0863060Z #8 sha256:87733a8a8b5d8d5f90ef14ca42d593d276a52333778c17279c8347c0c4d4eddd 3.66MB / 3.66MB 0.2s done
+2026-09-07T23:46:37.0864325Z #8 sha256:905d3766bcbd6e739c07e2f0518af38a4678fa53c2cb6e05938944d18dfd3607 0B / 141B 0.2s
+2026-09-07T23:46:37.0865489Z #8 sha256:03b3f5a534a44d9c1fb2438e508fe7fd06c4d7dbd096bf33793b0ad2352d302b 185B / 185B 0.2s done
+2026-09-07T23:46:37.2066853Z #8 ...
+2026-09-07T23:46:37.2068458Z 
+2026-09-07T23:46:37.2069233Z #9 [internal] load build context
+2026-09-07T23:46:37.2069968Z #9 transferring context: 9.31MB 0.2s done
+2026-09-07T23:46:37.2070586Z #9 DONE 0.2s
+2026-09-07T23:46:37.2070956Z 
+2026-09-07T23:46:37.2071728Z #8 [deps 1/7] FROM docker.io/oven/bun:1.3.11-alpine@sha256:7ed9f74c326d1c260abe247ac423ccbf5ac92af62bb442d515d1f92f21e8ea9b
+2026-09-07T23:46:37.2073215Z #8 sha256:fc0ec1f5bd58cb7474b531945e8f18695f08edf439528c3c2a45e1bab5b6c08e 37.27MB / 37.27MB 0.3s done
+2026-09-07T23:46:37.2074663Z #8 extracting sha256:d49a2dee86fb12766dd648402d010ca105846a41bd58738454e53780d4bb8e97 0.2s done
+2026-09-07T23:46:37.2075963Z #8 sha256:905d3766bcbd6e739c07e2f0518af38a4678fa53c2cb6e05938944d18dfd3607 141B / 141B 0.2s done
+2026-09-07T23:46:37.2077286Z #8 extracting sha256:fc0ec1f5bd58cb7474b531945e8f18695f08edf439528c3c2a45e1bab5b6c08e
+2026-09-07T23:46:37.8130355Z #8 extracting sha256:fc0ec1f5bd58cb7474b531945e8f18695f08edf439528c3c2a45e1bab5b6c08e 0.5s done
+2026-09-07T23:46:40.3098739Z #8 extracting sha256:4a2349bcba98355777f3f6035465426b5ff0b349ec1c5d45de062e4d4c4c8218
+2026-09-07T23:46:40.4194909Z #8 extracting sha256:4a2349bcba98355777f3f6035465426b5ff0b349ec1c5d45de062e4d4c4c8218 done
+2026-09-07T23:46:40.4199046Z #8 extracting sha256:03b3f5a534a44d9c1fb2438e508fe7fd06c4d7dbd096bf33793b0ad2352d302b done
+2026-09-07T23:46:40.4200512Z #8 extracting sha256:87733a8a8b5d8d5f90ef14ca42d593d276a52333778c17279c8347c0c4d4eddd 0.0s done
+2026-09-07T23:46:40.4202346Z #8 extracting sha256:905d3766bcbd6e739c07e2f0518af38a4678fa53c2cb6e05938944d18dfd3607 done
+2026-09-07T23:46:40.4203085Z #8 DONE 3.5s
+2026-09-07T23:46:40.4203271Z 
+2026-09-07T23:46:40.4203406Z #10 [deps 2/7] WORKDIR /app
+2026-09-07T23:46:40.4203787Z #10 DONE 0.0s
+2026-09-07T23:46:40.4203946Z 
+2026-09-07T23:46:40.4204748Z #11 [opencode 2/2] RUN npm install -g opencode-ai@1.18.18
+2026-09-07T23:46:40.9641002Z #11 ...
+2026-09-07T23:46:40.9641262Z 
+2026-09-07T23:46:40.9641547Z #12 [deps 3/7] RUN bun install -g pnpm@10.12.1
+2026-09-07T23:46:40.9642131Z #12 0.156 bun add v1.3.11 (af24e281)
+2026-09-07T23:46:40.9642569Z #12 0.157 Resolving dependencies
+2026-09-07T23:46:40.9643040Z #12 0.412 Resolved, downloaded and extracted [4]
+2026-09-07T23:46:40.9643518Z #12 0.453 Saved lockfile
+2026-09-07T23:46:40.9643846Z #12 0.453 
+2026-09-07T23:46:40.9644183Z #12 0.453 installed pnpm@10.12.1 with binaries:
+2026-09-07T23:46:40.9644633Z #12 0.453  - pnpm
+2026-09-07T23:46:40.9644934Z #12 0.453  - pnpx
+2026-09-07T23:46:40.9645225Z #12 0.453 
+2026-09-07T23:46:40.9645568Z #12 0.453 1 package installed [302.00ms]
+2026-09-07T23:46:40.9645984Z #12 DONE 0.5s
+2026-09-07T23:46:40.9646168Z 
+2026-09-07T23:46:40.9646567Z #13 [deps 4/7] COPY package.json pnpm-workspace.yaml pnpm-lock.yaml* tsconfig.json ./
+2026-09-07T23:46:40.9647562Z #13 DONE 0.0s
+2026-09-07T23:46:41.0689701Z 
+2026-09-07T23:46:41.0693752Z #14 [deps 5/7] COPY patches patches
+2026-09-07T23:46:41.0694255Z #14 DONE 0.0s
+2026-09-07T23:46:41.0694452Z 
+2026-09-07T23:46:41.0694791Z #15 [deps 6/7] COPY apps/backend/package.json apps/backend/package.json
+2026-09-07T23:46:41.0695344Z #15 DONE 0.0s
+2026-09-07T23:46:41.0695512Z 
+2026-09-07T23:46:41.0695728Z #16 [stage-2  3/14] RUN apk add --no-cache findutils git
+2026-09-07T23:46:41.0696488Z #16 0.157 fetch https://dl-cdn.alpinelinux.org/alpine/v3.22/main/x86_64/APKINDEX.tar.gz
+2026-09-07T23:46:41.0697200Z #16 0.234 fetch https://dl-cdn.alpinelinux.org/alpine/v3.22/community/x86_64/APKINDEX.tar.gz
+2026-09-07T23:46:41.0697818Z #16 0.597 (1/13) Installing findutils (4.10.0-r0)
+2026-09-07T23:46:41.0698320Z #16 0.609 (2/13) Installing brotli-libs (1.1.0-r2)
+2026-09-07T23:46:41.0698984Z #16 0.621 (3/13) Installing c-ares (1.34.8-r0)
+2026-09-07T23:46:41.0699499Z #16 0.628 (4/13) Installing libunistring (1.3-r0)
+2026-09-07T23:46:41.0699988Z #16 0.643 (5/13) Installing libidn2 (2.3.7-r0)
+2026-09-07T23:46:41.0700335Z #16 0.649 (6/13) Installing nghttp2-libs (1.69.0-r0)
+2026-09-07T23:46:41.2074769Z #16 0.654 (7/13) Installing libpsl (0.21.5-r3)
+2026-09-07T23:46:41.2076263Z #16 0.658 (8/13) Installing zstd-libs (1.5.7-r0)
+2026-09-07T23:46:41.2076627Z #16 0.667 (9/13) Installing libcurl (8.14.1-r3)
+2026-09-07T23:46:41.2076948Z #16 0.676 (10/13) Installing libexpat (2.8.4-r0)
+2026-09-07T23:46:41.2077263Z #16 0.682 (11/13) Installing pcre2 (10.46-r0)
+2026-09-07T23:46:41.2077589Z #16 0.692 (12/13) Installing git (2.49.1-r0)
+2026-09-07T23:46:41.2077927Z #16 0.787 (13/13) Installing git-init-template (2.49.1-r0)
+2026-09-07T23:46:41.3488472Z #16 0.793 Executing busybox-1.37.0-r20.trigger
+2026-09-07T23:46:41.3489685Z #16 0.801 OK: 22 MiB in 31 packages
+2026-09-07T23:46:41.3490468Z #16 DONE 0.9s
+2026-09-07T23:46:41.3490856Z 
+2026-09-07T23:46:41.3491584Z #17 [deps 7/7] RUN pnpm install --frozen-lockfile --prod --config.confirmModulesPurge=false
+2026-09-07T23:46:42.5749969Z #17 1.593 Scope: all 2 workspace projects
+2026-09-07T23:46:42.7189646Z #17 1.737 Lockfile is up to date, resolution step is skipped
+2026-09-07T23:46:42.8922107Z #17 1.827 Progress: resolved 1, reused 0, downloaded 0, added 0
+2026-09-07T23:46:42.8926831Z #17 1.911 Packages: +1014
+2026-09-07T23:46:42.8953197Z #17 1.911 ++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
+2026-09-07T23:46:43.8107833Z #17 2.829 Progress: resolved 1014, reused 0, downloaded 36, added 12
+2026-09-07T23:46:44.8162110Z #17 3.835 Progress: resolved 1014, reused 0, downloaded 119, added 49
+2026-09-07T23:46:45.8296711Z #17 4.848 Progress: resolved 1014, reused 0, downloaded 203, added 95
+2026-09-07T23:46:46.8300757Z #17 5.849 Progress: resolved 1014, reused 0, downloaded 304, added 161
+2026-09-07T23:46:47.8379665Z #17 6.856 Progress: resolved 1014, reused 0, downloaded 413, added 261
+2026-09-07T23:46:48.8401230Z #17 7.859 Progress: resolved 1014, reused 0, downloaded 532, added 425
+2026-09-07T23:46:49.8422989Z #17 8.861 Progress: resolved 1014, reused 0, downloaded 655, added 614
+2026-09-07T23:46:50.8485826Z #17 9.867 Progress: resolved 1014, reused 0, downloaded 793, added 792
+2026-09-07T23:46:51.8554644Z #17 10.87 Progress: resolved 1014, reused 0, downloaded 894, added 891
+2026-09-07T23:46:52.8912822Z #17 11.90 Progress: resolved 1014, reused 0, downloaded 912, added 906
+2026-09-07T23:46:53.8587056Z #17 12.88 Progress: resolved 1014, reused 0, downloaded 956, added 955
+2026-09-07T23:46:54.8620274Z #17 13.88 Progress: resolved 1014, reused 0, downloaded 1007, added 1009
+2026-09-07T23:46:57.8289138Z #17 ...
+2026-09-07T23:46:57.8289654Z 
+2026-09-07T23:46:57.8290045Z #11 [opencode 2/2] RUN npm install -g opencode-ai@1.18.18
+2026-09-07T23:46:57.8290612Z #11 20.91 
+2026-09-07T23:46:57.8290950Z #11 20.91 added 5 packages in 15s
+2026-09-07T23:46:57.9807954Z #11 20.91 npm notice
+2026-09-07T23:46:57.9808690Z #11 20.91 npm notice New major version of npm available! 10.9.8 -> 12.0.2
+2026-09-07T23:46:57.9809717Z #11 20.91 npm notice Changelog: https://github.com/npm/cli/releases/tag/v12.0.2
+2026-09-07T23:46:57.9810228Z #11 20.91 npm notice To update run: npm install -g npm@12.0.2
+2026-09-07T23:46:57.9810577Z #11 20.91 npm notice
+2026-09-07T23:47:00.4557286Z #11 DONE 23.5s
+2026-09-07T23:47:00.4557881Z 
+2026-09-07T23:47:00.4558835Z #17 [deps 7/7] RUN pnpm install --frozen-lockfile --prod --config.confirmModulesPurge=false
+2026-09-07T23:47:05.0003385Z #17 ...
+2026-09-07T23:47:05.0003638Z 
+2026-09-07T23:47:05.0004009Z #18 [stage-2  4/14] COPY --from=opencode /usr/local/bin/ /usr/local/bin/
+2026-09-07T23:47:05.2397666Z #18 DONE 0.1s
+2026-09-07T23:47:05.2397943Z 
+2026-09-07T23:47:05.2398405Z #19 [stage-2  5/14] COPY --from=opencode /usr/local/lib/node_modules/ /usr/local/lib/node_modules/
+2026-09-07T23:47:07.1977279Z #19 DONE 2.1s
+2026-09-07T23:47:07.1977536Z 
+2026-09-07T23:47:07.1978007Z #17 [deps 7/7] RUN pnpm install --frozen-lockfile --prod --config.confirmModulesPurge=false
+2026-09-08T00:06:12.3593276Z ##[error]The operation was canceled.
+2026-09-08T00:06:12.3720265Z Post job cleanup.
+2026-09-08T00:06:12.5447586Z [command]/usr/bin/git version
+2026-09-08T00:06:12.5447929Z git version 2.55.0
+2026-09-08T00:06:12.5451016Z Temporarily overriding HOME='/home/runner/work/_temp/4ea84e8a-180b-43b7-975f-14aa610a8566' before making global git config changes
+2026-09-08T00:06:12.5452002Z Adding repository directory to the temporary git global config as a safe directory
+2026-09-08T00:06:12.5452871Z [command]/usr/bin/git config --global --add safe.directory /home/runner/work/ctxpipe/ctxpipe
+2026-09-08T00:06:12.5454103Z Removing SSH command configuration
+2026-09-08T00:06:12.5454758Z [command]/usr/bin/git config --local --name-only --get-regexp core\.sshCommand
+2026-09-08T00:06:12.5456299Z [command]/usr/bin/git submodule foreach --recursive sh -c "git config --local --name-only --get-regexp 'core\.sshCommand' && git config --local --unset-all 'core.sshCommand' || :"
+2026-09-08T00:06:12.5457607Z Removing HTTP extra header
+2026-09-08T00:06:12.5458317Z [command]/usr/bin/git config --local --name-only --get-regexp http\.https\:\/\/github\.com\/\.extraheader
+2026-09-08T00:06:12.5460214Z [command]/usr/bin/git submodule foreach --recursive sh -c "git config --local --name-only --get-regexp 'http\.https\:\/\/github\.com\/\.extraheader' && git config --local --unset-all 'http.https://github.com/.extraheader' || :"
+2026-09-08T00:06:12.5467927Z Removing includeIf entries pointing to credentials config files
+2026-09-08T00:06:12.5468475Z [command]/usr/bin/git config --local --name-only --get-regexp ^includeIf\.gitdir:
+2026-09-08T00:06:12.5497050Z includeif.gitdir:/home/runner/work/ctxpipe/ctxpipe/.git.path
+2026-09-08T00:06:12.5497852Z includeif.gitdir:/home/runner/work/ctxpipe/ctxpipe/.git/worktrees/*.path
+2026-09-08T00:06:12.5498388Z includeif.gitdir:/github/workspace/.git.path
+2026-09-08T00:06:12.5499118Z includeif.gitdir:/github/workspace/.git/worktrees/*.path
+2026-09-08T00:06:12.5507096Z [command]/usr/bin/git config --local --get-all includeif.gitdir:/home/runner/work/ctxpipe/ctxpipe/.git.path
+2026-09-08T00:06:12.5532138Z /home/runner/work/_temp/git-credentials-1b2fa512-f4c0-4bfb-87a9-3bd2f7a93340.config
+2026-09-08T00:06:12.5545054Z [command]/usr/bin/git config --local --unset includeif.gitdir:/home/runner/work/ctxpipe/ctxpipe/.git.path /home/runner/work/_temp/git-credentials-1b2fa512-f4c0-4bfb-87a9-3bd2f7a93340.config
+2026-09-08T00:06:12.5585023Z [command]/usr/bin/git config --local --get-all includeif.gitdir:/home/runner/work/ctxpipe/ctxpipe/.git/worktrees/*.path
+2026-09-08T00:06:12.5614294Z /home/runner/work/_temp/git-credentials-1b2fa512-f4c0-4bfb-87a9-3bd2f7a93340.config
+2026-09-08T00:06:12.5621755Z [command]/usr/bin/git config --local --unset includeif.gitdir:/home/runner/work/ctxpipe/ctxpipe/.git/worktrees/*.path /home/runner/work/_temp/git-credentials-1b2fa512-f4c0-4bfb-87a9-3bd2f7a93340.config
+2026-09-08T00:06:12.5660242Z [command]/usr/bin/git config --local --get-all includeif.gitdir:/github/workspace/.git.path
+2026-09-08T00:06:12.5795607Z /github/runner_temp/git-credentials-1b2fa512-f4c0-4bfb-87a9-3bd2f7a93340.config
+2026-09-08T00:06:12.5798860Z [command]/usr/bin/git config --local --unset includeif.gitdir:/github/workspace/.git.path /github/runner_temp/git-credentials-1b2fa512-f4c0-4bfb-87a9-3bd2f7a93340.config
+2026-09-08T00:06:12.5801039Z [command]/usr/bin/git config --local --get-all includeif.gitdir:/github/workspace/.git/worktrees/*.path
+2026-09-08T00:06:12.5805448Z /github/runner_temp/git-credentials-1b2fa512-f4c0-4bfb-87a9-3bd2f7a93340.config
+2026-09-08T00:06:12.5808250Z [command]/usr/bin/git config --local --unset includeif.gitdir:/github/workspace/.git/worktrees/*.path /github/runner_temp/git-credentials-1b2fa512-f4c0-4bfb-87a9-3bd2f7a93340.config
+2026-09-08T00:06:12.5829550Z [command]/usr/bin/git submodule foreach --recursive git config --local --show-origin --name-only --get-regexp remote.origin.url
+2026-09-08T00:06:12.6093341Z Removing credentials config '/home/runner/work/_temp/git-credentials-1b2fa512-f4c0-4bfb-87a9-3bd2f7a93340.config'
+2026-09-08T00:06:12.6244951Z Cleaning up orphan processes
+2026-09-08T00:06:12.6497022Z Terminate orphan process: pid (2251) (docker)
+2026-09-08T00:06:12.6518480Z Terminate orphan process: pid (2273) (docker-buildx)

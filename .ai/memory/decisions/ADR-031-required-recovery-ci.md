@@ -38,6 +38,9 @@ truthful before Gates 2–6 change product behavior.
   package entrypoints with Bun and check types separately. Build distributable
   CDK/CLI packages and typecheck the self-host consumer. Validate Terraform with
   its remote backend disabled and without account credentials.
+  Run pnpm installation and frontend compilation under Node 22 in Docker;
+  Bun remains the production service runtime. Native Linux builds stalled during
+  pnpm installation under Bun, while the Node 22 CI installation completed.
 
 ## Consequences
 

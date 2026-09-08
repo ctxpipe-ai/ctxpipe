@@ -2,10 +2,10 @@
 FROM node:22-alpine AS opencode
 RUN npm install -g opencode-ai@1.18.18
 
-FROM oven/bun:1.3.11-alpine AS deps
+FROM node:22-alpine AS deps
 WORKDIR /app
 ENV CI=true
-RUN bun install -g pnpm@10.12.1
+RUN npm install -g pnpm@10.12.1
 COPY package.json pnpm-workspace.yaml pnpm-lock.yaml* tsconfig.json ./
 COPY patches patches
 COPY apps/backend/package.json apps/backend/package.json

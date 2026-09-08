@@ -86,6 +86,11 @@ repositories, and the direct SDK sandbox are now cleaned up.
   script/policy checks, package builds, codesearch image, and OpenTelemetry. Remaining production
   builds and complete codesearch tooling are still running at this checkpoint.
 - A final run on the reviewed checkpoint is required before Gate 1 closes.
+- The five remaining jobs in run 34171137539 stopped reporting progress in
+  pnpm installation within their first minute and were cancelled after about
+  20 minutes to collect their logs. The `ci-20ff56b6-stalled-*` logs retain this
+  evidence. Docker dependency installation and frontend builds now use Node 22;
+  service runtime stages remain Bun. Build jobs have a 30-minute limit.
 
 ## Deletion and subsequent ownership
 
