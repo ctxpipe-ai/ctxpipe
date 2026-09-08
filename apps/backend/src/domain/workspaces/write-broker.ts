@@ -15,6 +15,9 @@ import {
   readGitPackFromRemote,
   withGitDirectory,
 } from "../../services/git/pack.js"
+import { readUnbornRemoteBranch } from "../../services/git/unborn-tree.js"
+import type { UnbornBootstrapBinding } from "./bootstrap-input.js"
+import { getUnbornBootstrapWorkspace } from "./bootstrap-unborn.js"
 import {
   assertConnectorMirrorBinding,
   assertConnectorMirrorScope,
@@ -193,7 +196,7 @@ function sameWriteBinding(
 }
 
 async function remoteContainsCommit(
-  revision: WorkspaceRevision,
+  revision: { remote: WorkspaceRevision["remote"]; sha: string | null },
   committed: GitPack,
   tipSha: string,
   token: string | undefined,
@@ -392,5 +395,155 @@ export async function captureSemanticHandoff(
     deletePaths: handoff.deletePaths,
     ...(input.mirror ? { mirror: input.mirror } : {}),
     ...(input.extraction ? { extraction: input.extraction } : {}),
+  }
+}
+
+export type UnbornPushResult =
+  | { kind: "pushed" }
+  | { kind: "paused" }
+  | { kind: "initialized"; revision: WorkspaceRevision }
+
+/** First-root publication uses the same broker-only credentials and non-force push. */
+export async function pushUnbornWorkspaceCommit(
+  input: {
+    orgId: string
+    workspaceId: string
+    bootstrapBinding: UnbornBootstrapBinding
+  },
+  committed: GitPack,
+  env: Env,
+): Promise<UnbornPushResult> {
+  const binding = input.bootstrapBinding
+  const workspace = await getUnbornBootstrapWorkspace(binding)
+  const repositoryName = githubRepoFullNameFromWorkspaceUrl(binding.remote.url)
+  const connectionId = binding.remote.connectionId
+  if (!repositoryName || !connectionId)
+    throw new Error("Bootstrap requires a connected GitHub repository")
+  const readToken = await resolveRepositoryReadCredential({
+    orgId: input.orgId,
+    env,
+    remote: binding.remote,
+  })
+  const inspectInitialized = async (tip: {
+    sha: string
+    branch: string
+  }): Promise<UnbornPushResult> => {
+    if (tip.branch !== binding.defaultBranch)
+      throw new Error("Default branch changed before bootstrap push")
+    if (
+      await remoteContainsCommit(
+        { remote: binding.remote, sha: null },
+        committed,
+        tip.sha,
+        readToken,
+      )
+    )
+      return { kind: "pushed" }
+    const resolved = await resolveWorkspaceReadRevision({
+      orgId: input.orgId,
+      workspaceId: input.workspaceId,
+      env,
+      refresh: true,
+    })
+    await getUnbornBootstrapWorkspace(binding)
+    if (
+      !resolved ||
+      resolved.revision.generation !== binding.generation ||
+      resolved.revision.remote.url !== binding.remote.url ||
+      resolved.revision.remote.connectionId !== binding.remote.connectionId ||
+      resolved.revision.defaultBranch !== binding.defaultBranch
+    )
+      throw new Error(
+        "Bootstrap binding changed after repository initialization",
+      )
+    return {
+      kind: "initialized",
+      revision: { ...resolved.revision, access: "write-default" },
+    }
+  }
+  const tip = await resolveGitRemoteTip({
+    url: binding.remote.url,
+    token: readToken,
+  })
+  if (tip) return inspectInitialized(tip)
+  if (workspace.writeStatus !== "writable") return { kind: "paused" }
+  if (workspace.desiredSha !== null)
+    throw new Error("Bootstrap revision changed before push")
+  try {
+    const token = await getRepoWriteCloneToken(input.orgId, env, {
+      githubConnectionId: connectionId,
+      repoFullName: repositoryName,
+    })
+    if (!token)
+      throw new WorkspaceWriteAccessUnavailableError(
+        WRITE_STATUS_REASONS.contentsWriteDenied,
+      )
+    return await withGitDirectory(
+      committed.sha,
+      async (directory): Promise<UnbornPushResult> => {
+        const branch = await readUnbornRemoteBranch({
+          url: binding.remote.url,
+          token,
+        })
+        if (branch !== binding.defaultBranch) {
+          const initialized = await resolveGitRemoteTip({
+            url: binding.remote.url,
+            token: readToken,
+          })
+          if (initialized) return inspectInitialized(initialized)
+          throw new Error(
+            "Bootstrap default changed during credential issuance",
+          )
+        }
+        const live = await getUnbornBootstrapWorkspace(binding)
+        if (live.desiredSha !== null)
+          throw new Error(
+            "Bootstrap revision changed during credential issuance",
+          )
+        if (live.writeStatus !== "writable")
+          throw new WorkspaceWriteAccessUnavailableError()
+        await nativeGit(
+          directory,
+          [
+            "push",
+            "--porcelain",
+            "--",
+            binding.remote.url,
+            `${committed.sha}:refs/heads/${binding.defaultBranch}`,
+          ],
+          undefined,
+          gitRemoteEnvironment({ url: binding.remote.url, token }),
+        )
+        return { kind: "pushed" }
+      },
+      committed,
+    )
+  } catch (error) {
+    const reason =
+      error instanceof WorkspaceWriteAccessUnavailableError
+        ? error.readOnlyReason
+        : writeAccessDenialReason(error)
+    if (!reason && !(error instanceof WorkspaceWriteAccessUnavailableError)) {
+      const initialized = await resolveGitRemoteTip({
+        url: binding.remote.url,
+        token: readToken,
+      })
+      if (initialized) return inspectInitialized(initialized)
+      throw error
+    }
+    if (reason)
+      await persistWriteStatus(
+        {
+          id: workspace.id,
+          desiredGeneration: binding.generation,
+          workspaceRepositoryUrl: binding.remote.url,
+          githubConnectionId: binding.remote.connectionId,
+          desiredSha: workspace.desiredSha,
+          desiredDefaultBranch: workspace.desiredDefaultBranch,
+        },
+        { writeStatus: "read_only", readOnlyReason: reason },
+        input.orgId,
+      )
+    return { kind: "paused" }
   }
 }

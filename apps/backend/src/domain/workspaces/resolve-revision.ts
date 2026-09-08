@@ -9,6 +9,7 @@ import {
   persistRevisionResolutionFailure,
 } from "../../models/workspaces.js"
 import { resolveGitRemoteTip } from "../../services/git/clone-tree.js"
+import { readUnbornRemoteBranch } from "../../services/git/unborn-tree.js"
 import { linkedRevisionSchema, type WorkspaceRevision } from "./revision.js"
 import { githubRepoFullNameFromWorkspaceUrl } from "./write-status.js"
 
@@ -90,8 +91,18 @@ export async function resolveWorkspaceReadRevision(input: {
       sha: refresh ? resolved?.sha : workspace.desiredSha,
       branch: resolved?.branch ?? workspace.desiredDefaultBranch,
     }
-    if (!tip.sha || !tip.branch)
+    if (!tip.sha || !tip.branch) {
+      if (
+        !workspace.desiredSha &&
+        !resolved &&
+        (await readUnbornRemoteBranch({
+          url: workspace.workspaceRepositoryUrl,
+          token,
+        }))
+      )
+        return null
       throw new Error("The workspace repository has no default branch")
+    }
     const revision = await captureWorkspaceRevision({
       workspaceId: workspace.id,
       expected: {

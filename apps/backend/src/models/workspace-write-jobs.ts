@@ -16,6 +16,7 @@ import {
   workspaces,
   workspaceWriteJobs,
 } from "../db/schema/workspaces.js"
+import type { UnbornBootstrapBinding } from "../domain/workspaces/bootstrap-input.js"
 import type { ConnectorMirrorSource } from "../domain/workspaces/connector-mirror.js"
 import type { WorkspaceExtraction } from "../domain/workspaces/extraction.js"
 import {
@@ -584,7 +585,8 @@ function nativeWriteJobOwnerId() {
       and (scheduled.id = workspace_write_jobs.payload->>'workflowRunId'
         or (workspace_write_jobs.payload->>'workflowRunId' is null
           and scheduled.namespace_id = 'default' and scheduled.idempotency_key = workspace_write_jobs.id
-          and scheduled.input->'revision' = workspace_write_jobs.payload->'revision'))
+          and (scheduled.input->'revision' = workspace_write_jobs.payload->'revision'
+            or (workspace_write_jobs.kind = 'bootstrap' and scheduled.input->'bootstrapBinding' = workspace_write_jobs.payload->'bootstrapBinding'))))
     order by scheduled.created_at, scheduled.id limit 1)`
 }
 
@@ -726,6 +728,8 @@ export async function persistBoundWriteJob(input: {
       return
     }
     if (row.payload?.planning) payload.planning = row.payload.planning
+    if (row.payload?.bootstrapBinding)
+      payload.bootstrapBinding = row.payload.bootstrapBinding
     const [claimed] = await getOrgDb()
       .update(workspaceWriteJobs)
       .set({ payload, status: values.status, updatedAt: new Date() })
@@ -871,5 +875,121 @@ export async function persistWriteJobKnowledgePaths(
       throw new Error(
         "Knowledge path assignments require a running write command",
       )
+  })
+}
+
+/** Claim the same typed bootstrap before a read revision exists. */
+export async function persistUnbornBootstrapJob(input: {
+  id: string
+  binding: UnbornBootstrapBinding
+  workflowRunId?: string
+  admissionStatus?: "queued" | "paused"
+}) {
+  return orgSql(async () => {
+    const payload: WorkspaceWriteJobPayload = {
+      bootstrapBinding: input.binding,
+      jobWorkspaceUrl: input.binding.remote.url,
+      defaultBranch: input.binding.defaultBranch,
+      ...(input.workflowRunId ? { workflowRunId: input.workflowRunId } : {}),
+    }
+    await getOrgDb()
+      .insert(workspaceWriteJobs)
+      .values({
+        id: input.id,
+        orgId: requireCurrentOrgId(),
+        workspaceId: input.binding.workspaceId,
+        kind: "bootstrap",
+        generation: input.binding.generation,
+        desiredSha: null,
+        status: input.workflowRunId
+          ? "running"
+          : (input.admissionStatus ?? "queued"),
+        payload,
+      })
+      .onConflictDoNothing()
+    const [row] = await getOrgDb()
+      .select()
+      .from(workspaceWriteJobs)
+      .where(eq(workspaceWriteJobs.id, input.id))
+      .for("update")
+    if (
+      !row ||
+      row.kind !== "bootstrap" ||
+      row.workspaceId !== input.binding.workspaceId ||
+      row.generation !== input.binding.generation ||
+      !isDeepStrictEqual(row.payload?.bootstrapBinding, input.binding)
+    )
+      throw new Error("Bootstrap id belongs to a different command")
+    if (row.status === "completed") return row
+    if (
+      input.workflowRunId &&
+      row.payload?.workflowRunId &&
+      row.payload.workflowRunId !== input.workflowRunId
+    )
+      throw new Error("Bootstrap already has a workflow owner")
+    if (!input.workflowRunId && row.payload?.workflowRunId) return row
+    const [updated] = await getOrgDb()
+      .update(workspaceWriteJobs)
+      .set({
+        payload: { ...row.payload, ...payload },
+        status: input.workflowRunId
+          ? "running"
+          : (input.admissionStatus ?? "queued"),
+        updatedAt: new Date(),
+      })
+      .where(eq(workspaceWriteJobs.id, input.id))
+      .returning()
+    if (!updated) throw new Error("Bootstrap command disappeared")
+    return updated
+  })
+}
+
+/** A competing first writer supplies a real base for the same bootstrap owner. */
+export async function adoptInitializedBootstrapRevision(input: {
+  jobId: string
+  workflowRunId: string
+  binding: UnbornBootstrapBinding
+  revision: WorkspaceRevision
+  candidateSha: string
+}): Promise<void> {
+  await orgSql(async () => {
+    const [row] = await getOrgDb()
+      .select()
+      .from(workspaceWriteJobs)
+      .where(eq(workspaceWriteJobs.id, input.jobId))
+      .for("update")
+    if (
+      !row ||
+      row.kind !== "bootstrap" ||
+      row.status !== "running" ||
+      row.payload?.workflowRunId !== input.workflowRunId ||
+      !isDeepStrictEqual(row.payload.bootstrapBinding, input.binding)
+    )
+      throw new Error("Initialized bootstrap has a different owner")
+    if (row.payload.revision) {
+      if (!sameWorkspaceRevision(row.payload.revision, input.revision))
+        throw new Error("Bootstrap already adopted another revision")
+      return
+    }
+    if (
+      row.commitSha !== input.candidateSha ||
+      input.revision.workspaceId !== input.binding.workspaceId ||
+      input.revision.generation !== input.binding.generation ||
+      input.revision.remote.url !== input.binding.remote.url ||
+      input.revision.remote.connectionId !==
+        input.binding.remote.connectionId ||
+      input.revision.defaultBranch !== input.binding.defaultBranch ||
+      input.revision.access !== "write-default"
+    )
+      throw new Error("Initialized bootstrap binding changed")
+    await getOrgDb()
+      .update(workspaceWriteJobs)
+      .set({
+        payload: { ...row.payload, revision: input.revision },
+        desiredSha: input.revision.sha,
+        commitSha: null,
+        updatedAt: new Date(),
+      })
+      .where(eq(workspaceWriteJobs.id, input.jobId))
   })
 }

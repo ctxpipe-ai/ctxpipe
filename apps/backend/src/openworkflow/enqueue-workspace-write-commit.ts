@@ -1,5 +1,6 @@
 import { parseEnv } from "../config/env.js"
 import { assertNotInOrgDbContext, withOrgDbContext } from "../db/client.js"
+import { captureUnbornBootstrapBinding } from "../domain/workspaces/bootstrap-unborn.js"
 import { connectorMirrorContentSchema } from "../domain/workspaces/connector-mirror-input.js"
 import { linkedRepositoryUrlSchema } from "../domain/workspaces/linked-repository-url.js"
 import { resolveWorkspaceReadRevision } from "../domain/workspaces/resolve-revision.js"
@@ -13,6 +14,7 @@ import {
 import { generateObjectId } from "../lib/id.js"
 import {
   persistBoundWriteJob,
+  persistUnbornBootstrapJob,
   reconcileWorkspaceWriteJob,
   reconcileWriteJobAdmission,
 } from "../models/workspace-write-jobs.js"
@@ -165,9 +167,8 @@ export async function enqueueWriteJob(
   }
   // Admission selects an explicit native workflow; it does not execute a job lifecycle.
   const snapshotWriteWorkflows: Partial<
-    Record<EnqueueWriteJobInput["kind"], typeof workspaceBootstrap>
+    Record<EnqueueWriteJobInput["kind"], typeof workspaceClaimsUpgrade>
   > = {
-    bootstrap: workspaceBootstrap,
     migration_export: workspaceMigrationExport,
     claims_upgrade: workspaceClaimsUpgrade,
     valid_from_persist: workspaceValidFromPersist,
@@ -176,6 +177,7 @@ export async function enqueueWriteJob(
   }
   const snapshotWorkflow = snapshotWriteWorkflows[input.kind]
   if (
+    input.kind === "bootstrap" ||
     snapshotWorkflow ||
     input.kind === "extract_ingest" ||
     input.kind === "ui_file_edit" ||
@@ -188,6 +190,49 @@ export async function enqueueWriteJob(
     try {
       const admissionStatus =
         writeStatus === "writable" ? ("queued" as const) : ("paused" as const)
+      const recorded = await withOrgDbContext(input.orgId, () =>
+        reconcileWorkspaceWriteJob(jobId),
+      )
+      if (input.kind === "bootstrap") {
+        const bootstrapBinding =
+          recorded?.payload?.bootstrapBinding ??
+          (await captureUnbornBootstrapBinding({
+            orgId: input.orgId,
+            workspaceId: input.workspaceId,
+            env: parseEnv(process.env),
+          }))
+        if (bootstrapBinding) {
+          if (
+            (jobGeneration != null &&
+              bootstrapBinding.generation !== jobGeneration) ||
+            (jobWorkspaceUrl &&
+              bootstrapBinding.remote.url !== jobWorkspaceUrl) ||
+            (input.defaultBranch &&
+              bootstrapBinding.defaultBranch !== input.defaultBranch) ||
+            input.jobDesiredSha != null
+          )
+            throw new Error(
+              "Bootstrap command binding changed during admission",
+            )
+          await persistUnbornBootstrapJob({
+            id: jobId,
+            binding: bootstrapBinding,
+            admissionStatus,
+          })
+          bound = true
+          await runWorkflowWithWorkerWake(
+            workspaceBootstrap.spec,
+            {
+              orgId: input.orgId,
+              workspaceId: input.workspaceId,
+              jobId,
+              bootstrapBinding,
+            },
+            { idempotencyKey: jobId },
+          )
+          return { started: true }
+        }
+      }
       const resolved = await resolveWorkspaceReadRevision({
         orgId: input.orgId,
         workspaceId: input.workspaceId,
@@ -198,9 +243,6 @@ export async function enqueueWriteJob(
         ...resolved.revision,
         access: "write-default" as const,
       }
-      const recorded = await withOrgDbContext(input.orgId, () =>
-        reconcileWorkspaceWriteJob(jobId),
-      )
       const captured = recorded?.payload?.revision
       if (
         captured &&
@@ -367,7 +409,7 @@ export async function enqueueWriteJob(
         })
         return { started: true }
       }
-      if (!snapshotWorkflow)
+      if (!snapshotWorkflow && input.kind !== "bootstrap")
         throw new Error("No typed workflow for this write kind")
       const command = {
         orgId: input.orgId,
@@ -386,9 +428,14 @@ export async function enqueueWriteJob(
         displayName: command.displayName,
       })
       bound = true
-      await runWorkflowWithWorkerWake(snapshotWorkflow.spec, command, {
-        idempotencyKey: jobId,
-      })
+      if (input.kind === "bootstrap")
+        await runWorkflowWithWorkerWake(workspaceBootstrap.spec, command, {
+          idempotencyKey: jobId,
+        })
+      else if (snapshotWorkflow)
+        await runWorkflowWithWorkerWake(snapshotWorkflow.spec, command, {
+          idempotencyKey: jobId,
+        })
       return { started: true }
     } catch (error) {
       if (bound) {

@@ -15,7 +15,9 @@
     "src/domain/workspaces/write-extract-native.contract.test.ts",
     "src/domain/workspaces/write-mirror-native.contract.test.ts",
     "src/domain/workspaces/write-merge-native.contract.test.ts",
-    "src/openworkflow/workspace-admission-ack-native.contract.test.ts"
+    "src/openworkflow/workspace-admission-ack-native.contract.test.ts",
+    "src/domain/workspaces/workspace-unborn-bootstrap-native.contract.test.ts",
+    "src/domain/workspaces/write-worker-loss-native.contract.test.ts"
   ],
   "hydrate": ["src/domain/workspaces/hydration.contract.test.ts"],
   "native worker discovery": [

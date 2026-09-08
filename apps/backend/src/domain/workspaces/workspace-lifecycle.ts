@@ -78,6 +78,10 @@ export async function createWorkspaceLifecycle(input: {
     },
     input.log,
   )
+  void enqueueWorkspaceWriteCommit(
+    { orgId: created.orgId, workspaceId: created.id, kind: "bootstrap" },
+    input.log,
+  )
   for (const gitUrl of created.autoLinkGitUrls) {
     void enqueueWorkspaceWriteCommit(
       {

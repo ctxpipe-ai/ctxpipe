@@ -5,15 +5,19 @@ import {
   BOOTSTRAP_SKILL_PATH,
   bootstrapWorkspaceFiles,
 } from "../../domain/workspaces/bootstrap.js"
+import { unbornBootstrapBindingSchema } from "../../domain/workspaces/bootstrap-input.js"
+import { getUnbornBootstrapWorkspace } from "../../domain/workspaces/bootstrap-unborn.js"
 import { generateCommitSubject } from "../../domain/workspaces/commit-subject.js"
 import {
   sameWorkspaceRevision,
+  type WorkspaceRevision,
   workspaceRevisionSchema,
 } from "../../domain/workspaces/revision.js"
 import {
   attemptWorkspaceCommit,
   captureSemanticHandoff,
   publishWorkspaceWriteRevision,
+  pushUnbornWorkspaceCommit,
   refreshWorkspaceWriteRevision,
 } from "../../domain/workspaces/write-broker.js"
 import {
@@ -24,7 +28,9 @@ import {
 import { isBootstrapAllowedPath } from "../../domain/workspaces/write-jobs.js"
 import { githubRepoFullNameFromWorkspaceUrl } from "../../domain/workspaces/write-status.js"
 import {
+  adoptInitializedBootstrapRevision,
   persistBoundWriteJob,
+  persistUnbornBootstrapJob,
   persistWriteJobPreparedCommit,
 } from "../../models/workspace-write-jobs.js"
 import {
@@ -32,6 +38,11 @@ import {
   persistWriteJobStatus,
 } from "../../models/workspaces.js"
 import { nativeGit, withGitDirectory } from "../../services/git/pack.js"
+import {
+  commitUnbornGitTree,
+  stageUnbornGitFiles,
+  validateUnbornGitTree,
+} from "../../services/git/unborn-tree.js"
 import {
   commitGitTree,
   stageGitFiles,
@@ -56,10 +67,163 @@ const inputSchema = z
     "A write-default revision for the matching workspace is required",
   )
 
+const bootstrapInputSchema = z.union([
+  inputSchema,
+  z
+    .object({
+      orgId: z.string().min(1),
+      workspaceId: z.string().min(1),
+      jobId: z.string().min(1),
+      bootstrapBinding: unbornBootstrapBindingSchema,
+    })
+    .strict()
+    .refine(
+      (input) => input.workspaceId === input.bootstrapBinding.workspaceId,
+      "Bootstrap workspace binding must match",
+    ),
+])
+
 export const workspaceBootstrap = defineWorkflow(
-  { name: "workspace-write-bootstrap", schema: inputSchema },
+  { name: "workspace-write-bootstrap", schema: bootstrapInputSchema },
   async ({ input: queuedInput, step, run }) => {
-    const input = inputSchema.parse(queuedInput)
+    const queued = bootstrapInputSchema.parse(queuedInput)
+    let initializedRevision: WorkspaceRevision | undefined
+    if ("bootstrapBinding" in queued) {
+      const outcome = await withWorkspaceWriteContext(
+        queued,
+        "workspace-write-bootstrap",
+        async () => {
+          const env = parseEnv(process.env)
+          const claimed = await step.run(
+            { name: "claim-unborn-command" },
+            async () => {
+              const job = await persistUnbornBootstrapJob({
+                id: queued.jobId,
+                binding: queued.bootstrapBinding,
+                workflowRunId: run.id,
+              })
+              return { status: job.status, commitSha: job.commitSha }
+            },
+          )
+          if (claimed.status === "completed") {
+            if (!claimed.commitSha)
+              throw new Error("Completed root bootstrap has no commit")
+            return {
+              kind: "completed" as const,
+              result: {
+                committed: true as const,
+                commitSha: claimed.commitSha,
+              },
+            }
+          }
+          const files = await step.run(
+            { name: "transform-unborn" },
+            async () => {
+              const workspace = await getUnbornBootstrapWorkspace(
+                queued.bootstrapBinding,
+              )
+              return bootstrapWorkspaceFiles({
+                displayName: workspace.displayName,
+                existing: new Map(),
+              })
+            },
+          )
+          const staged = await step.run({ name: "stage-unborn" }, () =>
+            stageUnbornGitFiles(files),
+          )
+          await step.run({ name: "validate-unborn" }, () =>
+            validateUnbornGitTree(
+              staged,
+              files
+                .filter((file) => isBootstrapAllowedPath(file.path))
+                .map((file) => file.path),
+            ),
+          )
+          const committed = await step.run(
+            { name: "commit-unborn" },
+            async () => {
+              const pack = await commitUnbornGitTree(staged, {
+                subject: "ctxpipe - Bootstrap workspace",
+                createdAt: run.createdAt,
+              })
+              await persistWriteJobPreparedCommit(queued.jobId, pack.sha)
+              return pack
+            },
+          )
+          for (;;) {
+            const pushed = await step.run(
+              {
+                name: "broker-push-unborn",
+                retryPolicy: { maximumAttempts: 3 },
+              },
+              () => pushUnbornWorkspaceCommit(queued, committed, env),
+            )
+            if (pushed.kind === "pushed") break
+            if (pushed.kind === "initialized") {
+              await step.run({ name: "adopt-initialized-revision" }, () =>
+                adoptInitializedBootstrapRevision({
+                  jobId: queued.jobId,
+                  workflowRunId: run.id,
+                  binding: queued.bootstrapBinding,
+                  revision: pushed.revision,
+                  candidateSha: committed.sha,
+                }),
+              )
+              return { kind: "initialized" as const, revision: pushed.revision }
+            }
+            await step.run({ name: "pause-unborn" }, () =>
+              persistWriteJobStatus(queued.jobId, "paused"),
+            )
+            await step.sleep("await-unborn-write-access", "1 minute")
+            await step.run({ name: "resume-unborn" }, () =>
+              persistWriteJobStatus(queued.jobId, "running"),
+            )
+          }
+          const published = await step.run({ name: "publish-unborn" }, () =>
+            publishWorkspaceWriteRevision(
+              queued,
+              {
+                ...queued.bootstrapBinding,
+                sha: committed.sha,
+                access: "write-default",
+              },
+              committed,
+              env,
+            ),
+          )
+          await step.run({ name: "hydrate-unborn" }, async () => {
+            await runWorkflowWithWorkerWake(
+              workspaceHydrate.spec,
+              {
+                orgId: queued.orgId,
+                workspaceId: queued.workspaceId,
+                revision: published,
+              },
+              { idempotencyKey: `${queued.jobId}:hydrate` },
+            )
+          })
+          await step.run({ name: "complete-unborn" }, () =>
+            persistWriteJobCommitSha(queued.jobId, committed.sha),
+          )
+          return {
+            kind: "completed" as const,
+            result: { committed: true as const, commitSha: committed.sha },
+          }
+        },
+      )
+      if (outcome.kind === "completed") return outcome.result
+      initializedRevision = outcome.revision
+    }
+    const input = inputSchema.parse(
+      "revision" in queued
+        ? queued
+        : {
+            orgId: queued.orgId,
+            workspaceId: queued.workspaceId,
+            jobId: queued.jobId,
+            revision: initializedRevision,
+          },
+    )
     return withWorkspaceWriteContext(
       input,
       "workspace-write-bootstrap",

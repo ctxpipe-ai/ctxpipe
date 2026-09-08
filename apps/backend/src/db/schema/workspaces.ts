@@ -10,6 +10,7 @@ import {
   unique,
   uniqueIndex,
 } from "drizzle-orm/pg-core"
+import type { UnbornBootstrapBinding } from "../../domain/workspaces/bootstrap-input.js"
 import type { ConnectorMirrorSource } from "../../domain/workspaces/connector-mirror.js"
 import type { WorkspaceExtraction } from "../../domain/workspaces/extraction.js"
 import type { HydratePhaseRecord } from "../../domain/workspaces/hydrate-phases.js"
@@ -179,6 +180,7 @@ export const workspaceWriteJobs = pgTable.withRLS(
     generation: integer("generation").notNull(),
     status: text("status").notNull().default("queued"),
     payload: jsonb("payload").$type<{
+      bootstrapBinding?: UnbornBootstrapBinding
       revision?: WorkspaceRevision
       planning?: WorkspaceWritePlanning
       workflowRunId?: string

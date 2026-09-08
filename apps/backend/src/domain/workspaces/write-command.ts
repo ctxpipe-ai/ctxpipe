@@ -35,7 +35,7 @@ export type WorkspaceWriteCommand = {
 
 /** Org and log scope only; the calling workflow owns all durable execution steps. */
 export function withWorkspaceWriteContext<T>(
-  input: WorkspaceWriteCommand,
+  input: Pick<WorkspaceWriteCommand, "orgId" | "workspaceId" | "jobId">,
   workflowName: string,
   operation: () => Promise<T>,
 ): Promise<T> {

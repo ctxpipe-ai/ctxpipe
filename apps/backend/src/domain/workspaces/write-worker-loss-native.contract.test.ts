@@ -11,14 +11,17 @@ import { createRequire } from "node:module"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { pathToFileURL } from "node:url"
+import { eq } from "drizzle-orm"
 import { expect, it } from "vitest"
 import { withOrgIdContext } from "../../auth/withAuth.js"
+import { withOrgDbContext } from "../../db/client.js"
+import { workspaces } from "../../db/schema/workspaces.js"
 import { getWriteJobCommitSha } from "../../models/workspace-write-jobs.js"
 import { workspaceBootstrap } from "../../openworkflow/workflows/workspace-bootstrap.js"
 import { withNativeHydrationFixture } from "../../test/native-hydration-fixture.js"
 import { withHeldSemanticHandoffCommit } from "../../test/native-workflow-ack-loss.js"
 
-it.each(["Git staging", "semantic handoff"] as const)(
+it.each(["Git staging", "semantic handoff", "unborn push"] as const)(
   "two replacement processes recover a writer killed after %s",
   { timeout: 120_000 },
   async (boundary) => {
@@ -133,7 +136,7 @@ const { spawnSync } = require("node:child_process");
 const { existsSync, writeFileSync } = require("node:fs");
 const args = process.argv.slice(2);
 const result = spawnSync(${JSON.stringify(realGit)}, args, { stdio: "inherit" });
-if (result.status === 0 && args.includes("hash-object") && !existsSync(${JSON.stringify(ready)})) {
+if (result.status === 0 && args.includes(${JSON.stringify(boundary === "unborn push" ? "push" : "hash-object")}) && !existsSync(${JSON.stringify(ready)})) {
   writeFileSync(${JSON.stringify(ready)}, args[args.indexOf("-C") + 1]);
   while (!existsSync(${JSON.stringify(release)})) Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 1000);
 }
@@ -177,11 +180,36 @@ process.exit(result.status ?? 1);
         try {
           await f.runner.cancelWorkflowRun(f.handle.workflowRun.id)
           const jobId = `wjob_${f.id}_worker_loss`
+          if (boundary === "unborn push") {
+            rmSync(f.remote, { recursive: true, force: true })
+            f.git("init", "--bare", "--initial-branch=main", f.remote)
+            await withOrgDbContext(f.org.id, (db) =>
+              db
+                .update(workspaces)
+                .set({
+                  desiredSha: null,
+                  desiredDefaultBranch: null,
+                  indexedSha: null,
+                })
+                .where(eq(workspaces.id, f.workspaceId)),
+            )
+          }
           const handle = await f.runner.runWorkflow(workspaceBootstrap.spec, {
             orgId: f.org.id,
             workspaceId: f.workspaceId,
             jobId,
-            revision: { ...f.revision, access: "write-default" },
+            ...(boundary === "unborn push"
+              ? {
+                  bootstrapBinding: {
+                    workspaceId: f.workspaceId,
+                    generation: 1,
+                    remote: f.revision.remote,
+                    defaultBranch: "main",
+                  },
+                }
+              : {
+                  revision: { ...f.revision, access: "write-default" as const },
+                }),
           })
           const exercise = async (
             databaseUrl: string,
@@ -192,7 +220,7 @@ process.exit(result.status ?? 1);
               .poll(() => existsSync(ready), {
                 timeout: 20_000,
                 message:
-                  "The original native worker must reach real Git staging",
+                  "The original native worker must reach the native Git boundary",
               })
               .toBe(true)
             const advanceHuman = (body: string) => {
@@ -243,7 +271,7 @@ process.exit(result.status ?? 1);
                 f.remote,
                 "rev-list",
                 "--count",
-                `${f.sha}..main`,
+                boundary === "unborn push" ? "main" : `${f.sha}..main`,
               ),
             ).toBe(boundary === "semantic handoff" ? "3" : "1")
             if (boundary === "semantic handoff")
@@ -274,12 +302,18 @@ process.exit(result.status ?? 1);
             expect(
               attempts.filter(
                 (attempt) =>
-                  attempt.stepName === "acquire-revision" &&
-                  attempt.status === "completed",
+                  attempt.stepName ===
+                    (boundary === "unborn push"
+                      ? "claim-unborn-command"
+                      : "acquire-revision") && attempt.status === "completed",
               ),
             ).toHaveLength(1)
             expect(
-              attempts.filter((attempt) => attempt.stepName === "stage"),
+              attempts.filter(
+                (attempt) =>
+                  attempt.stepName ===
+                  (boundary === "unborn push" ? "broker-push-unborn" : "stage"),
+              ),
             ).toHaveLength(boundary === "semantic handoff" ? 1 : 2)
             if (boundary === "semantic handoff")
               expect(
