@@ -383,6 +383,11 @@ it(
           })
           expect(run?.status).toBe("failed")
           expect(run?.error?.message).toContain("binding changed")
+          expect(
+            await withOrgIdContext(f.org, () =>
+              getWorkspaceWriteJob(`wjob_${f.id}_detach`),
+            ),
+          ).toMatchObject({ status: "failed" })
         } finally {
           await worker.stop()
         }
@@ -391,10 +396,10 @@ it(
   },
 )
 
-it(
-  "recovers a lost push acknowledgement after the desired revision observes its commit",
+it.each([false, true])(
+  "recovers a lost push acknowledgement when the observed tip has a later commit: %s",
   { timeout: 60_000 },
-  async () => {
+  async (advanceTip) => {
     await withNativeHydrationFixture(
       { github: true, githubWriteView: "writable", writeStatus: "writable" },
       async (f) => {
@@ -445,6 +450,42 @@ process.exit(result.status ?? 1);
           await expect
             .poll(() => existsSync(pushed), { timeout: 20_000 })
             .toBe(true)
+          const publishedSha = f.git(
+            "--git-dir",
+            f.remote,
+            "rev-parse",
+            "refs/heads/main",
+          )
+          if (advanceTip) {
+            const tree = f.git(
+              "--git-dir",
+              f.remote,
+              "rev-parse",
+              `${publishedSha}^{tree}`,
+            )
+            const descendant = f.git(
+              "--git-dir",
+              f.remote,
+              "-c",
+              "user.name=Concurrent writer",
+              "-c",
+              "user.email=fixture@example.test",
+              "commit-tree",
+              tree,
+              "-p",
+              publishedSha,
+              "-m",
+              "Independent subsequent commit",
+            )
+            f.git(
+              "--git-dir",
+              f.remote,
+              "update-ref",
+              "refs/heads/main",
+              descendant,
+              publishedSha,
+            )
+          }
           const refreshed = await withOrgIdContext(f.org, () =>
             resolveWorkspaceReadRevision({
               orgId: f.org.id,
@@ -458,7 +499,7 @@ process.exit(result.status ?? 1);
           const result = await handle.result({ timeoutMs: 20_000 })
           expect(result).toMatchObject({
             committed: true,
-            commitSha: refreshed?.revision.sha,
+            commitSha: publishedSha,
           })
           expect(
             f.git(
@@ -468,12 +509,12 @@ process.exit(result.status ?? 1);
               "--count",
               `${f.sha}..refs/heads/main`,
             ),
-          ).toBe("1")
+          ).toBe(advanceTip ? "2" : "1")
           expect(
             await withOrgIdContext(f.org, () => getWorkspaceWriteJob(jobId)),
           ).toMatchObject({
             status: "completed",
-            commitSha: refreshed?.revision.sha,
+            commitSha: publishedSha,
           })
           const { BackendPostgres } = await import("openworkflow/postgres")
           const publication = await BackendPostgres.connect(f.databaseUrl, {
@@ -715,7 +756,7 @@ it(
           )
           expect(
             results.filter((result) => result.status === "fulfilled"),
-          ).toHaveLength(1)
+          ).not.toHaveLength(0)
           const runs = await Promise.all(
             handles.map((handle) =>
               f.backend.getWorkflowRun({
@@ -723,10 +764,13 @@ it(
               }),
             ),
           )
-          expect(runs.map((run) => run?.status).sort()).toEqual([
-            "completed",
-            "failed",
-          ])
+          // A replica admitted after completion may return the durable result.
+          // A replica racing the active owner is rejected; neither can commit again.
+          expect(
+            runs.every(
+              (run) => run?.status === "completed" || run?.status === "failed",
+            ),
+          ).toBe(true)
           expect(
             f.git(
               "--git-dir",
@@ -740,9 +784,156 @@ it(
             getWorkspaceWriteJob(input.jobId),
           )
           expect(job?.status).toBe("completed")
-          expect(job?.payload?.workflowRunId).toBe(
-            runs.find((run) => run?.status === "completed")?.id,
+          const owner = runs.find(
+            (run) => run?.id === job?.payload?.workflowRunId,
           )
+          expect(owner?.status).toBe("completed")
+          for (const result of results) {
+            if (result.status === "fulfilled")
+              expect(result.value).toEqual({
+                committed: true,
+                commitSha: job?.commitSha,
+              })
+          }
+        } finally {
+          await worker.stop()
+        }
+      },
+    )
+  },
+)
+
+it(
+  "preserves executable and symlink modes when editing their native Git blobs",
+  { timeout: 60_000 },
+  async () => {
+    await withNativeHydrationFixture(
+      {
+        github: true,
+        githubWriteView: "writable",
+        writeStatus: "writable",
+        files: [
+          { path: "run.sh", body: "#!/bin/sh\necho before\n", mode: "100755" },
+          { path: "current", body: "before.md", mode: "120000" },
+        ],
+      },
+      async (f) => {
+        const { workspaceFileEdit } = await import(
+          "../../openworkflow/workflows/workspace-file-edit.js"
+        )
+        const spec = {
+          ...workspaceFileEdit.spec,
+          retryPolicy: { maximumAttempts: 1 },
+        }
+        f.runner.implementWorkflow(spec, workspaceFileEdit.fn)
+        await f.worker.stop()
+        const worker = f.runner.newWorker({ concurrency: 1 })
+        await worker.start()
+        try {
+          const handle = await f.runner.runWorkflow(spec, {
+            orgId: f.org.id,
+            workspaceId: f.workspaceId,
+            jobId: `wjob_${f.id}_modes`,
+            revision: { ...f.revision, access: "write-default" },
+            files: [
+              { path: "run.sh", content: "#!/bin/sh\necho after\n" },
+              { path: "current", content: "after.md" },
+            ],
+            deletePaths: [],
+          })
+          expect(await handle.result({ timeoutMs: 30_000 })).toMatchObject({
+            committed: true,
+          })
+          const entries = f
+            .git("--git-dir", f.remote, "ls-tree", "refs/heads/main")
+            .split("\n")
+            .map((line) => {
+              const [metadata, path] = line.split("\t")
+              return `${metadata?.split(" ")[0]} ${path}`
+            })
+          expect(entries).toEqual(["120000 current", "100755 run.sh"])
+          expect(
+            f.git("--git-dir", f.remote, "show", "refs/heads/main:current"),
+          ).toBe("after.md")
+          expect(
+            f.git("--git-dir", f.remote, "show", "refs/heads/main:run.sh"),
+          ).toBe("#!/bin/sh\necho after")
+        } finally {
+          await worker.stop()
+        }
+      },
+    )
+  },
+)
+
+it(
+  "rechecks an apparent no-op against the current default and applies the requested edit",
+  { timeout: 60_000 },
+  async () => {
+    await withNativeHydrationFixture(
+      { github: true, githubWriteView: "writable", writeStatus: "writable" },
+      async (f) => {
+        const { workspaceFileEdit } = await import(
+          "../../openworkflow/workflows/workspace-file-edit.js"
+        )
+        const spec = {
+          ...workspaceFileEdit.spec,
+          retryPolicy: { maximumAttempts: 1 },
+        }
+        f.runner.implementWorkflow(spec, workspaceFileEdit.fn)
+        await f.worker.stop()
+        // A human changes the actual default before its webhook reaches our cached revision.
+        writeFileSync(
+          join(f.directory, "document-000.md"),
+          "# Concurrent change\n",
+        )
+        f.git("add", "document-000.md")
+        f.git(
+          "-c",
+          "user.name=Human",
+          "-c",
+          "user.email=human@example.test",
+          "commit",
+          "-m",
+          "Concurrent change",
+        )
+        f.git("push", f.remote, "HEAD:refs/heads/main")
+        const worker = f.runner.newWorker({ concurrency: 1 })
+        await worker.start()
+        try {
+          const handle = await f.runner.runWorkflow(spec, {
+            orgId: f.org.id,
+            workspaceId: f.workspaceId,
+            jobId: `wjob_${f.id}_stale_noop`,
+            revision: { ...f.revision, access: "write-default" },
+            files: [
+              {
+                path: "document-000.md",
+                content: "# Document 0\nCommitted body 0.\n",
+              },
+            ],
+            deletePaths: [],
+          })
+          expect(await handle.result({ timeoutMs: 30_000 })).toMatchObject({
+            committed: true,
+          })
+          expect(
+            f.git(
+              "--git-dir",
+              f.remote,
+              "show",
+              "refs/heads/main:document-000.md",
+            ),
+          ).toBe("# Document 0\nCommitted body 0.")
+          expect(
+            f.git(
+              "--git-dir",
+              f.remote,
+              "rev-list",
+              "--count",
+              `${f.sha}..refs/heads/main`,
+            ),
+          ).toBe("2")
         } finally {
           await worker.stop()
         }

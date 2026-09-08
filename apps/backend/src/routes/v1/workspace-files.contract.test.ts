@@ -1,26 +1,26 @@
-import { workspaceHttpApp } from "../../test/workspace-http-fixture.js"
-import { withNativeIndexFixture } from "../../test/native-index-fixture.js"
 import { generateKeyPairSync } from "node:crypto"
+import { rename, writeFile } from "node:fs/promises"
+import { join } from "node:path"
+import type { OpenAPIHono } from "@hono/zod-openapi"
+import { localProcessSandbox } from "@tanstack/ai-sandbox-local-process"
+import { eq } from "drizzle-orm"
 import { HttpResponse, http } from "msw"
 import { setupServer } from "msw/node"
 import { BackendPostgres } from "openworkflow/postgres"
-import { connections } from "../../db/schema/connections.js"
-import { rename, writeFile } from "node:fs/promises"
-import { join } from "node:path"
-import { localProcessSandbox } from "@tanstack/ai-sandbox-local-process"
-import { adaptTanstackHandle } from "../../domain/workspaces/job-sandbox.js"
-import {
-  attachWorkspaceSandbox,
-  destroyWorkspaceSandbox,
-} from "../../domain/workspaces/sandbox-registry.js"
-import { OpenAPIHono } from "@hono/zod-openapi"
-import { eq } from "drizzle-orm"
 import { expect, it } from "vitest"
 import type { AppEnv } from "../../app/env.js"
 import { parseEnv } from "../../config/env.js"
 import { withOrgDbContext } from "../../db/client.js"
+import { connections } from "../../db/schema/connections.js"
 import { workspaces } from "../../db/schema/workspaces.js"
+import { adaptTanstackHandle } from "../../domain/workspaces/job-sandbox.js"
 import type { WorkspaceRevision } from "../../domain/workspaces/revision.js"
+import {
+  attachWorkspaceSandbox,
+  destroyWorkspaceSandbox,
+} from "../../domain/workspaces/sandbox-registry.js"
+import { withNativeIndexFixture } from "../../test/native-index-fixture.js"
+import { workspaceHttpApp } from "../../test/workspace-http-fixture.js"
 import { workspaceFilesRoutes } from "./workspace-files-routes.js"
 
 async function withFilesWorkspace(
@@ -378,11 +378,9 @@ it(
             .toMatchObject({
               orgId,
               workspaceId,
-              kind: "ui_file_edit",
-              mergeFiles: [
-                { path: "AGENTS.md", content: "# Saved instructions\n" },
-              ],
-              mergeDeletePaths: [],
+              revision: { access: "write-default", workspaceId },
+              files: [{ path: "AGENTS.md", content: "# Saved instructions\n" }],
+              deletePaths: [],
             })
         } finally {
           await queue.stop()

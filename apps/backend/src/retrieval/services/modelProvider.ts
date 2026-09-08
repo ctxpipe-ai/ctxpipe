@@ -1,8 +1,7 @@
 import type { BaseChatModel } from "@langchain/core/language_models/chat_models"
 import { z } from "zod"
-
-import { withLangfuseGeneration } from "../../observability/langfuse.js"
 import { assertNotInOrgDbContext } from "../../db/client.js"
+import { withLangfuseGeneration } from "../../observability/langfuse.js"
 import {
   type ModelParams,
   mergeModelParams,
@@ -76,6 +75,8 @@ const modelEnvSchema = z
   })
 
 export type GetModelOptions = {
+  /** Fixed-purpose model selection; bypasses the configurable tier fallback chain. */
+  model?: string
   temperature?: number
   /** When false, merges reasoning.effort=none over the tier model spec. */
   reasoning?: boolean
@@ -142,9 +143,10 @@ export function getModel(
   const fast = env.MODEL_FAST_NAME
   const medium = env.MODEL_MEDIUM_NAME
   const high = env.MODEL_HIGH_NAME
-  const primarySpec = tierModelSpec(tier, env)
-  const rawModels =
-    tier === "fast"
+  const primarySpec = options?.model ?? tierModelSpec(tier, env)
+  const rawModels = options?.model
+    ? [options.model]
+    : tier === "fast"
       ? [fast, medium, high]
       : tier === "medium"
         ? [medium, fast, high]

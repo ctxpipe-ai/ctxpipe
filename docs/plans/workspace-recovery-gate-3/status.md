@@ -29,3 +29,26 @@ The required CI write contract now runs the native success/race proofs instead o
 
 
 Checkpoint validation: `typed-write-checkpoint-native` passes 11/11 tests across native write contracts and real worker discovery. `typed-write-checkpoint-types` passes the complete backend project with exactly 143 acknowledged pre-existing diagnostics and no new or stale allowances. Proof policy passes 431 test/story/config files and 27 command files after staging the deleted obsolete characterization. This is an intermediate Gate 3 checkpoint, not terminal gate acceptance.
+
+
+## Review corrections after e7c18bd
+
+Intermediate checkpoint `e7c18bd854a54f7d8190c663a014c5f0158ed67e` was pushed and verified on the authorized recovery branch. CI run `34204037096` completed with 12/13 jobs passing: all builds, native codesearch, all project typechecks, lint, migrations, packages and Terraform passed. Backend tests found the existing allowed chat failure plus three assertions tied to the prior command shape / an overly strict concurrent-delivery ordering. The obsolete mock assertion requiring an unbound enqueue is removed in favor of the existing native rejection proof. The Files HTTP assertion now checks the typed payload. Concurrent replicas may either reject an active owner's duplicate or return its completed result; the contract still requires exactly one published commit and one recorded owner.
+
+Both intermediate reviews are saved in `checkpoint-e7c18bd-{standards,spec}.md` with coverage reports. They are not Gate 3 terminal acceptance. Their duplicated-code finding prompted shared ordinary Git stage/validate/commit and broker functions; each workflow retains explicit durable steps. `shared-native-write-regression` passes 13 tests.
+
+Commit subjects now select the fixed small model, disable streaming, and abort after five seconds before using the literal fallback. The real third-party HTTP contract reproduces the wrong tier model and missing timeout, then passes with the existing model-provider tests (23 total in `commit-subject-timeout-green`). Earlier non-escalated model red runs are local PostgreSQL permission/import diagnostics, not product failures; `commit-subject-native-runtime-red` is the actual wrong-model reproduction.
+
+`descendant-push-recovery-red/green` proves a lost push acknowledgement can be recovered after another writer advances the branch: native reachability finds the job's commit in the current default, the immutable job SHA is retained, and canonical hydration is durably queued for the descendant. Publication now refreshes and validates the canonical revision and throws on a binding/CAS miss instead of completing without a hydrate. The two success cases use one write credential and do not push again.
+
+`native-file-mode-red` reproduces executable/symlink conversion to ordinary files. Native staging now preserves the indexed mode, and the mode case passes in `native-file-mode-green-terminal-status-red`. That same run reproduces the public status remaining running after native retries exhaust. `terminal-native-status-green` passes the terminal-status correction and both lost-ack cases: the model reconciles a failed/canceled owning OpenWorkflow run, with org/workspace/job identity predicates, in a short SQL transaction. Step failures still awaiting native retry remain running. Admission-failure reconciliation remains outstanding.
+
+`stale-noop-native-red/green` proves an apparent no-op against an old cached SHA is recomputed against the actual default. The workflow can refresh at most three times, never changes the immutable original command identity, and publishes one correction commit on top of the concurrent human commit. Complete replay remains a durable return.
+
+Remaining Gate 3 scope is unchanged: ten typed kinds, semantic conflict/rebase, protected/paused admission and resume, scheduling-failure recovery, attempt/remainder bounds, deeper worker restart/replica proof, and migration/deletion of all alternate writers and broad credentials.
+
+Proof-policy recheck after the review corrections passes 432 test/story/config files and 27 command files. The fixed-small-model HTTP contract is now included in the required write-job contract set.
+
+`reviewed-write-regression` passes all 37 tests across the native write, small-model HTTP, Files HTTP, remaining queue characterization, and real worker-discovery suites (237 seconds). No local full-backend suite was run alongside the host services.
+
+`reviewed-write-types` passes the complete backend typecheck (272.5 seconds) with exactly 143 acknowledged diagnostics and no new or stale allowances. Scoped Biome passes all 12 changed/new implementation and native-contract files. This remains an intermediate checkpoint; the scheduling-failure scenario and all remaining Gate 3 requirements are still active work.

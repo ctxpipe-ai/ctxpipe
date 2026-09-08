@@ -204,18 +204,5 @@ describe("enqueueWorkspaceWriteCommit", () => {
     expect(persistHydrateFailureMock).not.toHaveBeenCalled()
   })
 
-  it("starts the workflow when the workspace snapshot cannot be loaded", async () => {
-    getWorkspaceByIdMock.mockRejectedValue(new Error("db down"))
-    const log = { error: vi.fn() }
-    await enqueueWorkspaceWriteCommit(
-      {
-        orgId: "org_1",
-        workspaceId: "ws_1",
-        kind: "migration_export",
-      },
-      log,
-    )
-    expect(persistWriteJobIntentMock).not.toHaveBeenCalled()
-    expect(runWorkflowWithWorkerWakeMock).toHaveBeenCalled()
-  })
+
 })

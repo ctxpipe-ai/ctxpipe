@@ -26,8 +26,13 @@ export async function invokeCommitSubjectModel(
   prompt: string,
 ): Promise<string> {
   const { getModel } = await import("../../retrieval/services/modelProvider.js")
-  const model = getModel("fast")
-  const result = await model.invoke(prompt)
+  const model = getModel("fast", {
+    model: COMMIT_SUBJECT_MODEL,
+    streaming: false,
+  })
+  const result = await model.invoke(prompt, {
+    signal: AbortSignal.timeout(5_000),
+  })
   const content = result.content
   if (typeof content === "string") return content
   if (Array.isArray(content)) {

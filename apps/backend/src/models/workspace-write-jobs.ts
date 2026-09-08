@@ -297,6 +297,23 @@ export async function persistWriteJobPreparedCommit(
 
 export async function getWorkspaceWriteJob(jobId: string) {
   return orgSql(async () => {
+    // OpenWorkflow is the retry authority. Reconcile only a terminal owning run;
+    // a failed step whose native retries are still pending must remain running.
+    await getOrgDb()
+      .update(workspaceWriteJobs)
+      .set({ status: WRITE_JOB_STATUSES.failed, updatedAt: new Date() })
+      .where(
+        and(
+          eq(workspaceWriteJobs.id, jobId),
+          eq(workspaceWriteJobs.status, WRITE_JOB_STATUSES.running),
+          sql`exists (select 1 from openworkflow.workflow_runs owner
+        where owner.id::text = ${workspaceWriteJobs.payload}->>'workflowRunId'
+          and owner.input->>'orgId' = ${workspaceWriteJobs.orgId}
+          and owner.input->>'workspaceId' = ${workspaceWriteJobs.workspaceId}
+          and owner.input->>'jobId' = ${workspaceWriteJobs.id}
+          and owner.status in ('failed', 'canceled'))`,
+        ),
+      )
     const [row] = await getOrgDb()
       .select()
       .from(workspaceWriteJobs)

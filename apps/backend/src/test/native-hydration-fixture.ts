@@ -30,7 +30,7 @@ import { workspaceTipCheck } from "../openworkflow/workflows/workspace-tip-check
 import { closeGraphDb } from "../platform/graph/client.js"
 
 export type NativeHydrationOptions = {
-  files?: Array<{ path: string; body: string }>
+  files?: Array<{ path: string; body: string; mode?: "100755" | "120000" }>
   count?: number
   github?: boolean
   githubWriteView?: "writable" | "missing"
@@ -216,6 +216,12 @@ async function createNativeHydrationFixture(
     for (const file of expected)
       writeFileSync(join(directory, file.path), file.body)
     git("add", ".")
+    for (const file of options.files ?? []) {
+      if (file.mode) {
+        const blob = git("rev-parse", `:${file.path}`)
+        git("update-index", "--cacheinfo", `${file.mode},${blob},${file.path}`)
+      }
+    }
     git(
       "-c",
       "user.name=Contract",
