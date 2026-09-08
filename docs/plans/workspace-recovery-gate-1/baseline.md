@@ -1,6 +1,6 @@
 # Gate 1 — required execution and truthful CI
 
-Status: all 13 CI jobs passed at `05a3c6e4`; final policy corrections, exact-commit
+Status: all 13 CI jobs passed at `05a3c6e4`, `6d180ca8` and `bec0c492`; final policy corrections, exact-commit
 CI and independent review closure are pending. This is not a Gate 1 completion claim.
 
 Starting point: `7dfa6b93a5baedc3eb2c86dd1056662e89cace00` (approved Gate 0).
@@ -23,6 +23,10 @@ Branch: `codex/develop-plan-to-refocus-branch-direction`; existing PR 319.
   test configuration retries, destructuring aliases, and Playwright fail/fixme.
   Test options reject mutable bindings, object writes, retries and expected
   failure/selection options. Lexical constants respect scope and computed keys.
+  YAML parsing preserves folded commands; local ESM/CommonJS and custom config
+  paths are discovered. The two CI runners' literal retry argv is also checked.
+  Final local inventory is 433 source/config/runner files and 27 command files.
+  Domain table rows and helper namespaces remain distinct from test options.
   The accepted Gate 0 characterization inventory is
   read from its immutable commit, so editing a TSV cannot bypass proof policy.
 - Codesearch runs every discovered test, routing its two Bun.Glob-dependent
@@ -39,7 +43,7 @@ Branch: `codex/develop-plan-to-refocus-branch-direction`; existing PR 319.
 | `ui-required-runner` | 291 cases in 61 files pass |
 | `cli-build-prerequisite` | 93 cases in 10 files pass, with the CLI built by its runner |
 | `cdk-required-runner` | 32 cases in 4 files pass |
-| `policy-fails-options-green-tests` | Five public CI-script regression tests pass; mutable settings and expected-failure options covered |
+| `policy-config-final-tests` | Five public CI-script regression tests pass; mutable settings and expected-failure options covered |
 | `terraform-validate` | Configuration valid with backend disabled and no credentials |
 | `ci-05a3c6e4-codesearch-contracts` | All 221 cases in 33 files pass: 184 Node and 37 Bun, zero skipped |
 

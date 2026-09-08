@@ -1,8 +1,8 @@
 import { execFileSync } from "node:child_process"
-import { existsSync, readFileSync } from "node:fs"
-import { dirname, relative, resolve } from "node:path"
+import { relative, resolve } from "node:path"
 import { fileURLToPath } from "node:url"
 import ts from "typescript"
+import { readTestConfiguration } from "./test-configuration.mjs"
 
 try {
   const root = fileURLToPath(new URL("../../", import.meta.url))
@@ -35,6 +35,10 @@ try {
           .filter(
             (file) =>
               /\.(test|stories)\.[cm]?[jt]sx?$/.test(file) ||
+              [
+                "scripts/ci/test-suite.mjs",
+                "apps/codesearch/scripts/run-vitest-contracts.mjs",
+              ].includes(file) ||
               /(?:^|\/)package\.json$|^\.github\/workflows\/.*\.ya?ml$|^scripts\/.*\.sh$/.test(
                 file,
               ) ||
@@ -43,71 +47,8 @@ try {
               ),
           )
           .map((file) => resolve(root, file))
-  const commandFiles = files.filter((file) => /\.(json|ya?ml|sh)$/.test(file))
-  const errors = []
-  for (const file of commandFiles) {
-    const contents = readFileSync(file, "utf8")
-    const commands = file.endsWith("package.json")
-      ? Object.values(JSON.parse(contents).scripts ?? {})
-      : contents
-          .replace(/\\\r?\n/g, " ")
-          .split("\n")
-          .filter((line) => !line.trim().startsWith("#"))
-    for (const command of commands) {
-      if (!/\b(?:vitest|playwright|test(?::[\w-]+)?)\b/.test(command)) continue
-      for (const flag of command.matchAll(
-        /--(?:retry|retries)(?:=|\s+)([^\s;|&]+)/g,
-      ))
-        if (flag[1] !== "0")
-          errors.push(
-            `${relative(root, file)}: Test runner retry flags are forbidden`,
-          )
-    }
-  }
-  const configFiles = new Set(
-    files.filter((file) =>
-      /(?:^|\/)(?:vitest|vite|playwright)\.config\.[cm]?[jt]s$/.test(file),
-    ),
-  )
-  // Local configuration dependencies are part of the configuration surface.
-  // Follow imports/re-exports; never scan an installed dependency as product policy.
-  for (const file of configFiles) {
-    const parsed = ts.createSourceFile(
-      file,
-      readFileSync(file, "utf8"),
-      ts.ScriptTarget.Latest,
-      true,
-    )
-    for (const statement of parsed.statements) {
-      const specifier = statement.moduleSpecifier
-      if (
-        !specifier ||
-        !ts.isStringLiteral(specifier) ||
-        !specifier.text.startsWith(".")
-      )
-        continue
-      const base = resolve(dirname(file), specifier.text)
-      const candidates = [
-        base,
-        base.replace(/\.[cm]?js$/, ".ts"),
-        ...[".ts", ".mts", ".cts", ".js", "/index.ts", "/index.js"].map(
-          (extension) => base + extension,
-        ),
-      ]
-      const dependency = candidates.find(
-        (candidate) => existsSync(candidate) && /\.[cm]?[jt]s$/.test(candidate),
-      )
-      if (!dependency) {
-        errors.push(
-          `${relative(root, file)}: Cannot resolve local test configuration ${specifier.text}`,
-        )
-        continue
-      }
-      configFiles.add(dependency)
-      if (!files.includes(dependency)) files.push(dependency)
-    }
-  }
-  const sourceFiles = files.filter((file) => !commandFiles.includes(file))
+  const { sourceFiles, commandFiles, configFiles, errors } =
+    readTestConfiguration(files, root)
   const compilerOptions = {
     allowJs: true,
     noResolve: true,
@@ -161,7 +102,13 @@ try {
         ts.isStringLiteral(statement.moduleSpecifier)
       ) {
         const bindings = statement.importClause?.namedBindings
-        if (bindings && ts.isNamespaceImport(bindings)) {
+        if (
+          bindings &&
+          ts.isNamespaceImport(bindings) &&
+          ["vitest", "node:test", "bun:test", "@playwright/test"].includes(
+            statement.moduleSpecifier.text,
+          )
+        ) {
           mocks.add(bindings.name.text)
           tests.add(bindings.name.text)
         }
@@ -243,6 +190,14 @@ try {
     const mutatedObjects = new Set()
     const objectOrigin = (expression, seen = new Set()) => {
       expression = unwrap(expression)
+      if (
+        ts.isCallExpression(expression) &&
+        ["Object.freeze", "Object.seal", "Object.assign"].includes(
+          expression.expression.getText(source),
+        ) &&
+        expression.arguments[0]
+      )
+        return objectOrigin(expression.arguments[0], seen)
       if (!ts.isIdentifier(expression)) return expression
       const initializer = initializerOf(expression)
       if (!initializer || seen.has(initializer)) return expression
@@ -273,7 +228,13 @@ try {
         )
           mutatedObjects.add(objectOrigin(access.expression))
       }
-      if (ts.isCallExpression(node) && !tests.has(rootName(node.expression))) {
+      if (
+        ts.isCallExpression(node) &&
+        !tests.has(rootName(node.expression)) &&
+        !["Object.freeze", "Object.seal"].includes(
+          node.expression.getText(source),
+        )
+      ) {
         // An options object passed to arbitrary code is no longer statically
         // immutable. This covers Object/Reflect setters and local mutators.
         for (const argument of node.arguments)
@@ -324,8 +285,16 @@ try {
       }
     }
     const collectOptions = (node) => {
-      if (ts.isCallExpression(node) && tests.has(rootName(node.expression)))
-        for (const argument of node.arguments) markOptions(argument)
+      if (ts.isCallExpression(node) && tests.has(rootName(node.expression))) {
+        const callee = unwrap(node.expression)
+        const method = ts.isPropertyAccessExpression(callee)
+          ? callee.name.text
+          : ts.isElementAccessExpression(callee)
+            ? callee.argumentExpression.getText(source).replaceAll(/["'`]/g, "")
+            : ""
+        if (!["each", "for", "extend"].includes(method))
+          for (const argument of node.arguments) markOptions(argument)
+      }
       ts.forEachChild(node, collectOptions)
     }
     collectOptions(source)
@@ -350,6 +319,15 @@ try {
       return expression.getText(source)
     }
     const visit = (node) => {
+      if (
+        file.endsWith(".mjs") &&
+        !file.endsWith(".test.mjs") &&
+        (ts.isStringLiteral(node) ||
+          ts.isNoSubstitutionTemplateLiteral(node)) &&
+        /^--(?:retry|retries)(?:=|$)/.test(node.text) &&
+        !/^--(?:retry|retries)=0$/.test(node.text)
+      )
+        complain(node, "CI runner retry argv is forbidden")
       if (ts.isBindingElement(node)) {
         const property = (node.propertyName ?? node.name)
           .getText(source)

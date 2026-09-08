@@ -39,7 +39,8 @@
     "concurrently": "^9.1.0",
     "portless": "^0.9.4",
     "turbo": "^2.10.9",
-    "typescript": "^5.9.3"
+    "typescript": "^5.9.3",
+    "yaml": "2.8.2"
   },
   "pnpm": {
     "overrides": {

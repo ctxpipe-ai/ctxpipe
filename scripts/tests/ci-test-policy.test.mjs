@@ -28,6 +28,7 @@ test("proof policy rejects aliased skips, retries and owned module mocks without
     )
     assert.equal(normal.status, 0, normal.stderr)
     for (const source of [
+      'import { test } from "vitest"; const options = Object.seal({ retry: 0 }); options.retry = 2; test("proof", options, () => {})',
       'import { test } from "vitest"; const options = Object.freeze({ retry: 2 }); test("proof", options, () => {})',
       'import { test } from "vitest"; test("proof", Object.assign({}, { retry: 2 }), () => {})',
       'import { test } from "vitest"; const args = ["proof", { fails: true }, () => {}] as const; test(...args)',
@@ -88,6 +89,42 @@ test("proof policy rejects aliased skips, retries and owned module mocks without
       JSON.stringify({ scripts: { test: "vitest run --retry=2" } }),
     )
     assert.equal(spawnSync(process.execPath, [policy, manifest]).status, 1)
+    const frozenZero = check(
+      'import { test } from "vitest"; test("proof", Object.freeze({ retry: 0 }), () => {})',
+    )
+    assert.equal(frozenZero.status, 0, frozenZero.stderr)
+    const workflow = join(directory, "ci.yaml")
+    writeFileSync(
+      workflow,
+      "jobs:\n  test:\n    steps:\n      - run: >\n          pnpm vitest run\n          --retry=2\n",
+    )
+    assert.equal(spawnSync(process.execPath, [policy, workflow]).status, 1)
+    const custom = join(directory, "custom.ts")
+    writeFileSync(custom, "export default { test: { retry: 2 } }")
+    writeFileSync(
+      manifest,
+      JSON.stringify({ scripts: { test: "vitest run --config ./custom.ts" } }),
+    )
+    assert.equal(spawnSync(process.execPath, [policy, manifest]).status, 1)
+    const commonConfig = join(directory, "vitest.config.cjs")
+    const commonShared = join(directory, "shared-options.cjs")
+    writeFileSync(commonShared, "module.exports = { test: { retry: 2 } }")
+    writeFileSync(
+      commonConfig,
+      'module.exports = require("./shared-options.cjs")',
+    )
+    assert.equal(spawnSync(process.execPath, [policy, commonConfig]).status, 1)
+    const helperCall = check(
+      'import * as helpers from "./helpers"; test("proof", () => helpers.assert(buildSubject()))',
+    )
+    assert.equal(helperCall.status, 0, helperCall.stderr)
+    const tableData = check(
+      'import { test } from "vitest"; test.each([{ retry: 2 }])("proof", (value) => expect(value.retry).toBe(2))',
+    )
+    assert.equal(tableData.status, 0, tableData.stderr)
+    const runner = join(directory, "runner.mjs")
+    writeFileSync(runner, 'spawnSync("node", [vitest, "run", "--retry=2"])')
+    assert.equal(spawnSync(process.execPath, [policy, runner]).status, 1)
     const domainRetry = check(
       'test("retry policy", () => withTransientHttpRetry(operation, { retries: 2 }))',
     )
