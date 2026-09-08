@@ -1,5 +1,6 @@
 import type { Env } from "../../config/env.js"
 import { getRepoWriteCloneToken } from "../../models/github-installation.js"
+import { persistSemanticHandoff } from "../../models/workspace-write-jobs.js"
 import {
   getDesiredWorkspaceRevision,
   getWorkspaceById,
@@ -251,11 +252,21 @@ export async function captureSemanticHandoff(
     "../../services/git/write-tree.js"
   )
   const changes = await readGitCommitChanges(committed, revision.sha)
+  const nextRevision = await refreshWorkspaceWriteRevision(input, revision, env)
+  const handoff = await persistSemanticHandoff({
+    jobId: input.jobId,
+    revision,
+    nextRevision,
+    candidateSha: committed.sha,
+    ...changes,
+    mirror: input.mirror,
+  })
   return {
     orgId: input.orgId,
     workspaceId: input.workspaceId,
-    jobId: `${input.jobId}:semantic`,
-    revision: await refreshWorkspaceWriteRevision(input, revision, env),
+    jobId: input.jobId,
+    handoff,
+    revision: nextRevision,
     previousSha: revision.sha,
     ...changes,
     ...(input.mirror ? { mirror: input.mirror } : {}),

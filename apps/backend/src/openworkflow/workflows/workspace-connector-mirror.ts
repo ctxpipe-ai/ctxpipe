@@ -2,7 +2,7 @@ import { defineWorkflow } from "openworkflow"
 import { z } from "zod"
 import { parseEnv } from "../../config/env.js"
 import { generateCommitSubject } from "../../domain/workspaces/commit-subject.js"
-import { connectorMirrorSourceSchema } from "../../domain/workspaces/connector-mirror.js"
+import { connectorMirrorContentSchema } from "../../domain/workspaces/connector-mirror.js"
 import {
   sameWorkspaceRevision,
   workspaceRevisionSchema,
@@ -27,11 +27,7 @@ import {
   persistWriteJobCommitSha,
   persistWriteJobStatus,
 } from "../../models/workspaces.js"
-import {
-  gitFileBytes,
-  gitFileChangeSchema,
-  repositoryFilePathSchema,
-} from "../../services/git/file-change.js"
+import { gitFileBytes } from "../../services/git/file-change.js"
 import { nativeGit, withGitDirectory } from "../../services/git/pack.js"
 import {
   commitGitTree,
@@ -41,30 +37,6 @@ import {
 import { runWorkflowWithWorkerWake } from "../client.js"
 import { workspaceHydrate } from "./workspace-hydrate.js"
 import { workspaceSemanticMerge } from "./workspace-semantic-merge.js"
-
-export const connectorMirrorContentSchema = z
-  .object({
-    mirror: connectorMirrorSourceSchema,
-    files: z.array(gitFileChangeSchema),
-    deletePaths: z.array(repositoryFilePathSchema),
-  })
-  .strict()
-  .refine(
-    (input) =>
-      [...input.files.map((file) => file.path), ...input.deletePaths].every(
-        (path) =>
-          path.startsWith(`${input.mirror.provider}/`) &&
-          path !== `${input.mirror.provider}/config.yaml`,
-      ),
-    "A mirror may only change content under its managed provider root",
-  )
-  .refine(
-    (input) =>
-      new Set([...input.files.map((file) => file.path), ...input.deletePaths])
-        .size ===
-      input.files.length + input.deletePaths.length,
-    "Each mirror path must have exactly one operation",
-  )
 
 export const workspaceConnectorMirrorInputSchema = connectorMirrorContentSchema
   .safeExtend({

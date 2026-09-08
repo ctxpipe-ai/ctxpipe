@@ -440,16 +440,17 @@ it(
   "recovers the same Docker resource when sandbox creation is replayed before acknowledgement",
   { timeout: 60_000 },
   async () => {
-    const { createMergeSandbox, destroyMergeSandbox } = await import(
-      "./semantic-merge.js"
-    )
+    const { createMergeSandbox, destroyMergeSandbox, planMergeSandbox } =
+      await import("./semantic-merge.js")
     const { dockerSandbox } = await import("@tanstack/ai-sandbox-docker")
     const savedProvider = process.env.SANDBOX_PROVIDER
+    const savedDockerHost = process.env.DOCKER_HOST
     process.env.SANDBOX_PROVIDER = "docker"
     const locators: Awaited<ReturnType<typeof createMergeSandbox>>[] = []
     try {
       const key = `native-merge-resource-${Date.now()}-${Math.random()}`
-      const first = await createMergeSandbox(key)
+      const planned = await planMergeSandbox(key)
+      const first = await createMergeSandbox(planned)
       locators.push(first)
       const provider = dockerSandbox({ image: "node:22" })
       const original = await provider.resume({ id: first.id })
@@ -458,7 +459,12 @@ it(
         "/workspace/captured.txt",
         "captured before lost acknowledgement",
       )
-      const replay = await createMergeSandbox(key)
+      delete process.env.SANDBOX_PROVIDER
+      process.env.DOCKER_HOST = `unix:///private/tmp/ctxpipe-missing-docker-${Date.now()}.sock`
+      await expect(createMergeSandbox(planned)).rejects.toThrow()
+      if (savedDockerHost === undefined) delete process.env.DOCKER_HOST
+      else process.env.DOCKER_HOST = savedDockerHost
+      const replay = await createMergeSandbox(planned)
       locators.push(replay)
       expect(replay).toEqual(first)
       const resumed = await provider.resume({ id: replay.id })
@@ -466,6 +472,8 @@ it(
         "captured before lost acknowledgement",
       )
     } finally {
+      if (savedDockerHost === undefined) delete process.env.DOCKER_HOST
+      else process.env.DOCKER_HOST = savedDockerHost
       for (const locator of locators) await destroyMergeSandbox(locator)
       if (savedProvider === undefined) delete process.env.SANDBOX_PROVIDER
       else process.env.SANDBOX_PROVIDER = savedProvider
@@ -558,6 +566,11 @@ it(
             commitSha: f.git("--git-dir", f.remote, "rev-parse", "main"),
           })
           const runs = (await f.backend.listWorkflowRuns({ limit: 100 })).data
+          expect(
+            await withOrgIdContext(f.org, () =>
+              reconcileWorkspaceWriteJob(`${command.jobId}:semantic`),
+            ),
+          ).toBeNull()
           expect(
             runs.filter(
               (run) => run.workflowName === "workspace-write-semantic-merge",
@@ -678,6 +691,28 @@ it.each([
             command,
           )
           expect(await replay.result({ timeoutMs: 5_000 })).toEqual(result)
+          const { BackendPostgres } = await import("openworkflow/postgres")
+          const backend = await BackendPostgres.connect(f.databaseUrl, {
+            runMigrations: false,
+          })
+          try {
+            const hydrates = (
+              await backend.listWorkflowRuns({ limit: 100 })
+            ).data.filter(
+              (run) =>
+                run.workflowName === "workspace-hydrate" &&
+                (run.input as { workspaceId?: string })?.workspaceId ===
+                  f.workspaceId,
+            )
+            expect(hydrates).toHaveLength(1)
+            expect(hydrates[0]?.input).toMatchObject({
+              revision: {
+                sha: f.git("--git-dir", f.remote, "rev-parse", "main"),
+              },
+            })
+          } finally {
+            await backend.stop()
+          }
         } finally {
           await worker.stop()
         }
@@ -690,9 +725,8 @@ it(
   "uses the native local provider when no Docker API is reachable and keeps an explicit lock",
   { timeout: 20_000 },
   async () => {
-    const { createMergeSandbox, destroyMergeSandbox } = await import(
-      "./semantic-merge.js"
-    )
+    const { createMergeSandbox, destroyMergeSandbox, planMergeSandbox } =
+      await import("./semantic-merge.js")
     const saved = {
       SANDBOX_PROVIDER: process.env.SANDBOX_PROVIDER,
       DOCKER_HOST: process.env.DOCKER_HOST,
@@ -701,7 +735,9 @@ it(
     process.env.DOCKER_HOST = `unix:///private/tmp/ctxpipe-no-docker-${Date.now()}.sock`
     let locator: Awaited<ReturnType<typeof createMergeSandbox>> | undefined
     try {
-      locator = await createMergeSandbox(`native-no-docker-${Date.now()}`)
+      locator = await createMergeSandbox(
+        await planMergeSandbox(`native-no-docker-${Date.now()}`),
+      )
       expect(locator.provider).toBe("unsandboxed")
       const { localProcessSandbox } = await import(
         "@tanstack/ai-sandbox-local-process"
@@ -716,7 +752,9 @@ it(
       )
       process.env.SANDBOX_PROVIDER = "docker"
       await expect(
-        createMergeSandbox(`native-locked-docker-${Date.now()}`),
+        planMergeSandbox(`native-locked-docker-${Date.now()}`).then(
+          createMergeSandbox,
+        ),
       ).rejects.toThrow()
     } finally {
       if (locator) await destroyMergeSandbox(locator)

@@ -9,7 +9,7 @@ Parent: [`.ai/memory/README.md`](../README.md).
 | ADR | Title | Status |
 |-----|-------|--------|
 | [ADR-031](ADR-031-required-recovery-ci.md) | Required recovery CI | Accepted |
-| [ADR-033](ADR-033-native-durable-write-workflows.md) | Native durable write workflows | Accepted |
+| [ADR-033](ADR-033-native-durable-write-workflows.md) | Native durable write workflows and completed-result projections | Accepted |
 | [ADR-032](ADR-032-workspace-revision-projection-identity.md) | Workspace revision and projection identity | Accepted |
 
 | [ADR-001](ADR-001-frontend-ui-app-stack.md) | Frontend UI app stack | Accepted |

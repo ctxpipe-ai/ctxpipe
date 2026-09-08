@@ -1,0 +1,1 @@
+ALTER TABLE "workspaces" ADD COLUMN "completed_knowledge_paths" jsonb;

@@ -229,20 +229,6 @@ export const workspaceMigrationExport = defineWorkflow(
                 () =>
                   refreshWorkspaceWriteRevision(input, handoff.revision, env),
               )
-              await step.run(
-                { name: "enqueue-merged-no-op-hydrate" },
-                async () => {
-                  await runWorkflowWithWorkerWake(
-                    workspaceHydrate.spec,
-                    {
-                      orgId: input.orgId,
-                      workspaceId: input.workspaceId,
-                      revision: published,
-                    },
-                    { idempotencyKey: `${input.jobId}:hydrate` },
-                  )
-                },
-              )
               await step.run({ name: "complete-merged-no-op" }, () =>
                 persistMigrationExportNoOp(
                   input.jobId,

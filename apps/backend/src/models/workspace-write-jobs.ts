@@ -1,8 +1,12 @@
 import { isDeepStrictEqual } from "node:util"
-import { and, asc, desc, eq, isNotNull, notInArray, sql } from "drizzle-orm"
+import { and, asc, eq, isNotNull, ne, notInArray, sql } from "drizzle-orm"
 import { requireCurrentOrgId } from "../auth/context.js"
 import { getOrgDb } from "../db/client.js"
-import { workspaces, workspaceWriteJobs } from "../db/schema/workspaces.js"
+import {
+  workspaceKnowledgePathState,
+  workspaces,
+  workspaceWriteJobs,
+} from "../db/schema/workspaces.js"
 import type { ConnectorMirrorSource } from "../domain/workspaces/connector-mirror.js"
 import {
   sameWorkspaceRevision,
@@ -148,10 +152,18 @@ export async function persistWriteJobStatus(
   status: string,
 ): Promise<void> {
   await orgSql(async () => {
-    await getOrgDb()
+    const [row] = await getOrgDb()
       .update(workspaceWriteJobs)
       .set({ status, updatedAt: new Date() })
-      .where(eq(workspaceWriteJobs.id, jobId))
+      .where(
+        and(
+          eq(workspaceWriteJobs.id, jobId),
+          ne(workspaceWriteJobs.status, WRITE_JOB_STATUSES.completed),
+        ),
+      )
+      .returning()
+    if (row?.status === WRITE_JOB_STATUSES.completed)
+      await projectCompletedKnowledgePaths(row)
   })
 }
 
@@ -233,15 +245,22 @@ export async function persistWriteJobCommitSha(
   jobId: string,
   commitSha: string | null,
 ): Promise<void> {
-  return orgSql(async () => {
-    await getOrgDb()
+  await orgSql(async () => {
+    const [row] = await getOrgDb()
       .update(workspaceWriteJobs)
       .set({
         commitSha,
         status: WRITE_JOB_STATUSES.completed,
         updatedAt: new Date(),
       })
-      .where(eq(workspaceWriteJobs.id, jobId))
+      .where(
+        and(
+          eq(workspaceWriteJobs.id, jobId),
+          ne(workspaceWriteJobs.status, WRITE_JOB_STATUSES.completed),
+        ),
+      )
+      .returning()
+    if (row) await projectCompletedKnowledgePaths(row)
   })
 }
 
@@ -280,14 +299,29 @@ export async function persistMigrationExportNoOp(
         and(
           eq(workspaceWriteJobs.id, jobId),
           eq(workspaceWriteJobs.kind, "migration_export"),
+          ne(workspaceWriteJobs.status, WRITE_JOB_STATUSES.completed),
           sql`(${workspaceWriteJobs.commitSha} is null or ${workspaceWriteJobs.commitSha} = ${unpublishedCommitSha ?? null})`,
         ),
       )
-      .returning({ id: workspaceWriteJobs.id })
-    if (!row)
+      .returning()
+    if (!row) {
+      const [existing] = await getOrgDb()
+        .select()
+        .from(workspaceWriteJobs)
+        .where(eq(workspaceWriteJobs.id, jobId))
+        .limit(1)
+      if (
+        existing?.kind === "migration_export" &&
+        existing.status === WRITE_JOB_STATUSES.completed &&
+        existing.commitSha === null &&
+        existing.payload?.exportTipSha === sha
+      )
+        return
       throw new Error(
         "Migration export is unavailable or already has a candidate commit",
       )
+    }
+    await projectCompletedKnowledgePaths(row)
   })
 }
 
@@ -335,6 +369,114 @@ export async function getMigrationExportSha(
       .orderBy(asc(workspaceWriteJobs.createdAt))
       .limit(1)
     return row?.commitSha ?? null
+  })
+}
+
+/** Bind the exact native delta to the existing command before admitting its child. */
+export async function persistSemanticHandoff(input: {
+  jobId: string
+  revision: WorkspaceRevision
+  nextRevision: WorkspaceRevision
+  candidateSha: string
+  files: GitFileChange[]
+  deletePaths: string[]
+  mirror?: ConnectorMirrorSource
+}) {
+  return orgSql(async () => {
+    const [row] = await getOrgDb()
+      .select()
+      .from(workspaceWriteJobs)
+      .where(eq(workspaceWriteJobs.id, input.jobId))
+      .for("update")
+    if (
+      !row ||
+      row.status !== "running" ||
+      !row.payload?.workflowRunId ||
+      !sameWorkspaceRevision(row.payload.revision, input.revision) ||
+      !isDeepStrictEqual(row.payload.mirror, input.mirror) ||
+      row.commitSha !== input.candidateSha
+    )
+      throw new Error(
+        "Semantic handoff requires the owning unpublished command",
+      )
+    const handoff = {
+      ownerRunId: row.payload.workflowRunId,
+      candidateSha: input.candidateSha,
+      revision: input.nextRevision,
+      files: input.files,
+      deletePaths: input.deletePaths,
+    }
+    if (
+      row.payload.semanticHandoff &&
+      !isDeepStrictEqual(row.payload.semanticHandoff, handoff)
+    )
+      throw new Error("Write job already has a different semantic handoff")
+    await getOrgDb()
+      .update(workspaceWriteJobs)
+      .set({
+        payload: { ...row.payload, semanticHandoff: handoff },
+        updatedAt: new Date(),
+      })
+      .where(eq(workspaceWriteJobs.id, input.jobId))
+    return {
+      ownerRunId: handoff.ownerRunId,
+      candidateSha: handoff.candidateSha,
+    }
+  })
+}
+
+/** Native semantic children share their parent's immutable command and result row. */
+export async function validateSemanticHandoff(
+  input: {
+    jobId: string
+    workspaceId: string
+    revision: WorkspaceRevision
+    previousSha: string
+    files: GitFileChange[]
+    deletePaths: string[]
+    mirror?: ConnectorMirrorSource
+    handoff: { ownerRunId: string; candidateSha: string }
+  },
+  preparedSha?: string,
+) {
+  return orgSql(async () => {
+    const [row] = await getOrgDb()
+      .select()
+      .from(workspaceWriteJobs)
+      .where(eq(workspaceWriteJobs.id, input.jobId))
+      .for("update")
+    if (
+      !row ||
+      row.workspaceId !== input.workspaceId ||
+      row.payload?.workflowRunId !== input.handoff.ownerRunId ||
+      row.payload?.revision?.sha !== input.previousSha ||
+      !isDeepStrictEqual(row.payload?.mirror, input.mirror) ||
+      !isDeepStrictEqual(row.payload?.semanticHandoff, {
+        ...input.handoff,
+        revision: input.revision,
+        files: input.files,
+        deletePaths: input.deletePaths,
+      })
+    )
+      throw new Error("Semantic child does not match the admitted handoff")
+    if (row.status === "completed")
+      return row.commitSha
+        ? { committed: true as const, commitSha: row.commitSha }
+        : { committed: false as const, reason: "no_changes" as const }
+    if (row.status !== "running")
+      throw new Error("Semantic parent is not running")
+    if (preparedSha) {
+      if (
+        row.commitSha !== input.handoff.candidateSha &&
+        row.commitSha !== preparedSha
+      )
+        throw new Error("Semantic handoff already has a different candidate")
+      await getOrgDb()
+        .update(workspaceWriteJobs)
+        .set({ commitSha: preparedSha, updatedAt: new Date() })
+        .where(eq(workspaceWriteJobs.id, input.jobId))
+    }
+    return null
   })
 }
 
@@ -516,30 +658,71 @@ export async function failUnscheduledWriteJob(jobId: string): Promise<void> {
   })
 }
 
-/** Completed commands retain import path identity; Git remains the content authority. */
+function matchingPathBinding(
+  stored: WorkspaceRevision,
+  revision: WorkspaceRevision,
+): boolean {
+  return sameWorkspaceRevision(
+    { ...stored, sha: revision.sha, access: revision.access },
+    revision,
+  )
+}
+
+/** Publish result metadata in the same short transaction as command completion. */
+async function projectCompletedKnowledgePaths(
+  row: typeof workspaceWriteJobs.$inferSelect,
+): Promise<void> {
+  const revision = row.payload?.revision
+  const paths = row.payload?.knowledgePaths
+  if (!revision || !paths) return
+  const db = getOrgDb()
+  const [workspace] = await db
+    .select()
+    .from(workspaces)
+    .where(eq(workspaces.id, row.workspaceId))
+    .for("update")
+  if (
+    !workspace ||
+    workspace.desiredGeneration !== revision.generation ||
+    workspace.workspaceRepositoryUrl !== revision.remote.url ||
+    workspace.githubConnectionId !== revision.remote.connectionId ||
+    workspace.desiredDefaultBranch !== revision.defaultBranch
+  )
+    return
+  const [previous] = await db
+    .select()
+    .from(workspaceKnowledgePathState)
+    .where(eq(workspaceKnowledgePathState.workspaceId, row.workspaceId))
+    .limit(1)
+  const state = {
+    revision,
+    paths: {
+      ...(previous && matchingPathBinding(previous.revision, revision)
+        ? previous.paths
+        : {}),
+      ...paths,
+    },
+  }
+  await db
+    .insert(workspaceKnowledgePathState)
+    .values({ workspaceId: row.workspaceId, orgId: row.orgId, ...state })
+    .onConflictDoUpdate({
+      target: workspaceKnowledgePathState.workspaceId,
+      set: state,
+    })
+}
+
+/** Read one current binding's compact completed-result metadata, independent of job history. */
 export async function getCompletedKnowledgePaths(
   revision: WorkspaceRevision,
 ): Promise<Record<string, string>> {
   return orgSql(async () => {
-    const rows = await getOrgDb()
-      .select({ payload: workspaceWriteJobs.payload })
-      .from(workspaceWriteJobs)
-      .where(
-        and(
-          eq(workspaceWriteJobs.workspaceId, revision.workspaceId),
-          eq(workspaceWriteJobs.generation, revision.generation),
-          eq(workspaceWriteJobs.status, WRITE_JOB_STATUSES.completed),
-          sql`${workspaceWriteJobs.payload}->>'jobWorkspaceUrl' = ${revision.remote.url}`,
-          sql`${workspaceWriteJobs.payload}->'revision'->>'defaultBranch' = ${revision.defaultBranch}`,
-          sql`${workspaceWriteJobs.payload}->'revision'->'remote'->>'connectionId' = ${revision.remote.connectionId}`,
-          sql`${workspaceWriteJobs.payload}->'knowledgePaths' is not null`,
-        ),
-      )
-      .orderBy(desc(workspaceWriteJobs.updatedAt), desc(workspaceWriteJobs.id))
-    return Object.assign(
-      {},
-      ...rows.reverse().map((row) => row.payload?.knowledgePaths ?? {}),
-    )
+    const [row] = await getOrgDb()
+      .select()
+      .from(workspaceKnowledgePathState)
+      .where(eq(workspaceKnowledgePathState.workspaceId, revision.workspaceId))
+      .limit(1)
+    return row && matchingPathBinding(row.revision, revision) ? row.paths : {}
   })
 }
 

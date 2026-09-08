@@ -39,15 +39,15 @@ export async function discoverSandboxProvider(): Promise<SandboxProvider> {
   if (process.env.SANDBOX_PROVIDER?.trim())
     return detectSandboxProviderFromEnv()
   const { default: Docker } = await import("dockerode")
-  const hasDocker = await new Docker({
+  // docker-modem accepts a connection deadline beyond Dockerode's declarations.
+  const options = {
     timeout: 2_000,
     connectionTimeout: 2_000,
-  })
-    .ping()
-    .then(
-      () => true,
-      () => false,
-    )
+  }
+  const hasDocker = await new Docker(options).ping().then(
+    () => true,
+    () => false,
+  )
   return detectSandboxProviderFromEnv({ hasDocker })
 }
 

@@ -176,6 +176,13 @@ export const workspaceWriteJobs = pgTable.withRLS(
     payload: jsonb("payload").$type<{
       revision?: WorkspaceRevision
       workflowRunId?: string
+      semanticHandoff?: {
+        ownerRunId: string
+        candidateSha: string
+        revision: WorkspaceRevision
+        files: GitFileChange[]
+        deletePaths: string[]
+      }
       exportTipSha?: string
       knowledgePaths?: Record<string, string>
       previousSha?: string
@@ -206,6 +213,20 @@ export const workspaceWriteJobs = pgTable.withRLS(
     index("workspace_write_jobs_org_id_idx").on(t.orgId),
     orgIsolationPolicy(t.orgId),
   ],
+)
+
+/** Compact projection of completed write results; kept off the hot workspace row. */
+export const workspaceKnowledgePathState = pgTable.withRLS(
+  "workspace_knowledge_path_state",
+  {
+    workspaceId: text("workspace_id")
+      .primaryKey()
+      .references(() => workspaces.id, { onDelete: "cascade" }),
+    orgId: text("org_id").notNull(),
+    revision: jsonb("revision").$type<WorkspaceRevision>().notNull(),
+    paths: jsonb("paths").$type<Record<string, string>>().notNull(),
+  },
+  (t) => [orgIsolationPolicy(t.orgId)],
 )
 
 export const workspaceSandboxInstances = pgTable.withRLS(

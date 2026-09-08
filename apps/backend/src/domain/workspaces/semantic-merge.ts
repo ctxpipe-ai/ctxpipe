@@ -29,7 +29,7 @@ async function mergeProvider(
   })
 }
 
-export async function createMergeSandbox(
+export async function planMergeSandbox(
   resourceKey: string,
 ): Promise<MergeSandbox> {
   const provider = await discoverSandboxProvider()
@@ -42,10 +42,17 @@ export async function createMergeSandbox(
     provider === "unsandboxed"
       ? join(tmpdir(), "ctxpipe-semantic-merge", name)
       : `ctxpipe-semantic-merge-${name}`
-  const factory = await mergeProvider(provider, id)
-  const handle =
-    (await factory.resume({ id })) ?? (await factory.create({ id }))
-  return { provider, id: provider === "docker" ? id : handle.id }
+  return { provider, id }
+}
+
+/** Allocation replays the durable locator; environment changes cannot select another provider. */
+export async function createMergeSandbox(
+  locator: MergeSandbox,
+): Promise<MergeSandbox> {
+  const factory = await mergeProvider(locator.provider, locator.id)
+  ;(await factory.resume({ id: locator.id })) ??
+    (await factory.create({ id: locator.id }))
+  return locator
 }
 
 export async function destroyMergeSandbox(

@@ -2,7 +2,10 @@ import { defineWorkflow } from "openworkflow"
 import { z } from "zod"
 import { parseEnv } from "../../config/env.js"
 import { generateCommitSubject } from "../../domain/workspaces/commit-subject.js"
-import { connectorMirrorSourceSchema } from "../../domain/workspaces/connector-mirror.js"
+import {
+  connectorMirrorContentSchema,
+  connectorMirrorSourceSchema,
+} from "../../domain/workspaces/connector-mirror.js"
 import {
   sameWorkspaceRevision,
   workspaceRevisionSchema,
@@ -10,6 +13,7 @@ import {
 import {
   createMergeSandbox,
   destroyMergeSandbox,
+  planMergeSandbox,
   resolveSemanticConflicts,
 } from "../../domain/workspaces/semantic-merge.js"
 import {
@@ -26,6 +30,7 @@ import { githubRepoFullNameFromWorkspaceUrl } from "../../domain/workspaces/writ
 import {
   persistBoundWriteJob,
   persistWriteJobPreparedCommit,
+  validateSemanticHandoff,
 } from "../../models/workspace-write-jobs.js"
 import {
   persistWriteJobCommitSha,
@@ -44,7 +49,6 @@ import {
   validateGitTree,
 } from "../../services/git/write-tree.js"
 import { runWorkflowWithWorkerWake } from "../client.js"
-import { connectorMirrorContentSchema } from "./workspace-connector-mirror.js"
 import { workspaceHydrate } from "./workspace-hydrate.js"
 
 export const semanticMergeContentSchema = z
@@ -79,6 +83,13 @@ export const workspaceSemanticMergeInputSchema = semanticMergeContentSchema
     workspaceId: z.string().min(1),
     jobId: z.string().min(1),
     revision: workspaceRevisionSchema,
+    handoff: z
+      .object({
+        ownerRunId: z.string().min(1),
+        candidateSha: z.string().regex(/^(?:[0-9a-f]{40}|[0-9a-f]{64})$/),
+      })
+      .strict()
+      .optional(),
   })
   .refine(
     (input) =>
@@ -108,24 +119,23 @@ export const workspaceSemanticMerge = defineWorkflow(
           throw new Error(
             "Workspace writes require a connected GitHub repository",
           )
-        const completed = await completedWorkspaceWrite(
-          input,
-          "semantic_merge",
-          run.id,
-        )
+        const completed = input.handoff
+          ? await validateSemanticHandoff({ ...input, handoff: input.handoff })
+          : await completedWorkspaceWrite(input, "semantic_merge", run.id)
         if (completed) return completed
-        await step.run({ name: "claim-command" }, () =>
-          persistBoundWriteJob({
-            id: input.jobId,
-            kind: "semantic_merge",
-            mirror: input.mirror,
-            revision: input.revision,
-            workflowRunId: run.id,
-            previousSha: input.previousSha,
-            files: input.files,
-            deletePaths: input.deletePaths,
-          }),
-        )
+        if (!input.handoff)
+          await step.run({ name: "claim-command" }, () =>
+            persistBoundWriteJob({
+              id: input.jobId,
+              kind: "semantic_merge",
+              mirror: input.mirror,
+              revision: input.revision,
+              workflowRunId: run.id,
+              previousSha: input.previousSha,
+              files: input.files,
+              deletePaths: input.deletePaths,
+            }),
+          )
         for (let refreshAttempt = 0; refreshAttempt < 3; refreshAttempt++) {
           const acquired = await step.run(
             { name: "acquire-revision", retryPolicy: { maximumAttempts: 3 } },
@@ -155,9 +165,21 @@ export const workspaceSemanticMerge = defineWorkflow(
               revision = refreshed
               continue
             }
-            await step.run({ name: "complete-no-op" }, () =>
-              persistWriteJobStatus(input.jobId, "completed"),
+            await step.run({ name: "enqueue-no-op-hydrate" }, () =>
+              runWorkflowWithWorkerWake(
+                workspaceHydrate.spec,
+                {
+                  orgId: input.orgId,
+                  workspaceId: input.workspaceId,
+                  revision,
+                },
+                { idempotencyKey: `${input.jobId}:hydrate` },
+              ),
             )
+            if (!input.handoff)
+              await step.run({ name: "complete-no-op" }, () =>
+                persistWriteJobStatus(input.jobId, "completed"),
+              )
             return {
               committed: false as const,
               reason: "no_changes" as const,
@@ -165,9 +187,13 @@ export const workspaceSemanticMerge = defineWorkflow(
           }
           const resolved = merged.conflicts.length
             ? await (async () => {
+                const locator = await step.run(
+                  { name: "plan-merge-sandbox" },
+                  () => planMergeSandbox(`${run.id}:${refreshAttempt}`),
+                )
                 const sandbox = await step.run(
                   { name: "create-merge-sandbox" },
-                  () => createMergeSandbox(`${run.id}:${refreshAttempt}`),
+                  () => createMergeSandbox(locator),
                 )
                 try {
                   return await step.run(
@@ -199,9 +225,21 @@ export const workspaceSemanticMerge = defineWorkflow(
               revision = refreshed
               continue
             }
-            await step.run({ name: "complete-resolved-no-op" }, () =>
-              persistWriteJobCommitSha(input.jobId, null),
+            await step.run({ name: "enqueue-resolved-no-op-hydrate" }, () =>
+              runWorkflowWithWorkerWake(
+                workspaceHydrate.spec,
+                {
+                  orgId: input.orgId,
+                  workspaceId: input.workspaceId,
+                  revision,
+                },
+                { idempotencyKey: `${input.jobId}:hydrate` },
+              ),
             )
+            if (!input.handoff)
+              await step.run({ name: "complete-resolved-no-op" }, () =>
+                persistWriteJobCommitSha(input.jobId, null),
+              )
             return { committed: false as const, reason: "no_changes" as const }
           }
           const subject = await step.run({ name: "commit-subject" }, () =>
@@ -216,7 +254,12 @@ export const workspaceSemanticMerge = defineWorkflow(
               subject,
               createdAt: run.createdAt,
             })
-            await persistWriteJobPreparedCommit(input.jobId, pack.sha)
+            if (input.handoff)
+              await validateSemanticHandoff(
+                { ...input, handoff: input.handoff },
+                pack.sha,
+              )
+            else await persistWriteJobPreparedCommit(input.jobId, pack.sha)
             return pack
           })
           await step.run(
@@ -237,9 +280,10 @@ export const workspaceSemanticMerge = defineWorkflow(
               { idempotencyKey: `${input.jobId}:hydrate` },
             )
           })
-          await step.run({ name: "complete" }, () =>
-            persistWriteJobCommitSha(input.jobId, committed.sha),
-          )
+          if (!input.handoff)
+            await step.run({ name: "complete" }, () =>
+              persistWriteJobCommitSha(input.jobId, committed.sha),
+            )
           return { committed: true as const, commitSha: committed.sha }
         }
         throw new Error("Default branch kept changing during no-op validation")

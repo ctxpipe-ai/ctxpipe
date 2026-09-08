@@ -21,6 +21,13 @@ export type WriteJobStatus =
 export type WorkspaceWriteJobPayload = {
   revision?: WorkspaceRevision
   workflowRunId?: string
+  semanticHandoff?: {
+    ownerRunId: string
+    candidateSha: string
+    revision: WorkspaceRevision
+    files: GitFileChange[]
+    deletePaths: string[]
+  }
   exportTipSha?: string
   knowledgePaths?: Record<string, string>
   previousSha?: string

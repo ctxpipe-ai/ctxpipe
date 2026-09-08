@@ -1,5 +1,6 @@
 import { parseEnv } from "../config/env.js"
 import { assertNotInOrgDbContext, withOrgDbContext } from "../db/client.js"
+import { connectorMirrorContentSchema } from "../domain/workspaces/connector-mirror.js"
 import { linkedRepositoryUrlSchema } from "../domain/workspaces/linked-repository-url.js"
 import { resolveWorkspaceReadRevision } from "../domain/workspaces/resolve-revision.js"
 import {
@@ -27,7 +28,6 @@ import { runWorkflowWithWorkerWake } from "./client.js"
 import { workspaceBootstrap } from "./workflows/workspace-bootstrap.js"
 import { workspaceClaimsUpgrade } from "./workflows/workspace-claims-upgrade.js"
 import {
-  connectorMirrorContentSchema,
   workspaceConnectorMirror,
   workspaceConnectorMirrorInputSchema,
 } from "./workflows/workspace-connector-mirror.js"

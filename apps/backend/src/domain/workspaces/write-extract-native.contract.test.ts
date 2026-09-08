@@ -375,3 +375,146 @@ it(
     })
   },
 )
+
+it(
+  "reads completed path identity without waiting for historical job storage",
+  { timeout: 15_000 },
+  async () => {
+    await withNativeHydrationFixture({ github: true }, async (f) => {
+      const { randomUUID } = await import("node:crypto")
+      const { Client } = await import("pg")
+      const {
+        getCompletedKnowledgePaths,
+        persistWriteJobKnowledgePaths,
+        persistWriteJobStatus,
+      } = await import("../../models/workspace-write-jobs.js")
+      await withOrgIdContext(f.org, async () => {
+        for (const [index, paths] of (
+          [
+            { "legacy:first": "knowledge/first.md" },
+            { "legacy:second": "knowledge/second.md" },
+            { "legacy:pending": "knowledge/pending.md" },
+          ] as Record<string, string>[]
+        ).entries()) {
+          const id = `wjob_${f.id}_bounded_${index}`
+          await persistBoundWriteJob({
+            id,
+            kind: "extract_ingest",
+            revision: { ...f.revision, access: "write-default" },
+            workflowRunId: randomUUID(),
+          })
+          await persistWriteJobKnowledgePaths(id, paths)
+          if (index < 2) await persistWriteJobStatus(id, "completed")
+        }
+      })
+      const blocker = new Client({ connectionString: f.databaseUrl })
+      await blocker.connect()
+      let pending: Promise<Record<string, string>> | undefined
+      let timer: ReturnType<typeof setTimeout> | undefined
+      try {
+        await blocker.query("BEGIN")
+        await blocker.query(
+          "LOCK TABLE workspace_write_jobs IN ACCESS EXCLUSIVE MODE",
+        )
+        pending = withOrgIdContext(f.org, () =>
+          getCompletedKnowledgePaths(f.revision),
+        )
+        const result = await Promise.race([
+          pending,
+          new Promise((resolve) => {
+            timer = setTimeout(
+              () => resolve("historical job storage blocked the read"),
+              1_000,
+            )
+          }),
+        ])
+        expect(result).toEqual({
+          "legacy:first": "knowledge/first.md",
+          "legacy:second": "knowledge/second.md",
+        })
+      } finally {
+        if (timer) clearTimeout(timer)
+        await blocker.query("ROLLBACK")
+        await blocker.end()
+        await pending
+      }
+    })
+  },
+)
+
+it(
+  "backfills completed path maps on upgrade without replacing newer results",
+  { timeout: 20_000 },
+  async () => {
+    await withNativeHydrationFixture({ github: true }, async (f) => {
+      const { Pool } = await import("pg")
+      const { randomUUID } = await import("node:crypto")
+      const { workspaceKnowledgePathState } = await import(
+        "../../db/schema/workspaces.js"
+      )
+      const {
+        getCompletedKnowledgePaths,
+        persistWriteJobKnowledgePaths,
+        persistWriteJobStatus,
+      } = await import("../../models/workspace-write-jobs.js")
+      const { backfillKnowledgePathState } = await import(
+        "../../db/backfill-knowledge-path-state.js"
+      )
+      const complete = async (suffix: string, paths: Record<string, string>) =>
+        withOrgIdContext(f.org, async () => {
+          const id = `wjob_${f.id}_${suffix}`
+          await persistBoundWriteJob({
+            id,
+            kind: "extract_ingest",
+            revision: { ...f.revision, access: "write-default" },
+            workflowRunId: randomUUID(),
+          })
+          await persistWriteJobKnowledgePaths(id, paths)
+          await persistWriteJobStatus(id, "completed")
+        })
+      await complete("older", { "legacy:first": "knowledge/first.md" })
+      await complete("newer", { "legacy:second": "knowledge/second.md" })
+      await withOrgDbContext(f.org.id, (db) =>
+        db
+          .delete(workspaceKnowledgePathState)
+          .where(eq(workspaceKnowledgePathState.workspaceId, f.workspaceId)),
+      )
+      const { ownerUrlForMigrate } = await import(
+        "../../db/owner-migrate-url.js"
+      )
+      const pool = new Pool({
+        connectionString: ownerUrlForMigrate(f.databaseUrl),
+      })
+      try {
+        await backfillKnowledgePathState(pool)
+        expect(
+          await withOrgIdContext(f.org, () =>
+            getCompletedKnowledgePaths(f.revision),
+          ),
+        ).toEqual({
+          "legacy:first": "knowledge/first.md",
+          "legacy:second": "knowledge/second.md",
+        })
+        await complete("after_upgrade", {
+          "legacy:first": "knowledge/new-first.md",
+        })
+        await backfillKnowledgePathState(pool)
+        expect(
+          await withOrgIdContext(f.org, () =>
+            getCompletedKnowledgePaths(f.revision),
+          ),
+        ).toEqual({
+          "legacy:first": "knowledge/new-first.md",
+          "legacy:second": "knowledge/second.md",
+        })
+        expect(
+          await withOrgIdContext({ ...f.org, id: "org_other" }, () =>
+            getCompletedKnowledgePaths(f.revision),
+          ),
+        ).toEqual({})
+      } finally {
+        await pool.end()
+      }
+    })
+  },
+)
