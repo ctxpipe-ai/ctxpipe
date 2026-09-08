@@ -7,12 +7,13 @@ export type HydratePhaseRecord = {
   embeddingError?: string
   revision?: WorkspaceRevision
   publishedIndex?: WorkspaceRevision | null
+  graph?: { revision: WorkspaceRevision; result: DerivedStoreResult }
   index?: { revision: WorkspaceRevision; result: DerivedStoreResult }
 }
 
 /** Git SHAs are hex; ISO timestamps and calendar dates are not. */
 export function looksLikeGitSha(value: string): boolean {
-  return /^[0-9a-f]{6,40}$/i.test(value.trim())
+  return /^[0-9a-f]{6,64}$/i.test(value.trim())
 }
 
 export function effectiveValidFrom(input: {

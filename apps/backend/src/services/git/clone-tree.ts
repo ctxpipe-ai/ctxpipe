@@ -101,7 +101,12 @@ function isSafeGitPath(path: string): boolean {
 }
 
 async function withFetchedGitSha<T>(
-  input: { url: string; sha: string; token?: string },
+  input: {
+    url: string
+    sha: string
+    token?: string
+    includeIntroducingCommits?: boolean
+  },
   read: (dir: string) => Promise<T>,
 ): Promise<T> {
   if (!/^(?:[0-9a-f]{40}|[0-9a-f]{64})$/.test(input.sha))
@@ -113,10 +118,20 @@ async function withFetchedGitSha<T>(
     await gitExec(["-C", dir, "remote", "add", "origin", input.url], {
       timeout: 15_000,
     })
-    await gitExec(["-C", dir, "fetch", "--depth", "1", "origin", input.sha], {
-      timeout: 60_000,
-      env,
-    })
+    await gitExec(
+      [
+        "-C",
+        dir,
+        "fetch",
+        ...(input.includeIntroducingCommits ? [] : ["--depth", "1"]),
+        "origin",
+        input.sha,
+      ],
+      {
+        timeout: 60_000,
+        env,
+      },
+    )
     return await read(dir)
   } finally {
     await rm(dir, { recursive: true, force: true })
@@ -160,7 +175,10 @@ export async function listMarkdownFilesAtGitSha(input: {
   url: string
   sha: string
   token?: string
-}): Promise<Array<{ path: string; content: string }>> {
+  includeIntroducingCommits?: boolean
+}): Promise<
+  Array<{ path: string; content: string; introducingCommitTimestamp?: string }>
+> {
   return withFetchedGitSha(input, async (dir) => {
     const entries = (await listTreeEntries(dir)).filter(
       (entry) => entry.kind === "blob" && entry.path.endsWith(".md"),
@@ -171,6 +189,40 @@ export async function listMarkdownFilesAtGitSha(input: {
       { timeout: 30_000, maxBuffer: 64 * 1024 * 1024 },
       `${entries.map((entry) => entry.sha).join("\n")}\n`,
     )
+    const introduced = new Map<string, string>()
+    if (input.includeIntroducingCommits) {
+      // One history walk for all paths; raw -z keeps tabs/newlines in filenames intact.
+      const { stdout: history } = await gitExec(
+        [
+          "-C",
+          dir,
+          "log",
+          "--topo-order",
+          "--format=%x00%ct",
+          "--raw",
+          "-z",
+          "--diff-filter=A",
+          "--no-renames",
+          "FETCH_HEAD",
+          "--",
+          "*.md",
+        ],
+        { timeout: 60_000, maxBuffer: 64 * 1024 * 1024 },
+      )
+      const records = history.toString("utf8").split("\0")
+      let timestamp: string | undefined
+      for (let i = 0; i < records.length; i++) {
+        const record = records[i] ?? ""
+        if (/^[0-9]+$/.test(record))
+          timestamp = new Date(Number(record) * 1000).toISOString()
+        else if (/^\n?:[0-7]{6} [0-7]{6} [0-9a-f]+ [0-9a-f]+ A$/.test(record)) {
+          const path = records[++i]
+          if (!path || !timestamp)
+            throw new Error("Invalid introducing-commit record")
+          if (!introduced.has(path)) introduced.set(path, timestamp)
+        } else if (record) throw new Error("Invalid Git history response")
+      }
+    }
     let offset = 0
     return entries.map((entry) => {
       const newline = stdout.indexOf(10, offset)
@@ -195,6 +247,9 @@ export async function listMarkdownFilesAtGitSha(input: {
       return {
         path: entry.path,
         content: stdout.subarray(start, end).toString("utf8"),
+        ...(introduced.has(entry.path)
+          ? { introducingCommitTimestamp: introduced.get(entry.path) }
+          : {}),
       }
     })
   })

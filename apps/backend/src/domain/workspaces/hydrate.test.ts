@@ -108,7 +108,7 @@ describe("applyEffectiveValidFromToUnits", () => {
             ],
           },
         ],
-        "2026-08-16T12:00:00.000Z",
+        new Map([["knowledge/a.md", "2026-08-16T12:00:00.000Z"]]),
       )[0]?.claims[0]?.validFrom,
     ).toBe("2026-08-16T12:00:00.000Z")
   })

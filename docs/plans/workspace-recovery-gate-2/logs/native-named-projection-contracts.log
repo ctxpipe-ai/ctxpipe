@@ -1,0 +1,118 @@
+{"name": "native-named-projection-contracts", "cwd": "/private/tmp/ctxpipe-recovery-01a07aba", "command": ["/Users/jakubriedl/.volta/tools/image/node/22.16.0/bin/node", "apps/backend/node_modules/vitest/vitest.mjs", "run", "--root", "apps/backend", "src/domain/workspaces/chat-projection.contract.test.ts", "src/retrieval/services/code-search-projection.contract.test.ts", "src/domain/workspaces/hydration.contract.test.ts"], "environment": {"AUTH_SECRET": "gate0-local-disposable-test-secret-20260907", "DATABASE_URL": "postgresql://ctxpipe_app:ctxpipe@127.0.0.1:61314/ctxpipe_gate0_fresh", "GRAPH_DB_URI": "redis://127.0.0.1:6398", "CI": "true", "NO_COLOR": "1", "TURBO_TELEMETRY_DISABLED": "1", "STORYBOOK_DISABLE_TELEMETRY": "1", "PATH": "/Users/jakubriedl/.volta/tools/image/node/22.16.0/bin:/private/tmp/ctxpipe-recovery-runtime/ast-grep/node_modules/.bin:/private/tmp/ctxpipe-recovery-runtime/node_modules/.bin:/private/tmp/ctxpipe-recovery-runtime/zoekt:/usr/local/bin:/System/Cryptexes/App/usr/bin:/usr/bin:/bin:/usr/sbin:/sbin:/var/run/com.apple.security.cryptexd/codex.system/bootstrap/usr/local/bin:/var/run/com.apple.security.cryptexd/codex.system/bootstrap/usr/bin:/var/run/com.apple.security.cryptexd/codex.system/bootstrap/usr/appleinternal/bin:/pkg/env/global/bin:/Users/jakubriedl/.codex/tmp/arg0/codex-arg0BW5Gt3:/Users/jakubriedl/.cache/codex-runtimes/codex-primary-runtime/dependencies/bin/override:/Users/jakubriedl/.local/bin:/Users/jakubriedl/.bun/bin:/Users/jakubriedl/.opencode/bin:/Users/jakubriedl/.volta/bin:/opt/homebrew/bin:/opt/homebrew/sbin:/Users/jakubriedl/.cache/codex-runtimes/codex-primary-runtime/dependencies/bin/fallback:/Applications/ChatGPT.app/Contents/Resources"}, "timeout_seconds": 600, "started_utc": "2026-09-08T06:52:39Z", "log": "logs/native-named-projection-contracts.log"}
+
+ RUN  v4.0.18 /private/tmp/ctxpipe-recovery-01a07aba/apps/backend
+
+stdout | src/retrieval/services/code-search-projection.contract.test.ts > search excludes index results ahead of the published revision
+[2m06:52:42.198[0m [36mINFO[0m [36m[app][0m POST /search [32m200[0m [2min 21ms[0m
+  [2m└─[0m [36mrequestId:[0m b787c065-ca5f-4f14-9d15-da8b0897f975
+
+stdout | src/retrieval/services/code-search-projection.contract.test.ts > search excludes index results ahead of the published revision
+[2m06:52:42.207[0m [36mINFO[0m [36m[app][0m GET /__contract/close [32m200[0m [2min 0ms[0m
+  [2m└─[0m [36mrequestId:[0m c9b0550b-371d-4952-a3c2-a9524eafd442
+
+stdout | src/retrieval/services/code-search-projection.contract.test.ts > repository-scoped search serves only its published immutable revision
+[2m06:52:42.245[0m [36mINFO[0m [36m[app][0m POST /search [32m200[0m [2min 11ms[0m
+  [2m└─[0m [36mrequestId:[0m 573e73fc-53dc-40e8-ae02-f9f1bb991f5f
+
+stdout | src/retrieval/services/code-search-projection.contract.test.ts > repository-scoped search serves only its published immutable revision
+[2m06:52:42.254[0m [36mINFO[0m [36m[app][0m GET /__contract/close [32m200[0m [2min 1ms[0m
+  [2m└─[0m [36mrequestId:[0m 10d065ac-87ee-4c1e-8f20-6263fbf3f50d
+
+stdout | src/retrieval/services/code-search-projection.contract.test.ts > workspace search includes each linked repository's published SHA
+[2m06:52:42.287[0m [36mINFO[0m [36m[app][0m POST /search [32m200[0m [2min 10ms[0m
+  [2m└─[0m [36mrequestId:[0m 6a7a811d-4350-469e-a144-172db9aea5db
+
+stdout | src/retrieval/services/code-search-projection.contract.test.ts > workspace search includes each linked repository's published SHA
+[2m06:52:42.296[0m [36mINFO[0m [36m[app][0m GET /__contract/close [32m200[0m [2min 1ms[0m
+  [2m└─[0m [36mrequestId:[0m 2a9d4b72-5d6f-46bf-8024-bb0ca53f95db
+
+ ✓ src/retrieval/services/code-search-projection.contract.test.ts (3 tests) 433ms
+   ✓ search excludes index results ahead of the published revision  341ms
+ ✓ src/domain/workspaces/chat-projection.contract.test.ts (5 tests) 207ms
+Cloning into bare repository '/var/folders/9t/jj9rnpps7_ddb72c1mq2k13w0000gn/T/ctxpipe-hydration-contract-wxt2oH/remote.git'...
+done.
+Cloning into bare repository '/var/folders/9t/jj9rnpps7_ddb72c1mq2k13w0000gn/T/ctxpipe-hydration-contract-BUbG5f/remote.git'...
+done.
+Cloning into bare repository '/var/folders/9t/jj9rnpps7_ddb72c1mq2k13w0000gn/T/ctxpipe-hydration-contract-7UzUdJ/remote.git'...
+done.
+Cloning into bare repository '/var/folders/9t/jj9rnpps7_ddb72c1mq2k13w0000gn/T/ctxpipe-hydration-contract-FcYs9v/remote.git'...
+done.
+Cloning into bare repository '/var/folders/9t/jj9rnpps7_ddb72c1mq2k13w0000gn/T/ctxpipe-hydration-contract-B4npH7/remote.git'...
+done.
+Cloning into bare repository '/var/folders/9t/jj9rnpps7_ddb72c1mq2k13w0000gn/T/ctxpipe-hydration-contract-ihZYs2/remote.git'...
+done.
+Cloning into bare repository '/var/folders/9t/jj9rnpps7_ddb72c1mq2k13w0000gn/T/ctxpipe-hydration-contract-Aas73t/remote.git'...
+done.
+Cloning into bare repository '/var/folders/9t/jj9rnpps7_ddb72c1mq2k13w0000gn/T/ctxpipe-hydration-contract-9JLcpS/remote.git'...
+done.
+Cloning into bare repository '/var/folders/9t/jj9rnpps7_ddb72c1mq2k13w0000gn/T/ctxpipe-hydration-contract-aWoHEI/remote.git'...
+done.
+Cloning into bare repository '/var/folders/9t/jj9rnpps7_ddb72c1mq2k13w0000gn/T/ctxpipe-hydration-contract-GBl9FE/remote.git'...
+done.
+Cloning into bare repository '/var/folders/9t/jj9rnpps7_ddb72c1mq2k13w0000gn/T/ctxpipe-hydration-contract-Rel8xi/remote.git'...
+done.
+Cloning into bare repository '/var/folders/9t/jj9rnpps7_ddb72c1mq2k13w0000gn/T/ctxpipe-hydration-contract-oyscGi/remote.git'...
+done.
+Cloning into bare repository '/var/folders/9t/jj9rnpps7_ddb72c1mq2k13w0000gn/T/ctxpipe-hydration-contract-4gYOxB/remote.git'...
+done.
+Cloning into bare repository '/var/folders/9t/jj9rnpps7_ddb72c1mq2k13w0000gn/T/ctxpipe-hydration-contract-8HND8U/remote.git'...
+done.
+Cloning into bare repository '/var/folders/9t/jj9rnpps7_ddb72c1mq2k13w0000gn/T/ctxpipe-hydration-contract-UQeqgE/remote.git'...
+done.
+Cloning into bare repository '/var/folders/9t/jj9rnpps7_ddb72c1mq2k13w0000gn/T/ctxpipe-hydration-contract-KvLE4d/remote.git'...
+done.
+Cloning into bare repository '/var/folders/9t/jj9rnpps7_ddb72c1mq2k13w0000gn/T/ctxpipe-hydration-contract-zibM1E/remote.git'...
+done.
+To /var/folders/9t/jj9rnpps7_ddb72c1mq2k13w0000gn/T/ctxpipe-hydration-contract-zibM1E/remote.git
+   8629348..08623b5  HEAD -> main
+Cloning into bare repository '/var/folders/9t/jj9rnpps7_ddb72c1mq2k13w0000gn/T/ctxpipe-hydration-contract-18NIT9/remote.git'...
+done.
+To /var/folders/9t/jj9rnpps7_ddb72c1mq2k13w0000gn/T/ctxpipe-hydration-contract-18NIT9/remote.git
+   561381c..f868f05  HEAD -> main
+Cloning into bare repository '/var/folders/9t/jj9rnpps7_ddb72c1mq2k13w0000gn/T/ctxpipe-hydration-contract-6vWbR2/remote.git'...
+done.
+To /var/folders/9t/jj9rnpps7_ddb72c1mq2k13w0000gn/T/ctxpipe-hydration-contract-6vWbR2/remote.git
+   b9036cc..4889f14  HEAD -> main
+Cloning into bare repository '/var/folders/9t/jj9rnpps7_ddb72c1mq2k13w0000gn/T/ctxpipe-hydration-contract-Tw8B3e/remote.git'...
+done.
+Cloning into bare repository '/var/folders/9t/jj9rnpps7_ddb72c1mq2k13w0000gn/T/ctxpipe-hydration-contract-XiZ7zC/remote.git'...
+done.
+Cloning into bare repository '/var/folders/9t/jj9rnpps7_ddb72c1mq2k13w0000gn/T/ctxpipe-hydration-contract-SHlypP/remote.git'...
+done.
+Cloning into bare repository '/var/folders/9t/jj9rnpps7_ddb72c1mq2k13w0000gn/T/ctxpipe-hydration-contract-8CnaXe/remote.git'...
+done.
+Cloning into bare repository '/var/folders/9t/jj9rnpps7_ddb72c1mq2k13w0000gn/T/ctxpipe-hydration-contract-dhEAqU/remote.git'...
+done.
+To /var/folders/9t/jj9rnpps7_ddb72c1mq2k13w0000gn/T/ctxpipe-hydration-contract-dhEAqU/remote.git
+   22a9342..d183627  HEAD -> main
+ ✓ src/domain/workspaces/hydration.contract.test.ts (24 tests) 55435ms
+   ✓ hydrates 0 committed native Git files without reading uncommitted replacements  1713ms
+   ✓ hydrates 1 committed native Git files without reading uncommitted replacements  1625ms
+   ✓ hydrates a 100-file immutable tree within eight native Git commands  1648ms
+   ✓ rejects a hydrate queued before its workspace is relinked  1368ms
+   ✓ resolves a missing tip and hydrates generation 1 without a separate tip-check job  1260ms
+   ✓ resolves a missing tip and hydrates generation 2 without a separate tip-check job  1435ms
+   ✓ hydrates native Git content with read_only write access  2129ms
+   ✓ hydrates native Git content with writable write access  1934ms
+   ✓ uses repository-scoped read credentials for GitHub trees  1715ms
+   ✓ a completed immutable hydrate does not request credentials again  2416ms
+   ✓ records an index credential failure independently of published knowledge  2359ms
+   ✓ marks an incomplete embedding response failed without losing the projection  1406ms
+   ✓ rejects an index queued under another default branch at the same SHA  2548ms
+   ✓ persists the full hydrate revision before a later generation change  1367ms
+   ✓ preserves independent store failure and retry results  2311ms
+   ✓ retries embeddings from PostgreSQL after the Git remote disappears  2640ms
+   ✓ atomically replaces published units while reporting a malformed sibling  4024ms
+   ✓ publishes a resolved Git rewind and restores the previous files  4728ms
+   ✓ rolls back unit replacement when PostgreSQL rejects duplicate serving ids  1942ms
+   ✓ same-SHA relink publishes a new generation with pending search freshness  3759ms
+   ✓ queues indexing with the newly published generation identity  2475ms
+   ✓ discards embedding results from a superseded generation  2726ms
+   ✓ discards hydrate failures from a superseded generation  2435ms
+   ✓ derives missing claim dates from each file's introducing commit, not the hydrated tip  3467ms
+
+ Test Files  3 passed (3)
+      Tests  32 passed (32)
+   Start at  16:52:40
+   Duration  57.60s (transform 1.30s, setup 64ms, import 5.33s, tests 56.07s, environment 0ms)
+

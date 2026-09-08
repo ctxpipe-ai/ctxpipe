@@ -25,6 +25,7 @@ export function shouldEnqueueCronHydrate(input: {
   if (!skipExportWait && !input.migrationExportSha) return false
   return (
     projection.kind !== "active" ||
+    projection.stores.graph.kind !== "ready" ||
     projection.stores.embeddings.kind !== "ready" ||
     projection.stores.index.kind !== "ready"
   )

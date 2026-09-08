@@ -228,7 +228,11 @@ function projectionFromWorkspace(row: WorkspaceRecord): ProjectionState {
                 ? { kind: "failed", message: row.hydratePhases.embeddingError }
                 : { kind: "pending" }
             : { kind: "pending" },
-          graph: { kind: "postgres" },
+          graph:
+            row.hydratePhases?.graph &&
+            sameWorkspaceRevision(row.hydratePhases.graph.revision, active)
+              ? row.hydratePhases.graph.result
+              : { kind: "pending" },
           index: {
             ...(index && sameWorkspaceRevision(index.revision, active)
               ? index.result
@@ -1687,3 +1691,26 @@ export async function persistUnitEmbeddings(input: {
 
 export * from "./workspace-sandboxes.js"
 export * from "./workspace-write-jobs.js"
+
+/** Publish derived graph freshness only for the complete active revision. */
+export async function persistWorkspaceGraphResult(input: {
+  revision: WorkspaceRevision
+  result: DerivedStoreResult
+}): Promise<boolean> {
+  return orgSql(async () => {
+    const [updated] = await getOrgDb()
+      .update(workspaces)
+      .set({
+        hydratePhases: sql`coalesce(${workspaces.hydratePhases}, '{}'::jsonb) || ${JSON.stringify({ graph: input })}::jsonb`,
+        updatedAt: new Date(),
+      })
+      .where(
+        and(
+          eq(workspaces.id, input.revision.workspaceId),
+          sql`${workspaces.activeRevision} = ${JSON.stringify(input.revision)}::jsonb`,
+        ),
+      )
+      .returning({ id: workspaces.id })
+    return updated != null
+  })
+}

@@ -781,16 +781,20 @@ async function loadWorkspaceChatTools(input: TanstackWorkspaceChatInput) {
   return withOrgDbContext(input.orgId, () =>
     getWorkspaceProjectionSnapshot(input.workspaceId),
   )
-    .then((snapshot) =>
-      workspaceChatTools({
+    .then(async (snapshot) => {
+      const orgSlug = await resolveWorkspaceChatOrgSlug(input)
+      if (!orgSlug)
+        throw new Error("Workspace chat needs an organization slug.")
+      return workspaceChatTools({
         orgId: input.orgId,
+        orgSlug,
         workspaceId: input.workspaceId,
         snapshot,
         embedQuery: generateEmbedding,
         searchObjects: async (query, embedding) =>
           hybridSearch(input.orgId, { embedding, query }, { limit: 20 }),
-      }),
-    )
+      })
+    })
     .catch(() => [])
 }
 

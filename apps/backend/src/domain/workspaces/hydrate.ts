@@ -105,7 +105,7 @@ export function shouldHydrateBeforeMigrationExport(
 
 export function applyEffectiveValidFromToUnits(
   units: readonly HydrateUnit[],
-  introducingCommitTimestamp: string | null,
+  introducingCommits: ReadonlyMap<string, string>,
 ): HydrateUnit[] {
   return units.map((unit) => ({
     ...unit,
@@ -113,7 +113,7 @@ export function applyEffectiveValidFromToUnits(
       ...claim,
       validFrom: effectiveValidFrom({
         recorded: claim.validFrom,
-        introducingCommitTimestamp,
+        introducingCommitTimestamp: introducingCommits.get(unit.path) ?? null,
       }),
     })),
   }))

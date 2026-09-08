@@ -1,0 +1,36 @@
+{
+  "name": "graph-review-codesearch-image",
+  "cwd": "/private/tmp/ctxpipe-recovery-01a07aba",
+  "command": [
+    "docker",
+    "build",
+    "--network",
+    "none",
+    "--platform",
+    "linux/arm64",
+    "--build-context",
+    "revision_source=/private/tmp/ctxpipe-recovery-01a07aba/apps/codesearch/src",
+    "--build-context",
+    "shared_source=/private/tmp/ctxpipe-recovery-01a07aba/shared",
+    "-f",
+    "/Users/jakubriedl/Documents/Codex/2026-09-07/prior-conversation-with-codex-conversation-role-2/work/gate2-codesearch-proof.Dockerfile",
+    "-t",
+    "ctxpipe-codesearch:gate2-graph-reviewed",
+    "/private/tmp/ctxpipe-recovery-runtime/zoekt-linux"
+  ],
+  "environment": {
+    "AUTH_SECRET": "gate0-local-disposable-test-secret-20260907",
+    "DATABASE_URL": "postgresql://ctxpipe_app:ctxpipe@127.0.0.1:61314/ctxpipe_gate0_fresh",
+    "GRAPH_DB_URI": "redis://127.0.0.1:6398",
+    "CI": "true",
+    "NO_COLOR": "1",
+    "TURBO_TELEMETRY_DISABLED": "1",
+    "STORYBOOK_DISABLE_TELEMETRY": "1",
+    "PATH": "/Users/jakubriedl/.volta/tools/image/node/22.16.0/bin:/private/tmp/ctxpipe-recovery-runtime/ast-grep/node_modules/.bin:/private/tmp/ctxpipe-recovery-runtime/node_modules/.bin:/private/tmp/ctxpipe-recovery-runtime/zoekt:/usr/local/bin:/System/Cryptexes/App/usr/bin:/usr/bin:/bin:/usr/sbin:/sbin:/var/run/com.apple.security.cryptexd/codex.system/bootstrap/usr/local/bin:/var/run/com.apple.security.cryptexd/codex.system/bootstrap/usr/bin:/var/run/com.apple.security.cryptexd/codex.system/bootstrap/usr/appleinternal/bin:/pkg/env/global/bin:/Users/jakubriedl/.codex/tmp/arg0/codex-arg0BW5Gt3:/Users/jakubriedl/.cache/codex-runtimes/codex-primary-runtime/dependencies/bin/override:/Users/jakubriedl/.local/bin:/Users/jakubriedl/.bun/bin:/Users/jakubriedl/.opencode/bin:/Users/jakubriedl/.volta/bin:/opt/homebrew/bin:/opt/homebrew/sbin:/Users/jakubriedl/.cache/codex-runtimes/codex-primary-runtime/dependencies/bin/fallback:/Applications/ChatGPT.app/Contents/Resources"
+  },
+  "timeout_seconds": 600,
+  "started_utc": "2026-09-08T06:56:58Z",
+  "log": "logs/graph-review-codesearch-image.log",
+  "exit_code": 0,
+  "duration_seconds": 0.69
+}

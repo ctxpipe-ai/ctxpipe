@@ -94,6 +94,30 @@ try {
   } finally {
     await pool.end()
   }
+  if (!process.env.GRAPH_DB_URI)
+    throw new Error(
+      "GRAPH_DB_URI for the required native FalkorDB proof is required",
+    )
+  const { FalkorDB } = createRequire(
+    new URL("../../apps/backend/package.json", import.meta.url),
+  )("falkordb")
+  const graphDb = await FalkorDB.connect({
+    url: process.env.GRAPH_DB_URI,
+    socket: { connectTimeout: 5_000, reconnectStrategy: false },
+  })
+  const graph = graphDb.selectGraph(`prerequisite_${process.pid}_${Date.now()}`)
+  try {
+    const result = await graph.query("RETURN 1 AS ready")
+    if (result.data?.[0]?.ready !== 1)
+      throw new Error("FalkorDB did not execute the required graph query")
+    process.stdout.write("Native FalkorDB graph prerequisite ready\n")
+  } finally {
+    try {
+      await graph.delete()
+    } finally {
+      await graphDb.close()
+    }
+  }
 } catch (error) {
   process.stderr.write(`${error.message}\n`)
   process.exitCode = 1

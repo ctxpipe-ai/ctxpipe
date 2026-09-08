@@ -200,6 +200,7 @@ ENV NODE_ENV=production
 COPY --from=deps /app/node_modules ./node_modules
 COPY --from=deps /app/apps/codesearch/node_modules ./apps/codesearch/node_modules
 COPY tsconfig.json ./
+COPY shared ./shared
 COPY apps/codesearch/src ./apps/codesearch/src
 COPY apps/codesearch/scripts ./apps/codesearch/scripts
 COPY apps/codesearch/package.json ./apps/codesearch/package.json

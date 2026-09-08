@@ -56,12 +56,6 @@
       "count": 2
     },
     {
-      "file": "../backend/src/graphs/codeIngestionGraph/nodes/extractInstructionUnits.ts",
-      "code": 2741,
-      "message": "Property 'units' is missing in type 'Record<string, any>' but required in type '{ units: { name: string; intent: string; summary: string; modality: \"optional\" | \"required\" | \"recommended\" | \"forbidden\" | \"avoid\"; source_excerpt: string; applicability: { scope: \"path\" | \"package\" | \"repository\" | \"global\" | null; environment: \"test\" | ... 5 more ... | null; tags: string[]; }; durable: boolean; }...'.",
-      "count": 1
-    },
-    {
       "file": "../backend/src/graphs/conversationGraph/nodes/conversationNaming.ts",
       "code": 2339,
       "message": "Property 'content' does not exist on type 'BaseMessageLike'.\n  Property 'content' does not exist on type 'string'.",
@@ -113,18 +107,6 @@
       "file": "../backend/src/routes/v1/bedrockOpenAiProxy.ts",
       "code": 2769,
       "message": "No overload matches this call.\n  Overload 1 of 2, '(model: string, params?: Omit<ChatBedrockConverseInput, \"model\"> | undefined): ChatBedrockConverse', gave the following error.\n    Argument of type '{ additionalModelRequestFields?: Record<string, unknown> | undefined; topP?: number | undefined; maxTokens?: number | undefined; temperature?: number | undefined; model: string; region: string; streaming: boolean; }' is not assignable to parameter of type 'string'.\n  Overload 2 of 2, '(fields?: ChatBedrockConverseInput | undefined): ChatBedrockConverse', gave the following error.\n    Argument of type '{ additionalModelRequestFields?: Record<string, unknown> | undefined; topP?: number | undefined; maxTokens?: number | undefined; temperature?: number | undefined; model: string; region: string; streaming: true; }' is not assignable to parameter of type 'ChatBedrockConverseInput'.\n      Types of property 'additionalModelRequestFields' are incompatible.\n        Type 'Record<string, unknown> | undefined' is not assignable to type 'DocumentType | undefined'.\n          Type 'Record<string, unknown>' is not assignable to type 'DocumentType | undefined'.\n            Type 'Record<string, unknown>' is missing the following properties from type 'DocumentType[]': length, pop, push, concat, and 29 more.",
-      "count": 1
-    },
-    {
-      "file": "../backend/src/routes/v1/openai-upstream.ts",
-      "code": 2769,
-      "message": "No overload matches this call.\n  Overload 1 of 4, '(data: Data, status?: 200 | 400 | 503 | 404 | 401 | 429 | undefined, headers?: HeaderRecord | undefined): Response & TypedResponse<Data, 200 | 400 | 503 | 404 | 401 | 429, \"body\">', gave the following error.\n    Argument of type 'ReadableStream<Uint8Array<ArrayBuffer>> | null' is not assignable to parameter of type 'Data'.\n      Type 'null' is not assignable to type 'Data'.\n  Overload 2 of 4, '(data: null, status?: 200 | 400 | 503 | 404 | 401 | 429 | undefined, headers?: HeaderRecord | undefined): Response & TypedResponse<null, 200 | 400 | 503 | 404 | 401 | 429, \"body\">', gave the following error.\n    Argument of type 'ReadableStream<Uint8Array<ArrayBuffer>> | null' is not assignable to parameter of type 'null'.\n      Type 'ReadableStream<Uint8Array<ArrayBuffer>>' is not assignable to type 'null'.",
-      "count": 1
-    },
-    {
-      "file": "../backend/src/routes/v1/openai-upstream.ts",
-      "code": 2769,
-      "message": "No overload matches this call.\n  Overload 1 of 4, '(data: Data, status?: 200 | undefined, headers?: HeaderRecord | undefined): Response & TypedResponse<Data, 200, \"body\">', gave the following error.\n    Argument of type 'ReadableStream<Uint8Array<ArrayBuffer>> | null' is not assignable to parameter of type 'Data'.\n      Type 'null' is not assignable to type 'Data'.\n  Overload 2 of 4, '(data: null, status?: 200 | undefined, headers?: HeaderRecord | undefined): Response & TypedResponse<null, 200, \"body\">', gave the following error.\n    Argument of type 'ReadableStream<Uint8Array<ArrayBuffer>> | null' is not assignable to parameter of type 'null'.\n      Type 'ReadableStream<Uint8Array<ArrayBuffer>>' is not assignable to type 'null'.",
       "count": 1
     },
     {

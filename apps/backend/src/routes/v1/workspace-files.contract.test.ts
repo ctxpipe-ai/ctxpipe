@@ -1,3 +1,4 @@
+import { workspaceHttpApp } from "../../test/workspace-http-fixture.js"
 import { withNativeIndexFixture } from "../../test/native-index-fixture.js"
 import { generateKeyPairSync } from "node:crypto"
 import { HttpResponse, http } from "msw"
@@ -16,49 +17,11 @@ import { OpenAPIHono } from "@hono/zod-openapi"
 import { eq } from "drizzle-orm"
 import { expect, it } from "vitest"
 import type { AppEnv } from "../../app/env.js"
-import { withOrgIdContext } from "../../auth/withAuth.js"
 import { parseEnv } from "../../config/env.js"
 import { withOrgDbContext } from "../../db/client.js"
 import { workspaces } from "../../db/schema/workspaces.js"
 import type { WorkspaceRevision } from "../../domain/workspaces/revision.js"
-import {
-  contextStorage,
-  withTestRequestLogger,
-} from "../../test/hono-test-logger.js"
 import { workspaceFilesRoutes } from "./workspace-files-routes.js"
-
-function filesApp(org: { id: string; slug: string; name: string }) {
-  const env = parseEnv(process.env)
-  const id = org.slug
-  const app = new OpenAPIHono<AppEnv>()
-  app.use("*", contextStorage(), withTestRequestLogger)
-  // The seam starts after authentication; models and org/RLS contexts run for real.
-  app.use("*", async (c, next) => {
-    c.set("env", env)
-    c.set("orgId", org.id)
-    c.set("orgSlug", org.slug)
-    c.set("user", {
-      id: `user_${id}`,
-      name: "Contract",
-      email: "contract@example.test",
-      emailVerified: true,
-      twoFactorEnabled: false,
-      createdAt: new Date(),
-      updatedAt: new Date(),
-    })
-    c.set("session", {
-      id: `sess_${id}`,
-      userId: `user_${id}`,
-      token: id,
-      expiresAt: new Date(Date.now() + 60_000),
-      createdAt: new Date(),
-      updatedAt: new Date(),
-    })
-    await withOrgIdContext(org, next)
-  })
-  app.route("/workspaces", workspaceFilesRoutes)
-  return app
-}
 
 async function withFilesWorkspace(
   run: (fixture: {
@@ -96,7 +59,7 @@ async function withFilesWorkspace(
           .where(eq(workspaces.id, f.workspaceId)),
       )
       await run({
-        app: filesApp(f.org),
+        app: workspaceHttpApp(f.org, workspaceFilesRoutes),
         orgId: f.org.id,
         workspaceId: f.workspaceId,
         revision: f.revision,
@@ -274,9 +237,10 @@ it.each(["tree", "blob?path=AGENTS.md"])(
   { timeout: 30_000 },
   async (endpoint) => {
     await withNativeIndexFixture(async (f) => {
-      const response = await filesApp(f.org).request(
-        `/workspaces/knowledge/files/${endpoint}`,
-      )
+      const response = await workspaceHttpApp(
+        f.org,
+        workspaceFilesRoutes,
+      ).request(`/workspaces/knowledge/files/${endpoint}`)
       expect({ status: response.status, body: await response.json() }).toEqual({
         status: 409,
         body: {
@@ -440,9 +404,10 @@ it(
   async () => {
     await withNativeIndexFixture(async (f) => {
       await rename(f.remote, `${f.remote}-unavailable`)
-      const response = await filesApp(f.org).request(
-        "/workspaces/knowledge/files/blob?path=AGENTS.md",
-      )
+      const response = await workspaceHttpApp(
+        f.org,
+        workspaceFilesRoutes,
+      ).request("/workspaces/knowledge/files/blob?path=AGENTS.md")
       expect({ status: response.status, body: await response.json() }).toEqual({
         status: 200,
         body: {
@@ -461,9 +426,10 @@ it(
   async () => {
     await withNativeIndexFixture(
       async (f) => {
-        const response = await filesApp(f.org).request(
-          "/workspaces/knowledge/files/blob?path=empty.txt",
-        )
+        const response = await workspaceHttpApp(
+          f.org,
+          workspaceFilesRoutes,
+        ).request("/workspaces/knowledge/files/blob?path=empty.txt")
         expect({
           status: response.status,
           body: await response.json(),

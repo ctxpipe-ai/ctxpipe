@@ -43,7 +43,7 @@ export type DerivedStoreResult =
 
 export type StoreFreshness = {
   embeddings: DerivedStoreResult
-  graph: { kind: "postgres" }
+  graph: DerivedStoreResult
   index: DerivedStoreResult & { published?: WorkspaceRevision | null }
 }
 

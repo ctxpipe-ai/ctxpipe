@@ -5,17 +5,7 @@ import { REPO_CACHE_DIR } from "../../config/paths.js"
 /** Matches backend `DEFAULT_CHECKOUT_KEY` for the primary branch checkout. */
 export const DEFAULT_CHECKOUT_KEY = "default"
 
-/** Omitted SHA denotes only the temporary legacy checkout. */
-export function workspaceCheckoutKey(
-  workspaceId: string,
-  sha?: string,
-): string {
-  if (!/^[a-zA-Z0-9_-]+$/.test(workspaceId))
-    throw new Error("Invalid workspace id")
-  if (sha !== undefined && !/^(?:[a-f0-9]{40}|[a-f0-9]{64})$/.test(sha))
-    throw new Error("Workspace checkout requires an immutable commit SHA")
-  return sha ? `ws:${workspaceId}:${sha}` : `ws:${workspaceId}`
-}
+export { workspaceCheckoutKey } from "../../../../../shared/workspace-checkout.js"
 
 /** Git working tree for a given ref checkout. */
 export function repoCheckoutPath(

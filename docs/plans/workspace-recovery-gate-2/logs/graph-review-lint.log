@@ -1,0 +1,399 @@
+{"name": "graph-review-lint", "cwd": "/private/tmp/ctxpipe-recovery-01a07aba", "command": ["node_modules/.bin/biome", "lint", "apps", "packages", "shared"], "environment": {"AUTH_SECRET": "gate0-local-disposable-test-secret-20260907", "DATABASE_URL": "postgresql://ctxpipe_app:ctxpipe@127.0.0.1:61314/ctxpipe_gate0_fresh", "GRAPH_DB_URI": "redis://127.0.0.1:6398", "CI": "true", "NO_COLOR": "1", "TURBO_TELEMETRY_DISABLED": "1", "STORYBOOK_DISABLE_TELEMETRY": "1", "PATH": "/Users/jakubriedl/.volta/tools/image/node/22.16.0/bin:/private/tmp/ctxpipe-recovery-runtime/ast-grep/node_modules/.bin:/private/tmp/ctxpipe-recovery-runtime/node_modules/.bin:/private/tmp/ctxpipe-recovery-runtime/zoekt:/usr/local/bin:/System/Cryptexes/App/usr/bin:/usr/bin:/bin:/usr/sbin:/sbin:/var/run/com.apple.security.cryptexd/codex.system/bootstrap/usr/local/bin:/var/run/com.apple.security.cryptexd/codex.system/bootstrap/usr/bin:/var/run/com.apple.security.cryptexd/codex.system/bootstrap/usr/appleinternal/bin:/pkg/env/global/bin:/Users/jakubriedl/.codex/tmp/arg0/codex-arg0BW5Gt3:/Users/jakubriedl/.cache/codex-runtimes/codex-primary-runtime/dependencies/bin/override:/Users/jakubriedl/.local/bin:/Users/jakubriedl/.bun/bin:/Users/jakubriedl/.opencode/bin:/Users/jakubriedl/.volta/bin:/opt/homebrew/bin:/opt/homebrew/sbin:/Users/jakubriedl/.cache/codex-runtimes/codex-primary-runtime/dependencies/bin/fallback:/Applications/ChatGPT.app/Contents/Resources"}, "timeout_seconds": 600, "started_utc": "2026-09-08T06:56:24Z", "log": "logs/graph-review-lint.log"}
+apps/backend/src/domain/workspaces/workspace-chat-agui.ts:254:7 lint/complexity/noUselessContinue  FIXABLE  ━━━━━━━━━━
+
+  i Unnecessary continue statement
+  
+    252 │       events.push(JSON.parse(line.slice(6)) as object)
+    253 │     } catch {
+  > 254 │       continue
+        │       ^^^^^^^^
+    255 │     }
+    256 │   }
+  
+  i Safe fix: Delete the unnecessary continue statement
+  
+    252 252 │         events.push(JSON.parse(line.slice(6)) as object)
+    253 253 │       } catch {
+    254     │ - ······continue
+    255 254 │       }
+    256 255 │     }
+  
+
+apps/backend/src/retrieval/services/code-search-projection.contract.test.ts:164:28 lint/style/useTemplate  FIXABLE  ━━━━━━━━━━
+
+  i Template literals are preferred over string concatenation.
+  
+    162 │       if (!checkout) throw new Error("Missing fixture checkout")
+    163 │       zoektRepoId = checkout.zoektRepoId
+  > 164 │       const linkedRepoId = repositoryId + "_linked"
+        │                            ^^^^^^^^^^^^^^^^^^^^^^^^
+    165 │       await db.insert(repositories).values({
+    166 │         id: linkedRepoId,
+  
+  i Unsafe fix: Use a template literal.
+  
+    162 162 │         if (!checkout) throw new Error("Missing fixture checkout")
+    163 163 │         zoektRepoId = checkout.zoektRepoId
+    164     │ - ······const·linkedRepoId·=·repositoryId·+·"_linked"
+        164 │ + ······const·linkedRepoId·=·`${repositoryId}_linked`
+    165 165 │         await db.insert(repositories).values({
+    166 166 │           id: linkedRepoId,
+  
+
+apps/backend/src/retrieval/services/code-search-projection.contract.test.ts:169:17 lint/style/useTemplate  FIXABLE  ━━━━━━━━━━
+
+  i Template literals are preferred over string concatenation.
+  
+    167 │         orgId: org.id,
+    168 │         name: "Linked context",
+  > 169 │         gitUrl: url + "-linked",
+        │                 ^^^^^^^^^^^^^^^
+    170 │       })
+    171 │       await db.insert(workspaceLinkedRepositories).values({
+  
+  i Unsafe fix: Use a template literal.
+  
+    167 167 │           orgId: org.id,
+    168 168 │           name: "Linked context",
+    169     │ - ········gitUrl:·url·+·"-linked",
+        169 │ + ········gitUrl:·`${url}-linked`,
+    170 170 │         })
+    171 171 │         await db.insert(workspaceLinkedRepositories).values({
+  
+
+apps/backend/src/retrieval/services/code-search-projection.contract.test.ts:172:13 lint/style/useTemplate  FIXABLE  ━━━━━━━━━━
+
+  i Template literals are preferred over string concatenation.
+  
+    170 │       })
+    171 │       await db.insert(workspaceLinkedRepositories).values({
+  > 172 │         id: "wlr_" + id,
+        │             ^^^^^^^^^^^
+    173 │         orgId: org.id,
+    174 │         workspaceId,
+  
+  i Unsafe fix: Use a template literal.
+  
+    170 170 │         })
+    171 171 │         await db.insert(workspaceLinkedRepositories).values({
+    172     │ - ········id:·"wlr_"·+·id,
+        172 │ + ········id:·`wlr_${id}`,
+    173 173 │           orgId: org.id,
+    174 174 │           workspaceId,
+  
+
+apps/backend/src/retrieval/services/code-search-projection.contract.test.ts:175:17 lint/style/useTemplate  FIXABLE  ━━━━━━━━━━
+
+  i Template literals are preferred over string concatenation.
+  
+    173 │         orgId: org.id,
+    174 │         workspaceId,
+  > 175 │         gitUrl: url + "-linked",
+        │                 ^^^^^^^^^^^^^^^
+    176 │         desiredSha: "cccccccccccccccccccccccccccccccccccccccc",
+    177 │         indexedSha: "cccccccccccccccccccccccccccccccccccccccc",
+  
+  i Unsafe fix: Use a template literal.
+  
+    173 173 │           orgId: org.id,
+    174 174 │           workspaceId,
+    175     │ - ········gitUrl:·url·+·"-linked",
+        175 │ + ········gitUrl:·`${url}-linked`,
+    176 176 │           desiredSha: "cccccccccccccccccccccccccccccccccccccccc",
+    177 177 │           indexedSha: "cccccccccccccccccccccccccccccccccccccccc",
+  
+
+apps/backend/src/retrieval/services/code-search-projection.contract.test.ts:182:15 lint/style/useTemplate  FIXABLE  ━━━━━━━━━━
+
+  i Template literals are preferred over string concatenation.
+  
+    180 │         .insert(repositoryCheckouts)
+    181 │         .values({
+  > 182 │           id: "co_linked_" + id,
+        │               ^^^^^^^^^^^^^^^^^
+    183 │           orgId: org.id,
+    184 │           repositoryId: linkedRepoId,
+  
+  i Unsafe fix: Use a template literal.
+  
+    180 180 │           .insert(repositoryCheckouts)
+    181 181 │           .values({
+    182     │ - ··········id:·"co_linked_"·+·id,
+        182 │ + ··········id:·`co_linked_${id}`,
+    183 183 │             orgId: org.id,
+    184 184 │             repositoryId: linkedRepoId,
+  
+
+apps/backend/src/retrieval/services/code-search-projection.contract.test.ts:217:17 lint/style/useTemplate  FIXABLE  ━━━━━━━━━━
+
+  i Template literals are preferred over string concatenation.
+  
+    215 │       zoektName: zoektRepositoryName({
+    216 │         orgId: org.id,
+  > 217 │         repoId: repositoryId + "_linked",
+        │                 ^^^^^^^^^^^^^^^^^^^^^^^^
+    218 │         checkoutKey: `ws:${workspaceId}:cccccccccccccccccccccccccccccccccccccccc`,
+    219 │       }),
+  
+  i Unsafe fix: Use a template literal.
+  
+    215 215 │         zoektName: zoektRepositoryName({
+    216 216 │           orgId: org.id,
+    217     │ - ········repoId:·repositoryId·+·"_linked",
+        217 │ + ········repoId:·`${repositoryId}_linked`,
+    218 218 │           checkoutKey: `ws:${workspaceId}:cccccccccccccccccccccccccccccccccccccccc`,
+    219 219 │         }),
+  
+
+apps/backend/src/domain/workspaces/chat-runtime.ts:62:21 lint/suspicious/noUselessEscapeInString  FIXABLE  ━━━━━━━━━━
+
+  ! The character doesn't need to be escaped.
+  
+    60 │ fi
+    61 │ if [ -n "\${CTXPIPE_SESSION_BRANCH:-}" ]; then
+  > 62 │   git checkout -B "\$CTXPIPE_SESSION_BRANCH" || true
+       │                     ^
+    63 │ fi
+    64 │ OPENCODE_HOME="\${HOME:-/tmp/ctxpipe-opencode-home}"
+  
+  i Only quotes that enclose the string and special characters need to be escaped.
+  
+  i Safe fix: Unescape the character.
+  
+    62 │ ··git·checkout·-B·"\$CTXPIPE_SESSION_BRANCH"·||·true
+       │                    -                                
+
+apps/backend/src/domain/workspaces/conversation-publish.ts:1:8 lint/style/useImportType  FIXABLE  ━━━━━━━━━━
+
+  ! Some named imports are only used as types.
+  
+  > 1 │ import {
+      │        ^
+  > 2 │   conversationSessionBranch,
+  > 3 │   mayForcePushBranch,
+  > 4 │   planChatPullRequest,
+  > 5 │ } from "./chat-lifecycle.js"
+      │ ^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    6 │ import { isChatSessionBranch } from "./chat-pull-request.js"
+    7 │ import {
+  
+  i This import is only used as a type.
+  
+    2 │   conversationSessionBranch,
+    3 │   mayForcePushBranch,
+  > 4 │   planChatPullRequest,
+      │   ^^^^^^^^^^^^^^^^^^^
+    5 │ } from "./chat-lifecycle.js"
+    6 │ import { isChatSessionBranch } from "./chat-pull-request.js"
+  
+  i Importing the types with import type ensures that they are removed by the compilers and avoids loading unnecessary modules.
+  
+  i Safe fix: Add inline type keywords.
+  
+    4 │ ··type·planChatPullRequest,
+      │   +++++                    
+
+apps/backend/src/domain/workspaces/hydration.contract.test.ts:279:19 lint/style/noNonNullAssertion ━━━━━━━━━━
+
+  ! Forbidden non-null assertion.
+  
+    277 │       const indexing = await runner.runWorkflow(workspaceIndex.spec, {
+    278 │         orgId: org.id,
+  > 279 │         revision: (await withOrgIdContext(org, () =>
+        │                   ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  > 280 │           getDesiredWorkspaceRevision(workspaceId),
+  > 281 │         ))!,
+        │         ^^^
+    282 │       })
+    283 │       await expect(indexing.result({ timeoutMs: 30_000 })).rejects.toThrow(
+  
+
+apps/backend/src/domain/workspaces/hydration.contract.test.ts:423:19 lint/style/noNonNullAssertion ━━━━━━━━━━
+
+  ! Forbidden non-null assertion.
+  
+    421 │       const indexRun = await runner.runWorkflow(workspaceIndex.spec, {
+    422 │         orgId: org.id,
+  > 423 │         revision: (await withOrgIdContext(org, () =>
+        │                   ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  > 424 │           getDesiredWorkspaceRevision(workspaceId),
+  > 425 │         ))!,
+        │         ^^^
+    426 │       })
+    427 │       expect(await indexRun.result({ timeoutMs: 30_000 })).toEqual({
+  
+
+apps/backend/src/domain/workspaces/workspace-chat-tools.ts:18:8 lint/style/useImportType  FIXABLE  ━━━━━━━━━━
+
+  ! All these imports are only used as types.
+  
+    16 │ } from "../../tools/codesearchGraph.js"
+    17 │ import { toToon } from "../../lib/agentToolRuntime.js"
+  > 18 │ import { type WorkspaceProjectionSnapshot } from "../../models/workspaces.js"
+       │        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    19 │ import { codeSearch } from "../../retrieval/services/codeSearch.js"
+    20 │ import { compactSearchResponse } from "../../tools/zoektCompact.js"
+  
+  i Importing the types with import type ensures that they are removed by the compilers and avoids loading unnecessary modules.
+  
+  i Safe fix: Use import type.
+  
+     16  16 │   } from "../../tools/codesearchGraph.js"
+     17  17 │   import { toToon } from "../../lib/agentToolRuntime.js"
+     18     │ - import·{·type·WorkspaceProjectionSnapshot·}·from·"../../models/workspaces.js"
+         18 │ + import·type·{·WorkspaceProjectionSnapshot·}·from·"../../models/workspaces.js"
+     19  19 │   import { codeSearch } from "../../retrieval/services/codeSearch.js"
+     20  20 │   import { compactSearchResponse } from "../../tools/zoektCompact.js"
+  
+
+apps/backend/src/domain/workspaces/workspace-graph.ts:5:8 lint/style/useImportType  FIXABLE  ━━━━━━━━━━
+
+  ! All these imports are only used as types.
+  
+    3 │   decayWorkspaceSignal,
+    4 │ } from "./claim-confidence.js"
+  > 5 │ import { type HydrateUnit, hydrateUnitsToProjectionClaims } from "./hydrate.js"
+      │        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    6 │ 
+    7 │ export type WorkspaceGraphPayload = {
+  
+  i Importing the types with import type ensures that they are removed by the compilers and avoids loading unnecessary modules.
+  
+  i Safe fix: Use import type.
+  
+      3   3 │     decayWorkspaceSignal,
+      4   4 │   } from "./claim-confidence.js"
+      5     │ - import·{·type·HydrateUnit,·hydrateUnitsToProjectionClaims·}·from·"./hydrate.js"
+          5 │ + import·type·{·HydrateUnit,·hydrateUnitsToProjectionClaims·}·from·"./hydrate.js"
+      6   6 │   
+      7   7 │   export type WorkspaceGraphPayload = {
+  
+
+apps/backend/src/models/atlassian-connector.ts:173:63 lint/style/noNonNullAssertion ━━━━━━━━━━━━━━━━
+
+  ! Forbidden non-null assertion.
+  
+    171 │   const list = await listForgeConnectionsForOrg(orgId)
+    172 │   if (list.length === 0) return { status: "none" }
+  > 173 │   if (list.length === 1) return { status: "ok", installation: list[0]! }
+        │                                                               ^^^^^^^^
+    174 │   return { status: "ambiguous" }
+    175 │ }
+  
+
+apps/backend/src/models/linear-connector.ts:839:39 lint/style/noNonNullAssertion ━━━━━━━━━━━━━━━━━━━
+
+  ! Forbidden non-null assertion.
+  
+    837 │     .update(connections)
+    838 │     .set({
+  > 839 │       config: mergeLinearStoredConfig(row!, {
+        │                                       ^^^^
+    840 │         setupPhase: "awaiting_merge",
+    841 │         pendingConfigPrCreating: true,
+  
+
+apps/backend/src/models/repositories.test.ts:351:7 lint/style/noNonNullAssertion ━━━━━━━━━━━━━━━━━━━
+
+  ! Forbidden non-null assertion.
+  
+    349 │     })
+    350 │     expect(withOrgDbContextMock.mock.invocationCallOrder[0]).toBeLessThan(
+  > 351 │       withGraphClientMock.mock.invocationCallOrder[0]!,
+        │       ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    352 │     )
+    353 │   })
+  
+
+apps/backend/src/models/repositories.test.ts:65:10 lint/correctness/noUnusedVariables  FIXABLE  ━━━━━━━━━━
+
+  ! This function mockLinkedRepos is unused.
+  
+    63 │ const repositoryId = "repo_AAAAAAAAAAAAAAAAAAAAAAAAAA"
+    64 │ 
+  > 65 │ function mockLinkedRepos(rows: Array<{ id: string; gitUrl: string }>) {
+       │          ^^^^^^^^^^^^^^^
+    66 │   getOrgDbMock.mockReturnValue({
+    67 │     select: vi.fn().mockReturnValue({
+  
+  i Unused variables are often the result of typos, incomplete refactors, or other sources of bugs.
+  
+  i Unsafe fix: If this is intentional, prepend mockLinkedRepos with an underscore.
+  
+     63  63 │   const repositoryId = "repo_AAAAAAAAAAAAAAAAAAAAAAAAAA"
+     64  64 │   
+     65     │ - function·mockLinkedRepos(rows:·Array<{·id:·string;·gitUrl:·string·}>)·{
+         65 │ + function·_mockLinkedRepos(rows:·Array<{·id:·string;·gitUrl:·string·}>)·{
+     66  66 │     getOrgDbMock.mockReturnValue({
+     67  67 │       select: vi.fn().mockReturnValue({
+  
+
+apps/backend/src/openworkflow/workflows/repository-index.ts:156:42 lint/style/noNonNullAssertion  FIXABLE  ━━━━━━━━━━
+
+  ! Forbidden non-null assertion.
+  
+    154 │           !(await withOrgDbContext(input.orgId, async () =>
+    155 │             sameLinkedReadBinding(
+  > 156 │               await getLinkedReadBinding(input.linkedRevision!.linkId),
+        │                                          ^^^^^^^^^^^^^^^^^^^^^
+    157 │               input.linkedRevision!,
+    158 │             ),
+  
+  i Unsafe fix: Replace with optional chain operator ?. This operator includes runtime checks, so it is safer than the compile-only non-null assertion operator
+  
+    154 154 │             !(await withOrgDbContext(input.orgId, async () =>
+    155 155 │               sameLinkedReadBinding(
+    156     │ - ··············await·getLinkedReadBinding(input.linkedRevision!.linkId),
+        156 │ + ··············await·getLinkedReadBinding(input.linkedRevision?.linkId),
+    157 157 │                 input.linkedRevision!,
+    158 158 │               ),
+  
+
+apps/backend/src/openworkflow/workflows/repository-index.ts:157:15 lint/style/noNonNullAssertion ━━━━━━━━━━
+
+  ! Forbidden non-null assertion.
+  
+    155 │             sameLinkedReadBinding(
+    156 │               await getLinkedReadBinding(input.linkedRevision!.linkId),
+  > 157 │               input.linkedRevision!,
+        │               ^^^^^^^^^^^^^^^^^^^^^
+    158 │             ),
+    159 │           ))
+  
+
+apps/backend/src/routes/v1/bedrockOpenAiProxy.ts:1:8 lint/style/useImportType  FIXABLE  ━━━━━━━━━━━━
+
+  ! Some named imports are only used as types.
+  
+  > 1 │ import {
+      │        ^
+  > 2 │   AIMessage,
+  > 3 │   AIMessageChunk,
+  > 4 │   HumanMessage,
+  > 5 │   SystemMessage,
+  > 6 │ } from "@langchain/core/messages"
+      │ ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    7 │ import type { BaseMessage } from "@langchain/core/messages"
+    8 │ import { ChatBedrockConverse } from "@langchain/aws"
+  
+  i This import is only used as a type.
+  
+    1 │ import {
+    2 │   AIMessage,
+  > 3 │   AIMessageChunk,
+      │   ^^^^^^^^^^^^^^
+    4 │   HumanMessage,
+    5 │   SystemMessage,
+  
+  i Importing the types with import type ensures that they are removed by the compilers and avoids loading unnecessary modules.
+  
+  i Safe fix: Add inline type keywords.
+  
+    3 │ ··type·AIMessageChunk,
+      │   +++++               
+
+The number of diagnostics exceeds the limit allowed. Use --max-diagnostics to increase it.
+Diagnostics not shown: 157.
+Checked 1326 files in 686ms. No fixes applied.
+Found 155 warnings.
+Found 22 infos.

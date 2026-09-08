@@ -210,6 +210,7 @@ it(
           .toMatchObject([{ FileName: "AGENTS.md", Version: sha }])
         const chatTools = await workspaceChatTools({
           orgId: org.id,
+          orgSlug: org.slug,
           workspaceId,
           snapshot: await getWorkspaceProjectionSnapshot(workspaceId),
         })
@@ -236,6 +237,7 @@ it(
       await withOrgIdContext(org, async () => {
         const chatTools = await workspaceChatTools({
           orgId: org.id,
+          orgSlug: org.slug,
           workspaceId,
           snapshot: await getWorkspaceProjectionSnapshot(workspaceId),
         })
@@ -310,6 +312,7 @@ it(
       await withOrgIdContext(org, async () => {
         const capturedTools = await workspaceChatTools({
           orgId: org.id,
+          orgSlug: org.slug,
           workspaceId,
           snapshot: await getWorkspaceProjectionSnapshot(workspaceId),
         })
@@ -335,6 +338,7 @@ it(
       await withOrgIdContext(org, async () => {
         const capturedTools = await workspaceChatTools({
           orgId: org.id,
+          orgSlug: org.slug,
           workspaceId,
           snapshot: await getWorkspaceProjectionSnapshot(workspaceId),
         })
@@ -806,6 +810,7 @@ it(
       )
       const tools = await workspaceChatTools({
         orgId: f.org.id,
+        orgSlug: f.org.slug,
         workspaceId: f.workspaceId,
         snapshot,
       })
@@ -838,6 +843,7 @@ it(
       )
       const tools = await workspaceChatTools({
         orgId: f.org.id,
+        orgSlug: f.org.slug,
         workspaceId: f.workspaceId,
         snapshot,
       })

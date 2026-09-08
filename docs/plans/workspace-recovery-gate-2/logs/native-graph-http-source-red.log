@@ -1,0 +1,55 @@
+{"name": "native-graph-http-source-red", "cwd": "/private/tmp/ctxpipe-recovery-01a07aba", "command": ["/Users/jakubriedl/.volta/tools/image/node/22.16.0/bin/node", "apps/backend/node_modules/vitest/vitest.mjs", "run", "--root", "apps/backend", "src/domain/workspaces/graph-workflow.contract.test.ts"], "environment": {"AUTH_SECRET": "gate0-local-disposable-test-secret-20260907", "DATABASE_URL": "postgresql://ctxpipe_app:ctxpipe@127.0.0.1:61314/ctxpipe_gate0_fresh", "GRAPH_DB_URI": "redis://127.0.0.1:6398", "CI": "true", "NO_COLOR": "1", "TURBO_TELEMETRY_DISABLED": "1", "STORYBOOK_DISABLE_TELEMETRY": "1", "PATH": "/Users/jakubriedl/.volta/tools/image/node/22.16.0/bin:/private/tmp/ctxpipe-recovery-runtime/ast-grep/node_modules/.bin:/private/tmp/ctxpipe-recovery-runtime/node_modules/.bin:/private/tmp/ctxpipe-recovery-runtime/zoekt:/usr/local/bin:/System/Cryptexes/App/usr/bin:/usr/bin:/bin:/usr/sbin:/sbin:/var/run/com.apple.security.cryptexd/codex.system/bootstrap/usr/local/bin:/var/run/com.apple.security.cryptexd/codex.system/bootstrap/usr/bin:/var/run/com.apple.security.cryptexd/codex.system/bootstrap/usr/appleinternal/bin:/pkg/env/global/bin:/Users/jakubriedl/.codex/tmp/arg0/codex-arg0BW5Gt3:/Users/jakubriedl/.cache/codex-runtimes/codex-primary-runtime/dependencies/bin/override:/Users/jakubriedl/.local/bin:/Users/jakubriedl/.bun/bin:/Users/jakubriedl/.opencode/bin:/Users/jakubriedl/.volta/bin:/opt/homebrew/bin:/opt/homebrew/sbin:/Users/jakubriedl/.cache/codex-runtimes/codex-primary-runtime/dependencies/bin/fallback:/Applications/ChatGPT.app/Contents/Resources"}, "timeout_seconds": 600, "started_utc": "2026-09-08T06:35:04Z", "log": "logs/native-graph-http-source-red.log"}
+
+ RUN  v4.0.18 /private/tmp/ctxpipe-recovery-01a07aba/apps/backend
+
+Cloning into bare repository '/var/folders/9t/jj9rnpps7_ddb72c1mq2k13w0000gn/T/ctxpipe-hydration-contract-z4XqQe/remote.git'...
+done.
+Cloning into bare repository '/var/folders/9t/jj9rnpps7_ddb72c1mq2k13w0000gn/T/ctxpipe-hydration-contract-l8yIwk/remote.git'...
+done.
+Cloning into bare repository '/var/folders/9t/jj9rnpps7_ddb72c1mq2k13w0000gn/T/ctxpipe-hydration-contract-D2m9bE/remote.git'...
+done.
+Cloning into bare repository '/var/folders/9t/jj9rnpps7_ddb72c1mq2k13w0000gn/T/ctxpipe-hydration-contract-VIn8nO/remote.git'...
+done.
+ ❯ src/domain/workspaces/graph-workflow.contract.test.ts (4 tests | 1 failed) 7275ms
+   ✓ hydrate publishes its complete revision graph to FalkorDB  2210ms
+   ✓ hydrate projects resolved markdown links as Falkor graph edges  1298ms
+   ✓ hydrate preserves declared claim confidence and validity in FalkorDB  1540ms
+   × Graph HTTP reports an unavailable derived graph instead of rebuilding it from Postgres 2225ms
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 1 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  src/domain/workspaces/graph-workflow.contract.test.ts > Graph HTTP reports an unavailable derived graph instead of rebuilding it from Postgres
+AssertionError: expected { status: 404, …(1) } to deeply equal { status: 503, …(1) }
+
+- Expected
++ Received
+
+  {
+    "body": {
+-     "error": "Workspace graph projection is unavailable.",
++     "error": "Not found",
+    },
+-   "status": 503,
++   "status": 404,
+  }
+
+ ❯ src/domain/workspaces/graph-workflow.contract.test.ts:127:72
+    125|         workspaceGraphRoutes,
+    126|       ).request(`/workspaces/${f.id}/graph`)
+    127|       expect({ status: response.status, body: await response.json() })…
+       |                                                                        ^
+    128|         status: 503,
+    129|         body: { error: "Workspace graph projection is unavailable." },
+ ❯ src/domain/workspaces/graph-workflow.contract.test.ts:26:9
+ ❯ withNativeHydrationFixture src/test/native-hydration-fixture.ts:308:5
+ ❯ withGraphHydration src/domain/workspaces/graph-workflow.contract.test.ts:24:5
+ ❯ src/domain/workspaces/graph-workflow.contract.test.ts:120:5
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/1]⎯
+
+
+ Test Files  1 failed (1)
+      Tests  1 failed | 3 passed (4)
+   Start at  16:35:04
+   Duration  9.27s (transform 493ms, setup 20ms, import 1.90s, tests 7.28s, environment 0ms)
+

@@ -1,3 +1,4 @@
+import { readWorkspaceGraph } from "./graph-projection.js"
 import {
   globCheckoutPaths,
   type CheckoutGlobRequest,
@@ -24,10 +25,7 @@ import {
 import { listRepositoriesTool } from "../../tools/listRepositories.js"
 import { standardRepoExplorerTools } from "../../tools/repoExplorerTools.js"
 import { publishedProjection, type PublishedProjection } from "./revision.js"
-import {
-  workspaceGraphFromUnits,
-  type WorkspaceGraphPayload,
-} from "./workspace-graph.js"
+import type { WorkspaceGraphPayload } from "./workspace-graph.js"
 import {
   formatWorkspaceChatHits,
   type WorkspaceChatUnit,
@@ -193,6 +191,7 @@ export function workspaceChatToolAllowed(input: {
 
 export async function workspaceChatTools(input: {
   orgId: string
+  orgSlug: string
   workspaceId: string
   snapshot: WorkspaceProjectionSnapshot
   embedQuery?: (query: string) => Promise<number[]>
@@ -207,7 +206,12 @@ export async function workspaceChatTools(input: {
     projection.kind === "active" ? projection.revision.sha : projection.sha
   const boundRepositories = input.snapshot.repositories
   const allowed = new Set(boundRepositories.map((repo) => repo.id))
-  const graph = workspaceGraphFromUnits({ units: input.snapshot.units })
+  const loadGraph = () =>
+    readWorkspaceGraph({
+      orgId: input.orgId,
+      orgSlug: input.orgSlug,
+      projection,
+    })
   const explorer = [
     listRepositoriesTool as unknown as ExplorerTool,
     ...(standardRepoExplorerTools as unknown as ExplorerTool[]),
@@ -230,8 +234,8 @@ export async function workspaceChatTools(input: {
     }),
   )
   tools.push(
-    graphLookupTool({ graph, sha }),
-    graphNeighborsTool({ graph, sha }),
+    graphLookupTool({ loadGraph, sha }),
+    graphNeighborsTool({ loadGraph, sha }),
   )
   return tools
 }
@@ -496,7 +500,7 @@ function wrapExplorerTool(input: {
 }
 
 function graphLookupTool(input: {
-  graph: WorkspaceGraphPayload
+  loadGraph: () => Promise<WorkspaceGraphPayload>
   sha: string
 }): WorkspaceChatTanstackTool {
   return {
@@ -513,14 +517,16 @@ function graphLookupTool(input: {
       if (!nodeId) return toToon({ error: "nodeId_required" })
       return toToon({
         projectionSha: input.sha,
-        node: input.graph.nodes.find((node) => node.id === nodeId) ?? null,
+        node:
+          (await input.loadGraph()).nodes.find((node) => node.id === nodeId) ??
+          null,
       })
     },
   }
 }
 
 function graphNeighborsTool(input: {
-  graph: WorkspaceGraphPayload
+  loadGraph: () => Promise<WorkspaceGraphPayload>
   sha: string
 }): WorkspaceChatTanstackTool {
   return {
@@ -546,11 +552,12 @@ function graphNeighborsTool(input: {
         typeof limitRaw === "number" && Number.isFinite(limitRaw)
           ? Math.min(50, Math.max(1, Math.floor(limitRaw)))
           : 20
-      const neighbors = input.graph.edges
+      const graph = await input.loadGraph()
+      const neighbors = graph.edges
         .filter((edge) => edge.sourceId === nodeId || edge.targetId === nodeId)
         .slice(0, limit)
         .map((edge) => ({
-          node: input.graph.nodes.find(
+          node: graph.nodes.find(
             (node) =>
               node.id ===
               (edge.sourceId === nodeId ? edge.targetId : edge.sourceId),

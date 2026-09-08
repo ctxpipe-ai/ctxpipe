@@ -1,3 +1,4 @@
+import { projectWorkspaceGraph } from "../../domain/workspaces/graph-projection.js"
 import { defineWorkflow } from "openworkflow"
 import { z } from "zod"
 import { withOrgIdContext } from "../../auth/withAuth.js"
@@ -136,10 +137,21 @@ export const workspaceHydrate = defineWorkflow(
               postgres: !active,
               embeddings: !active || active.stores.embeddings.kind !== "ready",
               index: !active || active.stores.index.kind !== "ready",
+              graph: !active || active.stores.graph.kind !== "ready",
             }
-            if (!pending.postgres && !pending.embeddings && !pending.index)
+            if (
+              !pending.postgres &&
+              !pending.embeddings &&
+              !pending.index &&
+              !pending.graph
+            )
               return { hydrated: false, reason: "noop" as const }
-            if (pending.index && !pending.postgres && !pending.embeddings) {
+            if (
+              pending.index &&
+              !pending.postgres &&
+              !pending.embeddings &&
+              !pending.graph
+            ) {
               await enqueueLaggingIndex({
                 orgId: input.orgId,
                 revision,
@@ -149,6 +161,7 @@ export const workspaceHydrate = defineWorkflow(
 
             const files = pending.postgres
               ? await listMarkdownFilesAtGitSha({
+                  includeIntroducingCommits: true,
                   url: revision.remote.url,
                   sha: revision.sha,
                   token:
@@ -185,7 +198,21 @@ export const workspaceHydrate = defineWorkflow(
                   revision,
                   displayName,
                   remotes: parsed.linked,
-                  units: applyEffectiveValidFromToUnits(parsed.units, null),
+                  units: applyEffectiveValidFromToUnits(
+                    parsed.units,
+                    new Map(
+                      files.flatMap((file) =>
+                        file.introducingCommitTimestamp
+                          ? [
+                              [
+                                file.path,
+                                file.introducingCommitTimestamp,
+                              ] as const,
+                            ]
+                          : [],
+                      ),
+                    ),
+                  ),
                 }),
               )
               if (!activated) {
@@ -195,6 +222,16 @@ export const workspaceHydrate = defineWorkflow(
                   units: parsed.units.length,
                   skipped: parsed.skipped.length,
                 }
+              }
+            }
+
+            if (activated && pending.graph) {
+              try {
+                await projectWorkspaceGraph(revision)
+              } catch (error) {
+                log.error(
+                  error instanceof Error ? error : new Error(String(error)),
+                )
               }
             }
 

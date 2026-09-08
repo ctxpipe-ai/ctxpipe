@@ -124,7 +124,9 @@ export async function forwardToUpstream(
   const status = upstream.status as 200 | 400 | 401 | 404 | 429 | 503
   if (!options?.observe || !upstream.body) {
     options?.onObservedComplete?.()
-    return c.body(upstream.body, status, Object.fromEntries(headers))
+    return upstream.body
+      ? c.body(upstream.body, status, Object.fromEntries(headers))
+      : c.body(null, status, Object.fromEntries(headers))
   }
   const observed = upstream.body.pipeThrough(
     new TransformStream<Uint8Array, Uint8Array>({
@@ -169,7 +171,9 @@ export async function handleNativeBedrockResponse(
     }
 
     if (contentType?.includes("text/event-stream")) {
-      return c.body(response.body, 200, Object.fromEntries(headers))
+      return response.body
+        ? c.body(response.body, 200, Object.fromEntries(headers))
+        : c.body(null, 200, Object.fromEntries(headers))
     }
 
     const json = await response.json()

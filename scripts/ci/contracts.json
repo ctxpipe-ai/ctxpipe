@@ -36,5 +36,11 @@
   "durable revision triggers": [
     "src/routes/webhooks/github/github-tip.contract.test.ts",
     "src/db/gateway-guards.contract.test.ts"
+  ],
+  "derived revision graph": [
+    "src/domain/workspaces/graph-workflow.contract.test.ts"
+  ],
+  "native cron scheduling": [
+    "src/openworkflow/workflows/workspace-tip-check.contract.test.ts"
   ]
 }
