@@ -53,14 +53,19 @@ try {
     ts.createCompilerHost(compilerOptions, true),
   )
   const checker = program.getTypeChecker()
-  const initializerOf = (identifier) => {
+  const declarationOf = (identifier) => {
     const symbol = ts.isShorthandPropertyAssignment(identifier.parent)
       ? checker.getShorthandAssignmentValueSymbol(identifier.parent)
       : checker.getSymbolAtLocation(identifier)
     const declaration = symbol?.valueDeclaration
     return declaration && ts.isVariableDeclaration(declaration)
-      ? declaration.initializer
+      ? declaration
       : undefined
+  }
+  const initializerOf = (identifier) => declarationOf(identifier)?.initializer
+  const isConstantBinding = (identifier) => {
+    const declaration = declarationOf(identifier)
+    return declaration && (declaration.parent.flags & ts.NodeFlags.Const) !== 0
   }
   const unwrap = (expression) => {
     while (
@@ -166,6 +171,46 @@ try {
       }
       collectAliases(source)
     }
+    const complain = (node, message) =>
+      errors.push(
+        `${path}:${source.getLineAndCharacterOfPosition(node.getStart()).line + 1} ${message}`,
+      )
+    const mutatedObjects = new Set()
+    const objectOrigin = (expression, seen = new Set()) => {
+      expression = unwrap(expression)
+      if (!ts.isIdentifier(expression)) return expression
+      const initializer = initializerOf(expression)
+      if (!initializer || seen.has(initializer)) return expression
+      seen.add(initializer)
+      return objectOrigin(initializer, seen)
+    }
+    const collectMutations = (node) => {
+      const target =
+        ts.isBinaryExpression(node) &&
+        node.operatorToken.kind >= ts.SyntaxKind.FirstAssignment &&
+        node.operatorToken.kind <= ts.SyntaxKind.LastAssignment
+          ? node.left
+          : (ts.isPrefixUnaryExpression(node) ||
+                ts.isPostfixUnaryExpression(node)) &&
+              [
+                ts.SyntaxKind.PlusPlusToken,
+                ts.SyntaxKind.MinusMinusToken,
+              ].includes(node.operator)
+            ? node.operand
+            : ts.isDeleteExpression(node)
+              ? node.expression
+              : undefined
+      if (target) {
+        const access = unwrap(target)
+        if (
+          ts.isPropertyAccessExpression(access) ||
+          ts.isElementAccessExpression(access)
+        )
+          mutatedObjects.add(objectOrigin(access.expression))
+      }
+      ts.forEachChild(node, collectMutations)
+    }
+    collectMutations(source)
     const testOptions = new Set()
     const markOptions = (expression, seen = new Set()) => {
       expression = unwrap(expression)
@@ -173,9 +218,13 @@ try {
         ? initializerOf(expression)
         : undefined
       if (initializer && !seen.has(initializer)) {
+        if (!isConstantBinding(expression))
+          complain(expression, "Test options must use constant bindings")
         seen.add(initializer)
         markOptions(initializer, seen)
       } else if (ts.isObjectLiteralExpression(expression)) {
+        if (mutatedObjects.has(expression))
+          complain(expression, "Test options must not be mutated")
         testOptions.add(expression)
         for (const property of expression.properties)
           if (ts.isSpreadAssignment(property))
@@ -193,7 +242,11 @@ try {
       const initializer = ts.isIdentifier(expression)
         ? initializerOf(expression)
         : undefined
-      if (initializer && !seen.has(initializer)) {
+      if (
+        initializer &&
+        isConstantBinding(expression) &&
+        !seen.has(initializer)
+      ) {
         seen.add(initializer)
         return constantValue(initializer, seen)
       }
@@ -204,10 +257,6 @@ try {
         return JSON.stringify(expression.text)
       return expression.getText(source)
     }
-    const complain = (node, message) =>
-      errors.push(
-        `${path}:${source.getLineAndCharacterOfPosition(node.getStart()).line + 1} ${message}`,
-      )
     const visit = (node) => {
       if (ts.isBindingElement(node)) {
         const property = (node.propertyName ?? node.name)
