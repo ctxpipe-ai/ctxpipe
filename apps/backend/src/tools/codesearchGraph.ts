@@ -69,7 +69,9 @@ export async function codesearchGraphQuery(
           "Content-Type": "application/json",
           Authorization: `Bearer ${token}`,
         },
-        body: JSON.stringify(body),
+        body: JSON.stringify(
+          source ? { ...body, checkoutKey: undefined } : body,
+        ),
       }),
     { retries: 10, baseDelayMs: 200, maxDelayMs: 30_000 },
   )

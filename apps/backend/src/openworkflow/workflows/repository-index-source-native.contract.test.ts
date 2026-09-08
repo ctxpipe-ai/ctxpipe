@@ -1,4 +1,4 @@
-import { writeFile } from "node:fs/promises"
+import { chmod, writeFile } from "node:fs/promises"
 import { join } from "node:path"
 import { expect, it } from "vitest"
 import { withOrgIdContext } from "../../auth/withAuth.js"
@@ -8,10 +8,12 @@ import { fetchFiles } from "../../domain/codeIngestion/codesearchClient.js"
 import { withIngestAgentContext } from "../../graphs/codeIngestionGraph/withIngestAgentContext.js"
 import {
   getRepositoryForOrg,
+  markRepositoryIndexingIssues,
   markRepositoryIndexingReady,
 } from "../../models/repositories.js"
 import { codeSearch } from "../../retrieval/services/codeSearch.js"
 import { withNativeIndexFixture } from "../../test/native-index-fixture.js"
+import { graphFindSymbolTool } from "../../tools/codegraphTools.js"
 import { getFileTool } from "../../tools/getFile.js"
 import { searchTool } from "../../tools/search.js"
 import { repositoryIndex } from "./repository-index.js"
@@ -93,6 +95,12 @@ it(
           },
           async () => {
             expect(
+              await graphFindSymbolTool.invoke({
+                repositoryId: f.repositoryId,
+                symbol: "fixture",
+              }),
+            ).toContain("find_symbol")
+            expect(
               await getFileTool.invoke({
                 repositoryId: f.repositoryId,
                 path: "AGENTS.md",
@@ -115,6 +123,82 @@ it(
           }),
         ),
       ).toContain("cobaltcedar")
+    }, false)
+  },
+)
+
+it(
+  "keeps serving the last complete revision after the next Zoekt build fails",
+  { timeout: 45_000 },
+  async () => {
+    await withNativeIndexFixture(async (f) => {
+      const first = await f.runner.runWorkflow(repositoryIndex.spec, {
+        orgId: f.org.id,
+        repositoryId: f.repositoryId,
+        targetHash: f.sha,
+      })
+      expect(await first.result({ timeoutMs: 15_000 })).toMatchObject({
+        searchIndexOk: true,
+      })
+      await withOrgDbContext(f.org.id, () =>
+        markRepositoryIndexingReady({
+          repositoryId: f.repositoryId,
+          targetHash: f.sha,
+        }),
+      )
+      await writeFile(
+        join(f.remote, "AGENTS.md"),
+        "# Incomplete newer source\nUse cobaltcedar instructions.\n",
+      )
+      f.git("add", "AGENTS.md")
+      f.git(
+        "-c",
+        "user.name=Contract",
+        "-c",
+        "user.email=contract@example.test",
+        "commit",
+        "-m",
+        "Incomplete index",
+      )
+      const newer = f.git("rev-parse", "HEAD")
+      await chmod(f.cold, 0o500)
+      try {
+        const next = await f.runner.runWorkflow(repositoryIndex.spec, {
+          orgId: f.org.id,
+          repositoryId: f.repositoryId,
+          targetHash: newer,
+        })
+        const result = await next.result({ timeoutMs: 20_000 })
+        expect(result).toMatchObject({ searchIndexOk: false })
+        await withOrgDbContext(f.org.id, () =>
+          markRepositoryIndexingIssues({
+            repositoryId: f.repositoryId,
+            error: result.searchIndexError ?? "Search index unavailable",
+          }),
+        )
+      } finally {
+        await chmod(f.cold, 0o700)
+      }
+      expect(await getRepositoryForOrg(f.org.id, f.repositoryId)).toMatchObject(
+        {
+          lastIngestedHash: f.sha,
+          indexingStatus: "complete_with_issues",
+          indexReady: true,
+        },
+      )
+      expect(await fetchFiles(f.repositoryId, f.org.id, ["AGENTS.md"])).toEqual(
+        {
+          "AGENTS.md":
+            "# Revision search contract\nUse amberquartz instructions.\n",
+        },
+      )
+      const results = await codeSearch(f.org.id, {
+        repositoryIds: [f.repositoryId],
+        query: "amberquartz",
+      })
+      expect(results[0]?.response.Files).toMatchObject([
+        { FileName: "AGENTS.md", Version: f.sha },
+      ])
     }, false)
   },
 )

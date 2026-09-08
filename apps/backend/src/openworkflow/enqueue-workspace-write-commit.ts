@@ -12,9 +12,9 @@ import {
 } from "../domain/workspaces/write-status.js"
 import { generateObjectId } from "../lib/id.js"
 import {
-  failUnscheduledWriteJob,
   persistBoundWriteJob,
   reconcileWorkspaceWriteJob,
+  reconcileWriteJobAdmission,
 } from "../models/workspace-write-jobs.js"
 import {
   getWorkspaceById,
@@ -22,6 +22,7 @@ import {
   type WorkspaceWriteProbeBinding,
 } from "../models/workspaces.js"
 import { runWorkflowWithWorkerWake } from "./client.js"
+import { scheduleEnsureWorkerRunning } from "./railway-wake.js"
 import { workspaceBootstrap } from "./workflows/workspace-bootstrap.js"
 import { workspaceClaimsUpgrade } from "./workflows/workspace-claims-upgrade.js"
 import {
@@ -383,7 +384,10 @@ export async function enqueueWriteJob(
     } catch (error) {
       if (bound) {
         try {
-          await failUnscheduledWriteJob(jobId)
+          if (await reconcileWriteJobAdmission(jobId)) {
+            scheduleEnsureWorkerRunning()
+            return { started: true }
+          }
         } catch (statusError) {
           log.error(
             statusError instanceof Error

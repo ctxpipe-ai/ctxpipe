@@ -24,8 +24,8 @@ import type {
 } from "../../graphs/codeIngestionGraph/schemas.js"
 import { withIngestAgentContext } from "../../graphs/codeIngestionGraph/withIngestAgentContext.js"
 import {
+  markRepositoryIndexingIssues,
   markRepositoryIndexingReady,
-  markRepositoryIndexingReadyWithIssues,
   markRepositoryIndexingRunning,
   setRepositoryIndexingStep,
 } from "../../models/repositories.js"
@@ -580,10 +580,9 @@ export const repositoryIngestion = defineWorkflow(
               wls("mark-success", () =>
                 withOrgDbContext(input.orgId, () =>
                   reindexState.searchIndexOk === false
-                    ? markRepositoryIndexingReadyWithIssues({
+                    ? markRepositoryIndexingIssues({
                         requestId,
                         repositoryId: input.repositoryId,
-                        targetHash: result.targetHash,
                         error:
                           reindexState.searchIndexError ??
                           "Search index unavailable",

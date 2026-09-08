@@ -5,6 +5,7 @@ import {
   type RepositoryIngestionIntent,
 } from "../models/repository-ingestion-requests.js"
 import { runWorkflowWithWorkerWake } from "./client.js"
+import { scheduleEnsureWorkerRunning } from "./railway-wake.js"
 import { repositoryIngestionOrchestrator } from "./workflows/repository-ingestion-orchestrator.js"
 
 export type RepositoryIngestionEnqueueInput = RepositoryIngestionIntent & {
@@ -39,6 +40,7 @@ export async function enqueueRepositoryIngestionWorkflow(
       throw error
     }
     workflowRunId = recovered
+    scheduleEnsureWorkerRunning()
   }
   await activateRepositoryIngestionRequest(captured, workflowRunId)
   return { workflowRunId }

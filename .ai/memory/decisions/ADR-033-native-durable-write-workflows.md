@@ -30,6 +30,9 @@ This implements the recovery plan's explicit replacement of ticket 10's generic 
 - Extract write commands carry a validated immutable extractor batch and never load content from projection tables. Only the one-time migration export reads legacy content. Extraction may read completed path identity and migration cutover metadata. Repository producer handoff and Git retraction remain unfinished and must precede Gate 3 acceptance.
 - Configuration proposal identity follows canonical provider selection semantics. Lifecycle storage uses provider schemas, including defaults. Superseded Notion/Confluence PR cleanup has its own durable step after a failed finalization CAS; this prevents an old owner from leaving an actionable stale proposal.
 
+- An uncertain workspace enqueue reconciles the accepted native owner and captured command before reporting failure; recovered admission wakes the worker and returns the same acknowledgement. A rejected INSERT remains retryable without manufacturing an accepted command.
+- A source refresh publishes its serving revision only when both Zoekt and SCIP complete. A search failure records its issue while preserving the prior `lastIngestedHash`, timestamp and readiness; the first failed index remains unready. Graph tools default to the authenticated captured source or current published checkout, and captured extraction cannot override that scope with a tool argument.
+
 ## Consequences
 
 Worker restart can reconstruct a job's Git artifacts. Durable packs add storage proportional to the acquired tree; they contain repository data but no credentials. Step identities, command admission, remote uncertainty, per-kind retry bounds, and every former default writer require native acceptance proof before Gate 3 closes.

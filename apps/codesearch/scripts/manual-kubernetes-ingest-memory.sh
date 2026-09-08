@@ -58,7 +58,7 @@ cleanup() {
 }
 trap cleanup EXIT INT TERM
 
-mkdir -p "${SCIP_DIR}" "${ZOEKT_DIR}" "${ZOEKT_HOT_DIR}" "${WORK_DIR}/go-build" "${WORK_DIR}/go-cache" "${WORK_DIR}/go-mod"
+mkdir -p "${SCIP_DIR}" "${ZOEKT_DIR}" "${ZOEKT_HOT_DIR}" "${WORK_DIR}/go-build" "${WORK_DIR}/go-cache" "${WORK_DIR}/go-mod" "${WORK_DIR}/tmp"
 
 # Seed an unrelated cold shard so the gate proves ingest does not copy/load it
 # into hot (zoekt-webserver is not started here; Bun must not write real files
@@ -261,6 +261,7 @@ docker run \
   --mount "type=bind,src=${WORK_DIR},dst=/gate" \
   --mount "type=bind,src=${GO_CACHE_DIR}/go-cache,dst=/gate/go-cache" \
   --mount "type=bind,src=${GO_CACHE_DIR}/go-mod,dst=/gate/go-mod" \
+  -e TMPDIR=/gate/tmp \
   -e GOTMPDIR=/gate/go-build \
   -e GOCACHE=/gate/go-cache \
   -e GOMODCACHE=/gate/go-mod \
@@ -310,7 +311,7 @@ for shard in "${scip_shards[@]}"; do
   fi
 done
 
-if ! compgen -G "${ZOEKT_DIR}/ctxpipe%3Av1%3Aorg%3A${GATE_ORG_ID}%3Arepo%3A${GATE_ORG_ID}_repo_*.zoekt" >/dev/null; then
+if ! compgen -G "${ZOEKT_DIR}/ctxpipe%3Av1%3Aorg%3A${GATE_ORG_ID}%3Arepo%3A${GATE_ORG_ID}_repo%3Acheckout%3Arev%3A${KUBERNETES_SHA}_*.zoekt" >/dev/null; then
   echo "manual-kubernetes-memory: FAIL: no kubernetes Zoekt shards under ${ZOEKT_DIR}" >&2
   exit 1
 fi

@@ -716,10 +716,27 @@ export async function persistBoundWriteJob(input: {
   })
 }
 
-/** A rejected enqueue may still have committed. Never fail a native scheduled run. */
-export async function failUnscheduledWriteJob(jobId: string): Promise<void> {
-  await orgSql(async () => {
-    await getOrgDb()
+/** Recover accepted native admission before reporting an enqueue failure. */
+export async function reconcileWriteJobAdmission(
+  jobId: string,
+): Promise<boolean> {
+  return orgSql(async () => {
+    const db = getOrgDb()
+    const accepted = sql<boolean>`exists (select 1 from openworkflow.workflow_runs scheduled
+      where scheduled.input->>'orgId' = workspace_write_jobs.org_id
+        and scheduled.input->>'workspaceId' = workspace_write_jobs.workspace_id
+        and scheduled.input->>'jobId' = workspace_write_jobs.id
+        and (scheduled.id = workspace_write_jobs.payload->>'workflowRunId'
+          or (scheduled.namespace_id = 'default' and scheduled.idempotency_key = workspace_write_jobs.id
+            and scheduled.input->'revision' = workspace_write_jobs.payload->'revision')))`
+    const [row] = await db
+      .select({ accepted })
+      .from(workspaceWriteJobs)
+      .where(eq(workspaceWriteJobs.id, jobId))
+      .for("update")
+      .limit(1)
+    if (row?.accepted) return true
+    await db
       .update(workspaceWriteJobs)
       .set({ status: WRITE_JOB_STATUSES.failed, updatedAt: new Date() })
       .where(
@@ -730,12 +747,10 @@ export async function failUnscheduledWriteJob(jobId: string): Promise<void> {
             WRITE_JOB_STATUSES.paused,
           ]),
           sql`${workspaceWriteJobs.payload}->>'workflowRunId' is null`,
-          sql`not exists (select 1 from openworkflow.workflow_runs scheduled
-        where scheduled.input->>'orgId' = ${workspaceWriteJobs.orgId}
-          and scheduled.input->>'workspaceId' = ${workspaceWriteJobs.workspaceId}
-          and scheduled.input->>'jobId' = ${workspaceWriteJobs.id})`,
+          sql`not ${accepted}`,
         ),
       )
+    return false
   })
 }
 

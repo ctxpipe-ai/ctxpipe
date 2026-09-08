@@ -468,10 +468,9 @@ export async function markRepositoryIndexingReady(input: {
   })
 }
 
-export async function markRepositoryIndexingReadyWithIssues(input: {
+export async function markRepositoryIndexingIssues(input: {
   repositoryId: string
   requestId?: string | null
-  targetHash: string
   error: unknown
 }) {
   return orgSql(async () => {
@@ -479,7 +478,6 @@ export async function markRepositoryIndexingReadyWithIssues(input: {
     await db
       .update(repositories)
       .set({
-        indexReady: true,
         indexingStatus: "complete_with_issues",
         indexingError: sanitizeIndexingError(input.error),
         indexingFailedAt: null,
@@ -487,8 +485,6 @@ export async function markRepositoryIndexingReadyWithIssues(input: {
         indexingStep: null,
         indexingStepTotal: null,
         indexingStepKey: null,
-        lastIngestedHash: input.targetHash,
-        lastIngestedAt: new Date(),
         updatedAt: new Date(),
       })
       .where(

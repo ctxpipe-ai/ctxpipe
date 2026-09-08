@@ -554,3 +554,18 @@ Gate 3 remains OPEN. The full live producer journey, remaining configuration ord
 CI 34278465307 finished: backend executed 1527 tests (1526 pass, only the acknowledged Gate 4 fallback fails), with zero skipped. The Tests job subsequently failed because the required-contract inventory still referenced the deliberately retired generic job-sandbox runner. Its lane is removed in favor of the already-required typed native write jobs, and current native ingestion ownership/source admission contracts are now explicit required lanes. No behavior failure is newly allowed. Consolidated native reads pass 22 cases; retained codesearch route contracts pass 29.
 
 The packaged Linux Node/Bun contracts pass with no allowed failures. An initial use of the cached image's retired all-Node command failed on Bun-only contracts; that diagnostic is archived locally. The corrected command mounts the current committed runner/config and stores both runtime result inventories. Immutable-checkout Kubernetes memory validation is running separately; its result is not yet claimed.
+
+
+### Checkpoint 529b0bfd follow-up
+
+Both pinned reviews completed with one P1 each. Native public graph-tool invocation reproduced the captured-source/default-checkout 403. A real Zoekt filesystem write failure reproduced publication of the incomplete new revision over the last complete source. Both regression cases now pass; the initial failed index retains unready/null publication, and existing native ingestion warning projection still passes. The issue-only model no longer accepts a target SHA it must not publish.
+
+A transparent local PostgreSQL protocol fault drops the actual INSERT RETURNING run row after observing committed completion. The write-admission contract initially returned started=false for its accepted native command and now recovers the matching native owner and returns started=true. Expanded exactly-one-commit/retry verification is running. Early fixture diagnostics (loader setup, PostgreSQL disk exhaustion, and Bun/postgres disconnect behavior) are archived locally and are not behavior proof.
+
+The immutable Kubernetes ingestion completed with a measured 5,119,545,344-byte peak, but the manual script's old default-checkout shard filename assertion failed. The assertion now uses the immutable revision identity; compiler scratch uses the host-mounted task directory to avoid exhausting Docker's disk. A clean rerun is active; no memory-gate pass is claimed yet. The disposable PostgreSQL server recovered after disk capacity returned. Retired recovery-only Gate 1/Gate 2 image tags were removed; unrelated containers and images were not changed.
+
+CI 34281461940 on 529b0bfd currently has 12 successful jobs; full Tests remains in progress. Gate 3 remains open, including remaining live producer, empty-repository bootstrap, configuration ordering, allocation/crash and cleanup acceptance. Gates 4–6 remain pending.
+
+The full native write-workflow regression passes 16 existing cases plus the new returned-ID-loss/retry case (17 total). A follow-up 10-case native run passes both actual connection-loss and returned-row-loss recovery, each checking one native command and one Git commit across retries, together with both index review regressions and all six ingestion-owner cases.
+
+Repository-ingestion transport proof passes: loss of the actual committed native ID recovers queued state and reuses the identical owner on retry. The source publication mock-only assertion is removed in favor of the native failed-Zoekt/serving-read regression. Both final code formatting and the 440-file proof inventory pass; backend diagnostics remain the same 132 with no new/stale entries.

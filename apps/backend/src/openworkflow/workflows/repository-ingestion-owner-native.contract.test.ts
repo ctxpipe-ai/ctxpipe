@@ -270,7 +270,7 @@ it(
       const { activateRepositoryIngestionRequest } = await import(
         "../../models/repository-ingestion-requests.js"
       )
-      const { markRepositoryIndexingReadyWithIssues } = await import(
+      const { markRepositoryIndexingIssues } = await import(
         "../../models/repositories.js"
       )
       // Historical successful native execution with a degraded search result.
@@ -283,10 +283,9 @@ it(
           )
           await step.run({ name: "mark-success" }, () =>
             withOrgDbContext(f.org.id, () =>
-              markRepositoryIndexingReadyWithIssues({
+              markRepositoryIndexingIssues({
                 repositoryId: repository.id,
                 requestId,
-                targetHash: f.sha,
                 error: "Search index unavailable",
               }),
             ),
@@ -311,7 +310,8 @@ it(
         ).toMatchObject({
           indexingStatus: "complete_with_issues",
           indexingError: "Search index unavailable",
-          indexReady: true,
+          indexReady: false,
+          lastIngestedHash: null,
         })
       } finally {
         await worker.stop()
