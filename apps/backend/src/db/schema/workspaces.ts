@@ -10,8 +10,10 @@ import {
   unique,
   uniqueIndex,
 } from "drizzle-orm/pg-core"
+import type { ConnectorMirrorSource } from "../../domain/workspaces/connector-mirror.js"
 import type { HydratePhaseRecord } from "../../domain/workspaces/hydrate-phases.js"
 import type { WorkspaceRevision } from "../../domain/workspaces/revision.js"
+import type { GitFileChange } from "../../services/git/file-change.js"
 import { connections } from "./connections.js"
 import { orgIsolationPolicy } from "./org-rls.js"
 
@@ -176,6 +178,7 @@ export const workspaceWriteJobs = pgTable.withRLS(
       workflowRunId?: string
       exportTipSha?: string
       previousSha?: string
+      mirror?: ConnectorMirrorSource
       linkAction?: "link" | "unlink"
       linkGitUrl?: string
       displayName?: string
@@ -183,7 +186,7 @@ export const workspaceWriteJobs = pgTable.withRLS(
       jobWorkspaceUrl?: string
       conflictParentSha?: string | null
       remoteTipSha?: string | null
-      mergeFiles?: Array<{ path: string; content: string }>
+      mergeFiles?: GitFileChange[]
       mergeDeletePaths?: string[]
     } | null>(),
     createdAt: timestamp("created_at", { withTimezone: true, mode: "date" })

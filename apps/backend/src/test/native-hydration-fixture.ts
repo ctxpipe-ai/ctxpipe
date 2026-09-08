@@ -211,6 +211,8 @@ async function createNativeHydrationFixture(
     })())
   try {
     git("init", "-b", "main")
+    git("config", "user.name", "Contract")
+    git("config", "user.email", "contract@example.test")
     const expected =
       options.files ??
       Array.from({ length: count }, (_, index) => ({

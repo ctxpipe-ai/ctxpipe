@@ -25,6 +25,7 @@ import {
   persistWriteJobCommitSha,
   persistWriteJobStatus,
 } from "../../models/workspaces.js"
+import { repositoryFilePathSchema } from "../../services/git/file-change.js"
 import { nativeGit, withGitDirectory } from "../../services/git/pack.js"
 import {
   commitGitTree,
@@ -34,25 +35,6 @@ import {
 import { runWorkflowWithWorkerWake } from "../client.js"
 import { workspaceHydrate } from "./workspace-hydrate.js"
 
-const pathSchema = z
-  .string()
-  .min(1)
-  .refine(
-    (path) =>
-      !path.includes("\0") &&
-      !path.includes("\\") &&
-      path
-        .split("/")
-        .every(
-          (part) =>
-            part !== "" &&
-            part !== "." &&
-            part !== ".." &&
-            part.toLowerCase() !== ".git",
-        ),
-    "A repository-relative file path is required",
-  )
-
 export const workspaceFileEditInputSchema = z
   .object({
     orgId: z.string().min(1),
@@ -60,9 +42,11 @@ export const workspaceFileEditInputSchema = z
     jobId: z.string().min(1),
     revision: workspaceRevisionSchema,
     files: z.array(
-      z.object({ path: pathSchema, content: z.string() }).strict(),
+      z
+        .object({ path: repositoryFilePathSchema, content: z.string() })
+        .strict(),
     ),
-    deletePaths: z.array(pathSchema),
+    deletePaths: z.array(repositoryFilePathSchema),
   })
   .strict()
   .refine(

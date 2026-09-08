@@ -1,4 +1,8 @@
 import { z } from "zod"
+import type { GitFileChange } from "../../services/git/file-change.js"
+import { gitFileChangeSchema } from "../../services/git/file-change.js"
+import type { ConnectorMirrorSource } from "./connector-mirror.js"
+import { connectorMirrorSourceSchema } from "./connector-mirror.js"
 import type { WorkspaceRevision } from "./revision.js"
 import type { WorkspaceWriteKind } from "./write-commit-files.js"
 import { shouldEnqueueWorkspaceWriteJob } from "./write-jobs.js"
@@ -19,6 +23,7 @@ export type WorkspaceWriteJobPayload = {
   workflowRunId?: string
   exportTipSha?: string
   previousSha?: string
+  mirror?: ConnectorMirrorSource
   displayName?: string
   linkAction?: "link" | "unlink"
   linkGitUrl?: string
@@ -26,14 +31,9 @@ export type WorkspaceWriteJobPayload = {
   jobWorkspaceUrl?: string
   conflictParentSha?: string | null
   remoteTipSha?: string | null
-  mergeFiles?: Array<{ path: string; content: string }>
+  mergeFiles?: GitFileChange[]
   mergeDeletePaths?: string[]
 }
-
-const writeJobFileSchema = z.object({
-  path: z.string().min(1),
-  content: z.string(),
-})
 
 const writeJobBaseSchema = z.object({
   orgId: z.string().min(1),
@@ -63,6 +63,7 @@ const writeJobKindSchema = z.enum([
 /** Shared enqueue + workflow input. Kind-specific fields stay on the payload. */
 export const workspaceWriteJobInputSchema = writeJobBaseSchema.extend({
   kind: writeJobKindSchema,
+  mirror: connectorMirrorSourceSchema.optional(),
   previousSha: z
     .string()
     .regex(/^(?:[0-9a-f]{40}|[0-9a-f]{64})$/)
@@ -72,7 +73,7 @@ export const workspaceWriteJobInputSchema = writeJobBaseSchema.extend({
   linkGitUrl: z.string().min(1).optional(),
   conflictParentSha: z.string().nullable().optional(),
   remoteTipSha: z.string().nullable().optional(),
-  mergeFiles: z.array(writeJobFileSchema).optional(),
+  mergeFiles: z.array(gitFileChangeSchema).optional(),
   mergeDeletePaths: z.array(z.string().min(1)).optional(),
 })
 
@@ -82,6 +83,7 @@ export type WriteJobEnqueueFields = Pick<
   EnqueueWriteJobInput,
   | "kind"
   | "previousSha"
+  | "mirror"
   | "displayName"
   | "defaultBranch"
   | "linkAction"
@@ -97,6 +99,7 @@ export function writeJobIntentPayload(
   input: WriteJobEnqueueFields,
 ): WorkspaceWriteJobPayload {
   const payload: WorkspaceWriteJobPayload = {}
+  if (input.mirror) payload.mirror = input.mirror
   if (input.previousSha) payload.previousSha = input.previousSha
   if (input.displayName !== undefined) payload.displayName = input.displayName
   if (input.linkAction) payload.linkAction = input.linkAction
@@ -175,6 +178,7 @@ export function enqueueInputFromPausedJob(input: {
     ...(payload.displayName !== undefined
       ? { displayName: payload.displayName }
       : {}),
+    ...(payload.mirror ? { mirror: payload.mirror } : {}),
     ...(payload.previousSha ? { previousSha: payload.previousSha } : {}),
     ...(payload.linkAction ? { linkAction: payload.linkAction } : {}),
     ...(payload.linkGitUrl ? { linkGitUrl: payload.linkGitUrl } : {}),

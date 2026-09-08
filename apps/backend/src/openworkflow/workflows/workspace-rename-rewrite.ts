@@ -119,7 +119,8 @@ export const workspaceRenameRewrite = defineWorkflow(
             if (
               files.some(
                 (file) =>
-                  !file.path.startsWith("knowledge/") ||
+                  file.path === "AGENTS.md" ||
+                  file.path.startsWith(".agents/") ||
                   !file.path.endsWith(".md"),
               )
             )

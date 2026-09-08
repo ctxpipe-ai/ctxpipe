@@ -3,6 +3,7 @@ import { and, asc, eq, isNotNull, notInArray, sql } from "drizzle-orm"
 import { requireCurrentOrgId } from "../auth/context.js"
 import { getOrgDb } from "../db/client.js"
 import { workspaces, workspaceWriteJobs } from "../db/schema/workspaces.js"
+import type { ConnectorMirrorSource } from "../domain/workspaces/connector-mirror.js"
 import {
   sameWorkspaceRevision,
   type WorkspaceRevision,
@@ -12,6 +13,7 @@ import {
   type WorkspaceWriteJobPayload,
   WRITE_JOB_STATUSES,
 } from "../domain/workspaces/write-job-intent.js"
+import type { GitFileChange } from "../services/git/file-change.js"
 import { orgSql } from "./workspace-sql.js"
 
 export async function persistLastJobAt(workspaceId: string): Promise<void> {
@@ -367,17 +369,19 @@ export async function persistBoundWriteJob(input: {
   id: string
   kind: WorkspaceWriteKind
   revision: WorkspaceRevision
-  files?: Array<{ path: string; content: string }>
+  files?: GitFileChange[]
   deletePaths?: string[]
   workflowRunId?: string
   linkAction?: "link" | "unlink"
   linkGitUrl?: string
   displayName?: string
   previousSha?: string
+  mirror?: ConnectorMirrorSource
 }) {
   return orgSql(async () => {
     const payload: WorkspaceWriteJobPayload = {
       revision: input.revision,
+      ...(input.mirror ? { mirror: input.mirror } : {}),
       ...(input.previousSha ? { previousSha: input.previousSha } : {}),
       ...(input.displayName !== undefined
         ? { displayName: input.displayName }
@@ -428,6 +432,7 @@ export async function persistBoundWriteJob(input: {
       !isDeepStrictEqual(row.payload?.mergeDeletePaths, input.deletePaths) ||
       row.payload?.linkAction !== input.linkAction ||
       row.payload?.linkGitUrl !== input.linkGitUrl ||
+      !isDeepStrictEqual(row.payload?.mirror, input.mirror) ||
       row.payload?.previousSha !== input.previousSha ||
       row.payload?.displayName !== input.displayName
     )

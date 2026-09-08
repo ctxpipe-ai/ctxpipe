@@ -31,7 +31,7 @@ const sampleExtractedClaim = {
   objectKind: "InstructionUnit",
   predicate: "HAS_INSTRUCTION",
   sourceId: "repo_1",
-  sourceType: "repository" as const,
+  sourceType: "git" as const,
   extractionMethod: "llm" as const,
   confidence: 0.9,
 } as const
@@ -65,10 +65,7 @@ describe("CodeIngestionStateSchema", () => {
     ])
     const merged = ch.get()
     expect(merged).toHaveLength(2)
-    expect(merged.map((c) => c.objectRef)).toEqual([
-      "inu:readme",
-      "inu:setup",
-    ])
+    expect(merged.map((c) => c.objectRef)).toEqual(["inu:readme", "inu:setup"])
   })
 
   it("concat-merges claimsForProjection across parallel branch updates", () => {
@@ -76,10 +73,7 @@ describe("CodeIngestionStateSchema", () => {
       CodeIngestionStateSchema,
     )
     const ch = channels.claimsForProjection
-    ch.update([
-      [sampleClaim],
-      [{ ...sampleClaim, id: "claim_2" }],
-    ])
+    ch.update([[sampleClaim], [{ ...sampleClaim, id: "claim_2" }]])
     const merged = ch.get()
     expect(merged).toHaveLength(2)
     expect(merged.map((c) => c.id)).toEqual(["claim_1", "claim_2"])

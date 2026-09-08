@@ -9,11 +9,14 @@ import {
 } from "../../models/workspaces.js"
 import { createLogger, withLogger } from "../../observability/logger.js"
 import { gitRemoteEnvironment } from "../../services/git/clone-tree.js"
+import type { GitFileChange } from "../../services/git/file-change.js"
 import {
   captureGitPack,
   nativeGit,
   withGitDirectory,
 } from "../../services/git/pack.js"
+import type { ConnectorMirrorSource } from "./connector-mirror.js"
+import { assertConnectorMirrorBinding } from "./connector-mirror.js"
 import { resolveRepositoryReadCredential } from "./resolve-revision.js"
 import { sameWorkspaceRevision, type WorkspaceRevision } from "./revision.js"
 import type { WorkspaceWriteKind } from "./write-commit-files.js"
@@ -23,12 +26,13 @@ export type WorkspaceWriteCommand = {
   workspaceId: string
   jobId: string
   revision: WorkspaceRevision
-  files?: Array<{ path: string; content: string }>
+  files?: GitFileChange[]
   deletePaths?: string[]
   linkAction?: "link" | "unlink"
   linkGitUrl?: string
   displayName?: string
   previousSha?: string
+  mirror?: ConnectorMirrorSource
 }
 
 /** Org and log scope only; the calling workflow owns all durable execution steps. */
@@ -68,6 +72,7 @@ export async function completedWorkspaceWrite(
     !isDeepStrictEqual(recorded.payload?.mergeDeletePaths, input.deletePaths) ||
     recorded.payload?.linkAction !== input.linkAction ||
     recorded.payload?.linkGitUrl !== input.linkGitUrl ||
+    !isDeepStrictEqual(recorded.payload?.mirror, input.mirror) ||
     recorded.payload?.previousSha !== input.previousSha ||
     recorded.payload?.displayName !== input.displayName
   )
@@ -91,6 +96,8 @@ export async function acquireWorkspaceWriteRevision(
   env: Env,
   previousSha?: string,
 ) {
+  if (input.mirror)
+    await assertConnectorMirrorBinding(input.orgId, input.mirror, revision)
   const workspace = await getWorkspaceById(input.workspaceId)
   const current = await getDesiredWorkspaceRevision(
     input.workspaceId,

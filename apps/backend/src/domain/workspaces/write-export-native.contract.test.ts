@@ -32,7 +32,7 @@ it(
           },
           {
             path: "knowledge/services/billing.md",
-            body: '---\nimport_key: legacy:billing\nname: "Owner: billing"\ncustom: {owner: Finance}\nclaims:\n  - to: api.md\n    predicate: USES\n    confidence: 0.9\n    custom: preserve\n---\n\n# Billing\nOwner-authored ledger notes.\n',
+            body: '---\nimport_key: legacy:billing\nname: "Owner: billing"\ncustom: {owner: Finance}\nclaims:\n  - to: api.md\n    predicate: USES\n    confidence: 0.9\n    custom: preserve\n  - to: optional.md\n    predicate: USES\n---\n\n# Billing\nOwner-authored ledger notes.\n',
           },
           {
             path: "AGENTS.md",
@@ -52,6 +52,7 @@ it(
             firstSourceRepositoryId: repository.id,
             deleteLinkIds: [],
             insertLinks: [
+              { workspaceId: f.workspaceId, gitUrl: "not-a-git-url" },
               {
                 workspaceId: f.workspaceId,
                 gitUrl: "https://github.com/Team-A/API.git",
@@ -160,7 +161,12 @@ it(
                 confidence: 0.9,
                 custom: "preserve",
               },
+              { to: "optional.md", predicate: "USES" },
             ],
+          })
+          expect(parse(markdown.split("---")[1] ?? "").claims[1]).toEqual({
+            to: "optional.md",
+            predicate: "USES",
           })
           expect(markdown).toContain("Ledger lives here.")
           expect(markdown).toContain("import_key: legacy:billing")
@@ -173,6 +179,19 @@ it(
           expect(
             f.git("--git-dir", f.remote, "show", "main:repositories/api.md"),
           ).toContain("custom: keep")
+          expect(
+            f.git(
+              "--git-dir",
+              f.remote,
+              "ls-tree",
+              "-r",
+              "--name-only",
+              "main",
+              "repositories/",
+            ),
+          ).toBe(
+            "repositories/api-2.md\nrepositories/api-3.md\nrepositories/api.md",
+          )
           expect(publicationChecks).toEqual([
             { job: null, export: null, listed: [] },
           ])

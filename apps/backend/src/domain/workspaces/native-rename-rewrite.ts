@@ -7,11 +7,16 @@ import {
   nativeGit,
   withGitDirectory,
 } from "../../services/git/pack.js"
+import { resolveHydrateLink } from "./hydrate.js"
 import {
   editableMetadataNode,
+  materializeMetadataAlias,
   updateKnowledgeMetadata,
 } from "./knowledge-metadata.js"
-import { parseSimpleFrontMatter } from "./layout.js"
+import {
+  isLinkedRepositoryDeclaration,
+  parseSimpleFrontMatter,
+} from "./layout.js"
 
 type Rename = { from: string; to: string }
 
@@ -43,11 +48,17 @@ export async function nativeRenameRewriteFiles(
           .split("\0")
         const files = new Map<string, string>()
         for (const entry of entries) {
-          const match =
-            /^(100644|100755) blob ([0-9a-f]+)\t(knowledge\/.*\.md)$/.exec(
-              entry,
-            )
-          if (!match?.[2] || !match[3]) continue
+          const match = /^(100644|100755) blob ([0-9a-f]+)\t(.*\.md)$/.exec(
+            entry,
+          )
+          if (
+            !match?.[2] ||
+            !match[3] ||
+            match[3] === "AGENTS.md" ||
+            match[3].startsWith(".agents/") ||
+            isLinkedRepositoryDeclaration(match[3])
+          )
+            continue
           const blob = await nativeGit(directory, [
             "cat-file",
             "blob",
@@ -135,19 +146,12 @@ function rewriteDocument(
     } catch {
       return url
     }
-    const rooted = decoded.startsWith("/") || decoded.startsWith("knowledge/")
-    const resolved = posix.normalize(
-      rooted
-        ? decoded.replace(/^\//, "")
-        : posix.join(posix.dirname(oldPath), decoded),
-    )
+    const resolved = resolveHydrateLink(posix.dirname(oldPath), decoded)
     const moved = renames.find((pair) => pair.from === resolved)?.to
     if (!moved && path === oldPath) return url
     const destination = moved ?? resolved
     if (!current.has(destination)) return url
-    const relative = rooted
-      ? `${decoded.startsWith("/") ? "/" : ""}${destination}`
-      : posix.relative(posix.dirname(path), destination)
+    const relative = posix.relative(posix.dirname(path), destination)
     return (
       relative
         .split("/")
@@ -172,9 +176,9 @@ function rewriteDocument(
   for (const link of markdownDestinations(body)) {
     if (oldPath !== path) {
       const matches = originalLinks.filter(
-        (previousLink) => previousLink.signature === link.signature,
+        (previousLink) => previousLink.url === link.url,
       )
-      if (matches.length !== 1 || matches[0]?.url !== link.url) continue
+      if (!matches.length) continue
     }
     const changed = target(link.url)
     if (changed !== link.url)
@@ -208,7 +212,7 @@ function rewriteDocument(
       for (let index = 0; index < sequence.items.length; index++) {
         let claim = sequence.items[index]
         if (isAlias(claim)) {
-          claim = document.createNode(claim.toJS(document))
+          claim = materializeMetadataAlias(document, claim)
           sequence.items[index] = claim
         }
         if (!isMap(claim)) continue
@@ -226,7 +230,6 @@ function markdownDestinations(body: string) {
     url: string
     start: number
     end: number
-    signature: string
   }> = []
   const tree = fromMarkdown(body)
   const visit = (node: (typeof tree.children)[number]) => {
@@ -245,7 +248,6 @@ function markdownDestinations(body: string) {
             url: node.url,
             start: start + span.start,
             end: start + span.end,
-            signature: `${node.type}\0${source.slice(0, span.start)}\0${source.slice(span.end)}`,
           })
       }
     }

@@ -55,6 +55,8 @@ it(
         "workspace-write-link-unlink",
         "workspace-write-migration-export",
         "workspace-write-rename-rewrite",
+        "workspace-write-extract-ingest",
+        "workspace-write-connector-mirror",
       ]),
     )
   },

@@ -8,6 +8,17 @@ import {
   visit,
 } from "yaml"
 
+/** Detach an alias while retaining the comments attached to its use site. */
+export function materializeMetadataAlias(
+  document: Document,
+  alias: Alias,
+): Node {
+  const node = document.createNode(alias.toJS(document))
+  node.comment = alias.comment
+  node.commentBefore = alias.commentBefore
+  return node
+}
+
 /** Keep references to values whose anchor disappears with a removed field. */
 export function removeMetadataKey(document: Document, key: string): void {
   const removed = document.get(key, true)
@@ -23,9 +34,7 @@ export function removeMetadataKey(document: Document, key: string): void {
       Alias: (_key, alias) => {
         const target = alias.resolve(document)
         if (!target || !removedNodes.has(target)) return
-        const replacement = document.createNode(alias.toJS(document))
-        replacement.comment = alias.comment
-        replacement.commentBefore = alias.commentBefore
+        const replacement = materializeMetadataAlias(document, alias)
         replacements.set(alias, replacement)
       },
     })
@@ -38,9 +47,7 @@ export function removeMetadataKey(document: Document, key: string): void {
 export function editableMetadataNode(document: Document, key: string) {
   const node = document.get(key, true)
   if (!isAlias(node)) return node
-  const detached = document.createNode(node.toJS(document))
-  detached.comment = node.comment
-  detached.commentBefore = node.commentBefore
+  const detached = materializeMetadataAlias(document, node)
   document.set(key, detached)
   return detached
 }

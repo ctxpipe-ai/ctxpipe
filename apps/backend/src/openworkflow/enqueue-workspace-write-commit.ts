@@ -27,6 +27,11 @@ import { runWorkflowWithWorkerWake } from "./client.js"
 import { workspaceBootstrap } from "./workflows/workspace-bootstrap.js"
 import { workspaceClaimsUpgrade } from "./workflows/workspace-claims-upgrade.js"
 import {
+  workspaceConnectorMirror,
+  workspaceConnectorMirrorInputSchema,
+} from "./workflows/workspace-connector-mirror.js"
+import { workspaceExtractIngest } from "./workflows/workspace-extract-ingest.js"
+import {
   workspaceFileEdit,
   workspaceFileEditInputSchema,
 } from "./workflows/workspace-file-edit.js"
@@ -50,6 +55,7 @@ const snapshotWriteWorkflows: Partial<
 > = {
   bootstrap: workspaceBootstrap,
   migration_export: workspaceMigrationExport,
+  extract_ingest: workspaceExtractIngest,
   claims_upgrade: workspaceClaimsUpgrade,
   valid_from_persist: workspaceValidFromPersist,
   import_key_cleanup: workspaceImportKeyCleanup,
@@ -148,7 +154,8 @@ export async function enqueueWriteJob(
     (snapshotWorkflow ||
       input.kind === "ui_file_edit" ||
       input.kind === "link_unlink" ||
-      input.kind === "rename_rewrite") &&
+      input.kind === "rename_rewrite" ||
+      input.kind === "connector_mirror") &&
     writeStatus === "writable"
   ) {
     let bound = false
@@ -170,6 +177,32 @@ export async function enqueueWriteJob(
         (input.defaultBranch && revision.defaultBranch !== input.defaultBranch)
       )
         throw new Error("Write command binding changed during admission")
+      if (input.kind === "connector_mirror") {
+        const command = workspaceConnectorMirrorInputSchema.parse({
+          orgId: input.orgId,
+          workspaceId: input.workspaceId,
+          jobId,
+          revision,
+          mirror: input.mirror,
+          files: input.mergeFiles ?? [],
+          deletePaths: input.mergeDeletePaths ?? [],
+        })
+        await persistBoundWriteJob({
+          id: jobId,
+          kind: input.kind,
+          revision,
+          mirror: command.mirror,
+          files: command.files,
+          deletePaths: command.deletePaths,
+        })
+        bound = true
+        await runWorkflowWithWorkerWake(
+          workspaceConnectorMirror.spec,
+          command,
+          { idempotencyKey: jobId },
+        )
+        return { started: true }
+      }
       if (input.kind === "rename_rewrite") {
         const command = workspaceRenameRewriteInputSchema.parse({
           orgId: input.orgId,

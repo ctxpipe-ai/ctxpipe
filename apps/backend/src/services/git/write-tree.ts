@@ -1,3 +1,7 @@
+import { type GitFileChange, gitFileBytes } from "./file-change.js"
+
+export type { GitFileChange } from "./file-change.js"
+
 import {
   captureGitPack,
   type GitPack,
@@ -5,7 +9,6 @@ import {
   withGitDirectory,
 } from "./pack.js"
 
-export type GitFileChange = { path: string; content: string }
 export type StagedGitTree = { pack: GitPack; tree: string }
 
 /** Stage a native tree; all returned objects survive loss of this worker's files. */
@@ -35,7 +38,7 @@ export async function stageGitFiles(
           await nativeGit(
             directory,
             ["hash-object", "-w", "--stdin"],
-            file.content,
+            gitFileBytes(file),
           )
         )
           .toString()

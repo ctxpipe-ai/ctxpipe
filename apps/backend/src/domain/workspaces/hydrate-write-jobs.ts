@@ -4,6 +4,7 @@ import { type HydrateUnit, resolveHydrateLink } from "./hydrate.js"
 import { looksLikeGitSha } from "./hydrate-phases.js"
 import {
   editableMetadataNode,
+  materializeMetadataAlias,
   removeMetadataKey,
   updateKnowledgeMetadata,
 } from "./knowledge-metadata.js"
@@ -172,9 +173,7 @@ export function validFromPersistFiles(input: {
         for (let index = 0; index < claims.items.length; index++) {
           let claim = claims.items[index]
           if (isAlias(claim)) {
-            const detached = document.createNode(claim.toJS(document))
-            detached.comment = claim.comment
-            detached.commentBefore = claim.commentBefore
+            const detached = materializeMetadataAlias(document, claim)
             claims.items[index] = detached
             claim = detached
           }

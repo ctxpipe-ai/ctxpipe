@@ -10,6 +10,7 @@ import {
 } from "./dest-workspace-first.js"
 import {
   editableMetadataNode,
+  materializeMetadataAlias,
   removeMetadataKey,
   updateKnowledgeMetadata,
 } from "./knowledge-metadata.js"
@@ -136,9 +137,7 @@ function mergeExistingImportedMarkdown(
         }
         let claim = claims.items[index]
         if (isAlias(claim)) {
-          const detached = document.createNode(claim.toJS(document))
-          detached.comment = claim.comment
-          detached.commentBefore = claim.commentBefore
+          const detached = materializeMetadataAlias(document, claim)
           claims.items[index] = detached
           claim = detached
         }
@@ -601,10 +600,7 @@ export async function planMigrationExport(input: {
     if (!path) continue
     const importKey = stampImportKey ? importKeyForExportedObject(object) : null
     const title = titleByObjectId.get(object.id) ?? "Imported"
-    const claims = (claimsByObjectId.get(object.id) ?? []).map((claim) => ({
-      ...claim,
-      confidence: claim.confidence ?? 0,
-    }))
+    const claims = claimsByObjectId.get(object.id) ?? []
     const body = appendClaimSeeAlsoLinks(
       bodyByObjectId.get(object.id) ?? "",
       path,

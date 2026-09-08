@@ -14,6 +14,10 @@ import {
   withGitDirectory,
 } from "../../services/git/pack.js"
 import {
+  assertConnectorMirrorBinding,
+  type ConnectorMirrorSource,
+} from "./connector-mirror.js"
+import {
   resolveRepositoryReadCredential,
   resolveWorkspaceReadRevision,
 } from "./resolve-revision.js"
@@ -22,7 +26,7 @@ import { githubRepoFullNameFromWorkspaceUrl } from "./write-status.js"
 
 /** Called inside the workflow's durable broker-push step. Credentials never leave it. */
 export async function pushWorkspaceCommit(
-  input: { orgId: string; workspaceId: string },
+  input: { orgId: string; workspaceId: string; mirror?: ConnectorMirrorSource },
   revision: WorkspaceRevision,
   committed: GitPack,
   env: Env,
@@ -57,6 +61,8 @@ export async function pushWorkspaceCommit(
     return
   if (tip.sha !== revision.sha || !sameWorkspaceRevision(current, revision))
     throw new Error("Default branch advanced; semantic merge is required")
+  if (input.mirror)
+    await assertConnectorMirrorBinding(input.orgId, input.mirror, revision)
   const token = await getRepoWriteCloneToken(input.orgId, env, {
     githubConnectionId: connectionId,
     repoFullName: repositoryName,
@@ -88,6 +94,8 @@ export async function pushWorkspaceCommit(
           "Workspace write binding changed during credential issuance",
         )
       if (pushTip.sha === committed.sha) return
+      if (input.mirror)
+        await assertConnectorMirrorBinding(input.orgId, input.mirror, revision)
       await nativeGit(
         directory,
         [
@@ -154,7 +162,7 @@ async function remoteContainsCommit(
 }
 
 export async function publishWorkspaceWriteRevision(
-  input: { orgId: string; workspaceId: string },
+  input: { orgId: string; workspaceId: string; mirror?: ConnectorMirrorSource },
   revision: WorkspaceRevision,
   committed: GitPack,
   env: Env,
@@ -186,7 +194,7 @@ export async function publishWorkspaceWriteRevision(
 
 /** Revalidate a no-op against the actual default, outside any SQL transaction. */
 export async function refreshWorkspaceWriteRevision(
-  input: { orgId: string; workspaceId: string },
+  input: { orgId: string; workspaceId: string; mirror?: ConnectorMirrorSource },
   revision: WorkspaceRevision,
   env: Env,
 ): Promise<WorkspaceRevision> {

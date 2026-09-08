@@ -14,14 +14,21 @@ it(
   async () => {
     const source = `---
 name: Guide
+claim_template: &claim
+  to: old.md
+  predicate: uses
 claims:
   - to: old.md
     predicate: uses
+  # owner context
+  - *claim # owner note
 custom: old.md
 ---
 # Guide
 Prose old.md stays.
 [Billing](old.md#ledger "old.md")
+[Slash](/old.md)
+[Relative](knowledge/../old.md)
 [Reference][billing]
 
 [billing]: old.md 'old.md'
@@ -42,6 +49,14 @@ Prose old.md stays.
             body: "---\nname: Billing\n---\n# Billing\nThe ledger stores settled transactions.\n",
           },
           { path: "knowledge/guide.md", body: source },
+          {
+            path: "README.md",
+            body: "# Workspace\n[Billing](knowledge/old.md)\n",
+          },
+          {
+            path: "notion/page.md",
+            body: "# Provider page\n[Billing](../knowledge/old.md)\n",
+          },
         ],
       },
       async (f) => {
@@ -118,12 +133,26 @@ Prose old.md stays.
             "show",
             "main:knowledge/guide.md",
           )
+          expect(
+            f.git("--git-dir", f.remote, "show", "main:README.md"),
+          ).toContain("[Billing](knowledge/services/billing.md)")
+          expect(
+            f.git("--git-dir", f.remote, "show", "main:notion/page.md"),
+          ).toContain("[Billing](../knowledge/services/billing.md)")
+          expect(result).toContain("[Slash](services/billing.md)")
+          expect(result).toContain("[Relative](services/billing.md)")
           expect(result).toContain("to: services/billing.md")
           expect(result).toContain(
             '[Billing](services/billing.md#ledger "old.md")',
           )
           expect(result).toContain("[billing]: services/billing.md 'old.md'")
           expect(result).toContain("custom: old.md")
+          expect(result).toContain("# owner context")
+          expect(result).toContain("# owner note")
+          const { parse } = await import("yaml")
+          const metadata = parse(result.split("---")[1] ?? "")
+          expect(metadata.claim_template.to).toBe("old.md")
+          expect(metadata.claims[1].to).toBe("services/billing.md")
           expect(result).toContain("Prose old.md stays.")
           expect(result).toContain("`[Code](old.md)`")
           expect(result).toContain("```md\n[Fenced](old.md)\n```")
@@ -270,7 +299,7 @@ it(
         files: [
           {
             path: "knowledge/deep/guide.md",
-            body: "# Guide\nStable source instructions remain unchanged.\nFollow the document linked below for the canonical definition.\nThe purpose of this paragraph is to describe the operational guide.\n[Stable](stable.md)\n",
+            body: "# Guide\nStable source instructions remain unchanged.\nFollow the document linked below for the canonical definition.\nThe purpose of this paragraph is to describe the operational guide.\n[Stable](stable.md)\n[Stable](stable.md)\n",
           },
           {
             path: "knowledge/deep/stable.md",
@@ -285,6 +314,16 @@ it(
       async (f) => {
         f.git("reset", "--hard", f.sha)
         f.git("mv", "knowledge/deep/guide.md", "knowledge/guide.md")
+        const { readFileSync } = await import("node:fs")
+        const guidePath = join(f.directory, "knowledge/guide.md")
+        writeFileSync(
+          guidePath,
+          readFileSync(guidePath, "utf8").replaceAll(
+            "[Stable]",
+            "[Stable definition]",
+          ),
+        )
+        f.git("add", "knowledge/guide.md")
         f.git("commit", "-m", "Move guide up a directory")
         f.git("push", f.remote, "HEAD:main")
         await withOrgIdContext(f.org, () =>
@@ -323,7 +362,9 @@ it(
           })
           expect(
             f.git("--git-dir", f.remote, "show", "main:knowledge/guide.md"),
-          ).toContain("[Stable](deep/stable.md)")
+          ).toContain(
+            "[Stable definition](deep/stable.md)\n[Stable definition](deep/stable.md)",
+          )
           const second = await f.runner.runWorkflow(
             workspaceRenameRewrite.spec,
             {

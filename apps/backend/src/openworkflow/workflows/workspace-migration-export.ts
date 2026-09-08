@@ -105,9 +105,10 @@ export const workspaceMigrationExport = defineWorkflow(
                     : []
                 },
               ),
-              linkedUrls: linked.map((row) =>
-                linkedRepositoryUrlSchema.parse(row.gitUrl),
-              ),
+              linkedUrls: linked.flatMap((row) => {
+                const safe = linkedRepositoryUrlSchema.safeParse(row.gitUrl)
+                return safe.success ? [safe.data] : []
+              }),
             }
           },
         )
