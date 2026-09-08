@@ -25,6 +25,7 @@ export type WorkspaceChatTurnWorkspace = {
   workspaceRepositoryUrl: string
   githubConnectionId?: string | null
   writeStatus: string
+  readOnlyReason?: string | null
   desiredSha: string | null
   desiredGeneration?: number
 }
@@ -95,6 +96,7 @@ export async function resolveWorkspaceChatTurnRuntime(input: {
   })
   const canEdit = workspaceAllowsConversationEdits(
     workspace?.writeStatus ?? "read_only",
+    workspace?.readOnlyReason,
   )
   const sessionBranch = conversationSessionBranch(conversation.id)
   const lastBranch = canEdit ? sessionBranch : restored
@@ -123,7 +125,8 @@ export async function resolveWorkspaceChatTurnRuntime(input: {
     cloneRef: cloneRef || workspace?.desiredSha || defaultBranch,
     defaultBranch,
     cloneToken,
-    writeStatus: workspace?.writeStatus ?? "read_only",
+    // This runtime permission applies to the conversation session branch.
+    writeStatus: canEdit ? "writable" : (workspace?.writeStatus ?? "read_only"),
     desiredUrl: workspace?.workspaceRepositoryUrl ?? null,
     desiredSha: workspace?.desiredSha ?? null,
     desiredGeneration: workspace?.desiredGeneration,

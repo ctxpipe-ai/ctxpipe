@@ -78,9 +78,10 @@ export const workspaceTipCheck = defineWorkflow(
           currentStatus: workspace.writeStatus,
           probe,
         })
-        writeStatusById.set(workspace.id, write.writeStatus)
         const claimed = await withOrgDbContext(input.orgId, async () => {
-          await persistWriteStatus(workspace.id, write, input.orgId)
+          if (!(await persistWriteStatus(workspace, write, input.orgId)))
+            return []
+          writeStatusById.set(workspace.id, write.writeStatus)
           if (write.writeStatus !== "writable") return []
           const pending: EnqueueWorkspaceWriteCommitInput[] = []
           await resumePausedWriteJobs({

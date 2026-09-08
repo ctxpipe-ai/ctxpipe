@@ -10,6 +10,8 @@ export type Workspace = {
   activeProjectionUrl: string | null
   activeProjectionSha: string | null
   indexedSha: string | null
+  /** Server capability; older responses retain the write-status fallback. */
+  conversationWritable?: boolean
   writeStatus: string
   hydrateStatus: string
   hydrateError: string | null

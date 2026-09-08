@@ -23,6 +23,7 @@ export function nextChatPrNumber(lastChatPrNumber: number | null): number {
 
 export function planChatPullRequest(input: {
   writeStatus: string
+  readOnlyReason?: string | null
   explicitRequest: boolean
   host: "github" | "other"
   defaultBranch: string
@@ -55,6 +56,7 @@ export function planChatPullRequest(input: {
   if (
     !chatMayPublishPullRequest({
       writeStatus: input.writeStatus,
+      readOnlyReason: input.readOnlyReason,
       explicitRequest: input.explicitRequest,
       host: input.host,
     })
@@ -66,12 +68,13 @@ export function planChatPullRequest(input: {
 
 export function chatMayPublishPullRequest(input: {
   writeStatus: string
+  readOnlyReason?: string | null
   explicitRequest: boolean
   host: "github" | "other"
 }): boolean {
   if (!input.explicitRequest) return false
   if (input.host !== "github") return false
-  return chatSandboxAllowsRemotePush(input.writeStatus)
+  return chatSandboxAllowsRemotePush(input.writeStatus, input.readOnlyReason)
 }
 
 export function shouldDestroyChatSandbox(input: {

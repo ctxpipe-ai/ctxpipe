@@ -1,5 +1,6 @@
 import { createRoute, OpenAPIHono, z } from "@hono/zod-openapi"
 import type { AppEnv } from "../../app/env.js"
+import { workspaceAllowsConversationEdits } from "../../domain/workspaces/chat-sandbox-policy.js"
 import { shouldHydrateBeforeMigrationExport } from "../../domain/workspaces/hydrate.js"
 import { withDestroyedWorkspaceSandboxes } from "../../domain/workspaces/sandbox-registry.js"
 import {
@@ -48,6 +49,7 @@ const WorkspaceSchema = z
     activeProjectionSha: z.string().nullable(),
     indexedSha: z.string().nullable(),
     writeStatus: z.string(),
+    conversationWritable: z.boolean(),
     hydrateStatus: z.string(),
     hydrateError: z.string().nullable(),
     migrationExportSha: z.string().nullable(),
@@ -133,6 +135,10 @@ function serializeWorkspace(
     activeProjectionSha: row.activeProjectionSha,
     indexedSha: row.indexedSha,
     writeStatus: row.writeStatus,
+    conversationWritable: workspaceAllowsConversationEdits(
+      row.writeStatus,
+      row.readOnlyReason,
+    ),
     hydrateStatus: row.hydrateStatus,
     hydrateError: row.hydrateError ?? null,
     migrationExportSha,

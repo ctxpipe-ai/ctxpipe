@@ -314,6 +314,7 @@ type ConversationSandboxAttachInput = {
     workspaceRepositoryUrl: string
     githubConnectionId?: string | null
     writeStatus: string
+    readOnlyReason?: string | null
     desiredSha: string | null
     desiredGeneration?: number
   }
@@ -367,6 +368,7 @@ async function readySandboxHandle(input: {
     workspaceRepositoryUrl: string
     githubConnectionId?: string | null
     writeStatus: string
+    readOnlyReason?: string | null
     desiredSha: string | null
     desiredGeneration?: number
   }
@@ -374,7 +376,12 @@ async function readySandboxHandle(input: {
 }) {
   const handle = await attachConversationSandbox(input)
   if (!handle) return null
-  if (workspaceAllowsConversationEdits(input.workspace.writeStatus)) {
+  if (
+    workspaceAllowsConversationEdits(
+      input.workspace.writeStatus,
+      input.workspace.readOnlyReason,
+    )
+  ) {
     await ensureConversationSessionBranch({
       handle,
       conversationId: input.conversation.id,
@@ -467,7 +474,12 @@ export const conversationFileRoutes = new OpenAPIHono<AppEnv>()
     const conversationId = c.req.param("conversationId")
     const loaded = await loadConversationWorkspace(conversationId)
     if (!loaded) return c.json({ error: "Not found" }, 404)
-    if (!workspaceAllowsConversationEdits(loaded.workspace.writeStatus)) {
+    if (
+      !workspaceAllowsConversationEdits(
+        loaded.workspace.writeStatus,
+        loaded.workspace.readOnlyReason,
+      )
+    ) {
       return c.json({ error: "read_only" }, 403)
     }
     const handle = await readySandboxHandle(loaded)
@@ -505,7 +517,12 @@ export const conversationFileRoutes = new OpenAPIHono<AppEnv>()
     const conversationId = c.req.param("conversationId")
     const loaded = await loadConversationWorkspace(conversationId)
     if (!loaded) return c.json({ error: "Not found" }, 404)
-    if (!workspaceAllowsConversationEdits(loaded.workspace.writeStatus)) {
+    if (
+      !workspaceAllowsConversationEdits(
+        loaded.workspace.writeStatus,
+        loaded.workspace.readOnlyReason,
+      )
+    ) {
       return c.json({ error: "read_only" }, 400)
     }
     const handle = await readySandboxHandle(loaded)

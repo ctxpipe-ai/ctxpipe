@@ -3,6 +3,7 @@ import { assertNotInOrgDbContext, withOrgDbContext } from "../db/client.js"
 import { connectorMirrorContentSchema } from "../domain/workspaces/connector-mirror.js"
 import { linkedRepositoryUrlSchema } from "../domain/workspaces/linked-repository-url.js"
 import { resolveWorkspaceReadRevision } from "../domain/workspaces/resolve-revision.js"
+import { sameWorkspaceRevision } from "../domain/workspaces/revision.js"
 import {
   type EnqueueWriteJobInput,
   WRITE_JOB_STATUSES,
@@ -17,12 +18,14 @@ import { generateObjectId } from "../lib/id.js"
 import {
   failUnscheduledWriteJob,
   persistBoundWriteJob,
+  reconcileWorkspaceWriteJob,
 } from "../models/workspace-write-jobs.js"
 import {
   getWorkspaceById,
   persistWriteJobIntent,
   persistWriteJobStatus,
   persistWriteStatus,
+  type WorkspaceWriteProbeBinding,
 } from "../models/workspaces.js"
 import { runWorkflowWithWorkerWake } from "./client.js"
 import { workspaceBootstrap } from "./workflows/workspace-bootstrap.js"
@@ -68,19 +71,14 @@ const snapshotWriteWorkflows: Partial<
   ops_folder_map: workspaceOpsFolderMap,
 }
 
-type WorkspaceWriteSnapshot = {
-  id: string
-  desiredGeneration: number
-  workspaceRepositoryUrl: string
-  desiredSha: string | null
+type WorkspaceWriteSnapshot = WorkspaceWriteProbeBinding & {
   writeStatus: string
-  githubConnectionId?: string | null
 }
 
 async function probedWriteStatus(input: {
   orgId: string
   workspace: WorkspaceWriteSnapshot
-}): Promise<string> {
+}): Promise<string | null> {
   try {
     const { getGithubRepoWriteView } = await import(
       "../routes/webhooks/github/github-workspace-tip.js"
@@ -99,12 +97,12 @@ async function probedWriteStatus(input: {
       currentStatus: input.workspace.writeStatus,
       probe,
     })
-    await withOrgDbContext(input.orgId, () =>
-      persistWriteStatus(input.workspace.id, write, input.orgId),
+    const persisted = await withOrgDbContext(input.orgId, () =>
+      persistWriteStatus(input.workspace, write, input.orgId),
     )
-    return write.writeStatus
+    return persisted ? write.writeStatus : null
   } catch {
-    return input.workspace.writeStatus
+    return null
   }
 }
 
@@ -162,6 +160,7 @@ export async function enqueueWriteJob(
           desiredGeneration: workspace.desiredGeneration,
           workspaceRepositoryUrl: workspace.workspaceRepositoryUrl,
           desiredSha: workspace.desiredSha,
+          desiredDefaultBranch: workspace.desiredDefaultBranch,
           writeStatus: workspace.writeStatus,
           githubConnectionId: workspace.githubConnectionId,
         },
@@ -193,10 +192,23 @@ export async function enqueueWriteJob(
         env: parseEnv(process.env),
       })
       if (!resolved) throw new Error("Workspace revision is unavailable")
-      const revision = {
+      const current = {
         ...resolved.revision,
         access: "write-default" as const,
       }
+      const recorded = await withOrgDbContext(input.orgId, () =>
+        reconcileWorkspaceWriteJob(jobId),
+      )
+      const captured = recorded?.payload?.revision
+      if (
+        captured &&
+        !sameWorkspaceRevision({ ...captured, sha: current.sha }, current)
+      )
+        throw new Error("Captured write command belongs to a different binding")
+      // A paused intent retains its original tree; the broker reconciles later tip changes.
+      const revision = captured ?? current
+      if (captured && input.jobDesiredSha === undefined)
+        jobDesiredSha = captured.sha
       if (
         (jobGeneration != null && revision.generation !== jobGeneration) ||
         (jobWorkspaceUrl && revision.remote.url !== jobWorkspaceUrl) ||

@@ -18,6 +18,7 @@ import { connections } from "../db/schema/connections.js"
 import { repositories } from "../db/schema/repositories.js"
 import { orgFirstWorkspaces, workspaces } from "../db/schema/workspaces.js"
 import { resolveWorkspaceReadRevision } from "../domain/workspaces/resolve-revision.js"
+import type { GithubRepoPermissionBits } from "../domain/workspaces/write-status.js"
 import { invalidateGithubAppCacheForConnection } from "../models/github-installation.js"
 import {
   getWorkspaceProjection,
@@ -39,6 +40,8 @@ export type NativeHydrationOptions = {
   count?: number
   github?: boolean
   githubWriteView?: "writable" | "missing"
+  githubRepoPermissions?: GithubRepoPermissionBits | null
+  githubInstallationPermissions?: GithubRepoPermissionBits
   embeddings?: "ready" | "failed" | "empty"
   missingTip?: boolean
   writeStatus?: "read_only" | "writable"
@@ -81,8 +84,11 @@ async function createNativeHydrationFixture(
   })
   const semanticRequests: unknown[] = []
   const tokenRequests: unknown[] = []
+  const appPermissionRequests: { usesAppAuth: boolean }[] = []
   let failEmbeddings = embeddingFailure === true
   let failGithubTokens = false
+  let githubWriteView = options.githubWriteView
+  let beforeWriteProbe: (() => Promise<void>) | undefined
   let beforeWriteCredential: (() => Promise<void>) | undefined
   const server = setupServer(
     http.post(
@@ -113,13 +119,38 @@ async function createNativeHydrationFixture(
         )
       },
     ),
-    http.get("https://api.github.com/repos/fixture/hydration-contract", () =>
-      options.githubWriteView === "writable"
-        ? HttpResponse.json({
-            default_branch: "main",
-            permissions: { push: true },
-          })
-        : HttpResponse.json({ message: "Use native Git" }, { status: 404 }),
+    http.get(
+      "https://api.github.com/repos/fixture/hydration-contract",
+      async () => {
+        await beforeWriteProbe?.()
+        return githubWriteView === "writable"
+          ? HttpResponse.json({
+              default_branch: "main",
+              ...(options.githubRepoPermissions === null
+                ? {}
+                : {
+                    permissions: options.githubRepoPermissions ?? {
+                      push: true,
+                    },
+                  }),
+            })
+          : HttpResponse.json({ message: "Use native Git" }, { status: 404 })
+      },
+    ),
+    http.get(
+      "https://api.github.com/app/installations/123456789",
+      ({ request }) => {
+        appPermissionRequests.push({
+          usesAppAuth: /^bearer [^.]+\.[^.]+\.[^.]+$/i.test(
+            request.headers.get("authorization") ?? "",
+          ),
+        })
+        return HttpResponse.json({
+          permissions: options.githubInstallationPermissions ?? {
+            contents: "read",
+          },
+        })
+      },
     ),
     http.get(
       "https://api.github.com/repos/fixture/hydration-contract/git/trees/:sha",
@@ -382,6 +413,7 @@ async function createNativeHydrationFixture(
       connectionId,
       git,
       tokenRequests,
+      appPermissionRequests,
       semanticRequests,
       backend,
       runner,
@@ -394,12 +426,18 @@ async function createNativeHydrationFixture(
       gitTrace,
       count,
       cleanup,
+      onWriteProbe: (callback: () => Promise<void>) => {
+        beforeWriteProbe = callback
+      },
       onWriteCredentialRequest: (callback: () => Promise<void>) => {
         beforeWriteCredential = callback
       },
       failTokens: () => {
         invalidateGithubAppCacheForConnection(connectionId)
         failGithubTokens = true
+      },
+      repairWriteAccess: () => {
+        githubWriteView = "writable"
       },
       repairEmbeddings: () => {
         failEmbeddings = false

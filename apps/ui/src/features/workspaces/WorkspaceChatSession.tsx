@@ -18,6 +18,7 @@ import {
   takeHomeDraftSend,
 } from "@/features/home/pending-workspace-compose"
 import {
+  conversationAllowsEdits,
   conversationBranchShortName,
   conversationCommitPushEnabled,
   conversationGithubTreeHref,
@@ -359,7 +360,10 @@ export function WorkspaceChatSession(props: {
       }
       publish={
         !composing &&
-        workspace.writeStatus === "writable"
+        conversationAllowsEdits(
+          workspace.writeStatus,
+          workspace.conversationWritable,
+        )
           ? {
               commitPush: {
                 enabled: conversationCommitPushEnabled(

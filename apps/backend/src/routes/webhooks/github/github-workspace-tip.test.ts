@@ -1,190 +1,103 @@
-import { describe, expect, it, vi } from "vitest"
-
-const listOrgWorkspacesMock = vi.hoisted(() => vi.fn())
-const persistResolvedDesiredShaMock = vi.hoisted(() => vi.fn())
-const getInstallationOctokitForOrgMock = vi.hoisted(() => vi.fn())
-const withOrgDbContextMock = vi.hoisted(() =>
-  vi.fn(async (_orgId: string, fn: () => unknown) => fn()),
-)
-const assertNotInOrgDbContextMock = vi.hoisted(() => vi.fn())
-
-vi.mock("../../../db/client.js", () => ({
-  withOrgDbContext: withOrgDbContextMock,
-  assertNotInOrgDbContext: assertNotInOrgDbContextMock,
-}))
-
-vi.mock("../../../models/workspaces.js", () => ({
-  listOrgWorkspaces: listOrgWorkspacesMock,
-  persistResolvedDesiredSha: persistResolvedDesiredShaMock,
-  listOrgLinkedRepositories: vi.fn().mockResolvedValue([]),
-  persistLinkedDesiredSha: vi.fn(),
-}))
-
-vi.mock("../../../models/github-installation.js", () => ({
-  getInstallationOctokitForOrg: getInstallationOctokitForOrgMock,
-}))
-
-const enqueueWorkspaceCommitProjectionMock = vi.hoisted(() => vi.fn())
-
-vi.mock("../../../openworkflow/enqueue-workspace-commit-projection.js", () => ({
-  enqueueWorkspaceCommitProjection: enqueueWorkspaceCommitProjectionMock,
-}))
-
+import { expect, it } from "vitest"
+import { withOrgIdContext } from "../../../auth/withAuth.js"
+import { parseEnv } from "../../../config/env.js"
+import type { GithubRepoPermissionBits } from "../../../domain/workspaces/write-status.js"
+import { withNativeHydrationFixture } from "../../../test/native-hydration-fixture.js"
 import { getGithubRepoWriteView } from "./github-workspace-tip.js"
 
-describe("getGithubRepoWriteView", () => {
-  const env = {} as never
+const cases: Array<{
+  name: string
+  repository: GithubRepoPermissionBits | null
+  installation?: GithubRepoPermissionBits
+  canPush: boolean
+  appProbe: boolean
+}> = [
+  {
+    name: "repository contents write",
+    repository: { contents: "write" },
+    canPush: true,
+    appProbe: false,
+  },
+  {
+    name: "repository push",
+    repository: { push: true },
+    canPush: true,
+    appProbe: false,
+  },
+  {
+    name: "accessible repository without permission bits",
+    repository: null,
+    canPush: true,
+    appProbe: false,
+  },
+  {
+    name: "installation contents write",
+    repository: { pull: true },
+    installation: { contents: "write" },
+    canPush: true,
+    appProbe: true,
+  },
+  {
+    name: "pull-only installation",
+    repository: { pull: true },
+    installation: { contents: "read" },
+    canPush: false,
+    appProbe: true,
+  },
+]
 
-  it("treats App contents:write or push as writable", async () => {
-    getInstallationOctokitForOrgMock.mockResolvedValue({
-      octokit: {
-        rest: {
-          repos: {
-            get: async () => ({
-              data: {
-                default_branch: "main",
-                permissions: { contents: "write" },
-              },
-            }),
-          },
-        },
+it.each(cases)(
+  "probes $name with repository read credentials and app authentication",
+  { timeout: 30_000 },
+  async (example) => {
+    await withNativeHydrationFixture(
+      {
+        github: true,
+        githubWriteView: "writable",
+        githubRepoPermissions: example.repository,
+        githubInstallationPermissions: example.installation,
       },
-    })
-    await expect(
-      getGithubRepoWriteView({
-        orgId: "org_1",
-        githubConnectionId: "con_gh",
-        repoFullName: "acme/docs",
-        env,
-      }),
-    ).resolves.toEqual({ defaultBranch: "main", canPush: true })
-
-    getInstallationOctokitForOrgMock.mockResolvedValue({
-      octokit: {
-        rest: {
-          repos: {
-            get: async () => ({
-              data: {
-                default_branch: "main",
-                permissions: { push: true },
-              },
+      async (f) => {
+        await expect(
+          withOrgIdContext(f.org, () =>
+            getGithubRepoWriteView({
+              orgId: f.org.id,
+              githubConnectionId: f.connectionId,
+              repoFullName: "fixture/hydration-contract",
+              env: parseEnv(process.env),
             }),
+          ),
+        ).resolves.toEqual({ defaultBranch: "main", canPush: example.canPush })
+        expect(f.tokenRequests).toEqual([
+          {
+            repositories: ["hydration-contract"],
+            permissions: { contents: "read", metadata: "read" },
           },
-        },
+        ])
+        expect(f.appPermissionRequests).toEqual(
+          example.appProbe ? [{ usesAppAuth: true }] : [],
+        )
       },
-    })
-    await expect(
-      getGithubRepoWriteView({
-        orgId: "org_1",
-        githubConnectionId: "con_gh",
-        repoFullName: "acme/docs",
-        env,
-      }),
-    ).resolves.toEqual({ defaultBranch: "main", canPush: true })
-  })
+    )
+  },
+)
 
-  it("treats a successful repos.get without permissions as writable", async () => {
-    getInstallationOctokitForOrgMock.mockResolvedValue({
-      octokit: {
-        rest: {
-          repos: {
-            get: async () => ({
-              data: { default_branch: "develop" },
-            }),
-          },
-        },
-      },
+it(
+  "does not classify a missing local installation as a GitHub repository denial",
+  { timeout: 30_000 },
+  async () => {
+    await withNativeHydrationFixture({}, async (f) => {
+      const error = await withOrgIdContext(f.org, () =>
+        getGithubRepoWriteView({
+          orgId: f.org.id,
+          githubConnectionId: f.connectionId,
+          repoFullName: "fixture/hydration-contract",
+          env: parseEnv(process.env),
+        }),
+      ).catch((error: unknown) => error)
+      expect(error).toMatchObject({ message: "GitHub installation not found" })
+      expect(error).not.toHaveProperty("status")
+      expect(f.tokenRequests).toEqual([])
     })
-    await expect(
-      getGithubRepoWriteView({
-        orgId: "org_1",
-        githubConnectionId: "con_gh",
-        repoFullName: "acme/docs",
-        env,
-      }),
-    ).resolves.toEqual({ defaultBranch: "develop", canPush: true })
-  })
-
-  it("treats installation contents:write as writable when repos.get only reports pull", async () => {
-    getInstallationOctokitForOrgMock.mockResolvedValue({
-      installation: { installationId: 42 },
-      octokit: {
-        rest: {
-          repos: {
-            get: async () => ({
-              data: {
-                default_branch: "main",
-                permissions: { pull: true },
-              },
-            }),
-          },
-          apps: {
-            getInstallation: async () => ({
-              data: { permissions: { contents: "write" } },
-            }),
-          },
-        },
-      },
-    })
-    await expect(
-      getGithubRepoWriteView({
-        orgId: "org_1",
-        githubConnectionId: "con_gh",
-        repoFullName: "acme/docs",
-        env,
-      }),
-    ).resolves.toEqual({ defaultBranch: "main", canPush: true })
-  })
-
-  it("denies pull-only permissions", async () => {
-    getInstallationOctokitForOrgMock.mockResolvedValue({
-      octokit: {
-        rest: {
-          repos: {
-            get: async () => ({
-              data: {
-                default_branch: "main",
-                permissions: { pull: true },
-              },
-            }),
-          },
-          apps: {
-            getInstallation: async () => ({
-              data: { permissions: { contents: "read" } },
-            }),
-          },
-        },
-      },
-    })
-    await expect(
-      getGithubRepoWriteView({
-        orgId: "org_1",
-        githubConnectionId: "con_gh",
-        repoFullName: "acme/docs",
-        env,
-      }),
-    ).resolves.toEqual({ defaultBranch: "main", canPush: false })
-  })
-
-  it("does not mark an installation lookup miss as a 404 deny", async () => {
-    getInstallationOctokitForOrgMock.mockResolvedValue(undefined)
-    await expect(
-      getGithubRepoWriteView({
-        orgId: "org_1",
-        githubConnectionId: "con_gh",
-        repoFullName: "acme/docs",
-        env,
-      }),
-    ).rejects.toMatchObject({
-      message: "GitHub installation not found",
-    })
-    await expect(
-      getGithubRepoWriteView({
-        orgId: "org_1",
-        githubConnectionId: "con_gh",
-        repoFullName: "acme/docs",
-        env,
-      }).catch((error: { status?: number }) => error.status),
-    ).resolves.toBeUndefined()
-  })
-})
+  },
+)

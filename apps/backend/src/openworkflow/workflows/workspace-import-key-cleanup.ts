@@ -85,9 +85,25 @@ export const workspaceImportKeyCleanup = defineWorkflow(
           }),
         )
         for (let refreshAttempt = 0; refreshAttempt < 3; refreshAttempt++) {
-          const acquired = await step.run({ name: "acquire-revision" }, () =>
-            acquireWorkspaceWriteRevision(input, revision, env),
-          )
+          let acquired: NonNullable<
+            Awaited<ReturnType<typeof acquireWorkspaceWriteRevision>>
+          >
+          for (;;) {
+            const candidate = await step.run({ name: "acquire-revision" }, () =>
+              acquireWorkspaceWriteRevision(input, revision, env),
+            )
+            if (candidate) {
+              acquired = candidate
+              break
+            }
+            await step.run({ name: "pause-command" }, () =>
+              persistWriteJobStatus(input.jobId, "paused"),
+            )
+            await step.sleep("await-write-access", "1 minute")
+            await step.run({ name: "resume-command" }, () =>
+              persistWriteJobStatus(input.jobId, "running"),
+            )
+          }
           const files = await step.run(
             { name: "transform-import-key-cleanup" },
             async () =>
@@ -147,10 +163,21 @@ export const workspaceImportKeyCleanup = defineWorkflow(
             await persistWriteJobPreparedCommit(input.jobId, pack.sha)
             return pack
           })
-          const pushed = await step.run(
-            { name: "broker-push", retryPolicy: { maximumAttempts: 3 } },
-            () => attemptWorkspaceCommit(input, revision, committed, env),
-          )
+          let pushed: Awaited<ReturnType<typeof attemptWorkspaceCommit>>
+          for (;;) {
+            pushed = await step.run(
+              { name: "broker-push", retryPolicy: { maximumAttempts: 3 } },
+              () => attemptWorkspaceCommit(input, revision, committed, env),
+            )
+            if (pushed.pushed || pushed.reason !== "paused") break
+            await step.run({ name: "pause-push" }, () =>
+              persistWriteJobStatus(input.jobId, "paused"),
+            )
+            await step.sleep("await-default-write-access", "1 minute")
+            await step.run({ name: "resume-push" }, () =>
+              persistWriteJobStatus(input.jobId, "running"),
+            )
+          }
           if (!pushed.pushed) {
             const handoff = await step.run(
               { name: "capture-semantic-handoff" },

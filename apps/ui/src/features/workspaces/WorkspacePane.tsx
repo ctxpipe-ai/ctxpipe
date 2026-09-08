@@ -51,10 +51,10 @@ import {
   TooltipProvider,
   TooltipTrigger,
 } from "@/components/ui/Tooltip"
+import { pollWhileOk } from "@/lib/api-result"
 import { focusVisibleClassName } from "@/lib/focus-styles"
 import { useUrgentValue } from "@/lib/useUrgentValue"
 import { cn } from "@/lib/utils"
-import { pollWhileOk } from "@/lib/api-result"
 import {
   conversationAllowsEdits,
   conversationCommitPushEnabled,
@@ -85,6 +85,7 @@ import type {
   WorkspaceGitStatusItem,
   WorkspaceGitTreeResponse,
 } from "./types"
+import { ConversationPublishActions } from "./WorkspaceChatChrome"
 import {
   WorkspaceFileTree,
   type WorkspaceFileTreeItem,
@@ -95,7 +96,6 @@ import {
   type FileEditorHistory,
   WorkspacePierreFile,
 } from "./WorkspacePierreFile"
-import { ConversationPublishActions } from "./WorkspaceChatChrome"
 import { WorkspaceSettingsPane } from "./WorkspaceSettingsPane"
 import {
   workspaceChromeCardPaneClassName,
@@ -341,7 +341,10 @@ export function WorkspacePane(props: {
             </TabList>
             <div className="flex shrink-0 items-end gap-0.5">
               {props.conversationId &&
-              props.workspace.writeStatus === "writable" ? (
+              conversationAllowsEdits(
+                props.workspace.writeStatus,
+                props.workspace.conversationWritable,
+              ) ? (
                 <ConversationPanePublish
                   orgSlug={props.orgSlug}
                   conversationId={props.conversationId}
@@ -394,6 +397,7 @@ export function WorkspacePane(props: {
                     ""
                   }
                   writeStatus={props.workspace.writeStatus}
+                  conversationWritable={props.workspace.conversationWritable}
                   activeFile={activeFile}
                   treeCollapsed={props.treeCollapsed}
                   onPreviewFile={(path) => {
@@ -472,6 +476,7 @@ function WorkspaceFilesPaneBody(props: {
   conversationId?: string
   sha: string
   writeStatus: string
+  conversationWritable?: boolean
   activeFile: string | null
   treeCollapsed: boolean
   onPreviewFile: (path: string) => void
@@ -491,6 +496,7 @@ function WorkspaceFilesPaneBody(props: {
         conversationId={conversationId}
         sha={props.sha}
         writeStatus={props.writeStatus}
+        conversationWritable={props.conversationWritable}
         activeFile={props.activeFile}
         treeCollapsed={props.treeCollapsed}
         onPreviewFile={props.onPreviewFile}
@@ -521,6 +527,7 @@ function ConversationSandboxFilesPane(props: {
   conversationId: string
   sha: string
   writeStatus: string
+  conversationWritable?: boolean
   activeFile: string | null
   treeCollapsed: boolean
   onPreviewFile: (path: string) => void
@@ -538,7 +545,8 @@ function ConversationSandboxFilesPane(props: {
     refetchInterval: pollWhileOk(400),
   })
   const tree = sandboxTreeQuery.data
-  const awaitingFirstList = !tree || (tree.ready === false && !tree.paths.length)
+  const awaitingFirstList =
+    !tree || (tree.ready === false && !tree.paths.length)
   if (awaitingFirstList) {
     if (sandboxTreeQuery.isError && !sandboxTreeQuery.isFetching) {
       return (
@@ -560,7 +568,10 @@ function ConversationSandboxFilesPane(props: {
         sha={props.sha}
         tree={tree}
         gitStatus={sandboxStatusQuery.data?.items ?? []}
-        writable={conversationAllowsEdits(props.writeStatus)}
+        writable={conversationAllowsEdits(
+          props.writeStatus,
+          props.conversationWritable,
+        )}
         updating={false}
         activeFile={props.activeFile}
         treeCollapsed={props.treeCollapsed}

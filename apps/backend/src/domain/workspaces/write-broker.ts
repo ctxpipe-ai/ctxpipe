@@ -1,7 +1,10 @@
 import type { Env } from "../../config/env.js"
 import { getRepoWriteCloneToken } from "../../models/github-installation.js"
 import { persistSemanticHandoff } from "../../models/workspace-write-jobs.js"
-import { getWorkspaceWriteAdmission } from "../../models/workspaces.js"
+import {
+  getWorkspaceWriteAdmission,
+  persistWriteStatus,
+} from "../../models/workspaces.js"
 import {
   gitRemoteEnvironment,
   resolveGitRemoteTip,
@@ -20,12 +23,44 @@ import {
   resolveWorkspaceReadRevision,
 } from "./resolve-revision.js"
 import { sameWorkspaceRevision, type WorkspaceRevision } from "./revision.js"
-import { githubRepoFullNameFromWorkspaceUrl } from "./write-status.js"
+import {
+  githubRepoFullNameFromWorkspaceUrl,
+  WRITE_STATUS_REASONS,
+} from "./write-status.js"
 
 class WorkspaceTipAdvancedError extends Error {
   constructor() {
     super("Default branch advanced; semantic merge is required")
   }
+}
+
+class WorkspaceWriteAccessUnavailableError extends Error {
+  constructor(readonly readOnlyReason?: string) {
+    super("Workspace default-branch write access is unavailable")
+  }
+}
+
+/** Only a recognized remote access/protection denial pauses a native push. */
+function writeAccessDenialReason(error: unknown): string | null {
+  if (!error || typeof error !== "object") return null
+  const detail = error as { status?: number; stderr?: Buffer | string }
+  const stderr = detail.stderr?.toString() ?? ""
+  if (
+    /GH006:|GH013:|protected branch update failed|repository rule violations/i.test(
+      stderr,
+    )
+  )
+    return WRITE_STATUS_REASONS.protectedBranch
+  if (
+    detail.status === 401 ||
+    detail.status === 403 ||
+    detail.status === 404 ||
+    /permission to .+ denied|requested URL returned error: (?:401|403)|authentication failed/i.test(
+      stderr,
+    )
+  )
+    return WRITE_STATUS_REASONS.contentsWriteDenied
+  return null
 }
 
 /** Called inside the workflow's durable broker-push step. Credentials never leave it. */
@@ -57,7 +92,7 @@ export async function pushWorkspaceCommit(
   if (await remoteContainsCommit(revision, committed, tip.sha, readToken))
     return
   if (workspace.writeStatus !== "writable")
-    throw new Error("Workspace is not writable before push")
+    throw new WorkspaceWriteAccessUnavailableError()
   if (tip.sha !== revision.sha || !sameWorkspaceRevision(current, revision))
     throw new WorkspaceTipAdvancedError()
   if (input.mirror)
@@ -65,8 +100,15 @@ export async function pushWorkspaceCommit(
   const token = await getRepoWriteCloneToken(input.orgId, env, {
     githubConnectionId: connectionId,
     repoFullName: repositoryName,
+  }).catch((error: unknown) => {
+    const reason = writeAccessDenialReason(error)
+    if (reason) throw new WorkspaceWriteAccessUnavailableError(reason)
+    throw error
   })
-  if (!token) throw new Error("No repository write credential")
+  if (!token)
+    throw new WorkspaceWriteAccessUnavailableError(
+      WRITE_STATUS_REASONS.contentsWriteDenied,
+    )
   await withGitDirectory(
     committed.sha,
     async (directory) => {
@@ -81,14 +123,13 @@ export async function pushWorkspaceCommit(
         throw new WorkspaceTipAdvancedError()
       // Credential acquisition and pack restoration may outlive a relink.
       const live = await getWorkspaceWriteAdmission(input.workspaceId)
-      if (
-        !sameWorkspaceRevision(live?.revision, revision) ||
-        live?.writeStatus !== "writable"
-      )
+      if (!sameWorkspaceRevision(live?.revision, revision))
         throw new Error(
           "Workspace write binding changed during credential issuance",
         )
       if (pushTip.sha === committed.sha) return
+      if (live?.writeStatus !== "writable")
+        throw new WorkspaceWriteAccessUnavailableError()
       if (input.mirror)
         await assertConnectorMirrorBinding(input.orgId, input.mirror, revision)
       await nativeGit(
@@ -102,7 +143,11 @@ export async function pushWorkspaceCommit(
         ],
         undefined,
         gitRemoteEnvironment({ url: revision.remote.url, token }),
-      )
+      ).catch((error: unknown) => {
+        const reason = writeAccessDenialReason(error)
+        if (reason) throw new WorkspaceWriteAccessUnavailableError(reason)
+        throw error
+      })
     },
     committed,
   )
@@ -218,12 +263,33 @@ export async function refreshWorkspaceWriteRevision(
 /** Recoverable native push admission, evaluated inside the caller's durable broker step. */
 export async function attemptWorkspaceCommit(
   ...args: Parameters<typeof pushWorkspaceCommit>
-): Promise<{ pushed: boolean }> {
+): Promise<
+  { pushed: true } | { pushed: false; reason: "tip_advanced" | "paused" }
+> {
   try {
     await pushWorkspaceCommit(...args)
     return { pushed: true }
   } catch (error) {
-    if (error instanceof WorkspaceTipAdvancedError) return { pushed: false }
+    if (error instanceof WorkspaceTipAdvancedError)
+      return { pushed: false, reason: "tip_advanced" }
+    if (error instanceof WorkspaceWriteAccessUnavailableError) {
+      if (error.readOnlyReason) {
+        const [input, revision] = args
+        await persistWriteStatus(
+          {
+            id: input.workspaceId,
+            desiredGeneration: revision.generation,
+            workspaceRepositoryUrl: revision.remote.url,
+            githubConnectionId: revision.remote.connectionId,
+            desiredDefaultBranch: revision.defaultBranch,
+            desiredSha: revision.sha,
+          },
+          { writeStatus: "read_only", readOnlyReason: error.readOnlyReason },
+          input.orgId,
+        )
+      }
+      return { pushed: false, reason: "paused" }
+    }
     throw error
   }
 }

@@ -463,8 +463,8 @@ export async function validateSemanticHandoff(
       return row.commitSha
         ? { committed: true as const, commitSha: row.commitSha }
         : { committed: false as const, reason: "no_changes" as const }
-    if (row.status !== "running")
-      throw new Error("Semantic parent is not running")
+    if (row.status !== "running" && row.status !== "paused")
+      throw new Error("Semantic parent is not active")
     if (preparedSha) {
       if (
         row.commitSha !== null &&

@@ -1,0 +1,45 @@
+{"name": "stale-write-probe-native-red", "cwd": "/private/tmp/ctxpipe-recovery-01a07aba", "command": ["/Users/jakubriedl/.volta/tools/image/node/22.16.0/bin/node", "apps/backend/node_modules/vitest/vitest.mjs", "run", "--root", "apps/backend", "src/domain/workspaces/write-pause-native.contract.test.ts", "-t", "does not apply a permission probe"], "environment": {"AUTH_SECRET": "gate0-local-disposable-test-secret-20260907", "DATABASE_URL": "postgresql://ctxpipe_app:ctxpipe@127.0.0.1:61314/ctxpipe_gate0_fresh", "GRAPH_DB_URI": "redis://127.0.0.1:6398", "CI": "true", "NO_COLOR": "1", "TURBO_TELEMETRY_DISABLED": "1", "STORYBOOK_DISABLE_TELEMETRY": "1", "PATH": "/Users/jakubriedl/.volta/tools/image/node/22.16.0/bin:/private/tmp/ctxpipe-recovery-runtime/ast-grep/node_modules/.bin:/private/tmp/ctxpipe-recovery-runtime/node_modules/.bin:/private/tmp/ctxpipe-recovery-runtime/zoekt:/usr/local/bin:/System/Cryptexes/App/usr/bin:/usr/bin:/bin:/usr/sbin:/sbin:/var/run/com.apple.security.cryptexd/codex.system/bootstrap/usr/local/bin:/var/run/com.apple.security.cryptexd/codex.system/bootstrap/usr/bin:/var/run/com.apple.security.cryptexd/codex.system/bootstrap/usr/appleinternal/bin:/pkg/env/global/bin:/Users/jakubriedl/.codex/tmp/arg0/codex-arg0BW5Gt3:/Users/jakubriedl/.cache/codex-runtimes/codex-primary-runtime/dependencies/bin/override:/Users/jakubriedl/.local/bin:/Users/jakubriedl/.bun/bin:/Users/jakubriedl/.opencode/bin:/Users/jakubriedl/.volta/bin:/opt/homebrew/bin:/opt/homebrew/sbin:/Users/jakubriedl/.cache/codex-runtimes/codex-primary-runtime/dependencies/bin/fallback:/Applications/ChatGPT.app/Contents/Resources"}, "timeout_seconds": 600, "started_utc": "2026-09-08T13:37:55Z", "log": "logs/stale-write-probe-native-red.log"}
+
+ RUN  v4.0.18 /private/tmp/ctxpipe-recovery-01a07aba/apps/backend
+
+Cloning into bare repository '/var/folders/9t/jj9rnpps7_ddb72c1mq2k13w0000gn/T/ctxpipe-hydration-contract-KmkDCe/remote.git'...
+done.
+ ❯ src/domain/workspaces/write-pause-native.contract.test.ts (3 tests | 1 failed | 2 skipped) 500ms
+   ↓ resumes a paused captured command after a human advances the same repository
+   ↓ keeps its native owner while waiting for write access before acquisition
+   × does not apply a permission probe from before a relink to the new binding 499ms
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 1 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  src/domain/workspaces/write-pause-native.contract.test.ts > does not apply a permission probe from before a relink to the new binding
+AssertionError: expected { …(21) } to match object { writeStatus: 'read_only', …(1) }
+(19 matching properties omitted from actual)
+
+- Expected
++ Received
+
+  {
+-   "readOnlyReason": "New binding requires access",
+-   "writeStatus": "read_only",
++   "readOnlyReason": null,
++   "writeStatus": "writable",
+  }
+
+ ❯ src/domain/workspaces/write-pause-native.contract.test.ts:267:14
+    265|           }, { error: (error) => { errors.push(error.message) } }))).t…
+    266|           expect(await withOrgIdContext(f.org, () => getWorkspaceById(…
+    267|             .toMatchObject({ writeStatus: "read_only", readOnlyReason:…
+       |              ^
+    268|           await worker.start()
+    269|           await expect.poll(async () => (await f.backend.getWorkflowRu…
+ ❯ withNativeHydrationFixture src/test/native-hydration-fixture.ts:453:5
+ ❯ src/domain/workspaces/write-pause-native.contract.test.ts:233:5
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/1]⎯
+
+
+ Test Files  1 failed (1)
+      Tests  1 failed | 2 skipped (3)
+   Start at  23:37:55
+   Duration  2.84s (transform 717ms, setup 20ms, import 2.24s, tests 500ms, environment 0ms)
+

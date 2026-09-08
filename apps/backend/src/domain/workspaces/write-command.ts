@@ -103,8 +103,7 @@ export async function acquireWorkspaceWriteRevision(
     !sameWorkspaceRevision(current, { ...revision, sha: current.sha })
   )
     throw new Error("Workspace write binding changed")
-  if (workspace.writeStatus !== "writable")
-    throw new Error("Workspace is not writable")
+  if (workspace.writeStatus !== "writable") return null
   const token = await resolveRepositoryReadCredential({
     orgId: input.orgId,
     env,

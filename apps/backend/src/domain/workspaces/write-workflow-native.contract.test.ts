@@ -510,16 +510,18 @@ process.exit(result.status ?? 1);
           )
           expect(refreshed?.revision.sha).not.toBe(f.sha)
           if (readOnly)
-            await withOrgIdContext(f.org, () =>
-              persistWriteStatus(
-                f.workspaceId,
+            await withOrgIdContext(f.org, async () => {
+              const binding = await getWorkspaceById(f.workspaceId)
+              if (!binding) throw new Error("Fixture workspace missing")
+              return persistWriteStatus(
+                binding,
                 {
                   writeStatus: "read_only",
                   readOnlyReason: "Default branch is protected",
                 },
                 f.org.id,
-              ),
-            )
+              )
+            })
           if (readOnly)
             expect(
               await withOrgIdContext(f.org, () =>

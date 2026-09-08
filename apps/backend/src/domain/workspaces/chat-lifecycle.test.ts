@@ -20,6 +20,7 @@ import {
   shouldHeartbeatChatSandbox,
   treeDirtyFromPorcelain,
 } from "./chat-lifecycle.js"
+import { WRITE_STATUS_REASONS } from "./write-status.js"
 
 describe("chat lifecycle", () => {
   it("names session branches and never force-pushes default", () => {
@@ -48,6 +49,22 @@ describe("chat lifecycle", () => {
     expect(
       chatMayPublishPullRequest({
         writeStatus: "read_only",
+        explicitRequest: true,
+        host: "github",
+      }),
+    ).toBe(false)
+    expect(
+      chatMayPublishPullRequest({
+        writeStatus: "read_only",
+        readOnlyReason: WRITE_STATUS_REASONS.protectedBranch,
+        explicitRequest: true,
+        host: "github",
+      }),
+    ).toBe(true)
+    expect(
+      chatMayPublishPullRequest({
+        writeStatus: "read_only",
+        readOnlyReason: WRITE_STATUS_REASONS.contentsWriteDenied,
         explicitRequest: true,
         host: "github",
       }),

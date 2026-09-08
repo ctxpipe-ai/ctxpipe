@@ -599,7 +599,7 @@ export const workspaceWriteCommit = defineWorkflow(
               const mapped = writeStatusFromGithubProbeError(probe)
               if (mapped.writeStatus === "read_only") {
                 await orgSql(async () => {
-                  await persistWriteStatus(workspace.id, mapped, input.orgId)
+                  await persistWriteStatus(workspace, mapped, input.orgId)
                   await persistWriteJobStatus(jobId, WRITE_JOB_STATUSES.paused)
                 })
                 return { committed: false, reason: "paused" as const }

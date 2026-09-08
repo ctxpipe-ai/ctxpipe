@@ -184,7 +184,7 @@ export async function getWorkspaceById(
   })
 }
 
-type DesiredWorkspaceRecord = Pick<
+export type WorkspaceWriteProbeBinding = Pick<
   WorkspaceRecord,
   | "id"
   | "desiredGeneration"
@@ -195,7 +195,7 @@ type DesiredWorkspaceRecord = Pick<
 >
 
 function desiredWorkspaceRevision(
-  row: DesiredWorkspaceRecord,
+  row: WorkspaceWriteProbeBinding,
 ): WorkspaceRevision | null {
   if (!row.desiredSha || !row.desiredDefaultBranch) return null
   return workspaceRevisionSchema.parse({
@@ -299,7 +299,7 @@ export async function getWorkspaceWriteAdmission(workspaceId: string) {
 
 /** Failed discovery has no invented SHA; fence the exact database target that was observed. */
 export async function persistRevisionResolutionFailure(input: {
-  expected: DesiredWorkspaceRecord
+  expected: WorkspaceWriteProbeBinding
   message: string
 }): Promise<void> {
   await orgSql(async () => {
@@ -1575,20 +1575,36 @@ export async function persistHydrateRetry(
   })
 }
 
+/** Remote permission results apply only to the exact binding that was probed. */
 export async function persistWriteStatus(
-  workspaceId: string,
+  expected: WorkspaceWriteProbeBinding,
   write: WorkspaceWriteProbe,
   orgId: string,
-): Promise<void> {
-  await orgSql(async () => {
-    await getOrgDb()
+): Promise<boolean> {
+  return orgSql(async () => {
+    const [updated] = await getOrgDb()
       .update(workspaces)
       .set({
         writeStatus: write.writeStatus,
         readOnlyReason: write.readOnlyReason,
         updatedAt: new Date(),
       })
-      .where(and(eq(workspaces.id, workspaceId), eq(workspaces.orgId, orgId)))
+      .where(
+        and(
+          eq(workspaces.id, expected.id),
+          eq(workspaces.orgId, orgId),
+          eq(workspaces.desiredGeneration, expected.desiredGeneration),
+          eq(
+            workspaces.workspaceRepositoryUrl,
+            expected.workspaceRepositoryUrl,
+          ),
+          sql`${workspaces.githubConnectionId} is not distinct from ${expected.githubConnectionId}`,
+          sql`${workspaces.desiredDefaultBranch} is not distinct from ${expected.desiredDefaultBranch}`,
+          sql`${workspaces.desiredSha} is not distinct from ${expected.desiredSha}`,
+        ),
+      )
+      .returning({ id: workspaces.id })
+    return !!updated
   })
 }
 

@@ -1,4 +1,5 @@
 import { createRoute, OpenAPIHono, z } from "@hono/zod-openapi"
+import { reconstructChat } from "@tanstack/ai-persistence"
 import type { AppEnv } from "../../app/env.js"
 import { parseEnv } from "../../config/env.js"
 import {
@@ -19,13 +20,6 @@ import {
   getRegisteredChatSandbox,
   withDestroyedConversationSandboxes,
 } from "../../domain/workspaces/sandbox-registry.js"
-import {
-  checkoutPreparedConversationBranch,
-  conversationFileRoutes,
-  conversationPublicPrUrl,
-  conversationPublicTreeUrl,
-} from "./conversation-files-routes.js"
-import { reconstructChat } from "@tanstack/ai-persistence"
 import {
   conversationHasStoredTurns,
   warmTanstackWorkspaceChat,
@@ -55,6 +49,12 @@ import {
   getPullRequestState,
 } from "../../services/github/installation-write-client.js"
 import { resolveGithubDefaultBranch } from "../webhooks/github/github-workspace-tip.js"
+import {
+  checkoutPreparedConversationBranch,
+  conversationFileRoutes,
+  conversationPublicPrUrl,
+  conversationPublicTreeUrl,
+} from "./conversation-files-routes.js"
 
 const ErrorResponseSchema = z
   .object({ error: z.string() })
@@ -459,13 +459,11 @@ export const conversationRoutes = new OpenAPIHono<AppEnv>()
       lastBranch: row.lastBranch ?? null,
       lastChatPrNumber: row.lastChatPrNumber ?? null,
       lastChatPrUrl: conversationPublicPrUrl({
-        workspaceRepositoryUrl:
-          listedWorkspace?.workspaceRepositoryUrl ?? "",
+        workspaceRepositoryUrl: listedWorkspace?.workspaceRepositoryUrl ?? "",
         lastChatPrNumber: row.lastChatPrNumber ?? null,
       }),
       branchTreeUrl: conversationPublicTreeUrl({
-        workspaceRepositoryUrl:
-          listedWorkspace?.workspaceRepositoryUrl ?? "",
+        workspaceRepositoryUrl: listedWorkspace?.workspaceRepositoryUrl ?? "",
         lastBranch: row.lastBranch ?? null,
       }),
       createdAt: row.createdAt.toISOString(),
@@ -766,7 +764,12 @@ export const conversationRoutes = new OpenAPIHono<AppEnv>()
     }
     const workspace = await getWorkspaceById(conversation.workspaceId)
     if (!workspace) return c.json({ error: "Not found" }, 404)
-    if (!workspaceAllowsConversationEdits(workspace.writeStatus)) {
+    if (
+      !workspaceAllowsConversationEdits(
+        workspace.writeStatus,
+        workspace.readOnlyReason,
+      )
+    ) {
       return c.json({ error: "read_only" }, 400)
     }
     const handle = resolveConversationSandboxHandle(conversationId)
@@ -790,6 +793,7 @@ export const conversationRoutes = new OpenAPIHono<AppEnv>()
     const sandbox = getRegisteredChatSandbox(conversationId)
     const planned = planChatPullRequest({
       writeStatus: workspace.writeStatus,
+      readOnlyReason: workspace.readOnlyReason,
       explicitRequest: true,
       host: "github",
       defaultBranch,
@@ -821,9 +825,7 @@ export const conversationRoutes = new OpenAPIHono<AppEnv>()
       commitMessage: title,
     })
     if (!pushed.ok) return c.json({ error: pushed.error }, 400)
-    if (
-      conversation.lastChatPrNumber != null
-    ) {
+    if (conversation.lastChatPrNumber != null) {
       const existing = await getPullRequestState({
         orgId: workspace.orgId,
         repositoryName: repoName,
