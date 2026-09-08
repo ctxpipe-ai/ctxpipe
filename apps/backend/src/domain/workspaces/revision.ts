@@ -233,3 +233,18 @@ export function workspaceIndexJobs(input: {
   }
   return jobs
 }
+
+/** Compare published identities without interpreting derived-store freshness as identity. */
+export function samePublishedProjection(
+  left: PublishedProjection | null,
+  right: PublishedProjection | null,
+): boolean {
+  if (left?.kind === "active" && right?.kind === "active")
+    return sameWorkspaceRevision(left.revision, right.revision)
+  return (
+    left?.kind === "legacy" &&
+    right?.kind === "legacy" &&
+    left.url === right.url &&
+    left.sha === right.sha
+  )
+}

@@ -29,7 +29,6 @@ import {
   getWorkspaceProjection,
   getWorkspaceProjectionSnapshot,
   listWorkspaceKnowledgeUnits,
-  listWorkspaceKnowledgeUnitsForChat,
   persistEmbeddingFailure,
   persistHydrateFailure,
   persistIndexedSha,
@@ -853,14 +852,15 @@ it.each([
           await indexQueue.stop()
         }
         await withOrgIdContext(org, async () => {
-          const [unit] = await listWorkspaceKnowledgeUnitsForChat(workspaceId)
+          const [unit] = (await getWorkspaceProjectionSnapshot(workspaceId))
+            .units
           if (!unit) throw new Error("Expected the active knowledge unit")
           await persistUnitEmbeddings({
             revision,
             embeddings: [{ servingId: unit.servingId, embedding: [0.99] }],
           })
           expect(
-            (await listWorkspaceKnowledgeUnitsForChat(workspaceId))[0]
+            (await getWorkspaceProjectionSnapshot(workspaceId)).units[0]
               ?.embedding,
           ).toEqual(Array(2000).fill(0.01))
         })

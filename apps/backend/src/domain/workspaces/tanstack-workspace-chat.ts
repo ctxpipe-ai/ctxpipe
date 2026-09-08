@@ -13,9 +13,8 @@ import { organizations } from "../../db/schema/auth.js"
 import { nameConversationIfUnnamed } from "../../graphs/conversationGraph/nodes/conversationNaming.js"
 import { loadConversationTurns } from "../../models/conversation-messages.js"
 import {
-  getWorkspaceById,
+  getWorkspaceProjectionSnapshot,
   listSandboxInstances,
-  listWorkspaceKnowledgeUnitsForChat,
 } from "../../models/workspaces.js"
 import { getLogger, log } from "../../observability/logger.js"
 import { hybridSearch } from "../../retrieval/index.js"
@@ -779,23 +778,20 @@ function defineConversationSandbox(input: {
 }
 
 async function loadWorkspaceChatTools(input: TanstackWorkspaceChatInput) {
-  const activeProjectionSha = await withOrgDbContext(input.orgId, async () => {
-    const workspace = await getWorkspaceById(input.workspaceId)
-    return workspace?.activeProjectionSha ?? null
-  }).catch(() => null)
-  return workspaceChatTools({
-    orgId: input.orgId,
-    workspaceId: input.workspaceId,
-    writeStatus: input.writeStatus,
-    activeProjectionSha,
-    loadUnits: () =>
-      withOrgDbContext(input.orgId, () =>
-        listWorkspaceKnowledgeUnitsForChat(input.workspaceId),
-      ),
-    embedQuery: generateEmbedding,
-    searchObjects: async (query, embedding) =>
-      hybridSearch(input.orgId, { embedding, query }, { limit: 20 }),
-  }).catch(() => [])
+  return withOrgDbContext(input.orgId, () =>
+    getWorkspaceProjectionSnapshot(input.workspaceId),
+  )
+    .then((snapshot) =>
+      workspaceChatTools({
+        orgId: input.orgId,
+        workspaceId: input.workspaceId,
+        snapshot,
+        embedQuery: generateEmbedding,
+        searchObjects: async (query, embedding) =>
+          hybridSearch(input.orgId, { embedding, query }, { limit: 20 }),
+      }),
+    )
+    .catch(() => [])
 }
 
 export async function conversationHasStoredTurns(

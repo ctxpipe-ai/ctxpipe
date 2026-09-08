@@ -25,5 +25,8 @@
   ],
   "native revision index workflow": [
     "src/domain/workspaces/index-workflow.contract.test.ts"
+  ],
+  "published chat projection": [
+    "src/domain/workspaces/chat-projection.contract.test.ts"
   ]
 }

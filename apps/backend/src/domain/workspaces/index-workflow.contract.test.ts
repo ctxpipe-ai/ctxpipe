@@ -36,6 +36,7 @@ import {
   getWorkspaceById,
   persistLinkedIndexedSha,
   getWorkspaceProjection,
+  getWorkspaceProjectionSnapshot,
   getWorkspaceSearchProjection,
 } from "../../models/workspaces.js"
 import { repositoryIndex } from "../../openworkflow/workflows/repository-index.js"
@@ -44,6 +45,7 @@ import { workspaceIndex } from "../../openworkflow/workflows/workspace-index.js"
 import { codeSearch } from "../../retrieval/services/codeSearch.js"
 import { parseEnv } from "../../config/env.js"
 import { resolveWorkspaceReadRevision } from "./resolve-revision.js"
+import { workspaceChatTools } from "./workspace-chat-tools.js"
 import type { WorkspaceRevision } from "./revision.js"
 
 async function availablePort() {
@@ -326,6 +328,60 @@ it(
             { timeout: 10_000 },
           )
           .toMatchObject([{ FileName: "AGENTS.md", Version: sha }])
+        const chatTools = await workspaceChatTools({
+          orgId: org.id,
+          workspaceId,
+          snapshot: await getWorkspaceProjectionSnapshot(workspaceId),
+        })
+        const chatSearch = chatTools.find((tool) => tool.name === "search")
+        const matches = String(
+          await chatSearch?.execute({
+            repositoryId,
+            query: "amberquartz",
+            detail: "full",
+          }),
+        )
+        expect(matches).toContain("AGENTS.md")
+        expect(matches).toContain(sha)
+        const movedRevision = { ...revision, defaultBranch: "renamed" }
+        await withOrgDbContext(org.id, (db) =>
+          db
+            .update(workspaces)
+            .set({
+              activeRevision: movedRevision,
+              desiredDefaultBranch: "renamed",
+              hydratePhases: {
+                url: remote,
+                sha,
+                embeddings: false,
+                index: { revision: movedRevision, result: { kind: "ready" } },
+              },
+            })
+            .where(eq(workspaces.id, workspaceId)),
+        )
+        const staleMatches = String(
+          await chatSearch?.execute({
+            repositoryId,
+            query: "amberquartz",
+            detail: "full",
+          }),
+        )
+        expect(staleMatches).not.toContain("AGENTS.md")
+        await withOrgDbContext(org.id, (db) =>
+          db
+            .update(workspaces)
+            .set({
+              activeRevision: revision,
+              desiredDefaultBranch: "trunk",
+              hydratePhases: {
+                url: remote,
+                sha,
+                embeddings: false,
+                index: { revision, result: { kind: "ready" } },
+              },
+            })
+            .where(eq(workspaces.id, workspaceId)),
+        )
       })
       await rename(cold, `${cold}-previous`)
       await writeFile(cold, "This fixture prevents search index output")

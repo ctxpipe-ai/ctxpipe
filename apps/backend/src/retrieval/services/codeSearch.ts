@@ -7,6 +7,11 @@ import { repositoryCheckouts } from "../../db/schema/repository_checkouts.js"
 import { codesearchBaseUrl } from "../../lib/agentToolRuntime.js"
 import { withTransientHttpRetry } from "../../lib/withTransientHttpRetry.js"
 import { DEFAULT_CHECKOUT_KEY } from "../../models/repositories.js"
+import {
+  publishedProjection,
+  samePublishedProjection,
+  type PublishedProjection,
+} from "../../domain/workspaces/revision.js"
 import { getWorkspaceSearchProjection } from "../../models/workspaces.js"
 
 export type CodeSearchResult = {
@@ -127,6 +132,7 @@ export async function codeSearch(
     query: string
     repositoryIds?: string[]
     workspaceId?: string
+    expectedProjection?: PublishedProjection
   },
 ): Promise<CodeSearchResult[]> {
   const workspace = params.workspaceId
@@ -134,6 +140,15 @@ export async function codeSearch(
         getWorkspaceSearchProjection(params.workspaceId as string),
       )
     : null
+  if (
+    params.expectedProjection &&
+    (!workspace ||
+      !samePublishedProjection(
+        publishedProjection(workspace.projection),
+        params.expectedProjection,
+      ))
+  )
+    return []
   const baseWhere = eq(repositories.orgId, orgId)
   const where = params.repositoryIds?.length
     ? and(baseWhere, inArray(repositories.id, params.repositoryIds))

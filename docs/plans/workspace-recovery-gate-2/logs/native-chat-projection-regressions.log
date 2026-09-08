@@ -1,0 +1,199 @@
+{"name": "native-chat-projection-regressions", "cwd": "/private/tmp/ctxpipe-recovery-01a07aba", "command": ["/Users/jakubriedl/.volta/tools/image/node/22.16.0/bin/node", "apps/backend/node_modules/vitest/vitest.mjs", "run", "--root", "apps/backend", "src/domain/workspaces/chat-projection.contract.test.ts", "src/domain/workspaces/workspace-chat-tools.test.ts", "src/domain/workspaces/hydration.contract.test.ts", "src/domain/workspaces/derived-stores.test.ts", "src/retrieval/services/graphProjection.test.ts", "src/domain/workspaces/tanstack-workspace-chat.test.ts", "src/domain/workspaces/tanstack-workspace-chat.live.test.ts"], "environment": {"AUTH_SECRET": "gate0-local-disposable-test-secret-20260907", "DATABASE_URL": "postgresql://ctxpipe_app:ctxpipe@127.0.0.1:61314/ctxpipe_gate0_fresh", "GRAPH_DB_URI": "redis://127.0.0.1:6399", "CI": "true", "NO_COLOR": "1", "TURBO_TELEMETRY_DISABLED": "1", "STORYBOOK_DISABLE_TELEMETRY": "1", "PATH": "/private/tmp/ctxpipe-recovery-runtime/node_modules/.bin:/private/tmp/ctxpipe-recovery-runtime/zoekt:/usr/local/bin:/System/Cryptexes/App/usr/bin:/usr/bin:/bin:/usr/sbin:/sbin:/var/run/com.apple.security.cryptexd/codex.system/bootstrap/usr/local/bin:/var/run/com.apple.security.cryptexd/codex.system/bootstrap/usr/bin:/var/run/com.apple.security.cryptexd/codex.system/bootstrap/usr/appleinternal/bin:/pkg/env/global/bin:/Users/jakubriedl/.codex/tmp/arg0/codex-arg0BW5Gt3:/Users/jakubriedl/.cache/codex-runtimes/codex-primary-runtime/dependencies/bin/override:/Users/jakubriedl/.local/bin:/Users/jakubriedl/.bun/bin:/Users/jakubriedl/.opencode/bin:/Users/jakubriedl/.volta/bin:/opt/homebrew/bin:/opt/homebrew/sbin:/Users/jakubriedl/.cache/codex-runtimes/codex-primary-runtime/dependencies/bin/fallback:/Applications/ChatGPT.app/Contents/Resources"}, "timeout_seconds": 600, "started_utc": "2026-09-08T04:08:59Z", "log": "logs/native-chat-projection-regressions.log"}
+
+ RUN  v4.0.18 /private/tmp/ctxpipe-recovery-01a07aba/apps/backend
+
+ ✓ src/domain/workspaces/derived-stores.test.ts (3 tests) 6ms
+ ✓ src/retrieval/services/graphProjection.test.ts (7 tests) 18ms
+ ✓ src/domain/workspaces/workspace-chat-tools.test.ts (3 tests) 4ms
+ ✓ src/domain/workspaces/tanstack-workspace-chat.test.ts (23 tests) 140ms
+ ✓ src/domain/workspaces/chat-projection.contract.test.ts (1 test) 208ms
+Cloning into bare repository '/var/folders/9t/jj9rnpps7_ddb72c1mq2k13w0000gn/T/ctxpipe-hydration-contract-ibjFEK/remote.git'...
+done.
+Cloning into bare repository '/var/folders/9t/jj9rnpps7_ddb72c1mq2k13w0000gn/T/ctxpipe-hydration-contract-Ck5ekU/remote.git'...
+done.
+stdout | src/domain/workspaces/tanstack-workspace-chat.live.test.ts > workspace chat OpenCode fallback (live) > conversation POST streams through the same local_process fallback
+{
+  error: Error: [vitest] No "orgIdStorage" export is defined on the "../../auth/withAuth.js" mock. Did you forget to return it from "vi.mock"?
+  If you need to partially mock a module, you can use "importOriginal" helper inside:
+  
+      at VitestMocker.createError [90m(file:///private/tmp/ctxpipe-recovery-01a07aba/[39mnode_modules/[4m.pnpm[24m/vitest@4.0.18_@opentelemetry+api@1.9.0_@types+node@25.3.0_jiti@2.6.1_jsdom@27.4.0_@nobl_3b8f616f1c840ca5079e010765321adc/node_modules/[4mvitest[24m/dist/chunks/startModuleRunner.DEj0jb3e.js:311:17[90m)[39m
+      at Object.get [90m(file:///private/tmp/ctxpipe-recovery-01a07aba/[39mnode_modules/[4m.pnpm[24m/vitest@4.0.18_@opentelemetry+api@1.9.0_@types+node@25.3.0_jiti@2.6.1_jsdom@27.4.0_@nobl_3b8f616f1c840ca5079e010765321adc/node_modules/[4mvitest[24m/dist/chunks/startModuleRunner.DEj0jb3e.js:384:16[90m)[39m
+      at withAmbientOrgDb [90m(/private/tmp/ctxpipe-recovery-01a07aba/[39mapps/backend/src/db/org-sql.ts:10:17[90m)[39m
+      at orgSql [90m(/private/tmp/ctxpipe-recovery-01a07aba/[39mapps/backend/src/domain/workspaces/workspace-chat-persistence.ts:26:10[90m)[39m
+      at Object.listPending [90m(/private/tmp/ctxpipe-recovery-01a07aba/[39mapps/backend/src/domain/workspaces/workspace-chat-persistence.ts:265:7[90m)[39m
+      at Object.onConfig [90m(file:///private/tmp/ctxpipe-recovery-01a07aba/[39mnode_modules/[4m.pnpm[24m/@tanstack+ai-persistence@0.5.1_@tanstack+ai@0.48.0_@opentelemetry+api@1.9.0_zod@4.3.6___e5542883a52dc449e91f58df604d929c/node_modules/[4m@tanstack[24m/ai-persistence/dist/esm/middleware.js:1017:63[90m)[39m
+      at MiddlewareRunner.runOnConfig [90m(file:///private/tmp/ctxpipe-recovery-01a07aba/[39mnode_modules/[4m.pnpm[24m/@tanstack+ai@0.48.0_@opentelemetry+api@1.9.0_zod@4.3.6/node_modules/[4m@tanstack[24m/ai/dist/esm/activities/chat/middleware/compose.js:95:28[90m)[39m
+      at TextEngine.run [90m(file:///private/tmp/ctxpipe-recovery-01a07aba/[39mnode_modules/[4m.pnpm[24m/@tanstack+ai@0.48.0_@opentelemetry+api@1.9.0_zod@4.3.6/node_modules/[4m@tanstack[24m/ai/dist/esm/activities/chat/index.js:310:30[90m)[39m
+      at streamTextChunks [90m(file:///private/tmp/ctxpipe-recovery-01a07aba/[39mnode_modules/[4m.pnpm[24m/@tanstack+ai@0.48.0_@opentelemetry+api@1.9.0_zod@4.3.6/node_modules/[4m@tanstack[24m/ai/dist/esm/activities/chat/index.js:2299:20[90m)[39m
+      at takeWorkspaceChatProducer [90m(/private/tmp/ctxpipe-recovery-01a07aba/[39mapps/backend/src/domain/workspaces/workspace-chat-agui.ts:195:21[90m)[39m {
+    codeFrame: [32m'vi.mock(import("../../auth/withAuth.js"), async (importOriginal) => {\n'[39m +
+      [32m'  const actual = await importOriginal()\n'[39m +
+      [32m'  return {\n'[39m +
+      [32m'    ...actual,\n'[39m +
+      [32m'    // your mocked methods\n'[39m +
+      [32m'  }\n'[39m +
+      [32m'})'[39m
+  },
+  threadId: [32m'conv_live_post'[39m
+}
+
+stderr | src/domain/workspaces/tanstack-workspace-chat.live.test.ts > workspace chat OpenCode fallback (live) > conversation POST streams through the same local_process fallback
+❌ [tanstack-ai:errors] ❌ chat run failed
+
+stdout | src/domain/workspaces/tanstack-workspace-chat.live.test.ts > workspace chat OpenCode fallback (live) > conversation POST streams through the same local_process fallback
+{
+  middleware: [32m'chat-persistence'[39m,
+  hook: [32m'onError'[39m,
+  error: Error: [vitest] No "orgIdStorage" export is defined on the "../../auth/withAuth.js" mock. Did you forget to return it from "vi.mock"?
+  If you need to partially mock a module, you can use "importOriginal" helper inside:
+  
+      at VitestMocker.createError [90m(file:///private/tmp/ctxpipe-recovery-01a07aba/[39mnode_modules/[4m.pnpm[24m/vitest@4.0.18_@opentelemetry+api@1.9.0_@types+node@25.3.0_jiti@2.6.1_jsdom@27.4.0_@nobl_3b8f616f1c840ca5079e010765321adc/node_modules/[4mvitest[24m/dist/chunks/startModuleRunner.DEj0jb3e.js:311:17[90m)[39m
+      at Object.get [90m(file:///private/tmp/ctxpipe-recovery-01a07aba/[39mnode_modules/[4m.pnpm[24m/vitest@4.0.18_@opentelemetry+api@1.9.0_@types+node@25.3.0_jiti@2.6.1_jsdom@27.4.0_@nobl_3b8f616f1c840ca5079e010765321adc/node_modules/[4mvitest[24m/dist/chunks/startModuleRunner.DEj0jb3e.js:384:16[90m)[39m
+      at withAmbientOrgDb [90m(/private/tmp/ctxpipe-recovery-01a07aba/[39mapps/backend/src/db/org-sql.ts:10:17[90m)[39m
+      at orgSql [90m(/private/tmp/ctxpipe-recovery-01a07aba/[39mapps/backend/src/domain/workspaces/workspace-chat-persistence.ts:26:10[90m)[39m
+      at Object.update [90m(/private/tmp/ctxpipe-recovery-01a07aba/[39mapps/backend/src/domain/workspaces/workspace-chat-persistence.ts:157:13[90m)[39m
+      at failRun [90m(file:///private/tmp/ctxpipe-recovery-01a07aba/[39mnode_modules/[4m.pnpm[24m/@tanstack+ai-persistence@0.5.1_@tanstack+ai@0.48.0_@opentelemetry+api@1.9.0_zod@4.3.6___e5542883a52dc449e91f58df604d929c/node_modules/[4m@tanstack[24m/ai-persistence/dist/esm/middleware.js:919:14[90m)[39m
+      at Object.onError [90m(file:///private/tmp/ctxpipe-recovery-01a07aba/[39mnode_modules/[4m.pnpm[24m/@tanstack+ai-persistence@0.5.1_@tanstack+ai@0.48.0_@opentelemetry+api@1.9.0_zod@4.3.6___e5542883a52dc449e91f58df604d929c/node_modules/[4m@tanstack[24m/ai-persistence/dist/esm/middleware.js:1121:11[90m)[39m
+      at [90mfile:///private/tmp/ctxpipe-recovery-01a07aba/[39mnode_modules/[4m.pnpm[24m/@tanstack+ai@0.48.0_@opentelemetry+api@1.9.0_zod@4.3.6/node_modules/[4m@tanstack[24m/ai/dist/esm/activities/chat/middleware/compose.js:584:66
+      at MiddlewareRunner.captureTerminalHook [90m(file:///private/tmp/ctxpipe-recovery-01a07aba/[39mnode_modules/[4m.pnpm[24m/@tanstack+ai@0.48.0_@opentelemetry+api@1.9.0_zod@4.3.6/node_modules/[4m@tanstack[24m/ai/dist/esm/activities/chat/middleware/compose.js:425:10[90m)[39m
+      at MiddlewareRunner.runOnError [90m(file:///private/tmp/ctxpipe-recovery-01a07aba/[39mnode_modules/[4m.pnpm[24m/@tanstack+ai@0.48.0_@opentelemetry+api@1.9.0_zod@4.3.6/node_modules/[4m@tanstack[24m/ai/dist/esm/activities/chat/middleware/compose.js:584:20[90m)[39m {
+    codeFrame: [32m'vi.mock(import("../../auth/withAuth.js"), async (importOriginal) => {\n'[39m +
+      [32m'  const actual = await importOriginal()\n'[39m +
+      [32m'  return {\n'[39m +
+      [32m'    ...actual,\n'[39m +
+      [32m'    // your mocked methods\n'[39m +
+      [32m'  }\n'[39m +
+      [32m'})'[39m
+  }
+}
+
+stderr | src/domain/workspaces/tanstack-workspace-chat.live.test.ts > workspace chat OpenCode fallback (live) > conversation POST streams through the same local_process fallback
+❌ [tanstack-ai:errors] ❌ middleware onError hook failed
+
+ ❯ src/domain/workspaces/tanstack-workspace-chat.live.test.ts (3 tests | 1 failed) 4830ms
+     ✓ scrubs host provider keys from the local-process env 24ms
+     ✓ streams a stub completion through the ctxpipe proxy on local_process  3514ms
+     × conversation POST streams through the same local_process fallback 1290ms
+Cloning into bare repository '/var/folders/9t/jj9rnpps7_ddb72c1mq2k13w0000gn/T/ctxpipe-hydration-contract-fhD0zx/remote.git'...
+done.
+stderr | src/domain/workspaces/hydration.contract.test.ts > executes the hydrate workflow for 100 native-git files (relink before execution: false, GitHub: undefined, projection identity: undefined, embedding failure: undefined, history: undefined, incomplete embeddings: undefined, index failure: undefined, enqueue: undefined, missing tip: undefined, write status: undefined, index auth failure: undefined, index identity: undefined, projection files: undefined)
+Critical error during workflow execution for run 3ed9cb17-ed5b-4248-87ee-85566974219c: PostgresError: could not extend file "base/16384/17626": No space left on device
+    at ErrorResponse (file:///private/tmp/ctxpipe-recovery-01a07aba/node_modules/.pnpm/postgres@3.4.8/node_modules/postgres/src/connection.js:815:30)
+    at handle (file:///private/tmp/ctxpipe-recovery-01a07aba/node_modules/.pnpm/postgres@3.4.8/node_modules/postgres/src/connection.js:489:6)
+    at Socket.data (file:///private/tmp/ctxpipe-recovery-01a07aba/node_modules/.pnpm/postgres@3.4.8/node_modules/postgres/src/connection.js:324:9)
+    at Socket.emit (node:events:518:28)
+    at addChunk (node:internal/streams/readable:561:12)
+    at readableAddChunkPushByteMode (node:internal/streams/readable:512:3)
+    at Socket.Readable.push (node:internal/streams/readable:392:5)
+    at TCP.onStreamRead (node:internal/stream_base_commons:189:23)
+    at TCP.callbackTrampoline (node:internal/async_hooks:130:17)
+    at cachedError (file:///private/tmp/ctxpipe-recovery-01a07aba/node_modules/.pnpm/postgres@3.4.8/node_modules/postgres/src/query.js:170:23)
+    at new Query (file:///private/tmp/ctxpipe-recovery-01a07aba/node_modules/.pnpm/postgres@3.4.8/node_modules/postgres/src/query.js:36:24)
+    at BackendPostgres.sql [as pg] (file:///private/tmp/ctxpipe-recovery-01a07aba/node_modules/.pnpm/postgres@3.4.8/node_modules/postgres/src/index.js:112:11)
+    at BackendPostgres.failWorkflowRun (file:///private/tmp/ctxpipe-recovery-01a07aba/node_modules/.pnpm/openworkflow@0.8.0_postgres@3.4.8/node_modules/openworkflow/dist/postgres/backend.js:381:41) {
+  severity_local: 'ERROR',
+  severity: 'ERROR',
+  code: '53100',
+  hint: 'Check free disk space.',
+  file: 'md.c',
+  line: '620',
+  routine: 'mdzeroextend'
+}
+
+Cloning into bare repository '/var/folders/9t/jj9rnpps7_ddb72c1mq2k13w0000gn/T/ctxpipe-hydration-contract-bTJONC/remote.git'...
+done.
+Cloning into bare repository '/var/folders/9t/jj9rnpps7_ddb72c1mq2k13w0000gn/T/ctxpipe-hydration-contract-Y28MEo/remote.git'...
+done.
+Cloning into bare repository '/var/folders/9t/jj9rnpps7_ddb72c1mq2k13w0000gn/T/ctxpipe-hydration-contract-SkTOPZ/remote.git'...
+done.
+Cloning into bare repository '/var/folders/9t/jj9rnpps7_ddb72c1mq2k13w0000gn/T/ctxpipe-hydration-contract-0UyKCR/remote.git'...
+done.
+Cloning into bare repository '/var/folders/9t/jj9rnpps7_ddb72c1mq2k13w0000gn/T/ctxpipe-hydration-contract-yjHWcG/remote.git'...
+done.
+To /var/folders/9t/jj9rnpps7_ddb72c1mq2k13w0000gn/T/ctxpipe-hydration-contract-yjHWcG/remote.git
+   b494576..648fbb7  HEAD -> main
+Cloning into bare repository '/var/folders/9t/jj9rnpps7_ddb72c1mq2k13w0000gn/T/ctxpipe-hydration-contract-rgJ8hj/remote.git'...
+done.
+Cloning into bare repository '/var/folders/9t/jj9rnpps7_ddb72c1mq2k13w0000gn/T/ctxpipe-hydration-contract-2D0ZP5/remote.git'...
+done.
+Cloning into bare repository '/var/folders/9t/jj9rnpps7_ddb72c1mq2k13w0000gn/T/ctxpipe-hydration-contract-RkU73s/remote.git'...
+done.
+Cloning into bare repository '/var/folders/9t/jj9rnpps7_ddb72c1mq2k13w0000gn/T/ctxpipe-hydration-contract-zRK7Sg/remote.git'...
+done.
+Cloning into bare repository '/var/folders/9t/jj9rnpps7_ddb72c1mq2k13w0000gn/T/ctxpipe-hydration-contract-0Ni0Uu/remote.git'...
+done.
+Cloning into bare repository '/var/folders/9t/jj9rnpps7_ddb72c1mq2k13w0000gn/T/ctxpipe-hydration-contract-C4gwFo/remote.git'...
+done.
+Cloning into bare repository '/var/folders/9t/jj9rnpps7_ddb72c1mq2k13w0000gn/T/ctxpipe-hydration-contract-5yT5V0/remote.git'...
+done.
+Cloning into bare repository '/var/folders/9t/jj9rnpps7_ddb72c1mq2k13w0000gn/T/ctxpipe-hydration-contract-kIIHWv/remote.git'...
+done.
+Cloning into bare repository '/var/folders/9t/jj9rnpps7_ddb72c1mq2k13w0000gn/T/ctxpipe-hydration-contract-7U7X9J/remote.git'...
+done.
+ ❯ src/domain/workspaces/hydration.contract.test.ts (17 tests | 2 failed) 68726ms
+   ✓ executes the hydrate workflow for +0 native-git files (relink before execution: false, GitHub: undefined, projection identity: undefined, embedding failure: undefined, history: undefined, incomplete embeddings: undefined, index failure: undefined, enqueue: undefined, missing tip: undefined, write status: undefined, index auth failure: undefined, index identity: undefined, projection files: undefined)  2136ms
+   ✓ executes the hydrate workflow for 1 native-git files (relink before execution: false, GitHub: undefined, projection identity: undefined, embedding failure: undefined, history: undefined, incomplete embeddings: undefined, index failure: undefined, enqueue: undefined, missing tip: undefined, write status: undefined, index auth failure: undefined, index identity: undefined, projection files: undefined)  2573ms
+   × executes the hydrate workflow for 100 native-git files (relink before execution: false, GitHub: undefined, projection identity: undefined, embedding failure: undefined, history: undefined, incomplete embeddings: undefined, index failure: undefined, enqueue: undefined, missing tip: undefined, write status: undefined, index auth failure: undefined, index identity: undefined, projection files: undefined) 30754ms
+   ✓ executes the hydrate workflow for 1 native-git files (relink before execution: true, GitHub: undefined, projection identity: undefined, embedding failure: undefined, history: undefined, incomplete embeddings: undefined, index failure: undefined, enqueue: undefined, missing tip: undefined, write status: undefined, index auth failure: undefined, index identity: undefined, projection files: undefined)  1326ms
+   ✓ executes the hydrate workflow for 100 native-git files (relink before execution: false, GitHub: true, projection identity: undefined, embedding failure: undefined, history: undefined, incomplete embeddings: undefined, index failure: undefined, enqueue: undefined, missing tip: undefined, write status: undefined, index auth failure: undefined, index identity: undefined, projection files: undefined)  2787ms
+   × executes the hydrate workflow for 1 native-git files (relink before execution: false, GitHub: undefined, projection identity: true, embedding failure: undefined, history: undefined, incomplete embeddings: undefined, index failure: undefined, enqueue: undefined, missing tip: undefined, write status: undefined, index auth failure: undefined, index identity: undefined, projection files: undefined) 3681ms
+   ✓ executes the hydrate workflow for 1 native-git files (relink before execution: false, GitHub: undefined, projection identity: undefined, embedding failure: true, history: undefined, incomplete embeddings: undefined, index failure: undefined, enqueue: undefined, missing tip: undefined, write status: undefined, index auth failure: undefined, index identity: undefined, projection files: undefined)  2520ms
+   ✓ executes the hydrate workflow for 1 native-git files (relink before execution: false, GitHub: undefined, projection identity: undefined, embedding failure: undefined, history: true, incomplete embeddings: undefined, index failure: undefined, enqueue: undefined, missing tip: undefined, write status: undefined, index auth failure: undefined, index identity: undefined, projection files: undefined)  4800ms
+   ✓ executes the hydrate workflow for 1 native-git files (relink before execution: false, GitHub: undefined, projection identity: undefined, embedding failure: undefined, history: undefined, incomplete embeddings: true, index failure: undefined, enqueue: undefined, missing tip: undefined, write status: undefined, index auth failure: undefined, index identity: undefined, projection files: undefined)  1308ms
+   ✓ executes the hydrate workflow for 1 native-git files (relink before execution: false, GitHub: undefined, projection identity: undefined, embedding failure: undefined, history: undefined, incomplete embeddings: undefined, index failure: true, enqueue: undefined, missing tip: undefined, write status: undefined, index auth failure: undefined, index identity: undefined, projection files: undefined)  2709ms
+   ✓ executes the hydrate workflow for 1 native-git files (relink before execution: false, GitHub: undefined, projection identity: undefined, embedding failure: undefined, history: undefined, incomplete embeddings: undefined, index failure: undefined, enqueue: true, missing tip: undefined, write status: undefined, index auth failure: undefined, index identity: undefined, projection files: undefined)  1317ms
+   ✓ executes the hydrate workflow for 1 native-git files (relink before execution: false, GitHub: undefined, projection identity: undefined, embedding failure: undefined, history: undefined, incomplete embeddings: undefined, index failure: undefined, enqueue: undefined, missing tip: true, write status: undefined, index auth failure: undefined, index identity: undefined, projection files: undefined)  2015ms
+   ✓ executes the hydrate workflow for 1 native-git files (relink before execution: false, GitHub: undefined, projection identity: undefined, embedding failure: undefined, history: undefined, incomplete embeddings: undefined, index failure: undefined, enqueue: undefined, missing tip: undefined, write status: 'read_only', index auth failure: undefined, index identity: undefined, projection files: undefined)  1587ms
+   ✓ executes the hydrate workflow for 1 native-git files (relink before execution: false, GitHub: undefined, projection identity: undefined, embedding failure: undefined, history: undefined, incomplete embeddings: undefined, index failure: undefined, enqueue: undefined, missing tip: undefined, write status: 'writable', index auth failure: undefined, index identity: undefined, projection files: undefined)  1286ms
+   ✓ executes the hydrate workflow for 1 native-git files (relink before execution: false, GitHub: true, projection identity: undefined, embedding failure: undefined, history: undefined, incomplete embeddings: undefined, index failure: undefined, enqueue: undefined, missing tip: undefined, write status: undefined, index auth failure: true, index identity: undefined, projection files: undefined)  3418ms
+   ✓ executes the hydrate workflow for 1 native-git files (relink before execution: false, GitHub: undefined, projection identity: undefined, embedding failure: undefined, history: undefined, incomplete embeddings: undefined, index failure: undefined, enqueue: undefined, missing tip: undefined, write status: undefined, index auth failure: undefined, index identity: true, projection files: undefined)  2497ms
+   ✓ executes the hydrate workflow for 1 native-git files (relink before execution: false, GitHub: undefined, projection identity: undefined, embedding failure: undefined, history: undefined, incomplete embeddings: undefined, index failure: undefined, enqueue: undefined, missing tip: undefined, write status: undefined, index auth failure: undefined, index identity: undefined, projection files: true)  2008ms
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 3 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  src/domain/workspaces/hydration.contract.test.ts > executes the hydrate workflow for 100 native-git files (relink before execution: false, GitHub: undefined, projection identity: undefined, embedding failure: undefined, history: undefined, incomplete embeddings: undefined, index failure: undefined, enqueue: undefined, missing tip: undefined, write status: undefined, index auth failure: undefined, index identity: undefined, projection files: undefined)
+Error: Timed out waiting for workflow run 3ed9cb17-ed5b-4248-87ee-85566974219c to finish
+ ❯ WorkflowRunHandle.result ../../node_modules/.pnpm/openworkflow@0.8.0_postgres@3.4.8/node_modules/openworkflow/dist/client/client.js:187:23
+ ❯ src/domain/workspaces/hydration.contract.test.ts:293:14
+    291|         return
+    292|       }
+    293|       expect(await handle.result({ timeoutMs: 30_000 })).toMatchObject…
+       |              ^
+    294|         hydrated: true,
+    295|         units: count,
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/3]⎯
+
+ FAIL  src/domain/workspaces/hydration.contract.test.ts > executes the hydrate workflow for 1 native-git files (relink before execution: false, GitHub: undefined, projection identity: true, embedding failure: undefined, history: undefined, incomplete embeddings: undefined, index failure: undefined, enqueue: undefined, missing tip: undefined, write status: undefined, index auth failure: undefined, index identity: undefined, projection files: undefined)
+TypeError: (0 , __vite_ssr_import_19__.listWorkspaceKnowledgeUnitsForChat) is not a function
+ ❯ src/domain/workspaces/hydration.contract.test.ts:856:32
+    854|         }
+    855|         await withOrgIdContext(org, async () => {
+    856|           const [unit] = await listWorkspaceKnowledgeUnitsForChat(work…
+       |                                ^
+    857|           if (!unit) throw new Error("Expected the active knowledge un…
+    858|           await persistUnitEmbeddings({
+ ❯ src/auth/withAuth.ts:527:44
+ ❯ withOrgIdContext src/auth/withAuth.ts:527:23
+ ❯ src/domain/workspaces/hydration.contract.test.ts:855:15
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[2/3]⎯
+
+ FAIL  src/domain/workspaces/tanstack-workspace-chat.live.test.ts > workspace chat OpenCode fallback (live) > conversation POST streams through the same local_process fallback
+AssertionError: expected -1 to be greater than 15
+ ❯ src/domain/workspaces/tanstack-workspace-chat.live.test.ts:353:23
+    351|         const finished = body.indexOf("RUN_FINISHED")
+    352|         expect(started).toBeGreaterThanOrEqual(0)
+    353|         expect(delta).toBeGreaterThan(started)
+       |                       ^
+    354|         if (finished >= 0) expect(delta).toBeLessThan(finished)
+    355|         expect(upstreamHits.length).toBeGreaterThan(0)
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[3/3]⎯
+
+
+ Test Files  2 failed | 5 passed (7)
+      Tests  3 failed | 54 passed (57)
+   Start at  14:08:59
+   Duration  73.09s (transform 3.84s, setup 265ms, import 21.93s, tests 73.93s, environment 1ms)
+

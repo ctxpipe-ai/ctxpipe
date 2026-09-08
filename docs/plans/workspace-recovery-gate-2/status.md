@@ -289,3 +289,60 @@ limit while native Go compilation was still active (~4.3 GB cgroup memory),
 not a memory-gate assertion. Its fixture was cleaned. The recorder now permits
 3600 seconds for this explicitly expensive manual gate; the rerun uses the
 preserved disposable Go compiler/module cache and the same memory ceiling.
+
+
+### Captured chat graph and search projection
+
+The verified indexing/tip checkpoint is `f12845bc572a53ba9221f4285dc9242ec979a434`
+(local and remote). Its mandatory contracts passed 48/48.
+
+`native-index-kubernetes-memory-complete` passes all manual memory criteria:
+Kubernetes `0f29094e5b73085e3802ecc1298ecae13866bfe6`, native Zoekt plus Go SCIP,
+non-empty merged and Go artifacts, cold-only Zoekt shards, empty hot directory,
+real persisted checkout SHA, and exit 0. The measured cgroup peak was
+5,745,840,128 bytes (about 5480 MiB) under the unchanged 5670 MiB ceiling.
+The invocation used the recorded pinned image and a disposable host-backed Go
+compiler/module cache. No memory ceiling was raised.
+
+The reader audit found Workspace chat graph tools still querying FalkorDB while
+hydrate had moved the graph to Postgres. `native-chat-graph-postgres-red`
+reproduced `graph_unavailable` for successfully published data. Graph lookup and
+neighbors now use the existing pure `workspaceGraphFromUnits` transformation of
+one captured Postgres projection. `native-chat-graph-snapshot-green` proves both
+directions of traversal, unknown-node isolation, schemas and membership, empty
+projections, and a captured graph remaining consistent after a later activation.
+The same database snapshot carries revision, units, and embeddings; the old
+separate chat-unit getter and Workspace-specific FalkorDB writer/read helpers
+were removed. The general org claim graph remains separate and unchanged in
+purpose. The obsolete mocked Workspace graph/membership cases were replaced by
+the real Postgres contract; input-policy tests remain pure.
+
+`native-chat-search-revision-red` reproduced chat search selecting an unrelated
+repository default checkout and returning `repository_not_found` despite a live
+published Workspace index. Chat lexical and symbol searches now call the shared
+published-revision search policy and bind it to the chat's captured projection.
+`native-chat-search-revision-green` passes against real OpenWorkflow, Git,
+Postgres, Bun codesearch HTTP, and Zoekt. The scheduled/native fixture also checks
+that a captured chat search rejects a later identity at the same SHA.
+
+The existing outer chat catch-and-empty compatibility behavior is retained for
+Gate 4's explicit lifecycle/error-path replacement; no graph tool catches an
+unavailable derived Workspace graph anymore. The native hydration fixture uses
+the new snapshot getter. One regression run encountered transient Postgres
+ENOSPC on three relations and timed out its hundred-file workflow; subsequent
+inspection found Docker healthy with 5.9 GiB free and the memory gate writing
+only ~98 KB to its container layer. This is recorded separately from the
+obsolete getter fixture correction and existing chat characterization failure.
+
+Gate 2 still requires the remaining reader audit and independent terminal
+reviews. In particular, mutable `ws:<workspaceId>` checkout artifacts can advance
+before activation; SCIP and structural-search wrappers still need an immutable
+revision checkout binding, and linked-ref activation must clear stale index
+freshness. Webhook tip producers and surviving metadata readers also need their
+final full-identity audit. Gates 3–6 remain outstanding.
+
+`native-chat-projection-required` passes all 49 native contracts across 12 files.
+`native-chat-projection-types-fixed` passes at the shrinking backend baseline of
+155 diagnostics. `native-chat-projection-backend` passes its gate with 1442 cases,
+1441 passing and only the unchanged Gate 0 live-chat failure. Raw suite results
+and proof inventories are retained alongside each invocation.

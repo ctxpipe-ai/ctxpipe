@@ -364,13 +364,17 @@ export async function getWorkspaceSearchProjection(workspaceId: string) {
   })
 }
 
+export type WorkspaceProjectionSnapshot = {
+  projection: ProjectionState
+  units: Array<
+    HydrateUnit & { projectionSha: string; embedding: number[] | null }
+  >
+}
+
 /** Metadata and units are observed in one SQL statement, including during activation. */
 export async function getWorkspaceProjectionSnapshot(
   workspaceId: string,
-): Promise<{
-  projection: ProjectionState
-  units: HydrateUnit[]
-}> {
+): Promise<WorkspaceProjectionSnapshot> {
   return orgSql(async () => {
     const rows = await getOrgDb()
       .select({
@@ -381,6 +385,8 @@ export async function getWorkspaceProjectionSnapshot(
           body: workspaceKnowledgeUnits.body,
           links: workspaceKnowledgeUnits.links,
           claims: workspaceKnowledgeUnits.claims,
+          projectionSha: workspaceKnowledgeUnits.projectionSha,
+          embedding: workspaceKnowledgeUnits.embedding,
         },
       })
       .from(workspaces)
@@ -1069,42 +1075,6 @@ export async function listWorkspaceKnowledgeUnits(
       })),
       lastUpdatedAt: lastUpdatedAt?.toISOString() ?? null,
     }
-  })
-}
-
-export async function listWorkspaceKnowledgeUnitsForChat(
-  workspaceId: string,
-): Promise<
-  Array<{
-    servingId: string
-    path: string
-    body: string
-    projectionSha: string
-    embedding: number[] | null
-    claims: HydrateUnit["claims"]
-  }>
-> {
-  return orgSql(async () => {
-    const rows = await getOrgDb()
-      .select({
-        servingId: workspaceKnowledgeUnits.servingId,
-        path: workspaceKnowledgeUnits.path,
-        body: workspaceKnowledgeUnits.body,
-        projectionSha: workspaceKnowledgeUnits.projectionSha,
-        embedding: workspaceKnowledgeUnits.embedding,
-        claims: workspaceKnowledgeUnits.claims,
-      })
-      .from(workspaceKnowledgeUnits)
-      .where(eq(workspaceKnowledgeUnits.workspaceId, workspaceId))
-      .orderBy(workspaceKnowledgeUnits.path)
-    return rows.map((row) => ({
-      servingId: row.servingId,
-      path: row.path,
-      body: row.body,
-      projectionSha: row.projectionSha,
-      embedding: row.embedding,
-      claims: row.claims,
-    }))
   })
 }
 

@@ -1,11 +1,8 @@
 import { describe, expect, it, vi } from "vitest"
 import {
-  codesearchMembershipGitUrls,
   codesearchSelectsWorkspaceCheckout,
   embedHydrateUnits,
-  staleWorkspaceGraphDeleteCypher,
   workspaceCheckoutKey,
-  workspaceGraphProjectionScope,
 } from "./derived-stores.js"
 
 describe("embedHydrateUnits", () => {
@@ -48,16 +45,7 @@ describe("embedHydrateUnits", () => {
 })
 
 describe("workspace derived-store scope", () => {
-  it("scopes graph delete and codesearch checkout to the Workspace SHA", () => {
-    expect(
-      workspaceGraphProjectionScope({
-        workspaceId: "ws_1",
-        projectionSha: "abc",
-      }),
-    ).toEqual({ workspaceId: "ws_1", projectionSha: "abc" })
-    expect(staleWorkspaceGraphDeleteCypher()).toContain("workspaceId")
-    expect(staleWorkspaceGraphDeleteCypher()).toContain("DETACH DELETE")
-    expect(staleWorkspaceGraphDeleteCypher()).not.toContain("projectionSha")
+  it("scopes codesearch checkout to its Workspace", () => {
     expect(workspaceCheckoutKey("ws_1")).toBe("ws:ws_1")
     expect(
       codesearchSelectsWorkspaceCheckout({
@@ -71,25 +59,5 @@ describe("workspace derived-store scope", () => {
         workspaceId: "ws_1",
       }),
     ).toBe(false)
-  })
-
-  it("searches only the active projection membership", () => {
-    expect(
-      codesearchMembershipGitUrls({
-        activeProjectionUrl: null,
-        linked: [{ gitUrl: "https://github.com/acme/app" }],
-        normalizeUrl: (url) => url,
-      }),
-    ).toEqual([])
-    expect(
-      codesearchMembershipGitUrls({
-        activeProjectionUrl: "https://github.com/acme/docs.git",
-        linked: [
-          { gitUrl: "https://github.com/acme/app.git" },
-          { gitUrl: "https://github.com/acme/docs" },
-        ],
-        normalizeUrl: (url) => url.replace(/\.git$/i, ""),
-      }),
-    ).toEqual(["https://github.com/acme/docs", "https://github.com/acme/app"])
   })
 })

@@ -1,20 +1,28 @@
 import { withOrgIdContext } from "../../auth/withAuth.js"
 import { withOrgDbContext } from "../../db/client.js"
 import { toToon } from "../../lib/agentToolRuntime.js"
-import { findRepositoriesByNormalizedGitUrls } from "../../models/repositories.js"
 import {
-  getWorkspaceById,
-  listLinkedRepositories,
+  getWorkspaceSearchProjection,
+  type WorkspaceProjectionSnapshot,
 } from "../../models/workspaces.js"
-import { log } from "../../observability/logger.js"
-import { getGraphClient, withGraphClient } from "../../platform/graph/client.js"
+import { codeSearch } from "../../retrieval/services/codeSearch.js"
+import { compactSearchResponse } from "../../tools/zoektCompact.js"
+import {
+  buildSymbolDefinitionQuery,
+  buildSymbolReferencesQuery,
+} from "../../tools/zoektSymbolQuery.js"
 import { listRepositoriesTool } from "../../tools/listRepositories.js"
 import { standardRepoExplorerTools } from "../../tools/repoExplorerTools.js"
+import { workspaceCheckoutKey } from "./derived-stores.js"
 import {
-  codesearchMembershipGitUrls,
-  workspaceCheckoutKey,
-} from "./derived-stores.js"
-import { normalizeWorkspaceRepositoryUrl } from "./slug.js"
+  publishedProjection,
+  samePublishedProjection,
+  type PublishedProjection,
+} from "./revision.js"
+import {
+  workspaceGraphFromUnits,
+  type WorkspaceGraphPayload,
+} from "./workspace-graph.js"
 import {
   formatWorkspaceChatHits,
   type WorkspaceChatUnit,
@@ -192,38 +200,22 @@ export function forcedWorkspaceCheckoutArgs(
   return record
 }
 
-export function workspaceGraphLookupCypher(): string {
-  return `MATCH (n)
-WHERE n.id = $nodeId AND n.orgId = $orgId AND n.workspaceId = $workspaceId
-RETURN n
-LIMIT 1`
-}
-
-export function workspaceGraphNeighborsCypher(): string {
-  return `MATCH (start)-[r]-(n)
-WHERE start.id = $nodeId
-  AND start.orgId = $orgId AND start.workspaceId = $workspaceId
-  AND n.orgId = $orgId AND n.workspaceId = $workspaceId
-  AND r.projectionSha = $projectionSha
-RETURN n, type(r) AS predicate, r.claim_id AS claimId
-LIMIT $limit`
-}
-
 export async function workspaceChatTools(input: {
   orgId: string
   workspaceId: string
-  writeStatus: string
-  loadUnits: () => Promise<WorkspaceChatUnit[]>
-  activeProjectionSha: string | null
+  snapshot: WorkspaceProjectionSnapshot
   embedQuery?: (query: string) => Promise<number[]>
   searchObjects?: (
     query: string,
     embedding: number[],
   ) => Promise<Array<{ objectId: string }>>
 }): Promise<WorkspaceChatTanstackTool[]> {
-  void input.writeStatus
-  if (!input.activeProjectionSha?.trim()) return []
-  const allowed = await loadAllowedRepositoryIds(input)
+  const projection = publishedProjection(input.snapshot.projection)
+  if (!projection) return []
+  const sha =
+    projection.kind === "active" ? projection.revision.sha : projection.sha
+  const allowed = await loadAllowedRepositoryIds({ ...input, projection })
+  const graph = workspaceGraphFromUnits({ units: input.snapshot.units })
   const checkoutKey = workspaceCheckoutKey(input.workspaceId)
   const explorer = [
     listRepositoriesTool as unknown as ExplorerTool,
@@ -238,19 +230,19 @@ export async function workspaceChatTools(input: {
         allowedRepositoryIds: allowed,
         checkoutKey,
         workspaceId: input.workspaceId,
+        projection,
       }),
     )
-  tools.unshift(hybridSearchTool(input))
+  tools.unshift(
+    hybridSearchTool({
+      ...input,
+      activeProjectionSha: sha,
+      loadUnits: async () => input.snapshot.units,
+    }),
+  )
   tools.push(
-    graphLookupTool({
-      orgId: input.orgId,
-      workspaceId: input.workspaceId,
-    }),
-    graphNeighborsTool({
-      orgId: input.orgId,
-      workspaceId: input.workspaceId,
-      projectionSha: input.activeProjectionSha,
-    }),
+    graphLookupTool({ graph, sha }),
+    graphNeighborsTool({ graph, sha }),
   )
   return tools
 }
@@ -322,6 +314,7 @@ function wrapExplorerTool(input: {
   allowedRepositoryIds: ReadonlySet<string>
   checkoutKey: string
   workspaceId: string
+  projection: PublishedProjection
 }): WorkspaceChatTanstackTool {
   const schema = EXPLORER_INPUT_SCHEMAS[input.tool.name] ?? {
     type: "object" as const,
@@ -351,6 +344,43 @@ function wrapExplorerTool(input: {
           repositories: [...input.allowedRepositoryIds].map((id) => ({ id })),
         })
       }
+      if (
+        [
+          "search",
+          "find_symbol_definitions",
+          "find_symbol_references",
+        ].includes(input.tool.name)
+      ) {
+        const query =
+          input.tool.name === "search"
+            ? stringArg(args, "query")
+            : input.tool.name === "find_symbol_definitions"
+              ? buildSymbolDefinitionQuery(
+                  stringArg(args, "symbol"),
+                  stringArg(args, "language"),
+                )
+              : buildSymbolReferencesQuery(
+                  stringArg(args, "symbol"),
+                  stringArg(args, "language"),
+                )
+        const repositoryId = repositoryIdFromToolArgs(args)
+        if (!query || !repositoryId)
+          return toToon({ error: "search_input_required" })
+        const matches = await codeSearch(input.orgId, {
+          workspaceId: input.workspaceId,
+          repositoryIds: [repositoryId],
+          query,
+          expectedProjection: input.projection,
+        })
+        const response = matches[0]?.response ?? { Files: [] }
+        return toToon({
+          repositoryId,
+          query,
+          ...(stringArg(args, "detail") === "full"
+            ? { response }
+            : compactSearchResponse(response)),
+        })
+      }
       const invokeArgs = SCIP_GRAPH_TOOL_NAMES.has(input.tool.name)
         ? forcedWorkspaceCheckoutArgs(args, input.checkoutKey)
         : DISK_READ_TOOL_NAMES.has(input.tool.name)
@@ -369,13 +399,13 @@ function wrapExplorerTool(input: {
 }
 
 function graphLookupTool(input: {
-  orgId: string
-  workspaceId: string
+  graph: WorkspaceGraphPayload
+  sha: string
 }): WorkspaceChatTanstackTool {
   return {
     name: "graph_lookup",
     description:
-      "Look up one FalkorDB knowledge-graph node in this Workspace. Input: { nodeId }.",
+      "Look up a node in this Workspace's published knowledge graph. Input: { nodeId }.",
     inputSchema: {
       type: "object",
       properties: { nodeId: { type: "string", minLength: 1 } },
@@ -384,42 +414,22 @@ function graphLookupTool(input: {
     execute: async (args) => {
       const nodeId = stringArg(args, "nodeId")
       if (!nodeId) return toToon({ error: "nodeId_required" })
-      try {
-        return await withGraphClient(
-          { orgId: input.orgId, orgSlug: input.orgId },
-          async () => {
-            const { records } = await getGraphClient().executeQuery(
-              workspaceGraphLookupCypher(),
-              {
-                nodeId,
-                orgId: input.orgId,
-                workspaceId: input.workspaceId,
-              },
-            )
-            const node = records[0]?.get("n")
-            return toToon({ node: nodeProperties(node, nodeId, input.orgId) })
-          },
-        )
-      } catch (err) {
-        log.error({
-          step: "workspaceChat.graph_lookup",
-          error: err instanceof Error ? err.message : String(err),
-        })
-        return toToon({ error: "graph_unavailable" })
-      }
+      return toToon({
+        projectionSha: input.sha,
+        node: input.graph.nodes.find((node) => node.id === nodeId) ?? null,
+      })
     },
   }
 }
 
 function graphNeighborsTool(input: {
-  orgId: string
-  workspaceId: string
-  projectionSha: string
+  graph: WorkspaceGraphPayload
+  sha: string
 }): WorkspaceChatTanstackTool {
   return {
     name: "graph_neighbors",
     description:
-      "Traverse FalkorDB neighbors of a Workspace knowledge-graph node. Edges must match the active projection SHA. Input: { nodeId, limit? }.",
+      "Traverse neighbors in this Workspace's published knowledge graph. Input: { nodeId, limit? }.",
     inputSchema: {
       type: "object",
       properties: {
@@ -439,36 +449,19 @@ function graphNeighborsTool(input: {
         typeof limitRaw === "number" && Number.isFinite(limitRaw)
           ? Math.min(50, Math.max(1, Math.floor(limitRaw)))
           : 20
-      try {
-        return await withGraphClient(
-          { orgId: input.orgId, orgSlug: input.orgId },
-          async () => {
-            const { records } = await getGraphClient().executeQuery(
-              workspaceGraphNeighborsCypher(),
-              {
-                nodeId,
-                orgId: input.orgId,
-                workspaceId: input.workspaceId,
-                projectionSha: input.projectionSha,
-                limit,
-              },
-            )
-            return toToon({
-              neighbors: records.map((record) => ({
-                node: nodeProperties(record.get("n"), "", input.orgId),
-                predicate: record.get("predicate"),
-                claimId: record.get("claimId"),
-              })),
-            })
-          },
-        )
-      } catch (err) {
-        log.error({
-          step: "workspaceChat.graph_neighbors",
-          error: err instanceof Error ? err.message : String(err),
-        })
-        return toToon({ error: "graph_unavailable" })
-      }
+      const neighbors = input.graph.edges
+        .filter((edge) => edge.sourceId === nodeId || edge.targetId === nodeId)
+        .slice(0, limit)
+        .map((edge) => ({
+          node: input.graph.nodes.find(
+            (node) =>
+              node.id ===
+              (edge.sourceId === nodeId ? edge.targetId : edge.sourceId),
+          ),
+          predicate: edge.predicate,
+          confidence: edge.confidence,
+        }))
+      return toToon({ projectionSha: input.sha, neighbors })
     },
   }
 }
@@ -476,47 +469,20 @@ function graphNeighborsTool(input: {
 async function loadAllowedRepositoryIds(input: {
   orgId: string
   workspaceId: string
+  projection: PublishedProjection
 }): Promise<Set<string>> {
-  return withOrgDbContext(input.orgId, async () => {
-    const workspace = await getWorkspaceById(input.workspaceId)
-    const linked = await listLinkedRepositories(input.workspaceId)
-    const urls = codesearchMembershipGitUrls({
-      activeProjectionUrl: workspace?.activeProjectionUrl ?? null,
-      linked,
-      normalizeUrl: normalizeWorkspaceRepositoryUrl,
-    })
-    const rows = await withOrgIdContext(
-      { id: input.orgId, slug: input.orgId },
-      () => findRepositoriesByNormalizedGitUrls(urls),
-    )
-    return new Set(rows.map((row) => row.id))
-  })
+  const snapshot = await withOrgDbContext(input.orgId, () =>
+    getWorkspaceSearchProjection(input.workspaceId),
+  )
+  const matches = samePublishedProjection(
+    publishedProjection(snapshot.projection),
+    input.projection,
+  )
+  return new Set(matches ? snapshot.repositories.map((repo) => repo.id) : [])
 }
 
 function stringArg(args: unknown, key: string): string {
   if (!args || typeof args !== "object") return ""
   const value = (args as Record<string, unknown>)[key]
   return typeof value === "string" ? value.trim() : ""
-}
-
-function nodeProperties(
-  node: unknown,
-  fallbackId: string,
-  orgId: string,
-): Record<string, unknown> | null {
-  if (!node) return null
-  const props =
-    (node as { properties?: Record<string, unknown> }).properties ??
-    (typeof node === "object" ? (node as Record<string, unknown>) : {})
-  const toPlain = (value: unknown): unknown =>
-    value != null && typeof value === "object" && "toNumber" in value
-      ? (value as { toNumber: () => number }).toNumber()
-      : value
-  return {
-    id: String(props.id ?? fallbackId),
-    orgId: String(props.orgId ?? orgId),
-    ...Object.fromEntries(
-      Object.entries(props).map(([key, value]) => [key, toPlain(value)]),
-    ),
-  }
 }
