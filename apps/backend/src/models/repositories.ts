@@ -422,7 +422,7 @@ export async function markRepositoryIndexingRunning(input: {
     await db
       .update(repositories)
       .set({
-        indexReady: false,
+        indexReady: sql`${repositories.lastIngestedHash} is not null`,
         indexingStatus: "running",
         indexingError: null,
         indexingFailedAt: null,
@@ -478,6 +478,7 @@ export async function markRepositoryIndexingIssues(input: {
     await db
       .update(repositories)
       .set({
+        indexReady: sql`${repositories.lastIngestedHash} is not null`,
         indexingStatus: "complete_with_issues",
         indexingError: sanitizeIndexingError(input.error),
         indexingFailedAt: null,

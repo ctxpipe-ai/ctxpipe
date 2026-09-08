@@ -1,0 +1,73 @@
+{"name": "extraction-dot-evidence-native-red", "cwd": "/private/tmp/ctxpipe-recovery-01a07aba", "command": ["/Users/jakubriedl/.volta/tools/image/node/22.16.0/bin/node", "apps/backend/node_modules/vitest/vitest.mjs", "run", "--root", "apps/backend", "src/domain/workspaces/write-extraction-retraction-native.contract.test.ts", "-t", "dot segment evidence"], "environment": {"AUTH_SECRET": "gate0-local-disposable-test-secret-20260907", "DATABASE_URL": "postgresql://ctxpipe_app:ctxpipe@127.0.0.1:61314/ctxpipe_gate0_fresh", "GRAPH_DB_URI": "redis://127.0.0.1:6398", "CI": "true", "NO_COLOR": "1", "TURBO_TELEMETRY_DISABLED": "1", "STORYBOOK_DISABLE_TELEMETRY": "1", "PATH": "/Users/jakubriedl/.volta/tools/image/node/22.16.0/bin:/private/tmp/ctxpipe-recovery-runtime/ast-grep/node_modules/.bin:/private/tmp/ctxpipe-recovery-runtime/node_modules/.bin:/private/tmp/ctxpipe-recovery-runtime/zoekt:/usr/local/bin:/System/Cryptexes/App/usr/bin:/usr/bin:/bin:/usr/sbin:/sbin:/var/run/com.apple.security.cryptexd/codex.system/bootstrap/usr/local/bin:/var/run/com.apple.security.cryptexd/codex.system/bootstrap/usr/bin:/var/run/com.apple.security.cryptexd/codex.system/bootstrap/usr/appleinternal/bin:/pkg/env/global/bin:/Users/jakubriedl/.codex/tmp/arg0/codex-arg0BW5Gt3:/Users/jakubriedl/.cache/codex-runtimes/codex-primary-runtime/dependencies/bin/override:/Users/jakubriedl/.local/bin:/Users/jakubriedl/.bun/bin:/Users/jakubriedl/.opencode/bin:/Users/jakubriedl/.volta/bin:/opt/homebrew/bin:/opt/homebrew/sbin:/Users/jakubriedl/.cache/codex-runtimes/codex-primary-runtime/dependencies/bin/fallback:/Applications/ChatGPT.app/Contents/Resources"}, "timeout_seconds": 600, "started_utc": "2026-09-08T22:09:07Z", "log": "logs/extraction-dot-evidence-native-red.log"}
+
+ RUN  v4.0.18 /private/tmp/ctxpipe-recovery-01a07aba/apps/backend
+
+Cloning into bare repository '/var/folders/9t/jj9rnpps7_ddb72c1mq2k13w0000gn/T/ctxpipe-hydration-contract-ViV4H8/remote.git'...
+done.
+ ❯ src/domain/workspaces/write-extraction-retraction-native.contract.test.ts (9 tests | 1 failed | 8 skipped) 3070ms
+   ↓ expires unsupported 'full' source claims at 'knowledge/services/billing.md' while retaining owner prose and unrelated evidence
+   ↓ expires unsupported 'partial' source claims at 'handbook/services/billing.md' while retaining owner prose and unrelated evidence
+   ↓ expires unsupported 'directory' source claims at 'knowledge/services/billing.md' while retaining owner prose and unrelated evidence
+   ↓ reasserts an expired captured claim from 'src/billing.ts' ('canonical') and preserves source history
+   ↓ reasserts an expired captured claim from 'src/a#b.ts' ('encoded') and preserves source history
+   ↓ reasserts an expired captured claim from 'src/a#b.ts' ('legacy unescaped fragment') and preserves source history
+   ↓ reasserts an expired captured claim from 'src/billing.ts' ('relative evidence') and preserves source history
+   × reasserts an expired captured claim from 'src/billing.ts' ('dot segment evidence') and preserves source history 3070ms
+   ↓ reasserts an expired captured claim from 'src/billing.ts' ('normalized URL evidence') and preserves source history
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 1 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  src/domain/workspaces/write-extraction-retraction-native.contract.test.ts > reasserts an expired captured claim from 'src/billing.ts' ('dot segment evidence') and preserves source history
+AssertionError: expected [ { …(6) }, { …(6) }, { …(4) }, …(1) ] to deeply equal [ { …(6) }, { …(6) }, { …(4) } ]
+
+- Expected
++ Received
+
+@@ -6,19 +6,25 @@
+      "to": "../targets/ledger.md",
+      "valid_from": "2026-08-01T00:00:00.000Z",
+      "valid_to": "2026-09-02T00:00:00.000Z",
+    },
+    {
+-     "confidence": 0.7,
+      "note": "Owner annotation",
+      "predicate": "CALLS",
+-     "source": "https://github.com/fixture/hydration-contract.git#src/billing.ts",
++     "source": "https://github.com/fixture/hydration-contract.git#./src/../src/billing.ts",
+      "to": "../targets/ledger.md",
+-     "valid_from": "2026-09-02T00:00:00.000Z",
++     "valid_from": "2026-08-01T00:00:00.000Z",
++     "valid_to": "2026-09-01T00:00:00.000Z",
+    },
+    {
+      "note": "Other repository annotation",
+      "predicate": "CALLS",
+      "source": "https://github.com/other/repository.git#src/ledger.ts",
++     "to": "../targets/ledger.md",
++   },
++   {
++     "confidence": 0.7,
++     "predicate": "CALLS",
++     "source": "https://github.com/fixture/hydration-contract.git#src/billing.ts",
+      "to": "../targets/ledger.md",
+    },
+  ]
+
+ ❯ src/domain/workspaces/write-extraction-retraction-native.contract.test.ts:279:69
+    277|             "main:knowledge/services/billing.md",
+    278|           )
+    279|           expect(parseSimpleFrontMatter(content).attributes.claims).to…
+       |                                                                     ^
+    280|             {
+    281|               to: "../targets/ledger.md",
+ ❯ withNativeHydrationFixture src/test/native-hydration-fixture.ts:647:5
+ ❯ src/domain/workspaces/write-extraction-retraction-native.contract.test.ts:182:5
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/1]⎯
+
+
+ Test Files  1 failed (1)
+      Tests  1 failed | 8 skipped (9)
+   Start at  08:09:07
+   Duration  5.68s (transform 760ms, setup 21ms, import 2.51s, tests 3.07s, environment 0ms)
+

@@ -613,10 +613,21 @@ it(
   },
 )
 
-it(
-  "publishes claims from an existing Git subject absent from the captured object batch",
+it.each([
+  {
+    path: "handbook/billing.md",
+    to: "../knowledge/services/ledger.md",
+    repositorySubject: false,
+  },
+  {
+    path: "AGENTS.md",
+    to: "./knowledge/services/ledger.md",
+    repositorySubject: true,
+  },
+])(
+  "publishes claims from existing $path without replacing its owner prose",
   { timeout: 30_000 },
-  async () => {
+  async ({ path, to, repositorySubject }) => {
     await withNativeHydrationFixture(
       {
         github: true,
@@ -624,7 +635,7 @@ it(
         writeStatus: "writable",
         files: [
           {
-            path: "handbook/billing.md",
+            path,
             body: "---\ncustom: Owner metadata\n---\n\n# Billing\nOwner prose.\n",
           },
         ],
@@ -664,10 +675,9 @@ it(
                 ],
                 claims: [
                   {
-                    subjectRef: servingIdForKnowledgePath(
-                      f.workspaceId,
-                      "handbook/billing.md",
-                    ),
+                    subjectRef: repositorySubject
+                      ? "repo_captured"
+                      : servingIdForKnowledgePath(f.workspaceId, path),
                     objectRef: "svc:ledger",
                     predicate: "CALLS",
                     confidence: 0.9,
@@ -681,17 +691,12 @@ it(
           expect(await handle.result({ timeoutMs: 15_000 })).toMatchObject({
             committed: true,
           })
-          const content = f.git(
-            "--git-dir",
-            f.remote,
-            "show",
-            "main:handbook/billing.md",
-          )
+          const content = f.git("--git-dir", f.remote, "show", `main:${path}`)
           expect(parseSimpleFrontMatter(content).attributes).toEqual({
             custom: "Owner metadata",
             claims: [
               {
-                to: "../knowledge/services/ledger.md",
+                to,
                 predicate: "CALLS",
                 confidence: 0.9,
                 source:

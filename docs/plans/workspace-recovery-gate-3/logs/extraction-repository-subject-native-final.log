@@ -1,0 +1,38 @@
+{"name": "extraction-repository-subject-native-final", "cwd": "/private/tmp/ctxpipe-recovery-01a07aba", "command": ["/Users/jakubriedl/.volta/tools/image/node/22.16.0/bin/node", "apps/backend/node_modules/vitest/vitest.mjs", "run", "--root", "apps/backend", "src/domain/workspaces/write-extract-native.contract.test.ts"], "environment": {"AUTH_SECRET": "gate0-local-disposable-test-secret-20260907", "DATABASE_URL": "postgresql://ctxpipe_app:ctxpipe@127.0.0.1:61314/ctxpipe_gate0_fresh", "GRAPH_DB_URI": "redis://127.0.0.1:6398", "CI": "true", "NO_COLOR": "1", "TURBO_TELEMETRY_DISABLED": "1", "STORYBOOK_DISABLE_TELEMETRY": "1", "PATH": "/Users/jakubriedl/.volta/tools/image/node/22.16.0/bin:/private/tmp/ctxpipe-recovery-runtime/ast-grep/node_modules/.bin:/private/tmp/ctxpipe-recovery-runtime/node_modules/.bin:/private/tmp/ctxpipe-recovery-runtime/zoekt:/usr/local/bin:/System/Cryptexes/App/usr/bin:/usr/bin:/bin:/usr/sbin:/sbin:/var/run/com.apple.security.cryptexd/codex.system/bootstrap/usr/local/bin:/var/run/com.apple.security.cryptexd/codex.system/bootstrap/usr/bin:/var/run/com.apple.security.cryptexd/codex.system/bootstrap/usr/appleinternal/bin:/pkg/env/global/bin:/Users/jakubriedl/.codex/tmp/arg0/codex-arg0BW5Gt3:/Users/jakubriedl/.cache/codex-runtimes/codex-primary-runtime/dependencies/bin/override:/Users/jakubriedl/.local/bin:/Users/jakubriedl/.bun/bin:/Users/jakubriedl/.opencode/bin:/Users/jakubriedl/.volta/bin:/opt/homebrew/bin:/opt/homebrew/sbin:/Users/jakubriedl/.cache/codex-runtimes/codex-primary-runtime/dependencies/bin/fallback:/Applications/ChatGPT.app/Contents/Resources"}, "timeout_seconds": 600, "started_utc": "2026-09-08T22:02:49Z", "log": "logs/extraction-repository-subject-native-final.log"}
+
+ RUN  v4.0.18 /private/tmp/ctxpipe-recovery-01a07aba/apps/backend
+
+Cloning into bare repository '/var/folders/9t/jj9rnpps7_ddb72c1mq2k13w0000gn/T/ctxpipe-hydration-contract-zmiO22/remote.git'...
+done.
+Cloning into bare repository '/var/folders/9t/jj9rnpps7_ddb72c1mq2k13w0000gn/T/ctxpipe-hydration-contract-pwU8Wh/remote.git'...
+done.
+Cloning into bare repository '/var/folders/9t/jj9rnpps7_ddb72c1mq2k13w0000gn/T/ctxpipe-hydration-contract-qmt5r0/remote.git'...
+done.
+Cloning into bare repository '/var/folders/9t/jj9rnpps7_ddb72c1mq2k13w0000gn/T/ctxpipe-hydration-contract-7y64yh/remote.git'...
+done.
+Cloning into bare repository '/var/folders/9t/jj9rnpps7_ddb72c1mq2k13w0000gn/T/ctxpipe-hydration-contract-ukpTdJ/remote.git'...
+done.
+Cloning into bare repository '/var/folders/9t/jj9rnpps7_ddb72c1mq2k13w0000gn/T/ctxpipe-hydration-contract-M9z6Xb/remote.git'...
+done.
+Cloning into bare repository '/var/folders/9t/jj9rnpps7_ddb72c1mq2k13w0000gn/T/ctxpipe-hydration-contract-6ttCDJ/remote.git'...
+done.
+Cloning into bare repository '/var/folders/9t/jj9rnpps7_ddb72c1mq2k13w0000gn/T/ctxpipe-hydration-contract-HEYLDc/remote.git'...
+done.
+Cloning into bare repository '/var/folders/9t/jj9rnpps7_ddb72c1mq2k13w0000gn/T/ctxpipe-hydration-contract-w0HOgW/remote.git'...
+done.
+ ✓ src/domain/workspaces/write-extract-native.contract.test.ts (9 tests) 27564ms
+   ✓ preserves extraction identity at knowledge/services/billing.md and a same-name collision after migration cutover  7047ms
+   ✓ preserves extraction identity at knowledge/imported/billing.md and a same-name collision after migration cutover  9129ms
+   ✓ durably queues an unwritable migration_export command to its typed workflow  670ms
+   ✓ durably queues an unwritable extract_ingest command to its typed workflow  392ms
+   ✓ reads completed path identity without waiting for historical job storage  431ms
+   ✓ backfills completed path maps by native completion order despite an old completion replay  3771ms
+   ✓ does not reuse migration cutover after the workspace binding generation changes  355ms
+   ✓ publishes claims from existing 'handbook/billing.md' without replacing its owner prose  3009ms
+   ✓ publishes claims from existing 'AGENTS.md' without replacing its owner prose  2757ms
+
+ Test Files  1 passed (1)
+      Tests  9 passed (9)
+   Start at  08:02:50
+   Duration  30.13s (transform 852ms, setup 18ms, import 2.46s, tests 27.56s, environment 0ms)
+

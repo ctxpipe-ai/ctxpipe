@@ -569,3 +569,21 @@ CI 34281461940 on 529b0bfd currently has 12 successful jobs; full Tests remains 
 The full native write-workflow regression passes 16 existing cases plus the new returned-ID-loss/retry case (17 total). A follow-up 10-case native run passes both actual connection-loss and returned-row-loss recovery, each checking one native command and one Git commit across retries, together with both index review regressions and all six ingestion-owner cases.
 
 Repository-ingestion transport proof passes: loss of the actual committed native ID recovers queued state and reuses the identical owner on retry. The source publication mock-only assertion is removed in favor of the native failed-Zoekt/serving-read regression. Both final code formatting and the 440-file proof inventory pass; backend diagnostics remain the same 132 with no new/stale entries.
+
+
+### Checkpoint db7c01d1 follow-up
+
+The checkpoint was pushed and verified remotely. The immutable source Kubernetes memory gate now passes: 4,485,799,936 bytes measured peak, exit 0, one nonempty Go SCIP shard and merged index, cold Zoekt shards present, unrelated cold shard retained, hot directory empty; ceiling 5670m. Cleanup completed successfully.
+
+Pinned review found a readiness transition skipped by the prior partial test: production activation and mark-running cleared indexReady before a degraded refresh. The replacement proof now executes the actual production orchestrator/producer/index chain and reproduced false readiness both while queued and after a failed Zoekt build. Publication readiness now derives from the existing lastIngestedHash at queued/running/issue transitions, keeping first ingestion unready.
+
+Spec also found cancellation before the recovered native owner claims its job could leave the status paused/queued. Both real-disconnect and returned-ID-loss cancellation cases reproduce the defect. Admission now persists recovered ownership, and terminal reconciliation can recover the exact native key/binding even when the admitting process died before persisting its ID. Both reuse a single bounded owner lookup. Final native verification is running.
+
+Repository-subject extraction now carries claim metadata into the workspace's AGENTS.md reference while preserving owner prose and unrelated front matter. The initial metadata proof reproduced a dropped repository-level claim. It now renders the claim; the final native regression corrects the expected conventional ./ relative-link spelling. Additional endpoint coverage remains in progress.
+
+
+The final native ownership regression passes 29 cases, including seven permission-pause/retry cases and all six ingestion-owner cases. The recovered-owner cancellation cases pass for both returned-row loss and real disconnect; the actual production failed-refresh chain keeps the prior publication ready. Repository-subject extraction passes all nine cases. Equivalent dot-segment URL evidence reproduced a duplicated relationship; canonical path normalization now passes all nine full/partial/reassertion cases without losing owner annotations. Scoped Biome passes nine code files, and backend types remain 132 acknowledged diagnostics with no new/stale entries.
+
+CI [34281461940](https://github.com/ctxpipe-ai/ctxpipe/actions/runs/34281461940) on 529b0bfd completed all 13 jobs successfully. The required native contract phase took 596 seconds, just below its prior 600-second cap; the cap is now 900 seconds for the enlarged native inventory, retaining hard failure on missing/skipped/unexpected tests. Backend executed 1536 cases: 1535 passed and the single previously acknowledged Gate 4 fallback failed, zero skipped. Required contracts passed 211/211, UI 291/291, CLI 93/93 and CDK 32/32. Gate 3 remains open; this is a review-fix checkpoint, not gate completion.
+
+A clean final admission/refresh run passes all six cases. The earlier mixed run retained in evidence has an expected-link-spelling assertion failure in the separate extraction fixture; extraction-repository-subject-native-final and admission-owner-refresh-final are the corrected complete runs. Proof policy checks all 440 test/story/config files and 27 command files.

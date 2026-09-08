@@ -88,8 +88,14 @@ try {
       cwd,
       stdio: "inherit",
       // The serialized native suite includes lease expiry and durable one-minute waits.
-      // CI reached the former 20-minute cap while tests were still completing.
-      timeout: name === "backend" ? 1_800_000 : 600_000,
+      // Full CI used 21 minutes; required native contracts used 596 seconds before
+      // the additional admission-reply-loss cases. Keep both bounded with headroom.
+      timeout:
+        name === "backend"
+          ? 1_800_000
+          : name === "contracts"
+            ? 900_000
+            : 600_000,
     },
   )
   if (result.error || result.signal)

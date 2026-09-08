@@ -139,7 +139,6 @@ export const workspaceExtractIngest = defineWorkflow(
               )
               const files = plan.files.filter(
                 (file) =>
-                  file.path !== "AGENTS.md" &&
                   !file.path.startsWith(".agents/") &&
                   !isLinkedRepositoryDeclaration(file.path) &&
                   !isConnectorMirrorPath(file.path) &&

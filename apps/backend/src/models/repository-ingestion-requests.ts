@@ -158,7 +158,7 @@ export async function activateRepositoryIngestionRequest(
       await db
         .update(repositories)
         .set({
-          indexReady: false,
+          indexReady: sql`${repositories.lastIngestedHash} is not null`,
           indexingStatus: owner.status === "pending" ? "queued" : "running",
           indexingError: null,
           indexingFailedAt: null,

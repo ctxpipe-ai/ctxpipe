@@ -11,10 +11,15 @@ import { withLostNativeWorkflowInsertAck } from "../test/native-workflow-ack-los
 import { enqueueWriteJob } from "./enqueue-workspace-write-commit.js"
 import { workspaceFileEdit } from "./workflows/workspace-file-edit.js"
 
-it.each(["returned-row", "disconnect"] as const)(
-  "preserves one accepted write across retries after native %s acknowledgement loss",
+it.each([
+  { mode: "returned-row" as const, outcome: "commit" },
+  { mode: "disconnect" as const, outcome: "commit" },
+  { mode: "returned-row" as const, outcome: "cancel" },
+  { mode: "disconnect" as const, outcome: "cancel" },
+])(
+  "projects native $mode acknowledgement loss through $outcome",
   { timeout: 60_000 },
-  async (mode) => {
+  async ({ mode, outcome }) => {
     await withNativeHydrationFixture(
       { github: true, githubWriteView: "writable", writeStatus: "writable" },
       async (f) => {
@@ -82,6 +87,26 @@ it.each(["returned-row", "disconnect"] as const)(
             ),
           )
         try {
+          if (outcome === "cancel") {
+            const commands = (
+              await backend.listWorkflowRuns({ limit: 100 })
+            ).data.filter(
+              (run) => (run.input as { jobId?: string })?.jobId === jobId,
+            )
+            expect(commands).toHaveLength(1)
+            const owner = commands[0]
+            if (!owner) throw new Error("Accepted native owner missing")
+            await runner.cancelWorkflowRun(owner.id)
+            expect(
+              await withOrgIdContext(f.org, () =>
+                reconcileWorkspaceWriteJob(jobId),
+              ),
+            ).toMatchObject({ status: "failed" })
+            expect(
+              f.git("--git-dir", f.remote, "rev-parse", "refs/heads/main"),
+            ).toBe(f.sha)
+            return
+          }
           expect(await retry()).toEqual({ started: true })
           await worker.start()
           await expect

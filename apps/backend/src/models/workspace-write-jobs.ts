@@ -566,13 +566,32 @@ export async function discardWriteJobPreparedCommit(
   })
 }
 
+/** Resolve only this command's accepted native owner, including a lost admission reply. */
+function nativeWriteJobOwnerId() {
+  return sql<
+    string | null
+  >`(select scheduled.id from openworkflow.workflow_runs scheduled
+    where scheduled.input->>'orgId' = workspace_write_jobs.org_id
+      and scheduled.input->>'workspaceId' = workspace_write_jobs.workspace_id
+      and scheduled.input->>'jobId' = workspace_write_jobs.id
+      and (scheduled.id = workspace_write_jobs.payload->>'workflowRunId'
+        or (workspace_write_jobs.payload->>'workflowRunId' is null
+          and scheduled.namespace_id = 'default' and scheduled.idempotency_key = workspace_write_jobs.id
+          and scheduled.input->'revision' = workspace_write_jobs.payload->'revision'))
+    order by scheduled.created_at, scheduled.id limit 1)`
+}
+
 export async function reconcileWorkspaceWriteJob(jobId: string) {
   return orgSql(async () => {
     // OpenWorkflow is the retry authority. Reconcile only a terminal owning run;
     // a failed step whose native retries are still pending must remain running.
     await getOrgDb()
       .update(workspaceWriteJobs)
-      .set({ status: WRITE_JOB_STATUSES.failed, updatedAt: new Date() })
+      .set({
+        status: WRITE_JOB_STATUSES.failed,
+        payload: sql`jsonb_set(${workspaceWriteJobs.payload}, '{workflowRunId}', to_jsonb(${nativeWriteJobOwnerId()}::text))`,
+        updatedAt: new Date(),
+      })
       .where(
         and(
           eq(workspaceWriteJobs.id, jobId),
@@ -582,7 +601,7 @@ export async function reconcileWorkspaceWriteJob(jobId: string) {
             WRITE_JOB_STATUSES.paused,
           ]),
           sql`exists (select 1 from openworkflow.workflow_runs owner
-        where owner.id::text = ${workspaceWriteJobs.payload}->>'workflowRunId'
+        where owner.id = ${nativeWriteJobOwnerId()}
           and owner.input->>'orgId' = ${workspaceWriteJobs.orgId}
           and owner.input->>'workspaceId' = ${workspaceWriteJobs.workspaceId}
           and owner.input->>'jobId' = ${workspaceWriteJobs.id}
@@ -722,20 +741,21 @@ export async function reconcileWriteJobAdmission(
 ): Promise<boolean> {
   return orgSql(async () => {
     const db = getOrgDb()
-    const accepted = sql<boolean>`exists (select 1 from openworkflow.workflow_runs scheduled
-      where scheduled.input->>'orgId' = workspace_write_jobs.org_id
-        and scheduled.input->>'workspaceId' = workspace_write_jobs.workspace_id
-        and scheduled.input->>'jobId' = workspace_write_jobs.id
-        and (scheduled.id = workspace_write_jobs.payload->>'workflowRunId'
-          or (scheduled.namespace_id = 'default' and scheduled.idempotency_key = workspace_write_jobs.id
-            and scheduled.input->'revision' = workspace_write_jobs.payload->'revision')))`
     const [row] = await db
-      .select({ accepted })
+      .select({ ownerId: nativeWriteJobOwnerId() })
       .from(workspaceWriteJobs)
       .where(eq(workspaceWriteJobs.id, jobId))
       .for("update")
       .limit(1)
-    if (row?.accepted) return true
+    if (row?.ownerId) {
+      await db
+        .update(workspaceWriteJobs)
+        .set({
+          payload: sql`jsonb_set(${workspaceWriteJobs.payload}, '{workflowRunId}', to_jsonb(${row.ownerId}::text))`,
+        })
+        .where(eq(workspaceWriteJobs.id, jobId))
+      return true
+    }
     await db
       .update(workspaceWriteJobs)
       .set({ status: WRITE_JOB_STATUSES.failed, updatedAt: new Date() })
@@ -747,7 +767,7 @@ export async function reconcileWriteJobAdmission(
             WRITE_JOB_STATUSES.paused,
           ]),
           sql`${workspaceWriteJobs.payload}->>'workflowRunId' is null`,
-          sql`not ${accepted}`,
+          sql`${nativeWriteJobOwnerId()} is null`,
         ),
       )
     return false

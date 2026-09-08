@@ -1,0 +1,88 @@
+{"name": "admission-owner-and-refresh-native-green", "cwd": "/private/tmp/ctxpipe-recovery-01a07aba", "command": ["/Users/jakubriedl/.volta/tools/image/node/22.16.0/bin/node", "apps/backend/node_modules/vitest/vitest.mjs", "run", "--root", "apps/backend", "src/openworkflow/workspace-admission-ack-native.contract.test.ts", "src/openworkflow/workflows/repository-index-source-native.contract.test.ts", "src/domain/workspaces/write-extract-native.contract.test.ts"], "environment": {"AUTH_SECRET": "gate0-local-disposable-test-secret-20260907", "DATABASE_URL": "postgresql://ctxpipe_app:ctxpipe@127.0.0.1:61314/ctxpipe_gate0_fresh", "GRAPH_DB_URI": "redis://127.0.0.1:6398", "CI": "true", "NO_COLOR": "1", "TURBO_TELEMETRY_DISABLED": "1", "STORYBOOK_DISABLE_TELEMETRY": "1", "PATH": "/Users/jakubriedl/.volta/tools/image/node/22.16.0/bin:/private/tmp/ctxpipe-recovery-runtime/ast-grep/node_modules/.bin:/private/tmp/ctxpipe-recovery-runtime/node_modules/.bin:/private/tmp/ctxpipe-recovery-runtime/zoekt:/usr/local/bin:/System/Cryptexes/App/usr/bin:/usr/bin:/bin:/usr/sbin:/sbin:/var/run/com.apple.security.cryptexd/codex.system/bootstrap/usr/local/bin:/var/run/com.apple.security.cryptexd/codex.system/bootstrap/usr/bin:/var/run/com.apple.security.cryptexd/codex.system/bootstrap/usr/appleinternal/bin:/pkg/env/global/bin:/Users/jakubriedl/.codex/tmp/arg0/codex-arg0BW5Gt3:/Users/jakubriedl/.cache/codex-runtimes/codex-primary-runtime/dependencies/bin/override:/Users/jakubriedl/.local/bin:/Users/jakubriedl/.bun/bin:/Users/jakubriedl/.opencode/bin:/Users/jakubriedl/.volta/bin:/opt/homebrew/bin:/opt/homebrew/sbin:/Users/jakubriedl/.cache/codex-runtimes/codex-primary-runtime/dependencies/bin/fallback:/Applications/ChatGPT.app/Contents/Resources"}, "timeout_seconds": 600, "started_utc": "2026-09-08T22:01:25Z", "log": "logs/admission-owner-and-refresh-native-green.log"}
+
+ RUN  v4.0.18 /private/tmp/ctxpipe-recovery-01a07aba/apps/backend
+
+Cloning into bare repository '/var/folders/9t/jj9rnpps7_ddb72c1mq2k13w0000gn/T/ctxpipe-hydration-contract-OdzBly/remote.git'...
+done.
+Cloning into bare repository '/var/folders/9t/jj9rnpps7_ddb72c1mq2k13w0000gn/T/ctxpipe-hydration-contract-vQph77/remote.git'...
+done.
+Cloning into bare repository '/var/folders/9t/jj9rnpps7_ddb72c1mq2k13w0000gn/T/ctxpipe-hydration-contract-mUySof/remote.git'...
+done.
+Cloning into bare repository '/var/folders/9t/jj9rnpps7_ddb72c1mq2k13w0000gn/T/ctxpipe-hydration-contract-ppIG00/remote.git'...
+done.
+Cloning into bare repository '/var/folders/9t/jj9rnpps7_ddb72c1mq2k13w0000gn/T/ctxpipe-hydration-contract-6D8lAj/remote.git'...
+done.
+Cloning into bare repository '/var/folders/9t/jj9rnpps7_ddb72c1mq2k13w0000gn/T/ctxpipe-hydration-contract-aR8iT5/remote.git'...
+done.
+Cloning into bare repository '/var/folders/9t/jj9rnpps7_ddb72c1mq2k13w0000gn/T/ctxpipe-hydration-contract-BacCPB/remote.git'...
+done.
+Cloning into bare repository '/var/folders/9t/jj9rnpps7_ddb72c1mq2k13w0000gn/T/ctxpipe-hydration-contract-uFjhNK/remote.git'...
+done.
+Cloning into bare repository '/var/folders/9t/jj9rnpps7_ddb72c1mq2k13w0000gn/T/ctxpipe-hydration-contract-JdpIO7/remote.git'...
+done.
+ ❯ src/domain/workspaces/write-extract-native.contract.test.ts (9 tests | 1 failed) 24454ms
+   ✓ preserves extraction identity at knowledge/services/billing.md and a same-name collision after migration cutover  7672ms
+   ✓ preserves extraction identity at knowledge/imported/billing.md and a same-name collision after migration cutover  8133ms
+   ✓ durably queues an unwritable migration_export command to its typed workflow  538ms
+   ✓ durably queues an unwritable extract_ingest command to its typed workflow  340ms
+   ✓ reads completed path identity without waiting for historical job storage  329ms
+   ✓ backfills completed path maps by native completion order despite an old completion replay  3788ms
+   ✓ does not reuse migration cutover after the workspace binding generation changes 296ms
+   ✓ publishes claims from existing 'handbook/billing.md' without replacing its owner prose  1662ms
+   × publishes claims from existing 'AGENTS.md' without replacing its owner prose 1693ms
+Cloning into bare repository '/var/folders/9t/jj9rnpps7_ddb72c1mq2k13w0000gn/T/ctxpipe-hydration-contract-3ob6z8/remote.git'...
+done.
+Cloning into bare repository '/var/folders/9t/jj9rnpps7_ddb72c1mq2k13w0000gn/T/ctxpipe-hydration-contract-HOzUBY/remote.git'...
+done.
+Cloning into bare repository '/var/folders/9t/jj9rnpps7_ddb72c1mq2k13w0000gn/T/ctxpipe-hydration-contract-KunrYy/remote.git'...
+done.
+Cloning into bare repository '/var/folders/9t/jj9rnpps7_ddb72c1mq2k13w0000gn/T/ctxpipe-hydration-contract-4dDu0G/remote.git'...
+done.
+ ✓ src/openworkflow/workspace-admission-ack-native.contract.test.ts (4 tests) 26625ms
+   ✓ projects native 'returned-row' acknowledgement loss through 'commit'  3053ms
+   ✓ projects native 'disconnect' acknowledgement loss through 'commit'  11659ms
+   ✓ projects native 'returned-row' acknowledgement loss through 'cancel'  1389ms
+   ✓ projects native 'disconnect' acknowledgement loss through 'cancel'  10522ms
+ ✓ src/openworkflow/workflows/repository-index-source-native.contract.test.ts (2 tests) 7392ms
+   ✓ keeps the published source files and search when an older index finishes last  4324ms
+   ✓ keeps serving the last complete revision after the next Zoekt build fails  3067ms
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 1 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  src/domain/workspaces/write-extract-native.contract.test.ts > publishes claims from existing 'AGENTS.md' without replacing its owner prose
+AssertionError: expected { custom: 'Owner metadata', …(1) } to deeply equal { custom: 'Owner metadata', …(1) }
+
+- Expected
++ Received
+
+@@ -2,10 +2,10 @@
+    "claims": [
+      {
+        "confidence": 0.9,
+        "predicate": "CALLS",
+        "source": "https://github.com/fixture/hydration-contract.git#src/billing.ts",
+-       "to": "knowledge/services/ledger.md",
++       "to": "./knowledge/services/ledger.md",
+      },
+    ],
+    "custom": "Owner metadata",
+  }
+
+ ❯ src/domain/workspaces/write-extract-native.contract.test.ts:695:62
+    693|           })
+    694|           const content = f.git("--git-dir", f.remote, "show", `main:$…
+    695|           expect(parseSimpleFrontMatter(content).attributes).toEqual({
+       |                                                              ^
+    696|             custom: "Owner metadata",
+    697|             claims: [
+ ❯ withNativeHydrationFixture src/test/native-hydration-fixture.ts:647:5
+ ❯ src/domain/workspaces/write-extract-native.contract.test.ts:631:5
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/1]⎯
+
+
+ Test Files  1 failed | 2 passed (3)
+      Tests  1 failed | 14 passed (15)
+   Start at  08:01:25
+   Duration  64.03s (transform 892ms, setup 26ms, import 5.31s, tests 58.47s, environment 0ms)
+

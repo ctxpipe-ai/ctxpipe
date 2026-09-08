@@ -1,0 +1,115 @@
+{"name": "native-owner-regression", "cwd": "/private/tmp/ctxpipe-recovery-01a07aba", "command": ["/Users/jakubriedl/.volta/tools/image/node/22.16.0/bin/node", "apps/backend/node_modules/vitest/vitest.mjs", "run", "--root", "apps/backend", "src/domain/workspaces/write-workflow-native.contract.test.ts", "src/domain/workspaces/write-pause-native.contract.test.ts", "src/openworkflow/workflows/repository-ingestion-owner-native.contract.test.ts"], "environment": {"AUTH_SECRET": "gate0-local-disposable-test-secret-20260907", "DATABASE_URL": "postgresql://ctxpipe_app:ctxpipe@127.0.0.1:61314/ctxpipe_gate0_fresh", "GRAPH_DB_URI": "redis://127.0.0.1:6398", "CI": "true", "NO_COLOR": "1", "TURBO_TELEMETRY_DISABLED": "1", "STORYBOOK_DISABLE_TELEMETRY": "1", "PATH": "/Users/jakubriedl/.volta/tools/image/node/22.16.0/bin:/private/tmp/ctxpipe-recovery-runtime/ast-grep/node_modules/.bin:/private/tmp/ctxpipe-recovery-runtime/node_modules/.bin:/private/tmp/ctxpipe-recovery-runtime/zoekt:/usr/local/bin:/System/Cryptexes/App/usr/bin:/usr/bin:/bin:/usr/sbin:/sbin:/var/run/com.apple.security.cryptexd/codex.system/bootstrap/usr/local/bin:/var/run/com.apple.security.cryptexd/codex.system/bootstrap/usr/bin:/var/run/com.apple.security.cryptexd/codex.system/bootstrap/usr/appleinternal/bin:/pkg/env/global/bin:/Users/jakubriedl/.codex/tmp/arg0/codex-arg0BW5Gt3:/Users/jakubriedl/.cache/codex-runtimes/codex-primary-runtime/dependencies/bin/override:/Users/jakubriedl/.local/bin:/Users/jakubriedl/.bun/bin:/Users/jakubriedl/.opencode/bin:/Users/jakubriedl/.volta/bin:/opt/homebrew/bin:/opt/homebrew/sbin:/Users/jakubriedl/.cache/codex-runtimes/codex-primary-runtime/dependencies/bin/fallback:/Applications/ChatGPT.app/Contents/Resources"}, "timeout_seconds": 600, "started_utc": "2026-09-08T22:03:47Z", "log": "logs/native-owner-regression.log"}
+
+ RUN  v4.0.18 /private/tmp/ctxpipe-recovery-01a07aba/apps/backend
+
+Cloning into bare repository '/var/folders/9t/jj9rnpps7_ddb72c1mq2k13w0000gn/T/ctxpipe-hydration-contract-KJCAuD/remote.git'...
+done.
+Cloning into bare repository '/var/folders/9t/jj9rnpps7_ddb72c1mq2k13w0000gn/T/ctxpipe-hydration-contract-O5DoU8/remote.git'...
+done.
+Cloning into bare repository '/var/folders/9t/jj9rnpps7_ddb72c1mq2k13w0000gn/T/ctxpipe-hydration-contract-nsRRmR/remote.git'...
+done.
+Cloning into bare repository '/var/folders/9t/jj9rnpps7_ddb72c1mq2k13w0000gn/T/ctxpipe-hydration-contract-TdVVvB/remote.git'...
+done.
+Cloning into bare repository '/var/folders/9t/jj9rnpps7_ddb72c1mq2k13w0000gn/T/ctxpipe-hydration-contract-8Zk9Q4/remote.git'...
+done.
+Cloning into bare repository '/var/folders/9t/jj9rnpps7_ddb72c1mq2k13w0000gn/T/ctxpipe-hydration-contract-5iN65i/remote.git'...
+done.
+Cloning into bare repository '/var/folders/9t/jj9rnpps7_ddb72c1mq2k13w0000gn/T/ctxpipe-hydration-contract-vrU2Cv/remote.git'...
+done.
+Cloning into bare repository '/var/folders/9t/jj9rnpps7_ddb72c1mq2k13w0000gn/T/ctxpipe-hydration-contract-kcJFDW/remote.git'...
+done.
+Cloning into bare repository '/var/folders/9t/jj9rnpps7_ddb72c1mq2k13w0000gn/T/ctxpipe-hydration-contract-Jq9ebd/remote.git'...
+done.
+Cloning into bare repository '/var/folders/9t/jj9rnpps7_ddb72c1mq2k13w0000gn/T/ctxpipe-hydration-contract-SWWtkb/remote.git'...
+done.
+Cloning into bare repository '/var/folders/9t/jj9rnpps7_ddb72c1mq2k13w0000gn/T/ctxpipe-hydration-contract-yOMjJH/remote.git'...
+done.
+Cloning into bare repository '/var/folders/9t/jj9rnpps7_ddb72c1mq2k13w0000gn/T/ctxpipe-hydration-contract-lViZDm/remote.git'...
+done.
+Cloning into bare repository '/var/folders/9t/jj9rnpps7_ddb72c1mq2k13w0000gn/T/ctxpipe-hydration-contract-8HfnGA/remote.git'...
+done.
+Cloning into bare repository '/var/folders/9t/jj9rnpps7_ddb72c1mq2k13w0000gn/T/ctxpipe-hydration-contract-eOOKTd/remote.git'...
+done.
+Cloning into bare repository '/var/folders/9t/jj9rnpps7_ddb72c1mq2k13w0000gn/T/ctxpipe-hydration-contract-aQFHPn/remote.git'...
+done.
+To /var/folders/9t/jj9rnpps7_ddb72c1mq2k13w0000gn/T/ctxpipe-hydration-contract-aQFHPn/remote.git
+   d7aa9f9..8629f2a  HEAD -> main
+Cloning into bare repository '/var/folders/9t/jj9rnpps7_ddb72c1mq2k13w0000gn/T/ctxpipe-hydration-contract-A7XmuM/remote.git'...
+done.
+stdout | src/domain/workspaces/write-workflow-native.contract.test.ts > can retry an identical command after native workflow admission fails
+{
+  severity_local: 'NOTICE',
+  severity: 'NOTICE',
+  code: '00000',
+  message: 'trigger "fixture_enqueue_hydrate_1788905120096_ak7v7n6d1l" for relation "openworkflow.workflow_runs" does not exist, skipping',
+  file: 'dropcmds.c',
+  line: '523',
+  routine: 'does_not_exist_skipping'
+}
+
+ ✓ src/domain/workspaces/write-workflow-native.contract.test.ts (16 tests) 91681ms
+   ✓ bootstraps a workspace in one native commit with a durable job result  3744ms
+   ✓ replays an already published bootstrap job without a second commit  4096ms
+   ✓ replays a completed no-op without creating a commit  6007ms
+   ✓ admits bootstrap through the production queue as a bound typed workflow  21904ms
+   ✓ rejects an unavailable workspace without queuing an unbound write  339ms
+   ✓ does not push after its connection is detached during credential issuance  6907ms
+   ✓ recovers a lost push acknowledgement across tip and access changes: {"advanceTip":false,"readOnly":false}  6374ms
+   ✓ recovers a lost push acknowledgement across tip and access changes: {"advanceTip":true,"readOnly":false}  6968ms
+   ✓ recovers a lost push acknowledgement across tip and access changes: {"advanceTip":false,"readOnly":true}  6001ms
+   ✓ recovers a lost push acknowledgement across tip and access changes: {"advanceTip":true,"readOnly":true}  7824ms
+   ✓ publishes Markdown hard breaks and a deletion through one typed native workflow  3162ms
+   ✓ does not write the former default branch when the remote changes during credential issuance  6983ms
+   ✓ gives concurrent deliveries of one job a single workflow owner and commit  4085ms
+   ✓ preserves executable and symlink modes when editing their native Git blobs  2899ms
+   ✓ rechecks an apparent no-op against the current default and applies the requested edit  2889ms
+   ✓ can retry an identical command after native workflow admission fails  1496ms
+Cloning into bare repository '/var/folders/9t/jj9rnpps7_ddb72c1mq2k13w0000gn/T/ctxpipe-hydration-contract-P9j3Hf/remote.git'...
+done.
+Cloning into bare repository '/var/folders/9t/jj9rnpps7_ddb72c1mq2k13w0000gn/T/ctxpipe-hydration-contract-YP4rh3/remote.git'...
+done.
+Cloning into bare repository '/var/folders/9t/jj9rnpps7_ddb72c1mq2k13w0000gn/T/ctxpipe-hydration-contract-PtEUSt/remote.git'...
+done.
+Cloning into bare repository '/var/folders/9t/jj9rnpps7_ddb72c1mq2k13w0000gn/T/ctxpipe-hydration-contract-ojZ7xa/remote.git'...
+done.
+Cloning into bare repository '/var/folders/9t/jj9rnpps7_ddb72c1mq2k13w0000gn/T/ctxpipe-hydration-contract-POMOni/remote.git'...
+done.
+Cloning into bare repository '/var/folders/9t/jj9rnpps7_ddb72c1mq2k13w0000gn/T/ctxpipe-hydration-contract-I0yQ9w/remote.git'...
+done.
+ ✓ src/openworkflow/workflows/repository-ingestion-owner-native.contract.test.ts (6 tests) 10007ms
+   ✓ projects a canceled native ingestion owner without a worker failure callback  363ms
+   ✓ projects a native child cancellation after the orchestrator resumes  1572ms
+   ✓ rejects failed native admission without marking the repository queued, then retries the same intent  429ms
+   ✓ upgrades a legacy native owner once and preserves subsequently admitted requests  307ms
+   ✓ preserves search-index warnings when the native ingestion owner completes successfully  1584ms
+   ✓ rejects extraction superseded during write credential issuance before native Git push  5749ms
+Cloning into bare repository '/var/folders/9t/jj9rnpps7_ddb72c1mq2k13w0000gn/T/ctxpipe-hydration-contract-fR6JYW/remote.git'...
+done.
+Cloning into bare repository '/var/folders/9t/jj9rnpps7_ddb72c1mq2k13w0000gn/T/ctxpipe-hydration-contract-IefWX7/remote.git'...
+done.
+To /var/folders/9t/jj9rnpps7_ddb72c1mq2k13w0000gn/T/ctxpipe-hydration-contract-IefWX7/remote.git
+   6ae7515..f46a3b1  HEAD -> main
+Cloning into bare repository '/var/folders/9t/jj9rnpps7_ddb72c1mq2k13w0000gn/T/ctxpipe-hydration-contract-7B2ppr/remote.git'...
+done.
+Cloning into bare repository '/var/folders/9t/jj9rnpps7_ddb72c1mq2k13w0000gn/T/ctxpipe-hydration-contract-KB5LdD/remote.git'...
+done.
+Cloning into bare repository '/var/folders/9t/jj9rnpps7_ddb72c1mq2k13w0000gn/T/ctxpipe-hydration-contract-ljUcPk/remote.git'...
+done.
+Cloning into bare repository '/var/folders/9t/jj9rnpps7_ddb72c1mq2k13w0000gn/T/ctxpipe-hydration-contract-vJbEiS/remote.git'...
+done.
+Cloning into bare repository '/var/folders/9t/jj9rnpps7_ddb72c1mq2k13w0000gn/T/ctxpipe-hydration-contract-KFpjJE/remote.git'...
+done.
+ ✓ src/domain/workspaces/write-pause-native.contract.test.ts (7 tests) 199115ms
+   ✓ completes an already-satisfied edit when write access is revoked after acquisition  3047ms
+   ✓ resumes a paused captured command after a human advances the same repository  6267ms
+   ✓ bootstrap keeps its native owner while waiting for write access before acquisition  61648ms
+   ✓ ui_file_edit keeps its native owner while waiting for write access before acquisition  62314ms
+   ✓ does not apply a permission probe from before a relink to the new binding  2120ms
+   ✓ retains one prepared commit and native owner through default-branch protection  63251ms
+   ✓ admits unavailable write access to its typed native owner before acknowledging the edit  467ms
+
+ Test Files  3 passed (3)
+      Tests  29 passed (29)
+   Start at  08:03:47
+   Duration  306.55s (transform 932ms, setup 28ms, import 5.48s, tests 300.80s, environment 0ms)
+

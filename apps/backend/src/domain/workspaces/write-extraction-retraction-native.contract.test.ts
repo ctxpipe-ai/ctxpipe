@@ -162,6 +162,13 @@ it.each([
     source: "https://github.com/fixture/hydration-contract.git#src/billing.ts",
   },
   {
+    mode: "dot segment evidence",
+    sourcePath: "src/billing.ts",
+    existingSource:
+      "https://github.com/fixture/hydration-contract.git#./src/../src/billing.ts",
+    source: "https://github.com/fixture/hydration-contract.git#src/billing.ts",
+  },
+  {
     mode: "normalized URL evidence",
     sourcePath: "src/billing.ts",
     existingSource:

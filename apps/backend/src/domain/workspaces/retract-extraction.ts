@@ -21,18 +21,22 @@ export function extractionEvidencePath(
   if (/^(?:https?|ssh|git):\/\//i.test(source) || source.startsWith("git@")) {
     const separator = source.indexOf("#")
     const url = separator < 0 ? source : source.slice(0, separator)
-    const fragment = separator < 0 ? "" : source.slice(separator + 1)
+    let fragment = separator < 0 ? "" : source.slice(separator + 1)
     if (
       normalizeWorkspaceRepositoryUrl(url ?? "") !==
       normalizeWorkspaceRepositoryUrl(repositoryUrl)
     )
       return null
     try {
-      return decodeURIComponent(fragment)
+      fragment = decodeURIComponent(fragment)
     } catch {
       // Older canonical files may contain a literal, unescaped percent sign.
-      return fragment
     }
+    if (!fragment) return ""
+    const path = posix.normalize(fragment)
+    return path === ".." || path.startsWith("../") || path.startsWith("/")
+      ? null
+      : path
   }
   if (
     normalizeWorkspaceRepositoryUrl(repositoryUrl) !==
@@ -41,7 +45,9 @@ export function extractionEvidencePath(
     return null
   if (!source.startsWith(".") && !source.includes("/")) return null
   const path = posix.normalize(posix.join(posix.dirname(fromPath), source))
-  return path.startsWith("../") || path.startsWith("/") ? null : path
+  return path === ".." || path.startsWith("../") || path.startsWith("/")
+    ? null
+    : path
 }
 
 /** Expire only evidence inspected by this capture; preserve unknown metadata and prose. */

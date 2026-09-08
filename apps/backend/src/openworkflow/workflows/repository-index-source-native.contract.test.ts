@@ -1,14 +1,17 @@
 import { chmod, writeFile } from "node:fs/promises"
 import { join } from "node:path"
+import { eq } from "drizzle-orm"
+import { OpenWorkflow } from "openworkflow"
+import { BackendPostgres } from "openworkflow/postgres"
 import { expect, it } from "vitest"
 import { withOrgIdContext } from "../../auth/withAuth.js"
 import { withOrgDbContext } from "../../db/client.js"
 import { repositoryCheckouts } from "../../db/schema/repository_checkouts.js"
+import { workspaces } from "../../db/schema/workspaces.js"
 import { fetchFiles } from "../../domain/codeIngestion/codesearchClient.js"
 import { withIngestAgentContext } from "../../graphs/codeIngestionGraph/withIngestAgentContext.js"
 import {
   getRepositoryForOrg,
-  markRepositoryIndexingIssues,
   markRepositoryIndexingReady,
 } from "../../models/repositories.js"
 import { codeSearch } from "../../retrieval/services/codeSearch.js"
@@ -16,7 +19,10 @@ import { withNativeIndexFixture } from "../../test/native-index-fixture.js"
 import { graphFindSymbolTool } from "../../tools/codegraphTools.js"
 import { getFileTool } from "../../tools/getFile.js"
 import { searchTool } from "../../tools/search.js"
+import { enqueueRepositoryIngestionWorkflow } from "../enqueue-repository-ingestion.js"
 import { repositoryIndex } from "./repository-index.js"
+import { repositoryIngestion } from "./repository-ingestion.js"
+import { repositoryIngestionOrchestrator } from "./repository-ingestion-orchestrator.js"
 
 it(
   "keeps the published source files and search when an older index finishes last",
@@ -160,23 +166,54 @@ it(
         "-m",
         "Incomplete index",
       )
-      const newer = f.git("rev-parse", "HEAD")
+      // A source-only repository has no extraction destination; run the entire
+      // production owner/producer/index chain without allocating a model.
+      await withOrgDbContext(f.org.id, (db) =>
+        db.delete(workspaces).where(eq(workspaces.id, f.workspaceId)),
+      )
+      const backend = await BackendPostgres.connect(f.databaseUrl, {
+        runMigrations: false,
+      })
+      const runner = new OpenWorkflow({ backend })
+      runner.implementWorkflow(
+        repositoryIngestionOrchestrator.spec,
+        repositoryIngestionOrchestrator.fn,
+      )
+      runner.implementWorkflow(repositoryIngestion.spec, repositoryIngestion.fn)
+      runner.implementWorkflow(repositoryIndex.spec, repositoryIndex.fn)
+      const worker = runner.newWorker({ concurrency: 3 })
       await chmod(f.cold, 0o500)
       try {
-        const next = await f.runner.runWorkflow(repositoryIndex.spec, {
-          orgId: f.org.id,
-          repositoryId: f.repositoryId,
-          targetHash: newer,
-        })
-        const result = await next.result({ timeoutMs: 20_000 })
-        expect(result).toMatchObject({ searchIndexOk: false })
-        await withOrgDbContext(f.org.id, () =>
-          markRepositoryIndexingIssues({
-            repositoryId: f.repositoryId,
-            error: result.searchIndexError ?? "Search index unavailable",
-          }),
+        const owner = await enqueueRepositoryIngestionWorkflow(
+          { orgId: f.org.id, repositoryId: f.repositoryId },
+          {
+            error: (error) => {
+              throw error
+            },
+          },
         )
+        expect
+          .soft(await getRepositoryForOrg(f.org.id, f.repositoryId))
+          .toMatchObject({
+            indexReady: true,
+            lastIngestedHash: f.sha,
+            indexingStatus: "queued",
+          })
+        await worker.start()
+        await expect
+          .poll(
+            async () =>
+              (
+                await backend.getWorkflowRun({
+                  workflowRunId: owner.workflowRunId,
+                })
+              )?.status,
+            { timeout: 25_000 },
+          )
+          .toBe("completed")
       } finally {
+        await worker.stop()
+        await backend.stop()
         await chmod(f.cold, 0o700)
       }
       expect(await getRepositoryForOrg(f.org.id, f.repositoryId)).toMatchObject(

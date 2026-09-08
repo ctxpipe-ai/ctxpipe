@@ -1,0 +1,57 @@
+{"name": "extraction-repository-subject-native-red", "cwd": "/private/tmp/ctxpipe-recovery-01a07aba", "command": ["/Users/jakubriedl/.volta/tools/image/node/22.16.0/bin/node", "apps/backend/node_modules/vitest/vitest.mjs", "run", "--root", "apps/backend", "src/domain/workspaces/write-extract-native.contract.test.ts", "-t", "publishes claims from existing"], "environment": {"AUTH_SECRET": "gate0-local-disposable-test-secret-20260907", "DATABASE_URL": "postgresql://ctxpipe_app:ctxpipe@127.0.0.1:61314/ctxpipe_gate0_fresh", "GRAPH_DB_URI": "redis://127.0.0.1:6398", "CI": "true", "NO_COLOR": "1", "TURBO_TELEMETRY_DISABLED": "1", "STORYBOOK_DISABLE_TELEMETRY": "1", "PATH": "/Users/jakubriedl/.volta/tools/image/node/22.16.0/bin:/private/tmp/ctxpipe-recovery-runtime/ast-grep/node_modules/.bin:/private/tmp/ctxpipe-recovery-runtime/node_modules/.bin:/private/tmp/ctxpipe-recovery-runtime/zoekt:/usr/local/bin:/System/Cryptexes/App/usr/bin:/usr/bin:/bin:/usr/sbin:/sbin:/var/run/com.apple.security.cryptexd/codex.system/bootstrap/usr/local/bin:/var/run/com.apple.security.cryptexd/codex.system/bootstrap/usr/bin:/var/run/com.apple.security.cryptexd/codex.system/bootstrap/usr/appleinternal/bin:/pkg/env/global/bin:/Users/jakubriedl/.codex/tmp/arg0/codex-arg0BW5Gt3:/Users/jakubriedl/.cache/codex-runtimes/codex-primary-runtime/dependencies/bin/override:/Users/jakubriedl/.local/bin:/Users/jakubriedl/.bun/bin:/Users/jakubriedl/.opencode/bin:/Users/jakubriedl/.volta/bin:/opt/homebrew/bin:/opt/homebrew/sbin:/Users/jakubriedl/.cache/codex-runtimes/codex-primary-runtime/dependencies/bin/fallback:/Applications/ChatGPT.app/Contents/Resources"}, "timeout_seconds": 600, "started_utc": "2026-09-08T21:56:38Z", "log": "logs/extraction-repository-subject-native-red.log"}
+
+ RUN  v4.0.18 /private/tmp/ctxpipe-recovery-01a07aba/apps/backend
+
+Cloning into bare repository '/var/folders/9t/jj9rnpps7_ddb72c1mq2k13w0000gn/T/ctxpipe-hydration-contract-p7129g/remote.git'...
+done.
+Cloning into bare repository '/var/folders/9t/jj9rnpps7_ddb72c1mq2k13w0000gn/T/ctxpipe-hydration-contract-3ZXHvx/remote.git'...
+done.
+ ❯ src/domain/workspaces/write-extract-native.contract.test.ts (9 tests | 1 failed | 7 skipped) 3157ms
+   ↓ preserves extraction identity at knowledge/services/billing.md and a same-name collision after migration cutover
+   ↓ preserves extraction identity at knowledge/imported/billing.md and a same-name collision after migration cutover
+   ↓ durably queues an unwritable migration_export command to its typed workflow
+   ↓ durably queues an unwritable extract_ingest command to its typed workflow
+   ↓ reads completed path identity without waiting for historical job storage
+   ↓ backfills completed path maps by native completion order despite an old completion replay
+   ↓ does not reuse migration cutover after the workspace binding generation changes
+   ✓ publishes claims from existing 'handbook/billing.md' without replacing its owner prose  1543ms
+   × publishes claims from existing 'AGENTS.md' without replacing its owner prose 1612ms
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 1 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  src/domain/workspaces/write-extract-native.contract.test.ts > publishes claims from existing 'AGENTS.md' without replacing its owner prose
+AssertionError: expected { custom: 'Owner metadata' } to deeply equal { custom: 'Owner metadata', …(1) }
+
+- Expected
++ Received
+
+  {
+-   "claims": [
+-     {
+-       "confidence": 0.9,
+-       "predicate": "CALLS",
+-       "source": "https://github.com/fixture/hydration-contract.git#src/billing.ts",
+-       "to": "knowledge/services/ledger.md",
+-     },
+-   ],
+    "custom": "Owner metadata",
+  }
+
+ ❯ src/domain/workspaces/write-extract-native.contract.test.ts:695:62
+    693|           })
+    694|           const content = f.git("--git-dir", f.remote, "show", `main:$…
+    695|           expect(parseSimpleFrontMatter(content).attributes).toEqual({
+       |                                                              ^
+    696|             custom: "Owner metadata",
+    697|             claims: [
+ ❯ withNativeHydrationFixture src/test/native-hydration-fixture.ts:647:5
+ ❯ src/domain/workspaces/write-extract-native.contract.test.ts:631:5
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/1]⎯
+
+
+ Test Files  1 failed (1)
+      Tests  1 failed | 1 passed | 7 skipped (9)
+   Start at  07:56:38
+   Duration  6.24s (transform 1.05s, setup 21ms, import 2.98s, tests 3.16s, environment 0ms)
+
