@@ -2,8 +2,8 @@ import { defineWorkflow } from "openworkflow"
 import { z } from "zod"
 import { parseEnv } from "../../config/env.js"
 import { generateCommitSubject } from "../../domain/workspaces/commit-subject.js"
+import { workspaceExtractionSchema } from "../../domain/workspaces/extraction.js"
 import { isConnectorMirrorPath } from "../../domain/workspaces/layout.js"
-import { linkedRepositoryUrlSchema } from "../../domain/workspaces/linked-repository-url.js"
 import { planKnowledgeProjection } from "../../domain/workspaces/migration-export.js"
 import {
   sameWorkspaceRevision,
@@ -21,7 +21,7 @@ import {
   withWorkspaceWriteContext,
 } from "../../domain/workspaces/write-command.js"
 import { githubRepoFullNameFromWorkspaceUrl } from "../../domain/workspaces/write-status.js"
-import { loadExtractionProjectionSource } from "../../models/workspace-export.js"
+import { loadExtractionPathIdentity } from "../../models/workspace-export.js"
 import {
   persistBoundWriteJob,
   persistWriteJobKnowledgePaths,
@@ -47,6 +47,7 @@ export const workspaceExtractIngestInputSchema = z
     workspaceId: z.string().min(1),
     jobId: z.string().min(1),
     revision: workspaceRevisionSchema,
+    extraction: workspaceExtractionSchema,
   })
   .strict()
   .refine(
@@ -89,26 +90,12 @@ export const workspaceExtractIngest = defineWorkflow(
             kind: "extract_ingest",
             revision: input.revision,
             workflowRunId: run.id,
+            extraction: input.extraction,
           }),
         )
-        const source = await step.run(
-          { name: "load-extracted-knowledge" },
-          async () => {
-            const source = await loadExtractionProjectionSource(input.revision)
-            return {
-              ...source,
-              workspaceByRepositoryId: [...source.workspaceByRepositoryId],
-              repositoryGitUrlById: [...source.repositoryGitUrlById].flatMap(
-                ([id, url]) => {
-                  const safe = linkedRepositoryUrlSchema.safeParse(url)
-                  return safe.success
-                    ? [[id, safe.data] as [string, string]]
-                    : []
-                },
-              ),
-              linkedUrls: [],
-            }
-          },
+        const identity = await step.run(
+          { name: "load-extraction-path-identity" },
+          () => loadExtractionPathIdentity(input.revision),
         )
         for (let refreshAttempt = 0; refreshAttempt < 3; refreshAttempt++) {
           let acquired: NonNullable<
@@ -142,15 +129,42 @@ export const workspaceExtractIngest = defineWorkflow(
                     path.startsWith("repositories/")),
               )
               const plan = await planKnowledgeProjection({
-                ...source,
+                ...identity,
                 workspaceId: input.workspaceId,
+                firstWorkspaceId: input.workspaceId,
                 workspaceRepositoryUrl: revision.remote.url,
-                workspaceByRepositoryId: new Map(
-                  source.workspaceByRepositoryId,
-                ),
-                repositoryGitUrlById: new Map(source.repositoryGitUrlById),
+                workspaceByRepositoryId: new Map([
+                  [input.extraction.repositoryId, input.workspaceId],
+                ]),
+                repositoryGitUrlById: new Map([
+                  [
+                    input.extraction.repositoryId,
+                    input.extraction.repositoryUrl,
+                  ],
+                ]),
+                objects: input.extraction.objects.map((object) => ({
+                  id: object.deduplicationKey,
+                  kind: object.kind,
+                  deduplicationKey: object.deduplicationKey,
+                  payload: {
+                    ...object.payload,
+                    ...(object.name === undefined ? {} : { name: object.name }),
+                    ...(object.summary === undefined
+                      ? {}
+                      : { summary: object.summary }),
+                  },
+                })),
+                claims: input.extraction.claims.map((claim) => ({
+                  subjectId: claim.subjectRef,
+                  objectId: claim.objectRef,
+                  predicate: claim.predicate,
+                  aggregatedConfidence: claim.confidence,
+                  evidenceKey: claim.sourceId,
+                  validFrom: null,
+                  validTo: null,
+                })),
+                linkedUrls: [],
                 existingKnowledge,
-                stampImportKey: source.stampImportKey,
               })
               const existing = new Map(
                 existingKnowledge.map((file) => [file.path, file.content]),

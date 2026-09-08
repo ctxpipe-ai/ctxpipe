@@ -3,6 +3,9 @@ import {
   findConnectorSyncOwner,
   prepareConnectorSync,
 } from "../models/connector-content-sync.js"
+import { confluenceSpaceSelection } from "../services/confluence/config-yaml.js"
+import { linearScopeSelection } from "../services/linear/config-yaml.js"
+import { renderNotionConfigYaml } from "../services/notion/config-yaml.js"
 import { runWorkflowWithWorkerWake } from "./client.js"
 import { connectorConfigKey } from "./enqueue-connector-content-sync.js"
 import {
@@ -42,10 +45,10 @@ export async function enqueueConnectorConfigSync(
 }> {
   const selection =
     input.provider === "linear"
-      ? input.scopes
+      ? linearScopeSelection(input.scopes)
       : input.provider === "notion"
-        ? input.resources
-        : input.spaces
+        ? renderNotionConfigYaml({ resources: input.resources })
+        : confluenceSpaceSelection(input.spaces)
   const configKey = `proposal:${connectorConfigKey(selection)}`
   const intent = await prepareConnectorSync({
     ...input,

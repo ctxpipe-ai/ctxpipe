@@ -1000,8 +1000,9 @@ export const atlassianConnectorRoutes = new OpenAPIHono<AppEnv>()
     }
 
     const shouldOpenConfigPr =
-      spacesPatch !== undefined ||
-      (syncTarget !== undefined && saved.spaces.length > 0)
+      saved.configProposalEnabled &&
+      (spacesPatch !== undefined ||
+        (syncTarget !== undefined && saved.spaces.length > 0))
     let configPrEnqueued = false
     if (shouldOpenConfigPr) {
       try {

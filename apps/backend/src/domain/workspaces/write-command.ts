@@ -12,6 +12,7 @@ import {
   assertConnectorMirrorBinding,
   assertConnectorMirrorScope,
 } from "./connector-mirror.js"
+import type { WorkspaceExtraction } from "./extraction.js"
 import { resolveRepositoryReadCredential } from "./resolve-revision.js"
 import { sameWorkspaceRevision, type WorkspaceRevision } from "./revision.js"
 import type { WorkspaceWriteKind } from "./write-jobs.js"
@@ -27,6 +28,7 @@ export type WorkspaceWriteCommand = {
   linkGitUrl?: string
   displayName?: string
   previousSha?: string
+  extraction?: WorkspaceExtraction
   mirror?: ConnectorMirrorSource
 }
 
@@ -68,6 +70,7 @@ export async function completedWorkspaceWrite(
     recorded.payload?.linkAction !== input.linkAction ||
     recorded.payload?.linkGitUrl !== input.linkGitUrl ||
     !isDeepStrictEqual(recorded.payload?.mirror, input.mirror) ||
+    !isDeepStrictEqual(recorded.payload?.extraction, input.extraction) ||
     recorded.payload?.previousSha !== input.previousSha ||
     recorded.payload?.displayName !== input.displayName
   )

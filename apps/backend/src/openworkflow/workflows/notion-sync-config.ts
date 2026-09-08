@@ -8,9 +8,13 @@ import {
   connectorContentBindingSchema,
 } from "../../models/connector-content-sync.js"
 import {
-  getNotionBindingByConnectionId,
+  getNotionBindingWithRepoByConnectionId,
   transitionNotionBindingState,
 } from "../../models/notion-connector.js"
+import {
+  closePullRequest,
+  parseGithubPullNumberFromUrl,
+} from "../../services/github/installation-write-client.js"
 import { syncNotionConfigYaml } from "../../services/notion/sync.js"
 import { enqueueConnectorContentSync } from "../enqueue-connector-content-sync.js"
 
@@ -74,7 +78,7 @@ export const notionSyncConfig = defineWorkflow(
     )
       throw new Error("Connector configuration activation was superseded")
     const binding = await step.run({ name: "load-notion-binding" }, () =>
-      getNotionBindingByConnectionId(input.connectionId),
+      getNotionBindingWithRepoByConnectionId(input.orgId, input.connectionId),
     )
     if (!binding) throw new Error("Notion binding is not configured")
     if (binding.orgId !== input.orgId) {
@@ -99,23 +103,42 @@ export const notionSyncConfig = defineWorkflow(
       }),
     )
     if (result.changed) {
-      await step.run({ name: "persist-config-pr-state" }, async () => {
-        const transitioned = await withOrgDbContext(input.orgId, () =>
-          transitionNotionBindingState({
-            connectionId: input.connectionId,
-            expectedContentSyncGeneration: input.contentSyncGeneration ?? 0,
-            expectedSetupPhase: "awaiting_merge",
-            expectedPendingConfigPrCreating: true,
-            repositoryId: binding.repositoryId,
-            branch: binding.branch,
-            pendingConfigPullUrl: result.pullUrl ?? null,
-            pendingConfigPrCreating: false,
-            setupPhase: "awaiting_merge",
-          }),
-        )
-        if (!transitioned)
-          throw new Error("Notion binding changed during configuration sync")
-      })
+      const transitioned = await step.run(
+        { name: "persist-config-pr-state" },
+        () =>
+          withOrgDbContext(input.orgId, () =>
+            transitionNotionBindingState({
+              connectionId: input.connectionId,
+              expectedContentSyncGeneration: input.contentSyncGeneration ?? 0,
+              expectedSetupPhase: "awaiting_merge",
+              expectedPendingConfigPrCreating: true,
+              repositoryId: binding.repositoryId,
+              branch: binding.branch,
+              pendingConfigPullUrl: result.pullUrl ?? null,
+              pendingConfigPrCreating: false,
+              setupPhase: "awaiting_merge",
+            }),
+          ),
+      )
+      if (!transitioned) {
+        await step.run({ name: "close-superseded-config-pr" }, async () => {
+          const pullNumber = result.pullUrl
+            ? parseGithubPullNumberFromUrl(result.pullUrl)
+            : undefined
+          if (!pullNumber || !binding.githubConnectionId)
+            throw new Error("Configuration PR cleanup context is missing")
+          await closePullRequest({
+            orgId: input.orgId,
+            env: parseEnv(process.env),
+            repositoryName: binding.repositoryName,
+            githubConnectionId: binding.githubConnectionId,
+            pullNumber,
+            comment:
+              "Closed because the Notion connector target changed during configuration sync.",
+          })
+        })
+        throw new Error("Notion binding changed during configuration sync")
+      }
     } else {
       await step.run({ name: "enqueue-initial-content-sync" }, async () => {
         if (

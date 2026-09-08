@@ -33,3 +33,8 @@ Five typed kinds are durably planned after hydrate with independent caps and shr
 ## Config proposal ownership increment
 
 Linear, Notion and Confluence config routes now use the native-owner-before-state protocol, with immutable scope intent and current generation. Claim/release helpers are removed. Native failure injection verifies 503 and unchanged setup; competing Confluence selections are rejected in the same short transaction that reads the active selection. Config PR projection compares activation generation under a row lock. Legacy running config owners recover only their own connector; completed legacy owners have an explicit one-org/listed-connector preview/apply recovery command, not a global migration enqueue. Other setup event ordering, obsolete helpers, extraction, unborn bootstrap and the remaining inventory above remain open.
+
+
+## Captured extraction input increment
+
+workspace-write-extract-ingest now consumes an immutable validated batch rather than querying content projections. Its PostgreSQL reads are path/cutover control-plane metadata only. Native poison-DB proof covers the write boundary. This does not close the producer inventory: repository-ingestion still calls retraction, deduplicateAndStore, project and embed. It needs a captured destination/write child, canonical Git retraction and endpoint mapping, output bounds, and native producer proof. repository-ingestion-orchestrator still catches private SleepSignal and must adopt native terminal-child projection. Config proposal review fixes and equivalent/disabled HTTP saves are implemented, with event-ordering/capture fencing still open.

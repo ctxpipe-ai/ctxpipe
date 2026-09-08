@@ -43,6 +43,30 @@ it.each(["knowledge/services/billing.md", "knowledge/imported/billing.md"])(
         ],
       },
       async (f) => {
+        const extraction = {
+          repositoryId: "repo_captured",
+          repositoryUrl: f.workspaceUrl,
+          sourceSha: f.sha,
+          objects: [
+            {
+              kind: "Service",
+              deduplicationKey: "legacy:billing",
+              payload: {
+                name: "Billing",
+                summary: "New extraction describes the ledger.",
+              },
+            },
+            {
+              kind: "Service",
+              deduplicationKey: "legacy:billing-two",
+              payload: {
+                name: "Billing",
+                summary: "The second ledger has separate knowledge.",
+              },
+            },
+          ],
+          claims: [],
+        }
         await withOrgIdContext(f.org, async () => {
           const repo = await ensureOrgRepositoryForGitUrl({
             orgId: f.org.id,
@@ -77,7 +101,7 @@ it.each(["knowledge/services/billing.md", "knowledge/imported/billing.md"])(
               deduplicationKey: "legacy:billing",
               payload: {
                 name: "Billing",
-                summary: "New extraction describes the ledger.",
+                summary: "DATABASE POISON MUST NOT BE COMMITTED",
               },
             }),
           )
@@ -109,6 +133,7 @@ it.each(["knowledge/services/billing.md", "knowledge/imported/billing.md"])(
                   workspaceId: f.workspaceId,
                   jobId,
                   kind: "extract_ingest",
+                  extraction,
                 },
                 {
                   error: (error) => {
@@ -155,6 +180,7 @@ it.each(["knowledge/services/billing.md", "knowledge/imported/billing.md"])(
           expect(content).toContain("Owner notes.")
           expect(content).toContain("New extraction describes the ledger.")
           expect(content).toContain("custom: Finance")
+          expect(content).not.toContain("DATABASE POISON")
           expect(content).not.toContain("import_key")
           expect(
             f.git("--git-dir", f.remote, "diff", "--name-only", f.sha, "main"),
@@ -180,12 +206,36 @@ it.each(["knowledge/services/billing.md", "knowledge/imported/billing.md"])(
           expect(await replay.result({ timeoutMs: 15_000 })).toMatchObject({
             committed: true,
           })
+          const changedCapture = await runner.runWorkflow(
+            workspaceExtractIngest.spec,
+            {
+              ...workspaceExtractIngestInputSchema.parse(queued?.input),
+              extraction: {
+                ...extraction,
+                objects: [
+                  {
+                    kind: "Service",
+                    deduplicationKey: "legacy:billing",
+                    payload: {
+                      name: "Billing",
+                      summary: "A different captured command",
+                    },
+                  },
+                ],
+              },
+            },
+            { deadlineAt: new Date(Date.now() + 1_500) },
+          )
+          await expect(
+            changedCapture.result({ timeoutMs: 5_000 }),
+          ).rejects.toThrow()
           const unchanged = await runner.runWorkflow(
             workspaceExtractIngest.spec,
             {
               orgId: f.org.id,
               workspaceId: f.workspaceId,
               jobId: `${jobId}_unchanged`,
+              extraction,
               revision: {
                 ...(await f.resolveRevision()),
                 access: "write-default",
@@ -207,6 +257,10 @@ it.each(["knowledge/services/billing.md", "knowledge/imported/billing.md"])(
               orgId: f.org.id,
               workspaceId: f.workspaceId,
               jobId: `${jobId}_omitted`,
+              extraction: {
+                ...extraction,
+                objects: extraction.objects.slice(0, 1),
+              },
               revision: {
                 ...(await f.resolveRevision()),
                 access: "write-default",
@@ -233,6 +287,7 @@ it.each(["knowledge/services/billing.md", "knowledge/imported/billing.md"])(
               orgId: f.org.id,
               workspaceId: f.workspaceId,
               jobId: `${jobId}_reappeared`,
+              extraction,
               revision: {
                 ...(await f.resolveRevision()),
                 access: "write-default",
@@ -272,7 +327,23 @@ it.each(["migration_export", "extract_ingest"] as const)(
         expect(
           await withOrgIdContext(f.org, () =>
             enqueueWriteJob(
-              { orgId: f.org.id, workspaceId: f.workspaceId, jobId, kind },
+              {
+                orgId: f.org.id,
+                workspaceId: f.workspaceId,
+                jobId,
+                kind,
+                ...(kind === "extract_ingest"
+                  ? {
+                      extraction: {
+                        repositoryId: "repo_fixture",
+                        repositoryUrl: f.workspaceUrl,
+                        sourceSha: f.sha,
+                        objects: [],
+                        claims: [],
+                      },
+                    }
+                  : {}),
+              },
               {
                 error: (error) => {
                   throw error
@@ -310,77 +381,6 @@ it.each(["migration_export", "extract_ingest"] as const)(
         expect(f.git("--git-dir", f.remote, "rev-parse", "main")).toBe(f.sha)
       },
     )
-  },
-)
-
-it(
-  "captures extraction objects and export cutover in one PostgreSQL snapshot",
-  { timeout: 30_000 },
-  async () => {
-    await withNativeHydrationFixture({ github: true }, async (f) => {
-      const { Client } = await import("pg")
-      const { loadExtractionProjectionSource } = await import(
-        "../../models/workspace-export.js"
-      )
-      const { persistWriteJobKnowledgePaths } = await import(
-        "../../models/workspace-write-jobs.js"
-      )
-      const blocker = new Client({ connectionString: f.databaseUrl })
-      await blocker.connect()
-      let pending: ReturnType<typeof loadExtractionProjectionSource> | undefined
-      try {
-        await blocker.query("BEGIN")
-        await blocker.query("LOCK TABLE claims IN ACCESS EXCLUSIVE MODE")
-        pending = withOrgIdContext(f.org, () =>
-          loadExtractionProjectionSource(f.revision),
-        )
-        // The source read has consumed objects and is blocked on claims before the export commits.
-        await expect
-          .poll(
-            async () => {
-              const result = await blocker.query(
-                "select count(*)::int as count from pg_locks where relation='claims'::regclass and mode='AccessShareLock' and not granted",
-              )
-              return result.rows[0].count
-            },
-            { timeout: 5_000 },
-          )
-          .toBeGreaterThan(0)
-        await withOrgIdContext(f.org, async () => {
-          const id = `wjob_${f.id}_interleaved_export`
-          await persistBoundWriteJob({
-            id,
-            kind: "migration_export",
-            revision: { ...f.revision, access: "write-default" },
-            workflowRunId: `fixture_${f.id}`,
-          })
-          await persistWriteJobKnowledgePaths(id, {
-            "legacy:billing": "knowledge/imported/billing.md",
-          })
-          await persistMigrationExportNoOp(id, f.sha)
-        })
-        await blocker.query("COMMIT")
-        expect(await pending).toMatchObject({
-          stampImportKey: true,
-          knownKnowledgePaths: {},
-        })
-        // A subsequent snapshot sees both parts of the completed export together.
-        expect(
-          await withOrgIdContext(f.org, () =>
-            loadExtractionProjectionSource(f.revision),
-          ),
-        ).toMatchObject({
-          stampImportKey: false,
-          knownKnowledgePaths: {
-            "legacy:billing": "knowledge/imported/billing.md",
-          },
-        })
-      } finally {
-        await blocker.query("ROLLBACK")
-        await blocker.end()
-        await pending?.catch(() => undefined)
-      }
-    })
   },
 )
 
@@ -573,7 +573,7 @@ it(
         listMigrationExportShas,
         listMigrationExportJobWorkspaceIds,
       } = await import("../../models/workspace-write-jobs.js")
-      const { loadExtractionProjectionSource } = await import(
+      const { loadExtractionPathIdentity } = await import(
         "../../models/workspace-export.js"
       )
       await withOrgIdContext(f.org, async () => {
@@ -597,7 +597,7 @@ it(
           (await listMigrationExportJobWorkspaceIds()).has(f.workspaceId),
         ).toBe(false)
         expect(
-          await loadExtractionProjectionSource({
+          await loadExtractionPathIdentity({
             ...f.revision,
             generation: f.revision.generation + 1,
           }),

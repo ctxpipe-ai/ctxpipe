@@ -39,6 +39,7 @@ it.each([
   "notion-config-enqueue-failure",
   "notion-config-draft",
   "notion-config-save",
+  "linear-config-save",
 ] as const)(
   "admits a durable content owner through the native %s boundary",
   { timeout: 30_000 },
@@ -47,7 +48,7 @@ it.each([
     const webhook =
       mode === "linear-config" || mode === "linear-enqueue-failure"
     const proposal = mode.includes("config-")
-    const save = mode === "notion-config-save"
+    const save = mode.endsWith("config-save")
     const draft = mode.endsWith("draft")
     const config =
       "version: 1\nsource: linear\nworkspace:\n  id: provider-workspace\n  name: Fixture\nscope: {}\n"
@@ -172,7 +173,7 @@ it.each([
               ? linearConnectorRoutes
               : notionConnectorRoutes,
           )
-          const request = (title = "B") =>
+          const request = (title = "B", reordered = false) =>
             app.request(
               `/${f.org.slug}/connectors/${save ? "config" : proposal ? "retry-config" : "retry"}?connectionId=${connectionId}`,
               {
@@ -183,26 +184,31 @@ it.each([
                       body: JSON.stringify(
                         provider === "linear"
                           ? {
-                              scopes: [
-                                {
-                                  externalId: "team-b",
-                                  type: "team",
-                                  title,
-                                  url: null,
-                                  parentExternalId: null,
-                                  teamId: "team-b",
-                                  teamKey: "B",
-                                },
-                              ],
+                              scopes: (reordered
+                                ? ["team-c", "team-b"]
+                                : ["team-b", "team-c"]
+                              ).map((externalId) => ({
+                                externalId,
+                                type: "team",
+                                title,
+                                url: null,
+                                parentExternalId: null,
+                                teamId: "team-b",
+                                teamKey: "B",
+                              })),
                             }
                           : {
-                              resources: [
-                                {
-                                  externalId: "page-b",
-                                  type: "page",
-                                  title,
-                                },
-                              ],
+                              resources: (reordered
+                                ? ["page-c", "page-b"]
+                                : ["page-b", "page-c"]
+                              ).map((externalId) => ({
+                                externalId,
+                                url: reordered
+                                  ? "https://notion.so/updated"
+                                  : null,
+                                type: "page",
+                                title,
+                              })),
                             },
                       ),
                     }
@@ -245,6 +251,11 @@ it.each([
             const repeated = await request()
             expect(repeated.status).toBe(200)
             expect(await repeated.json()).toMatchObject({
+              configPrEnqueued: false,
+            })
+            const reordered = await request("B", true)
+            expect(reordered.status).toBe(200)
+            expect(await reordered.json()).toMatchObject({
               configPrEnqueued: false,
             })
             const competing = await request("Different proposal")
@@ -317,7 +328,7 @@ async function withCanceledNativeInsert<T>(
   }
 }
 
-it.each(["spaces", "target", "enqueue-failure"] as const)(
+it.each(["spaces", "target", "enqueue-failure", "disabled"] as const)(
   "admits a native Confluence proposal through HTTP (%s)",
   { timeout: 30_000 },
   async (mode) => {
@@ -380,17 +391,17 @@ it.each(["spaces", "target", "enqueue-failure"] as const)(
           })
           app.route("/:orgSlug/connectors", atlassianConnectorRoutes)
           const url = `/${f.org.slug}/connectors/config?connectionId=${connectionId}`
-          const request = (spaceKey = "ENG") =>
+          const request = (spaceKey = "ENG", reordered = false) =>
             app.request(url, {
               method: "PATCH",
               headers: { "content-type": "application/json" },
               body: JSON.stringify(
-                mode === "target"
+                mode === "target" || mode === "disabled"
                   ? {
                       syncTarget: {
                         repositoryId: repository.id,
                         branch: "main",
-                        enabled: true,
+                        enabled: mode !== "disabled",
                       },
                     }
                   : {
@@ -398,7 +409,12 @@ it.each(["spaces", "target", "enqueue-failure"] as const)(
                         {
                           spaceKey,
                           spaceName: "Engineering",
-                          selectedPageIds: null,
+                          selectedPageIds:
+                            mode === "spaces"
+                              ? reordered
+                                ? ["page-2", "page-1"]
+                                : ["page-1", "page-2"]
+                              : null,
                         },
                       ],
                     },
@@ -413,6 +429,22 @@ it.each(["spaces", "target", "enqueue-failure"] as const)(
             })
           }
           const accepted = await request()
+          if (mode === "disabled") {
+            expect(accepted.status).toBe(200)
+            expect(await accepted.json()).toMatchObject({
+              configPrEnqueued: false,
+            })
+            expect(await (await app.request(url)).json()).toMatchObject({
+              syncTarget: { enabled: false, setupPhase: "draft" },
+            })
+            const owners = await withOrgDbContext(f.org.id, (db) =>
+              db.execute(
+                sql`select id from openworkflow.workflow_runs where input->>'connectionId' = ${connectionId} and input->>'orgId' = ${f.org.id}`,
+              ),
+            )
+            expect(owners.rows).toEqual([])
+            return
+          }
           expect({
             status: accepted.status,
             body: await accepted.json(),
@@ -423,6 +455,11 @@ it.each(["spaces", "target", "enqueue-failure"] as const)(
             body: await repeated.json(),
           }).toMatchObject({ status: 200, body: { configPrEnqueued: false } })
           if (mode === "spaces") {
+            const reordered = await request("ENG", true)
+            expect(reordered.status).toBe(200)
+            expect(await reordered.json()).toMatchObject({
+              configPrEnqueued: false,
+            })
             expect((await request("DIFFERENT")).status).toBe(409)
             expect(await (await app.request(url)).json()).toMatchObject({
               spaces: [{ spaceKey: "ENG" }],
@@ -444,7 +481,13 @@ it.each(["spaces", "target", "enqueue-failure"] as const)(
               workflow_name: "confluence-sync-config",
               input: {
                 contentSyncGeneration: 1,
-                spaces: [{ spaceKey: "ENG", selectedPageIds: null }],
+                spaces: [
+                  {
+                    spaceKey: "ENG",
+                    selectedPageIds:
+                      mode === "spaces" ? ["page-1", "page-2"] : null,
+                  },
+                ],
               },
             },
           ])

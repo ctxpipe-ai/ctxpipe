@@ -55,25 +55,23 @@ it.each(
     },
     { provider, failure: true, stale: false, close: false, ownerFirst: false },
     { provider, failure: false, stale: true, close: false, ownerFirst: false },
-    ...(provider === "linear"
-      ? [
-          {
-            provider,
-            failure: false,
-            stale: false,
-            close: true,
-            ownerFirst: false,
-          },
-          {
-            provider,
-            failure: false,
-            stale: false,
-            close: true,
-            ownerFirst: false,
-            generationSwap: true,
-          },
-        ]
-      : []),
+    ...[
+      {
+        provider,
+        failure: false,
+        stale: false,
+        close: true,
+        ownerFirst: false,
+      },
+      {
+        provider,
+        failure: false,
+        stale: false,
+        close: true,
+        ownerFirst: false,
+        generationSwap: true,
+      },
+    ],
   ]),
 )(
   "native $provider config admission (failure=$failure; stale=$stale; close=$close; ownerFirst=$ownerFirst; upgrade=$upgrade; generationSwap=$generationSwap; replay=$replay; cancel=$cancel)",
@@ -213,7 +211,7 @@ it.each(
               : db
                   .update(connections)
                   .set({
-                    config: sql`${connections.config} || '{"setupPhase":"initial_sync","pendingConfigPrCreating":false}'::jsonb`,
+                    config: sql`(${connections.config} - 'enabled') || '{"setupPhase":"initial_sync","pendingConfigPrCreating":false}'::jsonb`,
                   })
                   .where(eq(connections.id, connectionId)),
           )
@@ -376,6 +374,15 @@ it.each(
                   .where(eq(connections.id, connectionId)),
           )
         rebind = async () => {
+          if (provider === "confluence" && !("generationSwap" in scenario)) {
+            await withOrgDbContext(f.org.id, (db) =>
+              db
+                .update(confluenceSyncTargets)
+                .set({ branch: "another" })
+                .where(eq(confluenceSyncTargets.connectionId, connectionId)),
+            )
+            return
+          }
           await withOrgDbContext(f.org.id, (db) =>
             db
               .update(connections)

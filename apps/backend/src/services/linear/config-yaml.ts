@@ -71,21 +71,26 @@ function sortScopes(
   )
 }
 
+export function linearScopeSelection(scopes: LinearConfigScopeInput[]) {
+  return sortScopes(scopes).map((scope) => [
+    scope.externalId,
+    scope.type,
+    scope.title,
+    scope.url,
+    scope.parentExternalId,
+    scope.teamId,
+    scope.teamKey,
+  ])
+}
+
 export function linearScopesEqual(
   left: LinearConfigScopeInput[],
   right: LinearConfigScopeInput[],
 ): boolean {
-  const comparable = (scopes: LinearConfigScopeInput[]) =>
-    sortScopes(scopes).map((scope) => [
-      scope.externalId,
-      scope.type,
-      scope.title,
-      scope.url,
-      scope.parentExternalId,
-      scope.teamId,
-      scope.teamKey,
-    ])
-  return JSON.stringify(comparable(left)) === JSON.stringify(comparable(right))
+  return (
+    JSON.stringify(linearScopeSelection(left)) ===
+    JSON.stringify(linearScopeSelection(right))
+  )
 }
 
 export function parseLinearConfigYamlContent(

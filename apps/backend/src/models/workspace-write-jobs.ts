@@ -17,6 +17,7 @@ import {
   workspaceWriteJobs,
 } from "../db/schema/workspaces.js"
 import type { ConnectorMirrorSource } from "../domain/workspaces/connector-mirror.js"
+import type { WorkspaceExtraction } from "../domain/workspaces/extraction.js"
 import {
   sameWorkspaceRevision,
   type WorkspaceRevision,
@@ -102,6 +103,7 @@ export async function persistWriteJobIntent(input: {
       "linkAction",
       "linkGitUrl",
       "mirror",
+      "extraction",
       "mergeFiles",
       "mergeDeletePaths",
       "conflictParentSha",
@@ -605,11 +607,13 @@ export async function persistBoundWriteJob(input: {
   linkGitUrl?: string
   displayName?: string
   previousSha?: string
+  extraction?: WorkspaceExtraction
   mirror?: ConnectorMirrorSource
 }) {
   return orgSql(async () => {
     const payload: WorkspaceWriteJobPayload = {
       revision: input.revision,
+      ...(input.extraction ? { extraction: input.extraction } : {}),
       ...(input.mirror ? { mirror: input.mirror } : {}),
       ...(input.previousSha ? { previousSha: input.previousSha } : {}),
       ...(input.displayName !== undefined
@@ -664,6 +668,7 @@ export async function persistBoundWriteJob(input: {
       row.payload?.linkAction !== input.linkAction ||
       row.payload?.linkGitUrl !== input.linkGitUrl ||
       !isDeepStrictEqual(row.payload?.mirror, input.mirror) ||
+      !isDeepStrictEqual(row.payload?.extraction, input.extraction) ||
       row.payload?.previousSha !== input.previousSha ||
       row.payload?.displayName !== input.displayName
     )

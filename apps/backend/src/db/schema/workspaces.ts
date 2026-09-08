@@ -11,6 +11,7 @@ import {
   uniqueIndex,
 } from "drizzle-orm/pg-core"
 import type { ConnectorMirrorSource } from "../../domain/workspaces/connector-mirror.js"
+import type { WorkspaceExtraction } from "../../domain/workspaces/extraction.js"
 import type { HydratePhaseRecord } from "../../domain/workspaces/hydrate-phases.js"
 import type { WorkspaceRevision } from "../../domain/workspaces/revision.js"
 import type {
@@ -185,6 +186,7 @@ export const workspaceWriteJobs = pgTable.withRLS(
       exportTipSha?: string
       knowledgePaths?: Record<string, string>
       previousSha?: string
+      extraction?: WorkspaceExtraction
       mirror?: ConnectorMirrorSource
       linkAction?: "link" | "unlink"
       linkGitUrl?: string

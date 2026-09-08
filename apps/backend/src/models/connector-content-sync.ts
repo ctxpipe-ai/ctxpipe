@@ -3,6 +3,14 @@ import { z } from "zod"
 import { type Db, withOrgDbContext } from "../db/client.js"
 import { confluenceSyncTargets } from "../db/schema/confluenceSyncTargets.js"
 import { connections } from "../db/schema/connections.js"
+import {
+  type LinearSetupPhase,
+  parseForgeConnectionConfig,
+  parseLinearConnectionStored,
+  parseNotionConnectionConfig,
+  serialiseLinearConnectionConfigForDb,
+  serialiseNotionConnectionConfigForDb,
+} from "../lib/connection-config.js"
 
 export const connectorContentBindingSchema = z.object({
   provider: z.enum(["linear", "notion", "confluence"]),
@@ -26,15 +34,32 @@ async function readBinding(
           .from(confluenceSyncTargets)
           .where(eq(confluenceSyncTargets.connectionId, connection.id))
       : []
-  const config = connection.config
+  if (!["linear", "notion", "forge"].includes(connection.type)) return null
+  const config =
+    connection.type === "linear"
+      ? parseLinearConnectionStored(connection.config)
+      : connection.type === "notion"
+        ? parseNotionConnectionConfig(connection.config)
+        : {
+            ...parseForgeConnectionConfig(connection.config),
+            repositoryId: null,
+            branch: null,
+            workspaceId: null,
+            enabled: false,
+            setupPhase: "draft",
+            pendingConfigPrCreating: false,
+          }
+
   const binding = connectorContentBindingSchema.safeParse({
     provider: connection.type === "forge" ? "confluence" : connection.type,
     repositoryId: target?.repositoryId ?? config.repositoryId,
     branch: target?.branch ?? config.branch,
     workspaceId: connection.type === "forge" ? null : config.workspaceId,
-    cloudId: connection.type === "forge" ? config.cloudId : null,
+    cloudId: "cloudId" in config ? config.cloudId : null,
     atlassianApiBaseUrl:
-      connection.type === "forge" ? (config.atlassianApiBaseUrl ?? null) : null,
+      "atlassianApiBaseUrl" in config
+        ? (config.atlassianApiBaseUrl ?? null)
+        : null,
   })
   if (!binding.success) return null
   return {
@@ -48,6 +73,27 @@ async function readBinding(
       String(config.status),
     ),
   }
+}
+
+function configWithLifecycle(
+  connection: typeof connections.$inferSelect,
+  update: {
+    setupPhase: LinearSetupPhase
+    pendingConfigPrCreating?: boolean
+    pendingConfigPullUrl?: string | null
+  },
+) {
+  if (connection.type === "linear")
+    return serialiseLinearConnectionConfigForDb({
+      ...parseLinearConnectionStored(connection.config),
+      ...update,
+    })
+  if (connection.type === "notion")
+    return serialiseNotionConnectionConfigForDb({
+      ...parseNotionConnectionConfig(connection.config),
+      ...update,
+    })
+  throw new Error("Connector lifecycle is not stored in this provider config")
 }
 
 function sameBinding(a: unknown, b: ContentBinding): boolean {
@@ -258,15 +304,14 @@ export async function activateConnectorSync(input: {
         ...(current.binding.provider === "confluence"
           ? {}
           : {
-              config: {
-                ...connection.config,
+              config: configWithLifecycle(connection, {
                 setupPhase,
                 ...(input.purpose === "content"
                   ? { pendingConfigPullUrl: null }
                   : {}),
                 pendingConfigPrCreating:
                   input.purpose === "config" && !terminal,
-              },
+              }),
             }),
         updatedAt: new Date(),
       })
@@ -434,11 +479,10 @@ export async function reconcileConnectorContentSync(input: {
           await db
             .update(connections)
             .set({
-              config: {
-                ...connection.config,
+              config: configWithLifecycle(connection, {
                 setupPhase: "config_failed",
                 pendingConfigPrCreating: false,
-              },
+              }),
               updatedAt: new Date(),
             })
             .where(eq(connections.id, input.connectionId))
@@ -479,11 +523,13 @@ export async function reconcileConnectorContentSync(input: {
             eq(confluenceSyncTargets.setupPhase, "initial_sync"),
           ),
         )
-    } else if (connection.config.setupPhase === "initial_sync") {
+    } else if (current?.setupPhase === "initial_sync") {
       await db
         .update(connections)
         .set({
-          config: { ...connection.config, setupPhase: "sync_failed" },
+          config: configWithLifecycle(connection, {
+            setupPhase: "sync_failed",
+          }),
           updatedAt: new Date(),
         })
         .where(eq(connections.id, input.connectionId))

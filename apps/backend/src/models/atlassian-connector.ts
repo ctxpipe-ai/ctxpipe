@@ -793,6 +793,7 @@ export async function patchAtlassianConnectorConfig(input: {
   }>
   syncTarget?: SyncTargetPatchInput
 }): Promise<{
+  configProposalEnabled: boolean
   spaces: ConfluenceSpaceSelection[]
   /** When a new `repositories` row was inserted for the sync target, enqueue ingestion from the route. */
   repositoryIngestion?: { orgId: string; repositoryId: string }
@@ -928,6 +929,10 @@ export async function patchAtlassianConnectorConfig(input: {
       .from(confluenceSpaces)
       .where(eq(confluenceSpaces.connectionId, input.connectionId))
 
-    return { spaces, repositoryIngestion }
+    return {
+      spaces,
+      repositoryIngestion,
+      configProposalEnabled: currentTarget?.enabled === true,
+    }
   })
 }

@@ -205,8 +205,13 @@ export async function updateConfluenceSyncTargetPrState(input: {
   pendingConfigPullUrl: string | null
   pendingConfigPrCreating: boolean
   setupPhase: string
-}): Promise<void> {
-  await requireConfluenceSyncTargetWrite(input.connectionId, async (db) => {
+}): Promise<boolean> {
+  const directory = await getConnectionDirectoryByConnectionId(
+    input.connectionId,
+  )
+  if (!directory)
+    throw new Error(`connection_directory missing for ${input.connectionId}`)
+  return withOrgDbContext(directory.orgId, async (db) => {
     const [connection] = await db
       .select()
       .from(connections)
@@ -218,7 +223,7 @@ export async function updateConfluenceSyncTargetPrState(input: {
         connection.contentSyncGeneration !==
           input.expectedBinding.contentSyncGeneration)
     )
-      return
+      return false
     const [row] = await db
       .update(confluenceSyncTargets)
       .set({
@@ -244,7 +249,7 @@ export async function updateConfluenceSyncTargetPrState(input: {
         ),
       )
       .returning({ id: confluenceSyncTargets.id })
-    return row
+    return Boolean(row)
   })
 }
 

@@ -3,7 +3,7 @@ import { z } from "zod"
 import { parseEnv } from "../../config/env.js"
 import { withOrgDbContext } from "../../db/client.js"
 import {
-  getConfluenceSyncTargetByConnectionId,
+  getConfluenceSyncTargetWithRepoByConnectionId,
   updateConfluenceSyncTargetPrState,
 } from "../../models/confluence-sync-target.js"
 import {
@@ -12,6 +12,10 @@ import {
   connectorContentBindingSchema,
 } from "../../models/connector-content-sync.js"
 import { syncConfluenceConfigYaml } from "../../services/confluence/sync.js"
+import {
+  closePullRequest,
+  parseGithubPullNumberFromUrl,
+} from "../../services/github/installation-write-client.js"
 import { enqueueConnectorContentSync } from "../enqueue-connector-content-sync.js"
 
 const confluenceSyncConfigInputSchema = z.object({
@@ -78,7 +82,10 @@ export const confluenceSyncConfig = defineWorkflow(
     )
       throw new Error("Connector configuration activation was superseded")
     const target = await step.run({ name: "load-confluence-binding" }, () =>
-      getConfluenceSyncTargetByConnectionId(input.connectionId),
+      getConfluenceSyncTargetWithRepoByConnectionId(
+        input.orgId,
+        input.connectionId,
+      ),
     )
     if (
       !target ||
@@ -101,21 +108,42 @@ export const confluenceSyncConfig = defineWorkflow(
       }),
     )
     if (result.changed) {
-      await step.run({ name: "persist-config-pr-state" }, () =>
-        withOrgDbContext(input.orgId, () =>
-          updateConfluenceSyncTargetPrState({
-            connectionId: input.connectionId,
-            pendingConfigPullUrl: result.pullUrl ?? null,
-            pendingConfigPrCreating: false,
-            setupPhase: "awaiting_merge",
-            expectedBinding: {
-              contentSyncGeneration: input.contentSyncGeneration ?? 0,
-              repositoryId: target.repositoryId,
-              branch: target.branch,
-            },
-          }),
-        ),
+      const transitioned = await step.run(
+        { name: "persist-config-pr-state" },
+        () =>
+          withOrgDbContext(input.orgId, () =>
+            updateConfluenceSyncTargetPrState({
+              connectionId: input.connectionId,
+              pendingConfigPullUrl: result.pullUrl ?? null,
+              pendingConfigPrCreating: false,
+              setupPhase: "awaiting_merge",
+              expectedBinding: {
+                contentSyncGeneration: input.contentSyncGeneration ?? 0,
+                repositoryId: target.repositoryId,
+                branch: target.branch,
+              },
+            }),
+          ),
       )
+      if (!transitioned) {
+        await step.run({ name: "close-superseded-config-pr" }, async () => {
+          const pullNumber = result.pullUrl
+            ? parseGithubPullNumberFromUrl(result.pullUrl)
+            : undefined
+          if (!pullNumber || !target.githubConnectionId)
+            throw new Error("Configuration PR cleanup context is missing")
+          await closePullRequest({
+            orgId: input.orgId,
+            env: parseEnv(process.env),
+            repositoryName: target.repositoryName,
+            githubConnectionId: target.githubConnectionId,
+            pullNumber,
+            comment:
+              "Closed because the Confluence connector target changed during configuration sync.",
+          })
+        })
+        throw new Error("Confluence binding changed during configuration sync")
+      }
     } else {
       await step.run({ name: "enqueue-initial-content-sync" }, async () => {
         if (

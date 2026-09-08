@@ -28,7 +28,10 @@ import {
   workspaceConnectorMirror,
   workspaceConnectorMirrorInputSchema,
 } from "./workflows/workspace-connector-mirror.js"
-import { workspaceExtractIngest } from "./workflows/workspace-extract-ingest.js"
+import {
+  workspaceExtractIngest,
+  workspaceExtractIngestInputSchema,
+} from "./workflows/workspace-extract-ingest.js"
 import {
   workspaceFileEdit,
   workspaceFileEditInputSchema,
@@ -165,7 +168,6 @@ export async function enqueueWriteJob(
   > = {
     bootstrap: workspaceBootstrap,
     migration_export: workspaceMigrationExport,
-    extract_ingest: workspaceExtractIngest,
     claims_upgrade: workspaceClaimsUpgrade,
     valid_from_persist: workspaceValidFromPersist,
     import_key_cleanup: workspaceImportKeyCleanup,
@@ -174,6 +176,7 @@ export async function enqueueWriteJob(
   const snapshotWorkflow = snapshotWriteWorkflows[input.kind]
   if (
     snapshotWorkflow ||
+    input.kind === "extract_ingest" ||
     input.kind === "ui_file_edit" ||
     input.kind === "link_unlink" ||
     input.kind === "rename_rewrite" ||
@@ -214,6 +217,27 @@ export async function enqueueWriteJob(
         (input.defaultBranch && revision.defaultBranch !== input.defaultBranch)
       )
         throw new Error("Write command binding changed during admission")
+      if (input.kind === "extract_ingest") {
+        const command = workspaceExtractIngestInputSchema.parse({
+          orgId: input.orgId,
+          workspaceId: input.workspaceId,
+          jobId,
+          revision,
+          extraction: input.extraction,
+        })
+        await persistBoundWriteJob({
+          admissionStatus,
+          id: jobId,
+          kind: input.kind,
+          revision,
+          extraction: command.extraction,
+        })
+        bound = true
+        await runWorkflowWithWorkerWake(workspaceExtractIngest.spec, command, {
+          idempotencyKey: jobId,
+        })
+        return { started: true }
+      }
       if (input.kind === "semantic_merge") {
         const command = workspaceSemanticMergeInputSchema.parse({
           orgId: input.orgId,

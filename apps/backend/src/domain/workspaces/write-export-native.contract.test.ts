@@ -334,6 +334,19 @@ it(
               orgId: f.org.id,
               workspaceId: f.workspaceId,
               jobId: `${jobId}_extract`,
+              extraction: {
+                repositoryId: "repo_fixture",
+                repositoryUrl: f.workspaceUrl,
+                sourceSha: f.sha,
+                objects: [
+                  {
+                    kind: "Service",
+                    deduplicationKey: "legacy:billing",
+                    payload: { name: "Billing", summary: "Ledger lives here." },
+                  },
+                ],
+                claims: [],
+              },
               revision: {
                 ...(await f.resolveRevision()),
                 access: "write-default",

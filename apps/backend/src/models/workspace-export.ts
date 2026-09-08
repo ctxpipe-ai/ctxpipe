@@ -141,8 +141,8 @@ export async function loadKnowledgeProjectionSource(): Promise<{
   })
 }
 
-/** Durable extraction input must pair source data with its migration cutover state. */
-export async function loadExtractionProjectionSource(
+/** Control-plane path identity and migration cutover, with no projection-content reads. */
+export async function loadExtractionPathIdentity(
   revision: import("../domain/workspaces/revision.js").WorkspaceRevision,
 ) {
   assertNotInOrgDbContext()
@@ -151,13 +151,12 @@ export async function loadExtractionProjectionSource(
     async () => {
       const { getCompletedKnowledgePaths, getMigrationExportSha } =
         await import("./workspace-write-jobs.js")
-      const source = await loadKnowledgeProjectionSource()
       const knownKnowledgePaths = await getCompletedKnowledgePaths(revision)
       const exportSha = await getMigrationExportSha(
         revision.workspaceId,
         revision,
       )
-      return { ...source, knownKnowledgePaths, stampImportKey: !exportSha }
+      return { knownKnowledgePaths, stampImportKey: !exportSha }
     },
     { isolationLevel: "repeatable read" },
   )

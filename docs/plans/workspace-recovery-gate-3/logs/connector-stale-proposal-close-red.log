@@ -1,0 +1,70 @@
+{"name": "connector-stale-proposal-close-red", "cwd": "/private/tmp/ctxpipe-recovery-01a07aba", "command": ["/Users/jakubriedl/.volta/tools/image/node/22.16.0/bin/node", "apps/backend/node_modules/vitest/vitest.mjs", "run", "--root", "apps/backend", "src/openworkflow/workflows/connector-config-native.contract.test.ts", "-t", "close=true"], "environment": {"AUTH_SECRET": "gate0-local-disposable-test-secret-20260907", "DATABASE_URL": "postgresql://ctxpipe_app:ctxpipe@127.0.0.1:61314/ctxpipe_gate0_fresh", "GRAPH_DB_URI": "redis://127.0.0.1:6398", "CI": "true", "NO_COLOR": "1", "TURBO_TELEMETRY_DISABLED": "1", "STORYBOOK_DISABLE_TELEMETRY": "1", "PATH": "/Users/jakubriedl/.volta/tools/image/node/22.16.0/bin:/private/tmp/ctxpipe-recovery-runtime/ast-grep/node_modules/.bin:/private/tmp/ctxpipe-recovery-runtime/node_modules/.bin:/private/tmp/ctxpipe-recovery-runtime/zoekt:/usr/local/bin:/System/Cryptexes/App/usr/bin:/usr/bin:/bin:/usr/sbin:/sbin:/var/run/com.apple.security.cryptexd/codex.system/bootstrap/usr/local/bin:/var/run/com.apple.security.cryptexd/codex.system/bootstrap/usr/bin:/var/run/com.apple.security.cryptexd/codex.system/bootstrap/usr/appleinternal/bin:/pkg/env/global/bin:/Users/jakubriedl/.codex/tmp/arg0/codex-arg0BW5Gt3:/Users/jakubriedl/.cache/codex-runtimes/codex-primary-runtime/dependencies/bin/override:/Users/jakubriedl/.local/bin:/Users/jakubriedl/.bun/bin:/Users/jakubriedl/.opencode/bin:/Users/jakubriedl/.volta/bin:/opt/homebrew/bin:/opt/homebrew/sbin:/Users/jakubriedl/.cache/codex-runtimes/codex-primary-runtime/dependencies/bin/fallback:/Applications/ChatGPT.app/Contents/Resources"}, "timeout_seconds": 600, "started_utc": "2026-09-08T19:42:06Z", "log": "logs/connector-stale-proposal-close-red.log"}
+
+ RUN  v4.0.18 /private/tmp/ctxpipe-recovery-01a07aba/apps/backend
+
+Cloning into bare repository '/var/folders/9t/jj9rnpps7_ddb72c1mq2k13w0000gn/T/ctxpipe-hydration-contract-pFVwQA/remote.git'...
+done.
+Cloning into bare repository '/var/folders/9t/jj9rnpps7_ddb72c1mq2k13w0000gn/T/ctxpipe-hydration-contract-WszfoR/remote.git'...
+done.
+Cloning into bare repository '/var/folders/9t/jj9rnpps7_ddb72c1mq2k13w0000gn/T/ctxpipe-hydration-contract-bUQWK0/remote.git'...
+done.
+Cloning into bare repository '/var/folders/9t/jj9rnpps7_ddb72c1mq2k13w0000gn/T/ctxpipe-hydration-contract-DvjfM9/remote.git'...
+done.
+Cloning into bare repository '/var/folders/9t/jj9rnpps7_ddb72c1mq2k13w0000gn/T/ctxpipe-hydration-contract-MRJAl6/remote.git'...
+done.
+Cloning into bare repository '/var/folders/9t/jj9rnpps7_ddb72c1mq2k13w0000gn/T/ctxpipe-hydration-contract-EwCjSG/remote.git'...
+done.
+ ❯ src/openworkflow/workflows/connector-config-native.contract.test.ts (27 tests | 4 failed | 21 skipped) 47182ms
+   ↓ native 'linear' config admission (failure=false; stale=false; close=false; ownerFirst=false; upgrade=undefined; generationSwap=undefined; replay=undefined; cancel=undefined)
+   ↓ native 'linear' config admission (failure=false; stale=false; close=false; ownerFirst=true; upgrade=undefined; generationSwap=undefined; replay=undefined; cancel=undefined)
+   ↓ native 'linear' config admission (failure=false; stale=false; close=false; ownerFirst=false; upgrade=undefined; generationSwap=undefined; replay=true; cancel=undefined)
+   ↓ native 'linear' config admission (failure=false; stale=false; close=false; ownerFirst=false; upgrade=true; generationSwap=undefined; replay=undefined; cancel=undefined)
+   ↓ native 'linear' config admission (failure=false; stale=false; close=false; ownerFirst=true; upgrade=undefined; generationSwap=undefined; replay=undefined; cancel=true)
+   ↓ native 'linear' config admission (failure=true; stale=false; close=false; ownerFirst=false; upgrade=undefined; generationSwap=undefined; replay=undefined; cancel=undefined)
+   ↓ native 'linear' config admission (failure=false; stale=true; close=false; ownerFirst=false; upgrade=undefined; generationSwap=undefined; replay=undefined; cancel=undefined)
+   ✓ native 'linear' config admission (failure=false; stale=false; close=true; ownerFirst=false; upgrade=undefined; generationSwap=undefined; replay=undefined; cancel=undefined)  9841ms
+   ✓ native 'linear' config admission (failure=false; stale=false; close=true; ownerFirst=false; upgrade=undefined; generationSwap=true; replay=undefined; cancel=undefined)  10008ms
+   ↓ native 'notion' config admission (failure=false; stale=false; close=false; ownerFirst=false; upgrade=undefined; generationSwap=undefined; replay=undefined; cancel=undefined)
+   ↓ native 'notion' config admission (failure=false; stale=false; close=false; ownerFirst=true; upgrade=undefined; generationSwap=undefined; replay=undefined; cancel=undefined)
+   ↓ native 'notion' config admission (failure=false; stale=false; close=false; ownerFirst=false; upgrade=undefined; generationSwap=undefined; replay=true; cancel=undefined)
+   ↓ native 'notion' config admission (failure=false; stale=false; close=false; ownerFirst=false; upgrade=true; generationSwap=undefined; replay=undefined; cancel=undefined)
+   ↓ native 'notion' config admission (failure=false; stale=false; close=false; ownerFirst=true; upgrade=undefined; generationSwap=undefined; replay=undefined; cancel=true)
+   ↓ native 'notion' config admission (failure=true; stale=false; close=false; ownerFirst=false; upgrade=undefined; generationSwap=undefined; replay=undefined; cancel=undefined)
+   ↓ native 'notion' config admission (failure=false; stale=true; close=false; ownerFirst=false; upgrade=undefined; generationSwap=undefined; replay=undefined; cancel=undefined)
+   × native 'notion' config admission (failure=false; stale=false; close=true; ownerFirst=false; upgrade=undefined; generationSwap=undefined; replay=undefined; cancel=undefined) 6697ms
+   × native 'notion' config admission (failure=false; stale=false; close=true; ownerFirst=false; upgrade=undefined; generationSwap=true; replay=undefined; cancel=undefined) 6747ms
+   ↓ native 'confluence' config admission (failure=false; stale=false; close=false; ownerFirst=false; upgrade=undefined; generationSwap=undefined; replay=undefined; cancel=undefined)
+   ↓ native 'confluence' config admission (failure=false; stale=false; close=false; ownerFirst=true; upgrade=undefined; generationSwap=undefined; replay=undefined; cancel=undefined)
+   ↓ native 'confluence' config admission (failure=false; stale=false; close=false; ownerFirst=false; upgrade=undefined; generationSwap=undefined; replay=true; cancel=undefined)
+   ↓ native 'confluence' config admission (failure=false; stale=false; close=false; ownerFirst=false; upgrade=true; generationSwap=undefined; replay=undefined; cancel=undefined)
+   ↓ native 'confluence' config admission (failure=false; stale=false; close=false; ownerFirst=true; upgrade=undefined; generationSwap=undefined; replay=undefined; cancel=true)
+   ↓ native 'confluence' config admission (failure=true; stale=false; close=false; ownerFirst=false; upgrade=undefined; generationSwap=undefined; replay=undefined; cancel=undefined)
+   ↓ native 'confluence' config admission (failure=false; stale=true; close=false; ownerFirst=false; upgrade=undefined; generationSwap=undefined; replay=undefined; cancel=undefined)
+   × native 'confluence' config admission (failure=false; stale=false; close=true; ownerFirst=false; upgrade=undefined; generationSwap=undefined; replay=undefined; cancel=undefined) 6702ms
+   × native 'confluence' config admission (failure=false; stale=false; close=true; ownerFirst=false; upgrade=undefined; generationSwap=true; replay=undefined; cancel=undefined) 7186ms
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 4 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  src/openworkflow/workflows/connector-config-native.contract.test.ts > native 'notion' config admission (failure=false; stale=false; close=true; ownerFirst=false; upgrade=undefined; generationSwap=undefined; replay=undefined; cancel=undefined)
+ FAIL  src/openworkflow/workflows/connector-config-native.contract.test.ts > native 'notion' config admission (failure=false; stale=false; close=true; ownerFirst=false; upgrade=undefined; generationSwap=true; replay=undefined; cancel=undefined)
+ FAIL  src/openworkflow/workflows/connector-config-native.contract.test.ts > native 'confluence' config admission (failure=false; stale=false; close=true; ownerFirst=false; upgrade=undefined; generationSwap=undefined; replay=undefined; cancel=undefined)
+ FAIL  src/openworkflow/workflows/connector-config-native.contract.test.ts > native 'confluence' config admission (failure=false; stale=false; close=true; ownerFirst=false; upgrade=undefined; generationSwap=true; replay=undefined; cancel=undefined)
+AssertionError: expected 0 to be greater than 0
+ ❯ src/openworkflow/workflows/connector-config-native.contract.test.ts:439:40
+    437|           if (close) {
+    438|             expect(pullsCreated).toBe(1)
+    439|             expect(pullUpdates.length).toBeGreaterThan(0)
+       |                                        ^
+    440|             expect(
+    441|               pullUpdates.every(
+ ❯ withNativeHydrationFixture src/test/native-hydration-fixture.ts:647:5
+ ❯ src/openworkflow/workflows/connector-config-native.contract.test.ts:103:5
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/4]⎯
+
+
+ Test Files  1 failed (1)
+      Tests  4 failed | 2 passed | 21 skipped (27)
+   Start at  05:42:06
+   Duration  50.09s (transform 1.06s, setup 17ms, import 2.81s, tests 47.18s, environment 0ms)
+

@@ -3,6 +3,10 @@ import type { GitFileChange } from "../../services/git/file-change.js"
 import { gitFileChangeSchema } from "../../services/git/file-change.js"
 import type { ConnectorMirrorSource } from "./connector-mirror.js"
 import { connectorMirrorSourceSchema } from "./connector-mirror.js"
+import {
+  type WorkspaceExtraction,
+  workspaceExtractionSchema,
+} from "./extraction.js"
 import type { WorkspaceRevision } from "./revision.js"
 import type { WorkspaceWriteKind } from "./write-jobs.js"
 import { shouldEnqueueWorkspaceWriteJob } from "./write-jobs.js"
@@ -33,6 +37,7 @@ export type WorkspaceWritePlanning = {
 }
 
 export type WorkspaceWriteJobPayload = {
+  extraction?: WorkspaceExtraction
   revision?: WorkspaceRevision
   planning?: WorkspaceWritePlanning
   workflowRunId?: string
@@ -80,6 +85,7 @@ const writeJobKindSchema = z.enum([
 /** Shared enqueue + workflow input. Kind-specific fields stay on the payload. */
 export const workspaceWriteJobInputSchema = writeJobBaseSchema.extend({
   kind: writeJobKindSchema,
+  extraction: workspaceExtractionSchema.optional(),
   mirror: connectorMirrorSourceSchema.optional(),
   previousSha: z
     .string()
@@ -98,6 +104,7 @@ export type EnqueueWriteJobInput = z.infer<typeof workspaceWriteJobInputSchema>
 
 export type WriteJobEnqueueFields = Pick<
   EnqueueWriteJobInput,
+  | "extraction"
   | "kind"
   | "previousSha"
   | "mirror"
@@ -116,6 +123,7 @@ export function writeJobIntentPayload(
   input: WriteJobEnqueueFields,
 ): WorkspaceWriteJobPayload {
   const payload: WorkspaceWriteJobPayload = {}
+  if (input.extraction) payload.extraction = input.extraction
   if (input.mirror) payload.mirror = input.mirror
   if (input.previousSha) payload.previousSha = input.previousSha
   if (input.displayName !== undefined) payload.displayName = input.displayName
@@ -195,6 +203,7 @@ export function enqueueInputFromPausedJob(input: {
     ...(payload.displayName !== undefined
       ? { displayName: payload.displayName }
       : {}),
+    ...(payload.extraction ? { extraction: payload.extraction } : {}),
     ...(payload.mirror ? { mirror: payload.mirror } : {}),
     ...(payload.previousSha ? { previousSha: payload.previousSha } : {}),
     ...(payload.linkAction ? { linkAction: payload.linkAction } : {}),

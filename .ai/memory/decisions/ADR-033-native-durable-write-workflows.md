@@ -27,6 +27,9 @@ The accepted recovery plan's Gate 3 replaces the generic write runner, agent cho
 
 This implements the recovery plan's explicit replacement of ticket 10's generic runner, shared sandbox for mechanical jobs, and mechanical GitHub API exception. It preserves its product behavior and semantic-conflict isolation rather than applying the old orchestration literally.
 
+- Extract write commands carry a validated immutable extractor batch and never load content from projection tables. Only the one-time migration export reads legacy content. Extraction may read completed path identity and migration cutover metadata. Repository producer handoff and Git retraction remain unfinished and must precede Gate 3 acceptance.
+- Configuration proposal identity follows canonical provider selection semantics. Lifecycle storage uses provider schemas, including defaults. Superseded Notion/Confluence PR cleanup has its own durable step after a failed finalization CAS; this prevents an old owner from leaving an actionable stale proposal.
+
 ## Consequences
 
 Worker restart can reconstruct a job's Git artifacts. Durable packs add storage proportional to the acquired tree; they contain repository data but no credentials. Step identities, command admission, remote uncertainty, per-kind retry bounds, and every former default writer require native acceptance proof before Gate 3 closes.
