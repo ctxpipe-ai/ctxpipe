@@ -1,10 +1,11 @@
-import { eq } from "drizzle-orm"
+import { eq, sql } from "drizzle-orm"
 import { expect, it } from "vitest"
 import { withOrgIdContext } from "../../auth/withAuth.js"
 import { parseEnv } from "../../config/env.js"
 import { withOrgDbContext } from "../../db/client.js"
 import { confluenceSyncTargets } from "../../db/schema/confluenceSyncTargets.js"
 import { connections } from "../../db/schema/connections.js"
+import { workspaces } from "../../db/schema/workspaces.js"
 import {
   finalizeConfluenceSyncTargetAfterContentWorkflow,
   getConfluenceSyncTargetWithRepoByConnectionId,
@@ -33,10 +34,32 @@ it.each([
   { provider: "confluence", status: "completed", phase: "live" },
   { provider: "confluence", status: "partial_failed", phase: "sync_failed" },
   { provider: "confluence", status: "failed", phase: "sync_failed" },
+  { provider: "linear", status: "completed", phase: "initial_sync" },
+  { provider: "notion", status: "completed", phase: "initial_sync" },
+  { provider: "confluence", status: "completed", phase: "initial_sync" },
+  {
+    provider: "linear",
+    status: "completed",
+    phase: "initial_sync",
+    providerChanged: true,
+  },
+  {
+    provider: "notion",
+    status: "completed",
+    phase: "initial_sync",
+    providerChanged: true,
+  },
+  {
+    provider: "confluence",
+    status: "completed",
+    phase: "initial_sync",
+    providerChanged: true,
+  },
 ] as const)(
-  "projects $provider $status onto the same initial binding as $phase",
+  "projects $provider $status onto the same initial binding as $phase; providerChanged=$providerChanged",
   { timeout: 30_000 },
-  async ({ provider, status, phase }) => {
+  async (scenario) => {
+    const { provider, status, phase } = scenario
     await withNativeHydrationFixture(
       { github: true, githubWriteView: "writable" },
       async (f) => {
@@ -113,10 +136,36 @@ it.each([
             notion: finalizeNotionBindingAfterContentWorkflow,
             confluence: finalizeConfluenceSyncTargetAfterContentWorkflow,
           }[provider]
+          if ("providerChanged" in scenario)
+            await withOrgDbContext(f.org.id, (db) =>
+              db
+                .update(connections)
+                .set({
+                  config: sql`${connections.config} || ${JSON.stringify({ workspaceId: "new-provider", cloudId: "new-cloud" })}::jsonb`,
+                })
+                .where(eq(connections.id, connectionId)),
+            )
+          else if (phase === "initial_sync")
+            await withOrgDbContext(f.org.id, (db) =>
+              db
+                .update(workspaces)
+                .set({ desiredGeneration: f.revision.generation + 1 })
+                .where(eq(workspaces.id, f.workspaceId)),
+            )
           await finalize({
             connectionId,
-            repositoryId: repository.id,
-            branch: "main",
+            binding: {
+              repositoryId: repository.id,
+              revision: f.revision,
+              provider:
+                provider === "confluence"
+                  ? {
+                      kind: "confluence",
+                      cloudId: "fixture-cloud",
+                      atlassianApiBaseUrl: null,
+                    }
+                  : { kind: provider, workspaceId: "provider-workspace" },
+            },
             workflowStatus: status,
           })
           const read = {

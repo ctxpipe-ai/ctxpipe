@@ -38,6 +38,10 @@ import {
   notionConnectionToShape,
   notionShapeToConfig,
 } from "./connection-rows.js"
+import {
+  type CapturedConnectorBinding,
+  lockConnectorFinalizationBinding,
+} from "./connector-finalization.js"
 import { listGithubConnectionsForOrg } from "./github-installation.js"
 import { DEFAULT_CHECKOUT_KEY } from "./repositories.js"
 
@@ -946,8 +950,7 @@ export async function clearNotionSyncBindingsForRepository(input: {
 
 export async function finalizeNotionBindingAfterContentWorkflow(input: {
   connectionId: string
-  repositoryId: string
-  branch: string
+  binding: CapturedConnectorBinding
   workflowStatus: "completed" | "partial_failed" | "failed"
 }): Promise<boolean> {
   const directoryRow = await getConnectionDirectoryByConnectionId(
@@ -975,8 +978,15 @@ export async function finalizeNotionBindingAfterContentWorkflow(input: {
       !binding ||
       !binding.enabled ||
       binding.setupPhase !== "initial_sync" ||
-      binding.repositoryId !== input.repositoryId ||
-      binding.branch !== input.branch
+      binding.repositoryId !== input.binding.repositoryId ||
+      binding.branch !== input.binding.revision.defaultBranch
+    )
+      return
+    if (
+      !(await lockConnectorFinalizationBinding(
+        input.binding,
+        input.connectionId,
+      ))
     )
       return
     const [result] = await tx

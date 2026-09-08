@@ -11,6 +11,10 @@ import { CONNECTION_TYPE_FORGE, connections } from "../db/schema/connections.js"
 import { repositories } from "../db/schema/repositories.js"
 import { generateObjectId } from "../lib/id.js"
 import { getConnectionDirectoryByConnectionId } from "./connection-directory.js"
+import {
+  type CapturedConnectorBinding,
+  lockConnectorFinalizationBinding,
+} from "./connector-finalization.js"
 
 export type ConfluenceSyncTarget = typeof confluenceSyncTargets.$inferSelect
 
@@ -300,13 +304,19 @@ export async function markConfluenceSyncTargetLive(input: {
  */
 export async function finalizeConfluenceSyncTargetAfterContentWorkflow(input: {
   connectionId: string
-  repositoryId: string
-  branch: string
+  binding: CapturedConnectorBinding
   workflowStatus: "completed" | "partial_failed" | "failed"
 }): Promise<void> {
   const updated = await withOrgDbForConnection(
     input.connectionId,
     async (db) => {
+      if (
+        !(await lockConnectorFinalizationBinding(
+          input.binding,
+          input.connectionId,
+        ))
+      )
+        return
       const [row] = await db
         .update(confluenceSyncTargets)
         .set({
@@ -320,8 +330,11 @@ export async function finalizeConfluenceSyncTargetAfterContentWorkflow(input: {
           and(
             eq(confluenceSyncTargets.connectionId, input.connectionId),
             eq(confluenceSyncTargets.setupPhase, "initial_sync"),
-            eq(confluenceSyncTargets.repositoryId, input.repositoryId),
-            eq(confluenceSyncTargets.branch, input.branch),
+            eq(confluenceSyncTargets.repositoryId, input.binding.repositoryId),
+            eq(
+              confluenceSyncTargets.branch,
+              input.binding.revision.defaultBranch,
+            ),
             eq(confluenceSyncTargets.enabled, true),
           ),
         )

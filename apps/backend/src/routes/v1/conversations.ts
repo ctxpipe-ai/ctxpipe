@@ -8,7 +8,10 @@ import {
   parseConversationChatRequest,
   workspaceChatStreamResponse,
 } from "../../domain/conversations/transport.js"
-import { shouldDestroyChatSandbox } from "../../domain/workspaces/chat-lifecycle.js"
+import {
+  conversationSessionBranch,
+  shouldDestroyChatSandbox,
+} from "../../domain/workspaces/chat-lifecycle.js"
 import { workspaceAllowsConversationEdits } from "../../domain/workspaces/chat-sandbox-policy.js"
 import {
   planCapturedConversationPublication,
@@ -742,7 +745,8 @@ export const conversationRoutes = new OpenAPIHono<AppEnv>()
       githubConnectionId: workspace.githubConnectionId ?? undefined,
       pullNumber: conversation.lastChatPrNumber,
     })
-    if (!state) return c.json({ error: "Not found" }, 404)
+    if (!state || state.branch !== conversationSessionBranch(conversationId))
+      return c.json({ error: "Not found" }, 404)
     return c.json(
       {
         branch: state.branch,
@@ -823,7 +827,7 @@ export const conversationRoutes = new OpenAPIHono<AppEnv>()
         githubConnectionId: revision.remote.connectionId ?? undefined,
         pullNumber: conversation.lastChatPrNumber,
       })
-      if (existing?.prState === "open") {
+      if (existing?.prState === "open" && existing.branch === pushed.branch) {
         if (
           !(await persistConversationPublication({
             conversationId,

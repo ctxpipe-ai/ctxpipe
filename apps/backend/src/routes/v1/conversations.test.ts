@@ -24,7 +24,6 @@ const resolveConversationSandboxHandleMock = vi.hoisted(() => vi.fn())
 const pushConversationSessionBranchMock = vi.hoisted(() => vi.fn())
 const createPullRequestFromBranchMock = vi.hoisted(() => vi.fn())
 const getPullRequestStateMock = vi.hoisted(() => vi.fn())
-const reserveConversationChatPrNumberMock = vi.hoisted(() => vi.fn())
 const persistConversationLastChatPrNumberMock = vi.hoisted(() => vi.fn())
 
 vi.mock("../../models/workspaces.js", () => ({
@@ -74,7 +73,6 @@ vi.mock("../../models/conversations.js", () => ({
   touchConversationLastMessage: touchConversationLastMessageMock,
   persistConversationLastBranch: persistConversationLastBranchMock,
   persistConversationLastChatPrNumber: persistConversationLastChatPrNumberMock,
-  reserveConversationChatPrNumber: reserveConversationChatPrNumberMock,
   listOrgConversationsForSandboxGc: vi.fn().mockResolvedValue([]),
   discardUnstartedConversation: discardUnstartedConversationMock,
   updateConversation: updateConversationMock,
@@ -220,7 +218,6 @@ describe("conversations API", () => {
       branch: "ctxpipe/chat/conv_1/1",
       pushed: true,
     })
-    reserveConversationChatPrNumberMock.mockResolvedValue(3)
     createPullRequestFromBranchMock.mockResolvedValue({
       pullNumber: 41,
       pullUrl: "https://github.com/acme/docs/pull/41",

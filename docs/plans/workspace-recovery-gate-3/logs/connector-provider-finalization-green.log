@@ -1,0 +1,87 @@
+{"name": "connector-provider-finalization-green", "cwd": "/private/tmp/ctxpipe-recovery-01a07aba", "command": ["/Users/jakubriedl/.volta/tools/image/node/22.16.0/bin/node", "apps/backend/node_modules/vitest/vitest.mjs", "run", "--root", "apps/backend", "src/domain/workspaces/connector-finalization-native.contract.test.ts", "src/domain/workspaces/notion-mirror-native.contract.test.ts", "src/domain/workspaces/linear-mirror-native.contract.test.ts", "src/domain/workspaces/confluence-mirror-native.contract.test.ts"], "environment": {"AUTH_SECRET": "gate0-local-disposable-test-secret-20260907", "DATABASE_URL": "postgresql://ctxpipe_app:ctxpipe@127.0.0.1:61314/ctxpipe_gate0_fresh", "GRAPH_DB_URI": "redis://127.0.0.1:6398", "CI": "true", "NO_COLOR": "1", "TURBO_TELEMETRY_DISABLED": "1", "STORYBOOK_DISABLE_TELEMETRY": "1", "PATH": "/Users/jakubriedl/.volta/tools/image/node/22.16.0/bin:/private/tmp/ctxpipe-recovery-runtime/ast-grep/node_modules/.bin:/private/tmp/ctxpipe-recovery-runtime/node_modules/.bin:/private/tmp/ctxpipe-recovery-runtime/zoekt:/usr/local/bin:/System/Cryptexes/App/usr/bin:/usr/bin:/bin:/usr/sbin:/sbin:/var/run/com.apple.security.cryptexd/codex.system/bootstrap/usr/local/bin:/var/run/com.apple.security.cryptexd/codex.system/bootstrap/usr/bin:/var/run/com.apple.security.cryptexd/codex.system/bootstrap/usr/appleinternal/bin:/pkg/env/global/bin:/Users/jakubriedl/.codex/tmp/arg0/codex-arg0BW5Gt3:/Users/jakubriedl/.cache/codex-runtimes/codex-primary-runtime/dependencies/bin/override:/Users/jakubriedl/.local/bin:/Users/jakubriedl/.bun/bin:/Users/jakubriedl/.opencode/bin:/Users/jakubriedl/.volta/bin:/opt/homebrew/bin:/opt/homebrew/sbin:/Users/jakubriedl/.cache/codex-runtimes/codex-primary-runtime/dependencies/bin/fallback:/Applications/ChatGPT.app/Contents/Resources"}, "timeout_seconds": 600, "started_utc": "2026-09-08T18:02:40Z", "log": "logs/connector-provider-finalization-green.log"}
+
+ RUN  v4.0.18 /private/tmp/ctxpipe-recovery-01a07aba/apps/backend
+
+Cloning into bare repository '/var/folders/9t/jj9rnpps7_ddb72c1mq2k13w0000gn/T/ctxpipe-hydration-contract-c6DfYt/remote.git'...
+done.
+Cloning into bare repository '/var/folders/9t/jj9rnpps7_ddb72c1mq2k13w0000gn/T/ctxpipe-hydration-contract-ceq7nc/remote.git'...
+done.
+Cloning into bare repository '/var/folders/9t/jj9rnpps7_ddb72c1mq2k13w0000gn/T/ctxpipe-hydration-contract-ZgrVMp/remote.git'...
+done.
+ ✓ src/domain/workspaces/notion-mirror-native.contract.test.ts (3 tests) 11556ms
+   ✓ captures a Notion entity deletion without persisting its credential and runs one native mirror child  3815ms
+   ✓ captures a Notion full deletion without persisting its credential and runs one native mirror child  3059ms
+   ✓ captures a Notion rebind deletion without persisting its credential and runs one native mirror child  4681ms
+Cloning into bare repository '/var/folders/9t/jj9rnpps7_ddb72c1mq2k13w0000gn/T/ctxpipe-hydration-contract-qjW4Cc/remote.git'...
+done.
+Cloning into bare repository '/var/folders/9t/jj9rnpps7_ddb72c1mq2k13w0000gn/T/ctxpipe-hydration-contract-iuTXVU/remote.git'...
+done.
+Cloning into bare repository '/var/folders/9t/jj9rnpps7_ddb72c1mq2k13w0000gn/T/ctxpipe-hydration-contract-jEoYIv/remote.git'...
+done.
+Cloning into bare repository '/var/folders/9t/jj9rnpps7_ddb72c1mq2k13w0000gn/T/ctxpipe-hydration-contract-NXhg4J/remote.git'...
+done.
+Cloning into bare repository '/var/folders/9t/jj9rnpps7_ddb72c1mq2k13w0000gn/T/ctxpipe-hydration-contract-z7SVAw/remote.git'...
+done.
+Cloning into bare repository '/var/folders/9t/jj9rnpps7_ddb72c1mq2k13w0000gn/T/ctxpipe-hydration-contract-YCEvwy/remote.git'...
+done.
+Cloning into bare repository '/var/folders/9t/jj9rnpps7_ddb72c1mq2k13w0000gn/T/ctxpipe-hydration-contract-E4X4ms/remote.git'...
+done.
+Cloning into bare repository '/var/folders/9t/jj9rnpps7_ddb72c1mq2k13w0000gn/T/ctxpipe-hydration-contract-TwvopP/remote.git'...
+done.
+Cloning into bare repository '/var/folders/9t/jj9rnpps7_ddb72c1mq2k13w0000gn/T/ctxpipe-hydration-contract-Bxofy8/remote.git'...
+done.
+Cloning into bare repository '/var/folders/9t/jj9rnpps7_ddb72c1mq2k13w0000gn/T/ctxpipe-hydration-contract-79D8sC/remote.git'...
+done.
+Cloning into bare repository '/var/folders/9t/jj9rnpps7_ddb72c1mq2k13w0000gn/T/ctxpipe-hydration-contract-eGe6co/remote.git'...
+done.
+Cloning into bare repository '/var/folders/9t/jj9rnpps7_ddb72c1mq2k13w0000gn/T/ctxpipe-hydration-contract-eAprAD/remote.git'...
+done.
+Cloning into bare repository '/var/folders/9t/jj9rnpps7_ddb72c1mq2k13w0000gn/T/ctxpipe-hydration-contract-3rZpW4/remote.git'...
+done.
+Cloning into bare repository '/var/folders/9t/jj9rnpps7_ddb72c1mq2k13w0000gn/T/ctxpipe-hydration-contract-IOGzL6/remote.git'...
+done.
+Cloning into bare repository '/var/folders/9t/jj9rnpps7_ddb72c1mq2k13w0000gn/T/ctxpipe-hydration-contract-7W2ynL/remote.git'...
+done.
+ ✓ src/domain/workspaces/connector-finalization-native.contract.test.ts (15 tests) 5851ms
+   ✓ projects 'linear' 'completed' onto the same initial binding as 'live'; providerChanged=undefined  402ms
+   ✓ projects 'linear' 'partial_failed' onto the same initial binding as 'sync_failed'; providerChanged=undefined  547ms
+   ✓ projects 'notion' 'completed' onto the same initial binding as 'live'; providerChanged=undefined  400ms
+   ✓ projects 'notion' 'partial_failed' onto the same initial binding as 'sync_failed'; providerChanged=undefined  364ms
+   ✓ projects 'confluence' 'completed' onto the same initial binding as 'live'; providerChanged=undefined  305ms
+   ✓ projects 'confluence' 'partial_failed' onto the same initial binding as 'sync_failed'; providerChanged=undefined  360ms
+   ✓ projects 'confluence' 'failed' onto the same initial binding as 'sync_failed'; providerChanged=undefined  440ms
+   ✓ projects 'linear' 'completed' onto the same initial binding as 'initial_sync'; providerChanged=undefined  300ms
+   ✓ projects 'notion' 'completed' onto the same initial binding as 'initial_sync'; providerChanged=undefined  446ms
+   ✓ projects 'confluence' 'completed' onto the same initial binding as 'initial_sync'; providerChanged=undefined  629ms
+   ✓ projects 'linear' 'completed' onto the same initial binding as 'initial_sync'; providerChanged=true  306ms
+   ✓ projects 'notion' 'completed' onto the same initial binding as 'initial_sync'; providerChanged=true  471ms
+   ✓ projects 'confluence' 'completed' onto the same initial binding as 'initial_sync'; providerChanged=true  301ms
+Cloning into bare repository '/var/folders/9t/jj9rnpps7_ddb72c1mq2k13w0000gn/T/ctxpipe-hydration-contract-1AZklU/remote.git'...
+done.
+Cloning into bare repository '/var/folders/9t/jj9rnpps7_ddb72c1mq2k13w0000gn/T/ctxpipe-hydration-contract-X1iVok/remote.git'...
+done.
+Cloning into bare repository '/var/folders/9t/jj9rnpps7_ddb72c1mq2k13w0000gn/T/ctxpipe-hydration-contract-ydZVoZ/remote.git'...
+done.
+Cloning into bare repository '/var/folders/9t/jj9rnpps7_ddb72c1mq2k13w0000gn/T/ctxpipe-hydration-contract-x1tmOz/remote.git'...
+done.
+ ✓ src/domain/workspaces/confluence-mirror-native.contract.test.ts (4 tests) 11959ms
+   ✓ captures Confluence full with scoped deletion and transient credentials  2918ms
+   ✓ captures Confluence space with scoped deletion and transient credentials  3350ms
+   ✓ captures Confluence failed with scoped deletion and transient credentials  1057ms
+   ✓ captures Confluence rebind with scoped deletion and transient credentials  4633ms
+Cloning into bare repository '/var/folders/9t/jj9rnpps7_ddb72c1mq2k13w0000gn/T/ctxpipe-hydration-contract-8i5Mt8/remote.git'...
+done.
+Cloning into bare repository '/var/folders/9t/jj9rnpps7_ddb72c1mq2k13w0000gn/T/ctxpipe-hydration-contract-ihDmgN/remote.git'...
+done.
+Cloning into bare repository '/var/folders/9t/jj9rnpps7_ddb72c1mq2k13w0000gn/T/ctxpipe-hydration-contract-eyEISO/remote.git'...
+done.
+ ✓ src/domain/workspaces/linear-mirror-native.contract.test.ts (3 tests) 11147ms
+   ✓ captures a Linear entity deletion without persisting its credential and runs one native mirror child  3298ms
+   ✓ captures a Linear full deletion without persisting its credential and runs one native mirror child  2770ms
+   ✓ captures a Linear rebind deletion without persisting its credential and runs one native mirror child  5079ms
+
+ Test Files  4 passed (4)
+      Tests  25 passed (25)
+   Start at  04:02:40
+   Duration  47.38s (transform 962ms, setup 29ms, import 6.56s, tests 40.51s, environment 0ms)
+

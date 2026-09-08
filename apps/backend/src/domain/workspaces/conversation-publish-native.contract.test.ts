@@ -158,3 +158,76 @@ it.each([
     )
   },
 )
+
+it.each(["unchanged", "edited"])(
+  "publishes a restored shallow session branch: %s",
+  { timeout: 30_000 },
+  async (mode) => {
+    await withNativeHydrationFixture(
+      { github: true, githubWriteView: "writable", writeStatus: "writable" },
+      async (f) => {
+        const conversationId = `conv_${f.id}`
+        const branch = conversationSessionBranch(conversationId)
+        const raw = await localProcessSandbox().create({ id: conversationId })
+        try {
+          await withOrgDbContext(f.org.id, (db) =>
+            db.insert(conversations).values({
+              id: conversationId,
+              orgId: f.org.id,
+              userId: `user_${f.id}`,
+              workspaceId: f.workspaceId,
+            }),
+          )
+          f.git("checkout", "-b", branch)
+          const { writeFileSync } = await import("node:fs")
+          const { join } = await import("node:path")
+          writeFileSync(join(f.directory, "notes.md"), "# Published session\n")
+          f.git("add", "notes.md")
+          f.git("commit", "-m", "Published session")
+          f.git("push", f.remote, `HEAD:refs/heads/${branch}`)
+          expect(
+            (
+              await raw.process.exec(
+                `git clone --depth 1 --branch ${shellSingleQuote(branch)} ${shellSingleQuote(`file://${f.remote}`)} .`,
+              )
+            ).exitCode,
+          ).toBe(0)
+          expect(
+            (await raw.process.exec(`git cat-file -e ${f.sha}`)).exitCode,
+          ).not.toBe(0)
+          if (mode === "edited")
+            await raw.fs.write("notes.md", "# Restored edit\n")
+          const result = await withOrgIdContext(f.org, () =>
+            withUserIdContext(`user_${f.id}`, () =>
+              pushConversationSessionBranch({
+                handle: adaptTanstackHandle(raw),
+                conversationId,
+                orgId: f.org.id,
+                workspaceId: f.workspaceId,
+                revision: f.revision,
+                env: parseEnv(process.env),
+                commitMessage: "Publish restored session",
+              }),
+            ),
+          )
+          expect(result).toEqual({
+            ok: true,
+            branch,
+            pushed: mode === "edited",
+          })
+          expect(
+            f.git("--git-dir", f.remote, "show", `${branch}:notes.md`),
+          ).toBe(mode === "edited" ? "# Restored edit" : "# Published session")
+          expect(f.git("--git-dir", f.remote, "rev-parse", "main")).toBe(f.sha)
+        } finally {
+          await raw.destroy()
+          await withOrgDbContext(f.org.id, (db) =>
+            db
+              .delete(conversations)
+              .where(eq(conversations.id, conversationId)),
+          )
+        }
+      },
+    )
+  },
+)

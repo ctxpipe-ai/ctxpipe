@@ -51,7 +51,7 @@ export const notionSyncContent = defineWorkflow(
                 env,
               ),
             )
-            if (!connection?.accessToken)
+            if (!connection?.accessToken || !connection.workspaceId)
               throw new Error("Notion connection is not ready for sync")
             if (!binding?.githubConnectionId)
               throw new Error("Notion binding is not configured")
@@ -153,8 +153,14 @@ export const notionSyncContent = defineWorkflow(
           finalizeNotionBindingAfterContentWorkflow({
             connectionId: input.connectionId,
             workflowStatus: captured.status,
-            repositoryId: context.binding.repositoryId,
-            branch: context.binding.branch,
+            binding: {
+              repositoryId: context.binding.repositoryId,
+              revision: context.captured.revision,
+              provider: {
+                kind: "notion",
+                workspaceId: context.providerWorkspaceId,
+              },
+            },
           }),
         )
         return {

@@ -127,8 +127,15 @@ export const confluenceSyncContent = defineWorkflow(
       finalizeConfluenceSyncTargetAfterContentWorkflow({
         connectionId: input.connectionId,
         workflowStatus: captured.status,
-        repositoryId: context.target.repositoryId,
-        branch: context.target.branch,
+        binding: {
+          repositoryId: context.target.repositoryId,
+          revision: context.captured.revision,
+          provider: {
+            kind: "confluence",
+            cloudId: context.cloudId,
+            atlassianApiBaseUrl: context.atlassianApiBaseUrl,
+          },
+        },
       }),
     )
     return {

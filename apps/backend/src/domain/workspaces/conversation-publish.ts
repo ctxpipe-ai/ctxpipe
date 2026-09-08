@@ -18,7 +18,6 @@ import {
 import { isChatSessionBranch } from "./chat-pull-request.js"
 import { workspaceAllowsConversationEdits } from "./chat-sandbox-policy.js"
 import {
-  conversationSandboxStatus,
   ensureConversationSessionBranch,
   sanitizeGitRemoteError,
 } from "./conversation-files.js"
@@ -144,14 +143,6 @@ export async function pushConversationSessionBranch(input: {
     defaultBranch: revision.defaultBranch,
     message: input.commitMessage,
   })
-  const status = await conversationSandboxStatus({
-    handle: input.handle,
-    defaultBranch: revision.defaultBranch,
-    sessionBranch: branch,
-  })
-  if (!status.differsFromDefault && !status.unpushed) {
-    return { ok: false, error: "no_changes" }
-  }
   // The agent supplies Git objects only. A fresh broker directory owns all remote I/O.
   const head = await input.handle.exec("git rev-parse HEAD", { env: {} })
   if (head.exitCode !== 0)
@@ -161,23 +152,6 @@ export async function pushConversationSessionBranch(input: {
   let readToken: string | undefined
   let writeToken: string | undefined
   try {
-    const packed = await input.handle.exec(
-      `printf '%s\\n' ${shellSingleQuote(sha)} ${shellSingleQuote(`^${revision.sha}`)} | git pack-objects --stdout --revs --thin > ${shellSingleQuote(agentPack)}`,
-      { env: {} },
-    )
-    if (packed.exitCode !== 0)
-      throw new Error("Cannot capture the conversation Git delta")
-    const size = await input.handle.exec(
-      `wc -c < ${shellSingleQuote(agentPack)}`,
-      { env: {} },
-    )
-    const packBytes = Number(size.stdout.trim())
-    if (
-      size.exitCode !== 0 ||
-      !Number.isSafeInteger(packBytes) ||
-      packBytes <= 0
-    )
-      throw new Error("Invalid conversation Git pack size")
     readToken = await resolveRepositoryReadCredential({
       orgId: input.orgId,
       env: input.env,
@@ -197,6 +171,39 @@ export async function pushConversationSessionBranch(input: {
       branch,
       token: readToken,
     })
+    if (sha === defaultTip.sha) return { ok: false, error: "no_changes" }
+    if (sha === sessionTip?.sha) {
+      await assertBinding()
+      return { ok: true, branch, pushed: false }
+    }
+    const packBase = sessionTip?.sha ?? revision.sha
+    const ancestor = await input.handle.exec(
+      `git merge-base --is-ancestor ${shellSingleQuote(packBase)} ${shellSingleQuote(sha)}`,
+      { env: {} },
+    )
+    if (ancestor.exitCode !== 0)
+      return {
+        ok: false,
+        error:
+          "Session branch changed; restore its current revision before publishing",
+      }
+    const packed = await input.handle.exec(
+      `printf '%s\\n' ${shellSingleQuote(sha)} ${shellSingleQuote(`^${packBase}`)} | git pack-objects --stdout --revs --thin > ${shellSingleQuote(agentPack)}`,
+      { env: {} },
+    )
+    if (packed.exitCode !== 0)
+      throw new Error("Cannot capture the conversation Git delta")
+    const size = await input.handle.exec(
+      `wc -c < ${shellSingleQuote(agentPack)}`,
+      { env: {} },
+    )
+    const packBytes = Number(size.stdout.trim())
+    if (
+      size.exitCode !== 0 ||
+      !Number.isSafeInteger(packBytes) ||
+      packBytes <= 0
+    )
+      throw new Error("Invalid conversation Git pack size")
     writeToken = await getRepoWriteCloneToken(input.orgId, input.env, {
       githubConnectionId: connectionId,
       repoFullName: repositoryName,
@@ -207,7 +214,7 @@ export async function pushConversationSessionBranch(input: {
       // repository objects through the agent stdout channel.
       await nativeGit(
         directory,
-        ["fetch", "--depth", "1", "--", revision.remote.url, revision.sha],
+        ["fetch", "--depth", "1", "--", revision.remote.url, packBase],
         undefined,
         gitRemoteEnvironment({ url: revision.remote.url, token: readToken }),
       )

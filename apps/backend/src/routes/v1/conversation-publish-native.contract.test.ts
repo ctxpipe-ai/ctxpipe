@@ -26,7 +26,9 @@ import { conversationRoutes } from "./conversations.js"
 
 it.each([
   "push",
+  "warm_files",
   "pull-request",
+  "pr_collision",
   "missing",
   "stale",
   "stale_push",
@@ -40,7 +42,7 @@ it.each([
   "relink_before_pr",
 ])(
   "publishes from the authenticated conversation HTTP boundary: %s",
-  { timeout: 30_000 },
+  { timeout: 60_000 },
   async (scenario) => {
     const pullRequests: unknown[] = []
     let relink: (() => Promise<void>) | undefined
@@ -49,6 +51,17 @@ it.each([
         github: true,
         githubWriteView: "writable",
         writeStatus: "writable",
+        ...(scenario === "pr_collision"
+          ? {
+              githubPullRequest: {
+                number: 42,
+                head: { ref: "unrelated-feature" },
+                state: "open",
+                html_url:
+                  "https://github.com/fixture/hydration-contract/pull/42",
+              },
+            }
+          : {}),
         onGithubPrCredential: async () => {
           if (scenario === "relink_before_pr") await relink?.()
         },
@@ -70,6 +83,9 @@ it.each([
               .where(eq(workspaces.id, f.workspaceId)),
           )
         }
+        const previousProvider = process.env.SANDBOX_PROVIDER
+        if (scenario === "warm_files")
+          process.env.SANDBOX_PROVIDER = "unsandboxed"
         const raw = await localProcessSandbox().create({ id: conversationId })
         try {
           await withOrgDbContext(f.org.id, (db) =>
@@ -81,11 +97,28 @@ it.each([
               name: "Chat changes",
             }),
           )
+          if (scenario === "pr_collision") {
+            const { withUserIdContext } = await import("../../auth/context.js")
+            const { persistConversationPublication } = await import(
+              "../../models/conversations.js"
+            )
+            await withOrgIdContext(f.org, () =>
+              withUserIdContext(userId, () =>
+                persistConversationPublication({
+                  conversationId,
+                  lastBranch: conversationSessionBranch(conversationId),
+                  lastChatPrNumber: 42,
+                  revision: f.revision,
+                }),
+              ),
+            )
+            await relink()
+          }
           await raw.process.exec("git init -b main")
           await raw.process.exec(`git fetch ${shellSingleQuote(f.remote)} main`)
           await raw.process.exec("git checkout -B main FETCH_HEAD")
           await raw.fs.write("notes.md", "# Saved conversation\n")
-          if (scenario !== "missing")
+          if (scenario !== "missing" && scenario !== "warm_files")
             attachWorkspaceSandbox({
               id: conversationId,
               kind: "chat",
@@ -101,7 +134,7 @@ it.each([
                   : f.workspaceUrl,
               desiredSha: scenario === "stale_sha" ? "0".repeat(40) : f.sha,
               desiredGeneration:
-                scenario === "stale_generation"
+                scenario === "stale_generation" || scenario === "pr_collision"
                   ? f.revision.generation + 1
                   : f.revision.generation,
               defaultBranch:
@@ -137,8 +170,33 @@ fi
             await withOrgIdContext(f.org, next)
           })
           app.route("/conversations", conversationRoutes)
+          if (scenario === "pr_collision")
+            expect(
+              (
+                await app.request(
+                  `/conversations/${conversationId}/pull-request`,
+                )
+              ).status,
+            ).toBe(404)
+          if (scenario === "warm_files") {
+            const saved = await app.request(
+              `/conversations/${conversationId}/files/blob`,
+              {
+                method: "PUT",
+                headers: { "content-type": "application/json" },
+                body: JSON.stringify({
+                  path: "notes.md",
+                  body: "# Saved conversation\n",
+                }),
+              },
+            )
+            expect({
+              status: saved.status,
+              body: await saved.json(),
+            }).toMatchObject({ status: 200 })
+          }
           const pendingResponse = app.request(
-            `/conversations/${conversationId}/${scenario === "push" || scenario === "stale_push" || scenario === "relink_after_push_push" ? "push" : "pull-request"}`,
+            `/conversations/${conversationId}/${scenario === "push" || scenario === "warm_files" || scenario === "stale_push" || scenario === "relink_after_push_push" ? "push" : "pull-request"}`,
             {
               method: "POST",
               headers: { "content-type": "application/json" },
@@ -196,7 +254,7 @@ fi
             expect(
               f.git("--git-dir", f.remote, "show", `${branch}:notes.md`),
             ).toBe("# Saved conversation")
-            if (scenario === "pull-request") {
+            if (scenario === "pull-request" || scenario === "pr_collision") {
               expect(body).toMatchObject({
                 prNumber: 41,
                 pullUrl:
@@ -224,6 +282,28 @@ fi
           }
           expect(f.git("--git-dir", f.remote, "rev-parse", "main")).toBe(f.sha)
         } finally {
+          if (scenario === "warm_files") {
+            const {
+              memoizedConversationSandboxHandle,
+              resetWorkspaceChatSandboxMemos,
+            } = await import(
+              "../../domain/workspaces/workspace-chat-sandbox-memo.js"
+            )
+            await memoizedConversationSandboxHandle(conversationId)?.destroy?.()
+            resetWorkspaceChatSandboxMemos()
+            const { listSandboxInstances, deleteSandboxInstance } =
+              await import("../../models/workspaces.js")
+            await withOrgDbContext(f.org.id, async () => {
+              for (const instance of await listSandboxInstances({
+                conversationId,
+                kind: "chat",
+              }))
+                await deleteSandboxInstance(instance.id, f.org.id)
+            })
+          }
+          if (previousProvider === undefined)
+            delete process.env.SANDBOX_PROVIDER
+          else process.env.SANDBOX_PROVIDER = previousProvider
           resetRegisteredSandboxes()
           await raw.destroy()
           await withOrgDbContext(f.org.id, (db) =>

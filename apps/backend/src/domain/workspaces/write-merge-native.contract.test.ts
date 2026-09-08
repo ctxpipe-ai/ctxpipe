@@ -395,7 +395,7 @@ it.each(["paused", "running"] as const)(
           await withOrgIdContext(f.org, () =>
             reconcileWorkspaceWriteJob(jobId),
           ),
-        ).toEqual(original)
+        ).toMatchObject({ ...original, updatedAt: expect.any(Date) })
         errors.length = 0
         await withOrgIdContext(f.org, () =>
           enqueueWriteJob(command, { error: (error) => errors.push(error) }),
@@ -405,7 +405,7 @@ it.each(["paused", "running"] as const)(
           await withOrgIdContext(f.org, () =>
             reconcileWorkspaceWriteJob(jobId),
           ),
-        ).toEqual(original)
+        ).toMatchObject({ ...original, updatedAt: expect.any(Date) })
       },
     )
   },

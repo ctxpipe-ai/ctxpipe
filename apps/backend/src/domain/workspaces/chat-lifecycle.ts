@@ -17,10 +17,6 @@ export function conversationSessionBranch(conversationId: string): string {
   return chatSessionBranchName(conversationId, 1)
 }
 
-export function nextChatPrNumber(lastChatPrNumber: number | null): number {
-  return (lastChatPrNumber ?? 0) + 1
-}
-
 export function planChatPullRequest(input: {
   writeStatus: string
   readOnlyReason?: string | null

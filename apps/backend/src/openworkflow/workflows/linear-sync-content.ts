@@ -182,8 +182,14 @@ export const linearSyncContent = defineWorkflow(
           finalizeLinearBindingAfterContentWorkflow({
             connectionId: input.connectionId,
             workflowStatus: result.status,
-            repositoryId: context.target.repositoryId,
-            branch: context.target.branch,
+            binding: {
+              repositoryId: context.target.repositoryId,
+              revision: context.captured.revision,
+              provider: {
+                kind: "linear",
+                workspaceId: context.config.workspaceId,
+              },
+            },
           }),
         )
         return result

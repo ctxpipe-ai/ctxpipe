@@ -1,0 +1,107 @@
+{"name": "restored-publication-final-native", "cwd": "/private/tmp/ctxpipe-recovery-01a07aba", "command": ["/Users/jakubriedl/.volta/tools/image/node/22.16.0/bin/node", "apps/backend/node_modules/vitest/vitest.mjs", "run", "--root", "apps/backend", "src/routes/v1/conversation-publish-native.contract.test.ts", "src/domain/workspaces/conversation-publish-native.contract.test.ts", "src/routes/v1/conversations.test.ts"], "environment": {"AUTH_SECRET": "gate0-local-disposable-test-secret-20260907", "DATABASE_URL": "postgresql://ctxpipe_app:ctxpipe@127.0.0.1:61314/ctxpipe_gate0_fresh", "GRAPH_DB_URI": "redis://127.0.0.1:6398", "CI": "true", "NO_COLOR": "1", "TURBO_TELEMETRY_DISABLED": "1", "STORYBOOK_DISABLE_TELEMETRY": "1", "PATH": "/Users/jakubriedl/.volta/tools/image/node/22.16.0/bin:/private/tmp/ctxpipe-recovery-runtime/ast-grep/node_modules/.bin:/private/tmp/ctxpipe-recovery-runtime/node_modules/.bin:/private/tmp/ctxpipe-recovery-runtime/zoekt:/usr/local/bin:/System/Cryptexes/App/usr/bin:/usr/bin:/bin:/usr/sbin:/sbin:/var/run/com.apple.security.cryptexd/codex.system/bootstrap/usr/local/bin:/var/run/com.apple.security.cryptexd/codex.system/bootstrap/usr/bin:/var/run/com.apple.security.cryptexd/codex.system/bootstrap/usr/appleinternal/bin:/pkg/env/global/bin:/Users/jakubriedl/.codex/tmp/arg0/codex-arg0BW5Gt3:/Users/jakubriedl/.cache/codex-runtimes/codex-primary-runtime/dependencies/bin/override:/Users/jakubriedl/.local/bin:/Users/jakubriedl/.bun/bin:/Users/jakubriedl/.opencode/bin:/Users/jakubriedl/.volta/bin:/opt/homebrew/bin:/opt/homebrew/sbin:/Users/jakubriedl/.cache/codex-runtimes/codex-primary-runtime/dependencies/bin/fallback:/Applications/ChatGPT.app/Contents/Resources"}, "timeout_seconds": 600, "started_utc": "2026-09-08T18:04:27Z", "log": "logs/restored-publication-final-native.log"}
+
+ RUN  v4.0.18 /private/tmp/ctxpipe-recovery-01a07aba/apps/backend
+
+Cloning into bare repository '/var/folders/9t/jj9rnpps7_ddb72c1mq2k13w0000gn/T/ctxpipe-hydration-contract-YAKAVg/remote.git'...
+done.
+Cloning into bare repository '/var/folders/9t/jj9rnpps7_ddb72c1mq2k13w0000gn/T/ctxpipe-hydration-contract-RwiNTm/remote.git'...
+done.
+Cloning into bare repository '/var/folders/9t/jj9rnpps7_ddb72c1mq2k13w0000gn/T/ctxpipe-hydration-contract-IowQk5/remote.git'...
+done.
+Cloning into bare repository '/var/folders/9t/jj9rnpps7_ddb72c1mq2k13w0000gn/T/ctxpipe-hydration-contract-F1J9gJ/remote.git'...
+done.
+Cloning into bare repository '/var/folders/9t/jj9rnpps7_ddb72c1mq2k13w0000gn/T/ctxpipe-hydration-contract-6juBvQ/remote.git'...
+done.
+Cloning into bare repository '/var/folders/9t/jj9rnpps7_ddb72c1mq2k13w0000gn/T/ctxpipe-hydration-contract-apJUJF/remote.git'...
+done.
+Switched to a new branch 'ctxpipe/chat/conv_hydrate_1788890678416_ojb7a1gma8/1'
+To /var/folders/9t/jj9rnpps7_ddb72c1mq2k13w0000gn/T/ctxpipe-hydration-contract-apJUJF/remote.git
+ * [new branch]      HEAD -> ctxpipe/chat/conv_hydrate_1788890678416_ojb7a1gma8/1
+Cloning into bare repository '/var/folders/9t/jj9rnpps7_ddb72c1mq2k13w0000gn/T/ctxpipe-hydration-contract-uK8k0A/remote.git'...
+done.
+Switched to a new branch 'ctxpipe/chat/conv_hydrate_1788890679334_sm0mq1ddj2/1'
+To /var/folders/9t/jj9rnpps7_ddb72c1mq2k13w0000gn/T/ctxpipe-hydration-contract-uK8k0A/remote.git
+ * [new branch]      HEAD -> ctxpipe/chat/conv_hydrate_1788890679334_sm0mq1ddj2/1
+ ✓ src/domain/workspaces/conversation-publish-native.contract.test.ts (7 tests) 9519ms
+   ✓ brokers conversation publishing without agent write credentials: publish  1093ms
+   ✓ brokers conversation publishing without agent write credentials: rebind  1190ms
+   ✓ brokers conversation publishing without agent write credentials: default_changed  954ms
+   ✓ brokers conversation publishing without agent write credentials: session_advanced  1100ms
+   ✓ brokers conversation publishing without agent write credentials: large_base  3100ms
+   ✓ publishes a restored shallow session branch: unchanged  918ms
+   ✓ publishes a restored shallow session branch: edited  1163ms
+Cloning into bare repository '/var/folders/9t/jj9rnpps7_ddb72c1mq2k13w0000gn/T/ctxpipe-hydration-contract-AahRe3/remote.git'...
+done.
+Cloning into bare repository '/var/folders/9t/jj9rnpps7_ddb72c1mq2k13w0000gn/T/ctxpipe-hydration-contract-25xn5j/remote.git'...
+done.
+Cloning into bare repository '/var/folders/9t/jj9rnpps7_ddb72c1mq2k13w0000gn/T/ctxpipe-hydration-contract-rp1REA/remote.git'...
+done.
+Cloning into bare repository '/var/folders/9t/jj9rnpps7_ddb72c1mq2k13w0000gn/T/ctxpipe-hydration-contract-ZerB16/remote.git'...
+done.
+Cloning into bare repository '/var/folders/9t/jj9rnpps7_ddb72c1mq2k13w0000gn/T/ctxpipe-hydration-contract-nOEQiM/remote.git'...
+done.
+Cloning into bare repository '/var/folders/9t/jj9rnpps7_ddb72c1mq2k13w0000gn/T/ctxpipe-hydration-contract-x9RiLM/remote.git'...
+done.
+Cloning into bare repository '/var/folders/9t/jj9rnpps7_ddb72c1mq2k13w0000gn/T/ctxpipe-hydration-contract-KtNll1/remote.git'...
+done.
+Cloning into bare repository '/var/folders/9t/jj9rnpps7_ddb72c1mq2k13w0000gn/T/ctxpipe-hydration-contract-62qVjr/remote.git'...
+done.
+Cloning into bare repository '/var/folders/9t/jj9rnpps7_ddb72c1mq2k13w0000gn/T/ctxpipe-hydration-contract-8OBD7u/remote.git'...
+done.
+Cloning into bare repository '/var/folders/9t/jj9rnpps7_ddb72c1mq2k13w0000gn/T/ctxpipe-hydration-contract-lQeZ9c/remote.git'...
+done.
+Cloning into bare repository '/var/folders/9t/jj9rnpps7_ddb72c1mq2k13w0000gn/T/ctxpipe-hydration-contract-bR1FiJ/remote.git'...
+done.
+Cloning into bare repository '/var/folders/9t/jj9rnpps7_ddb72c1mq2k13w0000gn/T/ctxpipe-hydration-contract-Ef8kID/remote.git'...
+done.
+Cloning into bare repository '/var/folders/9t/jj9rnpps7_ddb72c1mq2k13w0000gn/T/ctxpipe-hydration-contract-sXTVIc/remote.git'...
+done.
+Cloning into bare repository '/var/folders/9t/jj9rnpps7_ddb72c1mq2k13w0000gn/T/ctxpipe-hydration-contract-hZrI8O/remote.git'...
+done.
+Cloning into bare repository '/var/folders/9t/jj9rnpps7_ddb72c1mq2k13w0000gn/T/ctxpipe-hydration-contract-dUp7F4/remote.git'...
+done.
+ ❯ src/routes/v1/conversation-publish-native.contract.test.ts (15 tests | 1 failed) 15856ms
+   ✓ publishes from the authenticated conversation HTTP boundary: push  1421ms
+   × publishes from the authenticated conversation HTTP boundary: warm_files 1945ms
+   ✓ publishes from the authenticated conversation HTTP boundary: pull-request  1048ms
+   ✓ publishes from the authenticated conversation HTTP boundary: pr_collision  3034ms
+   ✓ publishes from the authenticated conversation HTTP boundary: missing  455ms
+   ✓ publishes from the authenticated conversation HTTP boundary: stale  601ms
+   ✓ publishes from the authenticated conversation HTTP boundary: stale_push  454ms
+   ✓ publishes from the authenticated conversation HTTP boundary: stale_connection  402ms
+   ✓ publishes from the authenticated conversation HTTP boundary: stale_generation  485ms
+   ✓ publishes from the authenticated conversation HTTP boundary: stale_sha  519ms
+   ✓ publishes from the authenticated conversation HTTP boundary: stale_default_branch  443ms
+   ✓ publishes from the authenticated conversation HTTP boundary: relink_after_push  1645ms
+   ✓ publishes from the authenticated conversation HTTP boundary: relink_after_push_push  1413ms
+   ✓ publishes from the authenticated conversation HTTP boundary: relink_during_pr  953ms
+   ✓ publishes from the authenticated conversation HTTP boundary: relink_before_pr  1037ms
+ ✓ src/routes/v1/conversations.test.ts (12 tests) 40ms
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 1 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  src/routes/v1/conversation-publish-native.contract.test.ts > publishes from the authenticated conversation HTTP boundary: warm_files
+Error: sandbox orgId is required
+ ❯ requireSandboxOrgId src/models/workspace-sandboxes.ts:52:21
+     50| 
+     51| function requireSandboxOrgId(orgId: string | null | undefined): string…
+     52|   if (!orgId) throw new Error("sandbox orgId is required")
+       |                     ^
+     53|   return orgId
+     54| }
+ ❯ deleteSandboxInstance src/models/workspace-sandboxes.ts:359:23
+ ❯ src/routes/v1/conversation-publish-native.contract.test.ts:301:23
+ ❯ db.transaction.options.isolationLevel.isolationLevel src/db/client.ts:150:16
+ ❯ NodePgSession.transaction ../../node_modules/.pnpm/drizzle-orm@1.0.0-beta.22_@opentelemetry+api@1.9.0_@types+mssql@9.1.9_@azure+core-clien_187cb3c43007455e384d88e6e878f2d4/node_modules/drizzle-orm/node-postgres/session.js:148:19
+ ❯ src/routes/v1/conversation-publish-native.contract.test.ts:296:13
+ ❯ withNativeHydrationFixture src/test/native-hydration-fixture.ts:619:5
+ ❯ src/routes/v1/conversation-publish-native.contract.test.ts:49:5
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/1]⎯
+
+
+ Test Files  1 failed | 2 passed (3)
+      Tests  1 failed | 33 passed (34)
+   Start at  04:04:28
+   Duration  31.18s (transform 1.10s, setup 32ms, import 5.50s, tests 25.41s, environment 0ms)
+

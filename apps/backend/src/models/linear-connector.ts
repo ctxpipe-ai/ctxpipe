@@ -31,6 +31,10 @@ import {
   linearConnectionToShape,
   linearShapeToConfig,
 } from "./connection-rows.js"
+import {
+  type CapturedConnectorBinding,
+  lockConnectorFinalizationBinding,
+} from "./connector-finalization.js"
 import { listGithubConnectionsForOrg } from "./github-installation.js"
 import { DEFAULT_CHECKOUT_KEY } from "./repositories.js"
 
@@ -1252,8 +1256,7 @@ export async function claimLinearContentSyncRetry(
 
 export async function finalizeLinearBindingAfterContentWorkflow(input: {
   connectionId: string
-  repositoryId: string
-  branch: string
+  binding: CapturedConnectorBinding
   workflowStatus: "completed" | "partial_failed" | "failed"
 }): Promise<boolean> {
   assertNotInOrgDbContext()
@@ -1282,8 +1285,15 @@ export async function finalizeLinearBindingAfterContentWorkflow(input: {
       !target ||
       !target.enabled ||
       target.setupPhase !== "initial_sync" ||
-      target.repositoryId !== input.repositoryId ||
-      target.branch !== input.branch
+      target.repositoryId !== input.binding.repositoryId ||
+      target.branch !== input.binding.revision.defaultBranch
+    )
+      return
+    if (
+      !(await lockConnectorFinalizationBinding(
+        input.binding,
+        input.connectionId,
+      ))
     )
       return
     const [result] = await tx

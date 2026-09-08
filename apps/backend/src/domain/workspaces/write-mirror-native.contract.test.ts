@@ -336,7 +336,7 @@ it(
               },
             }),
           ),
-        ).toEqual({ started: false })
+        ).toEqual({ started: true })
         expect(
           await withOrgIdContext(f.org, () =>
             reconcileWorkspaceWriteJob(jobId),
@@ -383,7 +383,12 @@ it(
                   (run.input as { jobId?: string })?.jobId ?? "",
                 ),
             ),
-          ).toEqual([])
+          ).toMatchObject([
+            {
+              workflowName: "workspace-write-connector-mirror",
+              input: { jobId },
+            },
+          ])
         } finally {
           await backend.stop()
         }

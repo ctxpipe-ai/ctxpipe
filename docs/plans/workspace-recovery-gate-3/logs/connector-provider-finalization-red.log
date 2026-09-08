@@ -1,0 +1,116 @@
+{"name": "connector-provider-finalization-red", "cwd": "/private/tmp/ctxpipe-recovery-01a07aba", "command": ["/Users/jakubriedl/.volta/tools/image/node/22.16.0/bin/node", "apps/backend/node_modules/vitest/vitest.mjs", "run", "--root", "apps/backend", "src/domain/workspaces/connector-finalization-native.contract.test.ts", "-t", "providerChanged=true"], "environment": {"AUTH_SECRET": "gate0-local-disposable-test-secret-20260907", "DATABASE_URL": "postgresql://ctxpipe_app:ctxpipe@127.0.0.1:61314/ctxpipe_gate0_fresh", "GRAPH_DB_URI": "redis://127.0.0.1:6398", "CI": "true", "NO_COLOR": "1", "TURBO_TELEMETRY_DISABLED": "1", "STORYBOOK_DISABLE_TELEMETRY": "1", "PATH": "/Users/jakubriedl/.volta/tools/image/node/22.16.0/bin:/private/tmp/ctxpipe-recovery-runtime/ast-grep/node_modules/.bin:/private/tmp/ctxpipe-recovery-runtime/node_modules/.bin:/private/tmp/ctxpipe-recovery-runtime/zoekt:/usr/local/bin:/System/Cryptexes/App/usr/bin:/usr/bin:/bin:/usr/sbin:/sbin:/var/run/com.apple.security.cryptexd/codex.system/bootstrap/usr/local/bin:/var/run/com.apple.security.cryptexd/codex.system/bootstrap/usr/bin:/var/run/com.apple.security.cryptexd/codex.system/bootstrap/usr/appleinternal/bin:/pkg/env/global/bin:/Users/jakubriedl/.codex/tmp/arg0/codex-arg0BW5Gt3:/Users/jakubriedl/.cache/codex-runtimes/codex-primary-runtime/dependencies/bin/override:/Users/jakubriedl/.local/bin:/Users/jakubriedl/.bun/bin:/Users/jakubriedl/.opencode/bin:/Users/jakubriedl/.volta/bin:/opt/homebrew/bin:/opt/homebrew/sbin:/Users/jakubriedl/.cache/codex-runtimes/codex-primary-runtime/dependencies/bin/fallback:/Applications/ChatGPT.app/Contents/Resources"}, "timeout_seconds": 600, "started_utc": "2026-09-08T18:02:11Z", "log": "logs/connector-provider-finalization-red.log"}
+
+ RUN  v4.0.18 /private/tmp/ctxpipe-recovery-01a07aba/apps/backend
+
+Cloning into bare repository '/var/folders/9t/jj9rnpps7_ddb72c1mq2k13w0000gn/T/ctxpipe-hydration-contract-uI9ykl/remote.git'...
+done.
+Cloning into bare repository '/var/folders/9t/jj9rnpps7_ddb72c1mq2k13w0000gn/T/ctxpipe-hydration-contract-2tbbe8/remote.git'...
+done.
+Cloning into bare repository '/var/folders/9t/jj9rnpps7_ddb72c1mq2k13w0000gn/T/ctxpipe-hydration-contract-POUwcz/remote.git'...
+done.
+ ❯ src/domain/workspaces/connector-finalization-native.contract.test.ts (15 tests | 3 failed | 12 skipped) 1212ms
+   ↓ projects 'linear' 'completed' onto the same initial binding as 'live'; providerChanged=undefined
+   ↓ projects 'linear' 'partial_failed' onto the same initial binding as 'sync_failed'; providerChanged=undefined
+   ↓ projects 'linear' 'failed' onto the same initial binding as 'sync_failed'; providerChanged=undefined
+   ↓ projects 'notion' 'completed' onto the same initial binding as 'live'; providerChanged=undefined
+   ↓ projects 'notion' 'partial_failed' onto the same initial binding as 'sync_failed'; providerChanged=undefined
+   ↓ projects 'notion' 'failed' onto the same initial binding as 'sync_failed'; providerChanged=undefined
+   ↓ projects 'confluence' 'completed' onto the same initial binding as 'live'; providerChanged=undefined
+   ↓ projects 'confluence' 'partial_failed' onto the same initial binding as 'sync_failed'; providerChanged=undefined
+   ↓ projects 'confluence' 'failed' onto the same initial binding as 'sync_failed'; providerChanged=undefined
+   ↓ projects 'linear' 'completed' onto the same initial binding as 'initial_sync'; providerChanged=undefined
+   ↓ projects 'notion' 'completed' onto the same initial binding as 'initial_sync'; providerChanged=undefined
+   ↓ projects 'confluence' 'completed' onto the same initial binding as 'initial_sync'; providerChanged=undefined
+   × projects 'linear' 'completed' onto the same initial binding as 'initial_sync'; providerChanged=true 379ms
+   × projects 'notion' 'completed' onto the same initial binding as 'initial_sync'; providerChanged=true 447ms
+   × projects 'confluence' 'completed' onto the same initial binding as 'initial_sync'; providerChanged=true 385ms
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 3 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  src/domain/workspaces/connector-finalization-native.contract.test.ts > projects 'linear' 'completed' onto the same initial binding as 'initial_sync'; providerChanged=true
+AssertionError: expected { …(14) } to match object { setupPhase: 'initial_sync', …(3) }
+(10 matching properties omitted from actual)
+
+- Expected
++ Received
+
+  {
+    "branch": "main",
+    "enabled": true,
+    "repositoryId": "repo_agqiel2trj2c3f7xnt5of3mksq",
+-   "setupPhase": "initial_sync",
++   "setupPhase": "live",
+  }
+
+ ❯ src/domain/workspaces/connector-finalization-native.contract.test.ts:138:54
+    136|             confluence: getConfluenceSyncTargetWithRepoByConnectionId,
+    137|           }[provider]
+    138|           expect(await read(f.org.id, connectionId)).toMatchObject({
+       |                                                      ^
+    139|             setupPhase: phase,
+    140|             repositoryId: repository.id,
+ ❯ withNativeHydrationFixture src/test/native-hydration-fixture.ts:608:5
+ ❯ src/domain/workspaces/connector-finalization-native.contract.test.ts:48:5
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/3]⎯
+
+ FAIL  src/domain/workspaces/connector-finalization-native.contract.test.ts > projects 'notion' 'completed' onto the same initial binding as 'initial_sync'; providerChanged=true
+AssertionError: expected { …(14) } to match object { setupPhase: 'initial_sync', …(3) }
+(10 matching properties omitted from actual)
+
+- Expected
++ Received
+
+  {
+    "branch": "main",
+    "enabled": true,
+    "repositoryId": "repo_agqiel2u4zyc7lxjg5xccyrgfa",
+-   "setupPhase": "initial_sync",
++   "setupPhase": "live",
+  }
+
+ ❯ src/domain/workspaces/connector-finalization-native.contract.test.ts:138:54
+    136|             confluence: getConfluenceSyncTargetWithRepoByConnectionId,
+    137|           }[provider]
+    138|           expect(await read(f.org.id, connectionId)).toMatchObject({
+       |                                                      ^
+    139|             setupPhase: phase,
+    140|             repositoryId: repository.id,
+ ❯ withNativeHydrationFixture src/test/native-hydration-fixture.ts:608:5
+ ❯ src/domain/workspaces/connector-finalization-native.contract.test.ts:48:5
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[2/3]⎯
+
+ FAIL  src/domain/workspaces/connector-finalization-native.contract.test.ts > projects 'confluence' 'completed' onto the same initial binding as 'initial_sync'; providerChanged=true
+AssertionError: expected { …(14) } to match object { setupPhase: 'initial_sync', …(3) }
+(10 matching properties omitted from actual)
+
+- Expected
++ Received
+
+  {
+    "branch": "main",
+    "enabled": true,
+    "repositoryId": "repo_agqiel2w4z2gdn575fkv3p5lsq",
+-   "setupPhase": "initial_sync",
++   "setupPhase": "live",
+  }
+
+ ❯ src/domain/workspaces/connector-finalization-native.contract.test.ts:138:54
+    136|             confluence: getConfluenceSyncTargetWithRepoByConnectionId,
+    137|           }[provider]
+    138|           expect(await read(f.org.id, connectionId)).toMatchObject({
+       |                                                      ^
+    139|             setupPhase: phase,
+    140|             repositoryId: repository.id,
+ ❯ withNativeHydrationFixture src/test/native-hydration-fixture.ts:608:5
+ ❯ src/domain/workspaces/connector-finalization-native.contract.test.ts:48:5
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[3/3]⎯
+
+
+ Test Files  1 failed (1)
+      Tests  3 failed | 12 skipped (15)
+   Start at  04:02:11
+   Duration  3.79s (transform 867ms, setup 20ms, import 2.49s, tests 1.21s, environment 0ms)
+

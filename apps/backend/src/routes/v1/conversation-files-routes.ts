@@ -350,6 +350,17 @@ async function warmConversationSandbox(input: ConversationSandboxAttachInput) {
     cloneToken: runtime.cloneToken,
   })
   if (!warmed.ok) return null
+  await checkoutPreparedConversationBranch({
+    conversationId: input.conversation.id,
+    orgId: runtime.orgId,
+    workspaceId: runtime.workspaceId ?? input.workspace.id,
+    githubConnectionId: input.workspace.githubConnectionId,
+    defaultBranch: runtime.defaultBranch,
+    writeStatus: runtime.writeStatus,
+    desiredUrl: runtime.desiredUrl,
+    desiredGeneration: runtime.desiredGeneration,
+    desiredSha: runtime.desiredSha,
+  })
   return resolveConversationSandboxHandle(input.conversation.id)
 }
 

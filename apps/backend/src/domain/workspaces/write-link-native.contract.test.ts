@@ -383,7 +383,7 @@ it(
 )
 
 it(
-  "persists a canonical paused link command without starting a write workflow",
+  "binds a canonical paused link command to its native write workflow",
   { timeout: 30_000 },
   async () => {
     await withNativeHydrationFixture(
@@ -408,7 +408,7 @@ it(
               },
             ),
           ),
-        ).toEqual({ started: false })
+        ).toEqual({ started: true })
         expect(
           await withOrgIdContext(f.org, () =>
             reconcileWorkspaceWriteJob(jobId),
@@ -431,7 +431,9 @@ it(
             (await backend.listWorkflowRuns({ limit: 100 })).data.filter(
               (run) => (run.input as { jobId?: string })?.jobId === jobId,
             ),
-          ).toEqual([])
+          ).toMatchObject([
+            { workflowName: "workspace-write-link-unlink", input: { jobId } },
+          ])
         } finally {
           await backend.stop()
         }

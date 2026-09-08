@@ -44,6 +44,12 @@ export type NativeHydrationOptions = {
   githubRepoPermissions?: GithubRepoPermissionBits | null
   githubInstallationPermissions?: GithubRepoPermissionBits
   githubContentFiles?: Record<string, string>
+  githubPullRequest?: {
+    number: number
+    head: { ref: string }
+    state: string
+    html_url: string
+  }
   onGithubPrCredential?: () => void | Promise<void>
   onGithubPullRequest?: (body: unknown) => void | Promise<void>
   githubGitResponses?: Record<string, { status?: number; body: unknown }>
@@ -102,6 +108,14 @@ async function createNativeHydrationFixture(
   let beforeWriteProbe: (() => Promise<void>) | undefined
   let beforeWriteCredential: (() => Promise<void>) | undefined
   const server = setupServer(
+    http.get(
+      "https://api.github.com/repos/fixture/hydration-contract/pulls/:number",
+      () =>
+        HttpResponse.json(
+          options.githubPullRequest ?? { message: "Not found" },
+          { status: options.githubPullRequest ? 200 : 404 },
+        ),
+    ),
     http.put(
       "https://api.github.com/repos/fixture/hydration-contract/contents/*",
       async ({ request, params }) => {
