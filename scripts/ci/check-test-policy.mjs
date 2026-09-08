@@ -371,7 +371,7 @@ try {
         (ts.isPropertyAssignment(node) ||
           ts.isShorthandPropertyAssignment(node) ||
           ts.isGetAccessorDeclaration(node)) &&
-        ["retry", "retries"].includes(
+        ["retry", "retries", "fails", "skip", "only", "todo"].includes(
           (ts.isComputedPropertyName(node.name)
             ? constantValue(node.name.expression)
             : node.name.getText(source)
@@ -401,7 +401,10 @@ try {
             return false
           })())
       )
-        complain(node, "Blind test retries are forbidden")
+        complain(
+          node,
+          "Test retries, selection and expected failures are forbidden",
+        )
       ts.forEachChild(node, visit)
     }
     visit(source)

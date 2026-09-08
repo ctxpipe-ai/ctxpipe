@@ -28,6 +28,10 @@ test("proof policy rejects aliased skips, retries and owned module mocks without
     )
     assert.equal(normal.status, 0, normal.stderr)
     for (const source of [
+      'import { test } from "vitest"; test("proof", { fails: true }, () => { throw new Error("defect") })',
+      'import { test } from "vitest"; const fails = true; test("proof", { fails }, () => {})',
+      'import { test } from "vitest"; const key = `fails`; test("proof", { [key]: true }, () => {})',
+      'import { test } from "vitest"; const options = { fails: true }; test("proof", { ...options }, () => {})',
       'import { test } from "vitest"; test.skip.each([1])("proof", () => {})',
       'import { test } from "vitest"; const omit = test.skip; omit("proof", () => {})',
       'import * as v from "vitest"; v.test.skip.each([1])("proof", () => {})',
@@ -74,6 +78,10 @@ test("proof policy rejects aliased skips, retries and owned module mocks without
       'import { test } from "vitest"; const retry = 0; const options = { retry }; test("proof", { ...options }, () => {})',
     )
     assert.equal(zeroRetry.status, 0, zeroRetry.stderr)
+    const noExpectedFailure = check(
+      'import { test } from "vitest"; test("proof", { fails: false }, () => {})',
+    )
+    assert.equal(noExpectedFailure.status, 0, noExpectedFailure.stderr)
     const scopedZero = check(
       'import { test } from "vitest"; const retry = 0; test("proof", { retry }, () => {}); function unrelated() { const retry = 2 }',
     )
