@@ -3,6 +3,7 @@ import {
   assertNotInOrgDbContext,
   withOrgDbContext,
 } from "../../../db/client.js"
+import { resolveRepositoryReadTip } from "../../../domain/workspaces/resolve-revision.js"
 import {
   applyResolvedTipsForMatchingLinked,
   applyResolvedTipsForMatchingWorkspaces,
@@ -11,7 +12,6 @@ import {
   type GithubRepoPermissionBits,
   type GithubRepoWriteView,
   githubInstallationCanPush,
-  githubRepoFullNameFromWorkspaceUrl,
 } from "../../../domain/workspaces/write-status.js"
 import { getInstallationOctokitForOrg } from "../../../models/github-installation.js"
 import {
@@ -21,7 +21,6 @@ import {
   persistResolvedDesiredSha,
 } from "../../../models/workspaces.js"
 import { enqueueWorkspaceCommitProjection } from "../../../openworkflow/enqueue-workspace-commit-projection.js"
-import { resolveGitRemoteTip } from "../../../services/git/clone-tree.js"
 
 export async function resolveGithubBranchTip(input: {
   orgId: string
@@ -144,55 +143,19 @@ export async function resolveWorkspaceRepositoryTip(input: {
   branch?: string | null
   env: Env
 }): Promise<string | null> {
-  const fullName = githubRepoFullNameFromWorkspaceUrl(
-    input.workspaceRepositoryUrl,
-  )
-  if (!fullName) {
-    assertNotInOrgDbContext()
-    return (
-      (
-        await resolveGitRemoteTip({
-          url: input.workspaceRepositoryUrl,
-          branch: input.branch,
-        })
-      )?.sha ?? null
-    )
-  }
-  try {
-    const requested = input.branch?.trim()
-    if (requested) {
-      return resolveGithubBranchTip({
+  return (
+    (
+      await resolveRepositoryReadTip({
         orgId: input.orgId,
-        githubConnectionId: input.githubConnectionId,
-        repoFullName: fullName,
-        branch: requested,
         env: input.env,
+        remote: {
+          url: input.workspaceRepositoryUrl,
+          githubConnectionId: input.githubConnectionId ?? null,
+        },
+        branch: input.branch,
       })
-    }
-    const ctx = await getInstallationOctokitForOrg(
-      input.orgId,
-      input.env,
-      input.githubConnectionId ?? undefined,
-    )
-    if (!ctx) return null
-    const [owner, repo] = fullName.split("/")
-    if (!owner || !repo) return null
-    const { data: repoMeta } = await ctx.octokit.rest.repos.get({
-      owner,
-      repo,
-    })
-    const branch = repoMeta.default_branch
-    if (!branch) return null
-    return resolveGithubBranchTip({
-      orgId: input.orgId,
-      githubConnectionId: input.githubConnectionId,
-      repoFullName: fullName,
-      branch,
-      env: input.env,
-    })
-  } catch {
-    return null
-  }
+    )?.sha ?? null
+  )
 }
 
 /** Webhook `after` is a trigger only — never persist it as desired SHA. */

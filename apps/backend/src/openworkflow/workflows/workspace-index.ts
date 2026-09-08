@@ -2,32 +2,50 @@ import { defineWorkflow } from "openworkflow"
 import { z } from "zod"
 import { withOrgIdContext } from "../../auth/withAuth.js"
 import { getSystemDb, withOrgDbContext } from "../../db/client.js"
-import { HYDRATE_INDEX_UNAVAILABLE_MESSAGE } from "../../domain/workspaces/hydrate.js"
 import { normalizeWorkspaceRepositoryUrl } from "../../domain/workspaces/slug.js"
+import {
+  sameWorkspaceRevision,
+  workspaceRevisionSchema,
+} from "../../domain/workspaces/revision.js"
 import {
   ensureWorkspaceCheckout,
   findRepositoriesByNormalizedGitUrls,
   getGithubConnectionIdForRepository,
 } from "../../models/repositories.js"
 import {
+  getDesiredWorkspaceRevision,
   getWorkspaceById,
   listLinkedRepositories,
-  persistHydrateFailure,
   persistIndexedSha,
   persistLinkedIndexedSha,
+  persistWorkspaceIndexResult,
 } from "../../models/workspaces.js"
 import { repositoryIndex } from "./repository-index.js"
 
-const workspaceIndexInputSchema = z.object({
-  orgId: z.string().min(1),
-  workspaceId: z.string().min(1),
-  gitUrl: z.string().min(1),
-  desiredSha: z.string().min(1),
-  role: z.enum(["workspace", "linked"]),
-  linkedId: z.string().min(1).optional(),
-  jobGeneration: z.number().int(),
-  jobWorkspaceUrl: z.string().min(1),
-})
+const workspaceIndexInputSchema = z
+  .object({
+    orgId: z.string().min(1),
+    workspaceId: z.string().min(1),
+    gitUrl: z.string().min(1),
+    desiredSha: z.string().min(1),
+    role: z.enum(["workspace", "linked"]),
+    linkedId: z.string().min(1).optional(),
+    jobGeneration: z.number().int(),
+    jobWorkspaceUrl: z.string().min(1),
+    revision: workspaceRevisionSchema.optional(),
+  })
+  .refine(
+    (input) =>
+      !input.revision ||
+      (input.revision.access === "read" &&
+        input.revision.workspaceId === input.workspaceId &&
+        input.revision.generation === input.jobGeneration &&
+        input.revision.remote.url === input.jobWorkspaceUrl &&
+        (input.role === "linked" ||
+          (input.revision.remote.url === input.gitUrl &&
+            input.revision.sha === input.desiredSha))),
+    "Index input must describe one workspace revision",
+  )
 
 export const workspaceIndex = defineWorkflow(
   { name: "workspace-index", schema: workspaceIndexInputSchema },
@@ -38,6 +56,18 @@ export const workspaceIndex = defineWorkflow(
     if (!org) throw new Error(`Organization not found: ${input.orgId}`)
 
     return withOrgIdContext({ id: org.id, slug: org.slug }, async () => {
+      const revision = await getDesiredWorkspaceRevision(input.workspaceId)
+      if (
+        !revision ||
+        (input.revision && !sameWorkspaceRevision(revision, input.revision)) ||
+        revision.generation !== input.jobGeneration ||
+        revision.remote.url !== input.jobWorkspaceUrl ||
+        (input.role === "workspace" &&
+          (revision.sha !== input.desiredSha ||
+            revision.remote.url !== input.gitUrl))
+      ) {
+        return { published: false, reason: "cas_discarded" as const }
+      }
       const prepared = await withOrgDbContext(input.orgId, async () => {
         const workspace = await getWorkspaceById(input.workspaceId)
         if (!workspace) {
@@ -51,12 +81,14 @@ export const workspaceIndex = defineWorkflow(
         ])
         const repo = repos[0]
         if (!repo) {
-          if (!workspace.activeProjectionSha) {
-            await persistHydrateFailure({
-              workspaceId: workspace.id,
-              message: HYDRATE_INDEX_UNAVAILABLE_MESSAGE,
+          if (input.role === "workspace")
+            await persistWorkspaceIndexResult({
+              revision,
+              result: {
+                kind: "failed",
+                message: "Workspace repository is unavailable for indexing",
+              },
             })
-          }
           return {
             kind: "done" as const,
             result: { published: false, reason: "no_repository" as const },
@@ -84,37 +116,22 @@ export const workspaceIndex = defineWorkflow(
 
       if (prepared.kind === "done") return prepared.result
 
-      try {
-        await step.runWorkflow(
-          repositoryIndex.spec,
-          {
-            repositoryId: prepared.repo.id,
-            orgId: input.orgId,
-            targetHash: input.desiredSha,
-            workspaceId: prepared.workspace.id,
-            ...(prepared.githubConnectionId
-              ? { githubConnectionId: prepared.githubConnectionId }
-              : {}),
-            jobGeneration: input.jobGeneration,
-            jobWorkspaceUrl: input.jobWorkspaceUrl,
-          },
-          { name: "repository-index" },
-        )
-      } catch (err: unknown) {
-        const message = err instanceof Error ? err.message : String(err)
-        if (
-          !prepared.workspace.activeProjectionSha &&
-          /clone-checkout failed with status (404|5\d\d)/.test(message)
-        ) {
-          await withOrgDbContext(input.orgId, () =>
-            persistHydrateFailure({
-              workspaceId: prepared.workspace.id,
-              message: HYDRATE_INDEX_UNAVAILABLE_MESSAGE,
-            }),
-          )
-        }
-        throw err
-      }
+      await step.runWorkflow(
+        repositoryIndex.spec,
+        {
+          repositoryId: prepared.repo.id,
+          orgId: input.orgId,
+          targetHash: input.desiredSha,
+          workspaceId: prepared.workspace.id,
+          ...(prepared.githubConnectionId
+            ? { githubConnectionId: prepared.githubConnectionId }
+            : {}),
+          jobGeneration: input.jobGeneration,
+          jobWorkspaceUrl: input.jobWorkspaceUrl,
+          ...(input.role === "workspace" ? { revision } : {}),
+        },
+        { name: "repository-index" },
+      )
 
       return withOrgDbContext(input.orgId, async () => {
         if (input.role === "linked" && input.linkedId) {

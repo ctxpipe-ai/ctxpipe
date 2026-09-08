@@ -1041,7 +1041,7 @@ export const atlassianConnectorRoutes = new OpenAPIHono<AppEnv>()
       provisionStderr: null,
     })
     const orgSlug = c.req.param("orgSlug")
-    getLogger().info({
+    getLogger().info("Forge provision workflow queued", {
       step: "connectors.atlassian.provision-enqueued",
       message:
         "Forge provision workflow queued (worker runs register → deploy → install)",

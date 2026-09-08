@@ -1,3 +1,4 @@
+import type { Dirent } from "node:fs"
 import { lstat, readdir } from "node:fs/promises"
 import { basename, join } from "node:path"
 import { resolveSafePath } from "./paths.js"
@@ -168,7 +169,7 @@ async function walkPrunedCheckout(input: {
   while (stack.length > 0) {
     const current = stack.pop()
     if (!current) break
-    let dirents: Awaited<ReturnType<typeof readdir>>
+    let dirents: Dirent<string>[]
     try {
       dirents = await readdir(current.absDir, { withFileTypes: true })
     } catch (error) {

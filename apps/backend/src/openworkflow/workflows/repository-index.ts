@@ -1,6 +1,7 @@
 import { defineWorkflow } from "openworkflow"
 import { z } from "zod"
 import { parseEnv } from "../../config/env.js"
+import { withOrgDbContext } from "../../db/client.js"
 import {
   codesearchIndexCloneCheckout,
   codesearchIndexDetectLanguages,
@@ -8,11 +9,14 @@ import {
   codesearchIndexScipLang,
   codesearchIndexZoekt,
 } from "../../domain/codeIngestion/codesearchIndexPhases.js"
+import { resolveRepositoryReadCredential } from "../../domain/workspaces/resolve-revision.js"
+import { workspaceRevisionSchema } from "../../domain/workspaces/revision.js"
 import {
   isMemoryFitFailure,
   userFacingIndexingError,
 } from "../../lib/memoryFitError.js"
 import { getInstallationToken } from "../../models/github-installation.js"
+import { persistWorkspaceIndexResult } from "../../models/workspaces.js"
 import {
   createLogger,
   flushWorkflowLog,
@@ -31,6 +35,7 @@ const repositoryIndexInputSchema = z.object({
   workspaceId: z.string().min(1).optional(),
   jobGeneration: z.number().int().optional(),
   jobWorkspaceUrl: z.string().min(1).optional(),
+  revision: workspaceRevisionSchema.optional(),
 })
 
 const indexRetryPolicy = {
@@ -105,7 +110,27 @@ export const repositoryIndex = defineWorkflow(
               repositoryId: input.repositoryId,
               orgId: input.orgId,
             },
-            fn,
+            async () => {
+              try {
+                return await fn()
+              } catch (error) {
+                const revision = input.revision
+                if (revision)
+                  await withOrgDbContext(input.orgId, () =>
+                    persistWorkspaceIndexResult({
+                      revision,
+                      result: {
+                        kind: "failed",
+                        message:
+                          error instanceof Error
+                            ? error.message
+                            : String(error),
+                      },
+                    }),
+                  )
+                throw error
+              }
+            },
           )
 
         logMilestone("repository-index.start", {
@@ -114,12 +139,14 @@ export const repositoryIndex = defineWorkflow(
         })
 
         const env = parseEnv(process.env as Record<string, string | undefined>)
-        const githubToken = await step.run(
-          { name: "resolve-github-token" },
-          () =>
-            wls("resolve-github-token", () =>
-              getInstallationToken(input.orgId, env, input.githubConnectionId),
-            ),
+        const githubToken = await wls("resolve-github-token", () =>
+          input.revision
+            ? resolveRepositoryReadCredential({
+                orgId: input.orgId,
+                env,
+                remote: input.revision.remote,
+              })
+            : getInstallationToken(input.orgId, env, input.githubConnectionId),
         )
 
         const checkout = await step.run(

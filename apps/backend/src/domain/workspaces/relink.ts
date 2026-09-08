@@ -8,6 +8,7 @@ export function nextRelinkFields(
   return {
     desiredGeneration: currentGeneration + 1,
     desiredSha: null,
+    desiredDefaultBranch: null,
     hydrateStatus: "pending",
     hydrateError: null,
     writeStatus: write?.writeStatus ?? "unknown",

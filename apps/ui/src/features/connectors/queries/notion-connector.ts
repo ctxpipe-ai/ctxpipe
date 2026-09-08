@@ -28,7 +28,9 @@ export const notionConnectorKeys = {
 }
 
 function notionConnectionQuery(connectionId?: string) {
-  return connectionId ? ({ query: { connectionId } } as const) : ({} as const)
+  return connectionId
+    ? ({ query: { connectionId } } as const)
+    : ({ query: {} } as const)
 }
 
 function notionConnectionSearch(connectionId: string): string {

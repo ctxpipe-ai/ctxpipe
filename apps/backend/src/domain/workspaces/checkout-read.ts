@@ -1,12 +1,12 @@
 import { requireCurrentOrgId } from "../../auth/context.js"
-import { findRepositoriesByNormalizedGitUrls } from "../../models/repositories.js"
+import { parseEnv } from "../../config/env.js"
 import {
-  CodesearchCheckoutError,
-  fetchCheckoutFileBytes,
-  listCheckoutTree,
-} from "../codeIngestion/codesearchClient.js"
+  listPathsAtGitSha,
+  readFileAtGitSha,
+} from "../../services/git/clone-tree.js"
 import type { ExplorerGitFile } from "./git-explorer.js"
-import { normalizeWorkspaceRepositoryUrl } from "./slug.js"
+import { resolveRepositoryReadCredential } from "./resolve-revision.js"
+import { type WorkspaceRevision, workspaceRevisionSchema } from "./revision.js"
 
 export class WorkspaceCheckoutReadError extends Error {
   override readonly name = "WorkspaceCheckoutReadError"
@@ -19,74 +19,36 @@ export class WorkspaceCheckoutReadError extends Error {
   }
 }
 
-async function resolveWorkspaceRepository(gitUrl: string): Promise<{
-  id: string
-} | null> {
-  const url = normalizeWorkspaceRepositoryUrl(gitUrl)
-  if (!url) return null
-  const rows = await findRepositoriesByNormalizedGitUrls([url])
-  return rows[0] ?? null
-}
-
-function mapCodesearchError(error: unknown): WorkspaceCheckoutReadError {
-  if (error instanceof WorkspaceCheckoutReadError) return error
-  const status = error instanceof CodesearchCheckoutError ? error.status : 502
-  if (status === 404 || status === 409) {
-    return new WorkspaceCheckoutReadError(
-      "This Workspace checkout is not ready yet.",
+async function repositoryReadInput(revision: WorkspaceRevision) {
+  workspaceRevisionSchema.parse(revision)
+  if (revision.access !== "read")
+    throw new WorkspaceCheckoutReadError(
+      "A published read revision is required",
       409,
     )
+  return {
+    url: revision.remote.url,
+    sha: revision.sha,
+    token: await resolveRepositoryReadCredential({
+      orgId: requireCurrentOrgId(),
+      env: parseEnv(process.env),
+      remote: revision.remote,
+    }),
   }
-  return new WorkspaceCheckoutReadError(
-    "Could not read this Workspace repository.",
-    502,
-  )
 }
 
 export async function listWorkspaceCheckoutPaths(input: {
-  workspaceId: string
-  gitUrl: string
+  revision: WorkspaceRevision
 }): Promise<string[]> {
-  const repo = await resolveWorkspaceRepository(input.gitUrl)
-  if (!repo) {
-    throw new WorkspaceCheckoutReadError(
-      "This Workspace checkout is not ready yet.",
-      409,
-    )
-  }
-  try {
-    return await listCheckoutTree({
-      repositoryId: repo.id,
-      orgId: requireCurrentOrgId(),
-      workspaceId: input.workspaceId,
-    })
-  } catch (error) {
-    throw mapCodesearchError(error)
-  }
+  return listPathsAtGitSha(await repositoryReadInput(input.revision))
 }
 
 export async function readWorkspaceCheckoutFile(input: {
-  workspaceId: string
-  gitUrl: string
+  revision: WorkspaceRevision
   path: string
 }): Promise<ExplorerGitFile> {
-  const repo = await resolveWorkspaceRepository(input.gitUrl)
-  if (!repo) {
-    throw new WorkspaceCheckoutReadError(
-      "This Workspace checkout is not ready yet.",
-      409,
-    )
-  }
-  try {
-    const bytes = await fetchCheckoutFileBytes({
-      repositoryId: repo.id,
-      orgId: requireCurrentOrgId(),
-      workspaceId: input.workspaceId,
-      path: input.path,
-    })
-    if (!bytes) return { kind: "missing" }
-    return { kind: "bytes", bytes }
-  } catch (error) {
-    throw mapCodesearchError(error)
-  }
+  return readFileAtGitSha({
+    ...(await repositoryReadInput(input.revision)),
+    path: input.path,
+  })
 }

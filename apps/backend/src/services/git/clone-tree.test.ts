@@ -134,6 +134,15 @@ describe("clone-tree", { timeout: 30_000 }, () => {
     }
   })
 
+  it("rejects embedded HTTP credentials before acquiring a repository", async () => {
+    await expect(
+      listPathsAtGitSha({
+        url: "http://fixture-user:fixture-password@127.0.0.1:1/repo.git",
+        sha: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      }),
+    ).rejects.toThrow("Git reads require a credential-free remote")
+  })
+
   it("resolves the native remote default branch, an explicit branch, and a rewind", async () => {
     dir = await mkdtemp(join(tmpdir(), "ctxpipe-native-tip-"))
     const git = async (...args: string[]) =>

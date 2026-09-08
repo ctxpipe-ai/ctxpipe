@@ -1,17 +1,10 @@
-import {
-  and,
-  desc,
-  eq,
-  exists,
-  inArray,
-  isNotNull,
-  sql,
-} from "drizzle-orm"
+import { and, desc, eq, exists, inArray, isNotNull, sql } from "drizzle-orm"
 import { createError } from "evlog"
 import { requireCurrentOrgId, requireCurrentUserId } from "../auth/context.js"
 import { getOrgDb } from "../db/client.js"
 import { conversations } from "../db/schema/conversations.js"
 import { repositories } from "../db/schema/repositories.js"
+import { repositoryCheckouts } from "../db/schema/repository_checkouts.js"
 import {
   orgFirstWorkspaces,
   orgMemberPreferences,
@@ -24,16 +17,19 @@ import {
   planDestWorkspaceLinks,
 } from "../domain/workspaces/dest-workspace-assignment.js"
 import type { HydrateUnit } from "../domain/workspaces/hydrate.js"
-import {
-  type HydratePhaseRecord,
-  initialHydratePhases,
-} from "../domain/workspaces/hydrate-phases.js"
+import { initialHydratePhases } from "../domain/workspaces/hydrate-phases.js"
 import { nextRelinkFields } from "../domain/workspaces/relink.js"
 import {
   applyResolvedDesiredSha,
+  type DerivedStoreResult,
   indexPublishTargets,
-  shouldActivateHydrateProjection,
+  type ProjectionState,
+  type PublishedProjection,
+  publishedProjection,
+  sameWorkspaceRevision,
   shouldPublishIndex,
+  type WorkspaceRevision,
+  workspaceRevisionSchema,
 } from "../domain/workspaces/revision.js"
 import {
   displayNameFromGitUrl,
@@ -50,7 +46,14 @@ import {
 import { generateObjectId } from "../lib/id.js"
 import { isUniqueViolation, orgSql } from "./workspace-sql.js"
 
-export type WorkspaceRecord = typeof workspaces.$inferSelect
+/** Transitional wire record; revision consumers use getWorkspaceProjection. */
+export type WorkspaceRecord = Omit<
+  typeof workspaces.$inferSelect,
+  "activeRevision" | "desiredDefaultBranch"
+> & {
+  activeRevision?: WorkspaceRevision | null
+  desiredDefaultBranch?: string | null
+}
 export type WorkspaceLinkedRepositoryRecord =
   typeof workspaceLinkedRepositories.$inferSelect
 
@@ -166,6 +169,275 @@ export async function getWorkspaceById(
       .where(and(eq(workspaces.orgId, orgId), eq(workspaces.id, workspaceId)))
       .limit(1)
     return row ?? null
+  })
+}
+
+type DesiredWorkspaceRecord = Pick<
+  WorkspaceRecord,
+  | "id"
+  | "desiredGeneration"
+  | "workspaceRepositoryUrl"
+  | "githubConnectionId"
+  | "desiredSha"
+  | "desiredDefaultBranch"
+>
+
+function desiredWorkspaceRevision(
+  row: DesiredWorkspaceRecord,
+): WorkspaceRevision | null {
+  if (!row.desiredSha || !row.desiredDefaultBranch) return null
+  return workspaceRevisionSchema.parse({
+    workspaceId: row.id,
+    generation: row.desiredGeneration,
+    remote: {
+      url: row.workspaceRepositoryUrl,
+      githubConnectionId: row.githubConnectionId,
+    },
+    defaultBranch: row.desiredDefaultBranch,
+    sha: row.desiredSha,
+    access: "read",
+  })
+}
+
+function projectionFromWorkspace(row: WorkspaceRecord): ProjectionState {
+  const desired = desiredWorkspaceRevision(row)
+  const index = row.hydratePhases?.index
+  const active = row.activeRevision
+    ? workspaceRevisionSchema.parse(row.activeRevision)
+    : null
+  const previous: PublishedProjection | null = active
+    ? {
+        kind: "active",
+        revision: active,
+        stores: {
+          embeddings: sameWorkspaceRevision(row.hydratePhases?.revision, active)
+            ? row.hydratePhases?.embeddings
+              ? { kind: "ready" }
+              : row.hydratePhases?.embeddingError
+                ? { kind: "failed", message: row.hydratePhases.embeddingError }
+                : { kind: "pending" }
+            : { kind: "pending" },
+          graph: { kind: "postgres" },
+          index:
+            index && sameWorkspaceRevision(index.revision, active)
+              ? index.result
+              : { kind: "pending" },
+        },
+      }
+    : row.activeProjectionSha
+      ? {
+          kind: "legacy",
+          url: row.activeProjectionUrl,
+          sha: row.activeProjectionSha,
+        }
+      : null
+  if (row.hydrateStatus === "failed")
+    return {
+      kind: "failed",
+      desired,
+      previous,
+      error: row.hydrateError ?? "Hydration failed",
+    }
+  if (
+    desired &&
+    previous?.kind === "active" &&
+    sameWorkspaceRevision(previous.revision, desired)
+  )
+    return previous
+  if (!desired && !previous && !row.desiredSha) return { kind: "absent" }
+  return { kind: "building", desired, previous }
+}
+
+export async function getWorkspaceProjection(
+  workspaceId: string,
+): Promise<ProjectionState> {
+  const row = await getWorkspaceById(workspaceId)
+  return row ? projectionFromWorkspace(row) : { kind: "absent" }
+}
+
+export async function getDesiredWorkspaceRevision(
+  workspaceId: string,
+): Promise<WorkspaceRevision | null> {
+  const row = await getWorkspaceById(workspaceId)
+  return row ? desiredWorkspaceRevision(row) : null
+}
+
+/** Failed discovery has no invented SHA; fence the exact database target that was observed. */
+export async function persistRevisionResolutionFailure(input: {
+  expected: DesiredWorkspaceRecord
+  message: string
+}): Promise<void> {
+  await orgSql(async () => {
+    const expected = input.expected
+    const revision = desiredWorkspaceRevision(expected)
+    await getOrgDb()
+      .update(workspaces)
+      .set({
+        hydrateStatus: "failed",
+        hydrateError: input.message,
+        updatedAt: new Date(),
+      })
+      .where(
+        and(
+          eq(workspaces.id, expected.id),
+          eq(workspaces.desiredGeneration, expected.desiredGeneration),
+          eq(
+            workspaces.workspaceRepositoryUrl,
+            expected.workspaceRepositoryUrl,
+          ),
+          sql`${workspaces.githubConnectionId} is not distinct from ${expected.githubConnectionId}`,
+          sql`${workspaces.desiredSha} is not distinct from ${expected.desiredSha}`,
+          sql`${workspaces.desiredDefaultBranch} is not distinct from ${expected.desiredDefaultBranch ?? null}`,
+          revision
+            ? sql`${workspaces.activeRevision} is distinct from ${JSON.stringify(revision)}::jsonb`
+            : undefined,
+        ),
+      )
+  })
+}
+
+/** One database snapshot binds search membership and indexed commits to the published projection. */
+export async function getWorkspaceSearchProjection(workspaceId: string) {
+  return orgSql(async () => {
+    const rows = await getOrgDb()
+      .select({
+        workspace: workspaces,
+        linked: sql<
+          Array<{ gitUrl: string; indexedSha: string | null }>
+        >`coalesce((
+        select jsonb_agg(jsonb_build_object('gitUrl', ${workspaceLinkedRepositories.gitUrl}, 'indexedSha', ${workspaceLinkedRepositories.indexedSha}))
+        from ${workspaceLinkedRepositories}
+        where ${workspaceLinkedRepositories.workspaceId} = ${workspaces.id}
+      ), '[]'::jsonb)`,
+        repository: {
+          id: repositories.id,
+          name: repositories.name,
+          gitUrl: repositories.gitUrl,
+        },
+        checkout: {
+          zoektRepoId: repositoryCheckouts.zoektRepoId,
+          sha: repositoryCheckouts.commitSha,
+        },
+      })
+      .from(workspaces)
+      .leftJoin(repositories, eq(repositories.orgId, workspaces.orgId))
+      .leftJoin(
+        repositoryCheckouts,
+        and(
+          eq(repositoryCheckouts.repositoryId, repositories.id),
+          eq(repositoryCheckouts.checkoutKey, sql`'ws:' || ${workspaces.id}`),
+        ),
+      )
+      .where(eq(workspaces.id, workspaceId))
+    const first = rows[0]
+    const projection: ProjectionState = first
+      ? projectionFromWorkspace(first.workspace)
+      : { kind: "absent" }
+    const active = publishedProjection(projection)
+    const allowed = new Map<string, string>()
+    if (active?.kind === "active" && active.stores.index.kind === "ready") {
+      allowed.set(
+        normalizeWorkspaceRepositoryUrl(active.revision.remote.url),
+        active.revision.sha,
+      )
+    } else if (active?.kind === "legacy" && active.url) {
+      allowed.set(normalizeWorkspaceRepositoryUrl(active.url), active.sha)
+    }
+    if (active)
+      for (const linked of first?.linked ?? []) {
+        if (linked.indexedSha)
+          allowed.set(
+            normalizeWorkspaceRepositoryUrl(linked.gitUrl),
+            linked.indexedSha,
+          )
+      }
+    return {
+      projection,
+      repositories: rows.flatMap(({ repository, checkout }) => {
+        if (!repository || !checkout) return []
+        const sha = allowed.get(
+          normalizeWorkspaceRepositoryUrl(repository.gitUrl),
+        )
+        if (!sha || checkout.sha !== sha) return []
+        return [{ ...repository, zoektRepoId: checkout.zoektRepoId, sha }]
+      }),
+    }
+  })
+}
+
+/** Metadata and units are observed in one SQL statement, including during activation. */
+export async function getWorkspaceProjectionSnapshot(
+  workspaceId: string,
+): Promise<{
+  projection: ProjectionState
+  units: HydrateUnit[]
+}> {
+  return orgSql(async () => {
+    const rows = await getOrgDb()
+      .select({
+        workspace: workspaces,
+        unit: {
+          servingId: workspaceKnowledgeUnits.servingId,
+          path: workspaceKnowledgeUnits.path,
+          body: workspaceKnowledgeUnits.body,
+          links: workspaceKnowledgeUnits.links,
+          claims: workspaceKnowledgeUnits.claims,
+        },
+      })
+      .from(workspaces)
+      .leftJoin(
+        workspaceKnowledgeUnits,
+        and(
+          eq(workspaceKnowledgeUnits.workspaceId, workspaces.id),
+          eq(
+            workspaceKnowledgeUnits.projectionSha,
+            sql`coalesce(${workspaces.activeRevision}->>'sha', ${workspaces.activeProjectionSha})`,
+          ),
+        ),
+      )
+      .where(eq(workspaces.id, workspaceId))
+      .orderBy(workspaceKnowledgeUnits.path)
+    const first = rows[0]
+    return {
+      projection: first
+        ? projectionFromWorkspace(first.workspace)
+        : { kind: "absent" },
+      units: rows.flatMap(({ unit }) => (unit ? [unit] : [])),
+    }
+  })
+}
+
+/** Bind branch metadata to the same desired database identity observed before Git I/O. */
+export async function captureWorkspaceRevision(input: {
+  workspaceId: string
+  expected: {
+    generation: number
+    url: string
+    sha: string
+    githubConnectionId: string | null
+  }
+  defaultBranch: string
+}): Promise<WorkspaceRevision | null> {
+  return orgSql(async () => {
+    const [row] = await getOrgDb()
+      .update(workspaces)
+      .set({ desiredDefaultBranch: input.defaultBranch })
+      .where(
+        and(
+          eq(workspaces.id, input.workspaceId),
+          eq(workspaces.desiredGeneration, input.expected.generation),
+          eq(workspaces.workspaceRepositoryUrl, input.expected.url),
+          eq(workspaces.desiredSha, input.expected.sha),
+          input.expected.githubConnectionId === null
+            ? sql`${workspaces.githubConnectionId} is null`
+            : eq(
+                workspaces.githubConnectionId,
+                input.expected.githubConnectionId,
+              ),
+        ),
+      )
+      .returning()
+    return row ? desiredWorkspaceRevision(row) : null
   })
 }
 
@@ -832,10 +1104,7 @@ export async function listKnowledgeUnitPaths(
 
 export async function commitHydrateProjection(input: {
   orgId: string
-  workspaceId: string
-  jobGeneration: number
-  jobWorkspaceUrl: string
-  hydratedSha: string
+  revision: WorkspaceRevision
   displayName: string | null
   remotes: ReadonlyArray<{ git: string; branch: string | null }>
   units: readonly HydrateUnit[]
@@ -843,44 +1112,35 @@ export async function commitHydrateProjection(input: {
   return orgSql(async () => {
     const db = getOrgDb()
     return db.transaction(async (tx) => {
-      const [existing] = await tx
-        .select()
-        .from(workspaces)
-        .where(eq(workspaces.id, input.workspaceId))
-        .limit(1)
-      if (!existing) return false
-      const decision = shouldActivateHydrateProjection({
-        jobGeneration: input.jobGeneration,
-        desiredGeneration: existing.desiredGeneration,
-        jobWorkspaceUrl: input.jobWorkspaceUrl,
-        desiredWorkspaceUrl: existing.workspaceRepositoryUrl,
-        jobWorkspaceId: input.workspaceId,
-        desiredWorkspaceId: existing.id,
-        hydratedSha: input.hydratedSha,
-        desiredSha: existing.desiredSha,
-      })
-      if (!decision.activate) return false
-
       const [updated] = await tx
         .update(workspaces)
         .set({
-          activeProjectionUrl: existing.workspaceRepositoryUrl,
-          activeProjectionSha: input.hydratedSha,
+          activeRevision: input.revision,
+          activeProjectionUrl: input.revision.remote.url,
+          activeProjectionSha: input.revision.sha,
           hydrateStatus: "ready",
           hydrateError: null,
           hydratePhases: initialHydratePhases({
-            url: existing.workspaceRepositoryUrl,
-            sha: input.hydratedSha,
+            url: input.revision.remote.url,
+            sha: input.revision.sha,
+            revision: input.revision,
           }),
           ...(input.displayName ? { displayName: input.displayName } : {}),
           updatedAt: new Date(),
         })
         .where(
           and(
-            eq(workspaces.id, existing.id),
-            eq(workspaces.desiredGeneration, input.jobGeneration),
-            eq(workspaces.workspaceRepositoryUrl, input.jobWorkspaceUrl),
-            eq(workspaces.desiredSha, input.hydratedSha),
+            eq(workspaces.id, input.revision.workspaceId),
+            eq(workspaces.desiredGeneration, input.revision.generation),
+            eq(workspaces.workspaceRepositoryUrl, input.revision.remote.url),
+            eq(workspaces.desiredSha, input.revision.sha),
+            eq(workspaces.desiredDefaultBranch, input.revision.defaultBranch),
+            input.revision.remote.githubConnectionId === null
+              ? sql`${workspaces.githubConnectionId} is null`
+              : eq(
+                  workspaces.githubConnectionId,
+                  input.revision.remote.githubConnectionId,
+                ),
           ),
         )
         .returning({ id: workspaces.id })
@@ -888,17 +1148,19 @@ export async function commitHydrateProjection(input: {
 
       await tx
         .delete(workspaceKnowledgeUnits)
-        .where(eq(workspaceKnowledgeUnits.workspaceId, input.workspaceId))
+        .where(
+          eq(workspaceKnowledgeUnits.workspaceId, input.revision.workspaceId),
+        )
       if (input.units.length > 0) {
         const now = new Date()
         await tx.insert(workspaceKnowledgeUnits).values(
           input.units.map((unit) => ({
             servingId: unit.servingId,
             orgId: input.orgId,
-            workspaceId: input.workspaceId,
+            workspaceId: input.revision.workspaceId,
             path: unit.path,
             body: unit.body,
-            projectionSha: input.hydratedSha,
+            projectionSha: input.revision.sha,
             links: unit.links,
             claims: unit.claims,
             createdAt: now,
@@ -908,7 +1170,7 @@ export async function commitHydrateProjection(input: {
       }
 
       const workspaceUrl = normalizeWorkspaceRepositoryUrl(
-        input.jobWorkspaceUrl,
+        input.revision.remote.url,
       )
       const desired = new Map<string, string | null>()
       for (const remote of input.remotes) {
@@ -919,7 +1181,12 @@ export async function commitHydrateProjection(input: {
       const existingLinked = await tx
         .select()
         .from(workspaceLinkedRepositories)
-        .where(eq(workspaceLinkedRepositories.workspaceId, input.workspaceId))
+        .where(
+          eq(
+            workspaceLinkedRepositories.workspaceId,
+            input.revision.workspaceId,
+          ),
+        )
       const existingByUrl = new Map(
         existingLinked.map((row) => [row.gitUrl, row]),
       )
@@ -936,7 +1203,7 @@ export async function commitHydrateProjection(input: {
           await tx.insert(workspaceLinkedRepositories).values({
             id: generateObjectId("wlr"),
             orgId: input.orgId,
-            workspaceId: input.workspaceId,
+            workspaceId: input.revision.workspaceId,
             gitUrl,
             desiredRef: branch,
           })
@@ -1031,7 +1298,6 @@ export async function persistLinkedIndexedSha(input: {
     return updated != null
   })
 }
-
 
 export async function getOrgFirstWorkspace(orgId: string): Promise<{
   workspaceId: string
@@ -1159,9 +1425,7 @@ export async function reconcileDestWorkspaceAssignment(orgId: string): Promise<{
       ])
     const connectorTargetRepositoryIds = repositoryRows
       .filter((repo) =>
-        workspaceRows.some(
-          (row) => row.workspaceRepositoryUrl === repo.gitUrl,
-        ),
+        workspaceRows.some((row) => row.workspaceRepositoryUrl === repo.gitUrl),
       )
       .map((repo) => repo.id)
     const plan = planDestWorkspaceLinks({
@@ -1188,7 +1452,7 @@ export async function reconcileDestWorkspaceAssignment(orgId: string): Promise<{
 }
 
 export async function persistHydrateFailure(input: {
-  workspaceId: string
+  revision: WorkspaceRevision
   message: string
 }): Promise<void> {
   await orgSql(async () => {
@@ -1199,7 +1463,22 @@ export async function persistHydrateFailure(input: {
         hydrateError: input.message,
         updatedAt: new Date(),
       })
-      .where(eq(workspaces.id, input.workspaceId))
+      .where(
+        and(
+          eq(workspaces.id, input.revision.workspaceId),
+          eq(workspaces.desiredGeneration, input.revision.generation),
+          eq(workspaces.workspaceRepositoryUrl, input.revision.remote.url),
+          eq(workspaces.desiredSha, input.revision.sha),
+          eq(workspaces.desiredDefaultBranch, input.revision.defaultBranch),
+          sql`${workspaces.activeRevision} is distinct from ${JSON.stringify(input.revision)}::jsonb`,
+          input.revision.remote.githubConnectionId === null
+            ? sql`${workspaces.githubConnectionId} is null`
+            : eq(
+                workspaces.githubConnectionId,
+                input.revision.remote.githubConnectionId,
+              ),
+        ),
+      )
   })
 }
 
@@ -1237,50 +1516,107 @@ export async function persistWriteStatus(
   })
 }
 
-export async function persistUnitEmbeddings(input: {
-  workspaceId: string
-  projectionSha: string
-  embeddings: ReadonlyArray<{ servingId: string; embedding: number[] }>
-}): Promise<void> {
+/** Record derived index freshness without changing the published PostgreSQL content. */
+export async function persistWorkspaceIndexResult(input: {
+  revision: WorkspaceRevision
+  result: DerivedStoreResult
+}): Promise<boolean> {
   return orgSql(async () => {
-    if (input.embeddings.length === 0) return
-    const values = input.embeddings.map(
-      (row) => sql`(${row.servingId}, ${JSON.stringify(row.embedding)}::jsonb)`,
-    )
-    await getOrgDb().execute(sql`
-    UPDATE workspace_knowledge_units AS u
-    SET embedding = v.embedding, updated_at = NOW()
-    FROM (VALUES ${sql.join(values, sql`, `)}) AS v(serving_id, embedding)
-    WHERE u.serving_id = v.serving_id
-      AND u.workspace_id = ${input.workspaceId}
-      AND u.projection_sha = ${input.projectionSha}
-  `)
-  })
-}
-
-export async function persistHydratePhases(input: {
-  workspaceId: string
-  expectedUrl: string
-  expectedSha: string
-  phases: HydratePhaseRecord
-}): Promise<void> {
-  return orgSql(async () => {
-    await getOrgDb()
+    const [updated] = await getOrgDb()
       .update(workspaces)
       .set({
-        hydratePhases: input.phases,
+        hydratePhases: sql`coalesce(${workspaces.hydratePhases}, '{}'::jsonb) || ${JSON.stringify({ index: input })}::jsonb`,
         updatedAt: new Date(),
       })
       .where(
         and(
-          eq(workspaces.id, input.workspaceId),
-          eq(workspaces.workspaceRepositoryUrl, input.expectedUrl),
-          eq(workspaces.desiredSha, input.expectedSha),
-          eq(workspaces.activeProjectionUrl, input.expectedUrl),
-          eq(workspaces.activeProjectionSha, input.expectedSha),
+          eq(workspaces.id, input.revision.workspaceId),
+          sql`${workspaces.activeRevision} = ${JSON.stringify(input.revision)}::jsonb`,
         ),
       )
+      .returning({ id: workspaces.id })
+    return updated != null
   })
+}
+
+/** Record an embedding error only for the projection that requested those vectors. */
+export async function persistEmbeddingFailure(input: {
+  revision: WorkspaceRevision
+  message: string
+}): Promise<void> {
+  await orgSql(() =>
+    getOrgDb()
+      .update(workspaces)
+      .set({
+        hydratePhases: sql`coalesce(${workspaces.hydratePhases}, '{}'::jsonb) || ${JSON.stringify(
+          {
+            ...initialHydratePhases({
+              url: input.revision.remote.url,
+              sha: input.revision.sha,
+              revision: input.revision,
+            }),
+            embeddingError: input.message,
+          },
+        )}::jsonb`,
+        updatedAt: new Date(),
+      })
+      .where(
+        and(
+          eq(workspaces.id, input.revision.workspaceId),
+          sql`${workspaces.activeRevision} = ${JSON.stringify(input.revision)}::jsonb`,
+        ),
+      )
+      .then(() => undefined),
+  )
+}
+
+/** Store vectors and their completion marker under the active revision's row lock. */
+export async function persistUnitEmbeddings(input: {
+  revision: WorkspaceRevision
+  embeddings: ReadonlyArray<{ servingId: string; embedding: number[] }>
+}): Promise<boolean> {
+  return orgSql(() =>
+    getOrgDb().transaction(async (tx) => {
+      const [workspace] = await tx
+        .select({ activeRevision: workspaces.activeRevision })
+        .from(workspaces)
+        .where(eq(workspaces.id, input.revision.workspaceId))
+        .for("update")
+      if (!sameWorkspaceRevision(workspace?.activeRevision, input.revision))
+        return false
+      if (input.embeddings.length > 0) {
+        const values = input.embeddings.map(
+          (row) =>
+            sql`(${row.servingId}, ${JSON.stringify(row.embedding)}::jsonb)`,
+        )
+        await tx.execute(sql`
+        UPDATE workspace_knowledge_units AS u
+        SET embedding = v.embedding, updated_at = NOW()
+        FROM (VALUES ${sql.join(values, sql`, `)}) AS v(serving_id, embedding)
+        WHERE u.serving_id = v.serving_id
+          AND u.workspace_id = ${input.revision.workspaceId}
+          AND u.projection_sha = ${input.revision.sha}
+      `)
+      }
+      await tx
+        .update(workspaces)
+        .set({
+          hydratePhases: sql`(coalesce(${workspaces.hydratePhases}, '{}'::jsonb) - 'embeddingError') || ${JSON.stringify(
+            {
+              ...initialHydratePhases({
+                url: input.revision.remote.url,
+                sha: input.revision.sha,
+                revision: input.revision,
+              }),
+              embeddings: true,
+            },
+          )}::jsonb`,
+          updatedAt: new Date(),
+        })
+        .where(eq(workspaces.id, input.revision.workspaceId))
+      return true
+    }),
+  )
 }
 
 export async function findWorkspacesAndLinkedByGitUrl(gitUrl: string): Promise<{
@@ -1392,6 +1728,5 @@ export async function publishWorkspaceIndexForGitUrl(input: {
   return published
 }
 
-
-export * from "./workspace-write-jobs.js"
 export * from "./workspace-sandboxes.js"
+export * from "./workspace-write-jobs.js"

@@ -336,6 +336,7 @@ export async function handleGithubSetupPopupResult(
       const response = await client[":orgSlug"].api.v1.github.installation.$get(
         {
           param: { orgSlug },
+          query: {},
         },
       )
       const linked = await readApiJson<{

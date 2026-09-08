@@ -12,6 +12,7 @@ import { eq, sql } from "drizzle-orm"
 import { drizzle } from "drizzle-orm/node-postgres"
 import { Pool } from "pg"
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest"
+import type { Db } from "../../db/client.js"
 import { claimEvidence } from "../../db/schema/claim_evidence.js"
 import { claims } from "../../db/schema/claims.js"
 import { objects } from "../../db/schema/objects.js"
@@ -38,7 +39,7 @@ const CHECKOUT_A = generateObjectId("co")
 const CHECKOUT_B = generateObjectId("co")
 
 let pool: Pool
-let db: ReturnType<typeof drizzle>
+let db: Db
 
 beforeAll(() => {
   // Every connection in this dedicated fixture pool uses the same tenant.

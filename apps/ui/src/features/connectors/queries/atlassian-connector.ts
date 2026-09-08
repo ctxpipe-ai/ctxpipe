@@ -41,7 +41,7 @@ export const atlassianConnectorKeys = {
 function atlassianConnectionQuery(atlassianConnectionId?: string) {
   return atlassianConnectionId
     ? ({ query: { connectionId: atlassianConnectionId } } as const)
-    : ({} as const)
+    : ({ query: {} } as const)
 }
 
 export type OrgCapabilities = { confluenceForgeInstallUrl: string | null }

@@ -1,0 +1,187 @@
+{"name": "revision-codesearch-linux-arm64", "cwd": "/private/tmp/ctxpipe-recovery-01a07aba", "command": ["docker", "run", "--pull=never", "--platform", "linux/arm64", "--rm", "--name", "ctxpipe-gate2-codesearch-contracts", "--mount", "type=bind,src=/private/tmp/ctxpipe-recovery-01a07aba/apps/codesearch/src,dst=/app/apps/codesearch/src,readonly", "--mount", "type=bind,src=/private/tmp/ctxpipe-recovery-01a07aba/apps/codesearch/scripts,dst=/app/apps/codesearch/scripts,readonly", "--mount", "type=bind,src=/private/tmp/ctxpipe-recovery-01a07aba/scripts/ci,dst=/app/scripts/ci,readonly", "--mount", "type=bind,src=/private/tmp/ctxpipe-gate2-codesearch-results,dst=/app/.ci-results", "ctxpipe-codesearch:test", "node", "scripts/run-vitest-contracts.mjs"], "environment": {"AUTH_SECRET": "gate0-local-disposable-test-secret-20260907", "DATABASE_URL": "postgresql://ctxpipe_app:ctxpipe@127.0.0.1:61314/ctxpipe_gate0_fresh", "GRAPH_DB_URI": "redis://127.0.0.1:6399", "CI": "true", "NO_COLOR": "1", "TURBO_TELEMETRY_DISABLED": "1", "STORYBOOK_DISABLE_TELEMETRY": "1", "PATH": "/private/tmp/ctxpipe-recovery-runtime/node_modules/.bin:/usr/local/bin:/System/Cryptexes/App/usr/bin:/usr/bin:/bin:/usr/sbin:/sbin:/var/run/com.apple.security.cryptexd/codex.system/bootstrap/usr/local/bin:/var/run/com.apple.security.cryptexd/codex.system/bootstrap/usr/bin:/var/run/com.apple.security.cryptexd/codex.system/bootstrap/usr/appleinternal/bin:/pkg/env/global/bin:/Users/jakubriedl/.codex/tmp/arg0/codex-arg0BW5Gt3:/Users/jakubriedl/.cache/codex-runtimes/codex-primary-runtime/dependencies/bin/override:/Users/jakubriedl/.local/bin:/Users/jakubriedl/.bun/bin:/Users/jakubriedl/.opencode/bin:/Users/jakubriedl/.volta/bin:/opt/homebrew/bin:/opt/homebrew/sbin:/Users/jakubriedl/.cache/codex-runtimes/codex-primary-runtime/dependencies/bin/fallback:/Applications/ChatGPT.app/Contents/Resources"}, "timeout_seconds": 600, "started_utc": "2026-09-08T02:46:30Z", "log": "logs/revision-codesearch-linux-arm64.log"}
+node: v22.23.2
+bun: 1.2.23
+git: git version 2.39.5
+
+[1m[46m RUN [49m[22m [36mv4.0.18 [39m[90m/app/apps/codesearch[39m
+
+ [32m✓[39m src/domain/indexing/detectLanguages.test.ts [2m([22m[2m37 tests[22m[2m)[22m[33m 348[2mms[22m[39m
+ [32m✓[39m src/domain/search/structuralSearch.test.ts [2m([22m[2m3 tests[22m[2m)[22m[32m 42[2mms[22m[39m
+ [32m✓[39m src/domain/repositories/purge.test.ts [2m([22m[2m6 tests[22m[2m)[22m[32m 56[2mms[22m[39m
+ [32m✓[39m src/domain/graph/executeGraphPrimitive.test.ts [2m([22m[2m11 tests[22m[2m)[22m[32m 64[2mms[22m[39m
+ [32m✓[39m src/domain/indexing/indexConcurrency.test.ts [2m([22m[2m3 tests[22m[2m)[22m[32m 98[2mms[22m[39m
+ [32m✓[39m src/db/transient.test.ts [2m([22m[2m5 tests[22m[2m)[22m[32m 105[2mms[22m[39m
+ [32m✓[39m src/domain/indexing/heartbeat.test.ts [2m([22m[2m2 tests[22m[2m)[22m[32m 64[2mms[22m[39m
+ [32m✓[39m src/domain/zoekt/warmup.test.ts [2m([22m[2m4 tests[22m[2m)[22m[32m 32[2mms[22m[39m
+ [32m✓[39m src/domain/repositories/resolveRef.test.ts [2m([22m[2m3 tests[22m[2m)[22m[32m 24[2mms[22m[39m
+ [32m✓[39m src/auth/jwt.test.ts [2m([22m[2m3 tests[22m[2m)[22m[32m 25[2mms[22m[39m
+ [32m✓[39m src/routes/structuralSearch.test.ts [2m([22m[2m4 tests[22m[2m)[22m[32m 42[2mms[22m[39m
+ [32m✓[39m src/routes/indexPhases.test.ts [2m([22m[2m4 tests[22m[2m)[22m[32m 46[2mms[22m[39m
+ [32m✓[39m src/domain/zoekt/pinManager.test.ts [2m([22m[2m12 tests[22m[2m)[22m[33m 534[2mms[22m[39m
+ [32m✓[39m src/domain/graph/scipProto.test.ts [2m([22m[2m2 tests[22m[2m)[22m[32m 13[2mms[22m[39m
+ [32m✓[39m src/domain/indexing/scipTouchedLanguages.test.ts [2m([22m[2m5 tests[22m[2m)[22m[32m 5[2mms[22m[39m
+ [32m✓[39m src/domain/indexing/indexerChildEnv.test.ts [2m([22m[2m6 tests[22m[2m)[22m[32m 7[2mms[22m[39m
+ [32m✓[39m src/domain/indexing/streamTail.test.ts [2m([22m[2m3 tests[22m[2m)[22m[32m 9[2mms[22m[39m
+ [32m✓[39m src/config/paths.test.ts [2m([22m[2m2 tests[22m[2m)[22m[32m 2[2mms[22m[39m
+ [32m✓[39m src/domain/repositories/paths.test.ts [2m([22m[2m2 tests[22m[2m)[22m[32m 3[2mms[22m[39m
+ [32m✓[39m src/domain/zoekt/shardPrefix.test.ts [2m([22m[2m5 tests[22m[2m)[22m[32m 10[2mms[22m[39m
+ [32m✓[39m src/domain/indexing/memoryFitError.test.ts [2m([22m[2m4 tests[22m[2m)[22m[32m 5[2mms[22m[39m
+ [32m✓[39m src/observability/http-wide-event-message.test.ts [2m([22m[2m1 test[22m[2m)[22m[32m 2[2mms[22m[39m
+ [32m✓[39m src/routes/graph.test.ts [2m([22m[2m2 tests[22m[2m)[22m[32m 33[2mms[22m[39m
+ [32m✓[39m src/routes/search.test.ts [2m([22m[2m6 tests[22m[2m)[22m[32m 65[2mms[22m[39m
+ [32m✓[39m src/domain/indexing/service.test.ts [2m([22m[2m4 tests[22m[2m)[22m[32m 62[2mms[22m[39m
+ [32m✓[39m src/domain/indexingSteps.test.ts [2m([22m[2m17 tests[22m[2m)[22m[32m 28[2mms[22m[39m
+ [32m✓[39m src/db/client.org-context.test.ts [2m([22m[2m5 tests[22m[2m)[22m[32m 7[2mms[22m[39m
+ [32m✓[39m src/routes/indexPhases.zoekt.test.ts [2m([22m[2m1 test[22m[2m)[22m[32m 25[2mms[22m[39m
+ [32m✓[39m src/domain/repositories/service.test.ts [2m([22m[2m2 tests[22m[2m)[22m[32m 3[2mms[22m[39m
+ [32m✓[39m src/domain/zoekt/warmup.integration.test.ts [2m([22m[2m1 test[22m[2m)[22m[33m 859[2mms[22m[39m
+     [33m[2m✓[22m[39m search stays empty until pin; warmup wait succeeds after pin [33m 481[2mms[22m[39m
+ [31m❯[39m src/domain/indexing/scipIndexers.test.ts [2m([22m[2m19 tests[22m[2m | [22m[31m6 failed[39m[2m)[22m[33m 21128[2mms[22m[39m
+     [32m✓[39m maps go to its official CLI[32m 1[2mms[22m[39m
+     [32m✓[39m maps typescript to its official CLI[32m 0[2mms[22m[39m
+     [32m✓[39m maps python to its official CLI[32m 0[2mms[22m[39m
+     [32m✓[39m maps java to its official CLI[32m 0[2mms[22m[39m
+     [32m✓[39m maps rust to its official CLI[32m 0[2mms[22m[39m
+     [32m✓[39m maps clang to its official CLI[32m 0[2mms[22m[39m
+     [32m✓[39m maps ruby to its official CLI[32m 0[2mms[22m[39m
+     [32m✓[39m maps dotnet to its official CLI[32m 0[2mms[22m[39m
+     [32m✓[39m maps dart to its official CLI[32m 0[2mms[22m[39m
+     [32m✓[39m maps php to its official CLI[32m 0[2mms[22m[39m
+     [32m✓[39m maps debian to its official CLI[32m 0[2mms[22m[39m
+     [32m✓[39m contains exactly every detected indexer family[32m 0[2mms[22m[39m
+     [32m✓[39m uses each indexer's supported direct-output flag[32m 0[2mms[22m[39m
+[31m     [31m×[31m runs direct-output indexers concurrently against unique shards[39m[32m 71[2mms[22m[39m
+[31m     [31m×[31m limits raw parallel polyglot indexer spawns to two processes[39m[33m 5019[2mms[22m[39m
+[31m     [31m×[31m serializes default-output indexers per checkout and publishes after exit[39m[33m 1010[2mms[22m[39m
+[31m     [31m×[31m maps SIGKILL exit 137 to the memory-fit error[39m[33m 5005[2mms[22m[39m
+[31m     [31m×[31m rejects and removes an empty final shard[39m[33m 5011[2mms[22m[39m
+[31m     [31m×[31m rejects a final shard that is not a regular file[39m[33m 5007[2mms[22m[39m
+
+[31m⎯⎯⎯⎯⎯⎯⎯[39m[1m[41m Failed Tests 6 [49m[22m[31m⎯⎯⎯⎯⎯⎯⎯[39m
+
+[41m[1m FAIL [22m[49m src/domain/indexing/scipIndexers.test.ts[2m > [22mrunScipIndexer[2m > [22mruns direct-output indexers concurrently against unique shards
+[31m[1mAssertionError[22m: expected [ 'scip-typescript', 'index', …(2) ] to deeply equal [ 'scip-go', '--output', …(1) ][39m
+
+[32m- Expected[39m
+[31m+ Received[39m
+
+[2m  [[22m
+[32m-   "scip-go",[39m
+[31m+   "scip-typescript",[39m
+[31m+   "index",[39m
+[2m    "--output",[22m
+[32m-   "/tmp/scip-indexers-RzDwAA/shards/go.scip",[39m
+[31m+   "/tmp/scip-indexers-RzDwAA/shards/typescript.scip",[39m
+[2m  ][22m
+
+[36m [2m❯[22m src/domain/indexing/scipIndexers.test.ts:[2m110:40[22m[39m
+    [90m108| [39m
+    [90m109| [39m      [35mawait[39m vi[33m.[39m[34mwaitFor[39m(() [33m=>[39m [34mexpect[39m(spawn)[33m.[39m[34mtoHaveBeenCalledTimes[39m([34m2[39m))
+    [90m110| [39m      [34mexpect[39m(spawn[33m.[39mmock[33m.[39mcalls[[34m0[39m][33m?.[39m[[34m0[39m])[33m.[39m[34mtoEqual[39m([
+    [90m   | [39m                                       [31m^[39m
+    [90m111| [39m        [32m"scip-go"[39m[33m,[39m
+    [90m112| [39m        [32m"--output"[39m[33m,[39m
+
+[31m[2m⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/6]⎯[22m[39m
+
+[41m[1m FAIL [22m[49m src/domain/indexing/scipIndexers.test.ts[2m > [22mrunScipIndexer[2m > [22mlimits raw parallel polyglot indexer spawns to two processes
+[31m[1mError[22m: Test timed out in 5000ms.
+If this is a long-running test, pass a timeout value as the last argument or configure it globally with "testTimeout".[39m
+[36m [2m❯[22m src/domain/indexing/scipIndexers.test.ts:[2m132:3[22m[39m
+    [90m130| [39m  })
+    [90m131| [39m
+    [90m132| [39m  it("limits raw parallel polyglot indexer spawns to two processes", a…
+    [90m   | [39m  [31m^[39m
+    [90m133| [39m    [35mconst[39m directory [33m=[39m [35mawait[39m [34mmkdtemp[39m([34mjoin[39m([34mtmpdir[39m()[33m,[39m [32m"scip-indexers-"[39m))
+    [90m134| [39m    [35mconst[39m checkoutPath [33m=[39m [34mjoin[39m(directory[33m,[39m [32m"checkout"[39m)
+
+[31m[2m⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[2/6]⎯[22m[39m
+
+[41m[1m FAIL [22m[49m src/domain/indexing/scipIndexers.test.ts[2m > [22mrunScipIndexer[2m > [22mserializes default-output indexers per checkout and publishes after exit
+[31m[1mAssertionError[22m: expected "vi.fn()" to be called 1 times, but got 0 times[39m
+[36m [2m❯[22m src/domain/indexing/scipIndexers.test.ts:[2m214:44[22m[39m
+    [90m212| [39m      })
+    [90m213| [39m
+    [90m214| [39m      [35mawait[39m vi[33m.[39m[34mwaitFor[39m(() [33m=>[39m [34mexpect[39m(spawn)[33m.[39m[34mtoHaveBeenCalledTimes[39m([34m1[39m))
+    [90m   | [39m                                           [31m^[39m
+    [90m215| [39m      [34mexpect[39m([34mexistsSync[39m(firstShard))[33m.[39m[34mtoBe[39m([35mfalse[39m)
+    [90m216| [39m      exits[[34m0[39m][33m?.[39m()
+
+[31m[2m⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[3/6]⎯[22m[39m
+
+[41m[1m FAIL [22m[49m src/domain/indexing/scipIndexers.test.ts[2m > [22mrunScipIndexer[2m > [22mmaps SIGKILL exit 137 to the memory-fit error
+[31m[1mError[22m: Test timed out in 5000ms.
+If this is a long-running test, pass a timeout value as the last argument or configure it globally with "testTimeout".[39m
+[36m [2m❯[22m src/domain/indexing/scipIndexers.test.ts:[2m232:3[22m[39m
+    [90m230| [39m  })
+    [90m231| [39m
+    [90m232| [39m  [34mit[39m([32m"maps SIGKILL exit 137 to the memory-fit error"[39m[33m,[39m [35masync[39m () [33m=>[39m {
+    [90m   | [39m  [31m^[39m
+    [90m233| [39m    [35mconst[39m directory [33m=[39m [35mawait[39m [34mmkdtemp[39m([34mjoin[39m([34mtmpdir[39m()[33m,[39m [32m"scip-indexers-"[39m))
+    [90m234| [39m    [35mconst[39m checkoutPath [33m=[39m [34mjoin[39m(directory[33m,[39m [32m"checkout"[39m)
+
+[31m[2m⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[4/6]⎯[22m[39m
+
+[41m[1m FAIL [22m[49m src/domain/indexing/scipIndexers.test.ts[2m > [22mrunScipIndexer[2m > [22mrejects and removes an empty final shard
+[31m[1mError[22m: Test timed out in 5000ms.
+If this is a long-running test, pass a timeout value as the last argument or configure it globally with "testTimeout".[39m
+[36m [2m❯[22m src/domain/indexing/scipIndexers.test.ts:[2m255:3[22m[39m
+    [90m253| [39m  })
+    [90m254| [39m
+    [90m255| [39m  [34mit[39m([32m"rejects and removes an empty final shard"[39m[33m,[39m [35masync[39m () [33m=>[39m {
+    [90m   | [39m  [31m^[39m
+    [90m256| [39m    [35mconst[39m directory [33m=[39m [35mawait[39m [34mmkdtemp[39m([34mjoin[39m([34mtmpdir[39m()[33m,[39m [32m"scip-indexers-"[39m))
+    [90m257| [39m    [35mconst[39m checkoutPath [33m=[39m [34mjoin[39m(directory[33m,[39m [32m"checkout"[39m)
+
+[31m[2m⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[5/6]⎯[22m[39m
+
+[41m[1m FAIL [22m[49m src/domain/indexing/scipIndexers.test.ts[2m > [22mrunScipIndexer[2m > [22mrejects a final shard that is not a regular file
+[31m[1mError[22m: Test timed out in 5000ms.
+If this is a long-running test, pass a timeout value as the last argument or configure it globally with "testTimeout".[39m
+[36m [2m❯[22m src/domain/indexing/scipIndexers.test.ts:[2m282:3[22m[39m
+    [90m280| [39m  })
+    [90m281| [39m
+    [90m282| [39m  [34mit[39m([32m"rejects a final shard that is not a regular file"[39m[33m,[39m [35masync[39m () [33m=>[39m {
+    [90m   | [39m  [31m^[39m
+    [90m283| [39m    [35mconst[39m directory [33m=[39m [35mawait[39m [34mmkdtemp[39m([34mjoin[39m([34mtmpdir[39m()[33m,[39m [32m"scip-indexers-"[39m))
+    [90m284| [39m    [35mconst[39m checkoutPath [33m=[39m [34mjoin[39m(directory[33m,[39m [32m"checkout"[39m)
+
+[31m[2m⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[6/6]⎯[22m[39m
+
+
+[2m Test Files [22m [1m[31m1 failed[39m[22m[2m | [22m[1m[32m30 passed[39m[22m[90m (31)[39m
+[2m      Tests [22m [1m[31m6 failed[39m[22m[2m | [22m[1m[32m178 passed[39m[22m[90m (184)[39m
+[2m   Start at [22m 02:46:32
+[2m   Duration [22m 22.78s[2m (transform 6.30s, setup 746ms, import 19.03s, tests 23.75s, environment 4ms)[22m
+
+JSON report written to /app/.ci-results/codesearch/node.json
+Unexpected failure: src/domain/indexing/scipIndexers.test.ts runScipIndexer runs direct-output indexers concurrently against unique shards
+AssertionError: expected [ 'scip-typescript', 'index', …(2) ] to deeply equal [ 'scip-go', '--output', …(1) ]
+
+[1m[46m RUN [49m[22m [36mv4.0.18 [39m[90m/app/apps/codesearch[39m
+
+ [31m❯[39m src/routes/repo.test.ts [2m([22m[2m0 test[22m[2m)[22m
+ [32m✓[39m src/domain/repositories/globFiles.test.ts [2m([22m[2m14 tests[22m[2m)[22m[32m 80[2mms[22m[39m
+
+[31m⎯⎯⎯⎯⎯⎯[39m[1m[41m Failed Suites 1 [49m[22m[31m⎯⎯⎯⎯⎯⎯⎯[39m
+
+[41m[1m FAIL [22m[49m src/routes/repo.test.ts[2m [ src/routes/repo.test.ts ][22m
+[31m[1mTypeError[22m: undefined is not an object (evaluating '__vite_ssr_import_0__.z.object')[39m
+[36m [2m❯[22m src/config/env.ts:[2m3:19[22m[39m
+    [90m  1| [39m[35mimport[39m { z } [35mfrom[39m [32m"zod"[39m
+    [90m  2| [39m
+    [90m  3| [39m[35mconst[39m envSchema [33m=[39m z[33m.[39m[34mobject[39m({
+    [90m   | [39m                  [31m^[39m
+    [90m  4| [39m  NODE_ENV: z.enum(["development", "production", "test"]).default("dev…
+    [90m  5| [39m  [33mPORT[39m[33m:[39m z[33m.[39mcoerce[33m.[39m[34mnumber[39m()[33m.[39m[35mdefault[39m([34m3001[39m)[33m,[39m
+
+[31m[2m⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/1]⎯[22m[39m
+
+
+[2m Test Files [22m [1m[31m1 failed[39m[22m[2m | [22m[1m[32m1 passed[39m[22m[90m (2)[39m
+[2m      Tests [22m [1m[32m14 passed[39m[22m[90m (14)[39m
+[2m   Start at [22m 02:46:56
+[2m   Duration [22m 257ms[2m (transform 185ms, setup 54ms, import 67ms, tests 80ms, environment 0ms)[22m
+
+JSON report written to /app/.ci-results/codesearch/bun.json
+Suite did not execute cleanly: src/routes/repo.test.ts undefined is not an object (evaluating '__vite_ssr_import_0__.z.object')

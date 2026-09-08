@@ -52,7 +52,7 @@ export function createApp(env: Env) {
       return c.json({ error: "Unauthorized" }, 401)
     }
     c.set("auth", verified)
-    await next()
+    return next()
   })
   registerSearchRoutes(api)
   registerRepoRoutes(api)

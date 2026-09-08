@@ -30,12 +30,13 @@ export function createDb(env: Env) {
 }
 
 export type Db = ReturnType<typeof createDb>
+type OrgDb = Omit<Db, "$client">
 
-type OrgDbStore = { db: Db; orgId: string }
+type OrgDbStore = { db: OrgDb; orgId: string }
 
 const orgDbStorage = new AsyncLocalStorage<OrgDbStore>()
 
-export function tryGetOrgDb(): Db | undefined {
+export function tryGetOrgDb(): OrgDb | undefined {
   return orgDbStorage.getStore()?.db
 }
 
@@ -43,7 +44,7 @@ export function tryGetOrgDbOrgId(): string | undefined {
   return orgDbStorage.getStore()?.orgId
 }
 
-export function getOrgDb(): Db {
+export function getOrgDb(): OrgDb {
   const stored = orgDbStorage.getStore()
   if (stored) return stored.db
   throw new Error(
@@ -68,7 +69,7 @@ export function assertNotInOrgDbContext(): void {
 export async function withOrgDbContext<T>(
   db: Db,
   orgId: string,
-  handler: (tx: Db) => Promise<T>,
+  handler: (tx: OrgDb) => Promise<T>,
 ): Promise<T> {
   const existing = orgDbStorage.getStore()
   if (existing) {

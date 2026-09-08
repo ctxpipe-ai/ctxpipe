@@ -1,3 +1,77 @@
+import { z } from "zod"
+
+export const workspaceRevisionSchema = z
+  .object({
+    workspaceId: z.string().min(1),
+    generation: z.number().int().positive(),
+    remote: z
+      .object({
+        url: z.string().min(1),
+        githubConnectionId: z.string().min(1).nullable(),
+      })
+      .readonly(),
+    defaultBranch: z.string().min(1),
+    sha: z.string().regex(/^(?:[0-9a-f]{40}|[0-9a-f]{64})$/),
+    access: z.enum(["read", "publish-session", "write-default"]),
+  })
+  .readonly()
+
+export type WorkspaceRevision = z.infer<typeof workspaceRevisionSchema>
+
+export type DerivedStoreResult =
+  | { kind: "pending" }
+  | { kind: "ready" }
+  | { kind: "failed"; message: string }
+
+export type StoreFreshness = {
+  embeddings: DerivedStoreResult
+  graph: { kind: "postgres" }
+  index: DerivedStoreResult
+}
+
+export type PublishedProjection =
+  | { kind: "active"; revision: WorkspaceRevision; stores: StoreFreshness }
+  | { kind: "legacy"; url: string | null; sha: string }
+
+export type ProjectionState =
+  | PublishedProjection
+  | { kind: "absent" }
+  | {
+      kind: "building"
+      desired: WorkspaceRevision | null
+      previous: PublishedProjection | null
+    }
+  | {
+      kind: "failed"
+      desired: WorkspaceRevision | null
+      previous: PublishedProjection | null
+      error: string
+    }
+
+export function sameWorkspaceRevision(
+  a: WorkspaceRevision | null | undefined,
+  b: WorkspaceRevision,
+): boolean {
+  return (
+    a?.workspaceId === b.workspaceId &&
+    a.generation === b.generation &&
+    a.remote.url === b.remote.url &&
+    a.remote.githubConnectionId === b.remote.githubConnectionId &&
+    a.defaultBranch === b.defaultBranch &&
+    a.sha === b.sha &&
+    a.access === b.access
+  )
+}
+
+export function publishedProjection(
+  state: ProjectionState,
+): PublishedProjection | null {
+  if (state.kind === "active" || state.kind === "legacy") return state
+  if (state.kind === "building" || state.kind === "failed")
+    return state.previous
+  return null
+}
+
 /** Desired SHA follows the resolved remote tip, including rewind. */
 export function applyResolvedDesiredSha(resolvedTip: string): string {
   return resolvedTip.trim()

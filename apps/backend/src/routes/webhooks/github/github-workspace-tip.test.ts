@@ -34,7 +34,6 @@ import {
   getGithubRepoWriteView,
   persistWorkspaceTipsOnDefaultBranchPush,
   resolveGithubBranchTip,
-  resolveWorkspaceRepositoryTip,
 } from "./github-workspace-tip.js"
 
 describe("persistWorkspaceTipsOnDefaultBranchPush", () => {
@@ -151,50 +150,6 @@ describe("resolveGithubBranchTip", () => {
         env: {} as never,
       }),
     ).resolves.toBeNull()
-  })
-})
-
-describe("resolveWorkspaceRepositoryTip", () => {
-  it("resolves the repository default branch tip", async () => {
-    const get = vi.fn(async () => ({ data: { default_branch: "develop" } }))
-    const getRef = vi.fn(async () => ({ data: { object: { sha: "tipsha" } } }))
-    getInstallationOctokitForOrgMock.mockResolvedValue({
-      octokit: { rest: { repos: { get }, git: { getRef } } },
-    })
-    await expect(
-      resolveWorkspaceRepositoryTip({
-        orgId: "org_1",
-        workspaceRepositoryUrl: "https://github.com/acme/docs.git",
-        env: {} as never,
-      }),
-    ).resolves.toBe("tipsha")
-    expect(get).toHaveBeenCalledWith({ owner: "acme", repo: "docs" })
-    expect(getRef).toHaveBeenCalledWith({
-      owner: "acme",
-      repo: "docs",
-      ref: "heads/develop",
-    })
-  })
-
-  it("resolves a caller-supplied branch instead of the default branch", async () => {
-    const get = vi.fn(async () => ({ data: { default_branch: "develop" } }))
-    const getRef = vi.fn(async () => ({ data: { object: { sha: "relsha" } } }))
-    getInstallationOctokitForOrgMock.mockResolvedValue({
-      octokit: { rest: { repos: { get }, git: { getRef } } },
-    })
-    await expect(
-      resolveWorkspaceRepositoryTip({
-        orgId: "org_1",
-        workspaceRepositoryUrl: "https://github.com/acme/docs.git",
-        branch: "release",
-        env: {} as never,
-      }),
-    ).resolves.toBe("relsha")
-    expect(getRef).toHaveBeenCalledWith({
-      owner: "acme",
-      repo: "docs",
-      ref: "heads/release",
-    })
   })
 })
 

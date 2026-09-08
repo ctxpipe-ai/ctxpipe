@@ -394,7 +394,10 @@ export const conversationFileRoutes = new OpenAPIHono<AppEnv>()
     if (!handle) return c.json({ error: "missing_sandbox" }, 409)
     const paths = await listConversationSandboxPaths(handle)
     const branch = sessionBranchName(conversationId)
-    return c.json({ sha: loaded.workspace.desiredSha ?? "HEAD", paths, branch })
+    return c.json(
+      { sha: loaded.workspace.desiredSha ?? "HEAD", paths, branch },
+      200,
+    )
   })
   .openapi(getBlobRoute, async (c) => {
     if (!requireUser(c)) return c.json({ error: "Unauthorized" }, 401)
@@ -406,7 +409,7 @@ export const conversationFileRoutes = new OpenAPIHono<AppEnv>()
     if (!handle) return c.json({ error: "missing_sandbox" }, 409)
     const blob = await readConversationSandboxFile(handle, path)
     if (!blob) return c.json({ error: "Not found" }, 404)
-    return c.json(blob)
+    return c.json(blob, 200)
   })
   .openapi(getStatusRoute, async (c) => {
     if (!requireUser(c)) return c.json({ error: "Unauthorized" }, 401)
@@ -432,7 +435,7 @@ export const conversationFileRoutes = new OpenAPIHono<AppEnv>()
       defaultBranch,
       sessionBranch: sessionBranchName(conversationId),
     })
-    return c.json({ source: "sandbox" as const, ...status })
+    return c.json({ source: "sandbox" as const, ...status }, 200)
   })
   .openapi(getDiffRoute, async (c) => {
     if (!requireUser(c)) return c.json({ error: "Unauthorized" }, 401)
@@ -457,7 +460,7 @@ export const conversationFileRoutes = new OpenAPIHono<AppEnv>()
     })
     if (!handle) return c.json({ error: "missing_sandbox" }, 409)
     const items = await conversationSandboxDiff({ handle, defaultBranch })
-    return c.json({ items })
+    return c.json({ items }, 200)
   })
   .openapi(putFileRoute, async (c) => {
     if (!requireUser(c)) return c.json({ error: "Unauthorized" }, 401)
@@ -472,7 +475,7 @@ export const conversationFileRoutes = new OpenAPIHono<AppEnv>()
     const body = PutConversationFileBodySchema.parse(await c.req.json())
     if (body.deletePath) {
       await removeConversationSandboxPath({ handle, path: body.path })
-      return c.json({ path: body.path, body: null, binary: false })
+      return c.json({ path: body.path, body: null, binary: false }, 200)
     }
     if (body.from && body.from !== body.path) {
       await renameConversationSandboxPath({
@@ -488,11 +491,14 @@ export const conversationFileRoutes = new OpenAPIHono<AppEnv>()
         body: body.body,
       })
     }
-    return c.json({
-      path: body.path,
-      body: body.body ?? null,
-      binary: false,
-    })
+    return c.json(
+      {
+        path: body.path,
+        body: body.body ?? null,
+        binary: false,
+      },
+      200,
+    )
   })
   .openapi(postPushRoute, async (c) => {
     if (!requireUser(c)) return c.json({ error: "Unauthorized" }, 401)
@@ -535,13 +541,16 @@ export const conversationFileRoutes = new OpenAPIHono<AppEnv>()
       conversationId,
       lastBranch: pushed.branch,
     })
-    return c.json({
-      branch: pushed.branch,
-      treeUrl: conversationGithubTreeUrl({
-        repositoryName: repoName,
+    return c.json(
+      {
         branch: pushed.branch,
-      }),
-    })
+        treeUrl: conversationGithubTreeUrl({
+          repositoryName: repoName,
+          branch: pushed.branch,
+        }),
+      },
+      200,
+    )
   })
 
 export async function checkoutPreparedConversationBranch(input: {

@@ -9,6 +9,7 @@ Parent: [`.ai/memory/README.md`](../README.md).
 | ADR | Title | Status |
 |-----|-------|--------|
 | [ADR-031](ADR-031-required-recovery-ci.md) | Required recovery CI | Accepted |
+| [ADR-032](ADR-032-workspace-revision-projection-identity.md) | Workspace revision and projection identity | Accepted |
 
 | [ADR-001](ADR-001-frontend-ui-app-stack.md) | Frontend UI app stack | Accepted |
 | [ADR-002](ADR-002-backend-service-stack-and-runtime.md) | Backend service stack and runtime | Accepted |

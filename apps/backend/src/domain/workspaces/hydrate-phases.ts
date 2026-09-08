@@ -1,7 +1,12 @@
+import type { DerivedStoreResult, WorkspaceRevision } from "./revision.js"
+
 export type HydratePhaseRecord = {
   url: string
   sha: string
   embeddings: boolean
+  embeddingError?: string
+  revision?: WorkspaceRevision
+  index?: { revision: WorkspaceRevision; result: DerivedStoreResult }
 }
 
 export type PendingHydratePhases = {
@@ -62,11 +67,13 @@ export function hydrateHasPendingWork(pending: PendingHydratePhases): boolean {
 export function initialHydratePhases(input: {
   url: string
   sha: string
+  revision?: WorkspaceRevision
 }): HydratePhaseRecord {
   return {
     url: input.url,
     sha: input.sha,
     embeddings: false,
+    ...(input.revision ? { revision: input.revision } : {}),
   }
 }
 

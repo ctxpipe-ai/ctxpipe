@@ -124,7 +124,7 @@ export async function prepareWorkspaceChat(
     param: { orgSlug, conversationId },
     json: { workspaceId },
   })
-  if (!res.ok && res.status !== 204) {
+  if (!res.ok) {
     throw new Error("Failed to prepare workspace chat")
   }
 }

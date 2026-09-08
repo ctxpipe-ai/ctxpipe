@@ -121,7 +121,6 @@ describe("repositoryIndex workflow", () => {
     expect(detectMock).toHaveBeenCalledOnce()
     expect(scipMock).toHaveBeenCalledTimes(2)
     expect(mergeMock).toHaveBeenCalledOnce()
-    expect(stepNames[0]).toBe("resolve-github-token")
     expect(stepNames).toContain("clone-checkout")
     expect(stepNames).toContain("zoekt")
     expect(stepNames).toContain("scip:go")

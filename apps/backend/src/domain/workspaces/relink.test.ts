@@ -7,6 +7,7 @@ describe("nextRelinkFields", () => {
     expect(next).toEqual({
       desiredGeneration: 2,
       desiredSha: null,
+      desiredDefaultBranch: null,
       hydrateStatus: "pending",
       hydrateError: null,
       writeStatus: "unknown",

@@ -70,13 +70,14 @@ function gitReadEnvironment(input: {
   token?: string
 }): NodeJS.ProcessEnv {
   const env = { ...process.env, GIT_TERMINAL_PROMPT: "0" }
-  if (!input.token) return env
-  const remote = new URL(input.url)
+  const remote = URL.canParse(input.url) ? new URL(input.url) : null
   if (
-    !["https:", "http:"].includes(remote.protocol) ||
-    remote.username ||
-    remote.password
+    remote?.password ||
+    (remote && ["http:", "https:"].includes(remote.protocol) && remote.username)
   )
+    throw new Error("Git reads require a credential-free remote")
+  if (!input.token) return env
+  if (!remote || !["https:", "http:"].includes(remote.protocol))
     throw new Error(
       "Token-authenticated Git reads require a credential-free HTTP remote",
     )

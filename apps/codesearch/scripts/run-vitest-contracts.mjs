@@ -19,6 +19,7 @@ try {
   const bun = [
     "src/domain/repositories/globFiles.test.ts",
     "src/routes/repo.test.ts",
+    "src/domain/indexing/scipIndexers.native.test.ts",
   ]
   for (const file of bun)
     if (!files.includes(file)) throw new Error(`Missing Bun contract: ${file}`)

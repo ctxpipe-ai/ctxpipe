@@ -1,12 +1,15 @@
 import { createRoute, OpenAPIHono, z } from "@hono/zod-openapi"
 import type { Context } from "hono"
 import type { AppEnv } from "../../app/env.js"
-import type { Env } from "../../config/env.js"
 import {
   listWorkspaceCheckoutPaths,
   readWorkspaceCheckoutFile,
   WorkspaceCheckoutReadError,
 } from "../../domain/workspaces/checkout-read.js"
+import {
+  publishedProjection,
+  type WorkspaceRevision,
+} from "../../domain/workspaces/revision.js"
 import { fileTreeFromPaths } from "../../domain/workspaces/file-tree.js"
 import {
   explorerBlobFromContent,
@@ -15,7 +18,6 @@ import {
   explorerGitNumstatFromStdout,
   explorerGitStatusFromPorcelain,
   withExplorerGitLineCounts,
-  workspaceGitExplorerTarget,
 } from "../../domain/workspaces/git-explorer.js"
 import {
   parseWorkspaceFileJobRequest,
@@ -25,6 +27,7 @@ import { getJobSandbox } from "../../domain/workspaces/sandbox-registry.js"
 import { writeJobQueueHttpDecision } from "../../domain/workspaces/write-jobs.js"
 import {
   getWorkspaceBySlug,
+  getWorkspaceProjection,
   listWorkspaceKnowledgeFiles,
 } from "../../models/workspaces.js"
 import { getLogger } from "../../observability/logger.js"
@@ -279,50 +282,15 @@ const enqueueWorkspaceFileJobRoute = createRoute({
   },
 })
 
-function resolveWorkspaceGitReadInput(
-  workspace: {
-    id: string
-    workspaceRepositoryUrl: string
-    activeProjectionUrl: string | null
-    githubConnectionId: string | null
-    activeProjectionSha: string | null
-    desiredSha: string | null
-  },
-  orgId: string | null,
-  env: Env | undefined,
-) {
-  if (!orgId || !env) {
-    return { ok: false as const, status: 401 as const, error: "Unauthorized" }
-  }
-  const resolved = workspaceGitExplorerTarget(workspace)
-  if (!resolved.ok) return resolved
-  return {
-    ok: true as const,
-    input: {
-      workspaceId: workspace.id,
-      url: resolved.target.url,
-      sha: resolved.target.sha,
-    },
-  }
-}
-
-async function readExplorerTree(input: { workspaceId: string; url: string }) {
-  return listWorkspaceCheckoutPaths({
-    workspaceId: input.workspaceId,
-    gitUrl: input.url,
-  })
+async function readExplorerTree(input: { revision: WorkspaceRevision }) {
+  return listWorkspaceCheckoutPaths(input)
 }
 
 async function readExplorerBlob(input: {
-  workspaceId: string
-  url: string
+  revision: WorkspaceRevision
   path: string
 }) {
-  return readWorkspaceCheckoutFile({
-    workspaceId: input.workspaceId,
-    gitUrl: input.url,
-    path: input.path,
-  })
+  return readWorkspaceCheckoutFile(input)
 }
 
 async function loadWorkspaceGitExplorer(c: Context<AppEnv>) {
@@ -334,13 +302,21 @@ async function loadWorkspaceGitExplorer(c: Context<AppEnv>) {
   if (!workspace) {
     return { ok: false as const, status: 404 as const, error: "Not found" }
   }
-  const read = resolveWorkspaceGitReadInput(
-    workspace,
-    c.get("orgId"),
-    c.get("env"),
+  const projection = publishedProjection(
+    await getWorkspaceProjection(workspace.id),
   )
-  if (!read.ok) return read
-  return { ok: true as const, workspace, input: read.input }
+  if (projection?.kind !== "active")
+    return {
+      ok: false as const,
+      status: 409 as const,
+      error:
+        "This Workspace must finish hydration before its published files can be browsed.",
+    }
+  return {
+    ok: true as const,
+    workspace,
+    input: { revision: projection.revision, sha: projection.revision.sha },
+  }
 }
 
 function gitExplorerUpstreamError(error: unknown, step: string) {

@@ -10,6 +10,8 @@ import {
   unique,
   uniqueIndex,
 } from "drizzle-orm/pg-core"
+import type { HydratePhaseRecord } from "../../domain/workspaces/hydrate-phases.js"
+import type { WorkspaceRevision } from "../../domain/workspaces/revision.js"
 import { connections } from "./connections.js"
 import { orgIsolationPolicy } from "./org-rls.js"
 
@@ -30,6 +32,8 @@ export const workspaces = pgTable.withRLS(
     ),
     desiredGeneration: integer("desired_generation").notNull().default(1),
     desiredSha: text("desired_sha"),
+    desiredDefaultBranch: text("desired_default_branch"),
+    activeRevision: jsonb("active_revision").$type<WorkspaceRevision>(),
     activeProjectionUrl: text("active_projection_url"),
     activeProjectionSha: text("active_projection_sha"),
     indexedSha: text("indexed_sha"),
@@ -40,11 +44,7 @@ export const workspaces = pgTable.withRLS(
       withTimezone: true,
       mode: "date",
     }),
-    hydratePhases: jsonb("hydrate_phases").$type<{
-      url: string
-      sha: string
-      embeddings: boolean
-    } | null>(),
+    hydratePhases: jsonb("hydrate_phases").$type<HydratePhaseRecord | null>(),
     readOnlyReason: text("read_only_reason"),
     createdAt: timestamp("created_at", { withTimezone: true, mode: "date" })
       .notNull()

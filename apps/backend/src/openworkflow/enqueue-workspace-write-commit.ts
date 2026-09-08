@@ -13,7 +13,6 @@ import {
 import { generateObjectId } from "../lib/id.js"
 import {
   getWorkspaceById,
-  persistHydrateFailure,
   persistWriteJobIntent,
   persistWriteJobStatus,
   persistWriteStatus,
@@ -151,16 +150,6 @@ export async function enqueueWriteJob(
   } catch (err: unknown) {
     const error = err instanceof Error ? err : new Error(String(err))
     log.error(error)
-    try {
-      await withOrgDbContext(input.orgId, () =>
-        persistHydrateFailure({
-          workspaceId: input.workspaceId,
-          message: error.message,
-        }),
-      )
-    } catch {
-      // Persist is best-effort when org db is not open.
-    }
     if (status !== WRITE_JOB_STATUSES.queued) return { started: false }
   }
   if (status !== WRITE_JOB_STATUSES.queued) {

@@ -614,7 +614,7 @@ async function loadNotionResourcesFromGit(input: {
   )
 }
 
-export const notionConnectorRoutes = new OpenAPIHono<AppEnv>().openapi(
+const notionOAuthStartRoutes = new OpenAPIHono<AppEnv>().openapi(
   getOAuthStartRoute,
   async (c) => {
     if (!c.get("user") || !c.get("session")) {
@@ -723,7 +723,7 @@ export const notionOAuthCallbackRoutes = new OpenAPIHono<AppEnv>().openapi(
   },
 )
 
-notionConnectorRoutes
+export const notionConnectorRoutes = notionOAuthStartRoutes
   .openapi(getStatusRoute, async (c) => {
     if (!c.get("user") || !c.get("session")) {
       return c.json({ error: "Unauthorized" }, 401)

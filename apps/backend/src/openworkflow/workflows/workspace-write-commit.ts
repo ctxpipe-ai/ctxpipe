@@ -1,5 +1,4 @@
 import { defineWorkflow } from "openworkflow"
-import { workspaceWriteJobInputSchema } from "../../domain/workspaces/write-job-intent.js"
 import { withOrgIdContext } from "../../auth/withAuth.js"
 import { parseEnv } from "../../config/env.js"
 import { getSystemDb, withOrgDbContext } from "../../db/client.js"
@@ -32,6 +31,7 @@ import {
 } from "../../domain/workspaces/write-job-agent.js"
 import {
   WRITE_JOB_STATUSES,
+  workspaceWriteJobInputSchema,
   writeJobIntentPayload,
 } from "../../domain/workspaces/write-job-intent.js"
 import {
@@ -60,7 +60,6 @@ import {
   getWriteJobCommitSha,
   listKnowledgeUnitPaths,
   listLinkedRepositories,
-  persistHydrateFailure,
   persistLastJobAt,
   persistResolvedDesiredSha,
   persistWriteJobCommitSha,
@@ -695,17 +694,6 @@ export const workspaceWriteCommit = defineWorkflow(
               )
             } catch {
               // Job row may not exist yet if persistWriteJobStart failed.
-            }
-            try {
-              await orgSql(() =>
-                persistHydrateFailure({
-                  workspaceId: input.workspaceId,
-                  message:
-                    error instanceof Error ? error.message : String(error),
-                }),
-              )
-            } catch {
-              // Persist is best-effort; OpenWorkflow still records the failed run.
             }
             throw error
           }

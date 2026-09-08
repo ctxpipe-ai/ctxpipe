@@ -10,6 +10,7 @@ import { OpenWorkflow } from "openworkflow"
 import { BackendPostgres } from "openworkflow/postgres"
 import { expect, it } from "vitest"
 import { withOrgIdContext } from "../../auth/withAuth.js"
+import { parseEnv } from "../../config/env.js"
 import {
   closeDb,
   getSystemDb,
@@ -18,12 +19,33 @@ import {
 } from "../../db/client.js"
 import { organizations } from "../../db/schema/auth.js"
 import { connections } from "../../db/schema/connections.js"
+import { repositories } from "../../db/schema/repositories.js"
 import { workspaces } from "../../db/schema/workspaces.js"
+import { invalidateGithubAppCacheForConnection } from "../../models/github-installation.js"
 import {
+  captureWorkspaceRevision,
+  commitHydrateProjection,
   getWorkspaceById,
+  getWorkspaceProjection,
+  getWorkspaceProjectionSnapshot,
   listWorkspaceKnowledgeUnits,
+  listWorkspaceKnowledgeUnitsForChat,
+  persistEmbeddingFailure,
+  persistHydrateFailure,
+  persistIndexedSha,
+  persistResolvedDesiredSha,
+  persistUnitEmbeddings,
+  persistWorkspaceIndexResult,
 } from "../../models/workspaces.js"
+import { enqueueWorkspaceHydrate } from "../../openworkflow/enqueue-workspace-hydrate.js"
+import { repositoryIndex } from "../../openworkflow/workflows/repository-index.js"
 import { workspaceHydrate } from "../../openworkflow/workflows/workspace-hydrate.js"
+import { workspaceIndex } from "../../openworkflow/workflows/workspace-index.js"
+import {
+  listWorkspaceCheckoutPaths,
+  readWorkspaceCheckoutFile,
+} from "./checkout-read.js"
+import { resolveWorkspaceRepositoryTip } from "../../routes/webhooks/github/github-workspace-tip.js"
 
 it.each([
   { count: 0, relink: false },
@@ -31,10 +53,37 @@ it.each([
   { count: 100, relink: false },
   { count: 1, relink: true },
   { count: 100, relink: false, github: true },
+  { count: 1, relink: false, projectionIdentity: true },
+  { count: 1, relink: false, embeddingFailure: true },
+  { count: 1, relink: false, history: true },
+  { count: 1, relink: false, incompleteEmbeddings: true },
+  { count: 1, relink: false, indexFailure: true },
+  { count: 1, relink: false, enqueue: true },
+  { count: 1, relink: false, missingTip: true },
+  { count: 1, relink: false, writeStatus: "read_only" },
+  { count: 1, relink: false, writeStatus: "writable" },
+  { count: 1, relink: false, github: true, indexAuthFailure: true },
+  { count: 1, relink: false, indexIdentity: true },
+  { count: 1, relink: false, projectionFiles: true },
 ])(
-  "executes the hydrate workflow for $count native-git files (relink before execution: $relink, GitHub: $github)",
+  "executes the hydrate workflow for $count native-git files (relink before execution: $relink, GitHub: $github, projection identity: $projectionIdentity, embedding failure: $embeddingFailure, history: $history, incomplete embeddings: $incompleteEmbeddings, index failure: $indexFailure, enqueue: $enqueue, missing tip: $missingTip, write status: $writeStatus, index auth failure: $indexAuthFailure, index identity: $indexIdentity, projection files: $projectionFiles)",
   { timeout: 60_000 },
-  async ({ count, relink, github }) => {
+  async ({
+    count,
+    relink,
+    github,
+    projectionIdentity,
+    embeddingFailure,
+    history,
+    incompleteEmbeddings,
+    indexFailure,
+    enqueue,
+    missingTip,
+    writeStatus,
+    indexAuthFailure,
+    indexIdentity,
+    projectionFiles,
+  }) => {
     const databaseUrl = process.env.DATABASE_URL
     if (!databaseUrl)
       throw new Error("DATABASE_URL is required for hydration proof")
@@ -60,12 +109,19 @@ it.each([
       MODEL_PROVIDER_URL: "https://hydrate-model.test/v1",
     })
     const tokenRequests: unknown[] = []
+    let failEmbeddings = embeddingFailure === true
+    let failGithubTokens = false
     const server = setupServer(
       http.post(
         "https://api.github.com/app/installations/123456789/access_tokens",
         async ({ request }) => {
           const body = await request.text()
           tokenRequests.push(body ? JSON.parse(body) : {})
+          if (failGithubTokens)
+            return HttpResponse.json(
+              { message: "Credential provider unavailable" },
+              { status: 400 },
+            )
           return HttpResponse.json(
             {
               token: "fixture-only-github-read-token",
@@ -76,6 +132,9 @@ it.each([
           )
         },
       ),
+      http.get("https://api.github.com/repos/fixture/hydration-contract", () =>
+        HttpResponse.json({ message: "Use native Git" }, { status: 404 }),
+      ),
       http.get(
         "https://api.github.com/repos/fixture/hydration-contract/git/trees/:sha",
         () => HttpResponse.json({ message: "Use native Git" }, { status: 404 }),
@@ -83,11 +142,16 @@ it.each([
       http.post(
         "https://hydrate-model.test/v1/embeddings",
         async ({ request }) => {
+          if (failEmbeddings)
+            return HttpResponse.json(
+              { error: { message: "Embedding fixture unavailable" } },
+              { status: 400 },
+            )
           const body = (await request.json()) as { input: string[] }
           return HttpResponse.json({
             data: body.input.map((_, index) => ({
               index,
-              embedding: Array(2000).fill(0.01),
+              embedding: incompleteEmbeddings ? [] : Array(2000).fill(0.01),
             })),
           })
         },
@@ -101,7 +165,9 @@ it.each([
     })
     const runner = new OpenWorkflow({ backend })
     runner.implementWorkflow(workspaceHydrate.spec, workspaceHydrate.fn)
-    const worker = runner.newWorker({ concurrency: 1 })
+    runner.implementWorkflow(workspaceIndex.spec, workspaceIndex.fn)
+    runner.implementWorkflow(repositoryIndex.spec, repositoryIndex.fn)
+    const worker = runner.newWorker({ concurrency: 2 })
     try {
       git("init", "-b", "main")
       const expected = Array.from({ length: count }, (_, index) => ({
@@ -171,9 +237,10 @@ it.each([
           displayName: org.name,
           workspaceRepositoryUrl: workspaceUrl,
           githubConnectionId: github ? connectionId : null,
-          desiredSha: sha,
+          desiredSha: missingTip ? null : sha,
           desiredGeneration: 1,
           indexedSha: sha,
+          writeStatus: writeStatus ?? "unknown",
         }),
       )
       const handle = await runner.runWorkflow(workspaceHydrate.spec, {
@@ -181,7 +248,7 @@ it.each([
         workspaceId,
         generation: 1,
         url: workspaceUrl,
-        sha,
+        ...(missingTip ? {} : { sha }),
       })
       if (relink) {
         await withOrgDbContext(org.id, (db) =>
@@ -194,6 +261,20 @@ it.each([
       const gitTrace = join(directory, "git-trace.jsonl")
       process.env.GIT_TRACE2_EVENT = gitTrace
       await worker.start()
+      if (missingTip) {
+        await expect(handle.result({ timeoutMs: 30_000 })).rejects.toThrow(
+          "Could not resolve the git tip",
+        )
+        await withOrgIdContext(org, async () => {
+          expect(
+            await getWorkspaceProjectionSnapshot(workspaceId),
+          ).toMatchObject({
+            projection: { kind: "failed", desired: null, previous: null },
+            units: [],
+          })
+        })
+        return
+      }
       if (relink) {
         expect(await handle.result({ timeoutMs: 30_000 })).toMatchObject({
           hydrated: false,
@@ -218,6 +299,17 @@ it.each([
         workflowRunId: handle.workflowRun.id,
       })
       expect(run?.status).toBe("completed")
+      // Seed the independent derived-store result for the no-op hydration cases.
+      // Index failure and generation changes below must not reuse this result.
+      await withOrgIdContext(org, async () => {
+        const active = await getWorkspaceProjection(workspaceId)
+        if (active.kind !== "active")
+          throw new Error("Expected active revision")
+        await persistWorkspaceIndexResult({
+          revision: active.revision,
+          result: { kind: "ready" },
+        })
+      })
       const gitCommands = readFileSync(gitTrace, "utf8")
         .trim()
         .split("\n")
@@ -234,6 +326,67 @@ it.each([
             permissions: { contents: "read", metadata: "read" },
           },
         ])
+        await withOrgIdContext(org, async () => {
+          expect(
+            await resolveWorkspaceRepositoryTip({
+              orgId: org.id,
+              githubConnectionId: connectionId,
+              workspaceRepositoryUrl: workspaceUrl,
+              env: parseEnv(process.env),
+            }),
+          ).toBe(sha)
+        })
+        invalidateGithubAppCacheForConnection(connectionId)
+        failGithubTokens = true
+        const tokenCount = tokenRequests.length
+        const repeat = await runner.runWorkflow(workspaceHydrate.spec, {
+          orgId: org.id,
+          workspaceId,
+          generation: 1,
+          url: workspaceUrl,
+          sha,
+        })
+        expect(await repeat.result({ timeoutMs: 30_000 })).toEqual({
+          hydrated: false,
+          reason: "noop",
+        })
+        expect(tokenRequests).toHaveLength(tokenCount)
+        if (indexAuthFailure) {
+          await withOrgDbContext(org.id, (db) =>
+            db.insert(repositories).values({
+              id: `repo_${id}`,
+              orgId: org.id,
+              name: "Hydration fixture",
+              gitUrl: workspaceUrl,
+            }),
+          )
+          const indexing = await runner.runWorkflow(workspaceIndex.spec, {
+            orgId: org.id,
+            workspaceId,
+            gitUrl: workspaceUrl,
+            desiredSha: sha,
+            role: "workspace",
+            jobGeneration: 1,
+            jobWorkspaceUrl: workspaceUrl,
+          })
+          await expect(indexing.result({ timeoutMs: 30_000 })).rejects.toThrow(
+            "Credential provider unavailable",
+          )
+          expect(tokenRequests.at(-1)).toEqual({
+            repositories: ["hydration-contract"],
+            permissions: { contents: "read", metadata: "read" },
+          })
+          await withOrgIdContext(org, async () => {
+            expect(await getWorkspaceProjection(workspaceId)).toMatchObject({
+              kind: "active",
+              revision: { generation: 1, sha },
+              stores: {
+                embeddings: { kind: "ready" },
+                index: { kind: "failed" },
+              },
+            })
+          })
+        }
       }
       await withOrgIdContext(org, async () => {
         const projection = await listWorkspaceKnowledgeUnits(workspaceId)
@@ -244,23 +397,502 @@ it.each([
         ).toEqual(expected)
         const workspace = await getWorkspaceById(workspaceId)
         expect(workspace?.activeProjectionSha).toBe(sha)
-        expect(workspace?.hydratePhases?.embeddings).toBe(true)
+        expect(workspace?.hydratePhases?.embeddings).toBe(
+          !embeddingFailure && !incompleteEmbeddings,
+        )
       })
+      if (incompleteEmbeddings) {
+        await withOrgIdContext(org, async () => {
+          expect(await getWorkspaceProjection(workspaceId)).toMatchObject({
+            kind: "active",
+            stores: { embeddings: { kind: "failed" } },
+          })
+        })
+      }
+      if (projectionFiles) {
+        const active = await withOrgIdContext(org, () =>
+          getWorkspaceProjection(workspaceId),
+        )
+        if (active.kind !== "active")
+          throw new Error("Expected active revision")
+        await withOrgDbContext(org.id, (db) =>
+          db
+            .update(workspaces)
+            .set({
+              desiredGeneration: 2,
+              workspaceRepositoryUrl: "file:///unavailable-replacement.git",
+            })
+            .where(eq(workspaces.id, workspaceId)),
+        )
+        const read = {
+          workspaceId,
+          gitUrl: workspaceUrl,
+          revision: active.revision,
+        }
+        await withOrgIdContext(org, async () => {
+          expect(await listWorkspaceCheckoutPaths(read)).toEqual([
+            "document-000.md",
+          ])
+          const file = await readWorkspaceCheckoutFile({
+            ...read,
+            path: "document-000.md",
+          })
+          expect(
+            await readWorkspaceCheckoutFile({ ...read, path: "missing.md" }),
+          ).toEqual({ kind: "missing" })
+          expect(file.kind).toBe("bytes")
+          if (file.kind === "bytes")
+            expect(Buffer.from(file.bytes).toString("utf8")).toBe(
+              "# Document 0\nCommitted body 0.\n",
+            )
+        })
+      }
+      if (indexIdentity) {
+        const active = await withOrgIdContext(org, () =>
+          getWorkspaceProjection(workspaceId),
+        )
+        if (active.kind !== "active")
+          throw new Error("Expected active revision")
+        git("--git-dir", remote, "update-ref", "refs/heads/trunk", sha)
+        git("--git-dir", remote, "symbolic-ref", "HEAD", "refs/heads/trunk")
+        await withOrgDbContext(org.id, (db) =>
+          db
+            .update(workspaces)
+            .set({ desiredDefaultBranch: "trunk" })
+            .where(eq(workspaces.id, workspaceId)),
+        )
+        const stale = await runner.runWorkflow(workspaceIndex.spec, {
+          orgId: org.id,
+          workspaceId,
+          gitUrl: workspaceUrl,
+          desiredSha: sha,
+          role: "workspace",
+          jobGeneration: 1,
+          jobWorkspaceUrl: workspaceUrl,
+          revision: active.revision,
+        })
+        expect(await stale.result({ timeoutMs: 30_000 })).toEqual({
+          published: false,
+          reason: "cas_discarded",
+        })
+      }
+      if (enqueue) {
+        const queue = await BackendPostgres.connect(databaseUrl, {
+          runMigrations: false,
+        })
+        try {
+          await withOrgIdContext(org, () =>
+            enqueueWorkspaceHydrate(
+              { orgId: org.id, workspaceId },
+              {
+                error: (error) => {
+                  throw error
+                },
+              },
+            ),
+          )
+          let after: string | undefined
+          let queued: Awaited<ReturnType<typeof queue.getWorkflowRun>> = null
+          do {
+            const page = await queue.listWorkflowRuns({ limit: 100, after })
+            queued =
+              page.data.find(
+                (run) =>
+                  run.input &&
+                  typeof run.input === "object" &&
+                  !Array.isArray(run.input) &&
+                  run.input.workspaceId === workspaceId &&
+                  !("role" in run.input),
+              ) ?? null
+            after = page.pagination.next ?? undefined
+          } while (!queued && after)
+          expect(queued?.input).toEqual({
+            orgId: org.id,
+            workspaceId,
+            revision: {
+              workspaceId,
+              generation: 1,
+              remote: { url: workspaceUrl, githubConnectionId: null },
+              defaultBranch: "main",
+              sha,
+              access: "read",
+            },
+          })
+          if (!queued) throw new Error("Missing durable hydrate command")
+          await withOrgDbContext(org.id, (db) =>
+            db
+              .update(workspaces)
+              .set({ desiredGeneration: 2 })
+              .where(eq(workspaces.id, workspaceId)),
+          )
+          expect(
+            (await queue.getWorkflowRun({ workflowRunId: queued.id }))?.input,
+          ).toEqual(queued.input)
+          await queue.cancelWorkflowRun({ workflowRunId: queued.id })
+        } finally {
+          await queue.stop()
+        }
+      }
+      if (indexFailure) {
+        const indexRun = await runner.runWorkflow(workspaceIndex.spec, {
+          orgId: org.id,
+          workspaceId,
+          gitUrl: workspaceUrl,
+          desiredSha: sha,
+          role: "workspace",
+          jobGeneration: 1,
+          jobWorkspaceUrl: workspaceUrl,
+        })
+        expect(await indexRun.result({ timeoutMs: 30_000 })).toEqual({
+          published: false,
+          reason: "no_repository",
+        })
+        await withOrgIdContext(org, async () => {
+          expect(
+            await getWorkspaceProjectionSnapshot(workspaceId),
+          ).toMatchObject({
+            projection: {
+              kind: "active",
+              revision: { generation: 1, sha },
+              stores: {
+                embeddings: { kind: "ready" },
+                index: { kind: "failed" },
+              },
+            },
+            units: expected,
+          })
+          const active = await getWorkspaceProjection(workspaceId)
+          if (active.kind !== "active")
+            throw new Error("Expected active revision")
+          await persistEmbeddingFailure({
+            revision: active.revision,
+            message: "Concurrent embedding refresh failed",
+          })
+          expect(await getWorkspaceProjection(workspaceId)).toMatchObject({
+            kind: "active",
+            stores: {
+              embeddings: { kind: "failed" },
+              index: { kind: "failed" },
+            },
+          })
+          const { units } = await getWorkspaceProjectionSnapshot(workspaceId)
+          await persistUnitEmbeddings({
+            revision: active.revision,
+            embeddings: units.map((unit) => ({
+              servingId: unit.servingId,
+              embedding: Array(2000).fill(0.01),
+            })),
+          })
+          expect(await getWorkspaceProjection(workspaceId)).toMatchObject({
+            kind: "active",
+            stores: {
+              embeddings: { kind: "ready" },
+              index: { kind: "failed" },
+            },
+          })
+        })
+      }
+      if (embeddingFailure) {
+        await withOrgIdContext(org, async () => {
+          expect(await getWorkspaceProjection(workspaceId)).toMatchObject({
+            kind: "active",
+            revision: { generation: 1, sha },
+            stores: { embeddings: { kind: "failed" } },
+          })
+        })
+        rmSync(remote, { recursive: true, force: true })
+        failEmbeddings = false
+        const retry = await runner.runWorkflow(workspaceHydrate.spec, {
+          orgId: org.id,
+          workspaceId,
+          generation: 1,
+          url: workspaceUrl,
+          sha,
+        })
+        expect(await retry.result({ timeoutMs: 30_000 })).toMatchObject({
+          hydrated: true,
+          units: 1,
+        })
+        await withOrgIdContext(org, async () => {
+          expect(await getWorkspaceProjection(workspaceId)).toMatchObject({
+            kind: "active",
+            revision: { generation: 1, sha },
+            stores: { embeddings: { kind: "ready" } },
+          })
+          expect(
+            (await listWorkspaceKnowledgeUnits(workspaceId)).units.map(
+              ({ path, body }) => ({ path, body }),
+            ),
+          ).toEqual(expected)
+        })
+      }
+      if (history) {
+        const selectRevision = (targetSha: string, previousSha: string) =>
+          withOrgIdContext(org, async () => {
+            expect(
+              await persistResolvedDesiredSha({
+                workspaceId,
+                resolvedTip: targetSha,
+                expectedGeneration: 1,
+                expectedUrl: workspaceUrl,
+                expectedDesiredSha: previousSha,
+              }),
+            ).toBe(true)
+            // This case isolates PostgreSQL activation; index completion is fixture state.
+            expect(
+              await persistIndexedSha({
+                workspaceId,
+                indexedSha: targetSha,
+                expectedGeneration: 1,
+                expectedUrl: workspaceUrl,
+                expectedDesiredSha: targetSha,
+              }),
+            ).toBe(true)
+            const revision = await captureWorkspaceRevision({
+              workspaceId,
+              expected: {
+                generation: 1,
+                url: workspaceUrl,
+                sha: targetSha,
+                githubConnectionId: null,
+              },
+              defaultBranch: "main",
+            })
+            if (!revision) throw new Error("Fixture revision was not captured")
+            return revision
+          })
+        const readSnapshot = () =>
+          withOrgIdContext(org, () =>
+            getWorkspaceProjectionSnapshot(workspaceId),
+          )
+        rmSync(join(directory, "document-000.md"))
+        writeFileSync(
+          join(directory, "replacement.md"),
+          "# Replacement\nNew committed content.\n",
+        )
+        writeFileSync(
+          join(directory, "broken.md"),
+          "---\nUnclosed front matter\n",
+        )
+        git("add", "-A", "--", "document-000.md", "replacement.md", "broken.md")
+        git(
+          "-c",
+          "user.name=Contract",
+          "-c",
+          "user.email=contract@example.test",
+          "commit",
+          "-m",
+          "Replace with a malformed sibling",
+        )
+        const nextSha = git("rev-parse", "HEAD")
+        git("push", remote, "HEAD:main")
+        const nextRevision = await selectRevision(nextSha, sha)
+        expect(await readSnapshot()).toMatchObject({
+          projection: {
+            kind: "building",
+            previous: { kind: "active", revision: { sha } },
+          },
+          units: expected,
+        })
+        const next = await runner.runWorkflow(workspaceHydrate.spec, {
+          orgId: org.id,
+          workspaceId,
+          revision: nextRevision,
+        })
+        expect(await next.result({ timeoutMs: 30_000 })).toMatchObject({
+          hydrated: true,
+          units: 1,
+          skipped: 1,
+          diagnostics: [{ path: "broken.md", reason: "malformed" }],
+        })
+        const replaced = await readSnapshot()
+        expect(replaced.projection).toMatchObject({
+          kind: "active",
+          revision: { sha: nextSha },
+        })
+        expect(
+          replaced.units.map(({ path, body }) => ({ path, body })),
+        ).toEqual([
+          {
+            path: "replacement.md",
+            body: "# Replacement\nNew committed content.\n",
+          },
+        ])
+        git("--git-dir", remote, "update-ref", "refs/heads/main", sha)
+        const originalRevision = await selectRevision(sha, nextSha)
+        const rewind = await runner.runWorkflow(workspaceHydrate.spec, {
+          orgId: org.id,
+          workspaceId,
+          revision: originalRevision,
+        })
+        expect(await rewind.result({ timeoutMs: 30_000 })).toMatchObject({
+          hydrated: true,
+          units: 1,
+          skipped: 0,
+        })
+        const rewound = await readSnapshot()
+        expect(rewound.projection).toMatchObject({
+          kind: "active",
+          revision: { sha },
+        })
+        expect(rewound.units.map(({ path, body }) => ({ path, body }))).toEqual(
+          expected,
+        )
+
+        const rejectedRevision = await selectRevision(nextSha, sha)
+        const duplicate = {
+          servingId: "kn_fixture_duplicate",
+          path: "duplicate.md",
+          body: "Never published",
+          links: [],
+          claims: [],
+        }
+        await expect(
+          withOrgIdContext(org, () =>
+            commitHydrateProjection({
+              orgId: org.id,
+              revision: rejectedRevision,
+              displayName: null,
+              remotes: [],
+              units: [duplicate, duplicate],
+            }),
+          ),
+        ).rejects.toMatchObject({ cause: { code: "23505" } })
+        const rolledBack = await readSnapshot()
+        expect(rolledBack.projection).toMatchObject({
+          kind: "building",
+          desired: { sha: nextSha },
+          previous: { kind: "active", revision: { sha } },
+        })
+        expect(
+          rolledBack.units.map(({ path, body }) => ({ path, body })),
+        ).toEqual(expected)
+      }
+      if (projectionIdentity) {
+        const revision = {
+          workspaceId,
+          generation: 1,
+          remote: { url: workspaceUrl, githubConnectionId: null },
+          defaultBranch: "main",
+          sha,
+          access: "read" as const,
+        }
+        const readProjection = () =>
+          withOrgIdContext(org, () => getWorkspaceProjection(workspaceId))
+        expect(await readProjection()).toMatchObject({
+          kind: "active",
+          revision,
+        })
+        const repeat = await runner.runWorkflow(workspaceHydrate.spec, {
+          orgId: org.id,
+          workspaceId,
+          generation: 1,
+          url: workspaceUrl,
+          sha,
+        })
+        expect(await repeat.result({ timeoutMs: 30_000 })).toEqual({
+          hydrated: false,
+          reason: "noop",
+        })
+        await withOrgDbContext(org.id, (db) =>
+          db
+            .update(workspaces)
+            .set({ desiredGeneration: 2 })
+            .where(eq(workspaces.id, workspaceId)),
+        )
+        expect(await readProjection()).toMatchObject({
+          kind: "building",
+          desired: { generation: 2 },
+          previous: { kind: "active", revision },
+        })
+        const replacement = await runner.runWorkflow(workspaceHydrate.spec, {
+          orgId: org.id,
+          workspaceId,
+          generation: 2,
+          url: workspaceUrl,
+          sha,
+        })
+        expect(await replacement.result({ timeoutMs: 30_000 })).toMatchObject({
+          hydrated: true,
+          units: 1,
+        })
+        expect(await readProjection()).toMatchObject({
+          kind: "active",
+          revision: { ...revision, generation: 2 },
+          stores: { index: { kind: "pending" } },
+        })
+        const indexQueue = await BackendPostgres.connect(databaseUrl, {
+          runMigrations: false,
+        })
+        try {
+          let after: string | undefined
+          let indexCommand: unknown
+          do {
+            const page = await indexQueue.listWorkflowRuns({
+              limit: 100,
+              after,
+            })
+            indexCommand = page.data.find((run) => {
+              const input = run.input
+              return (
+                input &&
+                typeof input === "object" &&
+                !Array.isArray(input) &&
+                input.workspaceId === workspaceId &&
+                input.role === "workspace" &&
+                input.jobGeneration === 2
+              )
+            })?.input
+            after = page.pagination.next ?? undefined
+          } while (!indexCommand && after)
+          expect(indexCommand).toMatchObject({
+            revision: { ...revision, generation: 2 },
+          })
+        } finally {
+          await indexQueue.stop()
+        }
+        await withOrgIdContext(org, async () => {
+          const [unit] = await listWorkspaceKnowledgeUnitsForChat(workspaceId)
+          if (!unit) throw new Error("Expected the active knowledge unit")
+          await persistUnitEmbeddings({
+            revision,
+            embeddings: [{ servingId: unit.servingId, embedding: [0.99] }],
+          })
+          expect(
+            (await listWorkspaceKnowledgeUnitsForChat(workspaceId))[0]
+              ?.embedding,
+          ).toEqual(Array(2000).fill(0.01))
+        })
+        await withOrgIdContext(org, () =>
+          persistHydrateFailure({
+            revision,
+            message:
+              "An obsolete generation failed after its replacement activated",
+          }),
+        )
+        expect(await readProjection()).toMatchObject({
+          kind: "active",
+          revision: { ...revision, generation: 2 },
+        })
+      }
     } finally {
       await worker.stop()
       await backend.stop()
       try {
         await getSystemDb().execute(
-          sql`delete from openworkflow.workflow_runs where namespace_id = ${id}`,
+          sql`delete from openworkflow.workflow_runs where namespace_id = ${id} or input->>'workspaceId' = ${workspaceId}`,
         )
-        await withOrgDbContext(org.id, (db) =>
-          db.delete(workspaces).where(eq(workspaces.id, workspaceId)),
-        )
+        await withOrgDbContext(org.id, async (db) => {
+          await db.delete(repositories).where(eq(repositories.orgId, org.id))
+          await db.delete(workspaces).where(eq(workspaces.id, workspaceId))
+          await db.delete(connections).where(eq(connections.id, connectionId))
+        })
         await getSystemDb()
           .delete(organizations)
           .where(eq(organizations.id, org.id))
       } finally {
         await closeDb()
+        invalidateGithubAppCacheForConnection(connectionId)
         server.close()
         for (const [key, value] of Object.entries(savedEnv)) {
           if (value === undefined) delete process.env[key]

@@ -1,0 +1,41 @@
+{"name": "native-git-userinfo-red", "cwd": "/private/tmp/ctxpipe-recovery-01a07aba", "command": ["/Users/jakubriedl/.volta/tools/image/node/22.16.0/bin/node", "apps/backend/node_modules/vitest/vitest.mjs", "run", "--root", "apps/backend", "src/services/git/clone-tree.test.ts", "-t", "rejects embedded HTTP credentials"], "environment": {"AUTH_SECRET": "gate0-local-disposable-test-secret-20260907", "DATABASE_URL": "postgresql://ctxpipe_app:ctxpipe@127.0.0.1:61314/ctxpipe_gate0_fresh", "GRAPH_DB_URI": "redis://127.0.0.1:6399", "CI": "true", "NO_COLOR": "1", "TURBO_TELEMETRY_DISABLED": "1", "STORYBOOK_DISABLE_TELEMETRY": "1", "PATH": "/private/tmp/ctxpipe-recovery-runtime/node_modules/.bin:/usr/local/bin:/System/Cryptexes/App/usr/bin:/usr/bin:/bin:/usr/sbin:/sbin:/var/run/com.apple.security.cryptexd/codex.system/bootstrap/usr/local/bin:/var/run/com.apple.security.cryptexd/codex.system/bootstrap/usr/bin:/var/run/com.apple.security.cryptexd/codex.system/bootstrap/usr/appleinternal/bin:/pkg/env/global/bin:/Users/jakubriedl/.codex/tmp/arg0/codex-arg0BW5Gt3:/Users/jakubriedl/.cache/codex-runtimes/codex-primary-runtime/dependencies/bin/override:/Users/jakubriedl/.local/bin:/Users/jakubriedl/.bun/bin:/Users/jakubriedl/.opencode/bin:/Users/jakubriedl/.volta/bin:/opt/homebrew/bin:/opt/homebrew/sbin:/Users/jakubriedl/.cache/codex-runtimes/codex-primary-runtime/dependencies/bin/fallback:/Applications/ChatGPT.app/Contents/Resources"}, "timeout_seconds": 600, "started_utc": "2026-09-08T03:08:14Z", "log": "logs/native-git-userinfo-red.log"}
+
+ RUN  v4.0.18 /private/tmp/ctxpipe-recovery-01a07aba/apps/backend
+
+ ❯ src/services/git/clone-tree.test.ts (6 tests | 1 failed | 5 skipped) 183ms
+     ↓ reads an authenticated Git remote without putting the token in Git arguments or origin
+     × rejects embedded HTTP credentials before acquiring a repository 182ms
+     ↓ resolves the native remote default branch, an explicit branch, and a rewind
+     ↓ lists paths and reads a blob at a stored SHA
+     ↓ does not follow a repo symlink out of the checkout
+     ↓ fails clearly when git is not on PATH
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 1 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  src/services/git/clone-tree.test.ts > clone-tree > rejects embedded HTTP credentials before acquiring a repository
+AssertionError: expected [Function] to throw error including 'Git reads require a credential-free r…' but got 'Command failed: git -C /var/folders/9…'
+
+- Expected
++ Received
+
+- Git reads require a credential-free remote
++ Command failed: git -C /var/folders/9t/jj9rnpps7_ddb72c1mq2k13w0000gn/T/ctxpipe-hydrate-Bcdetp fetch --depth 1 origin aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
++ fatal: unable to access 'http://127.0.0.1:1/repo.git/': Failed to connect to 127.0.0.1 port 1 after 0 ms: Couldn't connect to server
++
+
+ ❯ src/services/git/clone-tree.test.ts:138:5
+    136| 
+    137|   it("rejects embedded HTTP credentials before acquiring a repository"…
+    138|     await expect(listPathsAtGitSha({
+       |     ^
+    139|       url: "http://fixture-user:fixture-password@127.0.0.1:1/repo.git",
+    140|       sha: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/1]⎯
+
+
+ Test Files  1 failed (1)
+      Tests  1 failed | 5 skipped (6)
+   Start at  13:08:14
+   Duration  1.71s (transform 436ms, setup 22ms, import 1.43s, tests 183ms, environment 0ms)
+
