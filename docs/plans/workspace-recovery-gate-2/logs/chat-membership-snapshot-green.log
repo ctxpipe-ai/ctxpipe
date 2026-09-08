@@ -1,0 +1,63 @@
+{"name": "chat-membership-snapshot-green", "cwd": "/private/tmp/ctxpipe-recovery-01a07aba", "command": ["/Users/jakubriedl/.volta/tools/image/node/22.16.0/bin/node", "apps/backend/node_modules/vitest/vitest.mjs", "run", "--root", "apps/backend", "src/domain/workspaces/chat-projection.contract.test.ts"], "environment": {"AUTH_SECRET": "gate0-local-disposable-test-secret-20260907", "DATABASE_URL": "postgresql://ctxpipe_app:ctxpipe@127.0.0.1:61314/ctxpipe_gate0_fresh", "GRAPH_DB_URI": "redis://127.0.0.1:6399", "CI": "true", "NO_COLOR": "1", "TURBO_TELEMETRY_DISABLED": "1", "STORYBOOK_DISABLE_TELEMETRY": "1", "PATH": "/private/tmp/ctxpipe-recovery-runtime/node_modules/.bin:/private/tmp/ctxpipe-recovery-runtime/zoekt:/usr/local/bin:/System/Cryptexes/App/usr/bin:/usr/bin:/bin:/usr/sbin:/sbin:/var/run/com.apple.security.cryptexd/codex.system/bootstrap/usr/local/bin:/var/run/com.apple.security.cryptexd/codex.system/bootstrap/usr/bin:/var/run/com.apple.security.cryptexd/codex.system/bootstrap/usr/appleinternal/bin:/pkg/env/global/bin:/Users/jakubriedl/.codex/tmp/arg0/codex-arg0BW5Gt3:/Users/jakubriedl/.cache/codex-runtimes/codex-primary-runtime/dependencies/bin/override:/Users/jakubriedl/.local/bin:/Users/jakubriedl/.bun/bin:/Users/jakubriedl/.opencode/bin:/Users/jakubriedl/.volta/bin:/opt/homebrew/bin:/opt/homebrew/sbin:/Users/jakubriedl/.cache/codex-runtimes/codex-primary-runtime/dependencies/bin/fallback:/Applications/ChatGPT.app/Contents/Resources"}, "timeout_seconds": 600, "started_utc": "2026-09-08T05:07:27Z", "log": "logs/chat-membership-snapshot-green.log"}
+
+ RUN  v4.0.18 /private/tmp/ctxpipe-recovery-01a07aba/apps/backend
+
+ ❯ src/domain/workspaces/chat-projection.contract.test.ts (1 test | 1 failed) 92ms
+   × reads chat graph nodes and neighbors from the captured Postgres projection 92ms
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 1 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  src/domain/workspaces/chat-projection.contract.test.ts > reads chat graph nodes and neighbors from the captured Postgres projection
+Error: Failed query: select "workspaces"."id", "workspaces"."org_id", "workspaces"."slug", "workspaces"."display_name", "workspaces"."workspace_repository_url", "workspaces"."github_connection_id", "workspaces"."desired_generation", "workspaces"."desired_sha", "workspaces"."desired_default_branch", "workspaces"."active_revision", "workspaces"."active_projection_url", "workspaces"."active_projection_sha", "workspaces"."indexed_sha", "workspaces"."write_status", "workspaces"."hydrate_status", "workspaces"."hydrate_error", "workspaces"."last_job_at", "workspaces"."hydrate_phases", "workspaces"."read_only_reason", "workspaces"."created_at", "workspaces"."updated_at", coalesce((
+          select jsonb_agg(jsonb_build_object(
+            'servingId', "workspace_knowledge_units"."serving_id",
+            'path', "workspace_knowledge_units"."path",
+            'body', "workspace_knowledge_units"."body",
+            'links', "workspace_knowledge_units"."links",
+            'claims', "workspace_knowledge_units"."claims",
+            'projectionSha', "workspace_knowledge_units"."projection_sha",
+            'embedding', "workspace_knowledge_units"."embedding"::real[]
+          ) order by "workspace_knowledge_units"."path")
+          from "workspace_knowledge_units"
+          where "workspace_knowledge_units"."workspace_id" = "workspaces"."id"
+          and "workspace_knowledge_units"."projection_sha" = coalesce("workspaces"."active_revision"->>'sha', "workspaces"."active_projection_sha")
+        ), '[]'::jsonb), coalesce((
+        select jsonb_agg(jsonb_build_object('gitUrl', "workspace_linked_repositories"."git_url", 'indexedSha', "workspace_linked_repositories"."indexed_sha"))
+        from "workspace_linked_repositories"
+        where "workspace_linked_repositories"."workspace_id" = "workspaces"."id"
+      ), '[]'::jsonb), "repositories"."id", "repositories"."name", "repositories"."git_url", "repository_checkouts"."zoekt_repo_id", "repository_checkouts"."commit_sha", "repository_checkouts"."checkout_key" from "workspaces" left join "repositories" on "repositories"."org_id" = "workspaces"."org_id" left join "repository_checkouts" on (("repository_checkouts"."repository_id" = "repositories"."id") and ((("repository_checkouts"."checkout_key" = 'ws:' || "workspaces"."id") or ("repository_checkouts"."checkout_key" = 'ws:' || "workspaces"."id" || ':' || "repository_checkouts"."commit_sha")))) where "workspaces"."id" = $1
+params: ws_agqh62qg3bzhxi6buzlahoqbn4
+ ❯ ../../node_modules/.pnpm/drizzle-orm@1.0.0-beta.22_@opentelemetry+api@1.9.0_@types+mssql@9.1.9_@azure+core-clien_187cb3c43007455e384d88e6e878f2d4/node_modules/drizzle-orm/pg-core/async/session.js:37:10
+ ❯ ../../node_modules/.pnpm/drizzle-orm@1.0.0-beta.22_@opentelemetry+api@1.9.0_@types+mssql@9.1.9_@azure+core-clien_187cb3c43007455e384d88e6e878f2d4/node_modules/drizzle-orm/node-postgres/session.js:56:19
+ ❯ src/models/workspaces.ts:314:18
+    312| export async function getWorkspaceProjectionSnapshot(workspaceId: stri…
+    313|   return orgSql(async () => {
+    314|     const rows = await getOrgDb()
+       |                  ^
+    315|       .select({
+    316|         workspace: workspaces,
+ ❯ src/db/client.ts:146:14
+ ❯ NodePgSession.transaction ../../node_modules/.pnpm/drizzle-orm@1.0.0-beta.22_@opentelemetry+api@1.9.0_@types+mssql@9.1.9_@azure+core-clien_187cb3c43007455e384d88e6e878f2d4/node_modules/drizzle-orm/node-postgres/session.js:148:19
+ ❯ src/domain/workspaces/chat-projection.contract.test.ts:125:26
+ ❯ src/domain/workspaces/chat-projection.contract.test.ts:70:7
+
+Caused by: error: cannot cast type jsonb to real[]
+ ❯ ../../node_modules/.pnpm/pg@8.18.0/node_modules/pg/lib/client.js:624:17
+ ❯ ../../node_modules/.pnpm/drizzle-orm@1.0.0-beta.22_@opentelemetry+api@1.9.0_@types+mssql@9.1.9_@azure+core-clien_187cb3c43007455e384d88e6e878f2d4/node_modules/drizzle-orm/node-postgres/session.js:63:13
+ ❯ ../../node_modules/.pnpm/drizzle-orm@1.0.0-beta.22_@opentelemetry+api@1.9.0_@types+mssql@9.1.9_@azure+core-clien_187cb3c43007455e384d88e6e878f2d4/node_modules/drizzle-orm/node-postgres/session.js:56:19
+ ❯ src/models/workspaces.ts:314:18
+ ❯ src/db/client.ts:146:14
+ ❯ NodePgSession.transaction ../../node_modules/.pnpm/drizzle-orm@1.0.0-beta.22_@opentelemetry+api@1.9.0_@types+mssql@9.1.9_@azure+core-clien_187cb3c43007455e384d88e6e878f2d4/node_modules/drizzle-orm/node-postgres/session.js:148:19
+ ❯ src/domain/workspaces/chat-projection.contract.test.ts:125:26
+ ❯ src/domain/workspaces/chat-projection.contract.test.ts:70:7
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯
+Serialized Error: { length: 105, severity: 'ERROR', code: '42846', detail: undefined, hint: undefined, position: '1146', internalPosition: undefined, internalQuery: undefined, where: undefined, schema: undefined, table: undefined, dataType: undefined, constraint: undefined, file: 'parse_expr.c', routine: 'transformTypeCast' }
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/1]⎯
+
+
+ Test Files  1 failed (1)
+      Tests  1 failed (1)
+   Start at  15:07:27
+   Duration  2.45s (transform 663ms, setup 25ms, import 2.25s, tests 92ms, environment 0ms)
+

@@ -70,7 +70,7 @@ async function withFilesWorkspace(
     const revision: WorkspaceRevision = {
       workspaceId,
       generation: 1,
-      remote: { url: pathToFileURL(directory).href, githubConnectionId: null },
+      remote: { url: pathToFileURL(directory).href, connectionId: null },
       defaultBranch: "main",
       sha,
       access: "read",

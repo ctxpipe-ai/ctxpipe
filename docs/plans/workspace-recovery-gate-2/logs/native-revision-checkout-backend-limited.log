@@ -1,0 +1,374 @@
+{"name": "native-revision-checkout-backend-limited", "cwd": "/private/tmp/ctxpipe-recovery-01a07aba", "command": ["/Users/jakubriedl/.volta/tools/image/node/22.16.0/bin/node", "apps/backend/node_modules/vitest/vitest.mjs", "run", "--root", "apps/backend", "--maxWorkers=2", "--reporter=default", "--reporter=json", "--outputFile=/private/tmp/ctxpipe-recovery-01a07aba/docs/plans/workspace-recovery-gate-2/logs/native-revision-checkout-backend-limited-results.json"], "environment": {"AUTH_SECRET": "gate0-local-disposable-test-secret-20260907", "DATABASE_URL": "postgresql://ctxpipe_app:ctxpipe@127.0.0.1:61314/ctxpipe_gate0_fresh", "GRAPH_DB_URI": "redis://127.0.0.1:6399", "CI": "true", "NO_COLOR": "1", "TURBO_TELEMETRY_DISABLED": "1", "STORYBOOK_DISABLE_TELEMETRY": "1", "PATH": "/private/tmp/ctxpipe-recovery-runtime/node_modules/.bin:/private/tmp/ctxpipe-recovery-runtime/zoekt:/usr/local/bin:/System/Cryptexes/App/usr/bin:/usr/bin:/bin:/usr/sbin:/sbin:/var/run/com.apple.security.cryptexd/codex.system/bootstrap/usr/local/bin:/var/run/com.apple.security.cryptexd/codex.system/bootstrap/usr/bin:/var/run/com.apple.security.cryptexd/codex.system/bootstrap/usr/appleinternal/bin:/pkg/env/global/bin:/Users/jakubriedl/.codex/tmp/arg0/codex-arg0BW5Gt3:/Users/jakubriedl/.cache/codex-runtimes/codex-primary-runtime/dependencies/bin/override:/Users/jakubriedl/.local/bin:/Users/jakubriedl/.bun/bin:/Users/jakubriedl/.opencode/bin:/Users/jakubriedl/.volta/bin:/opt/homebrew/bin:/opt/homebrew/sbin:/Users/jakubriedl/.cache/codex-runtimes/codex-primary-runtime/dependencies/bin/fallback:/Applications/ChatGPT.app/Contents/Resources"}, "timeout_seconds": 600, "started_utc": "2026-09-08T04:54:28Z", "log": "logs/native-revision-checkout-backend-limited.log"}
+
+ RUN  v4.0.18 /private/tmp/ctxpipe-recovery-01a07aba/apps/backend
+
+ ❯ src/domain/workspaces/index-workflow.contract.test.ts (1 test | 1 failed) 14847ms
+   × publishes a searchable immutable revision after the real index workflow completes 14832ms
+stdout | src/domain/workspaces/tanstack-workspace-chat.live.test.ts > workspace chat OpenCode fallback (live) > conversation POST streams through the same local_process fallback
+{
+  error: Error: [vitest] No "orgIdStorage" export is defined on the "../../auth/withAuth.js" mock. Did you forget to return it from "vi.mock"?
+  If you need to partially mock a module, you can use "importOriginal" helper inside:
+  
+      at VitestMocker.createError [90m(file:///private/tmp/ctxpipe-recovery-01a07aba/[39mnode_modules/[4m.pnpm[24m/vitest@4.0.18_@opentelemetry+api@1.9.0_@types+node@25.3.0_jiti@2.6.1_jsdom@27.4.0_@nobl_3b8f616f1c840ca5079e010765321adc/node_modules/[4mvitest[24m/dist/chunks/startModuleRunner.DEj0jb3e.js:311:17[90m)[39m
+      at Object.get [90m(file:///private/tmp/ctxpipe-recovery-01a07aba/[39mnode_modules/[4m.pnpm[24m/vitest@4.0.18_@opentelemetry+api@1.9.0_@types+node@25.3.0_jiti@2.6.1_jsdom@27.4.0_@nobl_3b8f616f1c840ca5079e010765321adc/node_modules/[4mvitest[24m/dist/chunks/startModuleRunner.DEj0jb3e.js:384:16[90m)[39m
+      at withAmbientOrgDb [90m(/private/tmp/ctxpipe-recovery-01a07aba/[39mapps/backend/src/db/org-sql.ts:10:17[90m)[39m
+      at orgSql [90m(/private/tmp/ctxpipe-recovery-01a07aba/[39mapps/backend/src/domain/workspaces/workspace-chat-persistence.ts:26:10[90m)[39m
+      at Object.listPending [90m(/private/tmp/ctxpipe-recovery-01a07aba/[39mapps/backend/src/domain/workspaces/workspace-chat-persistence.ts:265:7[90m)[39m
+      at Object.onConfig [90m(file:///private/tmp/ctxpipe-recovery-01a07aba/[39mnode_modules/[4m.pnpm[24m/@tanstack+ai-persistence@0.5.1_@tanstack+ai@0.48.0_@opentelemetry+api@1.9.0_zod@4.3.6___e5542883a52dc449e91f58df604d929c/node_modules/[4m@tanstack[24m/ai-persistence/dist/esm/middleware.js:1017:63[90m)[39m
+      at MiddlewareRunner.runOnConfig [90m(file:///private/tmp/ctxpipe-recovery-01a07aba/[39mnode_modules/[4m.pnpm[24m/@tanstack+ai@0.48.0_@opentelemetry+api@1.9.0_zod@4.3.6/node_modules/[4m@tanstack[24m/ai/dist/esm/activities/chat/middleware/compose.js:95:28[90m)[39m
+      at TextEngine.run [90m(file:///private/tmp/ctxpipe-recovery-01a07aba/[39mnode_modules/[4m.pnpm[24m/@tanstack+ai@0.48.0_@opentelemetry+api@1.9.0_zod@4.3.6/node_modules/[4m@tanstack[24m/ai/dist/esm/activities/chat/index.js:310:30[90m)[39m
+      at streamTextChunks [90m(file:///private/tmp/ctxpipe-recovery-01a07aba/[39mnode_modules/[4m.pnpm[24m/@tanstack+ai@0.48.0_@opentelemetry+api@1.9.0_zod@4.3.6/node_modules/[4m@tanstack[24m/ai/dist/esm/activities/chat/index.js:2299:20[90m)[39m
+      at takeWorkspaceChatProducer [90m(/private/tmp/ctxpipe-recovery-01a07aba/[39mapps/backend/src/domain/workspaces/workspace-chat-agui.ts:195:21[90m)[39m {
+    codeFrame: [32m'vi.mock(import("../../auth/withAuth.js"), async (importOriginal) => {\n'[39m +
+      [32m'  const actual = await importOriginal()\n'[39m +
+      [32m'  return {\n'[39m +
+      [32m'    ...actual,\n'[39m +
+      [32m'    // your mocked methods\n'[39m +
+      [32m'  }\n'[39m +
+      [32m'})'[39m
+  },
+  threadId: [32m'conv_live_post'[39m
+}
+
+stderr | src/domain/workspaces/tanstack-workspace-chat.live.test.ts > workspace chat OpenCode fallback (live) > conversation POST streams through the same local_process fallback
+❌ [tanstack-ai:errors] ❌ chat run failed
+
+stderr | src/domain/workspaces/tanstack-workspace-chat.live.test.ts > workspace chat OpenCode fallback (live) > conversation POST streams through the same local_process fallback
+❌ [tanstack-ai:errors] ❌ middleware onError hook failed
+
+stdout | src/domain/workspaces/tanstack-workspace-chat.live.test.ts > workspace chat OpenCode fallback (live) > conversation POST streams through the same local_process fallback
+{
+  middleware: [32m'chat-persistence'[39m,
+  hook: [32m'onError'[39m,
+  error: Error: [vitest] No "orgIdStorage" export is defined on the "../../auth/withAuth.js" mock. Did you forget to return it from "vi.mock"?
+  If you need to partially mock a module, you can use "importOriginal" helper inside:
+  
+      at VitestMocker.createError [90m(file:///private/tmp/ctxpipe-recovery-01a07aba/[39mnode_modules/[4m.pnpm[24m/vitest@4.0.18_@opentelemetry+api@1.9.0_@types+node@25.3.0_jiti@2.6.1_jsdom@27.4.0_@nobl_3b8f616f1c840ca5079e010765321adc/node_modules/[4mvitest[24m/dist/chunks/startModuleRunner.DEj0jb3e.js:311:17[90m)[39m
+      at Object.get [90m(file:///private/tmp/ctxpipe-recovery-01a07aba/[39mnode_modules/[4m.pnpm[24m/vitest@4.0.18_@opentelemetry+api@1.9.0_@types+node@25.3.0_jiti@2.6.1_jsdom@27.4.0_@nobl_3b8f616f1c840ca5079e010765321adc/node_modules/[4mvitest[24m/dist/chunks/startModuleRunner.DEj0jb3e.js:384:16[90m)[39m
+      at withAmbientOrgDb [90m(/private/tmp/ctxpipe-recovery-01a07aba/[39mapps/backend/src/db/org-sql.ts:10:17[90m)[39m
+      at orgSql [90m(/private/tmp/ctxpipe-recovery-01a07aba/[39mapps/backend/src/domain/workspaces/workspace-chat-persistence.ts:26:10[90m)[39m
+      at Object.update [90m(/private/tmp/ctxpipe-recovery-01a07aba/[39mapps/backend/src/domain/workspaces/workspace-chat-persistence.ts:157:13[90m)[39m
+      at failRun [90m(file:///private/tmp/ctxpipe-recovery-01a07aba/[39mnode_modules/[4m.pnpm[24m/@tanstack+ai-persistence@0.5.1_@tanstack+ai@0.48.0_@opentelemetry+api@1.9.0_zod@4.3.6___e5542883a52dc449e91f58df604d929c/node_modules/[4m@tanstack[24m/ai-persistence/dist/esm/middleware.js:919:14[90m)[39m
+      at Object.onError [90m(file:///private/tmp/ctxpipe-recovery-01a07aba/[39mnode_modules/[4m.pnpm[24m/@tanstack+ai-persistence@0.5.1_@tanstack+ai@0.48.0_@opentelemetry+api@1.9.0_zod@4.3.6___e5542883a52dc449e91f58df604d929c/node_modules/[4m@tanstack[24m/ai-persistence/dist/esm/middleware.js:1121:11[90m)[39m
+      at [90mfile:///private/tmp/ctxpipe-recovery-01a07aba/[39mnode_modules/[4m.pnpm[24m/@tanstack+ai@0.48.0_@opentelemetry+api@1.9.0_zod@4.3.6/node_modules/[4m@tanstack[24m/ai/dist/esm/activities/chat/middleware/compose.js:584:66
+      at MiddlewareRunner.captureTerminalHook [90m(file:///private/tmp/ctxpipe-recovery-01a07aba/[39mnode_modules/[4m.pnpm[24m/@tanstack+ai@0.48.0_@opentelemetry+api@1.9.0_zod@4.3.6/node_modules/[4m@tanstack[24m/ai/dist/esm/activities/chat/middleware/compose.js:425:10[90m)[39m
+      at MiddlewareRunner.runOnError [90m(file:///private/tmp/ctxpipe-recovery-01a07aba/[39mnode_modules/[4m.pnpm[24m/@tanstack+ai@0.48.0_@opentelemetry+api@1.9.0_zod@4.3.6/node_modules/[4m@tanstack[24m/ai/dist/esm/activities/chat/middleware/compose.js:584:20[90m)[39m {
+    codeFrame: [32m'vi.mock(import("../../auth/withAuth.js"), async (importOriginal) => {\n'[39m +
+      [32m'  const actual = await importOriginal()\n'[39m +
+      [32m'  return {\n'[39m +
+      [32m'    ...actual,\n'[39m +
+      [32m'    // your mocked methods\n'[39m +
+      [32m'  }\n'[39m +
+      [32m'})'[39m
+  }
+}
+
+ ❯ src/domain/workspaces/tanstack-workspace-chat.live.test.ts (3 tests | 1 failed) 48377ms
+     ✓ scrubs host provider keys from the local-process env 87ms
+     ✓ streams a stub completion through the ctxpipe proxy on local_process  41851ms
+     × conversation POST streams through the same local_process fallback 6430ms
+ ✓ src/retrieval/services/modelProvider.test.ts (19 tests) 5791ms
+     ✓ getModel uses OpenRouter extras only when MODEL_PROVIDER=openrouter  3788ms
+ ❯ src/routes/auth.test.ts (6 tests | 1 failed) 12125ms
+     × returns protected resource metadata for MCP endpoint 5655ms
+     ✓ aligns PRM authorization_servers with AS issuer when AUTH_ISSUER is unset  4823ms
+     ✓ serves the same MCP protected-resource document at the RFC 9728 root path  502ms
+     ✓ serves authorization server metadata at RFC 8414 path-inserted /.well-known URLs  404ms
+     ✓ mounts oauth2 authorize endpoint under /.auth/api/v1/auth  383ms
+     ✓ mounts api-key endpoints under /.auth/api/v1/auth passthrough  346ms
+ ❯ src/routes/v1/health.test.ts (1 test | 1 failed) 5111ms
+     × returns 200 and status ok 5101ms
+Cloning into bare repository '/var/folders/9t/jj9rnpps7_ddb72c1mq2k13w0000gn/T/ctxpipe-hydration-contract-XN4PCt/remote.git'...
+done.
+Cloning into bare repository '/var/folders/9t/jj9rnpps7_ddb72c1mq2k13w0000gn/T/ctxpipe-hydration-contract-K3P5ZL/remote.git'...
+done.
+Cloning into bare repository '/var/folders/9t/jj9rnpps7_ddb72c1mq2k13w0000gn/T/ctxpipe-hydration-contract-EPIS8q/remote.git'...
+done.
+ ✓ src/domain/workspaces/tanstack-workspace-chat.multiturn.test.ts (1 test) 70050ms
+     ✓ streams exact mocked replies across two live OpenCode turns  69633ms
+Cloning into bare repository '/var/folders/9t/jj9rnpps7_ddb72c1mq2k13w0000gn/T/ctxpipe-hydration-contract-J1ypfG/remote.git'...
+done.
+Cloning into bare repository '/var/folders/9t/jj9rnpps7_ddb72c1mq2k13w0000gn/T/ctxpipe-hydration-contract-wji1nM/remote.git'...
+done.
+Cloning into bare repository '/var/folders/9t/jj9rnpps7_ddb72c1mq2k13w0000gn/T/ctxpipe-hydration-contract-STKdu4/remote.git'...
+done.
+Cloning into bare repository '/var/folders/9t/jj9rnpps7_ddb72c1mq2k13w0000gn/T/ctxpipe-write-workflow-BKfgQy/remote.git'...
+done.
+Cloning into bare repository '/var/folders/9t/jj9rnpps7_ddb72c1mq2k13w0000gn/T/ctxpipe-hydration-contract-w9Ky8o/remote.git'...
+done.
+Cloning into bare repository '/var/folders/9t/jj9rnpps7_ddb72c1mq2k13w0000gn/T/ctxpipe-write-workflow-JxsBnd/remote.git'...
+done.
+Cloning into bare repository '/var/folders/9t/jj9rnpps7_ddb72c1mq2k13w0000gn/T/ctxpipe-write-workflow-F6h2h6/remote.git'...
+done.
+Cloning into bare repository '/var/folders/9t/jj9rnpps7_ddb72c1mq2k13w0000gn/T/ctxpipe-hydration-contract-TLCDaB/remote.git'...
+done.
+Cloning into bare repository '/var/folders/9t/jj9rnpps7_ddb72c1mq2k13w0000gn/T/ctxpipe-write-workflow-1tMsat/remote.git'...
+done.
+To /var/folders/9t/jj9rnpps7_ddb72c1mq2k13w0000gn/T/ctxpipe-hydration-contract-TLCDaB/remote.git
+   5bce4ea..e0fc9ac  HEAD -> main
+Cloning into bare repository '/var/folders/9t/jj9rnpps7_ddb72c1mq2k13w0000gn/T/ctxpipe-write-workflow-n2MgPZ/remote.git'...
+done.
+Cloning into bare repository '/var/folders/9t/jj9rnpps7_ddb72c1mq2k13w0000gn/T/ctxpipe-write-workflow-oM9I3d/remote.git'...
+done.
+Cloning into bare repository '/var/folders/9t/jj9rnpps7_ddb72c1mq2k13w0000gn/T/ctxpipe-write-workflow-sdBSyy/remote.git'...
+done.
+Cloning into bare repository '/var/folders/9t/jj9rnpps7_ddb72c1mq2k13w0000gn/T/ctxpipe-hydration-contract-mjuNVq/remote.git'...
+done.
+Cloning into bare repository '/var/folders/9t/jj9rnpps7_ddb72c1mq2k13w0000gn/T/ctxpipe-write-workflow-KfQtpo/remote.git'...
+done.
+Cloning into bare repository '/var/folders/9t/jj9rnpps7_ddb72c1mq2k13w0000gn/T/ctxpipe-write-workflow-wZ5gLN/remote.git'...
+done.
+Cloning into bare repository '/var/folders/9t/jj9rnpps7_ddb72c1mq2k13w0000gn/T/ctxpipe-hydration-contract-qtCWyo/remote.git'...
+done.
+Cloning into bare repository '/var/folders/9t/jj9rnpps7_ddb72c1mq2k13w0000gn/T/ctxpipe-write-workflow-4W6yyK/remote.git'...
+done.
+Cloning into bare repository '/var/folders/9t/jj9rnpps7_ddb72c1mq2k13w0000gn/T/ctxpipe-write-workflow-RlIStE/remote.git'...
+done.
+Cloning into bare repository '/var/folders/9t/jj9rnpps7_ddb72c1mq2k13w0000gn/T/ctxpipe-hydration-contract-rBjsZe/remote.git'...
+done.
+Cloning into bare repository '/var/folders/9t/jj9rnpps7_ddb72c1mq2k13w0000gn/T/ctxpipe-write-workflow-HpZEey/remote.git'...
+done.
+ ✓ src/domain/workspaces/write-workflow.contract.test.ts (12 tests) 37277ms
+   ✓ records the existing migration_export workflow failure in real PostgreSQL  3219ms
+   ✓ records the existing extract_ingest workflow failure in real PostgreSQL  3697ms
+   ✓ records the existing connector_mirror workflow failure in real PostgreSQL  3325ms
+   ✓ records the existing claims_upgrade workflow failure in real PostgreSQL  2311ms
+   ✓ records the existing rename_rewrite workflow failure in real PostgreSQL  2257ms
+   ✓ records the existing valid_from_persist workflow failure in real PostgreSQL  2455ms
+   ✓ records the existing semantic_merge workflow failure in real PostgreSQL  3035ms
+   ✓ records the existing ops_folder_map workflow failure in real PostgreSQL  4203ms
+   ✓ records the existing bootstrap workflow failure in real PostgreSQL  4797ms
+   ✓ records the existing link_unlink workflow failure in real PostgreSQL  2736ms
+   ✓ records the existing ui_file_edit workflow failure in real PostgreSQL  2540ms
+   ✓ records the existing import_key_cleanup workflow failure in real PostgreSQL  2633ms
+Cloning into bare repository '/var/folders/9t/jj9rnpps7_ddb72c1mq2k13w0000gn/T/ctxpipe-hydration-contract-0P1DKQ/remote.git'...
+done.
+Cloning into bare repository '/var/folders/9t/jj9rnpps7_ddb72c1mq2k13w0000gn/T/ctxpipe-hydration-contract-O7hp80/remote.git'...
+done.
+Cloning into bare repository '/var/folders/9t/jj9rnpps7_ddb72c1mq2k13w0000gn/T/ctxpipe-hydration-contract-Mn7Nyu/remote.git'...
+done.
+Cloning into bare repository '/var/folders/9t/jj9rnpps7_ddb72c1mq2k13w0000gn/T/ctxpipe-hydration-contract-EfNAsN/remote.git'...
+done.
+Cloning into bare repository '/var/folders/9t/jj9rnpps7_ddb72c1mq2k13w0000gn/T/ctxpipe-hydration-contract-CIaPy8/remote.git'...
+done.
+ ❯ src/routes/mcp.conformance.test.ts (2 tests | 1 failed) 24583ms
+     × passes server conformance against in-test MCP endpoint 7933ms
+     ✓ passes MCPJam protocol conformance against the production transport  8340ms
+Cloning into bare repository '/var/folders/9t/jj9rnpps7_ddb72c1mq2k13w0000gn/T/ctxpipe-hydration-contract-bZORDE/remote.git'...
+done.
+ ✓ src/domain/workspaces/hydration.contract.test.ts (17 tests) 120506ms
+   ✓ executes the hydrate workflow for +0 native-git files (relink before execution: false, GitHub: undefined, projection identity: undefined, embedding failure: undefined, history: undefined, incomplete embeddings: undefined, index failure: undefined, enqueue: undefined, missing tip: undefined, write status: undefined, index auth failure: undefined, index identity: undefined, projection files: undefined)  4355ms
+   ✓ executes the hydrate workflow for 1 native-git files (relink before execution: false, GitHub: undefined, projection identity: undefined, embedding failure: undefined, history: undefined, incomplete embeddings: undefined, index failure: undefined, enqueue: undefined, missing tip: undefined, write status: undefined, index auth failure: undefined, index identity: undefined, projection files: undefined)  6120ms
+   ✓ executes the hydrate workflow for 100 native-git files (relink before execution: false, GitHub: undefined, projection identity: undefined, embedding failure: undefined, history: undefined, incomplete embeddings: undefined, index failure: undefined, enqueue: undefined, missing tip: undefined, write status: undefined, index auth failure: undefined, index identity: undefined, projection files: undefined)  9800ms
+   ✓ executes the hydrate workflow for 1 native-git files (relink before execution: true, GitHub: undefined, projection identity: undefined, embedding failure: undefined, history: undefined, incomplete embeddings: undefined, index failure: undefined, enqueue: undefined, missing tip: undefined, write status: undefined, index auth failure: undefined, index identity: undefined, projection files: undefined)  2874ms
+   ✓ executes the hydrate workflow for 100 native-git files (relink before execution: false, GitHub: true, projection identity: undefined, embedding failure: undefined, history: undefined, incomplete embeddings: undefined, index failure: undefined, enqueue: undefined, missing tip: undefined, write status: undefined, index auth failure: undefined, index identity: undefined, projection files: undefined)  12786ms
+   ✓ executes the hydrate workflow for 1 native-git files (relink before execution: false, GitHub: undefined, projection identity: true, embedding failure: undefined, history: undefined, incomplete embeddings: undefined, index failure: undefined, enqueue: undefined, missing tip: undefined, write status: undefined, index auth failure: undefined, index identity: undefined, projection files: undefined)  10493ms
+   ✓ executes the hydrate workflow for 1 native-git files (relink before execution: false, GitHub: undefined, projection identity: undefined, embedding failure: true, history: undefined, incomplete embeddings: undefined, index failure: undefined, enqueue: undefined, missing tip: undefined, write status: undefined, index auth failure: undefined, index identity: undefined, projection files: undefined)  6370ms
+   ✓ executes the hydrate workflow for 1 native-git files (relink before execution: false, GitHub: undefined, projection identity: undefined, embedding failure: undefined, history: true, incomplete embeddings: undefined, index failure: undefined, enqueue: undefined, missing tip: undefined, write status: undefined, index auth failure: undefined, index identity: undefined, projection files: undefined)  12112ms
+   ✓ executes the hydrate workflow for 1 native-git files (relink before execution: false, GitHub: undefined, projection identity: undefined, embedding failure: undefined, history: undefined, incomplete embeddings: true, index failure: undefined, enqueue: undefined, missing tip: undefined, write status: undefined, index auth failure: undefined, index identity: undefined, projection files: undefined)  5276ms
+   ✓ executes the hydrate workflow for 1 native-git files (relink before execution: false, GitHub: undefined, projection identity: undefined, embedding failure: undefined, history: undefined, incomplete embeddings: undefined, index failure: true, enqueue: undefined, missing tip: undefined, write status: undefined, index auth failure: undefined, index identity: undefined, projection files: undefined)  7410ms
+   ✓ executes the hydrate workflow for 1 native-git files (relink before execution: false, GitHub: undefined, projection identity: undefined, embedding failure: undefined, history: undefined, incomplete embeddings: undefined, index failure: undefined, enqueue: true, missing tip: undefined, write status: undefined, index auth failure: undefined, index identity: undefined, projection files: undefined)  4582ms
+   ✓ executes the hydrate workflow for 1 native-git files (relink before execution: false, GitHub: undefined, projection identity: undefined, embedding failure: undefined, history: undefined, incomplete embeddings: undefined, index failure: undefined, enqueue: undefined, missing tip: true, write status: undefined, index auth failure: undefined, index identity: undefined, projection files: undefined)  2910ms
+   ✓ executes the hydrate workflow for 1 native-git files (relink before execution: false, GitHub: undefined, projection identity: undefined, embedding failure: undefined, history: undefined, incomplete embeddings: undefined, index failure: undefined, enqueue: undefined, missing tip: undefined, write status: 'read_only', index auth failure: undefined, index identity: undefined, projection files: undefined)  8002ms
+   ✓ executes the hydrate workflow for 1 native-git files (relink before execution: false, GitHub: undefined, projection identity: undefined, embedding failure: undefined, history: undefined, incomplete embeddings: undefined, index failure: undefined, enqueue: undefined, missing tip: undefined, write status: 'writable', index auth failure: undefined, index identity: undefined, projection files: undefined)  6270ms
+   ✓ executes the hydrate workflow for 1 native-git files (relink before execution: false, GitHub: true, projection identity: undefined, embedding failure: undefined, history: undefined, incomplete embeddings: undefined, index failure: undefined, enqueue: undefined, missing tip: undefined, write status: undefined, index auth failure: true, index identity: undefined, projection files: undefined)  8491ms
+   ✓ executes the hydrate workflow for 1 native-git files (relink before execution: false, GitHub: undefined, projection identity: undefined, embedding failure: undefined, history: undefined, incomplete embeddings: undefined, index failure: undefined, enqueue: undefined, missing tip: undefined, write status: undefined, index auth failure: undefined, index identity: true, projection files: undefined)  5186ms
+   ✓ executes the hydrate workflow for 1 native-git files (relink before execution: false, GitHub: undefined, projection identity: undefined, embedding failure: undefined, history: undefined, incomplete embeddings: undefined, index failure: undefined, enqueue: undefined, missing tip: undefined, write status: undefined, index auth failure: undefined, index identity: undefined, projection files: true)  7118ms
+ ✓ src/openworkflow/workflows/workflow-discovery.contract.test.ts (1 test) 11372ms
+   ✓ discovers connector workflows through the native OpenWorkflow CLI  11357ms
+ ✓ src/routes/v1/workspace-files.contract.test.ts (4 tests) 16104ms
+   ✓ serves the published tree and bytes over HTTP while its remote advances and the Workspace relinks  5891ms
+   ✓ reports real sandbox edits and a clean status when no sandbox is attached  3356ms
+   ✓ rejects unpublished revisions, read-only edits, and paths outside the repository over HTTP  2651ms
+   ✓ durably queues a Files HTTP save with the literal edit payload  4183ms
+ ✓ src/lib/connection-config.test.ts (7 tests) 2043ms
+     ✓ round-trips tokens through the stored config schema  659ms
+     ✓ rewrites legacy plaintext tokens as ciphertext  648ms
+ ✓ src/routes/webhooks/slack/slack.test.ts (17 tests) 293ms
+ ✓ src/services/git/clone-tree.test.ts (7 tests) 15587ms
+     ✓ reads an authenticated Git remote without putting the token in Git arguments or origin  2904ms
+     ✓ uses native Git for GitHub branch and default-branch policy callers  889ms
+     ✓ resolves the native remote default branch, an explicit branch, and a rewind  1398ms
+     ✓ lists paths and reads a blob at a stored SHA  8913ms
+     ✓ does not follow a repo symlink out of the checkout  1462ms
+ ✓ src/domain/workspaces/chat-runtime.test.ts (9 tests) 2464ms
+     ✓ does not exit the TanStack bootstrap shell when a worktree already exists  869ms
+     ✓ checks out the session branch when TanStack already cloned default  952ms
+     ✓ writes OpenCode config under HOME and excludes harness paths from git  605ms
+ ✓ src/routes/v1/openai.test.ts (12 tests) 1577ms
+stdout | src/retrieval/services/ingestionRetraction.integration.test.ts
+[dotenv@17.3.1] injecting env (0) from apps/backend/.env.local -- tip: 🔐 prevent committing .env to code: https://dotenvx.com/precommit
+
+ ✓ src/retrieval/services/ingestionRetraction.integration.test.ts (4 tests) 1830ms
+     ✓ removes repo-A evidence, keeps repo-B evidence, recomputes multi-source claim  1209ms
+     ✓ bulk-deletes all fully-owned claims when purging the last remaining source  349ms
+stdout | src/retrieval/services/code-search-projection.contract.test.ts > searches the published revision even when the derived index has moved ahead
+[2m04:59:28.036[0m [36mINFO[0m [36m[app][0m POST /search [32m200[0m [2min 123ms[0m
+  [2m└─[0m [36mrequestId:[0m a9762620-da02-424d-963f-062cfc9c94c5
+
+stdout | src/retrieval/services/code-search-projection.contract.test.ts > searches the published revision even when the derived index has moved ahead
+[2m04:59:28.150[0m [36mINFO[0m [36m[app][0m POST /search [32m200[0m [2min 60ms[0m
+  [2m└─[0m [36mrequestId:[0m 93f5b958-71ff-48f5-b4c0-d4650410e93a
+
+stdout | src/retrieval/services/code-search-projection.contract.test.ts > searches the published revision even when the derived index has moved ahead
+[2m04:59:28.252[0m [36mINFO[0m [36m[app][0m POST /search [32m200[0m [2min 35ms[0m
+  [2m└─[0m [36mrequestId:[0m 768771ea-5468-43c7-b280-f1919c07a4e7
+
+stdout | src/retrieval/services/code-search-projection.contract.test.ts > searches the published revision even when the derived index has moved ahead
+[2m04:59:28.355[0m [36mINFO[0m [36m[app][0m GET /__contract/close [32m200[0m [2min 3ms[0m
+  [2m└─[0m [36mrequestId:[0m 3668ee53-e4ac-44e5-a463-65bc0e0c25af
+
+ ✓ src/retrieval/services/code-search-projection.contract.test.ts (1 test) 8330ms
+   ✓ searches the published revision even when the derived index has moved ahead  8291ms
+ ✓ src/domain/workspaces/job-sandbox.live.test.ts (1 test) 1684ms
+     ✓ adds a worktree, writes files, and reads them out for the runner  1670ms
+ ✓ src/routes/v1/conversation-files-routes.live.test.ts (1 test) 2135ms
+     ✓ lists a write from the live handle and 409s without inventing a fresh clone  2130ms
+ ✓ src/models/linear-token-refresh.org-tx.test.ts (2 tests) 1694ms
+     ✓ runs Linear HTTP refresh outside the org SQL transaction  1489ms
+ ✓ src/routes/v1/github-installation.test.ts (27 tests) 456ms
+ ✓ src/openworkflow/enqueue-repository-deletion.test.ts (2 tests) 34ms
+ ✓ src/models/linear-connector.test.ts (14 tests) 585ms
+     ✓ encrypts OAuth tokens before serialising connection config  517ms
+ ✓ src/routes/v1/connectors-notion.test.ts (11 tests) 354ms
+ ✓ src/db/rls-isolation.test.ts (2 tests) 573ms
+ ✓ src/domain/workspaces/tanstack-workspace-chat-persist.test.ts (1 test) 554ms
+     ✓ keeps one live sandbox and persists both turns on real Postgres  367ms
+ ✓ src/domain/workspaces/tanstack-workspace-chat.test.ts (23 tests) 523ms
+ ✓ src/domain/workspaces/chat-projection.contract.test.ts (1 test) 869ms
+   ✓ reads chat graph nodes and neighbors from the captured Postgres projection  864ms
+ ✓ src/db/get-org-db-audit.test.ts (3 tests) 313ms
+ ✓ src/routes/v1/workspace-chat-openai.test.ts (5 tests) 266ms
+ ✓ src/routes/v1/conversations.test.ts (15 tests) 495ms
+     ✓ lists UI conversations for a Workspace and ignores source=all  329ms
+ ✓ src/domain/workspaces/workspace-chat-persistence.test.ts (2 tests) 835ms
+ ✓ src/routes/v1/connectors-slack.test.ts (10 tests) 183ms
+ ✓ src/lib/connection-config-slack.test.ts (3 tests) 237ms
+ ✓ src/auth/withAuth.test.ts (18 tests) 205ms
+ ✓ src/lib/withTransientHttpRetry.test.ts (15 tests) 842ms
+ ✓ src/routes/v1/workspaces.test.ts (30 tests) 446ms
+ ✓ src/models/notion-connector.test.ts (12 tests) 467ms
+     ✓ rewrites legacy plaintext tokens after reading a connection  373ms
+ ✓ src/routes/webhooks/atlassian/atlassian.test.ts (22 tests) 278ms
+stderr | src/routes/v1/connectors-linear.test.ts > Linear connector routes > restores the failed state when retry enqueue fails
+Error: worker unavailable
+    at /private/tmp/ctxpipe-recovery-01a07aba/apps/backend/src/routes/v1/connectors-linear.test.ts:557:45
+    at file:///private/tmp/ctxpipe-recovery-01a07aba/node_modules/.pnpm/@vitest+runner@4.0.18/node_modules/@vitest/runner/dist/index.js:145:11
+    at file:///private/tmp/ctxpipe-recovery-01a07aba/node_modules/.pnpm/@vitest+runner@4.0.18/node_modules/@vitest/runner/dist/index.js:915:26
+    at file:///private/tmp/ctxpipe-recovery-01a07aba/node_modules/.pnpm/@vitest+runner@4.0.18/node_modules/@vitest/runner/dist/index.js:1243:20
+    at new Promise (<anonymous>)
+    at runWithTimeout (file:///private/tmp/ctxpipe-recovery-01a07aba/node_modules/.pnpm/@vitest+runner@4.0.18/node_modules/@vitest/runner/dist/index.js:1209:10)
+    at file:///private/tmp/ctxpipe-recovery-01a07aba/node_modules/.pnpm/@vitest+runner@4.0.18/node_modules/@vitest/runner/dist/index.js:1653:37
+    at Traces.$ (file:///private/tmp/ctxpipe-recovery-01a07aba/node_modules/.pnpm/vitest@4.0.18_@opentelemetry+api@1.9.0_@types+node@25.3.0_jiti@2.6.1_jsdom@27.4.0_@nobl_3b8f616f1c840ca5079e010765321adc/node_modules/vitest/dist/chunks/traces.CCmnQaNT.js:142:27)
+    at trace (file:///private/tmp/ctxpipe-recovery-01a07aba/node_modules/.pnpm/vitest@4.0.18_@opentelemetry+api@1.9.0_@types+node@25.3.0_jiti@2.6.1_jsdom@27.4.0_@nobl_3b8f616f1c840ca5079e010765321adc/node_modules/vitest/dist/chunks/test.B8ej_ZHS.js:239:21)
+    at runTest (file:///private/tmp/ctxpipe-recovery-01a07aba/node_modules/.pnpm/@vitest+runner@4.0.18/node_modules/@vitest/runner/dist/index.js:1653:12)
+
+ ✓ src/routes/v1/connectors-linear.test.ts (16 tests) 414ms
+ ✓ src/routes/v1/workspace-activity-routes.test.ts (4 tests) 115ms
+ ✓ src/models/workspaces-sandbox-persist.test.ts (1 test) 528ms
+ ✓ src/routes/webhooks/github/github.test.ts (15 tests) 1944ms
+     ✓ returns 401 when signature is invalid  1247ms
+ ✓ src/graphs/codeIngestionGraph/nodes/reindex.test.ts (7 tests) 265ms
+ ✓ src/auth/config.test.ts (1 test) 319ms
+     ✓ allows emailed invitations with opaque custom IDs to be accepted  313ms
+ ✓ src/app/app.test.ts (4 tests) 369ms
+ ✓ src/services/github/installation-write-client.test.ts (11 tests) 377ms
+     ✓ rebuilds the commit on the latest head after a concurrent update  310ms
+ ✓ src/routes/v1/repositories.test.ts (7 tests) 131ms
+ ✓ src/domain/workspaces/commit-activity.test.ts (6 tests) 40ms
+ ✓ src/domain/workspaces/sandbox-registry.test.ts (16 tests) 349ms
+ ✓ src/routes/webhooks/notion/notion.test.ts (12 tests) 212ms
+ ✓ src/routes/mcp.test.ts (8 tests) 170ms
+ ✓ src/services/linear/sync.test.ts (6 tests) 175ms
+ ✓ src/routes/v1/connectors-atlassian.test.ts (9 tests) 256ms
+ ✓ src/domain/workspaces/bootstrap.test.ts (6 tests) 90ms
+ ✓ src/domain/workspaces/dest-workspace-backfill.migration.test.ts (3 tests) 331ms
+ ✓ src/routes/v1/org-atlassian-oauth.test.ts (7 tests) 346ms
+ ✓ src/services/linear/config-yaml.test.ts (3 tests) 124ms
+ ✓ src/services/notion/config-yaml.test.ts (8 tests) 123ms
+ ✓ src/tools/structuralSearch.test.ts (1 test) 155ms
+ ✓ src/openworkflow/workflows/forge-provision.devspace.test.ts (2 tests) 60ms
+ ✓ src/domain/conversations/workspace-history.test.ts (9 tests) 79ms
+ ✓ src/domain/codeIngestion/codesearchClient.test.ts (6 tests) 104ms
+ ✓ src/routes/webhooks/linear/linear.test.ts (8 tests) 238ms
+ ✓ src/routes/mcp-brand-asset.test.ts (1 test) 176ms
+ ✓ src/services/notion/client.test.ts (3 tests) 123ms
+ ✓ src/lib/agentToolRuntime.test.ts (4 tests) 15ms
+ ✓ src/routes/ui.test.ts (5 tests) 124ms
+ ✓ src/auth/oauth-gateway-request.test.ts (7 tests) 108ms
+ ✓ src/retrieval/services/graphProjection.test.ts (7 tests) 63ms
+ ✓ src/domain/workspaces/workspace-chat-agui.test.ts (8 tests) 134ms
+ ✓ src/routes/v1/connectors-list.test.ts (1 test) 91ms
+ ✓ src/graphs/codeIngestionGraph/nodes/identifyAPIClients.test.ts (8 tests) 52ms
+ ✓ src/domain/workspaces/workspace-chat-opencode-port.test.ts (4 tests) 121ms
+ ✓ src/services/linear/client.test.ts (3 tests) 142ms
+ ✓ src/domain/workspaces/job-sandbox.test.ts (24 tests) 86ms
+ ✓ src/domain/workspaces/write-jobs.test.ts (14 tests) 35ms
+ ✓ src/domain/workspaces/hydrate.test.ts (15 tests) 67ms
+ ✓ src/routes/v1/conversation-websocket.test.ts (5 tests) 90ms
+ ✓ src/openworkflow/workflows/linear-sync-content.test.ts (2 tests) 23ms
+ ✓ src/domain/codeIngestion/codesearchIndexPhases.test.ts (3 tests) 83ms
+ ✓ src/models/repositories.test.ts (20 tests) 151ms
+ ✓ src/services/slack/mention-agent.test.ts (7 tests) 77ms
+ ✓ src/openworkflow/workflows/notion-sync-entity.test.ts (5 tests) 42ms
+ ✓ src/domain/workspaces/migration-export.test.ts (15 tests) 75ms
+ ✓ src/domain/workspaces/job-worktree.test.ts (10 tests) 38ms
+ ✓ src/mcp/tools.test.ts (5 tests) 46ms
+ ✓ src/services/confluence/config-yaml.test.ts (4 tests) 66ms
+ ✓ src/domain/workspaces/hydrate-write-jobs.test.ts (9 tests) 61ms
+ ✓ src/db/transientDbRetry.test.ts (12 tests) 149ms
+ ✓ src/domain/workspaces/workspace-chat-sandbox-key.test.ts (3 tests) 60ms
+ ✓ src/services/linear/incremental.test.ts (6 tests) 94ms
+ ✓ src/graphs/codeIngestionGraph/nodes/extractInstructionUnits.test.ts (22 tests) 76ms
+ ✓ src/domain/workspaces/write-commit-files.test.ts (8 tests) 83ms
+ ✓ src/routes/webhooks/github/github-workspace-tip.test.ts (7 tests) 43ms
+ ✓ src/domain/workspaces/conversation-publish.test.ts (5 tests) 16ms
+ ✓ src/graphs/codeIngestionGraph/nodes/identifyStreams.test.ts (9 tests) 27ms
+ ✓ src/openworkflow/enqueue-follow-up-if-tip-ahead.test.ts (4 tests) 78ms
+ ✓ src/services/slack/client.test.ts (7 tests) 81ms
+ ✓ src/lib/forge-app-manifest.test.ts (6 tests) 39ms
+ ✓ src/graphs/codeIngestionGraph/nodes/identifyRootsDeterministic.test.ts (13 tests) 85ms
+ ✓ src/graphs/codeIngestionGraph/setIngestionIndexingStep.test.ts (4 tests) 29ms
+ ✓ src/openworkflow/workflows/workspace-write-commit.test.ts (2 tests) 83ms
+ ✓ src/openworkflow/workflows/repository-ingestion.reindex-tx.test.ts (3 tests) 61ms
+ ✓ src/routes/v1/index.test.ts (1 test) 37ms
+ ✓ src/domain/workspaces/write-status.test.ts (13 tests) 67ms
+ ✓ src/domain/workspaces/slug.test.ts (14 tests) 33ms
+ ✓ src/retrieval/services/ingestionRetraction.test.ts (6 tests) 32ms
+ ✓ src/retrieval/schema/llm-prompt.test.ts (5 tests) 60ms
+ ✓ src/db/provision-app-role.test.ts (5 tests) 29ms
+ ✓ src/services/slack/sync.test.ts (8 tests) 56ms
+ ✓ src/retrieval/services/parseModelSpec.test.ts (11 tests) 32ms
+ ✓ src/openworkflow/enqueue-notion-push-sync.test.ts (3 tests) 17ms
+ ✓ src/lib/memoryFitError.test.ts (11 tests) 30ms
+ ✓ src/services/notion/incremental.test.ts (9 tests) 38ms
+ ✓ src/tools/getFile.test.ts (2 tests) 170ms
+ ✓ src/routes/langsmith.test.ts (1 test) 69ms
+ ✓ src/openworkflow/workflows/repository-ingestion-orchestrator.test.ts (5 tests) 57ms
+ ✓ src/openworkflow/enqueue-workspace-write-commit.test.ts (6 tests) 48ms
+ ✓ src/graphs/codeIngestionGraph/nodes/identifyServiceDependencies.test.ts (7 tests) 26ms
+ ✓ src/routes/webhooks/github/github-linear-push.test.ts (5 tests) 32ms
+ ✓ src/domain/workspaces/hydrate-phases.test.ts (5 tests) 16ms
+ ✓ src/db/client.org-context.test.ts (8 tests) 37ms
+ ✓ src/domain/workspaces/chat-pull-request.test.ts (5 tests) 39ms
+ ✓ src/domain/workspaces/git-explorer.test.ts (18 tests) 27ms
+ ✓ src/openworkflow/workflows/workspace-tip-check.test.ts (4 tests) 30ms
+ ✓ src/domain/workspaces/dest-workspace-first.test.ts (11 tests) 52ms
+ ✓ src/graphs/codeIngestionGraph/nodes/deduplicateAndStore.test.ts (11 tests) 22ms
+ ✓ src/graphs/conversationGraph/nodes/conversationNaming.test.ts (9 tests) 27ms
+ ✓ src/db/gateway-guards.test.ts (1 test) 14ms
+ ✓ src/graphs/codeIngestionGraph/nodes/identifyPatterns.test.ts (6 tests) 29ms
+ ✓ src/domain/workspaces/write-job-agent.test.ts (9 tests) 32ms
+ ✓ src/services/linear/client-discovery.test.ts (1 test) 9ms
+ ✓ src/graphs/codeIngestionGraph/nodes/partialIngestionScope.test.ts (11 tests) 17ms
+ ✓ src/graphs/codeIngestionGraph/withIngestAgentContext.test.ts (1 test) 20ms
+ ✓ src/graphs/codeIngestionGraph/nodes/narrowRootsForPartialDiff.test.ts (8 tests) 16ms
+ ✓ src/openworkflow/workflows/slack-mention-agent.test.ts (6 tests) 42ms
+ ✓ src/models/slack-connector.test.ts (6 tests) 59ms
+ ✓ src/services/linear/converter.test.ts (4 tests) 97ms
+ ✓ src/domain/workspaces/workspace-chat-assistant-text.test.ts (17 tests) 100ms
+ ✓ src/domain/workspaces/layout.test.ts (5 tests) 90ms
+ ✓ src/domain/workspaces/chat-sandbox-policy.test.ts (9 tests) 54ms
+ ✓ src/domain/workspaces/chat-lifecycle.test.ts (8 tests) 30ms
+ ✓ src/graphs/codeIngestionGraph/nodes/identifyInfrastructure.test.ts (11 tests) 51ms
+ ✓ src/domain/workspaces/workspace-chat-turn-runtime.test.ts (2 tests) 31ms

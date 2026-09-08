@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from "vitest"
+import { describe, expect, it, vi } from "vitest"
 
 const listOrgWorkspacesMock = vi.hoisted(() => vi.fn())
 const persistResolvedDesiredShaMock = vi.hoisted(() => vi.fn())
@@ -30,93 +30,7 @@ vi.mock("../../../openworkflow/enqueue-workspace-commit-projection.js", () => ({
   enqueueWorkspaceCommitProjection: enqueueWorkspaceCommitProjectionMock,
 }))
 
-import {
-  getGithubRepoWriteView,
-  persistWorkspaceTipsOnDefaultBranchPush,
-} from "./github-workspace-tip.js"
-
-describe("persistWorkspaceTipsOnDefaultBranchPush", () => {
-  beforeEach(() => {
-    vi.clearAllMocks()
-    withOrgDbContextMock.mockImplementation(async (_orgId, fn) => fn())
-    assertNotInOrgDbContextMock.mockReset()
-  })
-
-  it("persists the resolved tip and ignores payload after", async () => {
-    listOrgWorkspacesMock.mockResolvedValue([
-      {
-        id: "ws_1",
-        workspaceRepositoryUrl: "https://github.com/acme/docs.git",
-        desiredGeneration: 2,
-        desiredSha: "old",
-      },
-    ])
-    persistResolvedDesiredShaMock.mockResolvedValue(true)
-    const resolveTip = vi.fn(async () => "resolved-from-github")
-
-    const persisted = await persistWorkspaceTipsOnDefaultBranchPush({
-      orgId: "org_1",
-      repoFullName: "acme/docs",
-      defaultBranch: "main",
-      payloadAfter: "do-not-persist-me",
-      resolveTip,
-    })
-
-    expect(persisted).toBe(1)
-    expect(resolveTip).toHaveBeenCalledWith("acme/docs", "main")
-    expect(persistResolvedDesiredShaMock).toHaveBeenCalledWith({
-      workspaceId: "ws_1",
-      resolvedTip: "resolved-from-github",
-      expectedGeneration: 2,
-      expectedUrl: "https://github.com/acme/docs.git",
-      expectedDesiredSha: "old",
-    })
-    expect(
-      persistResolvedDesiredShaMock.mock.calls[0]?.[0].resolvedTip,
-    ).not.toBe("do-not-persist-me")
-    expect(enqueueWorkspaceCommitProjectionMock).toHaveBeenCalledWith(
-      { orgId: "org_1", workspaceId: "ws_1" },
-      expect.anything(),
-    )
-  })
-
-  it("lists in an org tx, resolves GitHub over HTTP, then persists in a new org tx", async () => {
-    const order: string[] = []
-    withOrgDbContextMock.mockImplementation(async (_orgId, fn) => {
-      order.push("tx")
-      return fn()
-    })
-    listOrgWorkspacesMock.mockImplementation(async () => {
-      order.push("list")
-      return [
-        {
-          id: "ws_1",
-          workspaceRepositoryUrl: "https://github.com/acme/docs.git",
-          desiredGeneration: 1,
-          desiredSha: null,
-        },
-      ]
-    })
-    persistResolvedDesiredShaMock.mockImplementation(async () => {
-      order.push("persist")
-      return true
-    })
-    const resolveTip = vi.fn(async () => {
-      order.push("http")
-      return "tip"
-    })
-
-    await persistWorkspaceTipsOnDefaultBranchPush({
-      orgId: "org_1",
-      repoFullName: "acme/docs",
-      defaultBranch: "main",
-      resolveTip,
-    })
-
-    expect(order).toEqual(["tx", "list", "http", "tx", "persist"])
-    expect(assertNotInOrgDbContextMock).toHaveBeenCalled()
-  })
-})
+import { getGithubRepoWriteView } from "./github-workspace-tip.js"
 
 describe("getGithubRepoWriteView", () => {
   const env = {} as never

@@ -1,7 +1,7 @@
 import type { OpenAPIHono } from "@hono/zod-openapi"
 import { createRoute, z } from "@hono/zod-openapi"
 import type { AppEnv } from "../app/env.js"
-import { checkoutKeyFromAuth } from "../auth/jwt.js"
+import { checkoutKeyFromAuth, indexCheckoutFromAuth } from "../auth/jwt.js"
 import { isTransientDbConnectionError } from "../db/transient.js"
 import { withRepositoryIndexOperation } from "../domain/indexing/indexConcurrency.js"
 import { userFacingIndexingError } from "../domain/indexing/memoryFitError.js"
@@ -296,16 +296,7 @@ export function registerIndexPhaseRoutes(app: OpenAPIHono<AppEnv>) {
     if (!auth) throw new Error("Missing auth context")
     const { repoId } = c.req.valid("param")
     const body = c.req.valid("json")
-    const checkoutKey = checkoutKeyFromAuth(auth, repoId)
-    const signedRevision = auth.workspaceRevisions?.find(
-      (revision) => revision.repositoryId === repoId,
-    )
-    if (signedRevision && body.targetHash !== signedRevision.sha) {
-      return c.json(
-        { error: "Target commit does not match authenticated revision" },
-        403,
-      )
-    }
+    const checkoutKey = indexCheckoutFromAuth(auth, repoId, body.targetHash)
     if (body.checkoutKey && body.checkoutKey !== checkoutKey) {
       return c.json(
         { error: "Checkout does not match authenticated workspace" },

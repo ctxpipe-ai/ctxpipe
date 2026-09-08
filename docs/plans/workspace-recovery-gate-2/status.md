@@ -416,3 +416,33 @@ backend suite is rerunning with `--maxWorkers=2` to reduce local contention.
 The same required inventory and existing failure checker will verify that run;
 no deadlines, test selection, or failure allowances were expanded. This is a
 reviewable implementation checkpoint, not terminal Gate 2 completion.
+
+
+## First review: complete binding and snapshot fixes
+
+The initial Standards and Spec reviews of `45c9c1d583a95a74dccf86ec480f8ad30cccf2b9` are preserved under `reviews/`. They were not terminal reviews. Native PostgreSQL red/green contracts reproduce and fix connection-only relink, linked-ref tip publication, and membership rereads after a chat snapshot. Workspace connection changes now advance generation, clear desired SHA/default branch, and schedule the same lifecycle work as a URL change. The canonical remote uses `connectionId`; provider-specific columns remain temporary model mappings.
+
+`LinkedRevision` carries its full owner, link, repository, ref, connection and SHA through queue admission, credential resolution and publication. Workspace index jobs require the canonical value rather than reconstructing it from primitive job fields. Linked tip resolution uses the common native Git credential policy. The webhook's duplicate tip writers are deleted; the real signed HTTP contract observes the durable OpenWorkflow tip-check command and unchanged desired metadata. The remaining write-workflow callers now use full-identity capture instead of the removed SHA-only persistence helper.
+
+Chat units, vectors and repository membership now come from one PostgreSQL statement. The query returns one workspace row with aggregated units and repository revisions, avoiding multiplication of unit payloads by checkout rows. Search-only callers omit unit payloads. Explorer tools retain the captured set across later publication or membership changes. An initial aggregate query failed because Drizzle dequalified correlated columns; `snapshot-query-check` records the failure and `snapshot-query-qualified` proves the explicit qualifiers with PostgreSQL and native codesearch.
+
+Codesearch rejects workspace tokens without immutable revision claims or an explicit read-only `legacyWorkspace` discriminator. Clone and index share target admission. The native HTTP contract replaces implicit-scope assumptions. Five owned-mock cases expecting the retired mutable scope are removed; immutable index, SCIP, structural, request-override and legacy-missing-checkout behavior are exercised by the native index contracts.
+
+Review-stage fixture extraction replaces the 17-way hydration flag journey with 23 named behavior tests and the single index journey with 16 named tests. Shared fixtures own native Git, PostgreSQL, OpenWorkflow, Zoekt and Bun lifecycles; named cases retain the 100-file budget, rewind, rollback, credential failure, relink, publication and explorer assertions. `named-hydration-contracts` and `named-index-contracts` both pass. The expanded mandatory inventory now also requires binding-race, signed-webhook and real-transaction gateway contracts.
+
+Checkpoint CI run `34189354106` passed 12 of 13 jobs. The test job's additional failure was a missing `ast-grep` binary on the backend runner; CI now installs the codesearch image's pinned `@ast-grep/cli@0.45.0`, and prerequisites fail early if it is missing. The existing unrelated chat failure allowance was not expanded. The full backend type check shrank from 155 to 154 diagnostics with no new identity or count.
+
+The Kubernetes ingest on the immutable-checkout image completed with valid cold Zoekt and SCIP artifacts, empty hot storage, and a measured peak of 5,161,394,176 bytes under the unchanged 5,670 MiB ceiling. Its final cleanup exited 1 due to a container-created directory's permissions; that failed harness result is preserved. The cleanup now repairs only its own temporary bind mount before removal; a clean final rerun is still required. Gate 2 remains open pending complete current-SHA checks, push verification and both terminal reviews.
+
+`reviewed-required-contracts` passes all 77 required tests in 16 files with zero skips. `reviewed-linux-codesearch` passes all 215 tests in 34 files (173 Node, 42 Bun). The expanded native HTTP auth test also exposed codesearch's logger ignoring `createApp(env)` and rereading the process environment; passing the supplied environment fixes that native failure. Two owned-mock no-op write cases invoking the deleted SHA-only writer are retired; the mandatory real OpenWorkflow write-failure characterization remains unchanged and must be replaced in Gate 3. No write-gate completion is claimed.
+
+A final caller audit found `persistIndexedSha` had no production callers and survived only as hydration fixture setup. It and the unused partial-identity activation/index/tip helper functions are deleted; the history fixture now captures a complete revision once. Only the explicitly documented legacy chat sandbox key remains for Gate 4. The native publication, rollback, rewind, default-branch and signed-webhook proofs replace those retired pure characterizations.
+
+
+## Review-fix candidate verification
+
+The complete seven-project type command `reviewed-all-project-types` passes: backend 154 and UI 237 acknowledged diagnostics, all other projects zero, with no expanded allowance. `reviewed-ci-command-tests` passes five command suites. `reviewed-retired-helper-policy-command` checks 433 test/story/config files and 27 command files; its preceding invocation used an incorrect script filename and is retained separately. After the final dead-helper deletion, `final-retired-helper-contracts` again passes all 77 cases in 16 files; report and inventory are preserved.
+
+The final production image is `sha256:76607d4e521ddc25e8bf2824731f141c7652467bc3c3bd8c8c49820729ca273d` (`ctxpipe-codesearch:gate2-reviewed-final`). Its Kubernetes v1.36.3 ingest produced cold Zoekt and nonempty merged/Go SCIP, kept hot storage empty, and peaked at 5,103,169,536 bytes below the 5,670 MiB ceiling. The wrapper still exited 1 because Docker Desktop could not chmod host-owned read-only Git pack files. Cleanup now first repairs/removes host-owned files on the host and uses a root-container fallback for Linux-owned directories. The exact two completed fixture directories from the recorded logs were successfully removed using that cleanup; shell syntax passes. A full clean rerun and exact-pushed-SHA CI/reviews remain before terminal Gate 2 acceptance.
+
+`final-retired-helper-backend-types` passes after the deletion at the unchanged 154-diagnostic baseline. No current type diagnostic is newly allowed.

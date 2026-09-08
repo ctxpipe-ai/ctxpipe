@@ -27,7 +27,7 @@ export type GraphRequestBody = {
 export async function codesearchGraphQuery(
   repository: Pick<ZoektRepositoryRow, "id" | "orgId">,
   body: GraphRequestBody,
-  workspace?: { workspaceId: string; sha?: string },
+  workspace?: { workspaceId: string } & ({ sha: string } | { legacy: true }),
 ): Promise<Record<string, unknown>> {
   const env = parseEnv(process.env as Record<string, string | undefined>)
   const token = await signUpstreamJwt({
@@ -38,7 +38,10 @@ export async function codesearchGraphQuery(
       orgId: repository.orgId,
       principal: "service",
       ...(workspace ? { workspaceId: workspace.workspaceId } : {}),
-      ...(workspace?.sha
+      ...(workspace && "legacy" in workspace
+        ? { legacyWorkspace: true as const }
+        : {}),
+      ...(workspace && "sha" in workspace
         ? {
             workspaceRevisions: [
               { repositoryId: repository.id, sha: workspace.sha },

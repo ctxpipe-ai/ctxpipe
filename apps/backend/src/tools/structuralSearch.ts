@@ -20,7 +20,7 @@ export async function codesearchStructuralSearch(
     globs?: string[]
     limit?: number
   },
-  workspace?: { workspaceId: string; sha?: string },
+  workspace?: { workspaceId: string } & ({ sha: string } | { legacy: true }),
 ): Promise<string> {
   const repositoryId = repository.id
   const { pattern, lang, paths, globs, limit } = body
@@ -33,7 +33,10 @@ export async function codesearchStructuralSearch(
       orgId: repository.orgId,
       principal: "service",
       ...(workspace ? { workspaceId: workspace.workspaceId } : {}),
-      ...(workspace?.sha
+      ...(workspace && "legacy" in workspace
+        ? { legacyWorkspace: true as const }
+        : {}),
+      ...(workspace && "sha" in workspace
         ? {
             workspaceRevisions: [
               { repositoryId: repository.id, sha: workspace.sha },

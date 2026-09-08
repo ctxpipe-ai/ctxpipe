@@ -1,0 +1,27 @@
+{
+  "name": "native-revision-checkout-kubernetes-memory",
+  "cwd": "/private/tmp/ctxpipe-recovery-01a07aba",
+  "command": [
+    "env",
+    "DATABASE_URL=postgresql://ctxpipe_app:ctxpipe@host.docker.internal:61314/ctxpipe_gate0_fresh",
+    "KUBERNETES_MEMORY_IMAGE=ctxpipe-codesearch:gate2-revision-proof",
+    "KUBERNETES_MEMORY_GO_CACHE=/private/tmp/ctxpipe-recovery-runtime/kubernetes-cache",
+    "bash",
+    "apps/codesearch/scripts/manual-kubernetes-ingest-memory.sh"
+  ],
+  "environment": {
+    "AUTH_SECRET": "gate0-local-disposable-test-secret-20260907",
+    "DATABASE_URL": "postgresql://ctxpipe_app:ctxpipe@127.0.0.1:61314/ctxpipe_gate0_fresh",
+    "GRAPH_DB_URI": "redis://127.0.0.1:6399",
+    "CI": "true",
+    "NO_COLOR": "1",
+    "TURBO_TELEMETRY_DISABLED": "1",
+    "STORYBOOK_DISABLE_TELEMETRY": "1",
+    "PATH": "/private/tmp/ctxpipe-recovery-runtime/node_modules/.bin:/private/tmp/ctxpipe-recovery-runtime/zoekt:/usr/local/bin:/System/Cryptexes/App/usr/bin:/usr/bin:/bin:/usr/sbin:/sbin:/var/run/com.apple.security.cryptexd/codex.system/bootstrap/usr/local/bin:/var/run/com.apple.security.cryptexd/codex.system/bootstrap/usr/bin:/var/run/com.apple.security.cryptexd/codex.system/bootstrap/usr/appleinternal/bin:/pkg/env/global/bin:/Users/jakubriedl/.codex/tmp/arg0/codex-arg0BW5Gt3:/Users/jakubriedl/.cache/codex-runtimes/codex-primary-runtime/dependencies/bin/override:/Users/jakubriedl/.local/bin:/Users/jakubriedl/.bun/bin:/Users/jakubriedl/.opencode/bin:/Users/jakubriedl/.volta/bin:/opt/homebrew/bin:/opt/homebrew/sbin:/Users/jakubriedl/.cache/codex-runtimes/codex-primary-runtime/dependencies/bin/fallback:/Applications/ChatGPT.app/Contents/Resources"
+  },
+  "timeout_seconds": 3600,
+  "started_utc": "2026-09-08T05:05:04Z",
+  "log": "logs/native-revision-checkout-kubernetes-memory.log",
+  "exit_code": 1,
+  "duration_seconds": 484.59
+}

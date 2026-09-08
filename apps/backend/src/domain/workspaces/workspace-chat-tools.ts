@@ -5,12 +5,8 @@ import {
   codesearchGraphQuery,
   type GraphPrimitive,
 } from "../../tools/codesearchGraph.js"
-import { withOrgDbContext } from "../../db/client.js"
 import { toToon } from "../../lib/agentToolRuntime.js"
-import {
-  getWorkspaceSearchProjection,
-  type WorkspaceProjectionSnapshot,
-} from "../../models/workspaces.js"
+import { type WorkspaceProjectionSnapshot } from "../../models/workspaces.js"
 import { codeSearch } from "../../retrieval/services/codeSearch.js"
 import { compactSearchResponse } from "../../tools/zoektCompact.js"
 import {
@@ -19,11 +15,7 @@ import {
 } from "../../tools/zoektSymbolQuery.js"
 import { listRepositoriesTool } from "../../tools/listRepositories.js"
 import { standardRepoExplorerTools } from "../../tools/repoExplorerTools.js"
-import {
-  publishedProjection,
-  samePublishedProjection,
-  type PublishedProjection,
-} from "./revision.js"
+import { publishedProjection, type PublishedProjection } from "./revision.js"
 import {
   workspaceGraphFromUnits,
   type WorkspaceGraphPayload,
@@ -205,10 +197,7 @@ export async function workspaceChatTools(input: {
   if (!projection) return []
   const sha =
     projection.kind === "active" ? projection.revision.sha : projection.sha
-  const boundRepositories = await loadAllowedRepositories({
-    ...input,
-    projection,
-  })
+  const boundRepositories = input.snapshot.repositories
   const allowed = new Set(boundRepositories.map((repo) => repo.id))
   const graph = workspaceGraphFromUnits({ units: input.snapshot.units })
   const explorer = [
@@ -306,7 +295,7 @@ function wrapExplorerTool(input: {
   tool: ExplorerTool
   orgId: string
   allowedRepositoryIds: ReadonlySet<string>
-  boundRepositories: Awaited<ReturnType<typeof loadAllowedRepositories>>
+  boundRepositories: WorkspaceProjectionSnapshot["repositories"]
   workspaceId: string
   projection: PublishedProjection
 }): WorkspaceChatTanstackTool {
@@ -364,7 +353,10 @@ function wrapExplorerTool(input: {
           workspaceId: input.workspaceId,
           repositoryIds: [repositoryId],
           query,
-          expectedProjection: input.projection,
+          workspaceSnapshot: {
+            projection: input.projection,
+            repositories: input.boundRepositories,
+          },
         })
         const response = matches[0]?.response ?? { Files: [] }
         return toToon({
@@ -399,7 +391,7 @@ function wrapExplorerTool(input: {
             workspaceId: input.workspaceId,
             ...(input.projection.kind === "active"
               ? { sha: repository.sha }
-              : {}),
+              : { legacy: true as const }),
           },
         )
       }
@@ -436,7 +428,7 @@ function wrapExplorerTool(input: {
               workspaceId: input.workspaceId,
               ...(input.projection.kind === "active"
                 ? { sha: repository.sha }
-                : {}),
+                : { legacy: true as const }),
             },
           ),
         )
@@ -512,21 +504,6 @@ function graphNeighborsTool(input: {
       return toToon({ projectionSha: input.sha, neighbors })
     },
   }
-}
-
-async function loadAllowedRepositories(input: {
-  orgId: string
-  workspaceId: string
-  projection: PublishedProjection
-}) {
-  const snapshot = await withOrgDbContext(input.orgId, () =>
-    getWorkspaceSearchProjection(input.workspaceId),
-  )
-  const matches = samePublishedProjection(
-    publishedProjection(snapshot.projection),
-    input.projection,
-  )
-  return matches ? snapshot.repositories : []
 }
 
 function stringArg(args: unknown, key: string): string {

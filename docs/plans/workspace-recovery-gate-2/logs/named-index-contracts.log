@@ -1,0 +1,27 @@
+{"name": "named-index-contracts", "cwd": "/private/tmp/ctxpipe-recovery-01a07aba", "command": ["/Users/jakubriedl/.volta/tools/image/node/22.16.0/bin/node", "apps/backend/node_modules/vitest/vitest.mjs", "run", "--root", "apps/backend", "src/domain/workspaces/index-workflow.contract.test.ts"], "environment": {"AUTH_SECRET": "gate0-local-disposable-test-secret-20260907", "DATABASE_URL": "postgresql://ctxpipe_app:ctxpipe@127.0.0.1:61314/ctxpipe_gate0_fresh", "GRAPH_DB_URI": "redis://127.0.0.1:6399", "CI": "true", "NO_COLOR": "1", "TURBO_TELEMETRY_DISABLED": "1", "STORYBOOK_DISABLE_TELEMETRY": "1", "PATH": "/private/tmp/ctxpipe-recovery-runtime/node_modules/.bin:/private/tmp/ctxpipe-recovery-runtime/zoekt:/usr/local/bin:/System/Cryptexes/App/usr/bin:/usr/bin:/bin:/usr/sbin:/sbin:/var/run/com.apple.security.cryptexd/codex.system/bootstrap/usr/local/bin:/var/run/com.apple.security.cryptexd/codex.system/bootstrap/usr/bin:/var/run/com.apple.security.cryptexd/codex.system/bootstrap/usr/appleinternal/bin:/pkg/env/global/bin:/Users/jakubriedl/.codex/tmp/arg0/codex-arg0BW5Gt3:/Users/jakubriedl/.cache/codex-runtimes/codex-primary-runtime/dependencies/bin/override:/Users/jakubriedl/.local/bin:/Users/jakubriedl/.bun/bin:/Users/jakubriedl/.opencode/bin:/Users/jakubriedl/.volta/bin:/opt/homebrew/bin:/opt/homebrew/sbin:/Users/jakubriedl/.cache/codex-runtimes/codex-primary-runtime/dependencies/bin/fallback:/Applications/ChatGPT.app/Contents/Resources"}, "timeout_seconds": 600, "started_utc": "2026-09-08T05:22:47Z", "log": "logs/named-index-contracts.log"}
+
+ RUN  v4.0.18 /private/tmp/ctxpipe-recovery-01a07aba/apps/backend
+
+ ✓ src/domain/workspaces/index-workflow.contract.test.ts (16 tests) 35267ms
+   ✓ rejects contradictory and unbound queued index revisions  856ms
+   ✓ returns no revision for a missing workspace  554ms
+   ✓ publishes a native searchable index with the captured commit identity  1709ms
+   ✓ chat search retains the captured revision across a later branch metadata change  1733ms
+   ✓ an unpublished index cannot replace the published searchable checkout  2853ms
+   ✓ chat SCIP queries resolve symbols from the published checkout  2944ms
+   ✓ chat structural search runs ast-grep against the published checkout  2820ms
+   ✓ a request body cannot override the signed search checkout  2782ms
+   ✓ an explicit legacy workspace with no checkout returns no search matches  1761ms
+   ✓ both clone and index reject a target that contradicts the signed revision  1628ms
+   ✓ search-index failure preserves publication and a retry restores search freshness  5031ms
+   ✓ linked index publication rejects a changed owner identity  1657ms
+   ✓ linked index publication rejects a changed linked ref  1576ms
+   ✓ cron refresh captures a default-branch rename once at the same SHA  3987ms
+   ✓ index admission rejects a repository bound to another remote  2816ms
+   ✓ unbound default indexing cannot mark a workspace index ready  555ms
+
+ Test Files  1 passed (1)
+      Tests  16 passed (16)
+   Start at  15:22:48
+   Duration  37.60s (transform 729ms, setup 21ms, import 2.24s, tests 35.27s, environment 0ms)
+

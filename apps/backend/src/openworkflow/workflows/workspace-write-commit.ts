@@ -61,7 +61,7 @@ import {
   listKnowledgeUnitPaths,
   listLinkedRepositories,
   persistLastJobAt,
-  persistResolvedDesiredSha,
+  captureWorkspaceRevision,
   persistWriteJobCommitSha,
   persistWriteJobStart,
   persistWriteJobStatus,
@@ -481,12 +481,16 @@ export const workspaceWriteCommit = defineWorkflow(
               if (exportSha) {
                 await orgSql(async () => {
                   await persistWriteJobCommitSha(jobId, exportSha)
-                  await persistResolvedDesiredSha({
+                  await captureWorkspaceRevision({
                     workspaceId: workspace.id,
-                    resolvedTip: exportSha,
-                    expectedGeneration: jobGeneration,
-                    expectedUrl: jobWorkspaceUrl,
-                    expectedDesiredSha: jobDesiredSha,
+                    expected: {
+                      generation: jobGeneration,
+                      url: jobWorkspaceUrl,
+                      sha: jobDesiredSha,
+                      defaultBranch: workspace.desiredDefaultBranch ?? null,
+                      githubConnectionId: workspace.githubConnectionId,
+                    },
+                    tip: { sha: exportSha, branch: defaultBranch },
                   })
                 })
                 await enqueueWorkspaceHydrate(
@@ -642,15 +646,19 @@ export const workspaceWriteCommit = defineWorkflow(
             if (result.committed) {
               await orgSql(async () => {
                 await persistWriteJobCommitSha(jobId, result.commitSha)
-                await persistResolvedDesiredSha({
+                await captureWorkspaceRevision({
                   workspaceId: workspace.id,
-                  resolvedTip: result.commitSha,
-                  expectedGeneration: jobGeneration,
-                  expectedUrl: jobWorkspaceUrl,
-                  expectedDesiredSha:
-                    input.kind === "semantic_merge"
-                      ? live.desiredSha
-                      : jobDesiredSha,
+                  expected: {
+                    generation: jobGeneration,
+                    url: jobWorkspaceUrl,
+                    sha:
+                      input.kind === "semantic_merge"
+                        ? live.desiredSha
+                        : jobDesiredSha,
+                    defaultBranch: workspace.desiredDefaultBranch ?? null,
+                    githubConnectionId: workspace.githubConnectionId,
+                  },
+                  tip: { sha: result.commitSha, branch: defaultBranch },
                 })
               })
               await enqueueWorkspaceHydrate(

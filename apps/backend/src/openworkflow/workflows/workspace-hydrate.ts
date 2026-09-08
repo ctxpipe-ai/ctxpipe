@@ -17,12 +17,13 @@ import {
   publishedProjection,
   sameWorkspaceRevision,
   type WorkspaceRevision,
-  workspaceIndexJobs,
+  linkedRevisionSchema,
   workspaceRevisionSchema,
 } from "../../domain/workspaces/revision.js"
 import {
   commitHydrateProjection,
   getWorkspaceProjectionSnapshot,
+  getLinkedReadBinding,
   listLinkedRepositories,
   persistEmbeddingFailure,
   persistHydrateFailure,
@@ -66,22 +67,25 @@ async function enqueueLaggingIndex(input: {
     listLinkedRepositories(input.revision.workspaceId),
   )
   const log = getLogger()
-  for (const job of workspaceIndexJobs({
-    workspaceId: input.revision.workspaceId,
-    workspaceRepositoryUrl: input.revision.remote.url,
-    desiredGeneration: input.revision.generation,
-    desiredSha: input.revision.sha,
-    indexedSha: null,
-    linked,
-  })) {
-    try {
-      await enqueueWorkspaceIndex(
-        { orgId: input.orgId, ...job, revision: input.revision },
-        { error: (err) => log.error(err) },
-      )
-    } catch (error) {
-      log.error(error instanceof Error ? error : new Error(String(error)))
-    }
+  await enqueueWorkspaceIndex(
+    { orgId: input.orgId, revision: input.revision },
+    { error: (err) => log.error(err) },
+  )
+  for (const row of linked) {
+    if (!row.desiredSha || row.desiredSha === row.indexedSha) continue
+    const binding = await withOrgDbContext(input.orgId, () =>
+      getLinkedReadBinding(row.id),
+    )
+    if (!binding?.sha || !sameWorkspaceRevision(binding.owner, input.revision))
+      continue
+    await enqueueWorkspaceIndex(
+      {
+        orgId: input.orgId,
+        revision: input.revision,
+        linked: linkedRevisionSchema.parse(binding),
+      },
+      { error: (err) => log.error(err) },
+    )
   }
 }
 

@@ -9,11 +9,11 @@ import {
   destroySandboxesForWorkspace,
   jobSandboxesDueForDestroy,
 } from "../../domain/workspaces/sandbox-registry.js"
+import { shouldEnqueueCronHydrate } from "../../domain/workspaces/tip-resolve.js"
 import {
-  runCronLinkedTipChecks,
-  shouldEnqueueCronHydrate,
-} from "../../domain/workspaces/tip-resolve.js"
-import { resolveWorkspaceReadRevision } from "../../domain/workspaces/resolve-revision.js"
+  resolveLinkedReadRevision,
+  resolveWorkspaceReadRevision,
+} from "../../domain/workspaces/resolve-revision.js"
 import type { WorkspaceRevision } from "../../domain/workspaces/revision.js"
 import { resumePausedWriteJobs } from "../../domain/workspaces/write-job-resume.js"
 import {
@@ -29,13 +29,9 @@ import {
   listOrgWorkspaces,
   listPausedWriteJobs,
   reconcileDestWorkspaceAssignment,
-  persistLinkedDesiredSha,
   persistWriteStatus,
 } from "../../models/workspaces.js"
-import {
-  getGithubRepoWriteView,
-  resolveWorkspaceRepositoryTip,
-} from "../../routes/webhooks/github/github-workspace-tip.js"
+import { getGithubRepoWriteView } from "../../routes/webhooks/github/github-workspace-tip.js"
 import { enqueueWorkspaceCommitProjection } from "../enqueue-workspace-commit-projection.js"
 import { enqueueWorkspaceHydrate } from "../enqueue-workspace-hydrate.js"
 import { enqueueWorkspaceIndex } from "../enqueue-workspace-index.js"
@@ -187,12 +183,6 @@ export const workspaceTipCheck = defineWorkflow(
           await enqueueWorkspaceIndex(
             {
               orgId: input.orgId,
-              workspaceId: row.id,
-              gitUrl: row.workspaceRepositoryUrl,
-              desiredSha: item.resolvedTip,
-              role: "workspace",
-              jobGeneration: row.desiredGeneration,
-              jobWorkspaceUrl: row.workspaceRepositoryUrl,
               revision: item.revision,
             },
             { error: () => undefined },
@@ -206,35 +196,22 @@ export const workspaceTipCheck = defineWorkflow(
       const linked = await withOrgDbContext(input.orgId, () =>
         listOrgLinkedRepositories(input.orgId),
       )
-      const linkedUpdated = await runCronLinkedTipChecks({
-        linked,
-        resolveTip: (gitUrl, desiredRef) =>
-          resolveWorkspaceRepositoryTip({
-            orgId: input.orgId,
-            workspaceRepositoryUrl: gitUrl,
-            branch: desiredRef,
-            env,
-          }),
-        persist: (row) =>
-          withOrgDbContext(input.orgId, () => persistLinkedDesiredSha(row)),
-      })
-      for (const item of linkedUpdated) {
-        const row = linked.find((linkedRow) => linkedRow.id === item.linkedId)
-        if (!row) continue
-        const workspace = workspaces.find((item) => item.id === row.workspaceId)
-        if (!workspace) continue
+      let linkedUpdated = 0
+      for (const row of linked) {
+        const resolved = await resolveLinkedReadRevision({
+          orgId: input.orgId,
+          linkId: row.id,
+          env,
+        })
+        if (!resolved?.changed) continue
+        linkedUpdated += 1
         await enqueueWorkspaceIndex(
           {
             orgId: input.orgId,
-            workspaceId: row.workspaceId,
-            gitUrl: row.gitUrl,
-            desiredSha: item.resolvedTip,
-            role: "linked",
-            linkedId: row.id,
-            jobGeneration: workspace.desiredGeneration,
-            jobWorkspaceUrl: workspace.workspaceRepositoryUrl,
+            revision: resolved.revision.owner,
+            linked: resolved.revision,
           },
-          { error: () => undefined },
+          quietLog,
         )
       }
       const now = new Date()
@@ -257,7 +234,7 @@ export const workspaceTipCheck = defineWorkflow(
       for (const workspaceId of idleJobs) {
         await destroySandboxesForWorkspace(workspaceId, "job")
       }
-      return { updated: updated.length, linkedUpdated: linkedUpdated.length }
+      return { updated: updated.length, linkedUpdated }
     })
   },
 )

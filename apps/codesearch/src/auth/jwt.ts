@@ -12,15 +12,24 @@ export type VerifiedToken = {
   orgId: string
   principal: "user" | "service"
   workspaceId?: string
+  legacyWorkspace?: true
   workspaceRevisions?: Array<{ repositoryId: string; sha: string }>
 }
 
 export function checkoutKeyFromAuth(
-  auth: Pick<VerifiedToken, "workspaceId" | "workspaceRevisions">,
+  auth: Pick<
+    VerifiedToken,
+    "workspaceId" | "workspaceRevisions" | "legacyWorkspace"
+  >,
   repositoryId?: string,
 ): string {
   if (!auth.workspaceId) return DEFAULT_CHECKOUT_KEY
-  if (!auth.workspaceRevisions) return workspaceCheckoutKey(auth.workspaceId)
+  if (auth.legacyWorkspace && !auth.workspaceRevisions)
+    return workspaceCheckoutKey(auth.workspaceId)
+  if (!auth.workspaceRevisions)
+    throw new HTTPException(403, {
+      message: "Workspace revision is not authorized",
+    })
   const revisions = auth.workspaceRevisions.filter(
     (revision) => revision.repositoryId === repositoryId,
   )
@@ -82,6 +91,7 @@ export async function verifyCodesearchJwt(input: {
         .string()
         .regex(/^[a-zA-Z0-9_-]+$/)
         .optional(),
+      legacyWorkspace: z.literal(true).optional(),
       workspaceRevisions: z
         .array(
           z.object({
@@ -95,16 +105,42 @@ export async function verifyCodesearchJwt(input: {
     .safeParse(payload)
   if (
     !scope.success ||
-    (scope.data.workspaceRevisions && !scope.data.workspaceId)
+    ((scope.data.workspaceRevisions || scope.data.legacyWorkspace) &&
+      !scope.data.workspaceId) ||
+    (Boolean(scope.data.workspaceId) &&
+      Boolean(scope.data.workspaceRevisions) ===
+        Boolean(scope.data.legacyWorkspace))
   )
     return null
-  const { workspaceId, workspaceRevisions } = scope.data
+  const { workspaceId, workspaceRevisions, legacyWorkspace } = scope.data
 
   return {
     sub: subject,
     orgId,
     principal,
     ...(workspaceId ? { workspaceId } : {}),
+    ...(legacyWorkspace ? { legacyWorkspace } : {}),
     ...(workspaceRevisions ? { workspaceRevisions } : {}),
   }
+}
+
+/** Admit an immutable indexing target before any filesystem or database mutation. */
+export function indexCheckoutFromAuth(
+  auth: VerifiedToken,
+  repositoryId: string,
+  targetHash: string | undefined,
+): string {
+  const checkoutKey = checkoutKeyFromAuth(auth, repositoryId)
+  if (auth.workspaceId && !auth.workspaceRevisions)
+    throw new HTTPException(403, {
+      message: "Legacy workspace scope is read-only",
+    })
+  const revision = auth.workspaceRevisions?.find(
+    (item) => item.repositoryId === repositoryId,
+  )
+  if (revision && targetHash !== revision.sha)
+    throw new HTTPException(403, {
+      message: "Target commit does not match authenticated revision",
+    })
+  return checkoutKey
 }

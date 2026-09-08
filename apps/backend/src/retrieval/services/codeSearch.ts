@@ -7,11 +7,7 @@ import { repositoryCheckouts } from "../../db/schema/repository_checkouts.js"
 import { codesearchBaseUrl } from "../../lib/agentToolRuntime.js"
 import { withTransientHttpRetry } from "../../lib/withTransientHttpRetry.js"
 import { DEFAULT_CHECKOUT_KEY } from "../../models/repositories.js"
-import {
-  publishedProjection,
-  samePublishedProjection,
-  type PublishedProjection,
-} from "../../domain/workspaces/revision.js"
+import { publishedProjection } from "../../domain/workspaces/revision.js"
 import { getWorkspaceSearchProjection } from "../../models/workspaces.js"
 
 export type CodeSearchResult = {
@@ -132,23 +128,15 @@ export async function codeSearch(
     query: string
     repositoryIds?: string[]
     workspaceId?: string
-    expectedProjection?: PublishedProjection
+    workspaceSnapshot?: Awaited<ReturnType<typeof getWorkspaceSearchProjection>>
   },
 ): Promise<CodeSearchResult[]> {
   const workspace = params.workspaceId
-    ? await withOrgDbContext(orgId, () =>
+    ? (params.workspaceSnapshot ??
+      (await withOrgDbContext(orgId, () =>
         getWorkspaceSearchProjection(params.workspaceId as string),
-      )
+      )))
     : null
-  if (
-    params.expectedProjection &&
-    (!workspace ||
-      !samePublishedProjection(
-        publishedProjection(workspace.projection),
-        params.expectedProjection,
-      ))
-  )
-    return []
   const baseWhere = eq(repositories.orgId, orgId)
   const where = params.repositoryIds?.length
     ? and(baseWhere, inArray(repositories.id, params.repositoryIds))
@@ -191,6 +179,10 @@ export async function codeSearch(
       orgId,
       principal: "service",
       ...(params.workspaceId ? { workspaceId: params.workspaceId } : {}),
+      ...(workspace &&
+      publishedProjection(workspace.projection)?.kind === "legacy"
+        ? { legacyWorkspace: true as const }
+        : {}),
       ...(workspace &&
       publishedProjection(workspace.projection)?.kind === "active"
         ? {

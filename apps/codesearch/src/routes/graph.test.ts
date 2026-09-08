@@ -84,27 +84,4 @@ describe("POST /{repoId}/graph checkout isolation", () => {
     expect(res.status).toBe(403)
     expect(executeScipGraphQueryMock).not.toHaveBeenCalled()
   })
-
-  it("uses the JWT workspace checkout when the request omits checkoutKey", async () => {
-    const res = await createTestApp("ws_alpha").request(
-      "/repo_abcdef27/graph",
-      {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify({
-          primitive: "find_symbol",
-          symbol: "needle",
-        }),
-      },
-    )
-
-    expect(res.status).toBe(200)
-    expect(executeScipGraphQueryMock).toHaveBeenCalledWith(
-      expect.objectContaining({
-        repoPath: "/repo-cache/org_mock123/repo_abcdef27/checkouts/ws:ws_alpha",
-        scipIndexPath:
-          "/repo-cache/org_mock123/repo_abcdef27/checkouts/ws:ws_alpha.scip",
-      }),
-    )
-  })
 })

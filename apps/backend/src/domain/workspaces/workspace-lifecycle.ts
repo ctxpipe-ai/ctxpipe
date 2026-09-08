@@ -133,7 +133,9 @@ export async function relinkWorkspaceLifecycle(input: {
     ? normalizeWorkspaceRepositoryUrl(input.workspaceRepositoryUrl)
     : input.current.workspaceRepositoryUrl
   const changed =
-    Boolean(nextUrl) && nextUrl !== input.current.workspaceRepositoryUrl
+    (Boolean(nextUrl) && nextUrl !== input.current.workspaceRepositoryUrl) ||
+    (input.persistConnection &&
+      githubConnectionId !== input.current.githubConnectionId)
   const write = input.bindingSubmitted
     ? writeStatusFromClassification({
         workspaceRepositoryUrl: nextUrl || input.current.workspaceRepositoryUrl,

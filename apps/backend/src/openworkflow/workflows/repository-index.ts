@@ -10,14 +10,21 @@ import {
   codesearchIndexZoekt,
 } from "../../domain/codeIngestion/codesearchIndexPhases.js"
 import { resolveRepositoryReadCredential } from "../../domain/workspaces/resolve-revision.js"
-import { workspaceRevisionSchema } from "../../domain/workspaces/revision.js"
+import {
+  linkedRevisionSchema,
+  sameLinkedReadBinding,
+  workspaceRevisionSchema,
+} from "../../domain/workspaces/revision.js"
 import {
   isMemoryFitFailure,
   userFacingIndexingError,
 } from "../../lib/memoryFitError.js"
 import { getRepositoryReadBinding } from "../../models/repositories.js"
 import { normalizeWorkspaceRepositoryUrl } from "../../domain/workspaces/slug.js"
-import { persistWorkspaceIndexResult } from "../../models/workspaces.js"
+import {
+  getLinkedReadBinding,
+  persistWorkspaceIndexResult,
+} from "../../models/workspaces.js"
 import {
   createLogger,
   flushWorkflowLog,
@@ -37,6 +44,7 @@ const repositoryIndexInputSchema = z
     jobGeneration: z.number().int().optional(),
     jobWorkspaceUrl: z.string().min(1).optional(),
     revision: workspaceRevisionSchema.optional(),
+    linkedRevision: linkedRevisionSchema.optional(),
   })
   .refine(
     (input) =>
@@ -44,11 +52,12 @@ const repositoryIndexInputSchema = z
       (input.revision.access === "read" &&
         input.revision.workspaceId === input.workspaceId &&
         input.revision.sha === input.targetHash &&
-        input.revision.generation === input.jobGeneration &&
-        input.revision.remote.url === input.jobWorkspaceUrl &&
+        (input.jobGeneration === undefined ||
+          input.revision.generation === input.jobGeneration) &&
+        (input.jobWorkspaceUrl === undefined ||
+          input.revision.remote.url === input.jobWorkspaceUrl) &&
         (input.githubConnectionId === undefined ||
-          input.githubConnectionId ===
-            input.revision.remote.githubConnectionId)),
+          input.githubConnectionId === input.revision.remote.connectionId)),
     "Repository index input must describe one workspace revision",
   )
   .refine(
@@ -56,6 +65,24 @@ const repositoryIndexInputSchema = z
       !input.workspaceId ||
       /^(?:[a-f0-9]{40}|[a-f0-9]{64})$/.test(input.targetHash),
     "Workspace indexing requires an immutable commit SHA",
+  )
+  .refine(
+    (input) =>
+      !input.workspaceId ||
+      Boolean(input.revision) !== Boolean(input.linkedRevision),
+    "Workspace indexing requires exactly one captured revision",
+  )
+  .refine(
+    (input) =>
+      !input.linkedRevision ||
+      (input.linkedRevision.owner.access === "read" &&
+        input.linkedRevision.owner.workspaceId === input.workspaceId &&
+        input.linkedRevision.repositoryId === input.repositoryId &&
+        input.linkedRevision.sha === input.targetHash &&
+        (input.githubConnectionId === undefined ||
+          input.githubConnectionId ===
+            input.linkedRevision.remote.connectionId)),
+    "Linked indexing must use its captured revision",
   )
 
 const indexRetryPolicy = {
@@ -121,11 +148,22 @@ export const repositoryIndex = defineWorkflow(
           input.orgId,
           input.repositoryId,
         )
+        const targetRevision = input.linkedRevision ?? input.revision
+        if (
+          input.linkedRevision &&
+          !(await withOrgDbContext(input.orgId, async () =>
+            sameLinkedReadBinding(
+              await getLinkedReadBinding(input.linkedRevision!.linkId),
+              input.linkedRevision!,
+            ),
+          ))
+        )
+          throw new Error("Linked revision changed before index admission")
         if (
           !repository ||
-          (input.revision &&
+          (targetRevision &&
             normalizeWorkspaceRepositoryUrl(repository.gitUrl) !==
-              normalizeWorkspaceRepositoryUrl(input.revision.remote.url))
+              normalizeWorkspaceRepositoryUrl(targetRevision.remote.url))
         )
           throw new Error(
             "Index repository does not match the captured revision",
@@ -183,9 +221,9 @@ export const repositoryIndex = defineWorkflow(
           resolveRepositoryReadCredential({
             orgId: input.orgId,
             env,
-            remote: input.revision?.remote ?? {
+            remote: targetRevision?.remote ?? {
               url: repository.gitUrl,
-              githubConnectionId:
+              connectionId:
                 input.githubConnectionId ?? repository.githubConnectionId,
             },
           }),

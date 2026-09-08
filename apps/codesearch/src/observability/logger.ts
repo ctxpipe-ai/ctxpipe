@@ -10,7 +10,7 @@ import { createOTLPDrain } from "evlog/otlp"
 import { createDrainPipeline, type PipelineDrainFn } from "evlog/pipeline"
 import { getContext } from "hono/context-storage"
 import type { AppEnv } from "../app/env.js"
-import { parseEnv } from "../config/env.js"
+import { type Env, parseEnv } from "../config/env.js"
 
 /**
  * Initialize evlog. Call early in app bootstrap.
@@ -36,9 +36,10 @@ let evlogDrainInstance: PipelineDrainFn<DrainContext> | undefined
  * returns an OTLP drain with batching and retry. Otherwise returns undefined (stdout only).
  * Reads env from process.env. Caches and returns the same instance on repeated calls.
  */
-export function createEvlogDrain() {
+export function createEvlogDrain(
+  env: Env = parseEnv(process.env as Record<string, string | undefined>),
+) {
   if (evlogDrainInstance) return evlogDrainInstance
-  const env = parseEnv(process.env as Record<string, string | undefined>)
   if (!env.OTEL_EXPORTER_OTLP_LOGS_ENDPOINT) return undefined
 
   // evlog appends /v1/logs; strip it so OTEL_EXPORTER_OTLP_LOGS_ENDPOINT can use full URL

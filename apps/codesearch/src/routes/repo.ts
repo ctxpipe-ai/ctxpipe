@@ -3,7 +3,7 @@ import { join } from "node:path"
 import type { OpenAPIHono } from "@hono/zod-openapi"
 import { createRoute, z } from "@hono/zod-openapi"
 import type { AppEnv } from "../app/env.js"
-import { checkoutKeyFromAuth } from "../auth/jwt.js"
+import { checkoutKeyFromAuth, indexCheckoutFromAuth } from "../auth/jwt.js"
 import { withRepositoryPurgeOperation } from "../domain/indexing/indexConcurrency.js"
 import { cloneAndIndexRepository } from "../domain/indexing/service.js"
 import {
@@ -411,16 +411,7 @@ export function registerRepoRoutes(app: OpenAPIHono<AppEnv>) {
     if (!auth) throw new Error("Missing auth context")
     const { repoId } = c.req.valid("param")
     const body = c.req.valid("json")
-    const checkoutKey = checkoutKeyFromAuth(auth, repoId)
-    const signedRevision = auth.workspaceRevisions?.find(
-      (revision) => revision.repositoryId === repoId,
-    )
-    if (signedRevision && body.targetHash !== signedRevision.sha) {
-      return c.json(
-        { error: "Target commit does not match authenticated revision" },
-        403,
-      )
-    }
+    const checkoutKey = indexCheckoutFromAuth(auth, repoId, body.targetHash)
     const repo = await getAccessibleRepository(db, repoId, auth.orgId)
     if (!repo)
       return c.json({ error: "Repository not found or access denied" }, 404)

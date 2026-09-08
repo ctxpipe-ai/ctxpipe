@@ -46,7 +46,7 @@ it(
     const revision: WorkspaceRevision = {
       workspaceId,
       generation: 1,
-      remote: { url, githubConnectionId: null },
+      remote: { url, connectionId: null },
       defaultBranch: "main",
       sha: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
       access: "read",

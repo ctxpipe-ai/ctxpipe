@@ -115,6 +115,7 @@ jobs:
           cache: false
       - name: Required native revision index tools
         run: |
+          npm install --global @ast-grep/cli@0.45.0
           mkdir -p "$RUNNER_TEMP/ctxpipe-zoekt"
           GOBIN="$RUNNER_TEMP/ctxpipe-zoekt" go install github.com/sourcegraph/zoekt/cmd/zoekt-index@596c362fcf1388fe0082acfcfc80c4d172efb7c1
           GOBIN="$RUNNER_TEMP/ctxpipe-zoekt" go install github.com/sourcegraph/zoekt/cmd/zoekt-webserver@596c362fcf1388fe0082acfcfc80c4d172efb7c1

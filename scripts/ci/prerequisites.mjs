@@ -19,6 +19,7 @@ try {
     }
   }
   process.stdout.write(`${version("git")}\n`)
+  process.stdout.write(`${version("ast-grep")}\n`)
   const bun = version("bun")
   const parts = bun.split(".").map(Number)
   if (

@@ -46,7 +46,15 @@ ZOEKT_HOT_DIR="${WORK_DIR}/data/zoekt-hot"
 
 cleanup() {
   docker rm -f "${CONTAINER_NAME}" >/dev/null 2>&1 || true
-  rm -rf "${WORK_DIR}"
+  # Docker Desktop preserves host ownership; repair those files on the host.
+  if chmod -R u+rwX "${WORK_DIR}" 2>/dev/null && rm -rf "${WORK_DIR}" 2>/dev/null; then
+    return
+  fi
+  # On Linux the root container can own read-only cache directories instead.
+  docker run --rm --network none --user root --entrypoint sh \
+    -v "${WORK_DIR}:/cleanup" "${IMAGE}" \
+    -c 'chmod -R u+rwX /cleanup && find /cleanup -mindepth 1 -delete'
+  rmdir "${WORK_DIR}"
 }
 trap cleanup EXIT INT TERM
 

@@ -420,24 +420,6 @@ describe("GET /{repoId}/tree", () => {
     expect(getAccessibleRepositoryMock).not.toHaveBeenCalled()
   })
 
-  it("uses the workspace checkout key from the JWT", async () => {
-    const workspaceCheckout = join(
-      repoCacheDir,
-      "org_mock123",
-      "repo_abcdef27",
-      "checkouts",
-      "ws:ws_alpha",
-    )
-    await mkdir(workspaceCheckout, { recursive: true })
-    await writeFile(join(workspaceCheckout, "AGENTS.md"), "# ws\n")
-
-    const app = createTreeTestApp("ws_alpha")
-    const res = await app.request("/repo_abcdef27/tree")
-    expect(res.status).toBe(200)
-    expect(await res.json()).toEqual({ paths: ["AGENTS.md"] })
-    expect(getAccessibleRepositoryMock).not.toHaveBeenCalled()
-  })
-
   it("returns 404 immediately when the checkout is missing", async () => {
     const app = createTreeTestApp()
     const started = performance.now()

@@ -13,9 +13,9 @@ const enqueueIngestionMock = vi.hoisted(() =>
 )
 
 vi.mock("../../../db/client.js", () => ({
-    tryGetOrgDb: () => ({}),
-    tryGetOrgDbOrgId: () => "org_test",
-    assertNotInOrgDbContext: () => undefined,
+  tryGetOrgDb: () => ({}),
+  tryGetOrgDbOrgId: () => "org_test",
+  assertNotInOrgDbContext: () => undefined,
 
   // Webhook handler now wraps findRepositoryByGithubInstallation in
   // withOrgDbContext (moved out of the model). In tests we pass through so
@@ -246,68 +246,6 @@ describe("POST /api/v1/webhook/github", () => {
       body: "{}",
     })
     expect(res.status).toBe(503)
-  })
-
-  it("on push to default branch enqueues repository ingestion", async () => {
-    listInstallationsMock.mockResolvedValue([
-      {
-        id: "ghi_1",
-        orgId: "org_1",
-        ...baseInstallationRow,
-      },
-    ])
-    findRepoMock.mockResolvedValue({
-      id: "repo_abc",
-      orgId: "org_1",
-      name: "acme/app",
-      gitUrl: "https://github.com/acme/app.git",
-      indexReady: true,
-      indexingReason: null,
-      lastIngestedHash: "abc",
-      githubConnectionId: "ghi_1",
-      createdAt: new Date(),
-      updatedAt: new Date(),
-    })
-
-    const app = createTestApp()
-    const payload = {
-      ref: "refs/heads/main",
-      repository: {
-        full_name: "acme/app",
-        default_branch: "main",
-      },
-      installation: { id: 999 },
-    }
-    const body = JSON.stringify(payload)
-    const w = new Webhooks({ secret: webhookSecret })
-    const sig = await w.sign(body)
-
-    const res = await app.request("/api/v1/webhook/github", {
-      method: "POST",
-      headers: {
-        "x-github-event": "push",
-        "x-hub-signature-256": sig,
-        "content-type": "application/json",
-      },
-      body,
-    })
-
-    expect(res.status).toBe(200)
-    expect(enqueueIngestionMock).toHaveBeenCalledWith(
-      {
-        repositoryId: "repo_abc",
-        orgId: "org_1",
-        indexingReason: "push",
-      },
-      expect.any(Object),
-    )
-    expect(persistWorkspaceTipsMock).toHaveBeenCalledWith(
-      expect.objectContaining({
-        orgId: "org_1",
-        repoFullName: "acme/app",
-        defaultBranch: "main",
-      }),
-    )
   })
 
   it("on push enqueues ingestion for each org linked to the same installation id", async () => {

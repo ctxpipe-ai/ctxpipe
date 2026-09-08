@@ -8,6 +8,7 @@ export type UpstreamClaims = {
   orgId: string
   principal: UpstreamPrincipal
   workspaceId?: string
+  legacyWorkspace?: true
   workspaceRevisions?: Array<{ repositoryId: string; sha: string }>
 }
 
@@ -28,6 +29,7 @@ export async function signUpstreamJwt(input: {
   return new SignJWT({
     orgId: input.claims.orgId,
     principal: input.claims.principal,
+    ...(input.claims.legacyWorkspace ? { legacyWorkspace: true } : {}),
     ...(input.claims.workspaceRevisions
       ? { workspaceRevisions: input.claims.workspaceRevisions }
       : {}),

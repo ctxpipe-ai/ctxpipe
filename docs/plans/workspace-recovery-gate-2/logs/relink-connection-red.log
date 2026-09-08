@@ -1,0 +1,45 @@
+{"name": "relink-connection-red", "cwd": "/private/tmp/ctxpipe-recovery-01a07aba", "command": ["/Users/jakubriedl/.volta/tools/image/node/22.16.0/bin/node", "apps/backend/node_modules/vitest/vitest.mjs", "run", "--root", "apps/backend", "src/domain/workspaces/relink.contract.test.ts"], "environment": {"AUTH_SECRET": "gate0-local-disposable-test-secret-20260907", "DATABASE_URL": "postgresql://ctxpipe_app:ctxpipe@127.0.0.1:61314/ctxpipe_gate0_fresh", "GRAPH_DB_URI": "redis://127.0.0.1:6399", "CI": "true", "NO_COLOR": "1", "TURBO_TELEMETRY_DISABLED": "1", "STORYBOOK_DISABLE_TELEMETRY": "1", "PATH": "/private/tmp/ctxpipe-recovery-runtime/node_modules/.bin:/private/tmp/ctxpipe-recovery-runtime/zoekt:/usr/local/bin:/System/Cryptexes/App/usr/bin:/usr/bin:/bin:/usr/sbin:/sbin:/var/run/com.apple.security.cryptexd/codex.system/bootstrap/usr/local/bin:/var/run/com.apple.security.cryptexd/codex.system/bootstrap/usr/bin:/var/run/com.apple.security.cryptexd/codex.system/bootstrap/usr/appleinternal/bin:/pkg/env/global/bin:/Users/jakubriedl/.codex/tmp/arg0/codex-arg0BW5Gt3:/Users/jakubriedl/.cache/codex-runtimes/codex-primary-runtime/dependencies/bin/override:/Users/jakubriedl/.local/bin:/Users/jakubriedl/.bun/bin:/Users/jakubriedl/.opencode/bin:/Users/jakubriedl/.volta/bin:/opt/homebrew/bin:/opt/homebrew/sbin:/Users/jakubriedl/.cache/codex-runtimes/codex-primary-runtime/dependencies/bin/fallback:/Applications/ChatGPT.app/Contents/Resources"}, "timeout_seconds": 600, "started_utc": "2026-09-08T05:06:18Z", "log": "logs/relink-connection-red.log"}
+
+ RUN  v4.0.18 /private/tmp/ctxpipe-recovery-01a07aba/apps/backend
+
+ ❯ src/domain/workspaces/relink.contract.test.ts (1 test | 1 failed) 56ms
+   × a connection-only relink creates a new desired generation and preserves the published revision 55ms
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 1 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  src/domain/workspaces/relink.contract.test.ts > a connection-only relink creates a new desired generation and preserves the published revision
+AssertionError: expected { …(21) } to match object { desiredGeneration: 4, …(4) }
+(22 matching properties omitted from actual)
+
+- Expected
++ Received
+
+  {
+-   "desiredDefaultBranch": null,
+-   "desiredGeneration": 4,
+-   "desiredSha": null,
++   "desiredDefaultBranch": "main",
++   "desiredGeneration": 3,
++   "desiredSha": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    "githubConnectionId": null,
+-   "hydrateStatus": "pending",
++   "hydrateStatus": "ready",
+  }
+
+ ❯ src/domain/workspaces/relink.contract.test.ts:36:23
+     34|     await withOrgIdContext(org, async () => {
+     35|       const updated = await updateWorkspace("context", { githubConnect…
+     36|       expect(updated).toMatchObject({ desiredGeneration: 4, desiredSha…
+       |                       ^
+     37|       expect(await getWorkspaceProjection(revision.workspaceId)).toMat…
+     38|     })
+ ❯ src/domain/workspaces/relink.contract.test.ts:34:5
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/1]⎯
+
+
+ Test Files  1 failed (1)
+      Tests  1 failed (1)
+   Start at  15:06:18
+   Duration  1.62s (transform 411ms, setup 27ms, import 1.45s, tests 56ms, environment 0ms)
+

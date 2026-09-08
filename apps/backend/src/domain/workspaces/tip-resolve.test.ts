@@ -1,180 +1,37 @@
-import { describe, expect, it, vi } from "vitest"
-import {
-  applyResolvedTipsForMatchingLinked,
-  applyResolvedTipsForMatchingWorkspaces,
-  cronTipCheckNeedsHydrate,
-  desiredShaFromResolvedTip,
-  isDefaultBranchPush,
-  runCronLinkedTipChecks,
-  shouldEnqueueCronHydrate,
-  workspaceMatchesGithubRepo,
-} from "./tip-resolve.js"
+import { expect, it } from "vitest"
+import { shouldEnqueueCronHydrate } from "./tip-resolve.js"
 
-describe("tip resolve", () => {
-  it("ignores webhook after and persists the resolved tip", () => {
-    expect(desiredShaFromResolvedTip("real-tip", "payload-after")).toBe(
-      "real-tip",
-    )
-    expect(isDefaultBranchPush("refs/heads/develop", "develop")).toBe(true)
-    expect(isDefaultBranchPush("refs/heads/main", "develop")).toBe(false)
-  })
-
-  it("matches workspaces by GitHub full name", () => {
-    expect(
-      workspaceMatchesGithubRepo(
-        "https://github.com/acme/docs.git",
-        "acme/docs",
-      ),
-    ).toBe(true)
-    expect(
-      workspaceMatchesGithubRepo("https://gitlab.com/acme/docs", "acme/docs"),
-    ).toBe(false)
-  })
-
-  it("enqueues hydrate when cron sees a new tip", () => {
-    expect(
-      cronTipCheckNeedsHydrate({
-        storedDesiredSha: "old",
-        resolvedTip: "new",
-      }),
-    ).toBe(true)
-  })
-
-  it("does not enqueue cron hydrate before a writable migration-export SHA exists", () => {
-    expect(
-      shouldEnqueueCronHydrate({
-        migrationExportSha: null,
-        desiredSha: "abc",
-        activeProjectionSha: null,
-        writeStatus: "writable",
-      }),
-    ).toBe(false)
-    expect(
-      shouldEnqueueCronHydrate({
-        migrationExportSha: null,
-        desiredSha: "abc",
-        activeProjectionSha: null,
-        writeStatus: "read_only",
-      }),
-    ).toBe(true)
-    expect(
-      shouldEnqueueCronHydrate({
-        migrationExportSha: "export",
-        desiredSha: "abc",
-        activeProjectionSha: null,
-        writeStatus: "writable",
-      }),
-    ).toBe(true)
-    expect(
-      shouldEnqueueCronHydrate({
-        migrationExportSha: "export",
-        desiredSha: "abc",
-        activeProjectionSha: "abc",
-        writeStatus: "writable",
-      }),
-    ).toBe(false)
-  })
-
-  it("persists the resolved tip and never the webhook after", async () => {
-    const persist = vi.fn(async () => true)
-    const persisted = await applyResolvedTipsForMatchingWorkspaces({
-      repoFullName: "acme/docs",
-      defaultBranch: "develop",
-      workspaces: [
-        {
-          id: "ws_1",
-          workspaceRepositoryUrl: "https://github.com/acme/docs.git",
-          desiredGeneration: 3,
-          desiredSha: "old",
-        },
-        {
-          id: "ws_other",
-          workspaceRepositoryUrl: "https://github.com/acme/other.git",
-          desiredGeneration: 1,
-          desiredSha: null,
-        },
-      ],
-      resolveTip: async () => "resolved-tip",
-      persist,
-    })
-    expect(persisted).toBe(1)
-    expect(persist).toHaveBeenCalledTimes(1)
-    expect(persist).toHaveBeenCalledWith({
-      workspaceId: "ws_1",
-      resolvedTip: "resolved-tip",
-      expectedGeneration: 3,
-      expectedUrl: "https://github.com/acme/docs.git",
-      expectedDesiredSha: "old",
-    })
-  })
-
-  it("updates linked remotes without re-hydrating the workspace repository", async () => {
-    const persist = vi.fn(async () => true)
-    const resolveTip = vi.fn(async (_url: string, ref: string | null) => {
-      expect(ref).toBe("release")
-      return "new-linked"
-    })
-    const updated = await runCronLinkedTipChecks({
-      linked: [
-        {
-          id: "wlr_1",
-          workspaceId: "ws_1",
-          gitUrl: "https://github.com/acme/app",
-          desiredRef: "release",
-          desiredSha: "old",
-        },
-      ],
-      resolveTip,
-      persist,
-    })
-    expect(resolveTip).toHaveBeenCalledWith(
-      "https://github.com/acme/app",
-      "release",
-    )
-    expect(updated).toEqual([{ linkedId: "wlr_1", resolvedTip: "new-linked" }])
-    expect(persist).toHaveBeenCalledWith({
-      linkedId: "wlr_1",
-      resolvedTip: "new-linked",
-      expectedDesiredSha: "old",
-    })
-  })
-
-  it("matches a linked remote push to its desired ref, including non-default branches", async () => {
-    const persist = vi.fn(async () => true)
-    const persisted = await applyResolvedTipsForMatchingLinked({
-      repoFullName: "acme/app",
-      webhookRef: "refs/heads/release",
-      defaultBranch: "main",
-      linked: [
-        {
-          id: "wlr_release",
-          gitUrl: "https://github.com/acme/app.git",
-          desiredRef: "release",
-          desiredSha: "old",
-        },
-        {
-          id: "wlr_default",
-          gitUrl: "https://github.com/acme/app.git",
-          desiredRef: null,
-          desiredSha: "old",
-        },
-        {
-          id: "wlr_other",
-          gitUrl: "https://github.com/acme/other.git",
-          desiredRef: "release",
-          desiredSha: "old",
-        },
-      ],
-      resolveTip: async (_fullName, ref) => `tip-for-${ref}`,
-      persist,
-    })
-    expect(persisted).toEqual([
-      { linkedId: "wlr_release", resolvedTip: "tip-for-release" },
-    ])
-    expect(persist).toHaveBeenCalledWith({
-      linkedId: "wlr_release",
-      resolvedTip: "tip-for-release",
-      expectedDesiredSha: "old",
-    })
-  })
+it("does not enqueue cron hydrate before a writable migration-export SHA exists", () => {
+  expect(
+    shouldEnqueueCronHydrate({
+      migrationExportSha: null,
+      desiredSha: "abc",
+      activeProjectionSha: null,
+      writeStatus: "writable",
+    }),
+  ).toBe(false)
+  expect(
+    shouldEnqueueCronHydrate({
+      migrationExportSha: null,
+      desiredSha: "abc",
+      activeProjectionSha: null,
+      writeStatus: "read_only",
+    }),
+  ).toBe(true)
+  expect(
+    shouldEnqueueCronHydrate({
+      migrationExportSha: "export",
+      desiredSha: "abc",
+      activeProjectionSha: null,
+      writeStatus: "writable",
+    }),
+  ).toBe(true)
+  expect(
+    shouldEnqueueCronHydrate({
+      migrationExportSha: "export",
+      desiredSha: "abc",
+      activeProjectionSha: "abc",
+      writeStatus: "writable",
+    }),
+  ).toBe(false)
 })

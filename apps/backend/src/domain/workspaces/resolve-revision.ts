@@ -3,11 +3,13 @@ import { assertNotInOrgDbContext } from "../../db/client.js"
 import { getRepoReadCloneToken } from "../../models/github-installation.js"
 import {
   captureWorkspaceRevision,
+  getLinkedReadBinding,
+  persistLinkedDesiredSha,
   getWorkspaceById,
   persistRevisionResolutionFailure,
 } from "../../models/workspaces.js"
 import { resolveGitRemoteTip } from "../../services/git/clone-tree.js"
-import type { WorkspaceRevision } from "./revision.js"
+import { linkedRevisionSchema, type WorkspaceRevision } from "./revision.js"
 import { githubRepoFullNameFromWorkspaceUrl } from "./write-status.js"
 
 /** Scope a transient read credential to the remote's explicit connection. */
@@ -18,10 +20,10 @@ export async function resolveRepositoryReadCredential(input: {
 }): Promise<string | undefined> {
   assertNotInOrgDbContext()
   const repositoryName = githubRepoFullNameFromWorkspaceUrl(input.remote.url)
-  if (!repositoryName || !input.remote.githubConnectionId) return undefined
+  if (!repositoryName || !input.remote.connectionId) return undefined
   const token = await getRepoReadCloneToken(input.orgId, input.env, {
     repoFullName: repositoryName,
-    githubConnectionId: input.remote.githubConnectionId,
+    githubConnectionId: input.remote.connectionId,
   })
   if (!token) throw new Error("The connected repository has no read credential")
   return token
@@ -66,7 +68,7 @@ export async function resolveWorkspaceReadRevision(input: {
     bound &&
     (bound.workspaceId !== workspace.id ||
       bound.access !== "read" ||
-      bound.remote.githubConnectionId !== workspace.githubConnectionId ||
+      bound.remote.connectionId !== workspace.githubConnectionId ||
       bound.defaultBranch !== workspace.desiredDefaultBranch)
   )
     return null
@@ -90,7 +92,7 @@ export async function resolveWorkspaceReadRevision(input: {
           env: input.env,
           remote: {
             url: workspace.workspaceRepositoryUrl,
-            githubConnectionId: workspace.githubConnectionId,
+            connectionId: workspace.githubConnectionId,
           },
         })
       : undefined
@@ -125,4 +127,26 @@ export async function resolveWorkspaceReadRevision(input: {
     })
     throw error
   }
+}
+
+/** Linked reads use the same transient credential policy and fence their captured binding. */
+export async function resolveLinkedReadRevision(input: {
+  orgId: string
+  linkId: string
+  env: Env
+}) {
+  assertNotInOrgDbContext()
+  const binding = await getLinkedReadBinding(input.linkId)
+  if (!binding) return null
+  const tip = await resolveRepositoryReadTip({
+    orgId: input.orgId,
+    env: input.env,
+    remote: binding.remote,
+    branch: binding.ref,
+  })
+  if (!tip) return null
+  const revision = linkedRevisionSchema.parse({ ...binding, sha: tip.sha })
+  if (!(await persistLinkedDesiredSha({ binding, resolvedTip: tip.sha })))
+    return null
+  return { revision, changed: binding.sha !== revision.sha }
 }

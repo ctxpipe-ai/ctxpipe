@@ -1,0 +1,200 @@
+{"name": "reviewed-required-contracts", "cwd": "/private/tmp/ctxpipe-recovery-01a07aba", "command": ["/Users/jakubriedl/.volta/tools/image/node/22.16.0/bin/node", "scripts/ci/test-suite.mjs", "contracts"], "environment": {"AUTH_SECRET": "gate0-local-disposable-test-secret-20260907", "DATABASE_URL": "postgresql://ctxpipe_app:ctxpipe@127.0.0.1:61314/ctxpipe_gate0_fresh", "GRAPH_DB_URI": "redis://127.0.0.1:6399", "CI": "true", "NO_COLOR": "1", "TURBO_TELEMETRY_DISABLED": "1", "STORYBOOK_DISABLE_TELEMETRY": "1", "PATH": "/private/tmp/ctxpipe-recovery-runtime/ast-grep/node_modules/.bin:/private/tmp/ctxpipe-recovery-runtime/node_modules/.bin:/private/tmp/ctxpipe-recovery-runtime/zoekt:/usr/local/bin:/System/Cryptexes/App/usr/bin:/usr/bin:/bin:/usr/sbin:/sbin:/var/run/com.apple.security.cryptexd/codex.system/bootstrap/usr/local/bin:/var/run/com.apple.security.cryptexd/codex.system/bootstrap/usr/bin:/var/run/com.apple.security.cryptexd/codex.system/bootstrap/usr/appleinternal/bin:/pkg/env/global/bin:/Users/jakubriedl/.codex/tmp/arg0/codex-arg0BW5Gt3:/Users/jakubriedl/.cache/codex-runtimes/codex-primary-runtime/dependencies/bin/override:/Users/jakubriedl/.local/bin:/Users/jakubriedl/.bun/bin:/Users/jakubriedl/.opencode/bin:/Users/jakubriedl/.volta/bin:/opt/homebrew/bin:/opt/homebrew/sbin:/Users/jakubriedl/.cache/codex-runtimes/codex-primary-runtime/dependencies/bin/fallback:/Applications/ChatGPT.app/Contents/Resources"}, "timeout_seconds": 600, "started_utc": "2026-09-08T05:30:03Z", "log": "logs/reviewed-required-contracts.log"}
+git version 2.50.1 (Apple Git-155)
+ast-grep 0.45.0
+Prerequisites ready: Bun 1.3.11, OpenCode 1.18.18, migrated PostgreSQL role ctxpipe_app
+scripts/ci/failures/contracts.json: allowance history only shrinks
+CONTRACT postgres: src/db/rls-isolation.test.ts, src/models/workspaces-sandbox-persist.test.ts
+CONTRACT git: src/services/git/clone-tree.test.ts
+CONTRACT local sandbox and job worktree runner: src/domain/workspaces/job-sandbox.live.test.ts
+CONTRACT OpenWorkflow write jobs (current failure characterization; Gate 3 replacement): src/domain/workspaces/write-workflow.contract.test.ts
+CONTRACT hydrate: src/domain/workspaces/hydration.contract.test.ts
+CONTRACT native worker discovery: src/openworkflow/workflows/workflow-discovery.contract.test.ts
+CONTRACT chat engine: src/domain/workspaces/tanstack-workspace-chat.multiturn.test.ts
+CONTRACT published-revision search: src/retrieval/services/code-search-projection.contract.test.ts
+CONTRACT published Files HTTP routes: src/routes/v1/workspace-files.contract.test.ts
+CONTRACT native revision index workflow: src/domain/workspaces/index-workflow.contract.test.ts
+CONTRACT published chat projection: src/domain/workspaces/chat-projection.contract.test.ts
+CONTRACT revision binding: src/domain/workspaces/relink.contract.test.ts, src/domain/workspaces/linked-revision.contract.test.ts
+CONTRACT durable revision triggers: src/routes/webhooks/github/github-tip.contract.test.ts, src/db/gateway-guards.contract.test.ts
+
+ RUN  v4.0.18 /private/tmp/ctxpipe-recovery-01a07aba/apps/backend
+
+ ✓ src/domain/workspaces/linked-revision.contract.test.ts (4 tests) 419ms
+ ✓ src/openworkflow/workflows/workflow-discovery.contract.test.ts (1 test) 2931ms
+   ✓ discovers connector workflows through the native OpenWorkflow CLI  2929ms
+Cloning into bare repository '/var/folders/9t/jj9rnpps7_ddb72c1mq2k13w0000gn/T/ctxpipe-write-workflow-Tvvfqj/remote.git'...
+done.
+ ✓ src/domain/workspaces/chat-projection.contract.test.ts (1 test) 207ms
+Cloning into bare repository '/var/folders/9t/jj9rnpps7_ddb72c1mq2k13w0000gn/T/ctxpipe-hydration-contract-C4Rwks/remote.git'...
+done.
+stdout | src/retrieval/services/code-search-projection.contract.test.ts > searches the published revision even when the derived index has moved ahead
+[2m05:30:09.029[0m [36mINFO[0m [36m[app][0m POST /search [32m200[0m [2min 36ms[0m
+  [2m└─[0m [36mrequestId:[0m 44a150a9-03bb-41c7-a3dd-06936994807b
+
+stdout | src/retrieval/services/code-search-projection.contract.test.ts > searches the published revision even when the derived index has moved ahead
+[2m05:30:09.063[0m [36mINFO[0m [36m[app][0m POST /search [32m200[0m [2min 19ms[0m
+  [2m└─[0m [36mrequestId:[0m 5273486d-e634-4536-b3ed-d7b18522359f
+
+stdout | src/retrieval/services/code-search-projection.contract.test.ts > searches the published revision even when the derived index has moved ahead
+[2m05:30:09.088[0m [36mINFO[0m [36m[app][0m POST /search [32m200[0m [2min 13ms[0m
+  [2m└─[0m [36mrequestId:[0m eede7a02-bd6b-4e5b-9896-2eb6c1fe5969
+
+stdout | src/retrieval/services/code-search-projection.contract.test.ts > searches the published revision even when the derived index has moved ahead
+[2m05:30:09.108[0m [36mINFO[0m [36m[app][0m GET /__contract/close [32m200[0m [2min 2ms[0m
+  [2m└─[0m [36mrequestId:[0m 4fb34063-1b92-49d8-931f-acba7c33f326
+
+ ✓ src/retrieval/services/code-search-projection.contract.test.ts (1 test) 831ms
+   ✓ searches the published revision even when the derived index has moved ahead  829ms
+ ✓ src/db/rls-isolation.test.ts (2 tests) 147ms
+Cloning into bare repository '/var/folders/9t/jj9rnpps7_ddb72c1mq2k13w0000gn/T/ctxpipe-write-workflow-X3g0Jh/remote.git'...
+done.
+ ✓ src/domain/workspaces/job-sandbox.live.test.ts (1 test) 358ms
+     ✓ adds a worktree, writes files, and reads them out for the runner  357ms
+Cloning into bare repository '/var/folders/9t/jj9rnpps7_ddb72c1mq2k13w0000gn/T/ctxpipe-hydration-contract-J8Hlsv/remote.git'...
+done.
+ ✓ src/models/workspaces-sandbox-persist.test.ts (1 test) 117ms
+ ✓ src/domain/workspaces/relink.contract.test.ts (1 test) 84ms
+ ✓ src/services/git/clone-tree.test.ts (7 tests) 3882ms
+     ✓ reads an authenticated Git remote without putting the token in Git arguments or origin  873ms
+     ✓ resolves the native remote default branch, an explicit branch, and a rewind  404ms
+     ✓ lists paths and reads a blob at a stored SHA  1959ms
+     ✓ does not follow a repo symlink out of the checkout  380ms
+Cloning into bare repository '/var/folders/9t/jj9rnpps7_ddb72c1mq2k13w0000gn/T/ctxpipe-write-workflow-KS3zWd/remote.git'...
+done.
+ ✓ src/routes/v1/workspace-files.contract.test.ts (4 tests) 3159ms
+   ✓ serves the published tree and bytes over HTTP while its remote advances and the Workspace relinks  1295ms
+   ✓ reports real sandbox edits and a clean status when no sandbox is attached  660ms
+   ✓ rejects unpublished revisions, read-only edits, and paths outside the repository over HTTP  510ms
+   ✓ durably queues a Files HTTP save with the literal edit payload  691ms
+Cloning into bare repository '/var/folders/9t/jj9rnpps7_ddb72c1mq2k13w0000gn/T/ctxpipe-hydration-contract-m5XYhR/remote.git'...
+done.
+ ✓ src/db/gateway-guards.contract.test.ts (1 test) 30ms
+ ✓ src/routes/webhooks/github/github-tip.contract.test.ts (1 test) 98ms
+Cloning into bare repository '/var/folders/9t/jj9rnpps7_ddb72c1mq2k13w0000gn/T/ctxpipe-write-workflow-i58aMA/remote.git'...
+done.
+Cloning into bare repository '/var/folders/9t/jj9rnpps7_ddb72c1mq2k13w0000gn/T/ctxpipe-hydration-contract-BOKgnM/remote.git'...
+done.
+Cloning into bare repository '/var/folders/9t/jj9rnpps7_ddb72c1mq2k13w0000gn/T/ctxpipe-write-workflow-7MiG4Y/remote.git'...
+done.
+Cloning into bare repository '/var/folders/9t/jj9rnpps7_ddb72c1mq2k13w0000gn/T/ctxpipe-hydration-contract-XZdA6z/remote.git'...
+done.
+Cloning into bare repository '/var/folders/9t/jj9rnpps7_ddb72c1mq2k13w0000gn/T/ctxpipe-hydration-contract-Ic8MQW/remote.git'...
+done.
+ ✓ src/domain/workspaces/tanstack-workspace-chat.multiturn.test.ts (1 test) 6769ms
+     ✓ streams exact mocked replies across two live OpenCode turns  6704ms
+Cloning into bare repository '/var/folders/9t/jj9rnpps7_ddb72c1mq2k13w0000gn/T/ctxpipe-write-workflow-HrVGCl/remote.git'...
+done.
+Cloning into bare repository '/var/folders/9t/jj9rnpps7_ddb72c1mq2k13w0000gn/T/ctxpipe-hydration-contract-AL55ce/remote.git'...
+done.
+Cloning into bare repository '/var/folders/9t/jj9rnpps7_ddb72c1mq2k13w0000gn/T/ctxpipe-write-workflow-zRxgyr/remote.git'...
+done.
+Cloning into bare repository '/var/folders/9t/jj9rnpps7_ddb72c1mq2k13w0000gn/T/ctxpipe-hydration-contract-NYUbJA/remote.git'...
+done.
+Cloning into bare repository '/var/folders/9t/jj9rnpps7_ddb72c1mq2k13w0000gn/T/ctxpipe-write-workflow-h1mYn8/remote.git'...
+done.
+Cloning into bare repository '/var/folders/9t/jj9rnpps7_ddb72c1mq2k13w0000gn/T/ctxpipe-write-workflow-QfSgOo/remote.git'...
+done.
+Cloning into bare repository '/var/folders/9t/jj9rnpps7_ddb72c1mq2k13w0000gn/T/ctxpipe-hydration-contract-F5gtwF/remote.git'...
+done.
+Cloning into bare repository '/var/folders/9t/jj9rnpps7_ddb72c1mq2k13w0000gn/T/ctxpipe-write-workflow-48dK9F/remote.git'...
+done.
+Cloning into bare repository '/var/folders/9t/jj9rnpps7_ddb72c1mq2k13w0000gn/T/ctxpipe-write-workflow-J7ZEgo/remote.git'...
+done.
+Cloning into bare repository '/var/folders/9t/jj9rnpps7_ddb72c1mq2k13w0000gn/T/ctxpipe-hydration-contract-A4XXAS/remote.git'...
+done.
+Cloning into bare repository '/var/folders/9t/jj9rnpps7_ddb72c1mq2k13w0000gn/T/ctxpipe-write-workflow-gIORG6/remote.git'...
+done.
+Cloning into bare repository '/var/folders/9t/jj9rnpps7_ddb72c1mq2k13w0000gn/T/ctxpipe-hydration-contract-7EtGIF/remote.git'...
+done.
+ ✓ src/domain/workspaces/write-workflow.contract.test.ts (12 tests) 17709ms
+   ✓ records the existing migration_export workflow failure in real PostgreSQL  1459ms
+   ✓ records the existing extract_ingest workflow failure in real PostgreSQL  1726ms
+   ✓ records the existing connector_mirror workflow failure in real PostgreSQL  1300ms
+   ✓ records the existing claims_upgrade workflow failure in real PostgreSQL  1352ms
+   ✓ records the existing rename_rewrite workflow failure in real PostgreSQL  1896ms
+   ✓ records the existing valid_from_persist workflow failure in real PostgreSQL  1430ms
+   ✓ records the existing semantic_merge workflow failure in real PostgreSQL  1176ms
+   ✓ records the existing ops_folder_map workflow failure in real PostgreSQL  1212ms
+   ✓ records the existing bootstrap workflow failure in real PostgreSQL  1498ms
+   ✓ records the existing link_unlink workflow failure in real PostgreSQL  1206ms
+   ✓ records the existing ui_file_edit workflow failure in real PostgreSQL  1921ms
+   ✓ records the existing import_key_cleanup workflow failure in real PostgreSQL  1530ms
+Cloning into bare repository '/var/folders/9t/jj9rnpps7_ddb72c1mq2k13w0000gn/T/ctxpipe-hydration-contract-MrxyOY/remote.git'...
+done.
+Cloning into bare repository '/var/folders/9t/jj9rnpps7_ddb72c1mq2k13w0000gn/T/ctxpipe-hydration-contract-fbNvAN/remote.git'...
+done.
+Cloning into bare repository '/var/folders/9t/jj9rnpps7_ddb72c1mq2k13w0000gn/T/ctxpipe-hydration-contract-0o8Pvo/remote.git'...
+done.
+Cloning into bare repository '/var/folders/9t/jj9rnpps7_ddb72c1mq2k13w0000gn/T/ctxpipe-hydration-contract-aOmkUS/remote.git'...
+done.
+Cloning into bare repository '/var/folders/9t/jj9rnpps7_ddb72c1mq2k13w0000gn/T/ctxpipe-hydration-contract-cUPxUl/remote.git'...
+done.
+Cloning into bare repository '/var/folders/9t/jj9rnpps7_ddb72c1mq2k13w0000gn/T/ctxpipe-hydration-contract-gPtt30/remote.git'...
+done.
+To /var/folders/9t/jj9rnpps7_ddb72c1mq2k13w0000gn/T/ctxpipe-hydration-contract-gPtt30/remote.git
+   9134558..99db969  HEAD -> main
+Cloning into bare repository '/var/folders/9t/jj9rnpps7_ddb72c1mq2k13w0000gn/T/ctxpipe-hydration-contract-khkBsv/remote.git'...
+done.
+To /var/folders/9t/jj9rnpps7_ddb72c1mq2k13w0000gn/T/ctxpipe-hydration-contract-khkBsv/remote.git
+   7a2e7cc..23a28e2  HEAD -> main
+ ✓ src/domain/workspaces/index-workflow.contract.test.ts (16 tests) 36323ms
+   ✓ rejects contradictory and unbound queued index revisions  1067ms
+   ✓ returns no revision for a missing workspace  1032ms
+   ✓ publishes a native searchable index with the captured commit identity  1888ms
+   ✓ chat search retains the captured revision across a later branch metadata change  1719ms
+   ✓ an unpublished index cannot replace the published searchable checkout  2860ms
+   ✓ chat SCIP queries resolve symbols from the published checkout  2606ms
+   ✓ chat structural search runs ast-grep against the published checkout  2770ms
+   ✓ a request body cannot override the signed search checkout  3007ms
+   ✓ an explicit legacy workspace with no checkout returns no search matches  2248ms
+   ✓ both clone and index reject a target that contradicts the signed revision  1635ms
+   ✓ search-index failure preserves publication and a retry restores search freshness  4920ms
+   ✓ linked index publication rejects a changed owner identity  1834ms
+   ✓ linked index publication rejects a changed linked ref  1775ms
+   ✓ cron refresh captures a default-branch rename once at the same SHA  3825ms
+   ✓ index admission rejects a repository bound to another remote  2604ms
+   ✓ unbound default indexing cannot mark a workspace index ready  529ms
+Cloning into bare repository '/var/folders/9t/jj9rnpps7_ddb72c1mq2k13w0000gn/T/ctxpipe-hydration-contract-pCHJiV/remote.git'...
+done.
+To /var/folders/9t/jj9rnpps7_ddb72c1mq2k13w0000gn/T/ctxpipe-hydration-contract-pCHJiV/remote.git
+   93d1ace..01d401a  HEAD -> main
+Cloning into bare repository '/var/folders/9t/jj9rnpps7_ddb72c1mq2k13w0000gn/T/ctxpipe-hydration-contract-929TLZ/remote.git'...
+done.
+Cloning into bare repository '/var/folders/9t/jj9rnpps7_ddb72c1mq2k13w0000gn/T/ctxpipe-hydration-contract-nk8ZDI/remote.git'...
+done.
+Cloning into bare repository '/var/folders/9t/jj9rnpps7_ddb72c1mq2k13w0000gn/T/ctxpipe-hydration-contract-fo0Mgr/remote.git'...
+done.
+Cloning into bare repository '/var/folders/9t/jj9rnpps7_ddb72c1mq2k13w0000gn/T/ctxpipe-hydration-contract-jY54sd/remote.git'...
+done.
+ ✓ src/domain/workspaces/hydration.contract.test.ts (23 tests) 51369ms
+   ✓ hydrates 0 committed native Git files without reading uncommitted replacements  1686ms
+   ✓ hydrates 1 committed native Git files without reading uncommitted replacements  1503ms
+   ✓ hydrates a 100-file immutable tree within eight native Git commands  1588ms
+   ✓ rejects a hydrate queued before its workspace is relinked  1227ms
+   ✓ records missing desired tip without publishing any units  1332ms
+   ✓ hydrates native Git content with read_only write access  1369ms
+   ✓ hydrates native Git content with writable write access  1432ms
+   ✓ uses repository-scoped read credentials for GitHub trees  1888ms
+   ✓ a completed immutable hydrate does not request credentials again  2776ms
+   ✓ records an index credential failure independently of published knowledge  2723ms
+   ✓ marks an incomplete embedding response failed without losing the projection  1281ms
+   ✓ reads published Files while a replacement remote is unavailable  1983ms
+   ✓ rejects an index queued under another default branch at the same SHA  2645ms
+   ✓ persists the full hydrate revision before a later generation change  2272ms
+   ✓ preserves independent store failure and retry results  2576ms
+   ✓ retries embeddings from PostgreSQL after the Git remote disappears  2607ms
+   ✓ atomically replaces published units while reporting a malformed sibling  2537ms
+   ✓ publishes a resolved Git rewind and restores the previous files  3845ms
+   ✓ rolls back unit replacement when PostgreSQL rejects duplicate serving ids  2004ms
+   ✓ same-SHA relink publishes a new generation with pending search freshness  3849ms
+   ✓ queues indexing with the newly published generation identity  2850ms
+   ✓ discards embedding results from a superseded generation  2950ms
+   ✓ discards hydrate failures from a superseded generation  2441ms
+
+ Test Files  16 passed (16)
+      Tests  77 passed (77)
+   Start at  15:30:04
+   Duration  55.40s (transform 5.08s, setup 259ms, import 45.71s, tests 124.43s, environment 2ms)
+
+JSON report written to /private/tmp/ctxpipe-recovery-01a07aba/.ci-results/contracts/results.json
+EXECUTED 77 tests in 16 files: 77 passed, 0 acknowledged failures, zero skipped

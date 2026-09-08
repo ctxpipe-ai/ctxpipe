@@ -28,5 +28,13 @@
   ],
   "published chat projection": [
     "src/domain/workspaces/chat-projection.contract.test.ts"
+  ],
+  "revision binding": [
+    "src/domain/workspaces/relink.contract.test.ts",
+    "src/domain/workspaces/linked-revision.contract.test.ts"
+  ],
+  "durable revision triggers": [
+    "src/routes/webhooks/github/github-tip.contract.test.ts",
+    "src/db/gateway-guards.contract.test.ts"
   ]
 }

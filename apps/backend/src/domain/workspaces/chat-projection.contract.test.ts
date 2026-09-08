@@ -45,7 +45,7 @@ it(
       generation: 1,
       remote: {
         url: "https://example.test/context.git",
-        githubConnectionId: null,
+        connectionId: null,
       },
       sha: "a".repeat(40),
       defaultBranch: "main",
@@ -127,6 +127,12 @@ it(
         const second = snapshot.units.find((unit) => unit.path === "second.md")
         if (!first || !second)
           throw new Error("Missing published fixture units")
+        // Membership is captured with units: later checkout removal must not mix snapshots.
+        await withOrgDbContext(org.id, (db) =>
+          db
+            .delete(repositoryCheckouts)
+            .where(eq(repositoryCheckouts.repositoryId, repositoryId)),
+        )
         const tools = await workspaceChatTools({
           orgId: org.id,
           workspaceId,

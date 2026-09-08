@@ -1,27 +1,12 @@
 import type { Env } from "../../../config/env.js"
-import {
-  assertNotInOrgDbContext,
-  withOrgDbContext,
-} from "../../../db/client.js"
+import { assertNotInOrgDbContext } from "../../../db/client.js"
 import { resolveRepositoryReadTip } from "../../../domain/workspaces/resolve-revision.js"
-import {
-  applyResolvedTipsForMatchingLinked,
-  applyResolvedTipsForMatchingWorkspaces,
-} from "../../../domain/workspaces/tip-resolve.js"
 import {
   type GithubRepoPermissionBits,
   type GithubRepoWriteView,
   githubInstallationCanPush,
 } from "../../../domain/workspaces/write-status.js"
 import { getInstallationOctokitForOrg } from "../../../models/github-installation.js"
-import {
-  listOrgLinkedRepositories,
-  listOrgWorkspaces,
-  persistLinkedDesiredSha,
-  persistResolvedDesiredSha,
-} from "../../../models/workspaces.js"
-import { enqueueWorkspaceCommitProjection } from "../../../openworkflow/enqueue-workspace-commit-projection.js"
-
 export async function resolveGithubBranchTip(input: {
   orgId: string
   githubConnectionId?: string | null
@@ -38,7 +23,7 @@ export async function resolveGithubBranchTip(input: {
           env: input.env,
           remote: {
             url: `https://github.com/${input.repoFullName}`,
-            githubConnectionId: input.githubConnectionId ?? null,
+            connectionId: input.githubConnectionId ?? null,
           },
           branch: input.branch,
         })
@@ -64,7 +49,7 @@ export async function resolveGithubDefaultBranch(input: {
           env: input.env,
           remote: {
             url: `https://github.com/${input.repoFullName}`,
-            githubConnectionId: input.githubConnectionId ?? null,
+            connectionId: input.githubConnectionId ?? null,
           },
         })
       )?.branch ?? null
@@ -151,65 +136,10 @@ export async function resolveWorkspaceRepositoryTip(input: {
         env: input.env,
         remote: {
           url: input.workspaceRepositoryUrl,
-          githubConnectionId: input.githubConnectionId ?? null,
+          connectionId: input.githubConnectionId ?? null,
         },
         branch: input.branch,
       })
     )?.sha ?? null
   )
-}
-
-/** Webhook `after` is a trigger only — never persist it as desired SHA. */
-export async function persistWorkspaceTipsOnDefaultBranchPush(input: {
-  orgId: string
-  repoFullName: string
-  defaultBranch: string
-  payloadAfter?: string
-  resolveTip: (fullName: string, ref: string) => Promise<string | null>
-}): Promise<number> {
-  void input.payloadAfter
-  const workspaces = await withOrgDbContext(input.orgId, () =>
-    listOrgWorkspaces(input.orgId),
-  )
-  assertNotInOrgDbContext()
-  return applyResolvedTipsForMatchingWorkspaces({
-    repoFullName: input.repoFullName,
-    defaultBranch: input.defaultBranch,
-    workspaces,
-    resolveTip: input.resolveTip,
-    persist: async (row) => {
-      const ok = await withOrgDbContext(input.orgId, () =>
-        persistResolvedDesiredSha(row),
-      )
-      if (ok) {
-        void enqueueWorkspaceCommitProjection(
-          { orgId: input.orgId, workspaceId: row.workspaceId },
-          { error: () => undefined },
-        )
-      }
-      return ok
-    },
-  })
-}
-
-export async function persistLinkedTipsOnRefPush(input: {
-  orgId: string
-  repoFullName: string
-  webhookRef: string
-  defaultBranch: string
-  resolveTip: (fullName: string, ref: string) => Promise<string | null>
-}): Promise<Array<{ linkedId: string; resolvedTip: string }>> {
-  const linked = await withOrgDbContext(input.orgId, () =>
-    listOrgLinkedRepositories(input.orgId),
-  )
-  assertNotInOrgDbContext()
-  return applyResolvedTipsForMatchingLinked({
-    repoFullName: input.repoFullName,
-    webhookRef: input.webhookRef,
-    defaultBranch: input.defaultBranch,
-    linked,
-    resolveTip: input.resolveTip,
-    persist: (row) =>
-      withOrgDbContext(input.orgId, () => persistLinkedDesiredSha(row)),
-  })
 }
