@@ -62,8 +62,10 @@ try {
         )
       ) {
         const bindings = statement.importClause?.namedBindings
-        if (bindings && ts.isNamespaceImport(bindings))
+        if (bindings && ts.isNamespaceImport(bindings)) {
           mocks.add(bindings.name.text)
+          tests.add(bindings.name.text)
+        }
         if (bindings && ts.isNamedImports(bindings)) {
           for (const binding of bindings.elements) {
             const imported = binding.propertyName?.text ?? binding.name.text
@@ -84,10 +86,19 @@ try {
       return ""
     }
     // Follow ordinary local aliases of the test framework before checking uses.
+    const values = new Map()
     let previousSize = -1
-    while (previousSize !== mocks.size) {
-      previousSize = mocks.size
+    while (previousSize !== mocks.size + tests.size) {
+      previousSize = mocks.size + tests.size
       const collectAliases = (node) => {
+        if (
+          ts.isVariableDeclaration(node) &&
+          ts.isIdentifier(node.name) &&
+          node.initializer
+        ) {
+          values.set(node.name.text, node.initializer)
+          if (tests.has(rootName(node.initializer))) tests.add(node.name.text)
+        }
         if (
           ts.isVariableDeclaration(node) &&
           ts.isObjectBindingPattern(node.name) &&
@@ -102,6 +113,13 @@ try {
               )
             )
               mocks.add(binding.name.text)
+            if (
+              ts.isIdentifier(binding.name) &&
+              ["test", "it", "describe", "suite"].includes(
+                (binding.propertyName ?? binding.name).getText(source),
+              )
+            )
+              tests.add(binding.name.text)
           }
         }
         if (
@@ -118,6 +136,28 @@ try {
       }
       collectAliases(source)
     }
+    const testOptions = new Set()
+    const markOptions = (expression, seen = new Set()) => {
+      if (
+        ts.isIdentifier(expression) &&
+        values.has(expression.text) &&
+        !seen.has(expression.text)
+      ) {
+        seen.add(expression.text)
+        markOptions(values.get(expression.text), seen)
+      } else if (ts.isObjectLiteralExpression(expression)) {
+        testOptions.add(expression)
+        for (const property of expression.properties)
+          if (ts.isSpreadAssignment(property))
+            markOptions(property.expression, seen)
+      }
+    }
+    const collectOptions = (node) => {
+      if (ts.isCallExpression(node) && tests.has(rootName(node.expression)))
+        for (const argument of node.arguments) markOptions(argument)
+      ts.forEachChild(node, collectOptions)
+    }
+    collectOptions(source)
     const complain = (node, message) =>
       errors.push(
         `${path}:${source.getLineAndCharacterOfPosition(node.getStart()).line + 1} ${message}`,
@@ -240,8 +280,7 @@ try {
           node.name.getText(source).replaceAll(/["']/g, ""),
         ) &&
         !["0", "false"].includes(node.initializer.getText(source)) &&
-        ((ts.isCallExpression(node.parent.parent) &&
-          tests.has(rootName(node.parent.parent.expression))) ||
+        (testOptions.has(node.parent) ||
           /(?:^|\/)(?:vitest|vite|playwright)\.config\.[cm]?[jt]s$/.test(
             path,
           ) ||
