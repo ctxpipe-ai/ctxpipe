@@ -1,0 +1,46 @@
+{"name": "migration-intent-binding-red", "cwd": "/private/tmp/ctxpipe-recovery-01a07aba", "command": ["/Users/jakubriedl/.volta/tools/image/node/22.16.0/bin/node", "apps/backend/node_modules/vitest/vitest.mjs", "run", "--root", "apps/backend", "src/domain/workspaces/write-extract-native.contract.test.ts", "-t", "does not reuse migration cutover"], "environment": {"AUTH_SECRET": "gate0-local-disposable-test-secret-20260907", "DATABASE_URL": "postgresql://ctxpipe_app:ctxpipe@127.0.0.1:61314/ctxpipe_gate0_fresh", "GRAPH_DB_URI": "redis://127.0.0.1:6398", "CI": "true", "NO_COLOR": "1", "TURBO_TELEMETRY_DISABLED": "1", "STORYBOOK_DISABLE_TELEMETRY": "1", "PATH": "/Users/jakubriedl/.volta/tools/image/node/22.16.0/bin:/private/tmp/ctxpipe-recovery-runtime/ast-grep/node_modules/.bin:/private/tmp/ctxpipe-recovery-runtime/node_modules/.bin:/private/tmp/ctxpipe-recovery-runtime/zoekt:/usr/local/bin:/System/Cryptexes/App/usr/bin:/usr/bin:/bin:/usr/sbin:/sbin:/var/run/com.apple.security.cryptexd/codex.system/bootstrap/usr/local/bin:/var/run/com.apple.security.cryptexd/codex.system/bootstrap/usr/bin:/var/run/com.apple.security.cryptexd/codex.system/bootstrap/usr/appleinternal/bin:/pkg/env/global/bin:/Users/jakubriedl/.codex/tmp/arg0/codex-arg0BW5Gt3:/Users/jakubriedl/.cache/codex-runtimes/codex-primary-runtime/dependencies/bin/override:/Users/jakubriedl/.local/bin:/Users/jakubriedl/.bun/bin:/Users/jakubriedl/.opencode/bin:/Users/jakubriedl/.volta/bin:/opt/homebrew/bin:/opt/homebrew/sbin:/Users/jakubriedl/.cache/codex-runtimes/codex-primary-runtime/dependencies/bin/fallback:/Applications/ChatGPT.app/Contents/Resources"}, "timeout_seconds": 600, "started_utc": "2026-09-08T17:02:10Z", "log": "logs/migration-intent-binding-red.log"}
+
+ RUN  v4.0.18 /private/tmp/ctxpipe-recovery-01a07aba/apps/backend
+
+Cloning into bare repository '/var/folders/9t/jj9rnpps7_ddb72c1mq2k13w0000gn/T/ctxpipe-hydration-contract-XlVVbn/remote.git'...
+done.
+ ❯ src/domain/workspaces/write-extract-native.contract.test.ts (8 tests | 1 failed | 7 skipped) 413ms
+   ↓ preserves extraction identity at knowledge/services/billing.md and a same-name collision after migration cutover
+   ↓ preserves extraction identity at knowledge/imported/billing.md and a same-name collision after migration cutover
+   ↓ persists an unwritable migration_export command without queuing a workflow
+   ↓ persists an unwritable extract_ingest command without queuing a workflow
+   ↓ captures extraction objects and export cutover in one PostgreSQL snapshot
+   ↓ reads completed path identity without waiting for historical job storage
+   ↓ backfills completed path maps by native completion order despite an old completion replay
+   × does not reuse migration cutover after the workspace binding generation changes 412ms
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 1 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  src/domain/workspaces/write-extract-native.contract.test.ts > does not reuse migration cutover after the workspace binding generation changes
+AssertionError: expected true to be false // Object.is equality
+
+- Expected
++ Received
+
+- false
++ true
+
+ ❯ src/domain/workspaces/write-extract-native.contract.test.ts:586:81
+    584|         expect(await getMigrationExportSha(f.workspaceId)).toBeNull()
+    585|         expect((await listMigrationExportShas()).has(f.workspaceId)).t…
+    586|         expect((await listMigrationExportJobWorkspaceIds()).has(f.work…
+       |                                                                                 ^
+    587|         expect(
+    588|           await loadExtractionProjectionSource({
+ ❯ src/domain/workspaces/write-extract-native.contract.test.ts:569:7
+ ❯ withNativeHydrationFixture src/test/native-hydration-fixture.ts:544:5
+ ❯ src/domain/workspaces/write-extract-native.contract.test.ts:559:5
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/1]⎯
+
+
+ Test Files  1 failed (1)
+      Tests  1 failed | 7 skipped (8)
+   Start at  03:02:10
+   Duration  3.10s (transform 880ms, setup 19ms, import 2.59s, tests 413ms, environment 0ms)
+

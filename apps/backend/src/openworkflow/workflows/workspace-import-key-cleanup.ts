@@ -20,6 +20,7 @@ import {
 } from "../../domain/workspaces/write-command.js"
 import { githubRepoFullNameFromWorkspaceUrl } from "../../domain/workspaces/write-status.js"
 import {
+  getMigrationExportSha,
   persistBoundWriteJob,
   persistWriteJobPreparedCommit,
 } from "../../models/workspace-write-jobs.js"
@@ -83,6 +84,20 @@ export const workspaceImportKeyCleanup = defineWorkflow(
             revision: input.revision,
             workflowRunId: run.id,
           }),
+        )
+        await step.run(
+          {
+            name: "require-migration-cutover",
+            retryPolicy: { maximumAttempts: 1 },
+          },
+          async () => {
+            if (
+              !(await getMigrationExportSha(input.workspaceId, input.revision))
+            )
+              throw new Error(
+                "Import-key cleanup requires a completed migration export for this workspace binding",
+              )
+          },
         )
         for (let refreshAttempt = 0; refreshAttempt < 3; refreshAttempt++) {
           let acquired: NonNullable<

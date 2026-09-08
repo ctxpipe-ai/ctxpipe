@@ -1,0 +1,40 @@
+{"name": "legacy-writer-deletion-native-green", "cwd": "/private/tmp/ctxpipe-recovery-01a07aba", "command": ["/Users/jakubriedl/.volta/tools/image/node/22.16.0/bin/node", "apps/backend/node_modules/vitest/vitest.mjs", "run", "--root", "apps/backend", "src/domain/workspaces/write-extract-native.contract.test.ts", "src/domain/workspaces/commit-subject.contract.test.ts", "src/domain/workspaces/commit-subject.test.ts", "src/domain/workspaces/job-sandbox.test.ts"], "environment": {"AUTH_SECRET": "gate0-local-disposable-test-secret-20260907", "DATABASE_URL": "postgresql://ctxpipe_app:ctxpipe@127.0.0.1:61314/ctxpipe_gate0_fresh", "GRAPH_DB_URI": "redis://127.0.0.1:6398", "CI": "true", "NO_COLOR": "1", "TURBO_TELEMETRY_DISABLED": "1", "STORYBOOK_DISABLE_TELEMETRY": "1", "PATH": "/Users/jakubriedl/.volta/tools/image/node/22.16.0/bin:/private/tmp/ctxpipe-recovery-runtime/ast-grep/node_modules/.bin:/private/tmp/ctxpipe-recovery-runtime/node_modules/.bin:/private/tmp/ctxpipe-recovery-runtime/zoekt:/usr/local/bin:/System/Cryptexes/App/usr/bin:/usr/bin:/bin:/usr/sbin:/sbin:/var/run/com.apple.security.cryptexd/codex.system/bootstrap/usr/local/bin:/var/run/com.apple.security.cryptexd/codex.system/bootstrap/usr/bin:/var/run/com.apple.security.cryptexd/codex.system/bootstrap/usr/appleinternal/bin:/pkg/env/global/bin:/Users/jakubriedl/.codex/tmp/arg0/codex-arg0BW5Gt3:/Users/jakubriedl/.cache/codex-runtimes/codex-primary-runtime/dependencies/bin/override:/Users/jakubriedl/.local/bin:/Users/jakubriedl/.bun/bin:/Users/jakubriedl/.opencode/bin:/Users/jakubriedl/.volta/bin:/opt/homebrew/bin:/opt/homebrew/sbin:/Users/jakubriedl/.cache/codex-runtimes/codex-primary-runtime/dependencies/bin/fallback:/Applications/ChatGPT.app/Contents/Resources"}, "timeout_seconds": 600, "started_utc": "2026-09-08T17:08:05Z", "log": "logs/legacy-writer-deletion-native-green.log"}
+
+ RUN  v4.0.18 /private/tmp/ctxpipe-recovery-01a07aba/apps/backend
+
+Cloning into bare repository '/var/folders/9t/jj9rnpps7_ddb72c1mq2k13w0000gn/T/ctxpipe-hydration-contract-CBZFDN/remote.git'...
+done.
+Cloning into bare repository '/var/folders/9t/jj9rnpps7_ddb72c1mq2k13w0000gn/T/ctxpipe-hydration-contract-QiLaJv/remote.git'...
+done.
+Cloning into bare repository '/var/folders/9t/jj9rnpps7_ddb72c1mq2k13w0000gn/T/ctxpipe-hydration-contract-FMUVhg/remote.git'...
+done.
+Cloning into bare repository '/var/folders/9t/jj9rnpps7_ddb72c1mq2k13w0000gn/T/ctxpipe-hydration-contract-jHnAEW/remote.git'...
+done.
+Cloning into bare repository '/var/folders/9t/jj9rnpps7_ddb72c1mq2k13w0000gn/T/ctxpipe-hydration-contract-DXfTiS/remote.git'...
+done.
+Cloning into bare repository '/var/folders/9t/jj9rnpps7_ddb72c1mq2k13w0000gn/T/ctxpipe-hydration-contract-bICeTi/remote.git'...
+done.
+Cloning into bare repository '/var/folders/9t/jj9rnpps7_ddb72c1mq2k13w0000gn/T/ctxpipe-hydration-contract-Ro9R30/remote.git'...
+done.
+Cloning into bare repository '/var/folders/9t/jj9rnpps7_ddb72c1mq2k13w0000gn/T/ctxpipe-hydration-contract-rUqN2F/remote.git'...
+done.
+ ✓ src/domain/workspaces/write-extract-native.contract.test.ts (8 tests) 19157ms
+   ✓ preserves extraction identity at knowledge/services/billing.md and a same-name collision after migration cutover  6894ms
+   ✓ preserves extraction identity at knowledge/imported/billing.md and a same-name collision after migration cutover  6258ms
+   ✓ durably queues an unwritable migration_export command to its typed workflow  617ms
+   ✓ durably queues an unwritable extract_ingest command to its typed workflow  535ms
+   ✓ captures extraction objects and export cutover in one PostgreSQL snapshot  500ms
+   ✓ reads completed path identity without waiting for historical job storage  350ms
+   ✓ backfills completed path maps by native completion order despite an old completion replay  3606ms
+   ✓ does not reuse migration cutover after the workspace binding generation changes  396ms
+ ✓ src/domain/workspaces/commit-subject.contract.test.ts (2 tests) 10947ms
+   ✓ uses the fixed small model with a non-streaming filename-only request  5937ms
+   ✓ aborts a slow subject request and uses the deterministic fallback  5009ms
+ ✓ src/domain/workspaces/job-sandbox.test.ts (24 tests) 10ms
+ ✓ src/domain/workspaces/commit-subject.test.ts (2 tests) 2ms
+
+ Test Files  4 passed (4)
+      Tests  36 passed (36)
+   Start at  03:08:05
+   Duration  33.72s (transform 961ms, setup 38ms, import 3.24s, tests 30.12s, environment 0ms)
+

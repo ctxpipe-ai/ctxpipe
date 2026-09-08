@@ -262,7 +262,7 @@ it.each(["knowledge/services/billing.md", "knowledge/imported/billing.md"])(
 )
 
 it.each(["migration_export", "extract_ingest"] as const)(
-  "persists an unwritable %s command without queuing a workflow",
+  "durably queues an unwritable %s command to its typed workflow",
   { timeout: 30_000 },
   async (kind) => {
     await withNativeHydrationFixture(
@@ -280,7 +280,7 @@ it.each(["migration_export", "extract_ingest"] as const)(
               },
             ),
           ),
-        ).toEqual({ started: false })
+        ).toEqual({ started: true })
         expect(
           await withOrgIdContext(f.org, () =>
             reconcileWorkspaceWriteJob(jobId),
@@ -291,11 +291,19 @@ it.each(["migration_export", "extract_ingest"] as const)(
           runMigrations: false,
         })
         try {
-          expect(
-            (await backend.listWorkflowRuns({ limit: 100 })).data.filter(
-              (run) => (run.input as { jobId?: string })?.jobId === jobId,
-            ),
-          ).toEqual([])
+          const owners = (
+            await backend.listWorkflowRuns({ limit: 100 })
+          ).data.filter(
+            (run) => (run.input as { jobId?: string })?.jobId === jobId,
+          )
+          expect(owners).toHaveLength(1)
+          expect(owners[0]).toMatchObject({
+            workflowName:
+              kind === "migration_export"
+                ? "workspace-write-migration-export"
+                : "workspace-write-extract-ingest",
+            input: { jobId, revision: { sha: f.sha, access: "write-default" } },
+          })
         } finally {
           await backend.stop()
         }
@@ -548,6 +556,53 @@ it(
         await worker.stop()
         await pool.end()
       }
+    })
+  },
+)
+
+it(
+  "does not reuse migration cutover after the workspace binding generation changes",
+  { timeout: 30_000 },
+  async () => {
+    await withNativeHydrationFixture({ github: true }, async (f) => {
+      const { eq } = await import("drizzle-orm")
+      const { withOrgDbContext } = await import("../../db/client.js")
+      const { workspaces } = await import("../../db/schema/workspaces.js")
+      const {
+        getMigrationExportSha,
+        listMigrationExportShas,
+        listMigrationExportJobWorkspaceIds,
+      } = await import("../../models/workspace-write-jobs.js")
+      const { loadExtractionProjectionSource } = await import(
+        "../../models/workspace-export.js"
+      )
+      await withOrgIdContext(f.org, async () => {
+        const id = `wjob_${f.id}_previous_binding_export`
+        await persistBoundWriteJob({
+          id,
+          kind: "migration_export",
+          revision: { ...f.revision, access: "write-default" },
+        })
+        await persistMigrationExportNoOp(id, f.sha)
+        expect(await getMigrationExportSha(f.workspaceId)).toBe(f.sha)
+        await withOrgDbContext(f.org.id, (db) =>
+          db
+            .update(workspaces)
+            .set({ desiredGeneration: f.revision.generation + 1 })
+            .where(eq(workspaces.id, f.workspaceId)),
+        )
+        expect(await getMigrationExportSha(f.workspaceId)).toBeNull()
+        expect((await listMigrationExportShas()).has(f.workspaceId)).toBe(false)
+        expect(
+          (await listMigrationExportJobWorkspaceIds()).has(f.workspaceId),
+        ).toBe(false)
+        expect(
+          await loadExtractionProjectionSource({
+            ...f.revision,
+            generation: f.revision.generation + 1,
+          }),
+        ).toMatchObject({ stampImportKey: true, knownKnowledgePaths: {} })
+      })
     })
   },
 )

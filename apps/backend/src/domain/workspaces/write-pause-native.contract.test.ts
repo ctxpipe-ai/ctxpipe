@@ -593,3 +593,76 @@ it(
     )
   },
 )
+
+it(
+  "admits unavailable write access to its typed native owner before acknowledging the edit",
+  { timeout: 30_000 },
+  async () => {
+    await withNativeHydrationFixture(
+      { github: true, githubWriteView: "missing", writeStatus: "read_only" },
+      async (f) => {
+        const backend = await BackendPostgres.connect(f.databaseUrl, {
+          runMigrations: false,
+        })
+        const runner = new OpenWorkflow({ backend })
+        runner.implementWorkflow(workspaceFileEdit.spec, workspaceFileEdit.fn)
+        const worker = runner.newWorker({ concurrency: 1 })
+        const jobId = `wjob_${f.id}_native_paused_admission`
+        let ownerId: string | undefined
+        try {
+          const admitted = await withOrgIdContext(f.org, () =>
+            enqueueWriteJob(
+              {
+                orgId: f.org.id,
+                workspaceId: f.workspaceId,
+                jobId,
+                kind: "ui_file_edit",
+                mergeFiles: [
+                  { path: "notes.md", content: "# Deferred edit\n" },
+                ],
+                mergeDeletePaths: [],
+              },
+              {
+                error: (error) => {
+                  throw error
+                },
+              },
+            ),
+          )
+          expect(admitted).toEqual({ started: true })
+          const owner = (
+            await backend.listWorkflowRuns({ limit: 100 })
+          ).data.find((run) => run.idempotencyKey === jobId)
+          expect(owner).toMatchObject({
+            workflowName: "workspace-write-ui-file-edit",
+            input: { jobId, revision: { sha: f.sha } },
+          })
+          ownerId = owner?.id
+          await worker.start()
+          await expect
+            .poll(
+              () =>
+                withOrgIdContext(f.org, () =>
+                  reconcileWorkspaceWriteJob(jobId),
+                ),
+              { timeout: 10_000 },
+            )
+            .toMatchObject({
+              status: "paused",
+              payload: { workflowRunId: ownerId },
+            })
+          expect(f.git("--git-dir", f.remote, "rev-parse", "main")).toBe(f.sha)
+        } finally {
+          if (ownerId) await runner.cancelWorkflowRun(ownerId)
+          await worker.stop()
+          await backend.stop()
+        }
+        expect(
+          await withOrgIdContext(f.org, () =>
+            reconcileWorkspaceWriteJob(jobId),
+          ),
+        ).toMatchObject({ status: "failed" })
+      },
+    )
+  },
+)

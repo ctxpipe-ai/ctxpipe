@@ -138,10 +138,6 @@ it(
             "../../openworkflow/workflows/workspace-extract-ingest.js"
           )
           runner.implementWorkflow(
-            workspaceImportKeyCleanup.spec,
-            workspaceImportKeyCleanup.fn,
-          )
-          runner.implementWorkflow(
             workspaceExtractIngest.spec,
             workspaceExtractIngest.fn,
           )
@@ -273,21 +269,41 @@ it(
               `${f.sha}..refs/heads/main`,
             ),
           ).toBe("1")
-          const cleanup = await runner.runWorkflow(
+          // Execute the automatically admitted cleanup after observing export content.
+          await worker.stop()
+          runner.implementWorkflow(
             workspaceImportKeyCleanup.spec,
-            {
-              orgId: f.org.id,
-              workspaceId: f.workspaceId,
-              jobId: `${jobId}_cleanup`,
-              revision: {
-                ...(await f.resolveRevision()),
-                access: "write-default",
-              },
-            },
+            workspaceImportKeyCleanup.fn,
           )
-          expect(await cleanup.result({ timeoutMs: 15_000 })).toMatchObject({
-            committed: true,
-          })
+          worker = runner.newWorker({ concurrency: 1 })
+          await worker.start()
+          const cleanup = (
+            await backend.listWorkflowRuns({ limit: 100 })
+          ).data.find(
+            (run) =>
+              run.workflowName === "workspace-write-import-key-cleanup" &&
+              (run.input as { workspaceId?: string })?.workspaceId ===
+                f.workspaceId,
+          )
+          expect(cleanup).toBeDefined()
+          await expect
+            .poll(
+              async () =>
+                (
+                  await backend.getWorkflowRun({
+                    workflowRunId: cleanup?.id ?? "missing",
+                  })
+                )?.status,
+              { timeout: 15_000 },
+            )
+            .toBe("completed")
+          expect(
+            (
+              await backend.getWorkflowRun({
+                workflowRunId: cleanup?.id ?? "missing",
+              })
+            )?.output,
+          ).toMatchObject({ committed: true })
           expect(
             f.git(
               "--git-dir",
@@ -645,7 +661,17 @@ it(
   { timeout: 30_000 },
   async () => {
     await withNativeHydrationFixture(
-      { github: true, githubWriteView: "writable", writeStatus: "writable" },
+      {
+        github: true,
+        githubWriteView: "writable",
+        writeStatus: "writable",
+        files: [
+          {
+            path: "knowledge/billing.md",
+            body: "---\nimport_key: legacy:billing\nname: Billing\n---\nLedger.\n",
+          },
+        ],
+      },
       async (f) => {
         const { workspaceMigrationExport } = await import(
           "../../openworkflow/workflows/workspace-migration-export.js"
@@ -694,6 +720,32 @@ it(
             (run) => run.idempotencyKey === `${input.jobId}:hydrate`,
           )
           expect(hydrations).toHaveLength(1)
+          const followUps = (
+            await backend.listWorkflowRuns({ limit: 100 })
+          ).data.filter(
+            (run) =>
+              (run.input as { workspaceId?: string })?.workspaceId ===
+                f.workspaceId &&
+              [
+                "workspace-write-bootstrap",
+                "workspace-write-import-key-cleanup",
+              ].includes(run.workflowName),
+          )
+          expect(followUps.map((run) => run.workflowName).sort()).toEqual([
+            "workspace-write-bootstrap",
+            "workspace-write-import-key-cleanup",
+          ])
+          const completedJob = await withOrgIdContext(f.org, () =>
+            reconcileWorkspaceWriteJob(input.jobId),
+          )
+          for (const followUp of followUps.filter(
+            (run) => run.workflowName === "workspace-write-import-key-cleanup",
+          )) {
+            expect(
+              followUp.createdAt.getTime() -
+                (completedJob?.updatedAt.getTime() ?? Infinity),
+            ).toBeGreaterThanOrEqual(0)
+          }
           expect(hydrations[0]?.input).toMatchObject({
             workspaceId: f.workspaceId,
             revision: { sha: f.sha },

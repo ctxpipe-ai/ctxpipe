@@ -11,7 +11,6 @@ import {
   type SandboxProvider,
 } from "./sandbox-provider.js"
 import { getJobSandbox, registerWorkspaceSandbox } from "./sandbox-registry.js"
-import { workspaceWriteSandboxId } from "./write-runner.js"
 
 export type TanstackLikeHandle = {
   id?: string
@@ -106,14 +105,7 @@ export async function ensureJobSandbox(input: {
   if (input.existing) return input.existing
   const attached = getJobSandbox(input.workspaceId)
   if (attached) return attached
-  const preferredId =
-    workspaceWriteSandboxId({
-      orgId: input.orgId,
-      workspaceId: input.workspaceId,
-      desiredUrl: input.desiredUrl,
-      desiredSha: input.desiredSha,
-      desiredGeneration: input.desiredGeneration,
-    }) ?? `${input.orgId}:${input.workspaceId}:write`
+  const preferredId = `${input.orgId}:${input.workspaceId}:${input.desiredGeneration ?? 0}:${input.desiredUrl.trim()}:write`
   const claimed = await claimSandboxInstance({
     id: preferredId,
     kind: "job",

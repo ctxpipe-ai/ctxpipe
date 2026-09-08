@@ -4,7 +4,7 @@ import { gitFileChangeSchema } from "../../services/git/file-change.js"
 import type { ConnectorMirrorSource } from "./connector-mirror.js"
 import { connectorMirrorSourceSchema } from "./connector-mirror.js"
 import type { WorkspaceRevision } from "./revision.js"
-import type { WorkspaceWriteKind } from "./write-commit-files.js"
+import type { WorkspaceWriteKind } from "./write-jobs.js"
 import { shouldEnqueueWorkspaceWriteJob } from "./write-jobs.js"
 
 export const WRITE_JOB_STATUSES = {

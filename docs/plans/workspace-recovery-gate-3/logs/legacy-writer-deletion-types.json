@@ -1,0 +1,26 @@
+{
+  "name": "legacy-writer-deletion-types",
+  "cwd": "/private/tmp/ctxpipe-recovery-01a07aba",
+  "command": [
+    "/Users/jakubriedl/.volta/tools/image/node/22.16.0/bin/node",
+    "scripts/ci/typecheck.mjs",
+    "apps/backend/tsconfig.json",
+    "scripts/ci/diagnostics/backend.json",
+    "docs/plans/workspace-recovery-gate-3/logs/legacy-writer-deletion-types-observed.json"
+  ],
+  "environment": {
+    "AUTH_SECRET": "gate0-local-disposable-test-secret-20260907",
+    "DATABASE_URL": "postgresql://ctxpipe_app:ctxpipe@127.0.0.1:61314/ctxpipe_gate0_fresh",
+    "GRAPH_DB_URI": "redis://127.0.0.1:6398",
+    "CI": "true",
+    "NO_COLOR": "1",
+    "TURBO_TELEMETRY_DISABLED": "1",
+    "STORYBOOK_DISABLE_TELEMETRY": "1",
+    "PATH": "/Users/jakubriedl/.volta/tools/image/node/22.16.0/bin:/private/tmp/ctxpipe-recovery-runtime/ast-grep/node_modules/.bin:/private/tmp/ctxpipe-recovery-runtime/node_modules/.bin:/private/tmp/ctxpipe-recovery-runtime/zoekt:/usr/local/bin:/System/Cryptexes/App/usr/bin:/usr/bin:/bin:/usr/sbin:/sbin:/var/run/com.apple.security.cryptexd/codex.system/bootstrap/usr/local/bin:/var/run/com.apple.security.cryptexd/codex.system/bootstrap/usr/bin:/var/run/com.apple.security.cryptexd/codex.system/bootstrap/usr/appleinternal/bin:/pkg/env/global/bin:/Users/jakubriedl/.codex/tmp/arg0/codex-arg0BW5Gt3:/Users/jakubriedl/.cache/codex-runtimes/codex-primary-runtime/dependencies/bin/override:/Users/jakubriedl/.local/bin:/Users/jakubriedl/.bun/bin:/Users/jakubriedl/.opencode/bin:/Users/jakubriedl/.volta/bin:/opt/homebrew/bin:/opt/homebrew/sbin:/Users/jakubriedl/.cache/codex-runtimes/codex-primary-runtime/dependencies/bin/fallback:/Applications/ChatGPT.app/Contents/Resources"
+  },
+  "timeout_seconds": 600,
+  "started_utc": "2026-09-08T17:08:15Z",
+  "log": "logs/legacy-writer-deletion-types.log",
+  "exit_code": 1,
+  "duration_seconds": 31.32
+}

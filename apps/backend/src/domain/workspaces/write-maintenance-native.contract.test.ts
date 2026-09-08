@@ -62,6 +62,17 @@ it(
         const runner = new OpenWorkflow({ backend })
         let worker: ReturnType<typeof runner.newWorker> | undefined
         const jobId = `wjob_${f.id}_cleanup`
+        await withOrgIdContext(f.org, async () => {
+          const { persistBoundWriteJob, persistMigrationExportNoOp } =
+            await import("../../models/workspace-write-jobs.js")
+          const id = `${jobId}_export`
+          await persistBoundWriteJob({
+            id,
+            kind: "migration_export",
+            revision: { ...f.revision, access: "write-default" },
+          })
+          await persistMigrationExportNoOp(id, f.sha)
+        })
         try {
           expect(
             await withOrgIdContext(f.org, () =>
@@ -751,6 +762,57 @@ it(
         } finally {
           await worker?.stop()
           await backend.stop()
+        }
+      },
+    )
+  },
+)
+
+it(
+  "keeps import identity until migration cutover is durably completed",
+  { timeout: 30_000 },
+  async () => {
+    await withNativeHydrationFixture(
+      {
+        github: true,
+        githubWriteView: "writable",
+        writeStatus: "writable",
+        files: [
+          {
+            path: "knowledge/service.md",
+            body: "---\nimport_key: legacy:billing\n---\nLedger.\n",
+          },
+        ],
+      },
+      async (f) => {
+        const { workspaceImportKeyCleanup } = await import(
+          "../../openworkflow/workflows/workspace-import-key-cleanup.js"
+        )
+        f.runner.implementWorkflow(
+          workspaceImportKeyCleanup.spec,
+          workspaceImportKeyCleanup.fn,
+        )
+        const worker = f.runner.newWorker({ concurrency: 1 })
+        try {
+          const handle = await f.runner.runWorkflow(
+            workspaceImportKeyCleanup.spec,
+            {
+              orgId: f.org.id,
+              workspaceId: f.workspaceId,
+              jobId: `wjob_${f.id}_premature_cleanup`,
+              revision: { ...f.revision, access: "write-default" },
+            },
+          )
+          await worker.start()
+          await expect(handle.result({ timeoutMs: 15_000 })).rejects.toThrow(
+            /migration export/i,
+          )
+          expect(f.git("--git-dir", f.remote, "rev-parse", "main")).toBe(f.sha)
+          expect(
+            f.git("--git-dir", f.remote, "show", "main:knowledge/service.md"),
+          ).toContain("import_key: legacy:billing")
+        } finally {
+          await worker.stop()
         }
       },
     )

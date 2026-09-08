@@ -441,3 +441,28 @@ it(
     )
   },
 )
+
+it(
+  "does not acknowledge a Files save when write admission cannot queue it",
+  { timeout: 30_000 },
+  async () => {
+    await withFilesWorkspace(async ({ app }) => {
+      const response = await app.request("/workspaces/knowledge/files/jobs", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          op: "save",
+          path: "AGENTS.md",
+          content: "# Save must be admitted\n",
+        }),
+      })
+      expect({ status: response.status, body: await response.json() }).toEqual({
+        status: 409,
+        body: {
+          error:
+            "The write could not be queued. Refresh the Workspace and try again.",
+        },
+      })
+    })
+  },
+)

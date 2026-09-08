@@ -1,13 +1,11 @@
-import { CodesearchCheckoutError } from "../../domain/codeIngestion/codesearchClient.js"
-import { normalizeWorkspaceRepositoryUrl } from "../../domain/workspaces/slug.js"
 import { createRoute, OpenAPIHono, z } from "@hono/zod-openapi"
 import type { Context } from "hono"
 import type { AppEnv } from "../../app/env.js"
+import { CodesearchCheckoutError } from "../../domain/codeIngestion/codesearchClient.js"
 import {
   listWorkspaceCheckoutPaths,
   readWorkspaceCheckoutFile,
 } from "../../domain/workspaces/checkout-read.js"
-import { publishedProjection } from "../../domain/workspaces/revision.js"
 import { fileTreeFromPaths } from "../../domain/workspaces/file-tree.js"
 import {
   explorerBlobFromContent,
@@ -21,7 +19,9 @@ import {
   parseWorkspaceFileJobRequest,
   planWorkspaceFileJob,
 } from "../../domain/workspaces/git-file-jobs.js"
+import { publishedProjection } from "../../domain/workspaces/revision.js"
 import { getJobSandbox } from "../../domain/workspaces/sandbox-registry.js"
+import { normalizeWorkspaceRepositoryUrl } from "../../domain/workspaces/slug.js"
 import { writeJobQueueHttpDecision } from "../../domain/workspaces/write-jobs.js"
 import {
   getWorkspaceBySlug,
@@ -470,7 +470,7 @@ export const workspaceFilesRoutes = new OpenAPIHono<AppEnv>()
       ) {
         return c.json({ error: "Nothing to write." }, 400)
       }
-      void enqueueWorkspaceWriteCommit(
+      const admitted = await enqueueWorkspaceWriteCommit(
         {
           orgId: loaded.workspace.orgId,
           workspaceId: loaded.workspace.id,
@@ -480,6 +480,14 @@ export const workspaceFilesRoutes = new OpenAPIHono<AppEnv>()
         },
         c.get("log"),
       )
+      if (!admitted.started)
+        return c.json(
+          {
+            error:
+              "The write could not be queued. Refresh the Workspace and try again.",
+          },
+          409,
+        )
       return c.json({ queued: true as const }, 202)
     } catch (error) {
       const failure = gitExplorerReadFailure(

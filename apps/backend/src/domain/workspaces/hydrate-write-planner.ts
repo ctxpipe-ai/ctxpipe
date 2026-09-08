@@ -12,6 +12,7 @@ export type HydrateWriteRequirement =
   | {
       kind:
         | "bootstrap"
+        | "import_key_cleanup"
         | "claims_upgrade"
         | "valid_from_persist"
         | "ops_folder_map"

@@ -1256,6 +1256,7 @@ export async function finalizeLinearBindingAfterContentWorkflow(input: {
   branch: string
   workflowStatus: "completed" | "partial_failed" | "failed"
 }): Promise<boolean> {
+  assertNotInOrgDbContext()
   const directoryRow = await getConnectionDirectoryByConnectionId(
     input.connectionId,
   )

@@ -1,5 +1,14 @@
 import { isDeepStrictEqual } from "node:util"
-import { and, asc, eq, isNotNull, ne, notInArray, sql } from "drizzle-orm"
+import {
+  and,
+  asc,
+  eq,
+  inArray,
+  isNotNull,
+  ne,
+  notInArray,
+  sql,
+} from "drizzle-orm"
 import { requireCurrentOrgId } from "../auth/context.js"
 import { getOrgDb } from "../db/client.js"
 import {
@@ -12,11 +21,11 @@ import {
   sameWorkspaceRevision,
   type WorkspaceRevision,
 } from "../domain/workspaces/revision.js"
-import type { WorkspaceWriteKind } from "../domain/workspaces/write-commit-files.js"
 import {
   type WorkspaceWriteJobPayload,
   WRITE_JOB_STATUSES,
 } from "../domain/workspaces/write-job-intent.js"
+import type { WorkspaceWriteKind } from "../domain/workspaces/write-jobs.js"
 import type { GitFileChange } from "../services/git/file-change.js"
 import { orgSql } from "./workspace-sql.js"
 
@@ -271,6 +280,7 @@ export async function listMigrationExportJobWorkspaceIds(): Promise<
     const rows = await getOrgDb()
       .select({ workspaceId: workspaceWriteJobs.workspaceId })
       .from(workspaceWriteJobs)
+      .innerJoin(workspaces, currentExportBinding())
       .where(eq(workspaceWriteJobs.kind, "migration_export"))
     return new Set(rows.map((row) => row.workspaceId))
   })
@@ -325,6 +335,17 @@ export async function persistMigrationExportNoOp(
   })
 }
 
+/** Cutover belongs to a binding, and remains valid as that binding's tip advances. */
+function currentExportBinding() {
+  return and(
+    eq(workspaceWriteJobs.workspaceId, workspaces.id),
+    eq(workspaceWriteJobs.generation, workspaces.desiredGeneration),
+    sql`${workspaceWriteJobs.payload}->'revision'->'remote'->>'url' = ${workspaces.workspaceRepositoryUrl}`,
+    sql`(${workspaceWriteJobs.payload}->'revision'->'remote'->>'connectionId') is not distinct from ${workspaces.githubConnectionId}`,
+    sql`${workspaceWriteJobs.payload}->'revision'->>'defaultBranch' = ${workspaces.desiredDefaultBranch}`,
+  )
+}
+
 export async function listMigrationExportShas(): Promise<Map<string, string>> {
   return orgSql(async () => {
     const rows = await getOrgDb()
@@ -333,6 +354,7 @@ export async function listMigrationExportShas(): Promise<Map<string, string>> {
         commitSha: migrationExportTip,
       })
       .from(workspaceWriteJobs)
+      .innerJoin(workspaces, currentExportBinding())
       .where(
         and(
           eq(workspaceWriteJobs.kind, "migration_export"),
@@ -353,14 +375,24 @@ export async function listMigrationExportShas(): Promise<Map<string, string>> {
 
 export async function getMigrationExportSha(
   workspaceId: string,
+  revision?: WorkspaceRevision,
 ): Promise<string | null> {
   return orgSql(async () => {
     const [row] = await getOrgDb()
       .select({ commitSha: migrationExportTip })
       .from(workspaceWriteJobs)
+      .innerJoin(workspaces, currentExportBinding())
       .where(
         and(
           eq(workspaceWriteJobs.workspaceId, workspaceId),
+          revision
+            ? and(
+                eq(workspaces.desiredGeneration, revision.generation),
+                eq(workspaces.workspaceRepositoryUrl, revision.remote.url),
+                sql`${workspaces.githubConnectionId} is not distinct from ${revision.remote.connectionId}`,
+                eq(workspaces.desiredDefaultBranch, revision.defaultBranch),
+              )
+            : undefined,
           eq(workspaceWriteJobs.kind, "migration_export"),
           isNotNull(migrationExportTip),
           eq(workspaceWriteJobs.status, WRITE_JOB_STATUSES.completed),
@@ -537,7 +569,10 @@ export async function reconcileWorkspaceWriteJob(jobId: string) {
       .where(
         and(
           eq(workspaceWriteJobs.id, jobId),
-          eq(workspaceWriteJobs.status, WRITE_JOB_STATUSES.running),
+          inArray(workspaceWriteJobs.status, [
+            WRITE_JOB_STATUSES.running,
+            WRITE_JOB_STATUSES.paused,
+          ]),
           sql`exists (select 1 from openworkflow.workflow_runs owner
         where owner.id::text = ${workspaceWriteJobs.payload}->>'workflowRunId'
           and owner.input->>'orgId' = ${workspaceWriteJobs.orgId}
@@ -563,6 +598,7 @@ export async function persistBoundWriteJob(input: {
   files?: GitFileChange[]
   deletePaths?: string[]
   workflowRunId?: string
+  admissionStatus?: "queued" | "paused"
   linkAction?: "link" | "unlink"
   linkGitUrl?: string
   displayName?: string
@@ -593,7 +629,9 @@ export async function persistBoundWriteJob(input: {
       kind: input.kind,
       generation: input.revision.generation,
       desiredSha: input.revision.sha,
-      status: input.workflowRunId ? "running" : "queued",
+      status: input.workflowRunId
+        ? "running"
+        : (input.admissionStatus ?? "queued"),
       payload,
     }
     await getOrgDb()
@@ -636,7 +674,10 @@ export async function persistBoundWriteJob(input: {
       ) {
         await getOrgDb()
           .update(workspaceWriteJobs)
-          .set({ status: WRITE_JOB_STATUSES.queued, updatedAt: new Date() })
+          .set({
+            status: input.admissionStatus ?? WRITE_JOB_STATUSES.queued,
+            updatedAt: new Date(),
+          })
           .where(
             and(
               eq(workspaceWriteJobs.id, input.id),
@@ -673,7 +714,10 @@ export async function failUnscheduledWriteJob(jobId: string): Promise<void> {
       .where(
         and(
           eq(workspaceWriteJobs.id, jobId),
-          eq(workspaceWriteJobs.status, WRITE_JOB_STATUSES.queued),
+          inArray(workspaceWriteJobs.status, [
+            WRITE_JOB_STATUSES.queued,
+            WRITE_JOB_STATUSES.paused,
+          ]),
           sql`${workspaceWriteJobs.payload}->>'workflowRunId' is null`,
           sql`not exists (select 1 from openworkflow.workflow_runs scheduled
         where scheduled.input->>'orgId' = ${workspaceWriteJobs.orgId}

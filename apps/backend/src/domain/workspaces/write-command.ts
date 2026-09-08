@@ -14,7 +14,7 @@ import {
 } from "./connector-mirror.js"
 import { resolveRepositoryReadCredential } from "./resolve-revision.js"
 import { sameWorkspaceRevision, type WorkspaceRevision } from "./revision.js"
-import type { WorkspaceWriteKind } from "./write-commit-files.js"
+import type { WorkspaceWriteKind } from "./write-jobs.js"
 
 export type WorkspaceWriteCommand = {
   orgId: string

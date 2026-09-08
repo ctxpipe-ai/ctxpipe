@@ -153,7 +153,10 @@ export async function loadExtractionProjectionSource(
         await import("./workspace-write-jobs.js")
       const source = await loadKnowledgeProjectionSource()
       const knownKnowledgePaths = await getCompletedKnowledgePaths(revision)
-      const exportSha = await getMigrationExportSha(revision.workspaceId)
+      const exportSha = await getMigrationExportSha(
+        revision.workspaceId,
+        revision,
+      )
       return { ...source, knownKnowledgePaths, stampImportKey: !exportSha }
     },
     { isolationLevel: "repeatable read" },

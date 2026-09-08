@@ -4,13 +4,9 @@ import { connectorMirrorContentSchema } from "../domain/workspaces/connector-mir
 import { linkedRepositoryUrlSchema } from "../domain/workspaces/linked-repository-url.js"
 import { resolveWorkspaceReadRevision } from "../domain/workspaces/resolve-revision.js"
 import { sameWorkspaceRevision } from "../domain/workspaces/revision.js"
+import type { EnqueueWriteJobInput } from "../domain/workspaces/write-job-intent.js"
 import {
-  type EnqueueWriteJobInput,
-  WRITE_JOB_STATUSES,
-  writeJobIntentPayload,
-  writeJobIntentStatus,
-} from "../domain/workspaces/write-job-intent.js"
-import {
+  githubRepoFullNameFromWorkspaceUrl,
   nextPersistedWriteProbe,
   probeWorkspaceWriteAccess,
 } from "../domain/workspaces/write-status.js"
@@ -22,8 +18,6 @@ import {
 } from "../models/workspace-write-jobs.js"
 import {
   getWorkspaceById,
-  persistWriteJobIntent,
-  persistWriteJobStatus,
   persistWriteStatus,
   type WorkspaceWriteProbeBinding,
 } from "../models/workspaces.js"
@@ -56,7 +50,6 @@ import {
   workspaceSemanticMergeInputSchema,
 } from "./workflows/workspace-semantic-merge.js"
 import { workspaceValidFromPersist } from "./workflows/workspace-valid-from-persist.js"
-import { workspaceWriteCommit } from "./workflows/workspace-write-commit.js"
 
 // Admission selects an explicit native workflow; it does not execute a job lifecycle.
 const snapshotWriteWorkflows: Partial<
@@ -123,7 +116,6 @@ export async function enqueueWriteJob(
   let jobWorkspaceUrl = input.jobWorkspaceUrl
   let jobDesiredSha = input.jobDesiredSha
   let writeStatus: string | null = null
-  let desiredGeneration = jobGeneration
   try {
     if (input.kind === "semantic_merge") {
       const content = semanticMergeContentSchema.parse({
@@ -149,10 +141,16 @@ export async function enqueueWriteJob(
       getWorkspaceById(input.workspaceId),
     )
     if (workspace) {
+      if (
+        !githubRepoFullNameFromWorkspaceUrl(workspace.workspaceRepositoryUrl) ||
+        !workspace.githubConnectionId
+      )
+        throw new Error(
+          "Workspace writes require a connected GitHub repository",
+        )
       jobGeneration = jobGeneration ?? workspace.desiredGeneration
       jobWorkspaceUrl = jobWorkspaceUrl ?? workspace.workspaceRepositoryUrl
       if (jobDesiredSha === undefined) jobDesiredSha = workspace.desiredSha
-      desiredGeneration = workspace.desiredGeneration
       writeStatus = await probedWriteStatus({
         orgId: input.orgId,
         workspace: {
@@ -176,16 +174,17 @@ export async function enqueueWriteJob(
   }
   const snapshotWorkflow = snapshotWriteWorkflows[input.kind]
   if (
-    (snapshotWorkflow ||
-      input.kind === "ui_file_edit" ||
-      input.kind === "link_unlink" ||
-      input.kind === "rename_rewrite" ||
-      input.kind === "connector_mirror" ||
-      input.kind === "semantic_merge") &&
-    writeStatus === "writable"
+    snapshotWorkflow ||
+    input.kind === "ui_file_edit" ||
+    input.kind === "link_unlink" ||
+    input.kind === "rename_rewrite" ||
+    input.kind === "connector_mirror" ||
+    input.kind === "semantic_merge"
   ) {
     let bound = false
     try {
+      const admissionStatus =
+        writeStatus === "writable" ? ("queued" as const) : ("paused" as const)
       const resolved = await resolveWorkspaceReadRevision({
         orgId: input.orgId,
         workspaceId: input.workspaceId,
@@ -227,6 +226,7 @@ export async function enqueueWriteJob(
           deletePaths: input.mergeDeletePaths ?? [],
         })
         await persistBoundWriteJob({
+          admissionStatus,
           id: jobId,
           kind: input.kind,
           revision,
@@ -251,6 +251,7 @@ export async function enqueueWriteJob(
           deletePaths: input.mergeDeletePaths ?? [],
         })
         await persistBoundWriteJob({
+          admissionStatus,
           id: jobId,
           kind: input.kind,
           revision,
@@ -275,6 +276,7 @@ export async function enqueueWriteJob(
           previousSha: input.previousSha,
         })
         await persistBoundWriteJob({
+          admissionStatus,
           id: jobId,
           kind: input.kind,
           revision,
@@ -296,6 +298,7 @@ export async function enqueueWriteJob(
           linkGitUrl: input.linkGitUrl,
         })
         await persistBoundWriteJob({
+          admissionStatus,
           id: jobId,
           kind: input.kind,
           revision,
@@ -318,6 +321,7 @@ export async function enqueueWriteJob(
           deletePaths: input.mergeDeletePaths ?? [],
         })
         await persistBoundWriteJob({
+          admissionStatus,
           id: jobId,
           kind: input.kind,
           revision,
@@ -342,6 +346,7 @@ export async function enqueueWriteJob(
           : {}),
       }
       await persistBoundWriteJob({
+        admissionStatus,
         id: jobId,
         kind: input.kind,
         revision,
@@ -368,72 +373,8 @@ export async function enqueueWriteJob(
       return { started: false }
     }
   }
-  const generation = jobGeneration ?? desiredGeneration ?? 1
-  const intent = writeJobIntentStatus({
-    writeStatus,
-    jobGeneration: generation,
-    desiredGeneration: desiredGeneration ?? generation,
-  })
-  const status =
-    intent === "stale_generation"
-      ? WRITE_JOB_STATUSES.failed
-      : intent === WRITE_JOB_STATUSES.paused
-        ? WRITE_JOB_STATUSES.paused
-        : WRITE_JOB_STATUSES.queued
-  try {
-    await withOrgDbContext(input.orgId, () =>
-      persistWriteJobIntent({
-        id: jobId,
-        workspaceId: input.workspaceId,
-        kind: input.kind,
-        generation,
-        desiredSha: jobDesiredSha ?? null,
-        status,
-        payload: writeJobIntentPayload({
-          kind: input.kind,
-          mirror: input.mirror,
-          previousSha: input.previousSha,
-          displayName: input.displayName,
-          defaultBranch: input.defaultBranch,
-          linkAction: input.linkAction,
-          linkGitUrl: input.linkGitUrl,
-          jobWorkspaceUrl,
-          conflictParentSha: input.conflictParentSha,
-          remoteTipSha: input.remoteTipSha,
-          mergeFiles: input.mergeFiles,
-          mergeDeletePaths: input.mergeDeletePaths,
-        }),
-      }),
-    )
-  } catch (err: unknown) {
-    const error = err instanceof Error ? err : new Error(String(err))
-    log.error(error)
-    return { started: false }
-  }
-  if (status !== WRITE_JOB_STATUSES.queued) {
-    return { started: false }
-  }
-  try {
-    await runWorkflowWithWorkerWake(workspaceWriteCommit.spec, {
-      ...input,
-      jobId,
-      ...(jobGeneration != null ? { jobGeneration } : {}),
-      ...(jobWorkspaceUrl ? { jobWorkspaceUrl } : {}),
-      ...(jobDesiredSha !== undefined ? { jobDesiredSha } : {}),
-    })
-  } catch (err: unknown) {
-    const error = err instanceof Error ? err : new Error(String(err))
-    log.error(error)
-    try {
-      await withOrgDbContext(input.orgId, () =>
-        persistWriteJobStatus(jobId, WRITE_JOB_STATUSES.paused),
-      )
-    } catch {
-      // Keep a resumable row even if this status write fails.
-    }
-    return { started: false }
-  }
-  return { started: true }
+  log.error(new Error("No typed workflow for this write kind"))
+  return { started: false }
 }
 
 export const enqueueWorkspaceWriteCommit = enqueueWriteJob

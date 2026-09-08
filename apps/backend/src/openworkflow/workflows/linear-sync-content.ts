@@ -179,14 +179,12 @@ export const linearSyncContent = defineWorkflow(
         }
 
         await step.run({ name: "finalize-linear-sync" }, () =>
-          withOrgDbContext(input.orgId, () =>
-            finalizeLinearBindingAfterContentWorkflow({
-              connectionId: input.connectionId,
-              workflowStatus: result.status,
-              repositoryId: context.target.repositoryId,
-              branch: context.target.branch,
-            }),
-          ),
+          finalizeLinearBindingAfterContentWorkflow({
+            connectionId: input.connectionId,
+            workflowStatus: result.status,
+            repositoryId: context.target.repositoryId,
+            branch: context.target.branch,
+          }),
         )
         return result
       },

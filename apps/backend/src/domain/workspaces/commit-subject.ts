@@ -1,5 +1,4 @@
 import { fallbackCommitSubject } from "./write-jobs.js"
-import { runnerCommitMessage } from "./write-runner.js"
 
 /** Small model, chosen in code — not an operator env. */
 export const COMMIT_SUBJECT_MODEL = "anthropic/claude-haiku-4-5"
@@ -75,11 +74,13 @@ export async function generateCommitSubject(input: {
   const generate = input.generate ?? invokeCommitSubjectModel
   try {
     const raw = await generate(commitSubjectPrompt(input))
-    return runnerCommitMessage({
-      repoName: input.repoName,
-      trigger: input.trigger,
-      llmSubject: raw,
-    })
+    const subject = raw.trim()
+    return subject &&
+      subject !== "New conversation" &&
+      subject.length < 200 &&
+      !/[\r\n]/.test(subject)
+      ? subject
+      : fallback
   } catch {
     return fallback
   }
