@@ -6,6 +6,7 @@ import { parseSimpleFrontMatter } from "./layout.js"
 it.each([
   { path: "knowledge/services/billing.md", mode: "full" as const },
   { path: "handbook/services/billing.md", mode: "partial" as const },
+  { path: "knowledge/services/billing.md", mode: "directory" as const },
 ])(
   "expires unsupported $mode source claims at $path while retaining owner prose and unrelated evidence",
   { timeout: 40_000 },
@@ -15,7 +16,7 @@ custom: Owner metadata
 claims:
   - to: ../targets/ledger.md
     predicate: CALLS
-    source: https://github.com/fixture/hydration-contract.git#src/billing.ts
+    source: https://github.com/fixture/hydration-contract.git#${mode === "directory" ? "src" : "src/billing.ts"}
     confidence: 0.7
     valid_from: '2026-08-01T00:00:00.000Z'
     note: Owner annotation
@@ -60,7 +61,7 @@ Owner prose must survive unchanged.
             mode === "full"
               ? { mode, observedAt: "2026-09-01T00:00:00.000Z" }
               : {
-                  mode,
+                  mode: "partial" as const,
                   paths: ["src/billing.ts"],
                   observedAt: "2026-09-01T00:00:00.000Z",
                 },
@@ -88,7 +89,9 @@ Owner prose must survive unchanged.
                 to: "../targets/ledger.md",
                 predicate: "CALLS",
                 source:
-                  "https://github.com/fixture/hydration-contract.git#src/billing.ts",
+                  mode === "directory"
+                    ? "https://github.com/fixture/hydration-contract.git#src"
+                    : "https://github.com/fixture/hydration-contract.git#src/billing.ts",
                 confidence: 0.7,
                 valid_from: "2026-08-01T00:00:00.000Z",
                 valid_to: "2026-09-01T00:00:00.000Z",
@@ -134,10 +137,19 @@ Owner prose must survive unchanged.
   },
 )
 
-it(
-  "reasserts an expired captured claim with its source path and preserves the owner annotation",
+it.each([
+  {
+    sourcePath: "src/billing.ts",
+    source: "https://github.com/fixture/hydration-contract.git#src/billing.ts",
+  },
+  {
+    sourcePath: "src/a#b.ts",
+    source: "https://github.com/fixture/hydration-contract.git#src/a%23b.ts",
+  },
+])(
+  "reasserts an expired captured claim from $sourcePath and preserves source history",
   { timeout: 40_000 },
-  async () => {
+  async ({ sourcePath, source }) => {
     await withNativeHydrationFixture(
       {
         github: true,
@@ -151,10 +163,19 @@ import_key: legacy:billing
 claims:
   - to: ../targets/ledger.md
     predicate: CALLS
-    source: https://github.com/fixture/hydration-contract.git#src/billing.ts
+    source: https://github.com/fixture/hydration-contract.git#src/retired.ts
+    valid_from: '2026-08-01T00:00:00.000Z'
+    note: Retired source annotation
+  - to: ../targets/ledger.md
+    predicate: CALLS
+    source: ${source}
     valid_from: '2026-08-01T00:00:00.000Z'
     valid_to: '2026-09-01T00:00:00.000Z'
     note: Owner annotation
+  - to: ../targets/ledger.md
+    predicate: CALLS
+    source: https://github.com/other/repository.git#src/ledger.ts
+    note: Other repository annotation
 ---
 
 # Billing
@@ -196,7 +217,7 @@ Owner notes.
               objectRef: "legacy:ledger",
               predicate: "CALLS",
               sourceId: "captured-billing-call",
-              sourcePath: "src/billing.ts",
+              sourcePath,
               confidence: 0.7,
             },
           ],
@@ -231,10 +252,24 @@ Owner notes.
               to: "../targets/ledger.md",
               predicate: "CALLS",
               source:
-                "https://github.com/fixture/hydration-contract.git#src/billing.ts",
+                "https://github.com/fixture/hydration-contract.git#src/retired.ts",
+              valid_from: "2026-08-01T00:00:00.000Z",
+              valid_to: "2026-09-02T00:00:00.000Z",
+              note: "Retired source annotation",
+            },
+            {
+              to: "../targets/ledger.md",
+              predicate: "CALLS",
+              source,
               valid_from: "2026-09-02T00:00:00.000Z",
               confidence: 0.7,
               note: "Owner annotation",
+            },
+            {
+              to: "../targets/ledger.md",
+              predicate: "CALLS",
+              source: "https://github.com/other/repository.git#src/ledger.ts",
+              note: "Other repository annotation",
             },
           ])
           expect(content).toContain("Owner notes.")

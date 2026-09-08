@@ -19,13 +19,20 @@ function sourcePath(
 ): string | null {
   if (typeof source !== "string" || !source) return null
   if (/^(?:https?|ssh|git):\/\//i.test(source) || source.startsWith("git@")) {
-    const [url, fragment = ""] = source.split("#")
+    const separator = source.indexOf("#")
+    const url = separator < 0 ? source : source.slice(0, separator)
+    const fragment = separator < 0 ? "" : source.slice(separator + 1)
     if (
       normalizeWorkspaceRepositoryUrl(url ?? "") !==
       normalizeWorkspaceRepositoryUrl(repositoryUrl)
     )
       return null
-    return fragment
+    try {
+      return decodeURIComponent(fragment)
+    } catch {
+      // Older canonical files may contain a literal, unescaped percent sign.
+      return fragment
+    }
   }
   if (
     normalizeWorkspaceRepositoryUrl(repositoryUrl) !==
@@ -94,7 +101,10 @@ export function retractExtractionClaims(input: {
         if (expired) return null
         return scope.mode === "full" ||
           scope.paths.some(
-            (affected) => path === affected || path.startsWith(`${affected}/`),
+            (affected) =>
+              path === affected ||
+              path.startsWith(`${affected}/`) ||
+              affected.startsWith(`${path}/`),
           )
           ? "expire"
           : null

@@ -21,7 +21,7 @@ describe("withLoggedStepAttempt", () => {
     expect(result).toBe("success")
   })
 
-  it("rethrows on non-SleepSignal throw", async () => {
+  it("rethrows ordinary callback errors", async () => {
     const err = new Error("step blew up")
 
     await expect(
@@ -58,27 +58,6 @@ describe("withLoggedStepAttempt", () => {
         ),
       ),
     ).rejects.toThrow("raw string error")
-  })
-
-  it("rethrows SleepSignal without treating it as an attempt failure", async () => {
-    const sleepSignal = new Error("sleep")
-    sleepSignal.name = "SleepSignal"
-
-    await expect(
-      withTestLogger(() =>
-        withLoggedStepAttempt(
-          "some-step",
-          {
-            workflow: "repository-deletion",
-            repositoryId: "repo_1",
-            orgId: "org_1",
-          },
-          async () => {
-            throw sleepSignal
-          },
-        ),
-      ),
-    ).rejects.toMatchObject({ name: "SleepSignal" })
   })
 
   it("rethrows index failures labelled as repository-index", async () => {

@@ -1,0 +1,48 @@
+{"name": "ingestion-superseded-status-native-red", "cwd": "/private/tmp/ctxpipe-recovery-01a07aba", "command": ["/Users/jakubriedl/.volta/tools/image/node/22.16.0/bin/node", "apps/backend/node_modules/vitest/vitest.mjs", "run", "--root", "apps/backend", "src/openworkflow/workflows/repository-ingestion-owner-native.contract.test.ts", "-t", "projects a canceled native"], "environment": {"AUTH_SECRET": "gate0-local-disposable-test-secret-20260907", "DATABASE_URL": "postgresql://ctxpipe_app:ctxpipe@127.0.0.1:61314/ctxpipe_gate0_fresh", "GRAPH_DB_URI": "redis://127.0.0.1:6398", "CI": "true", "NO_COLOR": "1", "TURBO_TELEMETRY_DISABLED": "1", "STORYBOOK_DISABLE_TELEMETRY": "1", "PATH": "/Users/jakubriedl/.volta/tools/image/node/22.16.0/bin:/private/tmp/ctxpipe-recovery-runtime/ast-grep/node_modules/.bin:/private/tmp/ctxpipe-recovery-runtime/node_modules/.bin:/private/tmp/ctxpipe-recovery-runtime/zoekt:/usr/local/bin:/System/Cryptexes/App/usr/bin:/usr/bin:/bin:/usr/sbin:/sbin:/var/run/com.apple.security.cryptexd/codex.system/bootstrap/usr/local/bin:/var/run/com.apple.security.cryptexd/codex.system/bootstrap/usr/bin:/var/run/com.apple.security.cryptexd/codex.system/bootstrap/usr/appleinternal/bin:/pkg/env/global/bin:/Users/jakubriedl/.codex/tmp/arg0/codex-arg0BW5Gt3:/Users/jakubriedl/.cache/codex-runtimes/codex-primary-runtime/dependencies/bin/override:/Users/jakubriedl/.local/bin:/Users/jakubriedl/.bun/bin:/Users/jakubriedl/.opencode/bin:/Users/jakubriedl/.volta/bin:/opt/homebrew/bin:/opt/homebrew/sbin:/Users/jakubriedl/.cache/codex-runtimes/codex-primary-runtime/dependencies/bin/fallback:/Applications/ChatGPT.app/Contents/Resources"}, "timeout_seconds": 600, "started_utc": "2026-09-08T20:52:36Z", "log": "logs/ingestion-superseded-status-native-red.log"}
+
+ RUN  v4.0.18 /private/tmp/ctxpipe-recovery-01a07aba/apps/backend
+
+Cloning into bare repository '/var/folders/9t/jj9rnpps7_ddb72c1mq2k13w0000gn/T/ctxpipe-hydration-contract-JbJdjZ/remote.git'...
+done.
+ ❯ src/openworkflow/workflows/repository-ingestion-owner-native.contract.test.ts (3 tests | 1 failed | 2 skipped) 396ms
+   × projects a canceled native ingestion owner without a worker failure callback 395ms
+   ↓ projects a native child cancellation after the orchestrator resumes
+   ↓ rejects failed native admission without marking the repository queued, then retries the same intent
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 1 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  src/openworkflow/workflows/repository-ingestion-owner-native.contract.test.ts > projects a canceled native ingestion owner without a worker failure callback
+AssertionError: expected { …(19) } to match object { lastIngestedHash: null, …(4) }
+(14 matching properties omitted from actual)
+
+- Expected
++ Received
+
+  {
+-   "indexReady": false,
++   "indexReady": true,
+    "indexingError": null,
+    "indexingFailedAt": null,
+    "indexingStatus": "queued",
+-   "lastIngestedHash": null,
++   "lastIngestedHash": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+  }
+
+ ❯ src/openworkflow/workflows/repository-ingestion-owner-native.contract.test.ts:77:66
+     75|       )
+     76|       await withOrgDbContext(f.org.id, () => markRepositoryIndexingRea…
+     77|       expect(await getRepositoryForOrg(f.org.id, repository.id)).toMat…
+       |                                                                  ^
+     78|         lastIngestedHash: null,
+     79|         indexReady: false,
+ ❯ withNativeHydrationFixture src/test/native-hydration-fixture.ts:647:5
+ ❯ src/openworkflow/workflows/repository-ingestion-owner-native.contract.test.ts:22:5
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/1]⎯
+
+
+ Test Files  1 failed (1)
+      Tests  1 failed | 2 skipped (3)
+   Start at  06:52:36
+   Duration  3.22s (transform 865ms, setup 21ms, import 2.73s, tests 396ms, environment 0ms)
+

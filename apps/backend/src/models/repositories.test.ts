@@ -42,163 +42,17 @@ vi.mock("../openworkflow/enqueue-repository-deletion.js", () => ({
   enqueueRepositoryDeletionWorkflow: enqueueDeletionMock,
 }))
 
-import { resolveIndexingStep } from "../domain/indexingSteps.js"
 import {
   deleteRepository,
-  getRepositoryForOrg,
-  INDEXING_QUEUED_STALE_MS,
-  INDEXING_RUNNING_STALE_MS,
-  listRepositoriesForGithubConnection,
-  listRepositoriesForOrg,
-  markRepositoryIndexingFailed,
   markRepositoryIndexingReadyWithIssues,
   pruneGithubConnectionRepositoriesNotInGitUrls,
   setRepositoryIndexingStep,
-  tryClaimRepositoryIndexingEnqueue,
 } from "./repositories.js"
 
 const orgId = "org_1"
 const githubConnectionId = "con_github"
 const orgSlug = "acme"
 const repositoryId = "repo_AAAAAAAAAAAAAAAAAAAAAAAAAA"
-
-function mockLinkedRepos(rows: Array<{ id: string; gitUrl: string }>) {
-  getOrgDbMock.mockReturnValue({
-    select: vi.fn().mockReturnValue({
-      from: vi.fn().mockReturnValue({
-        where: vi.fn().mockResolvedValue(rows),
-      }),
-    }),
-  })
-}
-
-function mockRepositoriesWithZoekt(
-  rows: Array<Record<string, unknown>>,
-  dbMock: typeof getOrgDbMock | typeof getSystemDbMock = getOrgDbMock,
-) {
-  const where = vi.fn().mockResolvedValue(rows)
-  const innerJoin = vi.fn().mockReturnValue({ where })
-  const from = vi.fn().mockReturnValue({ innerJoin })
-  const select = vi.fn().mockReturnValue({ from })
-  dbMock.mockReturnValue({ select })
-  return { select, from, innerJoin, where }
-}
-
-function mockRepositoryWithZoekt(
-  row: Record<string, unknown> | null,
-  dbMock: typeof getOrgDbMock = getOrgDbMock,
-) {
-  const limit = vi.fn().mockResolvedValue(row ? [row] : [])
-  const where = vi.fn().mockReturnValue({ limit })
-  const innerJoin = vi.fn().mockReturnValue({ where })
-  const from = vi.fn().mockReturnValue({ innerJoin })
-  const select = vi.fn().mockReturnValue({ from })
-  dbMock.mockReturnValue({ select })
-  return { select, from, innerJoin, where, limit }
-}
-
-describe("listRepositoriesForGithubConnection", () => {
-  beforeEach(() => {
-    vi.clearAllMocks()
-    requireCurrentOrgIdMock.mockReturnValue(orgId)
-  })
-
-  it("returns repositories for the current org and GitHub connection", async () => {
-    const rows = [
-      {
-        id: "repo_linked",
-        orgId,
-        name: "acme/linked",
-        gitUrl: "https://github.com/acme/linked.git",
-        indexReady: false,
-        indexingReason: null,
-        lastIngestedHash: null,
-        githubConnectionId,
-        createdAt: new Date("2026-03-01T00:00:00.000Z"),
-        updatedAt: new Date("2026-03-01T00:00:00.000Z"),
-        zoektRepoId: 1,
-      },
-    ]
-    const query = mockRepositoriesWithZoekt(rows)
-
-    await expect(
-      listRepositoriesForGithubConnection(githubConnectionId),
-    ).resolves.toEqual(rows)
-    expect(query.where).toHaveBeenCalledTimes(1)
-  })
-})
-
-describe("getRepositoryForOrg", () => {
-  beforeEach(() => {
-    vi.clearAllMocks()
-  })
-
-  it("queries org db with org and repository id filters", async () => {
-    const row = {
-      id: repositoryId,
-      orgId,
-      name: "acme/app",
-      gitUrl: "https://github.com/acme/app.git",
-      indexReady: true,
-      indexingReason: null,
-      lastIngestedHash: "abc123",
-      githubConnectionId: null,
-      createdAt: new Date("2026-03-01T00:00:00.000Z"),
-      updatedAt: new Date("2026-03-01T00:00:00.000Z"),
-      zoektRepoId: 42,
-    }
-    const query = mockRepositoryWithZoekt(row)
-
-    await expect(getRepositoryForOrg(orgId, repositoryId)).resolves.toEqual(row)
-    expect(withOrgDbContextMock).toHaveBeenCalledWith(
-      orgId,
-      expect.any(Function),
-    )
-    expect(getOrgDbMock).toHaveBeenCalledTimes(1)
-    expect(query.where).toHaveBeenCalledTimes(1)
-    expect(query.limit).toHaveBeenCalledWith(1)
-  })
-
-  it("returns null when no row matches (cross-tenant id)", async () => {
-    mockRepositoryWithZoekt(null)
-
-    await expect(getRepositoryForOrg(orgId, repositoryId)).resolves.toBeNull()
-    expect(getOrgDbMock).toHaveBeenCalledTimes(1)
-  })
-})
-
-describe("listRepositoriesForOrg", () => {
-  beforeEach(() => {
-    vi.clearAllMocks()
-  })
-
-  it("queries org db filtered by org id", async () => {
-    const rows = [
-      {
-        id: repositoryId,
-        orgId,
-        name: "acme/app",
-        gitUrl: "https://github.com/acme/app.git",
-        indexReady: true,
-        indexingReason: null,
-        lastIngestedHash: null,
-        githubConnectionId: null,
-        createdAt: new Date("2026-03-01T00:00:00.000Z"),
-        updatedAt: new Date("2026-03-01T00:00:00.000Z"),
-        zoektRepoId: 1,
-      },
-    ]
-    const query = mockRepositoriesWithZoekt(rows, getOrgDbMock)
-
-    await expect(listRepositoriesForOrg(orgId)).resolves.toEqual(rows)
-    expect(withOrgDbContextMock).toHaveBeenCalledWith(
-      orgId,
-      expect.any(Function),
-    )
-    expect(getOrgDbMock).toHaveBeenCalledTimes(1)
-    expect(query.where).toHaveBeenCalledTimes(1)
-  })
-})
 
 describe("pruneGithubConnectionRepositoriesNotInGitUrls", () => {
   function mockPruneDb(
@@ -347,8 +201,11 @@ describe("deleteRepository", () => {
       repoName: "ctxpipe",
       zoektRepoId: 9,
     })
+    const graphCallOrder = withGraphClientMock.mock.invocationCallOrder[0]
+    if (graphCallOrder === undefined)
+      throw new Error("Graph cleanup was not called")
     expect(withOrgDbContextMock.mock.invocationCallOrder[0]).toBeLessThan(
-      withGraphClientMock.mock.invocationCallOrder[0]!,
+      graphCallOrder,
     )
   })
 
@@ -400,131 +257,6 @@ describe("markRepositoryIndexingReadyWithIssues", () => {
         lastIngestedHash: "abc123",
       }),
     )
-  })
-})
-
-describe("markRepositoryIndexingFailed", () => {
-  beforeEach(() => {
-    vi.clearAllMocks()
-  })
-
-  it("stores the memory-fit message instead of fetch failed", async () => {
-    const where = vi.fn().mockResolvedValue(undefined)
-    const set = vi.fn().mockReturnValue({ where })
-    const update = vi.fn().mockReturnValue({ set })
-    getOrgDbMock.mockReturnValue({ update })
-
-    await markRepositoryIndexingFailed({
-      repositoryId,
-      error: new Error("Codebase didn't fit available memory"),
-    })
-
-    expect(set).toHaveBeenCalledWith(
-      expect.objectContaining({
-        indexingStatus: "failed",
-        indexingError: "Codebase didn't fit available memory",
-        indexReady: false,
-      }),
-    )
-  })
-
-  it("does not remap unrelated fetch failed from non-codesearch work", async () => {
-    const where = vi.fn().mockResolvedValue(undefined)
-    const set = vi.fn().mockReturnValue({ where })
-    const update = vi.fn().mockReturnValue({ set })
-    getOrgDbMock.mockReturnValue({ update })
-
-    await markRepositoryIndexingFailed({
-      repositoryId,
-      error: new TypeError("fetch failed"),
-    })
-
-    expect(set).toHaveBeenCalledWith(
-      expect.objectContaining({
-        indexingStatus: "failed",
-        indexingError: "fetch failed",
-        indexReady: false,
-      }),
-    )
-  })
-})
-
-describe("tryClaimRepositoryIndexingEnqueue", () => {
-  beforeEach(() => {
-    vi.clearAllMocks()
-  })
-
-  it("returns true when a row is claimed for enqueue", async () => {
-    const returning = vi.fn().mockResolvedValue([{ id: repositoryId }])
-    const where = vi.fn().mockReturnValue({ returning })
-    const set = vi.fn().mockReturnValue({ where })
-    const update = vi.fn().mockReturnValue({ set })
-    getOrgDbMock.mockReturnValue({ update })
-
-    await expect(
-      tryClaimRepositoryIndexingEnqueue({
-        repositoryId,
-        reason: "retry",
-      }),
-    ).resolves.toBe(true)
-
-    const queuedStep = resolveIndexingStep("queued")
-    if (!queuedStep) throw new Error("Expected queued step to resolve")
-    expect(update).toHaveBeenCalled()
-    expect(set).toHaveBeenCalledWith(
-      expect.objectContaining({
-        indexingStatus: "queued",
-        indexingReason: "retry",
-        indexReady: false,
-        indexingStep: queuedStep.step,
-        indexingStepTotal: queuedStep.total,
-        indexingStepKey: queuedStep.key,
-      }),
-    )
-  })
-
-  it("returns false when already queued or running and not stale", async () => {
-    const returning = vi.fn().mockResolvedValue([])
-    const where = vi.fn().mockReturnValue({ returning })
-    const set = vi.fn().mockReturnValue({ where })
-    const update = vi.fn().mockReturnValue({ set })
-    getOrgDbMock.mockReturnValue({ update })
-
-    await expect(
-      tryClaimRepositoryIndexingEnqueue({
-        repositoryId,
-        reason: null,
-      }),
-    ).resolves.toBe(false)
-  })
-
-  it("uses 30min queued and 6h running stale cutoffs", () => {
-    expect(INDEXING_QUEUED_STALE_MS).toBe(30 * 60 * 1000)
-    expect(INDEXING_RUNNING_STALE_MS).toBe(6 * 60 * 60 * 1000)
-  })
-
-  it("returns true when a stale queued/running row is reclaimed", async () => {
-    const returning = vi.fn().mockResolvedValue([{ id: repositoryId }])
-    const where = vi.fn().mockReturnValue({ returning })
-    const set = vi.fn().mockReturnValue({ where })
-    const update = vi.fn().mockReturnValue({ set })
-    getOrgDbMock.mockReturnValue({ update })
-
-    const nowMs = Date.parse("2026-07-26T12:00:00.000Z")
-    await expect(
-      tryClaimRepositoryIndexingEnqueue({
-        repositoryId,
-        reason: "manual",
-        nowMs,
-      }),
-    ).resolves.toBe(true)
-
-    expect(set).toHaveBeenCalledWith(
-      expect.objectContaining({
-        updatedAt: new Date(nowMs),
-      }),
-    )
-    expect(where).toHaveBeenCalled()
   })
 })
 

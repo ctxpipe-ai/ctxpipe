@@ -30,6 +30,10 @@ import {
   setRepositoryIndexingStep,
 } from "../../models/repositories.js"
 import {
+  assertRepositoryIngestionRequest,
+  captureRepositoryIngestionRequest,
+} from "../../models/repository-ingestion-requests.js"
+import {
   runWithLangfuseContext,
   withLangfuseObservation,
 } from "../../observability/langfuse.js"
@@ -50,6 +54,7 @@ const repositoryIngestionInputSchema = z.object({
   targetBranch: z.string().nullable().optional(),
   /** Stored on the row while ingestion runs; cleared on success. */
   indexingReason: z.string().nullable().optional(),
+  requestId: z.string().min(1).optional(),
 })
 
 const extractRetryPolicy = {
@@ -120,10 +125,14 @@ export const repositoryIngestion = defineWorkflow(
         return await withOrgIdContext(
           { id: org.id, slug: org.slug },
           async () => {
+            const requestId =
+              (await captureRepositoryIngestionRequest(input, run.id)) ??
+              undefined
             await step.run({ name: "mark-running" }, () =>
               wls("mark-running", () =>
                 withOrgDbContext(input.orgId, () =>
                   markRepositoryIndexingRunning({
+                    requestId,
                     repositoryId: input.repositoryId,
                   }),
                 ),
@@ -185,6 +194,7 @@ export const repositoryIngestion = defineWorkflow(
               wls("set-step-resolving-ref", () =>
                 withOrgDbContext(input.orgId, () =>
                   setRepositoryIndexingStep({
+                    requestId,
                     repositoryId: input.repositoryId,
                     key: "resolving_ref",
                   }),
@@ -263,6 +273,7 @@ export const repositoryIngestion = defineWorkflow(
             })
 
             const baseIngestState: CodeIngestionState = {
+              requestId,
               repositoryId: input.repositoryId,
               orgId: input.orgId,
               githubConnectionId: githubConnectionId ?? undefined,
@@ -456,7 +467,14 @@ export const repositoryIngestion = defineWorkflow(
 
             const { roots, extractedObjects, extractedClaims } = extractResult
             if (destination) {
+              await assertRepositoryIngestionRequest({
+                ...input,
+                requestId,
+                repositoryUrl: repository.gitUrl,
+                githubConnectionId: repository.githubConnectionId,
+              })
               const extraction = workspaceExtractionSchema.parse({
+                ingestionRequestId: requestId,
                 repositoryId: input.repositoryId,
                 repositoryUrl: repository.gitUrl,
                 sourceSha: reindexState.targetHash ?? resolved.hash,
@@ -534,6 +552,7 @@ export const repositoryIngestion = defineWorkflow(
               wls("set-step-finalizing", () =>
                 withOrgDbContext(input.orgId, () =>
                   setRepositoryIndexingStep({
+                    requestId,
                     repositoryId: input.repositoryId,
                     key: "finalizing",
                   }),
@@ -546,6 +565,7 @@ export const repositoryIngestion = defineWorkflow(
                 withOrgDbContext(input.orgId, () =>
                   reindexState.searchIndexOk === false
                     ? markRepositoryIndexingReadyWithIssues({
+                        requestId,
                         repositoryId: input.repositoryId,
                         targetHash: result.targetHash,
                         error:
@@ -553,6 +573,7 @@ export const repositoryIngestion = defineWorkflow(
                           "Search index unavailable",
                       })
                     : markRepositoryIndexingReady({
+                        requestId,
                         repositoryId: input.repositoryId,
                         targetHash: result.targetHash,
                       }),
@@ -579,6 +600,7 @@ export const repositoryIngestion = defineWorkflow(
                       orgId: input.orgId,
                       repositoryId: input.repositoryId,
                       ingestedHash: result.targetHash,
+                      requestId: requestId ?? `legacy:${run.id}`,
                       githubConnectionId,
                       targetBranch: input.targetBranch ?? result.sourceBranch,
                     },

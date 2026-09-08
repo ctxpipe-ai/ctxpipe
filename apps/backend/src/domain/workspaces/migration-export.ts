@@ -97,6 +97,7 @@ export function importedObjectMarkdown(input: {
 function mergeExistingImportedMarkdown(
   original: string,
   input: Parameters<typeof importedFrontMatter>[0],
+  claimIdentity?: (claim: ImportedMarkdownClaim) => string,
 ): string {
   const metadata = parseSimpleFrontMatter(importedFrontMatter(input)).attributes
   const header = original.match(
@@ -125,11 +126,19 @@ function mergeExistingImportedMarkdown(
       for (const incoming of value) {
         const index = claims.items.findIndex((node) => {
           const candidate = isAlias(node) ? node.resolve(document) : node
-          return (
-            isMap(candidate) &&
-            candidate.get("to") === incoming.to &&
-            candidate.get("predicate") === incoming.predicate
-          )
+          if (!isMap(candidate)) return false
+          const to = candidate.get("to")
+          const predicate = candidate.get("predicate")
+          const source = candidate.get("source")
+          if (typeof to !== "string" || typeof predicate !== "string")
+            return false
+          return claimIdentity
+            ? claimIdentity({
+                to,
+                predicate,
+                source: typeof source === "string" ? source : null,
+              }) === claimIdentity(incoming)
+            : to === incoming.to && predicate === incoming.predicate
         })
         if (index < 0) {
           claims.add(document.createNode(incoming))
@@ -449,6 +458,7 @@ export async function planKnowledgeProjection(input: {
   repositoryGitUrlById?: ReadonlyMap<string, string>
   knownKnowledgePaths?: Readonly<Record<string, string>>
   referencePaths?: ReadonlyMap<string, string>
+  claimIdentity?: (fromPath: string, claim: ImportedMarkdownClaim) => string
   stampImportKey?: boolean
   classifyUnkeyed?: (prompt: string) => Promise<string>
 }): Promise<{
@@ -456,6 +466,7 @@ export async function planKnowledgeProjection(input: {
   wouldChange: boolean
   knowledgePaths: Record<string, string>
 }> {
+  const claimIdentity = input.claimIdentity
   const objectWorkspace = new Map(
     [...(input.referencePaths?.keys() ?? [])].map((id) => [
       id,
@@ -598,7 +609,11 @@ export async function planKnowledgeProjection(input: {
     }
     claimsByObjectId.set(
       claim.subjectId,
-      mergeImportedClaims(current, [incoming]),
+      mergeImportedClaims(
+        current,
+        [incoming],
+        claimIdentity ? (claim) => claimIdentity(fromPath, claim) : undefined,
+      ),
     )
   }
 
@@ -634,7 +649,11 @@ export async function planKnowledgeProjection(input: {
     files.push({
       path,
       content: occupant
-        ? mergeExistingImportedMarkdown(occupant.content, { ...front, body })
+        ? mergeExistingImportedMarkdown(
+            occupant.content,
+            { ...front, body },
+            claimIdentity ? (claim) => claimIdentity(path, claim) : undefined,
+          )
         : importedObjectMarkdown({
             ...front,
             title,

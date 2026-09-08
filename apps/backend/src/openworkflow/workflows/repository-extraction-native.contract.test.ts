@@ -10,6 +10,7 @@ import { captureRepositoryExtractionTarget } from "../../domain/workspaces/captu
 import { ensureOrgRepositoryForGitUrl } from "../../domain/workspaces/ensure-org-repository.js"
 import { persistOrgFirstWorkspace } from "../../models/workspaces.js"
 import { withNativeHydrationFixture } from "../../test/native-hydration-fixture.js"
+import { enqueueRepositoryIngestionWorkflow } from "../enqueue-repository-ingestion.js"
 import { repositoryIndex } from "./repository-index.js"
 import { repositoryIngestion } from "./repository-ingestion.js"
 import { workspaceExtractIngest } from "./workspace-extract-ingest.js"
@@ -17,6 +18,7 @@ import { workspaceSemanticMerge } from "./workspace-semantic-merge.js"
 
 it.each([
   "workspace",
+  "superseded-before-resume",
   "too-many-roots",
   "linked",
   "unlinked-before-resume",
@@ -205,6 +207,15 @@ it.each([
             }),
           ])
           await worker.stop()
+          if (mode === "superseded-before-resume")
+            await enqueueRepositoryIngestionWorkflow(
+              { orgId: f.org.id, repositoryId: repository.id },
+              {
+                error: (error) => {
+                  throw error
+                },
+              },
+            )
           if (mode === "unlinked-before-resume") {
             f.git("rm", "-f", "repositories/source.md")
             f.git("commit", "-m", "Unlink source repository")
@@ -234,6 +245,20 @@ it.each([
           )
           worker = resumed.newWorker({ concurrency: 1 })
           await worker.start()
+          if (mode === "superseded-before-resume") {
+            await expect(handle.result({ timeoutMs: 10_000 })).rejects.toThrow()
+            expect(
+              (
+                await backend.getWorkflowRun({
+                  workflowRunId: handle.workflowRun.id,
+                })
+              )?.error?.message,
+            ).toContain("Repository ingestion request superseded")
+            expect(f.git("--git-dir", f.remote, "rev-parse", "main")).toBe(
+              f.sha,
+            )
+            return
+          }
           if (mode === "too-many-roots") {
             await expect(handle.result({ timeoutMs: 10_000 })).rejects.toThrow()
             const persisted = await backend.getWorkflowRun({

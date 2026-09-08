@@ -62,6 +62,8 @@ export async function planCapturedExtraction(input: {
     knownKnowledgePaths: input.knownKnowledgePaths,
     stampImportKey: input.stampImportKey,
     referencePaths,
+    claimIdentity: (_fromPath, claim) =>
+      JSON.stringify([claim.to, claim.predicate, claim.source ?? null]),
     objects: batch.objects.map((object) => ({
       id: object.deduplicationKey,
       kind: object.kind,
@@ -74,7 +76,7 @@ export async function planCapturedExtraction(input: {
       predicate: claim.predicate,
       aggregatedConfidence: claim.confidence,
       evidenceKey: claim.sourceId,
-      source: `${checkoutableGitUrl(batch.repositoryUrl)}${claim.sourcePath ? `#${claim.sourcePath}` : ""}`,
+      source: `${checkoutableGitUrl(batch.repositoryUrl)}${claim.sourcePath ? `#${claim.sourcePath.split("/").map(encodeURIComponent).join("/")}` : ""}`,
       validFrom: null,
       validTo: null,
     })),

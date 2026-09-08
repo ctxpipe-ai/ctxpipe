@@ -119,6 +119,6 @@ export async function acquireWorkspaceWriteRevision(
   })
   if (input.mirror) await assertConnectorMirrorScope(input.mirror, pack)
   if (input.extraction)
-    await assertExtractionSource(input.extraction, revision, pack)
+    await assertExtractionSource(input.orgId, input.extraction, revision, pack)
   return { pack, displayName: workspace.displayName }
 }

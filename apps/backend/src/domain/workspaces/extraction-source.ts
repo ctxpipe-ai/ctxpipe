@@ -1,3 +1,4 @@
+import { assertRepositoryIngestionRequest } from "../../models/repository-ingestion-requests.js"
 import {
   type GitPack,
   nativeGit,
@@ -45,10 +46,17 @@ export async function captureExtractionSourceDeclaration(
 
 /** A queued capture cannot follow a removed, edited, or replaced clone declaration. */
 export async function assertExtractionSource(
+  orgId: string,
   extraction: WorkspaceExtraction,
   revision: WorkspaceRevision,
   pack: GitPack,
 ): Promise<void> {
+  await assertRepositoryIngestionRequest({
+    orgId,
+    repositoryId: extraction.repositoryId,
+    repositoryUrl: extraction.repositoryUrl,
+    requestId: extraction.ingestionRequestId,
+  })
   if (
     normalizeWorkspaceRepositoryUrl(extraction.repositoryUrl) ===
     normalizeWorkspaceRepositoryUrl(revision.remote.url)

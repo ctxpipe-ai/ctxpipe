@@ -29,6 +29,7 @@ export const extractionCaptureBudgetSchema = z
 const capturedExtractionSchema = z
   .object({
     repositoryId: z.string().min(1),
+    ingestionRequestId: z.string().min(1).optional(),
     repositoryUrl: linkedRepositoryUrlSchema,
     sourceDeclaration: z
       .object({

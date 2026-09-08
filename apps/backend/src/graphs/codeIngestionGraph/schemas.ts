@@ -36,6 +36,7 @@ const CodeIngestionRenameSchema = z.object({
 
 /** Full code ingestion state */
 export const CodeIngestionStateSchema = z.object({
+  requestId: z.string().min(1).optional(),
   repositoryId: z.string().min(1),
   orgId: z.string().min(1),
   /** Required when repo is linked to a GitHub connection (multi-app / per-connection credentials). */

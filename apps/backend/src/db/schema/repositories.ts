@@ -82,3 +82,29 @@ export const repositories = pgTable.withRLS(
     orgIsolationPolicy(t.orgId),
   ],
 )
+
+/** One current admission intent per repository; native OpenWorkflow owns execution. */
+export const repositoryIngestionRequests = pgTable.withRLS(
+  "repository_ingestion_requests",
+  {
+    repositoryId: text("repository_id")
+      .primaryKey()
+      .references(() => repositories.id, { onDelete: "cascade" }),
+    orgId: text("org_id").notNull(),
+    requestId: text("request_id").notNull(),
+    targetBranch: text("target_branch"),
+    indexingReason: text("indexing_reason"),
+    repositoryUrl: text("repository_url").notNull(),
+    githubConnectionId: text("github_connection_id"),
+    workflowRunId: text("workflow_run_id"),
+    createdAt: timestamp("created_at", { withTimezone: true, mode: "date" })
+      .notNull()
+      .defaultNow(),
+  },
+  (t) => [
+    uniqueIndex("repository_ingestion_requests_request_id_uidx").on(
+      t.requestId,
+    ),
+    orgIsolationPolicy(t.orgId),
+  ],
+)

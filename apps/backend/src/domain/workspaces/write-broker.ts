@@ -109,7 +109,12 @@ export async function pushWorkspaceCommit(
     await assertConnectorMirrorScope(input.mirror, committed)
   }
   if (input.extraction)
-    await assertExtractionSource(input.extraction, revision, committed)
+    await assertExtractionSource(
+      input.orgId,
+      input.extraction,
+      revision,
+      committed,
+    )
   const token = await getRepoWriteCloneToken(input.orgId, env, {
     githubConnectionId: connectionId,
     repoFullName: repositoryName,
@@ -145,6 +150,13 @@ export async function pushWorkspaceCommit(
         throw new WorkspaceWriteAccessUnavailableError()
       if (input.mirror)
         await assertConnectorMirrorBinding(input.orgId, input.mirror, revision)
+      if (input.extraction)
+        await assertExtractionSource(
+          input.orgId,
+          input.extraction,
+          revision,
+          committed,
+        )
       await nativeGit(
         directory,
         [
@@ -293,6 +305,7 @@ export async function refreshWorkspaceWriteRevision(
   }
   if (input.extraction)
     await assertExtractionSource(
+      input.orgId,
       input.extraction,
       resolved.revision,
       await readGitPackFromRemote({

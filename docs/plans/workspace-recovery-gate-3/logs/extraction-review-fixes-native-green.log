@@ -1,0 +1,43 @@
+{"name": "extraction-review-fixes-native-green", "cwd": "/private/tmp/ctxpipe-recovery-01a07aba", "command": ["/Users/jakubriedl/.volta/tools/image/node/22.16.0/bin/node", "apps/backend/node_modules/vitest/vitest.mjs", "run", "--root", "apps/backend", "src/domain/workspaces/write-extraction-retraction-native.contract.test.ts", "src/domain/workspaces/write-export-native.contract.test.ts", "src/domain/workspaces/dest-workspace-first.test.ts"], "environment": {"AUTH_SECRET": "gate0-local-disposable-test-secret-20260907", "DATABASE_URL": "postgresql://ctxpipe_app:ctxpipe@127.0.0.1:61314/ctxpipe_gate0_fresh", "GRAPH_DB_URI": "redis://127.0.0.1:6398", "CI": "true", "NO_COLOR": "1", "TURBO_TELEMETRY_DISABLED": "1", "STORYBOOK_DISABLE_TELEMETRY": "1", "PATH": "/Users/jakubriedl/.volta/tools/image/node/22.16.0/bin:/private/tmp/ctxpipe-recovery-runtime/ast-grep/node_modules/.bin:/private/tmp/ctxpipe-recovery-runtime/node_modules/.bin:/private/tmp/ctxpipe-recovery-runtime/zoekt:/usr/local/bin:/System/Cryptexes/App/usr/bin:/usr/bin:/bin:/usr/sbin:/sbin:/var/run/com.apple.security.cryptexd/codex.system/bootstrap/usr/local/bin:/var/run/com.apple.security.cryptexd/codex.system/bootstrap/usr/bin:/var/run/com.apple.security.cryptexd/codex.system/bootstrap/usr/appleinternal/bin:/pkg/env/global/bin:/Users/jakubriedl/.codex/tmp/arg0/codex-arg0BW5Gt3:/Users/jakubriedl/.cache/codex-runtimes/codex-primary-runtime/dependencies/bin/override:/Users/jakubriedl/.local/bin:/Users/jakubriedl/.bun/bin:/Users/jakubriedl/.opencode/bin:/Users/jakubriedl/.volta/bin:/opt/homebrew/bin:/opt/homebrew/sbin:/Users/jakubriedl/.cache/codex-runtimes/codex-primary-runtime/dependencies/bin/fallback:/Applications/ChatGPT.app/Contents/Resources"}, "timeout_seconds": 600, "started_utc": "2026-09-08T20:43:10Z", "log": "logs/extraction-review-fixes-native-green.log"}
+
+ RUN  v4.0.18 /private/tmp/ctxpipe-recovery-01a07aba/apps/backend
+
+Cloning into bare repository '/var/folders/9t/jj9rnpps7_ddb72c1mq2k13w0000gn/T/ctxpipe-hydration-contract-QOVRBz/remote.git'...
+done.
+Cloning into bare repository '/var/folders/9t/jj9rnpps7_ddb72c1mq2k13w0000gn/T/ctxpipe-hydration-contract-bmuqZK/remote.git'...
+done.
+Cloning into bare repository '/var/folders/9t/jj9rnpps7_ddb72c1mq2k13w0000gn/T/ctxpipe-hydration-contract-SC8DTq/remote.git'...
+done.
+Cloning into bare repository '/var/folders/9t/jj9rnpps7_ddb72c1mq2k13w0000gn/T/ctxpipe-hydration-contract-Tzi5iy/remote.git'...
+done.
+Cloning into bare repository '/var/folders/9t/jj9rnpps7_ddb72c1mq2k13w0000gn/T/ctxpipe-hydration-contract-DexUoX/remote.git'...
+done.
+ ✓ src/domain/workspaces/write-extraction-retraction-native.contract.test.ts (5 tests) 12813ms
+   ✓ expires unsupported 'full' source claims at 'knowledge/services/billing.md' while retaining owner prose and unrelated evidence  3011ms
+   ✓ expires unsupported 'partial' source claims at 'handbook/services/billing.md' while retaining owner prose and unrelated evidence  1975ms
+   ✓ expires unsupported 'directory' source claims at 'knowledge/services/billing.md' while retaining owner prose and unrelated evidence  1679ms
+   ✓ reasserts an expired captured claim from 'src/billing.ts' and preserves source history  3004ms
+   ✓ reasserts an expired captured claim from 'src/a#b.ts' and preserves source history  3142ms
+Cloning into bare repository '/var/folders/9t/jj9rnpps7_ddb72c1mq2k13w0000gn/T/ctxpipe-hydration-contract-bkGfX0/remote.git'...
+done.
+Cloning into bare repository '/var/folders/9t/jj9rnpps7_ddb72c1mq2k13w0000gn/T/ctxpipe-hydration-contract-QynJNa/remote.git'...
+done.
+Cloning into bare repository '/var/folders/9t/jj9rnpps7_ddb72c1mq2k13w0000gn/T/ctxpipe-hydration-contract-m3ZY2e/remote.git'...
+done.
+Cloning into bare repository '/var/folders/9t/jj9rnpps7_ddb72c1mq2k13w0000gn/T/ctxpipe-hydration-contract-h2o6nC/remote.git'...
+done.
+Cloning into bare repository '/var/folders/9t/jj9rnpps7_ddb72c1mq2k13w0000gn/T/ctxpipe-hydration-contract-PZEFCb/remote.git'...
+done.
+ ✓ src/domain/workspaces/write-export-native.contract.test.ts (5 tests) 36851ms
+   ✓ exports legacy knowledge through one typed native commit and replays its durable result  24773ms
+   ✓ records the resolved tip for an empty migration without claiming a new commit  2632ms
+   ✓ omits credential-bearing legacy repository source URLs from exported knowledge  3118ms
+   ✓ records export cutover when a raced native child finds the export already present  2588ms
+   ✓ recovers hydration after export metadata completed before enqueue acknowledgement  3740ms
+ ✓ src/domain/workspaces/dest-workspace-first.test.ts (11 tests) 26ms
+
+ Test Files  3 passed (3)
+      Tests  21 passed (21)
+   Start at  06:43:11
+   Duration  54.38s (transform 938ms, setup 28ms, import 4.44s, tests 49.69s, environment 0ms)
+
