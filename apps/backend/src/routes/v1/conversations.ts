@@ -8,13 +8,13 @@ import {
   parseConversationChatRequest,
   workspaceChatStreamResponse,
 } from "../../domain/conversations/transport.js"
-import {
-  planChatPullRequest,
-  shouldDestroyChatSandbox,
-} from "../../domain/workspaces/chat-lifecycle.js"
+import { shouldDestroyChatSandbox } from "../../domain/workspaces/chat-lifecycle.js"
 import { workspaceAllowsConversationEdits } from "../../domain/workspaces/chat-sandbox-policy.js"
-import { resolveConversationSandboxHandle } from "../../domain/workspaces/conversation-files.js"
-import { pushConversationSessionBranch } from "../../domain/workspaces/conversation-publish.js"
+import {
+  planCapturedConversationPublication,
+  pushConversationSessionBranch,
+} from "../../domain/workspaces/conversation-publish.js"
+import { sameWorkspaceRevision } from "../../domain/workspaces/revision.js"
 import {
   destroySandboxesForConversation,
   getRegisteredChatSandbox,
@@ -38,7 +38,7 @@ import {
   ensureConversation,
   getConversation,
   listConversationsPaginated,
-  persistConversationLastChatPrNumber,
+  persistConversationPublication,
   updateConversation,
 } from "../../models/conversations.js"
 import {
@@ -705,6 +705,7 @@ export const conversationRoutes = new OpenAPIHono<AppEnv>()
     if (!warmed.ok) return c.json({ error: warmed.error }, 503)
     await checkoutPreparedConversationBranch({
       conversationId,
+      githubConnectionId: workspace.githubConnectionId,
       workspaceId: runtime.workspaceId ?? workspace.id,
       orgId: runtime.orgId,
       defaultBranch: runtime.defaultBranch,
@@ -773,38 +774,25 @@ export const conversationRoutes = new OpenAPIHono<AppEnv>()
     ) {
       return c.json({ error: "read_only" }, 400)
     }
-    const handle = resolveConversationSandboxHandle(conversationId)
+    const sandbox = getRegisteredChatSandbox(conversationId)
+    const handle = sandbox?.handle
     if (!handle) {
       return c.json({ error: "missing_sandbox" }, 409)
     }
     const env = parseEnv(process.env as Record<string, string | undefined>)
-    const repoName = githubRepoFullNameFromWorkspaceUrl(
-      workspace.workspaceRepositoryUrl,
-    )
-    if (!repoName) {
-      return c.json({ error: "not_github" }, 400)
-    }
     const revision = await getDesiredWorkspaceRevision(
       workspace.id,
       "publish-session",
     )
     if (!revision) return c.json({ error: "missing_revision" }, 409)
+    const repoName = githubRepoFullNameFromWorkspaceUrl(revision.remote.url)
+    if (!repoName) return c.json({ error: "not_github" }, 400)
     const defaultBranch = revision.defaultBranch
-    const sandbox = getRegisteredChatSandbox(conversationId)
-    const planned = planChatPullRequest({
+    const planned = planCapturedConversationPublication({
+      revision,
       writeStatus: workspace.writeStatus,
       readOnlyReason: workspace.readOnlyReason,
-      explicitRequest: true,
-      host: "github",
-      defaultBranch,
-      capturedDefaultBranch: sandbox?.defaultBranch ?? defaultBranch,
-      capturedGeneration:
-        sandbox?.desiredGeneration ?? workspace.desiredGeneration,
-      desiredGeneration: workspace.desiredGeneration,
-      capturedUrl: sandbox?.desiredUrl ?? workspace.workspaceRepositoryUrl,
-      desiredUrl: workspace.workspaceRepositoryUrl,
-      capturedSha: sandbox?.desiredSha ?? workspace.desiredSha,
-      desiredSha: workspace.desiredSha,
+      sandbox,
     })
     if (!planned.publish) {
       return c.json({ error: planned.reason }, 400)
@@ -820,20 +808,31 @@ export const conversationRoutes = new OpenAPIHono<AppEnv>()
       commitMessage: title,
     })
     if (!pushed.ok) return c.json({ error: pushed.error }, 400)
+    const bindingIsCurrent = async () =>
+      sameWorkspaceRevision(
+        await getDesiredWorkspaceRevision(workspace.id, "publish-session"),
+        revision,
+      )
+    if (!(await bindingIsCurrent()))
+      return c.json({ error: "stale_binding" }, 409)
     if (conversation.lastChatPrNumber != null) {
       const existing = await getPullRequestState({
         orgId: workspace.orgId,
         repositoryName: repoName,
         env,
-        githubConnectionId: workspace.githubConnectionId ?? undefined,
+        githubConnectionId: revision.remote.connectionId ?? undefined,
         pullNumber: conversation.lastChatPrNumber,
       })
       if (existing?.prState === "open") {
-        await persistConversationLastChatPrNumber({
-          conversationId,
-          lastChatPrNumber: existing.prNumber,
-          lastBranch: pushed.branch,
-        })
+        if (
+          !(await persistConversationPublication({
+            conversationId,
+            lastChatPrNumber: existing.prNumber,
+            lastBranch: pushed.branch,
+            revision,
+          }))
+        )
+          return c.json({ error: "stale_binding" }, 409)
         return c.json(
           {
             branch: pushed.branch,
@@ -845,21 +844,29 @@ export const conversationRoutes = new OpenAPIHono<AppEnv>()
         )
       }
     }
+    if (!(await bindingIsCurrent()))
+      return c.json({ error: "stale_binding" }, 409)
     const created = await createPullRequestFromBranch({
+      revision,
       orgId: workspace.orgId,
       repositoryName: repoName,
       env,
-      githubConnectionId: workspace.githubConnectionId ?? undefined,
+      githubConnectionId: revision.remote.connectionId ?? undefined,
       baseBranch: defaultBranch,
       branch: pushed.branch,
       title,
       body: body.body ?? "",
     })
-    await persistConversationLastChatPrNumber({
-      conversationId,
-      lastChatPrNumber: created.pullNumber,
-      lastBranch: created.branch,
-    })
+    if (!created) return c.json({ error: "stale_binding" }, 409)
+    if (
+      !(await persistConversationPublication({
+        conversationId,
+        lastChatPrNumber: created.pullNumber,
+        lastBranch: created.branch,
+        revision,
+      }))
+    )
+      return c.json({ error: "stale_binding" }, 409)
     return c.json(
       {
         branch: created.branch,

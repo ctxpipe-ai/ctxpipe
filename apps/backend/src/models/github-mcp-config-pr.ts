@@ -115,6 +115,8 @@ async function createHeadRefFromDefaultBranch(input: {
       repo,
     })
     const defaultBranch = repoMeta.default_branch
+    if (!defaultBranch || branch === defaultBranch)
+      throw new Error("Config API writes cannot target the default branch")
     const baseSha = await getDefaultBranchHeadSha(
       octokit,
       owner,
@@ -408,24 +410,26 @@ export async function previewMcpConfigChanges(input: {
   repositories: string[]
   agents: McpOnboardingAgent[]
 }): Promise<McpConfigPreviewFile[]> {
-  const token = await getInstallationToken(
-    input.orgId,
-    input.env,
-    input.githubConnectionId,
-  )
-  if (!token) {
-    throw new Error("No GitHub installation token for this organisation")
-  }
-
   const mcpBaseUrl = input.env.AUTH_BASE_URL.replace(/\/$/, "")
   const mcpUrl = mcpStreamUrlForOrg(mcpBaseUrl, input.orgSlug)
-  const octokit = createBatchOctokit(token)
 
   const out: McpConfigPreviewFile[] = []
 
   for (const fullName of input.repositories) {
     const [owner, repoName] = fullName.split("/")
     if (!owner || !repoName) continue
+    const token = await getInstallationToken(
+      input.orgId,
+      input.env,
+      input.githubConnectionId,
+      {
+        repoFullName: fullName,
+        permissions: { contents: "read", metadata: "read" },
+      },
+    )
+    if (!token)
+      throw new Error("No GitHub installation token for this repository")
+    const octokit = createBatchOctokit(token)
 
     const { data: repoMeta } = await octokit.rest.repos.get({
       owner,
@@ -555,6 +559,15 @@ async function createCtxpipeMcpConfigPullRequestForRepo(input: {
     )
     const shaForWrite = shaOnBranch ?? shaOnDefault
 
+    const { data: currentRepository } = await octokit.rest.repos.get({
+      owner,
+      repo: repoName,
+    })
+    if (
+      !currentRepository.default_branch ||
+      currentRepository.default_branch === branch
+    )
+      throw new Error("Config API writes cannot target the default branch")
     await octokit.rest.repos.createOrUpdateFileContents({
       owner,
       repo: repoName,
@@ -607,24 +620,30 @@ export async function createCtxpipeMcpConfigPullRequests(input: {
     detail: ReturnType<typeof extractGithubErrorDetail>
   }) => void
 }): Promise<McpConfigPrBatchResult> {
-  const token = await getInstallationToken(
-    input.orgId,
-    input.env,
-    input.githubConnectionId,
-  )
-  if (!token) {
-    throw new Error("No GitHub installation token for this organisation")
-  }
-
   const mcpBaseUrl = input.env.AUTH_BASE_URL.replace(/\/$/, "")
   const mcpUrl = mcpStreamUrlForOrg(mcpBaseUrl, input.orgSlug)
-  const octokit = createBatchOctokit(token)
 
   const pullRequests: McpConfigPrResultItem[] = []
   const failures: McpConfigPrFailureItem[] = []
 
   for (const fullName of input.repositories) {
     try {
+      const token = await getInstallationToken(
+        input.orgId,
+        input.env,
+        input.githubConnectionId,
+        {
+          repoFullName: fullName,
+          permissions: {
+            contents: "write",
+            pull_requests: "write",
+            metadata: "read",
+          },
+        },
+      )
+      if (!token)
+        throw new Error("No GitHub installation token for this repository")
+      const octokit = createBatchOctokit(token)
       const result = await createCtxpipeMcpConfigPullRequestForRepo({
         octokit,
         fullName,

@@ -40,10 +40,15 @@ export type NativeHydrationOptions = {
   count?: number
   github?: boolean
   githubWriteView?: "writable" | "missing"
+  githubDefaultBranch?: () => string
   githubRepoPermissions?: GithubRepoPermissionBits | null
   githubInstallationPermissions?: GithubRepoPermissionBits
   githubContentFiles?: Record<string, string>
-  onGithubPullRequest?: (body: unknown) => void
+  onGithubPrCredential?: () => void | Promise<void>
+  onGithubPullRequest?: (body: unknown) => void | Promise<void>
+  githubGitResponses?: Record<string, { status?: number; body: unknown }>
+  onGithubGitRequest?: (method: string, path: string, body: unknown) => void
+  onGithubContentsWrite?: (path: string, body: unknown) => void
   slackCaptureIntent?: boolean
   slackResponses?: Record<string, unknown>
   onSlackRequest?: (method: string, body: unknown) => void
@@ -97,6 +102,40 @@ async function createNativeHydrationFixture(
   let beforeWriteProbe: (() => Promise<void>) | undefined
   let beforeWriteCredential: (() => Promise<void>) | undefined
   const server = setupServer(
+    http.put(
+      "https://api.github.com/repos/fixture/hydration-contract/contents/*",
+      async ({ request, params }) => {
+        if (!options.onGithubContentsWrite)
+          return HttpResponse.json(
+            { message: "Unexpected contents write" },
+            { status: 400 },
+          )
+        options.onGithubContentsWrite(String(params[0]), await request.json())
+        return HttpResponse.json(
+          { content: { sha: "c".repeat(40) } },
+          { status: 201 },
+        )
+      },
+    ),
+    ...(options.githubGitResponses
+      ? [
+          http.all(
+            "https://api.github.com/repos/fixture/hydration-contract/git/*",
+            async ({ request, params }) => {
+              const path = String(params[0])
+              const body =
+                request.method === "GET" ? undefined : await request.json()
+              options.onGithubGitRequest?.(request.method, path, body)
+              const response =
+                options.githubGitResponses?.[`${request.method} ${path}`]
+              return HttpResponse.json(
+                response?.body ?? { message: "Unexpected GitHub Git request" },
+                { status: response?.status ?? (response ? 200 : 400) },
+              )
+            },
+          ),
+        ]
+      : []),
     http.post(
       "https://api.github.com/repos/fixture/hydration-contract/pulls",
       async ({ request }) => {
@@ -105,7 +144,7 @@ async function createNativeHydrationFixture(
             { message: "Unexpected pull request" },
             { status: 400 },
           )
-        options.onGithubPullRequest(await request.json())
+        await options.onGithubPullRequest(await request.json())
         return HttpResponse.json(
           {
             number: 41,
@@ -122,6 +161,8 @@ async function createNativeHydrationFixture(
         const body = await request.text()
         const requestBody = body ? JSON.parse(body) : {}
         tokenRequests.push(requestBody)
+        if (requestBody.permissions?.pull_requests === "write")
+          await options.onGithubPrCredential?.()
         const writing = requestBody.permissions?.contents === "write"
         if (writing) await beforeWriteCredential?.()
         if (failGithubTokens)
@@ -150,7 +191,7 @@ async function createNativeHydrationFixture(
         await beforeWriteProbe?.()
         return githubWriteView === "writable"
           ? HttpResponse.json({
-              default_branch: "main",
+              default_branch: options.githubDefaultBranch?.() ?? "main",
               ...(options.githubRepoPermissions === null
                 ? {}
                 : {

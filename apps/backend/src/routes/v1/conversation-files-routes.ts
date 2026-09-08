@@ -17,15 +17,20 @@ import {
 import {
   conversationGithubPullUrl,
   conversationGithubTreeUrl,
+  planCapturedConversationPublication,
   pushConversationSessionBranch,
 } from "../../domain/workspaces/conversation-publish.js"
-import { attachChatSandboxHandle } from "../../domain/workspaces/sandbox-registry.js"
+import {
+  attachChatSandboxHandle,
+  getRegisteredChatSandbox,
+} from "../../domain/workspaces/sandbox-registry.js"
 import { warmTanstackWorkspaceChat } from "../../domain/workspaces/tanstack-workspace-chat.js"
 import { resolveWorkspaceChatTurnRuntime } from "../../domain/workspaces/workspace-chat-turn-runtime.js"
 import { githubRepoFullNameFromWorkspaceUrl } from "../../domain/workspaces/write-status.js"
 import {
   getConversation,
   persistConversationLastBranch,
+  persistConversationPublication,
 } from "../../models/conversations.js"
 import {
   getDesiredWorkspaceRevision,
@@ -527,18 +532,24 @@ export const conversationFileRoutes = new OpenAPIHono<AppEnv>()
     ) {
       return c.json({ error: "read_only" }, 400)
     }
-    const handle = await readySandboxHandle(loaded)
+    const sandbox = getRegisteredChatSandbox(conversationId)
+    const handle = sandbox?.handle
     if (!handle) return c.json({ error: "missing_sandbox" }, 409)
     const env = parseEnv(process.env as Record<string, string | undefined>)
-    const repoName = githubRepoFullNameFromWorkspaceUrl(
-      loaded.workspace.workspaceRepositoryUrl,
-    )
-    if (!repoName) return c.json({ error: "not_github" }, 400)
     const revision = await getDesiredWorkspaceRevision(
       loaded.workspace.id,
       "publish-session",
     )
     if (!revision) return c.json({ error: "missing_revision" }, 409)
+    const repoName = githubRepoFullNameFromWorkspaceUrl(revision.remote.url)
+    if (!repoName) return c.json({ error: "not_github" }, 400)
+    const planned = planCapturedConversationPublication({
+      revision,
+      writeStatus: loaded.workspace.writeStatus,
+      readOnlyReason: loaded.workspace.readOnlyReason,
+      sandbox,
+    })
+    if (!planned.publish) return c.json({ error: planned.reason }, 400)
     const pushed = await pushConversationSessionBranch({
       handle,
       conversationId,
@@ -549,10 +560,14 @@ export const conversationFileRoutes = new OpenAPIHono<AppEnv>()
       commitMessage: loaded.conversation.name,
     })
     if (!pushed.ok) return c.json({ error: pushed.error }, 400)
-    await persistConversationLastBranch({
-      conversationId,
-      lastBranch: pushed.branch,
-    })
+    if (
+      !(await persistConversationPublication({
+        conversationId,
+        lastBranch: pushed.branch,
+        revision,
+      }))
+    )
+      return c.json({ error: "stale_binding" }, 409)
     return c.json(
       {
         branch: pushed.branch,
@@ -567,6 +582,7 @@ export const conversationFileRoutes = new OpenAPIHono<AppEnv>()
 
 export async function checkoutPreparedConversationBranch(input: {
   conversationId: string
+  githubConnectionId?: string | null
   workspaceId: string
   orgId: string
   defaultBranch: string
@@ -594,6 +610,7 @@ export async function checkoutPreparedConversationBranch(input: {
     orgId: input.orgId,
     handle,
     desiredUrl: input.desiredUrl,
+    githubConnectionId: input.githubConnectionId,
     desiredGeneration: input.desiredGeneration,
     desiredSha: input.desiredSha,
     defaultBranch: input.defaultBranch,

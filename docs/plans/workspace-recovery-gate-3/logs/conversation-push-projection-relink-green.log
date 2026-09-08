@@ -1,0 +1,54 @@
+{"name": "conversation-push-projection-relink-green", "cwd": "/private/tmp/ctxpipe-recovery-01a07aba", "command": ["/Users/jakubriedl/.volta/tools/image/node/22.16.0/bin/node", "apps/backend/node_modules/vitest/vitest.mjs", "run", "--root", "apps/backend", "src/routes/v1/conversation-publish-native.contract.test.ts", "src/domain/workspaces/conversation-publish-native.contract.test.ts"], "environment": {"AUTH_SECRET": "gate0-local-disposable-test-secret-20260907", "DATABASE_URL": "postgresql://ctxpipe_app:ctxpipe@127.0.0.1:61314/ctxpipe_gate0_fresh", "GRAPH_DB_URI": "redis://127.0.0.1:6398", "CI": "true", "NO_COLOR": "1", "TURBO_TELEMETRY_DISABLED": "1", "STORYBOOK_DISABLE_TELEMETRY": "1", "PATH": "/Users/jakubriedl/.volta/tools/image/node/22.16.0/bin:/private/tmp/ctxpipe-recovery-runtime/ast-grep/node_modules/.bin:/private/tmp/ctxpipe-recovery-runtime/node_modules/.bin:/private/tmp/ctxpipe-recovery-runtime/zoekt:/usr/local/bin:/System/Cryptexes/App/usr/bin:/usr/bin:/bin:/usr/sbin:/sbin:/var/run/com.apple.security.cryptexd/codex.system/bootstrap/usr/local/bin:/var/run/com.apple.security.cryptexd/codex.system/bootstrap/usr/bin:/var/run/com.apple.security.cryptexd/codex.system/bootstrap/usr/appleinternal/bin:/pkg/env/global/bin:/Users/jakubriedl/.codex/tmp/arg0/codex-arg0BW5Gt3:/Users/jakubriedl/.cache/codex-runtimes/codex-primary-runtime/dependencies/bin/override:/Users/jakubriedl/.local/bin:/Users/jakubriedl/.bun/bin:/Users/jakubriedl/.opencode/bin:/Users/jakubriedl/.volta/bin:/opt/homebrew/bin:/opt/homebrew/sbin:/Users/jakubriedl/.cache/codex-runtimes/codex-primary-runtime/dependencies/bin/fallback:/Applications/ChatGPT.app/Contents/Resources"}, "timeout_seconds": 600, "started_utc": "2026-09-08T17:50:08Z", "log": "logs/conversation-push-projection-relink-green.log"}
+
+ RUN  v4.0.18 /private/tmp/ctxpipe-recovery-01a07aba/apps/backend
+
+Cloning into bare repository '/var/folders/9t/jj9rnpps7_ddb72c1mq2k13w0000gn/T/ctxpipe-hydration-contract-8nnm84/remote.git'...
+done.
+Cloning into bare repository '/var/folders/9t/jj9rnpps7_ddb72c1mq2k13w0000gn/T/ctxpipe-hydration-contract-pIfyEr/remote.git'...
+done.
+Cloning into bare repository '/var/folders/9t/jj9rnpps7_ddb72c1mq2k13w0000gn/T/ctxpipe-hydration-contract-g8iY3W/remote.git'...
+done.
+Cloning into bare repository '/var/folders/9t/jj9rnpps7_ddb72c1mq2k13w0000gn/T/ctxpipe-hydration-contract-umLq91/remote.git'...
+done.
+Cloning into bare repository '/var/folders/9t/jj9rnpps7_ddb72c1mq2k13w0000gn/T/ctxpipe-hydration-contract-lNn4H1/remote.git'...
+done.
+Cloning into bare repository '/var/folders/9t/jj9rnpps7_ddb72c1mq2k13w0000gn/T/ctxpipe-hydration-contract-7OWdO9/remote.git'...
+done.
+Cloning into bare repository '/var/folders/9t/jj9rnpps7_ddb72c1mq2k13w0000gn/T/ctxpipe-hydration-contract-bV8Rvm/remote.git'...
+done.
+Cloning into bare repository '/var/folders/9t/jj9rnpps7_ddb72c1mq2k13w0000gn/T/ctxpipe-hydration-contract-9mLMpq/remote.git'...
+done.
+Cloning into bare repository '/var/folders/9t/jj9rnpps7_ddb72c1mq2k13w0000gn/T/ctxpipe-hydration-contract-WD3hfT/remote.git'...
+done.
+ ✓ src/routes/v1/conversation-publish-native.contract.test.ts (9 tests) 9255ms
+   ✓ publishes from the authenticated conversation HTTP boundary: push  1497ms
+   ✓ publishes from the authenticated conversation HTTP boundary: pull-request  1057ms
+   ✓ publishes from the authenticated conversation HTTP boundary: missing  482ms
+   ✓ publishes from the authenticated conversation HTTP boundary: stale  807ms
+   ✓ publishes from the authenticated conversation HTTP boundary: stale_push  539ms
+   ✓ publishes from the authenticated conversation HTTP boundary: relink_after_push  1386ms
+   ✓ publishes from the authenticated conversation HTTP boundary: relink_after_push_push  1457ms
+   ✓ publishes from the authenticated conversation HTTP boundary: relink_during_pr  1081ms
+   ✓ publishes from the authenticated conversation HTTP boundary: relink_before_pr  946ms
+Cloning into bare repository '/var/folders/9t/jj9rnpps7_ddb72c1mq2k13w0000gn/T/ctxpipe-hydration-contract-wJ6G21/remote.git'...
+done.
+Cloning into bare repository '/var/folders/9t/jj9rnpps7_ddb72c1mq2k13w0000gn/T/ctxpipe-hydration-contract-mzCIvm/remote.git'...
+done.
+Cloning into bare repository '/var/folders/9t/jj9rnpps7_ddb72c1mq2k13w0000gn/T/ctxpipe-hydration-contract-BIoROg/remote.git'...
+done.
+Cloning into bare repository '/var/folders/9t/jj9rnpps7_ddb72c1mq2k13w0000gn/T/ctxpipe-hydration-contract-0aTeyE/remote.git'...
+done.
+Cloning into bare repository '/var/folders/9t/jj9rnpps7_ddb72c1mq2k13w0000gn/T/ctxpipe-hydration-contract-bjil0D/remote.git'...
+done.
+ ✓ src/domain/workspaces/conversation-publish-native.contract.test.ts (5 tests) 7149ms
+   ✓ brokers conversation publishing without agent write credentials: publish  1312ms
+   ✓ brokers conversation publishing without agent write credentials: rebind  927ms
+   ✓ brokers conversation publishing without agent write credentials: default_changed  995ms
+   ✓ brokers conversation publishing without agent write credentials: session_advanced  900ms
+   ✓ brokers conversation publishing without agent write credentials: large_base  3013ms
+
+ Test Files  2 passed (2)
+      Tests  14 passed (14)
+   Start at  03:50:08
+   Duration  20.45s (transform 869ms, setup 21ms, import 3.89s, tests 16.40s, environment 0ms)
+

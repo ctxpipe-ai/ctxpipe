@@ -1,3 +1,5 @@
+import { existsSync, writeFileSync } from "node:fs"
+import { join } from "node:path"
 import { OpenAPIHono } from "@hono/zod-openapi"
 import { localProcessSandbox } from "@tanstack/ai-sandbox-local-process"
 import { eq } from "drizzle-orm"
@@ -6,6 +8,7 @@ import type { AppEnv } from "../../app/env.js"
 import { withOrgIdContext } from "../../auth/withAuth.js"
 import { withOrgDbContext } from "../../db/client.js"
 import { conversations } from "../../db/schema/conversations.js"
+import { workspaces } from "../../db/schema/workspaces.js"
 import { conversationSessionBranch } from "../../domain/workspaces/chat-lifecycle.js"
 import { shellSingleQuote } from "../../domain/workspaces/conversation-publish.js"
 import { adaptTanstackHandle } from "../../domain/workspaces/job-sandbox.js"
@@ -21,21 +24,52 @@ import {
 import { withNativeHydrationFixture } from "../../test/native-hydration-fixture.js"
 import { conversationRoutes } from "./conversations.js"
 
-it.each(["push", "pull-request", "missing", "stale"])(
+it.each([
+  "push",
+  "pull-request",
+  "missing",
+  "stale",
+  "stale_push",
+  "stale_connection",
+  "stale_generation",
+  "stale_sha",
+  "stale_default_branch",
+  "relink_after_push",
+  "relink_after_push_push",
+  "relink_during_pr",
+  "relink_before_pr",
+])(
   "publishes from the authenticated conversation HTTP boundary: %s",
   { timeout: 30_000 },
   async (scenario) => {
     const pullRequests: unknown[] = []
+    let relink: (() => Promise<void>) | undefined
     await withNativeHydrationFixture(
       {
         github: true,
         githubWriteView: "writable",
         writeStatus: "writable",
-        onGithubPullRequest: (body) => pullRequests.push(body),
+        onGithubPrCredential: async () => {
+          if (scenario === "relink_before_pr") await relink?.()
+        },
+        onGithubPullRequest: async (body) => {
+          pullRequests.push(body)
+          if (scenario === "relink_during_pr") await relink?.()
+        },
       },
       async (f) => {
         const conversationId = `conv_${f.id}`
         const userId = `user_${f.id}`
+        const published = join(f.directory, "conversation-published")
+        const release = join(f.directory, "conversation-publish-release")
+        relink = async () => {
+          await withOrgDbContext(f.org.id, (db) =>
+            db
+              .update(workspaces)
+              .set({ desiredGeneration: f.revision.generation + 1 })
+              .where(eq(workspaces.id, f.workspaceId)),
+          )
+        }
         const raw = await localProcessSandbox().create({ id: conversationId })
         try {
           await withOrgDbContext(f.org.id, (db) =>
@@ -58,15 +92,40 @@ it.each(["push", "pull-request", "missing", "stale"])(
               orgId: f.org.id,
               workspaceId: f.workspaceId,
               conversationId,
+              githubConnectionId:
+                scenario === "stale_connection" ? "con_other" : f.connectionId,
               handle: adaptTanstackHandle(raw),
               desiredUrl:
-                scenario === "stale"
+                scenario === "stale" || scenario === "stale_push"
                   ? "https://github.com/fixture/other"
                   : f.workspaceUrl,
-              desiredSha: f.sha,
-              desiredGeneration: f.revision.generation,
-              defaultBranch: "main",
+              desiredSha: scenario === "stale_sha" ? "0".repeat(40) : f.sha,
+              desiredGeneration:
+                scenario === "stale_generation"
+                  ? f.revision.generation + 1
+                  : f.revision.generation,
+              defaultBranch:
+                scenario === "stale_default_branch" ? "other" : "main",
             })
+          if (scenario.startsWith("relink_after_push")) {
+            await raw.fs.write(
+              ".git/hooks/reference-transaction",
+              `#!/bin/sh
+if [ "$1" = committed ]; then
+  while read old new ref; do
+    case "$ref" in refs/remotes/origin/ctxpipe/chat/*)
+      touch ${shellSingleQuote(published)}
+      for retry in $(seq 1 750); do
+        [ -f ${shellSingleQuote(release)} ] && break
+        sleep 0.02
+      done
+    esac
+  done
+fi
+`,
+            )
+            await raw.process.exec("chmod 700 .git/hooks/reference-transaction")
+          }
           const app = new OpenAPIHono<AppEnv>()
           app.use(contextStorage())
           app.use(withTestRequestLogger)
@@ -78,21 +137,53 @@ it.each(["push", "pull-request", "missing", "stale"])(
             await withOrgIdContext(f.org, next)
           })
           app.route("/conversations", conversationRoutes)
-          const response = await app.request(
-            `/conversations/${conversationId}/${scenario === "push" ? "push" : "pull-request"}`,
+          const pendingResponse = app.request(
+            `/conversations/${conversationId}/${scenario === "push" || scenario === "stale_push" || scenario === "relink_after_push_push" ? "push" : "pull-request"}`,
             {
               method: "POST",
               headers: { "content-type": "application/json" },
               body: JSON.stringify({ title: "Chat changes" }),
             },
           )
+          if (scenario.startsWith("relink_after_push")) {
+            try {
+              await expect
+                .poll(() => existsSync(published), { timeout: 10_000 })
+                .toBe(true)
+              await relink()
+            } finally {
+              writeFileSync(release, "release")
+            }
+          }
+          const response = await pendingResponse
           const body = await response.json()
           const branch = conversationSessionBranch(conversationId)
-          if (scenario === "missing" || scenario === "stale") {
+          if (scenario.startsWith("relink_")) {
+            expect({ status: response.status, body }).toEqual({
+              status: 409,
+              body: { error: "stale_binding" },
+            })
+            expect(pullRequests).toHaveLength(
+              scenario === "relink_during_pr" ? 1 : 0,
+            )
+            const { withUserIdContext } = await import("../../auth/context.js")
+            expect(
+              await withOrgIdContext(f.org, () =>
+                withUserIdContext(userId, () =>
+                  getConversation(conversationId),
+                ),
+              ),
+            ).toMatchObject({ lastChatPrNumber: null, lastBranch: null })
+          } else if (scenario === "missing" || scenario.startsWith("stale")) {
             expect({ status: response.status, body }).toEqual({
               status: scenario === "missing" ? 409 : 400,
               body: {
-                error: scenario === "missing" ? "missing_sandbox" : "stale_url",
+                error:
+                  scenario === "missing"
+                    ? "missing_sandbox"
+                    : scenario === "stale" || scenario === "stale_push"
+                      ? "stale_url"
+                      : scenario,
               },
             })
             expect(pullRequests).toEqual([])

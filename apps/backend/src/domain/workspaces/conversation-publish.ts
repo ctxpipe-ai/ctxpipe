@@ -1,3 +1,6 @@
+import { randomUUID } from "node:crypto"
+import { open } from "node:fs/promises"
+import { join } from "node:path"
 import type { Env } from "../../config/env.js"
 import { getConversation } from "../../models/conversations.js"
 import { getRepoWriteCloneToken } from "../../models/github-installation.js"
@@ -10,7 +13,7 @@ import { nativeGit, withGitDirectory } from "../../services/git/pack.js"
 import {
   conversationSessionBranch,
   mayForcePushBranch,
-  type planChatPullRequest,
+  planChatPullRequest,
 } from "./chat-lifecycle.js"
 import { isChatSessionBranch } from "./chat-pull-request.js"
 import { workspaceAllowsConversationEdits } from "./chat-sandbox-policy.js"
@@ -26,9 +29,36 @@ import {
   sameWorkspaceRevision,
   type WorkspaceRevision,
 } from "./revision.js"
+import type { RegisteredSandbox } from "./sandbox-registry.js"
 import { githubRepoFullNameFromWorkspaceUrl } from "./write-status.js"
 
 export type ConversationPublishPlan = ReturnType<typeof planChatPullRequest>
+
+export function planCapturedConversationPublication(input: {
+  revision: WorkspaceRevision
+  writeStatus: string
+  readOnlyReason?: string | null
+  sandbox: RegisteredSandbox | null
+}): ConversationPublishPlan {
+  if (input.sandbox?.githubConnectionId !== input.revision.remote.connectionId)
+    return { publish: false, reason: "stale_connection" }
+  return planChatPullRequest({
+    writeStatus: input.writeStatus,
+    readOnlyReason: input.readOnlyReason,
+    explicitRequest: true,
+    host: githubRepoFullNameFromWorkspaceUrl(input.revision.remote.url)
+      ? "github"
+      : "other",
+    defaultBranch: input.revision.defaultBranch,
+    capturedDefaultBranch: input.sandbox?.defaultBranch ?? null,
+    capturedGeneration: input.sandbox?.desiredGeneration ?? null,
+    desiredGeneration: input.revision.generation,
+    capturedUrl: input.sandbox?.desiredUrl ?? null,
+    desiredUrl: input.revision.remote.url,
+    capturedSha: input.sandbox?.desiredSha ?? null,
+    desiredSha: input.revision.sha,
+  })
+}
 
 export async function commitLeftoverConversationFiles(input: {
   handle: JobSandboxHandle
@@ -127,35 +157,27 @@ export async function pushConversationSessionBranch(input: {
   if (head.exitCode !== 0)
     throw new Error("Cannot capture the conversation commit")
   const sha = gitObjectIdSchema.parse(head.stdout.trim())
-  const packed = await input.handle.exec(
-    `printf '%s\\n' ${shellSingleQuote(sha)} | git pack-objects --stdout --revs | base64`,
-    { env: {} },
-  )
-  const objects = packed.stdout.replace(/\s/g, "")
-  if (
-    packed.exitCode !== 0 ||
-    !/^[A-Za-z0-9+/]+={0,2}$/.test(objects) ||
-    objects.length > Math.ceil((8 * 1024 * 1024) / 3) * 4
-  )
-    throw new Error(
-      "Conversation Git pack is missing or exceeds the publish limit",
-    )
-  const shallowResult = await input.handle.exec(
-    "test ! -f .git/shallow || cat .git/shallow",
-    { env: {} },
-  )
-  const shallow = shallowResult.stdout
-  if (
-    shallowResult.exitCode !== 0 ||
-    shallow
-      .split(/\s+/)
-      .filter(Boolean)
-      .some((value) => !gitObjectIdSchema.safeParse(value).success)
-  )
-    throw new Error("Invalid conversation Git shallow boundary")
+  const agentPack = `.git/ctxpipe-publish-${randomUUID()}.pack`
   let readToken: string | undefined
-  let token: string | null | undefined
+  let writeToken: string | undefined
   try {
+    const packed = await input.handle.exec(
+      `printf '%s\\n' ${shellSingleQuote(sha)} ${shellSingleQuote(`^${revision.sha}`)} | git pack-objects --stdout --revs --thin > ${shellSingleQuote(agentPack)}`,
+      { env: {} },
+    )
+    if (packed.exitCode !== 0)
+      throw new Error("Cannot capture the conversation Git delta")
+    const size = await input.handle.exec(
+      `wc -c < ${shellSingleQuote(agentPack)}`,
+      { env: {} },
+    )
+    const packBytes = Number(size.stdout.trim())
+    if (
+      size.exitCode !== 0 ||
+      !Number.isSafeInteger(packBytes) ||
+      packBytes <= 0
+    )
+      throw new Error("Invalid conversation Git pack size")
     readToken = await resolveRepositoryReadCredential({
       orgId: input.orgId,
       env: input.env,
@@ -175,48 +197,84 @@ export async function pushConversationSessionBranch(input: {
       branch,
       token: readToken,
     })
-    token = await getRepoWriteCloneToken(input.orgId, input.env, {
+    writeToken = await getRepoWriteCloneToken(input.orgId, input.env, {
       githubConnectionId: connectionId,
       repoFullName: repositoryName,
     })
-    if (!token) return { ok: false, error: "not_allowed" }
-    await withGitDirectory(
-      sha,
-      async (directory) => {
-        const latestDefault = await resolveGitRemoteTip({
+    if (!writeToken) return { ok: false, error: "not_allowed" }
+    await withGitDirectory(sha, async (directory) => {
+      // Fetch the known base directly into the broker; never transfer unchanged
+      // repository objects through the agent stdout channel.
+      await nativeGit(
+        directory,
+        ["fetch", "--depth", "1", "--", revision.remote.url, revision.sha],
+        undefined,
+        gitRemoteEnvironment({ url: revision.remote.url, token: readToken }),
+      )
+      const localPack = join(directory, ".git", "conversation.pack")
+      const output = await open(localPack, "wx")
+      try {
+        const chunkBytes = 256 * 1024
+        for (let offset = 0; offset < packBytes; offset += chunkBytes) {
+          const chunk = await input.handle.exec(
+            `dd if=${shellSingleQuote(agentPack)} bs=${chunkBytes} skip=${offset / chunkBytes} count=1 2>/dev/null | base64`,
+            { env: {} },
+          )
+          const encoded = chunk.stdout.replace(/\s/g, "")
+          const bytes = Buffer.from(encoded, "base64")
+          if (
+            chunk.exitCode !== 0 ||
+            !/^[A-Za-z0-9+/]+={0,2}$/.test(encoded) ||
+            bytes.length !== Math.min(chunkBytes, packBytes - offset)
+          )
+            throw new Error(
+              "Conversation Git transfer was truncated or changed",
+            )
+          await output.writeFile(bytes)
+        }
+      } finally {
+        await output.close()
+      }
+      await nativeGit(directory, ["index-pack", "--stdin", "--fix-thin"], {
+        file: localPack,
+      })
+      await nativeGit(directory, ["cat-file", "-e", `${sha}^{commit}`])
+      const latestDefault = await resolveGitRemoteTip({
+        url: revision.remote.url,
+        token: writeToken,
+      })
+      if (
+        latestDefault?.branch !== revision.defaultBranch ||
+        latestDefault.branch === branch
+      )
+        throw new Error("Default branch changed during credential issuance")
+      await assertBinding()
+      await nativeGit(
+        directory,
+        [
+          "push",
+          "--porcelain",
+          `--force-with-lease=refs/heads/${branch}:${sessionTip?.sha ?? ""}`,
+          "--",
+          revision.remote.url,
+          `${sha}:refs/heads/${branch}`,
+        ],
+        undefined,
+        gitRemoteEnvironment({
           url: revision.remote.url,
-          token: token ?? undefined,
-        })
-        if (
-          latestDefault?.branch !== revision.defaultBranch ||
-          latestDefault.branch === branch
-        )
-          throw new Error("Default branch changed during credential issuance")
-        await assertBinding()
-        await nativeGit(
-          directory,
-          [
-            "push",
-            "--porcelain",
-            `--force-with-lease=refs/heads/${branch}:${sessionTip?.sha ?? ""}`,
-            "--",
-            revision.remote.url,
-            `${sha}:refs/heads/${branch}`,
-          ],
-          undefined,
-          gitRemoteEnvironment({
-            url: revision.remote.url,
-            token: token ?? undefined,
-          }),
-        )
-      },
-      { sha, objects, shallow },
-    )
+          token: writeToken,
+        }),
+      )
+    })
   } catch (error) {
     let message = error instanceof Error ? error.message : String(error)
-    for (const credential of [readToken, token])
+    for (const credential of [readToken, writeToken])
       if (credential) message = sanitizeGitRemoteError(message, credential)
     return { ok: false, error: message }
+  } finally {
+    await input.handle.exec(`rm -f -- ${shellSingleQuote(agentPack)}`, {
+      env: {},
+    })
   }
   await input.handle.exec(
     `git update-ref ${shellSingleQuote(`refs/remotes/origin/${branch}`)} ${shellSingleQuote(sha)}`,

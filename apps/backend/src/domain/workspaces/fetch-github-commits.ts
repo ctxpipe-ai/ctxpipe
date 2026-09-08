@@ -28,6 +28,10 @@ export async function fetchGithubWorkspaceCommits(input: {
       input.orgId,
       input.env,
       input.githubConnectionId ?? undefined,
+      {
+        repoFullName: fullName,
+        permissions: { contents: "read", metadata: "read" },
+      },
     )
     if (!ctx) return { commits: [], ok: false }
 

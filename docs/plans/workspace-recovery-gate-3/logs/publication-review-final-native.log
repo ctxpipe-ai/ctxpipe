@@ -1,0 +1,67 @@
+{"name": "publication-review-final-native", "cwd": "/private/tmp/ctxpipe-recovery-01a07aba", "command": ["/Users/jakubriedl/.volta/tools/image/node/22.16.0/bin/node", "apps/backend/node_modules/vitest/vitest.mjs", "run", "--root", "apps/backend", "src/routes/v1/conversation-publish-native.contract.test.ts", "src/domain/workspaces/conversation-publish-native.contract.test.ts", "src/routes/v1/conversations.test.ts"], "environment": {"AUTH_SECRET": "gate0-local-disposable-test-secret-20260907", "DATABASE_URL": "postgresql://ctxpipe_app:ctxpipe@127.0.0.1:61314/ctxpipe_gate0_fresh", "GRAPH_DB_URI": "redis://127.0.0.1:6398", "CI": "true", "NO_COLOR": "1", "TURBO_TELEMETRY_DISABLED": "1", "STORYBOOK_DISABLE_TELEMETRY": "1", "PATH": "/Users/jakubriedl/.volta/tools/image/node/22.16.0/bin:/private/tmp/ctxpipe-recovery-runtime/ast-grep/node_modules/.bin:/private/tmp/ctxpipe-recovery-runtime/node_modules/.bin:/private/tmp/ctxpipe-recovery-runtime/zoekt:/usr/local/bin:/System/Cryptexes/App/usr/bin:/usr/bin:/bin:/usr/sbin:/sbin:/var/run/com.apple.security.cryptexd/codex.system/bootstrap/usr/local/bin:/var/run/com.apple.security.cryptexd/codex.system/bootstrap/usr/bin:/var/run/com.apple.security.cryptexd/codex.system/bootstrap/usr/appleinternal/bin:/pkg/env/global/bin:/Users/jakubriedl/.codex/tmp/arg0/codex-arg0BW5Gt3:/Users/jakubriedl/.cache/codex-runtimes/codex-primary-runtime/dependencies/bin/override:/Users/jakubriedl/.local/bin:/Users/jakubriedl/.bun/bin:/Users/jakubriedl/.opencode/bin:/Users/jakubriedl/.volta/bin:/opt/homebrew/bin:/opt/homebrew/sbin:/Users/jakubriedl/.cache/codex-runtimes/codex-primary-runtime/dependencies/bin/fallback:/Applications/ChatGPT.app/Contents/Resources"}, "timeout_seconds": 600, "started_utc": "2026-09-08T17:51:03Z", "log": "logs/publication-review-final-native.log"}
+
+ RUN  v4.0.18 /private/tmp/ctxpipe-recovery-01a07aba/apps/backend
+
+Cloning into bare repository '/var/folders/9t/jj9rnpps7_ddb72c1mq2k13w0000gn/T/ctxpipe-hydration-contract-doIBG2/remote.git'...
+done.
+Cloning into bare repository '/var/folders/9t/jj9rnpps7_ddb72c1mq2k13w0000gn/T/ctxpipe-hydration-contract-5ujZVP/remote.git'...
+done.
+Cloning into bare repository '/var/folders/9t/jj9rnpps7_ddb72c1mq2k13w0000gn/T/ctxpipe-hydration-contract-cAp1Jg/remote.git'...
+done.
+Cloning into bare repository '/var/folders/9t/jj9rnpps7_ddb72c1mq2k13w0000gn/T/ctxpipe-hydration-contract-BdiUB3/remote.git'...
+done.
+Cloning into bare repository '/var/folders/9t/jj9rnpps7_ddb72c1mq2k13w0000gn/T/ctxpipe-hydration-contract-Jn6qw6/remote.git'...
+done.
+Cloning into bare repository '/var/folders/9t/jj9rnpps7_ddb72c1mq2k13w0000gn/T/ctxpipe-hydration-contract-lvaZw3/remote.git'...
+done.
+Cloning into bare repository '/var/folders/9t/jj9rnpps7_ddb72c1mq2k13w0000gn/T/ctxpipe-hydration-contract-i2MGqv/remote.git'...
+done.
+Cloning into bare repository '/var/folders/9t/jj9rnpps7_ddb72c1mq2k13w0000gn/T/ctxpipe-hydration-contract-LwZoy0/remote.git'...
+done.
+Cloning into bare repository '/var/folders/9t/jj9rnpps7_ddb72c1mq2k13w0000gn/T/ctxpipe-hydration-contract-qjAxGG/remote.git'...
+done.
+Cloning into bare repository '/var/folders/9t/jj9rnpps7_ddb72c1mq2k13w0000gn/T/ctxpipe-hydration-contract-U4EYZZ/remote.git'...
+done.
+Cloning into bare repository '/var/folders/9t/jj9rnpps7_ddb72c1mq2k13w0000gn/T/ctxpipe-hydration-contract-doQStE/remote.git'...
+done.
+Cloning into bare repository '/var/folders/9t/jj9rnpps7_ddb72c1mq2k13w0000gn/T/ctxpipe-hydration-contract-xTAZuW/remote.git'...
+done.
+Cloning into bare repository '/var/folders/9t/jj9rnpps7_ddb72c1mq2k13w0000gn/T/ctxpipe-hydration-contract-FlpqhZ/remote.git'...
+done.
+ ✓ src/routes/v1/conversation-publish-native.contract.test.ts (13 tests) 10390ms
+   ✓ publishes from the authenticated conversation HTTP boundary: push  1056ms
+   ✓ publishes from the authenticated conversation HTTP boundary: pull-request  982ms
+   ✓ publishes from the authenticated conversation HTTP boundary: missing  424ms
+   ✓ publishes from the authenticated conversation HTTP boundary: stale  462ms
+   ✓ publishes from the authenticated conversation HTTP boundary: stale_push  574ms
+   ✓ publishes from the authenticated conversation HTTP boundary: stale_connection  439ms
+   ✓ publishes from the authenticated conversation HTTP boundary: stale_generation  490ms
+   ✓ publishes from the authenticated conversation HTTP boundary: stale_sha  499ms
+   ✓ publishes from the authenticated conversation HTTP boundary: stale_default_branch  438ms
+   ✓ publishes from the authenticated conversation HTTP boundary: relink_after_push  1628ms
+   ✓ publishes from the authenticated conversation HTTP boundary: relink_after_push_push  1559ms
+   ✓ publishes from the authenticated conversation HTTP boundary: relink_during_pr  972ms
+   ✓ publishes from the authenticated conversation HTTP boundary: relink_before_pr  866ms
+Cloning into bare repository '/var/folders/9t/jj9rnpps7_ddb72c1mq2k13w0000gn/T/ctxpipe-hydration-contract-oQ95lq/remote.git'...
+done.
+Cloning into bare repository '/var/folders/9t/jj9rnpps7_ddb72c1mq2k13w0000gn/T/ctxpipe-hydration-contract-QHTSaU/remote.git'...
+done.
+Cloning into bare repository '/var/folders/9t/jj9rnpps7_ddb72c1mq2k13w0000gn/T/ctxpipe-hydration-contract-LKGGHe/remote.git'...
+done.
+Cloning into bare repository '/var/folders/9t/jj9rnpps7_ddb72c1mq2k13w0000gn/T/ctxpipe-hydration-contract-56m6Qd/remote.git'...
+done.
+Cloning into bare repository '/var/folders/9t/jj9rnpps7_ddb72c1mq2k13w0000gn/T/ctxpipe-hydration-contract-E2rMuZ/remote.git'...
+done.
+ ✓ src/domain/workspaces/conversation-publish-native.contract.test.ts (5 tests) 6885ms
+   ✓ brokers conversation publishing without agent write credentials: publish  1080ms
+   ✓ brokers conversation publishing without agent write credentials: rebind  886ms
+   ✓ brokers conversation publishing without agent write credentials: default_changed  921ms
+   ✓ brokers conversation publishing without agent write credentials: session_advanced  1023ms
+   ✓ brokers conversation publishing without agent write credentials: large_base  2974ms
+ ✓ src/routes/v1/conversations.test.ts (12 tests) 32ms
+
+ Test Files  3 passed (3)
+      Tests  30 passed (30)
+   Start at  03:51:03
+   Duration  21.65s (transform 906ms, setup 27ms, import 4.11s, tests 17.31s, environment 0ms)
+

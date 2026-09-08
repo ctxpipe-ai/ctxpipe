@@ -1,3 +1,4 @@
+import { randomBytes } from "node:crypto"
 import { localProcessSandbox } from "@tanstack/ai-sandbox-local-process"
 import { eq } from "drizzle-orm"
 import { expect, it } from "vitest"
@@ -15,12 +16,32 @@ import {
 } from "./conversation-publish.js"
 import { adaptTanstackHandle } from "./job-sandbox.js"
 
-it.each(["publish", "rebind", "default_changed", "session_advanced"])(
+it.each([
+  "publish",
+  "rebind",
+  "default_changed",
+  "session_advanced",
+  "large_base",
+])(
   "brokers conversation publishing without agent write credentials: %s",
   { timeout: 30_000 },
   async (scenario) => {
     await withNativeHydrationFixture(
-      { github: true, githubWriteView: "writable", writeStatus: "writable" },
+      {
+        github: true,
+        githubWriteView: "writable",
+        writeStatus: "writable",
+        ...(scenario === "large_base"
+          ? {
+              files: [
+                {
+                  path: "large.bin",
+                  body: randomBytes(9 * 1024 * 1024).toString("base64"),
+                },
+              ],
+            }
+          : {}),
+      },
       async (f) => {
         const conversationId = `conv_${f.id}`
         const raw = await localProcessSandbox().create({ id: conversationId })
@@ -95,7 +116,7 @@ it.each(["publish", "rebind", "default_changed", "session_advanced"])(
               pushConversationSessionBranch(request),
             ),
           )
-          if (scenario === "publish") {
+          if (scenario === "publish" || scenario === "large_base") {
             expect(result).toEqual({ ok: true, branch, pushed: true })
             expect(
               f.git("--git-dir", f.remote, "show", `${branch}:notes.md`),

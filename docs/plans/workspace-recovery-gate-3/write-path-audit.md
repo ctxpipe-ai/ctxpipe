@@ -1,6 +1,6 @@
 # Gate 3 write-path audit
 
-Checkpoint work after 8c1ca3a6; this is an open-work inventory, not acceptance.
+Checkpoint work after 1fee4b71; this is an open-work inventory, not acceptance.
 
 ## Native default writes
 
@@ -14,12 +14,12 @@ All twelve typed workspace workflows call `domain/workspaces/write-broker.ts`. I
 - Notion, Linear and Confluence finalizers require the captured repository and branch, lock or compare-and-swap the connection row, and cannot mark a newly rebound target live after an old push. Native post-push barriers prove this race; full generation/config/provider identity and terminal setup failure projection still need closure.
 - Complete connector setup failure projection and full binding CAS on finalization before acceptance. Confluence completed provider failures now leave initial setup as sync_failed, and partial fetch failures preserve orphaned files; space events cannot delete another space. Review provider-state sync markers and failure/retry publication as part of the remaining lifecycle work.
 - The generic workspace-write-commit workflow, write runner, write-job agent, generic transforms and unused worktree execution helpers are deleted. Native CLI discovery verifies the typed workflows remain and the generic writer is absent. The legacy sandbox handle types/registry are still used by conversation and explorer paths pending their own migration.
-- `services/github/installation-write-client.ts`: unrestricted `commitFiles` remains public. Its retained config-PR caller must have a strict non-default guard. `getOrInitializeBaseBranch` can initialize a default branch outside the typed bootstrap path and must migrate.
-- `domain/workspaces/conversation-publish.ts` now captures bounded native Git objects from the agent and publishes from a fresh broker directory. Both routes pass revision identity instead of unrestricted tokens. The broker checks the authenticated conversation, current full workspace binding and actual default before and after scoped credential issuance, then uses an explicit session-ref lease. Native credential and relink/default/ref races are under verification. Persisted sandbox revision capture still belongs to the Gate 4 instance-store migration.
+- Config API commits now exclude the actual default before building objects and before updating refs. MCP onboarding checks before each contents write. Hidden .gitkeep initialization is deleted; a true unborn repository still needs the typed bootstrap path. Native config review-branch/default-switch/empty-repository proof passes.
+- `domain/workspaces/conversation-publish.ts` now transfers a thin native Git delta in 256 KiB chunks from the agent and publishes from a fresh broker directory. Both routes pass revision identity instead of unrestricted tokens. The broker checks the authenticated conversation, current full workspace binding and actual default before and after scoped credential issuance, then uses an explicit session-ref lease. Native credential, capture identity, relink/default/ref and large-base contracts pass. Both routes capture the registered handle with its metadata, derive remote coordinates from the validated revision, and fence PR/branch projection with a short row-locking transaction. Persisted sandbox revision capture still belongs to the Gate 4 instance-store migration.
 
 ## Remaining read credential paths
 
-`services/github/installation-write-client.ts` uses unrestricted installation clients even for file/tree/ref/commit/PR reads. `domain/workspaces/fetch-github-commits.ts` also reads through one. `domain/codeIngestion/queue.ts` and `graphs/codeIngestionGraph/nodes/reindex.ts` obtain unrestricted installation tokens. `models/github-mcp-config-pr.ts` is a retained config-PR control plane but requires repository scope and default exclusion. Review all `getInstallationToken` and `getInstallationOctokitForOrg` production consumers after migration.
+All production installation-client/token consumers now require explicit repository/permission scope. File/tree/ref/commit/PR reads and per-repository MCP previews use read permissions. Config and PR mutations use narrow write permissions. Repository ref resolution derives the credential from its stored binding; the unreferenced legacy reindex path is deleted. Native token-wire proof and a complete consumer search pass.
 
 ## Protected-default conversation compatibility
 

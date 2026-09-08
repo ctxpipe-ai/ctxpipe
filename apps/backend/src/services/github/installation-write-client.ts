@@ -1,8 +1,13 @@
 import type { Env } from "../../config/env.js"
 import {
+  sameWorkspaceRevision,
+  type WorkspaceRevision,
+} from "../../domain/workspaces/revision.js"
+import {
   type GitHubInstallation,
   getInstallationOctokitForOrg,
 } from "../../models/github-installation.js"
+import { getDesiredWorkspaceRevision } from "../../models/workspaces.js"
 
 type InstallationContext = NonNullable<
   Awaited<ReturnType<typeof getInstallationOctokitForOrg>>
@@ -66,7 +71,13 @@ function parseRepositoryName(repositoryName: string): RepoCoordinates {
   return { owner, repo }
 }
 
-async function getInstallationContext(input: BaseInput): Promise<{
+async function getInstallationContext(
+  input: BaseInput,
+  permissions: {
+    contents?: "read" | "write"
+    pull_requests?: "read" | "write"
+  } = { contents: "read" },
+): Promise<{
   installation: GitHubInstallation
   octokit: InstallationContext["octokit"]
   owner: string
@@ -76,6 +87,10 @@ async function getInstallationContext(input: BaseInput): Promise<{
     input.orgId,
     input.env,
     input.githubConnectionId,
+    {
+      repoFullName: input.repositoryName,
+      permissions: { ...permissions, metadata: "read" },
+    },
   )
   if (!installationContext) {
     throw new Error(`GitHub installation not found for org ${input.orgId}`)
@@ -121,49 +136,31 @@ function isEmptyGithubRepositoryError(error: unknown): boolean {
   )
 }
 
-async function getOrInitializeBaseBranch(input: {
-  octokit: InstallationContext["octokit"]
-  owner: string
-  repo: string
-  branch: string
-}) {
-  try {
-    return await getBranchHead(input)
-  } catch (error) {
-    if (!isEmptyGithubRepositoryError(error)) throw error
-  }
-
-  try {
-    await withTransientGitHubRetry(() =>
-      input.octokit.rest.repos.createOrUpdateFileContents({
-        owner: input.owner,
-        repo: input.repo,
-        path: ".gitkeep",
-        message: "Initialize repository for ctxpipe",
-        content: Buffer.from("\n").toString("base64"),
-      }),
-    )
-  } catch (error) {
-    // Another config workflow may have initialized the repository concurrently.
-    try {
-      return await getBranchHead(input)
-    } catch {
-      throw error
-    }
-  }
-
-  return getBranchHead(input)
+async function assertConfigBranch(
+  context: Awaited<ReturnType<typeof getInstallationContext>>,
+  branch: string,
+): Promise<void> {
+  const { data } = await context.octokit.rest.repos.get({
+    owner: context.owner,
+    repo: context.repo,
+  })
+  if (!data.default_branch || branch === data.default_branch)
+    throw new Error("Config API writes cannot target the default branch")
 }
 
 export async function listFilesInTree(input: BaseInput & { branch: string }) {
   return withTransientGitHubRetry(async () => {
     const context = await getInstallationContext(input)
-    const head = await getOrInitializeBaseBranch({
+    const head = await getBranchHead({
       octokit: context.octokit,
       owner: context.owner,
       repo: context.repo,
       branch: input.branch,
+    }).catch((error) => {
+      if (isEmptyGithubRepositoryError(error)) return null
+      throw error
     })
+    if (!head) return []
     const { data } = await context.octokit.rest.git.getTree({
       owner: context.owner,
       repo: context.repo,
@@ -306,7 +303,8 @@ export async function commitFiles(
   },
 ) {
   const commitOnce = async (head: { commitSha: string; treeSha: string }) => {
-    const context = await getInstallationContext(input)
+    const context = await getInstallationContext(input, { contents: "write" })
+    await assertConfigBranch(context, input.branch)
     const fileEntries = await Promise.all(
       input.files.map(async (file) => {
         const blob = await context.octokit.rest.git.createBlob({
@@ -346,6 +344,7 @@ export async function commitFiles(
       parents: [head.commitSha],
     })
 
+    await assertConfigBranch(context, input.branch)
     await context.octokit.rest.git.updateRef({
       owner: context.owner,
       repo: context.repo,
@@ -361,7 +360,7 @@ export async function commitFiles(
   }
 
   if (input.expectedParentSha) {
-    const context = await getInstallationContext(input)
+    const context = await getInstallationContext(input, { contents: "write" })
     const { data: commit } = await context.octokit.rest.git.getCommit({
       owner: context.owner,
       repo: context.repo,
@@ -374,8 +373,8 @@ export async function commitFiles(
   }
 
   return withTransientGitHubRetry(async () => {
-    const context = await getInstallationContext(input)
-    const head = await getOrInitializeBaseBranch({
+    const context = await getInstallationContext(input, { contents: "write" })
+    const head = await getBranchHead({
       octokit: context.octokit,
       owner: context.owner,
       repo: context.repo,
@@ -401,8 +400,11 @@ export async function createPullRequestWithFiles(
     featureBranchPrefix?: string
   },
 ) {
-  const context = await getInstallationContext(input)
-  const base = await getOrInitializeBaseBranch({
+  const context = await getInstallationContext(input, {
+    contents: "write",
+    pull_requests: "write",
+  })
+  const base = await getBranchHead({
     octokit: context.octokit,
     owner: context.owner,
     repo: context.repo,
@@ -412,6 +414,7 @@ export async function createPullRequestWithFiles(
   const featureBranch =
     input.branch ??
     `${input.featureBranchPrefix ?? "ctxpipe/confluence-config"}-${Date.now()}`
+  await assertConfigBranch(context, featureBranch)
   try {
     await withTransientGitHubRetry(() =>
       context.octokit.rest.git.createRef({
@@ -470,7 +473,7 @@ export async function getPullRequestHeadBranch(
 ): Promise<string | undefined> {
   const pullNumber = parseGithubPullNumberFromUrl(input.pullUrl)
   if (pullNumber === undefined) return undefined
-  const context = await getInstallationContext(input)
+  const context = await getInstallationContext(input, { pull_requests: "read" })
   const { data } = await withTransientGitHubRetry(() =>
     context.octokit.rest.pulls.get({
       owner: context.owner,
@@ -511,7 +514,9 @@ export async function closePullRequest(
     comment?: string
   },
 ) {
-  const context = await getInstallationContext(input)
+  const context = await getInstallationContext(input, {
+    pull_requests: "write",
+  })
   await withTransientGitHubRetry(() =>
     context.octokit.rest.pulls.update({
       owner: context.owner,
@@ -544,7 +549,9 @@ export async function getPullRequestState(
   branch: string
 } | null> {
   try {
-    const context = await getInstallationContext(input)
+    const context = await getInstallationContext(input, {
+      pull_requests: "read",
+    })
     const { data } = await withTransientGitHubRetry(() =>
       context.octokit.rest.pulls.get({
         owner: context.owner,
@@ -571,6 +578,7 @@ export async function getPullRequestState(
 
 export async function createPullRequestFromBranch(
   input: BaseInput & {
+    revision: WorkspaceRevision
     baseBranch: string
     branch: string
     title: string
@@ -581,19 +589,33 @@ export async function createPullRequestFromBranch(
   pullUrl: string
   branch: string
   prState: GithubPullRequestState
-}> {
-  const context = await getInstallationContext(input)
+} | null> {
+  const context = await getInstallationContext(input, {
+    pull_requests: "write",
+  })
   try {
-    const { data: pull } = await withTransientGitHubRetry(() =>
-      context.octokit.rest.pulls.create({
+    const response = await withTransientGitHubRetry(async () => {
+      if (
+        !sameWorkspaceRevision(
+          await getDesiredWorkspaceRevision(
+            input.revision.workspaceId,
+            "publish-session",
+          ),
+          input.revision,
+        )
+      )
+        return null
+      return context.octokit.rest.pulls.create({
         owner: context.owner,
         repo: context.repo,
         head: input.branch,
         base: input.baseBranch,
         title: input.title,
         body: input.body,
-      }),
-    )
+      })
+    })
+    if (!response) return null
+    const { data: pull } = response
     return {
       pullNumber: pull.number,
       pullUrl: pull.html_url,

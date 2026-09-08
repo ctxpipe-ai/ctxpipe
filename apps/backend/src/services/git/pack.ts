@@ -1,7 +1,9 @@
 import { execFile } from "node:child_process"
+import { createReadStream } from "node:fs"
 import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
+import { pipeline } from "node:stream/promises"
 import { promisify } from "node:util"
 import { gitRemoteEnvironment } from "./clone-tree.js"
 
@@ -13,7 +15,7 @@ export type GitPack = { sha: string; objects: string; shallow: string }
 export async function nativeGit(
   directory: string,
   args: string[],
-  input?: Uint8Array | string,
+  input?: Uint8Array | string | { file: string },
   env?: NodeJS.ProcessEnv,
 ): Promise<Buffer> {
   const result = execute(
@@ -26,6 +28,17 @@ export async function nativeGit(
       env: env ?? { ...process.env, GIT_TERMINAL_PROMPT: "0" },
     },
   )
+  if (typeof input === "object" && "file" in input) {
+    const stdin = result.child.stdin
+    if (!stdin) throw new Error("Native Git did not expose standard input")
+    const streamed = pipeline(createReadStream(input.file), stdin).catch(
+      (error) => {
+        result.child.kill()
+        throw error
+      },
+    )
+    return (await Promise.all([result, streamed]))[0].stdout
+  }
   if (input !== undefined) result.child.stdin?.end(input)
   return (await result).stdout
 }

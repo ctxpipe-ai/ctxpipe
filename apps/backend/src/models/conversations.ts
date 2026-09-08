@@ -5,6 +5,7 @@ import { getOrgDb } from "../db/client.js"
 import { withAmbientOrgDb } from "../db/org-sql.js"
 import { conversations } from "../db/schema/conversations.js"
 import { workspaces } from "../db/schema/workspaces.js"
+import type { WorkspaceRevision } from "../domain/workspaces/revision.js"
 import {
   buildPageInfo,
   decodeCursor,
@@ -120,15 +121,29 @@ export async function ensureConversation(input: {
   })
 }
 
-export async function persistConversationLastChatPrNumber(input: {
+export async function persistConversationPublication(input: {
   conversationId: string
-  lastChatPrNumber: number
+  lastChatPrNumber?: number
   lastBranch: string
-}): Promise<void> {
+  revision: WorkspaceRevision
+}): Promise<boolean> {
   return orgSql(async () => {
     const orgId = requireCurrentOrgId()
     const userId = requireCurrentUserId()
-    await getOrgDb()
+    const db = getOrgDb()
+    const [binding] = await db
+      .select({ id: workspaces.id })
+      .from(workspaces)
+      .where(sql`${workspaces.id} = ${input.revision.workspaceId}
+              and ${workspaces.orgId} = ${orgId}
+              and ${workspaces.desiredGeneration} = ${input.revision.generation}
+              and ${workspaces.workspaceRepositoryUrl} = ${input.revision.remote.url}
+              and ${workspaces.githubConnectionId} is not distinct from ${input.revision.remote.connectionId}
+              and ${workspaces.desiredDefaultBranch} = ${input.revision.defaultBranch}
+              and ${workspaces.desiredSha} = ${input.revision.sha}`)
+      .for("update")
+    if (!binding) return false
+    const [row] = await db
       .update(conversations)
       .set({
         lastChatPrNumber: input.lastChatPrNumber,
@@ -140,8 +155,11 @@ export async function persistConversationLastChatPrNumber(input: {
           eq(conversations.id, input.conversationId),
           eq(conversations.orgId, orgId),
           eq(conversations.userId, userId),
+          eq(conversations.workspaceId, input.revision.workspaceId),
         ),
       )
+      .returning({ id: conversations.id })
+    return row != null
   })
 }
 

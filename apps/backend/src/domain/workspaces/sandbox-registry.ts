@@ -24,6 +24,7 @@ export type RegisteredSandbox = {
   conversationId?: string
   orgId?: string
   desiredUrl?: string
+  githubConnectionId?: string | null
   desiredGeneration?: number
   desiredSha?: string | null
   defaultBranch?: string

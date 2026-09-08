@@ -9,6 +9,7 @@ import {
 } from "../db/schema/connections.js"
 import { repositories } from "../db/schema/repositories.js"
 import { repoReadCloneTokenRequest } from "../domain/workspaces/clone-credentials.js"
+import { githubRepoFullNameFromWorkspaceUrl } from "../domain/workspaces/write-status.js"
 import {
   decodeGithubAppCredentials,
   encodeGithubAppSecretsForDb,
@@ -708,10 +709,20 @@ export async function refreshGithubConnectionAccountSlug(
   return githubConnectionToShape(updated)
 }
 
+type RepositoryInstallationScope = {
+  repoFullName: string
+  permissions: {
+    metadata: "read"
+    contents?: "read" | "write"
+    pull_requests?: "read" | "write"
+  }
+}
+
 export async function getInstallationOctokitForOrg(
   orgId: string,
   env: Env,
-  githubConnectionId?: string,
+  githubConnectionId: string | undefined,
+  scope: RepositoryInstallationScope,
 ) {
   const installation = githubConnectionId
     ? await getGithubInstallationByConnectionId(orgId, githubConnectionId)
@@ -722,10 +733,13 @@ export async function getInstallationOctokitForOrg(
   if (!row) return undefined
   const app = buildAppForConnection(row, env)
   const octokit = await app.getInstallationOctokit(installation.installationId)
-  return {
-    installation,
-    octokit,
-  }
+  const { token } = (await octokit.auth({
+    type: "installation",
+    repositoryNames: repoReadCloneTokenRequest(scope.repoFullName)
+      .repositoryNames,
+    permissions: scope.permissions,
+  })) as { token: string }
+  return { installation, octokit: new Octokit({ auth: token }) }
 }
 
 export async function userCanAccessInstallation(
@@ -764,7 +778,8 @@ export function isGithubInstallationTokenError(error: unknown): boolean {
 export async function getInstallationToken(
   orgId: string,
   env: Env,
-  githubConnectionId?: string,
+  githubConnectionId: string | undefined,
+  scope: RepositoryInstallationScope,
 ): Promise<string | undefined> {
   const installation = githubConnectionId
     ? await getGithubInstallationByConnectionId(orgId, githubConnectionId)
@@ -778,7 +793,12 @@ export async function getInstallationToken(
     const octokit = await app.getInstallationOctokit(
       installation.installationId,
     )
-    const { token } = (await octokit.auth({ type: "installation" })) as {
+    const { token } = (await octokit.auth({
+      type: "installation",
+      repositoryNames: repoReadCloneTokenRequest(scope.repoFullName)
+        .repositoryNames,
+      permissions: scope.permissions,
+    })) as {
       token: string
     }
     return token
@@ -851,6 +871,31 @@ export async function getRepoReadCloneToken(
     permissions: request.permissions,
   })) as { token: string }
   return token
+}
+
+/** Legacy repository ingestion still resolves by repository ID, never by installation alone. */
+export async function getRepositoryReadCloneToken(
+  orgId: string,
+  env: Env,
+  input: { repositoryId: string; githubConnectionId?: string | null },
+): Promise<string | undefined> {
+  const repository = await withOrgDbContext(orgId, () =>
+    getOrgDb().query.repositories.findFirst({
+      where: { id: { eq: input.repositoryId }, orgId: { eq: orgId } },
+    }),
+  )
+  if (!repository) throw new Error("Repository not found for read credential")
+  if (
+    input.githubConnectionId !== undefined &&
+    input.githubConnectionId !== repository.githubConnectionId
+  )
+    throw new Error("Repository connection changed before credential issuance")
+  const repoFullName = githubRepoFullNameFromWorkspaceUrl(repository.gitUrl)
+  if (!repoFullName || !repository.githubConnectionId) return undefined
+  return getRepoReadCloneToken(orgId, env, {
+    githubConnectionId: repository.githubConnectionId,
+    repoFullName,
+  })
 }
 
 /** Called by the admitted Git write broker, never by a sandbox or read path. */
