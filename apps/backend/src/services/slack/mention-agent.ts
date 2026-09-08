@@ -3,10 +3,6 @@ import { tool } from "langchain"
 import { z } from "zod/v3"
 import type { Env } from "../../config/env.js"
 import { createAgent } from "../../graphs/createAgent.js"
-import type {
-  SlackConnection,
-  SlackSyncTarget,
-} from "../../models/slack-connector.js"
 import { getLogger } from "../../observability/logger.js"
 import { getModel } from "../../retrieval/services/modelProvider.js"
 import {
@@ -14,7 +10,7 @@ import {
   SLACK_CAPTURE_STATUS_FAILED,
   SLACK_MENTION_CAPABILITY_REPLY,
 } from "./client.js"
-import { captureSlackThread, type SlackCaptureResult } from "./sync.js"
+import type { SlackCaptureResult } from "./sync.js"
 
 export {
   SLACK_MENTION_CAPABILITY_REPLY,
@@ -86,86 +82,36 @@ export function formatSlackMentionStatusText(
   }
 }
 
-function failedFromCapture(
-  capture: SlackCaptureResult,
-): SlackMentionAgentResult {
-  return {
-    kind: "failed",
-    errorCode: capture.errorCode,
-    error: capture.error,
-  }
-}
+export type SlackMentionIntent =
+  | { kind: "capture" }
+  | Exclude<SlackMentionAgentResult, { kind: "captured" }>
 
-async function runCapture(input: {
-  orgId: string
+export async function selectSlackMentionIntent(input: {
   env: Env
-  connection: SlackConnection
-  target: SlackSyncTarget
-  channelId: string
-  threadTs: string
-  excludeMessageTs?: string
-  capturedByUserId?: string
-}): Promise<SlackMentionAgentResult> {
-  const capture = await captureSlackThread(input)
-  if (capture.status === "failed") return failedFromCapture(capture)
-  return { kind: "captured", capture }
-}
-
-export async function runSlackMentionAgent(input: {
-  orgId: string
-  env: Env
-  connection: SlackConnection
-  target: SlackSyncTarget
-  channelId: string
-  threadTs: string
+  connectionId: string
   mentionText?: string
-  mentionUserId?: string
-  excludeMessageTs?: string
-}): Promise<SlackMentionAgentResult> {
+}): Promise<SlackMentionIntent> {
   const remainder = stripSlackMentionText(input.mentionText)
-  const captureInput = {
-    orgId: input.orgId,
-    env: input.env,
-    connection: input.connection,
-    target: input.target,
-    channelId: input.channelId,
-    threadTs: input.threadTs,
-    excludeMessageTs: input.excludeMessageTs,
-    capturedByUserId: input.mentionUserId,
-  }
-
-  if (remainder.length === 0) {
-    return runCapture(captureInput)
-  }
-
-  if (!isSlackModelConfigured(input.env)) {
+  if (remainder.length === 0) return { kind: "capture" }
+  if (!isSlackModelConfigured(input.env))
     return {
       kind: "failed",
       errorCode: "model_not_configured",
       error: "MODEL_PROVIDER is not configured",
     }
-  }
-
-  const captureState: { result?: SlackCaptureResult } = {}
+  let captureRequested = false
   const captureThreadTool = tool(
     async () => {
-      if (!captureState.result) {
-        captureState.result = await captureSlackThread(captureInput)
-      }
-      const result = captureState.result
-      if (result.status === "failed") {
-        return `Capture failed: ${result.error ?? result.errorCode ?? "unknown error"}`
-      }
-      return "Thread captured into the context repository."
+      captureRequested = true
+      return "Thread capture requested. The durable workflow will publish it."
     },
     {
       name: "capture_thread",
       description:
-        "Snapshot this Slack thread into the organization's context git repository.",
+        "Request a snapshot of this Slack thread into the organization's context git repository.",
       schema: z.object({}),
     },
   )
-
   try {
     const agent = createAgent({
       model: getModel("fast", { streaming: false, temperature: 0 }),
@@ -185,27 +131,14 @@ export async function runSlackMentionAgent(input: {
   } catch (error) {
     getLogger().error(
       error instanceof Error ? error : new Error(String(error)),
-      {
-        step: "slack_mention_agent.invoke",
-        connectionId: input.connection.id,
-      },
+      { step: "slack_mention_agent.invoke", connectionId: input.connectionId },
     )
-    if (captureState.result) {
-      return captureState.result.status === "failed"
-        ? failedFromCapture(captureState.result)
-        : { kind: "captured", capture: captureState.result }
-    }
-    return {
-      kind: "failed",
-      errorCode: "capture_failed",
-      error: error instanceof Error ? error.message : String(error),
-    }
+    if (!captureRequested)
+      return {
+        kind: "failed",
+        errorCode: "capture_failed",
+        error: error instanceof Error ? error.message : String(error),
+      }
   }
-
-  if (captureState.result) {
-    return captureState.result.status === "failed"
-      ? failedFromCapture(captureState.result)
-      : { kind: "captured", capture: captureState.result }
-  }
-  return { kind: "capability" }
+  return captureRequested ? { kind: "capture" } : { kind: "capability" }
 }

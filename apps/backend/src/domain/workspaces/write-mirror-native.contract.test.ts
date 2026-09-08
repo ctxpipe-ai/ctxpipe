@@ -234,6 +234,17 @@ async function createNotionMirrorBinding(f: NativeHydrationFixture) {
   )
   return {
     provider: "notion" as const,
+    configBlobSha: f.git(
+      "--git-dir",
+      f.remote,
+      "ls-tree",
+      "--name-only",
+      f.sha,
+      "--",
+      "notion/config.yaml",
+    )
+      ? f.git("--git-dir", f.remote, "rev-parse", `${f.sha}:notion/config.yaml`)
+      : null,
     connectionId: sourceId,
     repositoryId: repo.id,
   }
@@ -459,20 +470,15 @@ it.each([false, true])(
           ).data.filter(
             (run) => run.workflowName === "workspace-write-semantic-merge",
           )
-          expect(children).toHaveLength(1)
-          expect(children[0]?.input).toMatchObject({ mirror })
+          expect(children).toHaveLength(reset ? 0 : 1)
+          if (!reset) expect(children[0]?.input).toMatchObject({ mirror })
           if (reset) {
-            expect(children[0]?.status).toBe("failed")
-            expect(children[0]?.error?.message).toContain(
+            const parent = await f.backend.getWorkflowRun({
+              workflowRunId: handle.workflowRun.id,
+            })
+            expect(parent?.error?.message).toContain(
               "Connector mirror binding changed",
             )
-            expect(
-              (
-                await f.backend.getWorkflowRun({
-                  workflowRunId: handle.workflowRun.id,
-                })
-              )?.status,
-            ).toBe("failed")
           }
           expect(
             f.git("--git-dir", f.remote, "show", "main:knowledge/owner.md"),
@@ -490,6 +496,119 @@ it.each([false, true])(
             ),
           ).toBe(reset ? "0" : "1")
         } finally {
+          await worker.stop()
+        }
+      },
+    )
+  },
+)
+
+it(
+  "rejects a slow mirror captured before a newer config and mirror commit",
+  { timeout: 45_000 },
+  async () => {
+    await withNativeHydrationFixture(
+      {
+        github: true,
+        githubWriteView: "writable",
+        writeStatus: "writable",
+        semanticMergeResolution: {
+          files: [{ path: "notion/page.md", content: null }],
+        },
+        files: [
+          { path: "notion/config.yaml", body: "version: 1\nresources: []\n" },
+          { path: "notion/page.md", body: "# Original page\n" },
+        ],
+      },
+      async (f) => {
+        await f.runner.cancelWorkflowRun(f.handle.workflowRun.id)
+        const mirror = await createNotionMirrorBinding(f)
+        const { captureConnectorMirrorTarget } = await import(
+          "./capture-connector-mirror.js"
+        )
+        const { parseEnv } = await import("../../config/env.js")
+        const captured = await captureConnectorMirrorTarget({
+          orgId: f.org.id,
+          env: parseEnv(process.env),
+          repositoryGitUrl: f.workspaceUrl,
+          mirror,
+        })
+        const { workspaceConnectorMirror } = await import(
+          "../../openworkflow/workflows/workspace-connector-mirror.js"
+        )
+        const { workspaceSemanticMerge } = await import(
+          "../../openworkflow/workflows/workspace-semantic-merge.js"
+        )
+        const spec = {
+          ...workspaceConnectorMirror.spec,
+          retryPolicy: { maximumAttempts: 1 },
+        }
+        f.runner.implementWorkflow(spec, workspaceConnectorMirror.fn)
+        f.runner.implementWorkflow(
+          workspaceSemanticMerge.spec,
+          workspaceSemanticMerge.fn,
+        )
+        f.git("reset", "--hard", f.sha)
+        writeFileSync(
+          join(f.directory, "notion/config.yaml"),
+          "version: 1\nresources:\n  - id: new-page\n    type: page\n",
+        )
+        f.git("add", "notion/config.yaml")
+        f.git("commit", "-m", "Activate newer scope")
+        f.git("push", f.remote, "HEAD:main")
+        const newer = await captureConnectorMirrorTarget({
+          orgId: f.org.id,
+          env: parseEnv(process.env),
+          repositoryGitUrl: f.workspaceUrl,
+          mirror,
+        })
+        const worker = f.runner.newWorker({ concurrency: 1 })
+        try {
+          await worker.start()
+          const current = await f.runner.runWorkflow(spec, {
+            orgId: f.org.id,
+            workspaceId: f.workspaceId,
+            revision: newer.revision,
+            mirror: newer.mirror,
+            jobId: `wjob_${f.id}_new_scope`,
+            files: [{ path: "notion/page.md", content: "# New scope page\n" }],
+            deletePaths: [],
+          })
+          expect(await current.result({ timeoutMs: 15_000 })).toMatchObject({
+            committed: true,
+          })
+          const newTip = f.git("--git-dir", f.remote, "rev-parse", "main")
+          const stale = await f.runner.runWorkflow(spec, {
+            orgId: f.org.id,
+            workspaceId: f.workspaceId,
+            revision: captured.revision,
+            mirror: captured.mirror,
+            jobId: `wjob_${f.id}_old_scope`,
+            files: [],
+            deletePaths: ["notion/page.md"],
+          })
+          await expect(stale.result({ timeoutMs: 20_000 })).rejects.toThrow()
+          expect(
+            (
+              await f.backend.getWorkflowRun({
+                workflowRunId: stale.workflowRun.id,
+              })
+            )?.error?.message,
+          ).toContain("Connector scope changed")
+          expect(f.git("--git-dir", f.remote, "rev-parse", "main")).toBe(newTip)
+          expect(
+            f.git("--git-dir", f.remote, "show", "main:notion/page.md"),
+          ).toBe("# New scope page")
+          expect(
+            (await f.backend.listWorkflowRuns({ limit: 100 })).data.filter(
+              (run) => run.workflowName === "workspace-write-semantic-merge",
+            ),
+          ).toHaveLength(0)
+        } finally {
+          for (const run of (await f.backend.listWorkflowRuns({ limit: 100 }))
+            .data)
+            if (!["completed", "failed", "canceled"].includes(run.status))
+              await f.runner.cancelWorkflowRun(run.id)
           await worker.stop()
         }
       },

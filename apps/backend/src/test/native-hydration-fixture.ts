@@ -43,6 +43,10 @@ export type NativeHydrationOptions = {
   githubRepoPermissions?: GithubRepoPermissionBits | null
   githubInstallationPermissions?: GithubRepoPermissionBits
   githubContentFiles?: Record<string, string>
+  slackCaptureIntent?: boolean
+  slackResponses?: Record<string, unknown>
+  onSlackRequest?: (method: string, body: unknown) => void
+  confluenceResponses?: Record<string, { status?: number; body: unknown }>
   embeddings?: "ready" | "failed" | "empty"
   missingTip?: boolean
   writeStatus?: "read_only" | "writable"
@@ -154,6 +158,14 @@ async function createNativeHydrationFixture(
       },
     ),
     http.get(
+      "https://api.github.com/repos/fixture/hydration-contract/git/ref/*",
+      () =>
+        HttpResponse.json(
+          { message: "Native Git is required for fixture writes" },
+          { status: 403 },
+        ),
+    ),
+    http.get(
       "https://api.github.com/repos/fixture/hydration-contract/git/trees/:sha",
       () => HttpResponse.json({ message: "Use native Git" }, { status: 404 }),
     ),
@@ -170,13 +182,40 @@ async function createNativeHydrationFixture(
             })
       },
     ),
+    http.all("https://slack.com/api/:method", async ({ params, request }) => {
+      const method = String(params.method)
+      options.onSlackRequest?.(
+        method,
+        request.method === "POST" ? await request.json() : undefined,
+      )
+      return HttpResponse.json(
+        options.slackResponses?.[method] ?? {
+          ok: false,
+          error: "fixture_unhandled",
+        },
+      )
+    }),
+    http.get(
+      "https://api.atlassian.com/ex/confluence/fixture-cloud/*",
+      ({ params }) => {
+        const response = options.confluenceResponses?.[String(params[0])]
+        return HttpResponse.json(response?.body ?? { message: "Not found" }, {
+          status: response?.status ?? (response ? 200 : 404),
+        })
+      },
+    ),
     http.post(
       "https://hydrate-model.test/v1/chat/completions",
       async ({ request }) => {
         const body = (await request.json()) as {
+          messages?: Array<{ role: string }>
           tools?: Array<{ function: { name: string } }>
         }
         const tool = body.tools?.[0]?.function.name
+        const captureIntent =
+          tool === "capture_thread" &&
+          options.slackCaptureIntent &&
+          !body.messages?.some((message) => message.role === "tool")
         if (tool) semanticRequests.push(body)
         if (tool && options.semanticMergeDelayMs)
           await new Promise((resolve) =>
@@ -191,7 +230,7 @@ async function createNativeHydrationFixture(
             {
               index: 0,
               message:
-                tool && options.semanticMergeResolution
+                captureIntent || (tool && options.semanticMergeResolution)
                   ? {
                       role: "assistant",
                       content: null,
@@ -202,7 +241,9 @@ async function createNativeHydrationFixture(
                           function: {
                             name: tool,
                             arguments: JSON.stringify(
-                              options.semanticMergeResolution,
+                              captureIntent
+                                ? {}
+                                : options.semanticMergeResolution,
                             ),
                           },
                         },
@@ -212,7 +253,14 @@ async function createNativeHydrationFixture(
                       role: "assistant",
                       content: "ctxpipe - Bootstrap workspace knowledge",
                     },
-              finish_reason: tool ? "tool_calls" : "stop",
+              finish_reason:
+                tool === "capture_thread"
+                  ? captureIntent
+                    ? "tool_calls"
+                    : "stop"
+                  : tool
+                    ? "tool_calls"
+                    : "stop",
             },
           ],
           usage: { prompt_tokens: 1, completion_tokens: 1, total_tokens: 2 },

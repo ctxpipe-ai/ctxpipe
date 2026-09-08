@@ -7,6 +7,11 @@ import {
   gitFileChangeSchema,
   repositoryFilePathSchema,
 } from "../../services/git/file-change.js"
+import {
+  type GitPack,
+  nativeGit,
+  withGitDirectory,
+} from "../../services/git/pack.js"
 import type { WorkspaceRevision } from "./revision.js"
 import { normalizeWorkspaceRepositoryUrl } from "./slug.js"
 
@@ -15,6 +20,10 @@ export const connectorMirrorSourceSchema = z
     provider: z.enum(["linear", "notion", "slack", "confluence"]),
     connectionId: z.string().min(1),
     repositoryId: z.string().min(1),
+    configBlobSha: z
+      .string()
+      .regex(/^[a-f0-9]{40}$/)
+      .nullable(),
   })
   .strict()
 export type ConnectorMirrorSource = z.infer<typeof connectorMirrorSourceSchema>
@@ -53,7 +62,10 @@ export const connectorMirrorContentSchema = z
 /** Read existing connector control-plane bindings; never resolve provider credentials here. */
 export async function assertConnectorMirrorBinding(
   orgId: string,
-  source: ConnectorMirrorSource,
+  source: Pick<
+    ConnectorMirrorSource,
+    "provider" | "connectionId" | "repositoryId"
+  >,
   revision: WorkspaceRevision,
 ): Promise<void> {
   const binding = await bindingReaders[source.provider](
@@ -74,4 +86,32 @@ export async function assertConnectorMirrorBinding(
       binding.setupPhase !== "initial_sync")
   )
     throw new Error("Connector mirror binding changed")
+}
+
+/** Validate the activated scope without retaining credentials or provider state. */
+export async function assertConnectorMirrorScope(
+  source: ConnectorMirrorSource,
+  pack: GitPack,
+): Promise<void> {
+  await withGitDirectory(
+    pack.sha,
+    async (directory) => {
+      const entry = (
+        await nativeGit(directory, [
+          "ls-tree",
+          pack.sha,
+          "--",
+          `${source.provider}/config.yaml`,
+        ])
+      )
+        .toString()
+        .trim()
+      const blobSha = entry ? entry.split(/\s+/)[2] : null
+      if (blobSha !== source.configBlobSha)
+        throw new Error(
+          "Connector scope changed; discard this capture and sync the current config",
+        )
+    },
+    pack,
+  )
 }

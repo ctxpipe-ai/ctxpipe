@@ -4,24 +4,18 @@ import { getOrgDb, withOrgDbContext } from "../../db/client.js"
 import { repositories } from "../../db/schema/repositories.js"
 import type {
   NotionBinding,
-  NotionBindingWithRepo,
   NotionConnection,
 } from "../../models/notion-connector.js"
 import { updateNotionConnectionTokens } from "../../models/notion-connector.js"
 import {
   closePullRequest,
-  commitFiles,
   createPullRequestWithFiles,
   getFileContent,
-  listFilesInTree,
   parseGithubPullNumberFromUrl,
 } from "../github/installation-write-client.js"
 import type { NotionBlock, NotionPage } from "./client.js"
 import { queryNotionDatabase } from "./client.js"
-import {
-  loadNotionScopeFromRepo,
-  NOTION_CONFIG_PATH,
-} from "./config-from-repo.js"
+import { NOTION_CONFIG_PATH } from "./config-from-repo.js"
 import type { ParsedNotionRepoConfig } from "./config-yaml.js"
 import {
   getNotionConfigPullRequestPayload,
@@ -53,8 +47,8 @@ export type NotionSyncResult = {
   status: "completed" | "partial_failed" | "failed"
   resourcesProcessed: number
   resourcesFailed: number
-  commitSha?: string
-  pullUrl?: string
+  files: Array<{ path: string; content: string }>
+  deletePaths: string[]
   errors: Array<{ externalId: string; message: string }>
 }
 
@@ -163,39 +157,15 @@ export async function syncNotionConfigYaml(input: {
   return { changed: true, pullUrl: pull.pullUrl }
 }
 
-export async function syncNotionContent(input: {
+/** Provider capture only; the native child owns all Git mutations. */
+export async function captureNotionContent(input: {
   orgId: string
   env: Env
   notionConnection: NotionConnection
-  binding: NotionBinding
-  scopeFromRepo?: ParsedNotionRepoConfig
+  config: ParsedNotionRepoConfig
+  existingPaths: string[]
 }): Promise<NotionSyncResult> {
-  if (!input.binding.enabled || input.binding.setupPhase === "awaiting_merge") {
-    return {
-      status: "completed",
-      resourcesProcessed: 0,
-      resourcesFailed: 0,
-      errors: [],
-    }
-  }
-
-  const { repositoryName, githubConnectionId } =
-    await resolveRepoContextForBinding(input.orgId, input.binding)
-  const repoScope =
-    input.scopeFromRepo ??
-    (await loadNotionScopeFromRepo({
-      orgId: input.orgId,
-      env: input.env,
-      repositoryName,
-      githubConnectionId,
-      branch: input.binding.branch,
-    }))
-  if (!repoScope) {
-    throw new Error(
-      "Notion scope configuration is missing from the repository; expected notion/config.yaml",
-    )
-  }
-
+  const repoScope = input.config
   const resources = repoScope.resources.map((resource) => ({
     externalId: resource.externalId,
     type: resource.type,
@@ -322,53 +292,15 @@ export async function syncNotionContent(input: {
   }
 
   const managedRoot = getManagedNotionRootPath()
-  const allRepoFiles = await listFilesInTree({
-    orgId: input.orgId,
-    env: input.env,
-    repositoryName,
-    branch: input.binding.branch,
-    githubConnectionId,
-  })
-  const managedRepoFiles = allRepoFiles
-    .map((entry) => entry.path)
-    .filter(
-      (path) => path.startsWith(managedRoot) && path !== NOTION_CONFIG_PATH,
-    )
+  const managedRepoFiles = input.existingPaths.filter(
+    (path) => path.startsWith(managedRoot) && path !== NOTION_CONFIG_PATH,
+  )
   const desiredPaths = new Set(filesToWrite.map((file) => file.path))
   const deletePaths = getNotionDeletePaths({
     managedRepoPaths: managedRepoFiles,
     desiredPaths,
     resourcesFailed,
   })
-
-  const filesToCommit: Array<{ path: string; content: string }> = []
-  for (const file of filesToWrite) {
-    const current = await getFileContent({
-      orgId: input.orgId,
-      env: input.env,
-      repositoryName,
-      branch: input.binding.branch,
-      path: file.path,
-      githubConnectionId,
-    })
-    if (current === file.content) continue
-    filesToCommit.push(file)
-  }
-
-  let commitSha: string | undefined
-  if (filesToCommit.length > 0 || deletePaths.length > 0) {
-    const commit = await commitFiles({
-      orgId: input.orgId,
-      env: input.env,
-      repositoryName,
-      branch: input.binding.branch,
-      githubConnectionId,
-      message: "chore(notion): sync content",
-      files: filesToCommit,
-      deletePaths,
-    })
-    commitSha = commit.commitSha
-  }
 
   const status: NotionSyncResult["status"] =
     resourcesFailed === 0
@@ -381,7 +313,8 @@ export async function syncNotionContent(input: {
     status,
     resourcesProcessed,
     resourcesFailed,
-    commitSha,
+    files: filesToWrite,
+    deletePaths,
     errors,
   }
 }
@@ -390,30 +323,24 @@ export type NotionIncrementalSyncResult = {
   status: "completed" | "failed"
   written: number
   deleted: number
-  commitSha?: string
+  files: Array<{ path: string; content: string }>
+  deletePaths: string[]
   errors: Array<{ externalId: string; message: string }>
 }
 
 /**
- * Apply a single entity-scoped Notion change to Git. Unlike {@link syncNotionContent},
+ * Capture a single entity-scoped Notion change. Unlike {@link captureNotionContent},
  * this re-mirrors only the affected top-level resource (a selected page subtree or a
  * database), so live webhooks stay cheap instead of triggering a full remirror.
  */
-export async function syncNotionIncrementalContent(input: {
+export async function captureNotionIncrementalContent(input: {
   orgId: string
   env: Env
   notionConnection: NotionConnection
-  binding: NotionBindingWithRepo
+  existingPaths: string[]
   config: ParsedNotionRepoConfig
   entity: NotionEntityChange
 }): Promise<NotionIncrementalSyncResult> {
-  const { repositoryName, githubConnectionId, branch } = input.binding
-  if (!githubConnectionId) {
-    throw new Error(
-      "Notion binding repository has no GitHub connection; link the repository to a GitHub installation first",
-    )
-  }
-
   const onTokenRefresh = async (tokens: {
     accessToken: string
     refreshToken: string | null
@@ -430,18 +357,9 @@ export async function syncNotionIncrementalContent(input: {
   }
 
   const managedRoot = getManagedNotionRootPath()
-  const allRepoFiles = await listFilesInTree({
-    orgId: input.orgId,
-    env: input.env,
-    repositoryName,
-    branch,
-    githubConnectionId,
-  })
-  const managedPaths = allRepoFiles
-    .map((entry) => entry.path)
-    .filter(
-      (path) => path.startsWith(managedRoot) && path !== NOTION_CONFIG_PATH,
-    )
+  const managedPaths = input.existingPaths.filter(
+    (path) => path.startsWith(managedRoot) && path !== NOTION_CONFIG_PATH,
+  )
 
   const changes = await buildNotionIncrementalChanges({
     env: input.env,
@@ -452,42 +370,12 @@ export async function syncNotionIncrementalContent(input: {
     onTokenRefresh,
   })
 
-  // Skip re-committing files whose content already matches so repeated webhooks
-  // (e.g. page.content_updated) do not produce empty commits.
-  const filesToCommit: Array<{ path: string; content: string }> = []
-  for (const file of changes.files) {
-    const current = await getFileContent({
-      orgId: input.orgId,
-      env: input.env,
-      repositoryName,
-      branch,
-      path: file.path,
-      githubConnectionId,
-    })
-    if (current === file.content) continue
-    filesToCommit.push(file)
-  }
-
-  let commitSha: string | undefined
-  if (filesToCommit.length > 0 || changes.deletePaths.length > 0) {
-    const commit = await commitFiles({
-      orgId: input.orgId,
-      env: input.env,
-      repositoryName,
-      branch,
-      githubConnectionId,
-      message: "chore(notion): apply incremental updates",
-      files: filesToCommit,
-      deletePaths: changes.deletePaths,
-    })
-    commitSha = commit.commitSha
-  }
-
   return {
     status: changes.failures.length > 0 ? "failed" : "completed",
-    written: filesToCommit.length,
+    written: changes.files.length,
     deleted: changes.deletePaths.length,
-    commitSha,
+    files: changes.files,
+    deletePaths: changes.deletePaths,
     errors: changes.failures.map((failure) => ({
       externalId: failure.id,
       message: failure.message,

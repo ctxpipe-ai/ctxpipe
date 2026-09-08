@@ -302,14 +302,14 @@ export async function finalizeConfluenceSyncTargetAfterContentWorkflow(input: {
   connectionId: string
   workflowStatus: "completed" | "partial_failed" | "failed"
 }): Promise<void> {
-  if (input.workflowStatus === "failed") return
   const updated = await withOrgDbForConnection(
     input.connectionId,
     async (db) => {
       const [row] = await db
         .update(confluenceSyncTargets)
         .set({
-          setupPhase: "live",
+          setupPhase:
+            input.workflowStatus === "completed" ? "live" : "sync_failed",
           pendingConfigPullUrl: null,
           pendingConfigPrCreating: false,
           updatedAt: new Date(),

@@ -30,7 +30,8 @@ it(
           ).data.filter(
             (run) =>
               (run.input as { workspaceId?: string })?.workspaceId ===
-              f.workspaceId,
+                f.workspaceId &&
+              run.workflowName === "workspace-write-migration-export",
           )
           expect(queued).toEqual([
             expect.objectContaining({
@@ -107,7 +108,7 @@ it(
 )
 
 it(
-  "cron records an unknown permission after a writable repository lookup misses",
+  "cron records read-only access after the repository leaves its installation",
   { timeout: 60_000 },
   async () => {
     await withNativeHydrationFixture(
@@ -127,7 +128,11 @@ it(
             .from(workspaces)
             .where(eq(workspaces.id, f.workspaceId)),
         )
-        expect(row).toEqual({ writeStatus: "unknown", readOnlyReason: null })
+        expect(row).toEqual({
+          writeStatus: "read_only",
+          readOnlyReason:
+            "This repository is not in the GitHub App installation. An installation owner or admin must add it, then refresh.",
+        })
       },
     )
   },

@@ -12,10 +12,12 @@ import {
 import {
   type GitPack,
   nativeGit,
+  readGitPackFromRemote,
   withGitDirectory,
 } from "../../services/git/pack.js"
 import {
   assertConnectorMirrorBinding,
+  assertConnectorMirrorScope,
   type ConnectorMirrorSource,
 } from "./connector-mirror.js"
 import {
@@ -95,8 +97,10 @@ export async function pushWorkspaceCommit(
     throw new WorkspaceWriteAccessUnavailableError()
   if (tip.sha !== revision.sha || !sameWorkspaceRevision(current, revision))
     throw new WorkspaceTipAdvancedError()
-  if (input.mirror)
+  if (input.mirror) {
     await assertConnectorMirrorBinding(input.orgId, input.mirror, revision)
+    await assertConnectorMirrorScope(input.mirror, committed)
+  }
   const token = await getRepoWriteCloneToken(input.orgId, env, {
     githubConnectionId: connectionId,
     repoFullName: repositoryName,
@@ -253,6 +257,21 @@ export async function refreshWorkspaceWriteRevision(
     })
   )
     throw new Error("Workspace revision changed during no-op validation")
+  if (input.mirror) {
+    await assertConnectorMirrorBinding(
+      input.orgId,
+      input.mirror,
+      resolved.revision,
+    )
+    await assertConnectorMirrorScope(
+      input.mirror,
+      await readGitPackFromRemote({
+        url: resolved.revision.remote.url,
+        sha: resolved.revision.sha,
+        token: resolved.token,
+      }),
+    )
+  }
   return { ...resolved.revision, access: "write-default" }
 }
 

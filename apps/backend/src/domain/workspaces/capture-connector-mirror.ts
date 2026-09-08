@@ -17,7 +17,7 @@ import { normalizeWorkspaceRepositoryUrl } from "./slug.js"
 /** Capture the existing target's immutable tree before fetching provider content. */
 export async function captureConnectorMirrorTarget(input: {
   orgId: string
-  mirror: ConnectorMirrorSource
+  mirror: Omit<ConnectorMirrorSource, "configBlobSha">
   env: Env
   repositoryGitUrl: string
 }) {
@@ -70,7 +70,19 @@ export async function captureConnectorMirrorTarget(input: {
         return {
           workspaceId: workspace.id,
           revision,
-          mirror: input.mirror,
+          mirror: {
+            ...input.mirror,
+            configBlobSha: paths.includes(configPath)
+              ? (
+                  await nativeGit(directory, [
+                    "rev-parse",
+                    `${pack.sha}:${configPath}`,
+                  ])
+                )
+                  .toString()
+                  .trim()
+              : null,
+          },
           paths,
           config,
         }

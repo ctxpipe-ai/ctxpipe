@@ -8,7 +8,10 @@ import { createLogger, withLogger } from "../../observability/logger.js"
 import type { GitFileChange } from "../../services/git/file-change.js"
 import { readGitPackFromRemote } from "../../services/git/pack.js"
 import type { ConnectorMirrorSource } from "./connector-mirror.js"
-import { assertConnectorMirrorBinding } from "./connector-mirror.js"
+import {
+  assertConnectorMirrorBinding,
+  assertConnectorMirrorScope,
+} from "./connector-mirror.js"
 import { resolveRepositoryReadCredential } from "./resolve-revision.js"
 import { sameWorkspaceRevision, type WorkspaceRevision } from "./revision.js"
 import type { WorkspaceWriteKind } from "./write-commit-files.js"
@@ -110,5 +113,6 @@ export async function acquireWorkspaceWriteRevision(
     additionalShas: previousSha ? [previousSha] : [],
     token,
   })
+  if (input.mirror) await assertConnectorMirrorScope(input.mirror, pack)
   return { pack, displayName: workspace.displayName }
 }

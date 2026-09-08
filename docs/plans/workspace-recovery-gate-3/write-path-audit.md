@@ -1,6 +1,6 @@
 # Gate 3 write-path audit
 
-Checkpoint work after a6273f0c; this is an open-work inventory, not acceptance.
+Checkpoint work after db628699; this is an open-work inventory, not acceptance.
 
 ## Native default writes
 
@@ -8,10 +8,9 @@ All twelve typed workspace workflows call `domain/workspaces/write-broker.ts`. I
 
 ## Remaining alternate writers
 
-- Linear full and incremental parents now capture files without durable credentials and use `step.runWorkflow` for the typed native connector child. Config-PR behavior remains. Complete connector setup failure projection/finalization and binding-race audit before acceptance.
-- Notion `services/notion/sync.ts`: full and incremental content call `commitFiles`.
-- Confluence `services/confluence/sync.ts`: captured content calls `commitFiles`.
-- Slack `services/slack/sync.ts`: mention capture calls `commitFiles`.
+- Linear, Notion and Confluence full/incremental parents capture provider files without durable credentials and use native typed mirror children. Slack separates model intent, deterministic thread capture and native child publication before posting success. Config PR behavior remains.
+- Each new mirror carries the captured config blob identity, including absence. Native acquisition, no-op/semantic refresh and broker publication reject captures after that scope changes. Old commands without that required identity fail schema validation instead of acquiring current scope implicitly.
+- Complete connector setup failure projection and full binding CAS on finalization before acceptance. Confluence completed provider failures now leave initial setup as sync_failed, and partial fetch failures preserve orphaned files; space events cannot delete another space. Review provider-state sync markers and failure/retry publication as part of the remaining lifecycle work.
 - Legacy `openworkflow/workflows/workspace-write-commit.ts`: generic write runner still calls `commitFiles`; delete after remaining callers migrate.
 - `services/github/installation-write-client.ts`: unrestricted `commitFiles` remains public. Its retained config-PR caller must have a strict non-default guard. `getOrInitializeBaseBranch` can initialize a default branch outside the typed bootstrap path and must migrate.
 - `domain/workspaces/conversation-publish.ts`: injects an installation token in a URL executed inside the agent sandbox and uses force-with-lease. Both conversations and files routes supply unrestricted installation tokens. Move session-branch publication outside the agent environment, capture native Git objects, revalidate actual default/binding and keep the explicit session-branch exclusion.
