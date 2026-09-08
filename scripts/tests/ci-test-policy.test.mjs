@@ -125,6 +125,29 @@ test("proof policy rejects aliased skips, retries and owned module mocks without
     const runner = join(directory, "runner.mjs")
     writeFileSync(runner, 'spawnSync("node", [vitest, "run", "--retry=2"])')
     assert.equal(spawnSync(process.execPath, [policy, runner]).status, 1)
+    for (const command of [
+      "pnpm --filter @ctxpipe/backend test -- --retry=2",
+      "pnpm -C apps/backend run test -- --retry 2",
+      "npm --workspace backend run test -- --retry=2",
+      "turbo run test -- --retry=2",
+    ]) {
+      writeFileSync(manifest, JSON.stringify({ scripts: { test: command } }))
+      assert.equal(
+        spawnSync(process.execPath, [policy, manifest]).status,
+        1,
+        command,
+      )
+    }
+    writeFileSync(
+      runner,
+      // biome-ignore lint/suspicious/noTemplateCurlyInString: Fixture source retains its runtime interpolation.
+      'spawnSync("node", [vitest, "run", `--retry=${count}`])',
+    )
+    assert.equal(spawnSync(process.execPath, [policy, runner]).status, 1)
+    const frameworkAssertion = check(
+      'import * as v from "vitest"; v.test("proof", () => v.expect(buildSubject()).toBe(1))',
+    )
+    assert.equal(frameworkAssertion.status, 0, frameworkAssertion.stderr)
     const domainRetry = check(
       'test("retry policy", () => withTransientHttpRetry(operation, { retries: 2 }))',
     )

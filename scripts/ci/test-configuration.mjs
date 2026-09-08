@@ -52,8 +52,10 @@ export function readTestConfiguration(files, root) {
       for (const line of command.replace(/\\\r?\n/g, " ").split("\n")) {
         if (
           line.trim().startsWith("#") ||
-          !/\b(?:vitest|playwright)\b|\b(?:pnpm|npm|bun)\s+(?:(?:run|exec)\s+)?test(?:\b|:)/.test(
-            line,
+          !(
+            /\b(?:vitest|playwright)\b/.test(line) ||
+            (/\b(?:pnpm|npm|bun|turbo)\b/.test(line) &&
+              /\btest(?:\b|:)/.test(line))
           )
         )
           continue

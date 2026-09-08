@@ -96,6 +96,7 @@ try {
     const proof = classification.get(path) !== "characterization"
     const tests = new Set(["it", "test", "describe", "suite"])
     const mocks = new Set(["vi", "vitest", "jest", "mock"])
+    const frameworkNamespaces = new Set()
     for (const statement of source.statements) {
       if (
         ts.isImportDeclaration(statement) &&
@@ -111,6 +112,7 @@ try {
         ) {
           mocks.add(bindings.name.text)
           tests.add(bindings.name.text)
+          frameworkNamespaces.add(bindings.name.text)
         }
         if (bindings && ts.isNamedImports(bindings)) {
           for (const binding of bindings.elements) {
@@ -132,6 +134,29 @@ try {
         return rootName(expression.expression)
       return ""
     }
+    const isTestExpression = (expression) => {
+      const root = rootName(expression)
+      if (!tests.has(root)) return false
+      if (!frameworkNamespaces.has(root)) return true
+      let cursor = unwrap(expression)
+      while (
+        ts.isCallExpression(cursor) ||
+        ts.isPropertyAccessExpression(cursor) ||
+        ts.isElementAccessExpression(cursor)
+      ) {
+        if (
+          !ts.isCallExpression(cursor) &&
+          ts.isIdentifier(unwrap(cursor.expression))
+        ) {
+          const member = ts.isPropertyAccessExpression(cursor)
+            ? cursor.name.text
+            : cursor.argumentExpression.getText(source).replaceAll(/["'`]/g, "")
+          return ["test", "it", "describe", "suite"].includes(member)
+        }
+        cursor = unwrap(cursor.expression)
+      }
+      return false
+    }
     // Follow ordinary local aliases of the test framework before checking uses.
     let previousSize = -1
     while (previousSize !== mocks.size + tests.size) {
@@ -142,7 +167,14 @@ try {
           ts.isIdentifier(node.name) &&
           node.initializer
         ) {
-          if (tests.has(rootName(node.initializer))) tests.add(node.name.text)
+          if (isTestExpression(node.initializer)) tests.add(node.name.text)
+          if (
+            ts.isIdentifier(unwrap(node.initializer)) &&
+            frameworkNamespaces.has(rootName(node.initializer))
+          ) {
+            frameworkNamespaces.add(node.name.text)
+            tests.add(node.name.text)
+          }
         }
         if (
           ts.isVariableDeclaration(node) &&
@@ -230,7 +262,7 @@ try {
       }
       if (
         ts.isCallExpression(node) &&
-        !tests.has(rootName(node.expression)) &&
+        !isTestExpression(node.expression) &&
         !["Object.freeze", "Object.seal"].includes(
           node.expression.getText(source),
         )
@@ -285,7 +317,7 @@ try {
       }
     }
     const collectOptions = (node) => {
-      if (ts.isCallExpression(node) && tests.has(rootName(node.expression))) {
+      if (ts.isCallExpression(node) && isTestExpression(node.expression)) {
         const callee = unwrap(node.expression)
         const method = ts.isPropertyAccessExpression(callee)
           ? callee.name.text
@@ -319,6 +351,13 @@ try {
       return expression.getText(source)
     }
     const visit = (node) => {
+      if (
+        file.endsWith(".mjs") &&
+        !file.endsWith(".test.mjs") &&
+        ts.isTemplateExpression(node) &&
+        /^--(?:retry|retries)(?:=|$)/.test(node.head.text)
+      )
+        complain(node, "Dynamic CI runner retry argv is forbidden")
       if (
         file.endsWith(".mjs") &&
         !file.endsWith(".test.mjs") &&
