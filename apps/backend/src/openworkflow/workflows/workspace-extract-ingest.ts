@@ -3,7 +3,10 @@ import { z } from "zod"
 import { parseEnv } from "../../config/env.js"
 import { generateCommitSubject } from "../../domain/workspaces/commit-subject.js"
 import { workspaceExtractionSchema } from "../../domain/workspaces/extraction.js"
-import { isConnectorMirrorPath } from "../../domain/workspaces/layout.js"
+import {
+  isConnectorMirrorPath,
+  isLinkedRepositoryDeclaration,
+} from "../../domain/workspaces/layout.js"
 import { planCapturedExtraction } from "../../domain/workspaces/plan-extraction.js"
 import {
   sameWorkspaceRevision,
@@ -136,7 +139,10 @@ export const workspaceExtractIngest = defineWorkflow(
               )
               const files = plan.files.filter(
                 (file) =>
-                  file.path.startsWith("knowledge/") &&
+                  file.path !== "AGENTS.md" &&
+                  !file.path.startsWith(".agents/") &&
+                  !isLinkedRepositoryDeclaration(file.path) &&
+                  !isConnectorMirrorPath(file.path) &&
                   existing.get(file.path) !== file.content,
               )
               return { files, knowledgePaths: plan.knowledgePaths }

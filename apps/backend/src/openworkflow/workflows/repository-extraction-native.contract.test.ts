@@ -17,6 +17,7 @@ import { workspaceSemanticMerge } from "./workspace-semantic-merge.js"
 
 it.each([
   "workspace",
+  "too-many-roots",
   "linked",
   "unlinked-before-resume",
   "edited-before-resume",
@@ -24,6 +25,7 @@ it.each([
   "resumes captured repository extraction against canonical source ownership (%s)",
   { timeout: 45_000 },
   async (mode) => {
+    const ownSource = mode === "workspace" || mode === "too-many-roots"
     await withNativeHydrationFixture(
       {
         github: true,
@@ -45,10 +47,9 @@ it.each([
         const repository = await withOrgIdContext(f.org, async () => {
           const created = await ensureOrgRepositoryForGitUrl({
             orgId: f.org.id,
-            gitUrl:
-              mode === "workspace"
-                ? f.workspaceUrl
-                : "https://github.com/fixture/extraction-source",
+            gitUrl: ownSource
+              ? f.workspaceUrl
+              : "https://github.com/fixture/extraction-source",
             githubConnectionId: f.connectionId,
           })
           if (!created) throw new Error("Fixture repository missing")
@@ -59,7 +60,7 @@ it.each([
           )
         })
         if (!repository) throw new Error("Fixture repository missing")
-        if (mode !== "workspace")
+        if (!ownSource)
           await withOrgIdContext(f.org, () =>
             persistOrgFirstWorkspace({
               orgId: f.org.id,
@@ -154,11 +155,15 @@ it.each([
                 deletedObjectIds: [],
               },
             }))
-            await step.run({ name: "identify-roots" }, () => ({
-              roots: ["billing"],
-            }))
-            await step.run({ name: "extract-kind:billing" }, () => extracted)
-            await step.run({ name: "identify:billing" }, () => extracted)
+            const roots =
+              mode === "too-many-roots"
+                ? Array.from({ length: 129 }, (_, i) => `root-${i}`)
+                : ["billing"]
+            await step.run({ name: "identify-roots" }, () => ({ roots }))
+            for (const root of roots) {
+              await step.run({ name: `extract-kind:${root}` }, () => extracted)
+              await step.run({ name: `identify:${root}` }, () => extracted)
+            }
             await step.run({ name: "deduplicateAndStore" }, () => ({
               objectIds: [],
               touchedObjectIds: [],
@@ -229,6 +234,19 @@ it.each([
           )
           worker = resumed.newWorker({ concurrency: 1 })
           await worker.start()
+          if (mode === "too-many-roots") {
+            await expect(handle.result({ timeoutMs: 10_000 })).rejects.toThrow()
+            const persisted = await backend.getWorkflowRun({
+              workflowRunId: handle.workflowRun.id,
+            })
+            expect(persisted?.error?.message).toContain(
+              "Extraction root capture exceeds 128 roots",
+            )
+            expect(f.git("--git-dir", f.remote, "rev-parse", "main")).toBe(
+              f.sha,
+            )
+            return
+          }
           if (
             mode === "unlinked-before-resume" ||
             mode === "edited-before-resume"
@@ -294,7 +312,7 @@ it.each([
             "main:knowledge/services/billing.md",
           )
           expect(markdown).toContain(
-            mode === "workspace"
+            ownSource
               ? "to: ../../AGENTS.md"
               : "to: ../../repositories/source.md",
           )

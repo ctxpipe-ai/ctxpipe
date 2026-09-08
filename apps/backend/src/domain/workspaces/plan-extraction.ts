@@ -5,13 +5,15 @@ import {
   parseLinkedRepositoryMarkdown,
 } from "./layout.js"
 import {
+  checkoutableGitUrl,
   type ExistingKnowledgeFile,
   planKnowledgeProjection,
 } from "./migration-export.js"
+import { retractExtractionClaims } from "./retract-extraction.js"
 import { normalizeWorkspaceRepositoryUrl } from "./slug.js"
 
 /** Convert captured extractor references to paths already owned by the Git tree. */
-export function planCapturedExtraction(input: {
+export async function planCapturedExtraction(input: {
   extraction: WorkspaceExtraction
   workspaceId: string
   workspaceRepositoryUrl: string
@@ -51,7 +53,7 @@ export function planCapturedExtraction(input: {
     })
     if (declaration) referencePaths.set(batch.repositoryId, declaration.path)
   }
-  return planKnowledgeProjection({
+  const plan = await planKnowledgeProjection({
     workspaceId: input.workspaceId,
     firstWorkspaceId: input.workspaceId,
     workspaceRepositoryUrl: input.workspaceRepositoryUrl,
@@ -72,10 +74,27 @@ export function planCapturedExtraction(input: {
       predicate: claim.predicate,
       aggregatedConfidence: claim.confidence,
       evidenceKey: claim.sourceId,
+      source: `${checkoutableGitUrl(batch.repositoryUrl)}${claim.sourcePath ? `#${claim.sourcePath}` : ""}`,
       validFrom: null,
       validTo: null,
     })),
     linkedUrls: [],
     existingKnowledge: input.existingKnowledge,
   })
+  const files = new Map(
+    input.existingKnowledge.map((file) => [file.path, file]),
+  )
+  for (const file of plan.files) files.set(file.path, file)
+  return {
+    ...plan,
+    files: retractExtractionClaims({
+      extraction: batch,
+      workspaceRepositoryUrl: input.workspaceRepositoryUrl,
+      files: [...files.values()],
+      referencePaths: new Map([
+        ...referencePaths,
+        ...Object.entries(plan.knowledgePaths),
+      ]),
+    }),
+  }
 }

@@ -37,7 +37,8 @@ export function isConnectorMirrorPath(path: string): boolean {
   return (
     path.startsWith("linear/") ||
     path.startsWith("notion/") ||
-    path.startsWith("confluence/")
+    path.startsWith("confluence/") ||
+    path.startsWith("slack/")
   )
 }
 

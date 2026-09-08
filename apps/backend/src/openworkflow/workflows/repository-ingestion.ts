@@ -5,7 +5,12 @@ import { parseEnv } from "../../config/env.js"
 import { getSystemDb, withOrgDbContext } from "../../db/client.js"
 import { resolveRepositoryRef } from "../../domain/codeIngestion/queue.js"
 import { captureRepositoryExtractionTarget } from "../../domain/workspaces/capture-repository-extraction.js"
-import { workspaceExtractionSchema } from "../../domain/workspaces/extraction.js"
+import {
+  captureExtractionClaimSourcePath,
+  extractionCaptureBudgetSchema,
+  extractionRootsSchema,
+  workspaceExtractionSchema,
+} from "../../domain/workspaces/extraction.js"
 import { identifyRoots } from "../../graphs/codeIngestionGraph/nodes/identifyRoots.js"
 import {
   runExtractKindForRoot,
@@ -330,7 +335,9 @@ export const repositoryIngestion = defineWorkflow(
                       ),
                   )
 
-                  const roots = rootsPartial.roots ?? []
+                  const roots = extractionRootsSchema.parse(
+                    rootsPartial.roots ?? [],
+                  )
                   logWorkflowMilestone(
                     "repository-ingestion.step.identify-roots.done",
                     {
@@ -340,100 +347,107 @@ export const repositoryIngestion = defineWorkflow(
                     },
                   )
 
-                  const rootExtractResults = await Promise.all(
-                    roots.map(async (root) => {
-                      const rootId = stableRootStepId(root)
-                      const kindPartial = await step.run(
-                        {
-                          name: `extract-kind:${rootId}`,
-                          retryPolicy: extractRetryPolicy,
-                        },
-                        () =>
-                          wls(`extract-kind:${rootId}`, () =>
-                            withLangfuseObservation(
-                              {
-                                name: "repository-ingestion.extract-kind",
-                                input: { rootId, root },
-                                metadata: {
-                                  ...baseLangfuseMetadata,
-                                  workflowStepName: `extract-kind:${rootId}`,
-                                  rootId,
-                                  root,
-                                },
-                              },
-                              () =>
-                                withIngestAgentContext(
-                                  {
-                                    ...langfuseAttrs,
-                                    runName:
-                                      "repository-ingestion.extract-kind",
-                                    metadata: {
-                                      workflowStepName: `extract-kind:${rootId}`,
-                                      rootId,
-                                      root,
-                                    },
-                                  },
-                                  () =>
-                                    runExtractKindForRoot(
-                                      baseIngestState,
-                                      root,
-                                    ),
-                                ),
-                            ),
-                          ),
-                      )
-
-                      // Coarsen identify_* into one durable step per root (kind
-                      // boundary stays durable). Avoids WORKFLOW_STEP_LIMIT blowups
-                      // on large monorepos while preserving extractKind-before-
-                      // identify ordering and cross-root parallelism.
-                      return step.run(
-                        {
-                          name: `identify:${rootId}`,
-                          retryPolicy: extractRetryPolicy,
-                        },
-                        () =>
-                          wls(`identify:${rootId}`, () =>
-                            withLangfuseObservation(
-                              {
-                                name: "repository-ingestion.identify",
-                                input: { rootId, root },
-                                metadata: {
-                                  ...baseLangfuseMetadata,
-                                  workflowStepName: `identify:${rootId}`,
-                                  rootId,
-                                  root,
-                                },
-                              },
-                              () =>
-                                withIngestAgentContext(
-                                  {
-                                    ...langfuseAttrs,
-                                    runName: "repository-ingestion.identify",
-                                    metadata: {
-                                      workflowStepName: `identify:${rootId}`,
-                                      rootId,
-                                      root,
-                                    },
-                                  },
-                                  () =>
-                                    runIdentifyPhaseForRoot(
-                                      baseIngestState,
-                                      root,
-                                      kindPartial,
-                                    ),
-                                ),
-                            ),
-                          ),
-                      )
-                    }),
-                  )
-
                   const extractedObjects: ExtractedObject[] = []
                   const extractedClaims: ExtractedClaim[] = []
-                  for (const part of rootExtractResults) {
-                    extractedObjects.push(...part.extractedObjects)
-                    extractedClaims.push(...part.extractedClaims)
+                  // Two roots at a time bound provider fan-out before the next batch is allocated.
+                  for (let offset = 0; offset < roots.length; offset += 2) {
+                    const rootExtractResults = await Promise.all(
+                      roots.slice(offset, offset + 2).map(async (root) => {
+                        const rootId = stableRootStepId(root)
+                        const kindPartial = await step.run(
+                          {
+                            name: `extract-kind:${rootId}`,
+                            retryPolicy: extractRetryPolicy,
+                          },
+                          () =>
+                            wls(`extract-kind:${rootId}`, () =>
+                              withLangfuseObservation(
+                                {
+                                  name: "repository-ingestion.extract-kind",
+                                  input: { rootId, root },
+                                  metadata: {
+                                    ...baseLangfuseMetadata,
+                                    workflowStepName: `extract-kind:${rootId}`,
+                                    rootId,
+                                    root,
+                                  },
+                                },
+                                () =>
+                                  withIngestAgentContext(
+                                    {
+                                      ...langfuseAttrs,
+                                      runName:
+                                        "repository-ingestion.extract-kind",
+                                      metadata: {
+                                        workflowStepName: `extract-kind:${rootId}`,
+                                        rootId,
+                                        root,
+                                      },
+                                    },
+                                    () =>
+                                      runExtractKindForRoot(
+                                        baseIngestState,
+                                        root,
+                                      ),
+                                  ),
+                              ),
+                            ),
+                        )
+
+                        // Coarsen identify_* into one durable step per root (kind
+                        // boundary stays durable). Avoids WORKFLOW_STEP_LIMIT blowups
+                        // on large monorepos while preserving extractKind-before-
+                        // identify ordering and cross-root parallelism.
+                        return step.run(
+                          {
+                            name: `identify:${rootId}`,
+                            retryPolicy: extractRetryPolicy,
+                          },
+                          () =>
+                            wls(`identify:${rootId}`, () =>
+                              withLangfuseObservation(
+                                {
+                                  name: "repository-ingestion.identify",
+                                  input: { rootId, root },
+                                  metadata: {
+                                    ...baseLangfuseMetadata,
+                                    workflowStepName: `identify:${rootId}`,
+                                    rootId,
+                                    root,
+                                  },
+                                },
+                                () =>
+                                  withIngestAgentContext(
+                                    {
+                                      ...langfuseAttrs,
+                                      runName: "repository-ingestion.identify",
+                                      metadata: {
+                                        workflowStepName: `identify:${rootId}`,
+                                        rootId,
+                                        root,
+                                      },
+                                    },
+                                    () =>
+                                      runIdentifyPhaseForRoot(
+                                        baseIngestState,
+                                        root,
+                                        kindPartial,
+                                      ),
+                                  ),
+                              ),
+                            ),
+                        )
+                      }),
+                    )
+
+                    for (const part of rootExtractResults) {
+                      extractedObjects.push(...part.extractedObjects)
+                      extractedClaims.push(...part.extractedClaims)
+                    }
+                    extractionCaptureBudgetSchema.parse({
+                      objects: extractedObjects,
+                      claims: extractedClaims,
+                    })
                   }
 
                   return { roots, extractedObjects, extractedClaims }
@@ -447,6 +461,27 @@ export const repositoryIngestion = defineWorkflow(
                 repositoryUrl: repository.gitUrl,
                 sourceSha: reindexState.targetHash ?? resolved.hash,
                 sourceDeclaration: destination.sourceDeclaration,
+                retraction:
+                  reindexState.ingestMode === "partial"
+                    ? {
+                        mode: "partial",
+                        observedAt:
+                          reindexState.indexedAt ?? run.createdAt.toISOString(),
+                        paths: [
+                          ...new Set([
+                            ...(reindexState.changedPaths ?? []),
+                            ...(reindexState.deletedPaths ?? []),
+                            ...(reindexState.renames ?? []).flatMap(
+                              (rename) => [rename.from, rename.to],
+                            ),
+                          ]),
+                        ],
+                      }
+                    : {
+                        mode: "full",
+                        observedAt:
+                          reindexState.indexedAt ?? run.createdAt.toISOString(),
+                      },
                 objects: extractedObjects,
                 claims: extractedClaims.map((claim) => ({
                   subjectRef: claim.subjectRef,
@@ -454,6 +489,9 @@ export const repositoryIngestion = defineWorkflow(
                   predicate: claim.predicate,
                   confidence: claim.confidence,
                   sourceId: claim.sourceId,
+                  sourcePath: captureExtractionClaimSourcePath(
+                    claim.provenance,
+                  ),
                 })),
               })
               await step.runWorkflow(
