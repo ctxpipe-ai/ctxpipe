@@ -378,7 +378,24 @@ export async function persistBoundWriteJob(input: {
       !isDeepStrictEqual(row.payload?.mergeDeletePaths, input.deletePaths)
     )
       throw new Error("Write job id belongs to a different file command")
-    if (!input.workflowRunId && row.payload?.revision) return
+    if (!input.workflowRunId && row.payload?.revision) {
+      if (
+        !row.payload.workflowRunId &&
+        row.status === WRITE_JOB_STATUSES.failed
+      ) {
+        await getOrgDb()
+          .update(workspaceWriteJobs)
+          .set({ status: WRITE_JOB_STATUSES.queued, updatedAt: new Date() })
+          .where(
+            and(
+              eq(workspaceWriteJobs.id, input.id),
+              eq(workspaceWriteJobs.status, WRITE_JOB_STATUSES.failed),
+              sql`${workspaceWriteJobs.payload}->>'workflowRunId' is null`,
+            ),
+          )
+      }
+      return
+    }
     const [claimed] = await getOrgDb()
       .update(workspaceWriteJobs)
       .set({ payload, status: values.status, updatedAt: new Date() })
@@ -392,5 +409,25 @@ export async function persistBoundWriteJob(input: {
       )
       .returning({ id: workspaceWriteJobs.id })
     if (!claimed) throw new Error("Write job already has a workflow owner")
+  })
+}
+
+/** A rejected enqueue may still have committed. Never fail a native scheduled run. */
+export async function failUnscheduledWriteJob(jobId: string): Promise<void> {
+  await orgSql(async () => {
+    await getOrgDb()
+      .update(workspaceWriteJobs)
+      .set({ status: WRITE_JOB_STATUSES.failed, updatedAt: new Date() })
+      .where(
+        and(
+          eq(workspaceWriteJobs.id, jobId),
+          eq(workspaceWriteJobs.status, WRITE_JOB_STATUSES.queued),
+          sql`${workspaceWriteJobs.payload}->>'workflowRunId' is null`,
+          sql`not exists (select 1 from openworkflow.workflow_runs scheduled
+        where scheduled.input->>'orgId' = ${workspaceWriteJobs.orgId}
+          and scheduled.input->>'workspaceId' = ${workspaceWriteJobs.workspaceId}
+          and scheduled.input->>'jobId' = ${workspaceWriteJobs.id})`,
+        ),
+      )
   })
 }

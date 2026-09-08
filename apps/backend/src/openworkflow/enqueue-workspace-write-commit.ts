@@ -12,7 +12,10 @@ import {
   probeWorkspaceWriteAccess,
 } from "../domain/workspaces/write-status.js"
 import { generateObjectId } from "../lib/id.js"
-import { persistBoundWriteJob } from "../models/workspace-write-jobs.js"
+import {
+  failUnscheduledWriteJob,
+  persistBoundWriteJob,
+} from "../models/workspace-write-jobs.js"
 import {
   getWorkspaceById,
   persistWriteJobIntent,
@@ -21,11 +24,24 @@ import {
 } from "../models/workspaces.js"
 import { runWorkflowWithWorkerWake } from "./client.js"
 import { workspaceBootstrap } from "./workflows/workspace-bootstrap.js"
+import { workspaceClaimsUpgrade } from "./workflows/workspace-claims-upgrade.js"
 import {
   workspaceFileEdit,
   workspaceFileEditInputSchema,
 } from "./workflows/workspace-file-edit.js"
+import { workspaceImportKeyCleanup } from "./workflows/workspace-import-key-cleanup.js"
+import { workspaceValidFromPersist } from "./workflows/workspace-valid-from-persist.js"
 import { workspaceWriteCommit } from "./workflows/workspace-write-commit.js"
+
+// Admission selects an explicit native workflow; it does not execute a job lifecycle.
+const snapshotWriteWorkflows: Partial<
+  Record<EnqueueWriteJobInput["kind"], typeof workspaceBootstrap>
+> = {
+  bootstrap: workspaceBootstrap,
+  claims_upgrade: workspaceClaimsUpgrade,
+  valid_from_persist: workspaceValidFromPersist,
+  import_key_cleanup: workspaceImportKeyCleanup,
+}
 
 type WorkspaceWriteSnapshot = {
   id: string
@@ -109,10 +125,12 @@ export async function enqueueWriteJob(
     log.error(new Error("Workspace write binding is unavailable"))
     return { started: false }
   }
+  const snapshotWorkflow = snapshotWriteWorkflows[input.kind]
   if (
-    (input.kind === "bootstrap" || input.kind === "ui_file_edit") &&
+    (snapshotWorkflow || input.kind === "ui_file_edit") &&
     writeStatus === "writable"
   ) {
+    let bound = false
     try {
       const resolved = await resolveWorkspaceReadRevision({
         orgId: input.orgId,
@@ -147,19 +165,34 @@ export async function enqueueWriteJob(
           files: command.files,
           deletePaths: command.deletePaths,
         })
+        bound = true
         await runWorkflowWithWorkerWake(workspaceFileEdit.spec, command, {
           idempotencyKey: jobId,
         })
         return { started: true }
       }
-      await persistBoundWriteJob({ id: jobId, kind: "bootstrap", revision })
+      if (!snapshotWorkflow)
+        throw new Error("No typed workflow for this write kind")
+      await persistBoundWriteJob({ id: jobId, kind: input.kind, revision })
+      bound = true
       await runWorkflowWithWorkerWake(
-        workspaceBootstrap.spec,
+        snapshotWorkflow.spec,
         { orgId: input.orgId, workspaceId: input.workspaceId, jobId, revision },
         { idempotencyKey: jobId },
       )
       return { started: true }
     } catch (error) {
+      if (bound) {
+        try {
+          await failUnscheduledWriteJob(jobId)
+        } catch (statusError) {
+          log.error(
+            statusError instanceof Error
+              ? statusError
+              : new Error(String(statusError)),
+          )
+        }
+      }
       log.error(error instanceof Error ? error : new Error(String(error)))
       return { started: false }
     }

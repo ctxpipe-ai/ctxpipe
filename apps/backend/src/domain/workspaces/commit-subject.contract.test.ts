@@ -21,12 +21,14 @@ it(
       MODEL_FAST_NAME: "arbitrary-large-tier-model",
     })
     const requests: Record<string, unknown>[] = []
+    const signals: AbortSignal[] = []
     const server = setupServer(
       http.post(
         "https://commit-subject.test/v1/chat/completions",
         async ({ request }) => {
           const body = (await request.json()) as Record<string, unknown>
           requests.push(body)
+          signals.push(request.signal)
           if (body.stream) {
             const chunks = [
               {
@@ -93,6 +95,9 @@ it(
         "Changed files (names only): knowledge/reviewed.md",
       )
       expect(subject).toBe("ctxpipe - Update reviewed knowledge")
+      // A completed request must not receive a later cancellation from a leftover deadline.
+      await delay(5_200)
+      expect(signals[0]?.aborted).toBe(false)
     } finally {
       server.close()
       for (const [key, value] of prior) {

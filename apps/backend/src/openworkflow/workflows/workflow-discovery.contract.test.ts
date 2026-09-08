@@ -48,6 +48,9 @@ it(
         "repository-index",
         "workspace-write-bootstrap",
         "workspace-write-ui-file-edit",
+        "workspace-write-import-key-cleanup",
+        "workspace-write-claims-upgrade",
+        "workspace-write-valid-from-persist",
       ]),
     )
   },

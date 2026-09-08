@@ -1,8 +1,8 @@
 import { execFileSync } from "node:child_process"
 import { generateKeyPairSync } from "node:crypto"
-import { mkdtempSync, rmSync, writeFileSync } from "node:fs"
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs"
 import { tmpdir } from "node:os"
-import { join } from "node:path"
+import { dirname, join } from "node:path"
 import { eq, sql } from "drizzle-orm"
 import { FalkorDB } from "falkordb"
 import { HttpResponse, http } from "msw"
@@ -31,6 +31,7 @@ import { closeGraphDb } from "../platform/graph/client.js"
 
 export type NativeHydrationOptions = {
   files?: Array<{ path: string; body: string; mode?: "100755" | "120000" }>
+  initialCommitDate?: string
   count?: number
   github?: boolean
   githubWriteView?: "writable" | "missing"
@@ -213,8 +214,10 @@ async function createNativeHydrationFixture(
         path: `document-${String(index).padStart(3, "0")}.md`,
         body: `# Document ${index}\nCommitted body ${index}.\n`,
       }))
-    for (const file of expected)
+    for (const file of expected) {
+      mkdirSync(dirname(join(directory, file.path)), { recursive: true })
       writeFileSync(join(directory, file.path), file.body)
+    }
     git("add", ".")
     for (const file of options.files ?? []) {
       if (file.mode) {
@@ -222,15 +225,31 @@ async function createNativeHydrationFixture(
         git("update-index", "--cacheinfo", `${file.mode},${blob},${file.path}`)
       }
     }
-    git(
-      "-c",
-      "user.name=Contract",
-      "-c",
-      "user.email=contract@example.test",
-      "commit",
-      "--allow-empty",
-      "-m",
-      "Immutable fixture",
+    execFileSync(
+      "git",
+      [
+        "-c",
+        "user.name=Contract",
+        "-c",
+        "user.email=contract@example.test",
+        "commit",
+        "--allow-empty",
+        "-m",
+        "Immutable fixture",
+      ],
+      {
+        cwd: directory,
+        encoding: "utf8",
+        env: {
+          ...process.env,
+          ...(options.initialCommitDate
+            ? {
+                GIT_AUTHOR_DATE: options.initialCommitDate,
+                GIT_COMMITTER_DATE: options.initialCommitDate,
+              }
+            : {}),
+        },
+      },
     )
     const sha = git("rev-parse", "HEAD")
     const remote = join(directory, "remote.git")

@@ -1,0 +1,84 @@
+{"name": "native-admission-failure-red", "cwd": "/private/tmp/ctxpipe-recovery-01a07aba", "command": ["/Users/jakubriedl/.volta/tools/image/node/22.16.0/bin/node", "apps/backend/node_modules/vitest/vitest.mjs", "run", "--root", "apps/backend", "src/domain/workspaces/write-workflow-native.contract.test.ts", "-t", "native workflow admission fails"], "environment": {"AUTH_SECRET": "gate0-local-disposable-test-secret-20260907", "DATABASE_URL": "postgresql://ctxpipe_app:ctxpipe@127.0.0.1:61314/ctxpipe_gate0_fresh", "GRAPH_DB_URI": "redis://127.0.0.1:6398", "CI": "true", "NO_COLOR": "1", "TURBO_TELEMETRY_DISABLED": "1", "STORYBOOK_DISABLE_TELEMETRY": "1", "PATH": "/Users/jakubriedl/.volta/tools/image/node/22.16.0/bin:/private/tmp/ctxpipe-recovery-runtime/ast-grep/node_modules/.bin:/private/tmp/ctxpipe-recovery-runtime/node_modules/.bin:/private/tmp/ctxpipe-recovery-runtime/zoekt:/Users/jakubriedl/.local/bin:/Users/jakubriedl/.bun/bin:/Users/jakubriedl/.opencode/bin:/Users/jakubriedl/.volta/bin:/opt/homebrew/bin:/opt/homebrew/sbin:/usr/local/bin:/System/Cryptexes/App/usr/bin:/usr/bin:/bin:/usr/sbin:/sbin:/var/run/com.apple.security.cryptexd/codex.system/bootstrap/usr/local/bin:/var/run/com.apple.security.cryptexd/codex.system/bootstrap/usr/bin:/var/run/com.apple.security.cryptexd/codex.system/bootstrap/usr/appleinternal/bin:/pkg/env/global/bin:/Users/jakubriedl/.codex/tmp/arg0/codex-arg0BW5Gt3:/Users/jakubriedl/.cache/codex-runtimes/codex-primary-runtime/dependencies/bin/override:/Users/jakubriedl/.local/bin:/Users/jakubriedl/.bun/bin:/Users/jakubriedl/.opencode/bin:/Users/jakubriedl/.volta/bin:/Users/jakubriedl/.cache/codex-runtimes/codex-primary-runtime/dependencies/bin/fallback:/Applications/ChatGPT.app/Contents/Resources"}, "timeout_seconds": 600, "started_utc": "2026-09-08T08:44:23Z", "log": "logs/native-admission-failure-red.log"}
+
+ RUN  v4.0.18 /private/tmp/ctxpipe-recovery-01a07aba/apps/backend
+
+Cloning into bare repository '/var/folders/9t/jj9rnpps7_ddb72c1mq2k13w0000gn/T/ctxpipe-hydration-contract-je4oeP/remote.git'...
+done.
+ ❯ src/domain/workspaces/write-workflow-native.contract.test.ts (14 tests | 1 failed | 13 skipped) 3657ms
+   ↓ bootstraps a workspace in one native commit with a durable job result
+   ↓ replays an already published bootstrap job without a second commit
+   ↓ replays a completed no-op without creating a commit
+   ↓ admits bootstrap through the production queue as a bound typed workflow
+   ↓ rejects an unavailable workspace without queuing an unbound write
+   ↓ does not push after its connection is detached during credential issuance
+   ↓ recovers a lost push acknowledgement when the observed tip has a later commit: false
+   ↓ recovers a lost push acknowledgement when the observed tip has a later commit: true
+   ↓ publishes a file edit and deletion through one typed native workflow
+   ↓ does not write the former default branch when the remote changes during credential issuance
+   ↓ gives concurrent deliveries of one job a single workflow owner and commit
+   ↓ preserves executable and symlink modes when editing their native Git blobs
+   ↓ rechecks an apparent no-op against the current default and applies the requested edit
+   × can retry an identical command after native workflow admission fails 3651ms
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 1 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  src/domain/workspaces/write-workflow-native.contract.test.ts > can retry an identical command after native workflow admission fails
+AssertionError: expected { …(11) } to match object { status: 'failed' }
+(13 matching properties omitted from actual)
+
+- Expected
++ Received
+
+  {
+-   "status": "failed",
++   "status": "queued",
+  }
+
+ ❯ src/domain/workspaces/write-workflow-native.contract.test.ts:996:13
+    994|           expect(
+    995|             await withOrgIdContext(f.org, () => getWorkspaceWriteJob(j…
+    996|           ).toMatchObject({ status: "failed" })
+       |             ^
+    997|           await owner.unsafe(
+    998|             `DROP TRIGGER ${fixtureName} ON openworkflow.workflow_runs…
+ ❯ withNativeHydrationFixture src/test/native-hydration-fixture.ts:380:5
+ ❯ src/domain/workspaces/write-workflow-native.contract.test.ts:949:5
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/1]⎯
+
+⎯⎯⎯⎯⎯⎯ Unhandled Errors ⎯⎯⎯⎯⎯⎯
+
+Vitest caught 1 unhandled error during the test run.
+This might cause false positive tests. Resolve unhandled errors to make sure your tests are not affected.
+
+⎯⎯⎯⎯ Unhandled Rejection ⎯⎯⎯⎯⎯
+PostgresError: fixture queue admission unavailable
+ ❯ ErrorResponse ../../node_modules/.pnpm/postgres@3.4.8/node_modules/postgres/src/connection.js:815:30
+ ❯ handle ../../node_modules/.pnpm/postgres@3.4.8/node_modules/postgres/src/connection.js:489:6
+ ❯ Socket.data ../../node_modules/.pnpm/postgres@3.4.8/node_modules/postgres/src/connection.js:324:9
+ ❯ Socket.emit ../../node:events:518:28
+ ❯ addChunk ../../node:internal/streams/readable:561:12
+ ❯ readableAddChunkPushByteMode ../../node:internal/streams/readable:512:3
+ ❯ Socket.Readable.push ../../node:internal/streams/readable:392:5
+ ❯ TCP.onStreamRead ../../node:internal/stream_base_commons:189:23
+ ❯ TCP.callbackTrampoline ../../node:internal/async_hooks:130:17
+ ❯ cachedError ../../node_modules/.pnpm/postgres@3.4.8/node_modules/postgres/src/query.js:170:23
+ ❯ new Query ../../node_modules/.pnpm/postgres@3.4.8/node_modules/postgres/src/query.js:36:24
+ ❯ sql ../../node_modules/.pnpm/postgres@3.4.8/node_modules/postgres/src/index.js:112:11
+ ❯ BackendPostgres.insertWorkflowRun ../../node_modules/.pnpm/openworkflow@0.8.0_postgres@3.4.8/node_modules/openworkflow/dist/postgres/backend.js:91:40
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯
+Serialized Error: { severity_local: 'ERROR', severity: 'ERROR', code: 'P0001', where: 'PL/pgSQL function fixture_enqueue_hydrate_1788857079373_81k6hkxscm5() line 1 at RAISE', file: 'pl_exec.c', routine: 'exec_stmt_raise', query: '\n      INSERT INTO "openworkflow"."workflow_runs" (\n        "namespace_id",\n        "id",\n        "workflow_name",\n        "version",\n        "status",\n        "idempotency_key",\n        "config",\n        "context",\n        "input",\n        "attempts",\n        "parent_step_attempt_namespace_id",\n        "parent_step_attempt_id",\n        "available_at",\n        "deadline_at",\n        "created_at",\n        "updated_at"\n      )\n      VALUES (\n        $1,\n        gen_random_uuid(),\n        $2,\n        $3,\n        \'pending\',\n        $4,\n        $5,\n        $6,\n        $7,\n        0,\n        $8,\n        $9,\n        NOW(),\n        $10,\n        date_trunc(\'milliseconds\', NOW()),\n        NOW()\n      )\n      RETURNING *\n    ', parameters: [ 'default', 'workspace-write-bootstrap', null, 'wjob_hydrate_1788857079373_81k6hkxscm5_admission', '{}', null, '{"orgId":"org_hydrate_1788857079373_81k6hkxscm5","workspaceId":"ws_hydrate_1788857079373_81k6hkxscm5","jobId":"wjob_hydrate_1788857079373_81k6hkxscm5_admission","revision":{"workspaceId":"ws_hydrate_1788857079373_81k6hkxscm5","generation":1,"remote":{"url":"https://github.com/fixture/hydration-contract.git","connectionId":"con_hydrate_1788857079373_81k6hkxscm5"},"defaultBranch":"main","sha":"bd0fe398514bcd90f14f3b81f22dfb7483fb830b","access":"write-default"}}', null, null, null ], args: [ 'Promise', 'default', 'workspace-write-bootstrap', null, 'wjob_hydrate_1788857079373_81k6hkxscm5_admission', { value: {}, type: 3802, array: undefined, constructor: 'Function<Parameter>', then: 'Function<then>', catch: 'Function<catch>', finally: 'Function<finally>' }, { value: null, type: 3802, array: undefined, constructor: 'Function<Parameter>', then: 'Function<then>', catch: 'Function<catch>', finally: 'Function<finally>' }, { value: { orgId: 'org_hydrate_1788857079373_81k6hkxscm5', workspaceId: 'ws_hydrate_1788857079373_81k6hkxscm5', jobId: 'wjob_hydrate_1788857079373_81k6hkxscm5_admission', revision: { workspaceId: 'ws_hydrate_1788857079373_81k6hkxscm5', generation: 1, remote: { url: 'https://github.com/fixture/hydration-contract.git', connectionId: 'con_hydrate_1788857079373_81k6hkxscm5' }, defaultBranch: 'main', sha: 'bd0fe398514bcd90f14f3b81f22dfb7483fb830b', access: 'write-default' } }, type: 3802, array: undefined, constructor: 'Function<Parameter>', then: 'Function<then>', catch: 'Function<catch>', finally: 'Function<finally>' }, null, null, 'Promise', null ], types: [ 25, 25, 25, 25, 3802, 3802, 3802, 25, 25, 1184 ] }
+This error originated in "src/domain/workspaces/write-workflow-native.contract.test.ts" test file. It doesn't mean the error was thrown inside the file itself, but while it was running.
+The latest test that might've caused the error is "can retry an identical command after native workflow admission fails". It might mean one of the following:
+- The error was thrown, while Vitest was running this test.
+- If the error occurred after the test had been completed, this was the last documented test before it was thrown.
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯
+
+
+ Test Files  1 failed (1)
+      Tests  1 failed | 13 skipped (14)
+     Errors  1 error
+   Start at  18:44:24
+   Duration  18.48s (transform 3.59s, setup 100ms, import 14.31s, tests 3.66s, environment 0ms)
+

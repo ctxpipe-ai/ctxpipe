@@ -2,6 +2,7 @@ import { defineWorkflow } from "openworkflow"
 import { z } from "zod"
 import { parseEnv } from "../../config/env.js"
 import { generateCommitSubject } from "../../domain/workspaces/commit-subject.js"
+import { importKeyCleanupFiles } from "../../domain/workspaces/hydrate-write-jobs.js"
 import {
   sameWorkspaceRevision,
   workspaceRevisionSchema,
@@ -34,35 +35,12 @@ import {
 import { runWorkflowWithWorkerWake } from "../client.js"
 import { workspaceHydrate } from "./workspace-hydrate.js"
 
-const pathSchema = z
-  .string()
-  .min(1)
-  .refine(
-    (path) =>
-      !path.includes("\0") &&
-      !path.includes("\\") &&
-      path
-        .split("/")
-        .every(
-          (part) =>
-            part !== "" &&
-            part !== "." &&
-            part !== ".." &&
-            part.toLowerCase() !== ".git",
-        ),
-    "A repository-relative file path is required",
-  )
-
-export const workspaceFileEditInputSchema = z
+const inputSchema = z
   .object({
     orgId: z.string().min(1),
     workspaceId: z.string().min(1),
     jobId: z.string().min(1),
     revision: workspaceRevisionSchema,
-    files: z.array(
-      z.object({ path: pathSchema, content: z.string() }).strict(),
-    ),
-    deletePaths: z.array(pathSchema),
   })
   .strict()
   .refine(
@@ -72,16 +50,13 @@ export const workspaceFileEditInputSchema = z
     "A write-default revision for the matching workspace is required",
   )
 
-export const workspaceFileEdit = defineWorkflow(
-  {
-    name: "workspace-write-ui-file-edit",
-    schema: workspaceFileEditInputSchema,
-  },
+export const workspaceImportKeyCleanup = defineWorkflow(
+  { name: "workspace-write-import-key-cleanup", schema: inputSchema },
   async ({ input: queuedInput, step, run }) => {
-    const input = workspaceFileEditInputSchema.parse(queuedInput)
+    const input = inputSchema.parse(queuedInput)
     return withWorkspaceWriteContext(
       input,
-      "workspace-write-ui-file-edit",
+      "workspace-write-import-key-cleanup",
       async () => {
         const env = parseEnv(process.env)
         let revision = input.revision
@@ -95,17 +70,15 @@ export const workspaceFileEdit = defineWorkflow(
           )
         const completed = await completedWorkspaceWrite(
           input,
-          "ui_file_edit",
+          "import_key_cleanup",
           run.id,
         )
         if (completed) return completed
         await step.run({ name: "claim-command" }, () =>
           persistBoundWriteJob({
             id: input.jobId,
-            kind: "ui_file_edit",
+            kind: "import_key_cleanup",
             revision: input.revision,
-            files: input.files,
-            deletePaths: input.deletePaths,
             workflowRunId: run.id,
           }),
         )
@@ -113,45 +86,47 @@ export const workspaceFileEdit = defineWorkflow(
           const acquired = await step.run({ name: "acquire-revision" }, () =>
             acquireWorkspaceWriteRevision(input, revision, env),
           )
-          const changes = await step.run({ name: "transform-file-edit" }, () =>
-            withGitDirectory(
-              revision.sha,
-              async (directory) => {
-                const paths = (
-                  await nativeGit(directory, [
-                    "ls-tree",
-                    "-r",
-                    "--name-only",
-                    "-z",
-                    revision.sha,
-                  ])
-                )
-                  .toString()
-                  .split("\0")
-                const files: typeof input.files = []
-                for (const file of input.files) {
-                  const existing = paths.includes(file.path)
-                    ? (
-                        await nativeGit(directory, [
-                          "show",
-                          `${revision.sha}:${file.path}`,
-                        ])
-                      ).toString()
-                    : null
-                  if (existing !== file.content) files.push(file)
-                }
-                return {
-                  files,
-                  deletePaths: input.deletePaths.filter((path) =>
-                    paths.includes(path),
-                  ),
-                }
-              },
-              acquired.pack,
-            ),
+          const files = await step.run(
+            { name: "transform-import-key-cleanup" },
+            () =>
+              withGitDirectory(
+                revision.sha,
+                async (directory) => {
+                  const paths = (
+                    await nativeGit(directory, [
+                      "ls-tree",
+                      "-r",
+                      "--name-only",
+                      "-z",
+                      revision.sha,
+                    ])
+                  )
+                    .toString()
+                    .split("\0")
+                  const existing = new Map<string, string>()
+                  for (const path of paths) {
+                    if (path.startsWith("knowledge/") && path.endsWith(".md"))
+                      existing.set(
+                        path,
+                        (
+                          await nativeGit(directory, [
+                            "show",
+                            `${revision.sha}:${path}`,
+                          ])
+                        ).toString(),
+                      )
+                  }
+                  return importKeyCleanupFiles(
+                    [...existing].map(([path, content]) => ({
+                      path,
+                      content,
+                    })),
+                  )
+                },
+                acquired.pack,
+              ),
           )
-          const files = changes.files
-          if (!files.length && !changes.deletePaths.length) {
+          if (!files.length) {
             const refreshed = await step.run({ name: "confirm-no-op" }, () =>
               refreshWorkspaceWriteRevision(input, revision, env),
             )
@@ -167,23 +142,28 @@ export const workspaceFileEdit = defineWorkflow(
               reason: "no_changes" as const,
             }
           }
-          const staged = await step.run({ name: "stage" }, () =>
-            stageGitFiles(acquired.pack, files, changes.deletePaths),
-          )
+          const staged = await step.run({ name: "stage" }, () => {
+            if (
+              files.some(
+                (file) =>
+                  !file.path.startsWith("knowledge/") ||
+                  !file.path.endsWith(".md"),
+              )
+            )
+              throw new Error("Import cleanup may only edit knowledge Markdown")
+            return stageGitFiles(acquired.pack, files)
+          })
           await step.run({ name: "validate" }, () =>
-            validateGitTree(staged, [
-              ...files.map((file) => file.path),
-              ...changes.deletePaths,
-            ]),
+            validateGitTree(
+              staged,
+              files.map((file) => file.path),
+            ),
           )
           const subject = await step.run({ name: "commit-subject" }, () =>
             generateCommitSubject({
               repoName: repositoryName.split("/")[1] ?? repositoryName,
-              trigger: "ui_file_edit",
-              fileNames: [
-                ...files.map((file) => file.path),
-                ...changes.deletePaths,
-              ],
+              trigger: "import_key_cleanup",
+              fileNames: files.map((file) => file.path),
             }),
           )
           const committed = await step.run({ name: "commit" }, async () => {

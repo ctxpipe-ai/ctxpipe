@@ -15,8 +15,10 @@ export function runWorkflowWithWorkerWake(
   ...args: Parameters<typeof ow.runWorkflow>
 ): ReturnType<typeof ow.runWorkflow> {
   const p = ow.runWorkflow(...args)
-  void p.then(() => {
-    scheduleEnsureWorkerRunning()
-  })
+  void p.then(
+    () => scheduleEnsureWorkerRunning(),
+    // The caller observes the original enqueue rejection through p.
+    () => undefined,
+  )
   return p
 }

@@ -1,0 +1,75 @@
+{"name": "shared-command-native-regression", "cwd": "/private/tmp/ctxpipe-recovery-01a07aba", "command": ["/Users/jakubriedl/.volta/tools/image/node/22.16.0/bin/node", "apps/backend/node_modules/vitest/vitest.mjs", "run", "--root", "apps/backend", "src/domain/workspaces/write-workflow-native.contract.test.ts", "src/domain/workspaces/write-maintenance-native.contract.test.ts", "src/openworkflow/workflows/workflow-discovery.contract.test.ts"], "environment": {"AUTH_SECRET": "gate0-local-disposable-test-secret-20260907", "DATABASE_URL": "postgresql://ctxpipe_app:ctxpipe@127.0.0.1:61314/ctxpipe_gate0_fresh", "GRAPH_DB_URI": "redis://127.0.0.1:6398", "CI": "true", "NO_COLOR": "1", "TURBO_TELEMETRY_DISABLED": "1", "STORYBOOK_DISABLE_TELEMETRY": "1", "PATH": "/Users/jakubriedl/.volta/tools/image/node/22.16.0/bin:/private/tmp/ctxpipe-recovery-runtime/ast-grep/node_modules/.bin:/private/tmp/ctxpipe-recovery-runtime/node_modules/.bin:/private/tmp/ctxpipe-recovery-runtime/zoekt:/Users/jakubriedl/.local/bin:/Users/jakubriedl/.bun/bin:/Users/jakubriedl/.opencode/bin:/Users/jakubriedl/.volta/bin:/opt/homebrew/bin:/opt/homebrew/sbin:/usr/local/bin:/System/Cryptexes/App/usr/bin:/usr/bin:/bin:/usr/sbin:/sbin:/var/run/com.apple.security.cryptexd/codex.system/bootstrap/usr/local/bin:/var/run/com.apple.security.cryptexd/codex.system/bootstrap/usr/bin:/var/run/com.apple.security.cryptexd/codex.system/bootstrap/usr/appleinternal/bin:/pkg/env/global/bin:/Users/jakubriedl/.codex/tmp/arg0/codex-arg0BW5Gt3:/Users/jakubriedl/.cache/codex-runtimes/codex-primary-runtime/dependencies/bin/override:/Users/jakubriedl/.local/bin:/Users/jakubriedl/.bun/bin:/Users/jakubriedl/.opencode/bin:/Users/jakubriedl/.volta/bin:/Users/jakubriedl/.cache/codex-runtimes/codex-primary-runtime/dependencies/bin/fallback:/Applications/ChatGPT.app/Contents/Resources"}, "timeout_seconds": 600, "started_utc": "2026-09-08T08:53:59Z", "log": "logs/shared-command-native-regression.log"}
+
+ RUN  v4.0.18 /private/tmp/ctxpipe-recovery-01a07aba/apps/backend
+
+ ✓ src/openworkflow/workflows/workflow-discovery.contract.test.ts (1 test) 1878ms
+   ✓ discovers connector workflows through the native OpenWorkflow CLI  1878ms
+Cloning into bare repository '/var/folders/9t/jj9rnpps7_ddb72c1mq2k13w0000gn/T/ctxpipe-hydration-contract-Hp0OnW/remote.git'...
+done.
+Cloning into bare repository '/var/folders/9t/jj9rnpps7_ddb72c1mq2k13w0000gn/T/ctxpipe-hydration-contract-b7ZCwp/remote.git'...
+done.
+Cloning into bare repository '/var/folders/9t/jj9rnpps7_ddb72c1mq2k13w0000gn/T/ctxpipe-hydration-contract-BkLUSW/remote.git'...
+done.
+ ✓ src/domain/workspaces/write-maintenance-native.contract.test.ts (2 tests) 3811ms
+   ✓ removes import keys through one typed native maintenance commit  1900ms
+   ✓ upgrades Markdown links to claims while preserving other metadata and body  1911ms
+Cloning into bare repository '/var/folders/9t/jj9rnpps7_ddb72c1mq2k13w0000gn/T/ctxpipe-hydration-contract-sdcZaE/remote.git'...
+done.
+Cloning into bare repository '/var/folders/9t/jj9rnpps7_ddb72c1mq2k13w0000gn/T/ctxpipe-hydration-contract-cPqynE/remote.git'...
+done.
+Cloning into bare repository '/var/folders/9t/jj9rnpps7_ddb72c1mq2k13w0000gn/T/ctxpipe-hydration-contract-Ruwyyp/remote.git'...
+done.
+Cloning into bare repository '/var/folders/9t/jj9rnpps7_ddb72c1mq2k13w0000gn/T/ctxpipe-hydration-contract-dhMH2R/remote.git'...
+done.
+Cloning into bare repository '/var/folders/9t/jj9rnpps7_ddb72c1mq2k13w0000gn/T/ctxpipe-hydration-contract-NNcRmX/remote.git'...
+done.
+Cloning into bare repository '/var/folders/9t/jj9rnpps7_ddb72c1mq2k13w0000gn/T/ctxpipe-hydration-contract-c9PIGe/remote.git'...
+done.
+Cloning into bare repository '/var/folders/9t/jj9rnpps7_ddb72c1mq2k13w0000gn/T/ctxpipe-hydration-contract-gjG3Rf/remote.git'...
+done.
+Cloning into bare repository '/var/folders/9t/jj9rnpps7_ddb72c1mq2k13w0000gn/T/ctxpipe-hydration-contract-OA3gJi/remote.git'...
+done.
+Cloning into bare repository '/var/folders/9t/jj9rnpps7_ddb72c1mq2k13w0000gn/T/ctxpipe-hydration-contract-u9xCEO/remote.git'...
+done.
+Cloning into bare repository '/var/folders/9t/jj9rnpps7_ddb72c1mq2k13w0000gn/T/ctxpipe-hydration-contract-U5Gcsw/remote.git'...
+done.
+Cloning into bare repository '/var/folders/9t/jj9rnpps7_ddb72c1mq2k13w0000gn/T/ctxpipe-hydration-contract-duTF8Z/remote.git'...
+done.
+Cloning into bare repository '/var/folders/9t/jj9rnpps7_ddb72c1mq2k13w0000gn/T/ctxpipe-hydration-contract-KxlAV2/remote.git'...
+done.
+To /var/folders/9t/jj9rnpps7_ddb72c1mq2k13w0000gn/T/ctxpipe-hydration-contract-KxlAV2/remote.git
+   888e737..2e44ca7  HEAD -> main
+Cloning into bare repository '/var/folders/9t/jj9rnpps7_ddb72c1mq2k13w0000gn/T/ctxpipe-hydration-contract-hVgJYs/remote.git'...
+done.
+stdout | src/domain/workspaces/write-workflow-native.contract.test.ts > can retry an identical command after native workflow admission fails
+{
+  severity_local: 'NOTICE',
+  severity: 'NOTICE',
+  code: '00000',
+  message: 'trigger "fixture_enqueue_hydrate_1788857704825_816200lluq4" for relation "openworkflow.workflow_runs" does not exist, skipping',
+  file: 'dropcmds.c',
+  line: '523',
+  routine: 'does_not_exist_skipping'
+}
+
+ ✓ src/domain/workspaces/write-workflow-native.contract.test.ts (14 tests) 63388ms
+   ✓ bootstraps a workspace in one native commit with a durable job result  4497ms
+   ✓ replays an already published bootstrap job without a second commit  5325ms
+   ✓ replays a completed no-op without creating a commit  6236ms
+   ✓ admits bootstrap through the production queue as a bound typed workflow  3217ms
+   ✓ rejects an unavailable workspace without queuing an unbound write  398ms
+   ✓ does not push after its connection is detached during credential issuance  6918ms
+   ✓ recovers a lost push acknowledgement when the observed tip has a later commit: false  6825ms
+   ✓ recovers a lost push acknowledgement when the observed tip has a later commit: true  8475ms
+   ✓ publishes a file edit and deletion through one typed native workflow  3064ms
+   ✓ does not write the former default branch when the remote changes during credential issuance  6776ms
+   ✓ gives concurrent deliveries of one job a single workflow owner and commit  4232ms
+   ✓ preserves executable and symlink modes when editing their native Git blobs  2932ms
+   ✓ rechecks an apparent no-op against the current default and applies the requested edit  2716ms
+   ✓ can retry an identical command after native workflow admission fails  1774ms
+
+ Test Files  3 passed (3)
+      Tests  17 passed (17)
+   Start at  18:53:59
+   Duration  66.62s (transform 1.77s, setup 61ms, import 6.30s, tests 69.08s, environment 0ms)
+

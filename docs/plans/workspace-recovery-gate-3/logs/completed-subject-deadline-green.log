@@ -1,0 +1,30 @@
+{"name": "completed-subject-deadline-green", "cwd": "/private/tmp/ctxpipe-recovery-01a07aba", "command": ["/Users/jakubriedl/.volta/tools/image/node/22.16.0/bin/node", "apps/backend/node_modules/vitest/vitest.mjs", "run", "--root", "apps/backend", "src/domain/workspaces/commit-subject.contract.test.ts", "src/routes/v1/workspace-files.contract.test.ts"], "environment": {"AUTH_SECRET": "gate0-local-disposable-test-secret-20260907", "DATABASE_URL": "postgresql://ctxpipe_app:ctxpipe@127.0.0.1:61314/ctxpipe_gate0_fresh", "GRAPH_DB_URI": "redis://127.0.0.1:6398", "CI": "true", "NO_COLOR": "1", "TURBO_TELEMETRY_DISABLED": "1", "STORYBOOK_DISABLE_TELEMETRY": "1", "PATH": "/Users/jakubriedl/.volta/tools/image/node/22.16.0/bin:/private/tmp/ctxpipe-recovery-runtime/ast-grep/node_modules/.bin:/private/tmp/ctxpipe-recovery-runtime/node_modules/.bin:/private/tmp/ctxpipe-recovery-runtime/zoekt:/Users/jakubriedl/.local/bin:/Users/jakubriedl/.bun/bin:/Users/jakubriedl/.opencode/bin:/Users/jakubriedl/.volta/bin:/opt/homebrew/bin:/opt/homebrew/sbin:/usr/local/bin:/System/Cryptexes/App/usr/bin:/usr/bin:/bin:/usr/sbin:/sbin:/var/run/com.apple.security.cryptexd/codex.system/bootstrap/usr/local/bin:/var/run/com.apple.security.cryptexd/codex.system/bootstrap/usr/bin:/var/run/com.apple.security.cryptexd/codex.system/bootstrap/usr/appleinternal/bin:/pkg/env/global/bin:/Users/jakubriedl/.codex/tmp/arg0/codex-arg0BW5Gt3:/Users/jakubriedl/.cache/codex-runtimes/codex-primary-runtime/dependencies/bin/override:/Users/jakubriedl/.local/bin:/Users/jakubriedl/.bun/bin:/Users/jakubriedl/.opencode/bin:/Users/jakubriedl/.volta/bin:/Users/jakubriedl/.cache/codex-runtimes/codex-primary-runtime/dependencies/bin/fallback:/Applications/ChatGPT.app/Contents/Resources"}, "timeout_seconds": 600, "started_utc": "2026-09-08T09:04:01Z", "log": "logs/completed-subject-deadline-green.log"}
+
+ RUN  v4.0.18 /private/tmp/ctxpipe-recovery-01a07aba/apps/backend
+
+ ✓ src/domain/workspaces/commit-subject.contract.test.ts (2 tests) 11524ms
+   ✓ uses the fixed small model with a non-streaming filename-only request  6520ms
+   ✓ aborts a slow subject request and uses the deterministic fallback  5004ms
+ ✓ src/routes/v1/workspace-files.contract.test.ts (16 tests) 30335ms
+   ✓ serves the last indexed tree while the Workspace relinks  3026ms
+   ✓ serves the indexed Files HTTP contract for published text  2047ms
+   ✓ serves the indexed Files HTTP contract for binary files  1968ms
+   ✓ serves the indexed Files HTTP contract for missing files  1653ms
+   ✓ serves the indexed Files HTTP contract for path traversal  1721ms
+   ✓ reports clean Files status when no sandbox is attached  1657ms
+   ✓ reports real sandbox edits in Files status  2424ms
+   ✓ rejects Files write paths outside the repository  2469ms
+   ✓ rejects edits to a read-only Workspace  1659ms
+   ✓ requires a published index for Files tree  538ms
+   ✓ requires a published index for Files blob?path=AGENTS.md  558ms
+   ✓ requires reindexing legacy Files tree  1679ms
+   ✓ requires reindexing legacy Files blob?path=AGENTS.md  2261ms
+   ✓ durably queues a Files HTTP save with the literal edit payload  2486ms
+   ✓ serves indexed Files bytes after the remote disappears  1897ms
+   ✓ serves an empty indexed file as an empty body  2288ms
+
+ Test Files  2 passed (2)
+      Tests  18 passed (18)
+   Start at  19:04:01
+   Duration  33.24s (transform 1.01s, setup 46ms, import 2.99s, tests 41.86s, environment 0ms)
+

@@ -30,21 +30,36 @@ export async function invokeCommitSubjectModel(
     model: COMMIT_SUBJECT_MODEL,
     streaming: false,
   })
-  const result = await model.invoke(prompt, {
-    signal: AbortSignal.timeout(5_000),
-  })
-  const content = result.content
-  if (typeof content === "string") return content
-  if (Array.isArray(content)) {
-    return content
-      .map((part) =>
-        typeof part === "object" && part && "text" in part
-          ? String(part.text)
-          : "",
-      )
-      .join("")
+  const cancellation = new AbortController()
+  const deadline = setTimeout(
+    () =>
+      cancellation.abort(
+        new DOMException(
+          "The operation was aborted due to timeout",
+          "TimeoutError",
+        ),
+      ),
+    5_000,
+  )
+  try {
+    const result = await model.invoke(prompt, {
+      signal: cancellation.signal,
+    })
+    const content = result.content
+    if (typeof content === "string") return content
+    if (Array.isArray(content)) {
+      return content
+        .map((part) =>
+          typeof part === "object" && part && "text" in part
+            ? String(part.text)
+            : "",
+        )
+        .join("")
+    }
+    return String(content ?? "")
+  } finally {
+    clearTimeout(deadline)
   }
-  return String(content ?? "")
 }
 
 export async function generateCommitSubject(input: {

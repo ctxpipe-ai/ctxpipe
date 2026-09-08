@@ -941,3 +941,108 @@ it(
     )
   },
 )
+
+it(
+  "can retry an identical command after native workflow admission fails",
+  { timeout: 60_000 },
+  async () => {
+    await withNativeHydrationFixture(
+      { github: true, githubWriteView: "writable", writeStatus: "writable" },
+      async (f) => {
+        const { default: postgres } = await import("postgres")
+        const { BackendPostgres } = await import("openworkflow/postgres")
+        const { OpenWorkflow } = await import("openworkflow")
+        const { enqueueWriteJob } = await import(
+          "../../openworkflow/enqueue-workspace-write-commit.js"
+        )
+        const ownerUrl = new URL(f.databaseUrl)
+        ownerUrl.username = "ctxpipe"
+        const owner = postgres(ownerUrl.toString(), { max: 1 })
+        const fixtureName = `fixture_enqueue_${f.id}`
+        const jobId = `wjob_${f.id}_admission`
+        // This disposable database fault affects only this fixture command, never another run.
+        await owner.unsafe(
+          `CREATE FUNCTION public.${fixtureName}() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN RAISE EXCEPTION 'fixture queue admission unavailable'; END; $$`,
+        )
+        const backend = await BackendPostgres.connect(f.databaseUrl, {
+          runMigrations: false,
+        })
+        const runner = new OpenWorkflow({ backend })
+        runner.implementWorkflow(workspaceBootstrap.spec, workspaceBootstrap.fn)
+        const worker = runner.newWorker({ concurrency: 1 })
+        try {
+          await owner.unsafe(
+            `CREATE TRIGGER ${fixtureName} BEFORE INSERT ON openworkflow.workflow_runs FOR EACH ROW WHEN (NEW.input->>'jobId' = '${jobId}') EXECUTE FUNCTION public.${fixtureName}()`,
+          )
+          const command = {
+            orgId: f.org.id,
+            workspaceId: f.workspaceId,
+            jobId,
+            kind: "bootstrap" as const,
+          }
+          const errors: Error[] = []
+          const rejected = await withOrgIdContext(f.org, () =>
+            enqueueWriteJob(command, { error: (error) => errors.push(error) }),
+          )
+          expect(rejected).toEqual({ started: false })
+          expect(errors).toHaveLength(1)
+          expect(
+            (await backend.listWorkflowRuns({ limit: 100 })).data.filter(
+              (run) => (run.input as { jobId?: string })?.jobId === jobId,
+            ),
+          ).toEqual([])
+          expect(
+            await withOrgIdContext(f.org, () => getWorkspaceWriteJob(jobId)),
+          ).toMatchObject({ status: "failed" })
+          await owner.unsafe(
+            `DROP TRIGGER ${fixtureName} ON openworkflow.workflow_runs`,
+          )
+          const accepted = await withOrgIdContext(f.org, () =>
+            enqueueWriteJob(command, {
+              error: (error) => {
+                throw error
+              },
+            }),
+          )
+          expect(accepted).toEqual({ started: true })
+          expect(
+            await withOrgIdContext(f.org, () => getWorkspaceWriteJob(jobId)),
+          ).toMatchObject({ status: "queued" })
+          expect(
+            (await backend.listWorkflowRuns({ limit: 100 })).data.filter(
+              (run) => (run.input as { jobId?: string })?.jobId === jobId,
+            ),
+          ).toHaveLength(1)
+          await worker.start()
+          await expect
+            .poll(
+              () =>
+                withOrgIdContext(
+                  f.org,
+                  async () => (await getWorkspaceWriteJob(jobId))?.status,
+                ),
+              { timeout: 30_000 },
+            )
+            .toBe("completed")
+          expect(
+            f.git(
+              "--git-dir",
+              f.remote,
+              "rev-list",
+              "--count",
+              `${f.sha}..refs/heads/main`,
+            ),
+          ).toBe("1")
+        } finally {
+          await worker.stop()
+          await owner.unsafe(
+            `DROP TRIGGER IF EXISTS ${fixtureName} ON openworkflow.workflow_runs`,
+          )
+          await owner.unsafe(`DROP FUNCTION public.${fixtureName}()`)
+          await owner.end()
+          await backend.stop()
+        }
+      },
+    )
+  },
+)

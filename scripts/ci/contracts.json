@@ -9,6 +9,7 @@
   ],
   "OpenWorkflow native write jobs": [
     "src/domain/workspaces/write-workflow-native.contract.test.ts",
+    "src/domain/workspaces/write-maintenance-native.contract.test.ts",
     "src/domain/workspaces/commit-subject.contract.test.ts"
   ],
   "hydrate": ["src/domain/workspaces/hydration.contract.test.ts"],

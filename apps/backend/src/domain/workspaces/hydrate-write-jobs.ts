@@ -1,3 +1,4 @@
+import { parseDocument } from "yaml"
 import { bootstrapAgentsMarkdown, FOLDER_MAP_START } from "./bootstrap.js"
 import type { HydrateClaim, HydrateUnit } from "./hydrate.js"
 import { looksLikeGitSha } from "./hydrate-phases.js"
@@ -94,32 +95,21 @@ export function kindsToRetryAfterHydrate(input: {
   )
 }
 
-function serializeKnowledgeFile(input: {
-  attributes: Record<string, unknown>
-  body: string
-}): string {
-  const lines = ["---"]
-  for (const [key, value] of Object.entries(input.attributes)) {
-    if (key === "claims" && Array.isArray(value)) {
-      lines.push("claims:")
-      for (const item of value) {
-        if (!item || typeof item !== "object") continue
-        const row = item as Record<string, unknown>
-        const entries = Object.entries(row).filter(([, field]) => field != null)
-        const first = entries[0]
-        if (!first) continue
-        lines.push(`  - ${first[0]}: ${String(first[1])}`)
-        for (const [field, fieldValue] of entries.slice(1)) {
-          lines.push(`    ${field}: ${String(fieldValue)}`)
-        }
-      }
-      continue
-    }
-    if (value == null) continue
-    lines.push(`${key}: ${String(value)}`)
-  }
-  lines.push("---")
-  return `${lines.join("\n")}\n\n${input.body.trim()}\n`
+/** Update only claims in the YAML document, preserving other values/comments and body bytes. */
+function serializeKnowledgeClaims(
+  raw: string,
+  claims: Record<string, unknown>[],
+): string {
+  const frontMatter = /^(\uFEFF?---\r?\n)([\s\S]*?)(\r?\n---)([\s\S]*)$/.exec(
+    raw,
+  )
+  const document = parseDocument(frontMatter?.[2] ?? "")
+  if (document.errors.length)
+    throw new Error("Cannot rewrite malformed knowledge metadata")
+  document.set("claims", claims)
+  if (frontMatter)
+    return `${frontMatter[1]}${document.toString().trimEnd()}${frontMatter[3]}${frontMatter[4]}`
+  return `---\n${document.toString()}---\n\n${raw}`
 }
 
 function claimRecord(claim: HydrateClaim): Record<string, unknown> {
@@ -154,10 +144,7 @@ export function claimsUpgradeFiles(input: {
     ]
     out.push({
       path: file.path,
-      content: serializeKnowledgeFile({
-        attributes: { ...parsed.attributes, claims },
-        body: parsed.body,
-      }),
+      content: serializeKnowledgeClaims(file.content, claims),
     })
   }
   return out
@@ -193,10 +180,7 @@ export function validFromPersistFiles(input: {
     )
     out.push({
       path: file.path,
-      content: serializeKnowledgeFile({
-        attributes: { ...parsed.attributes, claims },
-        body: parsed.body,
-      }),
+      content: serializeKnowledgeClaims(file.content, claims),
     })
   }
   return out
@@ -216,7 +200,9 @@ export function stripImportKeyFromMarkdown(markdown: string): string | null {
     .replace(/\r?\n$/, "")
   const closingNl = match[2] ?? "\n"
   const header =
-    nextFm.length > 0 ? `---\n${nextFm}\n---${closingNl}` : `---\n---${closingNl}`
+    nextFm.length > 0
+      ? `---\n${nextFm}\n---${closingNl}`
+      : `---\n---${closingNl}`
   return (
     markdown.slice(0, match.index) +
     header +
