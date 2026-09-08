@@ -62,6 +62,7 @@ export const confluenceSyncContent = defineWorkflow(
         const config = parseConfluenceConfigYamlContent(captured.config)
         if (!config) throw new Error("confluence/config.yaml was not found")
         return {
+          target,
           captured,
           config,
           cloudId: installation.cloudId,
@@ -126,6 +127,8 @@ export const confluenceSyncContent = defineWorkflow(
       finalizeConfluenceSyncTargetAfterContentWorkflow({
         connectionId: input.connectionId,
         workflowStatus: captured.status,
+        repositoryId: context.target.repositoryId,
+        branch: context.target.branch,
       }),
     )
     return {

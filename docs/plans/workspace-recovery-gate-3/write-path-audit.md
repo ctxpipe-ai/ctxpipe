@@ -1,6 +1,6 @@
 # Gate 3 write-path audit
 
-Checkpoint work after db628699; this is an open-work inventory, not acceptance.
+Checkpoint work after 6bae4242; this is an open-work inventory, not acceptance.
 
 ## Native default writes
 
@@ -10,6 +10,8 @@ All twelve typed workspace workflows call `domain/workspaces/write-broker.ts`. I
 
 - Linear, Notion and Confluence full/incremental parents capture provider files without durable credentials and use native typed mirror children. Slack separates model intent, deterministic thread capture and native child publication before posting success. Config PR behavior remains.
 - Each new mirror carries the captured config blob identity, including absence. Native acquisition, no-op/semantic refresh and broker publication reject captures after that scope changes. Old commands without that required identity fail schema validation instead of acquiring current scope implicitly.
+- Native failed Slack mirror children now publish a terminal failure and fall back to a reply when updating the working message fails. The status projection distinguishes failed native workflow steps from suspension; no private exception detection or second retry owner is used. Notion refresh commits the org row before directory projection.
+- Notion, Linear and Confluence finalizers require the captured repository and branch, lock or compare-and-swap the connection row, and cannot mark a newly rebound target live after an old push. Native post-push barriers prove this race; full generation/config/provider identity and terminal setup failure projection still need closure.
 - Complete connector setup failure projection and full binding CAS on finalization before acceptance. Confluence completed provider failures now leave initial setup as sync_failed, and partial fetch failures preserve orphaned files; space events cannot delete another space. Review provider-state sync markers and failure/retry publication as part of the remaining lifecycle work.
 - Legacy `openworkflow/workflows/workspace-write-commit.ts`: generic write runner still calls `commitFiles`; delete after remaining callers migrate.
 - `services/github/installation-write-client.ts`: unrestricted `commitFiles` remains public. Its retained config-PR caller must have a strict non-default guard. `getOrInitializeBaseBranch` can initialize a default branch outside the typed bootstrap path and must migrate.
@@ -25,4 +27,4 @@ The native broker exposes a default-branch protection denial as binding-fenced r
 
 ## Remaining automatic planning
 
-Five typed kinds are durably planned after hydrate with independent caps and shrinking-remainder checks. Rename planning uses the previous immutable tree and actual Git similarity result. Extraction needs current source/path-assignment inputs, and migration export needs ordered bootstrap/import-key follow-up. Existing obsolete path heuristics and generic runner follow-ups must be removed when the native replacements are wired.
+Five typed kinds are durably planned after hydrate with independent caps and shrinking-remainder checks. Rename planning uses the previous immutable tree and actual Git similarity result. Extraction needs current source/path-assignment inputs, and migration export needs ordered bootstrap/import-key follow-up. Export completion and path-assignment projection now precede hydration on direct, no-op and semantic-child outcomes; completed-job replay recovers the missing idempotent enqueue. Native timestamp and restored-crash-boundary proofs cover this ordering. Existing obsolete path heuristics and generic runner follow-ups must be removed when the native replacements are wired.

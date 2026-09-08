@@ -801,15 +801,13 @@ export const notionConnectorRoutes = notionOAuthStartRoutes
       connection: installed.connection,
       query: query.q,
       onTokenRefresh: async ({ accessToken, refreshToken }) => {
-        await withOrgDbContext(orgId, () =>
-          updateNotionConnectionTokens({
-            orgId,
-            connectionId: installed.connection.id,
-            accessToken,
-            refreshToken,
-            env: c.var.env,
-          }),
-        )
+        await updateNotionConnectionTokens({
+          orgId,
+          connectionId: installed.connection.id,
+          accessToken,
+          refreshToken,
+          env: c.var.env,
+        })
       },
     })
     return c.json(

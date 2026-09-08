@@ -176,15 +176,13 @@ export async function captureNotionContent(input: {
     accessToken: string
     refreshToken: string | null
   }) => {
-    await withOrgDbContext(input.orgId, () =>
-      updateNotionConnectionTokens({
-        orgId: input.orgId,
-        connectionId: input.notionConnection.id,
-        accessToken: tokens.accessToken,
-        refreshToken: tokens.refreshToken,
-        env: input.env,
-      }),
-    )
+    await updateNotionConnectionTokens({
+      orgId: input.orgId,
+      connectionId: input.notionConnection.id,
+      accessToken: tokens.accessToken,
+      refreshToken: tokens.refreshToken,
+      env: input.env,
+    })
   }
   const collectedPages: Array<{
     resource: (typeof resources)[number]
@@ -345,15 +343,13 @@ export async function captureNotionIncrementalContent(input: {
     accessToken: string
     refreshToken: string | null
   }) => {
-    await withOrgDbContext(input.orgId, () =>
-      updateNotionConnectionTokens({
-        orgId: input.orgId,
-        connectionId: input.notionConnection.id,
-        accessToken: tokens.accessToken,
-        refreshToken: tokens.refreshToken,
-        env: input.env,
-      }),
-    )
+    await updateNotionConnectionTokens({
+      orgId: input.orgId,
+      connectionId: input.notionConnection.id,
+      accessToken: tokens.accessToken,
+      refreshToken: tokens.refreshToken,
+      env: input.env,
+    })
   }
 
   const managedRoot = getManagedNotionRootPath()

@@ -153,6 +153,8 @@ export const notionSyncContent = defineWorkflow(
           finalizeNotionBindingAfterContentWorkflow({
             connectionId: input.connectionId,
             workflowStatus: captured.status,
+            repositoryId: context.binding.repositoryId,
+            branch: context.binding.branch,
           }),
         )
         return {

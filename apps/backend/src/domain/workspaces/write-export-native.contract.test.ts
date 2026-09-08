@@ -156,6 +156,28 @@ it(
               { timeout: 25_000 },
             )
             .toMatchObject({ status: "completed" })
+          await expect
+            .poll(
+              async () =>
+                (
+                  await backend.getWorkflowRun({
+                    workflowRunId: queued?.id ?? "missing",
+                  })
+                )?.status,
+              { timeout: 20_000 },
+            )
+            .toBe("completed")
+          const completedJob = await withOrgIdContext(f.org, () =>
+            reconcileWorkspaceWriteJob(jobId),
+          )
+          const hydration = (
+            await backend.listWorkflowRuns({ limit: 100 })
+          ).data.find((run) => run.idempotencyKey === `${jobId}:hydrate`)
+          expect(hydration).toBeDefined()
+          expect(
+            (hydration?.createdAt.getTime() ?? 0) -
+              (completedJob?.updatedAt.getTime() ?? Infinity),
+          ).toBeGreaterThanOrEqual(0)
           const markdown = f.git(
             "--git-dir",
             f.remote,
@@ -591,19 +613,103 @@ it(
             runMigrations: false,
           })
           try {
+            const hydrations = (
+              await backend.listWorkflowRuns({ limit: 100 })
+            ).data.filter(
+              (run) =>
+                run.workflowName === "workspace-hydrate" &&
+                (run.input as { workspaceId?: string })?.workspaceId ===
+                  f.workspaceId,
+            )
+            expect(hydrations).toHaveLength(1)
+            const exportJob = await withOrgIdContext(f.org, () =>
+              reconcileWorkspaceWriteJob(jobId),
+            )
             expect(
-              (await backend.listWorkflowRuns({ limit: 100 })).data.filter(
-                (run) =>
-                  run.workflowName === "workspace-hydrate" &&
-                  (run.input as { workspaceId?: string })?.workspaceId ===
-                    f.workspaceId,
-              ),
-            ).toHaveLength(1)
+              (hydrations[0]?.createdAt.getTime() ?? 0) -
+                (exportJob?.updatedAt.getTime() ?? Infinity),
+            ).toBeGreaterThanOrEqual(0)
           } finally {
             await backend.stop()
           }
         } finally {
           await worker.stop()
+        }
+      },
+    )
+  },
+)
+
+it(
+  "recovers hydration after export metadata completed before enqueue acknowledgement",
+  { timeout: 30_000 },
+  async () => {
+    await withNativeHydrationFixture(
+      { github: true, githubWriteView: "writable", writeStatus: "writable" },
+      async (f) => {
+        const { workspaceMigrationExport } = await import(
+          "../../openworkflow/workflows/workspace-migration-export.js"
+        )
+        const { persistBoundWriteJob, persistMigrationExportNoOp } =
+          await import("../../models/workspace-write-jobs.js")
+        const { BackendPostgres } = await import("openworkflow/postgres")
+        const backend = await BackendPostgres.connect(f.databaseUrl, {
+          runMigrations: false,
+        })
+        const input = {
+          orgId: f.org.id,
+          workspaceId: f.workspaceId,
+          jobId: `wjob_${f.id}_completed_before_enqueue`,
+          revision: { ...f.revision, access: "write-default" as const },
+        }
+        // Restore the durable crash boundary: completion committed, enqueue absent.
+        await withOrgIdContext(f.org, async () => {
+          await persistBoundWriteJob({
+            id: input.jobId,
+            kind: "migration_export",
+            revision: input.revision,
+          })
+          await persistMigrationExportNoOp(input.jobId, f.sha)
+        })
+        f.runner.implementWorkflow(
+          workspaceMigrationExport.spec,
+          workspaceMigrationExport.fn,
+        )
+        const worker = f.runner.newWorker({ concurrency: 1 })
+        try {
+          await worker.start()
+          for (let replay = 0; replay < 2; replay++) {
+            const handle = await f.runner.runWorkflow(
+              workspaceMigrationExport.spec,
+              input,
+            )
+            expect(await handle.result({ timeoutMs: 10_000 })).toEqual({
+              committed: false,
+              reason: "no_changes",
+            })
+          }
+          const hydrations = (
+            await backend.listWorkflowRuns({ limit: 100 })
+          ).data.filter(
+            (run) => run.idempotencyKey === `${input.jobId}:hydrate`,
+          )
+          expect(hydrations).toHaveLength(1)
+          expect(hydrations[0]?.input).toMatchObject({
+            workspaceId: f.workspaceId,
+            revision: { sha: f.sha },
+          })
+          expect(
+            f.git(
+              "--git-dir",
+              f.remote,
+              "rev-list",
+              "--count",
+              `${f.sha}..main`,
+            ),
+          ).toBe("0")
+        } finally {
+          await worker.stop()
+          await backend.stop()
         }
       },
     )

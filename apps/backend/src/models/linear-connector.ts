@@ -1252,6 +1252,8 @@ export async function claimLinearContentSyncRetry(
 
 export async function finalizeLinearBindingAfterContentWorkflow(input: {
   connectionId: string
+  repositoryId: string
+  branch: string
   workflowStatus: "completed" | "partial_failed" | "failed"
 }): Promise<boolean> {
   const directoryRow = await getConnectionDirectoryByConnectionId(
@@ -1272,8 +1274,17 @@ export async function finalizeLinearBindingAfterContentWorkflow(input: {
         ),
       )
       .limit(1)
+      .for("update")
     const target = row ? bindingFromConnectionRow(row) : undefined
-    if (!row || !target || target.setupPhase !== "initial_sync") return
+    if (
+      !row ||
+      !target ||
+      !target.enabled ||
+      target.setupPhase !== "initial_sync" ||
+      target.repositoryId !== input.repositoryId ||
+      target.branch !== input.branch
+    )
+      return
     const [result] = await tx
       .update(connections)
       .set({

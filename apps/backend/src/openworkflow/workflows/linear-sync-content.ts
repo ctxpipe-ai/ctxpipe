@@ -42,15 +42,9 @@ export const linearSyncContent = defineWorkflow(
       }),
       async () => {
         const env = parseEnv(process.env as Record<string, string | undefined>)
-        const markSyncFailed = () =>
-          withOrgDbContext(input.orgId, () =>
-            finalizeLinearBindingAfterContentWorkflow({
-              connectionId: input.connectionId,
-              workflowStatus: "failed",
-            }),
-          )
-        const context = await step
-          .run({ name: "load-linear-sync-context" }, async () => {
+        const context = await step.run(
+          { name: "load-linear-sync-context" },
+          async () => {
             const target = await getLinearBindingWithRepoByConnectionId(
               input.orgId,
               input.connectionId,
@@ -91,11 +85,8 @@ export const linearSyncContent = defineWorkflow(
                 "linear/config.yaml workspace does not match the Linear connection",
               )
             return { target, captured, config }
-          })
-          .catch(async (error) => {
-            await markSyncFailed()
-            throw error
-          })
+          },
+        )
 
         const captured = await step.run(
           { name: "capture-linear-content" },
@@ -192,6 +183,8 @@ export const linearSyncContent = defineWorkflow(
             finalizeLinearBindingAfterContentWorkflow({
               connectionId: input.connectionId,
               workflowStatus: result.status,
+              repositoryId: context.target.repositoryId,
+              branch: context.target.branch,
             }),
           ),
         )

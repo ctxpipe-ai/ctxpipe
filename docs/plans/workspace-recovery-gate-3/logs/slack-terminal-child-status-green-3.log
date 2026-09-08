@@ -1,0 +1,54 @@
+{"name": "slack-terminal-child-status-green-3", "cwd": "/private/tmp/ctxpipe-recovery-01a07aba", "command": ["/Users/jakubriedl/.volta/tools/image/node/22.16.0/bin/node", "apps/backend/node_modules/vitest/vitest.mjs", "run", "--root", "apps/backend", "src/domain/workspaces/slack-mirror-native.contract.test.ts", "src/domain/workspaces/connector-finalization-native.contract.test.ts"], "environment": {"AUTH_SECRET": "gate0-local-disposable-test-secret-20260907", "DATABASE_URL": "postgresql://ctxpipe_app:ctxpipe@127.0.0.1:61314/ctxpipe_gate0_fresh", "GRAPH_DB_URI": "redis://127.0.0.1:6398", "CI": "true", "NO_COLOR": "1", "TURBO_TELEMETRY_DISABLED": "1", "STORYBOOK_DISABLE_TELEMETRY": "1", "PATH": "/Users/jakubriedl/.volta/tools/image/node/22.16.0/bin:/private/tmp/ctxpipe-recovery-runtime/ast-grep/node_modules/.bin:/private/tmp/ctxpipe-recovery-runtime/node_modules/.bin:/private/tmp/ctxpipe-recovery-runtime/zoekt:/usr/local/bin:/System/Cryptexes/App/usr/bin:/usr/bin:/bin:/usr/sbin:/sbin:/var/run/com.apple.security.cryptexd/codex.system/bootstrap/usr/local/bin:/var/run/com.apple.security.cryptexd/codex.system/bootstrap/usr/bin:/var/run/com.apple.security.cryptexd/codex.system/bootstrap/usr/appleinternal/bin:/pkg/env/global/bin:/Users/jakubriedl/.codex/tmp/arg0/codex-arg0BW5Gt3:/Users/jakubriedl/.cache/codex-runtimes/codex-primary-runtime/dependencies/bin/override:/Users/jakubriedl/.local/bin:/Users/jakubriedl/.bun/bin:/Users/jakubriedl/.opencode/bin:/Users/jakubriedl/.volta/bin:/opt/homebrew/bin:/opt/homebrew/sbin:/Users/jakubriedl/.cache/codex-runtimes/codex-primary-runtime/dependencies/bin/fallback:/Applications/ChatGPT.app/Contents/Resources"}, "timeout_seconds": 600, "started_utc": "2026-09-08T16:39:22Z", "log": "logs/slack-terminal-child-status-green-3.log"}
+
+ RUN  v4.0.18 /private/tmp/ctxpipe-recovery-01a07aba/apps/backend
+
+Cloning into bare repository '/var/folders/9t/jj9rnpps7_ddb72c1mq2k13w0000gn/T/ctxpipe-hydration-contract-NfYI0f/remote.git'...
+done.
+Cloning into bare repository '/var/folders/9t/jj9rnpps7_ddb72c1mq2k13w0000gn/T/ctxpipe-hydration-contract-O3x7uc/remote.git'...
+done.
+Cloning into bare repository '/var/folders/9t/jj9rnpps7_ddb72c1mq2k13w0000gn/T/ctxpipe-hydration-contract-kSThku/remote.git'...
+done.
+Cloning into bare repository '/var/folders/9t/jj9rnpps7_ddb72c1mq2k13w0000gn/T/ctxpipe-hydration-contract-4mehL5/remote.git'...
+done.
+Cloning into bare repository '/var/folders/9t/jj9rnpps7_ddb72c1mq2k13w0000gn/T/ctxpipe-hydration-contract-Yb02h2/remote.git'...
+done.
+ ✓ src/domain/workspaces/slack-mirror-native.contract.test.ts (5 tests) 21728ms
+   ✓ handles Slack bare through durable intent and mirror steps before publishing status  2905ms
+   ✓ handles Slack intent through durable intent and mirror steps before publishing status  2790ms
+   ✓ handles Slack capability through durable intent and mirror steps before publishing status  2104ms
+   ✓ handles Slack child_failure through durable intent and mirror steps before publishing status  7059ms
+   ✓ handles Slack child_failure_fallback through durable intent and mirror steps before publishing status  6869ms
+Cloning into bare repository '/var/folders/9t/jj9rnpps7_ddb72c1mq2k13w0000gn/T/ctxpipe-hydration-contract-qAX5CG/remote.git'...
+done.
+Cloning into bare repository '/var/folders/9t/jj9rnpps7_ddb72c1mq2k13w0000gn/T/ctxpipe-hydration-contract-HAKI9b/remote.git'...
+done.
+Cloning into bare repository '/var/folders/9t/jj9rnpps7_ddb72c1mq2k13w0000gn/T/ctxpipe-hydration-contract-u8sDDO/remote.git'...
+done.
+Cloning into bare repository '/var/folders/9t/jj9rnpps7_ddb72c1mq2k13w0000gn/T/ctxpipe-hydration-contract-OQT3JK/remote.git'...
+done.
+Cloning into bare repository '/var/folders/9t/jj9rnpps7_ddb72c1mq2k13w0000gn/T/ctxpipe-hydration-contract-LDLG1u/remote.git'...
+done.
+Cloning into bare repository '/var/folders/9t/jj9rnpps7_ddb72c1mq2k13w0000gn/T/ctxpipe-hydration-contract-37klxf/remote.git'...
+done.
+Cloning into bare repository '/var/folders/9t/jj9rnpps7_ddb72c1mq2k13w0000gn/T/ctxpipe-hydration-contract-1GQlZe/remote.git'...
+done.
+Cloning into bare repository '/var/folders/9t/jj9rnpps7_ddb72c1mq2k13w0000gn/T/ctxpipe-hydration-contract-cDSY5w/remote.git'...
+done.
+Cloning into bare repository '/var/folders/9t/jj9rnpps7_ddb72c1mq2k13w0000gn/T/ctxpipe-hydration-contract-AhsyLA/remote.git'...
+done.
+ ✓ src/domain/workspaces/connector-finalization-native.contract.test.ts (9 tests) 3748ms
+   ✓ projects 'linear' 'completed' onto the same initial binding as 'live'  467ms
+   ✓ projects 'linear' 'partial_failed' onto the same initial binding as 'sync_failed'  507ms
+   ✓ projects 'linear' 'failed' onto the same initial binding as 'sync_failed'  325ms
+   ✓ projects 'notion' 'completed' onto the same initial binding as 'live'  673ms
+   ✓ projects 'notion' 'partial_failed' onto the same initial binding as 'sync_failed'  364ms
+   ✓ projects 'notion' 'failed' onto the same initial binding as 'sync_failed'  366ms
+   ✓ projects 'confluence' 'completed' onto the same initial binding as 'live'  351ms
+   ✓ projects 'confluence' 'partial_failed' onto the same initial binding as 'sync_failed'  361ms
+   ✓ projects 'confluence' 'failed' onto the same initial binding as 'sync_failed'  333ms
+
+ Test Files  2 passed (2)
+      Tests  14 passed (14)
+   Start at  02:39:23
+   Duration  30.42s (transform 1.05s, setup 23ms, import 4.77s, tests 25.48s, environment 0ms)
+

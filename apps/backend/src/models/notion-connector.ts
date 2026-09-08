@@ -1,6 +1,7 @@
 import { and, desc, eq, sql } from "drizzle-orm"
 import type { Env } from "../config/env.js"
 import {
+  assertNotInOrgDbContext,
   type Db,
   getOrgDb,
   getSystemDb,
@@ -383,8 +384,8 @@ export async function updateNotionConnectionTokens(input: {
   refreshToken: string | null
   env: Env
 }): Promise<void> {
-  const updated = await orgSql(async () => {
-    const db = getOrgDb()
+  assertNotInOrgDbContext()
+  const updated = await withOrgDbContext(input.orgId, async (db) => {
     const [current] = await db
       .select({ config: connections.config })
       .from(connections)
@@ -396,6 +397,7 @@ export async function updateNotionConnectionTokens(input: {
         ),
       )
       .limit(1)
+      .for("update")
     if (!current) throw new Error("Notion connection not found")
     // Drop any legacy plaintext tokens; tokens are always persisted as ciphertext.
     const {
@@ -944,6 +946,8 @@ export async function clearNotionSyncBindingsForRepository(input: {
 
 export async function finalizeNotionBindingAfterContentWorkflow(input: {
   connectionId: string
+  repositoryId: string
+  branch: string
   workflowStatus: "completed" | "partial_failed" | "failed"
 }): Promise<boolean> {
   const directoryRow = await getConnectionDirectoryByConnectionId(
@@ -964,8 +968,17 @@ export async function finalizeNotionBindingAfterContentWorkflow(input: {
         ),
       )
       .limit(1)
+      .for("update")
     const binding = row ? bindingFromConnectionRow(row) : undefined
-    if (!row || !binding || binding.setupPhase !== "initial_sync") return
+    if (
+      !row ||
+      !binding ||
+      !binding.enabled ||
+      binding.setupPhase !== "initial_sync" ||
+      binding.repositoryId !== input.repositoryId ||
+      binding.branch !== input.branch
+    )
+      return
     const [result] = await tx
       .update(connections)
       .set({

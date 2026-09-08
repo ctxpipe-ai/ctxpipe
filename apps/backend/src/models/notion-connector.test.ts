@@ -5,7 +5,6 @@ import type { NotionSetupPhase } from "../lib/connection-config.js"
 import {
   claimNotionBindingInitialSync,
   clearNotionSyncBindingsForRepository,
-  finalizeNotionBindingAfterContentWorkflow,
   getNotionConnectionByConnectionId,
 } from "./notion-connector.js"
 
@@ -164,42 +163,6 @@ describe("Notion connector lifecycle", () => {
         branch: "main",
       }),
     ).resolves.toBe(false)
-  })
-
-  it.each([
-    "failed",
-    "partial_failed",
-  ] as const)("finalizes %s content sync as sync_failed", async (workflowStatus) => {
-    const { db, set } = systemDb("initial_sync")
-    dbMocks.getSystemDb.mockReturnValue(db)
-
-    await expect(
-      finalizeNotionBindingAfterContentWorkflow({
-        connectionId: "con_notion",
-        workflowStatus,
-      }),
-    ).resolves.toBe(true)
-    expect(set).toHaveBeenCalledWith(
-      expect.objectContaining({
-        config: expect.objectContaining({ setupPhase: "sync_failed" }),
-      }),
-    )
-  })
-
-  it("finalizes completed content sync as live", async () => {
-    const { db, set } = systemDb("initial_sync")
-    dbMocks.getSystemDb.mockReturnValue(db)
-
-    await finalizeNotionBindingAfterContentWorkflow({
-      connectionId: "con_notion",
-      workflowStatus: "completed",
-    })
-
-    expect(set).toHaveBeenCalledWith(
-      expect.objectContaining({
-        config: expect.objectContaining({ setupPhase: "live" }),
-      }),
-    )
   })
 })
 

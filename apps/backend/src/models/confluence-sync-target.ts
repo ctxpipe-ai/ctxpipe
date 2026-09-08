@@ -300,6 +300,8 @@ export async function markConfluenceSyncTargetLive(input: {
  */
 export async function finalizeConfluenceSyncTargetAfterContentWorkflow(input: {
   connectionId: string
+  repositoryId: string
+  branch: string
   workflowStatus: "completed" | "partial_failed" | "failed"
 }): Promise<void> {
   const updated = await withOrgDbForConnection(
@@ -318,6 +320,9 @@ export async function finalizeConfluenceSyncTargetAfterContentWorkflow(input: {
           and(
             eq(confluenceSyncTargets.connectionId, input.connectionId),
             eq(confluenceSyncTargets.setupPhase, "initial_sync"),
+            eq(confluenceSyncTargets.repositoryId, input.repositoryId),
+            eq(confluenceSyncTargets.branch, input.branch),
+            eq(confluenceSyncTargets.enabled, true),
           ),
         )
         .returning({ id: confluenceSyncTargets.id })

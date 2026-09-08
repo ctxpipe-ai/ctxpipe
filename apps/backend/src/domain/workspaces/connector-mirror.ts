@@ -12,7 +12,7 @@ import {
   nativeGit,
   withGitDirectory,
 } from "../../services/git/pack.js"
-import type { WorkspaceRevision } from "./revision.js"
+import { gitObjectIdSchema, type WorkspaceRevision } from "./revision.js"
 import { normalizeWorkspaceRepositoryUrl } from "./slug.js"
 
 export const connectorMirrorSourceSchema = z
@@ -20,20 +20,10 @@ export const connectorMirrorSourceSchema = z
     provider: z.enum(["linear", "notion", "slack", "confluence"]),
     connectionId: z.string().min(1),
     repositoryId: z.string().min(1),
-    configBlobSha: z
-      .string()
-      .regex(/^[a-f0-9]{40}$/)
-      .nullable(),
+    configBlobSha: gitObjectIdSchema.nullable(),
   })
   .strict()
 export type ConnectorMirrorSource = z.infer<typeof connectorMirrorSourceSchema>
-
-const bindingReaders = {
-  linear: getLinearBindingWithRepoByConnectionId,
-  notion: getNotionBindingWithRepoByConnectionId,
-  slack: getSlackBindingWithRepoByConnectionId,
-  confluence: getConfluenceSyncTargetWithRepoByConnectionId,
-}
 
 export const connectorMirrorContentSchema = z
   .object({
@@ -68,6 +58,12 @@ export async function assertConnectorMirrorBinding(
   >,
   revision: WorkspaceRevision,
 ): Promise<void> {
+  const bindingReaders = {
+    linear: getLinearBindingWithRepoByConnectionId,
+    notion: getNotionBindingWithRepoByConnectionId,
+    slack: getSlackBindingWithRepoByConnectionId,
+    confluence: getConfluenceSyncTargetWithRepoByConnectionId,
+  }
   const binding = await bindingReaders[source.provider](
     orgId,
     source.connectionId,

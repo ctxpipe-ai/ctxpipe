@@ -1,5 +1,9 @@
 import { z } from "zod"
 
+export const gitObjectIdSchema = z
+  .string()
+  .regex(/^(?:[0-9a-f]{40}|[0-9a-f]{64})$/)
+
 export const repositoryRemoteSchema = z
   .object({
     url: z.string().min(1),
@@ -13,7 +17,7 @@ export const workspaceRevisionSchema = z
     generation: z.number().int().positive(),
     remote: repositoryRemoteSchema,
     defaultBranch: z.string().min(1),
-    sha: z.string().regex(/^(?:[0-9a-f]{40}|[0-9a-f]{64})$/),
+    sha: gitObjectIdSchema,
     access: z.enum(["read", "publish-session", "write-default"]),
   })
   .readonly()
@@ -27,7 +31,7 @@ export const linkedRevisionSchema = z
     repositoryId: z.string().min(1),
     remote: repositoryRemoteSchema,
     ref: z.string().min(1).nullable(),
-    sha: z.string().regex(/^(?:[0-9a-f]{40}|[0-9a-f]{64})$/),
+    sha: gitObjectIdSchema,
   })
   .readonly()
 

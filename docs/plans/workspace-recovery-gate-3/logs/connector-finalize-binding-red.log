@@ -1,0 +1,76 @@
+{"name": "connector-finalize-binding-red", "cwd": "/private/tmp/ctxpipe-recovery-01a07aba", "command": ["/Users/jakubriedl/.volta/tools/image/node/22.16.0/bin/node", "apps/backend/node_modules/vitest/vitest.mjs", "run", "--root", "apps/backend", "src/domain/workspaces/linear-mirror-native.contract.test.ts", "src/domain/workspaces/confluence-mirror-native.contract.test.ts", "-t", "rebind"], "environment": {"AUTH_SECRET": "gate0-local-disposable-test-secret-20260907", "DATABASE_URL": "postgresql://ctxpipe_app:ctxpipe@127.0.0.1:61314/ctxpipe_gate0_fresh", "GRAPH_DB_URI": "redis://127.0.0.1:6398", "CI": "true", "NO_COLOR": "1", "TURBO_TELEMETRY_DISABLED": "1", "STORYBOOK_DISABLE_TELEMETRY": "1", "PATH": "/Users/jakubriedl/.volta/tools/image/node/22.16.0/bin:/private/tmp/ctxpipe-recovery-runtime/ast-grep/node_modules/.bin:/private/tmp/ctxpipe-recovery-runtime/node_modules/.bin:/private/tmp/ctxpipe-recovery-runtime/zoekt:/usr/local/bin:/System/Cryptexes/App/usr/bin:/usr/bin:/bin:/usr/sbin:/sbin:/var/run/com.apple.security.cryptexd/codex.system/bootstrap/usr/local/bin:/var/run/com.apple.security.cryptexd/codex.system/bootstrap/usr/bin:/var/run/com.apple.security.cryptexd/codex.system/bootstrap/usr/appleinternal/bin:/pkg/env/global/bin:/Users/jakubriedl/.codex/tmp/arg0/codex-arg0BW5Gt3:/Users/jakubriedl/.cache/codex-runtimes/codex-primary-runtime/dependencies/bin/override:/Users/jakubriedl/.local/bin:/Users/jakubriedl/.bun/bin:/Users/jakubriedl/.opencode/bin:/Users/jakubriedl/.volta/bin:/opt/homebrew/bin:/opt/homebrew/sbin:/Users/jakubriedl/.cache/codex-runtimes/codex-primary-runtime/dependencies/bin/fallback:/Applications/ChatGPT.app/Contents/Resources"}, "timeout_seconds": 600, "started_utc": "2026-09-08T16:30:15Z", "log": "logs/connector-finalize-binding-red.log"}
+
+ RUN  v4.0.18 /private/tmp/ctxpipe-recovery-01a07aba/apps/backend
+
+Cloning into bare repository '/var/folders/9t/jj9rnpps7_ddb72c1mq2k13w0000gn/T/ctxpipe-hydration-contract-0wUVNc/remote.git'...
+done.
+ ❯ src/domain/workspaces/confluence-mirror-native.contract.test.ts (4 tests | 1 failed | 3 skipped) 4667ms
+   ↓ captures Confluence full with scoped deletion and transient credentials
+   ↓ captures Confluence space with scoped deletion and transient credentials
+   ↓ captures Confluence failed with scoped deletion and transient credentials
+   × captures Confluence rebind with scoped deletion and transient credentials 4667ms
+Cloning into bare repository '/var/folders/9t/jj9rnpps7_ddb72c1mq2k13w0000gn/T/ctxpipe-hydration-contract-hOKQZj/remote.git'...
+done.
+ ❯ src/domain/workspaces/linear-mirror-native.contract.test.ts (3 tests | 1 failed | 2 skipped) 4501ms
+   ↓ captures a Linear entity deletion without persisting its credential and runs one native mirror child
+   ↓ captures a Linear full deletion without persisting its credential and runs one native mirror child
+   × captures a Linear rebind deletion without persisting its credential and runs one native mirror child 4500ms
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 2 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  src/domain/workspaces/confluence-mirror-native.contract.test.ts > captures Confluence rebind with scoped deletion and transient credentials
+AssertionError: expected { …(14) } to match object { setupPhase: 'initial_sync', …(1) }
+(12 matching properties omitted from actual)
+
+- Expected
++ Received
+
+  {
+    "branch": "next",
+-   "setupPhase": "initial_sync",
++   "setupPhase": "live",
+  }
+
+ ❯ src/domain/workspaces/confluence-mirror-native.contract.test.ts:235:13
+    233|               connectionId,
+    234|             ),
+    235|           ).toMatchObject({
+       |             ^
+    236|             setupPhase:
+    237|               mode === "failed"
+ ❯ withNativeHydrationFixture src/test/native-hydration-fixture.ts:544:5
+ ❯ src/domain/workspaces/confluence-mirror-native.contract.test.ts:26:5
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/2]⎯
+
+ FAIL  src/domain/workspaces/linear-mirror-native.contract.test.ts > captures a Linear rebind deletion without persisting its credential and runs one native mirror child
+AssertionError: expected { …(14) } to match object { setupPhase: 'initial_sync', …(1) }
+(12 matching properties omitted from actual)
+
+- Expected
++ Received
+
+  {
+    "branch": "next",
+-   "setupPhase": "initial_sync",
++   "setupPhase": "live",
+  }
+
+ ❯ src/domain/workspaces/linear-mirror-native.contract.test.ts:192:13
+    190|               connectionId,
+    191|             ),
+    192|           ).toMatchObject({
+       |             ^
+    193|             setupPhase: mode === "rebind" ? "initial_sync" : "live",
+    194|             branch: mode === "rebind" ? "next" : "main",
+ ❯ withNativeHydrationFixture src/test/native-hydration-fixture.ts:544:5
+ ❯ src/domain/workspaces/linear-mirror-native.contract.test.ts:25:5
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[2/2]⎯
+
+
+ Test Files  2 failed (2)
+      Tests  2 failed | 5 skipped (7)
+   Start at  02:30:15
+   Duration  13.11s (transform 918ms, setup 22ms, import 3.77s, tests 9.17s, environment 0ms)
+

@@ -1,3 +1,4 @@
+import { eq, sql } from "drizzle-orm"
 import { expect, it } from "vitest"
 import { withOrgIdContext } from "../../auth/withAuth.js"
 import { parseEnv } from "../../config/env.js"
@@ -10,7 +11,13 @@ import { workspaceConnectorMirror } from "../../openworkflow/workflows/workspace
 import { withNativeHydrationFixture } from "../../test/native-hydration-fixture.js"
 import { ensureOrgRepositoryForGitUrl } from "./ensure-org-repository.js"
 
-it.each(["bare", "intent", "capability"] as const)(
+it.each([
+  "bare",
+  "intent",
+  "capability",
+  "child_failure",
+  "child_failure_fallback",
+] as const)(
   "handles Slack %s through durable intent and mirror steps before publishing status",
   { timeout: 45_000 },
   async (mode) => {
@@ -25,7 +32,10 @@ it.each(["bare", "intent", "capability"] as const)(
         onSlackRequest: (method, body) => requests.push({ method, body }),
         slackResponses: {
           "chat.postMessage": { ok: true, ts: "1700000001.000000" },
-          "chat.update": { ok: true },
+          "chat.update":
+            mode === "child_failure_fallback"
+              ? { ok: false, error: "cant_update_message" }
+              : { ok: true },
           "conversations.info": {
             ok: true,
             channel: { id: "C1", name: "engineering", is_private: false },
@@ -90,6 +100,17 @@ it.each(["bare", "intent", "capability"] as const)(
           workspaceConnectorMirror.spec,
           workspaceConnectorMirror.fn,
         )
+        if (mode.startsWith("child_failure"))
+          f.onWriteCredentialRequest(async () => {
+            await withOrgDbContext(f.org.id, (db) =>
+              db
+                .update(connections)
+                .set({
+                  config: sql`${connections.config} || '{"enabled":false}'::jsonb`,
+                })
+                .where(eq(connections.id, connectionId)),
+            )
+          })
         const worker = f.runner.newWorker({ concurrency: 1 })
         const handle = await f.runner.runWorkflow(slackMentionAgent.spec, {
           orgId: f.org.id,
@@ -97,7 +118,7 @@ it.each(["bare", "intent", "capability"] as const)(
           channelId: "C1",
           threadTs: "1700000000.000000",
           mentionText:
-            mode === "bare"
+            mode === "bare" || mode.startsWith("child_failure")
               ? "<@B1>"
               : mode === "intent"
                 ? "<@B1> capture this"
@@ -116,6 +137,44 @@ it.each(["bare", "intent", "capability"] as const)(
               { timeout: 5_000 },
             )
             .toBe(true)
+          if (mode.startsWith("child_failure")) {
+            await expect(handle.result({ timeoutMs: 20_000 })).rejects.toThrow()
+            expect(
+              (
+                await f.backend.getWorkflowRun({
+                  workflowRunId: handle.workflowRun.id,
+                })
+              )?.status,
+            ).toBe("failed")
+            expect(
+              requests.filter((r) => r.method === "chat.update"),
+            ).toMatchObject([
+              {
+                body: {
+                  text: expect.stringContaining(
+                    "Engineering context capture failed.",
+                  ),
+                },
+              },
+            ])
+            if (mode === "child_failure_fallback")
+              expect(
+                requests.filter((r) => r.method === "chat.postMessage"),
+              ).toMatchObject([
+                { body: { text: "ctx| agent working…" } },
+                {
+                  body: {
+                    text: expect.stringContaining(
+                      "Engineering context capture failed.",
+                    ),
+                  },
+                },
+              ])
+            expect(f.git("--git-dir", f.remote, "rev-parse", "main")).toBe(
+              f.sha,
+            )
+            return
+          }
           const result = await handle.result({ timeoutMs: 20_000 })
           if (mode === "capability") {
             expect(result).toEqual({ kind: "capability" })

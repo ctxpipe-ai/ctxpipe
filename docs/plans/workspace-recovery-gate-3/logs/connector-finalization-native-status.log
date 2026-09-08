@@ -1,0 +1,81 @@
+{"name": "connector-finalization-native-status", "cwd": "/private/tmp/ctxpipe-recovery-01a07aba", "command": ["/Users/jakubriedl/.volta/tools/image/node/22.16.0/bin/node", "apps/backend/node_modules/vitest/vitest.mjs", "run", "--root", "apps/backend", "src/domain/workspaces/connector-finalization-native.contract.test.ts", "src/models/notion-connector.test.ts"], "environment": {"AUTH_SECRET": "gate0-local-disposable-test-secret-20260907", "DATABASE_URL": "postgresql://ctxpipe_app:ctxpipe@127.0.0.1:61314/ctxpipe_gate0_fresh", "GRAPH_DB_URI": "redis://127.0.0.1:6398", "CI": "true", "NO_COLOR": "1", "TURBO_TELEMETRY_DISABLED": "1", "STORYBOOK_DISABLE_TELEMETRY": "1", "PATH": "/Users/jakubriedl/.volta/tools/image/node/22.16.0/bin:/private/tmp/ctxpipe-recovery-runtime/ast-grep/node_modules/.bin:/private/tmp/ctxpipe-recovery-runtime/node_modules/.bin:/private/tmp/ctxpipe-recovery-runtime/zoekt:/usr/local/bin:/System/Cryptexes/App/usr/bin:/usr/bin:/bin:/usr/sbin:/sbin:/var/run/com.apple.security.cryptexd/codex.system/bootstrap/usr/local/bin:/var/run/com.apple.security.cryptexd/codex.system/bootstrap/usr/bin:/var/run/com.apple.security.cryptexd/codex.system/bootstrap/usr/appleinternal/bin:/pkg/env/global/bin:/Users/jakubriedl/.codex/tmp/arg0/codex-arg0BW5Gt3:/Users/jakubriedl/.cache/codex-runtimes/codex-primary-runtime/dependencies/bin/override:/Users/jakubriedl/.local/bin:/Users/jakubriedl/.bun/bin:/Users/jakubriedl/.opencode/bin:/Users/jakubriedl/.volta/bin:/opt/homebrew/bin:/opt/homebrew/sbin:/Users/jakubriedl/.cache/codex-runtimes/codex-primary-runtime/dependencies/bin/fallback:/Applications/ChatGPT.app/Contents/Resources"}, "timeout_seconds": 600, "started_utc": "2026-09-08T16:32:29Z", "log": "logs/connector-finalization-native-status.log"}
+
+ RUN  v4.0.18 /private/tmp/ctxpipe-recovery-01a07aba/apps/backend
+
+ ✓ src/models/notion-connector.test.ts (9 tests) 55ms
+Cloning into bare repository '/var/folders/9t/jj9rnpps7_ddb72c1mq2k13w0000gn/T/ctxpipe-hydration-contract-KQFo78/remote.git'...
+done.
+Cloning into bare repository '/var/folders/9t/jj9rnpps7_ddb72c1mq2k13w0000gn/T/ctxpipe-hydration-contract-2HsbKC/remote.git'...
+done.
+Cloning into bare repository '/var/folders/9t/jj9rnpps7_ddb72c1mq2k13w0000gn/T/ctxpipe-hydration-contract-yCbeGY/remote.git'...
+done.
+Cloning into bare repository '/var/folders/9t/jj9rnpps7_ddb72c1mq2k13w0000gn/T/ctxpipe-hydration-contract-zYQcSS/remote.git'...
+done.
+Cloning into bare repository '/var/folders/9t/jj9rnpps7_ddb72c1mq2k13w0000gn/T/ctxpipe-hydration-contract-uA6PZn/remote.git'...
+done.
+Cloning into bare repository '/var/folders/9t/jj9rnpps7_ddb72c1mq2k13w0000gn/T/ctxpipe-hydration-contract-9p97TE/remote.git'...
+done.
+Cloning into bare repository '/var/folders/9t/jj9rnpps7_ddb72c1mq2k13w0000gn/T/ctxpipe-hydration-contract-q31uXa/remote.git'...
+done.
+Cloning into bare repository '/var/folders/9t/jj9rnpps7_ddb72c1mq2k13w0000gn/T/ctxpipe-hydration-contract-0A9Zbu/remote.git'...
+done.
+Cloning into bare repository '/var/folders/9t/jj9rnpps7_ddb72c1mq2k13w0000gn/T/ctxpipe-hydration-contract-SpDcyO/remote.git'...
+done.
+ ❯ src/domain/workspaces/connector-finalization-native.contract.test.ts (9 tests | 3 failed) 3405ms
+   × projects 'linear' 'completed' onto the same initial binding as 'live' 541ms
+   × projects 'linear' 'partial_failed' onto the same initial binding as 'sync_failed' 391ms
+   × projects 'linear' 'failed' onto the same initial binding as 'sync_failed' 437ms
+   ✓ projects 'notion' 'completed' onto the same initial binding as 'live'  413ms
+   ✓ projects 'notion' 'partial_failed' onto the same initial binding as 'sync_failed'  318ms
+   ✓ projects 'notion' 'failed' onto the same initial binding as 'sync_failed' 250ms
+   ✓ projects 'confluence' 'completed' onto the same initial binding as 'live'  372ms
+   ✓ projects 'confluence' 'partial_failed' onto the same initial binding as 'sync_failed' 297ms
+   ✓ projects 'confluence' 'failed' onto the same initial binding as 'sync_failed'  384ms
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 3 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  src/domain/workspaces/connector-finalization-native.contract.test.ts > projects 'linear' 'completed' onto the same initial binding as 'live'
+ FAIL  src/domain/workspaces/connector-finalization-native.contract.test.ts > projects 'linear' 'partial_failed' onto the same initial binding as 'sync_failed'
+ FAIL  src/domain/workspaces/connector-finalization-native.contract.test.ts > projects 'linear' 'failed' onto the same initial binding as 'sync_failed'
+ZodError: [
+  {
+    "expected": "string",
+    "code": "invalid_type",
+    "path": [
+      "workspaceName"
+    ],
+    "message": "Invalid input: expected string, received undefined"
+  },
+  {
+    "expected": "string",
+    "code": "invalid_type",
+    "path": [
+      "ownerUserId"
+    ],
+    "message": "Invalid input: expected string, received undefined"
+  }
+]
+ ❯ parseLinearConnectionStored src/lib/connection-config.ts:171:45
+    169|   config: Record<string, unknown>,
+    170| ): LinearConnectionConfigStored {
+    171|   return linearConnectionConfigStoredSchema.parse(config)
+       |                                             ^
+    172| }
+    173| 
+ ❯ bindingFromConnectionRow src/models/linear-connector.ts:76:18
+ ❯ src/models/linear-connector.ts:1278:26
+ ❯ db.transaction.options.isolationLevel.isolationLevel src/db/client.ts:150:16
+ ❯ NodePgSession.transaction ../../node_modules/.pnpm/drizzle-orm@1.0.0-beta.22_@opentelemetry+api@1.9.0_@types+mssql@9.1.9_@azure+core-clien_187cb3c43007455e384d88e6e878f2d4/node_modules/drizzle-orm/node-postgres/session.js:148:19
+ ❯ finalizeLinearBindingAfterContentWorkflow src/models/linear-connector.ts:1263:19
+ ❯ src/domain/workspaces/connector-finalization-native.contract.test.ts:90:11
+ ❯ withNativeHydrationFixture src/test/native-hydration-fixture.ts:544:5
+ ❯ src/domain/workspaces/connector-finalization-native.contract.test.ts:37:5
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/3]⎯
+
+
+ Test Files  1 failed | 1 passed (2)
+      Tests  3 failed | 15 passed (18)
+   Start at  02:32:29
+   Duration  7.09s (transform 900ms, setup 25ms, import 3.47s, tests 3.46s, environment 0ms)
+
