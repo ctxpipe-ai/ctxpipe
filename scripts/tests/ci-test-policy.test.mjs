@@ -28,6 +28,10 @@ test("proof policy rejects aliased skips, retries and owned module mocks without
     )
     assert.equal(normal.status, 0, normal.stderr)
     for (const source of [
+      'import { test } from "vitest"; const options = { retry: 0 }; Object.assign(options, { retry: 2 }); test("proof", options, () => {})',
+      'import { test } from "vitest"; const options = { retry: 0 }; Object.defineProperty(options, "retry", { value: 2 }); test("proof", options, () => {})',
+      'import { test } from "vitest"; const options = { retry: 0 }; Reflect.set(options, "retry", 2); test("proof", options, () => {})',
+      'import { test } from "vitest"; const options = { retry: 0 }; function configure(value) { value.retry = 2 } configure(options); test("proof", options, () => {})',
       'import { test } from "vitest"; test("proof", { fails: true }, () => { throw new Error("defect") })',
       'import { test } from "vitest"; const fails = true; test("proof", { fails }, () => {})',
       'import { test } from "vitest"; const key = `fails`; test("proof", { [key]: true }, () => {})',

@@ -208,6 +208,18 @@ try {
         )
           mutatedObjects.add(objectOrigin(access.expression))
       }
+      if (ts.isCallExpression(node) && !tests.has(rootName(node.expression))) {
+        // An options object passed to arbitrary code is no longer statically
+        // immutable. This covers Object/Reflect setters and local mutators.
+        for (const argument of node.arguments)
+          mutatedObjects.add(objectOrigin(argument))
+        const callee = unwrap(node.expression)
+        if (
+          ts.isPropertyAccessExpression(callee) ||
+          ts.isElementAccessExpression(callee)
+        )
+          mutatedObjects.add(objectOrigin(callee.expression))
+      }
       ts.forEachChild(node, collectMutations)
     }
     collectMutations(source)

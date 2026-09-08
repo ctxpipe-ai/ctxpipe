@@ -1,7 +1,7 @@
 # Gate 1 — required execution and truthful CI
 
-Status: implementation complete; production-build matrix and final independent
-reviews are still pending. This is not a Gate 1 completion claim.
+Status: all 13 CI jobs passed at `05a3c6e4`; final policy corrections, exact-commit
+CI and independent review closure are pending. This is not a Gate 1 completion claim.
 
 Starting point: `7dfa6b93a5baedc3eb2c86dd1056662e89cace00` (approved Gate 0).
 Branch: `codex/develop-plan-to-refocus-branch-direction`; existing PR 319.
@@ -20,7 +20,10 @@ Branch: `codex/develop-plan-to-refocus-branch-direction`; existing PR 319.
   images; builds distributable CLI/CDK and backend/codesearch entrypoints;
   typechecks self-host; validates Terraform without remote state credentials.
 - Test policy parses syntax, including chained/aliased selection modifiers and
-  test configuration retries, destructuring aliases, and Playwright fail/fixme. The accepted Gate 0 characterization inventory is
+  test configuration retries, destructuring aliases, and Playwright fail/fixme.
+  Test options reject mutable bindings, object writes, retries and expected
+  failure/selection options. Lexical constants respect scope and computed keys.
+  The accepted Gate 0 characterization inventory is
   read from its immutable commit, so editing a TSV cannot bypass proof policy.
 - Codesearch runs every discovered test, routing its two Bun.Glob-dependent
   files through Bun and the remaining tests through Node. Both reports must
@@ -36,9 +39,9 @@ Branch: `codex/develop-plan-to-refocus-branch-direction`; existing PR 319.
 | `ui-required-runner` | 291 cases in 61 files pass |
 | `cli-build-prerequisite` | 93 cases in 10 files pass, with the CLI built by its runner |
 | `cdk-required-runner` | 32 cases in 4 files pass |
-| `policy-all-aliases-green` | Five public CI-script regression tests pass |
+| `policy-fails-options-green-tests` | Five public CI-script regression tests pass; mutable settings and expected-failure options covered |
 | `terraform-validate` | Configuration valid with backend disabled and no credentials |
-| `codesearch-route-bun-inline` | 37 Bun route/glob cases pass |
+| `ci-05a3c6e4-codesearch-contracts` | All 221 cases in 33 files pass: 184 Node and 37 Bun, zero skipped |
 
 Each named local check has raw output in `logs/`; the recorder's JSON files
 include argv, fixture environment, timestamps, duration, and process exit.
@@ -83,14 +86,20 @@ repositories, and the direct SDK sandbox are now cleaned up.
 - Run 34170657662 at `ee6aeab5` exposed missing CLI/CDK build prerequisites and
   the Bun slim image's Debian Trixie/JDK17 mismatch. Raw failed logs are retained.
 - Run 34171137539 at `20ff56b6` has passed full typecheck, tests, migrations,
-  script/policy checks, package builds, codesearch image, and OpenTelemetry. Remaining production
-  builds and complete codesearch tooling are still running at this checkpoint.
+  script/policy checks, package builds, codesearch image, and OpenTelemetry.
+  The other five jobs were later cancelled as described below.
 - A final run on the reviewed checkpoint is required before Gate 1 closes.
 - The five remaining jobs in run 34171137539 stopped reporting progress in
   pnpm installation within their first minute and were cancelled after about
   20 minutes to collect their logs. The `ci-20ff56b6-stalled-*` logs retain this
   evidence. Docker dependency installation and frontend builds now use Node 22;
   service runtime stages remain Bun. Build jobs have a 30-minute limit.
+
+- Run 34172316421 at `05a3c6e4` completed with all 13 jobs successful,
+  including every production image and the full codesearch tooling contracts.
+  `logs/ci-05a3c6e4-complete.json` records each job and exact head SHA.
+  This establishes the Node build-stage fix; subsequent policy corrections
+  require their own exact-commit CI result.
 
 ## Deletion and subsequent ownership
 
