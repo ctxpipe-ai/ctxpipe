@@ -28,6 +28,10 @@ test("proof policy rejects aliased skips, retries and owned module mocks without
     )
     assert.equal(normal.status, 0, normal.stderr)
     for (const source of [
+      'import { test } from "vitest"; const options = Object.freeze({ retry: 2 }); test("proof", options, () => {})',
+      'import { test } from "vitest"; test("proof", Object.assign({}, { retry: 2 }), () => {})',
+      'import { test } from "vitest"; const args = ["proof", { fails: true }, () => {}] as const; test(...args)',
+      'import { test as scenario } from "./fixture"; scenario("proof", { retry: 2 }, () => {})',
       'import { test } from "vitest"; const options = { retry: 0 }; Object.assign(options, { retry: 2 }); test("proof", options, () => {})',
       'import { test } from "vitest"; const options = { retry: 0 }; Object.defineProperty(options, "retry", { value: 2 }); test("proof", options, () => {})',
       'import { test } from "vitest"; const options = { retry: 0 }; Reflect.set(options, "retry", 2); test("proof", options, () => {})',
@@ -70,6 +74,20 @@ test("proof policy rejects aliased skips, retries and owned module mocks without
       const rejected = check(source)
       assert.equal(rejected.status, 1, source)
     }
+    const shared = join(directory, "shared-options.ts")
+    const config = join(directory, "vitest.config.ts")
+    writeFileSync(shared, "export default { test: { retry: 2 } }")
+    writeFileSync(config, 'export { default } from "./shared-options"')
+    const policy = fileURLToPath(
+      new URL("../ci/check-test-policy.mjs", import.meta.url),
+    )
+    assert.equal(spawnSync(process.execPath, [policy, config]).status, 1)
+    const manifest = join(directory, "package.json")
+    writeFileSync(
+      manifest,
+      JSON.stringify({ scripts: { test: "vitest run --retry=2" } }),
+    )
+    assert.equal(spawnSync(process.execPath, [policy, manifest]).status, 1)
     const domainRetry = check(
       'test("retry policy", () => withTransientHttpRetry(operation, { retries: 2 }))',
     )

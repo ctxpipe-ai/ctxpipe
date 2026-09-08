@@ -1,5 +1,6 @@
 import { execFileSync } from "node:child_process"
-import { relative, resolve } from "node:path"
+import { existsSync, readFileSync } from "node:fs"
+import { dirname, relative, resolve } from "node:path"
 import { fileURLToPath } from "node:url"
 import ts from "typescript"
 
@@ -34,11 +35,79 @@ try {
           .filter(
             (file) =>
               /\.(test|stories)\.[cm]?[jt]sx?$/.test(file) ||
+              /(?:^|\/)package\.json$|^\.github\/workflows\/.*\.ya?ml$|^scripts\/.*\.sh$/.test(
+                file,
+              ) ||
               /(?:^|\/)(?:vitest|vite|playwright)\.config\.[cm]?[jt]s$/.test(
                 file,
               ),
           )
           .map((file) => resolve(root, file))
+  const commandFiles = files.filter((file) => /\.(json|ya?ml|sh)$/.test(file))
+  const errors = []
+  for (const file of commandFiles) {
+    const contents = readFileSync(file, "utf8")
+    const commands = file.endsWith("package.json")
+      ? Object.values(JSON.parse(contents).scripts ?? {})
+      : contents
+          .replace(/\\\r?\n/g, " ")
+          .split("\n")
+          .filter((line) => !line.trim().startsWith("#"))
+    for (const command of commands) {
+      if (!/\b(?:vitest|playwright|test(?::[\w-]+)?)\b/.test(command)) continue
+      for (const flag of command.matchAll(
+        /--(?:retry|retries)(?:=|\s+)([^\s;|&]+)/g,
+      ))
+        if (flag[1] !== "0")
+          errors.push(
+            `${relative(root, file)}: Test runner retry flags are forbidden`,
+          )
+    }
+  }
+  const configFiles = new Set(
+    files.filter((file) =>
+      /(?:^|\/)(?:vitest|vite|playwright)\.config\.[cm]?[jt]s$/.test(file),
+    ),
+  )
+  // Local configuration dependencies are part of the configuration surface.
+  // Follow imports/re-exports; never scan an installed dependency as product policy.
+  for (const file of configFiles) {
+    const parsed = ts.createSourceFile(
+      file,
+      readFileSync(file, "utf8"),
+      ts.ScriptTarget.Latest,
+      true,
+    )
+    for (const statement of parsed.statements) {
+      const specifier = statement.moduleSpecifier
+      if (
+        !specifier ||
+        !ts.isStringLiteral(specifier) ||
+        !specifier.text.startsWith(".")
+      )
+        continue
+      const base = resolve(dirname(file), specifier.text)
+      const candidates = [
+        base,
+        base.replace(/\.[cm]?js$/, ".ts"),
+        ...[".ts", ".mts", ".cts", ".js", "/index.ts", "/index.js"].map(
+          (extension) => base + extension,
+        ),
+      ]
+      const dependency = candidates.find(
+        (candidate) => existsSync(candidate) && /\.[cm]?[jt]s$/.test(candidate),
+      )
+      if (!dependency) {
+        errors.push(
+          `${relative(root, file)}: Cannot resolve local test configuration ${specifier.text}`,
+        )
+        continue
+      }
+      configFiles.add(dependency)
+      if (!files.includes(dependency)) files.push(dependency)
+    }
+  }
+  const sourceFiles = files.filter((file) => !commandFiles.includes(file))
   const compilerOptions = {
     allowJs: true,
     noResolve: true,
@@ -48,7 +117,7 @@ try {
     jsx: ts.JsxEmit.Preserve,
   }
   const program = ts.createProgram(
-    files,
+    sourceFiles,
     compilerOptions,
     ts.createCompilerHost(compilerOptions, true),
   )
@@ -78,9 +147,8 @@ try {
       expression = expression.expression
     return expression
   }
-  const errors = []
   const acceptedFixtures = new Map()
-  for (const file of files) {
+  for (const file of sourceFiles) {
     const source = program.getSourceFile(file)
     if (!source) throw new Error(`Cannot parse required policy source: ${file}`)
     const path = relative(root, file).replaceAll("\\", "/")
@@ -90,10 +158,7 @@ try {
     for (const statement of source.statements) {
       if (
         ts.isImportDeclaration(statement) &&
-        ts.isStringLiteral(statement.moduleSpecifier) &&
-        ["vitest", "node:test", "bun:test", "@playwright/test"].includes(
-          statement.moduleSpecifier.text,
-        )
+        ts.isStringLiteral(statement.moduleSpecifier)
       ) {
         const bindings = statement.importClause?.namedBindings
         if (bindings && ts.isNamespaceImport(bindings)) {
@@ -234,6 +299,21 @@ try {
           complain(expression, "Test options must use constant bindings")
         seen.add(initializer)
         markOptions(initializer, seen)
+      } else if (ts.isSpreadElement(expression)) {
+        markOptions(expression.expression, seen)
+      } else if (ts.isArrayLiteralExpression(expression)) {
+        for (const element of expression.elements) markOptions(element, seen)
+      } else if (ts.isCallExpression(expression)) {
+        const name = expression.expression.getText(source)
+        if (["Object.freeze", "Object.seal", "Object.assign"].includes(name)) {
+          for (const argument of expression.arguments)
+            markOptions(argument, seen)
+        } else {
+          complain(
+            expression,
+            "Test arguments must use statically declared options and callbacks",
+          )
+        }
       } else if (ts.isObjectLiteralExpression(expression)) {
         if (mutatedObjects.has(expression))
           complain(expression, "Test options must not be mutated")
@@ -399,9 +479,7 @@ try {
               ),
         ) &&
         (testOptions.has(node.parent) ||
-          /(?:^|\/)(?:vitest|vite|playwright)\.config\.[cm]?[jt]s$/.test(
-            path,
-          ) ||
+          configFiles.has(file) ||
           (() => {
             for (let parent = node.parent; parent; parent = parent.parent) {
               if (
@@ -423,7 +501,7 @@ try {
   }
   if (errors.length) throw new Error(errors.join("\n"))
   process.stdout.write(
-    `Proof policy checked ${files.length} test/story/config files\n`,
+    `Proof policy checked ${sourceFiles.length} test/story/config files and ${commandFiles.length} command files\n`,
   )
 } catch (error) {
   process.stderr.write(`${error.message}\n`)
