@@ -53,6 +53,7 @@ it(
         "workspace-write-valid-from-persist",
         "workspace-write-ops-folder-map",
         "workspace-write-link-unlink",
+        "workspace-write-migration-export",
       ]),
     )
   },

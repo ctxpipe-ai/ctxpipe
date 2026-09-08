@@ -1,4 +1,5 @@
 import { parse as parseYaml } from "yaml"
+import { linkedRepositoryUrlSchema } from "./linked-repository-url.js"
 
 export const KNOWLEDGE_SKILL_PATH = ".agents/skills/ctxpipe-knowledge/SKILL.md"
 export const REPOSITORIES_DIR = "repositories"
@@ -90,7 +91,8 @@ export function parseLinkedRepositoryMarkdown(raw: string): {
     typeof parsed.attributes.git === "string"
       ? parsed.attributes.git.trim()
       : ""
-  if (!git) return { git: "", branch: null, malformed: true }
+  if (!linkedRepositoryUrlSchema.safeParse(git).success)
+    return { git: "", branch: null, malformed: true }
   const branch =
     typeof parsed.attributes.branch === "string"
       ? parsed.attributes.branch.trim() || null
@@ -106,4 +108,3 @@ function slugSegment(raw: string): string {
     .replace(/^-+|-+$/g, "")
   return slug || "item"
 }
-

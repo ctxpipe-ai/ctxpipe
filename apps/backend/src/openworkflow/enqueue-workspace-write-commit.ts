@@ -1,5 +1,6 @@
 import { parseEnv } from "../config/env.js"
 import { assertNotInOrgDbContext, withOrgDbContext } from "../db/client.js"
+import { linkedRepositoryUrlSchema } from "../domain/workspaces/linked-repository-url.js"
 import { resolveWorkspaceReadRevision } from "../domain/workspaces/resolve-revision.js"
 import {
   type EnqueueWriteJobInput,
@@ -34,6 +35,7 @@ import {
   workspaceLinkUnlink,
   workspaceLinkUnlinkInputSchema,
 } from "./workflows/workspace-link-unlink.js"
+import { workspaceMigrationExport } from "./workflows/workspace-migration-export.js"
 import { workspaceOpsFolderMap } from "./workflows/workspace-ops-folder-map.js"
 import { workspaceValidFromPersist } from "./workflows/workspace-valid-from-persist.js"
 import { workspaceWriteCommit } from "./workflows/workspace-write-commit.js"
@@ -43,6 +45,7 @@ const snapshotWriteWorkflows: Partial<
   Record<EnqueueWriteJobInput["kind"], typeof workspaceBootstrap>
 > = {
   bootstrap: workspaceBootstrap,
+  migration_export: workspaceMigrationExport,
   claims_upgrade: workspaceClaimsUpgrade,
   valid_from_persist: workspaceValidFromPersist,
   import_key_cleanup: workspaceImportKeyCleanup,
@@ -96,6 +99,11 @@ export async function enqueueWriteJob(
   log: { error: (err: Error) => void },
 ): Promise<{ started: boolean }> {
   assertNotInOrgDbContext()
+  if (input.kind === "link_unlink")
+    input = {
+      ...input,
+      linkGitUrl: linkedRepositoryUrlSchema.parse(input.linkGitUrl),
+    }
   const jobId = input.jobId ?? generateObjectId("wjob")
   let jobGeneration = input.jobGeneration
   let jobWorkspaceUrl = input.jobWorkspaceUrl

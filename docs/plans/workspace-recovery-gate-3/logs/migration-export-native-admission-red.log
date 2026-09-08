@@ -1,0 +1,49 @@
+{"name": "migration-export-native-admission-red", "cwd": "/private/tmp/ctxpipe-recovery-01a07aba", "command": ["/Users/jakubriedl/.volta/tools/image/node/22.16.0/bin/node", "apps/backend/node_modules/vitest/vitest.mjs", "run", "--root", "apps/backend", "src/domain/workspaces/write-export-native.contract.test.ts"], "environment": {"AUTH_SECRET": "gate0-local-disposable-test-secret-20260907", "DATABASE_URL": "postgresql://ctxpipe_app:ctxpipe@127.0.0.1:61314/ctxpipe_gate0_fresh", "GRAPH_DB_URI": "redis://127.0.0.1:6398", "CI": "true", "NO_COLOR": "1", "TURBO_TELEMETRY_DISABLED": "1", "STORYBOOK_DISABLE_TELEMETRY": "1", "PATH": "/Users/jakubriedl/.volta/tools/image/node/22.16.0/bin:/private/tmp/ctxpipe-recovery-runtime/ast-grep/node_modules/.bin:/private/tmp/ctxpipe-recovery-runtime/node_modules/.bin:/private/tmp/ctxpipe-recovery-runtime/zoekt:/Users/jakubriedl/.local/bin:/Users/jakubriedl/.bun/bin:/Users/jakubriedl/.opencode/bin:/Users/jakubriedl/.volta/bin:/opt/homebrew/bin:/opt/homebrew/sbin:/usr/local/bin:/System/Cryptexes/App/usr/bin:/usr/bin:/bin:/usr/sbin:/sbin:/var/run/com.apple.security.cryptexd/codex.system/bootstrap/usr/local/bin:/var/run/com.apple.security.cryptexd/codex.system/bootstrap/usr/bin:/var/run/com.apple.security.cryptexd/codex.system/bootstrap/usr/appleinternal/bin:/pkg/env/global/bin:/Users/jakubriedl/.codex/tmp/arg0/codex-arg0BW5Gt3:/Users/jakubriedl/.cache/codex-runtimes/codex-primary-runtime/dependencies/bin/override:/Users/jakubriedl/.local/bin:/Users/jakubriedl/.bun/bin:/Users/jakubriedl/.opencode/bin:/Users/jakubriedl/.volta/bin:/Users/jakubriedl/.cache/codex-runtimes/codex-primary-runtime/dependencies/bin/fallback:/Applications/ChatGPT.app/Contents/Resources"}, "timeout_seconds": 600, "started_utc": "2026-09-08T09:53:30Z", "log": "logs/migration-export-native-admission-red.log"}
+
+ RUN  v4.0.18 /private/tmp/ctxpipe-recovery-01a07aba/apps/backend
+
+Cloning into bare repository '/var/folders/9t/jj9rnpps7_ddb72c1mq2k13w0000gn/T/ctxpipe-hydration-contract-7YoAW2/remote.git'...
+done.
+ ❯ src/domain/workspaces/write-export-native.contract.test.ts (1 test | 1 failed) 489ms
+   × exports legacy knowledge through one typed native commit and replays its durable result 489ms
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 1 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  src/domain/workspaces/write-export-native.contract.test.ts > exports legacy knowledge through one typed native commit and replays its durable result
+AssertionError: expected { namespaceId: 'default', …(20) } to match object { …(2) }
+(26 matching properties omitted from actual)
+
+- Expected
++ Received
+
+  {
+    "input": {
+-     "revision": {
+-       "access": "write-default",
+-       "sha": "96ed23bdf761902f4d6a57188fb3cc3960e32ff8",
+-     },
++     "jobDesiredSha": "96ed23bdf761902f4d6a57188fb3cc3960e32ff8",
++     "jobGeneration": 1,
++     "jobId": "wjob_hydrate_1788861213177_9m3kobth4z5_export",
++     "jobWorkspaceUrl": "https://github.com/fixture/hydration-contract.git",
++     "kind": "migration_export",
++     "orgId": "org_hydrate_1788861213177_9m3kobth4z5",
++     "workspaceId": "ws_hydrate_1788861213177_9m3kobth4z5",
+    },
+-   "workflowName": "workspace-write-migration-export",
++   "workflowName": "workspace-write-commit",
+  }
+
+ ❯ src/domain/workspaces/write-export-native.contract.test.ts:35:22
+
+ ❯ withNativeHydrationFixture src/test/native-hydration-fixture.ts:400:5
+ ❯ src/domain/workspaces/write-export-native.contract.test.ts:12:3
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/1]⎯
+
+
+ Test Files  1 failed (1)
+      Tests  1 failed (1)
+   Start at  19:53:30
+   Duration  2.96s (transform 818ms, setup 18ms, import 2.38s, tests 489ms, environment 0ms)
+

@@ -1,0 +1,48 @@
+{"name": "migration-export-native-red", "cwd": "/private/tmp/ctxpipe-recovery-01a07aba", "command": ["/Users/jakubriedl/.volta/tools/image/node/22.16.0/bin/node", "apps/backend/node_modules/vitest/vitest.mjs", "run", "--root", "apps/backend", "src/domain/workspaces/write-export-native.contract.test.ts"], "environment": {"AUTH_SECRET": "gate0-local-disposable-test-secret-20260907", "DATABASE_URL": "postgresql://ctxpipe_app:ctxpipe@127.0.0.1:61314/ctxpipe_gate0_fresh", "GRAPH_DB_URI": "redis://127.0.0.1:6398", "CI": "true", "NO_COLOR": "1", "TURBO_TELEMETRY_DISABLED": "1", "STORYBOOK_DISABLE_TELEMETRY": "1", "PATH": "/Users/jakubriedl/.volta/tools/image/node/22.16.0/bin:/private/tmp/ctxpipe-recovery-runtime/ast-grep/node_modules/.bin:/private/tmp/ctxpipe-recovery-runtime/node_modules/.bin:/private/tmp/ctxpipe-recovery-runtime/zoekt:/Users/jakubriedl/.local/bin:/Users/jakubriedl/.bun/bin:/Users/jakubriedl/.opencode/bin:/Users/jakubriedl/.volta/bin:/opt/homebrew/bin:/opt/homebrew/sbin:/usr/local/bin:/System/Cryptexes/App/usr/bin:/usr/bin:/bin:/usr/sbin:/sbin:/var/run/com.apple.security.cryptexd/codex.system/bootstrap/usr/local/bin:/var/run/com.apple.security.cryptexd/codex.system/bootstrap/usr/bin:/var/run/com.apple.security.cryptexd/codex.system/bootstrap/usr/appleinternal/bin:/pkg/env/global/bin:/Users/jakubriedl/.codex/tmp/arg0/codex-arg0BW5Gt3:/Users/jakubriedl/.cache/codex-runtimes/codex-primary-runtime/dependencies/bin/override:/Users/jakubriedl/.local/bin:/Users/jakubriedl/.bun/bin:/Users/jakubriedl/.opencode/bin:/Users/jakubriedl/.volta/bin:/Users/jakubriedl/.cache/codex-runtimes/codex-primary-runtime/dependencies/bin/fallback:/Applications/ChatGPT.app/Contents/Resources"}, "timeout_seconds": 600, "started_utc": "2026-09-08T09:52:51Z", "log": "logs/migration-export-native-red.log"}
+
+ RUN  v4.0.18 /private/tmp/ctxpipe-recovery-01a07aba/apps/backend
+
+Cloning into bare repository '/var/folders/9t/jj9rnpps7_ddb72c1mq2k13w0000gn/T/ctxpipe-hydration-contract-laiGJN/remote.git'...
+done.
+ ❯ src/domain/workspaces/write-export-native.contract.test.ts (1 test | 1 failed) 566ms
+   × exports legacy knowledge through one typed native commit and replays its durable result 565ms
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 1 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  src/domain/workspaces/write-export-native.contract.test.ts > exports legacy knowledge through one typed native commit and replays its durable result
+Error: Failed query: delete from "workspaces" where "workspaces"."id" = $1
+params: ws_hydrate_1788861174010_2kuy4u99km7
+ ❯ ../../node_modules/.pnpm/drizzle-orm@1.0.0-beta.22_@opentelemetry+api@1.9.0_@types+mssql@9.1.9_@azure+core-clien_187cb3c43007455e384d88e6e878f2d4/node_modules/drizzle-orm/pg-core/async/session.js:37:10
+ ❯ src/test/native-hydration-fixture.ts:180:11
+    178|         await withOrgDbContext(org.id, async (db) => {
+    179|           await db.delete(repositories).where(eq(repositories.orgId, o…
+    180|           await db.delete(workspaces).where(eq(workspaces.id, workspac…
+       |           ^
+    181|           await db.delete(connections).where(eq(connections.id, connec…
+    182|         })
+ ❯ src/db/client.ts:146:14
+ ❯ NodePgSession.transaction ../../node_modules/.pnpm/drizzle-orm@1.0.0-beta.22_@opentelemetry+api@1.9.0_@types+mssql@9.1.9_@azure+core-clien_187cb3c43007455e384d88e6e878f2d4/node_modules/drizzle-orm/node-postgres/session.js:148:19
+ ❯ src/test/native-hydration-fixture.ts:178:9
+ ❯ withNativeHydrationFixture src/test/native-hydration-fixture.ts:401:5
+ ❯ src/domain/workspaces/write-export-native.contract.test.ts:12:3
+
+Caused by: error: update or delete on table "workspaces" violates foreign key constraint "org_first_workspaces_workspace_id_workspaces_id_fkey" on table "org_first_workspaces"
+ ❯ ../../node_modules/.pnpm/pg@8.18.0/node_modules/pg/lib/client.js:624:17
+ ❯ ../../node_modules/.pnpm/drizzle-orm@1.0.0-beta.22_@opentelemetry+api@1.9.0_@types+mssql@9.1.9_@azure+core-clien_187cb3c43007455e384d88e6e878f2d4/node_modules/drizzle-orm/node-postgres/session.js:49:13
+ ❯ src/test/native-hydration-fixture.ts:180:11
+ ❯ src/db/client.ts:146:14
+ ❯ NodePgSession.transaction ../../node_modules/.pnpm/drizzle-orm@1.0.0-beta.22_@opentelemetry+api@1.9.0_@types+mssql@9.1.9_@azure+core-clien_187cb3c43007455e384d88e6e878f2d4/node_modules/drizzle-orm/node-postgres/session.js:148:19
+ ❯ src/test/native-hydration-fixture.ts:178:9
+ ❯ withNativeHydrationFixture src/test/native-hydration-fixture.ts:401:5
+ ❯ src/domain/workspaces/write-export-native.contract.test.ts:12:3
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯
+Serialized Error: { length: 370, severity: 'ERROR', code: '23503', detail: 'Key is still referenced from table "org_first_workspaces".', hint: undefined, position: undefined, internalPosition: undefined, internalQuery: undefined, where: undefined, schema: 'public', table: 'org_first_workspaces', dataType: undefined, constraint: 'org_first_workspaces_workspace_id_workspaces_id_fkey', file: 'ri_triggers.c', routine: 'ri_ReportViolation' }
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/1]⎯
+
+
+ Test Files  1 failed (1)
+      Tests  1 failed (1)
+   Start at  19:52:51
+   Duration  3.11s (transform 847ms, setup 20ms, import 2.45s, tests 566ms, environment 0ms)
+

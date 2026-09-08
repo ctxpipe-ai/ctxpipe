@@ -2,7 +2,11 @@ import { isAlias, isMap, isSeq } from "yaml"
 import { folderMapMarkerState, maintainFolderMap } from "./folder-map.js"
 import { type HydrateUnit, resolveHydrateLink } from "./hydrate.js"
 import { looksLikeGitSha } from "./hydrate-phases.js"
-import { updateKnowledgeMetadata } from "./knowledge-metadata.js"
+import {
+  editableMetadataNode,
+  removeMetadataKey,
+  updateKnowledgeMetadata,
+} from "./knowledge-metadata.js"
 import { parseSimpleFrontMatter } from "./layout.js"
 import { renameRewriteRemainder } from "./rename-rewrite.js"
 import {
@@ -123,7 +127,7 @@ export function claimsUpgradeFiles(input: {
     out.push({
       path: file.path,
       content: updateKnowledgeMetadata(file.content, (document) => {
-        const claims = document.get("claims", true)
+        const claims = editableMetadataNode(document, "claims")
         if (claims == null)
           document.set(
             "claims",
@@ -162,7 +166,7 @@ export function validFromPersistFiles(input: {
     out.push({
       path: file.path,
       content: updateKnowledgeMetadata(file.content, (document) => {
-        const claims = document.get("claims", true)
+        const claims = editableMetadataNode(document, "claims")
         if (!isSeq(claims))
           throw new Error("Knowledge claims must be a sequence")
         for (const node of claims.items) {
@@ -189,7 +193,7 @@ export function stripImportKeyFromMarkdown(markdown: string): string | null {
   const parsed = parseSimpleFrontMatter(markdown)
   if (parsed.malformed || parsed.attributes.import_key == null) return null
   return updateKnowledgeMetadata(markdown, (document) => {
-    document.delete("import_key")
+    removeMetadataKey(document, "import_key")
   })
 }
 

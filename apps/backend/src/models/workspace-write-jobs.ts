@@ -30,7 +30,12 @@ export async function getWriteJobCommitSha(
     const [row] = await getOrgDb()
       .select({ commitSha: workspaceWriteJobs.commitSha })
       .from(workspaceWriteJobs)
-      .where(eq(workspaceWriteJobs.id, jobId))
+      .where(
+        and(
+          eq(workspaceWriteJobs.id, jobId),
+          eq(workspaceWriteJobs.status, WRITE_JOB_STATUSES.completed),
+        ),
+      )
       .limit(1)
     return row?.commitSha ?? null
   })
@@ -227,18 +232,51 @@ export async function listMigrationExportJobWorkspaceIds(): Promise<
   })
 }
 
+const migrationExportTip = sql<
+  string | null
+>`coalesce(${workspaceWriteJobs.payload}->>'exportTipSha', ${workspaceWriteJobs.commitSha})`
+
+/** A completed empty export still has a cutover revision, but created no commit. */
+export async function persistMigrationExportNoOp(
+  jobId: string,
+  sha: string,
+): Promise<void> {
+  await orgSql(async () => {
+    const [row] = await getOrgDb()
+      .update(workspaceWriteJobs)
+      .set({
+        payload: sql`jsonb_set(coalesce(${workspaceWriteJobs.payload}, '{}'::jsonb), '{exportTipSha}', to_jsonb(${sha}::text))`,
+        status: WRITE_JOB_STATUSES.completed,
+        updatedAt: new Date(),
+      })
+      .where(
+        and(
+          eq(workspaceWriteJobs.id, jobId),
+          eq(workspaceWriteJobs.kind, "migration_export"),
+          sql`${workspaceWriteJobs.commitSha} is null`,
+        ),
+      )
+      .returning({ id: workspaceWriteJobs.id })
+    if (!row)
+      throw new Error(
+        "Migration export is unavailable or already has a candidate commit",
+      )
+  })
+}
+
 export async function listMigrationExportShas(): Promise<Map<string, string>> {
   return orgSql(async () => {
     const rows = await getOrgDb()
       .select({
         workspaceId: workspaceWriteJobs.workspaceId,
-        commitSha: workspaceWriteJobs.commitSha,
+        commitSha: migrationExportTip,
       })
       .from(workspaceWriteJobs)
       .where(
         and(
           eq(workspaceWriteJobs.kind, "migration_export"),
-          isNotNull(workspaceWriteJobs.commitSha),
+          isNotNull(migrationExportTip),
+          eq(workspaceWriteJobs.status, WRITE_JOB_STATUSES.completed),
         ),
       )
       .orderBy(asc(workspaceWriteJobs.createdAt))
@@ -257,13 +295,14 @@ export async function getMigrationExportSha(
 ): Promise<string | null> {
   return orgSql(async () => {
     const [row] = await getOrgDb()
-      .select({ commitSha: workspaceWriteJobs.commitSha })
+      .select({ commitSha: migrationExportTip })
       .from(workspaceWriteJobs)
       .where(
         and(
           eq(workspaceWriteJobs.workspaceId, workspaceId),
           eq(workspaceWriteJobs.kind, "migration_export"),
-          isNotNull(workspaceWriteJobs.commitSha),
+          isNotNull(migrationExportTip),
+          eq(workspaceWriteJobs.status, WRITE_JOB_STATUSES.completed),
         ),
       )
       .orderBy(asc(workspaceWriteJobs.createdAt))

@@ -174,6 +174,7 @@ export const workspaceWriteJobs = pgTable.withRLS(
     payload: jsonb("payload").$type<{
       revision?: WorkspaceRevision
       workflowRunId?: string
+      exportTipSha?: string
       linkAction?: "link" | "unlink"
       linkGitUrl?: string
       displayName?: string

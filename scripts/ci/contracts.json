@@ -3,7 +3,9 @@
     "src/db/rls-isolation.test.ts",
     "src/models/workspaces-sandbox-persist.test.ts"
   ],
-  "git": ["src/services/git/clone-tree.test.ts"],
+  "git": [
+    "src/services/git/clone-tree.test.ts"
+  ],
   "local sandbox and job worktree runner": [
     "src/domain/workspaces/job-sandbox.live.test.ts"
   ],
@@ -12,9 +14,12 @@
     "src/domain/workspaces/write-maintenance-native.contract.test.ts",
     "src/domain/workspaces/write-link-native.contract.test.ts",
     "src/domain/workspaces/write-ops-native.contract.test.ts",
-    "src/domain/workspaces/commit-subject.contract.test.ts"
+    "src/domain/workspaces/commit-subject.contract.test.ts",
+    "src/domain/workspaces/write-export-native.contract.test.ts"
   ],
-  "hydrate": ["src/domain/workspaces/hydration.contract.test.ts"],
+  "hydrate": [
+    "src/domain/workspaces/hydration.contract.test.ts"
+  ],
   "native worker discovery": [
     "src/openworkflow/workflows/workflow-discovery.contract.test.ts"
   ],

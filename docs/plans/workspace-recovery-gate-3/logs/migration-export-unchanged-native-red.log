@@ -1,0 +1,32 @@
+{"name": "migration-export-unchanged-native-red", "cwd": "/private/tmp/ctxpipe-recovery-01a07aba", "command": ["/Users/jakubriedl/.volta/tools/image/node/22.16.0/bin/node", "apps/backend/node_modules/vitest/vitest.mjs", "run", "--root", "apps/backend", "src/domain/workspaces/write-export-native.contract.test.ts"], "environment": {"AUTH_SECRET": "gate0-local-disposable-test-secret-20260907", "DATABASE_URL": "postgresql://ctxpipe_app:ctxpipe@127.0.0.1:61314/ctxpipe_gate0_fresh", "GRAPH_DB_URI": "redis://127.0.0.1:6398", "CI": "true", "NO_COLOR": "1", "TURBO_TELEMETRY_DISABLED": "1", "STORYBOOK_DISABLE_TELEMETRY": "1", "PATH": "/Users/jakubriedl/.volta/tools/image/node/22.16.0/bin:/private/tmp/ctxpipe-recovery-runtime/ast-grep/node_modules/.bin:/private/tmp/ctxpipe-recovery-runtime/node_modules/.bin:/private/tmp/ctxpipe-recovery-runtime/zoekt:/Users/jakubriedl/.local/bin:/Users/jakubriedl/.bun/bin:/Users/jakubriedl/.opencode/bin:/Users/jakubriedl/.volta/bin:/opt/homebrew/bin:/opt/homebrew/sbin:/usr/local/bin:/System/Cryptexes/App/usr/bin:/usr/bin:/bin:/usr/sbin:/sbin:/var/run/com.apple.security.cryptexd/codex.system/bootstrap/usr/local/bin:/var/run/com.apple.security.cryptexd/codex.system/bootstrap/usr/bin:/var/run/com.apple.security.cryptexd/codex.system/bootstrap/usr/appleinternal/bin:/pkg/env/global/bin:/Users/jakubriedl/.codex/tmp/arg0/codex-arg0BW5Gt3:/Users/jakubriedl/.cache/codex-runtimes/codex-primary-runtime/dependencies/bin/override:/Users/jakubriedl/.local/bin:/Users/jakubriedl/.bun/bin:/Users/jakubriedl/.opencode/bin:/Users/jakubriedl/.volta/bin:/Users/jakubriedl/.cache/codex-runtimes/codex-primary-runtime/dependencies/bin/fallback:/Applications/ChatGPT.app/Contents/Resources"}, "timeout_seconds": 600, "started_utc": "2026-09-08T09:55:44Z", "log": "logs/migration-export-unchanged-native-red.log"}
+
+ RUN  v4.0.18 /private/tmp/ctxpipe-recovery-01a07aba/apps/backend
+
+Cloning into bare repository '/var/folders/9t/jj9rnpps7_ddb72c1mq2k13w0000gn/T/ctxpipe-hydration-contract-xZWRLM/remote.git'...
+done.
+ ❯ src/domain/workspaces/write-export-native.contract.test.ts (1 test | 1 failed) 19142ms
+   × exports legacy knowledge through one typed native commit and replays its durable result 19141ms
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 1 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  src/domain/workspaces/write-export-native.contract.test.ts > exports legacy knowledge through one typed native commit and replays its durable result
+Error: Timed out waiting for workflow run 7cc3d142-b7ae-4cba-b0cc-256dcd6b8a1a to finish
+ ❯ WorkflowRunHandle.result ../../node_modules/.pnpm/openworkflow@0.8.0_postgres@3.4.8/node_modules/openworkflow/dist/client/client.js:187:23
+ ❯ src/domain/workspaces/write-export-native.contract.test.ts:132:18
+    130|             revision: { ...(await f.resolveRevision()), access: "write…
+    131|           })
+    132|           expect(await repeated.result({ timeoutMs: 15_000 })).toEqual…
+       |                  ^
+    133|           expect(
+    134|             f.git(
+ ❯ withNativeHydrationFixture src/test/native-hydration-fixture.ts:402:5
+ ❯ src/domain/workspaces/write-export-native.contract.test.ts:15:5
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/1]⎯
+
+
+ Test Files  1 failed (1)
+      Tests  1 failed (1)
+   Start at  19:55:44
+   Duration  21.62s (transform 829ms, setup 19ms, import 2.38s, tests 19.14s, environment 0ms)
+

@@ -2,6 +2,7 @@ import {
   isLinkedRepositoryDeclaration,
   parseLinkedRepositoryMarkdown,
 } from "./layout.js"
+import { linkedRepositoryUrlSchema } from "./linked-repository-url.js"
 import {
   displayNameFromGitUrl,
   normalizeSlug,
@@ -14,7 +15,7 @@ export function changeLinkedRepository(input: {
   action: "link" | "unlink"
   gitUrl: string
 }): { files: Array<{ path: string; content: string }>; deletePaths: string[] } {
-  const target = normalizeWorkspaceRepositoryUrl(input.gitUrl)
+  const target = linkedRepositoryUrlSchema.parse(input.gitUrl)
   const matches = input.files.filter((file) => {
     if (!isLinkedRepositoryDeclaration(file.path)) return false
     const parsed = parseLinkedRepositoryMarkdown(file.content)
@@ -35,7 +36,7 @@ export function changeLinkedRepository(input: {
     files: [
       {
         path,
-        content: `---\ngit: ${JSON.stringify(input.gitUrl.trim())}\n---\n`,
+        content: `---\ngit: ${JSON.stringify(target)}\n---\n`,
       },
     ],
     deletePaths: [],

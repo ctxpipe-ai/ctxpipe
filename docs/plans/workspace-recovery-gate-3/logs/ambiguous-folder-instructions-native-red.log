@@ -1,0 +1,50 @@
+{"name": "ambiguous-folder-instructions-native-red", "cwd": "/private/tmp/ctxpipe-recovery-01a07aba", "command": ["/Users/jakubriedl/.volta/tools/image/node/22.16.0/bin/node", "apps/backend/node_modules/vitest/vitest.mjs", "run", "--root", "apps/backend", "src/domain/workspaces/write-ops-native.contract.test.ts", "-t", "ambiguous folder"], "environment": {"AUTH_SECRET": "gate0-local-disposable-test-secret-20260907", "DATABASE_URL": "postgresql://ctxpipe_app:ctxpipe@127.0.0.1:61314/ctxpipe_gate0_fresh", "GRAPH_DB_URI": "redis://127.0.0.1:6398", "CI": "true", "NO_COLOR": "1", "TURBO_TELEMETRY_DISABLED": "1", "STORYBOOK_DISABLE_TELEMETRY": "1", "PATH": "/Users/jakubriedl/.volta/tools/image/node/22.16.0/bin:/private/tmp/ctxpipe-recovery-runtime/ast-grep/node_modules/.bin:/private/tmp/ctxpipe-recovery-runtime/node_modules/.bin:/private/tmp/ctxpipe-recovery-runtime/zoekt:/Users/jakubriedl/.local/bin:/Users/jakubriedl/.bun/bin:/Users/jakubriedl/.opencode/bin:/Users/jakubriedl/.volta/bin:/opt/homebrew/bin:/opt/homebrew/sbin:/usr/local/bin:/System/Cryptexes/App/usr/bin:/usr/bin:/bin:/usr/sbin:/sbin:/var/run/com.apple.security.cryptexd/codex.system/bootstrap/usr/local/bin:/var/run/com.apple.security.cryptexd/codex.system/bootstrap/usr/bin:/var/run/com.apple.security.cryptexd/codex.system/bootstrap/usr/appleinternal/bin:/pkg/env/global/bin:/Users/jakubriedl/.codex/tmp/arg0/codex-arg0BW5Gt3:/Users/jakubriedl/.cache/codex-runtimes/codex-primary-runtime/dependencies/bin/override:/Users/jakubriedl/.local/bin:/Users/jakubriedl/.bun/bin:/Users/jakubriedl/.opencode/bin:/Users/jakubriedl/.volta/bin:/Users/jakubriedl/.cache/codex-runtimes/codex-primary-runtime/dependencies/bin/fallback:/Applications/ChatGPT.app/Contents/Resources"}, "timeout_seconds": 600, "started_utc": "2026-09-08T10:04:32Z", "log": "logs/ambiguous-folder-instructions-native-red.log"}
+
+ RUN  v4.0.18 /private/tmp/ctxpipe-recovery-01a07aba/apps/backend
+
+Cloning into bare repository '/var/folders/9t/jj9rnpps7_ddb72c1mq2k13w0000gn/T/ctxpipe-hydration-contract-nBXmAJ/remote.git'...
+done.
+ ❯ src/domain/workspaces/write-ops-native.contract.test.ts (4 tests | 1 failed | 3 skipped) 2598ms
+   ↓ fails safely for orphan folder markers instead of claiming convergence
+   ↓ fails safely for duplicate folder markers instead of claiming convergence
+   × preserves ambiguous folder instructions and appends a dedicated folder map 2597ms
+   ↓ carries a workspace rename from HTTP through its Git commit and native hydrate
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 1 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  src/domain/workspaces/write-ops-native.contract.test.ts > preserves ambiguous folder instructions and appends a dedicated folder map
+AssertionError: expected '# Working instructions\n\n<!-- ctxpip…' to contain '# Working instructions\n\n## Cleanup …'
+
+- Expected
++ Received
+
+  # Working instructions
+
+- ## Cleanup rules
+- - `tmp/` must never be committed
++ <!-- ctxpipe:folder-map -->
++ ## Cleanup rules
++ - [docs/](docs/)
++ <!-- /ctxpipe:folder-map -->
+
+  ## Review
+  Read the changes carefully.
+
+ ❯ src/domain/workspaces/write-ops-native.contract.test.ts:76:24
+     74|       expect(await handle.result({ timeoutMs: 20_000 })).toMatchObject…
+     75|       const markdown = f.git("--git-dir", f.remote, "show", "refs/head…
+     76|       expect(markdown).toContain(instructions.trim())
+       |                        ^
+     77|       expect(markdown.indexOf("<!-- ctxpipe:folder-map -->")).toBeGrea…
+     78|       expect(markdown).toContain("- [docs/](docs/)")
+ ❯ withNativeHydrationFixture src/test/native-hydration-fixture.ts:402:5
+ ❯ src/domain/workspaces/write-ops-native.contract.test.ts:65:3
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/1]⎯
+
+
+ Test Files  1 failed (1)
+      Tests  1 failed | 3 skipped (4)
+   Start at  20:04:33
+   Duration  4.74s (transform 653ms, setup 17ms, import 2.05s, tests 2.60s, environment 0ms)
+

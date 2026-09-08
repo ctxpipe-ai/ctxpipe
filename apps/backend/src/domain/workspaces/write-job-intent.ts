@@ -17,6 +17,7 @@ export type WriteJobStatus =
 export type WorkspaceWriteJobPayload = {
   revision?: WorkspaceRevision
   workflowRunId?: string
+  exportTipSha?: string
   displayName?: string
   linkAction?: "link" | "unlink"
   linkGitUrl?: string

@@ -28,8 +28,16 @@ it(
             body: '---\nimport_key: >-\n  legacy:billing\nname: "Billing: ledger"\n---\n\n# Keep block body\n',
           },
           {
+            path: "knowledge/anchor.md",
+            body: "---\nimport_key: &legacy legacy:billing\ncustom: *legacy\n---\n\nKeep this aliased value.\n",
+          },
+          {
             path: "knowledge/windows.md",
             body: "\uFEFF---\r\nimport_key: |-\r\n  source:line\r\nkind: Service\r\n---\r\n\r\n# Keep Windows body\r\n",
+          },
+          {
+            path: "knowledge/trailing.md",
+            body: "---\nimport_key: legacy:trailing\nnote: |+\n  line\n\n\n---\n\nKeep this body.\n",
           },
           {
             path: "notion/source.md",
@@ -101,6 +109,26 @@ it(
               `${f.sha}..refs/heads/main`,
             ),
           ).toBe("1")
+          const { parse } = await import("yaml")
+          const anchored = f.git(
+            "--git-dir",
+            f.remote,
+            "show",
+            "refs/heads/main:knowledge/anchor.md",
+          )
+          expect(parse(anchored.split("---")[1] ?? "")).toEqual({
+            custom: "legacy:billing",
+          })
+          expect(anchored).toContain("Keep this aliased value.")
+          const trailing = f.git(
+            "--git-dir",
+            f.remote,
+            "show",
+            "refs/heads/main:knowledge/trailing.md",
+          )
+          expect(parse(trailing.split("---")[1] ?? "")).toEqual({
+            note: "line\n\n\n",
+          })
           expect(
             f.git(
               "--git-dir",
@@ -170,6 +198,14 @@ it(
             body: '---\n# Preserve this note\nname: "Billing: ledger"\ntags: [money, ledger]\nclaims:\n  - &source_claim\n    to: archive.md # Preserve claim note\n    predicate: DEPENDS_ON\n    generated_by: ctxpipe\n    review: {owner: Billing}\n---\n\nSee [API](./api.md), [same API](api.md), and [archive](./archive.md).\n',
           },
           { path: "knowledge/api.md", body: "# API\nUnchanged endpoint.\n" },
+          {
+            path: "knowledge/empty.md",
+            body: "---\n---\n\nSee [API](api.md).\n",
+          },
+          {
+            path: "knowledge/alias.md",
+            body: "---\ndefaults: &claim_list\n  - to: archive.md\nclaims: *claim_list\n---\n\nSee [API](api.md).\n",
+          },
         ],
       },
       async (f) => {
@@ -247,6 +283,27 @@ it(
               { to: "./api.md" },
             ],
           })
+          const empty = f.git(
+            "--git-dir",
+            f.remote,
+            "show",
+            "refs/heads/main:knowledge/empty.md",
+          )
+          expect(empty.match(/^---$/gm)).toHaveLength(2)
+          expect(empty).toContain("\n\nSee [API](api.md).")
+          expect(parse(empty.split("---")[1] ?? "")).toEqual({
+            claims: [{ to: "api.md" }],
+          })
+          const aliased = f.git(
+            "--git-dir",
+            f.remote,
+            "show",
+            "refs/heads/main:knowledge/alias.md",
+          )
+          expect(parse(aliased.split("---")[1] ?? "")).toEqual({
+            defaults: [{ to: "archive.md" }],
+            claims: [{ to: "archive.md" }, { to: "api.md" }],
+          })
           const { workspaceHydrate } = await import(
             "../../openworkflow/workflows/workspace-hydrate.js"
           )
@@ -275,8 +332,11 @@ it(
               projection,
             })
           })
-          expect(graph.edges).toHaveLength(1)
-          expect(graph.edges[0]).toMatchObject({ predicate: "LINKS_TO" })
+          expect(graph.edges.map((edge) => edge.predicate)).toEqual([
+            "LINKS_TO",
+            "LINKS_TO",
+            "LINKS_TO",
+          ])
           expect(markdown).toContain("# Preserve this note")
           expect(markdown).toContain("&source_claim")
           expect(markdown).toContain("# Preserve claim note")
@@ -350,7 +410,7 @@ it(
         files: [
           {
             path: "knowledge/a.md",
-            body: "---\nclaims:\n  - &observed\n    to: b.md # Preserve observation\n    generated_by: ctxpipe\n    review: {owner: Billing}\n  - to: stable.md\n    valid_from: 2020-05-06T07:08:09.000Z\n    custom: untouched\n---\n\n# A\n",
+            body: "---\ndefaults: &claim_list\n  - &observed\n    to: b.md # Preserve observation\n    generated_by: ctxpipe\n    review: {owner: Billing}\n  - to: stable.md\n    valid_from: 2020-05-06T07:08:09.000Z\n    custom: untouched\nclaims: *claim_list\n---\n\n# A\n",
           },
         ],
       },
@@ -463,6 +523,18 @@ it(
               )
               .split("---")[1] ?? "",
           )
+          expect(first.defaults).toEqual([
+            {
+              to: "b.md",
+              generated_by: "ctxpipe",
+              review: { owner: "Billing" },
+            },
+            {
+              to: "stable.md",
+              valid_from: "2020-05-06T07:08:09.000Z",
+              custom: "untouched",
+            },
+          ])
           expect(first.claims).toEqual([
             {
               to: "b.md",

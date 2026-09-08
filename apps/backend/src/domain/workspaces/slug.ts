@@ -90,8 +90,8 @@ export function normalizeWorkspaceRepositoryUrl(raw: string): string {
   const ssh = trimmed.match(/^git@([^:]+):(.+)$/)
   if (ssh?.[1] && ssh[2]) {
     const host = ssh[1].toLowerCase()
-    const path = ssh[2].replace(/\.git$/i, "").replace(/\/+$/, "")
-    if (host === "github.com") return `https://github.com/${path}`
+    const path = ssh[2].replace(/\/+$/, "").replace(/\.git$/i, "")
+    if (host === "github.com") return `https://github.com/${path.toLowerCase()}`
     return `https://${host}/${path}`
   }
   try {
@@ -104,6 +104,7 @@ export function normalizeWorkspaceRepositoryUrl(raw: string): string {
     if (url.hostname.toLowerCase() === "github.com") {
       url.protocol = "https:"
       url.hostname = "github.com"
+      url.pathname = url.pathname.toLowerCase()
       url.port = ""
     }
     return url.toString().replace(/\/$/, "")

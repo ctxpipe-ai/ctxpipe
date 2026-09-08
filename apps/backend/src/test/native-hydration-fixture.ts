@@ -16,7 +16,7 @@ import { closeDb, getSystemDb, initDb, withOrgDbContext } from "../db/client.js"
 import { organizations } from "../db/schema/auth.js"
 import { connections } from "../db/schema/connections.js"
 import { repositories } from "../db/schema/repositories.js"
-import { workspaces } from "../db/schema/workspaces.js"
+import { orgFirstWorkspaces, workspaces } from "../db/schema/workspaces.js"
 import { resolveWorkspaceReadRevision } from "../domain/workspaces/resolve-revision.js"
 import { invalidateGithubAppCacheForConnection } from "../models/github-installation.js"
 import {
@@ -176,6 +176,9 @@ async function createNativeHydrationFixture(
           sql`delete from openworkflow.workflow_runs where namespace_id = ${id} or input->>'orgId' = ${org.id}`,
         )
         await withOrgDbContext(org.id, async (db) => {
+          await db
+            .delete(orgFirstWorkspaces)
+            .where(eq(orgFirstWorkspaces.orgId, org.id))
           await db.delete(repositories).where(eq(repositories.orgId, org.id))
           await db.delete(workspaces).where(eq(workspaces.id, workspaceId))
           await db.delete(connections).where(eq(connections.id, connectionId))

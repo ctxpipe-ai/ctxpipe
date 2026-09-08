@@ -61,6 +61,61 @@ it.each([
 )
 
 it(
+  "preserves ambiguous folder instructions and appends a dedicated folder map",
+  { timeout: 30_000 },
+  async () => {
+    const instructions =
+      "# Working instructions\n\n## Cleanup rules\n- `tmp/` must never be committed\n\n## Review\nRead the changes carefully.\n"
+    await withNativeHydrationFixture(
+      {
+        github: true,
+        githubWriteView: "writable",
+        writeStatus: "writable",
+        files: [
+          { path: "AGENTS.md", body: instructions },
+          { path: "docs/intro.md", body: "# Introduction\n" },
+        ],
+      },
+      async (f) => {
+        f.runner.implementWorkflow(
+          workspaceOpsFolderMap.spec,
+          workspaceOpsFolderMap.fn,
+        )
+        const worker = f.runner.newWorker({ concurrency: 1 })
+        try {
+          const handle = await f.runner.runWorkflow(
+            workspaceOpsFolderMap.spec,
+            {
+              orgId: f.org.id,
+              workspaceId: f.workspaceId,
+              jobId: `wjob_${f.id}_instructions`,
+              revision: { ...f.revision, access: "write-default" },
+            },
+          )
+          await worker.start()
+          expect(await handle.result({ timeoutMs: 20_000 })).toMatchObject({
+            committed: true,
+          })
+          const markdown = f.git(
+            "--git-dir",
+            f.remote,
+            "show",
+            "refs/heads/main:AGENTS.md",
+          )
+          expect(markdown).toContain(instructions.trim())
+          expect(
+            markdown.indexOf("<!-- ctxpipe:folder-map -->"),
+          ).toBeGreaterThan(markdown.indexOf("Read the changes carefully."))
+          expect(markdown).toContain("- [docs/](docs/)")
+        } finally {
+          await worker.stop()
+        }
+      },
+    )
+  },
+)
+
+it(
   "carries a workspace rename from HTTP through its Git commit and native hydrate",
   { timeout: 60_000 },
   async () => {

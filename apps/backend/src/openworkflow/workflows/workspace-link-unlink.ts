@@ -4,6 +4,7 @@ import { parseEnv } from "../../config/env.js"
 import { generateCommitSubject } from "../../domain/workspaces/commit-subject.js"
 import { isLinkedRepositoryDeclaration } from "../../domain/workspaces/layout.js"
 import { changeLinkedRepository } from "../../domain/workspaces/link-declarations.js"
+import { linkedRepositoryUrlSchema } from "../../domain/workspaces/linked-repository-url.js"
 import {
   sameWorkspaceRevision,
   workspaceRevisionSchema,
@@ -43,7 +44,7 @@ export const workspaceLinkUnlinkInputSchema = z
     jobId: z.string().min(1),
     revision: workspaceRevisionSchema,
     linkAction: z.enum(["link", "unlink"]),
-    linkGitUrl: z.string().min(1),
+    linkGitUrl: linkedRepositoryUrlSchema,
   })
   .strict()
   .refine(
