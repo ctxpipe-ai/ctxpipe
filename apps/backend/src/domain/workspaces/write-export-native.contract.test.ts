@@ -443,3 +443,169 @@ it(
     )
   },
 )
+
+it(
+  "records export cutover when a raced native child finds the export already present",
+  { timeout: 40_000 },
+  async () => {
+    await withNativeHydrationFixture(
+      {
+        github: true,
+        githubWriteView: "writable",
+        writeStatus: "writable",
+        files: [{ path: "AGENTS.md", body: "# Keep\n" }],
+      },
+      async (f) => {
+        await f.handle.cancel()
+        await withOrgIdContext(f.org, async () => {
+          const repo = await ensureOrgRepositoryForGitUrl({
+            orgId: f.org.id,
+            gitUrl: f.workspaceUrl,
+          })
+          if (!repo) throw new Error("Fixture source repository unavailable")
+          await applyDestWorkspaceLinkPlan({
+            firstWorkspaceId: f.workspaceId,
+            firstSourceRepositoryId: repo.id,
+            deleteLinkIds: [],
+            insertLinks: [
+              {
+                workspaceId: f.workspaceId,
+                gitUrl: "https://github.com/team/api.git",
+              },
+            ],
+          })
+        })
+        const { workspaceMigrationExport } = await import(
+          "../../openworkflow/workflows/workspace-migration-export.js"
+        )
+        const { workspaceSemanticMerge } = await import(
+          "../../openworkflow/workflows/workspace-semantic-merge.js"
+        )
+        f.runner.implementWorkflow(
+          workspaceMigrationExport.spec,
+          workspaceMigrationExport.fn,
+        )
+        f.runner.implementWorkflow(
+          workspaceSemanticMerge.spec,
+          workspaceSemanticMerge.fn,
+        )
+        const worker = f.runner.newWorker({ concurrency: 1 })
+        const jobId = `wjob_${f.id}_export_handoff`
+        let humanSha: string | undefined
+        const handle = await f.runner.runWorkflow(
+          workspaceMigrationExport.spec,
+          {
+            orgId: f.org.id,
+            workspaceId: f.workspaceId,
+            jobId,
+            revision: { ...f.revision, access: "write-default" },
+          },
+        )
+        f.onWriteCredentialRequest(async () => {
+          if (humanSha) return
+          const attempts = (
+            await f.backend.listStepAttempts({
+              workflowRunId: handle.workflowRun.id,
+              limit: 100,
+            })
+          ).data
+          const prepared = attempts.find(
+            (attempt) => attempt.stepName === "commit",
+          )?.output as import("../../services/git/pack.js").GitPack | undefined
+          if (!prepared) throw new Error("Native prepared commit unavailable")
+          const { withGitDirectory, nativeGit } = await import(
+            "../../services/git/pack.js"
+          )
+          await withGitDirectory(
+            prepared.sha,
+            async (directory) => {
+              const tree = (
+                await nativeGit(directory, [
+                  "rev-parse",
+                  `${prepared.sha}^{tree}`,
+                ])
+              )
+                .toString()
+                .trim()
+              const { commitGitTree } = await import(
+                "../../services/git/write-tree.js"
+              )
+              const human = await commitGitTree(
+                { pack: { ...prepared, sha: f.sha }, tree },
+                {
+                  subject: "Human independently exported the links",
+                  createdAt: "2026-01-01T00:00:00Z",
+                },
+              )
+              await withGitDirectory(
+                human.sha,
+                async (checkout) => {
+                  await nativeGit(checkout, [
+                    "push",
+                    f.remote,
+                    `${human.sha}:main`,
+                  ])
+                },
+                human,
+              )
+              humanSha = human.sha
+            },
+            prepared,
+          )
+        })
+        try {
+          await worker.start()
+          const result = await handle.result({ timeoutMs: 15_000 })
+          expect(result).toEqual({ committed: false, reason: "no_changes" })
+          expect(
+            await withOrgIdContext(f.org, () =>
+              reconcileWorkspaceWriteJob(jobId),
+            ),
+          ).toMatchObject({ status: "completed", commitSha: null })
+          expect(
+            await withOrgIdContext(f.org, () =>
+              getMigrationExportSha(f.workspaceId),
+            ),
+          ).toBe(humanSha)
+          expect(
+            f.git(
+              "--git-dir",
+              f.remote,
+              "ls-tree",
+              "-r",
+              "--name-only",
+              "main",
+            ),
+          ).toBe("AGENTS.md\nrepositories/api.md")
+          expect(
+            f.git(
+              "--git-dir",
+              f.remote,
+              "rev-list",
+              "--count",
+              `${humanSha}..main`,
+            ),
+          ).toBe("0")
+          const { BackendPostgres } = await import("openworkflow/postgres")
+          const backend = await BackendPostgres.connect(f.databaseUrl, {
+            runMigrations: false,
+          })
+          try {
+            expect(
+              (await backend.listWorkflowRuns({ limit: 100 })).data.filter(
+                (run) =>
+                  run.workflowName === "workspace-hydrate" &&
+                  (run.input as { workspaceId?: string })?.workspaceId ===
+                    f.workspaceId,
+              ),
+            ).toHaveLength(1)
+          } finally {
+            await backend.stop()
+          }
+        } finally {
+          await worker.stop()
+        }
+      },
+    )
+  },
+)

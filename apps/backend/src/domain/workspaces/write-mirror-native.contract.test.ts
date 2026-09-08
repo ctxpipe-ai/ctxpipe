@@ -1,4 +1,6 @@
 import { execFileSync } from "node:child_process"
+import { writeFileSync } from "node:fs"
+import { join } from "node:path"
 import { expect, it } from "vitest"
 import { withOrgIdContext } from "../../auth/withAuth.js"
 import { withOrgDbContext } from "../../db/client.js"
@@ -373,6 +375,122 @@ it(
           ).toEqual([])
         } finally {
           await backend.stop()
+        }
+      },
+    )
+  },
+)
+
+it.each([false, true])(
+  "retains connector identity across semantic handoff; reset=%s",
+  { timeout: 60_000 },
+  async (reset) => {
+    await withNativeHydrationFixture(
+      {
+        github: true,
+        githubWriteView: "writable",
+        writeStatus: "writable",
+        files: [
+          { path: "notion/page.md", body: "# Old page\n" },
+          { path: "knowledge/owner.md", body: "# Original owner\n" },
+        ],
+      },
+      async (f) => {
+        const mirror = await createNotionMirrorBinding(f)
+        const { workspaceConnectorMirror } = await import(
+          "../../openworkflow/workflows/workspace-connector-mirror.js"
+        )
+        const { workspaceSemanticMerge } = await import(
+          "../../openworkflow/workflows/workspace-semantic-merge.js"
+        )
+        const mirrorSpec = {
+          ...workspaceConnectorMirror.spec,
+          retryPolicy: { maximumAttempts: 1 },
+        }
+        f.runner.implementWorkflow(mirrorSpec, workspaceConnectorMirror.fn)
+        const mergeSpec = {
+          ...workspaceSemanticMerge.spec,
+          retryPolicy: { maximumAttempts: 1 },
+        }
+        f.runner.implementWorkflow(mergeSpec, workspaceSemanticMerge.fn)
+        const worker = f.runner.newWorker({ concurrency: 1 })
+        let humanSha: string | undefined
+        f.onWriteCredentialRequest(async () => {
+          if (!humanSha) {
+            f.git("reset", "--hard", f.sha)
+            writeFileSync(
+              join(f.directory, "knowledge/owner.md"),
+              "# Updated owner\n",
+            )
+            f.git("add", "knowledge/owner.md")
+            f.git("commit", "-m", "Concurrent owner update")
+            f.git("push", f.remote, "HEAD:main")
+            humanSha = f.git("rev-parse", "HEAD")
+          }
+          if (reset) {
+            const { resetNotionConnectorAfterMissingConfig } = await import(
+              "../../models/notion-connector.js"
+            )
+            await resetNotionConnectorAfterMissingConfig({
+              orgId: f.org.id,
+              connectionId: mirror.connectionId,
+            })
+          }
+        })
+        try {
+          await worker.start()
+          const handle = await f.runner.runWorkflow(mirrorSpec, {
+            orgId: f.org.id,
+            workspaceId: f.workspaceId,
+            jobId: `wjob_${f.id}_handoff`,
+            revision: { ...f.revision, access: "write-default" },
+            mirror,
+            files: [{ path: "notion/page.md", content: "# Updated page\n" }],
+            deletePaths: [],
+          })
+          if (reset)
+            await expect(handle.result({ timeoutMs: 30_000 })).rejects.toThrow()
+          else
+            expect(await handle.result({ timeoutMs: 30_000 })).toMatchObject({
+              committed: true,
+            })
+          const children = (
+            await f.backend.listWorkflowRuns({ limit: 100 })
+          ).data.filter(
+            (run) => run.workflowName === "workspace-write-semantic-merge",
+          )
+          expect(children).toHaveLength(1)
+          expect(children[0]?.input).toMatchObject({ mirror })
+          if (reset) {
+            expect(children[0]?.status).toBe("failed")
+            expect(children[0]?.error?.message).toContain(
+              "Connector mirror binding changed",
+            )
+            expect(
+              (
+                await f.backend.getWorkflowRun({
+                  workflowRunId: handle.workflowRun.id,
+                })
+              )?.status,
+            ).toBe("failed")
+          }
+          expect(
+            f.git("--git-dir", f.remote, "show", "main:knowledge/owner.md"),
+          ).toBe("# Updated owner")
+          expect(
+            f.git("--git-dir", f.remote, "show", "main:notion/page.md"),
+          ).toBe(reset ? "# Old page" : "# Updated page")
+          expect(
+            f.git(
+              "--git-dir",
+              f.remote,
+              "rev-list",
+              "--count",
+              `${humanSha}..main`,
+            ),
+          ).toBe(reset ? "0" : "1")
+        } finally {
+          await worker.stop()
         }
       },
     )

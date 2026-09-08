@@ -472,3 +472,258 @@ it(
     }
   },
 )
+
+it(
+  "hands a raced Files write to one native semantic child and returns the published result",
+  { timeout: 60_000 },
+  async () => {
+    const path = "knowledge/race.md"
+    const original =
+      "# Race\n\nHuman: original\n\nOne\nTwo\nThree\nFour\nFive\n\nJob: original\n"
+    await withNativeHydrationFixture(
+      {
+        github: true,
+        githubWriteView: "writable",
+        writeStatus: "writable",
+        files: [{ path, body: original }],
+      },
+      async (f) => {
+        const { workspaceFileEdit } = await import(
+          "../../openworkflow/workflows/workspace-file-edit.js"
+        )
+        const { workspaceSemanticMerge } = await import(
+          "../../openworkflow/workflows/workspace-semantic-merge.js"
+        )
+        f.runner.implementWorkflow(workspaceFileEdit.spec, workspaceFileEdit.fn)
+        f.runner.implementWorkflow(
+          workspaceSemanticMerge.spec,
+          workspaceSemanticMerge.fn,
+        )
+        const worker = f.runner.newWorker({ concurrency: 1 })
+        let humanSha: string | undefined
+        f.onWriteCredentialRequest(async () => {
+          if (humanSha) return
+          f.git("reset", "--hard", f.sha)
+          writeFileSync(
+            join(f.directory, path),
+            original.replace("Human: original", "Human: updated"),
+          )
+          f.git("add", path)
+          f.git("commit", "-m", "Concurrent human update")
+          f.git("push", f.remote, "HEAD:main")
+          humanSha = f.git("rev-parse", "HEAD")
+        })
+        const command = {
+          orgId: f.org.id,
+          workspaceId: f.workspaceId,
+          jobId: `wjob_${f.id}_race`,
+          revision: { ...f.revision, access: "write-default" as const },
+          files: [
+            {
+              path,
+              content: original.replace("Job: original", "Job: imported"),
+            },
+          ],
+          deletePaths: [],
+        }
+        try {
+          await worker.start()
+          const handle = await f.runner.runWorkflow(
+            workspaceFileEdit.spec,
+            command,
+          )
+          const result = await handle.result({ timeoutMs: 30_000 })
+          expect(result).toMatchObject({ committed: true })
+          expect(f.git("--git-dir", f.remote, "show", `main:${path}`)).toBe(
+            original
+              .replace("Human: original", "Human: updated")
+              .replace("Job: original", "Job: imported")
+              .trim(),
+          )
+          expect(
+            f.git(
+              "--git-dir",
+              f.remote,
+              "rev-list",
+              "--count",
+              `${humanSha}..main`,
+            ),
+          ).toBe("1")
+          expect(
+            await withOrgIdContext(f.org, () =>
+              reconcileWorkspaceWriteJob(command.jobId),
+            ),
+          ).toMatchObject({
+            status: "completed",
+            commitSha: f.git("--git-dir", f.remote, "rev-parse", "main"),
+          })
+          const runs = (await f.backend.listWorkflowRuns({ limit: 100 })).data
+          expect(
+            runs.filter(
+              (run) => run.workflowName === "workspace-write-semantic-merge",
+            ),
+          ).toHaveLength(1)
+          const replay = await f.runner.runWorkflow(
+            workspaceFileEdit.spec,
+            command,
+          )
+          expect(await replay.result({ timeoutMs: 10_000 })).toEqual(result)
+        } finally {
+          await worker.stop()
+        }
+      },
+    )
+  },
+)
+
+it.each([
+  { currentDeletes: false, keepFile: false, committed: true },
+  { currentDeletes: true, keepFile: true, committed: true },
+  { currentDeletes: false, keepFile: true, committed: false },
+  { currentDeletes: true, keepFile: false, committed: false },
+])(
+  "resolves a modify/delete conflict: %j",
+  { timeout: 40_000 },
+  async (choice) => {
+    const path = "knowledge/conflict.md"
+    const modified = "# Updated knowledge\n"
+    await withNativeHydrationFixture(
+      {
+        github: true,
+        githubWriteView: "writable",
+        writeStatus: "writable",
+        files: [
+          { path, body: "# Original knowledge\n" },
+          { path: "knowledge/keep.md", body: "# Keep\n" },
+        ],
+        semanticMergeResolution: {
+          files: [{ path, content: choice.keepFile ? modified : null }],
+        },
+      },
+      async (f) => {
+        f.git("reset", "--hard", f.sha)
+        if (choice.currentDeletes) f.git("rm", path)
+        else {
+          writeFileSync(join(f.directory, path), modified)
+          f.git("add", path)
+        }
+        f.git("commit", "-m", "Human conflict side")
+        f.git("push", f.remote, "HEAD:main")
+        const humanSha = f.git("rev-parse", "HEAD")
+        await withOrgIdContext(f.org, () =>
+          resolveWorkspaceReadRevision({
+            orgId: f.org.id,
+            workspaceId: f.workspaceId,
+            env: parseEnv(process.env),
+            refresh: true,
+          }),
+        )
+        const { workspaceSemanticMerge } = await import(
+          "../../openworkflow/workflows/workspace-semantic-merge.js"
+        )
+        f.runner.implementWorkflow(
+          workspaceSemanticMerge.spec,
+          workspaceSemanticMerge.fn,
+        )
+        const worker = f.runner.newWorker({ concurrency: 1 })
+        try {
+          await worker.start()
+          const command = {
+            orgId: f.org.id,
+            workspaceId: f.workspaceId,
+            jobId: `wjob_${f.id}_modify_delete`,
+            revision: {
+              ...(await f.resolveRevision()),
+              access: "write-default" as const,
+            },
+            previousSha: f.sha,
+            files: choice.currentDeletes ? [{ path, content: modified }] : [],
+            deletePaths: choice.currentDeletes ? [] : [path],
+          }
+          const handle = await f.runner.runWorkflow(
+            workspaceSemanticMerge.spec,
+            command,
+          )
+          const result = await handle.result({ timeoutMs: 15_000 })
+          expect(result).toMatchObject(
+            choice.committed
+              ? { committed: true }
+              : { committed: false, reason: "no_changes" },
+          )
+          expect(
+            f.git(
+              "--git-dir",
+              f.remote,
+              "ls-tree",
+              "-r",
+              "--name-only",
+              "main",
+            ),
+          ).toBe(
+            choice.keepFile
+              ? "knowledge/conflict.md\nknowledge/keep.md"
+              : "knowledge/keep.md",
+          )
+          expect(
+            f.git(
+              "--git-dir",
+              f.remote,
+              "rev-list",
+              "--count",
+              `${humanSha}..main`,
+            ),
+          ).toBe(choice.committed ? "1" : "0")
+          const replay = await f.runner.runWorkflow(
+            workspaceSemanticMerge.spec,
+            command,
+          )
+          expect(await replay.result({ timeoutMs: 5_000 })).toEqual(result)
+        } finally {
+          await worker.stop()
+        }
+      },
+    )
+  },
+)
+
+it(
+  "uses the native local provider when no Docker API is reachable and keeps an explicit lock",
+  { timeout: 20_000 },
+  async () => {
+    const { createMergeSandbox, destroyMergeSandbox } = await import(
+      "./semantic-merge.js"
+    )
+    const saved = {
+      SANDBOX_PROVIDER: process.env.SANDBOX_PROVIDER,
+      DOCKER_HOST: process.env.DOCKER_HOST,
+    }
+    delete process.env.SANDBOX_PROVIDER
+    process.env.DOCKER_HOST = `unix:///private/tmp/ctxpipe-no-docker-${Date.now()}.sock`
+    let locator: Awaited<ReturnType<typeof createMergeSandbox>> | undefined
+    try {
+      locator = await createMergeSandbox(`native-no-docker-${Date.now()}`)
+      expect(locator.provider).toBe("unsandboxed")
+      const { localProcessSandbox } = await import(
+        "@tanstack/ai-sandbox-local-process"
+      )
+      const handle = await localProcessSandbox({ dir: locator.id }).resume({
+        id: locator.id,
+      })
+      expect(handle).not.toBeNull()
+      await handle?.fs.write("/workspace/proof.txt", "native local fallback")
+      expect(await handle?.fs.read("/workspace/proof.txt")).toBe(
+        "native local fallback",
+      )
+      process.env.SANDBOX_PROVIDER = "docker"
+      await expect(
+        createMergeSandbox(`native-locked-docker-${Date.now()}`),
+      ).rejects.toThrow()
+    } finally {
+      if (locator) await destroyMergeSandbox(locator)
+      for (const [key, value] of Object.entries(saved)) {
+        if (value === undefined) delete process.env[key]
+        else process.env[key] = value
+      }
+    }
+  },
+)

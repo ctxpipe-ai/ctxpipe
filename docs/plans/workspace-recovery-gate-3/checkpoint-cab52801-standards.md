@@ -1,6 +1,6 @@
 # Gate 3 twelve-kind checkpoint — Standards review
 
-**Pinned range:** `bb24210c01e0dc1bcbc2d4fdf197d07a7a17035d...cab528013bb3e49ddfc05d419984f03494d6579d`  
+**Pinned range:** `bb24210c01e0dc1bcbc2d4fdf197d07a7a17035d...cab528013bb3e49ddfc05d419984f03494d6579d`
 **Decision:** changes requested — 2 documented-standard blockers, 0 new Fowler heuristic findings.
 
 ## Documented-standard breaches

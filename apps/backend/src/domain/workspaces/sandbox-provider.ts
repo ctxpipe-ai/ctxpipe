@@ -34,6 +34,23 @@ export function detectSandboxProviderFromEnv(input?: {
   })
 }
 
+/** Probe the same Docker client/environment used by the native provider, with a bounded deadline. */
+export async function discoverSandboxProvider(): Promise<SandboxProvider> {
+  if (process.env.SANDBOX_PROVIDER?.trim())
+    return detectSandboxProviderFromEnv()
+  const { default: Docker } = await import("dockerode")
+  const hasDocker = await new Docker({
+    timeout: 2_000,
+    connectionTimeout: 2_000,
+  })
+    .ping()
+    .then(
+      () => true,
+      () => false,
+    )
+  return detectSandboxProviderFromEnv({ hasDocker })
+}
+
 export async function destroyDetachedProviderSandbox(input: {
   provider?: string | null
   providerSandboxId: string

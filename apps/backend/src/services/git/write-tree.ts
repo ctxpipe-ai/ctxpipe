@@ -74,8 +74,9 @@ export async function stageGitFiles(
 export async function validateGitTree(
   staged: StagedGitTree,
   allowedPaths: readonly string[],
-): Promise<void> {
-  await withGitDirectory(
+  options: { allowNoChanges?: boolean } = {},
+): Promise<string[]> {
+  return withGitDirectory(
     staged.pack.sha,
     async (directory) => {
       const changed = (
@@ -93,10 +94,11 @@ export async function validateGitTree(
         .split("\0")
         .filter(Boolean)
       if (
-        !changed.length ||
+        (!options.allowNoChanges && !changed.length) ||
         changed.some((path) => !allowedPaths.includes(path))
       )
         throw new Error("Invalid write tree")
+      return changed
     },
     staged.pack,
   )
@@ -132,5 +134,60 @@ export async function commitGitTree(
       return captureGitPack(directory, sha)
     },
     staged.pack,
+  )
+}
+
+/** Exact native delta for semantic handoff, including binary bytes and removals. */
+export async function readGitCommitChanges(
+  pack: GitPack,
+  parent: string,
+): Promise<{ files: GitFileChange[]; deletePaths: string[] }> {
+  return withGitDirectory(
+    pack.sha,
+    async (directory) => {
+      const changed = (
+        await nativeGit(directory, [
+          "diff-tree",
+          "--no-commit-id",
+          "--no-renames",
+          "--name-only",
+          "-r",
+          "-z",
+          parent,
+          pack.sha,
+        ])
+      )
+        .toString()
+        .split("\0")
+        .filter(Boolean)
+      const existing = new Set(
+        (
+          await nativeGit(directory, [
+            "ls-tree",
+            "-r",
+            "--name-only",
+            "-z",
+            pack.sha,
+          ])
+        )
+          .toString()
+          .split("\0"),
+      )
+      const files: GitFileChange[] = []
+      const deletePaths: string[] = []
+      for (const path of changed) {
+        if (!existing.has(path)) deletePaths.push(path)
+        else
+          files.push({
+            path,
+            content: (
+              await nativeGit(directory, ["show", `${pack.sha}:${path}`])
+            ).toString("base64"),
+            encoding: "base64",
+          })
+      }
+      return { files, deletePaths }
+    },
+    pack,
   )
 }

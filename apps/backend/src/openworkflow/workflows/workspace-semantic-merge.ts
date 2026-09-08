@@ -2,6 +2,7 @@ import { defineWorkflow } from "openworkflow"
 import { z } from "zod"
 import { parseEnv } from "../../config/env.js"
 import { generateCommitSubject } from "../../domain/workspaces/commit-subject.js"
+import { connectorMirrorSourceSchema } from "../../domain/workspaces/connector-mirror.js"
 import {
   sameWorkspaceRevision,
   workspaceRevisionSchema,
@@ -43,10 +44,12 @@ import {
   validateGitTree,
 } from "../../services/git/write-tree.js"
 import { runWorkflowWithWorkerWake } from "../client.js"
+import { connectorMirrorContentSchema } from "./workspace-connector-mirror.js"
 import { workspaceHydrate } from "./workspace-hydrate.js"
 
 export const semanticMergeContentSchema = z
   .object({
+    mirror: connectorMirrorSourceSchema.optional(),
     previousSha: z.string().regex(/^(?:[0-9a-f]{40}|[0-9a-f]{64})$/),
     files: z.array(gitFileChangeSchema),
     deletePaths: z.array(repositoryFilePathSchema),
@@ -59,6 +62,16 @@ export const semanticMergeContentSchema = z
     ]
     return new Set(paths).size === paths.length
   }, "Each path must have exactly one operation")
+  .refine(
+    (input) =>
+      !input.mirror ||
+      connectorMirrorContentSchema.safeParse({
+        mirror: input.mirror,
+        files: input.files,
+        deletePaths: input.deletePaths,
+      }).success,
+    "Connector handoff must retain its managed paths",
+  )
 
 export const workspaceSemanticMergeInputSchema = semanticMergeContentSchema
   .safeExtend({
@@ -105,6 +118,7 @@ export const workspaceSemanticMerge = defineWorkflow(
           persistBoundWriteJob({
             id: input.jobId,
             kind: "semantic_merge",
+            mirror: input.mirror,
             revision: input.revision,
             workflowRunId: run.id,
             previousSha: input.previousSha,
@@ -113,13 +127,15 @@ export const workspaceSemanticMerge = defineWorkflow(
           }),
         )
         for (let refreshAttempt = 0; refreshAttempt < 3; refreshAttempt++) {
-          const acquired = await step.run({ name: "acquire-revision" }, () =>
-            acquireWorkspaceWriteRevision(
-              input,
-              revision,
-              env,
-              input.previousSha,
-            ),
+          const acquired = await step.run(
+            { name: "acquire-revision", retryPolicy: { maximumAttempts: 3 } },
+            () =>
+              acquireWorkspaceWriteRevision(
+                input,
+                revision,
+                env,
+                input.previousSha,
+              ),
           )
           const merged = await step.run(
             { name: "transform-semantic-merge" },
@@ -171,14 +187,28 @@ export const workspaceSemanticMerge = defineWorkflow(
           const staged = await step.run({ name: "stage" }, () =>
             resolved ? resolveGitMergeTree(merged, resolved) : merged.staged,
           )
-          await step.run({ name: "validate" }, () =>
-            validateGitTree(staged, merged.paths),
+          const changed = await step.run({ name: "validate" }, () =>
+            validateGitTree(staged, merged.paths, { allowNoChanges: true }),
           )
+          if (!changed.length) {
+            const refreshed = await step.run(
+              { name: "confirm-resolved-no-op" },
+              () => refreshWorkspaceWriteRevision(input, revision, env),
+            )
+            if (!sameWorkspaceRevision(refreshed, revision)) {
+              revision = refreshed
+              continue
+            }
+            await step.run({ name: "complete-resolved-no-op" }, () =>
+              persistWriteJobCommitSha(input.jobId, null),
+            )
+            return { committed: false as const, reason: "no_changes" as const }
+          }
           const subject = await step.run({ name: "commit-subject" }, () =>
             generateCommitSubject({
               repoName: repositoryName.split("/")[1] ?? repositoryName,
               trigger: "semantic_merge",
-              fileNames: merged.paths,
+              fileNames: changed,
             }),
           )
           const committed = await step.run({ name: "commit" }, async () => {

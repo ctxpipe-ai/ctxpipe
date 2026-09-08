@@ -10,8 +10,9 @@ import {
   workspaceRevisionSchema,
 } from "../../domain/workspaces/revision.js"
 import {
+  attemptWorkspaceCommit,
+  captureSemanticHandoff,
   publishWorkspaceWriteRevision,
-  pushWorkspaceCommit,
   refreshWorkspaceWriteRevision,
 } from "../../domain/workspaces/write-broker.js"
 import {
@@ -39,6 +40,7 @@ import {
 } from "../../services/git/write-tree.js"
 import { runWorkflowWithWorkerWake } from "../client.js"
 import { workspaceHydrate } from "./workspace-hydrate.js"
+import { workspaceSemanticMerge } from "./workspace-semantic-merge.js"
 
 export const workspaceMigrationExportInputSchema = z
   .object({
@@ -203,10 +205,54 @@ export const workspaceMigrationExport = defineWorkflow(
             await persistWriteJobPreparedCommit(input.jobId, pack.sha)
             return pack
           })
-          await step.run(
+          const pushed = await step.run(
             { name: "broker-push", retryPolicy: { maximumAttempts: 3 } },
-            () => pushWorkspaceCommit(input, revision, committed, env),
+            () => attemptWorkspaceCommit(input, revision, committed, env),
           )
+          if (!pushed.pushed) {
+            const handoff = await step.run(
+              { name: "capture-semantic-handoff" },
+              () => captureSemanticHandoff(input, revision, committed, env),
+            )
+            const result = await step.runWorkflow(
+              workspaceSemanticMerge.spec,
+              handoff,
+              { name: "semantic-merge-child" },
+            )
+            if (result.committed) {
+              await step.run({ name: "complete-merged-result" }, () =>
+                persistWriteJobCommitSha(input.jobId, result.commitSha),
+              )
+            } else {
+              const published = await step.run(
+                { name: "refresh-merged-no-op" },
+                () =>
+                  refreshWorkspaceWriteRevision(input, handoff.revision, env),
+              )
+              await step.run(
+                { name: "enqueue-merged-no-op-hydrate" },
+                async () => {
+                  await runWorkflowWithWorkerWake(
+                    workspaceHydrate.spec,
+                    {
+                      orgId: input.orgId,
+                      workspaceId: input.workspaceId,
+                      revision: published,
+                    },
+                    { idempotencyKey: `${input.jobId}:hydrate` },
+                  )
+                },
+              )
+              await step.run({ name: "complete-merged-no-op" }, () =>
+                persistMigrationExportNoOp(
+                  input.jobId,
+                  published.sha,
+                  committed.sha,
+                ),
+              )
+            }
+            return result
+          }
           const published = await step.run({ name: "publish-result" }, () =>
             publishWorkspaceWriteRevision(input, revision, committed, env),
           )

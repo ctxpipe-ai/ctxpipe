@@ -24,6 +24,12 @@ import {
 import { sameWorkspaceRevision, type WorkspaceRevision } from "./revision.js"
 import { githubRepoFullNameFromWorkspaceUrl } from "./write-status.js"
 
+class WorkspaceTipAdvancedError extends Error {
+  constructor() {
+    super("Default branch advanced; semantic merge is required")
+  }
+}
+
 /** Called inside the workflow's durable broker-push step. Credentials never leave it. */
 export async function pushWorkspaceCommit(
   input: { orgId: string; workspaceId: string; mirror?: ConnectorMirrorSource },
@@ -60,7 +66,7 @@ export async function pushWorkspaceCommit(
   if (await remoteContainsCommit(revision, committed, tip.sha, readToken))
     return
   if (tip.sha !== revision.sha || !sameWorkspaceRevision(current, revision))
-    throw new Error("Default branch advanced; semantic merge is required")
+    throw new WorkspaceTipAdvancedError()
   if (input.mirror)
     await assertConnectorMirrorBinding(input.orgId, input.mirror, revision)
   const token = await getRepoWriteCloneToken(input.orgId, env, {
@@ -79,7 +85,7 @@ export async function pushWorkspaceCommit(
       if (pushTip?.branch !== revision.defaultBranch)
         throw new Error("Default branch changed during credential issuance")
       if (pushTip.sha !== revision.sha && pushTip.sha !== committed.sha)
-        throw new Error("Default branch advanced; semantic merge is required")
+        throw new WorkspaceTipAdvancedError()
       // Credential acquisition and pack restoration may outlive a relink.
       const admitted = await getDesiredWorkspaceRevision(
         input.workspaceId,
@@ -214,4 +220,44 @@ export async function refreshWorkspaceWriteRevision(
   if (!sameWorkspaceRevision(current, resolved.revision))
     throw new Error("Workspace revision changed during no-op validation")
   return { ...resolved.revision, access: "write-default" }
+}
+
+/** Recoverable native push admission, evaluated inside the caller's durable broker step. */
+export async function attemptWorkspaceCommit(
+  ...args: Parameters<typeof pushWorkspaceCommit>
+): Promise<{ pushed: boolean }> {
+  try {
+    await pushWorkspaceCommit(...args)
+    return { pushed: true }
+  } catch (error) {
+    if (error instanceof WorkspaceTipAdvancedError) return { pushed: false }
+    throw error
+  }
+}
+
+/** Capture the unpushed native delta and current binding as an immutable child command. */
+export async function captureSemanticHandoff(
+  input: {
+    orgId: string
+    workspaceId: string
+    jobId: string
+    mirror?: ConnectorMirrorSource
+  },
+  revision: WorkspaceRevision,
+  committed: GitPack,
+  env: Env,
+) {
+  const { readGitCommitChanges } = await import(
+    "../../services/git/write-tree.js"
+  )
+  const changes = await readGitCommitChanges(committed, revision.sha)
+  return {
+    orgId: input.orgId,
+    workspaceId: input.workspaceId,
+    jobId: `${input.jobId}:semantic`,
+    revision: await refreshWorkspaceWriteRevision(input, revision, env),
+    previousSha: revision.sha,
+    ...changes,
+    ...(input.mirror ? { mirror: input.mirror } : {}),
+  }
 }

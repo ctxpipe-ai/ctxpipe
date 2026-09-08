@@ -1,0 +1,228 @@
+{"name": "semantic-handoff-native-checkpoint", "cwd": "/private/tmp/ctxpipe-recovery-01a07aba", "command": ["/Users/jakubriedl/.volta/tools/image/node/22.16.0/bin/node", "apps/backend/node_modules/vitest/vitest.mjs", "run", "--root", "apps/backend", "src/domain/workspaces/write-workflow-native.contract.test.ts", "src/domain/workspaces/write-merge-native.contract.test.ts", "src/domain/workspaces/write-export-native.contract.test.ts", "src/domain/workspaces/write-extract-native.contract.test.ts", "src/domain/workspaces/write-mirror-native.contract.test.ts", "src/domain/workspaces/write-link-native.contract.test.ts", "src/domain/workspaces/write-rename-native.contract.test.ts", "src/domain/workspaces/write-ops-native.contract.test.ts", "src/domain/workspaces/write-maintenance-native.contract.test.ts"], "environment": {"AUTH_SECRET": "gate0-local-disposable-test-secret-20260907", "DATABASE_URL": "postgresql://ctxpipe_app:ctxpipe@127.0.0.1:61314/ctxpipe_gate0_fresh", "GRAPH_DB_URI": "redis://127.0.0.1:6398", "CI": "true", "NO_COLOR": "1", "TURBO_TELEMETRY_DISABLED": "1", "STORYBOOK_DISABLE_TELEMETRY": "1", "PATH": "/Users/jakubriedl/.volta/tools/image/node/22.16.0/bin:/private/tmp/ctxpipe-recovery-runtime/ast-grep/node_modules/.bin:/private/tmp/ctxpipe-recovery-runtime/node_modules/.bin:/private/tmp/ctxpipe-recovery-runtime/zoekt:/usr/local/bin:/System/Cryptexes/App/usr/bin:/usr/bin:/bin:/usr/sbin:/sbin:/var/run/com.apple.security.cryptexd/codex.system/bootstrap/usr/local/bin:/var/run/com.apple.security.cryptexd/codex.system/bootstrap/usr/bin:/var/run/com.apple.security.cryptexd/codex.system/bootstrap/usr/appleinternal/bin:/pkg/env/global/bin:/Users/jakubriedl/.codex/tmp/arg0/codex-arg0BW5Gt3:/Users/jakubriedl/.cache/codex-runtimes/codex-primary-runtime/dependencies/bin/override:/Users/jakubriedl/.local/bin:/Users/jakubriedl/.bun/bin:/Users/jakubriedl/.opencode/bin:/Users/jakubriedl/.volta/bin:/opt/homebrew/bin:/opt/homebrew/sbin:/Users/jakubriedl/.cache/codex-runtimes/codex-primary-runtime/dependencies/bin/fallback:/Applications/ChatGPT.app/Contents/Resources"}, "timeout_seconds": 600, "started_utc": "2026-09-08T11:59:19Z", "log": "logs/semantic-handoff-native-checkpoint.log"}
+
+ RUN  v4.0.18 /private/tmp/ctxpipe-recovery-01a07aba/apps/backend
+
+Cloning into bare repository '/var/folders/9t/jj9rnpps7_ddb72c1mq2k13w0000gn/T/ctxpipe-hydration-contract-13M9EI/remote.git'...
+done.
+Cloning into bare repository '/var/folders/9t/jj9rnpps7_ddb72c1mq2k13w0000gn/T/ctxpipe-hydration-contract-CKYr8u/remote.git'...
+done.
+Cloning into bare repository '/var/folders/9t/jj9rnpps7_ddb72c1mq2k13w0000gn/T/ctxpipe-hydration-contract-CQdyWI/remote.git'...
+done.
+Cloning into bare repository '/var/folders/9t/jj9rnpps7_ddb72c1mq2k13w0000gn/T/ctxpipe-hydration-contract-zGCl21/remote.git'...
+done.
+Cloning into bare repository '/var/folders/9t/jj9rnpps7_ddb72c1mq2k13w0000gn/T/ctxpipe-hydration-contract-0rAVRh/remote.git'...
+done.
+Cloning into bare repository '/var/folders/9t/jj9rnpps7_ddb72c1mq2k13w0000gn/T/ctxpipe-hydration-contract-Uv8fGZ/remote.git'...
+done.
+Cloning into bare repository '/var/folders/9t/jj9rnpps7_ddb72c1mq2k13w0000gn/T/ctxpipe-hydration-contract-y9hW4p/remote.git'...
+done.
+Cloning into bare repository '/var/folders/9t/jj9rnpps7_ddb72c1mq2k13w0000gn/T/ctxpipe-hydration-contract-Swc3lD/remote.git'...
+done.
+Cloning into bare repository '/var/folders/9t/jj9rnpps7_ddb72c1mq2k13w0000gn/T/ctxpipe-hydration-contract-xe21Rw/remote.git'...
+done.
+Cloning into bare repository '/var/folders/9t/jj9rnpps7_ddb72c1mq2k13w0000gn/T/ctxpipe-hydration-contract-n0axoP/remote.git'...
+done.
+Cloning into bare repository '/var/folders/9t/jj9rnpps7_ddb72c1mq2k13w0000gn/T/ctxpipe-hydration-contract-Jg7yfE/remote.git'...
+done.
+Cloning into bare repository '/var/folders/9t/jj9rnpps7_ddb72c1mq2k13w0000gn/T/ctxpipe-hydration-contract-pJp3Mf/remote.git'...
+done.
+Cloning into bare repository '/var/folders/9t/jj9rnpps7_ddb72c1mq2k13w0000gn/T/ctxpipe-hydration-contract-6VYauq/remote.git'...
+done.
+To /var/folders/9t/jj9rnpps7_ddb72c1mq2k13w0000gn/T/ctxpipe-hydration-contract-6VYauq/remote.git
+   a0f605e..002c2b5  HEAD -> main
+Cloning into bare repository '/var/folders/9t/jj9rnpps7_ddb72c1mq2k13w0000gn/T/ctxpipe-hydration-contract-8Es5Yg/remote.git'...
+done.
+stdout | src/domain/workspaces/write-workflow-native.contract.test.ts > can retry an identical command after native workflow admission fails
+{
+  severity_local: 'NOTICE',
+  severity: 'NOTICE',
+  code: '00000',
+  message: 'trigger "fixture_enqueue_hydrate_1788868834363_1cah59i5vsi" for relation "openworkflow.workflow_runs" does not exist, skipping',
+  file: 'dropcmds.c',
+  line: '523',
+  routine: 'does_not_exist_skipping'
+}
+
+ ✓ src/domain/workspaces/write-workflow-native.contract.test.ts (14 tests) 73742ms
+   ✓ bootstraps a workspace in one native commit with a durable job result  4138ms
+   ✓ replays an already published bootstrap job without a second commit  5433ms
+   ✓ replays a completed no-op without creating a commit  6370ms
+   ✓ admits bootstrap through the production queue as a bound typed workflow  15498ms
+   ✓ rejects an unavailable workspace without queuing an unbound write  310ms
+   ✓ does not push after its connection is detached during credential issuance  6950ms
+   ✓ recovers a lost push acknowledgement when the observed tip has a later commit: false  6631ms
+   ✓ recovers a lost push acknowledgement when the observed tip has a later commit: true  5737ms
+   ✓ publishes Markdown hard breaks and a deletion through one typed native workflow  3662ms
+   ✓ does not write the former default branch when the remote changes during credential issuance  7643ms
+   ✓ gives concurrent deliveries of one job a single workflow owner and commit  4477ms
+   ✓ preserves executable and symlink modes when editing their native Git blobs  2682ms
+   ✓ rechecks an apparent no-op against the current default and applies the requested edit  2708ms
+   ✓ can retry an identical command after native workflow admission fails  1500ms
+Cloning into bare repository '/var/folders/9t/jj9rnpps7_ddb72c1mq2k13w0000gn/T/ctxpipe-hydration-contract-1oEr4w/remote.git'...
+done.
+Cloning into bare repository '/var/folders/9t/jj9rnpps7_ddb72c1mq2k13w0000gn/T/ctxpipe-hydration-contract-T9yPaj/remote.git'...
+done.
+Cloning into bare repository '/var/folders/9t/jj9rnpps7_ddb72c1mq2k13w0000gn/T/ctxpipe-hydration-contract-H20fI8/remote.git'...
+done.
+Cloning into bare repository '/var/folders/9t/jj9rnpps7_ddb72c1mq2k13w0000gn/T/ctxpipe-hydration-contract-nvI6fu/remote.git'...
+done.
+Cloning into bare repository '/var/folders/9t/jj9rnpps7_ddb72c1mq2k13w0000gn/T/ctxpipe-hydration-contract-ybilX9/remote.git'...
+done.
+ ✓ src/domain/workspaces/write-extract-native.contract.test.ts (5 tests) 14055ms
+   ✓ preserves extraction identity at knowledge/services/billing.md and a same-name collision after migration cutover  6214ms
+   ✓ preserves extraction identity at knowledge/imported/billing.md and a same-name collision after migration cutover  6510ms
+   ✓ persists an unwritable migration_export command without queuing a workflow  480ms
+   ✓ persists an unwritable extract_ingest command without queuing a workflow  366ms
+   ✓ captures extraction objects and export cutover in one PostgreSQL snapshot  484ms
+Cloning into bare repository '/var/folders/9t/jj9rnpps7_ddb72c1mq2k13w0000gn/T/ctxpipe-hydration-contract-DICcCh/remote.git'...
+done.
+To /var/folders/9t/jj9rnpps7_ddb72c1mq2k13w0000gn/T/ctxpipe-hydration-contract-DICcCh/remote.git
+   084c4fa..ec01205  HEAD -> main
+Cloning into bare repository '/var/folders/9t/jj9rnpps7_ddb72c1mq2k13w0000gn/T/ctxpipe-hydration-contract-kvRoD9/remote.git'...
+done.
+To /var/folders/9t/jj9rnpps7_ddb72c1mq2k13w0000gn/T/ctxpipe-hydration-contract-kvRoD9/remote.git
+   3648baa..89ca86a  HEAD -> main
+Cloning into bare repository '/var/folders/9t/jj9rnpps7_ddb72c1mq2k13w0000gn/T/ctxpipe-hydration-contract-XZ9nMW/remote.git'...
+done.
+To /var/folders/9t/jj9rnpps7_ddb72c1mq2k13w0000gn/T/ctxpipe-hydration-contract-XZ9nMW/remote.git
+   2303199..ffd4487  HEAD -> main
+ ✓ src/domain/workspaces/write-rename-native.contract.test.ts (3 tests) 8572ms
+   ✓ repairs native Git renames in link destinations and claims without rewriting prose or code  3041ms
+   ✓ rebases links inside moved documents and skips ambiguous, malformed and binary rename targets  2738ms
+   ✓ converges when repairing a moved source document more than once  2793ms
+Cloning into bare repository '/var/folders/9t/jj9rnpps7_ddb72c1mq2k13w0000gn/T/ctxpipe-hydration-contract-MN96bR/remote.git'...
+done.
+Cloning into bare repository '/var/folders/9t/jj9rnpps7_ddb72c1mq2k13w0000gn/T/ctxpipe-hydration-contract-JtT1f3/remote.git'...
+done.
+Cloning into bare repository '/var/folders/9t/jj9rnpps7_ddb72c1mq2k13w0000gn/T/ctxpipe-hydration-contract-zPzW6n/remote.git'...
+done.
+Cloning into bare repository '/var/folders/9t/jj9rnpps7_ddb72c1mq2k13w0000gn/T/ctxpipe-hydration-contract-bV9yfu/remote.git'...
+done.
+To /var/folders/9t/jj9rnpps7_ddb72c1mq2k13w0000gn/T/ctxpipe-hydration-contract-bV9yfu/remote.git
+   e5423fd..619b9dd  HEAD -> main
+Cloning into bare repository '/var/folders/9t/jj9rnpps7_ddb72c1mq2k13w0000gn/T/ctxpipe-hydration-contract-YtAHU6/remote.git'...
+done.
+To /var/folders/9t/jj9rnpps7_ddb72c1mq2k13w0000gn/T/ctxpipe-hydration-contract-YtAHU6/remote.git
+   491e722..202845b  HEAD -> main
+ ✓ src/domain/workspaces/write-mirror-native.contract.test.ts (5 tests) 22406ms
+   ✓ commits a bound connector's Markdown, binary asset and deletion once without changing its config  5332ms
+   ✓ rejects a connector reset during credential issuance before publishing any files  6104ms
+   ✓ retains a paused mirror's source, binary files and deletions and rejects invalid managed paths  399ms
+   ✓ retains connector identity across semantic handoff; reset=false  3389ms
+   ✓ retains connector identity across semantic handoff; reset=true  7181ms
+Cloning into bare repository '/var/folders/9t/jj9rnpps7_ddb72c1mq2k13w0000gn/T/ctxpipe-hydration-contract-EAl6bO/remote.git'...
+done.
+Cloning into bare repository '/var/folders/9t/jj9rnpps7_ddb72c1mq2k13w0000gn/T/ctxpipe-hydration-contract-0oudvr/remote.git'...
+done.
+Cloning into bare repository '/var/folders/9t/jj9rnpps7_ddb72c1mq2k13w0000gn/T/ctxpipe-hydration-contract-vRrPj3/remote.git'...
+done.
+To /var/folders/9t/jj9rnpps7_ddb72c1mq2k13w0000gn/T/ctxpipe-hydration-contract-vRrPj3/remote.git
+   737b7e8..34fc24c  HEAD -> main
+Cloning into bare repository '/var/folders/9t/jj9rnpps7_ddb72c1mq2k13w0000gn/T/ctxpipe-hydration-contract-WTXmZg/remote.git'...
+done.
+ ✓ src/domain/workspaces/write-maintenance-native.contract.test.ts (4 tests) 10636ms
+   ✓ removes import keys through one typed native maintenance commit  2207ms
+   ✓ upgrades Markdown links to claims while preserving other metadata and body  3644ms
+   ✓ persists each file's introducing timestamp while retaining explicit claim dates  1957ms
+   ✓ maintains the user's folder-map section from actual Git paths and converges  2827ms
+Cloning into bare repository '/var/folders/9t/jj9rnpps7_ddb72c1mq2k13w0000gn/T/ctxpipe-hydration-contract-B0AZJG/remote.git'...
+done.
+Cloning into bare repository '/var/folders/9t/jj9rnpps7_ddb72c1mq2k13w0000gn/T/ctxpipe-hydration-contract-fzJrp0/remote.git'...
+done.
+Cloning into bare repository '/var/folders/9t/jj9rnpps7_ddb72c1mq2k13w0000gn/T/ctxpipe-hydration-contract-XusEg1/remote.git'...
+done.
+Cloning into bare repository '/var/folders/9t/jj9rnpps7_ddb72c1mq2k13w0000gn/T/ctxpipe-hydration-contract-IzQFcW/remote.git'...
+done.
+ ✓ src/domain/workspaces/write-ops-native.contract.test.ts (4 tests) 8434ms
+   ✓ fails safely for orphan folder markers instead of claiming convergence  1714ms
+   ✓ fails safely for duplicate folder markers instead of claiming convergence  1978ms
+   ✓ preserves ambiguous folder instructions and appends a dedicated folder map  2865ms
+   ✓ carries a workspace rename from HTTP through its Git commit and native hydrate  1876ms
+Cloning into bare repository '/var/folders/9t/jj9rnpps7_ddb72c1mq2k13w0000gn/T/ctxpipe-hydration-contract-Oj5B4W/remote.git'...
+done.
+Cloning into bare repository '/var/folders/9t/jj9rnpps7_ddb72c1mq2k13w0000gn/T/ctxpipe-hydration-contract-pMjcTj/remote.git'...
+done.
+Cloning into bare repository '/var/folders/9t/jj9rnpps7_ddb72c1mq2k13w0000gn/T/ctxpipe-hydration-contract-cwzEmh/remote.git'...
+done.
+Cloning into bare repository '/var/folders/9t/jj9rnpps7_ddb72c1mq2k13w0000gn/T/ctxpipe-hydration-contract-6AdVVi/remote.git'...
+done.
+Cloning into bare repository '/var/folders/9t/jj9rnpps7_ddb72c1mq2k13w0000gn/T/ctxpipe-hydration-contract-jB4vFa/remote.git'...
+done.
+Cloning into bare repository '/var/folders/9t/jj9rnpps7_ddb72c1mq2k13w0000gn/T/ctxpipe-hydration-contract-kCjiSK/remote.git'...
+done.
+ ✓ src/domain/workspaces/write-link-native.contract.test.ts (6 tests) 7031ms
+   ✓ persists a canonical HTTP link command from 'unknown' access  702ms
+   ✓ links and unlinks one canonical remote without overwriting a same-name declaration  3914ms
+   ✓ rejects credentials and invalid repository URLs before HTTP or paused-job admission  312ms
+   ✓ hydrates one GitHub remote across case variants and rejects duplicate or self links over HTTP  1352ms
+   ✓ persists a canonical paused link command without starting a write workflow  455ms
+Cloning into bare repository '/var/folders/9t/jj9rnpps7_ddb72c1mq2k13w0000gn/T/ctxpipe-hydration-contract-0ufCGM/remote.git'...
+done.
+Cloning into bare repository '/var/folders/9t/jj9rnpps7_ddb72c1mq2k13w0000gn/T/ctxpipe-hydration-contract-70LGtG/remote.git'...
+done.
+Cloning into bare repository '/var/folders/9t/jj9rnpps7_ddb72c1mq2k13w0000gn/T/ctxpipe-hydration-contract-fotjkF/remote.git'...
+done.
+Cloning into bare repository '/var/folders/9t/jj9rnpps7_ddb72c1mq2k13w0000gn/T/ctxpipe-hydration-contract-sCiK6z/remote.git'...
+done.
+ ✓ src/domain/workspaces/write-export-native.contract.test.ts (4 tests) 16227ms
+   ✓ exports legacy knowledge through one typed native commit and replays its durable result  8094ms
+   ✓ records the resolved tip for an empty migration without claiming a new commit  3142ms
+   ✓ omits credential-bearing legacy repository source URLs from exported knowledge  2384ms
+   ✓ records export cutover when a raced native child finds the export already present  2607ms
+Cloning into bare repository '/var/folders/9t/jj9rnpps7_ddb72c1mq2k13w0000gn/T/ctxpipe-hydration-contract-tsOyIB/remote.git'...
+done.
+To /var/folders/9t/jj9rnpps7_ddb72c1mq2k13w0000gn/T/ctxpipe-hydration-contract-tsOyIB/remote.git
+   68774e8..3a420c1  HEAD -> main
+Cloning into bare repository '/var/folders/9t/jj9rnpps7_ddb72c1mq2k13w0000gn/T/ctxpipe-hydration-contract-K1sMz9/remote.git'...
+done.
+To /var/folders/9t/jj9rnpps7_ddb72c1mq2k13w0000gn/T/ctxpipe-hydration-contract-K1sMz9/remote.git
+   7de7737..e301fda  HEAD -> main
+Cloning into bare repository '/var/folders/9t/jj9rnpps7_ddb72c1mq2k13w0000gn/T/ctxpipe-hydration-contract-MHSvRs/remote.git'...
+done.
+To /var/folders/9t/jj9rnpps7_ddb72c1mq2k13w0000gn/T/ctxpipe-hydration-contract-MHSvRs/remote.git
+   5b90e87..c9a0e9d  HEAD -> main
+Cloning into bare repository '/var/folders/9t/jj9rnpps7_ddb72c1mq2k13w0000gn/T/ctxpipe-hydration-contract-Nz72lg/remote.git'...
+done.
+Cloning into bare repository '/var/folders/9t/jj9rnpps7_ddb72c1mq2k13w0000gn/T/ctxpipe-hydration-contract-aPlgqd/remote.git'...
+done.
+Cloning into bare repository '/var/folders/9t/jj9rnpps7_ddb72c1mq2k13w0000gn/T/ctxpipe-hydration-contract-jR9TEB/remote.git'...
+done.
+Cloning into bare repository '/var/folders/9t/jj9rnpps7_ddb72c1mq2k13w0000gn/T/ctxpipe-hydration-contract-P0ufU7/remote.git'...
+done.
+To /var/folders/9t/jj9rnpps7_ddb72c1mq2k13w0000gn/T/ctxpipe-hydration-contract-P0ufU7/remote.git
+   8b161c8..864a027  HEAD -> main
+Cloning into bare repository '/var/folders/9t/jj9rnpps7_ddb72c1mq2k13w0000gn/T/ctxpipe-hydration-contract-ab2RqC/remote.git'...
+done.
+To /var/folders/9t/jj9rnpps7_ddb72c1mq2k13w0000gn/T/ctxpipe-hydration-contract-ab2RqC/remote.git
+   0405311..b311bfb  HEAD -> main
+Cloning into bare repository '/var/folders/9t/jj9rnpps7_ddb72c1mq2k13w0000gn/T/ctxpipe-hydration-contract-5ZW01o/remote.git'...
+done.
+To /var/folders/9t/jj9rnpps7_ddb72c1mq2k13w0000gn/T/ctxpipe-hydration-contract-5ZW01o/remote.git
+   03b9d85..6131723  HEAD -> main
+Cloning into bare repository '/var/folders/9t/jj9rnpps7_ddb72c1mq2k13w0000gn/T/ctxpipe-hydration-contract-SZZvl8/remote.git'...
+done.
+To /var/folders/9t/jj9rnpps7_ddb72c1mq2k13w0000gn/T/ctxpipe-hydration-contract-SZZvl8/remote.git
+   02e0471..846b194  HEAD -> main
+Cloning into bare repository '/var/folders/9t/jj9rnpps7_ddb72c1mq2k13w0000gn/T/ctxpipe-hydration-contract-X6jyFS/remote.git'...
+done.
+To /var/folders/9t/jj9rnpps7_ddb72c1mq2k13w0000gn/T/ctxpipe-hydration-contract-X6jyFS/remote.git
+   51b11be..e2353f5  HEAD -> main
+ ✓ src/domain/workspaces/write-merge-native.contract.test.ts (13 tests) 38177ms
+   ✓ rebases an unpushed knowledge change onto a human update and publishes one replayable commit  4903ms
+   ✓ resolves overlapping knowledge with valid model output and cleans up its provider resource  3143ms
+   ✓ resolves overlapping knowledge with out-of-scope model output and cleans up its provider resource  5562ms
+   ✓ rejects reuse of a paused command ID with a different captured payload  426ms
+   ✓ rejects reuse of a running command ID with a different captured payload  587ms
+   ✓ rejects invalid semantic content before persisting a paused command  373ms
+   ✓ recovers the same Docker resource when sandbox creation is replayed before acknowledgement  5666ms
+   ✓ hands a raced Files write to one native semantic child and returns the published result  4556ms
+   ✓ resolves a modify/delete conflict: {"currentDeletes":false,"keepFile":false,"committed":true}  3855ms
+   ✓ resolves a modify/delete conflict: {"currentDeletes":true,"keepFile":true,"committed":true}  3697ms
+   ✓ resolves a modify/delete conflict: {"currentDeletes":false,"keepFile":true,"committed":false}  2825ms
+   ✓ resolves a modify/delete conflict: {"currentDeletes":true,"keepFile":false,"committed":false}  2572ms
+
+ Test Files  9 passed (9)
+      Tests  58 passed (58)
+   Start at  21:59:19
+   Duration  214.69s (transform 1.24s, setup 53ms, import 14.69s, tests 199.28s, environment 1ms)
+

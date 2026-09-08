@@ -124,7 +124,9 @@ export async function mergeGitFiles(input: {
           pack: { ...input.pack, objects: objects.toString("base64") },
           tree,
         },
-        paths,
+        paths: [
+          ...new Set([...paths, ...conflicts.map((conflict) => conflict.path)]),
+        ],
         conflicts,
       }
     },

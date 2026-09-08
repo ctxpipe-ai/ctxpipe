@@ -231,7 +231,7 @@ export async function countWriteJobAttempts(input: {
 
 export async function persistWriteJobCommitSha(
   jobId: string,
-  commitSha: string,
+  commitSha: string | null,
 ): Promise<void> {
   return orgSql(async () => {
     await getOrgDb()
@@ -265,11 +265,13 @@ const migrationExportTip = sql<
 export async function persistMigrationExportNoOp(
   jobId: string,
   sha: string,
+  unpublishedCommitSha?: string,
 ): Promise<void> {
   await orgSql(async () => {
     const [row] = await getOrgDb()
       .update(workspaceWriteJobs)
       .set({
+        commitSha: null,
         payload: sql`jsonb_set(coalesce(${workspaceWriteJobs.payload}, '{}'::jsonb), '{exportTipSha}', to_jsonb(${sha}::text))`,
         status: WRITE_JOB_STATUSES.completed,
         updatedAt: new Date(),
@@ -278,7 +280,7 @@ export async function persistMigrationExportNoOp(
         and(
           eq(workspaceWriteJobs.id, jobId),
           eq(workspaceWriteJobs.kind, "migration_export"),
-          sql`${workspaceWriteJobs.commitSha} is null`,
+          sql`(${workspaceWriteJobs.commitSha} is null or ${workspaceWriteJobs.commitSha} = ${unpublishedCommitSha ?? null})`,
         ),
       )
       .returning({ id: workspaceWriteJobs.id })

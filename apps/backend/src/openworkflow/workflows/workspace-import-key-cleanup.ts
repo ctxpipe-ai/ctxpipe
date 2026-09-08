@@ -8,8 +8,9 @@ import {
   workspaceRevisionSchema,
 } from "../../domain/workspaces/revision.js"
 import {
+  attemptWorkspaceCommit,
+  captureSemanticHandoff,
   publishWorkspaceWriteRevision,
-  pushWorkspaceCommit,
   refreshWorkspaceWriteRevision,
 } from "../../domain/workspaces/write-broker.js"
 import {
@@ -34,6 +35,7 @@ import {
 } from "../../services/git/write-tree.js"
 import { runWorkflowWithWorkerWake } from "../client.js"
 import { workspaceHydrate } from "./workspace-hydrate.js"
+import { workspaceSemanticMerge } from "./workspace-semantic-merge.js"
 
 const inputSchema = z
   .object({
@@ -145,10 +147,28 @@ export const workspaceImportKeyCleanup = defineWorkflow(
             await persistWriteJobPreparedCommit(input.jobId, pack.sha)
             return pack
           })
-          await step.run(
+          const pushed = await step.run(
             { name: "broker-push", retryPolicy: { maximumAttempts: 3 } },
-            () => pushWorkspaceCommit(input, revision, committed, env),
+            () => attemptWorkspaceCommit(input, revision, committed, env),
           )
+          if (!pushed.pushed) {
+            const handoff = await step.run(
+              { name: "capture-semantic-handoff" },
+              () => captureSemanticHandoff(input, revision, committed, env),
+            )
+            const result = await step.runWorkflow(
+              workspaceSemanticMerge.spec,
+              handoff,
+              { name: "semantic-merge-child" },
+            )
+            await step.run({ name: "complete-merged-result" }, () =>
+              persistWriteJobCommitSha(
+                input.jobId,
+                result.committed ? result.commitSha : null,
+              ),
+            )
+            return result
+          }
           const published = await step.run({ name: "publish-result" }, () =>
             publishWorkspaceWriteRevision(input, revision, committed, env),
           )

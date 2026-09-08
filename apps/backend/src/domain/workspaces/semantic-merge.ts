@@ -5,7 +5,7 @@ import type { SandboxProvider } from "@tanstack/ai-sandbox"
 import { z } from "zod"
 import { repositoryFilePathSchema } from "../../services/git/file-change.js"
 import type { GitMergeConflict } from "../../services/git/merge-tree.js"
-import { detectSandboxProviderFromEnv } from "./sandbox-provider.js"
+import { discoverSandboxProvider } from "./sandbox-provider.js"
 
 export type MergeSandbox = { provider: "docker" | "unsandboxed"; id: string }
 
@@ -32,7 +32,7 @@ async function mergeProvider(
 export async function createMergeSandbox(
   resourceKey: string,
 ): Promise<MergeSandbox> {
-  const provider = detectSandboxProviderFromEnv({ hasDocker: true })
+  const provider = await discoverSandboxProvider()
   if (provider === "railway")
     throw new Error(
       "Semantic merge requires a configured TanStack job sandbox provider",
