@@ -8,6 +8,41 @@ export async function withLostNativeWorkflowInsertAck<T>(
   run: (databaseUrl: string) => Promise<T>,
   mode: "returned-row" | "disconnect" = "returned-row",
 ): Promise<{ result: T; lostAcknowledgement: boolean }> {
+  return withPostgresReplyFault(
+    databaseUrl,
+    { kind: "insert", workflowName, mode },
+    run,
+  )
+}
+
+/** Hold the actual COMMIT reply so a test can kill the writer after SQL persistence. */
+export async function withHeldSemanticHandoffCommit<T>(
+  databaseUrl: string,
+  jobId: string,
+  run: (databaseUrl: string, committed: Promise<void>) => Promise<T>,
+) {
+  return withPostgresReplyFault(
+    databaseUrl,
+    { kind: "semantic-handoff", jobId },
+    run,
+  )
+}
+
+async function withPostgresReplyFault<T>(
+  databaseUrl: string,
+  fault:
+    | {
+        kind: "insert"
+        workflowName: string
+        mode: "returned-row" | "disconnect"
+      }
+    | { kind: "semantic-handoff"; jobId: string },
+  run: (databaseUrl: string, committed: Promise<void>) => Promise<T>,
+): Promise<{ result: T; lostAcknowledgement: boolean }> {
+  let signalCommit!: () => void
+  const committed = new Promise<void>((resolve) => {
+    signalCommit = resolve
+  })
   const target = new URL(databaseUrl)
   let lostAcknowledgement = false
   const sockets = new Set<Socket>()
@@ -29,6 +64,7 @@ export async function withLostNativeWorkflowInsertAck<T>(
     const statements = new Set<string>()
     let discard = false
     let inserted = false
+    let holdingCommit = false
     let withheld: Buffer[] = []
     client.on("data", (chunk: Buffer) => {
       input = Buffer.concat([input, chunk])
@@ -48,7 +84,12 @@ export async function withLostNativeWorkflowInsertAck<T>(
           const nameEnd = frame.indexOf(0, 5)
           const statement = frame.toString("utf8", 5, nameEnd)
           const query = frame.toString("utf8", nameEnd + 1)
-          if (/INSERT INTO\s+"openworkflow"\."workflow_runs"/i.test(query))
+          if (
+            (fault.kind === "insert"
+              ? /INSERT INTO\s+"openworkflow"\."workflow_runs"/i
+              : /UPDATE\s+"workspace_write_jobs"/i
+            ).test(query)
+          )
             statements.add(statement)
           else statements.delete(statement)
         } else if (frame[0] === 66 && !lostAcknowledgement) {
@@ -58,7 +99,10 @@ export async function withLostNativeWorkflowInsertAck<T>(
           const statement = frame.toString("utf8", portalEnd + 1, statementEnd)
           if (
             statements.has(statement) &&
-            frame.includes(Buffer.from(workflowName))
+            (fault.kind === "insert"
+              ? frame.includes(Buffer.from(fault.workflowName))
+              : frame.includes(Buffer.from(fault.jobId)) &&
+                frame.includes(Buffer.from('"semanticHandoff"')))
           )
             discard = true
         }
@@ -81,6 +125,25 @@ export async function withLostNativeWorkflowInsertAck<T>(
           client.write(frame)
           continue
         }
+        if (fault.kind === "semantic-handoff") {
+          const command = frame[0] === 67 ? frame.toString("utf8", 5) : ""
+          if (command.startsWith("UPDATE 1")) inserted = true
+          if (inserted && command.startsWith("COMMIT")) holdingCommit = true
+          if (holdingCommit) {
+            if (frame[0] === 90 && frame[5] === 73 && !lostAcknowledgement) {
+              lostAcknowledgement = true
+              signalCommit()
+            }
+            continue
+          }
+          // UPDATE must be acknowledged before the client can issue COMMIT.
+          client.write(frame)
+          if (frame[0] === 90 && frame[5] === 73) {
+            discard = false
+            inserted = false
+          }
+          continue
+        }
         withheld.push(frame)
         if (
           frame[0] === 67 &&
@@ -90,7 +153,7 @@ export async function withLostNativeWorkflowInsertAck<T>(
         if (frame[0] !== 90) continue // ReadyForQuery follows the actual commit.
         if (inserted && frame[5] === 73) {
           lostAcknowledgement = true
-          if (mode === "disconnect") {
+          if (fault.mode === "disconnect") {
             client.destroy()
             upstream.destroy()
             return
@@ -121,7 +184,10 @@ export async function withLostNativeWorkflowInsertAck<T>(
   proxied.port = String(address.port)
   proxied.searchParams.set("sslmode", "disable")
   try {
-    return { result: await run(proxied.toString()), lostAcknowledgement }
+    return {
+      result: await run(proxied.toString(), committed),
+      lostAcknowledgement,
+    }
   } finally {
     for (const socket of sockets) socket.destroy()
     await new Promise<void>((resolve) => server.close(() => resolve()))

@@ -382,10 +382,14 @@ export async function captureSemanticHandoff(
     orgId: input.orgId,
     workspaceId: input.workspaceId,
     jobId: input.jobId,
-    handoff,
-    revision: nextRevision,
+    handoff: {
+      ownerRunId: handoff.ownerRunId,
+      candidateSha: handoff.candidateSha,
+    },
+    revision: handoff.revision,
     previousSha: revision.sha,
-    ...changes,
+    files: handoff.files,
+    deletePaths: handoff.deletePaths,
     ...(input.mirror ? { mirror: input.mirror } : {}),
     ...(input.extraction ? { extraction: input.extraction } : {}),
   }

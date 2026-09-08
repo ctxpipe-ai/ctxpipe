@@ -16,11 +16,12 @@ import { withOrgIdContext } from "../../auth/withAuth.js"
 import { getWriteJobCommitSha } from "../../models/workspace-write-jobs.js"
 import { workspaceBootstrap } from "../../openworkflow/workflows/workspace-bootstrap.js"
 import { withNativeHydrationFixture } from "../../test/native-hydration-fixture.js"
+import { withHeldSemanticHandoffCommit } from "../../test/native-workflow-ack-loss.js"
 
-it(
-  "two replacement processes recover a killed writer after its temporary Git checkout is lost",
-  { timeout: 100_000 },
-  async () => {
+it.each(["Git staging", "semantic handoff"] as const)(
+  "two replacement processes recover a writer killed after %s",
+  { timeout: 120_000 },
+  async (boundary) => {
     await withNativeHydrationFixture(
       { github: true, githubWriteView: "writable", writeStatus: "writable" },
       async (f) => {
@@ -107,16 +108,19 @@ const { OpenWorkflow } = await import(${JSON.stringify(pathToFileURL(require.res
 const { BackendPostgres } = await import(${JSON.stringify(pathToFileURL(require.resolve("openworkflow/postgres")).href)});
 const { initDb } = await import(${JSON.stringify(new URL("../../db/client.ts", import.meta.url).href)});
 const { workspaceBootstrap } = await import(${JSON.stringify(new URL("../../openworkflow/workflows/workspace-bootstrap.ts", import.meta.url).href)});
+const { workspaceSemanticMerge } = await import(${JSON.stringify(new URL("../../openworkflow/workflows/workspace-semantic-merge.ts", import.meta.url).href)});
 initDb(process.env.DATABASE_URL);
 const backend = await BackendPostgres.connect(process.env.DATABASE_URL, { namespaceId: ${JSON.stringify(f.id)}, runMigrations: false });
 const runner = new OpenWorkflow({ backend });
 runner.implementWorkflow(workspaceBootstrap.spec, workspaceBootstrap.fn);
+runner.implementWorkflow(workspaceSemanticMerge.spec, workspaceSemanticMerge.fn);
 const worker = runner.newWorker({ concurrency: 1 });
 await worker.start();
 await new Promise(() => {});
 `,
         )
         const ready = join(f.directory, "staging-interrupted")
+        const release = join(f.directory, "release-staging")
         const bin = join(f.directory, "crash-bin")
         mkdirSync(bin)
         const realGit = execFileSync("/bin/sh", ["-c", "command -v git"], {
@@ -131,7 +135,7 @@ const args = process.argv.slice(2);
 const result = spawnSync(${JSON.stringify(realGit)}, args, { stdio: "inherit" });
 if (result.status === 0 && args.includes("hash-object") && !existsSync(${JSON.stringify(ready)})) {
   writeFileSync(${JSON.stringify(ready)}, args[args.indexOf("-C") + 1]);
-  while (true) Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 1000);
+  while (!existsSync(${JSON.stringify(release)})) Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 1000);
 }
 process.exit(result.status ?? 1);
 `,
@@ -140,12 +144,13 @@ process.exit(result.status ?? 1);
         const children: Array<{ child: ChildProcess; exited: Promise<void> }> =
           []
         let childErrors = ""
-        const launch = (crash: boolean) => {
+        const launch = (crash: boolean, databaseUrl = f.databaseUrl) => {
           const child = spawn("bun", [script], {
             cwd: f.directory,
             detached: true,
             env: {
               ...process.env,
+              DATABASE_URL: databaseUrl,
               ...(crash ? { PATH: `${bin}:${process.env.PATH}` } : {}),
             },
             stdio: ["ignore", "ignore", "pipe"],
@@ -178,67 +183,143 @@ process.exit(result.status ?? 1);
             jobId,
             revision: { ...f.revision, access: "write-default" },
           })
-          const original = launch(true)
-          await expect
-            .poll(() => existsSync(ready), {
-              timeout: 20_000,
-              message: "The original native worker must reach real Git staging",
-            })
-            .toBe(true)
-          await kill(original)
-          const lostDirectory = readFileSync(ready, "utf8")
-          expect(
-            lostDirectory.startsWith(join(tmpdir(), "ctxpipe-write-step-")),
-          ).toBe(true)
-          rmSync(lostDirectory, { recursive: true, force: true })
-          launch(false)
-          launch(false)
-          const result = await handle.result({ timeoutMs: 55_000 })
-          const tip = f.git("--git-dir", f.remote, "rev-parse", "main")
-          expect(result).toEqual({ committed: true, commitSha: tip })
-          expect(
-            f.git(
-              "--git-dir",
-              f.remote,
-              "rev-list",
-              "--count",
-              `${f.sha}..main`,
-            ),
-          ).toBe("1")
-          expect(
-            f
-              .git(
+          const exercise = async (
+            databaseUrl: string,
+            committed?: Promise<void>,
+          ) => {
+            const original = launch(true, databaseUrl)
+            await expect
+              .poll(() => existsSync(ready), {
+                timeout: 20_000,
+                message:
+                  "The original native worker must reach real Git staging",
+              })
+              .toBe(true)
+            const advanceHuman = (body: string) => {
+              writeFileSync(join(f.directory, "document-000.md"), body)
+              f.git("add", "document-000.md")
+              f.git(
+                "-c",
+                "user.name=Contract",
+                "-c",
+                "user.email=contract@example.test",
+                "commit",
+                "-m",
+                "Human advance",
+              )
+              f.git("push", f.remote, "HEAD:refs/heads/main")
+            }
+            if (boundary === "semantic handoff") {
+              advanceHuman("# First concurrent human revision\n")
+              writeFileSync(release, "continue")
+              let stored = false
+              void committed?.then(() => {
+                stored = true
+              })
+              await expect
+                .poll(() => stored, {
+                  timeout: 20_000,
+                  message:
+                    "Observe the actual semantic handoff COMMIT before killing the writer",
+                })
+                .toBe(true)
+            }
+            await kill(original)
+            if (boundary === "semantic handoff")
+              advanceHuman("# Second concurrent human revision\n")
+            const lostDirectory = readFileSync(ready, "utf8")
+            expect(
+              lostDirectory.startsWith(join(tmpdir(), "ctxpipe-write-step-")),
+            ).toBe(true)
+            rmSync(lostDirectory, { recursive: true, force: true })
+            launch(false)
+            launch(false)
+            const result = await handle.result({ timeoutMs: 55_000 })
+            const tip = f.git("--git-dir", f.remote, "rev-parse", "main")
+            expect(result).toEqual({ committed: true, commitSha: tip })
+            expect(
+              f.git(
                 "--git-dir",
                 f.remote,
-                "ls-tree",
-                "-r",
-                "--name-only",
-                "main",
-              )
-              .split("\n"),
-          ).toContain("AGENTS.md")
-          expect(
-            await withOrgIdContext(f.org, () => getWriteJobCommitSha(jobId)),
-          ).toBe(tip)
-          const attempts = (
-            await f.backend.listStepAttempts({
-              workflowRunId: handle.workflowRun.id,
-              limit: 100,
-            })
-          ).data
-          expect(
-            attempts.filter(
-              (attempt) =>
-                attempt.stepName === "acquire-revision" &&
-                attempt.status === "completed",
-            ),
-          ).toHaveLength(1)
-          expect(
-            attempts.filter((attempt) => attempt.stepName === "stage"),
-          ).toHaveLength(2)
-          expect(writeCredentials).toBe(1)
-          expect(unexpectedRequests).toEqual([])
+                "rev-list",
+                "--count",
+                `${f.sha}..main`,
+              ),
+            ).toBe(boundary === "semantic handoff" ? "3" : "1")
+            if (boundary === "semantic handoff")
+              expect(
+                f.git("--git-dir", f.remote, "show", "main:document-000.md"),
+              ).toBe("# Second concurrent human revision")
+            expect(
+              f
+                .git(
+                  "--git-dir",
+                  f.remote,
+                  "ls-tree",
+                  "-r",
+                  "--name-only",
+                  "main",
+                )
+                .split("\n"),
+            ).toContain("AGENTS.md")
+            expect(
+              await withOrgIdContext(f.org, () => getWriteJobCommitSha(jobId)),
+            ).toBe(tip)
+            const attempts = (
+              await f.backend.listStepAttempts({
+                workflowRunId: handle.workflowRun.id,
+                limit: 100,
+              })
+            ).data
+            expect(
+              attempts.filter(
+                (attempt) =>
+                  attempt.stepName === "acquire-revision" &&
+                  attempt.status === "completed",
+              ),
+            ).toHaveLength(1)
+            expect(
+              attempts.filter((attempt) => attempt.stepName === "stage"),
+            ).toHaveLength(boundary === "semantic handoff" ? 1 : 2)
+            if (boundary === "semantic handoff")
+              expect(
+                attempts.filter(
+                  (attempt) => attempt.stepName === "capture-semantic-handoff",
+                ),
+              ).toHaveLength(2)
+            expect(writeCredentials).toBe(1)
+            expect(unexpectedRequests).toEqual([])
+          }
+          if (boundary === "semantic handoff") {
+            const fault = await withHeldSemanticHandoffCommit(
+              f.databaseUrl,
+              jobId,
+              exercise,
+            )
+            expect(fault.lostAcknowledgement).toBe(true)
+          } else await exercise(f.databaseUrl)
         } catch (error) {
+          const runs = await f.backend.listWorkflowRuns({ limit: 100 })
+          const failures = await Promise.all(
+            runs.data
+              .filter((run) => run.workflowName.startsWith("workspace-write-"))
+              .map(async (run) => ({
+                name: run.workflowName,
+                status: run.status,
+                error: run.error,
+                steps: (
+                  await f.backend.listStepAttempts({
+                    workflowRunId: run.id,
+                    limit: 100,
+                  })
+                ).data.map((step) => ({
+                  name: step.stepName,
+                  status: step.status,
+                  error: step.error,
+                })),
+              })),
+          )
+          childErrors += JSON.stringify(failures)
           throw new Error(
             `${error instanceof Error ? error.message : String(error)}\nNative child diagnostics: ${childErrors}`,
             { cause: error },

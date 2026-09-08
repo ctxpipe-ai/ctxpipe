@@ -609,3 +609,12 @@ Both pinned reviewers reported the same connector wrong-version recovery defect.
 Final connector regression: 94/94 across admission, finalization and config restart. Repository ownership: 9/9 in ownership-family-native-green. That combined run had one separate legacy fixture expire before its expected successful result; the corrected fixture cancels unrelated hydration and leaves success bounded by handle.result rather than a 1.5-second failure deadline. Backend types: 132 acknowledged, zero new/stale. Scoped Biome: 18 files. Proof policy: 440 test/story/config files, 27 command files.
 
 User-approved execution update: current scope is remaining.md; broad reviews and CI are batched at coherent milestones, with comprehensive gate closure retained. G3-A is locally verified, G3-B is next. This is not Gate 3 completion. CI 34284724229 remains running on fd7f8817 (12 jobs succeeded, Tests pending at the latest observation).
+
+
+## Recovery family after f115a94f
+
+The ownership milestone f115a94f67b49b2270baa4c71dd89a4824a1526d was pushed and remote-verified. A transparent PostgreSQL protocol fixture now withholds the actual semantic-handoff COMMIT reply. The original worker is killed after that commit; a second human revision advances Git before two replacement processes resume. Before the fix, recovery timed out; after reusing the persisted handoff, it completes in 35 seconds, preserves both human revisions, and publishes one job commit. The existing staging-loss proof and all native INSERT acknowledgement-loss proofs also pass: nine tests across three suites.
+
+A pre-upgrade paused intent with its SHA outside the revision payload reproduced started=false after a human advance. Admission now adopts that original SHA under existing binding checks. The expanded fixture advances Git again after admission. Complete pause/write regression is pending. Backend types pass with the same 132 acknowledged diagnostics and no new/stale entries; six changed code files pass Biome.
+
+Recovery regression is complete: all 24 native pause/write cases pass, including the legacy two-tip case. The preceding nine process-loss/admission cases pass. Backend remains 132 acknowledged diagnostics, zero new/stale. CI 34284724229 on fd7f8817 completed all 13 jobs successfully. G3-A/B are locally verified and enter one combined milestone review; G3-C is next.

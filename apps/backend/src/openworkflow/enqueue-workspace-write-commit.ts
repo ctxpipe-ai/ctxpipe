@@ -207,8 +207,17 @@ export async function enqueueWriteJob(
         !sameWorkspaceRevision({ ...captured, sha: current.sha }, current)
       )
         throw new Error("Captured write command belongs to a different binding")
-      // A paused intent retains its original tree; the broker reconciles later tip changes.
-      const revision = captured ?? current
+      // A pre-upgrade paused intent stored its SHA beside the payload. Bind that
+      // same tree once; the broker owns reconciliation with later remote tips.
+      const legacySha =
+        !captured &&
+        recorded &&
+        ["paused", "queued"].includes(recorded.status) &&
+        !recorded.commitSha &&
+        !recorded.payload?.workflowRunId
+          ? recorded.desiredSha
+          : null
+      const revision = captured ?? { ...current, sha: legacySha ?? current.sha }
       if (captured && input.jobDesiredSha === undefined)
         jobDesiredSha = captured.sha
       if (

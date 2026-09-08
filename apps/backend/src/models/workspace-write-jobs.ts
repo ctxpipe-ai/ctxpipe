@@ -443,11 +443,19 @@ export async function persistSemanticHandoff(input: {
       files: input.files,
       deletePaths: input.deletePaths,
     }
-    if (
-      row.payload.semanticHandoff &&
-      !isDeepStrictEqual(row.payload.semanticHandoff, handoff)
-    )
-      throw new Error("Write job already has a different semantic handoff")
+    const existing = row.payload.semanticHandoff
+    if (existing) {
+      if (
+        existing.ownerRunId !== handoff.ownerRunId ||
+        existing.candidateSha !== handoff.candidateSha ||
+        !isDeepStrictEqual(existing.files, handoff.files) ||
+        !isDeepStrictEqual(existing.deletePaths, handoff.deletePaths)
+      )
+        throw new Error("Write job already has a different semantic handoff")
+      // A committed handoff survives loss of this SQL reply. The semantic child
+      // owns reconciliation if the remote advances again before step replay.
+      return existing
+    }
     await getOrgDb()
       .update(workspaceWriteJobs)
       .set({
@@ -455,10 +463,7 @@ export async function persistSemanticHandoff(input: {
         updatedAt: new Date(),
       })
       .where(eq(workspaceWriteJobs.id, input.jobId))
-    return {
-      ownerRunId: handoff.ownerRunId,
-      candidateSha: handoff.candidateSha,
-    }
+    return handoff
   })
 }
 

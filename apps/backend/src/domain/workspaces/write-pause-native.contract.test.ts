@@ -12,6 +12,8 @@ import { BackendPostgres } from "openworkflow/postgres"
 import { expect, it } from "vitest"
 import { withOrgIdContext } from "../../auth/withAuth.js"
 import { parseEnv } from "../../config/env.js"
+import { withOrgDbContext } from "../../db/client.js"
+import { workspaceWriteJobs } from "../../db/schema/workspaces.js"
 import {
   claimPausedWriteJob,
   listPausedWriteJobs,
@@ -149,10 +151,10 @@ process.exit(result.status ?? 1);
   },
 )
 
-it(
-  "resumes a paused captured command after a human advances the same repository",
+it.each(["captured", "legacy"] as const)(
+  "resumes a paused %s command after a human advances the same repository",
   { timeout: 90_000 },
-  async () => {
+  async (capture) => {
     await withNativeHydrationFixture(
       { github: true, writeStatus: "writable" },
       async (f) => {
@@ -160,8 +162,32 @@ it(
         const paused = await withOrgIdContext(f.org, () =>
           listPausedWriteJobs(f.workspaceId),
         )
-        const job = paused.find((job) => job.kind === "bootstrap")
-        if (!job) throw new Error("Expected paused bootstrap intent")
+        const original = paused.find((job) => job.kind === "bootstrap")
+        if (!original) throw new Error("Expected paused bootstrap intent")
+        const job =
+          capture === "legacy"
+            ? {
+                ...original,
+                id: `wjob_${f.id}_legacy`,
+                payload: {
+                  jobWorkspaceUrl: f.workspaceUrl,
+                  defaultBranch: "main",
+                },
+              }
+            : original
+        if (capture === "legacy")
+          await withOrgDbContext(f.org.id, (db) =>
+            db.insert(workspaceWriteJobs).values({
+              id: job.id,
+              orgId: f.org.id,
+              workspaceId: f.workspaceId,
+              kind: "bootstrap",
+              generation: 1,
+              desiredSha: f.sha,
+              status: "paused",
+              payload: job.payload,
+            }),
+          )
         writeFileSync(
           join(f.directory, "document-000.md"),
           "# Independent human edit\n",
@@ -191,6 +217,13 @@ it(
         const worker = runner.newWorker({ concurrency: 1 })
         const errors: string[] = []
         try {
+          if (capture === "legacy") {
+            for (const run of (await backend.listWorkflowRuns({ limit: 100 }))
+              .data) {
+              if ((run.input as { jobId?: string }).jobId === original.id)
+                await runner.cancelWorkflowRun(run.id)
+            }
+          }
           expect(
             await withOrgIdContext(f.org, () =>
               enqueueWriteJob(
@@ -208,6 +241,15 @@ it(
             ),
           ).toEqual({ started: true })
           expect(errors).toEqual([])
+          if (capture === "legacy") {
+            writeFileSync(
+              join(f.directory, "document-000.md"),
+              "# Second human edit after admission\n",
+            )
+            f.git("add", "document-000.md")
+            f.git("commit", "-m", "Second human edit")
+            f.git("push", f.remote, "HEAD:refs/heads/main")
+          }
           await worker.start()
           await expect
             .poll(
@@ -222,7 +264,11 @@ it(
             .toBe("completed")
           expect(
             f.git("--git-dir", f.remote, "show", "main:document-000.md"),
-          ).toBe("# Independent human edit")
+          ).toBe(
+            capture === "legacy"
+              ? "# Second human edit after admission"
+              : "# Independent human edit",
+          )
           expect(
             f.git("--git-dir", f.remote, "show", "main:AGENTS.md"),
           ).toContain("name: Hydration contract")
@@ -234,7 +280,7 @@ it(
               "--count",
               `${f.sha}..main`,
             ),
-          ).toBe("2")
+          ).toBe(capture === "legacy" ? "3" : "2")
         } finally {
           for (const run of (await backend.listWorkflowRuns({ limit: 100 }))
             .data) {
