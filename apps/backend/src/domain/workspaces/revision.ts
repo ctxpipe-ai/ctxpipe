@@ -70,7 +70,7 @@ export type ProjectionState =
       error: string
     }
 
-export function sameWorkspaceRevision(
+export function sameWorkspaceBinding(
   a: WorkspaceRevision | null | undefined,
   b: WorkspaceRevision,
 ): boolean {
@@ -79,10 +79,15 @@ export function sameWorkspaceRevision(
     a.generation === b.generation &&
     a.remote.url === b.remote.url &&
     a.remote.connectionId === b.remote.connectionId &&
-    a.defaultBranch === b.defaultBranch &&
-    a.sha === b.sha &&
-    a.access === b.access
+    a.defaultBranch === b.defaultBranch
   )
+}
+
+export function sameWorkspaceRevision(
+  a: WorkspaceRevision | null | undefined,
+  b: WorkspaceRevision,
+): boolean {
+  return sameWorkspaceBinding(a, b) && a?.sha === b.sha && a.access === b.access
 }
 
 export function publishedProjection(

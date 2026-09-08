@@ -31,6 +31,7 @@ import {
   linearConnectionToShape,
   linearShapeToConfig,
 } from "./connection-rows.js"
+import { reconcileConnectorContentSync } from "./connector-content-sync.js"
 import {
   type CapturedConnectorBinding,
   lockConnectorFinalizationBinding,
@@ -564,6 +565,7 @@ export async function getLinearBindingWithRepoByConnectionId(
   orgId: string,
   connectionId: string,
 ): Promise<(LinearBindingWithRepo & { repositoryGitUrl: string }) | undefined> {
+  await reconcileConnectorContentSync({ orgId, connectionId })
   return withOrgDbContext(orgId, async () => {
     const [row] = await getOrgDb()
       .select({
@@ -1188,6 +1190,7 @@ export async function claimLinearBindingInitialSync(input: {
       target.repositoryId !== input.repositoryId ||
       target.branch !== input.branch ||
       !(
+        target.setupPhase === "initial_sync" ||
         target.setupPhase === "awaiting_merge" ||
         target.setupPhase === "sync_failed" ||
         target.setupPhase === "live"
@@ -1198,6 +1201,7 @@ export async function claimLinearBindingInitialSync(input: {
     const [result] = await tx
       .update(connections)
       .set({
+        contentSyncGeneration: sql`${connections.contentSyncGeneration} + 1`,
         config: mergeLinearStoredConfig(row, {
           pendingConfigPullUrl: null,
           pendingConfigPrCreating: false,
@@ -1238,6 +1242,7 @@ export async function claimLinearContentSyncRetry(
     const [result] = await tx
       .update(connections)
       .set({
+        contentSyncGeneration: sql`${connections.contentSyncGeneration} + 1`,
         config: mergeLinearStoredConfig(row, {
           setupPhase: "initial_sync",
           pendingConfigPullUrl: null,
@@ -1311,9 +1316,7 @@ export async function finalizeLinearBindingAfterContentWorkflow(input: {
       .returning()
     return result
   })
-  if (!updated) return false
-  await upsertConnectionDirectory(updated)
-  return true
+  return Boolean(updated)
 }
 
 /** Clear Linear sync bindings that pointed at a repository about to be deleted. */

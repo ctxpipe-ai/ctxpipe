@@ -38,6 +38,7 @@ import {
   notionConnectionToShape,
   notionShapeToConfig,
 } from "./connection-rows.js"
+import { reconcileConnectorContentSync } from "./connector-content-sync.js"
 import {
   type CapturedConnectorBinding,
   lockConnectorFinalizationBinding,
@@ -496,6 +497,7 @@ export async function getNotionBindingWithRepoByConnectionId(
   orgId: string,
   connectionId: string,
 ): Promise<(NotionBindingWithRepo & { repositoryGitUrl: string }) | undefined> {
+  await reconcileConnectorContentSync({ orgId, connectionId })
   return withOrgDbContext(orgId, async () => {
     const [row] = await getOrgDb()
       .select({
@@ -778,6 +780,7 @@ export async function claimNotionBindingInitialSync(input: {
       binding.repositoryId !== input.repositoryId ||
       binding.branch !== input.branch ||
       !(
+        binding.setupPhase === "initial_sync" ||
         binding.setupPhase === "awaiting_merge" ||
         binding.setupPhase === "sync_failed" ||
         binding.setupPhase === "live"
@@ -788,6 +791,7 @@ export async function claimNotionBindingInitialSync(input: {
     const [result] = await tx
       .update(connections)
       .set({
+        contentSyncGeneration: sql`${connections.contentSyncGeneration} + 1`,
         config: mergeNotionStoredConfig(row, {
           setupPhase: "initial_sync",
           pendingConfigPullUrl: null,
@@ -835,6 +839,7 @@ export async function claimNotionContentSyncRetry(
     const [result] = await tx
       .update(connections)
       .set({
+        contentSyncGeneration: sql`${connections.contentSyncGeneration} + 1`,
         config: mergeNotionStoredConfig(row, {
           setupPhase: "initial_sync",
           pendingConfigPullUrl: null,
@@ -874,6 +879,7 @@ export async function resetNotionConnectorAfterMissingConfig(input: {
     const [result] = await tx
       .update(connections)
       .set({
+        contentSyncGeneration: sql`${connections.contentSyncGeneration} + 1`,
         config: mergeNotionStoredConfig(row, {
           setupPhase: "draft",
           pendingConfigPullUrl: null,
@@ -1004,9 +1010,7 @@ export async function finalizeNotionBindingAfterContentWorkflow(input: {
       .returning()
     return result
   })
-  if (!updated) return false
-  await upsertConnectionDirectory(updated)
-  return true
+  return Boolean(updated)
 }
 
 type BindingPatchInput = {

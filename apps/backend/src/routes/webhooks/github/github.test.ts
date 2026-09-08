@@ -508,14 +508,14 @@ describe("POST /api/v1/webhook/github/:connectionId", () => {
       id: "con_abc",
       orgId: "org_1",
       type: "github",
-      name: null,
+      contentSyncGeneration: 0,
       config: {
         ingestAllRepositories: false,
         includeFutureRepos: false,
       },
       createdAt: new Date(),
       updatedAt: new Date(),
-    } as Record<string, unknown>)
+    })
 
     registerInstallMock.mockResolvedValue(undefined)
 
@@ -554,14 +554,14 @@ describe("POST /api/v1/webhook/github/:connectionId", () => {
       id: "con_abc",
       orgId: "org_1",
       type: "github",
-      name: null,
+      contentSyncGeneration: 0,
       config: {
         ingestAllRepositories: false,
         includeFutureRepos: false,
       },
       createdAt: new Date(),
       updatedAt: new Date(),
-    } as Record<string, unknown>)
+    })
 
     registerInstallMock.mockResolvedValue(undefined)
 
@@ -602,7 +602,7 @@ describe("POST /api/v1/webhook/github/:connectionId", () => {
       id: "con_abc",
       orgId: "org_1",
       type: "github",
-      name: null,
+      contentSyncGeneration: 0,
       config: {
         installationId: 999,
         ingestAllRepositories: false,
@@ -645,7 +645,7 @@ describe("POST /api/v1/webhook/github/:connectionId", () => {
       id: "con_abc",
       orgId: "org_1",
       type: "github",
-      name: null,
+      contentSyncGeneration: 0,
       config: {
         installationId: 999,
         ingestAllRepositories: false,

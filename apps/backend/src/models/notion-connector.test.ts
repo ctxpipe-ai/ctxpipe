@@ -113,6 +113,7 @@ describe("Notion connector lifecycle", () => {
     "awaiting_merge",
     "sync_failed",
     "live",
+    "initial_sync",
   ] as const)("claims initial sync from %s", async (setupPhase) => {
     const { db } = systemDb(setupPhase)
     dbMocks.getSystemDb.mockReturnValue(db)
@@ -129,7 +130,6 @@ describe("Notion connector lifecycle", () => {
   it.each([
     "draft",
     "config_failed",
-    "initial_sync",
   ] as const)("does not claim initial sync from %s", async (setupPhase) => {
     const { db } = systemDb(setupPhase)
     dbMocks.getSystemDb.mockReturnValue(db)

@@ -9,18 +9,28 @@ import { workspaces } from "../../db/schema/workspaces.js"
 import {
   finalizeConfluenceSyncTargetAfterContentWorkflow,
   getConfluenceSyncTargetWithRepoByConnectionId,
+  markConfluenceSyncTargetInitialSync,
 } from "../../models/confluence-sync-target.js"
-import { upsertConnectionDirectory } from "../../models/connection-directory.js"
 import {
+  getConnectionDirectoryByConnectionId,
+  upsertConnectionDirectory,
+} from "../../models/connection-directory.js"
+import { reconcileConnectorContentSync } from "../../models/connector-content-sync.js"
+import {
+  claimLinearBindingInitialSync,
   finalizeLinearBindingAfterContentWorkflow,
   getLinearBindingWithRepoByConnectionId,
 } from "../../models/linear-connector.js"
 import {
+  claimNotionBindingInitialSync,
   finalizeNotionBindingAfterContentWorkflow,
   getNotionBindingWithRepoByConnectionId,
   getNotionConnectionByConnectionId,
   updateNotionConnectionTokens,
 } from "../../models/notion-connector.js"
+import { confluenceSyncContent } from "../../openworkflow/workflows/confluence-sync-content.js"
+import { linearSyncContent } from "../../openworkflow/workflows/linear-sync-content.js"
+import { notionSyncContent } from "../../openworkflow/workflows/notion-sync-content.js"
 import { withNativeHydrationFixture } from "../../test/native-hydration-fixture.js"
 import { ensureOrgRepositoryForGitUrl } from "./ensure-org-repository.js"
 
@@ -55,8 +65,101 @@ it.each([
     phase: "initial_sync",
     providerChanged: true,
   },
+  {
+    provider: "linear",
+    status: "completed",
+    phase: "initial_sync",
+    activationChanged: true,
+  },
+  {
+    provider: "notion",
+    status: "completed",
+    phase: "initial_sync",
+    activationChanged: true,
+  },
+  {
+    provider: "confluence",
+    status: "completed",
+    phase: "initial_sync",
+    activationChanged: true,
+  },
+  {
+    provider: "linear",
+    status: "failed",
+    phase: "sync_failed",
+    terminalOwner: true,
+  },
+  {
+    provider: "notion",
+    status: "failed",
+    phase: "sync_failed",
+    terminalOwner: true,
+  },
+  {
+    provider: "confluence",
+    status: "failed",
+    phase: "sync_failed",
+    terminalOwner: true,
+  },
+  {
+    provider: "linear",
+    status: "failed",
+    phase: "initial_sync",
+    terminalOwner: true,
+    reactivated: true,
+  },
+  {
+    provider: "notion",
+    status: "failed",
+    phase: "initial_sync",
+    terminalOwner: true,
+    reactivated: true,
+  },
+  {
+    provider: "confluence",
+    status: "failed",
+    phase: "initial_sync",
+    terminalOwner: true,
+    reactivated: true,
+  },
+  {
+    provider: "linear",
+    status: "completed",
+    phase: "initial_sync",
+    pendingOwner: true,
+  },
+  {
+    provider: "notion",
+    status: "completed",
+    phase: "initial_sync",
+    pendingOwner: true,
+  },
+  {
+    provider: "confluence",
+    status: "completed",
+    phase: "initial_sync",
+    pendingOwner: true,
+  },
+  {
+    provider: "linear",
+    status: "failed",
+    phase: "sync_failed",
+    missingOwner: true,
+  },
+  {
+    provider: "notion",
+    status: "failed",
+    phase: "sync_failed",
+    missingOwner: true,
+  },
+  {
+    provider: "confluence",
+    status: "failed",
+    phase: "sync_failed",
+    missingOwner: true,
+  },
 ] as const)(
-  "projects $provider $status onto the same initial binding as $phase; providerChanged=$providerChanged",
+  "projects $provider $status onto the same initial binding as $phase; providerChanged=$providerChanged; activationChanged=$activationChanged; terminalOwner=$terminalOwner; reactivated=$reactivated; pendingOwner=$pendingOwner; missingOwner=$missingOwner",
   { timeout: 30_000 },
   async (scenario) => {
     const { provider, status, phase } = scenario
@@ -136,7 +239,18 @@ it.each([
             notion: finalizeNotionBindingAfterContentWorkflow,
             confluence: finalizeConfluenceSyncTargetAfterContentWorkflow,
           }[provider]
-          if ("providerChanged" in scenario)
+          if ("activationChanged" in scenario) {
+            const activate = {
+              linear: claimLinearBindingInitialSync,
+              notion: claimNotionBindingInitialSync,
+              confluence: markConfluenceSyncTargetInitialSync,
+            }[provider]
+            await activate({
+              connectionId,
+              repositoryId: repository.id,
+              branch: "main",
+            })
+          } else if ("providerChanged" in scenario)
             await withOrgDbContext(f.org.id, (db) =>
               db
                 .update(connections)
@@ -145,29 +259,135 @@ it.each([
                 })
                 .where(eq(connections.id, connectionId)),
             )
-          else if (phase === "initial_sync")
+          else if (
+            phase === "initial_sync" &&
+            !("terminalOwner" in scenario) &&
+            !("pendingOwner" in scenario)
+          )
             await withOrgDbContext(f.org.id, (db) =>
               db
                 .update(workspaces)
                 .set({ desiredGeneration: f.revision.generation + 1 })
                 .where(eq(workspaces.id, f.workspaceId)),
             )
-          await finalize({
-            connectionId,
-            binding: {
-              repositoryId: repository.id,
-              revision: f.revision,
-              provider:
-                provider === "confluence"
-                  ? {
-                      kind: "confluence",
-                      cloudId: "fixture-cloud",
-                      atlassianApiBaseUrl: null,
-                    }
-                  : { kind: provider, workspaceId: "provider-workspace" },
-            },
-            workflowStatus: status,
-          })
+          if ("providerChanged" in scenario) {
+            await upsertConnectionDirectory(connection)
+            const directory =
+              await getConnectionDirectoryByConnectionId(connectionId)
+            expect(directory).toMatchObject(
+              provider === "confluence"
+                ? { forgeCloudId: "new-cloud" }
+                : provider === "notion"
+                  ? { notionWorkspaceId: "new-provider" }
+                  : { linearWorkspaceId: "new-provider" },
+            )
+          }
+          if ("missingOwner" in scenario) {
+            expect(
+              await reconcileConnectorContentSync({
+                orgId: f.org.id,
+                connectionId,
+                admissionFailedGeneration: 0,
+              }),
+            ).toBe(false)
+          } else if (
+            "terminalOwner" in scenario ||
+            "pendingOwner" in scenario
+          ) {
+            f.runner.implementWorkflow(
+              linearSyncContent.spec,
+              linearSyncContent.fn,
+            )
+            f.runner.implementWorkflow(
+              notionSyncContent.spec,
+              notionSyncContent.fn,
+            )
+            f.runner.implementWorkflow(
+              confluenceSyncContent.spec,
+              confluenceSyncContent.fn,
+            )
+            const command = {
+              orgId: f.org.id,
+              orgSlug: f.org.slug,
+              connectionId,
+              contentSyncGeneration: 0,
+            }
+            const options =
+              "pendingOwner" in scenario
+                ? { availableAt: new Date(Date.now() + 60_000) }
+                : { deadlineAt: new Date(Date.now() + 1500) }
+            const handle =
+              provider === "linear"
+                ? await f.runner.runWorkflow(
+                    linearSyncContent.spec,
+                    command,
+                    options,
+                  )
+                : provider === "notion"
+                  ? await f.runner.runWorkflow(
+                      notionSyncContent.spec,
+                      command,
+                      options,
+                    )
+                  : await f.runner.runWorkflow(
+                      confluenceSyncContent.spec,
+                      command,
+                      options,
+                    )
+            if ("pendingOwner" in scenario) {
+              expect(
+                await reconcileConnectorContentSync({
+                  orgId: f.org.id,
+                  connectionId,
+                  admissionFailedGeneration: 0,
+                }),
+              ).toBe(true)
+              const pending = await f.backend.getWorkflowRun({
+                workflowRunId: handle.workflowRun.id,
+              })
+              expect(pending?.status).toBe("pending")
+            } else {
+              const worker = f.runner.newWorker({ concurrency: 1 })
+              try {
+                await worker.start()
+                await expect(
+                  handle.result({ timeoutMs: 10_000 }),
+                ).rejects.toThrow()
+              } finally {
+                await worker.stop()
+              }
+              if ("reactivated" in scenario) {
+                const activate = {
+                  linear: claimLinearBindingInitialSync,
+                  notion: claimNotionBindingInitialSync,
+                  confluence: markConfluenceSyncTargetInitialSync,
+                }[provider]
+                await activate({
+                  connectionId,
+                  repositoryId: repository.id,
+                  branch: "main",
+                })
+              }
+            }
+          } else {
+            await finalize({
+              connectionId,
+              binding: {
+                contentSyncGeneration: 0,
+                repositoryId: repository.id,
+                revision: f.revision,
+                provider:
+                  provider === "confluence"
+                    ? {
+                        kind: "confluence",
+                        cloudId: "fixture-cloud",
+                        atlassianApiBaseUrl: null,
+                      }
+                    : { kind: provider, workspaceId: "provider-workspace" },
+              },
+              workflowStatus: status,
+            })
+          }
           const read = {
             linear: getLinearBindingWithRepoByConnectionId,
             notion: getNotionBindingWithRepoByConnectionId,

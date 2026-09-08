@@ -2,6 +2,10 @@ import { createHmac, timingSafeEqual } from "node:crypto"
 import { createRoute, OpenAPIHono, z } from "@hono/zod-openapi"
 import type { AppEnv } from "../../app/env.js"
 import { withOrgDbContext } from "../../db/client.js"
+import {
+  getConnectorContentSyncGeneration,
+  reconcileConnectorContentSync,
+} from "../../models/connector-content-sync.js"
 import { orgHasAnyGithubConnection } from "../../models/github-installation.js"
 import {
   claimNotionConfigPrCreation,
@@ -13,7 +17,6 @@ import {
   patchNotionConnectorConfig,
   releaseNotionConfigPrCreationClaim,
   resolveNotionConnectionForOrgDetailed,
-  transitionNotionBindingState,
   updateNotionConnectionTokens,
   upsertNotionConnectionFromOAuth,
 } from "../../models/notion-connector.js"
@@ -1102,23 +1105,32 @@ export const notionConnectorRoutes = notionOAuthStartRoutes
         409,
       )
     }
+    const contentSyncGeneration = await getConnectorContentSyncGeneration(
+      orgId,
+      installed.connection.id,
+    )
     try {
-      await runWorkflowWithWorkerWake(notionSyncContent.spec, {
-        orgId,
-        orgSlug: c.req.param("orgSlug"),
-        connectionId: installed.connection.id,
-      })
+      await runWorkflowWithWorkerWake(
+        notionSyncContent.spec,
+        {
+          contentSyncGeneration,
+          orgId,
+          orgSlug: c.req.param("orgSlug"),
+          connectionId: installed.connection.id,
+        },
+        {
+          idempotencyKey: `connector-content:${installed.connection.id}:${contentSyncGeneration}`,
+        },
+      )
     } catch (error) {
-      await transitionNotionBindingState({
-        connectionId: installed.connection.id,
-        expectedSetupPhase: "initial_sync",
-        expectedPendingConfigPrCreating: false,
-        repositoryId: binding.repositoryId,
-        branch: binding.branch,
-        pendingConfigPullUrl: null,
-        pendingConfigPrCreating: false,
-        setupPhase: "sync_failed",
-      })
+      if (
+        await reconcileConnectorContentSync({
+          orgId,
+          connectionId: installed.connection.id,
+          admissionFailedGeneration: contentSyncGeneration,
+        })
+      )
+        return c.json({ accepted: true as const }, 202)
       throw error
     }
     return c.json({ accepted: true as const }, 202)

@@ -26,6 +26,7 @@ import { workspaceConnectorMirror } from "./workspace-connector-mirror.js"
 const LinearSyncContentInputSchema = z.object({
   orgId: z.string().min(1),
   connectionId: z.string().min(1),
+  contentSyncGeneration: z.number().int().nonnegative(),
 })
 
 export const linearSyncContent = defineWorkflow(
@@ -69,6 +70,7 @@ export const linearSyncContent = defineWorkflow(
               )
             }
             const captured = await captureConnectorMirrorTarget({
+              contentSyncGeneration: input.contentSyncGeneration,
               repositoryGitUrl: target.repositoryGitUrl,
               orgId: input.orgId,
               env,
@@ -183,6 +185,7 @@ export const linearSyncContent = defineWorkflow(
             connectionId: input.connectionId,
             workflowStatus: result.status,
             binding: {
+              contentSyncGeneration: context.captured.contentSyncGeneration,
               repositoryId: context.target.repositoryId,
               revision: context.captured.revision,
               provider: {

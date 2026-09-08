@@ -1,12 +1,15 @@
 import { parseEnv } from "../../../config/env.js"
 import { withOrgDbContext } from "../../../db/client.js"
+import {
+  getConnectorContentSyncGeneration,
+  reconcileConnectorContentSync,
+} from "../../../models/connector-content-sync.js"
 import { listInstallationsByGithubInstallationId } from "../../../models/github-installation.js"
 import {
+  claimLinearBindingInitialSync,
   getLinearConnectionByConnectionId,
   listLinearBindingsWithRepoByRepositoryId,
-  claimLinearBindingInitialSync,
   resetLinearConnectorAfterMissingConfig,
-  transitionLinearBindingState,
 } from "../../../models/linear-connector.js"
 import { findRepositoryByGithubInstallation } from "../../../models/repositories.js"
 import { runWorkflowWithWorkerWake } from "../../../openworkflow/client.js"
@@ -149,23 +152,31 @@ export async function maybeActivateLinearSyncOnConfigPush(input: {
       ) {
         continue
       }
+      const contentSyncGeneration = await getConnectorContentSyncGeneration(
+        target.orgId,
+        target.connectionId,
+      )
       try {
-        await runWorkflowWithWorkerWake(linearSyncContent.spec, {
-          orgId: target.orgId,
-          connectionId: target.connectionId,
-        })
+        await runWorkflowWithWorkerWake(
+          linearSyncContent.spec,
+          {
+            contentSyncGeneration,
+            orgId: target.orgId,
+            connectionId: target.connectionId,
+          },
+          {
+            idempotencyKey: `connector-content:${target.connectionId}:${contentSyncGeneration}`,
+          },
+        )
       } catch (error) {
-        // Avoid leaving a stuck initial_sync that blocks later CAS claims.
-        await transitionLinearBindingState({
-          connectionId: target.connectionId,
-          expectedSetupPhase: "initial_sync",
-          expectedPendingConfigPrCreating: false,
-          repositoryId: target.repositoryId,
-          branch: target.branch,
-          pendingConfigPullUrl: null,
-          pendingConfigPrCreating: false,
-          setupPhase: "awaiting_merge",
-        })
+        if (
+          await reconcileConnectorContentSync({
+            orgId: target.orgId,
+            connectionId: target.connectionId,
+            admissionFailedGeneration: contentSyncGeneration,
+          })
+        )
+          continue
         input.log.error(
           error instanceof Error ? error : new Error(String(error)),
         )

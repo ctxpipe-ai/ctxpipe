@@ -1,4 +1,4 @@
-import { and, eq } from "drizzle-orm"
+import { and, eq, sql } from "drizzle-orm"
 import {
   type Db,
   getOrgDb,
@@ -11,6 +11,7 @@ import { CONNECTION_TYPE_FORGE, connections } from "../db/schema/connections.js"
 import { repositories } from "../db/schema/repositories.js"
 import { generateObjectId } from "../lib/id.js"
 import { getConnectionDirectoryByConnectionId } from "./connection-directory.js"
+import { reconcileConnectorContentSync } from "./connector-content-sync.js"
 import {
   type CapturedConnectorBinding,
   lockConnectorFinalizationBinding,
@@ -101,6 +102,7 @@ export async function getConfluenceSyncTargetWithRepoByConnectionId(
 ): Promise<
   (ConfluenceSyncTargetWithRepo & { repositoryGitUrl: string }) | undefined
 > {
+  await reconcileConnectorContentSync({ orgId, connectionId })
   return withOrgDbContext(orgId, async () => {
     const [row] = await getOrgDb()
       .select({
@@ -264,6 +266,12 @@ export async function markConfluenceSyncTargetInitialSync(input: {
   connectionId: string
 }): Promise<void> {
   await requireConfluenceSyncTargetWrite(input.connectionId, async (db) => {
+    await db
+      .update(connections)
+      .set({
+        contentSyncGeneration: sql`${connections.contentSyncGeneration} + 1`,
+      })
+      .where(eq(connections.id, input.connectionId))
     const [row] = await db
       .update(confluenceSyncTargets)
       .set({

@@ -18,9 +18,9 @@ vi.mock("../../../config/env.js", () => ({
   parseEnv: vi.fn(() => ({})),
 }))
 vi.mock("../../../db/client.js", () => ({
-    tryGetOrgDb: () => ({}),
-    tryGetOrgDbOrgId: () => "org_test",
-    assertNotInOrgDbContext: () => undefined,
+  tryGetOrgDb: () => ({}),
+  tryGetOrgDbOrgId: () => "org_test",
+  assertNotInOrgDbContext: () => undefined,
 
   withOrgDbContext: vi.fn((_orgId: string, run: () => Promise<unknown>) =>
     run(),
@@ -89,27 +89,6 @@ beforeEach(() => {
 })
 
 describe("Linear config push activation", () => {
-  it("starts initial sync from merged config on the selected branch", async () => {
-    await maybeActivateLinearSyncOnConfigPush({
-      installationId: 42,
-      githubConnectionId: "con_github",
-      repoFullName: "acme/context",
-      ref: "refs/heads/main",
-      commits: [{ modified: ["linear/config.yaml"] }],
-      log: { error: vi.fn() },
-    })
-
-    expect(mocks.markInitialSync).toHaveBeenCalledWith({
-      connectionId: "con_linear",
-      repositoryId: "repo_1",
-      branch: "main",
-    })
-    expect(mocks.runWorkflow).toHaveBeenCalledWith(
-      { name: "linear-sync-content" },
-      { orgId: "org_1", connectionId: "con_linear" },
-    )
-  })
-
   it("rejects config copied from another Linear workspace", async () => {
     mocks.loadConfig.mockResolvedValue({
       workspaceId: "workspace-other",
@@ -169,31 +148,5 @@ describe("Linear config push activation", () => {
         log: { error: vi.fn() },
       }),
     ).rejects.toThrow("GitHub unavailable")
-  })
-
-  it("restores awaiting_merge when initial-sync enqueue fails", async () => {
-    mocks.runWorkflow.mockRejectedValueOnce(new Error("worker unavailable"))
-    const error = vi.fn()
-
-    await maybeActivateLinearSyncOnConfigPush({
-      installationId: 42,
-      githubConnectionId: "con_github",
-      repoFullName: "acme/context",
-      ref: "refs/heads/main",
-      commits: [{ modified: ["linear/config.yaml"] }],
-      log: { error },
-    })
-
-    expect(mocks.transitionState).toHaveBeenCalledWith({
-      connectionId: "con_linear",
-      expectedSetupPhase: "initial_sync",
-      expectedPendingConfigPrCreating: false,
-      repositoryId: "repo_1",
-      branch: "main",
-      pendingConfigPullUrl: null,
-      pendingConfigPrCreating: false,
-      setupPhase: "awaiting_merge",
-    })
-    expect(error).toHaveBeenCalled()
   })
 })

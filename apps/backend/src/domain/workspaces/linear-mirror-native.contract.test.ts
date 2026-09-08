@@ -112,6 +112,7 @@ process.exit(result.status ?? 1);
         const handle =
           mode !== "entity"
             ? await f.runner.runWorkflow(linearSyncContent.spec, {
+                contentSyncGeneration: 0,
                 orgId: f.org.id,
                 connectionId,
               })

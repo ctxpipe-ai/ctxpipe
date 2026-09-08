@@ -11,6 +11,10 @@ import {
   finalizeConfluenceSyncTargetAfterContentWorkflow,
   getConfluenceSyncTargetWithRepoByConnectionId,
 } from "../../models/confluence-sync-target.js"
+import {
+  type CapturedConnectorBinding,
+  lockConnectorFinalizationBinding,
+} from "../../models/connector-finalization.js"
 import { parseConfluenceConfigYamlContent } from "../../services/confluence/config-yaml.js"
 import { captureConfluenceContent } from "../../services/confluence/sync.js"
 import { parsedRepoScopeSchema } from "../confluence-scope-repo-schema.js"
@@ -19,6 +23,7 @@ import { workspaceConnectorMirror } from "./workspace-connector-mirror.js"
 const inputSchema = z.object({
   orgId: z.string().min(1),
   connectionId: z.string().min(1),
+  contentSyncGeneration: z.number().int().nonnegative(),
   orgSlug: z.string().min(1),
   scopeFromRepo: parsedRepoScopeSchema.optional(),
 })
@@ -50,6 +55,7 @@ export const confluenceSyncContent = defineWorkflow(
         )
           throw new Error("Confluence sync target is not live")
         const captured = await captureConnectorMirrorTarget({
+          contentSyncGeneration: input.contentSyncGeneration,
           orgId: input.orgId,
           env,
           repositoryGitUrl: target.repositoryGitUrl,
@@ -70,6 +76,16 @@ export const confluenceSyncContent = defineWorkflow(
         }
       },
     )
+    const binding: CapturedConnectorBinding = {
+      contentSyncGeneration: context.captured.contentSyncGeneration,
+      repositoryId: context.target.repositoryId,
+      revision: context.captured.revision,
+      provider: {
+        kind: "confluence",
+        cloudId: context.cloudId,
+        atlassianApiBaseUrl: context.atlassianApiBaseUrl,
+      },
+    }
     const captured = await step.run(
       { name: "capture-confluence-content" },
       async () => {
@@ -115,6 +131,10 @@ export const confluenceSyncContent = defineWorkflow(
         : null
     await step.run({ name: "record-synced-spaces" }, () =>
       withOrgDbContext(input.orgId, async () => {
+        if (
+          !(await lockConnectorFinalizationBinding(binding, input.connectionId))
+        )
+          return
         for (const space of captured.syncedSpaces)
           await updateConfluenceSpaceSyncState({
             connectionId: input.connectionId,
@@ -127,15 +147,7 @@ export const confluenceSyncContent = defineWorkflow(
       finalizeConfluenceSyncTargetAfterContentWorkflow({
         connectionId: input.connectionId,
         workflowStatus: captured.status,
-        binding: {
-          repositoryId: context.target.repositoryId,
-          revision: context.captured.revision,
-          provider: {
-            kind: "confluence",
-            cloudId: context.cloudId,
-            atlassianApiBaseUrl: context.atlassianApiBaseUrl,
-          },
-        },
+        binding,
       }),
     )
     return {

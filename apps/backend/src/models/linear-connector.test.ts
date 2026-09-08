@@ -272,6 +272,7 @@ describe("Linear connector model", () => {
     "awaiting_merge",
     "sync_failed",
     "live",
+    "initial_sync",
   ] as const)("claims initial sync from %s", async (setupPhase) => {
     dbMocks.getSystemDb.mockReturnValue(systemDb(setupPhase))
 
@@ -287,7 +288,6 @@ describe("Linear connector model", () => {
   it.each([
     "draft",
     "config_failed",
-    "initial_sync",
   ] as const)("does not claim initial sync from %s", async (setupPhase) => {
     const db = systemDb(setupPhase)
     dbMocks.getSystemDb.mockReturnValue(db)

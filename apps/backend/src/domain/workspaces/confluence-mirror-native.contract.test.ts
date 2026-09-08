@@ -151,6 +151,7 @@ process.exit(result.status ?? 1);
                 spaceKey: "ENG",
               })
             : await f.runner.runWorkflow(confluenceSyncContent.spec, {
+                contentSyncGeneration: 0,
                 orgId: f.org.id,
                 orgSlug: f.org.slug,
                 connectionId,

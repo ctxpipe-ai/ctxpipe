@@ -17,7 +17,10 @@ import {
   planCapturedConversationPublication,
   pushConversationSessionBranch,
 } from "../../domain/workspaces/conversation-publish.js"
-import { sameWorkspaceRevision } from "../../domain/workspaces/revision.js"
+import {
+  sameWorkspaceBinding,
+  sameWorkspaceRevision,
+} from "../../domain/workspaces/revision.js"
 import {
   destroySandboxesForConversation,
   getRegisteredChatSandbox,
@@ -36,6 +39,7 @@ import { resolveWorkspaceChatTurnRuntime } from "../../domain/workspaces/workspa
 import { githubRepoFullNameFromWorkspaceUrl } from "../../domain/workspaces/write-status.js"
 import { PageInfoSchema } from "../../lib/pagination.js"
 import {
+  type ConversationRecord,
   deleteConversation,
   discardUnstartedConversation,
   ensureConversation,
@@ -82,6 +86,30 @@ const ConversationSchema = z
     updatedAt: z.string().datetime(),
   })
   .openapi("Conversation")
+
+function publicConversation(
+  row: ConversationRecord,
+  workspaceRepositoryUrl = "",
+) {
+  return ConversationSchema.parse({
+    ...row,
+    userId: row.userId ?? null,
+    workspaceId: row.workspaceId ?? null,
+    lastBranch: row.lastBranch ?? null,
+    lastChatPrNumber: row.lastChatPrNumber ?? null,
+    lastChatPrUrl: conversationPublicPrUrl({
+      workspaceRepositoryUrl: row.lastChatPrRevision?.remote.url ?? "",
+      lastChatPrNumber: row.lastChatPrNumber ?? null,
+    }),
+    branchTreeUrl: conversationPublicTreeUrl({
+      workspaceRepositoryUrl,
+      lastBranch: row.lastBranch ?? null,
+    }),
+    createdAt: row.createdAt.toISOString(),
+    updatedAt: row.updatedAt.toISOString(),
+    lastMessageAt: row.lastMessageAt?.toISOString() ?? null,
+  })
+}
 
 const ConversationListResponseSchema = z
   .object({
@@ -456,24 +484,9 @@ export const conversationRoutes = new OpenAPIHono<AppEnv>()
     })
     const listedWorkspace = await getWorkspaceById(query.workspaceId.trim())
 
-    const items = rows.map((row) => ({
-      ...row,
-      userId: row.userId ?? null,
-      workspaceId: row.workspaceId ?? null,
-      lastBranch: row.lastBranch ?? null,
-      lastChatPrNumber: row.lastChatPrNumber ?? null,
-      lastChatPrUrl: conversationPublicPrUrl({
-        workspaceRepositoryUrl: listedWorkspace?.workspaceRepositoryUrl ?? "",
-        lastChatPrNumber: row.lastChatPrNumber ?? null,
-      }),
-      branchTreeUrl: conversationPublicTreeUrl({
-        workspaceRepositoryUrl: listedWorkspace?.workspaceRepositoryUrl ?? "",
-        lastBranch: row.lastBranch ?? null,
-      }),
-      createdAt: row.createdAt.toISOString(),
-      updatedAt: row.updatedAt.toISOString(),
-      lastMessageAt: row.lastMessageAt?.toISOString() ?? null,
-    }))
+    const items = rows.map((row) =>
+      publicConversation(row, listedWorkspace?.workspaceRepositoryUrl),
+    )
     return c.json({ items, pageInfo }, 200)
   })
   .openapi(getConversationRoute, async (c) => {
@@ -499,26 +512,10 @@ export const conversationRoutes = new OpenAPIHono<AppEnv>()
 
     return c.json(
       {
-        conversation: {
-          ...conversation,
-          userId: conversation.userId ?? null,
-          workspaceId: conversation.workspaceId ?? null,
-          lastBranch: conversation.lastBranch ?? null,
-          lastChatPrNumber: conversation.lastChatPrNumber ?? null,
-          lastChatPrUrl: conversationPublicPrUrl({
-            workspaceRepositoryUrl:
-              detailWorkspace?.workspaceRepositoryUrl ?? "",
-            lastChatPrNumber: conversation.lastChatPrNumber ?? null,
-          }),
-          branchTreeUrl: conversationPublicTreeUrl({
-            workspaceRepositoryUrl:
-              detailWorkspace?.workspaceRepositoryUrl ?? "",
-            lastBranch: conversation.lastBranch ?? null,
-          }),
-          createdAt: conversation.createdAt.toISOString(),
-          updatedAt: conversation.updatedAt.toISOString(),
-          lastMessageAt: conversation.lastMessageAt?.toISOString() ?? null,
-        },
+        conversation: publicConversation(
+          conversation,
+          detailWorkspace?.workspaceRepositoryUrl,
+        ),
         messages,
       },
       200,
@@ -563,19 +560,7 @@ export const conversationRoutes = new OpenAPIHono<AppEnv>()
     })
     if (!updated) return c.json({ error: "Not found" }, 404)
 
-    return c.json(
-      {
-        ...updated,
-        userId: updated.userId ?? null,
-        workspaceId: updated.workspaceId ?? null,
-        lastBranch: updated.lastBranch ?? null,
-        lastChatPrNumber: updated.lastChatPrNumber ?? null,
-        createdAt: updated.createdAt.toISOString(),
-        updatedAt: updated.updatedAt.toISOString(),
-        lastMessageAt: updated.lastMessageAt?.toISOString() ?? null,
-      },
-      200,
-    )
+    return c.json(publicConversation(updated), 200)
   })
   .openapi(deleteConversationRoute, async (c) => {
     const user = c.get("user")
@@ -728,24 +713,26 @@ export const conversationRoutes = new OpenAPIHono<AppEnv>()
     if (!conversation?.workspaceId) {
       return c.json({ error: "Not found" }, 404)
     }
-    const workspace = await getWorkspaceById(conversation.workspaceId)
-    if (!workspace) return c.json({ error: "Not found" }, 404)
-    if (conversation.lastChatPrNumber == null) {
+    const revision = conversation.lastChatPrRevision
+    if (!revision || conversation.lastChatPrNumber == null)
       return c.json({ error: "Not found" }, 404)
-    }
     const env = parseEnv(process.env as Record<string, string | undefined>)
-    const repoName = githubRepoFullNameFromWorkspaceUrl(
-      workspace.workspaceRepositoryUrl,
-    )
+    const repoName = githubRepoFullNameFromWorkspaceUrl(revision.remote.url)
     if (!repoName) return c.json({ error: "Not found" }, 404)
     const state = await getPullRequestState({
-      orgId: workspace.orgId,
+      orgId: conversation.orgId,
       repositoryName: repoName,
       env,
-      githubConnectionId: workspace.githubConnectionId ?? undefined,
+      githubConnectionId: revision.remote.connectionId ?? undefined,
       pullNumber: conversation.lastChatPrNumber,
     })
-    if (!state || state.branch !== conversationSessionBranch(conversationId))
+    const current = await getConversation(conversationId)
+    if (
+      !state ||
+      state.branch !== conversationSessionBranch(conversationId) ||
+      current?.lastChatPrNumber !== conversation.lastChatPrNumber ||
+      !sameWorkspaceBinding(current?.lastChatPrRevision, revision)
+    )
       return c.json({ error: "Not found" }, 404)
     return c.json(
       {
@@ -819,7 +806,10 @@ export const conversationRoutes = new OpenAPIHono<AppEnv>()
       )
     if (!(await bindingIsCurrent()))
       return c.json({ error: "stale_binding" }, 409)
-    if (conversation.lastChatPrNumber != null) {
+    if (
+      conversation.lastChatPrNumber != null &&
+      sameWorkspaceBinding(conversation.lastChatPrRevision, revision)
+    ) {
       const existing = await getPullRequestState({
         orgId: workspace.orgId,
         repositoryName: repoName,

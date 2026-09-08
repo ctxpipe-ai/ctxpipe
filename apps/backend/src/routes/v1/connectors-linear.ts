@@ -2,14 +2,17 @@ import { createRoute, OpenAPIHono, z } from "@hono/zod-openapi"
 import type { AppEnv } from "../../app/env.js"
 import { hasOrgAdminOrOwnerRole } from "../../auth/withAuth.js"
 import { withOrgDbContext } from "../../db/client.js"
+import {
+  getConnectorContentSyncGeneration,
+  reconcileConnectorContentSync,
+} from "../../models/connector-content-sync.js"
 import { orgHasAnyGithubConnection } from "../../models/github-installation.js"
-import { getRepositoryForOrg } from "../../models/repositories.js"
 import {
   claimLinearContentSyncRetry,
   deleteLinearConnectionById,
   getLinearBindingWithRepoByConnectionId,
-  LinearConfigPrCreationInProgressError,
   type LinearBindingWithRepo,
+  LinearConfigPrCreationInProgressError,
   type LinearConnection,
   type LinearScope,
   LinearSyncBindingBusyError,
@@ -18,9 +21,9 @@ import {
   refreshLinearConnectionTokensWithLock,
   releaseLinearConfigPrCreationClaim,
   resolveLinearConnectionForOrgDetailed,
-  updateLinearBindingPrState,
   upsertLinearConnectionFromOAuth,
 } from "../../models/linear-connector.js"
+import { getRepositoryForOrg } from "../../models/repositories.js"
 import { getLogger } from "../../observability/logger.js"
 import { runWorkflowWithWorkerWake } from "../../openworkflow/client.js"
 import { enqueueRepositoryIngestionWorkflow } from "../../openworkflow/enqueue-repository-ingestion.js"
@@ -732,9 +735,7 @@ export const linearConnectorRoutes = new OpenAPIHono<AppEnv>()
         connectionId: installed.connection.id,
         claimConfigPrCreation: shouldEnqueueConfigPr,
         ...(body.scopes !== undefined ? { scopes: body.scopes } : {}),
-        ...(body.syncTarget !== undefined
-          ? { binding: body.syncTarget }
-          : {}),
+        ...(body.syncTarget !== undefined ? { binding: body.syncTarget } : {}),
       })
     } catch (error) {
       if (
@@ -959,18 +960,31 @@ export const linearConnectorRoutes = new OpenAPIHono<AppEnv>()
         409,
       )
     }
+    const contentSyncGeneration = await getConnectorContentSyncGeneration(
+      orgId,
+      installed.connection.id,
+    )
     try {
-      await runWorkflowWithWorkerWake(linearSyncContent.spec, {
-        orgId,
-        connectionId: installed.connection.id,
-      })
+      await runWorkflowWithWorkerWake(
+        linearSyncContent.spec,
+        {
+          contentSyncGeneration,
+          orgId,
+          connectionId: installed.connection.id,
+        },
+        {
+          idempotencyKey: `connector-content:${installed.connection.id}:${contentSyncGeneration}`,
+        },
+      )
     } catch (error) {
-      await updateLinearBindingPrState({
-        connectionId: installed.connection.id,
-        pendingConfigPullUrl: null,
-        pendingConfigPrCreating: false,
-        setupPhase: "sync_failed",
-      })
+      if (
+        await reconcileConnectorContentSync({
+          orgId,
+          connectionId: installed.connection.id,
+          admissionFailedGeneration: contentSyncGeneration,
+        })
+      )
+        return c.json({ accepted: true as const }, 202)
       throw error
     }
     return c.json({ accepted: true as const }, 202)

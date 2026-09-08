@@ -3,9 +3,13 @@ import {
   getOrganizationSlugByOrgId,
   markConfluenceSyncTargetInitialSync,
 } from "../models/confluence-sync-target.js"
+import {
+  getConnectorContentSyncGeneration,
+  reconcileConnectorContentSync,
+} from "../models/connector-content-sync.js"
 import { loadConfluenceScopeFromRepo } from "../services/confluence/config-from-repo.js"
 import type { ParsedConfluenceRepoConfig } from "../services/confluence/config-yaml.js"
-import { ow } from "./client.js"
+import { runWorkflowWithWorkerWake } from "./client.js"
 import { confluenceSyncContent } from "./workflows/confluence-sync-content.js"
 
 export async function enqueueConfluenceFullSyncAfterConfigPush(input: {
@@ -29,21 +33,40 @@ export async function enqueueConfluenceFullSyncAfterConfigPush(input: {
     connectionId: input.connectionId,
   })
 
-  void ow
-    .runWorkflow(confluenceSyncContent.spec, {
-      orgId: input.orgId,
-      orgSlug,
-      connectionId: input.connectionId,
-      scopeFromRepo: {
-        spaces: input.scopeFromRepo.spaces.map((s) => ({
-          spaceKey: s.spaceKey,
-          selectedPageIds: s.selectedPageIds,
-        })),
+  const contentSyncGeneration = await getConnectorContentSyncGeneration(
+    input.orgId,
+    input.connectionId,
+  )
+  try {
+    await runWorkflowWithWorkerWake(
+      confluenceSyncContent.spec,
+      {
+        orgId: input.orgId,
+        orgSlug,
+        connectionId: input.connectionId,
+        contentSyncGeneration,
+        scopeFromRepo: {
+          spaces: input.scopeFromRepo.spaces.map((s) => ({
+            spaceKey: s.spaceKey,
+            selectedPageIds: s.selectedPageIds,
+          })),
+        },
       },
-    })
-    .catch((err: unknown) => {
-      input.log.error(err instanceof Error ? err : new Error(String(err)))
-    })
+      {
+        idempotencyKey: `connector-content:${input.connectionId}:${contentSyncGeneration}`,
+      },
+    )
+  } catch (error) {
+    if (
+      await reconcileConnectorContentSync({
+        orgId: input.orgId,
+        connectionId: input.connectionId,
+        admissionFailedGeneration: contentSyncGeneration,
+      })
+    )
+      return
+    throw error
+  }
 }
 
 export async function loadScopeForGithubPush(input: {

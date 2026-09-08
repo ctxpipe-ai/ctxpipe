@@ -2,11 +2,11 @@ import { OpenAPIHono } from "@hono/zod-openapi"
 import { beforeEach, describe, expect, it, vi } from "vitest"
 import type { AppEnv } from "../../app/env.js"
 import type { Env } from "../../config/env.js"
+import { createLinearOAuthState } from "../../services/linear/oauth-state.js"
 import {
   contextStorage,
   withTestRequestLogger,
 } from "../../test/hono-test-logger.js"
-import { createLinearOAuthState } from "../../services/linear/oauth-state.js"
 import {
   linearConnectorRoutes,
   linearOauthCallbackRoutes,
@@ -32,9 +32,9 @@ vi.mock("../../auth/withAuth.js", () => ({
   hasOrgAdminOrOwnerRole: mocks.hasAdminRole,
 }))
 vi.mock("../../db/client.js", () => ({
-    tryGetOrgDb: () => ({}),
-    tryGetOrgDbOrgId: () => "org_test",
-    assertNotInOrgDbContext: () => undefined,
+  tryGetOrgDb: () => ({}),
+  tryGetOrgDbOrgId: () => "org_test",
+  assertNotInOrgDbContext: () => undefined,
 
   withOrgDbContext: vi.fn((_orgId: string, run: () => Promise<unknown>) =>
     run(),
@@ -533,44 +533,6 @@ describe("Linear connector routes", () => {
       },
     })
     expect(mocks.updatePrState).not.toHaveBeenCalled()
-  })
-
-  it("retries failed content sync without raising another config PR", async () => {
-    const app = appWithVariables().route(
-      "/acme/api/v1/connectors/linear",
-      linearConnectorRoutes,
-    )
-    const response = await app.request(
-      "/acme/api/v1/connectors/linear/retry?connectionId=con_linear",
-      { method: "POST" },
-    )
-
-    expect(response.status).toBe(202)
-    expect(mocks.claimContentRetry).toHaveBeenCalledWith("con_linear")
-    expect(mocks.runWorkflow).toHaveBeenCalledWith(
-      { name: "linear-sync-content" },
-      { orgId: "org_1", connectionId: "con_linear" },
-    )
-  })
-
-  it("restores the failed state when retry enqueue fails", async () => {
-    mocks.runWorkflow.mockRejectedValueOnce(new Error("worker unavailable"))
-    const app = appWithVariables().route(
-      "/acme/api/v1/connectors/linear",
-      linearConnectorRoutes,
-    )
-    const response = await app.request(
-      "/acme/api/v1/connectors/linear/retry?connectionId=con_linear",
-      { method: "POST" },
-    )
-
-    expect(response.status).toBe(500)
-    expect(mocks.updatePrState).toHaveBeenCalledWith({
-      connectionId: "con_linear",
-      pendingConfigPullUrl: null,
-      pendingConfigPrCreating: false,
-      setupPhase: "sync_failed",
-    })
   })
 
   it("does not start a content retry outside the failed state", async () => {

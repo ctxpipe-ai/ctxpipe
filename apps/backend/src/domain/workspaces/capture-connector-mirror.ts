@@ -1,6 +1,8 @@
+import { eq } from "drizzle-orm"
 import { withOrgIdContext } from "../../auth/withAuth.js"
 import type { Env } from "../../config/env.js"
-import { getSystemDb } from "../../db/client.js"
+import { getSystemDb, withOrgDbContext } from "../../db/client.js"
+import { connections } from "../../db/schema/connections.js"
 import { listOrgWorkspaces } from "../../models/workspaces.js"
 import {
   nativeGit,
@@ -17,6 +19,7 @@ import { normalizeWorkspaceRepositoryUrl } from "./slug.js"
 /** Capture the existing target's immutable tree before fetching provider content. */
 export async function captureConnectorMirrorTarget(input: {
   orgId: string
+  contentSyncGeneration?: number
   mirror: Omit<ConnectorMirrorSource, "configBlobSha">
   env: Env
   repositoryGitUrl: string
@@ -26,6 +29,18 @@ export async function captureConnectorMirrorTarget(input: {
   })
   if (!org) throw new Error("Organization not found")
   return withOrgIdContext(org, async () => {
+    const [connection] = await withOrgDbContext(input.orgId, (db) =>
+      db
+        .select({ contentSyncGeneration: connections.contentSyncGeneration })
+        .from(connections)
+        .where(eq(connections.id, input.mirror.connectionId)),
+    )
+    if (!connection) throw new Error("Connector connection is missing")
+    if (
+      input.contentSyncGeneration != null &&
+      input.contentSyncGeneration !== connection.contentSyncGeneration
+    )
+      throw new Error("Connector config activation changed")
     const workspace = (await listOrgWorkspaces(input.orgId)).find(
       (row) =>
         normalizeWorkspaceRepositoryUrl(row.workspaceRepositoryUrl) ===
@@ -68,6 +83,7 @@ export async function captureConnectorMirrorTarget(input: {
             ).toString()
           : undefined
         return {
+          contentSyncGeneration: connection.contentSyncGeneration,
           workspaceId: workspace.id,
           revision,
           mirror: {

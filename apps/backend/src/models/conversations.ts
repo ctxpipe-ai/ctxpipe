@@ -27,7 +27,7 @@ function orgSql<T>(fn: () => Promise<T>): Promise<T> {
   return withAmbientOrgDb(fn)
 }
 
-function conversationSelection() {
+function conversationFieldsWithCurrentPr() {
   return {
     ...getTableColumns(conversations),
     lastChatPrNumber: sql<number | null>`case when exists (
@@ -88,7 +88,7 @@ export async function ensureConversation(input: {
     }
 
     const [existing] = await db
-      .select(conversationSelection())
+      .select(conversationFieldsWithCurrentPr())
       .from(conversations)
       .where(
         and(
@@ -140,7 +140,7 @@ export async function ensureConversation(input: {
         source: input.source ?? null,
         name: "New conversation",
       })
-      .returning()
+      .returning(conversationFieldsWithCurrentPr())
 
     if (!created) throw new Error("Failed to create conversation")
     return created
@@ -298,7 +298,7 @@ export async function listConversations(input?: {
     ].filter(Boolean) as ReturnType<typeof eq>[]
 
     return db
-      .select(conversationSelection())
+      .select(conversationFieldsWithCurrentPr())
       .from(conversations)
       .where(and(...conditions))
       .orderBy(
@@ -363,7 +363,7 @@ export async function listConversationsPaginated(input: {
         : and(...baseConditions)
 
     const rows = await db
-      .select(conversationSelection())
+      .select(conversationFieldsWithCurrentPr())
       .from(conversations)
       .where(whereClause)
       .orderBy(
@@ -390,7 +390,7 @@ export async function getConversation(
     const userId = requireCurrentUserId()
     const db = getOrgDb()
     const [row] = await db
-      .select(conversationSelection())
+      .select(conversationFieldsWithCurrentPr())
       .from(conversations)
       .where(
         and(
@@ -417,7 +417,7 @@ export async function findConversationInWorkspace(
     const orgId = requireCurrentOrgId()
     const db = getOrgDb()
     const [row] = await db
-      .select(conversationSelection())
+      .select(conversationFieldsWithCurrentPr())
       .from(conversations)
       .where(
         and(
@@ -449,7 +449,7 @@ export async function updateConversation(
           eq(conversations.userId, userId),
         ),
       )
-      .returning(conversationSelection())
+      .returning(conversationFieldsWithCurrentPr())
     return updated ?? null
   })
 }

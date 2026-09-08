@@ -1,0 +1,56 @@
+{"name": "rebased-session-publish-red", "cwd": "/private/tmp/ctxpipe-recovery-01a07aba", "command": ["/Users/jakubriedl/.volta/tools/image/node/22.16.0/bin/node", "apps/backend/node_modules/vitest/vitest.mjs", "run", "--root", "apps/backend", "src/domain/workspaces/conversation-publish-native.contract.test.ts", "-t", "rebased"], "environment": {"AUTH_SECRET": "gate0-local-disposable-test-secret-20260907", "DATABASE_URL": "postgresql://ctxpipe_app:ctxpipe@127.0.0.1:61314/ctxpipe_gate0_fresh", "GRAPH_DB_URI": "redis://127.0.0.1:6398", "CI": "true", "NO_COLOR": "1", "TURBO_TELEMETRY_DISABLED": "1", "STORYBOOK_DISABLE_TELEMETRY": "1", "PATH": "/Users/jakubriedl/.volta/tools/image/node/22.16.0/bin:/private/tmp/ctxpipe-recovery-runtime/ast-grep/node_modules/.bin:/private/tmp/ctxpipe-recovery-runtime/node_modules/.bin:/private/tmp/ctxpipe-recovery-runtime/zoekt:/usr/local/bin:/System/Cryptexes/App/usr/bin:/usr/bin:/bin:/usr/sbin:/sbin:/var/run/com.apple.security.cryptexd/codex.system/bootstrap/usr/local/bin:/var/run/com.apple.security.cryptexd/codex.system/bootstrap/usr/bin:/var/run/com.apple.security.cryptexd/codex.system/bootstrap/usr/appleinternal/bin:/pkg/env/global/bin:/Users/jakubriedl/.codex/tmp/arg0/codex-arg0BW5Gt3:/Users/jakubriedl/.cache/codex-runtimes/codex-primary-runtime/dependencies/bin/override:/Users/jakubriedl/.local/bin:/Users/jakubriedl/.bun/bin:/Users/jakubriedl/.opencode/bin:/Users/jakubriedl/.volta/bin:/opt/homebrew/bin:/opt/homebrew/sbin:/Users/jakubriedl/.cache/codex-runtimes/codex-primary-runtime/dependencies/bin/fallback:/Applications/ChatGPT.app/Contents/Resources"}, "timeout_seconds": 600, "started_utc": "2026-09-08T18:10:49Z", "log": "logs/rebased-session-publish-red.log"}
+
+ RUN  v4.0.18 /private/tmp/ctxpipe-recovery-01a07aba/apps/backend
+
+Cloning into bare repository '/var/folders/9t/jj9rnpps7_ddb72c1mq2k13w0000gn/T/ctxpipe-hydration-contract-HUKwM6/remote.git'...
+done.
+Switched to a new branch 'ctxpipe/chat/conv_hydrate_1788891051980_jnuo3u0eeae/1'
+To /var/folders/9t/jj9rnpps7_ddb72c1mq2k13w0000gn/T/ctxpipe-hydration-contract-HUKwM6/remote.git
+ * [new branch]      HEAD -> ctxpipe/chat/conv_hydrate_1788891051980_jnuo3u0eeae/1
+Switched to branch 'main'
+To /var/folders/9t/jj9rnpps7_ddb72c1mq2k13w0000gn/T/ctxpipe-hydration-contract-HUKwM6/remote.git
+   bab8dcf..7992f54  HEAD -> main
+ ❯ src/domain/workspaces/conversation-publish-native.contract.test.ts (8 tests | 1 failed | 7 skipped) 1217ms
+   ↓ brokers conversation publishing without agent write credentials: publish
+   ↓ brokers conversation publishing without agent write credentials: rebind
+   ↓ brokers conversation publishing without agent write credentials: default_changed
+   ↓ brokers conversation publishing without agent write credentials: session_advanced
+   ↓ brokers conversation publishing without agent write credentials: large_base
+   ↓ publishes a restored shallow session branch: unchanged
+   ↓ publishes a restored shallow session branch: edited
+   × publishes a restored shallow session branch: rebased 1216ms
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 1 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  src/domain/workspaces/conversation-publish-native.contract.test.ts > publishes a restored shallow session branch: rebased
+AssertionError: expected { ok: false, …(1) } to deeply equal { ok: true, …(2) }
+
+- Expected
++ Received
+
+  {
+-   "branch": "ctxpipe/chat/conv_hydrate_1788891051980_jnuo3u0eeae/1",
+-   "ok": true,
+-   "pushed": true,
++   "error": "Session branch changed; restore its current revision before publishing",
++   "ok": false,
+  }
+
+ ❯ src/domain/workspaces/conversation-publish-native.contract.test.ts:228:26
+    226|             ),
+    227|           )
+    228|           expect(result).toEqual({
+       |                          ^
+    229|             ok: true,
+    230|             branch,
+ ❯ withNativeHydrationFixture src/test/native-hydration-fixture.ts:619:5
+ ❯ src/domain/workspaces/conversation-publish-native.contract.test.ts:166:5
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/1]⎯
+
+
+ Test Files  1 failed (1)
+      Tests  1 failed | 7 skipped (8)
+   Start at  04:10:49
+   Duration  3.58s (transform 690ms, setup 20ms, import 2.27s, tests 1.22s, environment 0ms)
+

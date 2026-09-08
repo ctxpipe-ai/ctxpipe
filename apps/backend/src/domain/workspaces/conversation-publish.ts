@@ -176,12 +176,22 @@ export async function pushConversationSessionBranch(input: {
       await assertBinding()
       return { ok: true, branch, pushed: false }
     }
-    const packBase = sessionTip?.sha ?? revision.sha
-    const ancestor = await input.handle.exec(
-      `git merge-base --is-ancestor ${shellSingleQuote(packBase)} ${shellSingleQuote(sha)}`,
-      { env: {} },
-    )
-    if (ancestor.exitCode !== 0)
+    // A quiet rebase rewrites the published session. Prefer that remote tip
+    // for shallow restores, then the captured default for rebased history.
+    // Publication still leases the observed remote session tip below.
+    let packBase: string | undefined
+    for (const candidate of new Set([sessionTip?.sha, revision.sha])) {
+      if (!candidate) continue
+      const ancestor = await input.handle.exec(
+        `git merge-base --is-ancestor ${shellSingleQuote(candidate)} ${shellSingleQuote(sha)}`,
+        { env: {} },
+      )
+      if (ancestor.exitCode === 0) {
+        packBase = candidate
+        break
+      }
+    }
+    if (!packBase)
       return {
         ok: false,
         error:

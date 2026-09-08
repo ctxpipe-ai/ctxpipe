@@ -1,0 +1,56 @@
+{"name": "pr-read-relink-red", "cwd": "/private/tmp/ctxpipe-recovery-01a07aba", "command": ["/Users/jakubriedl/.volta/tools/image/node/22.16.0/bin/node", "apps/backend/node_modules/vitest/vitest.mjs", "run", "--root", "apps/backend", "src/routes/v1/conversation-publish-native.contract.test.ts", "-t", "saved PR"], "environment": {"AUTH_SECRET": "gate0-local-disposable-test-secret-20260907", "DATABASE_URL": "postgresql://ctxpipe_app:ctxpipe@127.0.0.1:61314/ctxpipe_gate0_fresh", "GRAPH_DB_URI": "redis://127.0.0.1:6398", "CI": "true", "NO_COLOR": "1", "TURBO_TELEMETRY_DISABLED": "1", "STORYBOOK_DISABLE_TELEMETRY": "1", "PATH": "/Users/jakubriedl/.volta/tools/image/node/22.16.0/bin:/private/tmp/ctxpipe-recovery-runtime/ast-grep/node_modules/.bin:/private/tmp/ctxpipe-recovery-runtime/node_modules/.bin:/private/tmp/ctxpipe-recovery-runtime/zoekt:/usr/local/bin:/System/Cryptexes/App/usr/bin:/usr/bin:/bin:/usr/sbin:/sbin:/var/run/com.apple.security.cryptexd/codex.system/bootstrap/usr/local/bin:/var/run/com.apple.security.cryptexd/codex.system/bootstrap/usr/bin:/var/run/com.apple.security.cryptexd/codex.system/bootstrap/usr/appleinternal/bin:/pkg/env/global/bin:/Users/jakubriedl/.codex/tmp/arg0/codex-arg0BW5Gt3:/Users/jakubriedl/.cache/codex-runtimes/codex-primary-runtime/dependencies/bin/override:/Users/jakubriedl/.local/bin:/Users/jakubriedl/.bun/bin:/Users/jakubriedl/.opencode/bin:/Users/jakubriedl/.volta/bin:/opt/homebrew/bin:/opt/homebrew/sbin:/Users/jakubriedl/.cache/codex-runtimes/codex-primary-runtime/dependencies/bin/fallback:/Applications/ChatGPT.app/Contents/Resources"}, "timeout_seconds": 600, "started_utc": "2026-09-08T18:12:43Z", "log": "logs/pr-read-relink-red.log"}
+
+ RUN  v4.0.18 /private/tmp/ctxpipe-recovery-01a07aba/apps/backend
+
+Cloning into bare repository '/var/folders/9t/jj9rnpps7_ddb72c1mq2k13w0000gn/T/ctxpipe-hydration-contract-F2BSdq/remote.git'...
+done.
+ ❯ src/routes/v1/conversation-publish-native.contract.test.ts (16 tests | 1 failed | 15 skipped) 332ms
+   ↓ publishes from the authenticated conversation HTTP boundary: push
+   ↓ publishes from the authenticated conversation HTTP boundary: warm_files
+   ↓ publishes from the authenticated conversation HTTP boundary: pull-request
+   ↓ publishes from the authenticated conversation HTTP boundary: pr_collision
+   ↓ publishes from the authenticated conversation HTTP boundary: missing
+   ↓ publishes from the authenticated conversation HTTP boundary: stale
+   ↓ publishes from the authenticated conversation HTTP boundary: stale_push
+   ↓ publishes from the authenticated conversation HTTP boundary: stale_connection
+   ↓ publishes from the authenticated conversation HTTP boundary: stale_generation
+   ↓ publishes from the authenticated conversation HTTP boundary: stale_sha
+   ↓ publishes from the authenticated conversation HTTP boundary: stale_default_branch
+   ↓ publishes from the authenticated conversation HTTP boundary: relink_after_push
+   ↓ publishes from the authenticated conversation HTTP boundary: relink_after_push_push
+   ↓ publishes from the authenticated conversation HTTP boundary: relink_during_pr
+   ↓ publishes from the authenticated conversation HTTP boundary: relink_before_pr
+   × hides a saved PR when its workspace relinks during the provider read 332ms
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 1 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  src/routes/v1/conversation-publish-native.contract.test.ts > hides a saved PR when its workspace relinks during the provider read
+AssertionError: expected undefined to match object { lastChatPrNumber: 42, …(1) }
+
+- Expected: 
+{
+  "lastChatPrNumber": 42,
+  "lastChatPrUrl": "https://github.com/fixture/hydration-contract/pull/42",
+}
+
++ Received: 
+undefined
+
+ ❯ src/routes/v1/conversation-publish-native.contract.test.ts:346:31
+    344|     try {
+    345|       const listed = await (await app.request(`/conversations?workspac…
+    346|       expect(listed.items[0]).toMatchObject({ lastChatPrNumber: 42, la…
+       |                               ^
+    347|       expect(listed.items[0]).not.toHaveProperty("lastChatPrRevision")
+    348|       relink = async () => { await withOrgDbContext(f.org.id, db => db…
+ ❯ withNativeHydrationFixture src/test/native-hydration-fixture.ts:622:5
+ ❯ src/routes/v1/conversation-publish-native.contract.test.ts:323:3
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/1]⎯
+
+
+ Test Files  1 failed (1)
+      Tests  1 failed | 15 skipped (16)
+   Start at  04:12:43
+   Duration  2.98s (transform 848ms, setup 17ms, import 2.55s, tests 332ms, environment 0ms)
+

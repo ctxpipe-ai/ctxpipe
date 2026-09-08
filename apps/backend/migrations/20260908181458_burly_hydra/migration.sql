@@ -1,0 +1,1 @@
+ALTER TABLE "connections" ADD COLUMN "content_sync_generation" integer DEFAULT 0 NOT NULL;

@@ -7,6 +7,7 @@ import type { WorkspaceRevision } from "../domain/workspaces/revision.js"
 import { normalizeWorkspaceRepositoryUrl } from "../domain/workspaces/slug.js"
 
 export type CapturedConnectorBinding = {
+  contentSyncGeneration: number
   repositoryId: string
   revision: WorkspaceRevision
   provider:
@@ -47,7 +48,11 @@ export async function lockConnectorFinalizationBinding(
     )
     .where(eq(workspaces.id, revision.workspaceId))
     .for("update")
-  if (!row) return false
+  if (
+    !row ||
+    row.connection.contentSyncGeneration !== binding.contentSyncGeneration
+  )
+    return false
   const config = row.connection.config
   if (binding.provider.kind === "confluence") {
     if (

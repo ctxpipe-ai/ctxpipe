@@ -14,7 +14,7 @@ import { withOrgIdContext } from "../auth/withAuth.js"
 import { parseEnv } from "../config/env.js"
 import { closeDb, getSystemDb, initDb, withOrgDbContext } from "../db/client.js"
 import { organizations } from "../db/schema/auth.js"
-import { connections } from "../db/schema/connections.js"
+import { connectionDirectory, connections } from "../db/schema/connections.js"
 import { repositories } from "../db/schema/repositories.js"
 import { orgFirstWorkspaces, workspaces } from "../db/schema/workspaces.js"
 import { resolveWorkspaceReadRevision } from "../domain/workspaces/resolve-revision.js"
@@ -50,6 +50,7 @@ export type NativeHydrationOptions = {
     state: string
     html_url: string
   }
+  onGithubPullRequestRead?: () => void | Promise<void>
   onGithubPrCredential?: () => void | Promise<void>
   onGithubPullRequest?: (body: unknown) => void | Promise<void>
   githubGitResponses?: Record<string, { status?: number; body: unknown }>
@@ -110,11 +111,13 @@ async function createNativeHydrationFixture(
   const server = setupServer(
     http.get(
       "https://api.github.com/repos/fixture/hydration-contract/pulls/:number",
-      () =>
-        HttpResponse.json(
+      async () => {
+        await options.onGithubPullRequestRead?.()
+        return HttpResponse.json(
           options.githubPullRequest ?? { message: "Not found" },
           { status: options.githubPullRequest ? 200 : 404 },
-        ),
+        )
+      },
     ),
     http.put(
       "https://api.github.com/repos/fixture/hydration-contract/contents/*",
@@ -390,6 +393,9 @@ async function createNativeHydrationFixture(
           await db.delete(workspaces).where(eq(workspaces.id, workspaceId))
           await db.delete(connections).where(eq(connections.id, connectionId))
         })
+        await getSystemDb()
+          .delete(connectionDirectory)
+          .where(eq(connectionDirectory.orgId, org.id))
         await getSystemDb()
           .delete(organizations)
           .where(eq(organizations.id, org.id))

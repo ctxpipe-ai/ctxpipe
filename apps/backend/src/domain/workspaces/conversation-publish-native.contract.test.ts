@@ -159,7 +159,7 @@ it.each([
   },
 )
 
-it.each(["unchanged", "edited"])(
+it.each(["unchanged", "edited", "rebased"])(
   "publishes a restored shallow session branch: %s",
   { timeout: 30_000 },
   async (mode) => {
@@ -195,6 +195,32 @@ it.each(["unchanged", "edited"])(
           expect(
             (await raw.process.exec(`git cat-file -e ${f.sha}`)).exitCode,
           ).not.toBe(0)
+          let revision = f.revision
+          if (mode === "rebased") {
+            f.git("checkout", "main")
+            writeFileSync(join(f.directory, "human.md"), "# Default advanced\n")
+            f.git("add", "human.md")
+            f.git("commit", "-m", "Advance default")
+            f.git("push", f.remote, "HEAD:refs/heads/main")
+            revision = { ...f.revision, sha: f.git("rev-parse", "HEAD") }
+            await withOrgDbContext(f.org.id, (db) =>
+              db
+                .update(workspaces)
+                .set({ desiredSha: revision.sha })
+                .where(eq(workspaces.id, f.workspaceId)),
+            )
+            expect(
+              (await raw.process.exec("git fetch --unshallow origin main"))
+                .exitCode,
+            ).toBe(0)
+            expect(
+              (
+                await raw.process.exec(
+                  "git -c user.name=Fixture -c user.email=fixture@example.test rebase FETCH_HEAD",
+                )
+              ).exitCode,
+            ).toBe(0)
+          }
           if (mode === "edited")
             await raw.fs.write("notes.md", "# Restored edit\n")
           const result = await withOrgIdContext(f.org, () =>
@@ -204,7 +230,7 @@ it.each(["unchanged", "edited"])(
                 conversationId,
                 orgId: f.org.id,
                 workspaceId: f.workspaceId,
-                revision: f.revision,
+                revision,
                 env: parseEnv(process.env),
                 commitMessage: "Publish restored session",
               }),
@@ -213,12 +239,14 @@ it.each(["unchanged", "edited"])(
           expect(result).toEqual({
             ok: true,
             branch,
-            pushed: mode === "edited",
+            pushed: mode !== "unchanged",
           })
           expect(
             f.git("--git-dir", f.remote, "show", `${branch}:notes.md`),
           ).toBe(mode === "edited" ? "# Restored edit" : "# Published session")
-          expect(f.git("--git-dir", f.remote, "rev-parse", "main")).toBe(f.sha)
+          expect(f.git("--git-dir", f.remote, "rev-parse", "main")).toBe(
+            revision.sha,
+          )
         } finally {
           await raw.destroy()
           await withOrgDbContext(f.org.id, (db) =>

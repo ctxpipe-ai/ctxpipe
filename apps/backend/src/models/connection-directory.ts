@@ -46,31 +46,35 @@ export function directoryValuesFromConnection(row: {
 export async function upsertConnectionDirectory(
   row: ConnectionRow,
 ): Promise<void> {
-  const values = directoryValuesFromConnection({
-    id: row.id,
-    orgId: row.orgId,
-    type: row.type,
-    config: row.config as Record<string, unknown>,
+  await withOrgDbContext(row.orgId, async (db) => {
+    // The caller may hold a pre-refresh row. Project the current identity under
+    // the same short transaction as the directory update.
+    const [current] = await db
+      .select()
+      .from(connections)
+      .where(eq(connections.id, row.id))
+      .for("update")
+    if (!current) return
+    const values = directoryValuesFromConnection(current)
+    await db
+      .insert(connectionDirectory)
+      .values(values)
+      .onConflictDoUpdate({
+        target: connectionDirectory.connectionId,
+        set: {
+          orgId: values.orgId,
+          type: values.type,
+          githubInstallationId: values.githubInstallationId,
+          slackTeamId: values.slackTeamId,
+          linearWorkspaceId: values.linearWorkspaceId,
+          notionWorkspaceId: values.notionWorkspaceId,
+          notionBotId: values.notionBotId,
+          forgeCloudId: values.forgeCloudId,
+          forgeInstallationId: values.forgeInstallationId,
+          updatedAt: values.updatedAt,
+        },
+      })
   })
-  const db = getSystemDb()
-  await db
-    .insert(connectionDirectory)
-    .values(values)
-    .onConflictDoUpdate({
-      target: connectionDirectory.connectionId,
-      set: {
-        orgId: values.orgId,
-        type: values.type,
-        githubInstallationId: values.githubInstallationId,
-        slackTeamId: values.slackTeamId,
-        linearWorkspaceId: values.linearWorkspaceId,
-        notionWorkspaceId: values.notionWorkspaceId,
-        notionBotId: values.notionBotId,
-        forgeCloudId: values.forgeCloudId,
-        forgeInstallationId: values.forgeInstallationId,
-        updatedAt: values.updatedAt,
-      },
-    })
 }
 
 export async function deleteConnectionDirectory(

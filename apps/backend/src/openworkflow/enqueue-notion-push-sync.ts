@@ -1,8 +1,11 @@
 import { parseEnv } from "../config/env.js"
 import {
+  getConnectorContentSyncGeneration,
+  reconcileConnectorContentSync,
+} from "../models/connector-content-sync.js"
+import {
   claimNotionBindingInitialSync,
   getOrganizationSlugForNotionOrgId,
-  transitionNotionBindingState,
 } from "../models/notion-connector.js"
 import { loadNotionScopeFromRepo } from "../services/notion/config-from-repo.js"
 import type { ParsedNotionRepoConfig } from "../services/notion/config-yaml.js"
@@ -28,30 +31,39 @@ export async function enqueueNotionFullSyncAfterConfigPush(input: {
   })
   if (!claimed) return
 
+  const contentSyncGeneration = await getConnectorContentSyncGeneration(
+    input.orgId,
+    input.connectionId,
+  )
   try {
-    await runWorkflowWithWorkerWake(notionSyncContent.spec, {
-      orgId: input.orgId,
-      orgSlug,
-      connectionId: input.connectionId,
-      scopeFromRepo: {
-        resources: input.scopeFromRepo.resources.map((resource) => ({
-          externalId: resource.externalId,
-          type: resource.type,
-          title: resource.title,
-        })),
+    await runWorkflowWithWorkerWake(
+      notionSyncContent.spec,
+      {
+        contentSyncGeneration,
+        orgId: input.orgId,
+        orgSlug,
+        connectionId: input.connectionId,
+        scopeFromRepo: {
+          resources: input.scopeFromRepo.resources.map((resource) => ({
+            externalId: resource.externalId,
+            type: resource.type,
+            title: resource.title,
+          })),
+        },
       },
-    })
+      {
+        idempotencyKey: `connector-content:${input.connectionId}:${contentSyncGeneration}`,
+      },
+    )
   } catch (error) {
-    await transitionNotionBindingState({
-      connectionId: input.connectionId,
-      expectedSetupPhase: "initial_sync",
-      expectedPendingConfigPrCreating: false,
-      repositoryId: input.repositoryId,
-      branch: input.branch,
-      pendingConfigPullUrl: null,
-      pendingConfigPrCreating: false,
-      setupPhase: "awaiting_merge",
-    })
+    if (
+      await reconcileConnectorContentSync({
+        orgId: input.orgId,
+        connectionId: input.connectionId,
+        admissionFailedGeneration: contentSyncGeneration,
+      })
+    )
+      return
     throw error
   }
 }

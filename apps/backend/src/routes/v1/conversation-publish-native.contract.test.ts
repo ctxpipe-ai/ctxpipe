@@ -316,3 +316,94 @@ fi
     )
   },
 )
+
+it(
+  "hides a saved PR when its workspace relinks during the provider read",
+  { timeout: 30_000 },
+  async () => {
+    let relink: (() => Promise<void>) | undefined
+    const pull = {
+      number: 42,
+      head: { ref: "" },
+      state: "open",
+      html_url: "https://github.com/fixture/hydration-contract/pull/42",
+    }
+    await withNativeHydrationFixture(
+      {
+        github: true,
+        githubWriteView: "writable",
+        writeStatus: "writable",
+        githubPullRequest: pull,
+        onGithubPullRequestRead: async () => relink?.(),
+      },
+      async (f) => {
+        const conversationId = `conv_${f.id}`
+        const userId = `user_${f.id}`
+        pull.head.ref = conversationSessionBranch(conversationId)
+        await withOrgDbContext(f.org.id, (db) =>
+          db.insert(conversations).values({
+            id: conversationId,
+            userId,
+            orgId: f.org.id,
+            workspaceId: f.workspaceId,
+            source: "ui",
+            lastMessageAt: new Date(),
+            lastBranch: pull.head.ref,
+            lastChatPrNumber: 42,
+            lastChatPrRevision: f.revision,
+          }),
+        )
+        const app = new OpenAPIHono<AppEnv>()
+        app.use(contextStorage())
+        app.use(withTestRequestLogger)
+        app.use("*", async (c, next) => {
+          c.set("user", { id: userId } as AppEnv["Variables"]["user"])
+          c.set("session", {
+            id: `sess_${f.id}`,
+          } as AppEnv["Variables"]["session"])
+          await withOrgIdContext(f.org, next)
+        })
+        app.route("/conversations", conversationRoutes)
+        try {
+          const listed = await (
+            await app.request(`/conversations?workspaceId=${f.workspaceId}`)
+          ).json()
+          expect(listed.items[0]).toMatchObject({
+            lastChatPrNumber: 42,
+            lastChatPrUrl: pull.html_url,
+          })
+          expect(listed.items[0]).not.toHaveProperty("lastChatPrRevision")
+          expect(
+            (await app.request(`/conversations/${conversationId}/pull-request`))
+              .status,
+          ).toBe(200)
+          relink = async () => {
+            await withOrgDbContext(f.org.id, (db) =>
+              db
+                .update(workspaces)
+                .set({ desiredGeneration: f.revision.generation + 1 })
+                .where(eq(workspaces.id, f.workspaceId)),
+            )
+          }
+          expect(
+            (await app.request(`/conversations/${conversationId}/pull-request`))
+              .status,
+          ).toBe(404)
+          const after = await (
+            await app.request(`/conversations?workspaceId=${f.workspaceId}`)
+          ).json()
+          expect(after.items[0]).toMatchObject({
+            lastChatPrNumber: null,
+            lastChatPrUrl: null,
+          })
+        } finally {
+          await withOrgDbContext(f.org.id, (db) =>
+            db
+              .delete(conversations)
+              .where(eq(conversations.id, conversationId)),
+          )
+        }
+      },
+    )
+  },
+)

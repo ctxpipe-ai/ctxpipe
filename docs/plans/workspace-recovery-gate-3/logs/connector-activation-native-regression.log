@@ -1,0 +1,287 @@
+{"name": "connector-activation-native-regression", "cwd": "/private/tmp/ctxpipe-recovery-01a07aba", "command": ["/Users/jakubriedl/.volta/tools/image/node/22.16.0/bin/node", "apps/backend/node_modules/vitest/vitest.mjs", "run", "--root", "apps/backend", "src/domain/workspaces/connector-finalization-native.contract.test.ts", "src/domain/workspaces/linear-mirror-native.contract.test.ts", "src/domain/workspaces/notion-mirror-native.contract.test.ts", "src/domain/workspaces/confluence-mirror-native.contract.test.ts", "src/models/linear-connector.test.ts", "src/models/notion-connector.test.ts", "src/routes/v1/connectors-linear.test.ts", "src/routes/v1/connectors-notion.test.ts", "src/routes/webhooks/github/github-linear-push.test.ts"], "environment": {"AUTH_SECRET": "gate0-local-disposable-test-secret-20260907", "DATABASE_URL": "postgresql://ctxpipe_app:ctxpipe@127.0.0.1:61314/ctxpipe_gate0_fresh", "GRAPH_DB_URI": "redis://127.0.0.1:6398", "CI": "true", "NO_COLOR": "1", "TURBO_TELEMETRY_DISABLED": "1", "STORYBOOK_DISABLE_TELEMETRY": "1", "PATH": "/Users/jakubriedl/.volta/tools/image/node/22.16.0/bin:/private/tmp/ctxpipe-recovery-runtime/ast-grep/node_modules/.bin:/private/tmp/ctxpipe-recovery-runtime/node_modules/.bin:/private/tmp/ctxpipe-recovery-runtime/zoekt:/usr/local/bin:/System/Cryptexes/App/usr/bin:/usr/bin:/bin:/usr/sbin:/sbin:/var/run/com.apple.security.cryptexd/codex.system/bootstrap/usr/local/bin:/var/run/com.apple.security.cryptexd/codex.system/bootstrap/usr/bin:/var/run/com.apple.security.cryptexd/codex.system/bootstrap/usr/appleinternal/bin:/pkg/env/global/bin:/Users/jakubriedl/.codex/tmp/arg0/codex-arg0BW5Gt3:/Users/jakubriedl/.cache/codex-runtimes/codex-primary-runtime/dependencies/bin/override:/Users/jakubriedl/.local/bin:/Users/jakubriedl/.bun/bin:/Users/jakubriedl/.opencode/bin:/Users/jakubriedl/.volta/bin:/opt/homebrew/bin:/opt/homebrew/sbin:/Users/jakubriedl/.cache/codex-runtimes/codex-primary-runtime/dependencies/bin/fallback:/Applications/ChatGPT.app/Contents/Resources"}, "timeout_seconds": 600, "started_utc": "2026-09-08T18:20:18Z", "log": "logs/connector-activation-native-regression.log"}
+
+ RUN  v4.0.18 /private/tmp/ctxpipe-recovery-01a07aba/apps/backend
+
+Cloning into bare repository '/var/folders/9t/jj9rnpps7_ddb72c1mq2k13w0000gn/T/ctxpipe-hydration-contract-OdbWmc/remote.git'...
+done.
+Cloning into bare repository '/var/folders/9t/jj9rnpps7_ddb72c1mq2k13w0000gn/T/ctxpipe-hydration-contract-6wGbuO/remote.git'...
+done.
+Cloning into bare repository '/var/folders/9t/jj9rnpps7_ddb72c1mq2k13w0000gn/T/ctxpipe-hydration-contract-IIsCqv/remote.git'...
+done.
+Cloning into bare repository '/var/folders/9t/jj9rnpps7_ddb72c1mq2k13w0000gn/T/ctxpipe-hydration-contract-g87pwc/remote.git'...
+done.
+ ✓ src/domain/workspaces/confluence-mirror-native.contract.test.ts (4 tests) 13822ms
+   ✓ captures Confluence full with scoped deletion and transient credentials  3074ms
+   ✓ captures Confluence space with scoped deletion and transient credentials  3166ms
+   ✓ captures Confluence failed with scoped deletion and transient credentials  2421ms
+   ✓ captures Confluence rebind with scoped deletion and transient credentials  5160ms
+Cloning into bare repository '/var/folders/9t/jj9rnpps7_ddb72c1mq2k13w0000gn/T/ctxpipe-hydration-contract-jeaZBu/remote.git'...
+done.
+Cloning into bare repository '/var/folders/9t/jj9rnpps7_ddb72c1mq2k13w0000gn/T/ctxpipe-hydration-contract-dars6E/remote.git'...
+done.
+Cloning into bare repository '/var/folders/9t/jj9rnpps7_ddb72c1mq2k13w0000gn/T/ctxpipe-hydration-contract-gaGWlv/remote.git'...
+done.
+ ✓ src/domain/workspaces/notion-mirror-native.contract.test.ts (3 tests) 10878ms
+   ✓ captures a Notion entity deletion without persisting its credential and runs one native mirror child  3349ms
+   ✓ captures a Notion full deletion without persisting its credential and runs one native mirror child  3150ms
+   ✓ captures a Notion rebind deletion without persisting its credential and runs one native mirror child  4379ms
+Cloning into bare repository '/var/folders/9t/jj9rnpps7_ddb72c1mq2k13w0000gn/T/ctxpipe-hydration-contract-4QpRwP/remote.git'...
+done.
+Cloning into bare repository '/var/folders/9t/jj9rnpps7_ddb72c1mq2k13w0000gn/T/ctxpipe-hydration-contract-FaiAVG/remote.git'...
+done.
+Cloning into bare repository '/var/folders/9t/jj9rnpps7_ddb72c1mq2k13w0000gn/T/ctxpipe-hydration-contract-oj6JZz/remote.git'...
+done.
+ ✓ src/domain/workspaces/linear-mirror-native.contract.test.ts (3 tests) 11219ms
+   ✓ captures a Linear entity deletion without persisting its credential and runs one native mirror child  3301ms
+   ✓ captures a Linear full deletion without persisting its credential and runs one native mirror child  3178ms
+   ✓ captures a Linear rebind deletion without persisting its credential and runs one native mirror child  4738ms
+Cloning into bare repository '/var/folders/9t/jj9rnpps7_ddb72c1mq2k13w0000gn/T/ctxpipe-hydration-contract-mauHSe/remote.git'...
+done.
+Cloning into bare repository '/var/folders/9t/jj9rnpps7_ddb72c1mq2k13w0000gn/T/ctxpipe-hydration-contract-C0n0iQ/remote.git'...
+done.
+Cloning into bare repository '/var/folders/9t/jj9rnpps7_ddb72c1mq2k13w0000gn/T/ctxpipe-hydration-contract-64GcHs/remote.git'...
+done.
+Cloning into bare repository '/var/folders/9t/jj9rnpps7_ddb72c1mq2k13w0000gn/T/ctxpipe-hydration-contract-2vMhQv/remote.git'...
+done.
+Cloning into bare repository '/var/folders/9t/jj9rnpps7_ddb72c1mq2k13w0000gn/T/ctxpipe-hydration-contract-KJrnNO/remote.git'...
+done.
+Cloning into bare repository '/var/folders/9t/jj9rnpps7_ddb72c1mq2k13w0000gn/T/ctxpipe-hydration-contract-JTsZEd/remote.git'...
+done.
+Cloning into bare repository '/var/folders/9t/jj9rnpps7_ddb72c1mq2k13w0000gn/T/ctxpipe-hydration-contract-2QrJYM/remote.git'...
+done.
+Cloning into bare repository '/var/folders/9t/jj9rnpps7_ddb72c1mq2k13w0000gn/T/ctxpipe-hydration-contract-PIwV6h/remote.git'...
+done.
+Cloning into bare repository '/var/folders/9t/jj9rnpps7_ddb72c1mq2k13w0000gn/T/ctxpipe-hydration-contract-iOK1Fd/remote.git'...
+done.
+Cloning into bare repository '/var/folders/9t/jj9rnpps7_ddb72c1mq2k13w0000gn/T/ctxpipe-hydration-contract-p81pYo/remote.git'...
+done.
+Cloning into bare repository '/var/folders/9t/jj9rnpps7_ddb72c1mq2k13w0000gn/T/ctxpipe-hydration-contract-hGjY3k/remote.git'...
+done.
+Cloning into bare repository '/var/folders/9t/jj9rnpps7_ddb72c1mq2k13w0000gn/T/ctxpipe-hydration-contract-meaJLY/remote.git'...
+done.
+Cloning into bare repository '/var/folders/9t/jj9rnpps7_ddb72c1mq2k13w0000gn/T/ctxpipe-hydration-contract-zoOmNZ/remote.git'...
+done.
+Cloning into bare repository '/var/folders/9t/jj9rnpps7_ddb72c1mq2k13w0000gn/T/ctxpipe-hydration-contract-qaDSyx/remote.git'...
+done.
+Cloning into bare repository '/var/folders/9t/jj9rnpps7_ddb72c1mq2k13w0000gn/T/ctxpipe-hydration-contract-3Yz7Kb/remote.git'...
+done.
+Cloning into bare repository '/var/folders/9t/jj9rnpps7_ddb72c1mq2k13w0000gn/T/ctxpipe-hydration-contract-62fPpU/remote.git'...
+done.
+Cloning into bare repository '/var/folders/9t/jj9rnpps7_ddb72c1mq2k13w0000gn/T/ctxpipe-hydration-contract-QB8zdg/remote.git'...
+done.
+Cloning into bare repository '/var/folders/9t/jj9rnpps7_ddb72c1mq2k13w0000gn/T/ctxpipe-hydration-contract-8Y0KMO/remote.git'...
+done.
+Cloning into bare repository '/var/folders/9t/jj9rnpps7_ddb72c1mq2k13w0000gn/T/ctxpipe-hydration-contract-sSYFcY/remote.git'...
+done.
+Cloning into bare repository '/var/folders/9t/jj9rnpps7_ddb72c1mq2k13w0000gn/T/ctxpipe-hydration-contract-QIVCFK/remote.git'...
+done.
+Cloning into bare repository '/var/folders/9t/jj9rnpps7_ddb72c1mq2k13w0000gn/T/ctxpipe-hydration-contract-eey9fQ/remote.git'...
+done.
+Cloning into bare repository '/var/folders/9t/jj9rnpps7_ddb72c1mq2k13w0000gn/T/ctxpipe-hydration-contract-8wY9UM/remote.git'...
+done.
+Cloning into bare repository '/var/folders/9t/jj9rnpps7_ddb72c1mq2k13w0000gn/T/ctxpipe-hydration-contract-D7QHqU/remote.git'...
+done.
+Cloning into bare repository '/var/folders/9t/jj9rnpps7_ddb72c1mq2k13w0000gn/T/ctxpipe-hydration-contract-eLoNsQ/remote.git'...
+done.
+Cloning into bare repository '/var/folders/9t/jj9rnpps7_ddb72c1mq2k13w0000gn/T/ctxpipe-hydration-contract-pmbcPu/remote.git'...
+done.
+Cloning into bare repository '/var/folders/9t/jj9rnpps7_ddb72c1mq2k13w0000gn/T/ctxpipe-hydration-contract-Kj4P0D/remote.git'...
+done.
+Cloning into bare repository '/var/folders/9t/jj9rnpps7_ddb72c1mq2k13w0000gn/T/ctxpipe-hydration-contract-J9B2yM/remote.git'...
+done.
+ ✓ src/domain/workspaces/connector-finalization-native.contract.test.ts (27 tests) 24156ms
+   ✓ projects 'linear' 'completed' onto the same initial binding as 'live'; providerChanged=undefined; activationChanged=undefined; terminalOwner=undefined; reactivated=undefined; pendingOwner=undefined  418ms
+   ✓ projects 'linear' 'partial_failed' onto the same initial binding as 'sync_failed'; providerChanged=undefined; activationChanged=undefined; terminalOwner=undefined; reactivated=undefined; pendingOwner=undefined  434ms
+   ✓ projects 'linear' 'failed' onto the same initial binding as 'sync_failed'; providerChanged=undefined; activationChanged=undefined; terminalOwner=undefined; reactivated=undefined; pendingOwner=undefined  364ms
+   ✓ projects 'notion' 'completed' onto the same initial binding as 'live'; providerChanged=undefined; activationChanged=undefined; terminalOwner=undefined; reactivated=undefined; pendingOwner=undefined  471ms
+   ✓ projects 'notion' 'partial_failed' onto the same initial binding as 'sync_failed'; providerChanged=undefined; activationChanged=undefined; terminalOwner=undefined; reactivated=undefined; pendingOwner=undefined  310ms
+   ✓ projects 'notion' 'failed' onto the same initial binding as 'sync_failed'; providerChanged=undefined; activationChanged=undefined; terminalOwner=undefined; reactivated=undefined; pendingOwner=undefined  391ms
+   ✓ projects 'confluence' 'completed' onto the same initial binding as 'live'; providerChanged=undefined; activationChanged=undefined; terminalOwner=undefined; reactivated=undefined; pendingOwner=undefined  380ms
+   ✓ projects 'confluence' 'partial_failed' onto the same initial binding as 'sync_failed'; providerChanged=undefined; activationChanged=undefined; terminalOwner=undefined; reactivated=undefined; pendingOwner=undefined  379ms
+   ✓ projects 'confluence' 'failed' onto the same initial binding as 'sync_failed'; providerChanged=undefined; activationChanged=undefined; terminalOwner=undefined; reactivated=undefined; pendingOwner=undefined  301ms
+   ✓ projects 'notion' 'completed' onto the same initial binding as 'initial_sync'; providerChanged=undefined; activationChanged=undefined; terminalOwner=undefined; reactivated=undefined; pendingOwner=undefined  392ms
+   ✓ projects 'linear' 'completed' onto the same initial binding as 'initial_sync'; providerChanged=true; activationChanged=undefined; terminalOwner=undefined; reactivated=undefined; pendingOwner=undefined  372ms
+   ✓ projects 'notion' 'completed' onto the same initial binding as 'initial_sync'; providerChanged=true; activationChanged=undefined; terminalOwner=undefined; reactivated=undefined; pendingOwner=undefined  444ms
+   ✓ projects 'linear' 'completed' onto the same initial binding as 'initial_sync'; providerChanged=undefined; activationChanged=true; terminalOwner=undefined; reactivated=undefined; pendingOwner=undefined  475ms
+   ✓ projects 'notion' 'completed' onto the same initial binding as 'initial_sync'; providerChanged=undefined; activationChanged=true; terminalOwner=undefined; reactivated=undefined; pendingOwner=undefined  479ms
+   ✓ projects 'linear' 'failed' onto the same initial binding as 'sync_failed'; providerChanged=undefined; activationChanged=undefined; terminalOwner=true; reactivated=undefined; pendingOwner=undefined  2887ms
+   ✓ projects 'notion' 'failed' onto the same initial binding as 'sync_failed'; providerChanged=undefined; activationChanged=undefined; terminalOwner=true; reactivated=undefined; pendingOwner=undefined  2609ms
+   ✓ projects 'confluence' 'failed' onto the same initial binding as 'sync_failed'; providerChanged=undefined; activationChanged=undefined; terminalOwner=true; reactivated=undefined; pendingOwner=undefined  2595ms
+   ✓ projects 'linear' 'failed' onto the same initial binding as 'initial_sync'; providerChanged=undefined; activationChanged=undefined; terminalOwner=true; reactivated=true; pendingOwner=undefined  2612ms
+   ✓ projects 'notion' 'failed' onto the same initial binding as 'initial_sync'; providerChanged=undefined; activationChanged=undefined; terminalOwner=true; reactivated=true; pendingOwner=undefined  2521ms
+   ✓ projects 'confluence' 'failed' onto the same initial binding as 'initial_sync'; providerChanged=undefined; activationChanged=undefined; terminalOwner=true; reactivated=true; pendingOwner=undefined  2952ms
+   ✓ projects 'linear' 'completed' onto the same initial binding as 'initial_sync'; providerChanged=undefined; activationChanged=undefined; terminalOwner=undefined; reactivated=undefined; pendingOwner=true  528ms
+   ✓ projects 'notion' 'completed' onto the same initial binding as 'initial_sync'; providerChanged=undefined; activationChanged=undefined; terminalOwner=undefined; reactivated=undefined; pendingOwner=true  389ms
+   ✓ projects 'confluence' 'completed' onto the same initial binding as 'initial_sync'; providerChanged=undefined; activationChanged=undefined; terminalOwner=undefined; reactivated=undefined; pendingOwner=true  384ms
+ ✓ src/models/linear-connector.test.ts (14 tests) 101ms
+ ❯ src/routes/v1/connectors-notion.test.ts (11 tests | 2 failed) 31ms
+     ✓ returns live status without reading GitHub scope config 13ms
+     ✓ enqueues the config workflow with the requested resources when the git scope differs 2ms
+     ✓ enqueues only once when overlapping saves both report a change 2ms
+     ✓ does not claim or enqueue a workflow when the selection matches the git scope 2ms
+     ✓ does not enqueue a config PR for a binding-only change (scope stays git-native) 1ms
+     ✓ releases the PR claim when workflow enqueue fails 1ms
+     ✓ retries failed configuration from the pull request branch 2ms
+     ✓ retries failed configuration with submitted resources 1ms
+     × retries a failed content sync 5ms
+     ✓ does not retry content outside sync_failed 1ms
+     × restores sync_failed when content retry enqueue fails 1ms
+stderr | src/routes/v1/connectors-linear.test.ts > Linear connector routes > retries failed content sync without raising another config PR
+TypeError: Cannot read properties of undefined (reading 'select')
+    at /private/tmp/ctxpipe-recovery-01a07aba/apps/backend/src/models/connector-content-sync.ts:12:8
+    at /private/tmp/ctxpipe-recovery-01a07aba/apps/backend/src/routes/v1/connectors-linear.test.ts:40:5
+    at Mock (file:///private/tmp/ctxpipe-recovery-01a07aba/node_modules/.pnpm/@vitest+spy@4.0.18/node_modules/@vitest/spy/dist/index.js:285:34)
+    at getConnectorContentSyncGeneration (/private/tmp/ctxpipe-recovery-01a07aba/apps/backend/src/models/connector-content-sync.ts:10:10)
+    at /private/tmp/ctxpipe-recovery-01a07aba/apps/backend/src/routes/v1/connectors-linear.ts:963:41
+    at processTicksAndRejections (node:internal/process/task_queues:105:5)
+    at dispatch (file:///private/tmp/ctxpipe-recovery-01a07aba/node_modules/.pnpm/hono@4.12.27/node_modules/hono/dist/compose.js:22:17)
+    at file:///private/tmp/ctxpipe-recovery-01a07aba/node_modules/.pnpm/hono@4.12.27/node_modules/hono/dist/validator/validator.js:81:12
+    at dispatch (file:///private/tmp/ctxpipe-recovery-01a07aba/node_modules/.pnpm/hono@4.12.27/node_modules/hono/dist/compose.js:22:17)
+    at /private/tmp/ctxpipe-recovery-01a07aba/apps/backend/src/routes/v1/connectors-linear.test.ts:116:7
+
+stderr | src/routes/v1/connectors-linear.test.ts > Linear connector routes > restores the failed state when retry enqueue fails
+TypeError: Cannot read properties of undefined (reading 'select')
+    at /private/tmp/ctxpipe-recovery-01a07aba/apps/backend/src/models/connector-content-sync.ts:12:8
+    at /private/tmp/ctxpipe-recovery-01a07aba/apps/backend/src/routes/v1/connectors-linear.test.ts:40:5
+    at Mock (file:///private/tmp/ctxpipe-recovery-01a07aba/node_modules/.pnpm/@vitest+spy@4.0.18/node_modules/@vitest/spy/dist/index.js:285:34)
+    at getConnectorContentSyncGeneration (/private/tmp/ctxpipe-recovery-01a07aba/apps/backend/src/models/connector-content-sync.ts:10:10)
+    at /private/tmp/ctxpipe-recovery-01a07aba/apps/backend/src/routes/v1/connectors-linear.ts:963:41
+    at processTicksAndRejections (node:internal/process/task_queues:105:5)
+    at dispatch (file:///private/tmp/ctxpipe-recovery-01a07aba/node_modules/.pnpm/hono@4.12.27/node_modules/hono/dist/compose.js:22:17)
+    at file:///private/tmp/ctxpipe-recovery-01a07aba/node_modules/.pnpm/hono@4.12.27/node_modules/hono/dist/validator/validator.js:81:12
+    at dispatch (file:///private/tmp/ctxpipe-recovery-01a07aba/node_modules/.pnpm/hono@4.12.27/node_modules/hono/dist/compose.js:22:17)
+    at /private/tmp/ctxpipe-recovery-01a07aba/apps/backend/src/routes/v1/connectors-linear.test.ts:116:7
+
+ ❯ src/routes/v1/connectors-linear.test.ts (16 tests | 2 failed) 33ms
+     ✓ returns a signed read-only authorization URL 12ms
+     ✓ exchanges the callback and relays the connection id 3ms
+     ✓ relays a Linear authorization error back to the setup dialog 1ms
+     ✓ relays token exchange failures back to the setup dialog 1ms
+     ✓ relays an error when the user is no longer an org administrator 1ms
+     ✓ reads draft config scopes from the pending pull request head 1ms
+     ✓ returns live status without reading GitHub scope config 1ms
+     ✓ does not claim a config pull request for a target-only patch 1ms
+     ✓ does not demote a live binding for unchanged scopes 2ms
+     ✓ retries failed configuration pull request creation 1ms
+     ✓ retries config with submitted scopes when no git draft exists 1ms
+     ✓ restores the prior phase when configuration enqueue fails 0ms
+     × retries failed content sync without raising another config PR 5ms
+     × restores the failed state when retry enqueue fails 1ms
+     ✓ does not start a content retry outside the failed state 0ms
+     ✓ does not enqueue a content retry when another request claimed it 0ms
+ ❯ src/routes/webhooks/github/github-linear-push.test.ts (5 tests | 2 failed) 6ms
+     × starts initial sync from merged config on the selected branch 3ms
+     ✓ rejects config copied from another Linear workspace 1ms
+     ✓ does not enqueue when another delivery already activated initial sync 0ms
+     ✓ propagates compare failures so GitHub can retry the delivery 1ms
+     × restores awaiting_merge when initial-sync enqueue fails 0ms
+ ✓ src/models/notion-connector.test.ts (9 tests) 56ms
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 6 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  src/routes/v1/connectors-linear.test.ts > Linear connector routes > retries failed content sync without raising another config PR
+AssertionError: expected 500 to be 202 // Object.is equality
+
+- Expected
++ Received
+
+- 202
++ 500
+
+ ❯ src/routes/v1/connectors-linear.test.ts:548:29
+    546|     )
+    547| 
+    548|     expect(response.status).toBe(202)
+       |                             ^
+    549|     expect(mocks.claimContentRetry).toHaveBeenCalledWith("con_linear")
+    550|     expect(mocks.runWorkflow).toHaveBeenCalledWith(
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/6]⎯
+
+ FAIL  src/routes/v1/connectors-linear.test.ts > Linear connector routes > restores the failed state when retry enqueue fails
+AssertionError: expected "vi.fn()" to be called with arguments: [ Array(1) ]
+
+Number of calls: 0
+
+ ❯ src/routes/v1/connectors-linear.test.ts:568:33
+    566| 
+    567|     expect(response.status).toBe(500)
+    568|     expect(mocks.updatePrState).toHaveBeenCalledWith({
+       |                                 ^
+    569|       connectionId: "con_linear",
+    570|       pendingConfigPullUrl: null,
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[2/6]⎯
+
+ FAIL  src/routes/v1/connectors-notion.test.ts > Notion connector config > retries a failed content sync
+AssertionError: expected 500 to be 202 // Object.is equality
+
+- Expected
++ Received
+
+- 202
++ 500
+
+ ❯ src/routes/v1/connectors-notion.test.ts:326:29
+    324|     )
+    325| 
+    326|     expect(response.status).toBe(202)
+       |                             ^
+    327|     expect(claimNotionContentSyncRetryMock).toHaveBeenCalledWith("con_…
+    328|     expect(runWorkflowMock).toHaveBeenCalledWith(
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[3/6]⎯
+
+ FAIL  src/routes/v1/connectors-notion.test.ts > Notion connector config > restores sync_failed when content retry enqueue fails
+AssertionError: expected "vi.fn()" to be called with arguments: [ { connectionId: 'con_1', …(7) } ]
+
+Number of calls: 0
+
+ ❯ src/routes/v1/connectors-notion.test.ts:362:46
+    360| 
+    361|     expect(response.status).toBe(500)
+    362|     expect(transitionNotionBindingStateMock).toHaveBeenCalledWith({
+       |                                              ^
+    363|       connectionId: "con_1",
+    364|       expectedSetupPhase: "initial_sync",
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[4/6]⎯
+
+ FAIL  src/routes/webhooks/github/github-linear-push.test.ts > Linear config push activation > starts initial sync from merged config on the selected branch
+TypeError: Cannot read properties of undefined (reading 'select')
+ ❯ src/models/connector-content-sync.ts:12:8
+     10|   return withOrgDbContext(orgId, async (db) => {
+     11|     const [row] = await db
+     12|       .select({ generation: connections.contentSyncGeneration })
+       |        ^
+     13|       .from(connections)
+     14|       .where(eq(connections.id, connectionId))
+ ❯ src/routes/webhooks/github/github-linear-push.test.ts:26:5
+ ❯ getConnectorContentSyncGeneration src/models/connector-content-sync.ts:10:10
+ ❯ Module.maybeActivateLinearSyncOnConfigPush src/routes/webhooks/github/github-linear-push.ts:155:43
+ ❯ src/routes/webhooks/github/github-linear-push.test.ts:93:5
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[5/6]⎯
+
+ FAIL  src/routes/webhooks/github/github-linear-push.test.ts > Linear config push activation > restores awaiting_merge when initial-sync enqueue fails
+TypeError: Cannot read properties of undefined (reading 'select')
+ ❯ src/models/connector-content-sync.ts:12:8
+     10|   return withOrgDbContext(orgId, async (db) => {
+     11|     const [row] = await db
+     12|       .select({ generation: connections.contentSyncGeneration })
+       |        ^
+     13|       .from(connections)
+     14|       .where(eq(connections.id, connectionId))
+ ❯ src/routes/webhooks/github/github-linear-push.test.ts:26:5
+ ❯ getConnectorContentSyncGeneration src/models/connector-content-sync.ts:10:10
+ ❯ Module.maybeActivateLinearSyncOnConfigPush src/routes/webhooks/github/github-linear-push.ts:155:43
+ ❯ src/routes/webhooks/github/github-linear-push.test.ts:178:5
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[6/6]⎯
+
+
+ Test Files  3 failed | 6 passed (9)
+      Tests  6 failed | 86 passed (92)
+   Start at  04:20:19
+   Duration  71.96s (transform 1.14s, setup 53ms, import 10.98s, tests 60.30s, environment 1ms)
+

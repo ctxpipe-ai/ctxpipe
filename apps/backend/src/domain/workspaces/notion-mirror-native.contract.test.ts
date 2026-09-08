@@ -111,6 +111,7 @@ process.exit(result.status ?? 1);
         const handle =
           mode !== "entity"
             ? await f.runner.runWorkflow(notionSyncContent.spec, {
+                contentSyncGeneration: 0,
                 orgId: f.org.id,
                 orgSlug: f.org.slug,
                 connectionId,

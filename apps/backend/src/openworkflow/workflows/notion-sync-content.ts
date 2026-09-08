@@ -22,6 +22,7 @@ import { workspaceConnectorMirror } from "./workspace-connector-mirror.js"
 const inputSchema = z.object({
   orgId: z.string().min(1),
   connectionId: z.string().min(1),
+  contentSyncGeneration: z.number().int().nonnegative(),
   orgSlug: z.string().min(1),
   scopeFromRepo: parsedNotionRepoScopeSchema.optional(),
 })
@@ -63,6 +64,7 @@ export const notionSyncContent = defineWorkflow(
               throw new Error("Notion binding is not ready for initial sync")
             }
             const captured = await captureConnectorMirrorTarget({
+              contentSyncGeneration: input.contentSyncGeneration,
               orgId: input.orgId,
               env,
               repositoryGitUrl: binding.repositoryGitUrl,
@@ -154,6 +156,7 @@ export const notionSyncContent = defineWorkflow(
             connectionId: input.connectionId,
             workflowStatus: captured.status,
             binding: {
+              contentSyncGeneration: context.captured.contentSyncGeneration,
               repositoryId: context.binding.repositoryId,
               revision: context.captured.revision,
               provider: {
