@@ -149,3 +149,143 @@ in 10 required files, zero skips or allowances. Proof policy checks 430
 source/config files and 27 command files; source whitespace checks pass. This is
 a partial Gate 2 checkpoint, with index publication/identity cleanup and the
 terminal adversarial reviews still outstanding.
+
+### Native index publication, search, and credential binding
+
+Checkpoint `d5805ee87410d4eea1e663c4fbaa42029972e953` was pushed and its remote
+branch SHA verified exactly. It remains a partial Gate 2 checkpoint.
+
+`native-github-policy-callers-red` reproduced provider-specific branch lookups
+returning no result for an otherwise readable Git remote.
+`native-github-policy-callers-green` passes through both GitHub policy wrappers,
+including a default-branch rename, after routing them through the shared native
+read-tip policy.
+
+The new `index-workflow.contract.test.ts` runs real OpenWorkflow parent/child
+workflows, PostgreSQL/RLS models, a Bun subprocess serving the production
+codesearch Hono app, native Git, Zoekt indexing, and the real Zoekt RPC service.
+No owned collaborator is mocked. The initial integration run exposed completed
+index work leaving canonical freshness pending. Index publication now records the
+full captured revision and checks `searchIndexOk`; a real output-directory
+failure records failed freshness, preserves the active projection, returns
+`published: false`, and recovers on a later successful index command.
+
+Native search exposed a second defect: the previous July Zoekt CLI ignores
+branch metadata when adding documents, so file matches omit `Version` even when
+the repository metadata has a branch. The indexer now includes the native Git
+HEAD in branch metadata, and Docker/CI pin Zoekt to
+`596c362fcf1388fe0082acfcfc80c4d172efb7c1` (module
+`v0.0.0-20260907153830-596c362fcf13`), whose CLI adds those branches to indexed
+documents. This behavior was checked against the actual pinned Go source and
+executables, not inferred only from current upstream docs:
+https://github.com/sourcegraph/zoekt/blob/596c362fcf1388fe0082acfcfc80c4d172efb7c1/cmd/zoekt-index/main.go
+The macOS and Linux ARM64 binaries were built from this same revision in the
+existing isolated codesearch toolchain. Backend CI installs the same pinned
+native tools; the required prerequisites fail if either is absent.
+
+Fixture corrections are retained as evidence: the first cross-build lacked the
+module sources; the next lacked command dependency checksums. The successful
+isolated build resolves declared module dependencies. The first native server
+fixture omitted production's `-rpc` flag and returned HTML; that attempt timed
+out. Its exact two subprocesses and disposable org/workflow/directory were
+removed, the flag was corrected, and teardown is now also registered with
+Vitest's on-test-finished hook. A one-second wait in the newly added rejection
+fixture was shorter than OpenWorkflow's ordinary poll cycle; its result wait is
+now ten seconds while retaining the literal rejection and untouched-state
+assertions. No existing suite timeout or allowance was changed.
+
+`native-index-child-identity-green` proves native queue admission rejects a
+contradictory generation. The schema also binds SHA, access, remote, workspace,
+and explicit credential connection. `native-index-repository-binding-terminal`
+proves the worker rejects a different repository row without poisoning the
+valid projection's freshness. Repository read binding is now a scoped database
+read independent of default-checkout readiness. All index credentials use the
+shared repository-scoped read policy, and the owner index keeps the connection
+captured in its immutable revision.
+
+`native-index-unbound-published-state-red` reproduced an unbound repository index
+marking an unhydrated Workspace indexed by matching its Git URL. The first
+fixture attempt tried to create duplicate Workspace URLs, which the actual DB
+constraint correctly rejects; the final fixture uses an existing default
+checkout and one unhydrated Workspace. `native-index-unbound-publication-green`
+passes after removing that publication path. Its now-unused helper, model
+fan-out, and `indexPublishTargets` reconstruction were deleted. The obsolete
+owned-mock repository-index tests and four pure fan-out cases were removed;
+the real workflow success/failure/retry/identity/publication contract and the
+existing native SCIP process contracts provide replacement evidence.
+
+Gate 2 remains open. Linked-target snapshot/CAS coverage, remaining identity
+migration, the required Kubernetes ingest memory gate after the Zoekt change,
+complete regression checks, and terminal independent reviews are outstanding.
+
+
+### Native index, linked identity, and tip refresh follow-up
+
+`native-index-backend-replacement` passed the backend gate: 1451 cases, 1450
+passing and only the existing Gate 0 chat characterization failure. The native
+Git branch/default-branch/rename proof replaced two obsolete Octokit branch
+lookup assertions. `native-index-required-contracts` passed all required
+contracts; `native-index-linux-codesearch` passed the full Linux suite with image
+`sha256:9979e222a076898f448cbb59706efa629bf66258125053e52c48e790130d00c2`.
+
+Native queue admission now requires a link ID for linked indexing. The parent
+captures link URL, ref, and SHA in a durable step before running the index child;
+completion compares both this link snapshot and the complete published owner
+revision in Postgres. `native-index-linked-admission-red` reproduced malformed
+admission and `native-index-linked-revision-red` reproduced stale publication
+after a branch identity change. `native-index-linked-revision-green` passes.
+
+`native-search-subset-red` reproduced an unrequested linked repository file in
+a selected-repository response. `native-search-subset-green` passes with the
+returned file set fenced by both selected repository and published SHA. Native
+Git reads now require exactly 40 or 64 hex characters and propagate actual blob
+read failures. The old catch-all reported oversized blobs as missing;
+`native-read-error-classification-red` reproduces this, and
+`native-read-errors-green` passes with genuine missing paths still represented
+as missing and symlinks still read as blobs.
+
+Scheduled tip checks use the shared native revision policy, including the
+explicit credential connection and default branch. Capture now compares the
+observed branch metadata as well as generation, URL, SHA, and connection, and
+atomically updates SHA and branch together. The scheduled workflow awaits its
+follow-up queue admissions. The obsolete URL-only cron reconstruction/retry
+helper and its two synthetic cases were deleted. Native proof
+`native-tip-metadata-green` covers a default-branch rename at unchanged SHA,
+retaining the previous published projection, followed by a true same-tip no-op.
+`native-tip-deleted-workspace-red` reproduced scheduled work failing after the
+workspace was deleted; the policy now discards that missing target, and the
+native contract plus unchanged cron regressions pass. Full backend typecheck
+`native-tip-types-fixed` passes at the shrinking baseline of 155 diagnostics.
+
+`migrate-revision-fresh-and-upgrade` passes on two disposable databases: the
+complete current schema from scratch, and migration from Gate 1's exact d878
+schema with a populated legacy Workspace. New identity columns remain nullable
+and the legacy SHA/projection remains unchanged. Both databases were dropped.
+
+The manual Kubernetes ingest gate was repaired to use a real disposable
+Postgres organization, repository, and checkout; its old no-op database could
+not support the current phase transaction. It now accepts an explicitly
+identified prebuilt image, logs that image digest, validates the persisted
+checkout SHA, and can keep Go cache/build files on host-backed storage. Memory
+ceiling, native Kubernetes SHA, merged/language SCIP artifacts, cold shards,
+and empty hot-directory criteria are unchanged. The first run exhausted
+Docker disk during Go compilation, causing one concurrent native contract to
+fail on Postgres ENOSPC; that is a fixture/infrastructure failure, not a product
+red. Only that gate's container and identified disposable recovery build cache
+were removed, restoring 5.9 GiB of Docker space. Its exact fixture rows were
+cleaned. The branch-rename product red was then reproduced independently.
+The memory gate rerun and final regression checks remain in progress.
+
+Gate 2 is still open. The reader audit found chat graph tools still using the
+legacy FalkorDB projection despite the new Postgres graph authority. That path,
+remaining reader/identity cleanup, and the two terminal reviews must be completed
+before declaring Gate 2 done.
+
+`native-tip-backend-fixed` passes: 1449 cases, 1448 passing, only the unchanged
+Gate 0 chat failure. `native-tip-types-fixed` passes at 155 diagnostics. The
+portable checked-in migration proof also passes (`migrate-revision-portable-proof`).
+The first host-cache memory run hit the recorder's self-imposed 600-second
+limit while native Go compilation was still active (~4.3 GB cgroup memory),
+not a memory-gate assertion. Its fixture was cleaned. The recorder now permits
+3600 seconds for this explicitly expensive manual gate; the rerun uses the
+preserved disposable Go compiler/module cache and the same memory ceiling.

@@ -46,14 +46,15 @@ export async function resolveWorkspaceReadRevision(input: {
   orgId: string
   workspaceId: string
   env: Env
+  refresh?: boolean
   expected?:
     | WorkspaceRevision
     | { generation?: number; url?: string; sha?: string }
 }) {
   assertNotInOrgDbContext()
   const workspace = await getWorkspaceById(input.workspaceId)
-  if (!workspace || workspace.orgId !== input.orgId)
-    throw new Error("Workspace not found")
+  if (!workspace) return null
+  if (workspace.orgId !== input.orgId) throw new Error("Workspace not found")
   const bound =
     input.expected && "remote" in input.expected ? input.expected : null
   const expected = bound
@@ -78,13 +79,13 @@ export async function resolveWorkspaceReadRevision(input: {
   )
     return null
   try {
-    if (!workspace.desiredSha)
+    if (!workspace.desiredSha && !input.refresh)
       throw new Error(
         "Could not resolve the git tip for this workspace repository.",
       )
-    const token = workspace.desiredDefaultBranch
-      ? undefined
-      : await resolveRepositoryReadCredential({
+    const needsTip = input.refresh || !workspace.desiredDefaultBranch
+    const token = needsTip
+      ? await resolveRepositoryReadCredential({
           orgId: input.orgId,
           env: input.env,
           remote: {
@@ -92,15 +93,18 @@ export async function resolveWorkspaceReadRevision(input: {
             githubConnectionId: workspace.githubConnectionId,
           },
         })
-    const defaultBranch =
-      workspace.desiredDefaultBranch ??
-      (
-        await resolveGitRemoteTip({
+      : undefined
+    const resolved = needsTip
+      ? await resolveGitRemoteTip({
           url: workspace.workspaceRepositoryUrl,
           token,
         })
-      )?.branch
-    if (!defaultBranch)
+      : null
+    const tip = {
+      sha: input.refresh ? resolved?.sha : workspace.desiredSha,
+      branch: resolved?.branch ?? workspace.desiredDefaultBranch,
+    }
+    if (!tip.sha || !tip.branch)
       throw new Error("The workspace repository has no default branch")
     const revision = await captureWorkspaceRevision({
       workspaceId: workspace.id,
@@ -109,8 +113,9 @@ export async function resolveWorkspaceReadRevision(input: {
         url: workspace.workspaceRepositoryUrl,
         sha: workspace.desiredSha,
         githubConnectionId: workspace.githubConnectionId,
+        defaultBranch: workspace.desiredDefaultBranch ?? null,
       },
-      defaultBranch,
+      tip: { sha: tip.sha, branch: tip.branch },
     })
     return revision ? { revision, token, workspace } : null
   } catch (error) {

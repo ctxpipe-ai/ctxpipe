@@ -9,9 +9,9 @@
 # ── Stage 1: Go toolchain and Zoekt binaries ─────────────────────────────────
 FROM golang:1.24-bookworm AS go-tools
 RUN GOTOOLCHAIN=auto GOBIN=/zoekt-bin \
-    go install github.com/sourcegraph/zoekt/cmd/zoekt-index@latest && \
+    go install github.com/sourcegraph/zoekt/cmd/zoekt-index@596c362fcf1388fe0082acfcfc80c4d172efb7c1 && \
     GOTOOLCHAIN=auto GOBIN=/zoekt-bin \
-    go install github.com/sourcegraph/zoekt/cmd/zoekt-webserver@latest
+    go install github.com/sourcegraph/zoekt/cmd/zoekt-webserver@596c362fcf1388fe0082acfcfc80c4d172efb7c1
 
 # ── Stage 2: Node toolchain and npm-distributed SCIP tools ───────────────────
 FROM node:22-bookworm-slim AS node-tools

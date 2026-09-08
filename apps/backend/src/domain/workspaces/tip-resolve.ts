@@ -138,56 +138,6 @@ export async function applyResolvedTipsForMatchingLinked(input: {
   return updated
 }
 
-export async function runCronTipChecks(input: {
-  workspaces: ReadonlyArray<{
-    id: string
-    workspaceRepositoryUrl: string
-    desiredGeneration: number
-    desiredSha: string | null
-  }>
-  resolveTip: (workspaceRepositoryUrl: string) => Promise<string | null>
-  persist: (row: {
-    workspaceId: string
-    resolvedTip: string
-    expectedGeneration: number
-    expectedUrl: string
-    expectedDesiredSha: string | null
-  }) => Promise<boolean>
-  reloadDesiredSha?: (workspaceId: string) => Promise<string | null>
-}): Promise<Array<{ workspaceId: string; resolvedTip: string }>> {
-  const updated: Array<{ workspaceId: string; resolvedTip: string }> = []
-  for (const row of input.workspaces) {
-    let expectedDesiredSha = row.desiredSha
-    for (let attempt = 0; attempt < 2; attempt++) {
-      const tip = await input.resolveTip(row.workspaceRepositoryUrl)
-      if (!tip) break
-      if (
-        !cronTipCheckNeedsHydrate({
-          storedDesiredSha: expectedDesiredSha,
-          resolvedTip: tip,
-        })
-      ) {
-        break
-      }
-      const resolvedTip = desiredShaFromResolvedTip(tip)
-      const ok = await input.persist({
-        workspaceId: row.id,
-        resolvedTip,
-        expectedGeneration: row.desiredGeneration,
-        expectedUrl: row.workspaceRepositoryUrl,
-        expectedDesiredSha,
-      })
-      if (ok) {
-        updated.push({ workspaceId: row.id, resolvedTip })
-        break
-      }
-      if (!input.reloadDesiredSha || attempt === 1) break
-      expectedDesiredSha = await input.reloadDesiredSha(row.id)
-    }
-  }
-  return updated
-}
-
 export async function runCronLinkedTipChecks(input: {
   linked: ReadonlyArray<{
     id: string

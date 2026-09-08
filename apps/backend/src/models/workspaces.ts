@@ -22,7 +22,6 @@ import { nextRelinkFields } from "../domain/workspaces/relink.js"
 import {
   applyResolvedDesiredSha,
   type DerivedStoreResult,
-  indexPublishTargets,
   type ProjectionState,
   type PublishedProjection,
   publishedProjection,
@@ -413,21 +412,38 @@ export async function captureWorkspaceRevision(input: {
   expected: {
     generation: number
     url: string
-    sha: string
+    sha: string | null
+    defaultBranch: string | null
     githubConnectionId: string | null
   }
-  defaultBranch: string
+  tip: { sha: string; branch: string }
 }): Promise<WorkspaceRevision | null> {
+  workspaceRevisionSchema.parse({
+    workspaceId: input.workspaceId,
+    generation: input.expected.generation,
+    remote: {
+      url: input.expected.url,
+      githubConnectionId: input.expected.githubConnectionId,
+    },
+    sha: input.tip.sha,
+    defaultBranch: input.tip.branch,
+    access: "read",
+  })
   return orgSql(async () => {
     const [row] = await getOrgDb()
       .update(workspaces)
-      .set({ desiredDefaultBranch: input.defaultBranch })
+      .set({
+        desiredDefaultBranch: input.tip.branch,
+        desiredSha: input.tip.sha,
+        updatedAt: new Date(),
+      })
       .where(
         and(
           eq(workspaces.id, input.workspaceId),
           eq(workspaces.desiredGeneration, input.expected.generation),
           eq(workspaces.workspaceRepositoryUrl, input.expected.url),
-          eq(workspaces.desiredSha, input.expected.sha),
+          sql`${workspaces.desiredSha} is not distinct from ${input.expected.sha}`,
+          sql`${workspaces.desiredDefaultBranch} is not distinct from ${input.expected.defaultBranch}`,
           input.expected.githubConnectionId === null
             ? sql`${workspaces.githubConnectionId} is null`
             : eq(
@@ -822,6 +838,7 @@ export async function listOrgWorkspaces(
       | "workspaceRepositoryUrl"
       | "desiredGeneration"
       | "desiredSha"
+      | "desiredDefaultBranch"
       | "activeProjectionSha"
       | "githubConnectionId"
       | "writeStatus"
@@ -837,6 +854,7 @@ export async function listOrgWorkspaces(
         workspaceRepositoryUrl: workspaces.workspaceRepositoryUrl,
         desiredGeneration: workspaces.desiredGeneration,
         desiredSha: workspaces.desiredSha,
+        desiredDefaultBranch: workspaces.desiredDefaultBranch,
         activeProjectionSha: workspaces.activeProjectionSha,
         githubConnectionId: workspaces.githubConnectionId,
         writeStatus: workspaces.writeStatus,
@@ -1252,11 +1270,9 @@ export async function persistLinkedDesiredSha(input: {
 
 export async function persistLinkedIndexedSha(input: {
   linkedId: string
-  workspaceId: string
+  revision: WorkspaceRevision
   indexedSha: string
   expectedDesiredSha: string
-  expectedGeneration: number
-  expectedWorkspaceUrl: string
   expectedLinkedUrl: string
   expectedLinkedRef: string | null
 }): Promise<boolean> {
@@ -1268,7 +1284,10 @@ export async function persistLinkedIndexedSha(input: {
       .where(
         and(
           eq(workspaceLinkedRepositories.id, input.linkedId),
-          eq(workspaceLinkedRepositories.workspaceId, input.workspaceId),
+          eq(
+            workspaceLinkedRepositories.workspaceId,
+            input.revision.workspaceId,
+          ),
           eq(workspaceLinkedRepositories.desiredSha, input.expectedDesiredSha),
           eq(workspaceLinkedRepositories.gitUrl, input.expectedLinkedUrl),
           input.expectedLinkedRef
@@ -1283,12 +1302,8 @@ export async function persistLinkedIndexedSha(input: {
               .from(workspaces)
               .where(
                 and(
-                  eq(workspaces.id, input.workspaceId),
-                  eq(workspaces.desiredGeneration, input.expectedGeneration),
-                  eq(
-                    workspaces.workspaceRepositoryUrl,
-                    input.expectedWorkspaceUrl,
-                  ),
+                  eq(workspaces.id, input.revision.workspaceId),
+                  sql`${workspaces.activeRevision} = ${JSON.stringify(input.revision)}::jsonb`,
                 ),
               ),
           ),
@@ -1525,6 +1540,7 @@ export async function persistWorkspaceIndexResult(input: {
     const [updated] = await getOrgDb()
       .update(workspaces)
       .set({
+        indexedSha: input.result.kind === "ready" ? input.revision.sha : null,
         hydratePhases: sql`coalesce(${workspaces.hydratePhases}, '{}'::jsonb) || ${JSON.stringify({ index: input })}::jsonb`,
         updatedAt: new Date(),
       })
@@ -1617,115 +1633,6 @@ export async function persistUnitEmbeddings(input: {
       return true
     }),
   )
-}
-
-export async function findWorkspacesAndLinkedByGitUrl(gitUrl: string): Promise<{
-  workspaces: Array<{
-    id: string
-    workspaceRepositoryUrl: string
-    desiredGeneration: number
-    desiredSha: string | null
-  }>
-  linked: Array<{
-    id: string
-    workspaceId: string
-    gitUrl: string
-    desiredSha: string | null
-    desiredRef: string | null
-    desiredGeneration: number
-    workspaceUrl: string
-  }>
-}> {
-  return orgSql(async () => {
-    const orgId = requireCurrentOrgId()
-    const db = getOrgDb()
-    const wanted = normalizeWorkspaceRepositoryUrl(gitUrl)
-    const workspaceRows = await db
-      .select({
-        id: workspaces.id,
-        workspaceRepositoryUrl: workspaces.workspaceRepositoryUrl,
-        desiredGeneration: workspaces.desiredGeneration,
-        desiredSha: workspaces.desiredSha,
-      })
-      .from(workspaces)
-      .where(eq(workspaces.orgId, orgId))
-    const linkedRows = await db
-      .select({
-        id: workspaceLinkedRepositories.id,
-        workspaceId: workspaceLinkedRepositories.workspaceId,
-        gitUrl: workspaceLinkedRepositories.gitUrl,
-        desiredSha: workspaceLinkedRepositories.desiredSha,
-        desiredRef: workspaceLinkedRepositories.desiredRef,
-        desiredGeneration: workspaces.desiredGeneration,
-        workspaceUrl: workspaces.workspaceRepositoryUrl,
-      })
-      .from(workspaceLinkedRepositories)
-      .innerJoin(
-        workspaces,
-        eq(workspaceLinkedRepositories.workspaceId, workspaces.id),
-      )
-      .where(eq(workspaces.orgId, orgId))
-    return {
-      workspaces: workspaceRows.filter(
-        (row) =>
-          normalizeWorkspaceRepositoryUrl(row.workspaceRepositoryUrl) ===
-          wanted,
-      ),
-      linked: linkedRows.filter(
-        (row) => normalizeWorkspaceRepositoryUrl(row.gitUrl) === wanted,
-      ),
-    }
-  })
-}
-
-export async function publishWorkspaceIndexForGitUrl(input: {
-  gitUrl: string
-  indexedSha: string
-  jobGeneration?: number
-  jobWorkspaceUrl?: string
-}): Promise<number> {
-  const found = await findWorkspacesAndLinkedByGitUrl(input.gitUrl)
-  const targets = indexPublishTargets({
-    gitUrl: input.gitUrl,
-    indexedSha: input.indexedSha,
-    normalizeUrl: normalizeWorkspaceRepositoryUrl,
-    jobGeneration: input.jobGeneration,
-    jobWorkspaceUrl: input.jobWorkspaceUrl,
-    workspaces: found.workspaces,
-    linked: found.linked,
-  })
-  let published = 0
-  for (const target of targets) {
-    if (target.role === "linked" && target.linkedId) {
-      if (
-        await persistLinkedIndexedSha({
-          linkedId: target.linkedId,
-          workspaceId: target.workspaceId,
-          indexedSha: input.indexedSha,
-          expectedDesiredSha: target.expectedDesiredSha,
-          expectedGeneration: target.expectedGeneration,
-          expectedWorkspaceUrl: target.expectedUrl,
-          expectedLinkedUrl: target.expectedLinkedUrl ?? target.expectedUrl,
-          expectedLinkedRef: target.expectedLinkedRef ?? null,
-        })
-      ) {
-        published += 1
-      }
-      continue
-    }
-    if (
-      await persistIndexedSha({
-        workspaceId: target.workspaceId,
-        indexedSha: input.indexedSha,
-        expectedGeneration: target.expectedGeneration,
-        expectedUrl: target.expectedUrl,
-        expectedDesiredSha: target.expectedDesiredSha,
-      })
-    ) {
-      published += 1
-    }
-  }
-  return published
 }
 
 export * from "./workspace-sandboxes.js"

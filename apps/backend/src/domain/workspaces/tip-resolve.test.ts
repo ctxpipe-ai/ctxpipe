@@ -6,7 +6,6 @@ import {
   desiredShaFromResolvedTip,
   isDefaultBranchPush,
   runCronLinkedTipChecks,
-  runCronTipChecks,
   shouldEnqueueCronHydrate,
   workspaceMatchesGithubRepo,
 } from "./tip-resolve.js"
@@ -107,72 +106,6 @@ describe("tip resolve", () => {
       expectedUrl: "https://github.com/acme/docs.git",
       expectedDesiredSha: "old",
     })
-  })
-
-  it("updates only workspaces whose resolved tip moved", async () => {
-    const persist = vi.fn(async () => true)
-    const updated = await runCronTipChecks({
-      workspaces: [
-        {
-          id: "ws_stale",
-          workspaceRepositoryUrl: "https://github.com/acme/docs.git",
-          desiredGeneration: 1,
-          desiredSha: "old",
-        },
-        {
-          id: "ws_fresh",
-          workspaceRepositoryUrl: "https://github.com/acme/app.git",
-          desiredGeneration: 1,
-          desiredSha: "same",
-        },
-      ],
-      resolveTip: async (url) => (url.includes("docs") ? "new-tip" : "same"),
-      persist,
-    })
-    expect(updated).toEqual([
-      { workspaceId: "ws_stale", resolvedTip: "new-tip" },
-    ])
-    expect(persist).toHaveBeenCalledWith({
-      workspaceId: "ws_stale",
-      resolvedTip: "new-tip",
-      expectedGeneration: 1,
-      expectedUrl: "https://github.com/acme/docs.git",
-      expectedDesiredSha: "old",
-    })
-  })
-
-  it("re-resolves after a CAS miss against the previous desired SHA", async () => {
-    const persist = vi
-      .fn()
-      .mockResolvedValueOnce(false)
-      .mockResolvedValueOnce(true)
-    const resolveTip = vi.fn(async () => "newer-tip")
-    const reloadDesiredSha = vi.fn(async () => "mid-tip")
-    const updated = await runCronTipChecks({
-      workspaces: [
-        {
-          id: "ws_race",
-          workspaceRepositoryUrl: "https://github.com/acme/docs.git",
-          desiredGeneration: 1,
-          desiredSha: "old",
-        },
-      ],
-      resolveTip,
-      persist,
-      reloadDesiredSha,
-    })
-    expect(resolveTip).toHaveBeenCalledTimes(2)
-    expect(reloadDesiredSha).toHaveBeenCalledWith("ws_race")
-    expect(persist).toHaveBeenNthCalledWith(2, {
-      workspaceId: "ws_race",
-      resolvedTip: "newer-tip",
-      expectedGeneration: 1,
-      expectedUrl: "https://github.com/acme/docs.git",
-      expectedDesiredSha: "mid-tip",
-    })
-    expect(updated).toEqual([
-      { workspaceId: "ws_race", resolvedTip: "newer-tip" },
-    ])
   })
 
   it("updates linked remotes without re-hydrating the workspace repository", async () => {

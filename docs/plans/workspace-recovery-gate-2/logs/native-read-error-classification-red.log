@@ -1,0 +1,43 @@
+{"name": "native-read-error-classification-red", "cwd": "/private/tmp/ctxpipe-recovery-01a07aba", "command": ["/Users/jakubriedl/.volta/tools/image/node/22.16.0/bin/node", "apps/backend/node_modules/vitest/vitest.mjs", "run", "--root", "apps/backend", "src/services/git/clone-tree.test.ts"], "environment": {"AUTH_SECRET": "gate0-local-disposable-test-secret-20260907", "DATABASE_URL": "postgresql://ctxpipe_app:ctxpipe@127.0.0.1:61314/ctxpipe_gate0_fresh", "GRAPH_DB_URI": "redis://127.0.0.1:6399", "CI": "true", "NO_COLOR": "1", "TURBO_TELEMETRY_DISABLED": "1", "STORYBOOK_DISABLE_TELEMETRY": "1", "PATH": "/private/tmp/ctxpipe-recovery-runtime/node_modules/.bin:/private/tmp/ctxpipe-recovery-runtime/zoekt:/usr/local/bin:/System/Cryptexes/App/usr/bin:/usr/bin:/bin:/usr/sbin:/sbin:/var/run/com.apple.security.cryptexd/codex.system/bootstrap/usr/local/bin:/var/run/com.apple.security.cryptexd/codex.system/bootstrap/usr/bin:/var/run/com.apple.security.cryptexd/codex.system/bootstrap/usr/appleinternal/bin:/pkg/env/global/bin:/Users/jakubriedl/.codex/tmp/arg0/codex-arg0BW5Gt3:/Users/jakubriedl/.cache/codex-runtimes/codex-primary-runtime/dependencies/bin/override:/Users/jakubriedl/.local/bin:/Users/jakubriedl/.bun/bin:/Users/jakubriedl/.opencode/bin:/Users/jakubriedl/.volta/bin:/opt/homebrew/bin:/opt/homebrew/sbin:/Users/jakubriedl/.cache/codex-runtimes/codex-primary-runtime/dependencies/bin/fallback:/Applications/ChatGPT.app/Contents/Resources"}, "timeout_seconds": 600, "started_utc": "2026-09-08T03:47:02Z", "log": "logs/native-read-error-classification-red.log"}
+
+ RUN  v4.0.18 /private/tmp/ctxpipe-recovery-01a07aba/apps/backend
+
+ ❯ src/services/git/clone-tree.test.ts (7 tests | 1 failed) 2103ms
+     ✓ reads an authenticated Git remote without putting the token in Git arguments or origin  440ms
+     ✓ uses native Git for GitHub branch and default-branch policy callers 171ms
+     ✓ rejects embedded HTTP credentials before acquiring a repository 1ms
+     ✓ resolves the native remote default branch, an explicit branch, and a rewind 259ms
+     × lists paths and reads a blob at a stored SHA 970ms
+     ✓ does not follow a repo symlink out of the checkout 260ms
+     ✓ fails clearly when git is not on PATH 1ms
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 1 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  src/services/git/clone-tree.test.ts > clone-tree > lists paths and reads a blob at a stored SHA
+AssertionError: promise resolved "{ kind: 'missing' }" instead of rejecting
+
+- Expected
++ Received
+
+- Error {
+-   "message": "rejected promise",
++ {
++   "kind": "missing",
+  }
+
+ ❯ src/services/git/clone-tree.test.ts:260:5
+    258|     await expect(
+    259|       readFileAtGitSha({ url: dir, sha: largeSha, path: "oversize.bin"…
+    260|     ).rejects.toThrow()
+       |     ^
+    261|     await expect(
+    262|       readFileAtGitSha({ url: dir, sha, path: "missing.md" }),
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/1]⎯
+
+
+ Test Files  1 failed (1)
+      Tests  1 failed | 6 passed (7)
+   Start at  13:47:02
+   Duration  4.16s (transform 545ms, setup 25ms, import 1.94s, tests 2.10s, environment 0ms)
+

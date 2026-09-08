@@ -22,5 +22,8 @@
   ],
   "published Files HTTP routes": [
     "src/routes/v1/workspace-files.contract.test.ts"
+  ],
+  "native revision index workflow": [
+    "src/domain/workspaces/index-workflow.contract.test.ts"
   ]
 }

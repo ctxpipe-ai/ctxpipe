@@ -109,6 +109,16 @@ jobs:
           bun-version: 1.3.11
       - name: Required chat engine binary
         run: npm install --global opencode-ai@1.18.18
+      - uses: actions/setup-go@v5
+        with:
+          go-version: 1.25.12
+          cache: false
+      - name: Required native revision index tools
+        run: |
+          mkdir -p "$RUNNER_TEMP/ctxpipe-zoekt"
+          GOBIN="$RUNNER_TEMP/ctxpipe-zoekt" go install github.com/sourcegraph/zoekt/cmd/zoekt-index@596c362fcf1388fe0082acfcfc80c4d172efb7c1
+          GOBIN="$RUNNER_TEMP/ctxpipe-zoekt" go install github.com/sourcegraph/zoekt/cmd/zoekt-webserver@596c362fcf1388fe0082acfcfc80c4d172efb7c1
+          echo "$RUNNER_TEMP/ctxpipe-zoekt" >> "$GITHUB_PATH"
       - name: Migrate backend schema
         env:
           DATABASE_URL: postgresql://ctxpipe:ctxpipe@localhost:5432/ctxpipe

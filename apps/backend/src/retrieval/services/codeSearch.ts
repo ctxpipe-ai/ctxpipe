@@ -208,7 +208,9 @@ export async function codeSearch(
   let matchingRepos = repos
   if (workspace) {
     const expected = new Map(
-      workspace.repositories.map((repo) => [repo.zoektRepoId, repo.sha]),
+      workspace.repositories
+        .filter((repo) => repos.some((selected) => selected.id === repo.id))
+        .map((repo) => [repo.zoektRepoId, repo.sha]),
     )
     const files = (Array.isArray(result.Files) ? result.Files : []).filter(
       (file) =>

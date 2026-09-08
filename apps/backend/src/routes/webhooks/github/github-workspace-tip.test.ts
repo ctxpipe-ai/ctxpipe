@@ -33,7 +33,6 @@ vi.mock("../../../openworkflow/enqueue-workspace-commit-projection.js", () => ({
 import {
   getGithubRepoWriteView,
   persistWorkspaceTipsOnDefaultBranchPush,
-  resolveGithubBranchTip,
 } from "./github-workspace-tip.js"
 
 describe("persistWorkspaceTipsOnDefaultBranchPush", () => {
@@ -116,40 +115,6 @@ describe("persistWorkspaceTipsOnDefaultBranchPush", () => {
 
     expect(order).toEqual(["tx", "list", "http", "tx", "persist"])
     expect(assertNotInOrgDbContextMock).toHaveBeenCalled()
-  })
-})
-
-describe("resolveGithubBranchTip", () => {
-  it("returns the ref SHA from Octokit", async () => {
-    const getRef = vi.fn(async () => ({ data: { object: { sha: "abc123" } } }))
-    getInstallationOctokitForOrgMock.mockResolvedValue({
-      octokit: { rest: { git: { getRef } } },
-    })
-    const sha = await resolveGithubBranchTip({
-      orgId: "org_1",
-      githubConnectionId: "ghi_1",
-      repoFullName: "acme/docs",
-      branch: "develop",
-      env: {} as never,
-    })
-    expect(sha).toBe("abc123")
-    expect(getRef).toHaveBeenCalledWith({
-      owner: "acme",
-      repo: "docs",
-      ref: "heads/develop",
-    })
-  })
-
-  it("returns null when the App is missing", async () => {
-    getInstallationOctokitForOrgMock.mockResolvedValue(undefined)
-    await expect(
-      resolveGithubBranchTip({
-        orgId: "org_1",
-        repoFullName: "acme/docs",
-        branch: "main",
-        env: {} as never,
-      }),
-    ).resolves.toBeNull()
   })
 })
 

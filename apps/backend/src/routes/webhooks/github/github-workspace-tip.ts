@@ -31,20 +31,19 @@ export async function resolveGithubBranchTip(input: {
 }): Promise<string | null> {
   assertNotInOrgDbContext()
   try {
-    const ctx = await getInstallationOctokitForOrg(
-      input.orgId,
-      input.env,
-      input.githubConnectionId ?? undefined,
+    return (
+      (
+        await resolveRepositoryReadTip({
+          orgId: input.orgId,
+          env: input.env,
+          remote: {
+            url: `https://github.com/${input.repoFullName}`,
+            githubConnectionId: input.githubConnectionId ?? null,
+          },
+          branch: input.branch,
+        })
+      )?.sha ?? null
     )
-    if (!ctx) return null
-    const [owner, repo] = input.repoFullName.split("/")
-    if (!owner || !repo) return null
-    const { data } = await ctx.octokit.rest.git.getRef({
-      owner,
-      repo,
-      ref: `heads/${input.branch}`,
-    })
-    return typeof data.object.sha === "string" ? data.object.sha : null
   } catch {
     return null
   }
@@ -58,16 +57,18 @@ export async function resolveGithubDefaultBranch(input: {
 }): Promise<string | null> {
   assertNotInOrgDbContext()
   try {
-    const ctx = await getInstallationOctokitForOrg(
-      input.orgId,
-      input.env,
-      input.githubConnectionId ?? undefined,
+    return (
+      (
+        await resolveRepositoryReadTip({
+          orgId: input.orgId,
+          env: input.env,
+          remote: {
+            url: `https://github.com/${input.repoFullName}`,
+            githubConnectionId: input.githubConnectionId ?? null,
+          },
+        })
+      )?.branch ?? null
     )
-    if (!ctx) return null
-    const [owner, repo] = input.repoFullName.split("/")
-    if (!owner || !repo) return null
-    const { data } = await ctx.octokit.rest.repos.get({ owner, repo })
-    return data.default_branch || null
   } catch {
     return null
   }

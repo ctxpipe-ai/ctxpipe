@@ -279,6 +279,27 @@ export const listRepositoriesForOrg = async (
   )
 }
 
+/** Read identity is available before any derived checkout or index exists. */
+export async function getRepositoryReadBinding(
+  orgId: string,
+  repositoryId: string,
+) {
+  return withOrgDbContext(orgId, async (db) => {
+    const [row] = await db
+      .select({
+        id: repositories.id,
+        gitUrl: repositories.gitUrl,
+        githubConnectionId: repositories.githubConnectionId,
+      })
+      .from(repositories)
+      .where(
+        and(eq(repositories.orgId, orgId), eq(repositories.id, repositoryId)),
+      )
+      .limit(1)
+    return row ?? null
+  })
+}
+
 /** Single repository for org via org DB (explicit orgId + repositoryId filter). */
 export const getRepositoryForOrg = async (
   orgId: string,

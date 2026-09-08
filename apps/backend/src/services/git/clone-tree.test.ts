@@ -6,7 +6,11 @@ import { join } from "node:path"
 import { promisify } from "node:util"
 import { afterEach, describe, expect, it } from "vitest"
 import { parseEnv } from "../../config/env.js"
-import { resolveWorkspaceRepositoryTip } from "../../routes/webhooks/github/github-workspace-tip.js"
+import {
+  resolveGithubBranchTip,
+  resolveGithubDefaultBranch,
+  resolveWorkspaceRepositoryTip,
+} from "../../routes/webhooks/github/github-workspace-tip.js"
 import {
   listMarkdownFilesAtGitSha,
   listPathsAtGitSha,
@@ -134,6 +138,47 @@ describe("clone-tree", { timeout: 30_000 }, () => {
     }
   })
 
+  it("uses native Git for GitHub branch and default-branch policy callers", async () => {
+    dir = await mkdtemp(join(tmpdir(), "ctxpipe-native-github-policy-"))
+    const git = async (...args: string[]) =>
+      (await execFileAsync("git", ["-C", dir as string, ...args])).stdout.trim()
+    await git("init", "-b", "trunk")
+    await git(
+      "-c",
+      "user.name=Contract",
+      "-c",
+      "user.email=contract@example.test",
+      "commit",
+      "--allow-empty",
+      "-m",
+      "Native policy",
+    )
+    const sha = await git("rev-parse", "HEAD")
+    const config = join(dir, "fixture.gitconfig")
+    await writeFile(
+      config,
+      `[url "${dir}"]\n  insteadOf = https://github.com/fixture/native-policy\n`,
+    )
+    const previous = process.env.GIT_CONFIG_GLOBAL
+    process.env.GIT_CONFIG_GLOBAL = config
+    try {
+      const input = {
+        orgId: "org_native_policy",
+        repoFullName: "fixture/native-policy",
+        env: parseEnv(process.env),
+      }
+      expect(await resolveGithubDefaultBranch(input)).toBe("trunk")
+      expect(await resolveGithubBranchTip({ ...input, branch: "trunk" })).toBe(
+        sha,
+      )
+      await git("branch", "-m", "renamed")
+      expect(await resolveGithubDefaultBranch(input)).toBe("renamed")
+    } finally {
+      if (previous === undefined) delete process.env.GIT_CONFIG_GLOBAL
+      else process.env.GIT_CONFIG_GLOBAL = previous
+    }
+  })
+
   it("rejects embedded HTTP credentials before acquiring a repository", async () => {
     await expect(
       listPathsAtGitSha({
@@ -204,6 +249,21 @@ describe("clone-tree", { timeout: 30_000 }, () => {
       bytes: Buffer.from("hello\n"),
     })
     await expect(
+      readFileAtGitSha({ url: dir, sha: "HEAD", path: "notes.txt" }),
+    ).rejects.toThrow("A full immutable Git commit SHA is required")
+    await writeFile(
+      join(dir, "oversize.bin"),
+      Buffer.alloc(11 * 1024 * 1024, 65),
+    )
+    await execFileAsync("git", ["-C", dir, "add", "oversize.bin"])
+    await execFileAsync("git", ["-C", dir, "commit", "-m", "Large blob"])
+    const largeSha = (
+      await execFileAsync("git", ["-C", dir, "rev-parse", "HEAD"])
+    ).stdout.trim()
+    await expect(
+      readFileAtGitSha({ url: dir, sha: largeSha, path: "oversize.bin" }),
+    ).rejects.toThrow()
+    await expect(
       readFileAtGitSha({ url: dir, sha, path: "missing.md" }),
     ).resolves.toEqual({ kind: "missing" })
     await expect(
@@ -248,7 +308,10 @@ describe("clone-tree", { timeout: 30_000 }, () => {
     process.env.PATH = "/tmp/ctxpipe-no-git"
     try {
       await expect(
-        listPathsAtGitSha({ url: "https://example.com/repo.git", sha: "abc" }),
+        listPathsAtGitSha({
+          url: "https://example.com/repo.git",
+          sha: "a".repeat(40),
+        }),
       ).rejects.toThrow(
         "git is not installed on this service; cannot read a repository by clone.",
       )

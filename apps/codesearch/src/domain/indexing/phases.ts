@@ -371,11 +371,15 @@ async function indexRepository(params: {
 }): Promise<void> {
   await mkdir(ZOEKT_INDEX_DIR, { recursive: true })
   const metaPath = `/tmp/zoekt-meta-${randomUUID()}.json`
+  const version = await readGitHead(params.clonePath)
+  if (!version)
+    throw new Error("Cannot index a repository without an immutable Git HEAD")
   const metadata = {
     ID: params.zoektRepoId,
     Name: params.zoektName,
     URL: params.repoUrl,
     Source: params.clonePath,
+    Branches: [{ Name: "HEAD", Version: version }],
   }
   await writeFile(metaPath, JSON.stringify(metadata))
   try {

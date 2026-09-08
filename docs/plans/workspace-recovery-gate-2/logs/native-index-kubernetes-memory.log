@@ -1,0 +1,83 @@
+{"name": "native-index-kubernetes-memory", "cwd": "/private/tmp/ctxpipe-recovery-01a07aba", "command": ["env", "DATABASE_URL=postgresql://ctxpipe_app:ctxpipe@host.docker.internal:61314/ctxpipe_gate0_fresh", "KUBERNETES_MEMORY_IMAGE=ctxpipe-codesearch:gate2-revision-proof", "bash", "apps/codesearch/scripts/manual-kubernetes-ingest-memory.sh"], "environment": {"AUTH_SECRET": "gate0-local-disposable-test-secret-20260907", "DATABASE_URL": "postgresql://ctxpipe_app:ctxpipe@127.0.0.1:61314/ctxpipe_gate0_fresh", "GRAPH_DB_URI": "redis://127.0.0.1:6399", "CI": "true", "NO_COLOR": "1", "TURBO_TELEMETRY_DISABLED": "1", "STORYBOOK_DISABLE_TELEMETRY": "1", "PATH": "/private/tmp/ctxpipe-recovery-runtime/node_modules/.bin:/private/tmp/ctxpipe-recovery-runtime/zoekt:/usr/local/bin:/System/Cryptexes/App/usr/bin:/usr/bin:/bin:/usr/sbin:/sbin:/var/run/com.apple.security.cryptexd/codex.system/bootstrap/usr/local/bin:/var/run/com.apple.security.cryptexd/codex.system/bootstrap/usr/bin:/var/run/com.apple.security.cryptexd/codex.system/bootstrap/usr/appleinternal/bin:/pkg/env/global/bin:/Users/jakubriedl/.codex/tmp/arg0/codex-arg0BW5Gt3:/Users/jakubriedl/.cache/codex-runtimes/codex-primary-runtime/dependencies/bin/override:/Users/jakubriedl/.local/bin:/Users/jakubriedl/.bun/bin:/Users/jakubriedl/.opencode/bin:/Users/jakubriedl/.volta/bin:/opt/homebrew/bin:/opt/homebrew/sbin:/Users/jakubriedl/.cache/codex-runtimes/codex-primary-runtime/dependencies/bin/fallback:/Applications/ChatGPT.app/Contents/Resources"}, "timeout_seconds": 600, "started_utc": "2026-09-08T03:45:24Z", "log": "logs/native-index-kubernetes-memory.log"}
+manual-kubernetes-memory: image sha256:9979e222a076898f448cbb59706efa629bf66258125053e52c48e790130d00c2
+manual-kubernetes-memory: indexing 0f29094e5b73085e3802ecc1298ecae13866bfe6 with 5670m limit (cold=/var/folders/9t/jj9rnpps7_ddb72c1mq2k13w0000gn/T//ctxpipe-kubernetes-memory.aMEg87/data/zoekt-index, hot=/var/folders/9t/jj9rnpps7_ddb72c1mq2k13w0000gn/T//ctxpipe-kubernetes-memory.aMEg87/data/zoekt-hot)
+[2m03:45:37.648[0m [36mINFO[0m [36m[app][0m
+  [2m├─[0m [36mstep:[0m codesearch.index.phase.start
+  [2m├─[0m [36mphase:[0m clone
+  [2m└─[0m [36mmessage:[0m codesearch.index.phase.start
+[2m03:45:45.368[0m [36mINFO[0m [36m[app][0m
+  [2m├─[0m [36mstep:[0m codesearch.index.phase.end
+  [2m├─[0m [36mphase:[0m clone
+  [2m├─[0m [36mdurationMs:[0m 7720
+  [2m└─[0m [36mmessage:[0m codesearch.index.phase.end
+[2m03:45:45.385[0m [36mINFO[0m [36m[app][0m
+  [2m├─[0m [36mstep:[0m codesearch.index.phase.start
+  [2m├─[0m [36mphase:[0m resolve_commit
+  [2m└─[0m [36mmessage:[0m codesearch.index.phase.start
+[2m03:45:45.393[0m [36mINFO[0m [36m[app][0m
+  [2m├─[0m [36mstep:[0m codesearch.index.phase.end
+  [2m├─[0m [36mphase:[0m resolve_commit
+  [2m├─[0m [36mdurationMs:[0m 8
+  [2m└─[0m [36mmessage:[0m codesearch.index.phase.end
+[2m03:45:45.393[0m [36mINFO[0m [36m[app][0m
+  [2m├─[0m [36mstep:[0m codesearch.index.phase.start
+  [2m├─[0m [36mphase:[0m checkout
+  [2m└─[0m [36mmessage:[0m codesearch.index.phase.start
+[2m03:46:05.226[0m [36mINFO[0m [36m[app][0m
+  [2m├─[0m [36mstep:[0m codesearch.index.phase.end
+  [2m├─[0m [36mphase:[0m checkout
+  [2m├─[0m [36mdurationMs:[0m 19833
+  [2m└─[0m [36mmessage:[0m codesearch.index.phase.end
+[2m03:46:05.236[0m [36mINFO[0m [36m[app][0m
+  [2m├─[0m [36mstep:[0m codesearch.index.phase.start
+  [2m├─[0m [36mphase:[0m zoekt
+  [2m└─[0m [36mmessage:[0m codesearch.index.phase.start
+[2m03:46:18.574[0m [36mINFO[0m [36m[app][0m
+  [2m├─[0m [36mstep:[0m codesearch.index.phase.end
+  [2m├─[0m [36mphase:[0m zoekt
+  [2m├─[0m [36mdurationMs:[0m 13338
+  [2m└─[0m [36mmessage:[0m codesearch.index.phase.end
+[2m03:46:18.581[0m [36mINFO[0m [36m[app][0m
+  [2m├─[0m [36mstep:[0m codesearch.index.phase.start
+  [2m├─[0m [36mphase:[0m detect_languages
+  [2m└─[0m [36mmessage:[0m codesearch.index.phase.start
+[2m03:46:19.182[0m [36mINFO[0m [36m[app][0m
+  [2m├─[0m [36mstep:[0m codesearch.index.phase.end
+  [2m├─[0m [36mphase:[0m detect_languages
+  [2m├─[0m [36mdurationMs:[0m 601
+  [2m└─[0m [36mmessage:[0m codesearch.index.phase.end
+[2m03:46:19.183[0m [36mINFO[0m [36m[app][0m
+  [2m├─[0m [36mstep:[0m codesearch.index.phase.start
+  [2m├─[0m [36mphase:[0m scip:go
+  [2m└─[0m [36mmessage:[0m codesearch.index.phase.start
+[2m03:46:49.186[0m [36mINFO[0m [36m[app][0m
+  [2m├─[0m [36mstep:[0m codesearch.index.phase.heartbeat
+  [2m├─[0m [36mindexerId:[0m go
+  [2m├─[0m [36melapsedMs:[0m 30001
+  [2m├─[0m [36mpid:[0m 173
+  [2m└─[0m [36mmessage:[0m codesearch.index.phase.heartbeat
+[2m03:47:19.193[0m [36mINFO[0m [36m[app][0m
+  [2m├─[0m [36mstep:[0m codesearch.index.phase.heartbeat
+  [2m├─[0m [36mindexerId:[0m go
+  [2m├─[0m [36melapsedMs:[0m 60007
+  [2m├─[0m [36mpid:[0m 173
+  [2m└─[0m [36mmessage:[0m codesearch.index.phase.heartbeat
+[2m03:47:49.214[0m [36mINFO[0m [36m[app][0m
+  [2m├─[0m [36mstep:[0m codesearch.index.phase.heartbeat
+  [2m├─[0m [36mindexerId:[0m go
+  [2m├─[0m [36melapsedMs:[0m 90029
+  [2m├─[0m [36mpid:[0m 173
+  [2m└─[0m [36mmessage:[0m codesearch.index.phase.heartbeat
+[2m03:48:19.218[0m [36mINFO[0m [36m[app][0m
+  [2m├─[0m [36mstep:[0m codesearch.index.phase.heartbeat
+  [2m├─[0m [36mindexerId:[0m go
+  [2m├─[0m [36melapsedMs:[0m 120033
+  [2m├─[0m [36mpid:[0m 173
+  [2m└─[0m [36mmessage:[0m codesearch.index.phase.heartbeat
+[2m03:48:49.234[0m [36mINFO[0m [36m[app][0m
+  [2m├─[0m [36mstep:[0m codesearch.index.phase.heartbeat
+  [2m├─[0m [36mindexerId:[0m go
+  [2m├─[0m [36melapsedMs:[0m 150046
+  [2m├─[0m [36mpid:[0m 173
+  [2m└─[0m [36mmessage:[0m codesearch.index.phase.heartbeat
+manual-kubernetes-memory: FAIL: ingest was OOM-killed (exit 137)

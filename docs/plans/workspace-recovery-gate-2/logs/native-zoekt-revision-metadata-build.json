@@ -1,0 +1,43 @@
+{
+  "name": "native-zoekt-revision-metadata-build",
+  "cwd": "/private/tmp/ctxpipe-recovery-01a07aba",
+  "command": [
+    "docker",
+    "run",
+    "--pull=never",
+    "--rm",
+    "--platform",
+    "linux/arm64",
+    "--mount",
+    "type=bind,src=/private/tmp/ctxpipe-recovery-runtime/zoekt,dst=/out",
+    "--mount",
+    "type=bind,src=/private/tmp/ctxpipe-recovery-runtime/zoekt-linux,dst=/out-linux",
+    "--mount",
+    "type=bind,src=/private/tmp/ctxpipe-recovery-runtime/zoekt-build,dst=/build",
+    "-w",
+    "/build",
+    "-e",
+    "GOMODCACHE=/build/modcache",
+    "-e",
+    "GOCACHE=/build/cache",
+    "ctxpipe-codesearch:test",
+    "sh",
+    "-c",
+    "set -e; go get github.com/sourcegraph/zoekt@596c362fcf1388fe0082acfcfc80c4d172efb7c1; CGO_ENABLED=0 GOOS=darwin GOARCH=arm64 go build -mod=mod -o /out/zoekt-index github.com/sourcegraph/zoekt/cmd/zoekt-index; CGO_ENABLED=0 GOOS=darwin GOARCH=arm64 go build -mod=mod -o /out/zoekt-webserver github.com/sourcegraph/zoekt/cmd/zoekt-webserver; CGO_ENABLED=0 GOOS=linux GOARCH=arm64 go build -mod=mod -o /out-linux/zoekt-index github.com/sourcegraph/zoekt/cmd/zoekt-index; CGO_ENABLED=0 GOOS=linux GOARCH=arm64 go build -mod=mod -o /out-linux/zoekt-webserver github.com/sourcegraph/zoekt/cmd/zoekt-webserver"
+  ],
+  "environment": {
+    "AUTH_SECRET": "gate0-local-disposable-test-secret-20260907",
+    "DATABASE_URL": "postgresql://ctxpipe_app:ctxpipe@127.0.0.1:61314/ctxpipe_gate0_fresh",
+    "GRAPH_DB_URI": "redis://127.0.0.1:6399",
+    "CI": "true",
+    "NO_COLOR": "1",
+    "TURBO_TELEMETRY_DISABLED": "1",
+    "STORYBOOK_DISABLE_TELEMETRY": "1",
+    "PATH": "/private/tmp/ctxpipe-recovery-runtime/node_modules/.bin:/private/tmp/ctxpipe-recovery-runtime/zoekt:/usr/local/bin:/System/Cryptexes/App/usr/bin:/usr/bin:/bin:/usr/sbin:/sbin:/var/run/com.apple.security.cryptexd/codex.system/bootstrap/usr/local/bin:/var/run/com.apple.security.cryptexd/codex.system/bootstrap/usr/bin:/var/run/com.apple.security.cryptexd/codex.system/bootstrap/usr/appleinternal/bin:/pkg/env/global/bin:/Users/jakubriedl/.codex/tmp/arg0/codex-arg0BW5Gt3:/Users/jakubriedl/.cache/codex-runtimes/codex-primary-runtime/dependencies/bin/override:/Users/jakubriedl/.local/bin:/Users/jakubriedl/.bun/bin:/Users/jakubriedl/.opencode/bin:/Users/jakubriedl/.volta/bin:/opt/homebrew/bin:/opt/homebrew/sbin:/Users/jakubriedl/.cache/codex-runtimes/codex-primary-runtime/dependencies/bin/fallback:/Applications/ChatGPT.app/Contents/Resources"
+  },
+  "timeout_seconds": 600,
+  "started_utc": "2026-09-08T03:24:14Z",
+  "log": "logs/native-zoekt-revision-metadata-build.log",
+  "exit_code": 0,
+  "duration_seconds": 35.13
+}

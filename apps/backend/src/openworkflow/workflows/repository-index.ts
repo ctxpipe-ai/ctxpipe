@@ -15,7 +15,8 @@ import {
   isMemoryFitFailure,
   userFacingIndexingError,
 } from "../../lib/memoryFitError.js"
-import { getInstallationToken } from "../../models/github-installation.js"
+import { getRepositoryReadBinding } from "../../models/repositories.js"
+import { normalizeWorkspaceRepositoryUrl } from "../../domain/workspaces/slug.js"
 import { persistWorkspaceIndexResult } from "../../models/workspaces.js"
 import {
   createLogger,
@@ -23,20 +24,33 @@ import {
   getLogger,
   withLogger,
 } from "../../observability/logger.js"
-import { publishWorkspaceIndexAfterCodesearch } from "../publish-workspace-index.js"
 import { withLoggedStepAttempt } from "../withLoggedStepAttempt.js"
 
-const repositoryIndexInputSchema = z.object({
-  repositoryId: z.string().min(1),
-  orgId: z.string().min(1),
-  targetHash: z.string().min(1),
-  fromHash: z.string().optional(),
-  githubConnectionId: z.string().optional(),
-  workspaceId: z.string().min(1).optional(),
-  jobGeneration: z.number().int().optional(),
-  jobWorkspaceUrl: z.string().min(1).optional(),
-  revision: workspaceRevisionSchema.optional(),
-})
+const repositoryIndexInputSchema = z
+  .object({
+    repositoryId: z.string().min(1),
+    orgId: z.string().min(1),
+    targetHash: z.string().min(1),
+    fromHash: z.string().optional(),
+    githubConnectionId: z.string().optional(),
+    workspaceId: z.string().min(1).optional(),
+    jobGeneration: z.number().int().optional(),
+    jobWorkspaceUrl: z.string().min(1).optional(),
+    revision: workspaceRevisionSchema.optional(),
+  })
+  .refine(
+    (input) =>
+      !input.revision ||
+      (input.revision.access === "read" &&
+        input.revision.workspaceId === input.workspaceId &&
+        input.revision.sha === input.targetHash &&
+        input.revision.generation === input.jobGeneration &&
+        input.revision.remote.url === input.jobWorkspaceUrl &&
+        (input.githubConnectionId === undefined ||
+          input.githubConnectionId ===
+            input.revision.remote.githubConnectionId)),
+    "Repository index input must describe one workspace revision",
+  )
 
 const indexRetryPolicy = {
   maximumAttempts: 2,
@@ -97,6 +111,19 @@ export const repositoryIndex = defineWorkflow(
         orgId: input.orgId,
       }),
       async () => {
+        const repository = await getRepositoryReadBinding(
+          input.orgId,
+          input.repositoryId,
+        )
+        if (
+          !repository ||
+          (input.revision &&
+            normalizeWorkspaceRepositoryUrl(repository.gitUrl) !==
+              normalizeWorkspaceRepositoryUrl(input.revision.remote.url))
+        )
+          throw new Error(
+            "Index repository does not match the captured revision",
+          )
         const auth = {
           repositoryId: input.repositoryId,
           orgId: input.orgId,
@@ -140,13 +167,15 @@ export const repositoryIndex = defineWorkflow(
 
         const env = parseEnv(process.env as Record<string, string | undefined>)
         const githubToken = await wls("resolve-github-token", () =>
-          input.revision
-            ? resolveRepositoryReadCredential({
-                orgId: input.orgId,
-                env,
-                remote: input.revision.remote,
-              })
-            : getInstallationToken(input.orgId, env, input.githubConnectionId),
+          resolveRepositoryReadCredential({
+            orgId: input.orgId,
+            env,
+            remote: input.revision?.remote ?? {
+              url: repository.gitUrl,
+              githubConnectionId:
+                input.githubConnectionId ?? repository.githubConnectionId,
+            },
+          }),
         )
 
         const checkout = await step.run(
@@ -248,18 +277,6 @@ export const repositoryIndex = defineWorkflow(
         logMilestone("repository-index.merge-scip.done", {
           repositoryId: input.repositoryId,
         })
-
-        await step.run({ name: "publish-workspace-index" }, () =>
-          wls("publish-workspace-index", () =>
-            publishWorkspaceIndexAfterCodesearch({
-              orgId: input.orgId,
-              repositoryId: input.repositoryId,
-              indexedSha: checkout.targetHash,
-              jobGeneration: input.jobGeneration,
-              jobWorkspaceUrl: input.jobWorkspaceUrl,
-            }),
-          ),
-        )
 
         return {
           indexedAt: new Date().toISOString(),

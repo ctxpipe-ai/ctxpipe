@@ -16,7 +16,6 @@ import {
   getDesiredWorkspaceRevision,
   getWorkspaceById,
   listLinkedRepositories,
-  persistIndexedSha,
   persistLinkedIndexedSha,
   persistWorkspaceIndexResult,
 } from "../../models/workspaces.js"
@@ -34,6 +33,10 @@ const workspaceIndexInputSchema = z
     jobWorkspaceUrl: z.string().min(1),
     revision: workspaceRevisionSchema.optional(),
   })
+  .refine(
+    (input) => input.role !== "linked" || Boolean(input.linkedId),
+    "Linked indexing requires a captured link identity",
+  )
   .refine(
     (input) =>
       !input.revision ||
@@ -68,6 +71,28 @@ export const workspaceIndex = defineWorkflow(
       ) {
         return { published: false, reason: "cas_discarded" as const }
       }
+      const linked =
+        input.role === "linked"
+          ? await step.run({ name: "capture-linked-revision" }, () =>
+              withOrgDbContext(input.orgId, async () => {
+                const row = (
+                  await listLinkedRepositories(input.workspaceId)
+                ).find((candidate) => candidate.id === input.linkedId)
+                return row &&
+                  row.gitUrl === input.gitUrl &&
+                  row.desiredSha === input.desiredSha
+                  ? {
+                      id: row.id,
+                      gitUrl: row.gitUrl,
+                      desiredRef: row.desiredRef,
+                      desiredSha: row.desiredSha,
+                    }
+                  : null
+              }),
+            )
+          : null
+      if (input.role === "linked" && !linked)
+        return { published: false, reason: "missing_linked" as const }
       const prepared = await withOrgDbContext(input.orgId, async () => {
         const workspace = await getWorkspaceById(input.workspaceId)
         if (!workspace) {
@@ -95,12 +120,12 @@ export const workspaceIndex = defineWorkflow(
           }
         }
         const githubConnectionId =
-          (await getGithubConnectionIdForRepository({
-            orgId: input.orgId,
-            repositoryId: repo.id,
-          })) ??
-          workspace.githubConnectionId ??
-          null
+          input.role === "workspace"
+            ? revision.remote.githubConnectionId
+            : await getGithubConnectionIdForRepository({
+                orgId: input.orgId,
+                repositoryId: repo.id,
+              })
         await ensureWorkspaceCheckout({
           repositoryId: repo.id,
           workspaceId: workspace.id,
@@ -116,7 +141,7 @@ export const workspaceIndex = defineWorkflow(
 
       if (prepared.kind === "done") return prepared.result
 
-      await step.runWorkflow(
+      const indexed = await step.runWorkflow(
         repositoryIndex.spec,
         {
           repositoryId: prepared.repo.id,
@@ -135,32 +160,33 @@ export const workspaceIndex = defineWorkflow(
 
       return withOrgDbContext(input.orgId, async () => {
         if (input.role === "linked" && input.linkedId) {
-          const linked = (
-            await listLinkedRepositories(prepared.workspace.id)
-          ).find((row) => row.id === input.linkedId)
-          if (!linked) {
+          if (!indexed.searchIndexOk)
+            return { published: false, reason: "search_index_failed" as const }
+          if (!linked)
             return { published: false, reason: "missing_linked" as const }
-          }
           const published = await persistLinkedIndexedSha({
             linkedId: input.linkedId,
-            workspaceId: prepared.workspace.id,
+            revision,
             indexedSha: input.desiredSha,
             expectedDesiredSha: input.desiredSha,
-            expectedGeneration: input.jobGeneration,
-            expectedWorkspaceUrl: input.jobWorkspaceUrl,
             expectedLinkedUrl: linked.gitUrl,
             expectedLinkedRef: linked.desiredRef,
           })
           return { published, role: input.role }
         }
-        const published = await persistIndexedSha({
-          workspaceId: prepared.workspace.id,
-          indexedSha: input.desiredSha,
-          expectedGeneration: input.jobGeneration,
-          expectedUrl: input.jobWorkspaceUrl,
-          expectedDesiredSha: input.desiredSha,
+        const published = await persistWorkspaceIndexResult({
+          revision,
+          result: indexed.searchIndexOk
+            ? { kind: "ready" }
+            : {
+                kind: "failed",
+                message: indexed.searchIndexError ?? "Search index unavailable",
+              },
         })
-        return { published, role: input.role }
+        return {
+          published: indexed.searchIndexOk && published,
+          role: input.role,
+        }
       })
     })
   },

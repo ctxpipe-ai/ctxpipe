@@ -655,8 +655,9 @@ it.each([
                 url: workspaceUrl,
                 sha: targetSha,
                 githubConnectionId: null,
+                defaultBranch: "main",
               },
-              defaultBranch: "main",
+              tip: { sha: targetSha, branch: "main" },
             })
             if (!revision) throw new Error("Fixture revision was not captured")
             return revision

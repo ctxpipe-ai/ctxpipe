@@ -52,7 +52,8 @@ export async function resolveGitRemoteTip(input: {
   const sha = lines
     .map((line) => line.split("\t"))
     .find(
-      ([value, name]) => name === ref && /^[0-9a-f]{40,64}$/.test(value ?? ""),
+      ([value, name]) =>
+        name === ref && /^(?:[0-9a-f]{40}|[0-9a-f]{64})$/.test(value ?? ""),
     )?.[0]
   const branch =
     requested ??
@@ -103,6 +104,8 @@ async function withFetchedGitSha<T>(
   input: { url: string; sha: string; token?: string },
   read: (dir: string) => Promise<T>,
 ): Promise<T> {
+  if (!/^(?:[0-9a-f]{40}|[0-9a-f]{64})$/.test(input.sha))
+    throw new Error("A full immutable Git commit SHA is required")
   const env = gitReadEnvironment(input)
   const dir = await mkdtemp(join(tmpdir(), "ctxpipe-hydrate-"))
   try {
@@ -141,19 +144,15 @@ async function listTreeEntries(
 
 async function gitShowBytes(dir: string, path: string): Promise<GitShaFile> {
   if (!isSafeGitPath(path)) return { kind: "missing" }
-  try {
-    const { stdout } = await gitExec(
-      ["-C", dir, "show", `FETCH_HEAD:${path}`],
-      {
-        encoding: "buffer",
-        timeout: 15_000,
-        maxBuffer: 10 * 1024 * 1024,
-      },
-    )
-    return { kind: "bytes", bytes: stdout }
-  } catch {
-    return { kind: "missing" }
-  }
+  const entry = (await listTreeEntries(dir)).find(
+    (candidate) => candidate.kind === "blob" && candidate.path === path,
+  )
+  if (!entry) return { kind: "missing" }
+  const { stdout } = await gitExec(["-C", dir, "cat-file", "blob", entry.sha], {
+    timeout: 15_000,
+    maxBuffer: 10 * 1024 * 1024,
+  })
+  return { kind: "bytes", bytes: stdout }
 }
 
 /** Read markdown at a stored SHA from any git host. Token never logged. */

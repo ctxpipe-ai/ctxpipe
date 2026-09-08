@@ -17,7 +17,10 @@ import {
 import { organizations } from "../../db/schema/auth.js"
 import { repositories } from "../../db/schema/repositories.js"
 import { repositoryCheckouts } from "../../db/schema/repository_checkouts.js"
-import { workspaces } from "../../db/schema/workspaces.js"
+import {
+  workspaceLinkedRepositories,
+  workspaces,
+} from "../../db/schema/workspaces.js"
 import type { WorkspaceRevision } from "../../domain/workspaces/revision.js"
 import { codeSearch } from "./codeSearch.js"
 
@@ -78,6 +81,7 @@ it(
       await c.get("db")?.$client.end()
       return c.text("closed")
     })
+    let linkedZoektRepoId = 0
     let zoektRepoId = 0
     let indexedVersion = "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
     let codesearchRequests = 0
@@ -93,6 +97,11 @@ it(
         HttpResponse.json({
           Result: {
             Files: [
+              {
+                RepositoryID: linkedZoektRepoId,
+                FileName: "OTHER.md",
+                Version: revision.sha,
+              },
               {
                 RepositoryID: zoektRepoId,
                 FileName: "AGENTS.md",
@@ -154,20 +163,54 @@ it(
           .returning()
         if (!checkout) throw new Error("Missing fixture checkout")
         zoektRepoId = checkout.zoektRepoId
+        const linkedRepoId = repositoryId + "_linked"
+        await db.insert(repositories).values({
+          id: linkedRepoId,
+          orgId: org.id,
+          name: "Linked context",
+          gitUrl: url + "-linked",
+        })
+        await db.insert(workspaceLinkedRepositories).values({
+          id: "wlr_" + id,
+          orgId: org.id,
+          workspaceId,
+          gitUrl: url + "-linked",
+          desiredSha: revision.sha,
+          indexedSha: revision.sha,
+        })
+        const [linkedCheckout] = await db
+          .insert(repositoryCheckouts)
+          .values({
+            id: "co_linked_" + id,
+            orgId: org.id,
+            repositoryId: linkedRepoId,
+            ref: revision.sha,
+            commitSha: revision.sha,
+            checkoutKey: "ws:" + workspaceId,
+          })
+          .returning()
+        if (!linkedCheckout) throw new Error("Missing linked checkout")
+        linkedZoektRepoId = linkedCheckout.zoektRepoId
       })
       await withOrgIdContext(org, async () => {
         expect(
-          await codeSearch(org.id, { query: "instructions", workspaceId }),
+          await codeSearch(org.id, {
+            query: "instructions",
+            workspaceId,
+            repositoryIds: [repositoryId],
+          }),
         ).toEqual([])
         indexedVersion = revision.sha
         const matches = await codeSearch(org.id, {
           query: "instructions",
           workspaceId,
+          repositoryIds: [repositoryId],
         })
         expect(matches).toHaveLength(1)
         expect(matches[0]?.response).toMatchObject({
           Files: [{ FileName: "AGENTS.md", Version: revision.sha }],
         })
+        expect(matches[0]?.response.Files).toHaveLength(1)
         expect(codesearchRequests).toBe(2)
       })
     } finally {

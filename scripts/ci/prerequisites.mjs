@@ -41,6 +41,15 @@ try {
   const opencode = version("opencode")
   if (opencode !== expected)
     throw new Error(`OpenCode must be ${expected}; found ${opencode}`)
+  for (const binary of ["zoekt-index", "zoekt-webserver"]) {
+    try {
+      execFileSync(binary, ["-h"], { timeout: 10_000, stdio: "ignore" })
+    } catch {
+      throw new Error(
+        `Required native index prerequisite ${binary} is missing or failed -h`,
+      )
+    }
+  }
   if (!process.env.DATABASE_URL)
     throw new Error(
       "DATABASE_URL for a migrated application-role test database is required",
