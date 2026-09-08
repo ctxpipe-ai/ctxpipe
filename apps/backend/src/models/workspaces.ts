@@ -292,6 +292,7 @@ export async function getWorkspaceWriteAdmission(workspaceId: string) {
     ? {
         revision: { ...revision, access: "write-default" as const },
         writeStatus: row.writeStatus,
+        readOnlyReason: row.readOnlyReason,
         displayName: row.displayName,
       }
     : null

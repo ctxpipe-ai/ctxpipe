@@ -208,29 +208,36 @@ it(
   },
 )
 
-it("rejects edits to a read-only Workspace", { timeout: 30_000 }, async () => {
-  await withFilesWorkspace(async ({ app, orgId, workspaceId }) => {
-    await withOrgDbContext(orgId, (db) =>
-      db
-        .update(workspaces)
-        .set({ writeStatus: "read_only" })
-        .where(eq(workspaces.id, workspaceId)),
-    )
-    const response = await app.request("/workspaces/knowledge/files/jobs", {
-      method: "POST",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify({
-        op: "save",
-        path: "AGENTS.md",
-        content: "# saved\n",
-      }),
+it(
+  "rejects edits when the Workspace has no supported write binding",
+  { timeout: 30_000 },
+  async () => {
+    await withFilesWorkspace(async ({ app, orgId, workspaceId }) => {
+      await withOrgDbContext(orgId, (db) =>
+        db
+          .update(workspaces)
+          .set({ writeStatus: "read_only" })
+          .where(eq(workspaces.id, workspaceId)),
+      )
+      const response = await app.request("/workspaces/knowledge/files/jobs", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          op: "save",
+          path: "AGENTS.md",
+          content: "# saved\n",
+        }),
+      })
+      expect({ status: response.status, body: await response.json() }).toEqual({
+        status: 409,
+        body: {
+          error:
+            "The write could not be queued. Refresh the Workspace and try again.",
+        },
+      })
     })
-    expect({ status: response.status, body: await response.json() }).toEqual({
-      status: 400,
-      body: { error: "Workspace is read-only" },
-    })
-  })
-})
+  },
+)
 
 it.each(["tree", "blob?path=AGENTS.md"])(
   "requires a published index for Files %s",
@@ -271,10 +278,10 @@ it.each(["tree", "blob?path=AGENTS.md"])(
   },
 )
 
-it(
-  "durably queues a Files HTTP save with the literal edit payload",
+it.each(["writable", "read_only", "unknown"])(
+  "durably queues a Files HTTP save with %s access and the literal edit payload",
   { timeout: 30_000 },
-  async () => {
+  async (writeStatus) => {
     const saved = {
       GITHUB_APP_ID: process.env.GITHUB_APP_ID,
       GITHUB_PRIVATE_KEY: process.env.GITHUB_PRIVATE_KEY,
@@ -330,6 +337,7 @@ it(
               workspaceRepositoryUrl:
                 "https://github.com/fixture/files-contract",
               githubConnectionId: connectionId,
+              writeStatus,
             })
             .where(eq(workspaces.id, workspaceId))
         })

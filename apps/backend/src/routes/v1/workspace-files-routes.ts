@@ -22,7 +22,6 @@ import {
 import { publishedProjection } from "../../domain/workspaces/revision.js"
 import { getJobSandbox } from "../../domain/workspaces/sandbox-registry.js"
 import { normalizeWorkspaceRepositoryUrl } from "../../domain/workspaces/slug.js"
-import { writeJobQueueHttpDecision } from "../../domain/workspaces/write-jobs.js"
 import {
   getWorkspaceBySlug,
   getWorkspaceSearchProjection,
@@ -448,8 +447,6 @@ export const workspaceFilesRoutes = new OpenAPIHono<AppEnv>()
     const raw = WorkspaceFileJobRequestSchema.parse(await c.req.json())
     const request = parseWorkspaceFileJobRequest(raw)
     if (!request) return c.json({ error: "A valid file job is required" }, 400)
-    const gate = writeJobQueueHttpDecision(loaded.workspace.writeStatus)
-    if (!gate.enqueue) return c.json({ error: gate.error }, gate.status)
     try {
       const treePaths = await listWorkspaceCheckoutPaths(loaded.input)
       const planned = await planWorkspaceFileJob({

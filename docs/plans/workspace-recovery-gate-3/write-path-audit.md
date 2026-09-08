@@ -1,6 +1,6 @@
 # Gate 3 write-path audit
 
-Checkpoint work after c293853e; this is an open-work inventory, not acceptance.
+Checkpoint work after 8c1ca3a6; this is an open-work inventory, not acceptance.
 
 ## Native default writes
 
@@ -15,7 +15,7 @@ All twelve typed workspace workflows call `domain/workspaces/write-broker.ts`. I
 - Complete connector setup failure projection and full binding CAS on finalization before acceptance. Confluence completed provider failures now leave initial setup as sync_failed, and partial fetch failures preserve orphaned files; space events cannot delete another space. Review provider-state sync markers and failure/retry publication as part of the remaining lifecycle work.
 - The generic workspace-write-commit workflow, write runner, write-job agent, generic transforms and unused worktree execution helpers are deleted. Native CLI discovery verifies the typed workflows remain and the generic writer is absent. The legacy sandbox handle types/registry are still used by conversation and explorer paths pending their own migration.
 - `services/github/installation-write-client.ts`: unrestricted `commitFiles` remains public. Its retained config-PR caller must have a strict non-default guard. `getOrInitializeBaseBranch` can initialize a default branch outside the typed bootstrap path and must migrate.
-- `domain/workspaces/conversation-publish.ts`: injects an installation token in a URL executed inside the agent sandbox and uses force-with-lease. Both conversations and files routes supply unrestricted installation tokens. Move session-branch publication outside the agent environment, capture native Git objects, revalidate actual default/binding and keep the explicit session-branch exclusion.
+- `domain/workspaces/conversation-publish.ts` now captures bounded native Git objects from the agent and publishes from a fresh broker directory. Both routes pass revision identity instead of unrestricted tokens. The broker checks the authenticated conversation, current full workspace binding and actual default before and after scoped credential issuance, then uses an explicit session-ref lease. Native credential and relink/default/ref races are under verification. Persisted sandbox revision capture still belongs to the Gate 4 instance-store migration.
 
 ## Remaining read credential paths
 
@@ -27,4 +27,4 @@ The native broker exposes a default-branch protection denial as binding-fenced r
 
 ## Remaining automatic planning
 
-Five typed kinds are durably planned after hydrate with independent caps and shrinking-remainder checks. Rename planning uses the previous immutable tree and actual Git similarity result. Extraction needs canonical source inputs. Migration export now durably reserves capped bootstrap/import-key follow-ups after completion, including no-op/replay. Cleanup requires current-binding completed cutover, and current export/cutover lookups exclude earlier bindings. Export completion and path-assignment projection now precede hydration on direct, no-op and semantic-child outcomes; completed-job replay recovers the missing idempotent enqueue. Native timestamp and restored-crash-boundary proofs cover this ordering. Existing obsolete path heuristics and generic runner follow-ups must be removed when the native replacements are wired.
+Five typed kinds are durably planned after hydrate with independent caps and shrinking-remainder checks. Rename planning uses the previous immutable tree and actual Git similarity result. Extraction needs canonical source inputs. Successful hydration now durably reserves capped bootstrap/import-key follow-ups after export completion, including no-op/replay; export cannot admit cleanup while hydration is pending. Cleanup requires current-binding completed cutover, and current export/cutover lookups exclude earlier bindings. Export completion and path-assignment projection now precede hydration on direct, no-op and semantic-child outcomes; completed-job replay recovers the missing idempotent enqueue. Native timestamp and restored-crash-boundary proofs cover this ordering. Existing obsolete path heuristics and generic runner follow-ups must be removed when the native replacements are wired.

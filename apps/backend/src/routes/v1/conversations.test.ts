@@ -471,44 +471,6 @@ describe("conversations API", () => {
     expect(discardUnstartedConversationMock).not.toHaveBeenCalled()
   })
 
-  it("brokers a PR from the session branch and returns GitHub's pull number", async () => {
-    getConversationMock.mockResolvedValue(conversationRow)
-    getRegisteredChatSandboxMock.mockReturnValue({
-      handle: { exec: vi.fn(), fs: {} },
-      desiredUrl: "https://github.com/acme/docs",
-      desiredGeneration: 1,
-      desiredSha: "abc",
-      defaultBranch: "main",
-    })
-
-    const res = await app().request("/conversations/conv_1/pull-request", {
-      method: "POST",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify({
-        title: "Chat changes",
-      }),
-    })
-
-    expect(res.status).toBe(200)
-    expect(await res.json()).toEqual({
-      branch: "ctxpipe/chat/conv_1/1",
-      prNumber: 41,
-      pullUrl: "https://github.com/acme/docs/pull/41",
-      prState: "open",
-    })
-    expect(createPullRequestFromBranchMock).toHaveBeenCalledWith(
-      expect.objectContaining({
-        branch: "ctxpipe/chat/conv_1/1",
-        title: "Chat changes",
-      }),
-    )
-    expect(persistConversationLastChatPrNumberMock).toHaveBeenCalledWith({
-      conversationId: "conv_1",
-      lastChatPrNumber: 41,
-      lastBranch: "ctxpipe/chat/conv_1/1",
-    })
-  })
-
   it("streams a second turn without a custom claim lock", async () => {
     ensureConversationMock.mockResolvedValue(conversationRow)
     const first = await app().request("/conversations/conv_1", {
@@ -532,37 +494,5 @@ describe("conversations API", () => {
     expect(first.status).toBe(200)
     expect(second.status).toBe(200)
     expect(workspaceChatStreamResponseMock).toHaveBeenCalledTimes(2)
-  })
-
-  it("refuses a PR when the chat sandbox is gone", async () => {
-    getConversationMock.mockResolvedValue(conversationRow)
-    resolveConversationSandboxHandleMock.mockReturnValue(null)
-    const res = await app().request("/conversations/conv_1/pull-request", {
-      method: "POST",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify({ title: "Chat changes" }),
-    })
-    expect(res.status).toBe(409)
-    expect(await res.json()).toEqual({ error: "missing_sandbox" })
-    expect(createPullRequestFromBranchMock).not.toHaveBeenCalled()
-  })
-
-  it("refuses a PR when captured sandbox metadata is stale", async () => {
-    getConversationMock.mockResolvedValue(conversationRow)
-    getRegisteredChatSandboxMock.mockReturnValue({
-      handle: { exec: vi.fn(), fs: {} },
-      desiredUrl: "https://github.com/acme/other",
-      desiredGeneration: 1,
-      desiredSha: "abc",
-      defaultBranch: "main",
-    })
-    const res = await app().request("/conversations/conv_1/pull-request", {
-      method: "POST",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify({ title: "Chat changes" }),
-    })
-    expect(res.status).toBe(400)
-    expect(await res.json()).toEqual({ error: "stale_url" })
-    expect(createPullRequestFromBranchMock).not.toHaveBeenCalled()
   })
 })

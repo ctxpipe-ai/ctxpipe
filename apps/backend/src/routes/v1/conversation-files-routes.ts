@@ -27,8 +27,10 @@ import {
   getConversation,
   persistConversationLastBranch,
 } from "../../models/conversations.js"
-import { getInstallationToken } from "../../models/github-installation.js"
-import { getWorkspaceById } from "../../models/workspaces.js"
+import {
+  getDesiredWorkspaceRevision,
+  getWorkspaceById,
+} from "../../models/workspaces.js"
 import { resolveGithubDefaultBranch } from "../webhooks/github/github-workspace-tip.js"
 
 const ErrorResponseSchema = z
@@ -532,25 +534,18 @@ export const conversationFileRoutes = new OpenAPIHono<AppEnv>()
       loaded.workspace.workspaceRepositoryUrl,
     )
     if (!repoName) return c.json({ error: "not_github" }, 400)
-    const token = await getInstallationToken(
-      loaded.workspace.orgId,
-      env,
-      loaded.workspace.githubConnectionId ?? undefined,
+    const revision = await getDesiredWorkspaceRevision(
+      loaded.workspace.id,
+      "publish-session",
     )
-    if (!token) return c.json({ error: "not_allowed" }, 400)
-    const defaultBranch =
-      (await resolveGithubDefaultBranch({
-        orgId: loaded.workspace.orgId,
-        githubConnectionId: loaded.workspace.githubConnectionId,
-        repoFullName: repoName,
-        env,
-      })) ?? "main"
+    if (!revision) return c.json({ error: "missing_revision" }, 409)
     const pushed = await pushConversationSessionBranch({
       handle,
       conversationId,
-      defaultBranch,
-      repositoryName: repoName,
-      token,
+      orgId: loaded.workspace.orgId,
+      workspaceId: loaded.workspace.id,
+      revision,
+      env,
       commitMessage: loaded.conversation.name,
     })
     if (!pushed.ok) return c.json({ error: pushed.error }, 400)

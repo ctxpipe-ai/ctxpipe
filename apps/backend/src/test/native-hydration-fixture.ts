@@ -43,6 +43,7 @@ export type NativeHydrationOptions = {
   githubRepoPermissions?: GithubRepoPermissionBits | null
   githubInstallationPermissions?: GithubRepoPermissionBits
   githubContentFiles?: Record<string, string>
+  onGithubPullRequest?: (body: unknown) => void
   slackCaptureIntent?: boolean
   slackResponses?: Record<string, unknown>
   onSlackRequest?: (method: string, body: unknown) => void
@@ -96,6 +97,25 @@ async function createNativeHydrationFixture(
   let beforeWriteProbe: (() => Promise<void>) | undefined
   let beforeWriteCredential: (() => Promise<void>) | undefined
   const server = setupServer(
+    http.post(
+      "https://api.github.com/repos/fixture/hydration-contract/pulls",
+      async ({ request }) => {
+        if (!options.onGithubPullRequest)
+          return HttpResponse.json(
+            { message: "Unexpected pull request" },
+            { status: 400 },
+          )
+        options.onGithubPullRequest(await request.json())
+        return HttpResponse.json(
+          {
+            number: 41,
+            html_url: "https://github.com/fixture/hydration-contract/pull/41",
+            state: "open",
+          },
+          { status: 201 },
+        )
+      },
+    ),
     http.post(
       "https://api.github.com/app/installations/123456789/access_tokens",
       async ({ request }) => {

@@ -10,6 +10,7 @@ import {
   displayNameFromAgentsMarkdown,
   hydrateKnowledgeTree,
 } from "../../domain/workspaces/hydrate.js"
+import { importKeyCleanupRemainder } from "../../domain/workspaces/hydrate-write-jobs.js"
 import { planHydrateWrites } from "../../domain/workspaces/hydrate-write-planner.js"
 import { nativeRenameRewriteFiles } from "../../domain/workspaces/native-rename-rewrite.js"
 import {
@@ -23,6 +24,7 @@ import {
   type WorkspaceRevision,
   workspaceRevisionSchema,
 } from "../../domain/workspaces/revision.js"
+import { getMigrationExportSha } from "../../models/workspace-write-jobs.js"
 import { reserveHydrateWrites } from "../../models/workspace-write-planning.js"
 import {
   commitHydrateProjection,
@@ -134,8 +136,12 @@ export const workspaceHydrate = defineWorkflow(
             }
             const planning = await step.run(
               { name: "capture-planning-target" },
-              () => ({
-                needed: pending.postgres,
+              async () => ({
+                // A completed export may share the already-active SHA. Its cleanup
+                // still belongs after this successful hydrate, including replay.
+                needed:
+                  pending.postgres ||
+                  Boolean(await getMigrationExportSha(workspace.id, revision)),
                 previousSha:
                   projection?.kind === "active" &&
                   sameWorkspaceRevision(
@@ -172,6 +178,12 @@ export const workspaceHydrate = defineWorkflow(
                     displayName: workspace.displayName,
                     files,
                   })
+                  if (await getMigrationExportSha(workspace.id, revision)) {
+                    remaining.push({
+                      kind: "import_key_cleanup",
+                      remainder: importKeyCleanupRemainder(files),
+                    })
+                  }
                   if (
                     planning.previousSha &&
                     planning.previousSha !== revision.sha

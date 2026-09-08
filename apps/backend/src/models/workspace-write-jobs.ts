@@ -219,6 +219,7 @@ export async function claimPausedWriteJob(jobId: string): Promise<boolean> {
         and(
           eq(workspaceWriteJobs.id, jobId),
           eq(workspaceWriteJobs.status, WRITE_JOB_STATUSES.paused),
+          sql`${workspaceWriteJobs.payload}->>'workflowRunId' is null`,
         ),
       )
       .returning({ id: workspaceWriteJobs.id })
@@ -570,6 +571,7 @@ export async function reconcileWorkspaceWriteJob(jobId: string) {
         and(
           eq(workspaceWriteJobs.id, jobId),
           inArray(workspaceWriteJobs.status, [
+            WRITE_JOB_STATUSES.queued,
             WRITE_JOB_STATUSES.running,
             WRITE_JOB_STATUSES.paused,
           ]),

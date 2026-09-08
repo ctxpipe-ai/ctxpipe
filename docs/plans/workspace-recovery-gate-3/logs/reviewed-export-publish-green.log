@@ -1,0 +1,43 @@
+{"name": "reviewed-export-publish-green", "cwd": "/private/tmp/ctxpipe-recovery-01a07aba", "command": ["/Users/jakubriedl/.volta/tools/image/node/22.16.0/bin/node", "apps/backend/node_modules/vitest/vitest.mjs", "run", "--root", "apps/backend", "src/domain/workspaces/write-export-native.contract.test.ts", "src/domain/workspaces/conversation-publish-native.contract.test.ts", "src/domain/workspaces/protected-conversation-native.contract.test.ts"], "environment": {"AUTH_SECRET": "gate0-local-disposable-test-secret-20260907", "DATABASE_URL": "postgresql://ctxpipe_app:ctxpipe@127.0.0.1:61314/ctxpipe_gate0_fresh", "GRAPH_DB_URI": "redis://127.0.0.1:6398", "CI": "true", "NO_COLOR": "1", "TURBO_TELEMETRY_DISABLED": "1", "STORYBOOK_DISABLE_TELEMETRY": "1", "PATH": "/Users/jakubriedl/.volta/tools/image/node/22.16.0/bin:/private/tmp/ctxpipe-recovery-runtime/ast-grep/node_modules/.bin:/private/tmp/ctxpipe-recovery-runtime/node_modules/.bin:/private/tmp/ctxpipe-recovery-runtime/zoekt:/usr/local/bin:/System/Cryptexes/App/usr/bin:/usr/bin:/bin:/usr/sbin:/sbin:/var/run/com.apple.security.cryptexd/codex.system/bootstrap/usr/local/bin:/var/run/com.apple.security.cryptexd/codex.system/bootstrap/usr/bin:/var/run/com.apple.security.cryptexd/codex.system/bootstrap/usr/appleinternal/bin:/pkg/env/global/bin:/Users/jakubriedl/.codex/tmp/arg0/codex-arg0BW5Gt3:/Users/jakubriedl/.cache/codex-runtimes/codex-primary-runtime/dependencies/bin/override:/Users/jakubriedl/.local/bin:/Users/jakubriedl/.bun/bin:/Users/jakubriedl/.opencode/bin:/Users/jakubriedl/.volta/bin:/opt/homebrew/bin:/opt/homebrew/sbin:/Users/jakubriedl/.cache/codex-runtimes/codex-primary-runtime/dependencies/bin/fallback:/Applications/ChatGPT.app/Contents/Resources"}, "timeout_seconds": 600, "started_utc": "2026-09-08T17:26:20Z", "log": "logs/reviewed-export-publish-green.log"}
+
+ RUN  v4.0.18 /private/tmp/ctxpipe-recovery-01a07aba/apps/backend
+
+Cloning into bare repository '/var/folders/9t/jj9rnpps7_ddb72c1mq2k13w0000gn/T/ctxpipe-hydration-contract-O4VKGC/remote.git'...
+done.
+Cloning into bare repository '/var/folders/9t/jj9rnpps7_ddb72c1mq2k13w0000gn/T/ctxpipe-hydration-contract-WdVLpm/remote.git'...
+done.
+Cloning into bare repository '/var/folders/9t/jj9rnpps7_ddb72c1mq2k13w0000gn/T/ctxpipe-hydration-contract-dqsoyp/remote.git'...
+done.
+Cloning into bare repository '/var/folders/9t/jj9rnpps7_ddb72c1mq2k13w0000gn/T/ctxpipe-hydration-contract-xB2DwT/remote.git'...
+done.
+Cloning into bare repository '/var/folders/9t/jj9rnpps7_ddb72c1mq2k13w0000gn/T/ctxpipe-hydration-contract-z0V2Oo/remote.git'...
+done.
+ ✓ src/domain/workspaces/write-export-native.contract.test.ts (5 tests) 27602ms
+   ✓ exports legacy knowledge through one typed native commit and replays its durable result  14736ms
+   ✓ records the resolved tip for an empty migration without claiming a new commit  2752ms
+   ✓ omits credential-bearing legacy repository source URLs from exported knowledge  2464ms
+   ✓ records export cutover when a raced native child finds the export already present  4114ms
+   ✓ recovers hydration after export metadata completed before enqueue acknowledgement  3535ms
+Cloning into bare repository '/var/folders/9t/jj9rnpps7_ddb72c1mq2k13w0000gn/T/ctxpipe-hydration-contract-PwkWcT/remote.git'...
+done.
+Cloning into bare repository '/var/folders/9t/jj9rnpps7_ddb72c1mq2k13w0000gn/T/ctxpipe-hydration-contract-ZvcYpY/remote.git'...
+done.
+Cloning into bare repository '/var/folders/9t/jj9rnpps7_ddb72c1mq2k13w0000gn/T/ctxpipe-hydration-contract-t03lg3/remote.git'...
+done.
+Cloning into bare repository '/var/folders/9t/jj9rnpps7_ddb72c1mq2k13w0000gn/T/ctxpipe-hydration-contract-kLZ2Fr/remote.git'...
+done.
+ ✓ src/domain/workspaces/conversation-publish-native.contract.test.ts (4 tests) 4234ms
+   ✓ brokers conversation publishing without agent write credentials: publish  1314ms
+   ✓ brokers conversation publishing without agent write credentials: rebind  1004ms
+   ✓ brokers conversation publishing without agent write credentials: default_changed  937ms
+   ✓ brokers conversation publishing without agent write credentials: session_advanced  977ms
+Cloning into bare repository '/var/folders/9t/jj9rnpps7_ddb72c1mq2k13w0000gn/T/ctxpipe-hydration-contract-RDeTWu/remote.git'...
+done.
+ ✓ src/domain/workspaces/protected-conversation-native.contract.test.ts (1 test) 814ms
+   ✓ permits session-branch edits under default protection but denies repository permission loss  814ms
+
+ Test Files  3 passed (3)
+      Tests  10 passed (10)
+   Start at  03:26:20
+   Duration  39.39s (transform 1.16s, setup 28ms, import 6.47s, tests 32.65s, environment 0ms)
+

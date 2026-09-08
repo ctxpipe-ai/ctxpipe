@@ -2,12 +2,9 @@ import { defineWorkflow } from "openworkflow"
 import { z } from "zod"
 import { parseEnv } from "../../config/env.js"
 import { generateCommitSubject } from "../../domain/workspaces/commit-subject.js"
-import { importKeyCleanupRemainder } from "../../domain/workspaces/hydrate-write-jobs.js"
-import { planHydrateWrites } from "../../domain/workspaces/hydrate-write-planner.js"
 import { isConnectorMirrorPath } from "../../domain/workspaces/layout.js"
 import { linkedRepositoryUrlSchema } from "../../domain/workspaces/linked-repository-url.js"
 import { planKnowledgeProjection } from "../../domain/workspaces/migration-export.js"
-import { resolveRepositoryReadCredential } from "../../domain/workspaces/resolve-revision.js"
 import {
   sameWorkspaceRevision,
   workspaceRevisionSchema,
@@ -31,14 +28,11 @@ import {
   persistWriteJobKnowledgePaths,
   persistWriteJobPreparedCommit,
 } from "../../models/workspace-write-jobs.js"
-import { reserveHydrateWrites } from "../../models/workspace-write-planning.js"
 import {
-  getWorkspaceWriteAdmission,
   listLinkedRepositories,
   persistWriteJobCommitSha,
   persistWriteJobStatus,
 } from "../../models/workspaces.js"
-import { listMarkdownFilesAtGitSha } from "../../services/git/clone-tree.js"
 import { readGitFiles } from "../../services/git/pack.js"
 import {
   commitGitTree,
@@ -286,87 +280,11 @@ export const workspaceMigrationExport = defineWorkflow(
             {
               orgId: input.orgId,
               workspaceId: input.workspaceId,
-              revision: published,
+              revision: { ...published, access: "read" },
             },
             { idempotencyKey: `${input.jobId}:hydrate` },
           )
         })
-        const followUps = await step.run(
-          { name: "reserve-export-followups" },
-          async () => {
-            const revision = await refreshWorkspaceWriteRevision(
-              input,
-              input.revision,
-              env,
-            )
-            const workspace = await getWorkspaceWriteAdmission(
-              input.workspaceId,
-            )
-            if (
-              !workspace ||
-              !sameWorkspaceRevision(workspace.revision, revision)
-            )
-              throw new Error(
-                "Workspace changed while planning export follow-ups",
-              )
-            const files = await listMarkdownFilesAtGitSha({
-              url: revision.remote.url,
-              sha: revision.sha,
-              token: await resolveRepositoryReadCredential({
-                orgId: input.orgId,
-                env,
-                remote: revision.remote,
-              }),
-            })
-            const remaining = planHydrateWrites({
-              revision,
-              displayName: workspace.displayName,
-              files,
-            }).filter((requirement) => requirement.kind === "bootstrap")
-            remaining.push({
-              kind: "import_key_cleanup",
-              remainder: importKeyCleanupRemainder(files),
-            })
-            const commands = await reserveHydrateWrites({ revision, remaining })
-            if (!commands.length) {
-              const current = await getWorkspaceWriteAdmission(
-                input.workspaceId,
-              )
-              if (
-                !current ||
-                !sameWorkspaceRevision(current.revision, revision)
-              )
-                throw new Error(
-                  "Workspace changed while reserving export follow-ups",
-                )
-            }
-            return { revision, commands }
-          },
-        )
-        const { enqueueWriteJob } = await import(
-          "../enqueue-workspace-write-commit.js"
-        )
-        for (const command of followUps.commands) {
-          await step.run({ name: `admit-export-${command.kind}` }, async () => {
-            await enqueueWriteJob(
-              {
-                orgId: input.orgId,
-                workspaceId: input.workspaceId,
-                jobId: command.jobId,
-                kind: command.kind,
-                jobGeneration: followUps.revision.generation,
-                jobDesiredSha: followUps.revision.sha,
-                jobWorkspaceUrl: followUps.revision.remote.url,
-                defaultBranch: followUps.revision.defaultBranch,
-              },
-              {
-                error: (error) => {
-                  throw error
-                },
-              },
-            )
-          })
-        }
         return result
       },
     )

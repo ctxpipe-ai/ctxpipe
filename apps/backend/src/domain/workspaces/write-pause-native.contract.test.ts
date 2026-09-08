@@ -13,6 +13,7 @@ import { expect, it } from "vitest"
 import { withOrgIdContext } from "../../auth/withAuth.js"
 import { parseEnv } from "../../config/env.js"
 import {
+  claimPausedWriteJob,
   listPausedWriteJobs,
   reconcileWorkspaceWriteJob,
 } from "../../models/workspace-write-jobs.js"
@@ -652,6 +653,10 @@ it(
               payload: { workflowRunId: ownerId },
             })
           expect(f.git("--git-dir", f.remote, "rev-parse", "main")).toBe(f.sha)
+          // The periodic probe cannot take resume ownership from OpenWorkflow.
+          expect(
+            await withOrgIdContext(f.org, () => claimPausedWriteJob(jobId)),
+          ).toBe(false)
         } finally {
           if (ownerId) await runner.cancelWorkflowRun(ownerId)
           await worker.stop()

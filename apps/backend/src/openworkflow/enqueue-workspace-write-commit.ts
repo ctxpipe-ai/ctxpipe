@@ -51,19 +51,6 @@ import {
 } from "./workflows/workspace-semantic-merge.js"
 import { workspaceValidFromPersist } from "./workflows/workspace-valid-from-persist.js"
 
-// Admission selects an explicit native workflow; it does not execute a job lifecycle.
-const snapshotWriteWorkflows: Partial<
-  Record<EnqueueWriteJobInput["kind"], typeof workspaceBootstrap>
-> = {
-  bootstrap: workspaceBootstrap,
-  migration_export: workspaceMigrationExport,
-  extract_ingest: workspaceExtractIngest,
-  claims_upgrade: workspaceClaimsUpgrade,
-  valid_from_persist: workspaceValidFromPersist,
-  import_key_cleanup: workspaceImportKeyCleanup,
-  ops_folder_map: workspaceOpsFolderMap,
-}
-
 type WorkspaceWriteSnapshot = WorkspaceWriteProbeBinding & {
   writeStatus: string
 }
@@ -171,6 +158,18 @@ export async function enqueueWriteJob(
   if (writeStatus == null) {
     log.error(new Error("Workspace write binding is unavailable"))
     return { started: false }
+  }
+  // Admission selects an explicit native workflow; it does not execute a job lifecycle.
+  const snapshotWriteWorkflows: Partial<
+    Record<EnqueueWriteJobInput["kind"], typeof workspaceBootstrap>
+  > = {
+    bootstrap: workspaceBootstrap,
+    migration_export: workspaceMigrationExport,
+    extract_ingest: workspaceExtractIngest,
+    claims_upgrade: workspaceClaimsUpgrade,
+    valid_from_persist: workspaceValidFromPersist,
+    import_key_cleanup: workspaceImportKeyCleanup,
+    ops_folder_map: workspaceOpsFolderMap,
   }
   const snapshotWorkflow = snapshotWriteWorkflows[input.kind]
   if (

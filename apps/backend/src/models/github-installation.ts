@@ -853,7 +853,7 @@ export async function getRepoReadCloneToken(
   return token
 }
 
-/** Called by the admitted workflow broker, never by a sandbox or read path. */
+/** Called by the admitted Git write broker, never by a sandbox or read path. */
 export async function getRepoWriteCloneToken(
   orgId: string,
   env: Env,

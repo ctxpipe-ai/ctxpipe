@@ -269,14 +269,30 @@ it(
               `${f.sha}..refs/heads/main`,
             ),
           ).toBe("1")
-          // Execute the automatically admitted cleanup after observing export content.
+          // Hydration owns maintenance admission after observing export content.
           await worker.stop()
+          const { workspaceHydrate } = await import(
+            "../../openworkflow/workflows/workspace-hydrate.js"
+          )
+          runner.implementWorkflow(workspaceHydrate.spec, workspaceHydrate.fn)
           runner.implementWorkflow(
             workspaceImportKeyCleanup.spec,
             workspaceImportKeyCleanup.fn,
           )
           worker = runner.newWorker({ concurrency: 1 })
           await worker.start()
+          await expect
+            .poll(
+              async () =>
+                (await backend.listWorkflowRuns({ limit: 100 })).data.some(
+                  (run) =>
+                    run.workflowName === "workspace-write-import-key-cleanup" &&
+                    (run.input as { workspaceId?: string })?.workspaceId ===
+                      f.workspaceId,
+                ),
+              { timeout: 15_000 },
+            )
+            .toBe(true)
           const cleanup = (
             await backend.listWorkflowRuns({ limit: 100 })
           ).data.find(
@@ -673,6 +689,7 @@ it(
         ],
       },
       async (f) => {
+        await f.runner.cancelWorkflowRun(f.handle.workflowRun.id)
         const { workspaceMigrationExport } = await import(
           "../../openworkflow/workflows/workspace-migration-export.js"
         )
@@ -720,6 +737,40 @@ it(
             (run) => run.idempotencyKey === `${input.jobId}:hydrate`,
           )
           expect(hydrations).toHaveLength(1)
+          expect(
+            (await backend.listWorkflowRuns({ limit: 100 })).data.filter(
+              (run) =>
+                run.workflowName === "workspace-write-import-key-cleanup" &&
+                (run.input as { workspaceId?: string })?.workspaceId ===
+                  f.workspaceId,
+            ),
+          ).toHaveLength(0)
+          const { OpenWorkflow } = await import("openworkflow")
+          const { workspaceHydrate } = await import(
+            "../../openworkflow/workflows/workspace-hydrate.js"
+          )
+          const hydrationRunner = new OpenWorkflow({ backend })
+          hydrationRunner.implementWorkflow(
+            workspaceHydrate.spec,
+            workspaceHydrate.fn,
+          )
+          const hydrationWorker = hydrationRunner.newWorker({ concurrency: 1 })
+          try {
+            await hydrationWorker.start()
+            await expect
+              .poll(
+                async () =>
+                  (
+                    await backend.getWorkflowRun({
+                      workflowRunId: hydrations[0]?.id ?? "missing",
+                    })
+                  )?.status,
+                { timeout: 15_000 },
+              )
+              .toBe("completed")
+          } finally {
+            await hydrationWorker.stop()
+          }
           const followUps = (
             await backend.listWorkflowRuns({ limit: 100 })
           ).data.filter(

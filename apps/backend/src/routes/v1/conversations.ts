@@ -41,14 +41,15 @@ import {
   persistConversationLastChatPrNumber,
   updateConversation,
 } from "../../models/conversations.js"
-import { getInstallationToken } from "../../models/github-installation.js"
-import { getWorkspaceById } from "../../models/workspaces.js"
+import {
+  getDesiredWorkspaceRevision,
+  getWorkspaceById,
+} from "../../models/workspaces.js"
 import { getLogger } from "../../observability/logger.js"
 import {
   createPullRequestFromBranch,
   getPullRequestState,
 } from "../../services/github/installation-write-client.js"
-import { resolveGithubDefaultBranch } from "../webhooks/github/github-workspace-tip.js"
 import {
   checkoutPreparedConversationBranch,
   conversationFileRoutes,
@@ -783,13 +784,12 @@ export const conversationRoutes = new OpenAPIHono<AppEnv>()
     if (!repoName) {
       return c.json({ error: "not_github" }, 400)
     }
-    const defaultBranch =
-      (await resolveGithubDefaultBranch({
-        orgId: workspace.orgId,
-        githubConnectionId: workspace.githubConnectionId,
-        repoFullName: repoName,
-        env,
-      })) ?? "main"
+    const revision = await getDesiredWorkspaceRevision(
+      workspace.id,
+      "publish-session",
+    )
+    if (!revision) return c.json({ error: "missing_revision" }, 409)
+    const defaultBranch = revision.defaultBranch
     const sandbox = getRegisteredChatSandbox(conversationId)
     const planned = planChatPullRequest({
       writeStatus: workspace.writeStatus,
@@ -809,19 +809,14 @@ export const conversationRoutes = new OpenAPIHono<AppEnv>()
     if (!planned.publish) {
       return c.json({ error: planned.reason }, 400)
     }
-    const token = await getInstallationToken(
-      workspace.orgId,
-      env,
-      workspace.githubConnectionId ?? undefined,
-    )
-    if (!token) return c.json({ error: "not_allowed" }, 400)
     const title = body.title ?? conversation.name
     const pushed = await pushConversationSessionBranch({
       handle,
       conversationId,
-      defaultBranch,
-      repositoryName: repoName,
-      token,
+      orgId: workspace.orgId,
+      workspaceId: workspace.id,
+      revision,
+      env,
       commitMessage: title,
     })
     if (!pushed.ok) return c.json({ error: pushed.error }, 400)
