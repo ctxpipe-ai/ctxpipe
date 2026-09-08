@@ -1,16 +1,16 @@
-import { workspaceCheckoutKey } from "../domain/workspaces/derived-stores.js"
 import {
   and,
   desc,
   eq,
   exists,
+  getColumnTable,
   inArray,
   isNotNull,
-  getColumnTable,
   sql,
 } from "drizzle-orm"
-import { createError } from "evlog"
 import type { AnyPgColumn } from "drizzle-orm/pg-core"
+import { createError } from "evlog"
+import { workspaceCheckoutPrefix } from "../../../../shared/workspace-checkout.js"
 import { requireCurrentOrgId, requireCurrentUserId } from "../auth/context.js"
 import { getOrgDb } from "../db/client.js"
 import { conversations } from "../db/schema/conversations.js"
@@ -23,6 +23,7 @@ import {
   workspaceLinkedRepositories,
   workspaces,
 } from "../db/schema/workspaces.js"
+import { workspaceCheckoutKey } from "../domain/workspaces/derived-stores.js"
 import {
   type DestWorkspaceLinkPlan,
   planDestWorkspaceLinks,
@@ -398,7 +399,7 @@ async function readWorkspaceProjectionSnapshot(
           ))
           from ${repositories} join ${repositoryCheckouts} on ${qualified(repositoryCheckouts.repositoryId)} = ${qualified(repositories.id)}
           where ${qualified(repositories.orgId)} = ${qualified(workspaces.orgId)}
-          and (${qualified(repositoryCheckouts.checkoutKey)} = 'ws:' || ${qualified(workspaces.id)} or ${qualified(repositoryCheckouts.checkoutKey)} = 'ws:' || ${qualified(workspaces.id)} || ':' || ${qualified(repositoryCheckouts.commitSha)})
+          and (${qualified(repositoryCheckouts.checkoutKey)} = ${workspaceCheckoutKey(workspaceId)} or ${qualified(repositoryCheckouts.checkoutKey)} = ${workspaceCheckoutPrefix(workspaceId)} || ${qualified(repositoryCheckouts.commitSha)})
         ), '[]'::jsonb)`,
       })
       .from(workspaces)

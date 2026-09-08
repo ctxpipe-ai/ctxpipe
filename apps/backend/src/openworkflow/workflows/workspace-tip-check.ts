@@ -4,17 +4,17 @@ import { withOrgIdContext } from "../../auth/withAuth.js"
 import { parseEnv } from "../../config/env.js"
 import { getSystemDb, withOrgDbContext } from "../../db/client.js"
 import {
+  resolveLinkedReadRevision,
+  resolveWorkspaceReadRevision,
+} from "../../domain/workspaces/resolve-revision.js"
+import type { WorkspaceRevision } from "../../domain/workspaces/revision.js"
+import {
   chatSandboxesDueForDestroy,
   destroySandboxesForConversation,
   destroySandboxesForWorkspace,
   jobSandboxesDueForDestroy,
 } from "../../domain/workspaces/sandbox-registry.js"
 import { shouldEnqueueCronHydrate } from "../../domain/workspaces/tip-resolve.js"
-import {
-  resolveLinkedReadRevision,
-  resolveWorkspaceReadRevision,
-} from "../../domain/workspaces/resolve-revision.js"
-import type { WorkspaceRevision } from "../../domain/workspaces/revision.js"
 import { resumePausedWriteJobs } from "../../domain/workspaces/write-job-resume.js"
 import {
   nextPersistedWriteProbe,
@@ -22,23 +22,23 @@ import {
 } from "../../domain/workspaces/write-status.js"
 import { listOrgConversationsForSandboxGc } from "../../models/conversations.js"
 import {
-  getWorkspaceProjection,
   claimPausedWriteJob,
+  getWorkspaceProjection,
   listMigrationExportJobWorkspaceIds,
   listMigrationExportShas,
   listOrgLinkedRepositories,
   listOrgWorkspaces,
   listPausedWriteJobs,
-  reconcileDestWorkspaceAssignment,
   persistWriteStatus,
+  reconcileDestWorkspaceAssignment,
 } from "../../models/workspaces.js"
 import { getGithubRepoWriteView } from "../../routes/webhooks/github/github-workspace-tip.js"
 import { enqueueWorkspaceCommitProjection } from "../enqueue-workspace-commit-projection.js"
 import { enqueueWorkspaceHydrate } from "../enqueue-workspace-hydrate.js"
 import { enqueueWorkspaceIndex } from "../enqueue-workspace-index.js"
 import {
-  enqueueWorkspaceWriteCommit,
   type EnqueueWorkspaceWriteCommitInput,
+  enqueueWorkspaceWriteCommit,
 } from "../enqueue-workspace-write-commit.js"
 
 const workspaceTipCheckInputSchema = z.object({
@@ -115,10 +115,6 @@ export const workspaceTipCheck = defineWorkflow(
           workspaceId: workspace.id,
           env,
           refresh: true,
-          expected: {
-            generation: workspace.desiredGeneration,
-            url: workspace.workspaceRepositoryUrl,
-          },
         })
         if (
           resolved &&

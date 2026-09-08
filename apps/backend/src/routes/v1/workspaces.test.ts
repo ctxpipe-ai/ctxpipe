@@ -899,29 +899,4 @@ describe("workspaces API", () => {
     ])
     expect(body.tree[0]?.name).toBe("knowledge")
   })
-
-  it("lists this Workspace’s projection for the Graph pane", async () => {
-    getWorkspaceBySlugMock.mockResolvedValue(workspaceRow)
-    listWorkspaceKnowledgeUnitsMock.mockResolvedValue({
-      lastUpdatedAt: "2026-08-16T10:00:00.000Z",
-      units: [
-        {
-          path: "knowledge/billing/ledger.md",
-          servingId: "kn_ledger",
-          body: "Ledger",
-          links: [],
-          claims: [],
-        },
-      ],
-    })
-    const res = await app().request("/workspaces/knowledge/graph")
-    expect(res.status).toBe(200)
-    const body = await res.json()
-    expect(body.metrics.totalNodes).toBe(1)
-    expect(body.nodes[0]).toMatchObject({
-      id: "kn_ledger",
-      name: "ledger",
-      kind: "KnowledgeUnit",
-    })
-  })
 })

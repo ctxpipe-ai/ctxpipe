@@ -483,3 +483,14 @@ The three real cron queue/permission cases in `native-tip-write-queue-parity` re
 
 
 Candidate `1b58d0bf3eafaaac4e6478fe1e0b26c8b1b3368e` was pushed and independently verified; its required lane ran **128/128 cases in 18 files**, zero skips/allowed failures. The isolated Linux packaging check found the new shared source inherited the root solution's references to absent app configs. A local shared TypeScript config fixes that boundary. `graph-review-linux-codesearch-config` passes both native runtime suites using the packaged shared source; raw inventories/results are retained. The preceding packaging failure is preserved as diagnostic evidence.
+
+
+## Third review corrections
+
+Candidate `50db2359eac49146c45ebda4323af625a73cda84` passed 12 of 13 CI jobs in run `34197223449`. The unexpected test failure was the obsolete mocked Graph HTTP case; native Graph HTTP contracts now cover that public behavior, and the owned mock is deleted. The unchanged Gate 0 conversation characterization remains the sole allowed failure, owned by Gate 4.
+
+Native `native-sha256-acquisition-red/green` reproduces and fixes fetching a real SHA-256 repository by initializing the destination with its object format. The shared checkout prefix now also owns the SQL selection format. Hydrate queue inputs require the complete canonical revision, and the worker explicitly validates persisted inputs before resolution. `legacy-hydrate-queue-red` and the first `legacy-hydrate-queue-green` both reproduce the defect: enqueue validation alone does not validate persisted OpenWorkflow runs. They are superseded by `legacy-hydrate-worker-validation-green`, which passes after worker-time validation. Old primitive jobs fail without rebinding the published revision; normal current-generation scheduling creates canonical jobs. ADR-032 records this upgrade boundary.
+
+`third-review-backend-types` passes with the unchanged finite allowance of 146. `third-review-linux-codesearch` passes both native runtime suites on packaged shared source, image `sha256:1b1c5bfce0b24846f7e630f88e9ba04400452301d0e95a1ef0e91be784551ca1`. `graph-review-kubernetes-memory` completes successfully including cleanup: cold Zoekt and merged/Go SCIP are present, hot storage stays empty, and peak memory is 5,230,137,344 bytes below 5,670 MiB. The subsequent shared prefix extraction preserves the same key format and ingest pipeline. Both third reviewers report no remaining code blocker in the correction diff; exact-pushed-SHA reviews and CI remain required.
+
+`third-review-required-contracts` passes all 130 required cases in 18 files with zero skips or allowances; its discovered inventory and raw result are archived.

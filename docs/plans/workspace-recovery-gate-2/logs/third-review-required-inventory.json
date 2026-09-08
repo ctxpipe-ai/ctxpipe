@@ -1,0 +1,20 @@
+[
+  "src/db/rls-isolation.test.ts",
+  "src/models/workspaces-sandbox-persist.test.ts",
+  "src/services/git/clone-tree.test.ts",
+  "src/domain/workspaces/job-sandbox.live.test.ts",
+  "src/domain/workspaces/write-workflow.contract.test.ts",
+  "src/domain/workspaces/hydration.contract.test.ts",
+  "src/openworkflow/workflows/workflow-discovery.contract.test.ts",
+  "src/domain/workspaces/tanstack-workspace-chat.multiturn.test.ts",
+  "src/retrieval/services/code-search-projection.contract.test.ts",
+  "src/routes/v1/workspace-files.contract.test.ts",
+  "src/domain/workspaces/index-workflow.contract.test.ts",
+  "src/domain/workspaces/chat-projection.contract.test.ts",
+  "src/domain/workspaces/relink.contract.test.ts",
+  "src/domain/workspaces/linked-revision.contract.test.ts",
+  "src/routes/webhooks/github/github-tip.contract.test.ts",
+  "src/db/gateway-guards.contract.test.ts",
+  "src/domain/workspaces/graph-workflow.contract.test.ts",
+  "src/openworkflow/workflows/workspace-tip-check.contract.test.ts"
+]

@@ -1,24 +1,20 @@
-import { BackendPostgres } from "openworkflow/postgres"
-import { invalidateGithubAppCacheForConnection } from "../../models/github-installation.js"
-import {
-  withNativeHydrationFixture,
-  type NativeHydrationFixture,
-} from "../../test/native-hydration-fixture.js"
 import { execFileSync } from "node:child_process"
 import { readFileSync, rmSync, writeFileSync } from "node:fs"
 import { join } from "node:path"
 import { eq } from "drizzle-orm"
+import { BackendPostgres } from "openworkflow/postgres"
 import { expect, it } from "vitest"
 import { withOrgIdContext } from "../../auth/withAuth.js"
 import { parseEnv } from "../../config/env.js"
 import { withOrgDbContext } from "../../db/client.js"
 import { repositories } from "../../db/schema/repositories.js"
 import { workspaces } from "../../db/schema/workspaces.js"
+import { invalidateGithubAppCacheForConnection } from "../../models/github-installation.js"
 import {
   captureWorkspaceRevision,
   commitHydrateProjection,
-  getWorkspaceById,
   getDesiredWorkspaceRevision,
+  getWorkspaceById,
   getWorkspaceProjection,
   getWorkspaceProjectionSnapshot,
   listWorkspaceKnowledgeUnits,
@@ -30,6 +26,10 @@ import { enqueueWorkspaceHydrate } from "../../openworkflow/enqueue-workspace-hy
 import { workspaceHydrate } from "../../openworkflow/workflows/workspace-hydrate.js"
 import { workspaceIndex } from "../../openworkflow/workflows/workspace-index.js"
 import { resolveWorkspaceRepositoryTip } from "../../routes/webhooks/github/github-workspace-tip.js"
+import {
+  type NativeHydrationFixture,
+  withNativeHydrationFixture,
+} from "../../test/native-hydration-fixture.js"
 
 it(
   "hydrates 0 committed native Git files without reading uncommitted replacements",
@@ -120,16 +120,16 @@ it(
 )
 
 it.each([1, 2])(
-  "resolves a missing tip and hydrates generation %s without a separate tip-check job",
+  "resolves a missing tip before queuing generation %s without a separate tip-check job",
   { timeout: 60_000 },
   async (generation) =>
     withNativeHydrationFixture({ missingTip: true }, async (f) => {
-      const { worker, org, workspaceId, runner, workspaceUrl, sha } = f
+      const { worker, org, workspaceId, runner, sha } = f
       if (generation === 2) {
         await withOrgDbContext(org.id, (db) =>
           db
             .update(workspaces)
-            .set({ desiredGeneration: 2 })
+            .set({ desiredGeneration: 2, desiredSha: null })
             .where(eq(workspaces.id, workspaceId)),
         )
       }
@@ -139,8 +139,7 @@ it.each([1, 2])(
           : await runner.runWorkflow(workspaceHydrate.spec, {
               orgId: org.id,
               workspaceId,
-              generation,
-              url: workspaceUrl,
+              revision: await f.resolveRevision(),
             })
       await worker.start()
       expect(await handle.result({ timeoutMs: 30_000 })).toMatchObject({
@@ -229,15 +228,7 @@ it(
   { timeout: 60_000 },
   async () =>
     withNativeHydrationFixture({ github: true }, async (f) => {
-      const {
-        connectionId,
-        tokenRequests,
-        runner,
-        org,
-        workspaceId,
-        workspaceUrl,
-        sha,
-      } = f
+      const { connectionId, tokenRequests, runner, org, workspaceId } = f
       await f.publish()
       invalidateGithubAppCacheForConnection(connectionId)
       f.failTokens()
@@ -245,9 +236,7 @@ it(
       const repeat = await runner.runWorkflow(workspaceHydrate.spec, {
         orgId: org.id,
         workspaceId,
-        generation: 1,
-        url: workspaceUrl,
-        sha,
+        revision: await f.resolveRevision(),
       })
       expect(await repeat.result({ timeoutMs: 30_000 })).toEqual({
         hydrated: false,
@@ -480,8 +469,7 @@ it(
   { timeout: 60_000 },
   async () =>
     withNativeHydrationFixture({ embeddings: "failed" }, async (f) => {
-      const { org, workspaceId, sha, remote, runner, workspaceUrl, expected } =
-        f
+      const { org, workspaceId, sha, remote, runner, expected } = f
       await f.publish()
       await withOrgIdContext(org, async () => {
         expect(await getWorkspaceProjection(workspaceId)).toMatchObject({
@@ -495,9 +483,7 @@ it(
       const retry = await runner.runWorkflow(workspaceHydrate.spec, {
         orgId: org.id,
         workspaceId,
-        generation: 1,
-        url: workspaceUrl,
-        sha,
+        revision: await f.resolveRevision(),
       })
       expect(await retry.result({ timeoutMs: 30_000 })).toMatchObject({
         hydrated: true,
@@ -712,9 +698,7 @@ async function replaceGeneration(f: NativeHydrationFixture) {
   const replacement = await runner.runWorkflow(workspaceHydrate.spec, {
     orgId: org.id,
     workspaceId,
-    generation: 2,
-    url: workspaceUrl,
-    sha,
+    revision: await f.resolveRevision(),
   })
   expect(await replacement.result({ timeoutMs: 30_000 })).toMatchObject({
     hydrated: true,
@@ -747,9 +731,7 @@ it(
       const repeat = await runner.runWorkflow(workspaceHydrate.spec, {
         orgId: org.id,
         workspaceId,
-        generation: 1,
-        url: workspaceUrl,
-        sha,
+        revision: await f.resolveRevision(),
       })
       expect(await repeat.result({ timeoutMs: 30_000 })).toEqual({
         hydrated: false,
@@ -769,9 +751,7 @@ it(
       const replacement = await runner.runWorkflow(workspaceHydrate.spec, {
         orgId: org.id,
         workspaceId,
-        generation: 2,
-        url: workspaceUrl,
-        sha,
+        revision: await f.resolveRevision(),
       })
       expect(await replacement.result({ timeoutMs: 30_000 })).toMatchObject({
         hydrated: true,
@@ -957,6 +937,51 @@ it(
         { path: "first.md", validFrom: "2001-01-01T00:00:00.000Z" },
         { path: "second.md", validFrom: "2002-02-02T00:00:00.000Z" },
       ])
+    })
+  },
+)
+
+it(
+  "rejects persisted legacy hydrate input instead of rebinding its branch",
+  { timeout: 60_000 },
+  async () => {
+    await withNativeHydrationFixture({}, async (f) => {
+      await f.publish()
+      f.git("--git-dir", f.remote, "branch", "-m", "main", "renamed")
+      await withOrgDbContext(f.org.id, (db) =>
+        db
+          .update(workspaces)
+          .set({ desiredDefaultBranch: "renamed" })
+          .where(eq(workspaces.id, f.workspaceId)),
+      )
+      // Native queue persistence reproduces a pre-upgrade queued input without bypassing worker validation.
+      const legacy = await f.backend.createWorkflowRun({
+        ...f.handle.workflowRun,
+        input: {
+          orgId: f.org.id,
+          workspaceId: f.workspaceId,
+          generation: 1,
+          url: f.workspaceUrl,
+          sha: f.sha,
+          defaultBranch: "main",
+        },
+      })
+      await expect
+        .poll(
+          async () =>
+            (await f.backend.getWorkflowRun({ workflowRunId: legacy.id }))
+              ?.status,
+          { timeout: 10_000 },
+        )
+        .toBe("failed")
+      expect(
+        await withOrgIdContext(f.org, () =>
+          getWorkspaceProjection(f.workspaceId),
+        ),
+      ).toMatchObject({
+        kind: "building",
+        previous: { kind: "active", revision: { defaultBranch: "main" } },
+      })
     })
   },
 )

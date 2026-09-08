@@ -114,7 +114,14 @@ async function withFetchedGitSha<T>(
   const env = gitReadEnvironment(input)
   const dir = await mkdtemp(join(tmpdir(), "ctxpipe-hydrate-"))
   try {
-    await gitExec(["init", dir], { timeout: 15_000 })
+    await gitExec(
+      [
+        "init",
+        dir,
+        `--object-format=${input.sha.length === 64 ? "sha256" : "sha1"}`,
+      ],
+      { timeout: 15_000 },
+    )
     await gitExec(["-C", dir, "remote", "add", "origin", input.url], {
       timeout: 15_000,
     })

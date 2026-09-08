@@ -4,8 +4,8 @@ import { getRepoReadCloneToken } from "../../models/github-installation.js"
 import {
   captureWorkspaceRevision,
   getLinkedReadBinding,
-  persistLinkedDesiredSha,
   getWorkspaceById,
+  persistLinkedDesiredSha,
   persistRevisionResolutionFailure,
 } from "../../models/workspaces.js"
 import { resolveGitRemoteTip } from "../../services/git/clone-tree.js"
@@ -49,35 +49,22 @@ export async function resolveWorkspaceReadRevision(input: {
   workspaceId: string
   env: Env
   refresh?: boolean
-  expected?:
-    | WorkspaceRevision
-    | { generation?: number; url?: string; sha?: string }
+  expected?: WorkspaceRevision
 }) {
   assertNotInOrgDbContext()
   const workspace = await getWorkspaceById(input.workspaceId)
   if (!workspace) return null
   if (workspace.orgId !== input.orgId) throw new Error("Workspace not found")
-  const bound =
-    input.expected && "remote" in input.expected ? input.expected : null
-  const expected = bound
-    ? { generation: bound.generation, url: bound.remote.url, sha: bound.sha }
-    : (input.expected as
-        | { generation?: number; url?: string; sha?: string }
-        | undefined)
+  const expected = input.expected
   if (
-    bound &&
-    (bound.workspaceId !== workspace.id ||
-      bound.access !== "read" ||
-      bound.remote.connectionId !== workspace.githubConnectionId ||
-      bound.defaultBranch !== workspace.desiredDefaultBranch)
-  )
-    return null
-  if (
-    (expected?.generation !== undefined &&
-      expected.generation !== workspace.desiredGeneration) ||
-    (expected?.url !== undefined &&
-      expected.url !== workspace.workspaceRepositoryUrl) ||
-    (expected?.sha !== undefined && expected.sha !== workspace.desiredSha)
+    expected &&
+    (expected.workspaceId !== workspace.id ||
+      expected.access !== "read" ||
+      expected.generation !== workspace.desiredGeneration ||
+      expected.remote.url !== workspace.workspaceRepositoryUrl ||
+      expected.remote.connectionId !== workspace.githubConnectionId ||
+      expected.defaultBranch !== workspace.desiredDefaultBranch ||
+      expected.sha !== workspace.desiredSha)
   )
     return null
   try {

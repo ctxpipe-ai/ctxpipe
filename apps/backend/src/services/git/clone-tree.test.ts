@@ -27,6 +27,29 @@ describe("clone-tree", { timeout: 30_000 }, () => {
     dir = undefined
   })
 
+  it("reads a native SHA-256 repository at its immutable commit", async () => {
+    dir = await mkdtemp(join(tmpdir(), "ctxpipe-sha256-tree-"))
+    const git = async (...args: string[]) =>
+      (await execFileAsync("git", ["-C", dir as string, ...args])).stdout.trim()
+    await git("init", "--object-format=sha256", "-b", "main")
+    await writeFile(join(dir, "knowledge.md"), "# SHA-256 knowledge\n")
+    await git("add", "knowledge.md")
+    await git(
+      "-c",
+      "user.name=Contract",
+      "-c",
+      "user.email=contract@example.test",
+      "commit",
+      "-m",
+      "SHA-256 fixture",
+    )
+    const sha = await git("rev-parse", "HEAD")
+    expect(sha).toHaveLength(64)
+    expect(await listMarkdownFilesAtGitSha({ url: dir, sha })).toEqual([
+      { path: "knowledge.md", content: "# SHA-256 knowledge\n" },
+    ])
+  })
+
   it("reads an authenticated Git remote without putting the token in Git arguments or origin", async () => {
     dir = await mkdtemp(join(tmpdir(), "ctxpipe-private-tree-"))
     const git = async (...args: string[]) =>

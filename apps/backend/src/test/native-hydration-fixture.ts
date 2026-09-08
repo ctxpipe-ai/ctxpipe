@@ -1,23 +1,23 @@
-import { FalkorDB } from "falkordb"
-import { workspaceTipCheck } from "../openworkflow/workflows/workspace-tip-check.js"
-import { closeGraphDb } from "../platform/graph/client.js"
 import { execFileSync } from "node:child_process"
 import { generateKeyPairSync } from "node:crypto"
 import { mkdtempSync, rmSync, writeFileSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { eq, sql } from "drizzle-orm"
+import { FalkorDB } from "falkordb"
 import { HttpResponse, http } from "msw"
 import { setupServer } from "msw/node"
 import { OpenWorkflow } from "openworkflow"
 import { BackendPostgres } from "openworkflow/postgres"
 import { expect } from "vitest"
 import { withOrgIdContext } from "../auth/withAuth.js"
+import { parseEnv } from "../config/env.js"
 import { closeDb, getSystemDb, initDb, withOrgDbContext } from "../db/client.js"
 import { organizations } from "../db/schema/auth.js"
 import { connections } from "../db/schema/connections.js"
 import { repositories } from "../db/schema/repositories.js"
 import { workspaces } from "../db/schema/workspaces.js"
+import { resolveWorkspaceReadRevision } from "../domain/workspaces/resolve-revision.js"
 import { invalidateGithubAppCacheForConnection } from "../models/github-installation.js"
 import {
   getWorkspaceProjection,
@@ -26,6 +26,8 @@ import {
 import { repositoryIndex } from "../openworkflow/workflows/repository-index.js"
 import { workspaceHydrate } from "../openworkflow/workflows/workspace-hydrate.js"
 import { workspaceIndex } from "../openworkflow/workflows/workspace-index.js"
+import { workspaceTipCheck } from "../openworkflow/workflows/workspace-tip-check.js"
+import { closeGraphDb } from "../platform/graph/client.js"
 
 export type NativeHydrationOptions = {
   files?: Array<{ path: string; body: string }>
@@ -248,20 +250,33 @@ async function createNativeHydrationFixture(
         githubConnectionId: github ? connectionId : null,
         desiredSha: missingTip ? null : sha,
         desiredGeneration: 1,
+        desiredDefaultBranch: "main",
         indexedSha: sha,
         writeStatus: writeStatus ?? "unknown",
       }),
     )
+    const resolveRevision = async () => {
+      const resolved = await withOrgIdContext(org, () =>
+        resolveWorkspaceReadRevision({
+          orgId: org.id,
+          workspaceId,
+          env: parseEnv(process.env),
+        }),
+      )
+      if (!resolved) throw new Error("Fixture revision could not be captured")
+      return resolved.revision
+    }
+    const revision = await resolveRevision()
     const handle = await runner.runWorkflow(workspaceHydrate.spec, {
       orgId: org.id,
       workspaceId,
-      generation: 1,
-      url: workspaceUrl,
-      ...(missingTip ? {} : { sha }),
+      revision,
     })
     const gitTrace = join(directory, "git-trace.jsonl")
     process.env.GIT_TRACE2_EVENT = gitTrace
     return {
+      resolveRevision,
+      revision,
       databaseUrl,
       directory,
       id,

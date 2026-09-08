@@ -56,12 +56,12 @@ import { getRepoReadCloneToken } from "../../models/github-installation.js"
 import { loadMigrationExportSource } from "../../models/workspace-export.js"
 import { getMigrationExportSha } from "../../models/workspace-write-jobs.js"
 import {
+  captureWorkspaceRevision,
   getWorkspaceById,
   getWriteJobCommitSha,
   listKnowledgeUnitPaths,
   listLinkedRepositories,
   persistLastJobAt,
-  captureWorkspaceRevision,
   persistWriteJobCommitSha,
   persistWriteJobStart,
   persistWriteJobStatus,
@@ -497,7 +497,6 @@ export const workspaceWriteCommit = defineWorkflow(
                   {
                     orgId: input.orgId,
                     workspaceId: workspace.id,
-                    defaultBranch,
                   },
                   { error: (err) => getLogger().error(err) },
                 )
@@ -665,7 +664,6 @@ export const workspaceWriteCommit = defineWorkflow(
                 {
                   orgId: input.orgId,
                   workspaceId: workspace.id,
-                  defaultBranch,
                 },
                 { error: (err) => getLogger().error(err) },
               )

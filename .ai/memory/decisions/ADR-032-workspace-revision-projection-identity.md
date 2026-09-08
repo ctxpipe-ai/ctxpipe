@@ -34,3 +34,8 @@ FalkorDB stores revision-scoped knowledge nodes and raw claim edges derived from
 Graph HTTP and chat read that immutable Falkor projection. Missing, incomplete, or failed graph data is an explicit unavailable result; it never becomes an empty graph or a PostgreSQL graph reconstruction. Query-time confidence uses raw validity and confidence fields. Existing captured chat turns retain their revision while newer revisions are published. Retired immutable graph garbage collection belongs to Gate 6, coordinated with captured conversation lifetime; no eager delete can invalidate a live turn.
 
 The shared Falkor client caches its pending connection, bounds connection establishment, disables indefinite Redis reconnect loops, and releases the connection at shutdown. Contract fixtures use a dedicated FalkorDB service, native ACL failures and client inventory, and remove their own tenant graph.
+
+
+## Durable queue upgrade boundary
+
+Hydrate accepts only a complete canonical `WorkspaceRevision`, both at enqueue and at worker execution. OpenWorkflow's enqueue validation alone cannot validate a previously persisted run, so the worker validates its stored input explicitly. Old primitive generation/URL/SHA inputs are rejected with a recorded validation failure; they cannot be upgraded by guessing a current connection or default branch. The current cron/enqueue resolver captures and queues a fresh complete revision, including resolving a missing tip before enqueue. Deployments may let old invalid runs fail and use the normal cron/retry entry point to enqueue current work. Existing active PostgreSQL content remains available throughout.

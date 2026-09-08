@@ -10,7 +10,6 @@ export async function enqueueWorkspaceHydrate(
   input: {
     orgId: string
     workspaceId: string
-    defaultBranch?: string
   },
   log: { error: (err: Error) => void },
 ): Promise<void> {

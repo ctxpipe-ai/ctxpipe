@@ -1,10 +1,10 @@
-import { projectWorkspaceGraph } from "../../domain/workspaces/graph-projection.js"
 import { defineWorkflow } from "openworkflow"
 import { z } from "zod"
 import { withOrgIdContext } from "../../auth/withAuth.js"
 import { parseEnv } from "../../config/env.js"
 import { getSystemDb, withOrgDbContext } from "../../db/client.js"
 import { embedHydrateUnits } from "../../domain/workspaces/derived-stores.js"
+import { projectWorkspaceGraph } from "../../domain/workspaces/graph-projection.js"
 import {
   applyEffectiveValidFromToUnits,
   displayNameFromAgentsMarkdown,
@@ -15,16 +15,16 @@ import {
   resolveWorkspaceReadRevision,
 } from "../../domain/workspaces/resolve-revision.js"
 import {
+  linkedRevisionSchema,
   publishedProjection,
   sameWorkspaceRevision,
   type WorkspaceRevision,
-  linkedRevisionSchema,
   workspaceRevisionSchema,
 } from "../../domain/workspaces/revision.js"
 import {
   commitHydrateProjection,
-  getWorkspaceProjectionSnapshot,
   getLinkedReadBinding,
+  getWorkspaceProjectionSnapshot,
   listLinkedRepositories,
   persistEmbeddingFailure,
   persistHydrateFailure,
@@ -43,21 +43,12 @@ const workspaceHydrateInputSchema = z
   .object({
     orgId: z.string().min(1),
     workspaceId: z.string().min(1),
-    revision: workspaceRevisionSchema.optional(),
-    generation: z.number().int().optional(),
-    url: z.string().min(1).optional(),
-    sha: z.string().min(1).optional(),
-    defaultBranch: z.string().min(1).optional(),
+    revision: workspaceRevisionSchema,
   })
+  .strict()
   .refine(
-    (input) =>
-      !input.revision ||
-      (input.revision.workspaceId === input.workspaceId &&
-        input.generation === undefined &&
-        input.url === undefined &&
-        input.sha === undefined &&
-        input.defaultBranch === undefined),
-    "A bound hydrate input must contain only its matching revision",
+    (input) => input.revision.workspaceId === input.workspaceId,
+    "A bound hydrate input must contain its matching revision",
   )
 
 async function enqueueLaggingIndex(input: {
@@ -92,8 +83,10 @@ async function enqueueLaggingIndex(input: {
 
 export const workspaceHydrate = defineWorkflow(
   { name: "workspace-hydrate", schema: workspaceHydrateInputSchema },
-  async ({ input }) =>
-    withLogger(
+  async ({ input: queuedInput }) => {
+    // OpenWorkflow validates enqueue, but persisted pre-upgrade runs reach the worker directly.
+    const input = workspaceHydrateInputSchema.parse(queuedInput)
+    return withLogger(
       createLogger({
         workflow: "workspace-hydrate",
         orgId: input.orgId,
@@ -115,11 +108,7 @@ export const workspaceHydrate = defineWorkflow(
               orgId: input.orgId,
               workspaceId: input.workspaceId,
               env,
-              expected: input.revision ?? {
-                generation: input.generation,
-                url: input.url,
-                sha: input.sha,
-              },
+              expected: input.revision,
             })
             if (!resolved)
               return { hydrated: false, reason: "cas_discarded" as const }
@@ -286,5 +275,6 @@ export const workspaceHydrate = defineWorkflow(
           }
         })
       },
-    ),
+    )
+  },
 )

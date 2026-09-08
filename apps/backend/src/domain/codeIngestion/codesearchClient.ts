@@ -98,19 +98,7 @@ export async function listFiles(
     extras,
   )
   if (!res.ok) {
-    const bodyText = await res.text()
-    let detail = bodyText.trim()
-    try {
-      const parsed = JSON.parse(bodyText) as { error?: unknown }
-      if (typeof parsed.error === "string" && parsed.error.length > 0) {
-        detail = parsed.error
-      }
-    } catch {
-      // non-JSON body; use raw text
-    }
-    throw new Error(
-      `listFiles failed: ${res.status}${detail ? `: ${detail}` : ""}`,
-    )
+    throw new Error(await responseFailureMessage("listFiles", res))
   }
   const data = (await res.json()) as { entries: FileEntry[] }
   return data.entries
@@ -144,18 +132,8 @@ export async function globFiles(
     extras,
   )
   if (!res.ok) {
-    const bodyText = await res.text()
-    let detail = bodyText.trim()
-    try {
-      const parsed = JSON.parse(bodyText) as { error?: unknown }
-      if (typeof parsed.error === "string" && parsed.error.length > 0) {
-        detail = parsed.error
-      }
-    } catch {
-      // non-JSON body; use raw text
-    }
     throw new CodesearchCheckoutError(
-      `globFiles failed: ${res.status}${detail ? `: ${detail}` : ""}`,
+      await responseFailureMessage("globFiles", res),
       res.status,
     )
   }
@@ -205,18 +183,8 @@ export async function listCheckoutTree(input: {
     },
   )
   if (!res.ok) {
-    const bodyText = await res.text()
-    let detail = bodyText.trim()
-    try {
-      const parsed = JSON.parse(bodyText) as { error?: unknown }
-      if (typeof parsed.error === "string" && parsed.error.length > 0) {
-        detail = parsed.error
-      }
-    } catch {
-      // non-JSON body; use raw text
-    }
     throw new CodesearchCheckoutError(
-      `listCheckoutTree failed: ${res.status}${detail ? `: ${detail}` : ""}`,
+      await responseFailureMessage("listCheckoutTree", res),
       res.status,
     )
   }
@@ -294,4 +262,20 @@ export async function fetchCheckoutFileBytes(input: {
   const b64 = encoded[input.path]
   if (b64 === undefined) return null
   return Buffer.from(b64, "base64")
+}
+
+async function responseFailureMessage(
+  operation: string,
+  response: Response,
+): Promise<string> {
+  const bodyText = await response.text()
+  let detail = bodyText.trim()
+  try {
+    const parsed = JSON.parse(bodyText) as { error?: unknown }
+    if (typeof parsed.error === "string" && parsed.error.length > 0)
+      detail = parsed.error
+  } catch {
+    // Non-JSON responses retain their original diagnostic text.
+  }
+  return `${operation} failed: ${response.status}${detail ? `: ${detail}` : ""}`
 }
