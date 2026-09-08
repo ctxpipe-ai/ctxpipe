@@ -1,8 +1,3 @@
-import type {
-  CodeIngestionState,
-  ExtractedClaim,
-  ExtractedObject,
-} from "./schemas.js"
 import { extractInstructionUnits } from "./nodes/extractInstructionUnits.js"
 import { extractKind } from "./nodes/extractKind.js"
 import { identifyAPIClients } from "./nodes/identifyAPIClients.js"
@@ -13,6 +8,11 @@ import { identifyLibraries } from "./nodes/identifyLibraries.js"
 import { identifyPatterns } from "./nodes/identifyPatterns.js"
 import { identifyServiceDependencies } from "./nodes/identifyServiceDependencies.js"
 import { identifyStreams } from "./nodes/identifyStreams.js"
+import type {
+  CodeIngestionState,
+  ExtractedClaim,
+  ExtractedObject,
+} from "./schemas.js"
 
 /** Stable OpenWorkflow step-name fragment for a package root path. */
 export function stableRootStepId(root: string): string {
@@ -24,9 +24,7 @@ export function stableRootStepId(root: string): string {
     .slice(0, 120)
 }
 
-function concatExtracted(
-  parts: Array<Partial<CodeIngestionState>>,
-): {
+function concatExtracted(parts: Array<Partial<CodeIngestionState>>): {
   extractedObjects: ExtractedObject[]
   extractedClaims: ExtractedClaim[]
 } {
@@ -44,7 +42,7 @@ function concatExtracted(
 }
 
 /**
- * Per-root extract DAG (same shape as extractionSubgraph):
+ * Per-root extraction sequence:
  * extractKind, then parallel identify_* + extractInstructionUnits.
  *
  * Used by OpenWorkflow `repository-ingestion` so each phase is a durable step

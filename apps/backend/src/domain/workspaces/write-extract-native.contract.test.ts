@@ -16,6 +16,7 @@ import { enqueueWriteJob } from "../../openworkflow/enqueue-workspace-write-comm
 import { upsertRetrievalObjectByDeduplicationKey } from "../../retrieval/services/retrievalObjectWrite.js"
 import { withNativeHydrationFixture } from "../../test/native-hydration-fixture.js"
 import { ensureOrgRepositoryForGitUrl } from "./ensure-org-repository.js"
+import type { WorkspaceExtraction } from "./extraction.js"
 
 it.each(["knowledge/services/billing.md", "knowledge/imported/billing.md"])(
   "preserves extraction identity at %s and a same-name collision after migration cutover",
@@ -43,7 +44,7 @@ it.each(["knowledge/services/billing.md", "knowledge/imported/billing.md"])(
         ],
       },
       async (f) => {
-        const extraction = {
+        const extraction: WorkspaceExtraction = {
           repositoryId: "repo_captured",
           repositoryUrl: f.workspaceUrl,
           sourceSha: f.sha,
@@ -55,6 +56,11 @@ it.each(["knowledge/services/billing.md", "knowledge/imported/billing.md"])(
                 name: "Billing",
                 summary: "New extraction describes the ledger.",
               },
+            },
+            {
+              kind: "Service",
+              deduplicationKey: "legacy:billing",
+              payload: { inferredFromConsumer: true, name: "Stub billing" },
             },
             {
               kind: "Service",

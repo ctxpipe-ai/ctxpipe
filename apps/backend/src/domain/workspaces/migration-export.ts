@@ -448,6 +448,7 @@ export async function planKnowledgeProjection(input: {
   workspaceRepositoryUrl?: string | null
   repositoryGitUrlById?: ReadonlyMap<string, string>
   knownKnowledgePaths?: Readonly<Record<string, string>>
+  referencePaths?: ReadonlyMap<string, string>
   stampImportKey?: boolean
   classifyUnkeyed?: (prompt: string) => Promise<string>
 }): Promise<{
@@ -455,7 +456,12 @@ export async function planKnowledgeProjection(input: {
   wouldChange: boolean
   knowledgePaths: Record<string, string>
 }> {
-  const objectWorkspace = new Map<string, string>()
+  const objectWorkspace = new Map(
+    [...(input.referencePaths?.keys() ?? [])].map((id) => [
+      id,
+      input.workspaceId,
+    ]),
+  )
   const assigned: ExportObjectRow[] = []
   for (const object of input.objects) {
     const assignment = assignImportedRepository({
@@ -489,7 +495,7 @@ export async function planKnowledgeProjection(input: {
     repositoryGitUrlById: input.repositoryGitUrlById ?? new Map(),
     existingPaths,
   }
-  const pathByObjectId = new Map<string, string>()
+  const pathByObjectId = new Map(input.referencePaths)
   const titleByObjectId = new Map<string, string>()
   const bodyByObjectId = new Map<string, string>()
   const mergeFromByObjectId = new Map<string, ExistingKnowledgeFile>()

@@ -87,8 +87,9 @@ try {
     {
       cwd,
       stdio: "inherit",
-      // Native backend proofs include real lease expiry and durable one-minute waits.
-      timeout: name === "backend" ? 1_200_000 : 600_000,
+      // The serialized native suite includes lease expiry and durable one-minute waits.
+      // CI reached the former 20-minute cap while tests were still completing.
+      timeout: name === "backend" ? 1_800_000 : 600_000,
     },
   )
   if (result.error || result.signal)

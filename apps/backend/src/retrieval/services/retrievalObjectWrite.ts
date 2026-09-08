@@ -1,3 +1,7 @@
+import { mergeRetrievalObjectPayloads } from "../../domain/workspaces/extraction-payload.js"
+
+export { mergeRetrievalObjectPayloads } from "../../domain/workspaces/extraction-payload.js"
+
 import { and, eq, inArray } from "drizzle-orm"
 import { getOrgDb, withOrgDbContext } from "../../db/client.js"
 import { objects } from "../../db/schema/index.js"
@@ -41,23 +45,6 @@ export function computeEmbeddingSearchContentForObject(
   }
   const parts = [p.name, p.summary].filter(Boolean) as string[]
   return parts.join(" ").trim()
-}
-
-/**
- * Shallow merge for incremental extraction: consumer-inferred stubs must not clobber
- * richer payloads; full extractions must replace prior stubs.
- */
-export function mergeRetrievalObjectPayloads(
-  existing: Record<string, unknown>,
-  incoming: Record<string, unknown>,
-): Record<string, unknown> {
-  if (incoming.inferredFromConsumer === true) {
-    return { ...incoming, ...existing }
-  }
-  if (existing.inferredFromConsumer === true) {
-    return { ...existing, ...incoming }
-  }
-  return { ...existing, ...incoming }
 }
 
 export type UpsertRetrievalObjectResult = {

@@ -328,7 +328,13 @@ async function withCanceledNativeInsert<T>(
   }
 }
 
-it.each(["spaces", "target", "enqueue-failure", "disabled"] as const)(
+it.each([
+  "spaces",
+  "empty-spaces",
+  "target",
+  "enqueue-failure",
+  "disabled",
+] as const)(
   "admits a native Confluence proposal through HTTP (%s)",
   { timeout: 30_000 },
   async (mode) => {
@@ -414,7 +420,9 @@ it.each(["spaces", "target", "enqueue-failure", "disabled"] as const)(
                               ? reordered
                                 ? ["page-2", "page-1"]
                                 : ["page-1", "page-2"]
-                              : null,
+                              : mode === "empty-spaces" && reordered
+                                ? []
+                                : null,
                         },
                       ],
                     },
@@ -454,7 +462,7 @@ it.each(["spaces", "target", "enqueue-failure", "disabled"] as const)(
             status: repeated.status,
             body: await repeated.json(),
           }).toMatchObject({ status: 200, body: { configPrEnqueued: false } })
-          if (mode === "spaces") {
+          if (mode === "spaces" || mode === "empty-spaces") {
             const reordered = await request("ENG", true)
             expect(reordered.status).toBe(200)
             expect(await reordered.json()).toMatchObject({

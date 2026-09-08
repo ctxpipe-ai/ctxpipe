@@ -19,6 +19,7 @@ import {
   serialiseForgeConnectionConfigForDb,
 } from "../lib/connection-config.js"
 import { generateObjectId } from "../lib/id.js"
+import { confluenceSpaceSelection } from "../services/confluence/config-yaml.js"
 import {
   deleteConnectionDirectory,
   listConnectionDirectoryByForgeCloudId,
@@ -890,20 +891,14 @@ export async function patchAtlassianConnectorConfig(input: {
           .select()
           .from(confluenceSpaces)
           .where(eq(confluenceSpaces.connectionId, input.connectionId))
-        const selection = (
-          rows: Array<{ spaceKey: string; selectedPageIds?: unknown }>,
-        ) =>
-          JSON.stringify(
-            rows
-              .map((row) => ({
-                spaceKey: row.spaceKey,
-                selectedPageIds: Array.isArray(row.selectedPageIds)
-                  ? [...row.selectedPageIds].sort()
-                  : null,
-              }))
-              .sort((a, b) => a.spaceKey.localeCompare(b.spaceKey)),
-          )
-        if (selection(existing) !== selection(input.spaces))
+        const requested = input.spaces.map((space) => ({
+          ...space,
+          selectedPageIds: space.selectedPageIds ?? null,
+        }))
+        if (
+          JSON.stringify(confluenceSpaceSelection(existing)) !==
+          JSON.stringify(confluenceSpaceSelection(requested))
+        )
           throw new ConfluenceConfigProposalInProgressError()
       }
       await tx

@@ -1,0 +1,64 @@
+{"name": "extraction-duplicate-observations-red", "cwd": "/private/tmp/ctxpipe-recovery-01a07aba", "command": ["/Users/jakubriedl/.volta/tools/image/node/22.16.0/bin/node", "/private/tmp/ctxpipe-recovery-01a07aba/apps/backend/node_modules/vitest/vitest.mjs", "run", "--root", "apps/backend", "src/domain/workspaces/write-extract-native.contract.test.ts"], "environment": {"AUTH_SECRET": "gate0-local-disposable-test-secret-20260907", "DATABASE_URL": "postgresql://ctxpipe_app:ctxpipe@127.0.0.1:61314/ctxpipe_gate0_fresh", "GRAPH_DB_URI": "redis://127.0.0.1:6398", "CI": "true", "NO_COLOR": "1", "TURBO_TELEMETRY_DISABLED": "1", "STORYBOOK_DISABLE_TELEMETRY": "1", "PATH": "/Users/jakubriedl/.volta/tools/image/node/22.16.0/bin:/private/tmp/ctxpipe-recovery-runtime/ast-grep/node_modules/.bin:/private/tmp/ctxpipe-recovery-runtime/node_modules/.bin:/private/tmp/ctxpipe-recovery-runtime/zoekt:/Users/jakubriedl/.local/bin:/Users/jakubriedl/.bun/bin:/Users/jakubriedl/.opencode/bin:/Users/jakubriedl/.volta/bin:/opt/homebrew/bin:/opt/homebrew/sbin:/usr/local/bin:/System/Cryptexes/App/usr/bin:/usr/bin:/bin:/usr/sbin:/sbin:/var/run/com.apple.security.cryptexd/codex.system/bootstrap/usr/local/bin:/var/run/com.apple.security.cryptexd/codex.system/bootstrap/usr/bin:/var/run/com.apple.security.cryptexd/codex.system/bootstrap/usr/appleinternal/bin:/pkg/env/global/bin:/Users/jakubriedl/.codex/tmp/arg0/codex-arg0BW5Gt3:/Users/jakubriedl/.cache/codex-runtimes/codex-primary-runtime/dependencies/bin/override:/Users/jakubriedl/.local/bin:/Users/jakubriedl/.bun/bin:/Users/jakubriedl/.opencode/bin:/Users/jakubriedl/.volta/bin:/Users/jakubriedl/.cache/codex-runtimes/codex-primary-runtime/dependencies/bin/fallback:/Applications/ChatGPT.app/Contents/Resources"}, "timeout_seconds": 600, "started_utc": "2026-09-08T20:01:14Z", "log": "logs/extraction-duplicate-observations-red.log"}
+
+ RUN  v4.0.18 /private/tmp/ctxpipe-recovery-01a07aba/apps/backend
+
+Cloning into bare repository '/var/folders/9t/jj9rnpps7_ddb72c1mq2k13w0000gn/T/ctxpipe-hydration-contract-T9cArm/remote.git'...
+done.
+Cloning into bare repository '/var/folders/9t/jj9rnpps7_ddb72c1mq2k13w0000gn/T/ctxpipe-hydration-contract-vMZ2vN/remote.git'...
+done.
+Cloning into bare repository '/var/folders/9t/jj9rnpps7_ddb72c1mq2k13w0000gn/T/ctxpipe-hydration-contract-nACXBM/remote.git'...
+done.
+Cloning into bare repository '/var/folders/9t/jj9rnpps7_ddb72c1mq2k13w0000gn/T/ctxpipe-hydration-contract-Aoc3EY/remote.git'...
+done.
+Cloning into bare repository '/var/folders/9t/jj9rnpps7_ddb72c1mq2k13w0000gn/T/ctxpipe-hydration-contract-I9Xs6S/remote.git'...
+done.
+Cloning into bare repository '/var/folders/9t/jj9rnpps7_ddb72c1mq2k13w0000gn/T/ctxpipe-hydration-contract-Odfm6A/remote.git'...
+done.
+Cloning into bare repository '/var/folders/9t/jj9rnpps7_ddb72c1mq2k13w0000gn/T/ctxpipe-hydration-contract-xH7C2q/remote.git'...
+done.
+ ❯ src/domain/workspaces/write-extract-native.contract.test.ts (7 tests | 2 failed) 20031ms
+   × preserves extraction identity at knowledge/services/billing.md and a same-name collision after migration cutover 12991ms
+   × preserves extraction identity at knowledge/imported/billing.md and a same-name collision after migration cutover 1820ms
+   ✓ durably queues an unwritable migration_export command to its typed workflow  424ms
+   ✓ durably queues an unwritable extract_ingest command to its typed workflow  488ms
+   ✓ reads completed path identity without waiting for historical job storage  412ms
+   ✓ backfills completed path maps by native completion order despite an old completion replay  3596ms
+   ✓ does not reuse migration cutover after the workspace binding generation changes 300ms
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 2 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  src/domain/workspaces/write-extract-native.contract.test.ts > preserves extraction identity at knowledge/services/billing.md and a same-name collision after migration cutover
+ FAIL  src/domain/workspaces/write-extract-native.contract.test.ts > preserves extraction identity at knowledge/imported/billing.md and a same-name collision after migration cutover
+AssertionError: expected '---\ncustom: Finance\nkind: Service\n…' to contain 'New extraction describes the ledger.'
+
+- Expected
++ Received
+
+- New extraction describes the ledger.
++ ---
++ custom: Finance
++ kind: Service
++ generated_by: ctxpipe
++ ---
++
++ # Billing
++ Owner notes.
+
+ ❯ src/domain/workspaces/write-extract-native.contract.test.ts:186:27
+    184|           )
+    185|           expect(content).toContain("Owner notes.")
+    186|           expect(content).toContain("New extraction describes the ledg…
+       |                           ^
+    187|           expect(content).toContain("custom: Finance")
+    188|           expect(content).not.toContain("DATABASE POISON")
+ ❯ withNativeHydrationFixture src/test/native-hydration-fixture.ts:647:5
+ ❯ src/domain/workspaces/write-extract-native.contract.test.ts:25:5
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/2]⎯
+
+
+ Test Files  1 failed (1)
+      Tests  2 failed | 5 passed (7)
+   Start at  06:01:15
+   Duration  22.61s (transform 853ms, setup 20ms, import 2.49s, tests 20.03s, environment 0ms)
+

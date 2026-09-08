@@ -4,7 +4,7 @@ import { parseEnv } from "../../config/env.js"
 import { generateCommitSubject } from "../../domain/workspaces/commit-subject.js"
 import { workspaceExtractionSchema } from "../../domain/workspaces/extraction.js"
 import { isConnectorMirrorPath } from "../../domain/workspaces/layout.js"
-import { planKnowledgeProjection } from "../../domain/workspaces/migration-export.js"
+import { planCapturedExtraction } from "../../domain/workspaces/plan-extraction.js"
 import {
   sameWorkspaceRevision,
   workspaceRevisionSchema,
@@ -122,48 +122,13 @@ export const workspaceExtractIngest = defineWorkflow(
             async () => {
               const existingKnowledge = await readGitFiles(
                 acquired.pack,
-                (path) =>
-                  path.endsWith(".md") &&
-                  !isConnectorMirrorPath(path) &&
-                  (path.startsWith("knowledge/") ||
-                    path.startsWith("repositories/")),
+                (path) => path.endsWith(".md") && !isConnectorMirrorPath(path),
               )
-              const plan = await planKnowledgeProjection({
+              const plan = await planCapturedExtraction({
                 ...identity,
+                extraction: input.extraction,
                 workspaceId: input.workspaceId,
-                firstWorkspaceId: input.workspaceId,
                 workspaceRepositoryUrl: revision.remote.url,
-                workspaceByRepositoryId: new Map([
-                  [input.extraction.repositoryId, input.workspaceId],
-                ]),
-                repositoryGitUrlById: new Map([
-                  [
-                    input.extraction.repositoryId,
-                    input.extraction.repositoryUrl,
-                  ],
-                ]),
-                objects: input.extraction.objects.map((object) => ({
-                  id: object.deduplicationKey,
-                  kind: object.kind,
-                  deduplicationKey: object.deduplicationKey,
-                  payload: {
-                    ...object.payload,
-                    ...(object.name === undefined ? {} : { name: object.name }),
-                    ...(object.summary === undefined
-                      ? {}
-                      : { summary: object.summary }),
-                  },
-                })),
-                claims: input.extraction.claims.map((claim) => ({
-                  subjectId: claim.subjectRef,
-                  objectId: claim.objectRef,
-                  predicate: claim.predicate,
-                  aggregatedConfidence: claim.confidence,
-                  evidenceKey: claim.sourceId,
-                  validFrom: null,
-                  validTo: null,
-                })),
-                linkedUrls: [],
                 existingKnowledge,
               })
               const existing = new Map(
