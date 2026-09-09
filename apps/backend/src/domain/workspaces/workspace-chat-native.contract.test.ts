@@ -1,7 +1,11 @@
 import { execFile } from "node:child_process"
 import { fileURLToPath } from "node:url"
 import { promisify } from "node:util"
-import { modelMessagesToUIMessages, type StreamChunk } from "@tanstack/ai"
+import {
+  modelMessagesToUIMessages,
+  RUN_CANCEL_REASON,
+  type StreamChunk,
+} from "@tanstack/ai"
 import { reconstructChat } from "@tanstack/ai-persistence"
 import { expect, it } from "vitest"
 import { withOrgDbContext } from "../../db/client.js"
@@ -142,10 +146,120 @@ function parseSseDataLines(body: string): object[] {
 }
 
 it(
+  "rejects an overlapping stale send without replacing the accepted transcript",
+  { timeout: 60_000 },
+  async () => {
+    await withNativeChatFixture(async (f) => {
+      const responses = await Promise.all(
+        ["Concurrent A", "Concurrent B"].map(async (prompt) => {
+          const response = await f.request(
+            `/conversations/${f.conversationId}`,
+            {
+              method: "POST",
+              headers: { "content-type": "application/json" },
+              body: JSON.stringify({
+                threadId: f.conversationId,
+                runId: `${f.conversationId}-${prompt}`,
+                messages: [{ id: prompt, role: "user", content: prompt }],
+                tools: [],
+                context: [],
+                state: {},
+                forwardedProps: { workspaceId: f.workspaceId },
+              }),
+            },
+          )
+          return parseSseDataLines(await response.text()) as StreamChunk[]
+        }),
+      )
+      const accepted = responses.filter((chunks) =>
+        chunks.some((chunk) => chunk.type === "RUN_FINISHED"),
+      )
+      expect(accepted).toHaveLength(1)
+      const rejectedPrompt = responses[0]?.some(
+        (chunk) => chunk.type === "RUN_ERROR",
+      )
+        ? "Concurrent A"
+        : "Concurrent B"
+      expect(
+        f.modelRequests.some((request) =>
+          JSON.stringify(request).includes(rejectedPrompt),
+        ),
+      ).toBe(false)
+      expect(
+        responses
+          .flat()
+          .filter((chunk) => chunk.type === "RUN_ERROR")
+          .map((chunk) => chunk.message),
+      ).toEqual([
+        "Conversation changed during another send; reload before retrying",
+      ])
+      for (const chunks of responses)
+        expect(
+          chunks.filter(
+            (chunk) =>
+              chunk.type === "RUN_FINISHED" || chunk.type === "RUN_ERROR",
+          ),
+        ).toHaveLength(1)
+      const transcript =
+        await workspaceChatPersistence().stores.messages.loadThread(
+          f.conversationId,
+        )
+      expect(
+        transcript.filter((message) => message.role === "user"),
+      ).toHaveLength(1)
+      expect(
+        transcript.filter((message) => message.role === "assistant"),
+      ).toHaveLength(1)
+      expect(
+        await withOrgDbContext(f.orgId, () =>
+          listSandboxInstances({ conversationId: f.conversationId }),
+        ),
+      ).toHaveLength(1)
+      const retried = await f.request(`/conversations/${f.conversationId}`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          threadId: f.conversationId,
+          runId: `retry-${f.conversationId}`,
+          messages: [
+            ...transcript,
+            {
+              id: "retry-user",
+              role: "user",
+              content: "Retry after reloading",
+            },
+          ],
+          tools: [],
+          context: [],
+          state: {},
+          forwardedProps: { workspaceId: f.workspaceId },
+        }),
+      })
+      const retriedChunks = parseSseDataLines(
+        await retried.text(),
+      ) as StreamChunk[]
+      expect(
+        retriedChunks.filter((chunk) => chunk.type === "RUN_ERROR"),
+      ).toEqual([])
+      expect(
+        retriedChunks.filter((chunk) => chunk.type === "RUN_FINISHED"),
+      ).toHaveLength(1)
+      expect(
+        (
+          await workspaceChatPersistence().stores.messages.loadThread(
+            f.conversationId,
+          )
+        ).filter((message) => message.role === "user"),
+      ).toHaveLength(2)
+    })
+  },
+)
+
+it(
   "replays native WebSocket offsets and reloads the transcript in a fresh process",
   { timeout: 90_000 },
   async () => {
-    const { stdout } = await promisify(execFile)(
+    const { stdout, stderr } = await promisify(execFile)(
       "bun",
       [
         fileURLToPath(
@@ -157,6 +271,7 @@ it(
       ],
       { timeout: 80_000 },
     )
+    expect(stderr).not.toMatch(/hook failed|durability failure|AbortError/)
     const result = JSON.parse(stdout.trim().split("\n").at(-1) ?? "")
     expect(result).toEqual({
       replayMatches: true,
@@ -164,5 +279,77 @@ it(
       noReplayModelCall: true,
       freshTranscript: ["First socket question", "Native reply completed."],
     })
+  },
+)
+
+it(
+  "releases native transcript ownership after cancellation",
+  { timeout: 35_000 },
+  async () => {
+    let started!: () => void
+    let release!: () => void
+    const modelStarted = new Promise<void>((resolve) => {
+      started = resolve
+    })
+    const modelResponse = new Promise<void>((resolve) => {
+      release = resolve
+    })
+    await withNativeChatFixture(
+      async (f) => {
+        const controller = new AbortController()
+        const input = {
+          conversationId: f.conversationId,
+          orgId: f.orgId,
+          orgSlug: f.orgSlug,
+          workspaceId: f.workspaceId,
+          desiredUrl: f.directory,
+          desiredSha: f.sha,
+          defaultBranch: "main",
+          writeStatus: "read_only",
+        }
+        const stopped = (async () => {
+          for await (const _chunk of streamTanstackWorkspaceChat({
+            ...input,
+            runId: `cancel-${f.conversationId}`,
+            prompt: "Cancel this turn",
+            abortSignal: controller.signal,
+          })) {
+            /* Drain native cancellation. */
+          }
+        })()
+        try {
+          await modelStarted
+          controller.abort(RUN_CANCEL_REASON)
+          release()
+          await stopped
+          expect(
+            await workspaceChatPersistence().stores.runs?.get(
+              `cancel-${f.conversationId}`,
+            ),
+          ).toMatchObject({ status: "aborted" })
+          const chunks: StreamChunk[] = []
+          for await (const chunk of streamTanstackWorkspaceChat({
+            ...input,
+            runId: `retry-${f.conversationId}`,
+            prompt: "Continue after cancellation",
+          }))
+            chunks.push(chunk)
+          expect(chunks.filter((chunk) => chunk.type === "RUN_ERROR")).toEqual(
+            [],
+          )
+          expect(
+            chunks.filter((chunk) => chunk.type === "RUN_FINISHED"),
+          ).toHaveLength(1)
+        } finally {
+          controller.abort()
+          release()
+          await stopped
+        }
+      },
+      async () => {
+        started()
+        await modelResponse
+      },
+    )
   },
 )

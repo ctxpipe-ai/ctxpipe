@@ -1,0 +1,62 @@
+{"name": "native-cancel-subscription-fix", "cwd": "/private/tmp/ctxpipe-recovery-01a07aba", "command": ["/Users/jakubriedl/.volta/tools/image/node/22.16.0/bin/node", "apps/backend/node_modules/vitest/vitest.mjs", "run", "--root", "apps/backend", "src/domain/workspaces/workspace-chat-native.contract.test.ts", "-t", "releases native transcript"], "environment": {"AUTH_SECRET": "gate0-local-disposable-test-secret-20260907", "DATABASE_URL": "postgresql://ctxpipe_app:ctxpipe@127.0.0.1:61314/ctxpipe_gate0_fresh", "GRAPH_DB_URI": "redis://127.0.0.1:6398", "CI": "true", "NO_COLOR": "1", "TURBO_TELEMETRY_DISABLED": "1", "STORYBOOK_DISABLE_TELEMETRY": "1", "PATH": "/private/tmp/ctxpipe-recovery-runtime/bun-1.4.2/bun-darwin-aarch64:/Users/jakubriedl/.volta/tools/image/node/22.16.0/bin:/private/tmp/ctxpipe-recovery-runtime/ast-grep/node_modules/.bin:/private/tmp/ctxpipe-recovery-runtime/node_modules/.bin:/private/tmp/ctxpipe-recovery-runtime/zoekt:/usr/local/bin:/System/Cryptexes/App/usr/bin:/usr/bin:/bin:/usr/sbin:/sbin:/var/run/com.apple.security.cryptexd/codex.system/bootstrap/usr/local/bin:/var/run/com.apple.security.cryptexd/codex.system/bootstrap/usr/bin:/var/run/com.apple.security.cryptexd/codex.system/bootstrap/usr/appleinternal/bin:/pkg/env/global/bin:/Users/jakubriedl/.codex/tmp/arg0/codex-arg0BW5Gt3:/Users/jakubriedl/.cache/codex-runtimes/codex-primary-runtime/dependencies/bin/override:/Users/jakubriedl/.local/bin:/Users/jakubriedl/.bun/bin:/Users/jakubriedl/.opencode/bin:/Users/jakubriedl/.volta/bin:/opt/homebrew/bin:/opt/homebrew/sbin:/Users/jakubriedl/.cache/codex-runtimes/codex-primary-runtime/dependencies/bin/fallback:/Applications/ChatGPT.app/Contents/Resources"}, "timeout_seconds": 600, "started_utc": "2026-09-09T03:46:23Z", "log": "logs/native-cancel-subscription-fix.log"}
+
+ RUN  v4.0.18 /private/tmp/ctxpipe-recovery-01a07aba/apps/backend
+
+native-cancel: model-started
+stdout | src/domain/workspaces/workspace-chat-native.contract.test.ts > releases native transcript ownership after cancellation
+{
+  error: TypeError: fetch failed
+  [90m    at node:internal/deps/undici/undici:13510:13[39m
+      at request [90m(file:///private/tmp/ctxpipe-recovery-01a07aba/[39mnode_modules/[4m.pnpm[24m/@opencode-ai+sdk@1.18.18/node_modules/[4m@opencode-ai[24m/sdk/dist/gen/client/client.gen.js:56:24[90m)[39m
+      at Object.prompt [90m(file:///private/tmp/ctxpipe-recovery-01a07aba/[39mnode_modules/[4m.pnpm[24m/@tanstack+ai-opencode@0.3.4_patch_hash=e1e6122683277d4f18a3629e6a5ce9aeafbf290038b0272e_8606ada92d829f2278296a4aef6c181e/node_modules/[4m@tanstack[24m/ai-opencode/dist/esm/process/server.js:126:19[90m)[39m {
+    [cause]: SocketError: other side closed
+    [90m    at Socket.<anonymous> (node:internal/deps/undici/undici:6294:28)[39m
+    [90m    at Socket.emit (node:events:530:35)[39m
+    [90m    at endReadableNT (node:internal/streams/readable:1698:12)[39m
+    [90m    at processTicksAndRejections (node:internal/process/task_queues:90:21)[39m {
+      code: [32m'UND_ERR_SOCKET'[39m,
+      socket: {
+        localAddress: [32m'127.0.0.1'[39m,
+        localPort: [33m59708[39m,
+        remoteAddress: [32m'127.0.0.1'[39m,
+        remotePort: [33m59702[39m,
+        remoteFamily: [32m'IPv4'[39m,
+        timeout: [90mundefined[39m,
+        bytesWritten: [33m389[39m,
+        bytesRead: [33m0[39m
+      }
+    }
+  },
+  source: [32m'opencode.chatStream'[39m
+}
+
+stderr | src/domain/workspaces/workspace-chat-native.contract.test.ts > releases native transcript ownership after cancellation
+❌ [tanstack-ai:errors] ❌ opencode.chatStream fatal
+
+stderr | src/domain/workspaces/workspace-chat-native.contract.test.ts > releases native transcript ownership after cancellation
+❌ [tanstack-ai:errors] ❌ middleware onAbort hook failed
+
+stdout | src/domain/workspaces/workspace-chat-native.contract.test.ts > releases native transcript ownership after cancellation
+{
+  middleware: [32m'chat-persistence'[39m,
+  hook: [32m'onAbort'[39m,
+  error: DOMException [AbortError]: This operation was aborted
+  [90m    at new DOMException (node:internal/per_context/domexception:53:5)[39m
+  [90m    at AbortController.abort (node:internal/abort_controller:504:18)[39m
+      at [90m/private/tmp/ctxpipe-recovery-01a07aba/[39mapps/backend/src/domain/workspaces/workspace-chat-native.contract.test.ts:272:22
+  [90m    at processTicksAndRejections (node:internal/process/task_queues:105:5)[39m
+      at [90m/private/tmp/ctxpipe-recovery-01a07aba/[39mapps/backend/src/observability/logger.ts:131:16
+      at withNativeChatFixture [90m(/private/tmp/ctxpipe-recovery-01a07aba/[39mapps/backend/src/test/native-chat-fixture.ts:191:12[90m)[39m
+      at [90m/private/tmp/ctxpipe-recovery-01a07aba/[39mapps/backend/src/domain/workspaces/workspace-chat-native.contract.test.ts:246:5
+      at [90mfile:///private/tmp/ctxpipe-recovery-01a07aba/[39mnode_modules/[4m.pnpm[24m/@vitest+runner@4.0.18/node_modules/[4m@vitest[24m/runner/dist/index.js:915:20
+}
+
+native-cancel: stopped
+ ✓ src/domain/workspaces/workspace-chat-native.contract.test.ts (4 tests | 3 skipped) 11841ms
+   ✓ releases native transcript ownership after cancellation  11840ms
+
+ Test Files  1 passed (1)
+      Tests  1 passed | 3 skipped (4)
+   Start at  13:46:23
+   Duration  15.60s (transform 1.24s, setup 29ms, import 3.62s, tests 11.84s, environment 0ms)
+

@@ -1,0 +1,24 @@
+diff --git a/dist/gen/core/serverSentEvents.gen.js b/dist/gen/core/serverSentEvents.gen.js
+index 51b0e275621e9140e0307ca80de29fdf23c925b1..0ec26c59baf92ea3ac828191d2f41586ed9b2fbe 100644
+--- a/dist/gen/core/serverSentEvents.gen.js
++++ b/dist/gen/core/serverSentEvents.gen.js
+@@ -26,7 +26,7 @@ export const createSseClient = ({ onSseError, onSseEvent, responseTransformer, r
+                 let buffer = "";
+                 const abortHandler = () => {
+                     try {
+-                        void reader.cancel();
++                        void reader.cancel().catch(() => undefined);
+                     }
+                     catch {
+                         // noop
+@@ -101,7 +101,9 @@ export const createSseClient = ({ onSseError, onSseEvent, responseTransformer, r
+                 break; // exit loop on normal completion
+             }
+             catch (error) {
+-                // connection failed or aborted; retry after delay
++                // An intentional abort ends the subscription without retrying.
++                if (signal.aborted) break;
++                // connection failed; retry after delay
+                 onSseError?.(error);
+                 if (sseMaxRetryAttempts !== undefined && attempt >= sseMaxRetryAttempts) {
+                     break; // stop after firing error

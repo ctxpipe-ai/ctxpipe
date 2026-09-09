@@ -342,7 +342,10 @@ async function startWorkspaceChat(input: TanstackWorkspaceChatInput): Promise<
         otelMiddleware({
           tracer: trace.getTracer("ctxpipe-workspace-chat"),
         }),
-        withPersistence(persistence, { snapshotStreaming: true }),
+        withPersistence(persistence, {
+          snapshotStreaming: true,
+          threadLocks: postgresSandboxLocks(input.orgId, abortController),
+        }),
         modules.withSandbox(definition, {
           instances,
           locks: postgresSandboxLocks(

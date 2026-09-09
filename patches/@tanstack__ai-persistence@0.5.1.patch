@@ -1,0 +1,381 @@
+diff --git a/dist/esm/middleware.d.ts b/dist/esm/middleware.d.ts
+index 65d63d00f9b22cceb2b3ea4245691106b7168ea1..6376d3144522fb437ceb5fcba923b322c40d8ac3 100644
+--- a/dist/esm/middleware.d.ts
++++ b/dist/esm/middleware.d.ts
+@@ -1,3 +1,4 @@
++import type { LockStore } from '@tanstack/ai/locks';
+ import { ChatMiddleware, GenerationMiddleware, PersistedArtifactActivity, PersistedArtifactRef, PersistedArtifactRole, TokenUsage } from '@tanstack/ai';
+ import { AIPersistence, AIPersistenceStores, BlobBody, ChatTranscriptStores, RunStore } from './types.js';
+ /**
+@@ -203,6 +204,7 @@ export declare function abortRun(runs: RunStore | undefined, runId: string, usag
+  * is loaded and used.
+  */
+ export interface WithPersistenceOptions {
++    threadLocks?: LockStore;
+     /**
+      * Also persist a throttled snapshot of the in-progress assistant reply while
+      * it streams. Off by default — the transcript is otherwise persisted at the
+diff --git a/dist/esm/middleware.js b/dist/esm/middleware.js
+index 8480a78aac5ab6a161051bcd85509d2b749b9bfc..25d8ee41735cb07d9f9081ebe1fc5bbbf7f1e558 100644
+--- a/dist/esm/middleware.js
++++ b/dist/esm/middleware.js
+@@ -969,6 +969,53 @@ function detachableRun(ctx) {
+ *   required). Known-absent `messages` or `interrupts` without `runs` fail at
+ *   compile time; fully dynamic bags are checked at runtime.
+ */
++async function lockTranscript(ctx, messages, locks) {
++    const before = JSON.stringify(await messages.loadThread(ctx.threadId));
++    let ready;
++    let failed;
++    let release;
++    const acquired = new Promise((resolve, reject) => { ready = resolve; failed = reject; });
++    const finished = new Promise((resolve) => { release = resolve; });
++    let ownershipLost = false;
++    const held = locks.withLock(`chat-thread:${ctx.threadId}`, async (signal) => {
++        const lost = () => {
++            if (ctx.signal?.aborted) return;
++            ownershipLost = true;
++            ctx.abort('Chat thread lock ownership lost');
++        };
++        signal.addEventListener('abort', lost, { once: true });
++        try {
++            signal.throwIfAborted();
++            ctx.signal?.throwIfAborted();
++            const current = JSON.stringify(await messages.loadThread(ctx.threadId));
++            if (current !== before)
++                throw new Error('Conversation changed during another send; reload before retrying');
++            ready();
++            await finished;
++        }
++        finally {
++            signal.removeEventListener('abort', lost);
++        }
++    });
++    void held.catch(failed);
++    await acquired;
++    return async () => {
++        release();
++        try { await held; }
++        catch (error) {
++            if (!ownershipLost && ctx.signal?.aborted && error === ctx.signal.reason) return;
++            throw error;
++        }
++    };
++}
++async function releaseTranscript(ctx) {
++    const state = runState.get(ctx);
++    const release = state?.releaseThread;
++    if (state)
++        state.releaseThread = undefined;
++    await release?.();
++}
++
+ function withPersistence(persistence, options = {}) {
+ 	validateChatPersistenceStores(persistence);
+ 	const snapshotStreaming = options.snapshotStreaming ?? false;
+@@ -984,7 +1031,7 @@ function withPersistence(persistence, options = {}) {
+ 	return defineChatMiddleware({
+ 		name: "chat-persistence",
+ 		provides,
+-		setup(ctx) {
++		async setup(ctx) {
+ 			providePersistence(ctx, persistence);
+ 			let resolveCompletion = () => void 0;
+ 			let rejectCompletion = () => void 0;
+@@ -1009,6 +1056,11 @@ function withPersistence(persistence, options = {}) {
+ 				const list = ctx.messages.length > 0 ? [...ctx.messages] : stored;
+ 				await messageStore.saveThread(ctx.threadId, list);
+ 			} });
++			if (options.threadLocks) {
++				const release = await lockTranscript(ctx, messageStore, options.threadLocks);
++				const state = runState.get(ctx);
++				if (state) state.releaseThread = release;
++			}
+ 		},
+ 		async onConfig(ctx, config) {
+ 			if (ctx.phase !== "init") return;
+@@ -1100,6 +1152,7 @@ function withPersistence(persistence, options = {}) {
+ 			state.usage = accumulateTokenUsage(state.usage, usage);
+ 		},
+ 		async onFinish(ctx, info) {
++			try {
+ 			const state = runState.get(ctx);
+ 			if (state?.interrupted) return;
+ 			try {
+@@ -1115,15 +1168,19 @@ function withPersistence(persistence, options = {}) {
+ 				}
+ 				throw error;
+ 			}
++			} finally { await releaseTranscript(ctx); }
+ 		},
+ 		async onError(ctx, info) {
++			try {
+ 			try {
+ 				await failRun(runs, ctx.runId, info.error, runState.get(ctx)?.usage);
+ 			} finally {
+ 				runState.get(ctx)?.completion?.reject(info.error);
+ 			}
++			} finally { await releaseTranscript(ctx); }
+ 		},
+ 		async onAbort(ctx, info) {
++			try {
+ 			const state = runState.get(ctx);
+ 			let terminal = false;
+ 			try {
+@@ -1132,6 +1189,7 @@ function withPersistence(persistence, options = {}) {
+ 			} finally {
+ 				if (terminal) state?.completion?.reject(info.reason);
+ 			}
++			} finally { await releaseTranscript(ctx); }
+ 		}
+ 	});
+ }
+diff --git a/src/middleware.ts b/src/middleware.ts
+index 7e8eb184e2457ffbf9b4f10d6d7ac304f4bfafe1..2c72534cd893a5d5684cfcc2405f413489cfd99d 100644
+--- a/src/middleware.ts
++++ b/src/middleware.ts
+@@ -1,3 +1,4 @@
++import type { LockStore } from '@tanstack/ai/locks'
+ import {
+   defineChatMiddleware,
+   fromSpecTokenUsage,
+@@ -57,6 +58,7 @@ import type {
+   TokenUsage,
+ } from '@tanstack/ai'
+ import type {
++  MessageStore,
+   AIPersistence,
+   AIPersistenceStores,
+   ArtifactRecord,
+@@ -262,6 +264,7 @@ export interface GenerationArtifactNameInput {
+ }
+ 
+ interface RunStateEntry {
++  releaseThread?: () => Promise<void>
+   merged: boolean
+   interrupted: boolean
+   /**
+@@ -297,6 +300,55 @@ interface RunStateEntry {
+ 
+ const runState = new WeakMap<object, RunStateEntry>()
+ 
++async function lockTranscript(ctx: ChatMiddlewareContext, messages: MessageStore, locks: LockStore): Promise<() => Promise<void>> {
++  const before = JSON.stringify(await messages.loadThread(ctx.threadId))
++  let ready!: () => void
++  let failed!: (error: unknown) => void
++  let release!: () => void
++  const acquired = new Promise<void>((resolve, reject) => { ready = resolve; failed = reject })
++  const finished = new Promise<void>((resolve) => { release = resolve })
++  let ownershipLost = false
++  const held = locks.withLock(`chat-thread:${ctx.threadId}`, async (signal) => {
++    const lost = () => {
++      if (ctx.signal?.aborted) return
++      ownershipLost = true
++      ctx.abort('Chat thread lock ownership lost')
++    }
++    signal.addEventListener('abort', lost, { once: true })
++    try {
++      signal.throwIfAborted()
++      ctx.signal?.throwIfAborted()
++      const current = JSON.stringify(await messages.loadThread(ctx.threadId))
++      if (current !== before) throw new Error('Conversation changed during another send; reload before retrying')
++      ready()
++      await finished
++    } finally {
++      signal.removeEventListener('abort', lost)
++    }
++  })
++  void held.catch(failed)
++  await acquired
++  return async () => {
++    release()
++    try {
++      await held
++    } catch (error) {
++      // The terminal hook already settled persistence. A caller disconnect or
++      // explicit cancel only ends the wait; actual lease loss must still fail.
++      if (!ownershipLost && ctx.signal?.aborted && error === ctx.signal.reason) return
++      throw error
++    }
++  }
++}
++
++async function releaseTranscript(ctx: ChatMiddlewareContext): Promise<void> {
++  const state = runState.get(ctx)
++  const release = state?.releaseThread
++  if (state) state.releaseThread = undefined
++  await release?.()
++}
++
++
+ const validResumeStatuses = new Set(['resolved', 'cancelled'])
+ 
+ function mergeMaps<K, V>(
+@@ -1921,6 +1973,8 @@ function detachableRun(ctx: ChatMiddlewareContext): boolean {
+  * is loaded and used.
+  */
+ export interface WithPersistenceOptions {
++  /** Optional native thread mutex. Reject a queued run if its observed transcript changed while waiting. */
++  threadLocks?: LockStore
+   /**
+    * Also persist a throttled snapshot of the in-progress assistant reply while
+    * it streams. Off by default — the transcript is otherwise persisted at the
+@@ -1967,7 +2021,7 @@ export function withPersistence<TStores extends ChatTranscriptStores>(
+   return defineChatMiddleware({
+     name: 'chat-persistence',
+     provides,
+-    setup(ctx: ChatMiddlewareContext) {
++    async setup(ctx: ChatMiddlewareContext) {
+       providePersistence(ctx, persistence)
+ 
+       let resolveCompletion: () => void = () => undefined
+@@ -2016,6 +2070,11 @@ export function withPersistence<TStores extends ChatTranscriptStores>(
+           await messageStore.saveThread(ctx.threadId, list)
+         },
+       })
++      if (options.threadLocks) {
++        const release = await lockTranscript(ctx, messageStore, options.threadLocks)
++        const state = runState.get(ctx)
++        if (state) state.releaseThread = release
++      }
+     },
+ 
+     async onConfig(ctx: ChatMiddlewareContext, config: ChatMiddlewareConfig) {
+@@ -2208,74 +2267,86 @@ export function withPersistence<TStores extends ChatTranscriptStores>(
+     },
+ 
+     async onFinish(ctx: ChatMiddlewareContext, info: FinishInfo) {
+-      const state = runState.get(ctx)
+-      if (state?.interrupted) return
+-      // Transcript first: if saveThread fails the run stays non-completed and
+-      // resumes stay pending so a retry can re-apply them. Completing the run
+-      // or consuming approvals before the durable history lands leaves a
+-      // "finished" run whose transcript is missing the terminal turn.
+       try {
+-        await messageStore.saveThread(ctx.threadId, [...ctx.messages])
+-        await commitPendingResumes(state, persistence.stores.interrupts)
+-        await completeRun(runs, ctx.runId, state?.usage ?? info.usage)
+-        state?.completion?.resolve()
+-      } catch (error) {
+-        // Core has already selected its terminal hook. Persist the failed run
+-        // here, so a failed transcript save or batch write does not leave an
+-        // interrupted or completed run whose pending records need retrying.
++        const state = runState.get(ctx)
++        if (state?.interrupted) return
++        // Transcript first: if saveThread fails the run stays non-completed and
++        // resumes stay pending so a retry can re-apply them. Completing the run
++        // or consuming approvals before the durable history lands leaves a
++        // "finished" run whose transcript is missing the terminal turn.
+         try {
+-          await failRun(runs, ctx.runId, error, state?.usage)
+-        } finally {
+-          state?.completion?.reject(error)
++          await messageStore.saveThread(ctx.threadId, [...ctx.messages])
++          await commitPendingResumes(state, persistence.stores.interrupts)
++          await completeRun(runs, ctx.runId, state?.usage ?? info.usage)
++          state?.completion?.resolve()
++        } catch (error) {
++          // Core has already selected its terminal hook. Persist the failed run
++          // here, so a failed transcript save or batch write does not leave an
++          // interrupted or completed run whose pending records need retrying.
++          try {
++            await failRun(runs, ctx.runId, error, state?.usage)
++          } finally {
++            state?.completion?.reject(error)
++          }
++          throw error
+         }
+-        throw error
++      } finally {
++        await releaseTranscript(ctx)
+       }
+     },
+ 
+     async onError(ctx: ChatMiddlewareContext, info: ErrorInfo) {
+       try {
+-        await failRun(runs, ctx.runId, info.error, runState.get(ctx)?.usage)
++        try {
++          await failRun(runs, ctx.runId, info.error, runState.get(ctx)?.usage)
++        } finally {
++          runState.get(ctx)?.completion?.reject(info.error)
++        }
+       } finally {
+-        runState.get(ctx)?.completion?.reject(info.error)
++        await releaseTranscript(ctx)
+       }
+     },
+ 
+     async onAbort(ctx: ChatMiddlewareContext, info: AbortInfo) {
+-      // A user pressing Stop and a user closing the tab produce the IDENTICAL
+-      // connection close, so intent is not inferable from the abort. It arrives
+-      // out of band in two bands, and either is authoritative: in-process
+-      // (`info.cancelRequested`, set when the cancel aborted this host's signal)
+-      // and durable (`RunRecord.cancelRequested`, the only channel that reaches
+-      // a run being driven elsewhere).
+-      // A run paused at an interrupt boundary is waiting for a HUMAN, not for
+-      // this socket. `chat()` skips its terminal hook at an actionable-wait
+-      // boundary, so its `finally` routes the disconnect here — and
+-      // terminalizing then produced a record claiming the run finished while
+-      // the interrupt rows stayed `'pending'` and `validatePendingResumes`
+-      // still threw on the next request. An explicit cancel is different: the
+-      // user gave up on the approval, so the cancel band stays authoritative.
+-      const state = runState.get(ctx)
+-      let terminal = false
+       try {
+-        // The durable cancel read is best-effort. It must not bypass the
+-        // terminal persistence path or prevent the completion promise from
+-        // settling when the run store is unavailable.
+-        const cancelled =
+-          info.cancelRequested === true ||
+-          (runs !== undefined && (await wasCancelRequested(runs, ctx.runId)))
+-        terminal =
+-          cancelled || (!detachableRun(ctx) && state?.interrupted !== true)
+-        if (terminal) {
+-          await abortRun(runs, ctx.runId, state?.usage)
++        // A user pressing Stop and a user closing the tab produce the IDENTICAL
++        // connection close, so intent is not inferable from the abort. It arrives
++        // out of band in two bands, and either is authoritative: in-process
++        // (`info.cancelRequested`, set when the cancel aborted this host's signal)
++        // and durable (`RunRecord.cancelRequested`, the only channel that reaches
++        // a run being driven elsewhere).
++        // A run paused at an interrupt boundary is waiting for a HUMAN, not for
++        // this socket. `chat()` skips its terminal hook at an actionable-wait
++        // boundary, so its `finally` routes the disconnect here — and
++        // terminalizing then produced a record claiming the run finished while
++        // the interrupt rows stayed `'pending'` and `validatePendingResumes`
++        // still threw on the next request. An explicit cancel is different: the
++        // user gave up on the approval, so the cancel band stays authoritative.
++        const state = runState.get(ctx)
++        let terminal = false
++        try {
++          // The durable cancel read is best-effort. It must not bypass the
++          // terminal persistence path or prevent the completion promise from
++          // settling when the run store is unavailable.
++          const cancelled =
++            info.cancelRequested === true ||
++            (runs !== undefined && (await wasCancelRequested(runs, ctx.runId)))
++          terminal =
++            cancelled || (!detachableRun(ctx) && state?.interrupted !== true)
++          if (terminal) {
++            await abortRun(runs, ctx.runId, state?.usage)
++          }
++        } finally {
++          if (terminal) state?.completion?.reject(info.reason)
+         }
++        // A plain disconnect on a detachable or interrupted run: write NOTHING.
++        // Either the agent is still running and a later attach can take it over
++        // (the record stays `'running'`; the detach path records `detachedSince`
++        // for the reaper), or the run is paused at an interrupt and the record
++        // must stay `'interrupted'` so the pending resumes can still be applied.
+       } finally {
+-        if (terminal) state?.completion?.reject(info.reason)
++        await releaseTranscript(ctx)
+       }
+-      // A plain disconnect on a detachable or interrupted run: write NOTHING.
+-      // Either the agent is still running and a later attach can take it over
+-      // (the record stays `'running'`; the detach path records `detachedSince`
+-      // for the reaper), or the run is paused at an interrupt and the record
+-      // must stay `'interrupted'` so the pending resumes can still be applied.
+     },
+   })
+ }

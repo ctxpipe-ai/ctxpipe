@@ -1,3 +1,37 @@
+diff --git a/dist/esm/process/server.js b/dist/esm/process/server.js
+index c3f62754a7a2e2dbf6cc4482e188b4bf5d10b37d..09318a6f0c5347d54b3ac364a9e635026dc69734 100644
+--- a/dist/esm/process/server.js
++++ b/dist/esm/process/server.js
+@@ -53,10 +53,12 @@ async function startOpencodeSession(options) {
+ 		client = result.client;
+ 		ownedServer = result.server;
+ 	}
++	const subscriptionAbort = new AbortController();
+ 	const lifecycle = { disposed: false };
+ 	const teardown = async () => {
+ 		if (lifecycle.disposed) return;
+ 		lifecycle.disposed = true;
++		subscriptionAbort.abort();
+ 		ownedServer?.close();
+ 		await Promise.resolve();
+ 	};
+@@ -100,7 +102,7 @@ async function startOpencodeSession(options) {
+ 				if (!lifecycle.disposed) options.onError?.(error);
+ 			}
+ 		};
+-		const stream = (await client.event.subscribe()).stream;
++		const stream = (await client.event.subscribe({ signal: subscriptionAbort.signal })).stream;
+ 		(async () => {
+ 			try {
+ 				for await (const event of stream) {
+@@ -151,6 +153,7 @@ async function startOpencodeSession(options) {
+ 			},
+ 			dispose: async () => {
+ 				lifecycle.disposed = true;
++				subscriptionAbort.abort();
+ 				try {
+ 					await stream.return(void 0);
+ 				} catch {}
 diff --git a/dist/esm/stream/sdk-types.d.ts b/dist/esm/stream/sdk-types.d.ts
 index ced4f2b07b9d85f940844bc08ecc1f201cae1723..7cbf1dddd996ce036b6ba56dc2a6572fb7c4fc96 100644
 --- a/dist/esm/stream/sdk-types.d.ts
@@ -78,6 +112,41 @@ index a63df2314be1bf53f30f08bf21b6d56a6408122f..e874a57268631e962e675a5ac2dbb8a2
  			if (isTextPart(part)) yield* handleTextPart(part, delta);
  			else if (isReasoningPart(part)) yield* handleReasoningPart(part, delta);
  			else if (isToolPart(part)) yield* handleToolPart(part);
+diff --git a/src/process/server.ts b/src/process/server.ts
+index d6aaae76712a012d4b7a8c8848e715a83ab5a890..2fd072af92a6cc5d12e8091e3f1995e542bf37b4 100644
+--- a/src/process/server.ts
++++ b/src/process/server.ts
+@@ -141,11 +141,13 @@ export async function startOpencodeSession(
+   // Mutated from several closures (the subscription loop, dispose, teardown);
+   // a holder object keeps reads typed as `boolean` rather than being
+   // flow-narrowed to a literal across those boundaries.
++  const subscriptionAbort = new AbortController()
+   const lifecycle = { disposed: false }
+ 
+   const teardown = async (): Promise<void> => {
+     if (lifecycle.disposed) return
+     lifecycle.disposed = true
++    subscriptionAbort.abort()
+     ownedServer?.close()
+     await Promise.resolve()
+   }
+@@ -196,7 +198,7 @@ export async function startOpencodeSession(
+       }
+     }
+ 
+-    const subscription = await client.event.subscribe()
++    const subscription = await client.event.subscribe({ signal: subscriptionAbort.signal })
+     const stream = subscription.stream
+ 
+     void (async () => {
+@@ -255,6 +257,7 @@ export async function startOpencodeSession(
+       },
+       dispose: async () => {
+         lifecycle.disposed = true
++        subscriptionAbort.abort()
+         try {
+           await stream.return(undefined)
+         } catch {
 diff --git a/src/stream/sdk-types.ts b/src/stream/sdk-types.ts
 index 8deb3ce87a3f77b048513fd5796607cad2009310..b4937a948c147738caa5c782f0423496345885d3 100644
 --- a/src/stream/sdk-types.ts

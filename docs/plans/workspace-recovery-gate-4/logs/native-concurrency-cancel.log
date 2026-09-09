@@ -1,0 +1,73 @@
+{"name": "native-concurrency-cancel", "cwd": "/private/tmp/ctxpipe-recovery-01a07aba", "command": ["/Users/jakubriedl/.volta/tools/image/node/22.16.0/bin/node", "apps/backend/node_modules/vitest/vitest.mjs", "run", "--root", "apps/backend", "src/domain/workspaces/workspace-chat-native.contract.test.ts"], "environment": {"AUTH_SECRET": "gate0-local-disposable-test-secret-20260907", "DATABASE_URL": "postgresql://ctxpipe_app:ctxpipe@127.0.0.1:61314/ctxpipe_gate0_fresh", "GRAPH_DB_URI": "redis://127.0.0.1:6398", "CI": "true", "NO_COLOR": "1", "TURBO_TELEMETRY_DISABLED": "1", "STORYBOOK_DISABLE_TELEMETRY": "1", "PATH": "/private/tmp/ctxpipe-recovery-runtime/bun-1.4.2/bun-darwin-aarch64:/Users/jakubriedl/.volta/tools/image/node/22.16.0/bin:/private/tmp/ctxpipe-recovery-runtime/ast-grep/node_modules/.bin:/private/tmp/ctxpipe-recovery-runtime/node_modules/.bin:/private/tmp/ctxpipe-recovery-runtime/zoekt:/usr/local/bin:/System/Cryptexes/App/usr/bin:/usr/bin:/bin:/usr/sbin:/sbin:/var/run/com.apple.security.cryptexd/codex.system/bootstrap/usr/local/bin:/var/run/com.apple.security.cryptexd/codex.system/bootstrap/usr/bin:/var/run/com.apple.security.cryptexd/codex.system/bootstrap/usr/appleinternal/bin:/pkg/env/global/bin:/Users/jakubriedl/.codex/tmp/arg0/codex-arg0BW5Gt3:/Users/jakubriedl/.cache/codex-runtimes/codex-primary-runtime/dependencies/bin/override:/Users/jakubriedl/.local/bin:/Users/jakubriedl/.bun/bin:/Users/jakubriedl/.opencode/bin:/Users/jakubriedl/.volta/bin:/opt/homebrew/bin:/opt/homebrew/sbin:/Users/jakubriedl/.cache/codex-runtimes/codex-primary-runtime/dependencies/bin/fallback:/Applications/ChatGPT.app/Contents/Resources"}, "timeout_seconds": 600, "started_utc": "2026-09-09T03:42:34Z", "log": "logs/native-concurrency-cancel.log"}
+
+ RUN  v4.0.18 /private/tmp/ctxpipe-recovery-01a07aba/apps/backend
+
+stdout | src/domain/workspaces/workspace-chat-native.contract.test.ts > rejects an overlapping stale send without replacing the accepted transcript
+{
+  error: Error: Conversation changed during another send; reload before retrying
+      at [90mfile:///private/tmp/ctxpipe-recovery-01a07aba/[39mnode_modules/[4m.pnpm[24m/@tanstack+ai-persistence@0.5.1_patch_hash=59dcd45890cca40a839d9a1f15fb1177e6fdd02e6f94c_522b25f8d76f8965074526aa64312dfc/node_modules/[4m@tanstack[24m/ai-persistence/dist/esm/middleware.js:987:23
+  [90m    at processTicksAndRejections (node:internal/process/task_queues:105:5)[39m
+      at Object.withLock [90m(/private/tmp/ctxpipe-recovery-01a07aba/[39mapps/backend/src/domain/workspaces/sandbox-lock-store.ts:105:24[90m)[39m,
+  threadId: [32m'conv_org_agqiiqwqjb3urarncwwznyld4y'[39m
+}
+
+stderr | src/domain/workspaces/workspace-chat-native.contract.test.ts > rejects an overlapping stale send without replacing the accepted transcript
+❌ [tanstack-ai:errors] ❌ chat run failed
+
+stdout | src/domain/workspaces/workspace-chat-native.contract.test.ts > releases native transcript ownership after cancellation
+{
+  error: TypeError: fetch failed
+  [90m    at node:internal/deps/undici/undici:13510:13[39m
+      at request [90m(file:///private/tmp/ctxpipe-recovery-01a07aba/[39mnode_modules/[4m.pnpm[24m/@opencode-ai+sdk@1.18.18/node_modules/[4m@opencode-ai[24m/sdk/dist/gen/client/client.gen.js:56:24[90m)[39m
+      at Object.prompt [90m(file:///private/tmp/ctxpipe-recovery-01a07aba/[39mnode_modules/[4m.pnpm[24m/@tanstack+ai-opencode@0.3.4_patch_hash=869ab30561870a6961d8589397654027e6e80cd7bdf191d1_c59d19e477adb48f3c40dcf88201ce2d/node_modules/[4m@tanstack[24m/ai-opencode/dist/esm/process/server.js:124:19[90m)[39m {
+    [cause]: SocketError: other side closed
+    [90m    at Socket.<anonymous> (node:internal/deps/undici/undici:6294:28)[39m
+    [90m    at Socket.emit (node:events:530:35)[39m
+    [90m    at endReadableNT (node:internal/streams/readable:1698:12)[39m
+    [90m    at processTicksAndRejections (node:internal/process/task_queues:90:21)[39m {
+      code: [32m'UND_ERR_SOCKET'[39m,
+      socket: {
+        localAddress: [32m'127.0.0.1'[39m,
+        localPort: [33m59513[39m,
+        remoteAddress: [32m'127.0.0.1'[39m,
+        remotePort: [33m59507[39m,
+        remoteFamily: [32m'IPv4'[39m,
+        timeout: [90mundefined[39m,
+        bytesWritten: [33m389[39m,
+        bytesRead: [33m0[39m
+      }
+    }
+  },
+  source: [32m'opencode.chatStream'[39m
+}
+
+stderr | src/domain/workspaces/workspace-chat-native.contract.test.ts > releases native transcript ownership after cancellation
+❌ [tanstack-ai:errors] ❌ opencode.chatStream fatal
+
+ ❯ src/domain/workspaces/workspace-chat-native.contract.test.ts (4 tests | 1 failed) 54150ms
+   ✓ uses the prepared native worktree for two stock chat turns and persists their transcript  7939ms
+   ✓ rejects an overlapping stale send without replacing the accepted transcript  4138ms
+   ✓ replays native WebSocket offsets and reloads the transcript in a fresh process  7054ms
+   × releases native transcript ownership after cancellation 35015ms
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 1 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  src/domain/workspaces/workspace-chat-native.contract.test.ts > releases native transcript ownership after cancellation
+Error: Test timed out in 35000ms.
+If this is a long-running test, pass a timeout value as the last argument or configure it globally with "testTimeout".
+ ❯ src/domain/workspaces/workspace-chat-native.contract.test.ts:234:1
+    232| )
+    233| 
+    234| it(
+       | ^
+    235|   "releases native transcript ownership after cancellation",
+    236|   { timeout: 35_000 },
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/1]⎯
+
+
+ Test Files  1 failed (1)
+      Tests  1 failed | 3 passed (4)
+   Start at  13:42:35
+   Duration  57.38s (transform 1.02s, setup 25ms, import 3.09s, tests 54.15s, environment 0ms)
+

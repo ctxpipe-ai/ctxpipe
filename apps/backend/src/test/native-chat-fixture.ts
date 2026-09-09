@@ -41,6 +41,7 @@ export async function withNativeChatFixture<T>(
     modelRequests: Array<Record<string, unknown>>
     request: OpenAPIHono<AppEnv>["request"]
   }) => Promise<T>,
+  beforeModelResponse?: () => Promise<void>,
 ): Promise<T> {
   if (!process.env.DATABASE_URL)
     throw new Error("DATABASE_URL is required for native chat proof")
@@ -84,6 +85,7 @@ export async function withNativeChatFixture<T>(
       if (req.url === "/model/v1/chat/completions") {
         const request = JSON.parse(body.toString()) as Record<string, unknown>
         modelRequests.push(request)
+        await beforeModelResponse?.()
         const content = "Native reply completed."
         if (request.stream) {
           res.writeHead(200, { "content-type": "text/event-stream" })
