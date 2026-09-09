@@ -1,6 +1,7 @@
-import { execFileSync, spawn } from "node:child_process"
+import { type ChildProcess, execFileSync, spawn } from "node:child_process"
 import { randomUUID } from "node:crypto"
 import { writeFile } from "node:fs/promises"
+import { createServer } from "node:net"
 import { networkInterfaces } from "node:os"
 import { join } from "node:path"
 import { PassThrough } from "node:stream"
@@ -24,6 +25,7 @@ import { withNativeHydrationFixture } from "../../test/native-hydration-fixture.
 import { withTestLogger } from "../../test/with-test-logger.js"
 import {
   WORKSPACE_CHAT_DOCKER_SANDBOX,
+  WORKSPACE_CHAT_OPENCODE_PORT,
   workspaceChatRuntimeConfig,
 } from "./chat-runtime.js"
 import { postgresSandboxLocks } from "./sandbox-lock-store.js"
@@ -524,9 +526,15 @@ it(
   async () => {
     const quotaHost = process.env.CTXPIPE_TEST_QUOTA_DOCKER_HOST?.trim()
     const quotaPort = Number(process.env.CTXPIPE_TEST_QUOTA_DOCKER_PORT)
-    if (!quotaHost || !Number.isInteger(quotaPort) || quotaPort < 1)
+    const quotaRunner = process.env.CTXPIPE_TEST_QUOTA_RUNNER_ID?.trim()
+    if (
+      !quotaHost ||
+      !quotaRunner ||
+      !Number.isInteger(quotaPort) ||
+      quotaPort < 1
+    )
       throw new Error(
-        "CTXPIPE_TEST_QUOTA_DOCKER_HOST and CTXPIPE_TEST_QUOTA_DOCKER_PORT are required",
+        "CTXPIPE_TEST_QUOTA_DOCKER_HOST, CTXPIPE_TEST_QUOTA_DOCKER_PORT, and CTXPIPE_TEST_QUOTA_RUNNER_ID are required",
       )
     const previous = Object.fromEntries(
       [
@@ -567,6 +575,24 @@ it(
                 listenPort,
               })
               process.env.SANDBOX_MODEL_PROXY_HOST = "host.docker.internal"
+              const forwards = new Map<number, { stop: () => Promise<void> }>()
+              const publishOpenCode = async () => {
+                const ports = await publishedOpencodePorts(docker)
+                if (ports.length === 0)
+                  throw new Error(
+                    "Quota Docker chat published no OpenCode ingress port",
+                  )
+                for (const port of ports) {
+                  if (forwards.has(port)) continue
+                  forwards.set(
+                    port,
+                    await startNestedPortForward({
+                      runnerId: quotaRunner,
+                      port,
+                    }),
+                  )
+                }
+              }
               try {
                 await gitFixture.serve(f.directory, async (remote) => {
                   let phase = "first prepare"
@@ -606,6 +632,8 @@ it(
                       "/workspace/unsaved.txt",
                       "Docker chat preserves unsaved work",
                     )
+                    phase = "opencode ingress"
+                    await publishOpenCode()
                     phase = "first chat"
                     const firstEvents: string[] = []
                     let firstText = ""
@@ -652,6 +680,8 @@ it(
                         "/workspace/unsaved.txt",
                       ),
                     ).toBe(false)
+                    phase = "recovery ingress"
+                    await publishOpenCode()
                     phase = "recovery chat"
                     const recoveredEvents: string[] = []
                     let recoveredText = ""
@@ -683,6 +713,9 @@ it(
                   }
                 })
               } finally {
+                await Promise.all(
+                  [...forwards.values()].map((forward) => forward.stop()),
+                )
                 await relay.stop()
               }
             },
@@ -1568,5 +1601,79 @@ async function waitForNestedTcp(
     if (Date.now() >= deadline)
       throw new Error(`Nested model relay did not reach ${host}:${port}`)
     await new Promise((resolve) => setTimeout(resolve, 100))
+  }
+}
+
+async function publishedOpencodePorts(docker: Docker): Promise<number[]> {
+  const ports = new Set<number>()
+  for (const summary of await docker.listContainers({
+    filters: { label: ["com.tanstack.ai.sandbox.role=proxy"] },
+  })) {
+    const info = await docker.getContainer(summary.Id).inspect()
+    const port = Number(
+      info.NetworkSettings.Ports[`${WORKSPACE_CHAT_OPENCODE_PORT}/tcp`]?.[0]
+        ?.HostPort,
+    )
+    if (Number.isInteger(port) && port > 0) ports.add(port)
+  }
+  return [...ports]
+}
+
+async function startNestedPortForward(input: {
+  runnerId: string
+  port: number
+}): Promise<{ stop: () => Promise<void> }> {
+  const children = new Set<ChildProcess>()
+  const server = createServer((socket) => {
+    const env = { ...process.env }
+    delete env.DOCKER_HOST
+    delete env.DOCKER_TLS_VERIFY
+    delete env.DOCKER_CERT_PATH
+    const child = spawn(
+      "docker",
+      [
+        "exec",
+        "-i",
+        input.runnerId,
+        "socat",
+        "STDIO",
+        `TCP:127.0.0.1:${input.port}`,
+      ],
+      { env, stdio: ["pipe", "pipe", "pipe"] },
+    )
+    children.add(child)
+    if (!child.stdin || !child.stdout)
+      throw new Error("Nested OpenCode forward missing stdio")
+    socket.pipe(child.stdin)
+    child.stdout.pipe(socket)
+    child.stderr?.resume()
+    const close = () => {
+      socket.destroy()
+      if (child.exitCode === null) child.kill()
+    }
+    child.on("error", close)
+    child.on("close", () => {
+      children.delete(child)
+      socket.destroy()
+    })
+    socket.on("error", close)
+    socket.on("close", () => {
+      child.stdin?.end()
+    })
+  })
+  await new Promise<void>((resolve, reject) => {
+    server.once("error", reject)
+    server.listen(input.port, "127.0.0.1", resolve)
+  })
+  return {
+    async stop() {
+      for (const child of children) {
+        if (child.exitCode === null) child.kill()
+      }
+      await new Promise<void>((resolve, reject) => {
+        server.close((error) => (error ? reject(error) : resolve()))
+        server.closeAllConnections()
+      })
+    },
   }
 }
