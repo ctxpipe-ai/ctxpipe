@@ -571,6 +571,12 @@ it(
                 await gitFixture.serve(f.directory, async (remote) => {
                   let phase = "first prepare"
                   try {
+                    await withOrgDbContext(f.orgId, (db) =>
+                      db
+                        .update(workspaces)
+                        .set({ workspaceRepositoryUrl: remote.url })
+                        .where(eq(workspaces.id, f.workspaceId)),
+                    )
                     const input = {
                       conversationId: f.conversationId,
                       orgId: f.orgId,
@@ -1475,7 +1481,7 @@ function ghaReachableIpv4(): string {
   for (const entries of Object.values(networkInterfaces())) {
     for (const entry of entries ?? []) {
       if (entry.internal) continue
-      if (entry.family !== "IPv4" && entry.family !== 4) continue
+      if (entry.family !== "IPv4") continue
       if (entry.address.startsWith("172.17.")) continue
       return entry.address
     }
