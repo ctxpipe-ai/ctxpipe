@@ -1,3 +1,4 @@
+import { createServer } from "node:net"
 import { trace } from "@opentelemetry/api"
 import {
   defineChatMiddleware,
@@ -424,8 +425,10 @@ async function startWorkspaceChat(input: TanstackWorkspaceChatInput): Promise<
     image: built.image,
     policyIdentity: built.policyIdentity,
   })
-  const servePort =
-    built.spec.isolation === "unsandboxed" ? 0 : WORKSPACE_CHAT_OPENCODE_PORT
+  const serve =
+    built.spec.isolation === "unsandboxed"
+      ? await allocateUnsandboxedOpencodeListen()
+      : { port: WORKSPACE_CHAT_OPENCODE_PORT }
   const modules = built.modules
   const instances = built.instances
   let revisionRecoveryNotice: string | undefined
@@ -443,7 +446,8 @@ async function startWorkspaceChat(input: TanstackWorkspaceChatInput): Promise<
   let transcriptOwner: string | undefined
   const stream = await modules.chat({
     adapter: modules.opencodeText(built.contract.opencodeModel, {
-      port: servePort,
+      port: serve.port,
+      ...("hostname" in serve ? { hostname: serve.hostname } : {}),
       permissionMode: runtime.permissionMode,
       onPermissionRequest: runtime.onPermissionRequest,
     }),
@@ -864,4 +868,27 @@ export function conversationUiMessagesFromModelMessages(
   messages: Parameters<typeof modelMessagesToUIMessages>[0],
 ) {
   return modelMessagesToUIMessages(messages)
+}
+
+async function allocateUnsandboxedOpencodeListen(): Promise<{
+  hostname: "127.0.0.1"
+  port: number
+}> {
+  // OpenCode 1.18.18 treats `--port=0` as 4096. Concurrent unsandboxed
+  // sends would then share one host listener and reset session create.
+  const port = await new Promise<number>((resolve, reject) => {
+    const server = createServer()
+    server.once("error", reject)
+    server.listen(0, "127.0.0.1", () => {
+      const address = server.address()
+      if (!address || typeof address === "string") {
+        server.close()
+        reject(new Error("Unsandboxed OpenCode listen port missing"))
+        return
+      }
+      const allocated = address.port
+      server.close((error) => (error ? reject(error) : resolve(allocated)))
+    })
+  })
+  return { hostname: "127.0.0.1", port }
 }

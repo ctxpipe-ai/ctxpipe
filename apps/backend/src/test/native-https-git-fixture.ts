@@ -368,17 +368,25 @@ async function runExecOutput(
   const stream = await execution.start({ hijack: true })
   const stdout = new PassThrough()
   const stderr = new PassThrough()
-  const output: Buffer[] = []
-  stdout.on("data", (chunk: Buffer) => output.push(chunk))
-  stderr.on("data", (chunk: Buffer) => output.push(chunk))
+  const stdoutChunks: Buffer[] = []
+  const stderrChunks: Buffer[] = []
+  stdout.on("data", (chunk: Buffer) => stdoutChunks.push(chunk))
+  stderr.on("data", (chunk: Buffer) => stderrChunks.push(chunk))
   container.modem.demuxStream(stream, stdout, stderr)
   await finished(stream)
+  await Promise.all(
+    [finished(stdout), finished(stderr)].map((done) =>
+      done.catch(() => undefined),
+    ),
+  )
   const info = await execution.inspect()
+  const stdoutText = Buffer.concat(stdoutChunks).toString()
+  const stderrText = Buffer.concat(stderrChunks).toString()
   if (info.ExitCode !== 0)
     throw new Error(
-      `Native HTTPS Git fixture command exited ${info.ExitCode}: ${Buffer.concat(output).toString().trim()}`,
+      `Native HTTPS Git fixture command exited ${info.ExitCode}: ${`${stdoutText}${stderrText}`.trim()}`,
     )
-  return Buffer.concat(output).toString()
+  return stdoutText
 }
 
 async function waitForListener(
@@ -453,7 +461,7 @@ const server = createServer(
     const auth = authCategory(request)
     appendFileSync(
       requestLog,
-      JSON.stringify({ method: request.method ?? "", path: url.pathname, auth }) + "\\n",
+      JSON.stringify({ method: request.method ?? "", path: url.pathname, auth }) + "\n",
     )
     if ((bootstrapToken || readToken) && auth !== "bootstrap" && auth !== "read") {
       response.writeHead(401, {

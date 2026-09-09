@@ -1228,12 +1228,14 @@ fi'`,
         "bounded workspace",
       )
       // Write 1 MiB at a time so Alpine/BusyBox dd cannot buffer 4 GiB and
-      // get OOM-killed before the 4 GiB Btrfs quota is reached.
+      // get OOM-killed before the 4 GiB Btrfs quota is reached. Keep the
+      // failing write on disk; Docker demux can drop the last stderr frame.
       const quotaWrite = await handle.process.exec(
         `sh -eu -c '
 set +e
 err=/tmp/native-policy-quota.err
 : > /tmp/native-policy-quota.bin
+: > "$err"
 i=0
 status=0
 while [ "$i" -lt 5120 ]; do
@@ -1242,11 +1244,15 @@ while [ "$i" -lt 5120 ]; do
   [ "$status" -eq 0 ] || break
   i=$((i + 1))
 done
-cat "$err" >&2
-rm -f /tmp/native-policy-quota.bin "$err"
+rm -f /tmp/native-policy-quota.bin
 printf "quota-status=%s\\n" "$status"'`,
       )
-      expect(quotaWrite.stderr).toMatch(/quota exceeded/i)
+      const quotaError = await handle.process.exec(
+        "cat /tmp/native-policy-quota.err",
+      )
+      expect(
+        `${quotaError.stdout}${quotaError.stderr}${quotaWrite.stderr}${quotaWrite.stdout}`,
+      ).toMatch(/quota exceeded/i)
       expect(quotaWrite.stdout).toContain("quota-status=")
       expect(quotaWrite.stdout).not.toContain("quota-status=0")
     }

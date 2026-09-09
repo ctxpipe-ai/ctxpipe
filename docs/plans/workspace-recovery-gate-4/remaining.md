@@ -30,13 +30,15 @@ Key evidence:
 
 ## Remaining work, in order
 
-1. Reconfirm the 4 GiB quota probe and overlapping-chat OpenCode session
-   create on GitHub CI. The overlapping case passed locally (unsandboxed,
-   20.63s). The quota probe now writes 1 MiB seeks so BusyBox cannot
-   buffer a 4 GiB fill and trip the memory cgroup. This host cannot run
-   the Btrfs quota runner (`unknown filesystem type 'btrfs'`). Do not
-   substitute overlay Docker. Preserve ownership checks and dirty
-   worktrees.
+1. Reconfirm the 4 GiB quota probe, GitHub HTTPS fixture observations,
+   and overlapping-chat OpenCode session create on GitHub CI. CI
+   `34364900628` on `936106c9` failed those three contracts: request-log
+   NDJSON used a String.raw `\\n` (concatenated JSON), quota stderr was
+   empty after Docker demux dropped the last frame, and unsandboxed
+   `--port=0` still binds 4096 so overlapping sends reset session create.
+   This host cannot run the Btrfs quota runner (`unknown filesystem type
+   'btrfs'`). Do not substitute overlay Docker. Preserve ownership
+   checks and dirty worktrees.
 2. Finish integrated acceptance of the activated immutable chat image,
    1 CPU / 1 GiB / 128 PID / 4 GiB limits and per-workspace egress. The factory,
    policy identity and credential-free deployment relay now have focused proof;
@@ -61,14 +63,8 @@ Key evidence:
 
 ## Current CI and cost controls
 
-CI [34361746839](https://github.com/ctxpipe-ai/ctxpipe/actions/runs/34361746839)
-on `60ae1c10` is the current full run (Biome, typecheck, migrations, and
-production builds already green; Tests still running). The previous run
-[34352646163](https://github.com/ctxpipe-ai/ctxpipe/actions/runs/34352646163)
-on `1c7b9657` passed 12 jobs and failed Required deterministic contracts
-(2 failed / 327 passed): quota probe `Killed` before a quota error, and
-overlapping chat `ECONNRESET` during session create. UI/CLI/CDK steps were
-skipped. Job-row cleanup is not in that failure set. Do not dispatch a
+CI [34364900628](https://github.com/ctxpipe-ai/ctxpipe/actions/runs/34364900628)
+on `936106c9` is the latest full Tests failure. Do not dispatch a
 duplicate of an unchanged SHA.
 
 Backend/UI diagnostic allowances are 124/223, with no additions. Gate 6 must
