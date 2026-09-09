@@ -1,0 +1,32 @@
+Migrations (fresh and previous schema)	Isolation tests as ctxpipe_app	2026-09-09T00:39:35.0718368Z  Test Files  1 passed (1)
+Migrations (fresh and previous schema)	Isolation tests as ctxpipe_app	2026-09-09T00:39:35.0719639Z       Tests  2 passed (2)
+Migrations (fresh and previous schema)	Isolation tests as ctxpipe_app	2026-09-09T00:39:35.0721713Z    Duration  1.42s (transform 412ms, setup 35ms, import 1.19s, tests 70ms, environment 0ms)
+Biome	Reject skipped proof and owned mocks	2026-09-09T00:39:10.6008281Z Proof policy checked 441 test/story/config files and 27 command files
+Codesearch real toolchain contracts	Run pnpm --filter @ctxpipe/codesearch test	2026-09-09T00:45:58.6689862Z  Test Files  31 passed (31)
+Codesearch real toolchain contracts	Run pnpm --filter @ctxpipe/codesearch test	2026-09-09T00:45:58.6691223Z       Tests  173 passed (173)
+Codesearch real toolchain contracts	Run pnpm --filter @ctxpipe/codesearch test	2026-09-09T00:45:58.6694005Z    Duration  7.24s (transform 1.44s, setup 364ms, import 13.38s, tests 2.19s, environment 5ms)
+Codesearch real toolchain contracts	Run pnpm --filter @ctxpipe/codesearch test	2026-09-09T00:45:58.7285692Z EXECUTED 173 tests in 31 files: 173 passed, 0 acknowledged failures, zero skipped
+Codesearch real toolchain contracts	Run pnpm --filter @ctxpipe/codesearch test	2026-09-09T00:46:00.0997015Z  Test Files  3 passed (3)
+Codesearch real toolchain contracts	Run pnpm --filter @ctxpipe/codesearch test	2026-09-09T00:46:00.0998070Z       Tests  42 passed (42)
+Codesearch real toolchain contracts	Run pnpm --filter @ctxpipe/codesearch test	2026-09-09T00:46:00.0999255Z    Duration  1.01s (transform 900ms, setup 109ms, import 1.39s, tests 459ms, environment 1ms)
+Codesearch real toolchain contracts	Run pnpm --filter @ctxpipe/codesearch test	2026-09-09T00:46:00.1458693Z EXECUTED 42 tests in 3 files: 42 passed, 0 acknowledged failures, zero skipped
+Tests	Backend tests	2026-09-09T00:52:50.9893594Z  Test Files  1 failed | 207 passed (208)
+Tests	Backend tests	2026-09-09T00:52:50.9933446Z       Tests  1 failed | 1307 passed (1308)
+Tests	Backend tests	2026-09-09T00:52:50.9964266Z    Duration  727.33s (transform 5.07s, setup 1.54s, import 176.63s, tests 524.38s, environment 29ms)
+Tests	Backend tests	2026-09-09T00:52:51.0936217Z EXECUTED 1308 tests in 208 files: 1307 passed, 1 acknowledged failures, zero skipped
+Tests	Required deterministic contracts	2026-09-09T01:11:32.1875565Z  Test Files  36 passed (36)
+Tests	Required deterministic contracts	2026-09-09T01:11:32.1876624Z       Tests  236 passed (236)
+Tests	Required deterministic contracts	2026-09-09T01:11:32.1879087Z    Duration  1119.31s (transform 3.26s, setup 290ms, import 88.03s, tests 1026.64s, environment 5ms)
+Tests	Required deterministic contracts	2026-09-09T01:11:32.2597604Z EXECUTED 236 tests in 36 files: 236 passed, 0 acknowledged failures, zero skipped
+Tests	UI tests	2026-09-09T01:11:48.9109693Z  Test Files  61 passed (61)
+Tests	UI tests	2026-09-09T01:11:48.9111254Z       Tests  291 passed (291)
+Tests	UI tests	2026-09-09T01:11:48.9113913Z    Duration  14.22s (transform 5.25s, setup 0ms, import 20.92s, tests 2.61s, environment 1.61s)
+Tests	UI tests	2026-09-09T01:11:49.0254379Z EXECUTED 291 tests in 61 files: 291 passed, 0 acknowledged failures, zero skipped
+Tests	CLI tests	2026-09-09T01:11:55.0795390Z  Test Files  10 passed (10)
+Tests	CLI tests	2026-09-09T01:11:55.0796580Z       Tests  93 passed (93)
+Tests	CLI tests	2026-09-09T01:11:55.0798991Z    Duration  3.83s (transform 626ms, setup 0ms, import 939ms, tests 6.19s, environment 2ms)
+Tests	CLI tests	2026-09-09T01:11:55.1307564Z EXECUTED 93 tests in 10 files: 93 passed, 0 acknowledged failures, zero skipped
+Tests	CDK tests	2026-09-09T01:11:59.7702311Z  Test Files  4 passed (4)
+Tests	CDK tests	2026-09-09T01:11:59.7703441Z       Tests  32 passed (32)
+Tests	CDK tests	2026-09-09T01:11:59.7705448Z    Duration  4.22s (transform 595ms, setup 0ms, import 3.88s, tests 6.61s, environment 1ms)
+Tests	CDK tests	2026-09-09T01:11:59.8274090Z EXECUTED 32 tests in 4 files: 32 passed, 0 acknowledged failures, zero skipped

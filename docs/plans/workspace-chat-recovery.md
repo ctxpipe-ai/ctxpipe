@@ -17,9 +17,9 @@ not change the inventory.
 
 The plan considers the entire repository tree, all 19 Git-backed
 Workspaces design tickets, accepted PRDs and ADRs, and runtime, test, CI,
-migration, and deployment paths. Complete-history access is restored and Gates 0–2 are complete. Gate 3 closure
-is tracked in the [current acceptance ledger](workspace-recovery-gate-3/remaining.md);
-Gates 4–6 remain pending.
+migration, and deployment paths. Complete-history access is restored and Gates 0–3 are complete.
+Gate 4 is tracked in the [current acceptance ledger](workspace-recovery-gate-4/remaining.md);
+Gates 5–6 remain pending.
 
 ## Executive diagnosis
 
