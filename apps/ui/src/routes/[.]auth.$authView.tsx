@@ -3,12 +3,19 @@ import { useMutation, useQuery } from "@tanstack/react-query"
 import { createFileRoute } from "@tanstack/react-router"
 import type { FormEvent } from "react"
 import { useEffect, useMemo, useRef, useState } from "react"
-import { betterAuthAuthViewClassNames } from "@/features/auth/betterAuthShellClassNames"
-import { acceptInvitationThenRedirect } from "@/features/auth/accept-invitation"
 import { Button } from "@/components/ui/Button"
 import { Spinner } from "@/components/ui/spinner"
-import { getAuthContinuationProps } from "@/lib/auth-continuation"
+import { acceptInvitationThenRedirect } from "@/features/auth/accept-invitation"
+import { betterAuthAuthViewClassNames } from "@/features/auth/betterAuthShellClassNames"
+import { InviteWrongAccountNotice } from "@/features/auth/InviteWrongAccountNotice"
+import {
+  decideInviteAccept,
+  inviteSignInHref,
+  inviteSignOutHref,
+} from "@/features/auth/invite-accept-decision"
 import { authClient, useSession } from "@/lib/auth-client"
+import { getAuthContinuationProps } from "@/lib/auth-continuation"
+import { safeAuthRedirectPath } from "@/lib/safe-auth-redirect"
 import { useGetAuthConfig } from "@/lib/useGetAuthConfig"
 
 export const Route = createFileRoute("/.auth/$authView")({
@@ -60,8 +67,11 @@ function InviteAcceptSignUp(props: InviteAcceptSignUpProps = {}) {
     typeof window === "undefined"
       ? "/.auth/accept-invitation"
       : `${window.location.pathname}${window.location.search}`
-  const invitationId = props.invitationId ?? (params.get("invitationId") ?? "")
-  const redirectTo = props.redirectTo ?? (params.get("redirectTo") ?? "/onboarding")
+  const invitationId = props.invitationId ?? params.get("invitationId") ?? ""
+  const redirectTo =
+    props.redirectTo ?? params.get("redirectTo") ?? "/onboarding"
+  const invitationEmailFromUrl =
+    props.invitationEmail ?? params.get("email") ?? null
   const [name, setName] = useState("")
   const [password, setPassword] = useState("")
   const [confirmPassword, setConfirmPassword] = useState("")
@@ -78,7 +88,7 @@ function InviteAcceptSignUp(props: InviteAcceptSignUpProps = {}) {
       if (!res.ok) throw new Error("Invitation not found or expired")
       const json = (await res.json()) as InvitationDetails
       return {
-        email: props.invitationEmail ?? json.email,
+        email: json.email,
         organizationName: json.organizationName,
       }
     },
@@ -95,14 +105,17 @@ function InviteAcceptSignUp(props: InviteAcceptSignUpProps = {}) {
   })
 
   const signUpMutation = useMutation({
-    mutationFn: async (input: { email: string; name: string; password: string }) => {
+    mutationFn: async (input: {
+      email: string
+      name: string
+      password: string
+    }) => {
       autoAcceptAttemptedRef.current = true
       await authClient.signUp.email({
         email: input.email,
         password: input.password,
         name: input.name,
-        callbackURL:
-          currentLocation,
+        callbackURL: currentLocation,
         fetchOptions: { throw: true },
       })
       await acceptInvitationThenRedirect(
@@ -113,12 +126,25 @@ function InviteAcceptSignUp(props: InviteAcceptSignUpProps = {}) {
     onError: (err) => setError(extractErrorMessage(err)),
   })
 
+  const sessionEmail =
+    session && typeof session.user.email === "string"
+      ? session.user.email
+      : null
+  const invitationEmail =
+    invitationEmailQuery.data?.email ?? invitationEmailFromUrl ?? null
+  const decision = decideInviteAccept({
+    sessionEmail,
+    invitationEmail,
+    invitationConfirmed: Boolean(invitationEmailQuery.data?.email),
+  })
+
   useEffect(() => {
-    if (!session || sessionPending) return
-    if (!invitationId) {
+    if (sessionPending) return
+    if (session && !invitationId) {
       window.location.assign(redirectTo)
       return
     }
+    if (decision.kind !== "accept") return
     if (autoAcceptAttemptedRef.current) return
     autoAcceptAttemptedRef.current = true
     void acceptInvitationThenRedirect(
@@ -132,14 +158,40 @@ function InviteAcceptSignUp(props: InviteAcceptSignUpProps = {}) {
     sessionPending,
     invitationId,
     redirectTo,
+    decision.kind,
     acceptInviteMutation,
   ])
 
   if (sessionPending) return null
+  if (decision.kind === "wrong-account") {
+    return (
+      <InviteWrongAccountNotice
+        sessionEmail={decision.sessionEmail}
+        invitationEmail={decision.invitationEmail}
+        signOutHref={inviteSignOutHref(invitationId, decision.invitationEmail)}
+      />
+    )
+  }
+  if (decision.kind === "unknown" && session) {
+    if (invitationEmailQuery.error) {
+      return (
+        <p className="text-sm text-red-400">
+          {invitationEmailQuery.error instanceof Error
+            ? invitationEmailQuery.error.message
+            : "Invitation not found or expired"}
+        </p>
+      )
+    }
+    return <AuthStatusMessage message="Loading invitation…" />
+  }
   if (session && error) {
     return <p className="text-sm text-red-400">{error}</p>
   }
-  if (session || signUpMutation.isPending || acceptInviteMutation.isPending) {
+  if (
+    decision.kind === "accept" ||
+    signUpMutation.isPending ||
+    acceptInviteMutation.isPending
+  ) {
     return <AuthStatusMessage message="Accepting organisation invite…" />
   }
 
@@ -251,6 +303,15 @@ function InviteAcceptSignUp(props: InviteAcceptSignUpProps = {}) {
           ? "Creating account…"
           : "Create account"}
       </Button>
+      <p className="text-center text-sm text-zinc-400">
+        Already have an account?{" "}
+        <a
+          href={inviteSignInHref(invitationId, invitationEmailQuery.data.email)}
+          className="text-teal-400 hover:text-teal-300 hover:underline"
+        >
+          Sign in
+        </a>
+      </p>
     </form>
   )
 }
@@ -291,6 +352,13 @@ function EmailVerificationSent() {
 
 function SignOutView() {
   const startedRef = useRef(false)
+  const redirectTo = useMemo(() => {
+    if (typeof window === "undefined") return "/.auth/sign-in"
+    return safeAuthRedirectPath(
+      new URLSearchParams(window.location.search).get("redirectTo"),
+      "/.auth/sign-in",
+    )
+  }, [])
 
   useEffect(() => {
     if (startedRef.current) return
@@ -300,24 +368,26 @@ function SignOutView() {
     const finish = () => {
       if (finished) return
       finished = true
-      window.location.replace("/.auth/sign-in")
+      window.location.replace(redirectTo)
     }
 
     const timeoutId = window.setTimeout(() => {
       finish()
     }, 4000)
 
-    void authClient.signOut({
-      fetchOptions: { throw: false },
-    }).finally(() => {
-      window.clearTimeout(timeoutId)
-      finish()
-    })
+    void authClient
+      .signOut({
+        fetchOptions: { throw: false },
+      })
+      .finally(() => {
+        window.clearTimeout(timeoutId)
+        finish()
+      })
 
     return () => {
       window.clearTimeout(timeoutId)
     }
-  }, [])
+  }, [redirectTo])
 
   return (
     <main className="hero-gradient min-h-screen bg-zinc-950 text-foreground">

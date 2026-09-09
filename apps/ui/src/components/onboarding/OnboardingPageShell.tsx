@@ -61,6 +61,13 @@ export function OnboardingPageShell({
         />
       </div>
 
+      <a
+        href="/.auth/sign-out"
+        className="fixed left-4 top-4 z-20 text-xs text-zinc-500 transition-colors hover:text-teal-400 sm:left-6 sm:top-6"
+      >
+        Sign out
+      </a>
+
       <div className="relative z-10 mx-auto flex min-h-screen w-full max-w-4xl items-center justify-center px-6 pb-24 pt-16 text-center">
         <section className="w-full max-w-3xl">
           <div

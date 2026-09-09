@@ -121,6 +121,21 @@ function DeviceAuthorizationPage() {
                 Approve this request to let the CLI load your organizations for
                 setup.
               </p>
+              {session && typeof session.user.email === "string" ? (
+                <p className="text-xs text-zinc-500">
+                  Signed in as{" "}
+                  <span className="font-mono text-zinc-400">
+                    {session.user.email}
+                  </span>
+                  {" · "}
+                  <a
+                    href={`/.auth/sign-out?redirectTo=${encodeURIComponent(currentPath)}`}
+                    className="text-teal-400 hover:text-teal-300 hover:underline"
+                  >
+                    Sign out
+                  </a>
+                </p>
+              ) : null}
             </div>
 
             {hasPrefilledCode ? null : (
