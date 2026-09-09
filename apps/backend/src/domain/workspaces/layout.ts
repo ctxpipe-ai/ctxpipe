@@ -57,7 +57,7 @@ export function parseSimpleFrontMatter(raw: string): {
 } {
   const trimmed = raw.replace(/^\uFEFF/, "")
   if (!trimmed.startsWith("---")) {
-    return { attributes: {}, body: trimmed, malformed: false }
+    return { attributes: {}, body: raw, malformed: false }
   }
   const end = trimmed.indexOf("\n---", 3)
   if (end < 0) return { attributes: {}, body: trimmed, malformed: true }

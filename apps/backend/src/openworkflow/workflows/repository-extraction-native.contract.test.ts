@@ -1,3 +1,4 @@
+import { execFileSync } from "node:child_process"
 import { writeFileSync } from "node:fs"
 import { join } from "node:path"
 import { defineWorkflow, OpenWorkflow } from "openworkflow"
@@ -36,7 +37,7 @@ it.each([
         files: [
           {
             path: "AGENTS.md",
-            body: "# Workspace repository\nOwner instructions.\n",
+            body: "\uFEFF# Workspace repository\nOwner instructions.\n",
           },
           {
             path: "repositories/source.md",
@@ -335,6 +336,16 @@ it.each([
             "show",
             `main:${repositoryPath}`,
           )
+          if (ownSource) {
+            const raw = execFileSync(
+              "git",
+              ["--git-dir", f.remote, "show", "main:AGENTS.md"],
+              { encoding: "utf8" },
+            )
+            expect(raw.slice(raw.indexOf("\n---\n") + 5)).toBe(
+              "\uFEFF# Workspace repository\nOwner instructions.\n",
+            )
+          }
           expect(repositoryMarkdown).toContain("predicate: HAS_SERVICE")
           if (!ownSource)
             expect(repositoryMarkdown).toContain(

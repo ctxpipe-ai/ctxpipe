@@ -69,13 +69,16 @@ it.each([
   { source: "workspace", field: "custom" },
   { source: "workspace", field: "body" },
   { source: "workspace", field: "deletion" },
+  { source: "workspace", field: "BOM" },
 ] as const)(
   "extraction publication cannot alter $source source declaration $field",
   { timeout: 30_000 },
   async ({ source, field }) => {
     const path = source === "workspace" ? "AGENTS.md" : "repositories/source.md"
     const original =
-      "---\ngit: https://github.com/fixture/source\nbranch: main\ncustom: owner\n---\nOwner notes.\n"
+      field === "BOM"
+        ? "\uFEFFOwner notes.\n"
+        : "---\ngit: https://github.com/fixture/source\nbranch: main\ncustom: owner\n---\nOwner notes.\n"
     await withNativeHydrationFixture(
       {
         github: true,
@@ -88,15 +91,17 @@ it.each([
         const blobSha = f.git("rev-parse", `${f.sha}:${path}`)
         f.git("reset", "--hard", f.sha)
         const changed =
-          field === "git"
-            ? original.replace("fixture/source", "fixture/other")
-            : field === "branch"
-              ? original.replace("branch: main", "branch: other")
-              : field === "custom"
-                ? original.replace("custom: owner", "custom: agent")
-                : field === "body"
-                  ? original.replace("Owner notes.", "Agent rewrite.")
-                  : original
+          field === "BOM"
+            ? original.replace("\uFEFF", "")
+            : field === "git"
+              ? original.replace("fixture/source", "fixture/other")
+              : field === "branch"
+                ? original.replace("branch: main", "branch: other")
+                : field === "custom"
+                  ? original.replace("custom: owner", "custom: agent")
+                  : field === "body"
+                    ? original.replace("Owner notes.", "Agent rewrite.")
+                    : original
         const changedPath =
           field === "canonical path" ? "repositories/0-source.md" : path
         if (field === "deletion") unlinkSync(join(f.directory, changedPath))
