@@ -1,4 +1,5 @@
-import { mkdtemp, rm } from "node:fs/promises"
+import { execFileSync } from "node:child_process"
+import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises"
 import { createServer, request as httpRequest } from "node:http"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
@@ -120,6 +121,119 @@ it(
       if (result.status === "rejected") failures.push(result.reason)
     if (failures.length)
       throw new AggregateError(failures, "Native OpenCode port proof failed")
+  },
+)
+
+it(
+  "escalates a TERM-resistant OpenCode wrapper during server disposal",
+  { timeout: 30_000 },
+  async () => {
+    const directory = await mkdtemp(join(tmpdir(), "ctxpipe-opencode-kill-"))
+    const bin = join(directory, "bin")
+    await mkdir(bin)
+    const portProbe = createServer()
+    await new Promise<void>((resolve, reject) => {
+      portProbe.once("error", reject)
+      portProbe.listen(0, "127.0.0.1", () => resolve())
+    })
+    const address = portProbe.address()
+    if (!address || typeof address === "string")
+      throw new Error("Could not reserve a local OpenCode port")
+    const port = address.port
+    await new Promise<void>((resolve, reject) =>
+      portProbe.close((error) => (error ? reject(error) : resolve())),
+    )
+    const realOpenCode = execFileSync("sh", ["-c", "command -v opencode"], {
+      encoding: "utf8",
+    }).trim()
+    const shellQuote = (value: string): string =>
+      `'${value.replaceAll("'", "'\\''")}'`
+    await writeFile(
+      join(bin, "opencode"),
+      `#!/bin/sh
+set -eu
+trap ':' TERM INT
+${shellQuote(realOpenCode)} "$@" & server=$!
+${shellQuote(process.execPath)} -e 'process.on("SIGTERM",()=>{}); process.on("SIGINT",()=>{}); setInterval(()=>{},1000)' & keeper=$!
+while kill -0 "$server" 2>/dev/null; do sleep 0.05; done
+wait "$keeper"
+`,
+      { mode: 0o755 },
+    )
+    const sandbox = await localProcessSandbox({
+      dir: directory,
+      removeOnDestroy: true,
+    }).create({
+      id: directory,
+      workspace: { source: { type: "none" } },
+    })
+    let server: SandboxOpencodeServer | undefined
+    let primaryError: unknown
+    const cleanupErrors: unknown[] = []
+    try {
+      await sandbox.env.set({
+        PATH: `${bin}:${process.env.PATH ?? ""}`,
+        XDG_DATA_HOME: join(directory, "data"),
+        OPENCODE_CONFIG_CONTENT: JSON.stringify({
+          $schema: "https://opencode.ai/config.json",
+          enabled_providers: ["synthetic"],
+          provider: {
+            synthetic: {
+              npm: "@ai-sdk/openai-compatible",
+              name: "synthetic",
+              options: {
+                baseURL: "http://127.0.0.1:9",
+                apiKey: "synthetic-test-key",
+              },
+              models: { probe: { name: "probe" } },
+            },
+          },
+        }),
+      })
+      server = await startOpencodeServerInSandbox(sandbox, {
+        port,
+        hostname: "127.0.0.1",
+        cwd: ".",
+      })
+      const healthUrl = `${server.baseUrl}/global/health`
+      const health = await fetch(healthUrl)
+      expect(health.status).toBe(200)
+      const startedAt = Date.now()
+      await server.dispose()
+      expect(Date.now() - startedAt).toBeLessThan(9_000)
+      await expect(fetch(healthUrl)).rejects.toThrow()
+      server = undefined
+    } catch (error) {
+      primaryError = error
+    }
+    if (server) {
+      try {
+        await server.dispose()
+      } catch (error) {
+        cleanupErrors.push(error)
+      }
+    }
+    try {
+      await sandbox.destroy()
+    } catch (error) {
+      cleanupErrors.push(error)
+    }
+    try {
+      await rm(directory, { recursive: true, force: true })
+    } catch (error) {
+      cleanupErrors.push(error)
+    }
+    if (primaryError && cleanupErrors.length)
+      throw new AggregateError(
+        [primaryError, ...cleanupErrors],
+        "OpenCode TERM escalation and cleanup failed",
+      )
+    if (primaryError) throw primaryError
+    if (cleanupErrors.length)
+      throw new AggregateError(
+        cleanupErrors,
+        "OpenCode TERM escalation cleanup failed",
+      )
   },
 )
 

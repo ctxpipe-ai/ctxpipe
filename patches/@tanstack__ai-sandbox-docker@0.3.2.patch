@@ -1583,10 +1583,10 @@ index b8e7f9a0d2aa3ddcde6c46e787ed646b5252f05f..8387a825e12623bf26b8cf7c5026c60a
   * Docker sandbox provider — runs harness adapters inside isolated containers.
   * Requires a reachable Docker daemon (local socket by default; override via
 diff --git a/dist/esm/provider.js b/dist/esm/provider.js
-index 6bc1a9d6355d8e62488c5c1b555133460e96ce19..51bfbc7f4acc4703f7b730edd025fa8fc6bf7655 100644
+index 6bc1a9d6355d8e62488c5c1b555133460e96ce19..b92418fbc6d3d8773c273417258d9a2877614632 100644
 --- a/dist/esm/provider.js
 +++ b/dist/esm/provider.js
-@@ -1,135 +1,1140 @@
+@@ -1,135 +1,1241 @@
 -import { DOCKER_CAPS, DockerHandle } from "./handle.js";
 -import Dockerode from "dockerode";
 -//#region src/provider.ts
@@ -2177,6 +2177,76 @@ index 6bc1a9d6355d8e62488c5c1b555133460e96ce19..51bfbc7f4acc4703f7b730edd025fa8f
 +                throw error;
 +        }
 +    }
++    /**
++     * Recover the narrow crash window after network/proxy allocation but before
++     * the agent exists. Normal callers enter through the native instance lock;
++     * without that serialization, a concurrent creator is deliberately not a
++     * supported ownership signal and may observe a fail-closed conflict.
++     */
++    async reclaimPartialEgressTopology(agentName, key, owner, generation, signal) {
++        signal?.throwIfAborted();
++        const inspectOptions = {
++            abortSignal: signal,
++        };
++        try {
++            await this.docker.getContainer(agentName).inspect(inspectOptions);
++            throw new Error('docker: refusing to reclaim egress topology while its agent exists');
++        }
++        catch (error) {
++            if (!hasStatus(error, 404))
++                throw error;
++        }
++        signal?.throwIfAborted();
++        const proxy = this.docker.getContainer(dockerName(owner, 'proxy'));
++        const network = this.docker.getNetwork(dockerName(owner, 'network'));
++        let proxyInfo;
++        let networkInfo;
++        try {
++            proxyInfo = await proxy.inspect(inspectOptions);
++        }
++        catch (error) {
++            if (!hasStatus(error, 404))
++                throw error;
++        }
++        signal?.throwIfAborted();
++        try {
++            networkInfo = await network.inspect();
++        }
++        catch (error) {
++            if (!hasStatus(error, 404))
++                throw error;
++        }
++        signal?.throwIfAborted();
++        if (!proxyInfo && !networkInfo)
++            return;
++        if (proxyInfo) {
++            this.assertOwnedLabels(`container ${proxyInfo.Id}`, proxyInfo.Config.Labels, key, owner, generation, 'proxy');
++        }
++        if (networkInfo) {
++            this.assertOwnedLabels(`network ${networkInfo.Id}`, networkInfo.Labels, key, owner, generation, 'network');
++            if (!networkInfo.Internal)
++                throw new Error('docker: refusing to reclaim a non-internal egress network');
++            const endpoints = Object.keys(networkInfo.Containers ?? {});
++            if (endpoints.length > (proxyInfo ? 1 : 0) ||
++                (endpoints.length === 1 && endpoints[0] !== proxyInfo?.Id)) {
++                throw new Error('docker: refusing to reclaim an egress network with foreign endpoints');
++            }
++        }
++        signal?.throwIfAborted();
++        const errors = [];
++        // Once mutation begins, finish both removals even if the caller aborts so
++        // cancellation cannot strand the network after its proxy was removed.
++        if (proxyInfo)
++            await this.stopAndRemoveContainer(proxy).catch((error) => errors.push(error));
++        if (networkInfo)
++            await network.remove().catch((error) => { if (!hasStatus(error, 404))
++                errors.push(error); });
++        if (errors.length === 1)
++            throw errors[0];
++        if (errors.length > 1)
++            throw new AggregateError(errors, 'docker: partial egress topology cleanup failed');
++        signal?.throwIfAborted();
++    }
 +    async startIfStopped(container, running, signal) {
 +        if (running)
 +            return;
@@ -2273,6 +2343,8 @@ index 6bc1a9d6355d8e62488c5c1b555133460e96ce19..51bfbc7f4acc4703f7b730edd025fa8f
 +            signal?.throwIfAborted();
 +            await this.ensureImage(image, signal);
 +            const proxyAsset = await this.proxyAsset();
++            signal?.throwIfAborted();
++            await this.reclaimPartialEgressTopology(agentName, key, owner, generation, signal);
 +            signal?.throwIfAborted();
 +            network = await this.docker.createNetwork({
 +                Name: networkName,
@@ -2739,15 +2811,20 @@ index 6bc1a9d6355d8e62488c5c1b555133460e96ce19..51bfbc7f4acc4703f7b730edd025fa8f
 +        }
 +    }
 +    async destroy(input) {
++        input.signal?.throwIfAborted();
++        const inspectOptions = {
++            abortSignal: input.signal,
++        };
 +        const container = this.docker.getContainer(input.id);
 +        let info;
 +        try {
-+            info = await container.inspect();
++            info = await container.inspect(inspectOptions);
 +        }
 +        catch (error) {
 +            if (!hasStatus(error, 404))
 +                throw error;
 +        }
++        input.signal?.throwIfAborted();
 +        const labelsForAgent = info?.Config.Labels;
 +        const isOwnedEgress = labelsForAgent?.[MANAGED_LABEL] === MANAGED_VALUE &&
 +            labelsForAgent?.[SCHEMA_LABEL] === SCHEMA_VALUE &&
@@ -2761,37 +2838,61 @@ index 6bc1a9d6355d8e62488c5c1b555133460e96ce19..51bfbc7f4acc4703f7b730edd025fa8f
 +            this.assertOwnedLabels(`container ${input.id}`, labelsForAgent, key, owner, generation, 'agent');
 +            const proxy = this.docker.getContainer(dockerName(owner, 'proxy'));
 +            const network = this.docker.getNetwork(dockerName(owner, 'network'));
-+            let proxyExists = false;
-+            let networkExists = false;
++            let proxyInfo;
++            let networkInfo;
 +            try {
-+                const proxyInfo = await proxy.inspect();
++                proxyInfo = await proxy.inspect(inspectOptions);
 +                this.assertOwnedLabels(`container ${proxy.id}`, proxyInfo.Config.Labels, key, owner, generation, 'proxy');
-+                proxyExists = true;
 +            }
 +            catch (error) {
 +                if (!hasStatus(error, 404))
 +                    throw error;
 +            }
++            input.signal?.throwIfAborted();
 +            try {
-+                const networkInfo = await network.inspect();
++                networkInfo = await network.inspect();
 +                this.assertOwnedLabels(`network ${network.id}`, networkInfo.Labels, key, owner, generation, 'network');
-+                networkExists = true;
++                if (!networkInfo.Internal)
++                    throw new Error('docker: refusing to destroy a non-internal egress network');
++                const ownedEndpoints = new Set([info.Id, ...(proxyInfo ? [proxyInfo.Id] : [])]);
++                if (Object.keys(networkInfo.Containers ?? {}).some((id) => !ownedEndpoints.has(id)))
++                    throw new Error('docker: refusing to destroy an egress network with foreign endpoints');
 +            }
 +            catch (error) {
 +                if (!hasStatus(error, 404))
 +                    throw error;
 +            }
++            input.signal?.throwIfAborted();
 +            const errors = [];
 +            const remove = this.config.removeOnDestroy ?? true;
 +            if (remove) {
-+                await this.stopAndRemoveContainer(container).catch((error) => errors.push(error));
-+                if (proxyExists)
++                // Keep the agent as the durable ownership anchor until every dependent
++                // resource is gone. A failed dependent deletion can then be retried by
++                // the original persisted container id.
++                try {
++                    await container.stop({ t: 5 });
++                }
++                catch (error) {
++                    if (!hasStatus(error, 304) && !hasStatus(error, 404))
++                        errors.push(error);
++                }
++                if (errors.length === 0 && proxyInfo)
 +                    await this.stopAndRemoveContainer(proxy).catch((error) => errors.push(error));
-+                if (networkExists)
++                if (errors.length === 0 && networkInfo?.Containers?.[info.Id]) {
++                    await network.disconnect({ Container: info.Id, Force: true })
++                        .catch((error) => { if (!hasStatus(error, 404))
++                        errors.push(error); });
++                }
++                if (errors.length === 0 && networkInfo)
 +                    await network.remove().catch((error) => { if (!hasStatus(error, 404))
 +                        errors.push(error); });
-+                if (info.Config.Labels?.[FORK_SOURCE_LABEL])
-+                    await this.removeForkImage(info.Image).catch((error) => errors.push(error));
++                if (errors.length === 0) {
++                    await container.remove({ force: true, v: true })
++                        .catch((error) => { if (!hasStatus(error, 404))
++                        errors.push(error); });
++                    if (errors.length === 0 && info.Config.Labels?.[FORK_SOURCE_LABEL])
++                        await this.removeForkImage(info.Image).catch((error) => errors.push(error));
++                }
 +            }
 +            else {
 +                try {
@@ -2801,7 +2902,7 @@ index 6bc1a9d6355d8e62488c5c1b555133460e96ce19..51bfbc7f4acc4703f7b730edd025fa8f
 +                    if (!hasStatus(error, 304) && !hasStatus(error, 404))
 +                        errors.push(error);
 +                }
-+                if (proxyExists) {
++                if (proxyInfo) {
 +                    try {
 +                        await proxy.stop({ t: 5 });
 +                    }
@@ -3604,7 +3705,7 @@ index a3fc42e2a9104b815acfcbb00ccadd614fb4c879..e81158147c2bac65d64ebe601820cad5
  export type { DockerHandleDeps, DockerLogger } from './handle'
  export { sbxSandbox } from './sbx/provider'
 diff --git a/src/provider.ts b/src/provider.ts
-index 2eba55337bedb778404a042347c0b7811f91c595..319d30218038786847f90c6e9e41e2c8fd37b1f3 100644
+index 2eba55337bedb778404a042347c0b7811f91c595..2199bb6f1dae027b481e7a1145612727ce286f52 100644
 --- a/src/provider.ts
 +++ b/src/provider.ts
 @@ -1,6 +1,17 @@
@@ -3655,7 +3756,7 @@ index 2eba55337bedb778404a042347c0b7811f91c595..319d30218038786847f90c6e9e41e2c8
    /**
     * Add `host.docker.internal:host-gateway` so the container can reach the
     * host (e.g. a host-side MCP tool-bridge). Defaults to true.
-@@ -39,58 +65,873 @@ export interface DockerSandboxConfig {
+@@ -39,58 +65,962 @@ export interface DockerSandboxConfig {
    logger?: DockerLogger
  }
  
@@ -4215,6 +4316,87 @@ index 2eba55337bedb778404a042347c0b7811f91c595..319d30218038786847f90c6e9e41e2c8
 +    catch (error) { if (!hasStatus(error, 404)) throw error }
 +  }
 +
++  /**
++   * Recover the narrow crash window after network/proxy allocation but before
++   * the agent exists. Normal callers enter through the native instance lock;
++   * without that serialization, a concurrent creator is deliberately not a
++   * supported ownership signal and may observe a fail-closed conflict.
++   */
++  private async reclaimPartialEgressTopology(
++    agentName: string,
++    key: string,
++    owner: string,
++    generation: string,
++    signal?: AbortSignal,
++  ): Promise<void> {
++    signal?.throwIfAborted()
++    const inspectOptions: Dockerode.ContainerInspectOptions & { abortSignal?: AbortSignal } = {
++      abortSignal: signal,
++    }
++    try {
++      await this.docker.getContainer(agentName).inspect(inspectOptions)
++      throw new Error('docker: refusing to reclaim egress topology while its agent exists')
++    } catch (error) {
++      if (!hasStatus(error, 404)) throw error
++    }
++    signal?.throwIfAborted()
++
++    const proxy = this.docker.getContainer(dockerName(owner, 'proxy'))
++    const network = this.docker.getNetwork(dockerName(owner, 'network'))
++    let proxyInfo: Dockerode.ContainerInspectInfo | undefined
++    let networkInfo: Dockerode.NetworkInspectInfo | undefined
++    try { proxyInfo = await proxy.inspect(inspectOptions) }
++    catch (error) { if (!hasStatus(error, 404)) throw error }
++    signal?.throwIfAborted()
++    try { networkInfo = await network.inspect() }
++    catch (error) { if (!hasStatus(error, 404)) throw error }
++    signal?.throwIfAborted()
++    if (!proxyInfo && !networkInfo) return
++
++    if (proxyInfo) {
++      this.assertOwnedLabels(
++        `container ${proxyInfo.Id}`,
++        proxyInfo.Config.Labels,
++        key,
++        owner,
++        generation,
++        'proxy',
++      )
++    }
++    if (networkInfo) {
++      this.assertOwnedLabels(
++        `network ${networkInfo.Id}`,
++        networkInfo.Labels,
++        key,
++        owner,
++        generation,
++        'network',
++      )
++      if (!networkInfo.Internal)
++        throw new Error('docker: refusing to reclaim a non-internal egress network')
++      const endpoints = Object.keys(networkInfo.Containers ?? {})
++      if (
++        endpoints.length > (proxyInfo ? 1 : 0) ||
++        (endpoints.length === 1 && endpoints[0] !== proxyInfo?.Id)
++      ) {
++        throw new Error('docker: refusing to reclaim an egress network with foreign endpoints')
++      }
++    }
++
++    signal?.throwIfAborted()
++    const errors: Array<unknown> = []
++    // Once mutation begins, finish both removals even if the caller aborts so
++    // cancellation cannot strand the network after its proxy was removed.
++    if (proxyInfo)
++      await this.stopAndRemoveContainer(proxy).catch((error) => errors.push(error))
++    if (networkInfo)
++      await network.remove().catch((error) => { if (!hasStatus(error, 404)) errors.push(error) })
++    if (errors.length === 1) throw errors[0]
++    if (errors.length > 1)
++      throw new AggregateError(errors, 'docker: partial egress topology cleanup failed')
++    signal?.throwIfAborted()
++  }
++
 +  private async startIfStopped(
 +    container: Dockerode.Container,
 +    running: boolean,
@@ -4336,6 +4518,14 @@ index 2eba55337bedb778404a042347c0b7811f91c595..319d30218038786847f90c6e9e41e2c8
 +      signal?.throwIfAborted()
 +      await this.ensureImage(image, signal)
 +      const proxyAsset = await this.proxyAsset()
++      signal?.throwIfAborted()
++      await this.reclaimPartialEgressTopology(
++        agentName,
++        key,
++        owner,
++        generation,
++        signal,
++      )
 +      signal?.throwIfAborted()
 +      network = await this.docker.createNetwork({
 +        Name: networkName,
@@ -4539,7 +4729,7 @@ index 2eba55337bedb778404a042347c0b7811f91c595..319d30218038786847f90c6e9e41e2c8
      const exposed: Record<string, Record<string, never>> = {}
      const bindings: Record<string, Array<{ HostPort: string }>> = {}
      for (const port of this.config.publishPorts ?? []) {
-@@ -98,96 +939,385 @@ class DockerProvider implements SandboxProvider {
+@@ -98,96 +1028,409 @@ class DockerProvider implements SandboxProvider {
        bindings[`${port}/tcp`] = [{ HostPort: '' }] // let Docker pick a free host port
      }
  
@@ -4888,16 +5078,21 @@ index 2eba55337bedb778404a042347c0b7811f91c595..319d30218038786847f90c6e9e41e2c8
    }
  
    async destroy(input: SandboxDestroyInput): Promise<void> {
-     const container = this.docker.getContainer(input.id)
+-    const container = this.docker.getContainer(input.id)
 -    try {
 -      await container.stop({ t: 5 })
 -    } catch {
 -      // already stopped / gone
--    }
++    input.signal?.throwIfAborted()
++    const inspectOptions: Dockerode.ContainerInspectOptions & { abortSignal?: AbortSignal } = {
++      abortSignal: input.signal,
+     }
 -    if (this.config.removeOnDestroy ?? true) {
++    const container = this.docker.getContainer(input.id)
 +    let info: Dockerode.ContainerInspectInfo | undefined
-+    try { info = await container.inspect() }
++    try { info = await container.inspect(inspectOptions) }
 +    catch (error) { if (!hasStatus(error, 404)) throw error }
++    input.signal?.throwIfAborted()
 +    const labelsForAgent = info?.Config.Labels
 +    const isOwnedEgress =
 +      labelsForAgent?.[MANAGED_LABEL] === MANAGED_VALUE &&
@@ -4912,33 +5107,52 @@ index 2eba55337bedb778404a042347c0b7811f91c595..319d30218038786847f90c6e9e41e2c8
 +      this.assertOwnedLabels(`container ${input.id}`, labelsForAgent, key, owner, generation, 'agent')
 +      const proxy = this.docker.getContainer(dockerName(owner, 'proxy'))
 +      const network = this.docker.getNetwork(dockerName(owner, 'network'))
-+      let proxyExists = false
-+      let networkExists = false
++      let proxyInfo: Dockerode.ContainerInspectInfo | undefined
++      let networkInfo: Dockerode.NetworkInspectInfo | undefined
        try {
 -        await container.remove({ force: true, v: true })
 -      } catch {
 -        // already removed
-+        const proxyInfo = await proxy.inspect()
++        proxyInfo = await proxy.inspect(inspectOptions)
 +        this.assertOwnedLabels(`container ${proxy.id}`, proxyInfo.Config.Labels, key, owner, generation, 'proxy')
-+        proxyExists = true
 +      } catch (error) { if (!hasStatus(error, 404)) throw error }
++      input.signal?.throwIfAborted()
 +      try {
-+        const networkInfo = await network.inspect()
++        networkInfo = await network.inspect()
 +        this.assertOwnedLabels(`network ${network.id}`, networkInfo.Labels, key, owner, generation, 'network')
-+        networkExists = true
++        if (!networkInfo.Internal)
++          throw new Error('docker: refusing to destroy a non-internal egress network')
++        const ownedEndpoints = new Set([info.Id, ...(proxyInfo ? [proxyInfo.Id] : [])])
++        if (Object.keys(networkInfo.Containers ?? {}).some((id) => !ownedEndpoints.has(id)))
++          throw new Error('docker: refusing to destroy an egress network with foreign endpoints')
 +      } catch (error) { if (!hasStatus(error, 404)) throw error }
++      input.signal?.throwIfAborted()
 +      const errors: Array<unknown> = []
 +      const remove = this.config.removeOnDestroy ?? true
 +      if (remove) {
-+        await this.stopAndRemoveContainer(container).catch((error) => errors.push(error))
-+        if (proxyExists) await this.stopAndRemoveContainer(proxy).catch((error) => errors.push(error))
-+        if (networkExists) await network.remove().catch((error) => { if (!hasStatus(error, 404)) errors.push(error) })
-+        if (info.Config.Labels?.[FORK_SOURCE_LABEL])
-+          await this.removeForkImage(info.Image).catch((error) => errors.push(error))
++        // Keep the agent as the durable ownership anchor until every dependent
++        // resource is gone. A failed dependent deletion can then be retried by
++        // the original persisted container id.
++        try { await container.stop({ t: 5 }) }
++        catch (error) { if (!hasStatus(error, 304) && !hasStatus(error, 404)) errors.push(error) }
++        if (errors.length === 0 && proxyInfo)
++          await this.stopAndRemoveContainer(proxy).catch((error) => errors.push(error))
++        if (errors.length === 0 && networkInfo?.Containers?.[info.Id]) {
++          await network.disconnect({ Container: info.Id, Force: true })
++            .catch((error) => { if (!hasStatus(error, 404)) errors.push(error) })
++        }
++        if (errors.length === 0 && networkInfo)
++          await network.remove().catch((error) => { if (!hasStatus(error, 404)) errors.push(error) })
++        if (errors.length === 0) {
++          await container.remove({ force: true, v: true })
++            .catch((error) => { if (!hasStatus(error, 404)) errors.push(error) })
++          if (errors.length === 0 && info.Config.Labels?.[FORK_SOURCE_LABEL])
++            await this.removeForkImage(info.Image).catch((error) => errors.push(error))
++        }
 +      } else {
 +        try { await container.stop({ t: 5 }) }
 +        catch (error) { if (!hasStatus(error, 304) && !hasStatus(error, 404)) errors.push(error) }
-+        if (proxyExists) {
++        if (proxyInfo) {
 +          try { await proxy.stop({ t: 5 }) }
 +          catch (error) { if (!hasStatus(error, 304) && !hasStatus(error, 404)) errors.push(error) }
 +        }

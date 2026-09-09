@@ -1,7 +1,10 @@
 import { createServer, request as nativeRequest } from "node:http"
 
 /** Forward the real Docker API, withholding one successful named allocation reply. */
-export async function holdDockerAllocationReply(socketPath: string) {
+export async function holdDockerAllocationReply(
+  socketPath: string,
+  options: { holdAnyNamedAllocation?: boolean } = {},
+) {
   const upstream = process.env.DOCKER_HOST
   if (upstream && !upstream.startsWith("unix://"))
     throw new Error(
@@ -25,7 +28,9 @@ export async function holdDockerAllocationReply(socketPath: string) {
     const target =
       request.method === "POST" &&
       url.pathname.endsWith("/containers/create") &&
-      name?.startsWith("ctxpipe-semantic-merge-") &&
+      (options.holdAnyNamedAllocation
+        ? Boolean(name)
+        : name?.startsWith("ctxpipe-semantic-merge-")) &&
       !held
     if (target) lifecycle.push("allocation-request-forwarded")
     const forwarded = nativeRequest(

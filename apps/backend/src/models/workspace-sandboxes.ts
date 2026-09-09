@@ -1,4 +1,4 @@
-import { and, eq } from "drizzle-orm"
+import { and, eq, isNull } from "drizzle-orm"
 import { getOrgDb, withOrgDbContext } from "../db/client.js"
 import { workspaceSandboxInstances } from "../db/schema/workspaces.js"
 import type { WorkspaceRevision } from "../domain/workspaces/revision.js"
@@ -22,6 +22,20 @@ export type SandboxInstanceRecord = {
   latestRunId?: string | null
   state: "live" | "destroy_failed"
   lastHeartbeatAt: Date
+}
+
+export type SandboxInstanceOwnership = Pick<
+  SandboxInstanceRecord,
+  "kind" | "workspaceId" | "conversationId" | "provider" | "image" | "revision"
+>
+
+export class SandboxInstanceOwnershipConflict extends Error {
+  constructor(readonly sandboxKey: string) {
+    super(
+      `Sandbox instance ${sandboxKey} is already owned by another workspace identity`,
+    )
+    this.name = "SandboxInstanceOwnershipConflict"
+  }
 }
 
 function toSandboxInstanceRecord(
@@ -64,12 +78,13 @@ async function withSandboxInstanceDb<T>(
 
 export async function persistSandboxInstance(
   input: SandboxInstanceRecord,
+  expected?: SandboxInstanceOwnership,
 ): Promise<void> {
   const orgId = requireSandboxOrgId(input.orgId)
   const now = new Date()
   await withSandboxInstanceDb(orgId, async () => {
     const db = getOrgDb()
-    await db
+    const persisted = await db
       .insert(workspaceSandboxInstances)
       .values({
         id: input.id,
@@ -94,6 +109,28 @@ export async function persistSandboxInstance(
       })
       .onConflictDoUpdate({
         target: workspaceSandboxInstances.id,
+        setWhere: expected
+          ? and(
+              eq(workspaceSandboxInstances.orgId, orgId),
+              eq(workspaceSandboxInstances.workspaceId, expected.workspaceId),
+              eq(workspaceSandboxInstances.kind, expected.kind),
+              expected.conversationId == null
+                ? isNull(workspaceSandboxInstances.conversationId)
+                : eq(
+                    workspaceSandboxInstances.conversationId,
+                    expected.conversationId,
+                  ),
+              expected.provider == null
+                ? isNull(workspaceSandboxInstances.provider)
+                : eq(workspaceSandboxInstances.provider, expected.provider),
+              expected.image == null
+                ? isNull(workspaceSandboxInstances.image)
+                : eq(workspaceSandboxInstances.image, expected.image),
+              expected.revision == null
+                ? isNull(workspaceSandboxInstances.revision)
+                : eq(workspaceSandboxInstances.revision, expected.revision),
+            )
+          : undefined,
         set: {
           kind: input.kind,
           conversationId: input.conversationId ?? null,
@@ -112,6 +149,9 @@ export async function persistSandboxInstance(
           updatedAt: now,
         },
       })
+      .returning({ id: workspaceSandboxInstances.id })
+    if (expected && persisted.length !== 1)
+      throw new SandboxInstanceOwnershipConflict(input.id)
   })
 }
 
@@ -188,16 +228,60 @@ export async function getSandboxInstance(
 export async function deleteSandboxInstance(
   id: string,
   orgId?: string | null,
+  expected?: SandboxInstanceOwnership,
 ): Promise<void> {
   const scopedOrgId = requireSandboxOrgId(orgId)
   await withSandboxInstanceDb(scopedOrgId, async () => {
-    await getOrgDb()
+    const db = getOrgDb()
+    const deleted = await db
       .delete(workspaceSandboxInstances)
+      .where(
+        and(
+          eq(workspaceSandboxInstances.id, id),
+          eq(workspaceSandboxInstances.orgId, scopedOrgId),
+          expected
+            ? eq(workspaceSandboxInstances.workspaceId, expected.workspaceId)
+            : undefined,
+          expected
+            ? eq(workspaceSandboxInstances.kind, expected.kind)
+            : undefined,
+          expected
+            ? expected.conversationId == null
+              ? isNull(workspaceSandboxInstances.conversationId)
+              : eq(
+                  workspaceSandboxInstances.conversationId,
+                  expected.conversationId,
+                )
+            : undefined,
+          expected
+            ? expected.provider == null
+              ? isNull(workspaceSandboxInstances.provider)
+              : eq(workspaceSandboxInstances.provider, expected.provider)
+            : undefined,
+          expected
+            ? expected.image == null
+              ? isNull(workspaceSandboxInstances.image)
+              : eq(workspaceSandboxInstances.image, expected.image)
+            : undefined,
+          expected
+            ? expected.revision == null
+              ? isNull(workspaceSandboxInstances.revision)
+              : eq(workspaceSandboxInstances.revision, expected.revision)
+            : undefined,
+        ),
+      )
+      .returning({ id: workspaceSandboxInstances.id })
+    if (!expected || deleted.length === 1) return
+    const [collision] = await db
+      .select({ id: workspaceSandboxInstances.id })
+      .from(workspaceSandboxInstances)
       .where(
         and(
           eq(workspaceSandboxInstances.id, id),
           eq(workspaceSandboxInstances.orgId, scopedOrgId),
         ),
       )
+      .limit(1)
+    if (collision) throw new SandboxInstanceOwnershipConflict(id)
   })
 }

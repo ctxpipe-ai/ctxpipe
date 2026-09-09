@@ -11,11 +11,15 @@ import {
 } from "../../db/schema/workspaces.js"
 import type { SandboxInstanceRecord } from "../../models/workspace-sandboxes.js"
 import {
+  type SandboxInstanceOwnership,
+  SandboxInstanceOwnershipConflict,
+} from "../../models/workspace-sandboxes.js"
+import {
   deleteSandboxInstance,
   getSandboxInstance,
   persistSandboxInstance,
 } from "../../models/workspaces.js"
-import type { WorkspaceRevision } from "./revision.js"
+import { sameWorkspaceRevision, type WorkspaceRevision } from "./revision.js"
 
 export class LegacyWorkspaceSandboxConflict extends Error {
   constructor(recordId: string, providerSandboxId: string | null) {
@@ -48,16 +52,75 @@ export function postgresSandboxInstanceStore(input: {
   conversationId?: string | null
   revision?: WorkspaceRevision
   image?: string | null
+  provider?: string
 }): SandboxInstanceStore {
+  function expectedConversation(key: string): string | null | undefined {
+    if (key.startsWith("base:")) return null
+    return input.conversationId
+  }
+
+  function revisionsMatch(
+    actual: WorkspaceRevision | null | undefined,
+    expected: WorkspaceRevision | null | undefined,
+  ): boolean {
+    if (!actual || !expected) return actual == null && expected == null
+    return sameWorkspaceRevision(actual, expected)
+  }
+
+  function assertOwnedRecord(
+    key: string,
+    row: SandboxInstanceRecord,
+    options: { allowPreviousRevision?: boolean } = {},
+  ): void {
+    const conversationId = expectedConversation(key)
+    const isBase = key.startsWith("base:")
+    if (
+      row.orgId !== input.orgId ||
+      row.workspaceId !== input.workspaceId ||
+      row.kind !== "chat" ||
+      isBase !== (row.conversationId == null) ||
+      (conversationId !== undefined &&
+        (row.conversationId ?? null) !== conversationId) ||
+      (input.provider !== undefined && row.provider !== input.provider) ||
+      (input.image !== undefined && row.image !== input.image) ||
+      (!options.allowPreviousRevision &&
+        input.revision !== undefined &&
+        !revisionsMatch(row.revision, input.revision))
+    ) {
+      throw new SandboxInstanceOwnershipConflict(key)
+    }
+  }
+
+  function ownershipOf(row: SandboxInstanceRecord): SandboxInstanceOwnership {
+    return {
+      kind: row.kind,
+      workspaceId: row.workspaceId,
+      conversationId: row.conversationId,
+      provider: row.provider,
+      image: row.image,
+      revision: row.revision,
+    }
+  }
+
   return {
     async findByTransitionKey(key) {
+      if (!input.conversationId || !input.provider || input.image === undefined)
+        throw new Error(
+          "Sandbox transition lookup requires conversation, provider, and image ownership",
+        )
       const [row] = await withOrgDbContext(input.orgId, (db) =>
         db
           .select()
           .from(workspaceSandboxInstances)
           .where(
             and(
+              eq(workspaceSandboxInstances.orgId, input.orgId),
               eq(workspaceSandboxInstances.workspaceId, input.workspaceId),
+              eq(
+                workspaceSandboxInstances.conversationId,
+                input.conversationId ?? "",
+              ),
+              eq(workspaceSandboxInstances.kind, "chat"),
               eq(workspaceSandboxInstances.transitionKey, key),
               eq(workspaceSandboxInstances.state, "live"),
             ),
@@ -65,7 +128,11 @@ export function postgresSandboxInstanceStore(input: {
           .orderBy(desc(workspaceSandboxInstances.lastHeartbeatAt))
           .limit(1),
       )
-      if (row) return toTanstackRecord({ ...row, kind: "chat", state: "live" })
+      if (row) {
+        const record = { ...row, kind: "chat" as const, state: "live" as const }
+        assertOwnedRecord(record.id, record, { allowPreviousRevision: true })
+        return toTanstackRecord(record)
+      }
       if (input.conversationId) {
         const [legacy] = await withOrgDbContext(input.orgId, (db) =>
           db
@@ -76,6 +143,7 @@ export function postgresSandboxInstanceStore(input: {
             .from(workspaceSandboxInstances)
             .where(
               and(
+                eq(workspaceSandboxInstances.orgId, input.orgId),
                 eq(workspaceSandboxInstances.workspaceId, input.workspaceId),
                 eq(
                   workspaceSandboxInstances.conversationId,
@@ -97,6 +165,17 @@ export function postgresSandboxInstanceStore(input: {
       return null
     },
     async move(fromKey, record) {
+      const { provider, image } = input
+      if (
+        !input.conversationId ||
+        !provider ||
+        image === undefined ||
+        input.revision?.workspaceId !== input.workspaceId ||
+        record.threadId !== input.conversationId ||
+        record.provider !== provider
+      ) {
+        throw new SandboxInstanceOwnershipConflict(fromKey)
+      }
       const moved = await withOrgDbContext(input.orgId, (db) =>
         db.transaction(async (tx) => {
           const revision = input.revision
@@ -107,6 +186,7 @@ export function postgresSandboxInstanceStore(input: {
               .where(
                 and(
                   eq(workspaces.id, revision.workspaceId),
+                  eq(workspaces.orgId, input.orgId),
                   eq(workspaces.desiredSha, revision.sha),
                   eq(workspaces.desiredGeneration, revision.generation),
                   eq(workspaces.workspaceRepositoryUrl, revision.remote.url),
@@ -133,7 +213,7 @@ export function postgresSandboxInstanceStore(input: {
               revision: input.revision ?? null,
               provider: record.provider,
               providerSandboxId: record.providerSandboxId,
-              image: input.image ?? null,
+              image: image ?? null,
               latestRunId: record.latestRunId ?? null,
               latestSnapshotId: record.latestSnapshotId ?? null,
               lastHeartbeatAt: new Date(record.updatedAt),
@@ -142,8 +222,14 @@ export function postgresSandboxInstanceStore(input: {
             .where(
               and(
                 eq(workspaceSandboxInstances.id, fromKey),
+                eq(workspaceSandboxInstances.orgId, input.orgId),
                 eq(workspaceSandboxInstances.workspaceId, input.workspaceId),
                 eq(workspaceSandboxInstances.conversationId, record.threadId),
+                eq(workspaceSandboxInstances.kind, "chat"),
+                eq(workspaceSandboxInstances.provider, provider),
+                image === null
+                  ? isNull(workspaceSandboxInstances.image)
+                  : eq(workspaceSandboxInstances.image, image),
                 eq(
                   workspaceSandboxInstances.transitionKey,
                   record.transitionKey ?? "",
@@ -173,7 +259,9 @@ export function postgresSandboxInstanceStore(input: {
             .where(
               and(
                 eq(conversations.id, input.conversationId ?? ""),
+                eq(conversations.orgId, input.orgId),
                 eq(workspaces.id, input.workspaceId),
+                eq(workspaces.orgId, input.orgId),
               ),
             )
             .limit(1),
@@ -182,11 +270,23 @@ export function postgresSandboxInstanceStore(input: {
           throw new Error("Conversation workspace is no longer available")
       }
       const row = await getSandboxInstance(key, input.orgId)
-      return row ? toTanstackRecord(row) : null
+      if (!row) return null
+      assertOwnedRecord(key, row)
+      return toTanstackRecord(row)
     },
     async upsert(record) {
       const conversationId = record.threadId.trim() || null
-      await persistSandboxInstance({
+      const isBase = record.key.startsWith("base:")
+      if (
+        isBase !== (conversationId === null) ||
+        (input.conversationId !== undefined &&
+          conversationId !== null &&
+          conversationId !== input.conversationId) ||
+        (input.provider !== undefined && record.provider !== input.provider)
+      ) {
+        throw new SandboxInstanceOwnershipConflict(record.key)
+      }
+      const persisted: SandboxInstanceRecord = {
         id: record.key,
         kind: "chat",
         orgId: input.orgId,
@@ -201,10 +301,14 @@ export function postgresSandboxInstanceStore(input: {
         latestRunId: record.latestRunId ?? null,
         state: "live",
         lastHeartbeatAt: new Date(record.updatedAt),
-      })
+      }
+      await persistSandboxInstance(persisted, ownershipOf(persisted))
     },
     async delete(key) {
-      await deleteSandboxInstance(key, input.orgId)
+      const row = await getSandboxInstance(key, input.orgId)
+      if (!row) return
+      assertOwnedRecord(key, row)
+      await deleteSandboxInstance(key, input.orgId, ownershipOf(row))
     },
   }
 }

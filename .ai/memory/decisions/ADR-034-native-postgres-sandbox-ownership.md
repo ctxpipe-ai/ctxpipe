@@ -147,5 +147,27 @@ remain unchanged.
 
 The first real-Docker access/revocation and deterministic restore proofs pass.
 See the [native egress checkpoint](../../../docs/plans/workspace-recovery-gate-4/validation-native-egress.md).
-Partial-creation crash recovery, full lifecycle proof, production activation and
-integrated chat remain required. No application proxy registry is added.
+Partial-creation crash recovery, retry after proxy/network deletion failures,
+and independent worktree restart/fork now pass retained real-Docker contracts.
+Teardown retains the agent container as a durable retry reference until its
+proxy and network have been removed. Production activation and integrated chat
+remain required. No application proxy registry is added.
+
+
+### Collision isolation without orphaning legacy worktrees
+
+The native core's existing FNV keys remain unchanged. The PostgreSQL adapter
+validates organization, workspace, conversation (or shared base), provider,
+image and revision before returning an exact record. Native chat upserts use
+an atomic conditional conflict update with the same owner tuple; a collision
+fails closed rather than overwriting the existing owner. Conditional deletion
+preserves that boundary. Other writer/job persistence semantics are unchanged.
+
+Transition lookup is conversation-scoped and validates provider/image while
+allowing the previous revision; the desired-revision fence and stable owner
+predicates govern the move. Provider IDs and existing dirty worktrees survive
+legitimate moves. Native Docker labels retain their creation identity, so
+current revision keys must not be substituted for that identity during resume.
+The application supplies provider IDs only after its ownership checks. A true
+hash collision remains an availability limitation, not permission to resume or
+overwrite another owner's worktree. No blanket key migration is introduced.

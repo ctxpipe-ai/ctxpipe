@@ -20,8 +20,10 @@ import {
   withOrgDbContext,
 } from "../../db/client.js"
 import { organizations } from "../../db/schema/auth.js"
+import { conversations } from "../../db/schema/conversations.js"
 import { workspaces } from "../../db/schema/workspaces.js"
 import { generateObjectId } from "../../lib/id.js"
+import { persistSandboxInstance } from "../../models/workspaces.js"
 import { WORKSPACE_CHAT_DOCKER_SANDBOX } from "./chat-runtime.js"
 import { postgresSandboxInstanceStore } from "./sandbox-instance-store.js"
 import { postgresSandboxLocks } from "./sandbox-lock-store.js"
@@ -310,6 +312,196 @@ async function makeStore() {
 }
 
 runSandboxInstanceStoreConformance("native Postgres", makeStore)
+
+it.each([
+  "workspace",
+  "conversation",
+] as const)("rejects a global sandbox key collision across %s owners", async (scope) => {
+  const orgId = generateObjectId("org")
+  const firstWorkspaceId = generateObjectId("ws")
+  const secondWorkspaceId = generateObjectId("ws")
+  const firstConversationId = generateObjectId("conv")
+  const secondConversationId = generateObjectId("conv")
+  const key = `forced-global-key-collision-${orgId}`
+  await getSystemDb().insert(organizations).values({
+    id: orgId,
+    slug: orgId,
+    name: "Sandbox collision proof",
+    createdAt: new Date(),
+  })
+  try {
+    await withOrgDbContext(orgId, (db) =>
+      db.transaction(async (tx) => {
+        await tx.insert(workspaces).values([
+          {
+            id: firstWorkspaceId,
+            orgId,
+            slug: "collision-a",
+            displayName: "Collision A",
+            workspaceRepositoryUrl: "https://example.test/collision-a.git",
+          },
+          {
+            id: secondWorkspaceId,
+            orgId,
+            slug: "collision-b",
+            displayName: "Collision B",
+            workspaceRepositoryUrl: "https://example.test/collision-b.git",
+          },
+        ])
+        await tx.insert(conversations).values([
+          {
+            id: firstConversationId,
+            orgId,
+            workspaceId: firstWorkspaceId,
+          },
+          {
+            id: secondConversationId,
+            orgId,
+            workspaceId:
+              scope === "workspace" ? secondWorkspaceId : firstWorkspaceId,
+          },
+        ])
+      }),
+    )
+    const first = postgresSandboxInstanceStore({
+      orgId,
+      workspaceId: firstWorkspaceId,
+      conversationId: firstConversationId,
+      provider: "docker",
+      image: "node:22",
+    })
+    const second = postgresSandboxInstanceStore({
+      orgId,
+      workspaceId: scope === "workspace" ? secondWorkspaceId : firstWorkspaceId,
+      conversationId: secondConversationId,
+      provider: "docker",
+      image: "node:22",
+    })
+    const owned: SandboxInstanceRecord = {
+      key,
+      provider: "docker",
+      providerSandboxId: "container-owned-by-a",
+      threadId: firstConversationId,
+      updatedAt: 1,
+    }
+    await first.upsert(owned)
+    await expect(second.get(key)).rejects.toThrow(
+      "already owned by another workspace identity",
+    )
+    await expect(
+      second.upsert({
+        ...owned,
+        providerSandboxId: "container-owned-by-b",
+        threadId: secondConversationId,
+      }),
+    ).rejects.toThrow("already owned by another workspace identity")
+    await expect(second.delete(key)).rejects.toThrow(
+      "already owned by another workspace identity",
+    )
+    expect(await first.get(key)).toEqual(owned)
+  } finally {
+    await withOrgDbContext(orgId, (db) =>
+      db.transaction(async (tx) => {
+        await tx.delete(conversations).where(eq(conversations.orgId, orgId))
+        await tx.delete(workspaces).where(eq(workspaces.orgId, orgId))
+      }),
+    )
+    await getSystemDb().delete(organizations).where(eq(organizations.id, orgId))
+  }
+})
+
+it("moves a sandbox to the fenced revision without requiring the old revision to match", async () => {
+  const orgId = generateObjectId("org")
+  const workspaceId = generateObjectId("ws")
+  const conversationId = generateObjectId("conv")
+  const oldSha = "1".repeat(40)
+  const newSha = "2".repeat(40)
+  const oldKey = `transition-old-key-${orgId}`
+  const nextKey = `transition-next-key-${orgId}`
+  const transitionKey = `stable-transition-${orgId}`
+  const remote = {
+    url: "https://example.test/transition.git",
+    connectionId: null,
+  }
+  const oldRevision = {
+    workspaceId,
+    generation: 1,
+    remote,
+    defaultBranch: "main",
+    sha: oldSha,
+    access: "read" as const,
+  }
+  const nextRevision = { ...oldRevision, sha: newSha }
+  await getSystemDb().insert(organizations).values({
+    id: orgId,
+    slug: orgId,
+    name: "Sandbox transition proof",
+    createdAt: new Date(),
+  })
+  try {
+    await withOrgDbContext(orgId, (db) =>
+      db.transaction(async (tx) => {
+        await tx.insert(workspaces).values({
+          id: workspaceId,
+          orgId,
+          slug: "transition",
+          displayName: "Transition",
+          workspaceRepositoryUrl: remote.url,
+          desiredGeneration: nextRevision.generation,
+          desiredSha: nextRevision.sha,
+          desiredDefaultBranch: nextRevision.defaultBranch,
+        })
+        await tx.insert(conversations).values({
+          id: conversationId,
+          orgId,
+          workspaceId,
+        })
+      }),
+    )
+    await persistSandboxInstance({
+      id: oldKey,
+      kind: "chat",
+      orgId,
+      workspaceId,
+      conversationId,
+      provider: "docker",
+      providerSandboxId: "transition-container",
+      image: "node:22",
+      transitionKey,
+      revision: oldRevision,
+      state: "live",
+      lastHeartbeatAt: new Date(1),
+    })
+    const store = postgresSandboxInstanceStore({
+      orgId,
+      workspaceId,
+      conversationId,
+      revision: nextRevision,
+      image: "node:22",
+      provider: "docker",
+    })
+    const previous = await store.findByTransitionKey?.(transitionKey)
+    if (!previous) throw new Error("Expected previous transition owner")
+    await store.move?.(previous.key, {
+      ...previous,
+      key: nextKey,
+      updatedAt: 2,
+    })
+    expect(await store.get(nextKey)).toMatchObject({
+      key: nextKey,
+      providerSandboxId: "transition-container",
+      threadId: conversationId,
+    })
+  } finally {
+    await withOrgDbContext(orgId, (db) =>
+      db.transaction(async (tx) => {
+        await tx.delete(conversations).where(eq(conversations.orgId, orgId))
+        await tx.delete(workspaces).where(eq(workspaces.orgId, orgId))
+      }),
+    )
+    await getSystemDb().delete(organizations).where(eq(organizations.id, orgId))
+  }
+})
 
 const original: SandboxInstanceRecord = {
   key: "revision-a",

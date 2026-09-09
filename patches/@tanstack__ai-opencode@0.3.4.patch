@@ -35,10 +35,10 @@ index d11df14ae2159d0558a0f928b72c3d24867b164a..495fd44313253d53710131073f503525
  	}
  	structuredOutput(_options) {
 diff --git a/dist/esm/process/sandbox-server.js b/dist/esm/process/sandbox-server.js
-index 51278c92b6c5df3627d885c29e8f94b0b50adb1b..f157479fd4604c5463375f650481403f499d4bf8 100644
+index 51278c92b6c5df3627d885c29e8f94b0b50adb1b..a7e630dd7e44c70904576963472b4b210b9199c6 100644
 --- a/dist/esm/process/sandbox-server.js
 +++ b/dist/esm/process/sandbox-server.js
-@@ -1,56 +1,159 @@
+@@ -1,56 +1,175 @@
 -//#region src/process/sandbox-server.ts
 -var READY_MARKER = "opencode server listening";
 -async function startOpencodeServerInSandbox(sandbox, options) {
@@ -57,7 +57,8 @@ index 51278c92b6c5df3627d885c29e8f94b0b50adb1b..f157479fd4604c5463375f650481403f
 -		dispose: () => proc.kill()
 -	};
 +const READY_MARKER = 'opencode server listening';
-+const STOP_TIMEOUT_MS = 10_000;
++const STOP_TERM_TIMEOUT_MS = 1_000;
++const STOP_KILL_TIMEOUT_MS = 5_000;
 +export async function startOpencodeServerInSandbox(sandbox, options) {
 +    const hostname = options.hostname ?? '0.0.0.0';
 +    const command = `opencode serve --hostname=${hostname} --port=${options.port}`;
@@ -106,32 +107,47 @@ index 51278c92b6c5df3627d885c29e8f94b0b50adb1b..f157479fd4604c5463375f650481403f
 +    };
 +}
 +async function stopProcess(proc) {
-+    const failures = [];
++    const terminateFailures = [];
++    const exit = proc.wait().then(() => ({ ok: true }), (error) => ({ ok: false, error }));
++    const waitForExit = async (phase, timeoutMs) => {
++        const result = await waitForProcess(exit, phase, timeoutMs);
++        if (!result.ok)
++            throw result.error;
++    };
 +    try {
-+        await waitForProcess(proc.kill(), 'terminate');
++        await waitForProcess(proc.kill(), 'terminate signal', STOP_TERM_TIMEOUT_MS);
 +    }
 +    catch (error) {
-+        failures.push(error);
++        terminateFailures.push(error);
 +    }
 +    try {
-+        await waitForProcess(proc.wait(), 'exit');
++        await waitForExit('exit after terminate', STOP_TERM_TIMEOUT_MS);
++        return;
 +    }
-+    catch (error) {
-+        failures.push(error);
-+    }
-+    if (failures.length === 1)
-+        throw failures[0];
-+    if (failures.length > 1) {
-+        throw new AggregateError(failures, 'OpenCode process cleanup failed');
++    catch (graceError) {
++        const escalationFailures = [...terminateFailures, graceError];
++        try {
++            await waitForProcess(proc.kill('SIGKILL'), 'SIGKILL signal', STOP_KILL_TIMEOUT_MS);
++        }
++        catch (killError) {
++            escalationFailures.push(killError);
++        }
++        try {
++            await waitForExit('exit after SIGKILL', STOP_KILL_TIMEOUT_MS);
++        }
++        catch (waitError) {
++            escalationFailures.push(waitError);
++            throw new AggregateError(escalationFailures, 'OpenCode process cleanup failed');
++        }
 +    }
 +}
-+async function waitForProcess(operation, phase) {
++async function waitForProcess(operation, phase, timeoutMs) {
 +    let timer;
 +    try {
-+        await Promise.race([
++        return await Promise.race([
 +            operation,
 +            new Promise((_, reject) => {
-+                timer = setTimeout(() => reject(new Error(`OpenCode process did not ${phase} within ${STOP_TIMEOUT_MS}ms`)), STOP_TIMEOUT_MS);
++                timer = setTimeout(() => reject(new Error(`OpenCode process did not ${phase} within ${timeoutMs}ms`)), timeoutMs);
 +            }),
 +        ]);
 +    }
@@ -838,18 +854,19 @@ index ee6ee29530377f5ba53b0f6eb1f35f7153dca886..11ec75e8900c4eca9f8f34f54e776164
    }
  
 diff --git a/src/process/sandbox-server.ts b/src/process/sandbox-server.ts
-index 4ee8d45f78988096a8ed2d86f108a8d4de9396bb..300b5d44cbd894a2b0e3bb9a016c337bbe849e47 100644
+index 4ee8d45f78988096a8ed2d86f108a8d4de9396bb..66713f511ffa1a8baf17f370d8d3957a468a7860 100644
 --- a/src/process/sandbox-server.ts
 +++ b/src/process/sandbox-server.ts
-@@ -7,6 +7,7 @@
+@@ -7,6 +7,8 @@
  import type { SandboxHandle, SpawnHandle } from '@tanstack/ai-sandbox'
  
  const READY_MARKER = 'opencode server listening'
-+const STOP_TIMEOUT_MS = 10_000
++const STOP_TERM_TIMEOUT_MS = 1_000
++const STOP_KILL_TIMEOUT_MS = 5_000
  
  export interface SandboxOpencodeServer {
    /** URL the host uses to reach the in-sandbox server. */
-@@ -43,24 +44,103 @@ export async function startOpencodeServerInSandbox(
+@@ -43,24 +45,138 @@ export async function startOpencodeServerInSandbox(
      ...(options.signal ? { signal: options.signal } : {}),
    })
  
@@ -897,37 +914,72 @@ index 4ee8d45f78988096a8ed2d86f108a8d4de9396bb..300b5d44cbd894a2b0e3bb9a016c337b
 +}
 +
 +async function stopProcess(proc: SpawnHandle): Promise<void> {
-+  const failures: Array<unknown> = []
-+  try {
-+    await waitForProcess(proc.kill(), 'terminate')
-+  } catch (error) {
-+    failures.push(error)
++  const terminateFailures: Array<unknown> = []
++  const exit = proc.wait().then(
++    () => ({ ok: true as const }),
++    (error) => ({ ok: false as const, error }),
++  )
++  const waitForExit = async (phase: string, timeoutMs: number): Promise<void> => {
++    const result = await waitForProcess(exit, phase, timeoutMs)
++    if (!result.ok) throw result.error
 +  }
 +  try {
-+    await waitForProcess(proc.wait(), 'exit')
++    await waitForProcess(
++      proc.kill(),
++      'terminate signal',
++      STOP_TERM_TIMEOUT_MS,
++    )
 +  } catch (error) {
-+    failures.push(error)
++    terminateFailures.push(error)
 +  }
-+  if (failures.length === 1) throw failures[0]
-+  if (failures.length > 1) {
-+    throw new AggregateError(failures, 'OpenCode process cleanup failed')
++
++  try {
++    await waitForExit('exit after terminate', STOP_TERM_TIMEOUT_MS)
++    return
++  } catch (graceError) {
++    const escalationFailures: Array<unknown> = [
++      ...terminateFailures,
++      graceError,
++    ]
++    try {
++      await waitForProcess(
++        proc.kill('SIGKILL'),
++        'SIGKILL signal',
++        STOP_KILL_TIMEOUT_MS,
++      )
++    } catch (killError) {
++      escalationFailures.push(killError)
++    }
++    try {
++      await waitForExit('exit after SIGKILL', STOP_KILL_TIMEOUT_MS)
++    } catch (waitError) {
++      escalationFailures.push(waitError)
++      throw new AggregateError(
++        escalationFailures,
++        'OpenCode process cleanup failed',
++      )
++    }
 +  }
 +}
 +
-+async function waitForProcess(operation: Promise<unknown>, phase: string): Promise<void> {
++async function waitForProcess<T>(
++  operation: Promise<T>,
++  phase: string,
++  timeoutMs: number,
++): Promise<T> {
 +  let timer: ReturnType<typeof setTimeout> | undefined
 +  try {
-+    await Promise.race([
++    return await Promise.race([
 +      operation,
 +      new Promise<never>((_, reject) => {
 +        timer = setTimeout(
 +          () =>
 +            reject(
 +              new Error(
-+                `OpenCode process did not ${phase} within ${STOP_TIMEOUT_MS}ms`,
++                `OpenCode process did not ${phase} within ${timeoutMs}ms`,
 +              ),
 +            ),
-+          STOP_TIMEOUT_MS,
++          timeoutMs,
 +        )
 +      }),
 +    ])
@@ -958,7 +1010,7 @@ index 4ee8d45f78988096a8ed2d86f108a8d4de9396bb..300b5d44cbd894a2b0e3bb9a016c337b
      let stdout = ''
      // Capture stderr too: opencode logs startup failures (e.g. "address already
      // in use" when a previous run's server still holds the port) to stderr, not
-@@ -109,7 +189,35 @@ function waitForReady(proc: SpawnHandle, timeoutMs: number): Promise<void> {
+@@ -109,7 +225,35 @@ function waitForReady(proc: SpawnHandle, timeoutMs: number): Promise<void> {
          for await (const chunk of proc.stdout) {
            stdout += chunk
            if (stdout.includes(READY_MARKER)) {

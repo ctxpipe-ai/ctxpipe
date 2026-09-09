@@ -48,3 +48,22 @@ exact per-run bridge admission, the production resource/image switch and
 integrated chat still need implementation. Railway support/live proof and the
 final Gate 4 audits also remain open. Private raw logs and fixture identifiers
 remain in the task work directory.
+
+
+## Bounded shutdown after CI 34335463645
+
+The completed run passed 307/308 contracts. Its remaining published-conflict
+case failed while waiting ten seconds for OpenCode to exit after SIGTERM.
+Native server disposal now gives TERM a bounded grace period, escalates to
+SIGKILL and waits for confirmed exit. Both provider signal calls and exit waits
+are bounded. The exit promise receives a handler immediately so an early
+provider failure cannot become an unhandled rejection. Successful escalation
+is success; inability to complete cleanup retains the underlying errors.
+
+A retained fixture starts real OpenCode through a TERM-resistant process group,
+checks HTTP health, then verifies disposal and endpoint closure. Early fixture
+attempts failed during startup and are not claimed as shutdown proof. The final
+old-adapter regression fails in 12.96 seconds. After the native correction,
+all four OpenCode port/stream/shutdown cases and the original published-conflict
+case pass together in 31.74 seconds. The shutdown case takes 2.37 seconds and
+the published-conflict case 11.52 seconds. No paid model calls were needed.

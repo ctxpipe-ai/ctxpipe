@@ -697,6 +697,7 @@ async function buildWorkspaceChatSandbox(input: TanstackWorkspaceChatInput) {
       conversationId: input.conversationId,
       revision: revision.data,
       image: effective === "docker" ? WORKSPACE_CHAT_DOCKER_SANDBOX.image : "1",
+      provider: effective === "docker" ? "docker" : "local-process",
     }),
   }
 }
