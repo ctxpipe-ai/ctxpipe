@@ -51,9 +51,20 @@ Independent standards review found no newly introduced policy/runner blocker.
 Files correctness review passed after removal of the obsolete characterization.
 
 Standards review identified an inherited native `handle.fork()` intermediate-image
-leak. The test explicitly cleans that artifact; this is **not** proof that the
-provider owns its cleanup. Durable fork-image ownership, failed-start cleanup and
-process-loss collection remain a Gate 4 blocker. Production resource wiring is
+leak. The follow-up native fix gives staged commits a durable source-container
+label. The source protects a concurrent fork until its child exists; Docker's own
+reference checks protect live children and snapshot ancestors. Child teardown
+removes its image, failed startup cleans its commit, and create/destroy collect
+unreferenced images whose source no longer exists. Images abandoned while their
+source remains live are retained until source teardown. Explicit snapshots clear
+the inherited transient label and retain their separate lifecycle.
+
+`native-fork-image-ownership-red` reproduced the leak; the green proof passed in
+31.43 seconds, covering teardown, new-provider resume, durable snapshot retention,
+and external container loss followed by collection. `native-fork-failed-start-green`
+passed in 15.67 seconds against an image whose shell was removed before the fork.
+The resource contract no longer manually removes its fork image. Bounded
+standards review found no material lifecycle blocker. Production resource wiring is
 also still pending; merely enabling the profile on the current bootstrap image
 would not establish complete isolation.
 

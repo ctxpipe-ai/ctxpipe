@@ -50,12 +50,6 @@
       "count": 2
     },
     {
-      "file": "../backend/src/graphs/conversationGraph/nodes/conversationNaming.ts",
-      "code": 2339,
-      "message": "Property 'content' does not exist on type 'BaseMessageLike'.\n  Property 'content' does not exist on type 'string'.",
-      "count": 1
-    },
-    {
       "file": "../backend/src/models/atlassian-connector.ts",
       "code": 2345,
       "message": "Argument of type '{ status: string; provisionStatus: \"idle\" | \"running\" | \"failed\" | \"succeeded\"; cloudId?: string | null | undefined; installationContext?: string | null | undefined; installationId?: string | ... 1 more ... | undefined; ... 14 more ...; atlassianOAuthClientSecret?: string | ... 1 more ... | undefined; }' is not assignable to parameter of type '{ atlassianOAuthClientId: unknown; atlassianOAuthClientSecret: unknown; cloudId?: string | null | undefined; installationContext?: string | null | undefined; installationId?: string | null | undefined; ... 14 more ...; lastProvisionAt?: string | ... 1 more ... | undefined; }'.\n  Property 'atlassianOAuthClientId' is optional in type '{ status: string; provisionStatus: \"idle\" | \"running\" | \"failed\" | \"succeeded\"; cloudId?: string | null | undefined; installationContext?: string | null | undefined; installationId?: string | ... 1 more ... | undefined; ... 14 more ...; atlassianOAuthClientSecret?: string | ... 1 more ... | undefined; }' but required in type '{ atlassianOAuthClientId: unknown; atlassianOAuthClientSecret: unknown; cloudId?: string | null | undefined; installationContext?: string | null | undefined; installationId?: string | null | undefined; ... 14 more ...; lastProvisionAt?: string | ... 1 more ... | undefined; }'.",
@@ -89,12 +83,6 @@
       "file": "../backend/src/routes/v1/openai.ts",
       "code": 2345,
       "message": "Argument of type '{ model?: unknown; input?: unknown; }' is not assignable to parameter of type 'OpenAiEmbeddingBody'.\n  Types of property 'model' are incompatible.\n    Type 'unknown' is not assignable to type 'string | undefined'.",
-      "count": 1
-    },
-    {
-      "file": "../backend/src/routes/v1/workspace-chat-openai.ts",
-      "code": 2345,
-      "message": "Argument of type '{ step: string; method: string; path: string; conversationId: string; orgId: string; }' is not assignable to parameter of type 'string'.",
       "count": 1
     },
     {

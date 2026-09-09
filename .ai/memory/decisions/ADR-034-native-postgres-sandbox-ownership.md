@@ -51,3 +51,15 @@ never an agent sandbox. TLS remains the runner default. Resource-contract work
 does not complete the separate egress, production-image or provider wiring work.
 
 Native conformance and two-process crash/hand-off proof precede the caller switch. Multiple revision records can coexist for a thread; cleanup enumerates their actual native provider identities rather than hiding them behind an alias. Removing old uniqueness is not a complete concurrency fix until all callers use the Postgres native lock. No Gate 4 production checkpoint is complete before that wiring and proof.
+
+### Native intermediate fork ownership
+
+The Docker provider owns low-level fork commit images independently of the
+application's persisted base snapshots. A durable source-container label protects
+an in-flight commit across processes. Teardown removes a child's image without
+force; Docker retains images still used by another container or snapshot. Native
+create/destroy collect labeled images after their source disappears. A lost
+in-flight fork remains source-owned until that source is cleaned up. Explicit
+snapshots clear the transient label. Failed startup removes its commit, and
+unexpected teardown errors propagate instead of reporting successful cleanup.
+No application image registry or timer is introduced.

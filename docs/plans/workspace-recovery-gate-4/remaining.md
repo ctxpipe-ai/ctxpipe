@@ -19,14 +19,15 @@ The next checkpoint adds literal Git argument handling, byte-preserving Files
 renames, and an opt-in native Docker resource contract with a Btrfs CI runner.
 See [validation-native-resources-and-files.md](validation-native-resources-and-files.md).
 It does not close Gate 4. Production chat image/egress/provider wiring and Railway
-proof remain open. Native low-level `handle.fork()` also has an inherited
-intermediate-image ownership leak: implement failed-start cleanup, child teardown
-ownership and process-loss collection before final gate closure. The production
+proof remain open. Native low-level `handle.fork()` intermediate-image ownership now has passing
+real-Docker teardown, restart, snapshot-retention and failed-start regressions;
+bounded standards review found no material blockers. The production
 shared-base path uses native snapshot restoration; do not confuse that passing
 ownership proof with the low-level fork-image gap.
 
 Files Git interpolation and binary rename data loss are fixed. Backend diagnostic
-allowances shrink from 132 to 130. Five chat-related allowances remain (history
+allowances shrink from 132 to 130; the same fixed errors reduce UI allowances
+from 225 to 223. Five chat-related allowances remain (history
 fixture, old graph agent/planner, WebSocket stream type, model-proxy fixture).
 The local OpenCode port allocator remains pending native OS-assigned-port support;
 remove its application Set and swallowed cleanup failure with that native change,
@@ -37,3 +38,8 @@ CI 34319040516 on 33503fd5 passed 12 jobs and failed only the Tests job: 292 of
 still expected an automatic session-branch switch, contradicting locked issue 14.
 The corrected native contract now proves default-branch edits, an explicit
 session-branch change, and permission-loss denial; it passes locally.
+
+CI 34323063810 on 6ff63064 exposed two stale UI allowances for the same backend
+fixes; backend and all other type projects matched their allowances. Remove those
+two UI entries exactly; no allowances are added. The remaining CI jobs are still
+running at this checkpoint.

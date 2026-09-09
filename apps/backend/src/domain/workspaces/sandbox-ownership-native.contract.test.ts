@@ -248,6 +248,151 @@ it(
 )
 
 it(
+  "owns native Docker fork images through teardown and process loss",
+  { timeout: 60_000 },
+  async () => {
+    const host = process.env.CTXPIPE_TEST_QUOTA_DOCKER_HOST
+    const port = Number(process.env.CTXPIPE_TEST_QUOTA_DOCKER_PORT)
+    if (!host || !Number.isInteger(port) || port <= 0)
+      throw new Error("Native quota Docker endpoint is required")
+    const dockerodeOptions = { host, port }
+    const docker = new Dockerode(dockerodeOptions)
+    const config = { image: "alpine:3.22", workdir: "/tmp", dockerodeOptions }
+    const provider = dockerSandbox(config)
+    const containers = new Set<string>()
+    const images = new Set<string>()
+    const input = { workspace: { source: { type: "none" as const } } }
+    async function removeContainer(id: string) {
+      try {
+        await docker.getContainer(id).remove({ force: true, v: true })
+      } catch (error) {
+        if (
+          !(
+            error instanceof Error &&
+            "statusCode" in error &&
+            error.statusCode === 404
+          )
+        )
+          throw error
+      }
+    }
+    async function removeImage(id: string) {
+      try {
+        await docker.getImage(id).remove()
+      } catch (error) {
+        if (
+          !(
+            error instanceof Error &&
+            "statusCode" in error &&
+            error.statusCode === 404
+          )
+        )
+          throw error
+      }
+    }
+    try {
+      const parent = await provider.create(input)
+      containers.add(parent.id)
+      if (!parent.fork) throw new Error("Native Docker fork is required")
+      const child = await parent.fork()
+      containers.add(child.id)
+      const image = (await docker.getContainer(child.id).inspect()).Image
+      images.add(image)
+      await child.destroy()
+      await expect(docker.getImage(image).inspect()).rejects.toMatchObject({
+        statusCode: 404,
+      })
+
+      const second = await parent.fork()
+      containers.add(second.id)
+      const secondImage = (await docker.getContainer(second.id).inspect()).Image
+      images.add(secondImage)
+      const restarted = dockerSandbox(config)
+      const resumed = await restarted.resume({ id: second.id })
+      if (!resumed?.snapshot)
+        throw new Error("Native Docker resume and snapshot are required")
+      const snapshot = await resumed.snapshot("owned-fork")
+      images.add(snapshot.id)
+      await resumed.destroy()
+      // A durable snapshot can retain its ancestor layer until explicitly deleted.
+      expect((await docker.getImage(snapshot.id).inspect()).Id).toMatch(
+        /^sha256:/,
+      )
+
+      const third = await parent.fork()
+      containers.add(third.id)
+      const thirdImage = (await docker.getContainer(third.id).inspect()).Image
+      images.add(thirdImage)
+      await provider.destroy({ id: parent.id })
+      // A source can disappear while its child still legitimately owns the image.
+      expect((await docker.getImage(thirdImage).inspect()).Id).toBe(thirdImage)
+      // Docker survives a lost caller; a later provider operation collects its orphan.
+      await removeContainer(third.id)
+      const next = await dockerSandbox(config).create(input)
+      containers.add(next.id)
+      await expect(docker.getImage(thirdImage).inspect()).rejects.toMatchObject(
+        { statusCode: 404 },
+      )
+      expect((await docker.getImage(snapshot.id).inspect()).Id).toMatch(
+        /^sha256:/,
+      )
+      if (!restarted.deleteSnapshot)
+        throw new Error("Native snapshot deletion is required")
+      await restarted.deleteSnapshot({ snapshotId: snapshot.id })
+      await restarted.destroy({ id: next.id })
+      await expect(
+        docker.getImage(secondImage).inspect(),
+      ).rejects.toMatchObject({ statusCode: 404 })
+    } finally {
+      for (const id of containers) await removeContainer(id)
+      for (const id of [...images].reverse()) await removeImage(id)
+    }
+  },
+)
+
+it(
+  "cleans the native Docker fork image when its container cannot start",
+  { timeout: 30_000 },
+  async () => {
+    const host = process.env.CTXPIPE_TEST_QUOTA_DOCKER_HOST
+    const port = Number(process.env.CTXPIPE_TEST_QUOTA_DOCKER_PORT)
+    if (!host || !Number.isInteger(port) || port <= 0)
+      throw new Error("Native quota Docker endpoint is required")
+    const dockerodeOptions = { host, port }
+    const docker = new Dockerode(dockerodeOptions)
+    const provider = dockerSandbox({
+      image: "alpine:3.22",
+      workdir: "/tmp",
+      dockerodeOptions,
+    })
+    const parent = await provider.create({
+      workspace: { source: { type: "none" } },
+    })
+    try {
+      if (!parent.fork) throw new Error("Native Docker fork is required")
+      // The original process stays alive, but the committed image cannot boot.
+      const before = (await docker.listContainers({ all: true }))
+        .map((container) => container.Id)
+        .sort()
+      await parent.fs.remove("/bin/sh")
+      await expect(parent.fork()).rejects.toThrow(
+        /executable file not found|no such file or directory/i,
+      )
+      const images = await docker.listImages({
+        filters: {
+          reference: [`tanstack-ai-sandbox-fork:${parent.id.slice(0, 12)}-*`],
+        },
+      })
+      expect(images).toEqual([])
+      const containers = await docker.listContainers({ all: true })
+      expect(containers.map((container) => container.Id).sort()).toEqual(before)
+    } finally {
+      await parent.destroy()
+    }
+  },
+)
+
+it(
   "enforces native Docker resource limits across resume and snapshots",
   { timeout: 180_000 },
   async () => {
@@ -388,11 +533,6 @@ printf "quota-status=%s\\n" "$status"'`,
 
       const forked = await created.fork()
       cleanup.set(`container:${forked.id}`, () => forked.destroy())
-      const forkImage = (await docker.getContainer(forked.id).inspect()).Config
-        .Image
-      cleanup.set(`fork-image:${forkImage}`, () =>
-        docker.getImage(forkImage).remove({ force: true }),
-      )
       await assertPreservedFile(forked)
 
       const insecureName = `ctxpipe-native-policy-insecure-${Date.now()}`
