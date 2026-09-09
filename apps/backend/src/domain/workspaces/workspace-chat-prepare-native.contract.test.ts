@@ -1,6 +1,10 @@
 import { execFileSync, spawn } from "node:child_process"
+import { randomUUID } from "node:crypto"
 import { writeFile } from "node:fs/promises"
+import { networkInterfaces } from "node:os"
 import { join } from "node:path"
+import { PassThrough } from "node:stream"
+import { finished } from "node:stream/promises"
 import { fileURLToPath } from "node:url"
 import Docker from "dockerode"
 import { eq, sql } from "drizzle-orm"
@@ -52,6 +56,41 @@ it(
         status: 503,
         error:
           "The sbx adapter cannot enforce the required 4 GiB disk and 128 PID limits. Workspace chat is unavailable for this provider.",
+      })
+      expect(f.modelRequests).toHaveLength(0)
+      expect(
+        await withOrgDbContext(f.orgId, () =>
+          listSandboxInstances({
+            conversationId: f.conversationId,
+            kind: "chat",
+          }),
+        ),
+      ).toEqual([])
+    })
+  },
+)
+
+it(
+  "fails closed for railway without a production provider",
+  { timeout: 30_000 },
+  async () => {
+    await withNativeChatFixture(async (f) => {
+      process.env.SANDBOX_PROVIDER = "railway"
+      const result = await warmTanstackWorkspaceChat({
+        conversationId: f.conversationId,
+        orgId: f.orgId,
+        orgSlug: f.orgSlug,
+        workspaceId: f.workspaceId,
+        desiredUrl: f.directory,
+        desiredSha: f.sha,
+        defaultBranch: "main",
+        writeStatus: "read_only",
+        prompt: "prepare",
+      })
+      expect(result).toEqual({
+        ok: false,
+        status: 503,
+        error: "TanStack sandbox provider railway is not available",
       })
       expect(f.modelRequests).toHaveLength(0)
       expect(
@@ -468,6 +507,182 @@ it(
               }
             })
           })
+        },
+      )
+    } finally {
+      for (const [key, value] of Object.entries(previous)) {
+        if (value === undefined) delete process.env[key]
+        else process.env[key] = value
+      }
+    }
+  },
+)
+
+it(
+  "quota Docker chat turn reaches the production model broker and Git remote",
+  { timeout: 300_000 },
+  async () => {
+    const quotaHost = process.env.CTXPIPE_TEST_QUOTA_DOCKER_HOST?.trim()
+    const quotaPort = Number(process.env.CTXPIPE_TEST_QUOTA_DOCKER_PORT)
+    if (!quotaHost || !Number.isInteger(quotaPort) || quotaPort < 1)
+      throw new Error(
+        "CTXPIPE_TEST_QUOTA_DOCKER_HOST and CTXPIPE_TEST_QUOTA_DOCKER_PORT are required",
+      )
+    const previous = Object.fromEntries(
+      [
+        "DOCKER_HOST",
+        "DOCKER_TLS_VERIFY",
+        "DOCKER_CERT_PATH",
+        "SANDBOX_CHAT_IMAGE",
+        "SANDBOX_MODEL_PROXY_HOST",
+      ].map((key) => [key, process.env[key]]),
+    )
+    process.env.DOCKER_HOST = `tcp://${quotaHost}:${quotaPort}`
+    delete process.env.DOCKER_TLS_VERIFY
+    delete process.env.DOCKER_CERT_PATH
+    const docker = new Docker({ timeout: 30_000 })
+    try {
+      await docker.getImage(WORKSPACE_CHAT_DOCKER_SANDBOX.image).inspect()
+      await withNativeHttpsGitFixture(
+        {
+          baseImage:
+            process.env.CTXPIPE_TEST_CHAT_SANDBOX_IMAGE?.trim() ||
+            "ctxpipe-chat-sandbox:opencode-1.18.18",
+          docker,
+        },
+        async (gitFixture) => {
+          process.env.SANDBOX_CHAT_IMAGE = gitFixture.image
+          await withNativeChatFixture(
+            async (f) => {
+              delete process.env.SANDBOX_PROVIDER
+              const listenPort = Number(process.env.PORT)
+              if (!Number.isInteger(listenPort) || listenPort < 1)
+                throw new Error("Native chat fixture PORT missing")
+              const destHost = ghaReachableIpv4()
+              await nestedBridgeGateway(docker)
+              const relay = await startNestedModelRelay({
+                docker,
+                destHost,
+                destPort: listenPort,
+                listenPort,
+              })
+              process.env.SANDBOX_MODEL_PROXY_HOST = "host.docker.internal"
+              try {
+                await gitFixture.serve(f.directory, async (remote) => {
+                  let phase = "first prepare"
+                  try {
+                    const input = {
+                      conversationId: f.conversationId,
+                      orgId: f.orgId,
+                      orgSlug: f.orgSlug,
+                      workspaceId: f.workspaceId,
+                      desiredUrl: remote.url,
+                      desiredSha: f.sha,
+                      defaultBranch: "main",
+                      writeStatus: "read_only" as const,
+                    }
+                    const first = await warmTanstackWorkspaceChat({
+                      ...input,
+                      prompt: "prepare",
+                    })
+                    if (!first.ok) throw new Error(first.error)
+                    const container = await docker
+                      .getContainer(first.handle.id)
+                      .inspect()
+                    expect(container.HostConfig).toMatchObject({
+                      NanoCpus: 1_000_000_000,
+                      Memory: 1024 ** 3,
+                      MemorySwap: 1024 ** 3,
+                      PidsLimit: 128,
+                      StorageOpt: { size: "4G" },
+                    })
+                    await first.handle.fs.write(
+                      "/workspace/unsaved.txt",
+                      "Docker chat preserves unsaved work",
+                    )
+                    phase = "first chat"
+                    const firstEvents: string[] = []
+                    let firstText = ""
+                    for await (const chunk of streamTanstackWorkspaceChat({
+                      ...input,
+                      prompt: "First question",
+                      runId: `${f.conversationId}-quota-chat-1`,
+                      messages: [
+                        {
+                          id: "user-quota-chat-1",
+                          role: "user",
+                          content: "First question",
+                        },
+                      ],
+                    })) {
+                      firstEvents.push(chunk.type)
+                      if (chunk.type === "TEXT_MESSAGE_CONTENT")
+                        firstText += chunk.delta
+                    }
+                    expect(firstEvents).toContain("RUN_FINISHED")
+                    expect(firstEvents).not.toContain("RUN_ERROR")
+                    expect(firstText).toBe("Native reply completed.")
+                    expect(f.modelRequests.length).toBeGreaterThanOrEqual(1)
+                    expect(
+                      await first.handle.fs.read("/workspace/unsaved.txt"),
+                    ).toBe("Docker chat preserves unsaved work")
+                    phase = "git ls-remote"
+                    const remoteHeads = await first.handle.process.exec(
+                      "git ls-remote --heads origin refs/heads/main",
+                    )
+                    expect(remoteHeads.exitCode).toBe(0)
+                    expect(remoteHeads.stdout).toContain(f.sha)
+                    phase = "provider loss"
+                    await first.handle.destroy()
+                    phase = "recovery prepare"
+                    const recovered = await warmTanstackWorkspaceChat({
+                      ...input,
+                      prompt: "prepare",
+                    })
+                    if (!recovered.ok) throw new Error(recovered.error)
+                    expect(recovered.handle.id).not.toBe(first.handle.id)
+                    expect(
+                      await recovered.handle.fs.exists(
+                        "/workspace/unsaved.txt",
+                      ),
+                    ).toBe(false)
+                    phase = "recovery chat"
+                    const recoveredEvents: string[] = []
+                    let recoveredText = ""
+                    for await (const chunk of streamTanstackWorkspaceChat({
+                      ...input,
+                      prompt: "Second question",
+                      runId: `${f.conversationId}-quota-chat-2`,
+                      messages: [
+                        {
+                          id: "user-quota-chat-2",
+                          role: "user",
+                          content: "Second question",
+                        },
+                      ],
+                    })) {
+                      recoveredEvents.push(chunk.type)
+                      if (chunk.type === "TEXT_MESSAGE_CONTENT")
+                        recoveredText += chunk.delta
+                    }
+                    expect(recoveredEvents).toContain("RUN_FINISHED")
+                    expect(recoveredEvents).not.toContain("RUN_ERROR")
+                    expect(recoveredText).toBe("Native reply completed.")
+                    expect(f.modelRequests.length).toBeGreaterThanOrEqual(2)
+                  } catch (error) {
+                    throw new Error(
+                      `Docker chat fixture ${phase} failed: ${String(error)}`,
+                      { cause: error },
+                    )
+                  }
+                })
+              } finally {
+                await relay.stop()
+              }
+            },
+            undefined,
+            { listenHost: "0.0.0.0" },
+          )
         },
       )
     } finally {
@@ -1255,3 +1470,97 @@ it(
     })
   },
 )
+
+function ghaReachableIpv4(): string {
+  for (const entries of Object.values(networkInterfaces())) {
+    for (const entry of entries ?? []) {
+      if (entry.internal) continue
+      if (entry.family !== "IPv4" && entry.family !== 4) continue
+      if (entry.address.startsWith("172.17.")) continue
+      return entry.address
+    }
+  }
+  throw new Error(
+    "GHA has no non-docker0 IPv4 for the nested model relay destination",
+  )
+}
+
+async function nestedBridgeGateway(docker: Docker): Promise<string> {
+  const bridge = await docker.getNetwork("bridge").inspect()
+  const gateway = bridge.IPAM?.Config?.[0]?.Gateway
+  if (!gateway || !/^\d{1,3}(?:\.\d{1,3}){3}$/.test(gateway))
+    throw new Error("Nested Docker bridge gateway missing")
+  return gateway
+}
+
+async function startNestedModelRelay(input: {
+  docker: Docker
+  destHost: string
+  destPort: number
+  listenPort: number
+}): Promise<{ stop: () => Promise<void> }> {
+  const container = await input.docker.createContainer({
+    name: `ctxpipe-model-relay-${randomUUID()}`,
+    Image: WORKSPACE_CHAT_DOCKER_SANDBOX.image,
+    User: "1000:1000",
+    Entrypoint: ["node"],
+    Cmd: [
+      "-e",
+      `const net=require("node:net");net.createServer((client)=>{const dest=net.connect(${input.destPort},${JSON.stringify(input.destHost)});client.pipe(dest);dest.pipe(client);const close=()=>{client.destroy();dest.destroy()};dest.on("error",close);client.on("error",close)}).listen(${input.listenPort},"0.0.0.0")`,
+    ],
+    HostConfig: { NetworkMode: "host" },
+    Labels: { "ai.ctxpipe.purpose": "native-model-relay" },
+  })
+  try {
+    await container.start()
+    await waitForNestedTcp(container, "127.0.0.1", input.listenPort)
+    await waitForNestedTcp(container, input.destHost, input.destPort)
+  } catch (error) {
+    const logs = (await container.logs({ stdout: true, stderr: true }))
+      .toString()
+      .trim()
+    await container.remove({ force: true, v: true }).catch(() => undefined)
+    throw new Error(
+      `Nested model relay failed: ${String(error)}; logs: ${logs || "<empty>"}`,
+      { cause: error },
+    )
+  }
+  return {
+    async stop() {
+      await container.remove({ force: true, v: true })
+    },
+  }
+}
+
+async function waitForNestedTcp(
+  container: Docker.Container,
+  host: string,
+  port: number,
+): Promise<void> {
+  const deadline = Date.now() + 15_000
+  while (true) {
+    const execution = await container.exec({
+      Cmd: [
+        "node",
+        "-e",
+        `const socket=require("node:net").connect({host:${JSON.stringify(host)},port:${port}});socket.setTimeout(250);socket.once("connect",()=>{socket.destroy();process.exit(0)});socket.once("error",()=>process.exit(1));socket.once("timeout",()=>process.exit(1))`,
+      ],
+      AttachStdout: true,
+      AttachStderr: true,
+    })
+    const stream = await execution.start({ hijack: true })
+    const stdout = new PassThrough()
+    const stderr = new PassThrough()
+    container.modem.demuxStream(stream, stdout, stderr)
+    await finished(stream)
+    if ((await execution.inspect()).ExitCode === 0) return
+    const info = await container.inspect()
+    if (!info.State.Running)
+      throw new Error(
+        `Nested model relay exited before ${host}:${port} was reachable`,
+      )
+    if (Date.now() >= deadline)
+      throw new Error(`Nested model relay did not reach ${host}:${port}`)
+    await new Promise((resolve) => setTimeout(resolve, 100))
+  }
+}

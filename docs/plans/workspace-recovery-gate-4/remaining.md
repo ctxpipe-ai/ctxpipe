@@ -13,8 +13,8 @@ git history.
 | G4-B | Stock TanStack chat across HTTP/WS/prepare; native persistence, durability and reconstruction | Two turns, offsets, terminal/transcript equality, process reload, simultaneous-send preservation, cancellation and replay pass; overlapping stale send passed on CI `34384336581` |
 | G4-C | Warm reuse, captured revision, credentials, native shared bases/forks and provider selection | Warm GitHub budget, base reuse, revision conflicts/repair, process loss, Docker replacement and image collection pass; production provider/security activation remains open |
 | G4-D | Files/publish/delete/idle use native handles; remove duplicate ownership/repair layers | Registry, memo and manual terminal repair removed; Files/publication/cancellation, persisted-first MCP targets and branch/run ownership pass; collision guards pass; final audit remains open |
-| G4-E | Railway SDK conformance, live Bun chat and honest provider/deployment behavior | Native Docker capabilities have focused proof; sbx fails closed because disk/PID limits are unavailable; Railway is a 503 selector only — no provider, SDK dependency, or live proof. SDK 3.11.0 also lacks CPU/memory/PID/disk/user/egress controls. Access is necessary but not sufficient |
-| G4-F | Full entry-point audit, focused native evidence, full CI and two cumulative zero-blocker reviews | Full CI `34384336581` on `21164618` is green (330/330 contracts). Live authenticated Docker journey and two independent cumulative reviews remain |
+| G4-E | Railway SDK conformance, live Bun chat and honest provider/deployment behavior | Native Docker capabilities have focused proof; sbx fails closed because disk/PID limits are unavailable; Railway is a 503 selector only — no provider, SDK dependency, or live proof. The prepare contract asserts that exact 503. SDK 3.11.0 also lacks CPU/memory/PID/disk/user/egress controls. Access is necessary but not sufficient |
+| G4-F | Full entry-point audit, focused native evidence, full CI and two cumulative zero-blocker reviews | Full CI `34384336581` on `21164618` is green (330/330 contracts). The quota-Docker production-broker journey is on this SHA and still needs CI. Two independent cumulative reviews remain |
 
 Key evidence:
 
@@ -42,18 +42,23 @@ Key evidence:
    1 CPU / 1 GiB / 128 PID / 4 GiB limits and per-workspace egress. The factory,
    policy identity and credential-free deployment relay now have focused proof;
    the production HTTPS Git/quota preparation and recovery contract now passes.
+   The quota-Docker chat journey contract is on this SHA and still needs CI.
 3. Prove the integrated Docker chat journey through the real model broker,
    tools and Git, including credential renewal during a long run and deployment
    recovery. The real Git helper/broker already proves issuer-expiry renewal,
    native-owner revocation, unlink-during-mint rejection and the 500-repository
    boundary. Two native OpenCode turns pass with model run capabilities.
-   These focused checks do not replace the integrated Docker journey.
+   The new quota-Docker contract streams two production-broker turns (scripted
+   fixture HTTP, not a live LLM), asserts isolation, `git ls-remote`, unsaved
+   work, and provider-loss recovery. It does not emit tool_calls; focused
+   Docker egress already owns tools. Awaiting CI on this SHA.
 4. Railway is a recognized selector that returns 503. There is no production
    provider, SDK dependency, detached cleanup branch, or live proof. SDK
    3.11.0 also lacks CPU/memory/PID/disk/user/capability and exact egress
    controls. No `RAILWAY_TOKEN` / `RAILWAY_ENVIRONMENT_ID` is provisioned.
-   Access is necessary but not sufficient. Do not report Railway as
-   implemented.
+   Access is necessary but not sufficient. The prepare contract now asserts
+   the exact railway 503 without allocating a sandbox. Closable only as
+   unsupported / fail-closed, never as implemented.
 5. All three cumulative implementation review defects now have native green
    evidence and reviewer closure: provider-error propagation, immutable-image
    base collection, and detached cleanup after external agent loss. The proxy
