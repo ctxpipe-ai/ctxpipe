@@ -30,10 +30,17 @@ Key evidence:
 
 ## Remaining work, in order
 
-1. Resolve the three failures in CI 34342455444: memory pressure in the disk
-   quota probe, an overlapping-chat connection reset, and job-row cleanup using
-   the chat-only instance store. The previous shutdown correction now passes.
-   Preserve ownership checks and existing dirty worktrees.
+1. Current CI [34352646163](https://github.com/ctxpipe-ai/ctxpipe/actions/runs/34352646163)
+   on `1c7b9657` passed 12 jobs and failed Required deterministic contracts
+   (327/329). Job-row cleanup no longer appears. Remaining: the 4 GiB quota
+   probe was still `Killed` before a quota error, and overlapping chat still
+   saw an OpenCode `ECONNRESET` during session create. The overlapping case
+   passed locally on this host (20.63s). The quota probe now writes 1 MiB
+   seeks instead of one 4 GiB `dd` so BusyBox cannot buffer the fill and
+   trip the 1 GiB memory cgroup. Preserve ownership checks and dirty
+   worktrees. This host cannot run the Btrfs quota runner (`unknown
+   filesystem type 'btrfs'`; kernel has no module). Do not substitute
+   overlay Docker. Reconfirm both cases on GitHub CI.
 2. Finish integrated acceptance of the activated immutable chat image,
    1 CPU / 1 GiB / 128 PID / 4 GiB limits and per-workspace egress. The factory,
    policy identity and credential-free deployment relay now have focused proof;
@@ -44,9 +51,12 @@ Key evidence:
    native-owner revocation, unlink-during-mint rejection and the 500-repository
    boundary. Two native OpenCode turns pass with model run capabilities.
    These focused checks do not replace the integrated Docker journey.
-4. Finish Railway custom SDK provider acceptance and live Bun/resource/egress
-   conformance. No Railway credentials were found in the task or checkout;
-   the existing asynchronous access-location question remains unanswered.
+4. Railway is a recognized selector that returns 503. There is no production
+   provider, SDK dependency, detached cleanup branch, or live proof. SDK
+   3.11.0 also lacks CPU/memory/PID/disk/user/capability and exact egress
+   controls. No `RAILWAY_TOKEN` / `RAILWAY_ENVIRONMENT_ID` is provisioned.
+   Access is necessary but not sufficient. Do not report Railway as
+   implemented.
 5. All three cumulative implementation review defects now have native green
    evidence and reviewer closure: provider-error propagation, immutable-image
    base collection, and detached cleanup after external agent loss. The proxy
@@ -55,17 +65,13 @@ Key evidence:
 
 ## Current CI and cost controls
 
-CI [34342455444](https://github.com/ctxpipe-ai/ctxpipe/actions/runs/34342455444)
-on `4e31f0f5` passed 12 jobs and 315 of 318 deterministic contracts. The previous
-published-conflict shutdown failure passes. Three failures remain: the quota
-probe was killed before reaching disk quota, overlapping chat lost its OpenCode
-connection, and cleanup rejected a job row through the chat-only instance store.
-The disk probe now bypasses page cache and retains the real quota-error
-assertion; a small native direct-write check passes. The overlap reset needs
-process diagnostics; port 4096 in that log belongs to the later cancellation
-case, and native dynamic-port conformance passes. Job cleanup now uses exact
-job ownership, with retired-job, collision and provider-replacement regressions
-passing. Downstream UI/CLI/CDK test steps did not run.
+CI [34352646163](https://github.com/ctxpipe-ai/ctxpipe/actions/runs/34352646163)
+on `1c7b9657` passed 12 jobs. Tests failed at Required deterministic contracts
+(2 failed / 327 passed). UI/CLI/CDK steps were skipped. The older run
+[34342455444](https://github.com/ctxpipe-ai/ctxpipe/actions/runs/34342455444)
+on `4e31f0f5` is historical. Job-row cleanup is not in the current failure
+set. Do not dispatch a duplicate of 34352646163; the next full run belongs
+to a new pushed SHA.
 
 Backend/UI diagnostic allowances are 124/223, with no additions. Gate 6 must
 resolve them. The current complete backend check passes with 124 diagnostics; the unchanged
