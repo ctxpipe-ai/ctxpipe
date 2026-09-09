@@ -307,6 +307,12 @@ function mcpHeaderValue(
   return interpolateApiKeyEnv(client)
 }
 
+function optionalApiKeyHeaders(apiKeyHeaderValue?: string) {
+  return apiKeyHeaderValue
+    ? { headers: { "x-api-key": apiKeyHeaderValue } }
+    : {}
+}
+
 export function buildMcpOperations({
   clients,
   baseUrl,
@@ -367,7 +373,7 @@ export function buildClientOperations({
           url,
           label: "Cursor",
           cwd: context.cwd,
-          apiKey: headerValue,
+          apiKeyHeaderValue: headerValue,
         }),
       ]
     case "claude":
@@ -406,7 +412,7 @@ export function buildClientOperations({
           url,
           label: "Claude Code project",
           cwd: context.cwd,
-          apiKey: headerValue,
+          apiKeyHeaderValue: headerValue,
         }),
       ]
     case "opencode":
@@ -418,7 +424,7 @@ export function buildClientOperations({
               : resolve(context.cwd, "opencode.json"),
           url,
           cwd: context.cwd,
-          apiKey: headerValue,
+          apiKeyHeaderValue: headerValue,
         }),
       ]
     case "vscode":
@@ -432,9 +438,7 @@ export function buildClientOperations({
                 name: "ctxpipe",
                 type: "http",
                 url,
-                ...(headerValue
-                  ? { headers: { "x-api-key": headerValue } }
-                  : {}),
+                ...optionalApiKeyHeaders(headerValue),
               }),
             )}`,
           },
@@ -445,7 +449,7 @@ export function buildClientOperations({
           path: resolve(context.cwd, ".vscode", "mcp.json"),
           url,
           cwd: context.cwd,
-          apiKey: headerValue,
+          apiKeyHeaderValue: headerValue,
         }),
       ]
     case "codex":
@@ -491,13 +495,13 @@ export function writeMcpServersOperation({
   url,
   label,
   cwd,
-  apiKey,
+  apiKeyHeaderValue,
 }: {
   path: string
   url: string
   label: string
   cwd: string
-  apiKey?: string
+  apiKeyHeaderValue?: string
 }): WriteJsonOperation {
   return {
     type: "write-json",
@@ -510,7 +514,7 @@ export function writeMcpServersOperation({
       servers.ctxpipe = {
         type: "streamable-http",
         url,
-        ...(apiKey ? { headers: { "x-api-key": apiKey } } : {}),
+        ...optionalApiKeyHeaders(apiKeyHeaderValue),
       }
       return {
         ...existing,
@@ -524,12 +528,12 @@ export function writeOpenCodeOperation({
   path,
   url,
   cwd,
-  apiKey,
+  apiKeyHeaderValue,
 }: {
   path: string
   url: string
   cwd: string
-  apiKey?: string
+  apiKeyHeaderValue?: string
 }): WriteJsonOperation {
   return {
     type: "write-json",
@@ -543,7 +547,8 @@ export function writeOpenCodeOperation({
         type: "remote",
         url,
         enabled: true,
-        ...(apiKey ? { headers: { "x-api-key": apiKey }, oauth: false } : {}),
+        ...optionalApiKeyHeaders(apiKeyHeaderValue),
+        ...(apiKeyHeaderValue ? { oauth: false } : {}),
       }
       return {
         ...existing,
@@ -557,12 +562,12 @@ export function writeVsCodeOperation({
   path,
   url,
   cwd,
-  apiKey,
+  apiKeyHeaderValue,
 }: {
   path: string
   url: string
   cwd: string
-  apiKey?: string
+  apiKeyHeaderValue?: string
 }): WriteJsonOperation {
   return {
     type: "write-json",
@@ -575,7 +580,7 @@ export function writeVsCodeOperation({
       servers.ctxpipe = {
         type: "http",
         url,
-        ...(apiKey ? { headers: { "x-api-key": apiKey } } : {}),
+        ...optionalApiKeyHeaders(apiKeyHeaderValue),
       }
       return {
         ...existing,
