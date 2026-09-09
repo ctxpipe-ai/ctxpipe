@@ -160,6 +160,75 @@ describe("CLI help and argv", () => {
     ])
   })
 
+  it("mcp add without --auth defaults to OAuth and ignores CTXPIPE_API_KEY", () => {
+    const home = mkdtempSync(join(tmpdir(), "ctxpipe-mcp-oauth-home-"))
+    const cwd = mkdtempSync(join(tmpdir(), "ctxpipe-mcp-oauth-cwd-"))
+    execFileSync(
+      process.execPath,
+      [
+        bin,
+        "mcp",
+        "add",
+        "--org",
+        "acme",
+        "--client",
+        "cursor",
+        "--scope",
+        "repo",
+        "--non-interactive",
+      ],
+      {
+        encoding: "utf8",
+        cwd,
+        env: {
+          ...process.env,
+          HOME: home,
+          CTXPIPE_API_KEY: "ctxp_must_not_be_written",
+        },
+      },
+    )
+    const repoConfig = JSON.parse(
+      readFileSync(join(cwd, ".cursor", "mcp.json"), "utf8"),
+    ) as {
+      mcpServers: {
+        ctxpipe?: { headers?: { "x-api-key"?: string }; url?: string }
+      }
+    }
+    expect(repoConfig.mcpServers.ctxpipe?.url).toBe(
+      "https://app.ctxpipe.ai/mcp?orgSlug=acme",
+    )
+    expect(repoConfig.mcpServers.ctxpipe?.headers).toBeUndefined()
+    expect(JSON.stringify(repoConfig)).not.toContain("ctxp_must_not_be_written")
+  })
+
+  it("mcp add --auth bearer is rejected", () => {
+    const cwd = mkdtempSync(join(tmpdir(), "ctxpipe-mcp-bad-auth-"))
+    expect(() =>
+      execFileSync(
+        process.execPath,
+        [
+          bin,
+          "mcp",
+          "add",
+          "--org",
+          "acme",
+          "--client",
+          "cursor",
+          "--scope",
+          "repo",
+          "--auth",
+          "bearer",
+          "--non-interactive",
+        ],
+        {
+          encoding: "utf8",
+          cwd,
+          stdio: ["pipe", "pipe", "pipe"],
+        },
+      ),
+    ).toThrow(/auth/)
+  })
+
   it("mcp add --auth api-key --scope both writes interpolation, never the env value", () => {
     const home = mkdtempSync(join(tmpdir(), "ctxpipe-mcp-env-home-"))
     const cwd = mkdtempSync(join(tmpdir(), "ctxpipe-mcp-env-cwd-"))

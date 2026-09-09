@@ -1,7 +1,7 @@
 import { homedir } from "node:os"
 import { join, resolve } from "node:path"
-import type { Client, Scope } from "../constants.js"
-import { CLIENTS, DEFAULT_BASE_URL } from "../constants.js"
+import type { Client, McpAuthMode, Scope } from "../constants.js"
+import { CLIENTS, DEFAULT_BASE_URL, MCP_AUTH_MODES } from "../constants.js"
 import { resolveRepoRoot } from "../memory/paths.js"
 import {
   AI_MEMORY_RULE,
@@ -20,7 +20,6 @@ import {
   SKILL_CAPTURE_LESSON,
   SKILL_MEMORY_SEARCH,
 } from "../memory/seed.js"
-import type { McpAuthConfig } from "./auth-mode.js"
 import type { JsonObject } from "./json.js"
 import { isObject } from "./json.js"
 import { mcpUrl, normalizeBaseUrl, relativePath, scopesFor } from "./paths.js"
@@ -272,17 +271,6 @@ export function buildMemoryArtifactOperations({
   ]
 }
 
-/** Markdown-only memory init does not install an MCP server (ADR-024). */
-export function buildMemoryMcpOperations(_opts: {
-  clients: Client[]
-  baseUrl: string
-  org?: string | null
-  scope: Scope
-  context?: OperationContext
-}): Operation[] {
-  return []
-}
-
 const API_KEY_ENV = "CTXPIPE_API_KEY"
 
 function interpolateApiKeyEnv(client: Client): string {
@@ -301,9 +289,9 @@ function interpolateApiKeyEnv(client: Client): string {
 
 function mcpHeaderValue(
   client: Client,
-  auth: McpAuthConfig,
+  auth: McpAuthMode = "oauth",
 ): string | undefined {
-  if (auth.mode === "oauth") return undefined
+  if (auth === "oauth") return undefined
   return interpolateApiKeyEnv(client)
 }
 
@@ -318,19 +306,16 @@ export function buildMcpOperations({
   baseUrl,
   org,
   scope,
-  memory,
-  auth = { mode: "oauth" },
+  auth = "oauth",
   context = createOperationContext(),
 }: {
   clients: Client[]
   baseUrl: string
   org: string
   scope: Scope
-  memory?: boolean
-  auth?: McpAuthConfig
+  auth?: McpAuthMode
   context?: OperationContext
 }): Operation[] {
-  void memory
   return clients.flatMap((client) =>
     scopesFor(scope).flatMap((singleScope) =>
       buildClientOperations({
@@ -350,14 +335,14 @@ export function buildClientOperations({
   baseUrl,
   org,
   scope,
-  auth = { mode: "oauth" },
+  auth = "oauth",
   context = createOperationContext(),
 }: {
   client: Client
   baseUrl: string
   org: string
   scope: "repo" | "user"
-  auth?: McpAuthConfig
+  auth?: McpAuthMode
   context?: OperationContext
 }): Operation[] {
   const url = mcpUrl({ baseUrl, org })
@@ -593,6 +578,12 @@ export function writeVsCodeOperation({
 export function validateScope(scope: string): asserts scope is Scope {
   if (!["repo", "user", "both"].includes(scope)) {
     throw new Error("--scope must be one of: repo, user, both")
+  }
+}
+
+export function validateAuthMode(auth: string): asserts auth is McpAuthMode {
+  if (!MCP_AUTH_MODES.includes(auth as McpAuthMode)) {
+    throw new Error("--auth must be one of: oauth, api-key")
   }
 }
 

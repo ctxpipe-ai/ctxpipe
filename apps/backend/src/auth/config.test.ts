@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest"
-import { API_KEY_RATE_LIMIT, createBetterAuth } from "./config.js"
+import { createBetterAuth } from "./config.js"
 
 type OAuthProviderOptions = {
   postLogin?: {
@@ -30,13 +30,11 @@ describe("createBetterAuth", () => {
       (plugin) => plugin.id === "api-key",
     )
 
-    expect(apiKeyPlugin).toBeDefined()
-    expect(API_KEY_RATE_LIMIT).toEqual({
-      enabled: true,
-      timeWindow: 60 * 60 * 1000,
-      maxRequests: 1000,
+    expect(apiKeyPlugin?.schema?.apikey?.fields).toMatchObject({
+      rateLimitEnabled: { defaultValue: true },
+      rateLimitTimeWindow: { defaultValue: 60 * 60 * 1000 },
+      rateLimitMax: { defaultValue: 1000 },
     })
-    expect(apiKeyPlugin?.id).toBe("api-key")
   })
 
   it("allows emailed invitations with opaque custom IDs to be accepted", () => {

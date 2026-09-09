@@ -9,11 +9,10 @@ import {
   sessionUser,
   userLabel,
 } from "./auth.js"
-import type { Client } from "./constants.js"
+import type { Client, McpAuthMode } from "./constants.js"
 import { CLIENT_COMMANDS, CLIENT_LABELS, CLIENTS } from "./constants.js"
 import type { ApplyOperationResult } from "./fs-operations.js"
 import { applyOperation, applyOperations } from "./fs-operations.js"
-import { type McpAuthConfig, resolveMcpAuth } from "./mcp/auth-mode.js"
 import { diagnoseMcpEndpoint, formatMcpDoctorResult } from "./mcp/doctor.js"
 import {
   buildCtxpipeConfigOperation,
@@ -21,6 +20,7 @@ import {
   buildMemoryArtifactOperations,
   createOperationContext,
   type Operation,
+  validateAuthMode,
   validateClients,
   validateScope,
 } from "./mcp/mcp-operations.js"
@@ -70,9 +70,15 @@ export type McpAddRunOpts = {
   auth?: string
 }
 
-function describeMcpAuth(auth: McpAuthConfig): string {
-  if (auth.mode === "oauth") return "OAuth"
+function describeMcpAuth(auth: McpAuthMode): string {
+  if (auth === "oauth") return "OAuth"
   return "API key (env CTXPIPE_API_KEY)"
+}
+
+function resolveMcpAuthMode(auth?: string | null): McpAuthMode {
+  const mode = auth?.trim() || "oauth"
+  validateAuthMode(mode)
+  return mode
 }
 
 export async function runInit(opts: InitRunOpts): Promise<void> {
@@ -124,9 +130,7 @@ export async function runInit(opts: InitRunOpts): Promise<void> {
   validateClients(agents)
   // In non-interactive mode an unspecified --memory means "do not enable".
   const memoryEnabled = answers.memory === true
-  const mcpAuth: McpAuthConfig = answers.mcp
-    ? resolveMcpAuth({ auth: answers.auth })
-    : { mode: "oauth" }
+  const mcpAuth = answers.mcp ? resolveMcpAuthMode(answers.auth) : "oauth"
 
   const context = createOperationContext({ commandExists })
   const ctxpipeConfig = buildCtxpipeConfigOperation({
@@ -140,7 +144,6 @@ export async function runInit(opts: InitRunOpts): Promise<void> {
         baseUrl: answers.baseUrl,
         org,
         scope,
-        memory: false,
         auth: mcpAuth,
         context,
       })
@@ -261,7 +264,7 @@ export async function runMcpAdd(opts: McpAddRunOpts): Promise<void> {
   if (!scope) throw new Error("Missing --scope")
   validateScope(scope)
   validateClients(clients)
-  const mcpAuth = resolveMcpAuth({ auth: values.auth })
+  const mcpAuth = resolveMcpAuthMode(values.auth)
 
   const operations = buildMcpOperations({
     clients,

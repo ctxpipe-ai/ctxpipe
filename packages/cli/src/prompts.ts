@@ -22,9 +22,9 @@ import {
   CLIENT_LABELS,
   CLIENTS,
   type Client,
+  type McpAuthMode,
 } from "./constants.js"
 import { readJsonObject } from "./fs-operations.js"
-import type { McpAuthMode } from "./mcp/auth-mode.js"
 import { commandExists } from "./system.js"
 import { muted, printWizardHeader } from "./ui.js"
 

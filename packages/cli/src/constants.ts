@@ -7,6 +7,9 @@ export const CLIENTS = ["codex", "claude", "cursor", "opencode", "vscode"] as co
 export type Client = (typeof CLIENTS)[number]
 export type Scope = "repo" | "user" | "both"
 
+export const MCP_AUTH_MODES = ["oauth", "api-key"] as const
+export type McpAuthMode = (typeof MCP_AUTH_MODES)[number]
+
 export const CLIENT_LABELS: Record<Client, string> = {
   codex: "Codex",
   claude: "Claude Code",

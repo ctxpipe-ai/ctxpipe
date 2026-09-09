@@ -1,13 +1,12 @@
 import { describe, expect, it } from "vitest"
-import type { McpAuthConfig } from "../src/mcp/auth-mode.js"
 import {
   buildClientOperations,
   buildCtxpipeConfigOperation,
   buildMcpOperations,
   buildMemoryConfigOperation,
-  buildMemoryMcpOperations,
   createOperationContext,
   type OperationContext,
+  validateAuthMode,
   validateClients,
   validateScope,
   type WriteJsonOperation,
@@ -19,7 +18,7 @@ const context: OperationContext = createOperationContext({
   commandExists: (command) => command === "claude",
 })
 
-const apiKeyAuth = { mode: "api-key" } as const satisfies McpAuthConfig
+const apiKeyAuth = "api-key" as const
 
 function writeJson(operation: unknown): WriteJsonOperation {
   expect(operation).toMatchObject({ type: "write-json" })
@@ -156,22 +155,12 @@ describe("MCP operation builders", () => {
     )
   })
 
-  it("validates scope and client names", () => {
+  it("validates scope, client names, and auth modes", () => {
     expect(() => validateScope("global")).toThrow("--scope must be one of")
     expect(() => validateClients(["cursor", "bad"])).toThrow(
       'Unsupported client "bad"',
     )
-  })
-
-  it("does not build MCP operations for Markdown-only memory", () => {
-    const operations = buildMemoryMcpOperations({
-      clients: ["cursor"],
-      baseUrl: "https://app.ctxpipe.ai",
-      org: null,
-      scope: "repo",
-      context,
-    })
-    expect(operations).toEqual([])
+    expect(() => validateAuthMode("bearer")).toThrow("--auth must be one of")
   })
 
   it("buildMemoryConfigOperation omits orgSlug when org is not provided", () => {
