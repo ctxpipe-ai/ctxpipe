@@ -26,6 +26,9 @@
     "src/routes/v1/conversation-publish-native.contract.test.ts",
     "src/domain/workspaces/protected-conversation-native.contract.test.ts"
   ],
+  "native OpenCode port ownership": [
+    "src/domain/workspaces/workspace-chat-opencode-native.contract.test.ts"
+  ],
   "published-revision search": [
     "src/retrieval/services/code-search-projection.contract.test.ts"
   ],

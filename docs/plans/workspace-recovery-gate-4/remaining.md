@@ -27,11 +27,15 @@ ownership proof with the low-level fork-image gap.
 
 Files Git interpolation and binary rename data loss are fixed. Backend diagnostic
 allowances shrink from 132 to 130; the same fixed errors reduce UI allowances
-from 225 to 223. Five chat-related allowances remain (history
-fixture, old graph agent/planner, WebSocket stream type, model-proxy fixture).
-The local OpenCode port allocator remains pending native OS-assigned-port support;
-remove its application Set and swallowed cleanup failure with that native change,
-not an alternative application registry.
+from 225 to 223. The five chat-related diagnostics are resolved (history fixture, graph
+stream/planner options, WebSocket callback and model-proxy fixture). Full backend
+typecheck passes with 125 acknowledged diagnostics and no new/stale entries. Native OS-assigned-port support and bounded process cleanup replace the
+application allocator; two concurrent real OpenCode servers pass health and
+teardown checks. The non-root chat image passes native Git/OpenCode/resource
+startup and disposal proof. See
+[validation-native-process-and-image.md](validation-native-process-and-image.md).
+Remote-Docker addressing is being implemented next; production image/egress and
+Compose wiring remain pending.
 
 CI 34319040516 on 33503fd5 passed 12 jobs and failed only the Tests job: 292 of
 293 deterministic contract tests passed. Its protected-conversation assertion
@@ -41,5 +45,8 @@ session-branch change, and permission-loss denial; it passes locally.
 
 CI 34323063810 on 6ff63064 exposed two stale UI allowances for the same backend
 fixes; backend and all other type projects matched their allowances. Remove those
-two UI entries exactly; no allowances are added. The remaining CI jobs are still
-running at this checkpoint.
+two UI entries exactly; no allowances are added. The completed run passed 11 jobs; its only other failure was the quota
+contract's empty error file on the full filesystem (1,190 backend tests and
+295/296 contracts passed). Capture that error through the host stderr stream
+while retaining the exact quota-exceeded assertion, then run full CI on the new
+checkpoint.

@@ -63,3 +63,18 @@ in-flight fork remains source-owned until that source is cleaned up. Explicit
 snapshots clear the transient label. Failed startup removes its commit, and
 unexpected teardown errors propagate instead of reporting successful cleanup.
 No application image registry or timer is introduced.
+
+### Native process environment and OpenCode ports
+
+Docker create separates query parameters from the container JSON body, so
+runtime credentials never enter the request URL. Docker exec inherits image and
+container environment values; the provider supplies only explicit overrides.
+This preserves the non-root home and tool paths of the prebuilt chat image.
+Process wait registers transport completion at spawn time, surviving callers
+that start waiting after readiness consumption and termination.
+
+Local-process OpenCode binds port zero and the native adapter reads the complete
+readiness URL before connecting. The OS owns allocation and the native adapter
+owns process termination and exit observation. Kill/wait phases are bounded and
+startup plus cleanup errors remain visible. The application no longer leases
+ports or owns a second disposer. Docker retains its configured published port.

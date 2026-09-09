@@ -1,3 +1,4 @@
+import { createServer, request as httpRequest } from "node:http"
 import {
   createSecrets,
   defineSandbox,
@@ -248,6 +249,151 @@ it(
 )
 
 it(
+  "keeps native Docker environment credentials out of request URLs",
+  { timeout: 30_000 },
+  async () => {
+    const host = process.env.CTXPIPE_TEST_QUOTA_DOCKER_HOST
+    const port = Number(process.env.CTXPIPE_TEST_QUOTA_DOCKER_PORT)
+    if (!host || !Number.isInteger(port) || port <= 0)
+      throw new Error("Native quota Docker endpoint is required")
+    const paths: string[] = []
+    let createBody = ""
+    const proxy = createServer((request, response) => {
+      paths.push(request.url ?? "")
+      if (request.url?.includes("/containers/create"))
+        request.on("data", (chunk) => {
+          createBody += chunk.toString()
+        })
+      const upstream = httpRequest(
+        {
+          hostname: host,
+          port,
+          path: request.url,
+          method: request.method,
+          headers: request.headers,
+        },
+        (result) => {
+          response.writeHead(result.statusCode ?? 502, result.headers)
+          result.pipe(response)
+        },
+      )
+      upstream.on("error", (error) => response.destroy(error))
+      request.pipe(upstream)
+    })
+    await new Promise<void>((resolve, reject) => {
+      proxy.once("error", reject)
+      proxy.listen(0, "127.0.0.1", resolve)
+    })
+    const address = proxy.address()
+    if (!address || typeof address === "string")
+      throw new Error("Docker transport proxy did not bind")
+    const provider = dockerSandbox({
+      image: "alpine:3.22",
+      workdir: "/tmp",
+      keepAliveCommand: ["/ctxpipe-deliberately-missing-command"],
+      dockerodeOptions: { host: "127.0.0.1", port: address.port },
+    })
+    try {
+      await expect(
+        provider.create({
+          workspace: { source: { type: "none" } },
+          env: { SYNTHETIC_CREDENTIAL: "ctxpipe-native-env-not-in-url" },
+        }),
+      ).rejects.toThrow(/no such file or directory|executable file not found/i)
+      expect(JSON.parse(createBody).Env).toContain(
+        "SYNTHETIC_CREDENTIAL=ctxpipe-native-env-not-in-url",
+      )
+      expect(
+        paths.some((path) =>
+          decodeURIComponent(path).includes("ctxpipe-native-env-not-in-url"),
+        ),
+      ).toBe(false)
+    } finally {
+      proxy.closeAllConnections()
+      await new Promise<void>((resolve, reject) =>
+        proxy.close((error) => (error ? reject(error) : resolve())),
+      )
+    }
+  },
+)
+
+it(
+  "preserves native Docker image and container environment during commands",
+  { timeout: 30_000 },
+  async () => {
+    const host = process.env.CTXPIPE_TEST_QUOTA_DOCKER_HOST
+    const port = Number(process.env.CTXPIPE_TEST_QUOTA_DOCKER_PORT)
+    if (!host || !Number.isInteger(port) || port <= 0)
+      throw new Error("Native quota Docker endpoint is required")
+    const provider = dockerSandbox({
+      image: "alpine:3.22",
+      workdir: "/tmp",
+      dockerodeOptions: { host, port },
+    })
+    const handle = await provider.create({
+      env: { HOME: "/tmp/native-home", NATIVE_ENV: "container" },
+    })
+    try {
+      await handle.env.set({ NATIVE_RUNTIME: "session" })
+      const result = await handle.process.exec(
+        'printf "%s|%s|%s|%s" "$HOME" "$NATIVE_ENV" "$NATIVE_RUNTIME" "$NATIVE_COMMAND"',
+        { env: { NATIVE_COMMAND: "command" } },
+      )
+      expect(result.exitCode).toBe(0)
+      expect(result.stdout).toBe("/tmp/native-home|container|session|command")
+      const resumed = await provider.resume({ id: handle.id })
+      if (!resumed) throw new Error("Native Docker container did not resume")
+      expect((await resumed.process.exec('printf "%s" "$HOME"')).stdout).toBe(
+        "/tmp/native-home",
+      )
+    } finally {
+      await handle.destroy()
+    }
+  },
+)
+
+it(
+  "waits for a native Docker process after readiness consumption and kill",
+  { timeout: 30_000 },
+  async () => {
+    const host = process.env.CTXPIPE_TEST_QUOTA_DOCKER_HOST
+    const port = Number(process.env.CTXPIPE_TEST_QUOTA_DOCKER_PORT)
+    if (!host || !Number.isInteger(port) || port <= 0)
+      throw new Error("Native quota Docker endpoint is required")
+    const handle = await dockerSandbox({
+      image: "alpine:3.22",
+      workdir: "/tmp",
+      dockerodeOptions: { host, port },
+    }).create({})
+    let timer: ReturnType<typeof setTimeout> | undefined
+    try {
+      const process = await handle.process.spawn(
+        'printf "ready\\n"; exec sleep 60',
+      )
+      for await (const chunk of process.stdout) {
+        expect(chunk).toContain("ready")
+        break
+      }
+      await process.kill()
+      // The transport may already be closed when its owner starts awaiting it.
+      const status = await Promise.race([
+        process.wait(),
+        new Promise<never>((_, reject) => {
+          timer = setTimeout(
+            () => reject(new Error("Native process wait missed termination")),
+            3_000,
+          )
+        }),
+      ])
+      expect(typeof status).toBe("number")
+    } finally {
+      if (timer) clearTimeout(timer)
+      await handle.destroy()
+    }
+  },
+)
+
+it(
   "owns native Docker fork images through teardown and process loss",
   { timeout: 60_000 },
   async () => {
@@ -491,13 +637,12 @@ fi'`,
       const quotaWrite = await handle.process.exec(
         `sh -eu -c '
 set +e
-dd if=/dev/zero of=/tmp/native-policy-quota.bin bs=1M count=4096 conv=fsync 2>/tmp/native-policy-quota.err
+dd if=/dev/zero of=/tmp/native-policy-quota.bin bs=1M count=4096 conv=fsync
 status=$?
-cat /tmp/native-policy-quota.err
-rm -f /tmp/native-policy-quota.bin /tmp/native-policy-quota.err
+rm -f /tmp/native-policy-quota.bin
 printf "quota-status=%s\\n" "$status"'`,
       )
-      expect(quotaWrite.stdout).toMatch(/quota exceeded/i)
+      expect(quotaWrite.stderr).toMatch(/quota exceeded/i)
       expect(quotaWrite.stdout).toContain("quota-status=")
       expect(quotaWrite.stdout).not.toContain("quota-status=0")
     }

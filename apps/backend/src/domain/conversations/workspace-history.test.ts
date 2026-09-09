@@ -1,8 +1,11 @@
+import type { ModelMessage } from "@tanstack/ai"
 import { beforeEach, describe, expect, it, vi } from "vitest"
 
 const loadTurnsMock = vi.hoisted(() => vi.fn())
 const runTanstackWorkspaceChatMock = vi.hoisted(() => vi.fn())
-const loadThreadMock = vi.hoisted(() => vi.fn(async () => []))
+const loadThreadMock = vi.hoisted(() =>
+  vi.fn<() => Promise<ModelMessage[]>>(() => Promise.resolve([])),
+)
 
 vi.mock("../../models/conversation-messages.js", () => ({
   loadConversationTurns: loadTurnsMock,

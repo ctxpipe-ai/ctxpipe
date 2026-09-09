@@ -105,9 +105,7 @@ Embedding available: ${embedding ? "yes" : "no"}
 
 Respond with ONLY valid JSON, no markdown.`
 
-    const response = await model.invoke(prompt, {
-      maxTokens: 200,
-    })
+    const response = await model.invoke(prompt)
     const content =
       typeof response.content === "string"
         ? response.content

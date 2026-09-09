@@ -73,7 +73,6 @@ import {
   messagesForOpenCodeChat,
   openCodeTrailingUserMiddleware,
 } from "./workspace-chat-opencode-messages.js"
-import { leaseLocalProcessOpenCodePort } from "./workspace-chat-opencode-port.js"
 import {
   beginWorkspaceChatTurn,
   finishWorkspaceChatTurn,
@@ -219,28 +218,24 @@ async function* streamTanstackWorkspaceChatBody(
   await turn.onUserPersist?.()
   const prepared = await startWorkspaceChat(turn)
   if (!prepared.ok) throw new Error(prepared.error)
-  try {
-    for await (const chunk of prepared.stream) {
-      const typed = chunk as StreamChunk
-      if (typed.type === "RUN_ERROR") await turn.onError?.()
-      if (typed.type === "RUN_FINISHED") {
-        const name = await nameConversationIfUnnamed({
-          conversationId: turn.conversationId,
-          prompt: turn.prompt,
-        })
-        if (name) yield conversationRenameChunk(name)
-        await turn.onFinish?.()
-      }
-      if (
-        typed.type === "TEXT_MESSAGE_CONTENT" ||
-        typed.type === "REASONING_MESSAGE_CONTENT" ||
-        typed.type === "TOOL_CALL_START"
-      )
-        markWorkspaceChatFirstShownToken(turn.conversationId)
-      yield typed
+  for await (const chunk of prepared.stream) {
+    const typed = chunk as StreamChunk
+    if (typed.type === "RUN_ERROR") await turn.onError?.()
+    if (typed.type === "RUN_FINISHED") {
+      const name = await nameConversationIfUnnamed({
+        conversationId: turn.conversationId,
+        prompt: turn.prompt,
+      })
+      if (name) yield conversationRenameChunk(name)
+      await turn.onFinish?.()
     }
-  } finally {
-    await prepared.dispose()
+    if (
+      typed.type === "TEXT_MESSAGE_CONTENT" ||
+      typed.type === "REASONING_MESSAGE_CONTENT" ||
+      typed.type === "TOOL_CALL_START"
+    )
+      markWorkspaceChatFirstShownToken(turn.conversationId)
+    yield typed
   }
 }
 
@@ -393,7 +388,6 @@ async function startWorkspaceChat(input: TanstackWorkspaceChatInput): Promise<
   | {
       ok: true
       stream: AsyncIterable<object>
-      dispose: () => Promise<void>
     }
   | { ok: false; status: number; error: string }
 > {
@@ -415,10 +409,6 @@ async function startWorkspaceChat(input: TanstackWorkspaceChatInput): Promise<
   })
   const session = await resolveWorkspaceChatSession(input, built.spec.isolation)
   if (!session.ok) return session
-  const portLease =
-    built.spec.isolation === "unsandboxed"
-      ? await leaseLocalProcessOpenCodePort()
-      : null
   const definition = built.definition
   const workspace = conversationSandboxWorkspace({
     modules: built.modules,
@@ -428,142 +418,133 @@ async function startWorkspaceChat(input: TanstackWorkspaceChatInput): Promise<
     proxyUrl: session.proxyUrl,
     modelBase: built.contract.modelBase,
   })
-  try {
-    const servePort = portLease?.port ?? WORKSPACE_CHAT_OPENCODE_PORT
-    const modules = built.modules
-    const instances = built.instances
-    let revisionRecoveryNotice: string | undefined
-    const persistence = workspaceChatPersistence()
-    const snapshots = {
-      ...(await modules.memorySandboxSnapshots({
-        sandbox: definition,
+  const servePort =
+    built.spec.isolation === "unsandboxed" ? 0 : WORKSPACE_CHAT_OPENCODE_PORT
+  const modules = built.modules
+  const instances = built.instances
+  let revisionRecoveryNotice: string | undefined
+  const persistence = workspaceChatPersistence()
+  const snapshots = {
+    ...(await modules.memorySandboxSnapshots({
+      sandbox: definition,
+      workspace,
+      instances,
+    })),
+    persistence,
+  }
+  const chatStarted = Date.now()
+  const abortController = abortControllerFrom(input.abortSignal)
+  const stream = await modules.chat({
+    adapter: modules.opencodeText(built.contract.opencodeModel, {
+      port: servePort,
+      permissionMode: runtime.permissionMode,
+      onPermissionRequest: runtime.onPermissionRequest,
+    }),
+    threadId: input.conversationId,
+    runId: input.runId,
+    context: {
+      orgId: input.orgId,
+      orgSlug: await resolveWorkspaceChatOrgSlug(input),
+      workspaceId: input.workspaceId,
+    },
+    messages: (input.messages
+      ? messagesForOpenCodeChat(input.messages, input.prompt)
+      : []) as Array<ModelMessage | UIMessage>,
+    abortController,
+    tools: WORKSPACE_CHAT_TOOLS,
+    middleware: [
+      otelMiddleware({
+        tracer: trace.getTracer("ctxpipe-workspace-chat"),
+      }),
+      withPersistence(persistence, {
+        snapshotStreaming: true,
+        threadLocks: postgresSandboxLocks(input.orgId, abortController),
+      }),
+      defineChatMiddleware({
+        name: "workspace-chat-revision",
+        async setup() {
+          if (!(await previousChatRevision(input))) return
+          const prepared = await warmTanstackWorkspaceChat(input, {
+            transcriptLocked: true,
+          })
+          if (!prepared.ok) throw new Error(prepared.error)
+          if (!prepared.effectiveRevision) return
+          const currentTarget = await withOrgDbContext(input.orgId, () =>
+            getDesiredWorkspaceRevision(input.workspaceId),
+          )
+          if (!currentTarget)
+            throw new Error("Workspace revision is no longer available")
+          revisionRecoveryNotice =
+            currentTarget.sha === prepared.effectiveRevision.sha
+              ? undefined
+              : JSON.stringify({
+                  type: "workspace_revision_conflict",
+                  effectiveSha: prepared.effectiveRevision.sha,
+                  desiredSha: currentTarget.sha,
+                  instructions:
+                    "Keep the current branch. Publishing is blocked until it is rebased onto desiredSha. Inspect Git status and saved stashes before repairing. An interrupted transition is recorded at .git/ctxpipe-revision-transition; after recovering its saved edits and resolving the rebase, remove that marker so the next turn can validate the new revision. Never discard saved edits without the user's request.",
+                })
+          const retainedInput = {
+            ...input,
+            desiredSha: prepared.effectiveRevision.sha,
+          }
+          const retained = await buildWorkspaceChatSandbox(retainedInput)
+          if (!retained.ok) throw new Error(retained.error)
+          if (retained.definition !== definition)
+            throw new Error("Sandbox provider changed during revision recovery")
+          // These objects belong only to this run. Resolve them before native
+          // middleware captures its exact key, projection and checkpoint state.
+          Object.assign(
+            workspace,
+            conversationSandboxWorkspace({
+              modules,
+              spec: retained.spec,
+              input: retainedInput,
+              runToken: session.runToken,
+              proxyUrl: session.proxyUrl,
+              modelBase: built.contract.modelBase,
+            }),
+          )
+          Object.assign(instances, retained.instances)
+        },
+        onConfig(_ctx, config) {
+          if (!revisionRecoveryNotice) return
+          return {
+            systemPrompts: [...config.systemPrompts, revisionRecoveryNotice],
+          }
+        },
+      }),
+      modules.withSandbox(definition, {
         workspace,
         instances,
-      })),
-      persistence,
-    }
-    const chatStarted = Date.now()
-    const abortController = abortControllerFrom(input.abortSignal)
-    const stream = await modules.chat({
-      adapter: modules.opencodeText(built.contract.opencodeModel, {
-        port: servePort,
-        permissionMode: runtime.permissionMode,
-        onPermissionRequest: runtime.onPermissionRequest,
+        locks: postgresSandboxLocks(
+          input.orgId,
+          abortController,
+          `workspace-sandboxes:${input.workspaceId}`,
+        ),
+        snapshots,
       }),
-      threadId: input.conversationId,
-      runId: input.runId,
-      context: {
-        orgId: input.orgId,
-        orgSlug: await resolveWorkspaceChatOrgSlug(input),
-        workspaceId: input.workspaceId,
-      },
-      messages: (input.messages
-        ? messagesForOpenCodeChat(input.messages, input.prompt)
-        : []) as Array<ModelMessage | UIMessage>,
-      abortController,
-      tools: WORKSPACE_CHAT_TOOLS,
-      middleware: [
-        otelMiddleware({
-          tracer: trace.getTracer("ctxpipe-workspace-chat"),
-        }),
-        withPersistence(persistence, {
-          snapshotStreaming: true,
-          threadLocks: postgresSandboxLocks(input.orgId, abortController),
-        }),
-        defineChatMiddleware({
-          name: "workspace-chat-revision",
-          async setup() {
-            if (!(await previousChatRevision(input))) return
-            const prepared = await warmTanstackWorkspaceChat(input, {
-              transcriptLocked: true,
-            })
-            if (!prepared.ok) throw new Error(prepared.error)
-            if (!prepared.effectiveRevision) return
-            const currentTarget = await withOrgDbContext(input.orgId, () =>
-              getDesiredWorkspaceRevision(input.workspaceId),
-            )
-            if (!currentTarget)
-              throw new Error("Workspace revision is no longer available")
-            revisionRecoveryNotice =
-              currentTarget.sha === prepared.effectiveRevision.sha
-                ? undefined
-                : JSON.stringify({
-                    type: "workspace_revision_conflict",
-                    effectiveSha: prepared.effectiveRevision.sha,
-                    desiredSha: currentTarget.sha,
-                    instructions:
-                      "Keep the current branch. Publishing is blocked until it is rebased onto desiredSha. Inspect Git status and saved stashes before repairing. An interrupted transition is recorded at .git/ctxpipe-revision-transition; after recovering its saved edits and resolving the rebase, remove that marker so the next turn can validate the new revision. Never discard saved edits without the user's request.",
-                  })
-            const retainedInput = {
-              ...input,
-              desiredSha: prepared.effectiveRevision.sha,
-            }
-            const retained = await buildWorkspaceChatSandbox(retainedInput)
-            if (!retained.ok) throw new Error(retained.error)
-            if (retained.definition !== definition)
-              throw new Error(
-                "Sandbox provider changed during revision recovery",
-              )
-            // These objects belong only to this run. Resolve them before native
-            // middleware captures its exact key, projection and checkpoint state.
-            Object.assign(
-              workspace,
-              conversationSandboxWorkspace({
-                modules,
-                spec: retained.spec,
-                input: retainedInput,
-                runToken: session.runToken,
-                proxyUrl: session.proxyUrl,
-                modelBase: built.contract.modelBase,
-              }),
-            )
-            Object.assign(instances, retained.instances)
-          },
-          onConfig(_ctx, config) {
-            if (!revisionRecoveryNotice) return
-            return {
-              systemPrompts: [...config.systemPrompts, revisionRecoveryNotice],
-            }
-          },
-        }),
-        modules.withSandbox(definition, {
-          workspace,
-          instances,
-          locks: postgresSandboxLocks(
-            input.orgId,
-            abortController,
-            `workspace-sandboxes:${input.workspaceId}`,
-          ),
-          snapshots,
-        }),
-        defineChatMiddleware({
-          name: "workspace-chat-permissions",
-          requires: [SandboxCapability],
-          setup(ctx) {
-            activeSandbox = getSandbox(ctx)
-          },
-        }),
-        openCodeTrailingUserMiddleware(input.prompt),
-      ],
-    })
-    log.info({
-      step: "workspace-chat-timing",
-      phase: "chat-create",
-      message: `workspace chat timing chat-create ${Date.now() - chatStarted}ms`,
-      ms: Date.now() - chatStarted,
-      attached: false,
-      conversationId: input.conversationId,
-    })
-    return {
-      ok: true,
-      stream,
-      dispose: async () => {
-        await portLease?.release().catch(() => undefined)
-      },
-    }
-  } catch (error) {
-    await portLease?.release().catch(() => undefined)
-    throw error
+      defineChatMiddleware({
+        name: "workspace-chat-permissions",
+        requires: [SandboxCapability],
+        setup(ctx) {
+          activeSandbox = getSandbox(ctx)
+        },
+      }),
+      openCodeTrailingUserMiddleware(input.prompt),
+    ],
+  })
+  log.info({
+    step: "workspace-chat-timing",
+    phase: "chat-create",
+    message: `workspace chat timing chat-create ${Date.now() - chatStarted}ms`,
+    ms: Date.now() - chatStarted,
+    attached: false,
+    conversationId: input.conversationId,
+  })
+  return {
+    ok: true,
+    stream,
   }
 }
 

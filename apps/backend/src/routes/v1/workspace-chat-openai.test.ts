@@ -1,9 +1,13 @@
 import { createServer, type Server } from "node:http"
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 import { OpenAPIHono } from "@hono/zod-openapi"
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 import type { AppEnv } from "../../app/env.js"
+import { parseEnv } from "../../config/env.js"
 import { mintWorkspaceChatToken } from "../../domain/workspaces/workspace-chat-token.js"
-import { contextStorage, withTestRequestLogger } from "../../test/hono-test-logger.js"
+import {
+  contextStorage,
+  withTestRequestLogger,
+} from "../../test/hono-test-logger.js"
 import { workspaceChatOpenaiRoutes } from "./workspace-chat-openai.js"
 
 const AUTH_SECRET = "abcdefghijklmnopqrstuvwxyz123456"
@@ -65,15 +69,18 @@ function appWithRoutes(input: {
   apiKey?: string
   fastModel?: string
 }): OpenAPIHono<AppEnv> {
-  const env: Partial<Record<string, string | number>> = {
+  const env = parseEnv({
+    NODE_ENV: "test",
+    DATABASE_URL: "postgres://localhost:5432/ctxpipe_test",
+    GRAPH_DB_URI: "redis://localhost:6379",
     AUTH_BASE_URL: "https://backend.example.com",
     AUTH_SECRET,
-    PORT: 3000,
+    PORT: "3000",
     MODEL_PROVIDER: "openai-like",
-  }
-  if (input.upstreamUrl) env.MODEL_PROVIDER_URL = input.upstreamUrl
-  if (input.apiKey) env.MODEL_PROVIDER_API_KEY = input.apiKey
-  env.MODEL_FAST_NAME = input.fastModel ?? "openai/gpt-5.6-terra"
+    MODEL_PROVIDER_URL: input.upstreamUrl,
+    MODEL_PROVIDER_API_KEY: input.apiKey,
+    MODEL_FAST_NAME: input.fastModel ?? "openai/gpt-5.6-terra",
+  })
 
   const app = new OpenAPIHono<AppEnv>().basePath(
     "/:orgSlug/api/v1/workspace-chat/openai",
@@ -81,7 +88,7 @@ function appWithRoutes(input: {
   app.use(contextStorage())
   app.use(withTestRequestLogger)
   app.use("*", async (c, next) => {
-    c.set("env", env as AppEnv["Variables"]["env"])
+    c.set("env", env)
     c.set("user", {
       id: "user_session",
       email: "user@example.com",
