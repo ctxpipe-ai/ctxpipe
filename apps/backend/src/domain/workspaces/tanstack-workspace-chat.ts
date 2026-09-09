@@ -163,12 +163,6 @@ function conversationSandboxDefinition(provider: SandboxProvider) {
   })
 }
 
-const LOCAL_CHAT_SANDBOX_DEFINITION = conversationSandboxDefinition(
-  localProcessSandbox({
-    scrubEnv: [...WORKSPACE_CHAT_LOCAL_PROCESS_SCRUB_ENV],
-  }),
-)
-
 type DockerChatSandbox = {
   definition: ReturnType<typeof conversationSandboxDefinition>
   image: string
@@ -185,13 +179,39 @@ let dockerImageInspect: Promise<{
 export const workspaceChatDockerOwnership = {
   imageInspects: 0,
   providerCreates: 0,
+  ensures: 0,
   reset() {
     this.imageInspects = 0
     this.providerCreates = 0
+    this.ensures = 0
     dockerImageInspect = null
     dockerChatSandboxes.clear()
   },
 }
+
+function trackSandboxDefinition(
+  definition: ReturnType<typeof conversationSandboxDefinition>,
+) {
+  const ensure = definition.ensure.bind(definition)
+  const ensureExisting = definition.ensureExisting.bind(definition)
+  definition.ensure = ((ctx) => {
+    workspaceChatDockerOwnership.ensures += 1
+    return ensure(ctx)
+  }) as typeof definition.ensure
+  definition.ensureExisting = ((ctx) => {
+    workspaceChatDockerOwnership.ensures += 1
+    return ensureExisting(ctx)
+  }) as typeof definition.ensureExisting
+  return definition
+}
+
+const LOCAL_CHAT_SANDBOX_DEFINITION = trackSandboxDefinition(
+  conversationSandboxDefinition(
+    localProcessSandbox({
+      scrubEnv: [...WORKSPACE_CHAT_LOCAL_PROCESS_SCRUB_ENV],
+    }),
+  ),
+)
 
 function inspectWorkspaceChatDockerImages() {
   dockerImageInspect ??= (async () => {
@@ -223,11 +243,13 @@ async function workspaceChatDockerSandbox(input: {
     workspaceChatDockerOwnership.providerCreates += 1
     const { policyIdentity, ...nativeConfig } = policy
     const created: DockerChatSandbox = {
-      definition: conversationSandboxDefinition(
-        dockerSandbox({
-          ...nativeConfig,
-          dockerodeOptions: { timeout: 120_000 },
-        }),
+      definition: trackSandboxDefinition(
+        conversationSandboxDefinition(
+          dockerSandbox({
+            ...nativeConfig,
+            dockerodeOptions: { timeout: 120_000 },
+          }),
+        ),
       ),
       image: policy.image,
       policyIdentity,
@@ -673,10 +695,12 @@ async function startWorkspaceChat(input: TanstackWorkspaceChatInput): Promise<
           const [gitCapability, modelCapability] = await Promise.all([
             mintWorkspaceChatRunCapability({
               ...authority,
+              runId: input.runId,
               purpose: "workspace-chat-git",
             }),
             mintWorkspaceChatRunCapability({
               ...authority,
+              runId: input.runId,
               purpose: "workspace-chat-model",
             }),
           ])
@@ -698,7 +722,7 @@ async function startWorkspaceChat(input: TanstackWorkspaceChatInput): Promise<
     phase: "chat-create",
     message: `workspace chat timing chat-create ${Date.now() - chatStarted}ms`,
     ms: Date.now() - chatStarted,
-    attached: false,
+    attached: workspaceChatDockerOwnership.ensures,
     conversationId: input.conversationId,
   })
   return {
@@ -738,6 +762,7 @@ async function resolveWorkspaceChatSession(
       authSecret,
       orgId: input.orgId,
       conversationId: input.conversationId,
+      runId: input.runId,
     }),
     proxyUrl: workspaceChatCompletionsBaseUrl({
       isolation,

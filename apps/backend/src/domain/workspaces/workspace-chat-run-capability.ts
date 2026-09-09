@@ -20,6 +20,7 @@ const RunCapabilityClaimsSchema = z.object({
   purpose: z.enum(["workspace-chat-git", "workspace-chat-model"]),
   orgId: z.string().min(1),
   conversationId: z.string().min(1),
+  runId: z.string().min(1).optional(),
   lockOwner: z.string().uuid(),
   revision: workspaceRevisionSchema,
 })
@@ -126,6 +127,7 @@ export async function mintWorkspaceChatRunCapability(input: {
   authSecret: string
   orgId: string
   conversationId: string
+  runId?: string
   expectedOwner: string
   revision: WorkspaceRevision
   purpose: WorkspaceChatRunCapabilityPurpose
@@ -145,6 +147,7 @@ export async function mintWorkspaceChatRunCapability(input: {
       purpose: input.purpose,
       orgId: input.orgId,
       conversationId: input.conversationId,
+      ...(input.runId ? { runId: input.runId } : {}),
       lockOwner: state.owner,
       revision: input.revision,
     },

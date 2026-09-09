@@ -10,14 +10,14 @@ import {
 describe("workspace chat otel turn summary", () => {
   it("records generation loops and the tool gap before the next completion", () => {
     beginWorkspaceChatTurn("conv_otel", "run_otel")
-    recordWorkspaceChatProxyGeneration("conv_otel", {
+    recordWorkspaceChatProxyGeneration("run_otel", {
       ttfbMs: 80,
       durationMs: 200,
       finishReason: "tool_calls",
       tools: ["bash"],
     })
-    beginWorkspaceChatProxyGeneration("conv_otel")
-    recordWorkspaceChatProxyGeneration("conv_otel", {
+    beginWorkspaceChatProxyGeneration("run_otel")
+    recordWorkspaceChatProxyGeneration("run_otel", {
       ttfbMs: 40,
       durationMs: 90,
       finishReason: "stop",
@@ -40,25 +40,29 @@ describe("workspace chat otel turn summary", () => {
 
   it("keeps overlapping conversation turns on separate run ids", () => {
     beginWorkspaceChatTurn("conv_overlap", "run_a")
-    recordWorkspaceChatProxyGeneration("conv_overlap", {
+    beginWorkspaceChatTurn("conv_overlap", "run_b")
+    recordWorkspaceChatProxyGeneration("run_a", {
       ttfbMs: 10,
       durationMs: 20,
       finishReason: "stop",
       tools: [],
-      text: "first",
+      text: "response-from-run-a",
     })
-    beginWorkspaceChatTurn("conv_overlap", "run_b")
-    recordWorkspaceChatProxyGeneration("conv_overlap", {
+    recordWorkspaceChatProxyGeneration("run_b", {
       ttfbMs: 11,
       durationMs: 21,
       finishReason: "stop",
       tools: [],
-      text: "second",
+      text: "response-from-run-b",
     })
     const first = finishWorkspaceChatTurn("run_a")
     const second = finishWorkspaceChatTurn("run_b")
-    expect(first?.generations.map((item) => item.text)).toEqual(["first"])
-    expect(second?.generations.map((item) => item.text)).toEqual(["second"])
+    expect(first?.generations.map((item) => item.text)).toEqual([
+      "response-from-run-a",
+    ])
+    expect(second?.generations.map((item) => item.text)).toEqual([
+      "response-from-run-b",
+    ])
     expect(finishWorkspaceChatTurn("run_a")).toBeNull()
   })
 })

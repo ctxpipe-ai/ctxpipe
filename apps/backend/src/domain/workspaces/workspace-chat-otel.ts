@@ -31,12 +31,13 @@ type WorkspaceChatTurnState = {
 }
 
 const turns = new Map<string, WorkspaceChatTurnState>()
-const activeTurnId = new Map<string, string>()
 const tracer = () => trace.getTracer("ctxpipe-workspace-chat")
 
-function turnForConversation(conversationId: string) {
-  const turnId = activeTurnId.get(conversationId)
-  return turnId ? turns.get(turnId) : undefined
+export function workspaceChatTurnId(input: {
+  conversationId: string
+  runId?: string
+}): string {
+  return input.runId ?? input.conversationId
 }
 
 export function beginWorkspaceChatTurn(
@@ -63,19 +64,16 @@ export function beginWorkspaceChatTurn(
       },
     }),
   })
-  activeTurnId.set(conversationId, turnId)
 }
 
 export function markWorkspaceChatFirstShownToken(turnId: string): void {
-  const state = turns.get(turnId) ?? turnForConversation(turnId)
+  const state = turns.get(turnId)
   if (!state || state.firstShownTokenAt != null) return
   state.firstShownTokenAt = Date.now()
 }
 
-export function beginWorkspaceChatProxyGeneration(
-  conversationId: string,
-): void {
-  const state = turnForConversation(conversationId)
+export function beginWorkspaceChatProxyGeneration(turnId: string): void {
+  const state = turns.get(turnId)
   if (!state) return
   if (state.pendingToolsStartedAt && state.pendingTools.length > 0) {
     const durationMs = Math.max(0, Date.now() - state.pendingToolsStartedAt)
@@ -101,7 +99,7 @@ export function beginWorkspaceChatProxyGeneration(
     {
       attributes: {
         "gen_ai.operation.name": "chat",
-        "workspace_chat.conversation_id": conversationId,
+        "workspace_chat.turn_id": turnId,
         "workspace_chat.generation.index": state.generations.length,
       },
     },
@@ -109,7 +107,7 @@ export function beginWorkspaceChatProxyGeneration(
 }
 
 export function recordWorkspaceChatProxyGeneration(
-  conversationId: string,
+  turnId: string,
   input: {
     ttfbMs: number
     durationMs: number
@@ -118,7 +116,7 @@ export function recordWorkspaceChatProxyGeneration(
     text?: string
   },
 ): void {
-  const state = turnForConversation(conversationId)
+  const state = turns.get(turnId)
   const generation: WorkspaceChatGenerationRecord = {
     index: state?.generations.length ?? 0,
     ttfbMs: input.ttfbMs,
@@ -146,7 +144,7 @@ export function recordWorkspaceChatProxyGeneration(
         attributes: {
           "gen_ai.tool.name": name,
           "gen_ai.tool.type": "function",
-          "workspace_chat.conversation_id": conversationId,
+          "workspace_chat.turn_id": turnId,
         },
       }),
     )
@@ -165,8 +163,6 @@ export function finishWorkspaceChatTurn(
   const state = turns.get(turnId)
   if (!state) return null
   turns.delete(turnId)
-  if (activeTurnId.get(state.conversationId) === turnId)
-    activeTurnId.delete(state.conversationId)
   const ttftMs =
     state.firstShownTokenAt == null
       ? null

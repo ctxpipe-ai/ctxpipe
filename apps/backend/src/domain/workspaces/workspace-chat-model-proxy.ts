@@ -89,7 +89,7 @@ export function observeWorkspaceChatCompletionStream(): {
 }
 
 export function recordWorkspaceChatProxyCompletion(
-  conversationId: string | undefined,
+  turnId: string | undefined,
   input: {
     ttfbMs: number
     durationMs: number
@@ -111,8 +111,8 @@ export function recordWorkspaceChatProxyCompletion(
     model: input.model,
     message: `workspace chat generation ttfbMs=${input.ttfbMs} durationMs=${input.durationMs} finishReason=${input.finishReason ?? "-"} tools=${input.tools.join(",") || "-"}`,
   })
-  if (!conversationId) return
-  recordWorkspaceChatProxyGeneration(conversationId, {
+  if (!turnId) return
+  recordWorkspaceChatProxyGeneration(turnId, {
     ttfbMs: input.ttfbMs,
     durationMs: input.durationMs,
     finishReason: input.finishReason,

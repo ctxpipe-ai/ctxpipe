@@ -673,6 +673,52 @@ it(
                     )
                     expect(remoteHeads.exitCode).toBe(0)
                     expect(remoteHeads.stdout).toContain(f.sha)
+                    phase = "warm chat"
+                    const ensuresBeforeWarm =
+                      workspaceChatDockerOwnership.ensures
+                    const createsBeforeWarm =
+                      workspaceChatDockerOwnership.providerCreates
+                    const inspectsBeforeWarm =
+                      workspaceChatDockerOwnership.imageInspects
+                    const modelRequestsBeforeWarm = f.modelRequests.length
+                    const warmEvents: string[] = []
+                    let warmText = ""
+                    const warmStarted = Date.now()
+                    for await (const chunk of streamTanstackWorkspaceChat({
+                      ...input,
+                      prompt: "Warm question",
+                      runId: `${f.conversationId}-quota-chat-warm`,
+                      messages: [
+                        ...(await persistence.stores.messages.loadThread(
+                          f.conversationId,
+                        )),
+                        {
+                          id: "user-quota-chat-warm",
+                          role: "user",
+                          content: "Warm question",
+                        },
+                      ],
+                    })) {
+                      warmEvents.push(chunk.type)
+                      if (chunk.type === "TEXT_MESSAGE_CONTENT")
+                        warmText += chunk.delta
+                    }
+                    expect(Date.now() - warmStarted).toBeLessThan(30_000)
+                    expect(warmEvents).toContain("RUN_FINISHED")
+                    expect(warmEvents).not.toContain("RUN_ERROR")
+                    expect(warmText).toBe("Native reply completed.")
+                    expect(f.modelRequests.length).toBeGreaterThan(
+                      modelRequestsBeforeWarm,
+                    )
+                    expect(workspaceChatDockerOwnership.providerCreates).toBe(
+                      createsBeforeWarm,
+                    )
+                    expect(workspaceChatDockerOwnership.imageInspects).toBe(
+                      inspectsBeforeWarm,
+                    )
+                    expect(
+                      workspaceChatDockerOwnership.ensures - ensuresBeforeWarm,
+                    ).toBeLessThanOrEqual(1)
                     phase = "provider loss"
                     await first.handle.destroy()
                     phase = "recovery prepare"

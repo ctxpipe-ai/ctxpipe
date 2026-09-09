@@ -6,7 +6,10 @@ import {
   recordWorkspaceChatProxyCompletion,
 } from "../../domain/workspaces/workspace-chat-model-proxy.js"
 import { workspaceChatOpenCodeContract } from "../../domain/workspaces/workspace-chat-opencode-contract.js"
-import { beginWorkspaceChatProxyGeneration } from "../../domain/workspaces/workspace-chat-otel.js"
+import {
+  beginWorkspaceChatProxyGeneration,
+  workspaceChatTurnId,
+} from "../../domain/workspaces/workspace-chat-otel.js"
 import { verifyWorkspaceChatRunCapability } from "../../domain/workspaces/workspace-chat-run-capability.js"
 import {
   verifyWorkspaceChatToken,
@@ -210,7 +213,8 @@ export const workspaceChatOpenaiRoutes = new OpenAPIHono<AppEnv>()
       ...extras,
       model: contract.modelBase,
     }
-    beginWorkspaceChatProxyGeneration(token.conversationId)
+    const turnId = workspaceChatTurnId(token)
+    beginWorkspaceChatProxyGeneration(turnId)
     const startedAt = Date.now()
     let ttfbMs: number | null = null
     const observer = observeWorkspaceChatCompletionStream()
@@ -218,7 +222,7 @@ export const workspaceChatOpenaiRoutes = new OpenAPIHono<AppEnv>()
       if (ttfbMs == null) ttfbMs = Date.now() - startedAt
     }
     const record = (status: number) => {
-      recordWorkspaceChatProxyCompletion(token.conversationId, {
+      recordWorkspaceChatProxyCompletion(turnId, {
         ttfbMs: ttfbMs ?? Date.now() - startedAt,
         durationMs: Date.now() - startedAt,
         finishReason: observer.finishReason,
