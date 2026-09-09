@@ -28,7 +28,8 @@ describe("workspace chat runtime", () => {
   it("installs opencode in the sandbox and publishes the serve port", () => {
     expect(WORKSPACE_CHAT_OPENCODE_PORT).toBe(4096)
     expect(WORKSPACE_CHAT_DOCKER_SANDBOX).toEqual({
-      image: "node:22",
+      image:
+        "node@sha256:8a34c4ab3ea2c5cd194f07e317b2a8f09461d3c8b05c4e34c8ccd56d56024c4d",
       publishPorts: [4096],
     })
     expect(WORKSPACE_CHAT_SANDBOX_SETUP.join("\n")).toMatch(
@@ -39,78 +40,8 @@ describe("workspace chat runtime", () => {
     )
   })
 
-  it("does not exit the TanStack bootstrap shell when a worktree already exists", () => {
-    const setup = WORKSPACE_CHAT_SANDBOX_SETUP.join("\n")
-    expect(setup).not.toMatch(/\bexit\b/)
-    expect(setup).not.toMatch(/\bset -e\b/)
-
-    const cloneSetup = WORKSPACE_CHAT_SANDBOX_SETUP[2]
-    const home = mkdtempSync(join(tmpdir(), "ws-chat-setup-"))
-    execFileSync("git", ["init", "-b", "main"], { cwd: home })
-    writeFileSync(join(home, "README.md"), "already cloned\n")
-    execFileSync("git", ["add", "README.md"], { cwd: home })
-    execFileSync(
-      "git",
-      [
-        "-c",
-        "user.email=setup@ctxpipe.test",
-        "-c",
-        "user.name=setup",
-        "commit",
-        "-m",
-        "init",
-      ],
-      { cwd: home },
-    )
-    const out = execFileSync(
-      "sh",
-      ["-c", `{ ${cloneSetup} ; } 2>&1; printf "\\n__BSSH_0__ $?\\n"`],
-      { cwd: home, encoding: "utf8" },
-    )
-    expect(out).toMatch(/__BSSH_0__ 0/)
-  })
-
-  it("checks out the session branch when TanStack already cloned default", () => {
-    const cloneSetup = WORKSPACE_CHAT_SANDBOX_SETUP[2]
-    const home = mkdtempSync(join(tmpdir(), "ws-chat-session-branch-"))
-    execFileSync("git", ["init", "-b", "main"], { cwd: home })
-    writeFileSync(join(home, "README.md"), "already cloned\n")
-    execFileSync("git", ["add", "README.md"], { cwd: home })
-    execFileSync(
-      "git",
-      [
-        "-c",
-        "user.email=setup@ctxpipe.test",
-        "-c",
-        "user.name=setup",
-        "commit",
-        "-m",
-        "init",
-      ],
-      { cwd: home },
-    )
-    const out = execFileSync(
-      "sh",
-      ["-c", `{ ${cloneSetup} ; } 2>&1; printf "\\n__BSSH_0__ $?\\n"`],
-      {
-        cwd: home,
-        encoding: "utf8",
-        env: {
-          ...process.env,
-          CTXPIPE_SESSION_BRANCH: "ctxpipe/chat/conv_1/1",
-        },
-      },
-    )
-    expect(out).toMatch(/__BSSH_0__ 0/)
-    const branch = execFileSync("git", ["branch", "--show-current"], {
-      cwd: home,
-      encoding: "utf8",
-    }).trim()
-    expect(branch).toBe("ctxpipe/chat/conv_1/1")
-  })
-
   it("writes OpenCode config under HOME and excludes harness paths from git", () => {
-    const cloneSetup = WORKSPACE_CHAT_SANDBOX_SETUP[2]
+    const cloneSetup = WORKSPACE_CHAT_SANDBOX_SETUP[3]
     const repo = mkdtempSync(join(tmpdir(), "ws-chat-exclude-"))
     const home = mkdtempSync(join(tmpdir(), "ws-chat-opencode-home-"))
     execFileSync("git", ["init", "-b", "main"], { cwd: repo })

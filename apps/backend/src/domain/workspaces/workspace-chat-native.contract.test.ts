@@ -529,3 +529,47 @@ it(
     })
   },
 )
+
+it(
+  "rejects a colliding run through HTTP without changing its owning conversation",
+  { timeout: 45_000 },
+  async () => {
+    await withNativeChatFixture(async (f) => {
+      const runs = workspaceChatPersistence().stores.runs
+      const runId = `owned-${f.conversationId}`
+      const original = await runs.createOrResume({
+        runId,
+        threadId: f.conversationId,
+        startedAt: Date.now(),
+      })
+      const response = await f.request(
+        `/conversations/${f.conversationId}-other`,
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            forwardedProps: { workspaceId: f.workspaceId },
+            threadId: `${f.conversationId}-other`,
+            runId,
+            tools: [],
+            context: [],
+            messages: [
+              {
+                id: "collision-question",
+                role: "user",
+                content: "A different conversation",
+              },
+            ],
+          }),
+        },
+      )
+      expect(response.status).toBe(200)
+      const chunks = parseSseDataLines(await response.text()) as StreamChunk[]
+      expect(chunks.filter((chunk) => chunk.type === "RUN_ERROR")).toHaveLength(
+        1,
+      )
+      expect(await runs.get(runId)).toEqual(original)
+      expect(f.modelRequests).toHaveLength(0)
+    })
+  },
+)

@@ -1,7 +1,6 @@
 import type { Env } from "../../config/env.js"
 import { getRepoReadCloneToken } from "../../models/github-installation.js"
 import { log } from "../../observability/logger.js"
-import { conversationSessionBranch } from "./chat-lifecycle.js"
 import { workspaceAllowsConversationEdits } from "./chat-sandbox-policy.js"
 import { githubRepoFullNameFromWorkspaceUrl } from "./write-status.js"
 
@@ -68,8 +67,7 @@ export async function resolveWorkspaceChatTurnRuntime(input: {
     workspace?.writeStatus ?? "read_only",
     workspace?.readOnlyReason,
   )
-  const sessionBranch = conversationSessionBranch(conversation.id)
-  const lastBranch = canEdit ? sessionBranch : defaultBranch
+  const lastBranch = conversation.lastBranch?.trim() || defaultBranch
   const cloneRef = workspace?.desiredSha ?? defaultBranch
   return {
     lastBranch,

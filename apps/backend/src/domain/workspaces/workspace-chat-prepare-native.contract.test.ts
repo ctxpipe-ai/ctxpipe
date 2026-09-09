@@ -7,6 +7,7 @@ import { withOrgIdContext } from "../../auth/withAuth.js"
 import { parseEnv } from "../../config/env.js"
 import { withOrgDbContext } from "../../db/client.js"
 import { conversations } from "../../db/schema/conversations.js"
+import { workspaces } from "../../db/schema/workspaces.js"
 import {
   getWorkspaceById,
   listSandboxInstances,
@@ -15,6 +16,7 @@ import { withNativeChatFixture } from "../../test/native-chat-fixture.js"
 import { withNativeGitRemote } from "../../test/native-git-remote.js"
 import { withNativeHydrationFixture } from "../../test/native-hydration-fixture.js"
 import { withTestLogger } from "../../test/with-test-logger.js"
+import { workspaceChatRuntimeConfig } from "./chat-runtime.js"
 import { postgresSandboxLocks } from "./sandbox-lock-store.js"
 import { warmTanstackWorkspaceChat } from "./tanstack-workspace-chat.js"
 import { resolveWorkspaceChatTurnRuntime } from "./workspace-chat-turn-runtime.js"
@@ -295,5 +297,138 @@ it(
         })
       },
     )
+  },
+)
+
+it(
+  "cold prepare restores a published branch and falls back when it was deleted",
+  { timeout: 60_000 },
+  async () => {
+    await withNativeChatFixture(async (f) => {
+      const branch = `ctxpipe/chat/${f.conversationId}/1`
+      const git = (...args: string[]) =>
+        execFileSync("git", args, { cwd: f.directory, encoding: "utf8" }).trim()
+      const prepare = async () => {
+        const response = await f.request(
+          `/conversations/${f.conversationId}/prepare`,
+          {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ workspaceId: f.workspaceId }),
+          },
+        )
+        expect(response.status).toBe(204)
+        const result = await warmTanstackWorkspaceChat(
+          {
+            conversationId: f.conversationId,
+            orgId: f.orgId,
+            workspaceId: f.workspaceId,
+            desiredUrl: f.directory,
+            desiredSha: f.sha,
+            defaultBranch: "main",
+            writeStatus: "writable",
+            prompt: "prepare",
+          },
+          { existingOnly: true },
+        )
+        if (!result.ok) throw new Error(result.error)
+        return result.handle
+      }
+      await withOrgDbContext(f.orgId, (db) =>
+        db
+          .update(workspaces)
+          .set({ writeStatus: "writable" })
+          .where(eq(workspaces.id, f.workspaceId)),
+      )
+      const initial = await prepare()
+      expect(
+        (await initial.process.exec("git branch --show-current")).stdout.trim(),
+      ).toBe("main")
+      git("checkout", "-b", branch)
+      await writeFile(
+        join(f.directory, "README.md"),
+        "Published conversation content\n",
+      )
+      git(
+        "-c",
+        "user.name=Fixture",
+        "-c",
+        "user.email=fixture@example.test",
+        "commit",
+        "-am",
+        "Published change",
+      )
+      git("checkout", "main")
+      await withOrgDbContext(f.orgId, (db) =>
+        db
+          .update(conversations)
+          .set({ lastBranch: branch })
+          .where(eq(conversations.id, f.conversationId)),
+      )
+      await destroySandboxesForConversation(f.conversationId)
+      const restored = await prepare()
+      expect(
+        (
+          await restored.process.exec("git branch --show-current")
+        ).stdout.trim(),
+      ).toBe(branch)
+      expect(await restored.fs.read("README.md")).toBe(
+        "Published conversation content\n",
+      )
+      const restoredStatus = await f.request(
+        `/conversations/${f.conversationId}/files/status`,
+      )
+      expect(restoredStatus.status).toBe(200)
+      expect(await restoredStatus.json()).toMatchObject({
+        branch,
+        published: true,
+      })
+      await restored.fs.write("unsaved.txt", "warm changes survive")
+      git("branch", "-D", branch)
+      expect(await (await prepare()).fs.read("unsaved.txt")).toBe(
+        "warm changes survive",
+      )
+      await destroySandboxesForConversation(f.conversationId)
+      const fallback = await prepare()
+      expect(
+        (
+          await fallback.process.exec("git branch --show-current")
+        ).stdout.trim(),
+      ).toBe("main")
+      expect(await fallback.fs.read("README.md")).toBe(
+        "# Native chat workspace\n",
+      )
+      expect(
+        (
+          await fallback.process.exec(
+            `git show-ref --verify refs/heads/${branch}`,
+          )
+        ).exitCode,
+      ).not.toBe(0)
+      expect(git("branch", "--list", branch)).toBe("")
+      const status = await f.request(
+        `/conversations/${f.conversationId}/files/status`,
+      )
+      expect(status.status).toBe(200)
+      expect(await status.json()).toMatchObject({ branch: "main" })
+      const permissionInput = {
+        writeStatus: "writable",
+        currentBranch: branch,
+        defaultBranch: "main",
+        getCurrentBranch: async () =>
+          (
+            await fallback.process.exec("git branch --show-current")
+          ).stdout.trim(),
+      }
+      const runtime = workspaceChatRuntimeConfig(permissionInput)
+      expect(
+        await runtime.onPermissionRequest({
+          id: "default-commit",
+          sessionID: "native",
+          type: "bash",
+          title: "git commit -am save",
+        }),
+      ).toBe("reject")
+    })
   },
 )

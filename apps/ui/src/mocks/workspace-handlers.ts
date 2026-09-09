@@ -339,6 +339,7 @@ export function conversationGitBlobHandler(
 export function conversationGitStatusHandler(
   status: ConversationGitStatusResponse = {
     source: "sandbox",
+    branch: "main",
     dirty: true,
     differsFromDefault: true,
     unpushed: true,

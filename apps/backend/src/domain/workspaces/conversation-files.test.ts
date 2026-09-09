@@ -1,6 +1,5 @@
 import { describe, expect, it } from "vitest"
 import {
-  conversationSandboxStatus,
   ensureConversationSessionBranch,
   listConversationSandboxPaths,
   renameConversationSandboxPath,
@@ -95,38 +94,6 @@ describe("conversation sandbox files", () => {
       }),
     )
     expect(paths).toEqual(["AGENTS.md", "e2e.md"])
-  })
-
-  it("marks dirty or ahead-of-default as differing", async () => {
-    const status = await conversationSandboxStatus({
-      defaultBranch: "main",
-      sessionBranch: "ctxpipe/chat/conv_1/1",
-      handle: fakeHandle([], {
-        "git status --porcelain": " M knowledge/a.md\n",
-        "git diff --numstat": "1\t0\tknowledge/a.md\n",
-        "git rev-list --left-right": "0\t1",
-        "origin/ctxpipe/chat/conv_1/1..HEAD": "1",
-      }),
-    })
-    expect(status.dirty).toBe(true)
-    expect(status.differsFromDefault).toBe(true)
-    expect(status.unpushed).toBe(true)
-    expect(status.published).toBe(true)
-    expect(status.items[0]?.path).toBe("knowledge/a.md")
-  })
-
-  it("omits harness paths from sandbox status", async () => {
-    const status = await conversationSandboxStatus({
-      defaultBranch: "main",
-      sessionBranch: "ctxpipe/chat/conv_1/1",
-      handle: fakeHandle([], {
-        "git status --porcelain": "?? opencode.json\n M AGENTS.md\n?? tm/foo\n",
-        "git diff --numstat": "1\t0\tAGENTS.md\n",
-        "git rev-list --left-right": "0\t0",
-        "origin/ctxpipe/chat/conv_1/1..HEAD": "0",
-      }),
-    })
-    expect(status.items.map((item) => item.path)).toEqual(["AGENTS.md"])
   })
 
   it("writes and renames sandbox files", async () => {

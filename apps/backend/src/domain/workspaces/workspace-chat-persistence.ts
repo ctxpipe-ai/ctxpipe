@@ -126,7 +126,11 @@ function createRunStore(): RunStore {
     get,
     async createOrResume({ runId, threadId, startedAt, status }) {
       const existing = await get(runId)
-      if (existing) return existing
+      if (existing) {
+        if (existing.threadId !== threadId)
+          throw new Error("Chat run belongs to another conversation")
+        return existing
+      }
       await orgSql(async () => {
         const orgId = requireCurrentOrgId()
         await getOrgDb()
@@ -142,6 +146,8 @@ function createRunStore(): RunStore {
       })
       const stored = await get(runId)
       if (!stored) throw new Error("Chat run could not be persisted")
+      if (stored.threadId !== threadId)
+        throw new Error("Chat run belongs to another conversation")
       return stored
     },
     async update(runId, patch) {

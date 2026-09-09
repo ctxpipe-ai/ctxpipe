@@ -6,7 +6,6 @@ import { workspaceAllowsConversationEdits } from "../../domain/workspaces/chat-s
 import {
   conversationSandboxDiff,
   conversationSandboxStatus,
-  ensureConversationSessionBranch,
   getConversationSandboxBinding,
   listConversationSandboxPaths,
   readConversationSandboxFile,
@@ -21,20 +20,17 @@ import {
   pushConversationSessionBranch,
 } from "../../domain/workspaces/conversation-publish.js"
 import { adaptTanstackHandle } from "../../domain/workspaces/job-sandbox.js"
-import type { JobSandboxHandle } from "../../domain/workspaces/job-worktree.js"
 import { warmTanstackWorkspaceChat } from "../../domain/workspaces/tanstack-workspace-chat.js"
 import { resolveWorkspaceChatTurnRuntime } from "../../domain/workspaces/workspace-chat-turn-runtime.js"
 import { githubRepoFullNameFromWorkspaceUrl } from "../../domain/workspaces/write-status.js"
 import {
   getConversation,
-  persistConversationLastBranch,
   persistConversationPublication,
 } from "../../models/conversations.js"
 import {
   getDesiredWorkspaceRevision,
   getWorkspaceById,
 } from "../../models/workspaces.js"
-import { resolveGithubDefaultBranch } from "../webhooks/github/github-workspace-tip.js"
 
 const ErrorResponseSchema = z
   .object({ error: z.string() })
@@ -71,6 +67,7 @@ const ConversationGitBlobResponseSchema = z
 const ConversationGitStatusResponseSchema = z
   .object({
     source: z.literal("sandbox"),
+    branch: z.string().min(1),
     dirty: z.boolean(),
     differsFromDefault: z.boolean(),
     unpushed: z.boolean(),
@@ -356,19 +353,6 @@ async function warmConversationSandbox(
     { existingOnly },
   )
   if (!warmed.ok) return null
-  if (!existingOnly)
-    await checkoutPreparedConversationBranch({
-      handle: adaptTanstackHandle(warmed.handle),
-      conversationId: input.conversation.id,
-      orgId: runtime.orgId,
-      workspaceId: runtime.workspaceId ?? input.workspace.id,
-      githubConnectionId: input.workspace.githubConnectionId,
-      defaultBranch: runtime.defaultBranch,
-      writeStatus: runtime.writeStatus,
-      desiredUrl: runtime.desiredUrl,
-      desiredGeneration: runtime.desiredGeneration,
-      desiredSha: runtime.desiredSha,
-    })
   return adaptTanstackHandle(warmed.handle)
 }
 
@@ -394,18 +378,6 @@ export async function readySandboxHandle(input: {
 }) {
   const handle = await warmConversationSandbox(input, input.existingOnly)
   if (!handle) return null
-  if (
-    workspaceAllowsConversationEdits(
-      input.workspace.writeStatus,
-      input.workspace.readOnlyReason,
-    )
-  ) {
-    await ensureConversationSessionBranch({
-      handle,
-      conversationId: input.conversation.id,
-      defaultBranch: input.defaultBranch ?? "main",
-    })
-  }
   return handle
 }
 
@@ -443,18 +415,8 @@ export const conversationFileRoutes = new OpenAPIHono<AppEnv>()
     if (!loaded) return c.json({ error: "Not found" }, 404)
     const handle = await readySandboxHandle({ ...loaded, existingOnly: true })
     if (!handle) return c.json({ error: "missing_sandbox" }, 409)
-    const env = parseEnv(process.env as Record<string, string | undefined>)
-    const repoName = githubRepoFullNameFromWorkspaceUrl(
-      loaded.workspace.workspaceRepositoryUrl,
-    )
-    const defaultBranch = repoName
-      ? ((await resolveGithubDefaultBranch({
-          orgId: loaded.workspace.orgId,
-          githubConnectionId: loaded.workspace.githubConnectionId,
-          repoFullName: repoName,
-          env,
-        })) ?? "main")
-      : "main"
+    const defaultBranch =
+      loaded.workspace.desiredDefaultBranch?.trim() || "main"
     const status = await conversationSandboxStatus({
       handle,
       defaultBranch,
@@ -467,18 +429,8 @@ export const conversationFileRoutes = new OpenAPIHono<AppEnv>()
     const conversationId = c.req.param("conversationId")
     const loaded = await loadConversationWorkspace(conversationId)
     if (!loaded) return c.json({ error: "Not found" }, 404)
-    const env = parseEnv(process.env as Record<string, string | undefined>)
-    const repoName = githubRepoFullNameFromWorkspaceUrl(
-      loaded.workspace.workspaceRepositoryUrl,
-    )
-    const defaultBranch = repoName
-      ? ((await resolveGithubDefaultBranch({
-          orgId: loaded.workspace.orgId,
-          githubConnectionId: loaded.workspace.githubConnectionId,
-          repoFullName: repoName,
-          env,
-        })) ?? "main")
-      : "main"
+    const defaultBranch =
+      loaded.workspace.desiredDefaultBranch?.trim() || "main"
     const handle = await readySandboxHandle({
       ...loaded,
       defaultBranch,
@@ -594,31 +546,6 @@ export const conversationFileRoutes = new OpenAPIHono<AppEnv>()
       200,
     )
   })
-
-export async function checkoutPreparedConversationBranch(input: {
-  handle: JobSandboxHandle
-  conversationId: string
-  githubConnectionId?: string | null
-  workspaceId: string
-  orgId: string
-  defaultBranch: string
-  writeStatus: string
-  desiredUrl?: string
-  desiredGeneration?: number
-  desiredSha?: string | null
-}): Promise<void> {
-  if (!workspaceAllowsConversationEdits(input.writeStatus)) return
-  const handle = input.handle
-  const branch = await ensureConversationSessionBranch({
-    handle,
-    conversationId: input.conversationId,
-    defaultBranch: input.defaultBranch,
-  })
-  await persistConversationLastBranch({
-    conversationId: input.conversationId,
-    lastBranch: branch,
-  })
-}
 
 export function conversationPublicPrUrl(input: {
   workspaceRepositoryUrl: string

@@ -211,6 +211,7 @@ export async function renameConversationSandboxPath(input: {
 }
 
 export type ConversationSandboxStatus = {
+  branch: string
   dirty: boolean
   differsFromDefault: boolean
   unpushed: boolean
@@ -225,18 +226,22 @@ export async function conversationSandboxStatus(input: {
   defaultBranch: string
   sessionBranch: string
 }): Promise<ConversationSandboxStatus> {
-  const [porcelain, numstat, revList, remoteAhead] = await Promise.all([
-    execGitOk(input.handle.exec, "git status --porcelain"),
-    execGitOk(input.handle.exec, "git diff --numstat HEAD"),
-    execGit(
-      input.handle.exec,
-      `git rev-list --left-right --count ${input.defaultBranch}...HEAD`,
-    ),
-    execGit(
-      input.handle.exec,
-      `git rev-list --count origin/${input.sessionBranch}..HEAD`,
-    ),
-  ])
+  const [porcelain, numstat, revList, remoteAhead, currentBranch] =
+    await Promise.all([
+      execGitOk(input.handle.exec, "git status --porcelain"),
+      execGitOk(input.handle.exec, "git diff --numstat HEAD"),
+      execGit(
+        input.handle.exec,
+        `git rev-list --left-right --count ${input.defaultBranch}...HEAD`,
+      ),
+      execGit(
+        input.handle.exec,
+        `git rev-list --count origin/${input.sessionBranch}..HEAD`,
+      ),
+      execGitOk(input.handle.exec, "git branch --show-current"),
+    ])
+  const branch = currentBranch.trim()
+  if (!branch) throw new Error("Conversation worktree has no current branch")
   const counts = explorerGitNumstatFromStdout(numstat)
   const items = explorerGitStatusFromPorcelain(porcelain)
     .filter((item) => isConversationSandboxListedPath(item.path))
@@ -245,11 +250,12 @@ export async function conversationSandboxStatus(input: {
   const [behindRaw, aheadRaw] = (revList.stdout.trim() || "0\t0").split(/\s+/)
   const ahead = Number.parseInt(aheadRaw || "0", 10) || 0
   const behind = Number.parseInt(behindRaw || "0", 10) || 0
-  const published = remoteAhead.exitCode === 0
+  const published = branch === input.sessionBranch && remoteAhead.exitCode === 0
   const remoteUnpushed = published
     ? (Number.parseInt(remoteAhead.stdout.trim() || "0", 10) || 0) > 0
     : ahead > 0
   return {
+    branch,
     dirty,
     differsFromDefault: dirty || ahead > 0,
     unpushed: dirty || remoteUnpushed,

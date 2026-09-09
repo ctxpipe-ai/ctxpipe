@@ -138,3 +138,23 @@ it("does not fabricate a persisted run when another organization owns its id", a
       .where(eq(organizations.id, otherOrg.id))
   }
 })
+
+it("rejects a run id owned by another thread in the same organization", async () => {
+  const runs = workspaceChatPersistence().stores.runs
+  await withOrgIdContext(org, async () => {
+    const id = `${runId}-same-org`
+    const first = await runs.createOrResume({
+      runId: id,
+      threadId: conversationId,
+      startedAt: Date.now(),
+    })
+    await expect(
+      runs.createOrResume({
+        runId: id,
+        threadId: `${conversationId}-other`,
+        startedAt: Date.now(),
+      }),
+    ).rejects.toThrow("another conversation")
+    expect(await runs.get(id)).toEqual(first)
+  })
+})

@@ -223,6 +223,7 @@ function isReadOnlySandboxTool(name: string, excerpt: string): boolean {
 export function createWorkspaceChatPermissionHandler(input: {
   writeStatus: string
   currentBranch?: string | null
+  getCurrentBranch?: () => Promise<string>
   defaultBranch?: string | null
   judge?: (
     toolName: string,
@@ -238,7 +239,14 @@ export function createWorkspaceChatPermissionHandler(input: {
       toolName,
       argsExcerpt,
       writeStatus: input.writeStatus,
-      currentBranch: input.currentBranch,
+      currentBranch:
+        input.getCurrentBranch &&
+        excerptLooksLikeCommit(
+          toolName.toLowerCase(),
+          argsExcerpt.toLowerCase(),
+        )
+          ? await input.getCurrentBranch()
+          : input.currentBranch,
       defaultBranch: input.defaultBranch,
     })
     if (classified.hardDeny) return "reject"

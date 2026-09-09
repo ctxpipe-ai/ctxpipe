@@ -16,7 +16,7 @@ index 65d63d00f9b22cceb2b3ea4245691106b7168ea1..6376d3144522fb437ceb5fcba923b322
       * Also persist a throttled snapshot of the in-progress assistant reply while
       * it streams. Off by default — the transcript is otherwise persisted at the
 diff --git a/dist/esm/middleware.js b/dist/esm/middleware.js
-index 8480a78aac5ab6a161051bcd85509d2b749b9bfc..06bee88601b2315f4d42e210a98898ce346bbde8 100644
+index 8480a78aac5ab6a161051bcd85509d2b749b9bfc..0d268453e26becb8d50c1a255c401c378585a657 100644
 --- a/dist/esm/middleware.js
 +++ b/dist/esm/middleware.js
 @@ -1,7 +1,7 @@
@@ -109,7 +109,12 @@ index 8480a78aac5ab6a161051bcd85509d2b749b9bfc..06bee88601b2315f4d42e210a98898ce
  		},
  		async onConfig(ctx, config) {
  			if (ctx.phase !== "init") return;
-@@ -1035,6 +1093,7 @@ function withPersistence(persistence, options = {}) {
+@@ -1031,10 +1089,12 @@ function withPersistence(persistence, options = {}) {
+ 			}
+ 			const storedUsage = await createOrResumeRun(runs, ctx.runId, ctx.threadId);
+ 			const state = runState.get(ctx);
++			if (state) state.runOwned = true;
+ 			if (state && storedUsage) state.usage = storedUsage;
  			if (!state?.merged) {
  				if (state) state.merged = true;
  				const stored = await messageStore.loadThread(ctx.threadId);
@@ -117,7 +122,7 @@ index 8480a78aac5ab6a161051bcd85509d2b749b9bfc..06bee88601b2315f4d42e210a98898ce
  				patch.messages = config.messages.length > 0 ? config.messages : stored;
  			}
  			return Object.keys(patch).length > 0 ? patch : void 0;
-@@ -1100,6 +1159,7 @@ function withPersistence(persistence, options = {}) {
+@@ -1100,6 +1160,7 @@ function withPersistence(persistence, options = {}) {
  			state.usage = accumulateTokenUsage(state.usage, usage);
  		},
  		async onFinish(ctx, info) {
@@ -125,16 +130,17 @@ index 8480a78aac5ab6a161051bcd85509d2b749b9bfc..06bee88601b2315f4d42e210a98898ce
  			const state = runState.get(ctx);
  			if (state?.interrupted) return;
  			try {
-@@ -1115,15 +1175,19 @@ function withPersistence(persistence, options = {}) {
+@@ -1115,16 +1176,21 @@ function withPersistence(persistence, options = {}) {
  				}
  				throw error;
  			}
 +			} finally { await releaseTranscript(ctx); }
  		},
  		async onError(ctx, info) {
-+			try {
  			try {
- 				await failRun(runs, ctx.runId, info.error, runState.get(ctx)?.usage);
+-				await failRun(runs, ctx.runId, info.error, runState.get(ctx)?.usage);
++			try {
++				if (runState.get(ctx)?.runOwned) await failRun(runs, ctx.runId, info.error, runState.get(ctx)?.usage);
  			} finally {
  				runState.get(ctx)?.completion?.reject(info.error);
  			}
@@ -143,9 +149,11 @@ index 8480a78aac5ab6a161051bcd85509d2b749b9bfc..06bee88601b2315f4d42e210a98898ce
  		async onAbort(ctx, info) {
 +			try {
  			const state = runState.get(ctx);
++			if (!state?.runOwned) { state?.completion?.reject(info.reason); return; }
  			let terminal = false;
  			try {
-@@ -1132,6 +1196,7 @@ function withPersistence(persistence, options = {}) {
+ 				terminal = info.cancelRequested === true || runs !== void 0 && await wasCancelRequested(runs, ctx.runId) || !detachableRun(ctx) && state?.interrupted !== true;
+@@ -1132,6 +1198,7 @@ function withPersistence(persistence, options = {}) {
  			} finally {
  				if (terminal) state?.completion?.reject(info.reason);
  			}
@@ -154,7 +162,7 @@ index 8480a78aac5ab6a161051bcd85509d2b749b9bfc..06bee88601b2315f4d42e210a98898ce
  	});
  }
 diff --git a/src/middleware.ts b/src/middleware.ts
-index 7e8eb184e2457ffbf9b4f10d6d7ac304f4bfafe1..83a50a43744039f21853db02836d4538c7357061 100644
+index 7e8eb184e2457ffbf9b4f10d6d7ac304f4bfafe1..6d64fd0703ca6dbd0b0e2cca1708997c7c3e9b54 100644
 --- a/src/middleware.ts
 +++ b/src/middleware.ts
 @@ -1,5 +1,8 @@
@@ -174,15 +182,16 @@ index 7e8eb184e2457ffbf9b4f10d6d7ac304f4bfafe1..83a50a43744039f21853db02836d4538
    AbortInfo,
    ChatMiddleware,
    ChatMiddlewareConfig,
-@@ -262,6 +266,7 @@ export interface GenerationArtifactNameInput {
+@@ -262,6 +266,8 @@ export interface GenerationArtifactNameInput {
  }
  
  interface RunStateEntry {
++  runOwned?: boolean
 +  releaseThread?: () => Promise<void>
    merged: boolean
    interrupted: boolean
    /**
-@@ -297,6 +302,62 @@ interface RunStateEntry {
+@@ -297,6 +303,62 @@ interface RunStateEntry {
  
  const runState = new WeakMap<object, RunStateEntry>()
  
@@ -245,7 +254,7 @@ index 7e8eb184e2457ffbf9b4f10d6d7ac304f4bfafe1..83a50a43744039f21853db02836d4538
  const validResumeStatuses = new Set(['resolved', 'cancelled'])
  
  function mergeMaps<K, V>(
-@@ -1921,6 +1982,8 @@ function detachableRun(ctx: ChatMiddlewareContext): boolean {
+@@ -1921,6 +1983,8 @@ function detachableRun(ctx: ChatMiddlewareContext): boolean {
   * is loaded and used.
   */
  export interface WithPersistenceOptions {
@@ -254,7 +263,7 @@ index 7e8eb184e2457ffbf9b4f10d6d7ac304f4bfafe1..83a50a43744039f21853db02836d4538
    /**
     * Also persist a throttled snapshot of the in-progress assistant reply while
     * it streams. Off by default — the transcript is otherwise persisted at the
-@@ -1967,7 +2030,7 @@ export function withPersistence<TStores extends ChatTranscriptStores>(
+@@ -1967,7 +2031,7 @@ export function withPersistence<TStores extends ChatTranscriptStores>(
    return defineChatMiddleware({
      name: 'chat-persistence',
      provides,
@@ -263,7 +272,7 @@ index 7e8eb184e2457ffbf9b4f10d6d7ac304f4bfafe1..83a50a43744039f21853db02836d4538
        providePersistence(ctx, persistence)
  
        let resolveCompletion: () => void = () => undefined
-@@ -2016,6 +2079,11 @@ export function withPersistence<TStores extends ChatTranscriptStores>(
+@@ -2016,6 +2080,11 @@ export function withPersistence<TStores extends ChatTranscriptStores>(
            await messageStore.saveThread(ctx.threadId, list)
          },
        })
@@ -275,7 +284,13 @@ index 7e8eb184e2457ffbf9b4f10d6d7ac304f4bfafe1..83a50a43744039f21853db02836d4538
      },
  
      async onConfig(ctx: ChatMiddlewareContext, config: ChatMiddlewareConfig) {
-@@ -2078,6 +2146,12 @@ export function withPersistence<TStores extends ChatTranscriptStores>(
+@@ -2073,11 +2142,18 @@ export function withPersistence<TStores extends ChatTranscriptStores>(
+       const storedUsage = await createOrResumeRun(runs, ctx.runId, ctx.threadId)
+ 
+       const state = runState.get(ctx)
++      if (state) state.runOwned = true
+       // A continuation has a fresh middleware context but resumes the same run.
+       if (state && storedUsage) state.usage = storedUsage
        if (!state?.merged) {
          if (state) state.merged = true
          const stored = await messageStore.loadThread(ctx.threadId)
@@ -288,7 +303,7 @@ index 7e8eb184e2457ffbf9b4f10d6d7ac304f4bfafe1..83a50a43744039f21853db02836d4538
          patch.messages = config.messages.length > 0 ? config.messages : stored
        }
  
-@@ -2208,74 +2282,86 @@ export function withPersistence<TStores extends ChatTranscriptStores>(
+@@ -2208,74 +2284,92 @@ export function withPersistence<TStores extends ChatTranscriptStores>(
      },
  
      async onFinish(ctx: ChatMiddlewareContext, info: FinishInfo) {
@@ -342,7 +357,9 @@ index 7e8eb184e2457ffbf9b4f10d6d7ac304f4bfafe1..83a50a43744039f21853db02836d4538
        try {
 -        await failRun(runs, ctx.runId, info.error, runState.get(ctx)?.usage)
 +        try {
-+          await failRun(runs, ctx.runId, info.error, runState.get(ctx)?.usage)
++          if (runState.get(ctx)?.runOwned) {
++            await failRun(runs, ctx.runId, info.error, runState.get(ctx)?.usage)
++          }
 +        } finally {
 +          runState.get(ctx)?.completion?.reject(info.error)
 +        }
@@ -393,6 +410,10 @@ index 7e8eb184e2457ffbf9b4f10d6d7ac304f4bfafe1..83a50a43744039f21853db02836d4538
 +        // still threw on the next request. An explicit cancel is different: the
 +        // user gave up on the approval, so the cancel band stays authoritative.
 +        const state = runState.get(ctx)
++        if (!state?.runOwned) {
++          state?.completion?.reject(info.reason)
++          return
++        }
 +        let terminal = false
 +        try {
 +          // The durable cancel read is best-effort. It must not bypass the

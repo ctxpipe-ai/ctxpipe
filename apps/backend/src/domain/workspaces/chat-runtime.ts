@@ -43,10 +43,19 @@ export const WORKSPACE_CHAT_SANDBOX_SETUP = [
     git -c credential.helper='!f() { echo username=x-access-token; echo password=\${CTXPIPE_CLONE_TOKEN}; }; f' fetch --depth 1 origin "$CTXPIPE_CLONE_SHA"
   fi
 } && git checkout --detach "$CTXPIPE_CLONE_SHA"`,
-  `if [ -n "\${CTXPIPE_SESSION_BRANCH:-}" ]; then
-  git checkout -B "$CTXPIPE_SESSION_BRANCH"
-fi &&
-OPENCODE_HOME="\${HOME:-/tmp/ctxpipe-opencode-home}"
+  `(git checkout -B "$CTXPIPE_CLONE_BRANCH" "$CTXPIPE_CLONE_SHA" &&
+if [ -n "\${CTXPIPE_SESSION_BRANCH:-}" ]; then
+  git check-ref-format "refs/heads/$CTXPIPE_SESSION_BRANCH" || exit 1
+  git -c credential.helper='!f() { echo username=x-access-token; echo password=\${CTXPIPE_CLONE_TOKEN}; }; f' ls-remote --exit-code --heads origin "refs/heads/$CTXPIPE_SESSION_BRANCH" >/dev/null
+  REMOTE_STATUS=$?
+  if [ "$REMOTE_STATUS" = 0 ]; then
+    git -c credential.helper='!f() { echo username=x-access-token; echo password=\${CTXPIPE_CLONE_TOKEN}; }; f' fetch --depth 1 origin "+refs/heads/$CTXPIPE_SESSION_BRANCH:refs/remotes/origin/$CTXPIPE_SESSION_BRANCH" &&
+    git checkout -B "$CTXPIPE_SESSION_BRANCH" FETCH_HEAD || exit 1
+  elif [ "$REMOTE_STATUS" != 2 ]; then
+    exit "$REMOTE_STATUS"
+  fi
+fi)`,
+  `OPENCODE_HOME="\${HOME:-/tmp/ctxpipe-opencode-home}"
 mkdir -p "$OPENCODE_HOME"
 if [ -n "\${CTXPIPE_OPENCODE_JSON:-}" ]; then
   printf '%s\\n' "$CTXPIPE_OPENCODE_JSON" > "$OPENCODE_HOME/opencode.json"
@@ -158,6 +167,7 @@ export function workspaceChatRuntimeConfig(input?: {
   env?: Record<string, string | undefined>
   writeStatus?: string
   currentBranch?: string | null
+  getCurrentBranch?: () => Promise<string>
   defaultBranch?: string | null
   judge?: (
     toolName: string,
@@ -175,6 +185,7 @@ export function workspaceChatRuntimeConfig(input?: {
     onPermissionRequest: createWorkspaceChatPermissionHandler({
       writeStatus: input?.writeStatus ?? "read_only",
       currentBranch: input?.currentBranch,
+      getCurrentBranch: input?.getCurrentBranch,
       defaultBranch: input?.defaultBranch,
       judge: input?.judge ?? judgeChatToolWithFastModel,
     }),

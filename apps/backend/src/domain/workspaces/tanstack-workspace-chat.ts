@@ -1,5 +1,6 @@
 import { trace } from "@opentelemetry/api"
 import {
+  defineChatMiddleware,
   type ModelMessage,
   modelMessagesToUIMessages,
   type StreamChunk,
@@ -9,7 +10,8 @@ import { otelMiddleware } from "@tanstack/ai/middlewares/otel"
 import { withPersistence } from "@tanstack/ai-persistence"
 import {
   defineSandbox,
-  resolveAllSecrets,
+  getSandbox,
+  SandboxCapability,
   type SandboxEnsureContext,
   type SandboxHandle,
   type SandboxProvider,
@@ -38,8 +40,6 @@ import {
   workspaceChatSandboxSpec,
 } from "./chat-runtime.js"
 import { originUrlWithoutCredentials } from "./clone-credentials.js"
-import { ensureConversationSessionBranch } from "./conversation-files.js"
-import { adaptTanstackHandle } from "./job-sandbox.js"
 import { workspaceRevisionSchema } from "./revision.js"
 import { postgresSandboxInstanceStore } from "./sandbox-instance-store.js"
 import { postgresSandboxLocks } from "./sandbox-lock-store.js"
@@ -121,24 +121,11 @@ function conversationSandboxDefinition(provider: SandboxProvider) {
     },
     hooks: {
       onReady: async (ready: SandboxHandle, ctx: SandboxEnsureContext) => {
-        const secrets = ctx.workspace?.secrets
-          ? resolveAllSecrets(ctx.workspace.secrets)
-          : {}
-        const session = secrets[WORKSPACE_CHAT_SESSION_BRANCH_SECRET]?.trim()
-        if (session?.startsWith("ctxpipe/chat/")) {
-          await ensureConversationSessionBranch({
-            handle: adaptTanstackHandle(ready),
-            conversationId: ctx.threadId,
-            defaultBranch:
-              secrets[WORKSPACE_CHAT_CLONE_BRANCH_SECRET] ?? "main",
-          })
-        }
         log.info({
           step: "workspace-chat-sandbox-ready",
           message: `workspace chat sandbox ready ${ready.id}`,
           conversationId: ctx.threadId,
           sandboxId: ready.id,
-          lastBranch: session ?? null,
         })
       },
     },
@@ -329,9 +316,18 @@ async function startWorkspaceChat(input: TanstackWorkspaceChatInput): Promise<
 > {
   const built = await buildWorkspaceChatSandbox(input)
   if (!built.ok) return built
+  let activeSandbox: SandboxHandle | undefined
   const runtime = workspaceChatRuntimeConfig({
     writeStatus: input.writeStatus,
-    currentBranch: input.lastBranch ?? input.ref,
+    getCurrentBranch: async () => {
+      if (!activeSandbox) throw new Error("Chat sandbox is not ready")
+      const current = await activeSandbox.process.exec(
+        "git branch --show-current",
+      )
+      if (current.exitCode !== 0)
+        throw new Error("Chat working branch is unavailable")
+      return current.stdout.trim()
+    },
     defaultBranch: input.defaultBranch,
   })
   const session = await resolveWorkspaceChatSession(input, built.spec.isolation)
@@ -399,6 +395,13 @@ async function startWorkspaceChat(input: TanstackWorkspaceChatInput): Promise<
             `workspace-sandboxes:${input.workspaceId}`,
           ),
           snapshots,
+        }),
+        defineChatMiddleware({
+          name: "workspace-chat-permissions",
+          requires: [SandboxCapability],
+          setup(ctx) {
+            activeSandbox = getSandbox(ctx)
+          },
         }),
         openCodeTrailingUserMiddleware(input.prompt),
       ],

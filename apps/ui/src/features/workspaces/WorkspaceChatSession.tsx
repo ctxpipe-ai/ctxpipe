@@ -23,7 +23,6 @@ import {
   conversationCommitPushEnabled,
   conversationGithubTreeHref,
   conversationPullRequestAction,
-  conversationSessionBranch,
 } from "./conversationPublish"
 import {
   conversationGitStatusOptions,
@@ -338,22 +337,15 @@ export function WorkspaceChatSession(props: {
       title={headerTitle}
       headerExtra={props.headerExtra}
       branch={
-        !composing && prepareQuery.isSuccess
+        !composing && prepareQuery.isSuccess && statusQuery.data?.branch
           ? {
-              shortName: conversationBranchShortName(
-                props.conversation?.lastBranch ??
-                  conversationSessionBranch(conversationId),
-              ),
-              fullRef:
-                props.conversation?.lastBranch ??
-                conversationSessionBranch(conversationId),
-              href: statusQuery.data?.published
-                ? (props.conversation?.branchTreeUrl ??
-                  conversationGithubTreeHref(
+              shortName: conversationBranchShortName(statusQuery.data.branch),
+              fullRef: statusQuery.data.branch,
+              href: statusQuery.data.published
+                ? conversationGithubTreeHref(
                     workspace.workspaceRepositoryUrl,
-                    props.conversation?.lastBranch ??
-                      conversationSessionBranch(conversationId),
-                  ))
+                    statusQuery.data.branch,
+                  )
                 : null,
             }
           : null

@@ -61,7 +61,6 @@ vi.mock("./conversation-files-routes.js", async (importOriginal) => {
     await importOriginal<typeof import("./conversation-files-routes.js")>()
   return {
     ...actual,
-    checkoutPreparedConversationBranch: vi.fn(async () => {}),
   }
 })
 

@@ -574,9 +574,10 @@ export function conversationGitStatusOptions(
         const cached = client.getQueryData<ConversationGitStatusResponse>(
           workspaceKeys.conversationGitStatus(orgSlug, conversationId),
         )
-        if (cached) return cached
+        if (cached) return { ...cached, branch: null }
         return {
           source: "sandbox",
+          branch: null,
           dirty: false,
           differsFromDefault: false,
           unpushed: false,

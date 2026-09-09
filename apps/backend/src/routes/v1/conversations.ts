@@ -58,7 +58,6 @@ import {
   getPullRequestState,
 } from "../../services/github/installation-write-client.js"
 import {
-  checkoutPreparedConversationBranch,
   conversationFileRoutes,
   conversationPublicPrUrl,
   conversationPublicTreeUrl,
@@ -693,22 +692,6 @@ export const conversationRoutes = new OpenAPIHono<AppEnv>()
       githubConnectionId: runtime.githubConnectionId,
     })
     if (!warmed.ok) return c.json({ error: warmed.error }, 503)
-    await checkoutPreparedConversationBranch({
-      handle: {
-        exec: (command, options) =>
-          warmed.handle.process.exec(command, options),
-        fs: warmed.handle.fs,
-      },
-      conversationId,
-      githubConnectionId: workspace.githubConnectionId,
-      workspaceId: runtime.workspaceId ?? workspace.id,
-      orgId: runtime.orgId,
-      defaultBranch: runtime.defaultBranch,
-      writeStatus: runtime.writeStatus,
-      desiredUrl: runtime.desiredUrl,
-      desiredGeneration: runtime.desiredGeneration,
-      desiredSha: runtime.desiredSha,
-    })
     return c.body(null, 204)
   })
   .openapi(getConversationPullRequestRoute, async (c) => {
