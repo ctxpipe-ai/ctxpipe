@@ -145,12 +145,19 @@ jobs:
           AUTH_SECRET: ci-auth-secret-must-be-at-least-32-chars
           DATABASE_URL: postgresql://ctxpipe_app:ctxpipe@localhost:5432/ctxpipe
         run: pnpm --filter @ctxpipe/backend test
+      - name: Required native sandbox quota runner
+        run: |
+          docker build -t ctxpipe-sandbox-runner:ci scripts/sandbox-runner
+          node scripts/ci/start-sandbox-quota-runner.mjs
       - name: Required deterministic contracts
         env:
           GRAPH_DB_URI: redis://127.0.0.1:6379
           AUTH_SECRET: ci-auth-secret-must-be-at-least-32-chars
           DATABASE_URL: postgresql://ctxpipe_app:ctxpipe@localhost:5432/ctxpipe
         run: pnpm test:contracts
+      - name: Remove native sandbox quota runner
+        if: always() && env.CTXPIPE_TEST_QUOTA_RUNNER_ID != ''
+        run: docker rm -fv "$CTXPIPE_TEST_QUOTA_RUNNER_ID"
       - name: UI tests
         run: pnpm --filter @ctxpipe/ui test
       - name: CLI tests

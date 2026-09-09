@@ -4,8 +4,8 @@ import {
   observeWorkspaceChatCompletionStream,
   recordWorkspaceChatProxyCompletion,
 } from "../../domain/workspaces/workspace-chat-model-proxy.js"
-import { beginWorkspaceChatProxyGeneration } from "../../domain/workspaces/workspace-chat-otel.js"
 import { workspaceChatOpenCodeContract } from "../../domain/workspaces/workspace-chat-opencode-contract.js"
+import { beginWorkspaceChatProxyGeneration } from "../../domain/workspaces/workspace-chat-otel.js"
 import {
   verifyWorkspaceChatToken,
   workspaceChatBearerToken,
@@ -154,7 +154,7 @@ export const workspaceChatOpenaiRoutes = new OpenAPIHono<AppEnv>()
         model: contract.modelBase,
       })
     }
-    getLogger().info({
+    getLogger().info("workspace-chat-model-proxy.request", {
       step: "workspace-chat-model-proxy.request",
       method: "POST",
       path: "/v1/chat/completions",

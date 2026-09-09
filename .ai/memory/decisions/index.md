@@ -42,4 +42,4 @@ Parent: [`.ai/memory/README.md`](../README.md).
 | [ADR-028](ADR-028-postgres-rls-app-role.md) | Postgres RLS with a non-owner app role | Accepted |
 | [ADR-029](ADR-029-workspace-chat-keep-alive-serve.md) | In-sandbox keep-alive OpenCode serve | Superseded by [ADR-030](ADR-030-workspace-chat-stock-tanstack.md) |
 | [ADR-030](ADR-030-workspace-chat-stock-tanstack.md) | Stock TanStack workspace chat | Accepted |
-| [ADR-034](ADR-034-native-postgres-sandbox-ownership.md) | Native Postgres sandbox ownership, shared bases and live revision transitions | Accepted design; Gate 4 in progress |
+| [ADR-034](ADR-034-native-postgres-sandbox-ownership.md) | Native Postgres sandbox ownership, shared bases, live revisions and Docker resource enforcement | Accepted design; Gate 4 in progress |

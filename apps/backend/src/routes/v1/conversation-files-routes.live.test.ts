@@ -1,3 +1,6 @@
+import { execFileSync } from "node:child_process"
+import { writeFile } from "node:fs/promises"
+import { join } from "node:path"
 import { OpenAPIHono } from "@hono/zod-openapi"
 import { eq } from "drizzle-orm"
 import { expect, it } from "vitest"
@@ -16,6 +19,181 @@ import {
 import { withNativeChatFixture } from "../../test/native-chat-fixture.js"
 import { conversationFileRoutes } from "./conversation-files-routes.js"
 import { conversationRoutes } from "./conversations.js"
+
+it(
+  "renames binary content through the native Files HTTP seam without data loss",
+  { timeout: 30_000 },
+  async () => {
+    await withNativeChatFixture(async (f) => {
+      const sourcePath = "binary.bin"
+      const destinationPath = "renamed.bin"
+      const binaryBody = Uint8Array.from([0, 255, 1, 2, 3, 254])
+      const git = (...args: string[]) =>
+        execFileSync("git", args, {
+          cwd: f.directory,
+          encoding: "utf8",
+        }).trim()
+      await writeFile(join(f.directory, sourcePath), binaryBody)
+      git("add", "--", sourcePath)
+      git(
+        "-c",
+        "user.name=Fixture",
+        "-c",
+        "user.email=fixture@example.test",
+        "commit",
+        "-m",
+        "Add binary file",
+      )
+      const desiredSha = git("rev-parse", "HEAD")
+      await withOrgDbContext(f.orgId, (db) =>
+        db
+          .update(workspaces)
+          .set({ writeStatus: "writable", desiredSha })
+          .where(eq(workspaces.id, f.workspaceId)),
+      )
+      const app = () => {
+        const hono = new OpenAPIHono<AppEnv>()
+        hono.use(contextStorage())
+        hono.use(withTestRequestLogger)
+        hono.use("*", async (c, next) => {
+          c.set("user", {
+            id: `user_${f.orgId}`,
+          } as AppEnv["Variables"]["user"])
+          c.set("session", {
+            id: `session_${f.orgId}`,
+          } as AppEnv["Variables"]["session"])
+          await next()
+        })
+        hono.route("/conversations", conversationFileRoutes)
+        hono.route("/conversations", conversationRoutes)
+        return hono
+      }
+      const conversation = `/conversations/${f.conversationId}`
+      const prepared = await app().request(`${conversation}/prepare`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ workspaceId: f.workspaceId }),
+      })
+      expect(prepared.status).toBe(204)
+      const renamed = await app().request(`${conversation}/files/blob`, {
+        method: "PUT",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ path: destinationPath, from: sourcePath }),
+      })
+      expect(renamed.status).toBe(200)
+      const source = await app().request(
+        `${conversation}/files/blob?path=${sourcePath}`,
+      )
+      expect(source.status).toBe(404)
+      const destination = await app().request(
+        `${conversation}/files/blob?path=${destinationPath}`,
+      )
+      expect(destination.status).toBe(200)
+      expect(await destination.json()).toMatchObject({
+        path: destinationPath,
+        body: null,
+        binary: true,
+      })
+      const [instance] = await listSandboxInstances({
+        conversationId: f.conversationId,
+      })
+      if (!instance?.providerSandboxId)
+        throw new Error("Renamed native sandbox was not persisted")
+      const { localProcessSandbox } = await import(
+        "@tanstack/ai-sandbox-local-process"
+      )
+      const raw = await localProcessSandbox().resume({
+        id: instance.providerSandboxId,
+      })
+      if (!raw) throw new Error("Renamed native sandbox could not be resumed")
+      const readBytes = (
+        raw.fs as unknown as {
+          readBytes: (path: string) => Promise<Uint8Array>
+        }
+      ).readBytes
+      expect([...(await readBytes(destinationPath))]).toEqual([...binaryBody])
+    })
+  },
+)
+
+it(
+  "keeps shell metacharacters literal through the native Files diff seam",
+  { timeout: 30_000 },
+  async () => {
+    await withNativeChatFixture(async (f) => {
+      const path = "tracked ; touch injected-marker.txt ; # file.md"
+      const marker = "injected-marker.txt"
+      const oldBody = "literal old content\n"
+      const currentBody = "literal current content\n"
+      const git = (...args: string[]) =>
+        execFileSync("git", args, {
+          cwd: f.directory,
+          encoding: "utf8",
+        }).trim()
+      await writeFile(join(f.directory, path), oldBody)
+      git("add", "--", path)
+      git(
+        "-c",
+        "user.name=Fixture",
+        "-c",
+        "user.email=fixture@example.test",
+        "commit",
+        "-m",
+        "Add shell path",
+      )
+      const desiredSha = git("rev-parse", "HEAD")
+      await withOrgDbContext(f.orgId, (db) =>
+        db
+          .update(workspaces)
+          .set({ writeStatus: "writable", desiredSha })
+          .where(eq(workspaces.id, f.workspaceId)),
+      )
+      const app = () => {
+        const hono = new OpenAPIHono<AppEnv>()
+        hono.use(contextStorage())
+        hono.use(withTestRequestLogger)
+        hono.use("*", async (c, next) => {
+          c.set("user", {
+            id: `user_${f.orgId}`,
+          } as AppEnv["Variables"]["user"])
+          c.set("session", {
+            id: `session_${f.orgId}`,
+          } as AppEnv["Variables"]["session"])
+          await next()
+        })
+        hono.route("/conversations", conversationFileRoutes)
+        hono.route("/conversations", conversationRoutes)
+        return hono
+      }
+      const base = `/conversations/${f.conversationId}/files`
+      expect(
+        (
+          await app().request(`/conversations/${f.conversationId}/prepare`, {
+            method: "POST",
+            headers: { "content-type": "application/json" },
+            body: JSON.stringify({ workspaceId: f.workspaceId }),
+          })
+        ).status,
+      ).toBe(204)
+      const saved = await app().request(`${base}/blob`, {
+        method: "PUT",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ path, body: currentBody }),
+      })
+      expect(saved.status).toBe(200)
+      const diff = await app().request(`${base}/diff`)
+      expect(diff.status).toBe(200)
+      expect(await diff.json()).toMatchObject({
+        items: expect.arrayContaining([{ path, oldBody, body: currentBody }]),
+      })
+      const tree = await app().request(`${base}/tree`)
+      expect(tree.status).toBe(200)
+      const paths = (await tree.json()).paths as string[]
+      expect(paths).toContain(path)
+      expect(paths).not.toContain(marker)
+    })
+  },
+)
 
 it(
   "resumes Files through native persisted ownership and never clones for a missing tree/status GET",

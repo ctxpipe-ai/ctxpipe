@@ -31,4 +31,23 @@ The accepted recovery plan Gate 4 and locked topology issue 08 require native Ta
 
 ## Consequences
 
+### Native Docker resource enforcement
+
+The locked small-pod limits are enforced in the native Docker provider, including
+resume, snapshot restoration and forks. A configured isolation policy requires a
+non-root user, CPU/memory/PID caps, a per-container storage quota, no capabilities
+or extra mounts, no privilege escalation, and disabled container logs. Existing
+containers that fail inspection are rejected before restart; an unsupported
+daemon must fail rather than silently omit a limit.
+
+The locked Compose DinD topology uses Docker's Btrfs storage driver for quotas.
+The infrastructure runner owns a persistent sparse filesystem and takes an
+exclusive volume lock. It never reformats existing data and fails startup if
+quota support is absent. Native Docker commits and forks remain the snapshot
+mechanism. This avoids an application filesystem/snapshot implementation. Btrfs
+referenced-byte accounting is stricter than a writable-layer-only cap. The runner
+requires aggregate disk monitoring; its privileged infrastructure container is
+never an agent sandbox. TLS remains the runner default. Resource-contract work
+does not complete the separate egress, production-image or provider wiring work.
+
 Native conformance and two-process crash/hand-off proof precede the caller switch. Multiple revision records can coexist for a thread; cleanup enumerates their actual native provider identities rather than hiding them behind an alias. Removing old uniqueness is not a complete concurrency fix until all callers use the Postgres native lock. No Gate 4 production checkpoint is complete before that wiring and proof.

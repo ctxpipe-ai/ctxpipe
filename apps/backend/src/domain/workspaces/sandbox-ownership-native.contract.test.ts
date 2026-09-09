@@ -7,6 +7,7 @@ import {
 import { runSandboxInstanceStoreConformance } from "@tanstack/ai-sandbox/testkit"
 import { dockerSandbox } from "@tanstack/ai-sandbox-docker"
 import { localProcessSandbox } from "@tanstack/ai-sandbox-local-process"
+import Dockerode from "dockerode"
 import { eq } from "drizzle-orm"
 import { afterAll, afterEach, beforeAll, expect, it } from "vitest"
 import {
@@ -243,5 +244,195 @@ it(
       controller.abort()
       await handle.destroy()
     }
+  },
+)
+
+it(
+  "enforces native Docker resource limits across resume and snapshots",
+  { timeout: 180_000 },
+  async () => {
+    const host = process.env.CTXPIPE_TEST_QUOTA_DOCKER_HOST
+    const port = Number.parseInt(
+      process.env.CTXPIPE_TEST_QUOTA_DOCKER_PORT ?? "",
+      10,
+    )
+    if (!host || !Number.isInteger(port) || port <= 0)
+      throw new Error(
+        "CTXPIPE_TEST_QUOTA_DOCKER_HOST and CTXPIPE_TEST_QUOTA_DOCKER_PORT are required",
+      )
+
+    const dockerodeOptions = { host, port }
+    const docker = new Dockerode(dockerodeOptions)
+    const policy = {
+      user: "1000:1000",
+      diskSize: "4G",
+      memoryBytes: 1024 ** 3,
+      nanoCpus: 1_000_000_000,
+      pidsLimit: 128,
+    }
+    const provider = dockerSandbox({
+      image: "alpine:3.22",
+      workdir: "/tmp",
+      dockerodeOptions,
+      isolationPolicy: policy,
+    })
+    const cleanup = new Map<string, () => Promise<void>>()
+
+    async function inspectPolicy(handle: { id: string }) {
+      const info = await docker.getContainer(handle.id).inspect()
+      expect(info.Config.User).toBe(policy.user)
+      expect(info.HostConfig.NanoCpus).toBe(policy.nanoCpus)
+      expect(info.HostConfig.Memory).toBe(policy.memoryBytes)
+      expect(info.HostConfig.MemorySwap).toBe(policy.memoryBytes)
+      expect(info.HostConfig.PidsLimit).toBe(policy.pidsLimit)
+      expect(info.HostConfig.StorageOpt?.size).toBe(policy.diskSize)
+      return info
+    }
+
+    async function assertPreservedFile(handle: {
+      id: string
+      fs: { read: (path: string) => Promise<string> }
+    }) {
+      await inspectPolicy(handle)
+      expect(await handle.fs.read("native-policy-proof.txt")).toBe(
+        "bounded workspace",
+      )
+    }
+
+    async function assertCreatedPolicy(handle: {
+      id: string
+      process: {
+        exec: (
+          command: string,
+        ) => Promise<{ exitCode: number; stdout: string; stderr?: string }>
+      }
+      fs: {
+        write: (path: string, data: string) => Promise<void>
+        read: (path: string) => Promise<string>
+      }
+    }) {
+      const info = await inspectPolicy(handle)
+      expect(info.HostConfig.CapDrop).toEqual(["ALL"])
+      expect(info.HostConfig.SecurityOpt).toContain("no-new-privileges:true")
+      expect(info.HostConfig.Privileged).not.toBe(true)
+      expect(info.HostConfig.Devices ?? []).toEqual([])
+      expect(info.HostConfig.LogConfig?.Type).toBe("none")
+
+      const cgroup = await handle.process.exec(
+        `sh -eu -c '
+if [ -r /sys/fs/cgroup/memory.max ]; then
+  printf "memory=%s\\n" "$(cat /sys/fs/cgroup/memory.max)"
+  printf "pids=%s\\n" "$(cat /sys/fs/cgroup/pids.max)"
+  printf "cpu=%s\\n" "$(cat /sys/fs/cgroup/cpu.max)"
+else
+  printf "memory=%s\\n" "$(cat /sys/fs/cgroup/memory/memory.limit_in_bytes)"
+  printf "pids=%s\\n" "$(cat /sys/fs/cgroup/pids/pids.max)"
+  printf "cpu=%s/%s\\n" "$(cat /sys/fs/cgroup/cpu/cpu.cfs_quota_us)" "$(cat /sys/fs/cgroup/cpu/cpu.cfs_period_us)"
+fi'`,
+      )
+      expect(cgroup.exitCode).toBe(0)
+      expect(cgroup.stdout).toContain("memory=1073741824")
+      expect(cgroup.stdout).toContain("pids=128")
+      expect(cgroup.stdout).toMatch(/cpu=(100000 100000|100000\/100000)/)
+
+      const identity = await handle.process.exec("id -u")
+      expect(identity.exitCode).toBe(0)
+      expect(Number.parseInt(identity.stdout.trim(), 10)).toBeGreaterThan(0)
+
+      await handle.fs.write("native-policy-proof.txt", "bounded workspace")
+      expect(await handle.fs.read("native-policy-proof.txt")).toBe(
+        "bounded workspace",
+      )
+      const quotaWrite = await handle.process.exec(
+        `sh -eu -c '
+set +e
+dd if=/dev/zero of=/tmp/native-policy-quota.bin bs=1M count=4096 conv=fsync 2>/tmp/native-policy-quota.err
+status=$?
+cat /tmp/native-policy-quota.err
+rm -f /tmp/native-policy-quota.bin /tmp/native-policy-quota.err
+printf "quota-status=%s\\n" "$status"'`,
+      )
+      expect(quotaWrite.stdout).toMatch(/quota exceeded/i)
+      expect(quotaWrite.stdout).toContain("quota-status=")
+      expect(quotaWrite.stdout).not.toContain("quota-status=0")
+    }
+
+    let testError: unknown
+    try {
+      const created = await provider.create({
+        workspace: { source: { type: "none" } },
+      })
+      cleanup.set(`container:${created.id}`, () => created.destroy())
+      await assertCreatedPolicy(created)
+
+      const resumed = await provider.resume({ id: created.id })
+      if (!resumed) throw new Error("Configured container did not resume")
+      await assertPreservedFile(resumed)
+
+      if (!created.snapshot || !created.fork)
+        throw new Error("Docker handle must support native snapshots and forks")
+      const snapshot = await created.snapshot("resource-policy")
+      if (!provider.deleteSnapshot)
+        throw new Error("Docker provider cannot delete snapshots")
+      const deleteSnapshot = provider.deleteSnapshot.bind(provider)
+      cleanup.set(`snapshot:${snapshot.id}`, () =>
+        deleteSnapshot({ snapshotId: snapshot.id }),
+      )
+      if (!provider.restoreSnapshot)
+        throw new Error("Docker provider cannot restore snapshots")
+      const restored = await provider.restoreSnapshot({
+        snapshotId: snapshot.id,
+      })
+      cleanup.set(`container:${restored.id}`, () => restored.destroy())
+      await assertPreservedFile(restored)
+
+      const forked = await created.fork()
+      cleanup.set(`container:${forked.id}`, () => forked.destroy())
+      const forkImage = (await docker.getContainer(forked.id).inspect()).Config
+        .Image
+      cleanup.set(`fork-image:${forkImage}`, () =>
+        docker.getImage(forkImage).remove({ force: true }),
+      )
+      await assertPreservedFile(forked)
+
+      const insecureName = `ctxpipe-native-policy-insecure-${Date.now()}`
+      const insecure = await docker.createContainer({
+        name: insecureName,
+        Image: "alpine:3.22",
+        Cmd: ["sh", "-c", "tail -f /dev/null"],
+      })
+      cleanup.set(`container:${insecureName}`, () =>
+        insecure.remove({ force: true, v: true }),
+      )
+      await insecure.start()
+      await expect(provider.resume({ id: insecureName })).rejects.toThrow(
+        /isolation policy/i,
+      )
+    } catch (error) {
+      testError = error
+    }
+
+    const cleanupErrors: unknown[] = []
+    // Remove containers before their backing images, and actually invoke each disposer.
+    for (const containers of [true, false]) {
+      const results = await Promise.allSettled(
+        [...cleanup]
+          .filter(([key]) => key.startsWith("container:") === containers)
+          .map(([, dispose]) => dispose()),
+      )
+      for (const result of results)
+        if (result.status === "rejected") cleanupErrors.push(result.reason)
+    }
+    if (testError && cleanupErrors.length)
+      throw new AggregateError(
+        [testError, ...cleanupErrors],
+        "Native Docker policy proof and cleanup both failed",
+      )
+    if (testError) throw testError
+    if (cleanupErrors.length)
+      throw new AggregateError(
+        cleanupErrors,
+        "Native Docker policy cleanup failed",
+      )
   },
 )

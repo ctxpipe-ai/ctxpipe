@@ -145,9 +145,23 @@ export async function readConversationSandboxFile(
     const blob = explorerBlobFromContent(content)
     if (!blob) return null
     return { path, ...blob }
-  } catch {
-    return null
+  } catch (error) {
+    if (isMissingFileError(error)) return null
+    const exists = await handle.exec('test -e "$CTXPIPE_FILE_PATH"', {
+      env: { CTXPIPE_FILE_PATH: path },
+    })
+    if (exists.exitCode === 1) return null
+    throw error
   }
+}
+
+function isMissingFileError(error: unknown): boolean {
+  return (
+    error !== null &&
+    typeof error === "object" &&
+    "code" in error &&
+    error.code === "ENOENT"
+  )
 }
 
 export async function writeConversationSandboxFile(input: {
@@ -195,18 +209,16 @@ export async function renameConversationSandboxPath(input: {
       oldPath === input.from
         ? input.to
         : `${input.to}/${oldPath.slice(input.from.length + 1)}`
-    const current = await readConversationSandboxFile(input.handle, oldPath)
-    if (current?.body != null) {
-      await writeConversationSandboxFile({
-        handle: input.handle,
-        path: next,
-        body: current.body,
-      })
-    }
-    await removeConversationSandboxPath({
-      handle: input.handle,
-      path: oldPath,
-    })
+    const parent = next.split("/").slice(0, -1).join("/")
+    if (parent) await input.handle.fs.mkdir(parent)
+    await execGitOk(
+      input.handle.exec,
+      'if [ -d "$CTXPIPE_RENAME_TO" ]; then printf \'destination is a directory\\n\' >&2; exit 1; fi; mv -f -- "$CTXPIPE_RENAME_FROM" "$CTXPIPE_RENAME_TO"',
+      {
+        CTXPIPE_RENAME_FROM: oldPath,
+        CTXPIPE_RENAME_TO: next,
+      },
+    )
   }
 }
 
@@ -232,11 +244,13 @@ export async function conversationSandboxStatus(input: {
       execGitOk(input.handle.exec, "git diff --numstat HEAD"),
       execGit(
         input.handle.exec,
-        `git rev-list --left-right --count ${input.defaultBranch}...HEAD`,
+        'git rev-list --left-right --count "refs/heads/$CTXPIPE_DEFAULT_BRANCH"...HEAD',
+        { CTXPIPE_DEFAULT_BRANCH: input.defaultBranch },
       ),
       execGit(
         input.handle.exec,
-        `git rev-list --count origin/${input.sessionBranch}..HEAD`,
+        'git rev-list --count "refs/remotes/origin/$CTXPIPE_SESSION_BRANCH"..HEAD',
+        { CTXPIPE_SESSION_BRANCH: input.sessionBranch },
       ),
       execGitOk(input.handle.exec, "git branch --show-current"),
     ])
@@ -279,7 +293,8 @@ export async function conversationSandboxDiff(input: {
   const [committed, unstaged, untracked] = await Promise.all([
     execGitOk(
       input.handle.exec,
-      `git diff --name-only -z ${input.defaultBranch}...HEAD`,
+      'git diff --name-only -z "refs/heads/$CTXPIPE_DEFAULT_BRANCH"...HEAD',
+      { CTXPIPE_DEFAULT_BRANCH: input.defaultBranch },
     ),
     execGitOk(input.handle.exec, "git diff --name-only -z HEAD"),
     execGitOk(input.handle.exec, "git ls-files --others --exclude-standard -z"),
@@ -296,7 +311,11 @@ export async function conversationSandboxDiff(input: {
   for (const path of [...paths].sort()) {
     const oldResult = await execGit(
       input.handle.exec,
-      `git show ${input.defaultBranch}:${path}`,
+      'git show "refs/heads/$CTXPIPE_DEFAULT_BRANCH:$CTXPIPE_FILE_PATH"',
+      {
+        CTXPIPE_DEFAULT_BRANCH: input.defaultBranch,
+        CTXPIPE_FILE_PATH: path,
+      },
     )
     const oldBody = oldResult.exitCode === 0 ? oldResult.stdout : null
     const current = await readConversationSandboxFile(input.handle, path)

@@ -2,9 +2,7 @@ import { describe, expect, it } from "vitest"
 import {
   ensureConversationSessionBranch,
   listConversationSandboxPaths,
-  renameConversationSandboxPath,
   sanitizeGitRemoteError,
-  writeConversationSandboxFile,
 } from "./conversation-files.js"
 
 function fakeHandle(
@@ -94,44 +92,6 @@ describe("conversation sandbox files", () => {
       }),
     )
     expect(paths).toEqual(["AGENTS.md", "e2e.md"])
-  })
-
-  it("writes and renames sandbox files", async () => {
-    const writes: Array<{ path: string; body: string }> = []
-    const removed: string[] = []
-    const handle = {
-      exec: async (command: string) => {
-        if (command.includes("git ls-files")) {
-          return { stdout: "knowledge/a.md\0", stderr: "", exitCode: 0 }
-        }
-        return { stdout: "", stderr: "", exitCode: 0 }
-      },
-      fs: {
-        write: async (path: string, body: string) => {
-          writes.push({ path, body })
-        },
-        read: async () => "hello",
-        remove: async (path: string) => {
-          removed.push(path)
-        },
-        mkdir: async () => undefined,
-      },
-    }
-    await writeConversationSandboxFile({
-      handle,
-      path: "knowledge/b.md",
-      body: "next",
-    })
-    await renameConversationSandboxPath({
-      handle,
-      from: "knowledge/a.md",
-      to: "knowledge/c.md",
-    })
-    expect(writes).toEqual([
-      { path: "knowledge/b.md", body: "next" },
-      { path: "knowledge/c.md", body: "hello" },
-    ])
-    expect(removed).toEqual(["knowledge/a.md"])
   })
 
   it("strips tokens from git remote errors", () => {

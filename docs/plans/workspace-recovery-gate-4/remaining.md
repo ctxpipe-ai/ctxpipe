@@ -1,6 +1,6 @@
 # Gate 4 acceptance
 
-Baseline: Gate3 closed at20cf0791, fullCI34295857469 and both cumulative reviews passed. User approvals and cost controls persist. No implementation agents; batch two-axis reviews at coherent milestones. Full backend suite runs only in CI.
+Baseline: Gate3 closed at20cf0791, fullCI34295857469 and both cumulative reviews passed. User approvals and cost controls persist. Targeted cheaper implementation agents are authorized; batch two-axis reviews at coherent milestones. Full backend suite runs only in CI.
 
 | Item | Requirement and proof | State |
 | --- | --- | --- |
@@ -14,3 +14,26 @@ Baseline: Gate3 closed at20cf0791, fullCI34295857469 and both cumulative reviews
 Use small native tests for each ownership invariant, reuse unaffected passing evidence, and keep later gates separate. Remaining native interfaces and constraints are summarized in the task work/gate4-preflight.md.
 
 Latest bounded milestone: shared native bases and safe live revision transitions. Revision/Files/image review findings are closed on both axes; affected contracts, type baselines, migrations and formatting passed; push this batch before expanding the provider/security audit. New nonblocking review suggestions do not expand this milestone. User explicitly permits targeted cheaper subagents; use them only for independent bounded work.
+
+The next checkpoint adds literal Git argument handling, byte-preserving Files
+renames, and an opt-in native Docker resource contract with a Btrfs CI runner.
+See [validation-native-resources-and-files.md](validation-native-resources-and-files.md).
+It does not close Gate 4. Production chat image/egress/provider wiring and Railway
+proof remain open. Native low-level `handle.fork()` also has an inherited
+intermediate-image ownership leak: implement failed-start cleanup, child teardown
+ownership and process-loss collection before final gate closure. The production
+shared-base path uses native snapshot restoration; do not confuse that passing
+ownership proof with the low-level fork-image gap.
+
+Files Git interpolation and binary rename data loss are fixed. Backend diagnostic
+allowances shrink from 132 to 130. Five chat-related allowances remain (history
+fixture, old graph agent/planner, WebSocket stream type, model-proxy fixture).
+The local OpenCode port allocator remains pending native OS-assigned-port support;
+remove its application Set and swallowed cleanup failure with that native change,
+not an alternative application registry.
+
+CI 34319040516 on 33503fd5 passed 12 jobs and failed only the Tests job: 292 of
+293 deterministic contract tests passed. Its protected-conversation assertion
+still expected an automatic session-branch switch, contradicting locked issue 14.
+The corrected native contract now proves default-branch edits, an explicit
+session-branch change, and permission-loss denial; it passes locally.

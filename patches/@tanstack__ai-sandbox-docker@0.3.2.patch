@@ -837,7 +837,7 @@ index 004a79a0840d869a08ac048b4f4774fb5e29156d..0febcd77da8a67ec5faa37214417fe89
  export { DOCKER_CAPS, DockerHandle };
  
 diff --git a/dist/esm/provider.d.ts b/dist/esm/provider.d.ts
-index b8e7f9a0d2aa3ddcde6c46e787ed646b5252f05f..9d46ec3a7c757d888b8377dc9c45bc4593f020eb 100644
+index b8e7f9a0d2aa3ddcde6c46e787ed646b5252f05f..d34b39872b734aeb921ec305933771bb2142a7ca 100644
 --- a/dist/esm/provider.d.ts
 +++ b/dist/esm/provider.d.ts
 @@ -4,6 +4,8 @@ import { SandboxProvider } from '@tanstack/ai-sandbox';
@@ -849,11 +849,38 @@ index b8e7f9a0d2aa3ddcde6c46e787ed646b5252f05f..9d46ec3a7c757d888b8377dc9c45bc45
      /** Working directory inside the container. Defaults to `/workspace`. */
      workdir?: string;
      /** Options forwarded to `new Dockerode(...)` (socketPath, host, port, …). */
+@@ -12,6 +14,12 @@ export interface DockerSandboxConfig {
+     keepAliveCommand?: Array<string>;
+     /** Container ports to publish to the host (for `ports.connect`). */
+     publishPorts?: Array<number>;
++    /**
++     * Opt in to the fixed native workspace isolation policy. Values are
++     * intentionally validated against the product policy; arbitrary Docker
++     * HostConfig values are not exposed by this provider.
++     */
++    isolationPolicy?: DockerSandboxIsolationPolicy;
+     /**
+      * Add `host.docker.internal:host-gateway` so the container can reach the
+      * host (e.g. a host-side MCP tool-bridge). Defaults to true.
+@@ -28,6 +36,13 @@ export interface DockerSandboxConfig {
+      */
+     logger?: DockerLogger;
+ }
++export interface DockerSandboxIsolationPolicy {
++    user: string;
++    diskSize: string;
++    memoryBytes: number;
++    nanoCpus: number;
++    pidsLimit: number;
++}
+ /**
+  * Docker sandbox provider — runs harness adapters inside isolated containers.
+  * Requires a reachable Docker daemon (local socket by default; override via
 diff --git a/dist/esm/provider.js b/dist/esm/provider.js
-index 6bc1a9d6355d8e62488c5c1b555133460e96ce19..5dd79d054144d8a50e4afc8dd0cbbdbebe840a44 100644
+index 6bc1a9d6355d8e62488c5c1b555133460e96ce19..d8ac50514808e378b1e4c234fa52bb0206de0425 100644
 --- a/dist/esm/provider.js
 +++ b/dist/esm/provider.js
-@@ -1,135 +1,198 @@
+@@ -1,135 +1,306 @@
 -import { DOCKER_CAPS, DockerHandle } from "./handle.js";
 -import Dockerode from "dockerode";
 -//#region src/provider.ts
@@ -976,17 +1003,46 @@ index 6bc1a9d6355d8e62488c5c1b555133460e96ce19..5dd79d054144d8a50e4afc8dd0cbbdbe
 -			});
 -		} catch {}
 -	}
--};
 +import Dockerode from 'dockerode';
 +import { DOCKER_CAPS, DockerHandle } from './handle.js';
 +const DEFAULT_WORKDIR = '/workspace';
++const NATIVE_WORKSPACE_ISOLATION = {
++    user: '1000:1000',
++    diskSize: '4G',
++    memoryBytes: 1024 ** 3,
++    nanoCpus: 1_000_000_000,
++    pidsLimit: 128,
+ };
+-/**
+-* Docker sandbox provider — runs harness adapters inside isolated containers.
+-* Requires a reachable Docker daemon (local socket by default; override via
+-* `dockerodeOptions`).
+-*/
+-function dockerSandbox(config) {
+-	return new DockerProvider(config);
++function validateIsolationPolicy(policy) {
++    if (!policy)
++        return undefined;
++    if (policy.user !== NATIVE_WORKSPACE_ISOLATION.user ||
++        policy.diskSize !== NATIVE_WORKSPACE_ISOLATION.diskSize ||
++        policy.memoryBytes !== NATIVE_WORKSPACE_ISOLATION.memoryBytes ||
++        policy.nanoCpus !== NATIVE_WORKSPACE_ISOLATION.nanoCpus ||
++        policy.pidsLimit !== NATIVE_WORKSPACE_ISOLATION.pidsLimit) {
++        throw new Error('docker: isolationPolicy must use the fixed native workspace resource limits');
++    }
++    return NATIVE_WORKSPACE_ISOLATION;
+ }
+-//#endregion
+-export { dockerSandbox };
 +class DockerProvider {
 +    config;
 +    name = 'docker';
 +    docker;
++    isolationPolicy;
 +    constructor(config) {
 +        this.config = config;
 +        this.docker = new Dockerode(config.dockerodeOptions);
++        this.isolationPolicy = validateIsolationPolicy(config.isolationPolicy);
 +    }
 +    capabilities() {
 +        return DOCKER_CAPS;
@@ -997,19 +1053,26 @@ index 6bc1a9d6355d8e62488c5c1b555133460e96ce19..5dd79d054144d8a50e4afc8dd0cbbdbe
 +    async ensureImage(image, signal) {
 +        signal?.throwIfAborted();
 +        const options = { abortSignal: signal };
++        let inspected;
 +        try {
-+            await this.docker.getImage(image).inspect(options);
++            inspected = await this.docker.getImage(image).inspect(options);
 +            signal?.throwIfAborted();
-+            return;
 +        }
 +        catch {
 +            signal?.throwIfAborted();
 +            // not present locally — pull it
 +        }
++        if (inspected) {
++            this.assertImageVolumes(image, inspected);
++            return;
++        }
 +        const stream = await this.docker.pull(image, options);
 +        await new Promise((resolve, reject) => {
 +            this.docker.modem.followProgress(stream, (err) => err ? reject(err) : resolve());
 +        });
++        const pulled = await this.docker.getImage(image).inspect(options);
++        signal?.throwIfAborted();
++        this.assertImageVolumes(image, pulled);
 +    }
 +    forkFactory = async (sourceContainerId) => {
 +        const source = this.docker.getContainer(sourceContainerId);
@@ -1024,15 +1087,19 @@ index 6bc1a9d6355d8e62488c5c1b555133460e96ce19..5dd79d054144d8a50e4afc8dd0cbbdbe
 +    };
 +    async startContainer(image, env, name, signal) {
 +        signal?.throwIfAborted();
++        if (this.isolationPolicy)
++            await this.ensureImage(image, signal);
 +        const exposed = {};
 +        const bindings = {};
 +        for (const port of this.config.publishPorts ?? []) {
 +            exposed[`${port}/tcp`] = {};
 +            bindings[`${port}/tcp`] = [{ HostPort: '' }]; // let Docker pick a free host port
 +        }
++        const isolation = this.isolationPolicy;
 +        const createOptions = {
 +            abortSignal: signal,
 +            Image: image,
++            ...(isolation ? { User: isolation.user } : {}),
 +            ...(name ? { name } : {}),
 +            Cmd: this.config.keepAliveCommand ?? ['sh', '-c', 'tail -f /dev/null'],
 +            Tty: false,
@@ -1040,6 +1107,21 @@ index 6bc1a9d6355d8e62488c5c1b555133460e96ce19..5dd79d054144d8a50e4afc8dd0cbbdbe
 +            Env: env ? Object.entries(env).map(([k, v]) => `${k}=${v}`) : undefined,
 +            ExposedPorts: Object.keys(exposed).length ? exposed : undefined,
 +            HostConfig: {
++                ...(isolation
++                    ? {
++                        NanoCpus: isolation.nanoCpus,
++                        Memory: isolation.memoryBytes,
++                        MemorySwap: isolation.memoryBytes,
++                        PidsLimit: isolation.pidsLimit,
++                        StorageOpt: { size: isolation.diskSize },
++                        CapDrop: ['ALL'],
++                        CapAdd: [],
++                        SecurityOpt: ['no-new-privileges:true'],
++                        Privileged: false,
++                        Devices: [],
++                        LogConfig: { Type: 'none', Config: {} },
++                    }
++                    : {}),
 +                ...(Object.keys(bindings).length ? { PortBindings: bindings } : {}),
 +                ...(this.config.hostGateway !== false
 +                    ? { ExtraHosts: ['host.docker.internal:host-gateway'] }
@@ -1114,18 +1196,25 @@ index 6bc1a9d6355d8e62488c5c1b555133460e96ce19..5dd79d054144d8a50e4afc8dd0cbbdbe
 +            info = await container.inspect(options);
 +            input.signal?.throwIfAborted();
 +        }
-+        catch {
++        catch (error) {
 +            input.signal?.throwIfAborted();
++            const missing = typeof error === 'object' && error !== null && 'statusCode' in error && error.statusCode === 404;
++            if (this.isolationPolicy && !missing)
++                throw error;
 +            return null;
 +        }
++        this.assertIsolationPolicy(input.id, info);
 +        if (!info.State.Running) {
 +            try {
 +                const options = { abortSignal: input.signal };
 +                await container.start(options);
 +                input.signal?.throwIfAborted();
 +            }
-+            catch {
++            catch (error) {
 +                input.signal?.throwIfAborted();
++                const missing = typeof error === 'object' && error !== null && 'statusCode' in error && error.statusCode === 404;
++                if (this.isolationPolicy && !missing)
++                    throw error;
 +                return null;
 +            }
 +        }
@@ -1138,6 +1227,60 @@ index 6bc1a9d6355d8e62488c5c1b555133460e96ce19..5dd79d054144d8a50e4afc8dd0cbbdbe
 +            logger: this.config.logger,
 +        });
 +    }
++    assertIsolationPolicy(id, info) {
++        const policy = this.isolationPolicy;
++        if (!policy)
++            return;
++        const hostConfig = info.HostConfig;
++        const hasOnlyAllDropped = hostConfig.CapDrop?.length === 1 && hostConfig.CapDrop[0] === 'ALL';
++        const hasNoAddedCaps = !hostConfig.CapAdd || hostConfig.CapAdd.length === 0;
++        const hasNoDevices = !hostConfig.Devices || hostConfig.Devices.length === 0;
++        const hostConfigValues = hostConfig;
++        const deviceRequests = Array.isArray(hostConfigValues.DeviceRequests)
++            ? hostConfigValues.DeviceRequests
++            : [];
++        const hasNoDeviceRequests = deviceRequests.length === 0;
++        const configuredMounts = Array.isArray(hostConfigValues.Mounts)
++            ? hostConfigValues.Mounts
++            : [];
++        const hasNoMounts = (!hostConfig.Binds || hostConfig.Binds.length === 0) &&
++            configuredMounts.length === 0 &&
++            (!info.Mounts || info.Mounts.length === 0);
++        const hasNoNamespaceSharing = (!hostConfigValues.PidMode || hostConfigValues.PidMode === '') &&
++            (!hostConfigValues.IpcMode ||
++                hostConfigValues.IpcMode === '' ||
++                hostConfigValues.IpcMode === 'private' ||
++                hostConfigValues.IpcMode === 'none') &&
++            (!hostConfigValues.UTSMode || hostConfigValues.UTSMode === '') &&
++            (!hostConfigValues.UsernsMode || hostConfigValues.UsernsMode === '') &&
++            (!hostConfigValues.CgroupnsMode || hostConfigValues.CgroupnsMode === 'private') &&
++            hostConfig.NetworkMode !== 'host' &&
++            !hostConfig.NetworkMode?.startsWith('container:');
++        const hasOnlyNoNewPrivileges = hostConfig.SecurityOpt?.length === 1 &&
++            hostConfig.SecurityOpt[0] === 'no-new-privileges:true';
++        if (info.Config.User !== policy.user ||
++            hostConfig.NanoCpus !== policy.nanoCpus ||
++            hostConfig.Memory !== policy.memoryBytes ||
++            hostConfig.MemorySwap !== policy.memoryBytes ||
++            hostConfig.PidsLimit !== policy.pidsLimit ||
++            hostConfig.StorageOpt?.size !== policy.diskSize ||
++            !hasOnlyAllDropped ||
++            !hasNoAddedCaps ||
++            !hasNoDevices ||
++            !hasNoDeviceRequests ||
++            hostConfig.Privileged === true ||
++            !hasOnlyNoNewPrivileges ||
++            hostConfig.LogConfig?.Type !== 'none' ||
++            !hasNoMounts ||
++            !hasNoNamespaceSharing) {
++            throw new Error(`docker: container ${id} does not satisfy the configured isolation policy`);
++        }
++    }
++    assertImageVolumes(image, info) {
++        if (this.isolationPolicy && info.Config.Volumes && Object.keys(info.Config.Volumes).length > 0) {
++            throw new Error(`docker: image ${image} declares volumes and cannot satisfy the configured isolation policy`);
++        }
++    }
 +    async restoreSnapshot(input) {
 +        return this.startContainer(input.snapshotId, input.env, undefined, input.signal);
 +    }
@@ -1148,7 +1291,9 @@ index 6bc1a9d6355d8e62488c5c1b555133460e96ce19..5dd79d054144d8a50e4afc8dd0cbbdbe
 +      if (!(typeof error === 'object' && error !== null && 'statusCode' in error && error.statusCode === 404)) throw error
 +    }
 +  }
-+
+ 
+-//# sourceMappingURL=provider.js.map
+\ No newline at end of file
 +    async destroy(input) {
 +        const container = this.docker.getContainer(input.id);
 +        try {
@@ -1167,25 +1312,14 @@ index 6bc1a9d6355d8e62488c5c1b555133460e96ce19..5dd79d054144d8a50e4afc8dd0cbbdbe
 +        }
 +    }
 +}
- /**
--* Docker sandbox provider — runs harness adapters inside isolated containers.
--* Requires a reachable Docker daemon (local socket by default; override via
--* `dockerodeOptions`).
--*/
--function dockerSandbox(config) {
--	return new DockerProvider(config);
++/**
 + * Docker sandbox provider — runs harness adapters inside isolated containers.
 + * Requires a reachable Docker daemon (local socket by default; override via
 + * `dockerodeOptions`).
 + */
 +export function dockerSandbox(config) {
 +    return new DockerProvider(config);
- }
--//#endregion
--export { dockerSandbox };
--
--//# sourceMappingURL=provider.js.map
-\ No newline at end of file
++}
 diff --git a/src/handle.ts b/src/handle.ts
 index 1daea6f076f438fdfd5e78d7c17055d0b01c0e87..326551c5d306b75689b0242f0a0ba8312ed5b891 100644
 --- a/src/handle.ts
@@ -1268,7 +1402,7 @@ index 1daea6f076f438fdfd5e78d7c17055d0b01c0e87..326551c5d306b75689b0242f0a0ba831
      return {
        stdout: Buffer.concat(stdoutChunks).toString('utf8'),
 diff --git a/src/provider.ts b/src/provider.ts
-index 2eba55337bedb778404a042347c0b7811f91c595..4bde2e0bbd3a7f75120ebfd2f2b08103818b43cd 100644
+index 2eba55337bedb778404a042347c0b7811f91c595..873c3b64bbd5760ec9c4d4e3877c14345be6d084 100644
 --- a/src/provider.ts
 +++ b/src/provider.ts
 @@ -14,6 +14,8 @@ import type {
@@ -1280,7 +1414,72 @@ index 2eba55337bedb778404a042347c0b7811f91c595..4bde2e0bbd3a7f75120ebfd2f2b08103
    /** Working directory inside the container. Defaults to `/workspace`. */
    workdir?: string
    /** Options forwarded to `new Dockerode(...)` (socketPath, host, port, …). */
-@@ -57,14 +59,18 @@ class DockerProvider implements SandboxProvider {
+@@ -22,6 +24,12 @@ export interface DockerSandboxConfig {
+   keepAliveCommand?: Array<string>
+   /** Container ports to publish to the host (for `ports.connect`). */
+   publishPorts?: Array<number>
++  /**
++   * Opt in to the fixed native workspace isolation policy. Values are
++   * intentionally validated against the product policy; arbitrary Docker
++   * HostConfig values are not exposed by this provider.
++   */
++  isolationPolicy?: DockerSandboxIsolationPolicy
+   /**
+    * Add `host.docker.internal:host-gateway` so the container can reach the
+    * host (e.g. a host-side MCP tool-bridge). Defaults to true.
+@@ -39,14 +47,51 @@ export interface DockerSandboxConfig {
+   logger?: DockerLogger
+ }
+ 
++export interface DockerSandboxIsolationPolicy {
++  user: string
++  diskSize: string
++  memoryBytes: number
++  nanoCpus: number
++  pidsLimit: number
++}
++
++const NATIVE_WORKSPACE_ISOLATION = {
++  user: '1000:1000',
++  diskSize: '4G',
++  memoryBytes: 1024 ** 3,
++  nanoCpus: 1_000_000_000,
++  pidsLimit: 128,
++} as const
++
++function validateIsolationPolicy(
++  policy: DockerSandboxIsolationPolicy | undefined,
++): DockerSandboxIsolationPolicy | undefined {
++  if (!policy) return undefined
++  if (
++    policy.user !== NATIVE_WORKSPACE_ISOLATION.user ||
++    policy.diskSize !== NATIVE_WORKSPACE_ISOLATION.diskSize ||
++    policy.memoryBytes !== NATIVE_WORKSPACE_ISOLATION.memoryBytes ||
++    policy.nanoCpus !== NATIVE_WORKSPACE_ISOLATION.nanoCpus ||
++    policy.pidsLimit !== NATIVE_WORKSPACE_ISOLATION.pidsLimit
++  ) {
++    throw new Error(
++      'docker: isolationPolicy must use the fixed native workspace resource limits',
++    )
++  }
++  return NATIVE_WORKSPACE_ISOLATION
++}
++
+ const DEFAULT_WORKDIR = '/workspace'
+ 
+ class DockerProvider implements SandboxProvider {
+   readonly name = 'docker'
+   private readonly docker: Dockerode
+ 
++  private readonly isolationPolicy: DockerSandboxIsolationPolicy | undefined
++
+   constructor(private readonly config: DockerSandboxConfig) {
+     this.docker = new Dockerode(config.dockerodeOptions)
++    this.isolationPolicy = validateIsolationPolicy(config.isolationPolicy)
+   }
+ 
+   capabilities(): SandboxCapabilities {
+@@ -57,19 +102,30 @@ class DockerProvider implements SandboxProvider {
      return this.config.workdir ?? DEFAULT_WORKDIR
    }
  
@@ -1288,21 +1487,34 @@ index 2eba55337bedb778404a042347c0b7811f91c595..4bde2e0bbd3a7f75120ebfd2f2b08103
 +  private async ensureImage(image: string, signal?: AbortSignal): Promise<void> {
 +    signal?.throwIfAborted()
 +    const options: Dockerode.ImageInspectOptions & { abortSignal?: AbortSignal } = { abortSignal: signal }
++    let inspected: Dockerode.ImageInspectInfo | undefined
      try {
 -      await this.docker.getImage(image).inspect()
-+      await this.docker.getImage(image).inspect(options)
+-      return
++      inspected = await this.docker.getImage(image).inspect(options)
 +      signal?.throwIfAborted()
-       return
      } catch {
 +      signal?.throwIfAborted()
        // not present locally — pull it
      }
 -    const stream = await this.docker.pull(image)
++    if (inspected) {
++      this.assertImageVolumes(image, inspected)
++      return
++    }
 +    const stream = await this.docker.pull(image, options)
      await new Promise<void>((resolve, reject) => {
        this.docker.modem.followProgress(stream, (err) =>
          err ? reject(err) : resolve(),
-@@ -90,7 +96,10 @@ class DockerProvider implements SandboxProvider {
+       )
+     })
++    const pulled = await this.docker.getImage(image).inspect(options)
++    signal?.throwIfAborted()
++    this.assertImageVolumes(image, pulled)
+   }
+ 
+   private readonly forkFactory = async (
+@@ -90,7 +146,11 @@ class DockerProvider implements SandboxProvider {
    private async startContainer(
      image: string,
      env?: Record<string, string>,
@@ -1310,22 +1522,44 @@ index 2eba55337bedb778404a042347c0b7811f91c595..4bde2e0bbd3a7f75120ebfd2f2b08103
 +    signal?: AbortSignal,
    ): Promise<SandboxHandle> {
 +    signal?.throwIfAborted()
++    if (this.isolationPolicy) await this.ensureImage(image, signal)
      const exposed: Record<string, Record<string, never>> = {}
      const bindings: Record<string, Array<{ HostPort: string }>> = {}
      for (const port of this.config.publishPorts ?? []) {
-@@ -98,8 +107,10 @@ class DockerProvider implements SandboxProvider {
+@@ -98,27 +158,50 @@ class DockerProvider implements SandboxProvider {
        bindings[`${port}/tcp`] = [{ HostPort: '' }] // let Docker pick a free host port
      }
  
 -    const container = await this.docker.createContainer({
++    const isolation = this.isolationPolicy
 +    const createOptions = {
 +      abortSignal: signal,
        Image: image,
++      ...(isolation ? { User: isolation.user } : {}),
 +      ...(name ? { name } : {}),
        Cmd: this.config.keepAliveCommand ?? ['sh', '-c', 'tail -f /dev/null'],
        Tty: false,
        WorkingDir: this.workdir,
-@@ -111,14 +122,18 @@ class DockerProvider implements SandboxProvider {
+       Env: env ? Object.entries(env).map(([k, v]) => `${k}=${v}`) : undefined,
+       ExposedPorts: Object.keys(exposed).length ? exposed : undefined,
+       HostConfig: {
++        ...(isolation
++          ? {
++              NanoCpus: isolation.nanoCpus,
++              Memory: isolation.memoryBytes,
++              MemorySwap: isolation.memoryBytes,
++              PidsLimit: isolation.pidsLimit,
++              StorageOpt: { size: isolation.diskSize },
++              CapDrop: ['ALL'],
++              CapAdd: [],
++              SecurityOpt: ['no-new-privileges:true'],
++              Privileged: false,
++              Devices: [],
++              LogConfig: { Type: 'none', Config: {} },
++            }
++          : {}),
+         ...(Object.keys(bindings).length ? { PortBindings: bindings } : {}),
+         ...(this.config.hostGateway !== false
            ? { ExtraHosts: ['host.docker.internal:host-gateway'] }
            : {}),
        },
@@ -1346,7 +1580,7 @@ index 2eba55337bedb778404a042347c0b7811f91c595..4bde2e0bbd3a7f75120ebfd2f2b08103
        const handle = new DockerHandle({
          docker: this.docker,
          container,
-@@ -129,6 +144,7 @@ class DockerProvider implements SandboxProvider {
+@@ -129,6 +212,7 @@ class DockerProvider implements SandboxProvider {
        })
        // Ensure the workspace dir exists.
        await handle.fs.mkdir(this.workdir)
@@ -1354,7 +1588,7 @@ index 2eba55337bedb778404a042347c0b7811f91c595..4bde2e0bbd3a7f75120ebfd2f2b08103
        return handle
      } catch (error) {
        try {
-@@ -141,22 +157,50 @@ class DockerProvider implements SandboxProvider {
+@@ -141,22 +225,63 @@ class DockerProvider implements SandboxProvider {
    }
  
    async create(input: SandboxCreateInput): Promise<SandboxHandle> {
@@ -1392,26 +1626,118 @@ index 2eba55337bedb778404a042347c0b7811f91c595..4bde2e0bbd3a7f75120ebfd2f2b08103
      let info: Dockerode.ContainerInspectInfo
      try {
 -      info = await container.inspect()
+-    } catch {
 +      info = await container.inspect(options)
 +      input.signal?.throwIfAborted()
-     } catch {
++    } catch (error) {
 +      input.signal?.throwIfAborted()
++      const missing =
++        typeof error === 'object' &&
++        error !== null &&
++        'statusCode' in error &&
++        error.statusCode === 404
++      if (this.isolationPolicy && !missing) throw error
        return null
      }
++    this.assertIsolationPolicy(input.id, info)
      if (!info.State.Running) {
        try {
 -        await container.start()
+-      } catch {
 +        const options: Dockerode.ContainerStartOptions & { abortSignal?: AbortSignal } = { abortSignal: input.signal }
 +        await container.start(options)
 +        input.signal?.throwIfAborted()
-       } catch {
++      } catch (error) {
 +        input.signal?.throwIfAborted()
++        const missing =
++          typeof error === 'object' &&
++          error !== null &&
++          'statusCode' in error &&
++          error.statusCode === 404
++        if (this.isolationPolicy && !missing) throw error
          return null
        }
      }
-@@ -171,7 +215,15 @@ class DockerProvider implements SandboxProvider {
+@@ -170,8 +295,92 @@ class DockerProvider implements SandboxProvider {
+     })
    }
  
++  private assertIsolationPolicy(
++    id: string,
++    info: Dockerode.ContainerInspectInfo,
++  ): void {
++    const policy = this.isolationPolicy
++    if (!policy) return
++    const hostConfig = info.HostConfig
++    const hasOnlyAllDropped =
++      hostConfig.CapDrop?.length === 1 && hostConfig.CapDrop[0] === 'ALL'
++    const hasNoAddedCaps = !hostConfig.CapAdd || hostConfig.CapAdd.length === 0
++    const hasNoDevices = !hostConfig.Devices || hostConfig.Devices.length === 0
++    const hostConfigValues = hostConfig as Record<string, unknown>
++    const deviceRequests = Array.isArray(hostConfigValues.DeviceRequests)
++      ? hostConfigValues.DeviceRequests
++      : []
++    const hasNoDeviceRequests = deviceRequests.length === 0
++    const configuredMounts = Array.isArray(hostConfigValues.Mounts)
++      ? hostConfigValues.Mounts
++      : []
++    const hasNoMounts =
++      (!hostConfig.Binds || hostConfig.Binds.length === 0) &&
++      configuredMounts.length === 0 &&
++      (!info.Mounts || info.Mounts.length === 0)
++    const hasNoNamespaceSharing =
++      (!hostConfigValues.PidMode || hostConfigValues.PidMode === '') &&
++      (!hostConfigValues.IpcMode ||
++        hostConfigValues.IpcMode === '' ||
++        hostConfigValues.IpcMode === 'private' ||
++        hostConfigValues.IpcMode === 'none') &&
++      (!hostConfigValues.UTSMode || hostConfigValues.UTSMode === '') &&
++      (!hostConfigValues.UsernsMode || hostConfigValues.UsernsMode === '') &&
++      (!hostConfigValues.CgroupnsMode ||
++        hostConfigValues.CgroupnsMode === 'private') &&
++      hostConfig.NetworkMode !== 'host' &&
++      !hostConfig.NetworkMode?.startsWith('container:')
++    const hasOnlyNoNewPrivileges =
++      hostConfig.SecurityOpt?.length === 1 &&
++      hostConfig.SecurityOpt[0] === 'no-new-privileges:true'
++    if (
++      info.Config.User !== policy.user ||
++      hostConfig.NanoCpus !== policy.nanoCpus ||
++      hostConfig.Memory !== policy.memoryBytes ||
++      hostConfig.MemorySwap !== policy.memoryBytes ||
++      hostConfig.PidsLimit !== policy.pidsLimit ||
++      hostConfig.StorageOpt?.size !== policy.diskSize ||
++      !hasOnlyAllDropped ||
++      !hasNoAddedCaps ||
++      !hasNoDevices ||
++      !hasNoDeviceRequests ||
++      hostConfig.Privileged === true ||
++      !hasOnlyNoNewPrivileges ||
++      hostConfig.LogConfig?.Type !== 'none' ||
++      !hasNoMounts ||
++      !hasNoNamespaceSharing
++    ) {
++      throw new Error(
++        `docker: container ${id} does not satisfy the configured isolation policy`,
++      )
++    }
++  }
++
++  private assertImageVolumes(
++    image: string,
++    info: Dockerode.ImageInspectInfo,
++  ): void {
++    if (
++      this.isolationPolicy &&
++      info.Config.Volumes &&
++      Object.keys(info.Config.Volumes).length > 0
++    ) {
++      throw new Error(
++        `docker: image ${image} declares volumes and cannot satisfy the configured isolation policy`,
++      )
++    }
++  }
++
    async restoreSnapshot(input: SandboxRestoreInput): Promise<SandboxHandle> {
 -    return this.startContainer(input.snapshotId, input.env)
 +    return this.startContainer(input.snapshotId, input.env, undefined, input.signal)
