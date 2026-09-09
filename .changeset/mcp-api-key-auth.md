@@ -3,4 +3,4 @@
 "@ctxpipe/aws-cdk": patch
 ---
 
-Add API-key MCP auth as an OAuth alternative: paste a key into user-level client config, or write an environment-variable reference in repo or user config. Raise dashboard API-key rate limits so MCP is usable.
+Add API-key MCP auth as an OAuth alternative: `--auth api-key` writes a client-specific interpolation of `CTXPIPE_API_KEY` (never the secret) into repo or user MCP config. Raise dashboard API-key rate limits so MCP is usable.

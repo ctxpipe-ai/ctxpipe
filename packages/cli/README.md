@@ -10,7 +10,7 @@ npx ctxpipe init
 
 This opens an interactive wizard with repo/global setup scope selection, detected agent defaults, multi-select client setup, and a final change summary before anything is written.
 
-If no organization is supplied, the wizard signs you in with a browser/device-code flow, loads your ctx| organizations, and lets you choose one. MCP clients still perform their own OAuth later when they first use ctx|. Pass `--api-key` to write a raw `x-api-key` header to **user-level** client config, or `--api-key-env-variable` to write an environment-variable reference in repo or user config.
+If no organization is supplied, the wizard signs you in with a browser/device-code flow, loads your ctx| organizations, and lets you choose one. MCP clients still perform their own OAuth later when they first use ctx|. Pass `--auth api-key` to write a client-specific interpolation of `CTXPIPE_API_KEY` (not the secret) into repo or user MCP config. Set `CTXPIPE_API_KEY` in the **MCP client** process; the CLI does not consume that variable. GUI apps often do not inherit the shell that ran `npx ctxpipe` — see [Set CTXPIPE_API_KEY](https://docs.ctxpipe.ai/docs/mcp/mcp-docs#set-ctxpipe_api_key).
 
 **Setup credentials:** the CLI stores setup-auth tokens in the **OS keychain** when available (`@napi-rs/keyring`). If the keychain cannot be used (headless Linux, unsupported environment), it falls back to a file under `~/.config/ctxpipe/` and prints a one-time notice to stderr.
 
@@ -29,6 +29,7 @@ Use **`npx ctxpipe <command> --help`** for full flags (for example `npx ctxpipe 
 ```bash
 npx ctxpipe init --org acme --agents codex,claude --scope repo --non-interactive
 npx ctxpipe mcp add --org acme --client cursor --scope user --non-interactive
+npx ctxpipe mcp add --org acme --client cursor --scope both --auth api-key --non-interactive
 npx ctxpipe memory init --agents cursor --non-interactive
 npx ctxpipe doctor --json
 ```
