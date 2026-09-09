@@ -229,7 +229,7 @@ index 57844dc2d199b9997d0edc3eddfc7ba2fb1d91cf..d0354166988bbc1d84220fbdfa2d1341
  //#endregion
  export { DEFAULT_WORKSPACE_ROOT, bootstrapWorkspace, detectPackageManager };
 diff --git a/dist/esm/contracts.d.ts b/dist/esm/contracts.d.ts
-index 99d1da33e8c6bcae96cb29a41367b1c5861691b6..1f7ea10ac051bbfdbfac7aba697da604787c38cc 100644
+index 99d1da33e8c6bcae96cb29a41367b1c5861691b6..f34f44e2b5831bbacc28b1e191fc6e540adea8ca 100644
 --- a/dist/esm/contracts.d.ts
 +++ b/dist/esm/contracts.d.ts
 @@ -86,16 +86,16 @@ export interface SandboxProcess {
@@ -253,7 +253,45 @@ index 99d1da33e8c6bcae96cb29a41367b1c5861691b6..1f7ea10ac051bbfdbfac7aba697da604
      rename: (from: string, to: string) => Promise<void>;
      exists: (path: string) => Promise<boolean>;
      /**
-@@ -255,5 +255,7 @@ export interface SandboxProvider {
+@@ -151,6 +151,8 @@ export interface SandboxGit {
+ }
+ /** A reachable channel to a port inside the sandbox. */
+ export interface SandboxChannel {
++  /** Revoke a provider-owned preview grant when its server is disposed. */
++  close?: () => Promise<void>
+     /** URL the host can reach (localhost / host-bound port / authenticated preview URL). */
+     url: string;
+     /** Bearer token gating the channel, when the provider issues one. */
+@@ -196,6 +198,19 @@ export interface SandboxHandle {
+     readonly process: SandboxProcess;
+     readonly ports: SandboxPorts;
+     readonly env: SandboxEnv;
++    /**
++     * Optional provider-owned admission for a host bridge that this sandbox may
++     * call. Providers with outbound network enforcement admit only this exact
++     * URL and per-run bearer, then revoke that admission with the bridge.
++     */
++    readonly hostBridgeAccess?: {
++        admit: (input: {
++            url: string;
++            token: string;
++        }) => Promise<{
++            revoke: () => Promise<void>;
++        }>;
++    };
+     /** Capability-gated: throws UnsupportedCapabilityError if `capabilities.snapshots` is false. */
+     snapshot?: (label?: string) => Promise<SnapshotRef>;
+     /** Capability-gated: throws UnsupportedCapabilityError if `capabilities.fork` is false. */
+@@ -231,6 +246,8 @@ export interface SandboxResumeInput {
+ }
+ /** Input passed to {@link SandboxProvider.restoreSnapshot}. */
+ export interface SandboxRestoreInput {
++  /** Deterministic instance key for replay after a lost restore acknowledgement. */
++  id?: string
+     snapshotId: string;
+     workspace?: WorkspaceDefinition;
+     policy?: SandboxPolicy;
+@@ -255,5 +272,7 @@ export interface SandboxProvider {
      resume: (input: SandboxResumeInput) => Promise<SandboxHandle | null>;
      /** Capability-gated: present only when `capabilities().snapshots` is true. */
      restoreSnapshot?: (input: SandboxRestoreInput) => Promise<SandboxHandle>;
@@ -426,10 +464,10 @@ index 913b324750fd5abdb973b9a28df5f67ac0e3dee3..5d0314f48478f58373e18bcbcfc2e4c6
      runId: string;
      /** Persistence seam; falls back to an in-memory store when absent. */
 diff --git a/dist/esm/sandbox.js b/dist/esm/sandbox.js
-index afbf4b7cd5bed5cac60e5d1887880c9806a29ede..eb1cf282676eeb177618d2028fb24d332aeef350 100644
+index afbf4b7cd5bed5cac60e5d1887880c9806a29ede..e27fc1f7699a168c848c92eb3645fd0b95ebabd0 100644
 --- a/dist/esm/sandbox.js
 +++ b/dist/esm/sandbox.js
-@@ -60,153 +60,285 @@ async function applyWorkspaceSecrets(handle, workspace, stagedSecrets) {
+@@ -60,153 +60,286 @@ async function applyWorkspaceSecrets(handle, workspace, stagedSecrets) {
  	await handle.env.set(resolved);
  }
  function defineSandbox(config) {
@@ -628,7 +666,8 @@ index afbf4b7cd5bed5cac60e5d1887880c9806a29ede..eb1cf282676eeb177618d2028fb24d33
 +                    caps.snapshots &&
 +                    config.provider.restoreSnapshot) {
 +                    const restored = await config.provider.restoreSnapshot({
-+                        snapshotId: existing.latestSnapshotId,
++                        id: key,
++              snapshotId: existing.latestSnapshotId,
 +                        workspace: workspace,
 +                        policy: config.policy,
 +                        env: !options.base && workspace?.secrets !== undefined
@@ -658,7 +697,7 @@ index afbf4b7cd5bed5cac60e5d1887880c9806a29ede..eb1cf282676eeb177618d2028fb24d33
 +        if (options.existingOnly)
 +            return null;
 +        if (options.snapshotId) {
-+            const restored = await config.provider.restoreSnapshot({ snapshotId: options.snapshotId, workspace, policy: config.policy, signal: ctx.signal });
++            const restored = await config.provider.restoreSnapshot({ id: key, snapshotId: options.snapshotId, workspace, policy: config.policy, signal: ctx.signal });
 +            try {
 +                await applyWorkspaceSecrets(restored, workspace);
 +                if (workspace?.threadSetup) {
@@ -956,6 +995,117 @@ index 20dc5be9d346fd0d36b5a3a94de4b006fd5fe933..ada8c88109656739b323f565c5effafb
  			locks,
  			tenant,
  			signal,
+diff --git a/dist/esm/tool-bridge.d.ts b/dist/esm/tool-bridge.d.ts
+index c2f38d49d7a926945ccfc28e6e5a5965ae747c38..e3e1733a4eb0c82c9004672498c141119311fe7c 100644
+--- a/dist/esm/tool-bridge.d.ts
++++ b/dist/esm/tool-bridge.d.ts
+@@ -1,4 +1,5 @@
+ import { AnyTool } from '@tanstack/ai';
++import { SandboxHandle } from './contracts.js';
+ /**
+  * Name of the bridged MCP server. The agent sees tools as
+  * `mcp__tanstack__<tool>`; each adapter's stream translator strips this prefix
+@@ -100,6 +101,8 @@ export interface StartBridgeOptions extends ToolBridgeCoreOptions {
+      * `host.docker.internal` (a container can't reach the host's loopback).
+      */
+     bindAddress?: string;
++    /** Sandbox whose provider may enforce exact bridge egress admission. */
++    sandbox?: SandboxHandle;
+ }
+ /**
+  * Start the `node:http` MCP tool-proxy bridge for the given tools. For a
+@@ -113,6 +116,8 @@ export type ProvisionedBridge = HostToolBridge;
+ export interface ToolBridgeProvisionOptions extends ToolBridgeCoreOptions {
+     /** Sandbox provider name, to derive how the sandbox reaches the bridge. */
+     provider: string;
++    /** Sandbox whose provider may enforce exact bridge egress admission. */
++    sandbox?: SandboxHandle;
+ }
+ /**
+  * Stands up the tool-bridge endpoint for a run. The seam that makes the bridge
+diff --git a/dist/esm/tool-bridge.js b/dist/esm/tool-bridge.js
+index 07dfa40378dfd8f72839c92bf471f714f88bbad5..d9d871242f28e4b2a653ba70f7e364a234f26de3 100644
+--- a/dist/esm/tool-bridge.js
++++ b/dist/esm/tool-bridge.js
+@@ -183,6 +183,30 @@ function buildMcpServer(core) {
+ 	});
+ 	return server;
+ }
++function listen(httpServer, bindAddress) {
++	return new Promise((resolve, reject) => {
++		const onError = (error) => {
++			httpServer.off("listening", onListening);
++			reject(error);
++		};
++		const onListening = () => {
++			httpServer.off("error", onError);
++			resolve();
++		};
++		httpServer.once("error", onError);
++		httpServer.once("listening", onListening);
++		httpServer.listen(0, bindAddress);
++	});
++}
++function closeServer(httpServer) {
++	return new Promise((resolve, reject) => {
++		httpServer.close((error) => {
++			if (error) reject(error);
++			else resolve();
++		});
++		httpServer.closeAllConnections();
++	});
++}
+ /**
+ * Start the `node:http` MCP tool-proxy bridge for the given tools. For a
+ * long-running host (laptop / CI / Docker orchestrator). Serverless/edge
+@@ -221,13 +245,44 @@ async function startHostToolBridge(tools, options) {
+ 			if (!res.headersSent) res.writeHead(500).end("bridge error");
+ 		});
+ 	});
+-	await new Promise((resolve) => httpServer.listen(0, bindAddress, resolve));
++	await listen(httpServer, bindAddress);
+ 	const port = httpServer.address().port;
++	const url = `http://${options.hostForSandbox}:${port}/mcp`;
++	let admission;
++	try {
++		admission = await options.sandbox?.hostBridgeAccess?.admit({ url, token });
++	} catch (admissionError) {
++		try {
++			await closeServer(httpServer);
++		} catch (closeError) {
++			throw new AggregateError([admissionError, closeError], "Host tool bridge admission failed and its listener could not be closed");
++		}
++		throw admissionError;
++	}
++	let closeTask;
++	const close = () => {
++		closeTask ??= (async () => {
++			const errors = [];
++			try {
++				await admission?.revoke();
++			} catch (error) {
++				errors.push(error);
++			}
++			try {
++				await closeServer(httpServer);
++			} catch (error) {
++				errors.push(error);
++			}
++			if (errors.length === 1) throw errors[0];
++			if (errors.length > 1) throw new AggregateError(errors, "Host tool bridge listener close and admission revocation both failed");
++		})();
++		return closeTask;
++	};
+ 	return {
+ 		name: BRIDGED_MCP_SERVER_NAME,
+-		url: `http://${options.hostForSandbox}:${port}/mcp`,
++		url,
+ 		token,
+-		close: () => new Promise((resolve) => httpServer.close(() => resolve()))
++		close
+ 	};
+ }
+ /** Default provisioner: a `node:http` listener on the host. */
 diff --git a/dist/esm/workspace.d.ts b/dist/esm/workspace.d.ts
 index e1ed4af17e86354bcb763eb47a0503ae328da9f0..b8b3ab0ce77189ae5c7beb84e9140efe03b4d64d 100644
 --- a/dist/esm/workspace.d.ts
@@ -1095,7 +1245,7 @@ index 2945377260029e996e3317c2e79a15f72accc3f0..178f279b7a9d4cabe63e6e7534b05b2a
      const shell = await createBootstrapShell(handle, { cwd: root })
      try {
 diff --git a/src/contracts.ts b/src/contracts.ts
-index 0b5c028dd934ce7a6a2e4e3e6fb09c6e0b224fae..6946ad6613f7c097d458d9f364a84940dd4df94a 100644
+index 0b5c028dd934ce7a6a2e4e3e6fb09c6e0b224fae..42a8afb8a20c88e038f9869b32e176f29c7ff7f4 100644
 --- a/src/contracts.ts
 +++ b/src/contracts.ts
 @@ -107,14 +107,14 @@ export interface SandboxProcess {
@@ -1117,7 +1267,42 @@ index 0b5c028dd934ce7a6a2e4e3e6fb09c6e0b224fae..6946ad6613f7c097d458d9f364a84940
    rename: (from: string, to: string) => Promise<void>
    exists: (path: string) => Promise<boolean>
    /**
-@@ -273,5 +273,7 @@ export interface SandboxProvider {
+@@ -160,6 +160,8 @@ export interface SandboxGit {
+ 
+ /** A reachable channel to a port inside the sandbox. */
+ export interface SandboxChannel {
++  /** Revoke a provider-owned preview grant when its server is disposed. */
++  close?: () => Promise<void>
+   /** URL the host can reach (localhost / host-bound port / authenticated preview URL). */
+   url: string
+   /** Bearer token gating the channel, when the provider issues one. */
+@@ -209,6 +211,16 @@ export interface SandboxHandle {
+   readonly process: SandboxProcess
+   readonly ports: SandboxPorts
+   readonly env: SandboxEnv
++  /**
++   * Optional provider-owned admission for a host bridge that this sandbox may
++   * call. Providers with outbound network enforcement admit only this exact
++   * URL and per-run bearer, then revoke that admission with the bridge.
++   */
++  readonly hostBridgeAccess?: {
++    admit: (input: { url: string; token: string }) => Promise<{
++      revoke: () => Promise<void>
++    }>
++  }
+   /** Capability-gated: throws UnsupportedCapabilityError if `capabilities.snapshots` is false. */
+   snapshot?: (label?: string) => Promise<SnapshotRef>
+   /** Capability-gated: throws UnsupportedCapabilityError if `capabilities.fork` is false. */
+@@ -247,6 +259,8 @@ export interface SandboxResumeInput {
+ 
+ /** Input passed to {@link SandboxProvider.restoreSnapshot}. */
+ export interface SandboxRestoreInput {
++  /** Deterministic instance key for replay after a lost restore acknowledgement. */
++  id?: string
+   snapshotId: string
+   workspace?: WorkspaceDefinition
+   policy?: SandboxPolicy
+@@ -273,5 +287,7 @@ export interface SandboxProvider {
    resume: (input: SandboxResumeInput) => Promise<SandboxHandle | null>
    /** Capability-gated: present only when `capabilities().snapshots` is true. */
    restoreSnapshot?: (input: SandboxRestoreInput) => Promise<SandboxHandle>
@@ -1264,7 +1449,7 @@ index aba99a20932262570dc48c7578c6406aad92d54c..d21d034e194d3c6fdf8f6fb7b8aae427
              )
              if (!canPublishPortableSnapshot(state, lease)) return
 diff --git a/src/sandbox.ts b/src/sandbox.ts
-index f8058c35e9ed316e09fa2ed437267bd8150dd287..f1b5fde53b582f58ec7e1d1d7869c9cf0d82ca05 100644
+index f8058c35e9ed316e09fa2ed437267bd8150dd287..71f652658241af205bc6e92ed7bd5a8504ca33cc 100644
 --- a/src/sandbox.ts
 +++ b/src/sandbox.ts
 @@ -13,7 +13,7 @@ import { InMemoryLockStore } from '@tanstack/ai/locks'
@@ -1351,9 +1536,11 @@ index f8058c35e9ed316e09fa2ed437267bd8150dd287..f1b5fde53b582f58ec7e1d1d7869c9cf
              await store.upsert({
                ...existing,
                latestRunId: ctx.runId,
-@@ -251,15 +264,20 @@ export function defineSandbox(config: SandboxConfig): SandboxDefinition {
+@@ -250,16 +263,22 @@ export function defineSandbox(config: SandboxConfig): SandboxDefinition {
+             config.provider.restoreSnapshot
            ) {
              const restored = await config.provider.restoreSnapshot({
++              id: key,
                snapshotId: existing.latestSnapshotId,
 -              workspace: config.workspace,
 +              workspace: workspace,
@@ -1376,13 +1563,13 @@ index f8058c35e9ed316e09fa2ed437267bd8150dd287..f1b5fde53b582f58ec7e1d1d7869c9cf
              await store.upsert({
                ...existing,
                providerSandboxId: restored.id,
-@@ -274,23 +292,41 @@ export function defineSandbox(config: SandboxConfig): SandboxDefinition {
+@@ -274,23 +293,41 @@ export function defineSandbox(config: SandboxConfig): SandboxDefinition {
          //    snapshotMaxAge TTL exceeded).
        }
  
 +      if (options.existingOnly) return null
 +      if (options.snapshotId) {
-+        const restored = await config.provider.restoreSnapshot!({ snapshotId: options.snapshotId, workspace, policy: config.policy, signal: ctx.signal })
++        const restored = await config.provider.restoreSnapshot!({ id: key, snapshotId: options.snapshotId, workspace, policy: config.policy, signal: ctx.signal })
 +        try {
 +          await applyWorkspaceSecrets(restored, workspace)
 +          if (workspace?.threadSetup) {
@@ -1423,7 +1610,7 @@ index f8058c35e9ed316e09fa2ed437267bd8150dd287..f1b5fde53b582f58ec7e1d1d7869c9cf
              signal: ctx.signal,
            })
          } catch (error) {
-@@ -304,7 +340,7 @@ export function defineSandbox(config: SandboxConfig): SandboxDefinition {
+@@ -304,7 +341,7 @@ export function defineSandbox(config: SandboxConfig): SandboxDefinition {
  
        let latestSnapshotId: string | undefined
        if (
@@ -1432,7 +1619,7 @@ index f8058c35e9ed316e09fa2ed437267bd8150dd287..f1b5fde53b582f58ec7e1d1d7869c9cf
          caps.snapshots &&
          created.snapshot
        ) {
-@@ -313,6 +349,7 @@ export function defineSandbox(config: SandboxConfig): SandboxDefinition {
+@@ -313,6 +350,7 @@ export function defineSandbox(config: SandboxConfig): SandboxDefinition {
  
        await store.upsert({
          key,
@@ -1440,7 +1627,7 @@ index f8058c35e9ed316e09fa2ed437267bd8150dd287..f1b5fde53b582f58ec7e1d1d7869c9cf
          provider: config.provider.name,
          providerSandboxId: created.id,
          latestSnapshotId,
-@@ -321,6 +358,59 @@ export function defineSandbox(config: SandboxConfig): SandboxDefinition {
+@@ -321,6 +359,59 @@ export function defineSandbox(config: SandboxConfig): SandboxDefinition {
          updatedAt: Date.now(),
        })
        return { handle: created, outcome: 'created' }
@@ -1500,7 +1687,7 @@ index f8058c35e9ed316e09fa2ed437267bd8150dd287..f1b5fde53b582f58ec7e1d1d7869c9cf
      })
    }
  
-@@ -334,12 +424,13 @@ export function defineSandbox(config: SandboxConfig): SandboxDefinition {
+@@ -334,12 +425,13 @@ export function defineSandbox(config: SandboxConfig): SandboxDefinition {
      const store = ctx.store ?? fallbackStore
      const locks = ctx.locks ?? fallbackLocks
      const key = stage?.key ?? computeSandboxKey(keyInputFor(ctx))
@@ -1602,6 +1789,130 @@ index ff9a29542db7e999de9727b5eca17a71c05bbbcb..4a95d93853e8b103b3c54d81d03af184
            locks,
            tenant,
            signal,
+diff --git a/src/tool-bridge.ts b/src/tool-bridge.ts
+index 6566ae63ae630156e49e02dddddadc668a07f1f6..2ebcc05abced6347302ac04bb3245f033d7f1d23 100644
+--- a/src/tool-bridge.ts
++++ b/src/tool-bridge.ts
+@@ -28,6 +28,7 @@ import {
+ } from '@modelcontextprotocol/sdk/types.js'
+ import type { AddressInfo } from 'node:net'
+ import type { AnyTool } from '@tanstack/ai'
++import type { SandboxHandle } from './contracts'
+ 
+ /**
+  * Name of the bridged MCP server. The agent sees tools as
+@@ -272,6 +273,39 @@ export interface StartBridgeOptions extends ToolBridgeCoreOptions {
+    * `host.docker.internal` (a container can't reach the host's loopback).
+    */
+   bindAddress?: string
++  /** Sandbox whose provider may enforce exact bridge egress admission. */
++  sandbox?: SandboxHandle
++}
++
++function listen(
++  httpServer: ReturnType<typeof createServer>,
++  bindAddress: string,
++): Promise<void> {
++  return new Promise((resolve, reject) => {
++    const onError = (error: Error): void => {
++      httpServer.off('listening', onListening)
++      reject(error)
++    }
++    const onListening = (): void => {
++      httpServer.off('error', onError)
++      resolve()
++    }
++    httpServer.once('error', onError)
++    httpServer.once('listening', onListening)
++    httpServer.listen(0, bindAddress)
++  })
++}
++
++function closeServer(
++  httpServer: ReturnType<typeof createServer>,
++): Promise<void> {
++  return new Promise((resolve, reject) => {
++    httpServer.close((error) => {
++      if (error) reject(error)
++      else resolve()
++    })
++    httpServer.closeAllConnections()
++  })
+ }
+ 
+ function buildMcpServer(core: ToolBridgeCore): McpServer {
+@@ -350,18 +384,57 @@ export async function startHostToolBridge(
+     })
+   })
+ 
+-  await new Promise<void>((resolve) =>
+-    httpServer.listen(0, bindAddress, resolve),
+-  )
++  await listen(httpServer, bindAddress)
+   const port = (httpServer.address() as AddressInfo).port
+   const url = `http://${options.hostForSandbox}:${port}/mcp`
+ 
++  let admission:
++    | Awaited<ReturnType<NonNullable<SandboxHandle['hostBridgeAccess']>['admit']>>
++    | undefined
++  try {
++    admission = await options.sandbox?.hostBridgeAccess?.admit({ url, token })
++  } catch (admissionError) {
++    try {
++      await closeServer(httpServer)
++    } catch (closeError) {
++      throw new AggregateError(
++        [admissionError, closeError],
++        'Host tool bridge admission failed and its listener could not be closed',
++      )
++    }
++    throw admissionError
++  }
++
++  let closeTask: Promise<void> | undefined
++  const close = (): Promise<void> => {
++    closeTask ??= (async () => {
++      const errors: Array<unknown> = []
++      try {
++        await admission?.revoke()
++      } catch (error) {
++        errors.push(error)
++      }
++      try {
++        await closeServer(httpServer)
++      } catch (error) {
++        errors.push(error)
++      }
++      if (errors.length === 1) throw errors[0]
++      if (errors.length > 1) {
++        throw new AggregateError(
++          errors,
++          'Host tool bridge listener close and admission revocation both failed',
++        )
++      }
++    })()
++    return closeTask
++  }
++
+   return {
+     name: BRIDGED_MCP_SERVER_NAME,
+     url,
+     token,
+-    close: () =>
+-      new Promise<void>((resolve) => httpServer.close(() => resolve())),
++    close,
+   }
+ }
+ 
+@@ -371,6 +444,8 @@ export type ProvisionedBridge = HostToolBridge
+ export interface ToolBridgeProvisionOptions extends ToolBridgeCoreOptions {
+   /** Sandbox provider name, to derive how the sandbox reaches the bridge. */
+   provider: string
++  /** Sandbox whose provider may enforce exact bridge egress admission. */
++  sandbox?: SandboxHandle
+ }
+ 
+ /**
 diff --git a/src/workspace.ts b/src/workspace.ts
 index 0a9a602b38bbe0c9b8b8a3e889ee71c949c2d6da..aeff0eb916db35b1551382e90d693af3d7e364dd 100644
 --- a/src/workspace.ts

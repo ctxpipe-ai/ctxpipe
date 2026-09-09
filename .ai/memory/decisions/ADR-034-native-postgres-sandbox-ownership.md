@@ -122,7 +122,7 @@ The event waits are bounded and abortable; stream failure and disposal reject
 waiters and release native process/subscription ownership. No application text
 reconstruction or terminal-event repair is introduced.
 
-### Planned native egress boundary (not activated)
+### Native egress boundary (opt-in; production activation pending)
 
 A protected Docker sandbox will belong only to its own internal network. A
 trusted, unprivileged proxy owns allowed outbound HTTP/CONNECT and narrow reverse
@@ -137,6 +137,15 @@ URL, using the ensured handle. An optional native handle admission capability
 receives that URL and its per-run token and returns a revoker. Bridge close owns
 revocation as well as listener closure; failed admission closes the listener and
 fails the turn. Dynamic grants are ephemeral and disappear on proxy restart.
-Static admission of all backend ports is not the design. Provider enforcement,
-production activation and integrated proof remain required before this section
-is implemented acceptance evidence.
+Published HTTP/SSE ingress uses a separate native per-channel token and revoker;
+OpenCode server disposal owns that channel. Both bridge and ingress admissions
+have ten-minute renewable leases and abort active requests on revocation. The
+forward listener binds only to the internal network. Native ownership validation
+includes the proxy asset digest and resolved image identities. Resource names
+use a stronger workspace-scoped ownership digest while existing database keys
+remain unchanged.
+
+The first real-Docker access/revocation and deterministic restore proofs pass.
+See the [native egress checkpoint](../../../docs/plans/workspace-recovery-gate-4/validation-native-egress.md).
+Partial-creation crash recovery, full lifecycle proof, production activation and
+integrated chat remain required. No application proxy registry is added.

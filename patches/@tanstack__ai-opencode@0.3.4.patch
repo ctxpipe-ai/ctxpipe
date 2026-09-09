@@ -1,8 +1,16 @@
 diff --git a/dist/esm/adapters/text.js b/dist/esm/adapters/text.js
-index d11df14ae2159d0558a0f928b72c3d24867b164a..d4cdd33d1b8b72cf0d09ac3ab3cd8a113ef02935 100644
+index d11df14ae2159d0558a0f928b72c3d24867b164a..495fd44313253d53710131073f503525aa0612b6 100644
 --- a/dist/esm/adapters/text.js
 +++ b/dist/esm/adapters/text.js
-@@ -126,6 +126,7 @@ var OpencodeTextAdapter = class extends BaseTextAdapter {
+@@ -85,6 +85,7 @@ var OpencodeTextAdapter = class extends BaseTextAdapter {
+ 			const bridgedToolNames = new Set((options.tools ?? []).map((tool) => tool.name));
+ 			if (options.tools && options.tools.length > 0) bridge = await ((options.capabilities ? getToolBridgeProvisioner(options.capabilities, { optional: true }) : void 0) ?? nodeHttpBridgeProvisioner).provision(options.tools, {
+ 				provider: sandbox.provider,
++				sandbox,
+ 				context: options.context,
+ 				emitCustomEvent: channel.emitCustomEvent,
+ 				...externalSignal ? { signal: externalSignal } : {}
+@@ -126,6 +127,7 @@ var OpencodeTextAdapter = class extends BaseTextAdapter {
  				providerID,
  				modelID,
  				...sessionId !== void 0 && { resumeSessionId: sessionId },
@@ -10,11 +18,27 @@ index d11df14ae2159d0558a0f928b72c3d24867b164a..d4cdd33d1b8b72cf0d09ac3ab3cd8a11
  				onEvent: (event) => queue.push({
  					kind: "event",
  					event
+@@ -223,9 +225,12 @@ var OpencodeTextAdapter = class extends BaseTextAdapter {
+ 		} finally {
+ 			if (externalSignal !== void 0 && onAbort !== void 0) externalSignal.removeEventListener("abort", onAbort);
+ 			channel.close();
+-			await handle?.dispose();
+-			await server?.dispose();
+-			await bridge?.close();
++			const cleanupErrors = [];
++			try { await handle?.dispose(); } catch (error) { cleanupErrors.push(error); }
++			try { await server?.dispose(); } catch (error) { cleanupErrors.push(error); }
++			try { await bridge?.close(); } catch (error) { cleanupErrors.push(error); }
++			if (cleanupErrors.length === 1) throw cleanupErrors[0];
++			if (cleanupErrors.length > 1) throw new AggregateError(cleanupErrors, 'OpenCode session, preview, or bridge cleanup failed');
+ 		}
+ 	}
+ 	structuredOutput(_options) {
 diff --git a/dist/esm/process/sandbox-server.js b/dist/esm/process/sandbox-server.js
-index 51278c92b6c5df3627d885c29e8f94b0b50adb1b..d35c4f74557cc69b3a8a638b0e5aa8302fcfae15 100644
+index 51278c92b6c5df3627d885c29e8f94b0b50adb1b..f157479fd4604c5463375f650481403f499d4bf8 100644
 --- a/dist/esm/process/sandbox-server.js
 +++ b/dist/esm/process/sandbox-server.js
-@@ -1,56 +1,145 @@
+@@ -1,56 +1,159 @@
 -//#region src/process/sandbox-server.ts
 -var READY_MARKER = "opencode server listening";
 -async function startOpencodeServerInSandbox(sandbox, options) {
@@ -61,10 +85,24 @@ index 51278c92b6c5df3627d885c29e8f94b0b50adb1b..d35c4f74557cc69b3a8a638b0e5aa830
 +    // provider issued.
 +    const headers = channel.headers ??
 +        (channel.token ? { Authorization: `Bearer ${channel.token}` } : undefined);
++    let disposeTask;
++    const dispose = () => disposeTask ??= (async () => {
++        const failures = [];
++        try { await channel.close?.(); } catch (error) { failures.push(error); }
++        try { await stopProcess(proc); } catch (error) { failures.push(error); }
++        if (failures.length === 1) throw failures[0];
++        if (failures.length > 1) throw new AggregateError(failures, 'OpenCode preview and process cleanup failed');
++    })();
++    try { options.signal?.throwIfAborted(); } catch (error) {
++        try { await dispose(); } catch (cleanup) {
++            throw new AggregateError([error, cleanup], 'OpenCode startup aborted and cleanup failed');
++        }
++        throw error;
++    }
 +    return {
 +        baseUrl: channel.url,
 +        ...(headers ? { headers } : {}),
-+        dispose: () => stopProcess(proc),
++        dispose,
 +    };
 +}
 +async function stopProcess(proc) {
@@ -764,10 +802,18 @@ index a63df2314be1bf53f30f08bf21b6d56a6408122f..e874a57268631e962e675a5ac2dbb8a2
  			else if (isReasoningPart(part)) yield* handleReasoningPart(part, delta);
  			else if (isToolPart(part)) yield* handleToolPart(part);
 diff --git a/src/adapters/text.ts b/src/adapters/text.ts
-index ee6ee29530377f5ba53b0f6eb1f35f7153dca886..3cf4c7350b49ffab7cc26169ea8cebdb48415964 100644
+index ee6ee29530377f5ba53b0f6eb1f35f7153dca886..11ec75e8900c4eca9f8f34f54e776164359974a6 100644
 --- a/src/adapters/text.ts
 +++ b/src/adapters/text.ts
-@@ -321,6 +321,7 @@ export class OpencodeTextAdapter<
+@@ -238,6 +238,7 @@ export class OpencodeTextAdapter<
+             : undefined) ?? nodeHttpBridgeProvisioner
+         bridge = await provisioner.provision(options.tools, {
+           provider: sandbox.provider,
++          sandbox,
+           context: options.context,
+           emitCustomEvent: channel.emitCustomEvent,
+           ...(externalSignal ? { signal: externalSignal } : {}),
+@@ -321,6 +322,7 @@ export class OpencodeTextAdapter<
          providerID,
          modelID,
          ...(sessionId !== undefined && { resumeSessionId: sessionId }),
@@ -775,8 +821,24 @@ index ee6ee29530377f5ba53b0f6eb1f35f7153dca886..3cf4c7350b49ffab7cc26169ea8cebdb
          onEvent: (event) => queue.push({ kind: 'event', event }),
          onPermissionRequest: permissionHandler,
          onError: (error) => queue.fail(error),
+@@ -452,9 +454,12 @@ export class OpencodeTextAdapter<
+         externalSignal.removeEventListener('abort', onAbort)
+       }
+       channel.close()
+-      await handle?.dispose()
+-      await server?.dispose()
+-      await bridge?.close()
++      const cleanupErrors: Array<unknown> = []
++      try { await handle?.dispose() } catch (error) { cleanupErrors.push(error) }
++      try { await server?.dispose() } catch (error) { cleanupErrors.push(error) }
++      try { await bridge?.close() } catch (error) { cleanupErrors.push(error) }
++      if (cleanupErrors.length === 1) throw cleanupErrors[0]
++      if (cleanupErrors.length > 1) throw new AggregateError(cleanupErrors, 'OpenCode session, preview, or bridge cleanup failed')
+     }
+   }
+ 
 diff --git a/src/process/sandbox-server.ts b/src/process/sandbox-server.ts
-index 4ee8d45f78988096a8ed2d86f108a8d4de9396bb..afefc7d8714fc0777b9716d49ff375a028b42bf7 100644
+index 4ee8d45f78988096a8ed2d86f108a8d4de9396bb..300b5d44cbd894a2b0e3bb9a016c337bbe849e47 100644
 --- a/src/process/sandbox-server.ts
 +++ b/src/process/sandbox-server.ts
 @@ -7,6 +7,7 @@
@@ -787,7 +849,7 @@ index 4ee8d45f78988096a8ed2d86f108a8d4de9396bb..afefc7d8714fc0777b9716d49ff375a0
  
  export interface SandboxOpencodeServer {
    /** URL the host uses to reach the in-sandbox server. */
-@@ -43,9 +44,19 @@ export async function startOpencodeServerInSandbox(
+@@ -43,24 +44,103 @@ export async function startOpencodeServerInSandbox(
      ...(options.signal ? { signal: options.signal } : {}),
    })
  
@@ -809,12 +871,28 @@ index 4ee8d45f78988096a8ed2d86f108a8d4de9396bb..afefc7d8714fc0777b9716d49ff375a0
    // Carry the channel's auth so the host client can reach a token-gated preview.
    // Prefer ready-made `headers`; fall back to a bearer token if that's all the
    // provider issued.
-@@ -55,12 +66,67 @@ export async function startOpencodeServerInSandbox(
+   const headers =
+     channel.headers ??
+     (channel.token ? { Authorization: `Bearer ${channel.token}` } : undefined)
++  let disposeTask: Promise<void> | undefined
++  const dispose = (): Promise<void> => disposeTask ??= (async () => {
++    const failures: Array<unknown> = []
++    try { await channel.close?.() } catch (error) { failures.push(error) }
++    try { await stopProcess(proc) } catch (error) { failures.push(error) }
++    if (failures.length === 1) throw failures[0]
++    if (failures.length > 1) throw new AggregateError(failures, 'OpenCode preview and process cleanup failed')
++  })()
++  try { options.signal?.throwIfAborted() } catch (error) {
++    try { await dispose() } catch (cleanup) {
++      throw new AggregateError([error, cleanup], 'OpenCode startup aborted and cleanup failed')
++    }
++    throw error
++  }
    return {
      baseUrl: channel.url,
      ...(headers ? { headers } : {}),
 -    dispose: () => proc.kill(),
-+    dispose: () => stopProcess(proc),
++    dispose,
 +  }
 +}
 +
@@ -880,7 +958,7 @@ index 4ee8d45f78988096a8ed2d86f108a8d4de9396bb..afefc7d8714fc0777b9716d49ff375a0
      let stdout = ''
      // Capture stderr too: opencode logs startup failures (e.g. "address already
      // in use" when a previous run's server still holds the port) to stderr, not
-@@ -109,7 +175,35 @@ function waitForReady(proc: SpawnHandle, timeoutMs: number): Promise<void> {
+@@ -109,7 +189,35 @@ function waitForReady(proc: SpawnHandle, timeoutMs: number): Promise<void> {
          for await (const chunk of proc.stdout) {
            stdout += chunk
            if (stdout.includes(READY_MARKER)) {

@@ -99,3 +99,11 @@ The two original CI chat failures and native cancellation pass together (57.55
 seconds). Final backend types pass with 124 existing allowances (90.89 seconds);
 UI remains at 223. No diagnostic allowances were added. Full CI on this code
 checkpoint is the next required confirmation.
+
+The opt-in native Docker egress boundary now passes its first retained real-Docker
+case: exact model/tool access, metadata and other-route denial, blocked direct
+routing, authenticated ingress and stale-token revocation. Snapshot restoration
+replay passes after canonicalizing resumed Docker IDs; OpenCode/callback lifetime
+checks and full backend types pass. See
+[native egress evidence](validation-native-egress.md). Partial-creation crash
+recovery and full lifecycle/integrated production activation remain open.

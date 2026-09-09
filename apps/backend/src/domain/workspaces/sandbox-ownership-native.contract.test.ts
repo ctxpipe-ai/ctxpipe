@@ -5,6 +5,7 @@ import {
   memorySandboxSnapshots,
   type SandboxHandle,
   type SandboxInstanceRecord,
+  startHostToolBridge,
 } from "@tanstack/ai-sandbox"
 import { runSandboxInstanceStoreConformance } from "@tanstack/ai-sandbox/testkit"
 import { dockerSandbox } from "@tanstack/ai-sandbox-docker"
@@ -25,7 +26,241 @@ import { WORKSPACE_CHAT_DOCKER_SANDBOX } from "./chat-runtime.js"
 import { postgresSandboxInstanceStore } from "./sandbox-instance-store.js"
 import { postgresSandboxLocks } from "./sandbox-lock-store.js"
 
+it(
+  "enforces native Docker egress and revokes exact per-run tool bridge access",
+  { timeout: 90_000 },
+  async () => {
+    const target = createServer((_request, response) =>
+      response.end("model-ok"),
+    )
+    await new Promise<void>((resolve, reject) => {
+      target.once("error", reject)
+      target.listen(0, "0.0.0.0", resolve)
+    })
+    let handle: SandboxHandle | undefined
+    let bridge: Awaited<ReturnType<typeof startHostToolBridge>> | undefined
+    let channel:
+      | Awaited<ReturnType<SandboxHandle["ports"]["connect"]>>
+      | undefined
+    let primaryError: unknown
+    const cleanupErrors: unknown[] = []
+    try {
+      const address = target.address()
+      if (!address || typeof address === "string")
+        throw new Error("Missing target port")
+      const host = "host.docker.internal"
+      const modelUrl = `http://${host}:${address.port}/chat/completions`
+      const provider = dockerSandbox({
+        image: WORKSPACE_CHAT_DOCKER_SANDBOX.image,
+        workdir: "/tmp",
+        publishPorts: [8080],
+        egress: {
+          proxyImage: WORKSPACE_CHAT_DOCKER_SANDBOX.image,
+          allowConnect: [],
+          allowHttp: [
+            { host, port: address.port, paths: ["/chat/completions"] },
+          ],
+          ingress: [{ listenPort: 8081, targetPort: 8080 }],
+        },
+      })
+      expect(provider.capabilities().networkPolicy).toBe(true)
+      handle = await provider.create({
+        id: `egress-${generateObjectId("ws")}`,
+        workspace: {
+          identity: `org-egress:${generateObjectId("ws")}`,
+          source: { type: "none" },
+        },
+      })
+      await handle.fs.write(
+        "probe.cjs",
+        `
+const http = require('node:http');
+const target = process.env.PROBE_URL;
+const proxy = new URL(process.env.HTTP_PROXY);
+const request = http.request({hostname: proxy.hostname, port: proxy.port,
+  method: 'POST', path: target, headers: {
+    authorization: 'Bearer ' + (process.env.PROBE_TOKEN || ''),
+    accept: 'application/json, text/event-stream', 'content-type': 'application/json'
+  }}, response => {
+    let body = ''; response.setEncoding('utf8');
+    response.on('data', chunk => body += chunk);
+    response.on('end', () => process.stdout.write(JSON.stringify({status: response.statusCode, body})));
+  });
+request.setTimeout(5000, () => request.destroy(new Error('proxy timeout')));
+request.on('error', error => { process.stderr.write(error.message); process.exitCode = 1; });
+request.end(JSON.stringify({jsonrpc: '2.0', id: 1, method: 'tools/list'}));
+`,
+      )
+      async function probe(url: string, token = "") {
+        if (!handle) throw new Error("Missing native sandbox")
+        const result = await handle.process.exec("node /tmp/probe.cjs", {
+          env: { PROBE_URL: url, PROBE_TOKEN: token },
+        })
+        expect(result.exitCode, result.stderr).toBe(0)
+        return JSON.parse(result.stdout) as { status: number; body: string }
+      }
+      expect(await probe(modelUrl)).toEqual({ status: 200, body: "model-ok" })
+      expect((await probe(`http://${host}:${address.port}/admin`)).status).toBe(
+        403,
+      )
+      expect(
+        (await probe("http://169.254.169.254/latest/meta-data/")).status,
+      ).toBe(403)
+      expect((await probe("http://example.com/")).status).toBe(403)
+
+      bridge = await startHostToolBridge([], {
+        hostForSandbox: host,
+        bindAddress: "0.0.0.0",
+        sandbox: handle,
+      })
+      expect((await probe(bridge.url, "wrong-token")).status).toBe(403)
+      expect((await probe(`${bridge.url}/other`, bridge.token)).status).toBe(
+        403,
+      )
+      expect((await probe(bridge.url, bridge.token)).status).toBe(200)
+      await bridge.close()
+      expect((await probe(bridge.url, bridge.token)).status).toBe(403)
+
+      const direct = await handle.process.exec(
+        `node -e 'const net = require("node:net"); const socket = net.connect({host:"1.1.1.1",port:443}); socket.setTimeout(1500,()=>{socket.destroy();process.stdout.write("blocked")}); socket.on("connect",()=>{socket.destroy();process.stdout.write("escaped")}); socket.on("error",()=>process.stdout.write("blocked"));'`,
+      )
+      expect(direct.exitCode, direct.stderr).toBe(0)
+      expect(direct.stdout).toBe("blocked")
+
+      await handle.fs.write(
+        "ingress.cjs",
+        `require('node:http').createServer((_req, res) => res.end('ingress-ok')).listen(8080, '0.0.0.0', () => process.stdout.write('ready\\n'))`,
+      )
+      const server = await handle.process.spawn("node /tmp/ingress.cjs")
+      let readyTimer: ReturnType<typeof setTimeout> | undefined
+      try {
+        await Promise.race([
+          (async () => {
+            for await (const output of server.stdout) {
+              if (output.includes("ready")) return
+            }
+            throw new Error("Native ingress fixture exited before readiness")
+          })(),
+          new Promise<never>((_resolve, reject) => {
+            readyTimer = setTimeout(
+              () =>
+                reject(new Error("Native ingress fixture startup timed out")),
+              10_000,
+            )
+          }),
+        ])
+      } finally {
+        if (readyTimer) clearTimeout(readyTimer)
+      }
+      channel = await handle.ports.connect(8080)
+      const unauthenticated = await fetch(channel.url)
+      await unauthenticated.text()
+      expect(unauthenticated.status).toBe(401)
+      const authorized = await fetch(channel.url, { headers: channel.headers })
+      expect(authorized.status).toBe(200)
+      expect(await authorized.text()).toBe("ingress-ok")
+      const priorHeaders = channel.headers
+      if (!channel.close) throw new Error("Native ingress must be revocable")
+      await channel.close()
+      channel = await handle.ports.connect(8080)
+      const stale = await fetch(channel.url, { headers: priorHeaders })
+      await stale.text()
+      expect(stale.status).toBe(401)
+      const replacement = await fetch(channel.url, { headers: channel.headers })
+      expect(replacement.status).toBe(200)
+      expect(await replacement.text()).toBe("ingress-ok")
+    } catch (error) {
+      primaryError = error
+    } finally {
+      try {
+        await bridge?.close()
+      } catch (error) {
+        cleanupErrors.push(error)
+      }
+      try {
+        await channel?.close?.()
+      } catch (error) {
+        cleanupErrors.push(error)
+      }
+      try {
+        await handle?.destroy()
+      } catch (error) {
+        cleanupErrors.push(error)
+      }
+      await new Promise<void>((resolve) => target.close(() => resolve()))
+    }
+    if (cleanupErrors.length)
+      throw new AggregateError(
+        primaryError === undefined
+          ? cleanupErrors
+          : [primaryError, ...cleanupErrors],
+        "Native egress proof and cleanup failed",
+        primaryError === undefined ? undefined : { cause: primaryError },
+      )
+    if (primaryError !== undefined) throw primaryError
+  },
+)
+
 const fixtures: Array<{ orgId: string; workspaceId: string }> = []
+
+it(
+  "replays a native Docker snapshot restore without allocating a second worktree",
+  { timeout: 60_000 },
+  async () => {
+    const provider = dockerSandbox({ image: "alpine:3.22", workdir: "/tmp" })
+    const restored: SandboxHandle[] = []
+    const source = await provider.create({
+      id: `restore-source-${generateObjectId("ws")}`,
+    })
+    let snapshotId: string | undefined
+    let primaryError: unknown
+    const cleanupErrors: unknown[] = []
+    try {
+      if (!source.snapshot || !provider.restoreSnapshot)
+        throw new Error("Native snapshots are required")
+      await source.fs.write("restore-marker.txt", "snapshot")
+      snapshotId = (await source.snapshot()).id
+      const id = `restore-child-${generateObjectId("ws")}`
+      const first = await provider.restoreSnapshot({ snapshotId, id })
+      restored.push(first)
+      await first.fs.write("restore-marker.txt", "after-first-restore")
+      // A second caller only knows the deterministic restore input because the
+      // first allocation's acknowledgement/store write was lost.
+      const second = await provider.restoreSnapshot({ snapshotId, id })
+      restored.push(second)
+      expect(second.id).toBe(first.id)
+      expect(await second.fs.read("restore-marker.txt")).toBe(
+        "after-first-restore",
+      )
+    } catch (error) {
+      primaryError = error
+    } finally {
+      for (const handle of [...restored, source]) {
+        try {
+          await handle.destroy()
+        } catch (error) {
+          cleanupErrors.push(error)
+        }
+      }
+      if (snapshotId) {
+        try {
+          await provider.deleteSnapshot?.({ snapshotId })
+        } catch (error) {
+          cleanupErrors.push(error)
+        }
+      }
+    }
+    if (cleanupErrors.length)
+      throw new AggregateError(
+        primaryError === undefined
+          ? cleanupErrors
+          : [primaryError, ...cleanupErrors],
+        "Native snapshot replay proof and cleanup failed",
+        primaryError === undefined ? undefined : { cause: primaryError },
+      )
+    if (primaryError !== undefined) throw primaryError
+  },
+)
 
 beforeAll(() => {
   const url = process.env.DATABASE_URL

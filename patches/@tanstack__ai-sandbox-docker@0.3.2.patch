@@ -1,19 +1,694 @@
+diff --git a/dist/esm/egress-proxy.d.ts b/dist/esm/egress-proxy.d.ts
+new file mode 100644
+index 0000000000000000000000000000000000000000..e4f3c256c9b88eeea76136524db36a859241fcb6
+--- /dev/null
++++ b/dist/esm/egress-proxy.d.ts
+@@ -0,0 +1,36 @@
++export interface EgressAuthority {
++    host: string;
++    port: number;
++}
++export interface EgressHttpRule extends EgressAuthority {
++    paths: Array<string>;
++}
++export interface EgressIngress {
++    listenPort: number;
++    targetPort: number;
++}
++/** Static policy consumed by the provider and serialized into the proxy env. */
++export interface DockerSandboxEgressPolicy {
++    proxyImage: string;
++    allowConnect: Array<EgressAuthority>;
++    allowHttp: Array<EgressHttpRule>;
++    ingress?: Array<EgressIngress>;
++}
++export interface EgressProxyOptions {
++    allowConnect: Array<EgressAuthority>;
++    allowHttp: Array<EgressHttpRule>;
++    ingressTargetHost: string;
++    ingress?: Array<EgressIngress>;
++    bindAddress?: string;
++    ingressBindAddress?: string;
++    proxyPort?: number;
++    controlSocketPath?: string;
++}
++export interface EgressProxyHandle {
++    readonly proxyPort: number;
++    readonly controlSocketPath: string;
++    readonly ingressPorts: Array<number>;
++    close: () => Promise<void>;
++}
++export declare function startEgressProxy(options: EgressProxyOptions): Promise<EgressProxyHandle>;
++export declare const EGRESS_PROXY_CONFIG_ENV = "TANSTACK_EGRESS_PROXY_CONFIG";
+diff --git a/dist/esm/egress-proxy.js b/dist/esm/egress-proxy.js
+new file mode 100644
+index 0000000000000000000000000000000000000000..0ee0e8c9a7c29a718a65bd6945f7fce21d99ad2f
+--- /dev/null
++++ b/dist/esm/egress-proxy.js
+@@ -0,0 +1,611 @@
++// src/egress-proxy.ts
++import { randomUUID, timingSafeEqual } from "node:crypto";
++import { lookup } from "node:dns/promises";
++import { mkdir, chmod, unlink } from "node:fs/promises";
++import { createServer, request } from "node:http";
++import { connect, createServer as createTcpServer, isIP } from "node:net";
++import { dirname } from "node:path";
++import { domainToASCII } from "node:url";
++var CONTROL_SOCKET = "/tmp/tanstack-egress/control.sock";
++var GRANT_TTL_MS = 10 * 60000;
++var MAX_CONNECTIONS = 256;
++var HOP_HEADERS = new Set([
++  "connection",
++  "keep-alive",
++  "proxy-authenticate",
++  "proxy-authorization",
++  "proxy-connection",
++  "te",
++  "trailer",
++  "transfer-encoding",
++  "upgrade"
++]);
++function asPort(value, label) {
++  if (!Number.isInteger(value) || value < 1 || value > 65535)
++    throw new Error(`egress: ${label} must be a TCP port`);
++  return value;
++}
++function normalizeHost(value) {
++  const trimmed = value.trim().replace(/^\[|\]$/g, "");
++  if (!trimmed || /[/?#@]/.test(trimmed))
++    throw new Error("egress: invalid host");
++  if (isIP(trimmed))
++    return trimmed.toLowerCase();
++  const ascii = domainToASCII(trimmed);
++  if (!ascii)
++    throw new Error("egress: invalid host");
++  return ascii.toLowerCase();
++}
++function authorityKey(host, port) {
++  return `${host.includes(":") ? `[${host}]` : host}:${port}`;
++}
++function normalizeAuthority(input) {
++  return { host: normalizeHost(input.host), port: asPort(input.port, "port") };
++}
++function normalizeRules(rules) {
++  return rules.map((rule) => {
++    const authority = normalizeAuthority(rule);
++    const paths = new Set(rule.paths.map((path) => {
++      if (!path.startsWith("/") || path.includes("?") || path.includes("#"))
++        throw new Error("egress: HTTP allowlist paths must be exact paths");
++      return path;
++    }));
++    if (paths.size === 0)
++      throw new Error("egress: HTTP allowlist rule has no paths");
++    return { ...authority, paths };
++  });
++}
++function forbiddenIpv4(value) {
++  if (/^(?:169\.254\.|127\.|0\.)/.test(value))
++    return true;
++  if (value === "100.100.100.200")
++    return true;
++  const octets = value.split(".").map(Number);
++  return octets.length === 4 && octets.every((part) => Number.isInteger(part) && part >= 0 && part <= 255) && octets[0] >= 224;
++}
++function ipv6Words(value) {
++  let text = value.toLowerCase().replace(/^\[|\]$/g, "");
++  const dotted = text.match(/(^|:)(\d+\.\d+\.\d+\.\d+)$/);
++  if (dotted) {
++    const parts = dotted[2].split(".").map(Number);
++    if (parts.some((part) => !Number.isInteger(part) || part < 0 || part > 255))
++      return;
++    text = `${text.slice(0, -dotted[2].length)}${(parts[0] << 8 | parts[1]).toString(16)}:${(parts[2] << 8 | parts[3]).toString(16)}`;
++  }
++  if (!text.includes(":"))
++    return;
++  const halves = text.split("::");
++  if (halves.length > 2)
++    return;
++  const left = halves[0] ? halves[0].split(":") : [];
++  const right = halves.length === 2 && halves[1] ? halves[1].split(":") : [];
++  if (left.concat(right).some((part) => !/^[0-9a-f]{1,4}$/.test(part)))
++    return;
++  const words = [...left, ...halves.length === 2 ? Array(8 - left.length - right.length).fill("0") : [], ...right].map((part) => Number.parseInt(part, 16));
++  return words.length === 8 ? words : undefined;
++}
++function embeddedIpv4(value) {
++  const words = ipv6Words(value);
++  if (!words)
++    return;
++  const first = words.slice(0, 5).every((word) => word === 0);
++  const mapped = first && (words[5] === 0 || words[5] === 65535);
++  const nat64 = words.slice(0, 6).every((word, index) => word === (index === 0 ? 100 : index === 1 ? 65435 : 0));
++  const sixToFour = words[0] === 8194;
++  if (!mapped && !nat64 && !sixToFour)
++    return;
++  const high = sixToFour ? words[1] : words[6];
++  const low = sixToFour ? words[2] : words[7];
++  return `${high >> 8}.${high & 255}.${low >> 8}.${low & 255}`;
++}
++function forbiddenAddress(address) {
++  const value = address.toLowerCase().replace(/^\[|\]$/g, "");
++  if (!value.includes(":"))
++    return forbiddenIpv4(value);
++  const embedded = embeddedIpv4(value);
++  if (embedded && forbiddenIpv4(embedded))
++    return true;
++  if (value === "::1" || value === "::" || value === "fd00:ec2::254")
++    return true;
++  if (/^fe[89a-f][0-9a-f]:/.test(value) || /^ff[0-9a-f]{2}:/.test(value))
++    return true;
++  return false;
++}
++async function resolveSafe(host) {
++  const addresses = await lookup(host, { all: true, verbatim: true });
++  if (addresses.length === 0 || addresses.some(({ address: address2 }) => forbiddenAddress(address2)))
++    throw new Error("egress: destination address denied");
++  const address = addresses[0]?.address;
++  if (!address)
++    throw new Error("egress: destination address unavailable");
++  return address;
++}
++function compareToken(actual, expected) {
++  if (!actual)
++    return false;
++  const left = Buffer.from(actual);
++  const right = Buffer.from(expected);
++  return left.length === right.length && timingSafeEqual(left, right);
++}
++function cleanHeaders(headers) {
++  const clean = {};
++  const nominated = new Set(String(headers.connection ?? "").split(",").map((name) => name.trim().toLowerCase()).filter(Boolean));
++  for (const [name, value] of Object.entries(headers)) {
++    if (value !== undefined && !HOP_HEADERS.has(name.toLowerCase()) && !nominated.has(name.toLowerCase()))
++      clean[name] = value;
++  }
++  return clean;
++}
++function parseTarget(raw) {
++  if (!raw)
++    return;
++  let parsed;
++  try {
++    parsed = new URL(raw);
++  } catch {
++    return;
++  }
++  if (parsed.protocol !== "http:" || parsed.username || parsed.password || parsed.hash)
++    return;
++  if (parsed.search)
++    return;
++  const host = normalizeHost(parsed.hostname);
++  const port = parsed.port ? asPort(Number(parsed.port), "port") : 80;
++  const path = parsed.pathname || "/";
++  return { host, port, path, url: `http://${authorityKey(host, port)}${path}` };
++}
++function parseAuthority(raw) {
++  if (!raw || raw.includes("/") || raw.includes("?") || raw.includes("#"))
++    return;
++  try {
++    const parsed = new URL(`http://${raw}`);
++    if (parsed.username || parsed.password || parsed.pathname !== "/" || !parsed.port)
++      return;
++    return normalizeAuthority({ host: parsed.hostname, port: Number(parsed.port) });
++  } catch {
++    return;
++  }
++}
++function sendStatus(res, status, body = "") {
++  if (!res.headersSent)
++    res.writeHead(status, { connection: "close" });
++  res.end(body);
++}
++function bearerToken(value) {
++  const match = typeof value === "string" ? /^Bearer ([^\s]+)$/.exec(value) : undefined;
++  return match?.[1];
++}
++function methodAllowed(path, method) {
++  const verb = method?.toUpperCase();
++  if (path.endsWith("/models"))
++    return verb === "GET" || verb === "HEAD";
++  if (path.endsWith("/chat/completions"))
++    return verb === "POST";
++  return verb === "GET" || verb === "HEAD";
++}
++function responseCleanup(res, cleanup) {
++  let done = false;
++  const finish = () => {
++    if (done)
++      return;
++    done = true;
++    res.off("close", finish);
++    res.off("finish", finish);
++    cleanup();
++  };
++  res.once("close", finish);
++  res.once("finish", finish);
++}
++function closeServer(server, sockets) {
++  for (const socket of sockets)
++    socket.destroy();
++  return new Promise((resolve, reject) => server.close((error) => error ? reject(error) : resolve()));
++}
++function track(server, maxConnections = MAX_CONNECTIONS) {
++  const sockets = new Set;
++  server.maxConnections = maxConnections;
++  server.on("connection", (socket) => {
++    if (sockets.size >= maxConnections) {
++      socket.destroy();
++      return;
++    }
++    sockets.add(socket);
++    socket.once("close", () => sockets.delete(socket));
++  });
++  return sockets;
++}
++async function startEgressProxy(options) {
++  const bindAddress = options.bindAddress ?? "0.0.0.0";
++  const proxyPort = options.proxyPort ?? 3128;
++  const controlSocketPath = options.controlSocketPath ?? CONTROL_SOCKET;
++  const staticConnect = new Set(options.allowConnect.map((item) => {
++    const authority = normalizeAuthority(item);
++    return authorityKey(authority.host, authority.port);
++  }));
++  const staticHttp = new Map(normalizeRules(options.allowHttp).map((rule) => [authorityKey(rule.host, rule.port), rule]));
++  const grants = new Map;
++  const revokeGrant = (id) => {
++    const grant = grants.get(id);
++    if (!grant)
++      return;
++    grants.delete(id);
++    clearTimeout(grant.expires);
++    for (const abort of grant.aborters)
++      abort();
++  };
++  const ingressGrants = new Map;
++  const revokeIngress = (id) => {
++    const grant = ingressGrants.get(id);
++    if (!grant)
++      return;
++    ingressGrants.delete(id);
++    clearTimeout(grant.expires);
++    for (const abort of grant.aborters)
++      abort();
++  };
++  const renewGrant = (id) => {
++    const grant = grants.get(id);
++    if (!grant)
++      return false;
++    clearTimeout(grant.expires);
++    grant.expires = setTimeout(() => revokeGrant(id), GRANT_TTL_MS);
++    grant.expires.unref();
++    return true;
++  };
++  const renewIngress = (id) => {
++    const grant = ingressGrants.get(id);
++    if (!grant)
++      return false;
++    clearTimeout(grant.expires);
++    grant.expires = setTimeout(() => revokeIngress(id), GRANT_TTL_MS);
++    grant.expires.unref();
++    return true;
++  };
++  const targetHost = normalizeHost(options.ingressTargetHost);
++  const ingress = options.ingress ?? [];
++  const ingressServers = [];
++  const proxy = createServer((req, res) => {
++    (async () => {
++      const target = parseTarget(req.url);
++      if (!target) {
++        sendStatus(res, 403);
++        return;
++      }
++      const authority = authorityKey(target.host, target.port);
++      const staticRule = staticHttp.get(authority);
++      const grant = [...grants.values()].find((item) => authorityKey(item.host, item.port) === authority && item.path === target.path && compareToken(bearerToken(req.headers.authorization), item.token));
++      if (!staticRule && !grant) {
++        sendStatus(res, 403);
++        return;
++      }
++      if (staticRule && !staticRule.paths.has(target.path) && !grant) {
++        sendStatus(res, 403);
++        return;
++      }
++      if (grant ? req.method !== "POST" : !methodAllowed(target.path, req.method)) {
++        sendStatus(res, 405);
++        return;
++      }
++      let address;
++      try {
++        address = await resolveSafe(target.host);
++      } catch {
++        sendStatus(res, 403);
++        return;
++      }
++      const headers = cleanHeaders(req.headers);
++      headers.host = authority;
++      headers.connection = "close";
++      const upstream = request({ hostname: address, port: target.port, method: req.method, path: target.path, headers }, (response) => {
++        upstream.setTimeout(0);
++        const responseHeaders = cleanHeaders(response.headers);
++        res.writeHead(response.statusCode ?? 502, responseHeaders);
++        response.pipe(res);
++      });
++      const abort = () => {
++        upstream.destroy();
++      };
++      req.once("aborted", abort);
++      res.once("close", abort);
++      upstream.setTimeout(5000, abort);
++      if (grant)
++        grant.aborters.add(abort);
++      const removeAborter = () => {
++        grant?.aborters.delete(abort);
++      };
++      responseCleanup(res, removeAborter);
++      upstream.once("error", () => sendStatus(res, 502));
++      req.pipe(upstream);
++    })().catch(() => sendStatus(res, 502));
++  });
++  const proxySockets = track(proxy);
++  proxy.on("connect", (req, client, head) => {
++    const authority = parseAuthority(req.url);
++    if (!authority || !staticConnect.has(authorityKey(authority.host, authority.port))) {
++      client.end(`HTTP/1.1 403 Forbidden\r
++Connection: close\r
++\r
++`);
++      return;
++    }
++    resolveSafe(authority.host).then((address) => {
++      if (client.destroyed)
++        return;
++      const upstream = connect({ host: address, port: authority.port });
++      upstream.setTimeout(5000, () => upstream.destroy());
++      upstream.once("connect", () => {
++        upstream.setTimeout(0);
++        client.write(`HTTP/1.1 200 Connection Established\r
++\r
++`);
++        if (head.length)
++          upstream.write(head);
++        upstream.pipe(client);
++        client.pipe(upstream);
++      });
++      upstream.once("error", () => client.destroy());
++      client.once("close", () => upstream.destroy());
++    }).catch(() => client.end(`HTTP/1.1 403 Forbidden\r
++Connection: close\r
++\r
++`));
++  });
++  const control = createTcpServer((socket) => {
++    let buffer = "";
++    socket.setTimeout(5000, () => socket.destroy());
++    socket.setEncoding("utf8");
++    socket.on("data", (chunk) => {
++      buffer += chunk;
++      if (buffer.length > 64 * 1024) {
++        socket.destroy();
++        return;
++      }
++      let newline;
++      while ((newline = buffer.indexOf(`
++`)) >= 0) {
++        const line = buffer.slice(0, newline);
++        buffer = buffer.slice(newline + 1);
++        try {
++          const message = JSON.parse(line);
++          if (message.op === "admit" && typeof message.url === "string" && typeof message.token === "string" && message.token.length > 0 && message.token.length <= 4096) {
++            const target = parseTarget(message.url);
++            if (!target || target.path !== "/mcp" || target.port === 80)
++              throw new Error("invalid bridge URL");
++            const id = randomUUID();
++            const expires = setTimeout(() => revokeGrant(id), GRANT_TTL_MS);
++            expires.unref();
++            grants.set(id, { host: target.host, port: target.port, path: "/mcp", token: message.token, aborters: new Set, expires });
++            socket.write(`${JSON.stringify({ ok: true, id })}
++`);
++            continue;
++          }
++          if (message.op === "revoke" && typeof message.id === "string") {
++            revokeGrant(message.id);
++            socket.write(`{"ok":true}
++`);
++            continue;
++          }
++          if (message.op === "renew" && typeof message.id === "string") {
++            if (!renewGrant(message.id))
++              throw new Error("unknown grant");
++            socket.write(`{"ok":true}
++`);
++            continue;
++          }
++          if (message.op === "open-ingress" && typeof message.port === "number") {
++            const targetPort = asPort(message.port, "ingress targetPort");
++            const mapping = ingress.find((candidate) => candidate.targetPort === targetPort);
++            if (!mapping)
++              throw new Error("unknown ingress target");
++            const id = randomUUID();
++            const token = randomUUID();
++            const expires = setTimeout(() => revokeIngress(id), GRANT_TTL_MS);
++            expires.unref();
++            ingressGrants.set(id, { targetPort, token, aborters: new Set, expires });
++            socket.write(`${JSON.stringify({ ok: true, id, token, port: mapping.listenPort })}
++`);
++            continue;
++          }
++          if (message.op === "revoke-ingress" && typeof message.id === "string") {
++            revokeIngress(message.id);
++            socket.write(`{"ok":true}
++`);
++            continue;
++          }
++          if (message.op === "renew-ingress" && typeof message.id === "string") {
++            if (!renewIngress(message.id))
++              throw new Error("unknown ingress grant");
++            socket.write(`{"ok":true}
++`);
++            continue;
++          }
++          throw new Error("invalid control request");
++        } catch {
++          socket.write(`{"ok":false,"error":"invalid request"}
++`);
++        }
++      }
++    });
++  });
++  const controlSockets = track(control);
++  await mkdir(dirname(controlSocketPath), { recursive: true });
++  try {
++    await unlink(controlSocketPath);
++  } catch (error) {
++    if (error.code !== "ENOENT")
++      throw error;
++  }
++  const listen = (server, port, host) => new Promise((resolve, reject) => {
++    const onError = (error) => {
++      server.off("listening", onListening);
++      reject(error);
++    };
++    const onListening = () => {
++      server.off("error", onError);
++      resolve(server.address().port);
++    };
++    server.once("error", onError);
++    server.once("listening", onListening);
++    server.listen(port, host);
++  });
++  const listenUnix = (server, path) => new Promise((resolve, reject) => {
++    const onError = (error) => {
++      server.off("listening", onListening);
++      reject(error);
++    };
++    const onListening = () => {
++      server.off("error", onError);
++      resolve();
++    };
++    server.once("error", onError);
++    server.once("listening", onListening);
++    server.listen(path);
++  });
++  try {
++    const actualProxyPort = await listen(proxy, proxyPort, bindAddress);
++    await listenUnix(control, controlSocketPath);
++    await chmod(controlSocketPath, 384);
++    for (const mapping of ingress) {
++      const listenPort = asPort(mapping.listenPort, "ingress listenPort");
++      const targetPort = asPort(mapping.targetPort, "ingress targetPort");
++      const server = createServer((req, res) => {
++        (async () => {
++          const rawToken = req.headers["x-tanstack-sandbox-token"];
++          const token = Array.isArray(rawToken) ? undefined : rawToken;
++          const grant = [...ingressGrants.values()].find((item) => item.targetPort === targetPort && compareToken(token, item.token));
++          if (!grant) {
++            sendStatus(res, 401);
++            return;
++          }
++          if (req.headers.upgrade) {
++            sendStatus(res, 426);
++            return;
++          }
++          const headers = cleanHeaders(req.headers);
++          delete headers["x-tanstack-sandbox-token"];
++          headers.host = authorityKey(targetHost, targetPort);
++          headers.connection = "close";
++          const upstream = request({ hostname: targetHost, port: targetPort, method: req.method, path: req.url || "/", headers }, (response) => {
++            upstream.setTimeout(0);
++            const responseHeaders = cleanHeaders(response.headers);
++            res.writeHead(response.statusCode ?? 502, responseHeaders);
++            response.pipe(res);
++          });
++          const abort = () => {
++            upstream.destroy();
++          };
++          req.once("aborted", abort);
++          res.once("close", abort);
++          upstream.setTimeout(5000, abort);
++          grant.aborters.add(abort);
++          responseCleanup(res, () => grant.aborters.delete(abort));
++          upstream.once("error", () => sendStatus(res, 502));
++          req.pipe(upstream);
++        })().catch(() => sendStatus(res, 502));
++      });
++      server.on("upgrade", (_request, socket) => socket.end(`HTTP/1.1 426 Upgrade Required\r
++Connection: close\r
++\r
++`));
++      const sockets = track(server);
++      const actual = await listen(server, listenPort, options.ingressBindAddress ?? "0.0.0.0");
++      ingressServers.push({ server, sockets, port: actual });
++    }
++    let closeTask;
++    return {
++      proxyPort: actualProxyPort,
++      controlSocketPath,
++      ingressPorts: ingressServers.map(({ port }) => port),
++      close: () => closeTask ??= (async () => {
++        const errors = [];
++        for (const id of ingressGrants.keys())
++          revokeIngress(id);
++        for (const id of grants.keys())
++          revokeGrant(id);
++        for (const item of ingressServers) {
++          try {
++            await closeServer(item.server, item.sockets);
++          } catch (error) {
++            errors.push(error);
++          }
++        }
++        try {
++          await closeServer(proxy, proxySockets);
++        } catch (error) {
++          errors.push(error);
++        }
++        try {
++          await closeServer(control, controlSockets);
++        } catch (error) {
++          errors.push(error);
++        }
++        try {
++          await unlink(controlSocketPath);
++        } catch (error) {
++          if (error.code !== "ENOENT")
++            errors.push(error);
++        }
++        if (errors.length === 1)
++          throw errors[0];
++        if (errors.length > 1)
++          throw new AggregateError(errors, "egress proxy close failed");
++      })()
++    };
++  } catch (error) {
++    const cleanupErrors = [];
++    for (const item of ingressServers) {
++      try {
++        await closeServer(item.server, item.sockets);
++      } catch (cleanupError) {
++        cleanupErrors.push(cleanupError);
++      }
++    }
++    try {
++      await closeServer(proxy, proxySockets);
++    } catch (cleanupError) {
++      cleanupErrors.push(cleanupError);
++    }
++    try {
++      await closeServer(control, controlSockets);
++    } catch (cleanupError) {
++      cleanupErrors.push(cleanupError);
++    }
++    try {
++      await unlink(controlSocketPath);
++    } catch (cleanupError) {
++      if (cleanupError.code !== "ENOENT")
++        cleanupErrors.push(cleanupError);
++    }
++    if (cleanupErrors.length > 0)
++      throw new AggregateError([error, ...cleanupErrors], "egress proxy startup and cleanup failed");
++    throw error;
++  }
++}
++var EGRESS_PROXY_CONFIG_ENV = "TANSTACK_EGRESS_PROXY_CONFIG";
++if (process.env[EGRESS_PROXY_CONFIG_ENV] !== undefined) {
++  let parsed;
++  try {
++    parsed = JSON.parse(process.env[EGRESS_PROXY_CONFIG_ENV]);
++  } catch {
++    throw new Error(`egress: ${EGRESS_PROXY_CONFIG_ENV} must contain JSON`);
++  }
++  const shutdown = async () => {
++    const handle = await booted;
++    await handle.close();
++  };
++  const booted = startEgressProxy(parsed);
++  booted.catch((error) => {
++    console.error(error);
++    process.exitCode = 1;
++  });
++  process.once("SIGTERM", () => {
++    shutdown();
++  });
++  process.once("SIGINT", () => {
++    shutdown();
++  });
++}
++export {
++  startEgressProxy,
++  EGRESS_PROXY_CONFIG_ENV
++};
 diff --git a/dist/esm/handle.d.ts b/dist/esm/handle.d.ts
-index ff467bfdff06070a6b1e1fb7e852625975f1957e..6d0d67e3a6c730635f21e6b84e5f19ff43aa24bb 100644
+index ff467bfdff06070a6b1e1fb7e852625975f1957e..b678c714ad4e00127d25a6409418dc8c28952ddb 100644
 --- a/dist/esm/handle.d.ts
 +++ b/dist/esm/handle.d.ts
-@@ -19,6 +19,10 @@ export interface DockerHandleDeps {
+@@ -19,6 +19,20 @@ export interface DockerHandleDeps {
      forkFactory: (sourceContainerId: string) => Promise<SandboxHandle>;
      /** Remove the container on destroy (vs. just stop). */
      removeOnDestroy: boolean;
 +    /** Origin reachable by the caller for published container ports. */
 +    advertisedPortOrigin: string;
++    /** Dynamic capability descriptor for this provider configuration. */
++    networkPolicy: boolean;
++    /** Proxy container that owns host-published ingress, when egress is isolated. */
++    portContainer?: Dockerode.Container;
++    /** Map an agent port to the proxy listener that forwards to it. */
++    ingressByTarget?: ReadonlyMap<number, number>;
++    /** Provider-owned authenticated ingress for an isolated sandbox. */
++    connectPort?: (port: number) => Promise<import('@tanstack/ai-sandbox').SandboxChannel>;
++    /** Provider-owned exact host bridge admission, when egress is isolated. */
++    hostBridgeAccess?: NonNullable<SandboxHandle['hostBridgeAccess']>;
 +    /** Provider owns container and intermediate fork image teardown. */
 +    destroyContainer: () => Promise<void>;
      /**
       * Sink for non-fatal teardown diagnostics — a kill the container refused or
       * could not confirm. Teardown never throws, so without a logger those are
-@@ -41,6 +45,7 @@ export declare class DockerHandle implements SandboxHandle {
+@@ -36,11 +50,13 @@ export declare class DockerHandle implements SandboxHandle {
+     readonly process: SandboxHandle['process'];
+     readonly ports: SandboxHandle['ports'];
+     readonly env: SandboxHandle['env'];
++    readonly hostBridgeAccess?: SandboxHandle['hostBridgeAccess'];
+     private readonly docker;
+     private readonly container;
      private readonly workdir;
      private readonly deps;
      private readonly logger;
@@ -22,10 +697,10 @@ index ff467bfdff06070a6b1e1fb7e852625975f1957e..6d0d67e3a6c730635f21e6b84e5f19ff
      constructor(deps: DockerHandleDeps);
      /** Map the conventional `/workspace` virtual root to the container workdir. */
 diff --git a/dist/esm/handle.js b/dist/esm/handle.js
-index 004a79a0840d869a08ac048b4f4774fb5e29156d..d1dee72e47da3bb0a52e9f0d7fd3bcec21aa77ac 100644
+index 004a79a0840d869a08ac048b4f4774fb5e29156d..66b119507e1b11807ef97e4fa2b5fd421a4e7473 100644
 --- a/dist/esm/handle.js
 +++ b/dist/esm/handle.js
-@@ -206,378 +206,449 @@ async function* decodeStream(stream) {
+@@ -206,378 +206,455 @@ async function* decodeStream(stream) {
  	const tail = decoder.decode();
  	if (tail !== "") yield tail;
  }
@@ -37,19 +712,18 @@ index 004a79a0840d869a08ac048b4f4774fb5e29156d..d1dee72e47da3bb0a52e9f0d7fd3bcec
 -	fs;
 -	git;
 -	process;
--	ports;
--	env;
--	docker;
 +class DockerHandle {
 +    id;
 +    provider = 'docker';
 +    workspaceRoot;
-+    capabilities = DOCKER_CAPS;
++	capabilities;
 +    fs;
 +    git;
 +    process;
-+    ports;
-+    env;
+ 	ports;
+ 	env;
+-	docker;
++	hostBridgeAccess;
 +    docker;
  	container;
  	workdir;
@@ -385,38 +1059,9 @@ index 004a79a0840d869a08ac048b4f4774fb5e29156d..d1dee72e47da3bb0a52e9f0d7fd3bcec
 -			}
 -		};
 -	}
--	async connectPort(port) {
--		const hostPort = (await this.container.inspect()).NetworkSettings.Ports[`${port}/tcp`]?.[0]?.HostPort;
--		if (!hostPort) throw new Error(`docker: container port ${port} is not published. Pass publishPorts: [${port}] to dockerSandbox() to reach it from the host.`);
--		return { url: `http://localhost:${hostPort}` };
--	}
--	async snapshot(label) {
--		const tag = `tanstack-ai-sandbox-snapshot:${this.id.slice(0, 12)}-${label ?? "snap"}`;
--		const [repo, tagName] = tag.split(":");
--		await this.container.commit({
--			repo,
--			tag: tagName
--		});
--		return {
--			id: tag,
--			label
--		};
--	}
--	fork = async () => {
--		if (!this.capabilities.fork) throw new UnsupportedCapabilityError("docker", "fork");
--		return this.deps.forkFactory(this.id);
--	};
--	async destroy() {
--		try {
--			await this.container.stop({ t: 5 });
--		} catch {}
--		if (this.deps.removeOnDestroy) await this.container.remove({
--			force: true,
--			v: true
--		});
--	}
--};
 +		this.advertisedPortOrigin = deps.advertisedPortOrigin;
++		this.capabilities = deps.networkPolicy ? { ...DOCKER_CAPS, networkPolicy: true } : DOCKER_CAPS;
++		this.hostBridgeAccess = deps.hostBridgeAccess;
 +        this.workspaceRoot = deps.workdir;
 +        this.deps = deps;
 +        this.id = deps.container.id;
@@ -810,9 +1455,42 @@ index 004a79a0840d869a08ac048b4f4774fb5e29156d..d1dee72e47da3bb0a52e9f0d7fd3bcec
 +            },
 +        };
 +    }
-+    async connectPort(port) {
-+        const info = await this.container.inspect();
-+        const mapping = info.NetworkSettings.Ports[`${port}/tcp`];
+ 	async connectPort(port) {
+-		const hostPort = (await this.container.inspect()).NetworkSettings.Ports[`${port}/tcp`]?.[0]?.HostPort;
+-		if (!hostPort) throw new Error(`docker: container port ${port} is not published. Pass publishPorts: [${port}] to dockerSandbox() to reach it from the host.`);
+-		return { url: `http://localhost:${hostPort}` };
+-	}
+-	async snapshot(label) {
+-		const tag = `tanstack-ai-sandbox-snapshot:${this.id.slice(0, 12)}-${label ?? "snap"}`;
+-		const [repo, tagName] = tag.split(":");
+-		await this.container.commit({
+-			repo,
+-			tag: tagName
+-		});
+-		return {
+-			id: tag,
+-			label
+-		};
+-	}
+-	fork = async () => {
+-		if (!this.capabilities.fork) throw new UnsupportedCapabilityError("docker", "fork");
+-		return this.deps.forkFactory(this.id);
+-	};
+-	async destroy() {
+-		try {
+-			await this.container.stop({ t: 5 });
+-		} catch {}
+-		if (this.deps.removeOnDestroy) await this.container.remove({
+-			force: true,
+-			v: true
+-		});
+-	}
+-};
++		if (this.deps.connectPort) return this.deps.connectPort(port);
++		const publishedPort = this.deps.ingressByTarget?.get(port) ?? port;
++		if (this.deps.ingressByTarget && !this.deps.ingressByTarget.has(port)) throw new Error(`docker: container port ${port} has no configured egress ingress mapping`);
++		const info = await (this.deps.portContainer ?? this.container).inspect();
++		const mapping = info.NetworkSettings.Ports[`${publishedPort}/tcp`];
 +        const hostPort = mapping?.[0]?.HostPort;
 +        if (!hostPort) {
 +            throw new Error(`docker: container port ${port} is not published. Pass publishPorts: [${port}] to dockerSandbox() to reach it from the host.`);
@@ -840,11 +1518,26 @@ index 004a79a0840d869a08ac048b4f4774fb5e29156d..d1dee72e47da3bb0a52e9f0d7fd3bcec
  //#endregion
  export { DOCKER_CAPS, DockerHandle };
  
+diff --git a/dist/esm/index.d.ts b/dist/esm/index.d.ts
+index 603d56330300b1aa415e99ed650df27869352dd2..16c37c06684f51de64ccba42cf54382dce813e9d 100644
+--- a/dist/esm/index.d.ts
++++ b/dist/esm/index.d.ts
+@@ -1,5 +1,5 @@
+ export { dockerSandbox } from './provider.js';
+-export type { DockerSandboxConfig } from './provider.js';
++export type { DockerSandboxConfig, DockerSandboxEgressPolicy, EgressAuthority, EgressHttpRule, EgressIngress, } from './provider.js';
+ export { DockerHandle, DOCKER_CAPS } from './handle.js';
+ export type { DockerHandleDeps, DockerLogger } from './handle.js';
+ export { sbxSandbox } from './sbx/provider.js';
 diff --git a/dist/esm/provider.d.ts b/dist/esm/provider.d.ts
-index b8e7f9a0d2aa3ddcde6c46e787ed646b5252f05f..2bd8bde148db85e955816e0bdac62f4f905384ae 100644
+index b8e7f9a0d2aa3ddcde6c46e787ed646b5252f05f..8387a825e12623bf26b8cf7c5026c60aea5936e5 100644
 --- a/dist/esm/provider.d.ts
 +++ b/dist/esm/provider.d.ts
-@@ -4,14 +4,24 @@ import { SandboxProvider } from '@tanstack/ai-sandbox';
+@@ -1,17 +1,33 @@
+ import { default as Dockerode } from 'dockerode';
+ import { DockerLogger } from './handle.js';
++import { DockerSandboxEgressPolicy, EgressAuthority, EgressHttpRule, EgressIngress } from './egress-proxy.js';
+ import { SandboxProvider } from '@tanstack/ai-sandbox';
  export interface DockerSandboxConfig {
      /** Image to run, e.g. `node:22`. Pulled automatically if absent locally. */
      image: string;
@@ -866,13 +1559,19 @@ index b8e7f9a0d2aa3ddcde6c46e787ed646b5252f05f..2bd8bde148db85e955816e0bdac62f4f
 +     * HostConfig values are not exposed by this provider.
 +     */
 +    isolationPolicy?: DockerSandboxIsolationPolicy;
++    /**
++     * Opt in to provider-owned egress isolation. The agent is placed on a
++     * private internal network and can reach only this trusted proxy's rules.
++     */
++    egress?: DockerSandboxEgressPolicy;
      /**
       * Add `host.docker.internal:host-gateway` so the container can reach the
       * host (e.g. a host-side MCP tool-bridge). Defaults to true.
-@@ -28,6 +38,13 @@ export interface DockerSandboxConfig {
+@@ -28,6 +44,14 @@ export interface DockerSandboxConfig {
       */
      logger?: DockerLogger;
  }
++export type { DockerSandboxEgressPolicy, EgressAuthority, EgressHttpRule, EgressIngress };
 +export interface DockerSandboxIsolationPolicy {
 +    user: string;
 +    diskSize: string;
@@ -884,10 +1583,10 @@ index b8e7f9a0d2aa3ddcde6c46e787ed646b5252f05f..2bd8bde148db85e955816e0bdac62f4f
   * Docker sandbox provider — runs harness adapters inside isolated containers.
   * Requires a reachable Docker daemon (local socket by default; override via
 diff --git a/dist/esm/provider.js b/dist/esm/provider.js
-index 6bc1a9d6355d8e62488c5c1b555133460e96ce19..17c9b01cd3569a0a4469b05fde8d4297b7e0ddb3 100644
+index 6bc1a9d6355d8e62488c5c1b555133460e96ce19..51bfbc7f4acc4703f7b730edd025fa8fc6bf7655 100644
 --- a/dist/esm/provider.js
 +++ b/dist/esm/provider.js
-@@ -1,135 +1,449 @@
+@@ -1,135 +1,1140 @@
 -import { DOCKER_CAPS, DockerHandle } from "./handle.js";
 -import Dockerode from "dockerode";
 -//#region src/provider.ts
@@ -1011,7 +1710,11 @@ index 6bc1a9d6355d8e62488c5c1b555133460e96ce19..17c9b01cd3569a0a4469b05fde8d4297
 -		} catch {}
 -	}
 +import Dockerode from 'dockerode';
++import { createHash, randomUUID } from 'node:crypto';
++import { readFile } from 'node:fs/promises';
++import { Writable } from 'node:stream';
 +import { DOCKER_CAPS, DockerHandle } from './handle.js';
++import { EGRESS_PROXY_CONFIG_ENV } from './egress-proxy.js';
 +const NATIVE_WORKSPACE_ISOLATION = {
 +    user: '1000:1000',
 +    diskSize: '4G',
@@ -1033,10 +1736,87 @@ index 6bc1a9d6355d8e62488c5c1b555133460e96ce19..17c9b01cd3569a0a4469b05fde8d4297
 +}
 +const DEFAULT_WORKDIR = '/workspace';
 +const FORK_SOURCE_LABEL = 'ai.tanstack.sandbox.fork-source';
++const EGRESS_CONTROL_SOCKET = '/tmp/tanstack-egress/control.sock';
++const EGRESS_PROXY_HOST = 'tanstack-egress-proxy';
++const LABEL_PREFIX = 'com.tanstack.ai.sandbox';
++const MANAGED_LABEL = `${LABEL_PREFIX}.managed-by`;
++const SCHEMA_LABEL = `${LABEL_PREFIX}.schema`;
++const SANDBOX_KEY_LABEL = `${LABEL_PREFIX}.sandbox-key`;
++const OWNERSHIP_LABEL = `${LABEL_PREFIX}.ownership-v2`;
++const GENERATION_LABEL = `${LABEL_PREFIX}.generation`;
++const ROLE_LABEL = `${LABEL_PREFIX}.role`;
++const MANAGED_VALUE = 'tanstack-ai';
++const SCHEMA_VALUE = '1';
++const CONTROL_CLIENT = `const net=require('node:net');let data='';const socket=net.connect(process.argv[1]);socket.setEncoding('utf8');socket.setTimeout(5000,()=>socket.destroy(new Error('control timeout')));socket.on('connect',()=>{process.stdin.pipe(socket)});socket.on('data',chunk=>{data+=chunk;const i=data.indexOf('\\n');if(i>=0){process.stdout.write(data.slice(0,i+1));socket.end()}});socket.on('error',error=>{console.error(error.message);process.exitCode=1})`;
++function normalizeHost(host) {
++    const value = host.trim().toLowerCase().replace(/^\[|\]$/g, '');
++    if (!value || /[\s/?#@]/.test(value))
++        throw new Error('docker: invalid egress host');
++    return value;
++}
++function normalizePort(port, name) {
++    if (!Number.isInteger(port) || port < 1 || port > 65535)
++        throw new Error(`docker: ${name} must be a TCP port`);
++    return port;
++}
++function normalizeEgressPolicy(policy) {
++    if (!policy)
++        return undefined;
++    const proxyImage = policy.proxyImage.trim();
++    if (!proxyImage)
++        throw new Error('docker: egress.proxyImage is required');
++    const allowConnect = [...policy.allowConnect]
++        .map(({ host, port }) => ({ host: normalizeHost(host), port: normalizePort(port, 'egress allowConnect port') }))
++        .sort((a, b) => `${a.host}:${a.port}`.localeCompare(`${b.host}:${b.port}`));
++    const allowHttp = [...policy.allowHttp]
++        .map(({ host, port, paths }) => {
++        const normalizedPaths = [...new Set(paths)].sort();
++        if (normalizedPaths.length === 0 ||
++            normalizedPaths.some((path) => !path.startsWith('/') || path.includes('?') || path.includes('#')))
++            throw new Error('docker: egress allowHttp paths must be non-empty exact paths');
++        return {
++            host: normalizeHost(host),
++            port: normalizePort(port, 'egress allowHttp port'),
++            paths: normalizedPaths,
++        };
++    })
++        .sort((a, b) => `${a.host}:${a.port}`.localeCompare(`${b.host}:${b.port}`));
++    const ingress = [...(policy.ingress ?? [])]
++        .map(({ listenPort, targetPort }) => ({
++        listenPort: normalizePort(listenPort, 'egress ingress listenPort'),
++        targetPort: normalizePort(targetPort, 'egress ingress targetPort'),
++    }))
++        .sort((a, b) => a.targetPort - b.targetPort || a.listenPort - b.listenPort);
++    if (new Set(ingress.map(({ listenPort }) => listenPort)).size !== ingress.length)
++        throw new Error('docker: egress ingress listenPort values must be unique');
++    if (new Set(ingress.map(({ targetPort }) => targetPort)).size !== ingress.length)
++        throw new Error('docker: egress ingress targetPort values must be unique');
++    return { proxyImage, allowConnect, allowHttp, ingress };
++}
++function labels(key, owner, generation, role) {
++    return {
++        [MANAGED_LABEL]: MANAGED_VALUE,
++        [SCHEMA_LABEL]: SCHEMA_VALUE,
++        [SANDBOX_KEY_LABEL]: key,
++        [OWNERSHIP_LABEL]: owner,
++        [GENERATION_LABEL]: generation,
++        [ROLE_LABEL]: role,
++    };
++}
++function ownershipKey(id, workspaceIdentity) {
++    return createHash('sha256')
++        .update(`docker-owner-v2\0${id}\0${workspaceIdentity}`)
++        .digest('hex');
++}
++function dockerName(owner, suffix) {
++    return `tanstack-ai-${owner.slice(0, 24)}-${suffix}`;
++}
 +function portOrigin(advertisedPortHost, modem) {
 +    const configured = advertisedPortHost?.trim();
 +    if (!configured) {
-+        // The OpenCode server is plain HTTP regardless of Docker API protocol.
++        // The OpenCode server is plain HTTP regardless of whether Docker's API
++        // uses HTTP or HTTPS. SSH and socket transports have no published TCP
++        // host to advertise, so localhost remains the useful default.
 +        const modemHost = modem.protocol === 'ssh'
 +            ? undefined
 +            : typeof modem.host === 'string' ? modem.host.trim() : undefined;
@@ -1062,7 +1842,8 @@ index 6bc1a9d6355d8e62488c5c1b555133460e96ce19..17c9b01cd3569a0a4469b05fde8d4297
 +        }
 +        return 'http://localhost';
 +    }
-+    // A caller supplied origin is deliberately strict.
++    // A caller supplied origin is deliberately strict. Credentials and URL
++    // components other than the host are unsafe or meaningless here.
 +    const raw = configured.includes('://')
 +        ? configured
 +        : `http://${configured.indexOf(':') !== configured.lastIndexOf(':') && !configured.startsWith('[') ? `[${configured}]` : configured}`;
@@ -1096,15 +1877,27 @@ index 6bc1a9d6355d8e62488c5c1b555133460e96ce19..17c9b01cd3569a0a4469b05fde8d4297
 +    name = 'docker';
 +    docker;
 +    isolationPolicy;
++    egressPolicy;
 +    advertisedPortOrigin;
 +    constructor(config) {
 +        this.config = config;
 +        this.docker = new Dockerode(config.dockerodeOptions);
 +        this.isolationPolicy = validateIsolationPolicy(config.isolationPolicy);
++        this.egressPolicy = normalizeEgressPolicy(config.egress);
++        if (this.egressPolicy) {
++            const published = [...new Set(config.publishPorts ?? [])].sort((a, b) => a - b);
++            const targets = this.egressPolicy.ingress.map(({ targetPort }) => targetPort);
++            if (published.length !== targets.length ||
++                published.some((port, index) => port !== targets[index])) {
++                throw new Error('docker: egress ingress targets must exactly match publishPorts');
++            }
++        }
 +        this.advertisedPortOrigin = portOrigin(config.advertisedPortHost, this.docker.modem);
 +    }
 +    capabilities() {
-+        return DOCKER_CAPS;
++        return this.egressPolicy
++            ? { ...DOCKER_CAPS, networkPolicy: true }
++            : DOCKER_CAPS;
 +    }
 +    get workdir() {
 +        return this.config.workdir ?? DEFAULT_WORKDIR;
@@ -1133,8 +1926,492 @@ index 6bc1a9d6355d8e62488c5c1b555133460e96ce19..17c9b01cd3569a0a4469b05fde8d4297
 +        signal?.throwIfAborted();
 +        this.assertImageVolumes(image, pulled);
 +    }
++    async proxyAsset() {
++        return readFile(new URL('./egress-proxy.js', import.meta.url), 'utf8');
++    }
++    async currentGeneration(signal) {
++        const policy = this.egressPolicy;
++        if (!policy)
++            throw new Error('docker: egress generation requested without a policy');
++        await Promise.all([
++            this.ensureImage(this.config.image, signal),
++            this.assertProxyImage(policy.proxyImage, signal),
++        ]);
++        const inspectOptions = {
++            abortSignal: signal,
++        };
++        const [agentImage, proxyImage, proxyAsset] = await Promise.all([
++            this.docker.getImage(this.config.image).inspect(inspectOptions),
++            this.docker.getImage(policy.proxyImage).inspect(inspectOptions),
++            this.proxyAsset(),
++        ]);
++        if (agentImage.Config.Volumes && Object.keys(agentImage.Config.Volumes).length > 0)
++            throw new Error(`docker: egress agent image ${this.config.image} declares volumes`);
++        return createHash('sha256').update(JSON.stringify({
++            agentImage: agentImage.Id,
++            proxyImage: proxyImage.Id,
++            proxyAsset: createHash('sha256').update(proxyAsset).digest('hex'),
++            workdir: this.workdir,
++            keepAliveCommand: this.config.keepAliveCommand ?? ['sh', '-c', 'tail -f /dev/null'],
++            publishPorts: [...(this.config.publishPorts ?? [])].sort((a, b) => a - b),
++            isolationPolicy: this.isolationPolicy,
++            egress: policy,
++        })).digest('hex');
++    }
++    async assertProxyImage(image, signal) {
++        await this.ensureImage(image, signal);
++        const options = {
++            abortSignal: signal,
++        };
++        const info = await this.docker.getImage(image).inspect(options);
++        if (info.Config.Volumes && Object.keys(info.Config.Volumes).length > 0) {
++            throw new Error(`docker: egress proxy image ${image} declares volumes`);
++        }
++    }
++    assertOwnedLabels(resource, actual, key, owner, generation, role) {
++        if (actual?.[MANAGED_LABEL] !== MANAGED_VALUE ||
++            actual[SCHEMA_LABEL] !== SCHEMA_VALUE ||
++            actual[SANDBOX_KEY_LABEL] !== key ||
++            actual[OWNERSHIP_LABEL] !== owner ||
++            actual[ROLE_LABEL] !== role ||
++            (generation !== undefined && actual[GENERATION_LABEL] !== generation)) {
++            throw new Error(`docker: ${resource} does not match the owned egress ${role} configuration`);
++        }
++    }
++    async proxyControl(proxy, message) {
++        const exec = await proxy.exec({
++            Cmd: ['node', '-e', CONTROL_CLIENT, EGRESS_CONTROL_SOCKET],
++            AttachStdin: true,
++            AttachStdout: true,
++            AttachStderr: true,
++        });
++        const stream = await exec.start({ hijack: true, stdin: true });
++        const stdout = [];
++        const stderr = [];
++        this.docker.modem.demuxStream(stream, new Writable({ write(chunk, _encoding, callback) { stdout.push(chunk); callback(); } }), new Writable({ write(chunk, _encoding, callback) { stderr.push(chunk); callback(); } }));
++        const settled = new Promise((resolve, reject) => {
++            stream.once('end', resolve);
++            stream.once('close', resolve);
++            stream.once('error', reject);
++        });
++        stream.end(`${JSON.stringify(message)}\n`);
++        await settled;
++        const info = await exec.inspect();
++        const errorText = Buffer.concat(stderr).toString('utf8').trim();
++        if ((info.ExitCode ?? 1) !== 0) {
++            throw new Error(`docker: egress proxy control failed${errorText ? `: ${errorText}` : ''}`);
++        }
++        const line = Buffer.concat(stdout).toString('utf8').trim();
++        let response;
++        try {
++            response = JSON.parse(line);
++        }
++        catch {
++            throw new Error('docker: invalid egress proxy control response');
++        }
++        if (typeof response !== 'object' || response === null || !('ok' in response))
++            throw new Error('docker: invalid egress proxy control response');
++        if (response.ok !== true) {
++            const detail = 'error' in response && typeof response.error === 'string'
++                ? `: ${response.error}`
++                : '';
++            throw new Error(`docker: egress proxy rejected control request${detail}`);
++        }
++        return response;
++    }
++    hostBridgeAccess(proxy) {
++        return {
++            admit: async ({ url, token }) => {
++                let parsed;
++                try {
++                    parsed = new URL(url);
++                }
++                catch {
++                    throw new Error('docker: invalid host bridge URL');
++                }
++                if (parsed.protocol !== 'http:' || !parsed.hostname || !parsed.port ||
++                    parsed.pathname !== '/mcp' || parsed.search || parsed.hash ||
++                    parsed.username || parsed.password || !token)
++                    throw new Error('docker: host bridge admission requires an exact HTTP /mcp URL and token');
++                const response = await this.proxyControl(proxy, { op: 'admit', url, token });
++                if (typeof response.id !== 'string' || !response.id)
++                    throw new Error('docker: egress proxy admission returned no grant id');
++                const id = response.id;
++                return {
++                    revoke: this.leasedRevoker(proxy, id, 'revoke'),
++                };
++            },
++        };
++    }
++    leasedRevoker(proxy, id, revokeOp, renewOp = 'renew') {
++        let renewalFailure;
++        let renewalTask;
++        let revokeTask;
++        const timer = setInterval(() => {
++            renewalTask = this.proxyControl(proxy, { op: renewOp, id })
++                .then(() => undefined)
++                .catch((error) => {
++                renewalFailure = error;
++                clearInterval(timer);
++                this.config.logger?.warn('docker: egress grant renewal failed', {
++                    grantId: id,
++                    error: error instanceof Error ? error.message : String(error),
++                });
++            });
++        }, 120_000);
++        timer.unref?.();
++        return () => {
++            revokeTask ??= (async () => {
++                clearInterval(timer);
++                await renewalTask;
++                let revokeFailure;
++                try {
++                    await this.proxyControl(proxy, { op: revokeOp, id });
++                }
++                catch (error) {
++                    revokeFailure = error;
++                }
++                if (renewalFailure !== undefined && revokeFailure !== undefined) {
++                    throw new AggregateError([renewalFailure, revokeFailure], 'docker: egress grant renewal and revocation failed');
++                }
++                if (revokeFailure !== undefined)
++                    throw revokeFailure;
++                if (renewalFailure !== undefined)
++                    throw renewalFailure;
++            })();
++            return revokeTask;
++        };
++    }
++    async connectEgressPort(topology, targetPort) {
++        const listenPort = topology.ingressByTarget.get(targetPort);
++        if (!listenPort) {
++            throw new Error(`docker: container port ${targetPort} has no configured egress ingress mapping`);
++        }
++        const info = await topology.proxy.inspect();
++        const hostPort = info.NetworkSettings.Ports[`${listenPort}/tcp`]?.[0]?.HostPort;
++        if (!hostPort)
++            throw new Error(`docker: egress proxy port ${listenPort} is not published`);
++        const response = await this.proxyControl(topology.proxy, {
++            op: 'open-ingress',
++            port: targetPort,
++        });
++        try {
++            if (typeof response.id !== 'string' || !response.id ||
++                typeof response.token !== 'string' || !response.token ||
++                (response.port !== undefined && response.port !== listenPort))
++                throw new Error('docker: egress proxy returned an invalid ingress grant');
++            const url = new URL(this.advertisedPortOrigin);
++            url.port = hostPort;
++            return {
++                url: url.origin,
++                headers: { 'x-tanstack-sandbox-token': response.token },
++                close: this.leasedRevoker(topology.proxy, response.id, 'revoke-ingress', 'renew-ingress'),
++            };
++        }
++        catch (error) {
++            if (typeof response.id !== 'string' || !response.id)
++                throw error;
++            try {
++                await this.proxyControl(topology.proxy, {
++                    op: 'revoke-ingress',
++                    id: response.id,
++                });
++            }
++            catch (cleanupError) {
++                throw new AggregateError([error, cleanupError], 'docker: ingress setup and grant cleanup failed');
++            }
++            throw error;
++        }
++    }
++    makeHandle(container, topology) {
++        return new DockerHandle({
++            docker: this.docker,
++            container,
++            workdir: this.workdir,
++            forkFactory: this.forkFactory,
++            removeOnDestroy: this.config.removeOnDestroy ?? true,
++            advertisedPortOrigin: this.advertisedPortOrigin,
++            networkPolicy: topology !== undefined,
++            ...(topology
++                ? {
++                    portContainer: topology.proxy,
++                    ingressByTarget: topology.ingressByTarget,
++                    connectPort: (port) => this.connectEgressPort(topology, port),
++                    hostBridgeAccess: this.hostBridgeAccess(topology.proxy),
++                }
++                : {}),
++            logger: this.config.logger,
++            destroyContainer: () => this.destroy({ id: container.id }),
++        });
++    }
++    async waitForProxy(proxy) {
++        const deadline = Date.now() + 10_000;
++        let lastError;
++        while (Date.now() < deadline) {
++            try {
++                await this.proxyControl(proxy, { op: 'revoke', id: '__ready__' });
++                return;
++            }
++            catch (error) {
++                lastError = error;
++                await new Promise((resolve) => setTimeout(resolve, 100));
++            }
++        }
++        throw new Error('docker: egress proxy control socket did not become ready', {
++            cause: lastError,
++        });
++    }
++    async stopAndRemoveContainer(container) {
++        try {
++            await container.stop({ t: 5 });
++        }
++        catch (error) {
++            if (!hasStatus(error, 304) && !hasStatus(error, 404))
++                throw error;
++        }
++        try {
++            await container.remove({ force: true, v: true });
++        }
++        catch (error) {
++            if (!hasStatus(error, 404))
++                throw error;
++        }
++    }
++    async startIfStopped(container, running, signal) {
++        if (running)
++            return;
++        await container.start({ abortSignal: signal });
++        signal?.throwIfAborted();
++    }
++    assertEgressContainerBoundary(resource, info, allowOwnedTmpfs = false) {
++        const host = info.HostConfig;
++        const values = host;
++        const user = info.Config.User?.trim().toLowerCase();
++        const mounts = info.Mounts ?? [];
++        const mountsAreOwnedTmpfs = allowOwnedTmpfs && mounts.length === 1 &&
++            mounts[0]?.Type === 'tmpfs' && mounts[0].Destination === '/tmp';
++        if (!user || user === 'root' || user === '0' || user.startsWith('0:') ||
++            host.Privileged === true ||
++            host.CapDrop?.length !== 1 || host.CapDrop[0] !== 'ALL' ||
++            (host.CapAdd?.length ?? 0) !== 0 ||
++            host.SecurityOpt?.length !== 1 || host.SecurityOpt[0] !== 'no-new-privileges:true' ||
++            (host.Devices?.length ?? 0) !== 0 ||
++            (Array.isArray(values.DeviceRequests) && values.DeviceRequests.length > 0) ||
++            (host.Binds?.length ?? 0) !== 0 ||
++            (Array.isArray(values.Mounts) && values.Mounts.length > 0) ||
++            (mounts.length > 0 && !mountsAreOwnedTmpfs) ||
++            host.LogConfig?.Type !== 'none')
++            throw new Error(`docker: ${resource} does not satisfy the owned egress boundary`);
++    }
++    async loadEgressTopology(container, info, signal, expectedKey, expectedOwner) {
++        const policy = this.egressPolicy;
++        if (!policy)
++            throw new Error('docker: cannot resume an isolated egress sandbox without its egress policy');
++        const key = info.Config.Labels?.[SANDBOX_KEY_LABEL];
++        const owner = info.Config.Labels?.[OWNERSHIP_LABEL];
++        if (!key || (expectedKey !== undefined && key !== expectedKey))
++            throw new Error('docker: sandbox identity does not match the requested deterministic id');
++        if (!owner || (expectedOwner !== undefined && owner !== expectedOwner))
++            throw new Error('docker: sandbox ownership does not match the requested workspace identity');
++        const generation = await this.currentGeneration(signal);
++        this.assertOwnedLabels(`container ${container.id}`, info.Config.Labels, key, owner, generation, 'agent');
++        this.assertEgressContainerBoundary(`container ${container.id}`, info);
++        this.assertIsolationPolicy(container.id, info);
++        const networkName = dockerName(owner, 'network');
++        const proxyName = dockerName(owner, 'proxy');
++        const network = this.docker.getNetwork(networkName);
++        const proxy = this.docker.getContainer(proxyName);
++        const [networkInfo, initialProxyInfo] = await Promise.all([
++            network.inspect(),
++            proxy.inspect({ abortSignal: signal }),
++        ]);
++        this.assertOwnedLabels(`network ${networkName}`, networkInfo.Labels, key, owner, generation, 'network');
++        this.assertOwnedLabels(`container ${proxyName}`, initialProxyInfo.Config.Labels, key, owner, generation, 'proxy');
++        this.assertEgressContainerBoundary(`container ${proxyName}`, initialProxyInfo, true);
++        if (!networkInfo.Internal)
++            throw new Error('docker: owned egress network is not internal');
++        const agentNetworks = Object.keys(info.NetworkSettings.Networks);
++        const proxyNetworks = Object.keys(initialProxyInfo.NetworkSettings.Networks);
++        if (agentNetworks.length !== 1 || agentNetworks[0] !== networkName)
++            throw new Error('docker: egress agent is not isolated on its owned internal network');
++        if (proxyNetworks.length !== 2 || !proxyNetworks.includes(networkName) ||
++            !proxyNetworks.includes('bridge'))
++            throw new Error('docker: egress proxy does not have the required dual-network topology');
++        if (info.HostConfig.Dns?.length !== 1 || info.HostConfig.Dns[0] !== '127.0.0.1' ||
++            Object.keys(info.HostConfig.PortBindings ?? {}).length !== 0)
++            throw new Error('docker: egress agent DNS or publication bypasses its proxy');
++        if (initialProxyInfo.Config.Image !== policy.proxyImage ||
++            initialProxyInfo.HostConfig.ReadonlyRootfs !== true ||
++            initialProxyInfo.HostConfig.Sysctls?.['net.ipv4.ip_forward'] !== '0' ||
++            initialProxyInfo.HostConfig.Tmpfs?.['/tmp'] !==
++                'rw,noexec,nosuid,nodev,uid=1000,gid=1000,mode=0700')
++            throw new Error('docker: egress proxy runtime configuration does not match policy');
++        await this.startIfStopped(proxy, initialProxyInfo.State.Running, signal);
++        await this.waitForProxy(proxy);
++        await this.startIfStopped(container, info.State.Running, signal);
++        return {
++            key,
++            owner,
++            generation,
++            network,
++            networkName,
++            proxy,
++            proxyName,
++            ingressByTarget: new Map(policy.ingress.map(({ targetPort, listenPort }) => [targetPort, listenPort])),
++        };
++    }
++    async startEgressContainer(image, env, agentName, key, owner, signal) {
++        const policy = this.egressPolicy;
++        const generation = await this.currentGeneration(signal);
++        const networkName = dockerName(owner, 'network');
++        const proxyName = dockerName(owner, 'proxy');
++        let network;
++        let proxy;
++        let agent;
++        const cleanupErrors = [];
++        try {
++            signal?.throwIfAborted();
++            await this.ensureImage(image, signal);
++            const proxyAsset = await this.proxyAsset();
++            signal?.throwIfAborted();
++            network = await this.docker.createNetwork({
++                Name: networkName,
++                Internal: true,
++                Labels: labels(key, owner, generation, 'network'),
++            });
++            const proxyExposed = {};
++            const proxyBindings = {};
++            for (const mapping of policy.ingress) {
++                proxyExposed[`${mapping.listenPort}/tcp`] = {};
++                proxyBindings[`${mapping.listenPort}/tcp`] = [{ HostPort: '' }];
++            }
++            const proxyOptions = {
++                allowConnect: policy.allowConnect,
++                allowHttp: policy.allowHttp,
++                ingressTargetHost: agentName,
++                ingress: policy.ingress,
++                bindAddress: EGRESS_PROXY_HOST,
++                ingressBindAddress: '0.0.0.0',
++                proxyPort: 3128,
++                controlSocketPath: EGRESS_CONTROL_SOCKET,
++            };
++            const proxyBody = {
++                Image: policy.proxyImage,
++                User: '1000:1000',
++                Entrypoint: ['node', '--input-type=module', '-e'],
++                Cmd: [proxyAsset],
++                Env: [`${EGRESS_PROXY_CONFIG_ENV}=${JSON.stringify(proxyOptions)}`],
++                Labels: labels(key, owner, generation, 'proxy'),
++                ExposedPorts: Object.keys(proxyExposed).length ? proxyExposed : undefined,
++                HostConfig: {
++                    NetworkMode: 'bridge',
++                    NanoCpus: 1_000_000_000,
++                    Memory: 1024 ** 3,
++                    MemorySwap: 1024 ** 3,
++                    PidsLimit: 128,
++                    CapDrop: ['ALL'],
++                    CapAdd: [],
++                    SecurityOpt: ['no-new-privileges:true'],
++                    Privileged: false,
++                    Devices: [],
++                    ReadonlyRootfs: true,
++                    Tmpfs: {
++                        '/tmp': 'rw,noexec,nosuid,nodev,uid=1000,gid=1000,mode=0700',
++                    },
++                    Sysctls: { 'net.ipv4.ip_forward': '0' },
++                    ExtraHosts: ['host.docker.internal:host-gateway'],
++                    LogConfig: { Type: 'none', Config: {} },
++                    PortBindings: Object.keys(proxyBindings).length ? proxyBindings : undefined,
++                },
++            };
++            const proxyRequest = {
++                ...proxyBody,
++                _query: { name: proxyName },
++                _body: proxyBody,
++            };
++            proxy = await this.docker.createContainer(proxyRequest);
++            await network.connect({
++                Container: proxy.id,
++                EndpointConfig: { Aliases: [proxyName, EGRESS_PROXY_HOST] },
++            });
++            await proxy.start({ abortSignal: signal });
++            await this.waitForProxy(proxy);
++            const proxyInfo = await proxy.inspect({ abortSignal: signal });
++            const proxyAddress = proxyInfo.NetworkSettings.Networks[networkName]?.IPAddress;
++            if (!proxyAddress)
++                throw new Error('docker: egress proxy has no internal address');
++            const isolation = this.isolationPolicy;
++            const proxyUrl = `http://${EGRESS_PROXY_HOST}:3128`;
++            const agentEnv = {
++                ...env,
++                HTTP_PROXY: proxyUrl,
++                HTTPS_PROXY: proxyUrl,
++                http_proxy: proxyUrl,
++                https_proxy: proxyUrl,
++                NO_PROXY: 'localhost,127.0.0.1',
++                no_proxy: 'localhost,127.0.0.1',
++            };
++            const agentBody = {
++                Image: image,
++                User: isolation?.user ?? '1000:1000',
++                Cmd: this.config.keepAliveCommand ?? ['sh', '-c', 'tail -f /dev/null'],
++                Tty: false,
++                WorkingDir: this.workdir,
++                Env: Object.entries(agentEnv).map(([name, value]) => `${name}=${value}`),
++                Labels: labels(key, owner, generation, 'agent'),
++                HostConfig: {
++                    ...(isolation
++                        ? {
++                            NanoCpus: isolation.nanoCpus,
++                            Memory: isolation.memoryBytes,
++                            MemorySwap: isolation.memoryBytes,
++                            PidsLimit: isolation.pidsLimit,
++                            StorageOpt: { size: isolation.diskSize },
++                        }
++                        : {}),
++                    CapDrop: ['ALL'],
++                    CapAdd: [],
++                    SecurityOpt: ['no-new-privileges:true'],
++                    Privileged: false,
++                    Devices: [],
++                    LogConfig: { Type: 'none', Config: {} },
++                    NetworkMode: networkName,
++                    Dns: ['127.0.0.1'],
++                    ExtraHosts: [`${EGRESS_PROXY_HOST}:${proxyAddress}`],
++                },
++            };
++            const agentRequest = {
++                ...agentBody,
++                _query: { name: agentName },
++                _body: agentBody,
++            };
++            agent = await this.docker.createContainer(agentRequest);
++            await agent.start({ abortSignal: signal });
++            signal?.throwIfAborted();
++            const agentInfo = await agent.inspect({ abortSignal: signal });
++            const topology = await this.loadEgressTopology(agent, agentInfo, signal, key, owner);
++            const handle = this.makeHandle(agent, topology);
++            await handle.fs.mkdir(this.workdir);
++            signal?.throwIfAborted();
++            return handle;
++        }
++        catch (error) {
++            if (agent)
++                await this.stopAndRemoveContainer(agent).catch((cleanupError) => cleanupErrors.push(cleanupError));
++            if (proxy)
++                await this.stopAndRemoveContainer(proxy).catch((cleanupError) => cleanupErrors.push(cleanupError));
++            if (network)
++                await network.remove().catch((cleanupError) => { if (!hasStatus(cleanupError, 404))
++                    cleanupErrors.push(cleanupError); });
++            if (cleanupErrors.length) {
++                throw new AggregateError([error, ...cleanupErrors], 'docker: egress sandbox startup and cleanup failed');
++            }
++            throw error;
++        }
++    }
 +    forkFactory = async (sourceContainerId) => {
 +        const source = this.docker.getContainer(sourceContainerId);
++        const sourceInfo = await source.inspect();
 +        const image = await source.commit({
 +            repo: 'tanstack-ai-sandbox-fork',
 +            tag: `${sourceContainerId.slice(0, 12)}-${Date.now()}`,
@@ -1142,8 +2419,13 @@ index 6bc1a9d6355d8e62488c5c1b555133460e96ce19..17c9b01cd3569a0a4469b05fde8d4297
 +        });
 +        if (typeof image.Id !== 'string')
 +            throw new Error('docker: fork commit returned no image identity');
++        const key = `fork-${randomUUID()}`;
++        const parentOwner = sourceInfo.Config.Labels?.[OWNERSHIP_LABEL];
++        const owner = this.egressPolicy
++            ? ownershipKey(key, parentOwner ?? sourceContainerId)
++            : undefined;
 +        try {
-+            return await this.startContainer(image.Id);
++            return await this.startContainer(image.Id, undefined, owner ? dockerName(owner, 'agent') : undefined, undefined, key, owner);
 +        }
 +        catch (error) {
 +            try {
@@ -1155,8 +2437,13 @@ index 6bc1a9d6355d8e62488c5c1b555133460e96ce19..17c9b01cd3569a0a4469b05fde8d4297
 +            throw error;
 +        }
 +    };
-+    async startContainer(image, env, name, signal) {
++    async startContainer(image, env, name, signal, key, owner) {
 +        signal?.throwIfAborted();
++        if (this.egressPolicy) {
++            const identity = key ?? `sandbox-${randomUUID()}`;
++            const ownership = owner ?? ownershipKey(identity, `fork-${randomUUID()}`);
++            return this.startEgressContainer(image, env, name ?? dockerName(ownership, 'agent'), identity, ownership, signal);
++        }
 +        if (this.isolationPolicy)
 +            await this.ensureImage(image, signal);
 +        const exposed = {};
@@ -1196,7 +2483,8 @@ index 6bc1a9d6355d8e62488c5c1b555133460e96ce19..17c9b01cd3569a0a4469b05fde8d4297
 +                    : {}),
 +            },
 +        };
-+        // Keep credentials in the body, never in daemon/proxy request URLs.
++        // docker-modem otherwise serializes all create options into the URL as
++        // well as the body, including Env. Keep credentials out of daemon/proxy logs.
 +        const requestOptions = {
 +            ...createOptions,
 +            abortSignal: signal,
@@ -1213,16 +2501,7 @@ index 6bc1a9d6355d8e62488c5c1b555133460e96ce19..17c9b01cd3569a0a4469b05fde8d4297
 +            const startOptions = { abortSignal: signal };
 +            await container.start(startOptions);
 +            signal?.throwIfAborted();
-+            const handle = new DockerHandle({
-+                docker: this.docker,
-+                container,
-+                workdir: this.workdir,
-+                forkFactory: this.forkFactory,
-+                removeOnDestroy: this.config.removeOnDestroy ?? true,
-+                advertisedPortOrigin: this.advertisedPortOrigin,
-+                logger: this.config.logger,
-+                destroyContainer: () => this.destroy({ id: container.id }),
-+            });
++            const handle = this.makeHandle(container);
 +            // Ensure the workspace dir exists.
 +            await handle.fs.mkdir(this.workdir);
 +            signal?.throwIfAborted();
@@ -1243,9 +2522,18 @@ index 6bc1a9d6355d8e62488c5c1b555133460e96ce19..17c9b01cd3569a0a4469b05fde8d4297
 +        input.signal?.throwIfAborted();
 +        await this.collectOrphanForkImages();
 +        input.signal?.throwIfAborted();
-+        const name = this.config.containerName;
++        if (this.egressPolicy && (!input.id || !input.workspace?.identity)) {
++            throw new Error('docker: egress isolation requires deterministic id and workspace.identity');
++        }
++        const key = input.id ?? this.config.containerName;
++        const owner = this.egressPolicy
++            ? ownershipKey(input.id, input.workspace.identity)
++            : undefined;
++        const name = this.config.containerName ?? (owner
++            ? dockerName(owner, 'agent')
++            : input.id ? dockerName(createHash('sha256').update(input.id).digest('hex'), 'agent') : undefined);
 +        if (name) {
-+            const existing = await this.resume({ id: name, signal: input.signal });
++            const existing = await this.resumeContainer(name, input.signal, key, owner);
 +            if (existing) {
 +                await existing.fs.mkdir(this.workdir);
 +                return existing;
@@ -1254,11 +2542,11 @@ index 6bc1a9d6355d8e62488c5c1b555133460e96ce19..17c9b01cd3569a0a4469b05fde8d4297
 +        await this.ensureImage(this.config.image, input.signal);
 +        input.signal?.throwIfAborted();
 +        try {
-+            return await this.startContainer(this.config.image, input.env, name, input.signal);
++            return await this.startContainer(this.config.image, input.env, name, input.signal, key, owner);
 +        }
 +        catch (error) {
 +            if (name && typeof error === 'object' && error !== null && 'statusCode' in error && error.statusCode === 409) {
-+                const existing = await this.resume({ id: name, signal: input.signal });
++                const existing = await this.resumeContainer(name, input.signal, key, owner);
 +                if (existing) {
 +                    await existing.fs.mkdir(this.workdir);
 +                    return existing;
@@ -1267,17 +2555,17 @@ index 6bc1a9d6355d8e62488c5c1b555133460e96ce19..17c9b01cd3569a0a4469b05fde8d4297
 +            throw error;
 +        }
 +    }
-+    async resume(input) {
-+        input.signal?.throwIfAborted();
-+        const options = { abortSignal: input.signal };
-+        const container = this.docker.getContainer(input.id);
++    async resumeContainer(id, signal, expectedKey, expectedOwner) {
++        signal?.throwIfAborted();
++        const options = { abortSignal: signal };
++        const container = this.docker.getContainer(id);
 +        let info;
 +        try {
 +            info = await container.inspect(options);
-+            input.signal?.throwIfAborted();
++            signal?.throwIfAborted();
 +        }
 +        catch (error) {
-+            input.signal?.throwIfAborted();
++            signal?.throwIfAborted();
 +            const missing = typeof error === 'object' &&
 +                error !== null &&
 +                'statusCode' in error &&
@@ -1286,15 +2574,28 @@ index 6bc1a9d6355d8e62488c5c1b555133460e96ce19..17c9b01cd3569a0a4469b05fde8d4297
 +                throw error;
 +            return null;
 +        }
-+        this.assertIsolationPolicy(input.id, info);
++        // Dockerode retains the lookup alias in `container.id`; normalize to the
++        // daemon's canonical id so a name-based replay returns the same public
++        // SandboxHandle identity as the original create.
++        const canonicalContainer = this.docker.getContainer(info.Id);
++        const isOwnedEgress = info.Config.Labels?.[MANAGED_LABEL] === MANAGED_VALUE &&
++            info.Config.Labels?.[SCHEMA_LABEL] === SCHEMA_VALUE &&
++            info.Config.Labels?.[ROLE_LABEL] === 'agent';
++        if (isOwnedEgress) {
++            const topology = await this.loadEgressTopology(canonicalContainer, info, signal, expectedKey, expectedOwner);
++            return this.makeHandle(canonicalContainer, topology);
++        }
++        if (this.egressPolicy)
++            throw new Error(`docker: container ${id} is not owned by the configured egress policy`);
++        this.assertIsolationPolicy(info.Id, info);
 +        if (!info.State.Running) {
 +            try {
-+                const options = { abortSignal: input.signal };
-+                await container.start(options);
-+                input.signal?.throwIfAborted();
++                const options = { abortSignal: signal };
++                await canonicalContainer.start(options);
++                signal?.throwIfAborted();
 +            }
 +            catch (error) {
-+                input.signal?.throwIfAborted();
++                signal?.throwIfAborted();
 +                const missing = typeof error === 'object' &&
 +                    error !== null &&
 +                    'statusCode' in error &&
@@ -1304,16 +2605,10 @@ index 6bc1a9d6355d8e62488c5c1b555133460e96ce19..17c9b01cd3569a0a4469b05fde8d4297
 +                return null;
 +            }
 +        }
-+        return new DockerHandle({
-+            docker: this.docker,
-+            container,
-+            workdir: this.workdir,
-+            forkFactory: this.forkFactory,
-+            removeOnDestroy: this.config.removeOnDestroy ?? true,
-+            advertisedPortOrigin: this.advertisedPortOrigin,
-+            logger: this.config.logger,
-+            destroyContainer: () => this.destroy({ id: container.id }),
-+        });
++        return this.makeHandle(canonicalContainer);
++    }
++    async resume(input) {
++        return this.resumeContainer(input.id, input.signal);
 +    }
 +    assertIsolationPolicy(id, info) {
 +        const policy = this.isolationPolicy;
@@ -1373,7 +2668,32 @@ index 6bc1a9d6355d8e62488c5c1b555133460e96ce19..17c9b01cd3569a0a4469b05fde8d4297
 +        }
 +    }
 +    async restoreSnapshot(input) {
-+        return this.startContainer(input.snapshotId, input.env, undefined, input.signal);
++        if (this.egressPolicy && (!input.id || !input.workspace?.identity)) {
++            throw new Error('docker: egress snapshot restore requires deterministic id and workspace.identity');
++        }
++        const key = input.id ?? this.config.containerName;
++        const owner = this.egressPolicy
++            ? ownershipKey(input.id, input.workspace.identity)
++            : undefined;
++        const name = this.config.containerName ?? (owner
++            ? dockerName(owner, 'agent')
++            : input.id ? dockerName(createHash('sha256').update(input.id).digest('hex'), 'agent') : undefined);
++        if (name) {
++            const existing = await this.resumeContainer(name, input.signal, key, owner);
++            if (existing)
++                return existing;
++        }
++        try {
++            return await this.startContainer(input.snapshotId, input.env, name, input.signal, key, owner);
++        }
++        catch (error) {
++            if (name && hasStatus(error, 409)) {
++                const existing = await this.resumeContainer(name, input.signal, key, owner);
++                if (existing)
++                    return existing;
++            }
++            throw error;
++        }
 +    }
 +    async deleteSnapshot(input) {
 +        input.signal?.throwIfAborted();
@@ -1428,6 +2748,76 @@ index 6bc1a9d6355d8e62488c5c1b555133460e96ce19..17c9b01cd3569a0a4469b05fde8d4297
 +            if (!hasStatus(error, 404))
 +                throw error;
 +        }
++        const labelsForAgent = info?.Config.Labels;
++        const isOwnedEgress = labelsForAgent?.[MANAGED_LABEL] === MANAGED_VALUE &&
++            labelsForAgent?.[SCHEMA_LABEL] === SCHEMA_VALUE &&
++            labelsForAgent?.[ROLE_LABEL] === 'agent';
++        if (info && isOwnedEgress) {
++            const key = labelsForAgent?.[SANDBOX_KEY_LABEL];
++            const owner = labelsForAgent?.[OWNERSHIP_LABEL];
++            const generation = labelsForAgent?.[GENERATION_LABEL];
++            if (!key || !owner || !generation)
++                throw new Error('docker: owned egress agent is missing identity labels');
++            this.assertOwnedLabels(`container ${input.id}`, labelsForAgent, key, owner, generation, 'agent');
++            const proxy = this.docker.getContainer(dockerName(owner, 'proxy'));
++            const network = this.docker.getNetwork(dockerName(owner, 'network'));
++            let proxyExists = false;
++            let networkExists = false;
++            try {
++                const proxyInfo = await proxy.inspect();
++                this.assertOwnedLabels(`container ${proxy.id}`, proxyInfo.Config.Labels, key, owner, generation, 'proxy');
++                proxyExists = true;
++            }
++            catch (error) {
++                if (!hasStatus(error, 404))
++                    throw error;
++            }
++            try {
++                const networkInfo = await network.inspect();
++                this.assertOwnedLabels(`network ${network.id}`, networkInfo.Labels, key, owner, generation, 'network');
++                networkExists = true;
++            }
++            catch (error) {
++                if (!hasStatus(error, 404))
++                    throw error;
++            }
++            const errors = [];
++            const remove = this.config.removeOnDestroy ?? true;
++            if (remove) {
++                await this.stopAndRemoveContainer(container).catch((error) => errors.push(error));
++                if (proxyExists)
++                    await this.stopAndRemoveContainer(proxy).catch((error) => errors.push(error));
++                if (networkExists)
++                    await network.remove().catch((error) => { if (!hasStatus(error, 404))
++                        errors.push(error); });
++                if (info.Config.Labels?.[FORK_SOURCE_LABEL])
++                    await this.removeForkImage(info.Image).catch((error) => errors.push(error));
++            }
++            else {
++                try {
++                    await container.stop({ t: 5 });
++                }
++                catch (error) {
++                    if (!hasStatus(error, 304) && !hasStatus(error, 404))
++                        errors.push(error);
++                }
++                if (proxyExists) {
++                    try {
++                        await proxy.stop({ t: 5 });
++                    }
++                    catch (error) {
++                        if (!hasStatus(error, 304) && !hasStatus(error, 404))
++                            errors.push(error);
++                    }
++                }
++            }
++            await this.collectOrphanForkImages().catch((error) => errors.push(error));
++            if (errors.length === 1)
++                throw errors[0];
++            if (errors.length > 1)
++                throw new AggregateError(errors, 'docker: egress sandbox cleanup failed');
++            return;
++        }
 +        if (info) {
 +            try {
 +                await container.stop({ t: 5 });
@@ -1470,22 +2860,529 @@ index 6bc1a9d6355d8e62488c5c1b555133460e96ce19..17c9b01cd3569a0a4469b05fde8d4297
 -
 -//# sourceMappingURL=provider.js.map
 \ No newline at end of file
+diff --git a/src/egress-proxy.ts b/src/egress-proxy.ts
+new file mode 100644
+index 0000000000000000000000000000000000000000..67c4e5b8a026c4f0472db35b5b62731e023e322f
+--- /dev/null
++++ b/src/egress-proxy.ts
+@@ -0,0 +1,477 @@
++import { randomUUID, timingSafeEqual } from 'node:crypto'
++import { lookup } from 'node:dns/promises'
++import { mkdir, chmod, unlink } from 'node:fs/promises'
++import { createServer, request, type ServerResponse, type IncomingMessage } from 'node:http'
++import { connect, createServer as createTcpServer, isIP, type Server, type Socket } from 'node:net'
++import { dirname } from 'node:path'
++import { domainToASCII } from 'node:url'
++
++const CONTROL_SOCKET = '/tmp/tanstack-egress/control.sock'
++const GRANT_TTL_MS = 10 * 60_000
++const MAX_CONNECTIONS = 256
++const HOP_HEADERS = new Set([
++  'connection', 'keep-alive', 'proxy-authenticate', 'proxy-authorization',
++  'proxy-connection', 'te', 'trailer', 'transfer-encoding', 'upgrade',
++])
++
++export interface EgressAuthority { host: string; port: number }
++export interface EgressHttpRule extends EgressAuthority { paths: Array<string> }
++export interface EgressIngress { listenPort: number; targetPort: number }
++
++/** Static policy consumed by the provider and serialized into the proxy env. */
++export interface DockerSandboxEgressPolicy {
++  proxyImage: string
++  allowConnect: Array<EgressAuthority>
++  allowHttp: Array<EgressHttpRule>
++  ingress?: Array<EgressIngress>
++}
++
++export interface EgressProxyOptions {
++  allowConnect: Array<EgressAuthority>
++  allowHttp: Array<EgressHttpRule>
++  ingressTargetHost: string
++  ingress?: Array<EgressIngress>
++  bindAddress?: string
++  ingressBindAddress?: string
++  proxyPort?: number
++  controlSocketPath?: string
++}
++
++export interface EgressProxyHandle {
++  readonly proxyPort: number
++  readonly controlSocketPath: string
++  readonly ingressPorts: Array<number>
++  close: () => Promise<void>
++}
++
++type StaticHttpRule = { host: string; port: number; paths: ReadonlySet<string> }
++type Grant = { host: string; port: number; path: '/mcp'; token: string; aborters: Set<() => void>; expires: ReturnType<typeof setTimeout> }
++type IngressGrant = { targetPort: number; token: string; aborters: Set<() => void>; expires: ReturnType<typeof setTimeout> }
++
++function asPort(value: unknown, label: string): number {
++  if (!Number.isInteger(value) || (value as number) < 1 || (value as number) > 65535)
++    throw new Error(`egress: ${label} must be a TCP port`)
++  return value as number
++}
++
++function normalizeHost(value: string): string {
++  const trimmed = value.trim().replace(/^\[|\]$/g, '')
++  if (!trimmed || /[/?#@]/.test(trimmed)) throw new Error('egress: invalid host')
++  if (isIP(trimmed)) return trimmed.toLowerCase()
++  const ascii = domainToASCII(trimmed)
++  if (!ascii) throw new Error('egress: invalid host')
++  return ascii.toLowerCase()
++}
++
++function authorityKey(host: string, port: number): string {
++  return `${host.includes(':') ? `[${host}]` : host}:${port}`
++}
++
++function normalizeAuthority(input: EgressAuthority): EgressAuthority {
++  return { host: normalizeHost(input.host), port: asPort(input.port, 'port') }
++}
++
++function normalizeRules(rules: Array<EgressHttpRule>): Array<StaticHttpRule> {
++  return rules.map((rule) => {
++    const authority = normalizeAuthority(rule)
++    const paths = new Set(rule.paths.map((path) => {
++      if (!path.startsWith('/') || path.includes('?') || path.includes('#'))
++        throw new Error('egress: HTTP allowlist paths must be exact paths')
++      return path
++    }))
++    if (paths.size === 0) throw new Error('egress: HTTP allowlist rule has no paths')
++    return { ...authority, paths }
++  })
++}
++
++function forbiddenIpv4(value: string): boolean {
++  if (/^(?:169\.254\.|127\.|0\.)/.test(value)) return true
++  if (value === '100.100.100.200') return true
++  const octets = value.split('.').map(Number)
++  return octets.length === 4 && octets.every((part) => Number.isInteger(part) && part >= 0 && part <= 255) && octets[0] >= 224
++}
++
++function ipv6Words(value: string): Array<number> | undefined {
++  let text = value.toLowerCase().replace(/^\[|\]$/g, '')
++  const dotted = text.match(/(^|:)(\d+\.\d+\.\d+\.\d+)$/)
++  if (dotted) {
++    const parts = dotted[2].split('.').map(Number)
++    if (parts.some((part) => !Number.isInteger(part) || part < 0 || part > 255)) return undefined
++    text = `${text.slice(0, -dotted[2].length)}${((parts[0] << 8) | parts[1]).toString(16)}:${((parts[2] << 8) | parts[3]).toString(16)}`
++  }
++  if (!text.includes(':')) return undefined
++  const halves = text.split('::')
++  if (halves.length > 2) return undefined
++  const left = halves[0] ? halves[0].split(':') : []
++  const right = halves.length === 2 && halves[1] ? halves[1].split(':') : []
++  if (left.concat(right).some((part) => !/^[0-9a-f]{1,4}$/.test(part))) return undefined
++  const words = [...left, ...(halves.length === 2 ? Array(8 - left.length - right.length).fill('0') : []), ...right].map((part) => Number.parseInt(part, 16))
++  return words.length === 8 ? words : undefined
++}
++
++function embeddedIpv4(value: string): string | undefined {
++  const words = ipv6Words(value)
++  if (!words) return undefined
++  const first = words.slice(0, 5).every((word) => word === 0)
++  const mapped = first && (words[5] === 0 || words[5] === 0xffff)
++  const nat64 = words.slice(0, 6).every((word, index) => word === (index === 0 ? 0x0064 : index === 1 ? 0xff9b : 0))
++  const sixToFour = words[0] === 0x2002
++  if (!mapped && !nat64 && !sixToFour) return undefined
++  const high = sixToFour ? words[1] : words[6]
++  const low = sixToFour ? words[2] : words[7]
++  return `${high >> 8}.${high & 255}.${low >> 8}.${low & 255}`
++}
++
++function forbiddenAddress(address: string): boolean {
++  const value = address.toLowerCase().replace(/^\[|\]$/g, '')
++  if (!value.includes(':')) return forbiddenIpv4(value)
++  const embedded = embeddedIpv4(value)
++  if (embedded && forbiddenIpv4(embedded)) return true
++  if (value === '::1' || value === '::' || value === 'fd00:ec2::254') return true
++  if (/^fe[89a-f][0-9a-f]:/.test(value) || /^ff[0-9a-f]{2}:/.test(value)) return true
++  return false
++}
++
++async function resolveSafe(host: string): Promise<string> {
++  const addresses = await lookup(host, { all: true, verbatim: true })
++  if (addresses.length === 0 || addresses.some(({ address }) => forbiddenAddress(address)))
++    throw new Error('egress: destination address denied')
++  const address = addresses[0]?.address
++  if (!address) throw new Error('egress: destination address unavailable')
++  return address
++}
++
++function compareToken(actual: string | undefined, expected: string): boolean {
++  if (!actual) return false
++  const left = Buffer.from(actual)
++  const right = Buffer.from(expected)
++  return left.length === right.length && timingSafeEqual(left, right)
++}
++
++function cleanHeaders(headers: IncomingMessage['headers']): Record<string, string | string[]> {
++  const clean: Record<string, string | string[]> = {}
++  const nominated = new Set(String(headers.connection ?? '').split(',').map((name) => name.trim().toLowerCase()).filter(Boolean))
++  for (const [name, value] of Object.entries(headers)) {
++    if (value !== undefined && !HOP_HEADERS.has(name.toLowerCase()) && !nominated.has(name.toLowerCase())) clean[name] = value
++  }
++  return clean
++}
++
++function parseTarget(raw: string | undefined): { host: string; port: number; path: string; url: string } | undefined {
++  if (!raw) return undefined
++  let parsed: URL
++  try { parsed = new URL(raw) } catch { return undefined }
++  if (parsed.protocol !== 'http:' || parsed.username || parsed.password || parsed.hash)
++    return undefined
++  if (parsed.search) return undefined
++  const host = normalizeHost(parsed.hostname)
++  const port = parsed.port ? asPort(Number(parsed.port), 'port') : 80
++  const path = parsed.pathname || '/'
++  return { host, port, path, url: `http://${authorityKey(host, port)}${path}` }
++}
++
++function parseAuthority(raw: string | undefined): EgressAuthority | undefined {
++  if (!raw || raw.includes('/') || raw.includes('?') || raw.includes('#')) return undefined
++  try {
++    const parsed = new URL(`http://${raw}`)
++    if (parsed.username || parsed.password || parsed.pathname !== '/' || !parsed.port) return undefined
++    return normalizeAuthority({ host: parsed.hostname, port: Number(parsed.port) })
++  } catch { return undefined }
++}
++
++function sendStatus(res: ServerResponse, status: number, body = ''): void {
++  if (!res.headersSent) res.writeHead(status, { connection: 'close' })
++  res.end(body)
++}
++
++function bearerToken(value: string | undefined): string | undefined {
++  const match = typeof value === 'string' ? /^Bearer ([^\s]+)$/.exec(value) : undefined
++  return match?.[1]
++}
++
++function methodAllowed(path: string, method: string | undefined): boolean {
++  const verb = method?.toUpperCase()
++  if (path.endsWith('/models')) return verb === 'GET' || verb === 'HEAD'
++  if (path.endsWith('/chat/completions')) return verb === 'POST'
++  return verb === 'GET' || verb === 'HEAD'
++}
++
++function responseCleanup(res: ServerResponse, cleanup: () => void): void {
++  let done = false
++  const finish = (): void => {
++    if (done) return
++    done = true
++    res.off('close', finish)
++    res.off('finish', finish)
++    cleanup()
++  }
++  res.once('close', finish)
++  res.once('finish', finish)
++}
++
++function closeServer(server: Server, sockets: Set<Socket>): Promise<void> {
++  for (const socket of sockets) socket.destroy()
++  return new Promise((resolve, reject) => server.close((error) => error ? reject(error) : resolve()))
++}
++
++function track(server: Server, maxConnections = MAX_CONNECTIONS): Set<Socket> {
++  const sockets = new Set<Socket>()
++  server.maxConnections = maxConnections
++  server.on('connection', (socket) => {
++    if (sockets.size >= maxConnections) { socket.destroy(); return }
++    sockets.add(socket); socket.once('close', () => sockets.delete(socket))
++  })
++  return sockets
++}
++
++export async function startEgressProxy(options: EgressProxyOptions): Promise<EgressProxyHandle> {
++  const bindAddress = options.bindAddress ?? '0.0.0.0'
++  const proxyPort = options.proxyPort ?? 3128
++  const controlSocketPath = options.controlSocketPath ?? CONTROL_SOCKET
++  const staticConnect = new Set(options.allowConnect.map((item) => {
++    const authority = normalizeAuthority(item)
++    return authorityKey(authority.host, authority.port)
++  }))
++  const staticHttp = new Map(normalizeRules(options.allowHttp).map((rule) => [authorityKey(rule.host, rule.port), rule]))
++  const grants = new Map<string, Grant>()
++  const revokeGrant = (id: string): void => {
++    const grant = grants.get(id)
++    if (!grant) return
++    grants.delete(id)
++    clearTimeout(grant.expires)
++    for (const abort of grant.aborters) abort()
++  }
++  const ingressGrants = new Map<string, IngressGrant>()
++  const revokeIngress = (id: string): void => {
++    const grant = ingressGrants.get(id)
++    if (!grant) return
++    ingressGrants.delete(id)
++    clearTimeout(grant.expires)
++    for (const abort of grant.aborters) abort()
++  }
++  const renewGrant = (id: string): boolean => {
++    const grant = grants.get(id)
++    if (!grant) return false
++    clearTimeout(grant.expires)
++    grant.expires = setTimeout(() => revokeGrant(id), GRANT_TTL_MS)
++    grant.expires.unref()
++    return true
++  }
++  const renewIngress = (id: string): boolean => {
++    const grant = ingressGrants.get(id)
++    if (!grant) return false
++    clearTimeout(grant.expires)
++    grant.expires = setTimeout(() => revokeIngress(id), GRANT_TTL_MS)
++    grant.expires.unref()
++    return true
++  }
++  const targetHost = normalizeHost(options.ingressTargetHost)
++  const ingress = options.ingress ?? []
++  const ingressServers: Array<{ server: Server; sockets: Set<Socket>; port: number }> = []
++
++  const proxy = createServer((req, res) => {
++    void (async () => {
++      const target = parseTarget(req.url)
++      if (!target) { sendStatus(res, 403); return }
++      const authority = authorityKey(target.host, target.port)
++      const staticRule = staticHttp.get(authority)
++      const grant = [...grants.values()].find((item) => authorityKey(item.host, item.port) === authority && item.path === target.path && compareToken(bearerToken(req.headers.authorization), item.token))
++      if (!staticRule && !grant) { sendStatus(res, 403); return }
++      if (staticRule && !staticRule.paths.has(target.path) && !grant) { sendStatus(res, 403); return }
++      if (grant ? req.method !== 'POST' : !methodAllowed(target.path, req.method)) { sendStatus(res, 405); return }
++      let address: string
++      try { address = await resolveSafe(target.host) } catch { sendStatus(res, 403); return }
++      const headers = cleanHeaders(req.headers)
++      headers.host = authority
++      headers.connection = 'close'
++      const upstream = request({ hostname: address, port: target.port, method: req.method, path: target.path, headers }, (response) => {
++        upstream.setTimeout(0)
++        const responseHeaders = cleanHeaders(response.headers)
++        res.writeHead(response.statusCode ?? 502, responseHeaders)
++        response.pipe(res)
++      })
++      const abort = (): void => { upstream.destroy() }
++      req.once('aborted', abort); res.once('close', abort)
++      upstream.setTimeout(5000, abort)
++      if (grant) grant.aborters.add(abort)
++      const removeAborter = (): void => { grant?.aborters.delete(abort) }
++      responseCleanup(res, removeAborter)
++      upstream.once('error', () => sendStatus(res, 502))
++      req.pipe(upstream)
++    })().catch(() => sendStatus(res, 502))
++  })
++  const proxySockets = track(proxy)
++  proxy.on('connect', (req, client, head) => {
++    const authority = parseAuthority(req.url)
++    if (!authority || !staticConnect.has(authorityKey(authority.host, authority.port))) { client.end('HTTP/1.1 403 Forbidden\r\nConnection: close\r\n\r\n'); return }
++    void resolveSafe(authority.host).then((address) => {
++      if (client.destroyed) return
++      const upstream = connect({ host: address, port: authority.port })
++      upstream.setTimeout(5000, () => upstream.destroy())
++      upstream.once('connect', () => {
++        upstream.setTimeout(0)
++        client.write('HTTP/1.1 200 Connection Established\r\n\r\n')
++        if (head.length) upstream.write(head)
++        upstream.pipe(client); client.pipe(upstream)
++      })
++      upstream.once('error', () => client.destroy())
++      client.once('close', () => upstream.destroy())
++    }).catch(() => client.end('HTTP/1.1 403 Forbidden\r\nConnection: close\r\n\r\n'))
++  })
++
++  const control = createTcpServer((socket) => {
++    let buffer = ''
++    socket.setTimeout(5000, () => socket.destroy())
++    socket.setEncoding('utf8')
++    socket.on('data', (chunk: string) => {
++      buffer += chunk
++      if (buffer.length > 64 * 1024) { socket.destroy(); return }
++      let newline: number
++      while ((newline = buffer.indexOf('\n')) >= 0) {
++        const line = buffer.slice(0, newline); buffer = buffer.slice(newline + 1)
++        try {
++          const message = JSON.parse(line) as { op?: string; url?: string; token?: string; id?: string; port?: number }
++          if (message.op === 'admit' && typeof message.url === 'string' && typeof message.token === 'string' && message.token.length > 0 && message.token.length <= 4096) {
++            const target = parseTarget(message.url)
++            if (!target || target.path !== '/mcp' || target.port === 80) throw new Error('invalid bridge URL')
++            const id = randomUUID()
++            const expires = setTimeout(() => revokeGrant(id), GRANT_TTL_MS)
++            expires.unref()
++            grants.set(id, { host: target.host, port: target.port, path: '/mcp', token: message.token, aborters: new Set(), expires })
++            socket.write(`${JSON.stringify({ ok: true, id })}\n`); continue
++          }
++          if (message.op === 'revoke' && typeof message.id === 'string') {
++            revokeGrant(message.id)
++            socket.write('{"ok":true}\n'); continue
++          }
++          if (message.op === 'renew' && typeof message.id === 'string') {
++            if (!renewGrant(message.id)) throw new Error('unknown grant')
++            socket.write('{"ok":true}\n'); continue
++          }
++          if (message.op === 'open-ingress' && typeof message.port === 'number') {
++            const targetPort = asPort(message.port, 'ingress targetPort')
++            const mapping = ingress.find((candidate) => candidate.targetPort === targetPort)
++            if (!mapping) throw new Error('unknown ingress target')
++            const id = randomUUID()
++            const token = randomUUID()
++            const expires = setTimeout(() => revokeIngress(id), GRANT_TTL_MS)
++            expires.unref()
++            ingressGrants.set(id, { targetPort, token, aborters: new Set(), expires })
++            socket.write(`${JSON.stringify({ ok: true, id, token, port: mapping.listenPort })}\n`); continue
++          }
++          if (message.op === 'revoke-ingress' && typeof message.id === 'string') {
++            revokeIngress(message.id)
++            socket.write('{"ok":true}\n'); continue
++          }
++          if (message.op === 'renew-ingress' && typeof message.id === 'string') {
++            if (!renewIngress(message.id)) throw new Error('unknown ingress grant')
++            socket.write('{"ok":true}\n'); continue
++          }
++          throw new Error('invalid control request')
++        } catch { socket.write('{"ok":false,"error":"invalid request"}\n') }
++      }
++    })
++  })
++  const controlSockets = track(control)
++  await mkdir(dirname(controlSocketPath), { recursive: true })
++  try { await unlink(controlSocketPath) } catch (error) { if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error }
++
++  const listen = (server: Server, port: number, host: string): Promise<number> => new Promise((resolve, reject) => {
++    const onError = (error: Error): void => { server.off('listening', onListening); reject(error) }
++    const onListening = (): void => { server.off('error', onError); resolve((server.address() as import('node:net').AddressInfo).port) }
++    server.once('error', onError); server.once('listening', onListening); server.listen(port, host)
++  })
++  const listenUnix = (server: Server, path: string): Promise<void> => new Promise((resolve, reject) => {
++    const onError = (error: Error): void => { server.off('listening', onListening); reject(error) }
++    const onListening = (): void => { server.off('error', onError); resolve() }
++    server.once('error', onError); server.once('listening', onListening); server.listen(path)
++  })
++  try {
++    const actualProxyPort = await listen(proxy, proxyPort, bindAddress)
++    await listenUnix(control, controlSocketPath)
++    await chmod(controlSocketPath, 0o600)
++    for (const mapping of ingress) {
++      const listenPort = asPort(mapping.listenPort, 'ingress listenPort')
++      const targetPort = asPort(mapping.targetPort, 'ingress targetPort')
++      const server = createServer((req, res) => {
++        void (async () => {
++          const rawToken = req.headers['x-tanstack-sandbox-token']
++          const token = Array.isArray(rawToken) ? undefined : rawToken
++          const grant = [...ingressGrants.values()].find((item) => item.targetPort === targetPort && compareToken(token, item.token))
++          if (!grant) { sendStatus(res, 401); return }
++          if (req.headers.upgrade) { sendStatus(res, 426); return }
++          const headers = cleanHeaders(req.headers)
++          delete headers['x-tanstack-sandbox-token']
++          headers.host = authorityKey(targetHost, targetPort)
++          headers.connection = 'close'
++          const upstream = request({ hostname: targetHost, port: targetPort, method: req.method, path: req.url || '/', headers }, (response) => {
++            upstream.setTimeout(0)
++            const responseHeaders = cleanHeaders(response.headers)
++            res.writeHead(response.statusCode ?? 502, responseHeaders)
++            response.pipe(res)
++          })
++          const abort = (): void => { upstream.destroy() }
++          req.once('aborted', abort); res.once('close', abort)
++          upstream.setTimeout(5000, abort)
++          grant.aborters.add(abort)
++          responseCleanup(res, () => grant.aborters.delete(abort))
++          upstream.once('error', () => sendStatus(res, 502))
++          req.pipe(upstream)
++        })().catch(() => sendStatus(res, 502))
++      })
++      server.on('upgrade', (_request, socket) => socket.end('HTTP/1.1 426 Upgrade Required\r\nConnection: close\r\n\r\n'))
++      const sockets = track(server)
++      const actual = await listen(server, listenPort, options.ingressBindAddress ?? '0.0.0.0')
++      ingressServers.push({ server, sockets, port: actual })
++    }
++    let closeTask: Promise<void> | undefined
++    return {
++      proxyPort: actualProxyPort,
++      controlSocketPath,
++      ingressPorts: ingressServers.map(({ port }) => port),
++      close: () => closeTask ??= (async () => {
++        const errors: Array<unknown> = []
++        for (const id of ingressGrants.keys()) revokeIngress(id)
++        for (const id of grants.keys()) revokeGrant(id)
++        for (const item of ingressServers) { try { await closeServer(item.server, item.sockets) } catch (error) { errors.push(error) } }
++        try { await closeServer(proxy, proxySockets) } catch (error) { errors.push(error) }
++        try { await closeServer(control, controlSockets) } catch (error) { errors.push(error) }
++        try { await unlink(controlSocketPath) } catch (error) { if ((error as NodeJS.ErrnoException).code !== 'ENOENT') errors.push(error) }
++        if (errors.length === 1) throw errors[0]
++        if (errors.length > 1) throw new AggregateError(errors, 'egress proxy close failed')
++      })(),
++    }
++  } catch (error) {
++    const cleanupErrors: Array<unknown> = []
++    for (const item of ingressServers) { try { await closeServer(item.server, item.sockets) } catch (cleanupError) { cleanupErrors.push(cleanupError) } }
++    try { await closeServer(proxy, proxySockets) } catch (cleanupError) { cleanupErrors.push(cleanupError) }
++    try { await closeServer(control, controlSockets) } catch (cleanupError) { cleanupErrors.push(cleanupError) }
++    try { await unlink(controlSocketPath) } catch (cleanupError) { if ((cleanupError as NodeJS.ErrnoException).code !== 'ENOENT') cleanupErrors.push(cleanupError) }
++    if (cleanupErrors.length > 0) throw new AggregateError([error, ...cleanupErrors], 'egress proxy startup and cleanup failed')
++    throw error
++  }
++}
++
++/**
++ * Proxy-container boot contract. The provider writes this JSON environment
++ * variable and starts the bundled file with Node; the Unix control socket is
++ * therefore never exposed as a Docker bind mount.
++ */
++export const EGRESS_PROXY_CONFIG_ENV = 'TANSTACK_EGRESS_PROXY_CONFIG'
++
++if (process.env[EGRESS_PROXY_CONFIG_ENV] !== undefined) {
++  let parsed: EgressProxyOptions
++  try {
++    parsed = JSON.parse(process.env[EGRESS_PROXY_CONFIG_ENV]) as EgressProxyOptions
++  } catch {
++    throw new Error(`egress: ${EGRESS_PROXY_CONFIG_ENV} must contain JSON`) 
++  }
++  const shutdown = async (): Promise<void> => {
++    const handle = await booted
++    await handle.close()
++  }
++  const booted = startEgressProxy(parsed)
++  void booted.catch((error) => { console.error(error); process.exitCode = 1 })
++  process.once('SIGTERM', () => { void shutdown() })
++  process.once('SIGINT', () => { void shutdown() })
++}
 diff --git a/src/handle.ts b/src/handle.ts
-index 1daea6f076f438fdfd5e78d7c17055d0b01c0e87..afefc007824dfa4670920a2a2fc1871651b15719 100644
+index 1daea6f076f438fdfd5e78d7c17055d0b01c0e87..3380b7fedaefddcf8dd004a35008ea1fbf8499be 100644
 --- a/src/handle.ts
 +++ b/src/handle.ts
-@@ -341,6 +341,10 @@ export interface DockerHandleDeps {
+@@ -341,6 +341,20 @@ export interface DockerHandleDeps {
    forkFactory: (sourceContainerId: string) => Promise<SandboxHandle>
    /** Remove the container on destroy (vs. just stop). */
    removeOnDestroy: boolean
 +  /** Origin reachable by the caller for published container ports. */
 +  advertisedPortOrigin: string
++  /** Dynamic capability descriptor for this provider configuration. */
++  networkPolicy: boolean
++  /** Proxy container that owns host-published ingress, when egress is isolated. */
++  portContainer?: Dockerode.Container
++  /** Map an agent port to the proxy listener that forwards to it. */
++  ingressByTarget?: ReadonlyMap<number, number>
++  /** Provider-owned authenticated ingress for an isolated sandbox. */
++  connectPort?: (port: number) => Promise<SandboxChannel>
++  /** Provider-owned exact host bridge admission, when egress is isolated. */
++  hostBridgeAccess?: NonNullable<SandboxHandle['hostBridgeAccess']>
 +  /** Provider owns both the container and any intermediate fork image. */
 +  destroyContainer: () => Promise<void>
    /**
     * Sink for non-fatal teardown diagnostics — a kill the container refused or
     * could not confirm. Teardown never throws, so without a logger those are
-@@ -365,6 +369,7 @@ export class DockerHandle implements SandboxHandle {
+@@ -353,18 +367,20 @@ export class DockerHandle implements SandboxHandle {
+   readonly id: string
+   readonly provider = 'docker'
+   readonly workspaceRoot: string
+-  readonly capabilities = DOCKER_CAPS
++  readonly capabilities: SandboxCapabilities
+   readonly fs: SandboxHandle['fs']
+   readonly git: SandboxHandle['git']
+   readonly process: SandboxHandle['process']
+   readonly ports: SandboxHandle['ports']
+   readonly env: SandboxHandle['env']
++  readonly hostBridgeAccess?: SandboxHandle['hostBridgeAccess']
+ 
+   private readonly docker: Dockerode
+   private readonly container: Dockerode.Container
    private readonly workdir: string
    private readonly deps: DockerHandleDeps
    private readonly logger: DockerLogger | undefined
@@ -1493,15 +3390,19 @@ index 1daea6f076f438fdfd5e78d7c17055d0b01c0e87..afefc007824dfa4670920a2a2fc18716
    private readonly envVars: Record<string, string> = {}
  
    constructor(deps: DockerHandleDeps) {
-@@ -372,6 +377,7 @@ export class DockerHandle implements SandboxHandle {
+@@ -372,6 +388,11 @@ export class DockerHandle implements SandboxHandle {
      this.container = deps.container
      this.workdir = deps.workdir
      this.logger = deps.logger
 +    this.advertisedPortOrigin = deps.advertisedPortOrigin
++    this.capabilities = deps.networkPolicy
++      ? { ...DOCKER_CAPS, networkPolicy: true }
++      : DOCKER_CAPS
++    this.hostBridgeAccess = deps.hostBridgeAccess
      this.workspaceRoot = deps.workdir
      this.deps = deps
      this.id = deps.container.id
-@@ -382,8 +388,8 @@ export class DockerHandle implements SandboxHandle {
+@@ -382,8 +403,8 @@ export class DockerHandle implements SandboxHandle {
      }
  
      this.fs = {
@@ -1512,7 +3413,7 @@ index 1daea6f076f438fdfd5e78d7c17055d0b01c0e87..afefc007824dfa4670920a2a2fc18716
          if (r.exitCode !== 0) throw new Error(`read failed: ${r.stderr.trim()}`)
          return Buffer.from(r.stdout, 'base64').toString('utf8')
        },
-@@ -392,9 +398,9 @@ export class DockerHandle implements SandboxHandle {
+@@ -392,9 +413,9 @@ export class DockerHandle implements SandboxHandle {
          if (r.exitCode !== 0) throw new Error(`read failed: ${r.stderr.trim()}`)
          return new Uint8Array(Buffer.from(r.stdout, 'base64'))
        },
@@ -1524,7 +3425,7 @@ index 1daea6f076f438fdfd5e78d7c17055d0b01c0e87..afefc007824dfa4670920a2a2fc18716
            if (r.exitCode !== 0)
              throw new Error(`write failed: ${r.stderr.trim()}`)
          }
-@@ -416,11 +422,13 @@ export class DockerHandle implements SandboxHandle {
+@@ -416,11 +437,13 @@ export class DockerHandle implements SandboxHandle {
            })
        },
        lstat: async (p) => this.lstat(this.abs(p)),
@@ -1542,7 +3443,7 @@ index 1daea6f076f438fdfd5e78d7c17055d0b01c0e87..afefc007824dfa4670920a2a2fc18716
        },
        rename: async (from, to) => {
          await this.exec(`mv ${q(this.abs(from))} ${q(this.abs(to))}`)
-@@ -447,6 +455,7 @@ export class DockerHandle implements SandboxHandle {
+@@ -447,6 +470,7 @@ export class DockerHandle implements SandboxHandle {
  
    /** Map the conventional `/workspace` virtual root to the container workdir. */
    private abs(p: string): string {
@@ -1550,7 +3451,7 @@ index 1daea6f076f438fdfd5e78d7c17055d0b01c0e87..afefc007824dfa4670920a2a2fc18716
      if (this.workdir === '/workspace') return p
      if (p === '/workspace') return this.workdir
      if (p.startsWith('/workspace/'))
-@@ -464,12 +473,9 @@ export class DockerHandle implements SandboxHandle {
+@@ -464,12 +488,9 @@ export class DockerHandle implements SandboxHandle {
    }
  
    private envArray(extra?: Record<string, string>): Array<string> {
@@ -1565,7 +3466,7 @@ index 1daea6f076f438fdfd5e78d7c17055d0b01c0e87..afefc007824dfa4670920a2a2fc18716
        ...this.envVars,
        ...extra,
      }).map(([k, v]) => `${k}=${v}`)
-@@ -569,8 +575,8 @@ export class DockerHandle implements SandboxHandle {
+@@ -569,8 +590,8 @@ export class DockerHandle implements SandboxHandle {
      command: string,
      opts?: ProcessOptions,
    ): Promise<ExecResult> {
@@ -1576,7 +3477,7 @@ index 1daea6f076f438fdfd5e78d7c17055d0b01c0e87..afefc007824dfa4670920a2a2fc18716
      const pidFile = opts?.signal
        ? `/tmp/.tanstack-sandbox-exec-${randomUUID()}.pid`
        : undefined
-@@ -629,6 +635,7 @@ export class DockerHandle implements SandboxHandle {
+@@ -629,6 +650,7 @@ export class DockerHandle implements SandboxHandle {
          // this an aborted exec would never settle at all.
          stream.on('close', resolve)
          stream.on('error', reject)
@@ -1584,7 +3485,7 @@ index 1daea6f076f438fdfd5e78d7c17055d0b01c0e87..afefc007824dfa4670920a2a2fc18716
        })
      } finally {
        // `finally`, not a statement after the `await`: `stream.on('error')`
-@@ -645,6 +652,8 @@ export class DockerHandle implements SandboxHandle {
+@@ -645,6 +667,8 @@ export class DockerHandle implements SandboxHandle {
        }
      }
  
@@ -1593,7 +3494,7 @@ index 1daea6f076f438fdfd5e78d7c17055d0b01c0e87..afefc007824dfa4670920a2a2fc18716
      const info = await exec.inspect()
      return {
        stdout: Buffer.concat(stdoutChunks).toString('utf8'),
-@@ -667,6 +676,13 @@ export class DockerHandle implements SandboxHandle {
+@@ -667,6 +691,13 @@ export class DockerHandle implements SandboxHandle {
        Env: this.envArray(opts?.env),
      })
      const stream = await exec.start({ hijack: true, stdin: true })
@@ -1607,7 +3508,7 @@ index 1daea6f076f438fdfd5e78d7c17055d0b01c0e87..afefc007824dfa4670920a2a2fc18716
      const outPT = new PassThrough()
      const errPT = new PassThrough()
      this.docker.modem.demuxStream(stream, outPT, errPT)
-@@ -738,19 +754,9 @@ export class DockerHandle implements SandboxHandle {
+@@ -738,19 +769,9 @@ export class DockerHandle implements SandboxHandle {
          },
        },
        wait: async () => {
@@ -1629,7 +3530,27 @@ index 1daea6f076f438fdfd5e78d7c17055d0b01c0e87..afefc007824dfa4670920a2a2fc18716
          return info.ExitCode ?? 0
        },
        /**
-@@ -796,13 +802,18 @@ export class DockerHandle implements SandboxHandle {
+@@ -788,21 +809,36 @@ export class DockerHandle implements SandboxHandle {
+   }
+ 
+   private async connectPort(port: number): Promise<SandboxChannel> {
+-    const info = await this.container.inspect()
+-    const mapping = info.NetworkSettings.Ports[`${port}/tcp`]
++    if (this.deps.connectPort) return this.deps.connectPort(port)
++    const publishedPort = this.deps.ingressByTarget?.get(port) ?? port
++    if (this.deps.ingressByTarget && !this.deps.ingressByTarget.has(port)) {
++      throw new Error(
++        `docker: container port ${port} has no configured egress ingress mapping`,
++      )
++    }
++    // Under egress isolation, only the trusted proxy is host-published. Inspect
++    // it on every call because Docker may assign a different ephemeral port
++    // after daemon/proxy restart.
++    const info = await (this.deps.portContainer ?? this.container).inspect()
++    const mapping = info.NetworkSettings.Ports[`${publishedPort}/tcp`]
+     const hostPort = mapping?.[0]?.HostPort
+     if (!hostPort) {
+       throw new Error(
          `docker: container port ${port} is not published. Pass publishPorts: [${port}] to dockerSandbox() to reach it from the host.`,
        )
      }
@@ -1650,7 +3571,7 @@ index 1daea6f076f438fdfd5e78d7c17055d0b01c0e87..afefc007824dfa4670920a2a2fc18716
      return { id: tag, label }
    }
  
-@@ -814,13 +825,6 @@ export class DockerHandle implements SandboxHandle {
+@@ -814,13 +850,6 @@ export class DockerHandle implements SandboxHandle {
    }
  
    async destroy(): Promise<void> {
@@ -1665,11 +3586,46 @@ index 1daea6f076f438fdfd5e78d7c17055d0b01c0e87..afefc007824dfa4670920a2a2fc18716
 +    await this.deps.destroyContainer()
    }
  }
+diff --git a/src/index.ts b/src/index.ts
+index a3fc42e2a9104b815acfcbb00ccadd614fb4c879..e81158147c2bac65d64ebe601820cad577a277a3 100644
+--- a/src/index.ts
++++ b/src/index.ts
+@@ -1,5 +1,11 @@
+ export { dockerSandbox } from './provider'
+-export type { DockerSandboxConfig } from './provider'
++export type {
++  DockerSandboxConfig,
++  DockerSandboxEgressPolicy,
++  EgressAuthority,
++  EgressHttpRule,
++  EgressIngress,
++} from './provider'
+ export { DockerHandle, DOCKER_CAPS } from './handle'
+ export type { DockerHandleDeps, DockerLogger } from './handle'
+ export { sbxSandbox } from './sbx/provider'
 diff --git a/src/provider.ts b/src/provider.ts
-index 2eba55337bedb778404a042347c0b7811f91c595..e6f00eed520d72d68470d0ec8094572751d9d1fe 100644
+index 2eba55337bedb778404a042347c0b7811f91c595..319d30218038786847f90c6e9e41e2c8fd37b1f3 100644
 --- a/src/provider.ts
 +++ b/src/provider.ts
-@@ -14,14 +14,24 @@ import type {
+@@ -1,6 +1,17 @@
+ import Dockerode from 'dockerode'
++import { createHash, randomUUID } from 'node:crypto'
++import { readFile } from 'node:fs/promises'
++import { Writable } from 'node:stream'
+ import { DOCKER_CAPS, DockerHandle } from './handle'
++import { EGRESS_PROXY_CONFIG_ENV } from './egress-proxy'
+ import type { DockerLogger } from './handle'
++import type {
++  DockerSandboxEgressPolicy,
++  EgressAuthority,
++  EgressHttpRule,
++  EgressIngress,
++  EgressProxyOptions,
++} from './egress-proxy'
+ import type {
+   SandboxCapabilities,
+   SandboxCreateInput,
+@@ -14,14 +25,29 @@ import type {
  export interface DockerSandboxConfig {
    /** Image to run, e.g. `node:22`. Pulled automatically if absent locally. */
    image: string
@@ -1691,13 +3647,25 @@ index 2eba55337bedb778404a042347c0b7811f91c595..e6f00eed520d72d68470d0ec80945727
 +   * HostConfig values are not exposed by this provider.
 +   */
 +  isolationPolicy?: DockerSandboxIsolationPolicy
++  /**
++   * Opt in to provider-owned egress isolation. The agent is placed on a
++   * private internal network and can reach only this trusted proxy's rules.
++   */
++  egress?: DockerSandboxEgressPolicy
    /**
     * Add `host.docker.internal:host-gateway` so the container can reach the
     * host (e.g. a host-side MCP tool-bridge). Defaults to true.
-@@ -39,14 +49,121 @@ export interface DockerSandboxConfig {
+@@ -39,58 +65,873 @@ export interface DockerSandboxConfig {
    logger?: DockerLogger
  }
  
++export type {
++  DockerSandboxEgressPolicy,
++  EgressAuthority,
++  EgressHttpRule,
++  EgressIngress,
++}
++
 +export interface DockerSandboxIsolationPolicy {
 +  user: string
 +  diskSize: string
@@ -1734,6 +3702,112 @@ index 2eba55337bedb778404a042347c0b7811f91c595..e6f00eed520d72d68470d0ec80945727
 +
  const DEFAULT_WORKDIR = '/workspace'
 +const FORK_SOURCE_LABEL = 'ai.tanstack.sandbox.fork-source'
++const EGRESS_CONTROL_SOCKET = '/tmp/tanstack-egress/control.sock'
++const EGRESS_PROXY_HOST = 'tanstack-egress-proxy'
++const LABEL_PREFIX = 'com.tanstack.ai.sandbox'
++const MANAGED_LABEL = `${LABEL_PREFIX}.managed-by`
++const SCHEMA_LABEL = `${LABEL_PREFIX}.schema`
++const SANDBOX_KEY_LABEL = `${LABEL_PREFIX}.sandbox-key`
++const OWNERSHIP_LABEL = `${LABEL_PREFIX}.ownership-v2`
++const GENERATION_LABEL = `${LABEL_PREFIX}.generation`
++const ROLE_LABEL = `${LABEL_PREFIX}.role`
++const MANAGED_VALUE = 'tanstack-ai'
++const SCHEMA_VALUE = '1'
++type EgressRole = 'agent' | 'proxy' | 'network'
++
++interface NormalizedEgressPolicy {
++  proxyImage: string
++  allowConnect: Array<EgressAuthority>
++  allowHttp: Array<EgressHttpRule>
++  ingress: Array<EgressIngress>
++}
++
++interface EgressTopology {
++  key: string
++  owner: string
++  generation: string
++  network: Dockerode.Network
++  networkName: string
++  proxy: Dockerode.Container
++  proxyName: string
++  ingressByTarget: ReadonlyMap<number, number>
++}
++
++const CONTROL_CLIENT = `const net=require('node:net');let data='';const socket=net.connect(process.argv[1]);socket.setEncoding('utf8');socket.setTimeout(5000,()=>socket.destroy(new Error('control timeout')));socket.on('connect',()=>{process.stdin.pipe(socket)});socket.on('data',chunk=>{data+=chunk;const i=data.indexOf('\\n');if(i>=0){process.stdout.write(data.slice(0,i+1));socket.end()}});socket.on('error',error=>{console.error(error.message);process.exitCode=1})`
++
++function normalizeHost(host: string): string {
++  const value = host.trim().toLowerCase().replace(/^\[|\]$/g, '')
++  if (!value || /[\s/?#@]/.test(value)) throw new Error('docker: invalid egress host')
++  return value
++}
++
++function normalizePort(port: number, name: string): number {
++  if (!Number.isInteger(port) || port < 1 || port > 65535)
++    throw new Error(`docker: ${name} must be a TCP port`)
++  return port
++}
++
++function normalizeEgressPolicy(
++  policy: DockerSandboxEgressPolicy | undefined,
++): NormalizedEgressPolicy | undefined {
++  if (!policy) return undefined
++  const proxyImage = policy.proxyImage.trim()
++  if (!proxyImage) throw new Error('docker: egress.proxyImage is required')
++  const allowConnect = [...policy.allowConnect]
++    .map(({ host, port }) => ({ host: normalizeHost(host), port: normalizePort(port, 'egress allowConnect port') }))
++    .sort((a, b) => `${a.host}:${a.port}`.localeCompare(`${b.host}:${b.port}`))
++  const allowHttp = [...policy.allowHttp]
++    .map(({ host, port, paths }) => {
++      const normalizedPaths = [...new Set(paths)].sort()
++      if (
++        normalizedPaths.length === 0 ||
++        normalizedPaths.some((path) => !path.startsWith('/') || path.includes('?') || path.includes('#'))
++      ) throw new Error('docker: egress allowHttp paths must be non-empty exact paths')
++      return {
++        host: normalizeHost(host),
++        port: normalizePort(port, 'egress allowHttp port'),
++        paths: normalizedPaths,
++      }
++    })
++    .sort((a, b) => `${a.host}:${a.port}`.localeCompare(`${b.host}:${b.port}`))
++  const ingress = [...(policy.ingress ?? [])]
++    .map(({ listenPort, targetPort }) => ({
++      listenPort: normalizePort(listenPort, 'egress ingress listenPort'),
++      targetPort: normalizePort(targetPort, 'egress ingress targetPort'),
++    }))
++    .sort((a, b) => a.targetPort - b.targetPort || a.listenPort - b.listenPort)
++  if (new Set(ingress.map(({ listenPort }) => listenPort)).size !== ingress.length)
++    throw new Error('docker: egress ingress listenPort values must be unique')
++  if (new Set(ingress.map(({ targetPort }) => targetPort)).size !== ingress.length)
++    throw new Error('docker: egress ingress targetPort values must be unique')
++  return { proxyImage, allowConnect, allowHttp, ingress }
++}
++
++function labels(
++  key: string,
++  owner: string,
++  generation: string,
++  role: EgressRole,
++): Record<string, string> {
++  return {
++    [MANAGED_LABEL]: MANAGED_VALUE,
++    [SCHEMA_LABEL]: SCHEMA_VALUE,
++    [SANDBOX_KEY_LABEL]: key,
++    [OWNERSHIP_LABEL]: owner,
++    [GENERATION_LABEL]: generation,
++    [ROLE_LABEL]: role,
++  }
++}
++
++function ownershipKey(id: string, workspaceIdentity: string): string {
++  return createHash('sha256')
++    .update(`docker-owner-v2\0${id}\0${workspaceIdentity}`)
++    .digest('hex')
++}
++
++function dockerName(owner: string, suffix: EgressRole): string {
++  return `tanstack-ai-${owner.slice(0, 24)}-${suffix}`
++}
 +
 +function portOrigin(
 +  advertisedPortHost: string | undefined,
@@ -1804,11 +3878,23 @@ index 2eba55337bedb778404a042347c0b7811f91c595..e6f00eed520d72d68470d0ec80945727
    private readonly docker: Dockerode
  
 +  private readonly isolationPolicy: DockerSandboxIsolationPolicy | undefined
++  private readonly egressPolicy: NormalizedEgressPolicy | undefined
 +  private readonly advertisedPortOrigin: string
 +
    constructor(private readonly config: DockerSandboxConfig) {
      this.docker = new Dockerode(config.dockerodeOptions)
 +    this.isolationPolicy = validateIsolationPolicy(config.isolationPolicy)
++    this.egressPolicy = normalizeEgressPolicy(config.egress)
++    if (this.egressPolicy) {
++      const published = [...new Set(config.publishPorts ?? [])].sort((a, b) => a - b)
++      const targets = this.egressPolicy.ingress.map(({ targetPort }) => targetPort)
++      if (
++        published.length !== targets.length ||
++        published.some((port, index) => port !== targets[index])
++      ) {
++        throw new Error('docker: egress ingress targets must exactly match publishPorts')
++      }
++    }
 +    this.advertisedPortOrigin = portOrigin(
 +      config.advertisedPortHost,
 +      this.docker.modem,
@@ -1816,7 +3902,13 @@ index 2eba55337bedb778404a042347c0b7811f91c595..e6f00eed520d72d68470d0ec80945727
    }
  
    capabilities(): SandboxCapabilities {
-@@ -57,19 +174,30 @@ class DockerProvider implements SandboxProvider {
+-    return DOCKER_CAPS
++    return this.egressPolicy
++      ? { ...DOCKER_CAPS, networkPolicy: true }
++      : DOCKER_CAPS
+   }
+ 
+   private get workdir(): string {
      return this.config.workdir ?? DEFAULT_WORKDIR
    }
  
@@ -1848,10 +3940,548 @@ index 2eba55337bedb778404a042347c0b7811f91c595..e6f00eed520d72d68470d0ec80945727
 +    const pulled = await this.docker.getImage(image).inspect(options)
 +    signal?.throwIfAborted()
 +    this.assertImageVolumes(image, pulled)
++  }
++
++  private async proxyAsset(): Promise<string> {
++    return readFile(new URL('./egress-proxy.js', import.meta.url), 'utf8')
++  }
++
++  private async currentGeneration(signal?: AbortSignal): Promise<string> {
++    const policy = this.egressPolicy
++    if (!policy) throw new Error('docker: egress generation requested without a policy')
++    await Promise.all([
++      this.ensureImage(this.config.image, signal),
++      this.assertProxyImage(policy.proxyImage, signal),
++    ])
++    const inspectOptions: Dockerode.ImageInspectOptions & { abortSignal?: AbortSignal } = {
++      abortSignal: signal,
++    }
++    const [agentImage, proxyImage, proxyAsset] = await Promise.all([
++      this.docker.getImage(this.config.image).inspect(inspectOptions),
++      this.docker.getImage(policy.proxyImage).inspect(inspectOptions),
++      this.proxyAsset(),
++    ])
++    if (agentImage.Config.Volumes && Object.keys(agentImage.Config.Volumes).length > 0)
++      throw new Error(`docker: egress agent image ${this.config.image} declares volumes`)
++    return createHash('sha256').update(JSON.stringify({
++      agentImage: agentImage.Id,
++      proxyImage: proxyImage.Id,
++      proxyAsset: createHash('sha256').update(proxyAsset).digest('hex'),
++      workdir: this.workdir,
++      keepAliveCommand: this.config.keepAliveCommand ?? ['sh', '-c', 'tail -f /dev/null'],
++      publishPorts: [...(this.config.publishPorts ?? [])].sort((a, b) => a - b),
++      isolationPolicy: this.isolationPolicy,
++      egress: policy,
++    })).digest('hex')
++  }
++
++  private async assertProxyImage(image: string, signal?: AbortSignal): Promise<void> {
++    await this.ensureImage(image, signal)
++    const options: Dockerode.ImageInspectOptions & { abortSignal?: AbortSignal } = {
++      abortSignal: signal,
++    }
++    const info = await this.docker.getImage(image).inspect(options)
++    if (info.Config.Volumes && Object.keys(info.Config.Volumes).length > 0) {
++      throw new Error(`docker: egress proxy image ${image} declares volumes`)
++    }
++  }
++
++  private assertOwnedLabels(
++    resource: string,
++    actual: Record<string, string> | undefined,
++    key: string,
++    owner: string,
++    generation: string | undefined,
++    role: EgressRole,
++  ): void {
++    if (
++      actual?.[MANAGED_LABEL] !== MANAGED_VALUE ||
++      actual[SCHEMA_LABEL] !== SCHEMA_VALUE ||
++      actual[SANDBOX_KEY_LABEL] !== key ||
++      actual[OWNERSHIP_LABEL] !== owner ||
++      actual[ROLE_LABEL] !== role ||
++      (generation !== undefined && actual[GENERATION_LABEL] !== generation)
++    ) {
++      throw new Error(`docker: ${resource} does not match the owned egress ${role} configuration`)
++    }
++  }
++
++  private async proxyControl(
++    proxy: Dockerode.Container,
++    message: Record<string, unknown>,
++  ): Promise<Record<string, unknown>> {
++    const exec = await proxy.exec({
++      Cmd: ['node', '-e', CONTROL_CLIENT, EGRESS_CONTROL_SOCKET],
++      AttachStdin: true,
++      AttachStdout: true,
++      AttachStderr: true,
++    })
++    const stream = await exec.start({ hijack: true, stdin: true })
++    const stdout: Array<Buffer> = []
++    const stderr: Array<Buffer> = []
++    this.docker.modem.demuxStream(
++      stream,
++      new Writable({ write(chunk, _encoding, callback) { stdout.push(chunk as Buffer); callback() } }),
++      new Writable({ write(chunk, _encoding, callback) { stderr.push(chunk as Buffer); callback() } }),
++    )
++    const settled = new Promise<void>((resolve, reject) => {
++      stream.once('end', resolve)
++      stream.once('close', resolve)
++      stream.once('error', reject)
++    })
++    stream.end(`${JSON.stringify(message)}\n`)
++    await settled
++    const info = await exec.inspect()
++    const errorText = Buffer.concat(stderr).toString('utf8').trim()
++    if ((info.ExitCode ?? 1) !== 0) {
++      throw new Error(`docker: egress proxy control failed${errorText ? `: ${errorText}` : ''}`)
++    }
++    const line = Buffer.concat(stdout).toString('utf8').trim()
++    let response: unknown
++    try { response = JSON.parse(line) } catch { throw new Error('docker: invalid egress proxy control response') }
++    if (typeof response !== 'object' || response === null || !('ok' in response))
++      throw new Error('docker: invalid egress proxy control response')
++    if (response.ok !== true) {
++      const detail = 'error' in response && typeof response.error === 'string'
++        ? `: ${response.error}`
++        : ''
++      throw new Error(`docker: egress proxy rejected control request${detail}`)
++    }
++    return response as Record<string, unknown>
++  }
++
++  private hostBridgeAccess(proxy: Dockerode.Container): NonNullable<SandboxHandle['hostBridgeAccess']> {
++    return {
++      admit: async ({ url, token }) => {
++        let parsed: URL
++        try { parsed = new URL(url) } catch { throw new Error('docker: invalid host bridge URL') }
++        if (
++          parsed.protocol !== 'http:' || !parsed.hostname || !parsed.port ||
++          parsed.pathname !== '/mcp' || parsed.search || parsed.hash ||
++          parsed.username || parsed.password || !token
++        ) throw new Error('docker: host bridge admission requires an exact HTTP /mcp URL and token')
++        const response = await this.proxyControl(proxy, { op: 'admit', url, token })
++        if (typeof response.id !== 'string' || !response.id)
++          throw new Error('docker: egress proxy admission returned no grant id')
++        const id = response.id
++        return {
++          revoke: this.leasedRevoker(proxy, id, 'revoke'),
++        }
++      },
++    }
++  }
++
++  private leasedRevoker(
++    proxy: Dockerode.Container,
++    id: string,
++    revokeOp: 'revoke' | 'revoke-ingress',
++    renewOp: 'renew' | 'renew-ingress' = 'renew',
++  ): () => Promise<void> {
++    let renewalFailure: unknown
++    let renewalTask: Promise<void> | undefined
++    let revokeTask: Promise<void> | undefined
++    const timer = setInterval(() => {
++      renewalTask = this.proxyControl(proxy, { op: renewOp, id })
++        .then(() => undefined)
++        .catch((error) => {
++          renewalFailure = error
++          clearInterval(timer)
++          this.config.logger?.warn('docker: egress grant renewal failed', {
++            grantId: id,
++            error: error instanceof Error ? error.message : String(error),
++          })
++        })
++    }, 120_000)
++    timer.unref?.()
++    return () => {
++      revokeTask ??= (async () => {
++        clearInterval(timer)
++        await renewalTask
++        let revokeFailure: unknown
++        try {
++          await this.proxyControl(proxy, { op: revokeOp, id })
++        } catch (error) {
++          revokeFailure = error
++        }
++        if (renewalFailure !== undefined && revokeFailure !== undefined) {
++          throw new AggregateError(
++            [renewalFailure, revokeFailure],
++            'docker: egress grant renewal and revocation failed',
++          )
++        }
++        if (revokeFailure !== undefined) throw revokeFailure
++        if (renewalFailure !== undefined) throw renewalFailure
++      })()
++      return revokeTask
++    }
++  }
++
++  private async connectEgressPort(
++    topology: EgressTopology,
++    targetPort: number,
++  ): Promise<import('@tanstack/ai-sandbox').SandboxChannel> {
++    const listenPort = topology.ingressByTarget.get(targetPort)
++    if (!listenPort) {
++      throw new Error(`docker: container port ${targetPort} has no configured egress ingress mapping`)
++    }
++    const info = await topology.proxy.inspect()
++    const hostPort = info.NetworkSettings.Ports[`${listenPort}/tcp`]?.[0]?.HostPort
++    if (!hostPort) throw new Error(`docker: egress proxy port ${listenPort} is not published`)
++    const response = await this.proxyControl(topology.proxy, {
++      op: 'open-ingress',
++      port: targetPort,
++    })
++    try {
++      if (
++        typeof response.id !== 'string' || !response.id ||
++        typeof response.token !== 'string' || !response.token ||
++        (response.port !== undefined && response.port !== listenPort)
++      ) throw new Error('docker: egress proxy returned an invalid ingress grant')
++      const url = new URL(this.advertisedPortOrigin)
++      url.port = hostPort
++      return {
++        url: url.origin,
++        headers: { 'x-tanstack-sandbox-token': response.token },
++        close: this.leasedRevoker(
++          topology.proxy,
++          response.id,
++          'revoke-ingress',
++          'renew-ingress',
++        ),
++      }
++    } catch (error) {
++      if (typeof response.id !== 'string' || !response.id) throw error
++      try {
++        await this.proxyControl(topology.proxy, {
++          op: 'revoke-ingress',
++          id: response.id,
++        })
++      } catch (cleanupError) {
++        throw new AggregateError(
++          [error, cleanupError],
++          'docker: ingress setup and grant cleanup failed',
++        )
++      }
++      throw error
++    }
++  }
++
++  private makeHandle(
++    container: Dockerode.Container,
++    topology?: EgressTopology,
++  ): SandboxHandle {
++    return new DockerHandle({
++      docker: this.docker,
++      container,
++      workdir: this.workdir,
++      forkFactory: this.forkFactory,
++      removeOnDestroy: this.config.removeOnDestroy ?? true,
++      advertisedPortOrigin: this.advertisedPortOrigin,
++      networkPolicy: topology !== undefined,
++      ...(topology
++        ? {
++            portContainer: topology.proxy,
++            ingressByTarget: topology.ingressByTarget,
++            connectPort: (port: number) => this.connectEgressPort(topology, port),
++            hostBridgeAccess: this.hostBridgeAccess(topology.proxy),
++          }
++        : {}),
++      logger: this.config.logger,
++      destroyContainer: () => this.destroy({ id: container.id }),
++    })
++  }
++
++  private async waitForProxy(proxy: Dockerode.Container): Promise<void> {
++    const deadline = Date.now() + 10_000
++    let lastError: unknown
++    while (Date.now() < deadline) {
++      try {
++        await this.proxyControl(proxy, { op: 'revoke', id: '__ready__' })
++        return
++      } catch (error) {
++        lastError = error
++        await new Promise((resolve) => setTimeout(resolve, 100))
++      }
++    }
++    throw new Error('docker: egress proxy control socket did not become ready', {
++      cause: lastError,
++    })
++  }
++
++  private async stopAndRemoveContainer(container: Dockerode.Container): Promise<void> {
++    try { await container.stop({ t: 5 }) }
++    catch (error) { if (!hasStatus(error, 304) && !hasStatus(error, 404)) throw error }
++    try { await container.remove({ force: true, v: true }) }
++    catch (error) { if (!hasStatus(error, 404)) throw error }
++  }
++
++  private async startIfStopped(
++    container: Dockerode.Container,
++    running: boolean,
++    signal?: AbortSignal,
++  ): Promise<void> {
++    if (running) return
++    await container.start({ abortSignal: signal })
++    signal?.throwIfAborted()
++  }
++
++  private assertEgressContainerBoundary(
++    resource: string,
++    info: Dockerode.ContainerInspectInfo,
++    allowOwnedTmpfs = false,
++  ): void {
++    const host = info.HostConfig
++    const values = host as Record<string, unknown>
++    const user = info.Config.User?.trim().toLowerCase()
++    const mounts = info.Mounts ?? []
++    const mountsAreOwnedTmpfs = allowOwnedTmpfs && mounts.length === 1 &&
++      mounts[0]?.Type === 'tmpfs' && mounts[0].Destination === '/tmp'
++    if (
++      !user || user === 'root' || user === '0' || user.startsWith('0:') ||
++      host.Privileged === true ||
++      host.CapDrop?.length !== 1 || host.CapDrop[0] !== 'ALL' ||
++      (host.CapAdd?.length ?? 0) !== 0 ||
++      host.SecurityOpt?.length !== 1 || host.SecurityOpt[0] !== 'no-new-privileges:true' ||
++      (host.Devices?.length ?? 0) !== 0 ||
++      (Array.isArray(values.DeviceRequests) && values.DeviceRequests.length > 0) ||
++      (host.Binds?.length ?? 0) !== 0 ||
++      (Array.isArray(values.Mounts) && values.Mounts.length > 0) ||
++      (mounts.length > 0 && !mountsAreOwnedTmpfs) ||
++      host.LogConfig?.Type !== 'none'
++    ) throw new Error(`docker: ${resource} does not satisfy the owned egress boundary`)
++  }
++
++  private async loadEgressTopology(
++    container: Dockerode.Container,
++    info: Dockerode.ContainerInspectInfo,
++    signal?: AbortSignal,
++    expectedKey?: string,
++    expectedOwner?: string,
++  ): Promise<EgressTopology> {
++    const policy = this.egressPolicy
++    if (!policy) throw new Error('docker: cannot resume an isolated egress sandbox without its egress policy')
++    const key = info.Config.Labels?.[SANDBOX_KEY_LABEL]
++    const owner = info.Config.Labels?.[OWNERSHIP_LABEL]
++    if (!key || (expectedKey !== undefined && key !== expectedKey))
++      throw new Error('docker: sandbox identity does not match the requested deterministic id')
++    if (!owner || (expectedOwner !== undefined && owner !== expectedOwner))
++      throw new Error('docker: sandbox ownership does not match the requested workspace identity')
++    const generation = await this.currentGeneration(signal)
++    this.assertOwnedLabels(`container ${container.id}`, info.Config.Labels, key, owner, generation, 'agent')
++    this.assertEgressContainerBoundary(`container ${container.id}`, info)
++    this.assertIsolationPolicy(container.id, info)
++    const networkName = dockerName(owner, 'network')
++    const proxyName = dockerName(owner, 'proxy')
++    const network = this.docker.getNetwork(networkName)
++    const proxy = this.docker.getContainer(proxyName)
++    const [networkInfo, initialProxyInfo] = await Promise.all([
++      network.inspect(),
++      proxy.inspect({ abortSignal: signal }),
++    ])
++    this.assertOwnedLabels(`network ${networkName}`, networkInfo.Labels, key, owner, generation, 'network')
++    this.assertOwnedLabels(`container ${proxyName}`, initialProxyInfo.Config.Labels, key, owner, generation, 'proxy')
++    this.assertEgressContainerBoundary(`container ${proxyName}`, initialProxyInfo, true)
++    if (!networkInfo.Internal) throw new Error('docker: owned egress network is not internal')
++    const agentNetworks = Object.keys(info.NetworkSettings.Networks)
++    const proxyNetworks = Object.keys(initialProxyInfo.NetworkSettings.Networks)
++    if (agentNetworks.length !== 1 || agentNetworks[0] !== networkName)
++      throw new Error('docker: egress agent is not isolated on its owned internal network')
++    if (
++      proxyNetworks.length !== 2 || !proxyNetworks.includes(networkName) ||
++      !proxyNetworks.includes('bridge')
++    ) throw new Error('docker: egress proxy does not have the required dual-network topology')
++    if (
++      info.HostConfig.Dns?.length !== 1 || info.HostConfig.Dns[0] !== '127.0.0.1' ||
++      Object.keys(info.HostConfig.PortBindings ?? {}).length !== 0
++    ) throw new Error('docker: egress agent DNS or publication bypasses its proxy')
++    if (
++      initialProxyInfo.Config.Image !== policy.proxyImage ||
++      initialProxyInfo.HostConfig.ReadonlyRootfs !== true ||
++      initialProxyInfo.HostConfig.Sysctls?.['net.ipv4.ip_forward'] !== '0' ||
++      initialProxyInfo.HostConfig.Tmpfs?.['/tmp'] !==
++        'rw,noexec,nosuid,nodev,uid=1000,gid=1000,mode=0700'
++    ) throw new Error('docker: egress proxy runtime configuration does not match policy')
++    await this.startIfStopped(proxy, initialProxyInfo.State.Running, signal)
++    await this.waitForProxy(proxy)
++    await this.startIfStopped(container, info.State.Running, signal)
++    return {
++      key,
++      owner,
++      generation,
++      network,
++      networkName,
++      proxy,
++      proxyName,
++      ingressByTarget: new Map(policy.ingress.map(({ targetPort, listenPort }) => [targetPort, listenPort])),
++    }
++  }
++
++  private async startEgressContainer(
++    image: string,
++    env: Record<string, string> | undefined,
++    agentName: string,
++    key: string,
++    owner: string,
++    signal?: AbortSignal,
++  ): Promise<SandboxHandle> {
++    const policy = this.egressPolicy!
++    const generation = await this.currentGeneration(signal)
++    const networkName = dockerName(owner, 'network')
++    const proxyName = dockerName(owner, 'proxy')
++    let network: Dockerode.Network | undefined
++    let proxy: Dockerode.Container | undefined
++    let agent: Dockerode.Container | undefined
++    const cleanupErrors: Array<unknown> = []
++    try {
++      signal?.throwIfAborted()
++      await this.ensureImage(image, signal)
++      const proxyAsset = await this.proxyAsset()
++      signal?.throwIfAborted()
++      network = await this.docker.createNetwork({
++        Name: networkName,
++        Internal: true,
++        Labels: labels(key, owner, generation, 'network'),
++      })
++      const proxyExposed: Record<string, Record<string, never>> = {}
++      const proxyBindings: Record<string, Array<{ HostPort: string }>> = {}
++      for (const mapping of policy.ingress) {
++        proxyExposed[`${mapping.listenPort}/tcp`] = {}
++        proxyBindings[`${mapping.listenPort}/tcp`] = [{ HostPort: '' }]
++      }
++      const proxyOptions: EgressProxyOptions = {
++        allowConnect: policy.allowConnect,
++        allowHttp: policy.allowHttp,
++        ingressTargetHost: agentName,
++        ingress: policy.ingress,
++        bindAddress: EGRESS_PROXY_HOST,
++        ingressBindAddress: '0.0.0.0',
++        proxyPort: 3128,
++        controlSocketPath: EGRESS_CONTROL_SOCKET,
++      }
++      const proxyBody = {
++        Image: policy.proxyImage,
++        User: '1000:1000',
++        Entrypoint: ['node', '--input-type=module', '-e'],
++        Cmd: [proxyAsset],
++        Env: [`${EGRESS_PROXY_CONFIG_ENV}=${JSON.stringify(proxyOptions)}`],
++        Labels: labels(key, owner, generation, 'proxy'),
++        ExposedPorts: Object.keys(proxyExposed).length ? proxyExposed : undefined,
++        HostConfig: {
++          NetworkMode: 'bridge',
++          NanoCpus: 1_000_000_000,
++          Memory: 1024 ** 3,
++          MemorySwap: 1024 ** 3,
++          PidsLimit: 128,
++          CapDrop: ['ALL'],
++          CapAdd: [],
++          SecurityOpt: ['no-new-privileges:true'],
++          Privileged: false,
++          Devices: [],
++          ReadonlyRootfs: true,
++          Tmpfs: {
++            '/tmp': 'rw,noexec,nosuid,nodev,uid=1000,gid=1000,mode=0700',
++          },
++          Sysctls: { 'net.ipv4.ip_forward': '0' },
++          ExtraHosts: ['host.docker.internal:host-gateway'],
++          LogConfig: { Type: 'none', Config: {} },
++          PortBindings: Object.keys(proxyBindings).length ? proxyBindings : undefined,
++        },
++      }
++      const proxyRequest = {
++        ...proxyBody,
++        _query: { name: proxyName },
++        _body: proxyBody,
++      }
++      proxy = await this.docker.createContainer(proxyRequest)
++      await network.connect({
++        Container: proxy.id,
++        EndpointConfig: { Aliases: [proxyName, EGRESS_PROXY_HOST] },
++      })
++      await proxy.start({ abortSignal: signal })
++      await this.waitForProxy(proxy)
++      const proxyInfo = await proxy.inspect({ abortSignal: signal })
++      const proxyAddress = proxyInfo.NetworkSettings.Networks[networkName]?.IPAddress
++      if (!proxyAddress) throw new Error('docker: egress proxy has no internal address')
++
++      const isolation = this.isolationPolicy
++      const proxyUrl = `http://${EGRESS_PROXY_HOST}:3128`
++      const agentEnv = {
++        ...env,
++        HTTP_PROXY: proxyUrl,
++        HTTPS_PROXY: proxyUrl,
++        http_proxy: proxyUrl,
++        https_proxy: proxyUrl,
++        NO_PROXY: 'localhost,127.0.0.1',
++        no_proxy: 'localhost,127.0.0.1',
++      }
++      const agentBody = {
++        Image: image,
++        User: isolation?.user ?? '1000:1000',
++        Cmd: this.config.keepAliveCommand ?? ['sh', '-c', 'tail -f /dev/null'],
++        Tty: false,
++        WorkingDir: this.workdir,
++        Env: Object.entries(agentEnv).map(([name, value]) => `${name}=${value}`),
++        Labels: labels(key, owner, generation, 'agent'),
++        HostConfig: {
++          ...(isolation
++            ? {
++                NanoCpus: isolation.nanoCpus,
++                Memory: isolation.memoryBytes,
++                MemorySwap: isolation.memoryBytes,
++                PidsLimit: isolation.pidsLimit,
++                StorageOpt: { size: isolation.diskSize },
++              }
++            : {}),
++          CapDrop: ['ALL'],
++          CapAdd: [],
++          SecurityOpt: ['no-new-privileges:true'],
++          Privileged: false,
++          Devices: [],
++          LogConfig: { Type: 'none', Config: {} },
++          NetworkMode: networkName,
++          Dns: ['127.0.0.1'],
++          ExtraHosts: [`${EGRESS_PROXY_HOST}:${proxyAddress}`],
++        },
++      }
++      const agentRequest = {
++        ...agentBody,
++        _query: { name: agentName },
++        _body: agentBody,
++      }
++      agent = await this.docker.createContainer(agentRequest)
++      await agent.start({ abortSignal: signal })
++      signal?.throwIfAborted()
++      const agentInfo = await agent.inspect({ abortSignal: signal })
++      const topology = await this.loadEgressTopology(
++        agent,
++        agentInfo,
++        signal,
++        key,
++        owner,
++      )
++      const handle = this.makeHandle(agent, topology)
++      await handle.fs.mkdir(this.workdir)
++      signal?.throwIfAborted()
++      return handle
++    } catch (error) {
++      if (agent) await this.stopAndRemoveContainer(agent).catch((cleanupError) => cleanupErrors.push(cleanupError))
++      if (proxy) await this.stopAndRemoveContainer(proxy).catch((cleanupError) => cleanupErrors.push(cleanupError))
++      if (network) await network.remove().catch((cleanupError) => { if (!hasStatus(cleanupError, 404)) cleanupErrors.push(cleanupError) })
++      if (cleanupErrors.length) {
++        throw new AggregateError(
++          [error, ...cleanupErrors],
++          'docker: egress sandbox startup and cleanup failed',
++        )
++      }
++      throw error
++    }
    }
  
    private readonly forkFactory = async (
-@@ -79,18 +207,26 @@ class DockerProvider implements SandboxProvider {
+     sourceContainerId: string,
+   ): Promise<SandboxHandle> => {
+     const source = this.docker.getContainer(sourceContainerId)
++    const sourceInfo = await source.inspect()
      const image = await source.commit({
        repo: 'tanstack-ai-sandbox-fork',
        tag: `${sourceContainerId.slice(0, 12)}-${Date.now()}`,
@@ -1863,8 +4493,20 @@ index 2eba55337bedb778404a042347c0b7811f91c595..e6f00eed520d72d68470d0ec80945727
 -        : `tanstack-ai-sandbox-fork:latest`
 -    return this.startContainer(imageRef)
 +    if (typeof image.Id !== 'string') throw new Error('docker: fork commit returned no image identity')
++    const key = `fork-${randomUUID()}`
++    const parentOwner = sourceInfo.Config.Labels?.[OWNERSHIP_LABEL]
++    const owner = this.egressPolicy
++      ? ownershipKey(key, parentOwner ?? sourceContainerId)
++      : undefined
 +    try {
-+      return await this.startContainer(image.Id)
++      return await this.startContainer(
++        image.Id,
++        undefined,
++        owner ? dockerName(owner, 'agent') : undefined,
++        undefined,
++        key,
++        owner,
++      )
 +    } catch (error) {
 +      try { await this.removeForkImage(image.Id) }
 +      catch (cleanupError) { throw new AggregateError([error, cleanupError], 'docker: fork startup and image cleanup failed') }
@@ -1877,13 +4519,27 @@ index 2eba55337bedb778404a042347c0b7811f91c595..e6f00eed520d72d68470d0ec80945727
      env?: Record<string, string>,
 +    name?: string,
 +    signal?: AbortSignal,
++    key?: string,
++    owner?: string,
    ): Promise<SandboxHandle> {
 +    signal?.throwIfAborted()
++    if (this.egressPolicy) {
++      const identity = key ?? `sandbox-${randomUUID()}`
++      const ownership = owner ?? ownershipKey(identity, `fork-${randomUUID()}`)
++      return this.startEgressContainer(
++        image,
++        env,
++        name ?? dockerName(ownership, 'agent'),
++        identity,
++        ownership,
++        signal,
++      )
++    }
 +    if (this.isolationPolicy) await this.ensureImage(image, signal)
      const exposed: Record<string, Record<string, never>> = {}
      const bindings: Record<string, Array<{ HostPort: string }>> = {}
      for (const port of this.config.publishPorts ?? []) {
-@@ -98,65 +234,140 @@ class DockerProvider implements SandboxProvider {
+@@ -98,96 +939,385 @@ class DockerProvider implements SandboxProvider {
        bindings[`${port}/tcp`] = [{ HostPort: '' }] // let Docker pick a free host port
      }
  
@@ -1936,20 +4592,19 @@ index 2eba55337bedb778404a042347c0b7811f91c595..e6f00eed520d72d68470d0ec80945727
      // on any instantiation failure before propagating the error.
      try {
 -      await container.start()
+-      const handle = new DockerHandle({
+-        docker: this.docker,
+-        container,
+-        workdir: this.workdir,
+-        forkFactory: this.forkFactory,
+-        removeOnDestroy: this.config.removeOnDestroy ?? true,
+-        logger: this.config.logger,
+-      })
 +      signal?.throwIfAborted()
 +      const startOptions: Dockerode.ContainerStartOptions & { abortSignal?: AbortSignal } = { abortSignal: signal }
 +      await container.start(startOptions)
 +      signal?.throwIfAborted()
-       const handle = new DockerHandle({
-         docker: this.docker,
-         container,
-         workdir: this.workdir,
-         forkFactory: this.forkFactory,
-         removeOnDestroy: this.config.removeOnDestroy ?? true,
-+        advertisedPortOrigin: this.advertisedPortOrigin,
-         logger: this.config.logger,
-+        destroyContainer: () => this.destroy({ id: container.id }),
-       })
++      const handle = this.makeHandle(container)
        // Ensure the workspace dir exists.
        await handle.fs.mkdir(this.workdir)
 +      signal?.throwIfAborted()
@@ -1972,9 +4627,18 @@ index 2eba55337bedb778404a042347c0b7811f91c595..e6f00eed520d72d68470d0ec80945727
 +    input.signal?.throwIfAborted()
 +    await this.collectOrphanForkImages()
 +    input.signal?.throwIfAborted()
-+    const name = this.config.containerName
++    if (this.egressPolicy && (!input.id || !input.workspace?.identity)) {
++      throw new Error('docker: egress isolation requires deterministic id and workspace.identity')
++    }
++    const key = input.id ?? this.config.containerName
++    const owner = this.egressPolicy
++      ? ownershipKey(input.id!, input.workspace!.identity!)
++      : undefined
++    const name = this.config.containerName ?? (owner
++      ? dockerName(owner, 'agent')
++      : input.id ? dockerName(createHash('sha256').update(input.id).digest('hex'), 'agent') : undefined)
 +    if (name) {
-+      const existing = await this.resume({ id: name, signal: input.signal })
++      const existing = await this.resumeContainer(name, input.signal, key, owner)
 +      if (existing) {
 +        await existing.fs.mkdir(this.workdir)
 +        return existing
@@ -1983,10 +4647,10 @@ index 2eba55337bedb778404a042347c0b7811f91c595..e6f00eed520d72d68470d0ec80945727
 +    await this.ensureImage(this.config.image, input.signal)
 +    input.signal?.throwIfAborted()
 +    try {
-+      return await this.startContainer(this.config.image, input.env, name, input.signal)
++      return await this.startContainer(this.config.image, input.env, name, input.signal, key, owner)
 +    } catch (error) {
 +      if (name && typeof error === 'object' && error !== null && 'statusCode' in error && error.statusCode === 409) {
-+        const existing = await this.resume({ id: name, signal: input.signal })
++        const existing = await this.resumeContainer(name, input.signal, key, owner)
 +        if (existing) {
 +          await existing.fs.mkdir(this.workdir)
 +          return existing
@@ -1996,18 +4660,25 @@ index 2eba55337bedb778404a042347c0b7811f91c595..e6f00eed520d72d68470d0ec80945727
 +    }
    }
  
-   async resume(input: SandboxResumeInput): Promise<SandboxHandle | null> {
-+    input.signal?.throwIfAborted()
-+    const options: Dockerode.ContainerInspectOptions & { abortSignal?: AbortSignal } = { abortSignal: input.signal }
-     const container = this.docker.getContainer(input.id)
+-  async resume(input: SandboxResumeInput): Promise<SandboxHandle | null> {
+-    const container = this.docker.getContainer(input.id)
++  private async resumeContainer(
++    id: string,
++    signal?: AbortSignal,
++    expectedKey?: string,
++    expectedOwner?: string,
++  ): Promise<SandboxHandle | null> {
++    signal?.throwIfAborted()
++    const options: Dockerode.ContainerInspectOptions & { abortSignal?: AbortSignal } = { abortSignal: signal }
++    const container = this.docker.getContainer(id)
      let info: Dockerode.ContainerInspectInfo
      try {
 -      info = await container.inspect()
 -    } catch {
 +      info = await container.inspect(options)
-+      input.signal?.throwIfAborted()
++      signal?.throwIfAborted()
 +    } catch (error) {
-+      input.signal?.throwIfAborted()
++      signal?.throwIfAborted()
 +      const missing =
 +        typeof error === 'object' &&
 +        error !== null &&
@@ -2016,16 +4687,36 @@ index 2eba55337bedb778404a042347c0b7811f91c595..e6f00eed520d72d68470d0ec80945727
 +      if (this.isolationPolicy && !missing) throw error
        return null
      }
-+    this.assertIsolationPolicy(input.id, info)
++    // Dockerode retains the lookup alias in `container.id`; normalize to the
++    // daemon's canonical id so a name-based replay returns the same public
++    // SandboxHandle identity as the original create.
++    const canonicalContainer = this.docker.getContainer(info.Id)
++    const isOwnedEgress =
++      info.Config.Labels?.[MANAGED_LABEL] === MANAGED_VALUE &&
++      info.Config.Labels?.[SCHEMA_LABEL] === SCHEMA_VALUE &&
++      info.Config.Labels?.[ROLE_LABEL] === 'agent'
++    if (isOwnedEgress) {
++      const topology = await this.loadEgressTopology(
++        canonicalContainer,
++        info,
++        signal,
++        expectedKey,
++        expectedOwner,
++      )
++      return this.makeHandle(canonicalContainer, topology)
++    }
++    if (this.egressPolicy)
++      throw new Error(`docker: container ${id} is not owned by the configured egress policy`)
++    this.assertIsolationPolicy(info.Id, info)
      if (!info.State.Running) {
        try {
 -        await container.start()
 -      } catch {
-+        const options: Dockerode.ContainerStartOptions & { abortSignal?: AbortSignal } = { abortSignal: input.signal }
-+        await container.start(options)
-+        input.signal?.throwIfAborted()
++        const options: Dockerode.ContainerStartOptions & { abortSignal?: AbortSignal } = { abortSignal: signal }
++        await canonicalContainer.start(options)
++        signal?.throwIfAborted()
 +      } catch (error) {
-+        input.signal?.throwIfAborted()
++        signal?.throwIfAborted()
 +        const missing =
 +          typeof error === 'object' &&
 +          error !== null &&
@@ -2035,16 +4726,21 @@ index 2eba55337bedb778404a042347c0b7811f91c595..e6f00eed520d72d68470d0ec80945727
          return null
        }
      }
-@@ -166,28 +377,145 @@ class DockerProvider implements SandboxProvider {
-       workdir: this.workdir,
-       forkFactory: this.forkFactory,
-       removeOnDestroy: this.config.removeOnDestroy ?? true,
-+      advertisedPortOrigin: this.advertisedPortOrigin,
-       logger: this.config.logger,
-+      destroyContainer: () => this.destroy({ id: container.id }),
-     })
-   }
- 
+-    return new DockerHandle({
+-      docker: this.docker,
+-      container,
+-      workdir: this.workdir,
+-      forkFactory: this.forkFactory,
+-      removeOnDestroy: this.config.removeOnDestroy ?? true,
+-      logger: this.config.logger,
+-    })
++    return this.makeHandle(canonicalContainer)
++  }
++
++  async resume(input: SandboxResumeInput): Promise<SandboxHandle | null> {
++    return this.resumeContainer(input.id, input.signal)
++  }
++
 +  private assertIsolationPolicy(
 +    id: string,
 +    info: Dockerode.ContainerInspectInfo,
@@ -2119,11 +4815,40 @@ index 2eba55337bedb778404a042347c0b7811f91c595..e6f00eed520d72d68470d0ec80945727
 +        `docker: image ${image} declares volumes and cannot satisfy the configured isolation policy`,
 +      )
 +    }
-+  }
-+
+   }
+ 
    async restoreSnapshot(input: SandboxRestoreInput): Promise<SandboxHandle> {
 -    return this.startContainer(input.snapshotId, input.env)
-+    return this.startContainer(input.snapshotId, input.env, undefined, input.signal)
++    if (this.egressPolicy && (!input.id || !input.workspace?.identity)) {
++      throw new Error('docker: egress snapshot restore requires deterministic id and workspace.identity')
++    }
++    const key = input.id ?? this.config.containerName
++    const owner = this.egressPolicy
++      ? ownershipKey(input.id!, input.workspace!.identity!)
++      : undefined
++    const name = this.config.containerName ?? (owner
++      ? dockerName(owner, 'agent')
++      : input.id ? dockerName(createHash('sha256').update(input.id).digest('hex'), 'agent') : undefined)
++    if (name) {
++      const existing = await this.resumeContainer(name, input.signal, key, owner)
++      if (existing) return existing
++    }
++    try {
++      return await this.startContainer(
++        input.snapshotId,
++        input.env,
++        name,
++        input.signal,
++        key,
++        owner,
++      )
++    } catch (error) {
++      if (name && hasStatus(error, 409)) {
++        const existing = await this.resumeContainer(name, input.signal, key, owner)
++        if (existing) return existing
++      }
++      throw error
++    }
 +  }
 +
 +  async deleteSnapshot(input: { snapshotId: string; signal?: AbortSignal }): Promise<void> {
@@ -2170,13 +4895,60 @@ index 2eba55337bedb778404a042347c0b7811f91c595..e6f00eed520d72d68470d0ec80945727
 -      // already stopped / gone
 -    }
 -    if (this.config.removeOnDestroy ?? true) {
--      try {
--        await container.remove({ force: true, v: true })
--      } catch {
--        // already removed
 +    let info: Dockerode.ContainerInspectInfo | undefined
 +    try { info = await container.inspect() }
 +    catch (error) { if (!hasStatus(error, 404)) throw error }
++    const labelsForAgent = info?.Config.Labels
++    const isOwnedEgress =
++      labelsForAgent?.[MANAGED_LABEL] === MANAGED_VALUE &&
++      labelsForAgent?.[SCHEMA_LABEL] === SCHEMA_VALUE &&
++      labelsForAgent?.[ROLE_LABEL] === 'agent'
++    if (info && isOwnedEgress) {
++      const key = labelsForAgent?.[SANDBOX_KEY_LABEL]
++      const owner = labelsForAgent?.[OWNERSHIP_LABEL]
++      const generation = labelsForAgent?.[GENERATION_LABEL]
++      if (!key || !owner || !generation)
++        throw new Error('docker: owned egress agent is missing identity labels')
++      this.assertOwnedLabels(`container ${input.id}`, labelsForAgent, key, owner, generation, 'agent')
++      const proxy = this.docker.getContainer(dockerName(owner, 'proxy'))
++      const network = this.docker.getNetwork(dockerName(owner, 'network'))
++      let proxyExists = false
++      let networkExists = false
+       try {
+-        await container.remove({ force: true, v: true })
+-      } catch {
+-        // already removed
++        const proxyInfo = await proxy.inspect()
++        this.assertOwnedLabels(`container ${proxy.id}`, proxyInfo.Config.Labels, key, owner, generation, 'proxy')
++        proxyExists = true
++      } catch (error) { if (!hasStatus(error, 404)) throw error }
++      try {
++        const networkInfo = await network.inspect()
++        this.assertOwnedLabels(`network ${network.id}`, networkInfo.Labels, key, owner, generation, 'network')
++        networkExists = true
++      } catch (error) { if (!hasStatus(error, 404)) throw error }
++      const errors: Array<unknown> = []
++      const remove = this.config.removeOnDestroy ?? true
++      if (remove) {
++        await this.stopAndRemoveContainer(container).catch((error) => errors.push(error))
++        if (proxyExists) await this.stopAndRemoveContainer(proxy).catch((error) => errors.push(error))
++        if (networkExists) await network.remove().catch((error) => { if (!hasStatus(error, 404)) errors.push(error) })
++        if (info.Config.Labels?.[FORK_SOURCE_LABEL])
++          await this.removeForkImage(info.Image).catch((error) => errors.push(error))
++      } else {
++        try { await container.stop({ t: 5 }) }
++        catch (error) { if (!hasStatus(error, 304) && !hasStatus(error, 404)) errors.push(error) }
++        if (proxyExists) {
++          try { await proxy.stop({ t: 5 }) }
++          catch (error) { if (!hasStatus(error, 304) && !hasStatus(error, 404)) errors.push(error) }
++        }
++      }
++      await this.collectOrphanForkImages().catch((error) => errors.push(error))
++      if (errors.length === 1) throw errors[0]
++      if (errors.length > 1)
++        throw new AggregateError(errors, 'docker: egress sandbox cleanup failed')
++      return
++    }
 +    if (info) {
 +      try { await container.stop({ t: 5 }) }
 +      catch (error) {

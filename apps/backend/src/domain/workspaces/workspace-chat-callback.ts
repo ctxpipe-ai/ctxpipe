@@ -62,6 +62,7 @@ export function workspaceChatToolBridgeProvisioner(
       return startHostToolBridge(tools, {
         hostForSandbox: callbackHost,
         bindAddress,
+        ...(options.sandbox !== undefined ? { sandbox: options.sandbox } : {}),
         ...(options.context !== undefined ? { context: options.context } : {}),
         ...(options.signal !== undefined ? { signal: options.signal } : {}),
         ...(options.emitCustomEvent !== undefined
