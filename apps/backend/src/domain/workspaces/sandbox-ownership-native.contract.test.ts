@@ -1235,7 +1235,6 @@ fi'`,
 set +e
 err=/tmp/native-policy-quota.err
 : > /tmp/native-policy-quota.bin
-: > "$err"
 i=0
 status=0
 while [ "$i" -lt 5120 ]; do
@@ -1250,11 +1249,9 @@ printf "quota-status=%s\\n" "$status"'`,
       const quotaError = await handle.process.exec(
         "cat /tmp/native-policy-quota.err",
       )
-      expect(
-        `${quotaError.stdout}${quotaError.stderr}${quotaWrite.stderr}${quotaWrite.stdout}`,
-      ).toMatch(/quota exceeded/i)
-      expect(quotaWrite.stdout).toContain("quota-status=")
-      expect(quotaWrite.stdout).not.toContain("quota-status=0")
+      expect(quotaError.exitCode).toBe(0)
+      expect(quotaError.stdout).toMatch(/quota exceeded/i)
+      expect(quotaWrite.stdout).toMatch(/quota-status=[1-9]\d*/)
     }
 
     let testError: unknown
