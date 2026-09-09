@@ -1227,13 +1227,24 @@ fi'`,
       expect(await handle.fs.read("native-policy-proof.txt")).toBe(
         "bounded workspace",
       )
-      // Bypass page cache so this disk probe cannot hit the memory limit first.
+      // Write 1 MiB at a time so Alpine/BusyBox dd cannot buffer 4 GiB and
+      // get OOM-killed before the 4 GiB Btrfs quota is reached.
       const quotaWrite = await handle.process.exec(
         `sh -eu -c '
 set +e
-dd if=/dev/zero of=/tmp/native-policy-quota.bin bs=1M count=4096 oflag=direct conv=fsync
-status=$?
-rm -f /tmp/native-policy-quota.bin
+err=/tmp/native-policy-quota.err
+: > "$err"
+: > /tmp/native-policy-quota.bin
+i=0
+status=0
+while [ "$i" -lt 5120 ]; do
+  dd if=/dev/zero of=/tmp/native-policy-quota.bin bs=1024k count=1 seek="$i" conv=notrunc,fsync >>"$err" 2>&1
+  status=$?
+  [ "$status" -eq 0 ] || break
+  i=$((i + 1))
+done
+cat "$err" >&2
+rm -f /tmp/native-policy-quota.bin "$err"
 printf "quota-status=%s\\n" "$status"'`,
       )
       expect(quotaWrite.stderr).toMatch(/quota exceeded/i)
