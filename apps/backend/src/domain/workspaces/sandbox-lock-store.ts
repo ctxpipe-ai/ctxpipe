@@ -8,18 +8,25 @@ import { sandboxLocks } from "../../db/schema/sandbox-locks.js"
 const LEASE_MS = 30_000
 const expiresAt = sql`clock_timestamp() + interval '30 seconds'`
 
+export type SandboxLockAcquired = (receipt: {
+  key: string
+  owner: string
+}) => void | Promise<void>
+
 /** Postgres implementation of TanStack's native mutex, without held connections. */
 export function postgresSandboxLocks(
   orgId: string,
   abortController?: AbortController,
   scopeKey?: string,
+  onAcquired?: SandboxLockAcquired,
 ): LockStore {
   if (scopeKey) {
     const controller = abortController ?? new AbortController()
-    const locks = postgresSandboxLocks(orgId, controller)
+    const scoped = postgresSandboxLocks(orgId, controller)
+    const locks = postgresSandboxLocks(orgId, controller, undefined, onAcquired)
     return defineLock({
       withLock: (key, fn) =>
-        locks.withLock(scopeKey, () => locks.withLock(key, fn)),
+        scoped.withLock(scopeKey, () => locks.withLock(key, fn)),
     })
   }
   return defineLock({
@@ -101,6 +108,8 @@ export function postgresSandboxLocks(
         }
       })()
       try {
+        signal.throwIfAborted()
+        await onAcquired?.({ key, owner })
         signal.throwIfAborted()
         const result = await fn(signal)
         if (deadline <= Date.now())

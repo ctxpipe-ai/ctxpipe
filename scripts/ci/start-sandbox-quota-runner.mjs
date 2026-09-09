@@ -10,6 +10,9 @@ const requireBackend = createRequire(
 const Docker = requireBackend("dockerode")
 const docker = new Docker({ timeout: 15_000, version: "v1.44" })
 const exec = promisify(execFile)
+const chatImage = "ctxpipe-chat-sandbox:opencode-1.18.18"
+const proxyImage =
+  "node@sha256:8a34c4ab3ea2c5cd194f07e317b2a8f09461d3c8b05c4e34c8ccd56d56024c4d"
 const { stdout } = await exec(
   "docker",
   [
@@ -55,6 +58,41 @@ try {
       await setTimeout(500)
     }
   }
+  const endpoint = `tcp://127.0.0.1:${port}`
+  try {
+    await exec("docker", ["--host", endpoint, "image", "inspect", proxyImage], {
+      timeout: 30_000,
+    })
+  } catch {
+    await exec("docker", ["--host", endpoint, "pull", proxyImage], {
+      timeout: 300_000,
+      maxBuffer: 10 * 1024 * 1024,
+    })
+  }
+  await exec(
+    "docker",
+    [
+      "--host",
+      endpoint,
+      "build",
+      "--pull=false",
+      "--quiet",
+      "--file",
+      "scripts/chat-sandbox/Dockerfile",
+      "--tag",
+      chatImage,
+      "scripts/chat-sandbox",
+    ],
+    { timeout: 600_000, maxBuffer: 10 * 1024 * 1024 },
+  )
+  await Promise.all([
+    exec("docker", ["--host", endpoint, "image", "inspect", chatImage], {
+      timeout: 30_000,
+    }),
+    exec("docker", ["--host", endpoint, "image", "inspect", proxyImage], {
+      timeout: 30_000,
+    }),
+  ])
   const env = {
     CTXPIPE_TEST_QUOTA_DOCKER_HOST: "127.0.0.1",
     CTXPIPE_TEST_QUOTA_DOCKER_PORT: port,

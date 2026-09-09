@@ -43,6 +43,7 @@ export async function withNativeChatFixture<T>(
     request: OpenAPIHono<AppEnv>["request"]
   }) => Promise<T>,
   beforeModelResponse?: () => Promise<void>,
+  options: { listenHost?: string } = {},
 ): Promise<T> {
   if (!process.env.DATABASE_URL)
     throw new Error("DATABASE_URL is required for native chat proof")
@@ -141,7 +142,9 @@ export async function withNativeChatFixture<T>(
     })
   })
   try {
-    await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve))
+    await new Promise<void>((resolve) =>
+      server.listen(0, options.listenHost ?? "127.0.0.1", resolve),
+    )
     const address = server.address()
     if (!address || typeof address === "string")
       throw new Error("Native chat HTTP port missing")

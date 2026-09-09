@@ -873,6 +873,67 @@ export async function getRepoReadCloneToken(
   return token
 }
 
+/** Broker-only workspace read scope; never reuse the App's default permissions. */
+export async function getWorkspaceGithubReadToken(
+  orgId: string,
+  env: Env,
+  input: { githubConnectionId: string; repoFullNames: string[] },
+): Promise<string | undefined> {
+  const installation = await getGithubInstallationByConnectionId(
+    orgId,
+    input.githubConnectionId,
+  )
+  if (!installation?.installationId || !installation.accountSlug)
+    return undefined
+  const owner = installation.accountSlug.toLowerCase()
+  const names = [
+    ...new Set(
+      input.repoFullNames.flatMap((fullName) => {
+        const parts = fullName.split("/")
+        const name = parts[1]
+        return parts.length === 2 &&
+          parts[0]?.toLowerCase() === owner &&
+          name &&
+          /^[A-Za-z0-9_.-]+$/.test(name) &&
+          name !== "." &&
+          name !== ".."
+          ? [name]
+          : []
+      }),
+    ),
+  ].sort()
+  if (names.length === 0) return undefined
+  if (names.length > 500)
+    throw new Error("Workspace GitHub read scope exceeds 500 repositories")
+  const row = await loadGithubConnectionRow(orgId, input.githubConnectionId)
+  if (!row) return undefined
+  const app = buildAppForConnection(row, env)
+  const octokit = await app.getInstallationOctokit(installation.installationId)
+  const request = {
+    type: "installation" as const,
+    repositoryNames: names,
+    permissions: {
+      contents: "read" as const,
+      issues: "read" as const,
+      pull_requests: "read" as const,
+      metadata: "read" as const,
+    },
+  }
+  type ReadCredential = { token: string; expiresAt: string }
+  let credential = (await octokit.auth(request)) as ReadCredential
+  const fresh = (value: ReadCredential) =>
+    !!value.token && Date.parse(value.expiresAt) > Date.now() + 60_000
+  // Octokit's cache has its own TTL; honor the issuer's actual expiry too.
+  if (!fresh(credential))
+    credential = (await octokit.auth({
+      ...request,
+      refresh: true,
+    })) as ReadCredential
+  if (!fresh(credential))
+    throw new Error("GitHub read credential expires too soon")
+  return credential.token
+}
+
 /** Legacy repository ingestion still resolves by repository ID, never by installation alone. */
 export async function getRepositoryReadCloneToken(
   orgId: string,

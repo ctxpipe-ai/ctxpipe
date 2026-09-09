@@ -436,6 +436,106 @@ it.each(["proxy", "network"] as const)(
 )
 
 it(
+  "reclaims owned egress topology after its persisted agent is externally removed",
+  { timeout: 120_000 },
+  async () => {
+    const dockerOptions = directDockerOptions()
+    const docker = new Dockerode(dockerOptions)
+    const image =
+      "node@sha256:8a34c4ab3ea2c5cd194f07e317b2a8f09461d3c8b05c4e34c8ccd56d56024c4d"
+    const config = {
+      image,
+      workdir: "/tmp",
+      dockerodeOptions: dockerOptions,
+      egress: { proxyImage: image, allowConnect: [], allowHttp: [] },
+    }
+    const provider = dockerSandbox(config)
+    const suffix = `${Date.now()}-${Math.random().toString(16).slice(2)}`
+    const handles: Awaited<ReturnType<typeof provider.create>>[] = []
+    const owners: OwnedLabels[] = []
+    let primaryError: unknown
+    const cleanupErrors: unknown[] = []
+    try {
+      for (const owner of ["removed", "survivor"] as const) {
+        const id = `egress-detached-${owner}-${suffix}`
+        const handle = await provider.create({
+          id,
+          workspace: { identity: id, source: { type: "none" } },
+        })
+        handles.push(handle)
+        const info = await docker.getContainer(handle.id).inspect()
+        if (!info.Config.Labels)
+          throw new Error("Native egress ownership labels missing")
+        owners.push(info.Config.Labels)
+      }
+      const removed = handles[0]
+      const survivorLabels = owners[1]
+      if (!removed || !survivorLabels)
+        throw new Error("Native detached egress fixture was not created")
+      const removedFilters = { label: ownershipFilters(owners[0] ?? {}) }
+      const survivorFilters = { label: ownershipFilters(survivorLabels) }
+      const survivorContainerIds = (
+        await docker.listContainers({ all: true, filters: survivorFilters })
+      )
+        .map(({ Id }) => Id)
+        .sort()
+      const survivorNetworkIds = (
+        await docker.listNetworks({ filters: survivorFilters })
+      )
+        .map(({ Id }) => Id)
+        .sort()
+
+      await docker.getContainer(removed.id).remove({ force: true, v: true })
+      await dockerSandbox({ image, dockerodeOptions: dockerOptions }).destroy({
+        id: removed.id,
+      })
+
+      expect(
+        await docker.listContainers({ all: true, filters: removedFilters }),
+      ).toHaveLength(0)
+      expect(
+        await docker.listNetworks({ filters: removedFilters }),
+      ).toHaveLength(0)
+      expect(
+        (await docker.listContainers({ all: true, filters: survivorFilters }))
+          .map(({ Id }) => Id)
+          .sort(),
+      ).toEqual(survivorContainerIds)
+      expect(
+        (await docker.listNetworks({ filters: survivorFilters }))
+          .map(({ Id }) => Id)
+          .sort(),
+      ).toEqual(survivorNetworkIds)
+    } catch (error) {
+      primaryError = error
+    } finally {
+      for (const handle of handles) {
+        try {
+          await handle.destroy()
+        } catch (error) {
+          cleanupErrors.push(error)
+        }
+      }
+      for (const labels of owners) {
+        try {
+          await removeOwnedResources(docker, labels)
+        } catch (error) {
+          cleanupErrors.push(error)
+        }
+      }
+    }
+    if (cleanupErrors.length)
+      throw new AggregateError(
+        primaryError === undefined
+          ? cleanupErrors
+          : [primaryError, ...cleanupErrors],
+        "Native detached egress cleanup proof failed",
+      )
+    if (primaryError !== undefined) throw primaryError
+  },
+)
+
+it(
   "resumes and forks an isolated Docker worktree with independent owned topology",
   { timeout: 120_000 },
   async () => {

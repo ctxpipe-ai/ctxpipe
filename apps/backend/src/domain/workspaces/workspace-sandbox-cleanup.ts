@@ -1,5 +1,7 @@
+import Docker from "dockerode"
 import { assertNotInOrgDbContext, withOrgDbContext } from "../../db/client.js"
 import {
+  deleteSandboxInstance,
   getSandboxInstance,
   getWorkspaceById,
   listSandboxInstances,
@@ -12,10 +14,22 @@ import {
   shouldDestroyChatSandbox,
   shouldDestroyJobSandbox,
 } from "./chat-lifecycle.js"
-import { WORKSPACE_CHAT_DOCKER_SANDBOX } from "./chat-runtime.js"
+import { workspaceChatDockerImage } from "./chat-runtime.js"
 import { postgresSandboxInstanceStore } from "./sandbox-instance-store.js"
 import { postgresSandboxLocks } from "./sandbox-lock-store.js"
 import { destroyDetachedProviderSandbox } from "./sandbox-provider.js"
+
+function ownershipOf(row: SandboxInstanceRecord) {
+  return {
+    kind: row.kind,
+    workspaceId: row.workspaceId,
+    conversationId: row.conversationId,
+    provider: row.provider,
+    providerSandboxId: row.providerSandboxId,
+    image: row.image,
+    revision: row.revision,
+  }
+}
 
 /** Bases retain image ownership until every fork has released that image. */
 export async function collectUnusedWorkspaceChatBases(
@@ -34,6 +48,7 @@ export async function collectUnusedWorkspaceChatBases(
         (row) => !row.conversationId && row.id.startsWith("base:"),
       )
       let destroyed = 0
+      let dockerImage: string | undefined
       for (const base of bases) {
         if (
           base.latestSnapshotId &&
@@ -49,9 +64,20 @@ export async function collectUnusedWorkspaceChatBases(
             base.revision.generation !== workspace.desiredGeneration ||
             base.revision.remote.url !== workspace.workspaceRepositoryUrl
           : false
+        if (
+          base.provider === "docker" &&
+          base.image !== null &&
+          dockerImage === undefined
+        ) {
+          dockerImage = (
+            await new Docker({ timeout: 30_000 })
+              .getImage(workspaceChatDockerImage())
+              .inspect()
+          ).Id
+        }
         const currentImage =
           base.provider === "docker"
-            ? WORKSPACE_CHAT_DOCKER_SANDBOX.image
+            ? (dockerImage ?? null)
             : base.provider === "local-process" ||
                 base.provider === "local_process" ||
                 base.provider === "unsandboxed"
@@ -140,10 +166,12 @@ async function destroyWorkspaceSandboxUnderFence(
           return false
         }
         signal.throwIfAborted()
-        await postgresSandboxInstanceStore({
-          orgId: stored.orgId,
-          workspaceId: stored.workspaceId,
-        }).delete(id)
+        if (stored.kind === "chat")
+          await postgresSandboxInstanceStore({
+            orgId: stored.orgId,
+            workspaceId: stored.workspaceId,
+          }).delete(id)
+        else await deleteSandboxInstance(id, stored.orgId, ownershipOf(stored))
         return true
       }
       return stored.latestSnapshotId

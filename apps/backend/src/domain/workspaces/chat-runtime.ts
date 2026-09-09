@@ -27,6 +27,14 @@ export const WORKSPACE_CHAT_DOCKER_SANDBOX: {
   publishPorts: [WORKSPACE_CHAT_OPENCODE_PORT],
 }
 
+/** The prebuilt agent image selected for this deployment. */
+export function workspaceChatDockerImage(): string {
+  return (
+    process.env.SANDBOX_CHAT_IMAGE?.trim() ||
+    "ctxpipe-chat-sandbox:opencode-1.18.18"
+  )
+}
+
 /**
  * Bootstrap must leave `opencode` on PATH. TanStack's adapter spawns
  * `opencode serve` inside the sandbox; `node:22` and a host without the CLI
@@ -42,6 +50,12 @@ export const WORKSPACE_CHAT_SANDBOX_SETUP = [
   done
 fi
 true`,
+] as const
+
+/** Docker images are initialized at deployment, never installed during a turn. */
+export const WORKSPACE_CHAT_DOCKER_SETUP = [
+  `PATH="/usr/local/bin:/usr/bin:/bin:$PATH"; command -v opencode >/dev/null 2>&1`,
+  ...WORKSPACE_CHAT_SANDBOX_SETUP.slice(1),
 ] as const
 
 /** Applied only to each thread, after restoring the credential-free base. */

@@ -125,6 +125,10 @@ const listTreeRoute = createRoute({
     params: ConversationParamsSchema,
   },
   responses: {
+    400: {
+      content: { "application/json": { schema: ErrorResponseSchema } },
+      description: "Workspace configuration invalid",
+    },
     200: {
       content: {
         "application/json": { schema: ConversationGitTreeResponseSchema },
@@ -138,6 +142,10 @@ const listTreeRoute = createRoute({
     404: {
       content: { "application/json": { schema: ErrorResponseSchema } },
       description: "Not found",
+    },
+    503: {
+      content: { "application/json": { schema: ErrorResponseSchema } },
+      description: "Sandbox provider unavailable",
     },
     409: {
       content: { "application/json": { schema: ErrorResponseSchema } },
@@ -154,6 +162,10 @@ const getBlobRoute = createRoute({
     query: ConversationGitBlobQuerySchema,
   },
   responses: {
+    400: {
+      content: { "application/json": { schema: ErrorResponseSchema } },
+      description: "Workspace configuration invalid",
+    },
     200: {
       content: {
         "application/json": { schema: ConversationGitBlobResponseSchema },
@@ -167,6 +179,10 @@ const getBlobRoute = createRoute({
     404: {
       content: { "application/json": { schema: ErrorResponseSchema } },
       description: "Not found",
+    },
+    503: {
+      content: { "application/json": { schema: ErrorResponseSchema } },
+      description: "Sandbox provider unavailable",
     },
     409: {
       content: { "application/json": { schema: ErrorResponseSchema } },
@@ -182,6 +198,10 @@ const getStatusRoute = createRoute({
     params: ConversationParamsSchema,
   },
   responses: {
+    400: {
+      content: { "application/json": { schema: ErrorResponseSchema } },
+      description: "Workspace configuration invalid",
+    },
     200: {
       content: {
         "application/json": { schema: ConversationGitStatusResponseSchema },
@@ -196,6 +216,10 @@ const getStatusRoute = createRoute({
       content: { "application/json": { schema: ErrorResponseSchema } },
       description: "Not found",
     },
+    503: {
+      content: { "application/json": { schema: ErrorResponseSchema } },
+      description: "Sandbox provider unavailable",
+    },
     409: {
       content: { "application/json": { schema: ErrorResponseSchema } },
       description: "Chat sandbox missing",
@@ -208,6 +232,10 @@ const getDiffRoute = createRoute({
   path: "/{conversationId}/files/diff",
   request: { params: ConversationParamsSchema },
   responses: {
+    400: {
+      content: { "application/json": { schema: ErrorResponseSchema } },
+      description: "Workspace configuration invalid",
+    },
     200: {
       content: {
         "application/json": { schema: ConversationGitDiffResponseSchema },
@@ -221,6 +249,10 @@ const getDiffRoute = createRoute({
     404: {
       content: { "application/json": { schema: ErrorResponseSchema } },
       description: "Not found",
+    },
+    503: {
+      content: { "application/json": { schema: ErrorResponseSchema } },
+      description: "Sandbox provider unavailable",
     },
     409: {
       content: { "application/json": { schema: ErrorResponseSchema } },
@@ -241,6 +273,10 @@ const putFileRoute = createRoute({
     },
   },
   responses: {
+    400: {
+      content: { "application/json": { schema: ErrorResponseSchema } },
+      description: "Workspace configuration invalid",
+    },
     200: {
       content: {
         "application/json": { schema: ConversationGitBlobResponseSchema },
@@ -258,6 +294,10 @@ const putFileRoute = createRoute({
     404: {
       content: { "application/json": { schema: ErrorResponseSchema } },
       description: "Not found",
+    },
+    503: {
+      content: { "application/json": { schema: ErrorResponseSchema } },
+      description: "Sandbox provider unavailable",
     },
     409: {
       content: { "application/json": { schema: ErrorResponseSchema } },
@@ -289,6 +329,10 @@ const postPushRoute = createRoute({
       content: { "application/json": { schema: ErrorResponseSchema } },
       description: "Not found",
     },
+    503: {
+      content: { "application/json": { schema: ErrorResponseSchema } },
+      description: "Sandbox provider unavailable",
+    },
     409: {
       content: { "application/json": { schema: ErrorResponseSchema } },
       description: "Chat sandbox missing",
@@ -314,6 +358,7 @@ function requireUser(c: { get: (key: "user" | "session") => unknown }) {
 type ConversationSandboxAttachInput = {
   abortSignal?: AbortSignal
   transcriptLocked?: boolean
+  existingOnly?: boolean
   conversation: {
     id: string
     orgId: string
@@ -333,9 +378,8 @@ type ConversationSandboxAttachInput = {
   }
 }
 
-async function warmConversationSandbox(
+export async function readySandboxHandle(
   input: ConversationSandboxAttachInput,
-  existingOnly?: boolean,
 ) {
   const env = parseEnv(process.env as Record<string, string | undefined>)
   const runtime = await resolveWorkspaceChatTurnRuntime({
@@ -343,7 +387,12 @@ async function warmConversationSandbox(
     workspace: input.workspace,
     env,
   })
-  if (!runtime.desiredUrl) return null
+  if (!runtime.desiredUrl)
+    return {
+      ok: false as const,
+      status: 400 as const,
+      error: "workspace_required",
+    }
   const warmed = await warmTanstackWorkspaceChat(
     {
       conversationId: input.conversation.id,
@@ -361,37 +410,16 @@ async function warmConversationSandbox(
       cloneToken: runtime.cloneToken,
       githubConnectionId: runtime.githubConnectionId,
     },
-    { existingOnly, transcriptLocked: input.transcriptLocked },
+    {
+      existingOnly: input.existingOnly,
+      transcriptLocked: input.transcriptLocked,
+    },
   )
-  if (!warmed.ok) return null
-  return adaptTanstackHandle(warmed.handle, input.abortSignal)
-}
-
-export async function readySandboxHandle(input: {
-  abortSignal?: AbortSignal
-  transcriptLocked?: boolean
-  existingOnly?: boolean
-  conversation: {
-    id: string
-    orgId: string
-    workspaceId: string | null
-    lastBranch: string | null
+  if (!warmed.ok) return warmed
+  return {
+    ok: true as const,
+    handle: adaptTanstackHandle(warmed.handle, input.abortSignal),
   }
-  workspace: {
-    id: string
-    orgId: string
-    workspaceRepositoryUrl: string
-    githubConnectionId?: string | null
-    writeStatus: string
-    readOnlyReason?: string | null
-    desiredSha: string | null
-    desiredGeneration?: number
-  }
-  defaultBranch?: string
-}) {
-  const handle = await warmConversationSandbox(input, input.existingOnly)
-  if (!handle) return null
-  return handle
 }
 
 type ConversationFileEnv = AppEnv & {
@@ -432,8 +460,9 @@ export const conversationFileRoutes = fileRoutes
       c.get("sandboxAbortSignal"),
     )
     if (!loaded) return c.json({ error: "Not found" }, 404)
-    const handle = await readySandboxHandle({ ...loaded, existingOnly: true })
-    if (!handle) return c.json({ error: "missing_sandbox" }, 409)
+    const ready = await readySandboxHandle({ ...loaded, existingOnly: true })
+    if (!ready.ok) return c.json({ error: ready.error }, ready.status)
+    const { handle } = ready
     const paths = await listConversationSandboxPaths(handle)
     const branchResult = await handle.exec("git branch --show-current")
     if (branchResult.exitCode !== 0)
@@ -454,8 +483,9 @@ export const conversationFileRoutes = fileRoutes
       c.get("sandboxAbortSignal"),
     )
     if (!loaded) return c.json({ error: "Not found" }, 404)
-    const handle = await readySandboxHandle(loaded)
-    if (!handle) return c.json({ error: "missing_sandbox" }, 409)
+    const ready = await readySandboxHandle(loaded)
+    if (!ready.ok) return c.json({ error: ready.error }, ready.status)
+    const { handle } = ready
     const blob = await readConversationSandboxFile(handle, path)
     if (!blob) return c.json({ error: "Not found" }, 404)
     return c.json(blob, 200)
@@ -468,8 +498,9 @@ export const conversationFileRoutes = fileRoutes
       c.get("sandboxAbortSignal"),
     )
     if (!loaded) return c.json({ error: "Not found" }, 404)
-    const handle = await readySandboxHandle({ ...loaded, existingOnly: true })
-    if (!handle) return c.json({ error: "missing_sandbox" }, 409)
+    const ready = await readySandboxHandle({ ...loaded, existingOnly: true })
+    if (!ready.ok) return c.json({ error: ready.error }, ready.status)
+    const { handle } = ready
     const defaultBranch =
       loaded.workspace.desiredDefaultBranch?.trim() || "main"
     const status = await conversationSandboxStatus({
@@ -502,11 +533,9 @@ export const conversationFileRoutes = fileRoutes
     if (!loaded) return c.json({ error: "Not found" }, 404)
     const defaultBranch =
       loaded.workspace.desiredDefaultBranch?.trim() || "main"
-    const handle = await readySandboxHandle({
-      ...loaded,
-      defaultBranch,
-    })
-    if (!handle) return c.json({ error: "missing_sandbox" }, 409)
+    const ready = await readySandboxHandle(loaded)
+    if (!ready.ok) return c.json({ error: ready.error }, ready.status)
+    const { handle } = ready
     const items = await conversationSandboxDiff({ handle, defaultBranch })
     return c.json({ items }, 200)
   })
@@ -526,8 +555,9 @@ export const conversationFileRoutes = fileRoutes
     ) {
       return c.json({ error: "read_only" }, 403)
     }
-    const handle = await readySandboxHandle(loaded)
-    if (!handle) return c.json({ error: "missing_sandbox" }, 409)
+    const ready = await readySandboxHandle(loaded)
+    if (!ready.ok) return c.json({ error: ready.error }, ready.status)
+    const { handle } = ready
     const body = PutConversationFileBodySchema.parse(await c.req.json())
     if (body.deletePath) {
       await removeConversationSandboxPath({ handle, path: body.path })
@@ -592,8 +622,9 @@ export const conversationFileRoutes = fileRoutes
       sandbox,
     })
     if (!planned.publish) return c.json({ error: planned.reason }, 400)
-    const handle = await readySandboxHandle({ ...loaded, existingOnly: true })
-    if (!handle) return c.json({ error: "missing_sandbox" }, 409)
+    const ready = await readySandboxHandle({ ...loaded, existingOnly: true })
+    if (!ready.ok) return c.json({ error: ready.error }, ready.status)
+    const { handle } = ready
     const pushed = await pushConversationSessionBranch({
       handle,
       conversationId,

@@ -18,6 +18,7 @@ import {
 } from "@tanstack/ai-sandbox"
 import { dockerSandbox } from "@tanstack/ai-sandbox-docker"
 import { localProcessSandbox } from "@tanstack/ai-sandbox-local-process"
+import Docker from "dockerode"
 import { eq } from "drizzle-orm"
 import { getSystemDb, withOrgDbContext } from "../../db/client.js"
 import { organizations } from "../../db/schema/auth.js"
@@ -35,10 +36,12 @@ import {
   WORKSPACE_CHAT_CLONE_TOKEN_SECRET,
   WORKSPACE_CHAT_CLONE_URL_SECRET,
   WORKSPACE_CHAT_DOCKER_SANDBOX,
+  WORKSPACE_CHAT_DOCKER_SETUP,
   WORKSPACE_CHAT_OPENCODE_PORT,
   WORKSPACE_CHAT_SANDBOX_SETUP,
   WORKSPACE_CHAT_SESSION_BRANCH_SECRET,
   WORKSPACE_CHAT_THREAD_SETUP,
+  workspaceChatDockerImage,
   workspaceChatRuntimeConfig,
   workspaceChatSandboxSpec,
 } from "./chat-runtime.js"
@@ -66,6 +69,7 @@ import {
   sandboxCallbackHost,
   workspaceChatCallbackMiddleware,
 } from "./workspace-chat-callback.js"
+import { buildWorkspaceChatDockerPolicy } from "./workspace-chat-docker-policy.js"
 import { workspaceChatCompletionsBaseUrl } from "./workspace-chat-model-proxy.js"
 import {
   WORKSPACE_CHAT_LOCAL_PROCESS_SCRUB_ENV,
@@ -87,6 +91,7 @@ import {
   transitionWorkspaceChatRevision,
   WorkspaceChatRevisionConflict,
 } from "./workspace-chat-revision-transition.js"
+import { mintWorkspaceChatRunCapability } from "./workspace-chat-run-capability.js"
 import { mintWorkspaceChatToken } from "./workspace-chat-token.js"
 import { WORKSPACE_CHAT_TOOLS } from "./workspace-chat-tools.js"
 
@@ -151,16 +156,11 @@ function conversationSandboxDefinition(provider: SandboxProvider) {
   })
 }
 
-const CHAT_SANDBOX_DEFINITIONS = {
-  docker: conversationSandboxDefinition(
-    dockerSandbox(WORKSPACE_CHAT_DOCKER_SANDBOX),
-  ),
-  unsandboxed: conversationSandboxDefinition(
-    localProcessSandbox({
-      scrubEnv: [...WORKSPACE_CHAT_LOCAL_PROCESS_SCRUB_ENV],
-    }),
-  ),
-}
+const LOCAL_CHAT_SANDBOX_DEFINITION = conversationSandboxDefinition(
+  localProcessSandbox({
+    scrubEnv: [...WORKSPACE_CHAT_LOCAL_PROCESS_SCRUB_ENV],
+  }),
+)
 
 function abortControllerFrom(signal?: AbortSignal): AbortController {
   const abortController = new AbortController()
@@ -304,7 +304,7 @@ export async function warmTanstackWorkspaceChat(
   },
 ): Promise<
   | { ok: true; handle: SandboxHandle; effectiveRevision?: WorkspaceRevision }
-  | { ok: false; status: number; error: string }
+  | { ok: false; status: 400 | 409 | 503; error: string }
 > {
   if (!options?.existingOnly && !options?.transcriptLocked) {
     return postgresSandboxLocks(
@@ -317,13 +317,7 @@ export async function warmTanstackWorkspaceChat(
   const prepareStarted = Date.now()
   const built = await buildWorkspaceChatSandbox(input)
   if (!built.ok) return built
-  const callbackHost = sandboxCallbackHost()
-  const session = await resolveWorkspaceChatSession(
-    input,
-    built.spec.isolation,
-    callbackHost,
-  )
-  if (!session.ok) return session
+  const { session } = built
   const definition = built.definition
   const workspace = conversationSandboxWorkspace({
     modules: built.modules,
@@ -332,6 +326,8 @@ export async function warmTanstackWorkspaceChat(
     runToken: session.runToken,
     proxyUrl: session.proxyUrl,
     modelBase: built.contract.modelBase,
+    image: built.image,
+    policyIdentity: built.policyIdentity,
   })
   const ensureStarted = Date.now()
   const abortController = abortControllerFrom(input.abortSignal)
@@ -416,13 +412,7 @@ async function startWorkspaceChat(input: TanstackWorkspaceChatInput): Promise<
     },
     defaultBranch: input.defaultBranch,
   })
-  const callbackHost = sandboxCallbackHost()
-  const session = await resolveWorkspaceChatSession(
-    input,
-    built.spec.isolation,
-    callbackHost,
-  )
-  if (!session.ok) return session
+  const { session, callbackHost } = built
   const definition = built.definition
   const workspace = conversationSandboxWorkspace({
     modules: built.modules,
@@ -431,6 +421,8 @@ async function startWorkspaceChat(input: TanstackWorkspaceChatInput): Promise<
     runToken: session.runToken,
     proxyUrl: session.proxyUrl,
     modelBase: built.contract.modelBase,
+    image: built.image,
+    policyIdentity: built.policyIdentity,
   })
   const servePort =
     built.spec.isolation === "unsandboxed" ? 0 : WORKSPACE_CHAT_OPENCODE_PORT
@@ -448,6 +440,7 @@ async function startWorkspaceChat(input: TanstackWorkspaceChatInput): Promise<
   }
   const chatStarted = Date.now()
   const abortController = abortControllerFrom(input.abortSignal)
+  let transcriptOwner: string | undefined
   const stream = await modules.chat({
     adapter: modules.opencodeText(built.contract.opencodeModel, {
       port: servePort,
@@ -458,7 +451,7 @@ async function startWorkspaceChat(input: TanstackWorkspaceChatInput): Promise<
     runId: input.runId,
     context: {
       orgId: input.orgId,
-      orgSlug: await resolveWorkspaceChatOrgSlug(input),
+      orgSlug: session.orgSlug,
       workspaceId: input.workspaceId,
     },
     messages: (input.messages
@@ -472,7 +465,15 @@ async function startWorkspaceChat(input: TanstackWorkspaceChatInput): Promise<
       }),
       withPersistence(persistence, {
         snapshotStreaming: true,
-        threadLocks: postgresSandboxLocks(input.orgId, abortController),
+        threadLocks: postgresSandboxLocks(
+          input.orgId,
+          abortController,
+          undefined,
+          (lease) => {
+            if (lease.key === `chat-thread:${input.conversationId}`)
+              transcriptOwner = lease.owner
+          },
+        ),
       }),
       defineChatMiddleware({
         name: "workspace-chat-revision",
@@ -504,8 +505,14 @@ async function startWorkspaceChat(input: TanstackWorkspaceChatInput): Promise<
           }
           const retained = await buildWorkspaceChatSandbox(retainedInput)
           if (!retained.ok) throw new Error(retained.error)
-          if (retained.definition !== definition)
-            throw new Error("Sandbox provider changed during revision recovery")
+          if (
+            retained.spec.isolation !== built.spec.isolation ||
+            retained.image !== built.image ||
+            retained.policyIdentity !== built.policyIdentity
+          )
+            throw new Error(
+              "Sandbox provider policy changed during revision recovery",
+            )
           // These objects belong only to this run. Resolve them before native
           // middleware captures its exact key, projection and checkpoint state.
           Object.assign(
@@ -517,6 +524,8 @@ async function startWorkspaceChat(input: TanstackWorkspaceChatInput): Promise<
               runToken: session.runToken,
               proxyUrl: session.proxyUrl,
               modelBase: built.contract.modelBase,
+              image: built.image,
+              policyIdentity: built.policyIdentity,
             }),
           )
           Object.assign(instances, retained.instances)
@@ -542,8 +551,36 @@ async function startWorkspaceChat(input: TanstackWorkspaceChatInput): Promise<
       defineChatMiddleware({
         name: "workspace-chat-permissions",
         requires: [SandboxCapability],
-        setup(ctx) {
+        async setup(ctx) {
           activeSandbox = getSandbox(ctx)
+          abortController.signal.throwIfAborted()
+          if (!transcriptOwner)
+            throw new Error("Native transcript ownership is unavailable")
+          const authority = {
+            expectedOwner: transcriptOwner,
+            authSecret: process.env.AUTH_SECRET?.trim() ?? "",
+            orgId: input.orgId,
+            conversationId: input.conversationId,
+            revision: built.revision,
+          }
+          const [gitCapability, modelCapability] = await Promise.all([
+            mintWorkspaceChatRunCapability({
+              ...authority,
+              purpose: "workspace-chat-git",
+            }),
+            mintWorkspaceChatRunCapability({
+              ...authority,
+              purpose: "workspace-chat-model",
+            }),
+          ])
+          abortController.signal.throwIfAborted()
+          // Native persistence already owns the renewable transcript lock, and
+          // OpenCode has not started. Its subprocesses inherit these values.
+          await activeSandbox.env.set({
+            CTXPIPE_GIT_RUN_CAPABILITY: gitCapability,
+            CTXPIPE_OPENCODE_RUN_TOKEN: modelCapability,
+          })
+          abortController.signal.throwIfAborted()
         },
       }),
       openCodeTrailingUserMiddleware(input.prompt),
@@ -568,8 +605,8 @@ async function resolveWorkspaceChatSession(
   isolation: "docker" | "unsandboxed" | "railway",
   callbackHost?: string,
 ): Promise<
-  | { ok: true; runToken: string; proxyUrl: string }
-  | { ok: false; status: number; error: string }
+  | { ok: true; runToken: string; proxyUrl: string; orgSlug: string }
+  | { ok: false; status: 503; error: string }
 > {
   const authSecret = process.env.AUTH_SECRET?.trim() ?? ""
   if (authSecret.length < 32) {
@@ -589,6 +626,7 @@ async function resolveWorkspaceChatSession(
   }
   return {
     ok: true,
+    orgSlug,
     runToken: mintWorkspaceChatToken({
       authSecret,
       orgId: input.orgId,
@@ -621,7 +659,7 @@ async function buildWorkspaceChatSandbox(input: TanstackWorkspaceChatInput) {
   if (!desiredUrl) {
     return {
       ok: false as const,
-      status: 400,
+      status: 400 as const,
       error: "workspace_required",
     }
   }
@@ -629,9 +667,16 @@ async function buildWorkspaceChatSandbox(input: TanstackWorkspaceChatInput) {
   if (selectedProvider === "sbx") {
     return {
       ok: false as const,
-      status: 503,
+      status: 503 as const,
       error:
         "The sbx adapter cannot enforce the required 4 GiB disk and 128 PID limits. Workspace chat is unavailable for this provider.",
+    }
+  }
+  if (selectedProvider !== "docker" && selectedProvider !== "unsandboxed") {
+    return {
+      ok: false as const,
+      status: 503 as const,
+      error: `TanStack sandbox provider ${selectedProvider} is not available`,
     }
   }
   const contract = workspaceChatOpenCodeContract(process.env)
@@ -654,12 +699,58 @@ async function buildWorkspaceChatSandbox(input: TanstackWorkspaceChatInput) {
   if (!revision.success || !ref) {
     return {
       ok: false as const,
-      status: 409,
+      status: 409 as const,
       error: "Workspace chat needs a stored desired SHA",
     }
   }
+  const callbackHost = sandboxCallbackHost()
+  const session = await resolveWorkspaceChatSession(
+    input,
+    selectedProvider === "docker" ? "docker" : "unsandboxed",
+    selectedProvider === "docker"
+      ? process.env.SANDBOX_MODEL_PROXY_HOST?.trim() || callbackHost
+      : callbackHost,
+  )
+  if (!session.ok) return session
+  let image = "1"
+  let policyIdentity = "1"
+  let definition = LOCAL_CHAT_SANDBOX_DEFINITION
+  if (selectedProvider === "docker") {
+    try {
+      // Snapshot commits can exceed 30 seconds on a quota-backed daemon.
+      const dockerodeOptions = { timeout: 120_000 }
+      const docker = new Docker({ timeout: 30_000 })
+      const [agentImage, proxyImage] = await Promise.all([
+        docker.getImage(workspaceChatDockerImage()).inspect(),
+        docker.getImage(WORKSPACE_CHAT_DOCKER_SANDBOX.image).inspect(),
+      ])
+      const policy = buildWorkspaceChatDockerPolicy({
+        agentImageId: agentImage.Id,
+        proxyImageId: proxyImage.Id,
+        modelBaseUrl: session.proxyUrl,
+        workspaceGitUrl: desiredUrl,
+      })
+      const { policyIdentity: identity, ...nativeConfig } = policy
+      image = policy.image
+      policyIdentity = identity
+      definition = conversationSandboxDefinition(
+        dockerSandbox({ ...nativeConfig, dockerodeOptions }),
+      )
+    } catch (error) {
+      getLogger().error(
+        error instanceof Error ? error : new Error(String(error)),
+        { step: "workspace-chat-docker-policy" },
+      )
+      return {
+        ok: false as const,
+        status: 503 as const,
+        error:
+          "Workspace chat requires initialized Docker images and isolation policy.",
+      }
+    }
+  }
   const spec = workspaceChatSandboxSpec({
-    sandboxId: `${input.orgId}:${JSON.stringify(revision.data)}:chat:${selectedProvider === "docker" ? WORKSPACE_CHAT_DOCKER_SANDBOX.image : "1"}`,
+    sandboxId: `${input.orgId}:${JSON.stringify(revision.data)}:chat:${image}${selectedProvider === "docker" ? `:${policyIdentity}` : ""}`,
     provider: selectedProvider,
     gitUrl: desiredUrl,
     ref,
@@ -667,37 +758,30 @@ async function buildWorkspaceChatSandbox(input: TanstackWorkspaceChatInput) {
   if (!spec.ok) {
     return {
       ok: false as const,
-      status: 503,
+      status: 503 as const,
       error:
         "Workspace chat requires an isolated TanStack sandbox provider. Host OpenCode is not a fallback.",
     }
   }
   const modules = await loadTanstackChatModules()
-  const effective = selectedProvider
-  const definition =
-    effective === "docker" || effective === "unsandboxed"
-      ? CHAT_SANDBOX_DEFINITIONS[effective]
-      : undefined
-  if (!definition) {
-    return {
-      ok: false as const,
-      status: 503,
-      error: `TanStack sandbox provider ${effective} is not available`,
-    }
-  }
   return {
     ok: true as const,
     modules,
     spec,
     definition,
     contract,
+    session,
+    callbackHost,
+    image,
+    policyIdentity,
+    revision: revision.data,
     instances: postgresSandboxInstanceStore({
       orgId: input.orgId,
       workspaceId: input.workspaceId,
       conversationId: input.conversationId,
       revision: revision.data,
-      image: effective === "docker" ? WORKSPACE_CHAT_DOCKER_SANDBOX.image : "1",
-      provider: effective === "docker" ? "docker" : "local-process",
+      image,
+      provider: selectedProvider === "docker" ? "docker" : "local-process",
     }),
   }
 }
@@ -709,14 +793,19 @@ function conversationSandboxWorkspace(input: {
   runToken: string
   proxyUrl: string
   modelBase: string
+  image: string
+  policyIdentity: string
 }) {
   const { modules, spec, input: chatInput } = input
   const opencodeHome = writeWorkspaceChatOpenCodeConfig({
     conversationId: chatInput.conversationId,
     modelBase: input.modelBase,
+    isolation: spec.isolation,
   })
   const secrets = modules.createSecrets({
-    CTXPIPE_OPENCODE_RUN_TOKEN: input.runToken,
+    ...(spec.isolation === "unsandboxed"
+      ? { CTXPIPE_OPENCODE_RUN_TOKEN: input.runToken }
+      : {}),
     CTXPIPE_MODEL_PROXY_URL: input.proxyUrl,
     [WORKSPACE_CHAT_CLONE_URL_SECRET]: originUrlWithoutCredentials(
       chatInput.desiredUrl ?? "",
@@ -740,8 +829,10 @@ function conversationSandboxWorkspace(input: {
       url: spec.source.url,
       connectionId: chatInput.githubConnectionId ?? null,
       defaultBranch: chatInput.defaultBranch ?? "main",
-      image:
-        spec.isolation === "docker" ? WORKSPACE_CHAT_DOCKER_SANDBOX.image : "1",
+      image: input.image,
+      ...(spec.isolation === "docker"
+        ? { policyIdentity: input.policyIdentity }
+        : {}),
     }),
     source: modules.gitSource({
       url: spec.source.url,
@@ -749,7 +840,11 @@ function conversationSandboxWorkspace(input: {
       commit: chatInput.desiredSha ?? undefined,
       auth: { token: secrets[WORKSPACE_CHAT_CLONE_TOKEN_SECRET] },
     }),
-    setup: [...WORKSPACE_CHAT_SANDBOX_SETUP],
+    setup: [
+      ...(spec.isolation === "docker"
+        ? WORKSPACE_CHAT_DOCKER_SETUP
+        : WORKSPACE_CHAT_SANDBOX_SETUP),
+    ],
     threadSetup: [...WORKSPACE_CHAT_THREAD_SETUP],
     secrets,
   })

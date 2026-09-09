@@ -29,6 +29,9 @@ export type SandboxInstanceOwnership = Pick<
   "kind" | "workspaceId" | "conversationId" | "provider" | "image" | "revision"
 >
 
+export type SandboxInstanceDeleteOwnership = SandboxInstanceOwnership &
+  Pick<SandboxInstanceRecord, "providerSandboxId">
+
 export class SandboxInstanceOwnershipConflict extends Error {
   constructor(readonly sandboxKey: string) {
     super(
@@ -228,7 +231,7 @@ export async function getSandboxInstance(
 export async function deleteSandboxInstance(
   id: string,
   orgId?: string | null,
-  expected?: SandboxInstanceOwnership,
+  expected?: SandboxInstanceDeleteOwnership,
 ): Promise<void> {
   const scopedOrgId = requireSandboxOrgId(orgId)
   await withSandboxInstanceDb(scopedOrgId, async () => {
@@ -257,6 +260,14 @@ export async function deleteSandboxInstance(
             ? expected.provider == null
               ? isNull(workspaceSandboxInstances.provider)
               : eq(workspaceSandboxInstances.provider, expected.provider)
+            : undefined,
+          expected
+            ? expected.providerSandboxId == null
+              ? isNull(workspaceSandboxInstances.providerSandboxId)
+              : eq(
+                  workspaceSandboxInstances.providerSandboxId,
+                  expected.providerSandboxId,
+                )
             : undefined,
           expected
             ? expected.image == null

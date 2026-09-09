@@ -2,6 +2,7 @@ import { execFileSync, spawn } from "node:child_process"
 import { writeFile } from "node:fs/promises"
 import { join } from "node:path"
 import { fileURLToPath } from "node:url"
+import Docker from "dockerode"
 import { eq, sql } from "drizzle-orm"
 import { expect, it } from "vitest"
 import { withOrgIdContext } from "../../auth/withAuth.js"
@@ -14,10 +15,13 @@ import {
   listSandboxInstances,
 } from "../../models/workspaces.js"
 import { withNativeChatFixture } from "../../test/native-chat-fixture.js"
-import { withNativeGitRemote } from "../../test/native-git-remote.js"
+import { withNativeHttpsGitFixture } from "../../test/native-https-git-fixture.js"
 import { withNativeHydrationFixture } from "../../test/native-hydration-fixture.js"
 import { withTestLogger } from "../../test/with-test-logger.js"
-import { workspaceChatRuntimeConfig } from "./chat-runtime.js"
+import {
+  WORKSPACE_CHAT_DOCKER_SANDBOX,
+  workspaceChatRuntimeConfig,
+} from "./chat-runtime.js"
 import { postgresSandboxLocks } from "./sandbox-lock-store.js"
 import {
   streamTanstackWorkspaceChat,
@@ -58,6 +62,44 @@ it(
           }),
         ),
       ).toEqual([])
+    })
+  },
+)
+
+it.each(["railway", "docker"] as const)(
+  "fails closed for unavailable locked %s without sandbox allocation",
+  { timeout: 30_000 },
+  async (provider) => {
+    await withNativeChatFixture(async (f) => {
+      const previousImage = process.env.SANDBOX_CHAT_IMAGE
+      process.env.SANDBOX_PROVIDER = provider
+      process.env.SANDBOX_CHAT_IMAGE = `ctxpipe-missing-${f.orgId}:unavailable`
+      try {
+        const result = await warmTanstackWorkspaceChat({
+          conversationId: f.conversationId,
+          orgId: f.orgId,
+          orgSlug: f.orgSlug,
+          workspaceId: f.workspaceId,
+          desiredUrl: "https://github.com/ctxpipe-ai/ctxpipe.git",
+          desiredSha: f.sha,
+          defaultBranch: "main",
+          writeStatus: "read_only",
+          prompt: "prepare",
+        })
+        expect(result).toMatchObject({ ok: false, status: 503 })
+        expect(f.modelRequests).toHaveLength(0)
+        expect(
+          await withOrgDbContext(f.orgId, () =>
+            listSandboxInstances({
+              conversationId: f.conversationId,
+              kind: "chat",
+            }),
+          ),
+        ).toEqual([])
+      } finally {
+        if (previousImage === undefined) delete process.env.SANDBOX_CHAT_IMAGE
+        else process.env.SANDBOX_CHAT_IMAGE = previousImage
+      }
     })
   },
 )
@@ -258,98 +300,182 @@ it(
 )
 
 it(
-  "prepare discovers Docker and reuses its isolated worktree when the provider is unlocked",
-  { timeout: 180_000 },
+  "prepare discovers quota Docker and reuses its HTTPS-cloned isolated worktree",
+  { timeout: 300_000 },
   async () => {
-    await withNativeChatFixture(async (f) => {
-      delete process.env.SANDBOX_PROVIDER
-      await withNativeGitRemote(f.directory, async (remote) => {
-        const input = {
-          conversationId: f.conversationId,
-          orgId: f.orgId,
-          orgSlug: f.orgSlug,
-          workspaceId: f.workspaceId,
-          desiredUrl: remote,
-          desiredSha: f.sha,
-          defaultBranch: "main",
-          writeStatus: "read_only",
-          prompt: "prepare",
-        }
-        const first = await warmTanstackWorkspaceChat(input)
-        if (!first.ok) throw new Error(first.error)
-        expect(
-          (await first.handle.process.exec("uname -s")).stdout.trim(),
-        ).toBe("Linux")
-        expect(await first.handle.fs.read("/workspace/README.md")).toBe(
-          "# Native chat workspace\n",
-        )
-        await first.handle.fs.write(
-          "/workspace/unsaved.txt",
-          "Docker worktree survives prepare",
-        )
-        const second = await warmTanstackWorkspaceChat(input)
-        if (!second.ok) throw new Error(second.error)
-        expect(second.handle.id).toBe(first.handle.id)
-        expect(await second.handle.fs.read("/workspace/unsaved.txt")).toBe(
-          "Docker worktree survives prepare",
-        )
-        await writeFile(
-          join(f.directory, "README.md"),
-          "# Docker revision advanced\n",
-        )
-        execFileSync(
-          "git",
-          [
-            "-c",
-            "user.name=Fixture",
-            "-c",
-            "user.email=fixture@example.test",
-            "commit",
-            "-am",
-            "Advance Docker source",
-          ],
-          { cwd: f.directory },
-        )
-        const sha = execFileSync("git", ["rev-parse", "HEAD"], {
-          cwd: f.directory,
-          encoding: "utf8",
-        }).trim()
-        await withOrgDbContext(f.orgId, (db) =>
-          db
-            .update(workspaces)
-            .set({ desiredSha: sha })
-            .where(eq(workspaces.id, f.workspaceId)),
-        )
-        const advanced = await warmTanstackWorkspaceChat({
-          ...input,
-          desiredSha: sha,
-        })
-        if (!advanced.ok) throw new Error(advanced.error)
-        expect(advanced.handle.id).toBe(first.handle.id)
-        expect(await advanced.handle.fs.read("/workspace/unsaved.txt")).toBe(
-          "Docker worktree survives prepare",
-        )
-        // Simulate provider loss while the exact native record survives.
-        await advanced.handle.destroy()
-        const recovered = await warmTanstackWorkspaceChat({
-          ...input,
-          desiredSha: sha,
-        })
-        if (!recovered.ok) throw new Error(recovered.error)
-        expect(recovered.handle.id).not.toBe(first.handle.id)
-        expect(await recovered.handle.fs.read("/workspace/README.md")).toBe(
-          "# Docker revision advanced\n",
-        )
-        expect(await recovered.handle.fs.exists("/workspace/unsaved.txt")).toBe(
-          false,
-        )
-        expect(
-          (
-            await recovered.handle.process.exec("git branch --show-current")
-          ).stdout.trim(),
-        ).toBe("main")
-      })
-    })
+    const quotaHost = process.env.CTXPIPE_TEST_QUOTA_DOCKER_HOST?.trim()
+    const quotaPort = Number(process.env.CTXPIPE_TEST_QUOTA_DOCKER_PORT)
+    if (!quotaHost || !Number.isInteger(quotaPort) || quotaPort < 1)
+      throw new Error(
+        "CTXPIPE_TEST_QUOTA_DOCKER_HOST and CTXPIPE_TEST_QUOTA_DOCKER_PORT are required",
+      )
+    const previous = Object.fromEntries(
+      [
+        "DOCKER_HOST",
+        "DOCKER_TLS_VERIFY",
+        "DOCKER_CERT_PATH",
+        "SANDBOX_CHAT_IMAGE",
+      ].map((key) => [key, process.env[key]]),
+    )
+    process.env.DOCKER_HOST = `tcp://${quotaHost}:${quotaPort}`
+    delete process.env.DOCKER_TLS_VERIFY
+    delete process.env.DOCKER_CERT_PATH
+    const docker = new Docker({ timeout: 30_000 })
+    try {
+      await docker.getImage(WORKSPACE_CHAT_DOCKER_SANDBOX.image).inspect()
+      await withNativeHttpsGitFixture(
+        {
+          baseImage:
+            process.env.CTXPIPE_TEST_CHAT_SANDBOX_IMAGE?.trim() ||
+            "ctxpipe-chat-sandbox:opencode-1.18.18",
+          docker,
+        },
+        async (gitFixture) => {
+          process.env.SANDBOX_CHAT_IMAGE = gitFixture.image
+          await withNativeChatFixture(async (f) => {
+            delete process.env.SANDBOX_PROVIDER
+            await gitFixture.serve(f.directory, async (remote) => {
+              let phase = "first prepare"
+              try {
+                const parsedRemote = new URL(remote.url)
+                expect(parsedRemote.protocol).toBe("https:")
+                expect(parsedRemote.username).toBe("")
+                expect(parsedRemote.password).toBe("")
+                expect(parsedRemote.search).toBe("")
+                const input = {
+                  conversationId: f.conversationId,
+                  orgId: f.orgId,
+                  orgSlug: f.orgSlug,
+                  workspaceId: f.workspaceId,
+                  desiredUrl: remote.url,
+                  desiredSha: f.sha,
+                  defaultBranch: "main",
+                  writeStatus: "read_only",
+                  prompt: "prepare",
+                }
+                const first = await warmTanstackWorkspaceChat(input)
+                if (!first.ok) throw new Error(first.error)
+                expect(
+                  (await first.handle.process.exec("uname -s")).stdout.trim(),
+                ).toBe("Linux")
+                expect(
+                  (await first.handle.process.exec("printenv HOME PATH")).stdout
+                    .trim()
+                    .split("\n"),
+                ).toEqual([
+                  `/home/node/ctxpipe-opencode/${f.conversationId}`,
+                  "/usr/local/bin:/usr/bin:/bin",
+                ])
+                expect(
+                  (
+                    await first.handle.process.exec("git remote get-url origin")
+                  ).stdout.trim(),
+                ).toBe(remote.url)
+                const container = await docker
+                  .getContainer(first.handle.id)
+                  .inspect()
+                expect(container.Config.User).toBe("1000:1000")
+                expect(container.HostConfig).toMatchObject({
+                  NanoCpus: 1_000_000_000,
+                  Memory: 1024 ** 3,
+                  MemorySwap: 1024 ** 3,
+                  PidsLimit: 128,
+                  StorageOpt: { size: "4G" },
+                  CapDrop: ["ALL"],
+                  SecurityOpt: ["no-new-privileges:true"],
+                })
+                expect(await first.handle.fs.read("/workspace/README.md")).toBe(
+                  "# Native chat workspace\n",
+                )
+                await first.handle.fs.write(
+                  "/workspace/unsaved.txt",
+                  "Docker worktree survives prepare",
+                )
+                phase = "reuse prepare"
+                const second = await warmTanstackWorkspaceChat(input)
+                if (!second.ok) throw new Error(second.error)
+                expect(second.handle.id).toBe(first.handle.id)
+                expect(
+                  await second.handle.fs.read("/workspace/unsaved.txt"),
+                ).toBe("Docker worktree survives prepare")
+                await writeFile(
+                  join(f.directory, "README.md"),
+                  "# Docker revision advanced\n",
+                )
+                execFileSync(
+                  "git",
+                  [
+                    "-c",
+                    "user.name=Fixture",
+                    "-c",
+                    "user.email=fixture@example.test",
+                    "commit",
+                    "-am",
+                    "Advance Docker source",
+                  ],
+                  { cwd: f.directory },
+                )
+                phase = "HTTPS Git fixture update"
+                await remote.sync()
+                const sha = execFileSync("git", ["rev-parse", "HEAD"], {
+                  cwd: f.directory,
+                  encoding: "utf8",
+                }).trim()
+                await withOrgDbContext(f.orgId, (db) =>
+                  db
+                    .update(workspaces)
+                    .set({ desiredSha: sha })
+                    .where(eq(workspaces.id, f.workspaceId)),
+                )
+                phase = "revision prepare"
+                const advanced = await warmTanstackWorkspaceChat({
+                  ...input,
+                  desiredSha: sha,
+                })
+                if (!advanced.ok) throw new Error(advanced.error)
+                expect(advanced.handle.id).toBe(first.handle.id)
+                expect(
+                  await advanced.handle.fs.read("/workspace/unsaved.txt"),
+                ).toBe("Docker worktree survives prepare")
+                // Simulate provider loss while the exact native record survives.
+                phase = "provider loss"
+                await advanced.handle.destroy()
+                phase = "provider recovery"
+                const recovered = await warmTanstackWorkspaceChat({
+                  ...input,
+                  desiredSha: sha,
+                })
+                if (!recovered.ok) throw new Error(recovered.error)
+                expect(recovered.handle.id).not.toBe(first.handle.id)
+                expect(
+                  await recovered.handle.fs.read("/workspace/README.md"),
+                ).toBe("# Docker revision advanced\n")
+                expect(
+                  await recovered.handle.fs.exists("/workspace/unsaved.txt"),
+                ).toBe(false)
+                expect(
+                  (
+                    await recovered.handle.process.exec(
+                      "git branch --show-current",
+                    )
+                  ).stdout.trim(),
+                ).toBe("main")
+              } catch (error) {
+                throw new Error(
+                  `Docker prepare fixture ${phase} failed: ${String(error)}`,
+                  { cause: error },
+                )
+              }
+            })
+          })
+        },
+      )
+    } finally {
+      for (const [key, value] of Object.entries(previous)) {
+        if (value === undefined) delete process.env[key]
+        else process.env[key] = value
+      }
+    }
   },
 )
 

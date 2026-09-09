@@ -100,14 +100,17 @@ export const WORKSPACE_CHAT_OPENCODE_CLI = "opencode-ai@1.18.18" as const
 export const WORKSPACE_CHAT_OPENCODE_PROXY_URL_ENV =
   "{env:CTXPIPE_MODEL_PROXY_URL}" as const
 
-export const WORKSPACE_CHAT_OPENCODE_JSON_SECRET = "CTXPIPE_OPENCODE_JSON" as const
+export const WORKSPACE_CHAT_OPENCODE_JSON_SECRET =
+  "CTXPIPE_OPENCODE_JSON" as const
 
 export function workspaceChatOpenCodeHomeDir(conversationId: string): string {
   const slug = conversationId.replace(/[^a-zA-Z0-9_-]/g, "_") || "conversation"
   return join(tmpdir(), "ctxpipe-opencode-home", slug)
 }
 
-export function workspaceChatOpenCodeConfigPath(conversationId: string): string {
+export function workspaceChatOpenCodeConfigPath(
+  conversationId: string,
+): string {
   return join(workspaceChatOpenCodeHomeDir(conversationId), "opencode.json")
 }
 
@@ -135,14 +138,37 @@ export function workspaceChatOpenCodeHomeEnv(
 export function writeWorkspaceChatOpenCodeConfig(input: {
   conversationId: string
   modelBase: string
+  isolation?: "docker" | "unsandboxed" | "railway"
 }): { homeEnv: Record<string, string>; configJson: string } {
-  const homeEnv = workspaceChatOpenCodeHomeEnv(input.conversationId)
   const configJson = `${JSON.stringify(
     workspaceChatOpenCodeConfig({ modelBase: input.modelBase }),
     null,
     2,
   )}\n`
-  writeFileSync(workspaceChatOpenCodeConfigPath(input.conversationId), configJson)
+  if (input.isolation && input.isolation !== "unsandboxed") {
+    // Container paths belong to its nonroot user, never the backend host's
+    // temporary directory or PATH. Native thread setup writes this config.
+    const slug =
+      input.conversationId.replace(/[^a-zA-Z0-9_-]/g, "_") || "conversation"
+    const home = `/home/node/ctxpipe-opencode/${slug}`
+    return {
+      configJson,
+      homeEnv: {
+        HOME: home,
+        XDG_CONFIG_HOME: `${home}/config`,
+        XDG_DATA_HOME: `${home}/data`,
+        XDG_STATE_HOME: `${home}/state`,
+        XDG_CACHE_HOME: `${home}/cache`,
+        OPENCODE_CONFIG: `${home}/opencode.json`,
+        PATH: "/usr/local/bin:/usr/bin:/bin",
+      },
+    }
+  }
+  const homeEnv = workspaceChatOpenCodeHomeEnv(input.conversationId)
+  writeFileSync(
+    workspaceChatOpenCodeConfigPath(input.conversationId),
+    configJson,
+  )
   return { homeEnv, configJson }
 }
 

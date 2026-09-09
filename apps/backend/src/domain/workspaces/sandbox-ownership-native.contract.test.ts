@@ -1227,10 +1227,11 @@ fi'`,
       expect(await handle.fs.read("native-policy-proof.txt")).toBe(
         "bounded workspace",
       )
+      // Bypass page cache so this disk probe cannot hit the memory limit first.
       const quotaWrite = await handle.process.exec(
         `sh -eu -c '
 set +e
-dd if=/dev/zero of=/tmp/native-policy-quota.bin bs=1M count=4096 conv=fsync
+dd if=/dev/zero of=/tmp/native-policy-quota.bin bs=1M count=4096 oflag=direct conv=fsync
 status=$?
 rm -f /tmp/native-policy-quota.bin
 printf "quota-status=%s\\n" "$status"'`,

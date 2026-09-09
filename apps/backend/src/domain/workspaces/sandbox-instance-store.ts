@@ -11,6 +11,7 @@ import {
 } from "../../db/schema/workspaces.js"
 import type { SandboxInstanceRecord } from "../../models/workspace-sandboxes.js"
 import {
+  type SandboxInstanceDeleteOwnership,
   type SandboxInstanceOwnership,
   SandboxInstanceOwnershipConflict,
 } from "../../models/workspace-sandboxes.js"
@@ -100,6 +101,12 @@ export function postgresSandboxInstanceStore(input: {
       image: row.image,
       revision: row.revision,
     }
+  }
+
+  function deleteOwnershipOf(
+    row: SandboxInstanceRecord,
+  ): SandboxInstanceDeleteOwnership {
+    return { ...ownershipOf(row), providerSandboxId: row.providerSandboxId }
   }
 
   return {
@@ -308,7 +315,7 @@ export function postgresSandboxInstanceStore(input: {
       const row = await getSandboxInstance(key, input.orgId)
       if (!row) return
       assertOwnedRecord(key, row)
-      await deleteSandboxInstance(key, input.orgId, ownershipOf(row))
+      await deleteSandboxInstance(key, input.orgId, deleteOwnershipOf(row))
     },
   }
 }

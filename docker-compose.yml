@@ -66,6 +66,7 @@ services:
 
   dind:
     profiles: [deploy]
+    image: ctxpipe-sandbox-runner:local
     build:
       context: ./scripts/sandbox-runner
     restart: unless-stopped
@@ -86,6 +87,55 @@ services:
       timeout: 5s
       retries: 12
       start_period: 10s
+
+  chat-sandbox-image:
+    profiles: [deploy]
+    image: ctxpipe-sandbox-runner:local
+    build:
+      context: ./scripts/sandbox-runner
+    restart: "no"
+    entrypoint: ["sh", "-ec"]
+    command:
+      - |
+        docker image inspect "$$SANDBOX_CHAT_PROXY_IMAGE" >/dev/null 2>&1 || docker pull "$$SANDBOX_CHAT_PROXY_IMAGE"
+        docker build --pull=false --file /context/Dockerfile --tag "$$SANDBOX_CHAT_IMAGE" /context
+        docker image inspect --format '{{.Id}}' "$$SANDBOX_CHAT_IMAGE"
+        docker image inspect --format '{{.Id}}' "$$SANDBOX_CHAT_PROXY_IMAGE"
+    environment:
+      DOCKER_HOST: tcp://dind:2376
+      DOCKER_TLS_VERIFY: "1"
+      DOCKER_CERT_PATH: /certs/client
+      SANDBOX_CHAT_IMAGE: ctxpipe-chat-sandbox:opencode-1.18.18
+      SANDBOX_CHAT_PROXY_IMAGE: node@sha256:8a34c4ab3ea2c5cd194f07e317b2a8f09461d3c8b05c4e34c8ccd56d56024c4d
+    volumes:
+      - ./scripts/chat-sandbox:/context:ro
+      - sandbox_client_certs:/certs/client:ro
+    depends_on:
+      dind:
+        condition: service_healthy
+
+  sandbox-model-relay:
+    profiles: [deploy]
+    image: ctxpipe-sandbox-runner:local
+    build:
+      context: ./scripts/sandbox-runner
+    restart: unless-stopped
+    network_mode: service:dind
+    entrypoint: ["docker-init", "-s", "--", "ctxpipe-sandbox-model-relay"]
+    user: "65534:65534"
+    read_only: true
+    cap_drop: [ALL]
+    security_opt: ["no-new-privileges:true"]
+    depends_on:
+      dind:
+        condition: service_healthy
+        restart: true
+    healthcheck:
+      test: ["CMD", "ctxpipe-sandbox-model-relay", "--check"]
+      interval: 5s
+      timeout: 5s
+      retries: 12
+      start_period: 5s
 
   backend:
     profiles: [deploy]
@@ -114,6 +164,8 @@ services:
       UI_PROXY_URL: http://ui:3002
       CODESEARCH_URL: http://codesearch:3001
       SANDBOX_PROVIDER: docker
+      SANDBOX_CHAT_IMAGE: ctxpipe-chat-sandbox:opencode-1.18.18
+      SANDBOX_MODEL_PROXY_HOST: host.docker.internal
       SANDBOX_CALLBACK_HOST: ${SANDBOX_CALLBACK_HOST:-}
       DOCKER_HOST: tcp://dind:2376
       DOCKER_TLS_VERIFY: "1"
@@ -143,6 +195,8 @@ services:
     volumes:
       - sandbox_client_certs:/certs/client:ro
     depends_on:
+      chat-sandbox-image:
+        condition: service_completed_successfully
       migrate:
         condition: service_completed_successfully
       postgres:
@@ -154,6 +208,8 @@ services:
       ui:
         condition: service_started
       dind:
+        condition: service_healthy
+      sandbox-model-relay:
         condition: service_healthy
 
   worker:
@@ -167,6 +223,7 @@ services:
       DATABASE_URL: postgresql://ctxpipe_app:${POSTGRES_PASSWORD:-ctxpipe}@postgres:5432/${POSTGRES_DB:-ctxpipe}
       GRAPH_DB_URI: redis://falkordb:6379
       SANDBOX_PROVIDER: docker
+      SANDBOX_CHAT_IMAGE: ctxpipe-chat-sandbox:opencode-1.18.18
       DOCKER_HOST: tcp://dind:2376
       DOCKER_TLS_VERIFY: "1"
       DOCKER_CERT_PATH: /certs/client
@@ -188,6 +245,8 @@ services:
     volumes:
       - sandbox_client_certs:/certs/client:ro
     depends_on:
+      chat-sandbox-image:
+        condition: service_completed_successfully
       migrate:
         condition: service_completed_successfully
       postgres:

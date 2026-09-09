@@ -454,6 +454,10 @@ const postConversationPullRequestRoute = createRoute({
       content: { "application/json": { schema: ErrorResponseSchema } },
       description: "Not found",
     },
+    503: {
+      content: { "application/json": { schema: ErrorResponseSchema } },
+      description: "Sandbox provider unavailable",
+    },
     409: {
       content: { "application/json": { schema: ErrorResponseSchema } },
       description: "Chat sandbox missing",
@@ -778,12 +782,13 @@ export const conversationRoutes = new OpenAPIHono<AppEnv>()
     if (!planned.publish) {
       return c.json({ error: planned.reason }, 400)
     }
-    const handle = await readySandboxHandle({
+    const ready = await readySandboxHandle({
       conversation,
       workspace,
       existingOnly: true,
     })
-    if (!handle) return c.json({ error: "missing_sandbox" }, 409)
+    if (!ready.ok) return c.json({ error: ready.error }, ready.status)
+    const { handle } = ready
     const title = body.title ?? conversation.name
     const pushed = await pushConversationSessionBranch({
       handle,

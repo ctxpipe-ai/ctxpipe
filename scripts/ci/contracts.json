@@ -70,7 +70,11 @@
   "native sandbox ownership": [
     "src/domain/workspaces/sandbox-ownership-native.contract.test.ts",
     "src/domain/workspaces/sandbox-egress-recovery-native.contract.test.ts",
+    "src/domain/workspaces/sandbox-egress-socket-native.contract.test.ts",
+    "src/domain/workspaces/sandbox-snapshot-recovery-native.contract.test.ts",
     "src/domain/workspaces/sandbox-lock-native.contract.test.ts",
+    "src/domain/workspaces/workspace-chat-run-capability-native.contract.test.ts",
+    "src/domain/workspaces/workspace-chat-git-credentials-native.contract.test.ts",
     "src/domain/workspaces/sandbox-replica-native.contract.test.ts",
     "src/domain/workspaces/workspace-chat-prepare-native.contract.test.ts"
   ]

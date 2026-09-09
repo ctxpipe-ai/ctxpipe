@@ -179,6 +179,25 @@ describe("workspaceChatOpenCodeContract", () => {
     )
   })
 
+  it("uses a writable nonroot container home without backend PATH entries", () => {
+    process.env.PATH = "/backend/private/bin"
+    const written = writeWorkspaceChatOpenCodeConfig({
+      conversationId: "conv_container",
+      modelBase: "openai/gpt-5.6-terra",
+      isolation: "docker",
+    })
+    expect(written.homeEnv.HOME).toBe(
+      "/home/node/ctxpipe-opencode/conv_container",
+    )
+    expect(written.homeEnv.OPENCODE_CONFIG).toBe(
+      `${written.homeEnv.HOME}/opencode.json`,
+    )
+    expect(written.homeEnv.PATH).toBe("/usr/local/bin:/usr/bin:/bin")
+    expect(JSON.parse(written.configJson).provider.ctxpipe.options.apiKey).toBe(
+      "{env:CTXPIPE_OPENCODE_RUN_TOKEN}",
+    )
+  })
+
   it("writes OpenCode config next to that home, not as cwd opencode.json", () => {
     const written = writeWorkspaceChatOpenCodeConfig({
       conversationId: "conv_cfg",

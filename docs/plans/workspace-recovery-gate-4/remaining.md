@@ -10,13 +10,15 @@ git history.
 | Item | Requirement | Current evidence |
 | --- | --- | --- |
 | G4-A | Native instance/lock stores; two replicas and restart reuse one worktree; no SQL connection held across provider IO | Native ownership, replacement semantics, lock renewal, and workspace/conversation deletion-allocation races pass |
-| G4-B | Stock TanStack chat across HTTP/WS/prepare; native persistence, durability and reconstruction | Two turns, offsets, terminal/transcript equality, process reload, simultaneous-send preservation, cancellation and replay pass; one CI shutdown failure remains |
+| G4-B | Stock TanStack chat across HTTP/WS/prepare; native persistence, durability and reconstruction | Two turns, offsets, terminal/transcript equality, process reload, simultaneous-send preservation, cancellation and replay pass; CI concurrency correction remains |
 | G4-C | Warm reuse, captured revision, credentials, native shared bases/forks and provider selection | Warm GitHub budget, base reuse, revision conflicts/repair, process loss, Docker replacement and image collection pass; production provider/security activation remains open |
-| G4-D | Files/publish/delete/idle use native handles; remove duplicate ownership/repair layers | Registry, memo and manual terminal repair removed; Files/publication/cancellation, persisted-first MCP targets and branch/run ownership pass; collision guards and final audit remain open |
+| G4-D | Files/publish/delete/idle use native handles; remove duplicate ownership/repair layers | Registry, memo and manual terminal repair removed; Files/publication/cancellation, persisted-first MCP targets and branch/run ownership pass; collision guards pass; final audit remains open |
 | G4-E | Railway SDK conformance, live Bun chat and honest provider/deployment behavior | Native Docker capabilities have focused proof; sbx explicitly fails closed because disk/PID limits are unavailable; Railway live proof remains blocked on access |
 | G4-F | Full entry-point audit, focused native evidence, full CI and two cumulative zero-blocker reviews | Pending final implementation and validation |
 
 Key evidence:
+
+- [Production activation and run credentials](validation-production-activation.md): immutable policy, credential-free relay replacement, native-owner capabilities and read-token renewal.
 
 - [Warm entry points](validation-warm-entrypoints.md) and [branch/run ownership](validation-branch-and-run-ownership.md).
 - [Native bases and recovery](validation-native-bases-and-recovery.md).
@@ -28,33 +30,47 @@ Key evidence:
 
 ## Remaining work, in order
 
-1. Obtain CI confirmation for the shutdown and PG collision corrections.
-   Focused native checks and full backend/UI typechecks pass; existing dirty
-   worktrees and legitimate revision moves are preserved without a key migration.
-2. Activate the immutable chat image, 1 CPU / 1 GiB / 128 PID / 4 GiB limits and
-   per-workspace egress together. Include policy generation in application
-   identity. Never combine different tenants' private allowed hosts.
+1. Resolve the three failures in CI 34342455444: memory pressure in the disk
+   quota probe, an overlapping-chat connection reset, and job-row cleanup using
+   the chat-only instance store. The previous shutdown correction now passes.
+   Preserve ownership checks and existing dirty worktrees.
+2. Finish integrated acceptance of the activated immutable chat image,
+   1 CPU / 1 GiB / 128 PID / 4 GiB limits and per-workspace egress. The factory,
+   policy identity and credential-free deployment relay now have focused proof;
+   the production HTTPS Git/quota preparation and recovery contract now passes.
 3. Prove the integrated Docker chat journey through the real model broker,
    tools and Git, including credential renewal during a long run and deployment
-   recovery. Native egress proof alone does not establish production activation.
+   recovery. The real Git helper/broker already proves issuer-expiry renewal,
+   native-owner revocation, unlink-during-mint rejection and the 500-repository
+   boundary. Two native OpenCode turns pass with model run capabilities.
+   These focused checks do not replace the integrated Docker journey.
 4. Finish Railway custom SDK provider acceptance and live Bun/resource/egress
    conformance. No Railway credentials were found in the task or checkout;
    the existing asynchronous access-location question remains unanswered.
-5. Complete the entry-point/ownership audit, two cumulative reviews with no
-   blockers, full CI and the authorized branch checkpoint. Then proceed to Gate 5.
+5. All three cumulative implementation review defects now have native green
+   evidence and reviewer closure: provider-error propagation, immutable-image
+   base collection, and detached cleanup after external agent loss. The proxy
+   response-header deadline regression also passes. Complete the integrated
+   journey, both final cumulative reviews and full CI before proceeding to Gate 5.
 
 ## Current CI and cost controls
 
-CI [34335463645](https://github.com/ctxpipe-ai/ctxpipe/actions/runs/34335463645)
-on `d399d891` passed 12 jobs and 307 of 308 deterministic contracts. All five
-failures from the preceding run are resolved, including Docker writer recovery
-and native chat text delivery. The sole failure was the ten-second OpenCode
-process-exit deadline in the published-conflict recovery case; that case and
-four affected OpenCode checks now pass locally after bounded TERM/KILL cleanup. UI/CLI/CDK test
-steps after contracts did not run. The resource/quota contract passes.
+CI [34342455444](https://github.com/ctxpipe-ai/ctxpipe/actions/runs/34342455444)
+on `4e31f0f5` passed 12 jobs and 315 of 318 deterministic contracts. The previous
+published-conflict shutdown failure passes. Three failures remain: the quota
+probe was killed before reaching disk quota, overlapping chat lost its OpenCode
+connection, and cleanup rejected a job row through the chat-only instance store.
+The disk probe now bypasses page cache and retains the real quota-error
+assertion; a small native direct-write check passes. The overlap reset needs
+process diagnostics; port 4096 in that log belongs to the later cancellation
+case, and native dynamic-port conformance passes. Job cleanup now uses exact
+job ownership, with retired-job, collision and provider-replacement regressions
+passing. Downstream UI/CLI/CDK test steps did not run.
 
 Backend/UI diagnostic allowances are 124/223, with no additions. Gate 6 must
-resolve them. The complete recovery checkpoint passes both full typechecks.
+resolve them. The current complete backend check passes with 124 diagnostics; the unchanged
+UI passed with 223. The backend check includes the corrected typed Files error
+responses, and no allowance was added.
 
 The user authorizes all pushes to `codex/develop-plan-to-refocus-branch-direction`
 and existing model-key use. Continue unattended; do not repeat those approvals.

@@ -464,10 +464,10 @@ index 913b324750fd5abdb973b9a28df5f67ac0e3dee3..5d0314f48478f58373e18bcbcfc2e4c6
      runId: string;
      /** Persistence seam; falls back to an in-memory store when absent. */
 diff --git a/dist/esm/sandbox.js b/dist/esm/sandbox.js
-index afbf4b7cd5bed5cac60e5d1887880c9806a29ede..e27fc1f7699a168c848c92eb3645fd0b95ebabd0 100644
+index afbf4b7cd5bed5cac60e5d1887880c9806a29ede..5eb7dc859920de2e540adba91ede298c3dc8387a 100644
 --- a/dist/esm/sandbox.js
 +++ b/dist/esm/sandbox.js
-@@ -60,153 +60,286 @@ async function applyWorkspaceSecrets(handle, workspace, stagedSecrets) {
+@@ -60,153 +60,320 @@ async function applyWorkspaceSecrets(handle, workspace, stagedSecrets) {
  	await handle.env.set(resolved);
  }
  function defineSandbox(config) {
@@ -654,8 +654,18 @@ index afbf4b7cd5bed5cac60e5d1887880c9806a29ede..e27fc1f7699a168c848c92eb3645fd0b
 +                if (resumed) {
 +                    if (!options.base)
 +                        await applyWorkspaceSecrets(resumed, workspace);
++                    let latestSnapshotId = existing.latestSnapshotId;
++                    if (!latestSnapshotId &&
++                        (options.base || effectiveSnapshot === 'after-setup') &&
++                        caps.snapshots) {
++                        if (!resumed.snapshot) {
++                            throw new Error('Sandbox provider declared snapshot support but the resumed handle cannot snapshot');
++                        }
++                        latestSnapshotId = (await resumed.snapshot('after-setup')).id;
++                    }
 +                    await store.upsert({
 +                        ...existing,
++                        latestSnapshotId,
 +                        latestRunId: ctx.runId,
 +                        updatedAt: Date.now(),
 +                    });
@@ -735,9 +745,36 @@ index afbf4b7cd5bed5cac60e5d1887880c9806a29ede..e27fc1f7699a168c848c92eb3645fd0b
 +                // Bootstrap failed after the sandbox was created but before it was
 +                // recorded — destroy the orphan so a failed/retried run doesn't leak
 +                // a (billed) sandbox, then surface the original error.
-+                await created.destroy().catch(() => { });
++                try {
++                    await created.destroy();
++                }
++                catch (cleanupError) {
++                    throw new AggregateError([error, cleanupError], 'Sandbox bootstrap and cleanup failed');
++                }
 +                throw error;
 +            }
++        }
++        const record = {
++            key,
++            transitionKey: options.base ? undefined : transitionKeyFor(ctx),
++            provider: config.provider.name,
++            providerSandboxId: created.id,
++            latestSnapshotId: undefined,
++            threadId: ctx.threadId,
++            latestRunId: ctx.runId,
++            updatedAt: Date.now(),
++        };
++        try {
++            await store.upsert(record);
++        }
++        catch (error) {
++            try {
++                await created.destroy();
++            }
++            catch (cleanupError) {
++                throw new AggregateError([error, cleanupError], 'Sandbox instance persistence and cleanup failed');
++            }
++            throw error;
 +        }
 +        let latestSnapshotId;
 +        if ((options.base || effectiveSnapshot === 'after-setup') &&
@@ -745,16 +782,13 @@ index afbf4b7cd5bed5cac60e5d1887880c9806a29ede..e27fc1f7699a168c848c92eb3645fd0b
 +            created.snapshot) {
 +            latestSnapshotId = (await created.snapshot('after-setup')).id;
 +        }
-+        await store.upsert({
-+            key,
-+            transitionKey: options.base ? undefined : transitionKeyFor(ctx),
-+            provider: config.provider.name,
-+            providerSandboxId: created.id,
-+            latestSnapshotId,
-+            threadId: ctx.threadId,
-+            latestRunId: ctx.runId,
-+            updatedAt: Date.now(),
-+        });
++        if (latestSnapshotId !== undefined) {
++            await store.upsert({
++                ...record,
++                latestSnapshotId,
++                updatedAt: Date.now(),
++            });
++        }
 +        return { handle: created, outcome: 'created' };
 +    };
 +    const ensureWithOutcome = async (ctx) => {
@@ -1449,7 +1483,7 @@ index aba99a20932262570dc48c7578c6406aad92d54c..d21d034e194d3c6fdf8f6fb7b8aae427
              )
              if (!canPublishPortableSnapshot(state, lease)) return
 diff --git a/src/sandbox.ts b/src/sandbox.ts
-index f8058c35e9ed316e09fa2ed437267bd8150dd287..71f652658241af205bc6e92ed7bd5a8504ca33cc 100644
+index f8058c35e9ed316e09fa2ed437267bd8150dd287..1f7791d220de0f99e96a731830448a12b41be261 100644
 --- a/src/sandbox.ts
 +++ b/src/sandbox.ts
 @@ -13,7 +13,7 @@ import { InMemoryLockStore } from '@tanstack/ai/locks'
@@ -1527,16 +1561,30 @@ index f8058c35e9ed316e09fa2ed437267bd8150dd287..71f652658241af205bc6e92ed7bd5a85
        const effectiveSnapshot: SnapshotStrategy =
          config.lifecycle?.snapshot ?? (caps.snapshots ? 'after-setup' : 'none')
        const maxAgeMs = parseMaxAgeMs(config.lifecycle?.snapshotMaxAge)
-@@ -235,7 +248,7 @@ export function defineSandbox(config: SandboxConfig): SandboxDefinition {
+@@ -235,9 +248,21 @@ export function defineSandbox(config: SandboxConfig): SandboxDefinition {
              signal: ctx.signal,
            })
            if (resumed) {
 -            await applyWorkspaceSecrets(resumed, config.workspace)
 +            if (!options.base) await applyWorkspaceSecrets(resumed, workspace)
++            let latestSnapshotId = existing.latestSnapshotId
++            if (
++              !latestSnapshotId &&
++              (options.base || effectiveSnapshot === 'after-setup') &&
++              caps.snapshots
++            ) {
++              if (!resumed.snapshot) {
++                throw new Error('Sandbox provider declared snapshot support but the resumed handle cannot snapshot')
++              }
++              latestSnapshotId = (await resumed.snapshot('after-setup')).id
++            }
              await store.upsert({
                ...existing,
++              latestSnapshotId,
                latestRunId: ctx.runId,
-@@ -250,16 +263,22 @@ export function defineSandbox(config: SandboxConfig): SandboxDefinition {
+               updatedAt: Date.now(),
+             })
+@@ -250,16 +275,22 @@ export function defineSandbox(config: SandboxConfig): SandboxDefinition {
              config.provider.restoreSnapshot
            ) {
              const restored = await config.provider.restoreSnapshot({
@@ -1563,7 +1611,7 @@ index f8058c35e9ed316e09fa2ed437267bd8150dd287..71f652658241af205bc6e92ed7bd5a85
              await store.upsert({
                ...existing,
                providerSandboxId: restored.id,
-@@ -274,23 +293,41 @@ export function defineSandbox(config: SandboxConfig): SandboxDefinition {
+@@ -274,53 +305,144 @@ export function defineSandbox(config: SandboxConfig): SandboxDefinition {
          //    snapshotMaxAge TTL exceeded).
        }
  
@@ -1610,8 +1658,37 @@ index f8058c35e9ed316e09fa2ed437267bd8150dd287..71f652658241af205bc6e92ed7bd5a85
              signal: ctx.signal,
            })
          } catch (error) {
-@@ -304,7 +341,7 @@ export function defineSandbox(config: SandboxConfig): SandboxDefinition {
+           // Bootstrap failed after the sandbox was created but before it was
+           // recorded — destroy the orphan so a failed/retried run doesn't leak
+           // a (billed) sandbox, then surface the original error.
+-          await created.destroy().catch(() => {})
++          try { await created.destroy() }
++          catch (cleanupError) {
++            throw new AggregateError([error, cleanupError], 'Sandbox bootstrap and cleanup failed')
++          }
+           throw error
+         }
+       }
  
++      const record = {
++        key,
++        transitionKey: options.base ? undefined : transitionKeyFor(ctx),
++        provider: config.provider.name,
++        providerSandboxId: created.id,
++        latestSnapshotId: undefined,
++        threadId: ctx.threadId,
++        latestRunId: ctx.runId,
++        updatedAt: Date.now(),
++      }
++      try { await store.upsert(record) }
++      catch (error) {
++        try { await created.destroy() }
++        catch (cleanupError) {
++          throw new AggregateError([error, cleanupError], 'Sandbox instance persistence and cleanup failed')
++        }
++        throw error
++      }
++
        let latestSnapshotId: string | undefined
        if (
 -        effectiveSnapshot === 'after-setup' &&
@@ -1619,17 +1696,25 @@ index f8058c35e9ed316e09fa2ed437267bd8150dd287..71f652658241af205bc6e92ed7bd5a85
          caps.snapshots &&
          created.snapshot
        ) {
-@@ -313,6 +350,7 @@ export function defineSandbox(config: SandboxConfig): SandboxDefinition {
+         latestSnapshotId = (await created.snapshot('after-setup')).id
+       }
  
-       await store.upsert({
-         key,
-+        transitionKey: options.base ? undefined : transitionKeyFor(ctx),
-         provider: config.provider.name,
-         providerSandboxId: created.id,
-         latestSnapshotId,
-@@ -321,6 +359,59 @@ export function defineSandbox(config: SandboxConfig): SandboxDefinition {
-         updatedAt: Date.now(),
-       })
+-      await store.upsert({
+-        key,
+-        provider: config.provider.name,
+-        providerSandboxId: created.id,
+-        latestSnapshotId,
+-        threadId: ctx.threadId,
+-        latestRunId: ctx.runId,
+-        updatedAt: Date.now(),
+-      })
++      if (latestSnapshotId !== undefined) {
++        await store.upsert({
++          ...record,
++          latestSnapshotId,
++          updatedAt: Date.now(),
++        })
++      }
        return { handle: created, outcome: 'created' }
 +  }
 +
@@ -1687,7 +1772,7 @@ index f8058c35e9ed316e09fa2ed437267bd8150dd287..71f652658241af205bc6e92ed7bd5a85
      })
    }
  
-@@ -334,12 +425,13 @@ export function defineSandbox(config: SandboxConfig): SandboxDefinition {
+@@ -334,12 +456,13 @@ export function defineSandbox(config: SandboxConfig): SandboxDefinition {
      const store = ctx.store ?? fallbackStore
      const locks = ctx.locks ?? fallbackLocks
      const key = stage?.key ?? computeSandboxKey(keyInputFor(ctx))

@@ -29,6 +29,8 @@ it.each([
   "sha_before_push",
   "other_revision_heartbeat",
   "warm_files",
+  "provider_unavailable",
+  "provider_unavailable_push",
   "pull-request",
   "pr_collision",
   "missing",
@@ -267,8 +269,47 @@ fi
               body: await saved.json(),
             }).toMatchObject({ status: 200 })
           }
+          if (scenario.startsWith("provider_unavailable")) {
+            process.env.SANDBOX_PROVIDER = "railway"
+            if (scenario === "provider_unavailable") {
+              for (const path of [
+                "tree",
+                "blob?path=notes.md",
+                "status",
+                "diff",
+              ]) {
+                const failed = await app.request(
+                  `/conversations/${conversationId}/files/${path}`,
+                )
+                expect({
+                  status: failed.status,
+                  body: await failed.json(),
+                }).toEqual({
+                  status: 503,
+                  body: {
+                    error: "TanStack sandbox provider railway is not available",
+                  },
+                })
+              }
+              const failedSave = await app.request(
+                `/conversations/${conversationId}/files/blob`,
+                {
+                  method: "PUT",
+                  headers: { "content-type": "application/json" },
+                  body: JSON.stringify({
+                    path: "notes.md",
+                    body: "must not be saved",
+                  }),
+                },
+              )
+              expect(failedSave.status).toBe(503)
+              expect(await raw.fs.read("notes.md")).toBe(
+                "# Saved conversation\n",
+              )
+            }
+          }
           const pendingResponse = app.request(
-            `/conversations/${conversationId}/${scenario === "push" || scenario === "warm_files" || scenario === "stale_push" || scenario === "relink_after_push_push" ? "push" : "pull-request"}`,
+            `/conversations/${conversationId}/${scenario === "push" || scenario === "provider_unavailable_push" || scenario === "warm_files" || scenario === "stale_push" || scenario === "relink_after_push_push" ? "push" : "pull-request"}`,
             {
               method: "POST",
               headers: { "content-type": "application/json" },
@@ -288,7 +329,18 @@ fi
           const response = await pendingResponse
           const body = await response.json()
           const branch = conversationSessionBranch(conversationId)
-          if (scenario === "sha_before_push") {
+          if (scenario.startsWith("provider_unavailable")) {
+            expect({ status: response.status, body }).toEqual({
+              status: 503,
+              body: {
+                error: "TanStack sandbox provider railway is not available",
+              },
+            })
+            expect(pullRequests).toEqual([])
+            expect(
+              f.git("--git-dir", f.remote, "rev-list", "--all", "--count"),
+            ).toBe("1")
+          } else if (scenario === "sha_before_push") {
             expect({ status: response.status, body }).toEqual({
               status: 400,
               body: { error: "Conversation write binding changed before push" },

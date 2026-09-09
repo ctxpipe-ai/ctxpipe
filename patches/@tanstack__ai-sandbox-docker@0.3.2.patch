@@ -42,10 +42,10 @@ index 0000000000000000000000000000000000000000..e4f3c256c9b88eeea76136524db36a85
 +export declare const EGRESS_PROXY_CONFIG_ENV = "TANSTACK_EGRESS_PROXY_CONFIG";
 diff --git a/dist/esm/egress-proxy.js b/dist/esm/egress-proxy.js
 new file mode 100644
-index 0000000000000000000000000000000000000000..0ee0e8c9a7c29a718a65bd6945f7fce21d99ad2f
+index 0000000000000000000000000000000000000000..06a7491cd40523814e2cc411e0de7a7e6bc7f6b7
 --- /dev/null
 +++ b/dist/esm/egress-proxy.js
-@@ -0,0 +1,611 @@
+@@ -0,0 +1,636 @@
 +// src/egress-proxy.ts
 +import { randomUUID, timingSafeEqual } from "node:crypto";
 +import { lookup } from "node:dns/promises";
@@ -244,6 +244,30 @@ index 0000000000000000000000000000000000000000..0ee0e8c9a7c29a718a65bd6945f7fce2
 +  res.once("close", finish);
 +  res.once("finish", finish);
 +}
++function boundConnectTimeout(upstream) {
++  let timer = setTimeout(() => {
++    timer = undefined;
++    upstream.destroy(new Error("egress: upstream connection timeout"));
++  }, 5000);
++  timer.unref();
++  const clear = () => {
++    if (timer === undefined)
++      return;
++    clearTimeout(timer);
++    timer = undefined;
++  };
++  upstream.once("socket", (socket) => {
++    if (!socket.connecting) {
++      clear();
++      return;
++    }
++    socket.once("connect", clear);
++    socket.once("close", clear);
++    socket.once("error", clear);
++  });
++  upstream.once("close", clear);
++  upstream.once("error", clear);
++}
 +function closeServer(server, sockets) {
 +  for (const socket of sockets)
 +    socket.destroy();
@@ -253,6 +277,7 @@ index 0000000000000000000000000000000000000000..0ee0e8c9a7c29a718a65bd6945f7fce2
 +  const sockets = new Set;
 +  server.maxConnections = maxConnections;
 +  server.on("connection", (socket) => {
++    socket.on("error", () => socket.destroy());
 +    if (sockets.size >= maxConnections) {
 +      socket.destroy();
 +      return;
@@ -355,7 +380,7 @@ index 0000000000000000000000000000000000000000..0ee0e8c9a7c29a718a65bd6945f7fce2
 +      };
 +      req.once("aborted", abort);
 +      res.once("close", abort);
-+      upstream.setTimeout(5000, abort);
++      boundConnectTimeout(upstream);
 +      if (grant)
 +        grant.aborters.add(abort);
 +      const removeAborter = () => {
@@ -544,7 +569,7 @@ index 0000000000000000000000000000000000000000..0ee0e8c9a7c29a718a65bd6945f7fce2
 +          };
 +          req.once("aborted", abort);
 +          res.once("close", abort);
-+          upstream.setTimeout(5000, abort);
++          boundConnectTimeout(upstream);
 +          grant.aborters.add(abort);
 +          responseCleanup(res, () => grant.aborters.delete(abort));
 +          upstream.once("error", () => sendStatus(res, 502));
@@ -697,10 +722,10 @@ index ff467bfdff06070a6b1e1fb7e852625975f1957e..b678c714ad4e00127d25a6409418dc8c
      constructor(deps: DockerHandleDeps);
      /** Map the conventional `/workspace` virtual root to the container workdir. */
 diff --git a/dist/esm/handle.js b/dist/esm/handle.js
-index 004a79a0840d869a08ac048b4f4774fb5e29156d..66b119507e1b11807ef97e4fa2b5fd421a4e7473 100644
+index 004a79a0840d869a08ac048b4f4774fb5e29156d..253fffffb403917c1dd3367f3d84f01053e78fe0 100644
 --- a/dist/esm/handle.js
 +++ b/dist/esm/handle.js
-@@ -206,378 +206,455 @@ async function* decodeStream(stream) {
+@@ -206,378 +206,479 @@ async function* decodeStream(stream) {
  	const tail = decoder.decode();
  	if (tail !== "") yield tail;
  }
@@ -1502,7 +1527,31 @@ index 004a79a0840d869a08ac048b4f4774fb5e29156d..66b119507e1b11807ef97e4fa2b5fd42
 +    async snapshot(label) {
 +        const tag = `tanstack-ai-sandbox-snapshot:${this.id.slice(0, 12)}-${label ?? 'snap'}`;
 +        const [repo, tagName] = tag.split(':');
-+        await this.container.commit({ repo, tag: tagName, changes: ['LABEL ai.tanstack.sandbox.fork-source='] });
++        const inspectTag = async () => {
++            try {
++                return (await this.docker.getImage(tag).inspect()).Id;
++            }
++            catch (error) {
++                if (typeof error === 'object' && error !== null && 'statusCode' in error && error.statusCode === 404)
++                    return undefined;
++                throw error;
++            }
++        };
++        const previousImageId = await inspectTag();
++        try {
++            await this.container.commit({ repo, tag: tagName, changes: ['LABEL ai.tanstack.sandbox.fork-source='] });
++        }
++        catch (error) {
++            let recoveredImageId;
++            try {
++                recoveredImageId = await inspectTag();
++            }
++            catch (recoveryError) {
++                throw new AggregateError([error, recoveryError], 'docker: snapshot commit and acknowledgement recovery failed');
++            }
++            if (!recoveredImageId || recoveredImageId === previousImageId)
++                throw error;
++        }
 +        return { id: tag, label };
 +    }
 +    fork = async () => {
@@ -1583,10 +1632,10 @@ index b8e7f9a0d2aa3ddcde6c46e787ed646b5252f05f..8387a825e12623bf26b8cf7c5026c60a
   * Docker sandbox provider — runs harness adapters inside isolated containers.
   * Requires a reachable Docker daemon (local socket by default; override via
 diff --git a/dist/esm/provider.js b/dist/esm/provider.js
-index 6bc1a9d6355d8e62488c5c1b555133460e96ce19..b92418fbc6d3d8773c273417258d9a2877614632 100644
+index 6bc1a9d6355d8e62488c5c1b555133460e96ce19..c538ef20aeaf2b4afecbe24bd89f4ddfdb025a5b 100644
 --- a/dist/esm/provider.js
 +++ b/dist/esm/provider.js
-@@ -1,135 +1,1241 @@
+@@ -1,135 +1,1366 @@
 -import { DOCKER_CAPS, DockerHandle } from "./handle.js";
 -import Dockerode from "dockerode";
 -//#region src/provider.ts
@@ -1810,6 +1859,11 @@ index 6bc1a9d6355d8e62488c5c1b555133460e96ce19..b92418fbc6d3d8773c273417258d9a28
 +}
 +function dockerName(owner, suffix) {
 +    return `tanstack-ai-${owner.slice(0, 24)}-${suffix}`;
++}
++function detachedProxyName(agentId) {
++    return /^[a-f0-9]{64}$/.test(agentId)
++        ? `tanstack-ai-${agentId}-proxy`
++        : undefined;
 +}
 +function portOrigin(advertisedPortHost, modem) {
 +    const configured = advertisedPortHost?.trim();
@@ -2197,16 +2251,35 @@ index 6bc1a9d6355d8e62488c5c1b555133460e96ce19..b92418fbc6d3d8773c273417258d9a28
 +                throw error;
 +        }
 +        signal?.throwIfAborted();
-+        const proxy = this.docker.getContainer(dockerName(owner, 'proxy'));
++        const proxyCandidates = await this.docker.listContainers({
++            all: true,
++            filters: {
++                label: [
++                    `${MANAGED_LABEL}=${MANAGED_VALUE}`,
++                    `${SCHEMA_LABEL}=${SCHEMA_VALUE}`,
++                    `${SANDBOX_KEY_LABEL}=${key}`,
++                    `${OWNERSHIP_LABEL}=${owner}`,
++                    `${GENERATION_LABEL}=${generation}`,
++                    `${ROLE_LABEL}=proxy`,
++                ],
++            },
++        });
++        if (proxyCandidates.length > 1)
++            throw new Error('docker: refusing to reclaim ambiguous owned egress proxies');
++        const proxy = proxyCandidates[0]
++            ? this.docker.getContainer(proxyCandidates[0].Id)
++            : undefined;
 +        const network = this.docker.getNetwork(dockerName(owner, 'network'));
 +        let proxyInfo;
 +        let networkInfo;
-+        try {
-+            proxyInfo = await proxy.inspect(inspectOptions);
-+        }
-+        catch (error) {
-+            if (!hasStatus(error, 404))
-+                throw error;
++        if (proxy) {
++            try {
++                proxyInfo = await proxy.inspect(inspectOptions);
++            }
++            catch (error) {
++                if (!hasStatus(error, 404))
++                    throw error;
++            }
 +        }
 +        signal?.throwIfAborted();
 +        try {
@@ -2236,7 +2309,7 @@ index 6bc1a9d6355d8e62488c5c1b555133460e96ce19..b92418fbc6d3d8773c273417258d9a28
 +        const errors = [];
 +        // Once mutation begins, finish both removals even if the caller aborts so
 +        // cancellation cannot strand the network after its proxy was removed.
-+        if (proxyInfo)
++        if (proxyInfo && proxy)
 +            await this.stopAndRemoveContainer(proxy).catch((error) => errors.push(error));
 +        if (networkInfo)
 +            await network.remove().catch((error) => { if (!hasStatus(error, 404))
@@ -2288,13 +2361,22 @@ index 6bc1a9d6355d8e62488c5c1b555133460e96ce19..b92418fbc6d3d8773c273417258d9a28
 +        this.assertEgressContainerBoundary(`container ${container.id}`, info);
 +        this.assertIsolationPolicy(container.id, info);
 +        const networkName = dockerName(owner, 'network');
-+        const proxyName = dockerName(owner, 'proxy');
++        const legacyProxyName = dockerName(owner, 'proxy');
++        let proxyName = detachedProxyName(info.Id) ?? legacyProxyName;
 +        const network = this.docker.getNetwork(networkName);
-+        const proxy = this.docker.getContainer(proxyName);
-+        const [networkInfo, initialProxyInfo] = await Promise.all([
-+            network.inspect(),
-+            proxy.inspect({ abortSignal: signal }),
-+        ]);
++        let proxy = this.docker.getContainer(proxyName);
++        const networkInfo = await network.inspect();
++        let initialProxyInfo;
++        try {
++            initialProxyInfo = await proxy.inspect({ abortSignal: signal });
++        }
++        catch (error) {
++            if (!hasStatus(error, 404) || proxyName === legacyProxyName)
++                throw error;
++            proxyName = legacyProxyName;
++            proxy = this.docker.getContainer(proxyName);
++            initialProxyInfo = await proxy.inspect({ abortSignal: signal });
++        }
 +        this.assertOwnedLabels(`network ${networkName}`, networkInfo.Labels, key, owner, generation, 'network');
 +        this.assertOwnedLabels(`container ${proxyName}`, initialProxyInfo.Config.Labels, key, owner, generation, 'proxy');
 +        this.assertEgressContainerBoundary(`container ${proxyName}`, initialProxyInfo, true);
@@ -2455,10 +2537,14 @@ index 6bc1a9d6355d8e62488c5c1b555133460e96ce19..b92418fbc6d3d8773c273417258d9a28
 +            const agentRequest = {
 +                ...agentBody,
 +                _query: { name: agentName },
-+                _body: agentBody,
-+            };
-+            agent = await this.docker.createContainer(agentRequest);
-+            await agent.start({ abortSignal: signal });
++            _body: agentBody,
++        };
++        agent = await this.docker.createContainer(agentRequest);
++        const durableProxyName = detachedProxyName(agent.id);
++        if (!durableProxyName)
++            throw new Error('docker: egress agent allocation returned no canonical container identity');
++        await proxy.rename({ name: durableProxyName });
++        await agent.start({ abortSignal: signal });
 +            signal?.throwIfAborted();
 +            const agentInfo = await agent.inspect({ abortSignal: signal });
 +            const topology = await this.loadEgressTopology(agent, agentInfo, signal, key, owner);
@@ -2825,6 +2911,84 @@ index 6bc1a9d6355d8e62488c5c1b555133460e96ce19..b92418fbc6d3d8773c273417258d9a28
 +                throw error;
 +        }
 +        input.signal?.throwIfAborted();
++        if (!info) {
++            const proxyName = detachedProxyName(input.id);
++            if (proxyName) {
++                const proxy = this.docker.getContainer(proxyName);
++                let proxyInfo;
++                try {
++                    proxyInfo = await proxy.inspect(inspectOptions);
++                }
++                catch (error) {
++                    if (!hasStatus(error, 404))
++                        throw error;
++                }
++                if (proxyInfo) {
++                    const proxyLabels = proxyInfo.Config.Labels;
++                    const key = proxyLabels?.[SANDBOX_KEY_LABEL];
++                    const owner = proxyLabels?.[OWNERSHIP_LABEL];
++                    const generation = proxyLabels?.[GENERATION_LABEL];
++                    if (!key || !owner || !generation)
++                        throw new Error('docker: detached egress proxy is missing identity labels');
++                    this.assertOwnedLabels(`container ${proxyName}`, proxyLabels, key, owner, generation, 'proxy');
++                    this.assertEgressContainerBoundary(`container ${proxyName}`, proxyInfo, true);
++                    const network = this.docker.getNetwork(dockerName(owner, 'network'));
++                    let networkInfo;
++                    try {
++                        networkInfo = await network.inspect();
++                        this.assertOwnedLabels(`network ${network.id}`, networkInfo.Labels, key, owner, generation, 'network');
++                        if (!networkInfo.Internal)
++                            throw new Error('docker: refusing to destroy a non-internal detached egress network');
++                        if (Object.keys(networkInfo.Containers ?? {}).some((id) => id !== proxyInfo.Id))
++                            throw new Error('docker: refusing to destroy a detached egress network with foreign endpoints');
++                    }
++                    catch (error) {
++                        if (!hasStatus(error, 404))
++                            throw error;
++                    }
++                    input.signal?.throwIfAborted();
++                    const errors = [];
++                    if (this.config.removeOnDestroy ?? true) {
++                        try {
++                            await proxy.stop({ t: 5 });
++                        }
++                        catch (error) {
++                            if (!hasStatus(error, 304) && !hasStatus(error, 404))
++                                errors.push(error);
++                        }
++                        if (errors.length === 0 && networkInfo?.Containers?.[proxyInfo.Id]) {
++                            await network.disconnect({ Container: proxyInfo.Id, Force: true })
++                                .catch((error) => { if (!hasStatus(error, 404))
++                                errors.push(error); });
++                        }
++                        if (errors.length === 0 && networkInfo)
++                            await network.remove().catch((error) => { if (!hasStatus(error, 404))
++                                errors.push(error); });
++                        if (errors.length === 0)
++                            await proxy.remove({ force: true, v: true })
++                                .catch((error) => { if (!hasStatus(error, 404))
++                                errors.push(error); });
++                    }
++                    else {
++                        try {
++                            await proxy.stop({ t: 5 });
++                        }
++                        catch (error) {
++                            if (!hasStatus(error, 304) && !hasStatus(error, 404))
++                                errors.push(error);
++                        }
++                    }
++                    await this.collectOrphanForkImages().catch((error) => errors.push(error));
++                    if (errors.length === 1)
++                        throw errors[0];
++                    if (errors.length > 1)
++                        throw new AggregateError(errors, 'docker: detached egress topology cleanup failed');
++                    return;
++                }
++            }
++            await this.collectOrphanForkImages();
++            return;
++        }
 +        const labelsForAgent = info?.Config.Labels;
 +        const isOwnedEgress = labelsForAgent?.[MANAGED_LABEL] === MANAGED_VALUE &&
 +            labelsForAgent?.[SCHEMA_LABEL] === SCHEMA_VALUE &&
@@ -2836,7 +3000,8 @@ index 6bc1a9d6355d8e62488c5c1b555133460e96ce19..b92418fbc6d3d8773c273417258d9a28
 +            if (!key || !owner || !generation)
 +                throw new Error('docker: owned egress agent is missing identity labels');
 +            this.assertOwnedLabels(`container ${input.id}`, labelsForAgent, key, owner, generation, 'agent');
-+            const proxy = this.docker.getContainer(dockerName(owner, 'proxy'));
++            const legacyProxyName = dockerName(owner, 'proxy');
++            let proxy = this.docker.getContainer(detachedProxyName(info.Id) ?? legacyProxyName);
 +            const network = this.docker.getNetwork(dockerName(owner, 'network'));
 +            let proxyInfo;
 +            let networkInfo;
@@ -2845,8 +3010,17 @@ index 6bc1a9d6355d8e62488c5c1b555133460e96ce19..b92418fbc6d3d8773c273417258d9a28
 +                this.assertOwnedLabels(`container ${proxy.id}`, proxyInfo.Config.Labels, key, owner, generation, 'proxy');
 +            }
 +            catch (error) {
-+                if (!hasStatus(error, 404))
++                if (!hasStatus(error, 404) || proxy.id === legacyProxyName)
 +                    throw error;
++                proxy = this.docker.getContainer(legacyProxyName);
++                try {
++                    proxyInfo = await proxy.inspect(inspectOptions);
++                    this.assertOwnedLabels(`container ${proxy.id}`, proxyInfo.Config.Labels, key, owner, generation, 'proxy');
++                }
++                catch (legacyError) {
++                    if (!hasStatus(legacyError, 404))
++                        throw legacyError;
++                }
 +            }
 +            input.signal?.throwIfAborted();
 +            try {
@@ -2963,14 +3137,14 @@ index 6bc1a9d6355d8e62488c5c1b555133460e96ce19..b92418fbc6d3d8773c273417258d9a28
 \ No newline at end of file
 diff --git a/src/egress-proxy.ts b/src/egress-proxy.ts
 new file mode 100644
-index 0000000000000000000000000000000000000000..67c4e5b8a026c4f0472db35b5b62731e023e322f
+index 0000000000000000000000000000000000000000..44b5b672029dc0c624551f62be0a083c9c8b4ef8
 --- /dev/null
 +++ b/src/egress-proxy.ts
-@@ -0,0 +1,477 @@
+@@ -0,0 +1,502 @@
 +import { randomUUID, timingSafeEqual } from 'node:crypto'
 +import { lookup } from 'node:dns/promises'
-+import { mkdir, chmod, unlink } from 'node:fs/promises'
-+import { createServer, request, type ServerResponse, type IncomingMessage } from 'node:http'
++import { chmod, mkdir, unlink } from 'node:fs/promises'
++import { createServer, request, type ClientRequest, type IncomingMessage, type ServerResponse } from 'node:http'
 +import { connect, createServer as createTcpServer, isIP, type Server, type Socket } from 'node:net'
 +import { dirname } from 'node:path'
 +import { domainToASCII } from 'node:url'
@@ -3178,6 +3352,30 @@ index 0000000000000000000000000000000000000000..67c4e5b8a026c4f0472db35b5b62731e
 +  res.once('finish', finish)
 +}
 +
++function boundConnectTimeout(upstream: ClientRequest): void {
++  let timer: ReturnType<typeof setTimeout> | undefined = setTimeout(() => {
++    timer = undefined
++    upstream.destroy(new Error('egress: upstream connection timeout'))
++  }, 5000)
++  timer.unref()
++  const clear = (): void => {
++    if (timer === undefined) return
++    clearTimeout(timer)
++    timer = undefined
++  }
++  upstream.once('socket', (socket) => {
++    if (!socket.connecting) {
++      clear()
++      return
++    }
++    socket.once('connect', clear)
++    socket.once('close', clear)
++    socket.once('error', clear)
++  })
++  upstream.once('close', clear)
++  upstream.once('error', clear)
++}
++
 +function closeServer(server: Server, sockets: Set<Socket>): Promise<void> {
 +  for (const socket of sockets) socket.destroy()
 +  return new Promise((resolve, reject) => server.close((error) => error ? reject(error) : resolve()))
@@ -3187,6 +3385,7 @@ index 0000000000000000000000000000000000000000..67c4e5b8a026c4f0472db35b5b62731e
 +  const sockets = new Set<Socket>()
 +  server.maxConnections = maxConnections
 +  server.on('connection', (socket) => {
++    socket.on('error', () => socket.destroy())
 +    if (sockets.size >= maxConnections) { socket.destroy(); return }
 +    sockets.add(socket); socket.once('close', () => sockets.delete(socket))
 +  })
@@ -3261,7 +3460,7 @@ index 0000000000000000000000000000000000000000..67c4e5b8a026c4f0472db35b5b62731e
 +      })
 +      const abort = (): void => { upstream.destroy() }
 +      req.once('aborted', abort); res.once('close', abort)
-+      upstream.setTimeout(5000, abort)
++      boundConnectTimeout(upstream)
 +      if (grant) grant.aborters.add(abort)
 +      const removeAborter = (): void => { grant?.aborters.delete(abort) }
 +      responseCleanup(res, removeAborter)
@@ -3381,7 +3580,7 @@ index 0000000000000000000000000000000000000000..67c4e5b8a026c4f0472db35b5b62731e
 +          })
 +          const abort = (): void => { upstream.destroy() }
 +          req.once('aborted', abort); res.once('close', abort)
-+          upstream.setTimeout(5000, abort)
++          boundConnectTimeout(upstream)
 +          grant.aborters.add(abort)
 +          responseCleanup(res, () => grant.aborters.delete(abort))
 +          upstream.once('error', () => sendStatus(res, 502))
@@ -3445,7 +3644,7 @@ index 0000000000000000000000000000000000000000..67c4e5b8a026c4f0472db35b5b62731e
 +  process.once('SIGINT', () => { void shutdown() })
 +}
 diff --git a/src/handle.ts b/src/handle.ts
-index 1daea6f076f438fdfd5e78d7c17055d0b01c0e87..3380b7fedaefddcf8dd004a35008ea1fbf8499be 100644
+index 1daea6f076f438fdfd5e78d7c17055d0b01c0e87..53b456bd7c290066dc468f410a7c4b7441a973c8 100644
 --- a/src/handle.ts
 +++ b/src/handle.ts
 @@ -341,6 +341,20 @@ export interface DockerHandleDeps {
@@ -3631,7 +3830,7 @@ index 1daea6f076f438fdfd5e78d7c17055d0b01c0e87..3380b7fedaefddcf8dd004a35008ea1f
          return info.ExitCode ?? 0
        },
        /**
-@@ -788,21 +809,36 @@ export class DockerHandle implements SandboxHandle {
+@@ -788,21 +809,54 @@ export class DockerHandle implements SandboxHandle {
    }
  
    private async connectPort(port: number): Promise<SandboxChannel> {
@@ -3665,14 +3864,32 @@ index 1daea6f076f438fdfd5e78d7c17055d0b01c0e87..3380b7fedaefddcf8dd004a35008ea1f
      const tag = `tanstack-ai-sandbox-snapshot:${this.id.slice(0, 12)}-${label ?? 'snap'}`
      const [repo, tagName] = tag.split(':')
 -    await this.container.commit({ repo, tag: tagName })
-+    await this.container.commit({
-+      repo, tag: tagName,
-+      changes: ['LABEL ai.tanstack.sandbox.fork-source='],
-+    })
++    const inspectTag = async (): Promise<string | undefined> => {
++      try { return (await this.docker.getImage(tag).inspect()).Id }
++      catch (error) {
++        if (typeof error === 'object' && error !== null && 'statusCode' in error && error.statusCode === 404)
++          return undefined
++        throw error
++      }
++    }
++    const previousImageId = await inspectTag()
++    try {
++      await this.container.commit({
++        repo, tag: tagName,
++        changes: ['LABEL ai.tanstack.sandbox.fork-source='],
++      })
++    } catch (error) {
++      let recoveredImageId: string | undefined
++      try { recoveredImageId = await inspectTag() }
++      catch (recoveryError) {
++        throw new AggregateError([error, recoveryError], 'docker: snapshot commit and acknowledgement recovery failed')
++      }
++      if (!recoveredImageId || recoveredImageId === previousImageId) throw error
++    }
      return { id: tag, label }
    }
  
-@@ -814,13 +850,6 @@ export class DockerHandle implements SandboxHandle {
+@@ -814,13 +868,6 @@ export class DockerHandle implements SandboxHandle {
    }
  
    async destroy(): Promise<void> {
@@ -3705,7 +3922,7 @@ index a3fc42e2a9104b815acfcbb00ccadd614fb4c879..e81158147c2bac65d64ebe601820cad5
  export type { DockerHandleDeps, DockerLogger } from './handle'
  export { sbxSandbox } from './sbx/provider'
 diff --git a/src/provider.ts b/src/provider.ts
-index 2eba55337bedb778404a042347c0b7811f91c595..2199bb6f1dae027b481e7a1145612727ce286f52 100644
+index 2eba55337bedb778404a042347c0b7811f91c595..18e2fed0c15edc94aba798ccd19d224347205f90 100644
 --- a/src/provider.ts
 +++ b/src/provider.ts
 @@ -1,6 +1,17 @@
@@ -3756,7 +3973,7 @@ index 2eba55337bedb778404a042347c0b7811f91c595..2199bb6f1dae027b481e7a1145612727
    /**
     * Add `host.docker.internal:host-gateway` so the container can reach the
     * host (e.g. a host-side MCP tool-bridge). Defaults to true.
-@@ -39,58 +65,962 @@ export interface DockerSandboxConfig {
+@@ -39,58 +65,997 @@ export interface DockerSandboxConfig {
    logger?: DockerLogger
  }
  
@@ -3908,6 +4125,12 @@ index 2eba55337bedb778404a042347c0b7811f91c595..2199bb6f1dae027b481e7a1145612727
 +
 +function dockerName(owner: string, suffix: EgressRole): string {
 +  return `tanstack-ai-${owner.slice(0, 24)}-${suffix}`
++}
++
++function detachedProxyName(agentId: string): string | undefined {
++  return /^[a-f0-9]{64}$/.test(agentId)
++    ? `tanstack-ai-${agentId}-proxy`
++    : undefined
 +}
 +
 +function portOrigin(
@@ -4341,12 +4564,31 @@ index 2eba55337bedb778404a042347c0b7811f91c595..2199bb6f1dae027b481e7a1145612727
 +    }
 +    signal?.throwIfAborted()
 +
-+    const proxy = this.docker.getContainer(dockerName(owner, 'proxy'))
++    const proxyCandidates = await this.docker.listContainers({
++      all: true,
++      filters: {
++        label: [
++          `${MANAGED_LABEL}=${MANAGED_VALUE}`,
++          `${SCHEMA_LABEL}=${SCHEMA_VALUE}`,
++          `${SANDBOX_KEY_LABEL}=${key}`,
++          `${OWNERSHIP_LABEL}=${owner}`,
++          `${GENERATION_LABEL}=${generation}`,
++          `${ROLE_LABEL}=proxy`,
++        ],
++      },
++    })
++    if (proxyCandidates.length > 1)
++      throw new Error('docker: refusing to reclaim ambiguous owned egress proxies')
++    const proxy = proxyCandidates[0]
++      ? this.docker.getContainer(proxyCandidates[0].Id)
++      : undefined
 +    const network = this.docker.getNetwork(dockerName(owner, 'network'))
 +    let proxyInfo: Dockerode.ContainerInspectInfo | undefined
 +    let networkInfo: Dockerode.NetworkInspectInfo | undefined
-+    try { proxyInfo = await proxy.inspect(inspectOptions) }
-+    catch (error) { if (!hasStatus(error, 404)) throw error }
++    if (proxy) {
++      try { proxyInfo = await proxy.inspect(inspectOptions) }
++      catch (error) { if (!hasStatus(error, 404)) throw error }
++    }
 +    signal?.throwIfAborted()
 +    try { networkInfo = await network.inspect() }
 +    catch (error) { if (!hasStatus(error, 404)) throw error }
@@ -4387,7 +4629,7 @@ index 2eba55337bedb778404a042347c0b7811f91c595..2199bb6f1dae027b481e7a1145612727
 +    const errors: Array<unknown> = []
 +    // Once mutation begins, finish both removals even if the caller aborts so
 +    // cancellation cannot strand the network after its proxy was removed.
-+    if (proxyInfo)
++    if (proxyInfo && proxy)
 +      await this.stopAndRemoveContainer(proxy).catch((error) => errors.push(error))
 +    if (networkInfo)
 +      await network.remove().catch((error) => { if (!hasStatus(error, 404)) errors.push(error) })
@@ -4453,13 +4695,19 @@ index 2eba55337bedb778404a042347c0b7811f91c595..2199bb6f1dae027b481e7a1145612727
 +    this.assertEgressContainerBoundary(`container ${container.id}`, info)
 +    this.assertIsolationPolicy(container.id, info)
 +    const networkName = dockerName(owner, 'network')
-+    const proxyName = dockerName(owner, 'proxy')
++    const legacyProxyName = dockerName(owner, 'proxy')
++    let proxyName = detachedProxyName(info.Id) ?? legacyProxyName
 +    const network = this.docker.getNetwork(networkName)
-+    const proxy = this.docker.getContainer(proxyName)
-+    const [networkInfo, initialProxyInfo] = await Promise.all([
-+      network.inspect(),
-+      proxy.inspect({ abortSignal: signal }),
-+    ])
++    let proxy = this.docker.getContainer(proxyName)
++    const networkInfo = await network.inspect()
++    let initialProxyInfo: Dockerode.ContainerInspectInfo
++    try { initialProxyInfo = await proxy.inspect({ abortSignal: signal }) }
++    catch (error) {
++      if (!hasStatus(error, 404) || proxyName === legacyProxyName) throw error
++      proxyName = legacyProxyName
++      proxy = this.docker.getContainer(proxyName)
++      initialProxyInfo = await proxy.inspect({ abortSignal: signal })
++    }
 +    this.assertOwnedLabels(`network ${networkName}`, networkInfo.Labels, key, owner, generation, 'network')
 +    this.assertOwnedLabels(`container ${proxyName}`, initialProxyInfo.Config.Labels, key, owner, generation, 'proxy')
 +    this.assertEgressContainerBoundary(`container ${proxyName}`, initialProxyInfo, true)
@@ -4639,6 +4887,10 @@ index 2eba55337bedb778404a042347c0b7811f91c595..2199bb6f1dae027b481e7a1145612727
 +        _body: agentBody,
 +      }
 +      agent = await this.docker.createContainer(agentRequest)
++      const durableProxyName = detachedProxyName(agent.id)
++      if (!durableProxyName)
++        throw new Error('docker: egress agent allocation returned no canonical container identity')
++      await proxy.rename({ name: durableProxyName })
 +      await agent.start({ abortSignal: signal })
 +      signal?.throwIfAborted()
 +      const agentInfo = await agent.inspect({ abortSignal: signal })
@@ -4729,7 +4981,7 @@ index 2eba55337bedb778404a042347c0b7811f91c595..2199bb6f1dae027b481e7a1145612727
      const exposed: Record<string, Record<string, never>> = {}
      const bindings: Record<string, Array<{ HostPort: string }>> = {}
      for (const port of this.config.publishPorts ?? []) {
-@@ -98,96 +1028,409 @@ class DockerProvider implements SandboxProvider {
+@@ -98,96 +1063,471 @@ class DockerProvider implements SandboxProvider {
        bindings[`${port}/tcp`] = [{ HostPort: '' }] // let Docker pick a free host port
      }
  
@@ -5078,21 +5330,74 @@ index 2eba55337bedb778404a042347c0b7811f91c595..2199bb6f1dae027b481e7a1145612727
    }
  
    async destroy(input: SandboxDestroyInput): Promise<void> {
--    const container = this.docker.getContainer(input.id)
++    input.signal?.throwIfAborted()
++    const inspectOptions: Dockerode.ContainerInspectOptions & { abortSignal?: AbortSignal } = {
++      abortSignal: input.signal,
++    }
+     const container = this.docker.getContainer(input.id)
 -    try {
 -      await container.stop({ t: 5 })
 -    } catch {
 -      // already stopped / gone
-+    input.signal?.throwIfAborted()
-+    const inspectOptions: Dockerode.ContainerInspectOptions & { abortSignal?: AbortSignal } = {
-+      abortSignal: input.signal,
-     }
--    if (this.config.removeOnDestroy ?? true) {
-+    const container = this.docker.getContainer(input.id)
 +    let info: Dockerode.ContainerInspectInfo | undefined
 +    try { info = await container.inspect(inspectOptions) }
 +    catch (error) { if (!hasStatus(error, 404)) throw error }
 +    input.signal?.throwIfAborted()
++    if (!info) {
++      const proxyName = detachedProxyName(input.id)
++      if (proxyName) {
++        const proxy = this.docker.getContainer(proxyName)
++        let proxyInfo: Dockerode.ContainerInspectInfo | undefined
++        try { proxyInfo = await proxy.inspect(inspectOptions) }
++        catch (error) { if (!hasStatus(error, 404)) throw error }
++        if (proxyInfo) {
++          const proxyLabels = proxyInfo.Config.Labels
++          const key = proxyLabels?.[SANDBOX_KEY_LABEL]
++          const owner = proxyLabels?.[OWNERSHIP_LABEL]
++          const generation = proxyLabels?.[GENERATION_LABEL]
++          if (!key || !owner || !generation)
++            throw new Error('docker: detached egress proxy is missing identity labels')
++          this.assertOwnedLabels(`container ${proxyName}`, proxyLabels, key, owner, generation, 'proxy')
++          this.assertEgressContainerBoundary(`container ${proxyName}`, proxyInfo, true)
++          const network = this.docker.getNetwork(dockerName(owner, 'network'))
++          let networkInfo: Dockerode.NetworkInspectInfo | undefined
++          try {
++            networkInfo = await network.inspect()
++            this.assertOwnedLabels(`network ${network.id}`, networkInfo.Labels, key, owner, generation, 'network')
++            if (!networkInfo.Internal)
++              throw new Error('docker: refusing to destroy a non-internal detached egress network')
++            if (Object.keys(networkInfo.Containers ?? {}).some((id) => id !== proxyInfo.Id))
++              throw new Error('docker: refusing to destroy a detached egress network with foreign endpoints')
++          } catch (error) { if (!hasStatus(error, 404)) throw error }
++          input.signal?.throwIfAborted()
++          const errors: Array<unknown> = []
++          if (this.config.removeOnDestroy ?? true) {
++            try { await proxy.stop({ t: 5 }) }
++            catch (error) { if (!hasStatus(error, 304) && !hasStatus(error, 404)) errors.push(error) }
++            if (errors.length === 0 && networkInfo?.Containers?.[proxyInfo.Id]) {
++              await network.disconnect({ Container: proxyInfo.Id, Force: true })
++                .catch((error) => { if (!hasStatus(error, 404)) errors.push(error) })
++            }
++            if (errors.length === 0 && networkInfo)
++              await network.remove().catch((error) => { if (!hasStatus(error, 404)) errors.push(error) })
++            if (errors.length === 0)
++              await proxy.remove({ force: true, v: true })
++                .catch((error) => { if (!hasStatus(error, 404)) errors.push(error) })
++          } else {
++            try { await proxy.stop({ t: 5 }) }
++            catch (error) { if (!hasStatus(error, 304) && !hasStatus(error, 404)) errors.push(error) }
++          }
++          await this.collectOrphanForkImages().catch((error) => errors.push(error))
++          if (errors.length === 1) throw errors[0]
++          if (errors.length > 1)
++            throw new AggregateError(errors, 'docker: detached egress topology cleanup failed')
++          return
++        }
++      }
++      await this.collectOrphanForkImages()
++      return
+     }
+-    if (this.config.removeOnDestroy ?? true) {
 +    const labelsForAgent = info?.Config.Labels
 +    const isOwnedEgress =
 +      labelsForAgent?.[MANAGED_LABEL] === MANAGED_VALUE &&
@@ -5105,7 +5410,8 @@ index 2eba55337bedb778404a042347c0b7811f91c595..2199bb6f1dae027b481e7a1145612727
 +      if (!key || !owner || !generation)
 +        throw new Error('docker: owned egress agent is missing identity labels')
 +      this.assertOwnedLabels(`container ${input.id}`, labelsForAgent, key, owner, generation, 'agent')
-+      const proxy = this.docker.getContainer(dockerName(owner, 'proxy'))
++      const legacyProxyName = dockerName(owner, 'proxy')
++      let proxy = this.docker.getContainer(detachedProxyName(info.Id) ?? legacyProxyName)
 +      const network = this.docker.getNetwork(dockerName(owner, 'network'))
 +      let proxyInfo: Dockerode.ContainerInspectInfo | undefined
 +      let networkInfo: Dockerode.NetworkInspectInfo | undefined
@@ -5115,7 +5421,14 @@ index 2eba55337bedb778404a042347c0b7811f91c595..2199bb6f1dae027b481e7a1145612727
 -        // already removed
 +        proxyInfo = await proxy.inspect(inspectOptions)
 +        this.assertOwnedLabels(`container ${proxy.id}`, proxyInfo.Config.Labels, key, owner, generation, 'proxy')
-+      } catch (error) { if (!hasStatus(error, 404)) throw error }
++      } catch (error) {
++        if (!hasStatus(error, 404) || proxy.id === legacyProxyName) throw error
++        proxy = this.docker.getContainer(legacyProxyName)
++        try {
++          proxyInfo = await proxy.inspect(inspectOptions)
++          this.assertOwnedLabels(`container ${proxy.id}`, proxyInfo.Config.Labels, key, owner, generation, 'proxy')
++        } catch (legacyError) { if (!hasStatus(legacyError, 404)) throw legacyError }
++      }
 +      input.signal?.throwIfAborted()
 +      try {
 +        networkInfo = await network.inspect()

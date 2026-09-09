@@ -22,7 +22,7 @@ The accepted recovery plan Gate 4 and locked topology issue 08 require native Ta
 
 - Native persistence must coordinate replacement of a thread transcript. A reproducible opt-in `withPersistence` package patch takes the native Postgres thread lock, validates submitted history against persisted messages under that lock before a new model call, and releases via native terminal hooks. Terminal release distinguishes the already-settled caller abort from actual lease loss; only the former is ignored after persistence settles. Keep MessageStore replacement semantics unchanged. Remove the patch when the upstream package passes the retained concurrent-send/cancellation proof.
 
-- Native sandbox definitions are static per provider. A temporary reproducible native package extension accepts a runtime workspace on ensure, middleware and named snapshot operations. Immutable workspace identity participates in the existing instance/checkpoint hash; credential values remain excluded. Capture the effective workspace once and use it consistently for provider lifecycle, secrets, projection, snapshots and hooks. Runtime onReady context replaces per-request closure state. Delete the patch when upstream passes the retained native isolation/rotation/snapshot/teardown proof. The accepted Gate 4 warm-path requirement and native design review authorize this extension; no application binding registry is added.
+- Native sandbox definitions receive the policy of the prepared workspace. Docker definitions resolve prebuilt agent/proxy images to immutable IDs and bind exact model/Git destinations per workspace; the local-process definition remains shared. A temporary reproducible native package extension accepts a runtime workspace on ensure, middleware and named snapshot operations. Immutable workspace identity participates in the existing instance/checkpoint hash; credential values remain excluded. Capture the effective workspace once and use it consistently for provider lifecycle, secrets, projection, snapshots and hooks. Runtime onReady context supplies the native ensured workspace; no mutable application definition registry is retained. Delete the patch when upstream passes the retained native isolation/rotation/snapshot/teardown proof. The accepted Gate 4 warm-path requirement and native design review authorize this extension; no application binding registry is added.
 
 - Opt-in native workspace transitions preserve live conversation work when only SHA advances (issue 14). A stable compatibility identity includes tenant, workspace, generation, connection, remote, default branch and image; native provider/thread scoping completes the transition key. Native ensure takes one stable workspace lock, resumes the prior exact live record, invokes the Git transition hook, and atomically moves the persisted record only after success. `get(key)` remains exact. Transition discovery rejects pre-upgrade live rows without compatibility metadata, identifying the retained native/provider owner rather than guessing an old configuration or allocating over saved work. Failed transitions retain the original record and recoverable edits. A repair turn resolves that old revision before stock native middleware captures its exact key, projection and checkpoint state; publication still checks the desired revision. Native persistence holds the transcript lock during that resolution. Missing providers use a new current base fork; successful moves clear the previous base pointer. The Git hook checks the current Workspace target before mutation; the final move checks that same binding and SHA inside a short transaction with a Workspace row share lock. A superseded target leaves the old owner and completed Git marker for the next current-target request to reconcile. Generation/remote/image changes never qualify. The existing workspace deletion fence surrounds the native lock without nesting that fence.
 - Native credential-free base snapshots contain the captured Git commit and reusable setup. Per-thread setup and credentials run after restoration. Snapshot cleanup serializes owners and deletes an image only after its last persisted owner is removed. Persist the configured sandbox image beside native ownership. The existing periodic workspace cleanup collects changed-image, superseded or idle base records only after their thread forks release that snapshot; current active forks keep their base owner. Source Git authentication resolves native SecretRefs for clone/fetch without placing credentials in the workspace identity or base environment.
@@ -95,10 +95,13 @@ restart cycles prove native file persistence, authenticated reconnection and
 published HTTP access. This infrastructure proof does not close remaining
 integrated chat, egress and provider acceptance work.
 
-Remote callback routing uses one validated reachable backend-local interface for
-the model proxy and native tool-bridge provisioner. Native TanStack code retains
-per-run bearer tokens and listener cleanup; no application run registry or route
-is added. Compose derives its current backend container IP and explicitly retains
+Remote tool callbacks use one validated reachable backend-local interface.
+Compose model traffic uses a separate stable relay at the nested default bridge
+gateway, forwarding to the backend DNS name on each connection. The relay reads
+its shared network namespace directly, has no Docker credentials or API socket,
+and binds only that gateway so isolated agents cannot bypass their proxy. Native TanStack code retains
+per-run bearer tokens and listener cleanup; no application run registry or
+second tool-listener owner is added. Compose derives its current backend container IP and explicitly retains
 the Bun startup command. Advertised-only NAT addresses are unsupported by this
 exact-interface binding.
 
@@ -171,3 +174,65 @@ current revision keys must not be substituted for that identity during resume.
 The application supplies provider IDs only after its ownership checks. A true
 hash collision remains an availability limitation, not permission to resume or
 overwrite another owner's worktree. No blanket key migration is introduced.
+
+### Production Docker policy activation
+
+Deployment initializes the pinned Node proxy image and builds the chat image
+before backend readiness. Request handling only inspects these images, never
+builds or installs tools. Each prepared Docker definition uses immutable image
+IDs, the fixed 1 CPU / 1 GiB / 128 PID / 4 GiB nonroot policy, exact model paths,
+and GitHub plus the workspace Git host. Policy identity participates in both
+exact and transition workspace identity; tokens and ordinary SHA transitions do
+not change it. Separate tenants never share an accumulated allowed-host list.
+Container OpenCode configuration uses the image user's writable home and fixed
+container PATH, avoiding backend-host temporary directories and executable paths.
+
+Focused activation checks and the credential-free relay replacement proof pass.
+The complete Docker chat journey and remaining Gate 4 acceptance are still open.
+
+### Mid-run model and Git authorization
+
+An active chat uses separate signed model and Git capabilities bound to the
+actual owner of TanStack's existing PostgreSQL transcript lock. The lock adapter
+supplies an acquisition receipt to the calling run; minting requires that exact
+owner rather than adopting whichever row is currently live. Brokers verify the
+signature, purpose, live owner, conversation, and current workspace binding in
+one joined tenant query. Native renew/release and crash expiry govern capability
+lifetime; there is no second lease table, timer, or process registry.
+
+After native sandbox setup and before OpenCode starts, the application injects
+these capabilities with the native handle's environment API. Docker creation
+secrets omit the legacy timed model token, so PID 1 cannot retain a credential
+that bypasses native run revocation. Bootstrap cloning retains its independent
+repository read credential. Trusted unsandboxed compatibility keeps the existing
+prepare token.
+
+The prebuilt image installs a fixed Git credential helper and a GitHub CLI
+wrapper. Each invocation asks the exact broker endpoint for a short-lived
+installation token. Scope is the workspace repository and linked GitHub remotes
+recorded for the same connection, limited to 500 repositories and read-only
+contents/issues/pull-requests/metadata permissions. The broker checks issuer
+expiry independently of Octokit's cache and refreshes within the last minute.
+It revalidates both native run authority and the complete allowed repository set
+after GitHub IO. Tokens are returned with no-store and never written by the
+helper to files; the wrapper passes GH_TOKEN only to its CLI child. Neither App
+private keys nor model-provider keys enter the sandbox.
+
+### Native snapshot and detached cleanup anchors
+
+After bootstrap, native instance persistence precedes snapshot IO. A failed
+snapshot retains an initialized instance that a later ensure can resume and
+snapshot; a lost Docker commit acknowledgement is recovered only when the
+requested tag resolves to a newly published image. Cleanup errors remain visible.
+
+For isolated Docker handles, the native proxy receives a name derived from the
+canonical agent container ID after allocation. This preserves a provider-owned
+cleanup anchor when the agent is removed externally. Detached destruction checks
+the proxy and network ownership labels, isolation boundary and endpoint set,
+then removes the network before the proxy. Partial failures retain the proxy for
+retry. Existing live handles and partial allocations remain discoverable through
+the native owner/generation labels; no application process registry is added.
+
+Proxy HTTP deadlines bound connection establishment. Valid prompt/model requests
+may wait longer for response headers; caller disconnect and native grant
+revocation still terminate their connections.

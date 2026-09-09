@@ -388,101 +388,113 @@ it(
 )
 
 it(
-  "collects a stale image base before a replacement base exists",
+  "retains the current immutable image base and collects a stale image base",
   { timeout: 60_000 },
   async () => {
     const docker = new Dockerode()
-    await withNativeChatFixture(async (f) => {
-      const image = WORKSPACE_CHAT_DOCKER_SANDBOX.image
-      const oldStore = postgresSandboxInstanceStore({
-        orgId: f.orgId,
-        workspaceId: f.workspaceId,
-        image,
-      })
-      const oldDefinition = defineSandbox({
-        id: "native-old-image-base",
-        provider: dockerSandbox(WORKSPACE_CHAT_DOCKER_SANDBOX),
-        lifecycle: {
-          reuse: "thread",
-          snapshot: "after-setup",
-          baseSnapshot: true,
-        },
-      })
-      const oldContext = {
-        tenant: { orgId: f.orgId },
-        store: oldStore,
-        locks: postgresSandboxLocks(
-          f.orgId,
-          undefined,
-          `workspace-sandboxes:${f.workspaceId}`,
-        ),
-        threadId: `${f.conversationId}-old-image`,
-        runId: "old-image-base",
-        workspace: {
-          identity: "old-image-base",
-          source: { type: "none" as const },
-          setup: ["printf old > marker.txt"],
-        },
-      }
-      const oldFork = await oldDefinition.ensure(oldContext)
-      const oldBase = (
-        await listSandboxInstances({
-          workspaceId: f.workspaceId,
-          kind: "chat",
-        })
-      ).find((row) => row.id.startsWith("base:") && !row.conversationId)
-      if (!oldBase?.latestSnapshotId)
-        throw new Error("Native image GC base snapshot was not persisted")
-      await persistSandboxInstance({ ...oldBase, image: "old-base-image" })
-      await oldDefinition.destroy(oldContext)
-
-      const currentDefinition = defineSandbox({
-        id: "native-current-image-worktree",
-        provider: dockerSandbox(WORKSPACE_CHAT_DOCKER_SANDBOX),
-        lifecycle: { reuse: "thread", snapshot: "after-setup" },
-      })
-      const current = await currentDefinition.ensure({
-        tenant: { orgId: f.orgId },
-        store: postgresSandboxInstanceStore({
+    const previousImage = process.env.SANDBOX_CHAT_IMAGE
+    try {
+      const image = (
+        await docker.getImage(WORKSPACE_CHAT_DOCKER_SANDBOX.image).inspect()
+      ).Id
+      process.env.SANDBOX_CHAT_IMAGE = image
+      await withNativeChatFixture(async (f) => {
+        const oldStore = postgresSandboxInstanceStore({
           orgId: f.orgId,
           workspaceId: f.workspaceId,
           image,
-        }),
-        locks: postgresSandboxLocks(
-          f.orgId,
-          undefined,
-          `workspace-sandboxes:${f.workspaceId}`,
-        ),
-        threadId: `${f.conversationId}-current-image`,
-        runId: "current-image-worktree",
-        workspace: {
-          identity: "current-image-worktree",
-          source: { type: "none" as const },
-          setup: ["printf current > marker.txt"],
-        },
+        })
+        const oldDefinition = defineSandbox({
+          id: "native-old-image-base",
+          provider: dockerSandbox(WORKSPACE_CHAT_DOCKER_SANDBOX),
+          lifecycle: {
+            reuse: "thread",
+            snapshot: "after-setup",
+            baseSnapshot: true,
+          },
+        })
+        const oldContext = {
+          tenant: { orgId: f.orgId },
+          store: oldStore,
+          locks: postgresSandboxLocks(
+            f.orgId,
+            undefined,
+            `workspace-sandboxes:${f.workspaceId}`,
+          ),
+          threadId: `${f.conversationId}-old-image`,
+          runId: "old-image-base",
+          workspace: {
+            identity: "old-image-base",
+            source: { type: "none" as const },
+            setup: ["printf old > marker.txt"],
+          },
+        }
+        const oldFork = await oldDefinition.ensure(oldContext)
+        const oldBase = (
+          await listSandboxInstances({
+            workspaceId: f.workspaceId,
+            kind: "chat",
+          })
+        ).find((row) => row.id.startsWith("base:") && !row.conversationId)
+        if (!oldBase?.latestSnapshotId)
+          throw new Error("Native image GC base snapshot was not persisted")
+        await oldDefinition.destroy(oldContext)
+        expect(
+          await collectUnusedWorkspaceChatBases(f.orgId, f.workspaceId),
+        ).toBe(0)
+        await persistSandboxInstance({ ...oldBase, image: "old-base-image" })
+
+        const currentDefinition = defineSandbox({
+          id: "native-current-image-worktree",
+          provider: dockerSandbox(WORKSPACE_CHAT_DOCKER_SANDBOX),
+          lifecycle: { reuse: "thread", snapshot: "after-setup" },
+        })
+        const current = await currentDefinition.ensure({
+          tenant: { orgId: f.orgId },
+          store: postgresSandboxInstanceStore({
+            orgId: f.orgId,
+            workspaceId: f.workspaceId,
+            image,
+          }),
+          locks: postgresSandboxLocks(
+            f.orgId,
+            undefined,
+            `workspace-sandboxes:${f.workspaceId}`,
+          ),
+          threadId: `${f.conversationId}-current-image`,
+          runId: "current-image-worktree",
+          workspace: {
+            identity: "current-image-worktree",
+            source: { type: "none" as const },
+            setup: ["printf current > marker.txt"],
+          },
+        })
+        expect(await current.fs.read("marker.txt")).toBe("current")
+
+        expect(
+          await collectUnusedWorkspaceChatBases(f.orgId, f.workspaceId),
+        ).toBe(1)
+        expect(
+          (await listSandboxInstances({ workspaceId: f.workspaceId })).some(
+            (row) => row.id === oldBase.id,
+          ),
+        ).toBe(false)
+        expect(
+          (await listSandboxInstances({ workspaceId: f.workspaceId })).some(
+            (row) => row.providerSandboxId === current.id,
+          ),
+        ).toBe(true)
+        expect(await current.fs.read("marker.txt")).toBe("current")
+        await expect(
+          docker.getImage(oldBase.latestSnapshotId).inspect(),
+        ).rejects.toMatchObject({ statusCode: 404 })
+
+        // Keep the handle live until the fixture's native cleanup observes it.
+        expect(oldFork.id).toBeTruthy()
       })
-      expect(await current.fs.read("marker.txt")).toBe("current")
-
-      expect(
-        await collectUnusedWorkspaceChatBases(f.orgId, f.workspaceId),
-      ).toBe(1)
-      expect(
-        (await listSandboxInstances({ workspaceId: f.workspaceId })).some(
-          (row) => row.id === oldBase.id,
-        ),
-      ).toBe(false)
-      expect(
-        (await listSandboxInstances({ workspaceId: f.workspaceId })).some(
-          (row) => row.providerSandboxId === current.id,
-        ),
-      ).toBe(true)
-      expect(await current.fs.read("marker.txt")).toBe("current")
-      await expect(
-        docker.getImage(oldBase.latestSnapshotId).inspect(),
-      ).rejects.toMatchObject({ statusCode: 404 })
-
-      // Keep the handle live until the fixture's native cleanup observes it.
-      expect(oldFork.id).toBeTruthy()
-    })
+    } finally {
+      if (previousImage === undefined) delete process.env.SANDBOX_CHAT_IMAGE
+      else process.env.SANDBOX_CHAT_IMAGE = previousImage
+    }
   },
 )
