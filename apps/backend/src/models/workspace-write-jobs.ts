@@ -1,14 +1,5 @@
 import { isDeepStrictEqual } from "node:util"
-import {
-  and,
-  asc,
-  eq,
-  inArray,
-  isNotNull,
-  ne,
-  notInArray,
-  sql,
-} from "drizzle-orm"
+import { and, asc, eq, inArray, isNotNull, ne, sql } from "drizzle-orm"
 import { requireCurrentOrgId } from "../auth/context.js"
 import { getOrgDb } from "../db/client.js"
 import {
@@ -31,15 +22,6 @@ import type { WorkspaceWriteKind } from "../domain/workspaces/write-jobs.js"
 import type { GitFileChange } from "../services/git/file-change.js"
 import { orgSql } from "./workspace-sql.js"
 
-export async function persistLastJobAt(workspaceId: string): Promise<void> {
-  await orgSql(async () => {
-    await getOrgDb()
-      .update(workspaces)
-      .set({ lastJobAt: new Date(), updatedAt: new Date() })
-      .where(eq(workspaces.id, workspaceId))
-  })
-}
-
 export async function getWriteJobCommitSha(
   jobId: string,
 ): Promise<string | null> {
@@ -55,107 +37,6 @@ export async function getWriteJobCommitSha(
       )
       .limit(1)
     return row?.commitSha ?? null
-  })
-}
-
-export async function persistWriteJobIntent(input: {
-  id: string
-  workspaceId: string
-  kind: string
-  generation: number
-  desiredSha?: string | null
-  status: string
-  payload: WorkspaceWriteJobPayload
-}): Promise<void> {
-  const now = new Date()
-  await orgSql(async () => {
-    await getOrgDb()
-      .insert(workspaceWriteJobs)
-      .values({
-        id: input.id,
-        orgId: requireCurrentOrgId(),
-        workspaceId: input.workspaceId,
-        kind: input.kind,
-        generation: input.generation,
-        desiredSha: input.desiredSha ?? null,
-        status: input.status,
-        payload: input.payload,
-        createdAt: now,
-        updatedAt: now,
-      })
-      .onConflictDoNothing()
-    const [row] = await getOrgDb()
-      .select()
-      .from(workspaceWriteJobs)
-      .where(eq(workspaceWriteJobs.id, input.id))
-      .limit(1)
-    if (
-      !row ||
-      row.workspaceId !== input.workspaceId ||
-      row.kind !== input.kind ||
-      row.generation !== input.generation ||
-      row.desiredSha !== (input.desiredSha ?? null)
-    )
-      throw new Error("Write job id belongs to a different command")
-    for (const key of [
-      "jobWorkspaceUrl",
-      "previousSha",
-      "displayName",
-      "linkAction",
-      "linkGitUrl",
-      "mirror",
-      "extraction",
-      "mergeFiles",
-      "mergeDeletePaths",
-      "conflictParentSha",
-      "remoteTipSha",
-    ] as const) {
-      if (!isDeepStrictEqual(row.payload?.[key], input.payload[key]))
-        throw new Error("Write job id belongs to a different captured payload")
-    }
-    if (
-      input.payload.defaultBranch !== undefined &&
-      row.payload?.defaultBranch !== input.payload.defaultBranch
-    )
-      throw new Error("Write job id belongs to a different default branch")
-    // Re-admission is a read: a paused fallback never changes an existing native owner or status.
-  })
-}
-
-export async function persistWriteJobStart(input: {
-  id: string
-  workspaceId: string
-  kind: string
-  generation: number
-  desiredSha?: string | null
-  payload?: WorkspaceWriteJobPayload
-}): Promise<void> {
-  const now = new Date()
-  await orgSql(async () => {
-    await getOrgDb()
-      .insert(workspaceWriteJobs)
-      .values({
-        id: input.id,
-        orgId: requireCurrentOrgId(),
-        workspaceId: input.workspaceId,
-        kind: input.kind,
-        generation: input.generation,
-        desiredSha: input.desiredSha ?? null,
-        status: WRITE_JOB_STATUSES.running,
-        payload: input.payload ?? null,
-        createdAt: now,
-        updatedAt: now,
-      })
-      .onConflictDoUpdate({
-        target: workspaceWriteJobs.id,
-        set: {
-          status: WRITE_JOB_STATUSES.running,
-          ...(input.payload ? { payload: input.payload } : {}),
-          desiredSha: input.desiredSha ?? null,
-          updatedAt: now,
-        },
-        setWhere: sql`${workspaceWriteJobs.commitSha} is null`,
-      })
   })
 }
 
@@ -227,30 +108,6 @@ export async function claimPausedWriteJob(jobId: string): Promise<boolean> {
       )
       .returning({ id: workspaceWriteJobs.id })
     return row != null
-  })
-}
-
-export async function countWriteJobAttempts(input: {
-  workspaceId: string
-  kind: string
-  desiredSha: string
-}): Promise<number> {
-  return orgSql(async () => {
-    const rows = await getOrgDb()
-      .select({ id: workspaceWriteJobs.id })
-      .from(workspaceWriteJobs)
-      .where(
-        and(
-          eq(workspaceWriteJobs.workspaceId, input.workspaceId),
-          eq(workspaceWriteJobs.kind, input.kind),
-          eq(workspaceWriteJobs.desiredSha, input.desiredSha),
-          notInArray(workspaceWriteJobs.status, [
-            WRITE_JOB_STATUSES.paused,
-            WRITE_JOB_STATUSES.queued,
-          ]),
-        ),
-      )
-    return rows.length
   })
 }
 

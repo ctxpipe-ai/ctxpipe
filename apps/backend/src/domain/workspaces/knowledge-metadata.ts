@@ -70,5 +70,5 @@ export function updateKnowledgeMetadata(
     const metadata = document.toString().replace(/\r?\n/g, newline)
     return `${frontMatter[1]}${metadata}${frontMatter[3]}${frontMatter[4]}`
   }
-  return `---\n${document.toString()}---\n\n${raw}`
+  return `---\n${document.toString()}---\n${raw}`
 }

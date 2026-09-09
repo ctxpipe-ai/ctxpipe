@@ -1,0 +1,69 @@
+{"name": "root-source-authority-native-red-full", "cwd": "/private/tmp/ctxpipe-recovery-01a07aba", "command": ["/Users/jakubriedl/.volta/tools/image/node/22.16.0/bin/node", "apps/backend/node_modules/vitest/vitest.mjs", "run", "--root", "apps/backend", "src/domain/workspaces/write-extraction-admission-native.contract.test.ts"], "environment": {"AUTH_SECRET": "gate0-local-disposable-test-secret-20260907", "DATABASE_URL": "postgresql://ctxpipe_app:ctxpipe@127.0.0.1:61314/ctxpipe_gate0_fresh", "GRAPH_DB_URI": "redis://127.0.0.1:6398", "CI": "true", "NO_COLOR": "1", "TURBO_TELEMETRY_DISABLED": "1", "STORYBOOK_DISABLE_TELEMETRY": "1", "PATH": "/private/tmp/ctxpipe-recovery-runtime/bun-1.4.2/bun-darwin-aarch64:/Users/jakubriedl/.volta/tools/image/node/22.16.0/bin:/private/tmp/ctxpipe-recovery-runtime/ast-grep/node_modules/.bin:/private/tmp/ctxpipe-recovery-runtime/node_modules/.bin:/private/tmp/ctxpipe-recovery-runtime/zoekt:/usr/local/bin:/System/Cryptexes/App/usr/bin:/usr/bin:/bin:/usr/sbin:/sbin:/var/run/com.apple.security.cryptexd/codex.system/bootstrap/usr/local/bin:/var/run/com.apple.security.cryptexd/codex.system/bootstrap/usr/bin:/var/run/com.apple.security.cryptexd/codex.system/bootstrap/usr/appleinternal/bin:/pkg/env/global/bin:/Users/jakubriedl/.codex/tmp/arg0/codex-arg0BW5Gt3:/Users/jakubriedl/.cache/codex-runtimes/codex-primary-runtime/dependencies/bin/override:/Users/jakubriedl/.local/bin:/Users/jakubriedl/.bun/bin:/Users/jakubriedl/.opencode/bin:/Users/jakubriedl/.volta/bin:/opt/homebrew/bin:/opt/homebrew/sbin:/Users/jakubriedl/.cache/codex-runtimes/codex-primary-runtime/dependencies/bin/fallback:/Applications/ChatGPT.app/Contents/Resources"}, "timeout_seconds": 600, "started_utc": "2026-09-09T00:09:58Z", "log": "logs/root-source-authority-native-red-full.log"}
+
+ RUN  v4.0.18 /private/tmp/ctxpipe-recovery-01a07aba/apps/backend
+
+Cloning into bare repository '/var/folders/9t/jj9rnpps7_ddb72c1mq2k13w0000gn/T/ctxpipe-hydration-contract-vTeiUK/remote.git'...
+done.
+Cloning into bare repository '/var/folders/9t/jj9rnpps7_ddb72c1mq2k13w0000gn/T/ctxpipe-hydration-contract-jdWsyi/remote.git'...
+done.
+Cloning into bare repository '/var/folders/9t/jj9rnpps7_ddb72c1mq2k13w0000gn/T/ctxpipe-hydration-contract-XcusWT/remote.git'...
+done.
+Cloning into bare repository '/var/folders/9t/jj9rnpps7_ddb72c1mq2k13w0000gn/T/ctxpipe-hydration-contract-7NzgWb/remote.git'...
+done.
+Cloning into bare repository '/var/folders/9t/jj9rnpps7_ddb72c1mq2k13w0000gn/T/ctxpipe-hydration-contract-njlT1x/remote.git'...
+done.
+Cloning into bare repository '/var/folders/9t/jj9rnpps7_ddb72c1mq2k13w0000gn/T/ctxpipe-hydration-contract-a2ijVW/remote.git'...
+done.
+Cloning into bare repository '/var/folders/9t/jj9rnpps7_ddb72c1mq2k13w0000gn/T/ctxpipe-hydration-contract-kpXCRv/remote.git'...
+done.
+Cloning into bare repository '/var/folders/9t/jj9rnpps7_ddb72c1mq2k13w0000gn/T/ctxpipe-hydration-contract-Ayez5C/remote.git'...
+done.
+Cloning into bare repository '/var/folders/9t/jj9rnpps7_ddb72c1mq2k13w0000gn/T/ctxpipe-hydration-contract-MIVYNX/remote.git'...
+done.
+Cloning into bare repository '/var/folders/9t/jj9rnpps7_ddb72c1mq2k13w0000gn/T/ctxpipe-hydration-contract-huVsGQ/remote.git'...
+done.
+ ❯ src/domain/workspaces/write-extraction-admission-native.contract.test.ts (10 tests | 3 failed) 7937ms
+   ✓ rejects oversized extraction bytes before native admission  608ms
+   ✓ rejects oversized extraction objects before native admission  429ms
+   ✓ extraction publication cannot alter 'linked' source declaration 'git'  705ms
+   ✓ extraction publication cannot alter 'linked' source declaration 'branch'  982ms
+   ✓ extraction publication cannot alter 'linked' source declaration 'custom'  875ms
+   ✓ extraction publication cannot alter 'linked' source declaration 'body'  1103ms
+   ✓ extraction publication cannot alter 'linked' source declaration 'canonical path'  885ms
+   × extraction publication cannot alter 'workspace' source declaration 'custom' 776ms
+   × extraction publication cannot alter 'workspace' source declaration 'body' 800ms
+   × extraction publication cannot alter 'workspace' source declaration 'deletion' 770ms
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 3 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  src/domain/workspaces/write-extraction-admission-native.contract.test.ts > extraction publication cannot alter 'workspace' source declaration 'custom'
+ FAIL  src/domain/workspaces/write-extraction-admission-native.contract.test.ts > extraction publication cannot alter 'workspace' source declaration 'body'
+ FAIL  src/domain/workspaces/write-extraction-admission-native.contract.test.ts > extraction publication cannot alter 'workspace' source declaration 'deletion'
+AssertionError: promise resolved "undefined" instead of rejecting
+
+- Expected: 
+Error {
+  "message": "rejected promise",
+}
+
++ Received: 
+undefined
+
+ ❯ src/domain/workspaces/write-extraction-admission-native.contract.test.ts:130:9
+    128|             ),
+    129|           ),
+    130|         ).rejects.toThrow(
+       |         ^
+    131|           /Extraction (may only update claims in|cannot remove) its so…
+    132|         )
+ ❯ withNativeHydrationFixture src/test/native-hydration-fixture.ts:657:5
+ ❯ src/domain/workspaces/write-extraction-admission-native.contract.test.ts:79:5
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/3]⎯
+
+
+ Test Files  1 failed (1)
+      Tests  3 failed | 7 passed (10)
+   Start at  10:09:58
+   Duration  10.35s (transform 756ms, setup 19ms, import 2.32s, tests 7.94s, environment 0ms)
+

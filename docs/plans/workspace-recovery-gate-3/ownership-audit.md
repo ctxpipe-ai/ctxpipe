@@ -37,3 +37,9 @@ Extraction resolved repository references to existing declarations but filtered 
 The original path/blob must still match the exact parent revision. A candidate may change only `claims` in that declaration: clone URL, branch, other metadata, body, and first-path canonical selection remain fixed. An earlier duplicate declaration is rejected. The broker checks these invariants before write credentials and again after credential I/O; linked remotes remain untouched. Six captured-history/source-ownership cases pass, including source removal and branch changes, plus seven bounded-admission/authority cases cover URL, branch, metadata, body and canonical-path rejection. Claims-only YAML editing retains customer text; the source declaration's new blob is captured normally by a later ingestion.
 
 The separate live producer and held older clone tests remain the extraction integration/source-index proof. Historical replay tests are not presented as live model-extractor proof.
+
+## Cumulative closure corrections after d3ba7e59
+
+The final Standards review identified that root `AGENTS.md` skipped the candidate source guard. Root and linked repository sources now share claims-only publication validation against the acquired parent revision: instruction body bytes and non-claims metadata cannot change, and an existing source cannot be removed. Validation runs before write credentials and again before push, including semantic reconciliation output. Three actual native Git pushes reproduced the root body, metadata, and deletion gap before the fix.
+
+The final Spec review found unused generic-runner model exports. Removed `persistLastJobAt`, `persistWriteJobIntent`, `persistWriteJobStart`, and `countWriteJobAttempts`; native typed command persistence remains the sole admission path. Repository-wide caller search found only the removed definitions.

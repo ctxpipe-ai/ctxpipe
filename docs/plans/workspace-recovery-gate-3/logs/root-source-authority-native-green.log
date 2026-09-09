@@ -1,0 +1,109 @@
+{"name": "root-source-authority-native-green", "cwd": "/private/tmp/ctxpipe-recovery-01a07aba", "command": ["/Users/jakubriedl/.volta/tools/image/node/22.16.0/bin/node", "apps/backend/node_modules/vitest/vitest.mjs", "run", "--root", "apps/backend", "src/domain/workspaces/write-extraction-admission-native.contract.test.ts", "src/domain/workspaces/write-extract-native.contract.test.ts", "src/openworkflow/workflows/repository-extraction-native.contract.test.ts"], "environment": {"AUTH_SECRET": "gate0-local-disposable-test-secret-20260907", "DATABASE_URL": "postgresql://ctxpipe_app:ctxpipe@127.0.0.1:61314/ctxpipe_gate0_fresh", "GRAPH_DB_URI": "redis://127.0.0.1:6398", "CI": "true", "NO_COLOR": "1", "TURBO_TELEMETRY_DISABLED": "1", "STORYBOOK_DISABLE_TELEMETRY": "1", "PATH": "/private/tmp/ctxpipe-recovery-runtime/bun-1.4.2/bun-darwin-aarch64:/Users/jakubriedl/.volta/tools/image/node/22.16.0/bin:/private/tmp/ctxpipe-recovery-runtime/ast-grep/node_modules/.bin:/private/tmp/ctxpipe-recovery-runtime/node_modules/.bin:/private/tmp/ctxpipe-recovery-runtime/zoekt:/usr/local/bin:/System/Cryptexes/App/usr/bin:/usr/bin:/bin:/usr/sbin:/sbin:/var/run/com.apple.security.cryptexd/codex.system/bootstrap/usr/local/bin:/var/run/com.apple.security.cryptexd/codex.system/bootstrap/usr/bin:/var/run/com.apple.security.cryptexd/codex.system/bootstrap/usr/appleinternal/bin:/pkg/env/global/bin:/Users/jakubriedl/.codex/tmp/arg0/codex-arg0BW5Gt3:/Users/jakubriedl/.cache/codex-runtimes/codex-primary-runtime/dependencies/bin/override:/Users/jakubriedl/.local/bin:/Users/jakubriedl/.bun/bin:/Users/jakubriedl/.opencode/bin:/Users/jakubriedl/.volta/bin:/opt/homebrew/bin:/opt/homebrew/sbin:/Users/jakubriedl/.cache/codex-runtimes/codex-primary-runtime/dependencies/bin/fallback:/Applications/ChatGPT.app/Contents/Resources"}, "timeout_seconds": 600, "started_utc": "2026-09-09T00:10:24Z", "log": "logs/root-source-authority-native-green.log"}
+
+ RUN  v4.0.18 /private/tmp/ctxpipe-recovery-01a07aba/apps/backend
+
+Cloning into bare repository '/var/folders/9t/jj9rnpps7_ddb72c1mq2k13w0000gn/T/ctxpipe-hydration-contract-R2gnT3/remote.git'...
+done.
+Cloning into bare repository '/var/folders/9t/jj9rnpps7_ddb72c1mq2k13w0000gn/T/ctxpipe-hydration-contract-TCjlXe/remote.git'...
+done.
+Cloning into bare repository '/var/folders/9t/jj9rnpps7_ddb72c1mq2k13w0000gn/T/ctxpipe-hydration-contract-SiSqdT/remote.git'...
+done.
+Cloning into bare repository '/var/folders/9t/jj9rnpps7_ddb72c1mq2k13w0000gn/T/ctxpipe-hydration-contract-sCpWAA/remote.git'...
+done.
+Cloning into bare repository '/var/folders/9t/jj9rnpps7_ddb72c1mq2k13w0000gn/T/ctxpipe-hydration-contract-TTsBUF/remote.git'...
+done.
+Cloning into bare repository '/var/folders/9t/jj9rnpps7_ddb72c1mq2k13w0000gn/T/ctxpipe-hydration-contract-6WjHeZ/remote.git'...
+done.
+Cloning into bare repository '/var/folders/9t/jj9rnpps7_ddb72c1mq2k13w0000gn/T/ctxpipe-hydration-contract-jhNXYC/remote.git'...
+done.
+Cloning into bare repository '/var/folders/9t/jj9rnpps7_ddb72c1mq2k13w0000gn/T/ctxpipe-hydration-contract-nzgmQX/remote.git'...
+done.
+Cloning into bare repository '/var/folders/9t/jj9rnpps7_ddb72c1mq2k13w0000gn/T/ctxpipe-hydration-contract-dUj11n/remote.git'...
+done.
+Cloning into bare repository '/var/folders/9t/jj9rnpps7_ddb72c1mq2k13w0000gn/T/ctxpipe-hydration-contract-qmxf9y/remote.git'...
+done.
+ ✓ src/domain/workspaces/write-extraction-admission-native.contract.test.ts (10 tests) 8095ms
+   ✓ rejects oversized extraction bytes before native admission  697ms
+   ✓ rejects oversized extraction objects before native admission  516ms
+   ✓ extraction publication cannot alter 'linked' source declaration 'git'  737ms
+   ✓ extraction publication cannot alter 'linked' source declaration 'branch'  996ms
+   ✓ extraction publication cannot alter 'linked' source declaration 'custom'  972ms
+   ✓ extraction publication cannot alter 'linked' source declaration 'body'  1167ms
+   ✓ extraction publication cannot alter 'linked' source declaration 'canonical path'  793ms
+   ✓ extraction publication cannot alter 'workspace' source declaration 'custom'  748ms
+   ✓ extraction publication cannot alter 'workspace' source declaration 'body'  841ms
+   ✓ extraction publication cannot alter 'workspace' source declaration 'deletion'  627ms
+Cloning into bare repository '/var/folders/9t/jj9rnpps7_ddb72c1mq2k13w0000gn/T/ctxpipe-hydration-contract-zKzpv1/remote.git'...
+done.
+Cloning into bare repository '/var/folders/9t/jj9rnpps7_ddb72c1mq2k13w0000gn/T/ctxpipe-hydration-contract-ZPQByn/remote.git'...
+done.
+Cloning into bare repository '/var/folders/9t/jj9rnpps7_ddb72c1mq2k13w0000gn/T/ctxpipe-hydration-contract-dhvcej/remote.git'...
+done.
+Cloning into bare repository '/var/folders/9t/jj9rnpps7_ddb72c1mq2k13w0000gn/T/ctxpipe-hydration-contract-Cj8DDD/remote.git'...
+done.
+Cloning into bare repository '/var/folders/9t/jj9rnpps7_ddb72c1mq2k13w0000gn/T/ctxpipe-hydration-contract-2Fy9sx/remote.git'...
+done.
+To /var/folders/9t/jj9rnpps7_ddb72c1mq2k13w0000gn/T/ctxpipe-hydration-contract-2Fy9sx/remote.git
+   6da8e8f..37b9602  main -> main
+Cloning into bare repository '/var/folders/9t/jj9rnpps7_ddb72c1mq2k13w0000gn/T/ctxpipe-hydration-contract-6EFbHS/remote.git'...
+done.
+To /var/folders/9t/jj9rnpps7_ddb72c1mq2k13w0000gn/T/ctxpipe-hydration-contract-6EFbHS/remote.git
+   f57f967..453151b  main -> main
+ ❯ src/openworkflow/workflows/repository-extraction-native.contract.test.ts (6 tests | 1 failed) 73101ms
+   × resumes captured repository extraction against canonical source ownership (workspace) 12075ms
+   ✓ resumes captured repository extraction against canonical source ownership (superseded-before-resume)  6491ms
+   ✓ resumes captured repository extraction against canonical source ownership (too-many-roots)  9085ms
+   ✓ resumes captured repository extraction against canonical source ownership (linked)  11527ms
+   ✓ resumes captured repository extraction against canonical source ownership (unlinked-before-resume)  16838ms
+   ✓ resumes captured repository extraction against canonical source ownership (edited-before-resume)  17084ms
+Cloning into bare repository '/var/folders/9t/jj9rnpps7_ddb72c1mq2k13w0000gn/T/ctxpipe-hydration-contract-T6N6vL/remote.git'...
+done.
+Cloning into bare repository '/var/folders/9t/jj9rnpps7_ddb72c1mq2k13w0000gn/T/ctxpipe-hydration-contract-aTc5HP/remote.git'...
+done.
+Cloning into bare repository '/var/folders/9t/jj9rnpps7_ddb72c1mq2k13w0000gn/T/ctxpipe-hydration-contract-MaVxtV/remote.git'...
+done.
+Cloning into bare repository '/var/folders/9t/jj9rnpps7_ddb72c1mq2k13w0000gn/T/ctxpipe-hydration-contract-47NOtK/remote.git'...
+done.
+Cloning into bare repository '/var/folders/9t/jj9rnpps7_ddb72c1mq2k13w0000gn/T/ctxpipe-hydration-contract-Tb6iGo/remote.git'...
+done.
+Cloning into bare repository '/var/folders/9t/jj9rnpps7_ddb72c1mq2k13w0000gn/T/ctxpipe-hydration-contract-B1VP4W/remote.git'...
+done.
+Cloning into bare repository '/var/folders/9t/jj9rnpps7_ddb72c1mq2k13w0000gn/T/ctxpipe-hydration-contract-N5fk6l/remote.git'...
+done.
+Cloning into bare repository '/var/folders/9t/jj9rnpps7_ddb72c1mq2k13w0000gn/T/ctxpipe-hydration-contract-TziFVj/remote.git'...
+done.
+Cloning into bare repository '/var/folders/9t/jj9rnpps7_ddb72c1mq2k13w0000gn/T/ctxpipe-hydration-contract-IWiQGp/remote.git'...
+done.
+ ✓ src/domain/workspaces/write-extract-native.contract.test.ts (9 tests) 27434ms
+   ✓ preserves extraction identity at knowledge/services/billing.md and a same-name collision after migration cutover  7356ms
+   ✓ preserves extraction identity at knowledge/imported/billing.md and a same-name collision after migration cutover  8994ms
+   ✓ durably queues an unwritable migration_export command to its typed workflow  415ms
+   ✓ durably queues an unwritable extract_ingest command to its typed workflow  453ms
+   ✓ reads completed path identity without waiting for historical job storage  471ms
+   ✓ backfills completed path maps by native completion order despite an old completion replay  3635ms
+   ✓ publishes claims from existing 'handbook/billing.md' without replacing its owner prose  3129ms
+   ✓ publishes claims from existing 'AGENTS.md' without replacing its owner prose  2686ms
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 1 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  src/openworkflow/workflows/repository-extraction-native.contract.test.ts > resumes captured repository extraction against canonical source ownership (workspace)
+Error: Workflow repository-ingestion failed: {"name":"Error","stack":"Error: Extraction may only update claims in its source declaration\n    at assertSourceClaimsOnly (/private/tmp/ctxpipe-recovery-01a07aba/apps/backend/src/domain/workspaces/extraction-source.ts:123:11)\n    at assertExtractionSource (/private/tmp/ctxpipe-recovery-01a07aba/apps/backend/src/domain/workspaces/extraction-source.ts:68:5)\n    at pushWorkspaceCommit (/private/tmp/ctxpipe-recovery-01a07aba/apps/backend/src/domain/workspaces/write-broker.ts:115:5)\n    at attemptWorkspaceCommit (/private/tmp/ctxpipe-recovery-01a07aba/apps/backend/src/domain/workspaces/write-broker.ts:330:5)\n    at StepExecutor.run (file:///private/tmp/ctxpipe-recovery-01a07aba/node_modules/.pnpm/openworkflow@0.8.0_postgres@3.4.8/node_modules/openworkflow/dist/worker/execution.js:433:28)\n    at /private/tmp/ctxpipe-recovery-01a07aba/apps/backend/src/openworkflow/workflows/workspace-extract-ingest.ts:200:22\n    at /private/tmp/ctxpipe-recovery-01a07aba/apps/backend/src/observability/logger.ts:131:16\n    at executeWorkflow (file:///private/tmp/ctxpipe-recovery-01a07aba/node_modules/.pnpm/openworkflow@0.8.0_postgres@3.4.8/node_modules/openworkflow/dist/worker/execution.js:759:24)\n    at Worker.processExecutionInBackground (file:///private/tmp/ctxpipe-recovery-01a07aba/node_modules/.pnpm/openworkflow@0.8.0_postgres@3.4.8/node_modules/openworkflow/dist/worker/worker.js:176:13)","message":"Extraction may only update claims in its source declaration"}
+ ❯ WorkflowRunHandle.result ../../node_modules/.pnpm/openworkflow@0.8.0_postgres@3.4.8/node_modules/openworkflow/dist/client/client.js:194:23
+ ❯ src/openworkflow/workflows/repository-extraction-native.contract.test.ts:328:11
+    326|             return
+    327|           }
+    328|           await handle.result({ timeoutMs: 25_000 })
+       |           ^
+    329|           const repositoryPath = ownSource
+    330|             ? "AGENTS.md"
+ ❯ withNativeHydrationFixture src/test/native-hydration-fixture.ts:657:5
+ ❯ src/openworkflow/workflows/repository-extraction-native.contract.test.ts:31:5
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/1]⎯
+
+
+ Test Files  1 failed | 2 passed (3)
+      Tests  1 failed | 24 passed (25)
+   Start at  10:10:24
+   Duration  114.59s (transform 953ms, setup 28ms, import 5.71s, tests 108.63s, environment 0ms)
+

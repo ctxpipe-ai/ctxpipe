@@ -1,3 +1,4 @@
+import { isDeepStrictEqual } from "node:util"
 import { assertRepositoryIngestionRequest } from "../../models/repository-ingestion-requests.js"
 import {
   type GitPack,
@@ -64,6 +65,7 @@ export async function assertExtractionSource(
   ) {
     if (extraction.sourceDeclaration)
       throw new Error("Workspace extraction cannot use a linked declaration")
+    await assertSourceClaimsOnly(revision, pack, "AGENTS.md")
     return
   }
   const expected = extraction.sourceDeclaration
@@ -89,29 +91,39 @@ export async function assertExtractionSource(
       throw new Error(
         "Extraction may only update claims in its source declaration",
       )
-    const [before] = await readGitFiles(base, (path) => path === expected.path)
-    const [after] = await readGitFiles(pack, (path) => path === expected.path)
-    if (!before || !after)
-      throw new Error("Extraction cannot remove its source declaration")
-    const original = parseSimpleFrontMatter(before.content)
-    const candidate = parseSimpleFrontMatter(after.content)
-    const metadata = (attributes: Record<string, unknown>) =>
-      Object.fromEntries(
-        Object.entries(attributes).filter(([key]) => key !== "claims"),
-      )
-    if (
-      original.malformed ||
-      candidate.malformed ||
-      original.body !== candidate.body ||
-      !isDeepStrictEqual(
-        metadata(original.attributes),
-        metadata(candidate.attributes),
-      )
-    )
-      throw new Error(
-        "Extraction may only update claims in its source declaration",
-      )
+    await assertSourceClaimsOnly(revision, pack, expected.path)
   }
 }
 
-import { isDeepStrictEqual } from "node:util"
+async function assertSourceClaimsOnly(
+  revision: WorkspaceRevision,
+  pack: GitPack,
+  path: string,
+): Promise<void> {
+  if (pack.sha === revision.sha) return
+  const base = { ...pack, sha: revision.sha }
+  const [before] = await readGitFiles(base, (candidate) => candidate === path)
+  const [after] = await readGitFiles(pack, (candidate) => candidate === path)
+  if (!before && !after) return
+  if (!before || !after)
+    throw new Error("Extraction cannot remove its source declaration")
+  if (before.content === after.content) return
+  const original = parseSimpleFrontMatter(before.content)
+  const candidate = parseSimpleFrontMatter(after.content)
+  const metadata = (attributes: Record<string, unknown>) =>
+    Object.fromEntries(
+      Object.entries(attributes).filter(([key]) => key !== "claims"),
+    )
+  if (
+    original.malformed ||
+    candidate.malformed ||
+    original.body !== candidate.body ||
+    !isDeepStrictEqual(
+      metadata(original.attributes),
+      metadata(candidate.attributes),
+    )
+  )
+    throw new Error(
+      "Extraction may only update claims in its source declaration",
+    )
+}

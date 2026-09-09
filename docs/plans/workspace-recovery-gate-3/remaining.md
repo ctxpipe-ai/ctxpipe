@@ -1,6 +1,6 @@
 # Gate 3 remaining acceptance
 
-Current reviewed baseline: f95422b8 (C/E/runtime/CI), zero blockers on both axes. F audit fixes are locally verified; cumulative closure review and CI remain. Gates 0–2 complete; Gate 3 open; Gates 4–6 pending.
+Current reviewed baseline: f95422b8 (C/E/runtime/CI), zero blockers on both axes. Cumulative d3ba7e59 review found two closure blockers (root instruction preservation and unused generic mutators); corrections are locally verified and await final pinned review/CI. Gates 0–2 complete; Gate 3 open; Gates 4–6 pending.
 User approvals persist: autonomous work, pushes to the recovery branch, existing model key.
 
 This is the current ledger. status.md is historical evidence, not a work queue.

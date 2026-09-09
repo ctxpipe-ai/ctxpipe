@@ -1,4 +1,4 @@
-import { writeFileSync } from "node:fs"
+import { unlinkSync, writeFileSync } from "node:fs"
 import { join } from "node:path"
 import { expect, it } from "vitest"
 import { withOrgIdContext } from "../../auth/withAuth.js"
@@ -60,11 +60,20 @@ it.each(["bytes", "objects"] as const)(
   },
 )
 
-it.each(["git", "branch", "custom", "body", "canonical path"] as const)(
-  "extraction publication cannot alter source declaration %s",
+it.each([
+  { source: "linked", field: "git" },
+  { source: "linked", field: "branch" },
+  { source: "linked", field: "custom" },
+  { source: "linked", field: "body" },
+  { source: "linked", field: "canonical path" },
+  { source: "workspace", field: "custom" },
+  { source: "workspace", field: "body" },
+  { source: "workspace", field: "deletion" },
+] as const)(
+  "extraction publication cannot alter $source source declaration $field",
   { timeout: 30_000 },
-  async (field) => {
-    const path = "repositories/source.md"
+  async ({ source, field }) => {
+    const path = source === "workspace" ? "AGENTS.md" : "repositories/source.md"
     const original =
       "---\ngit: https://github.com/fixture/source\nbranch: main\ncustom: owner\n---\nOwner notes.\n"
     await withNativeHydrationFixture(
@@ -90,7 +99,8 @@ it.each(["git", "branch", "custom", "body", "canonical path"] as const)(
                   : original
         const changedPath =
           field === "canonical path" ? "repositories/0-source.md" : path
-        writeFileSync(join(f.directory, changedPath), changed)
+        if (field === "deletion") unlinkSync(join(f.directory, changedPath))
+        else writeFileSync(join(f.directory, changedPath), changed)
         f.git("add", changedPath)
         f.git("commit", "-m", "Attempt to change source authority")
         const committed = await captureGitPack(
@@ -105,9 +115,14 @@ it.each(["git", "branch", "custom", "body", "canonical path"] as const)(
                 workspaceId: f.workspaceId,
                 extraction: {
                   repositoryId: "repo_captured",
-                  repositoryUrl: "https://github.com/fixture/source",
+                  repositoryUrl:
+                    source === "workspace"
+                      ? f.workspaceUrl
+                      : "https://github.com/fixture/source",
                   sourceSha: f.sha,
-                  sourceDeclaration: { path, blobSha },
+                  ...(source === "linked"
+                    ? { sourceDeclaration: { path, blobSha } }
+                    : {}),
                   objects: [],
                   claims: [],
                 },
@@ -118,7 +133,7 @@ it.each(["git", "branch", "custom", "body", "canonical path"] as const)(
             ),
           ),
         ).rejects.toThrow(
-          "Extraction may only update claims in its source declaration",
+          /Extraction (may only update claims in|cannot remove) its source declaration/,
         )
         expect(f.git("--git-dir", f.remote, "rev-parse", "main")).toBe(f.sha)
         expect(f.tokenRequests).not.toEqual(
