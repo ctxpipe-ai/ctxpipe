@@ -8,7 +8,7 @@ import {
   runMcpAdd,
   runMcpDoctor,
 } from "./commands.js"
-import { DEFAULT_BASE_URL } from "./constants.js"
+import { DEFAULT_BASE_URL, MCP_AUTH_MODES } from "./constants.js"
 import {
   runMemoryCaptureDismiss,
   runMemoryCaptureFinalize,
@@ -41,7 +41,7 @@ function addMcpAuthOptions(command: Command): Command {
     new Option(
       "--auth <oauth|api-key>",
       "MCP auth: oauth writes URL-only config (default). api-key writes a CTXPIPE_API_KEY interpolation in the requested scope; set CTXPIPE_API_KEY in the MCP client environment",
-    ).choices(["oauth", "api-key"]),
+    ).choices([...MCP_AUTH_MODES]),
   )
 }
 
