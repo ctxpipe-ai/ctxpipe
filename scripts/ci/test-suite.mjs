@@ -102,12 +102,13 @@ try {
         stdio: "inherit",
         // Native contracts include real lease expiry and resource cleanup deadlines.
         // Each file runs in exactly one lane. Ownership contracts add real lease
-        // expiry and renewal intervals; allow the same bounded ceiling as backend.
+        // expiry, writer-loss recovery, and the Btrfs quota runner; 30 minutes
+        // killed the suite after the quota assertion and before Failed Tests.
         timeout:
           name === "backend"
-            ? 1_800_000
+            ? 2_700_000
             : name === "contracts"
-              ? 1_800_000
+              ? 2_700_000
               : 600_000,
       },
     )
