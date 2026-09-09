@@ -30,14 +30,9 @@ export interface NativeHttpsGitRequest {
   auth: "none" | "bootstrap" | "read" | "invalid"
 }
 
-export interface NativeHttpsGitServeOptions {
-  hostname?: string
-  repositoryPath?: string
-  listenerPort?: number
-  basicAuth?: {
-    bootstrapToken: string
-    readToken: string
-  }
+export interface NativeHttpsGitGithubAuth {
+  bootstrapToken: string
+  readToken: string
 }
 
 export interface NativeHttpsGitFixture {
@@ -45,50 +40,8 @@ export interface NativeHttpsGitFixture {
   serve<T>(
     directory: string,
     fn: (remote: NativeHttpsGitRemote) => Promise<T>,
-    options?: NativeHttpsGitServeOptions,
+    options?: { githubAuth: NativeHttpsGitGithubAuth },
   ): Promise<T>
-}
-
-function validateHostname(value: string): string {
-  const hostname = value.trim()
-  if (!hostname || /[/:?#@\s]/.test(hostname))
-    throw new Error("Native HTTPS Git fixture hostname is invalid")
-  return hostname
-}
-
-function validateRepositoryPath(value: string): string {
-  if (
-    !value.startsWith("/") ||
-    value.includes("?") ||
-    value.includes("#") ||
-    value.includes("//") ||
-    value.endsWith("/")
-  )
-    throw new Error("Native HTTPS Git fixture repository path is invalid")
-  return value
-}
-
-function validateListenerPort(value: number): number {
-  if (!Number.isInteger(value) || value < 1 || value > 65_535)
-    throw new Error("Native HTTPS Git fixture listener port is invalid")
-  return value
-}
-
-function validateBasicAuth(
-  value: NativeHttpsGitServeOptions["basicAuth"],
-): NativeHttpsGitServeOptions["basicAuth"] {
-  if (!value) return undefined
-  if (
-    typeof value.bootstrapToken !== "string" ||
-    typeof value.readToken !== "string" ||
-    !value.bootstrapToken ||
-    !value.readToken ||
-    /\s/.test(value.bootstrapToken) ||
-    /\s/.test(value.readToken) ||
-    value.bootstrapToken === value.readToken
-  )
-    throw new Error("Native HTTPS Git fixture basic auth tokens are invalid")
-  return { ...value }
 }
 
 /**
@@ -213,27 +166,34 @@ export async function withNativeHttpsGitFixture<T>(
       async serve<R>(
         directory: string,
         remoteFn: (remote: NativeHttpsGitRemote) => Promise<R>,
-        serveOptions: NativeHttpsGitServeOptions = {},
+        serveOptions?: { githubAuth: NativeHttpsGitGithubAuth },
       ) {
         const bridge = await input.docker.getNetwork("bridge").inspect()
         const gateway = bridge.IPAM?.Config?.[0]?.Gateway
         if (!gateway || !/^\d{1,3}(?:\.\d{1,3}){3}$/.test(gateway))
           throw new Error("Native HTTPS Git fixture bridge gateway missing")
 
-        const hostname = validateHostname(
-          serveOptions.hostname ?? "host.docker.internal",
-        )
-        const repositoryPath = validateRepositoryPath(
-          serveOptions.repositoryPath ?? "/repo.git",
-        )
-        const port = validateListenerPort(
-          serveOptions.listenerPort ??
-            30_000 + (Number.parseInt(suffix.slice(0, 8), 16) % 20_000),
-        )
-        const basicAuth = validateBasicAuth(serveOptions.basicAuth)
+        const githubAuth = serveOptions?.githubAuth
+        if (githubAuth) {
+          if (
+            !githubAuth.bootstrapToken ||
+            !githubAuth.readToken ||
+            /\s/.test(githubAuth.bootstrapToken) ||
+            /\s/.test(githubAuth.readToken) ||
+            githubAuth.bootstrapToken === githubAuth.readToken
+          )
+            throw new Error(
+              "Native HTTPS Git fixture GitHub auth tokens are invalid",
+            )
+        }
+        const hostname = githubAuth ? "github.com" : "host.docker.internal"
+        const repositoryPath = githubAuth
+          ? "/fixture/workspace.git"
+          : "/repo.git"
+        const port = githubAuth
+          ? 443
+          : 30_000 + (Number.parseInt(suffix.slice(0, 8), 16) % 20_000)
         const requestLog = "/tmp/ctxpipe-git-fixture/requests.log"
-        if (hostname !== "host.docker.internal" && hostname !== "github.com")
-          throw new Error("Native HTTPS Git fixture hostname is not supported")
 
         const staging = join(root, "staging")
         const fixtureDirectory = join(staging, "tmp", "ctxpipe-git-fixture")
@@ -263,7 +223,7 @@ export async function withNativeHttpsGitFixture<T>(
         server = await input.docker.createContainer({
           name: serverName,
           Image: derivedImage,
-          User: port < 1024 ? "0:0" : "1000:1000",
+          User: port === 443 ? "0:0" : "1000:1000",
           Entrypoint: ["node"],
           Cmd: ["/tmp/ctxpipe-git-fixture/server.mjs"],
           Env: [
@@ -271,10 +231,10 @@ export async function withNativeHttpsGitFixture<T>(
             `GIT_FIXTURE_PORT=${port}`,
             `GIT_FIXTURE_REPOSITORY_PATH=${repositoryPath}`,
             `GIT_FIXTURE_REQUEST_LOG=${requestLog}`,
-            ...(basicAuth
+            ...(githubAuth
               ? [
-                  `GIT_FIXTURE_BOOTSTRAP_TOKEN=${basicAuth.bootstrapToken}`,
-                  `GIT_FIXTURE_READ_TOKEN=${basicAuth.readToken}`,
+                  `GIT_FIXTURE_BOOTSTRAP_TOKEN=${githubAuth.bootstrapToken}`,
+                  `GIT_FIXTURE_READ_TOKEN=${githubAuth.readToken}`,
                 ]
               : []),
           ],
